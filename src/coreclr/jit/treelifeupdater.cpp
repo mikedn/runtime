@@ -920,30 +920,25 @@ void CodeGen::VariableLiveKeeper::BeginProlog(CodeGen* codeGen)
             continue;
         }
 
+        noway_assert(scope->lclNum < paramCount);
+
         siVarLoc loc;
 
-        if (lcl->IsRegParam())
+        if (!lcl->IsRegParam())
         {
-            RegNum regs[2]{lcl->GetParamReg(), REG_NA};
-
-#ifdef UNIX_AMD64_ABI
-            if (lcl->GetParamRegCount() > 1)
-            {
-                regs[1] = lcl->GetParamReg(1);
-            }
-#endif
-
-            assert(isValidIntArgReg(regs[0]) || isValidFloatArgReg(regs[0]));
-            assert((regs[1] == REG_NA) || isValidIntArgReg(regs[1]) || isValidFloatArgReg(regs[1]));
-
-            loc.storeVariableInRegisters(regs[0], regs[1]);
+            loc.SetStackLocation(REG_SPBASE, GetVarStackOffset(lcl, codeGen));
         }
+#ifdef UNIX_AMD64_ABI
+        // TODO-MIKE-Review: What about ARM?
+        else if (lcl->GetParamRegCount() > 1)
+        {
+            loc.SetRegLocation(lcl->GetParamReg(0), lcl->GetParamReg(1));
+        }
+#endif
         else
         {
-            loc.storeVariableOnStack(REG_SPBASE, GetVarStackOffset(lcl, codeGen));
+            loc.SetRegLocation(lcl->GetParamReg());
         }
-
-        noway_assert(scope->lclNum < paramCount);
 
         prologVars[scope->lclNum].StartRange(compiler->GetEmitter(), loc);
     }
@@ -960,7 +955,27 @@ void CodeGen::VariableLiveKeeper::EndProlog()
     }
 }
 
-int32_t CodeGen::VariableLiveKeeper::GetVarStackOffset(const LclVarDsc* lcl, CodeGen* codeGen) const
+CodeGenInterface::siVarLoc CodeGenInterface::getSiVarLoc(const LclVarDsc* lcl) const
+{
+    RegNum baseReg;
+    int    offset = lcl->GetStackOffset();
+
+    if (!lcl->lvFramePointerBased)
+    {
+        baseReg = REG_SPBASE;
+#if !FEATURE_FIXED_OUT_ARGS
+        offset += genStackLevel;
+#endif
+    }
+    else
+    {
+        baseReg = REG_FPBASE;
+    }
+
+    return CodeGenInterface::siVarLoc(lcl, baseReg, offset, isFramePointerUsed());
+}
+
+int CodeGen::VariableLiveKeeper::GetVarStackOffset(const LclVarDsc* lcl, CodeGen* codeGen) const
 {
 #ifdef TARGET_AMD64
     // scOffset = offset from caller SP - REGSIZE_BYTES

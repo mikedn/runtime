@@ -4619,7 +4619,7 @@ const char* CodeGen::siRegVarName(size_t offs, size_t size, unsigned reg)
 
     for (unsigned i = 0; i < genTrnslLocalVarCount; i++)
     {
-        if ((info[i].tlviVarLoc.vlIsInReg((regNumber)reg)) && (info[i].tlviStartPC <= offs + size) &&
+        if ((info[i].tlviVarLoc.IsInReg((regNumber)reg)) && (info[i].tlviStartPC <= offs + size) &&
             (info[i].tlviEndPC > offs))
         {
             return info[i].tlviName;
@@ -4643,7 +4643,7 @@ const char* CodeGen::siStackVarName(size_t offs, size_t size, unsigned reg, unsi
 
     for (unsigned i = 0; i < genTrnslLocalVarCount; i++)
     {
-        if ((info[i].tlviVarLoc.vlIsOnStack((regNumber)reg, stkOffs)) && (info[i].tlviStartPC <= offs + size) &&
+        if ((info[i].tlviVarLoc.IsOnStack((regNumber)reg, stkOffs)) && (info[i].tlviStartPC <= offs + size) &&
             (info[i].tlviEndPC > offs))
         {
             return info[i].tlviName;

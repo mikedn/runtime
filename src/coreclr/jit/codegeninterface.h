@@ -376,27 +376,28 @@ public:
             } vlMemory;
         };
 
-#ifdef LATE_DISASM
-        bool vlIsInReg(regNumber reg) const;
-        bool vlIsOnStack(regNumber reg, int32_t offset) const;
-#endif
+        siVarLoc()
+        {
+        }
 
-        void storeVariableInRegisters(regNumber reg1, regNumber reg2);
-        void storeVariableOnStack(regNumber stackBaseReg, int32_t stackOffset);
-
-        siVarLoc(const LclVarDsc* lcl, regNumber baseReg, int offset, bool isFramePointerUsed);
-        siVarLoc(){};
+        siVarLoc(const LclVarDsc* lcl, RegNum baseReg, int offset, bool isFramePointerUsed);
+        void SetRegLocation(RegNum reg1);
+        void SetRegLocation(RegNum reg1, RegNum reg2);
+        void SetStackLocation(RegNum baseReg, int offset);
 
         static bool Equals(const siVarLoc& x, const siVarLoc& y);
 
         INDEBUG(void Dump() const;)
 
-    private:
-        void siFillRegisterVarLoc(
-            const LclVarDsc* lcl, var_types type, regNumber baseReg, int offset, bool isFramePointerUsed);
+#ifdef LATE_DISASM
+        bool IsInReg(RegNum reg) const;
+        bool IsOnStack(RegNum reg, int offset) const;
+#endif
 
-        void siFillStackVarLoc(
-            const LclVarDsc* lcl, var_types type, regNumber baseReg, int offset, bool isFramePointerUsed);
+    private:
+        void InitRegLocation(const LclVarDsc* lcl, var_types type, RegNum baseReg, int offset, bool isFramePointerUsed);
+        void InitStackLocation(
+            const LclVarDsc* lcl, var_types type, RegNum baseReg, int offset, bool isFramePointerUsed);
     };
 
 public:

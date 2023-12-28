@@ -26,122 +26,19 @@ static RegNum MapToAmbientSP(RegNum reg, bool isFramePointerUsed)
     return reg;
 }
 
-#ifdef LATE_DISASM
-bool CodeGenInterface::siVarLoc::vlIsInReg(RegNum reg) const
+CodeGenInterface::siVarLoc::siVarLoc(const LclVarDsc* lcl, RegNum baseReg, int offset, bool isFramePointerUsed)
 {
-    switch (vlType)
+    if (lcl->lvIsInReg())
     {
-        case CodeGenInterface::VLT_STK:
-        case CodeGenInterface::VLT_STK2:
-        case CodeGenInterface::VLT_FPSTK:
-            return false;
-        case CodeGenInterface::VLT_REG:
-            return vlReg.vlrReg == reg;
-        case CodeGenInterface::VLT_REG_REG:
-            return (vlRegReg.vlrrReg1 == reg) || (vlRegReg.vlrrReg2 == reg);
-        case CodeGenInterface::VLT_REG_STK:
-            return vlRegStk.vlrsReg == reg;
-        case CodeGenInterface::VLT_STK_REG:
-            return vlStkReg.vlsrReg == reg;
-        default:
-            assert(!"Bad locType");
-            return false;
-    }
-}
-
-bool CodeGenInterface::siVarLoc::vlIsOnStack(RegNum reg, int32_t offset) const
-{
-    RegNum actualReg;
-
-    switch (vlType)
-    {
-        case CodeGenInterface::VLT_REG:
-        case CodeGenInterface::VLT_REG_FP:
-        case CodeGenInterface::VLT_REG_REG:
-        case CodeGenInterface::VLT_FPSTK:
-            return false;
-        case CodeGenInterface::VLT_REG_STK:
-            actualReg = IsAmbientSP(vlRegStk.vlrsStk.vlrssBaseReg) ? REG_SPBASE : vlRegStk.vlrsStk.vlrssBaseReg;
-            return (actualReg == reg) && (vlRegStk.vlrsStk.vlrssOffset == offset);
-        case CodeGenInterface::VLT_STK_REG:
-            actualReg = IsAmbientSP(vlStkReg.vlsrStk.vlsrsBaseReg) ? REG_SPBASE : vlStkReg.vlsrStk.vlsrsBaseReg;
-            return (actualReg == reg) && (vlStkReg.vlsrStk.vlsrsOffset == offset);
-        case CodeGenInterface::VLT_STK:
-            actualReg = IsAmbientSP(vlStk.vlsBaseReg) ? REG_SPBASE : vlStk.vlsBaseReg;
-            return (actualReg == reg) && (vlStk.vlsOffset == offset);
-        case CodeGenInterface::VLT_STK2:
-            actualReg = IsAmbientSP(vlStk2.vls2BaseReg) ? REG_SPBASE : vlStk2.vls2BaseReg;
-            return (actualReg == reg) && ((vlStk2.vls2Offset == offset) || (vlStk2.vls2Offset == (offset - 4)));
-        default:
-            assert(!"Bad locType");
-            return false;
-    }
-}
-#endif // LATE_DISASM
-
-void CodeGenInterface::siVarLoc::storeVariableInRegisters(RegNum reg1, RegNum reg2)
-{
-    if (reg2 == REG_NA)
-    {
-        vlType       = VLT_REG;
-        vlReg.vlrReg = reg1;
+        InitRegLocation(lcl, lcl->GetActualRegisterType(), baseReg, offset, isFramePointerUsed);
     }
     else
     {
-        vlType            = VLT_REG_REG;
-        vlRegReg.vlrrReg1 = reg1;
-        vlRegReg.vlrrReg2 = reg2;
+        InitStackLocation(lcl, varActualType(lcl->GetType()), baseReg, offset, isFramePointerUsed);
     }
 }
 
-void CodeGenInterface::siVarLoc::storeVariableOnStack(RegNum stackBaseReg, int32_t stackOffset)
-{
-    vlType           = VLT_STK;
-    vlStk.vlsBaseReg = stackBaseReg;
-    vlStk.vlsOffset  = stackOffset;
-}
-
-bool CodeGenInterface::siVarLoc::Equals(const siVarLoc& x, const siVarLoc& y)
-{
-    if (x.vlType != y.vlType)
-    {
-        return false;
-    }
-
-    switch (x.vlType)
-    {
-        case VLT_STK:
-        case VLT_STK_BYREF:
-            return (x.vlStk.vlsBaseReg == y.vlStk.vlsBaseReg) && (x.vlStk.vlsOffset == y.vlStk.vlsOffset);
-        case VLT_STK2:
-            return (x.vlStk2.vls2BaseReg == y.vlStk2.vls2BaseReg) && (x.vlStk2.vls2Offset == y.vlStk2.vls2Offset);
-        case VLT_REG:
-        case VLT_REG_FP:
-        case VLT_REG_BYREF:
-            return x.vlReg.vlrReg == y.vlReg.vlrReg;
-        case VLT_REG_REG:
-            return (x.vlRegReg.vlrrReg1 == y.vlRegReg.vlrrReg1) && (x.vlRegReg.vlrrReg2 == y.vlRegReg.vlrrReg2);
-        case VLT_REG_STK:
-            return (x.vlRegStk.vlrsReg == y.vlRegStk.vlrsReg) &&
-                   (x.vlRegStk.vlrsStk.vlrssBaseReg == y.vlRegStk.vlrsStk.vlrssBaseReg) &&
-                   (x.vlRegStk.vlrsStk.vlrssOffset == y.vlRegStk.vlrsStk.vlrssOffset);
-        case VLT_STK_REG:
-            return (x.vlStkReg.vlsrReg == y.vlStkReg.vlsrReg) &&
-                   (x.vlStkReg.vlsrStk.vlsrsBaseReg == y.vlStkReg.vlsrStk.vlsrsBaseReg) &&
-                   (x.vlStkReg.vlsrStk.vlsrsOffset == y.vlStkReg.vlsrStk.vlsrsOffset);
-        case VLT_FPSTK:
-            return x.vlFPstk.vlfReg == y.vlFPstk.vlfReg;
-        case VLT_FIXED_VA:
-            return x.vlFixedVarArg.vlfvOffset == y.vlFixedVarArg.vlfvOffset;
-        case VLT_COUNT:
-        case VLT_INVALID:
-            return true;
-        default:
-            unreached();
-    }
-}
-
-void CodeGenInterface::siVarLoc::siFillStackVarLoc(
+void CodeGenInterface::siVarLoc::InitStackLocation(
     const LclVarDsc* lcl, var_types type, RegNum baseReg, int offset, bool isFramePointerUsed)
 {
     assert(offset != BAD_STK_OFFS);
@@ -178,7 +75,18 @@ void CodeGenInterface::siVarLoc::siFillStackVarLoc(
     }
 }
 
-void CodeGenInterface::siVarLoc::siFillRegisterVarLoc(
+void CodeGenInterface::siVarLoc::SetStackLocation(RegNum baseReg, int offset)
+{
+    // TODO-MIKE-Review: What about LONG/DOUBLE on 32 bit targets (VLT_STK2)?
+    // What about implicit byref params? Ultimately it's not clear why
+    // BeginProlog doesn't use the normal siVarLoc creation means.
+
+    vlType           = VLT_STK;
+    vlStk.vlsBaseReg = baseReg;
+    vlStk.vlsOffset  = offset;
+}
+
+void CodeGenInterface::siVarLoc::InitRegLocation(
     const LclVarDsc* lcl, var_types type, RegNum baseReg, int offset, bool isFramePointerUsed)
 {
     switch (type)
@@ -226,36 +134,69 @@ void CodeGenInterface::siVarLoc::siFillRegisterVarLoc(
     }
 }
 
-CodeGenInterface::siVarLoc::siVarLoc(const LclVarDsc* lcl, RegNum baseReg, int offset, bool isFramePointerUsed)
+void CodeGenInterface::siVarLoc::SetRegLocation(RegNum reg1)
 {
-    if (lcl->lvIsInReg())
-    {
-        siFillRegisterVarLoc(lcl, lcl->GetActualRegisterType(), baseReg, offset, isFramePointerUsed);
-    }
-    else
-    {
-        siFillStackVarLoc(lcl, varActualType(lcl->GetType()), baseReg, offset, isFramePointerUsed);
-    }
+    assert(isValidIntArgReg(reg1) || isValidFloatArgReg(reg1));
+
+    // TODO-MIKE-Review: What about FP regs (VLT_REG_FP/VLT_FPSTK)?
+    // Ultimately it's not clear why BeginProlog doesn't use the
+    // normal siVarLoc creation means.
+
+    vlType       = VLT_REG;
+    vlReg.vlrReg = reg1;
 }
 
-CodeGenInterface::siVarLoc CodeGenInterface::getSiVarLoc(const LclVarDsc* lcl) const
+void CodeGenInterface::siVarLoc::SetRegLocation(RegNum reg1, RegNum reg2)
 {
-    RegNum baseReg;
-    signed offset = lcl->GetStackOffset();
+    assert(isValidIntArgReg(reg1) || isValidFloatArgReg(reg1));
+    assert(isValidIntArgReg(reg2) || isValidFloatArgReg(reg2));
 
-    if (!lcl->lvFramePointerBased)
+    // TODO-MIKE-Review: UNIX_AMD64_ABI can use both INT and FP
+    // regs, while VLT_REG_REG seems to support only INT regs.
+
+    vlType            = VLT_REG_REG;
+    vlRegReg.vlrrReg1 = reg1;
+    vlRegReg.vlrrReg2 = reg2;
+}
+
+bool CodeGenInterface::siVarLoc::Equals(const siVarLoc& x, const siVarLoc& y)
+{
+    if (x.vlType != y.vlType)
     {
-        baseReg = REG_SPBASE;
-#if !FEATURE_FIXED_OUT_ARGS
-        offset += genStackLevel;
-#endif
-    }
-    else
-    {
-        baseReg = REG_FPBASE;
+        return false;
     }
 
-    return CodeGenInterface::siVarLoc(lcl, baseReg, offset, isFramePointerUsed());
+    switch (x.vlType)
+    {
+        case VLT_STK:
+        case VLT_STK_BYREF:
+            return (x.vlStk.vlsBaseReg == y.vlStk.vlsBaseReg) && (x.vlStk.vlsOffset == y.vlStk.vlsOffset);
+        case VLT_STK2:
+            return (x.vlStk2.vls2BaseReg == y.vlStk2.vls2BaseReg) && (x.vlStk2.vls2Offset == y.vlStk2.vls2Offset);
+        case VLT_REG:
+        case VLT_REG_FP:
+        case VLT_REG_BYREF:
+            return x.vlReg.vlrReg == y.vlReg.vlrReg;
+        case VLT_REG_REG:
+            return (x.vlRegReg.vlrrReg1 == y.vlRegReg.vlrrReg1) && (x.vlRegReg.vlrrReg2 == y.vlRegReg.vlrrReg2);
+        case VLT_REG_STK:
+            return (x.vlRegStk.vlrsReg == y.vlRegStk.vlrsReg) &&
+                   (x.vlRegStk.vlrsStk.vlrssBaseReg == y.vlRegStk.vlrsStk.vlrssBaseReg) &&
+                   (x.vlRegStk.vlrsStk.vlrssOffset == y.vlRegStk.vlrsStk.vlrssOffset);
+        case VLT_STK_REG:
+            return (x.vlStkReg.vlsrReg == y.vlStkReg.vlsrReg) &&
+                   (x.vlStkReg.vlsrStk.vlsrsBaseReg == y.vlStkReg.vlsrStk.vlsrsBaseReg) &&
+                   (x.vlStkReg.vlsrStk.vlsrsOffset == y.vlStkReg.vlsrStk.vlsrsOffset);
+        case VLT_FPSTK:
+            return x.vlFPstk.vlfReg == y.vlFPstk.vlfReg;
+        case VLT_FIXED_VA:
+            return x.vlFixedVarArg.vlfvOffset == y.vlFixedVarArg.vlfvOffset;
+        case VLT_COUNT:
+        case VLT_INVALID:
+            return true;
+        default:
+            unreached();
+    }
 }
 
 #ifdef DEBUG
@@ -336,3 +277,56 @@ void CodeGenInterface::siVarLoc::Dump() const
     }
 }
 #endif
+
+#ifdef LATE_DISASM
+bool CodeGenInterface::siVarLoc::IsInReg(RegNum reg) const
+{
+    switch (vlType)
+    {
+        case VLT_STK:
+        case VLT_STK2:
+        case VLT_FPSTK:
+            return false;
+        case VLT_REG:
+            return vlReg.vlrReg == reg;
+        case VLT_REG_REG:
+            return (vlRegReg.vlrrReg1 == reg) || (vlRegReg.vlrrReg2 == reg);
+        case VLT_REG_STK:
+            return vlRegStk.vlrsReg == reg;
+        case VLT_STK_REG:
+            return vlStkReg.vlsrReg == reg;
+        default:
+            assert(!"Bad locType");
+            return false;
+    }
+}
+
+bool CodeGenInterface::siVarLoc::IsOnStack(RegNum reg, int offset) const
+{
+    RegNum actualReg;
+
+    switch (vlType)
+    {
+        case VLT_REG:
+        case VLT_REG_FP:
+        case VLT_REG_REG:
+        case VLT_FPSTK:
+            return false;
+        case VLT_REG_STK:
+            actualReg = IsAmbientSP(vlRegStk.vlrsStk.vlrssBaseReg) ? REG_SPBASE : vlRegStk.vlrsStk.vlrssBaseReg;
+            return (actualReg == reg) && (vlRegStk.vlrsStk.vlrssOffset == offset);
+        case VLT_STK_REG:
+            actualReg = IsAmbientSP(vlStkReg.vlsrStk.vlsrsBaseReg) ? REG_SPBASE : vlStkReg.vlsrStk.vlsrsBaseReg;
+            return (actualReg == reg) && (vlStkReg.vlsrStk.vlsrsOffset == offset);
+        case VLT_STK:
+            actualReg = IsAmbientSP(vlStk.vlsBaseReg) ? REG_SPBASE : vlStk.vlsBaseReg;
+            return (actualReg == reg) && (vlStk.vlsOffset == offset);
+        case VLT_STK2:
+            actualReg = IsAmbientSP(vlStk2.vls2BaseReg) ? REG_SPBASE : vlStk2.vls2BaseReg;
+            return (actualReg == reg) && ((vlStk2.vls2Offset == offset) || (vlStk2.vls2Offset == (offset - 4)));
+        default:
+            assert(!"Bad locType");
+            return false;
+    }
+}
+#endif // LATE_DISASM

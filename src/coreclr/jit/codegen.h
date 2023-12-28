@@ -1212,7 +1212,7 @@ public:
 #endif
 
         void StartUntrackedVarsRanges(const BasicBlock* block, unsigned* nextEnterScope, unsigned* nextExitScope);
-        int32_t GetVarStackOffset(const LclVarDsc* lcl, CodeGen* codeGen) const;
+        int GetVarStackOffset(const LclVarDsc* lcl, CodeGen* codeGen) const;
 
     public:
         VariableLiveKeeper(Compiler* compiler, CompAllocator allocator);
