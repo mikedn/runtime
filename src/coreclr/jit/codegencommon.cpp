@@ -5480,6 +5480,14 @@ void CodeGen::inst_Mov(var_types dstType, regNumber dstReg, regNumber srcReg, bo
     GetEmitter()->emitIns_Mov(ins_Copy(srcReg, dstType), emitActualTypeSize(dstType), dstReg, srcReg, canSkip);
 }
 
+void CodeGen::genCopyRegIfNeeded(GenTree* node, regNumber needReg)
+{
+    assert((node->GetRegNum() != REG_NA) && (needReg != REG_NA));
+    assert(!node->isUsedFromSpillTemp());
+
+    inst_Mov(node->TypeGet(), needReg, node->GetRegNum(), /* canSkip */ true);
+}
+
 bool CodeGen::IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs)
 {
     if (op->isUsedFromSpillTemp())

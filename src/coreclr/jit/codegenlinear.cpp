@@ -598,23 +598,6 @@ bool CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
     return needsSpill;
 }
 
-//------------------------------------------------------------------------
-// genCopyRegIfNeeded: Copy the given node into the specified register
-//
-// Arguments:
-//    node - The node that has been evaluated (consumed).
-//    needReg - The register in which its value is needed.
-//
-// Notes:
-//    This must be a node that has a register.
-//
-void CodeGen::genCopyRegIfNeeded(GenTree* node, regNumber needReg)
-{
-    assert((node->GetRegNum() != REG_NA) && (needReg != REG_NA));
-    assert(!node->isUsedFromSpillTemp());
-    inst_Mov(node->TypeGet(), needReg, node->GetRegNum(), /* canSkip */ true);
-}
-
 // Check that registers are consumed in the right order for the current node being generated.
 #ifdef DEBUG
 void CodeGen::genNumberOperandUse(GenTree* const operand, int& useNum) const
