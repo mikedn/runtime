@@ -2278,7 +2278,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             // get a COPY/RELOAD here becuase these nodes have specific, single reg
             // requirements so there's little point in LSRA adding reloads/copies...
             UnspillRegsIfNeeded(argSplit);
-            genCheckConsumeNode(argSplit);
+            INDEBUG(VerifyUseOrder(argSplit));
 
             for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
             {

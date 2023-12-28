@@ -167,7 +167,7 @@ void CodeGen::genCodeForBBlist()
             genPoisonFrame(liveness.GetLiveLclRegs());
         }
 
-        INDEBUG(genNumberOperandUse(block));
+        INDEBUG(AssignUseOrder(block));
 
         IL_OFFSETX currentILOffset = BAD_IL_OFFSET;
         bool       firstMapping    = true;
@@ -497,87 +497,6 @@ bool CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
     return needsSpill;
 }
 
-// Check that registers are consumed in the right order for the current node being generated.
-#ifdef DEBUG
-void CodeGen::genNumberOperandUse(BasicBlock* block)
-{
-    int useNum = 0;
-
-    for (GenTree* node : LIR::AsRange(block))
-    {
-        assert((node->gtDebugFlags & GTF_DEBUG_NODE_CG_CONSUMED) == 0);
-
-        node->gtUseNum = -1;
-
-        if (node->isContained() || node->IsCopyOrReload())
-        {
-            continue;
-        }
-
-        for (GenTree* operand : node->Operands())
-        {
-            genNumberOperandUse(operand, useNum);
-        }
-    }
-}
-
-void CodeGen::genNumberOperandUse(GenTree* const operand, int& useNum) const
-{
-    assert(operand != nullptr);
-
-    // Ignore argument placeholders.
-    if (operand->OperGet() == GT_ARGPLACE)
-    {
-        return;
-    }
-
-    assert(operand->gtUseNum == -1);
-
-    if (!operand->isContained() && !operand->IsCopyOrReload())
-    {
-        operand->gtUseNum = useNum;
-        useNum++;
-    }
-    else
-    {
-        for (GenTree* op : operand->Operands())
-        {
-            genNumberOperandUse(op, useNum);
-        }
-    }
-}
-
-void CodeGen::genCheckConsumeNode(GenTree* const node)
-{
-    assert(node != nullptr);
-
-    if (verbose)
-    {
-        if (node->gtUseNum == -1)
-        {
-            // nothing wrong if the node was not consumed
-        }
-        else if ((node->gtDebugFlags & GTF_DEBUG_NODE_CG_CONSUMED) != 0)
-        {
-            printf("Node was consumed twice:\n");
-            compiler->gtDispLIRNode(node);
-        }
-        else if ((lastConsumedNode != nullptr) && (node->gtUseNum < lastConsumedNode->gtUseNum))
-        {
-            printf("Nodes were consumed out-of-order:\n");
-            compiler->gtDispLIRNode(lastConsumedNode);
-            compiler->gtDispLIRNode(node);
-        }
-    }
-
-    assert((node->OperGet() == GT_CATCH_ARG) || ((node->gtDebugFlags & GTF_DEBUG_NODE_CG_CONSUMED) == 0));
-    assert((lastConsumedNode == nullptr) || (node->gtUseNum == -1) || (node->gtUseNum > lastConsumedNode->gtUseNum));
-
-    node->gtDebugFlags |= GTF_DEBUG_NODE_CG_CONSUMED;
-    lastConsumedNode = node;
-}
-#endif // DEBUG
-
 regNumber CodeGen::UseReg(GenTree* node)
 {
     assert(node->isUsedFromReg() && !node->IsMultiRegNode());
@@ -603,7 +522,7 @@ regNumber CodeGen::UseReg(GenTree* node)
 
     liveness.RemoveGCRegs(genRegMask(node->GetRegNum()));
 
-    genCheckConsumeNode(node);
+    INDEBUG(VerifyUseOrder(node));
 
     return node->GetRegNum();
 }
@@ -649,7 +568,7 @@ regNumber CodeGen::UseRegCandidateLclVar(GenTreeLclVar* node)
         liveness.RemoveGCRegs(genRegMask(lcl->GetRegNum()));
     }
 
-    genCheckConsumeNode(node);
+    INDEBUG(VerifyUseOrder(node));
 
     return node->GetRegNum();
 }
@@ -885,7 +804,7 @@ void CodeGen::UseRegs(GenTree* node)
 
     liveness.RemoveGCRegs(node->gtGetRegMask());
 
-    genCheckConsumeNode(node);
+    INDEBUG(VerifyUseOrder(node));
 }
 
 void CodeGen::UnspillRegsIfNeeded(GenTree* node)
@@ -1434,6 +1353,84 @@ void CodeGen::DefLongRegs(GenTree* node)
 #endif // TARGET_64BIT
 
 #ifdef DEBUG
+void CodeGen::AssignUseOrder(BasicBlock* block)
+{
+    int useNum = 0;
+
+    for (GenTree* node : LIR::AsRange(block))
+    {
+        assert((node->gtDebugFlags & GTF_DEBUG_NODE_CG_CONSUMED) == 0);
+
+        node->gtUseNum = -1;
+
+        if (node->isContained() || node->IsCopyOrReload())
+        {
+            continue;
+        }
+
+        for (GenTree* operand : node->Operands())
+        {
+            AssignUseOrder(operand, useNum);
+        }
+    }
+}
+
+void CodeGen::AssignUseOrder(GenTree* const operand, int& useNum) const
+{
+    assert(operand != nullptr);
+
+    // Ignore argument placeholders.
+    if (operand->OperGet() == GT_ARGPLACE)
+    {
+        return;
+    }
+
+    assert(operand->gtUseNum == -1);
+
+    if (!operand->isContained() && !operand->IsCopyOrReload())
+    {
+        operand->gtUseNum = useNum;
+        useNum++;
+    }
+    else
+    {
+        for (GenTree* op : operand->Operands())
+        {
+            AssignUseOrder(op, useNum);
+        }
+    }
+}
+
+void CodeGen::VerifyUseOrder(GenTree* const node)
+{
+    assert(node != nullptr);
+
+    if (verbose)
+    {
+        if (node->gtUseNum == -1)
+        {
+            // nothing wrong if the node was not consumed
+        }
+        else if ((node->gtDebugFlags & GTF_DEBUG_NODE_CG_CONSUMED) != 0)
+        {
+            printf("Node was consumed twice:\n");
+            compiler->gtDispLIRNode(node);
+        }
+        else if ((lastConsumedNode != nullptr) && (node->gtUseNum < lastConsumedNode->gtUseNum))
+        {
+            printf("Nodes were consumed out-of-order:\n");
+            compiler->gtDispLIRNode(lastConsumedNode);
+            compiler->gtDispLIRNode(node);
+        }
+    }
+
+    assert((node->OperGet() == GT_CATCH_ARG) || ((node->gtDebugFlags & GTF_DEBUG_NODE_CG_CONSUMED) == 0));
+    assert((lastConsumedNode == nullptr) || (node->gtUseNum == -1) || (node->gtUseNum > lastConsumedNode->gtUseNum));
+
+    node->gtDebugFlags |= GTF_DEBUG_NODE_CG_CONSUMED;
+    lastConsumedNode = node;
+}
+
 void CodeGen::VerifyLiveGCRegs(BasicBlock* block)
 {
     regMaskTP gcRegs       = liveness.GetGCRegs();
