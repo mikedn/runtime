@@ -205,6 +205,17 @@ class CodeGenLivenessUpdater
     regMaskTP liveLclRegs     = RBM_NONE;
     regMaskTP liveGCRefRegs   = RBM_NONE;
     regMaskTP liveGCByRefRegs = RBM_NONE;
+
+    unsigned    varCount                    = 0;
+    unsigned    paramCount                  = 0;
+    DbgInfoVar* bodyVars                    = nullptr;
+    DbgInfoVar* prologVars                  = nullptr;
+    IL_OFFSET   lastBlockEndILOffset        = 0;
+    bool        lastBasicBlockHasBeenEmited = false;
+#ifdef FEATURE_EH_FUNCLETS
+    bool inFuncletRegion = false;
+#endif
+
 #ifdef DEBUG
     VARSET_TP scratchSet1;
     VARSET_TP scratchSet2;
@@ -217,6 +228,16 @@ class CodeGenLivenessUpdater
 
     void AddGCRefRegs(regMaskTP regMask DEBUGARG(bool forceOutput = false));
     void AddGCByRefRegs(regMaskTP regMask DEBUGARG(bool forceOutput = false));
+
+    void StartUntrackedVarsRanges(CodeGen*    codeGen,
+                                  BasicBlock* block,
+                                  unsigned*   nextEnterScope,
+                                  unsigned*   nextExitScope);
+    int GetVarStackOffset(CodeGen* codeGen, const LclVarDsc* lcl) const;
+    DbgInfoVarLoc GetVarLocation(CodeGen* codeGen, const LclVarDsc* lcl) const;
+
+    void StartRange(CodeGen* codeGen, const LclVarDsc* lcl, unsigned lclNum);
+    void EndRange(CodeGen* codeGen, unsigned lclNum);
 
 #ifdef DEBUG
     void DumpDiff(CodeGen* codeGen);
@@ -322,4 +343,17 @@ public:
     {
         return liveGCRefRegs | liveGCByRefRegs;
     }
+
+    void BeginBlock(CodeGen* codeGen, BasicBlock* block, unsigned* nextEnterScope, unsigned* nextExitScope);
+    void UpdateRange(CodeGen* codeGen, const LclVarDsc* lcl, unsigned lclNum);
+    void EndBlock(BasicBlock* block);
+    void BeginProlog(CodeGen* codeGen);
+    void EndProlog(CodeGen* codeGen);
+    void EndCodeGen(CodeGen* codeGen);
+
+    DbgInfoVarRange* GetBodyRanges(unsigned lclNum) const;
+    DbgInfoVarRange* GetPrologRanges(unsigned lclNum) const;
+    unsigned GetRangeCount() const;
+
+    INDEBUG(void DumpNewRanges(const BasicBlock* block);)
 };

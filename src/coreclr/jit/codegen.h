@@ -1159,52 +1159,6 @@ public:
         return genStackLevel;
     }
 #endif
-
-    class VariableLiveKeeper
-    {
-        Compiler*   compiler;
-        unsigned    varCount;
-        unsigned    paramCount;
-        DbgInfoVar* bodyVars;
-        DbgInfoVar* prologVars;
-        IL_OFFSET   lastBlockEndILOffset        = 0;
-        bool        lastBasicBlockHasBeenEmited = false;
-#ifdef FEATURE_EH_FUNCLETS
-        bool inFuncletRegion = false;
-#endif
-
-        void StartUntrackedVarsRanges(CodeGen*    codeGen,
-                                      BasicBlock* block,
-                                      unsigned*   nextEnterScope,
-                                      unsigned*   nextExitScope);
-        int GetVarStackOffset(CodeGen* codeGen, const LclVarDsc* lcl) const;
-        DbgInfoVarLoc GetVarLocation(CodeGen* codeGen, const LclVarDsc* lcl) const;
-
-    public:
-        VariableLiveKeeper(Compiler* compiler, CompAllocator allocator);
-
-        void BeginBlock(CodeGen* codeGen, BasicBlock* block, unsigned* nextEnterScope, unsigned* nextExitScope);
-        void EndBlock(BasicBlock* block);
-        void BeginProlog(CodeGen* codeGen);
-        void EndProlog(CodeGen* codeGen);
-
-        void StartRange(CodeGen* codeGen, const LclVarDsc* lcl, unsigned lclNum);
-        void EndRange(CodeGen* codeGen, unsigned lclNum);
-        void UpdateRange(CodeGen* codeGen, const LclVarDsc* lcl, unsigned int lclNum);
-        void EndCodeGen(CodeGen* codeGen);
-
-        DbgInfoVarRange* GetBodyRanges(unsigned lclNum) const;
-        DbgInfoVarRange* GetPrologRanges(unsigned lclNum) const;
-        unsigned GetRangeCount() const;
-
-        INDEBUG(void DumpNewRanges(const BasicBlock* block);)
-    };
-
-    void initializeVariableLiveKeeper();
-
-    VariableLiveKeeper* getVariableLiveKeeper() const;
-
-    VariableLiveKeeper* varLiveKeeper; // Used to manage VariableLiveRanges of variables
 };
 
 #endif // CODEGEN_H

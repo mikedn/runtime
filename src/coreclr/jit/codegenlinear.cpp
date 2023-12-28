@@ -20,8 +20,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 void CodeGen::genInitialize()
 {
-    initializeVariableLiveKeeper();
-
     genPendingCallLabel = nullptr;
 
 #if !FEATURE_FIXED_OUT_ARGS
@@ -70,7 +68,7 @@ void CodeGen::UpdateLclBlockLiveInRegs(BasicBlock* block)
             {
                 // lcl was alive on previous block end ("bb->bbPrev->bbLiveOut"), so it has an open
                 // "DbgInfoVarRange" which should change to be according "getInVarToRegMap"
-                getVariableLiveKeeper()->UpdateRange(this, lcl, lclNum);
+                liveness.UpdateRange(this, lcl, lclNum);
             }
         }
         else if (newRegNum != REG_STK)
@@ -194,7 +192,7 @@ void CodeGen::genCodeForBBlist()
 
         if (compiler->opts.compScopeInfo)
         {
-            varLiveKeeper->BeginBlock(this, block, &nextEnterScope, &nextExitScope);
+            liveness.BeginBlock(this, block, &nextEnterScope, &nextExitScope);
         }
 
         // BBF_INTERNAL blocks don't correspond to any single IL instruction.
@@ -348,12 +346,12 @@ void CodeGen::genCodeForBBlist()
 
         if (compiler->opts.compDbgInfo && isLastBlockProcessed)
         {
-            varLiveKeeper->EndCodeGen(this);
+            liveness.EndCodeGen(this);
         }
 
         if (compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0))
         {
-            varLiveKeeper->EndBlock(block);
+            liveness.EndBlock(block);
         }
 
 #if !FEATURE_FIXED_OUT_ARGS
@@ -553,7 +551,7 @@ void CodeGen::genCodeForBBlist()
         }
 #endif
 
-        DBEXEC(compiler->verbose, varLiveKeeper->DumpNewRanges(block));
+        DBEXEC(compiler->verbose, liveness.DumpNewRanges(block));
     }
 
     m_currentBlock = nullptr;
@@ -848,7 +846,7 @@ void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
                 liveness.UpdateLiveLclRegs(lcl, /*isDying*/ true DEBUGARG(src));
                 liveness.RemoveGCRegs(genRegMask(src->GetRegNum()));
                 lcl->SetRegNum(copy->GetRegNum());
-                varLiveKeeper->UpdateRange(this, lcl, src->AsLclVar()->GetLclNum());
+                liveness.UpdateRange(this, lcl, src->AsLclVar()->GetLclNum());
                 liveness.UpdateLiveLclRegs(lcl, /*isDying*/ false DEBUGARG(copy));
             }
         }
@@ -948,7 +946,7 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
         // on the same native offset.
         if (!node->IsLastUse(0))
         {
-            varLiveKeeper->UpdateRange(this, lcl, lclNum);
+            liveness.UpdateRange(this, lcl, lclNum);
         }
 
         liveness.UnspillGCSlot(lcl DEBUGARG(node));

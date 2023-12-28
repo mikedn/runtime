@@ -3951,7 +3951,7 @@ void CodeGen::genFnProlog()
 
     if (compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0))
     {
-        varLiveKeeper->BeginProlog(this);
+        liveness.BeginProlog(this);
     }
 
 #ifdef TARGET_XARCH
@@ -4226,7 +4226,7 @@ void CodeGen::genFnProlog()
 
     if (compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0))
     {
-        varLiveKeeper->EndProlog(this);
+        liveness.EndProlog(this);
     }
 
 #ifdef TARGET_X86
@@ -4455,7 +4455,7 @@ void CodeGen::genSetScopeInfo()
 
     JITDUMP("*************** In genSetScopeInfo()\n");
 
-    unsigned varsLocationsCount = varLiveKeeper->GetRangeCount();
+    unsigned varsLocationsCount = liveness.GetRangeCount();
 
     JITDUMP("VarLocInfo count is %d\n", varsLocationsCount);
 
@@ -4511,11 +4511,11 @@ void CodeGen::genSetScopeInfoUsingVariableRanges(VarResultInfo* vars)
 
             if (i == 0)
             {
-                ranges = varLiveKeeper->GetPrologRanges(lclNum);
+                ranges = liveness.GetPrologRanges(lclNum);
             }
             else
             {
-                ranges = varLiveKeeper->GetBodyRanges(lclNum);
+                ranges = liveness.GetBodyRanges(lclNum);
             }
 
             for (DbgInfoVarRange* range = ranges; range != nullptr; range = range->next)
