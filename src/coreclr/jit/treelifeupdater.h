@@ -4,6 +4,7 @@
 #pragma once
 
 #include "compiler.h"
+#include "emit.h"
 
 class CodeGen;
 
@@ -144,6 +145,53 @@ struct DbgInfoVarLoc
 private:
     void InitRegLocation(const LclVarDsc* lcl, var_types type, RegNum baseReg, int offset, bool isFramePointerUsed);
     void InitStackLocation(const LclVarDsc* lcl, var_types type, RegNum baseReg, int offset, bool isFramePointerUsed);
+};
+
+struct DbgInfoVarRange
+{
+    DbgInfoVarRange* next = nullptr;
+    emitLocation     startOffset;
+    emitLocation     endOffset;
+    DbgInfoVarLoc    location;
+
+    DbgInfoVarRange(DbgInfoVarLoc location) : location(location)
+    {
+    }
+
+    INDEBUG(void Dump() const;)
+};
+
+class DbgInfoVar
+{
+    DbgInfoVarRange* firstRange = nullptr;
+    DbgInfoVarRange* lastRange  = nullptr;
+    INDEBUG(DbgInfoVarRange* dumpRange = nullptr);
+    unsigned count = 0;
+
+public:
+    bool HasOpenRange() const
+    {
+        return (lastRange != nullptr) && !lastRange->endOffset.Valid();
+    }
+
+    DbgInfoVarRange* GetRanges() const
+    {
+        return firstRange;
+    }
+
+    unsigned GetRangeCount() const
+    {
+        return count;
+    }
+
+    void StartRange(CodeGen* codeGen, const DbgInfoVarLoc& varLoc);
+    void EndRange(CodeGen* codeGen);
+    void UpdateRange(CodeGen* codeGen, const DbgInfoVarLoc& varLoc);
+
+#ifdef DEBUG
+    void DumpNewRanges();
+    bool HasNewRangesToDump() const;
+#endif
 };
 
 // Handles changes in variable liveness from a given node.

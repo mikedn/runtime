@@ -1160,62 +1160,15 @@ public:
     }
 #endif
 
-    struct VariableLiveRange
-    {
-        VariableLiveRange* next = nullptr;
-        emitLocation       startOffset;
-        emitLocation       endOffset;
-        DbgInfoVarLoc      location;
-
-        VariableLiveRange(DbgInfoVarLoc location) : location(location)
-        {
-        }
-
-        INDEBUG(void Dump() const;)
-    };
-
-    class VariableLiveDescriptor
-    {
-        VariableLiveRange* firstRange = nullptr;
-        VariableLiveRange* lastRange  = nullptr;
-        INDEBUG(VariableLiveRange* dumpRange = nullptr);
-        unsigned count = 0;
-
-    public:
-        bool HasOpenRange() const
-        {
-            return (lastRange != nullptr) && !lastRange->endOffset.Valid();
-        }
-
-        VariableLiveRange* GetRanges() const
-        {
-            return firstRange;
-        }
-
-        unsigned GetRangeCount() const
-        {
-            return count;
-        }
-
-        void StartRange(CodeGen* codeGen, const DbgInfoVarLoc& varLoc);
-        void EndRange(CodeGen* codeGen);
-        void UpdateRange(CodeGen* codeGen, const DbgInfoVarLoc& varLoc);
-
-#ifdef DEBUG
-        void DumpNewRanges();
-        bool HasNewRangesToDump() const;
-#endif
-    };
-
     class VariableLiveKeeper
     {
-        Compiler*               compiler;
-        unsigned                varCount;
-        unsigned                paramCount;
-        VariableLiveDescriptor* bodyVars;
-        VariableLiveDescriptor* prologVars;
-        IL_OFFSET               lastBlockEndILOffset        = 0;
-        bool                    lastBasicBlockHasBeenEmited = false;
+        Compiler*   compiler;
+        unsigned    varCount;
+        unsigned    paramCount;
+        DbgInfoVar* bodyVars;
+        DbgInfoVar* prologVars;
+        IL_OFFSET   lastBlockEndILOffset        = 0;
+        bool        lastBasicBlockHasBeenEmited = false;
 #ifdef FEATURE_EH_FUNCLETS
         bool inFuncletRegion = false;
 #endif
@@ -1240,8 +1193,8 @@ public:
         void UpdateRange(CodeGen* codeGen, const LclVarDsc* lcl, unsigned int lclNum);
         void EndCodeGen(CodeGen* codeGen);
 
-        VariableLiveRange* GetBodyRanges(unsigned lclNum) const;
-        VariableLiveRange* GetPrologRanges(unsigned lclNum) const;
+        DbgInfoVarRange* GetBodyRanges(unsigned lclNum) const;
+        DbgInfoVarRange* GetPrologRanges(unsigned lclNum) const;
         unsigned GetRangeCount() const;
 
         INDEBUG(void DumpNewRanges(const BasicBlock* block);)

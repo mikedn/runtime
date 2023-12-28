@@ -69,7 +69,7 @@ void CodeGen::UpdateLclBlockLiveInRegs(BasicBlock* block)
             if ((block->bbPrev != nullptr) && VarSetOps::IsMember(compiler, block->bbPrev->bbLiveOut, en.Current()))
             {
                 // lcl was alive on previous block end ("bb->bbPrev->bbLiveOut"), so it has an open
-                // "VariableLiveRange" which should change to be according "getInVarToRegMap"
+                // "DbgInfoVarRange" which should change to be according "getInVarToRegMap"
                 getVariableLiveKeeper()->UpdateRange(this, lcl, lclNum);
             }
         }
@@ -943,7 +943,7 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
     {
         lcl->SetRegNum(dstReg);
 
-        // We want "VariableLiveRange" inclusive on the beginning and exclusive on the ending.
+        // We want "DbgInfoVarRange" inclusive on the beginning and exclusive on the ending.
         // For that we shouldn't report an update of the variable location if is becoming dead
         // on the same native offset.
         if (!node->IsLastUse(0))

@@ -4507,7 +4507,7 @@ void CodeGen::genSetScopeInfoUsingVariableRanges(VarResultInfo* vars)
 
         for (unsigned i = 0; i < 2; i++)
         {
-            VariableLiveRange* ranges = nullptr;
+            DbgInfoVarRange* ranges = nullptr;
 
             if (i == 0)
             {
@@ -4518,7 +4518,7 @@ void CodeGen::genSetScopeInfoUsingVariableRanges(VarResultInfo* vars)
                 ranges = varLiveKeeper->GetBodyRanges(lclNum);
             }
 
-            for (VariableLiveRange* range = ranges; range != nullptr; range = range->next)
+            for (DbgInfoVarRange* range = ranges; range != nullptr; range = range->next)
             {
                 uint32_t startOffs = range->startOffset.CodeOffset(GetEmitter());
                 uint32_t endOffs   = range->endOffset.CodeOffset(GetEmitter());

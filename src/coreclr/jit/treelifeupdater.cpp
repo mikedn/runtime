@@ -589,7 +589,7 @@ void CodeGenLivenessUpdater::DumpGCByRefRegsDiff(regMaskTP newRegs DEBUGARG(bool
 }
 #endif // DEBUG
 
-void CodeGen::VariableLiveDescriptor::StartRange(CodeGen* codeGen, const DbgInfoVarLoc& varLoc)
+void DbgInfoVar::StartRange(CodeGen* codeGen, const DbgInfoVarLoc& varLoc)
 {
     noway_assert(!HasOpenRange());
 
@@ -607,11 +607,11 @@ void CodeGen::VariableLiveDescriptor::StartRange(CodeGen* codeGen, const DbgInfo
     }
     else
     {
-        JITDUMP("New debug range: %s\n", lastRange == nullptr ? "first" : DbgInfoVarLoc::Equals(varLoc, lastRange->location)
-                                                                              ? "not adjacent"
-                                                                              : "new location");
+        JITDUMP("New debug range: %s\n",
+                lastRange == nullptr ? "first" : DbgInfoVarLoc::Equals(varLoc, lastRange->location) ? "not adjacent"
+                                                                                                    : "new location");
 
-        VariableLiveRange* newRange = new (codeGen->GetCompiler(), CMK_VariableLiveRanges) VariableLiveRange(varLoc);
+        DbgInfoVarRange* newRange = new (codeGen->GetCompiler(), CMK_VariableLiveRanges) DbgInfoVarRange(varLoc);
         newRange->startOffset.CaptureLocation(codeGen->GetEmitter());
 
         if (lastRange != nullptr)
@@ -635,7 +635,7 @@ void CodeGen::VariableLiveDescriptor::StartRange(CodeGen* codeGen, const DbgInfo
 #endif
 }
 
-void CodeGen::VariableLiveDescriptor::EndRange(CodeGen* codeGen)
+void DbgInfoVar::EndRange(CodeGen* codeGen)
 {
     noway_assert(HasOpenRange());
 
@@ -643,7 +643,7 @@ void CodeGen::VariableLiveDescriptor::EndRange(CodeGen* codeGen)
     lastRange->endOffset.CaptureLocation(codeGen->GetEmitter());
 }
 
-void CodeGen::VariableLiveDescriptor::UpdateRange(CodeGen* codeGen, const DbgInfoVarLoc& varLoc)
+void DbgInfoVar::UpdateRange(CodeGen* codeGen, const DbgInfoVarLoc& varLoc)
 {
     // If we are reporting again the same home, that means we are doing something twice?
     // noway_assert(!siVarLoc::Equals(lastRange->location, varLoc));
@@ -676,7 +676,7 @@ CodeGen::VariableLiveKeeper::VariableLiveKeeper(Compiler* comp, CompAllocator al
         return;
     }
 
-    bodyVars   = new (allocator) VariableLiveDescriptor[varCount + paramCount];
+    bodyVars   = new (allocator) DbgInfoVar[varCount + paramCount];
     prologVars = bodyVars + varCount;
 }
 
@@ -730,12 +730,12 @@ void CodeGen::VariableLiveKeeper::EndCodeGen(CodeGen* codeGen)
     lastBasicBlockHasBeenEmited = true;
 }
 
-CodeGen::VariableLiveRange* CodeGen::VariableLiveKeeper::GetBodyRanges(unsigned lclNum) const
+DbgInfoVarRange* CodeGen::VariableLiveKeeper::GetBodyRanges(unsigned lclNum) const
 {
     return lclNum >= varCount ? nullptr : bodyVars[lclNum].GetRanges();
 }
 
-CodeGen::VariableLiveRange* CodeGen::VariableLiveKeeper::GetPrologRanges(unsigned lclNum) const
+DbgInfoVarRange* CodeGen::VariableLiveKeeper::GetPrologRanges(unsigned lclNum) const
 {
     return lclNum >= paramCount ? nullptr : prologVars[lclNum].GetRanges();
 }
@@ -988,9 +988,9 @@ int CodeGen::VariableLiveKeeper::GetVarStackOffset(CodeGen* codeGen, const LclVa
 }
 
 #ifdef DEBUG
-void CodeGen::VariableLiveDescriptor::DumpNewRanges()
+void DbgInfoVar::DumpNewRanges()
 {
-    for (const VariableLiveRange* r = dumpRange; r != nullptr; r = r->next)
+    for (const DbgInfoVarRange* r = dumpRange; r != nullptr; r = r->next)
     {
         if (r != dumpRange)
         {
@@ -1003,12 +1003,12 @@ void CodeGen::VariableLiveDescriptor::DumpNewRanges()
     dumpRange = nullptr;
 }
 
-bool CodeGen::VariableLiveDescriptor::HasNewRangesToDump() const
+bool DbgInfoVar::HasNewRangesToDump() const
 {
     return dumpRange != nullptr;
 }
 
-void CodeGen::VariableLiveRange::Dump() const
+void DbgInfoVarRange::Dump() const
 {
     location.Dump();
 
