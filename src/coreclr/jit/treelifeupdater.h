@@ -133,7 +133,7 @@ struct DbgInfoVarLoc
     void SetRegLocation(RegNum reg1, RegNum reg2);
     void SetStackLocation(RegNum baseReg, int offset);
 
-    INDEBUG(void Dump() const;)
+    INDEBUG(void Dump(const char* suffix = nullptr) const;)
 
 #ifdef LATE_DISASM
     bool IsInReg(RegNum reg) const;
@@ -146,6 +146,7 @@ private:
 };
 
 bool operator==(const DbgInfoVarLoc& x, const DbgInfoVarLoc& y);
+bool operator!=(const DbgInfoVarLoc& x, const DbgInfoVarLoc& y);
 
 struct DbgInfoVarRange
 {
@@ -158,7 +159,7 @@ struct DbgInfoVarRange
     {
     }
 
-    INDEBUG(void Dump() const;)
+    INDEBUG(void Dump(const char* suffix = nullptr) const;)
 };
 
 class DbgInfoVar
@@ -184,9 +185,8 @@ public:
         return count;
     }
 
-    void StartRange(CodeGen* codeGen, const DbgInfoVarLoc& varLoc);
-    void EndRange(CodeGen* codeGen);
-    void UpdateRange(CodeGen* codeGen, const DbgInfoVarLoc& varLoc);
+    DbgInfoVarRange* StartRange(CodeGen* codeGen, const DbgInfoVarLoc& varLoc);
+    DbgInfoVarRange* EndRange(CodeGen* codeGen);
 
 #ifdef DEBUG
     void DumpNewRanges();

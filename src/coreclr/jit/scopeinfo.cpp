@@ -199,8 +199,13 @@ bool operator==(const DbgInfoVarLoc& x, const DbgInfoVarLoc& y)
     }
 }
 
+bool operator!=(const DbgInfoVarLoc& x, const DbgInfoVarLoc& y)
+{
+    return !(x == y);
+}
+
 #ifdef DEBUG
-void DbgInfoVarLoc::Dump() const
+void DbgInfoVarLoc::Dump(const char* suffix) const
 {
     switch (vlType)
     {
@@ -274,6 +279,11 @@ void DbgInfoVarLoc::Dump() const
 
         default:
             unreached();
+    }
+
+    if (suffix != nullptr)
+    {
+        printf("%s", suffix);
     }
 }
 #endif

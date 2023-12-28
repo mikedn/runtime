@@ -54,7 +54,7 @@ public:
         return !(*this == other);
     }
 
-    INDEBUG(void Print() const;)
+    INDEBUG(void Print(const char* suffix = nullptr) const;)
 };
 
 typedef void (*emitSplitCallbackType)(void* context, emitLocation* emitLoc);

@@ -85,7 +85,6 @@ void CodeGen::genCodeForBBlist()
         {
             printf("\n=============== Generating ");
             block->dspBlockHeader(compiler, true, true);
-            compiler->fgDispBBLiveness(block);
         }
 #endif // DEBUG
 
@@ -206,6 +205,8 @@ void CodeGen::genCodeForBBlist()
                     UseRegs(node);
                 }
             }
+
+            JITDUMP("--------------------------------------------------------------------------------\n");
         }
 
         // Nodes do not have uses accross blocks so no spill temps should be live at the end of a block.
@@ -1483,6 +1484,8 @@ void CodeGen::VerifyLiveGCRegs(BasicBlock* block)
 
 void CodeGen::VerifyLiveRegVars(BasicBlock* block)
 {
+    DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live out vars: ", block->bbLiveOut, liveness.GetLiveSet()));
+
     // The current live set should be equal to the block's live out set, except that
     // we don't keep it up to date for locals that are not register candidates.
 

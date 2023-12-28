@@ -125,11 +125,11 @@ uint32_t emitLocation::GetFuncletPrologOffset(emitter* emit) const
 
 #ifdef DEBUG
 
-void emitLocation::Print() const
+void emitLocation::Print(const char* suffix) const
 {
     unsigned insNum = GetInsNumFromCodePos(codePos);
     unsigned insOfs = GetInsOffsetFromCodePos(codePos);
-    printf("(" FMT_IG ", ins %u, ofs %u)", ig->igNum, insNum, insOfs);
+    printf("(" FMT_IG ", ins %u, ofs %u)%s", ig->igNum, insNum, insOfs, suffix == nullptr ? "" : suffix);
 }
 
 const char* emitter::emitIfName(unsigned f)
