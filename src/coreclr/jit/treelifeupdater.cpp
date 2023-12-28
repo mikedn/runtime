@@ -56,7 +56,16 @@ static regMaskTP GetLclRegs(const LclVarDsc* lcl)
 
 void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* block, const RegNumSmall* varRegMap)
 {
-    if (varRegMap != nullptr)
+    regMaskTP newLclRegs     = RBM_NONE;
+    regMaskTP newGCRefRegs   = RBM_NONE;
+    regMaskTP newGCByrefRegs = RBM_NONE;
+
+    if (compiler->lvaTrackedCount == 0)
+    {
+        JITDUMP("No variables have liveness\n");
+        assert(varRegMap == nullptr);
+    }
+    else
     {
         JITDUMP("Updating local regs at start of " FMT_BB "\n", block->bbNum);
 
@@ -93,77 +102,69 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
         }
 
         JITDUMP("\n");
-    }
-    else
-    {
-        assert(compiler->lvaTrackedCount == 0);
-    }
 
-    VARSET_TP newLife = block->bbLiveIn;
+        VARSET_TP newLife = block->bbLiveIn;
 
-    DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars at start of block: ", currentLife, newLife);)
-    DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, liveGCLcl));
+        DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars at start of block: ", currentLife, newLife);)
+        DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, liveGCLcl));
 
-    if (!VarSetOps::Equal(compiler, currentLife, newLife))
-    {
-        auto SymmetricDiff = [](size_t x, size_t y) { return x ^ y; };
-
-        for (auto e = VarSetOps::EnumOp(compiler, SymmetricDiff, currentLife, newLife); e.MoveNext();)
+        if (!VarSetOps::Equal(compiler, currentLife, newLife))
         {
-            unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(e.Current());
-            LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+            auto SymmetricDiff = [](size_t x, size_t y) { return x ^ y; };
 
-            if (VarSetOps::IsMember(compiler, currentLife, e.Current()))
+            for (auto e = VarSetOps::EnumOp(compiler, SymmetricDiff, currentLife, newLife); e.MoveNext();)
             {
-                if (lcl->HasGCSlotLiveness())
+                unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(e.Current());
+                LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+
+                if (VarSetOps::IsMember(compiler, currentLife, e.Current()))
                 {
-                    VarSetOps::RemoveElemD(compiler, liveGCLcl, e.Current());
+                    if (lcl->HasGCSlotLiveness())
+                    {
+                        VarSetOps::RemoveElemD(compiler, liveGCLcl, e.Current());
+                    }
+
+                    EndRange(codeGen, lclNum);
                 }
+                else
+                {
+                    StartRange(codeGen, lcl, lclNum);
+                }
+            }
 
-                EndRange(codeGen, lclNum);
-            }
-            else
-            {
-                StartRange(codeGen, lcl, lclNum);
-            }
+            VarSetOps::Assign(compiler, currentLife, newLife);
         }
 
-        VarSetOps::Assign(compiler, currentLife, newLife);
-    }
-
-    regMaskTP newLclRegs     = RBM_NONE;
-    regMaskTP newGCRefRegs   = RBM_NONE;
-    regMaskTP newGCByrefRegs = RBM_NONE;
-
-    for (VarSetOps::Enumerator en(compiler, newLife); en.MoveNext();)
-    {
-        LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(en.Current());
-
-        if (lcl->lvIsInReg())
+        for (VarSetOps::Enumerator en(compiler, newLife); en.MoveNext();)
         {
-            regMaskTP lclRegs = GetLclRegs(lcl);
+            LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(en.Current());
 
-            newLclRegs |= lclRegs;
+            if (lcl->lvIsInReg())
+            {
+                regMaskTP lclRegs = GetLclRegs(lcl);
 
-            if (lcl->TypeIs(TYP_REF))
-            {
-                newGCRefRegs |= lclRegs;
-            }
-            else if (lcl->TypeIs(TYP_BYREF))
-            {
-                newGCByrefRegs |= lclRegs;
-            }
-        }
+                newLclRegs |= lclRegs;
 
-        if (lcl->HasGCSlotLiveness())
-        {
-            if (lcl->lvIsInReg() && !lcl->IsAlwaysAliveInMemory())
-            {
-                VarSetOps::RemoveElemD(compiler, liveGCLcl, en.Current());
+                if (lcl->TypeIs(TYP_REF))
+                {
+                    newGCRefRegs |= lclRegs;
+                }
+                else if (lcl->TypeIs(TYP_BYREF))
+                {
+                    newGCByrefRegs |= lclRegs;
+                }
             }
-            else
+
+            if (lcl->HasGCSlotLiveness())
             {
-                VarSetOps::AddElemD(compiler, liveGCLcl, en.Current());
+                if (lcl->lvIsInReg() && !lcl->IsAlwaysAliveInMemory())
+                {
+                    VarSetOps::RemoveElemD(compiler, liveGCLcl, en.Current());
+                }
+                else
+                {
+                    VarSetOps::AddElemD(compiler, liveGCLcl, en.Current());
+                }
             }
         }
     }
