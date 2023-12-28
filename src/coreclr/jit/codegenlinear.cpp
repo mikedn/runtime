@@ -195,40 +195,7 @@ void CodeGen::genCodeForBBlist()
         // Nodes do not have uses accross blocks so no spill temps should be live at the end of a block.
         assert(spillTemps.GetDefCount() == 0);
 
-#ifdef DEBUG
-        {
-            regMaskTP gcRegs       = liveness.GetGCRegs();
-            regMaskTP lclRegs      = liveness.GetLiveLclRegs();
-            regMaskTP nonLclGCRegs = gcRegs & ~lclRegs;
-
-            // Remove return registers.
-            if ((block->lastNode() != nullptr) && block->lastNode()->OperIs(GT_RETURN))
-            {
-                const ReturnTypeDesc& retDesc = compiler->info.retDesc;
-
-                for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
-                {
-                    if (varTypeIsGC(retDesc.GetRegType(i)))
-                    {
-                        nonLclGCRegs &= ~genRegMask(retDesc.GetRegNum(i));
-                    }
-                }
-            }
-
-            if (nonLclGCRegs != RBM_NONE)
-            {
-                printf("Regs after " FMT_BB " ref-regs", block->bbNum);
-                DumpRegSet(liveness.GetGCRegs(TYP_REF) & ~lclRegs);
-                printf(", byref-regs");
-                DumpRegSet(liveness.GetGCRegs(TYP_BYREF) & ~lclRegs);
-                printf(", lcl-regs");
-                DumpRegSet(lclRegs);
-                printf("\n");
-            }
-
-            noway_assert(nonLclGCRegs == RBM_NONE);
-        }
-#endif // DEBUG
+        INDEBUG(VerifyLiveGCRegs(block));
 
 #if defined(DEBUG)
         if (block->bbNext == nullptr)
@@ -279,36 +246,7 @@ void CodeGen::genCodeForBBlist()
         SubtractStackLevel(savedStkLvl);
 #endif
 
-#ifdef DEBUG
-        // Current live set should be equal to the liveOut set, except that we don't keep
-        // it up to date for vars that are not register candidates
-        // (it would be nice to have a xor set function)
-
-        VARSET_TP mismatchLiveVars(VarSetOps::Diff(compiler, block->bbLiveOut, liveness.GetLiveSet()));
-        VarSetOps::UnionD(compiler, mismatchLiveVars,
-                          VarSetOps::Diff(compiler, liveness.GetLiveSet(), block->bbLiveOut));
-        VarSetOps::Iter mismatchLiveVarIter(compiler, mismatchLiveVars);
-        unsigned        mismatchLiveVarIndex  = 0;
-        bool            foundMismatchedRegVar = false;
-        while (mismatchLiveVarIter.NextElem(&mismatchLiveVarIndex))
-        {
-            LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(mismatchLiveVarIndex);
-            if (varDsc->IsRegCandidate())
-            {
-                if (!foundMismatchedRegVar)
-                {
-                    JITDUMP("Mismatched live reg vars after " FMT_BB ":", block->bbNum);
-                    foundMismatchedRegVar = true;
-                }
-                JITDUMP(" V%02u", compiler->lvaTrackedIndexToLclNum(mismatchLiveVarIndex));
-            }
-        }
-        if (foundMismatchedRegVar)
-        {
-            JITDUMP("\n");
-            assert(!"Found mismatched live reg var(s) after block");
-        }
-#endif
+        INDEBUG(VerifyLiveVars(block));
 
 #if !FEATURE_FIXED_OUT_ARGS
         // Both stacks should always be empty on exit from a basic block.
@@ -1510,3 +1448,71 @@ void CodeGen::DefLongRegs(GenTree* node)
     liveness.RemoveGCRegs(genRegMask(node->GetRegNum(0)) | genRegMask(node->GetRegNum(1)));
 }
 #endif // TARGET_64BIT
+
+#ifdef DEBUG
+void CodeGen::VerifyLiveGCRegs(BasicBlock* block)
+{
+    regMaskTP gcRegs       = liveness.GetGCRegs();
+    regMaskTP lclRegs      = liveness.GetLiveLclRegs();
+    regMaskTP nonLclGCRegs = gcRegs & ~lclRegs;
+
+    // Remove return registers.
+    if ((block->lastNode() != nullptr) && block->lastNode()->OperIs(GT_RETURN))
+    {
+        const ReturnTypeDesc& retDesc = compiler->info.retDesc;
+
+        for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
+        {
+            if (varTypeIsGC(retDesc.GetRegType(i)))
+            {
+                nonLclGCRegs &= ~genRegMask(retDesc.GetRegNum(i));
+            }
+        }
+    }
+
+    if (nonLclGCRegs != RBM_NONE)
+    {
+        printf("Regs after " FMT_BB " ref-regs", block->bbNum);
+        DumpRegSet(liveness.GetGCRegs(TYP_REF) & ~lclRegs);
+        printf(", byref-regs");
+        DumpRegSet(liveness.GetGCRegs(TYP_BYREF) & ~lclRegs);
+        printf(", lcl-regs");
+        DumpRegSet(lclRegs);
+        printf("\n");
+    }
+
+    assert(nonLclGCRegs == RBM_NONE);
+}
+
+void CodeGen::VerifyLiveVars(BasicBlock* block)
+{
+    // Current live set should be equal to the liveOut set, except that we don't keep
+    // it up to date for vars that are not register candidates
+    // (it would be nice to have a xor set function)
+
+    VARSET_TP mismatchLiveVars(VarSetOps::Diff(compiler, block->bbLiveOut, liveness.GetLiveSet()));
+    VarSetOps::UnionD(compiler, mismatchLiveVars, VarSetOps::Diff(compiler, liveness.GetLiveSet(), block->bbLiveOut));
+    VarSetOps::Iter mismatchLiveVarIter(compiler, mismatchLiveVars);
+    unsigned        mismatchLiveVarIndex  = 0;
+    bool            foundMismatchedRegVar = false;
+    while (mismatchLiveVarIter.NextElem(&mismatchLiveVarIndex))
+    {
+        LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(mismatchLiveVarIndex);
+        if (varDsc->IsRegCandidate())
+        {
+            if (!foundMismatchedRegVar)
+            {
+                JITDUMP("Mismatched live reg vars after " FMT_BB ":", block->bbNum);
+                foundMismatchedRegVar = true;
+            }
+            JITDUMP(" V%02u", compiler->lvaTrackedIndexToLclNum(mismatchLiveVarIndex));
+        }
+    }
+
+    if (foundMismatchedRegVar)
+    {
+        JITDUMP("\n");
+        assert(!"Found mismatched live reg var(s) after block");
+    }
+}
+#endif
