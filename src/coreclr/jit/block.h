@@ -541,6 +541,18 @@ constexpr unsigned NoLoopNum  = UINT8_MAX;
 constexpr unsigned MaxLoopNum = 64;
 static_assert_no_msg(MaxLoopNum < NoLoopNum);
 
+// Some non-zero value that will not collide with real tokens for bbCatchTyp
+constexpr unsigned BBCT_NONE           = 0x00000000;
+constexpr unsigned BBCT_FAULT          = 0xFFFFFFFC;
+constexpr unsigned BBCT_FINALLY        = 0xFFFFFFFD;
+constexpr unsigned BBCT_FILTER         = 0xFFFFFFFE;
+constexpr unsigned BBCT_FILTER_HANDLER = 0xFFFFFFFF;
+
+inline bool handlerGetsXcptnObj(unsigned hndTyp)
+{
+    return (hndTyp != BBCT_NONE) && (hndTyp != BBCT_FAULT) && (hndTyp != BBCT_FINALLY);
+}
+
 //------------------------------------------------------------------------
 // BasicBlock: describes a basic block in the flowgraph.
 //
@@ -962,14 +974,6 @@ struct BasicBlock : private LIR::Range
 
     bool hasEHBoundaryIn() const;
     bool hasEHBoundaryOut() const;
-
-// Some non-zero value that will not collide with real tokens for bbCatchTyp
-#define BBCT_NONE 0x00000000
-#define BBCT_FAULT 0xFFFFFFFC
-#define BBCT_FINALLY 0xFFFFFFFD
-#define BBCT_FILTER 0xFFFFFFFE
-#define BBCT_FILTER_HANDLER 0xFFFFFFFF
-#define handlerGetsXcptnObj(hndTyp) ((hndTyp) != BBCT_NONE && (hndTyp) != BBCT_FAULT && (hndTyp) != BBCT_FINALLY)
 
     flowList* bbPredsWithEH;
 
