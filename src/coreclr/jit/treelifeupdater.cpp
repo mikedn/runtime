@@ -598,7 +598,7 @@ void CodeGen::VariableLiveDescriptor::StartRange(CodeGen* codeGen, const siVarLo
         // it may be the reason why moving BeginBlockCodeGen around produces debug info diffs.
         lastRange->endOffset.IsPreviousInsNum(codeGen->GetEmitter()))
     {
-        JITDUMP("Extending debug range...\n");
+        JITDUMP("Extending debug range\n");
 
         assert(lastRange->startOffset.Valid());
         // The variable is being born just after the instruction at which it died.
@@ -608,11 +608,10 @@ void CodeGen::VariableLiveDescriptor::StartRange(CodeGen* codeGen, const siVarLo
     else
     {
         JITDUMP("New debug range: %s\n", lastRange == nullptr ? "first" : siVarLoc::Equals(varLoc, lastRange->location)
-                                                                              ? "new var or location"
-                                                                              : "not adjacent");
+                                                                              ? "not adjacent"
+                                                                              : "new location");
 
-        VariableLiveRange* newRange = new (codeGen->GetCompiler(), CMK_VariableLiveRanges)
-            VariableLiveRange(varLoc, emitLocation(), emitLocation());
+        VariableLiveRange* newRange = new (codeGen->GetCompiler(), CMK_VariableLiveRanges) VariableLiveRange(varLoc);
         newRange->startOffset.CaptureLocation(codeGen->GetEmitter());
 
         if (lastRange != nullptr)

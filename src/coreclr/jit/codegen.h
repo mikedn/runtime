@@ -1167,8 +1167,7 @@ public:
         emitLocation       endOffset;
         siVarLoc           location;
 
-        VariableLiveRange(siVarLoc location, emitLocation startOffset, emitLocation endOffset)
-            : startOffset(startOffset), endOffset(endOffset), location(location)
+        VariableLiveRange(siVarLoc location) : location(location)
         {
         }
 
