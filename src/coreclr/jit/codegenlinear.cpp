@@ -174,12 +174,28 @@ void CodeGen::genCodeForBBlist()
 
         for (GenTree* node : LIR::AsRange(block))
         {
+            DBEXEC(compiler->verbose, compiler->gtDispLIRNode(node));
+
+            // Validate that all the operands for the current node are used in order.
+            // This is important because LSRA ensures that any necessary copies will be
+            // handled correctly.
+            INDEBUG(lastConsumedNode = nullptr);
+
             if (GenTreeILOffset* ilOffset = node->IsILOffset())
             {
                 genEnsureCodeEmitted(currentILOffset);
                 currentILOffset = ilOffset->gtStmtILoffsx;
                 genIPmappingAdd(currentILOffset, firstMapping);
                 firstMapping = false;
+            }
+            else if (node->IsReuseRegVal())
+            {
+                JITDUMP("Node is marked ReuseReg\n");
+                assert(node->OperIs(GT_CNS_INT, GT_CNS_DBL) || node->IsHWIntrinsicZero());
+            }
+            else if (node->isContained())
+            {
+                JITDUMP("Node is contained\n")
             }
             else
             {

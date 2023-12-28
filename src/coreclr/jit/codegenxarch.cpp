@@ -1231,43 +1231,13 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
 
 void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 {
-    emitter* emit = GetEmitter();
-
-#ifdef DEBUG
-    // Validate that all the operands for the current node are consumed in order.
-    // This is important because LSRA ensures that any necessary copies will be
-    // handled correctly.
-    lastConsumedNode = nullptr;
-    if (compiler->verbose)
-    {
-        compiler->gtDispLIRNode(treeNode);
-    }
-#endif // DEBUG
-
-    // Is this a node whose shift is already in a register?  LSRA denotes this by
-    // setting the GTF_REUSE_REG_VAL flag.
-    if (treeNode->IsReuseRegVal())
-    {
-        // For now, this is only used for constant nodes.
-        assert(treeNode->OperIsConst() || treeNode->IsHWIntrinsicZero());
-        JITDUMP("  TreeNode is marked ReuseReg\n");
-        return;
-    }
-
-    // contained nodes are part of their parents for codegen purposes
-    // ex : immediates, most LEAs
-    if (treeNode->isContained())
-    {
-        return;
-    }
-
-    switch (treeNode->gtOper)
+    switch (treeNode->GetOper())
     {
 #ifndef JIT32_GCENCODER
         case GT_START_NONGC:
             GetEmitter()->emitDisableGC();
             break;
-#endif // !defined(JIT32_GCENCODER)
+#endif
 
         case GT_START_PREEMPTGC:
             // Kill callee saves GC registers, and create a label
@@ -1598,13 +1568,13 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             noway_assert((liveness.GetGCRegs() & ~fullIntArgRegMask()) == 0);
 #ifdef PSEUDORANDOM_NOP_INSERTION
             // the runtime side requires the codegen here to be consistent
-            emit->emitDisableRandomNops();
+            GetEmitter()->emitDisableRandomNops();
 #endif
             break;
 
         case GT_LABEL:
             genPendingCallLabel = GetEmitter()->CreateTempLabel();
-            emit->emitIns_R_L(genPendingCallLabel, treeNode->GetRegNum());
+            GetEmitter()->emitIns_R_L(genPendingCallLabel, treeNode->GetRegNum());
             // TODO-MIKE-Review: Hmm, no DefReg call?
             break;
 
@@ -1635,7 +1605,8 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_CLS_VAR_ADDR:
-            emit->emitIns_R_C(INS_lea, EA_PTRSIZE, treeNode->GetRegNum(), treeNode->AsClsVar()->GetFieldHandle());
+            GetEmitter()->emitIns_R_C(INS_lea, EA_PTRSIZE, treeNode->GetRegNum(),
+                                      treeNode->AsClsVar()->GetFieldHandle());
             DefReg(treeNode);
             break;
 

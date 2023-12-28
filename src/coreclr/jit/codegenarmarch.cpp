@@ -11,37 +11,7 @@
 
 void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 {
-    emitter* emit = GetEmitter();
-
-#ifdef DEBUG
-    // Validate that all the operands for the current node are consumed in order.
-    // This is important because LSRA ensures that any necessary copies will be
-    // handled correctly.
-    lastConsumedNode = nullptr;
-    if (compiler->verbose)
-    {
-        compiler->gtDispLIRNode(treeNode);
-    }
-#endif // DEBUG
-
-    // Is this a node whose value is already in a register?  LSRA denotes this by
-    // setting the GTF_REUSE_REG_VAL flag.
-    if (treeNode->IsReuseRegVal())
-    {
-        // For now, this is only used for constant nodes.
-        assert((treeNode->OperGet() == GT_CNS_INT) || (treeNode->OperGet() == GT_CNS_DBL));
-        JITDUMP("  TreeNode is marked ReuseReg\n");
-        return;
-    }
-
-    // contained nodes are part of their parents for codegen purposes
-    // ex : immediates, most LEAs
-    if (treeNode->isContained())
-    {
-        return;
-    }
-
-    switch (treeNode->gtOper)
+    switch (treeNode->GetOper())
     {
         case GT_START_NONGC:
             GetEmitter()->emitDisableGC();
@@ -367,7 +337,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
             // the runtime side requires the codegen here to be consistent
-            emit->emitDisableRandomNops();
+            GetEmitter()->emitDisableRandomNops();
 #endif
             break;
 
@@ -376,7 +346,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 #ifdef TARGET_ARM
             genMov32RelocatableDisplacement(genPendingCallLabel, treeNode->GetRegNum());
 #else
-            emit->emitIns_R_L(genPendingCallLabel, treeNode->GetRegNum());
+            GetEmitter()->emitIns_R_L(genPendingCallLabel, treeNode->GetRegNum());
 #endif
             break;
 
@@ -413,7 +383,8 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             noway_assert(addr != nullptr);
             instGen_Set_Reg_To_Addr(treeNode->GetRegNum(), addr);
 #else
-            emit->emitIns_R_C(INS_adr, EA_8BYTE, treeNode->GetRegNum(), REG_NA, treeNode->AsClsVar()->GetFieldHandle());
+            GetEmitter()->emitIns_R_C(INS_adr, EA_8BYTE, treeNode->GetRegNum(), REG_NA,
+                                      treeNode->AsClsVar()->GetFieldHandle());
 #endif
             DefReg(treeNode);
             break;
