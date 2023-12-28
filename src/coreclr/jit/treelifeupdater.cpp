@@ -67,9 +67,12 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
     }
     else
     {
-        JITDUMP("Updating local regs at start of " FMT_BB "\n", block->bbNum);
+        VARSET_TP newLife = block->bbLiveIn;
 
-        for (VarSetOps::Enumerator en(compiler, block->bbLiveIn); en.MoveNext();)
+        DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars at start of block: ", currentLife, newLife);)
+        JITDUMP("Updating variable regs\n");
+
+        for (VarSetOps::Enumerator en(compiler, newLife); en.MoveNext();)
         {
             unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(en.Current());
             LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
@@ -103,11 +106,6 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
 
         JITDUMP("\n");
 
-        VARSET_TP newLife = block->bbLiveIn;
-
-        DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars at start of block: ", currentLife, newLife);)
-        DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, liveGCLcl));
-
         if (!VarSetOps::Equal(compiler, currentLife, newLife))
         {
             auto SymmetricDiff = [](size_t x, size_t y) { return x ^ y; };
@@ -134,6 +132,8 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
 
             VarSetOps::Assign(compiler, currentLife, newLife);
         }
+
+        DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, liveGCLcl));
 
         for (VarSetOps::Enumerator en(compiler, newLife); en.MoveNext();)
         {
@@ -167,6 +167,8 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
                 }
             }
         }
+
+        DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live GC stack vars: ", scratchSet1, liveGCLcl));
     }
 
     if (handlerGetsXcptnObj(block->bbCatchTyp))
@@ -184,7 +186,6 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
 #ifdef DEBUG
     if (compiler->verbose)
     {
-        compiler->dmpVarSetDiff("GC stack vars: ", scratchSet1, liveGCLcl);
         DumpRegSetDiff("Live regs: ", liveLclRegs, newLclRegs);
         DumpRegSetDiff("GC regs: ", liveGCRefRegs, newGCRefRegs);
         DumpRegSetDiff("Byref regs: ", liveGCByRefRegs, newGCByrefRegs);
