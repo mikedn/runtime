@@ -230,9 +230,6 @@ class CodeGenLivenessUpdater
     void AddGCRefRegs(regMaskTP regMask DEBUGARG(bool forceOutput = false));
     void AddGCByRefRegs(regMaskTP regMask DEBUGARG(bool forceOutput = false));
 
-    void SpillGCSlot(LclVarDsc* lcl);
-    void UnspillGCSlot(LclVarDsc* lcl DEBUGARG(GenTreeLclVar* lclVar));
-
     void StartUntrackedVarsRanges(CodeGen*    codeGen,
                                   BasicBlock* block,
                                   unsigned*   nextEnterScope,
@@ -276,6 +273,7 @@ public:
         return liveGCLcl;
     }
 
+    void AddGCSlot(LclVarDsc* lcl);
     void RemoveGCSlot(LclVarDsc* lcl);
 
     regMaskTP GetLiveLclRegs() const

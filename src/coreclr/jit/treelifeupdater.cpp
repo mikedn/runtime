@@ -420,7 +420,8 @@ void CodeGenLivenessUpdater::Spill(LclVarDsc* lcl, GenTreeLclVar* lclNode)
     assert(lclNode->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
 
     UpdateLiveLclRegs(lcl, /* isDying */ true DEBUGARG(lclNode));
-    SpillGCSlot(lcl);
+    RemoveGCRegs(GetLclRegs(lcl));
+    AddGCSlot(lcl);
 }
 
 void CodeGenLivenessUpdater::Unspill(
@@ -441,7 +442,15 @@ void CodeGenLivenessUpdater::Unspill(
             UpdateRange(codeGen, lcl, src->GetLclNum());
         }
 
-        UnspillGCSlot(lcl DEBUGARG(src));
+        if (!lcl->IsAlwaysAliveInMemory())
+        {
+            RemoveGCSlot(lcl);
+        }
+
+        JITDUMP("V%02u in reg %s is becoming live at [%06u]\n", src->GetLclNum(), getRegName(lcl->GetRegNum()),
+                src->GetID());
+
+        AddLiveLclRegs(GetLclRegs(lcl));
     }
 
     SetGCRegType(dstReg, dstType);
@@ -458,10 +467,8 @@ void CodeGenLivenessUpdater::BeginPrologEpilogCodeGen()
     liveGCByRefRegs = RBM_NONE;
 }
 
-void CodeGenLivenessUpdater::SpillGCSlot(LclVarDsc* lcl)
+void CodeGenLivenessUpdater::AddGCSlot(LclVarDsc* lcl)
 {
-    RemoveGCRegs(GetLclRegs(lcl));
-
     if (!lcl->HasGCSlotLiveness())
     {
         return;
@@ -479,19 +486,6 @@ void CodeGenLivenessUpdater::SpillGCSlot(LclVarDsc* lcl)
 #endif
 
     VarSetOps::AddElemD(compiler, liveGCLcl, lcl->GetLivenessBitIndex());
-}
-
-void CodeGenLivenessUpdater::UnspillGCSlot(LclVarDsc* lcl DEBUGARG(GenTreeLclVar* lclVar))
-{
-    if (!lcl->IsAlwaysAliveInMemory())
-    {
-        RemoveGCSlot(lcl);
-    }
-
-    JITDUMP("V%02u in reg %s is becoming live at [%06u]\n", lcl - compiler->lvaTable, getRegName(lcl->GetRegNum()),
-            lclVar->GetID());
-
-    AddLiveLclRegs(GetLclRegs(lcl));
 }
 
 void CodeGenLivenessUpdater::RemoveGCSlot(LclVarDsc* lcl)
