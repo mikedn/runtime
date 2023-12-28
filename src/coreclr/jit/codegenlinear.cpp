@@ -131,7 +131,7 @@ void CodeGen::genCodeForBBlist()
             SetThrowHelperBlockStackLevel(block);
         }
 
-        unsigned savedStkLvl = genStackLevel;
+        const unsigned savedStkLvl = genStackLevel;
 #endif
 
         if (compiler->opts.compScopeInfo)
@@ -140,11 +140,11 @@ void CodeGen::genCodeForBBlist()
         }
 
         // BBF_INTERNAL blocks don't correspond to any single IL instruction.
-        if (compiler->opts.compDbgInfo && (block->bbFlags & BBF_INTERNAL) &&
-            !compiler->fgBBisScratch(block)) // If the block is the distinguished first scratch block, then no need to
-                                             // emit a NO_MAPPING entry, immediately after the prolog.
+        // If the block is the distinguished first scratch block, then there's
+        // no need to emit a NO_MAPPING entry, immediately after the prolog.
+        if (compiler->opts.compDbgInfo && ((block->bbFlags & BBF_INTERNAL) != 0) && !compiler->fgBBisScratch(block))
         {
-            genIPmappingAdd((IL_OFFSETX)ICorDebugInfo::NO_MAPPING, true);
+            genIPmappingAdd(ICorDebugInfo::NO_MAPPING, true);
         }
 
 #ifdef FEATURE_EH_FUNCLETS
@@ -197,40 +197,28 @@ void CodeGen::genCodeForBBlist()
 
         INDEBUG(VerifyLiveGCRegs(block));
 
-#if defined(DEBUG)
+#ifdef DEBUG
         if (block->bbNext == nullptr)
         {
-// Unit testing of the emitter: generate a bunch of instructions into the last block
-// (it's as good as any, but better than the prologue, which can only be a single instruction
-// group) then use COMPlus_JitLateDisasm=* to see if the late disassembler
-// thinks the instructions are the same as we do.
 #if defined(TARGET_AMD64) && defined(LATE_DISASM)
+            // Unit testing of the emitter: generate a bunch of instructions into the last block
+            // (it's as good as any, but better than the prologue, which can only be a single instruction
+            // group) then use COMPlus_JitLateDisasm=* to see if the late disassembler
+            // thinks the instructions are the same as we do.
             genAmd64EmitterUnitTests();
 #elif defined(TARGET_ARM64)
             genArm64EmitterUnitTests();
-#endif // TARGET_ARM64
+#endif
         }
-#endif // defined(DEBUG)
+#endif // DEBUG
 
         // It is possible to reach the end of the block without generating code for the current IL offset.
-        // For example, if the following IR ends the current block, no code will have been generated for
-        // offset 21:
-        //
-        //          (  0,  0) [000040] ------------                il_offset void   IL offset: 21
-        //
-        //     N001 (  0,  0) [000039] ------------                nop       void
-        //
         // This can lead to problems when debugging the generated code. To prevent these issues, make sure
         // we've generated code for the last IL offset we saw in the block.
         genEnsureCodeEmitted(currentILOffset);
 
-        /* Is this the last block, and are there any open scopes left ? */
-
-        bool isLastBlockProcessed = (block->bbNext == nullptr);
-        if (block->isBBCallAlwaysPair())
-        {
-            isLastBlockProcessed = (block->bbNext->bbNext == nullptr);
-        }
+        bool isLastBlockProcessed =
+            (block->bbNext == nullptr) || (block->isBBCallAlwaysPair() && (block->bbNext->bbNext == nullptr));
 
         if (compiler->opts.compDbgInfo && isLastBlockProcessed)
         {
@@ -244,14 +232,10 @@ void CodeGen::genCodeForBBlist()
 
 #if !FEATURE_FIXED_OUT_ARGS
         SubtractStackLevel(savedStkLvl);
-#endif
-
-        INDEBUG(VerifyLiveVars(block));
-
-#if !FEATURE_FIXED_OUT_ARGS
-        // Both stacks should always be empty on exit from a basic block.
         noway_assert(genStackLevel == 0);
 #endif
+
+        INDEBUG(VerifyLiveRegVars(block));
 
         switch (block->GetKind())
         {
@@ -1484,32 +1468,31 @@ void CodeGen::VerifyLiveGCRegs(BasicBlock* block)
     assert(nonLclGCRegs == RBM_NONE);
 }
 
-void CodeGen::VerifyLiveVars(BasicBlock* block)
+void CodeGen::VerifyLiveRegVars(BasicBlock* block)
 {
-    // Current live set should be equal to the liveOut set, except that we don't keep
-    // it up to date for vars that are not register candidates
-    // (it would be nice to have a xor set function)
+    // The current live set should be equal to the block's live out set, except that
+    // we don't keep it up to date for locals that are not register candidates.
 
-    VARSET_TP mismatchLiveVars(VarSetOps::Diff(compiler, block->bbLiveOut, liveness.GetLiveSet()));
-    VarSetOps::UnionD(compiler, mismatchLiveVars, VarSetOps::Diff(compiler, liveness.GetLiveSet(), block->bbLiveOut));
-    VarSetOps::Iter mismatchLiveVarIter(compiler, mismatchLiveVars);
-    unsigned        mismatchLiveVarIndex  = 0;
-    bool            foundMismatchedRegVar = false;
-    while (mismatchLiveVarIter.NextElem(&mismatchLiveVarIndex))
+    bool foundMismatch = false;
+    auto SymmetricDiff = [](size_t x, size_t y) { return x ^ y; };
+
+    for (auto en = VarSetOps::EnumOp(compiler, SymmetricDiff, liveness.GetLiveSet(), block->bbLiveOut); en.MoveNext();)
     {
-        LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(mismatchLiveVarIndex);
-        if (varDsc->IsRegCandidate())
+        LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(en.Current());
+
+        if (lcl->IsRegCandidate())
         {
-            if (!foundMismatchedRegVar)
+            if (!foundMismatch)
             {
                 JITDUMP("Mismatched live reg vars after " FMT_BB ":", block->bbNum);
-                foundMismatchedRegVar = true;
+                foundMismatch = true;
             }
-            JITDUMP(" V%02u", compiler->lvaTrackedIndexToLclNum(mismatchLiveVarIndex));
+
+            JITDUMP(" " FMT_LCL, compiler->lvaTrackedIndexToLclNum(en.Current()));
         }
     }
 
-    if (foundMismatchedRegVar)
+    if (foundMismatch)
     {
         JITDUMP("\n");
         assert(!"Found mismatched live reg var(s) after block");

@@ -161,7 +161,7 @@ protected:
 
 #ifdef DEBUG
     void VerifyLiveGCRegs(BasicBlock* block);
-    void VerifyLiveVars(BasicBlock* block);
+    void VerifyLiveRegVars(BasicBlock* block);
 #endif
 
 public:
