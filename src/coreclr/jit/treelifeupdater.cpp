@@ -270,13 +270,13 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
         {
             if (isInMemory && lcl->HasGCSlotLiveness())
             {
-                if (isBorn)
+                if (isDying)
                 {
-                    VarSetOps::AddElemD(compiler, liveGCLcl, lcl->GetLivenessBitIndex());
+                    VarSetOps::RemoveElemD(compiler, liveGCLcl, lcl->GetLivenessBitIndex());
                 }
                 else
                 {
-                    VarSetOps::RemoveElemD(compiler, liveGCLcl, lcl->GetLivenessBitIndex());
+                    VarSetOps::AddElemD(compiler, liveGCLcl, lcl->GetLivenessBitIndex());
                 }
             }
 
