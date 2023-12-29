@@ -696,13 +696,6 @@ DbgInfoVarRange* DbgInfoVar::StartRange(CodeGen* codeGen, const DbgInfoVarLoc& v
         count++;
     }
 
-#ifdef DEBUG
-    if (dumpRange == nullptr)
-    {
-        dumpRange = lastRange;
-    }
-#endif
-
     return lastRange;
 }
 
@@ -712,13 +705,6 @@ DbgInfoVarRange* DbgInfoVar::EndRange(CodeGen* codeGen)
 
     // Using [close, open) ranges so as to not compute the size of the last instruction
     lastRange->endOffset.CaptureLocation(codeGen->GetEmitter());
-
-#ifdef DEBUG
-    if (dumpRange == nullptr)
-    {
-        dumpRange = lastRange;
-    }
-#endif
 
     return lastRange;
 }
@@ -1058,26 +1044,6 @@ int CodeGenLivenessUpdater::GetVarStackOffset(CodeGen* codeGen, const LclVarDsc*
 }
 
 #ifdef DEBUG
-void DbgInfoVar::DumpNewRanges()
-{
-    for (const DbgInfoVarRange* r = dumpRange; r != nullptr; r = r->next)
-    {
-        if (r != dumpRange)
-        {
-            printf("; ");
-        }
-
-        r->Dump();
-    }
-
-    dumpRange = nullptr;
-}
-
-bool DbgInfoVar::HasNewRangesToDump() const
-{
-    return dumpRange != nullptr;
-}
-
 void DbgInfoVarRange::Dump(const char* suffix) const
 {
     location.Dump();
@@ -1096,29 +1062,6 @@ void DbgInfoVarRange::Dump(const char* suffix) const
     }
 
     printf("]%s", suffix == nullptr ? "" : suffix);
-}
-
-void CodeGenLivenessUpdater::DumpNewRanges(const BasicBlock* block)
-{
-    bool hasDumpedHistory = false;
-
-    printf("\nVariable Live Range History Dump for " FMT_BB "\n", block->bbNum);
-
-    for (unsigned i = 0; i < varCount; i++)
-    {
-        if (bodyVars[i].HasNewRangesToDump())
-        {
-            printf(FMT_LCL ": ", i);
-            bodyVars[i].DumpNewRanges();
-            printf("\n");
-            hasDumpedHistory = true;
-        }
-    }
-
-    if (!hasDumpedHistory)
-    {
-        printf("None.\n");
-    }
 }
 
 void CodeGenLivenessUpdater::VerifyLiveGCRegs(BasicBlock* block)

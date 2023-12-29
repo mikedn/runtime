@@ -166,8 +166,7 @@ class DbgInfoVar
 {
     DbgInfoVarRange* firstRange = nullptr;
     DbgInfoVarRange* lastRange  = nullptr;
-    INDEBUG(DbgInfoVarRange* dumpRange = nullptr);
-    unsigned count = 0;
+    unsigned         count      = 0;
 
 public:
     bool HasOpenRange() const
@@ -187,11 +186,6 @@ public:
 
     DbgInfoVarRange* StartRange(CodeGen* codeGen, const DbgInfoVarLoc& varLoc);
     DbgInfoVarRange* EndRange(CodeGen* codeGen);
-
-#ifdef DEBUG
-    void DumpNewRanges();
-    bool HasNewRangesToDump() const;
-#endif
 };
 
 // Handles changes in variable liveness from a given node.
@@ -357,8 +351,6 @@ public:
     unsigned GetRangeCount() const;
 
 #ifdef DEBUG
-    void DumpNewRanges(const BasicBlock* block);
-
     void VerifyLiveGCRegs(BasicBlock* block);
     void VerifyLiveRegVars(BasicBlock* block);
 #endif

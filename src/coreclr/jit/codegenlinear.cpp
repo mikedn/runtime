@@ -422,12 +422,6 @@ void CodeGen::genCodeForBBlist()
             GetEmitter()->emitLoopAlignment();
         }
 #endif
-
-        // TODO-MIKE-Cleanup: Due to the finally return mess this is misleading,
-        // it may show the the finally return block instead of the actual block.
-        // It may be that certain liveness aspects are messed up as well (debug
-        // info most likely).
-        DBEXEC(compiler->verbose, liveness.DumpNewRanges(block));
     }
 
     m_currentBlock = nullptr;
