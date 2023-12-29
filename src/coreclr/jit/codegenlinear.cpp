@@ -212,7 +212,7 @@ void CodeGen::genCodeForBBlist()
         // Nodes do not have uses accross blocks so no spill temps should be live at the end of a block.
         assert(spillTemps.GetDefCount() == 0);
 
-        INDEBUG(VerifyLiveGCRegs(block));
+        INDEBUG(liveness.VerifyLiveGCRegs(block));
 
 #ifdef DEBUG
         if (block->bbNext == nullptr)
@@ -252,7 +252,7 @@ void CodeGen::genCodeForBBlist()
         noway_assert(genStackLevel == 0);
 #endif
 
-        INDEBUG(VerifyLiveRegVars(block));
+        INDEBUG(liveness.VerifyLiveRegVars(block));
 
         switch (block->GetKind())
         {
@@ -1446,72 +1446,5 @@ void CodeGen::VerifyUseOrder(GenTree* const node)
 
     node->gtDebugFlags |= GTF_DEBUG_NODE_CG_CONSUMED;
     lastConsumedNode = node;
-}
-
-void CodeGen::VerifyLiveGCRegs(BasicBlock* block)
-{
-    regMaskTP gcRegs       = liveness.GetGCRegs();
-    regMaskTP lclRegs      = liveness.GetLiveLclRegs();
-    regMaskTP nonLclGCRegs = gcRegs & ~lclRegs;
-
-    // Remove return registers.
-    if ((block->lastNode() != nullptr) && block->lastNode()->OperIs(GT_RETURN))
-    {
-        const ReturnTypeDesc& retDesc = compiler->info.retDesc;
-
-        for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
-        {
-            if (varTypeIsGC(retDesc.GetRegType(i)))
-            {
-                nonLclGCRegs &= ~genRegMask(retDesc.GetRegNum(i));
-            }
-        }
-    }
-
-    if (nonLclGCRegs != RBM_NONE)
-    {
-        printf("Regs after " FMT_BB " ref-regs", block->bbNum);
-        DumpRegSet(liveness.GetGCRegs(TYP_REF) & ~lclRegs);
-        printf(", byref-regs");
-        DumpRegSet(liveness.GetGCRegs(TYP_BYREF) & ~lclRegs);
-        printf(", lcl-regs");
-        DumpRegSet(lclRegs);
-        printf("\n");
-    }
-
-    assert(nonLclGCRegs == RBM_NONE);
-}
-
-void CodeGen::VerifyLiveRegVars(BasicBlock* block)
-{
-    DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live out vars: ", block->bbLiveOut, liveness.GetLiveSet()));
-
-    // The current live set should be equal to the block's live out set, except that
-    // we don't keep it up to date for locals that are not register candidates.
-
-    bool foundMismatch = false;
-    auto SymmetricDiff = [](size_t x, size_t y) { return x ^ y; };
-
-    for (auto en = VarSetOps::EnumOp(compiler, SymmetricDiff, liveness.GetLiveSet(), block->bbLiveOut); en.MoveNext();)
-    {
-        LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(en.Current());
-
-        if (lcl->IsRegCandidate())
-        {
-            if (!foundMismatch)
-            {
-                JITDUMP("Mismatched live reg vars after " FMT_BB ":", block->bbNum);
-                foundMismatch = true;
-            }
-
-            JITDUMP(" " FMT_LCL, compiler->lvaTrackedIndexToLclNum(en.Current()));
-        }
-    }
-
-    if (foundMismatch)
-    {
-        JITDUMP("\n");
-        assert(!"Found mismatched live reg var(s) after block");
-    }
 }
 #endif

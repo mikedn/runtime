@@ -159,11 +159,6 @@ protected:
     void InitLclBlockLiveInRegs();
     void genCodeForBBlist();
 
-#ifdef DEBUG
-    void VerifyLiveGCRegs(BasicBlock* block);
-    void VerifyLiveRegVars(BasicBlock* block);
-#endif
-
 public:
     bool SpillRegCandidateLclVar(GenTreeLclVar* node);
 

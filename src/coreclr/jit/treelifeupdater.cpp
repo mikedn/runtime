@@ -1123,4 +1123,71 @@ void CodeGenLivenessUpdater::DumpNewRanges(const BasicBlock* block)
         printf("None.\n");
     }
 }
+
+void CodeGenLivenessUpdater::VerifyLiveGCRegs(BasicBlock* block)
+{
+    regMaskTP gcRegs       = liveGCRefRegs | liveGCByRefRegs;
+    regMaskTP lclRegs      = liveLclRegs;
+    regMaskTP nonLclGCRegs = gcRegs & ~lclRegs;
+
+    // Remove return registers.
+    if ((block->lastNode() != nullptr) && block->lastNode()->OperIs(GT_RETURN))
+    {
+        const ReturnTypeDesc& retDesc = compiler->info.retDesc;
+
+        for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
+        {
+            if (varTypeIsGC(retDesc.GetRegType(i)))
+            {
+                nonLclGCRegs &= ~genRegMask(retDesc.GetRegNum(i));
+            }
+        }
+    }
+
+    if (nonLclGCRegs != RBM_NONE)
+    {
+        printf("Regs after " FMT_BB " ref-regs", block->bbNum);
+        DumpRegSet(liveGCRefRegs & ~lclRegs);
+        printf(", byref-regs");
+        DumpRegSet(liveGCByRefRegs & ~lclRegs);
+        printf(", lcl-regs");
+        DumpRegSet(lclRegs);
+        printf("\n");
+    }
+
+    assert(nonLclGCRegs == RBM_NONE);
+}
+
+void CodeGenLivenessUpdater::VerifyLiveRegVars(BasicBlock* block)
+{
+    DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live out vars: ", block->bbLiveOut, currentLife));
+
+    // The current live set should be equal to the block's live out set, except that
+    // we don't keep it up to date for locals that are not register candidates.
+
+    bool foundMismatch = false;
+    auto SymmetricDiff = [](size_t x, size_t y) { return x ^ y; };
+
+    for (auto en = VarSetOps::EnumOp(compiler, SymmetricDiff, currentLife, block->bbLiveOut); en.MoveNext();)
+    {
+        LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(en.Current());
+
+        if (lcl->IsRegCandidate())
+        {
+            if (!foundMismatch)
+            {
+                JITDUMP("Mismatched live reg vars after " FMT_BB ":", block->bbNum);
+                foundMismatch = true;
+            }
+
+            JITDUMP(" " FMT_LCL, compiler->lvaTrackedIndexToLclNum(en.Current()));
+        }
+    }
+
+    if (foundMismatch)
+    {
+        JITDUMP("\n");
+        assert(!"Found mismatched live reg var(s) after block");
+    }
+}
 #endif // DEBUG

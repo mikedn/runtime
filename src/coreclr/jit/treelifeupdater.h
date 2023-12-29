@@ -356,5 +356,10 @@ public:
     DbgInfoVarRange* GetPrologRanges(unsigned lclNum) const;
     unsigned GetRangeCount() const;
 
-    INDEBUG(void DumpNewRanges(const BasicBlock* block);)
+#ifdef DEBUG
+    void DumpNewRanges(const BasicBlock* block);
+
+    void VerifyLiveGCRegs(BasicBlock* block);
+    void VerifyLiveRegVars(BasicBlock* block);
+#endif
 };
