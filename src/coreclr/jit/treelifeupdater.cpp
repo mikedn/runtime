@@ -221,9 +221,6 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
     if (isBorn || isDying)
     {
-        DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, currentLife);)
-        DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet2, liveGCLcl);)
-
         if (isBorn && lcl->IsRegCandidate() && (lclNode->GetRegNum() != REG_NA))
         {
             lcl->SetRegNum(lclNode->GetRegNum());
@@ -265,6 +262,8 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
             // eliminated.)  If it's both, we handled it above.
             changed = VarSetOps::TryAddElemD(compiler, currentLife, lcl->GetLivenessBitIndex());
         }
+
+        DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet2, liveGCLcl);)
 
         if (changed)
         {
