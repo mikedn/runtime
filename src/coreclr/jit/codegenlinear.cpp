@@ -80,13 +80,8 @@ void CodeGen::genCodeForBBlist()
 
     for (BasicBlock* block = compiler->fgFirstBB; block != nullptr; block = block->bbNext)
     {
-#ifdef DEBUG
-        if (compiler->verbose)
-        {
-            printf("\n=============== Generating ");
-            block->dspBlockHeader(compiler, true, true);
-        }
-#endif // DEBUG
+        JITDUMP("\n=============== Generating ");
+        DBEXEC(compiler->verbose, block->dspBlockHeader(compiler, true, true));
 
         assert(LIR::AsRange(block).CheckLIR(compiler));
 
@@ -294,7 +289,24 @@ void CodeGen::genCodeForBBlist()
                 break;
 
             case BBJ_CALLFINALLY:
-                block = genCallFinally(block);
+                genCallFinally(block);
+
+#ifdef TARGET_ARM
+                assert((block->bbFlags & BBF_RETLESS_CALL) == 0);
+#else
+                if ((block->bbFlags & BBF_RETLESS_CALL) == 0)
+#endif
+                {
+                    // The BBJ_ALWAYS is used because the BBJ_CALLFINALLY can't point to the
+                    // jump target using bbJumpDest - that is already used to point
+                    // to the finally block. So just skip past the BBJ_ALWAYS unless the
+                    // block is RETLESS.
+                    assert(block->isBBCallAlwaysPair());
+                    block = block->bbNext;
+
+                    JITDUMP("\n=============== Skipping finnaly return ");
+                    DBEXEC(compiler->verbose, block->dspBlockHeader(compiler, true, true));
+                }
                 break;
 
 #ifdef FEATURE_EH_FUNCLETS
@@ -411,6 +423,10 @@ void CodeGen::genCodeForBBlist()
         }
 #endif
 
+        // TODO-MIKE-Cleanup: Due to the finally return mess this is misleading,
+        // it may show the the finally return block instead of the actual block.
+        // It may be that certain liveness aspects are messed up as well (debug
+        // info most likely).
         DBEXEC(compiler->verbose, liveness.DumpNewRanges(block));
     }
 

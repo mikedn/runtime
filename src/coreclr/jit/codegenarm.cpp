@@ -60,7 +60,7 @@ void CodeGen::genStackPointerAdjustment(int32_t spDelta, regNumber tmpReg)
     genInstrWithConstant(INS_add, REG_SPBASE, REG_SPBASE, spDelta, tmpReg);
 }
 
-BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
+void CodeGen::genCallFinally(BasicBlock* block)
 {
     // We don't have retless calls, since we use the BBJ_ALWAYS to point at a NOP pad where
     // we would have otherwise created retless calls.
@@ -78,14 +78,6 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
     genMov32RelocatableDisplacement(bbFinallyRet, REG_LR);
 
     GetEmitter()->emitIns_J(INS_b, block->bbJumpDest);
-
-    // The BBJ_ALWAYS is used because the BBJ_CALLFINALLY can't point to the
-    // jump target using bbJumpDest - that is already used to point
-    // to the finally block. So just skip past the BBJ_ALWAYS unless the
-    // block is RETLESS.
-    assert(!(block->bbFlags & BBF_RETLESS_CALL));
-    assert(block->isBBCallAlwaysPair());
-    return block->bbNext;
 }
 
 void CodeGen::genEHCatchRet(BasicBlock* block)

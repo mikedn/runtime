@@ -256,7 +256,7 @@ void CodeGen::SetStackLevel(unsigned newStackLevel)
 
 #endif // TARGET_X86
 
-BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
+void CodeGen::genCallFinally(BasicBlock* block)
 {
     assert(block->GetKind() == BBJ_CALLFINALLY);
 
@@ -380,17 +380,6 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
     GetEmitter()->emitIns_J(INS_jmp, block->bbJumpDest);
 
 #endif // !FEATURE_EH_FUNCLETS
-
-    // The BBJ_ALWAYS is used because the BBJ_CALLFINALLY can't point to the
-    // jump target using bbJumpDest - that is already used to point
-    // to the finally block. So just skip past the BBJ_ALWAYS unless the
-    // block is RETLESS.
-    if (!(block->bbFlags & BBF_RETLESS_CALL))
-    {
-        assert(block->isBBCallAlwaysPair());
-        block = block->bbNext;
-    }
-    return block;
 }
 
 #ifdef FEATURE_EH_FUNCLETS
