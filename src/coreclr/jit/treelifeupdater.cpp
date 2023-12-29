@@ -95,6 +95,7 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
                 {
                     // lcl was alive on previous block end ("bb->bbPrev->bbLiveOut"), so it has an open
                     // "DbgInfoVarRange" which should change to be according "getInVarToRegMap"
+                    JITDUMP("\n");
                     UpdateRange(codeGen, lcl, lclNum);
                 }
             }
