@@ -892,7 +892,7 @@ protected:
                       const CORINFO_CONST_LOOKUP& addrInfo
 #endif
                       );
-    void genCallFinally(BasicBlock* block);
+    void GenCallFinally(BasicBlock* block);
     void GenJTrue(GenTreeUnOp* jtrue, BasicBlock* block);
     void GenJCC(GenTreeCC* jcc, BasicBlock* block);
 #ifdef TARGET_ARM64

@@ -256,15 +256,17 @@ void CodeGen::SetStackLevel(unsigned newStackLevel)
 
 #endif // TARGET_X86
 
-void CodeGen::genCallFinally(BasicBlock* block)
+void CodeGen::GenCallFinally(BasicBlock* block)
 {
     assert(block->GetKind() == BBJ_CALLFINALLY);
 
 #ifdef FEATURE_EH_FUNCLETS
     // Generate a call to the finally, like this:
-    //      mov         rcx,qword ptr [rbp + 20H]       // Load rcx with PSPSym
+    //
+    //      mov         rcx, qword ptr [rbp + 20H] ; Load rcx with PSPSym
     //      call        finally-funclet
-    //      jmp         finally-return                  // Only for non-retless finally calls
+    //      jmp         finally-return             ; Only for non-retless finally calls
+    //
     // The jmp can be a NOP if we're going to the next block.
     // If we're generating code for the main function (not a funclet), and there is no localloc,
     // then RSP at this point is the same shift as that stored in the PSPSym. So just copy RSP
@@ -274,17 +276,17 @@ void CodeGen::genCallFinally(BasicBlock* block)
         (!compiler->compLocallocUsed && (compiler->funCurrentFunc()->funKind == FUNC_ROOT)))
     {
 #ifndef UNIX_X86_ABI
-        inst_Mov(TYP_I_IMPL, REG_ARG_0, REG_SPBASE, /* canSkip */ false);
+        GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_ARG_0, REG_SPBASE, /* canSkip */ false);
 #endif
     }
     else
     {
-        GetEmitter()->emitIns_R_S(ins_Load(TYP_I_IMPL), EA_PTRSIZE, REG_ARG_0, compiler->lvaPSPSym, 0);
+        GetEmitter()->emitIns_R_S(INS_mov, EA_PTRSIZE, REG_ARG_0, compiler->lvaPSPSym, 0);
     }
 
     GetEmitter()->emitIns_CallFinally(block->bbJumpDest);
 
-    if (block->bbFlags & BBF_RETLESS_CALL)
+    if ((block->bbFlags & BBF_RETLESS_CALL) != 0)
     {
         // We have a retless call, and the last instruction generated was a call.
         // If the next block is in a different EH region (or is the end of the code
@@ -293,7 +295,7 @@ void CodeGen::genCallFinally(BasicBlock* block)
 
         if ((block->bbNext == nullptr) || !BasicBlock::sameEHRegion(block, block->bbNext))
         {
-            GetEmitter()->emitIns(INS_BREAKPOINT); // This should never get executed
+            GetEmitter()->emitIns(INS_int3); // This should never get executed
         }
     }
     else
@@ -367,7 +369,7 @@ void CodeGen::genCallFinally(BasicBlock* block)
     // Now push the address where the finally funclet should return to directly.
     if (!(block->bbFlags & BBF_RETLESS_CALL))
     {
-        assert(block->isBBCallAlwaysPair());
+        assert(block->IsCallFinallyAlwaysPairHead());
         GetEmitter()->emitIns_L(INS_push_hide, block->bbNext->bbJumpDest);
     }
     else

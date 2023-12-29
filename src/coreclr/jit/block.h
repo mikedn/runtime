@@ -437,16 +437,14 @@ enum BasicBlockFlags : uint64_t
     BBF_HAS_NEWARRAY         = MAKE_BBFLAG(21), // BB contains 'new' of an array
     BBF_HAS_NEWOBJ           = MAKE_BBFLAG(22), // BB contains 'new' of an object type.
 
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-
+#ifdef TARGET_ARM
     BBF_FINALLY_TARGET       = MAKE_BBFLAG(23), // BB is the target of a finally return: where a finally will return during
                                                 // non-exceptional flow. Because the ARM calling sequence for calling a
                                                 // finally explicitly sets the return address to the finally target and jumps
                                                 // to the finally, instead of using a call instruction, ARM needs this to
                                                 // generate correct code at the finally target, to allow for proper stack
                                                 // unwind from within a non-exceptional call to a finally.
-
-#endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+#endif 
 
     BBF_BACKWARD_JUMP        = MAKE_BBFLAG(24), // BB is surrounded by a backward jump/switch arc
     BBF_RETLESS_CALL         = MAKE_BBFLAG(25), // BBJ_CALLFINALLY that will never return (and therefore, won't need a paired
@@ -758,11 +756,22 @@ struct BasicBlock : private LIR::Range
 
     // Returns "true" iff "this" is the first block of a BBJ_CALLFINALLY/BBJ_ALWAYS pair --
     // a block corresponding to an exit from the try of a try/finally.
-    bool isBBCallAlwaysPair() const;
+    // [[deprecated]]
+    bool isBBCallAlwaysPair() const
+    {
+        return IsCallFinallyAlwaysPairHead();
+    }
 
     // Returns "true" iff "this" is the last block of a BBJ_CALLFINALLY/BBJ_ALWAYS pair --
     // a block corresponding to an exit from the try of a try/finally.
-    bool isBBCallAlwaysPairTail() const;
+    // [[deprecated]]
+    bool isBBCallAlwaysPairTail() const
+    {
+        return IsCallFinallyAlwaysPairTail();
+    }
+
+    bool IsCallFinallyAlwaysPairHead() const;
+    bool IsCallFinallyAlwaysPairTail() const;
 
     BBjumpKinds bbJumpKind; // jump (if any) at the end of this block
 

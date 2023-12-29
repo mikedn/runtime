@@ -60,22 +60,16 @@ void CodeGen::genStackPointerAdjustment(int32_t spDelta, regNumber tmpReg)
     genInstrWithConstant(INS_add, REG_SPBASE, REG_SPBASE, spDelta, tmpReg);
 }
 
-void CodeGen::genCallFinally(BasicBlock* block)
+void CodeGen::GenCallFinally(BasicBlock* block)
 {
-    // We don't have retless calls, since we use the BBJ_ALWAYS to point at a NOP pad where
-    // we would have otherwise created retless calls.
-    assert(block->isBBCallAlwaysPair());
-
-    assert(block->bbNext != NULL);
-    assert(block->bbNext->bbJumpKind == BBJ_ALWAYS);
-    assert(block->bbNext->bbJumpDest != NULL);
-    assert(block->bbNext->bbJumpDest->bbFlags & BBF_FINALLY_TARGET);
-
-    BasicBlock* bbFinallyRet = block->bbNext->bbJumpDest;
+    // We don't have retless calls, since we use the BBJ_ALWAYS to point
+    // at a NOP pad where we would have otherwise created retless calls.
+    assert(block->IsCallFinallyAlwaysPairHead());
+    assert((block->bbNext->bbJumpDest->bbFlags & BBF_FINALLY_TARGET) != 0);
 
     // Load the address where the finally funclet should return into LR.
     // The funclet prolog/epilog will do "push {lr}" / "pop {pc}" to do the return.
-    genMov32RelocatableDisplacement(bbFinallyRet, REG_LR);
+    genMov32RelocatableDisplacement(block->bbNext->bbJumpDest, REG_LR);
 
     GetEmitter()->emitIns_J(INS_b, block->bbJumpDest);
 }

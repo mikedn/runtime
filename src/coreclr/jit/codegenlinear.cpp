@@ -230,7 +230,7 @@ void CodeGen::genCodeForBBlist()
         genEnsureCodeEmitted(currentILOffset);
 
         bool isLastBlockProcessed =
-            (block->bbNext == nullptr) || (block->isBBCallAlwaysPair() && (block->bbNext->bbNext == nullptr));
+            (block->bbNext == nullptr) || (block->IsCallFinallyAlwaysPairHead() && (block->bbNext->bbNext == nullptr));
 
         if (compiler->opts.compDbgInfo && isLastBlockProcessed)
         {
@@ -289,7 +289,7 @@ void CodeGen::genCodeForBBlist()
                 break;
 
             case BBJ_CALLFINALLY:
-                genCallFinally(block);
+                GenCallFinally(block);
 
 #ifdef TARGET_ARM
                 assert((block->bbFlags & BBF_RETLESS_CALL) == 0);
@@ -301,10 +301,10 @@ void CodeGen::genCodeForBBlist()
                     // jump target using bbJumpDest - that is already used to point
                     // to the finally block. So just skip past the BBJ_ALWAYS unless the
                     // block is RETLESS.
-                    assert(block->isBBCallAlwaysPair());
+                    assert(block->IsCallFinallyAlwaysPairHead());
                     block = block->bbNext;
 
-                    JITDUMP("\n=============== Skipping finnaly return ");
+                    JITDUMP("\n=============== Skipping finally return ");
                     DBEXEC(compiler->verbose, block->dspBlockHeader(compiler, true, true));
                 }
                 break;
@@ -317,7 +317,7 @@ void CodeGen::genCodeForBBlist()
             case BBJ_EHFILTERRET:
 #ifdef TARGET_AMD64
                 // We're about to create an epilog. If the last instruction we output was a 'call',
-                // then we need to insert a NOP, to allow for proper exception - handling behavior.
+                // then we need to insert a NOP, to allow for proper exception handling behavior.
                 if (GetEmitter()->IsLastInsCall())
                 {
                     GetEmitter()->emitIns(INS_nop);

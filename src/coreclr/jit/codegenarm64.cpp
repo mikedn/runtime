@@ -1391,7 +1391,7 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
 #endif // DEBUG
 }
 
-void CodeGen::genCallFinally(BasicBlock* block)
+void CodeGen::GenCallFinally(BasicBlock* block)
 {
     // Generate a call to the finally, like this:
     //      mov         x0,qword ptr [fp + 10H] / sp    // Load x0 with PSPSym, or sp if PSPSym is not used
@@ -1410,7 +1410,7 @@ void CodeGen::genCallFinally(BasicBlock* block)
 
     GetEmitter()->emitIns_CallFinally(block->bbJumpDest);
 
-    if (block->bbFlags & BBF_RETLESS_CALL)
+    if ((block->bbFlags & BBF_RETLESS_CALL) != 0)
     {
         // We have a retless call, and the last instruction generated was a call.
         // If the next block is in a different EH region (or is the end of the code
