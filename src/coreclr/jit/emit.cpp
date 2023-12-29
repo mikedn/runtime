@@ -259,6 +259,9 @@ void emitter::emitGenIG(insGroup* ig)
         ig->igFlags |= IGF_NOGCINTERRUPT;
     }
 
+    JITDUMP(FMT_IG ": offs %06XH, funclet %02u, weight %s\n", ig->igNum, ig->igOffs, ig->igFuncIdx,
+            refCntWtd2str(ig->igWeight));
+
     emitCurIG         = ig;
     emitCurIGinsCnt   = 0;
     emitCurIGsize     = 0;
@@ -319,8 +322,8 @@ void emitter::emitFinishIG(bool extend)
 
     emitCurIGfreeNext = emitCurIGfreeBase;
 
-    JITDUMP(FMT_IG ": offs %06XH, funclet %02u, weight %s\n", ig->igNum, ig->igOffs, ig->igFuncIdx,
-            refCntWtd2str(ig->igWeight));
+    JITDUMP(FMT_IG ": offs %06XH, size %04XH, funclet %02u, weight %s\n", ig->igNum, ig->igOffs, ig->igSize,
+            ig->igFuncIdx, refCntWtd2str(ig->igWeight));
 }
 
 #if FEATURE_LOOP_ALIGN
@@ -821,7 +824,7 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
 #ifdef FEATURE_EH_FUNCLETS
     if (igType == IGPT_FUNCLET_PROLOG)
     {
-        JITDUMP("Reserving funclet prolog IG for block " FMT_BB "\n", igBB->bbNum);
+        JITDUMP("Reserving " FMT_IG " for block " FMT_BB " funclet prolog\n", emitCurIG->igNum, igBB->bbNum);
 
         // We should already have an empty group added by emitAddLabel
         // for the first block in the funclet. We'll use that for the
@@ -853,8 +856,6 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
         assert(igType == IGPT_EPILOG);
 #endif
 
-        JITDUMP("Reserving %sepilog IG for block " FMT_BB "\n", igType != IGPT_EPILOG ? "funclet " : "", igBB->bbNum);
-
         if (emitCurIGnonEmpty())
         {
             emitExtendIG();
@@ -866,6 +867,9 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
             // block, to avoid confusion remove the basic block flag.
             emitCurIG->igFlags &= ~IGF_BASIC_BLOCK;
         }
+
+        JITDUMP("Reserving " FMT_IG " for block " FMT_BB " %sepilog\n", emitCurIG->igNum, igBB->bbNum,
+                igType != IGPT_EPILOG ? "funclet " : "");
 
         isLast = igBB->bbNext == nullptr;
 
