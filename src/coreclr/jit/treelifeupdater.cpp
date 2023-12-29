@@ -282,14 +282,13 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
             DBEXEC(compiler->verbose, DumpDiff(codeGen);)
 
-            if (isBorn && !isDying)
-            {
-                StartRange(codeGen, lcl, lclNode->GetLclNum());
-            }
-
-            if (isDying && !isBorn)
+            if (isDying)
             {
                 EndRange(codeGen, lclNode->GetLclNum());
+            }
+            else
+            {
+                StartRange(codeGen, lcl, lclNode->GetLclNum());
             }
         }
     }
