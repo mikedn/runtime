@@ -226,8 +226,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
             lcl->SetRegNum(lclNode->GetRegNum());
         }
 
-        bool isInReg    = lcl->lvIsInReg() && (lclNode->GetRegNum() != REG_NA);
-        bool isInMemory = !isInReg || lcl->IsAlwaysAliveInMemory();
+        bool isInReg = lcl->lvIsInReg() && (lclNode->GetRegNum() != REG_NA);
 
         if (isInReg)
         {
@@ -267,7 +266,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
         if (changed)
         {
-            if (isInMemory && lcl->HasGCSlotLiveness())
+            if (lcl->HasGCSlotLiveness() && (!isInReg || lcl->IsAlwaysAliveInMemory()))
             {
                 if (isDying)
                 {
@@ -326,7 +325,6 @@ void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar*
         LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
         bool isInReg      = fieldLcl->lvIsInReg();
-        bool isInMemory   = !isInReg || fieldLcl->IsAlwaysAliveInMemory();
         bool isFieldDying = lclNode->IsLastUse(i);
 
         if (isInReg)
@@ -343,7 +341,7 @@ void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar*
             VarSetOps::AddElemD(compiler, currentLife, fieldLcl->GetLivenessBitIndex());
         }
 
-        if (isInMemory && fieldLcl->HasGCSlotLiveness())
+        if (fieldLcl->HasGCSlotLiveness() && (!isInReg || fieldLcl->IsAlwaysAliveInMemory()))
         {
             // TODO-MIKE-Review: Should we remove the local from the GC var set when the field is dying?
             // The "scalar" version of this code doesn't do it, it checks "isBorn" instead of "isDying".
