@@ -214,24 +214,7 @@ void CodeGen::genCodeForBBlist()
         compiler->lvaTableDump();
         JITDUMP("\n");
     }
-
-#ifdef TARGET_XARCH
-    // Check stack pointer on return stress mode is not compatible with fully interruptible GC. REVIEW: why?
-    // It is also not compatible with any function that makes a tailcall: we aren't smart enough to only
-    // insert the SP check in the non-tailcall returns.
-    if ((GetInterruptible() || compiler->compTailCallUsed) && (compiler->lvaReturnSpCheck != BAD_VAR_NUM))
-    {
-        compiler->lvaReturnSpCheck = BAD_VAR_NUM;
-    }
-#ifdef TARGET_X86
-    // Check stack pointer on call stress mode is not compatible with fully interruptible GC. REVIEW: why?
-    if (GetInterruptible() && (compiler->lvaCallSpCheck != BAD_VAR_NUM))
-    {
-        compiler->lvaCallSpCheck = BAD_VAR_NUM;
-    }
-#endif // TARGET_X86
-#endif // TARGET_XARCH
-#endif // DEBUG
+#endif
 
     assert((compiler->fgFirstBBScratch == nullptr) || (compiler->fgFirstBB == compiler->fgFirstBBScratch));
     assert(genPendingCallLabel == nullptr);
