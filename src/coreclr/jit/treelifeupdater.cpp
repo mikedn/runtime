@@ -9,14 +9,11 @@ void CodeGenLivenessUpdater::Begin()
 
     if (compiler->opts.compDbgInfo)
     {
-        varCount   = compiler->info.compLocalsCount;
-        paramCount = compiler->info.compArgsCount;
-        assert(paramCount <= varCount);
+        dbgInfoVarCount = compiler->info.compLocalsCount;
 
-        if (varCount != 0)
+        if (dbgInfoVarCount != 0)
         {
-            bodyVars   = new (compiler, CMK_VariableLiveRanges) DbgInfoVar[varCount + paramCount];
-            prologVars = bodyVars + varCount;
+            dbgInfoVars = new (compiler, CMK_VariableLiveRanges) DbgInfoVar[dbgInfoVarCount];
         }
     }
 
@@ -674,26 +671,26 @@ DbgInfoVarRange* DbgInfoVar::StartRange(CodeGen* codeGen, const DbgInfoVarLoc& v
         // The variable is being born just after the instruction at which it died.
         // In this case, i.e. an update of the variable's value, we coalesce the live ranges.
         lastRange->endOffset = {};
+
+        return lastRange;
+    }
+
+    DbgInfoVarRange* newRange = new (codeGen->GetCompiler(), CMK_VariableLiveRanges) DbgInfoVarRange(varLoc);
+    newRange->startOffset.CaptureLocation(codeGen->GetEmitter());
+
+    if (lastRange != nullptr)
+    {
+        lastRange->next = newRange;
     }
     else
     {
-        DbgInfoVarRange* newRange = new (codeGen->GetCompiler(), CMK_VariableLiveRanges) DbgInfoVarRange(varLoc);
-        newRange->startOffset.CaptureLocation(codeGen->GetEmitter());
-
-        if (lastRange != nullptr)
-        {
-            lastRange->next = newRange;
-        }
-        else
-        {
-            firstRange = newRange;
-        }
-
-        lastRange = newRange;
-        count++;
+        firstRange = newRange;
     }
 
-    return lastRange;
+    lastRange = newRange;
+    count++;
+
+    return newRange;
 }
 
 DbgInfoVarRange* DbgInfoVar::EndRange(CodeGen* codeGen)
@@ -706,14 +703,29 @@ DbgInfoVarRange* DbgInfoVar::EndRange(CodeGen* codeGen)
     return lastRange;
 }
 
+void DbgInfoVar::InsertRangeFront(DbgInfoVarRange* range)
+{
+    assert(range->next == nullptr);
+
+    range->next = firstRange;
+    firstRange  = range;
+
+    if (lastRange == nullptr)
+    {
+        lastRange = range;
+    }
+
+    count++;
+}
+
 void CodeGenLivenessUpdater::StartRange(CodeGen* codeGen, const LclVarDsc* lcl, unsigned lclNum)
 {
-    if (lclNum >= varCount)
+    if (lclNum >= dbgInfoVarCount)
     {
         return;
     }
 
-    DbgInfoVarRange* range = bodyVars[lclNum].StartRange(codeGen, GetVarLocation(codeGen, lcl));
+    DbgInfoVarRange* range = dbgInfoVars[lclNum].StartRange(codeGen, GetVarLocation(codeGen, lcl));
 
     JITDUMP("Debug info: " FMT_LCL " available in ", lclNum);
     DBEXEC(compiler->verbose, range->location.Dump(" at "));
@@ -722,12 +734,12 @@ void CodeGenLivenessUpdater::StartRange(CodeGen* codeGen, const LclVarDsc* lcl, 
 
 void CodeGenLivenessUpdater::EndRange(CodeGen* codeGen, unsigned lclNum)
 {
-    if ((lclNum >= varCount) || lastBlockHasBeenEmited)
+    if ((lclNum >= dbgInfoVarCount) || lastBlockHasBeenEmited)
     {
         return;
     }
 
-    DbgInfoVarRange* range = bodyVars[lclNum].EndRange(codeGen);
+    DbgInfoVarRange* range = dbgInfoVars[lclNum].EndRange(codeGen);
 
     JITDUMP("Debug info: " FMT_LCL " no longer available in ", lclNum);
     DBEXEC(compiler->verbose, range->location.Dump(" at "));
@@ -736,13 +748,13 @@ void CodeGenLivenessUpdater::EndRange(CodeGen* codeGen, unsigned lclNum)
 
 void CodeGenLivenessUpdater::UpdateRange(CodeGen* codeGen, const LclVarDsc* lcl, unsigned lclNum)
 {
-    if (lclNum >= varCount || lastBlockHasBeenEmited)
+    if (lclNum >= dbgInfoVarCount || lastBlockHasBeenEmited)
     {
         return;
     }
 
-    DbgInfoVarRange* oldRange = bodyVars[lclNum].EndRange(codeGen);
-    DbgInfoVarRange* newRange = bodyVars[lclNum].StartRange(codeGen, GetVarLocation(codeGen, lcl));
+    DbgInfoVarRange* oldRange = dbgInfoVars[lclNum].EndRange(codeGen);
+    DbgInfoVarRange* newRange = dbgInfoVars[lclNum].StartRange(codeGen, GetVarLocation(codeGen, lcl));
 
     // If we are reporting again the same home, that means we are doing something twice?
     // assert(oldRange->location != newRange->location);
@@ -755,7 +767,7 @@ void CodeGenLivenessUpdater::UpdateRange(CodeGen* codeGen, const LclVarDsc* lcl,
 
 void CodeGenLivenessUpdater::EndCodeGen(CodeGen* codeGen)
 {
-    if (varCount != 0)
+    if (dbgInfoVarCount != 0)
     {
         if ((compiler->lvaTrackedCount > 0) || !compiler->opts.OptimizationDisabled())
         {
@@ -766,9 +778,9 @@ void CodeGenLivenessUpdater::EndCodeGen(CodeGen* codeGen)
         }
         else
         {
-            for (unsigned i = 0; i < varCount; i++)
+            for (unsigned i = 0; i < dbgInfoVarCount; i++)
             {
-                if (bodyVars[i].HasOpenRange())
+                if (dbgInfoVars[i].HasOpenRange())
                 {
                     EndRange(codeGen, i);
                 }
@@ -779,33 +791,20 @@ void CodeGenLivenessUpdater::EndCodeGen(CodeGen* codeGen)
     lastBlockHasBeenEmited = true;
 }
 
-DbgInfoVarRange* CodeGenLivenessUpdater::GetBodyRanges(unsigned lclNum) const
+DbgInfoVarRange* CodeGenLivenessUpdater::GetDbgInfoRanges(unsigned lclNum) const
 {
-    return lclNum >= varCount ? nullptr : bodyVars[lclNum].GetRanges();
+    return lclNum >= dbgInfoVarCount ? nullptr : dbgInfoVars[lclNum].GetRanges();
 }
 
-DbgInfoVarRange* CodeGenLivenessUpdater::GetPrologRanges(unsigned lclNum) const
-{
-    return lclNum >= paramCount ? nullptr : prologVars[lclNum].GetRanges();
-}
-
-unsigned CodeGenLivenessUpdater::GetRangeCount() const
+unsigned CodeGenLivenessUpdater::GetDbgInfoRangeCount() const
 {
     unsigned count = 0;
 
-    for (unsigned lclNum = 0; lclNum < varCount; lclNum++)
+    for (unsigned lclNum = 0; lclNum < dbgInfoVarCount; lclNum++)
     {
         if (compiler->compMap2ILvarNum(lclNum) != ICorDebugInfo::UNKNOWN_ILNUM)
         {
-            count += bodyVars[lclNum].GetRangeCount();
-        }
-    }
-
-    for (unsigned lclNum = 0; lclNum < paramCount; lclNum++)
-    {
-        if (compiler->compMap2ILvarNum(lclNum) != ICorDebugInfo::UNKNOWN_ILNUM)
-        {
-            count += prologVars[lclNum].GetRangeCount();
+            count += dbgInfoVars[lclNum].GetRangeCount();
         }
     }
 
@@ -918,8 +917,9 @@ void CodeGenLivenessUpdater::StartUntrackedVarsRanges(CodeGen*    codeGen,
     prevBlockEndILOffset = endILOffset;
 }
 
-void CodeGenLivenessUpdater::BeginProlog(CodeGen* codeGen)
+void CodeGenLivenessUpdater::CreatePrologDbgInfoRanges(CodeGen* codeGen)
 {
+    assert(compiler->opts.compDbgInfo && (compiler->info.compVarScopesCount > 0));
     assert(codeGen->generatingProlog);
 
     unsigned nextEnterScope = 0;
@@ -933,7 +933,10 @@ void CodeGenLivenessUpdater::BeginProlog(CodeGen* codeGen)
             continue;
         }
 
-        noway_assert(scope->lclNum < paramCount);
+        if (compiler->compMap2ILvarNum(scope->lclNum) == ICorDebugInfo::UNKNOWN_ILNUM)
+        {
+            continue;
+        }
 
         DbgInfoVarLoc loc;
 
@@ -953,22 +956,14 @@ void CodeGenLivenessUpdater::BeginProlog(CodeGen* codeGen)
             loc.SetRegLocation(lcl->GetParamReg());
         }
 
-        DbgInfoVarRange* range = prologVars[scope->lclNum].StartRange(codeGen, loc);
+        DbgInfoVarRange* range = new (codeGen->GetCompiler(), CMK_VariableLiveRanges) DbgInfoVarRange(loc);
+        range->startOffset.SetLocation(codeGen->GetEmitter()->GetProlog());
+        range->endOffset.CaptureLocation(codeGen->GetEmitter());
+        dbgInfoVars[scope->lclNum].InsertRangeFront(range);
 
         JITDUMP("Debug info: Param " FMT_LCL " available in ", scope->lclNum);
-        DBEXEC(compiler->verbose, range->location.Dump());
+        DBEXEC(compiler->verbose, range->location.Dump(" at "));
         DBEXEC(compiler->verbose, range->startOffset.Print("\n"));
-    }
-}
-
-void CodeGenLivenessUpdater::EndProlog(CodeGen* codeGen)
-{
-    for (unsigned i = 0; i < paramCount; i++)
-    {
-        if (prologVars[i].HasOpenRange())
-        {
-            prologVars[i].EndRange(codeGen);
-        }
     }
 }
 

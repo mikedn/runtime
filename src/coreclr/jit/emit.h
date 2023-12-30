@@ -26,6 +26,14 @@ public:
     {
     }
 
+    void SetLocation(insGroup* label)
+    {
+        assert(label != nullptr);
+
+        ig      = label;
+        codePos = 0;
+    }
+
     void CaptureLocation(emitter* emit);
 
     insGroup* GetIG() const
@@ -365,6 +373,11 @@ public:
         return emitConsDsc.dsdOffs;
     }
 
+    insGroup* GetProlog() const
+    {
+        return emitIGfirst;
+    }
+
 private:
     static const UNATIVE_OFFSET INVALID_UNATIVE_OFFSET = (UNATIVE_OFFSET)-1;
 
@@ -379,11 +392,6 @@ private:
         OPSZ16 = 4,
         OPSZ32 = 5
     };
-
-    insGroup* GetProlog() const
-    {
-        return emitIGfirst;
-    }
 
     bool emitIGisInProlog(const insGroup* ig) const
     {

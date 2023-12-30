@@ -79,7 +79,7 @@ void DbgInfoVarLoc::SetStackLocation(RegNum baseReg, int offset)
 {
     // TODO-MIKE-Review: What about LONG/DOUBLE on 32 bit targets (VLT_STK2)?
     // What about implicit byref params? Ultimately it's not clear why
-    // BeginProlog doesn't use the normal siVarLoc creation means.
+    // CreatePrologDbgInfoRanges doesn't use the normal siVarLoc creation means.
 
     vlType           = VLT_STK;
     vlStk.vlsBaseReg = baseReg;
@@ -139,8 +139,8 @@ void DbgInfoVarLoc::SetRegLocation(RegNum reg1)
     assert(isValidIntArgReg(reg1) || isValidFloatArgReg(reg1));
 
     // TODO-MIKE-Review: What about FP regs (VLT_REG_FP/VLT_FPSTK)?
-    // Ultimately it's not clear why BeginProlog doesn't use the
-    // normal siVarLoc creation means.
+    // Ultimately it's not clear why CreatePrologDbgInfoRanges doesn't
+    // use the normal siVarLoc creation means.
 
     vlType       = VLT_REG;
     vlReg.vlrReg = reg1;

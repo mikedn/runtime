@@ -186,6 +186,8 @@ public:
 
     DbgInfoVarRange* StartRange(CodeGen* codeGen, const DbgInfoVarLoc& varLoc);
     DbgInfoVarRange* EndRange(CodeGen* codeGen);
+
+    void InsertRangeFront(DbgInfoVarRange* range);
 };
 
 // Handles changes in variable liveness from a given node.
@@ -199,10 +201,8 @@ class CodeGenLivenessUpdater
     regMaskTP liveGCRefRegs   = RBM_NONE;
     regMaskTP liveGCByRefRegs = RBM_NONE;
 
-    unsigned    varCount               = 0;
-    unsigned    paramCount             = 0;
-    DbgInfoVar* bodyVars               = nullptr;
-    DbgInfoVar* prologVars             = nullptr;
+    unsigned    dbgInfoVarCount        = 0;
+    DbgInfoVar* dbgInfoVars            = nullptr;
     IL_OFFSET   prevBlockEndILOffset   = 0;
     bool        lastBlockHasBeenEmited = false;
 #ifdef FEATURE_EH_FUNCLETS
@@ -341,13 +341,11 @@ public:
                                   unsigned*   nextEnterScope,
                                   unsigned*   nextExitScope);
 
-    void BeginProlog(CodeGen* codeGen);
-    void EndProlog(CodeGen* codeGen);
+    void CreatePrologDbgInfoRanges(CodeGen* codeGen);
     void EndCodeGen(CodeGen* codeGen);
 
-    DbgInfoVarRange* GetBodyRanges(unsigned lclNum) const;
-    DbgInfoVarRange* GetPrologRanges(unsigned lclNum) const;
-    unsigned GetRangeCount() const;
+    DbgInfoVarRange* GetDbgInfoRanges(unsigned lclNum) const;
+    unsigned GetDbgInfoRangeCount() const;
 
 #ifdef DEBUG
     void VerifyLiveGCRegs(BasicBlock* block);

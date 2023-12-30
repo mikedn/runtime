@@ -3921,11 +3921,6 @@ void CodeGen::genFnProlog()
     {
         // Do this so we can put the prolog instruction group ahead of other instruction groups.
         genIPmappingAddToFront(ICorDebugInfo::PROLOG);
-
-        if (compiler->info.compVarScopesCount > 0)
-        {
-            liveness.BeginProlog(this);
-        }
     }
 
 #ifdef TARGET_XARCH
@@ -4200,7 +4195,10 @@ void CodeGen::genFnProlog()
 
     if (compiler->opts.compDbgInfo && (compiler->info.compVarScopesCount > 0))
     {
-        liveness.EndProlog(this);
+        // TODO-MIKE-Review: The prolog doesn't actually end here, or to be more precise,
+        // the first block doesn't start after this point. So why limit the prolog param
+        // debug info ranges to this point?
+        liveness.CreatePrologDbgInfoRanges(this);
     }
 
 #ifdef TARGET_X86
@@ -4408,8 +4406,8 @@ void CodeGen::genSetScopeInfo()
 
     JITDUMP("*************** In genSetScopeInfo()\n");
 
+    unsigned       count  = liveness.GetDbgInfoRangeCount();
     VarResultInfo* ranges = nullptr;
-    unsigned       count  = liveness.GetRangeCount();
 
     JITDUMP("DbgInfoVarRange count is %u\n", count);
 
@@ -4450,36 +4448,22 @@ void CodeGen::genSetScopeInfoUsingVariableRanges(VarResultInfo* vars)
             continue;
         }
 
-        for (unsigned i = 0; i < 2; i++)
+        for (DbgInfoVarRange* range = liveness.GetDbgInfoRanges(lclNum); range != nullptr; range = range->next)
         {
-            DbgInfoVarRange* ranges = nullptr;
+            uint32_t startOffs = range->startOffset.CodeOffset(GetEmitter());
+            uint32_t endOffs   = range->endOffset.CodeOffset(GetEmitter());
 
-            if (i == 0)
+            if (lcl->IsParam() && (startOffs == endOffs))
             {
-                ranges = liveness.GetPrologRanges(lclNum);
-            }
-            else
-            {
-                ranges = liveness.GetBodyRanges(lclNum);
+                // If the length is zero, it means that the prolog is empty. In that case,
+                // CodeGen::genSetScopeInfo will report the liveness of all arguments
+                // as spanning the first instruction in the method, so that they can
+                // at least be inspected on entry to the method.
+                endOffs++;
             }
 
-            for (DbgInfoVarRange* range = ranges; range != nullptr; range = range->next)
-            {
-                uint32_t startOffs = range->startOffset.CodeOffset(GetEmitter());
-                uint32_t endOffs   = range->endOffset.CodeOffset(GetEmitter());
-
-                if (lcl->IsParam() && (startOffs == endOffs))
-                {
-                    // If the length is zero, it means that the prolog is empty. In that case,
-                    // CodeGen::genSetScopeInfo will report the liveness of all arguments
-                    // as spanning the first instruction in the method, so that they can
-                    // at least be inspected on entry to the method.
-                    endOffs++;
-                }
-
-                genSetScopeInfo(vars, liveRangeIndex, startOffs, endOffs, lclNum, ilVarNum, &range->location);
-                liveRangeIndex++;
-            }
+            genSetScopeInfo(vars, liveRangeIndex, startOffs, endOffs, lclNum, ilVarNum, &range->location);
+            liveRangeIndex++;
         }
     }
 }
