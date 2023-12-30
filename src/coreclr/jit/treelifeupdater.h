@@ -218,7 +218,7 @@ class CodeGenLivenessUpdater
     void UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
 
     void SetLiveLclRegs(regMaskTP regs);
-    void UpdateLiveLclRegs(const LclVarDsc* lcl, bool isDying DEBUGARG(GenTree* node = nullptr));
+    void UpdateLiveLclRegs(const LclVarDsc* lcl, bool isDying);
 
     void AddGCRefRegs(regMaskTP regMask DEBUGARG(bool forceOutput = false));
     void AddGCByRefRegs(regMaskTP regMask DEBUGARG(bool forceOutput = false));

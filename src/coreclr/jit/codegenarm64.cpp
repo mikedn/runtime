@@ -984,8 +984,6 @@ void CodeGen::genRestoreCalleeSavedRegistersHelp(regMaskTP regsToRestoreMask, in
 // clang-format on
 void CodeGen::genFuncletProlog(BasicBlock* block)
 {
-    JITDUMP("*************** In genFuncletProlog()\n");
-
     assert(block != NULL);
     assert(block->bbFlags & BBF_FUNCLET_BEG);
 
@@ -1125,8 +1123,6 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
 
 void CodeGen::genFuncletEpilog()
 {
-    JITDUMP("*************** In genFuncletEpilog()\n");
-
     ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
 
     bool unwindStarted = false;
@@ -1711,6 +1707,7 @@ void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
 
     if (lcl->IsRegCandidate() || load->IsRegSpilled(0))
     {
+        JITDUMP("Local is enregistered\n");
         return;
     }
 
@@ -9726,9 +9723,6 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
 
 void CodeGen::genFnEpilog(BasicBlock* block)
 {
-    JITDUMP("*************** In genFnEpilog()\n");
-    DBEXEC(compiler->opts.dspCode, printf("\n__epilog:\n"))
-
     ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
 
     bool     jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);

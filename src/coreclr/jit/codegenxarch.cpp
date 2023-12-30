@@ -3615,6 +3615,7 @@ void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
     // TODO-MIKE-Review: The spilled check is dubious, it cannot be spilled unless it's a reg candidate...
     if (lcl->IsRegCandidate() || load->IsRegSpilled(0))
     {
+        JITDUMP("Local is enregistered\n");
         return;
     }
 
@@ -8573,13 +8574,6 @@ void CodeGen::PrologInitVarargsStackParamsBaseOffset()
 //
 void CodeGen::genFuncletProlog(BasicBlock* block)
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In genFuncletProlog()\n");
-    }
-#endif
-
     assert(block != nullptr);
     assert(block->bbFlags & BBF_FUNCLET_BEG);
     assert(isFramePointerUsed());
@@ -8642,8 +8636,6 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
 
 void CodeGen::genFuncletEpilog()
 {
-    JITDUMP("*************** In genFuncletEpilog()\n");
-
     ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
 
     // Restore callee saved XMM regs from their stack slots before modifying SP
@@ -8732,14 +8724,6 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
 
 void CodeGen::genFnEpilog(BasicBlock* block)
 {
-    JITDUMP("*************** In genFnEpilog()\n");
-#ifdef DEBUG
-    if (compiler->opts.dspCode)
-    {
-        printf("\n__epilog:\n");
-    }
-#endif
-
     noway_assert(!compiler->opts.MinOpts() || isFramePointerUsed()); // FPO not allowed with minOpts
 
     ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);

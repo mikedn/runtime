@@ -71,18 +71,17 @@ void CodeGen::genMarkLabelsForCodegen()
 {
     assert(!compiler->fgSafeBasicBlockCreation);
 
-    JITDUMP("Mark labels for codegen\n");
+    JITDUMP("\nMark label blocks\n");
 
 #ifdef DEBUG
-    // No label flags should be set before this.
     for (BasicBlock* const block : compiler->Blocks())
     {
         assert((block->bbFlags & BBF_HAS_LABEL) == 0);
     }
-#endif // DEBUG
+#endif
 
     // The first block is special; it always needs a label. This is to properly set up GC info.
-    JITDUMP("  " FMT_BB " : first block\n", compiler->fgFirstBB->bbNum);
+    JITDUMP("  " FMT_BB ": first block\n", compiler->fgFirstBB->bbNum);
     compiler->fgFirstBB->bbFlags |= BBF_HAS_LABEL;
 
     // The current implementation of switch tables requires the first block to have a label so it
@@ -91,14 +90,14 @@ void CodeGen::genMarkLabelsForCodegen()
     // TODO-CQ: remove this when switches have been re-implemented to not use this.
     if (compiler->fgHasSwitch)
     {
-        JITDUMP("  " FMT_BB " : function has switch; mark first block\n", compiler->fgFirstBB->bbNum);
+        JITDUMP("  " FMT_BB ": switch table base offset\n", compiler->fgFirstBB->bbNum);
         compiler->fgFirstBB->bbFlags |= BBF_HAS_LABEL;
     }
 
     for (BasicBlock* const block : compiler->Blocks())
     {
         block->emitLabel = nullptr;
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+#ifdef TARGET_ARM
         block->unwindNopEmitLabel = nullptr;
 #endif
 
@@ -113,47 +112,45 @@ void CodeGen::genMarkLabelsForCodegen()
                     // block, even if one is not otherwise needed, to be able to calculate the size of this
                     // loop (loop size is calculated by walking the instruction groups; see emitter::getLoopSize()).
 
-                    JITDUMP("Mark " FMT_BB " as label: alignment end-of-loop\n", block->bbNext->bbNum);
+                    JITDUMP("  " FMT_BB ": alignment end-of-loop\n", block->bbNext->bbNum);
                     block->bbNext->bbFlags |= BBF_HAS_LABEL;
                 }
                 FALLTHROUGH;
-#endif                       // FEATURE_LOOP_ALIGN
-            case BBJ_ALWAYS: // This will also handle the BBJ_ALWAYS of a BBJ_CALLFINALLY/BBJ_ALWAYS pair.
+#endif
+            case BBJ_ALWAYS:
             case BBJ_EHCATCHRET:
-                JITDUMP("  " FMT_BB " : branch target\n", block->bbJumpDest->bbNum);
+                JITDUMP("  " FMT_BB ": branch target\n", block->bbJumpDest->bbNum);
                 block->bbJumpDest->bbFlags |= BBF_HAS_LABEL;
                 break;
 
             case BBJ_SWITCH:
                 for (BasicBlock* const bTarget : block->SwitchTargets())
                 {
-                    JITDUMP("  " FMT_BB " : branch target\n", bTarget->bbNum);
+                    JITDUMP("  " FMT_BB ": switch case\n", bTarget->bbNum);
                     bTarget->bbFlags |= BBF_HAS_LABEL;
                 }
                 break;
 
             case BBJ_CALLFINALLY:
-                // The finally target itself will get marked by walking the EH table, below, and marking
-                // all handler begins.
-                CLANG_FORMAT_COMMENT_ANCHOR;
-
 #if FEATURE_EH_CALLFINALLY_THUNKS
+                // For callfinally thunks, we need to mark the block following the callfinally/always pair,
+                // as that's needed for identifying the range of the "duplicate finally" region in EH data.
+                BasicBlock* bbToLabel;
+                bbToLabel = block->bbNext;
+
+                if (block->IsCallFinallyAlwaysPairHead())
                 {
-                    // For callfinally thunks, we need to mark the block following the callfinally/always pair,
-                    // as that's needed for identifying the range of the "duplicate finally" region in EH data.
-                    BasicBlock* bbToLabel = block->bbNext;
-                    if (block->isBBCallAlwaysPair())
-                    {
-                        bbToLabel = bbToLabel->bbNext; // skip the BBJ_ALWAYS
-                    }
-                    if (bbToLabel != nullptr)
-                    {
-                        JITDUMP("  " FMT_BB " : callfinally thunk region end\n", bbToLabel->bbNum);
-                        bbToLabel->bbFlags |= BBF_HAS_LABEL;
-                    }
+                    bbToLabel = bbToLabel->bbNext;
+                }
+
+                if (bbToLabel != nullptr)
+                {
+                    JITDUMP("  " FMT_BB ": callfinally thunk region end\n", bbToLabel->bbNum);
+                    bbToLabel->bbFlags |= BBF_HAS_LABEL;
                 }
 #endif // FEATURE_EH_CALLFINALLY_THUNKS
-
+                // The finally target itself will get marked by walking the EH table, below, and marking
+                // all handler begins.
                 break;
 
             case BBJ_EHFINALLYRET:
@@ -164,8 +161,7 @@ void CodeGen::genMarkLabelsForCodegen()
                 break;
 
             default:
-                noway_assert(!"Unexpected bbJumpKind");
-                break;
+                unreached();
         }
 
         if (BasicBlock* prevBlock = block->bbPrev)
@@ -176,16 +172,15 @@ void CodeGen::genMarkLabelsForCodegen()
                 // may end up with an insGroup without GC information and crash due to null gcLcls.
                 // Ideally such blocks should be removed but for now just avoid crashing.
 
+                JITDUMP("  " FMT_BB ": potentially unreachable block\n", block->bbNum);
                 block->bbFlags |= BBF_HAS_LABEL;
             }
             else if ((prevBlock->GetKind() == BBJ_COND) && (prevBlock->bbWeight != block->bbWeight))
             {
                 // TODO-MIKE-Review: What's this for? Just to show the different weight in disassembly?!?
 
-                JITDUMP("Adding label due to BB weight difference: BBJ_COND " FMT_BB " with weight " FMT_WT
-                        " different from " FMT_BB " with weight " FMT_WT "\n",
-                        prevBlock->bbNum, prevBlock->bbWeight, block->bbNum, block->bbWeight);
-
+                JITDUMP("  " FMT_BB ": weight difference " FMT_WT " -> " FMT_WT "\n", block->bbNum, prevBlock->bbWeight,
+                        block->bbWeight);
                 block->bbFlags |= BBF_HAS_LABEL;
             }
         }
@@ -197,50 +192,43 @@ void CodeGen::genMarkLabelsForCodegen()
     {
         noway_assert(!firstColdBlock->bbPrev->bbFallsThrough());
 
+        JITDUMP("  " FMT_BB ": first cold block\n", firstColdBlock->bbNum);
         firstColdBlock->bbFlags |= BBF_HAS_LABEL;
     }
 
     // Walk all the throw helper blocks and mark them, since jumps to them don't appear the flow graph.
     for (ThrowHelperBlock* helper = compiler->m_throwHelperBlockList; helper != nullptr; helper = helper->next)
     {
-        JITDUMP("  " FMT_BB " : throw helper block\n", helper->block->bbNum);
+        JITDUMP("  " FMT_BB ": throw helper block\n", helper->block->bbNum);
         helper->block->bbFlags |= BBF_HAS_LABEL;
     }
 
     for (EHblkDsc* const HBtab : EHClauses(compiler))
     {
+        JITDUMP("  " FMT_BB ": try begin\n", HBtab->ebdTryBeg->bbNum);
         HBtab->ebdTryBeg->bbFlags |= BBF_HAS_LABEL;
+
+        JITDUMP("  " FMT_BB ": handler begin\n", HBtab->ebdHndBeg->bbNum);
         HBtab->ebdHndBeg->bbFlags |= BBF_HAS_LABEL;
 
-        JITDUMP("  " FMT_BB " : try begin\n", HBtab->ebdTryBeg->bbNum);
-        JITDUMP("  " FMT_BB " : hnd begin\n", HBtab->ebdHndBeg->bbNum);
-
-        if (HBtab->ebdTryLast->bbNext != nullptr)
+        if (BasicBlock* tryEnd = HBtab->ebdTryLast->bbNext)
         {
-            HBtab->ebdTryLast->bbNext->bbFlags |= BBF_HAS_LABEL;
-            JITDUMP("  " FMT_BB " : try end\n", HBtab->ebdTryLast->bbNext->bbNum);
+            tryEnd->bbFlags |= BBF_HAS_LABEL;
+            JITDUMP("  " FMT_BB ": try end\n", tryEnd->bbNum);
         }
 
-        if (HBtab->ebdHndLast->bbNext != nullptr)
+        if (BasicBlock* handlerEnd = HBtab->ebdHndLast->bbNext)
         {
-            HBtab->ebdHndLast->bbNext->bbFlags |= BBF_HAS_LABEL;
-            JITDUMP("  " FMT_BB " : hnd end\n", HBtab->ebdHndLast->bbNext->bbNum);
+            handlerEnd->bbFlags |= BBF_HAS_LABEL;
+            JITDUMP("  " FMT_BB ": handler end\n", handlerEnd->bbNum);
         }
 
         if (HBtab->HasFilter())
         {
             HBtab->ebdFilter->bbFlags |= BBF_HAS_LABEL;
-            JITDUMP("  " FMT_BB " : filter begin\n", HBtab->ebdFilter->bbNum);
+            JITDUMP("  " FMT_BB ": filter begin\n", HBtab->ebdFilter->bbNum);
         }
     }
-
-#ifdef DEBUG
-    if (compiler->verbose)
-    {
-        printf("*************** After genMarkLabelsForCodegen()\n");
-        compiler->fgDispBasicBlocks();
-    }
-#endif // DEBUG
 }
 
 //----------------------------------------------------------------------
@@ -680,16 +668,7 @@ void CodeGen::genGenerateMachineCode()
 #endif
 
     genFinalizeFrame();
-
-    GetEmitter()->emitBegFN();
-
     genCodeForBBlist();
-    genGeneratePrologsAndEpilogs();
-
-    GetEmitter()->emitJumpDistBind();
-#if FEATURE_LOOP_ALIGN
-    GetEmitter()->emitLoopAlignAdjustments();
-#endif
 }
 
 #ifdef DEBUG
@@ -3926,7 +3905,7 @@ regNumber CodeGen::PrologChooseInitReg(regMaskTP initRegs)
 //
 void CodeGen::genFnProlog()
 {
-    JITDUMP("*************** In genFnProlog()\n");
+    JITDUMP("\n=============== Generating prolog\n");
 
     // Before generating the prolog, we need to reset the variable locations to what they will be on entry.
     // This affects our code that determines which untracked locals need to be zero initialized.
@@ -3942,18 +3921,11 @@ void CodeGen::genFnProlog()
     {
         // Do this so we can put the prolog instruction group ahead of other instruction groups.
         genIPmappingAddToFront(ICorDebugInfo::PROLOG);
-    }
 
-#ifdef DEBUG
-    if (compiler->opts.dspCode)
-    {
-        printf("\n__prolog:\n");
-    }
-#endif
-
-    if (compiler->opts.compDbgInfo && (compiler->info.compVarScopesCount > 0))
-    {
-        liveness.BeginProlog(this);
+        if (compiler->info.compVarScopesCount > 0)
+        {
+            liveness.BeginProlog(this);
+        }
     }
 
 #ifdef TARGET_XARCH
@@ -4410,15 +4382,6 @@ void CodeGen::PrologSetPSPSym(regNumber initReg, bool* pInitRegZeroed)
 
 void CodeGen::genGeneratePrologsAndEpilogs()
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** Before prolog / epilog generation\n");
-        compiler->lvaTableDump();
-        GetEmitter()->emitDispIGlist(false);
-    }
-#endif
-
     genFnProlog();
 #ifdef FEATURE_EH_FUNCLETS
     // Capture the data we're going to use in the funclet prolog and epilog generation. This is
@@ -4427,14 +4390,6 @@ void CodeGen::genGeneratePrologsAndEpilogs()
     genCaptureFuncletPrologEpilogInfo();
 #endif
     GetEmitter()->emitGeneratePrologEpilog();
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** After prolog / epilog generation\n");
-        GetEmitter()->emitDispIGlist(false);
-    }
-#endif
 }
 
 /*****************************************************************************
@@ -4702,7 +4657,7 @@ void CodeGen::genIPmappingAdd(IL_OFFSETX offsx, bool isLabel)
         // differ, or two identical "special" mappings (e.g., PROLOG).
         if ((genIPmappingLast != nullptr) && (offsx == genIPmappingLast->ipmdILoffsx))
         {
-            JITDUMP("genIPmappingAdd: ignoring duplicate IL offset 0x%x\n", offsx);
+            JITDUMP("Debug info: Ignoring duplicate IL offset 0x%x\n", offsx);
             return;
         }
     }
@@ -4730,7 +4685,7 @@ void CodeGen::genIPmappingAdd(IL_OFFSETX offsx, bool isLabel)
 #ifdef DEBUG
     if (verbose)
     {
-        printf("Added IP mapping: ");
+        printf("Debug Info: IL ");
         genIPmappingDisp(addMapping);
     }
 #endif // DEBUG
@@ -4764,7 +4719,7 @@ void CodeGen::genIPmappingAddToFront(IL_OFFSETX offsx)
 #ifdef DEBUG
     if (verbose)
     {
-        printf("Added IP mapping to front: ");
+        printf("Debug Info: IL ");
         genIPmappingDisp(addMapping);
     }
 #endif // DEBUG

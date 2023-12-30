@@ -8313,7 +8313,14 @@ void Compiler::dmpNodeOperands(GenTree* node)
             printf("%s:", message);
         }
 
-        printf("t%u %s", operand->GetID(), varTypeName(operand->GetType()));
+        if (operand->HasReg(0))
+        {
+            printf("t%u:%s %s", operand->GetID(), getRegName(operand->GetRegNum(0)), varTypeName(operand->GetType()));
+        }
+        else
+        {
+            printf("t%u %s", operand->GetID(), varTypeName(operand->GetType()));
+        }
     };
 
     char        message[256];

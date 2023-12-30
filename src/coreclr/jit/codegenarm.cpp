@@ -752,6 +752,7 @@ void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
 
     if (lcl->IsRegCandidate() || load->IsRegSpilled(0))
     {
+        JITDUMP("Local is enregistered\n");
         return;
     }
 
@@ -2506,11 +2507,6 @@ void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
 //
 void CodeGen::genFuncletProlog(BasicBlock* block)
 {
-#ifdef DEBUG
-    if (verbose)
-        printf("*************** In genFuncletProlog()\n");
-#endif
-
     assert(block != NULL);
     assert(block->bbFlags & BBF_FUNCLET_BEG);
 
@@ -2585,11 +2581,6 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
 
 void CodeGen::genFuncletEpilog()
 {
-#ifdef DEBUG
-    if (verbose)
-        printf("*************** In genFuncletEpilog()\n");
-#endif
-
     ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
 
     // Just as for the main function, we delay starting the unwind codes until we have
@@ -2716,14 +2707,6 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
 
 void CodeGen::genFnEpilog(BasicBlock* block)
 {
-    JITDUMP("*************** In genFnEpilog()\n");
-#ifdef DEBUG
-    if (compiler->opts.dspCode)
-    {
-        printf("\n__epilog:\n");
-    }
-#endif
-
     ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
 
     bool     jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);

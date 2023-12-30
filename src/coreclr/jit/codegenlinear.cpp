@@ -37,6 +37,8 @@ void CodeGen::InitLclBlockLiveInRegs()
 
 void CodeGen::genCodeForBBlist()
 {
+    JITDUMP("\nGenerating code\n");
+
 #ifdef DEBUG
     if (compiler->opts.disAsm)
     {
@@ -46,6 +48,7 @@ void CodeGen::genCodeForBBlist()
     if (compiler->opts.disAsm || compiler->opts.dspCode || verbose)
     {
         compiler->lvaTableDump();
+        JITDUMP("\n");
     }
 
 #ifdef TARGET_XARCH
@@ -72,6 +75,7 @@ void CodeGen::genCodeForBBlist()
     assert(genStackLevel == 0);
 #endif
 
+    GetEmitter()->emitBegFN();
     genMarkLabelsForCodegen();
     liveness.Begin();
 
@@ -99,8 +103,6 @@ void CodeGen::genCodeForBBlist()
         {
             insGroup* ig = GetEmitter()->emitAddLabel();
             GetEmitter()->SetLabelGCLiveness(ig);
-
-            JITDUMP("Mapped " FMT_BB " to " FMT_IG "\n", block->bbNum, ig->igNum);
 
             if (block == compiler->fgFirstColdBlock)
             {
@@ -437,6 +439,13 @@ void CodeGen::genCodeForBBlist()
 
     m_currentBlock = nullptr;
     liveness.End(this);
+
+    genGeneratePrologsAndEpilogs();
+
+    GetEmitter()->emitJumpDistBind();
+#if FEATURE_LOOP_ALIGN
+    GetEmitter()->emitLoopAlignAdjustments();
+#endif
 }
 
 void CodeGen::genExitCode(BasicBlock* block)

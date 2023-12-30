@@ -1109,7 +1109,7 @@ struct BasicBlock : private LIR::Range
         struct
         {
             struct insGroup* emitLabel;
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+#ifdef TARGET_ARM
             struct insGroup* unwindNopEmitLabel;
 #endif
         };

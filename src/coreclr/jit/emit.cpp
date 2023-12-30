@@ -492,6 +492,9 @@ void emitter::emitBegFN()
     emitIGlast         = emitIGfirst;
     emitCurIG          = emitIGfirst;
 
+    JITDUMP(FMT_IG ": offs %06XH, funclet %02u, weight %s\n", emitCurIG->igNum, emitCurIG->igOffs, emitCurIG->igFuncIdx,
+            refCntWtd2str(emitCurIG->igWeight));
+
     // Append another group, to start generating the method body
     emitNewIG();
 }
@@ -962,20 +965,11 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
         }
 #endif
     }
-
-#ifdef DEBUG
-    if (emitComp->verbose)
-    {
-        printf("*************** After placeholder IG creation\n");
-        emitDispIGlist(false);
-    }
-#endif
 }
 
 void emitter::emitGeneratePrologEpilog()
 {
 #ifdef DEBUG
-    unsigned prologCnt = 0;
     unsigned epilogCnt = 0;
 #ifdef FEATURE_EH_FUNCLETS
     unsigned funcletPrologCnt = 0;
@@ -997,8 +991,8 @@ void emitter::emitGeneratePrologEpilog()
 
         if ((ig->igFlags & IGF_EPILOG) != 0)
         {
+            JITDUMP("\n=============== Generating epilog\n");
             INDEBUG(++epilogCnt);
-
 #ifdef JIT32_GCENCODER
             emitBegFnEpilog(ig);
 #endif
@@ -1012,6 +1006,7 @@ void emitter::emitGeneratePrologEpilog()
 #ifdef FEATURE_EH_FUNCLETS
         else if ((ig->igFlags & IGF_FUNCLET_PROLOG) != 0)
         {
+            JITDUMP("\n=============== Generating funclet prolog\n");
             INDEBUG(++funcletPrologCnt);
             emitBegPrologEpilog(ig);
             codeGen->genFuncletProlog(igPhBB);
@@ -1019,6 +1014,7 @@ void emitter::emitGeneratePrologEpilog()
         }
         else if ((ig->igFlags & IGF_FUNCLET_EPILOG) != 0)
         {
+            JITDUMP("\n=============== Generating funclet epilog\n");
             INDEBUG(++funcletEpilogCnt);
             emitBegPrologEpilog(ig);
             codeGen->genFuncletEpilog();
@@ -1033,11 +1029,12 @@ void emitter::emitGeneratePrologEpilog()
 #ifdef DEBUG
     if (emitComp->verbose)
     {
-        printf("%d prologs, %d epilogs", prologCnt, epilogCnt);
+        printf("\n1 prolog, %u epilog(s)", epilogCnt);
 #ifdef FEATURE_EH_FUNCLETS
-        printf(", %d funclet prologs, %d funclet epilogs", funcletPrologCnt, funcletEpilogCnt);
+        printf(", %u funclet prolog(s), %u funclet epilog(s)", funcletPrologCnt, funcletEpilogCnt);
 #endif
         printf("\n");
+        emitDispIGlist(false);
     }
 #endif
 
@@ -1214,7 +1211,7 @@ void emitter::SetLabelGCLiveness(insGroup* label)
 #ifdef DEBUG
     if (emitComp->verbose)
     {
-        printf("Label: " FMT_IG ", gc-lcls ", label->igNum);
+        printf(FMT_IG ", gc-lcls ", label->igNum);
         dumpConvertedVarSet(emitComp, label->gcLcls);
         printf(", ref-regs");
         DumpRegSet(label->refRegs);
