@@ -1528,8 +1528,7 @@ void Compiler::compInitOptions()
 
     ARM_ONLY(opts.compUseSoftFP = jitFlags->IsSet(JitFlags::JIT_FLAG_SOFTFP_ABI) || JitConfig.JitSoftFP();)
 
-    opts.compScopeInfo = opts.compDbgInfo;
-    opts.compReloc     = jitFlags->IsSet(JitFlags::JIT_FLAG_RELOC);
+    opts.compReloc = jitFlags->IsSet(JitFlags::JIT_FLAG_RELOC);
 
 #ifndef TARGET_ARM64
     // TODO-ARM64-NYI: enable hot/cold splitting
@@ -1985,7 +1984,7 @@ void Compiler::compInitDebuggingInfo()
     compEnterScopeList      = nullptr;
     compExitScopeList       = nullptr;
 
-    if (opts.compScopeInfo)
+    if (opts.compDbgInfo)
     {
         eeGetVars();
 

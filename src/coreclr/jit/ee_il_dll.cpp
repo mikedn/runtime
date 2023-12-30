@@ -525,7 +525,7 @@ void Importer::eeGetStmtOffsets()
 
 CodeGen::VarResultInfo* CodeGen::eeSetLVcount(unsigned count)
 {
-    assert(compiler->opts.compScopeInfo);
+    assert(compiler->opts.compDbgInfo);
     assert(count != 0);
 
     return static_cast<VarResultInfo*>(compiler->info.compCompHnd->allocateArray(count * sizeof(VarResultInfo)));
@@ -560,7 +560,7 @@ static_assert_no_msg(sizeof(CodeGen::VarResultInfo) == sizeof(ICorDebugInfo::Nat
 
 void CodeGen::eeSetLVdone(VarResultInfo* vars, unsigned count)
 {
-    assert(compiler->opts.compScopeInfo);
+    assert(compiler->opts.compDbgInfo);
 
     ICorDebugInfo::NativeVarInfo* eeVars = reinterpret_cast<ICorDebugInfo::NativeVarInfo*>(vars);
     DBEXEC(verbose || compiler->opts.dspDebugInfo, eeDispVars(compiler->info.compMethodHnd, count, eeVars));

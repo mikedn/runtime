@@ -3948,7 +3948,7 @@ void CodeGen::genFnProlog()
     }
 #endif
 
-    if (compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0))
+    if (compiler->opts.compDbgInfo && (compiler->info.compVarScopesCount > 0))
     {
         liveness.BeginProlog(this);
     }
@@ -4223,7 +4223,7 @@ void CodeGen::genFnProlog()
         GetEmitter()->emitMarkPrologEnd();
     }
 
-    if (compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0))
+    if (compiler->opts.compDbgInfo && (compiler->info.compVarScopesCount > 0))
     {
         liveness.EndProlog(this);
     }
@@ -4443,7 +4443,7 @@ void CodeGen::genGeneratePrologsAndEpilogs()
 
 void CodeGen::genSetScopeInfo()
 {
-    if (!compiler->opts.compScopeInfo)
+    if (!compiler->opts.compDbgInfo)
     {
         return;
     }
@@ -4460,7 +4460,7 @@ void CodeGen::genSetScopeInfo()
         return;
     }
 
-    noway_assert(compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0));
+    noway_assert(compiler->info.compVarScopesCount > 0);
 
     // Initialize the table where the reported variables' home will be placed.
     VarResultInfo* vars = eeSetLVcount(varsLocationsCount);
@@ -4604,7 +4604,7 @@ void CodeGen::genSetScopeInfo(VarResultInfo* vars,
 const char* CodeGen::siRegVarName(size_t offs, size_t size, unsigned reg)
 {
 #ifdef DEBUG
-    if (!compiler->opts.compScopeInfo || (compiler->info.compVarScopesCount == 0))
+    if (!compiler->opts.compDbgInfo || (compiler->info.compVarScopesCount == 0))
     {
         return nullptr;
     }
@@ -4629,7 +4629,7 @@ const char* CodeGen::siRegVarName(size_t offs, size_t size, unsigned reg)
 const char* CodeGen::siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs)
 {
 #ifdef DEBUG
-    if (!compiler->opts.compScopeInfo || (compiler->info.compVarScopesCount == 0))
+    if (!compiler->opts.compDbgInfo || (compiler->info.compVarScopesCount == 0))
     {
         return nullptr;
     }

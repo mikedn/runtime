@@ -1386,9 +1386,8 @@ struct CompilerOptions
         framePointerRequired = true;
     }
 
-    bool compScopeInfo : 1; // Generate the LocalVar info ?
-    bool compDbgCode : 1;   // Generate debugger-friendly code?
-    bool compDbgInfo : 1;   // Gather debugging info?
+    bool compDbgCode : 1; // Generate debugger-friendly code?
+    bool compDbgInfo : 1; // Gather debugging info?
     bool compDbgEnC : 1;
 
 #ifdef PROFILING_SUPPORTED

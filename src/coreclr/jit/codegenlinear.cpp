@@ -128,17 +128,17 @@ void CodeGen::genCodeForBBlist()
         const unsigned savedStkLvl = genStackLevel;
 #endif
 
-        if (compiler->opts.compScopeInfo)
+        if (compiler->opts.compDbgInfo)
         {
             liveness.BeginBlock(this, block, &nextEnterScope, &nextExitScope);
-        }
 
-        // BBF_INTERNAL blocks don't correspond to any single IL instruction.
-        // If the block is the distinguished first scratch block, then there's
-        // no need to emit a NO_MAPPING entry, immediately after the prolog.
-        if (compiler->opts.compDbgInfo && ((block->bbFlags & BBF_INTERNAL) != 0) && !compiler->fgBBisScratch(block))
-        {
-            genIPmappingAdd(ICorDebugInfo::NO_MAPPING, true);
+            // BBF_INTERNAL blocks don't correspond to any single IL instruction.
+            // If the block is the distinguished first scratch block, then there's
+            // no need to emit a NO_MAPPING entry, immediately after the prolog.
+            if (((block->bbFlags & BBF_INTERNAL) != 0) && !compiler->fgBBisScratch(block))
+            {
+                genIPmappingAdd(ICorDebugInfo::NO_MAPPING, true);
+            }
         }
 
 #ifdef FEATURE_EH_FUNCLETS
@@ -229,17 +229,20 @@ void CodeGen::genCodeForBBlist()
         // we've generated code for the last IL offset we saw in the block.
         genEnsureCodeEmitted(currentILOffset);
 
-        bool isLastBlockProcessed =
-            (block->bbNext == nullptr) || (block->IsCallFinallyAlwaysPairHead() && (block->bbNext->bbNext == nullptr));
-
-        if (compiler->opts.compDbgInfo && isLastBlockProcessed)
+        if (compiler->opts.compDbgInfo)
         {
-            liveness.EndCodeGen(this);
-        }
+            bool isLastBlockProcessed = (block->bbNext == nullptr) ||
+                                        (block->IsCallFinallyAlwaysPairHead() && (block->bbNext->bbNext == nullptr));
 
-        if (compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0))
-        {
-            liveness.EndBlock(block);
+            if (isLastBlockProcessed)
+            {
+                liveness.EndCodeGen(this);
+            }
+
+            if (compiler->info.compVarScopesCount > 0)
+            {
+                liveness.EndBlock(block);
+            }
         }
 
 #if !FEATURE_FIXED_OUT_ARGS

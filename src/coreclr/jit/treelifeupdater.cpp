@@ -820,7 +820,7 @@ void CodeGenLivenessUpdater::BeginBlock(CodeGen*    codeGen,
                                         unsigned*   nextEnterScope,
                                         unsigned*   nextExitScope)
 {
-    assert(compiler->opts.compScopeInfo);
+    assert(compiler->opts.compDbgInfo);
 
     if (compiler->info.compVarScopesCount == 0)
     {
@@ -938,7 +938,7 @@ void CodeGenLivenessUpdater::StartUntrackedVarsRanges(CodeGen*    codeGen,
 
 void CodeGenLivenessUpdater::EndBlock(BasicBlock* block)
 {
-    assert(compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0));
+    assert(compiler->opts.compDbgInfo && (compiler->info.compVarScopesCount > 0));
 
 #ifdef FEATURE_EH_FUNCLETS
     if (inFuncletRegion)
