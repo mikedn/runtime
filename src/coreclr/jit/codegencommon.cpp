@@ -3938,8 +3938,11 @@ void CodeGen::genFnProlog()
     compiler->unwindBegProlog();
     liveness.BeginPrologEpilogCodeGen();
 
-    // Do this so we can put the prolog instruction group ahead of other instruction groups.
-    genIPmappingAddToFront(static_cast<IL_OFFSETX>(ICorDebugInfo::PROLOG));
+    if (compiler->opts.compDbgInfo)
+    {
+        // Do this so we can put the prolog instruction group ahead of other instruction groups.
+        genIPmappingAddToFront(ICorDebugInfo::PROLOG);
+    }
 
 #ifdef DEBUG
     if (compiler->opts.dspCode)
@@ -4682,47 +4685,27 @@ void CodeGen::genIPmappingDisp(IPmappingDsc* ipMapping)
 
 #endif // DEBUG
 
-/*****************************************************************************
- *
- *  Append an IPmappingDsc struct to the list that we're maintaining
- *  for the debugger.
- *  Record the instr offset as being at the current code gen position.
- */
-
 void CodeGen::genIPmappingAdd(IL_OFFSETX offsx, bool isLabel)
 {
-    if (!compiler->opts.compDbgInfo)
-    {
-        return;
-    }
-
+    assert(compiler->opts.compDbgInfo);
     assert(offsx != BAD_IL_OFFSET);
 
-    switch ((int)offsx) // Need the cast since offs is unsigned and the case statements are comparing to signed.
+    if ((offsx != ICorDebugInfo::PROLOG) && (offsx != ICorDebugInfo::EPILOG))
     {
-        case ICorDebugInfo::PROLOG:
-        case ICorDebugInfo::EPILOG:
-            break;
+        if (offsx != ICorDebugInfo::NO_MAPPING)
+        {
+            noway_assert(jitGetILoffs(offsx) <= compiler->info.compILCodeSize);
+        }
 
-        default:
-
-            if (offsx != (IL_OFFSETX)ICorDebugInfo::NO_MAPPING)
-            {
-                noway_assert(jitGetILoffs(offsx) <= compiler->info.compILCodeSize);
-            }
-
-            // Ignore this one if it's the same IL offset as the last one we saw.
-            // Note that we'll let through two identical IL offsets if the flag bits
-            // differ, or two identical "special" mappings (e.g., PROLOG).
-            if ((genIPmappingLast != nullptr) && (offsx == genIPmappingLast->ipmdILoffsx))
-            {
-                JITDUMP("genIPmappingAdd: ignoring duplicate IL offset 0x%x\n", offsx);
-                return;
-            }
-            break;
+        // Ignore this one if it's the same IL offset as the last one we saw.
+        // Note that we'll let through two identical IL offsets if the flag bits
+        // differ, or two identical "special" mappings (e.g., PROLOG).
+        if ((genIPmappingLast != nullptr) && (offsx == genIPmappingLast->ipmdILoffsx))
+        {
+            JITDUMP("genIPmappingAdd: ignoring duplicate IL offset 0x%x\n", offsx);
+            return;
+        }
     }
-
-    /* Create a mapping entry and append it to the list */
 
     IPmappingDsc* addMapping = compiler->getAllocator(CMK_DebugInfo).allocate<IPmappingDsc>(1);
     addMapping->ipmdNativeLoc.CaptureLocation(GetEmitter());
@@ -4753,35 +4736,16 @@ void CodeGen::genIPmappingAdd(IL_OFFSETX offsx, bool isLabel)
 #endif // DEBUG
 }
 
-/*****************************************************************************
- *
- *  Prepend an IPmappingDsc struct to the list that we're maintaining
- *  for the debugger.
- *  Record the instr offset as being at the current code gen position.
- */
 void CodeGen::genIPmappingAddToFront(IL_OFFSETX offsx)
 {
-    if (!compiler->opts.compDbgInfo)
-    {
-        return;
-    }
-
+    assert(compiler->opts.compDbgInfo);
+    assert(generatingProlog);
     assert(offsx != BAD_IL_OFFSET);
-    assert(generatingProlog); // We only ever do this during prolog generation.
 
-    switch ((int)offsx) // Need the cast since offs is unsigned and the case statements are comparing to signed.
+    if ((offsx != ICorDebugInfo::PROLOG) && (offsx != ICorDebugInfo::EPILOG) && (offsx != ICorDebugInfo::NO_MAPPING))
     {
-        case ICorDebugInfo::NO_MAPPING:
-        case ICorDebugInfo::PROLOG:
-        case ICorDebugInfo::EPILOG:
-            break;
-
-        default:
-            noway_assert(jitGetILoffs(offsx) <= compiler->info.compILCodeSize);
-            break;
+        noway_assert(jitGetILoffs(offsx) <= compiler->info.compILCodeSize);
     }
-
-    /* Create a mapping entry and prepend it to the list */
 
     IPmappingDsc* addMapping = compiler->getAllocator(CMK_DebugInfo).allocate<IPmappingDsc>(1);
     addMapping->ipmdNativeLoc.CaptureLocation(GetEmitter());
@@ -4922,14 +4886,9 @@ bool jitIsCallInstruction(IL_OFFSETX offsx)
     }
 }
 
-/*****************************************************************************/
-
 void CodeGen::genEnsureCodeEmitted(IL_OFFSETX offsx)
 {
-    if (!compiler->opts.compDbgCode)
-    {
-        return;
-    }
+    assert(compiler->opts.compDbgCode);
 
     if (offsx == BAD_IL_OFFSET)
     {

@@ -925,11 +925,11 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
     {
         if (igType == IGPT_FUNCLET_PROLOG)
         {
-            codeGen->genIPmappingAdd(static_cast<IL_OFFSETX>(ICorDebugInfo::PROLOG), true);
+            codeGen->genIPmappingAdd(ICorDebugInfo::PROLOG, true);
         }
         else if (igType == IGPT_FUNCLET_EPILOG)
         {
-            codeGen->genIPmappingAdd(static_cast<IL_OFFSETX>(ICorDebugInfo::EPILOG), true);
+            codeGen->genIPmappingAdd(ICorDebugInfo::EPILOG, true);
         }
     }
 #endif // FEATURE_EH_FUNCLETS

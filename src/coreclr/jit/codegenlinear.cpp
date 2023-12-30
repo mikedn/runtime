@@ -177,10 +177,17 @@ void CodeGen::genCodeForBBlist()
 
             if (GenTreeILOffset* ilOffset = node->IsILOffset())
             {
-                genEnsureCodeEmitted(currentILOffset);
-                currentILOffset = ilOffset->gtStmtILoffsx;
-                genIPmappingAdd(currentILOffset, firstMapping);
-                firstMapping = false;
+                if (compiler->opts.compDbgInfo)
+                {
+                    if (compiler->opts.compDbgCode)
+                    {
+                        genEnsureCodeEmitted(currentILOffset);
+                    }
+
+                    currentILOffset = ilOffset->gtStmtILoffsx;
+                    genIPmappingAdd(currentILOffset, firstMapping);
+                    firstMapping = false;
+                }
             }
             else if (node->IsReuseRegVal())
             {
@@ -224,13 +231,16 @@ void CodeGen::genCodeForBBlist()
         }
 #endif // DEBUG
 
-        // It is possible to reach the end of the block without generating code for the current IL offset.
-        // This can lead to problems when debugging the generated code. To prevent these issues, make sure
-        // we've generated code for the last IL offset we saw in the block.
-        genEnsureCodeEmitted(currentILOffset);
-
         if (compiler->opts.compDbgInfo)
         {
+            if (compiler->opts.compDbgCode)
+            {
+                // It is possible to reach the end of the block without generating code for the current IL offset.
+                // This can lead to problems when debugging the generated code. To prevent these issues, make sure
+                // we've generated code for the last IL offset we saw in the block.
+                genEnsureCodeEmitted(currentILOffset);
+            }
+
             bool isLastBlockProcessed = (block->bbNext == nullptr) ||
                                         (block->IsCallFinallyAlwaysPairHead() && (block->bbNext->bbNext == nullptr));
 
@@ -433,12 +443,10 @@ void CodeGen::genCodeForBBlist()
 
 void CodeGen::genExitCode(BasicBlock* block)
 {
-    // Just wrote the first instruction of the epilog - inform debugger
-    // Note that this may result in a duplicate IPmapping entry, and
-    // that this is ok.
-
-    // For non-optimized debuggable code, there is only one epilog.
-    genIPmappingAdd(static_cast<IL_OFFSETX>(ICorDebugInfo::EPILOG), true);
+    if (compiler->opts.compDbgInfo)
+    {
+        genIPmappingAdd(static_cast<IL_OFFSETX>(ICorDebugInfo::EPILOG), true);
+    }
 
     if (compiler->getNeedsGSSecurityCookie())
     {
