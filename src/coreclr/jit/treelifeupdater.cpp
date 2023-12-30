@@ -725,7 +725,7 @@ void CodeGenLivenessUpdater::StartRange(CodeGen* codeGen, const LclVarDsc* lcl, 
 
 void CodeGenLivenessUpdater::EndRange(CodeGen* codeGen, unsigned lclNum)
 {
-    if ((lclNum >= varCount) || lastBasicBlockHasBeenEmited)
+    if ((lclNum >= varCount) || lastBlockHasBeenEmited)
     {
         return;
     }
@@ -739,7 +739,7 @@ void CodeGenLivenessUpdater::EndRange(CodeGen* codeGen, unsigned lclNum)
 
 void CodeGenLivenessUpdater::UpdateRange(CodeGen* codeGen, const LclVarDsc* lcl, unsigned lclNum)
 {
-    if (lclNum >= varCount || lastBasicBlockHasBeenEmited)
+    if (lclNum >= varCount || lastBlockHasBeenEmited)
     {
         return;
     }
@@ -779,7 +779,7 @@ void CodeGenLivenessUpdater::EndCodeGen(CodeGen* codeGen)
         }
     }
 
-    lastBasicBlockHasBeenEmited = true;
+    lastBlockHasBeenEmited = true;
 }
 
 DbgInfoVarRange* CodeGenLivenessUpdater::GetBodyRanges(unsigned lclNum) const
@@ -882,16 +882,16 @@ void CodeGenLivenessUpdater::StartUntrackedVarsRanges(CodeGen*    codeGen,
     // line. Catch up with the enter and exit scopes of the current block.
     // Ignore the enter/exit scope changes of the missing scopes, which for
     // funclets must be matched.
-    if (lastBlockEndILOffset != startILOffset)
+    if (prevBlockEndILOffset != startILOffset)
     {
-        assert(lastBlockEndILOffset < startILOffset);
+        assert(prevBlockEndILOffset < startILOffset);
 
 #ifndef FEATURE_EH_FUNCLETS
         return;
 #else
         assert(startILOffset > 0);
 
-        JITDUMP("Scope info: found offset hole. lastOffs=%u, currOffs=%u\n", lastBlockEndILOffset, startILOffset);
+        JITDUMP("Scope info: found offset hole. lastOffs=%u, currOffs=%u\n", prevBlockEndILOffset, startILOffset);
 
         // Skip enter & exit scopes
         while (VarScopeDsc* scope = compiler->compGetNextEnterScopeScan(startILOffset - 1, nextEnterScope))
@@ -948,7 +948,7 @@ void CodeGenLivenessUpdater::EndBlock(BasicBlock* block)
         return;
     }
 
-    lastBlockEndILOffset = endILOffset;
+    prevBlockEndILOffset = endILOffset;
 }
 
 void CodeGenLivenessUpdater::BeginProlog(CodeGen* codeGen)

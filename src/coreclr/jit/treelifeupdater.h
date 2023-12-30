@@ -199,12 +199,12 @@ class CodeGenLivenessUpdater
     regMaskTP liveGCRefRegs   = RBM_NONE;
     regMaskTP liveGCByRefRegs = RBM_NONE;
 
-    unsigned    varCount                    = 0;
-    unsigned    paramCount                  = 0;
-    DbgInfoVar* bodyVars                    = nullptr;
-    DbgInfoVar* prologVars                  = nullptr;
-    IL_OFFSET   lastBlockEndILOffset        = 0;
-    bool        lastBasicBlockHasBeenEmited = false;
+    unsigned    varCount               = 0;
+    unsigned    paramCount             = 0;
+    DbgInfoVar* bodyVars               = nullptr;
+    DbgInfoVar* prologVars             = nullptr;
+    IL_OFFSET   prevBlockEndILOffset   = 0;
+    bool        lastBlockHasBeenEmited = false;
 #ifdef FEATURE_EH_FUNCLETS
     bool inFuncletRegion = false;
 #endif
