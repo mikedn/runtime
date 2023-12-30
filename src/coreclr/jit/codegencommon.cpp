@@ -4450,31 +4450,23 @@ void CodeGen::genSetScopeInfo()
 
     JITDUMP("*************** In genSetScopeInfo()\n");
 
-    unsigned varsLocationsCount = liveness.GetRangeCount();
+    VarResultInfo* ranges = nullptr;
+    unsigned       count  = liveness.GetRangeCount();
 
-    JITDUMP("VarLocInfo count is %d\n", varsLocationsCount);
+    JITDUMP("DbgInfoVarRange count is %u\n", count);
 
-    if (varsLocationsCount == 0)
+    if (count != 0)
     {
-        eeSetLVdone(nullptr, 0);
-        return;
-    }
-
-    noway_assert(compiler->info.compVarScopesCount > 0);
-
-    // Initialize the table where the reported variables' home will be placed.
-    VarResultInfo* vars = eeSetLVcount(varsLocationsCount);
-
 #ifdef LATE_DISASM
-    genTrnslLocalVarCount = varsLocationsCount;
-    if (varsLocationsCount)
-    {
-        genTrnslLocalVarInfo = new (compiler, CMK_DebugOnly) TrnslLocalVarInfo[varsLocationsCount];
-    }
+        genTrnslLocalVarCount = count;
+        genTrnslLocalVarInfo  = new (compiler, CMK_DebugOnly) TrnslLocalVarInfo[count];
 #endif
 
-    genSetScopeInfoUsingVariableRanges(vars);
-    eeSetLVdone(vars, varsLocationsCount);
+        ranges = eeSetLVcount(count);
+        genSetScopeInfoUsingVariableRanges(ranges);
+    }
+
+    eeSetLVdone(ranges, count);
 }
 
 //------------------------------------------------------------------------

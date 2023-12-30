@@ -509,7 +509,7 @@ protected:
         DbgInfoVarLoc tlviVarLoc;
     };
 
-    TrnslLocalVarInfo* genTrnslLocalVarInfo;
+    TrnslLocalVarInfo* genTrnslLocalVarInfo  = nullptr;
     unsigned           genTrnslLocalVarCount = 0;
 #endif
 
