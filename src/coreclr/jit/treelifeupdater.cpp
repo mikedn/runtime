@@ -815,12 +815,14 @@ unsigned CodeGenLivenessUpdater::GetRangeCount() const
     return count;
 }
 
-void CodeGenLivenessUpdater::BeginBlock(CodeGen*    codeGen,
-                                        BasicBlock* block,
-                                        unsigned*   nextEnterScope,
-                                        unsigned*   nextExitScope)
+void CodeGenLivenessUpdater::StartUntrackedVarsRanges(CodeGen*    codeGen,
+                                                      BasicBlock* block,
+                                                      unsigned*   nextEnterScope,
+                                                      unsigned*   nextExitScope)
 {
     assert(compiler->opts.compDbgInfo && (compiler->info.compVarScopesCount > 0));
+    assert(compiler->opts.OptimizationDisabled());
+    assert(compiler->lvaTrackedCount == 0);
 
 #ifdef FEATURE_EH_FUNCLETS
     if (inFuncletRegion)
@@ -828,7 +830,7 @@ void CodeGenLivenessUpdater::BeginBlock(CodeGen*    codeGen,
         return;
     }
 
-    if (block->bbFlags & BBF_FUNCLET_BEG)
+    if ((block->bbFlags & BBF_FUNCLET_BEG) != 0)
     {
         // For now, don't report any scopes in funclets. JIT64 doesn't.
         inFuncletRegion = true;
@@ -848,24 +850,6 @@ void CodeGenLivenessUpdater::BeginBlock(CodeGen*    codeGen,
         printf("\n");
     }
 #endif // DEBUG
-
-    // If we have tracked locals, use liveness to update the debug state.
-    //
-    // Note: we can improve on this some day -- if there are any tracked
-    // locals, untracked locals will fail to be reported.
-    if (compiler->opts.OptimizationDisabled())
-    {
-        assert(compiler->lvaTrackedCount == 0);
-        StartUntrackedVarsRanges(codeGen, block, nextEnterScope, nextExitScope);
-    }
-}
-
-void CodeGenLivenessUpdater::StartUntrackedVarsRanges(CodeGen*    codeGen,
-                                                      BasicBlock* block,
-                                                      unsigned*   nextEnterScope,
-                                                      unsigned*   nextExitScope)
-{
-    assert(compiler->opts.OptimizationDisabled());
 
     unsigned startILOffset = block->bbCodeOffs;
 

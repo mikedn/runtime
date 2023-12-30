@@ -130,9 +130,9 @@ void CodeGen::genCodeForBBlist()
 
         if (compiler->opts.compDbgInfo)
         {
-            if (compiler->info.compVarScopesCount != 0)
+            if ((compiler->info.compVarScopesCount != 0) && compiler->opts.OptimizationDisabled())
             {
-                liveness.BeginBlock(this, block, &nextEnterScope, &nextExitScope);
+                liveness.StartUntrackedVarsRanges(this, block, &nextEnterScope, &nextExitScope);
             }
 
             // BBF_INTERNAL blocks don't correspond to any single IL instruction.

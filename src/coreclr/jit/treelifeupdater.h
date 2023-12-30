@@ -223,10 +223,6 @@ class CodeGenLivenessUpdater
     void AddGCRefRegs(regMaskTP regMask DEBUGARG(bool forceOutput = false));
     void AddGCByRefRegs(regMaskTP regMask DEBUGARG(bool forceOutput = false));
 
-    void StartUntrackedVarsRanges(CodeGen*    codeGen,
-                                  BasicBlock* block,
-                                  unsigned*   nextEnterScope,
-                                  unsigned*   nextExitScope);
     int GetVarStackOffset(CodeGen* codeGen, const LclVarDsc* lcl) const;
     DbgInfoVarLoc GetVarLocation(CodeGen* codeGen, const LclVarDsc* lcl) const;
 
@@ -340,7 +336,11 @@ public:
         return liveGCRefRegs | liveGCByRefRegs;
     }
 
-    void BeginBlock(CodeGen* codeGen, BasicBlock* block, unsigned* nextEnterScope, unsigned* nextExitScope);
+    void StartUntrackedVarsRanges(CodeGen*    codeGen,
+                                  BasicBlock* block,
+                                  unsigned*   nextEnterScope,
+                                  unsigned*   nextExitScope);
+
     void BeginProlog(CodeGen* codeGen);
     void EndProlog(CodeGen* codeGen);
     void EndCodeGen(CodeGen* codeGen);
