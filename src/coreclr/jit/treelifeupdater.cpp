@@ -820,12 +820,7 @@ void CodeGenLivenessUpdater::BeginBlock(CodeGen*    codeGen,
                                         unsigned*   nextEnterScope,
                                         unsigned*   nextExitScope)
 {
-    assert(compiler->opts.compDbgInfo);
-
-    if (compiler->info.compVarScopesCount == 0)
-    {
-        return;
-    }
+    assert(compiler->opts.compDbgInfo && (compiler->info.compVarScopesCount > 0));
 
 #ifdef FEATURE_EH_FUNCLETS
     if (inFuncletRegion)
@@ -866,8 +861,9 @@ void CodeGenLivenessUpdater::BeginBlock(CodeGen*    codeGen,
     //
     // Note: we can improve on this some day -- if there are any tracked
     // locals, untracked locals will fail to be reported.
-    if (compiler->lvaTrackedCount == 0)
+    if (compiler->opts.OptimizationDisabled())
     {
+        assert(compiler->lvaTrackedCount == 0);
         StartUntrackedVarsRanges(codeGen, block, nextEnterScope, nextExitScope);
     }
 }
@@ -877,10 +873,7 @@ void CodeGenLivenessUpdater::StartUntrackedVarsRanges(CodeGen*    codeGen,
                                                       unsigned*   nextEnterScope,
                                                       unsigned*   nextExitScope)
 {
-    if (compiler->opts.OptimizationEnabled())
-    {
-        return;
-    }
+    assert(compiler->opts.OptimizationDisabled());
 
     unsigned startILOffset = block->bbCodeOffs;
 

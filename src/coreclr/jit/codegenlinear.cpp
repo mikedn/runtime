@@ -130,7 +130,10 @@ void CodeGen::genCodeForBBlist()
 
         if (compiler->opts.compDbgInfo)
         {
-            liveness.BeginBlock(this, block, &nextEnterScope, &nextExitScope);
+            if (compiler->info.compVarScopesCount != 0)
+            {
+                liveness.BeginBlock(this, block, &nextEnterScope, &nextExitScope);
+            }
 
             // BBF_INTERNAL blocks don't correspond to any single IL instruction.
             // If the block is the distinguished first scratch block, then there's
