@@ -849,14 +849,6 @@ void CodeGenLivenessUpdater::BeginBlock(CodeGen*    codeGen,
     }
 #endif // DEBUG
 
-    unsigned startILOffset = block->bbCodeOffs;
-
-    if (startILOffset == BAD_IL_OFFSET)
-    {
-        JITDUMP("Scope info: ignoring block beginning\n");
-        return;
-    }
-
     // If we have tracked locals, use liveness to update the debug state.
     //
     // Note: we can improve on this some day -- if there are any tracked
@@ -876,6 +868,12 @@ void CodeGenLivenessUpdater::StartUntrackedVarsRanges(CodeGen*    codeGen,
     assert(compiler->opts.OptimizationDisabled());
 
     unsigned startILOffset = block->bbCodeOffs;
+
+    if (startILOffset == BAD_IL_OFFSET)
+    {
+        JITDUMP("Scope info: ignoring block beginning\n");
+        return;
+    }
 
     // If we find a spot where the code offset isn't what we expect, because
     // there is a gap, it might be because we've moved the funclets out of
@@ -927,18 +925,6 @@ void CodeGenLivenessUpdater::StartUntrackedVarsRanges(CodeGen*    codeGen,
 
         StartRange(codeGen, lcl, scope->lclNum);
     }
-}
-
-void CodeGenLivenessUpdater::EndBlock(BasicBlock* block)
-{
-    assert(compiler->opts.compDbgInfo && (compiler->info.compVarScopesCount > 0));
-
-#ifdef FEATURE_EH_FUNCLETS
-    if (inFuncletRegion)
-    {
-        return;
-    }
-#endif
 
     unsigned endILOffset = block->bbCodeOffsEnd;
 

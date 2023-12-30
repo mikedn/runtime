@@ -251,11 +251,6 @@ void CodeGen::genCodeForBBlist()
             {
                 liveness.EndCodeGen(this);
             }
-
-            if (compiler->info.compVarScopesCount > 0)
-            {
-                liveness.EndBlock(block);
-            }
         }
 
 #if !FEATURE_FIXED_OUT_ARGS

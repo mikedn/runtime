@@ -341,7 +341,6 @@ public:
     }
 
     void BeginBlock(CodeGen* codeGen, BasicBlock* block, unsigned* nextEnterScope, unsigned* nextExitScope);
-    void EndBlock(BasicBlock* block);
     void BeginProlog(CodeGen* codeGen);
     void EndProlog(CodeGen* codeGen);
     void EndCodeGen(CodeGen* codeGen);
