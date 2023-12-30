@@ -35,6 +35,170 @@ void CodeGen::InitLclBlockLiveInRegs()
     JITDUMP("\n");
 }
 
+void CodeGen::genMarkLabelsForCodegen()
+{
+    assert(!compiler->fgSafeBasicBlockCreation);
+
+    JITDUMP("\nMark label blocks\n");
+
+#ifdef DEBUG
+    for (BasicBlock* const block : compiler->Blocks())
+    {
+        assert((block->bbFlags & BBF_HAS_LABEL) == 0);
+    }
+#endif
+
+    // The first block is special; it always needs a label. This is to properly set up GC info.
+    JITDUMP("  " FMT_BB ": first block\n", compiler->fgFirstBB->bbNum);
+    compiler->fgFirstBB->bbFlags |= BBF_HAS_LABEL;
+
+    // The current implementation of switch tables requires the first block to have a label so it
+    // can generate offsets to the switch label targets.
+    // (This is duplicative with the fact we always set the first block with a label above.)
+    // TODO-CQ: remove this when switches have been re-implemented to not use this.
+    if (compiler->fgHasSwitch)
+    {
+        JITDUMP("  " FMT_BB ": switch table base offset\n", compiler->fgFirstBB->bbNum);
+        compiler->fgFirstBB->bbFlags |= BBF_HAS_LABEL;
+    }
+
+    for (BasicBlock* const block : compiler->Blocks())
+    {
+        block->emitLabel = nullptr;
+#ifdef TARGET_ARM
+        block->unwindNopEmitLabel = nullptr;
+#endif
+
+        switch (block->bbJumpKind)
+        {
+            case BBJ_COND:
+#if FEATURE_LOOP_ALIGN
+                if (block->bbJumpDest->isLoopAlign() && (block->bbNext != nullptr))
+                {
+                    // In the emitter, we need to calculate the loop size from `block->bbJumpDest` through
+                    // `block` (inclusive). Thus, we need to ensure there is a label on the lexical fall-through
+                    // block, even if one is not otherwise needed, to be able to calculate the size of this
+                    // loop (loop size is calculated by walking the instruction groups; see emitter::getLoopSize()).
+
+                    JITDUMP("  " FMT_BB ": alignment end-of-loop\n", block->bbNext->bbNum);
+                    block->bbNext->bbFlags |= BBF_HAS_LABEL;
+                }
+                FALLTHROUGH;
+#endif
+            case BBJ_ALWAYS:
+            case BBJ_EHCATCHRET:
+                JITDUMP("  " FMT_BB ": branch target\n", block->bbJumpDest->bbNum);
+                block->bbJumpDest->bbFlags |= BBF_HAS_LABEL;
+                break;
+
+            case BBJ_SWITCH:
+                for (BasicBlock* const bTarget : block->SwitchTargets())
+                {
+                    JITDUMP("  " FMT_BB ": switch case\n", bTarget->bbNum);
+                    bTarget->bbFlags |= BBF_HAS_LABEL;
+                }
+                break;
+
+            case BBJ_CALLFINALLY:
+#if FEATURE_EH_CALLFINALLY_THUNKS
+                // For callfinally thunks, we need to mark the block following the callfinally/always pair,
+                // as that's needed for identifying the range of the "duplicate finally" region in EH data.
+                BasicBlock* bbToLabel;
+                bbToLabel = block->bbNext;
+
+                if (block->IsCallFinallyAlwaysPairHead())
+                {
+                    bbToLabel = bbToLabel->bbNext;
+                }
+
+                if (bbToLabel != nullptr)
+                {
+                    JITDUMP("  " FMT_BB ": callfinally thunk region end\n", bbToLabel->bbNum);
+                    bbToLabel->bbFlags |= BBF_HAS_LABEL;
+                }
+#endif // FEATURE_EH_CALLFINALLY_THUNKS
+                // The finally target itself will get marked by walking the EH table, below, and marking
+                // all handler begins.
+                break;
+
+            case BBJ_EHFINALLYRET:
+            case BBJ_EHFILTERRET:
+            case BBJ_RETURN:
+            case BBJ_THROW:
+            case BBJ_NONE:
+                break;
+
+            default:
+                unreached();
+        }
+
+        if (BasicBlock* prevBlock = block->bbPrev)
+        {
+            if (!prevBlock->bbFallsThrough())
+            {
+                // TODO-MIKE-Cleanup: Some dead blocks aren't removed. If they don't have a label we
+                // may end up with an insGroup without GC information and crash due to null gcLcls.
+                // Ideally such blocks should be removed but for now just avoid crashing.
+
+                JITDUMP("  " FMT_BB ": potentially unreachable block\n", block->bbNum);
+                block->bbFlags |= BBF_HAS_LABEL;
+            }
+            else if ((prevBlock->GetKind() == BBJ_COND) && (prevBlock->bbWeight != block->bbWeight))
+            {
+                // TODO-MIKE-Review: What's this for? Just to show the different weight in disassembly?!?
+
+                JITDUMP("  " FMT_BB ": weight difference " FMT_WT " -> " FMT_WT "\n", block->bbNum, prevBlock->bbWeight,
+                        block->bbWeight);
+                block->bbFlags |= BBF_HAS_LABEL;
+            }
+        }
+    }
+
+    // TODO-MIKE-Review: Wouldn't the first cold block be a jump target anyway? How else could it be reached?
+    // Anyway, hot/cold splitting is not enabled so this is basically dead code.
+    if (BasicBlock* firstColdBlock = compiler->fgFirstColdBlock)
+    {
+        noway_assert(!firstColdBlock->bbPrev->bbFallsThrough());
+
+        JITDUMP("  " FMT_BB ": first cold block\n", firstColdBlock->bbNum);
+        firstColdBlock->bbFlags |= BBF_HAS_LABEL;
+    }
+
+    // Walk all the throw helper blocks and mark them, since jumps to them don't appear the flow graph.
+    for (ThrowHelperBlock* helper = compiler->m_throwHelperBlockList; helper != nullptr; helper = helper->next)
+    {
+        JITDUMP("  " FMT_BB ": throw helper block\n", helper->block->bbNum);
+        helper->block->bbFlags |= BBF_HAS_LABEL;
+    }
+
+    for (EHblkDsc* const HBtab : EHClauses(compiler))
+    {
+        JITDUMP("  " FMT_BB ": try begin\n", HBtab->ebdTryBeg->bbNum);
+        HBtab->ebdTryBeg->bbFlags |= BBF_HAS_LABEL;
+
+        JITDUMP("  " FMT_BB ": handler begin\n", HBtab->ebdHndBeg->bbNum);
+        HBtab->ebdHndBeg->bbFlags |= BBF_HAS_LABEL;
+
+        if (BasicBlock* tryEnd = HBtab->ebdTryLast->bbNext)
+        {
+            tryEnd->bbFlags |= BBF_HAS_LABEL;
+            JITDUMP("  " FMT_BB ": try end\n", tryEnd->bbNum);
+        }
+
+        if (BasicBlock* handlerEnd = HBtab->ebdHndLast->bbNext)
+        {
+            handlerEnd->bbFlags |= BBF_HAS_LABEL;
+            JITDUMP("  " FMT_BB ": handler end\n", handlerEnd->bbNum);
+        }
+
+        if (HBtab->HasFilter())
+        {
+            HBtab->ebdFilter->bbFlags |= BBF_HAS_LABEL;
+            JITDUMP("  " FMT_BB ": filter begin\n", HBtab->ebdFilter->bbNum);
+        }
+    }
+}
+
 void CodeGen::genCodeForBBlist()
 {
     JITDUMP("\nGenerating code\n");
