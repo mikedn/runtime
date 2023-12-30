@@ -599,7 +599,7 @@ void emitter::dispIns(instrDesc* id)
 #ifdef DEBUG
     emitInsSanityCheck(id);
 
-    if (emitComp->opts.dspCode)
+    if (emitComp->verbose)
     {
         emitDispIns(id, true);
     }

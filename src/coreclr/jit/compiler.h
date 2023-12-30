@@ -1419,11 +1419,8 @@ struct CompilerOptions
     // Whether absolute addr be encoded as RIP relative displacement where possible
     AMD64_ONLY(bool enableRIPRelativeAddressing : 1;)
     bool compProcedureSplittingEH : 1; // Separate cold code from hot code for functions with EH
-    bool dspCode : 1;                  // Display native code generated
     bool dspEHTable : 1;               // Display the EH table reported to the VM
     bool dspDebugInfo : 1;             // Display the Debug info reported to the VM
-    bool dspInstrs : 1;                // Display the IL instructions intermixed with the native code output
-    bool dmpHex : 1;                   // Display raw bytes in hex of native code output
     bool disAsm : 1;                   // Display native code as it is generated
     bool disasmWithGC : 1;             // Display GC info interleaved with disassembly.
     bool disDiffable : 1;              // Makes the Disassembly code 'diff-able'

@@ -1325,7 +1325,6 @@ void Compiler::compInitConfigOptions()
             verboseTrees = cfg.JitDumpVerboseTrees() == 1;
             verboseSsa   = cfg.JitDumpVerboseSsa() == 1;
 
-            opts.dspCode    = true;
             opts.dspEHTable = true;
             opts.dspGCtbls  = true;
             opts.dspUnwind  = true;

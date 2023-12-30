@@ -295,7 +295,7 @@ public:
 
     void AddCallSite(unsigned stackLevel, unsigned codeOffs);
 
-    void* CreateAndStoreGCInfo(class CodeGen* codeGen, unsigned codeSize, unsigned prologSize, unsigned epilogSize);
+    void CreateAndStoreGCInfo(class CodeGen* codeGen, unsigned codeSize, unsigned prologSize, unsigned epilogSize);
 #else
     void AddCallArgStore(unsigned codeOffs, int argOffs, GCtype gcType);
     void AddCallArgsKill(unsigned codeOffs);

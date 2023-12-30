@@ -209,7 +209,7 @@ void CodeGen::genCodeForBBlist()
         DumpDisasmHeader();
     }
 
-    if (compiler->opts.disAsm || compiler->opts.dspCode || verbose)
+    if (compiler->opts.disAsm || verbose)
     {
         compiler->lvaTableDump();
         JITDUMP("\n");

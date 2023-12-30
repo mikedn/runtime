@@ -110,7 +110,7 @@ public:
     {
     }
 
-    void* CreateAndStoreGCInfo();
+    void CreateAndStoreGCInfo();
 
 private:
     unsigned GetUntrackedStackSlotCount();
@@ -131,7 +131,7 @@ private:
 #endif
 };
 
-void* GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen, unsigned codeSize, unsigned prologSize, unsigned epilogSize)
+void GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen, unsigned codeSize, unsigned prologSize, unsigned epilogSize)
 {
 #ifdef FEATURE_EH_FUNCLETS
     if (compiler->ehAnyFunclets())
@@ -142,10 +142,10 @@ void* GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen, unsigned codeSize, unsigned
 
     GCEncoder encoder(codeGen, codeSize, prologSize, epilogSize, GetReturnKind(compiler->info), firstStackSlotLifetime,
                       firstRegArgChange, firstCallSite, isFullyInterruptible, syncThisReg);
-    return encoder.CreateAndStoreGCInfo();
+    encoder.CreateAndStoreGCInfo();
 }
 
-void* GCEncoder::CreateAndStoreGCInfo()
+void GCEncoder::CreateAndStoreGCInfo()
 {
     untrackedStackSlotCount       = GetUntrackedStackSlotCount();
     trackedStackSlotLifetimeCount = GetTrackedStackSlotLifetimeCount();
@@ -252,7 +252,6 @@ void* GCEncoder::CreateAndStoreGCInfo()
     noway_assert(infoBlkAddr == (BYTE*)infoPtr + infoBlockSize);
 
     codeGen->compInfoBlkSize = infoBlockSize;
-    return infoPtr;
 }
 
 static unsigned char encodeUnsigned(BYTE* dest, unsigned value)

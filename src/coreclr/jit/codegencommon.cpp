@@ -786,60 +786,10 @@ void CodeGen::genEmitUnwindDebugGCandEH()
     genReportEH();
 
 #ifdef JIT32_GCENCODER
-    INDEBUG(void* infoPtr =)
     GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this, codeSize, prologSize, epilogSize);
 #else
     GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(codeSize, prologSize);
 #endif
-
-#ifdef DEBUG
-    FILE* dmpf = jitstdout;
-
-    compiler->opts.dmpHex = false;
-    if (!strcmp(compiler->info.compMethodName, "<name of method you want the hex dump for"))
-    {
-        FILE*   codf;
-        errno_t ec = fopen_s(&codf, "C:\\JIT.COD", "at"); // NOTE: file append mode
-        if (ec != 0)
-        {
-            assert(codf);
-            dmpf                  = codf;
-            compiler->opts.dmpHex = true;
-        }
-    }
-    if (compiler->opts.dmpHex)
-    {
-        size_t consSize = GetEmitter()->emitDataSize();
-
-        fprintf(dmpf, "Generated code for %s:\n", compiler->info.compFullName);
-        fprintf(dmpf, "\n");
-
-        if (codeSize)
-        {
-            fprintf(dmpf, "    Code  at %p [%04X bytes]\n", dspPtr(*codePtr), codeSize);
-        }
-        if (consSize)
-        {
-            fprintf(dmpf, "    Const at %p [%04X bytes]\n", dspPtr(consPtr), consSize);
-        }
-#ifdef JIT32_GCENCODER
-        if (compInfoBlkSize != 0)
-        {
-            fprintf(dmpf, "    Info  at %p [%04X bytes]\n", dspPtr(infoPtr), compInfoBlkSize);
-        }
-#endif
-
-        fprintf(dmpf, "\n");
-
-        fflush(dmpf);
-    }
-
-    if (dmpf != jitstdout)
-    {
-        fclose(dmpf);
-    }
-
-#endif // DEBUG
 
 #if DISPLAY_SIZES
 
