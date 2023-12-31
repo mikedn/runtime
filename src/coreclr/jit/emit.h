@@ -52,16 +52,6 @@ public:
     uint32_t CodeOffset(emitter* emit) const;
     uint32_t GetFuncletPrologOffset(emitter* emit) const;
 
-    bool operator==(const emitLocation& other) const
-    {
-        return (ig == other.ig) && (codePos == other.codePos);
-    }
-
-    bool operator!=(const emitLocation& other) const
-    {
-        return !(*this == other);
-    }
-
     INDEBUG(void Print(const char* suffix = nullptr) const;)
 };
 
