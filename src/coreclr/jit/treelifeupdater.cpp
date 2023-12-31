@@ -697,7 +697,6 @@ DbgInfoVarRange* DbgInfoVar::EndRange(CodeGen* codeGen)
 {
     noway_assert(HasOpenRange());
 
-    // Using [close, open) ranges so as to not compute the size of the last instruction
     lastRange->endOffset.CaptureLocation(codeGen->GetEmitter());
 
     return lastRange;
