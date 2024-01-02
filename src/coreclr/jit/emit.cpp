@@ -75,30 +75,34 @@ void emitLocation::CaptureLocation(emitter* emit)
     assert(Valid());
 }
 
-bool emitLocation::IsCurrentLocation(emitter* emit) const
-{
-    assert(Valid());
-    return (ig == emit->emitCurIG) && (codePos == emit->emitCurCodePos());
-}
-
 unsigned emitLocation::GetInsNum() const
 {
     return GetInsNumFromCodePos(codePos);
 }
 
-bool emitLocation::IsPreviousInsNum(emitter* emit) const
+bool emitLocation::IsCurrentLocation(emitter* emit) const
 {
     assert(Valid());
 
+    // TODO-MIKE-Review: This doens't handle the group boundary case.
+    return (ig == emit->emitCurIG) && (codePos == emit->emitCurCodePos());
+}
+
+bool emitLocation::IsPreviousLocation(emitter* emit) const
+{
+    assert(Valid());
+
+    unsigned insNum = GetInsNum();
+
     if (ig == emit->emitCurIG)
     {
-        return GetInsNumFromCodePos(codePos) == GetInsNumFromCodePos(emit->emitCurCodePos()) - 1;
+        return insNum == emit->emitCurIGinsCnt - 1;
     }
 
     if (ig->igNext == emit->emitCurIG)
     {
-        return ((GetInsNumFromCodePos(codePos) == ig->igInsCnt) && (emit->emitCurIGinsCnt == 1)) ||
-               ((GetInsNumFromCodePos(codePos) == ig->igInsCnt - 1u) && (emit->emitCurIGinsCnt == 0));
+        return ((insNum == ig->igInsCnt) && (emit->emitCurIGinsCnt == 1)) ||
+               ((insNum + 1 == ig->igInsCnt) && (emit->emitCurIGinsCnt == 0));
     }
 
     return false;

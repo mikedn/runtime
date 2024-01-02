@@ -48,7 +48,7 @@ public:
 
     bool IsCurrentLocation(emitter* emit) const;
     unsigned GetInsNum() const;
-    bool IsPreviousInsNum(emitter* emit) const;
+    bool IsPreviousLocation(emitter* emit) const;
     uint32_t CodeOffset(emitter* emit) const;
     uint32_t GetFuncletPrologOffset(emitter* emit) const;
 

@@ -662,14 +662,18 @@ DbgInfoVarRange* DbgInfoVar::StartRange(CodeGen* codeGen, const DbgInfoVarLoc& v
 {
     noway_assert(!HasOpenRange());
 
+    // If the variable is being born just after the instruction at which it died,
+    // we coalesce the live ranges.
+    // TODO-MIKE-Review: This is a rather dodgy approach to handle a common case:
+    // for x = x + y we assigning a register to x + y but when we generate code for
+    // that we don't know if this is going to be the register x is assigned to, we
+    // will only know that when we encounter the subsequent STORE_LCL_VAR.
+
     if ((lastRange != nullptr) && (varLoc == lastRange->location) &&
-        // TODO-MIKE-Review: IsPreviousInsNum's handling of the cross block case is dubious,
-        // it may be the reason why moving BeginBlockCodeGen around produces debug info diffs.
-        lastRange->endOffset.IsPreviousInsNum(codeGen->GetEmitter()))
+        lastRange->endOffset.IsPreviousLocation(codeGen->GetEmitter()))
     {
         assert(lastRange->startOffset.Valid());
-        // The variable is being born just after the instruction at which it died.
-        // In this case, i.e. an update of the variable's value, we coalesce the live ranges.
+
         lastRange->endOffset = {};
 
         return lastRange;
