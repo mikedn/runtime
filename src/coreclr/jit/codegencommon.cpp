@@ -4631,7 +4631,7 @@ void CodeGen::genEnsureCodeEmitted(IL_OFFSETX offsx)
 
     /* offsx was the last reported offset. Make sure that we generated native code */
 
-    if (genIPmappingLast->ipmdNativeLoc.IsCurrentLocation(GetEmitter()))
+    if (GetEmitter()->IsCurrentLocation(genIPmappingLast->ipmdNativeLoc))
     {
         GetEmitter()->emitIns(INS_nop);
     }

@@ -670,7 +670,7 @@ DbgInfoVarRange* DbgInfoVar::StartRange(CodeGen* codeGen, const DbgInfoVarLoc& v
     // will only know that when we encounter the subsequent STORE_LCL_VAR.
 
     if ((lastRange != nullptr) && (varLoc == lastRange->location) &&
-        lastRange->endOffset.IsPreviousLocation(codeGen->GetEmitter()))
+        codeGen->GetEmitter()->IsPreviousLocation(lastRange->endOffset))
     {
         assert(lastRange->startOffset.Valid());
 

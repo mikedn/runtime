@@ -46,9 +46,7 @@ public:
         return ig != nullptr;
     }
 
-    bool IsCurrentLocation(emitter* emit) const;
     unsigned GetInsNum() const;
-    bool IsPreviousLocation(emitter* emit) const;
     uint32_t CodeOffset(emitter* emit) const;
     uint32_t GetFuncletPrologOffset(emitter* emit) const;
 
@@ -296,6 +294,8 @@ public:
     /************************************************************************/
 
     unsigned emitCurCodePos();
+    bool IsCurrentLocation(const emitLocation& loc) const;
+    bool IsPreviousLocation(const emitLocation& loc) const;
     uint32_t emitCodeOffset(insGroup* ig);
     uint32_t emitCodeOffset(insGroup* ig, unsigned codeOffs);
     INDEBUG(const char* emitOffsetToLabel(unsigned offs);)

@@ -54,17 +54,46 @@ static unsigned GetCodePos(unsigned num, unsigned codeOffset)
 
 static unsigned GetInsNumFromCodePos(unsigned codePos)
 {
-    return (codePos & 0xFFFF);
+    return codePos & UINT16_MAX;
 }
 
 static unsigned GetInsOffsetFromCodePos(unsigned codePos)
 {
-    return (codePos >> 16);
+    return codePos >> 16;
 }
 
 unsigned emitter::emitCurCodePos()
 {
     return GetCodePos(emitCurIGinsCnt, emitCurIGsize);
+}
+
+bool emitter::IsCurrentLocation(const emitLocation& loc) const
+{
+    assert(loc.Valid());
+
+    // TODO-MIKE-Review: This doens't handle the group boundary case.
+    return (loc.GetIG() == emitCurIG) && (loc.GetInsNum() == emitCurIGinsCnt);
+}
+
+bool emitter::IsPreviousLocation(const emitLocation& loc) const
+{
+    assert(loc.Valid());
+
+    insGroup* ig     = loc.GetIG();
+    unsigned  insNum = loc.GetInsNum();
+
+    if (ig == emitCurIG)
+    {
+        return insNum + 1 == emitCurIGinsCnt;
+    }
+
+    if (ig->igNext == emitCurIG)
+    {
+        return ((insNum == ig->igInsCnt) && (emitCurIGinsCnt == 1)) ||
+               ((insNum + 1 == ig->igInsCnt) && (emitCurIGinsCnt == 0));
+    }
+
+    return false;
 }
 
 void emitLocation::CaptureLocation(emitter* emit)
@@ -78,34 +107,6 @@ void emitLocation::CaptureLocation(emitter* emit)
 unsigned emitLocation::GetInsNum() const
 {
     return GetInsNumFromCodePos(codePos);
-}
-
-bool emitLocation::IsCurrentLocation(emitter* emit) const
-{
-    assert(Valid());
-
-    // TODO-MIKE-Review: This doens't handle the group boundary case.
-    return (ig == emit->emitCurIG) && (codePos == emit->emitCurCodePos());
-}
-
-bool emitLocation::IsPreviousLocation(emitter* emit) const
-{
-    assert(Valid());
-
-    unsigned insNum = GetInsNum();
-
-    if (ig == emit->emitCurIG)
-    {
-        return insNum == emit->emitCurIGinsCnt - 1;
-    }
-
-    if (ig->igNext == emit->emitCurIG)
-    {
-        return ((insNum == ig->igInsCnt) && (emit->emitCurIGinsCnt == 1)) ||
-               ((insNum + 1 == ig->igInsCnt) && (emit->emitCurIGinsCnt == 0));
-    }
-
-    return false;
 }
 
 uint32_t emitLocation::CodeOffset(emitter* emit) const
