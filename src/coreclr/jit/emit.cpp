@@ -97,7 +97,8 @@ bool emitLocation::IsPreviousInsNum(emitter* emit) const
 
     if (ig->igNext == emit->emitCurIG)
     {
-        return (GetInsNumFromCodePos(codePos) == ig->igInsCnt) && (emit->emitCurIGinsCnt == 1);
+        return ((GetInsNumFromCodePos(codePos) == ig->igInsCnt) && (emit->emitCurIGinsCnt == 1)) ||
+               ((GetInsNumFromCodePos(codePos) == ig->igInsCnt - 1u) && (emit->emitCurIGinsCnt == 0));
     }
 
     return false;
