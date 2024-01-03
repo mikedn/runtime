@@ -147,7 +147,7 @@ void CodeGen::unwindBegProlog()
     }
 #endif // TARGET_UNIX
 
-    FuncInfoDsc* func = compiler->funCurrentFunc();
+    FuncInfoDsc* func = funCurrentFunc();
 
     // There is only one prolog for a function/funclet, and it comes first. So now is
     // a good time to initialize all the unwind data structures.
@@ -178,7 +178,7 @@ void CodeGen::unwindBegEpilog()
     }
 #endif // TARGET_UNIX
 
-    compiler->funCurrentFunc()->uwi.AddEpilog();
+    funCurrentFunc()->uwi.AddEpilog();
 }
 
 void CodeGen::unwindEndEpilog()
@@ -193,7 +193,7 @@ void CodeGen::unwindPushPopMaskInt(regMaskTP maskInt, bool useOpsize16)
     // floating point registers cannot be specified in 'maskInt'
     assert((maskInt & RBM_ALLFLOAT) == 0);
 
-    UnwindInfo* pu = &compiler->funCurrentFunc()->uwi;
+    UnwindInfo* pu = &funCurrentFunc()->uwi;
 
     if (useOpsize16)
     {
@@ -287,7 +287,7 @@ void CodeGen::unwindPushPopMaskFloat(regMaskTP maskFloat)
         return;
     }
 
-    UnwindInfo* pu = &compiler->funCurrentFunc()->uwi;
+    UnwindInfo* pu = &funCurrentFunc()->uwi;
 
     BYTE      val     = 0;
     regMaskTP valMask = (RBM_F16 | RBM_F17);
@@ -405,7 +405,7 @@ void CodeGen::unwindAllocStack(unsigned size)
     }
 #endif // TARGET_UNIX
 
-    UnwindInfo* pu = &compiler->funCurrentFunc()->uwi;
+    UnwindInfo* pu = &funCurrentFunc()->uwi;
 
     assert(size % 4 == 0);
     size /= 4;
@@ -459,7 +459,7 @@ void CodeGen::unwindSetFrameReg(regNumber reg, unsigned offset)
     }
 #endif // TARGET_UNIX
 
-    UnwindInfo* pu = &compiler->funCurrentFunc()->uwi;
+    UnwindInfo* pu = &funCurrentFunc()->uwi;
 
     // Arm unwind info does not allow offset
     assert(offset == 0);
@@ -483,7 +483,7 @@ void CodeGen::unwindBranch16()
     }
 #endif // TARGET_UNIX
 
-    UnwindInfo* pu = &compiler->funCurrentFunc()->uwi;
+    UnwindInfo* pu = &funCurrentFunc()->uwi;
 
     // TODO-CQ: need to handle changing the exit code from 0xFF to 0xFD. Currently, this will waste an extra 0xFF at the
     // end, automatically added.
@@ -499,7 +499,7 @@ void CodeGen::unwindNop(unsigned codeSizeInBytes) // codeSizeInBytes is 2 or 4 b
     }
 #endif // TARGET_UNIX
 
-    UnwindInfo* pu = &compiler->funCurrentFunc()->uwi;
+    UnwindInfo* pu = &funCurrentFunc()->uwi;
 
 #ifdef DEBUG
     if (verbose)
@@ -540,7 +540,7 @@ void CodeGen::unwindPadding()
     }
 #endif // TARGET_UNIX
 
-    UnwindInfo* pu = &compiler->funCurrentFunc()->uwi;
+    UnwindInfo* pu = &funCurrentFunc()->uwi;
     GetEmitter()->emitUnwindNopPadding(pu->GetCurrentEmitterLocation());
 }
 

@@ -131,7 +131,7 @@ void CodeGen::unwindPushPopCFI(regNumber reg)
 {
     assert(generatingProlog);
 
-    FuncInfoDsc*   func     = compiler->funCurrentFunc();
+    FuncInfoDsc*   func     = funCurrentFunc();
     UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset(func);
 
     regMaskTP relOffsetMask = RBM_CALLEE_SAVED
@@ -167,7 +167,7 @@ void CodeGen::unwindBegPrologCFI()
     assert(generatingProlog);
 
 #if defined(FEATURE_EH_FUNCLETS)
-    FuncInfoDsc* func = compiler->funCurrentFunc();
+    FuncInfoDsc* func = funCurrentFunc();
 
     // There is only one prolog for a function/funclet, and it comes first. So now is
     // a good time to initialize all the unwind data structures.
@@ -218,7 +218,7 @@ void CodeGen::unwindPushPopMaskCFI(regMaskTP regMask, bool isFloat)
 void CodeGen::unwindAllocStackCFI(unsigned size)
 {
     assert(generatingProlog);
-    FuncInfoDsc*   func     = compiler->funCurrentFunc();
+    FuncInfoDsc*   func     = funCurrentFunc();
     UNATIVE_OFFSET cbProlog = 0;
     if (generatingProlog)
     {
@@ -236,7 +236,7 @@ void CodeGen::unwindAllocStackCFI(unsigned size)
 void CodeGen::unwindSetFrameRegCFI(regNumber reg, unsigned offset)
 {
     assert(generatingProlog);
-    FuncInfoDsc*   func     = compiler->funCurrentFunc();
+    FuncInfoDsc*   func     = funCurrentFunc();
     UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset(func);
 
     createCfiCode(func, cbProlog, CFI_DEF_CFA_REGISTER, mapRegNumToDwarfReg(reg));

@@ -273,7 +273,7 @@ void CodeGen::GenCallFinally(BasicBlock* block)
     // instead of loading the PSPSym in this case, or if PSPSym is not used (CoreRT ABI).
 
     if ((compiler->lvaPSPSym == BAD_VAR_NUM) ||
-        (!compiler->compLocallocUsed && (compiler->funCurrentFunc()->funKind == FUNC_ROOT)))
+        (!compiler->compLocallocUsed && (funCurrentFunc()->funKind == FUNC_ROOT)))
     {
 #ifndef UNIX_X86_ABI
         GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_ARG_0, REG_SPBASE, /* canSkip */ false);

@@ -1153,6 +1153,30 @@ public:
     }
 #endif
 
+#ifdef FEATURE_EH_FUNCLETS
+    uint16_t currentFuncletIndex = 0;
+#endif
+
+    FuncInfoDsc* funCurrentFunc()
+    {
+#ifdef FEATURE_EH_FUNCLETS
+        return compiler->funGetFunc(currentFuncletIndex);
+#else
+        return compiler->funGetFunc(0);
+#endif
+    }
+
+    void funSetCurrentFunc(unsigned funcIdx)
+    {
+#ifdef FEATURE_EH_FUNCLETS
+        assert(FitsIn<uint16_t>(funcIdx));
+        noway_assert(funcIdx < compiler->compFuncInfoCount);
+        currentFuncletIndex = static_cast<int16_t>(funcIdx);
+#else
+        assert(funcIdx == 0);
+#endif
+    }
+
     //
     // Infrastructure functions: start/stop/reserve/emit.
     //

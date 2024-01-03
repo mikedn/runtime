@@ -374,33 +374,34 @@ void CodeGen::genUpdateCurrentFunclet(BasicBlock* block)
 {
     if (block->bbFlags & BBF_FUNCLET_BEG)
     {
-        compiler->funSetCurrentFunc(compiler->funGetFuncIdx(block));
-        if (compiler->funCurrentFunc()->funKind == FUNC_FILTER)
+        funSetCurrentFunc(compiler->funGetFuncIdx(block));
+        if (funCurrentFunc()->funKind == FUNC_FILTER)
         {
-            assert(compiler->ehGetDsc(compiler->funCurrentFunc()->funEHIndex)->ebdFilter == block);
+            assert(compiler->ehGetDsc(funCurrentFunc()->funEHIndex)->ebdFilter == block);
         }
         else
         {
             // We shouldn't see FUNC_ROOT
-            assert(compiler->funCurrentFunc()->funKind == FUNC_HANDLER);
-            assert(compiler->ehGetDsc(compiler->funCurrentFunc()->funEHIndex)->ebdHndBeg == block);
+            assert(funCurrentFunc()->funKind == FUNC_HANDLER);
+            assert(compiler->ehGetDsc(funCurrentFunc()->funEHIndex)->ebdHndBeg == block);
         }
     }
     else
     {
-        assert(compiler->compCurrFuncIdx <= compiler->compFuncInfoCount);
-        if (compiler->funCurrentFunc()->funKind == FUNC_FILTER)
+        assert(currentFuncletIndex <= compiler->compFuncInfoCount);
+
+        if (funCurrentFunc()->funKind == FUNC_FILTER)
         {
-            assert(compiler->ehGetDsc(compiler->funCurrentFunc()->funEHIndex)->InFilterRegionBBRange(block));
+            assert(compiler->ehGetDsc(funCurrentFunc()->funEHIndex)->InFilterRegionBBRange(block));
         }
-        else if (compiler->funCurrentFunc()->funKind == FUNC_ROOT)
+        else if (funCurrentFunc()->funKind == FUNC_ROOT)
         {
             assert(!block->hasHndIndex());
         }
         else
         {
-            assert(compiler->funCurrentFunc()->funKind == FUNC_HANDLER);
-            assert(compiler->ehGetDsc(compiler->funCurrentFunc()->funEHIndex)->InHndRegionBBRange(block));
+            assert(funCurrentFunc()->funKind == FUNC_HANDLER);
+            assert(compiler->ehGetDsc(funCurrentFunc()->funEHIndex)->InHndRegionBBRange(block));
         }
     }
 }
@@ -3695,7 +3696,7 @@ void CodeGen::genFnProlog()
     InitLclBlockLiveInRegs();
 
     ScopedSetVariable<bool> _setGeneratingProlog(&generatingProlog, true);
-    compiler->funSetCurrentFunc(0);
+    funSetCurrentFunc(0);
     GetEmitter()->emitBegProlog();
     unwindBegProlog();
     liveness.BeginPrologEpilogCodeGen();
@@ -4936,7 +4937,7 @@ void CodeGen::GenReturn(GenTree* ret, BasicBlock* block)
     // unreachable RETURN node at the end.
     assert((block->bbJumpKind == BBJ_RETURN) || (block->bbJumpKind == BBJ_THROW));
 #if defined(FEATURE_EH_FUNCLETS)
-    assert(compiler->funCurrentFunc()->funKind == FUNC_ROOT);
+    assert(funCurrentFunc()->funKind == FUNC_ROOT);
 #endif
 
     var_types retType = ret->GetType();

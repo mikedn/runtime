@@ -2079,7 +2079,6 @@ void Compiler::fgCreateFunclets()
     assert(funcIdx == funcCnt);
 
     // Publish
-    compCurrFuncIdx   = 0;
     compFuncInfos     = funcInfo;
     compFuncInfoCount = (unsigned short)funcCnt;
 

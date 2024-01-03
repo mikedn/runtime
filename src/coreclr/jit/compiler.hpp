@@ -307,29 +307,6 @@ inline EHblkDsc* Compiler::ehGetBlockHndDsc(BasicBlock* block)
 #if defined(FEATURE_EH_FUNCLETS)
 
 /*****************************************************************************
- *  Get the FuncInfoDsc for the funclet we are currently generating code for.
- *  This is only valid during codegen.
- *
- */
-inline FuncInfoDsc* Compiler::funCurrentFunc()
-{
-    return funGetFunc(compCurrFuncIdx);
-}
-
-/*****************************************************************************
- *  Change which funclet we are currently generating code for.
- *  This is only valid after funclets are created.
- *
- */
-inline void Compiler::funSetCurrentFunc(unsigned funcIdx)
-{
-    assert(fgFuncletsCreated);
-    assert(FitsIn<unsigned short>(funcIdx));
-    noway_assert(funcIdx < compFuncInfoCount);
-    compCurrFuncIdx = (unsigned short)funcIdx;
-}
-
-/*****************************************************************************
  *  Get the FuncInfoDsc for the given funclet.
  *  This is only valid after funclets are created.
  *
@@ -372,27 +349,6 @@ inline unsigned Compiler::funGetFuncIdx(BasicBlock* block)
 }
 
 #else // !FEATURE_EH_FUNCLETS
-
-/*****************************************************************************
- *  Get the FuncInfoDsc for the funclet we are currently generating code for.
- *  This is only valid during codegen.  For non-funclet platforms, this is
- *  always the root function.
- *
- */
-inline FuncInfoDsc* Compiler::funCurrentFunc()
-{
-    return &compFuncInfoRoot;
-}
-
-/*****************************************************************************
- *  Change which funclet we are currently generating code for.
- *  This is only valid after funclets are created.
- *
- */
-inline void Compiler::funSetCurrentFunc(unsigned funcIdx)
-{
-    assert(funcIdx == 0);
-}
 
 /*****************************************************************************
  *  Get the FuncInfoDsc for the givven funclet.

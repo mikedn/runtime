@@ -146,7 +146,7 @@ void CodeGen::unwindBegPrologWindows()
 {
     assert(generatingProlog);
 
-    FuncInfoDsc* func = compiler->funCurrentFunc();
+    FuncInfoDsc* func = funCurrentFunc();
 
     // There is only one prolog for a function/funclet, and it comes first. So now is
     // a good time to initialize all the unwind data structures.
@@ -210,7 +210,7 @@ void CodeGen::unwindPushWindows(regNumber reg)
 {
     assert(generatingProlog);
 
-    FuncInfoDsc* func = compiler->funCurrentFunc();
+    FuncInfoDsc* func = funCurrentFunc();
 
     assert(func->unwindHeader.Version == 1);            // Can't call this before unwindBegProlog
     assert(func->unwindHeader.CountOfUnwindCodes == 0); // Can't call this after unwindReserve
@@ -267,7 +267,7 @@ void CodeGen::unwindAllocStackWindows(unsigned size)
 {
     assert(generatingProlog);
 
-    FuncInfoDsc* func = compiler->funCurrentFunc();
+    FuncInfoDsc* func = funCurrentFunc();
 
     assert(func->unwindHeader.Version == 1);            // Can't call this before unwindBegProlog
     assert(func->unwindHeader.CountOfUnwindCodes == 0); // Can't call this after unwindReserve
@@ -327,7 +327,7 @@ void CodeGen::unwindSetFrameRegWindows(regNumber reg, unsigned offset)
 {
     assert(generatingProlog);
 
-    FuncInfoDsc* func = compiler->funCurrentFunc();
+    FuncInfoDsc* func = funCurrentFunc();
 
     assert(func->unwindHeader.Version == 1);            // Can't call this before unwindBegProlog
     assert(func->unwindHeader.CountOfUnwindCodes == 0); // Can't call this after unwindReserve
@@ -392,7 +392,7 @@ void CodeGen::unwindSaveRegWindows(regNumber reg, unsigned offset)
 {
     assert(generatingProlog);
 
-    FuncInfoDsc* func = compiler->funCurrentFunc();
+    FuncInfoDsc* func = funCurrentFunc();
 
     assert(func->unwindHeader.Version == 1);            // Can't call this before unwindBegProlog
     assert(func->unwindHeader.CountOfUnwindCodes == 0); // Can't call this after unwindReserve
@@ -439,7 +439,7 @@ void CodeGen::unwindSaveRegCFI(regNumber reg, unsigned offset)
 
     if (RBM_CALLEE_SAVED & genRegMask(reg))
     {
-        FuncInfoDsc* func = compiler->funCurrentFunc();
+        FuncInfoDsc* func = funCurrentFunc();
 
         unsigned int cbProlog = unwindGetCurrentOffset(func);
         createCfiCode(func, cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg), offset);

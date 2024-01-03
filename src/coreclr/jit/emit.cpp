@@ -186,12 +186,16 @@ insGroup* emitter::emitAllocIG()
 {
     assert(IsCodeAligned(emitCurCodeOffset));
 
-    insGroup* ig  = static_cast<insGroup*>(emitGetMem(sizeof(insGroup)));
-    ig->igNext    = nullptr;
-    ig->igData    = nullptr;
-    ig->igNum     = 0;
-    ig->igOffs    = emitCurCodeOffset;
-    ig->igFuncIdx = emitComp->compCurrFuncIdx;
+    insGroup* ig = static_cast<insGroup*>(emitGetMem(sizeof(insGroup)));
+    ig->igNext   = nullptr;
+    ig->igData   = nullptr;
+    ig->igNum    = 0;
+    ig->igOffs   = emitCurCodeOffset;
+#ifdef FEATURE_EH_FUNCLETS
+    ig->igFuncIdx = codeGen->currentFuncletIndex;
+#else
+    ig->igFuncIdx                   = 0;
+#endif
     ig->igSize    = 0;
     ig->igFlags   = 0;
     ig->igInsCnt  = 0;
@@ -892,8 +896,12 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
 
     insGroup* igPh = emitCurIG;
 
-    igPh->igPhData  = new (emitComp, CMK_InstDesc) insPlaceholderGroupData(igBB);
-    igPh->igFuncIdx = emitComp->compCurrFuncIdx;
+    igPh->igPhData = new (emitComp, CMK_InstDesc) insPlaceholderGroupData(igBB);
+#ifdef FEATURE_EH_FUNCLETS
+    igPh->igFuncIdx = codeGen->currentFuncletIndex;
+#else
+    igPh->igFuncIdx                       = 0;
+#endif
     igPh->igFlags |= IGF_PLACEHOLDER;
 
     if (igType == IGPT_EPILOG)
@@ -1060,7 +1068,7 @@ void emitter::emitBegPrologEpilog(insGroup* igPh)
     emitNoGCIG     = true;
     emitForceNewIG = false;
 
-    emitComp->funSetCurrentFunc(igPh->igFuncIdx);
+    codeGen->funSetCurrentFunc(igPh->igFuncIdx);
 
     emitGenIG(igPh);
 

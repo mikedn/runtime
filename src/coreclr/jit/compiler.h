@@ -5628,7 +5628,6 @@ public:
 
 #if defined(FEATURE_EH_FUNCLETS)
     FuncInfoDsc*   compFuncInfos;
-    unsigned short compCurrFuncIdx;
     unsigned short compFuncInfoCount;
 
     unsigned short compFuncCount()
@@ -5636,28 +5635,15 @@ public:
         assert(fgFuncletsCreated);
         return compFuncInfoCount;
     }
-
-#else // !FEATURE_EH_FUNCLETS
-
-    // This is a no-op when there are no funclets!
-    void genUpdateCurrentFunclet(BasicBlock* block)
-    {
-        return;
-    }
-
+#else  // !FEATURE_EH_FUNCLETS
     FuncInfoDsc compFuncInfoRoot;
-
-    static const unsigned compCurrFuncIdx = 0;
 
     unsigned short compFuncCount()
     {
         return 1;
     }
-
 #endif // !FEATURE_EH_FUNCLETS
 
-    FuncInfoDsc* funCurrentFunc();
-    void funSetCurrentFunc(unsigned funcIdx);
     FuncInfoDsc* funGetFunc(unsigned funcIdx);
     unsigned int funGetFuncIdx(BasicBlock* block);
 
