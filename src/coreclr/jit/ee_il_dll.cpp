@@ -1176,36 +1176,6 @@ void Compiler::eeAllocUnwindInfo(BYTE*          pHotCode,
     }
 }
 
-void Compiler::eeSetEHcount(unsigned cEH)
-{
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("setEHcount(cEH=%u)\n", cEH);
-    }
-#endif // DEBUG
-
-    if (info.compMatchedVM)
-    {
-        info.compCompHnd->setEHcount(cEH);
-    }
-}
-
-void Compiler::eeSetEHinfo(unsigned EHnumber, const CORINFO_EH_CLAUSE* clause)
-{
-#ifdef DEBUG
-    if (opts.dspEHTable)
-    {
-        dispOutgoingEHClause(EHnumber, *clause);
-    }
-#endif // DEBUG
-
-    if (info.compMatchedVM)
-    {
-        info.compCompHnd->setEHinfo(EHnumber, clause);
-    }
-}
-
 #ifdef TARGET_AMD64
 bool Compiler::eeIsRIPRelativeAddress(void* addr)
 {

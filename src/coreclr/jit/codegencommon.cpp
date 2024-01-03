@@ -923,7 +923,7 @@ void CodeGen::genReportEH()
 #endif // DEBUG
 
     // Tell the VM how many EH clauses to expect.
-    compiler->eeSetEHcount(EHCount);
+    eeSetEHcount(EHCount);
 
     XTnum = 0; // This is the index we pass to the VM
 
@@ -981,7 +981,7 @@ void CodeGen::genReportEH()
         assert(XTnum < EHCount);
 
         // Tell the VM about this EH clause.
-        compiler->eeSetEHinfo(XTnum, &clause);
+        eeSetEHinfo(XTnum, &clause);
 
         ++XTnum;
     }
@@ -1191,7 +1191,7 @@ void CodeGen::genReportEH()
                 assert(XTnum < EHCount);
 
                 // Tell the VM about this EH clause (a duplicated clause).
-                compiler->eeSetEHinfo(XTnum, &clause);
+                eeSetEHinfo(XTnum, &clause);
 
                 ++XTnum;
                 ++reportedDuplicateClauseCount;
@@ -1249,7 +1249,7 @@ void CodeGen::genReportEH()
                 assert(XTnum < EHCount);
 
                 // Tell the VM about this EH clause (a cloned finally clause).
-                compiler->eeSetEHinfo(XTnum, &clause);
+                eeSetEHinfo(XTnum, &clause);
 
                 ++XTnum;
                 ++reportedClonedFinallyCount;
@@ -1270,6 +1270,105 @@ void CodeGen::genReportEH()
 #endif // FEATURE_EH_FUNCLETS
 
     assert(XTnum == EHCount);
+}
+
+void CodeGen::eeSetEHcount(unsigned cEH)
+{
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("setEHcount(cEH=%u)\n", cEH);
+    }
+#endif // DEBUG
+
+    if (compiler->info.compMatchedVM)
+    {
+        compiler->info.compCompHnd->setEHcount(cEH);
+    }
+}
+
+void CodeGen::eeSetEHinfo(unsigned EHnumber, const CORINFO_EH_CLAUSE* clause)
+{
+#ifdef DEBUG
+    if (compiler->opts.dspEHTable)
+    {
+        dispOutgoingEHClause(EHnumber, *clause);
+    }
+#endif // DEBUG
+
+    if (compiler->info.compMatchedVM)
+    {
+        compiler->info.compCompHnd->setEHinfo(EHnumber, clause);
+    }
+}
+
+void CodeGen::dispOutgoingEHClause(unsigned num, const CORINFO_EH_CLAUSE& clause)
+{
+    if (compiler->opts.dspDiffable)
+    {
+        /* (( brace matching editor workaround to compensate for the following line */
+        printf("EH#%u: try [%s..%s) handled by [%s..%s) ", num, GetEmitter()->emitOffsetToLabel(clause.TryOffset),
+               GetEmitter()->emitOffsetToLabel(clause.TryLength), GetEmitter()->emitOffsetToLabel(clause.HandlerOffset),
+               GetEmitter()->emitOffsetToLabel(clause.HandlerLength));
+    }
+    else
+    {
+        /* (( brace matching editor workaround to compensate for the following line */
+        printf("EH#%u: try [%04X..%04X) handled by [%04X..%04X) ", num, dspOffset(clause.TryOffset),
+               dspOffset(clause.TryLength), dspOffset(clause.HandlerOffset), dspOffset(clause.HandlerLength));
+    }
+
+    // Note: the flags field is kind of weird. It should be compared for equality
+    // to determine the type of clause, even though it looks like a bitfield. In
+    // Particular, CORINFO_EH_CLAUSE_NONE is zero, so you can "&" to check it.
+    // You do need to mask off the bits, though, because CORINFO_EH_CLAUSE_DUPLICATE
+    // is and'ed in.
+    const DWORD CORINFO_EH_CLAUSE_TYPE_MASK = 0x7;
+    switch (clause.Flags & CORINFO_EH_CLAUSE_TYPE_MASK)
+    {
+        case CORINFO_EH_CLAUSE_NONE:
+            printf("(class: %04X)", clause.ClassToken);
+            break;
+        case CORINFO_EH_CLAUSE_FILTER:
+            if (compiler->opts.dspDiffable)
+            {
+                /* ( brace matching editor workaround to compensate for the following line */
+                printf("filter at [%s..%s)", GetEmitter()->emitOffsetToLabel(clause.ClassToken),
+                       GetEmitter()->emitOffsetToLabel(clause.HandlerOffset));
+            }
+            else
+            {
+                /* ( brace matching editor workaround to compensate for the following line */
+                printf("filter at [%04X..%04X)", dspOffset(clause.ClassToken), dspOffset(clause.HandlerOffset));
+            }
+            break;
+        case CORINFO_EH_CLAUSE_FINALLY:
+            printf("(finally)");
+            break;
+        case CORINFO_EH_CLAUSE_FAULT:
+            printf("(fault)");
+            break;
+        default:
+            printf("(UNKNOWN type %u!)", clause.Flags & CORINFO_EH_CLAUSE_TYPE_MASK);
+            assert(!"unknown type");
+            break;
+    }
+
+    if ((clause.TryOffset == clause.TryLength) && (clause.TryOffset == clause.HandlerOffset) &&
+        ((clause.Flags & (CORINFO_EH_CLAUSE_DUPLICATE | CORINFO_EH_CLAUSE_FINALLY)) ==
+         (CORINFO_EH_CLAUSE_DUPLICATE | CORINFO_EH_CLAUSE_FINALLY)))
+    {
+        printf(" cloned finally");
+    }
+    else if (clause.Flags & CORINFO_EH_CLAUSE_DUPLICATE)
+    {
+        printf(" duplicated");
+    }
+    else if (clause.Flags & CORINFO_EH_CLAUSE_SAMETRY)
+    {
+        printf(" same try");
+    }
+    printf("\n");
 }
 
 bool CodeGenInterface::UseOptimizedWriteBarriers()

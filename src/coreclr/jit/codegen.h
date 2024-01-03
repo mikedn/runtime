@@ -148,6 +148,11 @@ private:
 #endif
 
     void genReportEH();
+    void eeSetEHcount(unsigned cEH);
+    void eeSetEHinfo(unsigned EHnumber, const CORINFO_EH_CLAUSE* clause);
+#ifdef DEBUG
+    void dispOutgoingEHClause(unsigned num, const CORINFO_EH_CLAUSE& clause);
+#endif
 
 protected:
     // the current (pending) label ref, a label which has been referenced but not yet seen

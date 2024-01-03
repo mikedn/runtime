@@ -2919,7 +2919,6 @@ public:
 
 #ifdef DEBUG
     void dispIncomingEHClause(unsigned num, const CORINFO_EH_CLAUSE& clause);
-    void dispOutgoingEHClause(unsigned num, const CORINFO_EH_CLAUSE& clause);
     void fgVerifyHandlerTab();
     void fgDispHandlerTab();
 #endif // DEBUG
@@ -5522,10 +5521,6 @@ public:
                            ULONG          unwindSize,
                            BYTE*          pUnwindBlock,
                            CorJitFuncKind funcKind);
-
-    void eeSetEHcount(unsigned cEH);
-
-    void eeSetEHinfo(unsigned EHnumber, const CORINFO_EH_CLAUSE* clause);
 
 #ifdef TARGET_AMD64
     bool eeIsRIPRelativeAddress(void* addr);
