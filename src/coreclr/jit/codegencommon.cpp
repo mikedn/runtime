@@ -29,6 +29,23 @@ CodeGenInterface::CodeGenInterface(Compiler* compiler) : compiler(compiler), spi
 {
 }
 
+void CodeGenInterface::genGenerateCode(void** codePtr, uint32_t* nativeSizeOfCode)
+{
+    static_cast<CodeGen*>(this)->genGenerateCode(codePtr, nativeSizeOfCode);
+}
+
+#ifdef LATE_DISASM
+const char* CodeGenInterface::siRegVarName(size_t offs, size_t size, unsigned reg)
+{
+    static_cast<CodeGen*>(this)->siRegVarName(offs, size, reg);
+}
+
+const char* CodeGenInterface::siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs)
+{
+    static_cast<CodeGen*>(this)->siStackVarName(offs, size, reg, stkOffs);
+}
+#endif
+
 CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), liveness(compiler)
 {
     m_cgEmitter = new (compiler->getAllocator()) emitter(compiler, this, compiler->info.compCompHnd);

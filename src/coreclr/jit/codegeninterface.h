@@ -26,9 +26,14 @@ class CodeGenInterface
 protected:
     emitter* m_cgEmitter;
 
-public:
     CodeGenInterface(Compiler* compiler);
-    virtual void genGenerateCode(void** codePtr, uint32_t* nativeSizeOfCode) = 0;
+
+public:
+    void genGenerateCode(void** codePtr, uint32_t* nativeSizeOfCode);
+#ifdef LATE_DISASM
+    const char* siRegVarName(size_t offs, size_t size, unsigned reg);
+    const char* siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs);
+#endif
 
     Compiler* GetCompiler() const
     {
@@ -239,12 +244,6 @@ private:
     bool m_cgInterruptible = false;
 #ifdef TARGET_ARMARCH
     bool m_cgHasTailCalls = false;
-#endif
-
-#ifdef LATE_DISASM
-public:
-    virtual const char* siRegVarName(size_t offs, size_t size, unsigned reg) = 0;
-    virtual const char* siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs) = 0;
 #endif
 };
 

@@ -42,19 +42,23 @@ class CodeGen final : public CodeGenInterface
 public:
     CodeGen(Compiler* compiler);
 
+    void genGenerateCode(void** codePtr, uint32_t* nativeSizeOfCode);
+#ifdef LATE_DISASM
+    const char* siRegVarName(size_t offs, size_t size, unsigned reg);
+    const char* siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs);
+#endif
+
     BasicBlock* GetCurrentBlock() const
     {
         return m_currentBlock;
     }
-
-    virtual void genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize);
 
     void genAllocateRegisters();
     void genGenerateMachineCode();
     void genEmitMachineCode();
     void genEmitUnwindDebugGCandEH();
 
-    virtual VARSET_VALARG_TP GetLiveSet() const
+    VARSET_VALARG_TP GetLiveSet() const
     {
         return liveness.GetLiveSet();
     }
