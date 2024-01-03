@@ -1016,27 +1016,23 @@ struct FuncInfoDsc
                                // funclet. It is only valid if funKind field indicates this is a
                                // EH-related funclet: FUNC_HANDLER or FUNC_FILTER
 
-#if defined(TARGET_AMD64)
-
-    // TODO-AMD64-Throughput: make the AMD64 info more like the ARM info to avoid having this large static array.
-    emitLocation* startLoc;
-    emitLocation* endLoc;
-    emitLocation* coldStartLoc; // locations for the cold section, if there is one.
-    emitLocation* coldEndLoc;
-    UNWIND_INFO   unwindHeader;
-    // Maximum of 255 UNWIND_CODE 'nodes' and then the unwind header. If there are an odd
-    // number of codes, the VM or Zapper will 4-byte align the whole thing.
-    BYTE     unwindCodes[offsetof(UNWIND_INFO, UnwindCode) + (0xFF * sizeof(UNWIND_CODE))];
-    unsigned unwindCodeSlot;
-
-#elif defined(TARGET_X86)
-
-#if defined(TARGET_UNIX)
+#if defined(TARGET_AMD64) || defined(TARGET_UNIX)
     emitLocation* startLoc;
     emitLocation* endLoc;
     emitLocation* coldStartLoc; // locations for the cold section, if there is one.
     emitLocation* coldEndLoc;
 #endif // TARGET_UNIX
+
+#if defined(TARGET_AMD64)
+
+    UNWIND_INFO unwindHeader;
+    // Maximum of 255 UNWIND_CODE 'nodes' and then the unwind header. If there are an odd
+    // number of codes, the VM or Zapper will 4-byte align the whole thing.
+    // TODO-AMD64-Throughput: make the AMD64 info more like the ARM info to avoid having this large static array.
+    BYTE     unwindCodes[offsetof(UNWIND_INFO, UnwindCode) + (0xFF * sizeof(UNWIND_CODE))];
+    unsigned unwindCodeSlot;
+
+#elif defined(TARGET_X86)
 
 #elif defined(TARGET_ARMARCH)
 
@@ -1047,13 +1043,6 @@ struct FuncInfoDsc
                          //   where we don't have any cold section.
                          //   Note 2: we currently don't support hot/cold splitting in functions
                          //   with EH, so uwiCold will be NULL for all funclets.
-
-#if defined(TARGET_UNIX)
-    emitLocation* startLoc;
-    emitLocation* endLoc;
-    emitLocation* coldStartLoc; // locations for the cold section, if there is one.
-    emitLocation* coldEndLoc;
-#endif // TARGET_UNIX
 
 #endif // TARGET_ARMARCH
 
@@ -1308,7 +1297,7 @@ struct CompilerOptions
         return compMinOptsIsSet;
     }
 #else  // !DEBUG
-    bool          MinOpts() const
+    bool MinOpts() const
     {
         return compMinOpts;
     }
