@@ -997,6 +997,7 @@ public:
 };
 #endif // FEATURE_JIT_METHOD_PERF
 
+#ifdef FEATURE_EH_FUNCLETS
 //------------------- Function/Funclet info -------------------------------
 enum FuncKind : BYTE
 {
@@ -1053,6 +1054,7 @@ struct FuncInfoDsc
     // Eventually we may want to move rsModifiedRegsMask, lvaOutgoingArgSize, and anything else
     // that isn't shared between the main function body and funclets.
 };
+#endif // FEATURE_EH_FUNCLETS
 
 //-------------------------------------------------------------------------
 // LoopFlags: flags for the loop table.
@@ -5618,17 +5620,9 @@ public:
         assert(fgFuncletsCreated);
         return compFuncInfoCount;
     }
-#else  // !FEATURE_EH_FUNCLETS
-    FuncInfoDsc compFuncInfoRoot;
-
-    unsigned short compFuncCount()
-    {
-        return 1;
-    }
-#endif // !FEATURE_EH_FUNCLETS
-
     FuncInfoDsc* funGetFunc(unsigned funcIdx);
     unsigned int funGetFuncIdx(BasicBlock* block);
+#endif // FEATURE_EH_FUNCLETS
 
     // LIVENESS
 

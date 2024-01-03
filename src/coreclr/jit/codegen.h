@@ -388,14 +388,12 @@ public:
     uint16_t currentFuncletIndex = 0;
 #endif
 
+#ifdef FEATURE_EH_FUNCLETS
     FuncInfoDsc* funCurrentFunc()
     {
-#ifdef FEATURE_EH_FUNCLETS
         return compiler->funGetFunc(currentFuncletIndex);
-#else
-        return compiler->funGetFunc(0);
-#endif
     }
+#endif
 
     void funSetCurrentFunc(unsigned funcIdx)
     {
@@ -1249,8 +1247,10 @@ private:
                                 /* OUT */ emitLocation** ppEndLoc);
 #endif // FEATURE_EH_FUNCLETS
 
+#ifdef FEATURE_EH_FUNCLETS
     void unwindReserveFunc(FuncInfoDsc* func);
     void unwindEmitFunc(FuncInfoDsc* func, void* pHotCode, void* pColdCode);
+#endif
 
 #if defined(TARGET_AMD64) || (defined(TARGET_X86) && defined(FEATURE_EH_FUNCLETS))
 
@@ -1259,7 +1259,9 @@ private:
 
 #endif // TARGET_AMD64 || (TARGET_X86 && FEATURE_EH_FUNCLETS)
 
+#ifdef FEATURE_EH_FUNCLETS
     UNATIVE_OFFSET unwindGetCurrentOffset(FuncInfoDsc* func);
+#endif
 
 #if defined(TARGET_AMD64)
 

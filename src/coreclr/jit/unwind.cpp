@@ -387,6 +387,7 @@ void CodeGen::DumpCfiInfo(bool                  isHotCode,
 
 #endif // TARGET_UNIX
 
+#ifdef FEATURE_EH_FUNCLETS
 // Calculate the current byte offset of the
 // prolog being generated.
 //
@@ -416,6 +417,7 @@ UNATIVE_OFFSET CodeGen::unwindGetCurrentOffset(FuncInfoDsc* func)
 
     return offset;
 }
+#endif // FEATURE_EH_FUNCLETS
 
 #if defined(TARGET_AMD64)
 
