@@ -19,6 +19,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "emit.h"
 #include "patchpointinfo.h"
 #include "lsra.h"
+#include "unwind.h"
 
 void Compiler::codeGenInit()
 {

@@ -11,6 +11,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
+#include "unwind.h"
 #include "codegen.h"
 
 #if defined(TARGET_ARM) && defined(TARGET_UNIX)

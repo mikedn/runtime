@@ -19,6 +19,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "emit.h"
 #include "codegen.h"
 #include "gcinfotypes.h"
+#include "unwind.h"
 
 emitter::emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo)
     : emitComp(compiler), gcInfo(compiler), codeGen(codeGen), emitCmpHandle(jitInfo)

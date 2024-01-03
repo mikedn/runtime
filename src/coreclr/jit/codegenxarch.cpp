@@ -13,6 +13,7 @@
 #include "codegen.h"
 #include "lower.h"
 #include "patchpointinfo.h"
+#include "unwind.h"
 
 void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* initRegZeroed)
 {

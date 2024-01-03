@@ -2,7 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
-
+#include "unwind.h"
 #ifdef _MSC_VER
 #pragma hdrstop
 #endif

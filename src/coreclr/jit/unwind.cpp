@@ -11,6 +11,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
+#include "unwind.h"
 #include "codegen.h"
 
 #ifdef FEATURE_EH_FUNCLETS
@@ -416,6 +417,48 @@ UNATIVE_OFFSET CodeGen::unwindGetCurrentOffset(FuncInfoDsc* func)
     }
 
     return offset;
+}
+
+/*****************************************************************************
+ *  Get the FuncInfoDsc for the given funclet.
+ *  This is only valid after funclets are created.
+ *
+ */
+FuncInfoDsc* Compiler::funGetFunc(unsigned funcIdx)
+{
+    assert(fgFuncletsCreated);
+    assert(funcIdx < compFuncInfoCount);
+    return &compFuncInfos[funcIdx];
+}
+
+/*****************************************************************************
+ *  Get the funcIdx for the EH funclet that begins with block.
+ *  This is only valid after funclets are created.
+ *  It is only valid for blocks marked with BBF_FUNCLET_BEG because
+ *  otherwise we would have to do a more expensive check to determine
+ *  if this should return the filter funclet or the filter handler funclet.
+ *
+ */
+unsigned Compiler::funGetFuncIdx(BasicBlock* block)
+{
+    assert(fgFuncletsCreated);
+    assert(block->bbFlags & BBF_FUNCLET_BEG);
+
+    EHblkDsc*    eh      = ehGetDsc(block->getHndIndex());
+    unsigned int funcIdx = eh->ebdFuncIndex;
+    if (eh->ebdHndBeg != block)
+    {
+        // If this is a filter EH clause, but we want the funclet
+        // for the filter (not the filter handler), it is the previous one
+        noway_assert(eh->HasFilter());
+        noway_assert(eh->ebdFilter == block);
+        assert(funGetFunc(funcIdx)->funKind == FUNC_HANDLER);
+        assert(funGetFunc(funcIdx)->funEHIndex == funGetFunc(funcIdx - 1)->funEHIndex);
+        assert(funGetFunc(funcIdx - 1)->funKind == FUNC_FILTER);
+        funcIdx--;
+    }
+
+    return funcIdx;
 }
 #endif // FEATURE_EH_FUNCLETS
 

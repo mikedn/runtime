@@ -22,6 +22,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "instr.h"
 #include "emit.h"
 #include "codegen.h"
+#include "unwind.h"
 
 #ifdef DEBUG
 static bool isGeneralRegister(regNumber reg)

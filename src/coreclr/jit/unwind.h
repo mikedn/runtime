@@ -1,14 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                              Unwind Info                                  XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
+#pragma once
 
 #ifdef TARGET_ARMARCH
 
@@ -839,3 +832,61 @@ void DumpUnwindInfo(Compiler*         comp,
 #endif // DEBUG
 
 #endif // TARGET_ARMARCH
+
+#ifdef FEATURE_EH_FUNCLETS
+enum FuncKind : BYTE
+{
+    FUNC_ROOT,    // The main/root function (always id==0)
+    FUNC_HANDLER, // a funclet associated with an EH handler (finally, fault, catch, filter handler)
+    FUNC_FILTER,  // a funclet associated with an EH filter
+    FUNC_COUNT
+};
+
+class emitLocation;
+
+struct FuncInfoDsc
+{
+    FuncKind       funKind;
+    BYTE           funFlags;   // Currently unused, just here for padding
+    unsigned short funEHIndex; // index, into the ebd table, of innermost EH clause corresponding to this
+// funclet. It is only valid if funKind field indicates this is a
+// EH-related funclet: FUNC_HANDLER or FUNC_FILTER
+
+#if defined(TARGET_AMD64) || defined(TARGET_UNIX)
+    emitLocation* startLoc;
+    emitLocation* endLoc;
+    emitLocation* coldStartLoc; // locations for the cold section, if there is one.
+    emitLocation* coldEndLoc;
+#endif // TARGET_UNIX
+
+#if defined(TARGET_AMD64)
+
+    UNWIND_INFO unwindHeader;
+    // Maximum of 255 UNWIND_CODE 'nodes' and then the unwind header. If there are an odd
+    // number of codes, the VM or Zapper will 4-byte align the whole thing.
+    // TODO-AMD64-Throughput: make the AMD64 info more like the ARM info to avoid having this large static array.
+    BYTE     unwindCodes[offsetof(UNWIND_INFO, UnwindCode) + (0xFF * sizeof(UNWIND_CODE))];
+    unsigned unwindCodeSlot;
+
+#elif defined(TARGET_X86)
+
+#elif defined(TARGET_ARMARCH)
+
+    UnwindInfo  uwi;     // Unwind information for this function/funclet's hot  section
+    UnwindInfo* uwiCold; // Unwind information for this function/funclet's cold section
+                         //   Note: we only have a pointer here instead of the actual object,
+                         //   to save memory in the JIT case (compared to the NGEN case),
+                         //   where we don't have any cold section.
+                         //   Note 2: we currently don't support hot/cold splitting in functions
+                         //   with EH, so uwiCold will be NULL for all funclets.
+
+#endif // TARGET_ARMARCH
+
+#if defined(TARGET_UNIX)
+    jitstd::vector<CFI_CODE>* cfiCodes;
+#endif // TARGET_UNIX
+
+    // Eventually we may want to move rsModifiedRegsMask, lvaOutgoingArgSize, and anything else
+    // that isn't shared between the main function body and funclets.
+};
+#endif // FEATURE_EH_FUNCLETS
