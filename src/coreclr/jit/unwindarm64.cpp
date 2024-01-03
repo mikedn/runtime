@@ -11,11 +11,11 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
-#include "emit.h"
+#include "codegen.h"
 
 #ifdef TARGET_ARM64
 #ifdef TARGET_UNIX
-short Compiler::mapRegNumToDwarfReg(regNumber reg)
+short CodeGen::mapRegNumToDwarfReg(regNumber reg)
 {
     short dwarfReg = DWARF_REG_ILLEGAL;
 
@@ -222,17 +222,17 @@ short Compiler::mapRegNumToDwarfReg(regNumber reg)
 }
 #endif // TARGET_UNIX
 
-void Compiler::unwindPush(regNumber reg)
+void CodeGen::unwindPush(regNumber reg)
 {
     unreached(); // use one of the unwindSaveReg* functions instead.
 }
 
-void Compiler::unwindAllocStack(unsigned size)
+void CodeGen::unwindAllocStack(unsigned size)
 {
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
     {
-        if (codeGen->generatingProlog)
+        if (generatingProlog)
         {
             unwindAllocStackCFI(size);
         }
@@ -241,7 +241,7 @@ void Compiler::unwindAllocStack(unsigned size)
     }
 #endif // TARGET_UNIX
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    UnwindInfo* pu = &compiler->funCurrentFunc()->uwi;
 
     assert(size % 16 == 0);
     unsigned x = size / 16;
@@ -271,12 +271,12 @@ void Compiler::unwindAllocStack(unsigned size)
     }
 }
 
-void Compiler::unwindSetFrameReg(regNumber reg, unsigned offset)
+void CodeGen::unwindSetFrameReg(regNumber reg, unsigned offset)
 {
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
     {
-        if (codeGen->generatingProlog)
+        if (generatingProlog)
         {
             unwindSetFrameRegCFI(reg, offset);
         }
@@ -285,7 +285,7 @@ void Compiler::unwindSetFrameReg(regNumber reg, unsigned offset)
     }
 #endif // TARGET_UNIX
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    UnwindInfo* pu = &compiler->funCurrentFunc()->uwi;
 
     if (offset == 0)
     {
@@ -308,14 +308,14 @@ void Compiler::unwindSetFrameReg(regNumber reg, unsigned offset)
     }
 }
 
-void Compiler::unwindSaveReg(regNumber reg, unsigned offset)
+void CodeGen::unwindSaveReg(regNumber reg, unsigned offset)
 {
     unreached();
 }
 
-void Compiler::unwindNop()
+void CodeGen::unwindNop()
 {
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    UnwindInfo* pu = &compiler->funCurrentFunc()->uwi;
 
 #ifdef DEBUG
     if (verbose)
@@ -337,7 +337,7 @@ void Compiler::unwindNop()
 // except for the case of a pair including LR, in which case reg1 must be either FP or R19/R21/R23/R25/R27 (note that it
 // can't be even, such as R20, because that would mean R19 was saved separately, instead of saving <R19,R20> as a pair,
 // which we should do instead).
-void Compiler::unwindSaveRegPair(regNumber reg1, regNumber reg2, int offset)
+void CodeGen::unwindSaveRegPair(regNumber reg1, regNumber reg2, int offset)
 {
     // stp reg1, reg2, [sp, #offset]
 
@@ -348,9 +348,9 @@ void Compiler::unwindSaveRegPair(regNumber reg1, regNumber reg2, int offset)
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
     {
-        if (codeGen->generatingProlog)
+        if (generatingProlog)
         {
-            FuncInfoDsc*   func     = funCurrentFunc();
+            FuncInfoDsc*   func     = compiler->funCurrentFunc();
             UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset(func);
 
             createCfiCode(func, cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg1), offset);
@@ -361,7 +361,7 @@ void Compiler::unwindSaveRegPair(regNumber reg1, regNumber reg2, int offset)
     }
 #endif // TARGET_UNIX
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    UnwindInfo* pu = &compiler->funCurrentFunc()->uwi;
 
     int z = offset / 8;
     assert(0 <= z && z <= 0x3F);
@@ -419,7 +419,7 @@ void Compiler::unwindSaveRegPair(regNumber reg1, regNumber reg2, int offset)
 // unwindSaveRegPairPreindexed: save a register pair to the stack at the specified byte offset (which must be negative,
 // a multiple of 8 from -512 to -8). Note that for ARM64 unwind codes, reg2 must be exactly one register higher than
 // reg1.
-void Compiler::unwindSaveRegPairPreindexed(regNumber reg1, regNumber reg2, int offset)
+void CodeGen::unwindSaveRegPairPreindexed(regNumber reg1, regNumber reg2, int offset)
 {
     // stp reg1, reg2, [sp, #offset]!
 
@@ -430,9 +430,9 @@ void Compiler::unwindSaveRegPairPreindexed(regNumber reg1, regNumber reg2, int o
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
     {
-        if (codeGen->generatingProlog)
+        if (generatingProlog)
         {
-            FuncInfoDsc*   func     = funCurrentFunc();
+            FuncInfoDsc*   func     = compiler->funCurrentFunc();
             UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset(func);
 
             createCfiCode(func, cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, -offset);
@@ -444,7 +444,7 @@ void Compiler::unwindSaveRegPairPreindexed(regNumber reg1, regNumber reg2, int o
     }
 #endif // TARGET_UNIX
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    UnwindInfo* pu = &compiler->funCurrentFunc()->uwi;
 
     if (reg1 == REG_FP)
     {
@@ -508,7 +508,7 @@ void Compiler::unwindSaveRegPairPreindexed(regNumber reg1, regNumber reg2, int o
     }
 }
 
-void Compiler::unwindSaveReg(regNumber reg, int offset)
+void CodeGen::unwindSaveReg(regNumber reg, int offset)
 {
     // str reg, [sp, #offset]
 
@@ -519,9 +519,9 @@ void Compiler::unwindSaveReg(regNumber reg, int offset)
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
     {
-        if (codeGen->generatingProlog)
+        if (generatingProlog)
         {
-            FuncInfoDsc*   func     = funCurrentFunc();
+            FuncInfoDsc*   func     = compiler->funCurrentFunc();
             UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset(func);
 
             createCfiCode(func, cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg), offset);
@@ -534,7 +534,7 @@ void Compiler::unwindSaveReg(regNumber reg, int offset)
     int z = offset / 8;
     assert(0 <= z && z <= 0x3F);
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    UnwindInfo* pu = &compiler->funCurrentFunc()->uwi;
 
     if (IsGeneralRegister(reg))
     {
@@ -562,7 +562,7 @@ void Compiler::unwindSaveReg(regNumber reg, int offset)
     }
 }
 
-void Compiler::unwindSaveRegPreindexed(regNumber reg, int offset)
+void CodeGen::unwindSaveRegPreindexed(regNumber reg, int offset)
 {
     // str reg, [sp, #offset]!
 
@@ -573,9 +573,9 @@ void Compiler::unwindSaveRegPreindexed(regNumber reg, int offset)
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
     {
-        if (codeGen->generatingProlog)
+        if (generatingProlog)
         {
-            FuncInfoDsc*   func     = funCurrentFunc();
+            FuncInfoDsc*   func     = compiler->funCurrentFunc();
             UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset(func);
 
             createCfiCode(func, cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, -offset);
@@ -586,7 +586,7 @@ void Compiler::unwindSaveRegPreindexed(regNumber reg, int offset)
     }
 #endif // _TARGET_UNIX_
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    UnwindInfo* pu = &compiler->funCurrentFunc()->uwi;
 
     int z = (-offset) / 8 - 1;
     assert(0 <= z && z <= 0x1F);
@@ -617,14 +617,14 @@ void Compiler::unwindSaveRegPreindexed(regNumber reg, int offset)
     }
 }
 
-void Compiler::unwindSaveNext()
+void CodeGen::unwindSaveNext()
 {
 #if defined(TARGET_UNIX)
     // do not use unwindSaveNext when generating CFI codes as there is no code for this
     assert(!generateCFIUnwindCodes());
 #endif // TARGET_UNIX
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    UnwindInfo* pu = &compiler->funCurrentFunc()->uwi;
 
     // We're saving the next register pair. The caller is responsible for ensuring this is correct!
 
@@ -632,7 +632,7 @@ void Compiler::unwindSaveNext()
     pu->AddCode(0xE6);
 }
 
-void Compiler::unwindReturn(regNumber reg)
+void CodeGen::unwindReturn(regNumber reg)
 {
     // Nothing to do; we will always have at least one trailing "end" opcode in our padding.
 }

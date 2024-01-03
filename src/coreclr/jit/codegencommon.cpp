@@ -658,7 +658,7 @@ void CodeGen::genEmitMachineCode()
        space for it from the VM.
     */
 
-    compiler->unwindReserve();
+    unwindReserve();
 
     codeSize = GetEmitter()->emitEndCodeGen(&prologSize,
 #ifdef JIT32_GCENCODER
@@ -746,7 +746,7 @@ void CodeGen::genEmitUnwindDebugGCandEH()
 {
     /* Now that the code is issued, we can finalize and emit the unwind data */
 
-    compiler->unwindEmit(*codePtr, coldCodePtr);
+    unwindEmit(*codePtr, coldCodePtr);
 
     /* Finalize the line # tracking logic after we know the exact block sizes/offsets */
 
@@ -3697,7 +3697,7 @@ void CodeGen::genFnProlog()
     ScopedSetVariable<bool> _setGeneratingProlog(&generatingProlog, true);
     compiler->funSetCurrentFunc(0);
     GetEmitter()->emitBegProlog();
-    compiler->unwindBegProlog();
+    unwindBegProlog();
     liveness.BeginPrologEpilogCodeGen();
 
     if (compiler->opts.compDbgInfo)
@@ -3714,8 +3714,8 @@ void CodeGen::genFnProlog()
         PatchpointInfo* patchpointInfo    = compiler->info.compPatchpointInfo;
         const int       originalFrameSize = patchpointInfo->FpToSpDelta();
 
-        compiler->unwindPush(REG_FPBASE);
-        compiler->unwindAllocStack(originalFrameSize);
+        unwindPush(REG_FPBASE);
+        unwindAllocStack(originalFrameSize);
     }
 #endif
 
@@ -3729,7 +3729,7 @@ void CodeGen::genFnProlog()
 
 #ifdef TARGET_ARMARCH
         // Avoid asserts in the unwind info because these instructions aren't accounted for.
-        compiler->unwindPadding();
+        unwindPadding();
 #endif
     }
 
@@ -3758,7 +3758,7 @@ void CodeGen::genFnProlog()
     if (regMaskTP preSpillRegs = GetPreSpillRegs())
     {
         GetEmitter()->emitIns_I(INS_push, EA_4BYTE, static_cast<int>(preSpillRegs));
-        compiler->unwindPushMaskInt(preSpillRegs);
+        unwindPushMaskInt(preSpillRegs);
     }
 #endif
 
@@ -3773,7 +3773,7 @@ void CodeGen::genFnProlog()
     if (IsFramePointerRequired())
     {
         GetEmitter()->emitIns_R(INS_push, EA_PTRSIZE, REG_FPBASE);
-        compiler->unwindPush(REG_FPBASE);
+        unwindPush(REG_FPBASE);
 
 #ifndef TARGET_AMD64
         PrologEstablishFramePointer(0, /*reportUnwindData*/ true);
@@ -3833,7 +3833,7 @@ void CodeGen::genFnProlog()
     if (compiler->compLocallocUsed)
     {
         GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_SAVED_LOCALLOC_SP, REG_SPBASE, /* canSkip */ false);
-        compiler->unwindSetFrameReg(REG_SAVED_LOCALLOC_SP, 0);
+        unwindSetFrameReg(REG_SAVED_LOCALLOC_SP, 0);
     }
 
     if (needToEstablishFP)
@@ -4001,7 +4001,7 @@ void CodeGen::genFnProlog()
 #endif
 
     GetEmitter()->emitEndProlog();
-    compiler->unwindEndProlog();
+    unwindEndProlog();
 }
 
 #ifdef FEATURE_EH_FUNCLETS

@@ -11,12 +11,11 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
-#include "emit.h"
+#include "codegen.h"
 
 #ifdef FEATURE_EH_FUNCLETS
 
-//------------------------------------------------------------------------
-// Compiler::unwindGetFuncLocations: Get the start/end emitter locations for this
+// Get the start/end emitter locations for this
 // function or funclet. If 'getHotSectionData' is true, get the start/end locations
 // for the hot section. Otherwise, get the data for the cold section.
 //
@@ -46,10 +45,10 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 //    A start location of nullptr means the beginning of the code.
 //    An end location of nullptr means the end of the code.
 //
-void Compiler::unwindGetFuncLocations(FuncInfoDsc*             func,
-                                      bool                     getHotSectionData,
-                                      /* OUT */ emitLocation** ppStartLoc,
-                                      /* OUT */ emitLocation** ppEndLoc)
+void CodeGen::unwindGetFuncLocations(FuncInfoDsc*             func,
+                                     bool                     getHotSectionData,
+                                     /* OUT */ emitLocation** ppStartLoc,
+                                     /* OUT */ emitLocation** ppEndLoc)
 {
     if (func->funKind == FUNC_ROOT)
     {
@@ -62,18 +61,20 @@ void Compiler::unwindGetFuncLocations(FuncInfoDsc*             func,
             *ppStartLoc = nullptr; // nullptr emit location means the beginning of the code. This is to handle the first
                                    // fragment prolog.
 
-            if (fgFirstColdBlock != nullptr)
+            if (compiler->fgFirstColdBlock != nullptr)
             {
                 // The hot section only goes up to the cold section
-                assert(fgFirstFuncletBB == nullptr);
+                assert(compiler->fgFirstFuncletBB == nullptr);
 
-                *ppEndLoc = new (this, CMK_UnwindInfo) emitLocation(ehEmitLabel(fgFirstColdBlock));
+                *ppEndLoc =
+                    new (compiler, CMK_UnwindInfo) emitLocation(compiler->ehEmitLabel(compiler->fgFirstColdBlock));
             }
             else
             {
-                if (fgFirstFuncletBB != nullptr)
+                if (compiler->fgFirstFuncletBB != nullptr)
                 {
-                    *ppEndLoc = new (this, CMK_UnwindInfo) emitLocation(ehEmitLabel(fgFirstFuncletBB));
+                    *ppEndLoc =
+                        new (compiler, CMK_UnwindInfo) emitLocation(compiler->ehEmitLabel(compiler->fgFirstFuncletBB));
                 }
                 else
                 {
@@ -83,32 +84,34 @@ void Compiler::unwindGetFuncLocations(FuncInfoDsc*             func,
         }
         else
         {
-            assert(fgFirstFuncletBB == nullptr); // TODO-CQ: support hot/cold splitting in functions with EH
-            assert(fgFirstColdBlock != nullptr); // There better be a cold section!
+            assert(compiler->fgFirstFuncletBB == nullptr); // TODO-CQ: support hot/cold splitting in functions with EH
+            assert(compiler->fgFirstColdBlock != nullptr); // There better be a cold section!
 
-            *ppStartLoc = new (this, CMK_UnwindInfo) emitLocation(ehEmitLabel(fgFirstColdBlock));
-            *ppEndLoc   = nullptr; // nullptr end location means the end of the code
+            *ppStartLoc =
+                new (compiler, CMK_UnwindInfo) emitLocation(compiler->ehEmitLabel(compiler->fgFirstColdBlock));
+            *ppEndLoc = nullptr; // nullptr end location means the end of the code
         }
     }
     else
     {
         assert(getHotSectionData); // TODO-CQ: support funclets in cold section
 
-        EHblkDsc* HBtab = ehGetDsc(func->funEHIndex);
+        EHblkDsc* HBtab = compiler->ehGetDsc(func->funEHIndex);
 
         if (func->funKind == FUNC_FILTER)
         {
             assert(HBtab->HasFilter());
-            *ppStartLoc = new (this, CMK_UnwindInfo) emitLocation(ehEmitLabel(HBtab->ebdFilter));
-            *ppEndLoc   = new (this, CMK_UnwindInfo) emitLocation(ehEmitLabel(HBtab->ebdHndBeg));
+            *ppStartLoc = new (compiler, CMK_UnwindInfo) emitLocation(compiler->ehEmitLabel(HBtab->ebdFilter));
+            *ppEndLoc   = new (compiler, CMK_UnwindInfo) emitLocation(compiler->ehEmitLabel(HBtab->ebdHndBeg));
         }
         else
         {
             assert(func->funKind == FUNC_HANDLER);
-            *ppStartLoc = new (this, CMK_UnwindInfo) emitLocation(ehEmitLabel(HBtab->ebdHndBeg));
+            *ppStartLoc = new (compiler, CMK_UnwindInfo) emitLocation(compiler->ehEmitLabel(HBtab->ebdHndBeg));
             *ppEndLoc   = (HBtab->ebdHndLast->bbNext == nullptr)
                             ? nullptr
-                            : new (this, CMK_UnwindInfo) emitLocation(ehEmitLabel(HBtab->ebdHndLast->bbNext));
+                            : new (compiler, CMK_UnwindInfo)
+                                  emitLocation(compiler->ehEmitLabel(HBtab->ebdHndLast->bbNext));
         }
     }
 }
@@ -117,18 +120,18 @@ void Compiler::unwindGetFuncLocations(FuncInfoDsc*             func,
 
 #if defined(TARGET_UNIX)
 
-void Compiler::createCfiCode(FuncInfoDsc* func, UNATIVE_OFFSET codeOffset, UCHAR cfiOpcode, short dwarfReg, INT offset)
+void CodeGen::createCfiCode(FuncInfoDsc* func, UNATIVE_OFFSET codeOffset, UCHAR cfiOpcode, short dwarfReg, INT offset)
 {
     noway_assert(static_cast<UCHAR>(codeOffset) == codeOffset);
     CFI_CODE cfiEntry(static_cast<UCHAR>(codeOffset), cfiOpcode, dwarfReg, offset);
     func->cfiCodes->push_back(cfiEntry);
 }
 
-void Compiler::unwindPushPopCFI(regNumber reg)
+void CodeGen::unwindPushPopCFI(regNumber reg)
 {
-    assert(codeGen->generatingProlog);
+    assert(generatingProlog);
 
-    FuncInfoDsc*   func     = funCurrentFunc();
+    FuncInfoDsc*   func     = compiler->funCurrentFunc();
     UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset(func);
 
     regMaskTP relOffsetMask = RBM_CALLEE_SAVED
@@ -159,28 +162,28 @@ void Compiler::unwindPushPopCFI(regNumber reg)
 
 typedef jitstd::vector<CFI_CODE> CFICodeVector;
 
-void Compiler::unwindBegPrologCFI()
+void CodeGen::unwindBegPrologCFI()
 {
-    assert(codeGen->generatingProlog);
+    assert(generatingProlog);
 
 #if defined(FEATURE_EH_FUNCLETS)
-    FuncInfoDsc* func = funCurrentFunc();
+    FuncInfoDsc* func = compiler->funCurrentFunc();
 
     // There is only one prolog for a function/funclet, and it comes first. So now is
     // a good time to initialize all the unwind data structures.
 
     unwindGetFuncLocations(func, true, &func->startLoc, &func->endLoc);
 
-    if (fgFirstColdBlock != nullptr)
+    if (compiler->fgFirstColdBlock != nullptr)
     {
         unwindGetFuncLocations(func, false, &func->coldStartLoc, &func->coldEndLoc);
     }
 
-    func->cfiCodes = new (getAllocator(CMK_UnwindInfo)) CFICodeVector(getAllocator());
+    func->cfiCodes = new (compiler, CMK_UnwindInfo) CFICodeVector(compiler->getAllocator(CMK_UnwindInfo));
 #endif // FEATURE_EH_FUNCLETS
 }
 
-void Compiler::unwindPushPopMaskCFI(regMaskTP regMask, bool isFloat)
+void CodeGen::unwindPushPopMaskCFI(regMaskTP regMask, bool isFloat)
 {
     regMaskTP regBit = isFloat ? genRegMask(REG_FP_FIRST) : 1;
 
@@ -212,29 +215,28 @@ void Compiler::unwindPushPopMaskCFI(regMaskTP regMask, bool isFloat)
     }
 }
 
-void Compiler::unwindAllocStackCFI(unsigned size)
+void CodeGen::unwindAllocStackCFI(unsigned size)
 {
-    assert(codeGen->generatingProlog);
-    FuncInfoDsc*   func     = funCurrentFunc();
+    assert(generatingProlog);
+    FuncInfoDsc*   func     = compiler->funCurrentFunc();
     UNATIVE_OFFSET cbProlog = 0;
-    if (codeGen->generatingProlog)
+    if (generatingProlog)
     {
         cbProlog = unwindGetCurrentOffset(func);
     }
     createCfiCode(func, cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, size);
 }
 
-//------------------------------------------------------------------------
-// Compiler::unwindSetFrameRegCFI: Record a cfi info for a frame register set.
+// Record a cfi info for a frame register set.
 //
 // Arguments:
 //    reg    - The register being set as the frame register.
 //    offset - The offset from the current stack pointer that the frame pointer will point at.
 //
-void Compiler::unwindSetFrameRegCFI(regNumber reg, unsigned offset)
+void CodeGen::unwindSetFrameRegCFI(regNumber reg, unsigned offset)
 {
-    assert(codeGen->generatingProlog);
-    FuncInfoDsc*   func     = funCurrentFunc();
+    assert(generatingProlog);
+    FuncInfoDsc*   func     = compiler->funCurrentFunc();
     UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset(func);
 
     createCfiCode(func, cbProlog, CFI_DEF_CFA_REGISTER, mapRegNumToDwarfReg(reg));
@@ -250,7 +252,7 @@ void Compiler::unwindSetFrameRegCFI(regNumber reg, unsigned offset)
     }
 }
 
-void Compiler::unwindEmitFuncCFI(FuncInfoDsc* func, void* pHotCode, void* pColdCode)
+void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* pHotCode, void* pColdCode)
 {
     UNATIVE_OFFSET startOffset;
     UNATIVE_OFFSET endOffset;
@@ -268,7 +270,7 @@ void Compiler::unwindEmitFuncCFI(FuncInfoDsc* func, void* pHotCode, void* pColdC
 
     if (func->endLoc == nullptr)
     {
-        endOffset = info.compNativeCodeSize;
+        endOffset = compiler->info.compNativeCodeSize;
     }
     else
     {
@@ -283,20 +285,20 @@ void Compiler::unwindEmitFuncCFI(FuncInfoDsc* func, void* pHotCode, void* pColdC
     }
 
 #ifdef DEBUG
-    if (opts.dspUnwind)
+    if (compiler->opts.dspUnwind)
     {
         DumpCfiInfo(true /*isHotCode*/, startOffset, endOffset, unwindCodeBytes, (const CFI_CODE* const)pUnwindBlock);
     }
 #endif // DEBUG
 
-    assert(endOffset <= info.compTotalHotCodeSize);
+    assert(endOffset <= compiler->info.compTotalHotCodeSize);
 
-    eeAllocUnwindInfo((BYTE*)pHotCode, nullptr /* pColdCode */, startOffset, endOffset, unwindCodeBytes, pUnwindBlock,
-                      (CorJitFuncKind)func->funKind);
+    compiler->eeAllocUnwindInfo((BYTE*)pHotCode, nullptr /* pColdCode */, startOffset, endOffset, unwindCodeBytes,
+                                pUnwindBlock, (CorJitFuncKind)func->funKind);
 
     if (pColdCode != nullptr)
     {
-        assert(fgFirstColdBlock != nullptr);
+        assert(compiler->fgFirstColdBlock != nullptr);
         assert(func->funKind == FUNC_ROOT); // No splitting of funclets.
 
         unwindCodeBytes = 0;
@@ -313,7 +315,7 @@ void Compiler::unwindEmitFuncCFI(FuncInfoDsc* func, void* pHotCode, void* pColdC
 
         if (func->coldEndLoc == nullptr)
         {
-            endOffset = info.compNativeCodeSize;
+            endOffset = compiler->info.compNativeCodeSize;
         }
         else
         {
@@ -321,19 +323,19 @@ void Compiler::unwindEmitFuncCFI(FuncInfoDsc* func, void* pHotCode, void* pColdC
         }
 
 #ifdef DEBUG
-        if (opts.dspUnwind)
+        if (compiler->opts.dspUnwind)
         {
             DumpCfiInfo(false /*isHotCode*/, startOffset, endOffset, unwindCodeBytes,
                         (const CFI_CODE* const)pUnwindBlock);
         }
 #endif // DEBUG
 
-        assert(startOffset >= info.compTotalHotCodeSize);
-        startOffset -= info.compTotalHotCodeSize;
-        endOffset -= info.compTotalHotCodeSize;
+        assert(startOffset >= compiler->info.compTotalHotCodeSize);
+        startOffset -= compiler->info.compTotalHotCodeSize;
+        endOffset -= compiler->info.compTotalHotCodeSize;
 
-        eeAllocUnwindInfo((BYTE*)pHotCode, (BYTE*)pColdCode, startOffset, endOffset, unwindCodeBytes, pUnwindBlock,
-                          (CorJitFuncKind)func->funKind);
+        compiler->eeAllocUnwindInfo((BYTE*)pHotCode, (BYTE*)pColdCode, startOffset, endOffset, unwindCodeBytes,
+                                    pUnwindBlock, (CorJitFuncKind)func->funKind);
     }
 }
 
@@ -347,11 +349,11 @@ void Compiler::unwindEmitFuncCFI(FuncInfoDsc* func, void* pHotCode, void* pColdC
 //    endOffset   - byte offset of the code end   that this cfi data represents.
 //    pcFiCode    - pointer to the cfi data blob.
 //
-void Compiler::DumpCfiInfo(bool                  isHotCode,
-                           UNATIVE_OFFSET        startOffset,
-                           UNATIVE_OFFSET        endOffset,
-                           DWORD                 cfiCodeBytes,
-                           const CFI_CODE* const pCfiCode)
+void CodeGen::DumpCfiInfo(bool                  isHotCode,
+                          UNATIVE_OFFSET        startOffset,
+                          UNATIVE_OFFSET        endOffset,
+                          DWORD                 cfiCodeBytes,
+                          const CFI_CODE* const pCfiCode)
 {
     printf("Cfi Info%s:\n", isHotCode ? "" : " COLD");
     printf("  >> Start offset   : 0x%06x \n", dspOffset(startOffset));
@@ -389,8 +391,7 @@ void Compiler::DumpCfiInfo(bool                  isHotCode,
 
 #endif // TARGET_UNIX
 
-//------------------------------------------------------------------------
-// Compiler::unwindGetCurrentOffset: Calculate the current byte offset of the
+// Calculate the current byte offset of the
 // prolog being generated.
 //
 // Arguments:
@@ -399,9 +400,9 @@ void Compiler::DumpCfiInfo(bool                  isHotCode,
 // Return Value:
 //    The byte offset of the prolog currently being generated.
 //
-UNATIVE_OFFSET Compiler::unwindGetCurrentOffset(FuncInfoDsc* func)
+UNATIVE_OFFSET CodeGen::unwindGetCurrentOffset(FuncInfoDsc* func)
 {
-    assert(codeGen->generatingProlog);
+    assert(generatingProlog);
     UNATIVE_OFFSET offset;
     if (func->funKind == FUNC_ROOT)
     {

@@ -1645,12 +1645,12 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
     {
         // Frame size is the same as register size.
         GetEmitter()->emitIns_R(INS_push, EA_PTRSIZE, REG_EAX);
-        compiler->unwindAllocStack(frameSize);
+        unwindAllocStack(frameSize);
     }
     else if (frameSize < pageSize)
     {
         GetEmitter()->emitIns_R_I(INS_sub, EA_PTRSIZE, REG_SPBASE, frameSize);
-        compiler->unwindAllocStack(frameSize);
+        unwindAllocStack(frameSize);
 
         const unsigned lastProbedLocToFinalSp = frameSize;
 
@@ -1703,7 +1703,7 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
         GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_SPBASE, REG_STACK_PROBE_HELPER_ARG, /* canSkip */ false);
 #endif // !TARGET_X86
 
-        compiler->unwindAllocStack(frameSize);
+        unwindAllocStack(frameSize);
 
         if (initReg == REG_STACK_PROBE_HELPER_ARG)
         {
@@ -1728,7 +1728,7 @@ void CodeGen::PrologEstablishFramePointer(int delta, bool reportUnwindData)
 
     if (reportUnwindData)
     {
-        compiler->unwindSetFrameReg(REG_FPBASE, delta);
+        unwindSetFrameReg(REG_FPBASE, delta);
     }
 }
 
@@ -8029,7 +8029,7 @@ void CodeGen::PrologPushCalleeSavedRegisters()
         if ((regBit & rsPushRegs) != 0)
         {
             GetEmitter()->emitIns_R(INS_push, EA_GCREF, reg);
-            compiler->unwindPush(reg);
+            unwindPush(reg);
             rsPushRegs &= ~regBit;
         }
     }
@@ -8092,7 +8092,7 @@ void CodeGen::PrologPreserveCalleeSavedFloatRegs(unsigned lclFrameSize)
         if ((regBit & regMask) != 0)
         {
             GetEmitter()->emitIns_AR_R(INS_movaps, EA_16BYTE, reg, REG_RSP, offset);
-            compiler->unwindSaveReg(reg, offset);
+            unwindSaveReg(reg, offset);
             regMask &= ~regBit;
             offset -= XMM_REGSIZE_BYTES;
         }
@@ -8580,7 +8580,7 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
 
     ScopedSetVariable<bool> _setGeneratingProlog(&generatingProlog, true);
 
-    compiler->unwindBegProlog();
+    unwindBegProlog();
 
     // We need to push ebp, since it's callee-saved.
     // We need to push the callee-saved registers. We only need to push the ones that we need, but we don't
@@ -8591,7 +8591,7 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
     // size as the parent frame's outgoing argument space, to keep the PSPSym offset the same.
 
     GetEmitter()->emitIns_R(INS_push, EA_GCREF, REG_FPBASE);
-    compiler->unwindPush(REG_FPBASE);
+    unwindPush(REG_FPBASE);
 
     // Callee saved int registers are pushed to stack.
     PrologPushCalleeSavedRegisters();
@@ -8616,7 +8616,7 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
     PrologPreserveCalleeSavedFloatRegs(genFuncletInfo.fiSpDelta);
 
     // This is the end of the OS-reported prolog for purposes of unwinding
-    compiler->unwindEndProlog();
+    unwindEndProlog();
 
     // If there is no PSPSym (CoreRT ABI), we are done.
     if (compiler->lvaPSPSym == BAD_VAR_NUM)

@@ -11,16 +11,14 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
+#include "codegen.h"
 
 #ifndef TARGET_X86
 #error "This should be included only for x86"
 #endif // TARGET_X86
 
 #if defined(TARGET_UNIX)
-short Compiler::mapRegNumToDwarfReg(regNumber reg)
+short CodeGen::mapRegNumToDwarfReg(regNumber reg)
 {
     short dwarfReg = DWARF_REG_ILLEGAL;
 
@@ -30,49 +28,48 @@ short Compiler::mapRegNumToDwarfReg(regNumber reg)
 }
 #endif // TARGET_UNIX
 
-void Compiler::unwindBegProlog()
+void CodeGen::unwindBegProlog()
 {
 }
 
-void Compiler::unwindEndProlog()
+void CodeGen::unwindEndProlog()
 {
 }
 
-void Compiler::unwindBegEpilog()
+void CodeGen::unwindBegEpilog()
 {
 }
 
-void Compiler::unwindEndEpilog()
+void CodeGen::unwindEndEpilog()
 {
 }
 
-void Compiler::unwindPush(regNumber reg)
+void CodeGen::unwindPush(regNumber reg)
 {
 }
 
-void Compiler::unwindAllocStack(unsigned size)
+void CodeGen::unwindAllocStack(unsigned size)
 {
 }
 
-void Compiler::unwindSetFrameReg(regNumber reg, unsigned offset)
+void CodeGen::unwindSetFrameReg(regNumber reg, unsigned offset)
 {
 }
 
-void Compiler::unwindSaveReg(regNumber reg, unsigned offset)
+void CodeGen::unwindSaveReg(regNumber reg, unsigned offset)
 {
 }
 
-//------------------------------------------------------------------------
-// Compiler::unwindReserve: Ask the VM to reserve space for the unwind information
+// Ask the VM to reserve space for the unwind information
 // for the function and all its funclets. Called once, just before asking the VM
 // for memory and emitting the generated code. Calls unwindReserveFunc() to handle
 // the main function and each of the funclets, in turn.
 //
-void Compiler::unwindReserve()
+void CodeGen::unwindReserve()
 {
 #if defined(FEATURE_EH_FUNCLETS)
-    assert(!compGeneratingProlog);
-    assert(!compGeneratingEpilog);
+    assert(!generatingProlog);
+    assert(!generatingEpilog);
 
     assert(compFuncInfoCount > 0);
     for (unsigned funcIdx = 0; funcIdx < compFuncInfoCount; funcIdx++)
@@ -82,18 +79,17 @@ void Compiler::unwindReserve()
 #endif
 }
 
-//------------------------------------------------------------------------
-// Compiler::unwindEmit: Report all the unwind information to the VM.
+// Report all the unwind information to the VM.
 //
 // Arguments:
 //    pHotCode  - Pointer to the beginning of the memory with the function and funclet hot  code.
 //    pColdCode - Pointer to the beginning of the memory with the function and funclet cold code.
 //
-void Compiler::unwindEmit(void* pHotCode, void* pColdCode)
+void CodeGen::unwindEmit(void* pHotCode, void* pColdCode)
 {
 #if defined(FEATURE_EH_FUNCLETS)
-    assert(!compGeneratingProlog);
-    assert(!compGeneratingEpilog);
+    assert(!generatingProlog);
+    assert(!generatingEpilog);
 
     assert(compFuncInfoCount > 0);
     for (unsigned funcIdx = 0; funcIdx < compFuncInfoCount; funcIdx++)
@@ -104,14 +100,13 @@ void Compiler::unwindEmit(void* pHotCode, void* pColdCode)
 }
 
 #if defined(FEATURE_EH_FUNCLETS)
-//------------------------------------------------------------------------
-// Compiler::unwindReserveFunc: Reserve the unwind information from the VM for a
+// Reserve the unwind information from the VM for a
 // given main function or funclet.
 //
 // Arguments:
 //    func - The main function or funclet to reserve unwind info for.
 //
-void Compiler::unwindReserveFunc(FuncInfoDsc* func)
+void CodeGen::unwindReserveFunc(FuncInfoDsc* func)
 {
     unwindReserveFuncHelper(func, true);
 
@@ -121,15 +116,14 @@ void Compiler::unwindReserveFunc(FuncInfoDsc* func)
     }
 }
 
-//------------------------------------------------------------------------
-// Compiler::unwindReserveFuncHelper: Reserve the unwind information from the VM for a
+// Reserve the unwind information from the VM for a
 // given main function or funclet, for either the hot or the cold section.
 //
 // Arguments:
 //    func      - The main function or funclet to reserve unwind info for.
 //    isHotCode - 'true' to reserve the hot section, 'false' to reserve the cold section.
 //
-void Compiler::unwindReserveFuncHelper(FuncInfoDsc* func, bool isHotCode)
+void CodeGen::unwindReserveFuncHelper(FuncInfoDsc* func, bool isHotCode)
 {
     bool isFunclet  = (func->funKind != FUNC_ROOT);
     bool isColdCode = !isHotCode;
@@ -137,8 +131,7 @@ void Compiler::unwindReserveFuncHelper(FuncInfoDsc* func, bool isHotCode)
     eeReserveUnwindInfo(isFunclet, isColdCode, sizeof(UNWIND_INFO));
 }
 
-//------------------------------------------------------------------------
-// Compiler::unwindEmitFunc: Report the unwind information to the VM for a
+// Report the unwind information to the VM for a
 // given main function or funclet. Reports the hot section, then the cold
 // section if necessary.
 //
@@ -147,7 +140,7 @@ void Compiler::unwindReserveFuncHelper(FuncInfoDsc* func, bool isHotCode)
 //    pHotCode  - Pointer to the beginning of the memory with the function and funclet hot  code.
 //    pColdCode - Pointer to the beginning of the memory with the function and funclet cold code.
 //
-void Compiler::unwindEmitFunc(FuncInfoDsc* func, void* pHotCode, void* pColdCode)
+void CodeGen::unwindEmitFunc(FuncInfoDsc* func, void* pHotCode, void* pColdCode)
 {
     // Verify that the JIT enum is in sync with the JIT-EE interface enum
     static_assert_no_msg(FUNC_ROOT == (FuncKind)CORJIT_FUNC_ROOT);
@@ -162,8 +155,7 @@ void Compiler::unwindEmitFunc(FuncInfoDsc* func, void* pHotCode, void* pColdCode
     }
 }
 
-//------------------------------------------------------------------------
-// Compiler::unwindEmitFuncHelper: Report the unwind information to the VM for a
+// Report the unwind information to the VM for a
 // given main function or funclet, for either the hot or cold section.
 //
 // Arguments:
@@ -173,7 +165,7 @@ void Compiler::unwindEmitFunc(FuncInfoDsc* func, void* pHotCode, void* pColdCode
 //                Ignored if 'isHotCode' is true.
 //    isHotCode - 'true' to report the hot section, 'false' to report the cold section.
 //
-void Compiler::unwindEmitFuncHelper(FuncInfoDsc* func, void* pHotCode, void* pColdCode, bool isHotCode)
+void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* pHotCode, void* pColdCode, bool isHotCode)
 {
     UNATIVE_OFFSET startOffset;
     UNATIVE_OFFSET endOffset;
@@ -196,7 +188,7 @@ void Compiler::unwindEmitFuncHelper(FuncInfoDsc* func, void* pHotCode, void* pCo
 
         if (endLoc == nullptr)
         {
-            endOffset = info.compNativeCodeSize;
+            endOffset = compiler->info.compNativeCodeSize;
         }
         else
         {
@@ -224,7 +216,7 @@ void Compiler::unwindEmitFuncHelper(FuncInfoDsc* func, void* pHotCode, void* pCo
 
         if (coldEndLoc == nullptr)
         {
-            endOffset = info.compNativeCodeSize;
+            endOffset = compiler->info.compNativeCodeSize;
         }
         else
         {
@@ -239,21 +231,21 @@ void Compiler::unwindEmitFuncHelper(FuncInfoDsc* func, void* pHotCode, void* pCo
 
     if (isHotCode)
     {
-        assert(endOffset <= info.compTotalHotCodeSize);
+        assert(endOffset <= compiler->info.compTotalHotCodeSize);
         pColdCode = nullptr;
     }
     else
     {
-        assert(startOffset >= info.compTotalHotCodeSize);
-        startOffset -= info.compTotalHotCodeSize;
-        endOffset -= info.compTotalHotCodeSize;
+        assert(startOffset >= compiler->info.compTotalHotCodeSize);
+        startOffset -= compiler->info.compTotalHotCodeSize;
+        endOffset -= compiler->info.compTotalHotCodeSize;
     }
 
     UNWIND_INFO unwindInfo;
 
     unwindInfo.FunctionLength = (ULONG)(endOffset - startOffset);
 
-    eeAllocUnwindInfo((BYTE*)pHotCode, (BYTE*)pColdCode, startOffset, endOffset, sizeof(UNWIND_INFO),
-                      (BYTE*)&unwindInfo, (CorJitFuncKind)func->funKind);
+    compiler->eeAllocUnwindInfo((BYTE*)pHotCode, (BYTE*)pColdCode, startOffset, endOffset, sizeof(UNWIND_INFO),
+                                (BYTE*)&unwindInfo, (CorJitFuncKind)func->funKind);
 }
 #endif // FEATURE_EH_FUNCLETS

@@ -738,7 +738,7 @@ void emitSplit(emitLocation*         startLoc,
                void*                 context,
                emitSplitCallbackType callbackFunc);
 
-void emitUnwindNopPadding(emitLocation* locFrom, Compiler* comp);
+void emitUnwindNopPadding(emitLocation* locFrom);
 
 private:
 // Returns true if instruction "id->idIns()" writes to a register that might be used to contain a GC

@@ -1430,7 +1430,7 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
     {
         genInstrWithConstant(INS_sub, REG_STACK_PROBE_HELPER_ARG, REG_SPBASE, frameSize, REG_STACK_PROBE_HELPER_ARG);
         genEmitHelperCall(CORINFO_HELP_STACK_PROBE, EA_UNKNOWN, REG_STACK_PROBE_HELPER_CALL_TARGET);
-        compiler->unwindPadding();
+        unwindPadding();
         GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_SPBASE, REG_STACK_PROBE_HELPER_ARG, /* canSkip */ false);
 
         if ((genRegMask(initReg) & (RBM_STACK_PROBE_HELPER_ARG | RBM_STACK_PROBE_HELPER_CALL_TARGET |
@@ -1440,7 +1440,7 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
         }
     }
 
-    compiler->unwindAllocStack(frameSize);
+    unwindAllocStack(frameSize);
 }
 
 void CodeGen::PrologEstablishFramePointer(int delta, bool reportUnwindData)
@@ -1451,7 +1451,7 @@ void CodeGen::PrologEstablishFramePointer(int delta, bool reportUnwindData)
 
     if (reportUnwindData)
     {
-        compiler->unwindPadding();
+        unwindPadding();
     }
 }
 
@@ -2230,7 +2230,7 @@ void CodeGen::genFreeLclFrame(unsigned frameSize, /* IN OUT */ bool* pUnwindStar
     {
         if (!*pUnwindStarted)
         {
-            compiler->unwindBegEpilog();
+            unwindBegEpilog();
             *pUnwindStarted = true;
         }
 
@@ -2243,7 +2243,7 @@ void CodeGen::genFreeLclFrame(unsigned frameSize, /* IN OUT */ bool* pUnwindStar
         instGen_Set_Reg_To_Imm(tmpReg, frameSize);
         if (*pUnwindStarted)
         {
-            compiler->unwindPadding();
+            unwindPadding();
         }
 
         // We're going to generate an unwindable instruction, so check again if
@@ -2251,14 +2251,14 @@ void CodeGen::genFreeLclFrame(unsigned frameSize, /* IN OUT */ bool* pUnwindStar
 
         if (!*pUnwindStarted)
         {
-            compiler->unwindBegEpilog();
+            unwindBegEpilog();
             *pUnwindStarted = true;
         }
 
         GetEmitter()->emitIns_R_R(INS_add, EA_4BYTE, REG_SPBASE, tmpReg);
     }
 
-    compiler->unwindAllocStack(frameSize);
+    unwindAllocStack(frameSize);
 }
 
 // Returns register mask to push/pop to allocate a small stack frame,
@@ -2351,12 +2351,12 @@ void CodeGen::PrologPushCalleeSavedRegisters()
 
     assert(FitsIn<int32_t>(maskPushRegsInt));
     GetEmitter()->emitIns_I(INS_push, EA_4BYTE, static_cast<int32_t>(maskPushRegsInt));
-    compiler->unwindPushMaskInt(maskPushRegsInt);
+    unwindPushMaskInt(maskPushRegsInt);
 
     if (maskPushRegsFloat != 0)
     {
         genPushFltRegs(maskPushRegsFloat);
-        compiler->unwindPushMaskFloat(maskPushRegsFloat);
+        unwindPushMaskFloat(maskPushRegsFloat);
     }
 }
 
@@ -2373,7 +2373,7 @@ void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
     if (maskPopRegsFloat != RBM_NONE)
     {
         genPopFltRegs(maskPopRegsFloat);
-        compiler->unwindPopMaskFloat(maskPopRegsFloat);
+        unwindPopMaskFloat(maskPopRegsFloat);
     }
 
     // Next, pop integer registers
@@ -2404,7 +2404,7 @@ void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
 
     assert(FitsIn<int32_t>(maskPopRegsInt));
     GetEmitter()->emitIns_I(INS_pop, EA_4BYTE, static_cast<int32_t>(maskPopRegsInt));
-    compiler->unwindPopMaskInt(maskPopRegsInt);
+    unwindPopMaskInt(maskPopRegsInt);
 }
 
 //  Generates code for an EH funclet prolog.
@@ -2512,7 +2512,7 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
 
     ScopedSetVariable<bool> _setGeneratingProlog(&generatingProlog, true);
 
-    compiler->unwindBegProlog();
+    unwindBegProlog();
 
     regMaskTP maskPushRegsFloat = genFuncletInfo.fiSaveRegs & RBM_ALLFLOAT;
     regMaskTP maskPushRegsInt   = genFuncletInfo.fiSaveRegs & ~maskPushRegsFloat;
@@ -2522,12 +2522,12 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
 
     assert(FitsIn<int32_t>(maskPushRegsInt));
     GetEmitter()->emitIns_I(INS_push, EA_4BYTE, static_cast<int32_t>(maskPushRegsInt));
-    compiler->unwindPushMaskInt(maskPushRegsInt);
+    unwindPushMaskInt(maskPushRegsInt);
 
     if (maskPushRegsFloat != RBM_NONE)
     {
         genPushFltRegs(maskPushRegsFloat);
-        compiler->unwindPushMaskFloat(maskPushRegsFloat);
+        unwindPushMaskFloat(maskPushRegsFloat);
     }
 
     bool isFilter = (block->bbCatchTyp == BBCT_FILTER);
@@ -2555,7 +2555,7 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
     }
 
     // This is the end of the OS-reported prolog for purposes of unwinding
-    compiler->unwindEndProlog();
+    unwindEndProlog();
 
     // If there is no PSPSym (CoreRT ABI), we are done.
     if (compiler->lvaPSPSym == BAD_VAR_NUM)
@@ -2610,7 +2610,7 @@ void CodeGen::genFuncletEpilog()
     if (!unwindStarted)
     {
         // We'll definitely generate an unwindable instruction next
-        compiler->unwindBegEpilog();
+        unwindBegEpilog();
         unwindStarted = true;
     }
 
@@ -2620,14 +2620,14 @@ void CodeGen::genFuncletEpilog()
     if (maskPopRegsFloat != RBM_NONE)
     {
         genPopFltRegs(maskPopRegsFloat);
-        compiler->unwindPopMaskFloat(maskPopRegsFloat);
+        unwindPopMaskFloat(maskPopRegsFloat);
     }
 
     assert(FitsIn<int32_t>(maskPopRegsInt));
     GetEmitter()->emitIns_I(INS_pop, EA_4BYTE, static_cast<int32_t>(maskPopRegsInt));
-    compiler->unwindPopMaskInt(maskPopRegsInt);
+    unwindPopMaskInt(maskPopRegsInt);
 
-    compiler->unwindEndEpilog();
+    unwindEndEpilog();
 }
 
 void CodeGen::genCaptureFuncletPrologEpilogInfo()
@@ -2744,13 +2744,13 @@ void CodeGen::genFnEpilog(BasicBlock* block)
     {
         if (!unwindStarted)
         {
-            compiler->unwindBegEpilog();
+            unwindBegEpilog();
             unwindStarted = true;
         }
 
         // mov R9 into SP
         inst_Mov(TYP_I_IMPL, REG_SP, REG_SAVED_LOCALLOC_SP, /* canSkip */ false);
-        compiler->unwindSetFrameReg(REG_SAVED_LOCALLOC_SP, 0);
+        unwindSetFrameReg(REG_SAVED_LOCALLOC_SP, 0);
     }
 
     if (jmpEpilog || genStackAllocRegisterMask(lclFrameSize, calleeSavedModifiedRegs) == RBM_NONE)
@@ -2761,7 +2761,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
     if (!unwindStarted)
     {
         // If we haven't generated anything yet, we're certainly going to generate a "pop" next.
-        compiler->unwindBegEpilog();
+        unwindBegEpilog();
         unwindStarted = true;
     }
 
@@ -2797,7 +2797,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         noway_assert(!genUsedPopToReturn);
 
         inst_RV_IV(INS_add, REG_SPBASE, preSpillRegArgSize, EA_4BYTE);
-        compiler->unwindAllocStack(preSpillRegArgSize);
+        unwindAllocStack(preSpillRegArgSize);
     }
 
     if (jmpEpilog)
@@ -2815,10 +2815,10 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         // If we did not use a pop to return, then we did a "pop {..., lr}" instead of "pop {..., pc}",
         // so we need a "bx lr" instruction to return from the function.
         GetEmitter()->emitIns_R(INS_bx, EA_4BYTE, REG_LR);
-        compiler->unwindBranch16();
+        unwindBranch16();
     }
 
-    compiler->unwindEndEpilog();
+    unwindEndEpilog();
 }
 
 void CodeGen::genInsertNopForUnwinder(BasicBlock* block)

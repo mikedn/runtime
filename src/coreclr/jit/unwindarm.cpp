@@ -11,10 +11,10 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
-#include "emit.h"
+#include "codegen.h"
 
 #if defined(TARGET_ARM) && defined(TARGET_UNIX)
-short Compiler::mapRegNumToDwarfReg(regNumber reg)
+short CodeGen::mapRegNumToDwarfReg(regNumber reg)
 {
     short dwarfReg = DWARF_REG_ILLEGAL;
 
@@ -135,9 +135,9 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
-void Compiler::unwindBegProlog()
+void CodeGen::unwindBegProlog()
 {
-    assert(codeGen->generatingProlog);
+    assert(generatingProlog);
 
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
@@ -147,7 +147,7 @@ void Compiler::unwindBegProlog()
     }
 #endif // TARGET_UNIX
 
-    FuncInfoDsc* func = funCurrentFunc();
+    FuncInfoDsc* func = compiler->funCurrentFunc();
 
     // There is only one prolog for a function/funclet, and it comes first. So now is
     // a good time to initialize all the unwind data structures.
@@ -156,20 +156,20 @@ void Compiler::unwindBegProlog()
     emitLocation* endLoc;
     unwindGetFuncLocations(func, true, &startLoc, &endLoc);
 
-    func->uwi.InitUnwindInfo(this, startLoc, endLoc);
+    func->uwi.InitUnwindInfo(compiler, startLoc, endLoc);
     func->uwi.CaptureLocation();
 
     func->uwiCold = NULL; // No cold data yet
 }
 
-void Compiler::unwindEndProlog()
+void CodeGen::unwindEndProlog()
 {
-    assert(codeGen->generatingProlog);
+    assert(generatingProlog);
 }
 
-void Compiler::unwindBegEpilog()
+void CodeGen::unwindBegEpilog()
 {
-    assert(codeGen->generatingEpilog);
+    assert(generatingEpilog);
 
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
@@ -178,22 +178,22 @@ void Compiler::unwindBegEpilog()
     }
 #endif // TARGET_UNIX
 
-    funCurrentFunc()->uwi.AddEpilog();
+    compiler->funCurrentFunc()->uwi.AddEpilog();
 }
 
-void Compiler::unwindEndEpilog()
+void CodeGen::unwindEndEpilog()
 {
-    assert(codeGen->generatingEpilog);
+    assert(generatingEpilog);
 }
 
 #if defined(TARGET_ARM)
 
-void Compiler::unwindPushPopMaskInt(regMaskTP maskInt, bool useOpsize16)
+void CodeGen::unwindPushPopMaskInt(regMaskTP maskInt, bool useOpsize16)
 {
     // floating point registers cannot be specified in 'maskInt'
     assert((maskInt & RBM_ALLFLOAT) == 0);
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    UnwindInfo* pu = &compiler->funCurrentFunc()->uwi;
 
     if (useOpsize16)
     {
@@ -275,7 +275,7 @@ void Compiler::unwindPushPopMaskInt(regMaskTP maskInt, bool useOpsize16)
     }
 }
 
-void Compiler::unwindPushPopMaskFloat(regMaskTP maskFloat)
+void CodeGen::unwindPushPopMaskFloat(regMaskTP maskFloat)
 {
     // Only floating pointer registers can be specified in 'maskFloat'
     assert((maskFloat & ~RBM_ALLFLOAT) == 0);
@@ -287,7 +287,7 @@ void Compiler::unwindPushPopMaskFloat(regMaskTP maskFloat)
         return;
     }
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    UnwindInfo* pu = &compiler->funCurrentFunc()->uwi;
 
     BYTE      val     = 0;
     regMaskTP valMask = (RBM_F16 | RBM_F17);
@@ -310,7 +310,7 @@ void Compiler::unwindPushPopMaskFloat(regMaskTP maskFloat)
     pu->AddCode(0xE0 | val);
 }
 
-void Compiler::unwindPushMaskInt(regMaskTP maskInt)
+void CodeGen::unwindPushMaskInt(regMaskTP maskInt)
 {
     // Only r0-r12 and lr are supported
     assert((maskInt &
@@ -334,7 +334,7 @@ void Compiler::unwindPushMaskInt(regMaskTP maskInt)
     unwindPushPopMaskInt(maskInt, useOpsize16);
 }
 
-void Compiler::unwindPushMaskFloat(regMaskTP maskFloat)
+void CodeGen::unwindPushMaskFloat(regMaskTP maskFloat)
 {
     // Only floating point registers should be in maskFloat
     assert((maskFloat & RBM_ALLFLOAT) == maskFloat);
@@ -350,7 +350,7 @@ void Compiler::unwindPushMaskFloat(regMaskTP maskFloat)
     unwindPushPopMaskFloat(maskFloat);
 }
 
-void Compiler::unwindPopMaskInt(regMaskTP maskInt)
+void CodeGen::unwindPopMaskInt(regMaskTP maskInt)
 {
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
@@ -378,7 +378,7 @@ void Compiler::unwindPopMaskInt(regMaskTP maskInt)
     unwindPushPopMaskInt(maskInt, useOpsize16);
 }
 
-void Compiler::unwindPopMaskFloat(regMaskTP maskFloat)
+void CodeGen::unwindPopMaskFloat(regMaskTP maskFloat)
 {
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
@@ -392,12 +392,12 @@ void Compiler::unwindPopMaskFloat(regMaskTP maskFloat)
     unwindPushPopMaskFloat(maskFloat);
 }
 
-void Compiler::unwindAllocStack(unsigned size)
+void CodeGen::unwindAllocStack(unsigned size)
 {
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
     {
-        if (codeGen->generatingProlog)
+        if (generatingProlog)
         {
             unwindAllocStackCFI(size);
         }
@@ -405,7 +405,7 @@ void Compiler::unwindAllocStack(unsigned size)
     }
 #endif // TARGET_UNIX
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    UnwindInfo* pu = &compiler->funCurrentFunc()->uwi;
 
     assert(size % 4 == 0);
     size /= 4;
@@ -446,12 +446,12 @@ void Compiler::unwindAllocStack(unsigned size)
     }
 }
 
-void Compiler::unwindSetFrameReg(regNumber reg, unsigned offset)
+void CodeGen::unwindSetFrameReg(regNumber reg, unsigned offset)
 {
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
     {
-        if (codeGen->generatingProlog)
+        if (generatingProlog)
         {
             unwindSetFrameRegCFI(reg, offset);
         }
@@ -459,7 +459,7 @@ void Compiler::unwindSetFrameReg(regNumber reg, unsigned offset)
     }
 #endif // TARGET_UNIX
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    UnwindInfo* pu = &compiler->funCurrentFunc()->uwi;
 
     // Arm unwind info does not allow offset
     assert(offset == 0);
@@ -469,12 +469,12 @@ void Compiler::unwindSetFrameReg(regNumber reg, unsigned offset)
     pu->AddCode((BYTE)(0xC0 + reg));
 }
 
-void Compiler::unwindSaveReg(regNumber reg, unsigned offset)
+void CodeGen::unwindSaveReg(regNumber reg, unsigned offset)
 {
     unreached();
 }
 
-void Compiler::unwindBranch16()
+void CodeGen::unwindBranch16()
 {
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
@@ -483,14 +483,14 @@ void Compiler::unwindBranch16()
     }
 #endif // TARGET_UNIX
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    UnwindInfo* pu = &compiler->funCurrentFunc()->uwi;
 
     // TODO-CQ: need to handle changing the exit code from 0xFF to 0xFD. Currently, this will waste an extra 0xFF at the
     // end, automatically added.
     pu->AddCode(0xFD);
 }
 
-void Compiler::unwindNop(unsigned codeSizeInBytes) // codeSizeInBytes is 2 or 4 bytes for Thumb2 instruction
+void CodeGen::unwindNop(unsigned codeSizeInBytes) // codeSizeInBytes is 2 or 4 bytes for Thumb2 instruction
 {
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
@@ -499,7 +499,7 @@ void Compiler::unwindNop(unsigned codeSizeInBytes) // codeSizeInBytes is 2 or 4 
     }
 #endif // TARGET_UNIX
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    UnwindInfo* pu = &compiler->funCurrentFunc()->uwi;
 
 #ifdef DEBUG
     if (verbose)
@@ -531,7 +531,7 @@ void Compiler::unwindNop(unsigned codeSizeInBytes) // codeSizeInBytes is 2 or 4 
 // The instructions between the last captured "current state" and the current instruction
 // are in the prolog but have no effect for unwinding. Emit the appropriate NOP unwind codes
 // for them.
-void Compiler::unwindPadding()
+void CodeGen::unwindPadding()
 {
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
@@ -540,25 +540,25 @@ void Compiler::unwindPadding()
     }
 #endif // TARGET_UNIX
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
-    GetEmitter()->emitUnwindNopPadding(pu->GetCurrentEmitterLocation(), this);
+    UnwindInfo* pu = &compiler->funCurrentFunc()->uwi;
+    GetEmitter()->emitUnwindNopPadding(pu->GetCurrentEmitterLocation());
 }
 
 // Ask the VM to reserve space for the unwind information for the function and
 // all its funclets.
-void Compiler::unwindReserve()
+void CodeGen::unwindReserve()
 {
-    assert(!codeGen->generatingProlog);
-    assert(!codeGen->generatingEpilog);
+    assert(!generatingProlog);
+    assert(!generatingEpilog);
 
-    assert(compFuncInfoCount > 0);
-    for (unsigned funcIdx = 0; funcIdx < compFuncInfoCount; funcIdx++)
+    assert(compiler->compFuncInfoCount > 0);
+    for (unsigned funcIdx = 0; funcIdx < compiler->compFuncInfoCount; funcIdx++)
     {
-        unwindReserveFunc(funGetFunc(funcIdx));
+        unwindReserveFunc(compiler->funGetFunc(funcIdx));
     }
 }
 
-void Compiler::unwindReserveFunc(FuncInfoDsc* func)
+void CodeGen::unwindReserveFunc(FuncInfoDsc* func)
 {
     BOOL isFunclet          = (func->funKind == FUNC_ROOT) ? FALSE : TRUE;
     bool funcHasColdSection = false;
@@ -567,12 +567,12 @@ void Compiler::unwindReserveFunc(FuncInfoDsc* func)
     if (generateCFIUnwindCodes())
     {
         DWORD unwindCodeBytes = 0;
-        if (fgFirstColdBlock != nullptr)
+        if (compiler->fgFirstColdBlock != nullptr)
         {
-            eeReserveUnwindInfo(isFunclet, true /*isColdCode*/, unwindCodeBytes);
+            compiler->eeReserveUnwindInfo(isFunclet, true /*isColdCode*/, unwindCodeBytes);
         }
         unwindCodeBytes = (DWORD)(func->cfiCodes->size() * sizeof(CFI_CODE));
-        eeReserveUnwindInfo(isFunclet, false /*isColdCode*/, unwindCodeBytes);
+        compiler->eeReserveUnwindInfo(isFunclet, false /*isColdCode*/, unwindCodeBytes);
 
         return;
     }
@@ -582,7 +582,7 @@ void Compiler::unwindReserveFunc(FuncInfoDsc* func)
     // cold section. This needs to be done before we split into fragments, as each
     // of the hot and cold sections can have multiple fragments.
 
-    if (fgFirstColdBlock != NULL)
+    if (compiler->fgFirstColdBlock != NULL)
     {
         assert(!isFunclet); // TODO-CQ: support hot/cold splitting with EH
 
@@ -590,8 +590,8 @@ void Compiler::unwindReserveFunc(FuncInfoDsc* func)
         emitLocation* endLoc;
         unwindGetFuncLocations(func, false, &startLoc, &endLoc);
 
-        func->uwiCold = new (this, CMK_UnwindInfo) UnwindInfo();
-        func->uwiCold->InitUnwindInfo(this, startLoc, endLoc);
+        func->uwiCold = new (compiler, CMK_UnwindInfo) UnwindInfo();
+        func->uwiCold->InitUnwindInfo(compiler, startLoc, endLoc);
         func->uwiCold->HotColdSplitCodes(&func->uwi);
 
         funcHasColdSection = true;
@@ -620,16 +620,16 @@ void Compiler::unwindReserveFunc(FuncInfoDsc* func)
 //      pHotCode:  Pointer to the beginning of the memory with the function and funclet hot  code
 //      pColdCode: Pointer to the beginning of the memory with the function and funclet cold code.
 
-void Compiler::unwindEmit(void* pHotCode, void* pColdCode)
+void CodeGen::unwindEmit(void* pHotCode, void* pColdCode)
 {
-    assert(compFuncInfoCount > 0);
-    for (unsigned funcIdx = 0; funcIdx < compFuncInfoCount; funcIdx++)
+    assert(compiler->compFuncInfoCount > 0);
+    for (unsigned funcIdx = 0; funcIdx < compiler->compFuncInfoCount; funcIdx++)
     {
-        unwindEmitFunc(funGetFunc(funcIdx), pHotCode, pColdCode);
+        unwindEmitFunc(compiler->funGetFunc(funcIdx), pHotCode, pColdCode);
     }
 }
 
-void Compiler::unwindEmitFunc(FuncInfoDsc* func, void* pHotCode, void* pColdCode)
+void CodeGen::unwindEmitFunc(FuncInfoDsc* func, void* pHotCode, void* pColdCode)
 {
     // Verify that the JIT enum is in sync with the JIT-EE interface enum
     static_assert_no_msg(FUNC_ROOT == (FuncKind)CORJIT_FUNC_ROOT);

@@ -87,7 +87,7 @@ bool CodeGen::genInstrWithConstant(
         // we record the extra instructions using unwindPadding()
         if (inUnwindRegion)
         {
-            compiler->unwindPadding();
+            unwindPadding();
         }
 
         // generate the instruction using a three register encoding with the immediate in tmpReg
@@ -131,7 +131,7 @@ void CodeGen::genStackPointerAdjustment(ssize_t spDelta, regNumber tmpReg, bool*
         unsigned unwindSpDelta = (unsigned)spDeltaAbs;
         assert((ssize_t)unwindSpDelta == spDeltaAbs); // make sure that it fits in a unsigned
 
-        compiler->unwindAllocStack(unwindSpDelta);
+        unwindAllocStack(unwindSpDelta);
     }
 }
 
@@ -174,7 +174,7 @@ void CodeGen::genPrologSaveRegPair(regNumber reg1,
             // stp REG, REG + 1, [SP, #spDelta]!
             // 64-bit STP offset range: -512 to 504, multiple of 8.
             GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_8BYTE, reg1, reg2, REG_SPBASE, spDelta, INS_OPTS_PRE_INDEX);
-            compiler->unwindSaveRegPairPreindexed(reg1, reg2, spDelta);
+            unwindSaveRegPairPreindexed(reg1, reg2, spDelta);
 
             needToSaveRegs = false;
         }
@@ -197,7 +197,7 @@ void CodeGen::genPrologSaveRegPair(regNumber reg1,
         GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_8BYTE, reg1, reg2, REG_SPBASE, spOffset);
 
 #ifdef TARGET_UNIX
-        if (compiler->generateCFIUnwindCodes())
+        if (generateCFIUnwindCodes())
         {
             useSaveNextPair = false;
         }
@@ -207,11 +207,11 @@ void CodeGen::genPrologSaveRegPair(regNumber reg1,
         {
             // This works as long as we've only been saving pairs, in order, and we've saved the previous one just
             // before this one.
-            compiler->unwindSaveNext();
+            unwindSaveNext();
         }
         else
         {
-            compiler->unwindSaveRegPair(reg1, reg2, spOffset);
+            unwindSaveRegPair(reg1, reg2, spOffset);
         }
     }
 }
@@ -247,7 +247,7 @@ void CodeGen::genPrologSaveReg(regNumber reg1, int spOffset, int spDelta, regNum
             // We can use pre-index addressing.
             // str REG, [SP, #spDelta]!
             GetEmitter()->emitIns_R_R_I(INS_str, EA_8BYTE, reg1, REG_SPBASE, spDelta, INS_OPTS_PRE_INDEX);
-            compiler->unwindSaveRegPreindexed(reg1, spDelta);
+            unwindSaveRegPreindexed(reg1, spDelta);
 
             needToSaveRegs = false;
         }
@@ -263,7 +263,7 @@ void CodeGen::genPrologSaveReg(regNumber reg1, int spOffset, int spDelta, regNum
         // str REG, [SP, #offset]
         // 64-bit STR offset range: 0 to 32760, multiple of 8.
         GetEmitter()->emitIns_R_R_I(INS_str, EA_8BYTE, reg1, REG_SPBASE, spOffset);
-        compiler->unwindSaveReg(reg1, spOffset);
+        unwindSaveReg(reg1, spOffset);
     }
 }
 
@@ -305,7 +305,7 @@ void CodeGen::genEpilogRestoreRegPair(regNumber reg1,
             // Fold the SP change into this instruction.
             // ldp reg1, reg2, [SP], #spDelta
             GetEmitter()->emitIns_R_R_R_I(INS_ldp, EA_8BYTE, reg1, reg2, REG_SPBASE, spDelta, INS_OPTS_POST_INDEX);
-            compiler->unwindSaveRegPairPreindexed(reg1, reg2, -spDelta);
+            unwindSaveRegPairPreindexed(reg1, reg2, -spDelta);
         }
         else // (spOffset != 0) || (spDelta > 504)
         {
@@ -313,7 +313,7 @@ void CodeGen::genEpilogRestoreRegPair(regNumber reg1,
 
             // ldp reg1, reg2, [SP, #offset]
             GetEmitter()->emitIns_R_R_R_I(INS_ldp, EA_8BYTE, reg1, reg2, REG_SPBASE, spOffset);
-            compiler->unwindSaveRegPair(reg1, reg2, spOffset);
+            unwindSaveRegPair(reg1, reg2, spOffset);
 
             // generate add SP,SP,imm
             genStackPointerAdjustment(spDelta, tmpReg, pTmpRegIsZero, /* reportUnwindData */ true);
@@ -324,7 +324,7 @@ void CodeGen::genEpilogRestoreRegPair(regNumber reg1,
         GetEmitter()->emitIns_R_R_R_I(INS_ldp, EA_8BYTE, reg1, reg2, REG_SPBASE, spOffset);
 
 #ifdef TARGET_UNIX
-        if (compiler->generateCFIUnwindCodes())
+        if (generateCFIUnwindCodes())
         {
             useSaveNextPair = false;
         }
@@ -332,11 +332,11 @@ void CodeGen::genEpilogRestoreRegPair(regNumber reg1,
 
         if (useSaveNextPair)
         {
-            compiler->unwindSaveNext();
+            unwindSaveNext();
         }
         else
         {
-            compiler->unwindSaveRegPair(reg1, reg2, spOffset);
+            unwindSaveRegPair(reg1, reg2, spOffset);
         }
     }
 }
@@ -364,13 +364,13 @@ void CodeGen::genEpilogRestoreReg(regNumber reg1, int spOffset, int spDelta, reg
             // We can use post-index addressing.
             // ldr REG, [SP], #spDelta
             GetEmitter()->emitIns_R_R_I(INS_ldr, EA_8BYTE, reg1, REG_SPBASE, spDelta, INS_OPTS_POST_INDEX);
-            compiler->unwindSaveRegPreindexed(reg1, -spDelta);
+            unwindSaveRegPreindexed(reg1, -spDelta);
         }
         else // (spOffset != 0) || (spDelta > 255)
         {
             // ldr reg1, [SP, #offset]
             GetEmitter()->emitIns_R_R_I(INS_ldr, EA_8BYTE, reg1, REG_SPBASE, spOffset);
-            compiler->unwindSaveReg(reg1, spOffset);
+            unwindSaveReg(reg1, spOffset);
 
             // generate add SP,SP,imm
             genStackPointerAdjustment(spDelta, tmpReg, pTmpRegIsZero, /* reportUnwindData */ true);
@@ -380,7 +380,7 @@ void CodeGen::genEpilogRestoreReg(regNumber reg1, int spOffset, int spDelta, reg
     {
         // ldr reg1, [SP, #offset]
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_8BYTE, reg1, REG_SPBASE, spOffset);
-        compiler->unwindSaveReg(reg1, spOffset);
+        unwindSaveReg(reg1, spOffset);
     }
 }
 
@@ -989,7 +989,7 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
 
     ScopedSetVariable<bool> _setGeneratingProlog(&generatingProlog, true);
 
-    compiler->unwindBegProlog();
+    unwindBegProlog();
 
     regMaskTP maskSaveRegsFloat = genFuncletInfo.fiSaveRegs & RBM_ALLFLOAT;
     regMaskTP maskSaveRegsInt   = genFuncletInfo.fiSaveRegs & ~maskSaveRegsFloat;
@@ -1018,7 +1018,7 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
     {
         GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_8BYTE, REG_FP, REG_LR, REG_SPBASE, genFuncletInfo.fiSpDelta1,
                                       INS_OPTS_PRE_INDEX);
-        compiler->unwindSaveRegPairPreindexed(REG_FP, REG_LR, genFuncletInfo.fiSpDelta1);
+        unwindSaveRegPairPreindexed(REG_FP, REG_LR, genFuncletInfo.fiSpDelta1);
 
         maskSaveRegsInt &= ~(RBM_LR | RBM_FP); // We've saved these now
 
@@ -1038,7 +1038,7 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
 
         GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_8BYTE, REG_FP, REG_LR, REG_SPBASE,
                                       genFuncletInfo.fiSP_to_FPLR_save_delta);
-        compiler->unwindSaveRegPair(REG_FP, REG_LR, genFuncletInfo.fiSP_to_FPLR_save_delta);
+        unwindSaveRegPair(REG_FP, REG_LR, genFuncletInfo.fiSP_to_FPLR_save_delta);
 
         maskSaveRegsInt &= ~(RBM_LR | RBM_FP); // We've saved these now
     }
@@ -1046,7 +1046,7 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
     {
         GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_8BYTE, REG_FP, REG_LR, REG_SPBASE, genFuncletInfo.fiSpDelta1,
                                       INS_OPTS_PRE_INDEX);
-        compiler->unwindSaveRegPairPreindexed(REG_FP, REG_LR, genFuncletInfo.fiSpDelta1);
+        unwindSaveRegPairPreindexed(REG_FP, REG_LR, genFuncletInfo.fiSpDelta1);
 
         maskSaveRegsInt &= ~(RBM_LR | RBM_FP); // We've saved these now
     }
@@ -1082,7 +1082,7 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
     }
 
     // This is the end of the OS-reported prolog for purposes of unwinding
-    compiler->unwindEndProlog();
+    unwindEndProlog();
 
     // If there is no PSPSym (CoreRT ABI), we are done. Otherwise, we need to set up the PSPSym in the functlet frame.
     if (compiler->lvaPSPSym != BAD_VAR_NUM)
@@ -1130,7 +1130,7 @@ void CodeGen::genFuncletEpilog()
     if (!unwindStarted)
     {
         // We can delay this until we know we'll generate an unwindable instruction, if necessary.
-        compiler->unwindBegEpilog();
+        unwindBegEpilog();
         unwindStarted = true;
     }
 
@@ -1162,7 +1162,7 @@ void CodeGen::genFuncletEpilog()
     {
         GetEmitter()->emitIns_R_R_R_I(INS_ldp, EA_8BYTE, REG_FP, REG_LR, REG_SPBASE, -genFuncletInfo.fiSpDelta1,
                                       INS_OPTS_POST_INDEX);
-        compiler->unwindSaveRegPairPreindexed(REG_FP, REG_LR, genFuncletInfo.fiSpDelta1);
+        unwindSaveRegPairPreindexed(REG_FP, REG_LR, genFuncletInfo.fiSpDelta1);
 
         assert(genFuncletInfo.fiSpDelta2 == 0);
         assert(genFuncletInfo.fiSP_to_FPLR_save_delta == 0);
@@ -1171,7 +1171,7 @@ void CodeGen::genFuncletEpilog()
     {
         GetEmitter()->emitIns_R_R_R_I(INS_ldp, EA_8BYTE, REG_FP, REG_LR, REG_SPBASE,
                                       genFuncletInfo.fiSP_to_FPLR_save_delta);
-        compiler->unwindSaveRegPair(REG_FP, REG_LR, genFuncletInfo.fiSP_to_FPLR_save_delta);
+        unwindSaveRegPair(REG_FP, REG_LR, genFuncletInfo.fiSP_to_FPLR_save_delta);
 
         // fiFrameType==2 constraints:
         assert(genFuncletInfo.fiSpDelta1 < 0);
@@ -1186,7 +1186,7 @@ void CodeGen::genFuncletEpilog()
     {
         GetEmitter()->emitIns_R_R_R_I(INS_ldp, EA_8BYTE, REG_FP, REG_LR, REG_SPBASE, -genFuncletInfo.fiSpDelta1,
                                       INS_OPTS_POST_INDEX);
-        compiler->unwindSaveRegPairPreindexed(REG_FP, REG_LR, genFuncletInfo.fiSpDelta1);
+        unwindSaveRegPairPreindexed(REG_FP, REG_LR, genFuncletInfo.fiSpDelta1);
     }
     else if (genFuncletInfo.fiFrameType == 4)
     {
@@ -1212,9 +1212,9 @@ void CodeGen::genFuncletEpilog()
     }
 
     GetEmitter()->emitIns_R(INS_ret, EA_8BYTE, REG_LR);
-    compiler->unwindReturn(REG_LR);
+    unwindReturn(REG_LR);
 
-    compiler->unwindEndEpilog();
+    unwindEndEpilog();
 }
 
 void CodeGen::genCaptureFuncletPrologEpilogInfo()
@@ -8155,7 +8155,7 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
         }
 
         assert(lastTouchDelta == frameSize % pageSize);
-        compiler->unwindPadding();
+        unwindPadding();
     }
     else
     {
@@ -8204,7 +8204,7 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
 
         *pInitRegZeroed = false; // The initReg does not contain zero
 
-        compiler->unwindPadding();
+        unwindPadding();
 
         lastTouchDelta = frameSize % pageSize;
     }
@@ -8214,7 +8214,7 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
         assert(lastTouchDelta + STACK_PROBE_BOUNDARY_THRESHOLD_BYTES < 2 * pageSize);
         instGen_Set_Reg_To_Imm(EA_8BYTE, initReg, -(ssize_t)frameSize);
         GetEmitter()->emitIns_R_R_R(INS_ldr, EA_4BYTE, REG_ZR, REG_SPBASE, initReg);
-        compiler->unwindPadding();
+        unwindPadding();
 
         *pInitRegZeroed = false; // The initReg does not contain zero
     }
@@ -8233,7 +8233,7 @@ void CodeGen::PrologEstablishFramePointer(int delta, bool reportUnwindData)
 
     if (reportUnwindData)
     {
-        compiler->unwindSetFrameReg(REG_FP, delta);
+        unwindSetFrameReg(REG_FP, delta);
     }
 }
 
@@ -8954,7 +8954,7 @@ void CodeGen::PrologPushCalleeSavedRegisters(regNumber initReg, bool* pInitRegZe
 
             GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_8BYTE, REG_FP, REG_LR, REG_SPBASE, -totalFrameSize,
                                           INS_OPTS_PRE_INDEX);
-            compiler->unwindSaveRegPairPreindexed(REG_FP, REG_LR, -totalFrameSize);
+            unwindSaveRegPairPreindexed(REG_FP, REG_LR, -totalFrameSize);
 
             maskSaveRegsInt &= ~(RBM_FP | RBM_LR);          // We've already saved FP/LR
             offset = (int)lclFrameSize + 2 * REGSIZE_BYTES; // 2 for FP/LR
@@ -9002,12 +9002,12 @@ void CodeGen::PrologPushCalleeSavedRegisters(regNumber initReg, bool* pInitRegZe
                 assert(totalFrameSize - outgoingArgSpaceSize <= STACK_PROBE_BOUNDARY_THRESHOLD_BYTES);
 
                 GetEmitter()->emitIns_R_R_I(INS_sub, EA_8BYTE, REG_SPBASE, REG_SPBASE, totalFrameSize);
-                compiler->unwindAllocStack(totalFrameSize);
+                unwindAllocStack(totalFrameSize);
 
                 assert(outgoingArgSpaceSize + 2 * REGSIZE_BYTES <= (unsigned)totalFrameSize);
 
                 GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_8BYTE, REG_FP, REG_LR, REG_SPBASE, outgoingArgSpaceSize);
-                compiler->unwindSaveRegPair(REG_FP, REG_LR, outgoingArgSpaceSize);
+                unwindSaveRegPair(REG_FP, REG_LR, outgoingArgSpaceSize);
 
                 maskSaveRegsInt &= ~(RBM_FP | RBM_LR);          // We've already saved FP/LR
                 offset = (int)lclFrameSize + 2 * REGSIZE_BYTES; // 2 for FP/LR
@@ -9153,7 +9153,7 @@ void CodeGen::PrologPushCalleeSavedRegisters(regNumber initReg, bool* pInitRegZe
             regNumber reg2 = REG_NEXT(reg1);
             // stp REG, REG + 1, [SP, #offset]
             GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_8BYTE, reg1, reg2, REG_SPBASE, offset);
-            compiler->unwindNop();
+            unwindNop();
             offset += 2 * REGSIZE_BYTES;
         }
     }
@@ -9524,7 +9524,7 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
                 // Restore sp from fp
                 //      mov sp, fp
                 inst_Mov(TYP_I_IMPL, REG_SPBASE, REG_FPBASE, /* canSkip */ false);
-                compiler->unwindSetFrameReg(REG_FPBASE, 0);
+                unwindSetFrameReg(REG_FPBASE, 0);
             }
 
             regsToRestoreMask &= ~(RBM_FP | RBM_LR); // We'll restore FP/LR at the end, and post-index SP.
@@ -9541,7 +9541,7 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
                 //      sub sp, fp, #outsz // Uses #outsz if FP/LR stored at bottom
                 int SPtoFPdelta = genSPtoFPdelta();
                 GetEmitter()->emitIns_R_R_I(INS_sub, EA_8BYTE, REG_SPBASE, REG_FPBASE, SPtoFPdelta);
-                compiler->unwindSetFrameReg(REG_FPBASE, SPtoFPdelta);
+                unwindSetFrameReg(REG_FPBASE, SPtoFPdelta);
             }
 
             if (genSaveFpLrWithAllCalleeSavedRegisters)
@@ -9607,7 +9607,7 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
                 // in prolog.
                 //      sub sp, fp, #alignmentAdjustment2
                 GetEmitter()->emitIns_R_R_I(INS_sub, EA_8BYTE, REG_SPBASE, REG_FPBASE, alignmentAdjustment2);
-                compiler->unwindSetFrameReg(REG_FPBASE, alignmentAdjustment2);
+                unwindSetFrameReg(REG_FPBASE, alignmentAdjustment2);
 
                 // Generate:
                 //      ldp fp,lr,[sp]
@@ -9625,7 +9625,7 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
                     int SPtoFPdelta = genSPtoFPdelta();
                     assert(SPtoFPdelta == static_cast<int>(outgoingArgSpaceSize));
                     GetEmitter()->emitIns_R_R_I(INS_sub, EA_8BYTE, REG_SPBASE, REG_FPBASE, SPtoFPdelta);
-                    compiler->unwindSetFrameReg(REG_FPBASE, SPtoFPdelta);
+                    unwindSetFrameReg(REG_FPBASE, SPtoFPdelta);
                 }
 
                 // Generate:
@@ -9669,7 +9669,7 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
                                     (compiler->info.compIsVarArgs ? MAX_REG_ARG * REGSIZE_BYTES : 0) -
                                     2 * REGSIZE_BYTES; // -2 for FP, LR
             GetEmitter()->emitIns_R_R_I(INS_sub, EA_8BYTE, REG_SPBASE, REG_FPBASE, offsetSpToSavedFp);
-            compiler->unwindSetFrameReg(REG_FPBASE, offsetSpToSavedFp);
+            unwindSetFrameReg(REG_FPBASE, offsetSpToSavedFp);
         }
     }
     else
@@ -9689,7 +9689,7 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
 
         GetEmitter()->emitIns_R_R_R_I(INS_ldp, EA_8BYTE, REG_FP, REG_LR, REG_SPBASE, totalFrameSize,
                                       INS_OPTS_POST_INDEX);
-        compiler->unwindSaveRegPairPreindexed(REG_FP, REG_LR, -totalFrameSize);
+        unwindSaveRegPairPreindexed(REG_FP, REG_LR, -totalFrameSize);
     }
     else if (frameType == 2)
     {
@@ -9698,10 +9698,10 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
         //      add sp,sp,#framesz
 
         GetEmitter()->emitIns_R_R_R_I(INS_ldp, EA_8BYTE, REG_FP, REG_LR, REG_SPBASE, outgoingArgSpaceSize);
-        compiler->unwindSaveRegPair(REG_FP, REG_LR, outgoingArgSpaceSize);
+        unwindSaveRegPair(REG_FP, REG_LR, outgoingArgSpaceSize);
 
         GetEmitter()->emitIns_R_R_I(INS_add, EA_8BYTE, REG_SPBASE, REG_SPBASE, totalFrameSize);
-        compiler->unwindAllocStack(totalFrameSize);
+        unwindAllocStack(totalFrameSize);
     }
     else if (frameType == 3)
     {
@@ -9740,7 +9740,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         compiler->info.compCompHnd->getFunctionEntryPoint(methHnd, &addrInfo);
     }
 
-    compiler->unwindBegEpilog();
+    unwindBegEpilog();
 
     genPopCalleeSavedRegistersAndFreeLclFrame(jmpEpilog);
 
@@ -9751,10 +9751,10 @@ void CodeGen::genFnEpilog(BasicBlock* block)
     else
     {
         GetEmitter()->emitIns_R(INS_ret, EA_8BYTE, REG_LR);
-        compiler->unwindReturn(REG_LR);
+        unwindReturn(REG_LR);
     }
 
-    compiler->unwindEndEpilog();
+    unwindEndEpilog();
 }
 
 void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throwKind, BasicBlock* throwBlock)

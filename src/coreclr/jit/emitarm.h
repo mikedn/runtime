@@ -265,7 +265,7 @@ void emitSplit(emitLocation*         startLoc,
                void*                 context,
                emitSplitCallbackType callbackFunc);
 
-void emitUnwindNopPadding(emitLocation* locFrom, Compiler* comp);
+void emitUnwindNopPadding(emitLocation* locFrom);
 
 unsigned emitGetInstructionSize(emitLocation* emitLoc);
 
