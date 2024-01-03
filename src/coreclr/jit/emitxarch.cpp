@@ -5510,7 +5510,7 @@ static uint8_t* emitOutputNOP(uint8_t* dstRW, size_t nBytes)
 
 uint8_t* emitter::emitOutputAlign(insGroup* ig, instrDesc* id, uint8_t* dst)
 {
-    assert(codeGen->ShouldAlignLoops());
+    assert(emitComp->opts.alignLoops);
 
     // IG can be marked as not needing alignment after emitting align instruction
     // In such case, skip outputting alignment.

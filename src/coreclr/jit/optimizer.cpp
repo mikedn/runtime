@@ -2435,7 +2435,7 @@ NO_MORE_LOOPS:
 void Compiler::optIdentifyLoopsForAlignment()
 {
 #if FEATURE_LOOP_ALIGN
-    if (codeGen->ShouldAlignLoops())
+    if (opts.alignLoops)
     {
         for (unsigned loopInd = 0; loopInd < optLoopCount; loopInd++)
         {

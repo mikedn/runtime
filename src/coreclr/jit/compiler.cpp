@@ -2288,11 +2288,11 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
         // (The JIT doesn't know the final address of the code, hence
         // it can't align code based on unknown addresses.)
 
-        codeGen->SetAlignLoops(false); // loop alignment not supported for prejitted code
+        opts.alignLoops = false; // loop alignment not supported for prejitted code
     }
     else
     {
-        codeGen->SetAlignLoops(JitConfig.JitAlignLoops() == 1);
+        opts.alignLoops = JitConfig.JitAlignLoops() == 1;
     }
 
 #if TARGET_ARM

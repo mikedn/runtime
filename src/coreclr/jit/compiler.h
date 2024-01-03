@@ -1465,6 +1465,8 @@ struct CompilerOptions
 // likely complicated enough that loop alignment will not impact performance.
 #define DEFAULT_MAX_LOOPSIZE_FOR_ALIGN DEFAULT_ALIGN_LOOP_BOUNDARY * 3
 
+    bool alignLoops;
+
 #ifdef DEBUG
     // Loop alignment variables
 

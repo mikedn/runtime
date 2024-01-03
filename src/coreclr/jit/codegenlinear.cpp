@@ -577,7 +577,7 @@ void CodeGen::genCodeForBBlist()
 
         if ((block->bbNext != nullptr) && (block->bbNext->isLoopAlign()))
         {
-            assert(ShouldAlignLoops());
+            assert(compiler->opts.alignLoops);
 
             GetEmitter()->emitLoopAlignment();
         }

@@ -32,16 +32,6 @@ public:
         return compiler;
     }
 
-    bool ShouldAlignLoops()
-    {
-        return m_genAlignLoops;
-    }
-
-    void SetAlignLoops(bool value)
-    {
-        m_genAlignLoops = value;
-    }
-
     Compiler* compiler;
 
 #ifdef JIT32_GCENCODER
@@ -118,7 +108,6 @@ protected:
     bool contains256bitAVXInstructions = false;
     bool containsAVXInstructions       = false;
 #endif
-    bool m_genAlignLoops;
 
 public:
     static bool            UseOptimizedWriteBarriers();
