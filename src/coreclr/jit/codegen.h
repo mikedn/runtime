@@ -53,6 +53,7 @@ public:
         return m_currentBlock;
     }
 
+    void genCreateFunclets();
     void genAllocateRegisters();
     void genGenerateMachineCode();
     void genEmitMachineCode();
@@ -385,13 +386,22 @@ public:
 #endif // TARGET_AMD64
 
 #ifdef FEATURE_EH_FUNCLETS
-    uint16_t currentFuncletIndex = 0;
-#endif
+    uint16_t     compFuncInfoCount   = 0;
+    uint16_t     currentFuncletIndex = 0;
+    FuncInfoDsc* compFuncInfos       = nullptr;
 
-#ifdef FEATURE_EH_FUNCLETS
+    uint16_t compFuncCount()
+    {
+        assert(compFuncInfos != nullptr);
+        return compFuncInfoCount;
+    }
+
+    FuncInfoDsc* funGetFunc(unsigned funcIdx);
+    unsigned funGetFuncIdx(BasicBlock* block);
+
     FuncInfoDsc* funCurrentFunc()
     {
-        return compiler->funGetFunc(currentFuncletIndex);
+        return funGetFunc(currentFuncletIndex);
     }
 #endif
 
@@ -399,7 +409,7 @@ public:
     {
 #ifdef FEATURE_EH_FUNCLETS
         assert(FitsIn<uint16_t>(funcIdx));
-        noway_assert(funcIdx < compiler->compFuncInfoCount);
+        noway_assert(funcIdx < compFuncInfoCount);
         currentFuncletIndex = static_cast<int16_t>(funcIdx);
 #else
         assert(funcIdx == 0);

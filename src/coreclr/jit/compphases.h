@@ -49,7 +49,7 @@ CompPhaseNameMacro(PHASE_MORPH_END,              "Morph - Finish",              
 CompPhaseNameMacro(PHASE_GS_COOKIE,              "GS Cookie",                      "GS-COOK",  false, -1, false)
 CompPhaseNameMacro(PHASE_COMPUTE_EDGE_WEIGHTS,   "Compute edge weights (1, false)","EDG-WGT",  false, -1, false)
 #ifdef FEATURE_EH_FUNCLETS
-CompPhaseNameMacro(PHASE_CREATE_FUNCLETS,        "Create EH funclets",             "EH-FUNC",  false, -1, false)
+CompPhaseNameMacro(PHASE_RELOCATE_FUNCLETS,      "Relocate EH funclets",           "EH-FREL",  false, -1, false)
 #endif 
 CompPhaseNameMacro(PHASE_MERGE_THROWS,           "Merge throw blocks",             "MRGTHROW", false, -1, false)
 CompPhaseNameMacro(PHASE_INVERT_LOOPS,           "Invert loops",                   "LOOP-INV", false, -1, false)
@@ -96,6 +96,9 @@ CompPhaseNameMacro(PHASE_LIR_LIVENESS,           "LIR local var liveness",      
 CompPhaseNameMacro(PHASE_LOWERING_DECOMP,        "Lowering decomposition",         "LWR-DEC",  false, -1, false)
 CompPhaseNameMacro(PHASE_LOWERING,               "Lowering",                       "LWR",      false, -1, true)
 CompPhaseNameMacro(PHASE_STACK_LEVEL_SETTER,     "Calculate stack level slots",    "STK-SET",  false, -1, false)
+#ifdef FEATURE_EH_FUNCLETS
+CompPhaseNameMacro(PHASE_CREATE_FUNCLETS,        "Create EH funclets",             "EH-FUNC",  false, -1, false)
+#endif
 CompPhaseNameMacro(PHASE_LINEAR_SCAN,            "Linear scan register alloc",     "LSRA",     true, -1, true)
 CompPhaseNameMacro(PHASE_LINEAR_SCAN_BUILD,      "LSRA build intervals",           "LSRA-BLD", false, PHASE_LINEAR_SCAN, false)
 CompPhaseNameMacro(PHASE_LINEAR_SCAN_ALLOC,      "LSRA allocate",                  "LSRA-ALL", false, PHASE_LINEAR_SCAN, false)

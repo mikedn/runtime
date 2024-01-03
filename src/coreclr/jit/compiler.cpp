@@ -2560,7 +2560,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 
     DoPhase(this, PHASE_COMPUTE_EDGE_WEIGHTS, &Compiler::fgComputeBlockAndEdgeWeights);
 #ifdef FEATURE_EH_FUNCLETS
-    DoPhase(this, PHASE_CREATE_FUNCLETS, &Compiler::fgCreateFunclets);
+    DoPhase(this, PHASE_RELOCATE_FUNCLETS, &Compiler::phRelocateFunclets);
 #endif
 
     if (opts.OptimizationEnabled())

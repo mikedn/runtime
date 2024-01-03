@@ -392,7 +392,7 @@ void CodeGen::genUpdateCurrentFunclet(BasicBlock* block)
 {
     if (block->bbFlags & BBF_FUNCLET_BEG)
     {
-        funSetCurrentFunc(compiler->funGetFuncIdx(block));
+        funSetCurrentFunc(funGetFuncIdx(block));
         if (funCurrentFunc()->funKind == FUNC_FILTER)
         {
             assert(compiler->ehGetDsc(funCurrentFunc()->funEHIndex)->ebdFilter == block);
@@ -406,7 +406,7 @@ void CodeGen::genUpdateCurrentFunclet(BasicBlock* block)
     }
     else
     {
-        assert(currentFuncletIndex <= compiler->compFuncInfoCount);
+        assert(currentFuncletIndex <= compFuncInfoCount);
 
         if (funCurrentFunc()->funKind == FUNC_FILTER)
         {
@@ -462,6 +462,9 @@ void CodeGen::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
     codePtr          = nativeCode;
     nativeSizeOfCode = nativeCodeSize;
 
+#ifdef FEATURE_EH_FUNCLETS
+    DoPhase(this, PHASE_CREATE_FUNCLETS, &CodeGen::genCreateFunclets);
+#endif
     DoPhase(this, PHASE_LINEAR_SCAN, &CodeGen::genAllocateRegisters);
     DoPhase(this, PHASE_GENERATE_CODE, &CodeGen::genGenerateMachineCode);
     DoPhase(this, PHASE_EMIT_CODE, &CodeGen::genEmitMachineCode);
@@ -474,6 +477,97 @@ void CodeGen::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
     }
 #endif
 }
+
+#ifdef FEATURE_EH_FUNCLETS
+void CodeGen::genCreateFunclets()
+{
+    JITDUMP("*************** In genCreateFunclets()\n");
+
+    unsigned           XTnum;
+    EHblkDsc*          HBtab;
+    const unsigned int funcCnt = compiler->ehFuncletCount() + 1;
+
+    if (!FitsIn<unsigned short>(funcCnt))
+    {
+        IMPL_LIMITATION("Too many funclets");
+    }
+
+    FuncInfoDsc* funcInfo = new (compiler, CMK_BasicBlock) FuncInfoDsc[funcCnt];
+
+    unsigned short funcIdx;
+
+    // Setup the root FuncInfoDsc and prepare to start associating
+    // FuncInfoDsc's with their corresponding EH region
+    memset((void*)funcInfo, 0, funcCnt * sizeof(FuncInfoDsc));
+    assert(funcInfo[0].funKind == FUNC_ROOT);
+    funcIdx = 1;
+
+    for (XTnum = 0; XTnum < compiler->compHndBBtabCount; XTnum++)
+    {
+        HBtab = compiler->ehGetDsc(XTnum); // must re-compute this every loop, since fgRelocateEHRange changes the table
+        if (HBtab->HasFilter())
+        {
+            assert(funcIdx < funcCnt);
+            funcInfo[funcIdx].funKind    = FUNC_FILTER;
+            funcInfo[funcIdx].funEHIndex = (unsigned short)XTnum;
+            funcIdx++;
+        }
+        assert(funcIdx < funcCnt);
+        funcInfo[funcIdx].funKind    = FUNC_HANDLER;
+        funcInfo[funcIdx].funEHIndex = (unsigned short)XTnum;
+        HBtab->ebdFuncIndex          = funcIdx;
+        funcIdx++;
+    }
+
+    // We better have populated all of them by now
+    assert(funcIdx == funcCnt);
+
+    compFuncInfos     = funcInfo;
+    compFuncInfoCount = (unsigned short)funcCnt;
+}
+
+/*****************************************************************************
+ *  Get the FuncInfoDsc for the given funclet.
+ *  This is only valid after funclets are created.
+ *
+ */
+FuncInfoDsc* CodeGen::funGetFunc(unsigned funcIdx)
+{
+    assert(compFuncInfos != nullptr);
+    assert(funcIdx < compFuncInfoCount);
+    return &compFuncInfos[funcIdx];
+}
+
+/*****************************************************************************
+ *  Get the funcIdx for the EH funclet that begins with block.
+ *  This is only valid after funclets are created.
+ *  It is only valid for blocks marked with BBF_FUNCLET_BEG because
+ *  otherwise we would have to do a more expensive check to determine
+ *  if this should return the filter funclet or the filter handler funclet.
+ *
+ */
+unsigned CodeGen::funGetFuncIdx(BasicBlock* block)
+{
+    assert(compFuncInfos != nullptr);
+    assert(block->bbFlags & BBF_FUNCLET_BEG);
+
+    EHblkDsc*    eh      = compiler->ehGetDsc(block->getHndIndex());
+    unsigned int funcIdx = eh->ebdFuncIndex;
+    if (eh->ebdHndBeg != block)
+    {
+        // If this is a filter EH clause, but we want the funclet
+        // for the filter (not the filter handler), it is the previous one
+        noway_assert(eh->HasFilter());
+        noway_assert(eh->ebdFilter == block);
+        assert(funGetFunc(funcIdx)->funKind == FUNC_HANDLER);
+        assert(funGetFunc(funcIdx)->funEHIndex == funGetFunc(funcIdx - 1)->funEHIndex);
+        assert(funGetFunc(funcIdx - 1)->funKind == FUNC_FILTER);
+        funcIdx--;
+    }
+
+    return funcIdx;
+}
+#endif // FEATURE_EH_FUNCLETS
 
 void CodeGen::genAllocateRegisters()
 {
@@ -1303,6 +1397,7 @@ void CodeGen::eeSetEHinfo(unsigned EHnumber, const CORINFO_EH_CLAUSE* clause)
     }
 }
 
+#ifdef DEBUG
 void CodeGen::dispOutgoingEHClause(unsigned num, const CORINFO_EH_CLAUSE& clause)
 {
     if (compiler->opts.dspDiffable)
@@ -1371,6 +1466,7 @@ void CodeGen::dispOutgoingEHClause(unsigned num, const CORINFO_EH_CLAUSE& clause
     }
     printf("\n");
 }
+#endif // DEBUG
 
 bool CodeGenInterface::UseOptimizedWriteBarriers()
 {

@@ -2730,7 +2730,7 @@ void emitter::emitCheckFuncletBranch(instrDescJmp* jmp)
 
             // No branches back to the root method
             assert(tgtIG->igFuncIdx > 0);
-            FuncInfoDsc* tgtFunc = emitComp->funGetFunc(tgtIG->igFuncIdx);
+            FuncInfoDsc* tgtFunc = codeGen->funGetFunc(tgtIG->igFuncIdx);
             assert(tgtFunc->funKind == FUNC_HANDLER);
             EHblkDsc* tgtEH = emitComp->ehGetDsc(tgtFunc->funEHIndex);
 
@@ -2743,21 +2743,21 @@ void emitter::emitCheckFuncletBranch(instrDescJmp* jmp)
 
             // And now we made it back to where we started
             assert(tgtIG == tgtBlk->emitLabel);
-            assert(tgtIG->igFuncIdx == emitComp->funGetFuncIdx(tgtBlk));
+            assert(tgtIG->igFuncIdx == codeGen->funGetFuncIdx(tgtBlk));
         }
         else if (jmp->idDebugOnlyInfo()->idCatchRet)
         {
             // Again there isn't enough information to prove this correct
             // so just allow a 'branch' to any other 'parent' funclet
 
-            FuncInfoDsc* jmpFunc = emitComp->funGetFunc(jmpIG->igFuncIdx);
+            FuncInfoDsc* jmpFunc = codeGen->funGetFunc(jmpIG->igFuncIdx);
             assert(jmpFunc->funKind == FUNC_HANDLER);
             EHblkDsc* jmpEH = emitComp->ehGetDsc(jmpFunc->funEHIndex);
 
             // Only branches out of catches
             assert(jmpEH->HasCatchHandler());
 
-            FuncInfoDsc* tgtFunc = emitComp->funGetFunc(tgtIG->igFuncIdx);
+            FuncInfoDsc* tgtFunc = codeGen->funGetFunc(tgtIG->igFuncIdx);
             assert(tgtFunc);
             if (tgtFunc->funKind == FUNC_HANDLER)
             {

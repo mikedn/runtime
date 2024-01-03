@@ -4328,7 +4328,7 @@ public:
     bool fgAnyIntraHandlerPreds(BasicBlock* block);
     void fgInsertFuncletPrologBlock(BasicBlock* block);
     void fgCreateFuncletPrologBlocks();
-    void fgCreateFunclets();
+    void phRelocateFunclets();
 #else  // !FEATURE_EH_FUNCLETS
     bool fgRelocateEHRegions();
 #endif // !FEATURE_EH_FUNCLETS
@@ -5544,21 +5544,6 @@ public:
                            unsigned             refCntStkParam,
                            BasicBlock::weight_t refCntWtdStkDbl);
 #endif // DOUBLE_ALIGN
-
-// Things that MAY belong either in CodeGen or CodeGenContext
-
-#if defined(FEATURE_EH_FUNCLETS)
-    FuncInfoDsc*   compFuncInfos;
-    unsigned short compFuncInfoCount;
-
-    unsigned short compFuncCount()
-    {
-        assert(fgFuncletsCreated);
-        return compFuncInfoCount;
-    }
-    FuncInfoDsc* funGetFunc(unsigned funcIdx);
-    unsigned int funGetFuncIdx(BasicBlock* block);
-#endif // FEATURE_EH_FUNCLETS
 
     // LIVENESS
 

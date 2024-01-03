@@ -2011,41 +2011,15 @@ void Compiler::fgCreateFuncletPrologBlocks()
 
 /*****************************************************************************
  *
- *  Function to create funclets out of all EH catch/finally/fault blocks.
+ *  Function to relocate funclets.
  *  We only move filter and handler blocks, not try blocks.
  */
 
-void Compiler::fgCreateFunclets()
+void Compiler::phRelocateFunclets()
 {
     assert(!fgFuncletsCreated);
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In fgCreateFunclets()\n");
-    }
-#endif
-
     fgCreateFuncletPrologBlocks();
-
-    unsigned           XTnum;
-    EHblkDsc*          HBtab;
-    const unsigned int funcCnt = ehFuncletCount() + 1;
-
-    if (!FitsIn<unsigned short>(funcCnt))
-    {
-        IMPL_LIMITATION("Too many funclets");
-    }
-
-    FuncInfoDsc* funcInfo = new (this, CMK_BasicBlock) FuncInfoDsc[funcCnt];
-
-    unsigned short funcIdx;
-
-    // Setup the root FuncInfoDsc and prepare to start associating
-    // FuncInfoDsc's with their corresponding EH region
-    memset((void*)funcInfo, 0, funcCnt * sizeof(FuncInfoDsc));
-    assert(funcInfo[0].funKind == FUNC_ROOT);
-    funcIdx = 1;
 
     // Because we iterate from the top to the bottom of the compHndBBtab array, we are iterating
     // from most nested (innermost) to least nested (outermost) EH region. It would be reasonable
@@ -2057,30 +2031,10 @@ void Compiler::fgCreateFunclets()
     // be added *after* the current index, so our iteration here is not invalidated.
     // It *can* invalidate the compHndBBtab pointer itself, though, if it gets reallocated!
 
-    for (XTnum = 0; XTnum < compHndBBtabCount; XTnum++)
+    for (unsigned XTnum = 0; XTnum < compHndBBtabCount; XTnum++)
     {
-        HBtab = ehGetDsc(XTnum); // must re-compute this every loop, since fgRelocateEHRange changes the table
-        if (HBtab->HasFilter())
-        {
-            assert(funcIdx < funcCnt);
-            funcInfo[funcIdx].funKind    = FUNC_FILTER;
-            funcInfo[funcIdx].funEHIndex = (unsigned short)XTnum;
-            funcIdx++;
-        }
-        assert(funcIdx < funcCnt);
-        funcInfo[funcIdx].funKind    = FUNC_HANDLER;
-        funcInfo[funcIdx].funEHIndex = (unsigned short)XTnum;
-        HBtab->ebdFuncIndex          = funcIdx;
-        funcIdx++;
         fgRelocateEHRange(XTnum, FG_RELOCATE_HANDLER);
     }
-
-    // We better have populated all of them by now
-    assert(funcIdx == funcCnt);
-
-    // Publish
-    compFuncInfos     = funcInfo;
-    compFuncInfoCount = (unsigned short)funcCnt;
 
     fgFuncletsCreated = true;
 
