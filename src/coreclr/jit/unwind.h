@@ -842,8 +842,7 @@ enum FuncKind : BYTE
 {
     FUNC_ROOT,    // The main/root function (always id==0)
     FUNC_HANDLER, // a funclet associated with an EH handler (finally, fault, catch, filter handler)
-    FUNC_FILTER,  // a funclet associated with an EH filter
-    FUNC_COUNT
+    FUNC_FILTER   // a funclet associated with an EH filter
 };
 
 class emitLocation;
@@ -851,7 +850,6 @@ class emitLocation;
 struct FuncInfoDsc
 {
     FuncKind       funKind;
-    BYTE           funFlags;   // Currently unused, just here for padding
     unsigned short funEHIndex; // index, into the ebd table, of innermost EH clause corresponding to this
 // funclet. It is only valid if funKind field indicates this is a
 // EH-related funclet: FUNC_HANDLER or FUNC_FILTER
