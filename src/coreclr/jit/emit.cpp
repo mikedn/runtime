@@ -2714,7 +2714,12 @@ void emitter::emitCheckFuncletBranch(instrDescJmp* jmp)
 
     insGroup* jmpIG = jmp->idjIG;
     insGroup* tgtIG = jmp->GetLabel();
-    assert(tgtIG);
+    assert(tgtIG != nullptr);
+
+#ifndef FEATURE_EH_FUNCLETS
+    assert(tgtIG->igFuncIdx == 0);
+    assert(jmpIG->igFuncIdx == 0);
+#else
     if (tgtIG->igFuncIdx != jmpIG->igFuncIdx)
     {
         if (jmp->idDebugOnlyInfo()->idFinallyCall)
@@ -2774,6 +2779,7 @@ void emitter::emitCheckFuncletBranch(instrDescJmp* jmp)
             assert(tgtIG->igFuncIdx == jmpIG->igFuncIdx);
         }
     }
+#endif // FEATURE_EH_FUNCLETS
 }
 #endif // DEBUG
 
