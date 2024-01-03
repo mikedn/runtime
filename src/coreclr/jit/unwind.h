@@ -3,6 +3,10 @@
 
 #pragma once
 
+#ifdef TARGET_AMD64
+#include <win64unwind.h>
+#endif
+
 #ifdef TARGET_ARMARCH
 
 // Windows no longer imposes a maximum prolog size. However, we still have an

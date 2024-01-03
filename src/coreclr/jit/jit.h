@@ -169,11 +169,6 @@
 #define CORINFO_OS_TARGET CORINFO_WINNT
 #endif
 
-// Include the AMD64 unwind codes when appropriate.
-#if defined(TARGET_AMD64)
-#include "win64unwind.h"
-#endif
-
 #include "corhdr.h"
 #include "corjit.h"
 #include "jitee.h"
