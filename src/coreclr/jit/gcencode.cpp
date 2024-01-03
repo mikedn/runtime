@@ -136,7 +136,7 @@ void GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen, unsigned codeSize, unsigned 
 #ifdef FEATURE_EH_FUNCLETS
     if (compiler->ehAnyFunclets())
     {
-        MarkFilterStackSlotsPinned();
+        MarkFilterStackSlotsPinned(codeGen);
     }
 #endif
 
@@ -4619,7 +4619,7 @@ void GCEncoder::RemoveCallArgStackSlots(unsigned codeOffset, RegArgChange* first
     }
 }
 
-void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize)
+void GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen, unsigned codeSize, unsigned prologSize)
 {
 #ifdef DEBUG
     // Tracked variables can't be pinned, and the encoding takes advantage of that by
@@ -4636,7 +4636,7 @@ void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize)
 
     if (compiler->ehAnyFunclets())
     {
-        MarkFilterStackSlotsPinned();
+        MarkFilterStackSlotsPinned(codeGen);
     }
 
     CompIAllocator encoderAlloc(compiler->getAllocator(CMK_GC));

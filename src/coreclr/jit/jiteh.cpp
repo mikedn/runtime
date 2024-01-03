@@ -1037,43 +1037,6 @@ unsigned Compiler::bbThrowIndex(BasicBlock* blk)
 
 #endif // FEATURE_EH_FUNCLETS
 
-/*****************************************************************************
- * Determine the emitter code label for a block, for unwind purposes.
- */
-
-insGroup* Compiler::ehEmitLabel(BasicBlock* block)
-{
-    noway_assert(block != nullptr);
-
-    insGroup* label;
-
-#ifdef TARGET_ARM
-    if ((block->bbFlags & BBF_FINALLY_TARGET) != 0)
-    {
-        // Use the offset of the beginning of the NOP padding, not the main block.
-        // This might include loop head padding, too, if this is a loop head.
-        label = block->unwindNopEmitLabel;
-    }
-    else
-#endif
-    {
-        label = block->emitLabel;
-    }
-
-    noway_assert(label != nullptr);
-    return label;
-}
-
-/*****************************************************************************
- * Determine the emitter code offset for a block. If the block is a finally
- * target, choose the offset of the NOP padding that precedes the block.
- */
-
-UNATIVE_OFFSET Compiler::ehCodeOffset(BasicBlock* block)
-{
-    return GetEmitter()->emitCodeOffset(ehEmitLabel(block));
-}
-
 /****************************************************************************/
 
 EHblkDsc* Compiler::ehInitHndRange(BasicBlock* blk, IL_OFFSET* hndBeg, IL_OFFSET* hndEnd, bool* inFilter)

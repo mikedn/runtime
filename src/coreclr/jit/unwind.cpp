@@ -66,15 +66,13 @@ void CodeGen::unwindGetFuncLocations(FuncInfoDsc*             func,
                 // The hot section only goes up to the cold section
                 assert(compiler->fgFirstFuncletBB == nullptr);
 
-                *ppEndLoc =
-                    new (compiler, CMK_UnwindInfo) emitLocation(compiler->ehEmitLabel(compiler->fgFirstColdBlock));
+                *ppEndLoc = new (compiler, CMK_UnwindInfo) emitLocation(ehEmitLabel(compiler->fgFirstColdBlock));
             }
             else
             {
                 if (compiler->fgFirstFuncletBB != nullptr)
                 {
-                    *ppEndLoc =
-                        new (compiler, CMK_UnwindInfo) emitLocation(compiler->ehEmitLabel(compiler->fgFirstFuncletBB));
+                    *ppEndLoc = new (compiler, CMK_UnwindInfo) emitLocation(ehEmitLabel(compiler->fgFirstFuncletBB));
                 }
                 else
                 {
@@ -87,9 +85,8 @@ void CodeGen::unwindGetFuncLocations(FuncInfoDsc*             func,
             assert(compiler->fgFirstFuncletBB == nullptr); // TODO-CQ: support hot/cold splitting in functions with EH
             assert(compiler->fgFirstColdBlock != nullptr); // There better be a cold section!
 
-            *ppStartLoc =
-                new (compiler, CMK_UnwindInfo) emitLocation(compiler->ehEmitLabel(compiler->fgFirstColdBlock));
-            *ppEndLoc = nullptr; // nullptr end location means the end of the code
+            *ppStartLoc = new (compiler, CMK_UnwindInfo) emitLocation(ehEmitLabel(compiler->fgFirstColdBlock));
+            *ppEndLoc   = nullptr; // nullptr end location means the end of the code
         }
     }
     else
@@ -101,17 +98,16 @@ void CodeGen::unwindGetFuncLocations(FuncInfoDsc*             func,
         if (func->funKind == FUNC_FILTER)
         {
             assert(HBtab->HasFilter());
-            *ppStartLoc = new (compiler, CMK_UnwindInfo) emitLocation(compiler->ehEmitLabel(HBtab->ebdFilter));
-            *ppEndLoc   = new (compiler, CMK_UnwindInfo) emitLocation(compiler->ehEmitLabel(HBtab->ebdHndBeg));
+            *ppStartLoc = new (compiler, CMK_UnwindInfo) emitLocation(ehEmitLabel(HBtab->ebdFilter));
+            *ppEndLoc   = new (compiler, CMK_UnwindInfo) emitLocation(ehEmitLabel(HBtab->ebdHndBeg));
         }
         else
         {
             assert(func->funKind == FUNC_HANDLER);
-            *ppStartLoc = new (compiler, CMK_UnwindInfo) emitLocation(compiler->ehEmitLabel(HBtab->ebdHndBeg));
+            *ppStartLoc = new (compiler, CMK_UnwindInfo) emitLocation(ehEmitLabel(HBtab->ebdHndBeg));
             *ppEndLoc   = (HBtab->ebdHndLast->bbNext == nullptr)
                             ? nullptr
-                            : new (compiler, CMK_UnwindInfo)
-                                  emitLocation(compiler->ehEmitLabel(HBtab->ebdHndLast->bbNext));
+                            : new (compiler, CMK_UnwindInfo) emitLocation(ehEmitLabel(HBtab->ebdHndLast->bbNext));
         }
     }
 }

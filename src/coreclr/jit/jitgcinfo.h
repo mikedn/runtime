@@ -300,7 +300,7 @@ public:
     void AddCallArgStore(unsigned codeOffs, int argOffs, GCtype gcType);
     void AddCallArgsKill(unsigned codeOffs);
     void AddCallSite(unsigned callOffs, unsigned callEndOffs);
-    void CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize);
+    void CreateAndStoreGCInfo(CodeGen* codeGen, unsigned codeSize, unsigned prologSize);
 #endif
 
 #ifdef DEBUG
@@ -320,7 +320,7 @@ private:
 #endif
 
 #if !defined(JIT32_GCENCODER) || defined(FEATURE_EH_FUNCLETS)
-    void MarkFilterStackSlotsPinned();
+    void MarkFilterStackSlotsPinned(CodeGen* codeGen);
     void InsertSplitStackSlotLifetime(StackSlotLifetime* desc, StackSlotLifetime* begin);
     INDEBUG(void DumpStackSlotLifetime(const char* message, StackSlotLifetime* desc) const;)
 #endif

@@ -4,7 +4,7 @@
 #include "jitpch.h"
 #include "jitgcinfo.h"
 #include "gcinfotypes.h"
-#include "emit.h"
+#include "codegen.h"
 
 #if MEASURE_PTRTAB_SIZE
 size_t GCInfo::s_gcRegPtrDscSize;
@@ -820,7 +820,7 @@ void GCInfo::AddCallSite(unsigned callOffs, unsigned callEndOffs)
 // variables as pinned inside the filter.  Thus if they are double reported, it
 // won't be a problem since they won't be double relocated.
 //
-void GCInfo::MarkFilterStackSlotsPinned()
+void GCInfo::MarkFilterStackSlotsPinned(CodeGen* codeGen)
 {
     assert(compiler->ehAnyFunclets());
 
@@ -833,8 +833,8 @@ void GCInfo::MarkFilterStackSlotsPinned()
             continue;
         }
 
-        const unsigned filterBegin = compiler->ehCodeOffset(ehClause->ebdFilter);
-        const unsigned filterEnd   = compiler->ehCodeOffset(ehClause->ebdHndBeg);
+        const unsigned filterBegin = codeGen->ehCodeOffset(ehClause->ebdFilter);
+        const unsigned filterEnd   = codeGen->ehCodeOffset(ehClause->ebdHndBeg);
 
         for (StackSlotLifetime* lifetime = firstStackSlotLifetime; lifetime != nullptr; lifetime = lifetime->next)
         {

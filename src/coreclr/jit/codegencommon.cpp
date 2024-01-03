@@ -789,7 +789,7 @@ void CodeGen::genEmitUnwindDebugGCandEH()
 #ifdef JIT32_GCENCODER
     GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this, codeSize, prologSize, epilogSize);
 #else
-    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(codeSize, prologSize);
+    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this, codeSize, prologSize);
 #endif
 
 #if DISPLAY_SIZES
@@ -914,17 +914,17 @@ void CodeGen::genReportEH()
     {
         UNATIVE_OFFSET tryBeg, tryEnd, hndBeg, hndEnd, hndTyp;
 
-        tryBeg = compiler->ehCodeOffset(HBtab->ebdTryBeg);
-        hndBeg = compiler->ehCodeOffset(HBtab->ebdHndBeg);
+        tryBeg = ehCodeOffset(HBtab->ebdTryBeg);
+        hndBeg = ehCodeOffset(HBtab->ebdHndBeg);
 
         tryEnd = (HBtab->ebdTryLast == compiler->fgLastBB) ? compiler->info.compNativeCodeSize
-                                                           : compiler->ehCodeOffset(HBtab->ebdTryLast->bbNext);
+                                                           : ehCodeOffset(HBtab->ebdTryLast->bbNext);
         hndEnd = (HBtab->ebdHndLast == compiler->fgLastBB) ? compiler->info.compNativeCodeSize
-                                                           : compiler->ehCodeOffset(HBtab->ebdHndLast->bbNext);
+                                                           : ehCodeOffset(HBtab->ebdHndLast->bbNext);
 
         if (HBtab->HasFilter())
         {
-            hndTyp = compiler->ehCodeOffset(HBtab->ebdFilter);
+            hndTyp = ehCodeOffset(HBtab->ebdFilter);
         }
         else
         {
@@ -1136,17 +1136,17 @@ void CodeGen::genReportEH()
 
                 UNATIVE_OFFSET tryBeg, tryEnd, hndBeg, hndEnd, hndTyp;
 
-                tryBeg = compiler->ehCodeOffset(bbTryBeg);
-                hndBeg = compiler->ehCodeOffset(bbHndBeg);
+                tryBeg = ehCodeOffset(bbTryBeg);
+                hndBeg = ehCodeOffset(bbHndBeg);
 
                 tryEnd = (bbTryLast == compiler->fgLastBB) ? compiler->info.compNativeCodeSize
-                                                           : compiler->ehCodeOffset(bbTryLast->bbNext);
+                                                           : ehCodeOffset(bbTryLast->bbNext);
                 hndEnd = (bbHndLast == compiler->fgLastBB) ? compiler->info.compNativeCodeSize
-                                                           : compiler->ehCodeOffset(bbHndLast->bbNext);
+                                                           : ehCodeOffset(bbHndLast->bbNext);
 
                 if (encTab->HasFilter())
                 {
-                    hndTyp = compiler->ehCodeOffset(encTab->ebdFilter);
+                    hndTyp = ehCodeOffset(encTab->ebdFilter);
                 }
                 else
                 {
@@ -1202,7 +1202,7 @@ void CodeGen::genReportEH()
             {
                 UNATIVE_OFFSET hndBeg, hndEnd;
 
-                hndBeg = compiler->ehCodeOffset(block);
+                hndBeg = ehCodeOffset(block);
 
                 // How big is it? The BBJ_ALWAYS has a null label! Look for the block after, which
                 // must be a label or jump target, since the BBJ_CALLFINALLY doesn't fall through.
@@ -1218,7 +1218,7 @@ void CodeGen::genReportEH()
                 else
                 {
                     assert(bbLabel->emitLabel != nullptr);
-                    hndEnd = compiler->ehCodeOffset(bbLabel);
+                    hndEnd = ehCodeOffset(bbLabel);
                 }
 
                 CORINFO_EH_CLAUSE clause;
@@ -5718,4 +5718,41 @@ void CodeGen::genPoisonFrame(regMaskTP regLiveIn)
             offs += 4;
         }
     }
+}
+
+/*****************************************************************************
+ * Determine the emitter code label for a block, for unwind purposes.
+ */
+
+insGroup* CodeGen::ehEmitLabel(BasicBlock* block)
+{
+    noway_assert(block != nullptr);
+
+    insGroup* label;
+
+#ifdef TARGET_ARM
+    if ((block->bbFlags & BBF_FINALLY_TARGET) != 0)
+    {
+        // Use the offset of the beginning of the NOP padding, not the main block.
+        // This might include loop head padding, too, if this is a loop head.
+        label = block->unwindNopEmitLabel;
+    }
+    else
+#endif
+    {
+        label = block->emitLabel;
+    }
+
+    noway_assert(label != nullptr);
+    return label;
+}
+
+/*****************************************************************************
+ * Determine the emitter code offset for a block. If the block is a finally
+ * target, choose the offset of the NOP padding that precedes the block.
+ */
+
+UNATIVE_OFFSET CodeGen::ehCodeOffset(BasicBlock* block)
+{
+    return GetEmitter()->emitCodeOffset(ehEmitLabel(block));
 }

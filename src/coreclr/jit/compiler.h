@@ -2850,9 +2850,6 @@ public:
     // convenient to also consider it a predecessor.)
     flowList* BlockPredsWithEH(BasicBlock* blk);
 
-    insGroup* ehEmitLabel(BasicBlock* block);
-    UNATIVE_OFFSET ehCodeOffset(BasicBlock* block);
-
     EHblkDsc* ehInitHndRange(BasicBlock* src, IL_OFFSET* hndBeg, IL_OFFSET* hndEnd, bool* inFilter);
 
     EHblkDsc* ehInitTryRange(BasicBlock* src, IL_OFFSET* tryBeg, IL_OFFSET* tryEnd);

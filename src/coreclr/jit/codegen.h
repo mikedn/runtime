@@ -1153,6 +1153,9 @@ public:
     }
 #endif
 
+    insGroup* ehEmitLabel(BasicBlock* block);
+    UNATIVE_OFFSET ehCodeOffset(BasicBlock* block);
+
 #ifdef FEATURE_EH_FUNCLETS
     uint16_t currentFuncletIndex = 0;
 #endif
