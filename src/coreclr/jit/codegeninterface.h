@@ -23,6 +23,9 @@ class CodeGenInterface
 {
     friend class emitter;
 
+protected:
+    emitter* m_cgEmitter;
+
 public:
     CodeGenInterface(Compiler* compiler);
     virtual void genGenerateCode(void** codePtr, uint32_t* nativeSizeOfCode) = 0;
@@ -187,9 +190,6 @@ public:
 #ifdef TARGET_XARCH
     void SetUseVEXEncoding(bool value);
 #endif
-
-protected:
-    emitter* m_cgEmitter;
 
 #ifdef LATE_DISASM
 public:
