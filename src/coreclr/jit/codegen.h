@@ -131,6 +131,9 @@ private:
     }
 #endif // TARGET_ARMARCH
 
+    bool generatingProlog = false;
+    bool generatingEpilog = false;
+
     bool     genUseBlockInit;  // true if we plan to block-initialize the local stack frame
     unsigned genInitStkLclCnt; // The count of local variables that we need to zero init
 

@@ -113,9 +113,6 @@ public:
     bool needToAlignFrame = false;
 #endif
 
-    bool generatingProlog = false;
-    bool generatingEpilog = false;
-
 protected:
 #ifdef TARGET_XARCH
     bool contains256bitAVXInstructions = false;
