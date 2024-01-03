@@ -2341,7 +2341,7 @@ void Lowering::LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* node, const Vecto
     size           = (size != 12) ? size : 16;
     unsigned align = (comp->compCodeOpt() != SMALL_CODE) ? size : emitter::MIN_DATA_ALIGN;
 
-    unsigned offset = comp->GetEmitter()->emitDataConst(vecConst.u8, size, align, type);
+    unsigned offset = comp->codeGen->GetEmitter()->emitDataConst(vecConst.u8, size, align, type);
 
     GenTree* addr = new (comp, GT_CLS_VAR_ADDR) GenTreeClsVar(Emitter::MakeRoDataField(offset));
     BlockRange().InsertBefore(node, addr);

@@ -1092,12 +1092,12 @@ void UnwindEpilogInfo::CaptureEmitLocation()
 {
     noway_assert(epiEmitLocation == NULL); // This function is only called once per epilog
     epiEmitLocation = new (uwiComp, CMK_UnwindInfo) emitLocation();
-    epiEmitLocation->CaptureLocation(uwiComp->GetEmitter());
+    epiEmitLocation->CaptureLocation(uwiComp->codeGen->GetEmitter());
 }
 
 void UnwindEpilogInfo::FinalizeOffset()
 {
-    epiStartOffset = epiEmitLocation->CodeOffset(uwiComp->GetEmitter());
+    epiStartOffset = epiEmitLocation->CodeOffset(uwiComp->codeGen->GetEmitter());
 }
 
 #ifdef DEBUG
@@ -1150,7 +1150,7 @@ void UnwindFragmentInfo::FinalizeOffset()
     }
     else
     {
-        ufiStartOffset = ufiEmitLoc->CodeOffset(uwiComp->GetEmitter());
+        ufiStartOffset = ufiEmitLoc->CodeOffset(uwiComp->codeGen->GetEmitter());
     }
 
     for (UnwindEpilogInfo* pEpi = ufiEpilogList; pEpi != NULL; pEpi = pEpi->epiNext)
@@ -1231,7 +1231,7 @@ void UnwindFragmentInfo::SplitEpilogCodes(emitLocation* emitLoc, UnwindFragmentI
     UnwindEpilogInfo* pEpiPrev;
     UnwindEpilogInfo* pEpi;
 
-    UNATIVE_OFFSET splitOffset = emitLoc->CodeOffset(uwiComp->GetEmitter());
+    UNATIVE_OFFSET splitOffset = emitLoc->CodeOffset(uwiComp->codeGen->GetEmitter());
 
     for (pEpiPrev = NULL, pEpi = pSplitFrom->ufiEpilogList; pEpi != NULL; pEpiPrev = pEpi, pEpi = pEpi->epiNext)
     {
@@ -1273,7 +1273,7 @@ void UnwindFragmentInfo::SplitEpilogCodes(emitLocation* emitLoc, UnwindFragmentI
 
 bool UnwindFragmentInfo::IsAtFragmentEnd(UnwindEpilogInfo* pEpi)
 {
-    return uwiComp->GetEmitter()->emitIsFuncEnd(pEpi->epiEmitLocation, (ufiNext == NULL) ? NULL : ufiNext->ufiEmitLoc);
+    return uwiComp->codeGen->GetEmitter()->emitIsFuncEnd(pEpi->epiEmitLocation, (ufiNext == NULL) ? NULL : ufiNext->ufiEmitLoc);
 }
 
 // Merge the unwind codes as much as possible.
@@ -1819,7 +1819,7 @@ void UnwindInfo::Split()
     }
     else
     {
-        startOffset = uwiFragmentLast->ufiEmitLoc->CodeOffset(uwiComp->GetEmitter());
+        startOffset = uwiFragmentLast->ufiEmitLoc->CodeOffset(uwiComp->codeGen->GetEmitter());
     }
 
     if (uwiEndLoc == NULL)
@@ -1836,7 +1836,7 @@ void UnwindInfo::Split()
     }
     else
     {
-        endOffset = uwiEndLoc->CodeOffset(uwiComp->GetEmitter());
+        endOffset = uwiEndLoc->CodeOffset(uwiComp->codeGen->GetEmitter());
     }
 
     assert(endOffset > startOffset); // there better be at least 1 byte of code
@@ -1871,7 +1871,7 @@ void UnwindInfo::Split()
 #endif // DEBUG
 
     // Call the emitter to do the split, and call us back for every split point it chooses.
-    uwiComp->GetEmitter()->emitSplit(uwiFragmentLast->ufiEmitLoc, uwiEndLoc, maxFragmentSize, (void*)this,
+    uwiComp->codeGen->GetEmitter()->emitSplit(uwiFragmentLast->ufiEmitLoc, uwiEndLoc, maxFragmentSize, (void*)this,
                                      EmitSplitCallback);
 
 #ifdef DEBUG
@@ -1940,7 +1940,7 @@ void UnwindInfo::Allocate(CorJitFuncKind funKind, void* pHotCode, void* pColdCod
     }
     else
     {
-        endOffset = uwiEndLoc->CodeOffset(uwiComp->GetEmitter());
+        endOffset = uwiEndLoc->CodeOffset(uwiComp->codeGen->GetEmitter());
     }
 
     for (pFrag = &uwiFragmentFirst; pFrag != NULL; pFrag = pFrag->ufiNext)
@@ -1967,7 +1967,7 @@ void UnwindInfo::AddEpilog()
 unsigned UnwindInfo::GetInstructionSize()
 {
     assert(uwiInitialized == UWI_INITIALIZED_PATTERN);
-    return uwiComp->GetEmitter()->emitGetInstructionSize(uwiCurLoc);
+    return uwiComp->codeGen->GetEmitter()->emitGetInstructionSize(uwiCurLoc);
 }
 
 #endif // defined(TARGET_ARM)
@@ -1976,7 +1976,7 @@ void UnwindInfo::CaptureLocation()
 {
     assert(uwiInitialized == UWI_INITIALIZED_PATTERN);
     assert(uwiCurLoc != NULL);
-    uwiCurLoc->CaptureLocation(uwiComp->GetEmitter());
+    uwiCurLoc->CaptureLocation(uwiComp->codeGen->GetEmitter());
 }
 
 void UnwindInfo::AddFragment(emitLocation* emitLoc)

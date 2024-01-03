@@ -5528,15 +5528,6 @@ public:
 
     BasicBlock* genReturnBB = nullptr; // jumped to when not optimizing for speed.
 
-    // The following properties are part of CodeGenContext.  Getters are provided here for
-    // convenience and backward compatibility, but the properties can only be set by invoking
-    // the setter on CodeGenContext directly.
-
-    emitter* GetEmitter() const
-    {
-        return codeGen->GetEmitter();
-    }
-
 #if DOUBLE_ALIGN
     bool shouldDoubleAlign(unsigned             refCntStk,
                            unsigned             refCntReg,
