@@ -862,7 +862,7 @@ struct FuncInfoDsc
 // funclet. It is only valid if funKind field indicates this is a
 // EH-related funclet: FUNC_HANDLER or FUNC_FILTER
 
-#if defined(TARGET_AMD64) || defined(TARGET_UNIX)
+#ifdef TARGET_UNIX
     emitLocation* startLoc;
     emitLocation* endLoc;
     emitLocation* coldStartLoc; // locations for the cold section, if there is one.

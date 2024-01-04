@@ -149,16 +149,6 @@ void CodeGen::unwindBegPrologWindows()
 
     FuncInfoDsc* func = funCurrentFunc();
 
-    // There is only one prolog for a function/funclet, and it comes first. So now is
-    // a good time to initialize all the unwind data structures.
-
-    unwindGetFuncLocations(func, true, &func->startLoc, &func->endLoc);
-
-    if (compiler->fgFirstColdBlock != nullptr)
-    {
-        unwindGetFuncLocations(func, false, &func->coldStartLoc, &func->coldEndLoc);
-    }
-
     func->unwindCodeSlot                  = sizeof(func->unwindCodes);
     func->unwindHeader.Version            = 1;
     func->unwindHeader.Flags              = 0;
@@ -732,6 +722,17 @@ void CodeGen::unwindEmit(void* pHotCode, void* pColdCode)
 //
 void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* pHotCode, void* pColdCode, bool isHotCode)
 {
+    emitLocation* startLoc     = nullptr;
+    emitLocation* endLoc       = nullptr;
+    emitLocation* coldStartLoc = nullptr;
+    emitLocation* coldEndLoc   = nullptr;
+    unwindGetFuncLocations(func, true, &startLoc, &endLoc);
+
+    if (compiler->fgFirstColdBlock != nullptr)
+    {
+        unwindGetFuncLocations(func, false, &coldStartLoc, &coldEndLoc);
+    }
+
     UNATIVE_OFFSET startOffset;
     UNATIVE_OFFSET endOffset;
     DWORD          unwindCodeBytes = 0;
@@ -739,22 +740,22 @@ void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* pHotCode, void* pCol
 
     if (isHotCode)
     {
-        if (func->startLoc == nullptr)
+        if (startLoc == nullptr)
         {
             startOffset = 0;
         }
         else
         {
-            startOffset = func->startLoc->CodeOffset(GetEmitter());
+            startOffset = startLoc->CodeOffset(GetEmitter());
         }
 
-        if (func->endLoc == nullptr)
+        if (endLoc == nullptr)
         {
             endOffset = compiler->info.compNativeCodeSize;
         }
         else
         {
-            endOffset = func->endLoc->CodeOffset(GetEmitter());
+            endOffset = endLoc->CodeOffset(GetEmitter());
         }
 
 #ifdef UNIX_AMD64_ABI
@@ -789,22 +790,22 @@ void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* pHotCode, void* pCol
         assert(compiler->fgFirstColdBlock != nullptr);
         assert(func->funKind == FUNC_ROOT); // No splitting of funclets.
 
-        if (func->coldStartLoc == nullptr)
+        if (coldStartLoc == nullptr)
         {
             startOffset = 0;
         }
         else
         {
-            startOffset = func->coldStartLoc->CodeOffset(GetEmitter());
+            startOffset = coldStartLoc->CodeOffset(GetEmitter());
         }
 
-        if (func->coldEndLoc == nullptr)
+        if (coldEndLoc == nullptr)
         {
             endOffset = compiler->info.compNativeCodeSize;
         }
         else
         {
-            endOffset = func->coldEndLoc->CodeOffset(GetEmitter());
+            endOffset = coldEndLoc->CodeOffset(GetEmitter());
         }
     }
 
