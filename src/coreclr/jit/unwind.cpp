@@ -166,16 +166,6 @@ void CodeGen::unwindBegPrologCFI()
 #if defined(FEATURE_EH_FUNCLETS)
     FuncInfoDsc* func = funCurrentFunc();
 
-    // There is only one prolog for a function/funclet, and it comes first. So now is
-    // a good time to initialize all the unwind data structures.
-
-    unwindGetFuncLocations(func, true, &func->startLoc, &func->endLoc);
-
-    if (compiler->fgFirstColdBlock != nullptr)
-    {
-        unwindGetFuncLocations(func, false, &func->coldStartLoc, &func->coldEndLoc);
-    }
-
     func->cfiCodes = new (compiler, CMK_UnwindInfo) CFICodeVector(compiler->getAllocator(CMK_UnwindInfo));
 #endif // FEATURE_EH_FUNCLETS
 }
@@ -251,27 +241,38 @@ void CodeGen::unwindSetFrameRegCFI(regNumber reg, unsigned offset)
 
 void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* pHotCode, void* pColdCode)
 {
+    emitLocation* startLoc     = nullptr;
+    emitLocation* endLoc       = nullptr;
+    emitLocation* coldStartLoc = nullptr;
+    emitLocation* coldEndLoc   = nullptr;
+    unwindGetFuncLocations(func, true, &startLoc, &endLoc);
+
+    if (compiler->fgFirstColdBlock != nullptr)
+    {
+        unwindGetFuncLocations(func, false, &coldStartLoc, &coldEndLoc);
+    }
+
     UNATIVE_OFFSET startOffset;
     UNATIVE_OFFSET endOffset;
     DWORD          unwindCodeBytes = 0;
     BYTE*          pUnwindBlock    = nullptr;
 
-    if (func->startLoc == nullptr)
+    if (startLoc == nullptr)
     {
         startOffset = 0;
     }
     else
     {
-        startOffset = func->startLoc->CodeOffset(GetEmitter());
+        startOffset = startLoc->CodeOffset(GetEmitter());
     }
 
-    if (func->endLoc == nullptr)
+    if (endLoc == nullptr)
     {
         endOffset = compiler->info.compNativeCodeSize;
     }
     else
     {
-        endOffset = func->endLoc->CodeOffset(GetEmitter());
+        endOffset = endLoc->CodeOffset(GetEmitter());
     }
 
     DWORD size = (DWORD)func->cfiCodes->size();
@@ -301,22 +302,22 @@ void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* pHotCode, void* pColdCo
         unwindCodeBytes = 0;
         pUnwindBlock    = nullptr;
 
-        if (func->coldStartLoc == nullptr)
+        if (coldStartLoc == nullptr)
         {
             startOffset = 0;
         }
         else
         {
-            startOffset = func->coldStartLoc->CodeOffset(GetEmitter());
+            startOffset = coldStartLoc->CodeOffset(GetEmitter());
         }
 
-        if (func->coldEndLoc == nullptr)
+        if (coldEndLoc == nullptr)
         {
             endOffset = compiler->info.compNativeCodeSize;
         }
         else
         {
-            endOffset = func->coldEndLoc->CodeOffset(GetEmitter());
+            endOffset = coldEndLoc->CodeOffset(GetEmitter());
         }
 
 #ifdef DEBUG
