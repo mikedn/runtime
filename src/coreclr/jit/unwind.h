@@ -698,6 +698,14 @@ private:
 
 class UnwindInfo : public UnwindBase
 {
+    typedef void (*emitSplitCallbackType)(void* context, emitLocation* emitLoc);
+
+    void emitSplit(emitLocation*         startLoc,
+                   emitLocation*         endLoc,
+                   UNATIVE_OFFSET        maxSplitSize,
+                   void*                 context,
+                   emitSplitCallbackType callbackFunc);
+
 public:
     void InitUnwindInfo(Compiler* comp, emitLocation* startLoc, emitLocation* endLoc);
 

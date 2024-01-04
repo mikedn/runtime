@@ -53,8 +53,6 @@ public:
     INDEBUG(void Print(const char* suffix = nullptr) const;)
 };
 
-typedef void (*emitSplitCallbackType)(void* context, emitLocation* emitLoc);
-
 enum insGroupPlaceholderType
 {
     IGPT_EPILOG,

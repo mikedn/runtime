@@ -259,12 +259,6 @@ inline bool emitIsLoadLabel(instrDesc* jmp)
 public:
 bool emitIsFuncEnd(emitLocation* emitLoc, emitLocation* emitLocNextFragment = NULL);
 
-void emitSplit(emitLocation*         startLoc,
-               emitLocation*         endLoc,
-               UNATIVE_OFFSET        maxSplitSize,
-               void*                 context,
-               emitSplitCallbackType callbackFunc);
-
 void emitUnwindNopPadding(emitLocation* locFrom);
 
 unsigned emitGetInstructionSize(emitLocation* emitLoc);
