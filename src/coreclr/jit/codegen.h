@@ -1270,7 +1270,7 @@ private:
 #endif // TARGET_AMD64 || (TARGET_X86 && FEATURE_EH_FUNCLETS)
 
 #if defined(TARGET_AMD64) || defined(TARGET_UNIX)
-    UNATIVE_OFFSET unwindGetCurrentOffset(FuncInfoDsc* func);
+    uint32_t unwindGetCurrentOffset();
 #endif
 
 #if defined(TARGET_AMD64)

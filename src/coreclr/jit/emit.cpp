@@ -116,20 +116,6 @@ uint32_t emitLocation::CodeOffset(emitter* emit) const
     return emit->emitCodeOffset(ig, codePos);
 }
 
-// Get the instruction offset in the current instruction group, which must be a funclet prolog group.
-// This is used to find an instruction offset used in unwind data.
-// TODO-AMD64-Bug?: We only support a single main function prolog group, but allow for multiple funclet prolog
-// groups (not that we actually use that flexibility, since the funclet prolog will be small). How to
-// handle that?
-uint32_t emitLocation::GetFuncletPrologOffset(emitter* emit) const
-{
-    assert(ig->igFuncIdx != 0);
-    assert((ig->igFlags & IGF_FUNCLET_PROLOG) != 0);
-    assert(ig == emit->emitCurIG);
-
-    return emit->emitCurIGsize;
-}
-
 #ifdef DEBUG
 
 void emitLocation::Print(const char* suffix) const
@@ -281,7 +267,7 @@ void emitter::emitGenIG(insGroup* ig)
 
 void emitter::emitExtendIG()
 {
-    assert(!emitIGisInProlog(emitCurIG));
+    assert(!emitIGisInProlog(emitCurIG) && !emitCurIG->IsFuncletProlog());
 
     emitFinishIG(true);
     emitNewIG();
@@ -800,9 +786,9 @@ void emitter::emitBegProlog()
     emitGenIG(GetProlog());
 }
 
-unsigned emitter::emitGetPrologOffsetEstimate()
+unsigned emitter::emitGetCurrentPrologCodeSize()
 {
-    assert(emitIGisInProlog(emitCurIG));
+    assert(emitIGisInProlog(emitCurIG) || emitCurIG->IsFuncletProlog());
 
     return emitCurIGsize;
 }

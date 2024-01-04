@@ -352,7 +352,7 @@ void CodeGen::unwindSaveRegPair(regNumber reg1, regNumber reg2, int offset)
         if (generatingProlog)
         {
             FuncInfoDsc*   func     = funCurrentFunc();
-            UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset(func);
+            UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset();
 
             createCfiCode(func, cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg1), offset);
             createCfiCode(func, cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg2), offset + 8);
@@ -434,7 +434,7 @@ void CodeGen::unwindSaveRegPairPreindexed(regNumber reg1, regNumber reg2, int of
         if (generatingProlog)
         {
             FuncInfoDsc*   func     = funCurrentFunc();
-            UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset(func);
+            UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset();
 
             createCfiCode(func, cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, -offset);
             createCfiCode(func, cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg1), 0);
@@ -523,7 +523,7 @@ void CodeGen::unwindSaveReg(regNumber reg, int offset)
         if (generatingProlog)
         {
             FuncInfoDsc*   func     = funCurrentFunc();
-            UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset(func);
+            UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset();
 
             createCfiCode(func, cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg), offset);
         }
@@ -577,7 +577,7 @@ void CodeGen::unwindSaveRegPreindexed(regNumber reg, int offset)
         if (generatingProlog)
         {
             FuncInfoDsc*   func     = funCurrentFunc();
-            UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset(func);
+            UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset();
 
             createCfiCode(func, cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, -offset);
             createCfiCode(func, cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg), 0);

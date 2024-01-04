@@ -48,7 +48,6 @@ public:
 
     unsigned GetInsNum() const;
     uint32_t CodeOffset(emitter* emit) const;
-    uint32_t GetFuncletPrologOffset(emitter* emit) const;
 
     INDEBUG(void Print(const char* suffix = nullptr) const;)
 };
@@ -167,6 +166,15 @@ struct insGroup
         return (igFlags & IGF_EPILOG) != 0;
     }
 
+    bool IsFuncletProlog() const
+    {
+#ifdef FEATURE_EH_FUNCLETS
+        return (igFlags & IGF_FUNCLET_PROLOG) != 0;
+#else
+        return false;
+#endif
+    }
+
     bool IsFuncletPrologOrEpilog() const
     {
 #ifdef FEATURE_EH_FUNCLETS
@@ -246,7 +254,7 @@ public:
     /************************************************************************/
 
     void     emitBegProlog();
-    unsigned emitGetPrologOffsetEstimate();
+    unsigned emitGetCurrentPrologCodeSize();
     void     emitMarkPrologEnd();
     void     emitEndProlog();
     void emitCreatePlaceholderIG(insGroupPlaceholderType kind, BasicBlock* block);

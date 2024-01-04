@@ -129,7 +129,7 @@ void CodeGen::unwindPushPopCFI(regNumber reg)
     assert(generatingProlog);
 
     FuncInfoDsc*   func     = funCurrentFunc();
-    UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset(func);
+    UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset();
 
     regMaskTP relOffsetMask = RBM_CALLEE_SAVED
 #if defined(UNIX_AMD64_ABI) && ETW_EBP_FRAMED
@@ -219,7 +219,7 @@ void CodeGen::unwindAllocStackCFI(unsigned size)
     UNATIVE_OFFSET cbProlog = 0;
     if (generatingProlog)
     {
-        cbProlog = unwindGetCurrentOffset(func);
+        cbProlog = unwindGetCurrentOffset();
     }
     createCfiCode(func, cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, size);
 }
@@ -234,7 +234,7 @@ void CodeGen::unwindSetFrameRegCFI(regNumber reg, unsigned offset)
 {
     assert(generatingProlog);
     FuncInfoDsc*   func     = funCurrentFunc();
-    UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset(func);
+    UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset();
 
     createCfiCode(func, cbProlog, CFI_DEF_CFA_REGISTER, mapRegNumToDwarfReg(reg));
     if (offset != 0)
@@ -389,34 +389,9 @@ void CodeGen::DumpCfiInfo(bool                  isHotCode,
 #endif // TARGET_UNIX
 
 #if defined(TARGET_AMD64) || defined(TARGET_UNIX)
-// Calculate the current byte offset of the
-// prolog being generated.
-//
-// Arguments:
-//    func - The main function or funclet of interest.
-//
-// Return Value:
-//    The byte offset of the prolog currently being generated.
-//
-UNATIVE_OFFSET CodeGen::unwindGetCurrentOffset(FuncInfoDsc* func)
+uint32_t CodeGen::unwindGetCurrentOffset()
 {
-    assert(generatingProlog);
-    UNATIVE_OFFSET offset;
-    if (func->funKind == FUNC_ROOT)
-    {
-        offset = GetEmitter()->emitGetPrologOffsetEstimate();
-    }
-    else
-    {
-#if defined(TARGET_AMD64) || (defined(TARGET_UNIX) && (defined(TARGET_ARMARCH) || defined(TARGET_X86)))
-        assert(func->startLoc != nullptr);
-        offset = func->startLoc->GetFuncletPrologOffset(GetEmitter());
-#else
-        offset = 0; // TODO ???
-#endif
-    }
-
-    return offset;
+    return GetEmitter()->emitGetCurrentPrologCodeSize();
 }
 #endif // defined(TARGET_AMD64) || defined(TARGET_UNIX)
 

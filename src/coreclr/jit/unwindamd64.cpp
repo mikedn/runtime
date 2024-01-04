@@ -217,7 +217,7 @@ void CodeGen::unwindPushWindows(regNumber reg)
     assert(func->unwindHeader.CountOfUnwindCodes == 0); // Can't call this after unwindReserve
     assert(func->unwindCodeSlot > sizeof(UNWIND_CODE));
     UNWIND_CODE* code     = (UNWIND_CODE*)&func->unwindCodes[func->unwindCodeSlot -= sizeof(UNWIND_CODE)];
-    unsigned int cbProlog = unwindGetCurrentOffset(func);
+    unsigned int cbProlog = unwindGetCurrentOffset();
     noway_assert((BYTE)cbProlog == cbProlog);
     code->CodeOffset = (BYTE)cbProlog;
 
@@ -299,7 +299,7 @@ void CodeGen::unwindAllocStackWindows(unsigned size)
         code->UnwindOp   = UWOP_ALLOC_LARGE;
         code->OpInfo     = 1;
     }
-    unsigned int cbProlog = unwindGetCurrentOffset(func);
+    unsigned int cbProlog = unwindGetCurrentOffset();
     noway_assert((BYTE)cbProlog == cbProlog);
     code->CodeOffset = (BYTE)cbProlog;
 }
@@ -332,7 +332,7 @@ void CodeGen::unwindSetFrameRegWindows(regNumber reg, unsigned offset)
 
     assert(func->unwindHeader.Version == 1);            // Can't call this before unwindBegProlog
     assert(func->unwindHeader.CountOfUnwindCodes == 0); // Can't call this after unwindReserve
-    unsigned int cbProlog = unwindGetCurrentOffset(func);
+    unsigned int cbProlog = unwindGetCurrentOffset();
     noway_assert((BYTE)cbProlog == cbProlog);
 
     func->unwindHeader.FrameRegister = (BYTE)reg;
@@ -427,7 +427,7 @@ void CodeGen::unwindSaveRegWindows(regNumber reg, unsigned offset)
             code->UnwindOp   = (genIsValidFloatReg(reg)) ? UWOP_SAVE_XMM128_FAR : UWOP_SAVE_NONVOL_FAR;
         }
         code->OpInfo          = (BYTE)reg;
-        unsigned int cbProlog = unwindGetCurrentOffset(func);
+        unsigned int cbProlog = unwindGetCurrentOffset();
         noway_assert((BYTE)cbProlog == cbProlog);
         code->CodeOffset = (BYTE)cbProlog;
     }
@@ -442,7 +442,7 @@ void CodeGen::unwindSaveRegCFI(regNumber reg, unsigned offset)
     {
         FuncInfoDsc* func = funCurrentFunc();
 
-        unsigned int cbProlog = unwindGetCurrentOffset(func);
+        unsigned int cbProlog = unwindGetCurrentOffset();
         createCfiCode(func, cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg), offset);
     }
 }
