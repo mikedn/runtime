@@ -5960,7 +5960,7 @@ insGroup* CodeGen::ehEmitLabel(BasicBlock* block)
  * target, choose the offset of the NOP padding that precedes the block.
  */
 
-UNATIVE_OFFSET CodeGen::ehCodeOffset(BasicBlock* block)
+uint32_t CodeGen::ehCodeOffset(BasicBlock* block)
 {
     return GetEmitter()->emitCodeOffset(ehEmitLabel(block));
 }

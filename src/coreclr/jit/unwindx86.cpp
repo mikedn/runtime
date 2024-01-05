@@ -167,8 +167,8 @@ void CodeGen::unwindEmitFunc(FuncInfoDsc* func, void* pHotCode, void* pColdCode)
 //
 void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* pHotCode, void* pColdCode, bool isHotCode)
 {
-    UNATIVE_OFFSET startOffset;
-    UNATIVE_OFFSET endOffset;
+    uint32_t startOffset;
+    uint32_t endOffset;
 
     if (isHotCode)
     {
@@ -243,9 +243,9 @@ void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* pHotCode, void* pCol
 
     UNWIND_INFO unwindInfo;
 
-    unwindInfo.FunctionLength = (ULONG)(endOffset - startOffset);
+    unwindInfo.FunctionLength = (uint32_t)(endOffset - startOffset);
 
-    compiler->eeAllocUnwindInfo((BYTE*)pHotCode, (BYTE*)pColdCode, startOffset, endOffset, sizeof(UNWIND_INFO),
-                                (BYTE*)&unwindInfo, (CorJitFuncKind)func->funKind);
+    compiler->eeAllocUnwindInfo(pHotCode, pColdCode, startOffset, endOffset, sizeof(UNWIND_INFO), &unwindInfo,
+                                static_cast<CorJitFuncKind>(func->funKind));
 }
 #endif // FEATURE_EH_FUNCLETS

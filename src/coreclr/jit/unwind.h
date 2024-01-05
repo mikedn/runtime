@@ -88,16 +88,16 @@ public:
 
     // Add a single unwind code.
 
-    virtual void AddCode(BYTE b1) = 0;
-    virtual void AddCode(BYTE b1, BYTE b2) = 0;
-    virtual void AddCode(BYTE b1, BYTE b2, BYTE b3) = 0;
-    virtual void AddCode(BYTE b1, BYTE b2, BYTE b3, BYTE b4) = 0;
+    virtual void AddCode(uint8_t b1) = 0;
+    virtual void AddCode(uint8_t b1, uint8_t b2) = 0;
+    virtual void AddCode(uint8_t b1, uint8_t b2, uint8_t b3) = 0;
+    virtual void AddCode(uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4) = 0;
 
     // Get access to the unwind codes
 
-    virtual BYTE* GetCodes() = 0;
+    virtual uint8_t* GetCodes() = 0;
 
-    bool IsEndCode(BYTE b)
+    bool IsEndCode(uint8_t b)
     {
 #if defined(TARGET_ARM)
         return b >= 0xFD;
@@ -132,8 +132,8 @@ class UnwindPrologCodes : public UnwindCodesBase
 
     // To store the unwind codes, we first use a local array that should satisfy almost all cases.
     // If there are more unwind codes, we dynamically allocate memory.
-    BYTE  upcMemLocal[UPC_LOCAL_COUNT];
-    BYTE* upcMem = upcMemLocal;
+    uint8_t  upcMemLocal[UPC_LOCAL_COUNT];
+    uint8_t* upcMem = upcMemLocal;
     // upcMemSize is the number of bytes in upcMem. This is equal to UPC_LOCAL_COUNT unless
     // we've dynamically allocated memory to store the codes.
     int upcMemSize = _countof(upcMemLocal);
@@ -173,25 +173,25 @@ public:
     // Implementation of UnwindCodesBase
     //
 
-    virtual void AddCode(BYTE b1)
+    virtual void AddCode(uint8_t b1)
     {
         PushByte(b1);
     }
 
-    virtual void AddCode(BYTE b1, BYTE b2)
+    virtual void AddCode(uint8_t b1, uint8_t b2)
     {
         PushByte(b2);
         PushByte(b1);
     }
 
-    virtual void AddCode(BYTE b1, BYTE b2, BYTE b3)
+    virtual void AddCode(uint8_t b1, uint8_t b2, uint8_t b3)
     {
         PushByte(b3);
         PushByte(b2);
         PushByte(b1);
     }
 
-    virtual void AddCode(BYTE b1, BYTE b2, BYTE b3, BYTE b4)
+    virtual void AddCode(uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4)
     {
         PushByte(b4);
         PushByte(b3);
@@ -200,7 +200,7 @@ public:
     }
 
     // Return a pointer to the first unwind code byte
-    virtual BYTE* GetCodes()
+    virtual uint8_t* GetCodes()
     {
         assert(upcCodeSlot < upcMemSize); // There better be at least one code!
         return &upcMem[upcCodeSlot];
@@ -208,14 +208,14 @@ public:
 
     ///////////////////////////////////////////////////////////////////////////
 
-    BYTE GetByte(int index)
+    uint8_t GetByte(int index)
     {
         assert(upcCodeSlot <= index && index < upcMemSize);
         return upcMem[index];
     }
 
     // Push a single byte on the unwind code stack
-    void PushByte(BYTE b)
+    void PushByte(uint8_t b)
     {
         if (upcCodeSlot == 0)
         {
@@ -239,9 +239,9 @@ public:
 
     void SetFinalSize(int headerBytes, int epilogBytes);
 
-    void AddHeaderWord(DWORD d);
+    void AddHeaderWord(uint32_t d);
 
-    void GetFinalInfo(/* OUT */ BYTE** ppUnwindBlock, /* OUT */ ULONG* pUnwindBlockSize);
+    void GetFinalInfo(/* OUT */ uint8_t** ppUnwindBlock, /* OUT */ uint32_t* pUnwindBlockSize);
 
     // AppendEpilog: copy the epilog bytes to the next epilog bytes slot
     void AppendEpilog(UnwindEpilogInfo* pEpi);
@@ -272,9 +272,9 @@ class UnwindEpilogCodes : public UnwindCodesBase
 
     // To store the unwind codes, we first use a local array that should satisfy almost all cases.
     // If there are more unwind codes, we dynamically allocate memory.
-    BYTE  uecMemLocal[UEC_LOCAL_COUNT];
-    BYTE* uecMem              = uecMemLocal;
-    BYTE  firstByteOfLastCode = 0;
+    uint8_t  uecMemLocal[UEC_LOCAL_COUNT];
+    uint8_t* uecMem              = uecMemLocal;
+    uint8_t  firstByteOfLastCode = 0;
 
     // uecMemSize is the number of bytes/slots in uecMem. This is equal to UEC_LOCAL_COUNT unless
     // we've dynamically allocated memory to store the codes.
@@ -299,14 +299,14 @@ public:
     // Implementation of UnwindCodesBase
     //
 
-    virtual void AddCode(BYTE b1)
+    virtual void AddCode(uint8_t b1)
     {
         AppendByte(b1);
 
         firstByteOfLastCode = b1;
     }
 
-    virtual void AddCode(BYTE b1, BYTE b2)
+    virtual void AddCode(uint8_t b1, uint8_t b2)
     {
         AppendByte(b1);
         AppendByte(b2);
@@ -314,7 +314,7 @@ public:
         firstByteOfLastCode = b1;
     }
 
-    virtual void AddCode(BYTE b1, BYTE b2, BYTE b3)
+    virtual void AddCode(uint8_t b1, uint8_t b2, uint8_t b3)
     {
         AppendByte(b1);
         AppendByte(b2);
@@ -323,7 +323,7 @@ public:
         firstByteOfLastCode = b1;
     }
 
-    virtual void AddCode(BYTE b1, BYTE b2, BYTE b3, BYTE b4)
+    virtual void AddCode(uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4)
     {
         AppendByte(b1);
         AppendByte(b2);
@@ -334,7 +334,7 @@ public:
     }
 
     // Return a pointer to the first unwind code byte
-    virtual BYTE* GetCodes()
+    virtual uint8_t* GetCodes()
     {
         assert(uecFinalized);
 
@@ -344,14 +344,14 @@ public:
 
     ///////////////////////////////////////////////////////////////////////////
 
-    BYTE GetByte(int index)
+    uint8_t GetByte(int index)
     {
         assert(0 <= index && index <= uecCodeSlot);
         return uecMem[index];
     }
 
     // Add a single byte on the unwind code array
-    void AppendByte(BYTE b)
+    void AppendByte(uint8_t b)
     {
         if (uecCodeSlot == uecMemSize - 1)
         {
@@ -425,7 +425,7 @@ class UnwindEpilogInfo : public UnwindBase
     emitLocation      epiEmitLocation;
     UnwindEpilogCodes epiCodes;
     // Actual offset of the epilog, in bytes, from the start of the function. Set in FinalizeOffset().
-    UNATIVE_OFFSET epiStartOffset = EPI_ILLEGAL_OFFSET;
+    uint32_t epiStartOffset = EPI_ILLEGAL_OFFSET;
     // Do the epilog unwind codes match some other set of codes? If so, we don't copy these to the
     // final set; we just point to another set.
     bool epiMatches = false;
@@ -449,7 +449,7 @@ public:
         epiCodes.FinalizeCodes();
     }
 
-    UNATIVE_OFFSET GetStartOffset()
+    uint32_t GetStartOffset()
     {
         assert(epiStartOffset != EPI_ILLEGAL_OFFSET);
         return epiStartOffset;
@@ -484,7 +484,7 @@ public:
     }
 
     // Return a pointer to the first unwind code byte
-    BYTE* GetCodes()
+    uint8_t* GetCodes()
     {
         return epiCodes.GetCodes();
     }
@@ -509,7 +509,7 @@ class UnwindFragmentInfo : public UnwindBase
 {
     friend class UnwindInfo;
 
-    static const unsigned UFI_ILLEGAL_OFFSET = 0xFFFFFFFF;
+    static const uint32_t UFI_ILLEGAL_OFFSET = 0xFFFFFFFF;
 
     // The next fragment
     UnwindFragmentInfo* ufiNext = nullptr;
@@ -536,12 +536,12 @@ class UnwindFragmentInfo : public UnwindBase
     // unwind block for emission.
 
     // The size of the unwind data for this fragment, in bytes
-    unsigned       ufiSize = 0;
-    bool           ufiSetEBit;
-    bool           ufiNeedExtendedCodeWordsEpilogCount;
-    unsigned       ufiCodeWords;
-    unsigned       ufiEpilogScopes;
-    UNATIVE_OFFSET ufiStartOffset = UFI_ILLEGAL_OFFSET;
+    unsigned ufiSize = 0;
+    bool     ufiSetEBit;
+    bool     ufiNeedExtendedCodeWordsEpilogCount;
+    unsigned ufiCodeWords;
+    unsigned ufiEpilogScopes;
+    uint32_t ufiStartOffset = UFI_ILLEGAL_OFFSET;
 
 #ifdef DEBUG
     unsigned ufiNum = 1;
@@ -571,7 +571,7 @@ public:
 
     void FinalizeOffset();
 
-    UNATIVE_OFFSET GetStartOffset()
+    uint32_t GetStartOffset()
     {
         assert(ufiStartOffset != UFI_ILLEGAL_OFFSET);
         return ufiStartOffset;
@@ -580,25 +580,25 @@ public:
     // Add an unwind code. It could be for a prolog, or for the current epilog.
     // A single unwind code can be from 1 to 4 bytes.
 
-    void AddCode(BYTE b1)
+    void AddCode(uint8_t b1)
     {
         assert(ufiInitialized);
         ufiCurCodes->AddCode(b1);
     }
 
-    void AddCode(BYTE b1, BYTE b2)
+    void AddCode(uint8_t b1, uint8_t b2)
     {
         assert(ufiInitialized);
         ufiCurCodes->AddCode(b1, b2);
     }
 
-    void AddCode(BYTE b1, BYTE b2, BYTE b3)
+    void AddCode(uint8_t b1, uint8_t b2, uint8_t b3)
     {
         assert(ufiInitialized);
         ufiCurCodes->AddCode(b1, b2, b3);
     }
 
-    void AddCode(BYTE b1, BYTE b2, BYTE b3, BYTE b4)
+    void AddCode(uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4)
     {
         assert(ufiInitialized);
         ufiCurCodes->AddCode(b1, b2, b3, b4);
@@ -607,7 +607,7 @@ public:
     unsigned EpilogCount()
     {
         unsigned count = 0;
-        for (UnwindEpilogInfo* pEpi = ufiEpilogList; pEpi != NULL; pEpi = pEpi->epiNext)
+        for (UnwindEpilogInfo* pEpi = ufiEpilogList; pEpi != nullptr; pEpi = pEpi->epiNext)
         {
             ++count;
         }
@@ -627,24 +627,23 @@ public:
     // Return the full, final size of unwind block. This will be used to allocate memory for
     // the unwind block. This is called before the code offsets are finalized.
     // Size is in bytes.
-    ULONG Size()
+    uint32_t Size()
     {
         assert(ufiSize != 0);
         return ufiSize;
     }
 
-    void Finalize(UNATIVE_OFFSET functionLength);
+    void Finalize(uint32_t functionLength);
 
     // GetFinalInfo: return a pointer to the final unwind info to hand to the VM, and the size of this info in bytes
-    void GetFinalInfo(/* OUT */ BYTE** ppUnwindBlock, /* OUT */ ULONG* pUnwindBlockSize)
+    void GetFinalInfo(/* OUT */ uint8_t** ppUnwindBlock, /* OUT */ uint32_t* pUnwindBlockSize)
     {
         ufiPrologCodes.GetFinalInfo(ppUnwindBlock, pUnwindBlockSize);
     }
 
     void Reserve(bool isFunclet, bool isHotCode);
 
-    void Allocate(
-        CorJitFuncKind funKind, void* pHotCode, void* pColdCode, UNATIVE_OFFSET funcEndOffset, bool isHotCode);
+    void Allocate(CorJitFuncKind funKind, void* pHotCode, void* pColdCode, uint32_t funcEndOffset, bool isHotCode);
 
 #ifdef DEBUG
     void Dump(int indent = 0);
@@ -655,13 +654,13 @@ public:
 
 class UnwindInfo : public UnwindBase
 {
-    void Split(emitLocation* startLoc, emitLocation* endLoc, UNATIVE_OFFSET maxSplitSize);
+    void Split(emitLocation* startLoc, emitLocation* endLoc, uint32_t maxSplitSize);
 
     // The first fragment is directly here, so it doesn't need to be separately allocated.
     UnwindFragmentInfo uwiFragmentFirst;
     // The last entry in the fragment list (the last fragment added)
     UnwindFragmentInfo* uwiFragmentLast = &uwiFragmentFirst;
-    // End emitter location of this function/funclet (NULL == end of all code)
+    // End emitter location of this function/funclet (nullptr == end of all code)
     emitLocation* uwiEndLoc;
     // The current emitter location (updated after an unwind code is added), used for NOP
     // padding, and asserts.
@@ -695,7 +694,7 @@ public:
     // Add an unwind code. It could be for a prolog, or for the current epilog.
     // A single unwind code can be from 1 to 4 bytes.
 
-    void AddCode(BYTE b1)
+    void AddCode(uint8_t b1)
     {
         assert(uwiInitialized);
         INDEBUG(CheckOpsize(b1));
@@ -703,7 +702,7 @@ public:
         uwiFragmentLast->AddCode(b1);
     }
 
-    void AddCode(BYTE b1, BYTE b2)
+    void AddCode(uint8_t b1, uint8_t b2)
     {
         assert(uwiInitialized);
         INDEBUG(CheckOpsize(b1));
@@ -711,7 +710,7 @@ public:
         uwiFragmentLast->AddCode(b1, b2);
     }
 
-    void AddCode(BYTE b1, BYTE b2, BYTE b3)
+    void AddCode(uint8_t b1, uint8_t b2, uint8_t b3)
     {
         assert(uwiInitialized);
         INDEBUG(CheckOpsize(b1));
@@ -719,7 +718,7 @@ public:
         uwiFragmentLast->AddCode(b1, b2, b3);
     }
 
-    void AddCode(BYTE b1, BYTE b2, BYTE b3, BYTE b4)
+    void AddCode(uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4)
     {
         assert(uwiInitialized);
         INDEBUG(CheckOpsize(b1));
@@ -745,9 +744,9 @@ public:
 #if defined(TARGET_ARM)
     // Given the first byte of the unwind code, check that its opsize matches
     // the last instruction added in the emitter.
-    void CheckOpsize(BYTE b1);
+    void CheckOpsize(uint8_t b1);
 #elif defined(TARGET_ARM64)
-    void CheckOpsize(BYTE b1)
+    void CheckOpsize(uint8_t b1)
     {
     } // nothing to do; all instructions are 4 bytes
 #endif // defined(TARGET_ARM64)
@@ -762,19 +761,19 @@ private:
 #ifdef DEBUG
 
 // Forward declaration
-void DumpUnwindInfo(Compiler*         comp,
-                    bool              isHotCode,
-                    UNATIVE_OFFSET    startOffset,
-                    UNATIVE_OFFSET    endOffset,
-                    const BYTE* const pHeader,
-                    ULONG             unwindBlockSize);
+void DumpUnwindInfo(Compiler*            comp,
+                    bool                 isHotCode,
+                    uint32_t             startOffset,
+                    uint32_t             endOffset,
+                    const uint8_t* const pHeader,
+                    uint32_t                unwindBlockSize);
 
 #endif // DEBUG
 
 #endif // TARGET_ARMARCH
 
 #ifdef FEATURE_EH_FUNCLETS
-enum FuncKind : BYTE
+enum FuncKind : uint8_t
 {
     FUNC_ROOT,    // The main/root function (always id==0)
     FUNC_HANDLER, // a funclet associated with an EH handler (finally, fault, catch, filter handler)
@@ -794,7 +793,7 @@ struct FuncInfoDsc
     // Maximum of 255 UNWIND_CODE 'nodes' and then the unwind header. If there are an odd
     // number of codes, the VM or Zapper will 4-byte align the whole thing.
     // TODO-AMD64-Throughput: make the AMD64 info more like the ARM info to avoid having this large static array.
-    BYTE     unwindCodes[offsetof(UNWIND_INFO, UnwindCode) + (0xFF * sizeof(UNWIND_CODE))];
+    uint8_t  unwindCodes[offsetof(UNWIND_INFO, UnwindCode) + (0xFF * sizeof(UNWIND_CODE))];
     unsigned unwindCodeSlot;
 
 #elif defined(TARGET_X86)
@@ -807,7 +806,7 @@ struct FuncInfoDsc
                          //   to save memory in the JIT case (compared to the NGEN case),
                          //   where we don't have any cold section.
                          //   Note 2: we currently don't support hot/cold splitting in functions
-                         //   with EH, so uwiCold will be NULL for all funclets.
+                         //   with EH, so uwiCold will be nullptr for all funclets.
 
 #endif // TARGET_ARMARCH
 

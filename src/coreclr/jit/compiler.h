@@ -5426,14 +5426,14 @@ public:
 
     // ICorJitInfo wrappers
 
-    void eeReserveUnwindInfo(bool isFunclet, bool isColdCode, ULONG unwindSize);
+    void eeReserveUnwindInfo(bool isFunclet, bool isColdCode, uint32_t unwindSize);
 
-    void eeAllocUnwindInfo(BYTE*          pHotCode,
-                           BYTE*          pColdCode,
-                           ULONG          startOffset,
-                           ULONG          endOffset,
-                           ULONG          unwindSize,
-                           BYTE*          pUnwindBlock,
+    void eeAllocUnwindInfo(void*          pHotCode,
+                           void*          pColdCode,
+                           uint32_t       startOffset,
+                           uint32_t       endOffset,
+                           uint32_t       unwindSize,
+                           void*          pUnwindBlock,
                            CorJitFuncKind funcKind);
 
 #ifdef TARGET_AMD64

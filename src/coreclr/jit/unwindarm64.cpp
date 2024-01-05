@@ -252,14 +252,14 @@ void CodeGen::unwindAllocStack(unsigned size)
         // alloc_s: 000xxxxx: allocate small stack with size < 128 (2^5 * 16)
         // TODO-Review: should say size < 512
 
-        pu->AddCode((BYTE)x);
+        pu->AddCode((uint8_t)x);
     }
     else if (x <= 0x7FF)
     {
         // alloc_m: 11000xxx | xxxxxxxx: allocate large stack with size < 16k (2^11 * 16)
         // TODO-Review: should say size < 32K
 
-        pu->AddCode(0xC0 | (BYTE)(x >> 8), (BYTE)x);
+        pu->AddCode(0xC0 | (uint8_t)(x >> 8), (uint8_t)x);
     }
     else
     {
@@ -268,7 +268,7 @@ void CodeGen::unwindAllocStack(unsigned size)
         // For large stack size, the most significant bits
         // are stored first (and next to the opCode) per the unwind spec.
 
-        pu->AddCode(0xE0, (BYTE)(x >> 16), (BYTE)(x >> 8), (BYTE)x);
+        pu->AddCode(0xE0, (uint8_t)(x >> 16), (uint8_t)(x >> 8), (uint8_t)x);
     }
 
     pu->CaptureLocation(GetEmitter());
@@ -307,7 +307,7 @@ void CodeGen::unwindSetFrameReg(regNumber reg, unsigned offset)
         unsigned x = offset / 8;
         assert(x <= 0xFF);
 
-        pu->AddCode(0xE2, (BYTE)x);
+        pu->AddCode(0xE2, (uint8_t)x);
     }
 
     pu->CaptureLocation(GetEmitter());
@@ -356,8 +356,8 @@ void CodeGen::unwindSaveRegPair(regNumber reg1, regNumber reg2, int offset)
     {
         if (generatingProlog)
         {
-            FuncInfoDsc*   func     = funCurrentFunc();
-            UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset();
+            FuncInfoDsc* func     = funCurrentFunc();
+            uint32_t     cbProlog = unwindGetCurrentOffset();
 
             createCfiCode(func, cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg1), offset);
             createCfiCode(func, cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg2), offset + 8);
@@ -378,7 +378,7 @@ void CodeGen::unwindSaveRegPair(regNumber reg1, regNumber reg2, int offset)
 
         assert(reg2 == REG_LR);
 
-        pu->AddCode(0x40 | (BYTE)z);
+        pu->AddCode(0x40 | (uint8_t)z);
     }
     else if (reg2 == REG_LR)
     {
@@ -387,12 +387,12 @@ void CodeGen::unwindSaveRegPair(regNumber reg1, regNumber reg2, int offset)
         assert(REG_R19 <= reg1 && // first legal pair: R19, LR
                reg1 <= REG_R27);  // last legal pair: R27, LR
 
-        BYTE x = (BYTE)(reg1 - REG_R19);
+        uint8_t x = (uint8_t)(reg1 - REG_R19);
         assert((x % 2) == 0); // only legal reg1: R19, R21, R23, R25, R27
         x /= 2;
         assert(0 <= x && x <= 0x7);
 
-        pu->AddCode(0xD6 | (BYTE)(x >> 2), (BYTE)(x << 6) | (BYTE)z);
+        pu->AddCode(0xD6 | (uint8_t)(x >> 2), (uint8_t)(x << 6) | (uint8_t)z);
     }
     else if (IsGeneralRegister(reg1))
     {
@@ -402,10 +402,10 @@ void CodeGen::unwindSaveRegPair(regNumber reg1, regNumber reg2, int offset)
         assert(REG_R19 <= reg1 && // first legal pair: R19, R20
                reg1 <= REG_R27);  // last legal pair: R27, R28 (FP is never saved without LR)
 
-        BYTE x = (BYTE)(reg1 - REG_R19);
+        uint8_t x = (uint8_t)(reg1 - REG_R19);
         assert(0 <= x && x <= 0xF);
 
-        pu->AddCode(0xC8 | (BYTE)(x >> 2), (BYTE)(x << 6) | (BYTE)z);
+        pu->AddCode(0xC8 | (uint8_t)(x >> 2), (uint8_t)(x << 6) | (uint8_t)z);
     }
     else
     {
@@ -415,10 +415,10 @@ void CodeGen::unwindSaveRegPair(regNumber reg1, regNumber reg2, int offset)
         assert(REG_V8 <= reg1 && // first legal pair: V8, V9
                reg1 <= REG_V14); // last legal pair: V14, V15
 
-        BYTE x = (BYTE)(reg1 - REG_V8);
+        uint8_t x = (uint8_t)(reg1 - REG_V8);
         assert(0 <= x && x <= 0x7);
 
-        pu->AddCode(0xD8 | (BYTE)(x >> 2), (BYTE)(x << 6) | (BYTE)z);
+        pu->AddCode(0xD8 | (uint8_t)(x >> 2), (uint8_t)(x << 6) | (uint8_t)z);
     }
 
     pu->CaptureLocation(GetEmitter());
@@ -440,8 +440,8 @@ void CodeGen::unwindSaveRegPairPreindexed(regNumber reg1, regNumber reg2, int of
     {
         if (generatingProlog)
         {
-            FuncInfoDsc*   func     = funCurrentFunc();
-            UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset();
+            FuncInfoDsc* func     = funCurrentFunc();
+            uint32_t     cbProlog = unwindGetCurrentOffset();
 
             createCfiCode(func, cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, -offset);
             createCfiCode(func, cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg1), 0);
@@ -464,7 +464,7 @@ void CodeGen::unwindSaveRegPairPreindexed(regNumber reg1, regNumber reg2, int of
 
         assert(reg2 == REG_LR);
 
-        pu->AddCode(0x80 | (BYTE)z);
+        pu->AddCode(0x80 | (uint8_t)z);
     }
     else if ((reg1 == REG_R19) &&
              (-256 <= offset)) // If the offset is between -512 and -256, we use the save_regp_x unwind code.
@@ -478,7 +478,7 @@ void CodeGen::unwindSaveRegPairPreindexed(regNumber reg1, regNumber reg2, int of
 
         assert(reg2 == REG_R20);
 
-        pu->AddCode(0x20 | (BYTE)z);
+        pu->AddCode(0x20 | (uint8_t)z);
     }
     else if (IsGeneralRegister(reg1))
     {
@@ -492,10 +492,10 @@ void CodeGen::unwindSaveRegPairPreindexed(regNumber reg1, regNumber reg2, int of
         assert(REG_R19 <= reg1 && // first legal pair: R19, R20
                reg1 <= REG_R27);  // last legal pair: R27, R28 (FP is never saved without LR)
 
-        BYTE x = (BYTE)(reg1 - REG_R19);
+        uint8_t x = (uint8_t)(reg1 - REG_R19);
         assert(0 <= x && x <= 0xF);
 
-        pu->AddCode(0xCC | (BYTE)(x >> 2), (BYTE)(x << 6) | (BYTE)z);
+        pu->AddCode(0xCC | (uint8_t)(x >> 2), (uint8_t)(x << 6) | (uint8_t)z);
     }
     else
     {
@@ -509,10 +509,10 @@ void CodeGen::unwindSaveRegPairPreindexed(regNumber reg1, regNumber reg2, int of
         assert(REG_V8 <= reg1 && // first legal pair: V8, V9
                reg1 <= REG_V14); // last legal pair: V14, V15
 
-        BYTE x = (BYTE)(reg1 - REG_V8);
+        uint8_t x = (uint8_t)(reg1 - REG_V8);
         assert(0 <= x && x <= 0x7);
 
-        pu->AddCode(0xDA | (BYTE)(x >> 2), (BYTE)(x << 6) | (BYTE)z);
+        pu->AddCode(0xDA | (uint8_t)(x >> 2), (uint8_t)(x << 6) | (uint8_t)z);
     }
 
     pu->CaptureLocation(GetEmitter());
@@ -531,8 +531,8 @@ void CodeGen::unwindSaveReg(regNumber reg, int offset)
     {
         if (generatingProlog)
         {
-            FuncInfoDsc*   func     = funCurrentFunc();
-            UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset();
+            FuncInfoDsc* func     = funCurrentFunc();
+            uint32_t     cbProlog = unwindGetCurrentOffset();
 
             createCfiCode(func, cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg), offset);
         }
@@ -553,10 +553,10 @@ void CodeGen::unwindSaveReg(regNumber reg, int offset)
         assert(REG_R19 <= reg && // first legal register: R19
                reg <= REG_LR);   // last legal register: LR
 
-        BYTE x = (BYTE)(reg - REG_R19);
+        uint8_t x = (uint8_t)(reg - REG_R19);
         assert(0 <= x && x <= 0xF);
 
-        pu->AddCode(0xD0 | (BYTE)(x >> 2), (BYTE)(x << 6) | (BYTE)z);
+        pu->AddCode(0xD0 | (uint8_t)(x >> 2), (uint8_t)(x << 6) | (uint8_t)z);
     }
     else
     {
@@ -565,10 +565,10 @@ void CodeGen::unwindSaveReg(regNumber reg, int offset)
         assert(REG_V8 <= reg && // first legal register: V8
                reg <= REG_V15); // last legal register: V15
 
-        BYTE x = (BYTE)(reg - REG_V8);
+        uint8_t x = (uint8_t)(reg - REG_V8);
         assert(0 <= x && x <= 0x7);
 
-        pu->AddCode(0xDC | (BYTE)(x >> 2), (BYTE)(x << 6) | (BYTE)z);
+        pu->AddCode(0xDC | (uint8_t)(x >> 2), (uint8_t)(x << 6) | (uint8_t)z);
     }
 
     pu->CaptureLocation(GetEmitter());
@@ -587,8 +587,8 @@ void CodeGen::unwindSaveRegPreindexed(regNumber reg, int offset)
     {
         if (generatingProlog)
         {
-            FuncInfoDsc*   func     = funCurrentFunc();
-            UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset();
+            FuncInfoDsc* func     = funCurrentFunc();
+            uint32_t     cbProlog = unwindGetCurrentOffset();
 
             createCfiCode(func, cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, -offset);
             createCfiCode(func, cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg), 0);
@@ -610,10 +610,10 @@ void CodeGen::unwindSaveRegPreindexed(regNumber reg, int offset)
         assert(REG_R19 <= reg && // first legal register: R19
                reg <= REG_LR);   // last legal register: LR
 
-        BYTE x = (BYTE)(reg - REG_R19);
+        uint8_t x = (uint8_t)(reg - REG_R19);
         assert(0 <= x && x <= 0xF);
 
-        pu->AddCode(0xD4 | (BYTE)(x >> 3), (BYTE)(x << 5) | (BYTE)z);
+        pu->AddCode(0xD4 | (uint8_t)(x >> 3), (uint8_t)(x << 5) | (uint8_t)z);
     }
     else
     {
@@ -622,10 +622,10 @@ void CodeGen::unwindSaveRegPreindexed(regNumber reg, int offset)
         assert(REG_V8 <= reg && // first legal register: V8
                reg <= REG_V15); // last legal register: V15
 
-        BYTE x = (BYTE)(reg - REG_V8);
+        uint8_t x = (uint8_t)(reg - REG_V8);
         assert(0 <= x && x <= 0x7);
 
-        pu->AddCode(0xDE, (BYTE)(x << 5) | (BYTE)z);
+        pu->AddCode(0xDE, (uint8_t)(x << 5) | (uint8_t)z);
     }
 
     pu->CaptureLocation(GetEmitter());
@@ -665,9 +665,9 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 // Return the size of the unwind code (from 1 to 4 bytes), given the first byte of the unwind bytes
 
-unsigned GetUnwindSizeFromUnwindHeader(BYTE b1)
+unsigned GetUnwindSizeFromUnwindHeader(uint8_t b1)
 {
-    static BYTE s_UnwindSize[256] = {
+    static uint8_t s_UnwindSize[256] = {
         // array of unwind sizes, in bytes (as specified in the ARM unwind specification)
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 00-0F
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 10-1F
@@ -714,12 +714,12 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 // Walk the prolog codes and calculate the size of the prolog or epilog, in bytes.
 unsigned UnwindCodesBase::GetCodeSizeFromUnwindCodes(bool isProlog)
 {
-    BYTE*    pCodesStart = GetCodes();
-    BYTE*    pCodes      = pCodesStart;
+    uint8_t* pCodesStart = GetCodes();
+    uint8_t* pCodes      = pCodesStart;
     unsigned size        = 0;
     for (;;)
     {
-        BYTE b1 = *pCodes;
+        uint8_t b1 = *pCodes;
         if (IsEndCode(b1))
         {
             break; // We hit an "end" code; we're done
@@ -745,7 +745,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #ifdef DEBUG
 
 // start is 0-based index from LSB, length is number of bits
-DWORD ExtractBits(DWORD dw, DWORD start, DWORD length)
+uint32_t ExtractBits(uint32_t dw, uint32_t start, uint32_t length)
 {
     return (dw >> start) & ((1 << length) - 1);
 }
@@ -758,28 +758,28 @@ DWORD ExtractBits(DWORD dw, DWORD start, DWORD length)
 //      pHeader:            pointer to the unwind data blob
 //      unwindBlockSize:    size in bytes of the unwind data blob
 
-void DumpUnwindInfo(Compiler*         comp,
-                    bool              isHotCode,
-                    UNATIVE_OFFSET    startOffset,
-                    UNATIVE_OFFSET    endOffset,
-                    const BYTE* const pHeader,
-                    ULONG             unwindBlockSize)
+void DumpUnwindInfo(Compiler*            comp,
+                    bool                 isHotCode,
+                    uint32_t             startOffset,
+                    uint32_t             endOffset,
+                    const uint8_t* const pHeader,
+                    uint32_t             unwindBlockSize)
 {
     printf("Unwind Info%s:\n", isHotCode ? "" : " COLD");
 
     // pHeader is not guaranteed to be aligned. We put four 0xFF end codes at the end
     // to provide padding, and round down to get a multiple of 4 bytes in size.
-    DWORD UNALIGNED* pdw = (DWORD UNALIGNED*)pHeader;
-    DWORD dw;
+    uint32_t UNALIGNED* pdw = (uint32_t UNALIGNED*)pHeader;
+    uint32_t dw;
 
     dw = *pdw++;
 
-    DWORD codeWords      = ExtractBits(dw, 27, 5);
-    DWORD epilogCount    = ExtractBits(dw, 22, 5);
-    DWORD EBit           = ExtractBits(dw, 21, 1);
-    DWORD XBit           = ExtractBits(dw, 20, 1);
-    DWORD Vers           = ExtractBits(dw, 18, 2);
-    DWORD functionLength = ExtractBits(dw, 0, 18);
+    uint32_t codeWords      = ExtractBits(dw, 27, 5);
+    uint32_t epilogCount    = ExtractBits(dw, 22, 5);
+    uint32_t EBit           = ExtractBits(dw, 21, 1);
+    uint32_t XBit           = ExtractBits(dw, 20, 1);
+    uint32_t Vers           = ExtractBits(dw, 18, 2);
+    uint32_t functionLength = ExtractBits(dw, 0, 18);
 
     printf("  >> Start offset   : 0x%06x (not in unwind data)\n", comp->dspOffset(startOffset));
     printf("  >>   End offset   : 0x%06x (not in unwind data)\n", comp->dspOffset(endOffset));
@@ -822,19 +822,19 @@ void DumpUnwindInfo(Compiler*         comp,
         }
         else
         {
-            for (DWORD scope = 0; scope < epilogCount; scope++)
+            for (uint32_t scope = 0; scope < epilogCount; scope++)
             {
                 dw = *pdw++;
 
-                DWORD epilogStartOffset = ExtractBits(dw, 0, 18);
-                DWORD res               = ExtractBits(dw, 18, 4);
-                DWORD epilogStartIndex  = ExtractBits(dw, 22, 10);
+                uint32_t epilogStartOffset = ExtractBits(dw, 0, 18);
+                uint32_t res               = ExtractBits(dw, 18, 4);
+                uint32_t epilogStartIndex  = ExtractBits(dw, 22, 10);
 
                 // Note that epilogStartOffset for a funclet is the offset from the beginning
                 // of the current funclet, not the offset from the beginning of the main function.
                 // To help find it when looking through JitDump output, also show the offset from
                 // the beginning of the main function.
-                DWORD epilogStartOffsetFromMainFunctionBegin = epilogStartOffset * 4 + startOffset;
+                uint32_t epilogStartOffsetFromMainFunctionBegin = epilogStartOffset * 4 + startOffset;
 
                 assert(res == 0);
 
@@ -862,11 +862,11 @@ void DumpUnwindInfo(Compiler*         comp,
 
     printf("  ---- Unwind codes ----\n");
 
-    DWORD countOfUnwindCodes = codeWords * 4;
-    PBYTE pUnwindCode        = (PBYTE)pdw;
-    BYTE  b1, b2, b3, b4;
-    DWORD x, z;
-    for (DWORD i = 0; i < countOfUnwindCodes; i++)
+    uint32_t countOfUnwindCodes = codeWords * 4;
+    uint8_t* pUnwindCode        = (uint8_t*)pdw;
+    uint8_t  b1, b2, b3, b4;
+    uint32_t x, z;
+    for (uint32_t i = 0; i < countOfUnwindCodes; i++)
     {
         // Does this byte start an epilog sequence? If so, note that fact.
         if (epilogStartAt[i])
@@ -912,7 +912,7 @@ void DumpUnwindInfo(Compiler*         comp,
             b2 = *pUnwindCode++;
             i++;
 
-            x = ((DWORD)(b1 & 0x7) << 8) | (DWORD)b2;
+            x = ((uint32_t)(b1 & 0x7) << 8) | (uint32_t)b2;
 
             printf("    %02X %02X       alloc_m #%u (0x%03X); sub sp, sp, #%u (0x%04X)\n", b1, b2, x, x, x * 16,
                    x * 16);
@@ -924,8 +924,8 @@ void DumpUnwindInfo(Compiler*         comp,
             b2 = *pUnwindCode++;
             i++;
 
-            x = ((DWORD)(b1 & 0x3) << 2) | (DWORD)(b2 >> 6);
-            z = (DWORD)(b2 & 0x3F);
+            x = ((uint32_t)(b1 & 0x3) << 2) | (uint32_t)(b2 >> 6);
+            z = (uint32_t)(b2 & 0x3F);
 
             printf("    %02X %02X       save_regp X#%u Z#%u (0x%02X); stp %s, %s, [sp, #%u]\n", b1, b2, x, z, z,
                    getRegName(REG_R19 + x), getRegName(REG_R19 + x + 1), z * 8);
@@ -938,8 +938,8 @@ void DumpUnwindInfo(Compiler*         comp,
             b2 = *pUnwindCode++;
             i++;
 
-            x = ((DWORD)(b1 & 0x3) << 2) | (DWORD)(b2 >> 6);
-            z = (DWORD)(b2 & 0x3F);
+            x = ((uint32_t)(b1 & 0x3) << 2) | (uint32_t)(b2 >> 6);
+            z = (uint32_t)(b2 & 0x3F);
 
             printf("    %02X %02X       save_regp_x X#%u Z#%u (0x%02X); stp %s, %s, [sp, #-%u]!\n", b1, b2, x, z, z,
                    getRegName(REG_R19 + x), getRegName(REG_R19 + x + 1), (z + 1) * 8);
@@ -951,8 +951,8 @@ void DumpUnwindInfo(Compiler*         comp,
             b2 = *pUnwindCode++;
             i++;
 
-            x = ((DWORD)(b1 & 0x3) << 2) | (DWORD)(b2 >> 6);
-            z = (DWORD)(b2 & 0x3F);
+            x = ((uint32_t)(b1 & 0x3) << 2) | (uint32_t)(b2 >> 6);
+            z = (uint32_t)(b2 & 0x3F);
 
             printf("    %02X %02X       save_reg X#%u Z#%u (0x%02X); str %s, [sp, #%u]\n", b1, b2, x, z, z,
                    getRegName(REG_R19 + x), z * 8);
@@ -964,8 +964,8 @@ void DumpUnwindInfo(Compiler*         comp,
             b2 = *pUnwindCode++;
             i++;
 
-            x = ((DWORD)(b1 & 0x1) << 3) | (DWORD)(b2 >> 5);
-            z = (DWORD)(b2 & 0x1F);
+            x = ((uint32_t)(b1 & 0x1) << 3) | (uint32_t)(b2 >> 5);
+            z = (uint32_t)(b2 & 0x1F);
 
             printf("    %02X %02X       save_reg_x X#%u Z#%u (0x%02X); str %s, [sp, #-%u]!\n", b1, b2, x, z, z,
                    getRegName(REG_R19 + x), (z + 1) * 8);
@@ -977,8 +977,8 @@ void DumpUnwindInfo(Compiler*         comp,
             b2 = *pUnwindCode++;
             i++;
 
-            x = ((DWORD)(b1 & 0x1) << 2) | (DWORD)(b2 >> 6);
-            z = (DWORD)(b2 & 0x3F);
+            x = ((uint32_t)(b1 & 0x1) << 2) | (uint32_t)(b2 >> 6);
+            z = (uint32_t)(b2 & 0x3F);
 
             printf("    %02X %02X       save_lrpair X#%u Z#%u (0x%02X); stp %s, %s, [sp, #%u]\n", b1, b2, x, z, z,
                    getRegName(REG_R19 + 2 * x), getRegName(REG_LR), z * 8);
@@ -990,8 +990,8 @@ void DumpUnwindInfo(Compiler*         comp,
             b2 = *pUnwindCode++;
             i++;
 
-            x = ((DWORD)(b1 & 0x1) << 2) | (DWORD)(b2 >> 6);
-            z = (DWORD)(b2 & 0x3F);
+            x = ((uint32_t)(b1 & 0x1) << 2) | (uint32_t)(b2 >> 6);
+            z = (uint32_t)(b2 & 0x3F);
 
             printf("    %02X %02X       save_fregp X#%u Z#%u (0x%02X); stp %s, %s, [sp, #%u]\n", b1, b2, x, z, z,
                    getRegName(REG_V8 + x), getRegName(REG_V8 + x + 1), z * 8);
@@ -1004,8 +1004,8 @@ void DumpUnwindInfo(Compiler*         comp,
             b2 = *pUnwindCode++;
             i++;
 
-            x = ((DWORD)(b1 & 0x1) << 2) | (DWORD)(b2 >> 6);
-            z = (DWORD)(b2 & 0x3F);
+            x = ((uint32_t)(b1 & 0x1) << 2) | (uint32_t)(b2 >> 6);
+            z = (uint32_t)(b2 & 0x3F);
 
             printf("    %02X %02X       save_fregp_x X#%u Z#%u (0x%02X); stp %s, %s, [sp, #-%u]!\n", b1, b2, x, z, z,
                    getRegName(REG_V8 + x), getRegName(REG_V8 + x + 1), (z + 1) * 8);
@@ -1017,8 +1017,8 @@ void DumpUnwindInfo(Compiler*         comp,
             b2 = *pUnwindCode++;
             i++;
 
-            x = ((DWORD)(b1 & 0x1) << 2) | (DWORD)(b2 >> 6);
-            z = (DWORD)(b2 & 0x3F);
+            x = ((uint32_t)(b1 & 0x1) << 2) | (uint32_t)(b2 >> 6);
+            z = (uint32_t)(b2 & 0x3F);
 
             printf("    %02X %02X       save_freg X#%u Z#%u (0x%02X); str %s, [sp, #%u]\n", b1, b2, x, z, z,
                    getRegName(REG_V8 + x), z * 8);
@@ -1031,8 +1031,8 @@ void DumpUnwindInfo(Compiler*         comp,
             b2 = *pUnwindCode++;
             i++;
 
-            x = (DWORD)(b2 >> 5);
-            z = (DWORD)(b2 & 0x1F);
+            x = (uint32_t)(b2 >> 5);
+            z = (uint32_t)(b2 & 0x1F);
 
             printf("    %02X %02X       save_freg_x X#%u Z#%u (0x%02X); str %s, [sp, #-%u]!\n", b1, b2, x, z, z,
                    getRegName(REG_V8 + x), (z + 1) * 8);
@@ -1046,7 +1046,7 @@ void DumpUnwindInfo(Compiler*         comp,
             b4 = *pUnwindCode++;
             i += 3;
 
-            x = ((DWORD)b2 << 16) | ((DWORD)b3 << 8) | (DWORD)b4;
+            x = ((uint32_t)b2 << 16) | ((uint32_t)b3 << 8) | (uint32_t)b4;
 
             printf("    %02X %02X %02X %02X alloc_l %u (0x%06X); sub sp, sp, #%u (%06X)\n", b1, b2, b3, b4, x, x,
                    x * 16, x * 16);
@@ -1064,7 +1064,7 @@ void DumpUnwindInfo(Compiler*         comp,
             b2 = *pUnwindCode++;
             i++;
 
-            x = (DWORD)b2;
+            x = (uint32_t)b2;
 
             printf("    %02X %02X       add_fp %u (0x%02X); add %s, sp, #%u\n", b1, b2, x, x, getRegName(REG_FP),
                    x * 8);
@@ -1101,8 +1101,8 @@ void DumpUnwindInfo(Compiler*         comp,
     }
 
     pdw += codeWords;
-    assert((PBYTE)pdw == pUnwindCode);
-    assert((PBYTE)pdw == pHeader + unwindBlockSize);
+    assert((uint8_t*)pdw == pUnwindCode);
+    assert((uint8_t*)pdw == pHeader + unwindBlockSize);
 
     assert(XBit == 0); // We don't handle the case where exception data is present, such as the Exception Handler RVA
 

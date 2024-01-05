@@ -1120,7 +1120,7 @@ void CodeGen::eeDispLineInfos()
  * (e.g., host AMD64, target ARM64), then VM will get confused anyway.
  */
 
-void Compiler::eeReserveUnwindInfo(bool isFunclet, bool isColdCode, ULONG unwindSize)
+void Compiler::eeReserveUnwindInfo(bool isFunclet, bool isColdCode, uint32_t unwindSize)
 {
 #ifdef DEBUG
     if (verbose)
@@ -1136,12 +1136,12 @@ void Compiler::eeReserveUnwindInfo(bool isFunclet, bool isColdCode, ULONG unwind
     }
 }
 
-void Compiler::eeAllocUnwindInfo(BYTE*          pHotCode,
-                                 BYTE*          pColdCode,
-                                 ULONG          startOffset,
-                                 ULONG          endOffset,
-                                 ULONG          unwindSize,
-                                 BYTE*          pUnwindBlock,
+void Compiler::eeAllocUnwindInfo(void*          pHotCode,
+                                 void*          pColdCode,
+                                 uint32_t       startOffset,
+                                 uint32_t       endOffset,
+                                 uint32_t       unwindSize,
+                                 void*          pUnwindBlock,
                                  CorJitFuncKind funcKind)
 {
 #ifdef DEBUG
@@ -1171,7 +1171,8 @@ void Compiler::eeAllocUnwindInfo(BYTE*          pHotCode,
 
     if (info.compMatchedVM)
     {
-        info.compCompHnd->allocUnwindInfo(pHotCode, pColdCode, startOffset, endOffset, unwindSize, pUnwindBlock,
+        info.compCompHnd->allocUnwindInfo(static_cast<uint8_t*>(pHotCode), static_cast<uint8_t*>(pColdCode),
+                                          startOffset, endOffset, unwindSize, static_cast<uint8_t*>(pUnwindBlock),
                                           funcKind);
     }
 }

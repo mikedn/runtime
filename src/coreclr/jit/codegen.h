@@ -1198,7 +1198,7 @@ public:
 #endif
 
     insGroup* ehEmitLabel(BasicBlock* block);
-    UNATIVE_OFFSET ehCodeOffset(BasicBlock* block);
+    uint32_t ehCodeOffset(BasicBlock* block);
 
     //
     // Infrastructure functions: start/stop/reserve/emit.
@@ -1293,7 +1293,7 @@ private:
 
 #if defined(TARGET_UNIX)
     short mapRegNumToDwarfReg(regNumber reg);
-    void createCfiCode(FuncInfoDsc* func, UNATIVE_OFFSET codeOffset, UCHAR opcode, short dwarfReg, INT offset = 0);
+    void createCfiCode(FuncInfoDsc* func, uint32_t codeOffset, uint8_t opcode, short dwarfReg, int32_t offset = 0);
     void unwindPushPopCFI(regNumber reg);
     void unwindBegPrologCFI();
     void unwindPushPopMaskCFI(regMaskTP regMask, bool isFloat);
@@ -1312,9 +1312,9 @@ private:
 
 #ifdef DEBUG
     void DumpCfiInfo(bool                  isHotCode,
-                     UNATIVE_OFFSET        startOffset,
-                     UNATIVE_OFFSET        endOffset,
-                     DWORD                 cfiCodeBytes,
+                     uint32_t              startOffset,
+                     uint32_t              endOffset,
+                     uint32_t              cfiCodeBytes,
                      const CFI_CODE* const pCfiCode);
 #endif
 
