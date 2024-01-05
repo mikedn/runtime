@@ -963,10 +963,7 @@ void UnwindPrologCodes::EnsureSize(int requiredSize)
 #ifdef DEBUG
 void UnwindPrologCodes::Dump(int indent)
 {
-    printf("%*sUnwindPrologCodes @0x%08p, size:%d:\n", indent, "", dspPtr(this), sizeof(*this));
-    printf("%*s  uwiComp: 0x%08p\n", indent, "", dspPtr(uwiComp));
-    printf("%*s  &upcMemLocal[0]: 0x%08p\n", indent, "", dspPtr(&upcMemLocal[0]));
-    printf("%*s  upcMem: 0x%08p\n", indent, "", dspPtr(upcMem));
+    printf("%*sUnwindPrologCodes:\n", indent, "");
     printf("%*s  upcMemSize: %d\n", indent, "", upcMemSize);
     printf("%*s  upcCodeSlot: %d\n", indent, "", upcCodeSlot);
     printf("%*s  upcHeaderSlot: %d\n", indent, "", upcHeaderSlot);
@@ -1028,13 +1025,10 @@ void UnwindEpilogCodes::EnsureSize(int requiredSize)
 #ifdef DEBUG
 void UnwindEpilogCodes::Dump(int indent)
 {
-    printf("%*sUnwindEpilogCodes @0x%08p, size:%d:\n", indent, "", dspPtr(this), sizeof(*this));
-    printf("%*s  uwiComp: 0x%08p\n", indent, "", dspPtr(uwiComp));
-    printf("%*s  &uecMemLocal[0]: 0x%08p\n", indent, "", dspPtr(&uecMemLocal[0]));
-    printf("%*s  uecMem: 0x%08p\n", indent, "", dspPtr(uecMem));
+    printf("%*sUnwindEpilogCodes:\n", indent, "");
     printf("%*s  uecMemSize: %d\n", indent, "", uecMemSize);
     printf("%*s  uecCodeSlot: %d\n", indent, "", uecCodeSlot);
-    printf("%*s  uecFinalized: %s\n", indent, "", dspBool(uecFinalized));
+    printf("%*s  uecFinalized: %d\n", indent, "", uecFinalized);
 
     if (uecMemSize > 0)
     {
@@ -1103,12 +1097,11 @@ void UnwindEpilogInfo::FinalizeOffset()
 #ifdef DEBUG
 void UnwindEpilogInfo::Dump(int indent)
 {
-    printf("%*sUnwindEpilogInfo @0x%08p, size:%d:\n", indent, "", dspPtr(this), sizeof(*this));
-    printf("%*s  uwiComp: 0x%08p\n", indent, "", dspPtr(uwiComp));
-    printf("%*s  epiNext: 0x%08p\n", indent, "", dspPtr(epiNext));
-    printf("%*s  epiEmitLocation: 0x%08p\n", indent, "", dspPtr(epiEmitLocation));
-    printf("%*s  epiStartOffset: 0x%x\n", indent, "", epiStartOffset);
-    printf("%*s  epiMatches: %s\n", indent, "", dspBool(epiMatches));
+    printf("%*sUnwindEpilogInfo:\n", indent, "");
+    printf("%*s  epiEmitLocation: ", indent, "");
+    epiEmitLocation->Print();
+    printf("\n%*s  epiStartOffset: 0x%x\n", indent, "", epiStartOffset);
+    printf("%*s  epiMatches: %d\n", indent, "", epiMatches);
     printf("%*s  epiStartIndex: %d\n", indent, "", epiStartIndex);
 
     epiCodes.Dump(indent + 2);
@@ -1557,13 +1550,10 @@ void UnwindFragmentInfo::Reserve(bool isFunclet, bool isHotCode)
 
     ULONG unwindSize = Size();
 
-#ifdef DEBUG
-    if (uwiComp->verbose)
+    if (ufiNum != 1)
     {
-        if (ufiNum != 1)
-            printf("reserveUnwindInfo: fragment #%d:\n", ufiNum);
+        JITDUMP("reserveUnwindInfo: fragment #%d:\n", ufiNum);
     }
-#endif
 
     uwiComp->eeReserveUnwindInfo(isFunclet, isColdCode, unwindSize);
 }
@@ -1622,12 +1612,8 @@ void UnwindFragmentInfo::Allocate(
 
     GetFinalInfo(&pUnwindBlock, &unwindBlockSize);
 
-#ifdef DEBUG
-    if (uwiComp->opts.dspUnwind)
-    {
-        DumpUnwindInfo(uwiComp, isHotCode, startOffset, endOffset, pUnwindBlock, unwindBlockSize);
-    }
-#endif // DEBUG
+    DBEXEC(uwiComp->opts.dspUnwind,
+           DumpUnwindInfo(uwiComp, isHotCode, startOffset, endOffset, pUnwindBlock, unwindBlockSize));
 
     // Adjust for cold or hot code:
     // 1. The VM doesn't want the cold code pointer unless this is cold code.
@@ -1646,13 +1632,10 @@ void UnwindFragmentInfo::Allocate(
         endOffset -= uwiComp->codeGen->compTotalHotCodeSize;
     }
 
-#ifdef DEBUG
-    if (uwiComp->verbose)
+    if (ufiNum != 1)
     {
-        if (ufiNum != 1)
-            printf("unwindEmit: fragment #%d:\n", ufiNum);
+        JITDUMP("unwindEmit: fragment #%d:\n", ufiNum);
     }
-#endif // DEBUG
 
     uwiComp->eeAllocUnwindInfo((BYTE*)pHotCode, (BYTE*)pColdCode, startOffset, endOffset, unwindBlockSize, pUnwindBlock,
                                funKind);
@@ -1670,22 +1653,16 @@ void UnwindFragmentInfo::Dump(int indent)
         ++count;
     }
 
-    printf("%*sUnwindFragmentInfo #%d, @0x%08p, size:%d:\n", indent, "", ufiNum, dspPtr(this), sizeof(*this));
-    printf("%*s  uwiComp: 0x%08p\n", indent, "", dspPtr(uwiComp));
-    printf("%*s  ufiNext: 0x%08p\n", indent, "", dspPtr(ufiNext));
-    printf("%*s  ufiEmitLoc: 0x%08p\n", indent, "", dspPtr(ufiEmitLoc));
-    printf("%*s  ufiHasPhantomProlog: %s\n", indent, "", dspBool(ufiHasPhantomProlog));
+    printf("%*sUnwindFragmentInfo #%d\n", indent, "", ufiNum);
+    printf("%*s  ufiHasPhantomProlog: %d\n", indent, "", ufiHasPhantomProlog);
     printf("%*s  %d epilog%s\n", indent, "", count, (count != 1) ? "s" : "");
-    printf("%*s  ufiEpilogList: 0x%08p\n", indent, "", dspPtr(ufiEpilogList));
-    printf("%*s  ufiEpilogLast: 0x%08p\n", indent, "", dspPtr(ufiEpilogLast));
-    printf("%*s  ufiCurCodes: 0x%08p\n", indent, "", dspPtr(ufiCurCodes));
     printf("%*s  ufiSize: %u\n", indent, "", ufiSize);
-    printf("%*s  ufiSetEBit: %s\n", indent, "", dspBool(ufiSetEBit));
-    printf("%*s  ufiNeedExtendedCodeWordsEpilogCount: %s\n", indent, "", dspBool(ufiNeedExtendedCodeWordsEpilogCount));
+    printf("%*s  ufiSetEBit: %d\n", indent, "", ufiSetEBit);
+    printf("%*s  ufiNeedExtendedCodeWordsEpilogCount: %d\n", indent, "", ufiNeedExtendedCodeWordsEpilogCount);
     printf("%*s  ufiCodeWords: %u\n", indent, "", ufiCodeWords);
     printf("%*s  ufiEpilogScopes: %u\n", indent, "", ufiEpilogScopes);
     printf("%*s  ufiStartOffset: 0x%x\n", indent, "", ufiStartOffset);
-    printf("%*s  ufiInProlog: %s\n", indent, "", dspBool(ufiInProlog));
+    printf("%*s  ufiInProlog: %d\n", indent, "", ufiInProlog);
     printf("%*s  ufiInitialized: 0x%08x\n", indent, "", ufiInitialized);
 
     ufiPrologCodes.Dump(indent + 2);
@@ -1841,15 +1818,9 @@ void UnwindInfo::Split()
     // the actual offsets of the splits since we haven't issued the instructions yet, so store
     // an emitter location instead of an offset, and "finalize" the offset in the unwindEmit() phase,
     // like we do for the function length and epilog offsets.
-    CLANG_FORMAT_COMMENT_ANCHOR;
 
-#ifdef DEBUG
-    if (uwiComp->verbose)
-    {
-        printf("Split unwind info into %d fragments (function/funclet size: %d, maximum fragment size: %d)\n",
-               numberOfFragments, codeSize, maxFragmentSize);
-    }
-#endif // DEBUG
+    JITDUMP("Split unwind info into %d fragments (function/funclet size: %d, maximum fragment size: %d)\n",
+            numberOfFragments, codeSize, maxFragmentSize);
 
     // Call the emitter to do the split, and call us back for every split point it chooses.
     Split(uwiFragmentLast->ufiEmitLoc, uwiEndLoc, maxFragmentSize);
@@ -1866,10 +1837,7 @@ void UnwindInfo::Split()
     }
     if (fragCount < numberOfFragments)
     {
-        if (uwiComp->verbose)
-        {
-            printf("WARNING: asked the emitter for %d fragments, but only got %d\n", numberOfFragments, fragCount);
-        }
+        JITDUMP("WARNING: asked the emitter for %d fragments, but only got %d\n", numberOfFragments, fragCount);
 
         // If this fires, then we split into fewer fragments than we asked for, and we are using
         // the default, unwind-data-defined 512K maximum fragment size. We won't be able to fit
@@ -2016,6 +1984,8 @@ void UnwindInfo::Allocate(CorJitFuncKind funKind, void* pHotCode, void* pColdCod
         pFrag->FinalizeOffset();
     }
 
+    DBEXEC(uwiComp->verbose, Dump(isHotCode, 0));
+
     for (pFrag = &uwiFragmentFirst; pFrag != NULL; pFrag = pFrag->ufiNext)
     {
         pFrag->Allocate(funKind, pHotCode, pColdCode, endOffset, isHotCode);
@@ -2099,12 +2069,20 @@ void UnwindInfo::Dump(bool isHotCode, int indent)
         ++count;
     }
 
-    printf("%*sUnwindInfo %s@0x%08p, size:%d:\n", indent, "", isHotCode ? "" : "COLD ", dspPtr(this), sizeof(*this));
-    printf("%*s  uwiComp: 0x%08p\n", indent, "", dspPtr(uwiComp));
+    printf("%*sUnwindInfo%s:\n", indent, "", isHotCode ? "" : " COLD");
     printf("%*s  %d fragment%s\n", indent, "", count, (count != 1) ? "s" : "");
-    printf("%*s  uwiFragmentLast: 0x%08p\n", indent, "", dspPtr(uwiFragmentLast));
-    printf("%*s  uwiEndLoc: 0x%08p\n", indent, "", dspPtr(uwiEndLoc));
-    printf("%*s  uwiInitialized: 0x%08x\n", indent, "", uwiInitialized);
+    printf("%*s  uwiEndLoc: ", indent, "");
+
+    if (uwiEndLoc != nullptr)
+    {
+        uwiEndLoc->Print();
+    }
+    else
+    {
+        printf("code end");
+    }
+
+    printf("\n%*s  uwiInitialized: 0x%08x\n", indent, "", uwiInitialized);
 
     for (pFrag = &uwiFragmentFirst; pFrag != NULL; pFrag = pFrag->ufiNext)
     {
