@@ -2445,9 +2445,6 @@ struct ThrowHelperBlock
 class Compiler
 {
     friend class emitter;
-    friend class UnwindInfo;
-    friend class UnwindFragmentInfo;
-    friend class UnwindEpilogInfo;
     friend class JitTimer;
     friend class LinearScan;
     friend class CallInfo;

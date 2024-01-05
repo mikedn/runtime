@@ -1852,7 +1852,7 @@ void UnwindInfo::Split()
 #endif // DEBUG
 
     // Call the emitter to do the split, and call us back for every split point it chooses.
-    emitSplit(uwiFragmentLast->ufiEmitLoc, uwiEndLoc, maxFragmentSize, (void*)this, EmitSplitCallback);
+    Split(uwiFragmentLast->ufiEmitLoc, uwiEndLoc, maxFragmentSize);
 
 #ifdef DEBUG
     // Did the emitter split the function/funclet into as many fragments as we asked for?
@@ -1902,11 +1902,7 @@ void UnwindInfo::Split()
  * If 'endLoc'   is NULL, it means the end   of the code.
  */
 
-void UnwindInfo::emitSplit(emitLocation*         startLoc,
-                           emitLocation*         endLoc,
-                           UNATIVE_OFFSET        maxSplitSize,
-                           void*                 context,
-                           emitSplitCallbackType callbackFunc)
+void UnwindInfo::Split(emitLocation* startLoc, emitLocation* endLoc, UNATIVE_OFFSET maxSplitSize)
 {
     insGroup*      igStart = (startLoc == nullptr) ? uwiComp->codeGen->GetEmitter()->GetProlog() : startLoc->GetIG();
     insGroup*      igEnd   = (endLoc == nullptr) ? nullptr : endLoc->GetIG();
@@ -1951,7 +1947,7 @@ void UnwindInfo::emitSplit(emitLocation*         startLoc,
 
                 // hand memory ownership to the callback function
                 emitLocation* pEmitLoc = new (uwiComp, CMK_Unknown) emitLocation(igLastCandidate);
-                callbackFunc(context, pEmitLoc);
+                AddFragment(pEmitLoc);
                 igLastReported  = igLastCandidate;
                 igLastCandidate = NULL;
                 curSize -= candidateSize;
@@ -1977,12 +1973,6 @@ void UnwindInfo::emitSplit(emitLocation*         startLoc,
         curSize += ig->igSize;
 
     } // end for loop
-}
-
-/*static*/ void UnwindInfo::EmitSplitCallback(void* context, emitLocation* emitLoc)
-{
-    UnwindInfo* puwi = (UnwindInfo*)context;
-    puwi->AddFragment(emitLoc);
 }
 
 // Reserve space for the unwind info for all fragments

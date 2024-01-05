@@ -661,13 +661,7 @@ public:
 
 class UnwindInfo : public UnwindBase
 {
-    typedef void (*emitSplitCallbackType)(void* context, emitLocation* emitLoc);
-
-    void emitSplit(emitLocation*         startLoc,
-                   emitLocation*         endLoc,
-                   UNATIVE_OFFSET        maxSplitSize,
-                   void*                 context,
-                   emitSplitCallbackType callbackFunc);
+    void Split(emitLocation* startLoc, emitLocation* endLoc, UNATIVE_OFFSET maxSplitSize);
 
     // The first fragment is directly here, so it doesn't need to be separately allocated.
     UnwindFragmentInfo uwiFragmentFirst;
@@ -703,8 +697,6 @@ public:
     // The following act on all the fragments that make up the unwind info for this function or funclet.
 
     void Split();
-
-    static void EmitSplitCallback(void* context, emitLocation* emitLoc);
 
     void Reserve(bool isFunclet, bool isHotCode);
 
