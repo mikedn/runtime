@@ -5221,7 +5221,7 @@ void emitter::emitHandlePCRelativeMov32(void* location, void* target)
 // the unwind codes have a one-to-one relationship with instructions, and the
 // unwind codes have an implicit instruction size that must match the instruction size.)
 // An instruction must exist at the specified location.
-unsigned emitter::emitGetInstructionSize(emitLocation* emitLoc)
+unsigned emitter::emitGetInstructionSize(const emitLocation& emitLoc)
 {
     insGroup*  ig;
     instrDesc* id;

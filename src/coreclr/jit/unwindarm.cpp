@@ -1097,14 +1097,13 @@ int UnwindEpilogInfo::Match(UnwindEpilogInfo* pEpi)
 
 void UnwindEpilogInfo::CaptureEmitLocation(emitter* emitter)
 {
-    noway_assert(epiEmitLocation == NULL); // This function is only called once per epilog
-    epiEmitLocation = new (uwiComp, CMK_UnwindInfo) emitLocation();
-    epiEmitLocation->CaptureLocation(emitter);
+    noway_assert(epiEmitLocation.GetIG() == nullptr); // This function is only called once per epilog
+    epiEmitLocation.CaptureLocation(emitter);
 }
 
 void UnwindEpilogInfo::FinalizeOffset()
 {
-    epiStartOffset = epiEmitLocation->CodeOffset(uwiComp->codeGen->GetEmitter());
+    epiStartOffset = epiEmitLocation.CodeOffset(uwiComp->codeGen->GetEmitter());
 }
 
 #ifdef DEBUG
@@ -1112,7 +1111,7 @@ void UnwindEpilogInfo::Dump(int indent)
 {
     printf("%*sUnwindEpilogInfo:\n", indent, "");
     printf("%*s  epiEmitLocation: ", indent, "");
-    epiEmitLocation->Print();
+    epiEmitLocation.Print();
     printf("\n%*s  epiStartOffset: 0x%x\n", indent, "", epiStartOffset);
     printf("%*s  epiMatches: %d\n", indent, "", epiMatches);
     printf("%*s  epiStartIndex: %d\n", indent, "", epiStartIndex);
@@ -1695,10 +1694,7 @@ void UnwindFragmentInfo::Dump(int indent)
 ///////////////////////////////////////////////////////////////////////////////
 
 UnwindInfo::UnwindInfo(Compiler* comp, emitLocation* startLoc, emitLocation* endLoc)
-    : UnwindBase(comp)
-    , uwiFragmentFirst(comp, startLoc, false)
-    , uwiEndLoc(endLoc)
-    , uwiCurLoc(new (uwiComp, CMK_UnwindInfo) emitLocation())
+    : UnwindBase(comp), uwiFragmentFirst(comp, startLoc, false), uwiEndLoc(endLoc)
 {
 }
 
@@ -2007,8 +2003,7 @@ unsigned UnwindInfo::GetInstructionSize()
 void UnwindInfo::CaptureLocation(emitter* emitter)
 {
     assert(uwiInitialized == UWI_INITIALIZED_PATTERN);
-    assert(uwiCurLoc != NULL);
-    uwiCurLoc->CaptureLocation(emitter);
+    uwiCurLoc.CaptureLocation(emitter);
 }
 
 void UnwindInfo::AddFragment(emitLocation* emitLoc)

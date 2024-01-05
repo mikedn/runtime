@@ -730,9 +730,8 @@ inline bool emitIsLoadConstant(instrDesc* jmp)
 /*                   Interface for generating unwind information        */
 /************************************************************************/
 public:
-bool emitIsFuncEnd(emitLocation* emitLoc, emitLocation* emitLocNextFragment = NULL);
-
-void emitUnwindNopPadding(emitLocation* locFrom);
+bool emitIsFuncEnd(const emitLocation& loc, emitLocation* emitLocNextFragment = NULL);
+void emitUnwindNopPadding(const emitLocation& loc);
 
 private:
 // Returns true if instruction "id->idIns()" writes to a register that might be used to contain a GC

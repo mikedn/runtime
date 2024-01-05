@@ -9,6 +9,8 @@
 
 #ifdef TARGET_ARMARCH
 
+#include "emit.h"
+
 // Windows no longer imposes a maximum prolog size. However, we still have an
 // assert here just to inform us if we increase the size of the prolog
 // accidentally, as there is still a slight performance advantage in the
@@ -41,12 +43,6 @@ const unsigned MAX_EPILOG_SIZE_BYTES = 100;
                                                // field of the .pdata record
 #define UW_MAX_EPILOG_START_OFFSET 0x3FFFFU    // Max number that can be encoded in the "Epilog Start Offset"
                                                // field of the .pdata record
-
-//
-// Forward declaration of class defined in emit.h
-//
-
-class emitLocation;
 
 //
 // Forward declarations of classes defined in this file
@@ -426,7 +422,7 @@ class UnwindEpilogInfo : public UnwindBase
 
     UnwindEpilogInfo* epiNext = nullptr;
     // The emitter location of the beginning of the epilog
-    emitLocation*     epiEmitLocation = nullptr;
+    emitLocation      epiEmitLocation;
     UnwindEpilogCodes epiCodes;
     // Actual offset of the epilog, in bytes, from the start of the function. Set in FinalizeOffset().
     UNATIVE_OFFSET epiStartOffset = EPI_ILLEGAL_OFFSET;
@@ -671,7 +667,7 @@ class UnwindInfo : public UnwindBase
     emitLocation* uwiEndLoc;
     // The current emitter location (updated after an unwind code is added), used for NOP
     // padding, and asserts.
-    emitLocation* uwiCurLoc;
+    emitLocation uwiCurLoc;
 
 #ifdef DEBUG
     static const unsigned UWI_INITIALIZED_PATTERN = 0x0FACADE1; // Something unlikely to be the fill pattern for
@@ -745,7 +741,7 @@ public:
 
     UnwindEpilogInfo* AddEpilog();
 
-    emitLocation* GetCurrentEmitterLocation()
+    const emitLocation& GetCurrentEmitterLocation()
     {
         return uwiCurLoc;
     }

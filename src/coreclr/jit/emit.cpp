@@ -1276,11 +1276,9 @@ const char* emitter::emitLabelString(insGroup* ig)
 // We can ignore the codePos part of the location, since it doesn't affect the
 // determination. If 'emitLocNextFragment' is non-NULL, it indicates the first
 // IG of the next fragment, so it represents a function end.
-bool emitter::emitIsFuncEnd(emitLocation* emitLoc, emitLocation* emitLocNextFragment /* = NULL */)
+bool emitter::emitIsFuncEnd(const emitLocation& emitLoc, emitLocation* emitLocNextFragment /* = NULL */)
 {
-    assert(emitLoc);
-
-    insGroup* ig = emitLoc->GetIG();
+    insGroup* ig = emitLoc.GetIG();
     assert(ig);
 
     // Are we at the end of the IG list?
@@ -1351,20 +1349,15 @@ void emitter::emitGetInstrDescs(insGroup* ig, instrDesc** id, int* insCnt)
  * adding code, namely, the end of currently generated code.
  */
 
-bool emitter::emitGetLocationInfo(emitLocation* emitLoc,
-                                  insGroup**    pig,
-                                  instrDesc**   pid,
-                                  int*          pinsRemaining /* = NULL */)
+bool emitter::emitGetLocationInfo(const emitLocation& emitLoc, insGroup** pig, instrDesc** pid, int* pinsRemaining)
 {
-    assert(emitLoc != nullptr);
-    assert(emitLoc->Valid());
-    assert(emitLoc->GetIG() != nullptr);
+    assert(emitLoc.Valid());
     assert(pig != nullptr);
     assert(pid != nullptr);
 
-    insGroup*  ig = emitLoc->GetIG();
+    insGroup*  ig = emitLoc.GetIG();
     instrDesc* id;
-    int        insNum = emitLoc->GetInsNum();
+    int        insNum = emitLoc.GetInsNum();
     int        insCnt;
 
     emitGetInstrDescs(ig, &id, &insCnt);
@@ -1484,7 +1477,7 @@ bool emitter::emitNextID(insGroup*& ig, instrDesc*& id, int& insRemaining)
  * passed through to the callback function.
  */
 
-void emitter::emitWalkIDs(emitLocation* locFrom, emitProcessInstrFunc_t processFunc, void* context)
+void emitter::emitWalkIDs(const emitLocation& locFrom, emitProcessInstrFunc_t processFunc, void* context)
 {
     insGroup*  ig;
     instrDesc* id;
@@ -1522,7 +1515,7 @@ void emitter::emitGenerateUnwindNop(instrDesc* id, void* context)
  * location 'emitLoc' up to the current location.
  */
 
-void emitter::emitUnwindNopPadding(emitLocation* locFrom)
+void emitter::emitUnwindNopPadding(const emitLocation& locFrom)
 {
     emitWalkIDs(locFrom, emitGenerateUnwindNop, codeGen);
 }

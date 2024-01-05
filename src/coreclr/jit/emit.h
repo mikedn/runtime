@@ -1563,10 +1563,10 @@ public:
 private:
 #ifdef TARGET_ARMARCH
     void emitGetInstrDescs(insGroup* ig, instrDesc** id, int* insCnt);
-    bool emitGetLocationInfo(emitLocation* emitLoc, insGroup** pig, instrDesc** pid, int* pinsRemaining = NULL);
+    bool emitGetLocationInfo(const emitLocation& emitLoc, insGroup** pig, instrDesc** pid, int* pinsRemaining = NULL);
     bool emitNextID(insGroup*& ig, instrDesc*& id, int& insRemaining);
     typedef void (*emitProcessInstrFunc_t)(instrDesc* id, void* context);
-    void emitWalkIDs(emitLocation* locFrom, emitProcessInstrFunc_t processFunc, void* context);
+    void emitWalkIDs(const emitLocation& locFrom, emitProcessInstrFunc_t processFunc, void* context);
     static void emitGenerateUnwindNop(instrDesc* id, void* context);
 #endif // TARGET_ARMARCH
 
