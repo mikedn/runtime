@@ -1121,26 +1121,6 @@ void UnwindEpilogInfo::Dump(int indent)
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-UnwindFragmentInfo::UnwindFragmentInfo(Compiler* comp, emitLocation* emitLoc, bool hasPhantomProlog)
-    : UnwindBase(comp)
-    , ufiNext(NULL)
-    , ufiEmitLoc(emitLoc)
-    , ufiHasPhantomProlog(hasPhantomProlog)
-    , ufiPrologCodes(comp)
-    , ufiEpilogFirst(comp)
-    , ufiEpilogList(NULL)
-    , ufiEpilogLast(NULL)
-    , ufiCurCodes(&ufiPrologCodes)
-    , ufiSize(0)
-    , ufiStartOffset(UFI_ILLEGAL_OFFSET)
-{
-#ifdef DEBUG
-    ufiNum         = 1;
-    ufiInProlog    = true;
-    ufiInitialized = UFI_INITIALIZED_PATTERN;
-#endif // DEBUG
-}
-
 void UnwindFragmentInfo::FinalizeOffset()
 {
     if (ufiEmitLoc == NULL)

@@ -65,26 +65,31 @@ class UnwindInfo;
 class UnwindBase
 {
 protected:
-    UnwindBase(Compiler* comp) : uwiComp(comp)
-    {
-    }
+    Compiler* uwiComp;
 
     UnwindBase()
     {
     }
-    ~UnwindBase()
+
+    UnwindBase(Compiler* comp) : uwiComp(comp)
     {
     }
-
-    Compiler* uwiComp;
 };
 
 // UnwindCodesBase: A base class shared by the the classes used to represent the prolog
 // and epilog unwind codes.
 
-class UnwindCodesBase
+class UnwindCodesBase : public UnwindBase
 {
 public:
+    UnwindCodesBase()
+    {
+    }
+
+    UnwindCodesBase(Compiler* comp) : UnwindBase(comp)
+    {
+    }
+
     // Add a single unwind code.
 
     virtual void AddCode(BYTE b1) = 0;
@@ -119,7 +124,7 @@ public:
 // information for a function, including unwind info header, the prolog codes,
 // and any epilog codes.
 
-class UnwindPrologCodes : public UnwindBase, public UnwindCodesBase
+class UnwindPrologCodes : public UnwindCodesBase
 {
     // UPC_LOCAL_COUNT is the amount of memory local to this class. For ARM CoreLib, the maximum size is 34.
     // Here is a histogram of other interesting sizes:
@@ -127,17 +132,33 @@ class UnwindPrologCodes : public UnwindBase, public UnwindCodesBase
     //     <=24  96%
     //     <=32  99%
     // From this data, we choose to use 24.
-
     static const int UPC_LOCAL_COUNT = 24;
 
+    // To store the unwind codes, we first use a local array that should satisfy almost all cases.
+    // If there are more unwind codes, we dynamically allocate memory.
+    BYTE  upcMemLocal[UPC_LOCAL_COUNT];
+    BYTE* upcMem = upcMemLocal;
+    // upcMemSize is the number of bytes in upcMem. This is equal to UPC_LOCAL_COUNT unless
+    // we've dynamically allocated memory to store the codes.
+    int upcMemSize = _countof(upcMemLocal);
+    // upcCodeSlot points to the last unwind code added to the array. The array is filled in from
+    // the end, so it starts pointing one beyond the array end.
+    int upcCodeSlot = _countof(upcMemLocal);
+    // upcHeaderSlot points to the last header byte prepended to the array. Headers bytes are
+    // filled in from the beginning, and only after SetFinalSize() is called.
+    int upcHeaderSlot = -1;
+    // upcEpilogSlot points to the next epilog location to fill
+    int upcEpilogSlot = -1;
+    // upcUnwindBlockSlot is only set after SetFinalSize() is called. It is the index of the first
+    // byte of the final unwind data, namely the first byte of the header.
+    int upcUnwindBlockSlot;
+
 public:
-    UnwindPrologCodes(Compiler* comp)
-        : UnwindBase(comp)
-        , upcMem(upcMemLocal)
-        , upcMemSize(UPC_LOCAL_COUNT)
-        , upcCodeSlot(UPC_LOCAL_COUNT)
-        , upcHeaderSlot(-1)
-        , upcEpilogSlot(-1)
+    UnwindPrologCodes()
+    {
+    }
+
+    UnwindPrologCodes(Compiler* comp) : UnwindCodesBase(comp)
     {
         // Assume we've got a normal end code.
         // Push four so we can generate an array that is a multiple of 4 bytes in size with the
@@ -148,6 +169,9 @@ public:
         PushByte(UWC_END);
         PushByte(UWC_END);
     }
+
+    UnwindPrologCodes(const UnwindPrologCodes& info) = delete;
+    UnwindPrologCodes& operator=(const UnwindPrologCodes&) = delete;
 
     //
     // Implementation of UnwindCodesBase
@@ -232,73 +256,48 @@ public:
     // Copy the prolog codes from another prolog
     void CopyFrom(UnwindPrologCodes* pCopyFrom);
 
-    UnwindPrologCodes()
-    {
-    }
-    ~UnwindPrologCodes()
-    {
-    }
-
 #ifdef DEBUG
     void Dump(int indent = 0);
 #endif // DEBUG
 
 private:
     void EnsureSize(int requiredSize);
-
-    // No copy constructor or operator=
-    UnwindPrologCodes(const UnwindPrologCodes& info);
-    UnwindPrologCodes& operator=(const UnwindPrologCodes&);
-
-    //
-    // Data
-    //
-
-    // To store the unwind codes, we first use a local array that should satisfy almost all cases.
-    // If there are more unwind codes, we dynamically allocate memory.
-    BYTE  upcMemLocal[UPC_LOCAL_COUNT];
-    BYTE* upcMem;
-
-    // upcMemSize is the number of bytes in upcMem. This is equal to UPC_LOCAL_COUNT unless
-    // we've dynamically allocated memory to store the codes.
-    int upcMemSize;
-
-    // upcCodeSlot points to the last unwind code added to the array. The array is filled in from
-    // the end, so it starts pointing one beyond the array end.
-    int upcCodeSlot;
-
-    // upcHeaderSlot points to the last header byte prepended to the array. Headers bytes are
-    // filled in from the beginning, and only after SetFinalSize() is called.
-    int upcHeaderSlot;
-
-    // upcEpilogSlot points to the next epilog location to fill
-    int upcEpilogSlot;
-
-    // upcUnwindBlockSlot is only set after SetFinalSize() is called. It is the index of the first
-    // byte of the final unwind data, namely the first byte of the header.
-    int upcUnwindBlockSlot;
 };
 
 // UnwindEpilogCodes: represents the unwind codes for a single epilog sequence.
 // Epilog unwind codes arrive in the order they will be emitted. Store them as an array,
 // adding new ones to the end of the array.
 
-class UnwindEpilogCodes : public UnwindBase, public UnwindCodesBase
+class UnwindEpilogCodes : public UnwindCodesBase
 {
     // UEC_LOCAL_COUNT is the amount of memory local to this class. For ARM CoreLib, the maximum size is 6,
     // while 89% of epilogs fit in 4. So, set it to 4 to maintain array alignment and hit most cases.
     static const int UEC_LOCAL_COUNT = 4;
 
+    // To store the unwind codes, we first use a local array that should satisfy almost all cases.
+    // If there are more unwind codes, we dynamically allocate memory.
+    BYTE  uecMemLocal[UEC_LOCAL_COUNT];
+    BYTE* uecMem              = uecMemLocal;
+    BYTE  firstByteOfLastCode = 0;
+
+    // uecMemSize is the number of bytes/slots in uecMem. This is equal to UEC_LOCAL_COUNT unless
+    // we've dynamically allocated memory to store the codes.
+    int uecMemSize = _countof(uecMemLocal);
+
+    // uecCodeSlot points to the last unwind code added to the array. The array is filled in from
+    // the beginning, so it starts at -1.
+    int uecCodeSlot = -1;
+
+    // Is the unwind information finalized? Finalized info has an end code appended.
+    bool uecFinalized = false;
+
 public:
-    UnwindEpilogCodes(Compiler* comp)
-        : UnwindBase(comp)
-        , uecMem(uecMemLocal)
-        , firstByteOfLastCode(0)
-        , uecMemSize(UEC_LOCAL_COUNT)
-        , uecCodeSlot(-1)
-        , uecFinalized(false)
+    UnwindEpilogCodes(Compiler* comp) : UnwindCodesBase(comp)
     {
     }
+
+    UnwindEpilogCodes(const UnwindEpilogCodes& info) = delete;
+    UnwindEpilogCodes& operator=(const UnwindEpilogCodes&) = delete;
 
     //
     // Implementation of UnwindCodesBase
@@ -407,9 +406,6 @@ public:
     UnwindEpilogCodes()
     {
     }
-    ~UnwindEpilogCodes()
-    {
-    }
 
 #ifdef DEBUG
     void Dump(int indent = 0);
@@ -417,31 +413,6 @@ public:
 
 private:
     void EnsureSize(int requiredSize);
-
-    // No destructor, copy constructor or operator=
-    UnwindEpilogCodes(const UnwindEpilogCodes& info);
-    UnwindEpilogCodes& operator=(const UnwindEpilogCodes&);
-
-    //
-    // Data
-    //
-
-    // To store the unwind codes, we first use a local array that should satisfy almost all cases.
-    // If there are more unwind codes, we dynamically allocate memory.
-    BYTE  uecMemLocal[UEC_LOCAL_COUNT];
-    BYTE* uecMem;
-    BYTE  firstByteOfLastCode;
-
-    // uecMemSize is the number of bytes/slots in uecMem. This is equal to UEC_LOCAL_COUNT unless
-    // we've dynamically allocated memory to store the codes.
-    int uecMemSize;
-
-    // uecCodeSlot points to the last unwind code added to the array. The array is filled in from
-    // the beginning, so it starts at -1.
-    int uecCodeSlot;
-
-    // Is the unwind information finalized? Finalized info has an end code appended.
-    bool uecFinalized;
 };
 
 // UnwindEpilogInfo: represents the unwind information for a single epilog sequence. Epilogs for a
@@ -453,17 +424,25 @@ class UnwindEpilogInfo : public UnwindBase
 
     static const unsigned EPI_ILLEGAL_OFFSET = 0xFFFFFFFF;
 
+    UnwindEpilogInfo* epiNext = nullptr;
+    // The emitter location of the beginning of the epilog
+    emitLocation*     epiEmitLocation = nullptr;
+    UnwindEpilogCodes epiCodes;
+    // Actual offset of the epilog, in bytes, from the start of the function. Set in FinalizeOffset().
+    UNATIVE_OFFSET epiStartOffset = EPI_ILLEGAL_OFFSET;
+    // Do the epilog unwind codes match some other set of codes? If so, we don't copy these to the
+    // final set; we just point to another set.
+    bool epiMatches = false;
+    // The final "Epilog Start Index" of this epilog's unwind codes
+    int epiStartIndex = -1;
+
 public:
-    UnwindEpilogInfo(Compiler* comp)
-        : UnwindBase(comp)
-        , epiNext(NULL)
-        , epiEmitLocation(NULL)
-        , epiCodes(comp)
-        , epiStartOffset(EPI_ILLEGAL_OFFSET)
-        , epiMatches(false)
-        , epiStartIndex(-1)
+    UnwindEpilogInfo(Compiler* comp) : UnwindBase(comp), epiCodes(comp)
     {
     }
+
+    UnwindEpilogInfo(const UnwindEpilogInfo& info) = delete;
+    UnwindEpilogInfo& operator=(const UnwindEpilogInfo&) = delete;
 
     void CaptureEmitLocation();
 
@@ -520,31 +499,10 @@ public:
     UnwindEpilogInfo()
     {
     }
-    ~UnwindEpilogInfo()
-    {
-    }
 
 #ifdef DEBUG
     void Dump(int indent = 0);
 #endif // DEBUG
-
-private:
-    // No copy constructor or operator=
-    UnwindEpilogInfo(const UnwindEpilogInfo& info);
-    UnwindEpilogInfo& operator=(const UnwindEpilogInfo&);
-
-    //
-    // Data
-    //
-
-    UnwindEpilogInfo* epiNext;
-    emitLocation*     epiEmitLocation; // The emitter location of the beginning of the epilog
-    UnwindEpilogCodes epiCodes;
-    UNATIVE_OFFSET    epiStartOffset; // Actual offset of the epilog, in bytes, from the start of the function. Set in
-                                      // FinalizeOffset().
-    bool epiMatches;   // Do the epilog unwind codes match some other set of codes? If so, we don't copy these to the
-                       // final set; we just point to another set.
-    int epiStartIndex; // The final "Epilog Start Index" of this epilog's unwind codes
 };
 
 // UnwindFragmentInfo: represents all the unwind information for a single fragment of a function or funclet.
@@ -557,8 +515,65 @@ class UnwindFragmentInfo : public UnwindBase
 
     static const unsigned UFI_ILLEGAL_OFFSET = 0xFFFFFFFF;
 
+    // The next fragment
+    UnwindFragmentInfo* ufiNext = nullptr;
+    // Emitter location for start of fragment
+    emitLocation* ufiEmitLoc;
+    // Are the prolog codes for a phantom prolog, or a real prolog?
+    // (For a phantom prolog, this code fragment represents a fragment in
+    // the sense of the unwind info spec; something without a real prolog.)
+    bool ufiHasPhantomProlog;
+    // The unwind codes for the prolog
+    UnwindPrologCodes ufiPrologCodes;
+    // In-line the first epilog to avoid separate memory allocation, since
+    // almost all functions will have at least one epilog. It is pointed
+    // to by ufiEpilogList when the first epilog is added.
+    UnwindEpilogInfo ufiEpilogFirst;
+    // The head of the epilog list
+    UnwindEpilogInfo* ufiEpilogList = nullptr;
+    // The last entry in the epilog list (the last epilog added)
+    UnwindEpilogInfo* ufiEpilogLast = nullptr;
+    // Pointer to current unwind codes, either prolog or epilog
+    UnwindCodesBase* ufiCurCodes = &ufiPrologCodes;
+
+    // Some data computed when merging the unwind codes, and used when finalizing the
+    // unwind block for emission.
+
+    // The size of the unwind data for this fragment, in bytes
+    unsigned       ufiSize = 0;
+    bool           ufiSetEBit;
+    bool           ufiNeedExtendedCodeWordsEpilogCount;
+    unsigned       ufiCodeWords;
+    unsigned       ufiEpilogScopes;
+    UNATIVE_OFFSET ufiStartOffset = UFI_ILLEGAL_OFFSET;
+
+#ifdef DEBUG
+    static const unsigned UFI_INITIALIZED_PATTERN = 0x0FACADE0; // Something unlikely to be the fill pattern for
+
+    unsigned ufiNum = 1;
+    // Are we processing the prolog? The prolog must come first, followed by a (possibly empty)
+    // set of epilogs, for this function/funclet.
+    bool ufiInProlog = true;
+    // uninitialized memory
+    unsigned ufiInitialized = UFI_INITIALIZED_PATTERN;
+#endif
+
 public:
-    UnwindFragmentInfo(Compiler* comp, emitLocation* emitLoc, bool hasPhantomProlog);
+    UnwindFragmentInfo()
+    {
+    }
+
+    UnwindFragmentInfo(Compiler* comp, emitLocation* emitLoc, bool hasPhantomProlog)
+        : UnwindBase(comp)
+        , ufiEmitLoc(emitLoc)
+        , ufiHasPhantomProlog(hasPhantomProlog)
+        , ufiPrologCodes(comp)
+        , ufiEpilogFirst(comp)
+    {
+    }
+
+    UnwindFragmentInfo(const UnwindFragmentInfo& info) = delete;
+    UnwindFragmentInfo& operator=(const UnwindFragmentInfo&) = delete;
 
     void FinalizeOffset();
 
@@ -637,60 +652,8 @@ public:
     void Allocate(
         CorJitFuncKind funKind, void* pHotCode, void* pColdCode, UNATIVE_OFFSET funcEndOffset, bool isHotCode);
 
-    UnwindFragmentInfo()
-    {
-    }
-    ~UnwindFragmentInfo()
-    {
-    }
-
 #ifdef DEBUG
     void Dump(int indent = 0);
-#endif // DEBUG
-
-private:
-    // No copy constructor or operator=
-    UnwindFragmentInfo(const UnwindFragmentInfo& info);
-    UnwindFragmentInfo& operator=(const UnwindFragmentInfo&);
-
-    //
-    // Data
-    //
-
-    UnwindFragmentInfo* ufiNext;             // The next fragment
-    emitLocation*       ufiEmitLoc;          // Emitter location for start of fragment
-    bool                ufiHasPhantomProlog; // Are the prolog codes for a phantom prolog, or a real prolog?
-                                             //   (For a phantom prolog, this code fragment represents a fragment in
-                                             //   the sense of the unwind info spec; something without a real prolog.)
-    UnwindPrologCodes ufiPrologCodes;        // The unwind codes for the prolog
-    UnwindEpilogInfo  ufiEpilogFirst;        // In-line the first epilog to avoid separate memory allocation, since
-                                             //   almost all functions will have at least one epilog. It is pointed
-                                             //   to by ufiEpilogList when the first epilog is added.
-    UnwindEpilogInfo* ufiEpilogList;         // The head of the epilog list
-    UnwindEpilogInfo* ufiEpilogLast;         // The last entry in the epilog list (the last epilog added)
-    UnwindCodesBase*  ufiCurCodes;           // Pointer to current unwind codes, either prolog or epilog
-
-    // Some data computed when merging the unwind codes, and used when finalizing the
-    // unwind block for emission.
-    unsigned       ufiSize; // The size of the unwind data for this fragment, in bytes
-    bool           ufiSetEBit;
-    bool           ufiNeedExtendedCodeWordsEpilogCount;
-    unsigned       ufiCodeWords;
-    unsigned       ufiEpilogScopes;
-    UNATIVE_OFFSET ufiStartOffset;
-
-#ifdef DEBUG
-
-    unsigned ufiNum;
-
-    // Are we processing the prolog? The prolog must come first, followed by a (possibly empty)
-    // set of epilogs, for this function/funclet.
-    bool ufiInProlog;
-
-    static const unsigned UFI_INITIALIZED_PATTERN = 0x0FACADE0; // Something unlikely to be the fill pattern for
-                                                                // uninitialized memory
-    unsigned ufiInitialized;
-
 #endif // DEBUG
 };
 
@@ -706,7 +669,33 @@ class UnwindInfo : public UnwindBase
                    void*                 context,
                    emitSplitCallbackType callbackFunc);
 
+    // The first fragment is directly here, so it doesn't need to be separately allocated.
+    UnwindFragmentInfo uwiFragmentFirst;
+    // The last entry in the fragment list (the last fragment added)
+    UnwindFragmentInfo* uwiFragmentLast;
+    // End emitter location of this function/funclet (NULL == end of all code)
+    emitLocation* uwiEndLoc;
+    // The current emitter location (updated after an unwind code is added), used for NOP
+    // padding, and asserts.
+    emitLocation* uwiCurLoc;
+
+#ifdef DEBUG
+    static const unsigned UWI_INITIALIZED_PATTERN = 0x0FACADE1; // Something unlikely to be the fill pattern for
+
+    // uninitialized memory
+    unsigned uwiInitialized;
+#endif // DEBUG
+
 public:
+    INDEBUG(bool uwiAddingNOP;)
+
+    UnwindInfo()
+    {
+    }
+
+    UnwindInfo(const UnwindInfo& info) = delete;
+    UnwindInfo& operator=(const UnwindInfo&) = delete;
+
     void InitUnwindInfo(Compiler* comp, emitLocation* startLoc, emitLocation* endLoc);
 
     void HotColdSplitCodes(UnwindInfo* puwi);
@@ -779,13 +768,6 @@ public:
 
     void CaptureLocation();
 
-    UnwindInfo()
-    {
-    }
-    ~UnwindInfo()
-    {
-    }
-
 #ifdef DEBUG
 
 #if defined(TARGET_ARM)
@@ -799,36 +781,10 @@ public:
 #endif // defined(TARGET_ARM64)
 
     void Dump(bool isHotCode, int indent = 0);
-
-    bool uwiAddingNOP;
-
 #endif // DEBUG
 
 private:
     void AddFragment(emitLocation* emitLoc);
-
-    // No copy constructor or operator=
-    UnwindInfo(const UnwindInfo& info);
-    UnwindInfo& operator=(const UnwindInfo&);
-
-    //
-    // Data
-    //
-
-    UnwindFragmentInfo uwiFragmentFirst; // The first fragment is directly here, so it doesn't need to be separately
-                                         // allocated.
-    UnwindFragmentInfo* uwiFragmentLast; // The last entry in the fragment list (the last fragment added)
-    emitLocation*       uwiEndLoc;       // End emitter location of this function/funclet (NULL == end of all code)
-    emitLocation*       uwiCurLoc; // The current emitter location (updated after an unwind code is added), used for NOP
-                                   // padding, and asserts.
-
-#ifdef DEBUG
-
-    static const unsigned UWI_INITIALIZED_PATTERN = 0x0FACADE1; // Something unlikely to be the fill pattern for
-                                                                // uninitialized memory
-    unsigned uwiInitialized;
-
-#endif // DEBUG
 };
 
 #ifdef DEBUG
