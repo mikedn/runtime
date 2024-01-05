@@ -179,7 +179,12 @@ void CodeGen::unwindBegEpilog()
     }
 #endif // TARGET_UNIX
 
-    funCurrentFunc()->uwi.AddEpilog();
+    UnwindEpilogInfo* newepi = funCurrentFunc()->uwi.AddEpilog();
+    // What is the starting code offset of the epilog? Store an emitter location
+    // so we can ask the emitter later, after codegen.
+    newepi->CaptureEmitLocation();
+
+    funCurrentFunc()->uwi.CaptureLocation();
 }
 
 void CodeGen::unwindEndEpilog()
@@ -274,6 +279,8 @@ void CodeGen::unwindPushPopMaskInt(regMaskTP maskInt, bool useOpsize16)
             pu->AddCode(0x80 | ((maskInt >> 8) & 0x1F) | ((maskInt >> 9) & 0x20), (BYTE)maskInt);
         }
     }
+
+    pu->CaptureLocation();
 }
 
 void CodeGen::unwindPushPopMaskFloat(regMaskTP maskFloat)
@@ -309,6 +316,7 @@ void CodeGen::unwindPushPopMaskFloat(regMaskTP maskFloat)
     // E0-E7 : vpop {d8-dX} (X=8-15) (opsize 32)
     assert(0 <= val && val <= 7);
     pu->AddCode(0xE0 | val);
+    pu->CaptureLocation();
 }
 
 void CodeGen::unwindPushMaskInt(regMaskTP maskInt)
@@ -445,6 +453,8 @@ void CodeGen::unwindAllocStack(unsigned size)
         BYTE     b1               = (instrSizeInBytes == 2) ? 0xF8 : 0xFA;
         pu->AddCode(b1, (BYTE)(size >> 16), (BYTE)(size >> 8), (BYTE)size);
     }
+
+    pu->CaptureLocation();
 }
 
 void CodeGen::unwindSetFrameReg(regNumber reg, unsigned offset)
@@ -468,6 +478,7 @@ void CodeGen::unwindSetFrameReg(regNumber reg, unsigned offset)
 
     // C0-CF : mov sp, rX (opsize 16)
     pu->AddCode((BYTE)(0xC0 + reg));
+    pu->CaptureLocation();
 }
 
 void CodeGen::unwindSaveReg(regNumber reg, unsigned offset)
@@ -489,6 +500,7 @@ void CodeGen::unwindBranch16()
     // TODO-CQ: need to handle changing the exit code from 0xFF to 0xFD. Currently, this will waste an extra 0xFF at the
     // end, automatically added.
     pu->AddCode(0xFD);
+    pu->CaptureLocation();
 }
 
 void CodeGen::unwindNop(unsigned codeSizeInBytes) // codeSizeInBytes is 2 or 4 bytes for Thumb2 instruction
@@ -523,6 +535,8 @@ void CodeGen::unwindNop(unsigned codeSizeInBytes) // codeSizeInBytes is 2 or 4 b
         // FC : nop (opsize 32)
         pu->AddCode(0xFC);
     }
+
+    pu->CaptureLocation();
 
     INDEBUG(pu->uwiAddingNOP = false);
 }
@@ -1132,7 +1146,7 @@ void UnwindFragmentInfo::FinalizeOffset()
     }
 }
 
-void UnwindFragmentInfo::AddEpilog()
+UnwindEpilogInfo* UnwindFragmentInfo::AddEpilog()
 {
     assert(ufiInitialized == UFI_INITIALIZED_PATTERN);
 
@@ -1172,14 +1186,11 @@ void UnwindFragmentInfo::AddEpilog()
 
     ufiEpilogLast = newepi;
 
-    // What is the starting code offset of the epilog? Store an emitter location
-    // so we can ask the emitter later, after codegen.
-
-    newepi->CaptureEmitLocation();
-
     // Put subsequent unwind codes in this new epilog
 
     ufiCurCodes = &newepi->epiCodes;
+
+    return newepi;
 }
 
 // Copy the prolog codes from the 'pCopyFrom' fragment. These prolog codes will
@@ -1992,12 +2003,11 @@ void UnwindInfo::Allocate(CorJitFuncKind funKind, void* pHotCode, void* pColdCod
     }
 }
 
-void UnwindInfo::AddEpilog()
+UnwindEpilogInfo* UnwindInfo::AddEpilog()
 {
     assert(uwiInitialized == UWI_INITIALIZED_PATTERN);
     assert(uwiFragmentLast != NULL);
-    uwiFragmentLast->AddEpilog();
-    CaptureLocation();
+    return uwiFragmentLast->AddEpilog();
 }
 
 #if defined(TARGET_ARM)

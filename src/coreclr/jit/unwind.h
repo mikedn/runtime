@@ -620,7 +620,7 @@ public:
         return count;
     }
 
-    void AddEpilog();
+    UnwindEpilogInfo* AddEpilog();
 
     void MergeCodes();
 
@@ -714,7 +714,6 @@ public:
         INDEBUG(CheckOpsize(b1));
 
         uwiFragmentLast->AddCode(b1);
-        CaptureLocation();
     }
 
     void AddCode(BYTE b1, BYTE b2)
@@ -724,7 +723,6 @@ public:
         INDEBUG(CheckOpsize(b1));
 
         uwiFragmentLast->AddCode(b1, b2);
-        CaptureLocation();
     }
 
     void AddCode(BYTE b1, BYTE b2, BYTE b3)
@@ -734,7 +732,6 @@ public:
         INDEBUG(CheckOpsize(b1));
 
         uwiFragmentLast->AddCode(b1, b2, b3);
-        CaptureLocation();
     }
 
     void AddCode(BYTE b1, BYTE b2, BYTE b3, BYTE b4)
@@ -744,10 +741,9 @@ public:
         INDEBUG(CheckOpsize(b1));
 
         uwiFragmentLast->AddCode(b1, b2, b3, b4);
-        CaptureLocation();
     }
 
-    void AddEpilog();
+    UnwindEpilogInfo* AddEpilog();
 
     emitLocation* GetCurrentEmitterLocation()
     {

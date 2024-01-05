@@ -270,6 +270,8 @@ void CodeGen::unwindAllocStack(unsigned size)
 
         pu->AddCode(0xE0, (BYTE)(x >> 16), (BYTE)(x >> 8), (BYTE)x);
     }
+
+    pu->CaptureLocation();
 }
 
 void CodeGen::unwindSetFrameReg(regNumber reg, unsigned offset)
@@ -307,6 +309,8 @@ void CodeGen::unwindSetFrameReg(regNumber reg, unsigned offset)
 
         pu->AddCode(0xE2, (BYTE)x);
     }
+
+    pu->CaptureLocation();
 }
 
 void CodeGen::unwindSaveReg(regNumber reg, unsigned offset)
@@ -329,6 +333,7 @@ void CodeGen::unwindNop()
 
     // nop: 11100011: no unwind operation is required.
     pu->AddCode(0xE3);
+    pu->CaptureLocation();
 
     INDEBUG(pu->uwiAddingNOP = false);
 }
@@ -415,6 +420,8 @@ void CodeGen::unwindSaveRegPair(regNumber reg1, regNumber reg2, int offset)
 
         pu->AddCode(0xD8 | (BYTE)(x >> 2), (BYTE)(x << 6) | (BYTE)z);
     }
+
+    pu->CaptureLocation();
 }
 
 // unwindSaveRegPairPreindexed: save a register pair to the stack at the specified byte offset (which must be negative,
@@ -507,6 +514,8 @@ void CodeGen::unwindSaveRegPairPreindexed(regNumber reg1, regNumber reg2, int of
 
         pu->AddCode(0xDA | (BYTE)(x >> 2), (BYTE)(x << 6) | (BYTE)z);
     }
+
+    pu->CaptureLocation();
 }
 
 void CodeGen::unwindSaveReg(regNumber reg, int offset)
@@ -561,6 +570,8 @@ void CodeGen::unwindSaveReg(regNumber reg, int offset)
 
         pu->AddCode(0xDC | (BYTE)(x >> 2), (BYTE)(x << 6) | (BYTE)z);
     }
+
+    pu->CaptureLocation();
 }
 
 void CodeGen::unwindSaveRegPreindexed(regNumber reg, int offset)
@@ -616,6 +627,8 @@ void CodeGen::unwindSaveRegPreindexed(regNumber reg, int offset)
 
         pu->AddCode(0xDE, (BYTE)(x << 5) | (BYTE)z);
     }
+
+    pu->CaptureLocation();
 }
 
 void CodeGen::unwindSaveNext()
@@ -631,6 +644,7 @@ void CodeGen::unwindSaveNext()
 
     // save_next: 11100110 : save next non - volatile Int or FP register pair.
     pu->AddCode(0xE6);
+    pu->CaptureLocation();
 }
 
 void CodeGen::unwindReturn(regNumber reg)
