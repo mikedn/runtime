@@ -444,7 +444,7 @@ public:
     UnwindEpilogInfo(const UnwindEpilogInfo& info) = delete;
     UnwindEpilogInfo& operator=(const UnwindEpilogInfo&) = delete;
 
-    void CaptureEmitLocation();
+    void CaptureEmitLocation(class emitter* emitter);
 
     void FinalizeOffset();
 
@@ -754,7 +754,7 @@ public:
     unsigned GetInstructionSize();
 #endif // defined(TARGET_ARM)
 
-    void CaptureLocation();
+    void CaptureLocation(class emitter* emitter);
 
 #ifdef DEBUG
 
