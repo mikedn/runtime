@@ -654,7 +654,7 @@ public:
 
 class UnwindInfo : public UnwindBase
 {
-    void Split(emitLocation* startLoc, emitLocation* endLoc, uint32_t maxSplitSize);
+    void Split(insGroup* start, insGroup* end, uint32_t maxCodeSize);
 
     // The first fragment is directly here, so it doesn't need to be separately allocated.
     UnwindFragmentInfo uwiFragmentFirst;
@@ -755,7 +755,7 @@ public:
 #endif // DEBUG
 
 private:
-    void AddFragment(emitLocation* emitLoc);
+    void AddFragment(insGroup* ig);
 };
 
 #ifdef DEBUG
@@ -766,7 +766,7 @@ void DumpUnwindInfo(Compiler*            comp,
                     uint32_t             startOffset,
                     uint32_t             endOffset,
                     const uint8_t* const pHeader,
-                    uint32_t                unwindBlockSize);
+                    uint32_t             unwindBlockSize);
 
 #endif // DEBUG
 

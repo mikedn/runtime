@@ -1743,18 +1743,14 @@ void UnwindInfo::HotColdSplitCodes(UnwindInfo* puwi)
 
 void UnwindInfo::Split()
 {
-    uint32_t maxFragmentSize; // The maximum size of a code fragment in bytes
-
-    maxFragmentSize = UW_MAX_FRAGMENT_SIZE_BYTES;
+    uint32_t maxFragmentSize = UW_MAX_FRAGMENT_SIZE_BYTES;
 
 #ifdef DEBUG
-    // Consider COMPlus_JitSplitFunctionSize
-    unsigned splitFunctionSize = (unsigned)JitConfig.JitSplitFunctionSize();
-
-    if (splitFunctionSize != 0)
-        if (splitFunctionSize < maxFragmentSize)
-            maxFragmentSize = splitFunctionSize;
-#endif // DEBUG
+    if (unsigned splitFunctionSize = (unsigned)JitConfig.JitSplitFunctionSize())
+    {
+        maxFragmentSize = Min(maxFragmentSize, splitFunctionSize);
+    }
+#endif
 
     // Now, there should be exactly one fragment.
 
@@ -1820,8 +1816,12 @@ void UnwindInfo::Split()
     JITDUMP("Split unwind info into %d fragments (function/funclet size: %d, maximum fragment size: %d)\n",
             numberOfFragments, codeSize, maxFragmentSize);
 
-    // Call the emitter to do the split, and call us back for every split point it chooses.
-    Split(uwiFragmentLast->ufiEmitLoc, uwiEndLoc, maxFragmentSize);
+    emitLocation* startLoc = uwiFragmentLast->ufiEmitLoc;
+    emitLocation* endLoc   = uwiEndLoc;
+    insGroup*     igStart  = startLoc == nullptr ? uwiComp->codeGen->GetEmitter()->GetProlog() : startLoc->GetIG();
+    insGroup*     igEnd    = endLoc == nullptr ? nullptr : endLoc->GetIG();
+
+    Split(igStart, igEnd, maxFragmentSize);
 
 #ifdef DEBUG
     // Did the emitter split the function/funclet into as many fragments as we asked for?
@@ -1847,98 +1847,69 @@ void UnwindInfo::Split()
 #endif // DEBUG
 }
 
-/*****************************************************************************
- *
- * Split the region from 'startLoc' to 'endLoc' into fragments by calling
- * a callback function to indicate the beginning of a fragment. The initial code,
- * starting at 'startLoc', doesn't get a callback, but the first code fragment,
- * about 'maxSplitSize' bytes out does, as does the beginning of each fragment
- * after that. There is no callback for the end (only the beginning of the last
- * fragment gets a callback). A fragment must contain at least one instruction
- * group. It should be smaller than 'maxSplitSize', although it may be larger to
- * satisfy the "at least one instruction group" rule. Do not split prologs or
- * epilogs. (Currently, prologs exist in a single instruction group at the main
- * function beginning, so they aren't split. Funclets, however, might span IGs,
- * so we can't split in between them.)
- *
- * Note that the locations must be the start of instruction groups; the part of
- * the location indicating offset within a group must be zero.
- *
- * If 'startLoc' is nullptr, it means the start of the code.
- * If 'endLoc'   is nullptr, it means the end   of the code.
- */
-
-void UnwindInfo::Split(emitLocation* startLoc, emitLocation* endLoc, uint32_t maxSplitSize)
+void UnwindInfo::Split(insGroup* start, insGroup* end, uint32_t maxCodeSize)
 {
-    insGroup* igStart = (startLoc == nullptr) ? uwiComp->codeGen->GetEmitter()->GetProlog() : startLoc->GetIG();
-    insGroup* igEnd   = (endLoc == nullptr) ? nullptr : endLoc->GetIG();
-    insGroup* igPrev;
-    insGroup* ig;
-    insGroup* igLastReported;
-    insGroup* igLastCandidate;
-    uint32_t  curSize;
-    uint32_t  candidateSize;
+    insGroup* prevFragment  = start;
+    insGroup* prevCandidate = nullptr;
+    insGroup* prev          = nullptr;
+    uint32_t  currentSize   = 0;
+    uint32_t  prevSize      = 0;
 
-    for (igPrev = nullptr, ig = igLastReported = igStart, igLastCandidate = nullptr, candidateSize = 0, curSize = 0;
-         ig != igEnd && ig != nullptr; igPrev = ig, ig = ig->igNext)
+    for (insGroup* ig = start; ig != end && ig != nullptr; ig = ig->igNext)
     {
-        // Keep looking until we've gone past the maximum split size
-        if (curSize >= maxSplitSize)
+        if (currentSize >= maxCodeSize)
         {
-            bool reportCandidate = true;
+            bool useCandidate = true;
 
-            // Is there a candidate?
-            if (igLastCandidate == nullptr)
+            if (prevCandidate == nullptr)
             {
-                JITDUMP("emitSplit: can't split at " FMT_IG "; we don't have a candidate to report\n", ig->igNum);
-                reportCandidate = false;
+                JITDUMP("UnwindInfoSplit: can't split at " FMT_IG "; we don't have a candidate to report\n", ig->igNum);
+                useCandidate = false;
+            }
+            else if (prevCandidate == prevFragment)
+            {
+                JITDUMP("UnwindInfoSplit: can't split at " FMT_IG "; we already reported it\n", prevCandidate->igNum);
+                useCandidate = false;
             }
 
-            // Don't report the same thing twice (this also happens for the first block, since igLastReported is
-            // initialized to igStart).
-            if (igLastCandidate == igLastReported)
+            if (useCandidate)
             {
-                JITDUMP("emitSplit: can't split at " FMT_IG "; we already reported it\n", igLastCandidate->igNum);
-                reportCandidate = false;
-            }
-
-            // Report it!
-            if (reportCandidate)
-            {
-                if (candidateSize >= maxSplitSize)
+                if (prevSize >= maxCodeSize)
                 {
-                    JITDUMP("emitSplit: split at " FMT_IG " is size %u, larger than requested maximum size of %u\n",
-                            igLastCandidate->igNum, candidateSize, maxSplitSize);
+                    JITDUMP("UnwindInfoSplit: split at " FMT_IG
+                            " is size %u, larger than requested maximum size of %u\n",
+                            prevCandidate->igNum, prevSize, maxCodeSize);
                 }
 
-                // hand memory ownership to the callback function
-                emitLocation* pEmitLoc = new (uwiComp, CMK_Unknown) emitLocation(igLastCandidate);
-                AddFragment(pEmitLoc);
-                igLastReported  = igLastCandidate;
-                igLastCandidate = nullptr;
-                curSize -= candidateSize;
+                AddFragment(prevCandidate);
+
+                prevFragment  = prevCandidate;
+                prevCandidate = nullptr;
+                currentSize -= prevSize;
             }
         }
 
-        // Update the current candidate to be this block, if it isn't in the middle of a
-        // prolog or epilog, which we can't split. All we know is that certain
-        // IGs are marked as prolog or epilog. We don't actually know if two adjacent
-        // IGs are part of the *same* prolog or epilog, so we have to assume they are.
+        // Update the current prevCandidate to be this block, if it isn't in the middle of a
+        // prolog or epilog, which we can't split. All we know is that certain IGs are
+        // marked as prolog or epilog. We don't actually know if two adjacent IGs are part
+        // of the *same* prolog or epilog, so we have to assume they are.
 
-        if (igPrev && (((igPrev->igFlags & IGF_FUNCLET_PROLOG) && (ig->igFlags & IGF_FUNCLET_PROLOG)) ||
-                       ((igPrev->igFlags & IGF_EPILOG) && (ig->igFlags & IGF_EPILOG))))
+        // TODO-MIKE-Review: Should this check IGF_FUNCLET_EPILOG as well?
+
+        if (prev && (((prev->igFlags & IGF_FUNCLET_PROLOG) && (ig->igFlags & IGF_FUNCLET_PROLOG)) ||
+                     ((prev->igFlags & IGF_EPILOG) && (ig->igFlags & IGF_EPILOG))))
         {
-            // We can't update the candidate
+            // We can't update the prevCandidate
         }
         else
         {
-            igLastCandidate = ig;
-            candidateSize   = curSize;
+            prevCandidate = ig;
+            prevSize      = currentSize;
         }
 
-        curSize += ig->igSize;
-
-    } // end for loop
+        prev = ig;
+        currentSize += ig->igSize;
+    }
 }
 
 // Reserve space for the unwind info for all fragments
@@ -2010,10 +1981,11 @@ void UnwindInfo::CaptureLocation(emitter* emitter)
     uwiCurLoc.CaptureLocation(emitter);
 }
 
-void UnwindInfo::AddFragment(emitLocation* emitLoc)
+void UnwindInfo::AddFragment(insGroup* ig)
 {
     assert(uwiInitialized);
 
+    emitLocation*       emitLoc = new (uwiComp, CMK_UnwindInfo) emitLocation(ig);
     UnwindFragmentInfo* newFrag = new (uwiComp, CMK_UnwindInfo) UnwindFragmentInfo(uwiComp, emitLoc, true);
     INDEBUG(newFrag->ufiNum = uwiFragmentLast->ufiNum + 1);
     newFrag->CopyPrologCodes(&uwiFragmentFirst);
