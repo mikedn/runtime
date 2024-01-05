@@ -268,7 +268,7 @@ void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* pHotCode, void* pColdCo
 
     if (endLoc == nullptr)
     {
-        endOffset = compiler->info.compNativeCodeSize;
+        endOffset = compNativeCodeSize;
     }
     else
     {
@@ -289,7 +289,7 @@ void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* pHotCode, void* pColdCo
     }
 #endif // DEBUG
 
-    assert(endOffset <= compiler->info.compTotalHotCodeSize);
+    assert(endOffset <= compTotalHotCodeSize);
 
     compiler->eeAllocUnwindInfo((BYTE*)pHotCode, nullptr /* pColdCode */, startOffset, endOffset, unwindCodeBytes,
                                 pUnwindBlock, (CorJitFuncKind)func->funKind);
@@ -313,7 +313,7 @@ void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* pHotCode, void* pColdCo
 
         if (coldEndLoc == nullptr)
         {
-            endOffset = compiler->info.compNativeCodeSize;
+            endOffset = compNativeCodeSize;
         }
         else
         {
@@ -328,9 +328,9 @@ void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* pHotCode, void* pColdCo
         }
 #endif // DEBUG
 
-        assert(startOffset >= compiler->info.compTotalHotCodeSize);
-        startOffset -= compiler->info.compTotalHotCodeSize;
-        endOffset -= compiler->info.compTotalHotCodeSize;
+        assert(startOffset >= compTotalHotCodeSize);
+        startOffset -= compTotalHotCodeSize;
+        endOffset -= compTotalHotCodeSize;
 
         compiler->eeAllocUnwindInfo((BYTE*)pHotCode, (BYTE*)pColdCode, startOffset, endOffset, unwindCodeBytes,
                                     pUnwindBlock, (CorJitFuncKind)func->funKind);

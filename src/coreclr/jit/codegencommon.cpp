@@ -789,9 +789,8 @@ void CodeGen::genEmitMachineCode()
 #if defined(DEBUG) || defined(LATE_DISASM)
     // Add code size information into the Perf Score
     // All compPerfScore calculations must be performed using doubles
-    compiler->info.compPerfScore += ((double)compiler->info.compTotalHotCodeSize * (double)PERFSCORE_CODESIZE_COST_HOT);
-    compiler->info.compPerfScore +=
-        ((double)compiler->info.compTotalColdCodeSize * (double)PERFSCORE_CODESIZE_COST_COLD);
+    compPerfScore += static_cast<double>(compTotalHotCodeSize) * PERFSCORE_CODESIZE_COST_HOT;
+    compPerfScore += static_cast<double>(compTotalColdCodeSize) * PERFSCORE_CODESIZE_COST_COLD;
 #endif // DEBUG || LATE_DISASM
 
 #ifdef DEBUG
@@ -799,7 +798,7 @@ void CodeGen::genEmitMachineCode()
     {
         printf("\n; Total bytes of code %d, prolog size %d, PerfScore %.2f, instruction count %d, allocated bytes for "
                "code %d",
-               codeSize, prologSize, compiler->info.compPerfScore, instrCount, GetEmitter()->GetCodeSize());
+               codeSize, prologSize, compPerfScore, instrCount, GetEmitter()->GetCodeSize());
 
 #if TRACK_LSRA_STATS
         if (JitConfig.DisplayLsraStats() == 3)
@@ -839,8 +838,8 @@ void CodeGen::genEmitMachineCode()
     }
 #endif // DEBUG_ARG_SLOTS
 
-    *nativeSizeOfCode                 = codeSize;
-    compiler->info.compNativeCodeSize = (UNATIVE_OFFSET)codeSize;
+    *nativeSizeOfCode  = codeSize;
+    compNativeCodeSize = codeSize;
 
     // printf("%6u bytes of code generated for %s.%s\n", codeSize, compiler->info.compFullName);
 
@@ -1028,11 +1027,8 @@ void CodeGen::genReportEH()
 
         tryBeg = ehCodeOffset(HBtab->ebdTryBeg);
         hndBeg = ehCodeOffset(HBtab->ebdHndBeg);
-
-        tryEnd = (HBtab->ebdTryLast == compiler->fgLastBB) ? compiler->info.compNativeCodeSize
-                                                           : ehCodeOffset(HBtab->ebdTryLast->bbNext);
-        hndEnd = (HBtab->ebdHndLast == compiler->fgLastBB) ? compiler->info.compNativeCodeSize
-                                                           : ehCodeOffset(HBtab->ebdHndLast->bbNext);
+        tryEnd = HBtab->ebdTryLast == compiler->fgLastBB ? compNativeCodeSize : ehCodeOffset(HBtab->ebdTryLast->bbNext);
+        hndEnd = HBtab->ebdHndLast == compiler->fgLastBB ? compNativeCodeSize : ehCodeOffset(HBtab->ebdHndLast->bbNext);
 
         if (HBtab->HasFilter())
         {
@@ -1246,15 +1242,14 @@ void CodeGen::genReportEH()
                 BasicBlock* bbHndBeg  = encTab->ebdHndBeg; // The handler region is the same as the enclosing try
                 BasicBlock* bbHndLast = encTab->ebdHndLast;
 
-                UNATIVE_OFFSET tryBeg, tryEnd, hndBeg, hndEnd, hndTyp;
+                UNATIVE_OFFSET hndTyp;
 
-                tryBeg = ehCodeOffset(bbTryBeg);
-                hndBeg = ehCodeOffset(bbHndBeg);
-
-                tryEnd = (bbTryLast == compiler->fgLastBB) ? compiler->info.compNativeCodeSize
-                                                           : ehCodeOffset(bbTryLast->bbNext);
-                hndEnd = (bbHndLast == compiler->fgLastBB) ? compiler->info.compNativeCodeSize
-                                                           : ehCodeOffset(bbHndLast->bbNext);
+                uint32_t tryBeg = ehCodeOffset(bbTryBeg);
+                uint32_t hndBeg = ehCodeOffset(bbHndBeg);
+                uint32_t tryEnd =
+                    bbTryLast == compiler->fgLastBB ? compNativeCodeSize : ehCodeOffset(bbTryLast->bbNext);
+                uint32_t hndEnd =
+                    bbHndLast == compiler->fgLastBB ? compNativeCodeSize : ehCodeOffset(bbHndLast->bbNext);
 
                 if (encTab->HasFilter())
                 {
@@ -1325,7 +1320,7 @@ void CodeGen::genReportEH()
                 }
                 if (bbLabel == nullptr)
                 {
-                    hndEnd = compiler->info.compNativeCodeSize;
+                    hndEnd = compNativeCodeSize;
                 }
                 else
                 {

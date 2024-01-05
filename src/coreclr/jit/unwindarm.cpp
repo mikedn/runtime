@@ -1656,14 +1656,14 @@ void UnwindFragmentInfo::Allocate(
 
     if (isHotCode)
     {
-        assert(endOffset <= uwiComp->info.compTotalHotCodeSize);
+        assert(endOffset <= uwiComp->codeGen->compTotalHotCodeSize);
         pColdCode = NULL;
     }
     else
     {
-        assert(startOffset >= uwiComp->info.compTotalHotCodeSize);
-        startOffset -= uwiComp->info.compTotalHotCodeSize;
-        endOffset -= uwiComp->info.compTotalHotCodeSize;
+        assert(startOffset >= uwiComp->codeGen->compTotalHotCodeSize);
+        startOffset -= uwiComp->codeGen->compTotalHotCodeSize;
+        endOffset -= uwiComp->codeGen->compTotalHotCodeSize;
     }
 
 #ifdef DEBUG
@@ -1830,8 +1830,8 @@ void UnwindInfo::Split()
         // compNativeCodeSize is precise, but is only set after instructions are issued, which is too late
         // for us, since we need to decide how many fragments we need before the code memory is allocated
         // (which is before instruction issuing).
-        UNATIVE_OFFSET estimatedTotalCodeSize =
-            uwiComp->info.compTotalHotCodeSize + uwiComp->info.compTotalColdCodeSize;
+        uint32_t estimatedTotalCodeSize =
+            uwiComp->codeGen->compTotalHotCodeSize + uwiComp->codeGen->compTotalColdCodeSize;
         assert(estimatedTotalCodeSize != 0);
         endOffset = estimatedTotalCodeSize;
     }
@@ -2033,8 +2033,8 @@ void UnwindInfo::Allocate(CorJitFuncKind funKind, void* pHotCode, void* pColdCod
 
     if (uwiEndLoc == NULL)
     {
-        assert(uwiComp->info.compNativeCodeSize != 0);
-        endOffset = uwiComp->info.compNativeCodeSize;
+        assert(uwiComp->codeGen->compNativeCodeSize != 0);
+        endOffset = uwiComp->codeGen->compNativeCodeSize;
     }
     else
     {

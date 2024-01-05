@@ -40,14 +40,17 @@ public:
         return compiler;
     }
 
-    Compiler* compiler;
-
-#ifdef JIT32_GCENCODER
-    size_t compInfoBlkSize;
-#endif
-
+    Compiler*     compiler;
     ParamRegState paramRegState;
     SpillTempSet  spillTemps;
+
+    // Callee saved registers that are modified by the compiled method, and thus
+    // need to be saved in prolog and restored in epilog.
+    // These are registers that have been allocated by LSRA and registers used in
+    // prolog for various purposes (e.g. block initialization), without registers
+    // having special uses (frame/stack pointer, link register on ARM64) that too
+    // have to be saved and restored.
+    regMaskTP calleeSavedModifiedRegs = RBM_NONE;
 
 #ifdef TARGET_ARM
     // Registers that are spilled at the start of the prolog, right below stack params,
@@ -74,9 +77,9 @@ public:
     }
 #endif
 
-    //  The following keeps track of how many bytes of local frame space we've
-    //  grabbed so far in the current function, and how many argument bytes we
-    //  need to pop when we return.
+    // The following keeps track of how many bytes of local frame space we've
+    // grabbed so far in the current function, and how many argument bytes we
+    // need to pop when we return.
     unsigned lclFrameSize; // secObject + lclBlk + locals + temps
 
     unsigned paramsStackSize; // total size of parameters passed in stack
@@ -93,13 +96,22 @@ public:
     // In case of Amd64 this doesn't include float regs saved on stack.
     unsigned calleeRegsPushed = UINT_MAX;
 
-    // Callee saved registers that are modified by the compiled method, and thus
-    // need to be saved in prolog and restored in epilog.
-    // These are registers that have been allocated by LSRA and registers used in
-    // prolog for various purposes (e.g. block initialization), without registers
-    // having special uses (frame/stack pointer, link register on ARM64) that too
-    // have to be saved and restored.
-    regMaskTP calleeSavedModifiedRegs = RBM_NONE;
+#ifdef JIT32_GCENCODER
+    size_t compInfoBlkSize;
+#endif
+#if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
+    double compPerfScore = 0.0;
+#endif
+    // Total number of bytes of Hot Code in the method
+    unsigned compTotalHotCodeSize = 0;
+    // Total number of bytes of Cold Code in the method
+    unsigned compTotalColdCodeSize = 0;
+    // The native code size, after instructions are issued.
+    // This is less than (compTotalHotCodeSize + compTotalColdCodeSize) only if:
+    // (1) the code is not hot/cold split, and we issued less code than we expected, or
+    // (2) the code is hot/cold split, and we issued less code than we expected
+    // in the cold section (the hot section will always be padded out to compTotalHotCodeSize).
+    unsigned compNativeCodeSize = 0;
 
 #ifdef UNIX_AMD64_ABI
     // This flag  is indicating if there is a need to align the frame.

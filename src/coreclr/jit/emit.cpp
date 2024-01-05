@@ -1867,7 +1867,7 @@ size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp)
 #if defined(DEBUG) || defined(LATE_DISASM)
     double insExecCost  = insEvaluateExecutionCost(id);
     double insPerfScore = (static_cast<double>(ig->igWeight) / BB_UNITY_WEIGHT) * insExecCost;
-    emitComp->info.compPerfScore += insPerfScore;
+    codeGen->compPerfScore += insPerfScore;
     ig->igPerfScore += insPerfScore;
 #endif
 
@@ -2672,18 +2672,6 @@ void emitter::emitCheckFuncletBranch(instrDescJmp* jmp)
 }
 #endif // DEBUG
 
-/*****************************************************************************
- *
- *  Compute the code sizes that we're going to use to allocate the code buffers.
- *
- *  This sets:
- *
- *      emitTotalHotCodeSize
- *      emitTotalColdCodeSize
- *      Compiler::info.compTotalHotCodeSize
- *      Compiler::info.compTotalColdCodeSize
- */
-
 void emitter::emitComputeCodeSizes()
 {
     assert((emitComp->fgFirstColdBlock == nullptr) == (emitFirstColdIG == nullptr));
@@ -2699,8 +2687,8 @@ void emitter::emitComputeCodeSizes()
         emitTotalColdCodeSize = 0;
     }
 
-    emitComp->info.compTotalHotCodeSize  = emitTotalHotCodeSize;
-    emitComp->info.compTotalColdCodeSize = emitTotalColdCodeSize;
+    codeGen->compTotalHotCodeSize  = emitTotalHotCodeSize;
+    codeGen->compTotalColdCodeSize = emitTotalColdCodeSize;
 
 #ifdef DEBUG
     if (emitComp->verbose)

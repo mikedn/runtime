@@ -1055,7 +1055,6 @@ struct CompiledMethodInfo
     const char* compMethodName = nullptr;
     const char* compClassName  = nullptr;
     const char* compFullName   = nullptr;
-    double      compPerfScore  = 0.0;
     int         compMethodSuperPMIIndex; // useful when debugging under SuperPMI
 #endif
 
@@ -1094,17 +1093,8 @@ struct CompiledMethodInfo
     unsigned compTypeCtxtArg; // position of hidden param for type context for generic code (CORINFO_CALLCONV_PARAMTYPE)
     unsigned compThisArg;     // position of implicit this pointer param (not to be confused with lvaThisLclNum)
     unsigned compLocalsCount; // Number of vars : args + locals (incl. implicit and     hidden)
-    unsigned compTotalHotCodeSize                   = 0; // Total number of bytes of Hot Code in the method
-    unsigned compTotalColdCodeSize                  = 0; // Total number of bytes of Cold Code in the method
     unsigned compUnmanagedCallCountWithGCTransition = 0; // count of unmanaged calls with GC transition.
     unsigned compClassProbeCount                    = 0; // Number of class profile probes in this method
-
-    // The native code size, after instructions are issued.
-    // This is less than (compTotalHotCodeSize + compTotalColdCodeSize) only if:
-    // (1) the code is not hot/cold split, and we issued less code than we expected, or
-    // (2) the code is hot/cold split, and we issued less code than we expected
-    // in the cold section (the hot section will always be padded out to compTotalHotCodeSize).
-    unsigned compNativeCodeSize = 0;
 
     unsigned     compVarScopesCount;
     VarScopeDsc* compVarScopes;
