@@ -1146,7 +1146,7 @@ void UnwindFragmentInfo::FinalizeOffset()
 
 UnwindEpilogInfo* UnwindFragmentInfo::AddEpilog()
 {
-    assert(ufiInitialized == UFI_INITIALIZED_PATTERN);
+    assert(ufiInitialized);
 
 #ifdef DEBUG
     if (ufiInProlog)
@@ -1267,7 +1267,7 @@ bool UnwindFragmentInfo::IsAtFragmentEnd(UnwindEpilogInfo* pEpi)
 
 void UnwindFragmentInfo::MergeCodes()
 {
-    assert(ufiInitialized == UFI_INITIALIZED_PATTERN);
+    assert(ufiInitialized);
 
     unsigned epilogCount     = 0;
     unsigned epilogCodeBytes = 0; // The total number of unwind code bytes used by epilogs that don't match the
@@ -1399,7 +1399,7 @@ void UnwindFragmentInfo::MergeCodes()
 
 void UnwindFragmentInfo::Finalize(UNATIVE_OFFSET functionLength)
 {
-    assert(ufiInitialized == UFI_INITIALIZED_PATTERN);
+    assert(ufiInitialized);
 
 #ifdef DEBUG
     if (0 && uwiComp->verbose)
@@ -1676,7 +1676,7 @@ void UnwindFragmentInfo::Dump(int indent)
     printf("%*s  ufiEpilogScopes: %u\n", indent, "", ufiEpilogScopes);
     printf("%*s  ufiStartOffset: 0x%x\n", indent, "", ufiStartOffset);
     printf("%*s  ufiInProlog: %d\n", indent, "", ufiInProlog);
-    printf("%*s  ufiInitialized: 0x%08x\n", indent, "", ufiInitialized);
+    printf("%*s  ufiInitialized: %d\n", indent, "", ufiInitialized);
 
     ufiPrologCodes.Dump(indent + 2);
 
@@ -1694,7 +1694,12 @@ void UnwindFragmentInfo::Dump(int indent)
 ///////////////////////////////////////////////////////////////////////////////
 
 UnwindInfo::UnwindInfo(Compiler* comp, emitLocation* startLoc, emitLocation* endLoc)
-    : UnwindBase(comp), uwiFragmentFirst(comp, startLoc, false), uwiEndLoc(endLoc)
+    : UnwindBase(comp)
+    , uwiFragmentFirst(comp, startLoc, false)
+    , uwiEndLoc(endLoc)
+#ifdef DEBUG
+    , uwiInitialized(true)
+#endif
 {
 }
 
@@ -1938,7 +1943,7 @@ void UnwindInfo::Split(emitLocation* startLoc, emitLocation* endLoc, UNATIVE_OFF
 
 void UnwindInfo::Reserve(bool isFunclet, bool isHotCode)
 {
-    assert(uwiInitialized == UWI_INITIALIZED_PATTERN);
+    assert(uwiInitialized);
     assert(isHotCode || !isFunclet);
 
     for (UnwindFragmentInfo* pFrag = &uwiFragmentFirst; pFrag != NULL; pFrag = pFrag->ufiNext)
@@ -1951,7 +1956,7 @@ void UnwindInfo::Reserve(bool isFunclet, bool isHotCode)
 
 void UnwindInfo::Allocate(CorJitFuncKind funKind, void* pHotCode, void* pColdCode, bool isHotCode)
 {
-    assert(uwiInitialized == UWI_INITIALIZED_PATTERN);
+    assert(uwiInitialized);
 
     UnwindFragmentInfo* pFrag;
 
@@ -1985,38 +1990,30 @@ void UnwindInfo::Allocate(CorJitFuncKind funKind, void* pHotCode, void* pColdCod
 
 UnwindEpilogInfo* UnwindInfo::AddEpilog()
 {
-    assert(uwiInitialized == UWI_INITIALIZED_PATTERN);
-    assert(uwiFragmentLast != NULL);
+    assert(uwiInitialized);
     return uwiFragmentLast->AddEpilog();
 }
 
-#if defined(TARGET_ARM)
-
+#ifdef TARGET_ARM
 unsigned UnwindInfo::GetInstructionSize()
 {
-    assert(uwiInitialized == UWI_INITIALIZED_PATTERN);
+    assert(uwiInitialized);
     return uwiComp->codeGen->GetEmitter()->emitGetInstructionSize(uwiCurLoc);
 }
-
-#endif // defined(TARGET_ARM)
+#endif
 
 void UnwindInfo::CaptureLocation(emitter* emitter)
 {
-    assert(uwiInitialized == UWI_INITIALIZED_PATTERN);
+    assert(uwiInitialized);
     uwiCurLoc.CaptureLocation(emitter);
 }
 
 void UnwindInfo::AddFragment(emitLocation* emitLoc)
 {
-    assert(uwiInitialized == UWI_INITIALIZED_PATTERN);
-    assert(uwiFragmentLast != NULL);
+    assert(uwiInitialized);
 
     UnwindFragmentInfo* newFrag = new (uwiComp, CMK_UnwindInfo) UnwindFragmentInfo(uwiComp, emitLoc, true);
-
-#ifdef DEBUG
-    newFrag->ufiNum = uwiFragmentLast->ufiNum + 1;
-#endif // DEBUG
-
+    INDEBUG(newFrag->ufiNum = uwiFragmentLast->ufiNum + 1);
     newFrag->CopyPrologCodes(&uwiFragmentFirst);
     newFrag->SplitEpilogCodes(emitLoc, uwiFragmentLast);
 

@@ -544,14 +544,11 @@ class UnwindFragmentInfo : public UnwindBase
     UNATIVE_OFFSET ufiStartOffset = UFI_ILLEGAL_OFFSET;
 
 #ifdef DEBUG
-    static const unsigned UFI_INITIALIZED_PATTERN = 0x0FACADE0; // Something unlikely to be the fill pattern for
-
     unsigned ufiNum = 1;
     // Are we processing the prolog? The prolog must come first, followed by a (possibly empty)
     // set of epilogs, for this function/funclet.
-    bool ufiInProlog = true;
-    // uninitialized memory
-    unsigned ufiInitialized = UFI_INITIALIZED_PATTERN;
+    bool ufiInProlog    = true;
+    bool ufiInitialized = false;
 #endif
 
 public:
@@ -565,6 +562,7 @@ public:
         , ufiHasPhantomProlog(hasPhantomProlog)
         , ufiPrologCodes(comp)
         , ufiEpilogFirst(comp)
+        , ufiInitialized(true)
     {
     }
 
@@ -584,25 +582,25 @@ public:
 
     void AddCode(BYTE b1)
     {
-        assert(ufiInitialized == UFI_INITIALIZED_PATTERN);
+        assert(ufiInitialized);
         ufiCurCodes->AddCode(b1);
     }
 
     void AddCode(BYTE b1, BYTE b2)
     {
-        assert(ufiInitialized == UFI_INITIALIZED_PATTERN);
+        assert(ufiInitialized);
         ufiCurCodes->AddCode(b1, b2);
     }
 
     void AddCode(BYTE b1, BYTE b2, BYTE b3)
     {
-        assert(ufiInitialized == UFI_INITIALIZED_PATTERN);
+        assert(ufiInitialized);
         ufiCurCodes->AddCode(b1, b2, b3);
     }
 
     void AddCode(BYTE b1, BYTE b2, BYTE b3, BYTE b4)
     {
-        assert(ufiInitialized == UFI_INITIALIZED_PATTERN);
+        assert(ufiInitialized);
         ufiCurCodes->AddCode(b1, b2, b3, b4);
     }
 
@@ -668,13 +666,7 @@ class UnwindInfo : public UnwindBase
     // The current emitter location (updated after an unwind code is added), used for NOP
     // padding, and asserts.
     emitLocation uwiCurLoc;
-
-#ifdef DEBUG
-    static const unsigned UWI_INITIALIZED_PATTERN = 0x0FACADE1; // Something unlikely to be the fill pattern for
-
-    // uninitialized memory
-    unsigned uwiInitialized = UWI_INITIALIZED_PATTERN;
-#endif // DEBUG
+    INDEBUG(bool uwiInitialized = false;)
 
 public:
     INDEBUG(bool uwiAddingNOP = false;)
@@ -705,8 +697,7 @@ public:
 
     void AddCode(BYTE b1)
     {
-        assert(uwiInitialized == UWI_INITIALIZED_PATTERN);
-        assert(uwiFragmentLast != NULL);
+        assert(uwiInitialized);
         INDEBUG(CheckOpsize(b1));
 
         uwiFragmentLast->AddCode(b1);
@@ -714,8 +705,7 @@ public:
 
     void AddCode(BYTE b1, BYTE b2)
     {
-        assert(uwiInitialized == UWI_INITIALIZED_PATTERN);
-        assert(uwiFragmentLast != NULL);
+        assert(uwiInitialized);
         INDEBUG(CheckOpsize(b1));
 
         uwiFragmentLast->AddCode(b1, b2);
@@ -723,8 +713,7 @@ public:
 
     void AddCode(BYTE b1, BYTE b2, BYTE b3)
     {
-        assert(uwiInitialized == UWI_INITIALIZED_PATTERN);
-        assert(uwiFragmentLast != NULL);
+        assert(uwiInitialized);
         INDEBUG(CheckOpsize(b1));
 
         uwiFragmentLast->AddCode(b1, b2, b3);
@@ -732,8 +721,7 @@ public:
 
     void AddCode(BYTE b1, BYTE b2, BYTE b3, BYTE b4)
     {
-        assert(uwiInitialized == UWI_INITIALIZED_PATTERN);
-        assert(uwiFragmentLast != NULL);
+        assert(uwiInitialized);
         INDEBUG(CheckOpsize(b1));
 
         uwiFragmentLast->AddCode(b1, b2, b3, b4);
@@ -792,8 +780,6 @@ enum FuncKind : BYTE
     FUNC_HANDLER, // a funclet associated with an EH handler (finally, fault, catch, filter handler)
     FUNC_FILTER   // a funclet associated with an EH filter
 };
-
-class emitLocation;
 
 struct FuncInfoDsc
 {
