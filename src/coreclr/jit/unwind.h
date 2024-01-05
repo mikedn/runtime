@@ -666,7 +666,7 @@ class UnwindInfo : public UnwindBase
     // The first fragment is directly here, so it doesn't need to be separately allocated.
     UnwindFragmentInfo uwiFragmentFirst;
     // The last entry in the fragment list (the last fragment added)
-    UnwindFragmentInfo* uwiFragmentLast;
+    UnwindFragmentInfo* uwiFragmentLast = &uwiFragmentFirst;
     // End emitter location of this function/funclet (NULL == end of all code)
     emitLocation* uwiEndLoc;
     // The current emitter location (updated after an unwind code is added), used for NOP
@@ -677,20 +677,20 @@ class UnwindInfo : public UnwindBase
     static const unsigned UWI_INITIALIZED_PATTERN = 0x0FACADE1; // Something unlikely to be the fill pattern for
 
     // uninitialized memory
-    unsigned uwiInitialized;
+    unsigned uwiInitialized = UWI_INITIALIZED_PATTERN;
 #endif // DEBUG
 
 public:
-    INDEBUG(bool uwiAddingNOP;)
+    INDEBUG(bool uwiAddingNOP = false;)
 
     UnwindInfo()
     {
     }
 
+    UnwindInfo(Compiler* comp, emitLocation* startLoc, emitLocation* endLoc);
+
     UnwindInfo(const UnwindInfo& info) = delete;
     UnwindInfo& operator=(const UnwindInfo&) = delete;
-
-    void InitUnwindInfo(Compiler* comp, emitLocation* startLoc, emitLocation* endLoc);
 
     void HotColdSplitCodes(UnwindInfo* puwi);
 

@@ -157,7 +157,7 @@ void CodeGen::unwindBegProlog()
     emitLocation* endLoc;
     unwindGetFuncLocations(func, true, &startLoc, &endLoc);
 
-    func->uwi.InitUnwindInfo(compiler, startLoc, endLoc);
+    new (&func->uwi) UnwindInfo(compiler, startLoc, endLoc);
     func->uwi.CaptureLocation(GetEmitter());
 
     func->uwiCold = NULL; // No cold data yet
@@ -605,8 +605,7 @@ void CodeGen::unwindReserveFunc(FuncInfoDsc* func)
         emitLocation* endLoc;
         unwindGetFuncLocations(func, false, &startLoc, &endLoc);
 
-        func->uwiCold = new (compiler, CMK_UnwindInfo) UnwindInfo();
-        func->uwiCold->InitUnwindInfo(compiler, startLoc, endLoc);
+        func->uwiCold = new (compiler, CMK_UnwindInfo) UnwindInfo(compiler, startLoc, endLoc);
         func->uwiCold->HotColdSplitCodes(&func->uwi);
 
         funcHasColdSection = true;
@@ -1561,10 +1560,12 @@ void UnwindFragmentInfo::Reserve(bool isFunclet, bool isHotCode)
 
     ULONG unwindSize = Size();
 
+#ifdef DEBUG
     if (ufiNum != 1)
     {
         JITDUMP("reserveUnwindInfo: fragment #%d:\n", ufiNum);
     }
+#endif
 
     uwiComp->eeReserveUnwindInfo(isFunclet, isColdCode, unwindSize);
 }
@@ -1643,10 +1644,12 @@ void UnwindFragmentInfo::Allocate(
         endOffset -= uwiComp->codeGen->compTotalHotCodeSize;
     }
 
+#ifdef DEBUG
     if (ufiNum != 1)
     {
         JITDUMP("unwindEmit: fragment #%d:\n", ufiNum);
     }
+#endif
 
     uwiComp->eeAllocUnwindInfo((BYTE*)pHotCode, (BYTE*)pColdCode, startOffset, endOffset, unwindBlockSize, pUnwindBlock,
                                funKind);
@@ -1691,31 +1694,12 @@ void UnwindFragmentInfo::Dump(int indent)
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-void UnwindInfo::InitUnwindInfo(Compiler* comp, emitLocation* startLoc, emitLocation* endLoc)
+UnwindInfo::UnwindInfo(Compiler* comp, emitLocation* startLoc, emitLocation* endLoc)
+    : UnwindBase(comp)
+    , uwiFragmentFirst(comp, startLoc, false)
+    , uwiEndLoc(endLoc)
+    , uwiCurLoc(new (uwiComp, CMK_UnwindInfo) emitLocation())
 {
-    uwiComp = comp;
-
-    // The first fragment is a member of UnwindInfo, so it doesn't need to be allocated.
-    // However, its constructor needs to be explicitly called, since the constructor for
-    // UnwindInfo is not called.
-
-    new (&uwiFragmentFirst) UnwindFragmentInfo(comp, startLoc, false);
-
-    uwiFragmentLast = &uwiFragmentFirst;
-
-    uwiEndLoc = endLoc;
-
-    // Allocate an emitter location object. It is initialized to something
-    // invalid: it has a null 'ig' that needs to get set before it can be used.
-    // Note that when we create an UnwindInfo for the cold section, this never
-    // gets initialized with anything useful, since we never add unwind codes
-    // to the cold section; we simply distribute the existing (previously added) codes.
-    uwiCurLoc = new (uwiComp, CMK_UnwindInfo) emitLocation();
-
-#ifdef DEBUG
-    uwiInitialized = UWI_INITIALIZED_PATTERN;
-    uwiAddingNOP   = false;
-#endif // DEBUG
 }
 
 // Split the unwind codes in 'puwi' into those that are in the hot section (leave them in 'puwi')
