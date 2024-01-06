@@ -1654,11 +1654,11 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
     if (compiler->info.compFlags & CORINFO_FLG_SYNCH)
     {
         assert(codeGen->syncStartEmitCookie != NULL);
-        header->syncStartOffset = codeGen->GetEmitter()->emitCodeOffset(codeGen->syncStartEmitCookie);
+        header->syncStartOffset = codeGen->syncStartEmitCookie->GetCodeOffset();
         assert(header->syncStartOffset != INVALID_SYNC_OFFSET);
 
         assert(codeGen->syncEndEmitCookie != NULL);
-        header->syncEndOffset = codeGen->GetEmitter()->emitCodeOffset(codeGen->syncEndEmitCookie);
+        header->syncEndOffset = codeGen->syncEndEmitCookie->GetCodeOffset();
         assert(header->syncEndOffset != INVALID_SYNC_OFFSET);
 
         assert(header->syncStartOffset < header->syncEndOffset);

@@ -4990,7 +4990,7 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
         assert((instrCount >= 0) || (jumpInstrNum + 1 >= static_cast<unsigned>(-instrCount)));
 
-        labelOffs = ig->igOffs + emitFindOffset(ig, jumpInstrNum + 1 + instrCount);
+        labelOffs = ig->igOffs + ig->FindInsOffset(jumpInstrNum + 1 + instrCount);
     }
     else
     {
@@ -6260,7 +6260,7 @@ void emitter::emitDispLabel(instrDescJmp* id)
         unsigned instrNum   = emitFindInsNum(id->idjIG, id);
         uint32_t instrOffs  = id->idjIG->igOffs + id->idjOffs;
         int      instrCount = id->GetInstrCount();
-        uint32_t labelOffs  = id->idjIG->igOffs + emitFindOffset(id->idjIG, instrNum + 1 + instrCount);
+        uint32_t labelOffs  = id->idjIG->igOffs + id->idjIG->FindInsOffset(instrNum + 1 + instrCount);
         ssize_t  distance   = emitOffsetToPtr(labelOffs) - emitOffsetToPtr(instrOffs) - 2;
 
         printf("pc%s%d (%d instructions)", distance >= 0 ? "+" : "", distance, instrCount);

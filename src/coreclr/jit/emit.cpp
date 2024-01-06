@@ -97,24 +97,6 @@ bool emitter::IsPreviousLocation(const emitLocation& loc) const
     return false;
 }
 
-uint32_t emitter::GetCodeOffset(const insGroup* ig) const
-{
-    assert(ig->igNum != 0);
-    return ig->igOffs;
-}
-
-uint32_t emitter::GetCodeOffset(const emitLocation& loc) const
-{
-    assert(loc.Valid());
-    return emitCodeOffset(loc.GetIG(), loc.GetCodePos());
-}
-
-uint32_t emitter::GetCodeOffset(const emitLocation* loc) const
-{
-    assert(loc->Valid());
-    return emitCodeOffset(loc->GetIG(), loc->GetCodePos());
-}
-
 void emitLocation::CaptureLocation(emitter* emit)
 {
     ig      = emit->emitCurIG;
@@ -131,6 +113,11 @@ unsigned emitLocation::GetInsNum() const
 uint32_t emitLocation::GetCodePos() const
 {
     return codePos;
+}
+
+uint32_t emitLocation::GetCodeOffset() const
+{
+    return ig->GetCodeOffset(codePos);
 }
 
 #ifdef DEBUG
@@ -1121,15 +1108,15 @@ void emitter::emitEndFnEpilog()
 {
     assert(emitEpilogLast != nullptr);
 
-    UNATIVE_OFFSET epilogBegCodeOffset          = GetCodeOffset(emitEpilogLast->elLoc);
-    UNATIVE_OFFSET epilogExitSeqStartCodeOffset = GetCodeOffset(emitExitSeqBegLoc);
-    UNATIVE_OFFSET newSize                      = epilogExitSeqStartCodeOffset - epilogBegCodeOffset;
+    uint32_t epilogBegCodeOffset          = emitEpilogLast->elLoc.GetCodeOffset();
+    uint32_t epilogExitSeqStartCodeOffset = emitExitSeqBegLoc.GetCodeOffset();
+    uint32_t newSize                      = epilogExitSeqStartCodeOffset - epilogBegCodeOffset;
 
     /* Compute total epilog size */
     assert(emitEpilogSize == 0 || emitEpilogSize == newSize); // All epilogs must be identical
     emitEpilogSize = newSize;
 
-    UNATIVE_OFFSET epilogEndCodeOffset = emitCodeOffset(emitCurIG, emitCurCodePos());
+    uint32_t epilogEndCodeOffset = emitCurIG->GetCodeOffset(emitCurCodePos());
     assert(epilogExitSeqStartCodeOffset != epilogEndCodeOffset);
 
     newSize = epilogEndCodeOffset - epilogExitSeqStartCodeOffset;
@@ -3092,7 +3079,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 
     JITDUMP("Allocated method code size %u\n", emitTotalCodeSize);
 
-    *prologSize = emitCodeOffset(GetProlog(), emitPrologEndPos);
+    *prologSize = GetProlog()->GetCodeOffset(emitPrologEndPos);
 
     return emitTotalCodeSize;
 }
@@ -3119,16 +3106,16 @@ unsigned emitter::emitFindInsNum(insGroup* ig, instrDesc* idMatch)
 // We've been asked for the code offset of an instruction but alas one or
 // more instruction sizes in the block have been mis-predicted, so we have
 // to find the true offset by looking for the instruction within the group.
-uint32_t emitter::emitFindOffset(insGroup* ig, unsigned insNum) const
+uint32_t insGroup::FindInsOffset(unsigned insNum) const
 {
-    assert(insNum <= ig->igInsCnt);
+    assert(insNum <= igInsCnt);
 
-    uint8_t* insData = ig->igData;
+    uint8_t* insData = igData;
     uint32_t insOffs = 0;
 
     for (unsigned i = 0; i < insNum; i++)
     {
-        instrDesc* id = reinterpret_cast<instrDesc*>(insData);
+        emitter::instrDesc* id = reinterpret_cast<emitter::instrDesc*>(insData);
         insOffs += id->idCodeSize();
         insData += id->GetDescSize();
     }
@@ -3136,14 +3123,7 @@ uint32_t emitter::emitFindOffset(insGroup* ig, unsigned insNum) const
     return insOffs;
 }
 
-// Given a block cookie and a code position, return the actual code offset;
-// this can only be called at the end of code generation.
-uint32_t emitter::emitCodeOffset(insGroup* ig) const
-{
-    return ig->igOffs;
-}
-
-uint32_t emitter::emitCodeOffset(insGroup* ig, unsigned codePos) const
+uint32_t insGroup::GetCodeOffset(unsigned codePos) const
 {
     uint32_t insOffs;
     unsigned insNum = GetInsNumFromCodePos(codePos);
@@ -3152,21 +3132,21 @@ uint32_t emitter::emitCodeOffset(insGroup* ig, unsigned codePos) const
     {
         insOffs = 0;
     }
-    else if (insNum == ig->igInsCnt)
+    else if (insNum == igInsCnt)
     {
-        insOffs = ig->igSize;
+        insOffs = igSize;
     }
-    else if ((ig->igFlags & IGF_UPD_ISZ) != 0)
+    else if ((igFlags & IGF_UPD_ISZ) != 0)
     {
-        insOffs = emitFindOffset(ig, insNum);
+        insOffs = FindInsOffset(insNum);
     }
     else
     {
         insOffs = GetInsOffsetFromCodePos(codePos);
-        assert(insOffs == emitFindOffset(ig, GetInsNumFromCodePos(codePos)));
+        assert(insOffs == FindInsOffset(GetInsNumFromCodePos(codePos)));
     }
 
-    return ig->igOffs + insOffs;
+    return igOffs + insOffs;
 }
 
 UNATIVE_OFFSET emitter::emitCurCodeOffs(BYTE* dst)

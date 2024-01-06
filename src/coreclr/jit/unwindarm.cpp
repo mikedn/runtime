@@ -1242,7 +1242,7 @@ void UnwindFragmentInfo::SplitEpilogCodes(const insGroup* splitLoc, UnwindFragme
     for (UnwindEpilogInfo *epilog = splitFrom->ufiEpilogList, *prev = nullptr; epilog != nullptr;
          prev = epilog, epilog = epilog->epiNext)
     {
-        uint32_t epilogStartOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(epilog->GetStartLocation());
+        uint32_t epilogStartOffset = epilog->GetStartLocation().GetCodeOffset();
 
         if (epilogStartOffset >= splitOffset)
         {
@@ -1536,7 +1536,7 @@ void UnwindFragmentInfo::Finalize(uint32_t startOffset, uint32_t functionLength)
     {
         for (UnwindEpilogInfo* epilog = ufiEpilogList; epilog != nullptr; epilog = epilog->epiNext)
         {
-            uint32_t epilogStartOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(epilog->GetStartLocation());
+            uint32_t epilogStartOffset = epilog->GetStartLocation().GetCodeOffset();
 
             // The epilog must strictly follow the prolog. The prolog is in the first fragment of
             // the hot section. If this epilog is at the start of a fragment, it can't be the

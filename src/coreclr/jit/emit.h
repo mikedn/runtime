@@ -48,6 +48,7 @@ public:
 
     unsigned GetInsNum() const;
     unsigned GetCodePos() const;
+    uint32_t GetCodeOffset() const;
 
     INDEBUG(void Print(const char* suffix = nullptr) const;)
 };
@@ -141,6 +142,9 @@ struct insGroup
         return igOffs;
     }
 
+    uint32_t GetCodeOffset(unsigned codePos) const;
+    uint32_t FindInsOffset(unsigned insNum) const;
+
     VARSET_TP GetGCLcls() const
     {
         assert((igFlags & IGF_EXTEND) == 0);
@@ -220,6 +224,7 @@ class emitter
     friend class emitLocation;
     friend class GCInfo;
     friend class AsmPrinter;
+    friend struct insGroup;
 
     Compiler*    emitComp;
     GCInfo       gcInfo;
@@ -296,7 +301,7 @@ public:
         {
             assert((el->elLoc.GetIG()->igFlags & IGF_EPILOG) != 0);
 
-            callback(GetCodeOffset(el->elLoc));
+            callback(el->elLoc.GetCodeOffset());
         }
     }
 #endif // JIT32_GCENCODER
@@ -308,11 +313,6 @@ public:
     unsigned emitCurCodePos();
     bool IsCurrentLocation(const emitLocation& loc) const;
     bool IsPreviousLocation(const emitLocation& loc) const;
-    uint32_t GetCodeOffset(const insGroup* ig) const;
-    uint32_t GetCodeOffset(const emitLocation& loc) const;
-    uint32_t GetCodeOffset(const emitLocation* loc) const;
-    uint32_t emitCodeOffset(insGroup* ig) const;
-    uint32_t emitCodeOffset(insGroup* ig, unsigned codeOffs) const;
     INDEBUG(const char* emitOffsetToLabel(unsigned offs);)
 
     /************************************************************************/
@@ -1396,7 +1396,6 @@ public:
     /************************************************************************/
 
     unsigned emitFindInsNum(insGroup* ig, instrDesc* id);
-    uint32_t emitFindOffset(insGroup* ig, unsigned insNum) const;
 
     /************************************************************************/
     /*        Members and methods used to issue (encode) instructions.      */

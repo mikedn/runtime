@@ -4442,8 +4442,8 @@ void CodeGen::genSetScopeInfoUsingVariableRanges(VarResultInfo* vars)
 
         for (DbgInfoVarRange* range = liveness.GetDbgInfoRanges(lclNum); range != nullptr; range = range->next)
         {
-            uint32_t startOffs = GetEmitter()->GetCodeOffset(range->startOffset);
-            uint32_t endOffs   = GetEmitter()->GetCodeOffset(range->endOffset);
+            uint32_t startOffs = range->startOffset.GetCodeOffset();
+            uint32_t endOffs   = range->endOffset.GetCodeOffset();
 
             if (lcl->IsParam() && (startOffs == endOffs))
             {
@@ -4895,7 +4895,7 @@ void CodeGen::genIPmappingGen()
             continue;
         }
 
-        uint32_t nextNativeOfs = GetEmitter()->GetCodeOffset(tmpMapping->ipmdNativeLoc);
+        uint32_t nextNativeOfs = tmpMapping->ipmdNativeLoc.GetCodeOffset();
 
         if (nextNativeOfs != lastNativeOfs)
         {
@@ -4934,7 +4934,7 @@ void CodeGen::genIPmappingGen()
         {
             noway_assert(prevMapping != nullptr);
             noway_assert(!prevMapping->ipmdNativeLoc.Valid() ||
-                         (lastNativeOfs == GetEmitter()->GetCodeOffset(prevMapping->ipmdNativeLoc)));
+                         (lastNativeOfs == prevMapping->ipmdNativeLoc.GetCodeOffset()));
 
             /* The previous block had the same native offset. We have to
                discard one of the mappings. Simply reinitialize ipmdNativeLoc
@@ -4970,7 +4970,7 @@ void CodeGen::genIPmappingGen()
             continue;
         }
 
-        uint32_t   nextNativeOfs = GetEmitter()->GetCodeOffset(tmpMapping->ipmdNativeLoc);
+        uint32_t   nextNativeOfs = tmpMapping->ipmdNativeLoc.GetCodeOffset();
         IL_OFFSETX srcIP         = tmpMapping->ipmdILoffsx;
 
         if (jitIsCallInstruction(srcIP))
@@ -5962,5 +5962,5 @@ insGroup* CodeGen::ehEmitLabel(BasicBlock* block)
 
 uint32_t CodeGen::ehCodeOffset(BasicBlock* block)
 {
-    return GetEmitter()->emitCodeOffset(ehEmitLabel(block));
+    return ehEmitLabel(block)->GetCodeOffset();
 }
