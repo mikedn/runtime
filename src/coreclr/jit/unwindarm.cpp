@@ -1,129 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                              UnwindInfo                                   XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
 #include "unwind.h"
 #include "codegen.h"
-
-#if defined(TARGET_ARM) && defined(TARGET_UNIX)
-short CodeGen::mapRegNumToDwarfReg(regNumber reg)
-{
-    short dwarfReg = DWARF_REG_ILLEGAL;
-
-    switch (reg)
-    {
-        case REG_R0:
-            dwarfReg = 0;
-            break;
-        case REG_R1:
-            dwarfReg = 1;
-            break;
-        case REG_R2:
-            dwarfReg = 2;
-            break;
-        case REG_R3:
-            dwarfReg = 3;
-            break;
-        case REG_R4:
-            dwarfReg = 4;
-            break;
-        case REG_R5:
-            dwarfReg = 5;
-            break;
-        case REG_R6:
-            dwarfReg = 6;
-            break;
-        case REG_R7:
-            dwarfReg = 7;
-            break;
-        case REG_R8:
-            dwarfReg = 8;
-            break;
-        case REG_R9:
-            dwarfReg = 9;
-            break;
-        case REG_R10:
-            dwarfReg = 10;
-            break;
-        case REG_R11:
-            dwarfReg = 11;
-            break;
-        case REG_R12:
-            dwarfReg = 12;
-            break;
-        case REG_R13:
-            dwarfReg = 13;
-            break;
-        case REG_R14:
-            dwarfReg = 14;
-            break;
-        case REG_R15:
-            dwarfReg = 15;
-            break;
-        case REG_F0:
-            dwarfReg = 256;
-            break;
-        case REG_F2:
-            dwarfReg = 257;
-            break;
-        case REG_F4:
-            dwarfReg = 258;
-            break;
-        case REG_F6:
-            dwarfReg = 259;
-            break;
-        case REG_F8:
-            dwarfReg = 260;
-            break;
-        case REG_F10:
-            dwarfReg = 261;
-            break;
-        case REG_F12:
-            dwarfReg = 262;
-            break;
-        case REG_F14:
-            dwarfReg = 263;
-            break;
-        case REG_F16:
-            dwarfReg = 264;
-            break;
-        case REG_F18:
-            dwarfReg = 265;
-            break;
-        case REG_F20:
-            dwarfReg = 266;
-            break;
-        case REG_F22:
-            dwarfReg = 267;
-            break;
-        case REG_F24:
-            dwarfReg = 268;
-            break;
-        case REG_F26:
-            dwarfReg = 269;
-            break;
-        case REG_F28:
-            dwarfReg = 270;
-            break;
-        case REG_F30:
-            dwarfReg = 271;
-            break;
-        default:
-            noway_assert(!"unexpected REG_NUM");
-    }
-
-    return dwarfReg;
-}
-#endif // TARGET_ARM && TARGET_UNIX
 
 #ifdef TARGET_ARMARCH
 
@@ -154,15 +34,6 @@ const unsigned MAX_EPILOG_SIZE_BYTES = 100;
 // Max number that can be encoded in the "Epilog Start Offset" field of the .pdata record
 #define UW_MAX_EPILOG_START_OFFSET 0x3FFFFU
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX  Unwind APIs                                                              XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 void CodeGen::unwindBegProlog()
 {
     assert(generatingProlog);
@@ -171,14 +42,12 @@ void CodeGen::unwindBegProlog()
     if (generateCFIUnwindCodes())
     {
         unwindBegPrologCFI();
+
         return;
     }
 #endif
 
     FuncInfoDsc* func = funCurrentFunc();
-
-    // There is only one prolog for a function/funclet, and it comes first. So now is
-    // a good time to initialize all the unwind data structures.
 
     insGroup* startLoc;
     insGroup* endLoc;
@@ -207,10 +76,7 @@ void CodeGen::unwindBegEpilog()
 #endif
 
     UnwindEpilogInfo* epilog = funCurrentFunc()->uwi.AddEpilog();
-    // What is the starting code offset of the epilog? Store an emitter location
-    // so we can ask the emitter later, after codegen.
-    epilog->CaptureEmitLocation(GetEmitter());
-
+    epilog->CaptureLocation(GetEmitter());
     funCurrentFunc()->uwi.CaptureLocation(GetEmitter());
 }
 
@@ -226,7 +92,7 @@ void CodeGen::unwindPushPopMaskInt(regMaskTP maskInt, bool useOpsize16)
     // floating point registers cannot be specified in 'maskInt'
     assert((maskInt & RBM_ALLFLOAT) == 0);
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    UnwindInfo& info = funCurrentFunc()->uwi;
 
     if (useOpsize16)
     {
@@ -258,12 +124,12 @@ void CodeGen::unwindPushPopMaskInt(regMaskTP maskInt, bool useOpsize16)
         if (shortFormat)
         {
             // D0-D7 : pop {r4-rX,lr} (X=4-7) (opsize 16)
-            pu->AddCode(0xD0 | ((maskInt >> 12) & 0x4) | val);
+            info.AddCode(0xD0 | ((maskInt >> 12) & 0x4) | val);
         }
         else
         {
             // EC-ED : pop {r0-r7,lr} (opsize 16)
-            pu->AddCode(0xEC | ((maskInt >> 14) & 0x1), (uint8_t)maskInt);
+            info.AddCode(0xEC | ((maskInt >> 14) & 0x1), (uint8_t)maskInt);
         }
     }
     else
@@ -298,31 +164,30 @@ void CodeGen::unwindPushPopMaskInt(regMaskTP maskInt, bool useOpsize16)
         if (shortFormat)
         {
             // D8-DF : pop {r4-rX,lr} (X=8-11) (opsize 32)
-            pu->AddCode(0xD8 | ((maskInt >> 12) & 0x4) | val);
+            info.AddCode(0xD8 | ((maskInt >> 12) & 0x4) | val);
         }
         else
         {
             // 80-BF : pop {r0-r12,lr} (opsize 32)
-            pu->AddCode(0x80 | ((maskInt >> 8) & 0x1F) | ((maskInt >> 9) & 0x20), (uint8_t)maskInt);
+            info.AddCode(0x80 | ((maskInt >> 8) & 0x1F) | ((maskInt >> 9) & 0x20), (uint8_t)maskInt);
         }
     }
 
-    pu->CaptureLocation(GetEmitter());
+    info.CaptureLocation(GetEmitter());
 }
 
 void CodeGen::unwindPushPopMaskFloat(regMaskTP maskFloat)
 {
     // Only floating pointer registers can be specified in 'maskFloat'
-    assert((maskFloat & ~RBM_ALLFLOAT) == 0);
+    assert((maskFloat & ~RBM_ALLFLOAT) == RBM_NONE);
 
     // If the maskFloat is zero there is no unwind code to emit
-    //
     if (maskFloat == RBM_NONE)
     {
         return;
     }
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    UnwindInfo& info = funCurrentFunc()->uwi;
 
     uint8_t   val     = 0;
     regMaskTP valMask = (RBM_F16 | RBM_F17);
@@ -342,8 +207,8 @@ void CodeGen::unwindPushPopMaskFloat(regMaskTP maskFloat)
 
     // E0-E7 : vpop {d8-dX} (X=8-15) (opsize 32)
     assert(0 <= val && val <= 7);
-    pu->AddCode(0xE0 | val);
-    pu->CaptureLocation(GetEmitter());
+    info.AddCode(0xE0 | val);
+    info.CaptureLocation(GetEmitter());
 }
 
 void CodeGen::unwindPushMaskInt(regMaskTP maskInt)
@@ -379,6 +244,7 @@ void CodeGen::unwindPushMaskFloat(regMaskTP maskFloat)
     if (generateCFIUnwindCodes())
     {
         unwindPushPopMaskCFI(maskFloat, true);
+
         return;
     }
 #endif
@@ -437,11 +303,12 @@ void CodeGen::unwindAllocStack(unsigned size)
         {
             unwindAllocStackCFI(size);
         }
+
         return;
     }
 #endif
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    UnwindInfo& info = funCurrentFunc()->uwi;
 
     assert(size % 4 == 0);
     size /= 4;
@@ -449,12 +316,12 @@ void CodeGen::unwindAllocStack(unsigned size)
     if (size <= 0x7F)
     {
         // 00-7F : add sp, sp, #X*4 (opsize 16)
-        pu->AddCode((uint8_t)size);
+        info.AddCode((uint8_t)size);
     }
     else if (size <= 0x3FF)
     {
         // E8-EB : addw sp, sp, #X*4 (opsize 32)
-        pu->AddCode(0xE8 | (uint8_t)(size >> 8), (uint8_t)size);
+        info.AddCode(0xE8 | (uint8_t)(size >> 8), (uint8_t)size);
     }
     else if (size <= 0xFFFF)
     {
@@ -463,11 +330,11 @@ void CodeGen::unwindAllocStack(unsigned size)
         //
         // For large stack size, the most significant bits
         // are stored first (and next to the opCode (F9)) per the unwind spec.
-        unsigned instrSizeInBytes = pu->GetInstructionSize();
+        unsigned instrSizeInBytes = info.GetInstructionSize();
         uint8_t  b1               = (instrSizeInBytes == 2) ? 0xF7 : 0xF9;
-        pu->AddCode(b1,
-                    (uint8_t)(size >> 8), // msb
-                    (uint8_t)size);       // lsb
+        info.AddCode(b1,
+                     (uint8_t)(size >> 8), // msb
+                     (uint8_t)size);       // lsb
     }
     else
     {
@@ -476,15 +343,15 @@ void CodeGen::unwindAllocStack(unsigned size)
         //
         // For large stack size, the most significant bits
         // are stored first (and next to the opCode (FA)) per the unwind spec.
-        unsigned instrSizeInBytes = pu->GetInstructionSize();
+        unsigned instrSizeInBytes = info.GetInstructionSize();
         uint8_t  b1               = (instrSizeInBytes == 2) ? 0xF8 : 0xFA;
-        pu->AddCode(b1, (uint8_t)(size >> 16), (uint8_t)(size >> 8), (uint8_t)size);
+        info.AddCode(b1, (uint8_t)(size >> 16), (uint8_t)(size >> 8), (uint8_t)size);
     }
 
-    pu->CaptureLocation(GetEmitter());
+    info.CaptureLocation(GetEmitter());
 }
 
-void CodeGen::unwindSetFrameReg(regNumber reg, unsigned offset)
+void CodeGen::unwindSetFrameReg(RegNum reg, unsigned offset)
 {
 #ifdef TARGET_UNIX
     if (generateCFIUnwindCodes())
@@ -493,22 +360,23 @@ void CodeGen::unwindSetFrameReg(regNumber reg, unsigned offset)
         {
             unwindSetFrameRegCFI(reg, offset);
         }
+
         return;
     }
 #endif
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    UnwindInfo& info = funCurrentFunc()->uwi;
 
     // Arm unwind info does not allow offset
     assert(offset == 0);
     assert(0 <= reg && reg <= 15);
 
     // C0-CF : mov sp, rX (opsize 16)
-    pu->AddCode((uint8_t)(0xC0 + reg));
-    pu->CaptureLocation(GetEmitter());
+    info.AddCode((uint8_t)(0xC0 + reg));
+    info.CaptureLocation(GetEmitter());
 }
 
-void CodeGen::unwindSaveReg(regNumber reg, unsigned offset)
+void CodeGen::unwindSaveReg(RegNum reg, unsigned offset)
 {
     unreached();
 }
@@ -522,12 +390,12 @@ void CodeGen::unwindBranch16()
     }
 #endif
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    UnwindInfo& info = funCurrentFunc()->uwi;
 
     // TODO-CQ: need to handle changing the exit code from 0xFF to 0xFD. Currently, this will waste an extra 0xFF at the
     // end, automatically added.
-    pu->AddCode(0xFD);
-    pu->CaptureLocation(GetEmitter());
+    info.AddCode(0xFD);
+    info.CaptureLocation(GetEmitter());
 }
 
 void CodeGen::unwindNop(unsigned codeSizeInBytes) // codeSizeInBytes is 2 or 4 bytes for Thumb2 instruction
@@ -539,35 +407,33 @@ void CodeGen::unwindNop(unsigned codeSizeInBytes) // codeSizeInBytes is 2 or 4 b
     }
 #endif
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
-
     JITDUMP("unwindNop: adding NOP for %d byte instruction\n", codeSizeInBytes);
 
-    INDEBUG(pu->uwiAddingNOP = true);
+    UnwindInfo& info = funCurrentFunc()->uwi;
+
+    INDEBUG(info.uwiAddingNOP = true);
 
     if (codeSizeInBytes == 2)
     {
-        // FB : nop (opsize 16)
-        pu->AddCode(0xFB);
+        info.AddCode(0xFB); // nop (opsize 16)
     }
     else
     {
         noway_assert(codeSizeInBytes == 4);
 
-        // FC : nop (opsize 32)
-        pu->AddCode(0xFC);
+        info.AddCode(0xFC); // nop (opsize 32)
     }
 
-    pu->CaptureLocation(GetEmitter());
+    info.CaptureLocation(GetEmitter());
 
-    INDEBUG(pu->uwiAddingNOP = false);
+    INDEBUG(info.uwiAddingNOP = false);
 }
 
 #endif // TARGET_ARM
 
-// The instructions between the last captured "current state" and the current instruction
-// are in the prolog but have no effect for unwinding. Emit the appropriate NOP unwind codes
-// for them.
+// The instructions between the last captured "current state" and the current
+// instruction are in the prolog but have no effect for unwinding.
+// Emit the appropriate NOP unwind codes for them.
 void CodeGen::unwindPadding()
 {
 #if TARGET_UNIX
@@ -577,12 +443,9 @@ void CodeGen::unwindPadding()
     }
 #endif
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
-    GetEmitter()->emitUnwindNopPadding(pu->GetCurrentEmitterLocation());
+    GetEmitter()->emitUnwindNopPadding(funCurrentFunc()->uwi.GetCurrentLocation());
 }
 
-// Ask the VM to reserve space for the unwind information for the function and
-// all its funclets.
 void CodeGen::unwindReserve()
 {
     assert(!generatingProlog);
@@ -662,132 +525,6 @@ void CodeGen::unwindEmitFunc(FuncInfoDsc* func, void* hotCode, void* coldCode)
     }
 }
 
-#ifdef TARGET_ARM
-
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX  Unwind Info Debug helpers                                                XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-#ifdef DEBUG
-
-// Return the opcode size of an instruction, in bytes, given the first byte of
-// its corresponding unwind code.
-
-unsigned GetOpcodeSizeFromUnwindHeader(uint8_t b1)
-{
-    static uint8_t s_UnwindOpsize[256]{
-        // array of opsizes, in bytes (as specified in the ARM unwind specification)
-        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 00-0F
-        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 10-1F
-        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 20-2F
-        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 30-3F
-        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 40-4F
-        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 50-5F
-        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 60-6F
-        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 70-7F
-        4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, // 80-8F
-        4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, // 90-9F
-        4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, // A0-AF
-        4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, // B0-BF
-        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // C0-CF
-        2, 2, 2, 2, 2, 2, 2, 2, 4, 4, 4, 4, 4, 4, 4, 4, // D0-DF
-        4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 2, 2, 2, 4, // E0-EF
-        0, 0, 0, 0, 0, 4, 4, 2, 2, 4, 4, 2, 4, 2, 4, 0  // F0-FF
-    };
-
-    uint8_t opsize = s_UnwindOpsize[b1];
-    assert(opsize == 2 ||
-           opsize == 4); // We shouldn't get a code with no opsize (the 0xFF end code is handled specially)
-    return opsize;
-}
-
-// Return the size of the unwind code (from 1 to 4 bytes), given the first byte of the unwind bytes
-
-unsigned GetUnwindSizeFromUnwindHeader(uint8_t b1)
-{
-    static uint8_t s_UnwindSize[256] = {
-        // array of unwind sizes, in bytes (as specified in the ARM unwind specification)
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 00-0F
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 10-1F
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 20-2F
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 30-3F
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 40-4F
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 50-5F
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 60-6F
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 70-7F
-        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 80-8F
-        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 90-9F
-        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // A0-AF
-        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // B0-BF
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // C0-CF
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // D0-DF
-        1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, // E0-EF
-        1, 1, 1, 1, 1, 2, 2, 3, 4, 3, 4, 1, 1, 1, 1, 1  // F0-FF
-    };
-
-    unsigned size = s_UnwindSize[b1];
-    assert(1 <= size && size <= 4);
-    return size;
-}
-
-#endif // DEBUG
-
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX  Unwind Info Support Classes                                              XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-///////////////////////////////////////////////////////////////////////////////
-//
-//  UnwindCodesBase
-//
-///////////////////////////////////////////////////////////////////////////////
-
-#ifdef DEBUG
-
-// Walk the prolog codes and calculate the size of the prolog or epilog, in bytes.
-// The 0xFD and 0xFE "end + NOP" codes need to be handled differently between
-// the prolog and epilog. They count as pure "end" codes in a prolog, but they
-// count as 16 and 32 bit NOPs (respectively), as well as an "end", in an epilog.
-unsigned UnwindCodesBase::GetCodeSizeFromUnwindCodes(bool isProlog)
-{
-    uint8_t* pCodesStart = GetCodes();
-    uint8_t* pCodes      = pCodesStart;
-    unsigned size        = 0;
-    for (;;)
-    {
-        uint8_t b1 = *pCodes;
-        if (b1 >= 0xFD)
-        {
-            // 0xFD, 0xFE, 0xFF are "end" codes
-
-            if (!isProlog && (b1 == 0xFD || b1 == 0xFE))
-            {
-                // Count the special "end + NOP" code size in the epilog
-                size += GetOpcodeSizeFromUnwindHeader(b1);
-            }
-
-            break; // We hit an "end" code; we're done
-        }
-        size += GetOpcodeSizeFromUnwindHeader(b1);
-        pCodes += GetUnwindSizeFromUnwindHeader(b1);
-        assert(pCodes - pCodesStart < 256); // 255 is the absolute maximum number of code bytes allowed
-    }
-    return size;
-}
-
-#endif // DEBUG
-#endif // TARGET_ARM
-
 bool UnwindCodesBase::IsEndCode(uint8_t b) const
 {
 #ifdef TARGET_ARM
@@ -796,12 +533,6 @@ bool UnwindCodesBase::IsEndCode(uint8_t b) const
     return b == UWC_END; // TODO-ARM64-Bug?: what about the "end_c" code?
 #endif
 }
-
-///////////////////////////////////////////////////////////////////////////////
-//
-//  UnwindPrologCodes
-//
-///////////////////////////////////////////////////////////////////////////////
 
 UnwindPrologCodes::UnwindPrologCodes(Compiler* comp) : UnwindCodesBase(comp)
 {
@@ -821,7 +552,6 @@ UnwindPrologCodes::UnwindPrologCodes(Compiler* comp) : UnwindCodesBase(comp)
 // Set the header pointer for future use, adding the header bytes (this pointer
 // is updated when a header byte is added), and remember the index that points
 // to the beginning of the header.
-
 void UnwindPrologCodes::SetFinalSize(int headerBytes, int epilogBytes)
 {
     // We're done adding codes. Check that we didn't accidentally create a bigger prolog.
@@ -875,7 +605,7 @@ void UnwindPrologCodes::AddHeaderWord(uint32_t d)
     upcMem[++upcHeaderSlot] = (uint8_t)(d >> 24);
 }
 
-// AppendEpilog: copy the epilog bytes to the next epilog bytes slot
+// Copy the epilog bytes to the next epilog bytes slot
 void UnwindPrologCodes::AppendEpilog(UnwindEpilogInfo* epilog)
 {
     assert(upcEpilogSlot != -1);
@@ -890,7 +620,7 @@ void UnwindPrologCodes::AppendEpilog(UnwindEpilogInfo* epilog)
     assert(upcEpilogSlot <= upcMemSize - 3);
 }
 
-// GetFinalInfo: return a pointer to the final unwind info to hand to the VM, and the size of this info in bytes
+// Return a pointer to the final unwind info to hand to the VM, and the size of this info in bytes
 void UnwindPrologCodes::GetFinalInfo(uint8_t** unwindBlock, uint32_t* unwindBlockSize)
 {
     assert(upcHeaderSlot + 1 == upcCodeSlot); // We better have filled in the header before asking for the final data!
@@ -913,7 +643,7 @@ void UnwindPrologCodes::GetFinalInfo(uint8_t** unwindBlock, uint32_t* unwindBloc
 //
 // Note that if we wanted to handle ARM's 0xFD and 0xFE codes, by converting
 // an existing 0xFF code to one of those, we might do that here.
-int UnwindPrologCodes::Match(UnwindEpilogInfo* epilog)
+int UnwindPrologCodes::Match(UnwindEpilogInfo* epilog) const
 {
     if (Size() < epilog->Size())
     {
@@ -930,37 +660,34 @@ int UnwindPrologCodes::Match(UnwindEpilogInfo* epilog)
     return -1;
 }
 
-// Copy the prolog codes from another prolog. The only time this is legal is
-// if we are at the initial state and no prolog codes have been added.
+// Copy the prolog codes from another prolog. The only time this is legal
+// is if we are at the initial state and no prolog codes have been added.
 // This is used to create the 'phantom' prolog for non-first fragments.
-void UnwindPrologCodes::CopyFrom(UnwindPrologCodes* copyFrom)
+void UnwindPrologCodes::CopyFrom(const UnwindPrologCodes& copyFrom)
 {
-    assert(uwiComp == copyFrom->uwiComp);
+    assert(uwiComp == copyFrom.uwiComp);
     assert(upcMem == upcMemLocal);
-    assert(upcMemSize == UPC_LOCAL_COUNT);
+    assert(upcMemSize == _countof(upcMemLocal));
     assert(upcHeaderSlot == -1);
     assert(upcEpilogSlot == -1);
 
     // Copy the codes
-    EnsureSize(copyFrom->upcMemSize);
-    assert(upcMemSize == copyFrom->upcMemSize);
-    memcpy_s(upcMem, upcMemSize, copyFrom->upcMem, copyFrom->upcMemSize);
+    EnsureSize(copyFrom.upcMemSize);
+    assert(upcMemSize == copyFrom.upcMemSize);
+    memcpy_s(upcMem, upcMemSize, copyFrom.upcMem, copyFrom.upcMemSize);
 
     // Copy the other data
-    upcCodeSlot        = copyFrom->upcCodeSlot;
-    upcHeaderSlot      = copyFrom->upcHeaderSlot;
-    upcEpilogSlot      = copyFrom->upcEpilogSlot;
-    upcUnwindBlockSlot = copyFrom->upcUnwindBlockSlot;
+    upcCodeSlot        = copyFrom.upcCodeSlot;
+    upcHeaderSlot      = copyFrom.upcHeaderSlot;
+    upcEpilogSlot      = copyFrom.upcEpilogSlot;
+    upcUnwindBlockSlot = copyFrom.upcUnwindBlockSlot;
 }
 
 void UnwindPrologCodes::EnsureSize(int requiredSize)
 {
     if (requiredSize > upcMemSize)
     {
-        // Reallocate, and copy everything to a new array.
-
-        // Choose the next power of two size. This may or may not be the best choice.
-        noway_assert((requiredSize & 0xC0000000) == 0); // too big!
+        noway_assert((requiredSize & 0xC0000000) == 0);
 
         int newSize = upcMemSize << 1;
         while (newSize < requiredSize)
@@ -969,59 +696,20 @@ void UnwindPrologCodes::EnsureSize(int requiredSize)
         }
 
         uint8_t* newUnwindCodes = new (uwiComp, CMK_UnwindInfo) uint8_t[newSize];
-        // copy the existing data to the end
         memcpy_s(newUnwindCodes + newSize - upcMemSize, upcMemSize, upcMem, upcMemSize);
-        // Clear the old unwind codes; nobody should be looking at them
         INDEBUG(memset(upcMem, 0xFF, upcMemSize));
 
-        upcMem = newUnwindCodes; // we don't free anything that used to be there since we have a no-release allocator
+        upcMem = newUnwindCodes;
         upcCodeSlot += newSize - upcMemSize;
         upcMemSize = newSize;
     }
 }
-
-#ifdef DEBUG
-void UnwindPrologCodes::Dump(int indent)
-{
-    printf("%*sUnwindPrologCodes:\n", indent, "");
-    printf("%*s  upcMemSize: %d\n", indent, "", upcMemSize);
-    printf("%*s  upcCodeSlot: %d\n", indent, "", upcCodeSlot);
-    printf("%*s  upcHeaderSlot: %d\n", indent, "", upcHeaderSlot);
-    printf("%*s  upcEpilogSlot: %d\n", indent, "", upcEpilogSlot);
-    printf("%*s  upcUnwindBlockSlot: %d\n", indent, "", upcUnwindBlockSlot);
-
-    if (upcMemSize > 0)
-    {
-        printf("%*s  codes:", indent, "");
-        for (int i = 0; i < upcMemSize; i++)
-        {
-            printf(" %02x", upcMem[i]);
-            if (i == upcCodeSlot)
-                printf(" <-C");
-            else if (i == upcHeaderSlot)
-                printf(" <-H");
-            else if (i == upcEpilogSlot)
-                printf(" <-E");
-            else if (i == upcUnwindBlockSlot)
-                printf(" <-U");
-        }
-        printf("\n");
-    }
-}
-#endif // DEBUG
-
-///////////////////////////////////////////////////////////////////////////////
-//
-//  UnwindEpilogCodes
-//
-///////////////////////////////////////////////////////////////////////////////
 
 // Add a single byte on the unwind code array
 void UnwindEpilogCodes::AppendByte(uint8_t b)
 {
     if (uecCodeSlot == uecMemSize - 1)
     {
-        // We've run out of space! Reallocate, and copy everything to a new array.
         EnsureSize(uecMemSize + 1);
     }
 
@@ -1066,10 +754,7 @@ void UnwindEpilogCodes::EnsureSize(int requiredSize)
 {
     if (requiredSize > uecMemSize)
     {
-        // Reallocate, and copy everything to a new array.
-
-        // Choose the next power of two size. This may or may not be the best choice.
-        noway_assert((requiredSize & 0xC0000000) == 0); // too big!
+        noway_assert((requiredSize & 0xC0000000) == 0);
 
         int newSize = uecMemSize << 1;
         while (newSize < requiredSize)
@@ -1079,42 +764,12 @@ void UnwindEpilogCodes::EnsureSize(int requiredSize)
 
         uint8_t* newUnwindCodes = new (uwiComp, CMK_UnwindInfo) uint8_t[newSize];
         memcpy_s(newUnwindCodes, newSize, uecMem, uecMemSize);
-        // Clear the old unwind codes; nobody should be looking at them
         INDEBUG(memset(uecMem, 0xFF, uecMemSize));
 
-        uecMem = newUnwindCodes; // we don't free anything that used to be there since we have a no-release allocator
-        // uecCodeSlot stays the same
+        uecMem     = newUnwindCodes;
         uecMemSize = newSize;
     }
 }
-
-#ifdef DEBUG
-void UnwindEpilogCodes::Dump(int indent)
-{
-    printf("%*sUnwindEpilogCodes:\n", indent, "");
-    printf("%*s  uecMemSize: %d\n", indent, "", uecMemSize);
-    printf("%*s  uecCodeSlot: %d\n", indent, "", uecCodeSlot);
-    printf("%*s  uecFinalized: %d\n", indent, "", uecFinalized);
-
-    if (uecMemSize > 0)
-    {
-        printf("%*s  codes:", indent, "");
-        for (int i = 0; i < uecMemSize; i++)
-        {
-            printf(" %02x", uecMem[i]);
-            if (i == uecCodeSlot)
-                printf(" <-C"); // Indicate the current pointer
-        }
-        printf("\n");
-    }
-}
-#endif // DEBUG
-
-///////////////////////////////////////////////////////////////////////////////
-//
-//  UnwindEpilogInfo
-//
-///////////////////////////////////////////////////////////////////////////////
 
 // Do the current unwind codes match those of the argument epilog?
 // If they don't match, return -1. If they do, return the offset into
@@ -1124,8 +779,7 @@ void UnwindEpilogCodes::Dump(int indent)
 //
 // Note that if we wanted to handle 0xFD and 0xFE codes, by converting
 // an existing 0xFF code to one of those, we might do that here.
-
-int UnwindEpilogInfo::Match(UnwindEpilogInfo* epilog)
+int UnwindEpilogInfo::Match(UnwindEpilogInfo* epilog) const
 {
     if (Matches())
     {
@@ -1140,7 +794,7 @@ int UnwindEpilogInfo::Match(UnwindEpilogInfo* epilog)
 
     int matchIndex = Size() - epilog->Size();
 
-    if (0 == memcmp(GetCodes() + matchIndex, epilog->GetCodes(), epilog->Size()))
+    if (memcmp(epiCodes.GetCodes() + matchIndex, epilog->GetCodes(), epilog->Size()) == 0)
     {
         return matchIndex;
     }
@@ -1148,30 +802,11 @@ int UnwindEpilogInfo::Match(UnwindEpilogInfo* epilog)
     return -1;
 }
 
-void UnwindEpilogInfo::CaptureEmitLocation(emitter* emitter)
+void UnwindEpilogInfo::CaptureLocation(emitter* emitter)
 {
     noway_assert(epiStartLoc.GetIG() == nullptr); // This function is only called once per epilog
     epiStartLoc.CaptureLocation(emitter);
 }
-
-#ifdef DEBUG
-void UnwindEpilogInfo::Dump(int indent)
-{
-    printf("%*sUnwindEpilogInfo:\n", indent, "");
-    printf("%*s  epiStartLoc: ", indent, "");
-    epiStartLoc.Print();
-    printf("%*s  epiMatches: %d\n", indent, "", epiMatches);
-    printf("%*s  epiStartIndex: %d\n", indent, "", epiStartIndex);
-
-    epiCodes.Dump(indent + 2);
-}
-#endif // DEBUG
-
-///////////////////////////////////////////////////////////////////////////////
-//
-//  UnwindFragmentInfo
-//
-///////////////////////////////////////////////////////////////////////////////
 
 UnwindEpilogInfo* UnwindFragmentInfo::AddEpilog()
 {
@@ -1223,9 +858,9 @@ UnwindEpilogInfo* UnwindFragmentInfo::AddEpilog()
 // Copy the prolog codes from the 'pCopyFrom' fragment. These prolog codes will
 // become 'phantom' prolog codes in this fragment. Note that this fragment should
 // not have any prolog codes currently; it is at the initial state.
-void UnwindFragmentInfo::CopyPrologCodes(UnwindFragmentInfo* copyFrom)
+void UnwindFragmentInfo::CopyPrologCodes(const UnwindFragmentInfo& copyFrom)
 {
-    ufiPrologCodes.CopyFrom(&copyFrom->ufiPrologCodes);
+    ufiPrologCodes.CopyFrom(copyFrom.ufiPrologCodes);
 #ifdef TARGET_ARM64
     ufiPrologCodes.AddCode(UWC_END_C);
 #endif
@@ -1251,11 +886,13 @@ void UnwindFragmentInfo::SplitEpilogCodes(const insGroup* splitLoc, UnwindFragme
 
             // Splice in the epilogs to this fragment. Set the head of the epilog
             // list to this epilog.
+
             ufiEpilogList = epilog; // In this case, don't use 'ufiEpilogFirst'
             ufiEpilogLast = splitFrom->ufiEpilogLast;
 
             // Splice out the tail of the list from the 'pSplitFrom' epilog list
             splitFrom->ufiEpilogLast = prev;
+
             if (splitFrom->ufiEpilogLast == nullptr)
             {
                 splitFrom->ufiEpilogList = nullptr;
@@ -1269,7 +906,7 @@ void UnwindFragmentInfo::SplitEpilogCodes(const insGroup* splitLoc, UnwindFragme
             splitFrom->ufiCurCodes = nullptr;
             ufiCurCodes            = nullptr;
 
-            break;
+            return;
         }
     }
 }
@@ -1278,7 +915,6 @@ void UnwindFragmentInfo::SplitEpilogCodes(const insGroup* splitLoc, UnwindFragme
 // Note that we need to know this before all code offsets are finalized,
 // so we can determine whether we can omit an epilog scope word for a
 // single matching epilog.
-
 bool UnwindFragmentInfo::IsAtFragmentEnd(UnwindEpilogInfo* epilog)
 {
     // We're assuming that the epilog doesn't span multiple instruction groups.
@@ -1293,7 +929,6 @@ bool UnwindFragmentInfo::IsAtFragmentEnd(UnwindEpilogInfo* epilog)
 // Also, compute the size of the final unwind block. Store this
 // and some other data for later, when we actually emit the
 // unwind block.
-
 void UnwindFragmentInfo::MergeCodes()
 {
     assert(ufiInitialized);
@@ -1426,8 +1061,7 @@ void UnwindFragmentInfo::MergeCodes()
     ufiEpilogScopes                     = epilogScopes;
 }
 
-// Finalize: Prepare the unwind information for the VM. Compute and prepend the unwind header.
-
+// Prepare the unwind information for the VM. Compute and prepend the unwind header.
 void UnwindFragmentInfo::Finalize(uint32_t startOffset, uint32_t functionLength)
 {
     assert(ufiInitialized);
@@ -1435,7 +1069,7 @@ void UnwindFragmentInfo::Finalize(uint32_t startOffset, uint32_t functionLength)
 #ifdef DEBUG
     if (0 && uwiComp->verbose)
     {
-        printf("*************** Before fragment #%d finalize\n", ufiNum);
+        printf("*************** Before fragment #%u finalize\n", ufiNum);
         Dump();
     }
 #endif
@@ -1650,42 +1284,6 @@ void UnwindFragmentInfo::Allocate(
                                static_cast<CorJitFuncKind>(kind));
 }
 
-#ifdef DEBUG
-void UnwindFragmentInfo::Dump(int indent)
-{
-    unsigned count = 0;
-
-    for (UnwindEpilogInfo* e = ufiEpilogList; e != nullptr; e = e->epiNext)
-    {
-        ++count;
-    }
-
-    printf("%*sUnwindFragmentInfo #%d\n", indent, "", ufiNum);
-    printf("%*s  ufiHasPhantomProlog: %d\n", indent, "", ufiHasPhantomProlog);
-    printf("%*s  %d epilog%s\n", indent, "", count, (count != 1) ? "s" : "");
-    printf("%*s  ufiSize: %u\n", indent, "", ufiSize);
-    printf("%*s  ufiSetEBit: %d\n", indent, "", ufiSetEBit);
-    printf("%*s  ufiNeedExtendedCodeWordsEpilogCount: %d\n", indent, "", ufiNeedExtendedCodeWordsEpilogCount);
-    printf("%*s  ufiCodeWords: %u\n", indent, "", ufiCodeWords);
-    printf("%*s  ufiEpilogScopes: %u\n", indent, "", ufiEpilogScopes);
-    printf("%*s  ufiInProlog: %d\n", indent, "", ufiInProlog);
-    printf("%*s  ufiInitialized: %d\n", indent, "", ufiInitialized);
-
-    ufiPrologCodes.Dump(indent + 2);
-
-    for (UnwindEpilogInfo* e = ufiEpilogList; e != nullptr; e = e->epiNext)
-    {
-        e->Dump(indent + 2);
-    }
-}
-#endif // DEBUG
-
-///////////////////////////////////////////////////////////////////////////////
-//
-//  UnwindInfo
-//
-///////////////////////////////////////////////////////////////////////////////
-
 UnwindInfo::UnwindInfo(Compiler* comp, insGroup* start, insGroup* end)
     : UnwindBase(comp)
     , uwiFragmentFirst(comp, start, false)
@@ -1704,7 +1302,7 @@ void UnwindInfo::SplitColdCodes(UnwindInfo* hotInfo)
 
     // The real prolog is in the hot section, so this, cold, section has a phantom prolog
     uwiFragmentFirst.ufiHasPhantomProlog = true;
-    uwiFragmentFirst.CopyPrologCodes(&hotInfo->uwiFragmentFirst);
+    uwiFragmentFirst.CopyPrologCodes(hotInfo->uwiFragmentFirst);
 
     // Now split the epilog codes
     uwiFragmentFirst.SplitEpilogCodes(uwiFragmentFirst.ufiStartLoc, &hotInfo->uwiFragmentFirst);
@@ -1720,12 +1318,12 @@ void UnwindInfo::SplitColdCodes(UnwindInfo* hotInfo)
 // expand!) during issuing (although this is extremely rare in any case, and may not
 // actually occur on ARM), so we don't finalize actual sizes or offsets.
 //
-// ARM64 has very similar limitations, except functions can be up to 1MB. TODO-ARM64-Bug?: make sure this works!
+// ARM64 has very similar limitations, except functions can be up to 1MB.
+// TODO-ARM64-Bug?: make sure this works!
 //
 // We don't split any prolog or epilog. Ideally, we might not split an instruction,
 // although that doesn't matter because the unwind at any point would still be
 // well-defined.
-
 void UnwindInfo::SplitLargeFragment()
 {
     uint32_t maxFragmentSize = UW_MAX_FRAGMENT_SIZE_BYTES;
@@ -1869,7 +1467,6 @@ void UnwindInfo::Split(insGroup* start, insGroup* end, uint32_t maxCodeSize)
 }
 
 // Reserve space for the unwind info for all fragments
-
 void UnwindInfo::Reserve(FuncKind kind, bool isHotCode)
 {
     assert(uwiInitialized);
@@ -1887,7 +1484,6 @@ void UnwindInfo::Reserve(FuncKind kind, bool isHotCode)
 }
 
 // Allocate and populate VM unwind info for all fragments
-
 void UnwindInfo::Allocate(FuncKind kind, void* hotCode, void* coldCode, bool isHotCode)
 {
     assert(uwiInitialized);
@@ -1942,7 +1538,7 @@ UnwindFragmentInfo* UnwindInfo::AddFragment(UnwindFragmentInfo* last, insGroup* 
 
     UnwindFragmentInfo* newFrag = new (uwiComp, CMK_UnwindInfo) UnwindFragmentInfo(uwiComp, ig, true);
     INDEBUG(newFrag->ufiNum = last->ufiNum + 1);
-    newFrag->CopyPrologCodes(&uwiFragmentFirst);
+    newFrag->CopyPrologCodes(uwiFragmentFirst);
     newFrag->SplitEpilogCodes(ig, last);
 
     last->ufiNext = newFrag;
@@ -1951,25 +1547,93 @@ UnwindFragmentInfo* UnwindInfo::AddFragment(UnwindFragmentInfo* last, insGroup* 
 }
 
 #ifdef DEBUG
-#ifdef TARGET_ARM
 
-// Given the first byte of the unwind code, check that its opsize matches
-// the last instruction added in the emitter.
-void UnwindInfo::CheckOpsize(uint8_t b1)
+void UnwindPrologCodes::Dump(int indent)
 {
-    // Adding NOP padding goes through the same path, but doesn't update the location to indicate
-    // the correct location of the instruction for which we are adding a NOP, so just skip the
-    // assert. Should be ok, because the emitter is telling us the size of the instruction for
-    // which we are adding the NOP.
-    if (!uwiAddingNOP)
+    printf("%*sUnwindPrologCodes:\n", indent, "");
+    printf("%*s  upcMemSize: %d\n", indent, "", upcMemSize);
+    printf("%*s  upcCodeSlot: %d\n", indent, "", upcCodeSlot);
+    printf("%*s  upcHeaderSlot: %d\n", indent, "", upcHeaderSlot);
+    printf("%*s  upcEpilogSlot: %d\n", indent, "", upcEpilogSlot);
+    printf("%*s  upcUnwindBlockSlot: %d\n", indent, "", upcUnwindBlockSlot);
+
+    if (upcMemSize > 0)
     {
-        unsigned opsizeInBytes    = GetOpcodeSizeFromUnwindHeader(b1);
-        unsigned instrSizeInBytes = GetInstructionSize();
-        assert(opsizeInBytes == instrSizeInBytes);
+        printf("%*s  codes:", indent, "");
+        for (int i = 0; i < upcMemSize; i++)
+        {
+            printf(" %02x", upcMem[i]);
+            if (i == upcCodeSlot)
+                printf(" <-C");
+            else if (i == upcHeaderSlot)
+                printf(" <-H");
+            else if (i == upcEpilogSlot)
+                printf(" <-E");
+            else if (i == upcUnwindBlockSlot)
+                printf(" <-U");
+        }
+        printf("\n");
     }
 }
 
-#endif // TARGET_ARM
+void UnwindEpilogCodes::Dump(int indent)
+{
+    printf("%*sUnwindEpilogCodes:\n", indent, "");
+    printf("%*s  uecMemSize: %d\n", indent, "", uecMemSize);
+    printf("%*s  uecCodeSlot: %d\n", indent, "", uecCodeSlot);
+    printf("%*s  uecFinalized: %d\n", indent, "", uecFinalized);
+
+    if (uecMemSize > 0)
+    {
+        printf("%*s  codes:", indent, "");
+        for (int i = 0; i < uecMemSize; i++)
+        {
+            printf(" %02x", uecMem[i]);
+            if (i == uecCodeSlot)
+                printf(" <-C"); // Indicate the current pointer
+        }
+        printf("\n");
+    }
+}
+
+void UnwindEpilogInfo::Dump(int indent)
+{
+    printf("%*sUnwindEpilogInfo:\n", indent, "");
+    printf("%*s  epiStartLoc: ", indent, "");
+    epiStartLoc.Print();
+    printf("%*s  epiMatches: %d\n", indent, "", epiMatches);
+    printf("%*s  epiStartIndex: %d\n", indent, "", epiStartIndex);
+
+    epiCodes.Dump(indent + 2);
+}
+
+void UnwindFragmentInfo::Dump(int indent)
+{
+    unsigned count = 0;
+
+    for (UnwindEpilogInfo* e = ufiEpilogList; e != nullptr; e = e->epiNext)
+    {
+        ++count;
+    }
+
+    printf("%*sUnwindFragmentInfo #%d\n", indent, "", ufiNum);
+    printf("%*s  ufiHasPhantomProlog: %d\n", indent, "", ufiHasPhantomProlog);
+    printf("%*s  %d epilog%s\n", indent, "", count, (count != 1) ? "s" : "");
+    printf("%*s  ufiSize: %u\n", indent, "", ufiSize);
+    printf("%*s  ufiSetEBit: %d\n", indent, "", ufiSetEBit);
+    printf("%*s  ufiNeedExtendedCodeWordsEpilogCount: %d\n", indent, "", ufiNeedExtendedCodeWordsEpilogCount);
+    printf("%*s  ufiCodeWords: %u\n", indent, "", ufiCodeWords);
+    printf("%*s  ufiEpilogScopes: %u\n", indent, "", ufiEpilogScopes);
+    printf("%*s  ufiInProlog: %d\n", indent, "", ufiInProlog);
+    printf("%*s  ufiInitialized: %d\n", indent, "", ufiInitialized);
+
+    ufiPrologCodes.Dump(indent + 2);
+
+    for (UnwindEpilogInfo* e = ufiEpilogList; e != nullptr; e = e->epiNext)
+    {
+        e->Dump(indent + 2);
+    }
+}
 
 void UnwindInfo::Dump(bool isHotCode, int indent)
 {
@@ -2005,19 +1669,194 @@ void UnwindInfo::Dump(bool isHotCode, int indent)
 
 #ifdef TARGET_ARM
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX  Debug dumpers                                                            XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
+#ifdef TARGET_UNIX
+int16_t CodeGen::mapRegNumToDwarfReg(RegNum reg)
+{
+    switch (reg)
+    {
+        case REG_R0:
+            return 0;
+        case REG_R1:
+            return 1;
+        case REG_R2:
+            return 2;
+        case REG_R3:
+            return 3;
+        case REG_R4:
+            return 4;
+        case REG_R5:
+            return 5;
+        case REG_R6:
+            return 6;
+        case REG_R7:
+            return 7;
+        case REG_R8:
+            return 8;
+        case REG_R9:
+            return 9;
+        case REG_R10:
+            return 10;
+        case REG_R11:
+            return 11;
+        case REG_R12:
+            return 12;
+        case REG_R13:
+            return 13;
+        case REG_R14:
+            return 14;
+        case REG_R15:
+            return 15;
+        case REG_F0:
+            return 256;
+        case REG_F2:
+            return 257;
+        case REG_F4:
+            return 258;
+        case REG_F6:
+            return 259;
+        case REG_F8:
+            return 260;
+        case REG_F10:
+            return 261;
+        case REG_F12:
+            return 262;
+        case REG_F14:
+            return 263;
+        case REG_F16:
+            return 264;
+        case REG_F18:
+            return 265;
+        case REG_F20:
+            return 266;
+        case REG_F22:
+            return 267;
+        case REG_F24:
+            return 268;
+        case REG_F26:
+            return 269;
+        case REG_F28:
+            return 270;
+        case REG_F30:
+            return 271;
+        default:
+            unreached();
+    }
+}
+#endif // TARGET_UNIX
 
 #ifdef DEBUG
 
+// Return the opcode size of an instruction, in bytes, given the first byte of its corresponding unwind code.
+static unsigned GetOpcodeSizeFromUnwindHeader(uint8_t b1)
+{
+    static const uint8_t s_UnwindOpsize[256]{
+        // array of opsizes, in bytes (as specified in the ARM unwind specification)
+        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 00-0F
+        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 10-1F
+        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 20-2F
+        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 30-3F
+        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 40-4F
+        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 50-5F
+        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 60-6F
+        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 70-7F
+        4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, // 80-8F
+        4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, // 90-9F
+        4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, // A0-AF
+        4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, // B0-BF
+        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // C0-CF
+        2, 2, 2, 2, 2, 2, 2, 2, 4, 4, 4, 4, 4, 4, 4, 4, // D0-DF
+        4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 2, 2, 2, 4, // E0-EF
+        0, 0, 0, 0, 0, 4, 4, 2, 2, 4, 4, 2, 4, 2, 4, 0  // F0-FF
+    };
+
+    unsigned opsize = s_UnwindOpsize[b1];
+    // We shouldn't get a code with no opsize (the 0xFF end code is handled specially)
+    assert(opsize == 2 || opsize == 4);
+    return opsize;
+}
+
+// Return the size of the unwind code (from 1 to 4 bytes), given the first byte of the unwind bytes
+static unsigned GetUnwindSizeFromUnwindHeader(uint8_t b1)
+{
+    static const uint8_t s_UnwindSize[256]{
+        // array of unwind sizes, in bytes (as specified in the ARM unwind specification)
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 00-0F
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 10-1F
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 20-2F
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 30-3F
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 40-4F
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 50-5F
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 60-6F
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 70-7F
+        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 80-8F
+        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 90-9F
+        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // A0-AF
+        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // B0-BF
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // C0-CF
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // D0-DF
+        1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, // E0-EF
+        1, 1, 1, 1, 1, 2, 2, 3, 4, 3, 4, 1, 1, 1, 1, 1  // F0-FF
+    };
+
+    unsigned size = s_UnwindSize[b1];
+    assert(1 <= size && size <= 4);
+    return size;
+}
+
+// Walk the prolog codes and calculate the size of the prolog or epilog, in bytes.
+// The 0xFD and 0xFE "end + NOP" codes need to be handled differently between
+// the prolog and epilog. They count as pure "end" codes in a prolog, but they
+// count as 16 and 32 bit NOPs (respectively), as well as an "end", in an epilog.
+unsigned UnwindCodesBase::GetCodeSizeFromUnwindCodes(bool isProlog) const
+{
+    uint8_t* codesStart = GetCodes();
+    uint8_t* codes      = codesStart;
+    unsigned size       = 0;
+
+    for (;;)
+    {
+        uint8_t b1 = *codes;
+
+        if (b1 >= 0xFD)
+        {
+            // 0xFD, 0xFE, 0xFF are "end" codes
+
+            if (!isProlog && (b1 == 0xFD || b1 == 0xFE))
+            {
+                // Count the special "end + NOP" code size in the epilog
+                size += GetOpcodeSizeFromUnwindHeader(b1);
+            }
+
+            break; // We hit an "end" code; we're done
+        }
+
+        size += GetOpcodeSizeFromUnwindHeader(b1);
+        codes += GetUnwindSizeFromUnwindHeader(b1);
+
+        assert(codes - codesStart < 256); // 255 is the absolute maximum number of code bytes allowed
+    }
+
+    return size;
+}
+
+// Given the first byte of the unwind code, check that its opsize matches
+// the last instruction added in the emitter.
+void UnwindInfo::CheckOpsize(uint8_t b1)
+{
+    // Adding NOP padding goes through the same path, but doesn't update the location to indicate
+    // the correct location of the instruction for which we are adding a NOP, so just skip the
+    // assert. Should be ok, because the emitter is telling us the size of the instruction for
+    // which we are adding the NOP.
+    if (!uwiAddingNOP)
+    {
+        unsigned opsizeInBytes    = GetOpcodeSizeFromUnwindHeader(b1);
+        unsigned instrSizeInBytes = GetInstructionSize();
+        assert(opsizeInBytes == instrSizeInBytes);
+    }
+}
+
 // start is 0-based index from LSB, length is number of bits
-uint32_t ExtractBits(uint32_t dw, uint32_t start, uint32_t length)
+static uint32_t ExtractBits(uint32_t dw, uint32_t start, uint32_t length)
 {
     return (dw >> start) & ((1 << length) - 1);
 }
@@ -2026,7 +1865,7 @@ uint32_t ExtractBits(uint32_t dw, uint32_t start, uint32_t length)
 // The highest register considered is r12.
 // If 'lr' is non-zero, the "lr" register is emitted last.
 // Returns the number of characters printed.
-uint32_t DumpIntRegSet(uint32_t x, uint32_t lr)
+static uint32_t DumpIntRegSet(uint32_t x, uint32_t lr)
 {
     assert(x != 0 || lr != 0); // we must have one
     assert((x & 0xE000) == 0); // don't handle r13 (sp), r14 (lr), r15 (pc) in 'x'
@@ -2072,7 +1911,7 @@ uint32_t DumpIntRegSet(uint32_t x, uint32_t lr)
 // If 'lr' is non-zero, the "lr" register is emitted last. (Note that
 // 'lr' should be zero for rtype == "d".)
 // Returns the number of characters printed.
-uint32_t DumpRegSetRange(const char* const rtype, uint32_t start, uint32_t end, uint32_t lr)
+static uint32_t DumpRegSetRange(const char* const rtype, uint32_t start, uint32_t end, uint32_t lr)
 {
     assert(start <= end);
     uint32_t printed  = 0;
@@ -2106,7 +1945,7 @@ uint32_t DumpRegSetRange(const char* const rtype, uint32_t start, uint32_t end, 
 
 // Dump the opsize.
 // Returns the number of characters printed.
-uint32_t DumpOpsize(uint32_t padding, uint32_t opsize)
+static uint32_t DumpOpsize(uint32_t padding, uint32_t opsize)
 {
     if (padding > 100) // underflow?
         padding      = 4;

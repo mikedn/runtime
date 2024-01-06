@@ -1200,118 +1200,91 @@ public:
     insGroup* ehEmitLabel(BasicBlock* block);
     uint32_t ehCodeOffset(BasicBlock* block);
 
-    //
-    // Infrastructure functions: start/stop/reserve/emit.
-    //
-
     void unwindBegProlog();
     void unwindEndProlog();
     void unwindBegEpilog();
     void unwindEndEpilog();
     void unwindReserve();
-    void unwindEmit(void* pHotCode, void* pColdCode);
+    void unwindEmit(void* hotCode, void* coldCode);
 
-    //
-    // Specific unwind information functions: called by code generation to indicate a particular
-    // prolog or epilog unwindable instruction has been generated.
-    //
-
-    void unwindPush(regNumber reg);
+    void unwindPush(RegNum reg);
     void unwindAllocStack(unsigned size);
-    void unwindSetFrameReg(regNumber reg, unsigned offset);
-    void unwindSaveReg(regNumber reg, unsigned offset);
+    void unwindSetFrameReg(RegNum reg, unsigned offset);
+    void unwindSaveReg(RegNum reg, unsigned offset);
 
-#if defined(TARGET_ARM)
+#ifdef TARGET_ARM
     void unwindPushMaskInt(regMaskTP mask);
     void unwindPushMaskFloat(regMaskTP mask);
     void unwindPopMaskInt(regMaskTP mask);
     void unwindPopMaskFloat(regMaskTP mask);
     void unwindBranch16();                    // The epilog terminates with a 16-bit branch (e.g., "bx lr")
-    void unwindNop(unsigned codeSizeInBytes); // Generate unwind NOP code. 'codeSizeInBytes' is 2 or 4 bytes. Only
-    // called via unwindPadding().
+    void unwindNop(unsigned codeSizeInBytes); // Generate unwind NOP code
     void unwindPadding(); // Generate a sequence of unwind NOP codes representing instructions between the last
-// instruction and the current location.
-#endif // TARGET_ARM
+                          // instruction and the current location.
+    void unwindPushPopMaskInt(regMaskTP mask, bool useOpsize16);
+    void unwindPushPopMaskFloat(regMaskTP mask);
+#endif
 
-#if defined(TARGET_ARM64)
+#ifdef TARGET_ARM64
     void unwindNop();
     void unwindPadding(); // Generate a sequence of unwind NOP codes representing instructions between the last
     // instruction and the current location.
-    void unwindSaveReg(regNumber reg, int offset);                                // str reg, [sp, #offset]
-    void unwindSaveRegPreindexed(regNumber reg, int offset);                      // str reg, [sp, #offset]!
-    void unwindSaveRegPair(regNumber reg1, regNumber reg2, int offset);           // stp reg1, reg2, [sp, #offset]
-    void unwindSaveRegPairPreindexed(regNumber reg1, regNumber reg2, int offset); // stp reg1, reg2, [sp, #offset]!
-    void unwindSaveNext();                                                        // unwind code: save_next
-    void unwindReturn(regNumber reg);                                             // ret lr
-#endif                                                                            // defined(TARGET_ARM64)
+    void unwindSaveReg(RegNum reg, int offset);                             // str reg, [sp, #offset]
+    void unwindSaveRegPreindexed(RegNum reg, int offset);                   // str reg, [sp, #offset]!
+    void unwindSaveRegPair(RegNum reg1, RegNum reg2, int offset);           // stp reg1, reg2, [sp, #offset]
+    void unwindSaveRegPairPreindexed(RegNum reg1, RegNum reg2, int offset); // stp reg1, reg2, [sp, #offset]!
+    void unwindSaveNext();                                                  // unwind code: save_next
+    void unwindReturn(RegNum reg);                                          // ret lr
+#endif
 
-    //
-    // Private "helper" functions for the unwind implementation.
-    //
+#ifdef TARGET_AMD64
+    void unwindBegPrologWindows();
+    void unwindPushWindows(RegNum reg);
+    void unwindAllocStackWindows(unsigned size);
+    void unwindSetFrameRegWindows(RegNum reg, unsigned offset);
+    void unwindSaveRegWindows(RegNum reg, unsigned offset);
+#ifdef TARGET_UNIX
+    void unwindSaveRegCFI(RegNum reg, unsigned offset);
+#endif
+#endif
 
-private:
+#ifdef TARGET_UNIX
+    static int16_t mapRegNumToDwarfReg(RegNum reg);
+    static void createCfiCode(
+        FuncInfoDsc* func, uint32_t codeOffset, uint8_t opcode, int16_t dwarfReg, int32_t offset = 0);
+
+    void unwindPushPopCFI(RegNum reg);
+    void unwindBegPrologCFI();
+    void unwindPushPopMaskCFI(regMaskTP regMask, bool isFloat);
+    void unwindAllocStackCFI(unsigned size);
+    void unwindSetFrameRegCFI(RegNum reg, unsigned offset);
+    void unwindEmitFuncCFI(FuncInfoDsc* func, void* hotCode, void* coldCode);
+
+    bool generateCFIUnwindCodes() const
+    {
+        return compiler->IsTargetAbi(CORINFO_CORERT_ABI);
+    }
+
+    INDEBUG(void DumpCfiInfo(
+                bool isHotCode, uint32_t startOffset, uint32_t endOffset, uint32_t count, const CFI_CODE* codes);)
+#endif
+
+#if defined(TARGET_AMD64) || defined(TARGET_UNIX)
+    uint32_t unwindGetCurrentOffset();
+#endif
+
 #ifdef FEATURE_EH_FUNCLETS
     void unwindGetFuncHotRange(FuncInfoDsc* func, insGroup** start, insGroup** end);
     void unwindGetFuncHotRange(FuncInfoDsc* func, uint32_t* start, uint32_t* end);
     void unwindGetFuncColdRange(FuncInfoDsc* func, insGroup** start, insGroup** end);
     void unwindGetFuncColdRange(FuncInfoDsc* func, uint32_t* start, uint32_t* end);
     void unwindReserveFunc(FuncInfoDsc* func);
-    void unwindEmitFunc(FuncInfoDsc* func, void* pHotCode, void* pColdCode);
+    void unwindEmitFunc(FuncInfoDsc* func, void* hotCode, void* coldCode);
 #endif
-
 #if defined(TARGET_AMD64) || (defined(TARGET_X86) && defined(FEATURE_EH_FUNCLETS))
-
-    void unwindReserveFuncHelper(FuncInfoDsc* func, bool isHotCode);
-    void unwindEmitFuncHelper(FuncInfoDsc* func, void* pHotCode, void* pColdCode, bool isHotCode);
-
-#endif // TARGET_AMD64 || (TARGET_X86 && FEATURE_EH_FUNCLETS)
-
-#if defined(TARGET_AMD64) || defined(TARGET_UNIX)
-    uint32_t unwindGetCurrentOffset();
+    void unwindReserveFuncRegion(FuncInfoDsc* func, bool isHotCode);
+    void unwindEmitFuncRegion(FuncInfoDsc* func, void* hotCode, void* coldCode, bool isHotCode);
 #endif
-
-#if defined(TARGET_AMD64)
-
-    void unwindBegPrologWindows();
-    void unwindPushWindows(regNumber reg);
-    void unwindAllocStackWindows(unsigned size);
-    void unwindSetFrameRegWindows(regNumber reg, unsigned offset);
-    void unwindSaveRegWindows(regNumber reg, unsigned offset);
-
-#ifdef UNIX_AMD64_ABI
-    void unwindSaveRegCFI(regNumber reg, unsigned offset);
-#endif // UNIX_AMD64_ABI
-#elif defined(TARGET_ARM)
-
-    void unwindPushPopMaskInt(regMaskTP mask, bool useOpsize16);
-    void unwindPushPopMaskFloat(regMaskTP mask);
-
-#endif // TARGET_ARM
-
-#if defined(TARGET_UNIX)
-    short mapRegNumToDwarfReg(regNumber reg);
-    void createCfiCode(FuncInfoDsc* func, uint32_t codeOffset, uint8_t opcode, int16_t dwarfReg, int32_t offset = 0);
-    void unwindPushPopCFI(regNumber reg);
-    void unwindBegPrologCFI();
-    void unwindPushPopMaskCFI(regMaskTP regMask, bool isFloat);
-    void unwindAllocStackCFI(unsigned size);
-    void unwindSetFrameRegCFI(regNumber reg, unsigned offset);
-    void unwindEmitFuncCFI(FuncInfoDsc* func, void* pHotCode, void* pColdCode);
-
-    bool generateCFIUnwindCodes()
-    {
-#if defined(TARGET_UNIX)
-        return compiler->IsTargetAbi(CORINFO_CORERT_ABI);
-#else
-        return false;
-#endif
-    }
-
-#ifdef DEBUG
-    void DumpCfiInfo(bool isHotCode, uint32_t startOffset, uint32_t endOffset, uint32_t count, const CFI_CODE* codes);
-#endif
-
-#endif // TARGET_UNIX
 };
 
 #endif // CODEGEN_H

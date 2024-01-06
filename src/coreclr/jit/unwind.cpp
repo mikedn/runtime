@@ -1,15 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                              UnwindInfo                                   XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
 #include "unwind.h"
 #include "codegen.h"
@@ -31,8 +22,8 @@ void CodeGen::unwindGetFuncHotRange(FuncInfoDsc* func, insGroup** start, insGrou
     if (func->funKind == FUNC_ROOT)
     {
         // Since all funclets are pulled out of line, the main code size is everything
-        // up to the first handler. If the function is hot/cold split, we need to get the
-        // appropriate sub-range.
+        // up to the first handler. If the function is hot/cold split, we need to get
+        // the appropriate sub-range.
 
         *start = GetEmitter()->GetProlog();
 
@@ -43,16 +34,13 @@ void CodeGen::unwindGetFuncHotRange(FuncInfoDsc* func, insGroup** start, insGrou
 
             *end = ehEmitLabel(compiler->fgFirstColdBlock);
         }
+        else if (compiler->fgFirstFuncletBB != nullptr)
+        {
+            *end = ehEmitLabel(compiler->fgFirstFuncletBB);
+        }
         else
         {
-            if (compiler->fgFirstFuncletBB != nullptr)
-            {
-                *end = ehEmitLabel(compiler->fgFirstFuncletBB);
-            }
-            else
-            {
-                *end = nullptr;
-            }
+            *end = nullptr;
         }
     }
     else
@@ -62,12 +50,14 @@ void CodeGen::unwindGetFuncHotRange(FuncInfoDsc* func, insGroup** start, insGrou
         if (func->funKind == FUNC_FILTER)
         {
             assert(HBtab->HasFilter());
+
             *start = ehEmitLabel(HBtab->ebdFilter);
             *end   = ehEmitLabel(HBtab->ebdHndBeg);
         }
         else
         {
             assert(func->funKind == FUNC_HANDLER);
+
             *start = ehEmitLabel(HBtab->ebdHndBeg);
             *end   = HBtab->ebdHndLast->bbNext == nullptr ? nullptr : ehEmitLabel(HBtab->ebdHndLast->bbNext);
         }
@@ -86,22 +76,17 @@ void CodeGen::unwindGetFuncHotRange(FuncInfoDsc* func, uint32_t* start, uint32_t
 
 void CodeGen::unwindGetFuncColdRange(FuncInfoDsc* func, insGroup** start, insGroup** end)
 {
-    if (func->funKind == FUNC_ROOT)
-    {
-        // Since all funclets are pulled out of line, the main code size is everything
-        // up to the first handler. If the function is hot/cold split, we need to get the
-        // appropriate sub-range.
+    assert(func->funKind == FUNC_ROOT); // TODO-CQ: support funclets in cold section
 
-        assert(compiler->fgFirstFuncletBB == nullptr); // TODO-CQ: support hot/cold splitting in functions with EH
-        assert(compiler->fgFirstColdBlock != nullptr); // There better be a cold section!
+    // Since all funclets are pulled out of line, the main code size is everything
+    // up to the first handler. If the function is hot/cold split, we need to get the
+    // appropriate sub-range.
 
-        *start = ehEmitLabel(compiler->fgFirstColdBlock);
-        *end   = nullptr;
-    }
-    else
-    {
-        assert(false); // TODO-CQ: support funclets in cold section
-    }
+    assert(compiler->fgFirstFuncletBB == nullptr); // TODO-CQ: support hot/cold splitting in functions with EH
+    assert(compiler->fgFirstColdBlock != nullptr); // There better be a cold section!
+
+    *start = ehEmitLabel(compiler->fgFirstColdBlock);
+    *end   = nullptr;
 }
 
 void CodeGen::unwindGetFuncColdRange(FuncInfoDsc* func, uint32_t* start, uint32_t* end)
@@ -125,7 +110,7 @@ void CodeGen::createCfiCode(FuncInfoDsc* func, uint32_t codeOffset, uint8_t cfiO
     func->cfiCodes->emplace_back(static_cast<uint8_t>(codeOffset), cfiOpcode, dwarfReg, offset);
 }
 
-void CodeGen::unwindPushPopCFI(regNumber reg)
+void CodeGen::unwindPushPopCFI(RegNum reg)
 {
     assert(generatingProlog);
 
@@ -211,13 +196,7 @@ void CodeGen::unwindAllocStackCFI(unsigned size)
     createCfiCode(func, cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, size);
 }
 
-// Record a cfi info for a frame register set.
-//
-// Arguments:
-//    reg    - The register being set as the frame register.
-//    offset - The offset from the current stack pointer that the frame pointer will point at.
-//
-void CodeGen::unwindSetFrameRegCFI(regNumber reg, unsigned offset)
+void CodeGen::unwindSetFrameRegCFI(RegNum reg, unsigned offset)
 {
     assert(generatingProlog);
 

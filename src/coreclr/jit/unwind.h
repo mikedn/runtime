@@ -20,16 +20,8 @@ enum FuncKind : uint8_t
 
 #include "emit.h"
 
-class UnwindCodesBase;
-class UnwindPrologCodes;
-class UnwindEpilogCodes;
-class UnwindEpilogInfo;
-class UnwindFragmentInfo;
-class UnwindInfo;
-
-// UnwindBase: A base class shared by the the unwind classes that require
+// A base class shared by the the unwind classes that require
 // a Compiler* for memory allocation.
-
 class UnwindBase
 {
 protected:
@@ -44,9 +36,8 @@ protected:
     }
 };
 
-// UnwindCodesBase: A base class shared by the the classes used to represent the prolog
+// A base class shared by the the classes used to represent the prolog
 // and epilog unwind codes.
-
 class UnwindCodesBase : public UnwindBase
 {
 public:
@@ -58,49 +49,44 @@ public:
     {
     }
 
-    // Add a single unwind code.
-
     virtual void AddCode(uint8_t b1) = 0;
     virtual void AddCode(uint8_t b1, uint8_t b2) = 0;
     virtual void AddCode(uint8_t b1, uint8_t b2, uint8_t b3) = 0;
     virtual void AddCode(uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4) = 0;
 
-    // Get access to the unwind codes
-
     virtual uint8_t* GetCodes() const = 0;
 
     bool IsEndCode(uint8_t b) const;
 
-    INDEBUG(unsigned GetCodeSizeFromUnwindCodes(bool isProlog);)
+    INDEBUG(unsigned GetCodeSizeFromUnwindCodes(bool isProlog) const;)
 };
 
-// UnwindPrologCodes: represents the unwind codes for a prolog sequence.
+class UnwindEpilogInfo;
+
+// Represents the unwind codes for a prolog sequence.
 // Prolog unwind codes arrive in reverse order from how they will be emitted.
 // Store them as a stack, storing from the end of an array towards the beginning.
 // This class is also re-used as the final location of the consolidated unwind
 // information for a function, including unwind info header, the prolog codes,
 // and any epilog codes.
-
 class UnwindPrologCodes : public UnwindCodesBase
 {
-    // UPC_LOCAL_COUNT is the amount of memory local to this class. For ARM CoreLib, the maximum size is 34.
-    // Here is a histogram of other interesting sizes:
+    // To store the unwind codes, we first use a local array that should satisfy almost all cases.
+    // If there are more unwind codes, we dynamically allocate memory. For ARM CoreLib, the maximum
+    // size is 34. Here is a histogram of other interesting sizes:
     //     <=16  79%
     //     <=24  96%
     //     <=32  99%
     // From this data, we choose to use 24.
-    static const int UPC_LOCAL_COUNT = 24;
+    uint8_t upcMemLocal[24];
 
-    // To store the unwind codes, we first use a local array that should satisfy almost all cases.
-    // If there are more unwind codes, we dynamically allocate memory.
-    uint8_t  upcMemLocal[UPC_LOCAL_COUNT];
     uint8_t* upcMem = upcMemLocal;
-    // upcMemSize is the number of bytes in upcMem. This is equal to UPC_LOCAL_COUNT unless
-    // we've dynamically allocated memory to store the codes.
+    // upcMemSize is the number of bytes in upcMem.
     int upcMemSize = _countof(upcMemLocal);
     // upcCodeSlot points to the last unwind code added to the array. The array is filled in from
     // the end, so it starts pointing one beyond the array end.
     int upcCodeSlot = _countof(upcMemLocal);
+
     // upcHeaderSlot points to the last header byte prepended to the array. Headers bytes are
     // filled in from the beginning, and only after SetFinalSize() is called.
     int upcHeaderSlot = -1;
@@ -119,10 +105,6 @@ public:
 
     UnwindPrologCodes(const UnwindPrologCodes& info) = delete;
     UnwindPrologCodes& operator=(const UnwindPrologCodes&) = delete;
-
-    //
-    // Implementation of UnwindCodesBase
-    //
 
     virtual void AddCode(uint8_t b1)
     {
@@ -150,27 +132,16 @@ public:
         PushByte(b1);
     }
 
-    // Return a pointer to the first unwind code byte
     virtual uint8_t* GetCodes() const
     {
-        assert(upcCodeSlot < upcMemSize); // There better be at least one code!
+        assert(upcCodeSlot < upcMemSize);
         return &upcMem[upcCodeSlot];
     }
 
-    ///////////////////////////////////////////////////////////////////////////
-
-    uint8_t GetByte(int index)
-    {
-        assert(upcCodeSlot <= index && index < upcMemSize);
-        return upcMem[index];
-    }
-
-    // Push a single byte on the unwind code stack
     void PushByte(uint8_t b)
     {
         if (upcCodeSlot == 0)
         {
-            // We've run out of space! Reallocate, and copy everything to a new array.
             EnsureSize(upcMemSize + 1);
         }
 
@@ -192,11 +163,11 @@ public:
     void AddHeaderWord(uint32_t d);
     void GetFinalInfo(uint8_t** unwindBlock, uint32_t* unwindBlockSize);
     // Copy the epilog bytes to the next epilog bytes slot
-    void AppendEpilog(UnwindEpilogInfo* pEpi);
+    void AppendEpilog(UnwindEpilogInfo* epilog);
     // Match the prolog codes to a set of epilog codes
-    int Match(UnwindEpilogInfo* pEpi);
+    int Match(UnwindEpilogInfo* epilog) const;
     // Copy the prolog codes from another prolog
-    void CopyFrom(UnwindPrologCodes* pCopyFrom);
+    void CopyFrom(const UnwindPrologCodes& pCopyFrom);
 
     INDEBUG(void Dump(int indent = 0);)
 
@@ -204,30 +175,26 @@ private:
     void EnsureSize(int requiredSize);
 };
 
-// UnwindEpilogCodes: represents the unwind codes for a single epilog sequence.
-// Epilog unwind codes arrive in the order they will be emitted. Store them as an array,
-// adding new ones to the end of the array.
-
+// Represents the unwind codes for a single epilog sequence.
+// Epilog unwind codes arrive in the order they will be emitted.
+// Store them as an array, adding new ones to the end of the array.
 class UnwindEpilogCodes : public UnwindCodesBase
 {
-    // UEC_LOCAL_COUNT is the amount of memory local to this class. For ARM CoreLib, the maximum size is 6,
-    // while 89% of epilogs fit in 4. So, set it to 4 to maintain array alignment and hit most cases.
-    static const int UEC_LOCAL_COUNT = 4;
-
     // To store the unwind codes, we first use a local array that should satisfy almost all cases.
-    // If there are more unwind codes, we dynamically allocate memory.
-    uint8_t  uecMemLocal[UEC_LOCAL_COUNT];
-    uint8_t* uecMem              = uecMemLocal;
-    uint8_t  firstByteOfLastCode = 0;
+    // If there are more unwind codes, we dynamically allocate memory. For ARM CoreLib, the maximum
+    // size is 6, while 89% of epilogs fit in 4. So, set it to 4 to maintain array alignment and hit
+    // most cases.
+    uint8_t uecMemLocal[4];
 
+    uint8_t* uecMem = uecMemLocal;
     // uecMemSize is the number of bytes/slots in uecMem. This is equal to UEC_LOCAL_COUNT unless
     // we've dynamically allocated memory to store the codes.
     int uecMemSize = _countof(uecMemLocal);
-
     // uecCodeSlot points to the last unwind code added to the array. The array is filled in from
     // the beginning, so it starts at -1.
     int uecCodeSlot = -1;
 
+    uint8_t firstByteOfLastCode = 0;
     // Is the unwind information finalized? Finalized info has an end code appended.
     bool uecFinalized = false;
 
@@ -242,10 +209,6 @@ public:
 
     UnwindEpilogCodes(const UnwindEpilogCodes& info) = delete;
     UnwindEpilogCodes& operator=(const UnwindEpilogCodes&) = delete;
-
-    //
-    // Implementation of UnwindCodesBase
-    //
 
     virtual void AddCode(uint8_t b1)
     {
@@ -281,21 +244,10 @@ public:
         firstByteOfLastCode = b1;
     }
 
-    // Return a pointer to the first unwind code byte
     virtual uint8_t* GetCodes() const
     {
         assert(uecFinalized);
-
-        // Codes start at the beginning
         return uecMem;
-    }
-
-    ///////////////////////////////////////////////////////////////////////////
-
-    uint8_t GetByte(int index) const
-    {
-        assert(0 <= index && index <= uecCodeSlot);
-        return uecMem[index];
     }
 
     void AppendByte(uint8_t b);
@@ -308,9 +260,8 @@ private:
     void EnsureSize(int requiredSize);
 };
 
-// UnwindEpilogInfo: represents the unwind information for a single epilog sequence. Epilogs for a
-// single function/funclet are in a linked list.
-
+// Represents the unwind information for a single epilog sequence.
+// Epilogs for a single function/funclet are in a linked list.
 class UnwindEpilogInfo : public UnwindBase
 {
     friend class UnwindFragmentInfo;
@@ -337,7 +288,7 @@ public:
     UnwindEpilogInfo(const UnwindEpilogInfo& info) = delete;
     UnwindEpilogInfo& operator=(const UnwindEpilogInfo&) = delete;
 
-    void CaptureEmitLocation(class emitter* emitter);
+    void CaptureLocation(class emitter* emitter);
 
     void FinalizeCodes()
     {
@@ -384,23 +335,21 @@ public:
     }
 
     // Match the codes to a set of epilog codes
-    int Match(UnwindEpilogInfo* pEpi);
+    int Match(UnwindEpilogInfo* pEpi) const;
 
     INDEBUG(void Dump(int indent = 0);)
 };
 
-// UnwindFragmentInfo: represents all the unwind information for a single fragment of a function or funclet.
-// A fragment is a section with a code size less than the maximum unwind code size: either 512K bytes, or
-// that specified by COMPlus_JitSplitFunctionSize. In most cases, there will be exactly one fragment.
-
+// Represents all the unwind information for a single fragment of a function or funclet.
+// A fragment is a section with a code size less than the maximum unwind code size: either 512K bytes,
+// or that specified by COMPlus_JitSplitFunctionSize. In most cases, there will be exactly one fragment.
 class UnwindFragmentInfo : public UnwindBase
 {
     friend class UnwindInfo;
 
-    // The next fragment
-    UnwindFragmentInfo* ufiNext = nullptr;
-    // Emitter location for start of fragment
-    insGroup* ufiStartLoc = nullptr;
+    UnwindFragmentInfo* ufiNext     = nullptr;
+    insGroup*           ufiStartLoc = nullptr;
+
     // Are the prolog codes for a phantom prolog, or a real prolog?
     // (For a phantom prolog, this code fragment represents a fragment in
     // the sense of the unwind info spec; something without a real prolog.)
@@ -488,25 +437,15 @@ public:
         ufiCurCodes->AddCode(b1, b2, b3, b4);
     }
 
-    unsigned EpilogCount()
-    {
-        unsigned count = 0;
-        for (UnwindEpilogInfo* pEpi = ufiEpilogList; pEpi != nullptr; pEpi = pEpi->epiNext)
-        {
-            ++count;
-        }
-        return count;
-    }
-
     UnwindEpilogInfo* AddEpilog();
-    void              MergeCodes();
-    void CopyPrologCodes(UnwindFragmentInfo* copyFrom);
+
+    void MergeCodes();
+    void CopyPrologCodes(const UnwindFragmentInfo& copyFrom);
     void SplitEpilogCodes(const insGroup* splitLoc, UnwindFragmentInfo* splitFrom);
     bool IsAtFragmentEnd(UnwindEpilogInfo* epilog);
 
-    // Return the full, final size of unwind block. This will be used to allocate memory for
-    // the unwind block. This is called before the code offsets are finalized.
-    // Size is in bytes.
+    // Return the full, final size of unwind block. This will be used to allocate memory
+    // for the unwind block. This is called before the code offsets are finalized.
     uint32_t Size() const
     {
         assert(ufiSize != 0);
@@ -515,7 +454,7 @@ public:
 
     void Finalize(uint32_t startOffset, uint32_t functionLength);
 
-    // GetFinalInfo: return a pointer to the final unwind info to hand to the VM, and the size of this info in bytes
+    // Return a pointer to the final unwind info to hand to the VM, and the size of this info in bytes
     void GetFinalInfo(uint8_t** unwindBlock, uint32_t* unwindBlockSize)
     {
         ufiPrologCodes.GetFinalInfo(unwindBlock, unwindBlockSize);
@@ -528,8 +467,7 @@ public:
     INDEBUG(void Dump(int indent = 0);)
 };
 
-// UnwindInfo: represents all the unwind information for a single function or funclet
-
+// Represents all the unwind information for a single function or funclet
 class UnwindInfo : public UnwindBase
 {
     void Split(insGroup* start, insGroup* end, uint32_t maxCodeSize);
@@ -597,9 +535,8 @@ public:
 
     UnwindEpilogInfo* AddEpilog();
 
-    void CaptureLocation(class emitter* emitter);
-
-    const emitLocation& GetCurrentEmitterLocation()
+    void CaptureLocation(emitter* emitter);
+    const emitLocation& GetCurrentLocation()
     {
         return uwiCurLoc;
     }
@@ -623,8 +560,8 @@ private:
 #ifdef FEATURE_EH_FUNCLETS
 struct FuncInfoDsc
 {
-    FuncKind       funKind;
-    unsigned short funEHIndex; // index, into the ebd table, of innermost EH clause corresponding to this
+    FuncKind funKind;
+    uint16_t funEHIndex; // index, into the ebd table, of innermost EH clause corresponding to this
 // funclet. It is only valid if funKind field indicates this is a
 // EH-related funclet: FUNC_HANDLER or FUNC_FILTER
 
@@ -634,7 +571,11 @@ struct FuncInfoDsc
     // number of codes, the VM or Zapper will 4-byte align the whole thing.
     // TODO-AMD64-Throughput: make the AMD64 info more like the ARM info to avoid having this large static array.
     uint8_t  unwindCodes[offsetof(UNWIND_INFO, UnwindCode) + (0xFF * sizeof(UNWIND_CODE))];
-    unsigned unwindCodeSlot;
+    unsigned unwindCodesIndex;
+
+    UNWIND_CODE* AllocUnwindCode();
+    uint16_t*    AllocUInt16(uint16_t value);
+    uint32_t*    AllocUInt32(uint32_t value);
 #endif
 
 #ifdef TARGET_ARMARCH

@@ -1,236 +1,20 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                              UnwindInfo                                   XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
 #include "unwind.h"
 #include "codegen.h"
 
 #ifdef TARGET_ARM64
-#ifdef TARGET_UNIX
-short CodeGen::mapRegNumToDwarfReg(regNumber reg)
-{
-    short dwarfReg = DWARF_REG_ILLEGAL;
 
-    switch (reg)
-    {
-        case REG_R0:
-            dwarfReg = 0;
-            break;
-        case REG_R1:
-            dwarfReg = 1;
-            break;
-        case REG_R2:
-            dwarfReg = 2;
-            break;
-        case REG_R3:
-            dwarfReg = 3;
-            break;
-        case REG_R4:
-            dwarfReg = 4;
-            break;
-        case REG_R5:
-            dwarfReg = 5;
-            break;
-        case REG_R6:
-            dwarfReg = 6;
-            break;
-        case REG_R7:
-            dwarfReg = 7;
-            break;
-        case REG_R8:
-            dwarfReg = 8;
-            break;
-        case REG_R9:
-            dwarfReg = 9;
-            break;
-        case REG_R10:
-            dwarfReg = 10;
-            break;
-        case REG_R11:
-            dwarfReg = 11;
-            break;
-        case REG_R12:
-            dwarfReg = 12;
-            break;
-        case REG_R13:
-            dwarfReg = 13;
-            break;
-        case REG_R14:
-            dwarfReg = 14;
-            break;
-        case REG_R15:
-            dwarfReg = 15;
-            break;
-        case REG_R16:
-            dwarfReg = 16;
-            break;
-        case REG_R17:
-            dwarfReg = 17;
-            break;
-        case REG_R18:
-            dwarfReg = 18;
-            break;
-        case REG_R19:
-            dwarfReg = 19;
-            break;
-        case REG_R20:
-            dwarfReg = 20;
-            break;
-        case REG_R21:
-            dwarfReg = 21;
-            break;
-        case REG_R22:
-            dwarfReg = 22;
-            break;
-        case REG_R23:
-            dwarfReg = 23;
-            break;
-        case REG_R24:
-            dwarfReg = 24;
-            break;
-        case REG_R25:
-            dwarfReg = 25;
-            break;
-        case REG_R26:
-            dwarfReg = 26;
-            break;
-        case REG_R27:
-            dwarfReg = 27;
-            break;
-        case REG_R28:
-            dwarfReg = 28;
-            break;
-        case REG_R29:
-            dwarfReg = 29;
-            break;
-        case REG_R30:
-            dwarfReg = 30;
-            break;
-        case REG_SP:
-            dwarfReg = 31;
-            break;
-        case REG_V0:
-            dwarfReg = 64;
-            break;
-        case REG_V1:
-            dwarfReg = 65;
-            break;
-        case REG_V2:
-            dwarfReg = 66;
-            break;
-        case REG_V3:
-            dwarfReg = 67;
-            break;
-        case REG_V4:
-            dwarfReg = 68;
-            break;
-        case REG_V5:
-            dwarfReg = 69;
-            break;
-        case REG_V6:
-            dwarfReg = 70;
-            break;
-        case REG_V7:
-            dwarfReg = 71;
-            break;
-        case REG_V8:
-            dwarfReg = 72;
-            break;
-        case REG_V9:
-            dwarfReg = 73;
-            break;
-        case REG_V10:
-            dwarfReg = 74;
-            break;
-        case REG_V11:
-            dwarfReg = 75;
-            break;
-        case REG_V12:
-            dwarfReg = 76;
-            break;
-        case REG_V13:
-            dwarfReg = 77;
-            break;
-        case REG_V14:
-            dwarfReg = 78;
-            break;
-        case REG_V15:
-            dwarfReg = 79;
-            break;
-        case REG_V16:
-            dwarfReg = 80;
-            break;
-        case REG_V17:
-            dwarfReg = 81;
-            break;
-        case REG_V18:
-            dwarfReg = 82;
-            break;
-        case REG_V19:
-            dwarfReg = 83;
-            break;
-        case REG_V20:
-            dwarfReg = 84;
-            break;
-        case REG_V21:
-            dwarfReg = 85;
-            break;
-        case REG_V22:
-            dwarfReg = 86;
-            break;
-        case REG_V23:
-            dwarfReg = 87;
-            break;
-        case REG_V24:
-            dwarfReg = 88;
-            break;
-        case REG_V25:
-            dwarfReg = 89;
-            break;
-        case REG_V26:
-            dwarfReg = 90;
-            break;
-        case REG_V27:
-            dwarfReg = 91;
-            break;
-        case REG_V28:
-            dwarfReg = 92;
-            break;
-        case REG_V29:
-            dwarfReg = 93;
-            break;
-        case REG_V30:
-            dwarfReg = 94;
-            break;
-        case REG_V31:
-            dwarfReg = 95;
-            break;
-
-        default:
-            NYI("CFI codes");
-    }
-
-    return dwarfReg;
-}
-#endif // TARGET_UNIX
-
-void CodeGen::unwindPush(regNumber reg)
+void CodeGen::unwindPush(RegNum reg)
 {
     unreached(); // use one of the unwindSaveReg* functions instead.
 }
 
 void CodeGen::unwindAllocStack(unsigned size)
 {
-#if defined(TARGET_UNIX)
+#ifdef TARGET_UNIX
     if (generateCFIUnwindCodes())
     {
         if (generatingProlog)
@@ -242,24 +26,24 @@ void CodeGen::unwindAllocStack(unsigned size)
     }
 #endif // TARGET_UNIX
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
-
     assert(size % 16 == 0);
     unsigned x = size / 16;
+
+    UnwindInfo& info = funCurrentFunc()->uwi;
 
     if (x <= 0x1F)
     {
         // alloc_s: 000xxxxx: allocate small stack with size < 128 (2^5 * 16)
         // TODO-Review: should say size < 512
 
-        pu->AddCode((uint8_t)x);
+        info.AddCode((uint8_t)x);
     }
     else if (x <= 0x7FF)
     {
         // alloc_m: 11000xxx | xxxxxxxx: allocate large stack with size < 16k (2^11 * 16)
         // TODO-Review: should say size < 32K
 
-        pu->AddCode(0xC0 | (uint8_t)(x >> 8), (uint8_t)x);
+        info.AddCode(0xC0 | (uint8_t)(x >> 8), (uint8_t)x);
     }
     else
     {
@@ -268,15 +52,15 @@ void CodeGen::unwindAllocStack(unsigned size)
         // For large stack size, the most significant bits
         // are stored first (and next to the opCode) per the unwind spec.
 
-        pu->AddCode(0xE0, (uint8_t)(x >> 16), (uint8_t)(x >> 8), (uint8_t)x);
+        info.AddCode(0xE0, (uint8_t)(x >> 16), (uint8_t)(x >> 8), (uint8_t)x);
     }
 
-    pu->CaptureLocation(GetEmitter());
+    info.CaptureLocation(GetEmitter());
 }
 
-void CodeGen::unwindSetFrameReg(regNumber reg, unsigned offset)
+void CodeGen::unwindSetFrameReg(RegNum reg, unsigned offset)
 {
-#if defined(TARGET_UNIX)
+#ifdef TARGET_UNIX
     if (generateCFIUnwindCodes())
     {
         if (generatingProlog)
@@ -288,14 +72,14 @@ void CodeGen::unwindSetFrameReg(regNumber reg, unsigned offset)
     }
 #endif // TARGET_UNIX
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    UnwindInfo& info = funCurrentFunc()->uwi;
 
     if (offset == 0)
     {
         assert(reg == REG_FP);
 
         // set_fp: 11100001 : set up r29 : with : mov r29, sp
-        pu->AddCode(0xE1);
+        info.AddCode(0xE1);
     }
     else
     {
@@ -307,43 +91,39 @@ void CodeGen::unwindSetFrameReg(regNumber reg, unsigned offset)
         unsigned x = offset / 8;
         assert(x <= 0xFF);
 
-        pu->AddCode(0xE2, (uint8_t)x);
+        info.AddCode(0xE2, (uint8_t)x);
     }
 
-    pu->CaptureLocation(GetEmitter());
+    info.CaptureLocation(GetEmitter());
 }
 
-void CodeGen::unwindSaveReg(regNumber reg, unsigned offset)
+void CodeGen::unwindSaveReg(RegNum reg, unsigned offset)
 {
     unreached();
 }
 
 void CodeGen::unwindNop()
 {
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    JITDUMP("unwindNop: adding NOP\n");
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("unwindNop: adding NOP\n");
-    }
-#endif
+    UnwindInfo& info = funCurrentFunc()->uwi;
 
-    INDEBUG(pu->uwiAddingNOP = true);
+    INDEBUG(info.uwiAddingNOP = true);
 
     // nop: 11100011: no unwind operation is required.
-    pu->AddCode(0xE3);
-    pu->CaptureLocation(GetEmitter());
+    info.AddCode(0xE3);
+    info.CaptureLocation(GetEmitter());
 
-    INDEBUG(pu->uwiAddingNOP = false);
+    INDEBUG(info.uwiAddingNOP = false);
 }
 
-// unwindSaveRegPair: save a register pair to the stack at the specified byte offset (which must be positive,
-// a multiple of 8 from 0 to 504). Note that for ARM64 unwind codes, reg2 must be exactly one register higher than reg1,
-// except for the case of a pair including LR, in which case reg1 must be either FP or R19/R21/R23/R25/R27 (note that it
-// can't be even, such as R20, because that would mean R19 was saved separately, instead of saving <R19,R20> as a pair,
+// Save a register pair to the stack at the specified byte offset (which must be positive,
+// a multiple of 8 from 0 to 504). Note that for ARM64 unwind codes, reg2 must be exactly
+// one register higher than reg1, except for the case of a pair including LR, in which case
+// reg1 must be either FP or R19/R21/R23/R25/R27 (note that it can't be even, such as R20,
+// because that would mean R19 was saved separately, instead of saving <R19,R20> as a pair,
 // which we should do instead).
-void CodeGen::unwindSaveRegPair(regNumber reg1, regNumber reg2, int offset)
+void CodeGen::unwindSaveRegPair(RegNum reg1, RegNum reg2, int offset)
 {
     // stp reg1, reg2, [sp, #offset]
 
@@ -351,7 +131,7 @@ void CodeGen::unwindSaveRegPair(regNumber reg1, regNumber reg2, int offset)
     assert(0 <= offset && offset <= 504);
     assert((offset % 8) == 0);
 
-#if defined(TARGET_UNIX)
+#ifdef TARGET_UNIX
     if (generateCFIUnwindCodes())
     {
         if (generatingProlog)
@@ -367,7 +147,7 @@ void CodeGen::unwindSaveRegPair(regNumber reg1, regNumber reg2, int offset)
     }
 #endif // TARGET_UNIX
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    UnwindInfo& info = funCurrentFunc()->uwi;
 
     int z = offset / 8;
     assert(0 <= z && z <= 0x3F);
@@ -378,7 +158,7 @@ void CodeGen::unwindSaveRegPair(regNumber reg1, regNumber reg2, int offset)
 
         assert(reg2 == REG_LR);
 
-        pu->AddCode(0x40 | (uint8_t)z);
+        info.AddCode(0x40 | (uint8_t)z);
     }
     else if (reg2 == REG_LR)
     {
@@ -392,7 +172,7 @@ void CodeGen::unwindSaveRegPair(regNumber reg1, regNumber reg2, int offset)
         x /= 2;
         assert(0 <= x && x <= 0x7);
 
-        pu->AddCode(0xD6 | (uint8_t)(x >> 2), (uint8_t)(x << 6) | (uint8_t)z);
+        info.AddCode(0xD6 | (uint8_t)(x >> 2), (uint8_t)(x << 6) | (uint8_t)z);
     }
     else if (IsGeneralRegister(reg1))
     {
@@ -405,7 +185,7 @@ void CodeGen::unwindSaveRegPair(regNumber reg1, regNumber reg2, int offset)
         uint8_t x = (uint8_t)(reg1 - REG_R19);
         assert(0 <= x && x <= 0xF);
 
-        pu->AddCode(0xC8 | (uint8_t)(x >> 2), (uint8_t)(x << 6) | (uint8_t)z);
+        info.AddCode(0xC8 | (uint8_t)(x >> 2), (uint8_t)(x << 6) | (uint8_t)z);
     }
     else
     {
@@ -418,16 +198,16 @@ void CodeGen::unwindSaveRegPair(regNumber reg1, regNumber reg2, int offset)
         uint8_t x = (uint8_t)(reg1 - REG_V8);
         assert(0 <= x && x <= 0x7);
 
-        pu->AddCode(0xD8 | (uint8_t)(x >> 2), (uint8_t)(x << 6) | (uint8_t)z);
+        info.AddCode(0xD8 | (uint8_t)(x >> 2), (uint8_t)(x << 6) | (uint8_t)z);
     }
 
-    pu->CaptureLocation(GetEmitter());
+    info.CaptureLocation(GetEmitter());
 }
 
-// unwindSaveRegPairPreindexed: save a register pair to the stack at the specified byte offset (which must be negative,
-// a multiple of 8 from -512 to -8). Note that for ARM64 unwind codes, reg2 must be exactly one register higher than
-// reg1.
-void CodeGen::unwindSaveRegPairPreindexed(regNumber reg1, regNumber reg2, int offset)
+// Save a register pair to the stack at the specified byte offset (which must be negative,
+// a multiple of 8 from -512 to -8). Note that for ARM64 unwind codes, reg2 must be exactly
+// one register higher than reg1.
+void CodeGen::unwindSaveRegPairPreindexed(RegNum reg1, RegNum reg2, int offset)
 {
     // stp reg1, reg2, [sp, #offset]!
 
@@ -435,7 +215,7 @@ void CodeGen::unwindSaveRegPairPreindexed(regNumber reg1, regNumber reg2, int of
     assert(offset < 0);
     assert((offset % 8) == 0);
 
-#if defined(TARGET_UNIX)
+#ifdef TARGET_UNIX
     if (generateCFIUnwindCodes())
     {
         if (generatingProlog)
@@ -452,7 +232,7 @@ void CodeGen::unwindSaveRegPairPreindexed(regNumber reg1, regNumber reg2, int of
     }
 #endif // TARGET_UNIX
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    UnwindInfo& info = funCurrentFunc()->uwi;
 
     if (reg1 == REG_FP)
     {
@@ -464,7 +244,7 @@ void CodeGen::unwindSaveRegPairPreindexed(regNumber reg1, regNumber reg2, int of
 
         assert(reg2 == REG_LR);
 
-        pu->AddCode(0x80 | (uint8_t)z);
+        info.AddCode(0x80 | (uint8_t)z);
     }
     else if ((reg1 == REG_R19) &&
              (-256 <= offset)) // If the offset is between -512 and -256, we use the save_regp_x unwind code.
@@ -478,7 +258,7 @@ void CodeGen::unwindSaveRegPairPreindexed(regNumber reg1, regNumber reg2, int of
 
         assert(reg2 == REG_R20);
 
-        pu->AddCode(0x20 | (uint8_t)z);
+        info.AddCode(0x20 | (uint8_t)z);
     }
     else if (IsGeneralRegister(reg1))
     {
@@ -495,7 +275,7 @@ void CodeGen::unwindSaveRegPairPreindexed(regNumber reg1, regNumber reg2, int of
         uint8_t x = (uint8_t)(reg1 - REG_R19);
         assert(0 <= x && x <= 0xF);
 
-        pu->AddCode(0xCC | (uint8_t)(x >> 2), (uint8_t)(x << 6) | (uint8_t)z);
+        info.AddCode(0xCC | (uint8_t)(x >> 2), (uint8_t)(x << 6) | (uint8_t)z);
     }
     else
     {
@@ -512,13 +292,13 @@ void CodeGen::unwindSaveRegPairPreindexed(regNumber reg1, regNumber reg2, int of
         uint8_t x = (uint8_t)(reg1 - REG_V8);
         assert(0 <= x && x <= 0x7);
 
-        pu->AddCode(0xDA | (uint8_t)(x >> 2), (uint8_t)(x << 6) | (uint8_t)z);
+        info.AddCode(0xDA | (uint8_t)(x >> 2), (uint8_t)(x << 6) | (uint8_t)z);
     }
 
-    pu->CaptureLocation(GetEmitter());
+    info.CaptureLocation(GetEmitter());
 }
 
-void CodeGen::unwindSaveReg(regNumber reg, int offset)
+void CodeGen::unwindSaveReg(RegNum reg, int offset)
 {
     // str reg, [sp, #offset]
 
@@ -526,7 +306,7 @@ void CodeGen::unwindSaveReg(regNumber reg, int offset)
     assert(0 <= offset && offset <= 504);
     assert((offset % 8) == 0);
 
-#if defined(TARGET_UNIX)
+#ifdef TARGET_UNIX
     if (generateCFIUnwindCodes())
     {
         if (generatingProlog)
@@ -544,7 +324,7 @@ void CodeGen::unwindSaveReg(regNumber reg, int offset)
     int z = offset / 8;
     assert(0 <= z && z <= 0x3F);
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    UnwindInfo& info = funCurrentFunc()->uwi;
 
     if (IsGeneralRegister(reg))
     {
@@ -556,7 +336,7 @@ void CodeGen::unwindSaveReg(regNumber reg, int offset)
         uint8_t x = (uint8_t)(reg - REG_R19);
         assert(0 <= x && x <= 0xF);
 
-        pu->AddCode(0xD0 | (uint8_t)(x >> 2), (uint8_t)(x << 6) | (uint8_t)z);
+        info.AddCode(0xD0 | (uint8_t)(x >> 2), (uint8_t)(x << 6) | (uint8_t)z);
     }
     else
     {
@@ -568,13 +348,13 @@ void CodeGen::unwindSaveReg(regNumber reg, int offset)
         uint8_t x = (uint8_t)(reg - REG_V8);
         assert(0 <= x && x <= 0x7);
 
-        pu->AddCode(0xDC | (uint8_t)(x >> 2), (uint8_t)(x << 6) | (uint8_t)z);
+        info.AddCode(0xDC | (uint8_t)(x >> 2), (uint8_t)(x << 6) | (uint8_t)z);
     }
 
-    pu->CaptureLocation(GetEmitter());
+    info.CaptureLocation(GetEmitter());
 }
 
-void CodeGen::unwindSaveRegPreindexed(regNumber reg, int offset)
+void CodeGen::unwindSaveRegPreindexed(RegNum reg, int offset)
 {
     // str reg, [sp, #offset]!
 
@@ -582,7 +362,7 @@ void CodeGen::unwindSaveRegPreindexed(regNumber reg, int offset)
     assert(-256 <= offset && offset < 0);
     assert((offset % 8) == 0);
 
-#if defined(TARGET_UNIX)
+#ifdef TARGET_UNIX
     if (generateCFIUnwindCodes())
     {
         if (generatingProlog)
@@ -596,9 +376,9 @@ void CodeGen::unwindSaveRegPreindexed(regNumber reg, int offset)
 
         return;
     }
-#endif // _TARGET_UNIX_
+#endif // TARGET_UNIX
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    UnwindInfo& info = funCurrentFunc()->uwi;
 
     int z = (-offset) / 8 - 1;
     assert(0 <= z && z <= 0x1F);
@@ -613,7 +393,7 @@ void CodeGen::unwindSaveRegPreindexed(regNumber reg, int offset)
         uint8_t x = (uint8_t)(reg - REG_R19);
         assert(0 <= x && x <= 0xF);
 
-        pu->AddCode(0xD4 | (uint8_t)(x >> 3), (uint8_t)(x << 5) | (uint8_t)z);
+        info.AddCode(0xD4 | (uint8_t)(x >> 3), (uint8_t)(x << 5) | (uint8_t)z);
     }
     else
     {
@@ -625,41 +405,171 @@ void CodeGen::unwindSaveRegPreindexed(regNumber reg, int offset)
         uint8_t x = (uint8_t)(reg - REG_V8);
         assert(0 <= x && x <= 0x7);
 
-        pu->AddCode(0xDE, (uint8_t)(x << 5) | (uint8_t)z);
+        info.AddCode(0xDE, (uint8_t)(x << 5) | (uint8_t)z);
     }
 
-    pu->CaptureLocation(GetEmitter());
+    info.CaptureLocation(GetEmitter());
 }
 
 void CodeGen::unwindSaveNext()
 {
-#if defined(TARGET_UNIX)
-    // do not use unwindSaveNext when generating CFI codes as there is no code for this
+#ifdef TARGET_UNIX
+    // Do not use unwindSaveNext when generating CFI codes as there is no code for this.
     assert(!generateCFIUnwindCodes());
-#endif // TARGET_UNIX
+#endif
 
-    UnwindInfo* pu = &funCurrentFunc()->uwi;
+    UnwindInfo& info = funCurrentFunc()->uwi;
 
     // We're saving the next register pair. The caller is responsible for ensuring this is correct!
 
     // save_next: 11100110 : save next non - volatile Int or FP register pair.
-    pu->AddCode(0xE6);
-    pu->CaptureLocation(GetEmitter());
+    info.AddCode(0xE6);
+    info.CaptureLocation(GetEmitter());
 }
 
-void CodeGen::unwindReturn(regNumber reg)
+void CodeGen::unwindReturn(RegNum reg)
 {
     // Nothing to do; we will always have at least one trailing "end" opcode in our padding.
 }
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX  Unwind Info Debug helpers                                                XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
+#ifdef TARGET_UNIX
+int16_t CodeGen::mapRegNumToDwarfReg(RegNum reg)
+{
+    switch (reg)
+    {
+        case REG_R0:
+            return 0;
+        case REG_R1:
+            return 1;
+        case REG_R2:
+            return 2;
+        case REG_R3:
+            return 3;
+        case REG_R4:
+            return 4;
+        case REG_R5:
+            return 5;
+        case REG_R6:
+            return 6;
+        case REG_R7:
+            return 7;
+        case REG_R8:
+            return 8;
+        case REG_R9:
+            return 9;
+        case REG_R10:
+            return 10;
+        case REG_R11:
+            return 11;
+        case REG_R12:
+            return 12;
+        case REG_R13:
+            return 13;
+        case REG_R14:
+            return 14;
+        case REG_R15:
+            return 15;
+        case REG_R16:
+            return 16;
+        case REG_R17:
+            return 17;
+        case REG_R18:
+            return 18;
+        case REG_R19:
+            return 19;
+        case REG_R20:
+            return 20;
+        case REG_R21:
+            return 21;
+        case REG_R22:
+            return 22;
+        case REG_R23:
+            return 23;
+        case REG_R24:
+            return 24;
+        case REG_R25:
+            return 25;
+        case REG_R26:
+            return 26;
+        case REG_R27:
+            return 27;
+        case REG_R28:
+            return 28;
+        case REG_R29:
+            return 29;
+        case REG_R30:
+            return 30;
+        case REG_SP:
+            return 31;
+        case REG_V0:
+            return 64;
+        case REG_V1:
+            return 65;
+        case REG_V2:
+            return 66;
+        case REG_V3:
+            return 67;
+        case REG_V4:
+            return 68;
+        case REG_V5:
+            return 69;
+        case REG_V6:
+            return 70;
+        case REG_V7:
+            return 71;
+        case REG_V8:
+            return 72;
+        case REG_V9:
+            return 73;
+        case REG_V10:
+            return 74;
+        case REG_V11:
+            return 75;
+        case REG_V12:
+            return 76;
+        case REG_V13:
+            return 77;
+        case REG_V14:
+            return 78;
+        case REG_V15:
+            return 79;
+        case REG_V16:
+            return 80;
+        case REG_V17:
+            return 81;
+        case REG_V18:
+            return 82;
+        case REG_V19:
+            return 83;
+        case REG_V20:
+            return 84;
+        case REG_V21:
+            return 85;
+        case REG_V22:
+            return 86;
+        case REG_V23:
+            return 87;
+        case REG_V24:
+            return 88;
+        case REG_V25:
+            return 89;
+        case REG_V26:
+            return 90;
+        case REG_V27:
+            return 91;
+        case REG_V28:
+            return 92;
+        case REG_V29:
+            return 93;
+        case REG_V30:
+            return 94;
+        case REG_V31:
+            return 95;
+        default:
+            unreached();
+    }
+}
+#endif // TARGET_UNIX
 
 #ifdef DEBUG
 
@@ -669,8 +579,7 @@ void UnwindInfo::CheckOpsize(uint8_t b1)
 }
 
 // Return the size of the unwind code (from 1 to 4 bytes), given the first byte of the unwind bytes
-
-unsigned GetUnwindSizeFromUnwindHeader(uint8_t b1)
+static unsigned GetUnwindSizeFromUnwindHeader(uint8_t b1)
 {
     static uint8_t s_UnwindSize[256] = {
         // array of unwind sizes, in bytes (as specified in the ARM unwind specification)
@@ -697,71 +606,36 @@ unsigned GetUnwindSizeFromUnwindHeader(uint8_t b1)
     return size;
 }
 
-#endif // DEBUG
-
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX  Unwind Info Support Classes                                              XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-///////////////////////////////////////////////////////////////////////////////
-//
-//  UnwindCodesBase
-//
-///////////////////////////////////////////////////////////////////////////////
-
-#ifdef DEBUG
-
 // Walk the prolog codes and calculate the size of the prolog or epilog, in bytes.
-unsigned UnwindCodesBase::GetCodeSizeFromUnwindCodes(bool isProlog)
+unsigned UnwindCodesBase::GetCodeSizeFromUnwindCodes(bool isProlog) const
 {
-    uint8_t* pCodesStart = GetCodes();
-    uint8_t* pCodes      = pCodesStart;
-    unsigned size        = 0;
+    uint8_t* codesStart = GetCodes();
+    uint8_t* codes      = codesStart;
+    unsigned size       = 0;
+
     for (;;)
     {
-        uint8_t b1 = *pCodes;
+        uint8_t b1 = *codes;
+
         if (IsEndCode(b1))
         {
             break; // We hit an "end" code; we're done
         }
+
         size += 4; // All codes represent 4 byte instructions.
-        pCodes += GetUnwindSizeFromUnwindHeader(b1);
-        assert(pCodes - pCodesStart < 256); // 255 is the absolute maximum number of code bytes allowed
+        codes += GetUnwindSizeFromUnwindHeader(b1);
+
+        assert(codes - codesStart < 256); // 255 is the absolute maximum number of code bytes allowed
     }
+
     return size;
 }
 
-#endif // DEBUG
-
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX  Debug dumpers                                                            XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-#ifdef DEBUG
-
 // start is 0-based index from LSB, length is number of bits
-uint32_t ExtractBits(uint32_t dw, uint32_t start, uint32_t length)
+static uint32_t ExtractBits(uint32_t dw, uint32_t start, uint32_t length)
 {
     return (dw >> start) & ((1 << length) - 1);
 }
-
-// Dump the unwind data.
-// Arguments:
-//      isHotCode:          true if this unwind data is for the hot section
-//      startOffset:        byte offset of the code start that this unwind data represents
-//      endOffset:          byte offset of the code end   that this unwind data represents
-//      header:            pointer to the unwind data blob
-//      unwindBlockSize:    size in bytes of the unwind data blob
 
 void DumpUnwindInfo(Compiler*      comp,
                     bool           isHotCode,
@@ -1115,5 +989,4 @@ void DumpUnwindInfo(Compiler*      comp,
 }
 
 #endif // DEBUG
-
 #endif // TARGET_ARM64

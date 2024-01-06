@@ -1,32 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                              UnwindInfo                                   XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
 #include "codegen.h"
 
-#ifndef TARGET_X86
-#error "This should be included only for x86"
-#endif // TARGET_X86
-
-#if defined(TARGET_UNIX)
-short CodeGen::mapRegNumToDwarfReg(regNumber reg)
-{
-    short dwarfReg = DWARF_REG_ILLEGAL;
-
-    NYI("CFI codes");
-
-    return dwarfReg;
-}
-#endif // TARGET_UNIX
+#ifdef TARGET_X86
 
 void CodeGen::unwindBegProlog()
 {
@@ -44,7 +22,7 @@ void CodeGen::unwindEndEpilog()
 {
 }
 
-void CodeGen::unwindPush(regNumber reg)
+void CodeGen::unwindPush(RegNum reg)
 {
 }
 
@@ -52,19 +30,14 @@ void CodeGen::unwindAllocStack(unsigned size)
 {
 }
 
-void CodeGen::unwindSetFrameReg(regNumber reg, unsigned offset)
+void CodeGen::unwindSetFrameReg(RegNum reg, unsigned offset)
 {
 }
 
-void CodeGen::unwindSaveReg(regNumber reg, unsigned offset)
+void CodeGen::unwindSaveReg(RegNum reg, unsigned offset)
 {
 }
 
-// Ask the VM to reserve space for the unwind information
-// for the function and all its funclets. Called once, just before asking the VM
-// for memory and emitting the generated code. Calls unwindReserveFunc() to handle
-// the main function and each of the funclets, in turn.
-//
 void CodeGen::unwindReserve()
 {
 #ifdef FEATURE_EH_FUNCLETS
@@ -79,75 +52,47 @@ void CodeGen::unwindReserve()
 #endif
 }
 
-// Report all the unwind information to the VM.
-//
-// Arguments:
-//    pHotCode  - Pointer to the beginning of the memory with the function and funclet hot  code.
-//    pColdCode - Pointer to the beginning of the memory with the function and funclet cold code.
-//
-void CodeGen::unwindEmit(void* pHotCode, void* pColdCode)
+void CodeGen::unwindEmit(void* hotCode, void* coldCode)
 {
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     assert(!generatingProlog);
     assert(!generatingEpilog);
-
     assert(compFuncInfoCount > 0);
-    for (unsigned funcIdx = 0; funcIdx < compFuncInfoCount; funcIdx++)
+
+    for (unsigned i = 0; i < compFuncInfoCount; i++)
     {
-        unwindEmitFunc(funGetFunc(funcIdx), pHotCode, pColdCode);
+        unwindEmitFunc(funGetFunc(i), hotCode, coldCode);
     }
-#endif // FEATURE_EH_FUNCLETS
+#endif
 }
 
 #ifdef FEATURE_EH_FUNCLETS
-// Reserve the unwind information from the VM for a
-// given main function or funclet.
-//
-// Arguments:
-//    func - The main function or funclet to reserve unwind info for.
-//
 void CodeGen::unwindReserveFunc(FuncInfoDsc* func)
 {
-    unwindReserveFuncHelper(func, true);
+    unwindReserveFuncRegion(func, true);
 
     if (fgFirstColdBlock != nullptr)
     {
-        unwindReserveFuncHelper(func, false);
+        unwindReserveFuncRegion(func, false);
     }
 }
 
-// Reserve the unwind information from the VM for a
-// given main function or funclet, for either the hot or the cold section.
-//
-// Arguments:
-//    func      - The main function or funclet to reserve unwind info for.
-//    isHotCode - 'true' to reserve the hot section, 'false' to reserve the cold section.
-//
-void CodeGen::unwindReserveFuncHelper(FuncInfoDsc* func, bool isHotCode)
+void CodeGen::unwindReserveFuncRegion(FuncInfoDsc* func, bool isHotCode)
 {
     eeReserveUnwindInfo(func->funKind != FUNC_ROOT, !isHotCode, sizeof(UNWIND_INFO));
 }
 
-// Report the unwind information to the VM for a
-// given main function or funclet. Reports the hot section, then the cold
-// section if necessary.
-//
-// Arguments:
-//    func      - The main function or funclet to reserve unwind info for.
-//    pHotCode  - Pointer to the beginning of the memory with the function and funclet hot  code.
-//    pColdCode - Pointer to the beginning of the memory with the function and funclet cold code.
-//
-void CodeGen::unwindEmitFunc(FuncInfoDsc* func, void* pHotCode, void* pColdCode)
+void CodeGen::unwindEmitFunc(FuncInfoDsc* func, void* hotCode, void* coldCode)
 {
-    unwindEmitFuncHelper(func, pHotCode, pColdCode, true);
+    unwindEmitFuncRegion(func, hotCode, coldCode, true);
 
-    if (pColdCode != nullptr)
+    if (coldCode != nullptr)
     {
-        unwindEmitFuncHelper(func, pHotCode, pColdCode, false);
+        unwindEmitFuncRegion(func, hotCode, coldCode, false);
     }
 }
 
-void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* hotCode, void* coldCode, bool isHotCode)
+void CodeGen::unwindEmitFuncRegion(FuncInfoDsc* func, void* hotCode, void* coldCode, bool isHotCode)
 {
     uint32_t startOffset;
     uint32_t endOffset;
@@ -188,7 +133,16 @@ void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* hotCode, void* coldC
     static_assert_no_msg(FUNC_HANDLER == (FuncKind)CORJIT_FUNC_HANDLER);
     static_assert_no_msg(FUNC_FILTER == (FuncKind)CORJIT_FUNC_FILTER);
 
-    compiler->eeAllocUnwindInfo(pHotCode, coldCode, startOffset, endOffset, sizeof(UNWIND_INFO), &unwindInfo,
+    compiler->eeAllocUnwindInfo(hotCode, coldCode, startOffset, endOffset, sizeof(UNWIND_INFO), &unwindInfo,
                                 static_cast<CorJitFuncKind>(func->funKind));
 }
 #endif // FEATURE_EH_FUNCLETS
+
+#ifdef TARGET_UNIX
+int16_t CodeGen::mapRegNumToDwarfReg(RegNum reg)
+{
+    unreached();
+}
+#endif // TARGET_UNIX
+
+#endif // TARGET_X86
