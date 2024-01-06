@@ -269,9 +269,9 @@ void CodeGen::DumpCfiInfo(
     {
         const CFI_CODE& code = codes[i];
 
-        UCHAR codeOffset = code.CodeOffset;
-        SHORT dwarfReg   = code.DwarfReg;
-        INT   offset     = code.Offset;
+        uint8_t codeOffset = code.CodeOffset;
+        int16_t dwarfReg   = code.DwarfReg;
+        int32_t offset     = code.Offset;
 
         switch (code.CfiOpCode)
         {

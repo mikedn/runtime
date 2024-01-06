@@ -70,11 +70,11 @@ void CodeGen::unwindReserve()
 #ifdef FEATURE_EH_FUNCLETS
     assert(!generatingProlog);
     assert(!generatingEpilog);
-
     assert(compFuncInfoCount > 0);
-    for (unsigned funcIdx = 0; funcIdx < compFuncInfoCount; funcIdx++)
+
+    for (unsigned i = 0; i < compFuncInfoCount; i++)
     {
-        unwindReserveFunc(funGetFunc(funcIdx));
+        unwindReserveFunc(funGetFunc(i));
     }
 #endif
 }
