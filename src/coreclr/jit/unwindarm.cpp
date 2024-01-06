@@ -1237,7 +1237,7 @@ void UnwindFragmentInfo::CopyPrologCodes(UnwindFragmentInfo* copyFrom)
 // epilogs that start at or after the location represented by 'splitLoc' are removed
 // from 'splitFrom' and moved to this fragment. Note that this fragment should not have
 // any epilog codes currently; it is at the initial state.
-void UnwindFragmentInfo::SplitEpilogCodes(emitLocation* splitLoc, UnwindFragmentInfo* splitFrom)
+void UnwindFragmentInfo::SplitEpilogCodes(insGroup* splitLoc, UnwindFragmentInfo* splitFrom)
 {
     uint32_t splitOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(splitLoc);
 
@@ -1283,8 +1283,13 @@ void UnwindFragmentInfo::SplitEpilogCodes(emitLocation* splitLoc, UnwindFragment
 
 bool UnwindFragmentInfo::IsAtFragmentEnd(UnwindEpilogInfo* epilog)
 {
-    return uwiComp->codeGen->GetEmitter()->emitIsFuncEnd(epilog->epiEmitLocation,
-                                                         ufiNext == nullptr ? nullptr : ufiNext->ufiStartLoc);
+    if ((ufiNext == nullptr) || (ufiNext->ufiStartLoc == nullptr))
+    {
+        return uwiComp->codeGen->GetEmitter()->emitIsFuncEnd(epilog->epiEmitLocation, nullptr);
+    }
+
+    emitLocation loc(ufiNext->ufiStartLoc);
+    return uwiComp->codeGen->GetEmitter()->emitIsFuncEnd(epilog->epiEmitLocation, &loc);
 }
 
 // Merge the unwind codes as much as possible.
@@ -1688,7 +1693,7 @@ void UnwindFragmentInfo::Dump(int indent)
 UnwindInfo::UnwindInfo(Compiler* comp, insGroup* start, insGroup* end)
     : UnwindBase(comp)
     , uwiFragmentFirst(comp, start, false)
-    , uwiEndLoc(end == nullptr ? nullptr : new (comp, CMK_UnwindInfo) emitLocation(end))
+    , uwiEndLoc(end)
 #ifdef DEBUG
     , uwiInitialized(true)
 #endif
@@ -1740,8 +1745,8 @@ void UnwindInfo::SplitLargeFragment()
     assert(uwiFragmentFirst.ufiNext == nullptr);
 
     // Find the code size of this function/funclet.
-    emitLocation* startLoc = uwiFragmentFirst.ufiStartLoc;
-    uint32_t      startOffset;
+    insGroup* startLoc = uwiFragmentFirst.ufiStartLoc;
+    uint32_t  startOffset;
 
     if (startLoc == nullptr)
     {
@@ -1752,8 +1757,8 @@ void UnwindInfo::SplitLargeFragment()
         startOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(startLoc);
     }
 
-    emitLocation* endLoc = uwiEndLoc;
-    uint32_t      endOffset;
+    insGroup* endLoc = uwiEndLoc;
+    uint32_t  endOffset;
 
     if (endLoc == nullptr)
     {
@@ -1785,8 +1790,8 @@ void UnwindInfo::SplitLargeFragment()
     JITDUMP("Split unwind info into %d fragments (function/funclet size: %d, maximum fragment size: %d)\n",
             fragmentCount, codeSize, maxFragmentSize);
 
-    insGroup* igStart = startLoc == nullptr ? uwiComp->codeGen->GetEmitter()->GetProlog() : startLoc->GetIG();
-    insGroup* igEnd   = endLoc == nullptr ? nullptr : endLoc->GetIG();
+    insGroup* igStart = startLoc == nullptr ? uwiComp->codeGen->GetEmitter()->GetProlog() : startLoc;
+    insGroup* igEnd   = endLoc == nullptr ? nullptr : endLoc;
 
     Split(igStart, igEnd, maxFragmentSize);
 
@@ -1906,7 +1911,7 @@ void UnwindInfo::Allocate(FuncKind kind, void* hotCode, void* coldCode, bool isH
 
     uint32_t startOffset;
 
-    if (const emitLocation* startLoc = uwiFragmentFirst.GetStartLoc())
+    if (const insGroup* startLoc = uwiFragmentFirst.GetStartLoc())
     {
         startOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(startLoc);
     }
@@ -1970,11 +1975,10 @@ UnwindFragmentInfo* UnwindInfo::AddFragment(UnwindFragmentInfo* last, insGroup* 
 {
     assert(uwiInitialized);
 
-    emitLocation*       emitLoc = new (uwiComp, CMK_UnwindInfo) emitLocation(ig);
     UnwindFragmentInfo* newFrag = new (uwiComp, CMK_UnwindInfo) UnwindFragmentInfo(uwiComp, ig, true);
     INDEBUG(newFrag->ufiNum = last->ufiNum + 1);
     newFrag->CopyPrologCodes(&uwiFragmentFirst);
-    newFrag->SplitEpilogCodes(emitLoc, last);
+    newFrag->SplitEpilogCodes(ig, last);
 
     last->ufiNext = newFrag;
 
@@ -2017,7 +2021,7 @@ void UnwindInfo::Dump(bool isHotCode, int indent)
 
     if (uwiEndLoc != nullptr)
     {
-        uwiEndLoc->Print();
+        printf(FMT_IG, uwiEndLoc->igNum);
     }
     else
     {

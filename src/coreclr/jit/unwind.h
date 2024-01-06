@@ -400,7 +400,7 @@ class UnwindFragmentInfo : public UnwindBase
     // The next fragment
     UnwindFragmentInfo* ufiNext = nullptr;
     // Emitter location for start of fragment
-    emitLocation* ufiStartLoc;
+    insGroup* ufiStartLoc = nullptr;
     // Are the prolog codes for a phantom prolog, or a real prolog?
     // (For a phantom prolog, this code fragment represents a fragment in
     // the sense of the unwind info spec; something without a real prolog.)
@@ -443,7 +443,7 @@ public:
 
     UnwindFragmentInfo(Compiler* comp, insGroup* start, bool hasPhantomProlog)
         : UnwindBase(comp)
-        , ufiStartLoc(start == nullptr ? nullptr : new (comp, CMK_UnwindInfo) emitLocation(start))
+        , ufiStartLoc(start)
         , ufiHasPhantomProlog(hasPhantomProlog)
         , ufiPrologCodes(comp)
         , ufiEpilogFirst(comp)
@@ -454,7 +454,7 @@ public:
     UnwindFragmentInfo(const UnwindFragmentInfo& info) = delete;
     UnwindFragmentInfo& operator=(const UnwindFragmentInfo&) = delete;
 
-    const emitLocation* GetStartLoc() const
+    const insGroup* GetStartLoc() const
     {
         return ufiStartLoc;
     }
@@ -499,13 +499,13 @@ public:
     UnwindEpilogInfo* AddEpilog();
     void              MergeCodes();
     void CopyPrologCodes(UnwindFragmentInfo* copyFrom);
-    void SplitEpilogCodes(emitLocation* splitLoc, UnwindFragmentInfo* splitFrom);
+    void SplitEpilogCodes(insGroup* splitLoc, UnwindFragmentInfo* splitFrom);
     bool IsAtFragmentEnd(UnwindEpilogInfo* epilog);
 
     // Return the full, final size of unwind block. This will be used to allocate memory for
     // the unwind block. This is called before the code offsets are finalized.
     // Size is in bytes.
-    uint32_t Size()
+    uint32_t Size() const
     {
         assert(ufiSize != 0);
         return ufiSize;
@@ -535,7 +535,7 @@ class UnwindInfo : public UnwindBase
     // The first fragment is directly here, so it doesn't need to be separately allocated.
     UnwindFragmentInfo uwiFragmentFirst;
     // End emitter location of this function/funclet (nullptr == end of all code)
-    emitLocation* uwiEndLoc;
+    insGroup* uwiEndLoc = nullptr;
     // The current emitter location (updated after an unwind code is added), used for NOP
     // padding, and asserts.
     emitLocation uwiCurLoc;
