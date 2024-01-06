@@ -1152,16 +1152,16 @@ int UnwindEpilogInfo::Match(UnwindEpilogInfo* epilog)
 
 void UnwindEpilogInfo::CaptureEmitLocation(emitter* emitter)
 {
-    noway_assert(epiEmitLocation.GetIG() == nullptr); // This function is only called once per epilog
-    epiEmitLocation.CaptureLocation(emitter);
+    noway_assert(epiStartLoc.GetIG() == nullptr); // This function is only called once per epilog
+    epiStartLoc.CaptureLocation(emitter);
 }
 
 #ifdef DEBUG
 void UnwindEpilogInfo::Dump(int indent)
 {
     printf("%*sUnwindEpilogInfo:\n", indent, "");
-    printf("%*s  epiEmitLocation: ", indent, "");
-    epiEmitLocation.Print();
+    printf("%*s  epiStartLoc: ", indent, "");
+    epiStartLoc.Print();
     printf("%*s  epiMatches: %d\n", indent, "", epiMatches);
     printf("%*s  epiStartIndex: %d\n", indent, "", epiStartIndex);
 
@@ -1276,20 +1276,18 @@ void UnwindFragmentInfo::SplitEpilogCodes(insGroup* splitLoc, UnwindFragmentInfo
     }
 }
 
-// Is this epilog at the end of an unwind fragment? Ask the emitter.
+// Is this epilog at the end of an unwind fragment?
 // Note that we need to know this before all code offsets are finalized,
 // so we can determine whether we can omit an epilog scope word for a
 // single matching epilog.
 
 bool UnwindFragmentInfo::IsAtFragmentEnd(UnwindEpilogInfo* epilog)
 {
-    if ((ufiNext == nullptr) || (ufiNext->ufiStartLoc == nullptr))
-    {
-        return uwiComp->codeGen->GetEmitter()->emitIsFuncEnd(epilog->epiEmitLocation, nullptr);
-    }
+    // We're assuming that the epilog doesn't span multiple instruction groups.
+    insGroup* ig = epilog->epiStartLoc.GetIG();
 
-    emitLocation loc(ufiNext->ufiStartLoc);
-    return uwiComp->codeGen->GetEmitter()->emitIsFuncEnd(epilog->epiEmitLocation, &loc);
+    return (ig->igNext == nullptr) || ig->igNext->IsFuncletProlog() ||
+           ((ufiNext != nullptr) && (ig->igNext == ufiNext->ufiStartLoc));
 }
 
 // Merge the unwind codes as much as possible.

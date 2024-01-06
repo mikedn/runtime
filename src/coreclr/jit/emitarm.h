@@ -257,7 +257,6 @@ inline bool emitIsLoadLabel(instrDesc* jmp)
 /*                   Interface for generating unwind information        */
 /************************************************************************/
 public:
-bool emitIsFuncEnd(const emitLocation& loc, emitLocation* emitLocNextFragment = NULL);
 void emitUnwindNopPadding(const emitLocation& loc);
 unsigned emitGetInstructionSize(const emitLocation& emit);
 

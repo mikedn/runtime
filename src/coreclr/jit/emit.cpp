@@ -1289,40 +1289,6 @@ const char* emitter::emitLabelString(insGroup* ig)
 
 #ifdef TARGET_ARMARCH
 
-// Does the argument location point to an IG at the end of a function or funclet?
-// We can ignore the codePos part of the location, since it doesn't affect the
-// determination. If 'emitLocNextFragment' is non-NULL, it indicates the first
-// IG of the next fragment, so it represents a function end.
-bool emitter::emitIsFuncEnd(const emitLocation& emitLoc, emitLocation* emitLocNextFragment /* = NULL */)
-{
-    insGroup* ig = emitLoc.GetIG();
-    assert(ig);
-
-    // Are we at the end of the IG list?
-    if ((emitLocNextFragment != NULL) && (ig->igNext == emitLocNextFragment->GetIG()))
-        return true;
-
-    // Safety check
-    if (ig->igNext == NULL)
-        return true;
-
-    // Is the next IG the start of a funclet prolog?
-    if (ig->igNext->igFlags & IGF_FUNCLET_PROLOG)
-        return true;
-
-#if defined(FEATURE_EH_FUNCLETS)
-
-    // Is the next IG a placeholder group for a funclet prolog?
-    if ((ig->igNext->igFlags & IGF_PLACEHOLDER) && ((ig->igNext->igFlags & IGF_FUNCLET_PROLOG) != 0))
-    {
-        return true;
-    }
-
-#endif // FEATURE_EH_FUNCLETS
-
-    return false;
-}
-
 /*****************************************************************************
  *
  * Given an instruction group, find the array of instructions (instrDesc) and

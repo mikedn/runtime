@@ -317,7 +317,7 @@ class UnwindEpilogInfo : public UnwindBase
 
     UnwindEpilogInfo* epiNext = nullptr;
     // The emitter location of the beginning of the epilog
-    emitLocation      epiEmitLocation;
+    emitLocation      epiStartLoc;
     UnwindEpilogCodes epiCodes;
     // Do the epilog unwind codes match some other set of codes? If so, we don't copy these to the
     // final set; we just point to another set.
@@ -346,7 +346,7 @@ public:
 
     const emitLocation& GetStartLocation() const
     {
-        return epiEmitLocation;
+        return epiStartLoc;
     }
 
     int GetStartIndex()
