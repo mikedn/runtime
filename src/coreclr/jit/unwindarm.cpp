@@ -1197,9 +1197,9 @@ void UnwindFragmentInfo::SplitEpilogCodes(emitLocation* emitLoc, UnwindFragmentI
     for (UnwindEpilogInfo *epilog = pSplitFrom->ufiEpilogList, *prev = nullptr; epilog != nullptr;
          prev = epilog, epilog = epilog->epiNext)
     {
-        epilog->FinalizeOffset();
+        uint32_t startOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(epilog->GetStartLocation());
 
-        if (epilog->GetStartOffset() >= splitOffset)
+        if (startOffset >= splitOffset)
         {
             // This epilog and all following epilogs, which must be in order of increasing offsets,
             // get moved to this fragment.

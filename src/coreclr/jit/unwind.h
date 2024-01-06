@@ -458,6 +458,11 @@ public:
         epiCodes.FinalizeCodes();
     }
 
+    const emitLocation& GetStartLocation() const
+    {
+        return epiEmitLocation;
+    }
+
     uint32_t GetStartOffset()
     {
         assert(epiStartOffset != EPI_ILLEGAL_OFFSET);
