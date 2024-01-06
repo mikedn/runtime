@@ -626,19 +626,16 @@ struct FuncInfoDsc
 // funclet. It is only valid if funKind field indicates this is a
 // EH-related funclet: FUNC_HANDLER or FUNC_FILTER
 
-#if defined(TARGET_AMD64)
-
+#ifdef TARGET_AMD64
     UNWIND_INFO unwindHeader;
     // Maximum of 255 UNWIND_CODE 'nodes' and then the unwind header. If there are an odd
     // number of codes, the VM or Zapper will 4-byte align the whole thing.
     // TODO-AMD64-Throughput: make the AMD64 info more like the ARM info to avoid having this large static array.
     uint8_t  unwindCodes[offsetof(UNWIND_INFO, UnwindCode) + (0xFF * sizeof(UNWIND_CODE))];
     unsigned unwindCodeSlot;
+#endif
 
-#elif defined(TARGET_X86)
-
-#elif defined(TARGET_ARMARCH)
-
+#ifdef TARGET_ARMARCH
     UnwindInfo  uwi;     // Unwind information for this function/funclet's hot  section
     UnwindInfo* uwiCold; // Unwind information for this function/funclet's cold section
                          //   Note: we only have a pointer here instead of the actual object,
@@ -646,12 +643,11 @@ struct FuncInfoDsc
                          //   where we don't have any cold section.
                          //   Note 2: we currently don't support hot/cold splitting in functions
                          //   with EH, so uwiCold will be nullptr for all funclets.
+#endif
 
-#endif // TARGET_ARMARCH
-
-#if defined(TARGET_UNIX)
+#ifdef TARGET_UNIX
     jitstd::vector<CFI_CODE>* cfiCodes;
-#endif // TARGET_UNIX
+#endif
 
     // Eventually we may want to move rsModifiedRegsMask, lvaOutgoingArgSize, and anything else
     // that isn't shared between the main function body and funclets.

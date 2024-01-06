@@ -14,6 +14,13 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "unwind.h"
 #include "codegen.h"
 
+#if defined(TARGET_AMD64) || defined(TARGET_UNIX)
+uint32_t CodeGen::unwindGetCurrentOffset()
+{
+    return GetEmitter()->emitGetCurrentPrologCodeSize();
+}
+#endif
+
 #ifdef FEATURE_EH_FUNCLETS
 
 // Get the start/end emitter locations for this
@@ -46,10 +53,10 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 //    A start location of nullptr means the beginning of the code.
 //    An end location of nullptr means the end of the code.
 //
-void CodeGen::unwindGetFuncLocations(FuncInfoDsc*             func,
-                                     bool                     getHotSectionData,
-                                     /* OUT */ emitLocation** ppStartLoc,
-                                     /* OUT */ emitLocation** ppEndLoc)
+void CodeGen::unwindGetFuncLocations(FuncInfoDsc*   func,
+                                     bool           getHotSectionData,
+                                     emitLocation** ppStartLoc,
+                                     emitLocation** ppEndLoc)
 {
     if (func->funKind == FUNC_ROOT)
     {
@@ -115,13 +122,13 @@ void CodeGen::unwindGetFuncLocations(FuncInfoDsc*             func,
 
 #endif // FEATURE_EH_FUNCLETS
 
-#if defined(TARGET_UNIX)
+#ifdef TARGET_UNIX
 
-void CodeGen::createCfiCode(FuncInfoDsc* func, uint32_t codeOffset, UCHAR cfiOpcode, short dwarfReg, INT offset)
+void CodeGen::createCfiCode(FuncInfoDsc* func, uint32_t codeOffset, uint8_t cfiOpcode, int16_t dwarfReg, int32_t offset)
 {
-    noway_assert(static_cast<UCHAR>(codeOffset) == codeOffset);
-    CFI_CODE cfiEntry(static_cast<UCHAR>(codeOffset), cfiOpcode, dwarfReg, offset);
-    func->cfiCodes->push_back(cfiEntry);
+    noway_assert(FitsIn<uint8_t>(codeOffset));
+
+    func->cfiCodes->emplace_back(static_cast<uint8_t>(codeOffset), cfiOpcode, dwarfReg, offset);
 }
 
 void CodeGen::unwindPushPopCFI(regNumber reg)
@@ -132,6 +139,7 @@ void CodeGen::unwindPushPopCFI(regNumber reg)
     uint32_t     cbProlog = unwindGetCurrentOffset();
 
     regMaskTP relOffsetMask = RBM_CALLEE_SAVED
+
 #if defined(UNIX_AMD64_ABI) && ETW_EBP_FRAMED
                               // In case of ETW_EBP_FRAMED defined the REG_FPBASE (RBP)
                               // is excluded from the callee-save register list.
@@ -139,7 +147,7 @@ void CodeGen::unwindPushPopCFI(regNumber reg)
                               // since it is pushed as a frame register.
                               | RBM_FPBASE
 #endif
-#if defined(TARGET_ARM)
+#ifdef TARGET_ARM
                               | RBM_R11 | RBM_LR | RBM_PC
 #endif
         ;
@@ -157,25 +165,22 @@ void CodeGen::unwindPushPopCFI(regNumber reg)
     }
 }
 
-typedef jitstd::vector<CFI_CODE> CFICodeVector;
-
 void CodeGen::unwindBegPrologCFI()
 {
     assert(generatingProlog);
 
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     FuncInfoDsc* func = funCurrentFunc();
 
-    func->cfiCodes = new (compiler, CMK_UnwindInfo) CFICodeVector(compiler->getAllocator(CMK_UnwindInfo));
-#endif // FEATURE_EH_FUNCLETS
+    func->cfiCodes = new (compiler, CMK_UnwindInfo) jitstd::vector<CFI_CODE>(compiler->getAllocator(CMK_UnwindInfo));
+#endif
 }
 
 void CodeGen::unwindPushPopMaskCFI(regMaskTP regMask, bool isFloat)
 {
     regMaskTP regBit = isFloat ? genRegMask(REG_FP_FIRST) : 1;
 
-    regNumber regNum = isFloat ? REG_FP_FIRST : REG_FIRST;
-    for (; regNum < REG_COUNT;)
+    for (RegNum regNum = isFloat ? REG_FP_FIRST : REG_FIRST; regNum < REG_COUNT;)
     {
         if (regBit > regMask)
         {
@@ -205,12 +210,10 @@ void CodeGen::unwindPushPopMaskCFI(regMaskTP regMask, bool isFloat)
 void CodeGen::unwindAllocStackCFI(unsigned size)
 {
     assert(generatingProlog);
+
     FuncInfoDsc* func     = funCurrentFunc();
-    uint32_t     cbProlog = 0;
-    if (generatingProlog)
-    {
-        cbProlog = unwindGetCurrentOffset();
-    }
+    uint32_t     cbProlog = unwindGetCurrentOffset();
+
     createCfiCode(func, cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, size);
 }
 
@@ -223,10 +226,12 @@ void CodeGen::unwindAllocStackCFI(unsigned size)
 void CodeGen::unwindSetFrameRegCFI(regNumber reg, unsigned offset)
 {
     assert(generatingProlog);
+
     FuncInfoDsc* func     = funCurrentFunc();
     uint32_t     cbProlog = unwindGetCurrentOffset();
 
     createCfiCode(func, cbProlog, CFI_DEF_CFA_REGISTER, mapRegNumToDwarfReg(reg));
+
     if (offset != 0)
     {
         // before: cfa = rsp + old_cfa_offset;
@@ -239,7 +244,7 @@ void CodeGen::unwindSetFrameRegCFI(regNumber reg, unsigned offset)
     }
 }
 
-void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* pHotCode, void* pColdCode)
+void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* hotCode, void* coldCode)
 {
     emitLocation* startLoc     = nullptr;
     emitLocation* endLoc       = nullptr;
@@ -252,117 +257,56 @@ void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* pHotCode, void* pColdCo
         unwindGetFuncLocations(func, false, &coldStartLoc, &coldEndLoc);
     }
 
-    uint32_t startOffset;
-    uint32_t endOffset;
-    uint32_t unwindCodeBytes = 0;
-    uint8_t* pUnwindBlock    = nullptr;
-
-    if (startLoc == nullptr)
-    {
-        startOffset = 0;
-    }
-    else
-    {
-        startOffset = GetEmitter()->GetCodeOffset(startLoc);
-    }
-
-    if (endLoc == nullptr)
-    {
-        endOffset = compNativeCodeSize;
-    }
-    else
-    {
-        endOffset = GetEmitter()->GetCodeOffset(endLoc);
-    }
-
-    uint32_t size = (uint32_t)func->cfiCodes->size();
-    if (size > 0)
-    {
-        unwindCodeBytes = size * sizeof(CFI_CODE);
-        pUnwindBlock    = (uint8_t*)&(*func->cfiCodes)[0];
-    }
-
-#ifdef DEBUG
-    if (compiler->opts.dspUnwind)
-    {
-        DumpCfiInfo(true /*isHotCode*/, startOffset, endOffset, unwindCodeBytes, (const CFI_CODE* const)pUnwindBlock);
-    }
-#endif // DEBUG
+    uint32_t startOffset = startLoc == nullptr ? 0 : GetEmitter()->GetCodeOffset(startLoc);
+    uint32_t endOffset   = endLoc == nullptr ? compNativeCodeSize : GetEmitter()->GetCodeOffset(endLoc);
 
     assert(endOffset <= compTotalHotCodeSize);
 
-    compiler->eeAllocUnwindInfo(pHotCode, nullptr, startOffset, endOffset, unwindCodeBytes, pUnwindBlock,
+    uint32_t  codeCount = static_cast<uint32_t>(func->cfiCodes->size());
+    CFI_CODE* codes     = codeCount == 0 ? nullptr : func->cfiCodes->data();
+
+    DBEXEC(compiler->opts.dspUnwind, DumpCfiInfo(/* isHotCode */ true, startOffset, endOffset, codeCount, codes));
+
+    compiler->eeAllocUnwindInfo(hotCode, nullptr, startOffset, endOffset, codeCount * sizeof(CFI_CODE), codes,
                                 static_cast<CorJitFuncKind>(func->funKind));
 
-    if (pColdCode != nullptr)
+    if (coldCode != nullptr)
     {
         assert(compiler->fgFirstColdBlock != nullptr);
         assert(func->funKind == FUNC_ROOT); // No splitting of funclets.
 
-        unwindCodeBytes = 0;
-        pUnwindBlock    = nullptr;
-
-        if (coldStartLoc == nullptr)
-        {
-            startOffset = 0;
-        }
-        else
-        {
-            startOffset = GetEmitter()->GetCodeOffset(coldStartLoc);
-        }
-
-        if (coldEndLoc == nullptr)
-        {
-            endOffset = compNativeCodeSize;
-        }
-        else
-        {
-            endOffset = GetEmitter()->GetCodeOffset(coldEndLoc);
-        }
-
-#ifdef DEBUG
-        if (compiler->opts.dspUnwind)
-        {
-            DumpCfiInfo(false /*isHotCode*/, startOffset, endOffset, unwindCodeBytes,
-                        (const CFI_CODE* const)pUnwindBlock);
-        }
-#endif // DEBUG
+        startOffset = coldStartLoc == nullptr ? 0 : GetEmitter()->GetCodeOffset(coldStartLoc);
+        endOffset   = coldEndLoc == nullptr ? compNativeCodeSize : GetEmitter()->GetCodeOffset(coldEndLoc);
 
         assert(startOffset >= compTotalHotCodeSize);
+
+        DBEXEC(compiler->opts.dspUnwind, DumpCfiInfo(/* isHotCode */ false, startOffset, endOffset, 0, nullptr));
+
         startOffset -= compTotalHotCodeSize;
         endOffset -= compTotalHotCodeSize;
 
-        compiler->eeAllocUnwindInfo(pHotCode, pColdCode, startOffset, endOffset, unwindCodeBytes, pUnwindBlock,
+        compiler->eeAllocUnwindInfo(hotCode, coldCode, startOffset, endOffset, 0, nullptr,
                                     static_cast<CorJitFuncKind>(func->funKind));
     }
 }
 
 #ifdef DEBUG
-//------------------------------------------------------------------------
-// DumpCfiInfo: Dump the Cfi data.
-//
-// Arguments:
-//    isHotCode   - true if this cfi data is for the hot section, false otherwise.
-//    startOffset - byte offset of the code start that this cfi data represents.
-//    endOffset   - byte offset of the code end   that this cfi data represents.
-//    pcFiCode    - pointer to the cfi data blob.
-//
 void CodeGen::DumpCfiInfo(
-    bool isHotCode, uint32_t startOffset, uint32_t endOffset, uint32_t cfiCodeBytes, const CFI_CODE* const pCfiCode)
+    bool isHotCode, uint32_t startOffset, uint32_t endOffset, uint32_t count, const CFI_CODE* codes)
 {
     printf("Cfi Info%s:\n", isHotCode ? "" : " COLD");
     printf("  >> Start offset   : 0x%06x \n", dspOffset(startOffset));
     printf("  >>   End offset   : 0x%06x \n", dspOffset(endOffset));
 
-    for (int i = 0; i < (int)(cfiCodeBytes / sizeof(CFI_CODE)); i++)
+    for (unsigned i = 0; i < count; i++)
     {
-        const CFI_CODE* const pCode = &(pCfiCode[i]);
+        const CFI_CODE& code = codes[i];
 
-        UCHAR codeOffset = pCode->CodeOffset;
-        SHORT dwarfReg   = pCode->DwarfReg;
-        INT   offset     = pCode->Offset;
+        UCHAR codeOffset = code.CodeOffset;
+        SHORT dwarfReg   = code.DwarfReg;
+        INT   offset     = code.Offset;
 
-        switch (pCode->CfiOpCode)
+        switch (code.CfiOpCode)
         {
             case CFI_REL_OFFSET:
                 printf("    CodeOffset: 0x%02X Op: RelOffset DwarfReg:0x%x Offset:0x%X\n", codeOffset, dwarfReg,
@@ -377,7 +321,7 @@ void CodeGen::DumpCfiInfo(
                 printf("    CodeOffset: 0x%02X Op: AdjustCfaOffset Offset:0x%X\n", codeOffset, offset);
                 break;
             default:
-                printf("    Unrecognized CFI_CODE: 0x%IX\n", *(UINT64*)pCode);
+                printf("    Unrecognized CFI_CODE: 0x%IX\n", *reinterpret_cast<const uint64_t*>(&code));
                 break;
         }
     }
@@ -385,32 +329,3 @@ void CodeGen::DumpCfiInfo(
 #endif // DEBUG
 
 #endif // TARGET_UNIX
-
-#if defined(TARGET_AMD64) || defined(TARGET_UNIX)
-uint32_t CodeGen::unwindGetCurrentOffset()
-{
-    return GetEmitter()->emitGetCurrentPrologCodeSize();
-}
-#endif // defined(TARGET_AMD64) || defined(TARGET_UNIX)
-
-#if defined(TARGET_AMD64)
-
-// See unwindAmd64.cpp
-
-#elif defined(TARGET_ARM64)
-
-// See unwindArm64.cpp
-
-#elif defined(TARGET_ARM)
-
-// See unwindArm.cpp
-
-#elif defined(TARGET_X86)
-
-// See unwindX86.cpp
-
-#else // TARGET*
-
-#error Unsupported or unset target architecture
-
-#endif // TARGET*

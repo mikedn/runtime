@@ -1293,7 +1293,7 @@ private:
 
 #if defined(TARGET_UNIX)
     short mapRegNumToDwarfReg(regNumber reg);
-    void createCfiCode(FuncInfoDsc* func, uint32_t codeOffset, uint8_t opcode, short dwarfReg, int32_t offset = 0);
+    void createCfiCode(FuncInfoDsc* func, uint32_t codeOffset, uint8_t opcode, int16_t dwarfReg, int32_t offset = 0);
     void unwindPushPopCFI(regNumber reg);
     void unwindBegPrologCFI();
     void unwindPushPopMaskCFI(regMaskTP regMask, bool isFloat);
@@ -1311,11 +1311,7 @@ private:
     }
 
 #ifdef DEBUG
-    void DumpCfiInfo(bool                  isHotCode,
-                     uint32_t              startOffset,
-                     uint32_t              endOffset,
-                     uint32_t              cfiCodeBytes,
-                     const CFI_CODE* const pCfiCode);
+    void DumpCfiInfo(bool isHotCode, uint32_t startOffset, uint32_t endOffset, uint32_t count, const CFI_CODE* codes);
 #endif
 
 #endif // TARGET_UNIX
