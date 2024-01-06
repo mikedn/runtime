@@ -1539,36 +1539,16 @@ void UnwindFragmentInfo::Reserve(FuncKind kind, bool isHotCode)
     uwiComp->eeReserveUnwindInfo(kind != FUNC_ROOT, !isHotCode, Size());
 }
 
-// Allocate the unwind info for a fragment with the VM.
-// Arguments:
-//      funKind:       funclet kind
-//      pHotCode:      hot section code buffer
-//      pColdCode:     cold section code buffer
-//      funcEndOffset: offset of the end of this function/funclet. Used if this fragment is the last one for a
-//                     function/funclet.
-//      isHotCode:     are we allocating the unwind info for the hot code section?
-
-void UnwindFragmentInfo::Allocate(
-    FuncKind kind, void* pHotCode, void* pColdCode, uint32_t funcEndOffset, bool isHotCode)
+void UnwindFragmentInfo::Allocate(FuncKind kind, void* hotCode, void* coldCode, uint32_t funcEndOffset, bool isHotCode)
 {
-    uint32_t startOffset;
+    noway_assert(isHotCode || (kind == FUNC_ROOT)); // TODO-CQ: support funclets in cold code
+
+    uint32_t startOffset = GetStartOffset();
     uint32_t endOffset;
-    uint32_t codeSize;
-
-    // We don't support hot/cold splitting with EH, so if there is cold code, this
-    // better not be a funclet!
-    // TODO-CQ: support funclets in cold code
-
-    noway_assert(isHotCode || (kind == FUNC_ROOT));
-
-    // Compute the final size, and start and end offsets of the fragment
-
-    startOffset = GetStartOffset();
 
     if (ufiNext == nullptr)
     {
         // This is the last fragment, so the fragment extends to the end of the function/fragment.
-        assert(funcEndOffset != 0);
         endOffset = funcEndOffset;
     }
     else
@@ -1580,21 +1560,16 @@ void UnwindFragmentInfo::Allocate(
     }
 
     assert(endOffset > startOffset);
-    codeSize = endOffset - startOffset;
-
-    // Finalize the fragment unwind block to hand to the VM
+    uint32_t codeSize = endOffset - startOffset;
 
     Finalize(codeSize);
 
-    // Get the final unwind information and hand it to the VM
-
     uint32_t unwindBlockSize;
-    uint8_t* pUnwindBlock;
-
-    GetFinalInfo(&pUnwindBlock, &unwindBlockSize);
+    uint8_t* unwindBlock;
+    GetFinalInfo(&unwindBlock, &unwindBlockSize);
 
     DBEXEC(uwiComp->opts.dspUnwind,
-           DumpUnwindInfo(uwiComp, isHotCode, startOffset, endOffset, pUnwindBlock, unwindBlockSize));
+           DumpUnwindInfo(uwiComp, isHotCode, startOffset, endOffset, unwindBlock, unwindBlockSize));
 
     // Adjust for cold or hot code:
     // 1. The VM doesn't want the cold code pointer unless this is cold code.
@@ -1604,11 +1579,13 @@ void UnwindFragmentInfo::Allocate(
     if (isHotCode)
     {
         assert(endOffset <= uwiComp->codeGen->compTotalHotCodeSize);
-        pColdCode = nullptr;
+
+        coldCode = nullptr;
     }
     else
     {
         assert(startOffset >= uwiComp->codeGen->compTotalHotCodeSize);
+
         startOffset -= uwiComp->codeGen->compTotalHotCodeSize;
         endOffset -= uwiComp->codeGen->compTotalHotCodeSize;
     }
@@ -1625,7 +1602,7 @@ void UnwindFragmentInfo::Allocate(
     static_assert_no_msg(FUNC_HANDLER == (FuncKind)CORJIT_FUNC_HANDLER);
     static_assert_no_msg(FUNC_FILTER == (FuncKind)CORJIT_FUNC_FILTER);
 
-    uwiComp->eeAllocUnwindInfo(pHotCode, pColdCode, startOffset, endOffset, unwindBlockSize, pUnwindBlock,
+    uwiComp->eeAllocUnwindInfo(hotCode, coldCode, startOffset, endOffset, unwindBlockSize, unwindBlock,
                                static_cast<CorJitFuncKind>(kind));
 }
 
