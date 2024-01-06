@@ -635,7 +635,7 @@ public:
         return ufiSize;
     }
 
-    void Finalize(uint32_t functionLength);
+    void Finalize(uint32_t startOffset, uint32_t functionLength);
 
     // GetFinalInfo: return a pointer to the final unwind info to hand to the VM, and the size of this info in bytes
     void GetFinalInfo(/* OUT */ uint8_t** ppUnwindBlock, /* OUT */ uint32_t* pUnwindBlockSize)

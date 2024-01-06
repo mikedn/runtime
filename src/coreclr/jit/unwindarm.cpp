@@ -1369,7 +1369,7 @@ void UnwindFragmentInfo::MergeCodes()
 
 // Finalize: Prepare the unwind information for the VM. Compute and prepend the unwind header.
 
-void UnwindFragmentInfo::Finalize(uint32_t functionLength)
+void UnwindFragmentInfo::Finalize(uint32_t startOffset, uint32_t functionLength)
 {
     assert(ufiInitialized);
 
@@ -1485,11 +1485,11 @@ void UnwindFragmentInfo::Finalize(uint32_t functionLength)
             // first fragment in the hot section. We actually don't know if we're processing
             // the hot or cold section (or a funclet), so we can't distinguish these cases. Thus,
             // we just assert that the epilog starts within the fragment.
-            assert(epilogStartOffset >= GetStartOffset());
+            assert(epilogStartOffset >= startOffset);
 
             // We report the offset of an epilog as the offset from the beginning of the function/funclet fragment,
             // NOT the offset from the beginning of the main function.
-            uint32_t headerEpilogStartOffset = epilogStartOffset - GetStartOffset();
+            uint32_t headerEpilogStartOffset = epilogStartOffset - startOffset;
 
 #if defined(TARGET_ARM)
             noway_assert((headerEpilogStartOffset & 1) == 0);
@@ -1562,7 +1562,7 @@ void UnwindFragmentInfo::Allocate(FuncKind kind, void* hotCode, void* coldCode, 
     assert(endOffset > startOffset);
     uint32_t codeSize = endOffset - startOffset;
 
-    Finalize(codeSize);
+    Finalize(startOffset, codeSize);
 
     uint32_t unwindBlockSize;
     uint8_t* unwindBlock;
