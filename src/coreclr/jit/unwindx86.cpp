@@ -125,10 +125,7 @@ void CodeGen::unwindReserveFunc(FuncInfoDsc* func)
 //
 void CodeGen::unwindReserveFuncHelper(FuncInfoDsc* func, bool isHotCode)
 {
-    bool isFunclet  = (func->funKind != FUNC_ROOT);
-    bool isColdCode = !isHotCode;
-
-    eeReserveUnwindInfo(isFunclet, isColdCode, sizeof(UNWIND_INFO));
+    eeReserveUnwindInfo(func->funKind != FUNC_ROOT, !isHotCode, sizeof(UNWIND_INFO));
 }
 
 // Report the unwind information to the VM for a
@@ -142,11 +139,6 @@ void CodeGen::unwindReserveFuncHelper(FuncInfoDsc* func, bool isHotCode)
 //
 void CodeGen::unwindEmitFunc(FuncInfoDsc* func, void* pHotCode, void* pColdCode)
 {
-    // Verify that the JIT enum is in sync with the JIT-EE interface enum
-    static_assert_no_msg(FUNC_ROOT == (FuncKind)CORJIT_FUNC_ROOT);
-    static_assert_no_msg(FUNC_HANDLER == (FuncKind)CORJIT_FUNC_HANDLER);
-    static_assert_no_msg(FUNC_FILTER == (FuncKind)CORJIT_FUNC_FILTER);
-
     unwindEmitFuncHelper(func, pHotCode, pColdCode, true);
 
     if (pColdCode != nullptr)
@@ -190,6 +182,11 @@ void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* hotCode, void* coldC
 
     UNWIND_INFO unwindInfo;
     unwindInfo.FunctionLength = static_cast<uint32_t>(endOffset - startOffset);
+
+    // Verify that the JIT enum is in sync with the JIT-EE interface enum
+    static_assert_no_msg(FUNC_ROOT == (FuncKind)CORJIT_FUNC_ROOT);
+    static_assert_no_msg(FUNC_HANDLER == (FuncKind)CORJIT_FUNC_HANDLER);
+    static_assert_no_msg(FUNC_FILTER == (FuncKind)CORJIT_FUNC_FILTER);
 
     compiler->eeAllocUnwindInfo(pHotCode, coldCode, startOffset, endOffset, sizeof(UNWIND_INFO), &unwindInfo,
                                 static_cast<CorJitFuncKind>(func->funKind));
