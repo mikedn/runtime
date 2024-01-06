@@ -427,14 +427,10 @@ class UnwindEpilogInfo : public UnwindBase
 {
     friend class UnwindFragmentInfo;
 
-    static const unsigned EPI_ILLEGAL_OFFSET = 0xFFFFFFFF;
-
     UnwindEpilogInfo* epiNext = nullptr;
     // The emitter location of the beginning of the epilog
     emitLocation      epiEmitLocation;
     UnwindEpilogCodes epiCodes;
-    // Actual offset of the epilog, in bytes, from the start of the function. Set in FinalizeOffset().
-    uint32_t epiStartOffset = EPI_ILLEGAL_OFFSET;
     // Do the epilog unwind codes match some other set of codes? If so, we don't copy these to the
     // final set; we just point to another set.
     bool epiMatches = false;
@@ -451,8 +447,6 @@ public:
 
     void CaptureEmitLocation(class emitter* emitter);
 
-    void FinalizeOffset();
-
     void FinalizeCodes()
     {
         epiCodes.FinalizeCodes();
@@ -461,12 +455,6 @@ public:
     const emitLocation& GetStartLocation() const
     {
         return epiEmitLocation;
-    }
-
-    uint32_t GetStartOffset()
-    {
-        assert(epiStartOffset != EPI_ILLEGAL_OFFSET);
-        return epiStartOffset;
     }
 
     int GetStartIndex()

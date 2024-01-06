@@ -1084,18 +1084,12 @@ void UnwindEpilogInfo::CaptureEmitLocation(emitter* emitter)
     epiEmitLocation.CaptureLocation(emitter);
 }
 
-void UnwindEpilogInfo::FinalizeOffset()
-{
-    epiStartOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(epiEmitLocation);
-}
-
 #ifdef DEBUG
 void UnwindEpilogInfo::Dump(int indent)
 {
     printf("%*sUnwindEpilogInfo:\n", indent, "");
     printf("%*s  epiEmitLocation: ", indent, "");
     epiEmitLocation.Print();
-    printf("\n%*s  epiStartOffset: 0x%x\n", indent, "", epiStartOffset);
     printf("%*s  epiMatches: %d\n", indent, "", epiMatches);
     printf("%*s  epiStartIndex: %d\n", indent, "", epiStartIndex);
 
@@ -1118,11 +1112,6 @@ void UnwindFragmentInfo::FinalizeOffset()
     else
     {
         ufiStartOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(ufiEmitLoc);
-    }
-
-    for (UnwindEpilogInfo* e = ufiEpilogList; e != nullptr; e = e->epiNext)
-    {
-        e->FinalizeOffset();
     }
 }
 
@@ -1489,16 +1478,18 @@ void UnwindFragmentInfo::Finalize(uint32_t functionLength)
             // The epilog is unconditional. We don't have epilogs under the IT instruction.
             ARM_ONLY(uint32_t headerCondition = 0xE);
 
+            uint32_t epilogStartOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(epilog->GetStartLocation());
+
             // The epilog must strictly follow the prolog. The prolog is in the first fragment of
             // the hot section. If this epilog is at the start of a fragment, it can't be the
             // first fragment in the hot section. We actually don't know if we're processing
             // the hot or cold section (or a funclet), so we can't distinguish these cases. Thus,
             // we just assert that the epilog starts within the fragment.
-            assert(epilog->GetStartOffset() >= GetStartOffset());
+            assert(epilogStartOffset >= GetStartOffset());
 
             // We report the offset of an epilog as the offset from the beginning of the function/funclet fragment,
             // NOT the offset from the beginning of the main function.
-            uint32_t headerEpilogStartOffset = epilog->GetStartOffset() - GetStartOffset();
+            uint32_t headerEpilogStartOffset = epilogStartOffset - GetStartOffset();
 
 #if defined(TARGET_ARM)
             noway_assert((headerEpilogStartOffset & 1) == 0);
