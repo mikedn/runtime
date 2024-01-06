@@ -652,11 +652,6 @@ void CodeGen::unwindReturn(regNumber reg)
     // Nothing to do; we will always have at least one trailing "end" opcode in our padding.
 }
 
-void UnwindInfo::CheckOpsize(uint8_t b1)
-{
-    // nothing to do; all instructions are 4 bytes
-}
-
 /*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XX                                                                           XX
@@ -667,6 +662,11 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #ifdef DEBUG
+
+void UnwindInfo::CheckOpsize(uint8_t b1)
+{
+    // nothing to do; all instructions are 4 bytes
+}
 
 // Return the size of the unwind code (from 1 to 4 bytes), given the first byte of the unwind bytes
 

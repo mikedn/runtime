@@ -447,7 +447,9 @@ public:
         , ufiHasPhantomProlog(hasPhantomProlog)
         , ufiPrologCodes(comp)
         , ufiEpilogFirst(comp)
+#ifdef DEBUG
         , ufiInitialized(true)
+#endif
     {
     }
 
