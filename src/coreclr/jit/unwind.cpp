@@ -23,36 +23,9 @@ uint32_t CodeGen::unwindGetCurrentOffset()
 
 #ifdef FEATURE_EH_FUNCLETS
 
-// Get the start/end emitter locations for this
-// function or funclet. If 'hotCodeRange' is true, get the start/end locations
-// for the hot section. Otherwise, get the data for the cold section.
-//
-// Note that we grab these locations before the prolog and epilogs are generated, so the
-// locations must remain correct after the prolog and epilogs are generated.
-//
-// For the prolog, instructions are put in the special, preallocated, prolog instruction group.
-// We don't want to expose the emitPrologIG unnecessarily (locations are actually pointers to
-// emitter instruction groups). Since we know the offset of the start of the function/funclet,
-// where the prolog is, will be zero, we use a nullptr start location to indicate that.
-//
-// There is no instruction group beyond the end of the end of the function, so there is no
-// location to indicate that. Once again, use nullptr for that.
-//
-// Intermediate locations point at the first instruction group of a funclet, which is a
-// placeholder IG. These are converted to real IGs, not deleted and replaced, so the location
-// remains valid.
-//
-// Arguments:
-//    func              - main function or funclet to get locations for.
-//    hotCodeRange - 'true' to get the hot section data, 'false' to get the cold section data.
-//    start        - OUT parameter. Set to the start insGroup.
-//    end          - OUT parameter. Set to the end insGroup (the insGroup immediately after
-//                        the func end).
-//
-// Notes:
-//    A start location of nullptr means the beginning of the code.
-//    An end location of nullptr means the end of the code.
-//
+// Get the start/end emitter locations for this function or funclet.
+// There is no instruction group beyond the end of the end of the function,
+// so null is used to indicate that.
 void CodeGen::unwindGetFuncRange(FuncInfoDsc* func, bool hotCodeRange, insGroup** start, insGroup** end)
 {
     if (func->funKind == FUNC_ROOT)
@@ -63,8 +36,7 @@ void CodeGen::unwindGetFuncRange(FuncInfoDsc* func, bool hotCodeRange, insGroup*
 
         if (hotCodeRange)
         {
-            *start = nullptr; // nullptr emit location means the beginning of the code. This is to handle the first
-                              // fragment prolog.
+            *start = GetEmitter()->GetProlog();
 
             if (compiler->fgFirstColdBlock != nullptr)
             {
@@ -81,7 +53,7 @@ void CodeGen::unwindGetFuncRange(FuncInfoDsc* func, bool hotCodeRange, insGroup*
                 }
                 else
                 {
-                    *end = nullptr; // nullptr end location means the end of the code
+                    *end = nullptr;
                 }
             }
         }
@@ -91,7 +63,7 @@ void CodeGen::unwindGetFuncRange(FuncInfoDsc* func, bool hotCodeRange, insGroup*
             assert(compiler->fgFirstColdBlock != nullptr); // There better be a cold section!
 
             *start = ehEmitLabel(compiler->fgFirstColdBlock);
-            *end   = nullptr; // nullptr end location means the end of the code
+            *end   = nullptr;
         }
     }
     else
@@ -252,7 +224,7 @@ void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* hotCode, void* coldCode
         unwindGetFuncRange(func, false, &coldStartLoc, &coldEndLoc);
     }
 
-    uint32_t startOffset = startLoc == nullptr ? 0 : GetEmitter()->GetCodeOffset(startLoc);
+    uint32_t startOffset = GetEmitter()->GetCodeOffset(startLoc);
     uint32_t endOffset   = endLoc == nullptr ? compNativeCodeSize : GetEmitter()->GetCodeOffset(endLoc);
 
     assert(endOffset <= compTotalHotCodeSize);
@@ -270,7 +242,7 @@ void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* hotCode, void* coldCode
         assert(compiler->fgFirstColdBlock != nullptr);
         assert(func->funKind == FUNC_ROOT); // No splitting of funclets.
 
-        startOffset = coldStartLoc == nullptr ? 0 : GetEmitter()->GetCodeOffset(coldStartLoc);
+        startOffset = GetEmitter()->GetCodeOffset(coldStartLoc);
         endOffset   = coldEndLoc == nullptr ? compNativeCodeSize : GetEmitter()->GetCodeOffset(coldEndLoc);
 
         assert(startOffset >= compTotalHotCodeSize);

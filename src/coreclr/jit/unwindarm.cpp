@@ -1237,7 +1237,7 @@ void UnwindFragmentInfo::CopyPrologCodes(UnwindFragmentInfo* copyFrom)
 // epilogs that start at or after the location represented by 'splitLoc' are removed
 // from 'splitFrom' and moved to this fragment. Note that this fragment should not have
 // any epilog codes currently; it is at the initial state.
-void UnwindFragmentInfo::SplitEpilogCodes(insGroup* splitLoc, UnwindFragmentInfo* splitFrom)
+void UnwindFragmentInfo::SplitEpilogCodes(const insGroup* splitLoc, UnwindFragmentInfo* splitFrom)
 {
     uint32_t splitOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(splitLoc);
 
@@ -1287,7 +1287,7 @@ bool UnwindFragmentInfo::IsAtFragmentEnd(UnwindEpilogInfo* epilog)
     insGroup* ig = epilog->epiStartLoc.GetIG();
 
     return (ig->igNext == nullptr) || ig->igNext->IsFuncletProlog() ||
-           ((ufiNext != nullptr) && (ig->igNext == ufiNext->ufiStartLoc));
+           ((ufiNext != nullptr) && (ig->igNext == ufiNext->GetStartLoc()));
 }
 
 // Merge the unwind codes as much as possible.
@@ -1743,17 +1743,8 @@ void UnwindInfo::SplitLargeFragment()
     assert(uwiFragmentFirst.ufiNext == nullptr);
 
     // Find the code size of this function/funclet.
-    insGroup* startLoc = uwiFragmentFirst.ufiStartLoc;
-    uint32_t  startOffset;
-
-    if (startLoc == nullptr)
-    {
-        startOffset = 0;
-    }
-    else
-    {
-        startOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(startLoc);
-    }
+    insGroup* startLoc    = uwiFragmentFirst.ufiStartLoc;
+    uint32_t  startOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(startLoc);
 
     insGroup* endLoc = uwiEndLoc;
     uint32_t  endOffset;
@@ -1788,10 +1779,7 @@ void UnwindInfo::SplitLargeFragment()
     JITDUMP("Split unwind info into %d fragments (function/funclet size: %d, maximum fragment size: %d)\n",
             fragmentCount, codeSize, maxFragmentSize);
 
-    insGroup* igStart = startLoc == nullptr ? uwiComp->codeGen->GetEmitter()->GetProlog() : startLoc;
-    insGroup* igEnd   = endLoc == nullptr ? nullptr : endLoc;
-
-    Split(igStart, igEnd, maxFragmentSize);
+    Split(startLoc, endLoc, maxFragmentSize);
 
 #ifdef DEBUG
     unsigned actualFragmentCount = 0;
@@ -1907,27 +1895,9 @@ void UnwindInfo::Allocate(FuncKind kind, void* hotCode, void* coldCode, bool isH
     assert(uwiInitialized);
     DBEXEC(uwiComp->verbose, Dump(isHotCode, 0));
 
-    uint32_t startOffset;
-
-    if (const insGroup* startLoc = uwiFragmentFirst.GetStartLoc())
-    {
-        startOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(startLoc);
-    }
-    else
-    {
-        startOffset = 0;
-    }
-
-    uint32_t funcEndOffset;
-
-    if (uwiEndLoc == nullptr)
-    {
-        funcEndOffset = uwiComp->codeGen->compNativeCodeSize;
-    }
-    else
-    {
-        funcEndOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(uwiEndLoc);
-    }
+    uint32_t startOffset   = uwiComp->codeGen->GetEmitter()->GetCodeOffset(uwiFragmentFirst.GetStartLoc());
+    uint32_t funcEndOffset = uwiEndLoc == nullptr ? uwiComp->codeGen->compNativeCodeSize
+                                                  : uwiComp->codeGen->GetEmitter()->GetCodeOffset(uwiEndLoc);
 
     assert(funcEndOffset != 0);
 

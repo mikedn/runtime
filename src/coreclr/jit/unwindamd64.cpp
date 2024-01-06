@@ -738,23 +738,8 @@ void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* pHotCode, void* pCol
 
     if (isHotCode)
     {
-        if (startLoc == nullptr)
-        {
-            startOffset = 0;
-        }
-        else
-        {
-            startOffset = GetEmitter()->GetCodeOffset(startLoc);
-        }
-
-        if (endLoc == nullptr)
-        {
-            endOffset = compNativeCodeSize;
-        }
-        else
-        {
-            endOffset = GetEmitter()->GetCodeOffset(endLoc);
-        }
+        startOffset = GetEmitter()->GetCodeOffset(startLoc);
+        endOffset   = endLoc == nullptr ? compNativeCodeSize : GetEmitter()->GetCodeOffset(endLoc);
 
 #ifdef UNIX_AMD64_ABI
         if (generateCFIUnwindCodes())
@@ -788,14 +773,7 @@ void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* pHotCode, void* pCol
         assert(compiler->fgFirstColdBlock != nullptr);
         assert(func->funKind == FUNC_ROOT); // No splitting of funclets.
 
-        if (coldStartLoc == nullptr)
-        {
-            startOffset = 0;
-        }
-        else
-        {
-            startOffset = GetEmitter()->GetCodeOffset(coldStartLoc);
-        }
+        startOffset = GetEmitter()->GetCodeOffset(coldStartLoc);
 
         if (coldEndLoc == nullptr)
         {

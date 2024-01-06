@@ -67,7 +67,7 @@ void CodeGen::unwindSaveReg(regNumber reg, unsigned offset)
 //
 void CodeGen::unwindReserve()
 {
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     assert(!generatingProlog);
     assert(!generatingEpilog);
 
@@ -99,7 +99,7 @@ void CodeGen::unwindEmit(void* pHotCode, void* pColdCode)
 #endif // FEATURE_EH_FUNCLETS
 }
 
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
 // Reserve the unwind information from the VM for a
 // given main function or funclet.
 //
@@ -155,73 +155,31 @@ void CodeGen::unwindEmitFunc(FuncInfoDsc* func, void* pHotCode, void* pColdCode)
     }
 }
 
-// Report the unwind information to the VM for a
-// given main function or funclet, for either the hot or cold section.
-//
-// Arguments:
-//    func      - The main function or funclet to reserve unwind info for.
-//    pHotCode  - Pointer to the beginning of the memory with the function and funclet hot  code.
-//    pColdCode - Pointer to the beginning of the memory with the function and funclet cold code.
-//                Ignored if 'isHotCode' is true.
-//    isHotCode - 'true' to report the hot section, 'false' to report the cold section.
-//
-void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* pHotCode, void* pColdCode, bool isHotCode)
+void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* hotCode, void* coldCode, bool isHotCode)
 {
     uint32_t startOffset;
     uint32_t endOffset;
 
     if (isHotCode)
     {
-        emitLocation* startLoc;
-        emitLocation* endLoc;
-
+        insGroup* startLoc;
+        insGroup* endLoc;
         unwindGetFuncRange(func, true, &startLoc, &endLoc);
 
-        if (startLoc == nullptr)
-        {
-            startOffset = 0;
-        }
-        else
-        {
-            startOffset = startLoc->CodeOffset(GetEmitter());
-        }
-
-        if (endLoc == nullptr)
-        {
-            endOffset = compiler->info.compNativeCodeSize;
-        }
-        else
-        {
-            endOffset = endLoc->CodeOffset(GetEmitter());
-        }
+        startOffset = GetEmitter()->GetCodeOffset(startLoc);
+        endOffset   = endLoc == nullptr ? compNativeCodeSize : GetEmitter()->GetCodeOffset(endLoc);
     }
     else
     {
-        emitLocation* coldStartLoc;
-        emitLocation* coldEndLoc;
-
         assert(fgFirstColdBlock != nullptr);
         assert(func->funKind == FUNC_ROOT); // No splitting of funclets.
 
-        unwindGetFuncRange(func, false, &coldStartLoc, &coldEndLoc);
+        insGroup* startLoc;
+        insGroup* endLoc;
+        unwindGetFuncRange(func, false, &startLoc, &endLoc);
 
-        if (coldStartLoc == nullptr)
-        {
-            startOffset = 0;
-        }
-        else
-        {
-            startOffset = coldStartLoc->CodeOffset(GetEmitter());
-        }
-
-        if (coldEndLoc == nullptr)
-        {
-            endOffset = compiler->info.compNativeCodeSize;
-        }
-        else
-        {
-            endOffset = coldEndLoc->CodeOffset(GetEmitter());
-        }
+        startOffset = GetEmitter()->GetCodeOffset(startLoc);
+        endOffset   = endLoc == nullptr ? compNativeCodeSize : GetEmitter()->GetCodeOffset(endLoc);
     }
 
     // Adjust for cold or hot code:
@@ -231,21 +189,22 @@ void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* pHotCode, void* pCol
 
     if (isHotCode)
     {
-        assert(endOffset <= compiler->info.compTotalHotCodeSize);
-        pColdCode = nullptr;
+        assert(endOffset <= compTotalHotCodeSize);
+
+        coldCode = nullptr;
     }
     else
     {
-        assert(startOffset >= compiler->info.compTotalHotCodeSize);
-        startOffset -= compiler->info.compTotalHotCodeSize;
-        endOffset -= compiler->info.compTotalHotCodeSize;
+        assert(startOffset >= compTotalHotCodeSize);
+
+        startOffset -= compTotalHotCodeSize;
+        endOffset -= compTotalHotCodeSize;
     }
 
     UNWIND_INFO unwindInfo;
+    unwindInfo.FunctionLength = static_cast<uint32_t>(endOffset - startOffset);
 
-    unwindInfo.FunctionLength = (uint32_t)(endOffset - startOffset);
-
-    compiler->eeAllocUnwindInfo(pHotCode, pColdCode, startOffset, endOffset, sizeof(UNWIND_INFO), &unwindInfo,
+    compiler->eeAllocUnwindInfo(pHotCode, coldCode, startOffset, endOffset, sizeof(UNWIND_INFO), &unwindInfo,
                                 static_cast<CorJitFuncKind>(func->funKind));
 }
 #endif // FEATURE_EH_FUNCLETS
