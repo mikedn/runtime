@@ -80,8 +80,8 @@ void CodeGen::unwindGetFuncHotRange(FuncInfoDsc* func, uint32_t* start, uint32_t
     insGroup* endLoc   = nullptr;
     unwindGetFuncHotRange(func, &startLoc, &endLoc);
 
-    *start = GetEmitter()->GetCodeOffset(startLoc);
-    *end   = endLoc == nullptr ? compNativeCodeSize : GetEmitter()->GetCodeOffset(endLoc);
+    *start = startLoc->GetCodeOffset();
+    *end   = endLoc == nullptr ? compNativeCodeSize : endLoc->GetCodeOffset();
 }
 
 void CodeGen::unwindGetFuncColdRange(FuncInfoDsc* func, insGroup** start, insGroup** end)
@@ -110,8 +110,8 @@ void CodeGen::unwindGetFuncColdRange(FuncInfoDsc* func, uint32_t* start, uint32_
     insGroup* endLoc   = nullptr;
     unwindGetFuncColdRange(func, &startLoc, &endLoc);
 
-    *start = GetEmitter()->GetCodeOffset(startLoc);
-    *end   = endLoc == nullptr ? compNativeCodeSize : GetEmitter()->GetCodeOffset(endLoc);
+    *start = startLoc->GetCodeOffset();
+    *end   = endLoc == nullptr ? compNativeCodeSize : endLoc->GetCodeOffset();
 }
 
 #endif // FEATURE_EH_FUNCLETS

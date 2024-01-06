@@ -1237,7 +1237,7 @@ void UnwindFragmentInfo::CopyPrologCodes(UnwindFragmentInfo* copyFrom)
 // any epilog codes currently; it is at the initial state.
 void UnwindFragmentInfo::SplitEpilogCodes(const insGroup* splitLoc, UnwindFragmentInfo* splitFrom)
 {
-    uint32_t splitOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(splitLoc);
+    uint32_t splitOffset = splitLoc->GetCodeOffset();
 
     for (UnwindEpilogInfo *epilog = splitFrom->ufiEpilogList, *prev = nullptr; epilog != nullptr;
          prev = epilog, epilog = epilog->epiNext)
@@ -1742,7 +1742,7 @@ void UnwindInfo::SplitLargeFragment()
 
     // Find the code size of this function/funclet.
     insGroup* startLoc    = uwiFragmentFirst.ufiStartLoc;
-    uint32_t  startOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(startLoc);
+    uint32_t  startOffset = startLoc->GetCodeOffset();
 
     insGroup* endLoc = uwiEndLoc;
     uint32_t  endOffset;
@@ -1761,7 +1761,7 @@ void UnwindInfo::SplitLargeFragment()
     }
     else
     {
-        endOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(endLoc);
+        endOffset = endLoc->GetCodeOffset();
     }
 
     assert(endOffset > startOffset);
@@ -1893,9 +1893,8 @@ void UnwindInfo::Allocate(FuncKind kind, void* hotCode, void* coldCode, bool isH
     assert(uwiInitialized);
     DBEXEC(uwiComp->verbose, Dump(isHotCode, 0));
 
-    uint32_t startOffset   = uwiComp->codeGen->GetEmitter()->GetCodeOffset(uwiFragmentFirst.GetStartLoc());
-    uint32_t funcEndOffset = uwiEndLoc == nullptr ? uwiComp->codeGen->compNativeCodeSize
-                                                  : uwiComp->codeGen->GetEmitter()->GetCodeOffset(uwiEndLoc);
+    uint32_t startOffset   = uwiFragmentFirst.GetStartLoc()->GetCodeOffset();
+    uint32_t funcEndOffset = uwiEndLoc == nullptr ? uwiComp->codeGen->compNativeCodeSize : uwiEndLoc->GetCodeOffset();
 
     assert(funcEndOffset != 0);
 
@@ -1909,7 +1908,7 @@ void UnwindInfo::Allocate(FuncKind kind, void* hotCode, void* coldCode, bool isH
         }
         else
         {
-            endOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(f->ufiNext->GetStartLoc());
+            endOffset = f->ufiNext->GetStartLoc()->GetCodeOffset();
         }
 
         f->Allocate(kind, hotCode, coldCode, startOffset, endOffset, isHotCode);
