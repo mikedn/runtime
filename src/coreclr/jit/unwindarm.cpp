@@ -1538,10 +1538,6 @@ void UnwindFragmentInfo::Reserve(FuncKind kind, bool isHotCode)
 
     MergeCodes();
 
-    bool isColdCode = !isHotCode;
-
-    uint32_t unwindSize = Size();
-
 #ifdef DEBUG
     if (ufiNum != 1)
     {
@@ -1549,7 +1545,7 @@ void UnwindFragmentInfo::Reserve(FuncKind kind, bool isHotCode)
     }
 #endif
 
-    uwiComp->eeReserveUnwindInfo(kind != FUNC_ROOT, isColdCode, unwindSize);
+    uwiComp->eeReserveUnwindInfo(kind != FUNC_ROOT, !isHotCode, Size());
 }
 
 // Allocate the unwind info for a fragment with the VM.
