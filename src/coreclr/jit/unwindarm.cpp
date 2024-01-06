@@ -1604,15 +1604,15 @@ UnwindInfo::UnwindInfo(Compiler* comp, emitLocation* startLoc, emitLocation* end
 void UnwindInfo::SplitColdCodes(UnwindInfo* hotInfo)
 {
     // Ensure that there is exactly a single fragment in both the hot and the cold sections
-    assert(&uwiFragmentFirst == uwiFragmentLast);
-    assert(&hotInfo->uwiFragmentFirst == hotInfo->uwiFragmentLast);
+    assert(uwiFragmentFirst.ufiNext == nullptr);
+    assert(hotInfo->uwiFragmentFirst.ufiNext == nullptr);
 
     // The real prolog is in the hot section, so this, cold, section has a phantom prolog
-    uwiFragmentLast->ufiHasPhantomProlog = true;
-    uwiFragmentLast->CopyPrologCodes(hotInfo->uwiFragmentLast);
+    uwiFragmentFirst.ufiHasPhantomProlog = true;
+    uwiFragmentFirst.CopyPrologCodes(&hotInfo->uwiFragmentFirst);
 
     // Now split the epilog codes
-    uwiFragmentLast->SplitEpilogCodes(uwiFragmentFirst.ufiEmitLoc, &hotInfo->uwiFragmentFirst);
+    uwiFragmentFirst.SplitEpilogCodes(uwiFragmentFirst.ufiEmitLoc, &hotInfo->uwiFragmentFirst);
 }
 
 // Split the function or funclet into fragments that are no larger than 512K,
@@ -1643,25 +1643,22 @@ void UnwindInfo::SplitLargeFragment()
 #endif
 
     // Now, there should be exactly one fragment.
-
-    assert(uwiFragmentLast != nullptr);
-    assert(uwiFragmentLast == &uwiFragmentFirst);
-    assert(uwiFragmentLast->ufiNext == nullptr);
+    assert(uwiFragmentFirst.ufiNext == nullptr);
 
     // Find the code size of this function/funclet.
+    emitLocation* startLoc = uwiFragmentFirst.ufiEmitLoc;
+    uint32_t      startOffset;
+    uint32_t      endOffset;
+    uint32_t      codeSize;
 
-    uint32_t startOffset;
-    uint32_t endOffset;
-    uint32_t codeSize;
-
-    if (uwiFragmentLast->ufiEmitLoc == nullptr)
+    if (startLoc == nullptr)
     {
         // nullptr emit location means the beginning of the code. This is to handle the first fragment prolog.
         startOffset = 0;
     }
     else
     {
-        startOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(uwiFragmentLast->ufiEmitLoc);
+        startOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(startLoc);
     }
 
     if (uwiEndLoc == nullptr)
@@ -1706,10 +1703,9 @@ void UnwindInfo::SplitLargeFragment()
     JITDUMP("Split unwind info into %d fragments (function/funclet size: %d, maximum fragment size: %d)\n",
             numberOfFragments, codeSize, maxFragmentSize);
 
-    emitLocation* startLoc = uwiFragmentLast->ufiEmitLoc;
-    emitLocation* endLoc   = uwiEndLoc;
-    insGroup*     igStart  = startLoc == nullptr ? uwiComp->codeGen->GetEmitter()->GetProlog() : startLoc->GetIG();
-    insGroup*     igEnd    = endLoc == nullptr ? nullptr : endLoc->GetIG();
+    emitLocation* endLoc  = uwiEndLoc;
+    insGroup*     igStart = startLoc == nullptr ? uwiComp->codeGen->GetEmitter()->GetProlog() : startLoc->GetIG();
+    insGroup*     igEnd   = endLoc == nullptr ? nullptr : endLoc->GetIG();
 
     Split(igStart, igEnd, maxFragmentSize);
 
@@ -1741,11 +1737,13 @@ void UnwindInfo::SplitLargeFragment()
 
 void UnwindInfo::Split(insGroup* start, insGroup* end, uint32_t maxCodeSize)
 {
-    insGroup* prevFragment  = start;
-    insGroup* prevCandidate = nullptr;
-    insGroup* prev          = nullptr;
-    uint32_t  currentSize   = 0;
-    uint32_t  prevSize      = 0;
+    UnwindFragmentInfo* lastFragment = &uwiFragmentFirst;
+
+    insGroup* prevFragmentStart = start;
+    insGroup* prevCandidate     = nullptr;
+    insGroup* prev              = nullptr;
+    uint32_t  currentSize       = 0;
+    uint32_t  prevSize          = 0;
 
     for (insGroup* ig = start; ig != end && ig != nullptr; ig = ig->igNext)
     {
@@ -1758,7 +1756,7 @@ void UnwindInfo::Split(insGroup* start, insGroup* end, uint32_t maxCodeSize)
                 JITDUMP("UnwindInfoSplit: can't split at " FMT_IG "; we don't have a candidate to report\n", ig->igNum);
                 useCandidate = false;
             }
-            else if (prevCandidate == prevFragment)
+            else if (prevCandidate == prevFragmentStart)
             {
                 JITDUMP("UnwindInfoSplit: can't split at " FMT_IG "; we already reported it\n", prevCandidate->igNum);
                 useCandidate = false;
@@ -1773,10 +1771,10 @@ void UnwindInfo::Split(insGroup* start, insGroup* end, uint32_t maxCodeSize)
                             prevCandidate->igNum, prevSize, maxCodeSize);
                 }
 
-                AddFragment(prevCandidate);
+                lastFragment = AddFragment(lastFragment, prevCandidate);
 
-                prevFragment  = prevCandidate;
-                prevCandidate = nullptr;
+                prevFragmentStart = prevCandidate;
+                prevCandidate     = nullptr;
                 currentSize -= prevSize;
             }
         }
@@ -1874,7 +1872,7 @@ void UnwindInfo::Allocate(FuncKind kind, void* hotCode, void* coldCode, bool isH
 UnwindEpilogInfo* UnwindInfo::AddEpilog()
 {
     assert(uwiInitialized);
-    return uwiFragmentLast->AddEpilog();
+    return uwiFragmentFirst.AddEpilog();
 }
 
 #ifdef TARGET_ARM
@@ -1891,19 +1889,19 @@ void UnwindInfo::CaptureLocation(emitter* emitter)
     uwiCurLoc.CaptureLocation(emitter);
 }
 
-void UnwindInfo::AddFragment(insGroup* ig)
+UnwindFragmentInfo* UnwindInfo::AddFragment(UnwindFragmentInfo* last, insGroup* ig)
 {
     assert(uwiInitialized);
 
     emitLocation*       emitLoc = new (uwiComp, CMK_UnwindInfo) emitLocation(ig);
     UnwindFragmentInfo* newFrag = new (uwiComp, CMK_UnwindInfo) UnwindFragmentInfo(uwiComp, emitLoc, true);
-    INDEBUG(newFrag->ufiNum = uwiFragmentLast->ufiNum + 1);
+    INDEBUG(newFrag->ufiNum = last->ufiNum + 1);
     newFrag->CopyPrologCodes(&uwiFragmentFirst);
-    newFrag->SplitEpilogCodes(emitLoc, uwiFragmentLast);
+    newFrag->SplitEpilogCodes(emitLoc, last);
 
-    // Link the new fragment in at the end of the fragment list
-    uwiFragmentLast->ufiNext = newFrag;
-    uwiFragmentLast          = newFrag;
+    last->ufiNext = newFrag;
+
+    return newFrag;
 }
 
 #ifdef DEBUG

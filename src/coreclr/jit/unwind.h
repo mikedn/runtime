@@ -630,8 +630,6 @@ class UnwindInfo : public UnwindBase
 
     // The first fragment is directly here, so it doesn't need to be separately allocated.
     UnwindFragmentInfo uwiFragmentFirst;
-    // The last entry in the fragment list (the last fragment added)
-    UnwindFragmentInfo* uwiFragmentLast = &uwiFragmentFirst;
     // End emitter location of this function/funclet (nullptr == end of all code)
     emitLocation* uwiEndLoc;
     // The current emitter location (updated after an unwind code is added), used for NOP
@@ -656,8 +654,6 @@ public:
     void Reserve(FuncKind kind, bool isHotCode);
     void Allocate(FuncKind kind, void* hotCode, void* coldCode, bool isHotCode);
 
-    // The following act on the current fragment (the one pointed to by 'uwiFragmentLast').
-
     // Add an unwind code. It could be for a prolog, or for the current epilog.
     // A single unwind code can be from 1 to 4 bytes.
 
@@ -666,7 +662,7 @@ public:
         assert(uwiInitialized);
         INDEBUG(CheckOpsize(b1));
 
-        uwiFragmentLast->AddCode(b1);
+        uwiFragmentFirst.AddCode(b1);
     }
 
     void AddCode(uint8_t b1, uint8_t b2)
@@ -674,7 +670,7 @@ public:
         assert(uwiInitialized);
         INDEBUG(CheckOpsize(b1));
 
-        uwiFragmentLast->AddCode(b1, b2);
+        uwiFragmentFirst.AddCode(b1, b2);
     }
 
     void AddCode(uint8_t b1, uint8_t b2, uint8_t b3)
@@ -682,7 +678,7 @@ public:
         assert(uwiInitialized);
         INDEBUG(CheckOpsize(b1));
 
-        uwiFragmentLast->AddCode(b1, b2, b3);
+        uwiFragmentFirst.AddCode(b1, b2, b3);
     }
 
     void AddCode(uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4)
@@ -690,7 +686,7 @@ public:
         assert(uwiInitialized);
         INDEBUG(CheckOpsize(b1));
 
-        uwiFragmentLast->AddCode(b1, b2, b3, b4);
+        uwiFragmentFirst.AddCode(b1, b2, b3, b4);
     }
 
     UnwindEpilogInfo* AddEpilog();
@@ -714,7 +710,7 @@ public:
 #endif
 
 private:
-    void AddFragment(insGroup* ig);
+    UnwindFragmentInfo* AddFragment(UnwindFragmentInfo* last, insGroup* ig);
 };
 #endif // TARGET_ARMARCH
 
