@@ -713,12 +713,7 @@ void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* hotCode, void* coldC
 
     if (isHotCode)
     {
-        insGroup* startLoc = nullptr;
-        insGroup* endLoc   = nullptr;
-        unwindGetFuncRange(func, true, &startLoc, &endLoc);
-
-        startOffset = GetEmitter()->GetCodeOffset(startLoc);
-        endOffset   = endLoc == nullptr ? compNativeCodeSize : GetEmitter()->GetCodeOffset(endLoc);
+        unwindGetFuncHotRange(func, &startOffset, &endOffset);
 
 #ifdef TARGET_UNIX
         if (generateCFIUnwindCodes())
@@ -744,12 +739,7 @@ void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* hotCode, void* coldC
     }
     else
     {
-        insGroup* startLoc = nullptr;
-        insGroup* endLoc   = nullptr;
-        unwindGetFuncRange(func, false, &startLoc, &endLoc);
-
-        startOffset = GetEmitter()->GetCodeOffset(startLoc);
-        endOffset   = endLoc == nullptr ? compNativeCodeSize : GetEmitter()->GetCodeOffset(endLoc);
+        unwindGetFuncColdRange(func, &startOffset, &endOffset);
     }
 
 #ifdef DEBUG

@@ -26,7 +26,7 @@ uint32_t CodeGen::unwindGetCurrentOffset()
 // Get the start/end emitter locations for this function or funclet.
 // There is no instruction group beyond the end of the end of the function,
 // so null is used to indicate that.
-void CodeGen::unwindGetFuncRange(FuncInfoDsc* func, bool hotCodeRange, insGroup** start, insGroup** end)
+void CodeGen::unwindGetFuncHotRange(FuncInfoDsc* func, insGroup** start, insGroup** end)
 {
     if (func->funKind == FUNC_ROOT)
     {
@@ -34,42 +34,29 @@ void CodeGen::unwindGetFuncRange(FuncInfoDsc* func, bool hotCodeRange, insGroup*
         // up to the first handler. If the function is hot/cold split, we need to get the
         // appropriate sub-range.
 
-        if (hotCodeRange)
+        *start = GetEmitter()->GetProlog();
+
+        if (compiler->fgFirstColdBlock != nullptr)
         {
-            *start = GetEmitter()->GetProlog();
+            // The hot section only goes up to the cold section
+            assert(compiler->fgFirstFuncletBB == nullptr);
 
-            if (compiler->fgFirstColdBlock != nullptr)
-            {
-                // The hot section only goes up to the cold section
-                assert(compiler->fgFirstFuncletBB == nullptr);
-
-                *end = ehEmitLabel(compiler->fgFirstColdBlock);
-            }
-            else
-            {
-                if (compiler->fgFirstFuncletBB != nullptr)
-                {
-                    *end = ehEmitLabel(compiler->fgFirstFuncletBB);
-                }
-                else
-                {
-                    *end = nullptr;
-                }
-            }
+            *end = ehEmitLabel(compiler->fgFirstColdBlock);
         }
         else
         {
-            assert(compiler->fgFirstFuncletBB == nullptr); // TODO-CQ: support hot/cold splitting in functions with EH
-            assert(compiler->fgFirstColdBlock != nullptr); // There better be a cold section!
-
-            *start = ehEmitLabel(compiler->fgFirstColdBlock);
-            *end   = nullptr;
+            if (compiler->fgFirstFuncletBB != nullptr)
+            {
+                *end = ehEmitLabel(compiler->fgFirstFuncletBB);
+            }
+            else
+            {
+                *end = nullptr;
+            }
         }
     }
     else
     {
-        assert(hotCodeRange); // TODO-CQ: support funclets in cold section
-
         EHblkDsc* HBtab = compiler->ehGetDsc(func->funEHIndex);
 
         if (func->funKind == FUNC_FILTER)
@@ -85,6 +72,46 @@ void CodeGen::unwindGetFuncRange(FuncInfoDsc* func, bool hotCodeRange, insGroup*
             *end   = HBtab->ebdHndLast->bbNext == nullptr ? nullptr : ehEmitLabel(HBtab->ebdHndLast->bbNext);
         }
     }
+}
+
+void CodeGen::unwindGetFuncHotRange(FuncInfoDsc* func, uint32_t* start, uint32_t* end)
+{
+    insGroup* startLoc = nullptr;
+    insGroup* endLoc   = nullptr;
+    unwindGetFuncHotRange(func, &startLoc, &endLoc);
+
+    *start = GetEmitter()->GetCodeOffset(startLoc);
+    *end   = endLoc == nullptr ? compNativeCodeSize : GetEmitter()->GetCodeOffset(endLoc);
+}
+
+void CodeGen::unwindGetFuncColdRange(FuncInfoDsc* func, insGroup** start, insGroup** end)
+{
+    if (func->funKind == FUNC_ROOT)
+    {
+        // Since all funclets are pulled out of line, the main code size is everything
+        // up to the first handler. If the function is hot/cold split, we need to get the
+        // appropriate sub-range.
+
+        assert(compiler->fgFirstFuncletBB == nullptr); // TODO-CQ: support hot/cold splitting in functions with EH
+        assert(compiler->fgFirstColdBlock != nullptr); // There better be a cold section!
+
+        *start = ehEmitLabel(compiler->fgFirstColdBlock);
+        *end   = nullptr;
+    }
+    else
+    {
+        assert(false); // TODO-CQ: support funclets in cold section
+    }
+}
+
+void CodeGen::unwindGetFuncColdRange(FuncInfoDsc* func, uint32_t* start, uint32_t* end)
+{
+    insGroup* startLoc = nullptr;
+    insGroup* endLoc   = nullptr;
+    unwindGetFuncColdRange(func, &startLoc, &endLoc);
+
+    *start = GetEmitter()->GetCodeOffset(startLoc);
+    *end   = endLoc == nullptr ? compNativeCodeSize : GetEmitter()->GetCodeOffset(endLoc);
 }
 
 #endif // FEATURE_EH_FUNCLETS
@@ -213,12 +240,9 @@ void CodeGen::unwindSetFrameRegCFI(regNumber reg, unsigned offset)
 
 void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* hotCode, void* coldCode)
 {
-    insGroup* startLoc = nullptr;
-    insGroup* endLoc   = nullptr;
-    unwindGetFuncRange(func, true, &startLoc, &endLoc);
-
-    uint32_t startOffset = GetEmitter()->GetCodeOffset(startLoc);
-    uint32_t endOffset   = endLoc == nullptr ? compNativeCodeSize : GetEmitter()->GetCodeOffset(endLoc);
+    uint32_t startOffset;
+    uint32_t endOffset;
+    unwindGetFuncHotRange(func, &startOffset, &endOffset);
 
     assert(endOffset <= compTotalHotCodeSize);
 
@@ -235,10 +259,7 @@ void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* hotCode, void* coldCode
         return;
     }
 
-    unwindGetFuncRange(func, false, &startLoc, &endLoc);
-
-    startOffset = GetEmitter()->GetCodeOffset(startLoc);
-    endOffset   = endLoc == nullptr ? compNativeCodeSize : GetEmitter()->GetCodeOffset(endLoc);
+    unwindGetFuncColdRange(func, &startOffset, &endOffset);
 
     assert(startOffset >= compTotalHotCodeSize);
 

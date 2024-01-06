@@ -182,7 +182,7 @@ void CodeGen::unwindBegProlog()
 
     insGroup* startLoc;
     insGroup* endLoc;
-    unwindGetFuncRange(func, true, &startLoc, &endLoc);
+    unwindGetFuncHotRange(func, &startLoc, &endLoc);
 
     new (&func->uwi) UnwindInfo(compiler, startLoc, endLoc);
     func->uwi.CaptureLocation(GetEmitter());
@@ -620,7 +620,7 @@ void CodeGen::unwindReserveFunc(FuncInfoDsc* func)
     {
         insGroup* startLoc;
         insGroup* endLoc;
-        unwindGetFuncRange(func, false, &startLoc, &endLoc);
+        unwindGetFuncColdRange(func, &startLoc, &endLoc);
 
         func->uwiCold = new (compiler, CMK_UnwindInfo) UnwindInfo(compiler, startLoc, endLoc);
         func->uwiCold->SplitColdCodes(&func->uwi);

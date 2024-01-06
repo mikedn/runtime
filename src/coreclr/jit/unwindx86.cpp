@@ -162,21 +162,11 @@ void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* hotCode, void* coldC
 
     if (isHotCode)
     {
-        insGroup* startLoc;
-        insGroup* endLoc;
-        unwindGetFuncRange(func, true, &startLoc, &endLoc);
-
-        startOffset = GetEmitter()->GetCodeOffset(startLoc);
-        endOffset   = endLoc == nullptr ? compNativeCodeSize : GetEmitter()->GetCodeOffset(endLoc);
+        unwindGetFuncHotRange(func, &startOffset, &endOffset);
     }
     else
     {
-        insGroup* startLoc;
-        insGroup* endLoc;
-        unwindGetFuncRange(func, false, &startLoc, &endLoc);
-
-        startOffset = GetEmitter()->GetCodeOffset(startLoc);
-        endOffset   = endLoc == nullptr ? compNativeCodeSize : GetEmitter()->GetCodeOffset(endLoc);
+        unwindGetFuncColdRange(func, &startOffset, &endOffset);
     }
 
     // Adjust for cold or hot code:

@@ -1251,7 +1251,10 @@ public:
 
 private:
 #ifdef FEATURE_EH_FUNCLETS
-    void unwindGetFuncRange(FuncInfoDsc* func, bool hotCodeRange, insGroup** start, insGroup** end);
+    void unwindGetFuncHotRange(FuncInfoDsc* func, insGroup** start, insGroup** end);
+    void unwindGetFuncHotRange(FuncInfoDsc* func, uint32_t* start, uint32_t* end);
+    void unwindGetFuncColdRange(FuncInfoDsc* func, insGroup** start, insGroup** end);
+    void unwindGetFuncColdRange(FuncInfoDsc* func, uint32_t* start, uint32_t* end);
     void unwindReserveFunc(FuncInfoDsc* func);
     void unwindEmitFunc(FuncInfoDsc* func, void* pHotCode, void* pColdCode);
 #endif
