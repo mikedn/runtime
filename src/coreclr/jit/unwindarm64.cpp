@@ -652,6 +652,11 @@ void CodeGen::unwindReturn(regNumber reg)
     // Nothing to do; we will always have at least one trailing "end" opcode in our padding.
 }
 
+void UnwindInfo::CheckOpsize(uint8_t b1)
+{
+    // nothing to do; all instructions are 4 bytes
+}
+
 /*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XX                                                                           XX
@@ -755,21 +760,21 @@ uint32_t ExtractBits(uint32_t dw, uint32_t start, uint32_t length)
 //      isHotCode:          true if this unwind data is for the hot section
 //      startOffset:        byte offset of the code start that this unwind data represents
 //      endOffset:          byte offset of the code end   that this unwind data represents
-//      pHeader:            pointer to the unwind data blob
+//      header:            pointer to the unwind data blob
 //      unwindBlockSize:    size in bytes of the unwind data blob
 
-void DumpUnwindInfo(Compiler*            comp,
-                    bool                 isHotCode,
-                    uint32_t             startOffset,
-                    uint32_t             endOffset,
-                    const uint8_t* const pHeader,
-                    uint32_t             unwindBlockSize)
+void DumpUnwindInfo(Compiler*      comp,
+                    bool           isHotCode,
+                    uint32_t       startOffset,
+                    uint32_t       endOffset,
+                    const uint8_t* header,
+                    uint32_t       unwindBlockSize)
 {
     printf("Unwind Info%s:\n", isHotCode ? "" : " COLD");
 
-    // pHeader is not guaranteed to be aligned. We put four 0xFF end codes at the end
+    // header is not guaranteed to be aligned. We put four 0xFF end codes at the end
     // to provide padding, and round down to get a multiple of 4 bytes in size.
-    uint32_t UNALIGNED* pdw = (uint32_t UNALIGNED*)pHeader;
+    uint32_t UNALIGNED* pdw = (uint32_t UNALIGNED*)header;
     uint32_t dw;
 
     dw = *pdw++;
@@ -1102,7 +1107,7 @@ void DumpUnwindInfo(Compiler*            comp,
 
     pdw += codeWords;
     assert((uint8_t*)pdw == pUnwindCode);
-    assert((uint8_t*)pdw == pHeader + unwindBlockSize);
+    assert((uint8_t*)pdw == header + unwindBlockSize);
 
     assert(XBit == 0); // We don't handle the case where exception data is present, such as the Exception Handler RVA
 
