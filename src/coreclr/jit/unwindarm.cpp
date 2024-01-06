@@ -1190,7 +1190,7 @@ void UnwindFragmentInfo::SplitEpilogCodes(emitLocation* splitLoc, UnwindFragment
 bool UnwindFragmentInfo::IsAtFragmentEnd(UnwindEpilogInfo* epilog)
 {
     return uwiComp->codeGen->GetEmitter()->emitIsFuncEnd(epilog->epiEmitLocation,
-                                                         (ufiNext == nullptr) ? nullptr : ufiNext->ufiEmitLoc);
+                                                         ufiNext == nullptr ? nullptr : ufiNext->ufiStartLoc);
 }
 
 // Merge the unwind codes as much as possible.
@@ -1612,7 +1612,7 @@ void UnwindInfo::SplitColdCodes(UnwindInfo* hotInfo)
     uwiFragmentFirst.CopyPrologCodes(&hotInfo->uwiFragmentFirst);
 
     // Now split the epilog codes
-    uwiFragmentFirst.SplitEpilogCodes(uwiFragmentFirst.ufiEmitLoc, &hotInfo->uwiFragmentFirst);
+    uwiFragmentFirst.SplitEpilogCodes(uwiFragmentFirst.ufiStartLoc, &hotInfo->uwiFragmentFirst);
 }
 
 // Split the function or funclet into fragments that are no larger than 512K,
@@ -1646,7 +1646,7 @@ void UnwindInfo::SplitLargeFragment()
     assert(uwiFragmentFirst.ufiNext == nullptr);
 
     // Find the code size of this function/funclet.
-    emitLocation* startLoc = uwiFragmentFirst.ufiEmitLoc;
+    emitLocation* startLoc = uwiFragmentFirst.ufiStartLoc;
     uint32_t      startOffset;
     uint32_t      endOffset;
     uint32_t      codeSize;

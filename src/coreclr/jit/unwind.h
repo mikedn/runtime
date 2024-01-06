@@ -496,7 +496,7 @@ class UnwindFragmentInfo : public UnwindBase
     // The next fragment
     UnwindFragmentInfo* ufiNext = nullptr;
     // Emitter location for start of fragment
-    emitLocation* ufiEmitLoc;
+    emitLocation* ufiStartLoc;
     // Are the prolog codes for a phantom prolog, or a real prolog?
     // (For a phantom prolog, this code fragment represents a fragment in
     // the sense of the unwind info spec; something without a real prolog.)
@@ -537,9 +537,9 @@ public:
     {
     }
 
-    UnwindFragmentInfo(Compiler* comp, emitLocation* emitLoc, bool hasPhantomProlog)
+    UnwindFragmentInfo(Compiler* comp, emitLocation* startLoc, bool hasPhantomProlog)
         : UnwindBase(comp)
-        , ufiEmitLoc(emitLoc)
+        , ufiStartLoc(startLoc)
         , ufiHasPhantomProlog(hasPhantomProlog)
         , ufiPrologCodes(comp)
         , ufiEpilogFirst(comp)
@@ -552,7 +552,7 @@ public:
 
     const emitLocation* GetStartLoc() const
     {
-        return ufiEmitLoc;
+        return ufiStartLoc;
     }
 
     // Add an unwind code. It could be for a prolog, or for the current epilog.
