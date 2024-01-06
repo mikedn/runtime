@@ -213,16 +213,9 @@ void CodeGen::unwindSetFrameRegCFI(regNumber reg, unsigned offset)
 
 void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* hotCode, void* coldCode)
 {
-    insGroup* startLoc     = nullptr;
-    insGroup* endLoc       = nullptr;
-    insGroup* coldStartLoc = nullptr;
-    insGroup* coldEndLoc   = nullptr;
+    insGroup* startLoc = nullptr;
+    insGroup* endLoc   = nullptr;
     unwindGetFuncRange(func, true, &startLoc, &endLoc);
-
-    if (compiler->fgFirstColdBlock != nullptr)
-    {
-        unwindGetFuncRange(func, false, &coldStartLoc, &coldEndLoc);
-    }
 
     uint32_t startOffset = GetEmitter()->GetCodeOffset(startLoc);
     uint32_t endOffset   = endLoc == nullptr ? compNativeCodeSize : GetEmitter()->GetCodeOffset(endLoc);
@@ -237,24 +230,25 @@ void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* hotCode, void* coldCode
     compiler->eeAllocUnwindInfo(hotCode, nullptr, startOffset, endOffset, codeCount * sizeof(CFI_CODE), codes,
                                 static_cast<CorJitFuncKind>(func->funKind));
 
-    if (coldCode != nullptr)
+    if (coldCode == nullptr)
     {
-        assert(compiler->fgFirstColdBlock != nullptr);
-        assert(func->funKind == FUNC_ROOT); // No splitting of funclets.
-
-        startOffset = GetEmitter()->GetCodeOffset(coldStartLoc);
-        endOffset   = coldEndLoc == nullptr ? compNativeCodeSize : GetEmitter()->GetCodeOffset(coldEndLoc);
-
-        assert(startOffset >= compTotalHotCodeSize);
-
-        DBEXEC(compiler->opts.dspUnwind, DumpCfiInfo(/* isHotCode */ false, startOffset, endOffset, 0, nullptr));
-
-        startOffset -= compTotalHotCodeSize;
-        endOffset -= compTotalHotCodeSize;
-
-        compiler->eeAllocUnwindInfo(hotCode, coldCode, startOffset, endOffset, 0, nullptr,
-                                    static_cast<CorJitFuncKind>(func->funKind));
+        return;
     }
+
+    unwindGetFuncRange(func, false, &startLoc, &endLoc);
+
+    startOffset = GetEmitter()->GetCodeOffset(startLoc);
+    endOffset   = endLoc == nullptr ? compNativeCodeSize : GetEmitter()->GetCodeOffset(endLoc);
+
+    assert(startOffset >= compTotalHotCodeSize);
+
+    DBEXEC(compiler->opts.dspUnwind, DumpCfiInfo(/* isHotCode */ false, startOffset, endOffset, 0, nullptr));
+
+    startOffset -= compTotalHotCodeSize;
+    endOffset -= compTotalHotCodeSize;
+
+    compiler->eeAllocUnwindInfo(hotCode, coldCode, startOffset, endOffset, 0, nullptr,
+                                static_cast<CorJitFuncKind>(func->funKind));
 }
 
 #ifdef DEBUG

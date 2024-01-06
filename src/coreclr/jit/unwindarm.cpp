@@ -618,8 +618,6 @@ void CodeGen::unwindReserveFunc(FuncInfoDsc* func)
 
     if (compiler->fgFirstColdBlock != nullptr)
     {
-        assert(func->funKind == FUNC_ROOT); // TODO-CQ: support hot/cold splitting with EH
-
         insGroup* startLoc;
         insGroup* endLoc;
         unwindGetFuncRange(func, false, &startLoc, &endLoc);

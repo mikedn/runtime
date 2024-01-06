@@ -171,9 +171,6 @@ void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* hotCode, void* coldC
     }
     else
     {
-        assert(fgFirstColdBlock != nullptr);
-        assert(func->funKind == FUNC_ROOT); // No splitting of funclets.
-
         insGroup* startLoc;
         insGroup* endLoc;
         unwindGetFuncRange(func, false, &startLoc, &endLoc);

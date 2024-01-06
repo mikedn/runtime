@@ -706,17 +706,6 @@ void CodeGen::unwindEmitFunc(FuncInfoDsc* func, void* hotCode, void* coldCode)
 
 void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* hotCode, void* coldCode, bool isHotCode)
 {
-    insGroup* startLoc     = nullptr;
-    insGroup* endLoc       = nullptr;
-    insGroup* coldStartLoc = nullptr;
-    insGroup* coldEndLoc   = nullptr;
-    unwindGetFuncRange(func, true, &startLoc, &endLoc);
-
-    if (compiler->fgFirstColdBlock != nullptr)
-    {
-        unwindGetFuncRange(func, false, &coldStartLoc, &coldEndLoc);
-    }
-
     uint32_t startOffset;
     uint32_t endOffset;
     uint32_t unwindCodeBytes = 0;
@@ -724,6 +713,10 @@ void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* hotCode, void* coldC
 
     if (isHotCode)
     {
+        insGroup* startLoc = nullptr;
+        insGroup* endLoc   = nullptr;
+        unwindGetFuncRange(func, true, &startLoc, &endLoc);
+
         startOffset = GetEmitter()->GetCodeOffset(startLoc);
         endOffset   = endLoc == nullptr ? compNativeCodeSize : GetEmitter()->GetCodeOffset(endLoc);
 
@@ -751,11 +744,12 @@ void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* hotCode, void* coldC
     }
     else
     {
-        assert(compiler->fgFirstColdBlock != nullptr);
-        assert(func->funKind == FUNC_ROOT); // No splitting of funclets.
+        insGroup* startLoc = nullptr;
+        insGroup* endLoc   = nullptr;
+        unwindGetFuncRange(func, false, &startLoc, &endLoc);
 
-        startOffset = GetEmitter()->GetCodeOffset(coldStartLoc);
-        endOffset   = coldEndLoc == nullptr ? compNativeCodeSize : GetEmitter()->GetCodeOffset(coldEndLoc);
+        startOffset = GetEmitter()->GetCodeOffset(startLoc);
+        endOffset   = endLoc == nullptr ? compNativeCodeSize : GetEmitter()->GetCodeOffset(endLoc);
     }
 
 #ifdef DEBUG
