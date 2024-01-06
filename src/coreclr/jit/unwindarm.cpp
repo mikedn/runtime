@@ -1081,18 +1081,6 @@ void UnwindEpilogInfo::Dump(int indent)
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-void UnwindFragmentInfo::FinalizeOffset()
-{
-    if (ufiEmitLoc == nullptr)
-    {
-        ufiStartOffset = 0;
-    }
-    else
-    {
-        ufiStartOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(ufiEmitLoc);
-    }
-}
-
 UnwindEpilogInfo* UnwindFragmentInfo::AddEpilog()
 {
     assert(ufiInitialized);
@@ -1585,7 +1573,6 @@ void UnwindFragmentInfo::Dump(int indent)
     printf("%*s  ufiNeedExtendedCodeWordsEpilogCount: %d\n", indent, "", ufiNeedExtendedCodeWordsEpilogCount);
     printf("%*s  ufiCodeWords: %u\n", indent, "", ufiCodeWords);
     printf("%*s  ufiEpilogScopes: %u\n", indent, "", ufiEpilogScopes);
-    printf("%*s  ufiStartOffset: 0x%x\n", indent, "", ufiStartOffset);
     printf("%*s  ufiInProlog: %d\n", indent, "", ufiInProlog);
     printf("%*s  ufiInitialized: %d\n", indent, "", ufiInitialized);
 
@@ -1840,6 +1827,18 @@ void UnwindInfo::Reserve(FuncKind kind, bool isHotCode)
 void UnwindInfo::Allocate(FuncKind kind, void* hotCode, void* coldCode, bool isHotCode)
 {
     assert(uwiInitialized);
+    DBEXEC(uwiComp->verbose, Dump(isHotCode, 0));
+
+    uint32_t startOffset;
+
+    if (const emitLocation* startLoc = uwiFragmentFirst.GetStartLoc())
+    {
+        startOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(startLoc);
+    }
+    else
+    {
+        startOffset = 0;
+    }
 
     uint32_t funcEndOffset;
 
@@ -1856,28 +1855,15 @@ void UnwindInfo::Allocate(FuncKind kind, void* hotCode, void* coldCode, bool isH
 
     for (UnwindFragmentInfo* f = &uwiFragmentFirst; f != nullptr; f = f->ufiNext)
     {
-        f->FinalizeOffset();
-    }
-
-    DBEXEC(uwiComp->verbose, Dump(isHotCode, 0));
-
-    uint32_t startOffset = uwiFragmentFirst.GetStartOffset();
-
-    for (UnwindFragmentInfo* f = &uwiFragmentFirst; f != nullptr; f = f->ufiNext)
-    {
         uint32_t endOffset;
 
         if (f->ufiNext == nullptr)
         {
-            // This is the last fragment, so the fragment extends to the end of the function/fragment.
             endOffset = funcEndOffset;
         }
         else
         {
-            // The fragment length is all the code between the beginning of this fragment
-            // and the beginning of the next fragment. Note that all fragments have had their
-            // offsets computed before any fragment is allocated.
-            endOffset = f->ufiNext->GetStartOffset();
+            endOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(f->ufiNext->GetStartLoc());
         }
 
         f->Allocate(kind, hotCode, coldCode, startOffset, endOffset, isHotCode);

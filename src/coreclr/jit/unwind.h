@@ -493,8 +493,6 @@ class UnwindFragmentInfo : public UnwindBase
 {
     friend class UnwindInfo;
 
-    static const uint32_t UFI_ILLEGAL_OFFSET = 0xFFFFFFFF;
-
     // The next fragment
     UnwindFragmentInfo* ufiNext = nullptr;
     // Emitter location for start of fragment
@@ -525,7 +523,6 @@ class UnwindFragmentInfo : public UnwindBase
     bool     ufiNeedExtendedCodeWordsEpilogCount;
     unsigned ufiCodeWords;
     unsigned ufiEpilogScopes;
-    uint32_t ufiStartOffset = UFI_ILLEGAL_OFFSET;
 
 #ifdef DEBUG
     unsigned ufiNum = 1;
@@ -553,12 +550,9 @@ public:
     UnwindFragmentInfo(const UnwindFragmentInfo& info) = delete;
     UnwindFragmentInfo& operator=(const UnwindFragmentInfo&) = delete;
 
-    void FinalizeOffset();
-
-    uint32_t GetStartOffset() const
+    const emitLocation* GetStartLoc() const
     {
-        assert(ufiStartOffset != UFI_ILLEGAL_OFFSET);
-        return ufiStartOffset;
+        return ufiEmitLoc;
     }
 
     // Add an unwind code. It could be for a prolog, or for the current epilog.
