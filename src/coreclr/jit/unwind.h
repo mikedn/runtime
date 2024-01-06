@@ -20,43 +20,6 @@ enum FuncKind : uint8_t
 
 #include "emit.h"
 
-// Windows no longer imposes a maximum prolog size. However, we still have an
-// assert here just to inform us if we increase the size of the prolog
-// accidentally, as there is still a slight performance advantage in the
-// OS unwinder to having as few unwind codes as possible.
-// You can increase this "max" number if necessary.
-
-#ifdef TARGET_ARM
-const unsigned MAX_PROLOG_SIZE_BYTES = 44;
-const unsigned MAX_EPILOG_SIZE_BYTES = 44;
-#define UWC_END 0xFF // "end" unwind code
-#define UW_MAX_FRAGMENT_SIZE_BYTES (1U << 19)
-#define UW_MAX_CODE_WORDS_COUNT 15      // Max number that can be encoded in the "Code Words" field of the .pdata record
-#define UW_MAX_EPILOG_START_INDEX 0xFFU // Max number that can be encoded in the "Epilog Start Index" field
-                                        // of the .pdata record
-#else
-const unsigned MAX_PROLOG_SIZE_BYTES = 100;
-const unsigned MAX_EPILOG_SIZE_BYTES = 100;
-#define UWC_END 0xE4   // "end" unwind code
-#define UWC_END_C 0xE5 // "end_c" unwind code
-#define UW_MAX_FRAGMENT_SIZE_BYTES (1U << 20)
-#define UW_MAX_CODE_WORDS_COUNT 31
-#define UW_MAX_EPILOG_START_INDEX 0x3FFU
-#endif
-
-#define UW_MAX_EPILOG_COUNT 31                 // Max number that can be encoded in the "Epilog count" field
-                                               // of the .pdata record
-#define UW_MAX_EXTENDED_CODE_WORDS_COUNT 0xFFU // Max number that can be encoded in the "Extended Code Words"
-                                               // field of the .pdata record
-#define UW_MAX_EXTENDED_EPILOG_COUNT 0xFFFFU   // Max number that can be encoded in the "Extended Epilog Count"
-                                               // field of the .pdata record
-#define UW_MAX_EPILOG_START_OFFSET 0x3FFFFU    // Max number that can be encoded in the "Epilog Start Offset"
-                                               // field of the .pdata record
-
-//
-// Forward declarations of classes defined in this file
-//
-
 class UnwindCodesBase;
 class UnwindPrologCodes;
 class UnwindEpilogCodes;
@@ -106,14 +69,7 @@ public:
 
     virtual uint8_t* GetCodes() const = 0;
 
-    bool IsEndCode(uint8_t b)
-    {
-#ifdef TARGET_ARM
-        return b >= 0xFD;
-#else
-        return b == UWC_END; // TODO-ARM64-Bug?: what about the "end_c" code?
-#endif
-    }
+    bool IsEndCode(uint8_t b) const;
 
     INDEBUG(unsigned GetCodeSizeFromUnwindCodes(bool isProlog);)
 };
@@ -159,17 +115,7 @@ public:
     {
     }
 
-    UnwindPrologCodes(Compiler* comp) : UnwindCodesBase(comp)
-    {
-        // Assume we've got a normal end code.
-        // Push four so we can generate an array that is a multiple of 4 bytes in size with the
-        // end codes (and padding) already in place. One is the end code for the prolog codes,
-        // three are end-of-array alignment padding.
-        PushByte(UWC_END);
-        PushByte(UWC_END);
-        PushByte(UWC_END);
-        PushByte(UWC_END);
-    }
+    UnwindPrologCodes(Compiler* comp);
 
     UnwindPrologCodes(const UnwindPrologCodes& info) = delete;
     UnwindPrologCodes& operator=(const UnwindPrologCodes&) = delete;
@@ -352,51 +298,9 @@ public:
         return uecMem[index];
     }
 
-    // Add a single byte on the unwind code array
-    void AppendByte(uint8_t b)
-    {
-        if (uecCodeSlot == uecMemSize - 1)
-        {
-            // We've run out of space! Reallocate, and copy everything to a new array.
-            EnsureSize(uecMemSize + 1);
-        }
-
-        ++uecCodeSlot;
-        noway_assert(0 <= uecCodeSlot && uecCodeSlot < uecMemSize);
-
-        uecMem[uecCodeSlot] = b;
-    }
-
-    // Return the size of the unwind codes, in bytes. The size is the exact size, not an aligned size.
-    int Size() const
-    {
-        if (uecFinalized)
-        {
-            // Add one because uecCodeSlot is 0-based
-            return uecCodeSlot + 1;
-        }
-        else
-        {
-            // Add one because uecCodeSlot is 0-based, and one for an "end" code that isn't stored (yet).
-            return uecCodeSlot + 2;
-        }
-    }
-
-    void FinalizeCodes()
-    {
-        assert(!uecFinalized);
-        noway_assert(0 <= uecCodeSlot && uecCodeSlot < uecMemSize); // There better be at least one code!
-
-        if (!IsEndCode(firstByteOfLastCode)) // If the last code is an end code, we don't need to append one.
-        {
-            AppendByte(UWC_END);           // Add a default "end" code to the end of the array of unwind codes
-            firstByteOfLastCode = UWC_END; // Update firstByteOfLastCode in case we use it later
-        }
-
-        uecFinalized = true; // With the "end" code in place, now we're done
-
-        assert(GetCodeSizeFromUnwindCodes(false) <= MAX_EPILOG_SIZE_BYTES);
-    }
+    void AppendByte(uint8_t b);
+    int  Size() const;
+    void FinalizeCodes();
 
     INDEBUG(void Dump(int indent = 0);)
 
