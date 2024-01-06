@@ -180,9 +180,9 @@ void CodeGen::unwindBegProlog()
     // There is only one prolog for a function/funclet, and it comes first. So now is
     // a good time to initialize all the unwind data structures.
 
-    emitLocation* startLoc;
-    emitLocation* endLoc;
-    unwindGetFuncLocations(func, true, &startLoc, &endLoc);
+    insGroup* startLoc;
+    insGroup* endLoc;
+    unwindGetFuncRange(func, true, &startLoc, &endLoc);
 
     new (&func->uwi) UnwindInfo(compiler, startLoc, endLoc);
     func->uwi.CaptureLocation(GetEmitter());
@@ -620,9 +620,9 @@ void CodeGen::unwindReserveFunc(FuncInfoDsc* func)
     {
         assert(func->funKind == FUNC_ROOT); // TODO-CQ: support hot/cold splitting with EH
 
-        emitLocation* startLoc;
-        emitLocation* endLoc;
-        unwindGetFuncLocations(func, false, &startLoc, &endLoc);
+        insGroup* startLoc;
+        insGroup* endLoc;
+        unwindGetFuncRange(func, false, &startLoc, &endLoc);
 
         func->uwiCold = new (compiler, CMK_UnwindInfo) UnwindInfo(compiler, startLoc, endLoc);
         func->uwiCold->SplitColdCodes(&func->uwi);
@@ -1685,10 +1685,10 @@ void UnwindFragmentInfo::Dump(int indent)
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-UnwindInfo::UnwindInfo(Compiler* comp, emitLocation* startLoc, emitLocation* endLoc)
+UnwindInfo::UnwindInfo(Compiler* comp, insGroup* start, insGroup* end)
     : UnwindBase(comp)
-    , uwiFragmentFirst(comp, startLoc, false)
-    , uwiEndLoc(endLoc)
+    , uwiFragmentFirst(comp, start, false)
+    , uwiEndLoc(end == nullptr ? nullptr : new (comp, CMK_UnwindInfo) emitLocation(end))
 #ifdef DEBUG
     , uwiInitialized(true)
 #endif
@@ -1971,7 +1971,7 @@ UnwindFragmentInfo* UnwindInfo::AddFragment(UnwindFragmentInfo* last, insGroup* 
     assert(uwiInitialized);
 
     emitLocation*       emitLoc = new (uwiComp, CMK_UnwindInfo) emitLocation(ig);
-    UnwindFragmentInfo* newFrag = new (uwiComp, CMK_UnwindInfo) UnwindFragmentInfo(uwiComp, emitLoc, true);
+    UnwindFragmentInfo* newFrag = new (uwiComp, CMK_UnwindInfo) UnwindFragmentInfo(uwiComp, ig, true);
     INDEBUG(newFrag->ufiNum = last->ufiNum + 1);
     newFrag->CopyPrologCodes(&uwiFragmentFirst);
     newFrag->SplitEpilogCodes(emitLoc, last);

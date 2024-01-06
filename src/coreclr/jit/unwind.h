@@ -441,9 +441,9 @@ public:
     {
     }
 
-    UnwindFragmentInfo(Compiler* comp, emitLocation* startLoc, bool hasPhantomProlog)
+    UnwindFragmentInfo(Compiler* comp, insGroup* start, bool hasPhantomProlog)
         : UnwindBase(comp)
-        , ufiStartLoc(startLoc)
+        , ufiStartLoc(start == nullptr ? nullptr : new (comp, CMK_UnwindInfo) emitLocation(start))
         , ufiHasPhantomProlog(hasPhantomProlog)
         , ufiPrologCodes(comp)
         , ufiEpilogFirst(comp)
@@ -548,7 +548,7 @@ public:
     {
     }
 
-    UnwindInfo(Compiler* comp, emitLocation* startLoc, emitLocation* endLoc);
+    UnwindInfo(Compiler* comp, insGroup* start, insGroup* end);
 
     UnwindInfo(const UnwindInfo& info) = delete;
     UnwindInfo& operator=(const UnwindInfo&) = delete;

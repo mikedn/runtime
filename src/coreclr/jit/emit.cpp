@@ -97,6 +97,12 @@ bool emitter::IsPreviousLocation(const emitLocation& loc) const
     return false;
 }
 
+uint32_t emitter::GetCodeOffset(const insGroup* ig) const
+{
+    assert(ig->igNum != 0);
+    return ig->igOffs;
+}
+
 uint32_t emitter::GetCodeOffset(const emitLocation& loc) const
 {
     assert(loc.Valid());

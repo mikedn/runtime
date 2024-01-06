@@ -24,7 +24,7 @@ uint32_t CodeGen::unwindGetCurrentOffset()
 #ifdef FEATURE_EH_FUNCLETS
 
 // Get the start/end emitter locations for this
-// function or funclet. If 'getHotSectionData' is true, get the start/end locations
+// function or funclet. If 'hotCodeRange' is true, get the start/end locations
 // for the hot section. Otherwise, get the data for the cold section.
 //
 // Note that we grab these locations before the prolog and epilogs are generated, so the
@@ -44,19 +44,16 @@ uint32_t CodeGen::unwindGetCurrentOffset()
 //
 // Arguments:
 //    func              - main function or funclet to get locations for.
-//    getHotSectionData - 'true' to get the hot section data, 'false' to get the cold section data.
-//    ppStartLoc        - OUT parameter. Set to the start emitter location.
-//    ppEndLoc          - OUT parameter. Set to the end   emitter location (the location immediately
-//                        the range; the 'end' location is not inclusive).
+//    hotCodeRange - 'true' to get the hot section data, 'false' to get the cold section data.
+//    start        - OUT parameter. Set to the start insGroup.
+//    end          - OUT parameter. Set to the end insGroup (the insGroup immediately after
+//                        the func end).
 //
 // Notes:
 //    A start location of nullptr means the beginning of the code.
 //    An end location of nullptr means the end of the code.
 //
-void CodeGen::unwindGetFuncLocations(FuncInfoDsc*   func,
-                                     bool           getHotSectionData,
-                                     emitLocation** ppStartLoc,
-                                     emitLocation** ppEndLoc)
+void CodeGen::unwindGetFuncRange(FuncInfoDsc* func, bool hotCodeRange, insGroup** start, insGroup** end)
 {
     if (func->funKind == FUNC_ROOT)
     {
@@ -64,27 +61,27 @@ void CodeGen::unwindGetFuncLocations(FuncInfoDsc*   func,
         // up to the first handler. If the function is hot/cold split, we need to get the
         // appropriate sub-range.
 
-        if (getHotSectionData)
+        if (hotCodeRange)
         {
-            *ppStartLoc = nullptr; // nullptr emit location means the beginning of the code. This is to handle the first
-                                   // fragment prolog.
+            *start = nullptr; // nullptr emit location means the beginning of the code. This is to handle the first
+                              // fragment prolog.
 
             if (compiler->fgFirstColdBlock != nullptr)
             {
                 // The hot section only goes up to the cold section
                 assert(compiler->fgFirstFuncletBB == nullptr);
 
-                *ppEndLoc = new (compiler, CMK_UnwindInfo) emitLocation(ehEmitLabel(compiler->fgFirstColdBlock));
+                *end = ehEmitLabel(compiler->fgFirstColdBlock);
             }
             else
             {
                 if (compiler->fgFirstFuncletBB != nullptr)
                 {
-                    *ppEndLoc = new (compiler, CMK_UnwindInfo) emitLocation(ehEmitLabel(compiler->fgFirstFuncletBB));
+                    *end = ehEmitLabel(compiler->fgFirstFuncletBB);
                 }
                 else
                 {
-                    *ppEndLoc = nullptr; // nullptr end location means the end of the code
+                    *end = nullptr; // nullptr end location means the end of the code
                 }
             }
         }
@@ -93,29 +90,27 @@ void CodeGen::unwindGetFuncLocations(FuncInfoDsc*   func,
             assert(compiler->fgFirstFuncletBB == nullptr); // TODO-CQ: support hot/cold splitting in functions with EH
             assert(compiler->fgFirstColdBlock != nullptr); // There better be a cold section!
 
-            *ppStartLoc = new (compiler, CMK_UnwindInfo) emitLocation(ehEmitLabel(compiler->fgFirstColdBlock));
-            *ppEndLoc   = nullptr; // nullptr end location means the end of the code
+            *start = ehEmitLabel(compiler->fgFirstColdBlock);
+            *end   = nullptr; // nullptr end location means the end of the code
         }
     }
     else
     {
-        assert(getHotSectionData); // TODO-CQ: support funclets in cold section
+        assert(hotCodeRange); // TODO-CQ: support funclets in cold section
 
         EHblkDsc* HBtab = compiler->ehGetDsc(func->funEHIndex);
 
         if (func->funKind == FUNC_FILTER)
         {
             assert(HBtab->HasFilter());
-            *ppStartLoc = new (compiler, CMK_UnwindInfo) emitLocation(ehEmitLabel(HBtab->ebdFilter));
-            *ppEndLoc   = new (compiler, CMK_UnwindInfo) emitLocation(ehEmitLabel(HBtab->ebdHndBeg));
+            *start = ehEmitLabel(HBtab->ebdFilter);
+            *end   = ehEmitLabel(HBtab->ebdHndBeg);
         }
         else
         {
             assert(func->funKind == FUNC_HANDLER);
-            *ppStartLoc = new (compiler, CMK_UnwindInfo) emitLocation(ehEmitLabel(HBtab->ebdHndBeg));
-            *ppEndLoc   = (HBtab->ebdHndLast->bbNext == nullptr)
-                            ? nullptr
-                            : new (compiler, CMK_UnwindInfo) emitLocation(ehEmitLabel(HBtab->ebdHndLast->bbNext));
+            *start = ehEmitLabel(HBtab->ebdHndBeg);
+            *end   = HBtab->ebdHndLast->bbNext == nullptr ? nullptr : ehEmitLabel(HBtab->ebdHndLast->bbNext);
         }
     }
 }
@@ -246,15 +241,15 @@ void CodeGen::unwindSetFrameRegCFI(regNumber reg, unsigned offset)
 
 void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* hotCode, void* coldCode)
 {
-    emitLocation* startLoc     = nullptr;
-    emitLocation* endLoc       = nullptr;
-    emitLocation* coldStartLoc = nullptr;
-    emitLocation* coldEndLoc   = nullptr;
-    unwindGetFuncLocations(func, true, &startLoc, &endLoc);
+    insGroup* startLoc     = nullptr;
+    insGroup* endLoc       = nullptr;
+    insGroup* coldStartLoc = nullptr;
+    insGroup* coldEndLoc   = nullptr;
+    unwindGetFuncRange(func, true, &startLoc, &endLoc);
 
     if (compiler->fgFirstColdBlock != nullptr)
     {
-        unwindGetFuncLocations(func, false, &coldStartLoc, &coldEndLoc);
+        unwindGetFuncRange(func, false, &coldStartLoc, &coldEndLoc);
     }
 
     uint32_t startOffset = startLoc == nullptr ? 0 : GetEmitter()->GetCodeOffset(startLoc);

@@ -720,15 +720,15 @@ void CodeGen::unwindEmit(void* pHotCode, void* pColdCode)
 //
 void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* pHotCode, void* pColdCode, bool isHotCode)
 {
-    emitLocation* startLoc     = nullptr;
-    emitLocation* endLoc       = nullptr;
-    emitLocation* coldStartLoc = nullptr;
-    emitLocation* coldEndLoc   = nullptr;
-    unwindGetFuncLocations(func, true, &startLoc, &endLoc);
+    insGroup* startLoc     = nullptr;
+    insGroup* endLoc       = nullptr;
+    insGroup* coldStartLoc = nullptr;
+    insGroup* coldEndLoc   = nullptr;
+    unwindGetFuncRange(func, true, &startLoc, &endLoc);
 
     if (compiler->fgFirstColdBlock != nullptr)
     {
-        unwindGetFuncLocations(func, false, &coldStartLoc, &coldEndLoc);
+        unwindGetFuncRange(func, false, &coldStartLoc, &coldEndLoc);
     }
 
     uint32_t startOffset;

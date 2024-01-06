@@ -302,6 +302,7 @@ public:
     unsigned emitCurCodePos();
     bool IsCurrentLocation(const emitLocation& loc) const;
     bool IsPreviousLocation(const emitLocation& loc) const;
+    uint32_t GetCodeOffset(const insGroup* ig) const;
     uint32_t GetCodeOffset(const emitLocation& loc) const;
     uint32_t GetCodeOffset(const emitLocation* loc) const;
     uint32_t emitCodeOffset(insGroup* ig) const;

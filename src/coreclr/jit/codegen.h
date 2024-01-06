@@ -1250,14 +1250,8 @@ public:
     //
 
 private:
-#if defined(FEATURE_EH_FUNCLETS)
-    void unwindGetFuncLocations(FuncInfoDsc*             func,
-                                bool                     getHotSectionData,
-                                /* OUT */ emitLocation** ppStartLoc,
-                                /* OUT */ emitLocation** ppEndLoc);
-#endif // FEATURE_EH_FUNCLETS
-
 #ifdef FEATURE_EH_FUNCLETS
+    void unwindGetFuncRange(FuncInfoDsc* func, bool hotCodeRange, insGroup** start, insGroup** end);
     void unwindReserveFunc(FuncInfoDsc* func);
     void unwindEmitFunc(FuncInfoDsc* func, void* pHotCode, void* pColdCode);
 #endif

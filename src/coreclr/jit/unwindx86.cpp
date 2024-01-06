@@ -175,7 +175,7 @@ void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* pHotCode, void* pCol
         emitLocation* startLoc;
         emitLocation* endLoc;
 
-        unwindGetFuncLocations(func, true, &startLoc, &endLoc);
+        unwindGetFuncRange(func, true, &startLoc, &endLoc);
 
         if (startLoc == nullptr)
         {
@@ -203,7 +203,7 @@ void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* pHotCode, void* pCol
         assert(fgFirstColdBlock != nullptr);
         assert(func->funKind == FUNC_ROOT); // No splitting of funclets.
 
-        unwindGetFuncLocations(func, false, &coldStartLoc, &coldEndLoc);
+        unwindGetFuncRange(func, false, &coldStartLoc, &coldEndLoc);
 
         if (coldStartLoc == nullptr)
         {
