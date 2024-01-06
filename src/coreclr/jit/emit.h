@@ -16,10 +16,21 @@ class CodeGen;
 class emitter;
 struct insGroup;
 
+// emitCurCodePos returns a cookie that identifies the current position in the instruction
+// group. Due to things like branch shortening, the final size of some instructions is not
+// known until instruction encoding, so we return a value containing both the instruction
+// index and its estimated offset within the instruction group, allowing us to skip
+// recomputing the offset if instruction sizes within the group have not changed.
+enum class CodePos : uint32_t
+{
+    First   = 0,
+    Invalid = UINT32_MAX
+};
+
 class emitLocation
 {
     insGroup* ig;
-    unsigned  codePos = 0;
+    CodePos   codePos = CodePos::First;
 
 public:
     emitLocation(insGroup* ig = nullptr) : ig(ig)
@@ -31,7 +42,7 @@ public:
         assert(label != nullptr);
 
         ig      = label;
-        codePos = 0;
+        codePos = CodePos::First;
     }
 
     void CaptureLocation(emitter* emit);
@@ -41,13 +52,17 @@ public:
         return ig;
     }
 
+    CodePos GetCodePos() const
+    {
+        return codePos;
+    }
+
     bool Valid() const
     {
         return ig != nullptr;
     }
 
     unsigned GetInsNum() const;
-    unsigned GetCodePos() const;
     uint32_t GetCodeOffset() const;
 
     INDEBUG(void Print(const char* suffix = nullptr) const;)
@@ -142,7 +157,7 @@ struct insGroup
         return igOffs;
     }
 
-    uint32_t GetCodeOffset(unsigned codePos) const;
+    uint32_t GetCodeOffset(CodePos codePos) const;
     uint32_t FindInsOffset(unsigned insNum) const;
 
     VARSET_TP GetGCLcls() const
@@ -310,7 +325,7 @@ public:
     /*           Record a code position and later convert it to offset      */
     /************************************************************************/
 
-    unsigned emitCurCodePos();
+    CodePos emitCurCodePos();
     bool IsCurrentLocation(const emitLocation& loc) const;
     bool IsPreviousLocation(const emitLocation& loc) const;
     INDEBUG(const char* emitOffsetToLabel(unsigned offs);)
@@ -1353,7 +1368,7 @@ private:
     /*                      Method prolog and epilog                        */
     /************************************************************************/
 
-    unsigned emitPrologEndPos;
+    CodePos emitPrologEndPos;
 
     insGroup* emitPlaceholderList = nullptr; // per method placeholder list - head
     insGroup* emitPlaceholderLast = nullptr; // per method placeholder list - tail

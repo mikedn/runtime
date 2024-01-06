@@ -41,29 +41,25 @@ bool emitter::IsColdBlock(BasicBlock* block) const
     return emitComp->fgIsBlockCold(block);
 }
 
-// emitCurCodePos returns a cookie that identifies the current position in
-// the instruction stream. Due to things like branch shortening, the final
-// size of some instructions is not known until the end of code generation,
-// so we return a value with the instruction number and its estimated offset.
-static unsigned GetCodePos(unsigned num, unsigned codeOffset)
+static CodePos GetCodePos(unsigned num, unsigned codeOffset)
 {
     assert(num <= UINT16_MAX);
     assert(codeOffset <= UINT16_MAX);
 
-    return num | (codeOffset << 16);
+    return static_cast<CodePos>(num | (codeOffset << 16));
 }
 
-static unsigned GetInsNumFromCodePos(unsigned codePos)
+static unsigned GetInsNumFromCodePos(CodePos codePos)
 {
-    return codePos & UINT16_MAX;
+    return static_cast<uint32_t>(codePos) & UINT16_MAX;
 }
 
-static unsigned GetInsOffsetFromCodePos(unsigned codePos)
+static unsigned GetInsOffsetFromCodePos(CodePos codePos)
 {
-    return codePos >> 16;
+    return static_cast<uint32_t>(codePos) >> 16;
 }
 
-unsigned emitter::emitCurCodePos()
+CodePos emitter::emitCurCodePos()
 {
     return GetCodePos(emitCurIGinsCnt, emitCurIGsize);
 }
@@ -108,11 +104,6 @@ void emitLocation::CaptureLocation(emitter* emit)
 unsigned emitLocation::GetInsNum() const
 {
     return GetInsNumFromCodePos(codePos);
-}
-
-uint32_t emitLocation::GetCodePos() const
-{
-    return codePos;
 }
 
 uint32_t emitLocation::GetCodeOffset() const
@@ -3123,7 +3114,7 @@ uint32_t insGroup::FindInsOffset(unsigned insNum) const
     return insOffs;
 }
 
-uint32_t insGroup::GetCodeOffset(unsigned codePos) const
+uint32_t insGroup::GetCodeOffset(CodePos codePos) const
 {
     uint32_t insOffs;
     unsigned insNum = GetInsNumFromCodePos(codePos);
