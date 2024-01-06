@@ -622,7 +622,8 @@ public:
     }
 
     void Reserve(FuncKind kind, bool isHotCode);
-    void Allocate(FuncKind kind, void* hotCode, void* coldCode, uint32_t funcEndOffset, bool isHotCode);
+    void Allocate(
+        FuncKind kind, void* hotCode, void* coldCode, uint32_t startOffset, uint32_t endOffset, bool isHotCode);
 
     INDEBUG(void Dump(int indent = 0);)
 };

@@ -1520,25 +1520,10 @@ void DumpUnwindInfo(Compiler*      comp,
                     uint32_t       unwindBlockSize);
 #endif
 
-void UnwindFragmentInfo::Allocate(FuncKind kind, void* hotCode, void* coldCode, uint32_t funcEndOffset, bool isHotCode)
+void UnwindFragmentInfo::Allocate(
+    FuncKind kind, void* hotCode, void* coldCode, uint32_t startOffset, uint32_t endOffset, bool isHotCode)
 {
     noway_assert(isHotCode || (kind == FUNC_ROOT)); // TODO-CQ: support funclets in cold code
-
-    uint32_t startOffset = GetStartOffset();
-    uint32_t endOffset;
-
-    if (ufiNext == nullptr)
-    {
-        // This is the last fragment, so the fragment extends to the end of the function/fragment.
-        endOffset = funcEndOffset;
-    }
-    else
-    {
-        // The fragment length is all the code between the beginning of this fragment
-        // and the beginning of the next fragment. Note that all fragments have had their
-        // offsets computed before any fragment is allocated.
-        endOffset = ufiNext->GetStartOffset();
-    }
 
     assert(endOffset > startOffset);
     uint32_t codeSize = endOffset - startOffset;
@@ -1856,18 +1841,18 @@ void UnwindInfo::Allocate(FuncKind kind, void* hotCode, void* coldCode, bool isH
 {
     assert(uwiInitialized);
 
-    uint32_t endOffset;
+    uint32_t funcEndOffset;
 
     if (uwiEndLoc == nullptr)
     {
-        endOffset = uwiComp->codeGen->compNativeCodeSize;
+        funcEndOffset = uwiComp->codeGen->compNativeCodeSize;
     }
     else
     {
-        endOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(uwiEndLoc);
+        funcEndOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(uwiEndLoc);
     }
 
-    assert(endOffset != 0);
+    assert(funcEndOffset != 0);
 
     for (UnwindFragmentInfo* f = &uwiFragmentFirst; f != nullptr; f = f->ufiNext)
     {
@@ -1878,7 +1863,23 @@ void UnwindInfo::Allocate(FuncKind kind, void* hotCode, void* coldCode, bool isH
 
     for (UnwindFragmentInfo* f = &uwiFragmentFirst; f != nullptr; f = f->ufiNext)
     {
-        f->Allocate(kind, hotCode, coldCode, endOffset, isHotCode);
+        uint32_t startOffset = f->GetStartOffset();
+        uint32_t endOffset;
+
+        if (f->ufiNext == nullptr)
+        {
+            // This is the last fragment, so the fragment extends to the end of the function/fragment.
+            endOffset = funcEndOffset;
+        }
+        else
+        {
+            // The fragment length is all the code between the beginning of this fragment
+            // and the beginning of the next fragment. Note that all fragments have had their
+            // offsets computed before any fragment is allocated.
+            endOffset = f->ufiNext->GetStartOffset();
+        }
+
+        f->Allocate(kind, hotCode, coldCode, startOffset, endOffset, isHotCode);
     }
 }
 
