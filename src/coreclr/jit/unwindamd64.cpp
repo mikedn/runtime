@@ -744,7 +744,7 @@ void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* pHotCode, void* pCol
         }
         else
         {
-            startOffset = startLoc->CodeOffset(GetEmitter());
+            startOffset = GetEmitter()->GetCodeOffset(startLoc);
         }
 
         if (endLoc == nullptr)
@@ -753,7 +753,7 @@ void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* pHotCode, void* pCol
         }
         else
         {
-            endOffset = endLoc->CodeOffset(GetEmitter());
+            endOffset = GetEmitter()->GetCodeOffset(endLoc);
         }
 
 #ifdef UNIX_AMD64_ABI
@@ -794,7 +794,7 @@ void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* pHotCode, void* pCol
         }
         else
         {
-            startOffset = coldStartLoc->CodeOffset(GetEmitter());
+            startOffset = GetEmitter()->GetCodeOffset(coldStartLoc);
         }
 
         if (coldEndLoc == nullptr)
@@ -803,7 +803,7 @@ void CodeGen::unwindEmitFuncHelper(FuncInfoDsc* func, void* pHotCode, void* pCol
         }
         else
         {
-            endOffset = coldEndLoc->CodeOffset(GetEmitter());
+            endOffset = GetEmitter()->GetCodeOffset(coldEndLoc);
         }
     }
 

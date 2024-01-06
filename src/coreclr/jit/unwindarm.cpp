@@ -1086,7 +1086,7 @@ void UnwindEpilogInfo::CaptureEmitLocation(emitter* emitter)
 
 void UnwindEpilogInfo::FinalizeOffset()
 {
-    epiStartOffset = epiEmitLocation.CodeOffset(uwiComp->codeGen->GetEmitter());
+    epiStartOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(epiEmitLocation);
 }
 
 #ifdef DEBUG
@@ -1117,7 +1117,7 @@ void UnwindFragmentInfo::FinalizeOffset()
     }
     else
     {
-        ufiStartOffset = ufiEmitLoc->CodeOffset(uwiComp->codeGen->GetEmitter());
+        ufiStartOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(ufiEmitLoc);
     }
 
     for (UnwindEpilogInfo* e = ufiEpilogList; e != nullptr; e = e->epiNext)
@@ -1192,7 +1192,7 @@ void UnwindFragmentInfo::CopyPrologCodes(UnwindFragmentInfo* pCopyFrom)
 
 void UnwindFragmentInfo::SplitEpilogCodes(emitLocation* emitLoc, UnwindFragmentInfo* pSplitFrom)
 {
-    uint32_t splitOffset = emitLoc->CodeOffset(uwiComp->codeGen->GetEmitter());
+    uint32_t splitOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(emitLoc);
 
     for (UnwindEpilogInfo *epilog = pSplitFrom->ufiEpilogList, *prev = nullptr; epilog != nullptr;
          prev = epilog, epilog = epilog->epiNext)
@@ -1755,7 +1755,7 @@ void UnwindInfo::Split()
     }
     else
     {
-        startOffset = uwiFragmentLast->ufiEmitLoc->CodeOffset(uwiComp->codeGen->GetEmitter());
+        startOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(uwiFragmentLast->ufiEmitLoc);
     }
 
     if (uwiEndLoc == nullptr)
@@ -1772,7 +1772,7 @@ void UnwindInfo::Split()
     }
     else
     {
-        endOffset = uwiEndLoc->CodeOffset(uwiComp->codeGen->GetEmitter());
+        endOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(uwiEndLoc);
     }
 
     assert(endOffset > startOffset); // there better be at least 1 byte of code
@@ -1930,7 +1930,7 @@ void UnwindInfo::Allocate(FuncKind kind, void* pHotCode, void* pColdCode, bool i
     }
     else
     {
-        endOffset = uwiEndLoc->CodeOffset(uwiComp->codeGen->GetEmitter());
+        endOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(uwiEndLoc);
     }
 
     assert(endOffset != 0);

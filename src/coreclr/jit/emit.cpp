@@ -97,6 +97,18 @@ bool emitter::IsPreviousLocation(const emitLocation& loc) const
     return false;
 }
 
+uint32_t emitter::GetCodeOffset(const emitLocation& loc) const
+{
+    assert(loc.Valid());
+    return emitCodeOffset(loc.GetIG(), loc.GetCodePos());
+}
+
+uint32_t emitter::GetCodeOffset(const emitLocation* loc) const
+{
+    assert(loc->Valid());
+    return emitCodeOffset(loc->GetIG(), loc->GetCodePos());
+}
+
 void emitLocation::CaptureLocation(emitter* emit)
 {
     ig      = emit->emitCurIG;
@@ -110,10 +122,9 @@ unsigned emitLocation::GetInsNum() const
     return GetInsNumFromCodePos(codePos);
 }
 
-uint32_t emitLocation::CodeOffset(emitter* emit) const
+uint32_t emitLocation::GetCodePos() const
 {
-    assert(Valid());
-    return emit->emitCodeOffset(ig, codePos);
+    return codePos;
 }
 
 #ifdef DEBUG
@@ -1104,8 +1115,8 @@ void emitter::emitEndFnEpilog()
 {
     assert(emitEpilogLast != nullptr);
 
-    UNATIVE_OFFSET epilogBegCodeOffset          = emitEpilogLast->elLoc.CodeOffset(this);
-    UNATIVE_OFFSET epilogExitSeqStartCodeOffset = emitExitSeqBegLoc.CodeOffset(this);
+    UNATIVE_OFFSET epilogBegCodeOffset          = GetCodeOffset(emitEpilogLast->elLoc);
+    UNATIVE_OFFSET epilogExitSeqStartCodeOffset = GetCodeOffset(emitExitSeqBegLoc);
     UNATIVE_OFFSET newSize                      = epilogExitSeqStartCodeOffset - epilogBegCodeOffset;
 
     /* Compute total epilog size */
@@ -3136,7 +3147,7 @@ unsigned emitter::emitFindInsNum(insGroup* ig, instrDesc* idMatch)
 // We've been asked for the code offset of an instruction but alas one or
 // more instruction sizes in the block have been mis-predicted, so we have
 // to find the true offset by looking for the instruction within the group.
-uint32_t emitter::emitFindOffset(insGroup* ig, unsigned insNum)
+uint32_t emitter::emitFindOffset(insGroup* ig, unsigned insNum) const
 {
     assert(insNum <= ig->igInsCnt);
 
@@ -3155,12 +3166,12 @@ uint32_t emitter::emitFindOffset(insGroup* ig, unsigned insNum)
 
 // Given a block cookie and a code position, return the actual code offset;
 // this can only be called at the end of code generation.
-uint32_t emitter::emitCodeOffset(insGroup* ig)
+uint32_t emitter::emitCodeOffset(insGroup* ig) const
 {
     return ig->igOffs;
 }
 
-uint32_t emitter::emitCodeOffset(insGroup* ig, unsigned codePos)
+uint32_t emitter::emitCodeOffset(insGroup* ig, unsigned codePos) const
 {
     uint32_t insOffs;
     unsigned insNum = GetInsNumFromCodePos(codePos);

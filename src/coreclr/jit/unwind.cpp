@@ -263,7 +263,7 @@ void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* pHotCode, void* pColdCo
     }
     else
     {
-        startOffset = startLoc->CodeOffset(GetEmitter());
+        startOffset = GetEmitter()->GetCodeOffset(startLoc);
     }
 
     if (endLoc == nullptr)
@@ -272,7 +272,7 @@ void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* pHotCode, void* pColdCo
     }
     else
     {
-        endOffset = endLoc->CodeOffset(GetEmitter());
+        endOffset = GetEmitter()->GetCodeOffset(endLoc);
     }
 
     uint32_t size = (uint32_t)func->cfiCodes->size();
@@ -308,7 +308,7 @@ void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* pHotCode, void* pColdCo
         }
         else
         {
-            startOffset = coldStartLoc->CodeOffset(GetEmitter());
+            startOffset = GetEmitter()->GetCodeOffset(coldStartLoc);
         }
 
         if (coldEndLoc == nullptr)
@@ -317,7 +317,7 @@ void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* pHotCode, void* pColdCo
         }
         else
         {
-            endOffset = coldEndLoc->CodeOffset(GetEmitter());
+            endOffset = GetEmitter()->GetCodeOffset(coldEndLoc);
         }
 
 #ifdef DEBUG
