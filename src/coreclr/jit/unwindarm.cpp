@@ -575,19 +575,16 @@ void CodeGen::unwindReserve()
 
 void CodeGen::unwindReserveFunc(FuncInfoDsc* func)
 {
-    BOOL isFunclet          = (func->funKind == FUNC_ROOT) ? FALSE : TRUE;
-    bool funcHasColdSection = false;
-
-#if defined(TARGET_UNIX)
+#ifdef TARGET_UNIX
     if (generateCFIUnwindCodes())
     {
-        uint32_t unwindCodeBytes = 0;
         if (compiler->fgFirstColdBlock != nullptr)
         {
-            compiler->eeReserveUnwindInfo(isFunclet, true /*isColdCode*/, unwindCodeBytes);
+            compiler->eeReserveUnwindInfo(func->funKind != FUNC_ROOT, true, 0);
         }
-        unwindCodeBytes = (uint32_t)(func->cfiCodes->size() * sizeof(CFI_CODE));
-        compiler->eeReserveUnwindInfo(isFunclet, false /*isColdCode*/, unwindCodeBytes);
+
+        uint32_t unwindSize = static_cast<uint32_t>(func->cfiCodes->size() * sizeof(CFI_CODE));
+        compiler->eeReserveUnwindInfo(func->funKind != FUNC_ROOT, false, unwindSize);
 
         return;
     }
@@ -599,7 +596,7 @@ void CodeGen::unwindReserveFunc(FuncInfoDsc* func)
 
     if (compiler->fgFirstColdBlock != nullptr)
     {
-        assert(!isFunclet); // TODO-CQ: support hot/cold splitting with EH
+        assert(func->funKind == FUNC_ROOT); // TODO-CQ: support hot/cold splitting with EH
 
         emitLocation* startLoc;
         emitLocation* endLoc;
@@ -607,25 +604,13 @@ void CodeGen::unwindReserveFunc(FuncInfoDsc* func)
 
         func->uwiCold = new (compiler, CMK_UnwindInfo) UnwindInfo(compiler, startLoc, endLoc);
         func->uwiCold->HotColdSplitCodes(&func->uwi);
-
-        funcHasColdSection = true;
     }
 
-    // First we need to split the function or funclet into fragments that are no larger
-    // than 512K, so the fragment size will fit in the unwind data "Function Length" field.
-    // The ARM Exception Data specification "Function Fragments" section describes this.
-    func->uwi.Split();
+    func->uwi.Reserve(func->funKind, true);
 
-    func->uwi.Reserve(isFunclet, true);
-
-    // After the hot section, split and reserve the cold section
-
-    if (funcHasColdSection)
+    if (func->uwiCold != nullptr)
     {
-        assert(func->uwiCold != nullptr);
-
-        func->uwiCold->Split();
-        func->uwiCold->Reserve(isFunclet, false);
+        func->uwiCold->Reserve(func->funKind, false);
     }
 }
 
@@ -645,11 +630,6 @@ void CodeGen::unwindEmit(void* pHotCode, void* pColdCode)
 
 void CodeGen::unwindEmitFunc(FuncInfoDsc* func, void* pHotCode, void* pColdCode)
 {
-    // Verify that the JIT enum is in sync with the JIT-EE interface enum
-    static_assert_no_msg(FUNC_ROOT == (FuncKind)CORJIT_FUNC_ROOT);
-    static_assert_no_msg(FUNC_HANDLER == (FuncKind)CORJIT_FUNC_HANDLER);
-    static_assert_no_msg(FUNC_FILTER == (FuncKind)CORJIT_FUNC_FILTER);
-
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
     {
@@ -658,11 +638,11 @@ void CodeGen::unwindEmitFunc(FuncInfoDsc* func, void* pHotCode, void* pColdCode)
     }
 #endif // TARGET_UNIX
 
-    func->uwi.Allocate((CorJitFuncKind)func->funKind, pHotCode, pColdCode, true);
+    func->uwi.Allocate(func->funKind, pHotCode, pColdCode, true);
 
     if (func->uwiCold != nullptr)
     {
-        func->uwiCold->Allocate((CorJitFuncKind)func->funKind, pHotCode, pColdCode, false);
+        func->uwiCold->Allocate(func->funKind, pHotCode, pColdCode, false);
     }
 }
 
@@ -1552,9 +1532,9 @@ void UnwindFragmentInfo::Finalize(uint32_t functionLength)
     // The unwind code words are already here, following the header, so we're done!
 }
 
-void UnwindFragmentInfo::Reserve(bool isFunclet, bool isHotCode)
+void UnwindFragmentInfo::Reserve(FuncKind kind, bool isHotCode)
 {
-    assert(isHotCode || !isFunclet); // TODO-CQ: support hot/cold splitting in functions with EH
+    assert(isHotCode || (kind == FUNC_ROOT)); // TODO-CQ: support hot/cold splitting in functions with EH
 
     MergeCodes();
 
@@ -1569,7 +1549,7 @@ void UnwindFragmentInfo::Reserve(bool isFunclet, bool isHotCode)
     }
 #endif
 
-    uwiComp->eeReserveUnwindInfo(isFunclet, isColdCode, unwindSize);
+    uwiComp->eeReserveUnwindInfo(kind != FUNC_ROOT, isColdCode, unwindSize);
 }
 
 // Allocate the unwind info for a fragment with the VM.
@@ -1582,7 +1562,7 @@ void UnwindFragmentInfo::Reserve(bool isFunclet, bool isHotCode)
 //      isHotCode:     are we allocating the unwind info for the hot code section?
 
 void UnwindFragmentInfo::Allocate(
-    CorJitFuncKind funKind, void* pHotCode, void* pColdCode, uint32_t funcEndOffset, bool isHotCode)
+    FuncKind kind, void* pHotCode, void* pColdCode, uint32_t funcEndOffset, bool isHotCode)
 {
     uint32_t startOffset;
     uint32_t endOffset;
@@ -1592,7 +1572,7 @@ void UnwindFragmentInfo::Allocate(
     // better not be a funclet!
     // TODO-CQ: support funclets in cold code
 
-    noway_assert(isHotCode || funKind == CORJIT_FUNC_ROOT);
+    noway_assert(isHotCode || (kind == FUNC_ROOT));
 
     // Compute the final size, and start and end offsets of the fragment
 
@@ -1653,7 +1633,13 @@ void UnwindFragmentInfo::Allocate(
     }
 #endif
 
-    uwiComp->eeAllocUnwindInfo(pHotCode, pColdCode, startOffset, endOffset, unwindBlockSize, pUnwindBlock, funKind);
+    // Verify that the JIT enum is in sync with the JIT-EE interface enum
+    static_assert_no_msg(FUNC_ROOT == (FuncKind)CORJIT_FUNC_ROOT);
+    static_assert_no_msg(FUNC_HANDLER == (FuncKind)CORJIT_FUNC_HANDLER);
+    static_assert_no_msg(FUNC_FILTER == (FuncKind)CORJIT_FUNC_FILTER);
+
+    uwiComp->eeAllocUnwindInfo(pHotCode, pColdCode, startOffset, endOffset, unwindBlockSize, pUnwindBlock,
+                               static_cast<CorJitFuncKind>(kind));
 }
 
 #ifdef DEBUG
@@ -1914,20 +1900,25 @@ void UnwindInfo::Split(insGroup* start, insGroup* end, uint32_t maxCodeSize)
 
 // Reserve space for the unwind info for all fragments
 
-void UnwindInfo::Reserve(bool isFunclet, bool isHotCode)
+void UnwindInfo::Reserve(FuncKind kind, bool isHotCode)
 {
     assert(uwiInitialized);
-    assert(isHotCode || !isFunclet);
+    assert(isHotCode || (kind == FUNC_ROOT));
+
+    // First we need to split the function or funclet into fragments that are no larger
+    // than 512K, so the fragment size will fit in the unwind data "Function Length" field.
+    // The ARM Exception Data specification "Function Fragments" section describes this.
+    Split();
 
     for (UnwindFragmentInfo* pFrag = &uwiFragmentFirst; pFrag != nullptr; pFrag = pFrag->ufiNext)
     {
-        pFrag->Reserve(isFunclet, isHotCode);
+        pFrag->Reserve(kind, isHotCode);
     }
 }
 
 // Allocate and populate VM unwind info for all fragments
 
-void UnwindInfo::Allocate(CorJitFuncKind funKind, void* pHotCode, void* pColdCode, bool isHotCode)
+void UnwindInfo::Allocate(FuncKind kind, void* pHotCode, void* pColdCode, bool isHotCode)
 {
     assert(uwiInitialized);
 
@@ -1957,7 +1948,7 @@ void UnwindInfo::Allocate(CorJitFuncKind funKind, void* pHotCode, void* pColdCod
 
     for (pFrag = &uwiFragmentFirst; pFrag != nullptr; pFrag = pFrag->ufiNext)
     {
-        pFrag->Allocate(funKind, pHotCode, pColdCode, endOffset, isHotCode);
+        pFrag->Allocate(kind, pHotCode, pColdCode, endOffset, isHotCode);
     }
 }
 

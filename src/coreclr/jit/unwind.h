@@ -3,6 +3,15 @@
 
 #pragma once
 
+#ifdef FEATURE_EH_FUNCLETS
+enum FuncKind : uint8_t
+{
+    FUNC_ROOT,    // The main/root function (always id==0)
+    FUNC_HANDLER, // a funclet associated with an EH handler (finally, fault, catch, filter handler)
+    FUNC_FILTER   // a funclet associated with an EH filter
+};
+#endif
+
 #ifdef TARGET_AMD64
 #include <win64unwind.h>
 #endif
@@ -641,9 +650,9 @@ public:
         ufiPrologCodes.GetFinalInfo(ppUnwindBlock, pUnwindBlockSize);
     }
 
-    void Reserve(bool isFunclet, bool isHotCode);
+    void Reserve(FuncKind kind, bool isHotCode);
 
-    void Allocate(CorJitFuncKind funKind, void* pHotCode, void* pColdCode, uint32_t funcEndOffset, bool isHotCode);
+    void Allocate(FuncKind kind, void* pHotCode, void* pColdCode, uint32_t funcEndOffset, bool isHotCode);
 
 #ifdef DEBUG
     void Dump(int indent = 0);
@@ -685,9 +694,9 @@ public:
 
     void Split();
 
-    void Reserve(bool isFunclet, bool isHotCode);
+    void Reserve(FuncKind kind, bool isHotCode);
 
-    void Allocate(CorJitFuncKind funKind, void* pHotCode, void* pColdCode, bool isHotCode);
+    void Allocate(FuncKind kind, void* pHotCode, void* pColdCode, bool isHotCode);
 
     // The following act on the current fragment (the one pointed to by 'uwiFragmentLast').
 
@@ -773,13 +782,6 @@ void DumpUnwindInfo(Compiler*            comp,
 #endif // TARGET_ARMARCH
 
 #ifdef FEATURE_EH_FUNCLETS
-enum FuncKind : uint8_t
-{
-    FUNC_ROOT,    // The main/root function (always id==0)
-    FUNC_HANDLER, // a funclet associated with an EH handler (finally, fault, catch, filter handler)
-    FUNC_FILTER   // a funclet associated with an EH filter
-};
-
 struct FuncInfoDsc
 {
     FuncKind       funKind;
