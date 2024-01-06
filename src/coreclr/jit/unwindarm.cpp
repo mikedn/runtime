@@ -1861,9 +1861,10 @@ void UnwindInfo::Allocate(FuncKind kind, void* hotCode, void* coldCode, bool isH
 
     DBEXEC(uwiComp->verbose, Dump(isHotCode, 0));
 
+    uint32_t startOffset = uwiFragmentFirst.GetStartOffset();
+
     for (UnwindFragmentInfo* f = &uwiFragmentFirst; f != nullptr; f = f->ufiNext)
     {
-        uint32_t startOffset = f->GetStartOffset();
         uint32_t endOffset;
 
         if (f->ufiNext == nullptr)
@@ -1880,6 +1881,7 @@ void UnwindInfo::Allocate(FuncKind kind, void* hotCode, void* coldCode, bool isH
         }
 
         f->Allocate(kind, hotCode, coldCode, startOffset, endOffset, isHotCode);
+        startOffset = endOffset;
     }
 }
 
