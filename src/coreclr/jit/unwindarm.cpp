@@ -1636,7 +1636,7 @@ void UnwindInfo::SplitLargeFragment()
     uint32_t maxFragmentSize = UW_MAX_FRAGMENT_SIZE_BYTES;
 
 #ifdef DEBUG
-    if (unsigned splitFunctionSize = (unsigned)JitConfig.JitSplitFunctionSize())
+    if (unsigned splitFunctionSize = static_cast<unsigned>(JitConfig.JitSplitFunctionSize()))
     {
         maxFragmentSize = Min(maxFragmentSize, splitFunctionSize);
     }
@@ -1648,12 +1648,9 @@ void UnwindInfo::SplitLargeFragment()
     // Find the code size of this function/funclet.
     emitLocation* startLoc = uwiFragmentFirst.ufiStartLoc;
     uint32_t      startOffset;
-    uint32_t      endOffset;
-    uint32_t      codeSize;
 
     if (startLoc == nullptr)
     {
-        // nullptr emit location means the beginning of the code. This is to handle the first fragment prolog.
         startOffset = 0;
     }
     else
@@ -1661,7 +1658,10 @@ void UnwindInfo::SplitLargeFragment()
         startOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(startLoc);
     }
 
-    if (uwiEndLoc == nullptr)
+    emitLocation* endLoc = uwiEndLoc;
+    uint32_t      endOffset;
+
+    if (endLoc == nullptr)
     {
         // Note that compTotalHotCodeSize and compTotalColdCodeSize are computed before issuing instructions
         // from the emitter instruction group offsets, and will be accurate unless the issued code shrinks.
@@ -1675,61 +1675,44 @@ void UnwindInfo::SplitLargeFragment()
     }
     else
     {
-        endOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(uwiEndLoc);
+        endOffset = uwiComp->codeGen->GetEmitter()->GetCodeOffset(endLoc);
     }
 
-    assert(endOffset > startOffset); // there better be at least 1 byte of code
-    codeSize = endOffset - startOffset;
+    assert(endOffset > startOffset);
 
-    // Now that we know the code size for this section (main function hot or cold, or funclet),
-    // figure out how many fragments we're going to need.
+    uint32_t codeSize      = endOffset - startOffset;
+    uint32_t fragmentCount = (codeSize + maxFragmentSize - 1) / maxFragmentSize; // round up
 
-    uint32_t numberOfFragments = (codeSize + maxFragmentSize - 1) / maxFragmentSize; // round up
-    assert(numberOfFragments > 0);
-
-    if (numberOfFragments == 1)
+    if (fragmentCount == 1)
     {
-        // No need to split; we're done
         return;
     }
 
-    // Now, we're going to commit to splitting the function into "numberOfFragments" fragments,
-    // for the purpose of unwind information. We need to do the actual splits so we can figure out
-    // the size of each piece of unwind data for the call to reserveUnwindInfo(). We won't know
-    // the actual offsets of the splits since we haven't issued the instructions yet, so store
-    // an emitter location instead of an offset, and "finalize" the offset in the unwindEmit() phase,
-    // like we do for the function length and epilog offsets.
-
     JITDUMP("Split unwind info into %d fragments (function/funclet size: %d, maximum fragment size: %d)\n",
-            numberOfFragments, codeSize, maxFragmentSize);
+            fragmentCount, codeSize, maxFragmentSize);
 
-    emitLocation* endLoc  = uwiEndLoc;
-    insGroup*     igStart = startLoc == nullptr ? uwiComp->codeGen->GetEmitter()->GetProlog() : startLoc->GetIG();
-    insGroup*     igEnd   = endLoc == nullptr ? nullptr : endLoc->GetIG();
+    insGroup* igStart = startLoc == nullptr ? uwiComp->codeGen->GetEmitter()->GetProlog() : startLoc->GetIG();
+    insGroup* igEnd   = endLoc == nullptr ? nullptr : endLoc->GetIG();
 
     Split(igStart, igEnd, maxFragmentSize);
 
 #ifdef DEBUG
-    // Did the emitter split the function/funclet into as many fragments as we asked for?
-    // It might be fewer if the COMPlus_JitSplitFunctionSize was used, but it better not
-    // be fewer if we're splitting into 512K blocks!
-
-    unsigned fragCount = 0;
+    unsigned actualFragmentCount = 0;
 
     for (UnwindFragmentInfo* f = &uwiFragmentFirst; f != nullptr; f = f->ufiNext)
     {
-        ++fragCount;
+        ++actualFragmentCount;
     }
 
-    if (fragCount < numberOfFragments)
+    if (actualFragmentCount < fragmentCount)
     {
-        JITDUMP("WARNING: asked the emitter for %d fragments, but only got %d\n", numberOfFragments, fragCount);
+        JITDUMP("WARNING: asked the emitter for %u fragments, but only got %u\n", fragmentCount, actualFragmentCount);
 
-        // If this fires, then we split into fewer fragments than we asked for, and we are using
-        // the default, unwind-data-defined 512K maximum fragment size. We won't be able to fit
-        // this fragment into the unwind data! If you set COMPlus_JitSplitFunctionSize to something
-        // small, we might not be able to split into as many fragments as asked for, because we
-        // can't split prologs or epilogs.
+        // We might not be able to split into as many fragments as asked for, because we
+        // only split along instruction group boundaries. The maximum instruction group
+        // code size is very small compared to UW_MAX_FRAGMENT_SIZE_BYTES so this is only
+        // an issue if JitSplitFunctionSize was used and set to a low value, in which case
+        // we don't need to assert.
         assert(maxFragmentSize != UW_MAX_FRAGMENT_SIZE_BYTES);
     }
 #endif // DEBUG
