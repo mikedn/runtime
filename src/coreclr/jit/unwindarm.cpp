@@ -565,11 +565,11 @@ void CodeGen::unwindReserve()
 {
     assert(!generatingProlog);
     assert(!generatingEpilog);
-
     assert(compFuncInfoCount > 0);
-    for (unsigned funcIdx = 0; funcIdx < compFuncInfoCount; funcIdx++)
+
+    for (unsigned i = 0; i < compFuncInfoCount; i++)
     {
-        unwindReserveFunc(funGetFunc(funcIdx));
+        unwindReserveFunc(funGetFunc(i));
     }
 }
 
@@ -622,9 +622,10 @@ void CodeGen::unwindReserveFunc(FuncInfoDsc* func)
 void CodeGen::unwindEmit(void* pHotCode, void* pColdCode)
 {
     assert(compFuncInfoCount > 0);
-    for (unsigned funcIdx = 0; funcIdx < compFuncInfoCount; funcIdx++)
+
+    for (unsigned i = 0; i < compFuncInfoCount; i++)
     {
-        unwindEmitFunc(funGetFunc(funcIdx), pHotCode, pColdCode);
+        unwindEmitFunc(funGetFunc(i), pHotCode, pColdCode);
     }
 }
 
@@ -934,10 +935,11 @@ void UnwindPrologCodes::EnsureSize(int requiredSize)
 
         // Choose the next power of two size. This may or may not be the best choice.
         noway_assert((requiredSize & 0xC0000000) == 0); // too big!
-        int newSize;
-        for (newSize = upcMemSize << 1; newSize < requiredSize; newSize <<= 1)
+
+        int newSize = upcMemSize << 1;
+        while (newSize < requiredSize)
         {
-            // do nothing
+            newSize <<= 1;
         }
 
         uint8_t* newUnwindCodes = new (uwiComp, CMK_UnwindInfo) uint8_t[newSize];
@@ -997,10 +999,11 @@ void UnwindEpilogCodes::EnsureSize(int requiredSize)
 
         // Choose the next power of two size. This may or may not be the best choice.
         noway_assert((requiredSize & 0xC0000000) == 0); // too big!
-        int newSize;
-        for (newSize = uecMemSize << 1; newSize < requiredSize; newSize <<= 1)
+
+        int newSize = uecMemSize << 1;
+        while (newSize < requiredSize)
         {
-            // do nothing
+            newSize <<= 1;
         }
 
         uint8_t* newUnwindCodes = new (uwiComp, CMK_UnwindInfo) uint8_t[newSize];
@@ -1110,7 +1113,6 @@ void UnwindFragmentInfo::FinalizeOffset()
 {
     if (ufiEmitLoc == nullptr)
     {
-        // nullptr emit location means the beginning of the code. This is to handle the first fragment prolog.
         ufiStartOffset = 0;
     }
     else
@@ -1118,9 +1120,9 @@ void UnwindFragmentInfo::FinalizeOffset()
         ufiStartOffset = ufiEmitLoc->CodeOffset(uwiComp->codeGen->GetEmitter());
     }
 
-    for (UnwindEpilogInfo* pEpi = ufiEpilogList; pEpi != nullptr; pEpi = pEpi->epiNext)
+    for (UnwindEpilogInfo* e = ufiEpilogList; e != nullptr; e = e->epiNext)
     {
-        pEpi->FinalizeOffset();
+        e->FinalizeOffset();
     }
 }
 
@@ -1190,26 +1192,25 @@ void UnwindFragmentInfo::CopyPrologCodes(UnwindFragmentInfo* pCopyFrom)
 
 void UnwindFragmentInfo::SplitEpilogCodes(emitLocation* emitLoc, UnwindFragmentInfo* pSplitFrom)
 {
-    UnwindEpilogInfo* pEpiPrev;
-    UnwindEpilogInfo* pEpi;
-
     uint32_t splitOffset = emitLoc->CodeOffset(uwiComp->codeGen->GetEmitter());
 
-    for (pEpiPrev = nullptr, pEpi = pSplitFrom->ufiEpilogList; pEpi != nullptr; pEpiPrev = pEpi, pEpi = pEpi->epiNext)
+    for (UnwindEpilogInfo *epilog = pSplitFrom->ufiEpilogList, *prev = nullptr; epilog != nullptr;
+         prev = epilog, epilog = epilog->epiNext)
     {
-        pEpi->FinalizeOffset(); // Get the offset of the epilog from the emitter so we can compare it
-        if (pEpi->GetStartOffset() >= splitOffset)
+        epilog->FinalizeOffset();
+
+        if (epilog->GetStartOffset() >= splitOffset)
         {
             // This epilog and all following epilogs, which must be in order of increasing offsets,
             // get moved to this fragment.
 
             // Splice in the epilogs to this fragment. Set the head of the epilog
             // list to this epilog.
-            ufiEpilogList = pEpi; // In this case, don't use 'ufiEpilogFirst'
+            ufiEpilogList = epilog; // In this case, don't use 'ufiEpilogFirst'
             ufiEpilogLast = pSplitFrom->ufiEpilogLast;
 
             // Splice out the tail of the list from the 'pSplitFrom' epilog list
-            pSplitFrom->ufiEpilogLast = pEpiPrev;
+            pSplitFrom->ufiEpilogLast = prev;
             if (pSplitFrom->ufiEpilogLast == nullptr)
             {
                 pSplitFrom->ufiEpilogList = nullptr;
@@ -1249,17 +1250,17 @@ void UnwindFragmentInfo::MergeCodes()
 {
     assert(ufiInitialized);
 
-    unsigned epilogCount     = 0;
-    unsigned epilogCodeBytes = 0; // The total number of unwind code bytes used by epilogs that don't match the
-                                  // prolog codes
-    unsigned epilogIndex = ufiPrologCodes.Size(); // The "Epilog Start Index" for the next non-matching epilog codes
-    UnwindEpilogInfo* pEpi;
+    unsigned epilogCount = 0;
+    // The total number of unwind code bytes used by epilogs that don't match the prolog codes
+    unsigned epilogCodeBytes = 0;
+    // The "Epilog Start Index" for the next non-matching epilog codes
+    unsigned epilogIndex = ufiPrologCodes.Size();
 
-    for (pEpi = ufiEpilogList; pEpi != nullptr; pEpi = pEpi->epiNext)
+    for (UnwindEpilogInfo* epilog = ufiEpilogList; epilog != nullptr; epilog = epilog->epiNext)
     {
         ++epilogCount;
 
-        pEpi->FinalizeCodes();
+        epilog->FinalizeCodes();
 
         // Does this epilog match the prolog?
         // NOTE: for the purpose of matching, we don't handle the 0xFD and 0xFE end codes that allow slightly unequal
@@ -1267,11 +1268,11 @@ void UnwindFragmentInfo::MergeCodes()
 
         int matchIndex;
 
-        matchIndex = ufiPrologCodes.Match(pEpi);
+        matchIndex = ufiPrologCodes.Match(epilog);
         if (matchIndex != -1)
         {
-            pEpi->SetMatches();
-            pEpi->SetStartIndex(matchIndex); // Prolog codes start at zero, so matchIndex is exactly the start index
+            epilog->SetMatches();
+            epilog->SetStartIndex(matchIndex); // Prolog codes start at zero, so matchIndex is exactly the start index
         }
         else
         {
@@ -1279,15 +1280,16 @@ void UnwindFragmentInfo::MergeCodes()
             // we've seen so far?
 
             bool matched = false;
-            for (UnwindEpilogInfo* pEpi2 = ufiEpilogList; pEpi2 != pEpi; pEpi2 = pEpi2->epiNext)
+            for (UnwindEpilogInfo* epilog2 = ufiEpilogList; epilog2 != epilog; epilog2 = epilog2->epiNext)
             {
-                matchIndex = pEpi2->Match(pEpi);
+                matchIndex = epilog2->Match(epilog);
+
                 if (matchIndex != -1)
                 {
                     // Use the same epilog index as the one we matched, as it has already been set.
-                    pEpi->SetMatches();
-                    pEpi->SetStartIndex(pEpi2->GetStartIndex() + matchIndex); // We might match somewhere inside pEpi2's
-                                                                              // codes, in which case matchIndex > 0
+                    epilog->SetMatches();
+                    // We might match somewhere inside epilog2's codes, in which case matchIndex > 0
+                    epilog->SetStartIndex(epilog2->GetStartIndex() + matchIndex);
                     matched = true;
                     break;
                 }
@@ -1295,9 +1297,9 @@ void UnwindFragmentInfo::MergeCodes()
 
             if (!matched)
             {
-                pEpi->SetStartIndex(epilogIndex); // We'll copy these codes to the next available location
-                epilogCodeBytes += pEpi->Size();
-                epilogIndex += pEpi->Size();
+                epilog->SetStartIndex(epilogIndex); // We'll copy these codes to the next available location
+                epilogCodeBytes += epilog->Size();
+                epilogIndex += epilog->Size();
             }
         }
     }
@@ -1358,11 +1360,11 @@ void UnwindFragmentInfo::MergeCodes()
     {
         // We need to copy the epilog code bytes to their final memory location
 
-        for (pEpi = ufiEpilogList; pEpi != nullptr; pEpi = pEpi->epiNext)
+        for (UnwindEpilogInfo* e = ufiEpilogList; e != nullptr; e = e->epiNext)
         {
-            if (!pEpi->Matches())
+            if (!e->Matches())
             {
-                ufiPrologCodes.AppendEpilog(pEpi);
+                ufiPrologCodes.AppendEpilog(e);
             }
         }
     }
@@ -1482,23 +1484,21 @@ void UnwindFragmentInfo::Finalize(uint32_t functionLength)
 
     if (!ufiSetEBit)
     {
-        for (UnwindEpilogInfo* pEpi = ufiEpilogList; pEpi != nullptr; pEpi = pEpi->epiNext)
+        for (UnwindEpilogInfo* epilog = ufiEpilogList; epilog != nullptr; epilog = epilog->epiNext)
         {
-#if defined(TARGET_ARM)
-            uint32_t headerCondition =
-                0xE; // The epilog is unconditional. We don't have epilogs under the IT instruction.
-#endif               // defined(TARGET_ARM)
+            // The epilog is unconditional. We don't have epilogs under the IT instruction.
+            ARM_ONLY(uint32_t headerCondition = 0xE);
 
             // The epilog must strictly follow the prolog. The prolog is in the first fragment of
             // the hot section. If this epilog is at the start of a fragment, it can't be the
             // first fragment in the hot section. We actually don't know if we're processing
             // the hot or cold section (or a funclet), so we can't distinguish these cases. Thus,
             // we just assert that the epilog starts within the fragment.
-            assert(pEpi->GetStartOffset() >= GetStartOffset());
+            assert(epilog->GetStartOffset() >= GetStartOffset());
 
             // We report the offset of an epilog as the offset from the beginning of the function/funclet fragment,
             // NOT the offset from the beginning of the main function.
-            uint32_t headerEpilogStartOffset = pEpi->GetStartOffset() - GetStartOffset();
+            uint32_t headerEpilogStartOffset = epilog->GetStartOffset() - GetStartOffset();
 
 #if defined(TARGET_ARM)
             noway_assert((headerEpilogStartOffset & 1) == 0);
@@ -1510,7 +1510,7 @@ void UnwindFragmentInfo::Finalize(uint32_t functionLength)
                                           // of the actual offset is always zero)
 #endif // defined(TARGET_ARM64)
 
-            uint32_t headerEpilogStartIndex = pEpi->GetStartIndex();
+            uint32_t headerEpilogStartIndex = epilog->GetStartIndex();
 
             if ((headerEpilogStartOffset > UW_MAX_EPILOG_START_OFFSET) ||
                 (headerEpilogStartIndex > UW_MAX_EPILOG_START_INDEX))
@@ -1645,11 +1645,9 @@ void UnwindFragmentInfo::Allocate(
 #ifdef DEBUG
 void UnwindFragmentInfo::Dump(int indent)
 {
-    unsigned          count;
-    UnwindEpilogInfo* pEpi;
+    unsigned count = 0;
 
-    count = 0;
-    for (pEpi = ufiEpilogList; pEpi != nullptr; pEpi = pEpi->epiNext)
+    for (UnwindEpilogInfo* e = ufiEpilogList; e != nullptr; e = e->epiNext)
     {
         ++count;
     }
@@ -1668,9 +1666,9 @@ void UnwindFragmentInfo::Dump(int indent)
 
     ufiPrologCodes.Dump(indent + 2);
 
-    for (pEpi = ufiEpilogList; pEpi != nullptr; pEpi = pEpi->epiNext)
+    for (UnwindEpilogInfo* e = ufiEpilogList; e != nullptr; e = e->epiNext)
     {
-        pEpi->Dump(indent + 2);
+        e->Dump(indent + 2);
     }
 }
 #endif // DEBUG
@@ -1815,10 +1813,12 @@ void UnwindInfo::Split()
     // be fewer if we're splitting into 512K blocks!
 
     unsigned fragCount = 0;
-    for (UnwindFragmentInfo* pFrag = &uwiFragmentFirst; pFrag != nullptr; pFrag = pFrag->ufiNext)
+
+    for (UnwindFragmentInfo* f = &uwiFragmentFirst; f != nullptr; f = f->ufiNext)
     {
         ++fragCount;
     }
+
     if (fragCount < numberOfFragments)
     {
         JITDUMP("WARNING: asked the emitter for %d fragments, but only got %d\n", numberOfFragments, fragCount);
@@ -1910,9 +1910,9 @@ void UnwindInfo::Reserve(FuncKind kind, bool isHotCode)
     // The ARM Exception Data specification "Function Fragments" section describes this.
     Split();
 
-    for (UnwindFragmentInfo* pFrag = &uwiFragmentFirst; pFrag != nullptr; pFrag = pFrag->ufiNext)
+    for (UnwindFragmentInfo* f = &uwiFragmentFirst; f != nullptr; f = f->ufiNext)
     {
-        pFrag->Reserve(kind, isHotCode);
+        f->Reserve(kind, isHotCode);
     }
 }
 
@@ -1922,16 +1922,10 @@ void UnwindInfo::Allocate(FuncKind kind, void* pHotCode, void* pColdCode, bool i
 {
     assert(uwiInitialized);
 
-    UnwindFragmentInfo* pFrag;
-
-    // First, finalize all the offsets (the location of the beginning of fragments, and epilogs),
-    // so a fragment can use the finalized offset of the subsequent fragment to determine its code size.
-
     uint32_t endOffset;
 
     if (uwiEndLoc == nullptr)
     {
-        assert(uwiComp->codeGen->compNativeCodeSize != 0);
         endOffset = uwiComp->codeGen->compNativeCodeSize;
     }
     else
@@ -1939,16 +1933,18 @@ void UnwindInfo::Allocate(FuncKind kind, void* pHotCode, void* pColdCode, bool i
         endOffset = uwiEndLoc->CodeOffset(uwiComp->codeGen->GetEmitter());
     }
 
-    for (pFrag = &uwiFragmentFirst; pFrag != nullptr; pFrag = pFrag->ufiNext)
+    assert(endOffset != 0);
+
+    for (UnwindFragmentInfo* f = &uwiFragmentFirst; f != nullptr; f = f->ufiNext)
     {
-        pFrag->FinalizeOffset();
+        f->FinalizeOffset();
     }
 
     DBEXEC(uwiComp->verbose, Dump(isHotCode, 0));
 
-    for (pFrag = &uwiFragmentFirst; pFrag != nullptr; pFrag = pFrag->ufiNext)
+    for (UnwindFragmentInfo* f = &uwiFragmentFirst; f != nullptr; f = f->ufiNext)
     {
-        pFrag->Allocate(kind, pHotCode, pColdCode, endOffset, isHotCode);
+        f->Allocate(kind, pHotCode, pColdCode, endOffset, isHotCode);
     }
 }
 
@@ -2011,11 +2007,9 @@ void UnwindInfo::CheckOpsize(uint8_t b1)
 
 void UnwindInfo::Dump(bool isHotCode, int indent)
 {
-    unsigned            count;
-    UnwindFragmentInfo* pFrag;
+    unsigned count = 0;
 
-    count = 0;
-    for (pFrag = &uwiFragmentFirst; pFrag != nullptr; pFrag = pFrag->ufiNext)
+    for (UnwindFragmentInfo* f = &uwiFragmentFirst; f != nullptr; f = f->ufiNext)
     {
         ++count;
     }
@@ -2035,9 +2029,9 @@ void UnwindInfo::Dump(bool isHotCode, int indent)
 
     printf("\n%*s  uwiInitialized: 0x%08x\n", indent, "", uwiInitialized);
 
-    for (pFrag = &uwiFragmentFirst; pFrag != nullptr; pFrag = pFrag->ufiNext)
+    for (UnwindFragmentInfo* f = &uwiFragmentFirst; f != nullptr; f = f->ufiNext)
     {
-        pFrag->Dump(indent + 2);
+        f->Dump(indent + 2);
     }
 }
 
