@@ -525,7 +525,7 @@ void CodeGen::unwindEmitFunc(FuncInfoDsc* func)
     }
 }
 
-bool UnwindCodesBase::IsEndCode(uint8_t b) const
+bool UnwindCodesBase::IsEndCode(uint8_t b)
 {
 #ifdef TARGET_ARM
     return b >= 0xFD;
@@ -555,7 +555,7 @@ UnwindPrologCodes::UnwindPrologCodes(Compiler* comp) : UnwindCodesBase(comp)
 void UnwindPrologCodes::SetFinalSize(int headerBytes, int epilogBytes)
 {
     // We're done adding codes. Check that we didn't accidentally create a bigger prolog.
-    assert(GetCodeSizeFromUnwindCodes(true) <= MAX_PROLOG_SIZE_BYTES);
+    assert(GetCodeSizeFromUnwindCodes(true, GetCodes()) <= MAX_PROLOG_SIZE_BYTES);
 
     int prologBytes = Size();
 
@@ -747,7 +747,7 @@ void UnwindEpilogCodes::FinalizeCodes()
 
     uecFinalized = true; // With the "end" code in place, now we're done
 
-    assert(GetCodeSizeFromUnwindCodes(false) <= MAX_EPILOG_SIZE_BYTES);
+    assert(GetCodeSizeFromUnwindCodes(false, GetCodes()) <= MAX_EPILOG_SIZE_BYTES);
 }
 
 void UnwindEpilogCodes::EnsureSize(int requiredSize)
@@ -1760,15 +1760,13 @@ static unsigned GetUnwindSizeFromUnwindHeader(uint8_t b1)
 // The 0xFD and 0xFE "end + NOP" codes need to be handled differently between
 // the prolog and epilog. They count as pure "end" codes in a prolog, but they
 // count as 16 and 32 bit NOPs (respectively), as well as an "end", in an epilog.
-unsigned UnwindCodesBase::GetCodeSizeFromUnwindCodes(bool isProlog) const
+unsigned UnwindCodesBase::GetCodeSizeFromUnwindCodes(bool isProlog, const uint8_t* codes)
 {
-    uint8_t* codesStart = GetCodes();
-    uint8_t* codes      = codesStart;
-    unsigned size       = 0;
+    unsigned size = 0;
 
-    for (;;)
+    for (const uint8_t* c = codes;;)
     {
-        uint8_t b1 = *codes;
+        uint8_t b1 = *c;
 
         if (b1 >= 0xFD)
         {
@@ -1784,9 +1782,9 @@ unsigned UnwindCodesBase::GetCodeSizeFromUnwindCodes(bool isProlog) const
         }
 
         size += GetOpcodeSizeFromUnwindHeader(b1);
-        codes += GetUnwindSizeFromUnwindHeader(b1);
+        c += GetUnwindSizeFromUnwindHeader(b1);
 
-        assert(codes - codesStart < 256); // 255 is the absolute maximum number of code bytes allowed
+        assert(c - codes < 256); // 255 is the absolute maximum number of code bytes allowed
     }
 
     return size;

@@ -607,15 +607,13 @@ static unsigned GetUnwindSizeFromUnwindHeader(uint8_t b1)
 }
 
 // Walk the prolog codes and calculate the size of the prolog or epilog, in bytes.
-unsigned UnwindCodesBase::GetCodeSizeFromUnwindCodes(bool isProlog) const
+unsigned UnwindCodesBase::GetCodeSizeFromUnwindCodes(bool isProlog, const uint8_t* codes)
 {
-    uint8_t* codesStart = GetCodes();
-    uint8_t* codes      = codesStart;
-    unsigned size       = 0;
+    unsigned size = 0;
 
-    for (;;)
+    for (const uint8_t* c = codes;;)
     {
-        uint8_t b1 = *codes;
+        uint8_t b1 = *c;
 
         if (IsEndCode(b1))
         {
@@ -623,9 +621,9 @@ unsigned UnwindCodesBase::GetCodeSizeFromUnwindCodes(bool isProlog) const
         }
 
         size += 4; // All codes represent 4 byte instructions.
-        codes += GetUnwindSizeFromUnwindHeader(b1);
+        c += GetUnwindSizeFromUnwindHeader(b1);
 
-        assert(codes - codesStart < 256); // 255 is the absolute maximum number of code bytes allowed
+        assert(c - codes < 256); // 255 is the absolute maximum number of code bytes allowed
     }
 
     return size;

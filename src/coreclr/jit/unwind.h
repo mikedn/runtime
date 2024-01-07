@@ -76,12 +76,9 @@ public:
     {
     }
 
-    bool IsEndCode(uint8_t b) const;
+    static bool IsEndCode(uint8_t b);
 
-#ifdef DEBUG
-    virtual uint8_t* GetCodes() const = 0;
-    unsigned GetCodeSizeFromUnwindCodes(bool isProlog) const;
-#endif
+    INDEBUG(static unsigned GetCodeSizeFromUnwindCodes(bool isProlog, const uint8_t* codes);)
 };
 
 class UnwindEpilogInfo;
