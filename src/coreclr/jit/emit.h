@@ -1590,7 +1590,6 @@ private:
     bool emitNextID(insGroup*& ig, instrDesc*& id, int& insRemaining);
     typedef void (*emitProcessInstrFunc_t)(instrDesc* id, void* context);
     void emitWalkIDs(const emitLocation& locFrom, emitProcessInstrFunc_t processFunc, void* context);
-    static void emitGenerateUnwindNop(instrDesc* id, void* context);
 #endif // TARGET_ARMARCH
 
     int emitNextRandomNop();

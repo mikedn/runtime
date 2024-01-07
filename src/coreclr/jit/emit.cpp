@@ -1455,30 +1455,19 @@ void emitter::emitWalkIDs(const emitLocation& locFrom, emitProcessInstrFunc_t pr
     } while (emitNextID(ig, id, insRemaining));
 }
 
-/*****************************************************************************
- *
- * A callback function for emitWalkIDs() that calls unwindNop().
- */
-
-void emitter::emitGenerateUnwindNop(instrDesc* id, void* context)
+// Call unwindNop() for every instruction from a given
+// location 'fromLoc' up to the current location.
+void emitter::emitUnwindNopPadding(const emitLocation& fromLoc)
 {
-    CodeGen* codeGen = static_cast<CodeGen*>(context);
-#if defined(TARGET_ARM)
-    codeGen->unwindNop(id->idCodeSize());
-#elif defined(TARGET_ARM64)
-    codeGen->unwindNop();
-#endif // defined(TARGET_ARM64)
-}
-
-/*****************************************************************************
- *
- * emitUnwindNopPadding: call unwindNop() for every instruction from a given
- * location 'emitLoc' up to the current location.
- */
-
-void emitter::emitUnwindNopPadding(const emitLocation& locFrom)
-{
-    emitWalkIDs(locFrom, emitGenerateUnwindNop, codeGen);
+    emitWalkIDs(fromLoc,
+                [](instrDesc* id, void* context) {
+#ifdef TARGET_ARM
+                    static_cast<CodeGen*>(context)->unwindNop(id->idCodeSize());
+#else
+                    static_cast<CodeGen*>(context)->unwindNop();
+#endif
+                },
+                codeGen);
 }
 
 #endif // TARGET_ARMARCH
