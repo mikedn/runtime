@@ -395,31 +395,34 @@ public:
     uint16_t     currentFuncletIndex = 0;
     FuncInfoDsc* compFuncInfos       = nullptr;
 
-    uint16_t compFuncCount()
+    uint16_t compFuncCount() const
     {
         assert(compFuncInfos != nullptr);
         return compFuncInfoCount;
     }
 
-    FuncInfoDsc* funGetFunc(unsigned funcIdx);
     unsigned funGetFuncIdx(BasicBlock* block);
 
-    FuncInfoDsc* funCurrentFunc()
+    FuncInfoDsc& funGetFunc(unsigned index);
+
+    FuncInfoDsc& funCurrentFunc()
     {
         return funGetFunc(currentFuncletIndex);
     }
-#endif
 
-    void funSetCurrentFunc(unsigned funcIdx)
+    FuncInfoDsc& funSetCurrentFunc(unsigned index)
     {
-#ifdef FEATURE_EH_FUNCLETS
-        assert(FitsIn<uint16_t>(funcIdx));
-        noway_assert(funcIdx < compFuncInfoCount);
-        currentFuncletIndex = static_cast<int16_t>(funcIdx);
-#else
-        assert(funcIdx == 0);
-#endif
+        assert(FitsIn<uint16_t>(index));
+        noway_assert(index < compFuncInfoCount);
+        currentFuncletIndex = static_cast<int16_t>(index);
+        return funGetFunc(index);
     }
+#else
+    void funSetCurrentFunc(unsigned index)
+    {
+        assert(index == 0);
+    }
+#endif
 
 #ifdef TARGET_XARCH
     void PrologPreserveCalleeSavedFloatRegs(unsigned lclFrameSize);
@@ -1209,8 +1212,10 @@ public:
     void unwindEndProlog();
     void unwindBegEpilog();
     void unwindEndEpilog();
+#ifdef FEATURE_EH_FUNCLETS
     void unwindReserve();
     void unwindEmit(void* hotCode, void* coldCode);
+#endif
 
     void unwindPush(RegNum reg);
     void unwindAllocStack(unsigned size);
@@ -1255,8 +1260,6 @@ public:
 
 #ifdef TARGET_UNIX
     static int16_t mapRegNumToDwarfReg(RegNum reg);
-    static void createCfiCode(
-        FuncInfoDsc* func, uint32_t codeOffset, uint8_t opcode, int16_t dwarfReg, int32_t offset = 0);
 
     void unwindPushPopCFI(RegNum reg);
     void unwindBegPrologCFI();

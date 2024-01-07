@@ -14,7 +14,21 @@ enum FuncKind : uint8_t
 
 #ifdef TARGET_AMD64
 #include <win64unwind.h>
-#endif
+
+struct Win64UnwindInfo
+{
+    UNWIND_INFO header;
+    // Maximum of 255 UNWIND_CODE 'nodes' and then the unwind header. If there are an odd
+    // number of codes, the VM or Zapper will 4-byte align the whole thing.
+    // TODO-AMD64-Throughput: make the AMD64 info more like the ARM info to avoid having this large static array.
+    uint8_t  codes[offsetof(UNWIND_INFO, UnwindCode) + (0xFF * sizeof(UNWIND_CODE))];
+    unsigned codesIndex;
+
+    UNWIND_CODE* AllocCode();
+    uint16_t* AllocUInt16(uint16_t value);
+    uint32_t* AllocUInt32(uint32_t value);
+};
+#endif // TARGET_AMD64
 
 #ifdef TARGET_ARMARCH
 
@@ -557,25 +571,23 @@ private:
 };
 #endif // TARGET_ARMARCH
 
+#ifdef TARGET_UNIX
+struct CfiUnwindInfo
+{
+    jitstd::vector<CFI_CODE>* codes;
+
+    void AddCode(uint32_t codeOffset, uint8_t opcode, int16_t dwarfReg, int32_t offset = 0);
+};
+#endif // TARGET_UNIX
+
 #ifdef FEATURE_EH_FUNCLETS
 struct FuncInfoDsc
 {
-    FuncKind funKind;
-    uint16_t funEHIndex; // index, into the ebd table, of innermost EH clause corresponding to this
-// funclet. It is only valid if funKind field indicates this is a
-// EH-related funclet: FUNC_HANDLER or FUNC_FILTER
+    FuncKind kind;
+    uint16_t ehIndex;
 
 #ifdef TARGET_AMD64
-    UNWIND_INFO unwindHeader;
-    // Maximum of 255 UNWIND_CODE 'nodes' and then the unwind header. If there are an odd
-    // number of codes, the VM or Zapper will 4-byte align the whole thing.
-    // TODO-AMD64-Throughput: make the AMD64 info more like the ARM info to avoid having this large static array.
-    uint8_t  unwindCodes[offsetof(UNWIND_INFO, UnwindCode) + (0xFF * sizeof(UNWIND_CODE))];
-    unsigned unwindCodesIndex;
-
-    UNWIND_CODE* AllocUnwindCode();
-    uint16_t*    AllocUInt16(uint16_t value);
-    uint32_t*    AllocUInt32(uint32_t value);
+    Win64UnwindInfo win;
 #endif
 
 #ifdef TARGET_ARMARCH
@@ -589,7 +601,7 @@ struct FuncInfoDsc
 #endif
 
 #ifdef TARGET_UNIX
-    jitstd::vector<CFI_CODE>* cfiCodes;
+    CfiUnwindInfo cfi;
 #endif
 
     // Eventually we may want to move rsModifiedRegsMask, lvaOutgoingArgSize, and anything else

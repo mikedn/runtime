@@ -38,9 +38,9 @@ void CodeGen::unwindSaveReg(RegNum reg, unsigned offset)
 {
 }
 
+#ifdef FEATURE_EH_FUNCLETS
 void CodeGen::unwindReserve()
 {
-#ifdef FEATURE_EH_FUNCLETS
     assert(!generatingProlog);
     assert(!generatingEpilog);
     assert(compFuncInfoCount > 0);
@@ -49,12 +49,10 @@ void CodeGen::unwindReserve()
     {
         unwindReserveFunc(funGetFunc(i));
     }
-#endif
 }
 
 void CodeGen::unwindEmit(void* hotCode, void* coldCode)
 {
-#ifdef FEATURE_EH_FUNCLETS
     assert(!generatingProlog);
     assert(!generatingEpilog);
     assert(compFuncInfoCount > 0);
@@ -63,10 +61,8 @@ void CodeGen::unwindEmit(void* hotCode, void* coldCode)
     {
         unwindEmitFunc(funGetFunc(i), hotCode, coldCode);
     }
-#endif
 }
 
-#ifdef FEATURE_EH_FUNCLETS
 void CodeGen::unwindReserveFunc(FuncInfoDsc* func)
 {
     unwindReserveFuncRegion(func, true);

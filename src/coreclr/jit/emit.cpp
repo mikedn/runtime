@@ -2572,9 +2572,9 @@ void emitter::emitCheckFuncletBranch(instrDescJmp* jmp)
 
             // No branches back to the root method
             assert(tgtIG->igFuncIdx > 0);
-            FuncInfoDsc* tgtFunc = codeGen->funGetFunc(tgtIG->igFuncIdx);
-            assert(tgtFunc->funKind == FUNC_HANDLER);
-            EHblkDsc* tgtEH = emitComp->ehGetDsc(tgtFunc->funEHIndex);
+            const FuncInfoDsc& tgtFunc = codeGen->funGetFunc(tgtIG->igFuncIdx);
+            assert(tgtFunc.kind == FUNC_HANDLER);
+            EHblkDsc* tgtEH = emitComp->ehGetDsc(tgtFunc.ehIndex);
 
             // Only branches to finallys (not faults, catches, filters, etc.)
             assert(tgtEH->HasFinallyHandler());
@@ -2592,27 +2592,26 @@ void emitter::emitCheckFuncletBranch(instrDescJmp* jmp)
             // Again there isn't enough information to prove this correct
             // so just allow a 'branch' to any other 'parent' funclet
 
-            FuncInfoDsc* jmpFunc = codeGen->funGetFunc(jmpIG->igFuncIdx);
-            assert(jmpFunc->funKind == FUNC_HANDLER);
-            EHblkDsc* jmpEH = emitComp->ehGetDsc(jmpFunc->funEHIndex);
+            const FuncInfoDsc& jmpFunc = codeGen->funGetFunc(jmpIG->igFuncIdx);
+            assert(jmpFunc.kind == FUNC_HANDLER);
+            EHblkDsc* jmpEH = emitComp->ehGetDsc(jmpFunc.ehIndex);
 
             // Only branches out of catches
             assert(jmpEH->HasCatchHandler());
 
-            FuncInfoDsc* tgtFunc = codeGen->funGetFunc(tgtIG->igFuncIdx);
-            assert(tgtFunc);
-            if (tgtFunc->funKind == FUNC_HANDLER)
+            const FuncInfoDsc& tgtFunc = codeGen->funGetFunc(tgtIG->igFuncIdx);
+            if (tgtFunc.kind == FUNC_HANDLER)
             {
                 // An outward chain to the containing funclet/EH handler
                 // Note that it might be anywhere within nested try bodies
-                assert(jmpEH->ebdEnclosingHndIndex == tgtFunc->funEHIndex);
+                assert(jmpEH->ebdEnclosingHndIndex == tgtFunc.ehIndex);
             }
             else
             {
                 // This funclet is 'top level' and so it is branching back to the
                 // root function, and should have no containing EH handlers
                 // but it could be nested within try bodies...
-                assert(tgtFunc->funKind == FUNC_ROOT);
+                assert(tgtFunc.kind == FUNC_ROOT);
                 assert(jmpEH->ebdEnclosingHndIndex == EHblkDsc::NO_ENCLOSING_INDEX);
             }
         }

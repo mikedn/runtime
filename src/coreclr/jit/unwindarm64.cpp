@@ -29,7 +29,7 @@ void CodeGen::unwindAllocStack(unsigned size)
     assert(size % 16 == 0);
     unsigned x = size / 16;
 
-    UnwindInfo& info = funCurrentFunc()->uwi;
+    UnwindInfo& info = funCurrentFunc().uwi;
 
     if (x <= 0x1F)
     {
@@ -72,7 +72,7 @@ void CodeGen::unwindSetFrameReg(RegNum reg, unsigned offset)
     }
 #endif // TARGET_UNIX
 
-    UnwindInfo& info = funCurrentFunc()->uwi;
+    UnwindInfo& info = funCurrentFunc().uwi;
 
     if (offset == 0)
     {
@@ -106,7 +106,7 @@ void CodeGen::unwindNop()
 {
     JITDUMP("unwindNop: adding NOP\n");
 
-    UnwindInfo& info = funCurrentFunc()->uwi;
+    UnwindInfo& info = funCurrentFunc().uwi;
 
     INDEBUG(info.uwiAddingNOP = true);
 
@@ -136,18 +136,18 @@ void CodeGen::unwindSaveRegPair(RegNum reg1, RegNum reg2, int offset)
     {
         if (generatingProlog)
         {
-            FuncInfoDsc* func     = funCurrentFunc();
+            FuncInfoDsc& func     = funCurrentFunc();
             uint32_t     cbProlog = unwindGetCurrentOffset();
 
-            createCfiCode(func, cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg1), offset);
-            createCfiCode(func, cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg2), offset + 8);
+            func.cfi.AddCode(cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg1), offset);
+            func.cfi.AddCode(cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg2), offset + 8);
         }
 
         return;
     }
 #endif // TARGET_UNIX
 
-    UnwindInfo& info = funCurrentFunc()->uwi;
+    UnwindInfo& info = funCurrentFunc().uwi;
 
     int z = offset / 8;
     assert(0 <= z && z <= 0x3F);
@@ -220,19 +220,19 @@ void CodeGen::unwindSaveRegPairPreindexed(RegNum reg1, RegNum reg2, int offset)
     {
         if (generatingProlog)
         {
-            FuncInfoDsc* func     = funCurrentFunc();
+            FuncInfoDsc& func     = funCurrentFunc();
             uint32_t     cbProlog = unwindGetCurrentOffset();
 
-            createCfiCode(func, cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, -offset);
-            createCfiCode(func, cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg1), 0);
-            createCfiCode(func, cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg2), 8);
+            func.cfi.AddCode(cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, -offset);
+            func.cfi.AddCode(cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg1), 0);
+            func.cfi.AddCode(cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg2), 8);
         }
 
         return;
     }
 #endif // TARGET_UNIX
 
-    UnwindInfo& info = funCurrentFunc()->uwi;
+    UnwindInfo& info = funCurrentFunc().uwi;
 
     if (reg1 == REG_FP)
     {
@@ -311,10 +311,10 @@ void CodeGen::unwindSaveReg(RegNum reg, int offset)
     {
         if (generatingProlog)
         {
-            FuncInfoDsc* func     = funCurrentFunc();
+            FuncInfoDsc& func     = funCurrentFunc();
             uint32_t     cbProlog = unwindGetCurrentOffset();
 
-            createCfiCode(func, cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg), offset);
+            func.cfi.AddCode(cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg), offset);
         }
 
         return;
@@ -324,7 +324,7 @@ void CodeGen::unwindSaveReg(RegNum reg, int offset)
     int z = offset / 8;
     assert(0 <= z && z <= 0x3F);
 
-    UnwindInfo& info = funCurrentFunc()->uwi;
+    UnwindInfo& info = funCurrentFunc().uwi;
 
     if (IsGeneralRegister(reg))
     {
@@ -367,18 +367,18 @@ void CodeGen::unwindSaveRegPreindexed(RegNum reg, int offset)
     {
         if (generatingProlog)
         {
-            FuncInfoDsc* func     = funCurrentFunc();
+            FuncInfoDsc& func     = funCurrentFunc();
             uint32_t     cbProlog = unwindGetCurrentOffset();
 
-            createCfiCode(func, cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, -offset);
-            createCfiCode(func, cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg), 0);
+            func.cfi.AddCode(cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, -offset);
+            func.cfi.AddCode(cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg), 0);
         }
 
         return;
     }
 #endif // TARGET_UNIX
 
-    UnwindInfo& info = funCurrentFunc()->uwi;
+    UnwindInfo& info = funCurrentFunc().uwi;
 
     int z = (-offset) / 8 - 1;
     assert(0 <= z && z <= 0x1F);
@@ -418,7 +418,7 @@ void CodeGen::unwindSaveNext()
     assert(!generateCFIUnwindCodes());
 #endif
 
-    UnwindInfo& info = funCurrentFunc()->uwi;
+    UnwindInfo& info = funCurrentFunc().uwi;
 
     // We're saving the next register pair. The caller is responsible for ensuring this is correct!
 

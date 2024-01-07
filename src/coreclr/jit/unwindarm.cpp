@@ -47,16 +47,16 @@ void CodeGen::unwindBegProlog()
     }
 #endif
 
-    FuncInfoDsc* func = funCurrentFunc();
+    FuncInfoDsc& func = funCurrentFunc();
 
     insGroup* startLoc;
     insGroup* endLoc;
-    unwindGetFuncHotRange(func, &startLoc, &endLoc);
+    unwindGetFuncHotRange(&func, &startLoc, &endLoc);
 
-    new (&func->uwi) UnwindInfo(compiler, startLoc, endLoc);
-    func->uwi.CaptureLocation(GetEmitter());
+    new (&func.uwi) UnwindInfo(compiler, startLoc, endLoc);
+    func.uwi.CaptureLocation(GetEmitter());
 
-    func->uwiCold = nullptr; // No cold data yet
+    func.uwiCold = nullptr; // No cold data yet
 }
 
 void CodeGen::unwindEndProlog()
@@ -75,9 +75,9 @@ void CodeGen::unwindBegEpilog()
     }
 #endif
 
-    UnwindEpilogInfo* epilog = funCurrentFunc()->uwi.AddEpilog();
+    UnwindEpilogInfo* epilog = funCurrentFunc().uwi.AddEpilog();
     epilog->CaptureLocation(GetEmitter());
-    funCurrentFunc()->uwi.CaptureLocation(GetEmitter());
+    funCurrentFunc().uwi.CaptureLocation(GetEmitter());
 }
 
 void CodeGen::unwindEndEpilog()
@@ -92,7 +92,7 @@ void CodeGen::unwindPushPopMaskInt(regMaskTP maskInt, bool useOpsize16)
     // floating point registers cannot be specified in 'maskInt'
     assert((maskInt & RBM_ALLFLOAT) == 0);
 
-    UnwindInfo& info = funCurrentFunc()->uwi;
+    UnwindInfo& info = funCurrentFunc().uwi;
 
     if (useOpsize16)
     {
@@ -187,7 +187,7 @@ void CodeGen::unwindPushPopMaskFloat(regMaskTP maskFloat)
         return;
     }
 
-    UnwindInfo& info = funCurrentFunc()->uwi;
+    UnwindInfo& info = funCurrentFunc().uwi;
 
     uint8_t   val     = 0;
     regMaskTP valMask = (RBM_F16 | RBM_F17);
@@ -308,7 +308,7 @@ void CodeGen::unwindAllocStack(unsigned size)
     }
 #endif
 
-    UnwindInfo& info = funCurrentFunc()->uwi;
+    UnwindInfo& info = funCurrentFunc().uwi;
 
     assert(size % 4 == 0);
     size /= 4;
@@ -365,7 +365,7 @@ void CodeGen::unwindSetFrameReg(RegNum reg, unsigned offset)
     }
 #endif
 
-    UnwindInfo& info = funCurrentFunc()->uwi;
+    UnwindInfo& info = funCurrentFunc().uwi;
 
     // Arm unwind info does not allow offset
     assert(offset == 0);
@@ -390,7 +390,7 @@ void CodeGen::unwindBranch16()
     }
 #endif
 
-    UnwindInfo& info = funCurrentFunc()->uwi;
+    UnwindInfo& info = funCurrentFunc().uwi;
 
     // TODO-CQ: need to handle changing the exit code from 0xFF to 0xFD. Currently, this will waste an extra 0xFF at the
     // end, automatically added.
@@ -409,7 +409,7 @@ void CodeGen::unwindNop(unsigned codeSizeInBytes) // codeSizeInBytes is 2 or 4 b
 
     JITDUMP("unwindNop: adding NOP for %d byte instruction\n", codeSizeInBytes);
 
-    UnwindInfo& info = funCurrentFunc()->uwi;
+    UnwindInfo& info = funCurrentFunc().uwi;
 
     INDEBUG(info.uwiAddingNOP = true);
 
@@ -443,7 +443,7 @@ void CodeGen::unwindPadding()
     }
 #endif
 
-    GetEmitter()->emitUnwindNopPadding(funCurrentFunc()->uwi.GetCurrentLocation());
+    GetEmitter()->emitUnwindNopPadding(funCurrentFunc().uwi.GetCurrentLocation());
 }
 
 void CodeGen::unwindReserve()
@@ -454,7 +454,7 @@ void CodeGen::unwindReserve()
 
     for (unsigned i = 0; i < compFuncInfoCount; i++)
     {
-        unwindReserveFunc(funGetFunc(i));
+        unwindReserveFunc(&funGetFunc(i));
     }
 }
 
@@ -465,11 +465,11 @@ void CodeGen::unwindReserveFunc(FuncInfoDsc* func)
     {
         if (compiler->fgFirstColdBlock != nullptr)
         {
-            eeReserveUnwindInfo(func->funKind != FUNC_ROOT, true, 0);
+            eeReserveUnwindInfo(func->kind != FUNC_ROOT, true, 0);
         }
 
-        uint32_t unwindSize = static_cast<uint32_t>(func->cfiCodes->size() * sizeof(CFI_CODE));
-        eeReserveUnwindInfo(func->funKind != FUNC_ROOT, false, unwindSize);
+        uint32_t unwindSize = static_cast<uint32_t>(func->cfi.codes->size() * sizeof(CFI_CODE));
+        eeReserveUnwindInfo(func->kind != FUNC_ROOT, false, unwindSize);
 
         return;
     }
@@ -489,11 +489,11 @@ void CodeGen::unwindReserveFunc(FuncInfoDsc* func)
         func->uwiCold->SplitColdCodes(&func->uwi);
     }
 
-    func->uwi.Reserve(func->funKind, true);
+    func->uwi.Reserve(func->kind, true);
 
     if (func->uwiCold != nullptr)
     {
-        func->uwiCold->Reserve(func->funKind, false);
+        func->uwiCold->Reserve(func->kind, false);
     }
 }
 
@@ -503,7 +503,7 @@ void CodeGen::unwindEmit(void* hotCode, void* coldCode)
 
     for (unsigned i = 0; i < compFuncInfoCount; i++)
     {
-        unwindEmitFunc(funGetFunc(i), hotCode, coldCode);
+        unwindEmitFunc(&funGetFunc(i), hotCode, coldCode);
     }
 }
 
@@ -517,11 +517,11 @@ void CodeGen::unwindEmitFunc(FuncInfoDsc* func, void* hotCode, void* coldCode)
     }
 #endif
 
-    func->uwi.Allocate(func->funKind, hotCode, coldCode, true);
+    func->uwi.Allocate(func->kind, hotCode, coldCode, true);
 
     if (func->uwiCold != nullptr)
     {
-        func->uwiCold->Allocate(func->funKind, hotCode, coldCode, false);
+        func->uwiCold->Allocate(func->kind, hotCode, coldCode, false);
     }
 }
 

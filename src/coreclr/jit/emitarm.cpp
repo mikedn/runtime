@@ -3859,7 +3859,7 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
     {
         baseReg = REG_SP;
     }
-    else if (codeGen->funCurrentFunc()->funKind != FUNC_ROOT)
+    else if (codeGen->funCurrentFunc().kind != FUNC_ROOT)
     {
         baseReg = REG_FPBASE;
     }

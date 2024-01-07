@@ -19,7 +19,7 @@ uint32_t CodeGen::unwindGetCurrentOffset()
 // so null is used to indicate that.
 void CodeGen::unwindGetFuncHotRange(FuncInfoDsc* func, insGroup** start, insGroup** end)
 {
-    if (func->funKind == FUNC_ROOT)
+    if (func->kind == FUNC_ROOT)
     {
         // Since all funclets are pulled out of line, the main code size is everything
         // up to the first handler. If the function is hot/cold split, we need to get
@@ -45,9 +45,9 @@ void CodeGen::unwindGetFuncHotRange(FuncInfoDsc* func, insGroup** start, insGrou
     }
     else
     {
-        EHblkDsc* HBtab = compiler->ehGetDsc(func->funEHIndex);
+        EHblkDsc* HBtab = compiler->ehGetDsc(func->ehIndex);
 
-        if (func->funKind == FUNC_FILTER)
+        if (func->kind == FUNC_FILTER)
         {
             assert(HBtab->HasFilter());
 
@@ -56,7 +56,7 @@ void CodeGen::unwindGetFuncHotRange(FuncInfoDsc* func, insGroup** start, insGrou
         }
         else
         {
-            assert(func->funKind == FUNC_HANDLER);
+            assert(func->kind == FUNC_HANDLER);
 
             *start = ehEmitLabel(HBtab->ebdHndBeg);
             *end   = HBtab->ebdHndLast->bbNext == nullptr ? nullptr : ehEmitLabel(HBtab->ebdHndLast->bbNext);
@@ -76,7 +76,7 @@ void CodeGen::unwindGetFuncHotRange(FuncInfoDsc* func, uint32_t* start, uint32_t
 
 void CodeGen::unwindGetFuncColdRange(FuncInfoDsc* func, insGroup** start, insGroup** end)
 {
-    assert(func->funKind == FUNC_ROOT); // TODO-CQ: support funclets in cold section
+    assert(func->kind == FUNC_ROOT); // TODO-CQ: support funclets in cold section
 
     // Since all funclets are pulled out of line, the main code size is everything
     // up to the first handler. If the function is hot/cold split, we need to get the
@@ -101,18 +101,18 @@ void CodeGen::unwindGetFuncColdRange(FuncInfoDsc* func, uint32_t* start, uint32_
 
 #ifdef TARGET_UNIX
 
-void CodeGen::createCfiCode(FuncInfoDsc* func, uint32_t codeOffset, uint8_t cfiOpcode, int16_t dwarfReg, int32_t offset)
+void CfiUnwindInfo::AddCode(uint32_t codeOffset, uint8_t cfiOpcode, int16_t dwarfReg, int32_t offset)
 {
     noway_assert(FitsIn<uint8_t>(codeOffset));
 
-    func->cfiCodes->emplace_back(static_cast<uint8_t>(codeOffset), cfiOpcode, dwarfReg, offset);
+    codes->emplace_back(static_cast<uint8_t>(codeOffset), cfiOpcode, dwarfReg, offset);
 }
 
 void CodeGen::unwindPushPopCFI(RegNum reg)
 {
     assert(generatingProlog);
 
-    FuncInfoDsc* func     = funCurrentFunc();
+    FuncInfoDsc& func     = funCurrentFunc();
     uint32_t     cbProlog = unwindGetCurrentOffset();
 
     regMaskTP relOffsetMask = RBM_CALLEE_SAVED
@@ -132,13 +132,13 @@ void CodeGen::unwindPushPopCFI(RegNum reg)
     if (relOffsetMask & genRegMask(reg))
     {
 #ifndef TARGET_ARM
-        createCfiCode(func, cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, REGSIZE_BYTES);
+        func.cfi.AddCode(cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, REGSIZE_BYTES);
 #endif
-        createCfiCode(func, cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg));
+        func.cfi.AddCode(cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg));
     }
     else
     {
-        createCfiCode(func, cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, REGSIZE_BYTES);
+        func.cfi.AddCode(cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, REGSIZE_BYTES);
     }
 }
 
@@ -147,9 +147,9 @@ void CodeGen::unwindBegPrologCFI()
     assert(generatingProlog);
 
 #ifdef FEATURE_EH_FUNCLETS
-    FuncInfoDsc* func = funCurrentFunc();
+    FuncInfoDsc& func = funCurrentFunc();
 
-    func->cfiCodes = new (compiler, CMK_UnwindInfo) jitstd::vector<CFI_CODE>(compiler->getAllocator(CMK_UnwindInfo));
+    func.cfi.codes = new (compiler, CMK_UnwindInfo) jitstd::vector<CFI_CODE>(compiler->getAllocator(CMK_UnwindInfo));
 #endif
 }
 
@@ -188,20 +188,20 @@ void CodeGen::unwindAllocStackCFI(unsigned size)
 {
     assert(generatingProlog);
 
-    FuncInfoDsc* func     = funCurrentFunc();
+    FuncInfoDsc& func     = funCurrentFunc();
     uint32_t     cbProlog = unwindGetCurrentOffset();
 
-    createCfiCode(func, cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, size);
+    func.cfi.AddCode(cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, size);
 }
 
 void CodeGen::unwindSetFrameRegCFI(RegNum reg, unsigned offset)
 {
     assert(generatingProlog);
 
-    FuncInfoDsc* func     = funCurrentFunc();
+    FuncInfoDsc& func     = funCurrentFunc();
     uint32_t     cbProlog = unwindGetCurrentOffset();
 
-    createCfiCode(func, cbProlog, CFI_DEF_CFA_REGISTER, mapRegNumToDwarfReg(reg));
+    func.cfi.AddCode(cbProlog, CFI_DEF_CFA_REGISTER, mapRegNumToDwarfReg(reg));
 
     if (offset != 0)
     {
@@ -211,7 +211,7 @@ void CodeGen::unwindSetFrameRegCFI(RegNum reg, unsigned offset)
         //         rsp + old_cfa_offset == rbp + old_cfa_offset + adjust;
         // adjust = -offset;
         int adjust = -(int)offset;
-        createCfiCode(func, cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, adjust);
+        func.cfi.AddCode(cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, adjust);
     }
 }
 
@@ -223,12 +223,12 @@ void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* hotCode, void* coldCode
 
     assert(endOffset <= compTotalHotCodeSize);
 
-    uint32_t  codeCount = static_cast<uint32_t>(func->cfiCodes->size());
-    CFI_CODE* codes     = codeCount == 0 ? nullptr : func->cfiCodes->data();
+    uint32_t  codeCount = static_cast<uint32_t>(func->cfi.codes->size());
+    CFI_CODE* codes     = codeCount == 0 ? nullptr : func->cfi.codes->data();
 
     DBEXEC(compiler->opts.dspUnwind, DumpCfiInfo(/* isHotCode */ true, startOffset, endOffset, codeCount, codes));
 
-    eeAllocUnwindInfo(func->funKind, hotCode, nullptr, startOffset, endOffset, codeCount * sizeof(CFI_CODE), codes);
+    eeAllocUnwindInfo(func->kind, hotCode, nullptr, startOffset, endOffset, codeCount * sizeof(CFI_CODE), codes);
 
     if (coldCode == nullptr)
     {
@@ -244,7 +244,7 @@ void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* hotCode, void* coldCode
     startOffset -= compTotalHotCodeSize;
     endOffset -= compTotalHotCodeSize;
 
-    eeAllocUnwindInfo(func->funKind, hotCode, coldCode, startOffset, endOffset, 0, nullptr);
+    eeAllocUnwindInfo(func->kind, hotCode, coldCode, startOffset, endOffset, 0, nullptr);
 }
 
 #ifdef DEBUG
