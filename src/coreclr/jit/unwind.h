@@ -169,7 +169,8 @@ class UnwindEpilogCodes : public UnwindCodes
     // the beginning, so it starts at -1.
     int uecCodeSlot = -1;
 
-    uint8_t* firstByteOfLastCode = nullptr;
+    int lastCodeSize = 0;
+
     // Is the unwind information finalized? Finalized info has an end code appended.
     bool uecFinalized = false;
 

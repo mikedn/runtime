@@ -730,8 +730,8 @@ uint8_t* UnwindEpilogCodes::AllocCode(int size)
 
     uecCodeSlot += size;
     noway_assert(0 <= uecCodeSlot && uecCodeSlot < uecMemSize);
-    firstByteOfLastCode = &uecMem[uecCodeSlot - size + 1];
-    return firstByteOfLastCode;
+    lastCodeSize = size;
+    return &uecMem[uecCodeSlot - size + 1];
 }
 
 // Return the size of the unwind codes, in bytes. The size is the exact size, not an aligned size.
@@ -754,7 +754,8 @@ void UnwindEpilogCodes::FinalizeCodes()
     assert(!uecFinalized);
     noway_assert(0 <= uecCodeSlot && uecCodeSlot < uecMemSize); // There better be at least one code!
 
-    if (!IsEndCode(*firstByteOfLastCode)) // If the last code is an end code, we don't need to append one.
+    // If the last code is an end code, we don't need to append another one.
+    if (!IsEndCode(uecMem[uecCodeSlot - lastCodeSize + 1]))
     {
         AllocCode(1)[0] = UWC_END;
     }
