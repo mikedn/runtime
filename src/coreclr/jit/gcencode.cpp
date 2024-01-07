@@ -251,7 +251,7 @@ void GCEncoder::CreateAndStoreGCInfo()
 
     noway_assert(infoBlkAddr == (BYTE*)infoPtr + infoBlockSize);
 
-    codeGen->compInfoBlkSize = infoBlockSize;
+    codeGen->SetGCInfoSize(static_cast<unsigned>(infoBlockSize));
 }
 
 static unsigned char encodeUnsigned(BYTE* dest, unsigned value)

@@ -3220,13 +3220,13 @@ void Compiler::compCompileFinish()
             printf(" %3d |", cseCount);
         }
 
-        if (codeGen->compPerfScore < 9999.995)
+        if (codeGen->GetPerfScore() < 9999.995)
         {
-            printf(" %7.2f |", codeGen->compPerfScore);
+            printf(" %7.2f |", codeGen->GetPerfScore());
         }
         else
         {
-            printf(" %7.0f |", codeGen->compPerfScore);
+            printf(" %7.0f |", codeGen->GetPerfScore());
         }
 
         printf(" %4d |", info.compMethodInfo->ILCodeSize);
@@ -4322,7 +4322,7 @@ void JitTimer::PrintCsvMethodStats(Compiler* comp)
     {
         fprintf(s_csvFile, "%u,", comp->codeGen->GetCodeSize());
 #ifdef JIT32_GCENCODER
-        fprintf(s_csvFile, "%Iu,", comp->codeGen->compInfoBlkSize);
+        fprintf(s_csvFile, "%u,", comp->codeGen->GetGCInfoSize());
 #endif
     }
 

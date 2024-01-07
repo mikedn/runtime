@@ -97,10 +97,10 @@ public:
     unsigned calleeRegsPushed = UINT_MAX;
 
 #ifdef JIT32_GCENCODER
-    size_t compInfoBlkSize;
+    unsigned GetGCInfoSize() const;
 #endif
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
-    double compPerfScore = 0.0;
+    double GetPerfScore() const;
 #endif
 
     unsigned GetHotCodeSize() const;

@@ -180,6 +180,13 @@ private:
     // in the cold section (the hot section will always be padded out to hotCodeSize).
     unsigned codeSize = 0;
 
+#ifdef JIT32_GCENCODER
+    unsigned gcInfoSize = 0;
+#endif
+#if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
+    double perfScore = 0.0;
+#endif
+
     // JIT-time constants for use in multi-dimensional array code generation.
     unsigned genOffsetOfMDArrayLowerBound(var_types elemType, unsigned rank, unsigned dimension);
     unsigned genOffsetOfMDArrayDimensionSize(var_types elemType, unsigned rank, unsigned dimension);
@@ -188,6 +195,13 @@ private:
     void genCodeForBBlist();
 
 public:
+#ifdef JIT32_GCENCODER
+    void SetGCInfoSize(unsigned size)
+    {
+        gcInfoSize = size;
+    }
+#endif
+
     bool SpillRegCandidateLclVar(GenTreeLclVar* node);
 
 #ifdef TARGET_X86

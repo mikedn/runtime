@@ -51,6 +51,20 @@ unsigned CodeGenInterface::GetCodeSize() const
     return static_cast<const CodeGen*>(this)->codeSize;
 }
 
+#ifdef JIT32_GCENCODER
+unsigned CodeGenInterface::GetGCInfoSize() const
+{
+    return static_cast<const CodeGen*>(this)->gcInfoSize;
+}
+#endif
+
+#if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
+double CodeGenInterface::GetPerfScore() const
+{
+    return static_cast<const CodeGen*>(this)->perfScore;
+}
+#endif
+
 #ifdef LATE_DISASM
 const char* CodeGenInterface::siRegVarName(size_t offs, size_t size, unsigned reg)
 {
@@ -800,8 +814,8 @@ void CodeGen::genEmitMachineCode()
 #if defined(DEBUG) || defined(LATE_DISASM)
     // Add code size information into the Perf Score
     // All compPerfScore calculations must be performed using doubles
-    compPerfScore += static_cast<double>(hotCodeSize) * PERFSCORE_CODESIZE_COST_HOT;
-    compPerfScore += static_cast<double>(coldCodeSize) * PERFSCORE_CODESIZE_COST_COLD;
+    perfScore += static_cast<double>(hotCodeSize) * PERFSCORE_CODESIZE_COST_HOT;
+    perfScore += static_cast<double>(coldCodeSize) * PERFSCORE_CODESIZE_COST_COLD;
 #endif // DEBUG || LATE_DISASM
 
 #ifdef DEBUG
@@ -809,7 +823,7 @@ void CodeGen::genEmitMachineCode()
     {
         printf("\n; Total bytes of code %d, prolog size %d, PerfScore %.2f, instruction count %d, allocated bytes for "
                "code %d",
-               codeSize, prologSize, compPerfScore, instrCount, GetEmitter()->GetCodeSize());
+               codeSize, prologSize, perfScore, instrCount, GetEmitter()->GetCodeSize());
 
 #if TRACK_LSRA_STATS
         if (JitConfig.DisplayLsraStats() == 3)
@@ -915,7 +929,7 @@ void CodeGen::genEmitUnwindDebugGCandEH()
 
     size_t dataSize = GetEmitter()->emitDataSize();
     grossVMsize += compiler->info.compILCodeSize;
-    totalNCsize += codeSize + dataSize + compInfoBlkSize;
+    totalNCsize += codeSize + dataSize + gcInfoSize;
     grossNCsize += codeSize + dataSize;
 
 #endif // DISPLAY_SIZES

@@ -1821,7 +1821,7 @@ size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp)
 #if defined(DEBUG) || defined(LATE_DISASM)
     double insExecCost  = insEvaluateExecutionCost(id);
     double insPerfScore = (static_cast<double>(ig->igWeight) / BB_UNITY_WEIGHT) * insExecCost;
-    codeGen->compPerfScore += insPerfScore;
+    codeGen->perfScore += insPerfScore;
     ig->igPerfScore += insPerfScore;
 #endif
 
