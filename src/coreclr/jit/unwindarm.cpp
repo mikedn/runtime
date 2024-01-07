@@ -7,33 +7,6 @@
 
 #ifdef TARGET_ARMARCH
 
-#ifdef TARGET_ARM
-const unsigned MAX_PROLOG_SIZE_BYTES = 44;
-const unsigned MAX_EPILOG_SIZE_BYTES = 44;
-#define UWC_END 0xFF // "end" unwind code
-#define UW_MAX_FRAGMENT_SIZE_BYTES (1U << 19)
-#define UW_MAX_CODE_WORDS_COUNT 15      // Max number that can be encoded in the "Code Words" field of the .pdata record
-#define UW_MAX_EPILOG_START_INDEX 0xFFU // Max number that can be encoded in the "Epilog Start Index" field
-// of the .pdata record
-#else
-const unsigned MAX_PROLOG_SIZE_BYTES = 100;
-const unsigned MAX_EPILOG_SIZE_BYTES = 100;
-#define UWC_END 0xE4   // "end" unwind code
-#define UWC_END_C 0xE5 // "end_c" unwind code
-#define UW_MAX_FRAGMENT_SIZE_BYTES (1U << 20)
-#define UW_MAX_CODE_WORDS_COUNT 31
-#define UW_MAX_EPILOG_START_INDEX 0x3FFU
-#endif
-
-// Max number that can be encoded in the "Epilog count" field  of the .pdata record
-#define UW_MAX_EPILOG_COUNT 31
-// Max number that can be encoded in the "Extended Code Words" field of the .pdata record
-#define UW_MAX_EXTENDED_CODE_WORDS_COUNT 0xFFU
-// Max number that can be encoded in the "Extended Epilog Count" field of the .pdata record
-#define UW_MAX_EXTENDED_EPILOG_COUNT 0xFFFFU
-// Max number that can be encoded in the "Epilog Start Offset" field of the .pdata record
-#define UW_MAX_EPILOG_START_OFFSET 0x3FFFFU
-
 void CodeGen::unwindBegProlog()
 {
     assert(generatingProlog);
@@ -525,6 +498,34 @@ void CodeGen::unwindEmitFunc(FuncInfoDsc* func)
     }
 }
 
+#ifdef TARGET_ARM
+constexpr unsigned MAX_PROLOG_SIZE_BYTES      = 44;
+constexpr unsigned MAX_EPILOG_SIZE_BYTES      = 44;
+constexpr uint8_t  UWC_END                    = 0xFF;
+constexpr uint32_t UW_MAX_FRAGMENT_SIZE_BYTES = 1U << 19;
+// Max number that can be encoded in the "Code Words" field of the .pdata record
+constexpr uint32_t UW_MAX_CODE_WORDS_COUNT = 15;
+// Max number that can be encoded in the "Epilog Start Index" field  of the .pdata record
+constexpr uint32_t UW_MAX_EPILOG_START_INDEX = 0xFFU;
+#else
+constexpr unsigned MAX_PROLOG_SIZE_BYTES      = 100;
+constexpr unsigned MAX_EPILOG_SIZE_BYTES      = 100;
+constexpr uint8_t  UWC_END                    = 0xE4;
+constexpr uint8_t  UWC_END_C                  = 0xE5;
+constexpr uint32_t UW_MAX_FRAGMENT_SIZE_BYTES = 1U << 20;
+constexpr uint32_t UW_MAX_CODE_WORDS_COUNT    = 31;
+constexpr uint32_t UW_MAX_EPILOG_START_INDEX  = 0x3FFU;
+#endif
+
+// Max number that can be encoded in the "Epilog count" field  of the .pdata record
+constexpr unsigned UW_MAX_EPILOG_COUNT = 31;
+// Max number that can be encoded in the "Extended Code Words" field of the .pdata record
+constexpr uint32_t UW_MAX_EXTENDED_CODE_WORDS_COUNT = 0xFFU;
+// Max number that can be encoded in the "Extended Epilog Count" field of the .pdata record
+constexpr uint32_t UW_MAX_EXTENDED_EPILOG_COUNT = 0xFFFFU;
+// Max number that can be encoded in the "Epilog Start Offset" field of the .pdata record
+constexpr uint32_t UW_MAX_EPILOG_START_OFFSET = 0x3FFFFU;
+
 bool UnwindCodes::IsEndCode(uint8_t b)
 {
 #ifdef TARGET_ARM
@@ -579,13 +580,12 @@ void UnwindPrologCodes::SetFinalSize(int headerBytes, int epilogBytes)
                   &upcMem[upcCodeSlot], prologBytes);
 
         // Note that the three UWC_END padding bytes still exist at the end of the array.
-        CLANG_FORMAT_COMMENT_ANCHOR;
 
         // Zero out the epilog codes memory, to ensure we've copied the right bytes. Don't zero the padding bytes.
         INDEBUG(memset(&upcMem[upcUnwindBlockSlot + headerBytes + prologBytes], 0, epilogBytes));
 
-        upcEpilogSlot =
-            upcUnwindBlockSlot + headerBytes + prologBytes; // upcEpilogSlot points to the next epilog location to fill
+        // upcEpilogSlot points to the next epilog location to fill
+        upcEpilogSlot = upcUnwindBlockSlot + headerBytes + prologBytes;
 
         // Update upcCodeSlot to point at the new beginning of the prolog codes
         upcCodeSlot = upcUnwindBlockSlot + headerBytes;
