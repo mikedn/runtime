@@ -635,31 +635,17 @@ void UnwindPrologCodes::GetFinalInfo(uint8_t** unwindBlock, uint32_t* unwindBloc
     *unwindBlockSize = AlignUp(static_cast<uint32_t>(upcMemSize - upcUnwindBlockSlot - 3), 4);
 }
 
-// Do the argument unwind codes match our unwind codes?
-// If they don't match, return -1. If they do, return the offset into
-// our codes at which they match. Note that this means that the
-// argument codes can match a subset of our codes. The subset needs to be at
-// the end, for the "end" code to match.
-//
-// This is similar to UnwindEpilogInfo::Match().
-//
-// Note that if we wanted to handle ARM's 0xFD and 0xFE codes, by converting
-// an existing 0xFF code to one of those, we might do that here.
-int UnwindPrologCodes::Match(const UnwindEpilogCodes& epilog) const
+template <class T, class U>
+static int MatchCodes(const T& x, const U& y)
 {
-    if (Size() < epilog.Size())
+    if (x.Size() < y.Size())
     {
         return -1;
     }
 
-    int matchIndex = Size() - epilog.Size();
+    int matchIndex = x.Size() - y.Size();
 
-    if (memcmp(GetCodes() + matchIndex, epilog.GetCodes(), epilog.Size()) == 0)
-    {
-        return matchIndex;
-    }
-
-    return -1;
+    return memcmp(x.GetCodes() + matchIndex, y.GetCodes(), y.Size()) == 0 ? matchIndex : -1;
 }
 
 // Copy the prolog codes from another prolog. The only time this is legal
@@ -786,37 +772,6 @@ void UnwindEpilogCodes::EnsureSize(int requiredSize)
     }
 }
 
-// Do the current unwind codes match those of the argument epilog?
-// If they don't match, return -1. If they do, return the offset into
-// our codes at which the argument codes match. Note that this means that
-// the argument codes can match a subset of our codes. The subset needs to be at
-// the end, for the "end" code to match.
-//
-// Note that if we wanted to handle 0xFD and 0xFE codes, by converting
-// an existing 0xFF code to one of those, we might do that here.
-int UnwindEpilogInfo::Match(UnwindEpilogInfo* epilog) const
-{
-    if (Matches())
-    {
-        // We are already matched to someone else, and won't provide codes to the final layout
-        return -1;
-    }
-
-    if (Size() < epilog->Size())
-    {
-        return -1;
-    }
-
-    int matchIndex = Size() - epilog->Size();
-
-    if (memcmp(epiCodes.GetCodes() + matchIndex, epilog->GetCodes(), epilog->Size()) == 0)
-    {
-        return matchIndex;
-    }
-
-    return -1;
-}
-
 void UnwindEpilogInfo::CaptureLocation(emitter* emitter)
 {
     noway_assert(epiStartLoc.GetIG() == nullptr); // This function is only called once per epilog
@@ -939,7 +894,7 @@ void UnwindFragmentInfo::MergeCodes()
         // NOTE: for the purpose of matching, we don't handle the 0xFD and 0xFE end codes that allow slightly unequal
         // prolog and epilog codes.
 
-        int matchIndex = ufiPrologCodes.Match(epilog->Codes());
+        int matchIndex = MatchCodes(ufiPrologCodes, epilog->Codes());
 
         if (matchIndex != -1)
         {
@@ -953,7 +908,12 @@ void UnwindFragmentInfo::MergeCodes()
 
             for (UnwindEpilogInfo* epilog2 = ufiEpilogList; epilog2 != epilog; epilog2 = epilog2->epiNext)
             {
-                matchIndex = epilog2->Match(epilog);
+                if (epilog2->HasMatch())
+                {
+                    continue;
+                }
+
+                matchIndex = MatchCodes(epilog2->Codes(), epilog->Codes());
 
                 if (matchIndex != -1)
                 {
@@ -996,7 +956,7 @@ void UnwindFragmentInfo::MergeCodes()
         assert(ufiEpilogList != nullptr);
         assert(ufiEpilogList->epiNext == nullptr);
 
-        if (ufiEpilogList->Matches() && (ufiEpilogList->GetStartIndex() == 0) && // The match is with the prolog
+        if (ufiEpilogList->HasMatch() && (ufiEpilogList->GetStartIndex() == 0) && // The match is with the prolog
             !needExtendedCodeWordsEpilogCount && IsAtFragmentEnd(ufiEpilogList))
         {
             epilogScopes = 0; // Don't need any epilog scope words
@@ -1033,7 +993,7 @@ void UnwindFragmentInfo::MergeCodes()
 
         for (UnwindEpilogInfo* e = ufiEpilogList; e != nullptr; e = e->epiNext)
         {
-            if (!e->Matches())
+            if (!e->HasMatch())
             {
                 ufiPrologCodes.AppendEpilog(e);
             }

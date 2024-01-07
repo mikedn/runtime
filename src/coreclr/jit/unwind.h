@@ -136,8 +136,6 @@ public:
     void GetFinalInfo(uint8_t** unwindBlock, uint32_t* unwindBlockSize);
     // Copy the epilog bytes to the next epilog bytes slot
     void AppendEpilog(UnwindEpilogInfo* epilog);
-    // Match the prolog codes to a set of epilog codes
-    int Match(const UnwindEpilogCodes& epilog) const;
     // Copy the prolog codes from another prolog
     void CopyFrom(const UnwindPrologCodes& pCopyFrom);
 
@@ -252,7 +250,7 @@ public:
         epiMatches = true;
     }
 
-    bool Matches() const
+    bool HasMatch() const
     {
         return epiMatches;
     }
@@ -271,9 +269,6 @@ public:
     {
         return epiCodes.GetCodes();
     }
-
-    // Match the codes to a set of epilog codes
-    int Match(UnwindEpilogInfo* epilog) const;
 
     INDEBUG(void Dump(int indent = 0);)
 };
