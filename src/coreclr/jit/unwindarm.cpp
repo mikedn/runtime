@@ -489,11 +489,11 @@ void CodeGen::unwindReserveFunc(FuncInfoDsc* func)
         func->uwiCold->SplitColdCodes(&func->uwi);
     }
 
-    func->uwi.Reserve(func->kind, true);
+    func->uwi.Reserve(this, func->kind, true);
 
     if (func->uwiCold != nullptr)
     {
-        func->uwiCold->Reserve(func->kind, false);
+        func->uwiCold->Reserve(this, func->kind, false);
     }
 }
 
@@ -517,11 +517,11 @@ void CodeGen::unwindEmitFunc(FuncInfoDsc* func, void* hotCode, void* coldCode)
     }
 #endif
 
-    func->uwi.Allocate(func->kind, hotCode, coldCode, true);
+    func->uwi.Allocate(this, func->kind, hotCode, coldCode, true);
 
     if (func->uwiCold != nullptr)
     {
-        func->uwiCold->Allocate(func->kind, hotCode, coldCode, false);
+        func->uwiCold->Allocate(this, func->kind, hotCode, coldCode, false);
     }
 }
 
@@ -1217,7 +1217,7 @@ void UnwindFragmentInfo::Finalize(uint32_t startOffset, uint32_t functionLength)
     // The unwind code words are already here, following the header, so we're done!
 }
 
-void UnwindFragmentInfo::Reserve(FuncKind kind, bool isHotCode)
+void UnwindFragmentInfo::Reserve(CodeGen* codeGen, FuncKind kind, bool isHotCode)
 {
     assert(isHotCode || (kind == FUNC_ROOT)); // TODO-CQ: support hot/cold splitting in functions with EH
 
@@ -1225,7 +1225,7 @@ void UnwindFragmentInfo::Reserve(FuncKind kind, bool isHotCode)
 
     DBEXEC(ufiNum != 1, JITDUMP("reserveUnwindInfo: fragment #%d:\n", ufiNum));
 
-    static_cast<CodeGen*>(uwiComp->codeGen)->eeReserveUnwindInfo(kind != FUNC_ROOT, !isHotCode, Size());
+    codeGen->eeReserveUnwindInfo(kind != FUNC_ROOT, !isHotCode, Size());
 }
 
 #ifdef DEBUG
@@ -1237,8 +1237,13 @@ void DumpUnwindInfo(Compiler*      comp,
                     uint32_t       unwindBlockSize);
 #endif
 
-void UnwindFragmentInfo::Allocate(
-    FuncKind kind, void* hotCode, void* coldCode, uint32_t startOffset, uint32_t endOffset, bool isHotCode)
+void UnwindFragmentInfo::Allocate(CodeGen* codeGen,
+                                  FuncKind kind,
+                                  void*    hotCode,
+                                  void*    coldCode,
+                                  uint32_t startOffset,
+                                  uint32_t endOffset,
+                                  bool     isHotCode)
 {
     noway_assert(isHotCode || (kind == FUNC_ROOT)); // TODO-CQ: support funclets in cold code
 
@@ -1251,8 +1256,8 @@ void UnwindFragmentInfo::Allocate(
     uint8_t* unwindBlock;
     GetFinalInfo(&unwindBlock, &unwindBlockSize);
 
-    DBEXEC(uwiComp->opts.dspUnwind,
-           DumpUnwindInfo(uwiComp, isHotCode, startOffset, endOffset, unwindBlock, unwindBlockSize));
+    DBEXEC(codeGen->compiler->opts.dspUnwind,
+           DumpUnwindInfo(codeGen->compiler, isHotCode, startOffset, endOffset, unwindBlock, unwindBlockSize));
 
     // Adjust for cold or hot code:
     // 1. The VM doesn't want the cold code pointer unless this is cold code.
@@ -1261,22 +1266,21 @@ void UnwindFragmentInfo::Allocate(
 
     if (isHotCode)
     {
-        assert(endOffset <= uwiComp->codeGen->compTotalHotCodeSize);
+        assert(endOffset <= codeGen->compTotalHotCodeSize);
 
         coldCode = nullptr;
     }
     else
     {
-        assert(startOffset >= uwiComp->codeGen->compTotalHotCodeSize);
+        assert(startOffset >= codeGen->compTotalHotCodeSize);
 
-        startOffset -= uwiComp->codeGen->compTotalHotCodeSize;
-        endOffset -= uwiComp->codeGen->compTotalHotCodeSize;
+        startOffset -= codeGen->compTotalHotCodeSize;
+        endOffset -= codeGen->compTotalHotCodeSize;
     }
 
     DBEXEC(ufiNum != 1, JITDUMP("unwindEmit: fragment #%d:\n", ufiNum));
 
-    static_cast<CodeGen*>(uwiComp->codeGen)
-        ->eeAllocUnwindInfo(kind, hotCode, coldCode, startOffset, endOffset, unwindBlockSize, unwindBlock);
+    codeGen->eeAllocUnwindInfo(kind, hotCode, coldCode, startOffset, endOffset, unwindBlockSize, unwindBlock);
 }
 
 UnwindInfo::UnwindInfo(Compiler* comp, insGroup* start, insGroup* end)
@@ -1319,7 +1323,7 @@ void UnwindInfo::SplitColdCodes(UnwindInfo* hotInfo)
 // We don't split any prolog or epilog. Ideally, we might not split an instruction,
 // although that doesn't matter because the unwind at any point would still be
 // well-defined.
-void UnwindInfo::SplitLargeFragment()
+void UnwindInfo::SplitLargeFragment(CodeGen* codeGen)
 {
     uint32_t maxFragmentSize = UW_MAX_FRAGMENT_SIZE_BYTES;
 
@@ -1347,8 +1351,7 @@ void UnwindInfo::SplitLargeFragment()
         // compNativeCodeSize is precise, but is only set after instructions are issued, which is too late
         // for us, since we need to decide how many fragments we need before the code memory is allocated
         // (which is before instruction issuing).
-        uint32_t estimatedTotalCodeSize =
-            uwiComp->codeGen->compTotalHotCodeSize + uwiComp->codeGen->compTotalColdCodeSize;
+        uint32_t estimatedTotalCodeSize = codeGen->compTotalHotCodeSize + codeGen->compTotalColdCodeSize;
         assert(estimatedTotalCodeSize != 0);
         endOffset = estimatedTotalCodeSize;
     }
@@ -1462,7 +1465,7 @@ void UnwindInfo::Split(insGroup* start, insGroup* end, uint32_t maxCodeSize)
 }
 
 // Reserve space for the unwind info for all fragments
-void UnwindInfo::Reserve(FuncKind kind, bool isHotCode)
+void UnwindInfo::Reserve(CodeGen* codeGen, FuncKind kind, bool isHotCode)
 {
     assert(uwiInitialized);
     assert(isHotCode || (kind == FUNC_ROOT));
@@ -1470,22 +1473,22 @@ void UnwindInfo::Reserve(FuncKind kind, bool isHotCode)
     // First we need to split the function or funclet into fragments that are no larger
     // than 512K, so the fragment size will fit in the unwind data "Function Length" field.
     // The ARM Exception Data specification "Function Fragments" section describes this.
-    SplitLargeFragment();
+    SplitLargeFragment(codeGen);
 
     for (UnwindFragmentInfo* f = &uwiFragmentFirst; f != nullptr; f = f->ufiNext)
     {
-        f->Reserve(kind, isHotCode);
+        f->Reserve(codeGen, kind, isHotCode);
     }
 }
 
 // Allocate and populate VM unwind info for all fragments
-void UnwindInfo::Allocate(FuncKind kind, void* hotCode, void* coldCode, bool isHotCode)
+void UnwindInfo::Allocate(CodeGen* codeGen, FuncKind kind, void* hotCode, void* coldCode, bool isHotCode)
 {
     assert(uwiInitialized);
-    DBEXEC(uwiComp->verbose, Dump(isHotCode, 0));
+    DBEXEC(codeGen->compiler->verbose, Dump(isHotCode, 0));
 
     uint32_t startOffset   = uwiFragmentFirst.GetStartLoc()->GetCodeOffset();
-    uint32_t funcEndOffset = uwiEndLoc == nullptr ? uwiComp->codeGen->compNativeCodeSize : uwiEndLoc->GetCodeOffset();
+    uint32_t funcEndOffset = uwiEndLoc == nullptr ? codeGen->compNativeCodeSize : uwiEndLoc->GetCodeOffset();
 
     assert(funcEndOffset != 0);
 
@@ -1502,7 +1505,7 @@ void UnwindInfo::Allocate(FuncKind kind, void* hotCode, void* coldCode, bool isH
             endOffset = f->ufiNext->GetStartLoc()->GetCodeOffset();
         }
 
-        f->Allocate(kind, hotCode, coldCode, startOffset, endOffset, isHotCode);
+        f->Allocate(codeGen, kind, hotCode, coldCode, startOffset, endOffset, isHotCode);
         startOffset = endOffset;
     }
 }

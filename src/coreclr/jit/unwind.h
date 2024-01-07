@@ -474,9 +474,14 @@ public:
         ufiPrologCodes.GetFinalInfo(unwindBlock, unwindBlockSize);
     }
 
-    void Reserve(FuncKind kind, bool isHotCode);
-    void Allocate(
-        FuncKind kind, void* hotCode, void* coldCode, uint32_t startOffset, uint32_t endOffset, bool isHotCode);
+    void Reserve(CodeGen* codeGen, FuncKind kind, bool isHotCode);
+    void Allocate(CodeGen* codeGen,
+                  FuncKind kind,
+                  void*    hotCode,
+                  void*    coldCode,
+                  uint32_t startOffset,
+                  uint32_t endOffset,
+                  bool     isHotCode);
 
     INDEBUG(void Dump(int indent = 0);)
 };
@@ -508,9 +513,9 @@ public:
     UnwindInfo& operator=(const UnwindInfo&) = delete;
 
     void SplitColdCodes(UnwindInfo* hotInfo);
-    void SplitLargeFragment();
-    void Reserve(FuncKind kind, bool isHotCode);
-    void Allocate(FuncKind kind, void* hotCode, void* coldCode, bool isHotCode);
+    void SplitLargeFragment(CodeGen* codeGen);
+    void Reserve(CodeGen* codeGen, FuncKind kind, bool isHotCode);
+    void Allocate(CodeGen* codeGen, FuncKind kind, void* hotCode, void* coldCode, bool isHotCode);
 
     // Add an unwind code. It could be for a prolog, or for the current epilog.
     // A single unwind code can be from 1 to 4 bytes.
