@@ -22,10 +22,15 @@ struct Win64UnwindInfo
     // TODO-MIKE-Throughput: This array is huge, especially for funclets that
     // have very simple prologs.
     uint8_t  block[sizeof(UNWIND_INFO) + 254 * sizeof(UNWIND_CODE)];
-    unsigned codesIndex;
+    unsigned codesIndex = 0;
 
     static constexpr unsigned headerSize   = offsetof(UNWIND_INFO, UnwindCode);
     static constexpr unsigned endCodeIndex = sizeof(block);
+
+    Win64UnwindInfo()
+    {
+        memset(block, 0, headerSize);
+    }
 
     UNWIND_INFO& GetHeader()
     {
@@ -507,6 +512,8 @@ public:
 
     UnwindInfo()
     {
+        // TODO-MIKE-Cleanup: This should not be needed.
+        memset(this, 0, sizeof(*this));
     }
 
     UnwindInfo(Compiler* comp, insGroup* start, insGroup* end);
@@ -581,7 +588,7 @@ private:
 #ifdef TARGET_UNIX
 struct CfiUnwindInfo
 {
-    jitstd::vector<CFI_CODE>* codes;
+    jitstd::vector<CFI_CODE>* codes = nullptr;
 
     void AddCode(uint32_t codeOffset, uint8_t opcode, int16_t dwarfReg, int32_t offset = 0);
 };
@@ -598,18 +605,25 @@ struct FuncInfoDsc
 #endif
 
 #ifdef TARGET_ARMARCH
-    UnwindInfo  uwi;     // Unwind information for this function/funclet's hot  section
-    UnwindInfo* uwiCold; // Unwind information for this function/funclet's cold section
-                         //   Note: we only have a pointer here instead of the actual object,
-                         //   to save memory in the JIT case (compared to the NGEN case),
-                         //   where we don't have any cold section.
-                         //   Note 2: we currently don't support hot/cold splitting in functions
-                         //   with EH, so uwiCold will be nullptr for all funclets.
+    // Unwind information for this function/funclet's hot  section
+    UnwindInfo uwi;
+    // Unwind information for this function/funclet's cold section
+    // Note: we only have a pointer here instead of the actual object,
+    // to save memory in the JIT case (compared to the NGEN case),
+    // where we don't have any cold section.
+    // And we currently don't support hot/cold splitting in functions
+    // with EH, so uwiCold will be nullptr for all funclets.
+    UnwindInfo* uwiCold = nullptr;
 #endif
 
 #ifdef TARGET_UNIX
     CfiUnwindInfo cfi;
 #endif
+
+    FuncInfoDsc(FuncKind kind, uint32_t ehIndex) : kind(kind), ehIndex(static_cast<uint16_t>(ehIndex))
+    {
+        assert(ehIndex <= UINT16_MAX);
+    }
 
     // Eventually we may want to move rsModifiedRegsMask, lvaOutgoingArgSize, and anything else
     // that isn't shared between the main function body and funclets.

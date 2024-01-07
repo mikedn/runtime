@@ -520,9 +520,8 @@ void CodeGen::genCreateFunclets()
         IMPL_LIMITATION("Too many funclets");
     }
 
-    FuncInfoDsc* funcInfo = new (compiler, CMK_BasicBlock) FuncInfoDsc[funcCount];
-    memset(funcInfo, 0, funcCount * sizeof(FuncInfoDsc));
-    assert(funcInfo[0].kind == FUNC_ROOT);
+    FuncInfoDsc* funcInfo = compiler->getAllocator(CMK_UnwindInfo).allocate<FuncInfoDsc>(funcCount);
+    new (&funcInfo[0]) FuncInfoDsc(FUNC_ROOT, 0);
 
     unsigned funcIndex = 1;
 
@@ -534,17 +533,13 @@ void CodeGen::genCreateFunclets()
         {
             assert(funcIndex < funcCount);
 
-            funcInfo[funcIndex].kind    = FUNC_FILTER;
-            funcInfo[funcIndex].ehIndex = static_cast<uint16_t>(ehIndex);
-            funcIndex++;
+            new (&funcInfo[funcIndex++]) FuncInfoDsc(FUNC_FILTER, ehIndex);
         }
 
         assert(funcIndex < funcCount);
 
-        funcInfo[funcIndex].kind    = FUNC_HANDLER;
-        funcInfo[funcIndex].ehIndex = static_cast<uint16_t>(ehIndex);
-        ehClause->ebdFuncIndex      = static_cast<uint16_t>(funcIndex);
-        funcIndex++;
+        ehClause->ebdFuncIndex = static_cast<uint16_t>(funcIndex);
+        new (&funcInfo[funcIndex++]) FuncInfoDsc(FUNC_HANDLER, ehIndex);
     }
 
     assert(funcIndex == funcCount);
