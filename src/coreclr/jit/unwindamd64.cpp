@@ -448,7 +448,7 @@ void CodeGen::unwindReserveFuncRegion(FuncInfoDsc* func, bool isHotCode)
     eeReserveUnwindInfo(func->kind != FUNC_ROOT, !isHotCode, unwindSize);
 }
 
-void CodeGen::unwindEmit(void* hotCode, void* coldCode)
+void CodeGen::unwindEmit()
 {
     assert(!generatingProlog);
     assert(!generatingEpilog);
@@ -456,7 +456,7 @@ void CodeGen::unwindEmit(void* hotCode, void* coldCode)
 
     for (unsigned i = 0; i < compFuncInfoCount; i++)
     {
-        unwindEmitFunc(&funGetFunc(i), hotCode, coldCode);
+        unwindEmitFunc(&funGetFunc(i), codePtr, coldCodePtr);
     }
 }
 

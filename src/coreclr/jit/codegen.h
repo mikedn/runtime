@@ -47,7 +47,7 @@ class CodeGen final : public CodeGenInterface
 public:
     CodeGen(Compiler* compiler);
 
-    void genGenerateCode(void** codePtr, uint32_t* nativeSizeOfCode);
+    void genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize);
 #ifdef LATE_DISASM
     const char* siRegVarName(size_t offs, size_t size, unsigned reg);
     const char* siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs);
@@ -164,11 +164,10 @@ protected:
     // the current (pending) label ref, a label which has been referenced but not yet seen
     insGroup* genPendingCallLabel = nullptr;
 
-    void**    codePtr;
-    uint32_t* nativeSizeOfCode;
-    unsigned  codeSize;
-    void*     coldCodePtr;
-    void*     consPtr;
+    void*    codePtr;
+    unsigned codeSize;
+    void*    coldCodePtr;
+    void*    consPtr;
 
     // JIT-time constants for use in multi-dimensional array code generation.
     unsigned genOffsetOfMDArrayLowerBound(var_types elemType, unsigned rank, unsigned dimension);
@@ -1214,7 +1213,7 @@ public:
     void unwindEndEpilog();
 #ifdef FEATURE_EH_FUNCLETS
     void unwindReserve();
-    void unwindEmit(void* hotCode, void* coldCode);
+    void unwindEmit();
 #endif
 
     void unwindPush(RegNum reg);

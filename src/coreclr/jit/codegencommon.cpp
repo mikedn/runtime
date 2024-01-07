@@ -30,9 +30,9 @@ CodeGenInterface::CodeGenInterface(Compiler* compiler) : compiler(compiler), spi
 {
 }
 
-void CodeGenInterface::genGenerateCode(void** codePtr, uint32_t* nativeSizeOfCode)
+void CodeGenInterface::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
 {
-    static_cast<CodeGen*>(this)->genGenerateCode(codePtr, nativeSizeOfCode);
+    static_cast<CodeGen*>(this)->genGenerateCode(nativeCode, nativeCodeSize);
 }
 
 #ifdef LATE_DISASM
@@ -459,9 +459,6 @@ void CodeGen::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
     }
 #endif
 
-    codePtr          = nativeCode;
-    nativeSizeOfCode = nativeCodeSize;
-
 #ifdef FEATURE_EH_FUNCLETS
     DoPhase(this, PHASE_CREATE_FUNCLETS, &CodeGen::genCreateFunclets);
 #endif
@@ -476,6 +473,9 @@ void CodeGen::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
         m_lsra->dumpLsraStatsCsv(jitstdout);
     }
 #endif
+
+    *nativeCode     = codePtr;
+    *nativeCodeSize = codeSize;
 }
 
 #ifdef FEATURE_EH_FUNCLETS
@@ -772,7 +772,7 @@ void CodeGen::genEmitMachineCode()
 #ifdef JIT32_GCENCODER
                                             &epilogSize,
 #endif
-                                            codePtr, &coldCodePtr, &consPtr DEBUGARG(&instrCount));
+                                            &codePtr, &coldCodePtr, &consPtr DEBUGARG(&instrCount));
 
 #ifdef DEBUG
     assert(compiler->compCodeGenDone == false);
@@ -833,7 +833,6 @@ void CodeGen::genEmitMachineCode()
     }
 #endif // DEBUG_ARG_SLOTS
 
-    *nativeSizeOfCode  = codeSize;
     compNativeCodeSize = codeSize;
 
     // printf("%6u bytes of code generated for %s.%s\n", codeSize, compiler->info.compFullName);
@@ -843,7 +842,7 @@ void CodeGen::genEmitMachineCode()
 
     // Don't start a method in the last 7 bytes of a 16-byte alignment area
     //   unless we are generating SMALL_CODE
-    // noway_assert( (((unsigned)(*codePtr) % 16) <= 8) || (compiler->compCodeOpt() == SMALL_CODE));
+    // noway_assert( (((unsigned)(codePtr) % 16) <= 8) || (compiler->compCodeOpt() == SMALL_CODE));
 }
 
 //----------------------------------------------------------------------
@@ -852,7 +851,7 @@ void CodeGen::genEmitMachineCode()
 void CodeGen::genEmitUnwindDebugGCandEH()
 {
 #ifdef FEATURE_EH_FUNCLETS
-    unwindEmit(*codePtr, coldCodePtr);
+    unwindEmit();
 #endif
 
     /* Finalize the line # tracking logic after we know the exact block sizes/offsets */
@@ -885,7 +884,7 @@ void CodeGen::genEmitUnwindDebugGCandEH()
         finalHotCodeSize  = codeSize;
         finalColdCodeSize = 0;
     }
-    getDisAssembler().disAsmCode((BYTE*)*codePtr, finalHotCodeSize, (BYTE*)coldCodePtr, finalColdCodeSize);
+    getDisAssembler().disAsmCode((BYTE*)codePtr, finalHotCodeSize, (BYTE*)coldCodePtr, finalColdCodeSize);
 #endif // LATE_DISASM
 
     /* Report any exception handlers to the VM */

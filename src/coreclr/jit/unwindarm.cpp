@@ -497,13 +497,13 @@ void CodeGen::unwindReserveFunc(FuncInfoDsc* func)
     }
 }
 
-void CodeGen::unwindEmit(void* hotCode, void* coldCode)
+void CodeGen::unwindEmit()
 {
     assert(compFuncInfoCount > 0);
 
     for (unsigned i = 0; i < compFuncInfoCount; i++)
     {
-        unwindEmitFunc(&funGetFunc(i), hotCode, coldCode);
+        unwindEmitFunc(&funGetFunc(i), codePtr, coldCodePtr);
     }
 }
 

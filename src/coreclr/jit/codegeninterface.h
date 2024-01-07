@@ -29,7 +29,7 @@ protected:
     CodeGenInterface(Compiler* compiler);
 
 public:
-    void genGenerateCode(void** codePtr, uint32_t* nativeSizeOfCode);
+    void genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize);
 #ifdef LATE_DISASM
     const char* siRegVarName(size_t offs, size_t size, unsigned reg);
     const char* siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs);
