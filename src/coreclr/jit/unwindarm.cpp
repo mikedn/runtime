@@ -1266,16 +1266,16 @@ void UnwindFragmentInfo::Allocate(CodeGen* codeGen,
 
     if (isHotCode)
     {
-        assert(endOffset <= codeGen->compTotalHotCodeSize);
+        assert(endOffset <= codeGen->GetHotCodeSize());
 
         coldCode = nullptr;
     }
     else
     {
-        assert(startOffset >= codeGen->compTotalHotCodeSize);
+        assert(startOffset >= codeGen->GetHotCodeSize());
 
-        startOffset -= codeGen->compTotalHotCodeSize;
-        endOffset -= codeGen->compTotalHotCodeSize;
+        startOffset -= codeGen->GetHotCodeSize();
+        endOffset -= codeGen->GetHotCodeSize();
     }
 
     DBEXEC(ufiNum != 1, JITDUMP("unwindEmit: fragment #%d:\n", ufiNum));
@@ -1346,12 +1346,11 @@ void UnwindInfo::SplitLargeFragment(CodeGen* codeGen)
 
     if (endLoc == nullptr)
     {
-        // Note that compTotalHotCodeSize and compTotalColdCodeSize are computed before issuing instructions
-        // from the emitter instruction group offsets, and will be accurate unless the issued code shrinks.
-        // compNativeCodeSize is precise, but is only set after instructions are issued, which is too late
-        // for us, since we need to decide how many fragments we need before the code memory is allocated
-        // (which is before instruction issuing).
-        uint32_t estimatedTotalCodeSize = codeGen->compTotalHotCodeSize + codeGen->compTotalColdCodeSize;
+        // Note that hotCodeSize and coldCodeSize are computed before encoding instructions, and they
+        // can be larger than needed, due to branch shortening and other encoding optimizations.
+        // So it's possible that we'll create more fragments than needed, but given the large size of
+        // these fragments this is unlikely to be an issue.
+        uint32_t estimatedTotalCodeSize = codeGen->GetHotCodeSize() + codeGen->GetColdCodeSize();
         assert(estimatedTotalCodeSize != 0);
         endOffset = estimatedTotalCodeSize;
     }
@@ -1488,7 +1487,7 @@ void UnwindInfo::Allocate(CodeGen* codeGen, FuncKind kind, void* hotCode, void* 
     DBEXEC(codeGen->compiler->verbose, Dump(isHotCode, 0));
 
     uint32_t startOffset   = uwiFragmentFirst.GetStartLoc()->GetCodeOffset();
-    uint32_t funcEndOffset = uwiEndLoc == nullptr ? codeGen->compNativeCodeSize : uwiEndLoc->GetCodeOffset();
+    uint32_t funcEndOffset = uwiEndLoc == nullptr ? codeGen->GetCodeSize() : uwiEndLoc->GetCodeOffset();
 
     assert(funcEndOffset != 0);
 

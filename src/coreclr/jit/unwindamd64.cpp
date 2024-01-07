@@ -534,16 +534,16 @@ void CodeGen::unwindEmitFuncRegion(FuncInfoDsc* func, void* hotCode, void* coldC
 
     if (isHotCode)
     {
-        assert(endOffset <= compTotalHotCodeSize);
+        assert(endOffset <= hotCodeSize);
 
         coldCode = nullptr;
     }
     else
     {
-        assert(startOffset >= compTotalHotCodeSize);
+        assert(startOffset >= hotCodeSize);
 
-        startOffset -= compTotalHotCodeSize;
-        endOffset -= compTotalHotCodeSize;
+        startOffset -= hotCodeSize;
+        endOffset -= hotCodeSize;
     }
 
     eeAllocUnwindInfo(func->kind, hotCode, coldCode, startOffset, endOffset, unwindSize, unwindBlock);

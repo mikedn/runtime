@@ -3048,17 +3048,17 @@ void Compiler::compCompileFinish()
     genTreeNsizHist.record(static_cast<unsigned>(genNodeSizeStatsPerFunc.genTreeNodeSize));
 #endif
 
-#if defined(DEBUG)
+#ifdef DEBUG
     // Small methods should fit in ArenaAllocator::getDefaultPageSize(), or else
     // we should bump up ArenaAllocator::getDefaultPageSize()
 
-    if ((info.compILCodeSize <= 32) &&         // Is it a reasonably small method?
-        (codeGen->compNativeCodeSize < 512) && // Some trivial methods generate huge native code. eg. pushing a single
-                                               // huge struct
-        (compInlinedCodeSize <= 128) &&        // Is the the inlining reasonably bounded?
-                                               // Small methods cannot meaningfully have a big number of locals
-                                               // or arguments. We always track arguments at the start of
-                                               // the prolog which requires memory
+    if ((info.compILCodeSize <= 32) &&    // Is it a reasonably small method?
+        (codeGen->GetCodeSize() < 512) && // Some trivial methods generate huge native code. eg. pushing a single
+                                          // huge struct
+        (compInlinedCodeSize <= 128) &&   // Is the the inlining reasonably bounded?
+                                          // Small methods cannot meaningfully have a big number of locals
+                                          // or arguments. We always track arguments at the start of
+                                          // the prolog which requires memory
         (info.compLocalsCount <= 32) && (!opts.MinOpts()) && // We may have too many local variables, etc
         (getJitStressLevel() == 0) &&                        // We need extra memory for stress
         !opts.optRepeat &&                                   // We need extra memory to repeat opts
@@ -3230,8 +3230,8 @@ void Compiler::compCompileFinish()
         }
 
         printf(" %4d |", info.compMethodInfo->ILCodeSize);
-        printf(" %5d |", codeGen->compTotalHotCodeSize);
-        printf(" %3d |", codeGen->compTotalColdCodeSize);
+        printf(" %5d |", codeGen->GetHotCodeSize());
+        printf(" %3d |", codeGen->GetColdCodeSize());
 
         printf(" %s\n", eeGetMethodFullName(info.compMethodHnd));
         printf(""); // in our logic this causes a flush
@@ -4320,7 +4320,7 @@ void JitTimer::PrintCsvMethodStats(Compiler* comp)
 
     if (comp->codeGen != nullptr)
     {
-        fprintf(s_csvFile, "%u,", comp->codeGen->compNativeCodeSize);
+        fprintf(s_csvFile, "%u,", comp->codeGen->GetCodeSize());
 #ifdef JIT32_GCENCODER
         fprintf(s_csvFile, "%Iu,", comp->codeGen->compInfoBlkSize);
 #endif

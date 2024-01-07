@@ -20,6 +20,7 @@ class CodeGen final : public CodeGenInterface
     friend class emitter;
     friend class DisAssembler;
     friend class CodeGenLivenessUpdater;
+    friend class CodeGenInterface;
 
     //  The following holds information about instr offsets in terms of generated code.
     struct IPmappingDsc
@@ -160,14 +161,24 @@ private:
     void dispOutgoingEHClause(unsigned num, const CORINFO_EH_CLAUSE& clause);
 #endif
 
-protected:
+private:
     // the current (pending) label ref, a label which has been referenced but not yet seen
     insGroup* genPendingCallLabel = nullptr;
 
-    void*    codePtr;
-    unsigned codeSize;
-    void*    coldCodePtr;
-    void*    consPtr;
+    void* codePtr     = nullptr;
+    void* coldCodePtr = nullptr;
+    void* consPtr     = nullptr;
+
+    // Total number of bytes of Hot Code in the method
+    unsigned hotCodeSize = 0;
+    // Total number of bytes of Cold Code in the method
+    unsigned coldCodeSize = 0;
+    // The native code size, after instructions are issued.
+    // This is less than (hotCodeSize + coldCodeSize) only if:
+    // (1) the code is not hot/cold split, and we issued less code than we expected, or
+    // (2) the code is hot/cold split, and we issued less code than we expected
+    // in the cold section (the hot section will always be padded out to hotCodeSize).
+    unsigned codeSize = 0;
 
     // JIT-time constants for use in multi-dimensional array code generation.
     unsigned genOffsetOfMDArrayLowerBound(var_types elemType, unsigned rank, unsigned dimension);

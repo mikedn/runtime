@@ -71,7 +71,7 @@ void CodeGen::unwindGetFuncHotRange(FuncInfoDsc* func, uint32_t* start, uint32_t
     unwindGetFuncHotRange(func, &startLoc, &endLoc);
 
     *start = startLoc->GetCodeOffset();
-    *end   = endLoc == nullptr ? compNativeCodeSize : endLoc->GetCodeOffset();
+    *end   = endLoc == nullptr ? codeSize : endLoc->GetCodeOffset();
 }
 
 void CodeGen::unwindGetFuncColdRange(FuncInfoDsc* func, insGroup** start, insGroup** end)
@@ -96,7 +96,7 @@ void CodeGen::unwindGetFuncColdRange(FuncInfoDsc* func, uint32_t* start, uint32_
     unwindGetFuncColdRange(func, &startLoc, &endLoc);
 
     *start = startLoc->GetCodeOffset();
-    *end   = endLoc == nullptr ? compNativeCodeSize : endLoc->GetCodeOffset();
+    *end   = endLoc == nullptr ? codeSize : endLoc->GetCodeOffset();
 }
 
 #ifdef TARGET_UNIX
@@ -221,7 +221,7 @@ void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* hotCode, void* coldCode
     uint32_t endOffset;
     unwindGetFuncHotRange(func, &startOffset, &endOffset);
 
-    assert(endOffset <= compTotalHotCodeSize);
+    assert(endOffset <= hotCodeSize);
 
     uint32_t  codeCount = static_cast<uint32_t>(func->cfi.codes->size());
     CFI_CODE* codes     = codeCount == 0 ? nullptr : func->cfi.codes->data();
@@ -237,12 +237,12 @@ void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* hotCode, void* coldCode
 
     unwindGetFuncColdRange(func, &startOffset, &endOffset);
 
-    assert(startOffset >= compTotalHotCodeSize);
+    assert(startOffset >= hotCodeSize);
 
     DBEXEC(compiler->opts.dspUnwind, DumpCfiInfo(/* isHotCode */ false, startOffset, endOffset, 0, nullptr));
 
-    startOffset -= compTotalHotCodeSize;
-    endOffset -= compTotalHotCodeSize;
+    startOffset -= hotCodeSize;
+    endOffset -= hotCodeSize;
 
     eeAllocUnwindInfo(func->kind, hotCode, coldCode, startOffset, endOffset, 0, nullptr);
 }

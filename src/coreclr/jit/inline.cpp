@@ -1515,8 +1515,8 @@ void InlineStrategy::DumpDataContents(FILE* file)
         microsecondsSpentJitting = (unsigned)((counts / countsPerSec) * 1000 * 1000);
     }
 
-    fprintf(file, "%08X,%u,%u,%u,%u,%d,%d,", currentMethodToken, m_InlineCount, codeGen.compTotalHotCodeSize,
-            codeGen.compTotalColdCodeSize, microsecondsSpentJitting, m_CurrentSizeEstimate / 10, m_CurrentTimeEstimate);
+    fprintf(file, "%08X,%u,%u,%u,%u,%d,%d,", currentMethodToken, m_InlineCount, codeGen.GetHotCodeSize(),
+            codeGen.GetColdCodeSize(), microsecondsSpentJitting, m_CurrentSizeEstimate / 10, m_CurrentTimeEstimate);
     m_LastSuccessfulPolicy->DumpData(file);
 }
 
@@ -1623,8 +1623,8 @@ void InlineStrategy::DumpXml(FILE* file, unsigned indent)
     fprintf(file, "%*s<Token>%08x</Token>\n", indent + 2, "", currentMethodToken);
     fprintf(file, "%*s<Hash>%08x</Hash>\n", indent + 2, "", hash);
     fprintf(file, "%*s<InlineCount>%u</InlineCount>\n", indent + 2, "", m_InlineCount);
-    fprintf(file, "%*s<HotSize>%u</HotSize>\n", indent + 2, "", codeGen.compTotalHotCodeSize);
-    fprintf(file, "%*s<ColdSize>%u</ColdSize>\n", indent + 2, "", codeGen.compTotalColdCodeSize);
+    fprintf(file, "%*s<HotSize>%u</HotSize>\n", indent + 2, "", codeGen.GetHotCodeSize());
+    fprintf(file, "%*s<ColdSize>%u</ColdSize>\n", indent + 2, "", codeGen.GetColdCodeSize());
     fprintf(file, "%*s<JitTime>%u</JitTime>\n", indent + 2, "", microsecondsSpentJitting);
     fprintf(file, "%*s<SizeEstimate>%u</SizeEstimate>\n", indent + 2, "", m_CurrentSizeEstimate / 10);
     fprintf(file, "%*s<TimeEstimate>%u</TimeEstimate>\n", indent + 2, "", m_CurrentTimeEstimate);

@@ -102,16 +102,15 @@ public:
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
     double compPerfScore = 0.0;
 #endif
-    // Total number of bytes of Hot Code in the method
-    unsigned compTotalHotCodeSize = 0;
-    // Total number of bytes of Cold Code in the method
-    unsigned compTotalColdCodeSize = 0;
+
+    unsigned GetHotCodeSize() const;
+    unsigned GetColdCodeSize() const;
     // The native code size, after instructions are issued.
-    // This is less than (compTotalHotCodeSize + compTotalColdCodeSize) only if:
+    // This is less than (hotCodeSize + coldCodeSize) only if:
     // (1) the code is not hot/cold split, and we issued less code than we expected, or
     // (2) the code is hot/cold split, and we issued less code than we expected
-    // in the cold section (the hot section will always be padded out to compTotalHotCodeSize).
-    unsigned compNativeCodeSize = 0;
+    // in the cold section (the hot section will always be padded out to hotCodeSize).
+    unsigned GetCodeSize() const;
 
 #ifdef UNIX_AMD64_ABI
     // This flag  is indicating if there is a need to align the frame.

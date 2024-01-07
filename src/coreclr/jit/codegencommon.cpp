@@ -35,6 +35,22 @@ void CodeGenInterface::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSi
     static_cast<CodeGen*>(this)->genGenerateCode(nativeCode, nativeCodeSize);
 }
 
+unsigned CodeGenInterface::GetHotCodeSize() const
+{
+    return static_cast<const CodeGen*>(this)->hotCodeSize;
+}
+
+unsigned CodeGenInterface::GetColdCodeSize() const
+{
+    return static_cast<const CodeGen*>(this)->coldCodeSize;
+}
+
+unsigned CodeGenInterface::GetCodeSize() const
+{
+    assert(static_cast<const CodeGen*>(this)->codePtr != nullptr);
+    return static_cast<const CodeGen*>(this)->codeSize;
+}
+
 #ifdef LATE_DISASM
 const char* CodeGenInterface::siRegVarName(size_t offs, size_t size, unsigned reg)
 {
@@ -784,8 +800,8 @@ void CodeGen::genEmitMachineCode()
 #if defined(DEBUG) || defined(LATE_DISASM)
     // Add code size information into the Perf Score
     // All compPerfScore calculations must be performed using doubles
-    compPerfScore += static_cast<double>(compTotalHotCodeSize) * PERFSCORE_CODESIZE_COST_HOT;
-    compPerfScore += static_cast<double>(compTotalColdCodeSize) * PERFSCORE_CODESIZE_COST_COLD;
+    compPerfScore += static_cast<double>(hotCodeSize) * PERFSCORE_CODESIZE_COST_HOT;
+    compPerfScore += static_cast<double>(coldCodeSize) * PERFSCORE_CODESIZE_COST_COLD;
 #endif // DEBUG || LATE_DISASM
 
 #ifdef DEBUG
@@ -833,8 +849,6 @@ void CodeGen::genEmitMachineCode()
     }
 #endif // DEBUG_ARG_SLOTS
 
-    compNativeCodeSize = codeSize;
-
     // printf("%6u bytes of code generated for %s.%s\n", codeSize, compiler->info.compFullName);
 
     // Make sure that the x86 alignment and cache prefetch optimization rules
@@ -869,18 +883,18 @@ void CodeGen::genEmitUnwindDebugGCandEH()
     {
         // We did some hot/cold splitting. The hot section is always padded out to the
         // size we thought it would be, but the cold section is not.
-        assert(codeSize <= compiler->info.compTotalHotCodeSize + compiler->info.compTotalColdCodeSize);
-        assert(compiler->info.compTotalHotCodeSize > 0);
-        assert(compiler->info.compTotalColdCodeSize > 0);
-        finalHotCodeSize  = compiler->info.compTotalHotCodeSize;
+        assert(codeSize <= compiler->info.hotCodeSize + compiler->info.coldCodeSize);
+        assert(compiler->info.hotCodeSize > 0);
+        assert(compiler->info.coldCodeSize > 0);
+        finalHotCodeSize  = compiler->info.hotCodeSize;
         finalColdCodeSize = codeSize - finalHotCodeSize;
     }
     else
     {
         // No hot/cold splitting
-        assert(codeSize <= compiler->info.compTotalHotCodeSize);
-        assert(compiler->info.compTotalHotCodeSize > 0);
-        assert(compiler->info.compTotalColdCodeSize == 0);
+        assert(codeSize <= compiler->info.hotCodeSize);
+        assert(compiler->info.hotCodeSize > 0);
+        assert(compiler->info.coldCodeSize == 0);
         finalHotCodeSize  = codeSize;
         finalColdCodeSize = 0;
     }
@@ -1021,8 +1035,8 @@ void CodeGen::genReportEH()
 
         tryBeg = ehCodeOffset(HBtab->ebdTryBeg);
         hndBeg = ehCodeOffset(HBtab->ebdHndBeg);
-        tryEnd = HBtab->ebdTryLast == compiler->fgLastBB ? compNativeCodeSize : ehCodeOffset(HBtab->ebdTryLast->bbNext);
-        hndEnd = HBtab->ebdHndLast == compiler->fgLastBB ? compNativeCodeSize : ehCodeOffset(HBtab->ebdHndLast->bbNext);
+        tryEnd = HBtab->ebdTryLast == compiler->fgLastBB ? codeSize : ehCodeOffset(HBtab->ebdTryLast->bbNext);
+        hndEnd = HBtab->ebdHndLast == compiler->fgLastBB ? codeSize : ehCodeOffset(HBtab->ebdHndLast->bbNext);
 
         if (HBtab->HasFilter())
         {
@@ -1240,10 +1254,8 @@ void CodeGen::genReportEH()
 
                 uint32_t tryBeg = ehCodeOffset(bbTryBeg);
                 uint32_t hndBeg = ehCodeOffset(bbHndBeg);
-                uint32_t tryEnd =
-                    bbTryLast == compiler->fgLastBB ? compNativeCodeSize : ehCodeOffset(bbTryLast->bbNext);
-                uint32_t hndEnd =
-                    bbHndLast == compiler->fgLastBB ? compNativeCodeSize : ehCodeOffset(bbHndLast->bbNext);
+                uint32_t tryEnd = bbTryLast == compiler->fgLastBB ? codeSize : ehCodeOffset(bbTryLast->bbNext);
+                uint32_t hndEnd = bbHndLast == compiler->fgLastBB ? codeSize : ehCodeOffset(bbHndLast->bbNext);
 
                 if (encTab->HasFilter())
                 {
@@ -1314,7 +1326,7 @@ void CodeGen::genReportEH()
                 }
                 if (bbLabel == nullptr)
                 {
-                    hndEnd = compNativeCodeSize;
+                    hndEnd = codeSize;
                 }
                 else
                 {
