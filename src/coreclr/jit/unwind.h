@@ -24,9 +24,9 @@ struct Win64UnwindInfo
     uint8_t  codes[offsetof(UNWIND_INFO, UnwindCode) + (0xFF * sizeof(UNWIND_CODE))];
     unsigned codesIndex;
 
-    UNWIND_CODE* AllocCode();
-    uint16_t* AllocUInt16(uint16_t value);
-    uint32_t* AllocUInt32(uint32_t value);
+    UNWIND_CODE* AddCode(uint32_t codeOffset, UNWIND_OP_CODES op, uint8_t info);
+    uint16_t* AddUInt16(uint16_t value);
+    uint32_t* AddUInt32(uint32_t value);
 };
 #endif // TARGET_AMD64
 

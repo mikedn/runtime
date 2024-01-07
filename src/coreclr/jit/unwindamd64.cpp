@@ -91,27 +91,32 @@ void CodeGen::unwindBegPrologWindows()
 {
     assert(generatingProlog);
 
-    FuncInfoDsc& func = funCurrentFunc();
+    Win64UnwindInfo& info = funCurrentFunc().win;
 
-    func.win.codesIndex                = sizeof(func.win.codes);
-    func.win.header.Version            = 1;
-    func.win.header.Flags              = 0;
-    func.win.header.CountOfUnwindCodes = 0;
-    func.win.header.FrameRegister      = 0;
-    func.win.header.FrameOffset        = 0;
+    info.codesIndex                = sizeof(info.codes);
+    info.header.Version            = 1;
+    info.header.Flags              = 0;
+    info.header.CountOfUnwindCodes = 0;
+    info.header.FrameRegister      = 0;
+    info.header.FrameOffset        = 0;
 }
 
-UNWIND_CODE* Win64UnwindInfo::AllocCode()
+UNWIND_CODE* Win64UnwindInfo::AddCode(uint32_t codeOffset, UNWIND_OP_CODES op, uint8_t info)
 {
     assert(header.Version == 1);
     assert(header.CountOfUnwindCodes == 0);
     assert(codesIndex > sizeof(UNWIND_CODE));
 
     codesIndex -= sizeof(UNWIND_CODE);
-    return reinterpret_cast<UNWIND_CODE*>(&codes[codesIndex]);
+    UNWIND_CODE* code = reinterpret_cast<UNWIND_CODE*>(&codes[codesIndex]);
+    noway_assert(codeOffset <= UINT8_MAX);
+    code->CodeOffset = static_cast<uint8_t>(codeOffset);
+    code->UnwindOp   = op;
+    code->OpInfo     = info;
+    return code;
 }
 
-uint16_t* Win64UnwindInfo::AllocUInt16(uint16_t value)
+uint16_t* Win64UnwindInfo::AddUInt16(uint16_t value)
 {
     assert(header.Version == 1);
     assert(header.CountOfUnwindCodes == 0);
@@ -123,7 +128,7 @@ uint16_t* Win64UnwindInfo::AllocUInt16(uint16_t value)
     return p;
 }
 
-uint32_t* Win64UnwindInfo::AllocUInt32(uint32_t value)
+uint32_t* Win64UnwindInfo::AddUInt32(uint32_t value)
 {
     assert(header.Version == 1);
     assert(header.CountOfUnwindCodes == 0);
@@ -139,12 +144,7 @@ void CodeGen::unwindPushWindows(RegNum reg)
 {
     assert(generatingProlog);
 
-    FuncInfoDsc& func     = funCurrentFunc();
-    uint32_t     cbProlog = unwindGetCurrentOffset();
-
-    UNWIND_CODE* code = func.win.AllocCode();
-    noway_assert((uint8_t)cbProlog == cbProlog);
-    code->CodeOffset = (uint8_t)cbProlog;
+    Win64UnwindInfo& info = funCurrentFunc().win;
 
     if (((RBM_CALLEE_SAVED & genRegMask(reg)) != RBM_NONE)
 #if ETW_EBP_FRAMED
@@ -156,14 +156,12 @@ void CodeGen::unwindPushWindows(RegNum reg)
 #endif // ETW_EBP_FRAMED
             )
     {
-        code->UnwindOp = UWOP_PUSH_NONVOL;
-        code->OpInfo   = static_cast<uint8_t>(reg);
+        info.AddCode(unwindGetCurrentOffset(), UWOP_PUSH_NONVOL, static_cast<uint8_t>(reg));
     }
     else
     {
         // Push of a volatile register is just a small stack allocation
-        code->UnwindOp = UWOP_ALLOC_SMALL;
-        code->OpInfo   = 0;
+        info.AddCode(unwindGetCurrentOffset(), UWOP_ALLOC_SMALL, 0);
     }
 }
 
@@ -172,46 +170,33 @@ void CodeGen::unwindAllocStackWindows(unsigned size)
     assert(generatingProlog);
     assert(size % 8 == 0);
 
-    FuncInfoDsc& func     = funCurrentFunc();
-    uint32_t     cbProlog = unwindGetCurrentOffset();
-
-    UNWIND_CODE* code;
+    Win64UnwindInfo& info       = funCurrentFunc().win;
+    uint32_t         codeOffset = unwindGetCurrentOffset();
 
     if (size <= 128)
     {
-        code           = func.win.AllocCode();
-        code->UnwindOp = UWOP_ALLOC_SMALL;
-        code->OpInfo   = (size - 8) / 8;
+        info.AddCode(codeOffset, UWOP_ALLOC_SMALL, static_cast<uint8_t>((size - 8) / 8));
     }
     else if (size <= 0x7FFF8)
     {
-        func.win.AllocUInt16(static_cast<uint16_t>(size / 8));
-
-        code           = func.win.AllocCode();
-        code->UnwindOp = UWOP_ALLOC_LARGE;
-        code->OpInfo   = 0;
+        info.AddUInt16(static_cast<uint16_t>(size / 8));
+        info.AddCode(codeOffset, UWOP_ALLOC_LARGE, 0);
     }
     else
     {
-        func.win.AllocUInt32(size);
-
-        code           = func.win.AllocCode();
-        code->UnwindOp = UWOP_ALLOC_LARGE;
-        code->OpInfo   = 1;
+        info.AddUInt32(size);
+        info.AddCode(codeOffset, UWOP_ALLOC_LARGE, 1);
     }
-
-    noway_assert((uint8_t)cbProlog == cbProlog);
-    code->CodeOffset = (uint8_t)cbProlog;
 }
 
 void CodeGen::unwindSetFrameRegWindows(RegNum reg, unsigned offset)
 {
     assert(generatingProlog);
 
-    FuncInfoDsc& func     = funCurrentFunc();
-    uint32_t     cbProlog = unwindGetCurrentOffset();
+    Win64UnwindInfo& info       = funCurrentFunc().win;
+    uint32_t         codeOffset = unwindGetCurrentOffset();
 
-    func.win.header.FrameRegister = static_cast<uint8_t>(reg);
+    info.header.FrameRegister = static_cast<uint8_t>(reg);
 
 #ifdef TARGET_UNIX
     if (offset > 240)
@@ -222,15 +207,9 @@ void CodeGen::unwindSetFrameRegWindows(RegNum reg, unsigned offset)
 
         assert(offset % 16 == 0);
 
-        func.win.AllocUInt32(offset / 16);
-
-        UNWIND_CODE* code = func.win.AllocCode();
-        noway_assert((uint8_t)cbProlog == cbProlog);
-        code->CodeOffset = (uint8_t)cbProlog;
-        code->OpInfo     = 0;
-        code->UnwindOp   = UWOP_SET_FPREG_LARGE;
-
-        func.win.header.FrameOffset = 15;
+        info.AddUInt32(offset / 16);
+        info.AddCode(codeOffset, UWOP_SET_FPREG_LARGE, 0);
+        info.header.FrameOffset = 15;
     }
     else
 #endif // TARGET_UNIX
@@ -238,13 +217,8 @@ void CodeGen::unwindSetFrameRegWindows(RegNum reg, unsigned offset)
         assert(offset <= 240);
         assert(offset % 16 == 0);
 
-        UNWIND_CODE* code = func.win.AllocCode();
-        noway_assert((uint8_t)cbProlog == cbProlog);
-        code->CodeOffset = (uint8_t)cbProlog;
-        code->OpInfo     = 0;
-        code->UnwindOp   = UWOP_SET_FPREG;
-
-        func.win.header.FrameOffset = offset / 16;
+        info.AddCode(codeOffset, UWOP_SET_FPREG, 0);
+        info.header.FrameOffset = offset / 16;
     }
 }
 
@@ -252,43 +226,30 @@ void CodeGen::unwindSaveRegWindows(RegNum reg, unsigned offset)
 {
     assert(generatingProlog);
 
-    FuncInfoDsc& func = funCurrentFunc();
-
     if ((genRegMask(reg) & RBM_CALLEE_SAVED) == RBM_NONE)
     {
         return;
     }
 
-    uint32_t     cbProlog = unwindGetCurrentOffset();
-    UNWIND_CODE* code;
+    Win64UnwindInfo& info       = funCurrentFunc().win;
+    uint32_t         codeOffset = unwindGetCurrentOffset();
+    uint8_t          opInfo     = static_cast<uint8_t>(reg);
 
-    if (offset < 0x80000)
+    if (offset >= 0x80000)
     {
-        uint16_t* codedSize = func.win.AllocUInt16(0);
-        code                = func.win.AllocCode();
-
-        if (genIsValidFloatReg(reg))
-        {
-            *codedSize     = static_cast<uint16_t>(offset / 16);
-            code->UnwindOp = UWOP_SAVE_XMM128;
-        }
-        else
-        {
-            *codedSize     = static_cast<uint16_t>(offset / 8);
-            code->UnwindOp = UWOP_SAVE_NONVOL;
-        }
+        info.AddUInt32(offset);
+        info.AddCode(codeOffset, IsFloatReg(reg) ? UWOP_SAVE_XMM128_FAR : UWOP_SAVE_NONVOL_FAR, opInfo);
+    }
+    else if (IsFloatReg(reg))
+    {
+        info.AddUInt16(static_cast<uint16_t>(offset / 16));
+        info.AddCode(codeOffset, UWOP_SAVE_XMM128, opInfo);
     }
     else
     {
-        func.win.AllocUInt32(offset);
-
-        code           = func.win.AllocCode();
-        code->UnwindOp = genIsValidFloatReg(reg) ? UWOP_SAVE_XMM128_FAR : UWOP_SAVE_NONVOL_FAR;
+        info.AddUInt16(static_cast<uint16_t>(offset / 8));
+        info.AddCode(codeOffset, UWOP_SAVE_NONVOL, opInfo);
     }
-
-    code->OpInfo = (uint8_t)reg;
-    noway_assert((uint8_t)cbProlog == cbProlog);
-    code->CodeOffset = (uint8_t)cbProlog;
 }
 
 #ifdef TARGET_UNIX
@@ -417,31 +378,33 @@ void CodeGen::unwindReserveFuncRegion(FuncInfoDsc* func, bool isHotCode)
         else
 #endif
         {
-            assert(func->win.header.Version == 1);
-            assert(func->win.header.CountOfUnwindCodes == 0);
+            Win64UnwindInfo& info = func->win;
+
+            assert(info.header.Version == 1);
+            assert(info.header.CountOfUnwindCodes == 0);
 
             // Set the size of the prolog to be the last encoded action
-            if (func->win.codesIndex < sizeof(func->win.codes))
+            if (info.codesIndex < sizeof(info.codes))
             {
-                UNWIND_CODE* code             = reinterpret_cast<UNWIND_CODE*>(&func->win.codes[func->win.codesIndex]);
-                func->win.header.SizeOfProlog = code->CodeOffset;
+                UNWIND_CODE* code        = reinterpret_cast<UNWIND_CODE*>(&info.codes[func->win.codesIndex]);
+                info.header.SizeOfProlog = code->CodeOffset;
             }
             else
             {
-                func->win.header.SizeOfProlog = 0;
+                info.header.SizeOfProlog = 0;
             }
 
-            func->win.header.CountOfUnwindCodes =
-                static_cast<uint8_t>((sizeof(func->win.codes) - func->win.codesIndex) / sizeof(UNWIND_CODE));
+            info.header.CountOfUnwindCodes =
+                static_cast<uint8_t>((sizeof(info.codes) - info.codesIndex) / sizeof(UNWIND_CODE));
 
             // Prepend the unwindHeader onto the unwind codes
-            assert(func->win.codesIndex >= offsetof(UNWIND_INFO, UnwindCode));
+            assert(info.codesIndex >= offsetof(UNWIND_INFO, UnwindCode));
 
-            func->win.codesIndex -= offsetof(UNWIND_INFO, UnwindCode);
-            UNWIND_INFO* header = reinterpret_cast<UNWIND_INFO*>(&func->win.codes[func->win.codesIndex]);
-            memcpy(header, &func->win.header, offsetof(UNWIND_INFO, UnwindCode));
+            info.codesIndex -= offsetof(UNWIND_INFO, UnwindCode);
+            UNWIND_INFO* header = reinterpret_cast<UNWIND_INFO*>(&info.codes[func->win.codesIndex]);
+            memcpy(header, &info.header, offsetof(UNWIND_INFO, UnwindCode));
 
-            unwindSize = sizeof(func->win.codes) - func->win.codesIndex;
+            unwindSize = sizeof(info.codes) - info.codesIndex;
         }
     }
 
@@ -495,12 +458,13 @@ void CodeGen::unwindEmitFuncRegion(FuncInfoDsc* func, bool isHotCode)
         else
 #endif
         {
-            unwindSize  = sizeof(func->win.codes) - func->win.codesIndex;
-            unwindBlock = &func->win.codes[func->win.codesIndex];
+            Win64UnwindInfo& info = func->win;
 
-            UNWIND_INFO* unwindInfo = reinterpret_cast<UNWIND_INFO*>(&func->win.codes[func->win.codesIndex]);
-            assert(unwindSize ==
-                   offsetof(UNWIND_INFO, UnwindCode) + unwindInfo->CountOfUnwindCodes * sizeof(UNWIND_CODE));
+            unwindSize  = sizeof(info.codes) - info.codesIndex;
+            unwindBlock = &info.codes[info.codesIndex];
+
+            UNWIND_INFO* header = reinterpret_cast<UNWIND_INFO*>(&info.codes[info.codesIndex]);
+            assert(unwindSize == offsetof(UNWIND_INFO, UnwindCode) + header->CountOfUnwindCodes * sizeof(UNWIND_CODE));
         }
     }
     else
