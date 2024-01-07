@@ -540,10 +540,12 @@ UnwindPrologCodes::UnwindPrologCodes(Compiler* comp) : UnwindCodesBase(comp)
     // Push four so we can generate an array that is a multiple of 4 bytes in size with the
     // end codes (and padding) already in place. One is the end code for the prolog codes,
     // three are end-of-array alignment padding.
-    PushByte(UWC_END);
-    PushByte(UWC_END);
-    PushByte(UWC_END);
-    PushByte(UWC_END);
+    uint8_t* code = AllocCode(4);
+
+    code[0] = UWC_END;
+    code[1] = UWC_END;
+    code[2] = UWC_END;
+    code[3] = UWC_END;
 }
 
 // We're going to use the prolog codes memory to store the final unwind data.
@@ -683,6 +685,21 @@ void UnwindPrologCodes::CopyFrom(const UnwindPrologCodes& copyFrom)
     upcUnwindBlockSlot = copyFrom.upcUnwindBlockSlot;
 }
 
+uint8_t* UnwindPrologCodes::AllocCode(int size)
+{
+    assert(1 <= size && size <= 4);
+
+    if (upcCodeSlot < size)
+    {
+        EnsureSize(upcMemSize + size);
+    }
+
+    upcCodeSlot -= size;
+    noway_assert(0 <= upcCodeSlot && upcCodeSlot < upcMemSize);
+
+    return &upcMem[upcCodeSlot];
+}
+
 void UnwindPrologCodes::EnsureSize(int requiredSize)
 {
     if (requiredSize > upcMemSize)
@@ -705,18 +722,17 @@ void UnwindPrologCodes::EnsureSize(int requiredSize)
     }
 }
 
-// Add a single byte on the unwind code array
-void UnwindEpilogCodes::AppendByte(uint8_t b)
+uint8_t* UnwindEpilogCodes::AllocCode(int size)
 {
-    if (uecCodeSlot == uecMemSize - 1)
+    if (uecCodeSlot >= uecMemSize - size)
     {
-        EnsureSize(uecMemSize + 1);
+        EnsureSize(uecMemSize + size);
     }
 
-    ++uecCodeSlot;
+    uecCodeSlot += size;
     noway_assert(0 <= uecCodeSlot && uecCodeSlot < uecMemSize);
-
-    uecMem[uecCodeSlot] = b;
+    firstByteOfLastCode = &uecMem[uecCodeSlot - size + 1];
+    return firstByteOfLastCode;
 }
 
 // Return the size of the unwind codes, in bytes. The size is the exact size, not an aligned size.
@@ -739,10 +755,9 @@ void UnwindEpilogCodes::FinalizeCodes()
     assert(!uecFinalized);
     noway_assert(0 <= uecCodeSlot && uecCodeSlot < uecMemSize); // There better be at least one code!
 
-    if (!IsEndCode(firstByteOfLastCode)) // If the last code is an end code, we don't need to append one.
+    if (!IsEndCode(*firstByteOfLastCode)) // If the last code is an end code, we don't need to append one.
     {
-        AppendByte(UWC_END);           // Add a default "end" code to the end of the array of unwind codes
-        firstByteOfLastCode = UWC_END; // Update firstByteOfLastCode in case we use it later
+        AllocCode(1)[0] = UWC_END;
     }
 
     uecFinalized = true; // With the "end" code in place, now we're done
@@ -858,7 +873,7 @@ void UnwindFragmentInfo::CopyPrologCodes(const UnwindFragmentInfo& copyFrom)
 {
     ufiPrologCodes.CopyFrom(copyFrom.ufiPrologCodes);
 #ifdef TARGET_ARM64
-    ufiPrologCodes.AddCode(UWC_END_C);
+    ufiPrologCodes.AllocCode(1)[0] = UWC_END_C;
 #endif
 }
 

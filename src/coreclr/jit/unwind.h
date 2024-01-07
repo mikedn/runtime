@@ -126,49 +126,12 @@ public:
     UnwindPrologCodes(const UnwindPrologCodes& info) = delete;
     UnwindPrologCodes& operator=(const UnwindPrologCodes&) = delete;
 
-    void AddCode(uint8_t b1)
-    {
-        PushByte(b1);
-    }
-
-    void AddCode(uint8_t b1, uint8_t b2)
-    {
-        PushByte(b2);
-        PushByte(b1);
-    }
-
-    void AddCode(uint8_t b1, uint8_t b2, uint8_t b3)
-    {
-        PushByte(b3);
-        PushByte(b2);
-        PushByte(b1);
-    }
-
-    void AddCode(uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4)
-    {
-        PushByte(b4);
-        PushByte(b3);
-        PushByte(b2);
-        PushByte(b1);
-    }
+    uint8_t* AllocCode(int size);
 
     uint8_t* GetCodes() const
     {
         assert(upcCodeSlot < upcMemSize);
         return &upcMem[upcCodeSlot];
-    }
-
-    void PushByte(uint8_t b)
-    {
-        if (upcCodeSlot == 0)
-        {
-            EnsureSize(upcMemSize + 1);
-        }
-
-        --upcCodeSlot;
-        noway_assert(0 <= upcCodeSlot && upcCodeSlot < upcMemSize);
-
-        upcMem[upcCodeSlot] = b;
     }
 
     // Return the size of the unwind codes, in bytes. The size is the exact size, not an aligned size.
@@ -214,7 +177,7 @@ class UnwindEpilogCodes : public UnwindCodesBase
     // the beginning, so it starts at -1.
     int uecCodeSlot = -1;
 
-    uint8_t firstByteOfLastCode = 0;
+    uint8_t* firstByteOfLastCode = nullptr;
     // Is the unwind information finalized? Finalized info has an end code appended.
     bool uecFinalized = false;
 
@@ -230,39 +193,7 @@ public:
     UnwindEpilogCodes(const UnwindEpilogCodes& info) = delete;
     UnwindEpilogCodes& operator=(const UnwindEpilogCodes&) = delete;
 
-    void AddCode(uint8_t b1)
-    {
-        AppendByte(b1);
-
-        firstByteOfLastCode = b1;
-    }
-
-    void AddCode(uint8_t b1, uint8_t b2)
-    {
-        AppendByte(b1);
-        AppendByte(b2);
-
-        firstByteOfLastCode = b1;
-    }
-
-    void AddCode(uint8_t b1, uint8_t b2, uint8_t b3)
-    {
-        AppendByte(b1);
-        AppendByte(b2);
-        AppendByte(b3);
-
-        firstByteOfLastCode = b1;
-    }
-
-    void AddCode(uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4)
-    {
-        AppendByte(b1);
-        AppendByte(b2);
-        AppendByte(b3);
-        AppendByte(b4);
-
-        firstByteOfLastCode = b1;
-    }
+    uint8_t* AllocCode(int size);
 
     uint8_t* GetCodes() const
     {
@@ -270,7 +201,6 @@ public:
         return uecMem;
     }
 
-    void AppendByte(uint8_t b);
     int  Size() const;
     void FinalizeCodes();
 
@@ -428,63 +358,11 @@ public:
         return ufiStartLoc;
     }
 
-    // Add an unwind code. It could be for a prolog, or for the current epilog.
-    // A single unwind code can be from 1 to 4 bytes.
-
-    void AddCode(uint8_t b1)
+    uint8_t* AllocCode(int size)
     {
         assert(ufiInitialized);
 
-        if (ufiEpilogLast == nullptr)
-        {
-            ufiPrologCodes.AddCode(b1);
-        }
-        else
-        {
-            ufiEpilogLast->epiCodes.AddCode(b1);
-        }
-    }
-
-    void AddCode(uint8_t b1, uint8_t b2)
-    {
-        assert(ufiInitialized);
-
-        if (ufiEpilogLast == nullptr)
-        {
-            ufiPrologCodes.AddCode(b1, b2);
-        }
-        else
-        {
-            ufiEpilogLast->epiCodes.AddCode(b1, b2);
-        }
-    }
-
-    void AddCode(uint8_t b1, uint8_t b2, uint8_t b3)
-    {
-        assert(ufiInitialized);
-
-        if (ufiEpilogLast == nullptr)
-        {
-            ufiPrologCodes.AddCode(b1, b2, b3);
-        }
-        else
-        {
-            ufiEpilogLast->epiCodes.AddCode(b1, b2, b3);
-        }
-    }
-
-    void AddCode(uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4)
-    {
-        assert(ufiInitialized);
-
-        if (ufiEpilogLast == nullptr)
-        {
-            ufiPrologCodes.AddCode(b1, b2, b3, b4);
-        }
-        else
-        {
-            ufiEpilogLast->epiCodes.AddCode(b1, b2, b3, b4);
-        }
+        return ufiEpilogLast == nullptr ? ufiPrologCodes.AllocCode(size) : ufiEpilogLast->epiCodes.AllocCode(size);
     }
 
     UnwindEpilogInfo* AddEpilog();
@@ -557,7 +435,9 @@ public:
         assert(uwiInitialized);
         INDEBUG(CheckOpsize(b1));
 
-        uwiFragmentFirst.AddCode(b1);
+        uint8_t* code = uwiFragmentFirst.AllocCode(1);
+
+        code[0] = b1;
     }
 
     void AddCode(uint8_t b1, uint8_t b2)
@@ -565,7 +445,10 @@ public:
         assert(uwiInitialized);
         INDEBUG(CheckOpsize(b1));
 
-        uwiFragmentFirst.AddCode(b1, b2);
+        uint8_t* code = uwiFragmentFirst.AllocCode(2);
+
+        code[0] = b1;
+        code[1] = b2;
     }
 
     void AddCode(uint8_t b1, uint8_t b2, uint8_t b3)
@@ -573,7 +456,11 @@ public:
         assert(uwiInitialized);
         INDEBUG(CheckOpsize(b1));
 
-        uwiFragmentFirst.AddCode(b1, b2, b3);
+        uint8_t* code = uwiFragmentFirst.AllocCode(3);
+
+        code[0] = b1;
+        code[1] = b2;
+        code[2] = b3;
     }
 
     void AddCode(uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4)
@@ -581,7 +468,12 @@ public:
         assert(uwiInitialized);
         INDEBUG(CheckOpsize(b1));
 
-        uwiFragmentFirst.AddCode(b1, b2, b3, b4);
+        uint8_t* code = uwiFragmentFirst.AllocCode(4);
+
+        code[0] = b1;
+        code[1] = b2;
+        code[2] = b3;
+        code[3] = b4;
     }
 
     UnwindEpilogInfo* AddEpilog();
