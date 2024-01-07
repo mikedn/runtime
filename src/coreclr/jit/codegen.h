@@ -1290,7 +1290,7 @@ public:
     void unwindPushPopMaskCFI(regMaskTP regMask, bool isFloat);
     void unwindAllocStackCFI(unsigned size);
     void unwindSetFrameRegCFI(RegNum reg, unsigned offset);
-    void unwindEmitFuncCFI(FuncInfoDsc* func, void* hotCode, void* coldCode);
+    void unwindEmitFuncCFI(FuncInfoDsc* func);
 
     bool generateCFIUnwindCodes() const
     {
@@ -1311,22 +1311,17 @@ public:
     void unwindGetFuncColdRange(FuncInfoDsc* func, insGroup** start, insGroup** end);
     void unwindGetFuncColdRange(FuncInfoDsc* func, uint32_t* start, uint32_t* end);
     void unwindReserveFunc(FuncInfoDsc* func);
-    void unwindEmitFunc(FuncInfoDsc* func, void* hotCode, void* coldCode);
+    void unwindEmitFunc(FuncInfoDsc* func);
 #endif
 #if defined(TARGET_AMD64) || (defined(TARGET_X86) && defined(FEATURE_EH_FUNCLETS))
     void unwindReserveFuncRegion(FuncInfoDsc* func, bool isHotCode);
-    void unwindEmitFuncRegion(FuncInfoDsc* func, void* hotCode, void* coldCode, bool isHotCode);
+    void unwindEmitFuncRegion(FuncInfoDsc* func, bool isHotCode);
 #endif
 
 #ifdef FEATURE_EH_FUNCLETS
     void eeReserveUnwindInfo(bool isFunclet, bool isColdCode, uint32_t unwindSize);
-    void eeAllocUnwindInfo(FuncKind kind,
-                           void*    hotCode,
-                           void*    coldCode,
-                           uint32_t startOffset,
-                           uint32_t endOffset,
-                           uint32_t unwindSize,
-                           void*    unwindBlock);
+    void eeAllocUnwindInfo(
+        FuncKind kind, bool isHotCode, uint32_t startOffset, uint32_t endOffset, uint32_t unwindSize, void* unwindBlock);
 #endif
 };
 

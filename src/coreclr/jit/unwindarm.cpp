@@ -503,25 +503,25 @@ void CodeGen::unwindEmit()
 
     for (unsigned i = 0; i < compFuncInfoCount; i++)
     {
-        unwindEmitFunc(&funGetFunc(i), codePtr, coldCodePtr);
+        unwindEmitFunc(&funGetFunc(i));
     }
 }
 
-void CodeGen::unwindEmitFunc(FuncInfoDsc* func, void* hotCode, void* coldCode)
+void CodeGen::unwindEmitFunc(FuncInfoDsc* func)
 {
 #ifdef TARGET_UNIX
     if (generateCFIUnwindCodes())
     {
-        unwindEmitFuncCFI(func, hotCode, coldCode);
+        unwindEmitFuncCFI(func);
         return;
     }
 #endif
 
-    func->uwi.Allocate(this, func->kind, hotCode, coldCode, true);
+    func->uwi.Allocate(this, func->kind, true);
 
     if (func->uwiCold != nullptr)
     {
-        func->uwiCold->Allocate(this, func->kind, hotCode, coldCode, false);
+        func->uwiCold->Allocate(this, func->kind, false);
     }
 }
 
@@ -1233,17 +1233,12 @@ void DumpUnwindInfo(Compiler*      comp,
                     bool           isHotCode,
                     uint32_t       startOffset,
                     uint32_t       endOffset,
-                    const uint8_t* pHeader,
+                    const uint8_t* header,
                     uint32_t       unwindBlockSize);
 #endif
 
-void UnwindFragmentInfo::Allocate(CodeGen* codeGen,
-                                  FuncKind kind,
-                                  void*    hotCode,
-                                  void*    coldCode,
-                                  uint32_t startOffset,
-                                  uint32_t endOffset,
-                                  bool     isHotCode)
+void UnwindFragmentInfo::Allocate(
+    CodeGen* codeGen, FuncKind kind, uint32_t startOffset, uint32_t endOffset, bool isHotCode)
 {
     noway_assert(isHotCode || (kind == FUNC_ROOT)); // TODO-CQ: support funclets in cold code
 
@@ -1267,8 +1262,6 @@ void UnwindFragmentInfo::Allocate(CodeGen* codeGen,
     if (isHotCode)
     {
         assert(endOffset <= codeGen->GetHotCodeSize());
-
-        coldCode = nullptr;
     }
     else
     {
@@ -1280,7 +1273,7 @@ void UnwindFragmentInfo::Allocate(CodeGen* codeGen,
 
     DBEXEC(ufiNum != 1, JITDUMP("unwindEmit: fragment #%d:\n", ufiNum));
 
-    codeGen->eeAllocUnwindInfo(kind, hotCode, coldCode, startOffset, endOffset, unwindBlockSize, unwindBlock);
+    codeGen->eeAllocUnwindInfo(kind, isHotCode, startOffset, endOffset, unwindBlockSize, unwindBlock);
 }
 
 UnwindInfo::UnwindInfo(Compiler* comp, insGroup* start, insGroup* end)
@@ -1481,7 +1474,7 @@ void UnwindInfo::Reserve(CodeGen* codeGen, FuncKind kind, bool isHotCode)
 }
 
 // Allocate and populate VM unwind info for all fragments
-void UnwindInfo::Allocate(CodeGen* codeGen, FuncKind kind, void* hotCode, void* coldCode, bool isHotCode)
+void UnwindInfo::Allocate(CodeGen* codeGen, FuncKind kind, bool isHotCode)
 {
     assert(uwiInitialized);
     DBEXEC(codeGen->compiler->verbose, Dump(isHotCode, 0));
@@ -1504,7 +1497,7 @@ void UnwindInfo::Allocate(CodeGen* codeGen, FuncKind kind, void* hotCode, void* 
             endOffset = f->ufiNext->GetStartLoc()->GetCodeOffset();
         }
 
-        f->Allocate(codeGen, kind, hotCode, coldCode, startOffset, endOffset, isHotCode);
+        f->Allocate(codeGen, kind, startOffset, endOffset, isHotCode);
         startOffset = endOffset;
     }
 }

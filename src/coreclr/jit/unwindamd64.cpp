@@ -456,23 +456,23 @@ void CodeGen::unwindEmit()
 
     for (unsigned i = 0; i < compFuncInfoCount; i++)
     {
-        unwindEmitFunc(&funGetFunc(i), codePtr, coldCodePtr);
+        unwindEmitFunc(&funGetFunc(i));
     }
 }
 
-void CodeGen::unwindEmitFunc(FuncInfoDsc* func, void* hotCode, void* coldCode)
+void CodeGen::unwindEmitFunc(FuncInfoDsc* func)
 {
-    unwindEmitFuncRegion(func, hotCode, coldCode, true);
+    unwindEmitFuncRegion(func, true);
 
-    if (coldCode != nullptr)
+    if (coldCodePtr != nullptr)
     {
-        unwindEmitFuncRegion(func, hotCode, coldCode, false);
+        unwindEmitFuncRegion(func, false);
     }
 }
 
 static void DumpUnwindInfo(bool isHotCode, uint32_t startOffset, uint32_t endOffset, const UNWIND_INFO* header);
 
-void CodeGen::unwindEmitFuncRegion(FuncInfoDsc* func, void* hotCode, void* coldCode, bool isHotCode)
+void CodeGen::unwindEmitFuncRegion(FuncInfoDsc* func, bool isHotCode)
 {
     uint32_t startOffset;
     uint32_t endOffset;
@@ -527,16 +527,9 @@ void CodeGen::unwindEmitFuncRegion(FuncInfoDsc* func, void* hotCode, void* coldC
     }
 #endif // DEBUG
 
-    // Adjust for cold or hot code:
-    // 1. The VM doesn't want the cold code pointer unless this is cold code.
-    // 2. The startOffset and endOffset need to be from the base of the hot section for hot code
-    //    and from the base of the cold section for cold code
-
     if (isHotCode)
     {
         assert(endOffset <= hotCodeSize);
-
-        coldCode = nullptr;
     }
     else
     {
@@ -546,7 +539,7 @@ void CodeGen::unwindEmitFuncRegion(FuncInfoDsc* func, void* hotCode, void* coldC
         endOffset -= hotCodeSize;
     }
 
-    eeAllocUnwindInfo(func->kind, hotCode, coldCode, startOffset, endOffset, unwindSize, unwindBlock);
+    eeAllocUnwindInfo(func->kind, isHotCode, startOffset, endOffset, unwindSize, unwindBlock);
 }
 
 #ifdef DEBUG

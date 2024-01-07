@@ -215,7 +215,7 @@ void CodeGen::unwindSetFrameRegCFI(RegNum reg, unsigned offset)
     }
 }
 
-void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* hotCode, void* coldCode)
+void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func)
 {
     uint32_t startOffset;
     uint32_t endOffset;
@@ -228,9 +228,9 @@ void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* hotCode, void* coldCode
 
     DBEXEC(compiler->opts.dspUnwind, DumpCfiInfo(/* isHotCode */ true, startOffset, endOffset, codeCount, codes));
 
-    eeAllocUnwindInfo(func->kind, hotCode, nullptr, startOffset, endOffset, codeCount * sizeof(CFI_CODE), codes);
+    eeAllocUnwindInfo(func->kind, true, startOffset, endOffset, codeCount * sizeof(CFI_CODE), codes);
 
-    if (coldCode == nullptr)
+    if (coldCodePtr == nullptr)
     {
         return;
     }
@@ -244,7 +244,7 @@ void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* hotCode, void* coldCode
     startOffset -= hotCodeSize;
     endOffset -= hotCodeSize;
 
-    eeAllocUnwindInfo(func->kind, hotCode, coldCode, startOffset, endOffset, 0, nullptr);
+    eeAllocUnwindInfo(func->kind, false, startOffset, endOffset, 0, nullptr);
 }
 
 #ifdef DEBUG
@@ -315,17 +315,12 @@ static const char* GetFuncKindName(FuncKind kind)
 }
 #endif
 
-void CodeGen::eeAllocUnwindInfo(FuncKind kind,
-                                void*    hotCode,
-                                void*    coldCode,
-                                uint32_t startOffset,
-                                uint32_t endOffset,
-                                uint32_t unwindSize,
-                                void*    unwindBlock)
+void CodeGen::eeAllocUnwindInfo(
+    FuncKind kind, bool isHotCode, uint32_t startOffset, uint32_t endOffset, uint32_t unwindSize, void* unwindBlock)
 {
     JITDUMP("allocUnwindInfo(pHotCode=0x%p, pColdCode=0x%p, startOffset=0x%x, endOffset=0x%x, unwindSize=0x%x, "
             "pUnwindBlock=0x%p, funKind=%s",
-            dspPtr(hotCode), dspPtr(coldCode), startOffset, endOffset, unwindSize, dspPtr(unwindBlock),
+            dspPtr(codePtr), dspPtr(coldCodePtr), startOffset, endOffset, unwindSize, dspPtr(unwindBlock),
             GetFuncKindName(kind));
 
     // Verify that the JIT enum is in sync with the JIT-EE interface enum
@@ -335,7 +330,8 @@ void CodeGen::eeAllocUnwindInfo(FuncKind kind,
 
     if (compiler->info.compMatchedVM)
     {
-        compiler->info.compCompHnd->allocUnwindInfo(static_cast<uint8_t*>(hotCode), static_cast<uint8_t*>(coldCode),
+        compiler->info.compCompHnd->allocUnwindInfo(static_cast<uint8_t*>(codePtr),
+                                                    isHotCode ? nullptr : static_cast<uint8_t*>(coldCodePtr),
                                                     startOffset, endOffset, unwindSize,
                                                     static_cast<uint8_t*>(unwindBlock),
                                                     static_cast<CorJitFuncKind>(kind));
