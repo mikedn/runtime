@@ -645,16 +645,16 @@ void UnwindPrologCodes::GetFinalInfo(uint8_t** unwindBlock, uint32_t* unwindBloc
 //
 // Note that if we wanted to handle ARM's 0xFD and 0xFE codes, by converting
 // an existing 0xFF code to one of those, we might do that here.
-int UnwindPrologCodes::Match(UnwindEpilogInfo* epilog) const
+int UnwindPrologCodes::Match(const UnwindEpilogCodes& epilog) const
 {
-    if (Size() < epilog->Size())
+    if (Size() < epilog.Size())
     {
         return -1;
     }
 
-    int matchIndex = Size() - epilog->Size();
+    int matchIndex = Size() - epilog.Size();
 
-    if (memcmp(GetCodes() + matchIndex, epilog->GetCodes(), epilog->Size()) == 0)
+    if (memcmp(GetCodes() + matchIndex, epilog.GetCodes(), epilog.Size()) == 0)
     {
         return matchIndex;
     }
@@ -827,34 +827,17 @@ UnwindEpilogInfo* UnwindFragmentInfo::AddEpilog()
 {
     assert(ufiInitialized);
 
-#ifdef DEBUG
-    if (ufiInProlog)
-    {
-        assert(ufiEpilogList == nullptr);
-        ufiInProlog = false;
-    }
-    else
-    {
-        assert(ufiEpilogList != nullptr);
-    }
-#endif // DEBUG
-
-    // Either allocate a new epilog object, or, for the first one, use the
-    // preallocated one that is a member of the UnwindFragmentInfo class.
-
     UnwindEpilogInfo* epilog;
 
     if (ufiEpilogList == nullptr)
     {
-        // Use the epilog that's in the class already. Be sure to initialize it!
-        epilog = ufiEpilogList = &ufiEpilogFirst;
+        epilog        = &ufiEpilogFirst;
+        ufiEpilogList = epilog;
     }
     else
     {
         epilog = new (ufiPrologCodes.GetCompiler(), CMK_UnwindInfo) UnwindEpilogInfo(ufiPrologCodes.GetCompiler());
     }
-
-    // Put the new epilog at the end of the epilog list
 
     if (ufiEpilogLast != nullptr)
     {
@@ -956,9 +939,8 @@ void UnwindFragmentInfo::MergeCodes()
         // NOTE: for the purpose of matching, we don't handle the 0xFD and 0xFE end codes that allow slightly unequal
         // prolog and epilog codes.
 
-        int matchIndex;
+        int matchIndex = ufiPrologCodes.Match(epilog->Codes());
 
-        matchIndex = ufiPrologCodes.Match(epilog);
         if (matchIndex != -1)
         {
             epilog->SetMatches();
@@ -969,7 +951,6 @@ void UnwindFragmentInfo::MergeCodes()
             // The epilog codes don't match the prolog codes. Do they match any of the epilogs
             // we've seen so far?
 
-            bool matched = false;
             for (UnwindEpilogInfo* epilog2 = ufiEpilogList; epilog2 != epilog; epilog2 = epilog2->epiNext)
             {
                 matchIndex = epilog2->Match(epilog);
@@ -980,12 +961,12 @@ void UnwindFragmentInfo::MergeCodes()
                     epilog->SetMatches();
                     // We might match somewhere inside epilog2's codes, in which case matchIndex > 0
                     epilog->SetStartIndex(epilog2->GetStartIndex() + matchIndex);
-                    matched = true;
+
                     break;
                 }
             }
 
-            if (!matched)
+            if (matchIndex == -1)
             {
                 epilog->SetStartIndex(epilogIndex); // We'll copy these codes to the next available location
                 epilogCodeBytes += epilog->Size();
@@ -1080,8 +1061,6 @@ void UnwindFragmentInfo::Finalize(uint32_t startOffset, uint32_t functionLength)
         Dump();
     }
 #endif
-
-// Compute the header
 
 #ifdef TARGET_ARM
     noway_assert((functionLength & 1) == 0);
@@ -1239,19 +1218,19 @@ void UnwindFragmentInfo::Allocate(
     CodeGen* codeGen, FuncKind kind, uint32_t startOffset, uint32_t endOffset, bool isHotCode)
 {
     noway_assert(isHotCode || (kind == FUNC_ROOT)); // TODO-CQ: support funclets in cold code
-
     assert(endOffset > startOffset);
+
     uint32_t codeSize = endOffset - startOffset;
 
     Finalize(startOffset, codeSize);
 
-    uint32_t unwindBlockSize;
     uint8_t* unwindBlock;
-    GetFinalInfo(&unwindBlock, &unwindBlockSize);
+    uint32_t unwindSize;
+    ufiPrologCodes.GetFinalInfo(&unwindBlock, &unwindSize);
 
     DBEXEC(ufiNum != 1, JITDUMP("unwindEmit: fragment #%d:\n", ufiNum));
 
-    codeGen->eeAllocUnwindInfo(kind, isHotCode, startOffset, endOffset, unwindBlockSize, unwindBlock);
+    codeGen->eeAllocUnwindInfo(kind, isHotCode, startOffset, endOffset, unwindSize, unwindBlock);
 }
 
 UnwindInfo::UnwindInfo(Compiler* comp, insGroup* start, insGroup* end)
@@ -1589,7 +1568,6 @@ void UnwindFragmentInfo::Dump(int indent)
     printf("%*s  ufiNeedExtendedCodeWordsEpilogCount: %d\n", indent, "", ufiNeedExtendedCodeWordsEpilogCount);
     printf("%*s  ufiCodeWords: %u\n", indent, "", ufiCodeWords);
     printf("%*s  ufiEpilogScopes: %u\n", indent, "", ufiEpilogScopes);
-    printf("%*s  ufiInProlog: %d\n", indent, "", ufiInProlog);
     printf("%*s  ufiInitialized: %d\n", indent, "", ufiInitialized);
 
     ufiPrologCodes.Dump(indent + 2);

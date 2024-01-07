@@ -70,6 +70,7 @@ public:
 };
 
 class UnwindEpilogInfo;
+class UnwindEpilogCodes;
 
 // Represents the unwind codes for a prolog sequence.
 // Prolog unwind codes arrive in reverse order from how they will be emitted.
@@ -136,7 +137,7 @@ public:
     // Copy the epilog bytes to the next epilog bytes slot
     void AppendEpilog(UnwindEpilogInfo* epilog);
     // Match the prolog codes to a set of epilog codes
-    int Match(UnwindEpilogInfo* epilog) const;
+    int Match(const UnwindEpilogCodes& epilog) const;
     // Copy the prolog codes from another prolog
     void CopyFrom(const UnwindPrologCodes& pCopyFrom);
 
@@ -256,6 +257,11 @@ public:
         return epiMatches;
     }
 
+    const UnwindEpilogCodes& Codes() const
+    {
+        return epiCodes;
+    }
+
     int Size() const
     {
         return epiCodes.Size();
@@ -306,11 +312,8 @@ class UnwindFragmentInfo
     bool ufiNeedExtendedCodeWordsEpilogCount = false;
 
 #ifdef DEBUG
-    unsigned ufiNum = 1;
-    // Are we processing the prolog? The prolog must come first, followed by a (possibly empty)
-    // set of epilogs, for this function/funclet.
-    bool ufiInProlog    = true;
-    bool ufiInitialized = false;
+    unsigned ufiNum         = 1;
+    bool     ufiInitialized = false;
 #endif
 
 public:
@@ -365,13 +368,6 @@ public:
     }
 
     void Finalize(uint32_t startOffset, uint32_t functionLength);
-
-    // Return a pointer to the final unwind info to hand to the VM, and the size of this info in bytes
-    void GetFinalInfo(uint8_t** unwindBlock, uint32_t* unwindBlockSize)
-    {
-        ufiPrologCodes.GetFinalInfo(unwindBlock, unwindBlockSize);
-    }
-
     void Reserve(CodeGen* codeGen, FuncKind kind, bool isHotCode);
     void Allocate(CodeGen* codeGen, FuncKind kind, uint32_t startOffset, uint32_t endOffset, bool isHotCode);
 
