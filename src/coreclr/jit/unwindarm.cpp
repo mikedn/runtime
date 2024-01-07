@@ -54,7 +54,7 @@ void CodeGen::unwindBegProlog()
     unwindGetFuncHotRange(&func, &startLoc, &endLoc);
 
     new (&func.uwi) UnwindInfo(compiler, startLoc, endLoc);
-    func.uwi.CaptureLocation(GetEmitter());
+    unwindCaptureLocation();
 
     func.uwiCold = nullptr; // No cold data yet
 }
@@ -77,7 +77,7 @@ void CodeGen::unwindBegEpilog()
 
     UnwindEpilogInfo* epilog = funCurrentFunc().uwi.AddEpilog();
     epilog->CaptureLocation(GetEmitter());
-    funCurrentFunc().uwi.CaptureLocation(GetEmitter());
+    unwindCaptureLocation();
 }
 
 void CodeGen::unwindEndEpilog()
@@ -173,7 +173,7 @@ void CodeGen::unwindPushPopMaskInt(regMaskTP maskInt, bool useOpsize16)
         }
     }
 
-    info.CaptureLocation(GetEmitter());
+    unwindCaptureLocation();
 }
 
 void CodeGen::unwindPushPopMaskFloat(regMaskTP maskFloat)
@@ -208,7 +208,7 @@ void CodeGen::unwindPushPopMaskFloat(regMaskTP maskFloat)
     // E0-E7 : vpop {d8-dX} (X=8-15) (opsize 32)
     assert(0 <= val && val <= 7);
     info.AddCode(0xE0 | val);
-    info.CaptureLocation(GetEmitter());
+    unwindCaptureLocation();
 }
 
 void CodeGen::unwindPushMaskInt(regMaskTP maskInt)
@@ -348,7 +348,7 @@ void CodeGen::unwindAllocStack(unsigned size)
         info.AddCode(b1, (uint8_t)(size >> 16), (uint8_t)(size >> 8), (uint8_t)size);
     }
 
-    info.CaptureLocation(GetEmitter());
+    unwindCaptureLocation();
 }
 
 void CodeGen::unwindSetFrameReg(RegNum reg, unsigned offset)
@@ -373,7 +373,7 @@ void CodeGen::unwindSetFrameReg(RegNum reg, unsigned offset)
 
     // C0-CF : mov sp, rX (opsize 16)
     info.AddCode((uint8_t)(0xC0 + reg));
-    info.CaptureLocation(GetEmitter());
+    unwindCaptureLocation();
 }
 
 void CodeGen::unwindSaveReg(RegNum reg, unsigned offset)
@@ -395,7 +395,7 @@ void CodeGen::unwindBranch16()
     // TODO-CQ: need to handle changing the exit code from 0xFF to 0xFD. Currently, this will waste an extra 0xFF at the
     // end, automatically added.
     info.AddCode(0xFD);
-    info.CaptureLocation(GetEmitter());
+    unwindCaptureLocation();
 }
 
 void CodeGen::unwindNop(unsigned codeSizeInBytes) // codeSizeInBytes is 2 or 4 bytes for Thumb2 instruction
@@ -424,7 +424,7 @@ void CodeGen::unwindNop(unsigned codeSizeInBytes) // codeSizeInBytes is 2 or 4 b
         info.AddCode(0xFC); // nop (opsize 32)
     }
 
-    info.CaptureLocation(GetEmitter());
+    unwindCaptureLocation();
 
     INDEBUG(info.uwiAddingNOP = false);
 }
@@ -443,7 +443,7 @@ void CodeGen::unwindPadding()
     }
 #endif
 
-    GetEmitter()->emitUnwindNopPadding(funCurrentFunc().uwi.GetCurrentLocation());
+    GetEmitter()->emitUnwindNopPadding(unwindLoc);
 }
 
 void CodeGen::unwindReserve()
@@ -1490,15 +1490,9 @@ UnwindEpilogInfo* UnwindInfo::AddEpilog()
 unsigned UnwindInfo::GetInstructionSize()
 {
     assert(uwiInitialized);
-    return uwiComp->codeGen->GetEmitter()->emitGetInstructionSize(uwiCurLoc);
+    return uwiComp->codeGen->GetEmitter()->emitGetInstructionSize(static_cast<CodeGen*>(uwiComp->codeGen)->unwindLoc);
 }
 #endif
-
-void UnwindInfo::CaptureLocation(emitter* emitter)
-{
-    assert(uwiInitialized);
-    uwiCurLoc.CaptureLocation(emitter);
-}
 
 UnwindFragmentInfo* UnwindInfo::AddFragment(UnwindFragmentInfo* last, insGroup* ig)
 {

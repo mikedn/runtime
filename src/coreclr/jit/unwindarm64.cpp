@@ -55,7 +55,7 @@ void CodeGen::unwindAllocStack(unsigned size)
         info.AddCode(0xE0, (uint8_t)(x >> 16), (uint8_t)(x >> 8), (uint8_t)x);
     }
 
-    info.CaptureLocation(GetEmitter());
+    unwindCaptureLocation();
 }
 
 void CodeGen::unwindSetFrameReg(RegNum reg, unsigned offset)
@@ -94,7 +94,7 @@ void CodeGen::unwindSetFrameReg(RegNum reg, unsigned offset)
         info.AddCode(0xE2, (uint8_t)x);
     }
 
-    info.CaptureLocation(GetEmitter());
+    unwindCaptureLocation();
 }
 
 void CodeGen::unwindSaveReg(RegNum reg, unsigned offset)
@@ -112,7 +112,7 @@ void CodeGen::unwindNop()
 
     // nop: 11100011: no unwind operation is required.
     info.AddCode(0xE3);
-    info.CaptureLocation(GetEmitter());
+    unwindCaptureLocation();
 
     INDEBUG(info.uwiAddingNOP = false);
 }
@@ -201,7 +201,7 @@ void CodeGen::unwindSaveRegPair(RegNum reg1, RegNum reg2, int offset)
         info.AddCode(0xD8 | (uint8_t)(x >> 2), (uint8_t)(x << 6) | (uint8_t)z);
     }
 
-    info.CaptureLocation(GetEmitter());
+    unwindCaptureLocation();
 }
 
 // Save a register pair to the stack at the specified byte offset (which must be negative,
@@ -295,7 +295,7 @@ void CodeGen::unwindSaveRegPairPreindexed(RegNum reg1, RegNum reg2, int offset)
         info.AddCode(0xDA | (uint8_t)(x >> 2), (uint8_t)(x << 6) | (uint8_t)z);
     }
 
-    info.CaptureLocation(GetEmitter());
+    unwindCaptureLocation();
 }
 
 void CodeGen::unwindSaveReg(RegNum reg, int offset)
@@ -351,7 +351,7 @@ void CodeGen::unwindSaveReg(RegNum reg, int offset)
         info.AddCode(0xDC | (uint8_t)(x >> 2), (uint8_t)(x << 6) | (uint8_t)z);
     }
 
-    info.CaptureLocation(GetEmitter());
+    unwindCaptureLocation();
 }
 
 void CodeGen::unwindSaveRegPreindexed(RegNum reg, int offset)
@@ -408,7 +408,7 @@ void CodeGen::unwindSaveRegPreindexed(RegNum reg, int offset)
         info.AddCode(0xDE, (uint8_t)(x << 5) | (uint8_t)z);
     }
 
-    info.CaptureLocation(GetEmitter());
+    unwindCaptureLocation();
 }
 
 void CodeGen::unwindSaveNext()
@@ -424,7 +424,7 @@ void CodeGen::unwindSaveNext()
 
     // save_next: 11100110 : save next non - volatile Int or FP register pair.
     info.AddCode(0xE6);
-    info.CaptureLocation(GetEmitter());
+    unwindCaptureLocation();
 }
 
 void CodeGen::unwindReturn(RegNum reg)

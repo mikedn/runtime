@@ -1232,6 +1232,15 @@ public:
     insGroup* ehEmitLabel(BasicBlock* block);
     uint32_t ehCodeOffset(BasicBlock* block);
 
+#ifdef TARGET_ARMARCH
+    emitLocation unwindLoc;
+
+    void unwindCaptureLocation()
+    {
+        unwindLoc.CaptureLocation(GetEmitter());
+    }
+#endif
+
     void unwindBegProlog();
     void unwindEndProlog();
     void unwindBegEpilog();

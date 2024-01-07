@@ -403,9 +403,7 @@ class UnwindInfo : public UnwindBase
     UnwindFragmentInfo uwiFragmentFirst;
     // End emitter location of this function/funclet (nullptr == end of all code)
     insGroup* uwiEndLoc = nullptr;
-    // The current emitter location (updated after an unwind code is added), used for NOP
-    // padding, and asserts.
-    emitLocation uwiCurLoc;
+
     INDEBUG(bool uwiInitialized = false;)
 
 public:
@@ -477,12 +475,6 @@ public:
     }
 
     UnwindEpilogInfo* AddEpilog();
-
-    void CaptureLocation(emitter* emitter);
-    const emitLocation& GetCurrentLocation()
-    {
-        return uwiCurLoc;
-    }
 
 #ifdef TARGET_ARM
     unsigned GetInstructionSize();
