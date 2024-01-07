@@ -637,12 +637,8 @@ static uint32_t ExtractBits(uint32_t dw, uint32_t start, uint32_t length)
     return (dw >> start) & ((1 << length) - 1);
 }
 
-void DumpUnwindInfo(Compiler*      comp,
-                    bool           isHotCode,
-                    uint32_t       startOffset,
-                    uint32_t       endOffset,
-                    const uint8_t* header,
-                    uint32_t       unwindBlockSize)
+void CodeGen::DumpUnwindInfo(
+    bool isHotCode, uint32_t startOffset, uint32_t endOffset, const uint8_t* header, uint32_t unwindSize) const
 {
     printf("Unwind Info%s:\n", isHotCode ? "" : " COLD");
 
@@ -660,8 +656,8 @@ void DumpUnwindInfo(Compiler*      comp,
     uint32_t Vers           = ExtractBits(dw, 18, 2);
     uint32_t functionLength = ExtractBits(dw, 0, 18);
 
-    printf("  >> Start offset   : 0x%06x (not in unwind data)\n", comp->dspOffset(startOffset));
-    printf("  >>   End offset   : 0x%06x (not in unwind data)\n", comp->dspOffset(endOffset));
+    printf("  >> Start offset   : 0x%06x (not in unwind data)\n", compiler->dspOffset(startOffset));
+    printf("  >>   End offset   : 0x%06x (not in unwind data)\n", compiler->dspOffset(endOffset));
     printf("  Code Words        : %u\n", codeWords);
     printf("  Epilog Count      : %u\n", epilogCount);
     printf("  E bit             : %u\n", EBit);
@@ -720,10 +716,10 @@ void DumpUnwindInfo(Compiler*      comp,
                 printf("  ---- Scope %d\n", scope);
                 printf("  Epilog Start Offset        : %u (0x%05x) Actual offset = %u (0x%06x) Offset from main "
                        "function begin = %u (0x%06x)\n",
-                       comp->dspOffset(epilogStartOffset), comp->dspOffset(epilogStartOffset),
-                       comp->dspOffset(epilogStartOffset * 4), comp->dspOffset(epilogStartOffset * 4),
-                       comp->dspOffset(epilogStartOffsetFromMainFunctionBegin),
-                       comp->dspOffset(epilogStartOffsetFromMainFunctionBegin));
+                       compiler->dspOffset(epilogStartOffset), compiler->dspOffset(epilogStartOffset),
+                       compiler->dspOffset(epilogStartOffset * 4), compiler->dspOffset(epilogStartOffset * 4),
+                       compiler->dspOffset(epilogStartOffsetFromMainFunctionBegin),
+                       compiler->dspOffset(epilogStartOffsetFromMainFunctionBegin));
                 printf("  Epilog Start Index         : %u (0x%02x)\n", epilogStartIndex, epilogStartIndex);
 
                 epilogStartAt[epilogStartIndex] = true; // an epilog starts at this offset in the unwind codes
@@ -981,7 +977,7 @@ void DumpUnwindInfo(Compiler*      comp,
 
     pdw += codeWords;
     assert((uint8_t*)pdw == pUnwindCode);
-    assert((uint8_t*)pdw == header + unwindBlockSize);
+    assert((uint8_t*)pdw == header + unwindSize);
 
     assert(XBit == 0); // We don't handle the case where exception data is present, such as the Exception Handler RVA
 

@@ -217,43 +217,28 @@ void CodeGen::unwindSetFrameRegCFI(RegNum reg, unsigned offset)
 
 void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func)
 {
-    uint32_t startOffset;
-    uint32_t endOffset;
-    unwindGetFuncHotRange(func, &startOffset, &endOffset);
-
-    assert(endOffset <= hotCodeSize);
-
     uint32_t  codeCount = static_cast<uint32_t>(func->cfi.codes->size());
     CFI_CODE* codes     = codeCount == 0 ? nullptr : func->cfi.codes->data();
 
-    DBEXEC(compiler->opts.dspUnwind, DumpCfiInfo(/* isHotCode */ true, startOffset, endOffset, codeCount, codes));
-
+    uint32_t startOffset;
+    uint32_t endOffset;
+    unwindGetFuncHotRange(func, &startOffset, &endOffset);
     eeAllocUnwindInfo(func->kind, true, startOffset, endOffset, codeCount * sizeof(CFI_CODE), codes);
 
-    if (coldCodePtr == nullptr)
+    if (coldCodePtr != nullptr)
     {
-        return;
+        unwindGetFuncColdRange(func, &startOffset, &endOffset);
+        eeAllocUnwindInfo(func->kind, false, startOffset, endOffset, 0, nullptr);
     }
-
-    unwindGetFuncColdRange(func, &startOffset, &endOffset);
-
-    assert(startOffset >= hotCodeSize);
-
-    DBEXEC(compiler->opts.dspUnwind, DumpCfiInfo(/* isHotCode */ false, startOffset, endOffset, 0, nullptr));
-
-    startOffset -= hotCodeSize;
-    endOffset -= hotCodeSize;
-
-    eeAllocUnwindInfo(func->kind, false, startOffset, endOffset, 0, nullptr);
 }
 
 #ifdef DEBUG
 void CodeGen::DumpCfiInfo(
-    bool isHotCode, uint32_t startOffset, uint32_t endOffset, uint32_t count, const CFI_CODE* codes)
+    bool isHotCode, uint32_t startOffset, uint32_t endOffset, uint32_t count, const CFI_CODE* codes) const
 {
     printf("Cfi Info%s:\n", isHotCode ? "" : " COLD");
-    printf("  >> Start offset   : 0x%06x \n", dspOffset(startOffset));
-    printf("  >>   End offset   : 0x%06x \n", dspOffset(endOffset));
+    printf("  >> Start offset   : 0x%06x \n", compiler->dspOffset(startOffset));
+    printf("  >>   End offset   : 0x%06x \n", compiler->dspOffset(endOffset));
 
     for (unsigned i = 0; i < count; i++)
     {
@@ -287,14 +272,14 @@ void CodeGen::DumpCfiInfo(
 
 #endif // TARGET_UNIX
 
-void CodeGen::eeReserveUnwindInfo(bool isFunclet, bool isColdCode, uint32_t unwindSize)
+void CodeGen::eeReserveUnwindInfo(bool isFunclet, bool isHotCode, uint32_t unwindSize)
 {
     JITDUMP("reserveUnwindInfo(isFunclet=%s, isColdCode=%s, unwindSize=0x%x)\n", isFunclet ? "true" : "false",
-            isColdCode ? "true" : "false", unwindSize);
+            isHotCode ? "false" : "true", unwindSize);
 
     if (compiler->info.compMatchedVM)
     {
-        compiler->info.compCompHnd->reserveUnwindInfo(isFunclet, isColdCode, unwindSize);
+        compiler->info.compCompHnd->reserveUnwindInfo(isFunclet, !isHotCode, unwindSize);
     }
 }
 
@@ -318,6 +303,40 @@ static const char* GetFuncKindName(FuncKind kind)
 void CodeGen::eeAllocUnwindInfo(
     FuncKind kind, bool isHotCode, uint32_t startOffset, uint32_t endOffset, uint32_t unwindSize, void* unwindBlock)
 {
+#ifdef DEBUG
+    if (compiler->opts.dspUnwind)
+    {
+#ifdef TARGET_UNIX
+        if (generateCFIUnwindCodes())
+        {
+            DumpCfiInfo(isHotCode, startOffset, endOffset, unwindSize / sizeof(CFI_CODE),
+                        static_cast<CFI_CODE*>(unwindBlock));
+        }
+        else
+#endif
+        {
+#ifdef TARGET_AMD64
+            DumpUnwindInfo(isHotCode, startOffset, endOffset, reinterpret_cast<UNWIND_INFO*>(unwindBlock));
+#endif
+#ifdef TARGET_ARMARCH
+            DumpUnwindInfo(isHotCode, startOffset, endOffset, reinterpret_cast<uint8_t*>(unwindBlock), unwindSize);
+#endif
+        }
+    }
+#endif
+
+    if (isHotCode)
+    {
+        assert(endOffset <= hotCodeSize);
+    }
+    else
+    {
+        assert(startOffset >= hotCodeSize);
+
+        startOffset -= hotCodeSize;
+        endOffset -= hotCodeSize;
+    }
+
     JITDUMP("allocUnwindInfo(pHotCode=0x%p, pColdCode=0x%p, startOffset=0x%x, endOffset=0x%x, unwindSize=0x%x, "
             "pUnwindBlock=0x%p, funKind=%s",
             dspPtr(codePtr), dspPtr(coldCodePtr), startOffset, endOffset, unwindSize, dspPtr(unwindBlock),

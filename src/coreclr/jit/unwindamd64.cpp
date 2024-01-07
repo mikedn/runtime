@@ -445,7 +445,7 @@ void CodeGen::unwindReserveFuncRegion(FuncInfoDsc* func, bool isHotCode)
         }
     }
 
-    eeReserveUnwindInfo(func->kind != FUNC_ROOT, !isHotCode, unwindSize);
+    eeReserveUnwindInfo(func->kind != FUNC_ROOT, isHotCode, unwindSize);
 }
 
 void CodeGen::unwindEmit()
@@ -469,8 +469,6 @@ void CodeGen::unwindEmitFunc(FuncInfoDsc* func)
         unwindEmitFuncRegion(func, false);
     }
 }
-
-static void DumpUnwindInfo(bool isHotCode, uint32_t startOffset, uint32_t endOffset, const UNWIND_INFO* header);
 
 void CodeGen::unwindEmitFuncRegion(FuncInfoDsc* func, bool isHotCode)
 {
@@ -510,41 +508,12 @@ void CodeGen::unwindEmitFuncRegion(FuncInfoDsc* func, bool isHotCode)
         unwindGetFuncColdRange(func, &startOffset, &endOffset);
     }
 
-#ifdef DEBUG
-    if (compiler->opts.dspUnwind)
-    {
-#ifdef TARGET_UNIX
-        if (generateCFIUnwindCodes())
-        {
-            DumpCfiInfo(isHotCode, startOffset, endOffset, unwindSize / sizeof(CFI_CODE),
-                        reinterpret_cast<CFI_CODE*>(unwindBlock));
-        }
-        else
-#endif
-        {
-            DumpUnwindInfo(isHotCode, startOffset, endOffset, reinterpret_cast<UNWIND_INFO*>(unwindBlock));
-        }
-    }
-#endif // DEBUG
-
-    if (isHotCode)
-    {
-        assert(endOffset <= hotCodeSize);
-    }
-    else
-    {
-        assert(startOffset >= hotCodeSize);
-
-        startOffset -= hotCodeSize;
-        endOffset -= hotCodeSize;
-    }
-
     eeAllocUnwindInfo(func->kind, isHotCode, startOffset, endOffset, unwindSize, unwindBlock);
 }
 
 #ifdef DEBUG
 
-static void DumpUnwindInfo(bool isHotCode, uint32_t startOffset, uint32_t endOffset, const UNWIND_INFO* header)
+void CodeGen::DumpUnwindInfo(bool isHotCode, uint32_t startOffset, uint32_t endOffset, const UNWIND_INFO* header) const
 {
     printf("Unwind Info%s:\n", isHotCode ? "" : " COLD");
     printf("  >> Start offset   : 0x%06x (not in unwind data)\n", dspOffset(startOffset));

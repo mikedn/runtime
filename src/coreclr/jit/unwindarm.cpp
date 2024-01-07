@@ -465,11 +465,11 @@ void CodeGen::unwindReserveFunc(FuncInfoDsc* func)
     {
         if (compiler->fgFirstColdBlock != nullptr)
         {
-            eeReserveUnwindInfo(func->kind != FUNC_ROOT, true, 0);
+            eeReserveUnwindInfo(func->kind != FUNC_ROOT, false, 0);
         }
 
         uint32_t unwindSize = static_cast<uint32_t>(func->cfi.codes->size() * sizeof(CFI_CODE));
-        eeReserveUnwindInfo(func->kind != FUNC_ROOT, false, unwindSize);
+        eeReserveUnwindInfo(func->kind != FUNC_ROOT, true, unwindSize);
 
         return;
     }
@@ -1225,17 +1225,8 @@ void UnwindFragmentInfo::Reserve(CodeGen* codeGen, FuncKind kind, bool isHotCode
 
     DBEXEC(ufiNum != 1, JITDUMP("reserveUnwindInfo: fragment #%d:\n", ufiNum));
 
-    codeGen->eeReserveUnwindInfo(kind != FUNC_ROOT, !isHotCode, Size());
+    codeGen->eeReserveUnwindInfo(kind != FUNC_ROOT, isHotCode, Size());
 }
-
-#ifdef DEBUG
-void DumpUnwindInfo(Compiler*      comp,
-                    bool           isHotCode,
-                    uint32_t       startOffset,
-                    uint32_t       endOffset,
-                    const uint8_t* header,
-                    uint32_t       unwindBlockSize);
-#endif
 
 void UnwindFragmentInfo::Allocate(
     CodeGen* codeGen, FuncKind kind, uint32_t startOffset, uint32_t endOffset, bool isHotCode)
@@ -1250,26 +1241,6 @@ void UnwindFragmentInfo::Allocate(
     uint32_t unwindBlockSize;
     uint8_t* unwindBlock;
     GetFinalInfo(&unwindBlock, &unwindBlockSize);
-
-    DBEXEC(codeGen->compiler->opts.dspUnwind,
-           DumpUnwindInfo(codeGen->compiler, isHotCode, startOffset, endOffset, unwindBlock, unwindBlockSize));
-
-    // Adjust for cold or hot code:
-    // 1. The VM doesn't want the cold code pointer unless this is cold code.
-    // 2. The startOffset and endOffset need to be from the base of the hot section for hot code
-    //    and from the base of the cold section for cold code
-
-    if (isHotCode)
-    {
-        assert(endOffset <= codeGen->GetHotCodeSize());
-    }
-    else
-    {
-        assert(startOffset >= codeGen->GetHotCodeSize());
-
-        startOffset -= codeGen->GetHotCodeSize();
-        endOffset -= codeGen->GetHotCodeSize();
-    }
 
     DBEXEC(ufiNum != 1, JITDUMP("unwindEmit: fragment #%d:\n", ufiNum));
 
@@ -1946,12 +1917,8 @@ static uint32_t DumpOpsize(uint32_t padding, uint32_t opsize)
     return printed + 11; // assumes opsize is always 2 digits
 }
 
-void DumpUnwindInfo(Compiler*      comp,
-                    bool           isHotCode,
-                    uint32_t       startOffset,
-                    uint32_t       endOffset,
-                    const uint8_t* header,
-                    uint32_t       unwindBlockSize)
+void CodeGen::DumpUnwindInfo(
+    bool isHotCode, uint32_t startOffset, uint32_t endOffset, const uint8_t* header, uint32_t unwindSize) const
 {
     printf("Unwind Info%s:\n", isHotCode ? "" : " COLD");
 
@@ -1970,8 +1937,8 @@ void DumpUnwindInfo(Compiler*      comp,
     uint32_t Vers           = ExtractBits(dw, 18, 2);
     uint32_t functionLength = ExtractBits(dw, 0, 18);
 
-    printf("  >> Start offset   : 0x%06x (not in unwind data)\n", comp->dspOffset(startOffset));
-    printf("  >>   End offset   : 0x%06x (not in unwind data)\n", comp->dspOffset(endOffset));
+    printf("  >> Start offset   : 0x%06x (not in unwind data)\n", compiler->dspOffset(startOffset));
+    printf("  >>   End offset   : 0x%06x (not in unwind data)\n", compiler->dspOffset(endOffset));
     printf("  Code Words        : %u\n", codeWords);
     printf("  Epilog Count      : %u\n", epilogCount);
     printf("  F bit             : %u\n", FBit);
@@ -2032,10 +1999,10 @@ void DumpUnwindInfo(Compiler*      comp,
                 printf("  ---- Scope %d\n", scope);
                 printf("  Epilog Start Offset        : %u (0x%05x) Actual offset = %u (0x%06x) Offset from main "
                        "function begin = %u (0x%06x)\n",
-                       comp->dspOffset(epilogStartOffset), comp->dspOffset(epilogStartOffset),
-                       comp->dspOffset(epilogStartOffset * 2), comp->dspOffset(epilogStartOffset * 2),
-                       comp->dspOffset(epilogStartOffsetFromMainFunctionBegin),
-                       comp->dspOffset(epilogStartOffsetFromMainFunctionBegin));
+                       compiler->dspOffset(epilogStartOffset), compiler->dspOffset(epilogStartOffset),
+                       compiler->dspOffset(epilogStartOffset * 2), compiler->dspOffset(epilogStartOffset * 2),
+                       compiler->dspOffset(epilogStartOffsetFromMainFunctionBegin),
+                       compiler->dspOffset(epilogStartOffsetFromMainFunctionBegin));
                 printf("  Condition                  : %u (0x%x)%s\n", condition, condition,
                        (condition == 0xE) ? " (always)" : "");
                 printf("  Epilog Start Index         : %u (0x%02x)\n", epilogStartIndex, epilogStartIndex);
@@ -2314,7 +2281,7 @@ void DumpUnwindInfo(Compiler*      comp,
 
     pdw += codeWords;
     assert((PBYTE)pdw == pUnwindCode);
-    assert((PBYTE)pdw == header + unwindBlockSize);
+    assert((PBYTE)pdw == header + unwindSize);
 
     assert(XBit == 0); // We don't handle the case where exception data is present, such as the Exception Handler RVA
 

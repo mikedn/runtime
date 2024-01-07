@@ -1257,6 +1257,10 @@ public:
                           // instruction and the current location.
     void unwindPushPopMaskInt(regMaskTP mask, bool useOpsize16);
     void unwindPushPopMaskFloat(regMaskTP mask);
+#ifdef DEBUG
+    void DumpUnwindInfo(
+        bool isHotCode, uint32_t startOffset, uint32_t endOffset, const uint8_t* header, uint32_t unwindSize) const;
+#endif
 #endif
 
 #ifdef TARGET_ARM64
@@ -1269,6 +1273,10 @@ public:
     void unwindSaveRegPairPreindexed(RegNum reg1, RegNum reg2, int offset); // stp reg1, reg2, [sp, #offset]!
     void unwindSaveNext();                                                  // unwind code: save_next
     void unwindReturn(RegNum reg);                                          // ret lr
+#ifdef DEBUG
+    void DumpUnwindInfo(
+        bool isHotCode, uint32_t startOffset, uint32_t endOffset, const uint8_t* header, uint32_t unwindSize) const;
+#endif
 #endif
 
 #ifdef TARGET_AMD64
@@ -1279,6 +1287,9 @@ public:
     void unwindSaveRegWindows(RegNum reg, unsigned offset);
 #ifdef TARGET_UNIX
     void unwindSaveRegCFI(RegNum reg, unsigned offset);
+#endif
+#ifdef DEBUG
+    void DumpUnwindInfo(bool isHotCode, uint32_t startOffset, uint32_t endOffset, const UNWIND_INFO* header) const;
 #endif
 #endif
 
@@ -1297,8 +1308,10 @@ public:
         return compiler->IsTargetAbi(CORINFO_CORERT_ABI);
     }
 
-    INDEBUG(void DumpCfiInfo(
-                bool isHotCode, uint32_t startOffset, uint32_t endOffset, uint32_t count, const CFI_CODE* codes);)
+#ifdef DEBUG
+    void DumpCfiInfo(
+        bool isHotCode, uint32_t startOffset, uint32_t endOffset, uint32_t count, const CFI_CODE* codes) const;
+#endif
 #endif
 
 #if defined(TARGET_AMD64) || defined(TARGET_UNIX)
@@ -1319,9 +1332,13 @@ public:
 #endif
 
 #ifdef FEATURE_EH_FUNCLETS
-    void eeReserveUnwindInfo(bool isFunclet, bool isColdCode, uint32_t unwindSize);
-    void eeAllocUnwindInfo(
-        FuncKind kind, bool isHotCode, uint32_t startOffset, uint32_t endOffset, uint32_t unwindSize, void* unwindBlock);
+    void eeReserveUnwindInfo(bool isFunclet, bool isHotCode, uint32_t unwindSize);
+    void eeAllocUnwindInfo(FuncKind kind,
+                           bool     isHotCode,
+                           uint32_t startOffset,
+                           uint32_t endOffset,
+                           uint32_t unwindSize,
+                           void*    unwindBlock);
 #endif
 };
 
