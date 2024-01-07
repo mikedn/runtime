@@ -1587,9 +1587,9 @@ private:
 #ifdef TARGET_ARMARCH
     void emitGetInstrDescs(insGroup* ig, instrDesc** id, int* insCnt);
     bool emitGetLocationInfo(const emitLocation& emitLoc, insGroup** pig, instrDesc** pid, int* pinsRemaining = NULL);
-    bool emitNextID(insGroup*& ig, instrDesc*& id, int& insRemaining);
-    typedef void (*emitProcessInstrFunc_t)(instrDesc* id, void* context);
-    void emitWalkIDs(const emitLocation& locFrom, emitProcessInstrFunc_t processFunc, void* context);
+    bool GetNextInstr(insGroup*& ig, instrDesc*& id, int& insRemaining);
+    typedef void (*WalkInstrCallback)(instrDesc* id, void* context);
+    void WalkInstr(const emitLocation& locFrom, WalkInstrCallback callback, void* context);
 #endif // TARGET_ARMARCH
 
     int emitNextRandomNop();

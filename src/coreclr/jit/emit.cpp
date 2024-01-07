@@ -1387,38 +1387,30 @@ bool emitter::emitGetLocationInfo(const emitLocation& emitLoc, insGroup** pig, i
     return true;
 }
 
-/*****************************************************************************
- *
- * Compute the next instrDesc, either in this IG, or in a subsequent IG. 'id'
- * will point to this instrDesc. 'ig' and 'insRemaining' will also be updated.
- * Returns true if there is an instruction, or false if we've iterated over all
- * the instructions up to the current instruction (based on 'emitCurIG').
- */
-
-bool emitter::emitNextID(insGroup*& ig, instrDesc*& id, int& insRemaining)
+bool emitter::GetNextInstr(insGroup*& ig, instrDesc*& id, int& insRemaining)
 {
     if (insRemaining > 0)
     {
-        castto(id, uint8_t*) += id->GetDescSize();
-        --insRemaining;
+        id = reinterpret_cast<instrDesc*>(reinterpret_cast<uint8_t*>(id) + id->GetDescSize());
+        insRemaining--;
+
         return true;
     }
-
-    // We're out of instrDesc in 'ig'. Is this the current IG? If so, we're done.
 
     if (ig == emitCurIG)
     {
         return false;
     }
 
-    for (ig = ig->igNext; ig; ig = ig->igNext)
+    for (ig = ig->igNext; ig != nullptr; ig = ig->igNext)
     {
-        int insCnt;
-        emitGetInstrDescs(ig, &id, &insCnt);
+        int insCount;
+        emitGetInstrDescs(ig, &id, &insCount);
 
-        if (insCnt > 0)
+        if (insCount > 0)
         {
-            insRemaining = insCnt - 1;
+            insRemaining = insCount - 1;
+
             return true;
         }
 
@@ -1431,43 +1423,28 @@ bool emitter::emitNextID(insGroup*& ig, instrDesc*& id, int& insRemaining)
     return false;
 }
 
-/*****************************************************************************
- *
- * Walk instrDesc's from the location given by 'locFrom', up to the current location.
- * For each instruction, call the callback function 'processFunc'. 'context' is simply
- * passed through to the callback function.
- */
-
-void emitter::emitWalkIDs(const emitLocation& locFrom, emitProcessInstrFunc_t processFunc, void* context)
+void emitter::WalkInstr(const emitLocation& fromLoc, WalkInstrCallback callback, void* context)
 {
     insGroup*  ig;
     instrDesc* id;
     int        insRemaining;
 
-    if (!emitGetLocationInfo(locFrom, &ig, &id, &insRemaining))
-        return; // no instructions at the 'from' location
+    if (!emitGetLocationInfo(fromLoc, &ig, &id, &insRemaining))
+    {
+        return;
+    }
 
     do
     {
-        // process <<id>>
-        (*processFunc)(id, context);
-
-    } while (emitNextID(ig, id, insRemaining));
+        (*callback)(id, context);
+    } while (GetNextInstr(ig, id, insRemaining));
 }
 
-// Call unwindNop() for every instruction from a given
-// location 'fromLoc' up to the current location.
 void emitter::emitUnwindNopPadding(const emitLocation& fromLoc)
 {
-    emitWalkIDs(fromLoc,
-                [](instrDesc* id, void* context) {
-#ifdef TARGET_ARM
-                    static_cast<CodeGen*>(context)->unwindNop(id->idCodeSize());
-#else
-                    static_cast<CodeGen*>(context)->unwindNop();
-#endif
-                },
-                codeGen);
+    WalkInstr(fromLoc, [](instrDesc* id,
+                          void* context) { static_cast<CodeGen*>(context)->unwindNop(ARM_ONLY(id->idCodeSize())); },
+              codeGen);
 }
 
 #endif // TARGET_ARMARCH
