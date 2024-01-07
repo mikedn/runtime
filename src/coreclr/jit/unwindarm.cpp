@@ -525,7 +525,7 @@ void CodeGen::unwindEmitFunc(FuncInfoDsc* func)
     }
 }
 
-bool UnwindCodesBase::IsEndCode(uint8_t b)
+bool UnwindCodes::IsEndCode(uint8_t b)
 {
 #ifdef TARGET_ARM
     return b >= 0xFD;
@@ -534,7 +534,7 @@ bool UnwindCodesBase::IsEndCode(uint8_t b)
 #endif
 }
 
-UnwindPrologCodes::UnwindPrologCodes(Compiler* comp) : UnwindCodesBase(comp)
+UnwindPrologCodes::UnwindPrologCodes(Compiler* comp) : UnwindCodes(comp)
 {
     // Assume we've got a normal end code.
     // Push four so we can generate an array that is a multiple of 4 bytes in size with the
@@ -667,7 +667,6 @@ int UnwindPrologCodes::Match(UnwindEpilogInfo* epilog) const
 // This is used to create the 'phantom' prolog for non-first fragments.
 void UnwindPrologCodes::CopyFrom(const UnwindPrologCodes& copyFrom)
 {
-    assert(uwiComp == copyFrom.uwiComp);
     assert(upcMem == upcMemLocal);
     assert(upcMemSize == _countof(upcMemLocal));
     assert(upcHeaderSlot == -1);
@@ -851,7 +850,7 @@ UnwindEpilogInfo* UnwindFragmentInfo::AddEpilog()
     }
     else
     {
-        epilog = new (uwiComp, CMK_UnwindInfo) UnwindEpilogInfo(uwiComp);
+        epilog = new (ufiPrologCodes.GetCompiler(), CMK_UnwindInfo) UnwindEpilogInfo(ufiPrologCodes.GetCompiler());
     }
 
     // Put the new epilog at the end of the epilog list
@@ -1074,7 +1073,7 @@ void UnwindFragmentInfo::Finalize(uint32_t startOffset, uint32_t functionLength)
     assert(ufiInitialized);
 
 #ifdef DEBUG
-    if (0 && uwiComp->verbose)
+    if (0 && ufiPrologCodes.GetCompiler()->verbose)
     {
         printf("*************** Before fragment #%u finalize\n", ufiNum);
         Dump();
@@ -1255,8 +1254,7 @@ void UnwindFragmentInfo::Allocate(
 }
 
 UnwindInfo::UnwindInfo(Compiler* comp, insGroup* start, insGroup* end)
-    : UnwindBase(comp)
-    , uwiFragmentFirst(comp, start, false)
+    : uwiFragmentFirst(comp, start, false)
     , uwiEndLoc(end)
 #ifdef DEBUG
     , uwiInitialized(true)
@@ -1490,7 +1488,9 @@ UnwindEpilogInfo* UnwindInfo::AddEpilog()
 unsigned UnwindInfo::GetInstructionSize()
 {
     assert(uwiInitialized);
-    return uwiComp->codeGen->GetEmitter()->emitGetInstructionSize(static_cast<CodeGen*>(uwiComp->codeGen)->unwindLoc);
+
+    CodeGen* codeGen = static_cast<CodeGen*>(uwiFragmentFirst.GetCompiler()->codeGen);
+    return codeGen->GetEmitter()->emitGetInstructionSize(codeGen->unwindLoc);
 }
 #endif
 
@@ -1498,7 +1498,9 @@ UnwindFragmentInfo* UnwindInfo::AddFragment(UnwindFragmentInfo* last, insGroup* 
 {
     assert(uwiInitialized);
 
-    UnwindFragmentInfo* newFrag = new (uwiComp, CMK_UnwindInfo) UnwindFragmentInfo(uwiComp, ig, true);
+    Compiler* compiler = uwiFragmentFirst.GetCompiler();
+
+    UnwindFragmentInfo* newFrag = new (compiler, CMK_UnwindInfo) UnwindFragmentInfo(compiler, ig, true);
     INDEBUG(newFrag->ufiNum = last->ufiNum + 1);
     newFrag->CopyPrologCodes(uwiFragmentFirst);
     newFrag->SplitEpilogCodes(ig, last);
@@ -1769,7 +1771,7 @@ static unsigned GetUnwindSizeFromUnwindHeader(uint8_t b1)
 // The 0xFD and 0xFE "end + NOP" codes need to be handled differently between
 // the prolog and epilog. They count as pure "end" codes in a prolog, but they
 // count as 16 and 32 bit NOPs (respectively), as well as an "end", in an epilog.
-unsigned UnwindCodesBase::GetCodeSizeFromUnwindCodes(bool isProlog, const uint8_t* codes)
+unsigned UnwindCodes::GetCodeSizeFromUnwindCodes(bool isProlog, const uint8_t* codes)
 {
     unsigned size = 0;
 

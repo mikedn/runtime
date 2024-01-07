@@ -607,7 +607,7 @@ static unsigned GetUnwindSizeFromUnwindHeader(uint8_t b1)
 }
 
 // Walk the prolog codes and calculate the size of the prolog or epilog, in bytes.
-unsigned UnwindCodesBase::GetCodeSizeFromUnwindCodes(bool isProlog, const uint8_t* codes)
+unsigned UnwindCodes::GetCodeSizeFromUnwindCodes(bool isProlog, const uint8_t* codes)
 {
     unsigned size = 0;
 

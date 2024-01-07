@@ -47,38 +47,30 @@ struct Win64UnwindInfo
 
 #include "emit.h"
 
-// A base class shared by the the unwind classes that require
-// a Compiler* for memory allocation.
-class UnwindBase
+// A base class shared by the the classes used to represent the prolog
+// and epilog unwind codes.
+class UnwindCodes
 {
 protected:
     Compiler* uwiComp;
 
-    UnwindBase()
+    UnwindCodes()
     {
     }
 
-    UnwindBase(Compiler* comp) : uwiComp(comp)
-    {
-    }
-};
-
-// A base class shared by the the classes used to represent the prolog
-// and epilog unwind codes.
-class UnwindCodesBase : public UnwindBase
-{
-public:
-    UnwindCodesBase()
-    {
-    }
-
-    UnwindCodesBase(Compiler* comp) : UnwindBase(comp)
+    UnwindCodes(Compiler* comp) : uwiComp(comp)
     {
     }
 
     static bool IsEndCode(uint8_t b);
 
     INDEBUG(static unsigned GetCodeSizeFromUnwindCodes(bool isProlog, const uint8_t* codes);)
+
+public:
+    Compiler* GetCompiler() const
+    {
+        return uwiComp;
+    }
 };
 
 class UnwindEpilogInfo;
@@ -89,7 +81,7 @@ class UnwindEpilogInfo;
 // This class is also re-used as the final location of the consolidated unwind
 // information for a function, including unwind info header, the prolog codes,
 // and any epilog codes.
-class UnwindPrologCodes : public UnwindCodesBase
+class UnwindPrologCodes : public UnwindCodes
 {
     // To store the unwind codes, we first use a local array that should satisfy almost all cases.
     // If there are more unwind codes, we dynamically allocate memory. For ARM CoreLib, the maximum
@@ -161,7 +153,7 @@ private:
 // Represents the unwind codes for a single epilog sequence.
 // Epilog unwind codes arrive in the order they will be emitted.
 // Store them as an array, adding new ones to the end of the array.
-class UnwindEpilogCodes : public UnwindCodesBase
+class UnwindEpilogCodes : public UnwindCodes
 {
     // To store the unwind codes, we first use a local array that should satisfy almost all cases.
     // If there are more unwind codes, we dynamically allocate memory. For ARM CoreLib, the maximum
@@ -186,7 +178,7 @@ public:
     {
     }
 
-    UnwindEpilogCodes(Compiler* comp) : UnwindCodesBase(comp)
+    UnwindEpilogCodes(Compiler* comp) : UnwindCodes(comp)
     {
     }
 
@@ -212,7 +204,7 @@ private:
 
 // Represents the unwind information for a single epilog sequence.
 // Epilogs for a single function/funclet are in a linked list.
-class UnwindEpilogInfo : public UnwindBase
+class UnwindEpilogInfo
 {
     friend class UnwindFragmentInfo;
 
@@ -231,7 +223,7 @@ public:
     {
     }
 
-    UnwindEpilogInfo(Compiler* comp) : UnwindBase(comp), epiCodes(comp)
+    UnwindEpilogInfo(Compiler* comp) : epiCodes(comp)
     {
     }
 
@@ -293,7 +285,7 @@ public:
 // Represents all the unwind information for a single fragment of a function or funclet.
 // A fragment is a section with a code size less than the maximum unwind code size: either 512K bytes,
 // or that specified by COMPlus_JitSplitFunctionSize. In most cases, there will be exactly one fragment.
-class UnwindFragmentInfo : public UnwindBase
+class UnwindFragmentInfo
 {
     friend class UnwindInfo;
 
@@ -339,8 +331,7 @@ public:
     }
 
     UnwindFragmentInfo(Compiler* comp, insGroup* start, bool hasPhantomProlog)
-        : UnwindBase(comp)
-        , ufiStartLoc(start)
+        : ufiStartLoc(start)
         , ufiHasPhantomProlog(hasPhantomProlog)
         , ufiPrologCodes(comp)
         , ufiEpilogFirst(comp)
@@ -348,6 +339,11 @@ public:
         , ufiInitialized(true)
 #endif
     {
+    }
+
+    Compiler* GetCompiler() const
+    {
+        return ufiPrologCodes.GetCompiler();
     }
 
     UnwindFragmentInfo(const UnwindFragmentInfo& info) = delete;
@@ -395,7 +391,7 @@ public:
 };
 
 // Represents all the unwind information for a single function or funclet
-class UnwindInfo : public UnwindBase
+class UnwindInfo
 {
     void Split(insGroup* start, insGroup* end, uint32_t maxCodeSize);
 
