@@ -950,7 +950,7 @@ void UnwindFragmentInfo::MergeCodes()
     {
         ++epilogCount;
 
-        epilog->FinalizeCodes();
+        epilog->epiCodes.FinalizeCodes();
 
         // Does this epilog match the prolog?
         // NOTE: for the purpose of matching, we don't handle the 0xFD and 0xFE end codes that allow slightly unequal

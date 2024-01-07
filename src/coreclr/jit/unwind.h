@@ -54,11 +54,7 @@ class UnwindCodes
 protected:
     Compiler* uwiComp;
 
-    UnwindCodes()
-    {
-    }
-
-    UnwindCodes(Compiler* comp) : uwiComp(comp)
+    UnwindCodes(Compiler* comp = nullptr) : uwiComp(comp)
     {
     }
 
@@ -90,7 +86,7 @@ class UnwindPrologCodes : public UnwindCodes
     //     <=24  96%
     //     <=32  99%
     // From this data, we choose to use 24.
-    uint8_t upcMemLocal[24];
+    uint8_t upcMemLocal[24]{};
 
     uint8_t* upcMem = upcMemLocal;
     // upcMemSize is the number of bytes in upcMem.
@@ -106,7 +102,7 @@ class UnwindPrologCodes : public UnwindCodes
     int upcEpilogSlot = -1;
     // upcUnwindBlockSlot is only set after SetFinalSize() is called. It is the index of the first
     // byte of the final unwind data, namely the first byte of the header.
-    int upcUnwindBlockSlot;
+    int upcUnwindBlockSlot = 0;
 
 public:
     UnwindPrologCodes()
@@ -159,7 +155,7 @@ class UnwindEpilogCodes : public UnwindCodes
     // If there are more unwind codes, we dynamically allocate memory. For ARM CoreLib, the maximum
     // size is 6, while 89% of epilogs fit in 4. So, set it to 4 to maintain array alignment and hit
     // most cases.
-    uint8_t uecMemLocal[4];
+    uint8_t uecMemLocal[4]{};
 
     uint8_t* uecMem = uecMemLocal;
     // uecMemSize is the number of bytes/slots in uecMem. This is equal to UEC_LOCAL_COUNT unless
@@ -233,17 +229,12 @@ public:
 
     void CaptureLocation(class emitter* emitter);
 
-    void FinalizeCodes()
-    {
-        epiCodes.FinalizeCodes();
-    }
-
     const emitLocation& GetStartLocation() const
     {
         return epiStartLoc;
     }
 
-    int GetStartIndex()
+    int GetStartIndex() const
     {
         assert(epiStartIndex != -1);
         return epiStartIndex; // The final "Epilog Start Index" of this epilog's unwind codes
@@ -252,7 +243,7 @@ public:
     void SetStartIndex(int index)
     {
         assert(epiStartIndex == -1);
-        epiStartIndex = (int)index;
+        epiStartIndex = index;
     }
 
     void SetMatches()
@@ -265,20 +256,18 @@ public:
         return epiMatches;
     }
 
-    // Size of epilog unwind codes in bytes
     int Size() const
     {
         return epiCodes.Size();
     }
 
-    // Return a pointer to the first unwind code byte
     uint8_t* GetCodes() const
     {
         return epiCodes.GetCodes();
     }
 
     // Match the codes to a set of epilog codes
-    int Match(UnwindEpilogInfo* pEpi) const;
+    int Match(UnwindEpilogInfo* epilog) const;
 
     INDEBUG(void Dump(int indent = 0);)
 };
@@ -290,33 +279,31 @@ class UnwindFragmentInfo
 {
     friend class UnwindInfo;
 
-    UnwindFragmentInfo* ufiNext     = nullptr;
-    insGroup*           ufiStartLoc = nullptr;
+    UnwindFragmentInfo* ufiNext       = nullptr;
+    insGroup*           ufiStartLoc   = nullptr;
+    UnwindEpilogInfo*   ufiEpilogList = nullptr;
+    UnwindEpilogInfo*   ufiEpilogLast = nullptr;
 
-    // Are the prolog codes for a phantom prolog, or a real prolog?
-    // (For a phantom prolog, this code fragment represents a fragment in
-    // the sense of the unwind info spec; something without a real prolog.)
-    bool ufiHasPhantomProlog;
     // The unwind codes for the prolog
     UnwindPrologCodes ufiPrologCodes;
     // In-line the first epilog to avoid separate memory allocation, since
     // almost all functions will have at least one epilog. It is pointed
     // to by ufiEpilogList when the first epilog is added.
     UnwindEpilogInfo ufiEpilogFirst;
-    // The head of the epilog list
-    UnwindEpilogInfo* ufiEpilogList = nullptr;
-    // The last entry in the epilog list (the last epilog added)
-    UnwindEpilogInfo* ufiEpilogLast = nullptr;
 
     // Some data computed when merging the unwind codes, and used when finalizing the
     // unwind block for emission.
 
     // The size of the unwind data for this fragment, in bytes
-    unsigned ufiSize = 0;
-    bool     ufiSetEBit;
-    bool     ufiNeedExtendedCodeWordsEpilogCount;
-    unsigned ufiCodeWords;
-    unsigned ufiEpilogScopes;
+    unsigned ufiSize         = 0;
+    unsigned ufiCodeWords    = 0;
+    unsigned ufiEpilogScopes = 0;
+    // Are the prolog codes for a phantom prolog, or a real prolog?
+    // (For a phantom prolog, this code fragment represents a fragment in
+    // the sense of the unwind info spec; something without a real prolog.)
+    bool ufiHasPhantomProlog                 = false;
+    bool ufiSetEBit                          = false;
+    bool ufiNeedExtendedCodeWordsEpilogCount = false;
 
 #ifdef DEBUG
     unsigned ufiNum = 1;
@@ -333,22 +320,22 @@ public:
 
     UnwindFragmentInfo(Compiler* comp, insGroup* start, bool hasPhantomProlog)
         : ufiStartLoc(start)
-        , ufiHasPhantomProlog(hasPhantomProlog)
         , ufiPrologCodes(comp)
         , ufiEpilogFirst(comp)
+        , ufiHasPhantomProlog(hasPhantomProlog)
 #ifdef DEBUG
         , ufiInitialized(true)
 #endif
     {
     }
 
+    UnwindFragmentInfo(const UnwindFragmentInfo& info) = delete;
+    UnwindFragmentInfo& operator=(const UnwindFragmentInfo&) = delete;
+
     Compiler* GetCompiler() const
     {
         return ufiPrologCodes.GetCompiler();
     }
-
-    UnwindFragmentInfo(const UnwindFragmentInfo& info) = delete;
-    UnwindFragmentInfo& operator=(const UnwindFragmentInfo&) = delete;
 
     const insGroup* GetStartLoc() const
     {
@@ -394,8 +381,6 @@ public:
 // Represents all the unwind information for a single function or funclet
 class UnwindInfo
 {
-    void Split(insGroup* start, insGroup* end, uint32_t maxCodeSize);
-
     // The first fragment is directly here, so it doesn't need to be separately allocated.
     UnwindFragmentInfo uwiFragmentFirst;
     // End emitter location of this function/funclet (nullptr == end of all code)
@@ -408,8 +393,6 @@ public:
 
     UnwindInfo()
     {
-        // TODO-MIKE-Cleanup: This should not be needed.
-        memset(this, 0, sizeof(*this));
     }
 
     UnwindInfo(Compiler* comp, insGroup* start, insGroup* end);
@@ -477,15 +460,16 @@ public:
     unsigned GetInstructionSize();
 #endif
 
+private:
+    UnwindFragmentInfo* AddFragment(UnwindFragmentInfo* last, insGroup* ig);
+    void Split(insGroup* start, insGroup* end, uint32_t maxCodeSize);
+
 #ifdef DEBUG
     // Given the first byte of the unwind code, check that its opsize matches
     // the last instruction added in the emitter.
     void CheckOpsize(uint8_t b1);
     void Dump(bool isHotCode, int indent = 0);
 #endif
-
-private:
-    UnwindFragmentInfo* AddFragment(UnwindFragmentInfo* last, insGroup* ig);
 };
 #endif // TARGET_ARMARCH
 
