@@ -848,10 +848,6 @@ UnwindEpilogInfo* UnwindFragmentInfo::AddEpilog()
 
     ufiEpilogLast = epilog;
 
-    // Put subsequent unwind codes in this new epilog
-
-    ufiCurCodes = &epilog->epiCodes;
-
     return epilog;
 }
 
@@ -901,10 +897,6 @@ void UnwindFragmentInfo::SplitEpilogCodes(const insGroup* splitLoc, UnwindFragme
             {
                 splitFrom->ufiEpilogLast->epiNext = nullptr;
             }
-
-            // No more codes should be added once we start splitting
-            splitFrom->ufiCurCodes = nullptr;
-            ufiCurCodes            = nullptr;
 
             return;
         }

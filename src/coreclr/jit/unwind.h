@@ -76,16 +76,12 @@ public:
     {
     }
 
-    virtual void AddCode(uint8_t b1) = 0;
-    virtual void AddCode(uint8_t b1, uint8_t b2) = 0;
-    virtual void AddCode(uint8_t b1, uint8_t b2, uint8_t b3) = 0;
-    virtual void AddCode(uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4) = 0;
-
-    virtual uint8_t* GetCodes() const = 0;
-
     bool IsEndCode(uint8_t b) const;
 
-    INDEBUG(unsigned GetCodeSizeFromUnwindCodes(bool isProlog) const;)
+#ifdef DEBUG
+    virtual uint8_t* GetCodes() const = 0;
+    unsigned GetCodeSizeFromUnwindCodes(bool isProlog) const;
+#endif
 };
 
 class UnwindEpilogInfo;
@@ -133,25 +129,25 @@ public:
     UnwindPrologCodes(const UnwindPrologCodes& info) = delete;
     UnwindPrologCodes& operator=(const UnwindPrologCodes&) = delete;
 
-    virtual void AddCode(uint8_t b1)
+    void AddCode(uint8_t b1)
     {
         PushByte(b1);
     }
 
-    virtual void AddCode(uint8_t b1, uint8_t b2)
+    void AddCode(uint8_t b1, uint8_t b2)
     {
         PushByte(b2);
         PushByte(b1);
     }
 
-    virtual void AddCode(uint8_t b1, uint8_t b2, uint8_t b3)
+    void AddCode(uint8_t b1, uint8_t b2, uint8_t b3)
     {
         PushByte(b3);
         PushByte(b2);
         PushByte(b1);
     }
 
-    virtual void AddCode(uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4)
+    void AddCode(uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4)
     {
         PushByte(b4);
         PushByte(b3);
@@ -159,7 +155,7 @@ public:
         PushByte(b1);
     }
 
-    virtual uint8_t* GetCodes() const
+    uint8_t* GetCodes() const
     {
         assert(upcCodeSlot < upcMemSize);
         return &upcMem[upcCodeSlot];
@@ -237,14 +233,14 @@ public:
     UnwindEpilogCodes(const UnwindEpilogCodes& info) = delete;
     UnwindEpilogCodes& operator=(const UnwindEpilogCodes&) = delete;
 
-    virtual void AddCode(uint8_t b1)
+    void AddCode(uint8_t b1)
     {
         AppendByte(b1);
 
         firstByteOfLastCode = b1;
     }
 
-    virtual void AddCode(uint8_t b1, uint8_t b2)
+    void AddCode(uint8_t b1, uint8_t b2)
     {
         AppendByte(b1);
         AppendByte(b2);
@@ -252,7 +248,7 @@ public:
         firstByteOfLastCode = b1;
     }
 
-    virtual void AddCode(uint8_t b1, uint8_t b2, uint8_t b3)
+    void AddCode(uint8_t b1, uint8_t b2, uint8_t b3)
     {
         AppendByte(b1);
         AppendByte(b2);
@@ -261,7 +257,7 @@ public:
         firstByteOfLastCode = b1;
     }
 
-    virtual void AddCode(uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4)
+    void AddCode(uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4)
     {
         AppendByte(b1);
         AppendByte(b2);
@@ -271,7 +267,7 @@ public:
         firstByteOfLastCode = b1;
     }
 
-    virtual uint8_t* GetCodes() const
+    uint8_t* GetCodes() const
     {
         assert(uecFinalized);
         return uecMem;
@@ -391,8 +387,6 @@ class UnwindFragmentInfo : public UnwindBase
     UnwindEpilogInfo* ufiEpilogList = nullptr;
     // The last entry in the epilog list (the last epilog added)
     UnwindEpilogInfo* ufiEpilogLast = nullptr;
-    // Pointer to current unwind codes, either prolog or epilog
-    UnwindCodesBase* ufiCurCodes = &ufiPrologCodes;
 
     // Some data computed when merging the unwind codes, and used when finalizing the
     // unwind block for emission.
@@ -443,25 +437,57 @@ public:
     void AddCode(uint8_t b1)
     {
         assert(ufiInitialized);
-        ufiCurCodes->AddCode(b1);
+
+        if (ufiEpilogLast == nullptr)
+        {
+            ufiPrologCodes.AddCode(b1);
+        }
+        else
+        {
+            ufiEpilogLast->epiCodes.AddCode(b1);
+        }
     }
 
     void AddCode(uint8_t b1, uint8_t b2)
     {
         assert(ufiInitialized);
-        ufiCurCodes->AddCode(b1, b2);
+
+        if (ufiEpilogLast == nullptr)
+        {
+            ufiPrologCodes.AddCode(b1, b2);
+        }
+        else
+        {
+            ufiEpilogLast->epiCodes.AddCode(b1, b2);
+        }
     }
 
     void AddCode(uint8_t b1, uint8_t b2, uint8_t b3)
     {
         assert(ufiInitialized);
-        ufiCurCodes->AddCode(b1, b2, b3);
+
+        if (ufiEpilogLast == nullptr)
+        {
+            ufiPrologCodes.AddCode(b1, b2, b3);
+        }
+        else
+        {
+            ufiEpilogLast->epiCodes.AddCode(b1, b2, b3);
+        }
     }
 
     void AddCode(uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4)
     {
         assert(ufiInitialized);
-        ufiCurCodes->AddCode(b1, b2, b3, b4);
+
+        if (ufiEpilogLast == nullptr)
+        {
+            ufiPrologCodes.AddCode(b1, b2, b3, b4);
+        }
+        else
+        {
+            ufiEpilogLast->epiCodes.AddCode(b1, b2, b3, b4);
+        }
     }
 
     UnwindEpilogInfo* AddEpilog();
