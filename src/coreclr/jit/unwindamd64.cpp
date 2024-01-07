@@ -93,22 +93,24 @@ void CodeGen::unwindBegPrologWindows()
 
     Win64UnwindInfo& info = funCurrentFunc().win;
 
-    info.codesIndex                = sizeof(info.codes);
-    info.header.Version            = 1;
-    info.header.Flags              = 0;
-    info.header.CountOfUnwindCodes = 0;
-    info.header.FrameRegister      = 0;
-    info.header.FrameOffset        = 0;
+    assert(info.codesIndex == 0);
+    info.codesIndex = info.endCodeIndex;
+
+    UNWIND_INFO& header       = info.GetHeader();
+    header.Version            = 1;
+    header.Flags              = 0;
+    header.SizeOfProlog       = 0;
+    header.CountOfUnwindCodes = 0;
+    header.FrameRegister      = 0;
+    header.FrameOffset        = 0;
 }
 
 UNWIND_CODE* Win64UnwindInfo::AddCode(uint32_t codeOffset, UNWIND_OP_CODES op, uint8_t info)
 {
-    assert(header.Version == 1);
-    assert(header.CountOfUnwindCodes == 0);
-    assert(codesIndex > sizeof(UNWIND_CODE));
-
     codesIndex -= sizeof(UNWIND_CODE);
-    UNWIND_CODE* code = reinterpret_cast<UNWIND_CODE*>(&codes[codesIndex]);
+    assert((headerSize <= codesIndex) && (codesIndex <= endCodeIndex - sizeof(UNWIND_CODE)));
+
+    UNWIND_CODE* code = reinterpret_cast<UNWIND_CODE*>(&block[codesIndex]);
     noway_assert(codeOffset <= UINT8_MAX);
     code->CodeOffset = static_cast<uint8_t>(codeOffset);
     code->UnwindOp   = op;
@@ -118,24 +120,20 @@ UNWIND_CODE* Win64UnwindInfo::AddCode(uint32_t codeOffset, UNWIND_OP_CODES op, u
 
 uint16_t* Win64UnwindInfo::AddUInt16(uint16_t value)
 {
-    assert(header.Version == 1);
-    assert(header.CountOfUnwindCodes == 0);
-    assert(codesIndex > sizeof(uint16_t));
-
     codesIndex -= sizeof(uint16_t);
-    uint16_t* p = reinterpret_cast<uint16_t*>(&codes[codesIndex]);
+    assert((headerSize <= codesIndex) && (codesIndex <= endCodeIndex - sizeof(uint16_t)));
+
+    uint16_t* p = reinterpret_cast<uint16_t*>(&block[codesIndex]);
     *p          = value;
     return p;
 }
 
 uint32_t* Win64UnwindInfo::AddUInt32(uint32_t value)
 {
-    assert(header.Version == 1);
-    assert(header.CountOfUnwindCodes == 0);
-    assert(codesIndex > sizeof(uint32_t));
-
     codesIndex -= sizeof(uint32_t);
-    uint32_t* p = reinterpret_cast<uint32_t*>(&codes[codesIndex]);
+    assert((headerSize <= codesIndex) && (codesIndex <= endCodeIndex - sizeof(uint32_t)));
+
+    uint32_t* p = reinterpret_cast<uint32_t*>(&block[codesIndex]);
     *p          = value;
     return p;
 }
@@ -144,7 +142,8 @@ void CodeGen::unwindPushWindows(RegNum reg)
 {
     assert(generatingProlog);
 
-    Win64UnwindInfo& info = funCurrentFunc().win;
+    uint32_t         codeOffset = unwindGetCurrentOffset();
+    Win64UnwindInfo& info       = funCurrentFunc().win;
 
     if (((RBM_CALLEE_SAVED & genRegMask(reg)) != RBM_NONE)
 #if ETW_EBP_FRAMED
@@ -156,12 +155,12 @@ void CodeGen::unwindPushWindows(RegNum reg)
 #endif // ETW_EBP_FRAMED
             )
     {
-        info.AddCode(unwindGetCurrentOffset(), UWOP_PUSH_NONVOL, static_cast<uint8_t>(reg));
+        info.AddCode(codeOffset, UWOP_PUSH_NONVOL, static_cast<uint8_t>(reg));
     }
     else
     {
         // Push of a volatile register is just a small stack allocation
-        info.AddCode(unwindGetCurrentOffset(), UWOP_ALLOC_SMALL, 0);
+        info.AddCode(codeOffset, UWOP_ALLOC_SMALL, 0);
     }
 }
 
@@ -170,8 +169,8 @@ void CodeGen::unwindAllocStackWindows(unsigned size)
     assert(generatingProlog);
     assert(size % 8 == 0);
 
-    Win64UnwindInfo& info       = funCurrentFunc().win;
     uint32_t         codeOffset = unwindGetCurrentOffset();
+    Win64UnwindInfo& info       = funCurrentFunc().win;
 
     if (size <= 128)
     {
@@ -193,10 +192,11 @@ void CodeGen::unwindSetFrameRegWindows(RegNum reg, unsigned offset)
 {
     assert(generatingProlog);
 
-    Win64UnwindInfo& info       = funCurrentFunc().win;
     uint32_t         codeOffset = unwindGetCurrentOffset();
+    Win64UnwindInfo& info       = funCurrentFunc().win;
+    UNWIND_INFO&     header     = info.GetHeader();
 
-    info.header.FrameRegister = static_cast<uint8_t>(reg);
+    header.FrameRegister = static_cast<uint8_t>(reg);
 
 #ifdef TARGET_UNIX
     if (offset > 240)
@@ -209,7 +209,7 @@ void CodeGen::unwindSetFrameRegWindows(RegNum reg, unsigned offset)
 
         info.AddUInt32(offset / 16);
         info.AddCode(codeOffset, UWOP_SET_FPREG_LARGE, 0);
-        info.header.FrameOffset = 15;
+        header.FrameOffset = 15;
     }
     else
 #endif // TARGET_UNIX
@@ -218,7 +218,7 @@ void CodeGen::unwindSetFrameRegWindows(RegNum reg, unsigned offset)
         assert(offset % 16 == 0);
 
         info.AddCode(codeOffset, UWOP_SET_FPREG, 0);
-        info.header.FrameOffset = offset / 16;
+        header.FrameOffset = offset / 16;
     }
 }
 
@@ -231,8 +231,8 @@ void CodeGen::unwindSaveRegWindows(RegNum reg, unsigned offset)
         return;
     }
 
-    Win64UnwindInfo& info       = funCurrentFunc().win;
     uint32_t         codeOffset = unwindGetCurrentOffset();
+    Win64UnwindInfo& info       = funCurrentFunc().win;
     uint8_t          opInfo     = static_cast<uint8_t>(reg);
 
     if (offset >= 0x80000)
@@ -378,33 +378,25 @@ void CodeGen::unwindReserveFuncRegion(FuncInfoDsc* func, bool isHotCode)
         else
 #endif
         {
-            Win64UnwindInfo& info = func->win;
+            Win64UnwindInfo& info   = func->win;
+            UNWIND_INFO&     header = info.GetHeader();
 
-            assert(info.header.Version == 1);
-            assert(info.header.CountOfUnwindCodes == 0);
+            assert(header.Version == 1);
+            assert(header.SizeOfProlog == 0);
+            assert(header.CountOfUnwindCodes == 0);
 
-            // Set the size of the prolog to be the last encoded action
-            if (info.codesIndex < sizeof(info.codes))
+            unwindSize = info.headerSize;
+
+            if (info.codesIndex < info.endCodeIndex)
             {
-                UNWIND_CODE* code        = reinterpret_cast<UNWIND_CODE*>(&info.codes[func->win.codesIndex]);
-                info.header.SizeOfProlog = code->CodeOffset;
+                UNWIND_CODE* lastCode = reinterpret_cast<UNWIND_CODE*>(&info.block[info.codesIndex]);
+                unsigned codeCount = (info.endCodeIndex - info.codesIndex) / static_cast<unsigned>(sizeof(UNWIND_CODE));
+
+                header.SizeOfProlog       = lastCode->CodeOffset;
+                header.CountOfUnwindCodes = static_cast<uint8_t>(codeCount);
+
+                unwindSize += codeCount * sizeof(UNWIND_CODE);
             }
-            else
-            {
-                info.header.SizeOfProlog = 0;
-            }
-
-            info.header.CountOfUnwindCodes =
-                static_cast<uint8_t>((sizeof(info.codes) - info.codesIndex) / sizeof(UNWIND_CODE));
-
-            // Prepend the unwindHeader onto the unwind codes
-            assert(info.codesIndex >= offsetof(UNWIND_INFO, UnwindCode));
-
-            info.codesIndex -= offsetof(UNWIND_INFO, UnwindCode);
-            UNWIND_INFO* header = reinterpret_cast<UNWIND_INFO*>(&info.codes[func->win.codesIndex]);
-            memcpy(header, &info.header, offsetof(UNWIND_INFO, UnwindCode));
-
-            unwindSize = sizeof(info.codes) - info.codesIndex;
         }
     }
 
@@ -460,11 +452,24 @@ void CodeGen::unwindEmitFuncRegion(FuncInfoDsc* func, bool isHotCode)
         {
             Win64UnwindInfo& info = func->win;
 
-            unwindSize  = sizeof(info.codes) - info.codesIndex;
-            unwindBlock = &info.codes[info.codesIndex];
+            unwindSize  = info.headerSize + info.GetHeader().CountOfUnwindCodes * sizeof(UNWIND_CODE);
+            unwindBlock = info.block;
 
-            UNWIND_INFO* header = reinterpret_cast<UNWIND_INFO*>(&info.codes[info.codesIndex]);
-            assert(unwindSize == offsetof(UNWIND_INFO, UnwindCode) + header->CountOfUnwindCodes * sizeof(UNWIND_CODE));
+            if ((info.codesIndex > info.headerSize) && (info.codesIndex < info.endCodeIndex))
+            {
+                // We have a gap between the header and the codes, move the header in front
+                // of the codes (since the header is smaller than the codes). Note that the
+                // source and destination may overlap.
+
+                unsigned newHeaderIndex = info.codesIndex - info.headerSize;
+
+                for (unsigned i = info.headerSize - 1; i != UINT_MAX; i--)
+                {
+                    unwindBlock[newHeaderIndex + i] = unwindBlock[i];
+                }
+
+                unwindBlock += newHeaderIndex;
+            }
         }
     }
     else

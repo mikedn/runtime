@@ -17,12 +17,20 @@ enum FuncKind : uint8_t
 
 struct Win64UnwindInfo
 {
-    UNWIND_INFO header;
-    // Maximum of 255 UNWIND_CODE 'nodes' and then the unwind header. If there are an odd
-    // number of codes, the VM or Zapper will 4-byte align the whole thing.
-    // TODO-AMD64-Throughput: make the AMD64 info more like the ARM info to avoid having this large static array.
-    uint8_t  codes[offsetof(UNWIND_INFO, UnwindCode) + (0xFF * sizeof(UNWIND_CODE))];
+    // The header allows for maximum 255 codes but it has space only for 1,
+    // put it in a byte array of sufficient size to actually store 255 codes.
+    // TODO-MIKE-Throughput: This array is huge, especially for funclets that
+    // have very simple prologs.
+    uint8_t  block[sizeof(UNWIND_INFO) + 254 * sizeof(UNWIND_CODE)];
     unsigned codesIndex;
+
+    static constexpr unsigned headerSize   = offsetof(UNWIND_INFO, UnwindCode);
+    static constexpr unsigned endCodeIndex = sizeof(block);
+
+    UNWIND_INFO& GetHeader()
+    {
+        return *reinterpret_cast<UNWIND_INFO*>(block);
+    }
 
     UNWIND_CODE* AddCode(uint32_t codeOffset, UNWIND_OP_CODES op, uint8_t info);
     uint16_t* AddUInt16(uint16_t value);
