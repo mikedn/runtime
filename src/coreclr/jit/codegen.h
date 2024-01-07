@@ -10,6 +10,11 @@
 #include "treelifeupdater.h"
 #include "emit.h"
 
+#ifdef FEATURE_EH_FUNCLETS
+enum FuncKind : uint8_t;
+struct FuncInfoDsc;
+#endif
+
 class CodeGen final : public CodeGenInterface
 {
     friend class emitter;
@@ -1284,6 +1289,17 @@ public:
 #if defined(TARGET_AMD64) || (defined(TARGET_X86) && defined(FEATURE_EH_FUNCLETS))
     void unwindReserveFuncRegion(FuncInfoDsc* func, bool isHotCode);
     void unwindEmitFuncRegion(FuncInfoDsc* func, void* hotCode, void* coldCode, bool isHotCode);
+#endif
+
+#ifdef FEATURE_EH_FUNCLETS
+    void eeReserveUnwindInfo(bool isFunclet, bool isColdCode, uint32_t unwindSize);
+    void eeAllocUnwindInfo(FuncKind kind,
+                           void*    hotCode,
+                           void*    coldCode,
+                           uint32_t startOffset,
+                           uint32_t endOffset,
+                           uint32_t unwindSize,
+                           void*    unwindBlock);
 #endif
 };
 

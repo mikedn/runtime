@@ -446,7 +446,7 @@ void CodeGen::unwindReserveFuncRegion(FuncInfoDsc* func, bool isHotCode)
         }
     }
 
-    compiler->eeReserveUnwindInfo(func->funKind != FUNC_ROOT, !isHotCode, unwindSize);
+    eeReserveUnwindInfo(func->funKind != FUNC_ROOT, !isHotCode, unwindSize);
 }
 
 void CodeGen::unwindEmit(void* hotCode, void* coldCode)
@@ -547,13 +547,7 @@ void CodeGen::unwindEmitFuncRegion(FuncInfoDsc* func, void* hotCode, void* coldC
         endOffset -= compTotalHotCodeSize;
     }
 
-    // Verify that the JIT enum is in sync with the JIT-EE interface enum
-    static_assert_no_msg(FUNC_ROOT == (FuncKind)CORJIT_FUNC_ROOT);
-    static_assert_no_msg(FUNC_HANDLER == (FuncKind)CORJIT_FUNC_HANDLER);
-    static_assert_no_msg(FUNC_FILTER == (FuncKind)CORJIT_FUNC_FILTER);
-
-    compiler->eeAllocUnwindInfo(hotCode, coldCode, startOffset, endOffset, unwindCodeBytes, unwindBlock,
-                                static_cast<CorJitFuncKind>(func->funKind));
+    eeAllocUnwindInfo(func->funKind, hotCode, coldCode, startOffset, endOffset, unwindCodeBytes, unwindBlock);
 }
 
 #ifdef DEBUG

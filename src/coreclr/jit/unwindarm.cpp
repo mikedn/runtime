@@ -465,11 +465,11 @@ void CodeGen::unwindReserveFunc(FuncInfoDsc* func)
     {
         if (compiler->fgFirstColdBlock != nullptr)
         {
-            compiler->eeReserveUnwindInfo(func->funKind != FUNC_ROOT, true, 0);
+            eeReserveUnwindInfo(func->funKind != FUNC_ROOT, true, 0);
         }
 
         uint32_t unwindSize = static_cast<uint32_t>(func->cfiCodes->size() * sizeof(CFI_CODE));
-        compiler->eeReserveUnwindInfo(func->funKind != FUNC_ROOT, false, unwindSize);
+        eeReserveUnwindInfo(func->funKind != FUNC_ROOT, false, unwindSize);
 
         return;
     }
@@ -1225,7 +1225,7 @@ void UnwindFragmentInfo::Reserve(FuncKind kind, bool isHotCode)
 
     DBEXEC(ufiNum != 1, JITDUMP("reserveUnwindInfo: fragment #%d:\n", ufiNum));
 
-    uwiComp->eeReserveUnwindInfo(kind != FUNC_ROOT, !isHotCode, Size());
+    static_cast<CodeGen*>(uwiComp->codeGen)->eeReserveUnwindInfo(kind != FUNC_ROOT, !isHotCode, Size());
 }
 
 #ifdef DEBUG
@@ -1275,13 +1275,8 @@ void UnwindFragmentInfo::Allocate(
 
     DBEXEC(ufiNum != 1, JITDUMP("unwindEmit: fragment #%d:\n", ufiNum));
 
-    // Verify that the JIT enum is in sync with the JIT-EE interface enum
-    static_assert_no_msg(FUNC_ROOT == (FuncKind)CORJIT_FUNC_ROOT);
-    static_assert_no_msg(FUNC_HANDLER == (FuncKind)CORJIT_FUNC_HANDLER);
-    static_assert_no_msg(FUNC_FILTER == (FuncKind)CORJIT_FUNC_FILTER);
-
-    uwiComp->eeAllocUnwindInfo(hotCode, coldCode, startOffset, endOffset, unwindBlockSize, unwindBlock,
-                               static_cast<CorJitFuncKind>(kind));
+    static_cast<CodeGen*>(uwiComp->codeGen)
+        ->eeAllocUnwindInfo(kind, hotCode, coldCode, startOffset, endOffset, unwindBlockSize, unwindBlock);
 }
 
 UnwindInfo::UnwindInfo(Compiler* comp, insGroup* start, insGroup* end)

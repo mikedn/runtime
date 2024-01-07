@@ -1120,63 +1120,6 @@ void CodeGen::eeDispLineInfos()
  * (e.g., host AMD64, target ARM64), then VM will get confused anyway.
  */
 
-void Compiler::eeReserveUnwindInfo(bool isFunclet, bool isColdCode, uint32_t unwindSize)
-{
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("reserveUnwindInfo(isFunclet=%s, isColdCode=%s, unwindSize=0x%x)\n", isFunclet ? "true" : "false",
-               isColdCode ? "true" : "false", unwindSize);
-    }
-#endif // DEBUG
-
-    if (info.compMatchedVM)
-    {
-        info.compCompHnd->reserveUnwindInfo(isFunclet, isColdCode, unwindSize);
-    }
-}
-
-void Compiler::eeAllocUnwindInfo(void*          pHotCode,
-                                 void*          pColdCode,
-                                 uint32_t       startOffset,
-                                 uint32_t       endOffset,
-                                 uint32_t       unwindSize,
-                                 void*          pUnwindBlock,
-                                 CorJitFuncKind funcKind)
-{
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("allocUnwindInfo(pHotCode=0x%p, pColdCode=0x%p, startOffset=0x%x, endOffset=0x%x, unwindSize=0x%x, "
-               "pUnwindBlock=0x%p, funKind=%d",
-               dspPtr(pHotCode), dspPtr(pColdCode), startOffset, endOffset, unwindSize, dspPtr(pUnwindBlock), funcKind);
-        switch (funcKind)
-        {
-            case CORJIT_FUNC_ROOT:
-                printf(" (main function)");
-                break;
-            case CORJIT_FUNC_HANDLER:
-                printf(" (handler)");
-                break;
-            case CORJIT_FUNC_FILTER:
-                printf(" (filter)");
-                break;
-            default:
-                printf(" (ILLEGAL)");
-                break;
-        }
-        printf(")\n");
-    }
-#endif // DEBUG
-
-    if (info.compMatchedVM)
-    {
-        info.compCompHnd->allocUnwindInfo(static_cast<uint8_t*>(pHotCode), static_cast<uint8_t*>(pColdCode),
-                                          startOffset, endOffset, unwindSize, static_cast<uint8_t*>(pUnwindBlock),
-                                          funcKind);
-    }
-}
-
 #ifdef TARGET_AMD64
 bool Compiler::eeIsRIPRelativeAddress(void* addr)
 {

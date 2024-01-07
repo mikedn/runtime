@@ -67,7 +67,6 @@ class LoopHoist;
 class Cse;
 class Lowering;
 class Compiler;
-struct FuncInfoDsc;
 INDEBUG(class IndentStack;)
 
 // Declare global operator new overloads that use the compiler's arena allocator
@@ -5424,17 +5423,7 @@ public:
     void eeGetVars();
     void eeGetVars(ICorDebugInfo::ILVarInfo* varInfoTable, uint32_t varInfoCount, bool extendOthers);
 
-    // ICorJitInfo wrappers
-
-    void eeReserveUnwindInfo(bool isFunclet, bool isColdCode, uint32_t unwindSize);
-
-    void eeAllocUnwindInfo(void*          pHotCode,
-                           void*          pColdCode,
-                           uint32_t       startOffset,
-                           uint32_t       endOffset,
-                           uint32_t       unwindSize,
-                           void*          pUnwindBlock,
-                           CorJitFuncKind funcKind);
+// ICorJitInfo wrappers
 
 #ifdef TARGET_AMD64
     bool eeIsRIPRelativeAddress(void* addr);

@@ -99,8 +99,6 @@ void CodeGen::unwindGetFuncColdRange(FuncInfoDsc* func, uint32_t* start, uint32_
     *end   = endLoc == nullptr ? compNativeCodeSize : endLoc->GetCodeOffset();
 }
 
-#endif // FEATURE_EH_FUNCLETS
-
 #ifdef TARGET_UNIX
 
 void CodeGen::createCfiCode(FuncInfoDsc* func, uint32_t codeOffset, uint8_t cfiOpcode, int16_t dwarfReg, int32_t offset)
@@ -230,8 +228,7 @@ void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* hotCode, void* coldCode
 
     DBEXEC(compiler->opts.dspUnwind, DumpCfiInfo(/* isHotCode */ true, startOffset, endOffset, codeCount, codes));
 
-    compiler->eeAllocUnwindInfo(hotCode, nullptr, startOffset, endOffset, codeCount * sizeof(CFI_CODE), codes,
-                                static_cast<CorJitFuncKind>(func->funKind));
+    eeAllocUnwindInfo(func->funKind, hotCode, nullptr, startOffset, endOffset, codeCount * sizeof(CFI_CODE), codes);
 
     if (coldCode == nullptr)
     {
@@ -247,8 +244,7 @@ void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func, void* hotCode, void* coldCode
     startOffset -= compTotalHotCodeSize;
     endOffset -= compTotalHotCodeSize;
 
-    compiler->eeAllocUnwindInfo(hotCode, coldCode, startOffset, endOffset, 0, nullptr,
-                                static_cast<CorJitFuncKind>(func->funKind));
+    eeAllocUnwindInfo(func->funKind, hotCode, coldCode, startOffset, endOffset, 0, nullptr);
 }
 
 #ifdef DEBUG
@@ -290,3 +286,59 @@ void CodeGen::DumpCfiInfo(
 #endif // DEBUG
 
 #endif // TARGET_UNIX
+
+void CodeGen::eeReserveUnwindInfo(bool isFunclet, bool isColdCode, uint32_t unwindSize)
+{
+    JITDUMP("reserveUnwindInfo(isFunclet=%s, isColdCode=%s, unwindSize=0x%x)\n", isFunclet ? "true" : "false",
+            isColdCode ? "true" : "false", unwindSize);
+
+    if (compiler->info.compMatchedVM)
+    {
+        compiler->info.compCompHnd->reserveUnwindInfo(isFunclet, isColdCode, unwindSize);
+    }
+}
+
+#ifdef DEBUG
+static const char* GetFuncKindName(FuncKind kind)
+{
+    switch (kind)
+    {
+        case FUNC_ROOT:
+            return "main function";
+        case FUNC_HANDLER:
+            return "handler";
+        case FUNC_FILTER:
+            return "filter";
+        default:
+            return "???";
+    }
+}
+#endif
+
+void CodeGen::eeAllocUnwindInfo(FuncKind kind,
+                                void*    hotCode,
+                                void*    coldCode,
+                                uint32_t startOffset,
+                                uint32_t endOffset,
+                                uint32_t unwindSize,
+                                void*    unwindBlock)
+{
+    JITDUMP("allocUnwindInfo(pHotCode=0x%p, pColdCode=0x%p, startOffset=0x%x, endOffset=0x%x, unwindSize=0x%x, "
+            "pUnwindBlock=0x%p, funKind=%s",
+            dspPtr(hotCode), dspPtr(coldCode), startOffset, endOffset, unwindSize, dspPtr(unwindBlock),
+            GetFuncKindName(kind));
+
+    // Verify that the JIT enum is in sync with the JIT-EE interface enum
+    static_assert_no_msg(FUNC_ROOT == (FuncKind)CORJIT_FUNC_ROOT);
+    static_assert_no_msg(FUNC_HANDLER == (FuncKind)CORJIT_FUNC_HANDLER);
+    static_assert_no_msg(FUNC_FILTER == (FuncKind)CORJIT_FUNC_FILTER);
+
+    if (compiler->info.compMatchedVM)
+    {
+        compiler->info.compCompHnd->allocUnwindInfo(static_cast<uint8_t*>(hotCode), static_cast<uint8_t*>(coldCode),
+                                                    startOffset, endOffset, unwindSize,
+                                                    static_cast<uint8_t*>(unwindBlock),
+                                                    static_cast<CorJitFuncKind>(kind));
+    }
+}
+#endif // FEATURE_EH_FUNCLETS
