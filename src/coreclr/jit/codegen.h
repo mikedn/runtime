@@ -1250,7 +1250,6 @@ public:
     void unwindEmit();
 #endif
 
-    void unwindPush(RegNum reg);
     void unwindAllocStack(unsigned size);
     void unwindSetFrameReg(RegNum reg, unsigned offset);
     void unwindSaveReg(RegNum reg, unsigned offset);
@@ -1291,6 +1290,7 @@ public:
 
 #ifdef TARGET_AMD64
     void unwindBegPrologWindows();
+    void unwindPush(RegNum reg);
     void unwindPushWindows(RegNum reg);
     void unwindAllocStackWindows(unsigned size);
     void unwindSetFrameRegWindows(RegNum reg, unsigned offset);
@@ -1301,6 +1301,10 @@ public:
 #ifdef DEBUG
     void DumpUnwindInfo(bool isHotCode, uint32_t startOffset, uint32_t endOffset, const UNWIND_INFO* header) const;
 #endif
+#endif
+
+#ifdef TARGET_X86
+    void unwindPush(RegNum reg);
 #endif
 
 #ifdef TARGET_UNIX

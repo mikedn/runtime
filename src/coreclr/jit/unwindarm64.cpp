@@ -7,11 +7,6 @@
 
 #ifdef TARGET_ARM64
 
-void CodeGen::unwindPush(RegNum reg)
-{
-    unreached(); // use one of the unwindSaveReg* functions instead.
-}
-
 void CodeGen::unwindAllocStack(unsigned size)
 {
 #ifdef TARGET_UNIX
