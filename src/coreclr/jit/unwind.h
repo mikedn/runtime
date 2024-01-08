@@ -380,7 +380,9 @@ class UnwindInfo
     INDEBUG(bool uwiInitialized = false;)
 
 public:
+#ifdef TARGET_ARM
     INDEBUG(bool uwiAddingNOP = false;)
+#endif
 
     UnwindInfo()
     {

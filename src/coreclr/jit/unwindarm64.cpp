@@ -90,13 +90,9 @@ void CodeGen::unwindNop()
 
     UnwindInfo& info = funCurrentFunc().uwi;
 
-    INDEBUG(info.uwiAddingNOP = true);
-
     // nop: 11100011: no unwind operation is required.
     info.AddCode(0xE3);
     unwindCaptureLocation();
-
-    INDEBUG(info.uwiAddingNOP = false);
 }
 
 // Save a register pair to the stack at the specified byte offset (which must be positive,
