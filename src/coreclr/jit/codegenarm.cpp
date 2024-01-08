@@ -2750,7 +2750,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 
         // mov R9 into SP
         inst_Mov(TYP_I_IMPL, REG_SP, REG_SAVED_LOCALLOC_SP, /* canSkip */ false);
-        unwindSetFrameReg(REG_SAVED_LOCALLOC_SP, 0);
+        unwindSetFrameReg(REG_SAVED_LOCALLOC_SP);
     }
 
     if (jmpEpilog || genStackAllocRegisterMask(lclFrameSize, calleeSavedModifiedRegs) == RBM_NONE)

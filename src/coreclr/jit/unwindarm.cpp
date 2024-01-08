@@ -329,14 +329,14 @@ void CodeGen::unwindAllocStack(unsigned size)
     unwindCaptureLocation();
 }
 
-void CodeGen::unwindSetFrameReg(RegNum reg, unsigned offset)
+void CodeGen::unwindSetFrameReg(RegNum reg)
 {
 #ifdef TARGET_UNIX
     if (generateCFIUnwindCodes())
     {
         if (generatingProlog)
         {
-            unwindSetFrameRegCFI(reg, offset);
+            unwindSetFrameRegCFI(reg, 0);
         }
 
         return;
@@ -345,8 +345,6 @@ void CodeGen::unwindSetFrameReg(RegNum reg, unsigned offset)
 
     UnwindInfo& info = funCurrentFunc().uwi;
 
-    // Arm unwind info does not allow offset
-    assert(offset == 0);
     assert(0 <= reg && reg <= 15);
 
     // C0-CF : mov sp, rX (opsize 16)

@@ -1251,10 +1251,10 @@ public:
 #endif
 
     void unwindAllocStack(unsigned size);
-    void unwindSetFrameReg(RegNum reg, unsigned offset);
     void unwindSaveReg(RegNum reg, unsigned offset);
 
 #ifdef TARGET_ARM
+    void unwindSetFrameReg(RegNum reg);
     void unwindPushMaskInt(regMaskTP mask);
     void unwindPushMaskFloat(regMaskTP mask);
     void unwindPopMaskInt(regMaskTP mask);
@@ -1276,6 +1276,7 @@ public:
     void unwindNop();
     void unwindPadding(); // Generate a sequence of unwind NOP codes representing instructions between the last
     // instruction and the current location.
+    void unwindSetFrameReg(RegNum reg, unsigned offset);
     void unwindSaveReg(RegNum reg, int offset);                             // str reg, [sp, #offset]
     void unwindSaveRegPreindexed(RegNum reg, int offset);                   // str reg, [sp, #offset]!
     void unwindSaveRegPair(RegNum reg1, RegNum reg2, int offset);           // stp reg1, reg2, [sp, #offset]
@@ -1290,6 +1291,7 @@ public:
 
 #ifdef TARGET_AMD64
     void unwindBegPrologWindows();
+    void unwindSetFrameReg(RegNum reg, unsigned offset);
     void unwindPush(RegNum reg);
     void unwindPushWindows(RegNum reg);
     void unwindAllocStackWindows(unsigned size);
@@ -1304,6 +1306,7 @@ public:
 #endif
 
 #ifdef TARGET_X86
+    void unwindSetFrameReg(RegNum reg, unsigned offset);
     void unwindPush(RegNum reg);
 #endif
 

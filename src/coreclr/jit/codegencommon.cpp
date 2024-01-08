@@ -4057,7 +4057,7 @@ void CodeGen::genFnProlog()
     if (compiler->compLocallocUsed)
     {
         GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_SAVED_LOCALLOC_SP, REG_SPBASE, /* canSkip */ false);
-        unwindSetFrameReg(REG_SAVED_LOCALLOC_SP, 0);
+        unwindSetFrameReg(REG_SAVED_LOCALLOC_SP);
     }
 
     if (needToEstablishFP)
