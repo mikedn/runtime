@@ -60,6 +60,11 @@ void CodeGen::unwindEndEpilog()
 
 #ifdef TARGET_ARM
 
+unsigned CodeGen::unwindGetInstructionSize() const
+{
+    return GetEmitter()->emitGetInstructionSize(unwindLoc);
+}
+
 void CodeGen::unwindPushPopMaskInt(regMaskTP maskInt, bool useOpsize16)
 {
     // floating point registers cannot be specified in 'maskInt'
@@ -303,7 +308,7 @@ void CodeGen::unwindAllocStack(unsigned size)
         //
         // For large stack size, the most significant bits
         // are stored first (and next to the opCode (F9)) per the unwind spec.
-        unsigned instrSizeInBytes = info.GetInstructionSize();
+        unsigned instrSizeInBytes = unwindGetInstructionSize();
         uint8_t  b1               = (instrSizeInBytes == 2) ? 0xF7 : 0xF9;
         info.AddCode(b1,
                      (uint8_t)(size >> 8), // msb
@@ -316,7 +321,7 @@ void CodeGen::unwindAllocStack(unsigned size)
         //
         // For large stack size, the most significant bits
         // are stored first (and next to the opCode (FA)) per the unwind spec.
-        unsigned instrSizeInBytes = info.GetInstructionSize();
+        unsigned instrSizeInBytes = unwindGetInstructionSize();
         uint8_t  b1               = (instrSizeInBytes == 2) ? 0xF8 : 0xFA;
         info.AddCode(b1, (uint8_t)(size >> 16), (uint8_t)(size >> 8), (uint8_t)size);
     }
@@ -1424,16 +1429,6 @@ UnwindEpilogInfo* UnwindInfo::AddEpilog()
     return uwiFragmentFirst.AddEpilog();
 }
 
-#ifdef TARGET_ARM
-unsigned UnwindInfo::GetInstructionSize()
-{
-    assert(uwiInitialized);
-
-    CodeGen* codeGen = static_cast<CodeGen*>(uwiFragmentFirst.GetCompiler()->codeGen);
-    return codeGen->GetEmitter()->emitGetInstructionSize(codeGen->unwindLoc);
-}
-#endif
-
 UnwindFragmentInfo* UnwindInfo::AddFragment(UnwindFragmentInfo* last, insGroup* ig)
 {
     assert(uwiInitialized);
@@ -1750,8 +1745,10 @@ void UnwindInfo::CheckOpsize(uint8_t b1)
     // which we are adding the NOP.
     if (!uwiAddingNOP)
     {
-        unsigned opsizeInBytes    = GetOpcodeSizeFromUnwindHeader(b1);
-        unsigned instrSizeInBytes = GetInstructionSize();
+        unsigned opsizeInBytes = GetOpcodeSizeFromUnwindHeader(b1);
+        unsigned instrSizeInBytes =
+            static_cast<CodeGen*>(uwiFragmentFirst.GetCompiler()->codeGen)->unwindGetInstructionSize();
+
         assert(opsizeInBytes == instrSizeInBytes);
     }
 }

@@ -1266,6 +1266,7 @@ public:
                           // instruction and the current location.
     void unwindPushPopMaskInt(regMaskTP mask, bool useOpsize16);
     void unwindPushPopMaskFloat(regMaskTP mask);
+    unsigned unwindGetInstructionSize() const;
 #ifdef DEBUG
     void DumpUnwindInfo(
         bool isHotCode, uint32_t startOffset, uint32_t endOffset, const uint8_t* header, uint32_t unwindSize) const;

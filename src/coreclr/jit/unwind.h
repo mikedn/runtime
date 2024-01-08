@@ -447,10 +447,6 @@ public:
 
     UnwindEpilogInfo* AddEpilog();
 
-#ifdef TARGET_ARM
-    unsigned GetInstructionSize();
-#endif
-
 private:
     UnwindFragmentInfo* AddFragment(UnwindFragmentInfo* last, insGroup* ig);
     void Split(insGroup* start, insGroup* end, uint32_t maxCodeSize);
