@@ -1239,6 +1239,11 @@ public:
     {
         unwindLoc.CaptureLocation(GetEmitter());
     }
+
+    const emitLocation& unwidGetLocation() const
+    {
+        return unwindLoc;
+    }
 #endif
 
     void unwindBegProlog();

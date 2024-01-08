@@ -215,18 +215,10 @@ class UnwindEpilogInfo
     int epiStartIndex = -1;
 
 public:
-    UnwindEpilogInfo()
-    {
-    }
-
-    UnwindEpilogInfo(Compiler* comp) : epiCodes(comp)
-    {
-    }
+    UnwindEpilogInfo(CodeGen* codeGen);
 
     UnwindEpilogInfo(const UnwindEpilogInfo& info) = delete;
     UnwindEpilogInfo& operator=(const UnwindEpilogInfo&) = delete;
-
-    void CaptureLocation(class emitter* emitter);
 
     const emitLocation& GetStartLocation() const
     {
@@ -287,10 +279,6 @@ class UnwindFragmentInfo
 
     // The unwind codes for the prolog
     UnwindPrologCodes ufiPrologCodes;
-    // In-line the first epilog to avoid separate memory allocation, since
-    // almost all functions will have at least one epilog. It is pointed
-    // to by ufiEpilogList when the first epilog is added.
-    UnwindEpilogInfo ufiEpilogFirst;
 
     // Some data computed when merging the unwind codes, and used when finalizing the
     // unwind block for emission.
@@ -319,7 +307,6 @@ public:
     UnwindFragmentInfo(Compiler* comp, insGroup* start, bool hasPhantomProlog)
         : ufiStartLoc(start)
         , ufiPrologCodes(comp)
-        , ufiEpilogFirst(comp)
         , ufiHasPhantomProlog(hasPhantomProlog)
 #ifdef DEBUG
         , ufiInitialized(true)
@@ -347,7 +334,7 @@ public:
         return ufiEpilogLast == nullptr ? ufiPrologCodes.AllocCode(size) : ufiEpilogLast->epiCodes.AllocCode(size);
     }
 
-    UnwindEpilogInfo* AddEpilog();
+    UnwindEpilogInfo* AddEpilog(CodeGen* codeGen);
 
     void MergeCodes();
     void CopyPrologCodes(const UnwindFragmentInfo& copyFrom);
@@ -447,7 +434,7 @@ public:
         code[3] = b4;
     }
 
-    UnwindEpilogInfo* AddEpilog();
+    UnwindEpilogInfo* AddEpilog(CodeGen* codeGen);
 
 private:
     UnwindFragmentInfo* AddFragment(UnwindFragmentInfo* last, insGroup* ig);

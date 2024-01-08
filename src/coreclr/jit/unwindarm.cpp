@@ -47,9 +47,8 @@ void CodeGen::unwindBegEpilog()
     }
 #endif
 
-    UnwindEpilogInfo* epilog = funCurrentFunc().uwi.AddEpilog();
-    epilog->CaptureLocation(GetEmitter());
     unwindCaptureLocation();
+    funCurrentFunc().uwi.AddEpilog(this);
 }
 
 void CodeGen::unwindEndEpilog()
@@ -759,29 +758,22 @@ void UnwindEpilogCodes::EnsureSize(int requiredSize)
     }
 }
 
-void UnwindEpilogInfo::CaptureLocation(emitter* emitter)
+UnwindEpilogInfo::UnwindEpilogInfo(CodeGen* codeGen)
+    : epiStartLoc(codeGen->unwidGetLocation()), epiCodes(codeGen->GetCompiler())
 {
-    noway_assert(epiStartLoc.GetIG() == nullptr); // This function is only called once per epilog
-    epiStartLoc.CaptureLocation(emitter);
 }
 
-UnwindEpilogInfo* UnwindFragmentInfo::AddEpilog()
+UnwindEpilogInfo* UnwindFragmentInfo::AddEpilog(CodeGen* codeGen)
 {
     assert(ufiInitialized);
 
-    UnwindEpilogInfo* epilog;
+    UnwindEpilogInfo* epilog = new (codeGen->GetCompiler(), CMK_UnwindInfo) UnwindEpilogInfo(codeGen);
 
     if (ufiEpilogList == nullptr)
     {
-        epilog        = &ufiEpilogFirst;
         ufiEpilogList = epilog;
     }
     else
-    {
-        epilog = new (ufiPrologCodes.GetCompiler(), CMK_UnwindInfo) UnwindEpilogInfo(ufiPrologCodes.GetCompiler());
-    }
-
-    if (ufiEpilogLast != nullptr)
     {
         ufiEpilogLast->epiNext = epilog;
     }
@@ -1405,10 +1397,10 @@ void UnwindInfo::Allocate(CodeGen* codeGen, FuncKind kind, bool isHotCode)
     }
 }
 
-UnwindEpilogInfo* UnwindInfo::AddEpilog()
+UnwindEpilogInfo* UnwindInfo::AddEpilog(CodeGen* codeGen)
 {
     assert(uwiInitialized);
-    return uwiFragmentFirst.AddEpilog();
+    return uwiFragmentFirst.AddEpilog(codeGen);
 }
 
 UnwindFragmentInfo* UnwindInfo::AddFragment(UnwindFragmentInfo* last, insGroup* ig)
