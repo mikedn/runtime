@@ -92,11 +92,6 @@ void CodeGen::unwindSetFrameReg(RegNum reg, unsigned offset)
     unwindCaptureLocation();
 }
 
-void CodeGen::unwindSaveReg(RegNum reg, unsigned offset)
-{
-    unreached();
-}
-
 void CodeGen::unwindNop()
 {
     JITDUMP("unwindNop: adding NOP\n");

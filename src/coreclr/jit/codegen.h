@@ -1251,7 +1251,6 @@ public:
 #endif
 
     void unwindAllocStack(unsigned size);
-    void unwindSaveReg(RegNum reg, unsigned offset);
 
 #ifdef TARGET_ARM
     void unwindSetFrameReg(RegNum reg);
@@ -1292,6 +1291,7 @@ public:
 #ifdef TARGET_AMD64
     void unwindBegPrologWindows();
     void unwindSetFrameReg(RegNum reg, unsigned offset);
+    void unwindSaveReg(RegNum reg, unsigned offset);
     void unwindPush(RegNum reg);
     void unwindPushWindows(RegNum reg);
     void unwindAllocStackWindows(unsigned size);
@@ -1308,6 +1308,7 @@ public:
 #ifdef TARGET_X86
     void unwindSetFrameReg(RegNum reg, unsigned offset);
     void unwindPush(RegNum reg);
+    void unwindSaveReg(RegNum reg, unsigned offset);
 #endif
 
 #ifdef TARGET_UNIX

@@ -352,11 +352,6 @@ void CodeGen::unwindSetFrameReg(RegNum reg)
     unwindCaptureLocation();
 }
 
-void CodeGen::unwindSaveReg(RegNum reg, unsigned offset)
-{
-    unreached();
-}
-
 void CodeGen::unwindBranch16()
 {
 #ifdef TARGET_UNIX
