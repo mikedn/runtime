@@ -798,9 +798,9 @@ void UnwindFragmentInfo::CopyPrologCodes(const UnwindFragmentInfo& copyFrom)
 // epilogs that start at or after the location represented by 'splitLoc' are removed
 // from 'splitFrom' and moved to this fragment. Note that this fragment should not have
 // any epilog codes currently; it is at the initial state.
-void UnwindFragmentInfo::SplitEpilogCodes(const insGroup* splitLoc, UnwindFragmentInfo* splitFrom)
+void UnwindFragmentInfo::SplitEpilogCodes(UnwindFragmentInfo* splitFrom)
 {
-    uint32_t splitOffset = splitLoc->GetCodeOffset();
+    uint32_t splitOffset = ufiStartLoc->GetCodeOffset();
 
     for (UnwindEpilogInfo *epilog = splitFrom->ufiEpilogList, *prev = nullptr; epilog != nullptr;
          prev = epilog, epilog = epilog->epiNext)
@@ -1192,7 +1192,7 @@ void UnwindInfo::SplitColdCodes(UnwindInfo* hotInfo)
     uwiFragmentFirst.CopyPrologCodes(hotInfo->uwiFragmentFirst);
 
     // Now split the epilog codes
-    uwiFragmentFirst.SplitEpilogCodes(uwiFragmentFirst.ufiStartLoc, &hotInfo->uwiFragmentFirst);
+    uwiFragmentFirst.SplitEpilogCodes(&hotInfo->uwiFragmentFirst);
 }
 
 // Split the function or funclet into fragments that are no larger than 512K,
@@ -1412,7 +1412,7 @@ UnwindFragmentInfo* UnwindInfo::AddFragment(UnwindFragmentInfo* last, insGroup* 
     UnwindFragmentInfo* newFrag = new (compiler, CMK_UnwindInfo) UnwindFragmentInfo(compiler, ig, true);
     INDEBUG(newFrag->ufiNum = last->ufiNum + 1);
     newFrag->CopyPrologCodes(uwiFragmentFirst);
-    newFrag->SplitEpilogCodes(ig, last);
+    newFrag->SplitEpilogCodes(last);
 
     last->ufiNext = newFrag;
 
