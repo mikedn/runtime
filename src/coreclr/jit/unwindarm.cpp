@@ -1175,8 +1175,7 @@ void UnwindFragmentInfo::Allocate(CodeGen* codeGen, FuncKind kind, CodeRange ran
 }
 
 UnwindInfo::UnwindInfo(Compiler* comp, insGroup* start, insGroup* end)
-    : uwiFragmentFirst(comp, start, false)
-    , uwiEndLoc(end)
+    : uwiFragmentFirst(comp, start, end, false)
 #ifdef DEBUG
     , uwiInitialized(true)
 #endif
@@ -1227,7 +1226,7 @@ void UnwindInfo::SplitLargeFragment(CodeGen* codeGen)
     insGroup* startLoc    = uwiFragmentFirst.ufiStartLoc;
     uint32_t  startOffset = startLoc->GetCodeOffset();
 
-    insGroup* endLoc = uwiEndLoc;
+    insGroup* endLoc = uwiFragmentFirst.ufiEndLoc;
     uint32_t  endOffset;
 
     if (endLoc == nullptr)
@@ -1318,7 +1317,7 @@ void UnwindInfo::Split(insGroup* start, insGroup* end, uint32_t maxCodeSize)
                             prevCandidate->igNum, prevSize, maxCodeSize);
                 }
 
-                lastFragment = AddFragment(lastFragment, prevCandidate);
+                lastFragment = SplitFragment(lastFragment, prevCandidate);
 
                 prevFragmentStart = prevCandidate;
                 prevCandidate     = nullptr;
@@ -1372,23 +1371,10 @@ void UnwindInfo::Allocate(CodeGen* codeGen, FuncKind kind, bool isHotCode)
     assert(uwiInitialized);
     DBEXEC(codeGen->compiler->verbose, Dump(isHotCode, 0));
 
-    uint32_t startOffset   = uwiFragmentFirst.GetStartLoc()->GetCodeOffset();
-    uint32_t funcEndOffset = uwiEndLoc == nullptr ? codeGen->GetCodeSize() : uwiEndLoc->GetCodeOffset();
-
-    assert(funcEndOffset != 0);
-
     for (UnwindFragmentInfo* f = &uwiFragmentFirst; f != nullptr; f = f->ufiNext)
     {
-        uint32_t endOffset;
-
-        if (f->ufiNext == nullptr)
-        {
-            endOffset = funcEndOffset;
-        }
-        else
-        {
-            endOffset = f->ufiNext->GetStartLoc()->GetCodeOffset();
-        }
+        uint32_t startOffset = f->GetStartLoc()->GetCodeOffset();
+        uint32_t endOffset   = f->ufiEndLoc == nullptr ? codeGen->GetCodeSize() : f->ufiEndLoc->GetCodeOffset();
 
         f->Allocate(codeGen, kind, {startOffset, endOffset}, isHotCode);
         startOffset = endOffset;
@@ -1401,18 +1387,20 @@ UnwindEpilogInfo* UnwindInfo::AddEpilog(CodeGen* codeGen)
     return uwiFragmentFirst.AddEpilog(codeGen);
 }
 
-UnwindFragmentInfo* UnwindInfo::AddFragment(UnwindFragmentInfo* last, insGroup* ig)
+UnwindFragmentInfo* UnwindInfo::SplitFragment(UnwindFragmentInfo* frag, insGroup* newStart)
 {
     assert(uwiInitialized);
 
     Compiler* compiler = uwiFragmentFirst.GetCompiler();
+    insGroup* oldEnd   = frag->ufiEndLoc;
 
-    UnwindFragmentInfo* newFrag = new (compiler, CMK_UnwindInfo) UnwindFragmentInfo(compiler, ig, true);
-    INDEBUG(newFrag->ufiNum = last->ufiNum + 1);
+    UnwindFragmentInfo* newFrag = new (compiler, CMK_UnwindInfo) UnwindFragmentInfo(compiler, newStart, oldEnd, true);
+    INDEBUG(newFrag->ufiNum = frag->ufiNum + 1);
     newFrag->CopyPrologCodes(uwiFragmentFirst);
-    newFrag->SplitEpilogs(last);
+    newFrag->SplitEpilogs(frag);
 
-    last->ufiNext = newFrag;
+    frag->ufiNext   = newFrag;
+    frag->ufiEndLoc = newStart;
 
     return newFrag;
 }
@@ -1516,17 +1504,6 @@ void UnwindInfo::Dump(bool isHotCode, int indent)
 
     printf("%*sUnwindInfo%s:\n", indent, "", isHotCode ? "" : " COLD");
     printf("%*s  %d fragment%s\n", indent, "", count, (count != 1) ? "s" : "");
-    printf("%*s  uwiEndLoc: ", indent, "");
-
-    if (uwiEndLoc != nullptr)
-    {
-        printf(FMT_IG, uwiEndLoc->igNum);
-    }
-    else
-    {
-        printf("code end");
-    }
-
     printf("\n%*s  uwiInitialized: 0x%08x\n", indent, "", uwiInitialized);
 
     for (UnwindFragmentInfo* f = &uwiFragmentFirst; f != nullptr; f = f->ufiNext)

@@ -274,6 +274,7 @@ class UnwindFragmentInfo
 
     UnwindFragmentInfo* ufiNext       = nullptr;
     insGroup*           ufiStartLoc   = nullptr;
+    insGroup*           ufiEndLoc     = nullptr;
     UnwindEpilogInfo*   ufiEpilogList = nullptr;
     UnwindEpilogInfo*   ufiEpilogLast = nullptr;
 
@@ -304,8 +305,9 @@ public:
     {
     }
 
-    UnwindFragmentInfo(Compiler* comp, insGroup* start, bool hasPhantomProlog)
+    UnwindFragmentInfo(Compiler* comp, insGroup* start, insGroup* end, bool hasPhantomProlog)
         : ufiStartLoc(start)
+        , ufiEndLoc(end)
         , ufiPrologCodes(comp)
         , ufiHasPhantomProlog(hasPhantomProlog)
 #ifdef DEBUG
@@ -361,8 +363,6 @@ class UnwindInfo
 {
     // The first fragment is directly here, so it doesn't need to be separately allocated.
     UnwindFragmentInfo uwiFragmentFirst;
-    // End emitter location of this function/funclet (nullptr == end of all code)
-    insGroup* uwiEndLoc = nullptr;
 
     INDEBUG(bool uwiInitialized = false;)
 
@@ -437,7 +437,7 @@ public:
     UnwindEpilogInfo* AddEpilog(CodeGen* codeGen);
 
 private:
-    UnwindFragmentInfo* AddFragment(UnwindFragmentInfo* last, insGroup* ig);
+    UnwindFragmentInfo* SplitFragment(UnwindFragmentInfo* last, insGroup* ig);
     void Split(insGroup* start, insGroup* end, uint32_t maxCodeSize);
 
 #ifdef DEBUG
