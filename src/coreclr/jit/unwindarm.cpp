@@ -21,6 +21,7 @@ void CodeGen::unwindBegProlog()
 #endif
 
     FuncInfoDsc& func = funCurrentFunc();
+    assert(func.uwiCold == nullptr);
 
     insGroup* startLoc;
     insGroup* endLoc;
@@ -28,8 +29,6 @@ void CodeGen::unwindBegProlog()
 
     new (&func.uwi) UnwindInfo(compiler, startLoc, endLoc);
     unwindCaptureLocation();
-
-    func.uwiCold = nullptr; // No cold data yet
 }
 
 void CodeGen::unwindEndProlog()
@@ -67,15 +66,14 @@ unsigned CodeGen::unwindGetInstructionSize() const
 
 void CodeGen::unwindPushPopMaskInt(regMaskTP maskInt, bool useOpsize16)
 {
-    // floating point registers cannot be specified in 'maskInt'
-    assert((maskInt & RBM_ALLFLOAT) == 0);
+    assert((maskInt & RBM_ALLFLOAT) == RBM_NONE);
 
     UnwindInfo& info = funCurrentFunc().uwi;
 
     if (useOpsize16)
     {
-        // The 16-bit opcode only encode R0-R7 and LR
-        assert((maskInt & ~(RBM_R0 | RBM_R1 | RBM_R2 | RBM_R3 | RBM_R4 | RBM_R5 | RBM_R6 | RBM_R7 | RBM_LR)) == 0);
+        assert((maskInt & ~(RBM_R0 | RBM_R1 | RBM_R2 | RBM_R3 | RBM_R4 | RBM_R5 | RBM_R6 | RBM_R7 | RBM_LR)) ==
+               RBM_NONE);
 
         bool    shortFormat = false;
         uint8_t val         = 0;
@@ -84,6 +82,7 @@ void CodeGen::unwindPushPopMaskInt(regMaskTP maskInt, bool useOpsize16)
         {
             regMaskTP matchMask = maskInt & (RBM_R4 | RBM_R5 | RBM_R6 | RBM_R7);
             regMaskTP valMask   = RBM_R4;
+
             while (val < 4)
             {
                 if (matchMask == valMask)
@@ -124,6 +123,7 @@ void CodeGen::unwindPushPopMaskInt(regMaskTP maskInt, bool useOpsize16)
         {
             regMaskTP matchMask = maskInt & (RBM_R4 | RBM_R5 | RBM_R6 | RBM_R7 | RBM_R8 | RBM_R9 | RBM_R10 | RBM_R11);
             regMaskTP valMask   = RBM_R4 | RBM_R5 | RBM_R6 | RBM_R7 | RBM_R8;
+
             while (val < 4)
             {
                 if (matchMask == valMask)
@@ -156,10 +156,8 @@ void CodeGen::unwindPushPopMaskInt(regMaskTP maskInt, bool useOpsize16)
 
 void CodeGen::unwindPushPopMaskFloat(regMaskTP maskFloat)
 {
-    // Only floating pointer registers can be specified in 'maskFloat'
     assert((maskFloat & ~RBM_ALLFLOAT) == RBM_NONE);
 
-    // If the maskFloat is zero there is no unwind code to emit
     if (maskFloat == RBM_NONE)
     {
         return;
@@ -168,12 +166,12 @@ void CodeGen::unwindPushPopMaskFloat(regMaskTP maskFloat)
     UnwindInfo& info = funCurrentFunc().uwi;
 
     uint8_t   val     = 0;
-    regMaskTP valMask = (RBM_F16 | RBM_F17);
+    regMaskTP valMask = RBM_F16 | RBM_F17;
 
     while (maskFloat != valMask)
     {
         valMask <<= 2;
-        valMask |= (RBM_F16 | RBM_F17);
+        valMask |= RBM_F16 | RBM_F17;
 
         val++;
 
@@ -191,10 +189,9 @@ void CodeGen::unwindPushPopMaskFloat(regMaskTP maskFloat)
 
 void CodeGen::unwindPushMaskInt(regMaskTP maskInt)
 {
-    // Only r0-r12 and lr are supported
     assert((maskInt &
             ~(RBM_R0 | RBM_R1 | RBM_R2 | RBM_R3 | RBM_R4 | RBM_R5 | RBM_R6 | RBM_R7 | RBM_R8 | RBM_R9 | RBM_R10 |
-              RBM_R11 | RBM_R12 | RBM_LR)) == 0);
+              RBM_R11 | RBM_R12 | RBM_LR)) == RBM_NONE);
 
 #ifdef TARGET_UNIX
     if (generateCFIUnwindCodes())
@@ -204,18 +201,18 @@ void CodeGen::unwindPushMaskInt(regMaskTP maskInt)
         {
             maskInt = (maskInt & ~RBM_LR) | RBM_PC;
         }
+
         unwindPushPopMaskCFI(maskInt, false);
         return;
     }
 #endif
 
-    bool useOpsize16 = ((maskInt & (RBM_LOW_REGS | RBM_LR)) == maskInt); // Can PUSH use the 16-bit encoding?
+    bool useOpsize16 = (maskInt & (RBM_LOW_REGS | RBM_LR)) == maskInt;
     unwindPushPopMaskInt(maskInt, useOpsize16);
 }
 
 void CodeGen::unwindPushMaskFloat(regMaskTP maskFloat)
 {
-    // Only floating point registers should be in maskFloat
     assert((maskFloat & RBM_ALLFLOAT) == maskFloat);
 
 #ifdef TARGET_UNIX
@@ -232,6 +229,11 @@ void CodeGen::unwindPushMaskFloat(regMaskTP maskFloat)
 
 void CodeGen::unwindPopMaskInt(regMaskTP maskInt)
 {
+    // Only r0-r12 and lr and pc are supported (pc is mapped to lr when encoding)
+    assert((maskInt &
+            ~(RBM_R0 | RBM_R1 | RBM_R2 | RBM_R3 | RBM_R4 | RBM_R5 | RBM_R6 | RBM_R7 | RBM_R8 | RBM_R9 | RBM_R10 |
+              RBM_R11 | RBM_R12 | RBM_LR | RBM_PC)) == RBM_NONE);
+
 #ifdef TARGET_UNIX
     if (generateCFIUnwindCodes())
     {
@@ -239,27 +241,25 @@ void CodeGen::unwindPopMaskInt(regMaskTP maskInt)
     }
 #endif
 
-    // Only r0-r12 and lr and pc are supported (pc is mapped to lr when encoding)
-    assert((maskInt &
-            ~(RBM_R0 | RBM_R1 | RBM_R2 | RBM_R3 | RBM_R4 | RBM_R5 | RBM_R6 | RBM_R7 | RBM_R8 | RBM_R9 | RBM_R10 |
-              RBM_R11 | RBM_R12 | RBM_LR | RBM_PC)) == 0);
-
-    bool useOpsize16 = ((maskInt & (RBM_LOW_REGS | RBM_PC)) == maskInt); // Can POP use the 16-bit encoding?
+    bool useOpsize16 = (maskInt & (RBM_LOW_REGS | RBM_PC)) == maskInt;
 
     // If we are popping PC, then we'll return from the function. In this case, we assume
     // the first thing the prolog did was push LR, so give the unwind codes in terms of
     // the LR that was pushed. Note that the epilog unwind codes are meant to reverse
     // the effect of the prolog. For "pop {pc}", the prolog had "push {lr}", so we need
     // an epilog code to model the reverse of that.
-    if (maskInt & RBM_PC)
+    if ((maskInt & RBM_PC) != RBM_NONE)
     {
         maskInt = (maskInt & ~RBM_PC) | RBM_LR;
     }
+
     unwindPushPopMaskInt(maskInt, useOpsize16);
 }
 
 void CodeGen::unwindPopMaskFloat(regMaskTP maskFloat)
 {
+    assert((maskFloat & RBM_ALLFLOAT) == maskFloat);
+
 #ifdef TARGET_UNIX
     if (generateCFIUnwindCodes())
     {
@@ -267,13 +267,13 @@ void CodeGen::unwindPopMaskFloat(regMaskTP maskFloat)
     }
 #endif
 
-    // Only floating point registers should be in maskFloat
-    assert((maskFloat & RBM_ALLFLOAT) == maskFloat);
     unwindPushPopMaskFloat(maskFloat);
 }
 
 void CodeGen::unwindAllocStack(unsigned size)
 {
+    assert(size % 4 == 0);
+
 #ifdef TARGET_UNIX
     if (generateCFIUnwindCodes())
     {
@@ -288,7 +288,6 @@ void CodeGen::unwindAllocStack(unsigned size)
 
     UnwindInfo& info = funCurrentFunc().uwi;
 
-    assert(size % 4 == 0);
     size /= 4;
 
     if (size <= 0x7F)
@@ -305,24 +304,14 @@ void CodeGen::unwindAllocStack(unsigned size)
     {
         // F7 : add sp, sp, #X*4 (opsize 16)
         // F9 : add sp, sp, #X*4 (opsize 32)
-        //
-        // For large stack size, the most significant bits
-        // are stored first (and next to the opCode (F9)) per the unwind spec.
-        unsigned instrSizeInBytes = unwindGetInstructionSize();
-        uint8_t  b1               = (instrSizeInBytes == 2) ? 0xF7 : 0xF9;
-        info.AddCode(b1,
-                     (uint8_t)(size >> 8), // msb
-                     (uint8_t)size);       // lsb
+        uint8_t b1 = unwindGetInstructionSize() == 2 ? 0xF7 : 0xF9;
+        info.AddCode(b1, (uint8_t)(size >> 8), (uint8_t)size);
     }
     else
     {
         // F8 : add sp, sp, #X*4 (opsize 16)
         // FA : add sp, sp, #X*4 (opsize 32)
-        //
-        // For large stack size, the most significant bits
-        // are stored first (and next to the opCode (FA)) per the unwind spec.
-        unsigned instrSizeInBytes = unwindGetInstructionSize();
-        uint8_t  b1               = (instrSizeInBytes == 2) ? 0xF8 : 0xFA;
+        uint8_t b1 = unwindGetInstructionSize() == 2 ? 0xF8 : 0xFA;
         info.AddCode(b1, (uint8_t)(size >> 16), (uint8_t)(size >> 8), (uint8_t)size);
     }
 
@@ -331,6 +320,8 @@ void CodeGen::unwindAllocStack(unsigned size)
 
 void CodeGen::unwindSetFrameReg(RegNum reg)
 {
+    assert(0 <= reg && reg <= 15);
+
 #ifdef TARGET_UNIX
     if (generateCFIUnwindCodes())
     {
@@ -344,8 +335,6 @@ void CodeGen::unwindSetFrameReg(RegNum reg)
 #endif
 
     UnwindInfo& info = funCurrentFunc().uwi;
-
-    assert(0 <= reg && reg <= 15);
 
     // C0-CF : mov sp, rX (opsize 16)
     info.AddCode((uint8_t)(0xC0 + reg));
@@ -363,8 +352,8 @@ void CodeGen::unwindBranch16()
 
     UnwindInfo& info = funCurrentFunc().uwi;
 
-    // TODO-CQ: need to handle changing the exit code from 0xFF to 0xFD. Currently, this will waste an extra 0xFF at the
-    // end, automatically added.
+    // TODO-CQ: need to handle changing the exit code from 0xFF to 0xFD.
+    // Currently, this will waste an extra 0xFF at the end, automatically added.
     info.AddCode(0xFD);
     unwindCaptureLocation();
 }

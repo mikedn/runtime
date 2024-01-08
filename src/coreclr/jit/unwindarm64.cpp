@@ -9,6 +9,8 @@
 
 void CodeGen::unwindAllocStack(unsigned size)
 {
+    assert(size % 16 == 0);
+
 #ifdef TARGET_UNIX
     if (generateCFIUnwindCodes())
     {
@@ -19,34 +21,24 @@ void CodeGen::unwindAllocStack(unsigned size)
 
         return;
     }
-#endif // TARGET_UNIX
-
-    assert(size % 16 == 0);
-    unsigned x = size / 16;
+#endif
 
     UnwindInfo& info = funCurrentFunc().uwi;
+    unsigned    x    = size / 16;
 
     if (x <= 0x1F)
     {
-        // alloc_s: 000xxxxx: allocate small stack with size < 128 (2^5 * 16)
-        // TODO-Review: should say size < 512
-
+        // alloc_s: 000xxxxx: allocate small stack with size < 512 (2^5 * 16)
         info.AddCode((uint8_t)x);
     }
     else if (x <= 0x7FF)
     {
-        // alloc_m: 11000xxx | xxxxxxxx: allocate large stack with size < 16k (2^11 * 16)
-        // TODO-Review: should say size < 32K
-
+        // alloc_m: 11000xxx | xxxxxxxx: allocate large stack with size < 32k (2^11 * 16)
         info.AddCode(0xC0 | (uint8_t)(x >> 8), (uint8_t)x);
     }
     else
     {
         // alloc_l: 11100000 | xxxxxxxx | xxxxxxxx | xxxxxxxx : allocate large stack with size < 256M (2^24 * 16)
-        //
-        // For large stack size, the most significant bits
-        // are stored first (and next to the opCode) per the unwind spec.
-
         info.AddCode(0xE0, (uint8_t)(x >> 16), (uint8_t)(x >> 8), (uint8_t)x);
     }
 
@@ -117,7 +109,6 @@ void CodeGen::unwindSaveRegPair(RegNum reg1, RegNum reg2, int offset)
 {
     // stp reg1, reg2, [sp, #offset]
 
-    // offset for store pair in prolog must be positive and a multiple of 8.
     assert(0 <= offset && offset <= 504);
     assert((offset % 8) == 0);
 
@@ -126,11 +117,11 @@ void CodeGen::unwindSaveRegPair(RegNum reg1, RegNum reg2, int offset)
     {
         if (generatingProlog)
         {
-            FuncInfoDsc& func     = funCurrentFunc();
-            uint32_t     cbProlog = unwindGetCurrentOffset();
+            FuncInfoDsc& func       = funCurrentFunc();
+            uint32_t     codeOffset = unwindGetCurrentOffset();
 
-            func.cfi.AddCode(cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg1), offset);
-            func.cfi.AddCode(cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg2), offset + 8);
+            func.cfi.AddCode(codeOffset, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg1), offset);
+            func.cfi.AddCode(codeOffset, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg2), offset + 8);
         }
 
         return;
@@ -154,11 +145,10 @@ void CodeGen::unwindSaveRegPair(RegNum reg1, RegNum reg2, int offset)
     {
         // save_lrpair: 1101011x | xxzzzzzz: save pair <r19 + 2 * #X, lr> at [sp + #Z * 8], offset <= 504
 
-        assert(REG_R19 <= reg1 && // first legal pair: R19, LR
-               reg1 <= REG_R27);  // last legal pair: R27, LR
+        assert(REG_R19 <= reg1 && reg1 <= REG_R27);
 
         uint8_t x = (uint8_t)(reg1 - REG_R19);
-        assert((x % 2) == 0); // only legal reg1: R19, R21, R23, R25, R27
+        assert((x % 2) == 0);
         x /= 2;
         assert(0 <= x && x <= 0x7);
 
@@ -169,8 +159,7 @@ void CodeGen::unwindSaveRegPair(RegNum reg1, RegNum reg2, int offset)
         // save_regp: 110010xx | xxzzzzzz: save r(19 + #X) pair at [sp + #Z * 8], offset <= 504
 
         assert(REG_NEXT(reg1) == reg2);
-        assert(REG_R19 <= reg1 && // first legal pair: R19, R20
-               reg1 <= REG_R27);  // last legal pair: R27, R28 (FP is never saved without LR)
+        assert(REG_R19 <= reg1 && reg1 <= REG_R27);
 
         uint8_t x = (uint8_t)(reg1 - REG_R19);
         assert(0 <= x && x <= 0xF);
@@ -182,8 +171,7 @@ void CodeGen::unwindSaveRegPair(RegNum reg1, RegNum reg2, int offset)
         // save_fregp: 1101100x | xxzzzzzz : save pair d(8 + #X) at [sp + #Z * 8], offset <= 504
 
         assert(REG_NEXT(reg1) == reg2);
-        assert(REG_V8 <= reg1 && // first legal pair: V8, V9
-               reg1 <= REG_V14); // last legal pair: V14, V15
+        assert(REG_V8 <= reg1 && reg1 <= REG_V14);
 
         uint8_t x = (uint8_t)(reg1 - REG_V8);
         assert(0 <= x && x <= 0x7);
@@ -201,7 +189,6 @@ void CodeGen::unwindSaveRegPairPreindexed(RegNum reg1, RegNum reg2, int offset)
 {
     // stp reg1, reg2, [sp, #offset]!
 
-    // pre-indexed offset in prolog must be negative and a multiple of 8.
     assert(offset < 0);
     assert((offset % 8) == 0);
 
@@ -210,12 +197,12 @@ void CodeGen::unwindSaveRegPairPreindexed(RegNum reg1, RegNum reg2, int offset)
     {
         if (generatingProlog)
         {
-            FuncInfoDsc& func     = funCurrentFunc();
-            uint32_t     cbProlog = unwindGetCurrentOffset();
+            FuncInfoDsc& func       = funCurrentFunc();
+            uint32_t     codeOffset = unwindGetCurrentOffset();
 
-            func.cfi.AddCode(cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, -offset);
-            func.cfi.AddCode(cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg1), 0);
-            func.cfi.AddCode(cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg2), 8);
+            func.cfi.AddCode(codeOffset, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, -offset);
+            func.cfi.AddCode(codeOffset, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg1), 0);
+            func.cfi.AddCode(codeOffset, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg2), 8);
         }
 
         return;
@@ -236,8 +223,7 @@ void CodeGen::unwindSaveRegPairPreindexed(RegNum reg1, RegNum reg2, int offset)
 
         info.AddCode(0x80 | (uint8_t)z);
     }
-    else if ((reg1 == REG_R19) &&
-             (-256 <= offset)) // If the offset is between -512 and -256, we use the save_regp_x unwind code.
+    else if ((reg1 == REG_R19) && (-256 <= offset))
     {
         // save_r19r20_x: 001zzzzz: save <r19,r20> pair at [sp-#Z*8]!, pre-indexed offset >= -248
         // NOTE: I'm not sure why we allow Z==0 here; seems useless, and the calculation of offset is different from the
@@ -259,8 +245,7 @@ void CodeGen::unwindSaveRegPairPreindexed(RegNum reg1, RegNum reg2, int offset)
         assert(0 <= z && z <= 0x3F);
 
         assert(REG_NEXT(reg1) == reg2);
-        assert(REG_R19 <= reg1 && // first legal pair: R19, R20
-               reg1 <= REG_R27);  // last legal pair: R27, R28 (FP is never saved without LR)
+        assert(REG_R19 <= reg1 && reg1 <= REG_R27);
 
         uint8_t x = (uint8_t)(reg1 - REG_R19);
         assert(0 <= x && x <= 0xF);
@@ -276,8 +261,7 @@ void CodeGen::unwindSaveRegPairPreindexed(RegNum reg1, RegNum reg2, int offset)
         assert(0 <= z && z <= 0x3F);
 
         assert(REG_NEXT(reg1) == reg2);
-        assert(REG_V8 <= reg1 && // first legal pair: V8, V9
-               reg1 <= REG_V14); // last legal pair: V14, V15
+        assert(REG_V8 <= reg1 && reg1 <= REG_V14);
 
         uint8_t x = (uint8_t)(reg1 - REG_V8);
         assert(0 <= x && x <= 0x7);
@@ -292,7 +276,6 @@ void CodeGen::unwindSaveReg(RegNum reg, int offset)
 {
     // str reg, [sp, #offset]
 
-    // offset for store in prolog must be positive and a multiple of 8.
     assert(0 <= offset && offset <= 504);
     assert((offset % 8) == 0);
 
@@ -301,10 +284,10 @@ void CodeGen::unwindSaveReg(RegNum reg, int offset)
     {
         if (generatingProlog)
         {
-            FuncInfoDsc& func     = funCurrentFunc();
-            uint32_t     cbProlog = unwindGetCurrentOffset();
+            FuncInfoDsc& func       = funCurrentFunc();
+            uint32_t     codeOffset = unwindGetCurrentOffset();
 
-            func.cfi.AddCode(cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg), offset);
+            func.cfi.AddCode(codeOffset, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg), offset);
         }
 
         return;
@@ -320,8 +303,7 @@ void CodeGen::unwindSaveReg(RegNum reg, int offset)
     {
         // save_reg: 110100xx | xxzzzzzz: save reg r(19 + #X) at [sp + #Z * 8], offset <= 504
 
-        assert(REG_R19 <= reg && // first legal register: R19
-               reg <= REG_LR);   // last legal register: LR
+        assert(REG_R19 <= reg && reg <= REG_LR);
 
         uint8_t x = (uint8_t)(reg - REG_R19);
         assert(0 <= x && x <= 0xF);
@@ -332,8 +314,7 @@ void CodeGen::unwindSaveReg(RegNum reg, int offset)
     {
         // save_freg: 1101110x | xxzzzzzz : save reg d(8 + #X) at [sp + #Z * 8], offset <= 504
 
-        assert(REG_V8 <= reg && // first legal register: V8
-               reg <= REG_V15); // last legal register: V15
+        assert(REG_V8 <= reg && reg <= REG_V15);
 
         uint8_t x = (uint8_t)(reg - REG_V8);
         assert(0 <= x && x <= 0x7);
@@ -357,11 +338,11 @@ void CodeGen::unwindSaveRegPreindexed(RegNum reg, int offset)
     {
         if (generatingProlog)
         {
-            FuncInfoDsc& func     = funCurrentFunc();
-            uint32_t     cbProlog = unwindGetCurrentOffset();
+            FuncInfoDsc& func       = funCurrentFunc();
+            uint32_t     codeOffset = unwindGetCurrentOffset();
 
-            func.cfi.AddCode(cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, -offset);
-            func.cfi.AddCode(cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg), 0);
+            func.cfi.AddCode(codeOffset, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, -offset);
+            func.cfi.AddCode(codeOffset, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg), 0);
         }
 
         return;
@@ -377,8 +358,7 @@ void CodeGen::unwindSaveRegPreindexed(RegNum reg, int offset)
     {
         // save_reg_x: 1101010x | xxxzzzzz: save reg r(19 + #X) at [sp - (#Z + 1) * 8]!, pre-indexed offset >= -256
 
-        assert(REG_R19 <= reg && // first legal register: R19
-               reg <= REG_LR);   // last legal register: LR
+        assert(REG_R19 <= reg && reg <= REG_LR);
 
         uint8_t x = (uint8_t)(reg - REG_R19);
         assert(0 <= x && x <= 0xF);
@@ -389,8 +369,7 @@ void CodeGen::unwindSaveRegPreindexed(RegNum reg, int offset)
     {
         // save_freg_x: 11011110 | xxxzzzzz : save reg d(8 + #X) at [sp - (#Z + 1) * 8]!, pre - indexed offset >= -256
 
-        assert(REG_V8 <= reg && // first legal register: V8
-               reg <= REG_V15); // last legal register: V15
+        assert(REG_V8 <= reg && reg <= REG_V15);
 
         uint8_t x = (uint8_t)(reg - REG_V8);
         assert(0 <= x && x <= 0x7);
@@ -409,8 +388,6 @@ void CodeGen::unwindSaveNext()
 #endif
 
     UnwindInfo& info = funCurrentFunc().uwi;
-
-    // We're saving the next register pair. The caller is responsible for ensuring this is correct!
 
     // save_next: 11100110 : save next non - volatile Int or FP register pair.
     info.AddCode(0xE6);
