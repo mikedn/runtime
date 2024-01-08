@@ -64,14 +64,13 @@ void CodeGen::unwindGetFuncHotRange(FuncInfoDsc* func, insGroup** start, insGrou
     }
 }
 
-void CodeGen::unwindGetFuncHotRange(FuncInfoDsc* func, uint32_t* start, uint32_t* end)
+CodeRange CodeGen::unwindGetFuncHotRange(FuncInfoDsc* func)
 {
     insGroup* startLoc = nullptr;
     insGroup* endLoc   = nullptr;
     unwindGetFuncHotRange(func, &startLoc, &endLoc);
 
-    *start = startLoc->GetCodeOffset();
-    *end   = endLoc == nullptr ? codeSize : endLoc->GetCodeOffset();
+    return {startLoc->GetCodeOffset(), endLoc == nullptr ? codeSize : endLoc->GetCodeOffset()};
 }
 
 void CodeGen::unwindGetFuncColdRange(FuncInfoDsc* func, insGroup** start, insGroup** end)
@@ -89,14 +88,13 @@ void CodeGen::unwindGetFuncColdRange(FuncInfoDsc* func, insGroup** start, insGro
     *end   = nullptr;
 }
 
-void CodeGen::unwindGetFuncColdRange(FuncInfoDsc* func, uint32_t* start, uint32_t* end)
+CodeRange CodeGen::unwindGetFuncColdRange(FuncInfoDsc* func)
 {
     insGroup* startLoc = nullptr;
     insGroup* endLoc   = nullptr;
     unwindGetFuncColdRange(func, &startLoc, &endLoc);
 
-    *start = startLoc->GetCodeOffset();
-    *end   = endLoc == nullptr ? codeSize : endLoc->GetCodeOffset();
+    return {startLoc->GetCodeOffset(), endLoc == nullptr ? codeSize : endLoc->GetCodeOffset()};
 }
 
 #ifdef TARGET_UNIX
@@ -220,25 +218,20 @@ void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func)
     uint32_t  codeCount = static_cast<uint32_t>(func->cfi.codes->size());
     CFI_CODE* codes     = codeCount == 0 ? nullptr : func->cfi.codes->data();
 
-    uint32_t startOffset;
-    uint32_t endOffset;
-    unwindGetFuncHotRange(func, &startOffset, &endOffset);
-    eeAllocUnwindInfo(func->kind, true, startOffset, endOffset, codeCount * sizeof(CFI_CODE), codes);
+    eeAllocUnwindInfo(func->kind, true, unwindGetFuncHotRange(func), codeCount * sizeof(CFI_CODE), codes);
 
     if (coldCodePtr != nullptr)
     {
-        unwindGetFuncColdRange(func, &startOffset, &endOffset);
-        eeAllocUnwindInfo(func->kind, false, startOffset, endOffset, 0, nullptr);
+        eeAllocUnwindInfo(func->kind, false, unwindGetFuncColdRange(func), 0, nullptr);
     }
 }
 
 #ifdef DEBUG
-void CodeGen::DumpCfiInfo(
-    bool isHotCode, uint32_t startOffset, uint32_t endOffset, uint32_t count, const CFI_CODE* codes) const
+void CodeGen::DumpCfiInfo(bool isHotCode, CodeRange range, uint32_t count, const CFI_CODE* codes) const
 {
     printf("Cfi Info%s:\n", isHotCode ? "" : " COLD");
-    printf("  >> Start offset   : 0x%06x \n", compiler->dspOffset(startOffset));
-    printf("  >>   End offset   : 0x%06x \n", compiler->dspOffset(endOffset));
+    printf("  >> Start offset   : 0x%06x \n", compiler->dspOffset(range.start));
+    printf("  >>   End offset   : 0x%06x \n", compiler->dspOffset(range.end));
 
     for (unsigned i = 0; i < count; i++)
     {
@@ -300,8 +293,7 @@ static const char* GetFuncKindName(FuncKind kind)
 }
 #endif
 
-void CodeGen::eeAllocUnwindInfo(
-    FuncKind kind, bool isHotCode, uint32_t startOffset, uint32_t endOffset, uint32_t unwindSize, void* unwindBlock)
+void CodeGen::eeAllocUnwindInfo(FuncKind kind, bool isHotCode, CodeRange range, uint32_t unwindSize, void* unwindBlock)
 {
 #ifdef DEBUG
     if (compiler->opts.dspUnwind)
@@ -309,17 +301,16 @@ void CodeGen::eeAllocUnwindInfo(
 #ifdef TARGET_UNIX
         if (generateCFIUnwindCodes())
         {
-            DumpCfiInfo(isHotCode, startOffset, endOffset, unwindSize / sizeof(CFI_CODE),
-                        static_cast<CFI_CODE*>(unwindBlock));
+            DumpCfiInfo(isHotCode, range, unwindSize / sizeof(CFI_CODE), static_cast<CFI_CODE*>(unwindBlock));
         }
         else
 #endif
         {
 #ifdef TARGET_AMD64
-            DumpUnwindInfo(isHotCode, startOffset, endOffset, reinterpret_cast<UNWIND_INFO*>(unwindBlock));
+            DumpUnwindInfo(isHotCode, range, reinterpret_cast<UNWIND_INFO*>(unwindBlock));
 #endif
 #ifdef TARGET_ARMARCH
-            DumpUnwindInfo(isHotCode, startOffset, endOffset, reinterpret_cast<uint8_t*>(unwindBlock), unwindSize);
+            DumpUnwindInfo(isHotCode, range, reinterpret_cast<uint8_t*>(unwindBlock), unwindSize);
 #endif
         }
     }
@@ -327,19 +318,19 @@ void CodeGen::eeAllocUnwindInfo(
 
     if (isHotCode)
     {
-        assert(endOffset <= hotCodeSize);
+        assert(range.end <= hotCodeSize);
     }
     else
     {
-        assert(startOffset >= hotCodeSize);
+        assert(range.start >= hotCodeSize);
 
-        startOffset -= hotCodeSize;
-        endOffset -= hotCodeSize;
+        range.start -= hotCodeSize;
+        range.end -= hotCodeSize;
     }
 
     JITDUMP("allocUnwindInfo(pHotCode=0x%p, pColdCode=0x%p, startOffset=0x%x, endOffset=0x%x, unwindSize=0x%x, "
             "pUnwindBlock=0x%p, funKind=%s",
-            dspPtr(codePtr), dspPtr(coldCodePtr), startOffset, endOffset, unwindSize, dspPtr(unwindBlock),
+            dspPtr(codePtr), dspPtr(coldCodePtr), range.start, range.end, unwindSize, dspPtr(unwindBlock),
             GetFuncKindName(kind));
 
     // Verify that the JIT enum is in sync with the JIT-EE interface enum
@@ -351,7 +342,7 @@ void CodeGen::eeAllocUnwindInfo(
     {
         compiler->info.compCompHnd->allocUnwindInfo(static_cast<uint8_t*>(codePtr),
                                                     isHotCode ? nullptr : static_cast<uint8_t*>(coldCodePtr),
-                                                    startOffset, endOffset, unwindSize,
+                                                    range.start, range.end, unwindSize,
                                                     static_cast<uint8_t*>(unwindBlock),
                                                     static_cast<CorJitFuncKind>(kind));
     }

@@ -1156,15 +1156,14 @@ void UnwindFragmentInfo::Reserve(CodeGen* codeGen, FuncKind kind, bool isHotCode
     codeGen->eeReserveUnwindInfo(kind != FUNC_ROOT, isHotCode, Size());
 }
 
-void UnwindFragmentInfo::Allocate(
-    CodeGen* codeGen, FuncKind kind, uint32_t startOffset, uint32_t endOffset, bool isHotCode)
+void UnwindFragmentInfo::Allocate(CodeGen* codeGen, FuncKind kind, CodeRange range, bool isHotCode)
 {
     noway_assert(isHotCode || (kind == FUNC_ROOT)); // TODO-CQ: support funclets in cold code
-    assert(endOffset > startOffset);
+    assert(range.end > range.start);
 
-    uint32_t codeSize = endOffset - startOffset;
+    uint32_t codeSize = range.end - range.start;
 
-    Finalize(startOffset, codeSize);
+    Finalize(range.start, codeSize);
 
     uint8_t* unwindBlock;
     uint32_t unwindSize;
@@ -1172,7 +1171,7 @@ void UnwindFragmentInfo::Allocate(
 
     DBEXEC(ufiNum != 1, JITDUMP("unwindEmit: fragment #%d:\n", ufiNum));
 
-    codeGen->eeAllocUnwindInfo(kind, isHotCode, startOffset, endOffset, unwindSize, unwindBlock);
+    codeGen->eeAllocUnwindInfo(kind, isHotCode, range, unwindSize, unwindBlock);
 }
 
 UnwindInfo::UnwindInfo(Compiler* comp, insGroup* start, insGroup* end)
@@ -1391,7 +1390,7 @@ void UnwindInfo::Allocate(CodeGen* codeGen, FuncKind kind, bool isHotCode)
             endOffset = f->ufiNext->GetStartLoc()->GetCodeOffset();
         }
 
-        f->Allocate(codeGen, kind, startOffset, endOffset, isHotCode);
+        f->Allocate(codeGen, kind, {startOffset, endOffset}, isHotCode);
         startOffset = endOffset;
     }
 }
@@ -1827,8 +1826,7 @@ static uint32_t DumpOpsize(uint32_t padding, uint32_t opsize)
     return printed + 11; // assumes opsize is always 2 digits
 }
 
-void CodeGen::DumpUnwindInfo(
-    bool isHotCode, uint32_t startOffset, uint32_t endOffset, const uint8_t* header, uint32_t unwindSize) const
+void CodeGen::DumpUnwindInfo(bool isHotCode, CodeRange range, const uint8_t* header, uint32_t unwindSize) const
 {
     printf("Unwind Info%s:\n", isHotCode ? "" : " COLD");
 
@@ -1847,8 +1845,8 @@ void CodeGen::DumpUnwindInfo(
     uint32_t Vers           = ExtractBits(dw, 18, 2);
     uint32_t functionLength = ExtractBits(dw, 0, 18);
 
-    printf("  >> Start offset   : 0x%06x (not in unwind data)\n", compiler->dspOffset(startOffset));
-    printf("  >>   End offset   : 0x%06x (not in unwind data)\n", compiler->dspOffset(endOffset));
+    printf("  >> Start offset   : 0x%06x (not in unwind data)\n", compiler->dspOffset(range.start));
+    printf("  >>   End offset   : 0x%06x (not in unwind data)\n", compiler->dspOffset(range.end));
     printf("  Code Words        : %u\n", codeWords);
     printf("  Epilog Count      : %u\n", epilogCount);
     printf("  F bit             : %u\n", FBit);
@@ -1858,7 +1856,7 @@ void CodeGen::DumpUnwindInfo(
     printf("  Function Length   : %u (0x%05x) Actual length = %u (0x%06x)\n", functionLength, functionLength,
            functionLength * 2, functionLength * 2);
 
-    assert(functionLength * 2 == endOffset - startOffset);
+    assert(functionLength * 2 == range.end - range.start);
 
     if (codeWords == 0 && epilogCount == 0)
     {
@@ -1902,7 +1900,7 @@ void CodeGen::DumpUnwindInfo(
                 // of the current funclet, not the offset from the beginning of the main function.
                 // To help find it when looking through JitDump output, also show the offset from
                 // the beginning of the main function.
-                uint32_t epilogStartOffsetFromMainFunctionBegin = epilogStartOffset * 2 + startOffset;
+                uint32_t epilogStartOffsetFromMainFunctionBegin = epilogStartOffset * 2 + range.start;
 
                 assert(res == 0);
 

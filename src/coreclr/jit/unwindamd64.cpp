@@ -427,14 +427,13 @@ void CodeGen::unwindEmitFunc(FuncInfoDsc* func)
 
 void CodeGen::unwindEmitFuncRegion(FuncInfoDsc* func, bool isHotCode)
 {
-    uint32_t startOffset;
-    uint32_t endOffset;
-    uint32_t unwindSize  = 0;
-    uint8_t* unwindBlock = nullptr;
+    CodeRange range;
+    uint32_t  unwindSize  = 0;
+    uint8_t*  unwindBlock = nullptr;
 
     if (isHotCode)
     {
-        unwindGetFuncHotRange(func, &startOffset, &endOffset);
+        range = unwindGetFuncHotRange(func);
 
 #ifdef TARGET_UNIX
         if (generateCFIUnwindCodes())
@@ -474,19 +473,19 @@ void CodeGen::unwindEmitFuncRegion(FuncInfoDsc* func, bool isHotCode)
     }
     else
     {
-        unwindGetFuncColdRange(func, &startOffset, &endOffset);
+        range = unwindGetFuncColdRange(func);
     }
 
-    eeAllocUnwindInfo(func->kind, isHotCode, startOffset, endOffset, unwindSize, unwindBlock);
+    eeAllocUnwindInfo(func->kind, isHotCode, range, unwindSize, unwindBlock);
 }
 
 #ifdef DEBUG
 
-void CodeGen::DumpUnwindInfo(bool isHotCode, uint32_t startOffset, uint32_t endOffset, const UNWIND_INFO* header) const
+void CodeGen::DumpUnwindInfo(bool isHotCode, CodeRange range, const UNWIND_INFO* header) const
 {
     printf("Unwind Info%s:\n", isHotCode ? "" : " COLD");
-    printf("  >> Start offset   : 0x%06x (not in unwind data)\n", dspOffset(startOffset));
-    printf("  >>   End offset   : 0x%06x (not in unwind data)\n", dspOffset(endOffset));
+    printf("  >> Start offset   : 0x%06x (not in unwind data)\n", dspOffset(range.start));
+    printf("  >>   End offset   : 0x%06x (not in unwind data)\n", dspOffset(range.end));
 
     if (header == nullptr)
     {

@@ -598,8 +598,7 @@ static uint32_t ExtractBits(uint32_t dw, uint32_t start, uint32_t length)
     return (dw >> start) & ((1 << length) - 1);
 }
 
-void CodeGen::DumpUnwindInfo(
-    bool isHotCode, uint32_t startOffset, uint32_t endOffset, const uint8_t* header, uint32_t unwindSize) const
+void CodeGen::DumpUnwindInfo(bool isHotCode, CodeRange range, const uint8_t* header, uint32_t unwindSize) const
 {
     printf("Unwind Info%s:\n", isHotCode ? "" : " COLD");
 
@@ -617,8 +616,8 @@ void CodeGen::DumpUnwindInfo(
     uint32_t Vers           = ExtractBits(dw, 18, 2);
     uint32_t functionLength = ExtractBits(dw, 0, 18);
 
-    printf("  >> Start offset   : 0x%06x (not in unwind data)\n", compiler->dspOffset(startOffset));
-    printf("  >>   End offset   : 0x%06x (not in unwind data)\n", compiler->dspOffset(endOffset));
+    printf("  >> Start offset   : 0x%06x (not in unwind data)\n", compiler->dspOffset(range.start));
+    printf("  >>   End offset   : 0x%06x (not in unwind data)\n", compiler->dspOffset(range.end));
     printf("  Code Words        : %u\n", codeWords);
     printf("  Epilog Count      : %u\n", epilogCount);
     printf("  E bit             : %u\n", EBit);
@@ -627,7 +626,7 @@ void CodeGen::DumpUnwindInfo(
     printf("  Function Length   : %u (0x%05x) Actual length = %u (0x%06x)\n", functionLength, functionLength,
            functionLength * 4, functionLength * 4);
 
-    assert(functionLength * 4 == endOffset - startOffset);
+    assert(functionLength * 4 == range.end - range.start);
 
     if (codeWords == 0 && epilogCount == 0)
     {
@@ -670,7 +669,7 @@ void CodeGen::DumpUnwindInfo(
                 // of the current funclet, not the offset from the beginning of the main function.
                 // To help find it when looking through JitDump output, also show the offset from
                 // the beginning of the main function.
-                uint32_t epilogStartOffsetFromMainFunctionBegin = epilogStartOffset * 4 + startOffset;
+                uint32_t epilogStartOffsetFromMainFunctionBegin = epilogStartOffset * 4 + range.start;
 
                 assert(res == 0);
 

@@ -16,6 +16,12 @@ class CodeGen;
 class emitter;
 struct insGroup;
 
+struct CodeRange
+{
+    uint32_t start;
+    uint32_t end;
+};
+
 // emitCurCodePos returns a cookie that identifies the current position in the instruction
 // group. Due to things like branch shortening, the final size of some instructions is not
 // known until instruction encoding, so we return a value containing both the instruction

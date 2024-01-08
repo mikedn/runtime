@@ -1271,8 +1271,7 @@ public:
     void unwindPushPopMaskFloat(regMaskTP mask);
     unsigned unwindGetInstructionSize() const;
 #ifdef DEBUG
-    void DumpUnwindInfo(
-        bool isHotCode, uint32_t startOffset, uint32_t endOffset, const uint8_t* header, uint32_t unwindSize) const;
+    void DumpUnwindInfo(bool isHotCode, CodeRange range, const uint8_t* header, uint32_t unwindSize) const;
 #endif
 #endif
 
@@ -1288,8 +1287,7 @@ public:
     void unwindSaveNext();                                                  // unwind code: save_next
     void unwindReturn(RegNum reg);                                          // ret lr
 #ifdef DEBUG
-    void DumpUnwindInfo(
-        bool isHotCode, uint32_t startOffset, uint32_t endOffset, const uint8_t* header, uint32_t unwindSize) const;
+    void DumpUnwindInfo(bool isHotCode, CodeRange range, const uint8_t* header, uint32_t unwindSize) const;
 #endif
 #endif
 
@@ -1306,7 +1304,7 @@ public:
     void unwindSaveRegCFI(RegNum reg, unsigned offset);
 #endif
 #ifdef DEBUG
-    void DumpUnwindInfo(bool isHotCode, uint32_t startOffset, uint32_t endOffset, const UNWIND_INFO* header) const;
+    void DumpUnwindInfo(bool isHotCode, CodeRange range, const UNWIND_INFO* header) const;
 #endif
 #endif
 
@@ -1332,8 +1330,7 @@ public:
     }
 
 #ifdef DEBUG
-    void DumpCfiInfo(
-        bool isHotCode, uint32_t startOffset, uint32_t endOffset, uint32_t count, const CFI_CODE* codes) const;
+    void DumpCfiInfo(bool isHotCode, CodeRange range, uint32_t count, const CFI_CODE* codes) const;
 #endif
 #endif
 
@@ -1343,9 +1340,9 @@ public:
 
 #ifdef FEATURE_EH_FUNCLETS
     void unwindGetFuncHotRange(FuncInfoDsc* func, insGroup** start, insGroup** end);
-    void unwindGetFuncHotRange(FuncInfoDsc* func, uint32_t* start, uint32_t* end);
+    CodeRange unwindGetFuncHotRange(FuncInfoDsc* func);
     void unwindGetFuncColdRange(FuncInfoDsc* func, insGroup** start, insGroup** end);
-    void unwindGetFuncColdRange(FuncInfoDsc* func, uint32_t* start, uint32_t* end);
+    CodeRange unwindGetFuncColdRange(FuncInfoDsc* func);
     void unwindReserveFunc(FuncInfoDsc* func);
     void unwindEmitFunc(FuncInfoDsc* func);
 #endif
@@ -1356,12 +1353,7 @@ public:
 
 #ifdef FEATURE_EH_FUNCLETS
     void eeReserveUnwindInfo(bool isFunclet, bool isHotCode, uint32_t unwindSize);
-    void eeAllocUnwindInfo(FuncKind kind,
-                           bool     isHotCode,
-                           uint32_t startOffset,
-                           uint32_t endOffset,
-                           uint32_t unwindSize,
-                           void*    unwindBlock);
+    void eeAllocUnwindInfo(FuncKind kind, bool isHotCode, CodeRange range, uint32_t unwindSize, void* unwindBlock);
 #endif
 };
 

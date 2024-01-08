@@ -351,7 +351,7 @@ public:
 
     void Finalize(uint32_t startOffset, uint32_t functionLength);
     void Reserve(CodeGen* codeGen, FuncKind kind, bool isHotCode);
-    void Allocate(CodeGen* codeGen, FuncKind kind, uint32_t startOffset, uint32_t endOffset, bool isHotCode);
+    void Allocate(CodeGen* codeGen, FuncKind kind, CodeRange range, bool isHotCode);
 
     INDEBUG(void Dump(int indent = 0);)
 };
