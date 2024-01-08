@@ -338,7 +338,7 @@ public:
 
     void MergeCodes();
     void CopyPrologCodes(const UnwindFragmentInfo& copyFrom);
-    void SplitEpilogCodes(UnwindFragmentInfo* splitFrom);
+    void SplitEpilogs(UnwindFragmentInfo* fromFragment);
     bool IsAtFragmentEnd(UnwindEpilogInfo* epilog);
 
     // Return the full, final size of unwind block. This will be used to allocate memory
