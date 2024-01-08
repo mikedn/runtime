@@ -662,7 +662,7 @@ uint8_t* UnwindPrologCodes::AllocCode(int size)
 
     if (upcCodeSlot < size)
     {
-        EnsureSize(upcMemSize + size);
+        EnsureSize(GrowSize(upcMemSize, upcMemSize + size));
     }
 
     upcCodeSlot -= size;
@@ -671,33 +671,46 @@ uint8_t* UnwindPrologCodes::AllocCode(int size)
     return &upcMem[upcCodeSlot];
 }
 
-void UnwindPrologCodes::EnsureSize(int requiredSize)
+int UnwindCodes::GrowSize(int current, int min)
 {
-    if (requiredSize > upcMemSize)
+    assert(current != 0);
+
+    if (current > INT_MAX / 2)
     {
-        noway_assert((requiredSize & 0xC0000000) == 0);
-
-        int newSize = upcMemSize << 1;
-        while (newSize < requiredSize)
-        {
-            newSize <<= 1;
-        }
-
-        uint8_t* newUnwindCodes = new (uwiComp, CMK_UnwindInfo) uint8_t[newSize];
-        memcpy_s(newUnwindCodes + newSize - upcMemSize, upcMemSize, upcMem, upcMemSize);
-        INDEBUG(memset(upcMem, 0xFF, upcMemSize));
-
-        upcMem = newUnwindCodes;
-        upcCodeSlot += newSize - upcMemSize;
-        upcMemSize = newSize;
+        return min;
     }
+
+    int next = current * 2;
+
+    while (next < min)
+    {
+        next *= 2;
+    }
+
+    return next;
+}
+
+void UnwindPrologCodes::EnsureSize(int newSize)
+{
+    if (newSize <= upcMemSize)
+    {
+        return;
+    }
+
+    uint8_t* newMem = new (uwiComp, CMK_UnwindInfo) uint8_t[newSize];
+    memcpy(newMem + newSize - upcMemSize, upcMem, upcMemSize);
+    INDEBUG(memset(upcMem, 0xFF, upcMemSize));
+
+    upcMem = newMem;
+    upcCodeSlot += newSize - upcMemSize;
+    upcMemSize = newSize;
 }
 
 uint8_t* UnwindEpilogCodes::AllocCode(int size)
 {
     if (uecCodeSlot >= uecMemSize - size)
     {
-        EnsureSize(uecMemSize + size);
+        EnsureSize(GrowSize(uecMemSize, uecMemSize + size));
     }
 
     uecCodeSlot += size;
@@ -737,25 +750,19 @@ void UnwindEpilogCodes::FinalizeCodes()
     assert(GetCodeSizeFromUnwindCodes(false, GetCodes()) <= MAX_EPILOG_SIZE_BYTES);
 }
 
-void UnwindEpilogCodes::EnsureSize(int requiredSize)
+void UnwindEpilogCodes::EnsureSize(int newSize)
 {
-    if (requiredSize > uecMemSize)
+    if (newSize <= uecMemSize)
     {
-        noway_assert((requiredSize & 0xC0000000) == 0);
-
-        int newSize = uecMemSize << 1;
-        while (newSize < requiredSize)
-        {
-            newSize <<= 1;
-        }
-
-        uint8_t* newUnwindCodes = new (uwiComp, CMK_UnwindInfo) uint8_t[newSize];
-        memcpy_s(newUnwindCodes, newSize, uecMem, uecMemSize);
-        INDEBUG(memset(uecMem, 0xFF, uecMemSize));
-
-        uecMem     = newUnwindCodes;
-        uecMemSize = newSize;
+        return;
     }
+
+    uint8_t* newMem = new (uwiComp, CMK_UnwindInfo) uint8_t[newSize];
+    memcpy(newMem, uecMem, uecMemSize);
+    INDEBUG(memset(uecMem, 0xFF, uecMemSize));
+
+    uecMem     = newMem;
+    uecMemSize = newSize;
 }
 
 UnwindEpilogInfo::UnwindEpilogInfo(CodeGen* codeGen)

@@ -58,6 +58,7 @@ protected:
     {
     }
 
+    static int GrowSize(int current, int min);
     static bool IsEndCode(uint8_t b);
 
     INDEBUG(static unsigned GetCodeSizeFromUnwindCodes(bool isProlog, const uint8_t* codes);)
