@@ -70,7 +70,7 @@ CodeRange CodeGen::unwindGetFuncHotRange(FuncInfoDsc* func)
     insGroup* endLoc   = nullptr;
     unwindGetFuncHotRange(func, &startLoc, &endLoc);
 
-    return {startLoc->GetCodeOffset(), endLoc == nullptr ? codeSize : endLoc->GetCodeOffset()};
+    return {startLoc->GetCodeOffset(), endLoc == nullptr ? GetEmitter()->GetCodeSize() : endLoc->GetCodeOffset()};
 }
 
 void CodeGen::unwindGetFuncColdRange(FuncInfoDsc* func, insGroup** start, insGroup** end)
@@ -94,7 +94,7 @@ CodeRange CodeGen::unwindGetFuncColdRange(FuncInfoDsc* func)
     insGroup* endLoc   = nullptr;
     unwindGetFuncColdRange(func, &startLoc, &endLoc);
 
-    return {startLoc->GetCodeOffset(), endLoc == nullptr ? codeSize : endLoc->GetCodeOffset()};
+    return {startLoc->GetCodeOffset(), endLoc == nullptr ? GetEmitter()->GetCodeSize() : endLoc->GetCodeOffset()};
 }
 
 #ifdef TARGET_UNIX

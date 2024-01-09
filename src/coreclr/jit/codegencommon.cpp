@@ -801,8 +801,6 @@ void CodeGen::genEmitMachineCode()
 #endif
                             DEBUGARG(&instrCount));
 
-    codeSize = emit.GetCodeSize();
-
 #ifdef DEBUG
     assert(compiler->compCodeGenDone == false);
 
@@ -822,7 +820,7 @@ void CodeGen::genEmitMachineCode()
     {
         printf("\n; Total bytes of code %d, prolog size %d, PerfScore %.2f, instruction count %d, allocated bytes for "
                "code %d",
-               codeSize, prologSize, perfScore, instrCount, emit.GetHotCodeSize() + emit.GetColdCodeSize());
+               emit.GetCodeSize(), prologSize, perfScore, instrCount, emit.GetHotCodeSize() + emit.GetColdCodeSize());
 
 #if TRACK_LSRA_STATS
         if (JitConfig.DisplayLsraStats() == 3)
@@ -894,9 +892,9 @@ void CodeGen::genEmitUnwindDebugGCandEH()
     genReportEH();
 
 #ifdef JIT32_GCENCODER
-    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this, codeSize, prologSize, epilogSize);
+    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this, GetEmitter()->GetCodeSize(), prologSize, epilogSize);
 #else
-    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this, codeSize, prologSize);
+    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this, GetEmitter()->GetCodeSize(), prologSize);
 #endif
 
 #ifdef LATE_DISASM
@@ -1040,7 +1038,8 @@ void CodeGen::genReportEH()
     // Tell the VM how many EH clauses to expect.
     eeSetEHcount(EHCount);
 
-    XTnum = 0; // This is the index we pass to the VM
+    uint32_t codeSize = GetEmitter()->GetCodeSize();
+    XTnum             = 0; // This is the index we pass to the VM
 
     for (EHblkDsc* const HBtab : EHClauses(compiler))
     {
