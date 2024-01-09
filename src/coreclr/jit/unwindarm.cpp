@@ -523,16 +523,13 @@ bool UnwindCodes::IsEndCode(uint8_t b)
 
 UnwindPrologCodes::UnwindPrologCodes(Compiler* comp) : UnwindCodes(comp)
 {
-    // Assume we've got a normal end code.
-    // Push four so we can generate an array that is a multiple of 4 bytes in size with the
-    // end codes (and padding) already in place. One is the end code for the prolog codes,
-    // three are end-of-array alignment padding.
-    uint8_t* code = AllocCode(4);
-
-    code[0] = UWC_END;
-    code[1] = UWC_END;
-    code[2] = UWC_END;
-    code[3] = UWC_END;
+    // We fill the codes array backwards and we may need to add padding at the end,
+    // to make the size a multiple of 4. Add sufficient padding now, in the form of
+    // "end" codes, to avoid having to move the codes later to make room for padding.
+    upcMemLocal[--upcCodeSlot] = UWC_END;
+    upcMemLocal[--upcCodeSlot] = UWC_END;
+    upcMemLocal[--upcCodeSlot] = UWC_END;
+    upcMemLocal[--upcCodeSlot] = UWC_END;
 }
 
 // We're going to use the prolog codes memory to store the final unwind data.
