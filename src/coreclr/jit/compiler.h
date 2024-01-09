@@ -5678,7 +5678,6 @@ public:
     bool     compSwitchedToOptimized = false; // Codegen initially was Tier0 but jit switched to FullOpts
     bool     compSwitchedToMinOpts   = false; // Codegen initially was Tier1/FullOpts but jit switched to MinOpts
     bool     bRangeAllowStress;
-    bool     compCodeGenDone = false;
     unsigned fgStmtLinksTraversed;             // # of links traversed while doing debug checks
     bool     fgNormalizeEHDone        = false; // Has the flowgraph EH normalization phase been done?
     bool     fgNoStructParamPromotion = false; // Set to true to turn off struct promotion of this method's params.

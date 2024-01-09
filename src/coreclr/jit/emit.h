@@ -1501,7 +1501,10 @@ private:
 
     insGroup* emitFirstColdIG = nullptr; // first cold instruction group
 
-    INDEBUG(unsigned instrCount = 0;)
+#ifdef DEBUG
+    unsigned instrCount      = 0;
+    bool     compCodeGenDone = false;
+#endif
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
     double perfScore = 0.0;
 #endif

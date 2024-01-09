@@ -780,13 +780,6 @@ void CodeGen::genEmitMachineCode()
     emit.emitEndCodeGen();
 
 #ifdef DEBUG
-    assert(compiler->compCodeGenDone == false);
-
-    /* We're done generating code for this function */
-    compiler->compCodeGenDone = true;
-#endif
-
-#ifdef DEBUG
     if (compiler->opts.disAsm || verbose)
     {
         printf("\n; Total bytes of code %d, prolog size %d, PerfScore %.2f, instruction count %d, allocated bytes for "

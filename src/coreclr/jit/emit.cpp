@@ -1705,7 +1705,7 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
         return;
     }
 
-    if (emitComp->compCodeGenDone)
+    if (compCodeGenDone)
     {
         printf("%c weight %s, perf-score %.2f", separator, refCntWtd2str(ig->igWeight), ig->igPerfScore);
         separator = ',';
@@ -3008,6 +3008,11 @@ void emitter::emitEndCodeGen()
     perfScore += static_cast<double>(emitTotalHotCodeSize) * PERFSCORE_CODESIZE_COST_HOT;
     perfScore += static_cast<double>(emitTotalColdCodeSize) * PERFSCORE_CODESIZE_COST_COLD;
 #endif // DEBUG || LATE_DISASM
+
+#ifdef DEBUG
+    assert(!compCodeGenDone);
+    compCodeGenDone = true;
+#endif
 }
 
 unsigned emitter::emitFindInsNum(insGroup* ig, instrDesc* idMatch)
