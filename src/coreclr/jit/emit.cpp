@@ -2606,13 +2606,7 @@ void emitter::emitComputeCodeSizes()
         emitTotalColdCodeSize = 0;
     }
 
-#ifdef DEBUG
-    if (emitComp->verbose)
-    {
-        printf("\nHot  code size = 0x%X bytes\n", emitTotalHotCodeSize);
-        printf("Cold code size = 0x%X bytes\n", emitTotalColdCodeSize);
-    }
-#endif
+    JITDUMP("\nHot code size = 0x%X bytes\nCold code size = 0x%X bytes\n", emitTotalHotCodeSize, emitTotalColdCodeSize);
 }
 
 //------------------------------------------------------------------------
