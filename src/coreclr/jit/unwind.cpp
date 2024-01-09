@@ -220,7 +220,7 @@ void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func)
 
     eeAllocUnwindInfo(func->kind, true, unwindGetFuncHotRange(func), codeCount * sizeof(CFI_CODE), codes);
 
-    if (coldCodePtr != nullptr)
+    if (GetEmitter()->GetColdCodeAddr() != nullptr)
     {
         eeAllocUnwindInfo(func->kind, false, unwindGetFuncColdRange(func), 0, nullptr);
     }
@@ -316,7 +316,8 @@ void CodeGen::eeAllocUnwindInfo(FuncKind kind, bool isHotCode, CodeRange range, 
     }
 #endif
 
-    uint32_t hotCodeSize = GetEmitter()->GetHotCodeSize();
+    Emitter& emit        = *GetEmitter();
+    uint32_t hotCodeSize = emit.GetHotCodeSize();
 
     if (isHotCode)
     {
@@ -332,8 +333,8 @@ void CodeGen::eeAllocUnwindInfo(FuncKind kind, bool isHotCode, CodeRange range, 
 
     JITDUMP("allocUnwindInfo(pHotCode=0x%p, pColdCode=0x%p, startOffset=0x%x, endOffset=0x%x, unwindSize=0x%x, "
             "pUnwindBlock=0x%p, funKind=%s",
-            dspPtr(codePtr), dspPtr(coldCodePtr), range.start, range.end, unwindSize, dspPtr(unwindBlock),
-            GetFuncKindName(kind));
+            dspPtr(emit.GetHotCodeAddr()), dspPtr(emit.GetColdCodeAddr()), range.start, range.end, unwindSize,
+            dspPtr(unwindBlock), GetFuncKindName(kind));
 
     // Verify that the JIT enum is in sync with the JIT-EE interface enum
     static_assert_no_msg(FUNC_ROOT == (FuncKind)CORJIT_FUNC_ROOT);
@@ -342,8 +343,8 @@ void CodeGen::eeAllocUnwindInfo(FuncKind kind, bool isHotCode, CodeRange range, 
 
     if (compiler->info.compMatchedVM)
     {
-        compiler->info.compCompHnd->allocUnwindInfo(static_cast<uint8_t*>(codePtr),
-                                                    isHotCode ? nullptr : static_cast<uint8_t*>(coldCodePtr),
+        compiler->info.compCompHnd->allocUnwindInfo(emit.GetHotCodeAddr(),
+                                                    isHotCode ? nullptr : static_cast<uint8_t*>(emit.GetColdCodeAddr()),
                                                     range.start, range.end, unwindSize,
                                                     static_cast<uint8_t*>(unwindBlock),
                                                     static_cast<CorJitFuncKind>(kind));

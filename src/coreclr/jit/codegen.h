@@ -165,9 +165,6 @@ private:
     // the current (pending) label ref, a label which has been referenced but not yet seen
     insGroup* genPendingCallLabel = nullptr;
 
-    void* codePtr     = nullptr;
-    void* coldCodePtr = nullptr;
-
     // The native code size, after instructions are issued.
     // This is less than (hotCodeSize + coldCodeSize) only if:
     // (1) the code is not hot/cold split, and we issued less code than we expected, or

@@ -47,7 +47,7 @@ unsigned CodeGenInterface::GetColdCodeSize() const
 
 unsigned CodeGenInterface::GetCodeSize() const
 {
-    assert(static_cast<const CodeGen*>(this)->codePtr != nullptr);
+    assert(GetEmitter()->GetHotCodeAddr() != nullptr);
     return static_cast<const CodeGen*>(this)->codeSize;
 }
 
@@ -504,7 +504,7 @@ void CodeGen::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
     }
 #endif
 
-    *nativeCode     = codePtr;
+    *nativeCode     = GetEmitter()->GetHotCodeAddr();
     *nativeCodeSize = codeSize;
 }
 
@@ -795,11 +795,12 @@ void CodeGen::genEmitMachineCode()
 #ifdef DEBUG
     unsigned instrCount;
 #endif
-    emit.emitEndCodeGen(&prologSize,
+    emit.emitEndCodeGen(&prologSize
 #ifdef JIT32_GCENCODER
-                        &epilogSize,
+                        ,
+                        &epilogSize
 #endif
-                        &codePtr, &coldCodePtr DEBUGARG(&instrCount));
+                            DEBUGARG(&instrCount));
 
     codeSize = emit.GetCodeSize();
 

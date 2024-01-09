@@ -419,7 +419,7 @@ void CodeGen::unwindEmitFunc(FuncInfoDsc* func)
 {
     unwindEmitFuncRegion(func, true);
 
-    if (coldCodePtr != nullptr)
+    if (GetEmitter()->GetColdCodeAddr() != nullptr)
     {
         unwindEmitFuncRegion(func, false);
     }

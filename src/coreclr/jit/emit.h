@@ -273,12 +273,12 @@ private:
 public:
     void emitBegFN();
     void emitComputeCodeSizes();
-    void emitEndCodeGen(unsigned* prologSize,
+    void emitEndCodeGen(unsigned* prologSize
 #ifdef JIT32_GCENCODER
-                        unsigned* epilogSize,
+                        ,
+                        unsigned* epilogSize
 #endif
-                        void** codeAddr,
-                        void** coldCodeAddr DEBUGARG(unsigned* instrCount));
+                            DEBUGARG(unsigned* instrCount));
 
     /************************************************************************/
     /*                      Method prolog and epilog                        */
@@ -1512,9 +1512,19 @@ public:
         emitFirstColdIG = ig;
     }
 
+    uint8_t* GetHotCodeAddr() const
+    {
+        return emitCodeBlock;
+    }
+
     unsigned GetHotCodeSize() const
     {
         return emitTotalHotCodeSize;
+    }
+
+    uint8_t* GetColdCodeAddr() const
+    {
+        return emitColdCodeBlock;
     }
 
     unsigned GetColdCodeSize() const

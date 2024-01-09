@@ -2621,20 +2621,18 @@ void emitter::emitComputeCodeSizes()
 // Arguments:
 //    prologSize [OUT] - prolog size in bytes
 //    epilogSize [OUT] - epilog size in bytes (see notes)
-//    codeAddr [OUT] - address of the code buffer
-//    coldCodeAddr [OUT] - address of the cold code buffer (if any)
 //
 // Notes:
 //    Currently, in methods with multiple epilogs, all epilogs must have the same
 //    size. epilogSize is the size of just one of these epilogs, not the cumulative
 //    size of all of the method's epilogs.
 //
-void emitter::emitEndCodeGen(unsigned* prologSize,
+void emitter::emitEndCodeGen(unsigned* prologSize
 #ifdef JIT32_GCENCODER
-                             unsigned* epilogSize,
+                             ,
+                             unsigned* epilogSize
 #endif
-                             void** codeAddr,
-                             void** coldCodeAddr DEBUGARG(unsigned* instrCount))
+                                 DEBUGARG(unsigned* instrCount))
 {
     JITDUMP("*************** In emitEndCodeGen()\n");
 
@@ -2763,9 +2761,9 @@ void emitter::emitEndCodeGen(unsigned* prologSize,
     assert(((allocMemFlag & CORJIT_ALLOCMEM_FLG_32BYTE_ALIGN) == 0) ||
            ((reinterpret_cast<size_t>(codeBlock) & 31) == 0));
 
-    *codeAddr = emitCodeBlock = codeBlock;
-    *coldCodeAddr = emitColdCodeBlock = coldCodeBlock;
-    emitConsBlock                     = roDataBlock;
+    emitCodeBlock     = codeBlock;
+    emitColdCodeBlock = coldCodeBlock;
+    emitConsBlock     = roDataBlock;
 
     uint8_t* cp     = codeBlock;
     writeableOffset = codeBlockRW - codeBlock;
