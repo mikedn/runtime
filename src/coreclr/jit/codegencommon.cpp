@@ -791,10 +791,7 @@ void CodeGen::genEmitMachineCode()
     unwindReserve();
 #endif
 
-#ifdef DEBUG
-    unsigned instrCount;
-#endif
-    emit.emitEndCodeGen(INDEBUG(&instrCount));
+    emit.emitEndCodeGen();
 
 #ifdef DEBUG
     assert(compiler->compCodeGenDone == false);
@@ -815,7 +812,7 @@ void CodeGen::genEmitMachineCode()
     {
         printf("\n; Total bytes of code %d, prolog size %d, PerfScore %.2f, instruction count %d, allocated bytes for "
                "code %d",
-               emit.GetCodeSize(), emit.GetPrologSize(), perfScore, instrCount,
+               emit.GetCodeSize(), emit.GetPrologSize(), perfScore, emit.GetInstrCount(),
                emit.GetHotCodeSize() + emit.GetColdCodeSize());
 
 #if TRACK_LSRA_STATS

@@ -273,7 +273,7 @@ private:
 public:
     void emitBegFN();
     void emitComputeCodeSizes();
-    void emitEndCodeGen(INDEBUG(unsigned* instrCount));
+    void emitEndCodeGen();
 
     /************************************************************************/
     /*                      Method prolog and epilog                        */
@@ -1501,6 +1501,8 @@ private:
 
     insGroup* emitFirstColdIG = nullptr; // first cold instruction group
 
+    INDEBUG(unsigned instrCount = 0;)
+
 public:
     void emitSetFirstColdLabel(insGroup* ig)
     {
@@ -1546,6 +1548,13 @@ public:
         //    size of all of the method's epilogs.
 
         return emitEpilogSize + emitExitSeqSize;
+    }
+#endif
+
+#ifdef DEBUG
+    unsigned GetInstrCount() const
+    {
+        return instrCount;
     }
 #endif
 

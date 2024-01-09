@@ -2618,7 +2618,7 @@ void emitter::emitComputeCodeSizes()
 //------------------------------------------------------------------------
 // emitEndCodeGen: called at end of code generation to create code, data, and gc info
 //
-void emitter::emitEndCodeGen(INDEBUG(unsigned* instrCount))
+void emitter::emitEndCodeGen()
 {
     JITDUMP("*************** In emitEndCodeGen()\n");
 
@@ -2756,7 +2756,6 @@ void emitter::emitEndCodeGen(INDEBUG(unsigned* instrCount))
 #endif
 #ifdef DEBUG
     emitIssuing      = true;
-    *instrCount      = 0;
     double perfScore = 0.0;
 #endif
 
@@ -2975,7 +2974,7 @@ void emitter::emitEndCodeGen(INDEBUG(unsigned* instrCount))
         assert(ig->igSize == cp - bp);
 
 #ifdef DEBUG
-        *instrCount += ig->igInsCnt;
+        instrCount += ig->igInsCnt;
         perfScore += ig->igPerfScore;
 
         if (emitComp->verbose ||
