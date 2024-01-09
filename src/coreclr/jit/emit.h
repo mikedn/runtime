@@ -1357,11 +1357,6 @@ private:
     void emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose);
 
 public:
-    unsigned GetCodeSize() const
-    {
-        return emitTotalHotCodeSize + emitTotalColdCodeSize;
-    }
-
     void emitDispIGlist(bool verbose = false);
 
 private:

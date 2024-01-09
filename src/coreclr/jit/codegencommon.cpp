@@ -818,7 +818,8 @@ void CodeGen::genEmitMachineCode()
     {
         printf("\n; Total bytes of code %d, prolog size %d, PerfScore %.2f, instruction count %d, allocated bytes for "
                "code %d",
-               codeSize, prologSize, perfScore, instrCount, GetEmitter()->GetCodeSize());
+               codeSize, prologSize, perfScore, instrCount,
+               GetEmitter()->GetHotCodeSize() + GetEmitter()->GetColdCodeSize());
 
 #if TRACK_LSRA_STATS
         if (JitConfig.DisplayLsraStats() == 3)
