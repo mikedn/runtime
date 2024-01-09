@@ -794,13 +794,7 @@ void CodeGen::genEmitMachineCode()
 #ifdef DEBUG
     unsigned instrCount;
 #endif
-    emit.emitEndCodeGen(
-#ifdef JIT32_GCENCODER
-        &epilogSize DEBUGARG(&instrCount)
-#else
-        INDEBUG(&instrCount)
-#endif
-            );
+    emit.emitEndCodeGen(INDEBUG(&instrCount));
 
 #ifdef DEBUG
     assert(compiler->compCodeGenDone == false);
@@ -895,7 +889,7 @@ void CodeGen::genEmitUnwindDebugGCandEH()
 
 #ifdef JIT32_GCENCODER
     GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this, GetEmitter()->GetCodeSize(), GetEmitter()->GetPrologSize(),
-                                                   epilogSize);
+                                                   GetEmitter()->GetEpilogSize());
 #else
     GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this, GetEmitter()->GetCodeSize(), GetEmitter()->GetPrologSize());
 #endif

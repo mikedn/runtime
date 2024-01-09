@@ -273,13 +273,7 @@ private:
 public:
     void emitBegFN();
     void emitComputeCodeSizes();
-    void emitEndCodeGen(
-#ifdef JIT32_GCENCODER
-        unsigned* epilogSize DEBUGARG(unsigned* instrCount)
-#else
-        INDEBUG(unsigned* instrCount)
-#endif
-            );
+    void emitEndCodeGen(INDEBUG(unsigned* instrCount));
 
     /************************************************************************/
     /*                      Method prolog and epilog                        */
@@ -1543,6 +1537,17 @@ public:
     {
         return GetProlog()->GetCodeOffset(emitPrologEndPos);
     }
+
+#ifdef JIT32_GCENCODER
+    unsigned GetEpilogSize() const
+    {
+        //    Currently, in methods with multiple epilogs, all epilogs must have the same
+        //    size. epilogSize is the size of just one of these epilogs, not the cumulative
+        //    size of all of the method's epilogs.
+
+        return emitEpilogSize + emitExitSeqSize;
+    }
+#endif
 
 private:
     VARSET_TP emitEmptyGCrefVars = VarSetOps::UninitVal();

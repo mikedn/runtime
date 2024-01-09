@@ -214,10 +214,6 @@ public:
     void genCheckOverflow(GenTree* tree);
 #endif
 
-#ifdef JIT32_GCENCODER
-    unsigned epilogSize;
-#endif
-
     void PrologEstablishFramePointer(int delta, bool reportUnwindData);
 
     struct ParamRegInfo
