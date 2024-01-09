@@ -593,6 +593,7 @@ void CodeGen::genCodeForBBlist()
 #if FEATURE_LOOP_ALIGN
     GetEmitter()->emitLoopAlignAdjustments();
 #endif
+    GetEmitter()->emitComputeCodeSizes();
 }
 
 void CodeGen::genExitCode(BasicBlock* block)

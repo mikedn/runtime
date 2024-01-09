@@ -772,25 +772,11 @@ void CodeGen::genEmitMachineCode()
     }
 #endif // DEBUG
 
-    Emitter& emit = *GetEmitter();
-
-    /* Compute the size of the code sections that we are going to ask the VM
-       to allocate. Note that this might not be precisely the size of the
-       code we emit, though it's fatal if we emit more code than the size we
-       compute here.
-       (Note: an example of a case where we emit less code would be useful.)
-    */
-
-    emit.emitComputeCodeSizes();
-
-/* We've finished collecting all the unwind information for the function. Now reserve
-   space for it from the VM.
-*/
-
 #ifdef FEATURE_EH_FUNCLETS
     unwindReserve();
 #endif
 
+    Emitter& emit = *GetEmitter();
     emit.emitEndCodeGen();
 
 #ifdef DEBUG

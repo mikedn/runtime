@@ -2595,7 +2595,7 @@ void emitter::emitComputeCodeSizes()
 {
     assert((emitComp->fgFirstColdBlock == nullptr) == (emitFirstColdIG == nullptr));
 
-    if (emitFirstColdIG)
+    if (emitFirstColdIG != nullptr)
     {
         emitTotalHotCodeSize  = emitFirstColdIG->igOffs;
         emitTotalColdCodeSize = emitTotalCodeSize - emitTotalHotCodeSize;
