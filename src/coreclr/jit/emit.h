@@ -1505,7 +1505,7 @@ private:
     unsigned instrCount      = 0;
     bool     compCodeGenDone = false;
 #endif
-#if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
+#if defined(DEBUG) || defined(LATE_DISASM)
     double perfScore = 0.0;
 #endif
 
@@ -1564,7 +1564,7 @@ public:
     }
 #endif
 
-#if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
+#if defined(DEBUG) || defined(LATE_DISASM)
     double GetPerfScore() const
     {
         return perfScore;

@@ -57,7 +57,7 @@ unsigned CodeGenInterface::GetGCInfoSize() const
 }
 #endif
 
-#if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
+#if defined(DEBUG) || defined(LATE_DISASM)
 double CodeGenInterface::GetPerfScore() const
 {
     return GetEmitter()->GetPerfScore();

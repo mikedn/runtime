@@ -99,7 +99,7 @@ public:
 #ifdef JIT32_GCENCODER
     unsigned GetGCInfoSize() const;
 #endif
-#if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
+#if defined(DEBUG) || defined(LATE_DISASM)
     double GetPerfScore() const;
 #endif
 
