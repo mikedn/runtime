@@ -797,7 +797,7 @@ void CodeGen::genEmitMachineCode()
 #ifdef JIT32_GCENCODER
                                             &epilogSize,
 #endif
-                                            &codePtr, &coldCodePtr, &consPtr DEBUGARG(&instrCount));
+                                            &codePtr, &coldCodePtr DEBUGARG(&instrCount));
 
 #ifdef DEBUG
     assert(compiler->compCodeGenDone == false);

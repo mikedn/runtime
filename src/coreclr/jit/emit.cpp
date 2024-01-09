@@ -2626,7 +2626,6 @@ void emitter::emitComputeCodeSizes()
 //    epilogSize [OUT] - epilog size in bytes (see notes)
 //    codeAddr [OUT] - address of the code buffer
 //    coldCodeAddr [OUT] - address of the cold code buffer (if any)
-//    consAddr [OUT] - address of the read only constant buffer (if any)
 //
 // Notes:
 //    Currently, in methods with multiple epilogs, all epilogs must have the same
@@ -2641,8 +2640,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
                                  unsigned* epilogSize,
 #endif
                                  void** codeAddr,
-                                 void** coldCodeAddr,
-                                 void** consAddr DEBUGARG(unsigned* instrCount))
+                                 void** coldCodeAddr DEBUGARG(unsigned* instrCount))
 {
     JITDUMP("*************** In emitEndCodeGen()\n");
 
@@ -2773,7 +2771,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 
     *codeAddr = emitCodeBlock = codeBlock;
     *coldCodeAddr = emitColdCodeBlock = coldCodeBlock;
-    *consAddr = emitConsBlock = roDataBlock;
+    emitConsBlock                     = roDataBlock;
 
     uint8_t* cp     = codeBlock;
     writeableOffset = codeBlockRW - codeBlock;

@@ -167,7 +167,6 @@ private:
 
     void* codePtr     = nullptr;
     void* coldCodePtr = nullptr;
-    void* consPtr     = nullptr;
 
     // Total number of bytes of Hot Code in the method
     unsigned hotCodeSize = 0;

@@ -278,8 +278,7 @@ public:
                             unsigned* epilogSize,
 #endif
                             void** codeAddr,
-                            void** coldCodeAddr,
-                            void** consAddr DEBUGARG(unsigned* instrCount));
+                            void** coldCodeAddr DEBUGARG(unsigned* instrCount));
 
     /************************************************************************/
     /*                      Method prolog and epilog                        */
