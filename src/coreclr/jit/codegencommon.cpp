@@ -877,12 +877,7 @@ void CodeGen::genEmitUnwindDebugGCandEH()
 
     genReportEH();
 
-#ifdef JIT32_GCENCODER
-    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this, GetEmitter()->GetCodeSize(), GetEmitter()->GetPrologSize(),
-                                                   GetEmitter()->GetEpilogSize());
-#else
-    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this, GetEmitter()->GetCodeSize(), GetEmitter()->GetPrologSize());
-#endif
+    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this);
 
 #ifdef LATE_DISASM
     unsigned finalHotCodeSize;

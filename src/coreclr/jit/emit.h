@@ -288,7 +288,7 @@ public:
 
 #ifndef JIT32_GCENCODER
     template <typename Callback>
-    void EnumerateNoGCInsGroups(Callback callback)
+    void EnumerateNoGCInsGroups(Callback callback) const
     {
         for (insGroup* ig = emitIGfirst; ig != nullptr; ig = ig->igNext)
         {

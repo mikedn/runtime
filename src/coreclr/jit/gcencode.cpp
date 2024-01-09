@@ -131,7 +131,7 @@ private:
 #endif
 };
 
-void GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen, unsigned codeSize, unsigned prologSize, unsigned epilogSize)
+void GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen)
 {
 #ifdef FEATURE_EH_FUNCLETS
     if (compiler->ehAnyFunclets())
@@ -139,6 +139,11 @@ void GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen, unsigned codeSize, unsigned 
         MarkFilterStackSlotsPinned(codeGen);
     }
 #endif
+
+    Emitter& emit       = *codeGen->GetEmitter();
+    unsigned codeSize   = emit.GetCodeSize();
+    unsigned prologSize = emit.GetPrologSize();
+    unsigned epilogSize = emit.GetEpilogSize();
 
     GCEncoder encoder(codeGen, codeSize, prologSize, epilogSize, GetReturnKind(compiler->info), firstStackSlotLifetime,
                       firstRegArgChange, firstCallSite, isFullyInterruptible, syncThisReg);
@@ -3660,7 +3665,7 @@ public:
     void RemoveCallArgStackSlots(unsigned codeOffset, RegArgChange* firstArgChange, RegArgChange* killArgsChange);
     void AddUntrackedStackSlots();
     void AddFullyInterruptibleSlots(RegArgChange* firstRegArgChange);
-    void AddFullyInterruptibleRanges(Emitter* emitter, unsigned codeSize, unsigned prologSize);
+    void AddFullyInterruptibleRanges(const Emitter& emitter, unsigned codeSize, unsigned prologSize);
     void AddPartiallyInterruptibleSlots(CallSite* firstCallSite);
 
     void FinalizeSlotIds()
@@ -4376,7 +4381,7 @@ void GCEncoder::AddFullyInterruptibleSlots(RegArgChange* firstRegArgChange)
     }
 }
 
-void GCEncoder::AddFullyInterruptibleRanges(Emitter* emitter, unsigned codeSize, unsigned prologSize)
+void GCEncoder::AddFullyInterruptibleRanges(const Emitter& emitter, unsigned codeSize, unsigned prologSize)
 {
     assert(isFullyInterruptible);
     assert(prologSize <= codeSize);
@@ -4387,7 +4392,7 @@ void GCEncoder::AddFullyInterruptibleRanges(Emitter* emitter, unsigned codeSize,
     Log("Defining interruptible ranges:\n");
 #endif
 
-    emitter->EnumerateNoGCInsGroups([&](unsigned funcletIndex, unsigned offset, unsigned size) {
+    emitter.EnumerateNoGCInsGroups([&](unsigned funcletIndex, unsigned offset, unsigned size) {
         if (offset < prevOffset)
         {
             // We're still in the main method prolog, which has already had it's interruptible range reported.
@@ -4619,7 +4624,7 @@ void GCEncoder::RemoveCallArgStackSlots(unsigned codeOffset, RegArgChange* first
     }
 }
 
-void GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen, unsigned codeSize, unsigned prologSize)
+void GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen)
 {
 #ifdef DEBUG
     // Tracked variables can't be pinned, and the encoding takes advantage of that by
@@ -4639,6 +4644,10 @@ void GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen, unsigned codeSize, unsigned 
         MarkFilterStackSlotsPinned(codeGen);
     }
 
+    Emitter& emit       = *codeGen->GetEmitter();
+    unsigned codeSize   = emit.GetCodeSize();
+    unsigned prologSize = emit.GetPrologSize();
+
     CompIAllocator encoderAlloc(compiler->getAllocator(CMK_GC));
     GCEncoder      encoder(compiler, &encoderAlloc, isFullyInterruptible);
 
@@ -4653,7 +4662,7 @@ void GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen, unsigned codeSize, unsigned 
 
         encoder.AddTrackedStackSlots(firstStackSlotLifetime);
         encoder.AddFullyInterruptibleSlots(firstRegArgChange);
-        encoder.AddFullyInterruptibleRanges(codeGen->GetEmitter(), codeSize, prologSize);
+        encoder.AddFullyInterruptibleRanges(emit, codeSize, prologSize);
     }
     else
     {

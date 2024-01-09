@@ -294,14 +294,13 @@ public:
     void StackPop(unsigned count, unsigned stackLevel, unsigned codeOffs, bool isCall);
 
     void AddCallSite(unsigned stackLevel, unsigned codeOffs);
-
-    void CreateAndStoreGCInfo(class CodeGen* codeGen, unsigned codeSize, unsigned prologSize, unsigned epilogSize);
 #else
     void AddCallArgStore(unsigned codeOffs, int argOffs, GCtype gcType);
     void AddCallArgsKill(unsigned codeOffs);
     void AddCallSite(unsigned callOffs, unsigned callEndOffs);
-    void CreateAndStoreGCInfo(CodeGen* codeGen, unsigned codeSize, unsigned prologSize);
 #endif
+
+    void CreateAndStoreGCInfo(CodeGen* codeGen);
 
 #ifdef DEBUG
     void DumpStackSlotLifetimeDelta(const char* header);
