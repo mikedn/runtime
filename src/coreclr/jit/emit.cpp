@@ -882,7 +882,7 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
 #ifdef FEATURE_EH_FUNCLETS
     igPh->igFuncIdx = codeGen->currentFuncletIndex;
 #else
-    igPh->igFuncIdx                       = 0;
+    igPh->igFuncIdx = 0;
 #endif
     igPh->igFlags |= IGF_PLACEHOLDER;
 
@@ -1576,7 +1576,7 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 #ifdef TARGET_X86
         id = emitNewInstrCns(argSlotCount);
 #else
-        id                                = emitNewInstr();
+        id          = emitNewInstr();
 #endif
         id->idOpSize(EA_SIZE(retRegAttr));
         id->idGCref(EA_GC_TYPE(retRegAttr));
@@ -2619,7 +2619,6 @@ void emitter::emitComputeCodeSizes()
 // emitEndCodeGen: called at end of code generation to create code, data, and gc info
 //
 // Arguments:
-//    prologSize [OUT] - prolog size in bytes
 //    epilogSize [OUT] - epilog size in bytes (see notes)
 //
 // Notes:
@@ -2627,12 +2626,13 @@ void emitter::emitComputeCodeSizes()
 //    size. epilogSize is the size of just one of these epilogs, not the cumulative
 //    size of all of the method's epilogs.
 //
-void emitter::emitEndCodeGen(unsigned* prologSize
+void emitter::emitEndCodeGen(
 #ifdef JIT32_GCENCODER
-                             ,
-                             unsigned* epilogSize
+    unsigned* epilogSize DEBUGARG(unsigned* instrCount)
+#else
+    INDEBUG(unsigned* instrCount)
 #endif
-                                 DEBUGARG(unsigned* instrCount))
+        )
 {
     JITDUMP("*************** In emitEndCodeGen()\n");
 
@@ -3024,8 +3024,6 @@ void emitter::emitEndCodeGen(unsigned* prologSize
 #endif
 
     JITDUMP("Allocated method code size %u\n", emitTotalCodeSize);
-
-    *prologSize = GetProlog()->GetCodeOffset(emitPrologEndPos);
 }
 
 unsigned emitter::emitFindInsNum(insGroup* ig, instrDesc* idMatch)

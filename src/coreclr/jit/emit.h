@@ -273,12 +273,13 @@ private:
 public:
     void emitBegFN();
     void emitComputeCodeSizes();
-    void emitEndCodeGen(unsigned* prologSize
+    void emitEndCodeGen(
 #ifdef JIT32_GCENCODER
-                        ,
-                        unsigned* epilogSize
+        unsigned* epilogSize DEBUGARG(unsigned* instrCount)
+#else
+        INDEBUG(unsigned* instrCount)
 #endif
-                            DEBUGARG(unsigned* instrCount));
+            );
 
     /************************************************************************/
     /*                      Method prolog and epilog                        */
@@ -1536,6 +1537,11 @@ public:
     {
         assert(emitCodeBlock != nullptr);
         return emitTotalCodeSize;
+    }
+
+    unsigned GetPrologSize() const
+    {
+        return GetProlog()->GetCodeOffset(emitPrologEndPos);
     }
 
 private:

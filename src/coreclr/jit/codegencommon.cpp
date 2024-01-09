@@ -794,12 +794,13 @@ void CodeGen::genEmitMachineCode()
 #ifdef DEBUG
     unsigned instrCount;
 #endif
-    emit.emitEndCodeGen(&prologSize
+    emit.emitEndCodeGen(
 #ifdef JIT32_GCENCODER
-                        ,
-                        &epilogSize
+        &epilogSize DEBUGARG(&instrCount)
+#else
+        INDEBUG(&instrCount)
 #endif
-                            DEBUGARG(&instrCount));
+            );
 
 #ifdef DEBUG
     assert(compiler->compCodeGenDone == false);
@@ -820,7 +821,8 @@ void CodeGen::genEmitMachineCode()
     {
         printf("\n; Total bytes of code %d, prolog size %d, PerfScore %.2f, instruction count %d, allocated bytes for "
                "code %d",
-               emit.GetCodeSize(), prologSize, perfScore, instrCount, emit.GetHotCodeSize() + emit.GetColdCodeSize());
+               emit.GetCodeSize(), emit.GetPrologSize(), perfScore, instrCount,
+               emit.GetHotCodeSize() + emit.GetColdCodeSize());
 
 #if TRACK_LSRA_STATS
         if (JitConfig.DisplayLsraStats() == 3)
@@ -892,9 +894,10 @@ void CodeGen::genEmitUnwindDebugGCandEH()
     genReportEH();
 
 #ifdef JIT32_GCENCODER
-    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this, GetEmitter()->GetCodeSize(), prologSize, epilogSize);
+    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this, GetEmitter()->GetCodeSize(), GetEmitter()->GetPrologSize(),
+                                                   epilogSize);
 #else
-    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this, GetEmitter()->GetCodeSize(), prologSize);
+    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this, GetEmitter()->GetCodeSize(), GetEmitter()->GetPrologSize());
 #endif
 
 #ifdef LATE_DISASM

@@ -214,7 +214,6 @@ public:
     void genCheckOverflow(GenTree* tree);
 #endif
 
-    unsigned prologSize;
 #ifdef JIT32_GCENCODER
     unsigned epilogSize;
 #endif
