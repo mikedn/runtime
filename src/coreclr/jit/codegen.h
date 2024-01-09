@@ -168,10 +168,6 @@ private:
     void* codePtr     = nullptr;
     void* coldCodePtr = nullptr;
 
-    // Total number of bytes of Hot Code in the method
-    unsigned hotCodeSize = 0;
-    // Total number of bytes of Cold Code in the method
-    unsigned coldCodeSize = 0;
     // The native code size, after instructions are issued.
     // This is less than (hotCodeSize + coldCodeSize) only if:
     // (1) the code is not hot/cold split, and we issued less code than we expected, or

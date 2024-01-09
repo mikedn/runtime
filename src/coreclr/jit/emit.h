@@ -1505,9 +1505,9 @@ private:
     unsigned       emitCurIGsize;         // estimated code size of current group in bytes
     UNATIVE_OFFSET emitCurCodeOffset = 0; // current code offset within group
 
-    UNATIVE_OFFSET emitTotalCodeSize = 0; // bytes of code in entire method
-    UNATIVE_OFFSET emitTotalHotCodeSize;
-    UNATIVE_OFFSET emitTotalColdCodeSize;
+    UNATIVE_OFFSET emitTotalCodeSize     = 0; // bytes of code in entire method
+    UNATIVE_OFFSET emitTotalHotCodeSize  = 0;
+    UNATIVE_OFFSET emitTotalColdCodeSize = 0;
 
     insGroup* emitFirstColdIG = nullptr; // first cold instruction group
 
@@ -1515,6 +1515,16 @@ public:
     void emitSetFirstColdLabel(insGroup* ig)
     {
         emitFirstColdIG = ig;
+    }
+
+    unsigned GetHotCodeSize() const
+    {
+        return emitTotalHotCodeSize;
+    }
+
+    unsigned GetColdCodeSize() const
+    {
+        return emitTotalColdCodeSize;
     }
 
 private:

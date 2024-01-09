@@ -37,12 +37,12 @@ void CodeGenInterface::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSi
 
 unsigned CodeGenInterface::GetHotCodeSize() const
 {
-    return static_cast<const CodeGen*>(this)->hotCodeSize;
+    return GetEmitter()->GetHotCodeSize();
 }
 
 unsigned CodeGenInterface::GetColdCodeSize() const
 {
-    return static_cast<const CodeGen*>(this)->coldCodeSize;
+    return GetEmitter()->GetColdCodeSize();
 }
 
 unsigned CodeGenInterface::GetCodeSize() const
@@ -809,8 +809,8 @@ void CodeGen::genEmitMachineCode()
 #if defined(DEBUG) || defined(LATE_DISASM)
     // Add code size information into the Perf Score
     // All compPerfScore calculations must be performed using doubles
-    perfScore += static_cast<double>(hotCodeSize) * PERFSCORE_CODESIZE_COST_HOT;
-    perfScore += static_cast<double>(coldCodeSize) * PERFSCORE_CODESIZE_COST_COLD;
+    perfScore += static_cast<double>(GetEmitter()->GetHotCodeSize()) * PERFSCORE_CODESIZE_COST_HOT;
+    perfScore += static_cast<double>(GetEmitter()->GetColdCodeSize()) * PERFSCORE_CODESIZE_COST_COLD;
 #endif // DEBUG || LATE_DISASM
 
 #ifdef DEBUG

@@ -316,6 +316,8 @@ void CodeGen::eeAllocUnwindInfo(FuncKind kind, bool isHotCode, CodeRange range, 
     }
 #endif
 
+    uint32_t hotCodeSize = GetEmitter()->GetHotCodeSize();
+
     if (isHotCode)
     {
         assert(range.end <= hotCodeSize);

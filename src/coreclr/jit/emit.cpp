@@ -2606,9 +2606,6 @@ void emitter::emitComputeCodeSizes()
         emitTotalColdCodeSize = 0;
     }
 
-    codeGen->hotCodeSize  = emitTotalHotCodeSize;
-    codeGen->coldCodeSize = emitTotalColdCodeSize;
-
 #ifdef DEBUG
     if (emitComp->verbose)
     {
