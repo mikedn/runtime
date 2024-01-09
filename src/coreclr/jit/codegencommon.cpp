@@ -47,8 +47,7 @@ unsigned CodeGenInterface::GetColdCodeSize() const
 
 unsigned CodeGenInterface::GetCodeSize() const
 {
-    assert(GetEmitter()->GetHotCodeAddr() != nullptr);
-    return static_cast<const CodeGen*>(this)->codeSize;
+    return GetEmitter()->GetCodeSize();
 }
 
 #ifdef JIT32_GCENCODER
@@ -505,7 +504,7 @@ void CodeGen::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
 #endif
 
     *nativeCode     = GetEmitter()->GetHotCodeAddr();
-    *nativeCodeSize = codeSize;
+    *nativeCodeSize = GetEmitter()->GetCodeSize();
 }
 
 #ifdef FEATURE_EH_FUNCLETS

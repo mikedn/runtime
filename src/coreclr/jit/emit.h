@@ -1534,6 +1534,7 @@ public:
 
     unsigned GetCodeSize() const
     {
+        assert(emitCodeBlock != nullptr);
         return emitTotalCodeSize;
     }
 
