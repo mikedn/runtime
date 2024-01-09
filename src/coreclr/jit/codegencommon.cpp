@@ -751,20 +751,7 @@ void CodeGen::DumpDisasmHeader() const
 //
 void CodeGen::genEmitMachineCode()
 {
-    Emitter& emit = *GetEmitter();
-
-    /* Compute the size of the code sections that we are going to ask the VM
-       to allocate. Note that this might not be precisely the size of the
-       code we emit, though it's fatal if we emit more code than the size we
-       compute here.
-       (Note: an example of a case where we emit less code would be useful.)
-    */
-
-    emit.emitComputeCodeSizes();
-
 #ifdef DEBUG
-    unsigned instrCount;
-
     // Code to test or stress our ability to run a fallback compile.
     // We trigger the fallback here, before asking the VM for any memory,
     // because if not, we will leak mem, as the current codebase can't free
@@ -784,8 +771,18 @@ void CodeGen::genEmitMachineCode()
             }
         }
     }
-
 #endif // DEBUG
+
+    Emitter& emit = *GetEmitter();
+
+    /* Compute the size of the code sections that we are going to ask the VM
+       to allocate. Note that this might not be precisely the size of the
+       code we emit, though it's fatal if we emit more code than the size we
+       compute here.
+       (Note: an example of a case where we emit less code would be useful.)
+    */
+
+    emit.emitComputeCodeSizes();
 
 /* We've finished collecting all the unwind information for the function. Now reserve
    space for it from the VM.
@@ -795,6 +792,9 @@ void CodeGen::genEmitMachineCode()
     unwindReserve();
 #endif
 
+#ifdef DEBUG
+    unsigned instrCount;
+#endif
     emit.emitEndCodeGen(&prologSize,
 #ifdef JIT32_GCENCODER
                         &epilogSize,
@@ -889,6 +889,16 @@ void CodeGen::genEmitUnwindDebugGCandEH()
 
     genSetScopeInfo();
 
+    /* Report any exception handlers to the VM */
+
+    genReportEH();
+
+#ifdef JIT32_GCENCODER
+    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this, codeSize, prologSize, epilogSize);
+#else
+    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this, codeSize, prologSize);
+#endif
+
 #ifdef LATE_DISASM
     unsigned finalHotCodeSize;
     unsigned finalColdCodeSize;
@@ -913,16 +923,6 @@ void CodeGen::genEmitUnwindDebugGCandEH()
     }
     getDisAssembler().disAsmCode((BYTE*)codePtr, finalHotCodeSize, (BYTE*)coldCodePtr, finalColdCodeSize);
 #endif // LATE_DISASM
-
-    /* Report any exception handlers to the VM */
-
-    genReportEH();
-
-#ifdef JIT32_GCENCODER
-    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this, codeSize, prologSize, epilogSize);
-#else
-    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this, codeSize, prologSize);
-#endif
 
 #if DISPLAY_SIZES
 
