@@ -60,7 +60,7 @@ unsigned CodeGenInterface::GetGCInfoSize() const
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
 double CodeGenInterface::GetPerfScore() const
 {
-    return static_cast<const CodeGen*>(this)->perfScore;
+    return GetEmitter()->GetPerfScore();
 }
 #endif
 
@@ -800,19 +800,12 @@ void CodeGen::genEmitMachineCode()
     compiler->compCodeGenDone = true;
 #endif
 
-#if defined(DEBUG) || defined(LATE_DISASM)
-    // Add code size information into the Perf Score
-    // All compPerfScore calculations must be performed using doubles
-    perfScore += static_cast<double>(emit.GetHotCodeSize()) * PERFSCORE_CODESIZE_COST_HOT;
-    perfScore += static_cast<double>(emit.GetColdCodeSize()) * PERFSCORE_CODESIZE_COST_COLD;
-#endif // DEBUG || LATE_DISASM
-
 #ifdef DEBUG
     if (compiler->opts.disAsm || verbose)
     {
         printf("\n; Total bytes of code %d, prolog size %d, PerfScore %.2f, instruction count %d, allocated bytes for "
                "code %d",
-               emit.GetCodeSize(), emit.GetPrologSize(), perfScore, emit.GetInstrCount(),
+               emit.GetCodeSize(), emit.GetPrologSize(), emit.GetPerfScore(), emit.GetInstrCount(),
                emit.GetHotCodeSize() + emit.GetColdCodeSize());
 
 #if TRACK_LSRA_STATS

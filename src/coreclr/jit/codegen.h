@@ -168,9 +168,6 @@ private:
 #ifdef JIT32_GCENCODER
     unsigned gcInfoSize = 0;
 #endif
-#if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
-    double perfScore = 0.0;
-#endif
 
     // JIT-time constants for use in multi-dimensional array code generation.
     unsigned genOffsetOfMDArrayLowerBound(var_types elemType, unsigned rank, unsigned dimension);

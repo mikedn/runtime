@@ -1787,7 +1787,7 @@ size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp)
 #if defined(DEBUG) || defined(LATE_DISASM)
     double insExecCost  = insEvaluateExecutionCost(id);
     double insPerfScore = (static_cast<double>(ig->igWeight) / BB_UNITY_WEIGHT) * insExecCost;
-    codeGen->perfScore += insPerfScore;
+    perfScore += insPerfScore;
     ig->igPerfScore += insPerfScore;
 #endif
 
@@ -2755,8 +2755,8 @@ void emitter::emitEndCodeGen()
     emitCurStackLvl = 0;
 #endif
 #ifdef DEBUG
-    emitIssuing      = true;
-    double perfScore = 0.0;
+    emitIssuing           = true;
+    double blockPerfScore = 0.0;
 #endif
 
     for (insGroup *ig = emitIGfirst, *prevIG = nullptr; ig != nullptr; prevIG = ig, ig = ig->igNext)
@@ -2975,14 +2975,14 @@ void emitter::emitEndCodeGen()
 
 #ifdef DEBUG
         instrCount += ig->igInsCnt;
-        perfScore += ig->igPerfScore;
+        blockPerfScore += ig->igPerfScore;
 
         if (emitComp->verbose ||
             (emitComp->opts.disAsm && ((ig->igNext == nullptr) || !ig->igNext->IsExtension() ||
                                        ig->igNext->IsEpilog() || ig->igNext->IsFuncletPrologOrEpilog())))
         {
-            printf("\t\t\t\t\t\t;; bbWeight=%s PerfScore %.2f", refCntWtd2str(ig->igWeight), perfScore);
-            perfScore = 0.0;
+            printf("\t\t\t\t\t\t;; bbWeight=%s PerfScore %.2f", refCntWtd2str(ig->igWeight), blockPerfScore);
+            blockPerfScore = 0.0;
         }
 #endif
     }
@@ -3007,6 +3007,13 @@ void emitter::emitEndCodeGen()
 #endif
 
     JITDUMP("Allocated method code size %u\n", emitTotalCodeSize);
+
+#if defined(DEBUG) || defined(LATE_DISASM)
+    // Add code size information into the Perf Score
+    // All compPerfScore calculations must be performed using doubles
+    perfScore += static_cast<double>(emitTotalHotCodeSize) * PERFSCORE_CODESIZE_COST_HOT;
+    perfScore += static_cast<double>(emitTotalColdCodeSize) * PERFSCORE_CODESIZE_COST_COLD;
+#endif // DEBUG || LATE_DISASM
 }
 
 unsigned emitter::emitFindInsNum(insGroup* ig, instrDesc* idMatch)

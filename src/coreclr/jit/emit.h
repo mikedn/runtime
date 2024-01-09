@@ -1502,6 +1502,9 @@ private:
     insGroup* emitFirstColdIG = nullptr; // first cold instruction group
 
     INDEBUG(unsigned instrCount = 0;)
+#if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
+    double perfScore = 0.0;
+#endif
 
 public:
     void emitSetFirstColdLabel(insGroup* ig)
@@ -1555,6 +1558,13 @@ public:
     unsigned GetInstrCount() const
     {
         return instrCount;
+    }
+#endif
+
+#if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
+    double GetPerfScore() const
+    {
+        return perfScore;
     }
 #endif
 
