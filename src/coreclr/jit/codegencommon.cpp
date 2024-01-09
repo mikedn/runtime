@@ -880,38 +880,15 @@ void CodeGen::genEmitUnwindDebugGCandEH()
     GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this);
 
 #ifdef LATE_DISASM
-    unsigned finalHotCodeSize;
-    unsigned finalColdCodeSize;
-    if (compiler->fgFirstColdBlock != nullptr)
-    {
-        // We did some hot/cold splitting. The hot section is always padded out to the
-        // size we thought it would be, but the cold section is not.
-        assert(codeSize <= compiler->info.hotCodeSize + compiler->info.coldCodeSize);
-        assert(compiler->info.hotCodeSize > 0);
-        assert(compiler->info.coldCodeSize > 0);
-        finalHotCodeSize  = compiler->info.hotCodeSize;
-        finalColdCodeSize = codeSize - finalHotCodeSize;
-    }
-    else
-    {
-        // No hot/cold splitting
-        assert(codeSize <= compiler->info.hotCodeSize);
-        assert(compiler->info.hotCodeSize > 0);
-        assert(compiler->info.coldCodeSize == 0);
-        finalHotCodeSize  = codeSize;
-        finalColdCodeSize = 0;
-    }
-    getDisAssembler().disAsmCode((BYTE*)codePtr, finalHotCodeSize, (BYTE*)coldCodePtr, finalColdCodeSize);
-#endif // LATE_DISASM
+    getDisAssembler().disAsmCode(GetEmitter()->GetHotCodeAddr(), GetEmitter()->GetHotCodeSize(),
+                                 GetEmitter()->GetColdCodeAddr(), GetEmitter()->GetColdCodeSize());
+#endif
 
 #if DISPLAY_SIZES
-
-    size_t dataSize = GetEmitter()->emitDataSize();
     grossVMsize += compiler->info.compILCodeSize;
-    totalNCsize += codeSize + dataSize + gcInfoSize;
-    grossNCsize += codeSize + dataSize;
-
-#endif // DISPLAY_SIZES
+    totalNCsize += GetEmitter()->GetCodeSize() + GetEmitter()->emitDataSize() + gcInfoSize;
+    grossNCsize += GetEmitter()->GetCodeSize() + GetEmitter()->emitDataSize();
+#endif
 }
 
 /*****************************************************************************
