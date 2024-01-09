@@ -751,6 +751,8 @@ void CodeGen::DumpDisasmHeader() const
 //
 void CodeGen::genEmitMachineCode()
 {
+    Emitter& emit = *GetEmitter();
+
     /* Compute the size of the code sections that we are going to ask the VM
        to allocate. Note that this might not be precisely the size of the
        code we emit, though it's fatal if we emit more code than the size we
@@ -758,7 +760,7 @@ void CodeGen::genEmitMachineCode()
        (Note: an example of a case where we emit less code would be useful.)
     */
 
-    GetEmitter()->emitComputeCodeSizes();
+    emit.emitComputeCodeSizes();
 
 #ifdef DEBUG
     unsigned instrCount;
@@ -793,11 +795,13 @@ void CodeGen::genEmitMachineCode()
     unwindReserve();
 #endif
 
-    codeSize = GetEmitter()->emitEndCodeGen(&prologSize,
+    emit.emitEndCodeGen(&prologSize,
 #ifdef JIT32_GCENCODER
-                                            &epilogSize,
+                        &epilogSize,
 #endif
-                                            &codePtr, &coldCodePtr DEBUGARG(&instrCount));
+                        &codePtr, &coldCodePtr DEBUGARG(&instrCount));
+
+    codeSize = emit.GetCodeSize();
 
 #ifdef DEBUG
     assert(compiler->compCodeGenDone == false);
@@ -809,8 +813,8 @@ void CodeGen::genEmitMachineCode()
 #if defined(DEBUG) || defined(LATE_DISASM)
     // Add code size information into the Perf Score
     // All compPerfScore calculations must be performed using doubles
-    perfScore += static_cast<double>(GetEmitter()->GetHotCodeSize()) * PERFSCORE_CODESIZE_COST_HOT;
-    perfScore += static_cast<double>(GetEmitter()->GetColdCodeSize()) * PERFSCORE_CODESIZE_COST_COLD;
+    perfScore += static_cast<double>(emit.GetHotCodeSize()) * PERFSCORE_CODESIZE_COST_HOT;
+    perfScore += static_cast<double>(emit.GetColdCodeSize()) * PERFSCORE_CODESIZE_COST_COLD;
 #endif // DEBUG || LATE_DISASM
 
 #ifdef DEBUG
@@ -818,8 +822,7 @@ void CodeGen::genEmitMachineCode()
     {
         printf("\n; Total bytes of code %d, prolog size %d, PerfScore %.2f, instruction count %d, allocated bytes for "
                "code %d",
-               codeSize, prologSize, perfScore, instrCount,
-               GetEmitter()->GetHotCodeSize() + GetEmitter()->GetColdCodeSize());
+               codeSize, prologSize, perfScore, instrCount, emit.GetHotCodeSize() + emit.GetColdCodeSize());
 
 #if TRACK_LSRA_STATS
         if (JitConfig.DisplayLsraStats() == 3)
@@ -835,7 +838,7 @@ void CodeGen::genEmitMachineCode()
     if (verbose)
     {
         printf("*************** After end code gen, before unwindEmit()\n");
-        GetEmitter()->emitDispIGlist(true);
+        emit.emitDispIGlist(true);
     }
 #endif
 

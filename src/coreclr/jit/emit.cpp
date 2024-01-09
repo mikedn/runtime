@@ -2629,15 +2629,12 @@ void emitter::emitComputeCodeSizes()
 //    size. epilogSize is the size of just one of these epilogs, not the cumulative
 //    size of all of the method's epilogs.
 //
-// Returns:
-//    size of the method code, in bytes
-//
-unsigned emitter::emitEndCodeGen(unsigned* prologSize,
+void emitter::emitEndCodeGen(unsigned* prologSize,
 #ifdef JIT32_GCENCODER
-                                 unsigned* epilogSize,
+                             unsigned* epilogSize,
 #endif
-                                 void** codeAddr,
-                                 void** coldCodeAddr DEBUGARG(unsigned* instrCount))
+                             void** codeAddr,
+                             void** coldCodeAddr DEBUGARG(unsigned* instrCount))
 {
     JITDUMP("*************** In emitEndCodeGen()\n");
 
@@ -3031,8 +3028,6 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
     JITDUMP("Allocated method code size %u\n", emitTotalCodeSize);
 
     *prologSize = GetProlog()->GetCodeOffset(emitPrologEndPos);
-
-    return emitTotalCodeSize;
 }
 
 unsigned emitter::emitFindInsNum(insGroup* ig, instrDesc* idMatch)
