@@ -670,20 +670,11 @@ uint8_t* UnwindPrologCodes::AllocCode(int size)
 
 int UnwindCodes::GrowSize(int current, int min)
 {
-    assert(current != 0);
-
-    if (current > INT_MAX / 2)
-    {
-        return min;
-    }
-
     int next = current * 2;
-
-    while (next < min)
-    {
-        next *= 2;
-    }
-
+    // We need to increase the size by at most 4 bytes at a time, and the initial
+    // size is at least 4 too. So every time we double the size we should have
+    // enough to accomodate the required growth.
+    noway_assert(next >= min);
     return next;
 }
 
