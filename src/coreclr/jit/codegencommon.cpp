@@ -496,6 +496,17 @@ void CodeGen::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
     DoPhase(this, PHASE_EMIT_CODE, &CodeGen::genEmitMachineCode);
     DoPhase(this, PHASE_EMIT_GCEH, &CodeGen::genEmitUnwindDebugGCandEH);
 
+#ifdef LATE_DISASM
+    getDisAssembler().disAsmCode(GetEmitter()->GetHotCodeAddr(), GetEmitter()->GetHotCodeSize(),
+                                 GetEmitter()->GetColdCodeAddr(), GetEmitter()->GetColdCodeSize());
+#endif
+
+#if DISPLAY_SIZES
+    grossVMsize += compiler->info.compILCodeSize;
+    totalNCsize += GetEmitter()->GetCodeSize() + GetEmitter()->emitDataSize() + gcInfoSize;
+    grossNCsize += GetEmitter()->GetCodeSize() + GetEmitter()->emitDataSize();
+#endif
+
 #if TRACK_LSRA_STATS
     if (JitConfig.DisplayLsraStats() == 2)
     {
@@ -857,17 +868,6 @@ void CodeGen::genEmitUnwindDebugGCandEH()
     genReportEH();
 
     GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this);
-
-#ifdef LATE_DISASM
-    getDisAssembler().disAsmCode(GetEmitter()->GetHotCodeAddr(), GetEmitter()->GetHotCodeSize(),
-                                 GetEmitter()->GetColdCodeAddr(), GetEmitter()->GetColdCodeSize());
-#endif
-
-#if DISPLAY_SIZES
-    grossVMsize += compiler->info.compILCodeSize;
-    totalNCsize += GetEmitter()->GetCodeSize() + GetEmitter()->emitDataSize() + gcInfoSize;
-    grossNCsize += GetEmitter()->GetCodeSize() + GetEmitter()->emitDataSize();
-#endif
 }
 
 /*****************************************************************************
