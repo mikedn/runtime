@@ -1218,26 +1218,11 @@ void UnwindInfo::SplitLargeFragment(CodeGen* codeGen)
     assert(uwiFragmentFirst.ufiNext == nullptr);
 
     // Find the code size of this function/funclet.
-    insGroup* startLoc    = uwiFragmentFirst.ufiStartLoc;
-    uint32_t  startOffset = startLoc->GetCodeOffset();
+    insGroup* startLoc = uwiFragmentFirst.ufiStartLoc;
+    insGroup* endLoc   = uwiFragmentFirst.ufiEndLoc;
 
-    insGroup* endLoc = uwiFragmentFirst.ufiEndLoc;
-    uint32_t  endOffset;
-
-    if (endLoc == nullptr)
-    {
-        // Note that hotCodeSize and coldCodeSize are computed before encoding instructions, and they
-        // can be larger than needed, due to branch shortening and other encoding optimizations.
-        // So it's possible that we'll create more fragments than needed, but given the large size of
-        // these fragments this is unlikely to be an issue.
-        uint32_t estimatedTotalCodeSize = codeGen->GetHotCodeSize() + codeGen->GetColdCodeSize();
-        assert(estimatedTotalCodeSize != 0);
-        endOffset = estimatedTotalCodeSize;
-    }
-    else
-    {
-        endOffset = endLoc->GetCodeOffset();
-    }
+    uint32_t startOffset = startLoc->GetCodeOffset();
+    uint32_t endOffset   = endLoc == nullptr ? codeGen->GetCodeSize() : endLoc->GetCodeOffset();
 
     assert(endOffset > startOffset);
 
