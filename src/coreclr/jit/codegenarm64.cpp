@@ -1346,7 +1346,7 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
     genFuncletInfo.fiCallerSP_to_PSP_slot_delta = CallerSP_to_PSP_slot_delta;
 
 #ifdef DEBUG
-    if (verbose)
+    if (compiler->verbose)
     {
         printf("\n");
         printf("Funclet prolog / epilog info\n");
@@ -3435,7 +3435,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 #ifdef DEBUG
 void CodeGen::genArm64EmitterUnitTests()
 {
-    if (!verbose)
+    if (!compiler->verbose)
     {
         return;
     }
@@ -8884,7 +8884,7 @@ void CodeGen::PrologPushCalleeSavedRegisters(regNumber initReg, bool* pInitRegZe
     regMaskTP maskSaveRegsInt   = rsPushRegs & ~maskSaveRegsFloat;
 
 #ifdef DEBUG
-    if (verbose)
+    if (compiler->verbose)
     {
         printf("Save float regs: ");
         dspRegMask(maskSaveRegsFloat);

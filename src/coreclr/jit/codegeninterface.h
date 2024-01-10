@@ -214,16 +214,6 @@ protected:
 #endif // LATE_DISASM
 
 public:
-#ifdef DEBUG
-    void setVerbose()
-    {
-        verbose = true;
-    }
-
-    bool verbose = false;
-#endif // DEBUG
-
-public:
     bool GetInterruptible() const
     {
         return m_cgInterruptible;

@@ -1328,8 +1328,6 @@ void Compiler::compInitConfigOptions()
             opts.dspEHTable = true;
             opts.dspGCtbls  = true;
             opts.dspUnwind  = true;
-
-            codeGen->setVerbose();
         }
 
         // TODO-MIKE-SSA: This doesn't work with new SSA because it transforms

@@ -209,7 +209,7 @@ void CodeGen::genCodeForBBlist()
         DumpDisasmHeader();
     }
 
-    if (compiler->opts.disAsm || verbose)
+    if (compiler->opts.disAsm || compiler->verbose)
     {
         compiler->lvaTableDump();
         JITDUMP("\n");
@@ -1598,7 +1598,7 @@ void CodeGen::VerifyUseOrder(GenTree* const node)
 {
     assert(node != nullptr);
 
-    if (verbose)
+    if (compiler->verbose)
     {
         if (node->gtUseNum == -1)
         {

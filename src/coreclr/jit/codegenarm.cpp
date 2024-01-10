@@ -2675,7 +2675,7 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
         genFuncletInfo.fiPSP_slot_CallerSP_offset = PSP_slot_CallerSP_offset;
 
 #ifdef DEBUG
-        if (verbose)
+        if (compiler->verbose)
         {
             printf("\n");
             printf("Funclet prolog / epilog info\n");

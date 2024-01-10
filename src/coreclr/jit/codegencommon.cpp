@@ -481,7 +481,7 @@ void DoPhase(CodeGen* codeGen, Phases phaseId, void (CodeGen::*action)())
 void CodeGen::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
 {
 #ifdef DEBUG
-    if (verbose)
+    if (compiler->verbose)
     {
         printf("*************** In genGenerateCode()\n");
         compiler->fgDispBasicBlocks(compiler->verboseTrees);
@@ -788,7 +788,7 @@ void CodeGen::genEmitMachineCode()
     emit.emitEndCodeGen();
 
 #ifdef DEBUG
-    if (compiler->opts.disAsm || verbose)
+    if (compiler->opts.disAsm || compiler->verbose)
     {
         printf("\n; Total bytes of code %d, prolog size %d, PerfScore %.2f, instruction count %d, allocated bytes for "
                "code %d",
@@ -3671,7 +3671,7 @@ void CodeGen::genFinalizeFrame()
     calleeRegsPushed = genCountBits(pushedRegs);
 
 #ifdef DEBUG
-    if (verbose)
+    if (compiler->verbose)
     {
         printf("Special regs: ");
         dspRegMask(specialRegs);
@@ -4528,7 +4528,7 @@ void CodeGen::genIPmappingAdd(IL_OFFSETX offsx, bool isLabel)
     genIPmappingLast = addMapping;
 
 #ifdef DEBUG
-    if (verbose)
+    if (compiler->verbose)
     {
         printf("Debug Info: IL ");
         genIPmappingDisp(addMapping);
@@ -4562,12 +4562,12 @@ void CodeGen::genIPmappingAddToFront(IL_OFFSETX offsx)
     }
 
 #ifdef DEBUG
-    if (verbose)
+    if (compiler->verbose)
     {
         printf("Debug Info: IL ");
         genIPmappingDisp(addMapping);
     }
-#endif // DEBUG
+#endif
 }
 
 /*****************************************************************************/

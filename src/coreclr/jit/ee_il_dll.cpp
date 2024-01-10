@@ -564,7 +564,7 @@ void CodeGen::eeSetLVdone(VarResultInfo* vars, unsigned count)
     assert((count == 0) || (compiler->info.compVarScopesCount > 0));
 
     ICorDebugInfo::NativeVarInfo* eeVars = reinterpret_cast<ICorDebugInfo::NativeVarInfo*>(vars);
-    DBEXEC(verbose || compiler->opts.dspDebugInfo, eeDispVars(compiler->info.compMethodHnd, count, eeVars));
+    DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, eeDispVars(compiler->info.compMethodHnd, count, eeVars));
     compiler->info.compCompHnd->setVars(compiler->info.compMethodHnd, count, eeVars);
 }
 
@@ -1029,12 +1029,12 @@ void CodeGen::eeSetLIdone()
 {
     assert(compiler->opts.compDbgInfo);
 
-#if defined(DEBUG)
-    if (verbose || compiler->opts.dspDebugInfo)
+#ifdef DEBUG
+    if (compiler->verbose || compiler->opts.dspDebugInfo)
     {
         eeDispLineInfos();
     }
-#endif // DEBUG
+#endif
 
     // necessary but not sufficient condition that the 2 struct definitions overlap
     assert(sizeof(eeBoundaries[0]) == sizeof(ICorDebugInfo::OffsetMapping));

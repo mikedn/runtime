@@ -8704,7 +8704,7 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
     genFuncletInfo.fiSpDelta += PSPSymSize + outgoingArgSpaceSize;
 
 #ifdef DEBUG
-    if (verbose)
+    if (compiler->verbose)
     {
         printf("\n");
         printf("Funclet prolog / epilog info\n");
