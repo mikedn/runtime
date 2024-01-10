@@ -105,11 +105,6 @@ public:
 
     unsigned GetHotCodeSize() const;
     unsigned GetColdCodeSize() const;
-    // The native code size, after instructions are issued.
-    // This is less than (hotCodeSize + coldCodeSize) only if:
-    // (1) the code is not hot/cold split, and we issued less code than we expected, or
-    // (2) the code is hot/cold split, and we issued less code than we expected
-    // in the cold section (the hot section will always be padded out to hotCodeSize).
     unsigned GetCodeSize() const;
 
 #ifdef UNIX_AMD64_ABI
