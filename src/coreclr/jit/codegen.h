@@ -321,28 +321,26 @@ public:
 
     void genPoisonFrame(regMaskTP bbRegLiveIn);
 
-#if defined(TARGET_ARM)
-
+#ifdef TARGET_ARM
     void genInstrWithConstant(instruction ins, regNumber reg1, regNumber reg2, int32_t imm, regNumber tmpReg);
-
     void genStackPointerAdjustment(int32_t spAdjustment, regNumber tmpReg);
-
     void genPushFltRegs(regMaskTP regMask);
     void genPopFltRegs(regMaskTP regMask);
     regMaskTP genStackAllocRegisterMask(unsigned frameSize, regMaskTP maskCalleeSavedFloat);
-
     void genFreeLclFrame(unsigned frameSize, bool* pUnwindStarted);
-
     void genMov32RelocatableDisplacement(BasicBlock* block, regNumber reg);
     void genMov32RelocatableDisplacement(insGroup* block, regNumber reg);
     void genMov32RelocatableDataLabel(unsigned value, regNumber reg);
 
     bool genUsedPopToReturn; // True if we use the pop into PC to return,
                              // False if we didn't and must branch to LR to return.
+#endif
 
-    // A set of information that is used by funclet prolog and epilog generation. It is collected once, before
-    // funclet prologs and epilogs are generated, and used by all funclet prologs and epilogs, which must all be the
-    // same.
+#ifdef FEATURE_EH_FUNCLETS
+#if defined(TARGET_ARM)
+    // A set of information that is used by funclet prolog and epilog generation.
+    // It is collected once, before funclet prologs and epilogs are generated,
+    // and used by all funclet prologs and epilogs, which must all be the same.
     struct FuncletFrameInfoDsc
     {
         regMaskTP fiSaveRegs;                  // Set of registers saved in the funclet prolog (includes LR)
@@ -351,14 +349,7 @@ public:
         unsigned  fiPSP_slot_SP_offset;        // PSP slot offset from SP
         int       fiPSP_slot_CallerSP_offset;  // PSP slot offset from Caller SP
     };
-
-    FuncletFrameInfoDsc genFuncletInfo;
-
 #elif defined(TARGET_ARM64)
-
-    // A set of information that is used by funclet prolog and epilog generation. It is collected once, before
-    // funclet prologs and epilogs are generated, and used by all funclet prologs and epilogs, which must all be the
-    // same.
     struct FuncletFrameInfoDsc
     {
         regMaskTP fiSaveRegs;                // Set of callee-saved registers saved in the funclet prolog (includes LR)
@@ -372,29 +363,19 @@ public:
         int fiSpDelta1;                      // Stack pointer delta 1 (negative)
         int fiSpDelta2;                      // Stack pointer delta 2 (negative)
     };
-
-    FuncletFrameInfoDsc genFuncletInfo;
-
 #elif defined(TARGET_AMD64)
-
-    // A set of information that is used by funclet prolog and epilog generation. It is collected once, before
-    // funclet prologs and epilogs are generated, and used by all funclet prologs and epilogs, which must all be the
-    // same.
     struct FuncletFrameInfoDsc
     {
         unsigned fiFunction_InitialSP_to_FP_delta; // Delta between Initial-SP and the frame pointer
         unsigned fiSpDelta;                        // Stack pointer delta
         int      fiPSP_slot_InitialSP_offset;      // PSP slot offset from Initial-SP
     };
-
-    FuncletFrameInfoDsc genFuncletInfo;
-
 #endif // TARGET_AMD64
 
-#ifdef FEATURE_EH_FUNCLETS
-    uint16_t     compFuncInfoCount   = 0;
-    uint16_t     currentFuncletIndex = 0;
-    FuncInfoDsc* compFuncInfos       = nullptr;
+    FuncletFrameInfoDsc genFuncletInfo;
+    uint16_t            compFuncInfoCount   = 0;
+    uint16_t            currentFuncletIndex = 0;
+    FuncInfoDsc*        compFuncInfos       = nullptr;
 
     uint16_t compFuncCount() const
     {
