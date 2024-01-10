@@ -137,10 +137,12 @@ struct insGroup
 #if !FEATURE_FIXED_OUT_ARGS
     unsigned igStkLvl; // stack level on entry
 #endif
+#ifdef FEATURE_EH_FUNCLETS
     uint16_t igFuncIdx; // Which function/funclet does this belong to? (Index into CodeGen::compFuncInfos array.)
-    uint16_t igSize;    // # of bytes of code in this group
-    uint16_t igFlags;   // see IGF_xxx below
-    uint8_t  igInsCnt;  // # of instructions  in this group
+#endif
+    uint16_t igSize;   // # of bytes of code in this group
+    uint16_t igFlags;  // see IGF_xxx below
+    uint8_t  igInsCnt; // # of instructions  in this group
 
     static_assert_no_msg(REG_INT_COUNT <= 32);
 
@@ -165,6 +167,15 @@ struct insGroup
 
     uint32_t GetCodeOffset(CodePos codePos) const;
     uint32_t FindInsOffset(unsigned insNum) const;
+
+    uint16_t GetFuncletIndex() const
+    {
+#ifdef FEATURE_EH_FUNCLETS
+        return igFuncIdx;
+#else
+        return 0;
+#endif
+    }
 
     VARSET_TP GetGCLcls() const
     {

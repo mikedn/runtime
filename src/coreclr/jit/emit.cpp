@@ -175,8 +175,6 @@ insGroup* emitter::emitAllocIG()
     ig->igOffs   = emitCurCodeOffset;
 #ifdef FEATURE_EH_FUNCLETS
     ig->igFuncIdx = codeGen->currentFuncletIndex;
-#else
-    ig->igFuncIdx                   = 0;
 #endif
     ig->igSize    = 0;
     ig->igFlags   = 0;
@@ -251,7 +249,7 @@ void emitter::emitGenIG(insGroup* ig)
         ig->igFlags |= IGF_NOGCINTERRUPT;
     }
 
-    JITDUMP(FMT_IG ": offs %06XH, funclet %02u, weight %s\n", ig->igNum, ig->igOffs, ig->igFuncIdx,
+    JITDUMP(FMT_IG ": offs %06XH, funclet %02u, weight %s\n", ig->igNum, ig->igOffs, ig->GetFuncletIndex(),
             refCntWtd2str(ig->igWeight));
 
     emitCurIG         = ig;
@@ -315,7 +313,7 @@ void emitter::emitFinishIG(bool extend)
     emitCurIGfreeNext = emitCurIGfreeBase;
 
     JITDUMP(FMT_IG ": offs %06XH, size %04XH, funclet %02u, weight %s\n", ig->igNum, ig->igOffs, ig->igSize,
-            ig->igFuncIdx, refCntWtd2str(ig->igWeight));
+            ig->GetFuncletIndex(), refCntWtd2str(ig->igWeight));
 }
 
 #if FEATURE_LOOP_ALIGN
@@ -484,8 +482,8 @@ void emitter::emitBegFN()
     emitIGlast         = emitIGfirst;
     emitCurIG          = emitIGfirst;
 
-    JITDUMP(FMT_IG ": offs %06XH, funclet %02u, weight %s\n", emitCurIG->igNum, emitCurIG->igOffs, emitCurIG->igFuncIdx,
-            refCntWtd2str(emitCurIG->igWeight));
+    JITDUMP(FMT_IG ": offs %06XH, funclet %02u, weight %s\n", emitCurIG->igNum, emitCurIG->igOffs,
+            emitCurIG->GetFuncletIndex(), refCntWtd2str(emitCurIG->igWeight));
 
     // Append another group, to start generating the method body
     emitNewIG();
@@ -881,8 +879,6 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
     igPh->igPhData = new (emitComp, CMK_InstDesc) insPlaceholderGroupData(igBB);
 #ifdef FEATURE_EH_FUNCLETS
     igPh->igFuncIdx = codeGen->currentFuncletIndex;
-#else
-    igPh->igFuncIdx                       = 0;
 #endif
     igPh->igFlags |= IGF_PLACEHOLDER;
 
@@ -1050,7 +1046,7 @@ void emitter::emitBegPrologEpilog(insGroup* igPh)
     emitNoGCIG     = true;
     emitForceNewIG = false;
 
-    codeGen->funSetCurrentFunc(igPh->igFuncIdx);
+    codeGen->funSetCurrentFunc(igPh->GetFuncletIndex());
 
     emitGenIG(igPh);
 
@@ -1605,7 +1601,7 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
 
     if (emitComp->verbose)
     {
-        printf("%c func %u, offs %06XH, size %04XH", separator, ig->igFuncIdx, ig->igOffs, ig->igSize);
+        printf("%c func %u, offs %06XH, size %04XH", separator, ig->GetFuncletIndex(), ig->igOffs, ig->igSize);
         separator = ',';
 
         if ((flags & IGF_UPD_ISZ) != 0)
@@ -2526,8 +2522,8 @@ void emitter::emitCheckFuncletBranch(instrDescJmp* jmp)
     assert(tgtIG != nullptr);
 
 #ifndef FEATURE_EH_FUNCLETS
-    assert(tgtIG->igFuncIdx == 0);
-    assert(jmpIG->igFuncIdx == 0);
+    assert(tgtIG->GetFuncletIndex() == 0);
+    assert(jmpIG->GetFuncletIndex() == 0);
 #else
     if (tgtIG->igFuncIdx != jmpIG->igFuncIdx)
     {
