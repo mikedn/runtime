@@ -2594,6 +2594,8 @@ void emitter::emitCheckFuncletBranch(instrDescJmp* jmp)
 void emitter::emitComputeCodeSizes()
 {
     assert((emitComp->fgFirstColdBlock == nullptr) == (emitFirstColdIG == nullptr));
+    assert(emitTotalColdCodeSize == 0);
+    assert(emitTotalHotCodeSize == 0);
 
     if (emitFirstColdIG != nullptr)
     {
@@ -2602,8 +2604,7 @@ void emitter::emitComputeCodeSizes()
     }
     else
     {
-        emitTotalHotCodeSize  = emitTotalCodeSize;
-        emitTotalColdCodeSize = 0;
+        emitTotalHotCodeSize = emitTotalCodeSize;
     }
 
     JITDUMP("\nHot code size = 0x%X bytes\nCold code size = 0x%X bytes\n", emitTotalHotCodeSize, emitTotalColdCodeSize);
@@ -2617,9 +2618,6 @@ void emitter::emitEndCodeGen()
     JITDUMP("*************** In emitEndCodeGen()\n");
 
     assert(emitCurIG == nullptr);
-
-    emitCodeBlock = nullptr;
-    emitConsBlock = nullptr;
 
 #ifndef JIT32_GCENCODER
     gcInfo.Begin();

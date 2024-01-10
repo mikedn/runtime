@@ -1414,10 +1414,10 @@ public:
     // If we have started issuing instructions from the list of instrDesc, this is set
     INDEBUG(bool emitIssuing = false;)
 
-    BYTE*  emitCodeBlock;     // Hot code block
-    BYTE*  emitColdCodeBlock; // Cold code block
-    BYTE*  emitConsBlock;     // Read-only (constant) data block
-    size_t writeableOffset;   // Offset applied to a code address to get memory location that can be written
+    BYTE*  emitCodeBlock     = nullptr; // Hot code block
+    BYTE*  emitColdCodeBlock = nullptr; // Cold code block
+    BYTE*  emitConsBlock     = nullptr; // Read-only (constant) data block
+    size_t writeableOffset   = 0;       // Offset applied to a code address to get memory location that can be written
 
     UNATIVE_OFFSET emitCurCodeOffs(BYTE* dst);
     BYTE* emitOffsetToPtr(UNATIVE_OFFSET offset);
