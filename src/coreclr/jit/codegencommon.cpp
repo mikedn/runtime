@@ -756,9 +756,6 @@ void CodeGen::DumpDisasmHeader() const
 }
 #endif // DEBUG
 
-//----------------------------------------------------------------------
-// genEmitMachineCode -- emit the actual machine instruction code
-//
 void CodeGen::genEmitMachineCode()
 {
 #ifdef DEBUG
@@ -803,16 +800,10 @@ void CodeGen::genEmitMachineCode()
         {
             m_lsra->dumpLsraStatsSummary(jitstdout);
         }
-#endif // TRACK_LSRA_STATS
+#endif
 
         printf(" (MethodHash=%08x) for method %s\n", compiler->info.compMethodHash(), compiler->info.compFullName);
         printf("; ============================================================\n\n");
-    }
-
-    if (verbose)
-    {
-        printf("*************** After end code gen, before unwindEmit()\n");
-        emit.emitDispIGlist(true);
     }
 #endif
 
@@ -829,51 +820,31 @@ void CodeGen::genEmitMachineCode()
                                         (compiler->compTailCallUsed ? 4 : 0); // CORINFO_HELP_TAILCALL args
 #ifdef UNIX_X86_ABI
         // Convert maxNestedAlignment to DWORD count before adding to maxAllowedStackDepth.
-        assert(maxNestedAlignment % sizeof(int) == 0);
-        maxAllowedStackDepth += maxNestedAlignment / sizeof(int);
+        assert(maxNestedAlignment % 4 == 0);
+        maxAllowedStackDepth += maxNestedAlignment / 4;
 #endif
+
         assert(GetEmitter()->emitMaxStackDepth <= maxAllowedStackDepth);
     }
 #endif // DEBUG_ARG_SLOTS
 
-    // printf("%6u bytes of code generated for %s.%s\n", codeSize, compiler->info.compFullName);
-
-    // Make sure that the x86 alignment and cache prefetch optimization rules
-    // were obeyed.
-
-    // Don't start a method in the last 7 bytes of a 16-byte alignment area
-    //   unless we are generating SMALL_CODE
-    // noway_assert( (((unsigned)(codePtr) % 16) <= 8) || (compiler->compCodeOpt() == SMALL_CODE));
+    // Make sure that the x86 alignment and cache prefetch optimization rules were
+    // obeyed - don't start a method in the last 7 bytes of a 16-byte alignment area
+    // unless we are generating SMALL_CODE.
+    // TODO-MIKE-Review: What's up with this?
+    // noway_assert((reinterpret_cast<size_t>(codePtr) % 16 <= 8) || (compiler->compCodeOpt() == SMALL_CODE));
 }
 
-//----------------------------------------------------------------------
-// genEmitUnwindDebugGCandEH: emit unwind, debug, gc, and EH info
-//
 void CodeGen::genEmitUnwindDebugGCandEH()
 {
 #ifdef FEATURE_EH_FUNCLETS
     unwindEmit();
 #endif
-
-    /* Finalize the line # tracking logic after we know the exact block sizes/offsets */
-
     genIPmappingGen();
-
-    /* Finalize the Local Var info in terms of generated code */
-
     genSetScopeInfo();
-
-    /* Report any exception handlers to the VM */
-
     genReportEH();
-
     GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this);
 }
-
-/*****************************************************************************
- *
- *  Report EH clauses to the VM
- */
 
 void CodeGen::genReportEH()
 {
@@ -882,42 +853,35 @@ void CodeGen::genReportEH()
         return;
     }
 
-#ifdef DEBUG
-    if (compiler->opts.dspEHTable)
-    {
-        printf("*************** EH table for %s\n", compiler->info.compFullName);
-    }
-#endif // DEBUG
+    DBEXEC(compiler->opts.dspEHTable, printf("*************** EH table for %s\n", compiler->info.compFullName));
 
-    unsigned XTnum;
+    bool     isCoreRTABI = compiler->IsTargetAbi(CORINFO_CORERT_ABI);
+    unsigned EHCount     = compiler->compHndBBtabCount;
 
-    bool isCoreRTABI = compiler->IsTargetAbi(CORINFO_CORERT_ABI);
-
-    unsigned EHCount = compiler->compHndBBtabCount;
-
-#if defined(FEATURE_EH_FUNCLETS)
-    // Count duplicated clauses. This uses the same logic as below, where we actually generate them for reporting to the
-    // VM.
+#ifdef FEATURE_EH_FUNCLETS
+    // Count duplicated clauses. This uses the same logic as below,
+    // where we actually generate them for reporting to the VM.
     unsigned duplicateClauseCount = 0;
-    unsigned enclosingTryIndex;
 
-    // Duplicate clauses are not used by CoreRT ABI
     if (!isCoreRTABI)
     {
-        for (XTnum = 0; XTnum < compiler->compHndBBtabCount; XTnum++)
+        for (unsigned XTnum = 0; XTnum < compiler->compHndBBtabCount; XTnum++)
         {
-            for (enclosingTryIndex = compiler->ehTrueEnclosingTryIndexIL(XTnum); // find the true enclosing try index,
-                                                                                 // ignoring 'mutual protect' trys
+            // find the true enclosing try index, ignoring 'mutual protect' trys
+            for (unsigned enclosingTryIndex = compiler->ehTrueEnclosingTryIndexIL(XTnum);
                  enclosingTryIndex != EHblkDsc::NO_ENCLOSING_INDEX;
                  enclosingTryIndex = compiler->ehGetEnclosingTryIndex(enclosingTryIndex))
             {
-                ++duplicateClauseCount;
+                duplicateClauseCount++;
             }
         }
+
         EHCount += duplicateClauseCount;
     }
 
-#if FEATURE_EH_CALLFINALLY_THUNKS
+#if !FEATURE_EH_CALLFINALLY_THUNKS
+    const unsigned clonedFinallyCount = 0;
+#else
     unsigned clonedFinallyCount = 0;
 
     // Duplicate clauses are not used by CoreRT ABI
@@ -928,6 +892,7 @@ void CodeGen::genReportEH()
         // clauses. If there aren't, we don't need to look for BBJ_CALLFINALLY.
 
         bool anyFinallys = false;
+
         for (EHblkDsc* const HBtab : EHClauses(compiler))
         {
             if (HBtab->HasFinallyHandler())
@@ -936,13 +901,14 @@ void CodeGen::genReportEH()
                 break;
             }
         }
+
         if (anyFinallys)
         {
             for (BasicBlock* const block : compiler->Blocks())
             {
                 if (block->bbJumpKind == BBJ_CALLFINALLY)
                 {
-                    ++clonedFinallyCount;
+                    clonedFinallyCount++;
                 }
             }
 
@@ -950,52 +916,37 @@ void CodeGen::genReportEH()
         }
     }
 #endif // FEATURE_EH_CALLFINALLY_THUNKS
-
 #endif // FEATURE_EH_FUNCLETS
 
 #ifdef DEBUG
     if (compiler->opts.dspEHTable)
     {
-#if defined(FEATURE_EH_FUNCLETS)
-#if FEATURE_EH_CALLFINALLY_THUNKS
-        printf("%d EH table entries, %d duplicate clauses, %d cloned finallys, %d total EH entries reported to VM\n",
-               compiler->compHndBBtabCount, duplicateClauseCount, clonedFinallyCount, EHCount);
-        assert(compiler->compHndBBtabCount + duplicateClauseCount + clonedFinallyCount == EHCount);
-#else  // !FEATURE_EH_CALLFINALLY_THUNKS
-        printf("%d EH table entries, %d duplicate clauses, %d total EH entries reported to VM\n",
-               compiler->compHndBBtabCount, duplicateClauseCount, EHCount);
-        assert(compiler->compHndBBtabCount + duplicateClauseCount == EHCount);
-#endif // !FEATURE_EH_CALLFINALLY_THUNKS
-#else  // !FEATURE_EH_FUNCLETS
-        printf("%d EH table entries, %d total EH entries reported to VM\n", compiler->compHndBBtabCount, EHCount);
+        printf("%u EH table entries, ", compiler->compHndBBtabCount);
+#ifndef FEATURE_EH_FUNCLETS
         assert(compiler->compHndBBtabCount == EHCount);
-#endif // !FEATURE_EH_FUNCLETS
+#else // FEATURE_EH_FUNCLETS
+        printf("%u duplicate clauses, ", duplicateClauseCount);
+#if FEATURE_EH_CALLFINALLY_THUNKS
+        printf("%u cloned finallys, ", clonedFinallyCount);
+#endif
+        assert(compiler->compHndBBtabCount + duplicateClauseCount + clonedFinallyCount == EHCount);
+#endif // FEATURE_EH_FUNCLETS
+        printf("%u total EH entries reported to VM\n", EHCount);
     }
 #endif // DEBUG
 
-    // Tell the VM how many EH clauses to expect.
     eeSetEHcount(EHCount);
 
     uint32_t codeSize = GetEmitter()->GetCodeSize();
-    XTnum             = 0; // This is the index we pass to the VM
+    unsigned XTnum    = 0; // This is the index we pass to the VM
 
     for (EHblkDsc* const HBtab : EHClauses(compiler))
     {
-        UNATIVE_OFFSET tryBeg, tryEnd, hndBeg, hndEnd, hndTyp;
-
-        tryBeg = ehCodeOffset(HBtab->ebdTryBeg);
-        hndBeg = ehCodeOffset(HBtab->ebdHndBeg);
-        tryEnd = HBtab->ebdTryLast == compiler->fgLastBB ? codeSize : ehCodeOffset(HBtab->ebdTryLast->bbNext);
-        hndEnd = HBtab->ebdHndLast == compiler->fgLastBB ? codeSize : ehCodeOffset(HBtab->ebdHndLast->bbNext);
-
-        if (HBtab->HasFilter())
-        {
-            hndTyp = ehCodeOffset(HBtab->ebdFilter);
-        }
-        else
-        {
-            hndTyp = HBtab->ebdTyp;
-        }
+        uint32_t tryBeg = ehCodeOffset(HBtab->ebdTryBeg);
+        uint32_t hndBeg = ehCodeOffset(HBtab->ebdHndBeg);
+        uint32_t tryEnd = HBtab->ebdTryLast == compiler->fgLastBB ? codeSize : ehCodeOffset(HBtab->ebdTryLast->bbNext);
+        uint32_t hndEnd = HBtab->ebdHndLast == compiler->fgLastBB ? codeSize : ehCodeOffset(HBtab->ebdHndLast->bbNext);
+        uint32_t hndTyp = HBtab->HasFilter() ? ehCodeOffset(HBtab->ebdFilter) : HBtab->ebdTyp;
 
         CORINFO_EH_CLAUSE_FLAGS flags = ToCORINFO_EH_CLAUSE_FLAGS(HBtab->ebdHandlerType);
 
@@ -1035,7 +986,7 @@ void CodeGen::genReportEH()
         ++XTnum;
     }
 
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     // Now output duplicated clauses.
     //
     // If a funclet has been created by moving a handler out of a try region that it was originally nested
@@ -1168,17 +1119,14 @@ void CodeGen::genReportEH()
 
     if (duplicateClauseCount > 0)
     {
-        unsigned  reportedDuplicateClauseCount = 0; // How many duplicated clauses have we reported?
-        unsigned  XTnum2;
-        EHblkDsc* HBtab;
-        for (XTnum2 = 0, HBtab = compiler->compHndBBtab; XTnum2 < compiler->compHndBBtabCount; XTnum2++, HBtab++)
-        {
-            unsigned enclosingTryIndex;
+        unsigned reportedDuplicateClauseCount = 0; // How many duplicated clauses have we reported?
 
+        for (unsigned XTnum2 = 0; XTnum2 < compiler->compHndBBtabCount; XTnum2++)
+        {
             EHblkDsc* fletTab = compiler->ehGetDsc(XTnum2);
 
-            for (enclosingTryIndex = compiler->ehTrueEnclosingTryIndexIL(XTnum2); // find the true enclosing try index,
-                                                                                  // ignoring 'mutual protect' trys
+            // find the true enclosing try index, ignoring 'mutual protect' trys
+            for (unsigned enclosingTryIndex = compiler->ehTrueEnclosingTryIndexIL(XTnum2);
                  enclosingTryIndex != EHblkDsc::NO_ENCLOSING_INDEX;
                  enclosingTryIndex = compiler->ehGetEnclosingTryIndex(enclosingTryIndex))
             {
@@ -1200,21 +1148,11 @@ void CodeGen::genReportEH()
                 BasicBlock* bbHndBeg  = encTab->ebdHndBeg; // The handler region is the same as the enclosing try
                 BasicBlock* bbHndLast = encTab->ebdHndLast;
 
-                UNATIVE_OFFSET hndTyp;
-
                 uint32_t tryBeg = ehCodeOffset(bbTryBeg);
                 uint32_t hndBeg = ehCodeOffset(bbHndBeg);
                 uint32_t tryEnd = bbTryLast == compiler->fgLastBB ? codeSize : ehCodeOffset(bbTryLast->bbNext);
                 uint32_t hndEnd = bbHndLast == compiler->fgLastBB ? codeSize : ehCodeOffset(bbHndLast->bbNext);
-
-                if (encTab->HasFilter())
-                {
-                    hndTyp = ehCodeOffset(encTab->ebdFilter);
-                }
-                else
-                {
-                    hndTyp = encTab->ebdTyp;
-                }
+                uint32_t hndTyp = encTab->HasFilter() ? ehCodeOffset(encTab->ebdFilter) : encTab->ebdTyp;
 
                 CORINFO_EH_CLAUSE_FLAGS flags = ToCORINFO_EH_CLAUSE_FLAGS(encTab->ebdHandlerType);
 
@@ -1239,8 +1177,8 @@ void CodeGen::genReportEH()
                 // Tell the VM about this EH clause (a duplicated clause).
                 eeSetEHinfo(XTnum, &clause);
 
-                ++XTnum;
-                ++reportedDuplicateClauseCount;
+                XTnum++;
+                reportedDuplicateClauseCount++;
 
 #ifndef DEBUG
                 if (duplicateClauseCount == reportedDuplicateClauseCount)
@@ -1248,41 +1186,32 @@ void CodeGen::genReportEH()
                     break; // we've reported all of them; no need to continue looking
                 }
 #endif // !DEBUG
-
-            } // for each 'true' enclosing 'try'
-        }     // for each EH table entry
+            }
+        }
 
         assert(duplicateClauseCount == reportedDuplicateClauseCount);
-    } // if (duplicateClauseCount > 0)
+    }
 
 #if FEATURE_EH_CALLFINALLY_THUNKS
     if (clonedFinallyCount > 0)
     {
         unsigned reportedClonedFinallyCount = 0;
+
         for (BasicBlock* const block : compiler->Blocks())
         {
             if (block->bbJumpKind == BBJ_CALLFINALLY)
             {
-                UNATIVE_OFFSET hndBeg, hndEnd;
-
-                hndBeg = ehCodeOffset(block);
-
                 // How big is it? The BBJ_ALWAYS has a null label! Look for the block after, which
                 // must be a label or jump target, since the BBJ_CALLFINALLY doesn't fall through.
                 BasicBlock* bbLabel = block->bbNext;
+
                 if (block->isBBCallAlwaysPair())
                 {
                     bbLabel = bbLabel->bbNext; // skip the BBJ_ALWAYS
                 }
-                if (bbLabel == nullptr)
-                {
-                    hndEnd = codeSize;
-                }
-                else
-                {
-                    assert(bbLabel->emitLabel != nullptr);
-                    hndEnd = ehCodeOffset(bbLabel);
-                }
+
+                uint32_t hndBeg = ehCodeOffset(block);
+                uint32_t hndEnd = bbLabel == nullptr ? codeSize : ehCodeOffset(bbLabel);
 
                 CORINFO_EH_CLAUSE clause;
                 clause.ClassToken = 0; // unused
@@ -1294,25 +1223,23 @@ void CodeGen::genReportEH()
 
                 assert(XTnum < EHCount);
 
-                // Tell the VM about this EH clause (a cloned finally clause).
                 eeSetEHinfo(XTnum, &clause);
 
-                ++XTnum;
-                ++reportedClonedFinallyCount;
+                XTnum++;
+                reportedClonedFinallyCount++;
 
 #ifndef DEBUG
                 if (clonedFinallyCount == reportedClonedFinallyCount)
                 {
                     break; // we're done; no need to keep looking
                 }
-#endif        // !DEBUG
-            } // block is BBJ_CALLFINALLY
-        }     // for each block
+#endif
+            }
+        }
 
         assert(clonedFinallyCount == reportedClonedFinallyCount);
-    }  // if (clonedFinallyCount > 0)
+    }
 #endif // FEATURE_EH_CALLFINALLY_THUNKS
-
 #endif // FEATURE_EH_FUNCLETS
 
     assert(XTnum == EHCount);
@@ -1320,12 +1247,7 @@ void CodeGen::genReportEH()
 
 void CodeGen::eeSetEHcount(unsigned cEH)
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("setEHcount(cEH=%u)\n", cEH);
-    }
-#endif // DEBUG
+    JITDUMP("setEHcount(cEH=%u)\n", cEH);
 
     if (compiler->info.compMatchedVM)
     {
@@ -1335,12 +1257,7 @@ void CodeGen::eeSetEHcount(unsigned cEH)
 
 void CodeGen::eeSetEHinfo(unsigned EHnumber, const CORINFO_EH_CLAUSE* clause)
 {
-#ifdef DEBUG
-    if (compiler->opts.dspEHTable)
-    {
-        dispOutgoingEHClause(EHnumber, *clause);
-    }
-#endif // DEBUG
+    DBEXEC(compiler->opts.dspEHTable, dispOutgoingEHClause(EHnumber, *clause));
 
     if (compiler->info.compMatchedVM)
     {
@@ -1353,14 +1270,12 @@ void CodeGen::dispOutgoingEHClause(unsigned num, const CORINFO_EH_CLAUSE& clause
 {
     if (compiler->opts.dspDiffable)
     {
-        /* (( brace matching editor workaround to compensate for the following line */
         printf("EH#%u: try [%s..%s) handled by [%s..%s) ", num, GetEmitter()->emitOffsetToLabel(clause.TryOffset),
                GetEmitter()->emitOffsetToLabel(clause.TryLength), GetEmitter()->emitOffsetToLabel(clause.HandlerOffset),
                GetEmitter()->emitOffsetToLabel(clause.HandlerLength));
     }
     else
     {
-        /* (( brace matching editor workaround to compensate for the following line */
         printf("EH#%u: try [%04X..%04X) handled by [%04X..%04X) ", num, dspOffset(clause.TryOffset),
                dspOffset(clause.TryLength), dspOffset(clause.HandlerOffset), dspOffset(clause.HandlerLength));
     }
@@ -1379,13 +1294,11 @@ void CodeGen::dispOutgoingEHClause(unsigned num, const CORINFO_EH_CLAUSE& clause
         case CORINFO_EH_CLAUSE_FILTER:
             if (compiler->opts.dspDiffable)
             {
-                /* ( brace matching editor workaround to compensate for the following line */
                 printf("filter at [%s..%s)", GetEmitter()->emitOffsetToLabel(clause.ClassToken),
                        GetEmitter()->emitOffsetToLabel(clause.HandlerOffset));
             }
             else
             {
-                /* ( brace matching editor workaround to compensate for the following line */
                 printf("filter at [%04X..%04X)", dspOffset(clause.ClassToken), dspOffset(clause.HandlerOffset));
             }
             break;
@@ -4802,11 +4715,6 @@ void CodeGen::genEnsureCodeEmitted(IL_OFFSETX offsx)
     }
 }
 
-/*****************************************************************************
- *
- *  Shut down the IP-mapping logic, report the info to the EE.
- */
-
 void CodeGen::genIPmappingGen()
 {
     if (!compiler->opts.compDbgInfo)
@@ -4814,12 +4722,7 @@ void CodeGen::genIPmappingGen()
         return;
     }
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In genIPmappingGen()\n");
-    }
-#endif
+    JITDUMP("\n*************** In genIPmappingGen()\n");
 
     if (genIPmappingList == nullptr)
     {

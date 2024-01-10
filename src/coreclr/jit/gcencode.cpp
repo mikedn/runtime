@@ -4626,6 +4626,8 @@ void GCEncoder::RemoveCallArgStackSlots(unsigned codeOffset, RegArgChange* first
 
 void GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen)
 {
+    JITDUMP("\n*************** In CreateAndStoreGCInfo()\n");
+
 #ifdef DEBUG
     // Tracked variables can't be pinned, and the encoding takes advantage of that by
     // using the same bit for 'pinned' and 'this'. Since we don't track 'this', we should

@@ -1325,10 +1325,8 @@ private:
 #define PERFSCORE_MEMORY_WRITE 2
 #define PERFSCORE_MEMORY_READ_WRITE 3
 
-#define PERFSCORE_CODESIZE_COST_HOT 0.10f
-#define PERFSCORE_CODESIZE_COST_COLD 0.01f
-
-#define PERFSCORE_CALLEE_SPILL_COST 0.75f
+    static constexpr double PERFSCORE_CODESIZE_COST_HOT  = 0.10;
+    static constexpr double PERFSCORE_CODESIZE_COST_COLD = 0.01;
 
     struct insExecutionCharacteristics
     {

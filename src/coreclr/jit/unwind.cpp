@@ -335,8 +335,8 @@ void CodeGen::eeAllocUnwindInfo(FuncKind kind, bool isHotCode, CodeRange range, 
         range.end -= hotCodeSize;
     }
 
-    JITDUMP("allocUnwindInfo(pHotCode=0x%p, pColdCode=0x%p, startOffset=0x%x, endOffset=0x%x, unwindSize=0x%x, "
-            "pUnwindBlock=0x%p, funKind=%s",
+    JITDUMP("allocUnwindInfo(hotCode=0x%p, coldCode=0x%p, startOffset=0x%x, endOffset=0x%x, unwindSize=0x%x, "
+            "unwindBlock=0x%p, funKind=%s)\n",
             dspPtr(hotCodeAddr), dspPtr(coldCodeAddr), range.start, range.end, unwindSize, dspPtr(unwindBlock),
             GetFuncKindName(kind));
 

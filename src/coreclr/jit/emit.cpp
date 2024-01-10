@@ -2604,9 +2604,6 @@ void emitter::emitComputeCodeSizes()
     JITDUMP("\nHot code size = 0x%X bytes\nCold code size = 0x%X bytes\n", emitTotalHotCodeSize, GetColdCodeSize());
 }
 
-//------------------------------------------------------------------------
-// emitEndCodeGen: called at end of code generation to create code, data, and gc info
-//
 void emitter::emitEndCodeGen()
 {
     JITDUMP("*************** In emitEndCodeGen()\n");
@@ -2992,14 +2989,11 @@ void emitter::emitEndCodeGen()
     }
 #endif
 
-    JITDUMP("Allocated method code size %u\n", emitTotalCodeSize);
-
 #if defined(DEBUG) || defined(LATE_DISASM)
     // Add code size information into the Perf Score
-    // All compPerfScore calculations must be performed using doubles
-    perfScore += static_cast<double>(GetColdCodeSize()) * PERFSCORE_CODESIZE_COST_HOT;
-    perfScore += static_cast<double>(GetColdCodeSize()) * PERFSCORE_CODESIZE_COST_COLD;
-#endif // DEBUG || LATE_DISASM
+    perfScore += GetHotCodeSize() * PERFSCORE_CODESIZE_COST_HOT;
+    perfScore += GetColdCodeSize() * PERFSCORE_CODESIZE_COST_COLD;
+#endif
 
 #ifdef DEBUG
     assert(!compCodeGenDone);

@@ -3528,7 +3528,6 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
     INDEBUG(compFunctionTraceStart());
     compCompile(nativeCode, nativeCodeSize, jitFlags);
     INDEBUG(compFunctionTraceEnd(*nativeCode, *nativeCodeSize, false));
-    JITDUMP("Method code size: %u\n", *nativeCodeSize);
     compCompileFinish();
 
     // Did we just compile for a target architecture that the VM isn't expecting? If so, the VM
