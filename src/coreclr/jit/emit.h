@@ -1363,8 +1363,6 @@ private:
     /*                      Method prolog and epilog                        */
     /************************************************************************/
 
-    CodePos emitPrologEndPos;
-
     insGroup* emitPlaceholderList = nullptr; // per method placeholder list - head
     insGroup* emitPlaceholderLast = nullptr; // per method placeholder list - tail
 
@@ -1494,6 +1492,8 @@ private:
     unsigned       emitCurIGinsCnt;       // # of collected instr's in buffer
     unsigned       emitCurIGsize;         // estimated code size of current group in bytes
     UNATIVE_OFFSET emitCurCodeOffset = 0; // current code offset within group
+
+    CodePos emitPrologEndPos;
 
     UNATIVE_OFFSET emitTotalCodeSize    = 0; // bytes of code in entire method
     UNATIVE_OFFSET emitTotalHotCodeSize = 0;
