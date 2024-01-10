@@ -1422,7 +1422,7 @@ public:
     UNATIVE_OFFSET emitCurCodeOffs(BYTE* dst);
     BYTE* emitOffsetToPtr(UNATIVE_OFFSET offset);
     BYTE* emitDataOffsetToPtr(UNATIVE_OFFSET offset);
-    bool emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset);
+    INDEBUG(bool emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset);)
 
     size_t emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp);
     size_t emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp);
@@ -1495,9 +1495,8 @@ private:
     unsigned       emitCurIGsize;         // estimated code size of current group in bytes
     UNATIVE_OFFSET emitCurCodeOffset = 0; // current code offset within group
 
-    UNATIVE_OFFSET emitTotalCodeSize     = 0; // bytes of code in entire method
-    UNATIVE_OFFSET emitTotalHotCodeSize  = 0;
-    UNATIVE_OFFSET emitTotalColdCodeSize = 0;
+    UNATIVE_OFFSET emitTotalCodeSize    = 0; // bytes of code in entire method
+    UNATIVE_OFFSET emitTotalHotCodeSize = 0;
 
     insGroup* emitFirstColdIG = nullptr; // first cold instruction group
 
@@ -1522,6 +1521,7 @@ public:
 
     unsigned GetHotCodeSize() const
     {
+        assert(emitTotalHotCodeSize != 0);
         return emitTotalHotCodeSize;
     }
 
@@ -1532,12 +1532,13 @@ public:
 
     unsigned GetColdCodeSize() const
     {
-        return emitTotalColdCodeSize;
+        assert(emitTotalCodeSize != 0);
+        return emitTotalCodeSize - emitTotalHotCodeSize;
     }
 
     unsigned GetCodeSize() const
     {
-        assert(emitCodeBlock != nullptr);
+        assert(emitTotalCodeSize != 0);
         return emitTotalCodeSize;
     }
 
@@ -1549,10 +1550,9 @@ public:
 #ifdef JIT32_GCENCODER
     unsigned GetEpilogSize() const
     {
-        //    Currently, in methods with multiple epilogs, all epilogs must have the same
-        //    size. epilogSize is the size of just one of these epilogs, not the cumulative
-        //    size of all of the method's epilogs.
-
+        // Currently, in methods with multiple epilogs, all epilogs must have the same
+        // size. epilogSize is the size of just one of these epilogs, not the cumulative
+        // size of all of the method's epilogs.
         return emitEpilogSize + emitExitSeqSize;
     }
 #endif

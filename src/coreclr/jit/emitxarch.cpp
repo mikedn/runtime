@@ -4990,7 +4990,7 @@ void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, uns
     if (code != nullptr)
     {
         assert(((code >= emitCodeBlock) && (code < emitCodeBlock + emitTotalHotCodeSize)) ||
-               ((code >= emitColdCodeBlock) && (code < emitColdCodeBlock + emitTotalColdCodeSize)));
+               ((code >= emitColdCodeBlock) && (code < emitColdCodeBlock + GetColdCodeSize())));
 
         if (!emitComp->opts.disDiffable)
         {

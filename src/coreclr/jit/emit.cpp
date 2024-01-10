@@ -2594,20 +2594,18 @@ void emitter::emitCheckFuncletBranch(instrDescJmp* jmp)
 void emitter::emitComputeCodeSizes()
 {
     assert((emitComp->fgFirstColdBlock == nullptr) == (emitFirstColdIG == nullptr));
-    assert(emitTotalColdCodeSize == 0);
     assert(emitTotalHotCodeSize == 0);
 
     if (emitFirstColdIG != nullptr)
     {
-        emitTotalHotCodeSize  = emitFirstColdIG->igOffs;
-        emitTotalColdCodeSize = emitTotalCodeSize - emitTotalHotCodeSize;
+        emitTotalHotCodeSize = emitFirstColdIG->igOffs;
     }
     else
     {
         emitTotalHotCodeSize = emitTotalCodeSize;
     }
 
-    JITDUMP("\nHot code size = 0x%X bytes\nCold code size = 0x%X bytes\n", emitTotalHotCodeSize, emitTotalColdCodeSize);
+    JITDUMP("\nHot code size = 0x%X bytes\nCold code size = 0x%X bytes\n", emitTotalHotCodeSize, GetColdCodeSize());
 }
 
 //------------------------------------------------------------------------
@@ -2696,7 +2694,7 @@ void emitter::emitEndCodeGen()
     // For arm64, we want to allocate JIT data always adjacent to code similar to what native compiler does.
     // This way allows us to use a single `ldr` to access such data like float constant/jmp table.
 
-    if (emitTotalColdCodeSize > 0)
+    if (emitFirstColdIG != nullptr)
     {
         // JIT data might be far away from the cold code.
         NYI_ARM64("Need to handle fix-up to data from cold code.");
@@ -2716,7 +2714,7 @@ void emitter::emitEndCodeGen()
     args.hotCodeSize       = emitTotalHotCodeSize;
     args.roDataSize        = emitConsDsc.dsdOffs;
 #endif
-    args.coldCodeSize = emitTotalColdCodeSize;
+    args.coldCodeSize = GetColdCodeSize();
     args.xcptnsCount  = emitComp->compHndBBtabCount;
     args.flag         = allocMemFlag;
 
@@ -3003,8 +3001,8 @@ void emitter::emitEndCodeGen()
 #if defined(DEBUG) || defined(LATE_DISASM)
     // Add code size information into the Perf Score
     // All compPerfScore calculations must be performed using doubles
-    perfScore += static_cast<double>(emitTotalHotCodeSize) * PERFSCORE_CODESIZE_COST_HOT;
-    perfScore += static_cast<double>(emitTotalColdCodeSize) * PERFSCORE_CODESIZE_COST_COLD;
+    perfScore += static_cast<double>(GetColdCodeSize()) * PERFSCORE_CODESIZE_COST_HOT;
+    perfScore += static_cast<double>(GetColdCodeSize()) * PERFSCORE_CODESIZE_COST_COLD;
 #endif // DEBUG || LATE_DISASM
 
 #ifdef DEBUG
@@ -3089,7 +3087,7 @@ UNATIVE_OFFSET emitter::emitCurCodeOffs(BYTE* dst)
     {
         assert(emitFirstColdIG);
         assert(emitColdCodeBlock);
-        assert((dst >= emitColdCodeBlock) && (dst <= (emitColdCodeBlock + emitTotalColdCodeSize)));
+        assert((dst >= emitColdCodeBlock) && (dst <= (emitColdCodeBlock + GetColdCodeSize())));
 
         distance = (dst - emitColdCodeBlock + emitTotalHotCodeSize);
     }
@@ -3105,7 +3103,7 @@ BYTE* emitter::emitOffsetToPtr(UNATIVE_OFFSET offset)
     }
     else
     {
-        assert(offset < (emitTotalHotCodeSize + emitTotalColdCodeSize));
+        assert(offset < (emitTotalHotCodeSize + GetColdCodeSize()));
 
         return emitColdCodeBlock + (offset - emitTotalHotCodeSize);
     }
@@ -3117,18 +3115,15 @@ BYTE* emitter::emitDataOffsetToPtr(UNATIVE_OFFSET offset)
     return emitConsBlock + offset;
 }
 
+#ifdef DEBUG
 bool emitter::emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset)
 {
-    if (emitTotalColdCodeSize == 0)
-    {
-        return false;
-    }
-
-    assert(srcOffset < (emitTotalHotCodeSize + emitTotalColdCodeSize));
-    assert(dstOffset < (emitTotalHotCodeSize + emitTotalColdCodeSize));
+    assert(srcOffset < emitTotalCodeSize);
+    assert(dstOffset < emitTotalCodeSize);
 
     return (srcOffset < emitTotalHotCodeSize) != (dstOffset < emitTotalHotCodeSize);
 }
+#endif // DEBUG
 
 //---------------------------------------------------------------------------
 // emitDataGenBeg:
