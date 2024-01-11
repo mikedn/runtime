@@ -486,21 +486,10 @@ public:
     void genIPmappingAddToFront(IL_OFFSETX offset);
     void genIPmappingGen();
 
-    unsigned eeBoundariesCount = 0;
-
-    struct boundariesDsc
-    {
-        UNATIVE_OFFSET nativeIP;
-        IL_OFFSET      ilOffset;
-        unsigned       sourceReason;
-    };
-
-    boundariesDsc* eeBoundaries = nullptr;
-
 #ifdef DEBUG
     static void eeDispILOffs(IL_OFFSET offs);
-    static void eeDispLineInfo(const boundariesDsc* line);
-    void eeDispLineInfos();
+    static void eeDispLineInfo(const struct boundariesDsc* line);
+    void eeDispLineInfos(const struct boundariesDsc* mappings, unsigned count);
 #endif
 
     struct VarResultInfo

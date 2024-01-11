@@ -4864,6 +4864,13 @@ void CodeGen::eeDispILOffs(IL_OFFSET offs)
     }
 }
 
+struct boundariesDsc
+{
+    UNATIVE_OFFSET nativeIP;
+    IL_OFFSET      ilOffset;
+    unsigned       sourceReason;
+};
+
 void CodeGen::eeDispLineInfo(const boundariesDsc* line)
 {
     printf("IL offs ");
@@ -4897,12 +4904,12 @@ void CodeGen::eeDispLineInfo(const boundariesDsc* line)
     assert((line->sourceReason & ~(ICorDebugInfo::STACK_EMPTY | ICorDebugInfo::CALL_INSTRUCTION)) == 0);
 }
 
-void CodeGen::eeDispLineInfos()
+void CodeGen::eeDispLineInfos(const boundariesDsc* mappings, unsigned count)
 {
-    printf("IP mapping count : %d\n", eeBoundariesCount); // this might be zero
-    for (unsigned i = 0; i < eeBoundariesCount; i++)
+    printf("IP mapping count : %d\n", count);
+    for (unsigned i = 0; i < count; i++)
     {
-        eeDispLineInfo(&eeBoundaries[i]);
+        eeDispLineInfo(&mappings[i]);
     }
     printf("\n");
 }
@@ -4947,11 +4954,11 @@ void CodeGen::genIPmappingGen()
     JITDUMP("\n*************** In genIPmappingGen()\n");
 
     // necessary but not sufficient condition that the 2 struct definitions overlap
-    static_assert_no_msg(sizeof(eeBoundaries[0]) == sizeof(ICorDebugInfo::OffsetMapping));
+    static_assert_no_msg(sizeof(boundariesDsc) == sizeof(ICorDebugInfo::OffsetMapping));
 
     if (genIPmappingList == nullptr)
     {
-        DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, eeDispLineInfos());
+        DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, eeDispLineInfos(nullptr, 0));
 
         return;
     }
@@ -5038,6 +5045,9 @@ void CodeGen::genIPmappingGen()
     }
 
     /* Tell them how many mapping records we've got */
+
+    unsigned       eeBoundariesCount = 0;
+    boundariesDsc* eeBoundaries      = nullptr;
 
     if (mappingCnt != 0)
     {
@@ -5136,17 +5146,10 @@ void CodeGen::genIPmappingGen()
     }
 #endif // 0
 
-#ifdef DEBUG
-    if (compiler->verbose || compiler->opts.dspDebugInfo)
-    {
-        eeDispLineInfos();
-    }
-#endif
+    DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, eeDispLineInfos(eeBoundaries, eeBoundariesCount));
 
     compiler->info.compCompHnd->setBoundaries(compiler->info.compMethodHnd, eeBoundariesCount,
                                               (ICorDebugInfo::OffsetMapping*)eeBoundaries);
-
-    eeBoundaries = nullptr; // we give up ownership after setBoundaries();
 }
 
 #ifndef TARGET_X86
