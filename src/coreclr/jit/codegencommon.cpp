@@ -3783,11 +3783,6 @@ void CodeGen::genFnProlog()
     unwindBegProlog();
     liveness.BeginPrologEpilogCodeGen();
 
-    if (compiler->opts.compDbgInfo)
-    {
-        InsertPrologILMapping();
-    }
-
 #ifdef TARGET_XARCH
     // For OSR there is a "phantom prolog" to account for the actions taken
     // in the original frame that impact RBP and RSP on entry to the OSR method.
@@ -4623,6 +4618,16 @@ struct ILMapping
     IL_OFFSETX ilOffsetX;
     bool       isLabel;
 
+    ILMapping(IL_OFFSETX ilOffsetX, bool isLabel)
+        : next(nullptr), nativeLoc(nullptr), ilOffsetX(ilOffsetX), isLabel(isLabel)
+    {
+    }
+
+    ILMapping(ILMapping* next, uint32_t nativeOffset, IL_OFFSETX ilOffsetX, bool isLabel)
+        : next(next), nativeOffset(nativeOffset), ilOffsetX(ilOffsetX), isLabel(isLabel)
+    {
+    }
+
     IL_OFFSET GetILOffset() const
     {
         assert(ilOffsetX != BAD_IL_OFFSET);
@@ -4749,11 +4754,8 @@ void CodeGen::genIPmappingAdd(IL_OFFSETX offsx, bool isLabel)
         }
     }
 
-    ILMapping* mapping = compiler->getAllocator(CMK_DebugInfo).allocate<ILMapping>(1);
+    ILMapping* mapping = new (compiler, CMK_DebugInfo) ILMapping(offsx, isLabel);
     mapping->nativeLoc.CaptureLocation(GetEmitter());
-    mapping->ilOffsetX = offsx;
-    mapping->isLabel   = isLabel;
-    mapping->next      = nullptr;
 
     if (firstILMapping != nullptr)
     {
@@ -4770,34 +4772,6 @@ void CodeGen::genIPmappingAdd(IL_OFFSETX offsx, bool isLabel)
     }
 
     lastILMapping = mapping;
-
-#ifdef DEBUG
-    if (compiler->verbose)
-    {
-        printf("Debug Info: IL ");
-        PrintILOffsetMapping(*mapping);
-    }
-#endif
-}
-
-void CodeGen::InsertPrologILMapping()
-{
-    assert(compiler->opts.compDbgInfo);
-    assert(generatingProlog);
-
-    ILMapping* mapping = compiler->getAllocator(CMK_DebugInfo).allocate<ILMapping>(1);
-    mapping->nativeLoc.CaptureLocation(GetEmitter());
-    mapping->ilOffsetX = ICorDebugInfo::PROLOG;
-    mapping->isLabel   = true;
-    mapping->next      = nullptr;
-
-    mapping->next  = firstILMapping;
-    firstILMapping = mapping;
-
-    if (lastILMapping == nullptr)
-    {
-        lastILMapping = mapping;
-    }
 
 #ifdef DEBUG
     if (compiler->verbose)
@@ -4897,17 +4871,12 @@ void CodeGen::genIPmappingGen()
 
     assert(compiler->opts.compDbgInfo);
 
-    if (firstILMapping == nullptr)
-    {
-        DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, PrintOffsetMappings(nullptr, 0));
+    unsigned mappingCount     = 1; // There's at least one mapping for PROLOG.
+    uint32_t prevNativeOffset = 0;
 
-        return;
-    }
+    ILMapping prolog(firstILMapping, 0, ICorDebugInfo::PROLOG, true);
 
-    unsigned mappingCount     = 0;
-    uint32_t prevNativeOffset = UINT32_MAX;
-
-    for (ILMapping *mapping = firstILMapping, *prev = nullptr; mapping != nullptr; mapping = mapping->next)
+    for (ILMapping *mapping = firstILMapping, *prev = &prolog; mapping != nullptr; mapping = mapping->next)
     {
         mapping->nativeOffset = mapping->nativeLoc.GetCodeOffset();
 
@@ -4984,18 +4953,15 @@ void CodeGen::genIPmappingGen()
         }
     }
 
-    if (mappingCount == 0)
-    {
-        DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, PrintOffsetMappings(nullptr, 0));
-
-        return;
-    }
-
     ICorDebugInfo::OffsetMapping* mappings = static_cast<ICorDebugInfo::OffsetMapping*>(
         compiler->info.compCompHnd->allocateArray(mappingCount * sizeof(mappings[0])));
 
-    unsigned mappingIndex = 0;
-    prevNativeOffset      = UINT32_MAX;
+    mappings[0].nativeOffset = 0;
+    mappings[0].ilOffset     = ICorDebugInfo::PROLOG;
+    mappings[0].source       = ICorDebugInfo::STACK_EMPTY;
+
+    unsigned mappingIndex = 1;
+    prevNativeOffset      = 0;
 
     for (ILMapping* mapping = firstILMapping; mapping != nullptr; mapping = mapping->next)
     {

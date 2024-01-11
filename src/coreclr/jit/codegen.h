@@ -475,7 +475,6 @@ public:
 #endif
 
     void genIPmappingAdd(IL_OFFSETX offset, bool isLabel);
-    void InsertPrologILMapping();
     void genIPmappingGen();
 
     void genEnsureCodeEmitted(IL_OFFSETX offsx);
