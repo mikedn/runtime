@@ -29,11 +29,10 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 /*****************************************************************************/
 
-FILE* jitstdout = nullptr;
+FILE* jitstdout;
 
-ICorJitHost*   g_jitHost        = nullptr;
-static CILJit* ILJitter         = nullptr; // The one and only JITTER I return
-bool           g_jitInitialized = false;
+ICorJitHost*     g_jitHost;
+ICorJitCompiler* g_jit;
 
 INDEBUG(extern ConfigMethodRange fJitStressRange;)
 
@@ -41,7 +40,7 @@ INDEBUG(extern ConfigMethodRange fJitStressRange;)
 
 extern "C" DLLEXPORT void jitStartup(ICorJitHost* jitHost)
 {
-    if (g_jitInitialized)
+    if (g_jit != nullptr)
     {
         if (jitHost != g_jitHost)
         {
@@ -119,12 +118,13 @@ extern "C" DLLEXPORT void jitStartup(ICorJitHost* jitHost)
 
     Compiler::compStartup();
 
-    g_jitInitialized = true;
+    static alignas(CILJit) char jitMem[sizeof(CILJit)];
+    g_jit = new (jitMem) CILJit();
 }
 
 void jitShutdown(bool processIsTerminating)
 {
-    if (!g_jitInitialized)
+    if (g_jit == nullptr)
     {
         return;
     }
@@ -142,35 +142,12 @@ void jitShutdown(bool processIsTerminating)
         }
     }
 
-    g_jitInitialized = false;
-}
-
-/*****************************************************************************/
-
-struct CILJitSingletonAllocator
-{
-    int x;
-};
-const CILJitSingletonAllocator CILJitSingleton = {0};
-
-void* __cdecl operator new(size_t, const CILJitSingletonAllocator&)
-{
-    static char CILJitBuff[sizeof(CILJit)];
-    return CILJitBuff;
+    g_jit = nullptr;
 }
 
 DLLEXPORT ICorJitCompiler* getJit()
 {
-    if (!g_jitInitialized)
-    {
-        return nullptr;
-    }
-
-    if (ILJitter == nullptr)
-    {
-        ILJitter = new (CILJitSingleton) CILJit();
-    }
-    return (ILJitter);
+    return g_jit;
 }
 
 // Information kept in thread-local storage. This is used in the noway_assert exceptional path.
