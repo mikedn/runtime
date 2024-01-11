@@ -4616,10 +4616,13 @@ static void PrintDbgInfoVars(Compiler* compiler, const ICorDebugInfo::NativeVarI
 
 struct ILMapping
 {
-    ILMapping*   next;
-    emitLocation nativeLoc;
-    IL_OFFSETX   ilOffsetX;
-    bool         isLabel;
+    ILMapping* next;
+    union {
+        emitLocation nativeLoc;
+        uint32_t     nativeOffset;
+    };
+    IL_OFFSETX ilOffsetX;
+    bool       isLabel;
 };
 
 #ifdef DEBUG
@@ -4937,6 +4940,8 @@ void CodeGen::genIPmappingGen()
 
     for (ILMapping *mapping = firstILMapping, *prev = nullptr; mapping != nullptr; mapping = mapping->next)
     {
+        mapping->nativeOffset = mapping->nativeLoc.GetCodeOffset();
+
         IL_OFFSETX ilOffsetX = mapping->ilOffsetX;
 
         // Managed RetVal - since new sequence points are emitted to identify IL calls,
@@ -4949,7 +4954,7 @@ void CodeGen::genIPmappingGen()
             continue;
         }
 
-        uint32_t nextNativeOffset = mapping->nativeLoc.GetCodeOffset();
+        uint32_t nextNativeOffset = mapping->nativeOffset;
 
         if (nextNativeOffset != lastNativeOffset)
         {
@@ -4970,8 +4975,8 @@ void CodeGen::genIPmappingGen()
         if (prev->ilOffsetX == ICorDebugInfo::NO_MAPPING)
         {
             // If the previous entry was NO_MAPPING, ignore it
-            prev->nativeLoc = {};
-            prev            = mapping;
+            prev->nativeOffset = UINT32_MAX;
+            prev               = mapping;
 
             continue;
         }
@@ -4979,8 +4984,8 @@ void CodeGen::genIPmappingGen()
         if (ilOffsetX == ICorDebugInfo::NO_MAPPING)
         {
             // If the current entry is NO_MAPPING, ignore it
-            // Leave prevMapping unchanged as mapping is no longer valid
-            mapping->nativeLoc = {};
+            // Leave prev unchanged as mapping is no longer valid
+            mapping->nativeOffset = UINT32_MAX;
 
             continue;
         }
@@ -4995,20 +5000,20 @@ void CodeGen::genIPmappingGen()
         }
 
         noway_assert(prev != nullptr);
-        noway_assert(!prev->nativeLoc.Valid() || (lastNativeOffset == prev->nativeLoc.GetCodeOffset()));
+        noway_assert((prev->nativeOffset == UINT32_MAX) || (lastNativeOffset == prev->nativeOffset));
 
         // The previous block had the same native offset. We have to discard one of the
-        // mappings. Simply reinitialize nativeLoc and prev will be ignored later.
+        // mappings. Simply set nativeOffset to an invalid value.
 
         if (prev->isLabel)
         {
             // Leave prev unchanged as mapping is no longer valid
-            mapping->nativeLoc = {};
+            mapping->nativeOffset = UINT32_MAX;
         }
         else
         {
-            prev->nativeLoc = {};
-            prev            = mapping;
+            prev->nativeOffset = UINT32_MAX;
+            prev               = mapping;
         }
     }
 
@@ -5027,12 +5032,12 @@ void CodeGen::genIPmappingGen()
 
     for (ILMapping* mapping = firstILMapping; mapping != nullptr; mapping = mapping->next)
     {
-        if (!mapping->nativeLoc.Valid())
+        if (mapping->nativeOffset == UINT32_MAX)
         {
             continue;
         }
 
-        uint32_t   nextNativeOffset = mapping->nativeLoc.GetCodeOffset();
+        uint32_t   nextNativeOffset = mapping->nativeOffset;
         IL_OFFSETX ilOffsetX        = mapping->ilOffsetX;
         auto       source           = ICorDebugInfo::SOURCE_TYPE_INVALID;
         IL_OFFSET  ilOffset         = BAD_IL_OFFSET;
