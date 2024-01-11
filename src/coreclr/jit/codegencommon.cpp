@@ -4963,17 +4963,11 @@ void CodeGen::genIPmappingGen()
         return;
     }
 
-    IPmappingDsc*  tmpMapping;
-    IPmappingDsc*  prevMapping;
-    unsigned       mappingCnt;
-    UNATIVE_OFFSET lastNativeOfs;
+    unsigned mappingCnt    = 0;
+    uint32_t lastNativeOfs = UINT32_MAX;
 
-    /* First count the number of distinct mapping records */
-
-    mappingCnt    = 0;
-    lastNativeOfs = UNATIVE_OFFSET(~0);
-
-    for (prevMapping = nullptr, tmpMapping = genIPmappingList; tmpMapping != nullptr; tmpMapping = tmpMapping->ipmdNext)
+    for (IPmappingDsc *prevMapping = nullptr, *tmpMapping = genIPmappingList; tmpMapping != nullptr;
+         tmpMapping = tmpMapping->ipmdNext)
     {
         IL_OFFSETX srcIP = tmpMapping->ipmdILoffsx;
 
@@ -5044,27 +5038,21 @@ void CodeGen::genIPmappingGen()
         }
     }
 
-    /* Tell them how many mapping records we've got */
-
     unsigned       eeBoundariesCount = 0;
     boundariesDsc* eeBoundaries      = nullptr;
 
     if (mappingCnt != 0)
     {
         eeBoundariesCount = mappingCnt;
-
-        eeBoundaries = static_cast<boundariesDsc*>(
+        eeBoundaries      = static_cast<boundariesDsc*>(
             compiler->info.compCompHnd->allocateArray(eeBoundariesCount * sizeof(eeBoundaries[0])));
     }
 
-    /* Now tell them about the mappings */
-
     mappingCnt    = 0;
-    lastNativeOfs = UNATIVE_OFFSET(~0);
+    lastNativeOfs = UINT32_MAX;
 
-    for (tmpMapping = genIPmappingList; tmpMapping != nullptr; tmpMapping = tmpMapping->ipmdNext)
+    for (IPmappingDsc* tmpMapping = genIPmappingList; tmpMapping != nullptr; tmpMapping = tmpMapping->ipmdNext)
     {
-        // Do we have to skip this record ?
         if (!tmpMapping->ipmdNativeLoc.Valid())
         {
             continue;
