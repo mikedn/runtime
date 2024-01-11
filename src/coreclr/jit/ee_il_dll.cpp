@@ -867,15 +867,6 @@ bool Compiler::eeRunWithSPMIErrorTrapImp(void (*function)(void*), void* param)
 
 #if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD)
 
-/*****************************************************************************/
-
-// static helper names - constant array
-const char* jitHlpFuncTable[CORINFO_HELP_COUNT] = {
-#define JITHELPER(code, pfnHelper, sig) #code,
-#define DYNAMICJITHELPER(code, pfnHelper, sig) #code,
-#include "jithelpers.h"
-};
-
 /*****************************************************************************
 *
 *  Filter wrapper to handle exception filtering.
@@ -911,6 +902,12 @@ CORINFO_METHOD_HANDLE Compiler::eeGetMethodHandleForNative(CORINFO_METHOD_HANDLE
 
 const char* Compiler::eeGetMethodName(CORINFO_METHOD_HANDLE method, const char** classNamePtr)
 {
+    static const char* const jitHelperName[CORINFO_HELP_COUNT]{
+#define JITHELPER(code, pfnHelper, sig) #code,
+#define DYNAMICJITHELPER(code, pfnHelper, sig) #code,
+#include "jithelpers.h"
+    };
+
     if (eeGetHelperNum(method) != CORINFO_HELP_UNDEF)
     {
         if (classNamePtr != nullptr)
@@ -925,7 +922,7 @@ const char* Compiler::eeGetMethodName(CORINFO_METHOD_HANDLE method, const char**
         {
             if ((unsigned)ftnNum < CORINFO_HELP_COUNT)
             {
-                name = jitHlpFuncTable[ftnNum];
+                name = jitHelperName[ftnNum];
             }
         }
         return name;
