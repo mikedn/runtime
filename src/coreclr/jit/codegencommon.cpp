@@ -4823,25 +4823,6 @@ static_assert_no_msg(IL_OFFSETX(ICorDebugInfo::NO_MAPPING) > MAX_IL_OFFSET);
 static_assert_no_msg(IL_OFFSETX(ICorDebugInfo::PROLOG) > MAX_IL_OFFSET);
 static_assert_no_msg(IL_OFFSETX(ICorDebugInfo::EPILOG) > MAX_IL_OFFSET);
 
-// Returns the IL offset portion of the IL_OFFSETX type.
-// Asserts if any ICorDebugInfo distinguished value (like ICorDebugInfo::NO_MAPPING)
-// is seen; these are unexpected here. Also asserts if passed BAD_IL_OFFSET.
-IL_OFFSET jitGetILoffs(IL_OFFSETX offsx)
-{
-    assert(offsx != BAD_IL_OFFSET);
-
-    switch ((int)offsx) // Need the cast since offs is unsigned and the case statements are comparing to signed.
-    {
-        case ICorDebugInfo::NO_MAPPING:
-        case ICorDebugInfo::PROLOG:
-        case ICorDebugInfo::EPILOG:
-            unreached();
-
-        default:
-            return IL_OFFSET(offsx & ~IL_OFFSETX_BITS);
-    }
-}
-
 #ifdef DEBUG
 
 static void PrintOffsetMapping(const ICorDebugInfo::OffsetMapping& mapping)
