@@ -4267,23 +4267,32 @@ void CodeGen::genSetScopeInfo()
 
     JITDUMP("*************** In genSetScopeInfo()\n");
 
-    unsigned       count  = liveness.GetDbgInfoRangeCount();
-    VarResultInfo* ranges = nullptr;
+    unsigned count = liveness.GetDbgInfoRangeCount();
 
     JITDUMP("DbgInfoVarRange count is %u\n", count);
 
-    if (count != 0)
+    if (count == 0)
     {
-#ifdef LATE_DISASM
-        genTrnslLocalVarCount = count;
-        genTrnslLocalVarInfo  = new (compiler, CMK_DebugOnly) TrnslLocalVarInfo[count];
-#endif
+        DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, eeDispVars(0, nullptr));
 
-        ranges = eeSetLVcount(count);
-        genSetScopeInfoUsingVariableRanges(ranges);
+        return;
     }
 
-    eeSetLVdone(ranges, count);
+    assert(compiler->info.compVarScopesCount > 0);
+
+#ifdef LATE_DISASM
+    genTrnslLocalVarCount = count;
+    genTrnslLocalVarInfo  = new (compiler, CMK_DebugOnly) TrnslLocalVarInfo[count];
+#endif
+
+    VarResultInfo* ranges =
+        static_cast<VarResultInfo*>(compiler->info.compCompHnd->allocateArray(count * sizeof(VarResultInfo)));
+
+    genSetScopeInfoUsingVariableRanges(ranges);
+
+    ICorDebugInfo::NativeVarInfo* eeVars = reinterpret_cast<ICorDebugInfo::NativeVarInfo*>(ranges);
+    DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, eeDispVars(count, eeVars));
+    compiler->info.compCompHnd->setVars(compiler->info.compMethodHnd, count, eeVars);
 }
 
 //------------------------------------------------------------------------
@@ -4394,19 +4403,6 @@ void CodeGen::genSetScopeInfo(VarResultInfo* vars,
     vars[index].loc         = *varLoc;
 }
 
-/*****************************************************************************
- *
- *                  Debugging support - Local var info
- */
-
-CodeGen::VarResultInfo* CodeGen::eeSetLVcount(unsigned count)
-{
-    assert(compiler->opts.compDbgInfo);
-    assert(count != 0);
-
-    return static_cast<VarResultInfo*>(compiler->info.compCompHnd->allocateArray(count * sizeof(VarResultInfo)));
-}
-
 // Check every siVarLocType and siVarLoc are what ICodeDebugInfo is expecting
 // so we can reinterpret siVarLoc as ICodeDebugInfo::VarLoc.
 #ifdef TARGET_X86
@@ -4433,16 +4429,6 @@ static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::VLT_INVALID) == DbgInf
 
 static_assert_no_msg(sizeof(ICorDebugInfo::VarLoc) == sizeof(DbgInfoVarLoc));
 static_assert_no_msg(sizeof(CodeGen::VarResultInfo) == sizeof(ICorDebugInfo::NativeVarInfo));
-
-void CodeGen::eeSetLVdone(VarResultInfo* vars, unsigned count)
-{
-    assert(compiler->opts.compDbgInfo);
-    assert((count == 0) || (compiler->info.compVarScopesCount > 0));
-
-    ICorDebugInfo::NativeVarInfo* eeVars = reinterpret_cast<ICorDebugInfo::NativeVarInfo*>(vars);
-    DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, eeDispVars(compiler->info.compMethodHnd, count, eeVars));
-    compiler->info.compCompHnd->setVars(compiler->info.compMethodHnd, count, eeVars);
-}
 
 #ifdef LATE_DISASM
 
@@ -4595,8 +4581,7 @@ void CodeGen::eeDispVar(ICorDebugInfo::NativeVarInfo* var)
     printf("\n");
 }
 
-// Same parameters as ICorStaticInfo::setVars().
-void CodeGen::eeDispVars(CORINFO_METHOD_HANDLE ftn, ULONG32 cVars, ICorDebugInfo::NativeVarInfo* vars)
+void CodeGen::eeDispVars(unsigned cVars, ICorDebugInfo::NativeVarInfo* vars)
 {
     BitVecTraits varTraits(compiler->lvaCount, compiler);
     BitVec       uniqueVars = BitVecOps::MakeEmpty(&varTraits);
@@ -4857,63 +4842,6 @@ bool jitIsCallInstruction(IL_OFFSETX offsx)
     }
 }
 
-/*****************************************************************************
- *
- *                  Debugging support - Line number info
- */
-
-void CodeGen::eeSetLIcount(unsigned count)
-{
-    assert(compiler->opts.compDbgInfo);
-
-    eeBoundariesCount = count;
-    if (eeBoundariesCount)
-    {
-        eeBoundaries = static_cast<boundariesDsc*>(
-            compiler->info.compCompHnd->allocateArray(eeBoundariesCount * sizeof(eeBoundaries[0])));
-    }
-    else
-    {
-        eeBoundaries = nullptr;
-    }
-}
-
-void CodeGen::eeSetLIinfo(
-    unsigned which, UNATIVE_OFFSET nativeOffset, IL_OFFSET ilOffset, bool stkEmpty, bool callInstruction)
-{
-    assert(compiler->opts.compDbgInfo);
-    assert(eeBoundariesCount > 0);
-    assert(which < eeBoundariesCount);
-
-    if (eeBoundaries != nullptr)
-    {
-        eeBoundaries[which].nativeIP     = nativeOffset;
-        eeBoundaries[which].ilOffset     = ilOffset;
-        eeBoundaries[which].sourceReason = stkEmpty ? ICorDebugInfo::STACK_EMPTY : 0;
-        eeBoundaries[which].sourceReason |= callInstruction ? ICorDebugInfo::CALL_INSTRUCTION : 0;
-    }
-}
-
-void CodeGen::eeSetLIdone()
-{
-    assert(compiler->opts.compDbgInfo);
-
-#ifdef DEBUG
-    if (compiler->verbose || compiler->opts.dspDebugInfo)
-    {
-        eeDispLineInfos();
-    }
-#endif
-
-    // necessary but not sufficient condition that the 2 struct definitions overlap
-    assert(sizeof(eeBoundaries[0]) == sizeof(ICorDebugInfo::OffsetMapping));
-
-    compiler->info.compCompHnd->setBoundaries(compiler->info.compMethodHnd, eeBoundariesCount,
-                                              (ICorDebugInfo::OffsetMapping*)eeBoundaries);
-
-    eeBoundaries = nullptr; // we give up ownership after setBoundaries();
-}
-
 #ifdef DEBUG
 
 void CodeGen::eeDispILOffs(IL_OFFSET offs)
@@ -5018,10 +4946,13 @@ void CodeGen::genIPmappingGen()
 
     JITDUMP("\n*************** In genIPmappingGen()\n");
 
+    // necessary but not sufficient condition that the 2 struct definitions overlap
+    static_assert_no_msg(sizeof(eeBoundaries[0]) == sizeof(ICorDebugInfo::OffsetMapping));
+
     if (genIPmappingList == nullptr)
     {
-        eeSetLIcount(0);
-        eeSetLIdone();
+        DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, eeDispLineInfos());
+
         return;
     }
 
@@ -5108,7 +5039,13 @@ void CodeGen::genIPmappingGen()
 
     /* Tell them how many mapping records we've got */
 
-    eeSetLIcount(mappingCnt);
+    if (mappingCnt != 0)
+    {
+        eeBoundariesCount = mappingCnt;
+
+        eeBoundaries = static_cast<boundariesDsc*>(
+            compiler->info.compCompHnd->allocateArray(eeBoundariesCount * sizeof(eeBoundaries[0])));
+    }
 
     /* Now tell them about the mappings */
 
@@ -5123,16 +5060,19 @@ void CodeGen::genIPmappingGen()
             continue;
         }
 
-        uint32_t   nextNativeOfs = tmpMapping->ipmdNativeLoc.GetCodeOffset();
-        IL_OFFSETX srcIP         = tmpMapping->ipmdILoffsx;
+        uint32_t   nextNativeOfs   = tmpMapping->ipmdNativeLoc.GetCodeOffset();
+        IL_OFFSETX srcIP           = tmpMapping->ipmdILoffsx;
+        bool       stkEmpty        = jitIsStackEmpty(srcIP);
+        bool       callInstruction = jitIsCallInstruction(srcIP);
+        IL_OFFSET  ilOffset        = BAD_IL_OFFSET;
 
-        if (jitIsCallInstruction(srcIP))
+        if (callInstruction)
         {
-            eeSetLIinfo(mappingCnt++, nextNativeOfs, jitGetILoffs(srcIP), jitIsStackEmpty(srcIP), true);
+            ilOffset = jitGetILoffs(srcIP);
         }
         else if (nextNativeOfs != lastNativeOfs)
         {
-            eeSetLIinfo(mappingCnt++, nextNativeOfs, jitGetILoffsAny(srcIP), jitIsStackEmpty(srcIP), false);
+            ilOffset      = jitGetILoffsAny(srcIP);
             lastNativeOfs = nextNativeOfs;
         }
         else if (srcIP == (IL_OFFSETX)ICorDebugInfo::EPILOG || srcIP == 0)
@@ -5143,7 +5083,18 @@ void CodeGen::genIPmappingGen()
             // at the (empty) ret statement if the user tries to put a
             // breakpoint there, and then have the option of seeing the
             // epilog or not based on SetUnmappedStopMask for the stepper.
-            eeSetLIinfo(mappingCnt++, nextNativeOfs, jitGetILoffsAny(srcIP), jitIsStackEmpty(srcIP), false);
+            ilOffset = jitGetILoffsAny(srcIP);
+        }
+
+        if (ilOffset != BAD_IL_OFFSET)
+        {
+            assert(mappingCnt < eeBoundariesCount);
+
+            boundariesDsc& mapping = eeBoundaries[mappingCnt++];
+            mapping.nativeIP       = nextNativeOfs;
+            mapping.ilOffset       = ilOffset;
+            mapping.sourceReason   = stkEmpty ? ICorDebugInfo::STACK_EMPTY : 0;
+            mapping.sourceReason |= callInstruction ? ICorDebugInfo::CALL_INSTRUCTION : 0;
         }
     }
 
@@ -5185,7 +5136,17 @@ void CodeGen::genIPmappingGen()
     }
 #endif // 0
 
-    eeSetLIdone();
+#ifdef DEBUG
+    if (compiler->verbose || compiler->opts.dspDebugInfo)
+    {
+        eeDispLineInfos();
+    }
+#endif
+
+    compiler->info.compCompHnd->setBoundaries(compiler->info.compMethodHnd, eeBoundariesCount,
+                                              (ICorDebugInfo::OffsetMapping*)eeBoundaries);
+
+    eeBoundaries = nullptr; // we give up ownership after setBoundaries();
 }
 
 #ifndef TARGET_X86

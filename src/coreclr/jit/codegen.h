@@ -486,18 +486,16 @@ public:
     void genIPmappingAddToFront(IL_OFFSETX offset);
     void genIPmappingGen();
 
-    unsigned eeBoundariesCount;
+    unsigned eeBoundariesCount = 0;
 
     struct boundariesDsc
     {
         UNATIVE_OFFSET nativeIP;
         IL_OFFSET      ilOffset;
         unsigned       sourceReason;
-    } * eeBoundaries; // Boundaries to report to EE
+    };
 
-    void eeSetLIcount(unsigned count);
-    void eeSetLIinfo(unsigned which, UNATIVE_OFFSET offs, unsigned srcIP, bool stkEmpty, bool callInstruction);
-    void eeSetLIdone();
+    boundariesDsc* eeBoundaries = nullptr;
 
 #ifdef DEBUG
     static void eeDispILOffs(IL_OFFSET offs);
@@ -513,12 +511,9 @@ public:
         DbgInfoVarLoc loc;
     };
 
-    VarResultInfo* eeSetLVcount(unsigned count);
-    void eeSetLVdone(VarResultInfo* vars, unsigned count);
-
 #ifdef DEBUG
     void eeDispVar(ICorDebugInfo::NativeVarInfo* var);
-    void eeDispVars(CORINFO_METHOD_HANDLE ftn, ULONG32 cVars, ICorDebugInfo::NativeVarInfo* vars);
+    void eeDispVars(unsigned cVars, ICorDebugInfo::NativeVarInfo* vars);
 #endif
 
     void genEnsureCodeEmitted(IL_OFFSETX offsx);
