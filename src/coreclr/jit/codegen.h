@@ -15,6 +15,7 @@ enum FuncKind : uint8_t;
 struct FuncInfoDsc;
 #endif
 struct IPmappingDsc;
+struct VarResultInfo;
 
 class CodeGen final : public CodeGenInterface
 {
@@ -475,14 +476,6 @@ public:
     void genIPmappingAdd(IL_OFFSETX offset, bool isLabel);
     void genIPmappingAddToFront(IL_OFFSETX offset);
     void genIPmappingGen();
-
-    struct VarResultInfo
-    {
-        uint32_t      startOffset;
-        uint32_t      endOffset;
-        uint32_t      varNumber;
-        DbgInfoVarLoc loc;
-    };
 
     void genEnsureCodeEmitted(IL_OFFSETX offsx);
 

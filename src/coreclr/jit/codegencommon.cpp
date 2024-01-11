@@ -4255,6 +4255,14 @@ void CodeGen::genGeneratePrologsAndEpilogs()
 static void eeDispVars(Compiler* compiler, unsigned cVars, ICorDebugInfo::NativeVarInfo* vars);
 #endif
 
+struct VarResultInfo
+{
+    uint32_t      startOffset;
+    uint32_t      endOffset;
+    uint32_t      varNumber;
+    DbgInfoVarLoc loc;
+};
+
 /*****************************************************************************
  *                          genSetScopeInfo
  *
@@ -4432,7 +4440,7 @@ static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::VLT_COUNT) == DbgInfoV
 static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::VLT_INVALID) == DbgInfoVarLoc::VLT_INVALID);
 
 static_assert_no_msg(sizeof(ICorDebugInfo::VarLoc) == sizeof(DbgInfoVarLoc));
-static_assert_no_msg(sizeof(CodeGen::VarResultInfo) == sizeof(ICorDebugInfo::NativeVarInfo));
+static_assert_no_msg(sizeof(VarResultInfo) == sizeof(ICorDebugInfo::NativeVarInfo));
 
 #ifdef LATE_DISASM
 
