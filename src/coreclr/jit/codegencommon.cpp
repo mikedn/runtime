@@ -4605,6 +4605,14 @@ void CodeGen::eeDispVars(unsigned cVars, ICorDebugInfo::NativeVarInfo* vars)
     }
 }
 
+struct IPmappingDsc
+{
+    IPmappingDsc* ipmdNext;      // next line# record
+    emitLocation  ipmdNativeLoc; // the emitter location of the native code corresponding to the IL offset
+    IL_OFFSETX    ipmdILoffsx;   // the instr offset
+    bool          ipmdIsLabel;   // Can this code be a branch label?
+};
+
 void CodeGen::genIPmappingDisp(IPmappingDsc* ipMapping)
 {
     IL_OFFSETX offsx = ipMapping->ipmdILoffsx;

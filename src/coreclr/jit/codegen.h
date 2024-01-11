@@ -14,6 +14,7 @@
 enum FuncKind : uint8_t;
 struct FuncInfoDsc;
 #endif
+struct IPmappingDsc;
 
 class CodeGen final : public CodeGenInterface
 {
@@ -21,15 +22,6 @@ class CodeGen final : public CodeGenInterface
     friend class DisAssembler;
     friend class CodeGenLivenessUpdater;
     friend class CodeGenInterface;
-
-    //  The following holds information about instr offsets in terms of generated code.
-    struct IPmappingDsc
-    {
-        IPmappingDsc* ipmdNext;      // next line# record
-        emitLocation  ipmdNativeLoc; // the emitter location of the native code corresponding to the IL offset
-        IL_OFFSETX    ipmdILoffsx;   // the instr offset
-        bool          ipmdIsLabel;   // Can this code be a branch label?
-    };
 
     class LinearScan* m_lsra           = nullptr;
     IPmappingDsc*     genIPmappingList = nullptr;
