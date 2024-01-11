@@ -472,17 +472,9 @@ public:
     void PopTempReg(regNumber reg, var_types type);
 #endif
 
-    INDEBUG(void genIPmappingDisp(IPmappingDsc* ipMapping);)
-
     void genIPmappingAdd(IL_OFFSETX offset, bool isLabel);
     void genIPmappingAddToFront(IL_OFFSETX offset);
     void genIPmappingGen();
-
-#ifdef DEBUG
-    static void eeDispILOffs(IL_OFFSET offs);
-    static void eeDispLineInfo(const struct boundariesDsc* line);
-    void eeDispLineInfos(const struct boundariesDsc* mappings, unsigned count);
-#endif
 
     struct VarResultInfo
     {
@@ -491,11 +483,6 @@ public:
         uint32_t      varNumber;
         DbgInfoVarLoc loc;
     };
-
-#ifdef DEBUG
-    void eeDispVar(ICorDebugInfo::NativeVarInfo* var);
-    void eeDispVars(unsigned cVars, ICorDebugInfo::NativeVarInfo* vars);
-#endif
 
     void genEnsureCodeEmitted(IL_OFFSETX offsx);
 

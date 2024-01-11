@@ -4251,6 +4251,10 @@ void CodeGen::genGeneratePrologsAndEpilogs()
     GetEmitter()->emitGeneratePrologEpilog();
 }
 
+#ifdef DEBUG
+static void eeDispVars(Compiler* compiler, unsigned cVars, ICorDebugInfo::NativeVarInfo* vars);
+#endif
+
 /*****************************************************************************
  *                          genSetScopeInfo
  *
@@ -4273,7 +4277,7 @@ void CodeGen::genSetScopeInfo()
 
     if (count == 0)
     {
-        DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, eeDispVars(0, nullptr));
+        DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, eeDispVars(compiler, 0, nullptr));
 
         return;
     }
@@ -4291,7 +4295,7 @@ void CodeGen::genSetScopeInfo()
     genSetScopeInfoUsingVariableRanges(ranges);
 
     ICorDebugInfo::NativeVarInfo* eeVars = reinterpret_cast<ICorDebugInfo::NativeVarInfo*>(ranges);
-    DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, eeDispVars(count, eeVars));
+    DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, eeDispVars(compiler, count, eeVars));
     compiler->info.compCompHnd->setVars(compiler->info.compMethodHnd, count, eeVars);
 }
 
@@ -4485,7 +4489,7 @@ const char* CodeGen::siStackVarName(size_t offs, size_t size, unsigned reg, unsi
 
 #ifdef DEBUG
 
-void CodeGen::eeDispVar(ICorDebugInfo::NativeVarInfo* var)
+static void eeDispVar(ICorDebugInfo::NativeVarInfo* var)
 {
     const char* name = nullptr;
 
@@ -4581,7 +4585,7 @@ void CodeGen::eeDispVar(ICorDebugInfo::NativeVarInfo* var)
     printf("\n");
 }
 
-void CodeGen::eeDispVars(unsigned cVars, ICorDebugInfo::NativeVarInfo* vars)
+static void eeDispVars(Compiler* compiler, unsigned cVars, ICorDebugInfo::NativeVarInfo* vars)
 {
     BitVecTraits varTraits(compiler->lvaCount, compiler);
     BitVec       uniqueVars = BitVecOps::MakeEmpty(&varTraits);
@@ -4605,6 +4609,8 @@ void CodeGen::eeDispVars(unsigned cVars, ICorDebugInfo::NativeVarInfo* vars)
     }
 }
 
+#endif // DEBUG
+
 struct IPmappingDsc
 {
     IPmappingDsc* ipmdNext;      // next line# record
@@ -4613,7 +4619,29 @@ struct IPmappingDsc
     bool          ipmdIsLabel;   // Can this code be a branch label?
 };
 
-void CodeGen::genIPmappingDisp(IPmappingDsc* ipMapping)
+#ifdef DEBUG
+
+static void eeDispILOffs(IL_OFFSET offs)
+{
+    const char* specialOffs[] = {"EPILOG", "PROLOG", "NO_MAP"};
+
+    switch ((int)offs) // Need the cast since offs is unsigned and the case statements are comparing to signed.
+    {
+        case ICorDebugInfo::EPILOG:
+        case ICorDebugInfo::PROLOG:
+        case ICorDebugInfo::NO_MAPPING:
+            assert(DWORD(ICorDebugInfo::EPILOG) + 1 == (unsigned)ICorDebugInfo::PROLOG);
+            assert(DWORD(ICorDebugInfo::EPILOG) + 2 == (unsigned)ICorDebugInfo::NO_MAPPING);
+            int specialOffsNum;
+            specialOffsNum = offs - DWORD(ICorDebugInfo::EPILOG);
+            printf("%s", specialOffs[specialOffsNum]);
+            break;
+        default:
+            printf("0x%04X", offs);
+    }
+}
+
+static void genIPmappingDisp(IPmappingDsc* ipMapping)
 {
     IL_OFFSETX offsx = ipMapping->ipmdILoffsx;
 
@@ -4852,26 +4880,6 @@ bool jitIsCallInstruction(IL_OFFSETX offsx)
 
 #ifdef DEBUG
 
-void CodeGen::eeDispILOffs(IL_OFFSET offs)
-{
-    const char* specialOffs[] = {"EPILOG", "PROLOG", "NO_MAP"};
-
-    switch ((int)offs) // Need the cast since offs is unsigned and the case statements are comparing to signed.
-    {
-        case ICorDebugInfo::EPILOG:
-        case ICorDebugInfo::PROLOG:
-        case ICorDebugInfo::NO_MAPPING:
-            assert(DWORD(ICorDebugInfo::EPILOG) + 1 == (unsigned)ICorDebugInfo::PROLOG);
-            assert(DWORD(ICorDebugInfo::EPILOG) + 2 == (unsigned)ICorDebugInfo::NO_MAPPING);
-            int specialOffsNum;
-            specialOffsNum = offs - DWORD(ICorDebugInfo::EPILOG);
-            printf("%s", specialOffs[specialOffsNum]);
-            break;
-        default:
-            printf("0x%04X", offs);
-    }
-}
-
 struct boundariesDsc
 {
     UNATIVE_OFFSET nativeIP;
@@ -4879,7 +4887,7 @@ struct boundariesDsc
     unsigned       sourceReason;
 };
 
-void CodeGen::eeDispLineInfo(const boundariesDsc* line)
+static void eeDispLineInfo(const boundariesDsc* line)
 {
     printf("IL offs ");
 
@@ -4912,7 +4920,7 @@ void CodeGen::eeDispLineInfo(const boundariesDsc* line)
     assert((line->sourceReason & ~(ICorDebugInfo::STACK_EMPTY | ICorDebugInfo::CALL_INSTRUCTION)) == 0);
 }
 
-void CodeGen::eeDispLineInfos(const boundariesDsc* mappings, unsigned count)
+static void eeDispLineInfos(const boundariesDsc* mappings, unsigned count)
 {
     printf("IP mapping count : %d\n", count);
     for (unsigned i = 0; i < count; i++)
