@@ -273,7 +273,7 @@ const CORINFO_CLASS_HANDLE NO_CLASS_HANDLE = (CORINFO_CLASS_HANDLE) nullptr;
 // being compiled.
 //
 // Blocks and statements never store one of the ICorDebugInfo values, even for IL_OFFSETX types. These are
-// only stored in the IPmappingDsc struct, ipmdILoffsx field.
+// only stored in the ILMapping struct, ilOffsetX field.
 
 typedef unsigned IL_OFFSET;
 

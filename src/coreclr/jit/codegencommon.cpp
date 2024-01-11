@@ -840,8 +840,13 @@ void CodeGen::genEmitUnwindDebugGCandEH()
 #ifdef FEATURE_EH_FUNCLETS
     unwindEmit();
 #endif
-    genIPmappingGen();
-    genSetScopeInfo();
+
+    if (compiler->opts.compDbgInfo)
+    {
+        genIPmappingGen();
+        genSetScopeInfo();
+    }
+
     genReportEH();
     GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this);
 }
@@ -4252,7 +4257,7 @@ void CodeGen::genGeneratePrologsAndEpilogs()
 }
 
 #ifdef DEBUG
-static void eeDispVars(Compiler* compiler, unsigned cVars, ICorDebugInfo::NativeVarInfo* vars);
+static void PrintDbgInfoVars(Compiler* compiler, const ICorDebugInfo::NativeVarInfo* vars, unsigned count);
 #endif
 
 struct VarResultInfo
@@ -4263,21 +4268,11 @@ struct VarResultInfo
     DbgInfoVarLoc loc;
 };
 
-/*****************************************************************************
- *                          genSetScopeInfo
- *
- * This function should be called only after the sizes of the emitter blocks
- * have been finalized.
- */
-
 void CodeGen::genSetScopeInfo()
 {
-    if (!compiler->opts.compDbgInfo)
-    {
-        return;
-    }
-
     JITDUMP("*************** In genSetScopeInfo()\n");
+
+    assert(compiler->opts.compDbgInfo);
 
     unsigned count = liveness.GetDbgInfoRangeCount();
 
@@ -4285,7 +4280,7 @@ void CodeGen::genSetScopeInfo()
 
     if (count == 0)
     {
-        DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, eeDispVars(compiler, 0, nullptr));
+        DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, PrintDbgInfoVars(compiler, nullptr, 0));
 
         return;
     }
@@ -4302,9 +4297,9 @@ void CodeGen::genSetScopeInfo()
 
     genSetScopeInfoUsingVariableRanges(ranges);
 
-    ICorDebugInfo::NativeVarInfo* eeVars = reinterpret_cast<ICorDebugInfo::NativeVarInfo*>(ranges);
-    DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, eeDispVars(compiler, count, eeVars));
-    compiler->info.compCompHnd->setVars(compiler->info.compMethodHnd, count, eeVars);
+    ICorDebugInfo::NativeVarInfo* vars = reinterpret_cast<ICorDebugInfo::NativeVarInfo*>(ranges);
+    DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, PrintDbgInfoVars(compiler, vars, count));
+    compiler->info.compCompHnd->setVars(compiler->info.compMethodHnd, count, vars);
 }
 
 //------------------------------------------------------------------------
@@ -4497,33 +4492,33 @@ const char* CodeGen::siStackVarName(size_t offs, size_t size, unsigned reg, unsi
 
 #ifdef DEBUG
 
-static void eeDispVar(ICorDebugInfo::NativeVarInfo* var)
+static void PrintDbgInfoVar(const ICorDebugInfo::NativeVarInfo& var)
 {
     const char* name = nullptr;
 
-    if (var->varNumber == ICorDebugInfo::VARARGS_HND_ILNUM)
+    if (var.varNumber == ICorDebugInfo::VARARGS_HND_ILNUM)
     {
         name = "varargsHandle";
     }
-    else if (var->varNumber == ICorDebugInfo::RETBUF_ILNUM)
+    else if (var.varNumber == ICorDebugInfo::RETBUF_ILNUM)
     {
         name = "retBuff";
     }
-    else if (var->varNumber == ICorDebugInfo::TYPECTXT_ILNUM)
+    else if (var.varNumber == ICorDebugInfo::TYPECTXT_ILNUM)
     {
         name = "typeCtx";
     }
 
-    printf("%3d(%10s) : From %08Xh to %08Xh, in ", var->varNumber, (name == nullptr) ? "UNKNOWN" : name,
-           var->startOffset, var->endOffset);
+    printf("%3d(%10s) : From %08Xh to %08Xh, in ", var.varNumber, (name == nullptr) ? "UNKNOWN" : name, var.startOffset,
+           var.endOffset);
 
-    switch (var->loc.vlType)
+    switch (var.loc.vlType)
     {
         case ICorDebugInfo::VLT_REG:
         case ICorDebugInfo::VLT_REG_BYREF:
         case ICorDebugInfo::VLT_REG_FP:
-            printf("%s", getRegName(var->loc.vlReg.vlrReg));
-            if (var->loc.vlType == ICorDebugInfo::VLT_REG_BYREF)
+            printf("%s", getRegName(var.loc.vlReg.vlrReg));
+            if (var.loc.vlType == ICorDebugInfo::VLT_REG_BYREF)
             {
                 printf(" byref");
             }
@@ -4531,35 +4526,35 @@ static void eeDispVar(ICorDebugInfo::NativeVarInfo* var)
 
         case ICorDebugInfo::VLT_STK:
         case ICorDebugInfo::VLT_STK_BYREF:
-            if ((int)var->loc.vlStk.vlsBaseReg != (int)ICorDebugInfo::REGNUM_AMBIENT_SP)
+            if ((int)var.loc.vlStk.vlsBaseReg != (int)ICorDebugInfo::REGNUM_AMBIENT_SP)
             {
-                printf("%s[%d] (1 slot)", getRegName(var->loc.vlStk.vlsBaseReg), var->loc.vlStk.vlsOffset);
+                printf("%s[%d] (1 slot)", getRegName(var.loc.vlStk.vlsBaseReg), var.loc.vlStk.vlsOffset);
             }
             else
             {
-                printf(STR_SPBASE "'[%d] (1 slot)", var->loc.vlStk.vlsOffset);
+                printf(STR_SPBASE "'[%d] (1 slot)", var.loc.vlStk.vlsOffset);
             }
-            if (var->loc.vlType == ICorDebugInfo::VLT_REG_BYREF)
+            if (var.loc.vlType == ICorDebugInfo::VLT_REG_BYREF)
             {
                 printf(" byref");
             }
             break;
 
         case ICorDebugInfo::VLT_REG_REG:
-            printf("%s-%s", getRegName(var->loc.vlRegReg.vlrrReg1), getRegName(var->loc.vlRegReg.vlrrReg2));
+            printf("%s-%s", getRegName(var.loc.vlRegReg.vlrrReg1), getRegName(var.loc.vlRegReg.vlrrReg2));
             break;
 
 #ifndef TARGET_AMD64
         case ICorDebugInfo::VLT_REG_STK:
-            if ((int)var->loc.vlRegStk.vlrsStk.vlrssBaseReg != (int)ICorDebugInfo::REGNUM_AMBIENT_SP)
+            if ((int)var.loc.vlRegStk.vlrsStk.vlrssBaseReg != (int)ICorDebugInfo::REGNUM_AMBIENT_SP)
             {
-                printf("%s-%s[%d]", getRegName(var->loc.vlRegStk.vlrsReg),
-                       getRegName(var->loc.vlRegStk.vlrsStk.vlrssBaseReg), var->loc.vlRegStk.vlrsStk.vlrssOffset);
+                printf("%s-%s[%d]", getRegName(var.loc.vlRegStk.vlrsReg),
+                       getRegName(var.loc.vlRegStk.vlrsStk.vlrssBaseReg), var.loc.vlRegStk.vlrsStk.vlrssOffset);
             }
             else
             {
-                printf("%s-" STR_SPBASE "'[%d]", getRegName(var->loc.vlRegStk.vlrsReg),
-                       var->loc.vlRegStk.vlrsStk.vlrssOffset);
+                printf("%s-" STR_SPBASE "'[%d]", getRegName(var.loc.vlRegStk.vlrsReg),
+                       var.loc.vlRegStk.vlrsStk.vlrssOffset);
             }
             break;
 
@@ -4567,39 +4562,39 @@ static void eeDispVar(ICorDebugInfo::NativeVarInfo* var)
             unreached(); // unexpected
 
         case ICorDebugInfo::VLT_STK2:
-            if ((int)var->loc.vlStk2.vls2BaseReg != (int)ICorDebugInfo::REGNUM_AMBIENT_SP)
+            if ((int)var.loc.vlStk2.vls2BaseReg != (int)ICorDebugInfo::REGNUM_AMBIENT_SP)
             {
-                printf("%s[%d] (2 slots)", getRegName(var->loc.vlStk2.vls2BaseReg), var->loc.vlStk2.vls2Offset);
+                printf("%s[%d] (2 slots)", getRegName(var.loc.vlStk2.vls2BaseReg), var.loc.vlStk2.vls2Offset);
             }
             else
             {
-                printf(STR_SPBASE "'[%d] (2 slots)", var->loc.vlStk2.vls2Offset);
+                printf(STR_SPBASE "'[%d] (2 slots)", var.loc.vlStk2.vls2Offset);
             }
             break;
 
         case ICorDebugInfo::VLT_FPSTK:
-            printf("ST(L-%d)", var->loc.vlFPstk.vlfReg);
+            printf("ST(L-%d)", var.loc.vlFPstk.vlfReg);
             break;
 
         case ICorDebugInfo::VLT_FIXED_VA:
-            printf("fxd_va[%d]", var->loc.vlFixedVarArg.vlfvOffset);
+            printf("fxd_va[%d]", var.loc.vlFixedVarArg.vlfvOffset);
             break;
 #endif // !TARGET_AMD64
 
         default:
-            unreached(); // unexpected
+            unreached();
     }
 
     printf("\n");
 }
 
-static void eeDispVars(Compiler* compiler, unsigned cVars, ICorDebugInfo::NativeVarInfo* vars)
+static void PrintDbgInfoVars(Compiler* compiler, const ICorDebugInfo::NativeVarInfo* vars, unsigned count)
 {
     BitVecTraits varTraits(compiler->lvaCount, compiler);
     BitVec       uniqueVars = BitVecOps::MakeEmpty(&varTraits);
     unsigned     varCount   = 0;
 
-    for (unsigned i = 0; i < cVars; i++)
+    for (unsigned i = 0; i < count; i++)
     {
         if ((vars[i].varNumber < compiler->lvaCount) &&
             BitVecOps::TryAddElemD(&varTraits, uniqueVars, vars[i].varNumber))
@@ -4608,50 +4603,50 @@ static void eeDispVars(Compiler* compiler, unsigned cVars, ICorDebugInfo::Native
         }
     }
 
-    printf("; Variable debug info: %d live ranges, %d vars for method %s\n", cVars, varCount,
+    printf("; Variable debug info: %d live ranges, %d vars for method %s\n", count, varCount,
            compiler->info.compFullName);
 
-    for (unsigned i = 0; i < cVars; i++)
+    for (unsigned i = 0; i < count; i++)
     {
-        eeDispVar(&vars[i]);
+        PrintDbgInfoVar(vars[i]);
     }
 }
 
 #endif // DEBUG
 
-struct IPmappingDsc
+struct ILMapping
 {
-    IPmappingDsc* ipmdNext;      // next line# record
-    emitLocation  ipmdNativeLoc; // the emitter location of the native code corresponding to the IL offset
-    IL_OFFSETX    ipmdILoffsx;   // the instr offset
-    bool          ipmdIsLabel;   // Can this code be a branch label?
+    ILMapping*   next;
+    emitLocation nativeLoc;
+    IL_OFFSETX   ilOffsetX;
+    bool         isLabel;
 };
 
 #ifdef DEBUG
 
-static void eeDispILOffs(IL_OFFSET offs)
+static void PrintILOffset(IL_OFFSET offs)
 {
-    const char* specialOffs[] = {"EPILOG", "PROLOG", "NO_MAP"};
-
-    switch ((int)offs) // Need the cast since offs is unsigned and the case statements are comparing to signed.
+    if (offs == ICorDebugInfo::PROLOG)
     {
-        case ICorDebugInfo::EPILOG:
-        case ICorDebugInfo::PROLOG:
-        case ICorDebugInfo::NO_MAPPING:
-            assert(DWORD(ICorDebugInfo::EPILOG) + 1 == (unsigned)ICorDebugInfo::PROLOG);
-            assert(DWORD(ICorDebugInfo::EPILOG) + 2 == (unsigned)ICorDebugInfo::NO_MAPPING);
-            int specialOffsNum;
-            specialOffsNum = offs - DWORD(ICorDebugInfo::EPILOG);
-            printf("%s", specialOffs[specialOffsNum]);
-            break;
-        default:
-            printf("0x%04X", offs);
+        printf("PROLOG");
+    }
+    else if (offs == ICorDebugInfo::EPILOG)
+    {
+        printf("EPILOG");
+    }
+    else if (offs == ICorDebugInfo::NO_MAPPING)
+    {
+        printf("NO_MAP");
+    }
+    else
+    {
+        printf("0x%04X", offs);
     }
 }
 
-static void genIPmappingDisp(IPmappingDsc* ipMapping)
+static void PrintILOffsetMapping(const ILMapping& mapping)
 {
-    IL_OFFSETX offsx = ipMapping->ipmdILoffsx;
+    IL_OFFSETX offsx = mapping.ilOffsetX;
 
     if (offsx == BAD_IL_OFFSET)
     {
@@ -4659,7 +4654,7 @@ static void genIPmappingDisp(IPmappingDsc* ipMapping)
     }
     else
     {
-        eeDispILOffs(jitGetILoffsAny(offsx));
+        PrintILOffset(jitGetILoffsAny(offsx));
 
         if (jitIsStackEmpty(offsx))
         {
@@ -4673,9 +4668,9 @@ static void genIPmappingDisp(IPmappingDsc* ipMapping)
     }
 
     printf(" ");
-    ipMapping->ipmdNativeLoc.Print();
+    mapping.nativeLoc.Print();
 
-    if (ipMapping->ipmdIsLabel)
+    if (mapping.isLabel)
     {
         printf(" label");
     }
@@ -4700,40 +4695,42 @@ void CodeGen::genIPmappingAdd(IL_OFFSETX offsx, bool isLabel)
         // Ignore this one if it's the same IL offset as the last one we saw.
         // Note that we'll let through two identical IL offsets if the flag bits
         // differ, or two identical "special" mappings (e.g., PROLOG).
-        if ((genIPmappingLast != nullptr) && (offsx == genIPmappingLast->ipmdILoffsx))
+        if ((lastILMapping != nullptr) && (offsx == lastILMapping->ilOffsetX))
         {
             JITDUMP("Debug info: Ignoring duplicate IL offset 0x%x\n", offsx);
             return;
         }
     }
 
-    IPmappingDsc* addMapping = compiler->getAllocator(CMK_DebugInfo).allocate<IPmappingDsc>(1);
-    addMapping->ipmdNativeLoc.CaptureLocation(GetEmitter());
-    addMapping->ipmdILoffsx = offsx;
-    addMapping->ipmdIsLabel = isLabel;
-    addMapping->ipmdNext    = nullptr;
+    ILMapping* mapping = compiler->getAllocator(CMK_DebugInfo).allocate<ILMapping>(1);
+    mapping->nativeLoc.CaptureLocation(GetEmitter());
+    mapping->ilOffsetX = offsx;
+    mapping->isLabel   = isLabel;
+    mapping->next      = nullptr;
 
-    if (genIPmappingList != nullptr)
+    if (firstILMapping != nullptr)
     {
-        assert(genIPmappingLast != nullptr);
-        assert(genIPmappingLast->ipmdNext == nullptr);
-        genIPmappingLast->ipmdNext = addMapping;
+        assert(lastILMapping != nullptr);
+        assert(lastILMapping->next == nullptr);
+
+        lastILMapping->next = mapping;
     }
     else
     {
-        assert(genIPmappingLast == nullptr);
-        genIPmappingList = addMapping;
+        assert(lastILMapping == nullptr);
+
+        firstILMapping = mapping;
     }
 
-    genIPmappingLast = addMapping;
+    lastILMapping = mapping;
 
 #ifdef DEBUG
     if (compiler->verbose)
     {
         printf("Debug Info: IL ");
-        genIPmappingDisp(addMapping);
+        PrintILOffsetMapping(*mapping);
     }
-#endif // DEBUG
+#endif
 }
 
 void CodeGen::genIPmappingAddToFront(IL_OFFSETX offsx)
@@ -4747,51 +4744,40 @@ void CodeGen::genIPmappingAddToFront(IL_OFFSETX offsx)
         noway_assert(jitGetILoffs(offsx) <= compiler->info.compILCodeSize);
     }
 
-    IPmappingDsc* addMapping = compiler->getAllocator(CMK_DebugInfo).allocate<IPmappingDsc>(1);
-    addMapping->ipmdNativeLoc.CaptureLocation(GetEmitter());
-    addMapping->ipmdILoffsx = offsx;
-    addMapping->ipmdIsLabel = true;
-    addMapping->ipmdNext    = nullptr;
+    ILMapping* mapping = compiler->getAllocator(CMK_DebugInfo).allocate<ILMapping>(1);
+    mapping->nativeLoc.CaptureLocation(GetEmitter());
+    mapping->ilOffsetX = offsx;
+    mapping->isLabel   = true;
+    mapping->next      = nullptr;
 
-    addMapping->ipmdNext = genIPmappingList;
-    genIPmappingList     = addMapping;
+    mapping->next  = firstILMapping;
+    firstILMapping = mapping;
 
-    if (genIPmappingLast == nullptr)
+    if (lastILMapping == nullptr)
     {
-        genIPmappingLast = addMapping;
+        lastILMapping = mapping;
     }
 
 #ifdef DEBUG
     if (compiler->verbose)
     {
         printf("Debug Info: IL ");
-        genIPmappingDisp(addMapping);
+        PrintILOffsetMapping(*mapping);
     }
 #endif
 }
 
-/*****************************************************************************/
+static_assert_no_msg(IL_OFFSETX(ICorDebugInfo::NO_MAPPING) != IL_OFFSETX(BAD_IL_OFFSET));
+static_assert_no_msg(IL_OFFSETX(ICorDebugInfo::PROLOG) != IL_OFFSETX(BAD_IL_OFFSET));
+static_assert_no_msg(IL_OFFSETX(ICorDebugInfo::EPILOG) != IL_OFFSETX(BAD_IL_OFFSET));
+static_assert_no_msg(IL_OFFSETX(BAD_IL_OFFSET) > MAX_IL_OFFSET);
+static_assert_no_msg(IL_OFFSETX(ICorDebugInfo::NO_MAPPING) > MAX_IL_OFFSET);
+static_assert_no_msg(IL_OFFSETX(ICorDebugInfo::PROLOG) > MAX_IL_OFFSET);
+static_assert_no_msg(IL_OFFSETX(ICorDebugInfo::EPILOG) > MAX_IL_OFFSET);
 
-C_ASSERT(IL_OFFSETX(ICorDebugInfo::NO_MAPPING) != IL_OFFSETX(BAD_IL_OFFSET));
-C_ASSERT(IL_OFFSETX(ICorDebugInfo::PROLOG) != IL_OFFSETX(BAD_IL_OFFSET));
-C_ASSERT(IL_OFFSETX(ICorDebugInfo::EPILOG) != IL_OFFSETX(BAD_IL_OFFSET));
-
-C_ASSERT(IL_OFFSETX(BAD_IL_OFFSET) > MAX_IL_OFFSET);
-C_ASSERT(IL_OFFSETX(ICorDebugInfo::NO_MAPPING) > MAX_IL_OFFSET);
-C_ASSERT(IL_OFFSETX(ICorDebugInfo::PROLOG) > MAX_IL_OFFSET);
-C_ASSERT(IL_OFFSETX(ICorDebugInfo::EPILOG) > MAX_IL_OFFSET);
-
-//------------------------------------------------------------------------
-// jitGetILoffs: Returns the IL offset portion of the IL_OFFSETX type.
-//      Asserts if any ICorDebugInfo distinguished value (like ICorDebugInfo::NO_MAPPING)
-//      is seen; these are unexpected here. Also asserts if passed BAD_IL_OFFSET.
-//
-// Arguments:
-//    offsx - the IL_OFFSETX value with the IL offset to extract.
-//
-// Return Value:
-//    The IL offset.
-
+// Returns the IL offset portion of the IL_OFFSETX type.
+// Asserts if any ICorDebugInfo distinguished value (like ICorDebugInfo::NO_MAPPING)
+// is seen; these are unexpected here. Also asserts if passed BAD_IL_OFFSET.
 IL_OFFSET jitGetILoffs(IL_OFFSETX offsx)
 {
     assert(offsx != BAD_IL_OFFSET);
@@ -4808,16 +4794,8 @@ IL_OFFSET jitGetILoffs(IL_OFFSETX offsx)
     }
 }
 
-//------------------------------------------------------------------------
-// jitGetILoffsAny: Similar to jitGetILoffs(), but passes through ICorDebugInfo
-//      distinguished values. Asserts if passed BAD_IL_OFFSET.
-//
-// Arguments:
-//    offsx - the IL_OFFSETX value with the IL offset to extract.
-//
-// Return Value:
-//    The IL offset.
-
+// Similar to jitGetILoffs(), but passes through ICorDebugInfo
+// distinguished values. Asserts if passed BAD_IL_OFFSET.
 IL_OFFSET jitGetILoffsAny(IL_OFFSETX offsx)
 {
     assert(offsx != BAD_IL_OFFSET);
@@ -4834,16 +4812,6 @@ IL_OFFSET jitGetILoffsAny(IL_OFFSETX offsx)
     }
 }
 
-//------------------------------------------------------------------------
-// jitIsStackEmpty: Does the IL offset have the stack empty bit set?
-//      Asserts if passed BAD_IL_OFFSET.
-//
-// Arguments:
-//    offsx - the IL_OFFSETX value to check
-//
-// Return Value:
-//    'true' if the stack empty bit is set; 'false' otherwise.
-
 bool jitIsStackEmpty(IL_OFFSETX offsx)
 {
     assert(offsx != BAD_IL_OFFSET);
@@ -4859,16 +4827,6 @@ bool jitIsStackEmpty(IL_OFFSETX offsx)
             return (offsx & IL_OFFSETX_STKBIT) == 0;
     }
 }
-
-//------------------------------------------------------------------------
-// jitIsCallInstruction: Does the IL offset have the call instruction bit set?
-//      Asserts if passed BAD_IL_OFFSET.
-//
-// Arguments:
-//    offsx - the IL_OFFSETX value to check
-//
-// Return Value:
-//    'true' if the call instruction bit is set; 'false' otherwise.
 
 bool jitIsCallInstruction(IL_OFFSETX offsx)
 {
@@ -4888,48 +4846,48 @@ bool jitIsCallInstruction(IL_OFFSETX offsx)
 
 #ifdef DEBUG
 
-static void eeDispLineInfo(const ICorDebugInfo::OffsetMapping* line)
+static void PrintOffsetMapping(const ICorDebugInfo::OffsetMapping& mapping)
 {
     printf("IL offs ");
 
-    eeDispILOffs(line->ilOffset);
+    PrintILOffset(mapping.ilOffset);
+    printf(" : 0x%08X", mapping.nativeOffset);
 
-    printf(" : 0x%08X", line->nativeOffset);
-    if (line->source != 0)
+    if (mapping.source != 0)
     {
-        // It seems like it should probably never be zero since ICorDebugInfo::SOURCE_TYPE_INVALID is zero.
-        // However, the JIT has always generated this and printed "stack non-empty".
-
         printf(" ( ");
-        if ((line->source & ICorDebugInfo::STACK_EMPTY) != 0)
+
+        if ((mapping.source & ICorDebugInfo::STACK_EMPTY) != 0)
         {
             printf("STACK_EMPTY ");
         }
-        if ((line->source & ICorDebugInfo::CALL_INSTRUCTION) != 0)
+
+        if ((mapping.source & ICorDebugInfo::CALL_INSTRUCTION) != 0)
         {
             printf("CALL_INSTRUCTION ");
         }
-        if ((line->source & ICorDebugInfo::CALL_SITE) != 0)
-        {
-            printf("CALL_SITE ");
-        }
+
+        // We don't expect to see any other bits.
+        assert((mapping.source & ~(ICorDebugInfo::STACK_EMPTY | ICorDebugInfo::CALL_INSTRUCTION)) == 0);
+
         printf(")");
     }
-    printf("\n");
 
-    // We don't expect to see any other bits.
-    assert((line->source & ~(ICorDebugInfo::STACK_EMPTY | ICorDebugInfo::CALL_INSTRUCTION)) == 0);
+    printf("\n");
 }
 
-static void eeDispLineInfos(const ICorDebugInfo::OffsetMapping* mappings, unsigned count)
+static void PrintOffsetMappings(const ICorDebugInfo::OffsetMapping* mappings, unsigned count)
 {
     printf("IP mapping count : %d\n", count);
+
     for (unsigned i = 0; i < count; i++)
     {
-        eeDispLineInfo(&mappings[i]);
+        PrintOffsetMapping(mappings[i]);
     }
+
     printf("\n");
 }
+
 #endif // DEBUG
 
 void CodeGen::genEnsureCodeEmitted(IL_OFFSETX offsx)
@@ -4943,19 +4901,19 @@ void CodeGen::genEnsureCodeEmitted(IL_OFFSETX offsx)
 
     /* If other IL were offsets reported, skip */
 
-    if (genIPmappingLast == nullptr)
+    if (lastILMapping == nullptr)
     {
         return;
     }
 
-    if (genIPmappingLast->ipmdILoffsx != offsx)
+    if (lastILMapping->ilOffsetX != offsx)
     {
         return;
     }
 
     /* offsx was the last reported offset. Make sure that we generated native code */
 
-    if (GetEmitter()->IsCurrentLocation(genIPmappingLast->ipmdNativeLoc))
+    if (GetEmitter()->IsCurrentLocation(lastILMapping->nativeLoc))
     {
         GetEmitter()->emitIns(INS_nop);
     }
@@ -4963,131 +4921,133 @@ void CodeGen::genEnsureCodeEmitted(IL_OFFSETX offsx)
 
 void CodeGen::genIPmappingGen()
 {
-    if (!compiler->opts.compDbgInfo)
-    {
-        return;
-    }
-
     JITDUMP("\n*************** In genIPmappingGen()\n");
 
-    if (genIPmappingList == nullptr)
+    assert(compiler->opts.compDbgInfo);
+
+    if (firstILMapping == nullptr)
     {
-        DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, eeDispLineInfos(nullptr, 0));
+        DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, PrintOffsetMappings(nullptr, 0));
 
         return;
     }
 
-    unsigned mappingCnt    = 0;
-    uint32_t lastNativeOfs = UINT32_MAX;
+    unsigned mappingCount     = 0;
+    uint32_t lastNativeOffset = UINT32_MAX;
 
-    for (IPmappingDsc *prevMapping = nullptr, *tmpMapping = genIPmappingList; tmpMapping != nullptr;
-         tmpMapping = tmpMapping->ipmdNext)
+    for (ILMapping *mapping = firstILMapping, *prev = nullptr; mapping != nullptr; mapping = mapping->next)
     {
-        IL_OFFSETX srcIP = tmpMapping->ipmdILoffsx;
+        IL_OFFSETX ilOffsetX = mapping->ilOffsetX;
 
         // Managed RetVal - since new sequence points are emitted to identify IL calls,
         // make sure that those are not filtered and do not interfere with filtering of
         // other sequence points.
-        if (jitIsCallInstruction(srcIP))
+        if (jitIsCallInstruction(ilOffsetX))
         {
-            mappingCnt++;
+            mappingCount++;
+
             continue;
         }
 
-        uint32_t nextNativeOfs = tmpMapping->ipmdNativeLoc.GetCodeOffset();
+        uint32_t nextNativeOffset = mapping->nativeLoc.GetCodeOffset();
 
-        if (nextNativeOfs != lastNativeOfs)
+        if (nextNativeOffset != lastNativeOffset)
         {
-            mappingCnt++;
-            lastNativeOfs = nextNativeOfs;
-            prevMapping   = tmpMapping;
+            mappingCount++;
+            lastNativeOffset = nextNativeOffset;
+            prev             = mapping;
+
             continue;
         }
 
-        assert(prevMapping != nullptr); // We would exit before if this was true
+        assert(prev != nullptr); // We would exit before if this was true
 
         // If there are mappings with the same native offset, then:
-        // o If one of them is NO_MAPPING, ignore it
-        // o If one of them is a label, report that and ignore the other one
-        // o Else report the higher IL offset
+        //  - If one of them is NO_MAPPING, ignore it
+        //  - If one of them is a label, report that and ignore the other one
+        //  - Else report the higher IL offset
 
-        if (prevMapping->ipmdILoffsx == static_cast<IL_OFFSETX>(ICorDebugInfo::NO_MAPPING))
+        if (prev->ilOffsetX == ICorDebugInfo::NO_MAPPING)
         {
             // If the previous entry was NO_MAPPING, ignore it
-            prevMapping->ipmdNativeLoc = {};
-            prevMapping                = tmpMapping;
+            prev->nativeLoc = {};
+            prev            = mapping;
+
+            continue;
         }
-        else if (srcIP == (IL_OFFSETX)ICorDebugInfo::NO_MAPPING)
+
+        if (ilOffsetX == ICorDebugInfo::NO_MAPPING)
         {
             // If the current entry is NO_MAPPING, ignore it
-            // Leave prevMapping unchanged as tmpMapping is no longer valid
-            tmpMapping->ipmdNativeLoc = {};
+            // Leave prevMapping unchanged as mapping is no longer valid
+            mapping->nativeLoc = {};
+
+            continue;
         }
-        else if (srcIP == (IL_OFFSETX)ICorDebugInfo::EPILOG || srcIP == 0)
+
+        if ((ilOffsetX == ICorDebugInfo::EPILOG) || (ilOffsetX == 0))
         {
             // counting for special cases: see below
-            mappingCnt++;
-            prevMapping = tmpMapping;
+            mappingCount++;
+            prev = mapping;
+
+            continue;
+        }
+
+        noway_assert(prev != nullptr);
+        noway_assert(!prev->nativeLoc.Valid() || (lastNativeOffset == prev->nativeLoc.GetCodeOffset()));
+
+        // The previous block had the same native offset. We have to discard one of the
+        // mappings. Simply reinitialize nativeLoc and prev will be ignored later.
+
+        if (prev->isLabel)
+        {
+            // Leave prev unchanged as mapping is no longer valid
+            mapping->nativeLoc = {};
         }
         else
         {
-            noway_assert(prevMapping != nullptr);
-            noway_assert(!prevMapping->ipmdNativeLoc.Valid() ||
-                         (lastNativeOfs == prevMapping->ipmdNativeLoc.GetCodeOffset()));
-
-            /* The previous block had the same native offset. We have to
-               discard one of the mappings. Simply reinitialize ipmdNativeLoc
-               and prevMapping will be ignored later. */
-
-            if (prevMapping->ipmdIsLabel)
-            {
-                // Leave prevMapping unchanged as tmpMapping is no longer valid
-                tmpMapping->ipmdNativeLoc = {};
-            }
-            else
-            {
-                prevMapping->ipmdNativeLoc = {};
-                prevMapping                = tmpMapping;
-            }
+            prev->nativeLoc = {};
+            prev            = mapping;
         }
     }
 
-    unsigned                      eeBoundariesCount = 0;
-    ICorDebugInfo::OffsetMapping* eeBoundaries      = nullptr;
-
-    if (mappingCnt != 0)
+    if (mappingCount == 0)
     {
-        eeBoundariesCount = mappingCnt;
-        eeBoundaries      = static_cast<ICorDebugInfo::OffsetMapping*>(
-            compiler->info.compCompHnd->allocateArray(eeBoundariesCount * sizeof(eeBoundaries[0])));
+        DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, PrintOffsetMappings(nullptr, 0));
+
+        return;
     }
 
-    mappingCnt    = 0;
-    lastNativeOfs = UINT32_MAX;
+    ICorDebugInfo::OffsetMapping* mappings = static_cast<ICorDebugInfo::OffsetMapping*>(
+        compiler->info.compCompHnd->allocateArray(mappingCount * sizeof(mappings[0])));
 
-    for (IPmappingDsc* tmpMapping = genIPmappingList; tmpMapping != nullptr; tmpMapping = tmpMapping->ipmdNext)
+    unsigned mappingIndex = 0;
+    lastNativeOffset      = UINT32_MAX;
+
+    for (ILMapping* mapping = firstILMapping; mapping != nullptr; mapping = mapping->next)
     {
-        if (!tmpMapping->ipmdNativeLoc.Valid())
+        if (!mapping->nativeLoc.Valid())
         {
             continue;
         }
 
-        uint32_t   nextNativeOfs   = tmpMapping->ipmdNativeLoc.GetCodeOffset();
-        IL_OFFSETX srcIP           = tmpMapping->ipmdILoffsx;
-        bool       stkEmpty        = jitIsStackEmpty(srcIP);
-        bool       callInstruction = jitIsCallInstruction(srcIP);
-        IL_OFFSET  ilOffset        = BAD_IL_OFFSET;
+        uint32_t   nextNativeOffset = mapping->nativeLoc.GetCodeOffset();
+        IL_OFFSETX ilOffsetX        = mapping->ilOffsetX;
+        auto       source           = ICorDebugInfo::SOURCE_TYPE_INVALID;
+        IL_OFFSET  ilOffset         = BAD_IL_OFFSET;
 
-        if (callInstruction)
+        if (jitIsCallInstruction(ilOffsetX))
         {
-            ilOffset = jitGetILoffs(srcIP);
+            ilOffset = jitGetILoffs(ilOffsetX);
+            source   = static_cast<ICorDebugInfo::SourceTypes>(source | ICorDebugInfo::CALL_INSTRUCTION);
         }
-        else if (nextNativeOfs != lastNativeOfs)
+        else if (nextNativeOffset != lastNativeOffset)
         {
-            ilOffset      = jitGetILoffsAny(srcIP);
-            lastNativeOfs = nextNativeOfs;
+            ilOffset         = jitGetILoffsAny(ilOffsetX);
+            lastNativeOffset = nextNativeOffset;
         }
-        else if (srcIP == (IL_OFFSETX)ICorDebugInfo::EPILOG || srcIP == 0)
+        else if ((ilOffsetX == ICorDebugInfo::EPILOG) || (ilOffsetX == 0))
         {
             // For the special case of an IL instruction with no body
             // followed by the epilog (say ret void immediately preceding
@@ -5095,63 +5055,72 @@ void CodeGen::genIPmappingGen()
             // at the (empty) ret statement if the user tries to put a
             // breakpoint there, and then have the option of seeing the
             // epilog or not based on SetUnmappedStopMask for the stepper.
-            ilOffset = jitGetILoffsAny(srcIP);
+            ilOffset = jitGetILoffsAny(ilOffsetX);
         }
 
         if (ilOffset != BAD_IL_OFFSET)
         {
-            assert(mappingCnt < eeBoundariesCount);
+            assert(mappingIndex < mappingCount);
 
-            ICorDebugInfo::OffsetMapping& mapping = eeBoundaries[mappingCnt++];
-            mapping.nativeOffset                  = nextNativeOfs;
-            mapping.ilOffset                      = ilOffset;
-            mapping.source                        = static_cast<ICorDebugInfo::SourceTypes>(
-                (stkEmpty ? ICorDebugInfo::STACK_EMPTY : 0) | (callInstruction ? ICorDebugInfo::CALL_INSTRUCTION : 0));
+            if (jitIsStackEmpty(ilOffsetX))
+            {
+                source = static_cast<ICorDebugInfo::SourceTypes>(source | ICorDebugInfo::STACK_EMPTY);
+            }
+
+            ICorDebugInfo::OffsetMapping& mapping = mappings[mappingIndex++];
+
+            mapping.nativeOffset = nextNativeOffset;
+            mapping.ilOffset     = ilOffset;
+            mapping.source       = source;
         }
     }
 
 #if 0
     // TODO-Review:
-    //This check is disabled.  It is always true that any time this check asserts, the debugger would have a
-    //problem with IL source level debugging.  However, for a C# file, it only matters if things are on
-    //different source lines.  As a result, we have all sorts of latent problems with how we emit debug
-    //info, but very few actual ones.  Whenever someone wants to tackle that problem in general, turn this
-    //assert back on.
+    // This check is disabled. It is always true that any time this check asserts, the debugger would have
+    // a problem with IL source level debugging.  However, for a C# file, it only matters if things are on
+    // different source lines. As a result, we have all sorts of latent problems with how we emit debug
+    // info, but very few actual ones. Whenever someone wants to tackle that problem in general, turn this
+    // assert back on.
+
     if (compiler->opts.compDbgCode)
     {
-        //Assert that the first instruction of every basic block with more than one incoming edge has a
-        //different sequence point from each incoming block.
-        //
-        //It turns out that the only thing we really have to assert is that the first statement in each basic
-        //block has an IL offset and appears in eeBoundaries.
-        for (BasicBlock* const block : compiler->Blocks())
+        // Assert that the first instruction of every basic block with more than one incoming edge
+        // has a different sequence point from each incoming block.
+        // It turns out that the only thing we really have to assert is that the first statement in
+        // each basic block has an IL offset and appears in mappings.
+
+        for (BasicBlock* block : compiler->Blocks())
         {
             Statement* stmt = block->firstStmt();
+
             if ((block->bbRefs > 1) && (stmt != nullptr))
             {
                 bool found = false;
+
                 if (stmt->GetILOffsetX() != BAD_IL_OFFSET)
                 {
                     IL_OFFSET ilOffs = jitGetILoffs(stmt->GetILOffsetX());
-                    for (unsigned i = 0; i < eeBoundariesCount; ++i)
+
+                    for (unsigned i = 0; i < mappingCount; ++i)
                     {
-                        if (eeBoundaries[i].ilOffset == ilOffs)
+                        if (mappings[i].ilOffset == ilOffs)
                         {
                             found = true;
                             break;
                         }
                     }
                 }
+
                 noway_assert(found && "A basic block that is a jump target did not start a new sequence point.");
             }
         }
     }
 #endif // 0
 
-    DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, eeDispLineInfos(eeBoundaries, eeBoundariesCount));
+    DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, PrintOffsetMappings(mappings, mappingCount));
 
-    compiler->info.compCompHnd->setBoundaries(compiler->info.compMethodHnd, eeBoundariesCount,
-                                              (ICorDebugInfo::OffsetMapping*)eeBoundaries);
+    compiler->info.compCompHnd->setBoundaries(compiler->info.compMethodHnd, mappingCount, mappings);
 }
 
 #ifndef TARGET_X86

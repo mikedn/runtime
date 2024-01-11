@@ -14,7 +14,7 @@
 enum FuncKind : uint8_t;
 struct FuncInfoDsc;
 #endif
-struct IPmappingDsc;
+struct ILMapping;
 struct VarResultInfo;
 
 class CodeGen final : public CodeGenInterface
@@ -24,12 +24,12 @@ class CodeGen final : public CodeGenInterface
     friend class CodeGenLivenessUpdater;
     friend class CodeGenInterface;
 
-    class LinearScan* m_lsra           = nullptr;
-    IPmappingDsc*     genIPmappingList = nullptr;
-    IPmappingDsc*     genIPmappingLast = nullptr;
-    BasicBlock*       m_currentBlock   = nullptr;
-    GSCookie*         m_gsCookieAddr   = nullptr;
-    GSCookie          m_gsCookieVal    = 0;
+    class LinearScan* m_lsra         = nullptr;
+    ILMapping*        firstILMapping = nullptr;
+    ILMapping*        lastILMapping  = nullptr;
+    BasicBlock*       m_currentBlock = nullptr;
+    GSCookie*         m_gsCookieAddr = nullptr;
+    GSCookie          m_gsCookieVal  = 0;
 
     CodeGenLivenessUpdater liveness;
 
