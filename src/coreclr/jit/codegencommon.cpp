@@ -4936,7 +4936,7 @@ void CodeGen::genIPmappingGen()
     }
 
     unsigned mappingCount     = 0;
-    uint32_t lastNativeOffset = UINT32_MAX;
+    uint32_t prevNativeOffset = UINT32_MAX;
 
     for (ILMapping *mapping = firstILMapping, *prev = nullptr; mapping != nullptr; mapping = mapping->next)
     {
@@ -4956,10 +4956,10 @@ void CodeGen::genIPmappingGen()
 
         uint32_t nextNativeOffset = mapping->nativeOffset;
 
-        if (nextNativeOffset != lastNativeOffset)
+        if (nextNativeOffset != prevNativeOffset)
         {
             mappingCount++;
-            lastNativeOffset = nextNativeOffset;
+            prevNativeOffset = nextNativeOffset;
             prev             = mapping;
 
             continue;
@@ -5000,7 +5000,7 @@ void CodeGen::genIPmappingGen()
         }
 
         noway_assert(prev != nullptr);
-        noway_assert((prev->nativeOffset == UINT32_MAX) || (lastNativeOffset == prev->nativeOffset));
+        noway_assert((prev->nativeOffset == UINT32_MAX) || (prevNativeOffset == prev->nativeOffset));
 
         // The previous block had the same native offset. We have to discard one of the
         // mappings. Simply set nativeOffset to an invalid value.
@@ -5028,7 +5028,7 @@ void CodeGen::genIPmappingGen()
         compiler->info.compCompHnd->allocateArray(mappingCount * sizeof(mappings[0])));
 
     unsigned mappingIndex = 0;
-    lastNativeOffset      = UINT32_MAX;
+    prevNativeOffset      = UINT32_MAX;
 
     for (ILMapping* mapping = firstILMapping; mapping != nullptr; mapping = mapping->next)
     {
@@ -5040,17 +5040,14 @@ void CodeGen::genIPmappingGen()
         uint32_t   nextNativeOffset = mapping->nativeOffset;
         IL_OFFSETX ilOffsetX        = mapping->ilOffsetX;
         auto       source           = ICorDebugInfo::SOURCE_TYPE_INVALID;
-        IL_OFFSET  ilOffset         = BAD_IL_OFFSET;
 
         if (jitIsCallInstruction(ilOffsetX))
         {
-            ilOffset = jitGetILoffs(ilOffsetX);
-            source   = static_cast<ICorDebugInfo::SourceTypes>(source | ICorDebugInfo::CALL_INSTRUCTION);
+            source = static_cast<ICorDebugInfo::SourceTypes>(source | ICorDebugInfo::CALL_INSTRUCTION);
         }
-        else if (nextNativeOffset != lastNativeOffset)
+        else if (nextNativeOffset != prevNativeOffset)
         {
-            ilOffset         = jitGetILoffsAny(ilOffsetX);
-            lastNativeOffset = nextNativeOffset;
+            prevNativeOffset = nextNativeOffset;
         }
         else if ((ilOffsetX == ICorDebugInfo::EPILOG) || (ilOffsetX == 0))
         {
@@ -5060,24 +5057,24 @@ void CodeGen::genIPmappingGen()
             // at the (empty) ret statement if the user tries to put a
             // breakpoint there, and then have the option of seeing the
             // epilog or not based on SetUnmappedStopMask for the stepper.
-            ilOffset = jitGetILoffsAny(ilOffsetX);
         }
-
-        if (ilOffset != BAD_IL_OFFSET)
+        else
         {
-            assert(mappingIndex < mappingCount);
-
-            if (jitIsStackEmpty(ilOffsetX))
-            {
-                source = static_cast<ICorDebugInfo::SourceTypes>(source | ICorDebugInfo::STACK_EMPTY);
-            }
-
-            ICorDebugInfo::OffsetMapping& mapping = mappings[mappingIndex++];
-
-            mapping.nativeOffset = nextNativeOffset;
-            mapping.ilOffset     = ilOffset;
-            mapping.source       = source;
+            continue;
         }
+
+        assert(mappingIndex < mappingCount);
+
+        if (jitIsStackEmpty(ilOffsetX))
+        {
+            source = static_cast<ICorDebugInfo::SourceTypes>(source | ICorDebugInfo::STACK_EMPTY);
+        }
+
+        ICorDebugInfo::OffsetMapping& corMapping = mappings[mappingIndex++];
+
+        corMapping.nativeOffset = nextNativeOffset;
+        corMapping.ilOffset     = jitGetILoffsAny(ilOffsetX);
+        corMapping.source       = source;
     }
 
 #if 0
