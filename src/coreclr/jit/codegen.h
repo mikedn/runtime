@@ -24,12 +24,13 @@ class CodeGen final : public CodeGenInterface
     friend class CodeGenLivenessUpdater;
     friend class CodeGenInterface;
 
-    class LinearScan* m_lsra         = nullptr;
-    ILMapping*        firstILMapping = nullptr;
-    ILMapping*        lastILMapping  = nullptr;
-    BasicBlock*       m_currentBlock = nullptr;
-    GSCookie*         m_gsCookieAddr = nullptr;
-    GSCookie          m_gsCookieVal  = 0;
+    class LinearScan* m_lsra = nullptr;
+
+    ILMapping*  firstILMapping = nullptr;
+    ILMapping*  lastILMapping  = nullptr;
+    BasicBlock* m_currentBlock = nullptr;
+    GSCookie*   m_gsCookieAddr = nullptr;
+    GSCookie    m_gsCookieVal  = 0;
 
     CodeGenLivenessUpdater liveness;
 
@@ -474,7 +475,7 @@ public:
 #endif
 
     void genIPmappingAdd(IL_OFFSETX offset, bool isLabel);
-    void genIPmappingAddToFront(IL_OFFSETX offset);
+    void InsertPrologILMapping();
     void genIPmappingGen();
 
     void genEnsureCodeEmitted(IL_OFFSETX offsx);

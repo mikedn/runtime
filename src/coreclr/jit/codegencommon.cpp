@@ -3785,8 +3785,7 @@ void CodeGen::genFnProlog()
 
     if (compiler->opts.compDbgInfo)
     {
-        // Do this so we can put the prolog instruction group ahead of other instruction groups.
-        genIPmappingAddToFront(ICorDebugInfo::PROLOG);
+        InsertPrologILMapping();
     }
 
 #ifdef TARGET_XARCH
@@ -4781,20 +4780,14 @@ void CodeGen::genIPmappingAdd(IL_OFFSETX offsx, bool isLabel)
 #endif
 }
 
-void CodeGen::genIPmappingAddToFront(IL_OFFSETX offsx)
+void CodeGen::InsertPrologILMapping()
 {
     assert(compiler->opts.compDbgInfo);
     assert(generatingProlog);
-    assert(offsx != BAD_IL_OFFSET);
-
-    if ((offsx != ICorDebugInfo::PROLOG) && (offsx != ICorDebugInfo::EPILOG) && (offsx != ICorDebugInfo::NO_MAPPING))
-    {
-        noway_assert(jitGetILoffs(offsx) <= compiler->info.compILCodeSize);
-    }
 
     ILMapping* mapping = compiler->getAllocator(CMK_DebugInfo).allocate<ILMapping>(1);
     mapping->nativeLoc.CaptureLocation(GetEmitter());
-    mapping->ilOffsetX = offsx;
+    mapping->ilOffsetX = ICorDebugInfo::PROLOG;
     mapping->isLabel   = true;
     mapping->next      = nullptr;
 
