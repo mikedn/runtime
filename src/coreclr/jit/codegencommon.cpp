@@ -4888,35 +4888,28 @@ bool jitIsCallInstruction(IL_OFFSETX offsx)
 
 #ifdef DEBUG
 
-struct boundariesDsc
-{
-    UNATIVE_OFFSET nativeIP;
-    IL_OFFSET      ilOffset;
-    unsigned       sourceReason;
-};
-
-static void eeDispLineInfo(const boundariesDsc* line)
+static void eeDispLineInfo(const ICorDebugInfo::OffsetMapping* line)
 {
     printf("IL offs ");
 
     eeDispILOffs(line->ilOffset);
 
-    printf(" : 0x%08X", line->nativeIP);
-    if (line->sourceReason != 0)
+    printf(" : 0x%08X", line->nativeOffset);
+    if (line->source != 0)
     {
         // It seems like it should probably never be zero since ICorDebugInfo::SOURCE_TYPE_INVALID is zero.
         // However, the JIT has always generated this and printed "stack non-empty".
 
         printf(" ( ");
-        if ((line->sourceReason & ICorDebugInfo::STACK_EMPTY) != 0)
+        if ((line->source & ICorDebugInfo::STACK_EMPTY) != 0)
         {
             printf("STACK_EMPTY ");
         }
-        if ((line->sourceReason & ICorDebugInfo::CALL_INSTRUCTION) != 0)
+        if ((line->source & ICorDebugInfo::CALL_INSTRUCTION) != 0)
         {
             printf("CALL_INSTRUCTION ");
         }
-        if ((line->sourceReason & ICorDebugInfo::CALL_SITE) != 0)
+        if ((line->source & ICorDebugInfo::CALL_SITE) != 0)
         {
             printf("CALL_SITE ");
         }
@@ -4925,10 +4918,10 @@ static void eeDispLineInfo(const boundariesDsc* line)
     printf("\n");
 
     // We don't expect to see any other bits.
-    assert((line->sourceReason & ~(ICorDebugInfo::STACK_EMPTY | ICorDebugInfo::CALL_INSTRUCTION)) == 0);
+    assert((line->source & ~(ICorDebugInfo::STACK_EMPTY | ICorDebugInfo::CALL_INSTRUCTION)) == 0);
 }
 
-static void eeDispLineInfos(const boundariesDsc* mappings, unsigned count)
+static void eeDispLineInfos(const ICorDebugInfo::OffsetMapping* mappings, unsigned count)
 {
     printf("IP mapping count : %d\n", count);
     for (unsigned i = 0; i < count; i++)
@@ -4976,9 +4969,6 @@ void CodeGen::genIPmappingGen()
     }
 
     JITDUMP("\n*************** In genIPmappingGen()\n");
-
-    // necessary but not sufficient condition that the 2 struct definitions overlap
-    static_assert_no_msg(sizeof(boundariesDsc) == sizeof(ICorDebugInfo::OffsetMapping));
 
     if (genIPmappingList == nullptr)
     {
@@ -5062,13 +5052,13 @@ void CodeGen::genIPmappingGen()
         }
     }
 
-    unsigned       eeBoundariesCount = 0;
-    boundariesDsc* eeBoundaries      = nullptr;
+    unsigned                      eeBoundariesCount = 0;
+    ICorDebugInfo::OffsetMapping* eeBoundaries      = nullptr;
 
     if (mappingCnt != 0)
     {
         eeBoundariesCount = mappingCnt;
-        eeBoundaries      = static_cast<boundariesDsc*>(
+        eeBoundaries      = static_cast<ICorDebugInfo::OffsetMapping*>(
             compiler->info.compCompHnd->allocateArray(eeBoundariesCount * sizeof(eeBoundaries[0])));
     }
 
@@ -5112,11 +5102,11 @@ void CodeGen::genIPmappingGen()
         {
             assert(mappingCnt < eeBoundariesCount);
 
-            boundariesDsc& mapping = eeBoundaries[mappingCnt++];
-            mapping.nativeIP       = nextNativeOfs;
-            mapping.ilOffset       = ilOffset;
-            mapping.sourceReason   = stkEmpty ? ICorDebugInfo::STACK_EMPTY : 0;
-            mapping.sourceReason |= callInstruction ? ICorDebugInfo::CALL_INSTRUCTION : 0;
+            ICorDebugInfo::OffsetMapping& mapping = eeBoundaries[mappingCnt++];
+            mapping.nativeOffset                  = nextNativeOfs;
+            mapping.ilOffset                      = ilOffset;
+            mapping.source                        = static_cast<ICorDebugInfo::SourceTypes>(
+                (stkEmpty ? ICorDebugInfo::STACK_EMPTY : 0) | (callInstruction ? ICorDebugInfo::CALL_INSTRUCTION : 0));
         }
     }
 
