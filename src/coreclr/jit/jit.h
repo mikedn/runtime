@@ -286,9 +286,6 @@ const IL_OFFSETX IL_OFFSETX_CALLINSTRUCTIONBIT = 0x40000000; // Set when the IL 
 const IL_OFFSETX IL_OFFSETX_BITS               = IL_OFFSETX_STKBIT | IL_OFFSETX_CALLINSTRUCTIONBIT;
 
 IL_OFFSET jitGetILoffs(IL_OFFSETX offsx);
-IL_OFFSET jitGetILoffsAny(IL_OFFSETX offsx);
-bool jitIsStackEmpty(IL_OFFSETX offsx);
-bool jitIsCallInstruction(IL_OFFSETX offsx);
 
 const unsigned BAD_VAR_NUM = UINT_MAX;
 

@@ -4623,6 +4623,51 @@ struct ILMapping
     };
     IL_OFFSETX ilOffsetX;
     bool       isLabel;
+
+    IL_OFFSET GetILOffset() const
+    {
+        assert(ilOffsetX != BAD_IL_OFFSET);
+
+        switch (ilOffsetX)
+        {
+            case ICorDebugInfo::NO_MAPPING:
+            case ICorDebugInfo::PROLOG:
+            case ICorDebugInfo::EPILOG:
+                return static_cast<IL_OFFSET>(ilOffsetX);
+            default:
+                return static_cast<IL_OFFSET>(ilOffsetX & ~IL_OFFSETX_BITS);
+        }
+    }
+
+    bool IsStackEmpty() const
+    {
+        assert(ilOffsetX != BAD_IL_OFFSET);
+
+        switch (ilOffsetX)
+        {
+            case ICorDebugInfo::NO_MAPPING:
+            case ICorDebugInfo::PROLOG:
+            case ICorDebugInfo::EPILOG:
+                return true;
+            default:
+                return (ilOffsetX & IL_OFFSETX_STKBIT) == 0;
+        }
+    }
+
+    bool IsCallInstruction() const
+    {
+        assert(ilOffsetX != BAD_IL_OFFSET);
+
+        switch (ilOffsetX)
+        {
+            case ICorDebugInfo::NO_MAPPING:
+            case ICorDebugInfo::PROLOG:
+            case ICorDebugInfo::EPILOG:
+                return false;
+            default:
+                return (ilOffsetX & IL_OFFSETX_CALLINSTRUCTIONBIT) != 0;
+        }
+    }
 };
 
 #ifdef DEBUG
@@ -4657,14 +4702,14 @@ static void PrintILOffsetMapping(const ILMapping& mapping)
     }
     else
     {
-        PrintILOffset(jitGetILoffsAny(offsx));
+        PrintILOffset(mapping.GetILOffset());
 
-        if (jitIsStackEmpty(offsx))
+        if (mapping.IsStackEmpty())
         {
             printf(" STACK_EMPTY");
         }
 
-        if (jitIsCallInstruction(offsx))
+        if (mapping.IsCallInstruction())
         {
             printf(" CALL_INSTRUCTION");
         }
@@ -4797,56 +4842,6 @@ IL_OFFSET jitGetILoffs(IL_OFFSETX offsx)
     }
 }
 
-// Similar to jitGetILoffs(), but passes through ICorDebugInfo
-// distinguished values. Asserts if passed BAD_IL_OFFSET.
-IL_OFFSET jitGetILoffsAny(IL_OFFSETX offsx)
-{
-    assert(offsx != BAD_IL_OFFSET);
-
-    switch ((int)offsx) // Need the cast since offs is unsigned and the case statements are comparing to signed.
-    {
-        case ICorDebugInfo::NO_MAPPING:
-        case ICorDebugInfo::PROLOG:
-        case ICorDebugInfo::EPILOG:
-            return IL_OFFSET(offsx);
-
-        default:
-            return IL_OFFSET(offsx & ~IL_OFFSETX_BITS);
-    }
-}
-
-bool jitIsStackEmpty(IL_OFFSETX offsx)
-{
-    assert(offsx != BAD_IL_OFFSET);
-
-    switch ((int)offsx) // Need the cast since offs is unsigned and the case statements are comparing to signed.
-    {
-        case ICorDebugInfo::NO_MAPPING:
-        case ICorDebugInfo::PROLOG:
-        case ICorDebugInfo::EPILOG:
-            return true;
-
-        default:
-            return (offsx & IL_OFFSETX_STKBIT) == 0;
-    }
-}
-
-bool jitIsCallInstruction(IL_OFFSETX offsx)
-{
-    assert(offsx != BAD_IL_OFFSET);
-
-    switch ((int)offsx) // Need the cast since offs is unsigned and the case statements are comparing to signed.
-    {
-        case ICorDebugInfo::NO_MAPPING:
-        case ICorDebugInfo::PROLOG:
-        case ICorDebugInfo::EPILOG:
-            return false;
-
-        default:
-            return (offsx & IL_OFFSETX_CALLINSTRUCTIONBIT) != 0;
-    }
-}
-
 #ifdef DEBUG
 
 static void PrintOffsetMapping(const ICorDebugInfo::OffsetMapping& mapping)
@@ -4942,12 +4937,10 @@ void CodeGen::genIPmappingGen()
     {
         mapping->nativeOffset = mapping->nativeLoc.GetCodeOffset();
 
-        IL_OFFSETX ilOffsetX = mapping->ilOffsetX;
-
         // Managed RetVal - since new sequence points are emitted to identify IL calls,
         // make sure that those are not filtered and do not interfere with filtering of
         // other sequence points.
-        if (jitIsCallInstruction(ilOffsetX))
+        if (mapping->IsCallInstruction())
         {
             mappingCount++;
 
@@ -4981,7 +4974,7 @@ void CodeGen::genIPmappingGen()
             continue;
         }
 
-        if (ilOffsetX == ICorDebugInfo::NO_MAPPING)
+        if (mapping->ilOffsetX == ICorDebugInfo::NO_MAPPING)
         {
             // If the current entry is NO_MAPPING, ignore it
             // Leave prev unchanged as mapping is no longer valid
@@ -4990,7 +4983,7 @@ void CodeGen::genIPmappingGen()
             continue;
         }
 
-        if ((ilOffsetX == ICorDebugInfo::EPILOG) || (ilOffsetX == 0))
+        if ((mapping->ilOffsetX == ICorDebugInfo::EPILOG) || (mapping->ilOffsetX == 0))
         {
             // counting for special cases: see below
             mappingCount++;
@@ -5041,7 +5034,7 @@ void CodeGen::genIPmappingGen()
         IL_OFFSETX ilOffsetX        = mapping->ilOffsetX;
         auto       source           = ICorDebugInfo::SOURCE_TYPE_INVALID;
 
-        if (jitIsCallInstruction(ilOffsetX))
+        if (mapping->IsCallInstruction())
         {
             source = static_cast<ICorDebugInfo::SourceTypes>(source | ICorDebugInfo::CALL_INSTRUCTION);
         }
@@ -5065,7 +5058,7 @@ void CodeGen::genIPmappingGen()
 
         assert(mappingIndex < mappingCount);
 
-        if (jitIsStackEmpty(ilOffsetX))
+        if (mapping->IsStackEmpty())
         {
             source = static_cast<ICorDebugInfo::SourceTypes>(source | ICorDebugInfo::STACK_EMPTY);
         }
@@ -5073,7 +5066,7 @@ void CodeGen::genIPmappingGen()
         ICorDebugInfo::OffsetMapping& corMapping = mappings[mappingIndex++];
 
         corMapping.nativeOffset = nextNativeOffset;
-        corMapping.ilOffset     = jitGetILoffsAny(ilOffsetX);
+        corMapping.ilOffset     = mapping->GetILOffset();
         corMapping.source       = source;
     }
 
