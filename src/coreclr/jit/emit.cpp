@@ -908,11 +908,6 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
 
     emitPlaceholderLast = igPh;
 
-    // Give an estimated size of this placeholder IG and
-    // increment emitCurCodeOffset since we are not calling emitNewIG()
-    emitCurIGsize += MAX_PLACEHOLDER_IG_SIZE;
-    emitCurCodeOffset += emitCurIGsize;
-
 #ifdef FEATURE_EH_FUNCLETS
     // Add the appropriate IP mapping debugging record for this placeholder
     // group. genExitCode() adds the mapping for main function epilogs.
@@ -928,6 +923,11 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
         }
     }
 #endif // FEATURE_EH_FUNCLETS
+
+    // Give an estimated size of this placeholder IG and
+    // increment emitCurCodeOffset since we are not calling emitNewIG()
+    emitCurIGsize += MAX_PLACEHOLDER_IG_SIZE;
+    emitCurCodeOffset += emitCurIGsize;
 
     if (isLast)
     {
