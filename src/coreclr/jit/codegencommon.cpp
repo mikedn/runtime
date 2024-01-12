@@ -4840,26 +4840,11 @@ void CodeGen::genEnsureCodeEmitted(IL_OFFSETX offsx)
 {
     assert(compiler->opts.compDbgCode);
 
-    if (offsx == BAD_IL_OFFSET)
-    {
-        return;
-    }
+    // When generating debug code we need to ensure that some
+    // native code is generated for every reported IL offset.
 
-    /* If other IL were offsets reported, skip */
-
-    if (lastILMapping == nullptr)
-    {
-        return;
-    }
-
-    if (lastILMapping->ilOffsetX != offsx)
-    {
-        return;
-    }
-
-    /* offsx was the last reported offset. Make sure that we generated native code */
-
-    if (GetEmitter()->IsCurrentLocation(lastILMapping->nativeLoc))
+    if ((lastILMapping != nullptr) && (lastILMapping->ilOffsetX == offsx) &&
+        GetEmitter()->IsCurrentLocation(lastILMapping->nativeLoc))
     {
         GetEmitter()->emitIns(INS_nop);
     }

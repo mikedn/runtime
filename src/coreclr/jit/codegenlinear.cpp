@@ -387,9 +387,6 @@ void CodeGen::genCodeForBBlist()
         {
             if (compiler->opts.compDbgCode)
             {
-                // It is possible to reach the end of the block without generating code for the current IL offset.
-                // This can lead to problems when debugging the generated code. To prevent these issues, make sure
-                // we've generated code for the last IL offset we saw in the block.
                 genEnsureCodeEmitted(currentILOffset);
             }
 
