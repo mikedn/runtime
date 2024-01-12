@@ -839,6 +839,11 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
         noway_assert(emitCurIG->byrefRegs == RBM_NONE);
 
         isLast = false;
+
+        if (emitComp->opts.compDbgInfo)
+        {
+            codeGen->genIPmappingAdd(ICorDebugInfo::PROLOG, true);
+        }
     }
     else
 #endif // FEATURE_EH_FUNCLETS
@@ -872,6 +877,15 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
         // which disables GC at the beginning of argument setup, but assumes that after
         // the epilog it will be re-enabled.
         emitNoGCIG = false;
+
+#ifdef FEATURE_EH_FUNCLETS
+        // Add the appropriate IP mapping debugging record for this placeholder
+        // group. genExitCode() adds the mapping for main function epilogs.
+        if (emitComp->opts.compDbgInfo && (igType == IGPT_FUNCLET_EPILOG))
+        {
+            codeGen->genIPmappingAdd(ICorDebugInfo::EPILOG, true);
+        }
+#endif
     }
 
     insGroup* igPh = emitCurIG;
@@ -908,55 +922,41 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
 
     emitPlaceholderLast = igPh;
 
-#ifdef FEATURE_EH_FUNCLETS
-    // Add the appropriate IP mapping debugging record for this placeholder
-    // group. genExitCode() adds the mapping for main function epilogs.
-    if (emitComp->opts.compDbgInfo)
-    {
-        if (igType == IGPT_FUNCLET_PROLOG)
-        {
-            codeGen->genIPmappingAdd(ICorDebugInfo::PROLOG, true);
-        }
-        else if (igType == IGPT_FUNCLET_EPILOG)
-        {
-            codeGen->genIPmappingAdd(ICorDebugInfo::EPILOG, true);
-        }
-    }
-#endif // FEATURE_EH_FUNCLETS
+    assert(emitCurIGsize == 0);
 
-    // Give an estimated size of this placeholder IG and
-    // increment emitCurCodeOffset since we are not calling emitNewIG()
-    emitCurIGsize += MAX_PLACEHOLDER_IG_SIZE;
-    emitCurCodeOffset += emitCurIGsize;
+    // We don't know what code size the placeholder insGroup will have,
+    // just use an estimate large enough to accomodate any placeholder.
+    emitCurIGsize = MAX_PLACEHOLDER_IG_SIZE;
+    emitCurCodeOffset += MAX_PLACEHOLDER_IG_SIZE;
 
     if (isLast)
     {
         emitCurIG = nullptr;
-    }
-    else
-    {
-        emitNewIG();
 
-        // The group after the placeholder group doesn't get the "propagate" flags.
-        emitCurIG->igFlags &= ~IGF_PROPAGATE_MASK;
+        return;
+    }
+
+    emitNewIG();
+
+    // The group after the placeholder group doesn't get the "propagate" flags.
+    emitCurIG->igFlags &= ~IGF_PROPAGATE_MASK;
 
 #ifdef FEATURE_EH_FUNCLETS
-        if (igType == IGPT_FUNCLET_PROLOG)
-        {
-            // The funclet prolog and the funclet entry block will have the same GC info.
-            // Nothing is really live in the prolog, since it's not interruptible, but if
-            // we kill everything at the start of the prolog we may end up creating new
-            // live ranges for whatever GC locals happen to be live before the funclet and
-            // inside the funclet so may as well pretend that whatever is live at entry
-            // is also live inside prolog.
-            // The locals bitset is never modified so we can make a shallow copy here.
+    if (igType == IGPT_FUNCLET_PROLOG)
+    {
+        // The funclet prolog and the funclet entry block will have the same GC info.
+        // Nothing is really live in the prolog, since it's not interruptible, but if
+        // we kill everything at the start of the prolog we may end up creating new
+        // live ranges for whatever GC locals happen to be live before the funclet and
+        // inside the funclet so may as well pretend that whatever is live at entry
+        // is also live inside prolog.
+        // The locals bitset is never modified so we can make a shallow copy here.
 
-            emitCurIG->gcLcls    = igPh->gcLcls;
-            emitCurIG->refRegs   = igPh->refRegs;
-            emitCurIG->byrefRegs = igPh->byrefRegs;
-        }
-#endif
+        emitCurIG->gcLcls    = igPh->gcLcls;
+        emitCurIG->refRegs   = igPh->refRegs;
+        emitCurIG->byrefRegs = igPh->byrefRegs;
     }
+#endif
 }
 
 void emitter::emitGeneratePrologEpilog()
