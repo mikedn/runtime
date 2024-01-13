@@ -2037,7 +2037,7 @@ unsigned emitter::getLoopSize(insGroup* igLoopHeader, unsigned maxLoopSize DEBUG
                 // Find the alignInstr for igInLoop IG.
                 for (; alignInstr != nullptr; alignInstr = alignInstr->idaNext)
                 {
-                    if (alignInstr->idaIG->igNum == igInLoop->igNum)
+                    if (alignInstr->idaIG == igInLoop)
                     {
                         foundAlignInstr = true;
                         break;
