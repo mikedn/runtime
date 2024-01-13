@@ -164,14 +164,14 @@ bool emitter::IsCodeAligned(UNATIVE_OFFSET offset)
 }
 #endif
 
-insGroup* emitter::emitAllocIG()
+insGroup* emitter::emitAllocIG(unsigned num)
 {
     assert(IsCodeAligned(emitCurCodeOffset));
 
     insGroup* ig = static_cast<insGroup*>(emitGetMem(sizeof(insGroup)));
     ig->igNext   = nullptr;
     ig->igData   = nullptr;
-    ig->igNum    = 0;
+    ig->igNum    = num;
     ig->igOffs   = emitCurCodeOffset;
 #ifdef FEATURE_EH_FUNCLETS
     ig->igFuncIdx = codeGen->currentFuncletIndex;
@@ -202,8 +202,7 @@ void emitter::emitNewIG()
 {
     assert(emitIGlast == emitCurIG);
 
-    insGroup* ig = emitAllocIG();
-    ig->igNum    = emitIGlast->igNum + 1;
+    insGroup* ig = emitAllocIG(emitIGlast->igNum + 1);
     ig->igFlags |= emitIGlast->igFlags & IGF_PROPAGATE_MASK;
 
     emitIGlast->igNext = ig;
@@ -477,10 +476,9 @@ void emitter::emitBegFN()
     emitCurIGfreeEndp = emitCurIGfreeBase + IG_BUFFER_SIZE;
 
     // Create the first IG, it will be used for the prolog.
-    emitIGfirst        = emitAllocIG();
-    emitIGfirst->igNum = 1;
-    emitIGlast         = emitIGfirst;
-    emitCurIG          = emitIGfirst;
+    emitIGfirst = emitAllocIG(1);
+    emitIGlast  = emitIGfirst;
+    emitCurIG   = emitIGfirst;
 
     JITDUMP(FMT_IG ": offs %06XH, funclet %02u, weight %s\n", emitCurIG->GetId(), emitCurIG->igOffs,
             emitCurIG->GetFuncletIndex(), refCntWtd2str(emitCurIG->igWeight));
@@ -1150,7 +1148,7 @@ void emitter::emitStartExitSeq()
 
 insGroup* emitter::CreateTempLabel()
 {
-    return emitAllocIG();
+    return emitAllocIG(0);
 }
 
 void emitter::DefineTempLabel(insGroup* label)

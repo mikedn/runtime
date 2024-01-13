@@ -1622,7 +1622,7 @@ private:
 
 #endif // PSEUDORANDOM_NOP_INSERTION
 
-    insGroup* emitAllocIG();
+    insGroup* emitAllocIG(unsigned num);
 
     void emitNewIG();
     void emitAppendIG(insGroup* ig);
