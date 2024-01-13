@@ -792,7 +792,7 @@ void CodeGen::genEmitMachineCode()
     {
         printf("\n; Total bytes of code %d, prolog size %d, PerfScore %.2f, instruction count %d, allocated bytes for "
                "code %d",
-               emit.GetCodeSize(), emit.GetPrologSize(), emit.GetPerfScore(), emit.GetInstrCount(),
+               emit.GetCodeSize(), emit.GetMainPrologNoGCSize(), emit.GetPerfScore(), emit.GetInstrCount(),
                emit.GetHotCodeSize() + emit.GetColdCodeSize());
 
 #if TRACK_LSRA_STATS
@@ -4017,9 +4017,9 @@ void CodeGen::genFnProlog()
     {
         // The 'real' prolog ends here for non-interruptible methods.
         // For fully-interruptible methods, we extend the prolog so that
-        // we do not need to track GC inforation while shuffling the
+        // we do not need to track GC information while shuffling the
         // arguments.
-        GetEmitter()->emitMarkPrologEnd();
+        GetEmitter()->MarkMainPrologNoGCEnd();
     }
 
 #ifdef UNIX_AMD64_ABI
@@ -4050,7 +4050,7 @@ void CodeGen::genFnProlog()
 
     if (GetInterruptible())
     {
-        GetEmitter()->emitMarkPrologEnd();
+        GetEmitter()->MarkMainPrologNoGCEnd();
     }
 
     if (compiler->opts.compDbgInfo && (compiler->info.compVarScopesCount > 0))
@@ -4077,7 +4077,7 @@ void CodeGen::genFnProlog()
     }
 #endif
 
-    GetEmitter()->emitEndProlog();
+    GetEmitter()->EndMainProlog();
     unwindEndProlog();
 }
 

@@ -260,7 +260,7 @@ void emitter::emitGenIG(insGroup* ig)
 
 void emitter::emitExtendIG()
 {
-    assert(!emitIGisInProlog(emitCurIG) && !emitCurIG->IsFuncletProlog());
+    assert(!IsMainProlog(emitCurIG) && !emitCurIG->IsFuncletProlog());
 
     emitFinishIG(true);
     emitNewIG();
@@ -387,7 +387,7 @@ void emitter::MoveJumpInstrList(insGroup* ig)
         assert((last == nullptr) || (last->idjOffs > newInstr->idjOffs));
         // We don't generate any jumps in method epilogs and funclet prologs/epilogs,
         // these are generated out of order and we'd need to reorder the jumps.
-        assert(!ig->IsFuncletPrologOrEpilog() && !ig->IsEpilog());
+        assert(!ig->IsFuncletPrologOrEpilog() && !ig->IsMainEpilog());
 
         newInstr->idjNext = list;
         list              = newInstr;
@@ -400,7 +400,7 @@ void emitter::MoveJumpInstrList(insGroup* ig)
 
     assert(last != nullptr);
 
-    bool isPrologJump = emitIGisInProlog(ig);
+    bool isPrologJump = IsMainProlog(ig);
 
     if ((emitJumpList == nullptr) || isPrologJump)
     {
@@ -647,8 +647,8 @@ emitter::instrDescSmall* emitter::emitAllocAnyInstr(unsigned sz, bool updateLast
     // these groups cannot be more than a single instruction group. Note that
     // the prolog/epilog placeholder groups ARE generated in order, and are
     // re-used. But generating additional groups would not work.
-    if (emitComp->compStressCompile(Compiler::STRESS_EMITTER, 1) && emitCurIGinsCnt && !emitIGisInProlog(emitCurIG) &&
-        !emitCurIG->IsEpilog() && !emitCurIG->IsFuncletPrologOrEpilog())
+    if (emitComp->compStressCompile(Compiler::STRESS_EMITTER, 1) && emitCurIGinsCnt && !IsMainProlog(emitCurIG) &&
+        !emitCurIG->IsMainEpilog() && !emitCurIG->IsFuncletPrologOrEpilog())
     {
         emitExtendIG();
     }
@@ -660,7 +660,7 @@ emitter::instrDescSmall* emitter::emitAllocAnyInstr(unsigned sz, bool updateLast
     //     When nopSize is odd we misalign emitCurIGsize
     //
     if (!emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) && !emitInInstrumentation &&
-        !emitIGisInProlog(emitCurIG) && !emitCurIG->IsEpilog() &&
+        !IsMainProlog(emitCurIG) && !emitCurIG->IsMainEpilog() &&
         emitRandomNops // sometimes we turn off where exact codegen is needed (pinvoke inline)
         )
     {
@@ -781,20 +781,20 @@ void emitter::emitBegProlog()
 
 unsigned emitter::emitGetCurrentPrologCodeSize()
 {
-    assert(emitIGisInProlog(emitCurIG) || emitCurIG->IsFuncletProlog());
+    assert(IsMainProlog(emitCurIG) || emitCurIG->IsFuncletProlog());
 
     return emitCurIGsize;
 }
 
-void emitter::emitMarkPrologEnd()
+void emitter::MarkMainPrologNoGCEnd()
 {
     assert(codeGen->generatingProlog);
-    assert(emitIGisInProlog(emitCurIG));
+    assert(IsMainProlog(emitCurIG));
 
-    emitPrologEndPos = emitCurCodePos();
+    mainPrologNoGCEndCodePos = emitCurCodePos();
 }
 
-void emitter::emitEndProlog()
+void emitter::EndMainProlog()
 {
     assert(codeGen->generatingProlog);
 
@@ -810,7 +810,7 @@ void emitter::emitEndProlog()
 
 void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock* igBB)
 {
-    assert(!emitIGisInProlog(emitCurIG));
+    assert(!IsMainProlog(emitCurIG));
 
     bool isLast;
 
@@ -981,7 +981,7 @@ void emitter::emitGeneratePrologEpilog()
 
         BasicBlock* igPhBB = ig->igPhData->igPhBB;
 
-        if (ig->IsEpilog())
+        if (ig->IsMainEpilog())
         {
             JITDUMP("\n=============== Generating epilog\n");
             INDEBUG(++epilogCnt);
@@ -1135,7 +1135,7 @@ void emitter::emitStartEpilog()
 // at the very end of the method body.
 bool emitter::emitHasEpilogEnd()
 {
-    return (emitEpilogCnt == 1) && emitIGlast->IsEpilog(); // This wouldn't work for funclets
+    return (emitEpilogCnt == 1) && emitIGlast->IsMainEpilog(); // This wouldn't work for funclets
 }
 
 // Mark the beginning of the epilog exit sequence by remembering our position.
@@ -1155,7 +1155,7 @@ insGroup* emitter::CreateTempLabel()
 
 void emitter::DefineTempLabel(insGroup* label)
 {
-    assert(!emitIGisInProlog(emitCurIG));
+    assert(!IsMainProlog(emitCurIG));
 
     emitFinishIG();
     emitAppendIG(label);
@@ -1173,7 +1173,7 @@ insGroup* emitter::DefineTempLabel()
 
 insGroup* emitter::emitAddLabel()
 {
-    assert(!emitIGisInProlog(emitCurIG));
+    assert(!IsMainProlog(emitCurIG));
 
     if (emitCurIGnonEmpty())
     {
@@ -1216,7 +1216,7 @@ void emitter::SetLabelGCLiveness(insGroup* label)
 
 insGroup* emitter::DefineInlineTempLabel()
 {
-    assert(!emitIGisInProlog(emitCurIG));
+    assert(!IsMainProlog(emitCurIG));
 
     if (emitCurIGnonEmpty())
     {
@@ -1230,7 +1230,7 @@ insGroup* emitter::DefineInlineTempLabel()
 
 void emitter::DefineInlineTempLabel(insGroup* label)
 {
-    assert(!emitIGisInProlog(emitCurIG));
+    assert(!IsMainProlog(emitCurIG));
 
     emitFinishIG(true);
     emitAppendIG(label);
@@ -1611,12 +1611,12 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
         }
     }
 
-    if (ig == GetProlog())
+    if (IsMainProlog(ig))
     {
         printf("%c prolog", separator);
         separator = ',';
     }
-    else if (ig->IsEpilog())
+    else if (ig->IsMainEpilog())
     {
         printf("%c epilog", separator);
         separator = ',';
@@ -2772,7 +2772,7 @@ void emitter::emitEndCodeGen()
             }
             else
             {
-                if (!ig->IsExtension() || ig->IsEpilog() || ig->IsFuncletPrologOrEpilog() || (prevIG == nullptr) ||
+                if (!ig->IsExtension() || ig->IsMainEpilog() || ig->IsFuncletPrologOrEpilog() || (prevIG == nullptr) ||
                     (ig->IsNoGC() != prevIG->IsNoGC()))
                 {
                     printf("\n%s:", emitLabelString(ig));
@@ -2962,7 +2962,7 @@ void emitter::emitEndCodeGen()
 
         if (emitComp->verbose ||
             (emitComp->opts.disAsm && ((ig->igNext == nullptr) || !ig->igNext->IsExtension() ||
-                                       ig->igNext->IsEpilog() || ig->igNext->IsFuncletPrologOrEpilog())))
+                                       ig->igNext->IsMainEpilog() || ig->igNext->IsFuncletPrologOrEpilog())))
         {
             printf("\t\t\t\t\t\t;; bbWeight=%s PerfScore %.2f", refCntWtd2str(ig->igWeight), blockPerfScore);
             blockPerfScore = 0.0;
@@ -4155,7 +4155,7 @@ size_t emitter::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* call
     unsigned callOffs    = emitCurCodeOffs(callAddr);
     unsigned callEndOffs = callOffs + static_cast<unsigned>(callEndAddr - callAddr);
 
-    if (!emitCurIG->IsEpilog())
+    if (!emitCurIG->IsMainEpilog())
     {
         // We update tracked stack slot GC info before the call as they cannot
         // be used by the call (they'd need to be address exposed, thus untracked).
@@ -4238,7 +4238,7 @@ void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
 {
     assert(emitIssuing);
 
-    if (!emitCurIG->IsEpilog())
+    if (!emitCurIG->IsMainEpilog())
     {
         gcInfo.AddLiveReg(gcType, reg, emitCurCodeOffs(addr));
     }
@@ -4248,7 +4248,7 @@ void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
 {
     assert(emitIssuing);
 
-    if (!emitCurIG->IsEpilog())
+    if (!emitCurIG->IsMainEpilog())
     {
         gcInfo.RemoveLiveReg(reg, emitCurCodeOffs(addr));
     }
@@ -4259,7 +4259,7 @@ void emitter::emitGCregDeadAll(BYTE* addr)
 {
     assert(emitIssuing);
 
-    if (!emitCurIG->IsEpilog())
+    if (!emitCurIG->IsMainEpilog())
     {
         gcInfo.RemoveAllLiveRegs(emitCurCodeOffs(addr));
     }

@@ -3452,7 +3452,7 @@ void emitter::emitIns_CallFinally(BasicBlock* label)
 void emitter::emitIns_J(instruction ins, int instrCount)
 {
     assert(IsJccInstruction(ins));
-    assert(emitIGisInProlog(emitCurIG));
+    assert(IsMainProlog(emitCurIG));
     assert(instrCount < 0);
 
     instrDescJmp* id = emitNewInstrJmp();
@@ -7979,7 +7979,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
     }
 
 #if !FEATURE_FIXED_OUT_ARGS
-    if (!emitIGisInProlog(ig) && !ig->IsEpilog() && !ig->IsFuncletPrologOrEpilog())
+    if (!IsMainProlog(ig) && !ig->IsMainEpilog() && !ig->IsFuncletPrologOrEpilog())
     {
         switch (ins)
         {

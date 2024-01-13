@@ -203,7 +203,7 @@ struct insGroup
         return (igFlags & IGF_LOOP_ALIGN) != 0;
     }
 
-    bool IsEpilog() const
+    bool IsMainEpilog() const
     {
         return (igFlags & IGF_EPILOG) != 0;
     }
@@ -301,8 +301,8 @@ public:
 
     void     emitBegProlog();
     unsigned emitGetCurrentPrologCodeSize();
-    void     emitMarkPrologEnd();
-    void     emitEndProlog();
+    void     MarkMainPrologNoGCEnd();
+    void     EndMainProlog();
     void emitCreatePlaceholderIG(insGroupPlaceholderType kind, BasicBlock* block);
     void emitGeneratePrologEpilog();
 
@@ -334,7 +334,7 @@ public:
     {
         for (EpilogList* el = emitEpilogList; el != nullptr; el = el->elNext)
         {
-            assert(el->elLoc.GetIG()->IsEpilog());
+            assert(el->elLoc.GetIG()->IsMainEpilog());
 
             callback(el->elLoc.GetCodeOffset());
         }
@@ -433,7 +433,7 @@ private:
         OPSZ32 = 5
     };
 
-    bool emitIGisInProlog(const insGroup* ig) const
+    bool IsMainProlog(const insGroup* ig) const
     {
         // Currently, we only allow one IG for the prolog
         return ig == emitIGfirst;
@@ -1514,7 +1514,7 @@ private:
     unsigned       emitCurIGsize;         // estimated code size of current group in bytes
     UNATIVE_OFFSET emitCurCodeOffset = 0; // current code offset within group
 
-    CodePos emitPrologEndPos;
+    CodePos mainPrologNoGCEndCodePos;
 
     UNATIVE_OFFSET emitTotalCodeSize    = 0; // bytes of code in entire method
     UNATIVE_OFFSET emitTotalHotCodeSize = 0;
@@ -1563,9 +1563,9 @@ public:
         return emitTotalCodeSize;
     }
 
-    unsigned GetPrologSize() const
+    unsigned GetMainPrologNoGCSize() const
     {
-        return GetProlog()->GetCodeOffset(emitPrologEndPos);
+        return GetProlog()->GetCodeOffset(mainPrologNoGCEndCodePos);
     }
 
 #ifdef JIT32_GCENCODER

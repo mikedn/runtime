@@ -1311,7 +1311,7 @@ void UnwindInfo::Split(insGroup* start, insGroup* end, uint32_t maxCodeSize)
         // that funclet prologs or any epilogs can have more than one instruction group.
 
         if ((prev != nullptr) &&
-            ((prev->IsFuncletProlog() && ig->IsFuncletProlog()) || (prev->IsEpilog() && ig->IsEpilog())))
+            ((prev->IsFuncletProlog() && ig->IsFuncletProlog()) || (prev->IsMainEpilog() && ig->IsMainEpilog())))
         {
             // We can't update the prev candidate.
         }

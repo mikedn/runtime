@@ -142,7 +142,7 @@ void GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen)
 
     Emitter& emit       = *codeGen->GetEmitter();
     unsigned codeSize   = emit.GetCodeSize();
-    unsigned prologSize = emit.GetPrologSize();
+    unsigned prologSize = emit.GetMainPrologNoGCSize();
     unsigned epilogSize = emit.GetEpilogSize();
 
     GCEncoder encoder(codeGen, codeSize, prologSize, epilogSize, GetReturnKind(compiler->info), firstStackSlotLifetime,
@@ -4648,7 +4648,7 @@ void GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen)
 
     Emitter& emit       = *codeGen->GetEmitter();
     unsigned codeSize   = emit.GetCodeSize();
-    unsigned prologSize = emit.GetPrologSize();
+    unsigned prologSize = emit.GetMainPrologNoGCSize();
 
     CompIAllocator encoderAlloc(compiler->getAllocator(CMK_GC));
     GCEncoder      encoder(compiler, &encoderAlloc, isFullyInterruptible);
