@@ -1414,9 +1414,9 @@ private:
     EpilogList*  emitEpilogList = nullptr; // per method epilog list - head
     EpilogList*  emitEpilogLast = nullptr; // per method epilog list - tail
     emitLocation emitExitSeqBegLoc;
-    unsigned     emitExitSeqSize = INT_MAX; // minimum size of any return sequence - the 'ret' after the epilog
     unsigned     emitEpilogCnt   = 0;
     unsigned     emitEpilogSize  = 0;
+    unsigned     emitExitSeqSize = 0; // minimum size of any return sequence - the 'ret' after the epilog
 
     void emitBegFnEpilog(insGroup* igPh);
     void emitEndFnEpilog();

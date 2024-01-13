@@ -1105,7 +1105,11 @@ void emitter::emitEndFnEpilog()
     assert(epilogExitSeqStartCodeOffset != epilogEndCodeOffset);
 
     newSize = epilogEndCodeOffset - epilogExitSeqStartCodeOffset;
-    if (newSize < emitExitSeqSize)
+    if (emitExitSeqSize == 0)
+    {
+        emitExitSeqSize = newSize;
+    }
+    else if (newSize < emitExitSeqSize)
     {
         // We expect either the epilog to be the same every time, or that
         // one will be a ret or a ret <n> and others will be a jmp addr or jmp [addr];
@@ -2617,13 +2621,6 @@ void emitter::emitEndCodeGen()
     emitMaxStackDepth = maxStackDepthIn4ByteElements;
 
     gcInfo.Begin(emitMaxStackDepth);
-
-    if (emitEpilogCnt == 0)
-    {
-        // No epilogs, make sure the epilog size is set to 0.
-        emitEpilogSize  = 0;
-        emitExitSeqSize = 0;
-    }
 #endif // JIT32_GCENCODER
 
     INDEBUG(emitCheckIGoffsets());
