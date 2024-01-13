@@ -979,37 +979,37 @@ void emitter::emitGeneratePrologEpilog()
 
         BasicBlock* igPhBB = ig->igPhData->igPhBB;
 
-        if (ig->IsMainEpilog())
-        {
-            JITDUMP("\n=============== Generating epilog\n");
-            INDEBUG(++epilogCnt);
 #ifdef JIT32_GCENCODER
-            BeginGCEpilog();
+        assert(ig->IsMainEpilog());
+        BeginGCEpilog();
 #endif
-            emitBegPrologEpilog(ig);
-            codeGen->genFnEpilog(igPhBB);
-            emitEndPrologEpilog();
-#ifdef JIT32_GCENCODER
-            EndGCEpilog();
-#endif
-        }
+        emitBegPrologEpilog(ig);
+
 #ifdef FEATURE_EH_FUNCLETS
-        else if (ig->IsFuncletProlog())
+        if (ig->IsFuncletProlog())
         {
             JITDUMP("\n=============== Generating funclet prolog\n");
             INDEBUG(++funcletPrologCnt);
-            emitBegPrologEpilog(ig);
             codeGen->genFuncletProlog(igPhBB);
-            emitEndPrologEpilog();
         }
         else if (ig->IsFuncletEpilog())
         {
             JITDUMP("\n=============== Generating funclet epilog\n");
             INDEBUG(++funcletEpilogCnt);
-            emitBegPrologEpilog(ig);
             codeGen->genFuncletEpilog();
-            emitEndPrologEpilog();
         }
+        else
+#endif
+        {
+            assert(ig->IsMainEpilog());
+            JITDUMP("\n=============== Generating epilog\n");
+            INDEBUG(++epilogCnt);
+            codeGen->genFnEpilog(igPhBB);
+        }
+
+        emitEndPrologEpilog();
+#ifdef JIT32_GCENCODER
+        EndGCEpilog();
 #endif
     }
 
