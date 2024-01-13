@@ -1298,17 +1298,22 @@ void UnwindInfo::Split(insGroup* start, insGroup* end, uint32_t maxCodeSize)
             }
         }
 
-        // Update the current prevCandidate to be this block, if it isn't in the middle of a
-        // prolog or epilog, which we can't split. All we know is that certain IGs are
+        // Update the current prev candidate to be this block, if it isn't in the middle of
+        // a prolog or epilog, which we can't split. All we know is that certain IGs are
         // marked as prolog or epilog. We don't actually know if two adjacent IGs are part
         // of the *same* prolog or epilog, so we have to assume they are.
 
-        // TODO-MIKE-Review: Should this check IGF_FUNCLET_EPILOG as well?
+        // TODO-MIKE-Review: Should this check for funclet epilogs as well? But then the
+        // thing is suspect, as this code doesn't really split any instruction groups
+        // and prologs/epilogs should have only one instruction group, and then this code
+        // would be pointless. Though some other parts of the code seem to think that only
+        // the main prolog is limited to only one instruction group, but it's unlikely
+        // that funclet prologs or any epilogs can have more than one instruction group.
 
-        if (prev && (((prev->igFlags & IGF_FUNCLET_PROLOG) && (ig->igFlags & IGF_FUNCLET_PROLOG)) ||
-                     ((prev->igFlags & IGF_EPILOG) && (ig->igFlags & IGF_EPILOG))))
+        if ((prev != nullptr) &&
+            ((prev->IsFuncletProlog() && ig->IsFuncletProlog()) || (prev->IsEpilog() && ig->IsEpilog())))
         {
-            // We can't update the prevCandidate
+            // We can't update the prev candidate.
         }
         else
         {

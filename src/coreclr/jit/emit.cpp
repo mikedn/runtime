@@ -981,7 +981,7 @@ void emitter::emitGeneratePrologEpilog()
 
         BasicBlock* igPhBB = ig->igPhData->igPhBB;
 
-        if ((ig->igFlags & IGF_EPILOG) != 0)
+        if (ig->IsEpilog())
         {
             JITDUMP("\n=============== Generating epilog\n");
             INDEBUG(++epilogCnt);
@@ -996,7 +996,7 @@ void emitter::emitGeneratePrologEpilog()
 #endif
         }
 #ifdef FEATURE_EH_FUNCLETS
-        else if ((ig->igFlags & IGF_FUNCLET_PROLOG) != 0)
+        else if (ig->IsFuncletProlog())
         {
             JITDUMP("\n=============== Generating funclet prolog\n");
             INDEBUG(++funcletPrologCnt);
@@ -1004,7 +1004,7 @@ void emitter::emitGeneratePrologEpilog()
             codeGen->genFuncletProlog(igPhBB);
             emitEndPrologEpilog();
         }
-        else if ((ig->igFlags & IGF_FUNCLET_EPILOG) != 0)
+        else if (ig->IsFuncletEpilog())
         {
             JITDUMP("\n=============== Generating funclet epilog\n");
             INDEBUG(++funcletEpilogCnt);
@@ -1135,7 +1135,7 @@ void emitter::emitStartEpilog()
 // at the very end of the method body.
 bool emitter::emitHasEpilogEnd()
 {
-    return (emitEpilogCnt == 1) && ((emitIGlast->igFlags & IGF_EPILOG) != 0); // This wouldn't work for funclets
+    return (emitEpilogCnt == 1) && emitIGlast->IsEpilog(); // This wouldn't work for funclets
 }
 
 // Mark the beginning of the epilog exit sequence by remembering our position.
@@ -1616,18 +1616,18 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
         printf("%c prolog", separator);
         separator = ',';
     }
-    else if (flags & IGF_EPILOG)
+    else if (ig->IsEpilog())
     {
         printf("%c epilog", separator);
         separator = ',';
     }
 #ifdef FEATURE_EH_FUNCLETS
-    else if (flags & IGF_FUNCLET_PROLOG)
+    else if (ig->IsFuncletProlog())
     {
         printf("%c funclet-prolog", separator);
         separator = ',';
     }
-    else if (flags & IGF_FUNCLET_EPILOG)
+    else if (ig->IsFuncletEpilog())
     {
         printf("%c funclet-epilog", separator);
         separator = ',';

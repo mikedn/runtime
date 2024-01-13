@@ -217,6 +217,15 @@ struct insGroup
 #endif
     }
 
+    bool IsFuncletEpilog() const
+    {
+#ifdef FEATURE_EH_FUNCLETS
+        return (igFlags & IGF_FUNCLET_EPILOG) != 0;
+#else
+        return false;
+#endif
+    }
+
     bool IsFuncletPrologOrEpilog() const
     {
 #ifdef FEATURE_EH_FUNCLETS
@@ -325,7 +334,7 @@ public:
     {
         for (EpilogList* el = emitEpilogList; el != nullptr; el = el->elNext)
         {
-            assert((el->elLoc.GetIG()->igFlags & IGF_EPILOG) != 0);
+            assert(el->elLoc.GetIG()->IsEpilog());
 
             callback(el->elLoc.GetCodeOffset());
         }
