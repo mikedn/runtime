@@ -2991,8 +2991,8 @@ void emitter::emitEndCodeGen()
 
 #if defined(DEBUG) || defined(LATE_DISASM)
     // Add code size information into the Perf Score
-    perfScore += GetHotCodeSize() * PERFSCORE_CODESIZE_COST_HOT;
-    perfScore += GetColdCodeSize() * PERFSCORE_CODESIZE_COST_COLD;
+    perfScore += static_cast<double>(GetHotCodeSize()) * PERFSCORE_CODESIZE_COST_HOT;
+    perfScore += static_cast<double>(GetColdCodeSize()) * PERFSCORE_CODESIZE_COST_COLD;
 #endif
 
 #ifdef DEBUG

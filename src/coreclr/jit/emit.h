@@ -1325,8 +1325,11 @@ private:
 #define PERFSCORE_MEMORY_WRITE 2
 #define PERFSCORE_MEMORY_READ_WRITE 3
 
-    static constexpr double PERFSCORE_CODESIZE_COST_HOT  = 0.10;
-    static constexpr double PERFSCORE_CODESIZE_COST_COLD = 0.01;
+    // TODO-MIKE-Cleanup: These should be double. Bozos defined them as float, even if they wanted
+    // double precision computations. Now of course that changing these now to double resuls in
+    // perf scores diffs, because 0.10f isn't the same as 0.10.
+    static constexpr float PERFSCORE_CODESIZE_COST_HOT  = 0.10f;
+    static constexpr float PERFSCORE_CODESIZE_COST_COLD = 0.01f;
 
     struct insExecutionCharacteristics
     {
