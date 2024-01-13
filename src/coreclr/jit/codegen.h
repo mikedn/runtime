@@ -311,7 +311,10 @@ public:
     void PrologPushCalleeSavedRegisters();
 #endif
 
-    void PrologAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pInitRegZeroed, regMaskTP maskArgRegsLiveIn);
+#ifdef TARGET_ARM
+    void PrologAllocMainLclFrame(RegNum initReg, bool* initRegZeroed);
+#endif
+    void PrologAllocLclFrame(unsigned frameSize, RegNum initReg, bool* initRegZeroed, regMaskTP maskArgRegsLiveIn);
 
     void genPoisonFrame(regMaskTP bbRegLiveIn);
 

@@ -1391,6 +1391,46 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 
 #endif // PROFILING_SUPPORTED
 
+void CodeGen::PrologAllocMainLclFrame(RegNum initReg, bool* initRegZeroed)
+{
+    bool needToEstablishFP        = false;
+    int  afterLclFrameSPtoFPdelta = 0;
+
+    if (isFramePointerUsed())
+    {
+        needToEstablishFP = true;
+
+        // If the local frame is small enough, we establish the frame pointer after the OS-reported prolog.
+        // This makes the prolog and epilog match, giving us smaller unwind data. If the frame size is
+        // too big, we go ahead and do it here.
+
+        int SPtoFPdelta          = (calleeRegsPushed - 2) * REGSIZE_BYTES;
+        afterLclFrameSPtoFPdelta = SPtoFPdelta + lclFrameSize;
+
+        if (!emitter::emitIns_valid_imm_for_add_sp(afterLclFrameSPtoFPdelta))
+        {
+            PrologEstablishFramePointer(SPtoFPdelta, /*reportUnwindData*/ true);
+            needToEstablishFP = false;
+        }
+    }
+
+    if (genStackAllocRegisterMask(lclFrameSize, calleeSavedModifiedRegs) == RBM_NONE)
+    {
+        PrologAllocLclFrame(lclFrameSize, initReg, initRegZeroed, paramRegState.intRegLiveIn);
+    }
+
+    if (compiler->compLocallocUsed)
+    {
+        GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_SAVED_LOCALLOC_SP, REG_SPBASE, /* canSkip */ false);
+        unwindSetFrameReg(REG_SAVED_LOCALLOC_SP);
+    }
+
+    if (needToEstablishFP)
+    {
+        PrologEstablishFramePointer(afterLclFrameSPtoFPdelta, /*reportUnwindData*/ false);
+    }
+}
+
 // Probe the stack and allocate the local stack frame - subtract from SP.
 //
 // The first instruction of the prolog is always a push (which touches the lowest address
