@@ -7979,7 +7979,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
     }
 
 #if !FEATURE_FIXED_OUT_ARGS
-    if (!IsMainProlog(ig) && !ig->IsMainEpilog() && !ig->IsFuncletPrologOrEpilog())
+    if (!ig->IsPrologOrEpilog())
     {
         switch (ins)
         {

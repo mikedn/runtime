@@ -644,8 +644,8 @@ emitter::instrDescSmall* emitter::emitAllocAnyInstr(unsigned sz, bool updateLast
     // these groups cannot be more than a single instruction group. Note that
     // the prolog/epilog placeholder groups ARE generated in order, and are
     // re-used. But generating additional groups would not work.
-    if (emitComp->compStressCompile(Compiler::STRESS_EMITTER, 1) && emitCurIGinsCnt && !IsMainProlog(emitCurIG) &&
-        !emitCurIG->IsMainEpilog() && !emitCurIG->IsFuncletPrologOrEpilog())
+    if (emitComp->compStressCompile(Compiler::STRESS_EMITTER, 1) && (emitCurIGinsCnt != 0) &&
+        !emitCurIG->IsPrologOrEpilog())
     {
         emitExtendIG();
     }
@@ -657,7 +657,7 @@ emitter::instrDescSmall* emitter::emitAllocAnyInstr(unsigned sz, bool updateLast
     //     When nopSize is odd we misalign emitCurIGsize
     //
     if (!emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) && !emitInInstrumentation &&
-        !IsMainProlog(emitCurIG) && !emitCurIG->IsMainEpilog() &&
+        !emitCurIG->IsPrologOrEpilog() &&
         emitRandomNops // sometimes we turn off where exact codegen is needed (pinvoke inline)
         )
     {
@@ -1617,7 +1617,7 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
         }
     }
 
-    if (IsMainProlog(ig))
+    if (ig->IsMainProlog())
     {
         printf("%c prolog", separator);
         separator = ',';
@@ -2769,19 +2769,20 @@ void emitter::emitEndCodeGen()
                 printf("\n");
                 emitDispIG(ig, nullptr, false);
             }
-            else
+            else if (!ig->IsExtension() || ig->IsMainEpilog() || ig->IsFuncletPrologOrEpilog() || (prevIG == nullptr) ||
+                     (ig->IsNoGC() != prevIG->IsNoGC()))
             {
-                if (!ig->IsExtension() || ig->IsMainEpilog() || ig->IsFuncletPrologOrEpilog() || (prevIG == nullptr) ||
-                    (ig->IsNoGC() != prevIG->IsNoGC()))
-                {
-                    printf("\n%s:", emitLabelString(ig));
+                printf("\n%s:", emitLabelString(ig));
 
-                    if (!emitComp->opts.disDiffable)
-                    {
-                        printf("              ;; offset=%04XH", emitCurCodeOffs(cp));
-                    }
+                if (!emitComp->opts.disDiffable)
+                {
+                    printf("              ;; offset=%04XH", emitCurCodeOffs(cp));
                 }
 
+                printf("\n");
+            }
+            else
+            {
                 printf("\n");
             }
         }
