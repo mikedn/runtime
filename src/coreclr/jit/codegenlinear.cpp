@@ -296,7 +296,7 @@ void CodeGen::genCodeForBBlist()
 #ifdef FEATURE_EH_FUNCLETS
         if ((block->bbFlags & BBF_FUNCLET_BEG) != 0)
         {
-            GetEmitter()->emitCreatePlaceholderIG(IGPT_FUNCLET_PROLOG, block);
+            GetEmitter()->ReserveFuncletProlog(block);
         }
 #endif
 
@@ -480,7 +480,7 @@ void CodeGen::genCodeForBBlist()
                     GetEmitter()->emitIns(INS_nop);
                 }
 #endif
-                GetEmitter()->emitCreatePlaceholderIG(IGPT_FUNCLET_EPILOG, block);
+                GetEmitter()->ReserveEpilog(block);
                 break;
 #else
             case BBJ_EHFINALLYRET:
@@ -597,7 +597,7 @@ void CodeGen::genExitCode(BasicBlock* block)
 {
     if (compiler->opts.compDbgInfo)
     {
-        genIPmappingAdd(static_cast<IL_OFFSETX>(ICorDebugInfo::EPILOG), true);
+        genIPmappingAdd(ICorDebugInfo::EPILOG, true);
     }
 
     if (compiler->getNeedsGSSecurityCookie())
@@ -618,7 +618,7 @@ void CodeGen::genExitCode(BasicBlock* block)
     }
 #endif
 
-    GetEmitter()->emitCreatePlaceholderIG(IGPT_EPILOG, block);
+    GetEmitter()->ReserveEpilog(block);
 }
 
 /*

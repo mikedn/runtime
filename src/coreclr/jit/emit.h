@@ -74,15 +74,6 @@ public:
     INDEBUG(void Print(const char* suffix = nullptr) const;)
 };
 
-enum insGroupPlaceholderType
-{
-    IGPT_EPILOG,
-#ifdef FEATURE_EH_FUNCLETS
-    IGPT_FUNCLET_PROLOG,
-    IGPT_FUNCLET_EPILOG,
-#endif
-};
-
 #define IGF_BASIC_BLOCK 0x0001
 #define IGF_FUNCLET_PROLOG 0x0002 // this group belongs to a funclet prolog
 #define IGF_FUNCLET_EPILOG 0x0004 // this group belongs to a funclet epilog.
@@ -105,11 +96,6 @@ enum insGroupPlaceholderType
 #else
 #define IGF_PROPAGATE_MASK (IGF_EPILOG | IGF_FUNCLET_PROLOG)
 #endif
-
-// For AMD64 the maximum prolog/epilog size supported on the OS is 256 bytes
-// Since it is incorrect for us to be jumping across funclet prolog/epilogs
-// we will use the following estimate as the maximum placeholder size.
-#define MAX_PLACEHOLDER_IG_SIZE 256
 
 struct insGroup
 {
@@ -300,7 +286,11 @@ public:
     unsigned emitGetCurrentPrologCodeSize();
     void     MarkMainPrologNoGCEnd();
     void     EndMainProlog();
-    void emitCreatePlaceholderIG(insGroupPlaceholderType kind, BasicBlock* block);
+
+#ifdef FEATURE_EH_FUNCLETS
+    void ReserveFuncletProlog(BasicBlock* block);
+#endif
+    void ReserveEpilog(BasicBlock* block);
     void emitGeneratePrologEpilog();
 
 #ifndef JIT32_GCENCODER

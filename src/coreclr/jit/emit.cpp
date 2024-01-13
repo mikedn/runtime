@@ -806,110 +806,48 @@ void emitter::EndMainProlog()
 #endif
 }
 
-void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock* igBB)
+// For AMD64 the maximum prolog/epilog size supported on the OS is 256 bytes
+// Since it is incorrect for us to be jumping across funclet prolog/epilogs
+// we will use the following estimate as the maximum placeholder size.
+static constexpr unsigned MAX_PLACEHOLDER_IG_SIZE = 256;
+
+#ifdef FEATURE_EH_FUNCLETS
+void emitter::ReserveFuncletProlog(BasicBlock* block)
 {
+    assert((block->bbFlags & BBF_FUNCLET_BEG) != 0);
     assert(!IsMainProlog(emitCurIG));
 
-    bool isLast;
+    // We should already have an empty group added by emitAddLabel
+    // for the first block in the funclet. We'll use that for the
+    // funclet prolog and create another one for the funclet body.
+    assert(!emitCurIGnonEmpty());
 
-#ifdef FEATURE_EH_FUNCLETS
-    if (igType == IGPT_FUNCLET_PROLOG)
+    // Currently, no registers are live on entry to the prolog, except maybe
+    // the exception object. There might be some live stack vars, but they
+    // cannot be accessed until after the frame pointer is re-established.
+    // In order to potentially prevent emitting a death before the prolog
+    // and a birth right after it, we just report it as live during the
+    // prolog, and rely on the prolog being non-interruptible. Trust
+    // genCodeForBBlist to correctly initialize all the sets.
+    //
+    // We might need to relax these asserts if the VM ever starts
+    // restoring any registers, then we could have live-in reg vars.
+    noway_assert((emitCurIG->refRegs & RBM_EXCEPTION_OBJECT) == emitCurIG->refRegs);
+    noway_assert(emitCurIG->byrefRegs == RBM_NONE);
+
+    JITDUMP("Reserving " FMT_IG " for block " FMT_BB " funclet prolog\n", emitCurIG->GetId(), block->bbNum);
+
+    if (emitComp->opts.compDbgInfo)
     {
-        JITDUMP("Reserving " FMT_IG " for block " FMT_BB " funclet prolog\n", emitCurIG->GetId(), igBB->bbNum);
-
-        // We should already have an empty group added by emitAddLabel
-        // for the first block in the funclet. We'll use that for the
-        // funclet prolog and create another one for the funclet body.
-        assert(!emitCurIGnonEmpty());
-
-        // Currently, no registers are live on entry to the prolog, except maybe
-        // the exception object. There might be some live stack vars, but they
-        // cannot be accessed until after the frame pointer is re-established.
-        // In order to potentially prevent emitting a death before the prolog
-        // and a birth right after it, we just report it as live during the
-        // prolog, and rely on the prolog being non-interruptible. Trust
-        // genCodeForBBlist to correctly initialize all the sets.
-        //
-        // We might need to relax these asserts if the VM ever starts
-        // restoring any registers, then we could have live-in reg vars.
-
-        noway_assert((emitCurIG->refRegs & RBM_EXCEPTION_OBJECT) == emitCurIG->refRegs);
-        noway_assert(emitCurIG->byrefRegs == RBM_NONE);
-
-        isLast = false;
-
-        if (emitComp->opts.compDbgInfo)
-        {
-            codeGen->genIPmappingAdd(ICorDebugInfo::PROLOG, true);
-        }
-    }
-    else
-#endif // FEATURE_EH_FUNCLETS
-    {
-#ifdef FEATURE_EH_FUNCLETS
-        assert((igType == IGPT_EPILOG) || (igType == IGPT_FUNCLET_EPILOG));
-#else
-        assert(igType == IGPT_EPILOG);
-#endif
-
-        if (emitCurIGnonEmpty())
-        {
-            emitExtendIG();
-        }
-        else
-        {
-            emitCurIG->igFlags |= IGF_EXTEND;
-            // We may be "stealing" the insGroup created for an empty basic
-            // block, to avoid confusion remove the basic block flag.
-            emitCurIG->igFlags &= ~IGF_BASIC_BLOCK;
-        }
-
-        JITDUMP("Reserving " FMT_IG " for block " FMT_BB " %sepilog\n", emitCurIG->GetId(), igBB->bbNum,
-                igType != IGPT_EPILOG ? "funclet " : "");
-
-        isLast = igBB->bbNext == nullptr;
-
-        // We assume that the epilog is the end of any currently in progress no-GC region.
-        // If a block after the epilog needs to be no-GC, it needs to call emitDisableGC
-        // directly. This behavior is depended upon by the fast tailcall implementation,
-        // which disables GC at the beginning of argument setup, but assumes that after
-        // the epilog it will be re-enabled.
-        emitNoGCIG = false;
-
-#ifdef FEATURE_EH_FUNCLETS
-        // Add the appropriate IP mapping debugging record for this placeholder
-        // group. genExitCode() adds the mapping for main function epilogs.
-        if (emitComp->opts.compDbgInfo && (igType == IGPT_FUNCLET_EPILOG))
-        {
-            codeGen->genIPmappingAdd(ICorDebugInfo::EPILOG, true);
-        }
-#endif
+        codeGen->genIPmappingAdd(ICorDebugInfo::PROLOG, true);
     }
 
-    insGroup* igPh = emitCurIG;
+    insGroup* ig  = emitCurIG;
+    ig->igPhData  = block;
+    ig->igFuncIdx = codeGen->currentFuncletIndex;
+    ig->igFlags |= IGF_PLACEHOLDER | IGF_FUNCLET_PROLOG;
 
-    igPh->igPhData = igBB;
-#ifdef FEATURE_EH_FUNCLETS
-    igPh->igFuncIdx = codeGen->currentFuncletIndex;
-#endif
-    igPh->igFlags |= IGF_PLACEHOLDER;
-
-    if (igType == IGPT_EPILOG)
-    {
-        igPh->igFlags |= IGF_EPILOG;
-    }
-#ifdef FEATURE_EH_FUNCLETS
-    else if (igType == IGPT_FUNCLET_PROLOG)
-    {
-        igPh->igFlags |= IGF_FUNCLET_PROLOG;
-    }
-    else if (igType == IGPT_FUNCLET_EPILOG)
-    {
-        igPh->igFlags |= IGF_FUNCLET_EPILOG;
-    }
-#endif
-
-    Placeholder* ph = new (emitComp, CMK_InstDesc) Placeholder(igPh);
+    Placeholder* ph = new (emitComp, CMK_InstDesc) Placeholder(ig);
 
     if (lastPlaceholder == nullptr)
     {
@@ -922,41 +860,118 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
 
     lastPlaceholder = ph;
 
-    assert(emitCurIGsize == 0);
-
     // We don't know what code size the placeholder insGroup will have,
     // just use an estimate large enough to accomodate any placeholder.
+    assert(emitCurIGsize == 0);
     emitCurIGsize = MAX_PLACEHOLDER_IG_SIZE;
     emitCurCodeOffset += MAX_PLACEHOLDER_IG_SIZE;
-
-    if (isLast)
-    {
-        emitCurIG = nullptr;
-
-        return;
-    }
 
     emitNewIG();
 
     // The group after the placeholder group doesn't get the "propagate" flags.
     emitCurIG->igFlags &= ~IGF_PROPAGATE_MASK;
 
-#ifdef FEATURE_EH_FUNCLETS
-    if (igType == IGPT_FUNCLET_PROLOG)
-    {
-        // The funclet prolog and the funclet entry block will have the same GC info.
-        // Nothing is really live in the prolog, since it's not interruptible, but if
-        // we kill everything at the start of the prolog we may end up creating new
-        // live ranges for whatever GC locals happen to be live before the funclet and
-        // inside the funclet so may as well pretend that whatever is live at entry
-        // is also live inside prolog.
-        // The locals bitset is never modified so we can make a shallow copy here.
+    // The funclet prolog and the funclet entry block will have the same GC info.
+    // Nothing is really live in the prolog, since it's not interruptible, but if
+    // we kill everything at the start of the prolog we may end up creating new
+    // live ranges for whatever GC locals happen to be live before the funclet and
+    // inside the funclet so may as well pretend that whatever is live at entry
+    // is also live inside prolog.
+    // The locals bitset is never modified so we can make a shallow copy here.
+    emitCurIG->gcLcls    = ig->gcLcls;
+    emitCurIG->refRegs   = ig->refRegs;
+    emitCurIG->byrefRegs = ig->byrefRegs;
+}
+#endif // FEATURE_EH_FUNCLETS
 
-        emitCurIG->gcLcls    = igPh->gcLcls;
-        emitCurIG->refRegs   = igPh->refRegs;
-        emitCurIG->byrefRegs = igPh->byrefRegs;
+void emitter::ReserveEpilog(BasicBlock* block)
+{
+    assert(!IsMainProlog(emitCurIG));
+
+#ifdef FEATURE_EH_FUNCLETS
+    assert(block->KindIs(BBJ_RETURN, BBJ_EHCATCHRET, BBJ_EHFINALLYRET, BBJ_EHFILTERRET));
+    const bool isFunclet = !block->KindIs(BBJ_RETURN);
+#else
+    assert(block->KindIs(BBJ_RETURN));
+    const bool isFunclet                  = false;
+#endif
+
+    if (emitCurIGnonEmpty())
+    {
+        emitExtendIG();
+    }
+    else
+    {
+        emitCurIG->igFlags |= IGF_EXTEND;
+        // We may be "stealing" the insGroup created for an empty basic
+        // block, to avoid confusion remove the basic block flag.
+        emitCurIG->igFlags &= ~IGF_BASIC_BLOCK;
+    }
+
+    JITDUMP("Reserving " FMT_IG " for block " FMT_BB " %sepilog\n", emitCurIG->GetId(), block->bbNum,
+            isFunclet ? "funclet " : "");
+
+    // We assume that the epilog is the end of any currently in progress no-GC region.
+    // If a block after the epilog needs to be no-GC, it needs to call emitDisableGC
+    // directly. This behavior is depended upon by the fast tailcall implementation,
+    // which disables GC at the beginning of argument setup, but assumes that after
+    // the epilog it will be re-enabled.
+    emitNoGCIG = false;
+
+#ifdef FEATURE_EH_FUNCLETS
+    // Add the appropriate IP mapping debugging record for this placeholder
+    // group. genExitCode() adds the mapping for main function epilogs.
+    if (emitComp->opts.compDbgInfo && isFunclet)
+    {
+        codeGen->genIPmappingAdd(ICorDebugInfo::EPILOG, true);
     }
 #endif
+
+    insGroup* ig = emitCurIG;
+    ig->igPhData = block;
+#ifdef FEATURE_EH_FUNCLETS
+    ig->igFuncIdx = codeGen->currentFuncletIndex;
+
+    if (isFunclet)
+    {
+        ig->igFlags |= IGF_PLACEHOLDER | IGF_FUNCLET_EPILOG;
+    }
+    else
+#endif
+    {
+        ig->igFlags |= IGF_PLACEHOLDER | IGF_EPILOG;
+    }
+
+    Placeholder* ph = new (emitComp, CMK_InstDesc) Placeholder(ig);
+
+    if (lastPlaceholder == nullptr)
+    {
+        firstPlaceholder = ph;
+    }
+    else
+    {
+        lastPlaceholder->next = ph;
+    }
+
+    lastPlaceholder = ph;
+
+    // We don't know what code size the placeholder insGroup will have,
+    // just use an estimate large enough to accomodate any placeholder.
+    assert(emitCurIGsize == 0);
+    emitCurIGsize = MAX_PLACEHOLDER_IG_SIZE;
+    emitCurCodeOffset += MAX_PLACEHOLDER_IG_SIZE;
+
+    if (block->bbNext == nullptr)
+    {
+        emitCurIG = nullptr;
+    }
+    else
+    {
+        emitNewIG();
+
+        // The group after the placeholder group doesn't get the "propagate" flags.
+        emitCurIG->igFlags &= ~IGF_PROPAGATE_MASK;
+    }
 }
 
 void emitter::emitGeneratePrologEpilog()
