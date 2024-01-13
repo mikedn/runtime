@@ -374,12 +374,6 @@ public:
     uint16_t            currentFuncletIndex = 0;
     FuncInfoDsc*        compFuncInfos       = nullptr;
 
-    uint16_t compFuncCount() const
-    {
-        assert(compFuncInfos != nullptr);
-        return compFuncInfoCount;
-    }
-
     unsigned funGetFuncIdx(BasicBlock* block);
 
     FuncInfoDsc& funGetFunc(unsigned index);
