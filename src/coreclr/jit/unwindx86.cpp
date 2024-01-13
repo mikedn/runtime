@@ -8,18 +8,12 @@
 
 void CodeGen::unwindBegProlog()
 {
-}
-
-void CodeGen::unwindEndProlog()
-{
+    assert(generatingProlog);
 }
 
 void CodeGen::unwindBegEpilog()
 {
-}
-
-void CodeGen::unwindEndEpilog()
-{
+    assert(generatingEpilog);
 }
 
 void CodeGen::unwindPush(RegNum reg)

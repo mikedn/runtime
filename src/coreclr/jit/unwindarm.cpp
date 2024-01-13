@@ -31,11 +31,6 @@ void CodeGen::unwindBegProlog()
     unwindCaptureLocation();
 }
 
-void CodeGen::unwindEndProlog()
-{
-    assert(generatingProlog);
-}
-
 void CodeGen::unwindBegEpilog()
 {
     assert(generatingEpilog);
@@ -49,11 +44,6 @@ void CodeGen::unwindBegEpilog()
 
     unwindCaptureLocation();
     funCurrentFunc().uwi.AddEpilog(this);
-}
-
-void CodeGen::unwindEndEpilog()
-{
-    assert(generatingEpilog);
 }
 
 #ifdef TARGET_ARM

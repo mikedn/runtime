@@ -1161,9 +1161,20 @@ public:
 #endif
 
     void unwindBegProlog();
-    void unwindEndProlog();
     void unwindBegEpilog();
-    void unwindEndEpilog();
+
+    // TODO-MIKE-Review: Unwind information doesn't need or even have a well defined "end",
+    // remove these? They have some documenting value but that's really minor.
+    void unwindEndProlog() const
+    {
+        assert(generatingProlog);
+    }
+
+    void unwindEndEpilog() const
+    {
+        assert(generatingEpilog);
+    }
+
 #ifdef FEATURE_EH_FUNCLETS
     void unwindReserve();
     void unwindEmit();

@@ -20,17 +20,7 @@ void CodeGen::unwindBegProlog()
     unwindBegPrologWindows();
 }
 
-void CodeGen::unwindEndProlog()
-{
-    assert(generatingProlog);
-}
-
 void CodeGen::unwindBegEpilog()
-{
-    assert(generatingEpilog);
-}
-
-void CodeGen::unwindEndEpilog()
 {
     assert(generatingEpilog);
 }
