@@ -888,7 +888,7 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
 
     insGroup* igPh = emitCurIG;
 
-    igPh->igPhData = new (emitComp, CMK_InstDesc) insPlaceholderGroupData(igBB);
+    igPh->igPhData = igBB;
 #ifdef FEATURE_EH_FUNCLETS
     igPh->igFuncIdx = codeGen->currentFuncletIndex;
 #endif
@@ -909,16 +909,18 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
     }
 #endif
 
-    if (emitPlaceholderLast == nullptr)
+    Placeholder* ph = new (emitComp, CMK_InstDesc) Placeholder(igPh);
+
+    if (lastPlaceholder == nullptr)
     {
-        emitPlaceholderList = igPh;
+        firstPlaceholder = ph;
     }
     else
     {
-        emitPlaceholderLast->igPhData->igPhNext = igPh;
+        lastPlaceholder->next = ph;
     }
 
-    emitPlaceholderLast = igPh;
+    lastPlaceholder = ph;
 
     assert(emitCurIGsize == 0);
 
@@ -967,30 +969,25 @@ void emitter::emitGeneratePrologEpilog()
 #endif
 #endif
 
-    for (insGroup *ig = emitPlaceholderList, *next; ig != nullptr; ig = next)
+    for (Placeholder* ph = firstPlaceholder; ph != nullptr; ph = ph->next)
     {
-        assert((ig->igFlags & IGF_PLACEHOLDER) != 0);
-
-        // Generating the prolog/epilog is going to destroy the placeholder group,
-        // so save the "next" pointer before that happens.
-        next = ig->igPhData->igPhNext;
+        insGroup* ig = ph->ig;
 
         codeGen->liveness.BeginPrologEpilogCodeGen();
-
-        BasicBlock* igPhBB = ig->igPhData->igPhBB;
 
 #ifdef JIT32_GCENCODER
         assert(ig->IsMainEpilog());
         BeginGCEpilog();
 #endif
-        emitBegPrologEpilog(ig);
+
+        BasicBlock* block = BeginPrologEpilog(ig);
 
 #ifdef FEATURE_EH_FUNCLETS
         if (ig->IsFuncletProlog())
         {
             JITDUMP("\n=============== Generating funclet prolog\n");
             INDEBUG(++funcletPrologCnt);
-            codeGen->genFuncletProlog(igPhBB);
+            codeGen->genFuncletProlog(block);
         }
         else if (ig->IsFuncletEpilog())
         {
@@ -1004,10 +1001,10 @@ void emitter::emitGeneratePrologEpilog()
             assert(ig->IsMainEpilog());
             JITDUMP("\n=============== Generating epilog\n");
             INDEBUG(++epilogCnt);
-            codeGen->genFnEpilog(igPhBB);
+            codeGen->genFnEpilog(block);
         }
 
-        emitEndPrologEpilog();
+        EndPrologEpilog();
 #ifdef JIT32_GCENCODER
         EndGCEpilog();
 #endif
@@ -1033,29 +1030,32 @@ void emitter::emitGeneratePrologEpilog()
 #endif
 }
 
-void emitter::emitBegPrologEpilog(insGroup* igPh)
+BasicBlock* emitter::BeginPrologEpilog(insGroup* ig)
 {
-    assert((igPh->igFlags & IGF_PLACEHOLDER) != 0);
+    assert((ig->igFlags & IGF_PLACEHOLDER) != 0);
     assert(!emitCurIGnonEmpty());
 
-    igPh->igFlags &= ~IGF_PLACEHOLDER;
-    igPh->igPhData = nullptr;
+    BasicBlock* block = ig->igPhData;
+    ig->igFlags &= ~IGF_PLACEHOLDER;
+    ig->igPhData = nullptr;
 
     emitNoGCIG     = true;
     emitForceNewIG = false;
 
-    codeGen->funSetCurrentFunc(igPh->GetFuncletIndex());
+    codeGen->funSetCurrentFunc(ig->GetFuncletIndex());
 
-    emitGenIG(igPh);
+    emitGenIG(ig);
 
 #if !FEATURE_FIXED_OUT_ARGS
     // Don't measure stack depth inside the prolog / epilog, it's misleading.
     assert(emitCurStackLvl == 0);
     emitCntStackDepth = 0;
 #endif
+
+    return block;
 }
 
-void emitter::emitEndPrologEpilog()
+void emitter::EndPrologEpilog()
 {
     emitNoGCIG = false;
 
@@ -1648,7 +1648,7 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
 
     if (flags & IGF_PLACEHOLDER)
     {
-        printf("%c placeholder " FMT_BB, separator, ig->igPhData->igPhBB->bbNum);
+        printf("%c placeholder " FMT_BB, separator, ig->igPhData->bbNum);
         separator = ',';
     }
 

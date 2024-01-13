@@ -83,16 +83,6 @@ enum insGroupPlaceholderType
 #endif
 };
 
-struct insPlaceholderGroupData
-{
-    insGroup*   igPhNext = nullptr;
-    BasicBlock* igPhBB;
-
-    insPlaceholderGroupData(BasicBlock* block) : igPhBB(block)
-    {
-    }
-};
-
 #define IGF_BASIC_BLOCK 0x0001
 #define IGF_FUNCLET_PROLOG 0x0002 // this group belongs to a funclet prolog
 #define IGF_FUNCLET_EPILOG 0x0004 // this group belongs to a funclet epilog.
@@ -128,8 +118,8 @@ struct insGroup
     insGroup* igLoopBackEdge; // "last" back-edge that branches back to an aligned loop head.
 #endif
     union {
-        uint8_t*                 igData;   // addr of instruction descriptors
-        insPlaceholderGroupData* igPhData; // when igFlags & IGF_PLACEHOLDER
+        uint8_t*    igData;   // addr of instruction descriptors
+        BasicBlock* igPhData; // when igFlags & IGF_PLACEHOLDER
     };
 
     unsigned igNum;  // for ordering (and display) purposes
@@ -1375,11 +1365,21 @@ private:
     /*                      Method prolog and epilog                        */
     /************************************************************************/
 
-    insGroup* emitPlaceholderList = nullptr; // per method placeholder list - head
-    insGroup* emitPlaceholderLast = nullptr; // per method placeholder list - tail
+    struct Placeholder
+    {
+        Placeholder* next = nullptr;
+        insGroup*    ig;
 
-    void emitBegPrologEpilog(insGroup* igPh);
-    void emitEndPrologEpilog();
+        Placeholder(insGroup* ig) : ig(ig)
+        {
+        }
+    };
+
+    Placeholder* firstPlaceholder = nullptr;
+    Placeholder* lastPlaceholder  = nullptr;
+
+    BasicBlock* BeginPrologEpilog(insGroup* ig);
+    void EndPrologEpilog();
 
 #ifdef JIT32_GCENCODER
     struct Epilog
