@@ -8154,7 +8154,7 @@ void emitter::emitJumpDistBind()
 
             assert(label != nullptr);
             JITDUMP("Binding IN%04X label block " FMT_BB " to " FMT_IG "\n", instr->idDebugOnlyInfo()->idNum,
-                    instr->GetLabelBlock()->bbNum, label->igNum);
+                    instr->GetLabelBlock()->bbNum, label->GetId());
 
             instr->SetLabel(label);
         }
@@ -8201,7 +8201,7 @@ AGAIN:
 
             for (insGroup* ig = previousInstrIG->igNext; ig != instrIG->igNext; ig = ig->igNext)
             {
-                JITDUMP(FMT_IG " moved back from %04X", ig->igNum, ig->igOffs);
+                JITDUMP(FMT_IG " moved back from %04X", ig->GetId(), ig->igOffs);
                 ig->igOffs -= totalSizeReduction;
                 JITDUMP(" to % 04X\n", ig->igOffs);
             }
@@ -8243,7 +8243,7 @@ AGAIN:
             distanceOverflow = (dataOffs - instrOffs) - ((1 << 20) - 1);
 
             JITDUMP("RoData address IN%04X at %04X (" FMT_IG "), data at %04X, distance %d, overflow %d%s\n",
-                    instr->idDebugOnlyInfo()->idNum, instrOffs, instrIG->igNum, dataOffs, dataOffs - instrOffs,
+                    instr->idDebugOnlyInfo()->idNum, instrOffs, instrIG->GetId(), dataOffs, dataOffs - instrOffs,
                     distanceOverflow, distanceOverflow <= 0 ? ", adr" : "adrp/add");
         }
         else
@@ -8277,7 +8277,7 @@ AGAIN:
             }
 
             JITDUMP("Jump IN%04X from %04X (" FMT_IG ") to %04X (" FMT_IG "), distance %d, overflow %d%s\n",
-                    instr->idDebugOnlyInfo()->idNum, instrOffs, instrIG->igNum, labelOffs, label->igNum,
+                    instr->idDebugOnlyInfo()->idNum, instrOffs, instrIG->GetId(), labelOffs, label->GetId(),
                     labelOffs - instrOffs, distanceOverflow, distanceOverflow <= 0 ? ", short" : "");
         }
 
@@ -8306,7 +8306,7 @@ AGAIN:
     {
         for (insGroup* ig = previousInstrIG->igNext; ig != nullptr; ig = ig->igNext)
         {
-            JITDUMP(FMT_IG " moved back from %04X", ig->igNum, ig->igOffs);
+            JITDUMP(FMT_IG " moved back from %04X", ig->GetId(), ig->igOffs);
             ig->igOffs -= totalSizeReduction;
             JITDUMP(" to % 04X\n", ig->igOffs);
         }

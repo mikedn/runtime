@@ -159,6 +159,13 @@ struct insGroup
     jitstd::list<BasicBlock*> igBlocks;           // All the blocks that generated code into this insGroup.
 #endif
 
+#ifdef DEBUG
+    unsigned GetId() const
+    {
+        return igNum;
+    }
+#endif
+
     uint32_t GetCodeOffset() const
     {
         assert(igNum != 0);

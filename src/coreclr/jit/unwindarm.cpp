@@ -1262,12 +1262,13 @@ void UnwindInfo::Split(insGroup* start, insGroup* end, uint32_t maxCodeSize)
 
             if (prevCandidate == nullptr)
             {
-                JITDUMP("UnwindInfoSplit: can't split at " FMT_IG "; we don't have a candidate to report\n", ig->igNum);
+                JITDUMP("UnwindInfoSplit: can't split at " FMT_IG "; we don't have a candidate to report\n",
+                        ig->GetId());
                 useCandidate = false;
             }
             else if (prevCandidate == prevFragmentStart)
             {
-                JITDUMP("UnwindInfoSplit: can't split at " FMT_IG "; we already reported it\n", prevCandidate->igNum);
+                JITDUMP("UnwindInfoSplit: can't split at " FMT_IG "; we already reported it\n", prevCandidate->GetId());
                 useCandidate = false;
             }
 
@@ -1277,7 +1278,7 @@ void UnwindInfo::Split(insGroup* start, insGroup* end, uint32_t maxCodeSize)
                 {
                     JITDUMP("UnwindInfoSplit: split at " FMT_IG
                             " is size %u, larger than requested maximum size of %u\n",
-                            prevCandidate->igNum, prevSize, maxCodeSize);
+                            prevCandidate->GetId(), prevSize, maxCodeSize);
                 }
 
                 lastFragment = SplitFragment(lastFragment, prevCandidate);

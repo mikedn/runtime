@@ -117,7 +117,7 @@ void emitLocation::Print(const char* suffix) const
 {
     unsigned insNum = GetInsNumFromCodePos(codePos);
     unsigned insOfs = GetInsOffsetFromCodePos(codePos);
-    printf("(" FMT_IG ", ins %u, ofs %u)%s", ig->igNum, insNum, insOfs, suffix == nullptr ? "" : suffix);
+    printf("(" FMT_IG ", ins %u, ofs %u)%s", ig->GetId(), insNum, insOfs, suffix == nullptr ? "" : suffix);
 }
 
 const char* emitter::emitIfName(unsigned f)
@@ -249,7 +249,7 @@ void emitter::emitGenIG(insGroup* ig)
         ig->igFlags |= IGF_NOGCINTERRUPT;
     }
 
-    JITDUMP(FMT_IG ": offs %06XH, funclet %02u, weight %s\n", ig->igNum, ig->igOffs, ig->GetFuncletIndex(),
+    JITDUMP(FMT_IG ": offs %06XH, funclet %02u, weight %s\n", ig->GetId(), ig->igOffs, ig->GetFuncletIndex(),
             refCntWtd2str(ig->igWeight));
 
     emitCurIG         = ig;
@@ -312,7 +312,7 @@ void emitter::emitFinishIG(bool extend)
 
     emitCurIGfreeNext = emitCurIGfreeBase;
 
-    JITDUMP(FMT_IG ": offs %06XH, size %04XH, funclet %02u, weight %s\n", ig->igNum, ig->igOffs, ig->igSize,
+    JITDUMP(FMT_IG ": offs %06XH, size %04XH, funclet %02u, weight %s\n", ig->GetId(), ig->igOffs, ig->igSize,
             ig->GetFuncletIndex(), refCntWtd2str(ig->igWeight));
 }
 
@@ -482,7 +482,7 @@ void emitter::emitBegFN()
     emitIGlast         = emitIGfirst;
     emitCurIG          = emitIGfirst;
 
-    JITDUMP(FMT_IG ": offs %06XH, funclet %02u, weight %s\n", emitCurIG->igNum, emitCurIG->igOffs,
+    JITDUMP(FMT_IG ": offs %06XH, funclet %02u, weight %s\n", emitCurIG->GetId(), emitCurIG->igOffs,
             emitCurIG->GetFuncletIndex(), refCntWtd2str(emitCurIG->igWeight));
 
     // Append another group, to start generating the method body
@@ -737,7 +737,7 @@ void emitter::emitCheckIGoffsets()
 
         if (tempIG->igOffs != currentOffset)
         {
-            printf("Block #%u has offset %08X, expected %08X\n", tempIG->igNum, tempIG->igOffs, currentOffset);
+            printf("Block #%u has offset %08X, expected %08X\n", tempIG->GetId(), tempIG->igOffs, currentOffset);
             assert(!"bad block offset");
         }
 
@@ -817,7 +817,7 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
 #ifdef FEATURE_EH_FUNCLETS
     if (igType == IGPT_FUNCLET_PROLOG)
     {
-        JITDUMP("Reserving " FMT_IG " for block " FMT_BB " funclet prolog\n", emitCurIG->igNum, igBB->bbNum);
+        JITDUMP("Reserving " FMT_IG " for block " FMT_BB " funclet prolog\n", emitCurIG->GetId(), igBB->bbNum);
 
         // We should already have an empty group added by emitAddLabel
         // for the first block in the funclet. We'll use that for the
@@ -866,7 +866,7 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
             emitCurIG->igFlags &= ~IGF_BASIC_BLOCK;
         }
 
-        JITDUMP("Reserving " FMT_IG " for block " FMT_BB " %sepilog\n", emitCurIG->igNum, igBB->bbNum,
+        JITDUMP("Reserving " FMT_IG " for block " FMT_BB " %sepilog\n", emitCurIG->GetId(), igBB->bbNum,
                 igType != IGPT_EPILOG ? "funclet " : "");
 
         isLast = igBB->bbNext == nullptr;
@@ -1203,7 +1203,7 @@ void emitter::SetLabelGCLiveness(insGroup* label)
 #ifdef DEBUG
     if (emitComp->verbose)
     {
-        printf(FMT_IG ", gc-lcls ", label->igNum);
+        printf(FMT_IG ", gc-lcls ", label->GetId());
         dumpConvertedVarSet(emitComp, label->gcLcls);
         printf(", ref-regs");
         DumpRegSet(label->refRegs);
@@ -1243,7 +1243,7 @@ void emitter::DefineInlineTempLabel(insGroup* label)
 
 void emitter::emitPrintLabel(insGroup* ig)
 {
-    printf("G_M%03u_IG%02u", emitComp->compMethodID, ig->igNum);
+    printf("G_M%03u_IG%02u", emitComp->compMethodID, ig->GetId());
 }
 
 const char* emitter::emitLabelString(insGroup* ig)
@@ -1253,7 +1253,7 @@ const char* emitter::emitLabelString(insGroup* ig)
     static char     buf[4][TEMP_BUFFER_LEN];
     const char*     retbuf;
 
-    sprintf_s(buf[curBuf], TEMP_BUFFER_LEN, "G_M%03u_IG%02u", emitComp->compMethodID, ig->igNum);
+    sprintf_s(buf[curBuf], TEMP_BUFFER_LEN, "G_M%03u_IG%02u", emitComp->compMethodID, ig->GetId());
     retbuf = buf[curBuf];
     curBuf = (curBuf + 1) % 4;
     return retbuf;
@@ -1593,7 +1593,7 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
 {
     char buff[40];
-    sprintf_s(buff, _countof(buff), FMT_IG ": ", ig->igNum);
+    sprintf_s(buff, _countof(buff), FMT_IG ": ", ig->GetId());
     printf("%s", buff);
 
     char     separator = ';';
@@ -1710,7 +1710,7 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
 #if FEATURE_LOOP_ALIGN
     if (ig->igLoopBackEdge != nullptr)
     {
-        printf("%c loop " FMT_IG, separator, ig->igLoopBackEdge->igNum);
+        printf("%c loop " FMT_IG, separator, ig->igLoopBackEdge->GetId());
         separator = ',';
     }
 #endif
@@ -1955,7 +1955,7 @@ void emitter::emitLoopAlignment()
     // all IGs that follows this IG and participate in a loop.
     emitCurIG->igFlags |= IGF_LOOP_ALIGN;
 
-    JITDUMP("Adding 'align' instruction of %d bytes in " FMT_IG ".\n", paddingBytes, emitCurIG->igNum);
+    JITDUMP("Adding 'align' instruction of %d bytes in " FMT_IG ".\n", paddingBytes, emitCurIG->GetId());
 
     INDEBUG(emitComp->loopAlignCandidates++);
 }
@@ -2292,9 +2292,9 @@ void emitter::emitLoopAlignAdjustments()
                 alignInstr = prevAlignInstr;
             }
 
-            JITDUMP("Adjusted alignment of " FMT_IG " from %u to %u.\n", alignIG->igNum, estimatedPaddingNeeded,
+            JITDUMP("Adjusted alignment of " FMT_IG " from %u to %u.\n", alignIG->GetId(), estimatedPaddingNeeded,
                     actualPaddingNeeded);
-            JITDUMP("Adjusted size of " FMT_IG " from %u to %u.\n", alignIG->igNum, (alignIG->igSize + diff),
+            JITDUMP("Adjusted size of " FMT_IG " from %u to %u.\n", alignIG->GetId(), (alignIG->igSize + diff),
                     alignIG->igSize);
         }
 
@@ -2304,7 +2304,7 @@ void emitter::emitLoopAlignAdjustments()
         insGroup* adjOffUptoIG = alignInstr->idaNext != nullptr ? alignInstr->idaNext->idaIG : emitIGlast;
         while ((adjOffIG != nullptr) && (adjOffIG->igNum <= adjOffUptoIG->igNum))
         {
-            JITDUMP("Adjusted offset of " FMT_IG " from %04X to %04X\n", adjOffIG->igNum, adjOffIG->igOffs,
+            JITDUMP("Adjusted offset of " FMT_IG " from %04X to %04X\n", adjOffIG->GetId(), adjOffIG->igOffs,
                     (adjOffIG->igOffs - alignBytesRemoved));
             adjOffIG->igOffs -= alignBytesRemoved;
             adjOffIG = adjOffIG->igNext;
@@ -2355,7 +2355,7 @@ unsigned emitter::emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offs
     // No padding if loop is already aligned
     if ((offset & (alignmentBoundary - 1)) == 0)
     {
-        JITDUMP(";; Skip alignment: 'Loop at " FMT_IG " already aligned at %dB boundary.'\n", ig->igNext->igNum,
+        JITDUMP(";; Skip alignment: 'Loop at " FMT_IG " already aligned at %dB boundary.'\n", ig->igNext->GetId(),
                 alignmentBoundary);
         return 0;
     }
@@ -2380,7 +2380,7 @@ unsigned emitter::emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offs
     // No padding if loop is big
     if (loopSize > maxLoopSize)
     {
-        JITDUMP(";; Skip alignment: 'Loop at " FMT_IG " is big. LoopSize= %d, MaxLoopSize= %d.'\n", ig->igNext->igNum,
+        JITDUMP(";; Skip alignment: 'Loop at " FMT_IG " is big. LoopSize= %d, MaxLoopSize= %d.'\n", ig->igNext->GetId(),
                 loopSize, maxLoopSize);
         return 0;
     }
@@ -2407,8 +2407,8 @@ unsigned emitter::emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offs
             if (nPaddingBytes == 0)
             {
                 skipPadding = true;
-                JITDUMP(";; Skip alignment: 'Loop at " FMT_IG " already aligned at %uB boundary.'\n", ig->igNext->igNum,
-                        alignmentBoundary);
+                JITDUMP(";; Skip alignment: 'Loop at " FMT_IG " already aligned at %uB boundary.'\n",
+                        ig->igNext->GetId(), alignmentBoundary);
             }
             // Check if the alignment exceeds new maxPadding limit
             else if (nPaddingBytes > nMaxPaddingBytes)
@@ -2416,7 +2416,7 @@ unsigned emitter::emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offs
                 skipPadding = true;
                 JITDUMP(";; Skip alignment: 'Loop at " FMT_IG " PaddingNeeded= %d, MaxPadding= %d, LoopSize= %d, "
                         "AlignmentBoundary= %dB.'\n",
-                        ig->igNext->igNum, nPaddingBytes, nMaxPaddingBytes, loopSize, alignmentBoundary);
+                        ig->igNext->GetId(), nPaddingBytes, nMaxPaddingBytes, loopSize, alignmentBoundary);
             }
         }
 
@@ -2439,7 +2439,7 @@ unsigned emitter::emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offs
             {
                 // Otherwise, the loop just fits in minBlocksNeededForLoop and so can skip alignment.
                 JITDUMP(";; Skip alignment: 'Loop at " FMT_IG " is aligned to fit in %d blocks of %d chunks.'\n",
-                        ig->igNext->igNum, minBlocksNeededForLoop, alignmentBoundary);
+                        ig->igNext->GetId(), minBlocksNeededForLoop, alignmentBoundary);
             }
         }
     }
@@ -2468,12 +2468,12 @@ unsigned emitter::emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offs
         {
             // Otherwise, the loop just fits in minBlocksNeededForLoop and so can skip alignment.
             JITDUMP(";; Skip alignment: 'Loop at " FMT_IG " is aligned to fit in %d blocks of %d chunks.'\n",
-                    ig->igNext->igNum, minBlocksNeededForLoop, alignmentBoundary);
+                    ig->igNext->GetId(), minBlocksNeededForLoop, alignmentBoundary);
         }
     }
 
     JITDUMP(";; Calculated padding to add %d bytes to align " FMT_IG " at %dB boundary.\n", paddingToAdd,
-            ig->igNext->igNum, alignmentBoundary);
+            ig->igNext->GetId(), alignmentBoundary);
 
     // Either no padding is added because it is too expensive or the offset gets aligned
     // to the alignment boundary
@@ -3664,7 +3664,7 @@ void emitter::emitOutputDataSec(dataSecDsc* sec, BYTE* dst)
                     emitRecordRelocation(&(bDstRW[i]), target, IMAGE_REL_BASED_HIGHLOW);
                 }
 
-                JITDUMP("  " FMT_IG ": 0x%p\n", blocks[i]->igNum, bDstRW[i]);
+                JITDUMP("  " FMT_IG ": 0x%p\n", blocks[i]->GetId(), bDstRW[i]);
             }
         }
         // relative label table
@@ -3684,7 +3684,7 @@ void emitter::emitOutputDataSec(dataSecDsc* sec, BYTE* dst)
                 assert(FitsIn<uint32_t>(lab->igOffs - labFirst->igOffs));
                 uDstRW[i] = lab->igOffs - labFirst->igOffs;
 
-                JITDUMP("  " FMT_IG ": 0x%x\n", blocks[i]->igNum, uDstRW[i]);
+                JITDUMP("  " FMT_IG ": 0x%x\n", blocks[i]->GetId(), uDstRW[i]);
             }
         }
         else

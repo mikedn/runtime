@@ -4331,7 +4331,7 @@ void emitter::emitJumpDistBind()
 
             assert(label != nullptr);
             JITDUMP("Binding IN%04X label block " FMT_BB " to " FMT_IG "\n", instr->idDebugOnlyInfo()->idNum,
-                    instr->GetLabelBlock()->bbNum, label->igNum);
+                    instr->GetLabelBlock()->bbNum, label->GetId());
 
             instr->SetLabel(label);
         }
@@ -4377,7 +4377,7 @@ AGAIN:
 
             for (insGroup* ig = previousInstrIG->igNext; ig != instrIG->igNext; ig = ig->igNext)
             {
-                JITDUMP(FMT_IG " moved back from %04X", ig->igNum, ig->igOffs);
+                JITDUMP(FMT_IG " moved back from %04X", ig->GetId(), ig->igOffs);
                 ig->igOffs -= totalSizeReduction;
                 JITDUMP(" to % 04X\n", ig->igOffs);
             }
@@ -4440,7 +4440,7 @@ AGAIN:
 
         JITDUMP("Jump IN%04X from %04X +%u (" FMT_IG ") to %04X (" FMT_IG
                 "), distance %d, overflow %d, medium overflow %d%s\n",
-                instr->idDebugOnlyInfo()->idNum, instrOffs, 2, instrIG->igNum, labelOffs, label->igNum,
+                instr->idDebugOnlyInfo()->idNum, instrOffs, 2, instrIG->GetId(), labelOffs, label->GetId(),
                 labelOffs - instrEndOffs, smallDistanceOverflow, mediumDistanceOverflow,
                 smallDistanceOverflow <= 0 ? ", short" : (mediumDistanceOverflow <= 0 ? "medium" : ""));
 
@@ -4484,7 +4484,7 @@ AGAIN:
     {
         for (insGroup* ig = previousInstrIG->igNext; ig != nullptr; ig = ig->igNext)
         {
-            JITDUMP(FMT_IG " moved back from %04X", ig->igNum, ig->igOffs);
+            JITDUMP(FMT_IG " moved back from %04X", ig->GetId(), ig->igOffs);
             ig->igOffs -= totalSizeReduction;
             JITDUMP(" to % 04X\n", ig->igOffs);
         }

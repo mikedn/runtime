@@ -2881,7 +2881,7 @@ void CodeGen::genInsertNopForUnwinder(BasicBlock* block)
         GetEmitter()->SetLabelGCLiveness(ig);
 
         block->unwindNopEmitLabel = ig;
-        JITDUMP("\nEmitting finally target NOP predecessor " FMT_IG " for " FMT_BB "\n", ig->igNum, block->bbNum);
+        JITDUMP("\nEmitting finally target NOP predecessor " FMT_IG " for " FMT_BB "\n", ig->GetId(), block->bbNum);
         GetEmitter()->emitIns(INS_nop);
     }
 }
