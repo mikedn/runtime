@@ -51,7 +51,7 @@ public:
         codePos = CodePos::First;
     }
 
-    void CaptureLocation(emitter* emit);
+    void CaptureLocation(const emitter* emit);
 
     insGroup* GetIG() const
     {
@@ -330,29 +330,13 @@ public:
     {
         return emitMaxStackDepth;
     }
-
-    unsigned emitGetEpilogCnt()
-    {
-        return emitEpilogCnt;
-    }
-
-    template <typename Callback>
-    void EnumerateEpilogs(Callback callback)
-    {
-        for (EpilogList* el = emitEpilogList; el != nullptr; el = el->elNext)
-        {
-            assert(el->elLoc.GetIG()->IsMainEpilog());
-
-            callback(el->elLoc.GetCodeOffset());
-        }
-    }
 #endif // JIT32_GCENCODER
 
     /************************************************************************/
     /*           Record a code position and later convert it to offset      */
     /************************************************************************/
 
-    CodePos emitCurCodePos();
+    CodePos emitCurCodePos() const;
     bool IsCurrentLocation(const emitLocation& loc) const;
     bool IsPreviousLocation(const emitLocation& loc) const;
     INDEBUG(const char* emitOffsetToLabel(unsigned offs);)
@@ -1398,33 +1382,43 @@ private:
     void emitEndPrologEpilog();
 
 #ifdef JIT32_GCENCODER
-    // The x86 GC encoder needs to iterate over a list of epilogs to generate a table of
-    // epilog offsets. Epilogs always start at the beginning of an IG, so save the first
-    // IG of the epilog, and use it to find the epilog offset at the end of code generation.
-    struct EpilogList
+    struct Epilog
     {
-        EpilogList*  elNext;
-        emitLocation elLoc;
-
-        EpilogList() : elNext(nullptr), elLoc()
-        {
-        }
+        Epilog*      next = nullptr;
+        emitLocation startLoc;
     };
 
-    EpilogList*  emitEpilogList = nullptr; // per method epilog list - head
-    EpilogList*  emitEpilogLast = nullptr; // per method epilog list - tail
-    emitLocation emitExitSeqBegLoc;
-    unsigned     emitEpilogCnt   = 0;
-    unsigned     emitEpilogSize  = 0;
-    unsigned     emitExitSeqSize = 0; // minimum size of any return sequence - the 'ret' after the epilog
+    Epilog*      firstEpilog = nullptr;
+    Epilog*      lastEpilog  = nullptr;
+    emitLocation epilogExitLoc;
+    unsigned     epilogCount      = 0;
+    unsigned     epilogCommonSize = 0;
+    unsigned     epilogExitSize   = 0;
 
-    void emitBegFnEpilog(insGroup* igPh);
-    void emitEndFnEpilog();
+    void BeginGCEpilog();
+    void EndGCEpilog();
 
 public:
-    void emitStartExitSeq(); // Mark the start of the "return" sequence
-    void emitStartEpilog();
-    bool emitHasEpilogEnd();
+    void MarkGCEpilogStart() const;
+    void MarkGCEpilogExit();
+
+    bool HasSingleEpilogAtEnd();
+
+    unsigned GetEpilogCount() const
+    {
+        return epilogCount;
+    }
+
+    template <typename Callback>
+    void EnumerateEpilogs(Callback callback)
+    {
+        for (Epilog* e = firstEpilog; e != nullptr; e = e->next)
+        {
+            assert(e->startLoc.GetIG()->IsMainEpilog());
+
+            callback(e->startLoc.GetCodeOffset());
+        }
+    }
 #endif // JIT32_GCENCODER
 
     /************************************************************************/
@@ -1581,7 +1575,7 @@ public:
         // Currently, in methods with multiple epilogs, all epilogs must have the same
         // size. epilogSize is the size of just one of these epilogs, not the cumulative
         // size of all of the method's epilogs.
-        return emitEpilogSize + emitExitSeqSize;
+        return epilogCommonSize + epilogExitSize;
     }
 #endif
 

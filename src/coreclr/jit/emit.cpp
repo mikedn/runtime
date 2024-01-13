@@ -59,7 +59,7 @@ static unsigned GetInsOffsetFromCodePos(CodePos codePos)
     return static_cast<uint32_t>(codePos) >> 16;
 }
 
-CodePos emitter::emitCurCodePos()
+CodePos emitter::emitCurCodePos() const
 {
     return GetCodePos(emitCurIGinsCnt, emitCurIGsize);
 }
@@ -93,7 +93,7 @@ bool emitter::IsPreviousLocation(const emitLocation& loc) const
     return false;
 }
 
-void emitLocation::CaptureLocation(emitter* emit)
+void emitLocation::CaptureLocation(const emitter* emit)
 {
     ig      = emit->emitCurIG;
     codePos = emit->emitCurCodePos();
@@ -984,13 +984,13 @@ void emitter::emitGeneratePrologEpilog()
             JITDUMP("\n=============== Generating epilog\n");
             INDEBUG(++epilogCnt);
 #ifdef JIT32_GCENCODER
-            emitBegFnEpilog(ig);
+            BeginGCEpilog();
 #endif
             emitBegPrologEpilog(ig);
             codeGen->genFnEpilog(igPhBB);
             emitEndPrologEpilog();
 #ifdef JIT32_GCENCODER
-            emitEndFnEpilog();
+            EndGCEpilog();
 #endif
         }
 #ifdef FEATURE_EH_FUNCLETS
@@ -1071,81 +1071,85 @@ void emitter::emitEndPrologEpilog()
 }
 
 #ifdef JIT32_GCENCODER
-void emitter::emitBegFnEpilog(insGroup* igPh)
+void emitter::BeginGCEpilog()
 {
-    emitEpilogCnt++;
+    epilogCount++;
 
-    EpilogList* el = new (emitComp, CMK_GC) EpilogList();
+    Epilog* e = new (emitComp, CMK_GC) Epilog();
 
-    if (emitEpilogLast != nullptr)
+    if (lastEpilog != nullptr)
     {
-        emitEpilogLast->elNext = el;
+        lastEpilog->next = e;
     }
     else
     {
-        emitEpilogList = el;
+        firstEpilog = e;
     }
 
-    emitEpilogLast = el;
+    lastEpilog = e;
 }
 
-void emitter::emitEndFnEpilog()
+void emitter::MarkGCEpilogStart() const
 {
-    assert(emitEpilogLast != nullptr);
-
-    uint32_t epilogBegCodeOffset          = emitEpilogLast->elLoc.GetCodeOffset();
-    uint32_t epilogExitSeqStartCodeOffset = emitExitSeqBegLoc.GetCodeOffset();
-    uint32_t newSize                      = epilogExitSeqStartCodeOffset - epilogBegCodeOffset;
-
-    /* Compute total epilog size */
-    assert(emitEpilogSize == 0 || emitEpilogSize == newSize); // All epilogs must be identical
-    emitEpilogSize = newSize;
-
-    uint32_t epilogEndCodeOffset = emitCurIG->GetCodeOffset(emitCurCodePos());
-    assert(epilogExitSeqStartCodeOffset != epilogEndCodeOffset);
-
-    newSize = epilogEndCodeOffset - epilogExitSeqStartCodeOffset;
-    if (emitExitSeqSize == 0)
-    {
-        emitExitSeqSize = newSize;
-    }
-    else if (newSize < emitExitSeqSize)
-    {
-        // We expect either the epilog to be the same every time, or that
-        // one will be a ret or a ret <n> and others will be a jmp addr or jmp [addr];
-        // we make the epilogs the minimum of these.  Note that this ONLY works
-        // because the only instruction is the last one and thus a slight
-        // underestimation of the epilog size is harmless (since the EIP
-        // can not be between instructions).
-        assert(emitEpilogCnt == 1 ||
-               (emitExitSeqSize - newSize) <= 5 // delta between size of various forms of jmp (size is either 6 or 5),
-                                                // and various forms of ret (size is either 1 or 3). The combination can
-                                                // be anything between 1 and 5.
-               );
-        emitExitSeqSize = newSize;
-    }
+    assert(lastEpilog != nullptr);
+    lastEpilog->startLoc.CaptureLocation(this);
 }
 
-// Mark the current position so that we can later compute the total epilog size.
-void emitter::emitStartEpilog()
-{
-    assert(emitEpilogLast != nullptr);
-    emitEpilogLast->elLoc.CaptureLocation(this);
-}
-
-// Return non-zero if the current method only has one epilog, which is
-// at the very end of the method body.
-bool emitter::emitHasEpilogEnd()
-{
-    return (emitEpilogCnt == 1) && emitIGlast->IsMainEpilog(); // This wouldn't work for funclets
-}
-
-// Mark the beginning of the epilog exit sequence by remembering our position.
-void emitter::emitStartExitSeq()
+void emitter::MarkGCEpilogExit()
 {
     assert(codeGen->generatingEpilog);
+    epilogExitLoc.CaptureLocation(this);
+}
 
-    emitExitSeqBegLoc.CaptureLocation(this);
+void emitter::EndGCEpilog()
+{
+    assert(lastEpilog != nullptr);
+
+    // Note: We compute all this before instructions are actually endcoded,
+    // thus these may not be the final code offsets. But we only care about
+    // the distance between these locations and we don't expect instructions
+    // that are part of the epilog to change size (e.g. there are no branches).
+
+    // TODO-MIKE-Review: Given the very low supported epilog count, we could
+    // store the exit location in Epilog and deal with all this at the
+    // end of instruction encoding. Anyway we need to get the start offset
+    // again at that point.
+
+    uint32_t startOffset = lastEpilog->startLoc.GetCodeOffset();
+    uint32_t exitOffset  = epilogExitLoc.GetCodeOffset();
+    uint32_t endOffset   = emitCurIG->GetCodeOffset(emitCurCodePos());
+
+    uint32_t newCommonSize = exitOffset - startOffset;
+    // All epilogs must be identical, this the exception of the "exit" instruction.
+    assert((epilogCommonSize == 0) || (epilogCommonSize == newCommonSize));
+    epilogCommonSize = newCommonSize;
+
+    unsigned newExitSize = endOffset - exitOffset;
+    assert(newExitSize != 0);
+
+    if (epilogExitSize == 0)
+    {
+        epilogExitSize = newExitSize;
+    }
+    else if (newExitSize < epilogExitSize)
+    {
+        // We expect either the epilog to be the same every time, with the exception
+        // of the "exit" instruction, which may be either RET or JMP (for tail calls).
+        // We take the minimum size of all exits to include in the common epilog size.
+        // This ONLY works because the only instruction is the last one and thus a
+        // slight underestimation of the epilog size is harmless (since the EIP can
+        // not be between instructions).
+
+        // RET can have 1 byte, JMP can have 6 bytes.
+        assert(epilogExitSize - newExitSize <= 5);
+
+        epilogExitSize = newExitSize;
+    }
+}
+
+bool emitter::HasSingleEpilogAtEnd()
+{
+    return (epilogCount == 1) && emitIGlast->IsMainEpilog(); // This wouldn't work for funclets
 }
 
 #endif // JIT32_GCENCODER

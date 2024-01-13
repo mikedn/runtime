@@ -1576,13 +1576,13 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
     assert(FitsIn<unsigned char>(epilogSize));
     header->epilogSize = static_cast<unsigned char>(epilogSize);
 
-    header->epilogCount = codeGen->GetEmitter()->emitGetEpilogCnt();
-    if (header->epilogCount != codeGen->GetEmitter()->emitGetEpilogCnt())
+    header->epilogCount = codeGen->GetEmitter()->GetEpilogCount();
+    if (header->epilogCount != codeGen->GetEmitter()->GetEpilogCount())
     {
-        IMPL_LIMITATION("emitGetEpilogCnt() does not fit in InfoHdr::epilogCount");
+        IMPL_LIMITATION("Epilog count does not fit in InfoHdr::epilogCount");
     }
 
-    header->epilogAtEnd = codeGen->GetEmitter()->emitHasEpilogEnd();
+    header->epilogAtEnd = codeGen->GetEmitter()->HasSingleEpilogAtEnd();
 
     if ((savedRegs & RBM_EDI) != RBM_NONE)
     {

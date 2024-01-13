@@ -273,8 +273,7 @@ void CodeGen::GenCallFinally(BasicBlock* block)
     // then RSP at this point is the same shift as that stored in the PSPSym. So just copy RSP
     // instead of loading the PSPSym in this case, or if PSPSym is not used (CoreRT ABI).
 
-    if ((compiler->lvaPSPSym == BAD_VAR_NUM) ||
-        (!compiler->compLocallocUsed && (funCurrentFunc().kind == FUNC_ROOT)))
+    if ((compiler->lvaPSPSym == BAD_VAR_NUM) || (!compiler->compLocallocUsed && (funCurrentFunc().kind == FUNC_ROOT)))
     {
 #ifndef UNIX_X86_ABI
         GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_ARG_0, REG_SPBASE, /* canSkip */ false);
@@ -8745,7 +8744,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
     // unwinder (and break binary compat with older versions of the runtime) by starting the epilog
     // after any `vzeroupper` instruction has been emitted. If either of the above conditions changes,
     // we will need to rethink this.
-    GetEmitter()->emitStartEpilog();
+    GetEmitter()->MarkGCEpilogStart();
 #endif
 
     /* Compute the size in bytes we've pushed/popped */
@@ -8945,7 +8944,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
     }
 
 #ifdef JIT32_GCENCODER
-    GetEmitter()->emitStartExitSeq();
+    GetEmitter()->MarkGCEpilogExit();
 #endif
 
     if (jmpEpilog)
