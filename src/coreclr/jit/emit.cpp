@@ -203,7 +203,6 @@ void emitter::emitNewIG()
     assert(emitIGlast == emitCurIG);
 
     insGroup* ig = emitAllocIG(emitIGlast->igNum + 1);
-    ig->igFlags |= emitIGlast->igFlags & IGF_PROPAGATE_MASK;
 
     emitIGlast->igNext = ig;
     emitIGlast         = ig;
@@ -218,7 +217,6 @@ void emitter::emitAppendIG(insGroup* ig)
 
     ig->igNum  = emitIGlast->igNum + 1;
     ig->igOffs = emitCurCodeOffset;
-    ig->igFlags |= emitIGlast->igFlags & IGF_PROPAGATE_MASK;
 
 #if defined(DEBUG) || defined(LATE_DISASM)
     ig->igWeight = getCurrentBlockWeight();
@@ -259,7 +257,7 @@ void emitter::emitGenIG(insGroup* ig)
 
 void emitter::emitExtendIG()
 {
-    assert(!IsMainProlog(emitCurIG) && !emitCurIG->IsFuncletProlog());
+    assert(!IsMainProlog(emitCurIG) && !emitCurIG->IsPrologOrEpilog());
 
     emitFinishIG(true);
     emitNewIG();
@@ -868,9 +866,6 @@ void emitter::ReserveFuncletProlog(BasicBlock* block)
 
     emitNewIG();
 
-    // The group after the placeholder group doesn't get the "propagate" flags.
-    emitCurIG->igFlags &= ~IGF_PROPAGATE_MASK;
-
     // The funclet prolog and the funclet entry block will have the same GC info.
     // Nothing is really live in the prolog, since it's not interruptible, but if
     // we kill everything at the start of the prolog we may end up creating new
@@ -968,9 +963,6 @@ void emitter::ReserveEpilog(BasicBlock* block)
     else
     {
         emitNewIG();
-
-        // The group after the placeholder group doesn't get the "propagate" flags.
-        emitCurIG->igFlags &= ~IGF_PROPAGATE_MASK;
     }
 }
 

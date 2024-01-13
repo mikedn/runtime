@@ -86,17 +86,6 @@ public:
 #define IGF_LOOP_ALIGN 0x0100     // this group contains alignment instruction(s) at the end; the next IG
                                   // is the head of a loop that needs alignment.
 
-// Mask of IGF_* flags that should be propagated to new blocks when they are created.
-// This allows prologs and epilogs to be any number of IGs, but still be
-// automatically marked properly.
-#ifndef FEATURE_EH_FUNCLETS
-#define IGF_PROPAGATE_MASK IGF_EPILOG
-#elif defined(DEBUG)
-#define IGF_PROPAGATE_MASK (IGF_EPILOG | IGF_FUNCLET_PROLOG | IGF_FUNCLET_EPILOG)
-#else
-#define IGF_PROPAGATE_MASK (IGF_EPILOG | IGF_FUNCLET_PROLOG)
-#endif
-
 struct insGroup
 {
     insGroup* igNext;
@@ -215,6 +204,15 @@ struct insGroup
         return (igFlags & (IGF_FUNCLET_PROLOG | IGF_FUNCLET_EPILOG)) != 0;
 #else
         return false;
+#endif
+    }
+
+    bool IsPrologOrEpilog() const
+    {
+#ifdef FEATURE_EH_FUNCLETS
+        return (igFlags & (IGF_EPILOG | IGF_FUNCLET_PROLOG | IGF_FUNCLET_EPILOG)) != 0;
+#else
+        return (igFlags & IGF_EPILOG) != 0;
 #endif
     }
 
