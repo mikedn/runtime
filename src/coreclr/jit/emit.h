@@ -103,6 +103,8 @@ struct insGroup
 #endif
 #ifdef FEATURE_EH_FUNCLETS
     uint16_t igFuncIdx; // Which function/funclet does this belong to? (Index into CodeGen::compFuncInfos array.)
+#else
+    static constexpr uint16_t igFuncIdx = 0;
 #endif
     uint16_t igSize;   // # of bytes of code in this group
     uint16_t igFlags;  // see IGF_xxx below
@@ -141,11 +143,7 @@ struct insGroup
 
     uint16_t GetFuncletIndex() const
     {
-#ifdef FEATURE_EH_FUNCLETS
         return igFuncIdx;
-#else
-        return 0;
-#endif
     }
 
     VARSET_TP GetGCLcls() const
@@ -176,47 +174,27 @@ struct insGroup
 
     bool IsMainProlog() const
     {
-#ifdef FEATURE_EH_FUNCLETS
         return ((igFlags & IGF_PROLOG) != 0) && (igFuncIdx == 0);
-#else
-        return (igFlags & IGF_PROLOG) != 0;
-#endif
     }
 
     bool IsMainEpilog() const
     {
-#ifdef FEATURE_EH_FUNCLETS
         return ((igFlags & IGF_EPILOG) != 0) && (igFuncIdx == 0);
-#else
-        return (igFlags & IGF_EPILOG) != 0;
-#endif
     }
 
     bool IsFuncletProlog() const
     {
-#ifdef FEATURE_EH_FUNCLETS
         return ((igFlags & IGF_PROLOG) != 0) && (igFuncIdx != 0);
-#else
-        return false;
-#endif
     }
 
     bool IsFuncletEpilog() const
     {
-#ifdef FEATURE_EH_FUNCLETS
         return ((igFlags & IGF_EPILOG) != 0) && (igFuncIdx != 0);
-#else
-        return false;
-#endif
     }
 
     bool IsFuncletPrologOrEpilog() const
     {
-#ifdef FEATURE_EH_FUNCLETS
         return ((igFlags & (IGF_PROLOG | IGF_EPILOG)) != 0) && (igFuncIdx != 0);
-#else
-        return false;
-#endif
     }
 
     bool IsPrologOrEpilog() const
@@ -312,7 +290,7 @@ public:
         }
     }
 #else
-    unsigned GetMaxStackDepth()
+    unsigned                  GetMaxStackDepth()
     {
         return emitMaxStackDepth;
     }
