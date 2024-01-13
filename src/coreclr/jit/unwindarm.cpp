@@ -833,17 +833,10 @@ void UnwindFragmentInfo::SplitEpilogs(UnwindFragmentInfo* fromFragment)
     }
 }
 
-// Is this epilog at the end of an unwind fragment?
-// Note that we need to know this before all code offsets are finalized,
-// so we can determine whether we can omit an epilog scope word for a
-// single matching epilog.
 bool UnwindFragmentInfo::IsAtFragmentEnd(UnwindEpilogInfo* epilog)
 {
     // We're assuming that the epilog doesn't span multiple instruction groups.
-    insGroup* ig = epilog->epiStartLoc.GetIG();
-
-    return (ig->igNext == nullptr) || ig->igNext->IsFuncletProlog() ||
-           ((ufiNext != nullptr) && (ig->igNext == ufiNext->GetStartLoc()));
+    return epilog->epiStartLoc.GetIG()->igNext == ufiEndLoc;
 }
 
 // Merge the unwind codes as much as possible.
