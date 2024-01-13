@@ -475,8 +475,9 @@ void emitter::emitBegFN()
 
     // Create the first IG, it will be used for the prolog.
     emitIGfirst = emitAllocIG(1);
-    emitIGlast  = emitIGfirst;
-    emitCurIG   = emitIGfirst;
+    emitIGfirst->igFlags |= IGF_PROLOG;
+    emitIGlast = emitIGfirst;
+    emitCurIG  = emitIGfirst;
 
     JITDUMP(FMT_IG ": offs %06XH, funclet %02u, weight %s\n", emitCurIG->GetId(), emitCurIG->igOffs,
             emitCurIG->GetFuncletIndex(), refCntWtd2str(emitCurIG->igWeight));
@@ -843,7 +844,7 @@ void emitter::ReserveFuncletProlog(BasicBlock* block)
     insGroup* ig  = emitCurIG;
     ig->igPhData  = block;
     ig->igFuncIdx = codeGen->currentFuncletIndex;
-    ig->igFlags |= IGF_PLACEHOLDER | IGF_FUNCLET_PROLOG;
+    ig->igFlags |= IGF_PLACEHOLDER | IGF_PROLOG;
 
     Placeholder* ph = new (emitComp, CMK_InstDesc) Placeholder(ig);
 
@@ -926,16 +927,8 @@ void emitter::ReserveEpilog(BasicBlock* block)
     ig->igPhData = block;
 #ifdef FEATURE_EH_FUNCLETS
     ig->igFuncIdx = codeGen->currentFuncletIndex;
-
-    if (isFunclet)
-    {
-        ig->igFlags |= IGF_PLACEHOLDER | IGF_FUNCLET_EPILOG;
-    }
-    else
 #endif
-    {
-        ig->igFlags |= IGF_PLACEHOLDER | IGF_EPILOG;
-    }
+    ig->igFlags |= IGF_PLACEHOLDER | IGF_EPILOG;
 
     Placeholder* ph = new (emitComp, CMK_InstDesc) Placeholder(ig);
 

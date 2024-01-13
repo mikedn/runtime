@@ -75,16 +75,15 @@ public:
 };
 
 #define IGF_BASIC_BLOCK 0x0001
-#define IGF_FUNCLET_PROLOG 0x0002 // this group belongs to a funclet prolog
-#define IGF_FUNCLET_EPILOG 0x0004 // this group belongs to a funclet epilog.
-#define IGF_EPILOG 0x0008         // this group belongs to a main function epilog
-#define IGF_NOGCINTERRUPT 0x0010  // this IG is is a no-interrupt region (prolog, epilog, etc.)
-#define IGF_UPD_ISZ 0x0020        // some instruction sizes updated
-#define IGF_PLACEHOLDER 0x0040    // this is a placeholder group, to be filled in later
-#define IGF_EXTEND 0x0080         // this block is conceptually an extension of the previous block and the
-                                  // emitter should continue to track GC info as if there was no new block.
-#define IGF_LOOP_ALIGN 0x0100     // this group contains alignment instruction(s) at the end; the next IG
-                                  // is the head of a loop that needs alignment.
+#define IGF_PROLOG 0x0002        // this group belongs to a prolog
+#define IGF_EPILOG 0x0004        // this group belongs to a epilog
+#define IGF_NOGCINTERRUPT 0x0008 // this IG is is a no-interrupt region (prolog, epilog, etc.)
+#define IGF_UPD_ISZ 0x0010       // some instruction sizes updated
+#define IGF_PLACEHOLDER 0x0020   // this is a placeholder group, to be filled in later
+#define IGF_EXTEND 0x0040        // this block is conceptually an extension of the previous block and the
+                                 // emitter should continue to track GC info as if there was no new block.
+#define IGF_LOOP_ALIGN 0x0080    // this group contains alignment instruction(s) at the end; the next IG
+                                 // is the head of a loop that needs alignment.
 
 struct insGroup
 {
@@ -175,15 +174,28 @@ struct insGroup
         return (igFlags & IGF_LOOP_ALIGN) != 0;
     }
 
+    bool IsMainProlog() const
+    {
+#ifdef FEATURE_EH_FUNCLETS
+        return ((igFlags & IGF_PROLOG) != 0) && (igFuncIdx == 0);
+#else
+        return (igFlags & IGF_PROLOG) != 0;
+#endif
+    }
+
     bool IsMainEpilog() const
     {
+#ifdef FEATURE_EH_FUNCLETS
+        return ((igFlags & IGF_EPILOG) != 0) && (igFuncIdx == 0);
+#else
         return (igFlags & IGF_EPILOG) != 0;
+#endif
     }
 
     bool IsFuncletProlog() const
     {
 #ifdef FEATURE_EH_FUNCLETS
-        return (igFlags & IGF_FUNCLET_PROLOG) != 0;
+        return ((igFlags & IGF_PROLOG) != 0) && (igFuncIdx != 0);
 #else
         return false;
 #endif
@@ -192,7 +204,7 @@ struct insGroup
     bool IsFuncletEpilog() const
     {
 #ifdef FEATURE_EH_FUNCLETS
-        return (igFlags & IGF_FUNCLET_EPILOG) != 0;
+        return ((igFlags & IGF_EPILOG) != 0) && (igFuncIdx != 0);
 #else
         return false;
 #endif
@@ -201,7 +213,7 @@ struct insGroup
     bool IsFuncletPrologOrEpilog() const
     {
 #ifdef FEATURE_EH_FUNCLETS
-        return (igFlags & (IGF_FUNCLET_PROLOG | IGF_FUNCLET_EPILOG)) != 0;
+        return ((igFlags & (IGF_PROLOG | IGF_EPILOG)) != 0) && (igFuncIdx != 0);
 #else
         return false;
 #endif
@@ -209,11 +221,7 @@ struct insGroup
 
     bool IsPrologOrEpilog() const
     {
-#ifdef FEATURE_EH_FUNCLETS
-        return (igFlags & (IGF_EPILOG | IGF_FUNCLET_PROLOG | IGF_FUNCLET_EPILOG)) != 0;
-#else
-        return (igFlags & IGF_EPILOG) != 0;
-#endif
+        return (igFlags & (IGF_PROLOG | IGF_EPILOG)) != 0;
     }
 
     bool IsBasicBlock() const
