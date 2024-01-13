@@ -3933,6 +3933,8 @@ void CodeGen::genFnProlog()
 #endif
 #endif // TARGET_XARCH
 
+    unwindEndProlog();
+
     if (compiler->info.compPublishStubParam)
     {
         assert((paramRegState.intRegLiveIn & RBM_SECRET_STUB_PARAM) != RBM_NONE);
@@ -4078,7 +4080,6 @@ void CodeGen::genFnProlog()
 #endif
 
     GetEmitter()->EndMainProlog();
-    unwindEndProlog();
 }
 
 #ifdef FEATURE_EH_FUNCLETS
