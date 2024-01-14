@@ -4635,16 +4635,6 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
     bool            fPossibleSyncHelperCall = false;
     CorInfoHelpFunc helperNum               = CORINFO_HELP_UNDEF;
-    IL_OFFSETX      ilOffset                = BAD_IL_OFFSET;
-
-    // We need to propagate the IL offset information to the call instruction, so we can emit
-    // an IL to native mapping record for the call, to support managed return shift debugging.
-    // We don't want tail call helper calls that were converted from normal calls to get a record,
-    // so we skip this hash table lookup logic in that case.
-    if (compiler->opts.compDbgInfo && compiler->genCallSite2ILOffsetMap != nullptr && !call->IsTailCall())
-    {
-        (void)compiler->genCallSite2ILOffsetMap->Lookup(call, &ilOffset);
-    }
 
 #ifdef TARGET_X86
     bool fCallerPop = call->CallerPop();
@@ -4785,9 +4775,14 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         assert(callAddr != nullptr);
     }
 
-    if (compiler->opts.compDbgInfo && (ilOffset != BAD_IL_OFFSET))
+    // Managed Retval sequence points needs to be generated while generating debug info for debuggable code.
+    if ((compiler->genCallSite2ILOffsetMap != nullptr) && !call->IsTailCall())
     {
-        genIPmappingAdd(ilOffset, false);
+        if (IL_OFFSETX* ilOffset = compiler->genCallSite2ILOffsetMap->LookupPointer(call))
+        {
+            assert(*ilOffset != BAD_IL_OFFSET);
+            genIPmappingAdd(*ilOffset, false);
+        }
     }
 
     // clang-format off

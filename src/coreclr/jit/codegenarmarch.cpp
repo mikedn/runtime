@@ -2363,17 +2363,6 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         }
     }
 
-    IL_OFFSETX ilOffset = BAD_IL_OFFSET;
-
-    // We need to propagate the IL offset information to the call instruction, so we can emit
-    // an IL to native mapping record for the call, to support managed return value debugging.
-    // We don't want tail call helper calls that were converted from normal calls to get a record,
-    // so we skip this hash table lookup logic in that case.
-    if (compiler->opts.compDbgInfo && compiler->genCallSite2ILOffsetMap != nullptr && !call->IsTailCall())
-    {
-        (void)compiler->genCallSite2ILOffsetMap->Lookup(call, &ilOffset);
-    }
-
     emitter::EmitCallType emitCallType;
     void*                 callAddr = nullptr;
     regNumber             callReg  = REG_NA;
@@ -2452,13 +2441,18 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         // Load the call target address in x16
         emitCallType = emitter::EC_INDIR_R;
         callReg = REG_IP0;
-        instGen_Set_Reg_To_Imm(EA_8BYTE, callReg, (ssize_t) addr);
+        instGen_Set_Reg_To_Imm(EA_8BYTE, callReg, (ssize_t)addr);
 #endif
     }
 
-    if (compiler->opts.compDbgInfo && (ilOffset != BAD_IL_OFFSET))
+    // Managed Retval sequence points needs to be generated while generating debug info for debuggable code.
+    if ((compiler->genCallSite2ILOffsetMap != nullptr) && !call->IsTailCall())
     {
-        genIPmappingAdd(ilOffset, false);
+        if (IL_OFFSETX* ilOffset = compiler->genCallSite2ILOffsetMap->LookupPointer(call))
+        {
+            assert(*ilOffset != BAD_IL_OFFSET);
+            genIPmappingAdd(*ilOffset, false);
+        }
     }
 
     // clang-format off

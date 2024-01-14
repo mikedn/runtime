@@ -4229,31 +4229,23 @@ GenTreeCall* Compiler::gtNewCallNode(
     node->gtRawILOffset       = BAD_IL_OFFSET;
 #endif
 
-    // Spec: Managed Retval sequence points needs to be generated while generating debug info for debuggable code.
-    //
-    // Implementation note: if not generating MRV info genCallSite2ILOffsetMap will be NULL and
-    // codegen will pass BAD_IL_OFFSET as IL offset of a call node to emitter, which will cause emitter
-    // not to emit IP mapping entry.
-    if (opts.compDbgCode && opts.compDbgInfo)
+    // Managed Retval sequence points needs to be generated while generating debug info for debuggable code.
+    if (opts.compDbgCode && opts.compDbgInfo && (ilOffset != BAD_IL_OFFSET))
     {
         // Managed Retval - IL offset of the call.  This offset is used to emit a
         // CALL_INSTRUCTION type sequence point while emitting corresponding native call.
         //
         // TODO-Cleanup:
-        // a) (Opt) We need not store this offset if the method doesn't return a
-        // value.  Rather it can be made BAD_IL_OFFSET to prevent a sequence
-        // point being emitted.
-        //
+        // a) (Opt) We need not store this offset if the method doesn't return a value.
         // b) (Opt) Add new sequence points only if requested by debugger through
         // a new boundary type - ICorDebugInfo::BoundaryTypes
+
         if (genCallSite2ILOffsetMap == nullptr)
         {
-            genCallSite2ILOffsetMap = new (getAllocator()) CallSiteILOffsetTable(getAllocator());
+            genCallSite2ILOffsetMap = new (this, CMK_DebugInfo) CallSiteILOffsetTable(getAllocator(CMK_DebugInfo));
         }
 
-        // Make sure that there are no duplicate entries for a given call node
-        assert(!genCallSite2ILOffsetMap->Lookup(node));
-        genCallSite2ILOffsetMap->Set(node, ilOffset);
+        genCallSite2ILOffsetMap->Set(node, ilOffset, CallSiteILOffsetTable::None);
     }
 
     // Initialize gtOtherRegs
