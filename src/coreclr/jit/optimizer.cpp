@@ -11,11 +11,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#pragma warning(disable : 4701)
-#endif
-
 #include "jitgcinfo.h"
 
 //------------------------------------------------------------------------
