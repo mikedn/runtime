@@ -14,10 +14,12 @@ static bool IsJccInstruction(instruction ins)
     return (INS_FIRST_JCC <= ins) && (ins <= INS_LAST_JCC);
 }
 
+#ifdef DEBUG
 static bool IsJmpInstruction(instruction ins)
 {
     return AMD64_ONLY((ins == INS_rex_jmp) ||)(ins == INS_i_jmp) || (ins == INS_jmp) || (ins == INS_l_jmp);
 }
+#endif
 
 instruction emitter::emitJumpKindToSetcc(emitJumpKind kind)
 {
