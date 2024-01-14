@@ -78,27 +78,6 @@
 #endif
 
 /*****************************************************************************
- * Given an absolute address from the beginning of the code
- * find the corresponding emitter block and the relative offset
- * of the current address in that block
- * Was used to get to the fixup list of each block. The new emitter has
- * no such fixups. Something needs to be added for this.
- */
-
-// These structs were defined in emit.h. Fake them here so DisAsm.cpp can compile
-
-typedef struct codeFix
-{
-    codeFix* cfNext;
-    unsigned cfFixup;
-} * codeFixPtr;
-
-typedef struct codeBlk
-{
-    codeFix* cbFixupLst;
-} * codeBlkPtr;
-
-/*****************************************************************************
  * The following is the callback for jump label and direct function calls fixups.
  * "addr" represents the address of jump that has to be
  * replaced with a label or function name.
