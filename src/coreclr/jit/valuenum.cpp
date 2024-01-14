@@ -40,6 +40,14 @@ public:
     void UpdateLoops() const;
 };
 
+struct ArrayInfo
+{
+    GenTree*       m_arrayExpr       = nullptr;
+    GenTree*       m_elemOffsetExpr  = nullptr;
+    GenTreeIntCon* m_elemOffsetConst = nullptr;
+    unsigned       m_elemTypeNum     = 0;
+};
+
 class ValueNumbering
 {
     friend class ValueNumberState;

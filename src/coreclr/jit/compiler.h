@@ -799,19 +799,6 @@ public:
     INDEBUG(const char* lvReason;)
 };
 
-// Information about arrays: their element type and size, and the offset of the first element.
-struct ArrayInfo
-{
-    GenTree*       m_arrayExpr;
-    GenTree*       m_elemOffsetExpr;
-    GenTreeIntCon* m_elemOffsetConst;
-    unsigned       m_elemTypeNum;
-
-    ArrayInfo() : m_arrayExpr(nullptr), m_elemOffsetExpr(nullptr), m_elemOffsetConst(nullptr), m_elemTypeNum(0)
-    {
-    }
-};
-
 // The following enum provides a simple 1:1 mapping to CLR API's
 enum API_ICorJitInfo_Names
 {
