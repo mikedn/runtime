@@ -242,7 +242,9 @@ void CodeGen::genCodeForBBlist()
         genInsertNopForUnwinder(block);
 #endif
 
+#ifdef FEATURE_EH_FUNCLETS
         genUpdateCurrentFunclet(block);
+#endif
 
         m_currentBlock = block;
 
@@ -584,8 +586,11 @@ void CodeGen::genCodeForBBlist()
     m_currentBlock = nullptr;
     liveness.End(this);
 
-    genGeneratePrologsAndEpilogs();
-
+    genFnProlog();
+#ifdef FEATURE_EH_FUNCLETS
+    genCaptureFuncletPrologEpilogInfo();
+#endif
+    GetEmitter()->emitGeneratePrologEpilog();
     GetEmitter()->emitJumpDistBind();
 #if FEATURE_LOOP_ALIGN
     GetEmitter()->emitLoopAlignAdjustments();

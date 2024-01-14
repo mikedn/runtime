@@ -449,14 +449,7 @@ public:
 #ifdef TARGET_ARM
     void genInsertNopForUnwinder(BasicBlock* block);
 #endif
-
-#else  // !FEATURE_EH_FUNCLETS
-    void genUpdateCurrentFunclet(BasicBlock* block)
-    {
-    }
-#endif // !FEATURE_EH_FUNCLETS
-
-    void genGeneratePrologsAndEpilogs();
+#endif // FEATURE_EH_FUNCLETS
 
 #if defined(DEBUG) && defined(TARGET_ARM64)
     void genArm64EmitterUnitTests();

@@ -4198,23 +4198,6 @@ void CodeGen::PrologSetPSPSym(regNumber initReg, bool* pInitRegZeroed)
 
 #endif // FEATURE_EH_FUNCLETS
 
-/*****************************************************************************
- *
- *  Generates code for all the function and funclet prologs and epilogs.
- */
-
-void CodeGen::genGeneratePrologsAndEpilogs()
-{
-    genFnProlog();
-#ifdef FEATURE_EH_FUNCLETS
-    // Capture the data we're going to use in the funclet prolog and epilog generation. This is
-    // information computed during codegen, or during function prolog generation, like
-    // frame offsets. It must run after main function prolog generation.
-    genCaptureFuncletPrologEpilogInfo();
-#endif
-    GetEmitter()->emitGeneratePrologEpilog();
-}
-
 #ifdef DEBUG
 static void PrintDbgInfoVars(Compiler* compiler, const ICorDebugInfo::NativeVarInfo* vars, unsigned count);
 #endif
