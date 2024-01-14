@@ -166,6 +166,8 @@ public:
         WBF_BarrierUnchecked, // An unchecked barrier is required.
     };
 
+    static bool            UseOptimizedWriteBarriers();
+    static CorInfoHelpFunc GetWriteBarrierHelperCall(GCInfo::WriteBarrierForm wbf);
     static WriteBarrierForm GetWriteBarrierForm(GenTreeStoreInd* store);
     static WriteBarrierForm GetWriteBarrierFormFromAddress(GenTree* addr);
     static bool IsNoGCHelper(CorInfoHelpFunc helper);

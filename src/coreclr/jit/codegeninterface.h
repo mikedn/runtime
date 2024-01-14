@@ -5,7 +5,6 @@
 
 #include "regset.h"
 #include "instr.h"
-#include "jitgcinfo.h"
 
 class LclVarDsc;
 class emitter;
@@ -225,9 +224,6 @@ public:
         return m_cgDisAsm;
     }
 #endif
-
-    static bool            UseOptimizedWriteBarriers();
-    static CorInfoHelpFunc GetWriteBarrierHelperCall(GCInfo::WriteBarrierForm wbf);
 };
 
 StructStoreKind GetStructStoreKind(bool isLocalStore, ClassLayout* layout, GenTree* src);

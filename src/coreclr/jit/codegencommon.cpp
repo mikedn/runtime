@@ -1294,25 +1294,9 @@ void CodeGen::dispOutgoingEHClause(unsigned num, const CORINFO_EH_CLAUSE& clause
 }
 #endif // DEBUG
 
-bool CodeGenInterface::UseOptimizedWriteBarriers()
-{
-#if defined(TARGET_X86) && NOGC_WRITE_BARRIERS
-    return true;
-#else
-    return false;
-#endif
-}
-
-CorInfoHelpFunc CodeGenInterface::GetWriteBarrierHelperCall(GCInfo::WriteBarrierForm wbf)
-{
-    assert(wbf != GCInfo::WBF_NoBarrier);
-
-    return (wbf == GCInfo::WBF_BarrierUnchecked) ? CORINFO_HELP_ASSIGN_REF : CORINFO_HELP_CHECKED_ASSIGN_REF;
-}
-
 void CodeGen::genGCWriteBarrier(GenTreeStoreInd* store, GCInfo::WriteBarrierForm wbf)
 {
-    genEmitHelperCall(GetWriteBarrierHelperCall(wbf), EA_PTRSIZE);
+    genEmitHelperCall(GCInfo::GetWriteBarrierHelperCall(wbf), EA_PTRSIZE);
 }
 
 /*

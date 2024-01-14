@@ -1210,6 +1210,22 @@ void GCInfo::DumpDelta(const char* header)
 
 #endif // DEBUG
 
+bool GCInfo::UseOptimizedWriteBarriers()
+{
+#if defined(TARGET_X86) && NOGC_WRITE_BARRIERS
+    return true;
+#else
+    return false;
+#endif
+}
+
+CorInfoHelpFunc GCInfo::GetWriteBarrierHelperCall(GCInfo::WriteBarrierForm wbf)
+{
+    assert(wbf != GCInfo::WBF_NoBarrier);
+
+    return (wbf == GCInfo::WBF_BarrierUnchecked) ? CORINFO_HELP_ASSIGN_REF : CORINFO_HELP_CHECKED_ASSIGN_REF;
+}
+
 GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierForm(GenTreeStoreInd* store)
 {
     if (!store->TypeIs(TYP_REF))

@@ -13,6 +13,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "hostallocator.h"
 #include "patchpointinfo.h"
 #include "jitstd/algorithm.h"
+#include "jitgcinfo.h"
 
 extern ICorJitHost* g_jitHost;
 

@@ -3,6 +3,7 @@
 
 #include "jitpch.h"
 #include "lsra.h"
+#include "jitgcinfo.h"
 
 void RefInfoList::Add(RefPosition* ref, GenTree* node, Compiler* compiler)
 {
@@ -529,7 +530,7 @@ regMaskTP LinearScan::getKillSetForStoreInd(GenTreeStoreInd* tree)
     GCInfo::WriteBarrierForm writeBarrierForm = GCInfo::GetWriteBarrierForm(tree);
     if (writeBarrierForm != GCInfo::WBF_NoBarrier)
     {
-        if (CodeGenInterface::UseOptimizedWriteBarriers())
+        if (GCInfo::UseOptimizedWriteBarriers())
         {
             // We can't determine the exact helper to be used at this point, because it depends on
             // the allocated register for the `data` operand. However, all the (x86) optimized
@@ -540,7 +541,7 @@ regMaskTP LinearScan::getKillSetForStoreInd(GenTreeStoreInd* tree)
         else
         {
             // Figure out which helper we're going to use, and then get the kill set for that helper.
-            killMask = compiler->compHelperCallKillSet(CodeGenInterface::GetWriteBarrierHelperCall(writeBarrierForm));
+            killMask = compiler->compHelperCallKillSet(GCInfo::GetWriteBarrierHelperCall(writeBarrierForm));
         }
     }
     return killMask;
@@ -2873,7 +2874,7 @@ void LinearScan::BuildGCWriteBarrier(GenTreeStoreInd* store)
     addrCandidates = RBM_WRITE_BARRIER_DST;
     srcCandidates  = RBM_WRITE_BARRIER_SRC;
 #elif defined(TARGET_X86) && NOGC_WRITE_BARRIERS
-    if (CodeGenInterface::UseOptimizedWriteBarriers())
+    if (GCInfo::UseOptimizedWriteBarriers())
     {
         // Special write barrier:
         // op1 (addr) goes into REG_WRITE_BARRIER (rdx) and

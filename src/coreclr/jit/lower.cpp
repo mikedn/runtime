@@ -21,6 +21,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #endif
 
 #include "lower.h"
+#include "jitgcinfo.h"
 
 #ifndef TARGET_64BIT
 #include "decomposelongs.h"

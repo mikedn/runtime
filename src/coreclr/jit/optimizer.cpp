@@ -16,6 +16,8 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #pragma warning(disable : 4701)
 #endif
 
+#include "jitgcinfo.h"
+
 //------------------------------------------------------------------------
 // optSetBlockWeights: adjust block weights, as follows:
 // 1. A block that is not reachable from the entry block is marked "run rarely".
