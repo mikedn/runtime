@@ -4533,55 +4533,45 @@ struct ILMapping
     {
     }
 
-    IL_OFFSET GetILOffset() const
+    static bool IsMappingType(IL_OFFSETX ilOffsetX)
     {
-        assert(ilOffsetX != BAD_IL_OFFSET);
-
-        switch (ilOffsetX)
-        {
-            case ICorDebugInfo::NO_MAPPING:
-            case ICorDebugInfo::PROLOG:
-            case ICorDebugInfo::EPILOG:
-                return static_cast<IL_OFFSET>(ilOffsetX);
-            default:
-                return static_cast<IL_OFFSET>(ilOffsetX & ~IL_OFFSETX_BITS);
-        }
-    }
-
-    bool IsStackEmpty() const
-    {
-        assert(ilOffsetX != BAD_IL_OFFSET);
-
-        switch (ilOffsetX)
+        switch (static_cast<ICorDebugInfo::MappingTypes>(ilOffsetX))
         {
             case ICorDebugInfo::NO_MAPPING:
             case ICorDebugInfo::PROLOG:
             case ICorDebugInfo::EPILOG:
                 return true;
             default:
-                return (ilOffsetX & IL_OFFSETX_STKBIT) == 0;
+                return false;
         }
+    }
+
+    uint32_t GetILOffset() const
+    {
+        assert(ilOffsetX != BAD_IL_OFFSET);
+
+        return IsMappingType(ilOffsetX) ? static_cast<uint32_t>(ilOffsetX)
+                                        : static_cast<uint32_t>(ilOffsetX & ~IL_OFFSETX_BITS);
+    }
+
+    bool IsStackEmpty() const
+    {
+        assert(ilOffsetX != BAD_IL_OFFSET);
+
+        return IsMappingType(ilOffsetX) || ((ilOffsetX & IL_OFFSETX_STKBIT) == 0);
     }
 
     bool IsCallInstruction() const
     {
         assert(ilOffsetX != BAD_IL_OFFSET);
 
-        switch (ilOffsetX)
-        {
-            case ICorDebugInfo::NO_MAPPING:
-            case ICorDebugInfo::PROLOG:
-            case ICorDebugInfo::EPILOG:
-                return false;
-            default:
-                return (ilOffsetX & IL_OFFSETX_CALLINSTRUCTIONBIT) != 0;
-        }
+        return !IsMappingType(ilOffsetX) && ((ilOffsetX & IL_OFFSETX_CALLINSTRUCTIONBIT) != 0);
     }
 };
 
 #ifdef DEBUG
 
-static void PrintILOffset(IL_OFFSET offs)
+static void PrintILOffset(uint32_t offs)
 {
     if (offs == ICorDebugInfo::PROLOG)
     {

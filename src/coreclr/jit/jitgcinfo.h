@@ -7,6 +7,9 @@
 #include "gcinfotypes.h"
 #endif
 
+class CodeGenInterface;
+class CodeGen;
+
 class GCInfo
 {
     friend class CodeGenInterface;

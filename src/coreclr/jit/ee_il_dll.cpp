@@ -118,7 +118,7 @@ extern "C" DLLEXPORT void jitStartup(ICorJitHost* jitHost)
 
     Compiler::compStartup();
 
-    static alignas(CILJit) char jitMem[sizeof(CILJit)];
+    alignas(CILJit) static char jitMem[sizeof(CILJit)];
     g_jit = new (jitMem) CILJit();
 }
 
