@@ -3397,7 +3397,10 @@ UNATIVE_OFFSET emitter::emitDataGenFind(const void* cnsAddr, unsigned cnsSize, u
 // Notes:  we call the method emitDataGenFind() to see if we already have
 //   a matching constant that can be reused.
 //
-UNATIVE_OFFSET emitter::emitDataConst(const void* cnsAddr, unsigned cnsSize, unsigned cnsAlign, var_types dataType)
+CORINFO_FIELD_HANDLE emitter::emitDataConst(const void* cnsAddr,
+                                            unsigned    cnsSize,
+                                            unsigned    cnsAlign,
+                                            var_types   dataType)
 {
     UNATIVE_OFFSET cnum = emitDataGenFind(cnsAddr, cnsSize, cnsAlign, dataType);
 
@@ -3407,7 +3410,7 @@ UNATIVE_OFFSET emitter::emitDataConst(const void* cnsAddr, unsigned cnsSize, uns
         emitDataGenData(0, cnsAddr, cnsSize);
         emitDataGenEnd();
     }
-    return cnum;
+    return MakeRoDataField(cnum);
 }
 
 //------------------------------------------------------------------------
@@ -3477,7 +3480,7 @@ CORINFO_FIELD_HANDLE emitter::emitFltOrDblConst(double constValue, emitAttr attr
     }
 #endif // TARGET_XARCH
 
-    return MakeRoDataField(emitDataConst(cnsAddr, cnsSize, cnsAlign, dataType));
+    return emitDataConst(cnsAddr, cnsSize, cnsAlign, dataType);
 }
 
 /*****************************************************************************

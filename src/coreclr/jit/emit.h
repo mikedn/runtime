@@ -356,7 +356,7 @@ public:
     void emitDataGenData(unsigned offs, insGroup* label);
     void           emitDataGenEnd();
     UNATIVE_OFFSET emitDataGenFind(const void* cnsAddr, unsigned size, unsigned alignment, var_types dataType);
-    UNATIVE_OFFSET emitDataConst(const void* cnsAddr, unsigned cnsSize, unsigned cnsAlign, var_types dataType);
+    CORINFO_FIELD_HANDLE emitDataConst(const void* cnsAddr, unsigned cnsSize, unsigned cnsAlign, var_types dataType);
 
     /*****************************************************************************
      *
