@@ -12513,6 +12513,33 @@ void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, uns
     printf("\n");
 }
 
+void emitter::PrintAlignmentBoundary(
+    size_t curInstrAddr, uint8_t* cp, unsigned cnt, instrDesc* curInstrDesc, instrDesc* id)
+{
+    size_t      afterInstrAddr    = reinterpret_cast<size_t>(cp);
+    instruction curIns            = curInstrDesc->idIns();
+    size_t      alignBoundaryMask = static_cast<size_t>(emitComp->opts.compJitAlignLoopBoundary) - 1;
+    size_t      lastBoundaryAddr  = afterInstrAddr & ~alignBoundaryMask;
+
+    // draw boundary if beforeAddr was before the lastBoundary.
+    if (curInstrAddr < lastBoundaryAddr)
+    {
+        // Indicate if instruction is at the alignment boundary or is split
+        size_t bytesCrossedBoundary = afterInstrAddr & alignBoundaryMask;
+
+        if (bytesCrossedBoundary != 0)
+        {
+            printf("; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (%s: %d)", insName(curInstrDesc->idIns()), bytesCrossedBoundary);
+        }
+        else
+        {
+            printf("; ...............................");
+        }
+
+        printf(" %dB boundary ...............................\n", emitComp->opts.compJitAlignLoopBoundary);
+    }
+}
+
 void emitter::emitDispFrameRef(instrDesc* id)
 {
     int varNum  = id->idDebugOnlyInfo()->varNum;
