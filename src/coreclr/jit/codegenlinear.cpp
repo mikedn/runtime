@@ -5,6 +5,7 @@
 #include "emit.h"
 #include "codegen.h"
 #include "lsra.h"
+#include "unwind.h"
 
 void CodeGen::InitLclBlockLiveInRegs()
 {
@@ -625,6 +626,46 @@ void CodeGen::genExitCode(BasicBlock* block)
 
     GetEmitter()->ReserveEpilog(block);
 }
+
+#ifdef FEATURE_EH_FUNCLETS
+
+void CodeGen::genUpdateCurrentFunclet(BasicBlock* block)
+{
+    if ((block->bbFlags & BBF_FUNCLET_BEG) != 0)
+    {
+        const FuncInfoDsc& func = funSetCurrentFunc(funGetFuncIdx(block));
+
+        if (func.kind == FUNC_FILTER)
+        {
+            assert(compiler->ehGetDsc(func.ehIndex)->ebdFilter == block);
+        }
+        else
+        {
+            assert(func.kind == FUNC_HANDLER);
+            assert(compiler->ehGetDsc(func.ehIndex)->ebdHndBeg == block);
+        }
+    }
+    else
+    {
+        const FuncInfoDsc& func = funCurrentFunc();
+
+        if (func.kind == FUNC_FILTER)
+        {
+            assert(compiler->ehGetDsc(func.ehIndex)->InFilterRegionBBRange(block));
+        }
+        else if (func.kind == FUNC_HANDLER)
+        {
+            assert(compiler->ehGetDsc(func.ehIndex)->InHndRegionBBRange(block));
+        }
+        else
+        {
+            assert(func.kind == FUNC_ROOT);
+            assert(!block->hasHndIndex());
+        }
+    }
+}
+
+#endif // FEATURE_EH_FUNCLETS
 
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

@@ -412,49 +412,6 @@ void AddrMode::Extract(Compiler* compiler)
     assert((base != nullptr) || ((index != nullptr) && (scale > 1)));
 }
 
-#ifdef FEATURE_EH_FUNCLETS
-
-// Update the current funclet as needed by calling genUpdateCurrentFunclet().
-// For non-BBF_FUNCLET_BEG blocks, it asserts that the current funclet
-// is up-to-date.
-void CodeGen::genUpdateCurrentFunclet(BasicBlock* block)
-{
-    if ((block->bbFlags & BBF_FUNCLET_BEG) != 0)
-    {
-        const FuncInfoDsc& func = funSetCurrentFunc(funGetFuncIdx(block));
-
-        if (func.kind == FUNC_FILTER)
-        {
-            assert(compiler->ehGetDsc(func.ehIndex)->ebdFilter == block);
-        }
-        else
-        {
-            assert(func.kind == FUNC_HANDLER);
-            assert(compiler->ehGetDsc(func.ehIndex)->ebdHndBeg == block);
-        }
-    }
-    else
-    {
-        const FuncInfoDsc& func = funCurrentFunc();
-
-        if (func.kind == FUNC_FILTER)
-        {
-            assert(compiler->ehGetDsc(func.ehIndex)->InFilterRegionBBRange(block));
-        }
-        else if (func.kind == FUNC_HANDLER)
-        {
-            assert(compiler->ehGetDsc(func.ehIndex)->InHndRegionBBRange(block));
-        }
-        else
-        {
-            assert(func.kind == FUNC_ROOT);
-            assert(!block->hasHndIndex());
-        }
-    }
-}
-
-#endif // FEATURE_EH_FUNCLETS
-
 void DoPhase(CodeGen* codeGen, Phases phaseId, void (CodeGen::*action)())
 {
     class CodeGenPhase final : public Phase<CodeGenPhase>
