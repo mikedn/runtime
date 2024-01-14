@@ -9,12 +9,12 @@
 #include "emit.h"
 #include "codegen.h"
 
-bool emitter::IsJccInstruction(instruction ins)
+static bool IsJccInstruction(instruction ins)
 {
     return (INS_FIRST_JCC <= ins) && (ins <= INS_LAST_JCC);
 }
 
-bool emitter::IsJmpInstruction(instruction ins)
+static bool IsJmpInstruction(instruction ins)
 {
     return AMD64_ONLY((ins == INS_rex_jmp) ||)(ins == INS_i_jmp) || (ins == INS_jmp) || (ins == INS_l_jmp);
 }
@@ -5009,13 +5009,11 @@ void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, uns
     printf("\n");
 }
 
-void emitter::PrintAlignmentBoundary(
-    size_t curInstrAddr, uint8_t* cp, unsigned cnt, instrDesc* curInstrDesc, instrDesc* id)
+void emitter::PrintAlignmentBoundary(size_t           instrAddr,
+                                     size_t           instrEndAddr,
+                                     const instrDesc* instr,
+                                     const instrDesc* nextInstr)
 {
-    size_t      afterInstrAddr   = reinterpret_cast<size_t>(cp);
-    instruction curIns           = curInstrDesc->idIns();
-    bool        isJccAffectedIns = false;
-
     // Determine if this instruction is part of a set that matches the Intel jcc erratum characteristic
     // described here:
     // https://www.intel.com/content/dam/support/us/en/documents/processors/mitigations-jump-conditional-code-erratum.pdf
@@ -5024,65 +5022,57 @@ void emitter::PrintAlignmentBoundary(
     // one of cmp, test, add, sub, and, inc, or dec), direct unconditional jump, indirect jump,
     // direct/indirect call, and return.
 
-    size_t jccAlignBoundary     = 32;
-    size_t jccAlignBoundaryMask = jccAlignBoundary - 1;
-    size_t jccLastBoundaryAddr  = afterInstrAddr & ~jccAlignBoundaryMask;
+    const size_t jccAlignment    = 32;
+    const size_t jccBoundaryAddr = instrEndAddr & ~(jccAlignment - 1);
 
-    if (curInstrAddr < jccLastBoundaryAddr)
+    if (instrAddr < jccBoundaryAddr)
     {
-        isJccAffectedIns =
-            IsJccInstruction(curIns) || IsJmpInstruction(curIns) || (curIns == INS_call) || (curIns == INS_ret);
+        const instruction ins = instr->idIns();
+        bool isJccAffectedIns = IsJccInstruction(ins) || IsJmpInstruction(ins) || (ins == INS_call) || (ins == INS_ret);
 
-        // For op-Jcc there are two cases: (1) curIns is the jcc, in which case the above condition
-        // already covers us. (2) curIns is the `op` and the next instruction is the `jcc`. Note that
+        // For op-Jcc there are two cases: (1) ins is the jcc, in which case the above condition
+        // already covers us. (2) ins is the `op` and the next instruction is the `jcc`. Note that
         // we will never have a `jcc` as the first instruction of a group, so we don't need to worry
         // about looking ahead to the next group after a an `op` of `op-Jcc`.
 
-        if (!isJccAffectedIns && (cnt > 1))
+        if (!isJccAffectedIns && (nextInstr != nullptr))
         {
-            // The current `id` is valid, namely, there is another instruction in this group.
-            instruction nextIns = id->idIns();
-
-            isJccAffectedIns |=
-                IsJccInstruction(nextIns) &&
-                ((curIns == INS_cmp) || (curIns == INS_test) || (curIns == INS_add) || (curIns == INS_sub) ||
-                 (curIns == INS_and) || (curIns == INS_inc) || (curIns == INS_dec));
+            const instruction nextIns = nextInstr->idIns();
+            isJccAffectedIns          = IsJccInstruction(nextIns) &&
+                               ((ins == INS_cmp) || (ins == INS_test) || (ins == INS_add) || (ins == INS_sub) ||
+                                (ins == INS_and) || (ins == INS_inc) || (ins == INS_dec));
         }
 
         if (isJccAffectedIns)
         {
-            size_t bytesCrossedBoundary = afterInstrAddr & jccAlignBoundaryMask;
+            const size_t bytesCrossedBoundary = instrEndAddr & (jccAlignment - 1);
 
             printf("; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (%s: %d ; jcc erratum) %dB boundary "
                    "...............................\n",
-                   insName(curInstrDesc->idIns()), bytesCrossedBoundary, jccAlignBoundary);
+                   insName(ins), bytesCrossedBoundary, jccAlignment);
+
+            return;
         }
     }
 
-    // Jcc affected instruction boundaries were printed above; handle other cases here.
-    if (!isJccAffectedIns)
+    const size_t alignment    = emitComp->opts.compJitAlignLoopBoundary;
+    const size_t boundaryAddr = instrEndAddr & ~(alignment - 1);
+
+    if (instrAddr < boundaryAddr)
     {
-        size_t alignBoundaryMask = static_cast<size_t>(emitComp->opts.compJitAlignLoopBoundary) - 1;
-        size_t lastBoundaryAddr  = afterInstrAddr & ~alignBoundaryMask;
+        // Indicate if instruction is at the alignment boundary or is split
+        const size_t bytesCrossedBoundary = instrEndAddr & (alignment - 1);
 
-        // draw boundary if beforeAddr was before the lastBoundary.
-        if (curInstrAddr < lastBoundaryAddr)
+        if (bytesCrossedBoundary != 0)
         {
-            // Indicate if instruction is at the alignment boundary or is split
-            size_t bytesCrossedBoundary = afterInstrAddr & alignBoundaryMask;
-
-            if (bytesCrossedBoundary != 0)
-            {
-                printf("; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (%s: %d)", insName(curInstrDesc->idIns()),
-                       bytesCrossedBoundary);
-            }
-            else
-            {
-                printf("; ...............................");
-            }
-
-            printf(" %dB boundary ...............................\n", emitComp->opts.compJitAlignLoopBoundary);
+            printf("; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (%s: %d)", insName(instr->idIns()), bytesCrossedBoundary);
         }
+        else
+        {
+            printf("; ...............................");
+        }
+
+        printf(" %dB boundary ...............................\n", alignment);
     }
 }
 #endif // DEBUG

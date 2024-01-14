@@ -241,9 +241,6 @@ size_t emitOutputPrefixesIfNeeded(uint8_t* dst, code_t code);
 
 bool IsRedundantMov(instruction ins, emitAttr size, regNumber dst, regNumber src, bool canIgnoreSideEffects);
 
-static bool IsJccInstruction(instruction ins);
-static bool IsJmpInstruction(instruction ins);
-
 bool TakesVexPrefix(instruction ins) const;
 code_t AddVexPrefixIfNeeded(instruction ins, code_t code, emitAttr size);
 

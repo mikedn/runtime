@@ -2842,11 +2842,11 @@ void emitter::emitEndCodeGen()
         instrDesc* id = reinterpret_cast<instrDesc*>(ig->igData);
         INDEBUG(const uint8_t* const bp = cp);
 
-        for (unsigned cnt = ig->igInsCnt; cnt > 0; cnt--)
+        for (unsigned i = 0, count = ig->igInsCnt; i < count; i++)
         {
 #ifdef DEBUG
-            size_t     curInstrAddr = reinterpret_cast<size_t>(cp);
-            instrDesc* curInstrDesc = id;
+            const uint8_t*   curInstrAddr = cp;
+            const instrDesc* curInstrDesc = id;
 #endif
             size_t sz;
 
@@ -2873,7 +2873,8 @@ void emitter::emitEndCodeGen()
 
             if ((emitComp->opts.disAsm || emitComp->verbose) && (emitComp->opts.disAddr || emitComp->opts.disAlignment))
             {
-                PrintAlignmentBoundary(curInstrAddr, cp, cnt, curInstrDesc, id);
+                PrintAlignmentBoundary(reinterpret_cast<size_t>(curInstrAddr), reinterpret_cast<size_t>(cp),
+                                       curInstrDesc, i + 1 < count ? id : nullptr);
             }
 #endif // DEBUG
         }

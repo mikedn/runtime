@@ -6987,30 +6987,26 @@ void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, uns
     }
 }
 
-void emitter::PrintAlignmentBoundary(
-    size_t curInstrAddr, uint8_t* cp, unsigned cnt, instrDesc* curInstrDesc, instrDesc* id)
+void emitter::PrintAlignmentBoundary(size_t instrAddr, size_t instrEndAddr, const instrDesc* instr, const instrDesc*)
 {
-    size_t      afterInstrAddr    = reinterpret_cast<size_t>(cp);
-    instruction curIns            = curInstrDesc->idIns();
-    size_t      alignBoundaryMask = static_cast<size_t>(emitComp->opts.compJitAlignLoopBoundary) - 1;
-    size_t      lastBoundaryAddr  = afterInstrAddr & ~alignBoundaryMask;
+    const size_t alignment    = emitComp->opts.compJitAlignLoopBoundary;
+    const size_t boundaryAddr = instrEndAddr & ~(alignment - 1);
 
-    // draw boundary if beforeAddr was before the lastBoundary.
-    if (curInstrAddr < lastBoundaryAddr)
+    if (instrAddr < boundaryAddr)
     {
         // Indicate if instruction is at the alignment boundary or is split
-        size_t bytesCrossedBoundary = afterInstrAddr & alignBoundaryMask;
+        const size_t bytesCrossedBoundary = instrEndAddr & (alignment - 1);
 
         if (bytesCrossedBoundary != 0)
         {
-            printf("; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (%s: %d)", insName(curInstrDesc->idIns()), bytesCrossedBoundary);
+            printf("; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (%s: %d)", insName(instr->idIns()), bytesCrossedBoundary);
         }
         else
         {
             printf("; ...............................");
         }
 
-        printf(" %dB boundary ...............................\n", emitComp->opts.compJitAlignLoopBoundary);
+        printf(" %dB boundary ...............................\n", alignment);
     }
 }
 

@@ -1627,7 +1627,10 @@ private:
     void emitCheckIGoffsets();
     void emitPrintLabel(insGroup* ig);
     const char* emitLabelString(insGroup* ig);
-    void PrintAlignmentBoundary(size_t curInstrAddr, uint8_t* cp, unsigned cnt, instrDesc* curInstrDesc, instrDesc* id);
+    void PrintAlignmentBoundary(size_t           instrAddr,
+                                size_t           instrEndAddr,
+                                const instrDesc* instr,
+                                const instrDesc* nextInstr);
 #endif
 
 public:
