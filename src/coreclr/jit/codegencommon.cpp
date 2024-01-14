@@ -67,18 +67,18 @@ double CodeGenInterface::GetPerfScore() const
 #ifdef LATE_DISASM
 const char* CodeGenInterface::siRegVarName(size_t offs, size_t size, unsigned reg)
 {
-    static_cast<CodeGen*>(this)->siRegVarName(offs, size, reg);
+    return static_cast<CodeGen*>(this)->siRegVarName(offs, size, reg);
 }
 
 const char* CodeGenInterface::siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs)
 {
-    static_cast<CodeGen*>(this)->siStackVarName(offs, size, reg, stkOffs);
+    return static_cast<CodeGen*>(this)->siStackVarName(offs, size, reg, stkOffs);
 }
 #endif
 
 CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), liveness(compiler)
 {
-    m_cgEmitter = new (compiler->getAllocator()) emitter(compiler, this, compiler->info.compCompHnd);
+    m_cgEmitter = new (compiler, CMK_Codegen) emitter(compiler, this, compiler->info.compCompHnd);
 
 #ifdef LATE_DISASM
     getDisAssembler().disInit(compiler);
@@ -88,7 +88,7 @@ CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), liveness(comp
 #ifdef TARGET_XARCH
 void CodeGenInterface::SetUseVEXEncoding(bool value)
 {
-    m_cgEmitter->SetUseVEXEncoding(value);
+    GetEmitter()->SetUseVEXEncoding(value);
 }
 #endif
 
@@ -4297,7 +4297,7 @@ void CodeGen::genSetScopeInfo(VarResultInfo* vars,
 #ifdef LATE_DISASM
     TrnslLocalVarInfo& tlvi = genTrnslLocalVarInfo[index];
 
-    tlvi.tlviName    = gtGetLclVarName(lclNum);
+    tlvi.tlviName    = compiler->gtGetLclVarName(lclNum);
     tlvi.tlviStartPC = startOffs;
     tlvi.tlviEndPC   = endOffs;
     tlvi.tlviVarLoc  = *varLoc;

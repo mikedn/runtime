@@ -7276,7 +7276,7 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
 #if defined(DEBUG) && defined(LATE_DISASM) && defined(TARGET_AMD64)
 void CodeGen::genAmd64EmitterUnitTests()
 {
-    if (!verbose)
+    if (!compiler->verbose)
     {
         return;
     }

@@ -1,8 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#ifndef _CODEGEN_INTERFACE_H_
-#define _CODEGEN_INTERFACE_H_
+#pragma once
 
 #include "regset.h"
 #include "instr.h"
@@ -26,24 +25,10 @@ class CodeGenInterface
 protected:
     emitter* m_cgEmitter;
 
-    CodeGenInterface(Compiler* compiler);
-
 public:
-    void genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize);
-#ifdef LATE_DISASM
-    const char* siRegVarName(size_t offs, size_t size, unsigned reg);
-    const char* siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs);
-#endif
-
-    Compiler* GetCompiler() const
-    {
-        return compiler;
-    }
-
     Compiler*     compiler;
     ParamRegState paramRegState;
     SpillTempSet  spillTemps;
-
     // Callee saved registers that are modified by the compiled method, and thus
     // need to be saved in prolog and restored in epilog.
     // These are registers that have been allocated by LSRA and registers used in
@@ -51,7 +36,6 @@ public:
     // having special uses (frame/stack pointer, link register on ARM64) that too
     // have to be saved and restored.
     regMaskTP calleeSavedModifiedRegs = RBM_NONE;
-
 #ifdef TARGET_ARM
     // Registers that are spilled at the start of the prolog, right below stack params,
     // such that they form a contiguous area useful to handle varargs and split params
@@ -60,7 +44,69 @@ public:
     // spilled to maintain alignment.
     regMaskTP preSpillParamRegs = RBM_NONE;
     regMaskTP preSpillAlignRegs = RBM_NONE;
+#endif
+    // The following keeps track of how many bytes of local frame space we've
+    // grabbed so far in the current function, and how many argument bytes we
+    // need to pop when we return.
+    unsigned lclFrameSize;    // secObject + lclBlk + locals + temps
+    unsigned paramsStackSize; // total size of parameters passed in stack
+#if FEATURE_FIXED_OUT_ARGS
+    PhasedVar<unsigned> outgoingArgSpaceSize; // size of fixed outgoing argument space
+#endif
+    // For CORINFO_CALLCONV_PARAMTYPE and if generic context is passed as THIS pointer
+    int cachedGenericContextArgOffset;
+    // Count of callee-saved regs we pushed in the prolog.
+    // Does not include EBP for isFramePointerUsed() and double-aligned frames.
+    // In case of Amd64 this doesn't include float regs saved on stack.
+    unsigned calleeRegsPushed = UINT_MAX;
+#ifdef UNIX_AMD64_ABI
+    // This flag  is indicating if there is a need to align the frame.
+    // On AMD64-Windows, if there are calls, 4 slots for the outgoing ars are allocated,
+    // except for FastTailCall. This slots makes the frame size non-zero, so alignment
+    // logic will be called. On unix-x64, there are no such slots. There is a possibility
+    // to have calls in the method with frame size of 0. The frame alignment logic won't
+    // kick in. This flags takes care of the unix-x64 case by remembering that there are
+    // calls and making sure the frame alignment logic is executed.
+    bool needToAlignFrame = false;
+#endif
 
+protected:
+#ifdef TARGET_XARCH
+    bool contains256bitAVXInstructions = false;
+    bool containsAVXInstructions       = false;
+#endif
+#ifdef TARGET_ARM64
+    bool genSaveFpLrWithAllCalleeSavedRegisters = false;
+#endif
+
+private:
+    bool m_cgFramePointerUsed = false;
+    bool m_cgInterruptible    = false;
+#if DOUBLE_ALIGN
+    // The following property indicates whether we going to double-align the frame.
+    // Arguments are accessed relative to the Frame Pointer (EBP), and locals are
+    // accessed relative to the Stack Pointer (ESP).
+    bool m_cgDoubleAlign = false;
+#endif
+#ifdef TARGET_ARMARCH
+    bool m_cgHasTailCalls = false;
+#endif
+#ifdef LATE_DISASM
+    DisAssembler m_cgDisAsm;
+#endif
+
+protected:
+    CodeGenInterface(Compiler* compiler);
+
+public:
+    void genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize);
+
+    Compiler* GetCompiler() const
+    {
+        return compiler;
+    }
+
+#ifdef TARGET_ARM
     regMaskTP GetPreSpillRegs() const
     {
         return preSpillParamRegs | preSpillAlignRegs;
@@ -77,60 +123,6 @@ public:
     }
 #endif
 
-    // The following keeps track of how many bytes of local frame space we've
-    // grabbed so far in the current function, and how many argument bytes we
-    // need to pop when we return.
-    unsigned lclFrameSize; // secObject + lclBlk + locals + temps
-
-    unsigned paramsStackSize; // total size of parameters passed in stack
-
-#if FEATURE_FIXED_OUT_ARGS
-    PhasedVar<unsigned> outgoingArgSpaceSize; // size of fixed outgoing argument space
-#endif
-
-    // For CORINFO_CALLCONV_PARAMTYPE and if generic context is passed as THIS pointer
-    int cachedGenericContextArgOffset;
-
-    // Count of callee-saved regs we pushed in the prolog.
-    // Does not include EBP for isFramePointerUsed() and double-aligned frames.
-    // In case of Amd64 this doesn't include float regs saved on stack.
-    unsigned calleeRegsPushed = UINT_MAX;
-
-#ifdef JIT32_GCENCODER
-    unsigned GetGCInfoSize() const;
-#endif
-#if defined(DEBUG) || defined(LATE_DISASM)
-    double GetPerfScore() const;
-#endif
-
-    unsigned GetHotCodeSize() const;
-    unsigned GetColdCodeSize() const;
-    unsigned GetCodeSize() const;
-
-#ifdef UNIX_AMD64_ABI
-    // This flag  is indicating if there is a need to align the frame.
-    // On AMD64-Windows, if there are calls, 4 slots for the outgoing ars are allocated, except for
-    // FastTailCall. This slots makes the frame size non-zero, so alignment logic will be called.
-    // On AMD64-Unix, there are no such slots. There is a possibility to have calls in the method with frame size of
-    // 0. The frame alignment logic won't kick in. This flags takes care of the AMD64-Unix case by remembering that
-    // there are calls and making sure the frame alignment logic is executed.
-    bool needToAlignFrame = false;
-#endif
-
-protected:
-#ifdef TARGET_XARCH
-    bool contains256bitAVXInstructions = false;
-    bool containsAVXInstructions       = false;
-#endif
-
-public:
-    static bool            UseOptimizedWriteBarriers();
-    static CorInfoHelpFunc GetWriteBarrierHelperCall(GCInfo::WriteBarrierForm wbf);
-
-private:
-    bool m_cgFramePointerUsed = false;
-
-public:
     bool isFramePointerUsed() const
     {
         return m_cgFramePointerUsed;
@@ -139,6 +131,25 @@ public:
     void setFramePointerUsed()
     {
         m_cgFramePointerUsed = true;
+    }
+
+    bool IsFramePointerRequired() const
+    {
+        return isFramePointerUsed()
+#if DOUBLE_ALIGN
+               || doDoubleAlign()
+#endif
+            ;
+    }
+
+    bool GetInterruptible() const
+    {
+        return m_cgInterruptible;
+    }
+
+    void SetInterruptible(bool value)
+    {
+        m_cgInterruptible = value;
     }
 
 #ifdef TARGET_XARCH
@@ -151,9 +162,10 @@ public:
     {
         contains256bitAVXInstructions = true;
     }
+
+    void SetUseVEXEncoding(bool value);
 #endif
 
-public:
     int genCallerSPtoFPdelta() const;
     int genCallerSPtoInitialSPdelta() const;
     int genSPtoFPdelta() const;
@@ -162,67 +174,7 @@ public:
 #ifdef TARGET_ARM64
     void SetSaveFpLrWithAllCalleeSavedRegisters(bool value);
     bool IsSaveFpLrWithAllCalleeSavedRegisters() const;
-    bool genSaveFpLrWithAllCalleeSavedRegisters = false;
 #endif
-
-#if DOUBLE_ALIGN
-    // The following property indicates whether we going to double-align the frame.
-    // Arguments are accessed relative to the Frame Pointer (EBP), and locals are
-    // accessed relative to the Stack Pointer (ESP).
-private:
-    bool m_cgDoubleAlign = false;
-
-public:
-    bool doDoubleAlign() const
-    {
-        return m_cgDoubleAlign;
-    }
-
-    void setDoubleAlign()
-    {
-        m_cgDoubleAlign = true;
-    }
-#endif
-
-    bool IsFramePointerRequired() const
-    {
-        return isFramePointerUsed()
-#if DOUBLE_ALIGN
-               || doDoubleAlign()
-#endif
-            ;
-    }
-
-    emitter* GetEmitter() const
-    {
-        return m_cgEmitter;
-    }
-
-#ifdef TARGET_XARCH
-    void SetUseVEXEncoding(bool value);
-#endif
-
-#ifdef LATE_DISASM
-public:
-    DisAssembler& getDisAssembler()
-    {
-        return m_cgDisAsm;
-    }
-
-protected:
-    DisAssembler m_cgDisAsm;
-#endif // LATE_DISASM
-
-public:
-    bool GetInterruptible() const
-    {
-        return m_cgInterruptible;
-    }
-
-    void SetInterruptible(bool value)
-    {
-        m_cgInterruptible = value;
-    }
 
 #ifdef TARGET_ARMARCH
     bool GetHasTailCalls() const
@@ -234,15 +186,48 @@ public:
     {
         m_cgHasTailCalls = value;
     }
-#endif // TARGET_ARMARCH
-
-private:
-    bool m_cgInterruptible = false;
-#ifdef TARGET_ARMARCH
-    bool m_cgHasTailCalls = false;
 #endif
+
+#if DOUBLE_ALIGN
+    bool doDoubleAlign() const
+    {
+        return m_cgDoubleAlign;
+    }
+
+    void setDoubleAlign()
+    {
+        m_cgDoubleAlign = true;
+    }
+#endif
+
+    emitter* GetEmitter() const
+    {
+        return m_cgEmitter;
+    }
+
+    unsigned GetHotCodeSize() const;
+    unsigned GetColdCodeSize() const;
+    unsigned GetCodeSize() const;
+#ifdef JIT32_GCENCODER
+    unsigned GetGCInfoSize() const;
+#endif
+
+#if defined(DEBUG) || defined(LATE_DISASM)
+    double GetPerfScore() const;
+#endif
+
+#ifdef LATE_DISASM
+    const char* siRegVarName(size_t offs, size_t size, unsigned reg);
+    const char* siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs);
+
+    DisAssembler& getDisAssembler()
+    {
+        return m_cgDisAsm;
+    }
+#endif
+
+    static bool            UseOptimizedWriteBarriers();
+    static CorInfoHelpFunc GetWriteBarrierHelperCall(GCInfo::WriteBarrierForm wbf);
 };
 
 StructStoreKind GetStructStoreKind(bool isLocalStore, ClassLayout* layout, GenTree* src);
-
-#endif // _CODEGEN_INTERFACE_H_
