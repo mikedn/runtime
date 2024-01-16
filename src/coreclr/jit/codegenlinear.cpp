@@ -413,14 +413,6 @@ void CodeGen::genCodeForBBlist()
         {
             case BBJ_RETURN:
                 genExitCode(block);
-#ifdef TARGET_AMD64
-                // We're about to create an epilog. If the last instruction we output was a 'call',
-                // then we need to insert a NOP, to allow for proper exception handling behavior.
-                if (GetEmitter()->IsLastInsCall())
-                {
-                    GetEmitter()->emitIns(INS_nop);
-                }
-#endif
                 GetEmitter()->ReserveEpilog(block);
                 break;
 
@@ -430,14 +422,6 @@ void CodeGen::genCodeForBBlist()
                 FALLTHROUGH;
             case BBJ_EHFINALLYRET:
             case BBJ_EHFILTERRET:
-#ifdef TARGET_AMD64
-                // We're about to create an epilog. If the last instruction we output was a 'call',
-                // then we need to insert a NOP, to allow for proper exception handling behavior.
-                if (GetEmitter()->IsLastInsCall())
-                {
-                    GetEmitter()->emitIns(INS_nop);
-                }
-#endif
                 GetEmitter()->ReserveEpilog(block);
                 break;
 #else

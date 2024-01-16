@@ -884,6 +884,15 @@ void emitter::ReserveEpilog(BasicBlock* block)
 {
     assert(!IsMainProlog(emitCurIG));
 
+#ifdef TARGET_AMD64
+    // We're about to create an epilog. If the last instruction we output was a 'call',
+    // then we need to insert a NOP, to allow for proper exception handling behavior.
+    if (IsLastInsCall())
+    {
+        emitIns(INS_nop);
+    }
+#endif
+
 #ifdef FEATURE_EH_FUNCLETS
     assert(block->KindIs(BBJ_RETURN, BBJ_EHCATCHRET, BBJ_EHFINALLYRET, BBJ_EHFILTERRET));
     const bool isFunclet = !block->KindIs(BBJ_RETURN);
