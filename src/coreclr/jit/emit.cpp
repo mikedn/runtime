@@ -2820,10 +2820,6 @@ void emitter::emitEndCodeGen()
 
                 printf("\n");
             }
-            else
-            {
-                printf("\n");
-            }
         }
 #endif // DEBUG
 
