@@ -413,60 +413,15 @@ void CodeGen::genCodeForBBlist()
         {
             case BBJ_RETURN:
                 genExitCode(block);
-                break;
-
-            case BBJ_THROW:
-                // If we have a throw at the end of a function or funclet, we need to emit another instruction
-                // afterwards to help the OS unwinder determine the correct context during unwind. We insert an
-                // unexecuted breakpoint instruction in several situations following a throw instruction:
-                // 1. If the throw is the last instruction of the function or funclet. This helps
-                //    the OS unwinder determine the correct context during an unwind from the
-                //    thrown exception.
-                // 2. If this is this is the last block of the hot section.
-                // 3. If the subsequent block is a special throw block.
-                // 4. On AMD64, if the next block is in a different EH region.
-
-                if ((block->bbNext == nullptr) || (block->bbNext->bbFlags & BBF_FUNCLET_BEG) ||
-                    !BasicBlock::sameEHRegion(block, block->bbNext) ||
-                    (!isFramePointerUsed() && block->bbNext->IsThrowHelperBlock()) ||
-                    block->bbNext == compiler->fgFirstColdBlock)
+#ifdef TARGET_AMD64
+                // We're about to create an epilog. If the last instruction we output was a 'call',
+                // then we need to insert a NOP, to allow for proper exception handling behavior.
+                if (GetEmitter()->IsLastInsCall())
                 {
-                    GetEmitter()->emitIns(INS_BREAKPOINT); // This should never get executed
+                    GetEmitter()->emitIns(INS_nop);
                 }
-                // Do likewise for blocks that end in DOES_NOT_RETURN calls
-                // that were not caught by the above rules. This ensures that
-                // gc register liveness doesn't change across call instructions
-                // in fully-interruptible mode.
-                else
-                {
-                    GenTree* call = block->lastNode();
-
-                    if ((call != nullptr) && call->IsCall() && call->AsCall()->IsNoReturn())
-                    {
-                        GetEmitter()->emitIns(INS_BREAKPOINT); // This should never get executed
-                    }
-                }
-                break;
-
-            case BBJ_CALLFINALLY:
-                GenCallFinally(block);
-
-#ifdef TARGET_ARM
-                assert((block->bbFlags & BBF_RETLESS_CALL) == 0);
-#else
-                if ((block->bbFlags & BBF_RETLESS_CALL) == 0)
 #endif
-                {
-                    // The BBJ_ALWAYS is used because the BBJ_CALLFINALLY can't point to the
-                    // jump target using bbJumpDest - that is already used to point
-                    // to the finally block. So just skip past the BBJ_ALWAYS unless the
-                    // block is RETLESS.
-                    assert(block->IsCallFinallyAlwaysPairHead());
-                    block = block->bbNext;
-
-                    JITDUMP("\n=============== Skipping finally return ");
-                    DBEXEC(compiler->verbose, block->dspBlockHeader(compiler, true, true));
-                }
+                GetEmitter()->ReserveEpilog(block);
                 break;
 
 #ifdef FEATURE_EH_FUNCLETS
@@ -525,6 +480,60 @@ void CodeGen::genCodeForBBlist()
                     }
                 }
 #endif // TARGET_AMD64
+                break;
+
+            case BBJ_THROW:
+                // If we have a throw at the end of a function or funclet, we need to emit another instruction
+                // afterwards to help the OS unwinder determine the correct context during unwind. We insert an
+                // unexecuted breakpoint instruction in several situations following a throw instruction:
+                // 1. If the throw is the last instruction of the function or funclet. This helps
+                //    the OS unwinder determine the correct context during an unwind from the
+                //    thrown exception.
+                // 2. If this is this is the last block of the hot section.
+                // 3. If the subsequent block is a special throw block.
+                // 4. On AMD64, if the next block is in a different EH region.
+
+                if ((block->bbNext == nullptr) || (block->bbNext->bbFlags & BBF_FUNCLET_BEG) ||
+                    !BasicBlock::sameEHRegion(block, block->bbNext) ||
+                    (!isFramePointerUsed() && block->bbNext->IsThrowHelperBlock()) ||
+                    block->bbNext == compiler->fgFirstColdBlock)
+                {
+                    GetEmitter()->emitIns(INS_BREAKPOINT); // This should never get executed
+                }
+                // Do likewise for blocks that end in DOES_NOT_RETURN calls
+                // that were not caught by the above rules. This ensures that
+                // gc register liveness doesn't change across call instructions
+                // in fully-interruptible mode.
+                else
+                {
+                    GenTree* call = block->lastNode();
+
+                    if ((call != nullptr) && call->IsCall() && call->AsCall()->IsNoReturn())
+                    {
+                        GetEmitter()->emitIns(INS_BREAKPOINT); // This should never get executed
+                    }
+                }
+                break;
+
+            case BBJ_CALLFINALLY:
+                GenCallFinally(block);
+
+#ifdef TARGET_ARM
+                assert((block->bbFlags & BBF_RETLESS_CALL) == 0);
+#else
+                if ((block->bbFlags & BBF_RETLESS_CALL) == 0)
+#endif
+                {
+                    // The BBJ_ALWAYS is used because the BBJ_CALLFINALLY can't point to the
+                    // jump target using bbJumpDest - that is already used to point
+                    // to the finally block. So just skip past the BBJ_ALWAYS unless the
+                    // block is RETLESS.
+                    assert(block->IsCallFinallyAlwaysPairHead());
+                    block = block->bbNext;
+
+                    JITDUMP("\n=============== Skipping finally return ");
+                    DBEXEC(compiler->verbose, block->dspBlockHeader(compiler, true, true));
+                }
                 break;
 
             case BBJ_SWITCH:
@@ -614,17 +623,6 @@ void CodeGen::genExitCode(BasicBlock* block)
         EpilogGSCookieCheck();
 #endif
     }
-
-#ifdef TARGET_AMD64
-    // We're about to create an epilog. If the last instruction we output was a 'call',
-    // then we need to insert a NOP, to allow for proper exception - handling behavior.
-    if (GetEmitter()->IsLastInsCall())
-    {
-        GetEmitter()->emitIns(INS_nop);
-    }
-#endif
-
-    GetEmitter()->ReserveEpilog(block);
 }
 
 #ifdef FEATURE_EH_FUNCLETS
