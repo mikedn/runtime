@@ -227,6 +227,8 @@ void emitter::emitAppendIG(insGroup* ig)
     emitForceNewIG     = false;
 
     emitGenIG(ig);
+
+    emitCurLabel = ig;
 }
 
 void emitter::emitGenIG(insGroup* ig)
@@ -1174,8 +1176,6 @@ void emitter::DefineTempLabel(insGroup* label)
 
     emitFinishIG();
     emitAppendIG(label);
-
-    emitCurLabel = label;
     SetLabelGCLiveness(label);
 }
 
@@ -1249,8 +1249,6 @@ void emitter::DefineInlineTempLabel(insGroup* label)
 
     emitFinishIG(true);
     emitAppendIG(label);
-
-    emitCurLabel = label;
     label->igFlags |= IGF_EXTEND;
 }
 
