@@ -113,11 +113,11 @@ void CodeGen::unwindSaveRegPair(RegNum reg1, RegNum reg2, int offset)
     {
         if (generatingProlog)
         {
-            FuncInfoDsc& func       = funCurrentFunc();
-            uint32_t     codeOffset = unwindGetCurrentOffset();
+            CfiUnwindInfo& cfi        = funCurrentFunc().cfi;
+            uint32_t       codeOffset = unwindGetCurrentOffset();
 
-            func.cfi.AddCode(codeOffset, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg1), offset);
-            func.cfi.AddCode(codeOffset, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg2), offset + 8);
+            cfi.AddCode(codeOffset, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg1), offset);
+            cfi.AddCode(codeOffset, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg2), offset + 8);
         }
 
         return;
@@ -193,12 +193,12 @@ void CodeGen::unwindSaveRegPairPreindexed(RegNum reg1, RegNum reg2, int offset)
     {
         if (generatingProlog)
         {
-            FuncInfoDsc& func       = funCurrentFunc();
-            uint32_t     codeOffset = unwindGetCurrentOffset();
+            CfiUnwindInfo& cfi        = funCurrentFunc().cfi;
+            uint32_t       codeOffset = unwindGetCurrentOffset();
 
-            func.cfi.AddCode(codeOffset, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, -offset);
-            func.cfi.AddCode(codeOffset, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg1), 0);
-            func.cfi.AddCode(codeOffset, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg2), 8);
+            cfi.AddCode(codeOffset, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, -offset);
+            cfi.AddCode(codeOffset, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg1), 0);
+            cfi.AddCode(codeOffset, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg2), 8);
         }
 
         return;
@@ -280,10 +280,10 @@ void CodeGen::unwindSaveReg(RegNum reg, int offset)
     {
         if (generatingProlog)
         {
-            FuncInfoDsc& func       = funCurrentFunc();
-            uint32_t     codeOffset = unwindGetCurrentOffset();
+            CfiUnwindInfo& cfi        = funCurrentFunc().cfi;
+            uint32_t       codeOffset = unwindGetCurrentOffset();
 
-            func.cfi.AddCode(codeOffset, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg), offset);
+            cfi.AddCode(codeOffset, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg), offset);
         }
 
         return;
@@ -334,11 +334,11 @@ void CodeGen::unwindSaveRegPreindexed(RegNum reg, int offset)
     {
         if (generatingProlog)
         {
-            FuncInfoDsc& func       = funCurrentFunc();
-            uint32_t     codeOffset = unwindGetCurrentOffset();
+            CfiUnwindInfo& cfi        = funCurrentFunc().cfi;
+            uint32_t       codeOffset = unwindGetCurrentOffset();
 
-            func.cfi.AddCode(codeOffset, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, -offset);
-            func.cfi.AddCode(codeOffset, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg), 0);
+            cfi.AddCode(codeOffset, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, -offset);
+            cfi.AddCode(codeOffset, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg), 0);
         }
 
         return;

@@ -9232,7 +9232,7 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throw
 
 #if defined(UNIX_X86_ABI) && defined(FEATURE_EH_FUNCLETS)
     // Inline exception-throwing code in funclet to make it possible to unwind funclet frames.
-    useThrowHelperBlocks = useThrowHelperBlocks && (compiler->funCurrentFunc()->funKind == FUNC_ROOT);
+    useThrowHelperBlocks = useThrowHelperBlocks && (funCurrentFunc().kind == FUNC_ROOT);
 #endif
 
     if (useThrowHelperBlocks)

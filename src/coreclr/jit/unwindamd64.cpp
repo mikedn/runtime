@@ -325,10 +325,10 @@ void CodeGen::unwindSaveRegCFI(RegNum reg, unsigned offset)
         return;
     }
 
-    FuncInfoDsc& func     = funCurrentFunc();
-    uint32_t     cbProlog = unwindGetCurrentOffset();
+    CfiUnwindInfo& cfi        = funCurrentFunc().cfi;
+    uint32_t       codeOffset = unwindGetCurrentOffset();
 
-    func.cfi.AddCode(cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg), offset);
+    cfi.AddCode(codeOffset, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg), offset);
 }
 #endif // TARGET_UNIX
 

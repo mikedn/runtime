@@ -110,8 +110,8 @@ void CodeGen::unwindPushPopCFI(RegNum reg)
 {
     assert(generatingProlog);
 
-    FuncInfoDsc& func     = funCurrentFunc();
-    uint32_t     cbProlog = unwindGetCurrentOffset();
+    CfiUnwindInfo& cfi        = funCurrentFunc().cfi;
+    uint32_t       codeOffset = unwindGetCurrentOffset();
 
     regMaskTP relOffsetMask = RBM_CALLEE_SAVED
 
@@ -130,13 +130,13 @@ void CodeGen::unwindPushPopCFI(RegNum reg)
     if (relOffsetMask & genRegMask(reg))
     {
 #ifndef TARGET_ARM
-        func.cfi.AddCode(cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, REGSIZE_BYTES);
+        cfi.AddCode(codeOffset, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, REGSIZE_BYTES);
 #endif
-        func.cfi.AddCode(cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg));
+        cfi.AddCode(codeOffset, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg));
     }
     else
     {
-        func.cfi.AddCode(cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, REGSIZE_BYTES);
+        cfi.AddCode(codeOffset, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, REGSIZE_BYTES);
     }
 }
 
@@ -145,9 +145,9 @@ void CodeGen::unwindBegPrologCFI()
     assert(generatingProlog);
 
 #ifdef FEATURE_EH_FUNCLETS
-    FuncInfoDsc& func = funCurrentFunc();
+    CfiUnwindInfo& cfi = funCurrentFunc().cfi;
 
-    func.cfi.codes = new (compiler, CMK_UnwindInfo) jitstd::vector<CFI_CODE>(compiler->getAllocator(CMK_UnwindInfo));
+    cfi.codes = new (compiler, CMK_UnwindInfo) jitstd::vector<CFI_CODE>(compiler->getAllocator(CMK_UnwindInfo));
 #endif
 }
 
@@ -186,20 +186,20 @@ void CodeGen::unwindAllocStackCFI(unsigned size)
 {
     assert(generatingProlog);
 
-    FuncInfoDsc& func     = funCurrentFunc();
-    uint32_t     cbProlog = unwindGetCurrentOffset();
+    CfiUnwindInfo& cfi        = funCurrentFunc().cfi;
+    uint32_t       codeOffset = unwindGetCurrentOffset();
 
-    func.cfi.AddCode(cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, size);
+    cfi.AddCode(codeOffset, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, size);
 }
 
 void CodeGen::unwindSetFrameRegCFI(RegNum reg, unsigned offset)
 {
     assert(generatingProlog);
 
-    FuncInfoDsc& func     = funCurrentFunc();
-    uint32_t     cbProlog = unwindGetCurrentOffset();
+    CfiUnwindInfo& cfi        = funCurrentFunc().cfi;
+    uint32_t       codeOffset = unwindGetCurrentOffset();
 
-    func.cfi.AddCode(cbProlog, CFI_DEF_CFA_REGISTER, mapRegNumToDwarfReg(reg));
+    cfi.AddCode(codeOffset, CFI_DEF_CFA_REGISTER, mapRegNumToDwarfReg(reg));
 
     if (offset != 0)
     {
@@ -209,7 +209,7 @@ void CodeGen::unwindSetFrameRegCFI(RegNum reg, unsigned offset)
         //         rsp + old_cfa_offset == rbp + old_cfa_offset + adjust;
         // adjust = -offset;
         int adjust = -(int)offset;
-        func.cfi.AddCode(cbProlog, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, adjust);
+        cfi.AddCode(codeOffset, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, adjust);
     }
 }
 
