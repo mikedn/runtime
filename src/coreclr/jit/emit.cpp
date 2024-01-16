@@ -869,16 +869,13 @@ void emitter::ReserveFuncletProlog(BasicBlock* block)
 
     emitNewIG();
 
-    // The funclet prolog and the funclet entry block will have the same GC info.
     // Nothing is really live in the prolog, since it's not interruptible, but if
     // we kill everything at the start of the prolog we may end up creating new
     // live ranges for whatever GC locals happen to be live before the funclet and
     // inside the funclet so may as well pretend that whatever is live at entry
-    // is also live inside prolog.
-    // The locals bitset is never modified so we can make a shallow copy here.
-    emitCurIG->gcLcls    = ig->gcLcls;
-    emitCurIG->refRegs   = ig->refRegs;
-    emitCurIG->byrefRegs = ig->byrefRegs;
+    // is also live inside prolog. So the group following the prolog is really an
+    // extension, since GC liveness does not change.
+    emitCurIG->igFlags |= IGF_EXTEND;
 }
 #endif // FEATURE_EH_FUNCLETS
 
@@ -1683,7 +1680,7 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
         separator = ',';
     }
 
-    if ((ig != GetProlog()) && ((ig->igFlags & IGF_EXTEND) == 0))
+    if (!ig->IsExtension() && (ig != GetProlog()))
     {
         if (ig->gcLcls != VarSetOps::UninitVal())
         {
@@ -2834,7 +2831,7 @@ void emitter::emitEndCodeGen()
         }
 #endif
 
-        if (((ig->igFlags & IGF_EXTEND) == 0) && (ig != GetProlog()))
+        if (!ig->IsExtension() && (ig != GetProlog()))
         {
             gcInfo.SetLiveLclStackSlots(ig->GetGCLcls(), codeOffs);
 
@@ -2920,8 +2917,9 @@ void emitter::emitEndCodeGen()
         blockPerfScore += ig->igPerfScore;
 
         if (emitComp->verbose ||
-            (emitComp->opts.disAsm && ((ig->igNext == nullptr) || !ig->igNext->IsExtension() ||
-                                       ig->igNext->IsMainEpilog() || ig->igNext->IsFuncletPrologOrEpilog())))
+            (emitComp->opts.disAsm &&
+             ((ig->igNext == nullptr) || !ig->igNext->IsExtension() || ig->IsMainProlog() || ig->IsFuncletProlog() ||
+              ig->igNext->IsMainEpilog() || ig->igNext->IsFuncletEpilog())))
         {
             printf("\t\t\t\t\t\t;; bbWeight=%s PerfScore %.2f", refCntWtd2str(ig->igWeight), blockPerfScore);
             blockPerfScore = 0.0;
