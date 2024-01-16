@@ -3874,31 +3874,11 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
     return regs;
 }
 
-void emitter::emitJumpDistBind()
+void emitter::ShortenBranches()
 {
     if (emitJumpList == nullptr)
     {
         return;
-    }
-
-    JITDUMP("*************** In emitJumpDistBind()\n");
-
-    for (instrDescJmp* instr = emitJumpList; instr != nullptr; instr = instr->idjNext)
-    {
-        assert((instr->idInsFmt() == IF_LABEL) || (instr->idInsFmt() == IF_RWR_LABEL));
-
-        if (instr->HasLabelBlock())
-        {
-            insGroup* label = instr->GetLabelBlock()->emitLabel;
-
-            assert(label != nullptr);
-            JITDUMP("Binding IN%04X label block " FMT_BB " to " FMT_IG "\n", instr->idDebugOnlyInfo()->idNum,
-                    instr->GetLabelBlock()->bbNum, label->GetId());
-
-            instr->SetLabel(label);
-        }
-
-        INDEBUG(emitCheckFuncletBranch(instr));
     }
 
 #ifdef DEBUG

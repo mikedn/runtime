@@ -585,7 +585,8 @@ void CodeGen::genCodeForBBlist()
     genCaptureFuncletPrologEpilogInfo();
 #endif
     GetEmitter()->emitGeneratePrologEpilog();
-    GetEmitter()->emitJumpDistBind();
+    GetEmitter()->BindBlockLabels();
+    GetEmitter()->ShortenBranches();
 #if FEATURE_LOOP_ALIGN
     GetEmitter()->emitLoopAlignAdjustments();
 #endif

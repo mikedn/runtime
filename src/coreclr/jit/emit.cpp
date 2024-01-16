@@ -2602,6 +2602,36 @@ void emitter::emitCheckFuncletBranch(instrDescJmp* jmp)
 }
 #endif // DEBUG
 
+void emitter::BindBlockLabels()
+{
+    if (emitJumpList == nullptr)
+    {
+        return;
+    }
+
+    JITDUMP("*************** In BindBlockLabels()\n");
+
+    for (instrDescJmp* instr = emitJumpList; instr != nullptr; instr = instr->idjNext)
+    {
+#ifdef TARGET_XARCH
+        assert((instr->idInsFmt() == IF_LABEL) || (instr->idInsFmt() == IF_RWR_LABEL));
+#endif
+
+        if (instr->HasLabelBlock())
+        {
+            insGroup* label = instr->GetLabelBlock()->emitLabel;
+
+            assert(label != nullptr);
+            JITDUMP("Binding IN%04X label block " FMT_BB " to " FMT_IG "\n", instr->idDebugOnlyInfo()->idNum,
+                    instr->GetLabelBlock()->bbNum, label->GetId());
+
+            instr->SetLabel(label);
+        }
+
+        INDEBUG(emitCheckFuncletBranch(instr));
+    }
+}
+
 void emitter::emitComputeCodeSizes()
 {
     assert((emitComp->fgFirstColdBlock == nullptr) == (emitFirstColdIG == nullptr));
