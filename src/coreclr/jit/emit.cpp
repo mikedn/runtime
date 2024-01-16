@@ -191,8 +191,7 @@ insGroup* emitter::emitAllocIG(unsigned num)
     ig->igPerfScore = 0.0;
 #endif
 #ifdef DEBUG
-    ig->lastGeneratedBlock = nullptr;
-    new (&ig->igBlocks) jitstd::list<BasicBlock*>(emitComp->getAllocator(CMK_LoopOpt));
+    new (&ig->igBlocks) jitstd::list<BasicBlock*>(emitComp->getAllocator(CMK_DebugOnly));
 #endif
 
     return ig;
@@ -706,10 +705,12 @@ emitter::instrDescSmall* emitter::emitAllocAnyInstr(unsigned sz, bool updateLast
     emitCurIGinsCnt++;
 
 #ifdef DEBUG
-    if (emitCurIG->lastGeneratedBlock != GetCurrentBlock())
+    if (BasicBlock* block = GetCurrentBlock())
     {
-        emitCurIG->lastGeneratedBlock = GetCurrentBlock();
-        emitCurIG->igBlocks.push_back(emitCurIG->lastGeneratedBlock);
+        if (emitCurIG->igBlocks.empty() || (emitCurIG->igBlocks.back() != block))
+        {
+            emitCurIG->igBlocks.push_back(block);
+        }
     }
 #endif
 
