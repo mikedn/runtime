@@ -3481,7 +3481,7 @@ void emitter::emitIns_J(instruction ins, BasicBlock* label)
     unsigned  sz       = ins == INS_jmp ? JMP_SIZE_LARGE : JCC_SIZE_LARGE;
     insGroup* targetIG = label->emitLabel;
 
-    if ((targetIG != nullptr) && !id->idIsCnsReloc())
+    if ((targetIG != nullptr) && targetIG->IsDefined() && !id->idIsCnsReloc())
     {
         // This is a backward jump, we can determine now if it's going to be short.
 

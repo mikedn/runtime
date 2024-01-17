@@ -4068,37 +4068,36 @@ void emitter::emitIns_J(instruction ins, BasicBlock* label)
     id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
     id->SetLabelBlock(label);
 
-    if (!id->idIsCnsReloc())
+    insGroup* targetIG = label->emitLabel;
+
+    if ((targetIG != nullptr) && targetIG->IsDefined() && !id->idIsCnsReloc())
     {
-        if (insGroup* targetIG = label->emitLabel)
+        // This is a backward jump, we can determine now if it's going to be short/medium/large.
+
+        uint32_t instrOffs = emitCurCodeOffset + emitCurIGsize;
+        int32_t  distance  = instrOffs - targetIG->igOffs;
+        assert(distance >= 0);
+        distance += 4;
+
+        if (ins == INS_b)
         {
-            // This is a backward jump, we can determine now if it's going to be short/medium/large.
-
-            uint32_t instrOffs = emitCurCodeOffset + emitCurIGsize;
-            int32_t  distance  = instrOffs - targetIG->igOffs;
-            assert(distance >= 0);
-            distance += 4;
-
-            if (ins == INS_b)
+            if (JMP_DIST_SMALL_MAX_NEG <= -distance)
             {
-                if (JMP_DIST_SMALL_MAX_NEG <= -distance)
-                {
-                    id->idInsFmt(IF_T1_M);
-                    id->idInsSize(ISZ_16BIT);
-                }
+                id->idInsFmt(IF_T1_M);
+                id->idInsSize(ISZ_16BIT);
             }
-            else
+        }
+        else
+        {
+            if (JCC_DIST_SMALL_MAX_NEG <= -distance)
             {
-                if (JCC_DIST_SMALL_MAX_NEG <= -distance)
-                {
-                    id->idInsFmt(IF_T1_K);
-                    id->idInsSize(ISZ_16BIT);
-                }
-                else if (JCC_DIST_MEDIUM_MAX_NEG <= -distance)
-                {
-                    id->idInsFmt(IF_T2_J1);
-                    id->idInsSize(ISZ_32BIT);
-                }
+                id->idInsFmt(IF_T1_K);
+                id->idInsSize(ISZ_16BIT);
+            }
+            else if (JCC_DIST_MEDIUM_MAX_NEG <= -distance)
+            {
+                id->idInsFmt(IF_T2_J1);
+                id->idInsSize(ISZ_32BIT);
             }
         }
     }

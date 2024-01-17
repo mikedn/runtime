@@ -198,6 +198,14 @@ void CodeGen::genMarkLabelsForCodegen()
             JITDUMP("  " FMT_BB ": filter begin\n", HBtab->ebdFilter->bbNum);
         }
     }
+
+    for (BasicBlock* block : compiler->Blocks())
+    {
+        if ((block->bbFlags & BBF_HAS_LABEL) != 0)
+        {
+            block->emitLabel = GetEmitter()->CreateBlockLabel(block);
+        }
+    }
 }
 
 void CodeGen::genCodeForBBlist()
@@ -223,8 +231,8 @@ void CodeGen::genCodeForBBlist()
     assert(genStackLevel == 0);
 #endif
 
-    GetEmitter()->emitBegFN();
     genMarkLabelsForCodegen();
+    GetEmitter()->emitBegFN();
     liveness.Begin();
 
     unsigned nextEnterScope = 0;
@@ -251,16 +259,14 @@ void CodeGen::genCodeForBBlist()
 
         if ((block->bbFlags & BBF_HAS_LABEL) != 0)
         {
-            insGroup* ig = GetEmitter()->emitAddLabel();
-            GetEmitter()->SetLabelGCLiveness(ig);
+            GetEmitter()->DefineBlockLabel(block->emitLabel);
+            GetEmitter()->SetLabelGCLiveness(block->emitLabel);
 
             if (block == compiler->fgFirstColdBlock)
             {
                 JITDUMP("\nThis is the start of the cold region of the method\n");
-                GetEmitter()->emitSetFirstColdLabel(ig);
+                GetEmitter()->emitSetFirstColdLabel(block->emitLabel);
             }
-
-            block->emitLabel = ig;
         }
 #if FEATURE_LOOP_ALIGN
         else

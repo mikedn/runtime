@@ -217,10 +217,6 @@ void emitter::emitAppendIG(insGroup* ig)
     ig->igNum  = emitIGlast->igNum + 1;
     ig->igOffs = emitCurCodeOffset;
 
-#if defined(DEBUG) || defined(LATE_DISASM)
-    ig->igWeight = getCurrentBlockWeight();
-#endif
-
     emitIGlast->igNext = ig;
     emitIGlast         = ig;
     emitForceNewIG     = false;
@@ -484,7 +480,7 @@ void emitter::emitBegFN()
             emitCurIG->GetFuncletIndex(), refCntWtd2str(emitCurIG->igWeight));
 
     // Append another group, to start generating the method body
-    emitNewIG();
+    emitAppendIG(emitComp->fgFirstBB->emitLabel);
 }
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
@@ -964,7 +960,16 @@ void emitter::ReserveEpilog(BasicBlock* block)
     }
     else
     {
-        emitNewIG();
+        // TODO-MIKE-Review: This seems dodgy, we should just set emitCurIG to null and
+        // be done with it. If another block follows then it's supposed to have a label
+        // (uneless it is unreachable, in which case we'll just require it to have a
+        // label too) and genCodeForBBlist will define the label. But genCodeForBBlist
+        // is kind of messed up and does that after calling liveness.BeginBlockCodeGen,
+        // which needs the current IG to generate debug info, so emitCurIG needs to be
+        // valid.
+        // Note that doing this here can result in the label having the wrong funclet
+        // index, but genCodeForBBlist will call this again, which fixes it.
+        DefineBlockLabel(block->bbNext->emitLabel);
     }
 }
 
@@ -1163,6 +1168,40 @@ bool emitter::HasSingleEpilogAtEnd()
 
 #endif // JIT32_GCENCODER
 
+insGroup* emitter::CreateBlockLabel(BasicBlock* block)
+{
+    insGroup* ig = emitAllocIG(0);
+#if defined(DEBUG) || defined(LATE_DISASM)
+    ig->igWeight = block->getBBWeight(emitComp);
+#endif
+    return ig;
+}
+
+void emitter::DefineBlockLabel(insGroup* label)
+{
+    assert(!IsMainProlog(emitCurIG));
+
+    if (label->IsDefined())
+    {
+        assert(emitCurIG == label);
+        assert(emitCurLabel == label);
+    }
+    else
+    {
+        if (emitCurIGnonEmpty())
+        {
+            emitFinishIG();
+        }
+
+        emitAppendIG(label);
+        emitCurLabel = label;
+    }
+
+#ifdef FEATURE_EH_FUNCLETS
+    label->igFuncIdx = codeGen->currentFuncletIndex;
+#endif
+}
+
 insGroup* emitter::CreateTempLabel()
 {
     return emitAllocIG(0);
@@ -1174,6 +1213,9 @@ void emitter::DefineTempLabel(insGroup* label)
 
     emitFinishIG();
     emitAppendIG(label);
+#if defined(DEBUG) || defined(LATE_DISASM)
+    label->igWeight = getCurrentBlockWeight();
+#endif
     SetLabelGCLiveness(label);
 }
 
@@ -1247,6 +1289,9 @@ void emitter::DefineInlineTempLabel(insGroup* label)
 
     emitFinishIG(true);
     emitAppendIG(label);
+#if defined(DEBUG) || defined(LATE_DISASM)
+    label->igWeight = getCurrentBlockWeight();
+#endif
     label->igFlags |= IGF_EXTEND;
 }
 

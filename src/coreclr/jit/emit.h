@@ -140,6 +140,11 @@ struct insGroup
     uint32_t GetCodeOffset(CodePos codePos) const;
     uint32_t FindInsOffset(unsigned insNum) const;
 
+    bool IsDefined() const
+    {
+        return igNum != 0;
+    }
+
     uint16_t GetFuncletIndex() const
     {
         return igFuncIdx;
@@ -1640,11 +1645,13 @@ private:
 #endif
 
 public:
+    insGroup* CreateBlockLabel(BasicBlock* block);
     insGroup* CreateTempLabel();
     insGroup* DefineTempLabel();
     void DefineTempLabel(insGroup* label);
     void DefineInlineTempLabel(insGroup* label);
     insGroup* emitAddLabel();
+    void DefineBlockLabel(insGroup* label);
     void SetLabelGCLiveness(insGroup* label);
     insGroup* DefineInlineTempLabel();
 
