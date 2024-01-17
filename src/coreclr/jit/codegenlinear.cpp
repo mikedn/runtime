@@ -581,9 +581,14 @@ void CodeGen::genCodeForBBlist()
     liveness.End(this);
 
     genFnProlog();
+
 #ifdef FEATURE_EH_FUNCLETS
-    genCaptureFuncletPrologEpilogInfo();
+    if (compFuncInfoCount > 1)
+    {
+        genCaptureFuncletPrologEpilogInfo();
+    }
 #endif
+
     GetEmitter()->emitGeneratePrologEpilog();
     GetEmitter()->BindBlockLabels();
     GetEmitter()->ShortenBranches();

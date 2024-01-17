@@ -2672,76 +2672,65 @@ void CodeGen::genFuncletEpilog()
 
 void CodeGen::genCaptureFuncletPrologEpilogInfo()
 {
-    if (compiler->ehAnyFunclets())
-    {
-        assert(isFramePointerUsed());
-        assert(compiler->lvaDoneFrameLayout == Compiler::FINAL_FRAME_LAYOUT); // The frame size and offsets must be
-        // finalized
+    assert(compFuncInfoCount > 1);
+    assert(isFramePointerUsed());
+    assert(compiler->lvaDoneFrameLayout == Compiler::FINAL_FRAME_LAYOUT);
+    assert(outgoingArgSpaceSize % REGSIZE_BYTES == 0);
 
-        // Frame pointer doesn't point at the end, it points at the pushed r11. So, instead
-        // of adding the number of callee-saved regs to CallerSP, we add 1 for lr and 1 for r11
-        // (plus the "pre spill regs").
+    // Frame pointer doesn't point at the end, it points at the pushed r11. So, instead
+    // of adding the number of callee-saved regs to CallerSP, we add 1 for lr and 1 for r11
+    // (plus the "pre spill regs").
 
-        unsigned preSpillRegArgSize                = GetPreSpillSize();
-        genFuncletInfo.fiFunctionCallerSPtoFPdelta = preSpillRegArgSize + 2 * REGSIZE_BYTES;
+    unsigned preSpillRegArgSize                = GetPreSpillSize();
+    genFuncletInfo.fiFunctionCallerSPtoFPdelta = preSpillRegArgSize + 2 * REGSIZE_BYTES;
 
-        regMaskTP rsMaskSaveRegs = calleeSavedModifiedRegs;
+    regMaskTP rsMaskSaveRegs = calleeSavedModifiedRegs | RBM_FP | RBM_LR;
 
-        if (isFramePointerUsed())
-        {
-            rsMaskSaveRegs |= RBM_FP;
-        }
+    unsigned saveRegsCount    = genCountBits(rsMaskSaveRegs);
+    unsigned saveRegsSize     = saveRegsCount * REGSIZE_BYTES; // bytes of regs we're saving
+    unsigned funcletFrameSize = preSpillRegArgSize + saveRegsSize + REGSIZE_BYTES /* PSP slot */ + outgoingArgSpaceSize;
 
-        rsMaskSaveRegs |= RBM_LR;
+    unsigned funcletFrameSizeAligned  = roundUp(funcletFrameSize, STACK_ALIGN);
+    unsigned funcletFrameAlignmentPad = funcletFrameSizeAligned - funcletFrameSize;
+    unsigned spDelta                  = funcletFrameSizeAligned - saveRegsSize;
 
-        unsigned saveRegsCount = genCountBits(rsMaskSaveRegs);
-        unsigned saveRegsSize  = saveRegsCount * REGSIZE_BYTES; // bytes of regs we're saving
-        assert(outgoingArgSpaceSize % REGSIZE_BYTES == 0);
-        unsigned funcletFrameSize =
-            preSpillRegArgSize + saveRegsSize + REGSIZE_BYTES /* PSP slot */ + outgoingArgSpaceSize;
+    unsigned PSP_slot_SP_offset       = outgoingArgSpaceSize + funcletFrameAlignmentPad;
+    int      PSP_slot_CallerSP_offset = -(int)(funcletFrameSize - outgoingArgSpaceSize); // NOTE: it's negative!
 
-        unsigned funcletFrameSizeAligned  = roundUp(funcletFrameSize, STACK_ALIGN);
-        unsigned funcletFrameAlignmentPad = funcletFrameSizeAligned - funcletFrameSize;
-        unsigned spDelta                  = funcletFrameSizeAligned - saveRegsSize;
+    /* Now save it for future use */
 
-        unsigned PSP_slot_SP_offset       = outgoingArgSpaceSize + funcletFrameAlignmentPad;
-        int      PSP_slot_CallerSP_offset = -(int)(funcletFrameSize - outgoingArgSpaceSize); // NOTE: it's negative!
-
-        /* Now save it for future use */
-
-        genFuncletInfo.fiSaveRegs                 = rsMaskSaveRegs;
-        genFuncletInfo.fiSpDelta                  = spDelta;
-        genFuncletInfo.fiPSP_slot_SP_offset       = PSP_slot_SP_offset;
-        genFuncletInfo.fiPSP_slot_CallerSP_offset = PSP_slot_CallerSP_offset;
+    genFuncletInfo.fiSaveRegs                 = rsMaskSaveRegs;
+    genFuncletInfo.fiSpDelta                  = spDelta;
+    genFuncletInfo.fiPSP_slot_SP_offset       = PSP_slot_SP_offset;
+    genFuncletInfo.fiPSP_slot_CallerSP_offset = PSP_slot_CallerSP_offset;
 
 #ifdef DEBUG
-        if (compiler->verbose)
-        {
-            printf("\n");
-            printf("Funclet prolog / epilog info\n");
-            printf("    Function CallerSP-to-FP delta: %d\n", genFuncletInfo.fiFunctionCallerSPtoFPdelta);
-            printf("                        Save regs: ");
-            dspRegMask(rsMaskSaveRegs);
-            printf("\n");
-            printf("                         SP delta: %d\n", genFuncletInfo.fiSpDelta);
-            printf("               PSP slot SP offset: %d\n", genFuncletInfo.fiPSP_slot_SP_offset);
-            printf("        PSP slot Caller SP offset: %d\n", genFuncletInfo.fiPSP_slot_CallerSP_offset);
+    if (compiler->verbose)
+    {
+        printf("\n");
+        printf("Funclet prolog / epilog info\n");
+        printf("    Function CallerSP-to-FP delta: %d\n", genFuncletInfo.fiFunctionCallerSPtoFPdelta);
+        printf("                        Save regs: ");
+        dspRegMask(rsMaskSaveRegs);
+        printf("\n");
+        printf("                         SP delta: %d\n", genFuncletInfo.fiSpDelta);
+        printf("               PSP slot SP offset: %d\n", genFuncletInfo.fiPSP_slot_SP_offset);
+        printf("        PSP slot Caller SP offset: %d\n", genFuncletInfo.fiPSP_slot_CallerSP_offset);
 
-            if (PSP_slot_CallerSP_offset != compiler->lvaGetCallerSPRelativeOffset(compiler->lvaPSPSym))
-            {
-                printf("lvaGetCallerSPRelativeOffset(lvaPSPSym): %d\n",
-                       compiler->lvaGetCallerSPRelativeOffset(compiler->lvaPSPSym));
-            }
+        if (PSP_slot_CallerSP_offset != compiler->lvaGetCallerSPRelativeOffset(compiler->lvaPSPSym))
+        {
+            printf("lvaGetCallerSPRelativeOffset(lvaPSPSym): %d\n",
+                   compiler->lvaGetCallerSPRelativeOffset(compiler->lvaPSPSym));
         }
+    }
 #endif // DEBUG
 
-        assert(PSP_slot_CallerSP_offset < 0);
-        if (compiler->lvaPSPSym != BAD_VAR_NUM)
-        {
-            assert(PSP_slot_CallerSP_offset ==
-                   compiler->lvaGetCallerSPRelativeOffset(compiler->lvaPSPSym)); // same offset used in main
-            // function and funclet!
-        }
+    assert(PSP_slot_CallerSP_offset < 0);
+    if (compiler->lvaPSPSym != BAD_VAR_NUM)
+    {
+        assert(PSP_slot_CallerSP_offset ==
+               compiler->lvaGetCallerSPRelativeOffset(compiler->lvaPSPSym)); // same offset used in main
+        // function and funclet!
     }
 }
 

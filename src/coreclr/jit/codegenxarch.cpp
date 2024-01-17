@@ -8644,24 +8644,16 @@ void CodeGen::genFuncletEpilog()
 
 void CodeGen::genCaptureFuncletPrologEpilogInfo()
 {
-    if (!compiler->ehAnyFunclets())
-    {
-        return;
-    }
-
-    // Note that compLclFrameSize can't be used (for can we call functions that depend on it),
-    // because we're not going to allocate the same size frame as the parent.
-
+    assert(compFuncInfoCount > 1);
     assert(isFramePointerUsed());
     assert(compiler->lvaDoneFrameLayout == Compiler::FINAL_FRAME_LAYOUT);
-
-    genFuncletInfo.fiFunction_InitialSP_to_FP_delta = genSPtoFPdelta();
-
     assert(outgoingArgSpaceSize % REGSIZE_BYTES == 0);
-#ifndef UNIX_AMD64_ABI
+#ifdef WINDOWS_AMD64_ABI
     // On win-x64, we always have 4 outgoing argument slots if there are any calls in the function.
     assert((outgoingArgSpaceSize == 0) || (outgoingArgSpaceSize >= 4 * REGSIZE_BYTES));
 #endif
+
+    genFuncletInfo.fiFunction_InitialSP_to_FP_delta = genSPtoFPdelta();
 
     unsigned offset = outgoingArgSpaceSize;
 
