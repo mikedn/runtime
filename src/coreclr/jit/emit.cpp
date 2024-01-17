@@ -994,13 +994,11 @@ void emitter::emitGeneratePrologEpilog()
 #ifdef FEATURE_EH_FUNCLETS
         if (ig->IsFuncletProlog())
         {
-            JITDUMP("\n=============== Generating funclet prolog\n");
             INDEBUG(++funcletPrologCnt);
             codeGen->genFuncletProlog(block);
         }
         else if (ig->IsFuncletEpilog())
         {
-            JITDUMP("\n=============== Generating funclet epilog\n");
             INDEBUG(++funcletEpilogCnt);
             codeGen->genFuncletEpilog();
         }
@@ -1008,7 +1006,6 @@ void emitter::emitGeneratePrologEpilog()
 #endif
         {
             assert(ig->IsMainEpilog());
-            JITDUMP("\n=============== Generating epilog\n");
             INDEBUG(++epilogCnt);
             codeGen->genFnEpilog(block);
         }
@@ -1043,6 +1040,9 @@ BasicBlock* emitter::BeginPrologEpilog(insGroup* ig)
 {
     assert((ig->igFlags & IGF_PLACEHOLDER) != 0);
     assert(!emitCurIGnonEmpty());
+
+    JITDUMP("\n=============== Generating%s%s\n", ig->GetFuncletIndex() == 0 ? "" : " funclet",
+            ig->IsProlog() ? " prolog" : " epilog");
 
     BasicBlock* block = ig->igPhData;
     ig->igFlags &= ~IGF_PLACEHOLDER;

@@ -196,6 +196,11 @@ struct insGroup
         return ((igFlags & (IGF_PROLOG | IGF_EPILOG)) != 0) && (igFuncIdx != 0);
     }
 
+    bool IsProlog() const
+    {
+        return (igFlags & IGF_PROLOG) != 0;
+    }
+
     bool IsPrologOrEpilog() const
     {
         return (igFlags & (IGF_PROLOG | IGF_EPILOG)) != 0;
