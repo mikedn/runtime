@@ -3210,58 +3210,6 @@ UNATIVE_OFFSET emitter::emitDataGenBeg(unsigned size, unsigned alignment, var_ty
 //  Currently the relative references are relative to the start of the
 //  first block (this is somewhat arbitrary)
 
-UNATIVE_OFFSET emitter::emitBBTableDataGenBeg(unsigned numEntries, bool relativeAddr)
-{
-    unsigned     secOffs;
-    dataSection* secDesc;
-
-    assert(emitDataSecCur == nullptr);
-
-    UNATIVE_OFFSET emittedSize;
-
-    if (relativeAddr)
-    {
-        emittedSize = numEntries * 4;
-    }
-    else
-    {
-        emittedSize = numEntries * TARGET_POINTER_SIZE;
-    }
-
-    /* Get hold of the current offset */
-
-    secOffs = emitConsDsc.dsdOffs;
-
-    /* Advance the current offset */
-
-    emitConsDsc.dsdOffs += emittedSize;
-
-    /* Allocate a data section descriptor and add it to the list */
-
-    secDesc = emitDataSecCur = (dataSection*)emitGetMem(roundUp(sizeof(*secDesc) + numEntries * sizeof(BasicBlock*)));
-
-    secDesc->dsSize = emittedSize;
-
-    secDesc->dsType = relativeAddr ? dataSection::blockRelative32 : dataSection::blockAbsoluteAddr;
-
-    secDesc->dsDataType = TYP_UNKNOWN;
-
-    secDesc->dsNext = nullptr;
-
-    if (emitConsDsc.dsdLast)
-    {
-        emitConsDsc.dsdLast->dsNext = secDesc;
-    }
-    else
-    {
-        emitConsDsc.dsdList = secDesc;
-    }
-
-    emitConsDsc.dsdLast = secDesc;
-
-    return secOffs;
-}
-
 UNATIVE_OFFSET emitter::emitLabelTableDataGenBeg(unsigned numEntries, bool relativeAddr)
 {
     unsigned     secOffs;
@@ -3294,7 +3242,7 @@ UNATIVE_OFFSET emitter::emitLabelTableDataGenBeg(unsigned numEntries, bool relat
 
     secDesc->dsSize = emittedSize;
 
-    secDesc->dsType = relativeAddr ? dataSection::insGroupRelative32 : dataSection::insGroupAbsoluteAddr;
+    secDesc->dsType = relativeAddr ? dataSection::LabelRelative32 : dataSection::LabelAbsoluteAddr;
 
     secDesc->dsDataType = TYP_UNKNOWN;
 
@@ -3333,40 +3281,13 @@ void emitter::emitDataGenData(unsigned offs, const void* data, UNATIVE_OFFSET si
  *  Emit the address of the given basic block into the current data section.
  */
 
-void emitter::emitDataGenData(unsigned index, BasicBlock* label)
-{
-    assert(emitDataSecCur != nullptr);
-    assert(emitDataSecCur->dsType == dataSection::blockAbsoluteAddr ||
-           emitDataSecCur->dsType == dataSection::blockRelative32);
-
-    unsigned emittedElemSize = emitDataSecCur->dsType == dataSection::blockAbsoluteAddr ? TARGET_POINTER_SIZE : 4;
-
-    assert(emitDataSecCur->dsSize >= emittedElemSize * (index + 1));
-
-    if (index == 0)
-    {
-        unsigned offset = 0;
-
-        for (dataSection* d = emitConsDsc.dsdList; d != nullptr && d != emitDataSecCur; d = d->dsNext)
-        {
-            offset += d->dsSize;
-        }
-
-        JITDUMP("RWD%02u LABEL DWORD\n", offset);
-    }
-
-    JITDUMP("DD " FMT_BB "\n", label->bbNum);
-
-    ((BasicBlock**)(emitDataSecCur->dsCont))[index] = label;
-}
-
 void emitter::emitDataGenData(unsigned index, insGroup* label)
 {
     assert(emitDataSecCur != nullptr);
-    assert(emitDataSecCur->dsType == dataSection::insGroupAbsoluteAddr ||
-           emitDataSecCur->dsType == dataSection::insGroupRelative32);
+    assert(emitDataSecCur->dsType == dataSection::LabelAbsoluteAddr ||
+           emitDataSecCur->dsType == dataSection::LabelRelative32);
 
-    unsigned emittedElemSize = emitDataSecCur->dsType == dataSection::insGroupAbsoluteAddr ? TARGET_POINTER_SIZE : 4;
+    unsigned emittedElemSize = emitDataSecCur->dsType == dataSection::LabelAbsoluteAddr ? TARGET_POINTER_SIZE : 4;
 
     assert(emitDataSecCur->dsSize >= emittedElemSize * (index + 1));
 
@@ -3594,57 +3515,7 @@ void emitter::emitOutputDataSec(dataSecDsc* sec, BYTE* dst)
         BYTE* dstRW = dst + writeableOffset;
 
         // absolute label table
-        if (dsc->dsType == dataSection::blockAbsoluteAddr)
-        {
-            JITDUMP("  section %u, size %u, block absolute addr\n", secNum++, dscSize);
-
-            assert(dscSize && dscSize % TARGET_POINTER_SIZE == 0);
-            size_t         numElems = dscSize / TARGET_POINTER_SIZE;
-            target_size_t* bDstRW   = (target_size_t*)dstRW;
-            BasicBlock**   blocks   = reinterpret_cast<BasicBlock**>(dsc->dsCont);
-
-            for (unsigned i = 0; i < numElems; i++)
-            {
-                insGroup* lab = blocks[i]->emitLabel;
-
-                // Append the appropriate address to the destination
-                BYTE* target = emitOffsetToPtr(lab->igOffs);
-#ifdef TARGET_ARM
-                target = (BYTE*)((size_t)target | 1); // Or in thumb bit
-#endif
-
-                bDstRW[i] = (target_size_t)(size_t)target;
-
-                if (emitComp->opts.compReloc)
-                {
-                    emitRecordRelocation(&(bDstRW[i]), target, IMAGE_REL_BASED_HIGHLOW);
-                }
-
-                JITDUMP("  " FMT_BB ": 0x%p\n", blocks[i]->bbNum, bDstRW[i]);
-            }
-        }
-        // relative label table
-        else if (dsc->dsType == dataSection::blockRelative32)
-        {
-            JITDUMP("  section %u, size %u, block relative addr\n", secNum++, dscSize);
-
-            size_t       numElems = dscSize / 4;
-            unsigned*    uDstRW   = (unsigned*)dstRW;
-            insGroup*    labFirst = emitComp->fgFirstBB->emitLabel;
-            BasicBlock** blocks   = reinterpret_cast<BasicBlock**>(dsc->dsCont);
-
-            for (unsigned i = 0; i < numElems; i++)
-            {
-                insGroup* lab = blocks[i]->emitLabel;
-
-                assert(FitsIn<uint32_t>(lab->igOffs - labFirst->igOffs));
-                uDstRW[i] = lab->igOffs - labFirst->igOffs;
-
-                JITDUMP("  " FMT_BB ": 0x%x\n", blocks[i]->bbNum, uDstRW[i]);
-            }
-        }
-        // absolute label table
-        else if (dsc->dsType == dataSection::insGroupAbsoluteAddr)
+        if (dsc->dsType == dataSection::LabelAbsoluteAddr)
         {
             JITDUMP("  section %u, size %u, block absolute addr\n", secNum++, dscSize);
 
@@ -3674,7 +3545,7 @@ void emitter::emitOutputDataSec(dataSecDsc* sec, BYTE* dst)
             }
         }
         // relative label table
-        else if (dsc->dsType == dataSection::insGroupRelative32)
+        else if (dsc->dsType == dataSection::LabelRelative32)
         {
             JITDUMP("  section %u, size %u, block relative addr\n", secNum++, dscSize);
 
@@ -3761,74 +3632,12 @@ void emitter::emitDispDataSec(dataSecDsc* section)
         printf(labelFormat, label);
         offset += data->dsSize;
 
-        if ((data->dsType == dataSection::blockRelative32) || (data->dsType == dataSection::blockAbsoluteAddr))
-        {
-            insGroup*    igFirst    = emitComp->fgFirstBB->emitLabel;
-            bool         isRelative = (data->dsType == dataSection::blockRelative32);
-            size_t       blockCount = data->dsSize / (isRelative ? 4 : TARGET_POINTER_SIZE);
-            BasicBlock** blocks     = reinterpret_cast<BasicBlock**>(data->dsCont);
-
-            for (unsigned i = 0; i < blockCount; i++)
-            {
-                if (i > 0)
-                {
-                    printf(labelFormat, "");
-                }
-
-                insGroup* ig = blocks[i]->emitLabel;
-
-                const char* blockLabel = emitLabelString(ig);
-                const char* firstLabel = emitLabelString(igFirst);
-
-                if (isRelative)
-                {
-                    if (emitComp->opts.disDiffable)
-                    {
-                        printf("\tdd\t%s - %s\n", blockLabel, firstLabel);
-                    }
-                    else
-                    {
-                        printf("\tdd\t%08Xh", ig->igOffs - igFirst->igOffs);
-                    }
-                }
-                else
-                {
-#ifndef TARGET_64BIT
-                    // We have a 32-BIT target
-                    if (emitComp->opts.disDiffable)
-                    {
-                        printf("\tdd\t%s\n", blockLabel);
-                    }
-                    else
-                    {
-                        printf("\tdd\t%08Xh", (uint32_t)(size_t)emitOffsetToPtr(ig->igOffs));
-                    }
-#else  // TARGET_64BIT
-                    // We have a 64-BIT target
-                    if (emitComp->opts.disDiffable)
-                    {
-                        printf("\tdq\t%s\n", blockLabel);
-                    }
-                    else
-                    {
-                        printf("\tdq\t%016llXh", reinterpret_cast<uint64_t>(emitOffsetToPtr(ig->igOffs)));
-                    }
-#endif // TARGET_64BIT
-                }
-
-                if (!emitComp->opts.disDiffable)
-                {
-                    printf(" ; case %s\n", blockLabel);
-                }
-            }
-        }
-        else if ((data->dsType == dataSection::insGroupRelative32) ||
-                 (data->dsType == dataSection::insGroupAbsoluteAddr))
+        if ((data->dsType == dataSection::LabelRelative32) || (data->dsType == dataSection::LabelAbsoluteAddr))
         {
             insGroup*  igFirst    = emitComp->fgFirstBB->emitLabel;
-            bool       isRelative = (data->dsType == dataSection::insGroupRelative32);
+            bool       isRelative = (data->dsType == dataSection::LabelRelative32);
             size_t     blockCount = data->dsSize / (isRelative ? 4 : TARGET_POINTER_SIZE);
-            insGroup** blocks     = reinterpret_cast<insGroup**>(data->dsCont);
+            insGroup** labels     = reinterpret_cast<insGroup**>(data->dsCont);
 
             for (unsigned i = 0; i < blockCount; i++)
             {
@@ -3837,7 +3646,7 @@ void emitter::emitDispDataSec(dataSecDsc* section)
                     printf(labelFormat, "");
                 }
 
-                insGroup* ig = blocks[i];
+                insGroup* ig = labels[i];
 
                 const char* blockLabel = emitLabelString(ig);
                 const char* firstLabel = emitLabelString(igFirst);

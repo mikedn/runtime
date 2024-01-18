@@ -361,7 +361,6 @@ public:
     UNATIVE_OFFSET emitBBTableDataGenBeg(unsigned numEntries, bool relativeAddr);
     UNATIVE_OFFSET emitLabelTableDataGenBeg(unsigned numEntries, bool relativeAddr);
     void emitDataGenData(unsigned offs, const void* data, UNATIVE_OFFSET size);
-    void emitDataGenData(unsigned offs, BasicBlock* label);
     void emitDataGenData(unsigned offs, insGroup* label);
     void           emitDataGenEnd();
     UNATIVE_OFFSET emitDataGenFind(const void* cnsAddr, unsigned size, unsigned alignment, var_types dataType);
@@ -1730,10 +1729,8 @@ private:
         enum sectionType
         {
             data,
-            blockAbsoluteAddr,
-            blockRelative32,
-            insGroupAbsoluteAddr,
-            insGroupRelative32
+            LabelAbsoluteAddr,
+            LabelRelative32
         };
 
         dataSection*   dsNext;
