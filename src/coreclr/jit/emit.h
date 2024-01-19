@@ -1649,7 +1649,6 @@ public:
     insGroup* DefineTempLabel();
     void DefineTempLabel(insGroup* label);
     void DefineInlineTempLabel(insGroup* label);
-    insGroup* emitAddLabel();
     void DefineBlockLabel(insGroup* label);
     void SetLabelGCLiveness(insGroup* label);
     insGroup* DefineInlineTempLabel();

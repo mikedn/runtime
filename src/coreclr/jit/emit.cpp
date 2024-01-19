@@ -815,9 +815,9 @@ void emitter::ReserveFuncletProlog(BasicBlock* block)
     assert((block->bbFlags & BBF_FUNCLET_BEG) != 0);
     assert(!IsMainProlog(emitCurIG));
 
-    // We should already have an empty group added by emitAddLabel
-    // for the first block in the funclet. We'll use that for the
-    // funclet prolog and create another one for the funclet body.
+    // We should already have an empty group added by DefineBlockLabel for the first
+    // block in the funclet. We'll use that for the funclet prolog and create another
+    // one for the funclet body.
     assert(!emitCurIGnonEmpty());
 
     // Currently, no registers are live on entry to the prolog, except maybe
@@ -1221,13 +1221,6 @@ void emitter::DefineTempLabel(insGroup* label)
 
 insGroup* emitter::DefineTempLabel()
 {
-    insGroup* label = emitAddLabel();
-    SetLabelGCLiveness(label);
-    return label;
-}
-
-insGroup* emitter::emitAddLabel()
-{
     assert(!IsMainProlog(emitCurIG));
 
     if (emitCurIGnonEmpty())
@@ -1235,14 +1228,9 @@ insGroup* emitter::emitAddLabel()
         emitFinishIG();
         emitNewIG();
     }
-#if defined(DEBUG) || defined(LATE_DISASM)
-    else
-    {
-        emitCurIG->igWeight = getCurrentBlockWeight();
-    }
-#endif
 
     emitCurLabel = emitCurIG;
+    SetLabelGCLiveness(emitCurIG);
 
     return emitCurIG;
 }

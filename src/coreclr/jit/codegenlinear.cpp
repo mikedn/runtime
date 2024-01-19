@@ -309,9 +309,9 @@ void CodeGen::genCodeForBBlist()
         }
 #endif
 
-        // TODO-MIKE-Cleanup: We have to do this here rather than in emitAddLabel
-        // partly because emitCreatePlaceholderIG is stealing the insGroup create
-        // by emitAddLabel and partly due to temp labels, which aren't real basic
+        // TODO-MIKE-Cleanup: We have to do this here rather than in DefineBlockLabel
+        // partly because ReserveFuncletProlog is stealing the insGroup created by
+        // DefineBlockLabel and partly due to temp labels, which aren't real basic
         // blocks (and DO NOT kill spill temps).
         GetEmitter()->GetCurrentInsGroup()->igFlags |= IGF_BASIC_BLOCK;
 

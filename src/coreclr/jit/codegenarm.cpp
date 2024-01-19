@@ -2866,9 +2866,7 @@ void CodeGen::genInsertNopForUnwinder(BasicBlock* block)
         // block starts an EH region. If we pointed the block's label here, then the NOP would
         // be executed, which we would prefer not to do.
 
-        insGroup* ig = GetEmitter()->emitAddLabel();
-        GetEmitter()->SetLabelGCLiveness(ig);
-
+        insGroup* ig = GetEmitter()->DefineTempLabel();
         block->unwindNopEmitLabel = ig;
         JITDUMP("\nEmitting finally target NOP predecessor " FMT_IG " for " FMT_BB "\n", ig->GetId(), block->bbNum);
         GetEmitter()->emitIns(INS_nop);
