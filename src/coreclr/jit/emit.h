@@ -262,6 +262,11 @@ public:
         return gcInfo;
     }
 
+    insGroup* GetProlog() const
+    {
+        return emitIGfirst;
+    }
+
 private:
     static bool InDifferentRegions(insGroup* ig1, insGroup* ig2);
 
@@ -360,34 +365,32 @@ public:
         }
     }
 
+    // To use alignments greater than 32 requires VM changes (see ICorJitInfo::allocMem)
+    const static unsigned MIN_DATA_ALIGN = 4;
+    const static unsigned MAX_DATA_ALIGN = 32;
+
     uint32_t CreateBlockLabelTable(BasicBlock** blocks, unsigned count, bool relative);
     uint32_t CreateTempLabelTable(insGroup*** labels, unsigned count, bool relative);
 
+    CORINFO_FIELD_HANDLE emitBlkConst(const void* cnsAddr, unsigned cnsSize, unsigned cnsAlign, var_types elemType);
+    CORINFO_FIELD_HANDLE emitFltOrDblConst(double constValue, emitAttr attr);
+    CORINFO_FIELD_HANDLE emitDataConst(const void* cnsAddr, unsigned cnsSize, unsigned cnsAlign, var_types dataType);
+
+    UNATIVE_OFFSET emitDataSize() const
+    {
+        return emitConsDsc.dsdOffs;
+    }
+
+private:
     UNATIVE_OFFSET emitLabelTableDataGenBeg(unsigned numEntries, bool relativeAddr);
     void emitDataGenData(unsigned offs, insGroup* label);
 
     UNATIVE_OFFSET emitDataGenBeg(unsigned size, unsigned alignment, var_types dataType);
     void emitDataGenData(unsigned offs, const void* data, UNATIVE_OFFSET size);
-    void           emitDataGenEnd();
+    void emitDataGenEnd();
+
     UNATIVE_OFFSET emitDataGenFind(const void* cnsAddr, unsigned size, unsigned alignment, var_types dataType);
-    CORINFO_FIELD_HANDLE emitDataConst(const void* cnsAddr, unsigned cnsSize, unsigned cnsAlign, var_types dataType);
 
-    /*****************************************************************************
-     *
-     *  Return the current size of the specified data section.
-     */
-
-    UNATIVE_OFFSET emitDataSize()
-    {
-        return emitConsDsc.dsdOffs;
-    }
-
-    insGroup* GetProlog() const
-    {
-        return emitIGfirst;
-    }
-
-private:
     static const UNATIVE_OFFSET INVALID_UNATIVE_OFFSET = (UNATIVE_OFFSET)-1;
 
     void* emitGetMem(size_t sz);
@@ -1444,9 +1447,6 @@ public:
 
     void PrologSpillParamRegsToShadowSlots();
 
-    CORINFO_FIELD_HANDLE emitBlkConst(const void* cnsAddr, unsigned cnsSize, unsigned cnsAlign, var_types elemType);
-    CORINFO_FIELD_HANDLE emitFltOrDblConst(double constValue, emitAttr attr);
-
     INDEBUG(static bool IsCodeAligned(UNATIVE_OFFSET offset);)
 
     INDEBUG(void VerifyBranches() const;)
@@ -1699,14 +1699,6 @@ private:
 
     /* One of these is allocated for every blob of initialized data */
 
-public:
-    // Note to use alignments greater than 32 requires modification in the VM
-    // to support larger alignments (see ICorJitInfo::allocMem)
-    //
-    const static unsigned MIN_DATA_ALIGN = 4;
-    const static unsigned MAX_DATA_ALIGN = 32;
-
-private:
     struct dataSection
     {
         enum sectionType
