@@ -813,7 +813,7 @@ void CodeGen::genHWIntrinsicJumpTableFallback(NamedIntrinsic            intrinsi
 
     emit.emitIns_R_C(INS_lea, emitTypeSize(TYP_I_IMPL), offsReg, Emitter::MakeRoDataField(jmpTableBase));
     emit.emitIns_R_ARX(INS_mov, EA_4BYTE, offsReg, offsReg, nonConstImmReg, 4, 0);
-    emit.emitIns_R_L(compiler->fgFirstBB, baseReg);
+    emit.emitIns_R_L(baseReg, compiler->fgFirstBB->emitLabel);
     emit.emitIns_R_R(INS_add, EA_PTRSIZE, offsReg, baseReg);
     emit.emitIns_R(INS_i_jmp, emitTypeSize(TYP_I_IMPL), offsReg);
 

@@ -4056,26 +4056,24 @@ void emitter::emitIns_J(instruction ins, int instrCount)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_J(instruction ins, BasicBlock* label)
+void emitter::emitIns_J(instruction ins, insGroup* label)
 {
     assert(IsBranch(ins));
-    assert((label->bbFlags & BBF_HAS_LABEL) != 0);
+    assert(label != nullptr);
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
     id->idInsFmt(ins == INS_b ? IF_T2_J2 : IF_LARGEJMP);
     id->idInsSize(emitInsSize(id->idInsFmt()));
-    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label->emitLabel));
-    id->SetLabelBlock(label);
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label));
+    id->SetLabel(label);
 
-    insGroup* targetIG = label->emitLabel;
-
-    if ((targetIG != nullptr) && targetIG->IsDefined() && !id->idIsCnsReloc())
+    if (label->IsDefined() && !id->idIsCnsReloc())
     {
         // This is a backward jump, we can determine now if it's going to be short/medium/large.
 
         uint32_t instrOffs = emitCurCodeOffset + emitCurIGsize;
-        int32_t  distance  = instrOffs - targetIG->igOffs;
+        int32_t  distance  = instrOffs - label->igOffs;
         assert(distance >= 0);
         distance += 4;
 
@@ -4109,29 +4107,15 @@ void emitter::emitIns_J(instruction ins, BasicBlock* label)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_J(instruction ins, insGroup* label)
-{
-    assert(IsBranch(ins));
-
-    instrDescJmp* id = emitNewInstrJmp();
-    id->idIns(ins);
-    id->idInsFmt(ins == INS_b ? IF_T2_J2 : IF_LARGEJMP);
-    id->idInsSize(emitInsSize(id->idInsFmt()));
-    id->SetLabel(label);
-
-    dispIns(id);
-    appendToCurIG(id);
-}
-
-void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* label, regNumber reg)
+void emitter::emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, regNumber reg)
 {
     // TODO-MIKE-Review: cbz/cbnz aren't used on ARM. Delete or try to use these instructions?
     // Their limited range might make using them problematic, we might save a cheap 0 compare
     // and end up with an extra unconditional branch.
     assert((ins == INS_cbz) || (ins == INS_cbnz));
-    assert((label->bbFlags & BBF_HAS_LABEL) != 0);
+    assert(label != nullptr);
     assert(isLowRegister(reg));
-    assert(!emitComp->opts.compReloc || !InDifferentRegions(emitCurIG, label->emitLabel));
+    assert(!emitComp->opts.compReloc || !InDifferentRegions(emitCurIG, label));
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
@@ -4139,34 +4123,16 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* label, reg
     id->idInsSize(ISZ_16BIT);
     id->idOpSize(EA_4BYTE);
     id->idReg1(reg);
-    id->SetLabelBlock(label);
+    id->SetLabel(label);
 
     dispIns(id);
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_L(instruction ins, BasicBlock* label, regNumber reg)
+void emitter::emitIns_R_L(instruction ins, RegNum reg, insGroup* label)
 {
     assert((ins == INS_movt) || (ins == INS_movw));
-    assert((label->bbFlags & BBF_HAS_LABEL) != 0);
-
-    instrDescJmp* id = emitNewInstrJmp();
-    id->idIns(ins);
-    id->idInsFmt(IF_T2_N1);
-    id->idInsSize(ISZ_32BIT);
-    id->idOpSize(EA_4BYTE);
-    id->idReg1(reg);
-    id->SetLabelBlock(label);
-    id->idSetIsCnsReloc(emitComp->opts.compReloc);
-    INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
-
-    dispIns(id);
-    appendToCurIG(id);
-}
-
-void emitter::emitIns_R_L(instruction ins, insGroup* label, regNumber reg)
-{
-    assert((ins == INS_movt) || (ins == INS_movw));
+    assert(label != nullptr);
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
@@ -4176,6 +4142,7 @@ void emitter::emitIns_R_L(instruction ins, insGroup* label, regNumber reg)
     id->idReg1(reg);
     id->SetLabel(label);
     id->idSetIsCnsReloc(emitComp->opts.compReloc);
+    INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
 
     dispIns(id);
     appendToCurIG(id);
@@ -6246,13 +6213,9 @@ void emitter::emitDispLabel(instrDescJmp* id)
 
         printf("pc%s%d (%d instructions)", distance >= 0 ? "+" : "", distance, instrCount);
     }
-    else if (id->HasLabel())
-    {
-        emitPrintLabel(id->GetLabel());
-    }
     else
     {
-        printf(FMT_BB, id->GetLabelBlock()->bbNum);
+        emitPrintLabel(id->GetLabel());
     }
 }
 
@@ -6947,15 +6910,7 @@ void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, uns
         idJmp.idIns(INS_b);
         idJmp.idInsFmt(IF_T2_J2);
         idJmp.idInsSize(ISZ_32BIT);
-
-        if (ij->HasLabel())
-        {
-            idJmp.SetLabel(ij->GetLabel());
-        }
-        else
-        {
-            idJmp.SetLabelBlock(ij->GetLabelBlock());
-        }
+        idJmp.SetLabel(ij->GetLabel());
 
         idJmp.idDebugOnlyInfo(id->idDebugOnlyInfo()); // share the idDebugOnlyInfo() field
 

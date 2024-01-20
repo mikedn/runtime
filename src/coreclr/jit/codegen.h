@@ -325,7 +325,6 @@ public:
     void genPopFltRegs(regMaskTP regMask);
     regMaskTP genStackAllocRegisterMask(unsigned frameSize, regMaskTP maskCalleeSavedFloat);
     void genFreeLclFrame(unsigned frameSize, bool* pUnwindStarted);
-    void genMov32RelocatableDisplacement(BasicBlock* block, regNumber reg);
     void genMov32RelocatableDisplacement(insGroup* block, regNumber reg);
     void genMov32RelocatableDataLabel(unsigned value, regNumber reg);
 
@@ -1108,7 +1107,7 @@ public:
         static const GenConditionDesc map[32];
     };
 
-    void inst_JCC(GenCondition condition, BasicBlock* target);
+    void inst_JCC(GenCondition condition, insGroup* label);
     void inst_SETCC(GenCondition condition, var_types type, regNumber dstReg);
 
     INDEBUG(bool IsValidSourceType(var_types instrType, var_types sourceType);)

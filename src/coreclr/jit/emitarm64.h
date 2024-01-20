@@ -555,9 +555,8 @@ static instruction emitJumpKindToBranch(emitJumpKind jumpKind);
 void emitIns(instruction ins);
 
 void emitIns_J(instruction ins, int instrCount);
-void emitIns_J(instruction ins, BasicBlock* label);
 void emitIns_J(instruction ins, insGroup* label);
-void emitIns_CallFinally(BasicBlock* label);
+void emitIns_CallFinally(insGroup* label);
 
 void emitIns_BRK(uint16_t imm);
 
@@ -637,13 +636,11 @@ void emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, int val);
 
 void emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumber tmpReg, CORINFO_FIELD_HANDLE fldHnd);
 
-void emitIns_R_L(BasicBlock* label, RegNum reg);
-void emitIns_R_L(insGroup* label, RegNum reg);
+void emitIns_R_L(RegNum reg, insGroup* label);
 
-void emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* label, regNumber reg);
 void emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, regNumber reg);
 
-void emitIns_J_R_I(instruction ins, emitAttr attr, BasicBlock* label, regNumber reg, int imm);
+void emitIns_J_R_I(instruction ins, emitAttr attr, insGroup* label, regNumber reg, int imm);
 
 void emitIns_R_AH(RegNum reg,
                   void* addr DEBUGARG(void* handle = nullptr) DEBUGARG(HandleKind handleKind = HandleKind::None));
@@ -678,7 +675,7 @@ uint8_t* emitOutputShortConstant(
  *  Given an instrDesc, return true if it's a conditional jump.
  */
 
-inline bool emitIsCondJump(instrDesc* jmp)
+static bool emitIsCondJump(instrDesc* jmp)
 {
     return ((jmp->idInsFmt() == IF_BI_0B) || (jmp->idInsFmt() == IF_BI_1A) || (jmp->idInsFmt() == IF_BI_1B) ||
             (jmp->idInsFmt() == IF_LARGEJMP));
@@ -689,7 +686,7 @@ inline bool emitIsCondJump(instrDesc* jmp)
  *  Given a instrDesc, return true if it's an unconditional jump.
  */
 
-inline bool emitIsUncondJump(instrDesc* jmp)
+static bool emitIsUncondJump(instrDesc* jmp)
 {
     return (jmp->idInsFmt() == IF_BI_0A);
 }
@@ -699,7 +696,7 @@ inline bool emitIsUncondJump(instrDesc* jmp)
  *  Given a instrDesc, return true if it's a direct call.
  */
 
-inline bool emitIsDirectCall(instrDesc* call)
+static bool emitIsDirectCall(instrDesc* call)
 {
     return (call->idInsFmt() == IF_BI_0C);
 }
@@ -709,7 +706,7 @@ inline bool emitIsDirectCall(instrDesc* call)
  *  Given a instrDesc, return true if it's a load label instruction.
  */
 
-inline bool emitIsLoadLabel(instrDesc* jmp)
+static bool emitIsLoadLabel(instrDesc* jmp)
 {
     return ((jmp->idInsFmt() == IF_DI_1E) || // adr or arp
             (jmp->idInsFmt() == IF_LARGEADR));
@@ -720,7 +717,7 @@ inline bool emitIsLoadLabel(instrDesc* jmp)
 *  Given a instrDesc, return true if it's a load constant instruction.
 */
 
-inline bool emitIsLoadConstant(instrDesc* jmp)
+static bool emitIsLoadConstant(instrDesc* jmp)
 {
     return ((jmp->idInsFmt() == IF_LS_1A) || // ldr
             (jmp->idInsFmt() == IF_LARGELDC));

@@ -2135,105 +2135,98 @@ unsigned emitter::getLoopSize(insGroup* igLoopHeader, unsigned maxLoopSize DEBUG
 //    then *do not align* either of them because since the flow is complicated enough that aligning one of them
 //    will not improve the performance.
 //
-void emitter::emitSetLoopBackEdge(BasicBlock* loopTopBlock)
+void emitter::emitSetLoopBackEdge(insGroup* dstIG)
 {
-    insGroup* dstIG            = loopTopBlock->emitLabel;
-    bool      alignCurrentLoop = true;
-    bool      alignLastLoop    = true;
+    assert(dstIG->IsDefined() && (dstIG->igNum <= emitCurIG->igNum));
 
-    // With (dstIG != nullptr), ensure that only back edges are tracked.
-    // If there is forward jump, dstIG is not yet generated.
-    //
-    // We don't rely on (block->bbJumpDest->bbNum <= block->bbNum) because the basic
-    // block numbering is not guaranteed to be sequential.
-    if ((dstIG != nullptr) && (dstIG->igNum <= emitCurIG->igNum))
+    bool alignCurrentLoop = true;
+    bool alignLastLoop    = true;
+
+    unsigned currLoopStart = dstIG->igNum;
+    unsigned currLoopEnd   = emitCurIG->igNum;
+
+    // Only mark back-edge if current loop starts after the last inner loop ended.
+    if (emitLastLoopEnd < currLoopStart)
     {
-        unsigned currLoopStart = dstIG->igNum;
-        unsigned currLoopEnd   = emitCurIG->igNum;
+        emitCurIG->igLoopBackEdge = dstIG;
 
-        // Only mark back-edge if current loop starts after the last inner loop ended.
-        if (emitLastLoopEnd < currLoopStart)
-        {
-            emitCurIG->igLoopBackEdge = dstIG;
+        JITDUMP("** " FMT_IG " jumps back to " FMT_IG " forming a loop.\n", currLoopEnd, currLoopStart);
 
-            JITDUMP("** " FMT_IG " jumps back to " FMT_IG " forming a loop.\n", currLoopEnd, currLoopStart);
+        emitLastLoopStart = currLoopStart;
+        emitLastLoopEnd   = currLoopEnd;
+    }
+    else if (currLoopStart == emitLastLoopStart)
+    {
+        // Note: If current and last loop starts at same point,
+        // retain the alignment flag of the smaller loop.
+        //               |
+        //         .---->|<----.
+        //   last  |     |     |
+        //   loop  |     |     | current
+        //         .---->|     | loop
+        //               |     |
+        //               |-----.
+        //
+    }
+    else if ((currLoopStart < emitLastLoopStart) && (emitLastLoopEnd < currLoopEnd))
+    {
+        // if current loop completely encloses last loop,
+        // then current loop should not be aligned.
+        alignCurrentLoop = false;
+    }
+    else if ((emitLastLoopStart < currLoopStart) && (currLoopEnd < emitLastLoopEnd))
+    {
+        // if last loop completely encloses current loop,
+        // then last loop should not be aligned.
+        alignLastLoop = false;
+    }
+    else
+    {
+        // The loops intersect and should not align either of the loops
+        alignLastLoop    = false;
+        alignCurrentLoop = false;
+    }
 
-            emitLastLoopStart = currLoopStart;
-            emitLastLoopEnd   = currLoopEnd;
-        }
-        else if (currLoopStart == emitLastLoopStart)
+    if (!alignLastLoop || !alignCurrentLoop)
+    {
+        instrDescAlign* alignInstr     = emitAlignList;
+        bool            markedLastLoop = alignLastLoop;
+        bool            markedCurrLoop = alignCurrentLoop;
+        while ((alignInstr != nullptr))
         {
-            // Note: If current and last loop starts at same point,
-            // retain the alignment flag of the smaller loop.
-            //               |
-            //         .---->|<----.
-            //   last  |     |     |
-            //   loop  |     |     | current
-            //         .---->|     | loop
-            //               |     |
-            //               |-----.
-            //
-        }
-        else if ((currLoopStart < emitLastLoopStart) && (emitLastLoopEnd < currLoopEnd))
-        {
-            // if current loop completely encloses last loop,
-            // then current loop should not be aligned.
-            alignCurrentLoop = false;
-        }
-        else if ((emitLastLoopStart < currLoopStart) && (currLoopEnd < emitLastLoopEnd))
-        {
-            // if last loop completely encloses current loop,
-            // then last loop should not be aligned.
-            alignLastLoop = false;
-        }
-        else
-        {
-            // The loops intersect and should not align either of the loops
-            alignLastLoop    = false;
-            alignCurrentLoop = false;
-        }
-
-        if (!alignLastLoop || !alignCurrentLoop)
-        {
-            instrDescAlign* alignInstr     = emitAlignList;
-            bool            markedLastLoop = alignLastLoop;
-            bool            markedCurrLoop = alignCurrentLoop;
-            while ((alignInstr != nullptr))
+            // Find the IG before current loop and clear the IGF_LOOP_ALIGN flag
+            if (!alignCurrentLoop && (alignInstr->idaIG->igNext == dstIG))
             {
-                // Find the IG before current loop and clear the IGF_LOOP_ALIGN flag
-                if (!alignCurrentLoop && (alignInstr->idaIG->igNext == dstIG))
-                {
-                    assert(!markedCurrLoop);
-                    alignInstr->idaIG->igFlags &= ~IGF_LOOP_ALIGN;
-                    markedCurrLoop = true;
-                    JITDUMP("** Skip alignment for current loop " FMT_IG " ~ " FMT_IG
-                            " because it encloses an aligned loop " FMT_IG " ~ " FMT_IG ".\n",
-                            currLoopStart, currLoopEnd, emitLastLoopStart, emitLastLoopEnd);
-                }
-
-                // Find the IG before the last loop and clear the IGF_LOOP_ALIGN flag
-                if (!alignLastLoop && (alignInstr->idaIG->igNext != nullptr) &&
-                    (alignInstr->idaIG->igNext->igNum == emitLastLoopStart))
-                {
-                    assert(!markedLastLoop);
-                    assert(alignInstr->idaIG->isLoopAlign());
-                    alignInstr->idaIG->igFlags &= ~IGF_LOOP_ALIGN;
-                    markedLastLoop = true;
-                    JITDUMP("** Skip alignment for aligned loop " FMT_IG " ~ " FMT_IG
-                            " because it encloses the current loop " FMT_IG " ~ " FMT_IG ".\n ",
-                            emitLastLoopStart, emitLastLoopEnd, currLoopStart, currLoopEnd);
-                }
-
-                if (markedLastLoop && markedCurrLoop)
-                {
-                    break;
-                }
-
-                alignInstr = alignInstr->idaNext;
+                assert(!markedCurrLoop);
+                alignInstr->idaIG->igFlags &= ~IGF_LOOP_ALIGN;
+                markedCurrLoop = true;
+                JITDUMP("** Skip alignment for current loop " FMT_IG " ~ " FMT_IG
+                        " because it encloses an aligned loop " FMT_IG " ~ " FMT_IG ".\n",
+                        currLoopStart, currLoopEnd, emitLastLoopStart, emitLastLoopEnd);
             }
 
-            assert(markedLastLoop && markedCurrLoop);
+            // Find the IG before the last loop and clear the IGF_LOOP_ALIGN flag
+            if (!alignLastLoop && (alignInstr->idaIG->igNext != nullptr) &&
+                (alignInstr->idaIG->igNext->igNum == emitLastLoopStart))
+            {
+                assert(!markedLastLoop);
+                assert(alignInstr->idaIG->isLoopAlign());
+                alignInstr->idaIG->igFlags &= ~IGF_LOOP_ALIGN;
+                markedLastLoop = true;
+                JITDUMP("** Skip alignment for aligned loop " FMT_IG " ~ " FMT_IG
+                        " because it encloses the current loop " FMT_IG " ~ " FMT_IG ".\n ",
+                        emitLastLoopStart, emitLastLoopEnd, currLoopStart, currLoopEnd);
+            }
+
+            if (markedLastLoop && markedCurrLoop)
+            {
+                break;
+            }
+
+            alignInstr = alignInstr->idaNext;
         }
+
+        assert(markedLastLoop && markedCurrLoop);
     }
 }
 
@@ -2532,7 +2525,7 @@ unsigned emitter::emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offs
 // or a 'return' from a catch handler (that can go just about anywhere)
 // This routine attempts to validate that any branches across funclets
 // meets one of those criteria...
-void emitter::emitCheckFuncletBranch(instrDescJmp* jmp)
+void emitter::emitCheckFuncletBranch(instrDescJmp* jmp) const
 {
 #ifdef TARGET_XARCH
     // An lea of a code address (for constant data stored with the code)
@@ -2627,37 +2620,18 @@ void emitter::emitCheckFuncletBranch(instrDescJmp* jmp)
     }
 #endif // FEATURE_EH_FUNCLETS
 }
-#endif // DEBUG
 
-void emitter::BindBlockLabels()
+void emitter::VerifyBranches() const
 {
-    if (emitJumpList == nullptr)
-    {
-        return;
-    }
-
-    JITDUMP("*************** In BindBlockLabels()\n");
-
     for (instrDescJmp* instr = emitJumpList; instr != nullptr; instr = instr->idjNext)
     {
 #ifdef TARGET_XARCH
         assert((instr->idInsFmt() == IF_LABEL) || (instr->idInsFmt() == IF_RWR_LABEL));
 #endif
-
-        if (instr->HasLabelBlock())
-        {
-            insGroup* label = instr->GetLabelBlock()->emitLabel;
-
-            assert(label != nullptr);
-            JITDUMP("Binding IN%04X label block " FMT_BB " to " FMT_IG "\n", instr->idDebugOnlyInfo()->idNum,
-                    instr->GetLabelBlock()->bbNum, label->GetId());
-
-            instr->SetLabel(label);
-        }
-
         INDEBUG(emitCheckFuncletBranch(instr));
     }
 }
+#endif // DEBUG
 
 void emitter::emitComputeCodeSizes()
 {

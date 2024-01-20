@@ -1097,7 +1097,6 @@ private:
             RoDataOffsetTag = 1,
 #endif
             InstrCountTag = 2,
-            BasicBlockTag = 3,
             TagMask       = 3,
             TagSize       = 2
         };
@@ -1109,22 +1108,6 @@ private:
 
         const idAddrUnion* idAddr() const = delete;
         idAddrUnion*       idAddr()       = delete;
-
-        bool HasLabelBlock() const
-        {
-            return (_idAddrUnion.label & TagMask) == BasicBlockTag;
-        }
-
-        BasicBlock* GetLabelBlock() const
-        {
-            assert(HasLabelBlock());
-            return reinterpret_cast<BasicBlock*>(_idAddrUnion.label & ~TagMask);
-        }
-
-        void SetLabelBlock(BasicBlock* block)
-        {
-            _idAddrUnion.label = reinterpret_cast<uintptr_t>(block) | BasicBlockTag;
-        }
 
         bool HasLabel() const
         {
@@ -1465,13 +1448,13 @@ public:
 
     INDEBUG(static bool IsCodeAligned(UNATIVE_OFFSET offset);)
 
-    void BindBlockLabels();
+    INDEBUG(void VerifyBranches() const;)
     void ShortenBranches();
 
 #if FEATURE_LOOP_ALIGN
     void emitLoopAlignment();
     bool emitEndsWithAlignInstr(); // Validate if newLabel is appropriate
-    void emitSetLoopBackEdge(BasicBlock* loopTopBlock);
+    void emitSetLoopBackEdge(insGroup* dstIG);
     void emitLoopAlignAdjustments(); // Predict if loop alignment is needed and make appropriate adjustments
 
 private:
@@ -1486,7 +1469,7 @@ private:
 #endif
 
 private:
-    INDEBUG(void emitCheckFuncletBranch(instrDescJmp* jmp);)
+    INDEBUG(void emitCheckFuncletBranch(instrDescJmp* jmp) const;)
 
     // Are we generating IGF_NOGCINTERRUPT insGroups (for prologs, epilogs, etc.)
     bool emitNoGCIG = false;

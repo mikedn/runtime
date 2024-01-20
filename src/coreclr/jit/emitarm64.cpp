@@ -7863,47 +7863,17 @@ void emitter::emitSetShortJump(instrDescJmp* id)
     id->idInsFmt(fmt);
 }
 
-void emitter::emitIns_R_L(BasicBlock* label, RegNum reg)
+void emitter::emitIns_R_L(RegNum reg, insGroup* label)
 {
-    assert((label->bbFlags & BBF_HAS_LABEL) != 0);
+    assert(label != nullptr);
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(INS_adr);
     id->idInsFmt(IF_LARGEADR);
     id->idOpSize(EA_8BYTE);
-    id->idReg1(reg);
-    id->SetLabelBlock(label);
-    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label->emitLabel));
-
-    dispIns(id);
-    appendToCurIG(id);
-}
-
-void emitter::emitIns_R_L(insGroup* label, RegNum reg)
-{
-    instrDescJmp* id = emitNewInstrJmp();
-    id->idIns(INS_adr);
-    id->idInsFmt(IF_LARGEADR);
-    id->idOpSize(EA_8BYTE);
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label));
     id->idReg1(reg);
     id->SetLabel(label);
-
-    dispIns(id);
-    appendToCurIG(id);
-}
-
-void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* label, regNumber reg)
-{
-    assert((ins == INS_cbz) || (ins == INS_cbnz));
-    assert((label->bbFlags & BBF_HAS_LABEL) != 0);
-
-    instrDescJmp* id = emitNewInstrJmp();
-    id->idIns(ins);
-    id->idInsFmt(IF_LARGEJMP);
-    id->idOpSize(EA_SIZE(attr));
-    id->idReg1(reg);
-    id->SetLabelBlock(label);
-    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label->emitLabel));
 
     dispIns(id);
     appendToCurIG(id);
@@ -7912,11 +7882,13 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* label, reg
 void emitter::emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, regNumber reg)
 {
     assert((ins == INS_cbz) || (ins == INS_cbnz));
+    assert(label != nullptr);
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
     id->idInsFmt(IF_LARGEJMP);
     id->idOpSize(EA_SIZE(attr));
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label));
     id->idReg1(reg);
     id->SetLabel(label);
 
@@ -7924,21 +7896,21 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, regNu
     appendToCurIG(id);
 }
 
-void emitter::emitIns_J_R_I(instruction ins, emitAttr attr, BasicBlock* label, regNumber reg, int imm)
+void emitter::emitIns_J_R_I(instruction ins, emitAttr attr, insGroup* label, regNumber reg, int imm)
 {
     assert((ins == INS_tbz) || (ins == INS_tbnz));
-    assert((label->bbFlags & BBF_HAS_LABEL) != 0);
     assert((EA_SIZE(attr) == EA_4BYTE) || (EA_SIZE(attr) == EA_8BYTE));
+    assert(label != nullptr);
     assert(imm < ((EA_SIZE(attr) == EA_4BYTE) ? 32 : 64));
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
     id->idInsFmt(IF_LARGEJMP);
     id->idOpSize(EA_SIZE(attr));
-    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label->emitLabel));
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label));
     id->idReg1(reg);
     id->idSmallCns(imm);
-    id->SetLabelBlock(label);
+    id->SetLabel(label);
 
     dispIns(id);
     appendToCurIG(id);
@@ -7970,43 +7942,30 @@ void emitter::emitIns_J(instruction ins, int instrCount)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_J(instruction ins, BasicBlock* label)
-{
-    assert(IsBranch(ins));
-    assert((label->bbFlags & BBF_HAS_LABEL) != 0);
-
-    instrDescJmp* id = emitNewInstrJmp();
-    id->idIns(ins);
-    id->idInsFmt(ins == INS_b ? IF_BI_0A : IF_LARGEJMP);
-    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label->emitLabel));
-    id->SetLabelBlock(label);
-
-    dispIns(id);
-    appendToCurIG(id);
-}
-
 void emitter::emitIns_J(instruction ins, insGroup* label)
 {
     assert(IsBranch(ins));
+    assert(label != nullptr);
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
     id->idInsFmt(ins == INS_b ? IF_BI_0A : IF_LARGEJMP);
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label));
     id->SetLabel(label);
 
     dispIns(id);
     appendToCurIG(id);
 }
 
-void emitter::emitIns_CallFinally(BasicBlock* label)
+void emitter::emitIns_CallFinally(insGroup* label)
 {
     assert(GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY);
-    assert((label->bbFlags & BBF_HAS_LABEL) != 0);
+    assert(label != nullptr);
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(INS_bl_local);
     id->idInsFmt(IF_BI_0A);
-    id->SetLabelBlock(label);
+    id->SetLabel(label);
     INDEBUG(id->idDebugOnlyInfo()->idFinallyCall = true);
 
     dispIns(id);
@@ -10839,13 +10798,9 @@ void emitter::emitDispAddrLoadLabel(instrDescJmp* id)
     {
         printf("@RWD%02u", id->GetRoDataOffset());
     }
-    else if (id->HasLabel())
-    {
-        emitPrintLabel(id->GetLabel());
-    }
     else
     {
-        printf(FMT_BB, id->GetLabelBlock()->bbNum);
+        emitPrintLabel(id->GetLabel());
     }
 
     if (ssize_t imm = emitGetInsSC(id))
@@ -10887,13 +10842,9 @@ void emitter::emitDispJumpLabel(instrDescJmp* id)
 
         printf("pc%s%d (%d instructions)", distance >= 0 ? "+" : "", distance, instrCount);
     }
-    else if (id->HasLabel())
-    {
-        emitPrintLabel(id->GetLabel());
-    }
     else
     {
-        printf(FMT_BB, id->GetLabelBlock()->bbNum);
+        emitPrintLabel(id->GetLabel());
     }
 }
 

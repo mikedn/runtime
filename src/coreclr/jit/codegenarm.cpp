@@ -69,31 +69,20 @@ void CodeGen::GenCallFinally(BasicBlock* block)
 
     // Load the address where the finally funclet should return into LR.
     // The funclet prolog/epilog will do "push {lr}" / "pop {pc}" to do the return.
-    genMov32RelocatableDisplacement(block->bbNext->bbJumpDest, REG_LR);
+    genMov32RelocatableDisplacement(block->bbNext->bbJumpDest->emitLabel, REG_LR);
 
-    GetEmitter()->emitIns_J(INS_b, block->bbJumpDest);
+    GetEmitter()->emitIns_J(INS_b, block->bbJumpDest->emitLabel);
 }
 
 void CodeGen::genEHCatchRet(BasicBlock* block)
 {
-    genMov32RelocatableDisplacement(block->bbJumpDest, REG_INTRET);
+    genMov32RelocatableDisplacement(block->bbJumpDest->emitLabel, REG_INTRET);
 }
 
-void CodeGen::genMov32RelocatableDisplacement(BasicBlock* block, regNumber reg)
+void CodeGen::genMov32RelocatableDisplacement(insGroup* label, regNumber reg)
 {
-    GetEmitter()->emitIns_R_L(INS_movw, block, reg);
-    GetEmitter()->emitIns_R_L(INS_movt, block, reg);
-
-    if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_RELATIVE_CODE_RELOCS))
-    {
-        GetEmitter()->emitIns_R_R_R(INS_add, EA_4BYTE, reg, reg, REG_PC);
-    }
-}
-
-void CodeGen::genMov32RelocatableDisplacement(insGroup* block, regNumber reg)
-{
-    GetEmitter()->emitIns_R_L(INS_movw, block, reg);
-    GetEmitter()->emitIns_R_L(INS_movt, block, reg);
+    GetEmitter()->emitIns_R_L(INS_movw, reg, label);
+    GetEmitter()->emitIns_R_L(INS_movt, reg, label);
 
     if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_RELATIVE_CODE_RELOCS))
     {
@@ -1849,19 +1838,19 @@ const CodeGen::GenConditionDesc CodeGen::GenConditionDesc::map[32]
 };
 // clang-format on
 
-void CodeGen::inst_JCC(GenCondition condition, BasicBlock* target)
+void CodeGen::inst_JCC(GenCondition condition, insGroup* label)
 {
     const GenConditionDesc& desc = GenConditionDesc::Get(condition);
     Emitter&                emit = *GetEmitter();
 
     if (desc.oper == GT_NONE)
     {
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), target);
+        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), label);
     }
     else if (desc.oper == GT_OR)
     {
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), target);
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), target);
+        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), label);
+        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), label);
     }
     else
     {
@@ -1869,7 +1858,7 @@ void CodeGen::inst_JCC(GenCondition condition, BasicBlock* target)
 
         insGroup* labelNext = emit.CreateTempLabel();
         emit.emitIns_J(emitter::emitJumpKindToBranch(emitter::emitReverseJumpKind(desc.jumpKind1)), labelNext);
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), target);
+        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), label);
         emit.DefineTempLabel(labelNext);
     }
 }
@@ -2866,7 +2855,7 @@ void CodeGen::genInsertNopForUnwinder(BasicBlock* block)
         // block starts an EH region. If we pointed the block's label here, then the NOP would
         // be executed, which we would prefer not to do.
 
-        insGroup* ig = GetEmitter()->DefineTempLabel();
+        insGroup* ig              = GetEmitter()->DefineTempLabel();
         block->unwindNopEmitLabel = ig;
         JITDUMP("\nEmitting finally target NOP predecessor " FMT_IG " for " FMT_BB "\n", ig->GetId(), block->bbNum);
         GetEmitter()->emitIns(INS_nop);
@@ -2891,7 +2880,7 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throw
             assert(throwBlock != nullptr);
         }
 
-        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(condition), throwBlock);
+        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(condition), throwBlock->emitLabel);
     }
     else
     {

@@ -284,7 +284,7 @@ void CodeGen::GenCallFinally(BasicBlock* block)
         GetEmitter()->emitIns_R_S(INS_mov, EA_PTRSIZE, REG_ARG_0, compiler->lvaPSPSym, 0);
     }
 
-    GetEmitter()->emitIns_CallFinally(block->bbJumpDest);
+    GetEmitter()->emitIns_CallFinally(block->bbJumpDest->emitLabel);
 
     if ((block->bbFlags & BBF_RETLESS_CALL) != 0)
     {
@@ -320,7 +320,7 @@ void CodeGen::GenCallFinally(BasicBlock* block)
         }
         else
         {
-            GetEmitter()->emitIns_J(INS_jmp, block->bbNext->bbJumpDest);
+            GetEmitter()->emitIns_J(INS_jmp, block->bbNext->bbJumpDest->emitLabel);
         }
 
 #ifndef JIT32_GCENCODER
@@ -367,10 +367,10 @@ void CodeGen::GenCallFinally(BasicBlock* block)
     GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, compiler->lvaShadowSPslotsVar, curNestingSlotOffs, LCL_FINALLY_MARK);
 
     // Now push the address where the finally funclet should return to directly.
-    if (!(block->bbFlags & BBF_RETLESS_CALL))
+    if ((block->bbFlags & BBF_RETLESS_CALL) == 0)
     {
         assert(block->IsCallFinallyAlwaysPairHead());
-        GetEmitter()->emitIns_L(INS_push_hide, block->bbNext->bbJumpDest);
+        GetEmitter()->emitIns_L(INS_push_hide, block->bbNext->bbJumpDest->emitLabel);
     }
     else
     {
@@ -379,7 +379,7 @@ void CodeGen::GenCallFinally(BasicBlock* block)
     }
 
     // Jump to the finally BB
-    GetEmitter()->emitIns_J(INS_jmp, block->bbJumpDest);
+    GetEmitter()->emitIns_J(INS_jmp, block->bbJumpDest->emitLabel);
 
 #endif // !FEATURE_EH_FUNCLETS
 }
@@ -392,7 +392,7 @@ void CodeGen::genEHCatchRet(BasicBlock* block)
     // Generate a RIP-relative
     //         lea reg, [rip + disp32] ; the RIP is implicit
     // which will be position-independent.
-    GetEmitter()->emitIns_R_L(block->bbJumpDest, REG_INTRET);
+    GetEmitter()->emitIns_R_L(REG_INTRET, block->bbJumpDest->emitLabel);
 }
 
 #else // !FEATURE_EH_FUNCLETS
@@ -1150,28 +1150,26 @@ const CodeGen::GenConditionDesc CodeGen::GenConditionDesc::map[32]
 };
 // clang-format on
 
-void CodeGen::inst_JCC(GenCondition condition, BasicBlock* target)
+void CodeGen::inst_JCC(GenCondition condition, insGroup* label)
 {
     const GenConditionDesc& desc = GenConditionDesc::Get(condition);
     Emitter&                emit = *GetEmitter();
 
-    assert(!target->IsThrowHelperBlock());
-
     if (desc.oper == GT_NONE)
     {
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), target);
+        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), label);
     }
     else if (desc.oper == GT_OR)
     {
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), target);
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), target);
+        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), label);
+        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), label);
     }
     else
     {
         assert(desc.oper == GT_AND);
         insGroup* labelNext = emit.CreateTempLabel();
         emit.emitIns_J(emitter::emitJumpKindToBranch(emitter::emitReverseJumpKind(desc.jumpKind1)), labelNext);
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), target);
+        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), label);
         emit.DefineTempLabel(labelNext);
     }
 }
@@ -1565,7 +1563,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 
         case GT_LABEL:
             genPendingCallLabel = GetEmitter()->CreateTempLabel();
-            GetEmitter()->emitIns_R_L(genPendingCallLabel, treeNode->GetRegNum());
+            GetEmitter()->emitIns_R_L(treeNode->GetRegNum(), genPendingCallLabel);
             // TODO-MIKE-Review: Hmm, no DefReg call?
             break;
 
@@ -3080,7 +3078,7 @@ void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
     GetEmitter()->emitIns_R_ARX(INS_mov, EA_4BYTE, baseReg, baseReg, idxReg, 4, 0);
 
     // add it to the absolute address of fgFirstBB
-    GetEmitter()->emitIns_R_L(compiler->fgFirstBB, tmpReg);
+    GetEmitter()->emitIns_R_L(tmpReg, compiler->fgFirstBB->emitLabel);
     GetEmitter()->emitIns_R_R(INS_add, EA_PTRSIZE, baseReg, tmpReg);
     // jmp baseReg
     GetEmitter()->emitIns_R(INS_i_jmp, emitTypeSize(TYP_I_IMPL), baseReg);
@@ -9264,7 +9262,7 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throw
         }
 #endif
 
-        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(condition), throwBlock);
+        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(condition), throwBlock->emitLabel);
     }
     else
     {

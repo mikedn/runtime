@@ -346,7 +346,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 #ifdef TARGET_ARM
             genMov32RelocatableDisplacement(genPendingCallLabel, treeNode->GetRegNum());
 #else
-            GetEmitter()->emitIns_R_L(genPendingCallLabel, treeNode->GetRegNum());
+            GetEmitter()->emitIns_R_L(treeNode->GetRegNum(), genPendingCallLabel);
 #endif
             break;
 

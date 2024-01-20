@@ -551,9 +551,9 @@ void CodeGen::genCodeForBBlist()
             case BBJ_ALWAYS:
                 assert(!block->IsThrowHelperBlock());
 #ifdef TARGET_ARMARCH
-                GetEmitter()->emitIns_J(INS_b, block->bbJumpDest);
+                GetEmitter()->emitIns_J(INS_b, block->bbJumpDest->emitLabel);
 #else
-                GetEmitter()->emitIns_J(INS_jmp, block->bbJumpDest);
+                GetEmitter()->emitIns_J(INS_jmp, block->bbJumpDest->emitLabel);
 #endif
                 FALLTHROUGH;
             case BBJ_COND:
@@ -569,9 +569,9 @@ void CodeGen::genCodeForBBlist()
                 // During emitter, this information will be used to calculate the loop size.
                 // Depending on the loop size, decision of whether to align a loop or not will be taken.
 
-                if (block->bbJumpDest->isLoopAlign())
+                if (block->bbJumpDest->isLoopAlign() && block->bbJumpDest->emitLabel->IsDefined())
                 {
-                    GetEmitter()->emitSetLoopBackEdge(block->bbJumpDest);
+                    GetEmitter()->emitSetLoopBackEdge(block->bbJumpDest->emitLabel);
                 }
 #endif // FEATURE_LOOP_ALIGN
                 break;
@@ -612,7 +612,7 @@ void CodeGen::genCodeForBBlist()
 #endif
 
     GetEmitter()->emitGeneratePrologEpilog();
-    GetEmitter()->BindBlockLabels();
+    INDEBUG(GetEmitter()->VerifyBranches());
     GetEmitter()->ShortenBranches();
 #if FEATURE_LOOP_ALIGN
     GetEmitter()->emitLoopAlignAdjustments();

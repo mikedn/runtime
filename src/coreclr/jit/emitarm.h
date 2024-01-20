@@ -128,7 +128,6 @@ static bool emitIns_valid_imm_for_vldst_offset(int imm);
 void emitIns(instruction ins);
 
 void emitIns_J(instruction ins, int instrCount);
-void emitIns_J(instruction ins, BasicBlock* label);
 void emitIns_J(instruction ins, insGroup* label);
 
 void emitIns_I(instruction ins, emitAttr attr, int32_t imm);
@@ -192,12 +191,11 @@ void emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, int varNum, int
 
 void emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, int varNum, int varOffs);
 
-void emitIns_R_L(instruction ins, BasicBlock* label, regNumber reg);
-void emitIns_R_L(instruction ins, insGroup* label, regNumber reg);
+void emitIns_R_L(instruction ins, RegNum reg, insGroup* label);
 
 void emitIns_R_D(instruction ins, unsigned offs, regNumber reg);
 
-void emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* label, regNumber reg);
+void emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, regNumber reg);
 
 enum EmitCallType
 {

@@ -2839,33 +2839,17 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_L(BasicBlock* label, RegNum reg)
+void emitter::emitIns_R_L(RegNum reg, insGroup* label)
 {
-    assert((label->bbFlags & BBF_HAS_LABEL) != 0);
+    assert(label != nullptr);
 
-    instrDescJmp* id = emitNewInstrJmp();
-    id->idIns(INS_lea);
-    id->idOpSize(EA_PTRSIZE);
-    id->idInsFmt(IF_RWR_LABEL);
-    id->idReg1(reg);
-    id->SetLabelBlock(label);
-    id->idSetIsCnsReloc(emitComp->opts.compReloc AMD64_ONLY(&&InDifferentRegions(emitCurIG, label->emitLabel)));
-    INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
-
-    unsigned sz = AMD64_ONLY(1 +) 1 + 1 + 4; // REX 8D RM DISP32
-    id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
-}
-
-void emitter::emitIns_R_L(insGroup* label, RegNum reg)
-{
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(INS_lea);
     id->idOpSize(EA_PTRSIZE);
     id->idInsFmt(IF_RWR_LABEL);
     id->idReg1(reg);
     id->SetLabel(label);
+    id->idSetIsCnsReloc(emitComp->opts.compReloc AMD64_ONLY(&&InDifferentRegions(emitCurIG, label)));
     INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
 
     unsigned sz = AMD64_ONLY(1 +) 1 + 1 + 4; // REX 8D RM DISP32
@@ -3414,17 +3398,17 @@ void emitter::emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, in
 #define CALL_INST_SIZE (5)
 
 #ifdef TARGET_X86
-void emitter::emitIns_L(instruction ins, BasicBlock* label)
+void emitter::emitIns_L(instruction ins, insGroup* label)
 {
     assert(ins == INS_push_hide);
-    assert((label->bbFlags & BBF_HAS_LABEL) != 0);
+    assert(label != nullptr);
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
     id->idOpSize(EA_4BYTE);
     id->idInsFmt(IF_LABEL);
     id->idSetIsCnsReloc(emitComp->opts.compReloc);
-    id->SetLabelBlock(label);
+    id->SetLabel(label);
 
     id->idCodeSize(PUSH_INST_SIZE);
     dispIns(id);
@@ -3433,16 +3417,15 @@ void emitter::emitIns_L(instruction ins, BasicBlock* label)
 #endif // TARGET_X86
 
 #ifdef TARGET_AMD64
-void emitter::emitIns_CallFinally(BasicBlock* label)
+void emitter::emitIns_CallFinally(insGroup* label)
 {
-    assert(GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY);
-    assert((label->bbFlags & BBF_HAS_LABEL) != 0);
+    assert(label != nullptr);
 
     instrDescJmp* id = emitNewInstrJmp();
-    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label->emitLabel));
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label));
     id->idIns(INS_call);
     id->idInsFmt(IF_LABEL);
-    id->SetLabelBlock(label);
+    id->SetLabel(label);
     INDEBUG(id->idDebugOnlyInfo()->idFinallyCall = true);
 
     id->idCodeSize(CALL_INST_SIZE);
@@ -3467,26 +3450,25 @@ void emitter::emitIns_J(instruction ins, int instrCount)
     emitCurIGsize += JMP_JCC_SIZE_SMALL;
 }
 
-void emitter::emitIns_J(instruction ins, BasicBlock* label)
+void emitter::emitIns_J(instruction ins, insGroup* label)
 {
     assert((ins == INS_jmp) || IsJccInstruction(ins));
-    assert((label->bbFlags & BBF_HAS_LABEL) != 0);
+    assert(label != nullptr);
 
     instrDescJmp* id = emitNewInstrJmp();
-    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label->emitLabel));
     id->idIns(ins);
     id->idInsFmt(IF_LABEL);
-    id->SetLabelBlock(label);
+    id->SetLabel(label);
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label));
 
-    unsigned  sz       = ins == INS_jmp ? JMP_SIZE_LARGE : JCC_SIZE_LARGE;
-    insGroup* targetIG = label->emitLabel;
+    unsigned sz = ins == INS_jmp ? JMP_SIZE_LARGE : JCC_SIZE_LARGE;
 
-    if ((targetIG != nullptr) && targetIG->IsDefined() && !id->idIsCnsReloc())
+    if (label->IsDefined() && !id->idIsCnsReloc())
     {
         // This is a backward jump, we can determine now if it's going to be short.
 
         uint32_t jumpOffs = emitCurCodeOffset + emitCurIGsize + JMP_JCC_SIZE_SMALL;
-        int32_t  distance = jumpOffs - targetIG->igOffs;
+        int32_t  distance = jumpOffs - label->igOffs;
         int32_t  overflow = distance + -128;
 
         assert(distance > 0);
@@ -3497,21 +3479,6 @@ void emitter::emitIns_J(instruction ins, BasicBlock* label)
         }
     }
 
-    id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
-}
-
-void emitter::emitIns_J(instruction ins, insGroup* label)
-{
-    assert((ins == INS_jmp) || IsJccInstruction(ins));
-
-    instrDescJmp* id = emitNewInstrJmp();
-    id->idIns(ins);
-    id->idInsFmt(IF_LABEL);
-    id->SetLabel(label);
-
-    unsigned sz = ins == INS_jmp ? JMP_SIZE_LARGE : JCC_SIZE_LARGE;
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -4466,13 +4433,9 @@ private:
         {
             printf("%3d instr", id->GetInstrCount());
         }
-        else if (id->HasLabel())
-        {
-            emitter->emitPrintLabel(id->GetLabel());
-        }
         else
         {
-            printf(FMT_BB, id->GetLabelBlock()->bbNum);
+            emitter->emitPrintLabel(id->GetLabel());
         }
     }
 

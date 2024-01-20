@@ -1392,7 +1392,7 @@ void CodeGen::GenCallFinally(BasicBlock* block)
         GetEmitter()->emitIns_Mov(INS_mov, EA_8BYTE, REG_R0, REG_SPBASE, /* canSkip */ false);
     }
 
-    GetEmitter()->emitIns_CallFinally(block->bbJumpDest);
+    GetEmitter()->emitIns_CallFinally(block->bbJumpDest->emitLabel);
 
     if ((block->bbFlags & BBF_RETLESS_CALL) != 0)
     {
@@ -1424,7 +1424,7 @@ void CodeGen::GenCallFinally(BasicBlock* block)
         }
         else
         {
-            GetEmitter()->emitIns_J(INS_b, block->bbNext->bbJumpDest);
+            GetEmitter()->emitIns_J(INS_b, block->bbNext->bbJumpDest->emitLabel);
         }
 
         GetEmitter()->emitEnableGC();
@@ -1435,7 +1435,7 @@ void CodeGen::genEHCatchRet(BasicBlock* block)
 {
     // For long address (default): `adrp + add` will be emitted.
     // For short address (proven later): `adr` will be emitted.
-    GetEmitter()->emitIns_R_L(block->bbJumpDest, REG_INTRET);
+    GetEmitter()->emitIns_R_L(REG_INTRET, block->bbJumpDest->emitLabel);
 }
 
 void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
@@ -2343,7 +2343,7 @@ void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
     GetEmitter()->emitIns_R_R_R(INS_ldr, EA_4BYTE, baseReg, baseReg, idxReg, INS_OPTS_LSL);
 
     // add it to the absolute address of fgFirstBB
-    GetEmitter()->emitIns_R_L(compiler->fgFirstBB, tmpReg);
+    GetEmitter()->emitIns_R_L(tmpReg, compiler->fgFirstBB->emitLabel);
     GetEmitter()->emitIns_R_R_R(INS_add, EA_8BYTE, baseReg, baseReg, tmpReg);
 
     // br baseReg
@@ -3007,26 +3007,26 @@ const CodeGen::GenConditionDesc CodeGen::GenConditionDesc::map[32]
 };
 // clang-format on
 
-void CodeGen::inst_JCC(GenCondition condition, BasicBlock* target)
+void CodeGen::inst_JCC(GenCondition condition, insGroup* label)
 {
     const GenConditionDesc& desc = GenConditionDesc::Get(condition);
     Emitter&                emit = *GetEmitter();
 
     if (desc.oper == GT_NONE)
     {
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), target);
+        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), label);
     }
     else if (desc.oper == GT_OR)
     {
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), target);
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), target);
+        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), label);
+        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), label);
     }
     else
     {
         assert(desc.oper == GT_AND);
         insGroup* labelNext = emit.CreateTempLabel();
         emit.emitIns_J(emitter::emitJumpKindToBranch(emitter::emitReverseJumpKind(desc.jumpKind1)), labelNext);
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), target);
+        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), label);
         emit.DefineTempLabel(labelNext);
     }
 }
@@ -3103,7 +3103,7 @@ void CodeGen::GenJCmp(GenTreeOp* tree, BasicBlock* block)
 
         instruction ins = (tree->gtFlags & GTF_JCMP_EQ) ? INS_tbz : INS_tbnz;
 
-        GetEmitter()->emitIns_J_R_I(ins, attr, block->bbJumpDest, reg, static_cast<int>(imm));
+        GetEmitter()->emitIns_J_R_I(ins, attr, block->bbJumpDest->emitLabel, reg, static_cast<int>(imm));
     }
     else
     {
@@ -3111,7 +3111,7 @@ void CodeGen::GenJCmp(GenTreeOp* tree, BasicBlock* block)
 
         instruction ins = (tree->gtFlags & GTF_JCMP_EQ) ? INS_cbz : INS_cbnz;
 
-        GetEmitter()->emitIns_J_R(ins, attr, block->bbJumpDest, reg);
+        GetEmitter()->emitIns_J_R(ins, attr, block->bbJumpDest->emitLabel, reg);
     }
 }
 
@@ -9761,7 +9761,7 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throw
             assert(throwBlock != nullptr);
         }
 
-        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(condition), throwBlock);
+        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(condition), throwBlock->emitLabel);
     }
     else if (condition == EJ_jmp)
     {

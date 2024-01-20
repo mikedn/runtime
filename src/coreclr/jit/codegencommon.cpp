@@ -5627,7 +5627,7 @@ void CodeGen::GenJTrue(GenTreeUnOp* jtrue, BasicBlock* block)
     }
 #endif
 
-    inst_JCC(condition, block->bbJumpDest);
+    inst_JCC(condition, block->bbJumpDest->emitLabel);
 }
 
 void CodeGen::GenJCC(GenTreeCC* jcc, BasicBlock* block)
@@ -5635,7 +5635,7 @@ void CodeGen::GenJCC(GenTreeCC* jcc, BasicBlock* block)
     assert(jcc->OperIs(GT_JCC));
     assert(block->KindIs(BBJ_COND));
 
-    inst_JCC(jcc->GetCondition(), block->bbJumpDest);
+    inst_JCC(jcc->GetCondition(), block->bbJumpDest->emitLabel);
 }
 
 void CodeGen::GenSetCC(GenTreeCC* setcc)
