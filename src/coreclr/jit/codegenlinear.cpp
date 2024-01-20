@@ -53,16 +53,6 @@ void CodeGen::genMarkLabelsForCodegen()
     JITDUMP("  " FMT_BB ": first block\n", compiler->fgFirstBB->bbNum);
     compiler->fgFirstBB->bbFlags |= BBF_HAS_LABEL;
 
-    // The current implementation of switch tables requires the first block to have a label so it
-    // can generate offsets to the switch label targets.
-    // (This is duplicative with the fact we always set the first block with a label above.)
-    // TODO-CQ: remove this when switches have been re-implemented to not use this.
-    if (compiler->fgHasSwitch)
-    {
-        JITDUMP("  " FMT_BB ": switch table base offset\n", compiler->fgFirstBB->bbNum);
-        compiler->fgFirstBB->bbFlags |= BBF_HAS_LABEL;
-    }
-
     for (BasicBlock* const block : compiler->Blocks())
     {
         block->emitLabel = nullptr;
@@ -98,6 +88,12 @@ void CodeGen::genMarkLabelsForCodegen()
                     JITDUMP("  " FMT_BB ": switch case\n", bTarget->bbNum);
                     bTarget->bbFlags |= BBF_HAS_LABEL;
                 }
+
+                // The current implementation of switch tables requires the first block
+                // to have a label so it can generate offsets to the switch label targets.
+                // TODO-CQ: remove this when switches have been re-implemented to not use this.
+                JITDUMP("  " FMT_BB ": switch table base offset\n", compiler->fgFirstBB->bbNum);
+                compiler->fgFirstBB->bbFlags |= BBF_HAS_LABEL;
                 break;
 
             case BBJ_CALLFINALLY:
