@@ -619,21 +619,12 @@ void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
 
 void CodeGen::GenJmpTable(GenTree* node, BasicBlock* switchBlock)
 {
-    assert(switchBlock->bbJumpKind == BBJ_SWITCH);
+    assert(switchBlock->KindIs(BBJ_SWITCH));
     assert(node->OperIs(GT_JMPTABLE));
 
     unsigned     jumpCount  = switchBlock->bbJumpSwt->bbsCount;
     BasicBlock** jumpTable  = switchBlock->bbJumpSwt->bbsDstTab;
-    unsigned     jmpTabBase = GetEmitter()->emitLabelTableDataGenBeg(jumpCount, false);
-
-    for (unsigned i = 0; i < jumpCount; i++)
-    {
-        BasicBlock* target = jumpTable[i];
-        noway_assert(target->emitLabel != nullptr);
-        GetEmitter()->emitDataGenData(i, target->emitLabel);
-    }
-
-    GetEmitter()->emitDataGenEnd();
+    unsigned     jmpTabBase = GetEmitter()->CreateBlockLabelTable(jumpTable, jumpCount, false);
 
     genMov32RelocatableDataLabel(jmpTabBase, node->GetRegNum());
     DefReg(node);

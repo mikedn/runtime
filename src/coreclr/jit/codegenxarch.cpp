@@ -3081,26 +3081,17 @@ void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
     GetEmitter()->emitIns_R_L(tmpReg, compiler->fgFirstBB->emitLabel);
     GetEmitter()->emitIns_R_R(INS_add, EA_PTRSIZE, baseReg, tmpReg);
     // jmp baseReg
-    GetEmitter()->emitIns_R(INS_i_jmp, emitTypeSize(TYP_I_IMPL), baseReg);
+    GetEmitter()->emitIns_R(INS_i_jmp, EA_PTRSIZE, baseReg);
 }
 
 void CodeGen::GenJmpTable(GenTree* node, BasicBlock* switchBlock)
 {
-    assert(switchBlock->bbJumpKind == BBJ_SWITCH);
+    assert(switchBlock->KindIs(BBJ_SWITCH));
     assert(node->OperIs(GT_JMPTABLE));
 
     unsigned     jumpCount  = switchBlock->bbJumpSwt->bbsCount;
     BasicBlock** jumpTable  = switchBlock->bbJumpSwt->bbsDstTab;
-    unsigned     jmpTabBase = GetEmitter()->emitLabelTableDataGenBeg(jumpCount, true);
-
-    for (unsigned i = 0; i < jumpCount; i++)
-    {
-        BasicBlock* target = jumpTable[i];
-        noway_assert(target->emitLabel != nullptr);
-        GetEmitter()->emitDataGenData(i, target->emitLabel);
-    }
-
-    GetEmitter()->emitDataGenEnd();
+    unsigned     jmpTabBase = GetEmitter()->CreateBlockLabelTable(jumpTable, jumpCount, true);
 
     GetEmitter()->emitIns_R_C(INS_lea, EA_PTRSIZE, node->GetRegNum(), Emitter::MakeRoDataField(jmpTabBase));
     DefReg(node);

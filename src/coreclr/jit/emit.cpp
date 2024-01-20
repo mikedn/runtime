@@ -3164,6 +3164,38 @@ UNATIVE_OFFSET emitter::emitDataGenBeg(unsigned size, unsigned alignment, var_ty
     return secOffs;
 }
 
+uint32_t emitter::CreateBlockLabelTable(BasicBlock** blocks, unsigned count, bool relative)
+{
+    uint32_t jmpTabBase = emitLabelTableDataGenBeg(count, relative);
+
+    for (unsigned i = 0; i < count; i++)
+    {
+        BasicBlock* target = blocks[i];
+        noway_assert(target->emitLabel != nullptr);
+        emitDataGenData(i, target->emitLabel);
+    }
+
+    emitDataGenEnd();
+
+    return jmpTabBase;
+}
+
+uint32_t emitter::CreateTempLabelTable(insGroup*** labels, unsigned count, bool relative)
+{
+    unsigned jmpTableBase = emitLabelTableDataGenBeg(count, true);
+
+    for (unsigned i = 0; i < count; i++)
+    {
+        emitDataGenData(i, CreateTempLabel());
+    }
+
+    *labels = reinterpret_cast<insGroup**>(emitDataSecCur->dsCont);
+
+    emitDataGenEnd();
+
+    return jmpTableBase;
+}
+
 //  Start generating a constant data section for the current function
 //  populated with BasicBlock references.
 //  You can choose the references to be either absolute pointers, or

@@ -360,11 +360,14 @@ public:
         }
     }
 
-    UNATIVE_OFFSET emitDataGenBeg(unsigned size, unsigned alignment, var_types dataType);
-    UNATIVE_OFFSET emitBBTableDataGenBeg(unsigned numEntries, bool relativeAddr);
+    uint32_t CreateBlockLabelTable(BasicBlock** blocks, unsigned count, bool relative);
+    uint32_t CreateTempLabelTable(insGroup*** labels, unsigned count, bool relative);
+
     UNATIVE_OFFSET emitLabelTableDataGenBeg(unsigned numEntries, bool relativeAddr);
-    void emitDataGenData(unsigned offs, const void* data, UNATIVE_OFFSET size);
     void emitDataGenData(unsigned offs, insGroup* label);
+
+    UNATIVE_OFFSET emitDataGenBeg(unsigned size, unsigned alignment, var_types dataType);
+    void emitDataGenData(unsigned offs, const void* data, UNATIVE_OFFSET size);
     void           emitDataGenEnd();
     UNATIVE_OFFSET emitDataGenFind(const void* cnsAddr, unsigned size, unsigned alignment, var_types dataType);
     CORINFO_FIELD_HANDLE emitDataConst(const void* cnsAddr, unsigned cnsSize, unsigned cnsAlign, var_types dataType);

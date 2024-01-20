@@ -797,25 +797,17 @@ void CodeGen::genHWIntrinsicJumpTableFallback(NamedIntrinsic            intrinsi
     assert(!HWIntrinsicInfo::isAVX2GatherIntrinsic(intrinsic));
     Emitter& emit = *GetEmitter();
 
-    const unsigned maxByte = (unsigned)HWIntrinsicInfo::lookupImmUpperBound(intrinsic) + 1;
+    const unsigned maxByte = static_cast<unsigned>(HWIntrinsicInfo::lookupImmUpperBound(intrinsic) + 1);
     assert(maxByte <= 256);
-    insGroup* jmpTable[256];
 
-    unsigned jmpTableBase = emit.emitLabelTableDataGenBeg(maxByte, true);
+    insGroup** jmpTable;
+    unsigned   jmpTableBase = emit.CreateTempLabelTable(&jmpTable, maxByte, true);
 
-    for (unsigned i = 0; i < maxByte; i++)
-    {
-        jmpTable[i] = emit.CreateTempLabel();
-        emit.emitDataGenData(i, jmpTable[i]);
-    }
-
-    emit.emitDataGenEnd();
-
-    emit.emitIns_R_C(INS_lea, emitTypeSize(TYP_I_IMPL), offsReg, Emitter::MakeRoDataField(jmpTableBase));
+    emit.emitIns_R_C(INS_lea, EA_PTRSIZE, offsReg, Emitter::MakeRoDataField(jmpTableBase));
     emit.emitIns_R_ARX(INS_mov, EA_4BYTE, offsReg, offsReg, nonConstImmReg, 4, 0);
     emit.emitIns_R_L(baseReg, compiler->fgFirstBB->emitLabel);
     emit.emitIns_R_R(INS_add, EA_PTRSIZE, offsReg, baseReg);
-    emit.emitIns_R(INS_i_jmp, emitTypeSize(TYP_I_IMPL), offsReg);
+    emit.emitIns_R(INS_i_jmp, EA_PTRSIZE, offsReg);
 
     insGroup* switchTableEnd = GetEmitter()->CreateTempLabel();
 
