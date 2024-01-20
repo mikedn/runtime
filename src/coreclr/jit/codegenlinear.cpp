@@ -199,11 +199,27 @@ void CodeGen::genMarkLabelsForCodegen()
         }
     }
 
+    bool isInColdRegion = false;
+
     for (BasicBlock* block : compiler->Blocks())
     {
         if ((block->bbFlags & BBF_HAS_LABEL) != 0)
         {
+            if (block == compiler->fgFirstColdBlock)
+            {
+                isInColdRegion = true;
+            }
+
             block->emitLabel = GetEmitter()->CreateBlockLabel(block);
+
+            if (isInColdRegion)
+            {
+                block->emitLabel->igFlags |= IGF_COLD;
+            }
+        }
+        else
+        {
+            assert(block != compiler->fgFirstColdBlock);
         }
     }
 }

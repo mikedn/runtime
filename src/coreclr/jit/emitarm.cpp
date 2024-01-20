@@ -4065,7 +4065,7 @@ void emitter::emitIns_J(instruction ins, BasicBlock* label)
     id->idIns(ins);
     id->idInsFmt(ins == INS_b ? IF_T2_J2 : IF_LARGEJMP);
     id->idInsSize(emitInsSize(id->idInsFmt()));
-    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label->emitLabel));
     id->SetLabelBlock(label);
 
     insGroup* targetIG = label->emitLabel;
@@ -4131,7 +4131,7 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* label, reg
     assert((ins == INS_cbz) || (ins == INS_cbnz));
     assert((label->bbFlags & BBF_HAS_LABEL) != 0);
     assert(isLowRegister(reg));
-    assert(!emitComp->opts.compReloc || !InDifferentRegions(GetCurrentBlock(), label));
+    assert(!emitComp->opts.compReloc || !InDifferentRegions(emitCurIG, label->emitLabel));
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);

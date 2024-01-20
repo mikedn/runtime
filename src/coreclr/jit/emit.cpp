@@ -31,14 +31,9 @@ BasicBlock* emitter::GetCurrentBlock() const
     return codeGen->GetCurrentBlock();
 }
 
-bool emitter::InDifferentRegions(BasicBlock* block1, BasicBlock* block2) const
+bool emitter::InDifferentRegions(insGroup* ig1, insGroup* ig2)
 {
-    return emitComp->fgInDifferentRegions(block1, block2);
-}
-
-bool emitter::IsColdBlock(BasicBlock* block) const
-{
-    return emitComp->fgIsBlockCold(block);
+    return ig1->IsCold() != ig2->IsCold();
 }
 
 static CodePos GetCodePos(unsigned num, unsigned codeOffset)
@@ -202,6 +197,7 @@ void emitter::emitNewIG()
     assert(emitIGlast == emitCurIG);
 
     insGroup* ig = emitAllocIG(emitIGlast->igNum + 1);
+    ig->igFlags |= (emitIGlast->igFlags & IGF_COLD);
 
     emitIGlast->igNext = ig;
     emitIGlast         = ig;
@@ -1204,7 +1200,9 @@ void emitter::DefineBlockLabel(insGroup* label)
 
 insGroup* emitter::CreateTempLabel()
 {
-    return emitAllocIG(0);
+    insGroup* label = emitAllocIG(0);
+    label->igFlags |= (emitIGlast->igFlags & IGF_COLD);
+    return label;
 }
 
 void emitter::DefineTempLabel(insGroup* label)

@@ -84,6 +84,7 @@ public:
                                  // emitter should continue to track GC info as if there was no new block.
 #define IGF_LOOP_ALIGN 0x0080    // this group contains alignment instruction(s) at the end; the next IG
                                  // is the head of a loop that needs alignment.
+#define IGF_COLD 0x0100
 
 struct insGroup
 {
@@ -225,6 +226,11 @@ struct insGroup
     {
         return (igFlags & IGF_EXTEND) != 0;
     }
+
+    bool IsCold() const
+    {
+        return (igFlags & IGF_COLD) != 0;
+    }
 };
 
 enum insFormat : unsigned
@@ -259,8 +265,7 @@ public:
     BasicBlock* GetCurrentBlock() const;
 
 private:
-    bool InDifferentRegions(BasicBlock* block1, BasicBlock* block2) const;
-    bool IsColdBlock(BasicBlock* block) const;
+    static bool InDifferentRegions(insGroup* ig1, insGroup* ig2);
 
     /************************************************************************/
     /*       Overall emitter control (including startup and shutdown)       */
@@ -1517,6 +1522,9 @@ private:
 public:
     void emitSetFirstColdLabel(insGroup* ig)
     {
+        assert(emitFirstColdIG == nullptr);
+        assert(ig->IsCold());
+
         emitFirstColdIG = ig;
     }
 

@@ -2849,7 +2849,7 @@ void emitter::emitIns_R_L(BasicBlock* label, RegNum reg)
     id->idInsFmt(IF_RWR_LABEL);
     id->idReg1(reg);
     id->SetLabelBlock(label);
-    id->idSetIsCnsReloc(emitComp->opts.compReloc AMD64_ONLY(&&InDifferentRegions(GetCurrentBlock(), label)));
+    id->idSetIsCnsReloc(emitComp->opts.compReloc AMD64_ONLY(&&InDifferentRegions(emitCurIG, label->emitLabel)));
     INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
 
     unsigned sz = AMD64_ONLY(1 +) 1 + 1 + 4; // REX 8D RM DISP32
@@ -3439,7 +3439,7 @@ void emitter::emitIns_CallFinally(BasicBlock* label)
     assert((label->bbFlags & BBF_HAS_LABEL) != 0);
 
     instrDescJmp* id = emitNewInstrJmp();
-    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label->emitLabel));
     id->idIns(INS_call);
     id->idInsFmt(IF_LABEL);
     id->SetLabelBlock(label);
@@ -3473,7 +3473,7 @@ void emitter::emitIns_J(instruction ins, BasicBlock* label)
     assert((label->bbFlags & BBF_HAS_LABEL) != 0);
 
     instrDescJmp* id = emitNewInstrJmp();
-    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label->emitLabel));
     id->idIns(ins);
     id->idInsFmt(IF_LABEL);
     id->SetLabelBlock(label);

@@ -7740,9 +7740,6 @@ void emitter::Ins_R_R_S(
     appendToCurIG(id);
 }
 
-// Add an instruction with a register + static member operands.
-// Constant is stored into JIT data which is adjacent to code.
-// No relocation is needed. PC-relative offset will be encoded directly into instruction.
 void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumber addrReg, CORINFO_FIELD_HANDLE fldHnd)
 {
     assert(IsRoDataField(fldHnd));
@@ -7785,7 +7782,8 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumb
     id->idOpSize(size);
     id->idReg1(reg);
     id->SetRoDataOffset(GetRoDataOffset(fldHnd));
-    id->idSetIsCnsReloc(emitComp->opts.compReloc && IsColdBlock(GetCurrentBlock()));
+    // We put the constant data right after the hot code section, cold code will need relocs.
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && emitCurIG->IsCold());
 
     if (addrReg != REG_NA)
     {
@@ -7875,7 +7873,7 @@ void emitter::emitIns_R_L(BasicBlock* label, RegNum reg)
     id->idOpSize(EA_8BYTE);
     id->idReg1(reg);
     id->SetLabelBlock(label);
-    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label->emitLabel));
 
     dispIns(id);
     appendToCurIG(id);
@@ -7905,7 +7903,7 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* label, reg
     id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg);
     id->SetLabelBlock(label);
-    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label->emitLabel));
 
     dispIns(id);
     appendToCurIG(id);
@@ -7937,7 +7935,7 @@ void emitter::emitIns_J_R_I(instruction ins, emitAttr attr, BasicBlock* label, r
     id->idIns(ins);
     id->idInsFmt(IF_LARGEJMP);
     id->idOpSize(EA_SIZE(attr));
-    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label->emitLabel));
     id->idReg1(reg);
     id->idSmallCns(imm);
     id->SetLabelBlock(label);
@@ -7980,7 +7978,7 @@ void emitter::emitIns_J(instruction ins, BasicBlock* label)
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
     id->idInsFmt(ins == INS_b ? IF_BI_0A : IF_LARGEJMP);
-    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(GetCurrentBlock(), label));
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label->emitLabel));
     id->SetLabelBlock(label);
 
     dispIns(id);
