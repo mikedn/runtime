@@ -3395,13 +3395,12 @@ CORINFO_FIELD_HANDLE emitter::emitDataConst(const void* cnsAddr,
 {
     UNATIVE_OFFSET cnum = emitDataGenFind(cnsAddr, cnsSize, cnsAlign, dataType);
 
-    if (cnum == INVALID_UNATIVE_OFFSET)
+    if (cnum != INVALID_UNATIVE_OFFSET)
     {
-        cnum = emitDataGenBeg(cnsSize, cnsAlign, dataType);
-        emitDataGenData(0, cnsAddr, cnsSize);
-        emitDataGenEnd();
+        return MakeRoDataField(cnum);
     }
-    return MakeRoDataField(cnum);
+
+    return emitBlkConst(cnsAddr, cnsSize, cnsAlign, dataType);
 }
 
 //------------------------------------------------------------------------
