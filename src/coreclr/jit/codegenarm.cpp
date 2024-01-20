@@ -2847,7 +2847,7 @@ void CodeGen::genInsertNopForUnwinder(BasicBlock* block)
 
     if ((block->bbFlags & BBF_FINALLY_TARGET) != 0)
     {
-        assert((block->bbFlags & BBF_HAS_LABEL) != 0);
+        assert(block->emitLabel != nullptr);
 
         // Create a label that we'll use for computing the start of an EH region, if this block
         // is at the beginning of such a region. If we used the normal block's label as is for

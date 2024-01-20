@@ -202,7 +202,7 @@ void CodeGen::SetThrowHelperBlockStackLevel(BasicBlock* block)
 
     if (!isFramePointerUsed())
     {
-        noway_assert(block->bbFlags & BBF_HAS_LABEL);
+        noway_assert(block->emitLabel != nullptr);
 
         SetStackLevel(compiler->fgFindThrowHelperBlock(block)->stackLevel * REGSIZE_BYTES);
 

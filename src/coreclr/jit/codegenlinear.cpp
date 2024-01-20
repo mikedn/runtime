@@ -273,7 +273,7 @@ void CodeGen::genCodeForBBlist()
 
         m_currentBlock = block;
 
-        if ((block->bbFlags & BBF_HAS_LABEL) != 0)
+        if (block->emitLabel != nullptr)
         {
             GetEmitter()->DefineBlockLabel(block->emitLabel);
             GetEmitter()->SetLabelGCLiveness(block->emitLabel);
