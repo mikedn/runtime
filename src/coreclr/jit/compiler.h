@@ -4542,7 +4542,6 @@ private:
     void fgMoveOpsLeft(GenTree* tree);
 
     bool fgInDifferentRegions(BasicBlock* blk1, BasicBlock* blk2);
-    bool fgIsBlockCold(BasicBlock* block);
 
     GenTree* fgMorphCastIntoHelper(GenTreeCast* cast, int helper);
 
