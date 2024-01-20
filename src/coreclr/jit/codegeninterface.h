@@ -204,6 +204,8 @@ public:
         return m_cgEmitter;
     }
 
+    CORINFO_FIELD_HANDLE GetConst(const void* data, unsigned size, unsigned align DEBUGARG(var_types type));
+
     unsigned GetHotCodeSize() const;
     unsigned GetColdCodeSize() const;
     unsigned GetCodeSize() const;

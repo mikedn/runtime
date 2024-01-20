@@ -30,6 +30,13 @@ CodeGenInterface::CodeGenInterface(Compiler* compiler) : compiler(compiler), spi
 {
 }
 
+CORINFO_FIELD_HANDLE CodeGenInterface::GetConst(const void* data,
+                                                unsigned    size,
+                                                unsigned align DEBUGARG(var_types type))
+{
+    return GetEmitter()->GetConst(data, size, align DEBUGARG(type));
+}
+
 void CodeGenInterface::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
 {
     static_cast<CodeGen*>(this)->genGenerateCode(nativeCode, nativeCodeSize);
@@ -460,8 +467,8 @@ void CodeGen::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
 
 #if DISPLAY_SIZES
     grossVMsize += compiler->info.compILCodeSize;
-    totalNCsize += GetEmitter()->GetCodeSize() + GetEmitter()->emitDataSize() + gcInfoSize;
-    grossNCsize += GetEmitter()->GetCodeSize() + GetEmitter()->emitDataSize();
+    totalNCsize += GetEmitter()->GetCodeSize() + GetEmitter()->GetRoDataSize() + gcInfoSize;
+    grossNCsize += GetEmitter()->GetCodeSize() + GetEmitter()->GetRoDataSize();
 #endif
 
 #if TRACK_LSRA_STATS

@@ -8172,7 +8172,7 @@ AGAIN:
             assert((imm >= 0) && (imm < 0x1000)); // 0x1000 is arbitrary, currently 'imm' is always 0
 
             dataOffs += static_cast<uint32_t>(imm);
-            assert(dataOffs < emitDataSize());
+            assert(dataOffs < roData.size);
 
             // Conservatively assume JIT data starts after the entire code size.
             // TODO-ARM64: We might consider only hot code size which will be computed later in emitComputeCodeSizes().
@@ -9307,7 +9307,7 @@ uint8_t* emitter::emitOutputDL(uint8_t* dst, instrDescJmp* id)
     assert((imm >= 0) && (imm < 0x1000)); // 0x1000 is arbitrary, currently 'imm' is always 0
 
     uint32_t dataOffs = static_cast<uint32_t>(dataOffset + imm);
-    assert(dataOffs < emitDataSize());
+    assert(dataOffs < roData.size);
 
     uint8_t* dataAddr = emitDataOffsetToPtr(dataOffs);
 

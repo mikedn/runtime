@@ -433,7 +433,7 @@ void emitter::emitInsSanityCheck(instrDesc* id)
 
         case IF_T2_N2: // T2_N2   .....i......iiii .iiiddddiiiiiiii       R1                 imm16
             assert(isGeneralRegister(id->idReg1()));
-            assert((size_t)emitGetInsSC(id) < emitDataSize());
+            assert((size_t)emitGetInsSC(id) < roData.size);
             break;
 
         case IF_T2_N3: // T2_N3   .....i......iiii .iiiddddiiiiiiii       R1                 imm16

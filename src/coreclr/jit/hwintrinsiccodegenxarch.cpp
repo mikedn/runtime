@@ -377,7 +377,7 @@ bool CodeGen::IsMemoryOperand(
     if (GenTreeDblCon* dblCon = op->IsDblCon())
     {
         *addr  = nullptr;
-        *field = GetEmitter()->emitFltOrDblConst(dblCon->GetValue(), emitTypeSize(dblCon->GetType()));
+        *field = GetEmitter()->GetFloatConst(dblCon->GetValue(), dblCon->GetType());
 
         return true;
     }

@@ -1569,11 +1569,10 @@ void CodeGen::GenDblCon(GenTreeDblCon* node)
     }
     else
     {
-        emitAttr             size = emitTypeSize(node->GetType());
         regNumber            temp = node->GetSingleTempReg();
-        CORINFO_FIELD_HANDLE data = GetEmitter()->emitFltOrDblConst(node->GetValue(), size);
+        CORINFO_FIELD_HANDLE data = GetEmitter()->GetFloatConst(node->GetValue(), node->GetType());
 
-        GetEmitter()->emitIns_R_C(INS_ldr, size, node->GetRegNum(), temp, data);
+        GetEmitter()->emitIns_R_C(INS_ldr, emitTypeSize(node->GetType()), node->GetRegNum(), temp, data);
     }
 
     DefReg(node);

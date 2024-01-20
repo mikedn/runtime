@@ -508,9 +508,8 @@ void CodeGen::GenDblCon(GenTreeDblCon* node, regNumber reg, var_types type)
         return;
     }
 
-    emitAttr             size = emitTypeSize(node->GetType());
-    CORINFO_FIELD_HANDLE data = GetEmitter()->emitFltOrDblConst(node->GetValue(), size);
-    GetEmitter()->emitIns_R_C(ins_Load(type), size, reg, data);
+    CORINFO_FIELD_HANDLE data = GetEmitter()->GetFloatConst(node->GetValue(), node->GetType());
+    GetEmitter()->emitIns_R_C(ins_Load(type), emitTypeSize(node->GetType()), reg, data);
 }
 
 void CodeGen::genCodeForNegNot(GenTreeUnOp* node)
@@ -864,7 +863,7 @@ void CodeGen::GenFloatAbs(GenTreeIntrinsic* node)
         uint64_t mask = node->TypeIs(TYP_FLOAT) ? 0x7fffffff7fffffffUL : 0x7fffffffffffffffUL;
         uint64_t maskPack[]{mask, mask};
 
-        maskField = GetEmitter()->emitBlkConst(&maskPack, 16, 16, node->GetType());
+        maskField = GetEmitter()->GetConst(&maskPack, 16, 16 DEBUGARG(node->GetType()));
     }
 
     regNumber dstReg = node->GetRegNum();
@@ -887,7 +886,7 @@ void CodeGen::GenFloatNegate(GenTreeUnOp* node)
         uint64_t mask = node->TypeIs(TYP_FLOAT) ? 0x8000000080000000UL : 0x8000000000000000UL;
         uint64_t maskPack[]{mask, mask};
 
-        maskField = GetEmitter()->emitBlkConst(&maskPack, 16, 16, node->GetType());
+        maskField = GetEmitter()->GetConst(&maskPack, 16, 16 DEBUGARG(node->GetType()));
     }
 
     regNumber dstReg = node->GetRegNum();
@@ -5764,7 +5763,7 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
             if (u8ToDblBitmask == nullptr)
             {
                 u8ToDblBitmask =
-                    GetEmitter()->emitFltOrDblConst(jitstd::bit_cast<double>(0x43f0000000000000ULL), EA_8BYTE);
+                    GetEmitter()->GetFloatConst(jitstd::bit_cast<double>(0x43f0000000000000ULL), TYP_DOUBLE);
             }
 
             ins   = INS_addsd;
@@ -5775,7 +5774,7 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
         {
             if (u8ToFltBitmask == nullptr)
             {
-                u8ToFltBitmask = GetEmitter()->emitFltOrDblConst(jitstd::bit_cast<float>(0x5f800000U), EA_4BYTE);
+                u8ToFltBitmask = GetEmitter()->GetFloatConst(jitstd::bit_cast<float>(0x5f800000U), TYP_FLOAT);
             }
 
             ins   = INS_addss;
@@ -9092,7 +9091,7 @@ void CodeGen::emitInsRegRM(instruction ins, emitAttr attr, regNumber reg, GenTre
     }
     else if (GenTreeDblCon* dbl = rm->IsDblCon())
     {
-        emit.emitIns_R_C(ins, attr, reg, emit.emitFltOrDblConst(dbl->GetValue(), emitTypeSize(dbl->GetType())));
+        emit.emitIns_R_C(ins, attr, reg, emit.GetFloatConst(dbl->GetValue(), dbl->GetType()));
     }
     else
     {

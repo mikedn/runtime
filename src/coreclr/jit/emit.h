@@ -365,33 +365,44 @@ public:
         }
     }
 
-    // To use alignments greater than 32 requires VM changes (see ICorJitInfo::allocMem)
-    const static unsigned MIN_DATA_ALIGN = 4;
-    const static unsigned MAX_DATA_ALIGN = 32;
-
     uint32_t CreateBlockLabelTable(BasicBlock** blocks, unsigned count, bool relative);
     uint32_t CreateTempLabelTable(insGroup*** labels, unsigned count, bool relative);
 
-    CORINFO_FIELD_HANDLE emitBlkConst(const void* cnsAddr, unsigned cnsSize, unsigned cnsAlign, var_types elemType);
-    CORINFO_FIELD_HANDLE emitFltOrDblConst(double constValue, emitAttr attr);
-    CORINFO_FIELD_HANDLE emitDataConst(const void* cnsAddr, unsigned cnsSize, unsigned cnsAlign, var_types dataType);
+    CORINFO_FIELD_HANDLE GetFloatConst(double value, var_types type);
+    CORINFO_FIELD_HANDLE GetConst(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
 
-    UNATIVE_OFFSET emitDataSize() const
+#if DISPLAY_SIZES
+    uint32_t GetRoDataSize() const
     {
-        return emitConsDsc.dsdOffs;
+        return roData.size;
     }
+#endif
 
 private:
-    UNATIVE_OFFSET emitLabelTableDataGenBeg(unsigned numEntries, bool relativeAddr);
-    void emitDataGenData(unsigned offs, insGroup* label);
+    struct DataSection
+    {
+        // Alignments greater than 32 requires VM changes (see ICorJitInfo::allocMem)
+        const static uint32_t MinAlign = 4;
+        const static uint32_t MaxAlign = 32;
 
-    UNATIVE_OFFSET emitDataGenBeg(unsigned size, unsigned alignment, var_types dataType);
-    void emitDataGenData(unsigned offs, const void* data, UNATIVE_OFFSET size);
-    void emitDataGenEnd();
+        enum Kind : uint8_t
+        {
+            Const,
+            LabelAddr,
+            LabelRel32
+        };
 
-    UNATIVE_OFFSET emitDataGenFind(const void* cnsAddr, unsigned size, unsigned alignment, var_types dataType);
+        DataSection* next;
+        uint32_t     offset;
+        uint32_t     size;
+        Kind         kind;
+        INDEBUG(var_types type;)
+        uint8_t data[0];
+    };
 
-    static const UNATIVE_OFFSET INVALID_UNATIVE_OFFSET = (UNATIVE_OFFSET)-1;
+    DataSection* CreateLabelTable(unsigned count, bool relative);
+    uint32_t CreateConst(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
+    uint32_t CreateConstSection(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
 
     void* emitGetMem(size_t sz);
 
@@ -1414,7 +1425,7 @@ public:
     size_t writeableOffset   = 0;       // Offset applied to a code address to get memory location that can be written
 
     UNATIVE_OFFSET emitCurCodeOffs(BYTE* dst);
-    BYTE* emitOffsetToPtr(UNATIVE_OFFSET offset);
+    BYTE* emitOffsetToPtr(UNATIVE_OFFSET offset) const;
     BYTE* emitDataOffsetToPtr(UNATIVE_OFFSET offset);
     INDEBUG(bool emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset);)
 
@@ -1620,7 +1631,7 @@ private:
 #ifdef DEBUG
     void emitCheckIGoffsets();
     void emitPrintLabel(insGroup* ig);
-    const char* emitLabelString(insGroup* ig);
+    const char* emitLabelString(insGroup* ig) const;
     void PrintAlignmentBoundary(size_t           instrAddr,
                                 size_t           instrEndAddr,
                                 const instrDesc* instr,
@@ -1697,47 +1708,20 @@ private:
     /*      The following logic keeps track of initialized data sections    */
     /************************************************************************/
 
-    /* One of these is allocated for every blob of initialized data */
-
-    struct dataSection
+    struct RoData
     {
-        enum sectionType
-        {
-            data,
-            LabelAbsoluteAddr,
-            LabelRelative32
-        };
+        DataSection* first = nullptr;
+        DataSection* last  = nullptr;
+        uint32_t     size  = 0;
+        uint32_t     align = DataSection::MinAlign;
 
-        dataSection*   dsNext;
-        UNATIVE_OFFSET dsSize;
-        sectionType    dsType;
-        var_types      dsDataType;
-
-        // variable-sized array used to store the constant data
-        // or BasicBlock* array in the block cases.
-        BYTE dsCont[0];
+        DataSection* Find(const void* data, uint32_t size, uint32_t align) const;
     };
 
-    /* These describe the entire initialized/uninitialized data sections */
+    RoData roData;
 
-    struct dataSecDsc
-    {
-        dataSection*   dsdList;
-        dataSection*   dsdLast;
-        UNATIVE_OFFSET dsdOffs;
-        UNATIVE_OFFSET alignment; // in bytes, defaults to 4
-
-        dataSecDsc() : dsdList(nullptr), dsdLast(nullptr), dsdOffs(0), alignment(4)
-        {
-        }
-    };
-
-    dataSecDsc emitConsDsc;
-
-    dataSection* emitDataSecCur = nullptr;
-
-    void emitOutputDataSec(dataSecDsc* sec, BYTE* dst);
-    INDEBUG(void emitDispDataSec(dataSecDsc* section);)
+    void OutputRoData(uint8_t* dst);
+    INDEBUG(void PrintRoData() const;)
 
     void emitRecordRelocation(void* location, void* target, uint16_t fRelocType, int32_t addlDelta = 0);
 
