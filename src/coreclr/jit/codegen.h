@@ -48,10 +48,12 @@ public:
     const char* siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs);
 #endif
 
+#ifdef DEBUG
     BasicBlock* GetCurrentBlock() const
     {
         return m_currentBlock;
     }
+#endif
 
     void genCreateFunclets();
     void genAllocateRegisters();

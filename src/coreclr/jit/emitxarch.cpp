@@ -2850,7 +2850,7 @@ void emitter::emitIns_R_L(RegNum reg, insGroup* label)
     id->idReg1(reg);
     id->SetLabel(label);
     id->idSetIsCnsReloc(emitComp->opts.compReloc AMD64_ONLY(&&InDifferentRegions(emitCurIG, label)));
-    INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
+    INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (codeGen->GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
 
     unsigned sz = AMD64_ONLY(1 +) 1 + 1 + 4; // REX 8D RM DISP32
     id->idCodeSize(sz);

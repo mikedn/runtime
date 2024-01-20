@@ -269,16 +269,10 @@ void CodeGen::genCodeForBBlist()
 
         m_currentBlock = block;
 
-        if (block->emitLabel != nullptr)
+        if (insGroup* label = block->emitLabel)
         {
-            GetEmitter()->DefineBlockLabel(block->emitLabel);
-            GetEmitter()->SetLabelGCLiveness(block->emitLabel);
-
-            if (block == compiler->fgFirstColdBlock)
-            {
-                JITDUMP("\nThis is the start of the cold region of the method\n");
-                GetEmitter()->emitSetFirstColdLabel(block->emitLabel);
-            }
+            GetEmitter()->DefineBlockLabel(label);
+            GetEmitter()->SetLabelGCLiveness(label);
         }
 #if FEATURE_LOOP_ALIGN
         else

@@ -7959,7 +7959,7 @@ void emitter::emitIns_J(instruction ins, insGroup* label)
 
 void emitter::emitIns_CallFinally(insGroup* label)
 {
-    assert(GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY);
+    assert(codeGen->GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY);
     assert(label != nullptr);
 
     instrDescJmp* id = emitNewInstrJmp();

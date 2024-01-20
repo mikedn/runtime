@@ -26,11 +26,6 @@ emitter::emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo)
 {
 }
 
-BasicBlock* emitter::GetCurrentBlock() const
-{
-    return codeGen->GetCurrentBlock();
-}
-
 bool emitter::InDifferentRegions(insGroup* ig1, insGroup* ig2)
 {
     return ig1->IsCold() != ig2->IsCold();
@@ -558,13 +553,13 @@ void emitter::perfScoreUnhandledInstruction(instrDesc* id, insExecutionCharacter
 
 BasicBlock::weight_t emitter::getCurrentBlockWeight()
 {
-    if (GetCurrentBlock() == nullptr)
+    if (BasicBlock* block = codeGen->GetCurrentBlock())
     {
-        // prolog or epilog case, so just use the standard weight
-        return BB_UNITY_WEIGHT;
+        return block->getBBWeight(emitComp);
     }
 
-    return GetCurrentBlock()->getBBWeight(emitComp);
+    // prolog or epilog case, so just use the standard weight
+    return BB_UNITY_WEIGHT;
 }
 #endif // defined(DEBUG) || defined(LATE_DISASM)
 
@@ -697,7 +692,7 @@ emitter::instrDescSmall* emitter::emitAllocAnyInstr(unsigned sz, bool updateLast
     emitCurIGinsCnt++;
 
 #ifdef DEBUG
-    if (BasicBlock* block = GetCurrentBlock())
+    if (BasicBlock* block = codeGen->GetCurrentBlock())
     {
         if (emitCurIG->igBlocks.empty() || (emitCurIG->igBlocks.back() != block))
         {
@@ -1196,6 +1191,12 @@ void emitter::DefineBlockLabel(insGroup* label)
 #ifdef FEATURE_EH_FUNCLETS
     label->igFuncIdx = codeGen->currentFuncletIndex;
 #endif
+
+    if (label->IsCold() && (emitFirstColdIG == nullptr))
+    {
+        JITDUMP("\nThis is the start of the cold region of the method\n");
+        emitFirstColdIG = label;
+    }
 }
 
 insGroup* emitter::CreateTempLabel()

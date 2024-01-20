@@ -262,8 +262,6 @@ public:
         return gcInfo;
     }
 
-    BasicBlock* GetCurrentBlock() const;
-
 private:
     static bool InDifferentRegions(insGroup* ig1, insGroup* ig2);
 
@@ -1503,14 +1501,6 @@ private:
 #endif
 
 public:
-    void emitSetFirstColdLabel(insGroup* ig)
-    {
-        assert(emitFirstColdIG == nullptr);
-        assert(ig->IsCold());
-
-        emitFirstColdIG = ig;
-    }
-
     uint8_t* GetHotCodeAddr() const
     {
         return emitCodeBlock;

@@ -4101,7 +4101,7 @@ void emitter::emitIns_J(instruction ins, insGroup* label)
     }
 
     INDEBUG(id->idDebugOnlyInfo()->idFinallyCall =
-                (ins == INS_b) && (GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY));
+                (ins == INS_b) && (codeGen->GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY));
 
     dispIns(id);
     appendToCurIG(id);
@@ -4142,7 +4142,7 @@ void emitter::emitIns_R_L(instruction ins, RegNum reg, insGroup* label)
     id->idReg1(reg);
     id->SetLabel(label);
     id->idSetIsCnsReloc(emitComp->opts.compReloc);
-    INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
+    INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (codeGen->GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
 
     dispIns(id);
     appendToCurIG(id);
