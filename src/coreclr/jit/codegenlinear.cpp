@@ -574,8 +574,11 @@ void CodeGen::genCodeForBBlist()
         if (hasEpilog)
         {
             GetEmitter()->ReserveEpilog(block);
+        }
 
-            if (block->bbNext != nullptr)
+        if (BasicBlock* next = block->bbNext)
+        {
+            if (hasEpilog)
             {
                 // TODO-MIKE-Review: This seems dodgy. If another block follows then it's
                 // supposed to have a label (unless it is unreachable, in which case we'll
@@ -585,25 +588,25 @@ void CodeGen::genCodeForBBlist()
                 // generate debug info, so emitCurIG needs to be valid.
                 // Note that doing this here can result in the label having the wrong funclet
                 // index, but we'll call this again when the block is visited, which fixes it.
-                GetEmitter()->DefineBlockLabel(block->bbNext->emitLabel);
+                GetEmitter()->DefineBlockLabel(next->emitLabel);
             }
-        }
 
 #if FEATURE_LOOP_ALIGN
-        // If next block is the first block of a loop (identified by BBF_LOOP_ALIGN),
-        // then need to add align instruction in current "block". Also mark the
-        // corresponding IG with IGF_LOOP_ALIGN to know that there will be align
-        // instructions at the end of that IG.
-        //
-        // For non-adaptive alignment, add alignment instruction of size depending on the
-        // compJitAlignLoopBoundary.
-        // For adaptive alignment, alignment instruction will always be of 15 bytes.
+            // If next block is the first block of a loop (identified by BBF_LOOP_ALIGN),
+            // then need to add align instruction in current "block". Also mark the
+            // corresponding IG with IGF_LOOP_ALIGN to know that there will be align
+            // instructions at the end of that IG.
+            //
+            // For non-adaptive alignment, add alignment instruction of size depending on the
+            // compJitAlignLoopBoundary.
+            // For adaptive alignment, alignment instruction will always be of 15 bytes.
 
-        if ((block->bbNext != nullptr) && (block->bbNext->isLoopAlign()))
-        {
-            GetEmitter()->emitLoopAlignment();
-        }
+            if (next->isLoopAlign())
+            {
+                GetEmitter()->emitLoopAlignment();
+            }
 #endif
+        }
     }
 
     m_currentBlock = nullptr;
