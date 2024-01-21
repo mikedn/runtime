@@ -940,28 +940,12 @@ void emitter::ReserveEpilog(BasicBlock* block)
     lastPlaceholder = ph;
 
     // We don't know what code size the placeholder insGroup will have,
-    // just use an estimate large enough to accomodate any placeholder.
+    // just use an estimate large enough to accommodate any placeholder.
     assert(emitCurIGsize == 0);
     emitCurIGsize = MAX_PLACEHOLDER_IG_SIZE;
     emitCurCodeOffset += MAX_PLACEHOLDER_IG_SIZE;
 
-    if (block->bbNext == nullptr)
-    {
-        emitCurIG = nullptr;
-    }
-    else
-    {
-        // TODO-MIKE-Review: This seems dodgy, we should just set emitCurIG to null and
-        // be done with it. If another block follows then it's supposed to have a label
-        // (uneless it is unreachable, in which case we'll just require it to have a
-        // label too) and genCodeForBBlist will define the label. But genCodeForBBlist
-        // is kind of messed up and does that after calling liveness.BeginBlockCodeGen,
-        // which needs the current IG to generate debug info, so emitCurIG needs to be
-        // valid.
-        // Note that doing this here can result in the label having the wrong funclet
-        // index, but genCodeForBBlist will call this again, which fixes it.
-        DefineBlockLabel(block->bbNext->emitLabel);
-    }
+    emitCurIG = nullptr;
 }
 
 void emitter::emitGeneratePrologEpilog()
@@ -1981,6 +1965,8 @@ void emitter::emitDispCommentForHandle(void* handle, HandleKind kind)
 //
 void emitter::emitLoopAlignment()
 {
+    assert(emitComp->opts.alignLoops);
+
     uint16_t paddingBytes;
 
     if ((emitComp->opts.compJitAlignLoopBoundary > 16) && (!emitComp->opts.compJitAlignLoopAdaptive))

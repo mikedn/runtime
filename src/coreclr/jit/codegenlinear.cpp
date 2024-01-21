@@ -420,12 +420,13 @@ void CodeGen::genCodeForBBlist()
 #endif
 
         INDEBUG(liveness.VerifyLiveRegVars(block));
+        bool hasEpilog = false;
 
         switch (block->GetKind())
         {
             case BBJ_RETURN:
                 genExitCode(block);
-                GetEmitter()->ReserveEpilog(block);
+                hasEpilog = true;
                 break;
 
 #ifdef FEATURE_EH_FUNCLETS
@@ -434,7 +435,7 @@ void CodeGen::genCodeForBBlist()
                 FALLTHROUGH;
             case BBJ_EHFINALLYRET:
             case BBJ_EHFILTERRET:
-                GetEmitter()->ReserveEpilog(block);
+                hasEpilog = true;
                 break;
 #else
             case BBJ_EHFINALLYRET:
@@ -570,6 +571,24 @@ void CodeGen::genCodeForBBlist()
                 unreached();
         }
 
+        if (hasEpilog)
+        {
+            GetEmitter()->ReserveEpilog(block);
+
+            if (block->bbNext != nullptr)
+            {
+                // TODO-MIKE-Review: This seems dodgy. If another block follows then it's
+                // supposed to have a label (unless it is unreachable, in which case we'll
+                // just require it to have a label too) and the label will be defined when
+                // we visit that block. But this code is kind of messed up and does that
+                // after calling liveness.BeginBlockCodeGen, which needs the current IG to
+                // generate debug info, so emitCurIG needs to be valid.
+                // Note that doing this here can result in the label having the wrong funclet
+                // index, but we'll call this again when the block is visited, which fixes it.
+                GetEmitter()->DefineBlockLabel(block->bbNext->emitLabel);
+            }
+        }
+
 #if FEATURE_LOOP_ALIGN
         // If next block is the first block of a loop (identified by BBF_LOOP_ALIGN),
         // then need to add align instruction in current "block". Also mark the
@@ -582,8 +601,6 @@ void CodeGen::genCodeForBBlist()
 
         if ((block->bbNext != nullptr) && (block->bbNext->isLoopAlign()))
         {
-            assert(compiler->opts.alignLoops);
-
             GetEmitter()->emitLoopAlignment();
         }
 #endif
