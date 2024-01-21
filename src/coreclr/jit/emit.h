@@ -1341,12 +1341,8 @@ private:
     static const char* emitRegName(regNumber reg, emitAttr size = EA_PTRSIZE);
 
     void GetGCDeltaDumpHeader(char* buffer, size_t count);
-    void emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose);
-
-public:
-    void emitDispIGlist(bool verbose = false);
-
-private:
+    void emitDispIG(insGroup* ig, bool dispInstr);
+    void emitDispIGlist(bool dispInstr);
     void emitDispInsAddr(BYTE* code);
     void emitDispInsOffs(unsigned offs, bool doffs);
 #endif // !DEBUG

@@ -58,7 +58,7 @@ bool emitter::IsCurrentLocation(const emitLocation& loc) const
 {
     assert(loc.Valid());
 
-    // TODO-MIKE-Review: This doens't handle the group boundary case.
+    // TODO-MIKE-Review: This doesn't handle the group boundary case.
     return (loc.GetIG() == emitCurIG) && (loc.GetInsNum() == emitCurIGinsCnt);
 }
 
@@ -850,7 +850,7 @@ void emitter::ReserveFuncletProlog(BasicBlock* block)
     lastPlaceholder = ph;
 
     // We don't know what code size the placeholder insGroup will have,
-    // just use an estimate large enough to accomodate any placeholder.
+    // just use an estimate large enough to accommodate any placeholder.
     assert(emitCurIGsize == 0);
     emitCurIGsize = MAX_PLACEHOLDER_IG_SIZE;
     emitCurCodeOffset += MAX_PLACEHOLDER_IG_SIZE;
@@ -1094,7 +1094,7 @@ void emitter::EndGCEpilog()
 {
     assert(lastEpilog != nullptr);
 
-    // Note: We compute all this before instructions are actually endcoded,
+    // Note: We compute all this before instructions are actually encoded,
     // thus these may not be the final code offsets. But we only care about
     // the distance between these locations and we don't expect instructions
     // that are part of the epilog to change size (e.g. there are no branches).
@@ -1617,7 +1617,7 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 
 #ifdef DEBUG
 
-void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
+void emitter::emitDispIG(insGroup* ig, bool dispInstr)
 {
     char buff[40];
     sprintf_s(buff, _countof(buff), FMT_IG ": ", ig->GetId());
@@ -1753,7 +1753,7 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
 
     printf("\n");
 
-    if (verbose && (ig->igInsCnt != 0))
+    if (dispInstr && (ig->igInsCnt != 0))
     {
         printf("\n");
 
@@ -1772,11 +1772,11 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
     }
 }
 
-void emitter::emitDispIGlist(bool verbose)
+void emitter::emitDispIGlist(bool dispInstr)
 {
-    for (insGroup *ig = emitIGfirst, *igPrev = nullptr; ig != nullptr; igPrev = ig, ig = ig->igNext)
+    for (insGroup* ig = emitIGfirst; ig != nullptr; ig = ig->igNext)
     {
-        emitDispIG(ig, igPrev, verbose);
+        emitDispIG(ig, dispInstr);
     }
 }
 
@@ -2808,7 +2808,7 @@ void emitter::emitEndCodeGen()
             if (emitComp->verbose || emitComp->opts.disasmWithGC)
             {
                 printf("\n");
-                emitDispIG(ig, nullptr, false);
+                emitDispIG(ig, false);
             }
             else if (!ig->IsExtension() || ig->IsMainEpilog() || ig->IsFuncletPrologOrEpilog() || (prevIG == nullptr) ||
                      (ig->IsNoGC() != prevIG->IsNoGC()))
