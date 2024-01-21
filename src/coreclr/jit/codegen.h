@@ -10,27 +10,27 @@
 #include "treelifeupdater.h"
 #include "emit.h"
 
+#ifdef FEATURE_EH_FUNCLETS
+enum FuncKind : uint8_t;
+struct FuncInfoDsc;
+#endif
+struct ILMapping;
+struct VarResultInfo;
+
 class CodeGen final : public CodeGenInterface
 {
     friend class emitter;
     friend class DisAssembler;
     friend class CodeGenLivenessUpdater;
+    friend class CodeGenInterface;
 
-    //  The following holds information about instr offsets in terms of generated code.
-    struct IPmappingDsc
-    {
-        IPmappingDsc* ipmdNext;      // next line# record
-        emitLocation  ipmdNativeLoc; // the emitter location of the native code corresponding to the IL offset
-        IL_OFFSETX    ipmdILoffsx;   // the instr offset
-        bool          ipmdIsLabel;   // Can this code be a branch label?
-    };
+    class LinearScan* m_lsra = nullptr;
 
-    class LinearScan* m_lsra           = nullptr;
-    IPmappingDsc*     genIPmappingList = nullptr;
-    IPmappingDsc*     genIPmappingLast = nullptr;
-    BasicBlock*       m_currentBlock   = nullptr;
-    GSCookie*         m_gsCookieAddr   = nullptr;
-    GSCookie          m_gsCookieVal    = 0;
+    ILMapping*  firstILMapping = nullptr;
+    ILMapping*  lastILMapping  = nullptr;
+    BasicBlock* m_currentBlock = nullptr;
+    GSCookie*   m_gsCookieAddr = nullptr;
+    GSCookie    m_gsCookieVal  = 0;
 
     CodeGenLivenessUpdater liveness;
 
@@ -42,19 +42,26 @@ class CodeGen final : public CodeGenInterface
 public:
     CodeGen(Compiler* compiler);
 
+    void genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize);
+#ifdef LATE_DISASM
+    const char* siRegVarName(size_t offs, size_t size, unsigned reg);
+    const char* siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs);
+#endif
+
+#ifdef DEBUG
     BasicBlock* GetCurrentBlock() const
     {
         return m_currentBlock;
     }
+#endif
 
-    virtual void genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize);
-
+    void genCreateFunclets();
     void genAllocateRegisters();
     void genGenerateMachineCode();
     void genEmitMachineCode();
     void genEmitUnwindDebugGCandEH();
 
-    virtual VARSET_VALARG_TP GetLiveSet() const
+    VARSET_VALARG_TP GetLiveSet() const
     {
         return liveness.GetLiveSet();
     }
@@ -131,6 +138,9 @@ private:
     }
 #endif // TARGET_ARMARCH
 
+    bool generatingProlog = false;
+    bool generatingEpilog = false;
+
     bool     genUseBlockInit;  // true if we plan to block-initialize the local stack frame
     unsigned genInitStkLclCnt; // The count of local variables that we need to zero init
 
@@ -141,27 +151,36 @@ private:
 #endif
 
     void genReportEH();
+    void eeSetEHcount(unsigned cEH);
+    void eeSetEHinfo(unsigned EHnumber, const CORINFO_EH_CLAUSE* clause);
+#ifdef DEBUG
+    void dispOutgoingEHClause(unsigned num, const CORINFO_EH_CLAUSE& clause);
+#endif
 
-protected:
+private:
     // the current (pending) label ref, a label which has been referenced but not yet seen
-    BasicBlock* genPendingCallLabel;
+    insGroup* genPendingCallLabel = nullptr;
 
-    void**    codePtr;
-    uint32_t* nativeSizeOfCode;
-    unsigned  codeSize;
-    void*     coldCodePtr;
-    void*     consPtr;
+#ifdef JIT32_GCENCODER
+    unsigned gcInfoSize = 0;
+#endif
 
     // JIT-time constants for use in multi-dimensional array code generation.
     unsigned genOffsetOfMDArrayLowerBound(var_types elemType, unsigned rank, unsigned dimension);
     unsigned genOffsetOfMDArrayDimensionSize(var_types elemType, unsigned rank, unsigned dimension);
 
-    void genInitialize();
-    void UpdateLclBlockLiveInRegs(BasicBlock* block);
+    void InitLclBlockLiveInRegs();
     void genCodeForBBlist();
 
 public:
-    void SpillRegCandidateLclVar(GenTreeLclVar* node);
+#ifdef JIT32_GCENCODER
+    void SetGCInfoSize(unsigned size)
+    {
+        gcInfoSize = size;
+    }
+#endif
+
+    bool SpillRegCandidateLclVar(GenTreeLclVar* node);
 
 #ifdef TARGET_X86
     void genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize = EA_UNKNOWN, regNumber callTarget = REG_NA)
@@ -176,26 +195,16 @@ public:
 
     void genGCWriteBarrier(GenTreeStoreInd* store, GCInfo::WriteBarrierForm wbf);
 
-    BasicBlock* genCreateTempLabel();
-    void genLogLabel(BasicBlock* bb);
-    void genDefineTempLabel(BasicBlock* label);
-    void genDefineInlineTempLabel(BasicBlock* label);
-
 #if !FEATURE_FIXED_OUT_ARGS
-    void genAdjustStackLevel(BasicBlock* block);
+    void SetThrowHelperBlockStackLevel(BasicBlock* block);
 #endif
 
     void genExitCode(BasicBlock* block);
 
-    void genJumpToThrowHlpBlk(emitJumpKind jumpKind, ThrowHelperKind codeKind, BasicBlock* failBlk = nullptr);
+    void genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throwKind, BasicBlock* throwBlock = nullptr);
 
 #ifdef TARGET_ARM64
     void genCheckOverflow(GenTree* tree);
-#endif
-
-    unsigned prologSize;
-#ifdef JIT32_GCENCODER
-    unsigned epilogSize;
 #endif
 
     void PrologEstablishFramePointer(int delta, bool reportUnwindData);
@@ -304,31 +313,32 @@ public:
     void PrologPushCalleeSavedRegisters();
 #endif
 
-    void PrologAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pInitRegZeroed, regMaskTP maskArgRegsLiveIn);
+#ifdef TARGET_ARM
+    void PrologAllocMainLclFrame(RegNum initReg, bool* initRegZeroed);
+#endif
+    void PrologAllocLclFrame(unsigned frameSize, RegNum initReg, bool* initRegZeroed, regMaskTP maskArgRegsLiveIn);
 
     void genPoisonFrame(regMaskTP bbRegLiveIn);
 
-#if defined(TARGET_ARM)
-
+#ifdef TARGET_ARM
     void genInstrWithConstant(instruction ins, regNumber reg1, regNumber reg2, int32_t imm, regNumber tmpReg);
-
     void genStackPointerAdjustment(int32_t spAdjustment, regNumber tmpReg);
-
     void genPushFltRegs(regMaskTP regMask);
     void genPopFltRegs(regMaskTP regMask);
     regMaskTP genStackAllocRegisterMask(unsigned frameSize, regMaskTP maskCalleeSavedFloat);
-
     void genFreeLclFrame(unsigned frameSize, bool* pUnwindStarted);
-
-    void genMov32RelocatableDisplacement(BasicBlock* block, regNumber reg);
+    void genMov32RelocatableDisplacement(insGroup* block, regNumber reg);
     void genMov32RelocatableDataLabel(unsigned value, regNumber reg);
 
     bool genUsedPopToReturn; // True if we use the pop into PC to return,
                              // False if we didn't and must branch to LR to return.
+#endif
 
-    // A set of information that is used by funclet prolog and epilog generation. It is collected once, before
-    // funclet prologs and epilogs are generated, and used by all funclet prologs and epilogs, which must all be the
-    // same.
+#ifdef FEATURE_EH_FUNCLETS
+#if defined(TARGET_ARM)
+    // A set of information that is used by funclet prolog and epilog generation.
+    // It is collected once, before funclet prologs and epilogs are generated,
+    // and used by all funclet prologs and epilogs, which must all be the same.
     struct FuncletFrameInfoDsc
     {
         regMaskTP fiSaveRegs;                  // Set of registers saved in the funclet prolog (includes LR)
@@ -337,14 +347,7 @@ public:
         unsigned  fiPSP_slot_SP_offset;        // PSP slot offset from SP
         int       fiPSP_slot_CallerSP_offset;  // PSP slot offset from Caller SP
     };
-
-    FuncletFrameInfoDsc genFuncletInfo;
-
 #elif defined(TARGET_ARM64)
-
-    // A set of information that is used by funclet prolog and epilog generation. It is collected once, before
-    // funclet prologs and epilogs are generated, and used by all funclet prologs and epilogs, which must all be the
-    // same.
     struct FuncletFrameInfoDsc
     {
         regMaskTP fiSaveRegs;                // Set of callee-saved registers saved in the funclet prolog (includes LR)
@@ -358,24 +361,42 @@ public:
         int fiSpDelta1;                      // Stack pointer delta 1 (negative)
         int fiSpDelta2;                      // Stack pointer delta 2 (negative)
     };
-
-    FuncletFrameInfoDsc genFuncletInfo;
-
 #elif defined(TARGET_AMD64)
-
-    // A set of information that is used by funclet prolog and epilog generation. It is collected once, before
-    // funclet prologs and epilogs are generated, and used by all funclet prologs and epilogs, which must all be the
-    // same.
     struct FuncletFrameInfoDsc
     {
         unsigned fiFunction_InitialSP_to_FP_delta; // Delta between Initial-SP and the frame pointer
         unsigned fiSpDelta;                        // Stack pointer delta
         int      fiPSP_slot_InitialSP_offset;      // PSP slot offset from Initial-SP
     };
+#endif // TARGET_AMD64
 
     FuncletFrameInfoDsc genFuncletInfo;
+    uint16_t            compFuncInfoCount   = 0;
+    uint16_t            currentFuncletIndex = 0;
+    FuncInfoDsc*        compFuncInfos       = nullptr;
 
-#endif // TARGET_AMD64
+    unsigned funGetFuncIdx(BasicBlock* block);
+
+    FuncInfoDsc& funGetFunc(unsigned index);
+
+    FuncInfoDsc& funCurrentFunc()
+    {
+        return funGetFunc(currentFuncletIndex);
+    }
+
+    FuncInfoDsc& funSetCurrentFunc(unsigned index)
+    {
+        assert(FitsIn<uint16_t>(index));
+        noway_assert(index < compFuncInfoCount);
+        currentFuncletIndex = static_cast<int16_t>(index);
+        return funGetFunc(index);
+    }
+#else
+    void funSetCurrentFunc(unsigned index)
+    {
+        assert(index == 0);
+    }
+#endif
 
 #ifdef TARGET_XARCH
     void PrologPreserveCalleeSavedFloatRegs(unsigned lclFrameSize);
@@ -429,21 +450,7 @@ public:
 #ifdef TARGET_ARM
     void genInsertNopForUnwinder(BasicBlock* block);
 #endif
-
-#else // !FEATURE_EH_FUNCLETS
-    void genUpdateCurrentFunclet(BasicBlock* block)
-    {
-    }
-
-#ifdef TARGET_ARM
-    void genInsertNopForUnwinder(BasicBlock* block)
-    {
-    }
-#endif
-
-#endif // !FEATURE_EH_FUNCLETS
-
-    void genGeneratePrologsAndEpilogs();
+#endif // FEATURE_EH_FUNCLETS
 
 #if defined(DEBUG) && defined(TARGET_ARM64)
     void genArm64EmitterUnitTests();
@@ -458,225 +465,32 @@ public:
     void PopTempReg(regNumber reg, var_types type);
 #endif
 
-#ifdef DEBUG
-    void genIPmappingDisp(unsigned mappingNum, IPmappingDsc* ipMapping);
-    void genIPmappingListDisp();
-#endif
-
     void genIPmappingAdd(IL_OFFSETX offset, bool isLabel);
-    void genIPmappingAddToFront(IL_OFFSETX offset);
     void genIPmappingGen();
-
-    unsigned eeBoundariesCount;
-
-    struct boundariesDsc
-    {
-        UNATIVE_OFFSET nativeIP;
-        IL_OFFSET      ilOffset;
-        unsigned       sourceReason;
-    } * eeBoundaries; // Boundaries to report to EE
-
-    void eeSetLIcount(unsigned count);
-    void eeSetLIinfo(unsigned which, UNATIVE_OFFSET offs, unsigned srcIP, bool stkEmpty, bool callInstruction);
-    void eeSetLIdone();
-
-#ifdef DEBUG
-    static void eeDispILOffs(IL_OFFSET offs);
-    static void eeDispLineInfo(const boundariesDsc* line);
-    void eeDispLineInfos();
-#endif
-
-    unsigned eeVarsCount;
-
-    struct VarResultInfo
-    {
-        UNATIVE_OFFSET             startOffset;
-        UNATIVE_OFFSET             endOffset;
-        DWORD                      varNumber;
-        CodeGenInterface::siVarLoc loc;
-    } * eeVars;
-
-    void eeSetLVcount(unsigned count);
-    void eeSetLVinfo(unsigned                          which,
-                     UNATIVE_OFFSET                    startOffs,
-                     UNATIVE_OFFSET                    length,
-                     unsigned                          varNum,
-                     const CodeGenInterface::siVarLoc& loc);
-    void eeSetLVdone();
-
-#ifdef DEBUG
-    void eeDispVar(ICorDebugInfo::NativeVarInfo* var);
-    void eeDispVars(CORINFO_METHOD_HANDLE ftn, ULONG32 cVars, ICorDebugInfo::NativeVarInfo* vars);
-#endif
 
     void genEnsureCodeEmitted(IL_OFFSETX offsx);
 
-    void genSetScopeInfo(unsigned       which,
-                         UNATIVE_OFFSET startOffs,
-                         UNATIVE_OFFSET length,
-                         unsigned       varNum,
-                         unsigned       LVnum,
-                         bool           avail,
-                         siVarLoc*      varLoc);
-
     void genSetScopeInfo();
-#ifdef USING_VARIABLE_LIVE_RANGE
-    void genSetScopeInfoUsingVariableRanges();
-#endif
-
-#ifdef USING_SCOPE_INFO
-    void genSetScopeInfoUsingsiScope();
-#endif
-
-public:
-    void siInit();
-    void checkICodeDebugInfo();
-
-    void siBeginBlock(BasicBlock* block);
-    void siEndBlock(BasicBlock* block);
-    void siOpenScopesForNonTrackedVars(const BasicBlock* block, unsigned int lastBlockILEndOffset);
-
-protected:
-#ifdef FEATURE_EH_FUNCLETS
-    bool siInFuncletRegion;
-#endif
-
-    IL_OFFSET siLastEndOffs; // IL offset of the (exclusive) end of the last block processed
-
-#ifdef USING_SCOPE_INFO
-public:
-    // Closes the "ScopeInfo" of the tracked variables that has become dead.
-    virtual void siUpdate();
-    void siCheckVarScope(unsigned varNum, IL_OFFSET offs);
-    void siCloseAllOpenScopes();
-#ifdef DEBUG
-    void siDispOpenScopes();
-#endif
-
-protected:
-    struct siScope
-    {
-        emitLocation scStartLoc; // emitter location of start of scope
-        emitLocation scEndLoc;   // emitter location of end of scope
-
-        unsigned scVarNum; // index into lvaTable
-        unsigned scLVnum;  // 'which' in eeGetLVinfo()
-
-        unsigned scStackLevel; // Only for stk-vars
-
-        siScope* scPrev;
-        siScope* scNext;
-    };
-
-    // Returns a "siVarLoc" instance representing the place where the variable lives base on
-    // varDsc and scope description.
-    CodeGenInterface::siVarLoc getSiVarLoc(const LclVarDsc* varDsc, const siScope* scope) const;
-
-    siScope siOpenScopeList, siScopeList, *siOpenScopeLast, *siScopeLast;
-
-    unsigned siScopeCnt;
-
-    VARSET_TP siLastLife; // Life at last call to siUpdate()
-
-    // Tracks the last entry for each tracked register variable
-
-    siScope** siLatestTrackedScopes;
-
-    siScope* siNewScope(unsigned LVnum, unsigned varNum);
-    void siRemoveFromOpenScopeList(siScope* scope);
-    void siEndTrackedScope(unsigned varIndex);
-    void siEndScope(unsigned varNum);
-    void siEndScope(siScope* scope);
-
-#ifdef LATE_DISASM
-public:
-    const char* siRegVarName(size_t offs, size_t size, unsigned reg);
-    const char* siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs);
-#endif
-
-#endif // USING_SCOPE_INFO
-
-public:
-    void psiBegProlog();
-    void psiEndProlog();
-
-#ifdef USING_SCOPE_INFO
-    void psiAdjustStackLevel(unsigned size);
-
-    // For EBP-frames, the parameters are accessed via ESP on entry to the function,
-    // but via EBP right after a "mov ebp,esp" instruction.
-    void psiMoveESPtoEBP();
-
-    // Close previous psiScope and open a new one on the location described by the registers.
-    void psiMoveToReg(unsigned varNum, regNumber reg = REG_NA, regNumber otherReg = REG_NA);
-
-    // Search the open "psiScope" of the "varNum" parameter, close it and open
-    // a new one using "LclVarDsc" fields.
-    void psiMoveToStack(unsigned varNum);
-
-protected:
-    struct psiScope
-    {
-        emitLocation scStartLoc; // emitter location of start of scope
-        emitLocation scEndLoc;   // emitter location of end of scope
-
-        unsigned scSlotNum; // index into lclVarTab
-        unsigned scLVnum;   // 'which' in eeGetLVinfo()
-
-        bool scRegister;
-
-        union {
-            struct
-            {
-                regNumberSmall scRegNum;
-
-                // Used for:
-                //  - "other half" of long var on architectures with 32 bit size registers - x86.
-                //  - for System V structs it stores the second register
-                //    used to pass a register passed struct.
-                regNumberSmall scOtherReg;
-            } u1;
-
-            struct
-            {
-                regNumberSmall scBaseReg;
-                NATIVE_OFFSET  scOffset;
-            } u2;
-        };
-
-        psiScope* scPrev;
-        psiScope* scNext;
-
-        // Returns a "siVarLoc" instance representing the place where the variable lives base on
-        // psiScope properties.
-        CodeGenInterface::siVarLoc getSiVarLoc() const;
-    };
-
-    psiScope psiOpenScopeList, psiScopeList, *psiOpenScopeLast, *psiScopeLast;
-
-    unsigned psiScopeCnt;
-
-    psiScope* psiNewPrologScope(unsigned LVnum, unsigned slotNum);
-    void psiEndPrologScope(psiScope* scope);
-    void psiSetScopeOffset(psiScope* newScope, const LclVarDsc* lclVarDsc) const;
-#endif // USING_SCOPE_INFO
-
-    NATIVE_OFFSET psiGetVarStackOffset(const LclVarDsc* lclVarDsc) const;
+    void genSetScopeInfoUsingVariableRanges(VarResultInfo* vars);
+    void genSetScopeInfo(VarResultInfo* vars,
+                         unsigned       index,
+                         uint32_t       startOffs,
+                         uint32_t       endOffs,
+                         unsigned       lclNum,
+                         unsigned       ilVarNum,
+                         DbgInfoVarLoc* varLoc);
 
 protected:
 #ifdef LATE_DISASM
     struct TrnslLocalVarInfo
     {
-        unsigned       tlviVarNum;
-        unsigned       tlviLVnum;
-        const char*    tlviName;
-        UNATIVE_OFFSET tlviStartPC;
-        size_t         tlviLength;
-        bool           tlviAvailable;
-        siVarLoc       tlviVarLoc;
+        const char*   tlviName;
+        uint32_t      tlviStartPC;
+        uint32_t      tlviEndPC;
+        DbgInfoVarLoc tlviVarLoc;
     };
 
-    TrnslLocalVarInfo* genTrnslLocalVarInfo;
+    TrnslLocalVarInfo* genTrnslLocalVarInfo  = nullptr;
     unsigned           genTrnslLocalVarCount = 0;
 #endif
 
@@ -880,10 +694,7 @@ protected:
                                          regNumber                 offsReg,
                                          HWIntrinsicSwitchCaseBody emitSwCase);
 #endif // TARGET_XARCH
-
 #endif // FEATURE_HW_INTRINSICS
-
-    void genUpdateLife(GenTreeLclVarCommon* tree);
 
     void SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex);
     X86_ONLY(void SpillST0(GenTree* node);)
@@ -944,7 +755,7 @@ protected:
     void EpilogGSCookieCheck();
 #endif
 
-    void genCodeForCast(GenTreeCast* cast);
+    void GenCast(GenTreeCast* cast);
     void GenLclAddr(GenTreeLclAddr* addr);
     void genCodeForIndexAddr(GenTreeIndexAddr* tree);
     void GenIndLoad(GenTreeIndir* load);
@@ -962,7 +773,7 @@ protected:
     void GenStoreLclVarMultiRegSIMDMem(GenTreeLclVar* store);
     void GenStoreLclVarMultiRegSIMDReg(GenTreeLclVar* store);
     void genCodeForReturnTrap(GenTreeOp* tree);
-    void genCodeForSetcc(GenTreeCC* setcc);
+    void GenSetCC(GenTreeCC* setcc);
     void GenIndStore(GenTreeStoreInd* tree);
 #ifdef TARGET_XARCH
     void genCodeForSwap(GenTreeOp* tree);
@@ -1062,7 +873,7 @@ protected:
                       const CORINFO_CONST_LOOKUP& addrInfo
 #endif
                       );
-    BasicBlock* genCallFinally(BasicBlock* block);
+    void GenCallFinally(BasicBlock* block);
     void GenJTrue(GenTreeUnOp* jtrue, BasicBlock* block);
     void GenJCC(GenTreeCC* jcc, BasicBlock* block);
 #ifdef TARGET_ARM64
@@ -1114,27 +925,22 @@ protected:
     }
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
-    void genStackPointerCheck(unsigned lvaStackPointerVar);
+    void genStackPointerCheck();
 #endif
 
 #ifdef DEBUG
     GenTree* lastConsumedNode;
-    void genNumberOperandUse(GenTree* const operand, int& useNum) const;
-    void genCheckConsumeNode(GenTree* const node);
-#else
-    void genCheckConsumeNode(GenTree* treeNode)
-    {
-    }
+    void AssignUseOrder(BasicBlock* block);
+    void AssignUseOrder(GenTree* const operand, int& useNum) const;
+    void VerifyUseOrder(GenTree* const node);
 #endif
 
 public:
-    void inst_JMP(emitJumpKind jmp, BasicBlock* tgtBlock);
     void inst_Mov(var_types dstType, regNumber dstReg, regNumber srcReg, bool canSkip);
 
     bool IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs);
 
 #ifdef TARGET_XARCH
-    void inst_SET(emitJumpKind condition, regNumber reg);
     void inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned val);
     bool IsMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs, GenTree** addr, CORINFO_FIELD_HANDLE* field);
     void emitInsRM(instruction ins, emitAttr attr, GenTree* src);
@@ -1154,7 +960,6 @@ public:
 
 #ifdef TARGET_ARM64
     void inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size);
-    void inst_SET(emitJumpKind condition, regNumber reg);
     void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTreeIndir* load);
     void emitInsStore(instruction ins, emitAttr attr, regNumber reg, GenTreeStoreInd* store);
     void emitInsIndir(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir);
@@ -1304,7 +1109,7 @@ public:
         static const GenConditionDesc map[32];
     };
 
-    void inst_JCC(GenCondition condition, BasicBlock* target);
+    void inst_JCC(GenCondition condition, insGroup* label);
     void inst_SETCC(GenCondition condition, var_types type, regNumber dstReg);
 
     INDEBUG(bool IsValidSourceType(var_types instrType, var_types sourceType);)
@@ -1318,182 +1123,154 @@ public:
     insGroup* syncStartEmitCookie = nullptr;
     insGroup* syncEndEmitCookie   = nullptr;
 #endif
-#ifdef USING_VARIABLE_LIVE_RANGE
-    // Holds an array of "VariableLiveDescriptor", one for each variable
-    // whose location we track. It provides start/end/update/count operations
-    // over the "LiveRangeList" of any variable.
-    //
-    // This method could be implemented on Compiler class too, but the intention is to move code
-    // out of that class, which is huge. With this solution the only code needed in Compiler is
-    // a getter and an initializer of this class.
-    // The index of each variable in this array corresponds to the one in "compiler->lvaTable".
-    // We care about tracking the variable locations of arguments, special arguments, and local IL
-    // variables, and we ignore any other variable (like JIT temporary variables).
-    //
-    class VariableLiveKeeper
+
+#if !FEATURE_FIXED_OUT_ARGS
+    //  Keeps track of how many bytes we've pushed on the processor's stack.
+    unsigned genStackLevel = 0;
+
+    unsigned GetCurrentStackLevel() const
     {
-    public:
-        // Represent part of the life of a variable.
-        // A variable lives in a location (represented with struct "siVarLoc")
-        // between two native offsets.
-        //
-        // We use emitLocation and not NATTIVE_OFFSET because location
-        // is captured when code is being generated (genCodeForBBList
-        // and genGeneratePrologsAndEpilogs) but only after the whole
-        // method's code is generated can we obtain a final, fixed
-        // NATIVE_OFFSET representing the actual generated code offset.
-        // There is also a IL_OFFSET, but this is more accurate and the
-        // debugger is expecting assembly offsets.
-        // This class doesn't have behaviour attached to itself, it is
-        // just putting a name to a representation. It is used to build
-        // typedefs LiveRangeList and LiveRangeListIterator, which are
-        // basically a list of this class and a const_iterator of that list.
-        //
-        class VariableLiveRange
-        {
-        public:
-            emitLocation               m_StartEmitLocation; // first position from where "m_VarLocation" becomes valid
-            emitLocation               m_EndEmitLocation;   // last position where "m_VarLocation" is valid
-            CodeGenInterface::siVarLoc m_VarLocation;       // variable location
-
-            VariableLiveRange(CodeGenInterface::siVarLoc varLocation,
-                              emitLocation               startEmitLocation,
-                              emitLocation               endEmitLocation)
-                : m_StartEmitLocation(startEmitLocation), m_EndEmitLocation(endEmitLocation), m_VarLocation(varLocation)
-            {
-            }
-
-#ifdef DEBUG
-            // Dump "VariableLiveRange" when code has not been generated. We don't have the native code offset,
-            // but we do have "emitLocation"s and "siVarLoc".
-            void dumpVariableLiveRange(const CodeGenInterface* codeGen) const;
-
-            // Dump "VariableLiveRange" when code has been generated and we have the native code offset of each
-            // "emitLocation"
-            void dumpVariableLiveRange(emitter* emit, const CodeGenInterface* codeGen) const;
-#endif // DEBUG
-        };
-
-        typedef jitstd::list<VariableLiveRange> LiveRangeList;
-        typedef LiveRangeList::const_iterator   LiveRangeListIterator;
-
-    private:
-#ifdef DEBUG
-        // Used for debugging purposes during code generation on genCodeForBBList.
-        // Keeps an iterator to the first edited/added "VariableLiveRange" of a
-        // variable during the generation of code of one block.
-        //
-        // The first "VariableLiveRange" reported for a variable during
-        // a BasicBlock is sent to "setDumperStartAt" so we can dump all
-        // the "VariableLiveRange"s from that one.
-        // After we dump all the "VariableLiveRange"s we call "reset" with
-        // the "liveRangeList" to set the barrier to nullptr or the last
-        // "VariableLiveRange" if it is opened.
-        // If no "VariableLiveRange" was edited/added during block,
-        // the iterator points to the end of variable's LiveRangeList.
-        class LiveRangeDumper
-        {
-            // Iterator to the first edited/added position during actual block code generation. If last
-            // block had a closed "VariableLiveRange" (with a valid "m_EndEmitLocation") and not changes
-            // were applied to variable liveness, it points to the end of variable's LiveRangeList.
-            LiveRangeListIterator m_StartingLiveRange;
-            bool                  m_hasLiveRangestoDump; // True if a live range for this variable has been
-            // reported from last call to EndBlock
-
-        public:
-            LiveRangeDumper(const LiveRangeList* liveRanges)
-                : m_StartingLiveRange(liveRanges->end()), m_hasLiveRangestoDump(false){};
-
-            // Make the dumper point to the last "VariableLiveRange" opened or nullptr if all are closed
-            void resetDumper(const LiveRangeList* list);
-
-            // Make "LiveRangeDumper" instance points the last "VariableLiveRange" added so we can
-            // start dumping from there after the actual "BasicBlock"s code is generated.
-            void setDumperStartAt(const LiveRangeListIterator liveRangeIt);
-
-            // Return an iterator to the first "VariableLiveRange" edited/added during the current
-            // "BasicBlock"
-            LiveRangeListIterator getStartForDump() const;
-
-            // Return whether at least a "VariableLiveRange" was alive during the current "BasicBlock"'s
-            // code generation
-            bool hasLiveRangesToDump() const;
-        };
-#endif // DEBUG
-
-        // This class persist and update all the changes to the home of a variable.
-        // It has an instance of "LiveRangeList" and methods to report the start/end
-        // of a VariableLiveRange.
-        class VariableLiveDescriptor
-        {
-            LiveRangeList* m_VariableLiveRanges; // the variable locations of this variable
-            INDEBUG(LiveRangeDumper* m_VariableLifeBarrier);
-
-        public:
-            VariableLiveDescriptor(CompAllocator allocator);
-
-            bool           hasVariableLiveRangeOpen() const;
-            LiveRangeList* getLiveRanges() const;
-
-            void startLiveRangeFromEmitter(CodeGenInterface::siVarLoc varLocation, emitter* emit) const;
-            void endLiveRangeAtEmitter(emitter* emit) const;
-            void updateLiveRangeAtEmitter(CodeGenInterface::siVarLoc varLocation, emitter* emit) const;
-
-#ifdef DEBUG
-            void dumpAllRegisterLiveRangesForBlock(emitter* emit, const CodeGenInterface* codeGen) const;
-            void dumpRegisterLiveRangesForBlockBeforeCodeGenerated(const CodeGenInterface* codeGen) const;
-            bool hasVarLiveRangesToDump() const;
-            bool hasVarLiveRangesFromLastBlockToDump() const;
-            void endBlockLiveRanges();
+        return genStackLevel;
+    }
 #endif
-        };
 
-        unsigned int m_LiveDscCount;  // count of args, special args, and IL local variables to report home
-        unsigned int m_LiveArgsCount; // count of arguments to report home
+    insGroup* ehEmitLabel(BasicBlock* block);
+    uint32_t ehCodeOffset(BasicBlock* block);
 
-        Compiler* m_Compiler;
+#ifdef TARGET_ARMARCH
+    emitLocation unwindLoc;
 
-        VariableLiveDescriptor* m_vlrLiveDsc; // Array of descriptors that manage VariableLiveRanges.
-        // Its indices correspond to lvaTable indexes.
+    void unwindCaptureLocation()
+    {
+        unwindLoc.CaptureLocation(GetEmitter());
+    }
 
-        VariableLiveDescriptor* m_vlrLiveDscForProlog; // Array of descriptors that manage VariableLiveRanges.
-        // Its indices correspond to lvaTable indexes.
+    const emitLocation& unwidGetLocation() const
+    {
+        return unwindLoc;
+    }
+#endif
 
-        bool m_LastBasicBlockHasBeenEmited; // When true no more siEndVariableLiveRange is considered.
-        // No update/start happens when code has been generated.
+    void unwindBegProlog();
+    void unwindBegEpilog();
 
-    public:
-        VariableLiveKeeper(unsigned int  totalLocalCount,
-                           unsigned int  argsCount,
-                           Compiler*     compiler,
-                           CompAllocator allocator);
+    // TODO-MIKE-Review: Unwind information doesn't need or even have a well defined "end",
+    // remove these? They have some documenting value but that's really minor.
+    void unwindEndProlog() const
+    {
+        assert(generatingProlog);
+    }
 
-        void siStartOrCloseVariableLiveRange(const LclVarDsc* varDsc, unsigned int varNum, bool isBorn, bool isDying);
-        void siStartVariableLiveRange(const LclVarDsc* varDsc, unsigned int varNum);
-        void siEndVariableLiveRange(unsigned int varNum);
-        void siUpdateVariableLiveRange(const LclVarDsc* varDsc, unsigned int varNum);
-        void siEndAllVariableLiveRange(VARSET_VALARG_TP varsToClose);
-        void siEndAllVariableLiveRange();
+    void unwindEndEpilog() const
+    {
+        assert(generatingEpilog);
+    }
 
-        LiveRangeList* getLiveRangesForVarForBody(unsigned int varNum) const;
-        LiveRangeList* getLiveRangesForVarForProlog(unsigned int varNum) const;
-        size_t getLiveRangesCount() const;
+#ifdef FEATURE_EH_FUNCLETS
+    void unwindReserve();
+    void unwindEmit();
+#endif
 
-        void psiStartVariableLiveRange(CodeGenInterface::siVarLoc varLocation, unsigned int varNum);
-        void psiClosePrologVariableRanges();
+    void unwindAllocStack(unsigned size);
+
+#ifdef TARGET_ARM
+    void unwindSetFrameReg(RegNum reg);
+    void unwindPushMaskInt(regMaskTP mask);
+    void unwindPushMaskFloat(regMaskTP mask);
+    void unwindPopMaskInt(regMaskTP mask);
+    void unwindPopMaskFloat(regMaskTP mask);
+    void unwindBranch16();                    // The epilog terminates with a 16-bit branch (e.g., "bx lr")
+    void unwindNop(unsigned codeSizeInBytes); // Generate unwind NOP code
+    void unwindPadding(); // Generate a sequence of unwind NOP codes representing instructions between the last
+                          // instruction and the current location.
+    void unwindPushPopMaskInt(regMaskTP mask, bool useOpsize16);
+    void unwindPushPopMaskFloat(regMaskTP mask);
+    unsigned unwindGetInstructionSize() const;
+#ifdef DEBUG
+    void DumpUnwindInfo(bool isHotCode, CodeRange range, const uint8_t* header, uint32_t unwindSize) const;
+#endif
+#endif
+
+#ifdef TARGET_ARM64
+    void unwindNop();
+    void unwindPadding(); // Generate a sequence of unwind NOP codes representing instructions between the last
+    // instruction and the current location.
+    void unwindSetFrameReg(RegNum reg, unsigned offset);
+    void unwindSaveReg(RegNum reg, int offset);                             // str reg, [sp, #offset]
+    void unwindSaveRegPreindexed(RegNum reg, int offset);                   // str reg, [sp, #offset]!
+    void unwindSaveRegPair(RegNum reg1, RegNum reg2, int offset);           // stp reg1, reg2, [sp, #offset]
+    void unwindSaveRegPairPreindexed(RegNum reg1, RegNum reg2, int offset); // stp reg1, reg2, [sp, #offset]!
+    void unwindSaveNext();                                                  // unwind code: save_next
+    void unwindReturn(RegNum reg);                                          // ret lr
+#ifdef DEBUG
+    void DumpUnwindInfo(bool isHotCode, CodeRange range, const uint8_t* header, uint32_t unwindSize) const;
+#endif
+#endif
+
+#ifdef TARGET_AMD64
+    void unwindBegPrologWindows();
+    void unwindSetFrameReg(RegNum reg, unsigned offset);
+    void unwindSaveReg(RegNum reg, unsigned offset);
+    void unwindPush(RegNum reg);
+    void unwindPushWindows(RegNum reg);
+    void unwindAllocStackWindows(unsigned size);
+    void unwindSetFrameRegWindows(RegNum reg, unsigned offset);
+    void unwindSaveRegWindows(RegNum reg, unsigned offset);
+#ifdef TARGET_UNIX
+    void unwindSaveRegCFI(RegNum reg, unsigned offset);
+#endif
+#ifdef DEBUG
+    void DumpUnwindInfo(bool isHotCode, CodeRange range, const UNWIND_INFO* header) const;
+#endif
+#endif
+
+#ifdef TARGET_X86
+    void unwindSetFrameReg(RegNum reg, unsigned offset);
+    void unwindPush(RegNum reg);
+    void unwindSaveReg(RegNum reg, unsigned offset);
+#endif
+
+#ifdef TARGET_UNIX
+    static int16_t mapRegNumToDwarfReg(RegNum reg);
+
+    void unwindPushPopCFI(RegNum reg);
+    void unwindBegPrologCFI();
+    void unwindPushPopMaskCFI(regMaskTP regMask, bool isFloat);
+    void unwindAllocStackCFI(unsigned size);
+    void unwindSetFrameRegCFI(RegNum reg, unsigned offset);
+    void unwindEmitFuncCFI(FuncInfoDsc* func);
+
+    bool generateCFIUnwindCodes() const
+    {
+        return compiler->IsTargetAbi(CORINFO_CORERT_ABI);
+    }
 
 #ifdef DEBUG
-        void dumpBlockVariableLiveRanges(const BasicBlock* block);
-        void dumpLvaVariableLiveRanges() const;
+    void DumpCfiInfo(bool isHotCode, CodeRange range, uint32_t count, const CFI_CODE* codes) const;
 #endif
-    };
+#endif
 
-    void initializeVariableLiveKeeper();
+#if defined(TARGET_AMD64) || defined(TARGET_UNIX)
+    uint32_t unwindGetCurrentOffset();
+#endif
 
-    VariableLiveKeeper* getVariableLiveKeeper() const;
+#ifdef FEATURE_EH_FUNCLETS
+    void unwindGetFuncHotRange(FuncInfoDsc* func, insGroup** start, insGroup** end);
+    CodeRange unwindGetFuncHotRange(FuncInfoDsc* func);
+    void unwindGetFuncColdRange(FuncInfoDsc* func, insGroup** start, insGroup** end);
+    CodeRange unwindGetFuncColdRange(FuncInfoDsc* func);
+    void unwindReserveFunc(FuncInfoDsc* func);
+    void unwindEmitFunc(FuncInfoDsc* func);
+#endif
+#if defined(TARGET_AMD64) || (defined(TARGET_X86) && defined(FEATURE_EH_FUNCLETS))
+    void unwindReserveFuncRegion(FuncInfoDsc* func, bool isHotCode);
+    void unwindEmitFuncRegion(FuncInfoDsc* func, bool isHotCode);
+#endif
 
-    VariableLiveKeeper* varLiveKeeper; // Used to manage VariableLiveRanges of variables
-#endif                                 // USING_VARIABLE_LIVE_RANGE
+#ifdef FEATURE_EH_FUNCLETS
+    void eeReserveUnwindInfo(bool isFunclet, bool isHotCode, uint32_t unwindSize);
+    void eeAllocUnwindInfo(FuncKind kind, bool isHotCode, CodeRange range, uint32_t unwindSize, void* unwindBlock);
+#endif
 };
 
 #endif // CODEGEN_H

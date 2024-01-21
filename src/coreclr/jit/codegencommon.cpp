@@ -19,6 +19,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "emit.h"
 #include "patchpointinfo.h"
 #include "lsra.h"
+#include "unwind.h"
 
 void Compiler::codeGenInit()
 {
@@ -29,9 +30,62 @@ CodeGenInterface::CodeGenInterface(Compiler* compiler) : compiler(compiler), spi
 {
 }
 
+CORINFO_FIELD_HANDLE CodeGenInterface::GetConst(const void* data,
+                                                unsigned    size,
+                                                unsigned align DEBUGARG(var_types type))
+{
+    return GetEmitter()->GetConst(data, size, align DEBUGARG(type));
+}
+
+void CodeGenInterface::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
+{
+    static_cast<CodeGen*>(this)->genGenerateCode(nativeCode, nativeCodeSize);
+}
+
+unsigned CodeGenInterface::GetHotCodeSize() const
+{
+    return GetEmitter()->GetHotCodeSize();
+}
+
+unsigned CodeGenInterface::GetColdCodeSize() const
+{
+    return GetEmitter()->GetColdCodeSize();
+}
+
+unsigned CodeGenInterface::GetCodeSize() const
+{
+    return GetEmitter()->GetCodeSize();
+}
+
+#ifdef JIT32_GCENCODER
+unsigned CodeGenInterface::GetGCInfoSize() const
+{
+    return static_cast<const CodeGen*>(this)->gcInfoSize;
+}
+#endif
+
+#if defined(DEBUG) || defined(LATE_DISASM)
+double CodeGenInterface::GetPerfScore() const
+{
+    return GetEmitter()->GetPerfScore();
+}
+#endif
+
+#ifdef LATE_DISASM
+const char* CodeGenInterface::siRegVarName(size_t offs, size_t size, unsigned reg)
+{
+    return static_cast<CodeGen*>(this)->siRegVarName(offs, size, reg);
+}
+
+const char* CodeGenInterface::siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs)
+{
+    return static_cast<CodeGen*>(this)->siStackVarName(offs, size, reg, stkOffs);
+}
+#endif
+
 CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), liveness(compiler)
 {
-    m_cgEmitter = new (compiler->getAllocator()) emitter(compiler, this, compiler->info.compCompHnd);
+    m_cgEmitter = new (compiler, CMK_Codegen) emitter(compiler, this, compiler->info.compCompHnd);
 
 #ifdef LATE_DISASM
     getDisAssembler().disInit(compiler);
@@ -41,167 +95,9 @@ CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), liveness(comp
 #ifdef TARGET_XARCH
 void CodeGenInterface::SetUseVEXEncoding(bool value)
 {
-    m_cgEmitter->SetUseVEXEncoding(value);
+    GetEmitter()->SetUseVEXEncoding(value);
 }
 #endif
-
-//------------------------------------------------------------------------
-// genMarkLabelsForCodegen: Mark labels required for codegen.
-//
-// Mark all blocks that require a label with BBF_HAS_LABEL. These are either blocks that are:
-// 1. the target of jumps (fall-through flow doesn't require a label),
-// 2. referenced labels such as for "switch" codegen,
-// 3. needed to denote the range of EH regions to the VM.
-// 4. needed to denote the range of code for alignment processing.
-//
-// No labels will be in the IR before now, but future codegen might annotate additional blocks
-// with this flag, such as "switch" codegen, or codegen-created blocks from genCreateTempLabel().
-// Also, the alignment processing code marks BBJ_COND fall-through labels elsewhere.
-//
-// To report exception handling information to the VM, we need the size of the exception
-// handling regions. To compute that, we need to emit labels for the beginning block of
-// an EH region, and the block that immediately follows a region. Go through the EH
-// table and mark all these blocks with BBF_HAS_LABEL to make this happen.
-//
-// This code is closely couple with genReportEH() in the sense that any block
-// that this procedure has determined it needs to have a label has to be selected
-// using the same logic both here and in genReportEH(), so basically any time there is
-// a change in the way we handle EH reporting, we have to keep the logic of these two
-// methods 'in sync'.
-//
-// No blocks should be added or removed after this.
-//
-void CodeGen::genMarkLabelsForCodegen()
-{
-    assert(!compiler->fgSafeBasicBlockCreation);
-
-    JITDUMP("Mark labels for codegen\n");
-
-#ifdef DEBUG
-    // No label flags should be set before this.
-    for (BasicBlock* const block : compiler->Blocks())
-    {
-        assert((block->bbFlags & BBF_HAS_LABEL) == 0);
-    }
-#endif // DEBUG
-
-    // The first block is special; it always needs a label. This is to properly set up GC info.
-    JITDUMP("  " FMT_BB " : first block\n", compiler->fgFirstBB->bbNum);
-    compiler->fgFirstBB->bbFlags |= BBF_HAS_LABEL;
-
-    // The current implementation of switch tables requires the first block to have a label so it
-    // can generate offsets to the switch label targets.
-    // (This is duplicative with the fact we always set the first block with a label above.)
-    // TODO-CQ: remove this when switches have been re-implemented to not use this.
-    if (compiler->fgHasSwitch)
-    {
-        JITDUMP("  " FMT_BB " : function has switch; mark first block\n", compiler->fgFirstBB->bbNum);
-        compiler->fgFirstBB->bbFlags |= BBF_HAS_LABEL;
-    }
-
-    for (BasicBlock* const block : compiler->Blocks())
-    {
-        switch (block->bbJumpKind)
-        {
-            case BBJ_ALWAYS: // This will also handle the BBJ_ALWAYS of a BBJ_CALLFINALLY/BBJ_ALWAYS pair.
-            case BBJ_COND:
-            case BBJ_EHCATCHRET:
-                JITDUMP("  " FMT_BB " : branch target\n", block->bbJumpDest->bbNum);
-                block->bbJumpDest->bbFlags |= BBF_HAS_LABEL;
-                break;
-
-            case BBJ_SWITCH:
-                for (BasicBlock* const bTarget : block->SwitchTargets())
-                {
-                    JITDUMP("  " FMT_BB " : branch target\n", bTarget->bbNum);
-                    bTarget->bbFlags |= BBF_HAS_LABEL;
-                }
-                break;
-
-            case BBJ_CALLFINALLY:
-                // The finally target itself will get marked by walking the EH table, below, and marking
-                // all handler begins.
-                CLANG_FORMAT_COMMENT_ANCHOR;
-
-#if FEATURE_EH_CALLFINALLY_THUNKS
-                {
-                    // For callfinally thunks, we need to mark the block following the callfinally/always pair,
-                    // as that's needed for identifying the range of the "duplicate finally" region in EH data.
-                    BasicBlock* bbToLabel = block->bbNext;
-                    if (block->isBBCallAlwaysPair())
-                    {
-                        bbToLabel = bbToLabel->bbNext; // skip the BBJ_ALWAYS
-                    }
-                    if (bbToLabel != nullptr)
-                    {
-                        JITDUMP("  " FMT_BB " : callfinally thunk region end\n", bbToLabel->bbNum);
-                        bbToLabel->bbFlags |= BBF_HAS_LABEL;
-                    }
-                }
-#endif // FEATURE_EH_CALLFINALLY_THUNKS
-
-                break;
-
-            case BBJ_EHFINALLYRET:
-            case BBJ_EHFILTERRET:
-            case BBJ_RETURN:
-            case BBJ_THROW:
-            case BBJ_NONE:
-                break;
-
-            default:
-                noway_assert(!"Unexpected bbJumpKind");
-                break;
-        }
-    }
-
-    // Walk all the throw helper blocks and mark them, since jumps to them don't appear the flow graph.
-    for (ThrowHelperBlock* helper = compiler->m_throwHelperBlockList; helper != nullptr; helper = helper->next)
-    {
-        JITDUMP("  " FMT_BB " : throw helper block\n", helper->block->bbNum);
-        helper->block->bbFlags |= BBF_HAS_LABEL;
-    }
-
-    for (EHblkDsc* const HBtab : EHClauses(compiler))
-    {
-        HBtab->ebdTryBeg->bbFlags |= BBF_HAS_LABEL;
-        HBtab->ebdHndBeg->bbFlags |= BBF_HAS_LABEL;
-
-        JITDUMP("  " FMT_BB " : try begin\n", HBtab->ebdTryBeg->bbNum);
-        JITDUMP("  " FMT_BB " : hnd begin\n", HBtab->ebdHndBeg->bbNum);
-
-        if (HBtab->ebdTryLast->bbNext != nullptr)
-        {
-            HBtab->ebdTryLast->bbNext->bbFlags |= BBF_HAS_LABEL;
-            JITDUMP("  " FMT_BB " : try end\n", HBtab->ebdTryLast->bbNext->bbNum);
-        }
-
-        if (HBtab->ebdHndLast->bbNext != nullptr)
-        {
-            HBtab->ebdHndLast->bbNext->bbFlags |= BBF_HAS_LABEL;
-            JITDUMP("  " FMT_BB " : hnd end\n", HBtab->ebdHndLast->bbNext->bbNum);
-        }
-
-        if (HBtab->HasFilter())
-        {
-            HBtab->ebdFilter->bbFlags |= BBF_HAS_LABEL;
-            JITDUMP("  " FMT_BB " : filter begin\n", HBtab->ebdFilter->bbNum);
-        }
-    }
-
-#ifdef DEBUG
-    if (compiler->verbose)
-    {
-        printf("*************** After genMarkLabelsForCodegen()\n");
-        compiler->fgDispBasicBlocks();
-    }
-#endif // DEBUG
-}
-
-void CodeGen::genUpdateLife(GenTreeLclVarCommon* node)
-{
-    liveness.UpdateLife(this, node);
-}
 
 //----------------------------------------------------------------------
 // compHelperCallKillSet: Gets a register mask that represents the kill set for a helper call.
@@ -346,80 +242,6 @@ unsigned CodeGen::genOffsetOfMDArrayDimensionSize(var_types elemType, unsigned r
 {
     // Note that the lower bound and length fields of the Array object are always TYP_INT, even on 64-bit targets.
     return compiler->eeGetArrayDataOffset(elemType) + genTypeSize(TYP_INT) * dimension;
-}
-
-// The following can be used to create basic blocks that serve as labels for
-// the emitter. Use with caution - these are not real basic blocks!
-BasicBlock* CodeGen::genCreateTempLabel()
-{
-    INDEBUG(compiler->fgSafeBasicBlockCreation = true);
-    BasicBlock* block = compiler->bbNewBasicBlock(BBJ_NONE);
-    INDEBUG(compiler->fgSafeBasicBlockCreation = false);
-
-    JITDUMP("Mark " FMT_BB " as label: codegen temp block\n", block->bbNum);
-
-    block->bbFlags |= BBF_HAS_LABEL;
-    // Use coldness of current block, as this label will be contained in it.
-    block->bbFlags |= (m_currentBlock->bbFlags & BBF_COLD);
-
-#ifdef DEBUG
-#ifdef UNIX_X86_ABI
-    block->bbTgtStkDepth = (genStackLevel - curNestedAlignment) / sizeof(int);
-#else
-#if !FEATURE_FIXED_OUT_ARGS
-    block->bbTgtStkDepth = genStackLevel / sizeof(int);
-#endif
-#endif
-#endif
-
-    return block;
-}
-
-void CodeGen::genLogLabel(BasicBlock* bb)
-{
-#ifdef DEBUG
-    if (compiler->opts.dspCode)
-    {
-        printf("\n      L_M%03u_" FMT_BB ":\n", compiler->compMethodID, bb->bbNum);
-    }
-#endif
-}
-
-// genDefineTempLabel: Define a label based on the current GC info tracked by
-// the code generator.
-//
-// Arguments:
-//     label - A label represented as a basic block. These are created with
-//     genCreateTempLabel and are not normal basic blocks.
-//
-// Notes:
-//     The label will be defined with the current GC info tracked by the code
-//     generator. When the emitter sees this label it will thus remove any temporary
-//     GC refs it is tracking in registers. For example, a call might produce a ref
-//     in RAX which the emitter would track but which would not be tracked in
-//     codegen's GC info since codegen would immediately copy it from RAX into its
-//     home.
-//
-void CodeGen::genDefineTempLabel(BasicBlock* label)
-{
-    genLogLabel(label);
-    label->bbEmitCookie = GetEmitter()->emitAddLabel(INDEBUG(label));
-}
-
-// genDefineInlineTempLabel: Define an inline label that does not affect the GC
-// info.
-//
-// Arguments:
-//     label - A label represented as a basic block. These are created with
-//     genCreateTempLabel and are not normal basic blocks.
-//
-// Notes:
-//     The emitter will continue to track GC info as if there was no label.
-//
-void CodeGen::genDefineInlineTempLabel(BasicBlock* label)
-{
-    genLogLabel(label);
-    label->bbEmitCookie = GetEmitter()->emitAddInlineLabel();
 }
 
 bool AddrMode::IsIndexScale(size_t value)
@@ -597,157 +419,6 @@ void AddrMode::Extract(Compiler* compiler)
     assert((base != nullptr) || ((index != nullptr) && (scale > 1)));
 }
 
-//------------------------------------------------------------------------
-// genJumpToThrowHlpBlk: Generate code for an out-of-line exception.
-//
-// Notes:
-//   For code that uses throw helper blocks, we share the helper blocks created by fgGetThrowHelperBlock.
-//   Otherwise, we generate the 'throw' inline.
-//
-// Arguments:
-//   jumpKind - jump kind to generate;
-//   codeKind - the special throw-helper kind;
-//   failBlk  - optional fail target block, if it is already known;
-//
-void CodeGen::genJumpToThrowHlpBlk(emitJumpKind jumpKind, ThrowHelperKind codeKind, BasicBlock* failBlk)
-{
-    bool useThrowHlpBlk = compiler->fgUseThrowHelperBlocks();
-#if defined(UNIX_X86_ABI) && defined(FEATURE_EH_FUNCLETS)
-    // Inline exception-throwing code in funclet to make it possible to unwind funclet frames.
-    useThrowHlpBlk = useThrowHlpBlk && (compiler->funCurrentFunc()->funKind == FUNC_ROOT);
-#endif // UNIX_X86_ABI && FEATURE_EH_FUNCLETS
-
-    if (useThrowHlpBlk)
-    {
-        // For code with throw helper blocks, find and use the helper block for
-        // raising the exception. The block may be shared by other trees too.
-
-        BasicBlock* excpRaisingBlock;
-
-        if (failBlk != nullptr)
-        {
-            // We already know which block to jump to. Use that.
-            excpRaisingBlock = failBlk;
-
-#ifdef DEBUG
-            ThrowHelperBlock* helper = compiler->fgFindThrowHelperBlock(codeKind, m_currentBlock);
-            assert(excpRaisingBlock == helper->block);
-#if !FEATURE_FIXED_OUT_ARGS
-            assert(helper->stackLevelSet || isFramePointerUsed());
-#endif
-#endif
-        }
-        else
-        {
-            ThrowHelperBlock* helper = compiler->fgFindThrowHelperBlock(codeKind, m_currentBlock);
-            assert(helper != nullptr);
-#if !FEATURE_FIXED_OUT_ARGS
-            assert(helper->stackLevelSet || isFramePointerUsed());
-#endif
-
-            excpRaisingBlock = helper->block;
-        }
-
-        noway_assert(excpRaisingBlock != nullptr);
-
-        // Jump to the exception-throwing block on error.
-        inst_JMP(jumpKind, excpRaisingBlock);
-    }
-    else
-    {
-        // The code to throw the exception will be generated inline, and
-        //  we will jump around it in the normal non-exception case.
-
-        BasicBlock*  tgtBlk          = nullptr;
-        emitJumpKind reverseJumpKind = emitter::emitReverseJumpKind(jumpKind);
-        if (reverseJumpKind != jumpKind)
-        {
-            tgtBlk = genCreateTempLabel();
-            inst_JMP(reverseJumpKind, tgtBlk);
-        }
-
-        genEmitHelperCall(Compiler::GetThrowHelperCall(codeKind));
-
-        // Define the spot for the normal non-exception case to jump to.
-        if (tgtBlk != nullptr)
-        {
-            assert(reverseJumpKind != jumpKind);
-            genDefineTempLabel(tgtBlk);
-        }
-    }
-}
-
-#ifdef FEATURE_EH_FUNCLETS
-
-// Update the current funclet as needed by calling genUpdateCurrentFunclet().
-// For non-BBF_FUNCLET_BEG blocks, it asserts that the current funclet
-// is up-to-date.
-void CodeGen::genUpdateCurrentFunclet(BasicBlock* block)
-{
-    if (block->bbFlags & BBF_FUNCLET_BEG)
-    {
-        compiler->funSetCurrentFunc(compiler->funGetFuncIdx(block));
-        if (compiler->funCurrentFunc()->funKind == FUNC_FILTER)
-        {
-            assert(compiler->ehGetDsc(compiler->funCurrentFunc()->funEHIndex)->ebdFilter == block);
-        }
-        else
-        {
-            // We shouldn't see FUNC_ROOT
-            assert(compiler->funCurrentFunc()->funKind == FUNC_HANDLER);
-            assert(compiler->ehGetDsc(compiler->funCurrentFunc()->funEHIndex)->ebdHndBeg == block);
-        }
-    }
-    else
-    {
-        assert(compiler->compCurrFuncIdx <= compiler->compFuncInfoCount);
-        if (compiler->funCurrentFunc()->funKind == FUNC_FILTER)
-        {
-            assert(compiler->ehGetDsc(compiler->funCurrentFunc()->funEHIndex)->InFilterRegionBBRange(block));
-        }
-        else if (compiler->funCurrentFunc()->funKind == FUNC_ROOT)
-        {
-            assert(!block->hasHndIndex());
-        }
-        else
-        {
-            assert(compiler->funCurrentFunc()->funKind == FUNC_HANDLER);
-            assert(compiler->ehGetDsc(compiler->funCurrentFunc()->funEHIndex)->InHndRegionBBRange(block));
-        }
-    }
-}
-
-#if defined(TARGET_ARM)
-void CodeGen::genInsertNopForUnwinder(BasicBlock* block)
-{
-    // If this block is the target of a finally return, we need to add a preceding NOP, in the same EH region,
-    // so the unwinder doesn't get confused by our "movw lr, xxx; movt lr, xxx; b Lyyy" calling convention that
-    // calls the funclet during non-exceptional control flow.
-    if (block->bbFlags & BBF_FINALLY_TARGET)
-    {
-        assert(block->bbFlags & BBF_HAS_LABEL);
-
-#ifdef DEBUG
-        if (compiler->verbose)
-        {
-            printf("\nEmitting finally target NOP predecessor for " FMT_BB "\n", block->bbNum);
-        }
-#endif
-        // Create a label that we'll use for computing the start of an EH region, if this block is
-        // at the beginning of such a region. If we used the existing bbEmitCookie as is for
-        // determining the EH regions, then this NOP would end up outside of the region, if this
-        // block starts an EH region. If we pointed the existing bbEmitCookie here, then the NOP
-        // would be executed, which we would prefer not to do.
-
-        block->bbUnwindNopEmitCookie = GetEmitter()->emitAddLabel(INDEBUG(block));
-
-        GetEmitter()->emitIns(INS_nop);
-    }
-}
-#endif
-
-#endif // FEATURE_EH_FUNCLETS
-
 void DoPhase(CodeGen* codeGen, Phases phaseId, void (CodeGen::*action)())
 {
     class CodeGenPhase final : public Phase<CodeGenPhase>
@@ -774,20 +445,31 @@ void DoPhase(CodeGen* codeGen, Phases phaseId, void (CodeGen::*action)())
 void CodeGen::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
 {
 #ifdef DEBUG
-    if (verbose)
+    if (compiler->verbose)
     {
         printf("*************** In genGenerateCode()\n");
         compiler->fgDispBasicBlocks(compiler->verboseTrees);
     }
 #endif
 
-    codePtr          = nativeCode;
-    nativeSizeOfCode = nativeCodeSize;
-
+#ifdef FEATURE_EH_FUNCLETS
+    DoPhase(this, PHASE_CREATE_FUNCLETS, &CodeGen::genCreateFunclets);
+#endif
     DoPhase(this, PHASE_LINEAR_SCAN, &CodeGen::genAllocateRegisters);
     DoPhase(this, PHASE_GENERATE_CODE, &CodeGen::genGenerateMachineCode);
     DoPhase(this, PHASE_EMIT_CODE, &CodeGen::genEmitMachineCode);
     DoPhase(this, PHASE_EMIT_GCEH, &CodeGen::genEmitUnwindDebugGCandEH);
+
+#ifdef LATE_DISASM
+    getDisAssembler().disAsmCode(GetEmitter()->GetHotCodeAddr(), GetEmitter()->GetHotCodeSize(),
+                                 GetEmitter()->GetColdCodeAddr(), GetEmitter()->GetColdCodeSize());
+#endif
+
+#if DISPLAY_SIZES
+    grossVMsize += compiler->info.compILCodeSize;
+    totalNCsize += GetEmitter()->GetCodeSize() + GetEmitter()->GetRoDataSize() + gcInfoSize;
+    grossNCsize += GetEmitter()->GetCodeSize() + GetEmitter()->GetRoDataSize();
+#endif
 
 #if TRACK_LSRA_STATS
     if (JitConfig.DisplayLsraStats() == 2)
@@ -795,7 +477,89 @@ void CodeGen::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
         m_lsra->dumpLsraStatsCsv(jitstdout);
     }
 #endif
+
+    *nativeCode     = GetEmitter()->GetHotCodeAddr();
+    *nativeCodeSize = GetEmitter()->GetCodeSize();
 }
+
+#ifdef FEATURE_EH_FUNCLETS
+void CodeGen::genCreateFunclets()
+{
+    JITDUMP("*************** In genCreateFunclets()\n");
+
+    const unsigned funcCount = compiler->ehFuncletCount() + 1;
+
+    if (!FitsIn<uint16_t>(funcCount))
+    {
+        IMPL_LIMITATION("Too many funclets");
+    }
+
+    FuncInfoDsc* funcInfo = compiler->getAllocator(CMK_UnwindInfo).allocate<FuncInfoDsc>(funcCount);
+    new (&funcInfo[0]) FuncInfoDsc(FUNC_ROOT, 0);
+
+    unsigned funcIndex = 1;
+
+    for (unsigned ehIndex = 0; ehIndex < compiler->compHndBBtabCount; ehIndex++)
+    {
+        EHblkDsc* ehClause = compiler->ehGetDsc(ehIndex);
+
+        if (ehClause->HasFilter())
+        {
+            assert(funcIndex < funcCount);
+
+            new (&funcInfo[funcIndex++]) FuncInfoDsc(FUNC_FILTER, ehIndex);
+        }
+
+        assert(funcIndex < funcCount);
+
+        ehClause->ebdFuncIndex = static_cast<uint16_t>(funcIndex);
+        new (&funcInfo[funcIndex++]) FuncInfoDsc(FUNC_HANDLER, ehIndex);
+    }
+
+    assert(funcIndex == funcCount);
+
+    compFuncInfos     = funcInfo;
+    compFuncInfoCount = static_cast<uint16_t>(funcCount);
+}
+
+// Get the FuncInfoDsc for the given funclet.
+// This is only valid after funclets are created.
+FuncInfoDsc& CodeGen::funGetFunc(unsigned index)
+{
+    assert(compFuncInfos != nullptr);
+    assert(index < compFuncInfoCount);
+    return compFuncInfos[index];
+}
+
+// Get the funcIdx for the EH funclet that begins with block.
+// It is only valid for blocks marked with BBF_FUNCLET_BEG because
+// otherwise we would have to do a more expensive check to determine
+// if this should return the filter funclet or the filter handler funclet.
+unsigned CodeGen::funGetFuncIdx(BasicBlock* block)
+{
+    assert(compFuncInfos != nullptr);
+    assert((block->bbFlags & BBF_FUNCLET_BEG) != 0);
+
+    EHblkDsc* eh      = compiler->ehGetDsc(block->getHndIndex());
+    unsigned  funcIdx = eh->ebdFuncIndex;
+
+    if (eh->ebdHndBeg != block)
+    {
+        // If this is a filter EH clause, but we want the funclet
+        // for the filter (not the filter handler), it is the previous one
+        noway_assert(eh->HasFilter());
+        noway_assert(eh->ebdFilter == block);
+
+        assert(funGetFunc(funcIdx).kind == FUNC_HANDLER);
+        assert(funGetFunc(funcIdx).ehIndex == funGetFunc(funcIdx - 1).ehIndex);
+        assert(funGetFunc(funcIdx - 1).kind == FUNC_FILTER);
+
+        funcIdx--;
+    }
+
+    return funcIdx;
+}
+#endif // FEATURE_EH_FUNCLETS
 
 void CodeGen::genAllocateRegisters()
 {
@@ -817,22 +581,13 @@ void CodeGen::genAllocateRegisters()
 void CodeGen::genGenerateMachineCode()
 {
 #ifdef DEBUG
-    compiler->fgBBcountAtCodegen = compiler->fgBBcount;
+    compiler->fgSafeBasicBlockCreation = false;
     compiler->fgDebugCheckLinks();
     compiler->fgDebugCheckBBlist();
 #endif
 
     genFinalizeFrame();
-
-    GetEmitter()->emitBegFN();
-
     genCodeForBBlist();
-    genGeneratePrologsAndEpilogs();
-
-    GetEmitter()->emitJumpDistBind();
-#if FEATURE_LOOP_ALIGN
-    GetEmitter()->emitLoopAlignAdjustments();
-#endif
 }
 
 #ifdef DEBUG
@@ -965,23 +720,9 @@ void CodeGen::DumpDisasmHeader() const
 }
 #endif // DEBUG
 
-//----------------------------------------------------------------------
-// genEmitMachineCode -- emit the actual machine instruction code
-//
 void CodeGen::genEmitMachineCode()
 {
-    /* Compute the size of the code sections that we are going to ask the VM
-       to allocate. Note that this might not be precisely the size of the
-       code we emit, though it's fatal if we emit more code than the size we
-       compute here.
-       (Note: an example of a case where we emit less code would be useful.)
-    */
-
-    GetEmitter()->emitComputeCodeSizes();
-
 #ifdef DEBUG
-    unsigned instrCount;
-
     // Code to test or stress our ability to run a fallback compile.
     // We trigger the fallback here, before asking the VM for any memory,
     // because if not, we will leak mem, as the current codebase can't free
@@ -1001,58 +742,32 @@ void CodeGen::genEmitMachineCode()
             }
         }
     }
-
 #endif // DEBUG
 
-    /* We've finished collecting all the unwind information for the function. Now reserve
-       space for it from the VM.
-    */
-
-    compiler->unwindReserve();
-
-    codeSize = GetEmitter()->emitEndCodeGen(&prologSize,
-#ifdef JIT32_GCENCODER
-                                            &epilogSize,
-#endif
-                                            codePtr, &coldCodePtr, &consPtr DEBUGARG(&instrCount));
-
-#ifdef DEBUG
-    assert(compiler->compCodeGenDone == false);
-
-    /* We're done generating code for this function */
-    compiler->compCodeGenDone = true;
+#ifdef FEATURE_EH_FUNCLETS
+    unwindReserve();
 #endif
 
-#if defined(DEBUG) || defined(LATE_DISASM)
-    // Add code size information into the Perf Score
-    // All compPerfScore calculations must be performed using doubles
-    compiler->info.compPerfScore += ((double)compiler->info.compTotalHotCodeSize * (double)PERFSCORE_CODESIZE_COST_HOT);
-    compiler->info.compPerfScore +=
-        ((double)compiler->info.compTotalColdCodeSize * (double)PERFSCORE_CODESIZE_COST_COLD);
-#endif // DEBUG || LATE_DISASM
+    Emitter& emit = *GetEmitter();
+    emit.emitEndCodeGen();
 
 #ifdef DEBUG
-    if (compiler->opts.disAsm || verbose)
+    if (compiler->opts.disAsm || compiler->verbose)
     {
         printf("\n; Total bytes of code %d, prolog size %d, PerfScore %.2f, instruction count %d, allocated bytes for "
                "code %d",
-               codeSize, prologSize, compiler->info.compPerfScore, instrCount, GetEmitter()->GetCodeSize());
+               emit.GetCodeSize(), emit.GetMainPrologNoGCSize(), emit.GetPerfScore(), emit.GetInstrCount(),
+               emit.GetHotCodeSize() + emit.GetColdCodeSize());
 
 #if TRACK_LSRA_STATS
         if (JitConfig.DisplayLsraStats() == 3)
         {
             m_lsra->dumpLsraStatsSummary(jitstdout);
         }
-#endif // TRACK_LSRA_STATS
+#endif
 
         printf(" (MethodHash=%08x) for method %s\n", compiler->info.compMethodHash(), compiler->info.compFullName);
         printf("; ============================================================\n\n");
-    }
-
-    if (verbose)
-    {
-        printf("*************** After end code gen, before unwindEmit()\n");
-        GetEmitter()->emitDispIGlist(true);
     }
 #endif
 
@@ -1069,149 +784,36 @@ void CodeGen::genEmitMachineCode()
                                         (compiler->compTailCallUsed ? 4 : 0); // CORINFO_HELP_TAILCALL args
 #ifdef UNIX_X86_ABI
         // Convert maxNestedAlignment to DWORD count before adding to maxAllowedStackDepth.
-        assert(maxNestedAlignment % sizeof(int) == 0);
-        maxAllowedStackDepth += maxNestedAlignment / sizeof(int);
+        assert(maxNestedAlignment % 4 == 0);
+        maxAllowedStackDepth += maxNestedAlignment / 4;
 #endif
+
         assert(GetEmitter()->emitMaxStackDepth <= maxAllowedStackDepth);
     }
 #endif // DEBUG_ARG_SLOTS
 
-    *nativeSizeOfCode                 = codeSize;
-    compiler->info.compNativeCodeSize = (UNATIVE_OFFSET)codeSize;
-
-    // printf("%6u bytes of code generated for %s.%s\n", codeSize, compiler->info.compFullName);
-
-    // Make sure that the x86 alignment and cache prefetch optimization rules
-    // were obeyed.
-
-    // Don't start a method in the last 7 bytes of a 16-byte alignment area
-    //   unless we are generating SMALL_CODE
-    // noway_assert( (((unsigned)(*codePtr) % 16) <= 8) || (compiler->compCodeOpt() == SMALL_CODE));
+    // Make sure that the x86 alignment and cache prefetch optimization rules were
+    // obeyed - don't start a method in the last 7 bytes of a 16-byte alignment area
+    // unless we are generating SMALL_CODE.
+    // TODO-MIKE-Review: What's up with this?
+    // noway_assert((reinterpret_cast<size_t>(codePtr) % 16 <= 8) || (compiler->compCodeOpt() == SMALL_CODE));
 }
 
-//----------------------------------------------------------------------
-// genEmitUnwindDebugGCandEH: emit unwind, debug, gc, and EH info
-//
 void CodeGen::genEmitUnwindDebugGCandEH()
 {
-    /* Now that the code is issued, we can finalize and emit the unwind data */
+#ifdef FEATURE_EH_FUNCLETS
+    unwindEmit();
+#endif
 
-    compiler->unwindEmit(*codePtr, coldCodePtr);
-
-    /* Finalize the line # tracking logic after we know the exact block sizes/offsets */
-
-    genIPmappingGen();
-
-    /* Finalize the Local Var info in terms of generated code */
-
-    genSetScopeInfo();
-
-#if defined(USING_VARIABLE_LIVE_RANGE) && defined(DEBUG)
-    if (compiler->verbose)
+    if (compiler->opts.compDbgInfo)
     {
-        varLiveKeeper->dumpLvaVariableLiveRanges();
+        genIPmappingGen();
+        genSetScopeInfo();
     }
-#endif // defined(USING_VARIABLE_LIVE_RANGE) && defined(DEBUG)
-
-#ifdef LATE_DISASM
-    unsigned finalHotCodeSize;
-    unsigned finalColdCodeSize;
-    if (compiler->fgFirstColdBlock != nullptr)
-    {
-        // We did some hot/cold splitting. The hot section is always padded out to the
-        // size we thought it would be, but the cold section is not.
-        assert(codeSize <= compiler->info.compTotalHotCodeSize + compiler->info.compTotalColdCodeSize);
-        assert(compiler->info.compTotalHotCodeSize > 0);
-        assert(compiler->info.compTotalColdCodeSize > 0);
-        finalHotCodeSize  = compiler->info.compTotalHotCodeSize;
-        finalColdCodeSize = codeSize - finalHotCodeSize;
-    }
-    else
-    {
-        // No hot/cold splitting
-        assert(codeSize <= compiler->info.compTotalHotCodeSize);
-        assert(compiler->info.compTotalHotCodeSize > 0);
-        assert(compiler->info.compTotalColdCodeSize == 0);
-        finalHotCodeSize  = codeSize;
-        finalColdCodeSize = 0;
-    }
-    getDisAssembler().disAsmCode((BYTE*)*codePtr, finalHotCodeSize, (BYTE*)coldCodePtr, finalColdCodeSize);
-#endif // LATE_DISASM
-
-    /* Report any exception handlers to the VM */
 
     genReportEH();
-
-#ifdef JIT32_GCENCODER
-    INDEBUG(void* infoPtr =)
-    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this, codeSize, prologSize, epilogSize);
-#else
-    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(codeSize, prologSize);
-#endif
-
-#ifdef DEBUG
-    FILE* dmpf = jitstdout;
-
-    compiler->opts.dmpHex = false;
-    if (!strcmp(compiler->info.compMethodName, "<name of method you want the hex dump for"))
-    {
-        FILE*   codf;
-        errno_t ec = fopen_s(&codf, "C:\\JIT.COD", "at"); // NOTE: file append mode
-        if (ec != 0)
-        {
-            assert(codf);
-            dmpf                  = codf;
-            compiler->opts.dmpHex = true;
-        }
-    }
-    if (compiler->opts.dmpHex)
-    {
-        size_t consSize = GetEmitter()->emitDataSize();
-
-        fprintf(dmpf, "Generated code for %s:\n", compiler->info.compFullName);
-        fprintf(dmpf, "\n");
-
-        if (codeSize)
-        {
-            fprintf(dmpf, "    Code  at %p [%04X bytes]\n", dspPtr(*codePtr), codeSize);
-        }
-        if (consSize)
-        {
-            fprintf(dmpf, "    Const at %p [%04X bytes]\n", dspPtr(consPtr), consSize);
-        }
-#ifdef JIT32_GCENCODER
-        if (compInfoBlkSize != 0)
-        {
-            fprintf(dmpf, "    Info  at %p [%04X bytes]\n", dspPtr(infoPtr), compInfoBlkSize);
-        }
-#endif
-
-        fprintf(dmpf, "\n");
-
-        fflush(dmpf);
-    }
-
-    if (dmpf != jitstdout)
-    {
-        fclose(dmpf);
-    }
-
-#endif // DEBUG
-
-#if DISPLAY_SIZES
-
-    size_t dataSize = GetEmitter()->emitDataSize();
-    grossVMsize += compiler->info.compILCodeSize;
-    totalNCsize += codeSize + dataSize + compInfoBlkSize;
-    grossNCsize += codeSize + dataSize;
-
-#endif // DISPLAY_SIZES
+    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this);
 }
-
-/*****************************************************************************
- *
- *  Report EH clauses to the VM
- */
 
 void CodeGen::genReportEH()
 {
@@ -1220,42 +822,35 @@ void CodeGen::genReportEH()
         return;
     }
 
-#ifdef DEBUG
-    if (compiler->opts.dspEHTable)
-    {
-        printf("*************** EH table for %s\n", compiler->info.compFullName);
-    }
-#endif // DEBUG
+    DBEXEC(compiler->opts.dspEHTable, printf("*************** EH table for %s\n", compiler->info.compFullName));
 
-    unsigned XTnum;
+    bool     isCoreRTABI = compiler->IsTargetAbi(CORINFO_CORERT_ABI);
+    unsigned EHCount     = compiler->compHndBBtabCount;
 
-    bool isCoreRTABI = compiler->IsTargetAbi(CORINFO_CORERT_ABI);
-
-    unsigned EHCount = compiler->compHndBBtabCount;
-
-#if defined(FEATURE_EH_FUNCLETS)
-    // Count duplicated clauses. This uses the same logic as below, where we actually generate them for reporting to the
-    // VM.
+#ifdef FEATURE_EH_FUNCLETS
+    // Count duplicated clauses. This uses the same logic as below,
+    // where we actually generate them for reporting to the VM.
     unsigned duplicateClauseCount = 0;
-    unsigned enclosingTryIndex;
 
-    // Duplicate clauses are not used by CoreRT ABI
     if (!isCoreRTABI)
     {
-        for (XTnum = 0; XTnum < compiler->compHndBBtabCount; XTnum++)
+        for (unsigned XTnum = 0; XTnum < compiler->compHndBBtabCount; XTnum++)
         {
-            for (enclosingTryIndex = compiler->ehTrueEnclosingTryIndexIL(XTnum); // find the true enclosing try index,
-                                                                                 // ignoring 'mutual protect' trys
+            // find the true enclosing try index, ignoring 'mutual protect' trys
+            for (unsigned enclosingTryIndex = compiler->ehTrueEnclosingTryIndexIL(XTnum);
                  enclosingTryIndex != EHblkDsc::NO_ENCLOSING_INDEX;
                  enclosingTryIndex = compiler->ehGetEnclosingTryIndex(enclosingTryIndex))
             {
-                ++duplicateClauseCount;
+                duplicateClauseCount++;
             }
         }
+
         EHCount += duplicateClauseCount;
     }
 
-#if FEATURE_EH_CALLFINALLY_THUNKS
+#if !FEATURE_EH_CALLFINALLY_THUNKS
+    const unsigned clonedFinallyCount = 0;
+#else
     unsigned clonedFinallyCount = 0;
 
     // Duplicate clauses are not used by CoreRT ABI
@@ -1266,6 +861,7 @@ void CodeGen::genReportEH()
         // clauses. If there aren't, we don't need to look for BBJ_CALLFINALLY.
 
         bool anyFinallys = false;
+
         for (EHblkDsc* const HBtab : EHClauses(compiler))
         {
             if (HBtab->HasFinallyHandler())
@@ -1274,13 +870,14 @@ void CodeGen::genReportEH()
                 break;
             }
         }
+
         if (anyFinallys)
         {
             for (BasicBlock* const block : compiler->Blocks())
             {
                 if (block->bbJumpKind == BBJ_CALLFINALLY)
                 {
-                    ++clonedFinallyCount;
+                    clonedFinallyCount++;
                 }
             }
 
@@ -1288,54 +885,37 @@ void CodeGen::genReportEH()
         }
     }
 #endif // FEATURE_EH_CALLFINALLY_THUNKS
-
 #endif // FEATURE_EH_FUNCLETS
 
 #ifdef DEBUG
     if (compiler->opts.dspEHTable)
     {
-#if defined(FEATURE_EH_FUNCLETS)
-#if FEATURE_EH_CALLFINALLY_THUNKS
-        printf("%d EH table entries, %d duplicate clauses, %d cloned finallys, %d total EH entries reported to VM\n",
-               compiler->compHndBBtabCount, duplicateClauseCount, clonedFinallyCount, EHCount);
-        assert(compiler->compHndBBtabCount + duplicateClauseCount + clonedFinallyCount == EHCount);
-#else  // !FEATURE_EH_CALLFINALLY_THUNKS
-        printf("%d EH table entries, %d duplicate clauses, %d total EH entries reported to VM\n",
-               compiler->compHndBBtabCount, duplicateClauseCount, EHCount);
-        assert(compiler->compHndBBtabCount + duplicateClauseCount == EHCount);
-#endif // !FEATURE_EH_CALLFINALLY_THUNKS
-#else  // !FEATURE_EH_FUNCLETS
-        printf("%d EH table entries, %d total EH entries reported to VM\n", compiler->compHndBBtabCount, EHCount);
+        printf("%u EH table entries, ", compiler->compHndBBtabCount);
+#ifndef FEATURE_EH_FUNCLETS
         assert(compiler->compHndBBtabCount == EHCount);
-#endif // !FEATURE_EH_FUNCLETS
+#else // FEATURE_EH_FUNCLETS
+        printf("%u duplicate clauses, ", duplicateClauseCount);
+#if FEATURE_EH_CALLFINALLY_THUNKS
+        printf("%u cloned finallys, ", clonedFinallyCount);
+#endif
+        assert(compiler->compHndBBtabCount + duplicateClauseCount + clonedFinallyCount == EHCount);
+#endif // FEATURE_EH_FUNCLETS
+        printf("%u total EH entries reported to VM\n", EHCount);
     }
 #endif // DEBUG
 
-    // Tell the VM how many EH clauses to expect.
-    compiler->eeSetEHcount(EHCount);
+    eeSetEHcount(EHCount);
 
-    XTnum = 0; // This is the index we pass to the VM
+    uint32_t codeSize = GetEmitter()->GetCodeSize();
+    unsigned XTnum    = 0; // This is the index we pass to the VM
 
     for (EHblkDsc* const HBtab : EHClauses(compiler))
     {
-        UNATIVE_OFFSET tryBeg, tryEnd, hndBeg, hndEnd, hndTyp;
-
-        tryBeg = compiler->ehCodeOffset(HBtab->ebdTryBeg);
-        hndBeg = compiler->ehCodeOffset(HBtab->ebdHndBeg);
-
-        tryEnd = (HBtab->ebdTryLast == compiler->fgLastBB) ? compiler->info.compNativeCodeSize
-                                                           : compiler->ehCodeOffset(HBtab->ebdTryLast->bbNext);
-        hndEnd = (HBtab->ebdHndLast == compiler->fgLastBB) ? compiler->info.compNativeCodeSize
-                                                           : compiler->ehCodeOffset(HBtab->ebdHndLast->bbNext);
-
-        if (HBtab->HasFilter())
-        {
-            hndTyp = compiler->ehCodeOffset(HBtab->ebdFilter);
-        }
-        else
-        {
-            hndTyp = HBtab->ebdTyp;
-        }
+        uint32_t tryBeg = ehCodeOffset(HBtab->ebdTryBeg);
+        uint32_t hndBeg = ehCodeOffset(HBtab->ebdHndBeg);
+        uint32_t tryEnd = HBtab->ebdTryLast == compiler->fgLastBB ? codeSize : ehCodeOffset(HBtab->ebdTryLast->bbNext);
+        uint32_t hndEnd = HBtab->ebdHndLast == compiler->fgLastBB ? codeSize : ehCodeOffset(HBtab->ebdHndLast->bbNext);
+        uint32_t hndTyp = HBtab->HasFilter() ? ehCodeOffset(HBtab->ebdFilter) : HBtab->ebdTyp;
 
         CORINFO_EH_CLAUSE_FLAGS flags = ToCORINFO_EH_CLAUSE_FLAGS(HBtab->ebdHandlerType);
 
@@ -1370,12 +950,12 @@ void CodeGen::genReportEH()
         assert(XTnum < EHCount);
 
         // Tell the VM about this EH clause.
-        compiler->eeSetEHinfo(XTnum, &clause);
+        eeSetEHinfo(XTnum, &clause);
 
         ++XTnum;
     }
 
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     // Now output duplicated clauses.
     //
     // If a funclet has been created by moving a handler out of a try region that it was originally nested
@@ -1508,17 +1088,14 @@ void CodeGen::genReportEH()
 
     if (duplicateClauseCount > 0)
     {
-        unsigned  reportedDuplicateClauseCount = 0; // How many duplicated clauses have we reported?
-        unsigned  XTnum2;
-        EHblkDsc* HBtab;
-        for (XTnum2 = 0, HBtab = compiler->compHndBBtab; XTnum2 < compiler->compHndBBtabCount; XTnum2++, HBtab++)
-        {
-            unsigned enclosingTryIndex;
+        unsigned reportedDuplicateClauseCount = 0; // How many duplicated clauses have we reported?
 
+        for (unsigned XTnum2 = 0; XTnum2 < compiler->compHndBBtabCount; XTnum2++)
+        {
             EHblkDsc* fletTab = compiler->ehGetDsc(XTnum2);
 
-            for (enclosingTryIndex = compiler->ehTrueEnclosingTryIndexIL(XTnum2); // find the true enclosing try index,
-                                                                                  // ignoring 'mutual protect' trys
+            // find the true enclosing try index, ignoring 'mutual protect' trys
+            for (unsigned enclosingTryIndex = compiler->ehTrueEnclosingTryIndexIL(XTnum2);
                  enclosingTryIndex != EHblkDsc::NO_ENCLOSING_INDEX;
                  enclosingTryIndex = compiler->ehGetEnclosingTryIndex(enclosingTryIndex))
             {
@@ -1540,24 +1117,11 @@ void CodeGen::genReportEH()
                 BasicBlock* bbHndBeg  = encTab->ebdHndBeg; // The handler region is the same as the enclosing try
                 BasicBlock* bbHndLast = encTab->ebdHndLast;
 
-                UNATIVE_OFFSET tryBeg, tryEnd, hndBeg, hndEnd, hndTyp;
-
-                tryBeg = compiler->ehCodeOffset(bbTryBeg);
-                hndBeg = compiler->ehCodeOffset(bbHndBeg);
-
-                tryEnd = (bbTryLast == compiler->fgLastBB) ? compiler->info.compNativeCodeSize
-                                                           : compiler->ehCodeOffset(bbTryLast->bbNext);
-                hndEnd = (bbHndLast == compiler->fgLastBB) ? compiler->info.compNativeCodeSize
-                                                           : compiler->ehCodeOffset(bbHndLast->bbNext);
-
-                if (encTab->HasFilter())
-                {
-                    hndTyp = compiler->ehCodeOffset(encTab->ebdFilter);
-                }
-                else
-                {
-                    hndTyp = encTab->ebdTyp;
-                }
+                uint32_t tryBeg = ehCodeOffset(bbTryBeg);
+                uint32_t hndBeg = ehCodeOffset(bbHndBeg);
+                uint32_t tryEnd = bbTryLast == compiler->fgLastBB ? codeSize : ehCodeOffset(bbTryLast->bbNext);
+                uint32_t hndEnd = bbHndLast == compiler->fgLastBB ? codeSize : ehCodeOffset(bbHndLast->bbNext);
+                uint32_t hndTyp = encTab->HasFilter() ? ehCodeOffset(encTab->ebdFilter) : encTab->ebdTyp;
 
                 CORINFO_EH_CLAUSE_FLAGS flags = ToCORINFO_EH_CLAUSE_FLAGS(encTab->ebdHandlerType);
 
@@ -1580,10 +1144,10 @@ void CodeGen::genReportEH()
                 assert(XTnum < EHCount);
 
                 // Tell the VM about this EH clause (a duplicated clause).
-                compiler->eeSetEHinfo(XTnum, &clause);
+                eeSetEHinfo(XTnum, &clause);
 
-                ++XTnum;
-                ++reportedDuplicateClauseCount;
+                XTnum++;
+                reportedDuplicateClauseCount++;
 
 #ifndef DEBUG
                 if (duplicateClauseCount == reportedDuplicateClauseCount)
@@ -1591,41 +1155,32 @@ void CodeGen::genReportEH()
                     break; // we've reported all of them; no need to continue looking
                 }
 #endif // !DEBUG
-
-            } // for each 'true' enclosing 'try'
-        }     // for each EH table entry
+            }
+        }
 
         assert(duplicateClauseCount == reportedDuplicateClauseCount);
-    } // if (duplicateClauseCount > 0)
+    }
 
 #if FEATURE_EH_CALLFINALLY_THUNKS
     if (clonedFinallyCount > 0)
     {
         unsigned reportedClonedFinallyCount = 0;
+
         for (BasicBlock* const block : compiler->Blocks())
         {
             if (block->bbJumpKind == BBJ_CALLFINALLY)
             {
-                UNATIVE_OFFSET hndBeg, hndEnd;
-
-                hndBeg = compiler->ehCodeOffset(block);
-
-                // How big is it? The BBJ_ALWAYS has a null bbEmitCookie! Look for the block after, which must be
-                // a label or jump target, since the BBJ_CALLFINALLY doesn't fall through.
+                // How big is it? The BBJ_ALWAYS has a null label! Look for the block after, which
+                // must be a label or jump target, since the BBJ_CALLFINALLY doesn't fall through.
                 BasicBlock* bbLabel = block->bbNext;
+
                 if (block->isBBCallAlwaysPair())
                 {
                     bbLabel = bbLabel->bbNext; // skip the BBJ_ALWAYS
                 }
-                if (bbLabel == nullptr)
-                {
-                    hndEnd = compiler->info.compNativeCodeSize;
-                }
-                else
-                {
-                    assert(bbLabel->bbEmitCookie != nullptr);
-                    hndEnd = compiler->ehCodeOffset(bbLabel);
-                }
+
+                uint32_t hndBeg = ehCodeOffset(block);
+                uint32_t hndEnd = bbLabel == nullptr ? codeSize : ehCodeOffset(bbLabel);
 
                 CORINFO_EH_CLAUSE clause;
                 clause.ClassToken = 0; // unused
@@ -1637,49 +1192,118 @@ void CodeGen::genReportEH()
 
                 assert(XTnum < EHCount);
 
-                // Tell the VM about this EH clause (a cloned finally clause).
-                compiler->eeSetEHinfo(XTnum, &clause);
+                eeSetEHinfo(XTnum, &clause);
 
-                ++XTnum;
-                ++reportedClonedFinallyCount;
+                XTnum++;
+                reportedClonedFinallyCount++;
 
 #ifndef DEBUG
                 if (clonedFinallyCount == reportedClonedFinallyCount)
                 {
                     break; // we're done; no need to keep looking
                 }
-#endif        // !DEBUG
-            } // block is BBJ_CALLFINALLY
-        }     // for each block
+#endif
+            }
+        }
 
         assert(clonedFinallyCount == reportedClonedFinallyCount);
-    }  // if (clonedFinallyCount > 0)
+    }
 #endif // FEATURE_EH_CALLFINALLY_THUNKS
-
 #endif // FEATURE_EH_FUNCLETS
 
     assert(XTnum == EHCount);
 }
 
-bool CodeGenInterface::UseOptimizedWriteBarriers()
+void CodeGen::eeSetEHcount(unsigned cEH)
 {
-#if defined(TARGET_X86) && NOGC_WRITE_BARRIERS
-    return true;
-#else
-    return false;
-#endif
+    JITDUMP("setEHcount(cEH=%u)\n", cEH);
+
+    if (compiler->info.compMatchedVM)
+    {
+        compiler->info.compCompHnd->setEHcount(cEH);
+    }
 }
 
-CorInfoHelpFunc CodeGenInterface::GetWriteBarrierHelperCall(GCInfo::WriteBarrierForm wbf)
+void CodeGen::eeSetEHinfo(unsigned EHnumber, const CORINFO_EH_CLAUSE* clause)
 {
-    assert(wbf != GCInfo::WBF_NoBarrier);
+    DBEXEC(compiler->opts.dspEHTable, dispOutgoingEHClause(EHnumber, *clause));
 
-    return (wbf == GCInfo::WBF_BarrierUnchecked) ? CORINFO_HELP_ASSIGN_REF : CORINFO_HELP_CHECKED_ASSIGN_REF;
+    if (compiler->info.compMatchedVM)
+    {
+        compiler->info.compCompHnd->setEHinfo(EHnumber, clause);
+    }
 }
+
+#ifdef DEBUG
+void CodeGen::dispOutgoingEHClause(unsigned num, const CORINFO_EH_CLAUSE& clause)
+{
+    if (compiler->opts.dspDiffable)
+    {
+        printf("EH#%u: try [%s..%s) handled by [%s..%s) ", num, GetEmitter()->emitOffsetToLabel(clause.TryOffset),
+               GetEmitter()->emitOffsetToLabel(clause.TryLength), GetEmitter()->emitOffsetToLabel(clause.HandlerOffset),
+               GetEmitter()->emitOffsetToLabel(clause.HandlerLength));
+    }
+    else
+    {
+        printf("EH#%u: try [%04X..%04X) handled by [%04X..%04X) ", num, dspOffset(clause.TryOffset),
+               dspOffset(clause.TryLength), dspOffset(clause.HandlerOffset), dspOffset(clause.HandlerLength));
+    }
+
+    // Note: the flags field is kind of weird. It should be compared for equality
+    // to determine the type of clause, even though it looks like a bitfield. In
+    // Particular, CORINFO_EH_CLAUSE_NONE is zero, so you can "&" to check it.
+    // You do need to mask off the bits, though, because CORINFO_EH_CLAUSE_DUPLICATE
+    // is and'ed in.
+    const DWORD CORINFO_EH_CLAUSE_TYPE_MASK = 0x7;
+    switch (clause.Flags & CORINFO_EH_CLAUSE_TYPE_MASK)
+    {
+        case CORINFO_EH_CLAUSE_NONE:
+            printf("(class: %04X)", clause.ClassToken);
+            break;
+        case CORINFO_EH_CLAUSE_FILTER:
+            if (compiler->opts.dspDiffable)
+            {
+                printf("filter at [%s..%s)", GetEmitter()->emitOffsetToLabel(clause.ClassToken),
+                       GetEmitter()->emitOffsetToLabel(clause.HandlerOffset));
+            }
+            else
+            {
+                printf("filter at [%04X..%04X)", dspOffset(clause.ClassToken), dspOffset(clause.HandlerOffset));
+            }
+            break;
+        case CORINFO_EH_CLAUSE_FINALLY:
+            printf("(finally)");
+            break;
+        case CORINFO_EH_CLAUSE_FAULT:
+            printf("(fault)");
+            break;
+        default:
+            printf("(UNKNOWN type %u!)", clause.Flags & CORINFO_EH_CLAUSE_TYPE_MASK);
+            assert(!"unknown type");
+            break;
+    }
+
+    if ((clause.TryOffset == clause.TryLength) && (clause.TryOffset == clause.HandlerOffset) &&
+        ((clause.Flags & (CORINFO_EH_CLAUSE_DUPLICATE | CORINFO_EH_CLAUSE_FINALLY)) ==
+         (CORINFO_EH_CLAUSE_DUPLICATE | CORINFO_EH_CLAUSE_FINALLY)))
+    {
+        printf(" cloned finally");
+    }
+    else if (clause.Flags & CORINFO_EH_CLAUSE_DUPLICATE)
+    {
+        printf(" duplicated");
+    }
+    else if (clause.Flags & CORINFO_EH_CLAUSE_SAMETRY)
+    {
+        printf(" same try");
+    }
+    printf("\n");
+}
+#endif // DEBUG
 
 void CodeGen::genGCWriteBarrier(GenTreeStoreInd* store, GCInfo::WriteBarrierForm wbf)
 {
-    genEmitHelperCall(GetWriteBarrierHelperCall(wbf), EA_PTRSIZE);
+    genEmitHelperCall(GCInfo::GetWriteBarrierHelperCall(wbf), EA_PTRSIZE);
 }
 
 /*
@@ -2358,13 +1982,6 @@ regMaskTP CodeGen::genPrologSpillParamRegs(ParamRegInfo* paramRegs, unsigned par
                 assert(baseOffset + EA_SIZE_IN_BYTES(size) <= lcl->GetFrameSize());
             }
 #endif
-
-#ifdef USING_SCOPE_INFO
-            if (paramRegs[paramRegIndex].slot == 1)
-            {
-                psiMoveToStack(lclNum);
-            }
-#endif
         }
 
         // Mark the argument as processed, and set it as no longer live in srcRegNum,
@@ -2512,10 +2129,6 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
             liveParamRegs &= ~genRegMask(srcLcl->GetParamReg());
             liveParamRegs &= ~genRegMask(destLcl->GetParamReg());
 
-#ifdef USING_SCOPE_INFO
-            psiMoveToReg(srcLclNum);
-            psiMoveToReg(destLclNum);
-#endif
             continue;
         }
 #endif // TARGET_XARCH
@@ -2576,9 +2189,6 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
         GetEmitter()->emitIns_Mov(insCopy, size, tempReg, begRegNum, /* canSkip */ false);
 
         *tempRegClobbered = true;
-#ifdef USING_SCOPE_INFO
-        psiMoveToReg(destLclNum, tempReg);
-#endif
 
         // Start moving everything to the right place.
         while (srcRegIndex != beginRegIndex)
@@ -2641,10 +2251,6 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
         // move the dest reg (begReg) in the extra reg
         regNumber destRegNum = genMapRegArgNumToRegNum(destRegIndex, destMemType);
         GetEmitter()->emitIns_Mov(insCopy, size, destRegNum, tempReg, /* canSkip */ false);
-
-#ifdef USING_SCOPE_INFO
-        psiMoveToReg(srcLclNum);
-#endif
 
         paramRegs[srcRegIndex].processed = true;
 #ifdef TARGET_ARM
@@ -2819,10 +2425,6 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
 #else
                 inst_Mov(destMemType, destRegNum, regNum, /*canSkip*/ false);
 #endif
-
-#ifdef USING_SCOPE_INFO
-                psiMoveToReg(lclNum);
-#endif
             }
 
             paramRegs[paramRegIndex].processed = true;
@@ -2986,10 +2588,6 @@ void CodeGen::genPrologEnregisterIncomingStackParams()
         var_types regType = lcl->GetActualRegisterType();
 
         GetEmitter()->emitIns_R_S(ins_Load(regType), emitTypeSize(regType), regNum, lclNum, 0);
-
-#ifdef USING_SCOPE_INFO
-        psiMoveToReg(lclNum);
-#endif
     }
 }
 
@@ -3845,7 +3443,7 @@ void CodeGen::genFinalizeFrame()
     // of the first basic block, so load those up. In particular, the determination
     // of whether or not to use block init in the prolog is dependent on the variable
     // locations on entry to the function.
-    UpdateLclBlockLiveInRegs(compiler->fgFirstBB);
+    InitLclBlockLiveInRegs();
 
     MarkStackLocals();
     CheckUseBlockInit();
@@ -4026,7 +3624,7 @@ void CodeGen::genFinalizeFrame()
     calleeRegsPushed = genCountBits(pushedRegs);
 
 #ifdef DEBUG
-    if (verbose)
+    if (compiler->verbose)
     {
         printf("Special regs: ");
         dspRegMask(specialRegs);
@@ -4044,6 +3642,25 @@ void CodeGen::genFinalizeFrame()
     {
         compiler->info.compCompHnd->getGSCookie(&m_gsCookieVal, &m_gsCookieAddr);
     }
+
+#ifdef DEBUG
+#ifdef TARGET_XARCH
+    // Check stack pointer on return stress mode is not compatible with fully interruptible GC. REVIEW: why?
+    // It is also not compatible with any function that makes a tailcall: we aren't smart enough to only
+    // insert the SP check in the non-tailcall returns.
+    if ((GetInterruptible() || compiler->compTailCallUsed) && (compiler->lvaReturnSpCheck != BAD_VAR_NUM))
+    {
+        compiler->lvaReturnSpCheck = BAD_VAR_NUM;
+    }
+#ifdef TARGET_X86
+    // Check stack pointer on call stress mode is not compatible with fully interruptible GC. REVIEW: why?
+    if (GetInterruptible() && (compiler->lvaCallSpCheck != BAD_VAR_NUM))
+    {
+        compiler->lvaCallSpCheck = BAD_VAR_NUM;
+    }
+#endif // TARGET_X86
+#endif // TARGET_XARCH
+#endif // DEBUG
 }
 
 regNumber CodeGen::PrologChooseInitReg(regMaskTP initRegs)
@@ -4102,29 +3719,17 @@ regNumber CodeGen::PrologChooseInitReg(regMaskTP initRegs)
 //
 void CodeGen::genFnProlog()
 {
-    JITDUMP("*************** In genFnProlog()\n");
+    JITDUMP("\n=============== Generating prolog\n");
+
+    // Before generating the prolog, we need to reset the variable locations to what they will be on entry.
+    // This affects our code that determines which untracked locals need to be zero initialized.
+    InitLclBlockLiveInRegs();
 
     ScopedSetVariable<bool> _setGeneratingProlog(&generatingProlog, true);
-    compiler->funSetCurrentFunc(0);
+    funSetCurrentFunc(0);
     GetEmitter()->emitBegProlog();
-    compiler->unwindBegProlog();
+    unwindBegProlog();
     liveness.BeginPrologEpilogCodeGen();
-
-    // Do this so we can put the prolog instruction group ahead of other instruction groups.
-    genIPmappingAddToFront(static_cast<IL_OFFSETX>(ICorDebugInfo::PROLOG));
-
-#ifdef DEBUG
-    if (compiler->opts.dspCode)
-    {
-        printf("\n__prolog:\n");
-    }
-#endif
-
-    if (compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0))
-    {
-        // Create new scopes for the method-parameters for the prolog-block.
-        psiBegProlog();
-    }
 
 #ifdef TARGET_XARCH
     // For OSR there is a "phantom prolog" to account for the actions taken
@@ -4134,8 +3739,8 @@ void CodeGen::genFnProlog()
         PatchpointInfo* patchpointInfo    = compiler->info.compPatchpointInfo;
         const int       originalFrameSize = patchpointInfo->FpToSpDelta();
 
-        compiler->unwindPush(REG_FPBASE);
-        compiler->unwindAllocStack(originalFrameSize);
+        unwindPush(REG_FPBASE);
+        unwindAllocStack(originalFrameSize);
     }
 #endif
 
@@ -4149,7 +3754,7 @@ void CodeGen::genFnProlog()
 
 #ifdef TARGET_ARMARCH
         // Avoid asserts in the unwind info because these instructions aren't accounted for.
-        compiler->unwindPadding();
+        unwindPadding();
 #endif
     }
 
@@ -4178,7 +3783,7 @@ void CodeGen::genFnProlog()
     if (regMaskTP preSpillRegs = GetPreSpillRegs())
     {
         GetEmitter()->emitIns_I(INS_push, EA_4BYTE, static_cast<int>(preSpillRegs));
-        compiler->unwindPushMaskInt(preSpillRegs);
+        unwindPushMaskInt(preSpillRegs);
     }
 #endif
 
@@ -4193,11 +3798,7 @@ void CodeGen::genFnProlog()
     if (IsFramePointerRequired())
     {
         GetEmitter()->emitIns_R(INS_push, EA_PTRSIZE, REG_FPBASE);
-        compiler->unwindPush(REG_FPBASE);
-
-#ifdef USING_SCOPE_INFO
-        psiAdjustStackLevel(REGSIZE_BYTES);
-#endif
+        unwindPush(REG_FPBASE);
 
 #ifndef TARGET_AMD64
         PrologEstablishFramePointer(0, /*reportUnwindData*/ true);
@@ -4227,43 +3828,7 @@ void CodeGen::genFnProlog()
 
 #ifdef TARGET_ARM
     PrologPushCalleeSavedRegisters();
-
-    bool needToEstablishFP        = false;
-    int  afterLclFrameSPtoFPdelta = 0;
-
-    if (isFramePointerUsed())
-    {
-        needToEstablishFP = true;
-
-        // If the local frame is small enough, we establish the frame pointer after the OS-reported prolog.
-        // This makes the prolog and epilog match, giving us smaller unwind data. If the frame size is
-        // too big, we go ahead and do it here.
-
-        int SPtoFPdelta          = (calleeRegsPushed - 2) * REGSIZE_BYTES;
-        afterLclFrameSPtoFPdelta = SPtoFPdelta + lclFrameSize;
-
-        if (!emitter::emitIns_valid_imm_for_add_sp(afterLclFrameSPtoFPdelta))
-        {
-            PrologEstablishFramePointer(SPtoFPdelta, /*reportUnwindData*/ true);
-            needToEstablishFP = false;
-        }
-    }
-
-    if (genStackAllocRegisterMask(lclFrameSize, calleeSavedModifiedRegs) == RBM_NONE)
-    {
-        PrologAllocLclFrame(lclFrameSize, initReg, &initRegZeroed, paramRegState.intRegLiveIn);
-    }
-
-    if (compiler->compLocallocUsed)
-    {
-        GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_SAVED_LOCALLOC_SP, REG_SPBASE, /* canSkip */ false);
-        compiler->unwindSetFrameReg(REG_SAVED_LOCALLOC_SP, 0);
-    }
-
-    if (needToEstablishFP)
-    {
-        PrologEstablishFramePointer(afterLclFrameSPtoFPdelta, /*reportUnwindData*/ false);
-    }
+    PrologAllocMainLclFrame(initReg, &initRegZeroed);
 #endif
 
 #ifdef TARGET_XARCH
@@ -4279,6 +3844,8 @@ void CodeGen::genFnProlog()
     }
 #endif
 #endif // TARGET_XARCH
+
+    unwindEndProlog();
 
     if (compiler->info.compPublishStubParam)
     {
@@ -4364,9 +3931,9 @@ void CodeGen::genFnProlog()
     {
         // The 'real' prolog ends here for non-interruptible methods.
         // For fully-interruptible methods, we extend the prolog so that
-        // we do not need to track GC inforation while shuffling the
+        // we do not need to track GC information while shuffling the
         // arguments.
-        GetEmitter()->emitMarkPrologEnd();
+        GetEmitter()->MarkMainPrologNoGCEnd();
     }
 
 #ifdef UNIX_AMD64_ABI
@@ -4397,11 +3964,15 @@ void CodeGen::genFnProlog()
 
     if (GetInterruptible())
     {
-        GetEmitter()->emitMarkPrologEnd();
+        GetEmitter()->MarkMainPrologNoGCEnd();
     }
-    if (compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0))
+
+    if (compiler->opts.compDbgInfo && (compiler->info.compVarScopesCount > 0))
     {
-        psiEndProlog();
+        // TODO-MIKE-Review: The prolog doesn't actually end here, or to be more precise,
+        // the first block doesn't start after this point. So why limit the prolog param
+        // debug info ranges to this point?
+        liveness.CreatePrologDbgInfoRanges(this);
     }
 
 #ifdef TARGET_X86
@@ -4420,8 +3991,7 @@ void CodeGen::genFnProlog()
     }
 #endif
 
-    GetEmitter()->emitEndProlog();
-    compiler->unwindEndProlog();
+    GetEmitter()->EndMainProlog();
 }
 
 #ifdef FEATURE_EH_FUNCLETS
@@ -4576,189 +4146,52 @@ void CodeGen::PrologSetPSPSym(regNumber initReg, bool* pInitRegZeroed)
 
 #endif // FEATURE_EH_FUNCLETS
 
-/*****************************************************************************
- *
- *  Generates code for all the function and funclet prologs and epilogs.
- */
+#ifdef DEBUG
+static void PrintDbgInfoVars(Compiler* compiler, const ICorDebugInfo::NativeVarInfo* vars, unsigned count);
+#endif
 
-void CodeGen::genGeneratePrologsAndEpilogs()
+struct VarResultInfo
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** Before prolog / epilog generation\n");
-        compiler->lvaTableDump();
-        GetEmitter()->emitDispIGlist(false);
-    }
-#endif
-
-    // Before generating the prolog, we need to reset the variable locations to what they will be on entry.
-    // This affects our code that determines which untracked locals need to be zero initialized.
-    UpdateLclBlockLiveInRegs(compiler->fgFirstBB);
-
-    genFnProlog();
-#ifdef FEATURE_EH_FUNCLETS
-    // Capture the data we're going to use in the funclet prolog and epilog generation. This is
-    // information computed during codegen, or during function prolog generation, like
-    // frame offsets. It must run after main function prolog generation.
-    genCaptureFuncletPrologEpilogInfo();
-#endif
-    GetEmitter()->emitGeneratePrologEpilog();
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** After prolog / epilog generation\n");
-        GetEmitter()->emitDispIGlist(false);
-    }
-#endif
-}
-
-/*****************************************************************************
- *                          genSetScopeInfo
- *
- * This function should be called only after the sizes of the emitter blocks
- * have been finalized.
- */
+    uint32_t      startOffset;
+    uint32_t      endOffset;
+    uint32_t      varNumber;
+    DbgInfoVarLoc loc;
+};
 
 void CodeGen::genSetScopeInfo()
 {
-    if (!compiler->opts.compScopeInfo)
+    JITDUMP("*************** In genSetScopeInfo()\n");
+
+    assert(compiler->opts.compDbgInfo);
+
+    unsigned count = liveness.GetDbgInfoRangeCount();
+
+    JITDUMP("DbgInfoVarRange count is %u\n", count);
+
+    if (count == 0)
     {
+        DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, PrintDbgInfoVars(compiler, nullptr, 0));
+
         return;
     }
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In genSetScopeInfo()\n");
-    }
-#endif
-
-    unsigned varsLocationsCount = 0;
-
-#ifdef USING_SCOPE_INFO
-    if (compiler->info.compVarScopesCount > 0)
-    {
-        varsLocationsCount = siScopeCnt + psiScopeCnt;
-    }
-#else // USING_SCOPE_INFO
-
-#ifdef USING_VARIABLE_LIVE_RANGE
-    varsLocationsCount = (unsigned int)varLiveKeeper->getLiveRangesCount();
-#endif // USING_VARIABLE_LIVE_RANGE
-
-#endif // USING_SCOPE_INFO
-
-    if (varsLocationsCount == 0)
-    {
-        // No variable home to report
-        eeSetLVcount(0);
-        eeSetLVdone();
-        return;
-    }
-
-    noway_assert(compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0));
-
-    // Initialize the table where the reported variables' home will be placed.
-    eeSetLVcount(varsLocationsCount);
+    assert(compiler->info.compVarScopesCount > 0);
 
 #ifdef LATE_DISASM
-    genTrnslLocalVarCount = varsLocationsCount;
-    if (varsLocationsCount)
-    {
-        genTrnslLocalVarInfo = new (compiler, CMK_DebugOnly) TrnslLocalVarInfo[varsLocationsCount];
-    }
+    genTrnslLocalVarCount = count;
+    genTrnslLocalVarInfo  = new (compiler, CMK_DebugOnly) TrnslLocalVarInfo[count];
 #endif
 
-#ifdef USING_SCOPE_INFO
-    genSetScopeInfoUsingsiScope();
-#else // USING_SCOPE_INFO
-#ifdef USING_VARIABLE_LIVE_RANGE
-    // We can have one of both flags defined, both, or none. Specially if we need to compare both
-    // both results. But we cannot report both to the debugger, since there would be overlapping
-    // intervals, and may not indicate the same variable location.
+    VarResultInfo* ranges =
+        static_cast<VarResultInfo*>(compiler->info.compCompHnd->allocateArray(count * sizeof(VarResultInfo)));
 
-    genSetScopeInfoUsingVariableRanges();
+    genSetScopeInfoUsingVariableRanges(ranges);
 
-#endif // USING_VARIABLE_LIVE_RANGE
-#endif // USING_SCOPE_INFO
-
-    eeSetLVdone();
+    ICorDebugInfo::NativeVarInfo* vars = reinterpret_cast<ICorDebugInfo::NativeVarInfo*>(ranges);
+    DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, PrintDbgInfoVars(compiler, vars, count));
+    compiler->info.compCompHnd->setVars(compiler->info.compMethodHnd, count, vars);
 }
 
-#ifdef USING_SCOPE_INFO
-void CodeGen::genSetScopeInfoUsingsiScope()
-{
-    noway_assert(psiOpenScopeList.scNext == nullptr);
-
-    // Record the scopes found for the parameters over the prolog.
-    // The prolog needs to be treated differently as a variable may not
-    // have the same info in the prolog block as is given by compiler->lvaTable.
-    // eg. A register parameter is actually on the stack, before it is loaded to reg.
-
-    CodeGen::psiScope* scopeP;
-    unsigned           i;
-
-    for (i = 0, scopeP = psiScopeList.scNext; i < psiScopeCnt; i++, scopeP = scopeP->scNext)
-    {
-        noway_assert(scopeP != nullptr);
-        noway_assert(scopeP->scStartLoc.Valid());
-        noway_assert(scopeP->scEndLoc.Valid());
-
-        UNATIVE_OFFSET startOffs = scopeP->scStartLoc.CodeOffset(GetEmitter());
-        UNATIVE_OFFSET endOffs   = scopeP->scEndLoc.CodeOffset(GetEmitter());
-
-        unsigned varNum = scopeP->scSlotNum;
-        noway_assert(startOffs <= endOffs);
-
-        // The range may be 0 if the prolog is empty. For such a case,
-        // report the liveness of arguments to span at least the first
-        // instruction in the method. This will be incorrect (except on
-        // entry to the method) if the very first instruction of the method
-        // is part of a loop. However, this should happen
-        // very rarely, and the incorrectness is worth being able to look
-        // at the argument on entry to the method.
-        if (startOffs == endOffs)
-        {
-            noway_assert(startOffs == 0);
-            endOffs++;
-        }
-
-        siVarLoc varLoc = scopeP->getSiVarLoc();
-
-        genSetScopeInfo(i, startOffs, endOffs - startOffs, varNum, scopeP->scLVnum, true, &varLoc);
-    }
-
-    // Record the scopes for the rest of the method.
-    // Check that the LocalVarInfo scopes look OK
-    noway_assert(siOpenScopeList.scNext == nullptr);
-
-    CodeGen::siScope* scopeL;
-
-    for (i = 0, scopeL = siScopeList.scNext; i < siScopeCnt; i++, scopeL = scopeL->scNext)
-    {
-        noway_assert(scopeL != nullptr);
-        noway_assert(scopeL->scStartLoc.Valid());
-        noway_assert(scopeL->scEndLoc.Valid());
-
-        // Find the start and end IP
-
-        UNATIVE_OFFSET startOffs = scopeL->scStartLoc.CodeOffset(GetEmitter());
-        UNATIVE_OFFSET endOffs   = scopeL->scEndLoc.CodeOffset(GetEmitter());
-
-        noway_assert(scopeL->scStartLoc != scopeL->scEndLoc);
-
-        LclVarDsc* varDsc = compiler->lvaGetDesc(scopeL->scVarNum);
-        siVarLoc   varLoc = getSiVarLoc(varDsc, scopeL);
-
-        genSetScopeInfo(psiScopeCnt + i, startOffs, endOffs - startOffs, scopeL->scVarNum, scopeL->scLVnum, false,
-                        &varLoc);
-    }
-}
-#endif // USING_SCOPE_INFO
-
-#ifdef USING_VARIABLE_LIVE_RANGE
 //------------------------------------------------------------------------
 // genSetScopeInfoUsingVariableRanges: Call "genSetScopeInfo" with the
 //  "VariableLiveRanges" created for the arguments, special arguments and
@@ -4768,90 +4201,55 @@ void CodeGen::genSetScopeInfoUsingsiScope()
 //  This function is called from "genSetScopeInfo" once the code is generated
 //  and we want to send debug info to the debugger.
 //
-void CodeGen::genSetScopeInfoUsingVariableRanges()
+void CodeGen::genSetScopeInfoUsingVariableRanges(VarResultInfo* vars)
 {
-    unsigned int liveRangeIndex = 0;
+    unsigned liveRangeIndex = 0;
 
-    for (unsigned int varNum = 0; varNum < compiler->info.compLocalsCount; varNum++)
+    for (unsigned lclNum = 0; lclNum < compiler->info.compLocalsCount; lclNum++)
     {
-        LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
+        LclVarDsc* lcl      = compiler->lvaGetDesc(lclNum);
+        unsigned   ilVarNum = compiler->compMap2ILvarNum(lclNum);
 
-        if (compiler->compMap2ILvarNum(varNum) != (unsigned int)ICorDebugInfo::UNKNOWN_ILNUM)
+        if (ilVarNum == ICorDebugInfo::UNKNOWN_ILNUM)
         {
-            VariableLiveKeeper::LiveRangeList* liveRanges = nullptr;
+            continue;
+        }
 
-            for (int rangeIndex = 0; rangeIndex < 2; rangeIndex++)
+        for (DbgInfoVarRange* range = liveness.GetDbgInfoRanges(lclNum); range != nullptr; range = range->next)
+        {
+            uint32_t startOffs = range->startOffset.GetCodeOffset();
+            uint32_t endOffs   = range->endOffset.GetCodeOffset();
+
+            if (lcl->IsParam() && (startOffs == endOffs))
             {
-                if (rangeIndex == 0)
-                {
-                    liveRanges = varLiveKeeper->getLiveRangesForVarForProlog(varNum);
-                }
-                else
-                {
-                    liveRanges = varLiveKeeper->getLiveRangesForVarForBody(varNum);
-                }
-                for (VariableLiveKeeper::VariableLiveRange& liveRange : *liveRanges)
-                {
-                    UNATIVE_OFFSET startOffs = liveRange.m_StartEmitLocation.CodeOffset(GetEmitter());
-                    UNATIVE_OFFSET endOffs   = liveRange.m_EndEmitLocation.CodeOffset(GetEmitter());
-
-                    if (varDsc->IsParam() && (startOffs == endOffs))
-                    {
-                        // If the length is zero, it means that the prolog is empty. In that case,
-                        // CodeGen::genSetScopeInfo will report the liveness of all arguments
-                        // as spanning the first instruction in the method, so that they can
-                        // at least be inspected on entry to the method.
-                        endOffs++;
-                    }
-
-                    genSetScopeInfo(liveRangeIndex, startOffs, endOffs - startOffs, varNum,
-                                    varNum /* I dont know what is the which in eeGetLvInfo */, true,
-                                    &liveRange.m_VarLocation);
-                    liveRangeIndex++;
-                }
+                // If the length is zero, it means that the prolog is empty. In that case,
+                // CodeGen::genSetScopeInfo will report the liveness of all arguments
+                // as spanning the first instruction in the method, so that they can
+                // at least be inspected on entry to the method.
+                endOffs++;
             }
+
+            genSetScopeInfo(vars, liveRangeIndex, startOffs, endOffs, lclNum, ilVarNum, &range->location);
+            liveRangeIndex++;
         }
     }
 }
-#endif // USING_VARIABLE_LIVE_RANGE
 
-//------------------------------------------------------------------------
-// genSetScopeInfo: Record scope information for debug info
-//
-// Arguments:
-//    which
-//    startOffs - the starting offset for this scope
-//    length    - the length of this scope
-//    varNum    - the lclVar for this scope info
-//    LVnum
-//    avail     - a bool indicating if it has a home
-//    varLoc    - the position (reg or stack) of the variable
-//
-// Notes:
-//    Called for every scope info piece to record by the main genSetScopeInfo()
-
-void CodeGen::genSetScopeInfo(unsigned       which,
-                              UNATIVE_OFFSET startOffs,
-                              UNATIVE_OFFSET length,
-                              unsigned       varNum,
-                              unsigned       LVnum,
-                              bool           avail,
-                              siVarLoc*      varLoc)
+void CodeGen::genSetScopeInfo(VarResultInfo* vars,
+                              unsigned       index,
+                              uint32_t       startOffs,
+                              uint32_t       endOffs,
+                              unsigned       lclNum,
+                              unsigned       ilVarNum,
+                              DbgInfoVarLoc* varLoc)
 {
-    // We need to do some mapping while reporting back these variables.
-
-    unsigned ilVarNum = compiler->compMap2ILvarNum(varNum);
-    noway_assert((int)ilVarNum != ICorDebugInfo::UNKNOWN_ILNUM);
+    assert(ilVarNum != ICorDebugInfo::UNKNOWN_ILNUM);
 
 #ifdef TARGET_X86
-    // Non-x86 platforms are allowed to access all arguments directly
-    // so we don't need this code.
-
-    // Is this a varargs function?
-    if (compiler->info.compIsVarArgs && (varNum != compiler->lvaVarargsHandleArg) &&
-        (varNum < compiler->info.compArgsCount) && !compiler->lvaGetDesc(varNum)->IsRegParam())
+    if (compiler->info.compIsVarArgs && (lclNum != compiler->lvaVarargsHandleArg) &&
+        (lclNum < compiler->info.compArgsCount) && !compiler->lvaGetDesc(lclNum)->IsRegParam())
     {
-        noway_assert(varLoc->vlType == VLT_STK || varLoc->vlType == VLT_STK2);
+        noway_assert((varLoc->vlType == DbgInfoVarLoc::VLT_STK) || (varLoc->vlType == DbgInfoVarLoc::VLT_STK2));
 
         // All stack arguments (except the varargs handle) have to be
         // accessed via the varargs cookie. Discard generated info,
@@ -4867,14 +4265,14 @@ void CodeGen::genSetScopeInfo(unsigned       which,
             return;
         }
 
-        LclVarDsc* varLcl = compiler->lvaGetDesc(varNum);
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
         // Can't check varLcl->lvOnFrame as we don't set it for params
         // of vararg functions to avoid reporting them to GC.
-        noway_assert(!varLcl->lvRegister);
+        noway_assert(!lcl->lvRegister);
 
         unsigned cookieOffset = varargHandleLcl->GetStackOffset();
-        unsigned varOffset    = varLcl->GetStackOffset();
+        unsigned varOffset    = lcl->GetStackOffset();
 
         noway_assert(cookieOffset < varOffset);
         unsigned offset     = varOffset - cookieOffset;
@@ -4882,45 +4280,62 @@ void CodeGen::genSetScopeInfo(unsigned       which,
         noway_assert(offset < stkArgSize);
         offset = stkArgSize - offset;
 
-        varLoc->vlType                   = VLT_FIXED_VA;
+        varLoc->vlType                   = DbgInfoVarLoc::VLT_FIXED_VA;
         varLoc->vlFixedVarArg.vlfvOffset = offset;
     }
-
 #endif // TARGET_X86
 
 #ifdef LATE_DISASM
-    const char* name = nullptr;
+    TrnslLocalVarInfo& tlvi = genTrnslLocalVarInfo[index];
 
-    for (unsigned scopeNum = 0; scopeNum < compiler->info.compVarScopesCount; scopeNum++)
-    {
-        if (LVnum == compiler->info.compVarScopes[scopeNum].vsdLVnum)
-        {
-            name = compiler->info.compVarScopes[scopeNum].vsdName;
-        }
-    }
-
-    TrnslLocalVarInfo& tlvi = genTrnslLocalVarInfo[which];
-
-    tlvi.tlviVarNum    = ilVarNum;
-    tlvi.tlviLVnum     = LVnum;
-    tlvi.tlviName      = name;
-    tlvi.tlviStartPC   = startOffs;
-    tlvi.tlviLength    = length;
-    tlvi.tlviAvailable = avail;
-    tlvi.tlviVarLoc    = *varLoc;
+    tlvi.tlviName    = compiler->gtGetLclVarName(lclNum);
+    tlvi.tlviStartPC = startOffs;
+    tlvi.tlviEndPC   = endOffs;
+    tlvi.tlviVarLoc  = *varLoc;
 #endif
 
-    eeSetLVinfo(which, startOffs, length, ilVarNum, *varLoc);
+    vars[index].startOffset = startOffs;
+    vars[index].endOffset   = endOffs;
+    vars[index].varNumber   = ilVarNum;
+    vars[index].loc         = *varLoc;
 }
 
+// Check every siVarLocType and siVarLoc are what ICodeDebugInfo is expecting
+// so we can reinterpret siVarLoc as ICodeDebugInfo::VarLoc.
+#ifdef TARGET_X86
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::REGNUM_EAX) == REG_EAX);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::REGNUM_ECX) == REG_ECX);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::REGNUM_EDX) == REG_EDX);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::REGNUM_EBX) == REG_EBX);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::REGNUM_ESP) == REG_ESP);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::REGNUM_EBP) == REG_EBP);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::REGNUM_ESI) == REG_ESI);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::REGNUM_EDI) == REG_EDI);
+#endif
+
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::VLT_REG) == DbgInfoVarLoc::VLT_REG);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::VLT_STK) == DbgInfoVarLoc::VLT_STK);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::VLT_REG_REG) == DbgInfoVarLoc::VLT_REG_REG);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::VLT_REG_STK) == DbgInfoVarLoc::VLT_REG_STK);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::VLT_STK_REG) == DbgInfoVarLoc::VLT_STK_REG);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::VLT_STK2) == DbgInfoVarLoc::VLT_STK2);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::VLT_FPSTK) == DbgInfoVarLoc::VLT_FPSTK);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::VLT_FIXED_VA) == DbgInfoVarLoc::VLT_FIXED_VA);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::VLT_COUNT) == DbgInfoVarLoc::VLT_COUNT);
+static_assert_no_msg(static_cast<unsigned>(ICorDebugInfo::VLT_INVALID) == DbgInfoVarLoc::VLT_INVALID);
+
+static_assert_no_msg(sizeof(ICorDebugInfo::VarLoc) == sizeof(DbgInfoVarLoc));
+static_assert_no_msg(sizeof(VarResultInfo) == sizeof(ICorDebugInfo::NativeVarInfo));
+
 #ifdef LATE_DISASM
+
 const char* CodeGen::siRegVarName(size_t offs, size_t size, unsigned reg)
 {
-    if (!compiler->opts.compScopeInfo)
+#ifdef DEBUG
+    if (!compiler->opts.compDbgInfo || (compiler->info.compVarScopesCount == 0))
+    {
         return nullptr;
-
-    if (compiler->info.compVarScopesCount == 0)
-        return nullptr;
+    }
 
     TrnslLocalVarInfo* info = genTrnslLocalVarInfo;
 
@@ -4928,23 +4343,24 @@ const char* CodeGen::siRegVarName(size_t offs, size_t size, unsigned reg)
 
     for (unsigned i = 0; i < genTrnslLocalVarCount; i++)
     {
-        if ((info[i].tlviVarLoc.vlIsInReg((regNumber)reg)) && (info[i].tlviAvailable == true) &&
-            (info[i].tlviStartPC <= offs + size) && (info[i].tlviStartPC + info[i].tlviLength > offs))
+        if ((info[i].tlviVarLoc.IsInReg((regNumber)reg)) && (info[i].tlviStartPC <= offs + size) &&
+            (info[i].tlviEndPC > offs))
         {
-            return info[i].tlviName ? info[i].tlviName : nullptr;
+            return info[i].tlviName;
         }
     }
+#endif // DEBUG
 
     return nullptr;
 }
 
 const char* CodeGen::siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs)
 {
-    if (!compiler->opts.compScopeInfo)
+#ifdef DEBUG
+    if (!compiler->opts.compDbgInfo || (compiler->info.compVarScopesCount == 0))
+    {
         return nullptr;
-
-    if (compiler->info.compVarScopesCount == 0)
-        return nullptr;
+    }
 
     TrnslLocalVarInfo* info = genTrnslLocalVarInfo;
 
@@ -4952,12 +4368,13 @@ const char* CodeGen::siStackVarName(size_t offs, size_t size, unsigned reg, unsi
 
     for (unsigned i = 0; i < genTrnslLocalVarCount; i++)
     {
-        if ((info[i].tlviVarLoc.vlIsOnStack((regNumber)reg, stkOffs)) && (info[i].tlviAvailable == true) &&
-            (info[i].tlviStartPC <= offs + size) && (info[i].tlviStartPC + info[i].tlviLength > offs))
+        if ((info[i].tlviVarLoc.IsOnStack((regNumber)reg, stkOffs)) && (info[i].tlviStartPC <= offs + size) &&
+            (info[i].tlviEndPC > offs))
         {
-            return info[i].tlviName ? info[i].tlviName : nullptr;
+            return info[i].tlviName;
         }
     }
+#endif // DEBUG
 
     return nullptr;
 }
@@ -4965,18 +4382,209 @@ const char* CodeGen::siStackVarName(size_t offs, size_t size, unsigned reg, unsi
 
 #ifdef DEBUG
 
-/*****************************************************************************
- *  Display a IPmappingDsc. Pass -1 as mappingNum to not display a mapping number.
- */
-
-void CodeGen::genIPmappingDisp(unsigned mappingNum, IPmappingDsc* ipMapping)
+static void PrintDbgInfoVar(const ICorDebugInfo::NativeVarInfo& var)
 {
-    if (mappingNum != unsigned(-1))
+    const char* name = nullptr;
+
+    if (var.varNumber == ICorDebugInfo::VARARGS_HND_ILNUM)
     {
-        printf("%d: ", mappingNum);
+        name = "varargsHandle";
+    }
+    else if (var.varNumber == ICorDebugInfo::RETBUF_ILNUM)
+    {
+        name = "retBuff";
+    }
+    else if (var.varNumber == ICorDebugInfo::TYPECTXT_ILNUM)
+    {
+        name = "typeCtx";
     }
 
-    IL_OFFSETX offsx = ipMapping->ipmdILoffsx;
+    printf("%3d(%10s) : From %08Xh to %08Xh, in ", var.varNumber, (name == nullptr) ? "UNKNOWN" : name, var.startOffset,
+           var.endOffset);
+
+    switch (var.loc.vlType)
+    {
+        case ICorDebugInfo::VLT_REG:
+        case ICorDebugInfo::VLT_REG_BYREF:
+        case ICorDebugInfo::VLT_REG_FP:
+            printf("%s", getRegName(var.loc.vlReg.vlrReg));
+            if (var.loc.vlType == ICorDebugInfo::VLT_REG_BYREF)
+            {
+                printf(" byref");
+            }
+            break;
+
+        case ICorDebugInfo::VLT_STK:
+        case ICorDebugInfo::VLT_STK_BYREF:
+            if ((int)var.loc.vlStk.vlsBaseReg != (int)ICorDebugInfo::REGNUM_AMBIENT_SP)
+            {
+                printf("%s[%d] (1 slot)", getRegName(var.loc.vlStk.vlsBaseReg), var.loc.vlStk.vlsOffset);
+            }
+            else
+            {
+                printf(STR_SPBASE "'[%d] (1 slot)", var.loc.vlStk.vlsOffset);
+            }
+            if (var.loc.vlType == ICorDebugInfo::VLT_REG_BYREF)
+            {
+                printf(" byref");
+            }
+            break;
+
+        case ICorDebugInfo::VLT_REG_REG:
+            printf("%s-%s", getRegName(var.loc.vlRegReg.vlrrReg1), getRegName(var.loc.vlRegReg.vlrrReg2));
+            break;
+
+#ifndef TARGET_AMD64
+        case ICorDebugInfo::VLT_REG_STK:
+            if ((int)var.loc.vlRegStk.vlrsStk.vlrssBaseReg != (int)ICorDebugInfo::REGNUM_AMBIENT_SP)
+            {
+                printf("%s-%s[%d]", getRegName(var.loc.vlRegStk.vlrsReg),
+                       getRegName(var.loc.vlRegStk.vlrsStk.vlrssBaseReg), var.loc.vlRegStk.vlrsStk.vlrssOffset);
+            }
+            else
+            {
+                printf("%s-" STR_SPBASE "'[%d]", getRegName(var.loc.vlRegStk.vlrsReg),
+                       var.loc.vlRegStk.vlrsStk.vlrssOffset);
+            }
+            break;
+
+        case ICorDebugInfo::VLT_STK_REG:
+            unreached(); // unexpected
+
+        case ICorDebugInfo::VLT_STK2:
+            if ((int)var.loc.vlStk2.vls2BaseReg != (int)ICorDebugInfo::REGNUM_AMBIENT_SP)
+            {
+                printf("%s[%d] (2 slots)", getRegName(var.loc.vlStk2.vls2BaseReg), var.loc.vlStk2.vls2Offset);
+            }
+            else
+            {
+                printf(STR_SPBASE "'[%d] (2 slots)", var.loc.vlStk2.vls2Offset);
+            }
+            break;
+
+        case ICorDebugInfo::VLT_FPSTK:
+            printf("ST(L-%d)", var.loc.vlFPstk.vlfReg);
+            break;
+
+        case ICorDebugInfo::VLT_FIXED_VA:
+            printf("fxd_va[%d]", var.loc.vlFixedVarArg.vlfvOffset);
+            break;
+#endif // !TARGET_AMD64
+
+        default:
+            unreached();
+    }
+
+    printf("\n");
+}
+
+static void PrintDbgInfoVars(Compiler* compiler, const ICorDebugInfo::NativeVarInfo* vars, unsigned count)
+{
+    BitVecTraits varTraits(compiler->lvaCount, compiler);
+    BitVec       uniqueVars = BitVecOps::MakeEmpty(&varTraits);
+    unsigned     varCount   = 0;
+
+    for (unsigned i = 0; i < count; i++)
+    {
+        if ((vars[i].varNumber < compiler->lvaCount) &&
+            BitVecOps::TryAddElemD(&varTraits, uniqueVars, vars[i].varNumber))
+        {
+            varCount++;
+        }
+    }
+
+    printf("; Variable debug info: %d live ranges, %d vars for method %s\n", count, varCount,
+           compiler->info.compFullName);
+
+    for (unsigned i = 0; i < count; i++)
+    {
+        PrintDbgInfoVar(vars[i]);
+    }
+}
+
+#endif // DEBUG
+
+struct ILMapping
+{
+    ILMapping* next;
+    union {
+        emitLocation nativeLoc;
+        uint32_t     nativeOffset;
+    };
+    IL_OFFSETX ilOffsetX;
+    bool       isLabel;
+
+    ILMapping(IL_OFFSETX ilOffsetX, bool isLabel)
+        : next(nullptr), nativeLoc(nullptr), ilOffsetX(ilOffsetX), isLabel(isLabel)
+    {
+    }
+
+    ILMapping(ILMapping* next, uint32_t nativeOffset, IL_OFFSETX ilOffsetX, bool isLabel)
+        : next(next), nativeOffset(nativeOffset), ilOffsetX(ilOffsetX), isLabel(isLabel)
+    {
+    }
+
+    static bool IsMappingType(IL_OFFSETX ilOffsetX)
+    {
+        switch (static_cast<ICorDebugInfo::MappingTypes>(ilOffsetX))
+        {
+            case ICorDebugInfo::NO_MAPPING:
+            case ICorDebugInfo::PROLOG:
+            case ICorDebugInfo::EPILOG:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    uint32_t GetILOffset() const
+    {
+        assert(ilOffsetX != BAD_IL_OFFSET);
+
+        return IsMappingType(ilOffsetX) ? static_cast<uint32_t>(ilOffsetX)
+                                        : static_cast<uint32_t>(ilOffsetX & ~IL_OFFSETX_BITS);
+    }
+
+    bool IsStackEmpty() const
+    {
+        assert(ilOffsetX != BAD_IL_OFFSET);
+
+        return IsMappingType(ilOffsetX) || ((ilOffsetX & IL_OFFSETX_STKBIT) == 0);
+    }
+
+    bool IsCallInstruction() const
+    {
+        assert(ilOffsetX != BAD_IL_OFFSET);
+
+        return !IsMappingType(ilOffsetX) && ((ilOffsetX & IL_OFFSETX_CALLINSTRUCTIONBIT) != 0);
+    }
+};
+
+#ifdef DEBUG
+
+static void PrintILOffset(uint32_t offs)
+{
+    if (offs == ICorDebugInfo::PROLOG)
+    {
+        printf("PROLOG");
+    }
+    else if (offs == ICorDebugInfo::EPILOG)
+    {
+        printf("EPILOG");
+    }
+    else if (offs == ICorDebugInfo::NO_MAPPING)
+    {
+        printf("NO_MAP");
+    }
+    else
+    {
+        printf("0x%04X", offs);
+    }
+}
+
+static void PrintILOffsetMapping(const ILMapping& mapping)
+{
+    IL_OFFSETX offsx = mapping.ilOffsetX;
 
     if (offsx == BAD_IL_OFFSET)
     {
@@ -4984,25 +4592,23 @@ void CodeGen::genIPmappingDisp(unsigned mappingNum, IPmappingDsc* ipMapping)
     }
     else
     {
-        eeDispILOffs(jitGetILoffsAny(offsx));
+        PrintILOffset(mapping.GetILOffset());
 
-        if (jitIsStackEmpty(offsx))
+        if (mapping.IsStackEmpty())
         {
             printf(" STACK_EMPTY");
         }
 
-        if (jitIsCallInstruction(offsx))
+        if (mapping.IsCallInstruction())
         {
             printf(" CALL_INSTRUCTION");
         }
     }
 
     printf(" ");
-    ipMapping->ipmdNativeLoc.Print(compiler->compMethodID);
-    // We can only call this after code generation. Is there any way to tell when it's legal to call?
-    // printf(" [%x]", ipMapping->ipmdNativeLoc.CodeOffset(GetEmitter()));
+    mapping.nativeLoc.Print();
 
-    if (ipMapping->ipmdIsLabel)
+    if (mapping.isLabel)
     {
         printf(" label");
     }
@@ -5010,431 +4616,244 @@ void CodeGen::genIPmappingDisp(unsigned mappingNum, IPmappingDsc* ipMapping)
     printf("\n");
 }
 
-void CodeGen::genIPmappingListDisp()
-{
-    unsigned      mappingNum = 0;
-    IPmappingDsc* ipMapping;
-
-    for (ipMapping = genIPmappingList; ipMapping != nullptr; ipMapping = ipMapping->ipmdNext)
-    {
-        genIPmappingDisp(mappingNum, ipMapping);
-        ++mappingNum;
-    }
-}
-
 #endif // DEBUG
-
-/*****************************************************************************
- *
- *  Append an IPmappingDsc struct to the list that we're maintaining
- *  for the debugger.
- *  Record the instr offset as being at the current code gen position.
- */
 
 void CodeGen::genIPmappingAdd(IL_OFFSETX offsx, bool isLabel)
 {
-    if (!compiler->opts.compDbgInfo)
-    {
-        return;
-    }
-
+    assert(compiler->opts.compDbgInfo);
     assert(offsx != BAD_IL_OFFSET);
 
-    switch ((int)offsx) // Need the cast since offs is unsigned and the case statements are comparing to signed.
+    if ((offsx != ICorDebugInfo::PROLOG) && (offsx != ICorDebugInfo::EPILOG))
     {
-        case ICorDebugInfo::PROLOG:
-        case ICorDebugInfo::EPILOG:
-            break;
+        if (offsx != ICorDebugInfo::NO_MAPPING)
+        {
+            noway_assert(jitGetILoffs(offsx) <= compiler->info.compILCodeSize);
+        }
 
-        default:
-
-            if (offsx != (IL_OFFSETX)ICorDebugInfo::NO_MAPPING)
-            {
-                noway_assert(jitGetILoffs(offsx) <= compiler->info.compILCodeSize);
-            }
-
-            // Ignore this one if it's the same IL offset as the last one we saw.
-            // Note that we'll let through two identical IL offsets if the flag bits
-            // differ, or two identical "special" mappings (e.g., PROLOG).
-            if ((genIPmappingLast != nullptr) && (offsx == genIPmappingLast->ipmdILoffsx))
-            {
-                JITDUMP("genIPmappingAdd: ignoring duplicate IL offset 0x%x\n", offsx);
-                return;
-            }
-            break;
+        // Ignore this one if it's the same IL offset as the last one we saw.
+        // Note that we'll let through two identical IL offsets if the flag bits
+        // differ, or two identical "special" mappings (e.g., PROLOG).
+        if ((lastILMapping != nullptr) && (offsx == lastILMapping->ilOffsetX))
+        {
+            JITDUMP("Debug info: Ignoring duplicate IL offset 0x%x\n", offsx);
+            return;
+        }
     }
 
-    /* Create a mapping entry and append it to the list */
+    ILMapping* mapping = new (compiler, CMK_DebugInfo) ILMapping(offsx, isLabel);
+    mapping->nativeLoc.CaptureLocation(GetEmitter());
 
-    IPmappingDsc* addMapping = compiler->getAllocator(CMK_DebugInfo).allocate<IPmappingDsc>(1);
-    addMapping->ipmdNativeLoc.CaptureLocation(GetEmitter());
-    addMapping->ipmdILoffsx = offsx;
-    addMapping->ipmdIsLabel = isLabel;
-    addMapping->ipmdNext    = nullptr;
-
-    if (genIPmappingList != nullptr)
+    if (firstILMapping != nullptr)
     {
-        assert(genIPmappingLast != nullptr);
-        assert(genIPmappingLast->ipmdNext == nullptr);
-        genIPmappingLast->ipmdNext = addMapping;
+        assert(lastILMapping != nullptr);
+        assert(lastILMapping->next == nullptr);
+
+        lastILMapping->next = mapping;
     }
     else
     {
-        assert(genIPmappingLast == nullptr);
-        genIPmappingList = addMapping;
+        assert(lastILMapping == nullptr);
+
+        firstILMapping = mapping;
     }
 
-    genIPmappingLast = addMapping;
+    lastILMapping = mapping;
 
 #ifdef DEBUG
-    if (verbose)
+    if (compiler->verbose)
     {
-        printf("Added IP mapping: ");
-        genIPmappingDisp(unsigned(-1), addMapping);
+        printf("Debug Info: IL ");
+        PrintILOffsetMapping(*mapping);
     }
-#endif // DEBUG
+#endif
 }
 
-/*****************************************************************************
- *
- *  Prepend an IPmappingDsc struct to the list that we're maintaining
- *  for the debugger.
- *  Record the instr offset as being at the current code gen position.
- */
-void CodeGen::genIPmappingAddToFront(IL_OFFSETX offsx)
-{
-    if (!compiler->opts.compDbgInfo)
-    {
-        return;
-    }
-
-    assert(offsx != BAD_IL_OFFSET);
-    assert(generatingProlog); // We only ever do this during prolog generation.
-
-    switch ((int)offsx) // Need the cast since offs is unsigned and the case statements are comparing to signed.
-    {
-        case ICorDebugInfo::NO_MAPPING:
-        case ICorDebugInfo::PROLOG:
-        case ICorDebugInfo::EPILOG:
-            break;
-
-        default:
-            noway_assert(jitGetILoffs(offsx) <= compiler->info.compILCodeSize);
-            break;
-    }
-
-    /* Create a mapping entry and prepend it to the list */
-
-    IPmappingDsc* addMapping = compiler->getAllocator(CMK_DebugInfo).allocate<IPmappingDsc>(1);
-    addMapping->ipmdNativeLoc.CaptureLocation(GetEmitter());
-    addMapping->ipmdILoffsx = offsx;
-    addMapping->ipmdIsLabel = true;
-    addMapping->ipmdNext    = nullptr;
-
-    addMapping->ipmdNext = genIPmappingList;
-    genIPmappingList     = addMapping;
-
-    if (genIPmappingLast == nullptr)
-    {
-        genIPmappingLast = addMapping;
-    }
+static_assert_no_msg(IL_OFFSETX(ICorDebugInfo::NO_MAPPING) != IL_OFFSETX(BAD_IL_OFFSET));
+static_assert_no_msg(IL_OFFSETX(ICorDebugInfo::PROLOG) != IL_OFFSETX(BAD_IL_OFFSET));
+static_assert_no_msg(IL_OFFSETX(ICorDebugInfo::EPILOG) != IL_OFFSETX(BAD_IL_OFFSET));
+static_assert_no_msg(IL_OFFSETX(BAD_IL_OFFSET) > MAX_IL_OFFSET);
+static_assert_no_msg(IL_OFFSETX(ICorDebugInfo::NO_MAPPING) > MAX_IL_OFFSET);
+static_assert_no_msg(IL_OFFSETX(ICorDebugInfo::PROLOG) > MAX_IL_OFFSET);
+static_assert_no_msg(IL_OFFSETX(ICorDebugInfo::EPILOG) > MAX_IL_OFFSET);
 
 #ifdef DEBUG
-    if (verbose)
+
+static void PrintOffsetMapping(const ICorDebugInfo::OffsetMapping& mapping)
+{
+    printf("IL offs ");
+
+    PrintILOffset(mapping.ilOffset);
+    printf(" : 0x%08X", mapping.nativeOffset);
+
+    if (mapping.source != 0)
     {
-        printf("Added IP mapping to front: ");
-        genIPmappingDisp(unsigned(-1), addMapping);
+        printf(" ( ");
+
+        if ((mapping.source & ICorDebugInfo::STACK_EMPTY) != 0)
+        {
+            printf("STACK_EMPTY ");
+        }
+
+        if ((mapping.source & ICorDebugInfo::CALL_INSTRUCTION) != 0)
+        {
+            printf("CALL_INSTRUCTION ");
+        }
+
+        // We don't expect to see any other bits.
+        assert((mapping.source & ~(ICorDebugInfo::STACK_EMPTY | ICorDebugInfo::CALL_INSTRUCTION)) == 0);
+
+        printf(")");
     }
+
+    printf("\n");
+}
+
+static void PrintOffsetMappings(const ICorDebugInfo::OffsetMapping* mappings, unsigned count)
+{
+    printf("IP mapping count : %d\n", count);
+
+    for (unsigned i = 0; i < count; i++)
+    {
+        PrintOffsetMapping(mappings[i]);
+    }
+
+    printf("\n");
+}
+
 #endif // DEBUG
-}
-
-/*****************************************************************************/
-
-C_ASSERT(IL_OFFSETX(ICorDebugInfo::NO_MAPPING) != IL_OFFSETX(BAD_IL_OFFSET));
-C_ASSERT(IL_OFFSETX(ICorDebugInfo::PROLOG) != IL_OFFSETX(BAD_IL_OFFSET));
-C_ASSERT(IL_OFFSETX(ICorDebugInfo::EPILOG) != IL_OFFSETX(BAD_IL_OFFSET));
-
-C_ASSERT(IL_OFFSETX(BAD_IL_OFFSET) > MAX_IL_OFFSET);
-C_ASSERT(IL_OFFSETX(ICorDebugInfo::NO_MAPPING) > MAX_IL_OFFSET);
-C_ASSERT(IL_OFFSETX(ICorDebugInfo::PROLOG) > MAX_IL_OFFSET);
-C_ASSERT(IL_OFFSETX(ICorDebugInfo::EPILOG) > MAX_IL_OFFSET);
-
-//------------------------------------------------------------------------
-// jitGetILoffs: Returns the IL offset portion of the IL_OFFSETX type.
-//      Asserts if any ICorDebugInfo distinguished value (like ICorDebugInfo::NO_MAPPING)
-//      is seen; these are unexpected here. Also asserts if passed BAD_IL_OFFSET.
-//
-// Arguments:
-//    offsx - the IL_OFFSETX value with the IL offset to extract.
-//
-// Return Value:
-//    The IL offset.
-
-IL_OFFSET jitGetILoffs(IL_OFFSETX offsx)
-{
-    assert(offsx != BAD_IL_OFFSET);
-
-    switch ((int)offsx) // Need the cast since offs is unsigned and the case statements are comparing to signed.
-    {
-        case ICorDebugInfo::NO_MAPPING:
-        case ICorDebugInfo::PROLOG:
-        case ICorDebugInfo::EPILOG:
-            unreached();
-
-        default:
-            return IL_OFFSET(offsx & ~IL_OFFSETX_BITS);
-    }
-}
-
-//------------------------------------------------------------------------
-// jitGetILoffsAny: Similar to jitGetILoffs(), but passes through ICorDebugInfo
-//      distinguished values. Asserts if passed BAD_IL_OFFSET.
-//
-// Arguments:
-//    offsx - the IL_OFFSETX value with the IL offset to extract.
-//
-// Return Value:
-//    The IL offset.
-
-IL_OFFSET jitGetILoffsAny(IL_OFFSETX offsx)
-{
-    assert(offsx != BAD_IL_OFFSET);
-
-    switch ((int)offsx) // Need the cast since offs is unsigned and the case statements are comparing to signed.
-    {
-        case ICorDebugInfo::NO_MAPPING:
-        case ICorDebugInfo::PROLOG:
-        case ICorDebugInfo::EPILOG:
-            return IL_OFFSET(offsx);
-
-        default:
-            return IL_OFFSET(offsx & ~IL_OFFSETX_BITS);
-    }
-}
-
-//------------------------------------------------------------------------
-// jitIsStackEmpty: Does the IL offset have the stack empty bit set?
-//      Asserts if passed BAD_IL_OFFSET.
-//
-// Arguments:
-//    offsx - the IL_OFFSETX value to check
-//
-// Return Value:
-//    'true' if the stack empty bit is set; 'false' otherwise.
-
-bool jitIsStackEmpty(IL_OFFSETX offsx)
-{
-    assert(offsx != BAD_IL_OFFSET);
-
-    switch ((int)offsx) // Need the cast since offs is unsigned and the case statements are comparing to signed.
-    {
-        case ICorDebugInfo::NO_MAPPING:
-        case ICorDebugInfo::PROLOG:
-        case ICorDebugInfo::EPILOG:
-            return true;
-
-        default:
-            return (offsx & IL_OFFSETX_STKBIT) == 0;
-    }
-}
-
-//------------------------------------------------------------------------
-// jitIsCallInstruction: Does the IL offset have the call instruction bit set?
-//      Asserts if passed BAD_IL_OFFSET.
-//
-// Arguments:
-//    offsx - the IL_OFFSETX value to check
-//
-// Return Value:
-//    'true' if the call instruction bit is set; 'false' otherwise.
-
-bool jitIsCallInstruction(IL_OFFSETX offsx)
-{
-    assert(offsx != BAD_IL_OFFSET);
-
-    switch ((int)offsx) // Need the cast since offs is unsigned and the case statements are comparing to signed.
-    {
-        case ICorDebugInfo::NO_MAPPING:
-        case ICorDebugInfo::PROLOG:
-        case ICorDebugInfo::EPILOG:
-            return false;
-
-        default:
-            return (offsx & IL_OFFSETX_CALLINSTRUCTIONBIT) != 0;
-    }
-}
-
-/*****************************************************************************/
 
 void CodeGen::genEnsureCodeEmitted(IL_OFFSETX offsx)
 {
-    if (!compiler->opts.compDbgCode)
-    {
-        return;
-    }
+    assert(compiler->opts.compDbgCode);
 
-    if (offsx == BAD_IL_OFFSET)
-    {
-        return;
-    }
+    // When generating debug code we need to ensure that some
+    // native code is generated for every reported IL offset.
 
-    /* If other IL were offsets reported, skip */
-
-    if (genIPmappingLast == nullptr)
-    {
-        return;
-    }
-
-    if (genIPmappingLast->ipmdILoffsx != offsx)
-    {
-        return;
-    }
-
-    /* offsx was the last reported offset. Make sure that we generated native code */
-
-    if (genIPmappingLast->ipmdNativeLoc.IsCurrentLocation(GetEmitter()))
+    if ((lastILMapping != nullptr) && (lastILMapping->ilOffsetX == offsx) &&
+        GetEmitter()->IsCurrentLocation(lastILMapping->nativeLoc))
     {
         GetEmitter()->emitIns(INS_nop);
     }
 }
 
-/*****************************************************************************
- *
- *  Shut down the IP-mapping logic, report the info to the EE.
- */
-
 void CodeGen::genIPmappingGen()
 {
-    if (!compiler->opts.compDbgInfo)
+    JITDUMP("\n*************** In genIPmappingGen()\n");
+
+    assert(compiler->opts.compDbgInfo);
+
+    unsigned mappingCount     = 1; // There's at least one mapping for PROLOG.
+    uint32_t prevNativeOffset = 0;
+
+    ILMapping prolog(firstILMapping, 0, ICorDebugInfo::PROLOG, true);
+
+    for (ILMapping *mapping = firstILMapping, *prev = &prolog; mapping != nullptr; mapping = mapping->next)
     {
-        return;
-    }
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In genIPmappingGen()\n");
-    }
-#endif
-
-    if (genIPmappingList == nullptr)
-    {
-        eeSetLIcount(0);
-        eeSetLIdone();
-        return;
-    }
-
-    IPmappingDsc*  tmpMapping;
-    IPmappingDsc*  prevMapping;
-    unsigned       mappingCnt;
-    UNATIVE_OFFSET lastNativeOfs;
-
-    /* First count the number of distinct mapping records */
-
-    mappingCnt    = 0;
-    lastNativeOfs = UNATIVE_OFFSET(~0);
-
-    for (prevMapping = nullptr, tmpMapping = genIPmappingList; tmpMapping != nullptr; tmpMapping = tmpMapping->ipmdNext)
-    {
-        IL_OFFSETX srcIP = tmpMapping->ipmdILoffsx;
+        mapping->nativeOffset = mapping->nativeLoc.GetCodeOffset();
 
         // Managed RetVal - since new sequence points are emitted to identify IL calls,
         // make sure that those are not filtered and do not interfere with filtering of
         // other sequence points.
-        if (jitIsCallInstruction(srcIP))
+        if (mapping->IsCallInstruction())
         {
-            mappingCnt++;
+            mappingCount++;
+
             continue;
         }
 
-        UNATIVE_OFFSET nextNativeOfs = tmpMapping->ipmdNativeLoc.CodeOffset(GetEmitter());
+        uint32_t nextNativeOffset = mapping->nativeOffset;
 
-        if (nextNativeOfs != lastNativeOfs)
+        if (nextNativeOffset != prevNativeOffset)
         {
-            mappingCnt++;
-            lastNativeOfs = nextNativeOfs;
-            prevMapping   = tmpMapping;
+            mappingCount++;
+            prevNativeOffset = nextNativeOffset;
+            prev             = mapping;
+
             continue;
         }
 
-        assert(prevMapping != nullptr); // We would exit before if this was true
+        assert(prev != nullptr); // We would exit before if this was true
 
         // If there are mappings with the same native offset, then:
-        // o If one of them is NO_MAPPING, ignore it
-        // o If one of them is a label, report that and ignore the other one
-        // o Else report the higher IL offset
+        //  - If one of them is NO_MAPPING, ignore it
+        //  - If one of them is a label, report that and ignore the other one
+        //  - Else report the higher IL offset
 
-        if (prevMapping->ipmdILoffsx == static_cast<IL_OFFSETX>(ICorDebugInfo::NO_MAPPING))
+        if (prev->ilOffsetX == ICorDebugInfo::NO_MAPPING)
         {
             // If the previous entry was NO_MAPPING, ignore it
-            prevMapping->ipmdNativeLoc.Init();
-            prevMapping = tmpMapping;
+            prev->nativeOffset = UINT32_MAX;
+            prev               = mapping;
+
+            continue;
         }
-        else if (srcIP == (IL_OFFSETX)ICorDebugInfo::NO_MAPPING)
+
+        if (mapping->ilOffsetX == ICorDebugInfo::NO_MAPPING)
         {
             // If the current entry is NO_MAPPING, ignore it
-            // Leave prevMapping unchanged as tmpMapping is no longer valid
-            tmpMapping->ipmdNativeLoc.Init();
+            // Leave prev unchanged as mapping is no longer valid
+            mapping->nativeOffset = UINT32_MAX;
+
+            continue;
         }
-        else if (srcIP == (IL_OFFSETX)ICorDebugInfo::EPILOG || srcIP == 0)
+
+        if ((mapping->ilOffsetX == ICorDebugInfo::EPILOG) || (mapping->ilOffsetX == 0))
         {
             // counting for special cases: see below
-            mappingCnt++;
-            prevMapping = tmpMapping;
+            mappingCount++;
+            prev = mapping;
+
+            continue;
+        }
+
+        noway_assert(prev != nullptr);
+        noway_assert((prev->nativeOffset == UINT32_MAX) || (prevNativeOffset == prev->nativeOffset));
+
+        // The previous block had the same native offset. We have to discard one of the
+        // mappings. Simply set nativeOffset to an invalid value.
+
+        if (prev->isLabel)
+        {
+            // Leave prev unchanged as mapping is no longer valid
+            mapping->nativeOffset = UINT32_MAX;
         }
         else
         {
-            noway_assert(prevMapping != nullptr);
-            noway_assert(!prevMapping->ipmdNativeLoc.Valid() ||
-                         lastNativeOfs == prevMapping->ipmdNativeLoc.CodeOffset(GetEmitter()));
-
-            /* The previous block had the same native offset. We have to
-               discard one of the mappings. Simply reinitialize ipmdNativeLoc
-               and prevMapping will be ignored later. */
-
-            if (prevMapping->ipmdIsLabel)
-            {
-                // Leave prevMapping unchanged as tmpMapping is no longer valid
-                tmpMapping->ipmdNativeLoc.Init();
-            }
-            else
-            {
-                prevMapping->ipmdNativeLoc.Init();
-                prevMapping = tmpMapping;
-            }
+            prev->nativeOffset = UINT32_MAX;
+            prev               = mapping;
         }
     }
 
-    /* Tell them how many mapping records we've got */
+    ICorDebugInfo::OffsetMapping* mappings = static_cast<ICorDebugInfo::OffsetMapping*>(
+        compiler->info.compCompHnd->allocateArray(mappingCount * sizeof(mappings[0])));
 
-    eeSetLIcount(mappingCnt);
+    mappings[0].nativeOffset = 0;
+    mappings[0].ilOffset     = ICorDebugInfo::PROLOG;
+    mappings[0].source       = ICorDebugInfo::STACK_EMPTY;
 
-    /* Now tell them about the mappings */
+    unsigned mappingIndex = 1;
+    prevNativeOffset      = 0;
 
-    mappingCnt    = 0;
-    lastNativeOfs = UNATIVE_OFFSET(~0);
-
-    for (tmpMapping = genIPmappingList; tmpMapping != nullptr; tmpMapping = tmpMapping->ipmdNext)
+    for (ILMapping* mapping = firstILMapping; mapping != nullptr; mapping = mapping->next)
     {
-        // Do we have to skip this record ?
-        if (!tmpMapping->ipmdNativeLoc.Valid())
+        if (mapping->nativeOffset == UINT32_MAX)
         {
             continue;
         }
 
-        UNATIVE_OFFSET nextNativeOfs = tmpMapping->ipmdNativeLoc.CodeOffset(GetEmitter());
-        IL_OFFSETX     srcIP         = tmpMapping->ipmdILoffsx;
+        uint32_t   nextNativeOffset = mapping->nativeOffset;
+        IL_OFFSETX ilOffsetX        = mapping->ilOffsetX;
+        auto       source           = ICorDebugInfo::SOURCE_TYPE_INVALID;
 
-        if (jitIsCallInstruction(srcIP))
+        if (mapping->IsCallInstruction())
         {
-            eeSetLIinfo(mappingCnt++, nextNativeOfs, jitGetILoffs(srcIP), jitIsStackEmpty(srcIP), true);
+            source = static_cast<ICorDebugInfo::SourceTypes>(source | ICorDebugInfo::CALL_INSTRUCTION);
         }
-        else if (nextNativeOfs != lastNativeOfs)
+        else if (nextNativeOffset != prevNativeOffset)
         {
-            eeSetLIinfo(mappingCnt++, nextNativeOfs, jitGetILoffsAny(srcIP), jitIsStackEmpty(srcIP), false);
-            lastNativeOfs = nextNativeOfs;
+            prevNativeOffset = nextNativeOffset;
         }
-        else if (srcIP == (IL_OFFSETX)ICorDebugInfo::EPILOG || srcIP == 0)
+        else if ((ilOffsetX == ICorDebugInfo::EPILOG) || (ilOffsetX == 0))
         {
             // For the special case of an IL instruction with no body
             // followed by the epilog (say ret void immediately preceding
@@ -5442,76 +4861,120 @@ void CodeGen::genIPmappingGen()
             // at the (empty) ret statement if the user tries to put a
             // breakpoint there, and then have the option of seeing the
             // epilog or not based on SetUnmappedStopMask for the stepper.
-            eeSetLIinfo(mappingCnt++, nextNativeOfs, jitGetILoffsAny(srcIP), jitIsStackEmpty(srcIP), false);
         }
+        else
+        {
+            continue;
+        }
+
+        assert(mappingIndex < mappingCount);
+
+        if (mapping->IsStackEmpty())
+        {
+            source = static_cast<ICorDebugInfo::SourceTypes>(source | ICorDebugInfo::STACK_EMPTY);
+        }
+
+        ICorDebugInfo::OffsetMapping& corMapping = mappings[mappingIndex++];
+
+        corMapping.nativeOffset = nextNativeOffset;
+        corMapping.ilOffset     = mapping->GetILOffset();
+        corMapping.source       = source;
     }
 
 #if 0
     // TODO-Review:
-    //This check is disabled.  It is always true that any time this check asserts, the debugger would have a
-    //problem with IL source level debugging.  However, for a C# file, it only matters if things are on
-    //different source lines.  As a result, we have all sorts of latent problems with how we emit debug
-    //info, but very few actual ones.  Whenever someone wants to tackle that problem in general, turn this
-    //assert back on.
+    // This check is disabled. It is always true that any time this check asserts, the debugger would have
+    // a problem with IL source level debugging.  However, for a C# file, it only matters if things are on
+    // different source lines. As a result, we have all sorts of latent problems with how we emit debug
+    // info, but very few actual ones. Whenever someone wants to tackle that problem in general, turn this
+    // assert back on.
+
     if (compiler->opts.compDbgCode)
     {
-        //Assert that the first instruction of every basic block with more than one incoming edge has a
-        //different sequence point from each incoming block.
-        //
-        //It turns out that the only thing we really have to assert is that the first statement in each basic
-        //block has an IL offset and appears in eeBoundaries.
-        for (BasicBlock* const block : compiler->Blocks())
+        // Assert that the first instruction of every basic block with more than one incoming edge
+        // has a different sequence point from each incoming block.
+        // It turns out that the only thing we really have to assert is that the first statement in
+        // each basic block has an IL offset and appears in mappings.
+
+        for (BasicBlock* block : compiler->Blocks())
         {
             Statement* stmt = block->firstStmt();
+
             if ((block->bbRefs > 1) && (stmt != nullptr))
             {
                 bool found = false;
+
                 if (stmt->GetILOffsetX() != BAD_IL_OFFSET)
                 {
                     IL_OFFSET ilOffs = jitGetILoffs(stmt->GetILOffsetX());
-                    for (unsigned i = 0; i < eeBoundariesCount; ++i)
+
+                    for (unsigned i = 0; i < mappingCount; ++i)
                     {
-                        if (eeBoundaries[i].ilOffset == ilOffs)
+                        if (mappings[i].ilOffset == ilOffs)
                         {
                             found = true;
                             break;
                         }
                     }
                 }
+
                 noway_assert(found && "A basic block that is a jump target did not start a new sequence point.");
             }
         }
     }
 #endif // 0
 
-    eeSetLIdone();
+    DBEXEC(compiler->verbose || compiler->opts.dspDebugInfo, PrintOffsetMappings(mappings, mappingCount));
+
+    compiler->info.compCompHnd->setBoundaries(compiler->info.compMethodHnd, mappingCount, mappings);
 }
 
-/*============================================================================
- *
- *   These are empty stubs to help the late dis-assembler to compile
- *   if the late disassembler is being built into a non-DEBUG build.
- *
- *============================================================================
- */
-
-#if defined(LATE_DISASM)
-#if !defined(DEBUG)
-
-/* virtual */
-const char* CodeGen::siRegVarName(size_t offs, size_t size, unsigned reg)
+#ifndef TARGET_X86
+// Generate code for a putArgStk whose source is a FIELD_LIST
+// The x86 version of this is in codegenxarch.cpp, and doesn't take
+// an outArgLclNum, as it pushes its args onto the stack.
+// For fast tail calls the outgoing argument area is actually the
+// method's own incoming argument area.
+void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArg,
+                                    unsigned          outArgLclNum,
+                                    unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
 {
-    return NULL;
-}
+    regNumber tmpReg = putArg->AvailableTempRegCount() ? putArg->GetSingleTempReg() : REG_NA;
 
-/* virtual */
-const char* CodeGen::siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs)
-{
-    return NULL;
-}
+    for (GenTreeFieldList::Use& use : putArg->GetOp(0)->AsFieldList()->Uses())
+    {
+        unsigned dstOffset = outArgLclOffs + use.GetOffset();
 
-#endif // !defined(DEBUG)
-#endif // defined(LATE_DISASM)
+        GenTree*  src     = use.GetNode();
+        var_types srcType = use.GetType();
+        regNumber srcReg;
+
+        assert((dstOffset + varTypeSize(srcType)) <= outArgLclSize);
+
+#ifdef FEATURE_SIMD
+        if (srcType == TYP_SIMD12)
+        {
+            genStoreSIMD12(GenAddrMode(outArgLclNum, dstOffset), src, tmpReg);
+            continue;
+        }
+#endif
+
+#ifdef TARGET_ARM64
+        if (src->isContained())
+        {
+            assert(src->IsIntegralConst(0) || src->IsDblConPositiveZero());
+            srcReg = REG_ZR;
+        }
+        else
+#endif
+        {
+            srcReg = genConsumeReg(src);
+        }
+
+        GetEmitter()->emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, outArgLclNum, dstOffset);
+    }
+}
+#endif // !TARGET_X86
 
 void CodeGen::GenRetFilt(GenTree* retfilt, BasicBlock* block)
 {
@@ -5575,8 +5038,8 @@ void CodeGen::GenReturn(GenTree* ret, BasicBlock* block)
     // to properly cleanup after an unconditional throw and we end up with a THROW block having an
     // unreachable RETURN node at the end.
     assert((block->bbJumpKind == BBJ_RETURN) || (block->bbJumpKind == BBJ_THROW));
-#if defined(FEATURE_EH_FUNCLETS)
-    assert(compiler->funCurrentFunc()->funKind == FUNC_ROOT);
+#ifdef FEATURE_EH_FUNCLETS
+    assert(funCurrentFunc().kind == FUNC_ROOT);
 #endif
 
     var_types retType = ret->GetType();
@@ -5657,9 +5120,9 @@ void CodeGen::GenReturn(GenTree* ret, BasicBlock* block)
 #if defined(DEBUG) && defined(TARGET_XARCH)
     if (compiler->lvaReturnSpCheck != BAD_VAR_NUM)
     {
-        genStackPointerCheck(compiler->lvaReturnSpCheck);
+        genStackPointerCheck();
     }
-#endif // defined(DEBUG) && defined(TARGET_XARCH)
+#endif
 }
 
 #ifndef WINDOWS_AMD64_ABI
@@ -5742,7 +5205,7 @@ void CodeGen::GenStoreLclVarLong(GenTreeLclVar* store)
     GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, srcRegs[0], store->GetLclNum(), 0);
     GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, srcRegs[1], store->GetLclNum(), 4);
 
-    genUpdateLife(store);
+    liveness.UpdateLife(this, store);
 }
 
 #endif
@@ -5835,30 +5298,17 @@ instruction CodeGen::ins_StoreFromSrc(regNumber srcReg, var_types dstType, bool 
     return ins_Store(dstTypeForStore, aligned);
 }
 
-void CodeGen::inst_JMP(emitJumpKind jmp, BasicBlock* tgtBlock)
-{
-#if !FEATURE_FIXED_OUT_ARGS
-    // On the x86 we are pushing (and changing the stack level), but on x64 and other archs we have
-    // a fixed outgoing args area that we store into and we never change the stack level when calling methods.
-    //
-    // Thus only on x86 do we need to assert that the stack level at the target block matches the current stack level.
-    //
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef UNIX_X86_ABI
-    // bbTgtStkDepth is a (pure) argument count (stack alignment padding should be excluded).
-    assert((tgtBlock->bbTgtStkDepth * sizeof(int) == (genStackLevel - curNestedAlignment)) || isFramePointerUsed());
-#else
-    assert((tgtBlock->bbTgtStkDepth * sizeof(int) == genStackLevel) || isFramePointerUsed());
-#endif
-#endif // !FEATURE_FIXED_OUT_ARGS
-
-    GetEmitter()->emitIns_J(emitter::emitJumpKindToIns(jmp), tgtBlock);
-}
-
 void CodeGen::inst_Mov(var_types dstType, regNumber dstReg, regNumber srcReg, bool canSkip)
 {
     GetEmitter()->emitIns_Mov(ins_Copy(srcReg, dstType), emitActualTypeSize(dstType), dstReg, srcReg, canSkip);
+}
+
+void CodeGen::genCopyRegIfNeeded(GenTree* node, regNumber needReg)
+{
+    assert((node->GetRegNum() != REG_NA) && (needReg != REG_NA));
+    assert(!node->isUsedFromSpillTemp());
+
+    inst_Mov(node->TypeGet(), needReg, node->GetRegNum(), /* canSkip */ true);
 }
 
 bool CodeGen::IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs)
@@ -5899,817 +5349,408 @@ bool CodeGen::IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclO
     return false;
 }
 
-#if defined(DEBUG) && defined(TARGET_XARCH)
-
-//------------------------------------------------------------------------
-// genStackPointerCheck: Generate code to check the stack pointer against a saved value.
-// This is a debug check.
-//
-// Arguments:
-//    lvaStackPointerVar  - The local variable number that holds the value of the stack pointer
-//                          we are comparing against.
-//
-void CodeGen::genStackPointerCheck(unsigned lvaStackPointerVar)
+CodeGen::GenIntCastDesc::GenIntCastDesc(GenTreeCast* cast)
 {
-    LclVarDsc* lcl = compiler->lvaGetDesc(lvaStackPointerVar);
-    assert(lcl->lvOnFrame && lcl->lvDoNotEnregister);
+    GenTree* src = cast->GetOp(0);
 
-    GetEmitter()->emitIns_S_R(INS_cmp, EA_PTRSIZE, REG_SPBASE, lvaStackPointerVar, 0);
+    const var_types srcType      = varActualType(src->GetType());
+    const bool      srcUnsigned  = cast->IsUnsigned();
+    const unsigned  srcSize      = varTypeSize(srcType);
+    const var_types castType     = cast->GetCastType();
+    const bool      castUnsigned = varTypeIsUnsigned(castType);
+    const unsigned  castSize     = varTypeSize(castType);
+    const var_types dstType      = varActualType(cast->GetType());
+    const unsigned  dstSize      = varTypeSize(dstType);
+    const bool      overflow     = cast->gtOverflow();
 
-    BasicBlock* sp_check = genCreateTempLabel();
-    GetEmitter()->emitIns_J(INS_je, sp_check);
-    GetEmitter()->emitIns(INS_BREAKPOINT);
-    genDefineTempLabel(sp_check);
-}
+    assert(cast->GetType() == varCastType(castType));
+    assert((srcSize == 4) || (srcSize == varTypeSize(TYP_I_IMPL)));
+    assert((dstSize == 4) || (dstSize == varTypeSize(TYP_I_IMPL)));
 
-#endif // defined(DEBUG) && defined(TARGET_XARCH)
+    assert(dstSize == varTypeSize(varActualType(castType)));
 
-#if !FEATURE_FIXED_OUT_ARGS
-unsigned CodeGenInterface::getCurrentStackLevel() const
-{
-    return genStackLevel;
-}
-#endif
-
-#ifdef USING_VARIABLE_LIVE_RANGE
-#ifdef DEBUG
-//------------------------------------------------------------------------
-//                      VariableLiveRanges dumpers
-//------------------------------------------------------------------------
-
-// Dump "VariableLiveRange" when code has not been generated and we don't have so the assembly native offset
-// but at least "emitLocation"s and "siVarLoc"
-void CodeGen::VariableLiveKeeper::VariableLiveRange::dumpVariableLiveRange(const CodeGenInterface* codeGen) const
-{
-    codeGen->dumpSiVarLoc(&m_VarLocation);
-
-    printf(" [");
-    m_StartEmitLocation.Print(codeGen->GetCompiler()->compMethodID);
-    printf(", ");
-    if (m_EndEmitLocation.Valid())
+    if (castSize < 4) // Cast to small int type
     {
-        m_EndEmitLocation.Print(codeGen->GetCompiler()->compMethodID);
-    }
-    else
-    {
-        printf("...");
-    }
-    printf("]");
-}
-
-// Dump "VariableLiveRange" when code has been generated and we have the assembly native offset of each "emitLocation"
-void CodeGen::VariableLiveKeeper::VariableLiveRange::dumpVariableLiveRange(emitter*                emit,
-                                                                           const CodeGenInterface* codeGen) const
-{
-    assert(emit != nullptr);
-
-    // "VariableLiveRanges" are created setting its location ("m_VarLocation") and the initial native offset
-    // ("m_StartEmitLocation")
-    codeGen->dumpSiVarLoc(&m_VarLocation);
-
-    // If this is an open "VariableLiveRange", "m_EndEmitLocation" is non-valid and print -1
-    UNATIVE_OFFSET endAssemblyOffset = m_EndEmitLocation.Valid() ? m_EndEmitLocation.CodeOffset(emit) : -1;
-
-    printf(" [%X, %X)", m_StartEmitLocation.CodeOffset(emit), m_EndEmitLocation.CodeOffset(emit));
-}
-
-//------------------------------------------------------------------------
-//                      LiveRangeDumper
-//------------------------------------------------------------------------
-//------------------------------------------------------------------------
-// resetDumper: If the the "liveRange" has its last "VariableLiveRange" closed, it makes
-//  the "LiveRangeDumper" points to end of "liveRange" (nullptr). In other case,
-//  it makes the "LiveRangeDumper" points to the last "VariableLiveRange" of
-//  "liveRange", which is opened.
-//
-// Arguments:
-//  liveRanges - the "LiveRangeList" of the "VariableLiveDescriptor" we want to
-//      udpate its "LiveRangeDumper".
-//
-// Notes:
-//  This method is expected to be called once a the code for a BasicBlock has been
-//  generated and all the new "VariableLiveRange"s of the variable during this block
-//  has been dumped.
-void CodeGen::VariableLiveKeeper::LiveRangeDumper::resetDumper(const LiveRangeList* liveRanges)
-{
-    // There must have reported something in order to reset
-    assert(m_hasLiveRangestoDump);
-
-    if (liveRanges->back().m_EndEmitLocation.Valid())
-    {
-        // the last "VariableLiveRange" is closed and the variable
-        // is no longer alive
-        m_hasLiveRangestoDump = false;
-    }
-    else
-    {
-        // the last "VariableLiveRange" remains opened because it is
-        // live at "BasicBlock"s "bbLiveOut".
-        m_StartingLiveRange = liveRanges->backPosition();
-    }
-}
-
-//------------------------------------------------------------------------
-// setDumperStartAt: Make "LiveRangeDumper" instance points the last "VariableLiveRange"
-// added so we can starts dumping from there after the actual "BasicBlock"s code is generated.
-//
-// Arguments:
-//  liveRangeIt - an iterator to a position in "VariableLiveDescriptor::m_VariableLiveRanges"
-//
-// Return Value:
-//  A const pointer to the "LiveRangeList" containing all the "VariableLiveRange"s
-//  of the variable with index "varNum".
-//
-// Notes:
-//  "varNum" should be always a valid inde ("varnum" < "m_LiveDscCount")
-void CodeGen::VariableLiveKeeper::LiveRangeDumper::setDumperStartAt(const LiveRangeListIterator liveRangeIt)
-{
-    m_hasLiveRangestoDump = true;
-    m_StartingLiveRange   = liveRangeIt;
-}
-
-//------------------------------------------------------------------------
-// getStartForDump: Return an iterator to the first "VariableLiveRange" edited/added
-//  during the current "BasicBlock"
-//
-// Return Value:
-//  A LiveRangeListIterator to the first "VariableLiveRange" in "LiveRangeList" which
-//  was used during last "BasicBlock".
-//
-CodeGen::VariableLiveKeeper::LiveRangeListIterator CodeGen::VariableLiveKeeper::LiveRangeDumper::getStartForDump() const
-{
-    return m_StartingLiveRange;
-}
-
-//------------------------------------------------------------------------
-// hasLiveRangesToDump: Retutn wheter at least a "VariableLiveRange" was alive during
-//  the current "BasicBlock"'s code generation
-//
-// Return Value:
-//  A boolean indicating indicating if there is at least a "VariableLiveRange"
-//  that has been used for the variable during last "BasicBlock".
-//
-bool CodeGen::VariableLiveKeeper::LiveRangeDumper::hasLiveRangesToDump() const
-{
-    return m_hasLiveRangestoDump;
-}
-#endif // DEBUG
-
-//------------------------------------------------------------------------
-//                      VariableLiveDescriptor
-//------------------------------------------------------------------------
-
-CodeGen::VariableLiveKeeper::VariableLiveDescriptor::VariableLiveDescriptor(CompAllocator allocator)
-{
-    // Initialize an empty list
-    m_VariableLiveRanges = new (allocator) LiveRangeList(allocator);
-
-    INDEBUG(m_VariableLifeBarrier = new (allocator) LiveRangeDumper(m_VariableLiveRanges));
-}
-
-//------------------------------------------------------------------------
-// hasVariableLiveRangeOpen: Return true if the variable is still alive,
-//  false in other case.
-//
-bool CodeGen::VariableLiveKeeper::VariableLiveDescriptor::hasVariableLiveRangeOpen() const
-{
-    return !m_VariableLiveRanges->empty() && !m_VariableLiveRanges->back().m_EndEmitLocation.Valid();
-}
-
-//------------------------------------------------------------------------
-// getLiveRanges: Return the list of variable locations for this variable.
-//
-// Return Value:
-//  A const LiveRangeList* pointing to the first variable location if it has
-//  any or the end of the list in other case.
-//
-CodeGen::VariableLiveKeeper::LiveRangeList* CodeGen::VariableLiveKeeper::VariableLiveDescriptor::getLiveRanges() const
-{
-    return m_VariableLiveRanges;
-}
-
-//------------------------------------------------------------------------
-// startLiveRangeFromEmitter: Report this variable as being born in "varLocation"
-//  since the instruction where "emit" is located.
-//
-// Arguments:
-//  varLocation  - the home of the variable.
-//  emit - an emitter* instance located at the first instruction from
-//  where "varLocation" becomes valid.
-//
-// Assumptions:
-//  This variable is being born so it should be dead.
-//
-// Notes:
-//  The position of "emit" matters to ensure intervals inclusive of the
-//  beginning and exclusive of the end.
-//
-void CodeGen::VariableLiveKeeper::VariableLiveDescriptor::startLiveRangeFromEmitter(
-    CodeGenInterface::siVarLoc varLocation, emitter* emit) const
-{
-    noway_assert(emit != nullptr);
-
-    // Is the first "VariableLiveRange" or the previous one has been closed so its "m_EndEmitLocation" is valid
-    noway_assert(m_VariableLiveRanges->empty() || m_VariableLiveRanges->back().m_EndEmitLocation.Valid());
-
-    if (!m_VariableLiveRanges->empty() &&
-        siVarLoc::Equals(&varLocation, &(m_VariableLiveRanges->back().m_VarLocation)) &&
-        m_VariableLiveRanges->back().m_EndEmitLocation.IsPreviousInsNum(emit))
-    {
-        JITDUMP("Extending debug range...\n");
-
-        // The variable is being born just after the instruction at which it died.
-        // In this case, i.e. an update of the variable's value, we coalesce the live ranges.
-        m_VariableLiveRanges->back().m_EndEmitLocation.Init();
-    }
-    else
-    {
-        JITDUMP("New debug range: %s\n",
-                m_VariableLiveRanges->empty()
-                    ? "first"
-                    : siVarLoc::Equals(&varLocation, &(m_VariableLiveRanges->back().m_VarLocation))
-                          ? "new var or location"
-                          : "not adjacent");
-        // Creates new live range with invalid end
-        m_VariableLiveRanges->emplace_back(varLocation, emitLocation(), emitLocation());
-        m_VariableLiveRanges->back().m_StartEmitLocation.CaptureLocation(emit);
-    }
-
-#ifdef DEBUG
-    if (!m_VariableLifeBarrier->hasLiveRangesToDump())
-    {
-        m_VariableLifeBarrier->setDumperStartAt(m_VariableLiveRanges->backPosition());
-    }
-#endif // DEBUG
-
-    // startEmitLocationendEmitLocation has to be Valid and endEmitLocationendEmitLocation  not
-    noway_assert(m_VariableLiveRanges->back().m_StartEmitLocation.Valid());
-    noway_assert(!m_VariableLiveRanges->back().m_EndEmitLocation.Valid());
-}
-
-//------------------------------------------------------------------------
-// endLiveRangeAtEmitter: Report this variable as becoming dead since the
-//  instruction where "emit" is located.
-//
-// Arguments:
-//  emit - an emitter* instance located at the first instruction from
-//   this variable becomes dead.
-//
-// Assumptions:
-//  This variable is becoming dead so it should be alive.
-//
-// Notes:
-//  The position of "emit" matters to ensure intervals inclusive of the
-//  beginning and exclusive of the end.
-//
-void CodeGen::VariableLiveKeeper::VariableLiveDescriptor::endLiveRangeAtEmitter(emitter* emit) const
-{
-    noway_assert(emit != nullptr);
-    noway_assert(hasVariableLiveRangeOpen());
-
-    // Using [close, open) ranges so as to not compute the size of the last instruction
-    m_VariableLiveRanges->back().m_EndEmitLocation.CaptureLocation(emit);
-
-    // No m_EndEmitLocation has to be Valid
-    noway_assert(m_VariableLiveRanges->back().m_EndEmitLocation.Valid());
-}
-
-//------------------------------------------------------------------------
-// UpdateLiveRangeAtEmitter: Report this variable as changing its variable
-//  home to "varLocation" since the instruction where "emit" is located.
-//
-// Arguments:
-//  varLocation  - the new variable location.
-//  emit - an emitter* instance located at the first instruction from
-//   where "varLocation" becomes valid.
-//
-// Assumptions:
-//  This variable is being born so it should be dead.
-//
-// Notes:
-//  The position of "emit" matters to ensure intervals inclusive of the
-//  beginning and exclusive of the end.
-//
-void CodeGen::VariableLiveKeeper::VariableLiveDescriptor::updateLiveRangeAtEmitter(
-    CodeGenInterface::siVarLoc varLocation, emitter* emit) const
-{
-    // This variable is changing home so it has been started before during this block
-    noway_assert(m_VariableLiveRanges != nullptr && !m_VariableLiveRanges->empty());
-
-    // And its last m_EndEmitLocation has to be invalid
-    noway_assert(!m_VariableLiveRanges->back().m_EndEmitLocation.Valid());
-
-    // If we are reporting again the same home, that means we are doing something twice?
-    // noway_assert(! CodeGenInterface::siVarLoc::Equals(&m_VariableLiveRanges->back().m_VarLocation, varLocation));
-
-    // Close previous live range
-    endLiveRangeAtEmitter(emit);
-
-    startLiveRangeFromEmitter(varLocation, emit);
-}
-
-#ifdef DEBUG
-void CodeGen::VariableLiveKeeper::VariableLiveDescriptor::dumpAllRegisterLiveRangesForBlock(
-    emitter* emit, const CodeGenInterface* codeGen) const
-{
-    bool first = true;
-    for (LiveRangeListIterator it = m_VariableLiveRanges->begin(); it != m_VariableLiveRanges->end(); it++)
-    {
-        if (!first)
+        if (overflow)
         {
-            printf("; ");
-        }
-        it->dumpVariableLiveRange(emit, codeGen);
-        first = false;
-    }
-}
+            m_checkKind    = CHECK_SMALL_INT_RANGE;
+            m_checkSrcSize = srcSize;
+            // Since these are small int types we can compute the min and max
+            // values of the castType without risk of integer overflow.
+            const int castNumBits = (castSize * 8) - (castUnsigned ? 0 : 1);
+            m_checkSmallIntMax    = (1 << castNumBits) - 1;
+            m_checkSmallIntMin    = (castUnsigned | srcUnsigned) ? 0 : (-m_checkSmallIntMax - 1);
 
-void CodeGen::VariableLiveKeeper::VariableLiveDescriptor::dumpRegisterLiveRangesForBlockBeforeCodeGenerated(
-    const CodeGenInterface* codeGen) const
-{
-    bool first = true;
-    for (LiveRangeListIterator it = m_VariableLifeBarrier->getStartForDump(); it != m_VariableLiveRanges->end(); it++)
-    {
-        if (!first)
-        {
-            printf("; ");
-        }
-        it->dumpVariableLiveRange(codeGen);
-        first = false;
-    }
-}
-
-// Returns true if a live range for this variable has been recorded
-bool CodeGen::VariableLiveKeeper::VariableLiveDescriptor::hasVarLiveRangesToDump() const
-{
-    return !m_VariableLiveRanges->empty();
-}
-
-// Returns true if a live range for this variable has been recorded from last call to EndBlock
-bool CodeGen::VariableLiveKeeper::VariableLiveDescriptor::hasVarLiveRangesFromLastBlockToDump() const
-{
-    return m_VariableLifeBarrier->hasLiveRangesToDump();
-}
-
-// Reset the barrier so as to dump only next block changes on next block
-void CodeGen::VariableLiveKeeper::VariableLiveDescriptor::endBlockLiveRanges()
-{
-    // make "m_VariableLifeBarrier->m_StartingLiveRange" now points to nullptr for printing purposes
-    m_VariableLifeBarrier->resetDumper(m_VariableLiveRanges);
-}
-#endif // DEBUG
-
-//------------------------------------------------------------------------
-//                      VariableLiveKeeper
-//------------------------------------------------------------------------
-// Initialize structures for VariableLiveRanges
-void CodeGen::initializeVariableLiveKeeper()
-{
-    CompAllocator allocator = compiler->getAllocator(CMK_VariableLiveRanges);
-
-    int amountTrackedVariables = compiler->opts.compDbgInfo ? compiler->info.compLocalsCount : 0;
-    int amountTrackedArgs      = compiler->opts.compDbgInfo ? compiler->info.compArgsCount : 0;
-
-    varLiveKeeper = new (allocator) VariableLiveKeeper(amountTrackedVariables, amountTrackedArgs, compiler, allocator);
-}
-
-CodeGen::VariableLiveKeeper* CodeGen::getVariableLiveKeeper() const
-{
-    return varLiveKeeper;
-};
-
-//------------------------------------------------------------------------
-// VariableLiveKeeper: Create an instance of the object in charge of managing
-//  VariableLiveRanges and intialize the array "m_vlrLiveDsc".
-//
-// Arguments:
-//    totalLocalCount   - the count of args, special args and IL Local
-//      variables in the method.
-//    argsCount         - the count of args and special args in the method.
-//    compiler          - a compiler instance
-//
-CodeGen::VariableLiveKeeper::VariableLiveKeeper(unsigned int  totalLocalCount,
-                                                unsigned int  argsCount,
-                                                Compiler*     comp,
-                                                CompAllocator allocator)
-    : m_LiveDscCount(totalLocalCount)
-    , m_LiveArgsCount(argsCount)
-    , m_Compiler(comp)
-    , m_LastBasicBlockHasBeenEmited(false)
-{
-    if (m_LiveDscCount > 0)
-    {
-        // Allocate memory for "m_vlrLiveDsc" and initialize each "VariableLiveDescriptor"
-        m_vlrLiveDsc          = allocator.allocate<VariableLiveDescriptor>(m_LiveDscCount);
-        m_vlrLiveDscForProlog = allocator.allocate<VariableLiveDescriptor>(m_LiveDscCount);
-
-        for (unsigned int varNum = 0; varNum < m_LiveDscCount; varNum++)
-        {
-            new (m_vlrLiveDsc + varNum) VariableLiveDescriptor(allocator);
-            new (m_vlrLiveDscForProlog + varNum) VariableLiveDescriptor(allocator);
-        }
-    }
-}
-
-//------------------------------------------------------------------------
-// siStartOrCloseVariableLiveRange: Reports the given variable as beign born
-//  or becoming dead.
-//
-// Arguments:
-//    varDsc    - the variable for which a location changed will be reported
-//    varNum    - the index of the variable in the "compiler->lvaTable"
-//    isBorn    - whether the variable is being born from where the emitter is located.
-//    isDying   - whether the variable is dying from where the emitter is located.
-//
-// Assumptions:
-//    The emitter should be located on the first instruction from where is true that
-//    the variable becoming valid (when isBorn is true) or invalid (when isDying is true).
-//
-// Notes:
-//    This method is being called when the variable is being born,
-//    becoming dead, or both.
-//
-void CodeGen::VariableLiveKeeper::siStartOrCloseVariableLiveRange(const LclVarDsc* varDsc,
-                                                                  unsigned int     varNum,
-                                                                  bool             isBorn,
-                                                                  bool             isDying)
-{
-    noway_assert(varDsc != nullptr);
-
-    // Only the variables that exists in the IL, "this", and special arguments
-    // are reported.
-    if (m_Compiler->opts.compDbgInfo && varNum < m_LiveDscCount)
-    {
-        if (isBorn && !isDying)
-        {
-            // "varDsc" is valid from this point
-            siStartVariableLiveRange(varDsc, varNum);
-        }
-        if (isDying && !isBorn)
-        {
-            // this variable live range is no longer valid from this point
-            siEndVariableLiveRange(varNum);
-        }
-    }
-}
-
-//------------------------------------------------------------------------
-// siStartVariableLiveRange: Reports the given variable as being born.
-//
-// Arguments:
-//    varDsc    - the variable for which a location changed will be reported
-//    varNum    - the index of the variable to report home in lvLiveDsc
-//
-// Assumptions:
-//    The emitter should be pointing to the first instruction from where the VariableLiveRange is
-//    becoming valid.
-//    The given "varDsc" should have its VariableRangeLists initialized.
-//
-// Notes:
-//    This method should be called on every place a Variable is becoming alive.
-void CodeGen::VariableLiveKeeper::siStartVariableLiveRange(const LclVarDsc* varDsc, unsigned int varNum)
-{
-    noway_assert(varDsc != nullptr);
-
-    // Only the variables that exists in the IL, "this", and special arguments
-    // are reported.
-    if (m_Compiler->opts.compDbgInfo && varNum < m_LiveDscCount)
-    {
-        // Build siVarLoc for this born "varDsc"
-        CodeGenInterface::siVarLoc varLocation =
-            m_Compiler->codeGen->getSiVarLoc(varDsc
-#if !FEATURE_FIXED_OUT_ARGS
-                                             ,
-                                             m_Compiler->codeGen->getCurrentStackLevel()
-#endif
-                                                 );
-
-        VariableLiveDescriptor* varLiveDsc = &m_vlrLiveDsc[varNum];
-        // this variable live range is valid from this point
-        varLiveDsc->startLiveRangeFromEmitter(varLocation, m_Compiler->GetEmitter());
-    }
-}
-
-//------------------------------------------------------------------------
-// siEndVariableLiveRange: Reports the variable as becoming dead.
-//
-// Arguments:
-//    varNum    - the index of the variable at m_vlrLiveDsc or lvaTable in that
-//       is becoming dead.
-//
-// Assumptions:
-//    The given variable should be alive.
-//    The emitter should be pointing to the first instruction from where the VariableLiveRange is
-//    becoming invalid.
-//
-// Notes:
-//    This method should be called on every place a Variable is becoming dead.
-void CodeGen::VariableLiveKeeper::siEndVariableLiveRange(unsigned int varNum)
-{
-    // Only the variables that exists in the IL, "this", and special arguments
-    // will be reported.
-
-    // This method is being called from genUpdateLife, and that one is called after
-    // code for BasicBlock have been generated, but the emitter has no longer
-    // a valid IG so we don't report the close of a "VariableLiveRange" after code is
-    // emitted.
-
-    if (m_Compiler->opts.compDbgInfo && varNum < m_LiveDscCount && !m_LastBasicBlockHasBeenEmited)
-    {
-        // this variable live range is no longer valid from this point
-        m_vlrLiveDsc[varNum].endLiveRangeAtEmitter(m_Compiler->GetEmitter());
-    }
-}
-
-//------------------------------------------------------------------------
-// siUpdateVariableLiveRange: Reports the change of variable location for the
-//  given variable.
-//
-// Arguments:
-//    varDsc    - the variable for which tis home has changed.
-//    varNum    - the index of the variable to report home in lvLiveDsc
-//
-// Assumptions:
-//    The given variable should be alive.
-//    The emitter should be pointing to the first instruction from where
-//    the new variable location is becoming valid.
-//
-void CodeGen::VariableLiveKeeper::siUpdateVariableLiveRange(const LclVarDsc* varDsc, unsigned int varNum)
-{
-    noway_assert(varDsc != nullptr);
-
-    // Only the variables that exists in the IL, "this", and special arguments
-    // will be reported. This are locals and arguments, and are counted in
-    // "info.compLocalsCount".
-
-    // This method is being called when the prolog is being generated, and
-    // the emitter has no longer a valid IG so we don't report the close of
-    //  a "VariableLiveRange" after code is emitted.
-    if (m_Compiler->opts.compDbgInfo && varNum < m_LiveDscCount && !m_LastBasicBlockHasBeenEmited)
-    {
-        // Build the location of the variable
-        CodeGenInterface::siVarLoc siVarLoc =
-            m_Compiler->codeGen->getSiVarLoc(varDsc
-#if !FEATURE_FIXED_OUT_ARGS
-                                             ,
-                                             m_Compiler->codeGen->getCurrentStackLevel()
-#endif
-                                                 );
-
-        // Report the home change for this variable
-        VariableLiveDescriptor* varLiveDsc = &m_vlrLiveDsc[varNum];
-        varLiveDsc->updateLiveRangeAtEmitter(siVarLoc, m_Compiler->GetEmitter());
-    }
-}
-
-//------------------------------------------------------------------------
-// siEndAllVariableLiveRange: Reports the set of variables as becoming dead.
-//
-// Arguments:
-//    newLife    - the set of variables that are becoming dead.
-//
-// Assumptions:
-//    All the variables in the set are alive.
-//
-// Notes:
-//    This method is called when the last block being generated to killed all
-//    the live variables and set a flag to avoid reporting variable locations for
-//    on next calls to method that update variable liveness.
-void CodeGen::VariableLiveKeeper::siEndAllVariableLiveRange(VARSET_VALARG_TP varsToClose)
-{
-    if (m_Compiler->opts.compDbgInfo)
-    {
-        if (m_Compiler->lvaTrackedCount > 0 || !m_Compiler->opts.OptimizationDisabled())
-        {
-            VarSetOps::Iter iter(m_Compiler, varsToClose);
-            unsigned        varIndex = 0;
-            while (iter.NextElem(&varIndex))
-            {
-                unsigned int varNum = m_Compiler->lvaTrackedIndexToLclNum(varIndex);
-                siEndVariableLiveRange(varNum);
-            }
+            m_extendKind    = COPY;
+            m_extendSrcSize = dstSize;
         }
         else
         {
-            // It seems we are jitting debug code, so we don't have variable
-            //  liveness info
-            siEndAllVariableLiveRange();
+            m_checkKind = CHECK_NONE;
+
+            // Casting to a small type really means widening from that small type to INT/LONG.
+            m_extendKind    = castUnsigned ? ZERO_EXTEND_SMALL_INT : SIGN_EXTEND_SMALL_INT;
+            m_extendSrcSize = castSize;
         }
     }
-
-    m_LastBasicBlockHasBeenEmited = true;
-}
-
-//------------------------------------------------------------------------
-// siEndAllVariableLiveRange: Reports all live variables as dead.
-//
-// Notes:
-//    This overload exists for the case we are jitting code compiled in
-//    debug mode. When that happen we don't have variable liveness info
-//    as "BaiscBlock::bbLiveIn" or "BaiscBlock::bbLiveOut" and there is no
-//    tracked variable.
-//
-void CodeGen::VariableLiveKeeper::siEndAllVariableLiveRange()
-{
-    // TODO: we can improve this keeping a set for the variables with
-    // open VariableLiveRanges
-
-    for (unsigned int varNum = 0; varNum < m_LiveDscCount; varNum++)
+#ifdef TARGET_64BIT
+    // castType cannot be (U)LONG on 32 bit targets, such casts should have been decomposed.
+    // srcType cannot be a small int type since it's the "actual type" of the cast operand.
+    // This means that widening casts do not occur on 32 bit targets.
+    else if (castSize > srcSize) // (U)INT to (U)LONG widening cast
     {
-        const VariableLiveDescriptor* varLiveDsc = m_vlrLiveDsc + varNum;
-        if (varLiveDsc->hasVariableLiveRangeOpen())
+        assert((srcSize == 4) && (castSize == 8));
+
+        if (overflow && !srcUnsigned && castUnsigned)
         {
-            siEndVariableLiveRange(varNum);
+            // Widening from INT to ULONG, check if the value is positive
+            m_checkKind    = CHECK_POSITIVE;
+            m_checkSrcSize = 4;
+
+            // This is the only overflow checking cast that requires changing the
+            // source value (by zero extending), all others copy the value as is.
+            assert((srcType == TYP_INT) && (castType == TYP_ULONG));
+            m_extendKind    = ZERO_EXTEND_INT;
+            m_extendSrcSize = 4;
+        }
+        else
+        {
+            m_checkKind = CHECK_NONE;
+
+            m_extendKind    = srcUnsigned ? ZERO_EXTEND_INT : SIGN_EXTEND_INT;
+            m_extendSrcSize = 4;
         }
     }
-}
-
-//------------------------------------------------------------------------
-// getLiveRangesForVarForBody: Return the "VariableLiveRange" that correspond to
-//  the given "varNum".
-//
-// Arguments:
-//  varNum  - the index of the variable in m_vlrLiveDsc, which is the same as
-//      in lvaTable.
-//
-// Return Value:
-//  A const pointer to the list of variable locations reported for the variable.
-//
-// Assumptions:
-//  This variable should be an argument, a special argument or an IL local
-//  variable.
-CodeGen::VariableLiveKeeper::LiveRangeList* CodeGen::VariableLiveKeeper::getLiveRangesForVarForBody(
-    unsigned int varNum) const
-{
-    // There should be at least one variable for which its liveness is tracked
-    noway_assert(varNum < m_LiveDscCount);
-
-    return m_vlrLiveDsc[varNum].getLiveRanges();
-}
-
-//------------------------------------------------------------------------
-// getLiveRangesForVarForProlog: Return the "VariableLiveRange" that correspond to
-//  the given "varNum".
-//
-// Arguments:
-//  varNum  - the index of the variable in m_vlrLiveDsc, which is the same as
-//      in lvaTable.
-//
-// Return Value:
-//  A const pointer to the list of variable locations reported for the variable.
-//
-// Assumptions:
-//  This variable should be an argument, a special argument or an IL local
-//  variable.
-CodeGen::VariableLiveKeeper::LiveRangeList* CodeGen::VariableLiveKeeper::getLiveRangesForVarForProlog(
-    unsigned int varNum) const
-{
-    // There should be at least one variable for which its liveness is tracked
-    noway_assert(varNum < m_LiveDscCount);
-
-    return m_vlrLiveDscForProlog[varNum].getLiveRanges();
-}
-
-//------------------------------------------------------------------------
-// getLiveRangesCount: Returns the count of variable locations reported for the tracked
-//  variables, which are arguments, special arguments, and local IL variables.
-//
-// Return Value:
-//    size_t - the count of variable locations
-//
-// Notes:
-//    This method is being called from "genSetScopeInfo" to know the count of
-//    "varResultInfo" that should be created on eeSetLVcount.
-//
-size_t CodeGen::VariableLiveKeeper::getLiveRangesCount() const
-{
-    size_t liveRangesCount = 0;
-
-    if (m_Compiler->opts.compDbgInfo)
+    else if (castSize < srcSize) // (U)LONG to (U)INT narrowing cast
     {
-        for (unsigned int varNum = 0; varNum < m_LiveDscCount; varNum++)
+        assert((srcSize == 8) && (castSize == 4));
+
+        if (overflow)
         {
-            for (int i = 0; i < 2; i++)
+            if (castUnsigned) // (U)LONG to UINT cast
             {
-                VariableLiveDescriptor* varLiveDsc = (i == 0 ? m_vlrLiveDscForProlog : m_vlrLiveDsc) + varNum;
+                m_checkKind = CHECK_UINT_RANGE;
+            }
+            else if (srcUnsigned) // ULONG to INT cast
+            {
+                m_checkKind = CHECK_POSITIVE_INT_RANGE;
+            }
+            else // LONG to INT cast
+            {
+                m_checkKind = CHECK_INT_RANGE;
+            }
 
-                if (m_Compiler->compMap2ILvarNum(varNum) != (unsigned int)ICorDebugInfo::UNKNOWN_ILNUM)
+            m_checkSrcSize = 8;
+        }
+        else
+        {
+            m_checkKind = CHECK_NONE;
+        }
+
+        m_extendKind    = COPY;
+        m_extendSrcSize = 4;
+    }
+#endif
+    else // if (castSize == srcSize) // Sign changing or same type cast
+    {
+        assert(castSize == srcSize);
+
+        if (overflow && (srcUnsigned != castUnsigned))
+        {
+            m_checkKind    = CHECK_POSITIVE;
+            m_checkSrcSize = srcSize;
+        }
+        else
+        {
+            m_checkKind = CHECK_NONE;
+        }
+
+        m_extendKind    = COPY;
+        m_extendSrcSize = srcSize;
+    }
+
+    if (src->isUsedFromMemory())
+    {
+        bool     memUnsigned = varTypeIsUnsigned(src->GetType());
+        unsigned memSize     = genTypeSize(src->GetType());
+
+        if (m_checkKind != CHECK_NONE)
+        {
+            // For overflow checking casts the memory load is performed as usual and
+            // the cast only checks if the resulting TYP_(U)INT/TYP_(U)LONG value is
+            // within the cast type's range.
+            //
+            // There is one specific case that normally requires sign extending the
+            // loaded value - casting TYP_INT to TYP_ULONG. But this isn't needed:
+            //   - the overflow check guarantees that the TYP_INT value is positive
+            //     so zero extend can be used instead
+            //   - this case is 64 bit specific and both x64 and arm64 zero extend
+            //     while loading (even when using SIGN_EXTEND_SMALL_INT because the
+            //     the value is positive)
+            //
+            // Other TYP_(U)INT/TYP_(U)LONG widening casts do not require overflow
+            // checks so they are not handled here.
+
+            if (memSize < 4)
+            {
+                m_loadKind = memUnsigned ? LOAD_ZERO_EXTEND_SMALL_INT : LOAD_SIGN_EXTEND_SMALL_INT;
+            }
+            else
+            {
+                m_loadKind = LOAD;
+            }
+
+            m_loadSrcSize = memSize;
+
+            m_extendKind = COPY;
+        }
+        else
+        {
+            if (castSize <= memSize)
+            {
+                // If we have a narrowing cast then we can narrow the memory load itself.
+                // The upper bits contained in the wider memory location and the sign/zero
+                // extension bits that a small type load would have produced are anyway
+                // discarded by the cast.
+                //
+                // Handle the sign changing cast as well, just to pick up the sign of the
+                // cast type (see the memSize < 4 case below).
+                //
+                // This effectively turns all casts into widening or sign changing casts.
+                memSize     = castSize;
+                memUnsigned = castUnsigned;
+            }
+
+            if (memSize < 4)
+            {
+                m_loadKind    = memUnsigned ? LOAD_ZERO_EXTEND_SMALL_INT : LOAD_SIGN_EXTEND_SMALL_INT;
+                m_loadSrcSize = memSize;
+
+                // Most of the time the load itself is sufficient, even on 64 bit where we
+                // may need to widen directly to 64 bit (CodeGen needs to ensure that 64 bit
+                // instructions are used on 64 bit targets). But there are 2 exceptions that
+                // involve loading signed values and then zero extending:
+
+                // Loading a TYP_BYTE and then casting to TYP_USHORT - bits 8-15 will contain
+                // the sign bit of the original value while bits 16-31/63 will be 0. There's
+                // no single instruction that does this so we'll need to emit an extra zero
+                // extend to zero out bits 16-31/63.
+                if ((memSize == 1) && !memUnsigned && (castType == TYP_USHORT))
                 {
-                    liveRangesCount += varLiveDsc->getLiveRanges()->size();
+                    assert(m_extendKind == ZERO_EXTEND_SMALL_INT);
+                    assert(m_extendSrcSize == 2);
                 }
+#ifdef TARGET_64BIT
+                // Loading a small signed value and then zero extending to TYP_LONG - on x64
+                // this requires a 32 bit MOVSX but the emitter lacks support for it so we'll
+                // need to emit a 32 bit MOV to zero out the upper 32 bits. This kind of
+                // signed/unsigned mix should be rare.
+                else if (!memUnsigned && (castSize == 8) && srcUnsigned)
+                {
+                    assert(m_extendKind == ZERO_EXTEND_INT);
+                    assert(m_extendSrcSize == 4);
+                }
+#endif
+                // Various other combinations do not need extra instructions. For example:
+                // - Unsigned value load and sign extending cast - if the value is unsigned
+                //   then sign extending is in fact zero extending.
+                // - TYP_SHORT value load and cast to TYP_UINT - that's a TYP_INT to TYP_UINT
+                //   cast that's basically a NOP.
+                else
+                {
+                    m_extendKind = COPY;
+                }
+            }
+#ifdef TARGET_64BIT
+            else if ((memSize == 4) && !srcUnsigned && (castSize == 8))
+            {
+                m_loadKind    = LOAD_SIGN_EXTEND_INT;
+                m_loadSrcSize = memSize;
+
+                m_extendKind = COPY;
+            }
+#endif
+            else
+            {
+                m_loadKind    = LOAD;
+                m_loadSrcSize = memSize;
+
+                m_extendKind = COPY;
             }
         }
     }
-    return liveRangesCount;
 }
 
-//------------------------------------------------------------------------
-// psiStartVariableLiveRange: Reports the given variable as being born.
-//
-// Arguments:
-//  varLcation  - the variable location
-//  varNum      - the index of the variable in "compiler->lvaTable" or
-//      "VariableLivekeeper->m_vlrLiveDsc"
-//
-// Notes:
-//  This function is expected to be called from "psiBegProlog" during
-//  prolog code generation.
-//
-void CodeGen::VariableLiveKeeper::psiStartVariableLiveRange(CodeGenInterface::siVarLoc varLocation, unsigned int varNum)
+void CodeGen::GenCast(GenTreeCast* cast)
 {
-    // This descriptor has to correspond to a parameter. The first slots in lvaTable
-    // are arguments and special arguments.
-    noway_assert(varNum < m_LiveArgsCount);
-
-    VariableLiveDescriptor* varLiveDsc = &m_vlrLiveDscForProlog[varNum];
-    varLiveDsc->startLiveRangeFromEmitter(varLocation, m_Compiler->GetEmitter());
-}
-
-//------------------------------------------------------------------------
-// psiClosePrologVariableRanges: Report all the parameters as becoming dead.
-//
-// Notes:
-//  This function is expected to be called from preffix "psiEndProlog" after
-//  code for prolog has been generated.
-//
-void CodeGen::VariableLiveKeeper::psiClosePrologVariableRanges()
-{
-    noway_assert(m_LiveArgsCount <= m_LiveDscCount);
-
-    for (unsigned int varNum = 0; varNum < m_LiveArgsCount; varNum++)
+    if (varTypeIsFloating(cast->GetType()) && varTypeIsFloating(cast->GetOp(0)->GetType()))
     {
-        VariableLiveDescriptor* varLiveDsc = m_vlrLiveDscForProlog + varNum;
-
-        if (varLiveDsc->hasVariableLiveRangeOpen())
-        {
-            varLiveDsc->endLiveRangeAtEmitter(m_Compiler->GetEmitter());
-        }
+        genFloatToFloatCast(cast);
     }
+    else if (varTypeIsFloating(cast->GetOp(0)->GetType()))
+    {
+        genFloatToIntCast(cast);
+    }
+    else if (varTypeIsFloating(cast->GetType()))
+    {
+        genIntToFloatCast(cast);
+    }
+#ifndef TARGET_64BIT
+    else if (varTypeIsLong(cast->GetOp(0)->GetType()))
+    {
+        genLongToIntCast(cast);
+    }
+#endif
+    else
+    {
+        genIntToIntCast(cast);
+    }
+}
+
+void CodeGen::GenJTrue(GenTreeUnOp* jtrue, BasicBlock* block)
+{
+    assert(jtrue->OperIs(GT_JTRUE));
+    assert(block->bbJumpKind == BBJ_COND);
+
+    GenTreeOp*   relop     = jtrue->GetOp(0)->AsOp();
+    GenCondition condition = GenCondition::FromRelop(relop);
+
+    if (condition.PreferSwap())
+    {
+        condition = GenCondition::Swap(condition);
+    }
+
+#if defined(TARGET_XARCH)
+    if ((condition.GetCode() == GenCondition::FNEU) &&
+        (relop->gtGetOp1()->GetRegNum() == relop->gtGetOp2()->GetRegNum()) &&
+        !relop->gtGetOp1()->isUsedFromSpillTemp() && !relop->gtGetOp2()->isUsedFromSpillTemp())
+    {
+        // For floating point, `x != x` is a common way of
+        // checking for NaN. So, in the case where both
+        // operands are the same, we can optimize codegen
+        // to only do a single check.
+
+        condition = GenCondition(GenCondition::P);
+    }
+#endif
+
+    inst_JCC(condition, block->bbJumpDest->emitLabel);
+}
+
+void CodeGen::GenJCC(GenTreeCC* jcc, BasicBlock* block)
+{
+    assert(jcc->OperIs(GT_JCC));
+    assert(block->KindIs(BBJ_COND));
+
+    inst_JCC(jcc->GetCondition(), block->bbJumpDest->emitLabel);
+}
+
+void CodeGen::GenSetCC(GenTreeCC* setcc)
+{
+    assert(setcc->OperIs(GT_SETCC));
+
+    inst_SETCC(setcc->GetCondition(), setcc->GetType(), setcc->GetRegNum());
+    genProduceReg(setcc);
+}
+
+void CodeGen::GenLclAddr(GenTreeLclAddr* addr)
+{
+    assert(addr->TypeIs(TYP_BYREF, TYP_I_IMPL));
+
+    // TODO-MIKE-Review: Shouldn't this simply be EA_PTRSIZE?
+    emitAttr attr = emitTypeSize(addr->GetType());
+
+    GetEmitter()->emitIns_R_S(INS_lea, attr, addr->GetRegNum(), addr->GetLclNum(), addr->GetLclOffs());
+    DefReg(addr);
 }
 
 #ifdef DEBUG
-void CodeGen::VariableLiveKeeper::dumpBlockVariableLiveRanges(const BasicBlock* block)
+bool CodeGen::IsValidSourceType(var_types instrType, var_types sourceType)
 {
-    assert(block != nullptr);
-
-    bool hasDumpedHistory = false;
-
-    printf("\nVariable Live Range History Dump for " FMT_BB "\n", block->bbNum);
-
-    if (m_Compiler->opts.compDbgInfo)
+    switch (varActualType(instrType))
     {
-        for (unsigned int varNum = 0; varNum < m_LiveDscCount; varNum++)
-        {
-            VariableLiveDescriptor* varLiveDsc = m_vlrLiveDsc + varNum;
+        case TYP_INT:
+        case TYP_LONG:
+        case TYP_REF:
+        case TYP_BYREF:
+            return varTypeIsIntegralOrI(sourceType) &&
+                   (varTypeSize(varActualType(sourceType)) >= varTypeSize(instrType));
 
-            if (varLiveDsc->hasVarLiveRangesFromLastBlockToDump())
-            {
-                hasDumpedHistory = true;
-                m_Compiler->gtDispLclVar(varNum, false);
-                printf(": ");
-                varLiveDsc->dumpRegisterLiveRangesForBlockBeforeCodeGenerated(m_Compiler->codeGen);
-                varLiveDsc->endBlockLiveRanges();
-                printf("\n");
-            }
-        }
-    }
+        case TYP_FLOAT:
+        case TYP_DOUBLE:
+            return sourceType == instrType;
 
-    if (!hasDumpedHistory)
-    {
-        printf("..None..\n");
+#ifdef FEATURE_SIMD
+        case TYP_SIMD8:
+        case TYP_SIMD12:
+        case TYP_SIMD16:
+        case TYP_SIMD32:
+            return varTypeIsSIMD(sourceType) && (varTypeSize(sourceType) >= varTypeSize(instrType));
+#endif
+
+        default:
+            return false;
     }
 }
+#endif
 
-void CodeGen::VariableLiveKeeper::dumpLvaVariableLiveRanges() const
+// Returns true if the TYP_SIMD locals on stack are aligned at their
+// preferred byte boundary specified by lvaGetSimdTypedLocalPreferredAlignment().
+//
+// As per the Intel manual, the preferred alignment for AVX vectors is
+// 32-bytes. It is not clear whether additional stack space used in
+// aligning stack is worth the benefit and for now will use 16-byte
+// alignment for AVX 256-bit vectors with unaligned load/stores to/from
+// memory. On x86, the stack frame is aligned to 4 bytes. We need to extend
+// existing support for double (8-byte) alignment to 16 or 32 byte
+// alignment for frames with local SIMD vars, if that is determined to be
+// profitable.
+//
+// On Amd64 and SysV, RSP+8 is aligned on entry to the function (before
+// prolog has run). This means that in RBP-based frames RBP will be 16-byte
+// aligned. For RSP-based frames these are only sometimes aligned, depending
+// on the frame size.
+//
+bool CodeGen::IsSimdLocalAligned(unsigned lclNum)
 {
-    bool hasDumpedHistory = false;
+#ifndef FEATURE_SIMD
+    return false;
+#else
+    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
-    printf("VARIABLE LIVE RANGES:\n");
-
-    if (m_Compiler->opts.compDbgInfo)
+    if (!varTypeIsSIMD(lcl->GetType()))
     {
-        for (unsigned int varNum = 0; varNum < m_LiveDscCount; varNum++)
-        {
-            VariableLiveDescriptor* varLiveDsc = m_vlrLiveDsc + varNum;
-
-            if (varLiveDsc->hasVarLiveRangesToDump())
-            {
-                hasDumpedHistory = true;
-                m_Compiler->gtDispLclVar(varNum, false);
-                printf(": ");
-                varLiveDsc->dumpAllRegisterLiveRangesForBlock(m_Compiler->GetEmitter(), m_Compiler->codeGen);
-                printf("\n");
-            }
-        }
+        return false;
     }
 
-    if (!hasDumpedHistory)
+    int alignment = compiler->lvaGetSimdTypedLocalPreferredAlignment(lcl);
+
+    if (alignment > STACK_ALIGN)
     {
-        printf("..None..\n");
+        return false;
     }
+
+    bool rbpBased;
+    int  off = compiler->lvaFrameAddress(lclNum, &rbpBased);
+    // On SysV and Winx64 ABIs RSP+8 will be 16-byte aligned at the
+    // first instruction of a function. If our frame is RBP based
+    // then RBP will always be 16 bytes aligned, so we can simply
+    // check the offset.
+    if (rbpBased)
+    {
+        return (off % alignment) == 0;
+    }
+
+    // For RSP-based frame the alignment of RSP depends on our
+    // locals. rsp+8 is aligned on entry and we just subtract frame
+    // size so it is not hard to compute. Note that the compiler
+    // tries hard to make sure the frame size means RSP will be
+    // 16-byte aligned, but for leaf functions without locals (i.e.
+    // frameSize = 0) it will not be.
+    int frameSize = genTotalFrameSize();
+    return ((8 - frameSize + off) % alignment) == 0;
+#endif
 }
-#endif // DEBUG
-#endif // USING_VARIABLE_LIVE_RANGE
 
 //-----------------------------------------------------------------------------
 // genPoisonFrame: Generate code that places a recognizable value into address exposed variables.
@@ -6779,4 +5820,41 @@ void CodeGen::genPoisonFrame(regMaskTP regLiveIn)
             offs += 4;
         }
     }
+}
+
+/*****************************************************************************
+ * Determine the emitter code label for a block, for unwind purposes.
+ */
+
+insGroup* CodeGen::ehEmitLabel(BasicBlock* block)
+{
+    noway_assert(block != nullptr);
+
+    insGroup* label;
+
+#ifdef TARGET_ARM
+    if ((block->bbFlags & BBF_FINALLY_TARGET) != 0)
+    {
+        // Use the offset of the beginning of the NOP padding, not the main block.
+        // This might include loop head padding, too, if this is a loop head.
+        label = block->unwindNopEmitLabel;
+    }
+    else
+#endif
+    {
+        label = block->emitLabel;
+    }
+
+    noway_assert(label != nullptr);
+    return label;
+}
+
+/*****************************************************************************
+ * Determine the emitter code offset for a block. If the block is a finally
+ * target, choose the offset of the NOP padding that precedes the block.
+ */
+
+uint32_t CodeGen::ehCodeOffset(BasicBlock* block)
+{
+    return ehEmitLabel(block)->GetCodeOffset();
 }

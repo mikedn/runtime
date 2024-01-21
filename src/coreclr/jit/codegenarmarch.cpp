@@ -11,37 +11,7 @@
 
 void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 {
-    emitter* emit = GetEmitter();
-
-#ifdef DEBUG
-    // Validate that all the operands for the current node are consumed in order.
-    // This is important because LSRA ensures that any necessary copies will be
-    // handled correctly.
-    lastConsumedNode = nullptr;
-    if (compiler->verbose)
-    {
-        compiler->gtDispLIRNode(treeNode);
-    }
-#endif // DEBUG
-
-    // Is this a node whose value is already in a register?  LSRA denotes this by
-    // setting the GTF_REUSE_REG_VAL flag.
-    if (treeNode->IsReuseRegVal())
-    {
-        // For now, this is only used for constant nodes.
-        assert((treeNode->OperGet() == GT_CNS_INT) || (treeNode->OperGet() == GT_CNS_DBL));
-        JITDUMP("  TreeNode is marked ReuseReg\n");
-        return;
-    }
-
-    // contained nodes are part of their parents for codegen purposes
-    // ex : immediates, most LEAs
-    if (treeNode->isContained())
-    {
-        return;
-    }
-
-    switch (treeNode->gtOper)
+    switch (treeNode->GetOper())
     {
         case GT_START_NONGC:
             GetEmitter()->emitDisableGC();
@@ -51,7 +21,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             // Kill callee saves GC registers, and create a label
             // so that information gets propagated to the emitter.
             liveness.RemoveGCRegs(RBM_INT_CALLEE_SAVED);
-            genDefineTempLabel(genCreateTempLabel());
+            GetEmitter()->DefineTempLabel();
             break;
 
         case GT_PROF_HOOK:
@@ -137,7 +107,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 #endif
 
         case GT_CAST:
-            genCodeForCast(treeNode->AsCast());
+            GenCast(treeNode->AsCast());
             break;
 
         case GT_BITCAST:
@@ -256,7 +226,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_SETCC:
-            genCodeForSetcc(treeNode->AsCC());
+            GenSetCC(treeNode->AsCC());
             break;
 
         case GT_RETURNTRAP:
@@ -328,7 +298,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
                 // in lowering and only a reg optional LCL_VAR can become contained.
                 if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
                 {
-                    genUpdateLife(src->AsLclVarCommon());
+                    liveness.UpdateLife(this, src->AsLclVarCommon());
                 }
             }
             else
@@ -367,16 +337,16 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
             // the runtime side requires the codegen here to be consistent
-            emit->emitDisableRandomNops();
+            GetEmitter()->emitDisableRandomNops();
 #endif
             break;
 
         case GT_LABEL:
-            genPendingCallLabel = genCreateTempLabel();
+            genPendingCallLabel = GetEmitter()->CreateTempLabel();
 #ifdef TARGET_ARM
             genMov32RelocatableDisplacement(genPendingCallLabel, treeNode->GetRegNum());
 #else
-            emit->emitIns_R_L(INS_adr, genPendingCallLabel, treeNode->GetRegNum());
+            GetEmitter()->emitIns_R_L(treeNode->GetRegNum(), genPendingCallLabel);
 #endif
             break;
 
@@ -413,7 +383,8 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             noway_assert(addr != nullptr);
             instGen_Set_Reg_To_Addr(treeNode->GetRegNum(), addr);
 #else
-            emit->emitIns_R_C(INS_adr, EA_8BYTE, treeNode->GetRegNum(), REG_NA, treeNode->AsClsVar()->GetFieldHandle());
+            GetEmitter()->emitIns_R_C(INS_adr, EA_8BYTE, treeNode->GetRegNum(), REG_NA,
+                                      treeNode->AsClsVar()->GetFieldHandle());
 #endif
             DefReg(treeNode);
             break;
@@ -471,6 +442,7 @@ void CodeGen::EpilogGSCookieCheck()
     regNumber regGSConst     = REG_GSCOOKIE_TMP_0;
     regNumber regGSValue     = REG_GSCOOKIE_TMP_1;
     unsigned  gsCookieLclNum = compiler->lvaGSSecurityCookie;
+    Emitter&  emit           = *GetEmitter();
 
     if (m_gsCookieAddr == nullptr)
     {
@@ -481,16 +453,16 @@ void CodeGen::EpilogGSCookieCheck()
     else
     {
         instGen_Set_Reg_To_Addr(regGSConst, m_gsCookieAddr DEBUGARG(reinterpret_cast<void*>(THT_GSCookieCheck)));
-        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, regGSConst, regGSConst, 0);
+        emit.emitIns_R_R_I(INS_ldr, EA_PTRSIZE, regGSConst, regGSConst, 0);
     }
 
-    GetEmitter()->emitIns_R_S(INS_ldr, EA_PTRSIZE, regGSValue, gsCookieLclNum, 0);
-    GetEmitter()->emitIns_R_R(INS_cmp, EA_PTRSIZE, regGSConst, regGSValue);
+    emit.emitIns_R_S(INS_ldr, EA_PTRSIZE, regGSValue, gsCookieLclNum, 0);
+    emit.emitIns_R_R(INS_cmp, EA_PTRSIZE, regGSConst, regGSValue);
 
-    BasicBlock* gsCheckBlk = genCreateTempLabel();
-    inst_JMP(EJ_eq, gsCheckBlk);
+    insGroup* gsCheckBlk = emit.CreateTempLabel();
+    emit.emitIns_J(INS_beq, gsCheckBlk);
     genEmitHelperCall(CORINFO_HELP_FAIL_FAST);
-    genDefineTempLabel(gsCheckBlk);
+    emit.DefineTempLabel(gsCheckBlk);
 }
 
 void CodeGen::genIntrinsic(GenTreeIntrinsic* node)
@@ -839,7 +811,7 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
     if (src->isContained())
     {
         assert(IsValidContainedLcl(src->AsLclVar()));
-        genUpdateLife(src->AsLclVar());
+        liveness.UpdateLife(this, src->AsLclVar());
         unsigned  lclNum = src->AsLclVar()->GetLclNum();
         regNumber dstReg = bitcast->GetRegNum();
 
@@ -2277,7 +2249,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             // get a COPY/RELOAD here becuase these nodes have specific, single reg
             // requirements so there's little point in LSRA adding reloads/copies...
             UnspillRegsIfNeeded(argSplit);
-            genCheckConsumeNode(argSplit);
+            INDEBUG(VerifyUseOrder(argSplit));
 
             for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
             {
@@ -2361,7 +2333,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     // at (or inside) the callsite.
     if (compiler->killGCRefs(call))
     {
-        genDefineTempLabel(genCreateTempLabel());
+        GetEmitter()->DefineTempLabel();
     }
 
     // Determine return value attr(s).
@@ -2389,17 +2361,6 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         {
             retSize = EA_BYREF;
         }
-    }
-
-    IL_OFFSETX ilOffset = BAD_IL_OFFSET;
-
-    // We need to propagate the IL offset information to the call instruction, so we can emit
-    // an IL to native mapping record for the call, to support managed return value debugging.
-    // We don't want tail call helper calls that were converted from normal calls to get a record,
-    // so we skip this hash table lookup logic in that case.
-    if (compiler->opts.compDbgInfo && compiler->genCallSite2ILOffsetMap != nullptr && !call->IsTailCall())
-    {
-        (void)compiler->genCallSite2ILOffsetMap->Lookup(call, &ilOffset);
     }
 
     emitter::EmitCallType emitCallType;
@@ -2480,13 +2441,18 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         // Load the call target address in x16
         emitCallType = emitter::EC_INDIR_R;
         callReg = REG_IP0;
-        instGen_Set_Reg_To_Imm(EA_8BYTE, callReg, (ssize_t) addr);
+        instGen_Set_Reg_To_Imm(EA_8BYTE, callReg, (ssize_t)addr);
 #endif
     }
 
-    if (compiler->opts.compDbgInfo && (ilOffset != BAD_IL_OFFSET))
+    // Managed Retval sequence points needs to be generated while generating debug info for debuggable code.
+    if ((compiler->genCallSite2ILOffsetMap != nullptr) && !call->IsTailCall())
     {
-        genIPmappingAdd(ilOffset, false);
+        if (IL_OFFSETX* ilOffset = compiler->genCallSite2ILOffsetMap->LookupPointer(call))
+        {
+            assert(*ilOffset != BAD_IL_OFFSET);
+            genIPmappingAdd(*ilOffset, false);
+        }
     }
 
     // clang-format off
@@ -2500,10 +2466,9 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         false);
     // clang-format on
 
-    // if it was a pinvoke we may have needed to get the address of a label
-    if (genPendingCallLabel)
+    if (genPendingCallLabel != nullptr)
     {
-        genDefineInlineTempLabel(genPendingCallLabel);
+        GetEmitter()->DefineInlineTempLabel(genPendingCallLabel);
         genPendingCallLabel = nullptr;
     }
 
@@ -3107,89 +3072,6 @@ void CodeGen::genFloatToFloatCast(GenTreeCast* cast)
     }
 
     genProduceReg(cast);
-}
-
-// clang-format off
-const CodeGen::GenConditionDesc CodeGen::GenConditionDesc::map[32]
-{
-    { },       // NONE
-    { },       // 1
-    { EJ_lt }, // SLT
-    { EJ_le }, // SLE
-    { EJ_ge }, // SGE
-    { EJ_gt }, // SGT
-    { EJ_mi }, // S
-    { EJ_pl }, // NS
-
-    { EJ_eq }, // EQ
-    { EJ_ne }, // NE
-    { EJ_lo }, // ULT
-    { EJ_ls }, // ULE
-    { EJ_hs }, // UGE
-    { EJ_hi }, // UGT
-    { EJ_hs }, // C
-    { EJ_lo }, // NC
-
-    { EJ_eq },                // FEQ
-    { EJ_gt, GT_AND, EJ_lo }, // FNE
-    { EJ_lo },                // FLT
-    { EJ_ls },                // FLE
-    { EJ_ge },                // FGE
-    { EJ_gt },                // FGT
-    { EJ_vs },                // O
-    { EJ_vc },                // NO
-
-    { EJ_eq, GT_OR, EJ_vs },  // FEQU
-    { EJ_ne },                // FNEU
-    { EJ_lt },                // FLTU
-    { EJ_le },                // FLEU
-    { EJ_hs },                // FGEU
-    { EJ_hi },                // FGTU
-    { },                      // P
-    { },                      // NP
-};
-// clang-format on
-
-void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstReg)
-{
-    assert(varTypeIsIntegral(type));
-    assert(genIsValidIntReg(dstReg));
-
-#ifdef TARGET_ARM64
-    const GenConditionDesc& desc = GenConditionDesc::Get(condition);
-
-    inst_SET(desc.jumpKind1, dstReg);
-
-    if (desc.oper != GT_NONE)
-    {
-        BasicBlock* labelNext = genCreateTempLabel();
-        inst_JMP((desc.oper == GT_OR) ? desc.jumpKind1 : emitter::emitReverseJumpKind(desc.jumpKind1), labelNext);
-        inst_SET(desc.jumpKind2, dstReg);
-        genDefineTempLabel(labelNext);
-    }
-#else
-    // Emit code like that:
-    //   ...
-    //   bgt True
-    //   movs rD, #0
-    //   b Next
-    // True:
-    //   movs rD, #1
-    // Next:
-    //   ...
-
-    BasicBlock* labelTrue = genCreateTempLabel();
-    inst_JCC(condition, labelTrue);
-
-    GetEmitter()->emitIns_R_I(INS_mov, emitActualTypeSize(type), dstReg, 0);
-
-    BasicBlock* labelNext = genCreateTempLabel();
-    GetEmitter()->emitIns_J(INS_b, labelNext);
-
-    genDefineTempLabel(labelTrue);
-    GetEmitter()->emitIns_R_I(INS_mov, emitActualTypeSize(type), dstReg, 1);
-    genDefineTempLabel(labelNext);
-#endif
 }
 
 void CodeGen::genScaledAdd(emitAttr attr, regNumber targetReg, regNumber baseReg, regNumber indexReg, int scale)

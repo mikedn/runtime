@@ -371,7 +371,7 @@ bool Compiler::fgRemoveUnreachableBlocks()
     for (BasicBlock* const block : Blocks())
     {
         /* Internal throw blocks are also reachable */
-        if (fgIsThrowHelperBlock(block))
+        if (block->IsThrowHelperBlock())
         {
             goto SKIP_BLOCK;
         }

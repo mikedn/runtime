@@ -2,10 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
-
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
+#include "jitgcinfo.h"
 
 static bool BlockNeedsGCPoll(BasicBlock* block)
 {
@@ -444,18 +441,6 @@ bool Compiler::fgInDifferentRegions(BasicBlock* blk1, BasicBlock* blk2)
 
     // If one block is Hot and the other is Cold then we are in different regions
     return ((blk1->bbFlags & BBF_COLD) != (blk2->bbFlags & BBF_COLD));
-}
-
-bool Compiler::fgIsBlockCold(BasicBlock* blk)
-{
-    noway_assert(blk != nullptr);
-
-    if (fgFirstColdBlock == nullptr)
-    {
-        return false;
-    }
-
-    return ((blk->bbFlags & BBF_COLD) != 0);
 }
 
 //------------------------------------------------------------------------------
@@ -2011,41 +1996,15 @@ void Compiler::fgCreateFuncletPrologBlocks()
 
 /*****************************************************************************
  *
- *  Function to create funclets out of all EH catch/finally/fault blocks.
+ *  Function to relocate funclets.
  *  We only move filter and handler blocks, not try blocks.
  */
 
-void Compiler::fgCreateFunclets()
+void Compiler::phRelocateFunclets()
 {
     assert(!fgFuncletsCreated);
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In fgCreateFunclets()\n");
-    }
-#endif
-
     fgCreateFuncletPrologBlocks();
-
-    unsigned           XTnum;
-    EHblkDsc*          HBtab;
-    const unsigned int funcCnt = ehFuncletCount() + 1;
-
-    if (!FitsIn<unsigned short>(funcCnt))
-    {
-        IMPL_LIMITATION("Too many funclets");
-    }
-
-    FuncInfoDsc* funcInfo = new (this, CMK_BasicBlock) FuncInfoDsc[funcCnt];
-
-    unsigned short funcIdx;
-
-    // Setup the root FuncInfoDsc and prepare to start associating
-    // FuncInfoDsc's with their corresponding EH region
-    memset((void*)funcInfo, 0, funcCnt * sizeof(FuncInfoDsc));
-    assert(funcInfo[0].funKind == FUNC_ROOT);
-    funcIdx = 1;
 
     // Because we iterate from the top to the bottom of the compHndBBtab array, we are iterating
     // from most nested (innermost) to least nested (outermost) EH region. It would be reasonable
@@ -2057,31 +2016,10 @@ void Compiler::fgCreateFunclets()
     // be added *after* the current index, so our iteration here is not invalidated.
     // It *can* invalidate the compHndBBtab pointer itself, though, if it gets reallocated!
 
-    for (XTnum = 0; XTnum < compHndBBtabCount; XTnum++)
+    for (unsigned XTnum = 0; XTnum < compHndBBtabCount; XTnum++)
     {
-        HBtab = ehGetDsc(XTnum); // must re-compute this every loop, since fgRelocateEHRange changes the table
-        if (HBtab->HasFilter())
-        {
-            assert(funcIdx < funcCnt);
-            funcInfo[funcIdx].funKind    = FUNC_FILTER;
-            funcInfo[funcIdx].funEHIndex = (unsigned short)XTnum;
-            funcIdx++;
-        }
-        assert(funcIdx < funcCnt);
-        funcInfo[funcIdx].funKind    = FUNC_HANDLER;
-        funcInfo[funcIdx].funEHIndex = (unsigned short)XTnum;
-        HBtab->ebdFuncIndex          = funcIdx;
-        funcIdx++;
         fgRelocateEHRange(XTnum, FG_RELOCATE_HANDLER);
     }
-
-    // We better have populated all of them by now
-    assert(funcIdx == funcCnt);
-
-    // Publish
-    compCurrFuncIdx   = 0;
-    compFuncInfos     = funcInfo;
-    compFuncInfoCount = (unsigned short)funcCnt;
 
     fgFuncletsCreated = true;
 
@@ -2517,34 +2455,19 @@ ThrowHelperBlock* Compiler::fgFindThrowHelperBlock(ThrowHelperKind kind, unsigne
     return found;
 }
 
-bool Compiler::fgIsThrowHelperBlock(BasicBlock* block)
-{
-    return (block->bbFlags & BBF_THROW_HELPER) != 0;
-}
-
 #if !FEATURE_FIXED_OUT_ARGS
 
-unsigned Compiler::fgGetThrowHelperBlockStackLevel(BasicBlock* block)
+ThrowHelperBlock* Compiler::fgFindThrowHelperBlock(BasicBlock* block)
 {
     for (ThrowHelperBlock* helper = m_throwHelperBlockList; helper != nullptr; helper = helper->next)
     {
         if (block == helper->block)
         {
-            // TODO: bbTgtStkDepth is DEBUG-only.
-            // Should we use it regularly and avoid this search.
-            assert(block->bbTgtStkDepth == helper->stackLevel);
-
-            return helper->stackLevel;
+            return helper;
         }
     }
 
-    noway_assert(
-        !"fgGetThrowHelperBlockStackLevel should only be called if fgIsThrowHelperBlock is true, but we can't find the "
-         "block in the throw helper block list");
-
-    // We couldn't find the basic block: it must not have been a throw helper block.
-
-    return 0;
+    return nullptr;
 }
 
 #endif // !FEATURE_FIXED_OUT_ARGS

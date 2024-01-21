@@ -806,13 +806,11 @@ void Lowering::LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* node, const Vecto
         return;
     }
 
-    var_types type = getSIMDTypeForSize(size);
-    size           = (size == 12) ? 16 : size;
-    unsigned align = size;
+    size = size == 12 ? 16 : size;
 
-    unsigned offset = comp->GetEmitter()->emitDataConst(vecConst.u8, size, align, type);
+    CORINFO_FIELD_HANDLE field = comp->codeGen->GetConst(vecConst.u8, size, size DEBUGARG(getSIMDTypeForSize(size)));
 
-    GenTree* addr = new (comp, GT_CLS_VAR_ADDR) GenTreeClsVar(Emitter::MakeRoDataField(offset));
+    GenTree* addr = new (comp, GT_CLS_VAR_ADDR) GenTreeClsVar(field);
     BlockRange().InsertBefore(node, addr);
 
     GenTree* indir = node;

@@ -28,13 +28,16 @@ bool IsLastInsCall() const
 void emitMarkStackLvl(unsigned stackLevel);
 #endif
 
+static instruction emitJumpKindToSetcc(emitJumpKind jumpKind);
+static instruction emitJumpKindToBranch(emitJumpKind jumpKind);
+
 /************************************************************************/
 /*           The public entry points to output instructions             */
 /************************************************************************/
 
 void emitIns(instruction ins);
 void emitIns(instruction ins, emitAttr attr);
-void emitIns_J(instruction ins, BasicBlock* dst);
+void emitIns_J(instruction ins, insGroup* label);
 void emitIns_J(instruction ins, int instrCount = 0);
 void emitInsRMW_A(instruction ins, emitAttr attr, GenTree* addr);
 void emitInsRMW_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t imm);
@@ -45,11 +48,11 @@ void emitInsRMW_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, 
 void emitIns_Nop(unsigned size);
 void emitIns_Lock();
 #ifdef TARGET_AMD64
-void emitIns_CallFinally(BasicBlock* block);
+void emitIns_CallFinally(insGroup* label);
 #endif
 #ifdef TARGET_X86
 void emitIns_H(instruction ins, void* addr);
-void emitIns_L(instruction ins, BasicBlock* dst);
+void emitIns_L(instruction ins, insGroup* label);
 #endif
 #ifdef WINDOWS_X86_ABI
 void emitInsMov_R_FS(regNumber reg, int32_t offs);
@@ -97,7 +100,7 @@ void emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, int32_t imm
 void emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE field);
 void emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, regNumber reg);
 void emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, int32_t imm);
-void emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg);
+void emitIns_R_L(RegNum reg, insGroup* label);
 void emitIns_R_AH(instruction ins, regNumber ireg, void* addr);
 void emitIns_AR(instruction ins, emitAttr attr, regNumber base, int32_t disp);
 void emitIns_ARX(instruction ins, emitAttr attr, regNumber base, regNumber index, unsigned scaled, int32_t disp);
@@ -178,13 +181,12 @@ typedef uint64_t code_t;
 private:
 bool UseVEXEncoding() const;
 
-unsigned emitGetVexAdjustedSize(instruction ins);
 unsigned emitGetAdjustedSize(instruction ins, emitAttr attr, code_t code, bool isRR = false);
 unsigned emitInsSizeR(instruction ins, emitAttr size, regNumber reg);
 unsigned emitInsSizeRI(instruction ins, emitAttr size, regNumber reg, ssize_t imm);
 unsigned emitInsSizeRR(instruction ins, emitAttr size, regNumber reg1, regNumber reg2);
 unsigned emitInsSizeRRI(instruction ins, emitAttr size, regNumber reg1, regNumber reg2);
-unsigned emitInsSizeRRR(instruction ins);
+unsigned emitInsSizeRRR(instruction ins, emitAttr size, regNumber reg3);
 unsigned emitInsSizeSV(instrDesc* id, code_t code);
 unsigned emitInsSizeAM(instrDesc* id, code_t code);
 unsigned emitInsSizeCV(instrDesc* id, code_t code);
@@ -237,9 +239,6 @@ size_t emitOutputPrefixesIfNeeded(uint8_t* dst, code_t code);
 
 bool IsRedundantMov(instruction ins, emitAttr size, regNumber dst, regNumber src, bool canIgnoreSideEffects);
 
-static bool IsJccInstruction(instruction ins);
-static bool IsJmpInstruction(instruction ins);
-
 bool TakesVexPrefix(instruction ins) const;
 code_t AddVexPrefixIfNeeded(instruction ins, code_t code, emitAttr size);
 
@@ -263,8 +262,7 @@ void emitDispIns(instrDesc* id,
                  bool       asmfm = false,
                  unsigned   offs  = 0,
                  uint8_t*   code  = nullptr,
-                 size_t     sz    = 0,
-                 insGroup*  ig    = nullptr);
+                 size_t     sz    = 0);
 void PrintIns(instrDesc* id, bool asmfm = false);
 void PrintImm(instrDesc* id, ssize_t val);
 void PrintReloc(ssize_t value);
@@ -289,7 +287,7 @@ T* AllocInstr(bool updateLastIns = true);
 instrDesc*     emitNewInstr();
 instrDesc*     emitNewInstrSmall();
 instrDescJmp*  emitNewInstrJmp();
-instrDescCGCA* emitNewInstrCGCA();
+instrDescCGCA* emitAllocInstrCGCA();
 instrDesc* emitNewInstrSC(ssize_t imm);
 instrDesc* emitNewInstrCns(int32_t imm);
 #ifdef TARGET_X86

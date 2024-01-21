@@ -1,235 +1,141 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                              UnwindInfo                                   XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
-#include "emit.h"
+#include "unwind.h"
+#include "codegen.h"
 
 #ifdef TARGET_AMD64
-#ifdef UNIX_AMD64_ABI
-short Compiler::mapRegNumToDwarfReg(regNumber reg)
+
+void CodeGen::unwindBegProlog()
 {
-    short dwarfReg = DWARF_REG_ILLEGAL;
-
-    switch (reg)
-    {
-        case REG_RAX:
-            dwarfReg = 0;
-            break;
-        case REG_RCX:
-            dwarfReg = 2;
-            break;
-        case REG_RDX:
-            dwarfReg = 1;
-            break;
-        case REG_RBX:
-            dwarfReg = 3;
-            break;
-        case REG_RSP:
-            dwarfReg = 7;
-            break;
-        case REG_RBP:
-            dwarfReg = 6;
-            break;
-        case REG_RSI:
-            dwarfReg = 4;
-            break;
-        case REG_RDI:
-            dwarfReg = 5;
-            break;
-        case REG_R8:
-            dwarfReg = 8;
-            break;
-        case REG_R9:
-            dwarfReg = 9;
-            break;
-        case REG_R10:
-            dwarfReg = 10;
-            break;
-        case REG_R11:
-            dwarfReg = 11;
-            break;
-        case REG_R12:
-            dwarfReg = 12;
-            break;
-        case REG_R13:
-            dwarfReg = 13;
-            break;
-        case REG_R14:
-            dwarfReg = 14;
-            break;
-        case REG_R15:
-            dwarfReg = 15;
-            break;
-        case REG_XMM0:
-            dwarfReg = 17;
-            break;
-        case REG_XMM1:
-            dwarfReg = 18;
-            break;
-        case REG_XMM2:
-            dwarfReg = 19;
-            break;
-        case REG_XMM3:
-            dwarfReg = 20;
-            break;
-        case REG_XMM4:
-            dwarfReg = 21;
-            break;
-        case REG_XMM5:
-            dwarfReg = 22;
-            break;
-        case REG_XMM6:
-            dwarfReg = 23;
-            break;
-        case REG_XMM7:
-            dwarfReg = 24;
-            break;
-        case REG_XMM8:
-            dwarfReg = 25;
-            break;
-        case REG_XMM9:
-            dwarfReg = 26;
-            break;
-        case REG_XMM10:
-            dwarfReg = 27;
-            break;
-        case REG_XMM11:
-            dwarfReg = 28;
-            break;
-        case REG_XMM12:
-            dwarfReg = 29;
-            break;
-        case REG_XMM13:
-            dwarfReg = 30;
-            break;
-        case REG_XMM14:
-            dwarfReg = 31;
-            break;
-        case REG_XMM15:
-            dwarfReg = 32;
-            break;
-        default:
-            noway_assert(!"unexpected REG_NUM");
-    }
-
-    return dwarfReg;
-}
-
-#endif // UNIX_AMD64_ABI
-
-//------------------------------------------------------------------------
-// Compiler::unwindBegProlog: Initialize the unwind info data structures.
-// Called at the beginning of main function or funclet prolog generation.
-//
-void Compiler::unwindBegProlog()
-{
-#ifdef UNIX_AMD64_ABI
+#ifdef TARGET_UNIX
     if (generateCFIUnwindCodes())
     {
         unwindBegPrologCFI();
+        return;
     }
-    else
-#endif // UNIX_AMD64_ABI
-    {
-        unwindBegPrologWindows();
-    }
+#endif
+
+    unwindBegPrologWindows();
 }
 
-void Compiler::unwindBegPrologWindows()
+void CodeGen::unwindBegEpilog()
 {
-    assert(codeGen->generatingProlog);
-
-    FuncInfoDsc* func = funCurrentFunc();
-
-    // There is only one prolog for a function/funclet, and it comes first. So now is
-    // a good time to initialize all the unwind data structures.
-
-    unwindGetFuncLocations(func, true, &func->startLoc, &func->endLoc);
-
-    if (fgFirstColdBlock != nullptr)
-    {
-        unwindGetFuncLocations(func, false, &func->coldStartLoc, &func->coldEndLoc);
-    }
-
-    func->unwindCodeSlot                  = sizeof(func->unwindCodes);
-    func->unwindHeader.Version            = 1;
-    func->unwindHeader.Flags              = 0;
-    func->unwindHeader.CountOfUnwindCodes = 0;
-    func->unwindHeader.FrameRegister      = 0;
-    func->unwindHeader.FrameOffset        = 0;
+    assert(generatingEpilog);
 }
 
-//------------------------------------------------------------------------
-// Compiler::unwindEndProlog: Called at the end of main function or funclet
-// prolog generation to indicate there is no more unwind information for this prolog.
-//
-void Compiler::unwindEndProlog()
+void CodeGen::unwindPush(RegNum reg)
 {
-    assert(codeGen->generatingProlog);
-}
-
-//------------------------------------------------------------------------
-// Compiler::unwindBegEpilog: Called at the beginning of main function or funclet
-// epilog generation.
-//
-void Compiler::unwindBegEpilog()
-{
-    assert(codeGen->generatingEpilog);
-}
-
-//------------------------------------------------------------------------
-// Compiler::unwindEndEpilog: Called at the end of main function or funclet
-// epilog generation.
-//
-void Compiler::unwindEndEpilog()
-{
-    assert(codeGen->generatingEpilog);
-}
-
-//------------------------------------------------------------------------
-// Compiler::unwindPush: Record a push/save of a register.
-//
-// Arguments:
-//    reg - The register being pushed/saved.
-//
-void Compiler::unwindPush(regNumber reg)
-{
-#ifdef UNIX_AMD64_ABI
+#ifdef TARGET_UNIX
     if (generateCFIUnwindCodes())
     {
         unwindPushPopCFI(reg);
+        return;
     }
-    else
-#endif // UNIX_AMD64_ABI
-    {
-        unwindPushWindows(reg);
-    }
+#endif
+
+    unwindPushWindows(reg);
 }
 
-void Compiler::unwindPushWindows(regNumber reg)
+void CodeGen::unwindAllocStack(unsigned size)
 {
-    assert(codeGen->generatingProlog);
+#ifdef TARGET_UNIX
+    if (generateCFIUnwindCodes())
+    {
+        unwindAllocStackCFI(size);
+        return;
+    }
+#endif
 
-    FuncInfoDsc* func = funCurrentFunc();
+    unwindAllocStackWindows(size);
+}
 
-    assert(func->unwindHeader.Version == 1);            // Can't call this before unwindBegProlog
-    assert(func->unwindHeader.CountOfUnwindCodes == 0); // Can't call this after unwindReserve
-    assert(func->unwindCodeSlot > sizeof(UNWIND_CODE));
-    UNWIND_CODE* code     = (UNWIND_CODE*)&func->unwindCodes[func->unwindCodeSlot -= sizeof(UNWIND_CODE)];
-    unsigned int cbProlog = unwindGetCurrentOffset(func);
-    noway_assert((BYTE)cbProlog == cbProlog);
-    code->CodeOffset = (BYTE)cbProlog;
+void CodeGen::unwindSetFrameReg(RegNum reg, unsigned offset)
+{
+#ifdef TARGET_UNIX
+    if (generateCFIUnwindCodes())
+    {
+        unwindSetFrameRegCFI(reg, offset);
+        return;
+    }
+#endif
 
-    if ((RBM_CALLEE_SAVED & genRegMask(reg))
+    unwindSetFrameRegWindows(reg, offset);
+}
+
+void CodeGen::unwindSaveReg(RegNum reg, unsigned offset)
+{
+#ifdef TARGET_UNIX
+    if (generateCFIUnwindCodes())
+    {
+        unwindSaveRegCFI(reg, offset);
+        return;
+    }
+#endif
+
+    unwindSaveRegWindows(reg, offset);
+}
+
+void CodeGen::unwindBegPrologWindows()
+{
+    assert(generatingProlog);
+
+    Win64UnwindInfo& info = funCurrentFunc().win;
+
+    assert(info.codesIndex == 0);
+    info.codesIndex = info.endCodeIndex;
+
+    UNWIND_INFO& header       = info.GetHeader();
+    header.Version            = 1;
+    header.Flags              = 0;
+    header.SizeOfProlog       = 0;
+    header.CountOfUnwindCodes = 0;
+    header.FrameRegister      = 0;
+    header.FrameOffset        = 0;
+}
+
+UNWIND_CODE* Win64UnwindInfo::AddCode(uint32_t codeOffset, UNWIND_OP_CODES op, uint8_t info)
+{
+    codesIndex -= sizeof(UNWIND_CODE);
+    assert((headerSize <= codesIndex) && (codesIndex <= endCodeIndex - sizeof(UNWIND_CODE)));
+
+    UNWIND_CODE* code = reinterpret_cast<UNWIND_CODE*>(&block[codesIndex]);
+    noway_assert(codeOffset <= UINT8_MAX);
+    code->CodeOffset = static_cast<uint8_t>(codeOffset);
+    code->UnwindOp   = op;
+    code->OpInfo     = info;
+    return code;
+}
+
+uint16_t* Win64UnwindInfo::AddUInt16(uint16_t value)
+{
+    codesIndex -= sizeof(uint16_t);
+    assert((headerSize <= codesIndex) && (codesIndex <= endCodeIndex - sizeof(uint16_t)));
+
+    uint16_t* p = reinterpret_cast<uint16_t*>(&block[codesIndex]);
+    *p          = value;
+    return p;
+}
+
+uint32_t* Win64UnwindInfo::AddUInt32(uint32_t value)
+{
+    codesIndex -= sizeof(uint32_t);
+    assert((headerSize <= codesIndex) && (codesIndex <= endCodeIndex - sizeof(uint32_t)));
+
+    uint32_t* p = reinterpret_cast<uint32_t*>(&block[codesIndex]);
+    *p          = value;
+    return p;
+}
+
+void CodeGen::unwindPushWindows(RegNum reg)
+{
+    assert(generatingProlog);
+
+    uint32_t         codeOffset = unwindGetCurrentOffset();
+    Win64UnwindInfo& info       = funCurrentFunc().win;
+
+    if (((RBM_CALLEE_SAVED & genRegMask(reg)) != RBM_NONE)
 #if ETW_EBP_FRAMED
         // In case of ETW_EBP_FRAMED defined the REG_FPBASE (RBP)
         // is excluded from the callee-save register list.
@@ -239,258 +145,352 @@ void Compiler::unwindPushWindows(regNumber reg)
 #endif // ETW_EBP_FRAMED
             )
     {
-        code->UnwindOp = UWOP_PUSH_NONVOL;
-        code->OpInfo   = (BYTE)reg;
+        info.AddCode(codeOffset, UWOP_PUSH_NONVOL, static_cast<uint8_t>(reg));
     }
     else
     {
         // Push of a volatile register is just a small stack allocation
-        code->UnwindOp = UWOP_ALLOC_SMALL;
-        code->OpInfo   = 0;
+        info.AddCode(codeOffset, UWOP_ALLOC_SMALL, 0);
     }
 }
 
-#ifdef UNIX_AMD64_ABI
-#endif // UNIX_AMD64_ABI
-
-//------------------------------------------------------------------------
-// Compiler::unwindAllocStack: Record a stack frame allocation (sub sp, X).
-//
-// Arguments:
-//    size - The size of the stack frame allocation (the amount subtracted from the stack pointer).
-//
-void Compiler::unwindAllocStack(unsigned size)
+void CodeGen::unwindAllocStackWindows(unsigned size)
 {
-#ifdef UNIX_AMD64_ABI
-    if (generateCFIUnwindCodes())
-    {
-        unwindAllocStackCFI(size);
-    }
-    else
-#endif // UNIX_AMD64_ABI
-    {
-        unwindAllocStackWindows(size);
-    }
-}
+    assert(generatingProlog);
+    assert(size % 8 == 0);
 
-void Compiler::unwindAllocStackWindows(unsigned size)
-{
-    assert(codeGen->generatingProlog);
+    uint32_t         codeOffset = unwindGetCurrentOffset();
+    Win64UnwindInfo& info       = funCurrentFunc().win;
 
-    FuncInfoDsc* func = funCurrentFunc();
-
-    assert(func->unwindHeader.Version == 1);            // Can't call this before unwindBegProlog
-    assert(func->unwindHeader.CountOfUnwindCodes == 0); // Can't call this after unwindReserve
-    assert(size % 8 == 0);                              // Stack size is *always* 8 byte aligned
-    UNWIND_CODE* code;
     if (size <= 128)
     {
-        assert(func->unwindCodeSlot > sizeof(UNWIND_CODE));
-        code           = (UNWIND_CODE*)&func->unwindCodes[func->unwindCodeSlot -= sizeof(UNWIND_CODE)];
-        code->UnwindOp = UWOP_ALLOC_SMALL;
-        code->OpInfo   = (size - 8) / 8;
+        info.AddCode(codeOffset, UWOP_ALLOC_SMALL, static_cast<uint8_t>((size - 8) / 8));
     }
     else if (size <= 0x7FFF8)
     {
-        assert(func->unwindCodeSlot > (sizeof(UNWIND_CODE) + sizeof(USHORT)));
-        USHORT* codedSize = (USHORT*)&func->unwindCodes[func->unwindCodeSlot -= sizeof(USHORT)];
-        *codedSize        = (USHORT)(size / 8);
-        code              = (UNWIND_CODE*)&func->unwindCodes[func->unwindCodeSlot -= sizeof(UNWIND_CODE)];
-        code->UnwindOp    = UWOP_ALLOC_LARGE;
-        code->OpInfo      = 0;
+        info.AddUInt16(static_cast<uint16_t>(size / 8));
+        info.AddCode(codeOffset, UWOP_ALLOC_LARGE, 0);
     }
     else
     {
-        assert(func->unwindCodeSlot > (sizeof(UNWIND_CODE) + sizeof(ULONG)));
-        ULONG* codedSize = (ULONG*)&func->unwindCodes[func->unwindCodeSlot -= sizeof(ULONG)];
-        *codedSize       = size;
-        code             = (UNWIND_CODE*)&func->unwindCodes[func->unwindCodeSlot -= sizeof(UNWIND_CODE)];
-        code->UnwindOp   = UWOP_ALLOC_LARGE;
-        code->OpInfo     = 1;
-    }
-    unsigned int cbProlog = unwindGetCurrentOffset(func);
-    noway_assert((BYTE)cbProlog == cbProlog);
-    code->CodeOffset = (BYTE)cbProlog;
-}
-
-//------------------------------------------------------------------------
-// Compiler::unwindSetFrameReg: Record a frame register.
-//
-// Arguments:
-//    reg    - The register being set as the frame register.
-//    offset - The offset from the current stack pointer that the frame pointer will point at.
-//
-void Compiler::unwindSetFrameReg(regNumber reg, unsigned offset)
-{
-#ifdef UNIX_AMD64_ABI
-    if (generateCFIUnwindCodes())
-    {
-        unwindSetFrameRegCFI(reg, offset);
-    }
-    else
-#endif // UNIX_AMD64_ABI
-    {
-        unwindSetFrameRegWindows(reg, offset);
+        info.AddUInt32(size);
+        info.AddCode(codeOffset, UWOP_ALLOC_LARGE, 1);
     }
 }
 
-void Compiler::unwindSetFrameRegWindows(regNumber reg, unsigned offset)
+void CodeGen::unwindSetFrameRegWindows(RegNum reg, unsigned offset)
 {
-    assert(codeGen->generatingProlog);
+    assert(generatingProlog);
 
-    FuncInfoDsc* func = funCurrentFunc();
+    uint32_t         codeOffset = unwindGetCurrentOffset();
+    Win64UnwindInfo& info       = funCurrentFunc().win;
+    UNWIND_INFO&     header     = info.GetHeader();
 
-    assert(func->unwindHeader.Version == 1);            // Can't call this before unwindBegProlog
-    assert(func->unwindHeader.CountOfUnwindCodes == 0); // Can't call this after unwindReserve
-    unsigned int cbProlog = unwindGetCurrentOffset(func);
-    noway_assert((BYTE)cbProlog == cbProlog);
+    header.FrameRegister = static_cast<uint8_t>(reg);
 
-    func->unwindHeader.FrameRegister = (BYTE)reg;
-
-#ifdef UNIX_AMD64_ABI
+#ifdef TARGET_UNIX
     if (offset > 240)
     {
         // On Unix only, we have a CLR-only extension to the AMD64 unwind codes: UWOP_SET_FPREG_LARGE.
         // It has a 32-bit offset (scaled). You must set UNWIND_INFO.FrameOffset to 15. The 32-bit
         // offset follows in 2 UNWIND_CODE fields.
 
-        assert(func->unwindCodeSlot > (sizeof(UNWIND_CODE) + sizeof(ULONG)));
-        ULONG* codedSize = (ULONG*)&func->unwindCodes[func->unwindCodeSlot -= sizeof(ULONG)];
         assert(offset % 16 == 0);
-        *codedSize = offset / 16;
 
-        UNWIND_CODE* code              = (UNWIND_CODE*)&func->unwindCodes[func->unwindCodeSlot -= sizeof(UNWIND_CODE)];
-        code->CodeOffset               = (BYTE)cbProlog;
-        code->OpInfo                   = 0;
-        code->UnwindOp                 = UWOP_SET_FPREG_LARGE;
-        func->unwindHeader.FrameOffset = 15;
+        info.AddUInt32(offset / 16);
+        info.AddCode(codeOffset, UWOP_SET_FPREG_LARGE, 0);
+        header.FrameOffset = 15;
     }
     else
-#endif // UNIX_AMD64_ABI
+#endif // TARGET_UNIX
     {
-        assert(func->unwindCodeSlot > sizeof(UNWIND_CODE));
-        UNWIND_CODE* code = (UNWIND_CODE*)&func->unwindCodes[func->unwindCodeSlot -= sizeof(UNWIND_CODE)];
-        code->CodeOffset  = (BYTE)cbProlog;
-        code->OpInfo      = 0;
-        code->UnwindOp    = UWOP_SET_FPREG;
         assert(offset <= 240);
         assert(offset % 16 == 0);
-        func->unwindHeader.FrameOffset = offset / 16;
+
+        info.AddCode(codeOffset, UWOP_SET_FPREG, 0);
+        header.FrameOffset = offset / 16;
     }
 }
 
-//------------------------------------------------------------------------
-// Compiler::unwindSaveReg: Record a register save.
-//
-// Arguments:
-//    reg    - The register being saved.
-//    offset - The offset from the current stack pointer where the register is being saved.
-//
-void Compiler::unwindSaveReg(regNumber reg, unsigned offset)
+void CodeGen::unwindSaveRegWindows(RegNum reg, unsigned offset)
 {
-#ifdef UNIX_AMD64_ABI
-    if (generateCFIUnwindCodes())
+    assert(generatingProlog);
+
+    if ((genRegMask(reg) & RBM_CALLEE_SAVED) == RBM_NONE)
     {
-        unwindSaveRegCFI(reg, offset);
+        return;
+    }
+
+    uint32_t         codeOffset = unwindGetCurrentOffset();
+    Win64UnwindInfo& info       = funCurrentFunc().win;
+    uint8_t          opInfo     = static_cast<uint8_t>(reg);
+
+    if (offset >= 0x80000)
+    {
+        info.AddUInt32(offset);
+        info.AddCode(codeOffset, IsFloatReg(reg) ? UWOP_SAVE_XMM128_FAR : UWOP_SAVE_NONVOL_FAR, opInfo);
+    }
+    else if (IsFloatReg(reg))
+    {
+        info.AddUInt16(static_cast<uint16_t>(offset / 16));
+        info.AddCode(codeOffset, UWOP_SAVE_XMM128, opInfo);
     }
     else
-#endif // UNIX_AMD64_ABI
     {
-        unwindSaveRegWindows(reg, offset);
+        info.AddUInt16(static_cast<uint16_t>(offset / 8));
+        info.AddCode(codeOffset, UWOP_SAVE_NONVOL, opInfo);
     }
 }
 
-void Compiler::unwindSaveRegWindows(regNumber reg, unsigned offset)
+#ifdef TARGET_UNIX
+int16_t CodeGen::mapRegNumToDwarfReg(RegNum reg)
 {
-    assert(codeGen->generatingProlog);
-
-    FuncInfoDsc* func = funCurrentFunc();
-
-    assert(func->unwindHeader.Version == 1);            // Can't call this before unwindBegProlog
-    assert(func->unwindHeader.CountOfUnwindCodes == 0); // Can't call this after unwindReserve
-    if (RBM_CALLEE_SAVED & genRegMask(reg))
+    switch (reg)
     {
-        UNWIND_CODE* code;
-        if (offset < 0x80000)
-        {
-            assert(func->unwindCodeSlot > (sizeof(UNWIND_CODE) + sizeof(USHORT)));
-            USHORT* codedSize = (USHORT*)&func->unwindCodes[func->unwindCodeSlot -= sizeof(USHORT)];
-            code              = (UNWIND_CODE*)&func->unwindCodes[func->unwindCodeSlot -= sizeof(UNWIND_CODE)];
+        case REG_RAX:
+            return 0;
+        case REG_RCX:
+            return 2;
+        case REG_RDX:
+            return 1;
+        case REG_RBX:
+            return 3;
+        case REG_RSP:
+            return 7;
+        case REG_RBP:
+            return 6;
+        case REG_RSI:
+            return 4;
+        case REG_RDI:
+            return 5;
+        case REG_R8:
+            return 8;
+        case REG_R9:
+            return 9;
+        case REG_R10:
+            return 10;
+        case REG_R11:
+            return 11;
+        case REG_R12:
+            return 12;
+        case REG_R13:
+            return 13;
+        case REG_R14:
+            return 14;
+        case REG_R15:
+            return 15;
+        case REG_XMM0:
+            return 17;
+        case REG_XMM1:
+            return 18;
+        case REG_XMM2:
+            return 19;
+        case REG_XMM3:
+            return 20;
+        case REG_XMM4:
+            return 21;
+        case REG_XMM5:
+            return 22;
+        case REG_XMM6:
+            return 23;
+        case REG_XMM7:
+            return 24;
+        case REG_XMM8:
+            return 25;
+        case REG_XMM9:
+            return 26;
+        case REG_XMM10:
+            return 27;
+        case REG_XMM11:
+            return 28;
+        case REG_XMM12:
+            return 29;
+        case REG_XMM13:
+            return 30;
+        case REG_XMM14:
+            return 31;
+        case REG_XMM15:
+            return 32;
+        default:
+            unreached();
+    }
+}
 
-            // As per AMD64 ABI, if saving entire xmm reg, then offset need to be scaled by 16.
-            if (genIsValidFloatReg(reg))
+void CodeGen::unwindSaveRegCFI(RegNum reg, unsigned offset)
+{
+    assert(generatingProlog);
+
+    if ((genRegMask(reg) & RBM_CALLEE_SAVED) == RBM_NONE)
+    {
+        return;
+    }
+
+    CfiUnwindInfo& cfi        = funCurrentFunc().cfi;
+    uint32_t       codeOffset = unwindGetCurrentOffset();
+
+    cfi.AddCode(codeOffset, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg), offset);
+}
+#endif // TARGET_UNIX
+
+void CodeGen::unwindReserve()
+{
+    assert(!generatingProlog);
+    assert(!generatingEpilog);
+    assert(compFuncInfoCount > 0);
+
+    for (unsigned i = 0; i < compFuncInfoCount; i++)
+    {
+        unwindReserveFunc(&funGetFunc(i));
+    }
+}
+
+void CodeGen::unwindReserveFunc(FuncInfoDsc* func)
+{
+    unwindReserveFuncRegion(func, true);
+
+    if (compiler->fgFirstColdBlock != nullptr)
+    {
+        unwindReserveFuncRegion(func, false);
+    }
+}
+
+void CodeGen::unwindReserveFuncRegion(FuncInfoDsc* func, bool isHotCode)
+{
+    uint32_t unwindSize = 0;
+
+    if (isHotCode)
+    {
+#ifdef TARGET_UNIX
+        if (generateCFIUnwindCodes())
+        {
+            unwindSize = static_cast<uint32_t>(func->cfi.codes->size() * sizeof(CFI_CODE));
+        }
+        else
+#endif
+        {
+            Win64UnwindInfo& info   = func->win;
+            UNWIND_INFO&     header = info.GetHeader();
+
+            assert(header.Version == 1);
+            assert(header.SizeOfProlog == 0);
+            assert(header.CountOfUnwindCodes == 0);
+
+            unwindSize = info.headerSize;
+
+            if (info.codesIndex < info.endCodeIndex)
             {
-                *codedSize     = (USHORT)(offset / 16);
-                code->UnwindOp = UWOP_SAVE_XMM128;
+                UNWIND_CODE* lastCode = reinterpret_cast<UNWIND_CODE*>(&info.block[info.codesIndex]);
+                unsigned codeCount = (info.endCodeIndex - info.codesIndex) / static_cast<unsigned>(sizeof(UNWIND_CODE));
+
+                header.SizeOfProlog       = lastCode->CodeOffset;
+                header.CountOfUnwindCodes = static_cast<uint8_t>(codeCount);
+
+                unwindSize += codeCount * sizeof(UNWIND_CODE);
             }
-            else
+        }
+    }
+
+    eeReserveUnwindInfo(func->kind != FUNC_ROOT, isHotCode, unwindSize);
+}
+
+void CodeGen::unwindEmit()
+{
+    assert(!generatingProlog);
+    assert(!generatingEpilog);
+    assert(compFuncInfoCount > 0);
+
+    for (unsigned i = 0; i < compFuncInfoCount; i++)
+    {
+        unwindEmitFunc(&funGetFunc(i));
+    }
+}
+
+void CodeGen::unwindEmitFunc(FuncInfoDsc* func)
+{
+    unwindEmitFuncRegion(func, true);
+
+    if (GetEmitter()->GetColdCodeAddr() != nullptr)
+    {
+        unwindEmitFuncRegion(func, false);
+    }
+}
+
+void CodeGen::unwindEmitFuncRegion(FuncInfoDsc* func, bool isHotCode)
+{
+    CodeRange range;
+    uint32_t  unwindSize  = 0;
+    uint8_t*  unwindBlock = nullptr;
+
+    if (isHotCode)
+    {
+        range = unwindGetFuncHotRange(func);
+
+#ifdef TARGET_UNIX
+        if (generateCFIUnwindCodes())
+        {
+            uint32_t size = static_cast<uint32_t>(func->cfi.codes->size());
+
+            if (size > 0)
             {
-                *codedSize     = (USHORT)(offset / 8);
-                code->UnwindOp = UWOP_SAVE_NONVOL;
+                unwindSize  = size * sizeof(CFI_CODE);
+                unwindBlock = reinterpret_cast<uint8_t*>(func->cfi.codes->data());
             }
         }
         else
+#endif
         {
-            assert(func->unwindCodeSlot > (sizeof(UNWIND_CODE) + sizeof(ULONG)));
-            ULONG* codedSize = (ULONG*)&func->unwindCodes[func->unwindCodeSlot -= sizeof(ULONG)];
-            *codedSize       = offset;
-            code             = (UNWIND_CODE*)&func->unwindCodes[func->unwindCodeSlot -= sizeof(UNWIND_CODE)];
-            code->UnwindOp   = (genIsValidFloatReg(reg)) ? UWOP_SAVE_XMM128_FAR : UWOP_SAVE_NONVOL_FAR;
+            Win64UnwindInfo& info = func->win;
+
+            unwindSize  = info.headerSize + info.GetHeader().CountOfUnwindCodes * sizeof(UNWIND_CODE);
+            unwindBlock = info.block;
+
+            if ((info.codesIndex > info.headerSize) && (info.codesIndex < info.endCodeIndex))
+            {
+                // We have a gap between the header and the codes, move the header in front
+                // of the codes (since the header is smaller than the codes). Note that the
+                // source and destination may overlap.
+
+                unsigned newHeaderIndex = info.codesIndex - info.headerSize;
+
+                for (unsigned i = info.headerSize - 1; i != UINT_MAX; i--)
+                {
+                    unwindBlock[newHeaderIndex + i] = unwindBlock[i];
+                }
+
+                unwindBlock += newHeaderIndex;
+            }
         }
-        code->OpInfo          = (BYTE)reg;
-        unsigned int cbProlog = unwindGetCurrentOffset(func);
-        noway_assert((BYTE)cbProlog == cbProlog);
-        code->CodeOffset = (BYTE)cbProlog;
     }
-}
-
-#ifdef UNIX_AMD64_ABI
-void Compiler::unwindSaveRegCFI(regNumber reg, unsigned offset)
-{
-    assert(codeGen->generatingProlog);
-
-    if (RBM_CALLEE_SAVED & genRegMask(reg))
+    else
     {
-        FuncInfoDsc* func = funCurrentFunc();
-
-        unsigned int cbProlog = unwindGetCurrentOffset(func);
-        createCfiCode(func, cbProlog, CFI_REL_OFFSET, mapRegNumToDwarfReg(reg), offset);
+        range = unwindGetFuncColdRange(func);
     }
+
+    eeAllocUnwindInfo(func->kind, isHotCode, range, unwindSize, unwindBlock);
 }
-#endif // UNIX_AMD64_ABI
 
 #ifdef DEBUG
 
-//------------------------------------------------------------------------
-// DumpUnwindInfo: Dump the unwind data.
-//
-// Arguments:
-//    isHotCode   - true if this unwind data is for the hot section, false otherwise.
-//    startOffset - byte offset of the code start that this unwind data represents.
-//    endOffset   - byte offset of the code end   that this unwind data represents.
-//    pHeader     - pointer to the unwind data blob.
-//
-void DumpUnwindInfo(bool                     isHotCode,
-                    UNATIVE_OFFSET           startOffset,
-                    UNATIVE_OFFSET           endOffset,
-                    const UNWIND_INFO* const pHeader)
+void CodeGen::DumpUnwindInfo(bool isHotCode, CodeRange range, const UNWIND_INFO* header) const
 {
     printf("Unwind Info%s:\n", isHotCode ? "" : " COLD");
-    printf("  >> Start offset   : 0x%06x (not in unwind data)\n", dspOffset(startOffset));
-    printf("  >>   End offset   : 0x%06x (not in unwind data)\n", dspOffset(endOffset));
+    printf("  >> Start offset   : 0x%06x (not in unwind data)\n", dspOffset(range.start));
+    printf("  >>   End offset   : 0x%06x (not in unwind data)\n", dspOffset(range.end));
 
-    if (pHeader == nullptr)
+    if (header == nullptr)
     {
         // Cold AMD64 code doesn't have unwind info; the VM creates chained unwind info.
         assert(!isHotCode);
         return;
     }
 
-    printf("  Version           : %u\n", pHeader->Version);
-    printf("  Flags             : 0x%02x", pHeader->Flags);
-    if (pHeader->Flags)
+    printf("  Version           : %u\n", header->Version);
+    printf("  Flags             : 0x%02x", header->Flags);
+
+    if (header->Flags != 0)
     {
-        const UCHAR flags = pHeader->Flags;
+        const uint8_t flags = header->Flags;
+
         printf(" (");
         if (flags & UNW_FLAG_EHANDLER)
         {
@@ -506,46 +506,49 @@ void DumpUnwindInfo(bool                     isHotCode,
         }
         printf(")");
     }
+
     printf("\n");
-    printf("  SizeOfProlog      : 0x%02X\n", pHeader->SizeOfProlog);
-    printf("  CountOfUnwindCodes: %u\n", pHeader->CountOfUnwindCodes);
-    printf("  FrameRegister     : %s (%u)\n",
-           (pHeader->FrameRegister == 0) ? "none" : getRegName(pHeader->FrameRegister),
-           pHeader->FrameRegister); // RAX (0) is not allowed as a frame register
-    if (pHeader->FrameRegister == 0)
+    printf("  SizeOfProlog      : 0x%02X\n", header->SizeOfProlog);
+    printf("  CountOfUnwindCodes: %u\n", header->CountOfUnwindCodes);
+    printf("  FrameRegister     : %s (%u)\n", (header->FrameRegister == 0) ? "none" : getRegName(header->FrameRegister),
+           header->FrameRegister); // RAX (0) is not allowed as a frame register
+
+    if (header->FrameRegister == 0)
     {
-        printf("  FrameOffset       : N/A (no FrameRegister) (Value=%u)\n", pHeader->FrameOffset);
+        printf("  FrameOffset       : N/A (no FrameRegister) (Value=%u)\n", header->FrameOffset);
     }
     else
     {
-        printf("  FrameOffset       : %u * 16 = 0x%02X\n", pHeader->FrameOffset, pHeader->FrameOffset * 16);
+        printf("  FrameOffset       : %u * 16 = 0x%02X\n", header->FrameOffset, header->FrameOffset * 16);
     }
+
     printf("  UnwindCodes       :\n");
 
-    for (unsigned i = 0; i < pHeader->CountOfUnwindCodes; i++)
+    for (unsigned i = 0; i < header->CountOfUnwindCodes; i++)
     {
-        const UNWIND_CODE* const pCode = &(pHeader->UnwindCode[i]);
-        switch (pCode->UnwindOp)
+        const UNWIND_CODE& code = header->UnwindCode[i];
+
+        switch (code.UnwindOp)
         {
             case UWOP_PUSH_NONVOL:
-                printf("    CodeOffset: 0x%02X UnwindOp: UWOP_PUSH_NONVOL (%u)     OpInfo: %s (%u)\n",
-                       pCode->CodeOffset, pCode->UnwindOp, getRegName(pCode->OpInfo), pCode->OpInfo);
+                printf("    CodeOffset: 0x%02X UnwindOp: UWOP_PUSH_NONVOL (%u)     OpInfo: %s (%u)\n", code.CodeOffset,
+                       code.UnwindOp, getRegName(code.OpInfo), code.OpInfo);
                 break;
 
             case UWOP_ALLOC_LARGE:
-                printf("    CodeOffset: 0x%02X UnwindOp: UWOP_ALLOC_LARGE (%u)     OpInfo: %u - ", pCode->CodeOffset,
-                       pCode->UnwindOp, pCode->OpInfo);
-                if (pCode->OpInfo == 0)
+                printf("    CodeOffset: 0x%02X UnwindOp: UWOP_ALLOC_LARGE (%u)     OpInfo: %u - ", code.CodeOffset,
+                       code.UnwindOp, code.OpInfo);
+                if (code.OpInfo == 0)
                 {
                     i++;
-                    printf("Scaled small  \n      Size: %u * 8 = %u = 0x%05X\n", pHeader->UnwindCode[i].FrameOffset,
-                           pHeader->UnwindCode[i].FrameOffset * 8, pHeader->UnwindCode[i].FrameOffset * 8);
+                    printf("Scaled small  \n      Size: %u * 8 = %u = 0x%05X\n", header->UnwindCode[i].FrameOffset,
+                           header->UnwindCode[i].FrameOffset * 8, header->UnwindCode[i].FrameOffset * 8);
                 }
-                else if (pCode->OpInfo == 1)
+                else if (code.OpInfo == 1)
                 {
                     i++;
-                    printf("Unscaled large\n      Size: %u = 0x%08X\n\n", *(ULONG*)&(pHeader->UnwindCode[i]),
-                           *(ULONG*)&(pHeader->UnwindCode[i]));
+                    printf("Unscaled large\n      Size: %u = 0x%08X\n\n", *(uint32_t*)&(header->UnwindCode[i]),
+                           *(uint32_t*)&(header->UnwindCode[i]));
                     i++;
                 }
                 else
@@ -556,22 +559,21 @@ void DumpUnwindInfo(bool                     isHotCode,
 
             case UWOP_ALLOC_SMALL:
                 printf("    CodeOffset: 0x%02X UnwindOp: UWOP_ALLOC_SMALL (%u)     OpInfo: %u * 8 + 8 = %u = 0x%02X\n",
-                       pCode->CodeOffset, pCode->UnwindOp, pCode->OpInfo, pCode->OpInfo * 8 + 8, pCode->OpInfo * 8 + 8);
+                       code.CodeOffset, code.UnwindOp, code.OpInfo, code.OpInfo * 8 + 8, code.OpInfo * 8 + 8);
                 break;
 
             case UWOP_SET_FPREG:
                 printf("    CodeOffset: 0x%02X UnwindOp: UWOP_SET_FPREG (%u)       OpInfo: Unused (%u)\n",
-                       pCode->CodeOffset, pCode->UnwindOp, pCode->OpInfo); // This should be zero
+                       code.CodeOffset, code.UnwindOp, code.OpInfo); // This should be zero
                 break;
 
-#ifdef UNIX_AMD64_ABI
-
+#ifdef TARGET_UNIX
             case UWOP_SET_FPREG_LARGE:
             {
                 printf("    CodeOffset: 0x%02X UnwindOp: UWOP_SET_FPREG_LARGE (%u) OpInfo: Unused (%u)\n",
-                       pCode->CodeOffset, pCode->UnwindOp, pCode->OpInfo); // This should be zero
+                       code.CodeOffset, code.UnwindOp, code.OpInfo); // This should be zero
                 i++;
-                unsigned offset = *(ULONG*)&(pHeader->UnwindCode[i]);
+                unsigned offset = *(uint32_t*)&(header->UnwindCode[i]);
                 i++;
                 printf("      Scaled Offset: %u * 16 = %u = 0x%08X\n", offset, offset * 16, offset * 16);
                 if ((offset & 0xF0000000) != 0)
@@ -580,38 +582,37 @@ void DumpUnwindInfo(bool                     isHotCode,
                 }
             }
             break;
-
-#endif // UNIX_AMD64_ABI
+#endif // TARGET_UNIX
 
             case UWOP_SAVE_NONVOL:
-                printf("    CodeOffset: 0x%02X UnwindOp: UWOP_SAVE_NONVOL (%u)     OpInfo: %s (%u)\n",
-                       pCode->CodeOffset, pCode->UnwindOp, getRegName(pCode->OpInfo), pCode->OpInfo);
+                printf("    CodeOffset: 0x%02X UnwindOp: UWOP_SAVE_NONVOL (%u)     OpInfo: %s (%u)\n", code.CodeOffset,
+                       code.UnwindOp, getRegName(code.OpInfo), code.OpInfo);
                 i++;
-                printf("      Scaled Small Offset: %u * 8 = %u = 0x%05X\n", pHeader->UnwindCode[i].FrameOffset,
-                       pHeader->UnwindCode[i].FrameOffset * 8, pHeader->UnwindCode[i].FrameOffset * 8);
+                printf("      Scaled Small Offset: %u * 8 = %u = 0x%05X\n", header->UnwindCode[i].FrameOffset,
+                       header->UnwindCode[i].FrameOffset * 8, header->UnwindCode[i].FrameOffset * 8);
                 break;
 
             case UWOP_SAVE_NONVOL_FAR:
-                printf("    CodeOffset: 0x%02X UnwindOp: UWOP_SAVE_NONVOL_FAR (%u) OpInfo: %s (%u)\n",
-                       pCode->CodeOffset, pCode->UnwindOp, getRegName(pCode->OpInfo), pCode->OpInfo);
+                printf("    CodeOffset: 0x%02X UnwindOp: UWOP_SAVE_NONVOL_FAR (%u) OpInfo: %s (%u)\n", code.CodeOffset,
+                       code.UnwindOp, getRegName(code.OpInfo), code.OpInfo);
                 i++;
-                printf("      Unscaled Large Offset: 0x%08X\n\n", *(ULONG*)&(pHeader->UnwindCode[i]));
+                printf("      Unscaled Large Offset: 0x%08X\n\n", *(uint32_t*)&(header->UnwindCode[i]));
                 i++;
                 break;
 
             case UWOP_SAVE_XMM128:
                 printf("    CodeOffset: 0x%02X UnwindOp: UWOP_SAVE_XMM128 (%u)     OpInfo: XMM%u (%u)\n",
-                       pCode->CodeOffset, pCode->UnwindOp, pCode->OpInfo, pCode->OpInfo);
+                       code.CodeOffset, code.UnwindOp, code.OpInfo, code.OpInfo);
                 i++;
-                printf("      Scaled Small Offset: %u * 16 = %u = 0x%05X\n", pHeader->UnwindCode[i].FrameOffset,
-                       pHeader->UnwindCode[i].FrameOffset * 16, pHeader->UnwindCode[i].FrameOffset * 16);
+                printf("      Scaled Small Offset: %u * 16 = %u = 0x%05X\n", header->UnwindCode[i].FrameOffset,
+                       header->UnwindCode[i].FrameOffset * 16, header->UnwindCode[i].FrameOffset * 16);
                 break;
 
             case UWOP_SAVE_XMM128_FAR:
                 printf("    CodeOffset: 0x%02X UnwindOp: UWOP_SAVE_XMM128_FAR (%u) OpInfo: XMM%u (%u)\n",
-                       pCode->CodeOffset, pCode->UnwindOp, pCode->OpInfo, pCode->OpInfo);
+                       code.CodeOffset, code.UnwindOp, code.OpInfo, code.OpInfo);
                 i++;
-                printf("      Unscaled Large Offset: 0x%08X\n\n", *(ULONG*)&(pHeader->UnwindCode[i]));
+                printf("      Unscaled Large Offset: 0x%08X\n\n", *(uint32_t*)&(header->UnwindCode[i]));
                 i++;
                 break;
 
@@ -619,271 +620,11 @@ void DumpUnwindInfo(bool                     isHotCode,
             case UWOP_SPARE_CODE:
             case UWOP_PUSH_MACHFRAME:
             default:
-                printf("    Unrecognized UNWIND_CODE: 0x%04X\n", *(USHORT*)pCode);
+                printf("    Unrecognized UNWIND_CODE: 0x%04X\n", reinterpret_cast<const uint16_t*>(&code));
                 break;
         }
     }
 }
 
 #endif // DEBUG
-
-//------------------------------------------------------------------------
-// Compiler::unwindReserve: Ask the VM to reserve space for the unwind information
-// for the function and all its funclets. Called once, just before asking the VM
-// for memory and emitting the generated code. Calls unwindReserveFunc() to handle
-// the main function and each of the funclets, in turn.
-//
-void Compiler::unwindReserve()
-{
-    assert(!codeGen->generatingProlog);
-    assert(!codeGen->generatingEpilog);
-
-    assert(compFuncInfoCount > 0);
-    for (unsigned funcIdx = 0; funcIdx < compFuncInfoCount; funcIdx++)
-    {
-        unwindReserveFunc(funGetFunc(funcIdx));
-    }
-}
-
-//------------------------------------------------------------------------
-// Compiler::unwindReserveFunc: Reserve the unwind information from the VM for a
-// given main function or funclet.
-//
-// Arguments:
-//    func - The main function or funclet to reserve unwind info for.
-//
-void Compiler::unwindReserveFunc(FuncInfoDsc* func)
-{
-    unwindReserveFuncHelper(func, true);
-
-    if (fgFirstColdBlock != nullptr)
-    {
-        unwindReserveFuncHelper(func, false);
-    }
-}
-
-//------------------------------------------------------------------------
-// Compiler::unwindReserveFuncHelper: Reserve the unwind information from the VM for a
-// given main function or funclet, for either the hot or the cold section.
-//
-// Arguments:
-//    func      - The main function or funclet to reserve unwind info for.
-//    isHotCode - 'true' to reserve the hot section, 'false' to reserve the cold section.
-//
-void Compiler::unwindReserveFuncHelper(FuncInfoDsc* func, bool isHotCode)
-{
-    DWORD unwindCodeBytes = 0;
-    if (isHotCode)
-    {
-#ifdef UNIX_AMD64_ABI
-        if (generateCFIUnwindCodes())
-        {
-            unwindCodeBytes = (DWORD)(func->cfiCodes->size() * sizeof(CFI_CODE));
-        }
-        else
-#endif // UNIX_AMD64_ABI
-        {
-            assert(func->unwindHeader.Version == 1);            // Can't call this before unwindBegProlog
-            assert(func->unwindHeader.CountOfUnwindCodes == 0); // Only call this once per prolog
-
-            // Set the size of the prolog to be the last encoded action
-            if (func->unwindCodeSlot < sizeof(func->unwindCodes))
-            {
-                UNWIND_CODE* code               = (UNWIND_CODE*)&func->unwindCodes[func->unwindCodeSlot];
-                func->unwindHeader.SizeOfProlog = code->CodeOffset;
-            }
-            else
-            {
-                func->unwindHeader.SizeOfProlog = 0;
-            }
-            func->unwindHeader.CountOfUnwindCodes =
-                (BYTE)((sizeof(func->unwindCodes) - func->unwindCodeSlot) / sizeof(UNWIND_CODE));
-
-            // Prepend the unwindHeader onto the unwind codes
-            assert(func->unwindCodeSlot >= offsetof(UNWIND_INFO, UnwindCode));
-
-            func->unwindCodeSlot -= offsetof(UNWIND_INFO, UnwindCode);
-            UNWIND_INFO* pHeader = (UNWIND_INFO*)&func->unwindCodes[func->unwindCodeSlot];
-            memcpy(pHeader, &func->unwindHeader, offsetof(UNWIND_INFO, UnwindCode));
-
-            unwindCodeBytes = sizeof(func->unwindCodes) - func->unwindCodeSlot;
-        }
-    }
-
-    bool isFunclet  = (func->funKind != FUNC_ROOT);
-    bool isColdCode = !isHotCode;
-
-    eeReserveUnwindInfo(isFunclet, isColdCode, unwindCodeBytes);
-}
-
-//------------------------------------------------------------------------
-// Compiler::unwindEmit: Report all the unwind information to the VM.
-//
-// Arguments:
-//    pHotCode  - Pointer to the beginning of the memory with the function and funclet hot  code.
-//    pColdCode - Pointer to the beginning of the memory with the function and funclet cold code.
-//
-void Compiler::unwindEmit(void* pHotCode, void* pColdCode)
-{
-    assert(!codeGen->generatingProlog);
-    assert(!codeGen->generatingEpilog);
-
-    assert(compFuncInfoCount > 0);
-    for (unsigned funcIdx = 0; funcIdx < compFuncInfoCount; funcIdx++)
-    {
-        unwindEmitFunc(funGetFunc(funcIdx), pHotCode, pColdCode);
-    }
-}
-
-//------------------------------------------------------------------------
-// Compiler::unwindEmitFuncHelper: Report the unwind information to the VM for a
-// given main function or funclet, for either the hot or cold section.
-//
-// Arguments:
-//    func      - The main function or funclet to reserve unwind info for.
-//    pHotCode  - Pointer to the beginning of the memory with the function and funclet hot  code.
-//    pColdCode - Pointer to the beginning of the memory with the function and funclet cold code.
-//                Ignored if 'isHotCode' is true.
-//    isHotCode - 'true' to report the hot section, 'false' to report the cold section.
-//
-void Compiler::unwindEmitFuncHelper(FuncInfoDsc* func, void* pHotCode, void* pColdCode, bool isHotCode)
-{
-    UNATIVE_OFFSET startOffset;
-    UNATIVE_OFFSET endOffset;
-    DWORD          unwindCodeBytes = 0;
-    BYTE*          pUnwindBlock    = nullptr;
-
-    if (isHotCode)
-    {
-        if (func->startLoc == nullptr)
-        {
-            startOffset = 0;
-        }
-        else
-        {
-            startOffset = func->startLoc->CodeOffset(GetEmitter());
-        }
-
-        if (func->endLoc == nullptr)
-        {
-            endOffset = info.compNativeCodeSize;
-        }
-        else
-        {
-            endOffset = func->endLoc->CodeOffset(GetEmitter());
-        }
-
-#ifdef UNIX_AMD64_ABI
-        if (generateCFIUnwindCodes())
-        {
-            DWORD size = (DWORD)func->cfiCodes->size();
-            if (size > 0)
-            {
-                unwindCodeBytes = size * sizeof(CFI_CODE);
-                pUnwindBlock    = (BYTE*)&(*func->cfiCodes)[0];
-            }
-        }
-        else
-#endif // UNIX_AMD64_ABI
-        {
-            unwindCodeBytes = sizeof(func->unwindCodes) - func->unwindCodeSlot;
-
-#ifdef DEBUG
-            UNWIND_INFO* pUnwindInfo = (UNWIND_INFO*)(&func->unwindCodes[func->unwindCodeSlot]);
-            DWORD        unwindCodeBytesSpecified =
-                offsetof(UNWIND_INFO, UnwindCode) +
-                pUnwindInfo->CountOfUnwindCodes * sizeof(UNWIND_CODE); // This is what the unwind codes themselves say;
-                                                                       // it better match what we tell the VM.
-            assert(unwindCodeBytes == unwindCodeBytesSpecified);
-#endif // DEBUG
-
-            pUnwindBlock = &func->unwindCodes[func->unwindCodeSlot];
-        }
-    }
-    else
-    {
-        assert(fgFirstColdBlock != nullptr);
-        assert(func->funKind == FUNC_ROOT); // No splitting of funclets.
-
-        if (func->coldStartLoc == nullptr)
-        {
-            startOffset = 0;
-        }
-        else
-        {
-            startOffset = func->coldStartLoc->CodeOffset(GetEmitter());
-        }
-
-        if (func->coldEndLoc == nullptr)
-        {
-            endOffset = info.compNativeCodeSize;
-        }
-        else
-        {
-            endOffset = func->coldEndLoc->CodeOffset(GetEmitter());
-        }
-    }
-
-#ifdef DEBUG
-    if (opts.dspUnwind)
-    {
-#ifdef UNIX_AMD64_ABI
-        if (generateCFIUnwindCodes())
-        {
-            DumpCfiInfo(isHotCode, startOffset, endOffset, unwindCodeBytes, (const CFI_CODE* const)pUnwindBlock);
-        }
-        else
-#endif // UNIX_AMD64_ABI
-        {
-            DumpUnwindInfo(isHotCode, startOffset, endOffset, (const UNWIND_INFO* const)pUnwindBlock);
-        }
-    }
-#endif // DEBUG
-
-    // Adjust for cold or hot code:
-    // 1. The VM doesn't want the cold code pointer unless this is cold code.
-    // 2. The startOffset and endOffset need to be from the base of the hot section for hot code
-    //    and from the base of the cold section for cold code
-
-    if (isHotCode)
-    {
-        assert(endOffset <= info.compTotalHotCodeSize);
-        pColdCode = nullptr;
-    }
-    else
-    {
-        assert(startOffset >= info.compTotalHotCodeSize);
-        startOffset -= info.compTotalHotCodeSize;
-        endOffset -= info.compTotalHotCodeSize;
-    }
-
-    eeAllocUnwindInfo((BYTE*)pHotCode, (BYTE*)pColdCode, startOffset, endOffset, unwindCodeBytes, pUnwindBlock,
-                      (CorJitFuncKind)func->funKind);
-}
-
-//------------------------------------------------------------------------
-// Compiler::unwindEmitFunc: Report the unwind information to the VM for a
-// given main function or funclet. Reports the hot section, then the cold
-// section if necessary.
-//
-// Arguments:
-//    func      - The main function or funclet to reserve unwind info for.
-//    pHotCode  - Pointer to the beginning of the memory with the function and funclet hot  code.
-//    pColdCode - Pointer to the beginning of the memory with the function and funclet cold code.
-//
-void Compiler::unwindEmitFunc(FuncInfoDsc* func, void* pHotCode, void* pColdCode)
-{
-    // Verify that the JIT enum is in sync with the JIT-EE interface enum
-    static_assert_no_msg(FUNC_ROOT == (FuncKind)CORJIT_FUNC_ROOT);
-    static_assert_no_msg(FUNC_HANDLER == (FuncKind)CORJIT_FUNC_HANDLER);
-    static_assert_no_msg(FUNC_FILTER == (FuncKind)CORJIT_FUNC_FILTER);
-
-    unwindEmitFuncHelper(func, pHotCode, pColdCode, true);
-
-    if (pColdCode != nullptr)
-    {
-        unwindEmitFuncHelper(func, pHotCode, pColdCode, false);
-    }
-}
-
 #endif // TARGET_AMD64

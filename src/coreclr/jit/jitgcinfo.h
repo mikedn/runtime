@@ -7,6 +7,9 @@
 #include "gcinfotypes.h"
 #endif
 
+class CodeGenInterface;
+class CodeGen;
+
 class GCInfo
 {
     friend class CodeGenInterface;
@@ -163,6 +166,8 @@ public:
         WBF_BarrierUnchecked, // An unchecked barrier is required.
     };
 
+    static bool            UseOptimizedWriteBarriers();
+    static CorInfoHelpFunc GetWriteBarrierHelperCall(GCInfo::WriteBarrierForm wbf);
     static WriteBarrierForm GetWriteBarrierForm(GenTreeStoreInd* store);
     static WriteBarrierForm GetWriteBarrierFormFromAddress(GenTree* addr);
     static bool IsNoGCHelper(CorInfoHelpFunc helper);
@@ -294,14 +299,13 @@ public:
     void StackPop(unsigned count, unsigned stackLevel, unsigned codeOffs, bool isCall);
 
     void AddCallSite(unsigned stackLevel, unsigned codeOffs);
-
-    void* CreateAndStoreGCInfo(class CodeGen* codeGen, unsigned codeSize, unsigned prologSize, unsigned epilogSize);
 #else
     void AddCallArgStore(unsigned codeOffs, int argOffs, GCtype gcType);
     void AddCallArgsKill(unsigned codeOffs);
     void AddCallSite(unsigned callOffs, unsigned callEndOffs);
-    void CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize);
 #endif
+
+    void CreateAndStoreGCInfo(CodeGen* codeGen);
 
 #ifdef DEBUG
     void DumpStackSlotLifetimeDelta(const char* header);
@@ -320,7 +324,7 @@ private:
 #endif
 
 #if !defined(JIT32_GCENCODER) || defined(FEATURE_EH_FUNCLETS)
-    void MarkFilterStackSlotsPinned();
+    void MarkFilterStackSlotsPinned(CodeGen* codeGen);
     void InsertSplitStackSlotLifetime(StackSlotLifetime* desc, StackSlotLifetime* begin);
     INDEBUG(void DumpStackSlotLifetime(const char* message, StackSlotLifetime* desc) const;)
 #endif

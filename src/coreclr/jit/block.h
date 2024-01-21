@@ -437,16 +437,14 @@ enum BasicBlockFlags : uint64_t
     BBF_HAS_NEWARRAY         = MAKE_BBFLAG(21), // BB contains 'new' of an array
     BBF_HAS_NEWOBJ           = MAKE_BBFLAG(22), // BB contains 'new' of an object type.
 
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-
+#ifdef TARGET_ARM
     BBF_FINALLY_TARGET       = MAKE_BBFLAG(23), // BB is the target of a finally return: where a finally will return during
                                                 // non-exceptional flow. Because the ARM calling sequence for calling a
                                                 // finally explicitly sets the return address to the finally target and jumps
                                                 // to the finally, instead of using a call instruction, ARM needs this to
                                                 // generate correct code at the finally target, to allow for proper stack
                                                 // unwind from within a non-exceptional call to a finally.
-
-#endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+#endif 
 
     BBF_BACKWARD_JUMP        = MAKE_BBFLAG(24), // BB is surrounded by a backward jump/switch arc
     BBF_RETLESS_CALL         = MAKE_BBFLAG(25), // BBJ_CALLFINALLY that will never return (and therefore, won't need a paired
@@ -541,6 +539,18 @@ constexpr unsigned NoLoopNum  = UINT8_MAX;
 constexpr unsigned MaxLoopNum = 64;
 static_assert_no_msg(MaxLoopNum < NoLoopNum);
 
+// Some non-zero value that will not collide with real tokens for bbCatchTyp
+constexpr unsigned BBCT_NONE           = 0x00000000;
+constexpr unsigned BBCT_FAULT          = 0xFFFFFFFC;
+constexpr unsigned BBCT_FINALLY        = 0xFFFFFFFD;
+constexpr unsigned BBCT_FILTER         = 0xFFFFFFFE;
+constexpr unsigned BBCT_FILTER_HANDLER = 0xFFFFFFFF;
+
+inline bool handlerGetsXcptnObj(unsigned hndTyp)
+{
+    return (hndTyp != BBCT_NONE) && (hndTyp != BBCT_FAULT) && (hndTyp != BBCT_FINALLY);
+}
+
 //------------------------------------------------------------------------
 // BasicBlock: describes a basic block in the flowgraph.
 //
@@ -590,6 +600,11 @@ struct BasicBlock : private LIR::Range
     bool HasGCSafePoint() const
     {
         return (bbFlags & BBF_GC_SAFE_POINT) != 0;
+    }
+
+    bool IsThrowHelperBlock() const
+    {
+        return (bbFlags & BBF_THROW_HELPER) != 0;
     }
 
 #ifdef DEBUG
@@ -741,11 +756,22 @@ struct BasicBlock : private LIR::Range
 
     // Returns "true" iff "this" is the first block of a BBJ_CALLFINALLY/BBJ_ALWAYS pair --
     // a block corresponding to an exit from the try of a try/finally.
-    bool isBBCallAlwaysPair() const;
+    // [[deprecated]]
+    bool isBBCallAlwaysPair() const
+    {
+        return IsCallFinallyAlwaysPairHead();
+    }
 
     // Returns "true" iff "this" is the last block of a BBJ_CALLFINALLY/BBJ_ALWAYS pair --
     // a block corresponding to an exit from the try of a try/finally.
-    bool isBBCallAlwaysPairTail() const;
+    // [[deprecated]]
+    bool isBBCallAlwaysPairTail() const
+    {
+        return IsCallFinallyAlwaysPairTail();
+    }
+
+    bool IsCallFinallyAlwaysPairHead() const;
+    bool IsCallFinallyAlwaysPairTail() const;
 
     BBjumpKinds bbJumpKind; // jump (if any) at the end of this block
 
@@ -958,14 +984,6 @@ struct BasicBlock : private LIR::Range
     bool hasEHBoundaryIn() const;
     bool hasEHBoundaryOut() const;
 
-// Some non-zero value that will not collide with real tokens for bbCatchTyp
-#define BBCT_NONE 0x00000000
-#define BBCT_FAULT 0xFFFFFFFC
-#define BBCT_FINALLY 0xFFFFFFFD
-#define BBCT_FILTER 0xFFFFFFFE
-#define BBCT_FILTER_HANDLER 0xFFFFFFFF
-#define handlerGetsXcptnObj(hndTyp) ((hndTyp) != BBCT_NONE && (hndTyp) != BBCT_FAULT && (hndTyp) != BBCT_FINALLY)
-
     flowList* bbPredsWithEH;
 
     // Basic block predecessor lists. Early in compilation, some phases might need to compute "cheap" predecessor
@@ -1072,30 +1090,30 @@ struct BasicBlock : private LIR::Range
      */
 
     union {
-        BitVec bbCseGen; // CSEs computed by block
-#if ASSERTION_PROP
-        ASSERT_TP bbAssertionOutJumpDest; // out assertions for bbJumpDest
-#endif
-    };
+        struct
+        {
+            BitVec bbCseGen; // CSEs computed by block
+            BitVec bbCseIn;  // CSEs available on entry
+            BitVec bbCseOut; // CSEs available on exit
+        };
 
-    union {
-        BitVec bbCseIn; // CSEs available on entry
 #if ASSERTION_PROP
-        ASSERT_TP bbAssertionIn; // value assignments available on entry
+        struct
+        {
+            ASSERT_TP bbAssertionOutJumpDest; // out assertions for bbJumpDest
+            ASSERT_TP bbAssertionIn;          // value assignments available on entry
+            ASSERT_TP bbAssertionOut;         // value assignments available on exit
+        };
 #endif
-    };
 
-    union {
-        BitVec bbCseOut; // CSEs available on exit
-#if ASSERTION_PROP
-        ASSERT_TP bbAssertionOut; // value assignments available on exit
+        struct
+        {
+            struct insGroup* emitLabel;
+#ifdef TARGET_ARM
+            struct insGroup* unwindNopEmitLabel;
 #endif
+        };
     };
-
-    void* bbEmitCookie;
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-    void* bbUnwindNopEmitCookie;
-#endif
 
 #if MEASURE_BLOCK_SIZE
     static size_t s_Size;
@@ -1118,10 +1136,6 @@ struct BasicBlock : private LIR::Range
     }
 
 #ifdef DEBUG
-#if !FEATURE_FIXED_OUT_ARGS
-    unsigned bbTgtStkDepth; // Native stack depth on entry (for throw-blocks)
-#endif
-
     // This is used in integrity checks.  We semi-randomly pick a traversal stamp, label all blocks
     // in the BB list with that stamp (in this field); then we can tell if (e.g.) predecessors are
     // still in the BB list by whether they have the same stamp (with high probability).

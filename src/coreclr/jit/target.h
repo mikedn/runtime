@@ -78,6 +78,7 @@ enum RegMask : IntRegMask
 
 using regNumber      = RegNum;
 using regNumberSmall = uint8_t;
+using RegNumSmall    = uint8_t;
 using regMaskTP      = IntRegMask;
 
 static_assert_no_msg(static_cast<regNumber>(static_cast<regNumberSmall>(REG_COUNT)) == REG_COUNT);
@@ -114,25 +115,6 @@ static_assert_no_msg(static_cast<regNumber>(static_cast<regNumberSmall>(REG_COUN
 #else
   #error Unsupported or unset target architecture
 #endif
-
-#ifdef TARGET_XARCH
-
-  #define JMP_DIST_SMALL_MAX_NEG  (-128)
-  #define JMP_DIST_SMALL_MAX_POS  (+127)
-
-  #define JCC_DIST_SMALL_MAX_NEG  (-128)
-  #define JCC_DIST_SMALL_MAX_POS  (+127)
-
-  #define JMP_SIZE_SMALL          (2)
-  #define JMP_SIZE_LARGE          (5)
-
-  #define JCC_SIZE_SMALL          (2)
-  #define JCC_SIZE_LARGE          (6)
-
-  #define PUSH_INST_SIZE          (5)
-  #define CALL_INST_SIZE          (5)
-
-#endif // TARGET_XARCH
 
 C_ASSERT(REG_FIRST == 0);
 C_ASSERT(REG_INT_FIRST < REG_INT_LAST);

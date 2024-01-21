@@ -9,37 +9,54 @@
 #include "emit.h"
 #include "codegen.h"
 
-bool emitter::IsJccInstruction(instruction ins)
+static bool IsJccInstruction(instruction ins)
 {
     return (INS_FIRST_JCC <= ins) && (ins <= INS_LAST_JCC);
 }
 
-bool emitter::IsJmpInstruction(instruction ins)
+#ifdef DEBUG
+static bool IsJmpInstruction(instruction ins)
 {
     return AMD64_ONLY((ins == INS_rex_jmp) ||)(ins == INS_i_jmp) || (ins == INS_jmp) || (ins == INS_l_jmp);
 }
+#endif
 
-instruction emitter::emitJumpKindToIns(emitJumpKind jumpKind)
+instruction emitter::emitJumpKindToSetcc(emitJumpKind kind)
 {
-    static const instruction map[]{INS_nop,
-#define JMP_SMALL(en, rev, ins) INS_##ins,
-#include "emitjmps.h"
-                                   INS_call};
+    assert((EJ_o <= kind) && (kind <= EJ_g));
 
-    assert(jumpKind < _countof(map));
-    return map[jumpKind];
-}
-
-emitJumpKind emitter::emitReverseJumpKind(emitJumpKind jumpKind)
-{
-    static const emitJumpKind map[]{
-        EJ_NONE,
-#define JMP_SMALL(en, rev, ins) EJ_##rev,
+    static const instruction map[]{
+        INS_none, INS_none,
+#define CC_DEF(cc, rev) INS_set##cc,
 #include "emitjmps.h"
     };
 
-    assert(jumpKind < EJ_COUNT);
-    return map[jumpKind];
+    assert(kind < _countof(map));
+    return map[kind];
+}
+
+instruction emitter::emitJumpKindToBranch(emitJumpKind kind)
+{
+    static const instruction map[]{
+        INS_nop, INS_jmp,
+#define CC_DEF(cc, rev) INS_j##cc,
+#include "emitjmps.h"
+    };
+
+    assert(kind < _countof(map));
+    return map[kind];
+}
+
+emitJumpKind emitter::emitReverseJumpKind(emitJumpKind kind)
+{
+    static const uint8_t map[]{
+        EJ_NONE, EJ_jmp,
+#define CC_DEF(en, rev) EJ_##rev,
+#include "emitjmps.h"
+    };
+
+    assert(kind < _countof(map));
+    return static_cast<emitJumpKind>(map[kind]);
 }
 
 static bool IsDisp8(ssize_t disp)
@@ -459,6 +476,7 @@ bool emitter::TakesVexPrefix(instruction ins) const
 
 constexpr unsigned PrefixesBitOffset = 16;
 constexpr unsigned MmmBitOffset      = 16;
+constexpr unsigned MmmBitMask        = 7;
 constexpr unsigned PpBitOffset       = 19;
 constexpr unsigned HasVexBitOffset   = 21;
 constexpr unsigned RexBitOffset      = 24;
@@ -467,6 +485,11 @@ constexpr unsigned VexLBitOffset     = 34;
 constexpr unsigned VexVvvvBitOffset  = 35;
 
 using code_t = emitter::code_t;
+
+static bool IsMap0F(code_t code)
+{
+    return ((code >> MmmBitOffset) & MmmBitMask) == 1;
+}
 
 static bool hasVexPrefix(code_t code)
 {
@@ -477,6 +500,15 @@ static bool hasRexPrefix(code_t code)
 {
 #ifdef TARGET_AMD64
     return ((code >> RexBitOffset) & 0xFF) != 0;
+#else
+    return false;
+#endif
+}
+
+static bool HasRexW(uint64_t code)
+{
+#ifdef TARGET_AMD64
+    return ((code >> RexBitOffset) & 8) != 0;
 #else
     return false;
 #endif
@@ -726,15 +758,6 @@ static bool emitVerifyEncodable(instruction ins, emitAttr attr, regNumber reg1, 
 }
 #endif // TARGET_X86
 
-unsigned emitter::emitGetVexAdjustedSize(instruction ins)
-{
-    assert(TakesVexPrefix(ins));
-
-    // TODO-MIKE-Cleanup: This assume that a 3-byte VEX prefix will be used. It should
-    // be relatively simple to detect instructions that can use a 2-byte VEX prefix.
-    return 3 + 1 + 1;
-}
-
 static unsigned emitInsSize(code_t code)
 {
     assert(!hasVexPrefix(code));
@@ -848,12 +871,18 @@ unsigned emitter::emitInsSizeRI(instruction ins, emitAttr size, regNumber reg, s
 
     if (IsSSEOrAVXOrBMIInstruction(ins))
     {
+        assert((INS_psrldq <= ins) && (ins <= INS_psrad));
+        assert(size != EA_1BYTE);
+        assert(!hasRexPrefix(code));
+        assert(!TakesRexWPrefix(ins, size));
+        assert(IsMap0F(code));
+
         if (TakesVexPrefix(ins))
         {
-            return emitGetVexAdjustedSize(ins) + 1;
+            return 2 + IsExtendedReg(reg) + 1 + 1 + 1;
         }
 
-        return (hasRexPrefix(code) || IsExtendedReg(reg, size) || TakesRexWPrefix(ins, size)) + emitInsSize(code) + 1;
+        return IsExtendedReg(reg) + emitInsSize(code) + 1;
     }
 
     assert(!TakesVexPrefix(ins));
@@ -880,9 +909,27 @@ unsigned emitter::emitInsSizeRR(instruction ins, emitAttr size, regNumber reg1, 
 {
     if (TakesVexPrefix(ins))
     {
-        return emitGetVexAdjustedSize(ins);
+        code_t code;
+        RegNum bReg;
+
+        assert((ins != INS_movd) || (IsFloatReg(reg1) != IsFloatReg(reg2)));
+
+        if ((ins == INS_movd) && IsFloatReg(reg2))
+        {
+            code = insCodeMR(ins);
+            bReg = reg1;
+        }
+        else
+        {
+            code = insCodeRM(ins);
+            bReg = reg2;
+        }
+
+        return 2 + (HasRexW(code) || !IsMap0F(code) || TakesRexWPrefix(ins, size) || IsExtendedReg(bReg)) + 1 + 1;
     }
 
+    // TODO-MIKE-Cleanup: This doesn't use the correct code for movd, it
+    // just happens to work because because both codes have the same length.
     code_t   code = insCodeRM(ins);
     unsigned sz   = emitGetAdjustedSize(ins, size, code, true);
     sz += hasRexPrefix(code) || IsExtendedReg(reg1, size) || IsExtendedReg(reg2, size) ||
@@ -894,7 +941,28 @@ unsigned emitter::emitInsSizeRRI(instruction ins, emitAttr size, regNumber reg1,
 {
     if (TakesVexPrefix(ins))
     {
-        return emitGetVexAdjustedSize(ins);
+        regNumber bReg;
+        code_t    code;
+
+        if (hasCodeMR(ins))
+        {
+            code = insCodeMR(ins);
+            bReg = reg1;
+        }
+        else if (hasCodeMI(ins))
+        {
+            assert((INS_psrldq <= ins) && (ins <= INS_psrad));
+
+            code = insCodeMI(ins);
+            bReg = reg2;
+        }
+        else
+        {
+            code = insCodeRM(ins);
+            bReg = reg2;
+        }
+
+        return 2 + (HasRexW(code) || !IsMap0F(code) || TakesRexWPrefix(ins, size) || IsExtendedReg(bReg)) + 1 + 1;
     }
 
     code_t code;
@@ -926,11 +994,13 @@ unsigned emitter::emitInsSizeRRI(instruction ins, emitAttr size, regNumber reg1,
     return sz;
 }
 
-unsigned emitter::emitInsSizeRRR(instruction ins)
+unsigned emitter::emitInsSizeRRR(instruction ins, emitAttr size, RegNum reg3)
 {
     assert(TakesVexPrefix(ins));
 
-    return emitGetVexAdjustedSize(ins);
+    code_t code = insCodeRM(ins);
+
+    return 2 + (HasRexW(code) || !IsMap0F(code) || TakesRexWPrefix(ins, size) || IsExtendedReg(reg3)) + 1 + 1;
 }
 
 unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code)
@@ -942,7 +1012,7 @@ unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code)
 
     if (TakesVexPrefix(ins))
     {
-        sz = emitGetVexAdjustedSize(ins);
+        sz = 2 + (HasRexW(code) || !IsMap0F(code) || TakesRexWPrefix(ins, size)) + 1 + 1;
     }
     else
     {
@@ -992,7 +1062,9 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
 
     if (TakesVexPrefix(ins))
     {
-        sz = emitGetVexAdjustedSize(ins);
+        sz = 2 + (HasRexW(code) || !IsMap0F(code) || TakesRexWPrefix(ins, size) || IsExtendedReg(baseReg) ||
+                  IsExtendedReg(indexReg)) +
+             1 + 1;
     }
     else
     {
@@ -1077,7 +1149,7 @@ unsigned emitter::emitInsSizeCV(instrDesc* id, code_t code)
 
     if (TakesVexPrefix(ins))
     {
-        sz = emitGetVexAdjustedSize(ins);
+        sz = 2 + (HasRexW(code) || !IsMap0F(code) || TakesRexWPrefix(ins, size)) + 1 + 1;
     }
     else
     {
@@ -1113,7 +1185,7 @@ static unsigned emitInsSizeImm(instruction ins, emitAttr attr, int32_t imm)
 template <typename T>
 T* emitter::AllocInstr(bool updateLastIns)
 {
-    instrDescSmall* id = static_cast<instrDescSmall*>(emitAllocAnyInstr(sizeof(T), updateLastIns));
+    instrDescSmall* id = emitAllocAnyInstr(sizeof(T), updateLastIns);
     memset(id, 0, sizeof(T));
     INDEBUG(id->idDebugOnlyInfo(new (emitComp, CMK_DebugOnly) instrDescDebugInfo(++emitInsCount, sizeof(T))));
 
@@ -1135,7 +1207,7 @@ emitter::instrDescJmp* emitter::emitNewInstrJmp()
     return jmp;
 }
 
-emitter::instrDescCGCA* emitter::emitNewInstrCGCA()
+emitter::instrDescCGCA* emitter::emitAllocInstrCGCA()
 {
     return AllocInstr<instrDescCGCA>();
 }
@@ -1481,7 +1553,7 @@ void emitter::SetInstrAddrMode(instrDesc* id, GenTree* addr)
     }
     else
     {
-        id->idAddr()->iiaAddrMode.index = REG_NA;
+        id->idAddr()->iiaAddrMode.base = REG_NA;
     }
 
     if (GenTree* index = addrMode->GetIndex())
@@ -1704,8 +1776,8 @@ void emitter::emitInsRMW_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE 
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_MRW);
     INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
-    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
+    id->SetField(field);
 
     unsigned sz = emitInsSizeCV(id, insCodeMR(ins));
     id->idCodeSize(sz);
@@ -1722,8 +1794,8 @@ void emitter::emitInsRMW_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDL
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_MRW_CNS);
     INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
-    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
+    id->SetField(field);
 
     unsigned sz = emitInsSizeCV(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
@@ -1739,8 +1811,8 @@ void emitter::emitInsRMW_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDL
     id->idInsFmt(IF_MRW_RRD);
     INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
     id->idReg1(reg);
-    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
+    id->SetField(field);
 
     unsigned sz = emitInsSizeCV(id, insCodeMR(ins));
     id->idCodeSize(sz);
@@ -1876,7 +1948,7 @@ void emitter::emitInsMov_R_FS(regNumber reg, int32_t offs)
     id->idOpSize(EA_4BYTE);
     id->idInsFmt(emitInsModeFormat(INS_mov, IF_RRD_MRD));
     id->idReg1(reg);
-    id->idAddr()->iiaFieldHnd = FS_SEG_FIELD;
+    id->SetField(FS_SEG_FIELD);
 
     unsigned sz = 1 + (reg == REG_EAX ? 1 : 2) + 4;
     id->idCodeSize(sz);
@@ -1931,8 +2003,8 @@ void emitter::emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fie
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(emitInsModeFormat(ins, IF_MRD));
     INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
-    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
+    id->SetField(field);
 
     unsigned sz = emitInsSizeCV(id, insCodeMR(ins));
     id->idCodeSize(sz);
@@ -2325,8 +2397,8 @@ void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, CORI
     X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
     id->idInsFmt(IF_RRW_MRD_CNS);
     id->idReg1(reg1);
-    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
+    id->SetField(field);
 
     unsigned sz = emitInsSizeCV(id, insCodeRM(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
@@ -2425,8 +2497,8 @@ void emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regN
     id->idInsFmt(IF_RWR_RRD_MRD);
     id->idReg1(reg1);
     id->idReg2(reg2);
-    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
+    id->SetField(field);
 
     unsigned sz = emitInsSizeCV(id, insCodeRM(ins));
     id->idCodeSize(sz);
@@ -2446,7 +2518,7 @@ void emitter::emitIns_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regN
     id->idReg2(reg2);
     id->idReg3(reg3);
 
-    unsigned sz = emitInsSizeRRR(ins);
+    unsigned sz = emitInsSizeRRR(ins, EA_SIZE(attr), reg3);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -2511,8 +2583,8 @@ void emitter::emitIns_R_R_C_I(
     id->idInsFmt(IF_RWR_RRD_MRD_CNS);
     id->idReg1(reg1);
     id->idReg2(reg2);
-    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
+    id->SetField(field);
 
     unsigned sz = emitInsSizeCV(id, insCodeRM(ins)) + 1;
     id->idCodeSize(sz);
@@ -2535,7 +2607,7 @@ void emitter::emitIns_R_R_R_I(
     id->idReg2(reg2);
     id->idReg3(reg3);
 
-    unsigned sz = emitInsSizeRRR(ins) + 1;
+    unsigned sz = emitInsSizeRRR(ins, EA_SIZE(attr), reg3) + 1;
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -2615,8 +2687,8 @@ void emitter::emitIns_R_R_C_R(
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idInsFmt(IF_RWR_RRD_MRD_RRD);
-    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
+    id->SetField(field);
 
     unsigned sz = emitInsSizeCV(id, insCodeRM(ins)) + 1;
     id->idCodeSize(sz);
@@ -2660,7 +2732,7 @@ void emitter::emitIns_R_R_R_R(
     id->idReg2(reg2);
     id->idReg3(reg3);
 
-    unsigned sz = emitInsSizeRRR(ins) + 1;
+    unsigned sz = emitInsSizeRRR(ins, EA_SIZE(attr), reg3) + 1;
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -2678,8 +2750,8 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
     id->idInsFmt(emitInsModeFormat(ins, IF_RRD_MRD));
     id->idGCref(EA_GC_TYPE(attr));
     id->idReg1(reg);
-    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
+    id->SetField(field);
 
     unsigned sz;
 
@@ -2723,7 +2795,7 @@ void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     id->idInsFmt(emitInsModeFormat(ins, IF_MRD_RRD));
     id->idReg1(reg);
     id->idSetIsDspReloc();
-    id->idAddr()->iiaFieldHnd = field;
+    id->SetField(field);
 
     unsigned sz;
 
@@ -2758,8 +2830,8 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
     X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
     id->idInsFmt(emitInsModeFormat(ins, IF_MRD_CNS));
-    id->idAddr()->iiaFieldHnd = field;
     id->idSetIsDspReloc();
+    id->SetField(field);
 
     unsigned sz = emitInsSizeCV(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
@@ -2767,20 +2839,18 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg)
+void emitter::emitIns_R_L(RegNum reg, insGroup* label)
 {
-    assert(ins == INS_lea);
-    assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
+    assert(label != nullptr);
 
     instrDescJmp* id = emitNewInstrJmp();
-    id->idjKeepLong  = true;
     id->idIns(INS_lea);
     id->idOpSize(EA_PTRSIZE);
     id->idInsFmt(IF_RWR_LABEL);
     id->idReg1(reg);
-    id->idSetIsDspReloc();
-    id->idAddr()->iiaBBlabel = dst;
-    INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
+    id->SetLabel(label);
+    id->idSetIsCnsReloc(emitComp->opts.compReloc AMD64_ONLY(&&InDifferentRegions(emitCurIG, label)));
+    INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (codeGen->GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
 
     unsigned sz = AMD64_ONLY(1 +) 1 + 1 + 4; // REX 8D RM DISP32
     id->idCodeSize(sz);
@@ -2801,6 +2871,7 @@ void emitter::emitIns_R_AH(instruction ins, regNumber reg, void* addr)
     id->idAddr()->iiaAddrMode.base  = REG_NA;
     id->idAddr()->iiaAddrMode.index = REG_NA;
     // On x64 RIP relative addressing is always used and that needs relocs.
+    // TODO-MIKE-Review: Erm, normally RIP-relative does NOT need relocs...
     id->idSetIsDspReloc(X86_ONLY(emitComp->opts.compReloc));
 
     unsigned sz = emitInsSizeAM(id, insCodeRM(ins));
@@ -2868,7 +2939,7 @@ void emitter::emitIns_C_R_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE
     id->idInsFmt(IF_MWR_RRD_CNS);
     id->idReg1(reg);
     id->idSetIsDspReloc();
-    id->idAddr()->iiaFieldHnd = field;
+    id->SetField(field);
 
     unsigned size = emitInsSizeCV(id, insCodeMR(ins)) + 1;
     id->idCodeSize(size);
@@ -3320,27 +3391,24 @@ void emitter::emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, in
     emitCurIGsize += sz;
 }
 
-void emitter::emitSetShortJump(instrDescJmp* id)
-{
-    if (!id->idjKeepLong)
-    {
-        id->idjShort = true;
-    }
-}
+#define JMP_JCC_SIZE_SMALL (2)
+#define JMP_SIZE_LARGE (5)
+#define JCC_SIZE_LARGE (6)
+#define PUSH_INST_SIZE (5)
+#define CALL_INST_SIZE (5)
 
 #ifdef TARGET_X86
-void emitter::emitIns_L(instruction ins, BasicBlock* dst)
+void emitter::emitIns_L(instruction ins, insGroup* label)
 {
     assert(ins == INS_push_hide);
-    assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
+    assert(label != nullptr);
 
     instrDescJmp* id = emitNewInstrJmp();
-    id->idjKeepLong  = true;
     id->idIns(ins);
     id->idOpSize(EA_4BYTE);
     id->idInsFmt(IF_LABEL);
-    id->idSetIsDspReloc(emitComp->opts.compReloc);
-    id->idAddr()->iiaBBlabel = dst;
+    id->idSetIsCnsReloc(emitComp->opts.compReloc);
+    id->SetLabel(label);
 
     id->idCodeSize(PUSH_INST_SIZE);
     dispIns(id);
@@ -3349,17 +3417,15 @@ void emitter::emitIns_L(instruction ins, BasicBlock* dst)
 #endif // TARGET_X86
 
 #ifdef TARGET_AMD64
-void emitter::emitIns_CallFinally(BasicBlock* block)
+void emitter::emitIns_CallFinally(insGroup* label)
 {
-    assert(GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY);
-    assert((block->bbFlags & BBF_HAS_LABEL) != 0);
+    assert(label != nullptr);
 
     instrDescJmp* id = emitNewInstrJmp();
-    id->idjKeepLong  = true;
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label));
     id->idIns(INS_call);
     id->idInsFmt(IF_LABEL);
-    id->idAddr()->iiaBBlabel = block;
-
+    id->SetLabel(label);
     INDEBUG(id->idDebugOnlyInfo()->idFinallyCall = true);
 
     id->idCodeSize(CALL_INST_SIZE);
@@ -3371,86 +3437,47 @@ void emitter::emitIns_CallFinally(BasicBlock* block)
 void emitter::emitIns_J(instruction ins, int instrCount)
 {
     assert(IsJccInstruction(ins));
-    assert(emitIGisInProlog(emitCurIG));
+    assert(IsMainProlog(emitCurIG));
     assert(instrCount < 0);
 
     instrDescJmp* id = emitNewInstrJmp();
-    id->idjShort     = true;
     id->idIns(ins);
     id->idInsFmt(IF_LABEL);
-    id->idAddr()->iiaSetInstrCount(instrCount);
-    id->idSetIsBound();
+    id->SetInstrCount(instrCount);
 
-    id->idCodeSize(JCC_SIZE_SMALL);
+    id->idCodeSize(JMP_JCC_SIZE_SMALL);
     dispIns(id);
-    emitCurIGsize += JCC_SIZE_SMALL;
+    emitCurIGsize += JMP_JCC_SIZE_SMALL;
 }
 
-void emitter::emitIns_J(instruction ins, BasicBlock* block)
+void emitter::emitIns_J(instruction ins, insGroup* label)
 {
     assert((ins == INS_jmp) || IsJccInstruction(ins));
-    assert((block->bbFlags & BBF_HAS_LABEL) != 0);
+    assert(label != nullptr);
 
     instrDescJmp* id = emitNewInstrJmp();
-    id->idjKeepLong  = InDifferentRegions(GetCurrentBlock(), block);
     id->idIns(ins);
     id->idInsFmt(IF_LABEL);
-    id->idAddr()->iiaBBlabel = block;
+    id->SetLabel(label);
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label));
 
-    unsigned  sz    = ins == INS_jmp ? JMP_SIZE_LARGE : JCC_SIZE_LARGE;
-    insGroup* label = emitCodeGetCookie(block);
+    unsigned sz = ins == INS_jmp ? JMP_SIZE_LARGE : JCC_SIZE_LARGE;
 
-    if (label != nullptr)
+    if (label->IsDefined() && !id->idIsCnsReloc())
     {
-        // This is a backward jump - figure out the distance
+        // This is a backward jump, we can determine now if it's going to be short.
 
-        static_assert_no_msg(JMP_SIZE_SMALL == JCC_SIZE_SMALL);
+        uint32_t jumpOffs = emitCurCodeOffset + emitCurIGsize + JMP_JCC_SIZE_SMALL;
+        int32_t  distance = jumpOffs - label->igOffs;
+        int32_t  overflow = distance + -128;
 
-        unsigned srcOffs = emitCurCodeOffset + emitCurIGsize + JMP_SIZE_SMALL;
-        int      jmpDist = srcOffs - label->igOffs;
-        int      extra   = jmpDist + JMP_DIST_SMALL_MAX_NEG;
+        assert(distance > 0);
 
-        assert(jmpDist > 0);
-
-        if ((extra <= 0) && !id->idjKeepLong)
+        if (overflow <= 0)
         {
-            emitSetShortJump(id);
-            sz = JMP_SIZE_SMALL;
+            sz = JMP_JCC_SIZE_SMALL;
         }
     }
-
-#if DEBUG_EMIT
-    if (id->idDebugOnlyInfo()->idNum == (unsigned)INTERESTING_JUMP_NUM || INTERESTING_JUMP_NUM == 0)
-    {
-        if (INTERESTING_JUMP_NUM == 0)
-        {
-            printf("[0] Jump %u:\n", id->idDebugOnlyInfo()->idNum);
-        }
-
-        unsigned srcOffs = emitCurCodeOffset + emitCurIGsize + JMP_SIZE_SMALL;
-
-        printf("[0] Jump source is at %04X/%08X\n", emitCurIGsize, srcOffs);
-
-        if (label == nullptr)
-        {
-            printf("[0] Label block is unknown\n");
-        }
-        else
-        {
-            printf("[0] Label block is at %08X\n", label->igOffs);
-
-            int jmpDist = srcOffs - label->igOffs;
-            int extra   = jmpDist + JMP_DIST_SMALL_MAX_NEG;
-
-            printf("[0] Jump  distance  - %04X\n", jmpDist);
-
-            if (extra > 0)
-            {
-                printf("[0] Distance excess = %d  \n", extra);
-            }
-        }
-    }
-#endif // DEBUG_EMIT
 
     id->idCodeSize(sz);
     dispIns(id);
@@ -3673,7 +3700,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
         assert(addr != nullptr);
 
         id->idInsFmt(IF_METHPTR);
-        id->idAddr()->iiaAddr = addr;
+        id->SetAddr(addr);
 
         sz = 6;
 
@@ -3696,7 +3723,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
         assert(addr != nullptr);
 
         id->idInsFmt(IF_METHOD);
-        id->idAddr()->iiaAddr = addr;
+        id->SetAddr(addr);
 
         // Direct call to a method and no addr indirection is needed.
         // On x64 all direct code addresses go through relocation so that VM will
@@ -3812,6 +3839,144 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 #endif
 
     return regs;
+}
+
+void emitter::ShortenBranches()
+{
+    if (emitJumpList == nullptr)
+    {
+        return;
+    }
+
+#ifdef DEBUG
+    if (emitComp->verbose)
+    {
+        printf("\nInstruction groups before jump shortening:\n\n");
+        emitDispIGlist(true);
+    }
+#endif
+
+AGAIN:
+    INDEBUG(emitCheckIGoffsets());
+
+    uint32_t      minDistanceOverflow  = UINT32_MAX;
+    uint32_t      totalSizeReduction   = 0;
+    uint32_t      instrIGSizeReduction = 0;
+    instrDescJmp* previousInstr        = nullptr;
+    insGroup*     previousInstrIG      = emitJumpList->idjIG;
+
+    for (instrDescJmp *instr = emitJumpList; instr != nullptr; previousInstr = instr, instr = instr->idjNext)
+    {
+        insGroup* instrIG = instr->idjIG;
+
+        if (previousInstrIG == instrIG)
+        {
+            instr->idjOffs -= instrIGSizeReduction;
+
+            assert((previousInstr == nullptr) || (instr->idjOffs > previousInstr->idjOffs));
+        }
+        else
+        {
+            instrIGSizeReduction = 0;
+
+            for (insGroup* ig = previousInstrIG->igNext; ig != instrIG->igNext; ig = ig->igNext)
+            {
+                JITDUMP(FMT_IG " moved back from %04X", ig->GetId(), ig->igOffs);
+                ig->igOffs -= totalSizeReduction;
+                JITDUMP(" to % 04X\n", ig->igOffs);
+            }
+
+            assert(instrIG->igOffs > previousInstrIG->igOffs);
+
+            previousInstrIG = instrIG;
+        }
+
+        if (!IsJccInstruction(instr->idIns()) && (instr->idIns() != INS_jmp))
+        {
+            continue;
+        }
+
+        if (instr->idIsCnsReloc())
+        {
+            continue;
+        }
+
+        uint32_t currentSize = instr->idCodeSize();
+
+        if (currentSize <= JMP_JCC_SIZE_SMALL)
+        {
+            continue;
+        }
+
+        assert(!instr->HasInstrCount());
+
+        uint32_t  instrOffs    = instrIG->igOffs + instr->idjOffs;
+        uint32_t  instrEndOffs = instrOffs + JMP_JCC_SIZE_SMALL;
+        insGroup* label        = instr->GetLabel();
+        uint32_t  labelOffs    = label->igOffs;
+        int32_t   distanceOverflow;
+
+        if (label->igNum > instrIG->igNum)
+        {
+            labelOffs -= totalSizeReduction;
+
+            distanceOverflow = (labelOffs - instrEndOffs) - 127;
+        }
+        else
+        {
+            distanceOverflow = (instrEndOffs - labelOffs) - 128;
+        }
+
+        JITDUMP("Jump IN%04X from %04X +%u (" FMT_IG ") to %04X (" FMT_IG "), distance %d, overflow %d%s\n",
+                instr->idDebugOnlyInfo()->idNum, instrOffs, JMP_JCC_SIZE_SMALL, instrIG->GetId(), labelOffs,
+                label->GetId(), labelOffs - instrEndOffs, distanceOverflow, distanceOverflow <= 0 ? ", short" : "");
+
+        if (distanceOverflow > 0)
+        {
+            minDistanceOverflow = Min(minDistanceOverflow, static_cast<uint32_t>(distanceOverflow));
+
+            continue;
+        }
+
+        instr->idCodeSize(JMP_JCC_SIZE_SMALL);
+
+        uint32_t sizeReduction = currentSize - JMP_JCC_SIZE_SMALL;
+        instrIG->igSize -= static_cast<uint16_t>(sizeReduction);
+        instrIG->igFlags |= IGF_UPD_ISZ;
+        instrIGSizeReduction += sizeReduction;
+        totalSizeReduction += sizeReduction;
+    }
+
+    if (totalSizeReduction != 0)
+    {
+        for (insGroup* ig = previousInstrIG->igNext; ig != nullptr; ig = ig->igNext)
+        {
+            JITDUMP(FMT_IG " moved back from %04X", ig->GetId(), ig->igOffs);
+            ig->igOffs -= totalSizeReduction;
+            JITDUMP(" to % 04X\n", ig->igOffs);
+        }
+
+        emitTotalCodeSize -= totalSizeReduction;
+
+        JITDUMP("Total size reduction %u, min distance overflow %u\n", totalSizeReduction, minDistanceOverflow);
+
+        if (minDistanceOverflow <= totalSizeReduction)
+        {
+            JITDUMP("Iterating branch shortening\n");
+
+            goto AGAIN;
+        }
+
+        INDEBUG(emitCheckIGoffsets());
+    }
+
+#ifdef DEBUG
+    if (emitComp->verbose)
+    {
+        printf("\nLabels list after the jump shortening:\n\n");
+        emitDispIGlist(false);
+    }
+#endif
 }
 
 enum ID_OPS : uint8_t
@@ -3988,7 +4153,7 @@ private:
 
     void PrintClsVar(instrDesc* id, emitAttr size)
     {
-        CORINFO_FIELD_HANDLE field = id->idAddr()->iiaFieldHnd;
+        CORINFO_FIELD_HANDLE field = id->GetField();
         ssize_t              offs  = id->GetMemDisp();
 
 #ifdef WINDOWS_X86_ABI
@@ -4257,27 +4422,20 @@ private:
         }
     }
 
-    void PrintLabel(instrDesc* id)
+    void PrintLabel(instrDescJmp* id)
     {
-        if (static_cast<instrDescJmp*>(id)->idjShort)
+        if (id->idCodeSize() == JMP_JCC_SIZE_SMALL)
         {
             printf("SHORT ");
         }
 
-        if (id->idIsBound())
+        if (id->HasInstrCount())
         {
-            if (id->idAddr()->iiaHasInstrCount())
-            {
-                printf("%3d instr", id->idAddr()->iiaGetInstrCount());
-            }
-            else
-            {
-                emitter->emitPrintLabel(id->idAddr()->iiaIGlabel);
-            }
+            printf("%3d instr", id->GetInstrCount());
         }
         else
         {
-            printf("L_M%03u_" FMT_BB, compiler->compMethodID, id->idAddr()->iiaBBlabel->bbNum);
+            emitter->emitPrintLabel(id->GetLabel());
         }
     }
 
@@ -4728,11 +4886,11 @@ private:
 
             case IF_RWR_LABEL:
                 printf("%s, ", RegName(id->idReg1(), attr));
-                PrintLabel(id);
+                PrintLabel(static_cast<instrDescJmp*>(id));
                 break;
 
             case IF_LABEL:
-                PrintLabel(id);
+                PrintLabel(static_cast<instrDescJmp*>(id));
                 break;
 
             case IF_METHOD:
@@ -4754,8 +4912,7 @@ private:
     }
 };
 
-void emitter::emitDispIns(
-    instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, uint8_t* code, size_t sz, insGroup* ig)
+void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, uint8_t* code, size_t sz)
 {
     if (id->idInsFmt() == IF_GC_REG)
     {
@@ -4764,7 +4921,7 @@ void emitter::emitDispIns(
 
     if (emitComp->verbose)
     {
-        printf("IN%04x: ", id->idDebugOnlyInfo()->idNum);
+        printf("IN%04X: ", id->idDebugOnlyInfo()->idNum);
     }
 
     if (!isNew && !asmfm)
@@ -4778,7 +4935,7 @@ void emitter::emitDispIns(
     if (code != nullptr)
     {
         assert(((code >= emitCodeBlock) && (code < emitCodeBlock + emitTotalHotCodeSize)) ||
-               ((code >= emitColdCodeBlock) && (code < emitColdCodeBlock + emitTotalColdCodeSize)));
+               ((code >= emitColdCodeBlock) && (code < emitColdCodeBlock + GetColdCodeSize())));
 
         if (!emitComp->opts.disDiffable)
         {
@@ -4797,6 +4954,72 @@ void emitter::emitDispIns(
     printf("\n");
 }
 
+void emitter::PrintAlignmentBoundary(size_t           instrAddr,
+                                     size_t           instrEndAddr,
+                                     const instrDesc* instr,
+                                     const instrDesc* nextInstr)
+{
+    // Determine if this instruction is part of a set that matches the Intel jcc erratum characteristic
+    // described here:
+    // https://www.intel.com/content/dam/support/us/en/documents/processors/mitigations-jump-conditional-code-erratum.pdf
+    // This is the case when a jump instruction crosses a 32-byte boundary, or ends on a 32-byte boundary.
+    // "Jump instruction" in this case includes conditional jump (jcc), macro-fused op-jcc (where 'op' is
+    // one of cmp, test, add, sub, and, inc, or dec), direct unconditional jump, indirect jump,
+    // direct/indirect call, and return.
+
+    const size_t jccAlignment    = 32;
+    const size_t jccBoundaryAddr = instrEndAddr & ~(jccAlignment - 1);
+
+    if (instrAddr < jccBoundaryAddr)
+    {
+        const instruction ins = instr->idIns();
+        bool isJccAffectedIns = IsJccInstruction(ins) || IsJmpInstruction(ins) || (ins == INS_call) || (ins == INS_ret);
+
+        // For op-Jcc there are two cases: (1) ins is the jcc, in which case the above condition
+        // already covers us. (2) ins is the `op` and the next instruction is the `jcc`. Note that
+        // we will never have a `jcc` as the first instruction of a group, so we don't need to worry
+        // about looking ahead to the next group after a an `op` of `op-Jcc`.
+
+        if (!isJccAffectedIns && (nextInstr != nullptr))
+        {
+            const instruction nextIns = nextInstr->idIns();
+            isJccAffectedIns          = IsJccInstruction(nextIns) &&
+                               ((ins == INS_cmp) || (ins == INS_test) || (ins == INS_add) || (ins == INS_sub) ||
+                                (ins == INS_and) || (ins == INS_inc) || (ins == INS_dec));
+        }
+
+        if (isJccAffectedIns)
+        {
+            const size_t bytesCrossedBoundary = instrEndAddr & (jccAlignment - 1);
+
+            printf("; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (%s: %d ; jcc erratum) %dB boundary "
+                   "...............................\n",
+                   insName(ins), bytesCrossedBoundary, jccAlignment);
+
+            return;
+        }
+    }
+
+    const size_t alignment    = emitComp->opts.compJitAlignLoopBoundary;
+    const size_t boundaryAddr = instrEndAddr & ~(alignment - 1);
+
+    if (instrAddr < boundaryAddr)
+    {
+        // Indicate if instruction is at the alignment boundary or is split
+        const size_t bytesCrossedBoundary = instrEndAddr & (alignment - 1);
+
+        if (bytesCrossedBoundary != 0)
+        {
+            printf("; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (%s: %d)", insName(instr->idIns()), bytesCrossedBoundary);
+        }
+        else
+        {
+            printf("; ...............................");
+        }
+
+        printf(" %dB boundary ...............................\n", alignment);
+    }
+}
 #endif // DEBUG
 
 // Returns the base encoding of the given CPU instruction.
@@ -5087,18 +5310,10 @@ size_t emitter::emitOutputVexPrefix(uint8_t* dst, code_t code DEBUGARG(instructi
 
     if ((code & ((0x0Bull << RexBitOffset) | (7ull << MmmBitOffset))) == (1ull << MmmBitOffset))
     {
-        // Encoding optimization calculation is not done while estimating the instruction
-        // size and thus over-predict instruction size by 1 byte.
-        // If there are IGs that will be aligned, do not optimize encoding so the
-        // estimated alignment sizes are accurate.
+        uint32_t vex21 = (((code >> RexRDelta) & 0x80) | vvvvl | ((code >> PpBitOffset) & 3)) ^ (0x1F << 3);
+        emitOutputWord(dst, 0xC5 | (vex21 << 8));
 
-        if (emitCurIG->igNum > emitLastAlignedIgNum)
-        {
-            uint32_t vex21 = (((code >> RexRDelta) & 0x80) | vvvvl | ((code >> PpBitOffset) & 3)) ^ (0x1F << 3);
-            emitOutputWord(dst, 0xC5 | (vex21 << 8));
-
-            return 2;
-        }
+        return 2;
     }
 
     uint32_t vex31 = (((code >> RexRDelta) & 0xE0) | ((code >> MmmBitOffset) & 7)) ^ (0x07 << 5);
@@ -5212,66 +5427,17 @@ size_t emitter::emitOutputImm(uint8_t* dst, instrDesc* id, size_t size, ssize_t 
 
 static uint8_t* emitOutputNOP(uint8_t* dstRW, size_t nBytes)
 {
-    assert(nBytes <= 15);
+    assert(nBytes <= MAX_ENCODED_SIZE);
 
-#ifndef TARGET_AMD64
+#ifdef TARGET_X86
     // TODO-X86-CQ: when VIA C3 CPU's are out of circulation, switch to the
     // more efficient real NOP: 0x0F 0x1F +modR/M
     // Also can't use AMD recommended, multiple size prefixes (i.e. 0x66 0x66 0x90 for 3 byte NOP)
     // because debugger and msdis don't like it, so maybe VIA doesn't either
     // So instead just stick to repeating single byte nops
-
-    switch (nBytes)
-    {
-        case 15:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 14:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 13:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 12:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 11:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 10:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 9:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 8:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 7:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 6:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 5:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 4:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 3:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 2:
-            *dstRW++ = 0x90;
-            FALLTHROUGH;
-        case 1:
-            *dstRW++ = 0x90;
-            break;
-        case 0:
-            break;
-    }
-#else  // TARGET_AMD64
+    memset(dstRW, 0x90, nBytes);
+    dstRW += nBytes;
+#else
     switch (nBytes)
     {
         case 2:
@@ -5355,7 +5521,7 @@ static uint8_t* emitOutputNOP(uint8_t* dstRW, size_t nBytes)
 
 uint8_t* emitter::emitOutputAlign(insGroup* ig, instrDesc* id, uint8_t* dst)
 {
-    assert(codeGen->ShouldAlignLoops());
+    assert(emitComp->opts.alignLoops);
 
     // IG can be marked as not needing alignment after emitting align instruction
     // In such case, skip outputting alignment.
@@ -5388,9 +5554,7 @@ uint8_t* emitter::emitOutputAlign(insGroup* ig, instrDesc* id, uint8_t* dst)
     emitComp->loopsAligned++;
 #endif
 
-    uint8_t* dstRW = dst + writeableOffset;
-    dstRW          = emitOutputNOP(dstRW, paddingToAdd);
-    return dstRW - writeableOffset;
+    return emitOutputNOP(dst + writeableOffset, paddingToAdd) - writeableOffset;
 }
 
 uint8_t* emitter::emitOutputOpcode(uint8_t* dst, instrDesc* id, code_t& code)
@@ -5858,7 +6022,7 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm)
 {
     instruction          ins   = id->idIns();
-    CORINFO_FIELD_HANDLE field = id->idAddr()->iiaFieldHnd;
+    CORINFO_FIELD_HANDLE field = id->GetField();
     ssize_t              disp  = id->GetMemDisp();
 
     // BT/CMOV support 16 bit operands and this code doesn't add the necessary 66 prefix.
@@ -6257,12 +6421,12 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
 
 uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 {
-    instruction ins    = id->idIns();
-    emitAttr    size   = id->idOpSize();
-    regNumber   reg1   = id->idReg1();
-    regNumber   reg2   = id->idReg2();
-    regNumber   reg345 = reg1;
-    regNumber   reg012 = reg2;
+    instruction ins  = id->idIns();
+    emitAttr    size = id->idOpSize();
+    regNumber   reg1 = id->idReg1();
+    regNumber   reg2 = id->idReg2();
+    regNumber   rReg = reg1;
+    regNumber   bReg = reg2;
     code_t      code;
 
     if (IsSSEOrAVXOrBMIInstruction(ins))
@@ -6307,7 +6471,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
                     // not expect. Can avoid going back and forth between extension and register? Maybe after
                     // 4-byte opcodes are gone and we always have a RM byte.
 
-                    reg345 = static_cast<RegNum>((code >> 11) & 7);
+                    rReg = static_cast<RegNum>((code >> 11) & 7);
                     code &= ~0xFF00ull;
                 }
             }
@@ -6323,7 +6487,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 
             if (IsFloatReg(reg2))
             {
-                std::swap(reg012, reg345);
+                std::swap(bReg, rReg);
             }
         }
     }
@@ -6391,7 +6555,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
         }
 #endif
 
-        std::swap(reg345, reg012);
+        std::swap(rReg, bReg);
     }
     else if ((ins == INS_bsf) || (ins == INS_bsr) || (ins == INS_crc32) || (ins == INS_lzcnt) || (ins == INS_popcnt) ||
              (ins == INS_tzcnt) || IsCmov(ins))
@@ -6468,7 +6632,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 
     assert((code & 0xFF00) == 0);
 
-    code |= (0xC0 | insEncodeReg345(ins, reg345, size, &code) | insEncodeReg012(ins, reg012, size, &code)) << 8;
+    code |= (0xC0 | insEncodeReg345(ins, rReg, size, &code) | insEncodeReg012(ins, bReg, size, &code)) << 8;
     dst += emitOutputRexOrVexPrefixIfNeeded(dst, code DEBUGARG(ins));
     dst += emitOutputWord(dst, code);
 
@@ -6637,9 +6801,7 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
 
-    // Get the 'base' opcode (it's a big one)
-    // Also, determine which operand goes where in the ModRM byte.
-    regNumber mReg;
+    regNumber bReg;
     regNumber rReg;
     code_t    code;
 
@@ -6648,7 +6810,7 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
         code = insCodeMR(ins);
         code = AddVexPrefixIfNeeded(ins, code, size);
 
-        mReg = id->idReg1();
+        bReg = id->idReg1();
         rReg = id->idReg2();
     }
     else if (hasCodeMI(ins))
@@ -6658,7 +6820,7 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
         code = insCodeMI(ins);
         code = AddVexPrefixIfNeeded(ins, code, size);
 
-        mReg = id->idReg2();
+        bReg = id->idReg2();
         rReg = static_cast<regNumber>((code >> 11) & 7);
     }
     else
@@ -6666,7 +6828,7 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
         code = insCodeRM(ins);
         code = AddVexPrefixIfNeeded(ins, code, size);
 
-        mReg = id->idReg2();
+        bReg = id->idReg2();
         rReg = id->idReg1();
 
         if ((ins == INS_imuli) && (id->idOpSize() > EA_1BYTE))
@@ -6712,7 +6874,7 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
 
     assert(((code & 0xFF00) == 0) || ((INS_psrldq <= ins) && (ins <= INS_psrad)));
 
-    code |= (0xC0 | insEncodeReg345(ins, rReg, size, &code) | insEncodeReg012(ins, mReg, size, &code)) << 8;
+    code |= (0xC0 | insEncodeReg345(ins, rReg, size, &code) | insEncodeReg012(ins, bReg, size, &code)) << 8;
     dst += emitOutputRexOrVexPrefixIfNeeded(dst, code DEBUGARG(ins));
     dst += emitOutputWord(dst, code);
 
@@ -7031,16 +7193,12 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     assert(id->idIns() == INS_lea);
     assert(id->idInsFmt() == IF_RWR_LABEL);
     assert(id->idOpSize() == EA_PTRSIZE);
-    assert(id->idIsDspReloc());
     assert(id->idGCref() == GCT_NONE);
-    assert(!id->idAddr()->iiaHasInstrCount());
-    assert(id->idIsBound());
-    assert(id->idjKeepLong);
-    assert(!id->idjShort);
 
-    unsigned srcOffs = emitCurCodeOffs(dst);
-    unsigned dstOffs = id->idAddr()->iiaIGlabel->igOffs;
-    uint8_t* dstAddr = emitOffsetToPtr(dstOffs);
+    unsigned instrOffs = emitCurCodeOffs(dst);
+    uint8_t* instrAddr = emitOffsetToPtr(instrOffs);
+    unsigned labelOffs = id->GetLabel()->igOffs;
+    uint8_t* labelAddr = emitOffsetToPtr(labelOffs);
 
     // TODO-MIKE-CQ: For x86 this should really be mov, it can be more efficient.
     code_t code = 0x8D;
@@ -7050,22 +7208,28 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     AMD64_ONLY(dst += emitOutputRexPrefix(dst, code));
     dst += emitOutputWord(dst, code | 0x0500);
 
-    if (dstOffs > srcOffs)
-    {
-        dstAddr -= RecordForwardJump(id, srcOffs, dstOffs);
-        id->idjAddr = dst;
-    }
-
 #ifdef TARGET_AMD64
-    // TODO-MIKE-Cleanup: This shouldn't call recordRelocation, the target is within
-    // this method so it's not like we'll need jump stubs or anything VM related.
-
-    // We emit zero on x64, to avoid the assert in emitOutputLong
-    dst += emitOutputLong(dst, 0);
-    emitRecordRelocation(dst - 4, dstAddr, IMAGE_REL_BASED_REL32, 0);
+    if (id->idIsCnsReloc())
+    {
+        dst += emitOutputLong(dst, 0);
+        emitRecordRelocation(dst - 4, labelAddr, IMAGE_REL_BASED_REL32);
+    }
+    else
+    {
+        ssize_t distance = labelAddr - instrAddr - id->idCodeSize();
+        assert(IsImm32(distance));
+        dst += emitOutputLong(dst, distance);
+    }
 #else
-    dst += emitOutputLong(dst, reinterpret_cast<ssize_t>(dstAddr));
-    emitRecordRelocation(dst - 4, dstAddr, IMAGE_REL_BASED_HIGHLOW, 0);
+    if (id->idIsCnsReloc())
+    {
+        dst += emitOutputLong(dst, 0);
+        emitRecordRelocation(dst - 4, labelAddr, IMAGE_REL_BASED_HIGHLOW);
+    }
+    else
+    {
+        dst += emitOutputLong(dst, reinterpret_cast<size_t>(labelAddr));
+    }
 #endif
 
     emitGCregDeadUpd(id->idReg1(), dst);
@@ -7079,29 +7243,22 @@ uint8_t* emitter::emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     assert(id->idIns() == INS_push_hide);
     assert(id->idInsFmt() == IF_LABEL);
     assert(id->idGCref() == GCT_NONE);
-    assert(id->idIsBound());
-    assert(!id->idAddr()->iiaHasInstrCount());
-    assert(id->idjKeepLong);
-    assert(!id->idjShort);
+    assert(!id->HasInstrCount());
 
-    unsigned srcOffs = emitCurCodeOffs(dst);
-    unsigned dstOffs = id->idAddr()->iiaIGlabel->igOffs;
-    uint8_t* dstAddr = emitOffsetToPtr(dstOffs);
+    unsigned labelOffs = id->GetLabel()->igOffs;
+    uint8_t* labelAddr = emitOffsetToPtr(labelOffs);
 
     assert(insCodeMI(INS_push) == 0x68);
     dst += emitOutputByte(dst, 0x68);
 
-    if (dstOffs > srcOffs)
+    if (id->idIsCnsReloc())
     {
-        dstAddr -= RecordForwardJump(id, srcOffs, dstOffs);
-        id->idjAddr = dst;
+        dst += emitOutputLong(dst, 0);
+        emitRecordRelocation(dst - 4, labelAddr, IMAGE_REL_BASED_HIGHLOW);
     }
-
-    dst += emitOutputLong(dst, reinterpret_cast<ssize_t>(dstAddr));
-
-    if (emitComp->opts.compReloc)
+    else
     {
-        emitRecordRelocation(dst - 4, dstAddr, IMAGE_REL_BASED_HIGHLOW);
+        dst += emitOutputLong(dst, reinterpret_cast<ssize_t>(labelAddr));
     }
 
     return dst;
@@ -7110,170 +7267,57 @@ uint8_t* emitter::emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
 uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 {
-    assert(id->idGCref() == GCT_NONE);
-    assert(id->idIsBound());
     assert(id->idInsFmt() == IF_LABEL);
+    assert(id->idGCref() == GCT_NONE);
 
-    instruction ins = id->idIns();
-    size_t      ssz;
-    size_t      lsz;
+    unsigned labelOffs;
 
-    if (ins == INS_jmp)
-    {
-        ssz = JMP_SIZE_SMALL;
-        lsz = JMP_SIZE_LARGE;
-    }
-#ifdef FEATURE_EH_FUNCLETS
-    else if (ins == INS_call)
-    {
-        ssz = CALL_INST_SIZE;
-        lsz = CALL_INST_SIZE;
-    }
-#endif
-    else
-    {
-        assert((INS_jo <= ins) && (ins <= INS_jg));
-
-        ssz = JCC_SIZE_SMALL;
-        lsz = JCC_SIZE_LARGE;
-    }
-
-    unsigned srcOffs = emitCurCodeOffs(dst);
-    unsigned dstOffs;
-
-    if (id->idAddr()->iiaHasInstrCount())
+    if (id->HasInstrCount())
     {
         assert(ig != nullptr);
-        int      instrCount = id->idAddr()->iiaGetInstrCount();
-        unsigned insNum     = emitFindInsNum(ig, id);
 
-        if (instrCount < 0)
-        {
-            // Backward branches using instruction count must be within the same instruction group.
-            assert(insNum + 1 >= (unsigned)(-instrCount));
-        }
+        int      instrCount   = id->GetInstrCount();
+        unsigned jumpInstrNum = emitFindInsNum(ig, id);
 
-        dstOffs = ig->igOffs + emitFindOffset(ig, (insNum + 1 + instrCount));
+        assert((instrCount >= 0) || (jumpInstrNum + 1 >= static_cast<unsigned>(-instrCount)));
+
+        labelOffs = ig->igOffs + ig->FindInsOffset(jumpInstrNum + 1 + instrCount);
     }
     else
     {
-        dstOffs = id->idAddr()->iiaIGlabel->igOffs;
+        labelOffs = id->GetLabel()->igOffs;
     }
 
-    uint8_t* srcAddr = emitOffsetToPtr(srcOffs);
-    uint8_t* dstAddr = emitOffsetToPtr(dstOffs);
-    ssize_t  distVal = static_cast<ssize_t>(dstAddr - srcAddr);
+    uint8_t*    labelAddr = emitOffsetToPtr(labelOffs);
+    unsigned    instrOffs = emitCurCodeOffs(dst);
+    uint8_t*    instrAddr = emitOffsetToPtr(instrOffs);
+    ssize_t     distance  = labelAddr - instrAddr - id->idCodeSize();
+    instruction ins       = id->idIns();
 
-    if (dstOffs <= srcOffs)
+    if (id->idCodeSize() == JMP_JCC_SIZE_SMALL)
     {
-        // This is a backward jump - distance is known at this point
-        CLANG_FORMAT_COMMENT_ANCHOR;
-
-#if DEBUG_EMIT
-        if (id->idDebugOnlyInfo()->idNum == (unsigned)INTERESTING_JUMP_NUM || INTERESTING_JUMP_NUM == 0)
-        {
-            size_t blkOffs = id->idjIG->igOffs;
-
-            if (INTERESTING_JUMP_NUM == 0)
-            {
-                printf("[3] Jump %u:\n", id->idDebugOnlyInfo()->idNum);
-            }
-            printf("[3] Jump  block is at %08X - %02X = %08X\n", blkOffs, emitOffsAdj, blkOffs - emitOffsAdj);
-            printf("[3] Jump        is at %08X - %02X = %08X\n", srcOffs, emitOffsAdj, srcOffs - emitOffsAdj);
-            printf("[3] Label block is at %08X - %02X = %08X\n", dstOffs, emitOffsAdj, dstOffs - emitOffsAdj);
-        }
-#endif
-
-        // Can we use a short jump?
-        if ((ins != INS_call) && distVal - ssz >= (size_t)JMP_DIST_SMALL_MAX_NEG)
-        {
-            emitSetShortJump(id);
-        }
-    }
-    else
-    {
-        int adjustment = RecordForwardJump(id, srcOffs, dstOffs);
-        dstOffs -= adjustment;
-        distVal -= adjustment;
-
-#if DEBUG_EMIT
-        if (id->idDebugOnlyInfo()->idNum == (unsigned)INTERESTING_JUMP_NUM || INTERESTING_JUMP_NUM == 0)
-        {
-            size_t blkOffs = id->idjIG->igOffs;
-
-            if (INTERESTING_JUMP_NUM == 0)
-            {
-                printf("[4] Jump %u:\n", id->idDebugOnlyInfo()->idNum);
-            }
-            printf("[4] Jump  block is at %08X\n", blkOffs);
-            printf("[4] Jump        is at %08X\n", srcOffs);
-            printf("[4] Label block is at %08X - %02X = %08X\n", dstOffs + emitOffsAdj, emitOffsAdj, dstOffs);
-        }
-#endif
-
-        if ((ins != INS_call) && distVal - ssz <= (size_t)JMP_DIST_SMALL_MAX_POS)
-        {
-            emitSetShortJump(id);
-        }
-    }
-
-    // Adjust the offset to emit relative to the end of the instruction
-    distVal -= id->idjShort ? ssz : lsz;
-
-#ifdef DEBUG
-    if (0 && emitComp->verbose)
-    {
-        size_t sz          = id->idjShort ? ssz : lsz;
-        int    distValSize = id->idjShort ? 4 : 8;
-        printf("; %s jump [%08X/%03u] from %0*X to %0*X: dist = %08XH\n", (dstOffs <= srcOffs) ? "Fwd" : "Bwd",
-               emitComp->dspPtr(id), id->idDebugOnlyInfo()->idNum, distValSize, srcOffs + sz, distValSize, dstOffs,
-               distVal);
-    }
-#endif
-
-    if (id->idjShort)
-    {
-        assert(!id->idjKeepLong);
-        assert(!emitJumpCrossHotColdBoundary(srcOffs, dstOffs));
-        assert(JMP_SIZE_SMALL == JCC_SIZE_SMALL);
-        assert(JMP_SIZE_SMALL == 2);
+        assert(!id->idIsCnsReloc());
+        assert(!emitJumpCrossHotColdBoundary(instrOffs, labelOffs));
         assert(ins != INS_call);
-
-        if (id->idCodeSize() != JMP_SIZE_SMALL)
-        {
-#if DEBUG_EMIT || defined(DEBUG)
-            int offsShrinkage = id->idCodeSize() - JMP_SIZE_SMALL;
-            if (INDEBUG(emitComp->verbose ||)(id->idDebugOnlyInfo()->idNum == (unsigned)INTERESTING_JUMP_NUM ||
-                                              INTERESTING_JUMP_NUM == 0))
-            {
-                printf("; NOTE: size of jump [%08p] mis-predicted by %d bytes\n", dspPtr(id), offsShrinkage);
-            }
-#endif
-        }
+        assert(IsImm8(distance));
 
         dst += emitOutputByte(dst, insCodeJ(ins));
-
-        // For forward jumps, record the address of the distance value
-        if (distVal > 0)
-        {
-            id->idjAddr = dst;
-        }
-
-        dst += emitOutputByte(dst, distVal);
+        dst += emitOutputByte(dst, distance);
     }
     else
     {
-#ifdef FEATURE_EH_FUNCLETS
-        if (ins == INS_call)
-        {
-            dst += emitOutputByte(dst, 0xE8);
-        }
-        else
-#endif
-            if (ins == INS_jmp)
+        AMD64_ONLY(assert(IsImm32(distance)));
+
+        if (ins == INS_jmp)
         {
             dst += emitOutputByte(dst, 0xE9);
         }
+#ifdef FEATURE_EH_FUNCLETS
+        else if (ins == INS_call)
+        {
+            dst += emitOutputByte(dst, 0xE8);
+        }
+#endif
         else
         {
             code_t code = insCodeJ(ins);
@@ -7281,43 +7325,38 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
             dst += emitOutputWord(dst, 0x0F | ((code + 0x10) << 8));
         }
 
-        // For forward jumps, record the address of the distance value
-        if (dstOffs > srcOffs)
-        {
-            id->idjAddr = dst;
-        }
+        dst += emitOutputLong(dst, distance);
 
-        dst += emitOutputLong(dst, distVal);
-
-        // For x64 we always go through recordRelocation since we may need jump stubs.
-        // TODO-MIKE-Review: Hmm, jump stubs for jumps within the same method?!?
-        if (X86_ONLY(emitComp->opts.compReloc &&) emitJumpCrossHotColdBoundary(srcOffs, dstOffs))
+        if (id->idIsCnsReloc())
         {
-            assert(id->idjKeepLong);
-            emitRecordRelocation(dst - 4, dst + distVal, IMAGE_REL_BASED_REL32);
+#ifdef TARGET_AMD64
+            emitRecordRelocation(dst - 4, dst + distance, IMAGE_REL_BASED_REL32);
+#else
+            emitRecordRelocation(dst - 4, dst + distance, IMAGE_REL_BASED_HIGHLOW);
+#endif
         }
-    }
 
 #ifdef FEATURE_EH_FUNCLETS
-    // Calls to "finally" handlers kill all registers.
-    // TODO-MIKE-Review: It's not entirely clear why is this needed. Such calls are
-    // always at the end of the block and the following block should have the correct
-    // CG reg liveness. Sometimes, a nop is inserted after such calls, but then it's
-    // inserted in a no-GC region so it shouldn't matter if some GC regs are killed
-    // later than they really are. In fact, we already kill "later", the regs that
-    // could possibly be live after the call are callee saved registers, and these
-    // are practically dead before the call.
-    // But the weirdest thing is that ARM64 doesn't appear to be doing this.
-    // It certainly doesn't call emitGCregDeadAll but perhaps it achieves the same
-    // effect by other means?
-    // Anyway, even if this code is useless removing it results in GC info diffs.
-    if ((ins == INS_call) && (gcInfo.GetAllLiveRegs() != RBM_NONE))
-    {
-        emitGCregDeadAll(dst);
-    }
+        // Calls to "finally" handlers kill all registers.
+        // TODO-MIKE-Review: It's not entirely clear why is this needed. Such calls are
+        // always at the end of the block and the following block should have the correct
+        // CG reg liveness. Sometimes, a nop is inserted after such calls, but then it's
+        // inserted in a no-GC region so it shouldn't matter if some GC regs are killed
+        // later than they really are. In fact, we already kill "later", the regs that
+        // could possibly be live after the call are callee saved registers, and these
+        // are practically dead before the call.
+        // But the weirdest thing is that ARM64 doesn't appear to be doing this.
+        // It certainly doesn't call emitGCregDeadAll but perhaps it achieves the same
+        // effect by other means?
+        // Anyway, even if this code is useless removing it results in GC info diffs.
+        if ((ins == INS_call) && (gcInfo.GetAllLiveRegs() != RBM_NONE))
+        {
+            emitGCregDeadAll(dst);
+        }
 #else
-    assert(ins != INS_call);
+        assert(ins != INS_call);
 #endif
+    }
 
     return dst;
 }
@@ -7326,8 +7365,7 @@ uint8_t* emitter::emitOutputCall(uint8_t* dst, instrDesc* id)
 {
     instruction ins = id->idIns();
 
-    void* addr = id->idAddr()->iiaAddr;
-    assert(addr != nullptr);
+    void* addr = id->GetAddr();
 
     if (id->idInsFmt() == IF_METHPTR)
     {
@@ -7393,10 +7431,7 @@ uint8_t* emitter::emitOutputNoOperands(uint8_t* dst, instrDesc* id)
 
     if (ins == INS_nop)
     {
-        uint8_t* dstRW = dst + writeableOffset;
-        dstRW          = emitOutputNOP(dstRW, id->idCodeSize());
-
-        return dstRW - writeableOffset;
+        return emitOutputNOP(dst + writeableOffset, id->idCodeSize()) - writeableOffset;
     }
 
     assert(!TakesVexPrefix(ins));
@@ -7954,11 +7989,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             unreached();
     }
 
-    // Make sure we set the instruction descriptor size correctly
-    assert(sz == id->GetDescSize());
-
 #if !FEATURE_FIXED_OUT_ARGS
-    if (!emitIGisInProlog(ig) && !ig->IsEpilog() && !ig->IsFuncletPrologOrEpilog())
+    if (!ig->IsPrologOrEpilog())
     {
         switch (ins)
         {
@@ -7999,65 +8031,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
     assert(emitCurStackLvl <= INT32_MAX);
 #endif // !FEATURE_FIXED_OUT_ARGS
 
-    assert((*dp != dst) || id->InstrHasNoCode());
-
-#ifdef DEBUG
-    if ((emitComp->opts.disAsm || emitComp->verbose) && (*dp != dst))
-    {
-        emitDispIns(id, false, emitComp->opts.dspGCtbls, true, emitCurCodeOffs(*dp), *dp, (dst - *dp));
-    }
-#endif
-
-    // Only compensate over-estimated instructions if emitCurIG is before
-    // the last IG that needs alignment.
-    if (emitCurIG->igNum <= emitLastAlignedIgNum)
-    {
-        int diff = id->idCodeSize() - ((unsigned)(dst - *dp));
-
-        assert(diff >= 0);
-
-        if (diff != 0)
-        {
-#ifdef DEBUG
-            // should never over-estimate align instruction
-            assert(id->idIns() != INS_align);
-
-            JITDUMP("Added over-estimation compensation: %d\n", diff);
-
-            if (emitComp->opts.disAsm)
-            {
-                emitDispInsAddr(dst);
-                printf("\t\t  ;; NOP compensation instructions of %d bytes.\n", diff);
-            }
-#endif
-
-            uint8_t* dstRW = dst + writeableOffset;
-            dstRW          = emitOutputNOP(dstRW, diff);
-            dst            = dstRW - writeableOffset;
-        }
-
-        assert((id->idCodeSize() - static_cast<unsigned>(dst - *dp)) == 0);
-    }
-
-#ifdef DEBUG
-    if (emitComp->compDebugBreak)
-    {
-        if (JitConfig.JitEmitPrintRefRegs() != 0)
-        {
-            printf("Before emitOutputInstr for id->idDebugOnlyInfo()->idNum=0x%02x\n", id->idDebugOnlyInfo()->idNum);
-            printf("  REF regs");
-            DumpRegSet(gcInfo.GetLiveRegs(GCT_GCREF));
-            printf("\n  BYREF regs");
-            DumpRegSet(gcInfo.GetLiveRegs(GCT_BYREF));
-            printf("\n");
-        }
-
-        if (JitConfig.JitBreakEmitOutputInstr() == static_cast<int>(id->idDebugOnlyInfo()->idNum))
-        {
-            assert(!"JitBreakEmitOutputInstr reached");
-        }
-    }
-
     if (ins == INS_mulEAX || ins == INS_imulEAX)
     {
         assert((gcInfo.GetAllLiveRegs() & (RBM_EAX | RBM_EDX)) == RBM_NONE);
@@ -8065,6 +8038,14 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
     else if (ins == INS_imuli)
     {
         assert((gcInfo.GetAllLiveRegs() & genRegMask(id->idReg1())) == RBM_NONE);
+    }
+
+#ifdef DEBUG
+    if ((emitComp->opts.disAsm || emitComp->verbose) && (*dp != dst))
+    {
+        bool dspOffs = emitComp->opts.dspGCtbls;
+
+        emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(*dp), *dp, dst - *dp);
     }
 #endif
 

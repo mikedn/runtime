@@ -5,6 +5,8 @@
 
 #if !FEATURE_FIXED_OUT_ARGS
 
+#include "jitgcinfo.h"
+
 // Sets throw-helper blocks incoming stack depth and set framePointerRequired when
 // it is necessary. These values are used to pop pushed args when an exception occurs.
 class StackLevelSetter
@@ -178,8 +180,6 @@ void StackLevelSetter::SetThrowHelperBlockStackLevel(ThrowHelperKind kind, Basic
     {
         helper->stackLevelSet = true;
         helper->stackLevel    = currentStackLevel;
-
-        INDEBUG(helper->block->bbTgtStkDepth = currentStackLevel);
     }
 }
 

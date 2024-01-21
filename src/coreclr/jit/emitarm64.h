@@ -29,6 +29,8 @@ const char* emitVectorRegName(regNumber reg);
 void emitDispInsHex(instrDesc* id, BYTE* code, size_t sz);
 void emitDispInst(instruction ins);
 void emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm);
+void emitDispAddrLoadLabel(instrDescJmp* id);
+void emitDispJumpLabel(instrDescJmp* id);
 void emitDispImm(ssize_t imm, bool addComma, bool alwaysHex = false);
 void emitDispFrameRef(instrDesc* id);
 void emitDispFloatZero();
@@ -57,9 +59,8 @@ void emitDispIns(instrDesc* id,
                  bool       doffs = false,
                  bool       asmfm = false,
                  unsigned   offs  = 0,
-                 BYTE*      pCode = 0,
-                 size_t     sz    = 0,
-                 insGroup*  ig    = NULL);
+                 uint8_t*   code  = 0,
+                 size_t     sz    = 0);
 #endif // DEBUG
 
 /************************************************************************/
@@ -87,7 +88,6 @@ void Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varO
 void Ins_R_R_S(
     instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, int varNum, int varOffs);
 
-insFormat emitInsFormat(instruction ins);
 code_t emitInsCode(instruction ins, insFormat fmt);
 
 //  Emit the 32-bit Arm64 instruction 'code' into the 'dst'  buffer
@@ -544,18 +544,19 @@ static bool isValidImmCond(ssize_t imm);
 static bool isValidImmCondFlags(ssize_t imm);
 static bool isValidImmCondFlagsImm5(ssize_t imm);
 
-// Computes page "delta" between two addresses
-inline static ssize_t computeRelPageAddr(size_t dstAddr, size_t srcAddr)
-{
-    return (dstAddr >> 12) - (srcAddr >> 12);
-}
-
 /************************************************************************/
 /*           The public entry points to output instructions             */
 /************************************************************************/
 
 public:
+static insCond emitJumpKindToCond(emitJumpKind jumpKind);
+static instruction emitJumpKindToBranch(emitJumpKind jumpKind);
+
 void emitIns(instruction ins);
+
+void emitIns_J(instruction ins, int instrCount);
+void emitIns_J(instruction ins, insGroup* label);
+void emitIns_CallFinally(insGroup* label);
 
 void emitIns_BRK(uint16_t imm);
 
@@ -635,14 +636,13 @@ void emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, int val);
 
 void emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumber tmpReg, CORINFO_FIELD_HANDLE fldHnd);
 
-void emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg);
+void emitIns_R_L(RegNum reg, insGroup* label);
 
-void emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg);
+void emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, regNumber reg);
 
-void emitIns_J_R_I(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg, int imm);
+void emitIns_J_R_I(instruction ins, emitAttr attr, insGroup* label, regNumber reg, int imm);
 
-void emitIns_R_AH(instruction ins,
-                  regNumber   ireg,
+void emitIns_R_AH(RegNum reg,
                   void* addr DEBUGARG(void* handle = nullptr) DEBUGARG(HandleKind handleKind = HandleKind::None));
 
 enum EmitCallType
@@ -660,19 +660,22 @@ void emitIns_Call(EmitCallType          kind,
                   bool      isJump = false);
 
 private:
-BYTE* emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i);
-BYTE* emitOutputLoadLabel(BYTE* dst, BYTE* srcAddr, BYTE* dstAddr, instrDescJmp* id);
-BYTE* emitOutputShortBranch(BYTE* dst, instruction ins, insFormat fmt, ssize_t distVal, instrDescJmp* id);
-BYTE* emitOutputShortAddress(BYTE* dst, instruction ins, insFormat fmt, ssize_t distVal, regNumber reg);
-BYTE* emitOutputShortConstant(
-    BYTE* dst, instruction ins, insFormat fmt, ssize_t distVal, regNumber reg, emitAttr opSize);
+void emitSetShortJump(instrDescJmp* id);
+
+uint8_t* emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig);
+uint8_t* emitOutputDL(uint8_t* dst, instrDescJmp* id);
+uint8_t* emitOutputLoadLabel(uint8_t* dst, uint8_t* srcAddr, uint8_t* dstAddr, instrDescJmp* id);
+uint8_t* emitOutputShortBranch(uint8_t* dst, instruction ins, insFormat fmt, ssize_t distVal, instrDescJmp* id);
+uint8_t* emitOutputShortAddress(uint8_t* dst, instruction ins, ssize_t distance, RegNum reg);
+uint8_t* emitOutputShortConstant(
+    uint8_t* dst, instruction ins, insFormat fmt, ssize_t distVal, regNumber reg, emitAttr opSize);
 
 /*****************************************************************************
  *
  *  Given an instrDesc, return true if it's a conditional jump.
  */
 
-inline bool emitIsCondJump(instrDesc* jmp)
+static bool emitIsCondJump(instrDesc* jmp)
 {
     return ((jmp->idInsFmt() == IF_BI_0B) || (jmp->idInsFmt() == IF_BI_1A) || (jmp->idInsFmt() == IF_BI_1B) ||
             (jmp->idInsFmt() == IF_LARGEJMP));
@@ -683,7 +686,7 @@ inline bool emitIsCondJump(instrDesc* jmp)
  *  Given a instrDesc, return true if it's an unconditional jump.
  */
 
-inline bool emitIsUncondJump(instrDesc* jmp)
+static bool emitIsUncondJump(instrDesc* jmp)
 {
     return (jmp->idInsFmt() == IF_BI_0A);
 }
@@ -693,7 +696,7 @@ inline bool emitIsUncondJump(instrDesc* jmp)
  *  Given a instrDesc, return true if it's a direct call.
  */
 
-inline bool emitIsDirectCall(instrDesc* call)
+static bool emitIsDirectCall(instrDesc* call)
 {
     return (call->idInsFmt() == IF_BI_0C);
 }
@@ -703,7 +706,7 @@ inline bool emitIsDirectCall(instrDesc* call)
  *  Given a instrDesc, return true if it's a load label instruction.
  */
 
-inline bool emitIsLoadLabel(instrDesc* jmp)
+static bool emitIsLoadLabel(instrDesc* jmp)
 {
     return ((jmp->idInsFmt() == IF_DI_1E) || // adr or arp
             (jmp->idInsFmt() == IF_LARGEADR));
@@ -714,7 +717,7 @@ inline bool emitIsLoadLabel(instrDesc* jmp)
 *  Given a instrDesc, return true if it's a load constant instruction.
 */
 
-inline bool emitIsLoadConstant(instrDesc* jmp)
+static bool emitIsLoadConstant(instrDesc* jmp)
 {
     return ((jmp->idInsFmt() == IF_LS_1A) || // ldr
             (jmp->idInsFmt() == IF_LARGELDC));
@@ -724,15 +727,7 @@ inline bool emitIsLoadConstant(instrDesc* jmp)
 /*                   Interface for generating unwind information        */
 /************************************************************************/
 public:
-bool emitIsFuncEnd(emitLocation* emitLoc, emitLocation* emitLocNextFragment = NULL);
-
-void emitSplit(emitLocation*         startLoc,
-               emitLocation*         endLoc,
-               UNATIVE_OFFSET        maxSplitSize,
-               void*                 context,
-               emitSplitCallbackType callbackFunc);
-
-void emitUnwindNopPadding(emitLocation* locFrom, Compiler* comp);
+void emitUnwindNopPadding(const emitLocation& loc);
 
 private:
 // Returns true if instruction "id->idIns()" writes to a register that might be used to contain a GC
@@ -746,5 +741,18 @@ bool emitInsMayWriteToGCReg(instrDesc* id);
 
 // Returns true if the instruction may write to more than one register.
 bool emitInsMayWriteMultipleRegs(instrDesc* id);
+
+template <typename T>
+T* AllocInstr(bool updateLastIns = true);
+
+instrDesc* emitNewInstr();
+instrDesc* emitNewInstrSmall();
+instrDesc* emitNewInstrSC(int64_t imm);
+instrDesc* emitNewInstrCns(int32_t imm);
+instrDesc* emitNewInstrGCReg(emitAttr attr, regNumber reg);
+instrDescJmp*  emitNewInstrJmp();
+instrDescCGCA* emitAllocInstrCGCA();
+
+int64_t emitGetInsSC(instrDesc* id);
 
 #endif // TARGET_ARM64

@@ -1037,45 +1037,6 @@ unsigned Compiler::bbThrowIndex(BasicBlock* blk)
 
 #endif // FEATURE_EH_FUNCLETS
 
-/*****************************************************************************
- * Determine the emitter code cookie for a block, for unwind purposes.
- */
-
-void* Compiler::ehEmitCookie(BasicBlock* block)
-{
-    noway_assert(block);
-
-    void* cookie;
-
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-    if (block->bbFlags & BBF_FINALLY_TARGET)
-    {
-        // Use the offset of the beginning of the NOP padding, not the main block.
-        // This might include loop head padding, too, if this is a loop head.
-        assert(block->bbUnwindNopEmitCookie); // probably not null-initialized, though, so this might not tell us
-                                              // anything
-        cookie = block->bbUnwindNopEmitCookie;
-    }
-    else
-#endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-    {
-        cookie = block->bbEmitCookie;
-    }
-
-    noway_assert(cookie != nullptr);
-    return cookie;
-}
-
-/*****************************************************************************
- * Determine the emitter code offset for a block. If the block is a finally
- * target, choose the offset of the NOP padding that precedes the block.
- */
-
-UNATIVE_OFFSET Compiler::ehCodeOffset(BasicBlock* block)
-{
-    return GetEmitter()->emitCodeOffset(ehEmitCookie(block), 0);
-}
-
 /****************************************************************************/
 
 EHblkDsc* Compiler::ehInitHndRange(BasicBlock* blk, IL_OFFSET* hndBeg, IL_OFFSET* hndEnd, bool* inFilter)
@@ -2937,75 +2898,6 @@ void Compiler::dispIncomingEHClause(unsigned num, const CORINFO_EH_CLAUSE& claus
     {
         printf("  ClassToken:    0x%x\n", clause.ClassToken);
     }
-}
-
-void Compiler::dispOutgoingEHClause(unsigned num, const CORINFO_EH_CLAUSE& clause)
-{
-    if (opts.dspDiffable)
-    {
-        /* (( brace matching editor workaround to compensate for the following line */
-        printf("EH#%u: try [%s..%s) handled by [%s..%s) ", num, GetEmitter()->emitOffsetToLabel(clause.TryOffset),
-               GetEmitter()->emitOffsetToLabel(clause.TryLength), GetEmitter()->emitOffsetToLabel(clause.HandlerOffset),
-               GetEmitter()->emitOffsetToLabel(clause.HandlerLength));
-    }
-    else
-    {
-        /* (( brace matching editor workaround to compensate for the following line */
-        printf("EH#%u: try [%04X..%04X) handled by [%04X..%04X) ", num, dspOffset(clause.TryOffset),
-               dspOffset(clause.TryLength), dspOffset(clause.HandlerOffset), dspOffset(clause.HandlerLength));
-    }
-
-    // Note: the flags field is kind of weird. It should be compared for equality
-    // to determine the type of clause, even though it looks like a bitfield. In
-    // Particular, CORINFO_EH_CLAUSE_NONE is zero, so you can "&" to check it.
-    // You do need to mask off the bits, though, because CORINFO_EH_CLAUSE_DUPLICATE
-    // is and'ed in.
-    const DWORD CORINFO_EH_CLAUSE_TYPE_MASK = 0x7;
-    switch (clause.Flags & CORINFO_EH_CLAUSE_TYPE_MASK)
-    {
-        case CORINFO_EH_CLAUSE_NONE:
-            printf("(class: %04X)", clause.ClassToken);
-            break;
-        case CORINFO_EH_CLAUSE_FILTER:
-            if (opts.dspDiffable)
-            {
-                /* ( brace matching editor workaround to compensate for the following line */
-                printf("filter at [%s..%s)", GetEmitter()->emitOffsetToLabel(clause.ClassToken),
-                       GetEmitter()->emitOffsetToLabel(clause.HandlerOffset));
-            }
-            else
-            {
-                /* ( brace matching editor workaround to compensate for the following line */
-                printf("filter at [%04X..%04X)", dspOffset(clause.ClassToken), dspOffset(clause.HandlerOffset));
-            }
-            break;
-        case CORINFO_EH_CLAUSE_FINALLY:
-            printf("(finally)");
-            break;
-        case CORINFO_EH_CLAUSE_FAULT:
-            printf("(fault)");
-            break;
-        default:
-            printf("(UNKNOWN type %u!)", clause.Flags & CORINFO_EH_CLAUSE_TYPE_MASK);
-            assert(!"unknown type");
-            break;
-    }
-
-    if ((clause.TryOffset == clause.TryLength) && (clause.TryOffset == clause.HandlerOffset) &&
-        ((clause.Flags & (CORINFO_EH_CLAUSE_DUPLICATE | CORINFO_EH_CLAUSE_FINALLY)) ==
-         (CORINFO_EH_CLAUSE_DUPLICATE | CORINFO_EH_CLAUSE_FINALLY)))
-    {
-        printf(" cloned finally");
-    }
-    else if (clause.Flags & CORINFO_EH_CLAUSE_DUPLICATE)
-    {
-        printf(" duplicated");
-    }
-    else if (clause.Flags & CORINFO_EH_CLAUSE_SAMETRY)
-    {
-        printf(" same try");
-    }
-    printf("\n");
 }
 
 /*****************************************************************************/

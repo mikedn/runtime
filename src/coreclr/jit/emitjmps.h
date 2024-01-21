@@ -1,57 +1,48 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-// clang-format off
-#ifndef JMP_SMALL
-#error Must define JMP_SMALL macro before including this file
+#ifndef CC_DEF
+#error Must define CC_DEF macro before including this file
 #endif
 
-#if defined(TARGET_XARCH)
+// clang-format off
+#ifdef TARGET_XARCH
+//     cc  reverse
+CC_DEF(o , no)
+CC_DEF(no, o )
+CC_DEF(b , ae)
+CC_DEF(ae, b )
+CC_DEF(e , ne)
+CC_DEF(ne, e )
+CC_DEF(be, a )
+CC_DEF(a , be)
+CC_DEF(s , ns)
+CC_DEF(ns, s )
+CC_DEF(p , np)
+CC_DEF(np, p )
+CC_DEF(l , ge)
+CC_DEF(ge, l )
+CC_DEF(le, g )
+CC_DEF(g , le)
+#endif
 
-//       jump   reverse instruction
-JMP_SMALL(jmp   , jmp   , jmp    )
-JMP_SMALL(jo    , jno   , jo     )
-JMP_SMALL(jno   , jo    , jno    )
-JMP_SMALL(jb    , jae   , jb     )
-JMP_SMALL(jae   , jb    , jae    )
-JMP_SMALL(je    , jne   , je     )
-JMP_SMALL(jne   , je    , jne    )
-JMP_SMALL(jbe   , ja    , jbe    )
-JMP_SMALL(ja    , jbe   , ja     )
-JMP_SMALL(js    , jns   , js     )
-JMP_SMALL(jns   , js    , jns    )
-JMP_SMALL(jp    , jnp   , jp     )
-JMP_SMALL(jnp   , jp    , jnp    )
-JMP_SMALL(jl    , jge   , jl     )
-JMP_SMALL(jge   , jl    , jge    )
-JMP_SMALL(jle   , jg    , jle    )
-JMP_SMALL(jg    , jle   , jg     )
-
-#elif defined(TARGET_ARMARCH)
-
-//       jump   reverse instruction condcode
-JMP_SMALL(jmp   , jmp   , b      )  // AL always
-JMP_SMALL(eq    , ne    , beq    )  // EQ
-JMP_SMALL(ne    , eq    , bne    )  // NE
-JMP_SMALL(hs    , lo    , bhs    )  // HS also CS
-JMP_SMALL(lo    , hs    , blo    )  // LO also CC
-JMP_SMALL(mi    , pl    , bmi    )  // MI
-JMP_SMALL(pl    , mi    , bpl    )  // PL
-JMP_SMALL(vs    , vc    , bvs    )  // VS
-JMP_SMALL(vc    , vs    , bvc    )  // VC
-JMP_SMALL(hi    , ls    , bhi    )  // HI
-JMP_SMALL(ls    , hi    , bls    )  // LS
-JMP_SMALL(ge    , lt    , bge    )  // GE
-JMP_SMALL(lt    , ge    , blt    )  // LT
-JMP_SMALL(gt    , le    , bgt    )  // GT
-JMP_SMALL(le    , gt    , ble    )  // LE
-
-#else
-  #error Unsupported or unset target architecture
-#endif // target type
-
-/*****************************************************************************/
-#undef JMP_SMALL
-/*****************************************************************************/
-
+#ifdef TARGET_ARMARCH
+//     cc  reverse condcode
+CC_DEF(eq, ne, EQ)
+CC_DEF(ne, eq, NE)
+CC_DEF(hs, lo, HS)
+CC_DEF(lo, hs, LO)
+CC_DEF(mi, pl, MI)
+CC_DEF(pl, mi, PL)
+CC_DEF(vs, vc, VS)
+CC_DEF(vc, vs, VC)
+CC_DEF(hi, ls, HI)
+CC_DEF(ls, hi, LS)
+CC_DEF(ge, lt, GE)
+CC_DEF(lt, ge, LT)
+CC_DEF(gt, le, GT)
+CC_DEF(le, gt, LE)
+#endif
 // clang-format on
+
+#undef CC_DEF

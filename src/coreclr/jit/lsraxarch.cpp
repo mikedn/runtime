@@ -6,6 +6,7 @@
 #ifdef TARGET_XARCH
 
 #include "lsra.h"
+#include "jitgcinfo.h"
 
 void LinearScan::BuildNode(GenTree* tree)
 {

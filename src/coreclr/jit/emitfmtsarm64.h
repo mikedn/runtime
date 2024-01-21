@@ -18,58 +18,11 @@
 // clang-format off
 IF_DEF(NONE, IS_NONE, NONE) //
 
-IF_DEF(LABEL, IS_NONE, JMP)    // label
 IF_DEF(LARGEJMP, IS_NONE, JMP) // large conditional branch pseudo-op (cond branch + uncond branch)
 IF_DEF(LARGEADR, IS_NONE, JMP) // large address pseudo-op (adrp + add)
 IF_DEF(LARGELDC, IS_NONE, JMP) // large constant pseudo-op (adrp + ldr)
+IF_DEF(SMALLADR, IS_NONE, JMP) // small address pseudo-op (adr)
 IF_DEF(GC_REG, IS_NONE, NONE)  // GC reg update
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-IF_DEF(EN9, IS_NONE, NONE)  // Instruction has 9 possible encoding types
-IF_DEF(EN6A, IS_NONE, NONE) // Instruction has 6 possible encoding types, type A
-IF_DEF(EN6B, IS_NONE, NONE) // Instruction has 6 possible encoding types, type B
-IF_DEF(EN5A, IS_NONE, NONE) // Instruction has 5 possible encoding types, type A
-IF_DEF(EN5B, IS_NONE, NONE) // Instruction has 5 possible encoding types, type B
-IF_DEF(EN5C, IS_NONE, NONE) // Instruction has 5 possible encoding types, type C
-IF_DEF(EN4A, IS_NONE, NONE) // Instruction has 4 possible encoding types, type A
-IF_DEF(EN4B, IS_NONE, NONE) // Instruction has 4 possible encoding types, type B
-IF_DEF(EN4C, IS_NONE, NONE) // Instruction has 4 possible encoding types, type C
-IF_DEF(EN4D, IS_NONE, NONE) // Instruction has 4 possible encoding types, type D
-IF_DEF(EN4E, IS_NONE, NONE) // Instruction has 4 possible encoding types, type E
-IF_DEF(EN4F, IS_NONE, NONE) // Instruction has 4 possible encoding types, type F
-IF_DEF(EN4G, IS_NONE, NONE) // Instruction has 4 possible encoding types, type G
-IF_DEF(EN4H, IS_NONE, NONE) // Instruction has 4 possible encoding types, type H
-IF_DEF(EN4I, IS_NONE, NONE) // Instruction has 4 possible encoding types, type I
-IF_DEF(EN4J, IS_NONE, NONE) // Instruction has 4 possible encoding types, type J
-IF_DEF(EN4K, IS_NONE, NONE) // Instruction has 4 possible encoding types, type K
-IF_DEF(EN3A, IS_NONE, NONE) // Instruction has 3 possible encoding types, type A
-IF_DEF(EN3B, IS_NONE, NONE) // Instruction has 3 possible encoding types, type B
-IF_DEF(EN3C, IS_NONE, NONE) // Instruction has 3 possible encoding types, type C
-IF_DEF(EN3D, IS_NONE, NONE) // Instruction has 3 possible encoding types, type D
-IF_DEF(EN3E, IS_NONE, NONE) // Instruction has 3 possible encoding types, type E
-IF_DEF(EN3F, IS_NONE, NONE) // Instruction has 3 possible encoding types, type F
-IF_DEF(EN3G, IS_NONE, NONE) // Instruction has 3 possible encoding types, type G
-IF_DEF(EN3H, IS_NONE, NONE) // Instruction has 3 possible encoding types, type H
-IF_DEF(EN3I, IS_NONE, NONE) // Instruction has 3 possible encoding types, type I
-IF_DEF(EN3J, IS_NONE, NONE) // Instruction has 3 possible encoding types, type J
-IF_DEF(EN2A, IS_NONE, NONE) // Instruction has 2 possible encoding types, type A
-IF_DEF(EN2B, IS_NONE, NONE) // Instruction has 2 possible encoding types, type B
-IF_DEF(EN2C, IS_NONE, NONE) // Instruction has 2 possible encoding types, type C
-IF_DEF(EN2D, IS_NONE, NONE) // Instruction has 2 possible encoding types, type D
-IF_DEF(EN2E, IS_NONE, NONE) // Instruction has 2 possible encoding types, type E
-IF_DEF(EN2F, IS_NONE, NONE) // Instruction has 2 possible encoding types, type F
-IF_DEF(EN2G, IS_NONE, NONE) // Instruction has 2 possible encoding types, type G
-IF_DEF(EN2H, IS_NONE, NONE) // Instruction has 2 possible encoding types, type H
-IF_DEF(EN2I, IS_NONE, NONE) // Instruction has 2 possible encoding types, type I
-IF_DEF(EN2J, IS_NONE, NONE) // Instruction has 2 possible encoding types, type J
-IF_DEF(EN2K, IS_NONE, NONE) // Instruction has 2 possible encoding types, type K
-IF_DEF(EN2L, IS_NONE, NONE) // Instruction has 2 possible encoding types, type L
-IF_DEF(EN2M, IS_NONE, NONE) // Instruction has 2 possible encoding types, type M
-IF_DEF(EN2N, IS_NONE, NONE) // Instruction has 2 possible encoding types, type N
-IF_DEF(EN2O, IS_NONE, NONE) // Instruction has 2 possible encoding types, type O
-IF_DEF(EN2P, IS_NONE, NONE) // Instruction has 2 possible encoding types, type P
-IF_DEF(EN2Q, IS_NONE, NONE) // Instruction has 2 possible encoding types, type Q
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -136,7 +89,7 @@ IF_DEF(DI_1A, IS_NONE, NONE) // DI_1A   X.......shiiiiii iiiiiinnnnn.....       
 IF_DEF(DI_1B, IS_NONE, NONE) // DI_1B   X........hwiiiii iiiiiiiiiiiddddd      Rd       imm(i16,hw)
 IF_DEF(DI_1C, IS_NONE, NONE) // DI_1C   X........Nrrrrrr ssssssnnnnn.....         Rn    imm(N,r,s)
 IF_DEF(DI_1D, IS_NONE, NONE) // DI_1D   X........Nrrrrrr ssssss.....ddddd      Rd       imm(N,r,s)
-IF_DEF(DI_1E, IS_NONE, JMP)  // DI_1E   .ii.....iiiiiiii iiiiiiiiiiiddddd      Rd       simm21
+IF_DEF(DI_1E, IS_NONE, NONE) // DI_1E   .ii.....iiiiiiii iiiiiiiiiiiddddd      Rd       simm21
 IF_DEF(DI_1F, IS_NONE, NONE) // DI_1F   X..........iiiii cccc..nnnnn.nzcv      Rn imm5  nzcv cond
 
 IF_DEF(DI_2A, IS_NONE, NONE) // DI_2A   X.......shiiiiii iiiiiinnnnnddddd      Rd Rn    imm(i12,sh)
@@ -209,8 +162,6 @@ IF_DEF(SI_0A, IS_NONE, NONE) // SI_0A   ...........iiiii iiiiiiiiiii.....       
 IF_DEF(SI_0B, IS_NONE, NONE) // SI_0B   ................ ....bbbb........               imm4 - barrier
 
 IF_DEF(SR_1A, IS_NONE, NONE) // SR_1A   ................ ...........ttttt      Rt       (dc zva)
-
-IF_DEF(INVALID, IS_NONE, NONE) //
 // clang-format on
 
 #undef IF_DEF

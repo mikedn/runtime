@@ -69,12 +69,6 @@ class Lowering;
 class Compiler;
 INDEBUG(class IndentStack;)
 
-/*****************************************************************************
- *                  Unwind info
- */
-
-#include "unwind.h"
-
 // Declare global operator new overloads that use the compiler's arena allocator
 void* __cdecl operator new(size_t n, Compiler* context, CompMemKind cmk);
 void* __cdecl operator new[](size_t n, Compiler* context, CompMemKind cmk);
@@ -102,16 +96,9 @@ const int BAD_STK_OFFS = 0xBAADF00D; // for LclVarDsc::lvStkOffs
 // The following holds the Local var info (scope information)
 struct VarScopeDsc
 {
-    unsigned vsdVarNum; // (remapped) LclVarDsc number
-    unsigned vsdLVnum;  // 'which' in eeGetLVinfo().
-                        // Also, it is the index of this entry in the info.compVarScopes array,
-                        // which is useful since the array is also accessed via the
-                        // compEnterScopeList and compExitScopeList sorted arrays.
-
-    IL_OFFSET vsdLifeBeg; // instr offset of beg of life
-    IL_OFFSET vsdLifeEnd; // instr offset of end of life
-
-    INDEBUG(const char* vsdName;) // name of the var
+    unsigned  lclNum;
+    IL_OFFSET startOffset;
+    IL_OFFSET endOffset;
 };
 
 enum RefCountState : uint8_t
@@ -120,6 +107,8 @@ enum RefCountState : uint8_t
     RCS_MORPH,   // morphing uses the 2 LclVarDsc ref count members for implicit by ref optimizations
     RCS_NORMAL,  // normal ref counts (from lvaMarkRefs onward)
 };
+
+#define FMT_LCL "V%02u"
 
 class LclVarDsc
 {
@@ -810,19 +799,6 @@ public:
     INDEBUG(const char* lvReason;)
 };
 
-// Information about arrays: their element type and size, and the offset of the first element.
-struct ArrayInfo
-{
-    GenTree*       m_arrayExpr;
-    GenTree*       m_elemOffsetExpr;
-    GenTreeIntCon* m_elemOffsetConst;
-    unsigned       m_elemTypeNum;
-
-    ArrayInfo() : m_arrayExpr(nullptr), m_elemOffsetExpr(nullptr), m_elemOffsetConst(nullptr), m_elemTypeNum(0)
-    {
-    }
-};
-
 // The following enum provides a simple 1:1 mapping to CLR API's
 enum API_ICorJitInfo_Names
 {
@@ -1002,74 +978,6 @@ public:
 };
 #endif // FEATURE_JIT_METHOD_PERF
 
-//------------------- Function/Funclet info -------------------------------
-enum FuncKind : BYTE
-{
-    FUNC_ROOT,    // The main/root function (always id==0)
-    FUNC_HANDLER, // a funclet associated with an EH handler (finally, fault, catch, filter handler)
-    FUNC_FILTER,  // a funclet associated with an EH filter
-    FUNC_COUNT
-};
-
-class emitLocation;
-
-struct FuncInfoDsc
-{
-    FuncKind       funKind;
-    BYTE           funFlags;   // Currently unused, just here for padding
-    unsigned short funEHIndex; // index, into the ebd table, of innermost EH clause corresponding to this
-                               // funclet. It is only valid if funKind field indicates this is a
-                               // EH-related funclet: FUNC_HANDLER or FUNC_FILTER
-
-#if defined(TARGET_AMD64)
-
-    // TODO-AMD64-Throughput: make the AMD64 info more like the ARM info to avoid having this large static array.
-    emitLocation* startLoc;
-    emitLocation* endLoc;
-    emitLocation* coldStartLoc; // locations for the cold section, if there is one.
-    emitLocation* coldEndLoc;
-    UNWIND_INFO   unwindHeader;
-    // Maximum of 255 UNWIND_CODE 'nodes' and then the unwind header. If there are an odd
-    // number of codes, the VM or Zapper will 4-byte align the whole thing.
-    BYTE     unwindCodes[offsetof(UNWIND_INFO, UnwindCode) + (0xFF * sizeof(UNWIND_CODE))];
-    unsigned unwindCodeSlot;
-
-#elif defined(TARGET_X86)
-
-#if defined(TARGET_UNIX)
-    emitLocation* startLoc;
-    emitLocation* endLoc;
-    emitLocation* coldStartLoc; // locations for the cold section, if there is one.
-    emitLocation* coldEndLoc;
-#endif // TARGET_UNIX
-
-#elif defined(TARGET_ARMARCH)
-
-    UnwindInfo  uwi;     // Unwind information for this function/funclet's hot  section
-    UnwindInfo* uwiCold; // Unwind information for this function/funclet's cold section
-                         //   Note: we only have a pointer here instead of the actual object,
-                         //   to save memory in the JIT case (compared to the NGEN case),
-                         //   where we don't have any cold section.
-                         //   Note 2: we currently don't support hot/cold splitting in functions
-                         //   with EH, so uwiCold will be NULL for all funclets.
-
-#if defined(TARGET_UNIX)
-    emitLocation* startLoc;
-    emitLocation* endLoc;
-    emitLocation* coldStartLoc; // locations for the cold section, if there is one.
-    emitLocation* coldEndLoc;
-#endif // TARGET_UNIX
-
-#endif // TARGET_ARMARCH
-
-#if defined(TARGET_UNIX)
-    jitstd::vector<CFI_CODE>* cfiCodes;
-#endif // TARGET_UNIX
-
-    // Eventually we may want to move rsModifiedRegsMask, lvaOutgoingArgSize, and anything else
-    // that isn't shared between the main function body and funclets.
-};
-
 //-------------------------------------------------------------------------
 // LoopFlags: flags for the loop table.
 //
@@ -1133,7 +1041,6 @@ struct CompiledMethodInfo
     const char* compMethodName = nullptr;
     const char* compClassName  = nullptr;
     const char* compFullName   = nullptr;
-    double      compPerfScore  = 0.0;
     int         compMethodSuperPMIIndex; // useful when debugging under SuperPMI
 #endif
 
@@ -1172,17 +1079,8 @@ struct CompiledMethodInfo
     unsigned compTypeCtxtArg; // position of hidden param for type context for generic code (CORINFO_CALLCONV_PARAMTYPE)
     unsigned compThisArg;     // position of implicit this pointer param (not to be confused with lvaThisLclNum)
     unsigned compLocalsCount; // Number of vars : args + locals (incl. implicit and     hidden)
-    unsigned compTotalHotCodeSize                   = 0; // Total number of bytes of Hot Code in the method
-    unsigned compTotalColdCodeSize                  = 0; // Total number of bytes of Cold Code in the method
     unsigned compUnmanagedCallCountWithGCTransition = 0; // count of unmanaged calls with GC transition.
     unsigned compClassProbeCount                    = 0; // Number of class profile probes in this method
-
-    // The native code size, after instructions are issued.
-    // This is less than (compTotalHotCodeSize + compTotalColdCodeSize) only if:
-    // (1) the code is not hot/cold split, and we issued less code than we expected, or
-    // (2) the code is hot/cold split, and we issued less code than we expected
-    // in the cold section (the hot section will always be padded out to compTotalHotCodeSize).
-    unsigned compNativeCodeSize = 0;
 
     unsigned     compVarScopesCount;
     VarScopeDsc* compVarScopes;
@@ -1313,7 +1211,7 @@ struct CompilerOptions
         return compMinOptsIsSet;
     }
 #else  // !DEBUG
-    bool          MinOpts() const
+    bool MinOpts() const
     {
         return compMinOpts;
     }
@@ -1391,9 +1289,8 @@ struct CompilerOptions
         framePointerRequired = true;
     }
 
-    bool compScopeInfo : 1; // Generate the LocalVar info ?
-    bool compDbgCode : 1;   // Generate debugger-friendly code?
-    bool compDbgInfo : 1;   // Gather debugging info?
+    bool compDbgCode : 1; // Generate debugger-friendly code?
+    bool compDbgInfo : 1; // Gather debugging info?
     bool compDbgEnC : 1;
 
 #ifdef PROFILING_SUPPORTED
@@ -1425,11 +1322,8 @@ struct CompilerOptions
     // Whether absolute addr be encoded as RIP relative displacement where possible
     AMD64_ONLY(bool enableRIPRelativeAddressing : 1;)
     bool compProcedureSplittingEH : 1; // Separate cold code from hot code for functions with EH
-    bool dspCode : 1;                  // Display native code generated
     bool dspEHTable : 1;               // Display the EH table reported to the VM
     bool dspDebugInfo : 1;             // Display the Debug info reported to the VM
-    bool dspInstrs : 1;                // Display the IL instructions intermixed with the native code output
-    bool dmpHex : 1;                   // Display raw bytes in hex of native code output
     bool disAsm : 1;                   // Display native code as it is generated
     bool disasmWithGC : 1;             // Display GC info interleaved with disassembly.
     bool disDiffable : 1;              // Makes the Disassembly code 'diff-able'
@@ -1437,8 +1331,7 @@ struct CompilerOptions
     bool disAlignment : 1;             // Display alignment boundaries in disassembly code
     bool dspOrder : 1;                 // Display names of each of the methods that we ngen/jit
     bool dspUnwind : 1;                // Display the unwind info output
-    bool dspDiffable : 1; // Makes the Jit Dump 'diff-able' (currently uses same COMPlus_* flag as disDiffable)
-    // (IF_LARGEJMP/IF_LARGEADR/IF_LARGLDC)
+    bool dspDiffable : 1;     // Makes the Jit Dump 'diff-able' (currently uses same COMPlus_* flag as disDiffable)
     bool dspGCtbls : 1;       // Display the GC tables
     bool isAltJitPresent : 1; // And AltJit may be present, dump options apply only to it.
 #endif
@@ -1474,6 +1367,8 @@ struct CompilerOptions
 // at most 3 times the alignment block size. If the loop is bigger than that, it is most
 // likely complicated enough that loop alignment will not impact performance.
 #define DEFAULT_MAX_LOOPSIZE_FOR_ALIGN DEFAULT_ALIGN_LOOP_BOUNDARY * 3
+
+    bool alignLoops;
 
 #ifdef DEBUG
     // Loop alignment variables
@@ -2536,9 +2431,6 @@ struct ThrowHelperBlock
 class Compiler
 {
     friend class emitter;
-    friend class UnwindInfo;
-    friend class UnwindFragmentInfo;
-    friend class UnwindEpilogInfo;
     friend class JitTimer;
     friend class LinearScan;
     friend class CallInfo;
@@ -2860,9 +2752,6 @@ public:
     // convenient to also consider it a predecessor.)
     flowList* BlockPredsWithEH(BasicBlock* blk);
 
-    void* ehEmitCookie(BasicBlock* block);
-    UNATIVE_OFFSET ehCodeOffset(BasicBlock* block);
-
     EHblkDsc* ehInitHndRange(BasicBlock* src, IL_OFFSET* hndBeg, IL_OFFSET* hndEnd, bool* inFilter);
 
     EHblkDsc* ehInitTryRange(BasicBlock* src, IL_OFFSET* tryBeg, IL_OFFSET* tryEnd);
@@ -2930,7 +2819,6 @@ public:
 
 #ifdef DEBUG
     void dispIncomingEHClause(unsigned num, const CORINFO_EH_CLAUSE& clause);
-    void dispOutgoingEHClause(unsigned num, const CORINFO_EH_CLAUSE& clause);
     void fgVerifyHandlerTab();
     void fgDispHandlerTab();
 #endif // DEBUG
@@ -3849,11 +3737,8 @@ public:
     BasicBlockList* fgReturnBlocks   = nullptr; // list of BBJ_RETURN blocks
     unsigned        fgEdgeCount      = 0;       // # of control flow edges between the BBs
     unsigned        fgBBcount        = 0;       // # of BBs in the method
-#ifdef DEBUG
-    unsigned fgBBcountAtCodegen = 0; // # of BBs in the method at the start of codegen
-#endif
-    unsigned fgBBNumMax   = 0; // The max bbNum that has been assigned to basic blocks
-    unsigned fgDomBBcount = 0; // # of BBs for which we have dominator and reachability information
+    unsigned        fgBBNumMax       = 0;       // The max bbNum that has been assigned to basic blocks
+    unsigned        fgDomBBcount     = 0;       // # of BBs for which we have dominator and reachability information
 
     // After the dominance tree is computed, we cache a DFS preorder number and DFS postorder number to compute
     // dominance queries in O(1). fgDomTreePreOrder and fgDomTreePostOrder are arrays giving the block's preorder and
@@ -4416,7 +4301,7 @@ public:
     bool fgAnyIntraHandlerPreds(BasicBlock* block);
     void fgInsertFuncletPrologBlock(BasicBlock* block);
     void fgCreateFuncletPrologBlocks();
-    void fgCreateFunclets();
+    void phRelocateFunclets();
 #else  // !FEATURE_EH_FUNCLETS
     bool fgRelocateEHRegions();
 #endif // !FEATURE_EH_FUNCLETS
@@ -4657,7 +4542,6 @@ private:
     void fgMoveOpsLeft(GenTree* tree);
 
     bool fgInDifferentRegions(BasicBlock* blk1, BasicBlock* blk2);
-    bool fgIsBlockCold(BasicBlock* block);
 
     GenTree* fgMorphCastIntoHelper(GenTreeCast* cast, int helper);
 
@@ -4799,6 +4683,9 @@ public:
     BasicBlock* fgGetThrowHelperBlock(ThrowHelperKind kind, BasicBlock* throwBlock, unsigned throwIndex);
     ThrowHelperBlock* fgFindThrowHelperBlock(ThrowHelperKind kind, BasicBlock* throwBlock);
     ThrowHelperBlock* fgFindThrowHelperBlock(ThrowHelperKind kind, unsigned throwIndex);
+#if !FEATURE_FIXED_OUT_ARGS
+    ThrowHelperBlock* fgFindThrowHelperBlock(BasicBlock* block);
+#endif
 
     bool fgUseThrowHelperBlocks() const
     {
@@ -4838,12 +4725,6 @@ public:
     INDEBUG(void inlDebugCheckInlineCandidates();)
 
 private:
-    bool fgIsThrowHelperBlock(BasicBlock* block);
-
-#if !FEATURE_FIXED_OUT_ARGS
-    unsigned fgGetThrowHelperBlockStackLevel(BasicBlock* block);
-#endif // !FEATURE_FIXED_OUT_ARGS
-
     void fgPromoteStructs();
 
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
@@ -5410,42 +5291,9 @@ public:
                         CORINFO_FIELD_INFO*     pResult);
 
 #if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD) || defined(TRACK_LSRA_STATS)
-
-    bool IsSuperPMIException(unsigned code)
-    {
-        // Copied from NDP\clr\src\ToolBox\SuperPMI\SuperPMI-Shared\ErrorHandling.h
-
-        const unsigned EXCEPTIONCODE_DebugBreakorAV = 0xe0421000;
-        const unsigned EXCEPTIONCODE_MC             = 0xe0422000;
-        const unsigned EXCEPTIONCODE_LWM            = 0xe0423000;
-        const unsigned EXCEPTIONCODE_SASM           = 0xe0424000;
-        const unsigned EXCEPTIONCODE_SSYM           = 0xe0425000;
-        const unsigned EXCEPTIONCODE_CALLUTILS      = 0xe0426000;
-        const unsigned EXCEPTIONCODE_TYPEUTILS      = 0xe0427000;
-        const unsigned EXCEPTIONCODE_ASSERT         = 0xe0440000;
-
-        switch (code)
-        {
-            case EXCEPTIONCODE_DebugBreakorAV:
-            case EXCEPTIONCODE_MC:
-            case EXCEPTIONCODE_LWM:
-            case EXCEPTIONCODE_SASM:
-            case EXCEPTIONCODE_SSYM:
-            case EXCEPTIONCODE_CALLUTILS:
-            case EXCEPTIONCODE_TYPEUTILS:
-            case EXCEPTIONCODE_ASSERT:
-                return true;
-            default:
-                return false;
-        }
-    }
-
     const char* eeGetMethodName(CORINFO_METHOD_HANDLE hnd, const char** className);
     const char* eeGetMethodFullName(CORINFO_METHOD_HANDLE hnd);
     unsigned compMethodHash(CORINFO_METHOD_HANDLE methodHandle);
-
-    bool eeIsNativeMethod(CORINFO_METHOD_HANDLE method);
-    CORINFO_METHOD_HANDLE eeGetMethodHandleForNative(CORINFO_METHOD_HANDLE method);
 #endif
 
     var_types eeGetArgType(CORINFO_ARG_LIST_HANDLE list, CORINFO_SIG_INFO* sig);
@@ -5523,35 +5371,12 @@ public:
         return eeGetEEInfo()->targetAbi == abi;
     }
 
-    bool generateCFIUnwindCodes()
-    {
-#if defined(TARGET_UNIX)
-        return IsTargetAbi(CORINFO_CORERT_ABI);
-#else
-        return false;
-#endif
-    }
-
     // Debugging support - Local var info
 
     void eeGetVars();
     void eeGetVars(ICorDebugInfo::ILVarInfo* varInfoTable, uint32_t varInfoCount, bool extendOthers);
 
-    // ICorJitInfo wrappers
-
-    void eeReserveUnwindInfo(bool isFunclet, bool isColdCode, ULONG unwindSize);
-
-    void eeAllocUnwindInfo(BYTE*          pHotCode,
-                           BYTE*          pColdCode,
-                           ULONG          startOffset,
-                           ULONG          endOffset,
-                           ULONG          unwindSize,
-                           BYTE*          pUnwindBlock,
-                           CorJitFuncKind funcKind);
-
-    void eeSetEHcount(unsigned cEH);
-
-    void eeSetEHinfo(unsigned EHnumber, const CORINFO_EH_CLAUSE* clause);
+// ICorJitInfo wrappers
 
 #ifdef TARGET_AMD64
     bool eeIsRIPRelativeAddress(void* addr);
@@ -5632,15 +5457,6 @@ public:
 
     BasicBlock* genReturnBB = nullptr; // jumped to when not optimizing for speed.
 
-    // The following properties are part of CodeGenContext.  Getters are provided here for
-    // convenience and backward compatibility, but the properties can only be set by invoking
-    // the setter on CodeGenContext directly.
-
-    emitter* GetEmitter() const
-    {
-        return codeGen->GetEmitter();
-    }
-
 #if DOUBLE_ALIGN
     bool shouldDoubleAlign(unsigned             refCntStk,
                            unsigned             refCntReg,
@@ -5649,173 +5465,11 @@ public:
                            BasicBlock::weight_t refCntWtdStkDbl);
 #endif // DOUBLE_ALIGN
 
-// Things that MAY belong either in CodeGen or CodeGenContext
-
-#if defined(FEATURE_EH_FUNCLETS)
-    FuncInfoDsc*   compFuncInfos;
-    unsigned short compCurrFuncIdx;
-    unsigned short compFuncInfoCount;
-
-    unsigned short compFuncCount()
-    {
-        assert(fgFuncletsCreated);
-        return compFuncInfoCount;
-    }
-
-#else // !FEATURE_EH_FUNCLETS
-
-    // This is a no-op when there are no funclets!
-    void genUpdateCurrentFunclet(BasicBlock* block)
-    {
-        return;
-    }
-
-    FuncInfoDsc compFuncInfoRoot;
-
-    static const unsigned compCurrFuncIdx = 0;
-
-    unsigned short compFuncCount()
-    {
-        return 1;
-    }
-
-#endif // !FEATURE_EH_FUNCLETS
-
-    FuncInfoDsc* funCurrentFunc();
-    void funSetCurrentFunc(unsigned funcIdx);
-    FuncInfoDsc* funGetFunc(unsigned funcIdx);
-    unsigned int funGetFuncIdx(BasicBlock* block);
-
     // LIVENESS
 
     // Gets a register mask that represent the kill set for a helper call since
     // not all JIT Helper calls follow the standard ABI on the target architecture.
     static regMaskTP compHelperCallKillSet(CorInfoHelpFunc helper);
-
-/*
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                           UnwindInfo                                      XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-#if !defined(__GNUC__)
-#pragma region Unwind information
-#endif
-
-public:
-    //
-    // Infrastructure functions: start/stop/reserve/emit.
-    //
-
-    void unwindBegProlog();
-    void unwindEndProlog();
-    void unwindBegEpilog();
-    void unwindEndEpilog();
-    void unwindReserve();
-    void unwindEmit(void* pHotCode, void* pColdCode);
-
-    //
-    // Specific unwind information functions: called by code generation to indicate a particular
-    // prolog or epilog unwindable instruction has been generated.
-    //
-
-    void unwindPush(regNumber reg);
-    void unwindAllocStack(unsigned size);
-    void unwindSetFrameReg(regNumber reg, unsigned offset);
-    void unwindSaveReg(regNumber reg, unsigned offset);
-
-#if defined(TARGET_ARM)
-    void unwindPushMaskInt(regMaskTP mask);
-    void unwindPushMaskFloat(regMaskTP mask);
-    void unwindPopMaskInt(regMaskTP mask);
-    void unwindPopMaskFloat(regMaskTP mask);
-    void unwindBranch16();                    // The epilog terminates with a 16-bit branch (e.g., "bx lr")
-    void unwindNop(unsigned codeSizeInBytes); // Generate unwind NOP code. 'codeSizeInBytes' is 2 or 4 bytes. Only
-                                              // called via unwindPadding().
-    void unwindPadding(); // Generate a sequence of unwind NOP codes representing instructions between the last
-                          // instruction and the current location.
-#endif                    // TARGET_ARM
-
-#if defined(TARGET_ARM64)
-    void unwindNop();
-    void unwindPadding(); // Generate a sequence of unwind NOP codes representing instructions between the last
-                          // instruction and the current location.
-    void unwindSaveReg(regNumber reg, int offset);                                // str reg, [sp, #offset]
-    void unwindSaveRegPreindexed(regNumber reg, int offset);                      // str reg, [sp, #offset]!
-    void unwindSaveRegPair(regNumber reg1, regNumber reg2, int offset);           // stp reg1, reg2, [sp, #offset]
-    void unwindSaveRegPairPreindexed(regNumber reg1, regNumber reg2, int offset); // stp reg1, reg2, [sp, #offset]!
-    void unwindSaveNext();                                                        // unwind code: save_next
-    void unwindReturn(regNumber reg);                                             // ret lr
-#endif                                                                            // defined(TARGET_ARM64)
-
-    //
-    // Private "helper" functions for the unwind implementation.
-    //
-
-private:
-#if defined(FEATURE_EH_FUNCLETS)
-    void unwindGetFuncLocations(FuncInfoDsc*             func,
-                                bool                     getHotSectionData,
-                                /* OUT */ emitLocation** ppStartLoc,
-                                /* OUT */ emitLocation** ppEndLoc);
-#endif // FEATURE_EH_FUNCLETS
-
-    void unwindReserveFunc(FuncInfoDsc* func);
-    void unwindEmitFunc(FuncInfoDsc* func, void* pHotCode, void* pColdCode);
-
-#if defined(TARGET_AMD64) || (defined(TARGET_X86) && defined(FEATURE_EH_FUNCLETS))
-
-    void unwindReserveFuncHelper(FuncInfoDsc* func, bool isHotCode);
-    void unwindEmitFuncHelper(FuncInfoDsc* func, void* pHotCode, void* pColdCode, bool isHotCode);
-
-#endif // TARGET_AMD64 || (TARGET_X86 && FEATURE_EH_FUNCLETS)
-
-    UNATIVE_OFFSET unwindGetCurrentOffset(FuncInfoDsc* func);
-
-#if defined(TARGET_AMD64)
-
-    void unwindBegPrologWindows();
-    void unwindPushWindows(regNumber reg);
-    void unwindAllocStackWindows(unsigned size);
-    void unwindSetFrameRegWindows(regNumber reg, unsigned offset);
-    void unwindSaveRegWindows(regNumber reg, unsigned offset);
-
-#ifdef UNIX_AMD64_ABI
-    void unwindSaveRegCFI(regNumber reg, unsigned offset);
-#endif // UNIX_AMD64_ABI
-#elif defined(TARGET_ARM)
-
-    void unwindPushPopMaskInt(regMaskTP mask, bool useOpsize16);
-    void unwindPushPopMaskFloat(regMaskTP mask);
-
-#endif // TARGET_ARM
-
-#if defined(TARGET_UNIX)
-    short mapRegNumToDwarfReg(regNumber reg);
-    void createCfiCode(FuncInfoDsc* func, UNATIVE_OFFSET codeOffset, UCHAR opcode, short dwarfReg, INT offset = 0);
-    void unwindPushPopCFI(regNumber reg);
-    void unwindBegPrologCFI();
-    void unwindPushPopMaskCFI(regMaskTP regMask, bool isFloat);
-    void unwindAllocStackCFI(unsigned size);
-    void unwindSetFrameRegCFI(regNumber reg, unsigned offset);
-    void unwindEmitFuncCFI(FuncInfoDsc* func, void* pHotCode, void* pColdCode);
-#ifdef DEBUG
-    void DumpCfiInfo(bool                  isHotCode,
-                     UNATIVE_OFFSET        startOffset,
-                     UNATIVE_OFFSET        endOffset,
-                     DWORD                 cfiCodeBytes,
-                     const CFI_CODE* const pCfiCode);
-#endif
-
-#endif // TARGET_UNIX
-
-#if !defined(__GNUC__)
-#pragma endregion // Note: region is NOT under !defined(__GNUC__)
-#endif
 
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -5977,7 +5631,6 @@ public:
     bool     compSwitchedToOptimized = false; // Codegen initially was Tier0 but jit switched to FullOpts
     bool     compSwitchedToMinOpts   = false; // Codegen initially was Tier1/FullOpts but jit switched to MinOpts
     bool     bRangeAllowStress;
-    bool     compCodeGenDone = false;
     unsigned fgStmtLinksTraversed;             // # of links traversed while doing debug checks
     bool     fgNormalizeEHDone        = false; // Has the flowgraph EH normalization phase been done?
     bool     fgNoStructParamPromotion = false; // Set to true to turn off struct promotion of this method's params.
@@ -6334,39 +5987,14 @@ public:
 
     VarScopeDsc** compEnterScopeList; // List has the offsets where variables enter scope, sorted by instr offset
     VarScopeDsc** compExitScopeList;  // List has the offsets where variables go out of scope, sorted by instr offset
-    unsigned      compNextEnterScope;
-    unsigned      compNextExitScope;
-
-#ifdef USING_SCOPE_INFO
-    struct VarScopeListNode
-    {
-        VarScopeDsc*      scope;
-        VarScopeListNode* next;
-
-        VarScopeListNode(VarScopeDsc* scope, VarScopeListNode* next) : scope(scope), next(next)
-        {
-        }
-    };
-
-    JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, VarScopeListNode*>* compVarScopeMap = nullptr;
-#endif
 
     bool compVarScopeExtended = false;
 
     void         compInitSortedScopeLists();
-    void         compResetScopeLists();
-    VarScopeDsc* compGetNextEnterScope(unsigned offs);
-    VarScopeDsc* compGetNextExitScope(unsigned offs);
-    VarScopeDsc* compGetNextEnterScopeScan(unsigned offs);
-    VarScopeDsc* compGetNextExitScopeScan(unsigned offs);
-
-#ifdef USING_SCOPE_INFO
-    void         compInitVarScopeMap();
-    VarScopeDsc* compFindLocalVar(unsigned varNum, unsigned offs);
-    VarScopeDsc* compFindLocalVarLinear(unsigned varNum, unsigned offs);
-    VarScopeDsc* compFindLocalVarMapped(unsigned varNum, unsigned offs);
-    INDEBUG(void compVerifyVarScopes());
-#endif
+    VarScopeDsc* compGetNextEnterScope(unsigned offs, unsigned* nextEnterScope);
+    VarScopeDsc* compGetNextExitScope(unsigned offs, unsigned* nextExitScope);
+    VarScopeDsc* compGetNextEnterScopeScan(unsigned offs, unsigned* nextEnterScope);
+    VarScopeDsc* compGetNextExitScopeScan(unsigned offs, unsigned* nextExitScope);
 
     bool compIsProfilerHookNeeded();
 

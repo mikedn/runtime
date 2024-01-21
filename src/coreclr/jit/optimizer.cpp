@@ -11,10 +11,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#pragma warning(disable : 4701)
-#endif
+#include "jitgcinfo.h"
 
 //------------------------------------------------------------------------
 // optSetBlockWeights: adjust block weights, as follows:
@@ -2435,7 +2432,7 @@ NO_MORE_LOOPS:
 void Compiler::optIdentifyLoopsForAlignment()
 {
 #if FEATURE_LOOP_ALIGN
-    if (codeGen->ShouldAlignLoops())
+    if (opts.alignLoops)
     {
         for (unsigned loopInd = 0; loopInd < optLoopCount; loopInd++)
         {

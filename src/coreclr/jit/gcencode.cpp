@@ -110,7 +110,7 @@ public:
     {
     }
 
-    void* CreateAndStoreGCInfo();
+    void CreateAndStoreGCInfo();
 
 private:
     unsigned GetUntrackedStackSlotCount();
@@ -131,21 +131,26 @@ private:
 #endif
 };
 
-void* GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen, unsigned codeSize, unsigned prologSize, unsigned epilogSize)
+void GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen)
 {
 #ifdef FEATURE_EH_FUNCLETS
     if (compiler->ehAnyFunclets())
     {
-        MarkFilterStackSlotsPinned();
+        MarkFilterStackSlotsPinned(codeGen);
     }
 #endif
 
+    Emitter& emit       = *codeGen->GetEmitter();
+    unsigned codeSize   = emit.GetCodeSize();
+    unsigned prologSize = emit.GetMainPrologNoGCSize();
+    unsigned epilogSize = emit.GetEpilogSize();
+
     GCEncoder encoder(codeGen, codeSize, prologSize, epilogSize, GetReturnKind(compiler->info), firstStackSlotLifetime,
                       firstRegArgChange, firstCallSite, isFullyInterruptible, syncThisReg);
-    return encoder.CreateAndStoreGCInfo();
+    encoder.CreateAndStoreGCInfo();
 }
 
-void* GCEncoder::CreateAndStoreGCInfo()
+void GCEncoder::CreateAndStoreGCInfo()
 {
     untrackedStackSlotCount       = GetUntrackedStackSlotCount();
     trackedStackSlotLifetimeCount = GetTrackedStackSlotLifetimeCount();
@@ -251,8 +256,7 @@ void* GCEncoder::CreateAndStoreGCInfo()
 
     noway_assert(infoBlkAddr == (BYTE*)infoPtr + infoBlockSize);
 
-    codeGen->compInfoBlkSize = infoBlockSize;
-    return infoPtr;
+    codeGen->SetGCInfoSize(static_cast<unsigned>(infoBlockSize));
 }
 
 static unsigned char encodeUnsigned(BYTE* dest, unsigned value)
@@ -363,7 +367,7 @@ unsigned GCEncoder::GetUntrackedStackSlotCount()
             if (compiler->verbose)
             {
                 printf("GCINFO: untracked %s slot at [%s", varTypeName(lcl->GetType()),
-                       compiler->GetEmitter()->emitGetFrameReg());
+                       codeGen->GetEmitter()->emitGetFrameReg());
 
                 if (lcl->GetStackOffset() != 0)
                 {
@@ -395,7 +399,7 @@ unsigned GCEncoder::GetUntrackedStackSlotCount()
             if (compiler->verbose)
             {
                 printf("GCINFO: untracked %s slot at [%s", varTypeName(temp.GetType()),
-                       compiler->GetEmitter()->emitGetFrameReg());
+                       codeGen->GetEmitter()->emitGetFrameReg());
 
                 if (temp.GetOffset() != 0)
                 {
@@ -1572,13 +1576,13 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
     assert(FitsIn<unsigned char>(epilogSize));
     header->epilogSize = static_cast<unsigned char>(epilogSize);
 
-    header->epilogCount = compiler->GetEmitter()->emitGetEpilogCnt();
-    if (header->epilogCount != compiler->GetEmitter()->emitGetEpilogCnt())
+    header->epilogCount = codeGen->GetEmitter()->GetEpilogCount();
+    if (header->epilogCount != codeGen->GetEmitter()->GetEpilogCount())
     {
-        IMPL_LIMITATION("emitGetEpilogCnt() does not fit in InfoHdr::epilogCount");
+        IMPL_LIMITATION("Epilog count does not fit in InfoHdr::epilogCount");
     }
 
-    header->epilogAtEnd = compiler->GetEmitter()->emitHasEpilogEnd();
+    header->epilogAtEnd = codeGen->GetEmitter()->HasSingleEpilogAtEnd();
 
     if ((savedRegs & RBM_EDI) != RBM_NONE)
     {
@@ -1644,7 +1648,7 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
     {
         assert(compiler->lvaGSSecurityCookie != BAD_VAR_NUM);
         int stkOffs            = compiler->lvaTable[compiler->lvaGSSecurityCookie].GetStackOffset();
-        header->gsCookieOffset = compiler->codeGen->isFramePointerUsed() ? -stkOffs : stkOffs;
+        header->gsCookieOffset = codeGen->isFramePointerUsed() ? -stkOffs : stkOffs;
         assert(header->gsCookieOffset != INVALID_GS_COOKIE_OFFSET);
     }
 
@@ -1655,11 +1659,11 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
     if (compiler->info.compFlags & CORINFO_FLG_SYNCH)
     {
         assert(codeGen->syncStartEmitCookie != NULL);
-        header->syncStartOffset = compiler->GetEmitter()->emitCodeOffset(codeGen->syncStartEmitCookie, 0);
+        header->syncStartOffset = codeGen->syncStartEmitCookie->GetCodeOffset();
         assert(header->syncStartOffset != INVALID_SYNC_OFFSET);
 
         assert(codeGen->syncEndEmitCookie != NULL);
-        header->syncEndOffset = compiler->GetEmitter()->emitCodeOffset(codeGen->syncEndEmitCookie, 0);
+        header->syncEndOffset = codeGen->syncEndEmitCookie->GetCodeOffset();
         assert(header->syncEndOffset != INVALID_SYNC_OFFSET);
 
         assert(header->syncStartOffset < header->syncEndOffset);
@@ -1673,17 +1677,17 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
     {
         assert(compiler->lvaReversePInvokeFrameVar != BAD_VAR_NUM);
         int stkOffs              = compiler->lvaTable[compiler->lvaReversePInvokeFrameVar].GetStackOffset();
-        header->revPInvokeOffset = compiler->codeGen->isFramePointerUsed() ? -stkOffs : stkOffs;
+        header->revPInvokeOffset = codeGen->isFramePointerUsed() ? -stkOffs : stkOffs;
         assert(header->revPInvokeOffset != INVALID_REV_PINVOKE_OFFSET);
     }
 
     assert(compiler->codeGen->paramsStackSize % REGSIZE_BYTES == 0);
-    unsigned argCount = compiler->codeGen->paramsStackSize / REGSIZE_BYTES;
+    unsigned argCount = codeGen->paramsStackSize / REGSIZE_BYTES;
     assert(argCount <= UINT16_MAX);
     header->argCount = static_cast<uint16_t>(argCount);
 
     assert(compiler->codeGen->lclFrameSize % REGSIZE_BYTES == 0);
-    header->frameSize = compiler->codeGen->lclFrameSize / 4;
+    header->frameSize = codeGen->lclFrameSize / 4;
 
     if (mask == 0)
     {
@@ -1802,7 +1806,7 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
             unsigned epilogPrevOffset = 0;
             unsigned epilogTableSize  = 0;
 
-            compiler->GetEmitter()->EnumerateEpilogs([&](unsigned offset) {
+            codeGen->GetEmitter()->EnumerateEpilogs([&](unsigned offset) {
                 unsigned encodedSize = encodeUDelta(epilogTable, offset, epilogPrevOffset);
 
                 epilogPrevOffset = offset;
@@ -3079,7 +3083,7 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
     }
 
     unsigned         lastOffset = 0;
-    PendingArgsStack pasStk(compiler->GetEmitter()->GetMaxStackDepth(), compiler);
+    PendingArgsStack pasStk(codeGen->GetEmitter()->GetMaxStackDepth(), compiler);
 
     for (RegArgChange* change = firstRegArgChange; change != nullptr; change = change->next)
     {
@@ -3661,7 +3665,7 @@ public:
     void RemoveCallArgStackSlots(unsigned codeOffset, RegArgChange* firstArgChange, RegArgChange* killArgsChange);
     void AddUntrackedStackSlots();
     void AddFullyInterruptibleSlots(RegArgChange* firstRegArgChange);
-    void AddFullyInterruptibleRanges(unsigned codeSize, unsigned prologSize);
+    void AddFullyInterruptibleRanges(const Emitter& emitter, unsigned codeSize, unsigned prologSize);
     void AddPartiallyInterruptibleSlots(CallSite* firstCallSite);
 
     void FinalizeSlotIds()
@@ -4377,7 +4381,7 @@ void GCEncoder::AddFullyInterruptibleSlots(RegArgChange* firstRegArgChange)
     }
 }
 
-void GCEncoder::AddFullyInterruptibleRanges(unsigned codeSize, unsigned prologSize)
+void GCEncoder::AddFullyInterruptibleRanges(const Emitter& emitter, unsigned codeSize, unsigned prologSize)
 {
     assert(isFullyInterruptible);
     assert(prologSize <= codeSize);
@@ -4388,7 +4392,7 @@ void GCEncoder::AddFullyInterruptibleRanges(unsigned codeSize, unsigned prologSi
     Log("Defining interruptible ranges:\n");
 #endif
 
-    compiler->GetEmitter()->EnumerateNoGCInsGroups([&](unsigned funcletIndex, unsigned offset, unsigned size) {
+    emitter.EnumerateNoGCInsGroups([&](unsigned funcletIndex, unsigned offset, unsigned size) {
         if (offset < prevOffset)
         {
             // We're still in the main method prolog, which has already had it's interruptible range reported.
@@ -4620,8 +4624,10 @@ void GCEncoder::RemoveCallArgStackSlots(unsigned codeOffset, RegArgChange* first
     }
 }
 
-void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize)
+void GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen)
 {
+    JITDUMP("\n*************** In CreateAndStoreGCInfo()\n");
+
 #ifdef DEBUG
     // Tracked variables can't be pinned, and the encoding takes advantage of that by
     // using the same bit for 'pinned' and 'this'. Since we don't track 'this', we should
@@ -4637,8 +4643,12 @@ void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize)
 
     if (compiler->ehAnyFunclets())
     {
-        MarkFilterStackSlotsPinned();
+        MarkFilterStackSlotsPinned(codeGen);
     }
+
+    Emitter& emit       = *codeGen->GetEmitter();
+    unsigned codeSize   = emit.GetCodeSize();
+    unsigned prologSize = emit.GetMainPrologNoGCSize();
 
     CompIAllocator encoderAlloc(compiler->getAllocator(CMK_GC));
     GCEncoder      encoder(compiler, &encoderAlloc, isFullyInterruptible);
@@ -4654,7 +4664,7 @@ void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize)
 
         encoder.AddTrackedStackSlots(firstStackSlotLifetime);
         encoder.AddFullyInterruptibleSlots(firstRegArgChange);
-        encoder.AddFullyInterruptibleRanges(codeSize, prologSize);
+        encoder.AddFullyInterruptibleRanges(emit, codeSize, prologSize);
     }
     else
     {

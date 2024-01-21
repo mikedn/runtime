@@ -13,6 +13,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "hostallocator.h"
 #include "patchpointinfo.h"
 #include "jitstd/algorithm.h"
+#include "jitgcinfo.h"
 
 extern ICorJitHost* g_jitHost;
 
@@ -1325,12 +1326,9 @@ void Compiler::compInitConfigOptions()
             verboseTrees = cfg.JitDumpVerboseTrees() == 1;
             verboseSsa   = cfg.JitDumpVerboseSsa() == 1;
 
-            opts.dspCode    = true;
             opts.dspEHTable = true;
             opts.dspGCtbls  = true;
             opts.dspUnwind  = true;
-
-            codeGen->setVerbose();
         }
 
         // TODO-MIKE-SSA: This doesn't work with new SSA because it transforms
@@ -1528,8 +1526,7 @@ void Compiler::compInitOptions()
 
     ARM_ONLY(opts.compUseSoftFP = jitFlags->IsSet(JitFlags::JIT_FLAG_SOFTFP_ABI) || JitConfig.JitSoftFP();)
 
-    opts.compScopeInfo = opts.compDbgInfo;
-    opts.compReloc     = jitFlags->IsSet(JitFlags::JIT_FLAG_RELOC);
+    opts.compReloc = jitFlags->IsSet(JitFlags::JIT_FLAG_RELOC);
 
 #ifndef TARGET_ARM64
     // TODO-ARM64-NYI: enable hot/cold splitting
@@ -1985,7 +1982,7 @@ void Compiler::compInitDebuggingInfo()
     compEnterScopeList      = nullptr;
     compExitScopeList       = nullptr;
 
-    if (opts.compScopeInfo)
+    if (opts.compDbgInfo)
     {
         eeGetVars();
 
@@ -2290,11 +2287,11 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
         // (The JIT doesn't know the final address of the code, hence
         // it can't align code based on unknown addresses.)
 
-        codeGen->SetAlignLoops(false); // loop alignment not supported for prejitted code
+        opts.alignLoops = false; // loop alignment not supported for prejitted code
     }
     else
     {
-        codeGen->SetAlignLoops(JitConfig.JitAlignLoops() == 1);
+        opts.alignLoops = JitConfig.JitAlignLoops() == 1;
     }
 
 #if TARGET_ARM
@@ -2562,7 +2559,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 
     DoPhase(this, PHASE_COMPUTE_EDGE_WEIGHTS, &Compiler::fgComputeBlockAndEdgeWeights);
 #ifdef FEATURE_EH_FUNCLETS
-    DoPhase(this, PHASE_CREATE_FUNCLETS, &Compiler::fgCreateFunclets);
+    DoPhase(this, PHASE_RELOCATE_FUNCLETS, &Compiler::phRelocateFunclets);
 #endif
 
     if (opts.OptimizationEnabled())
@@ -3050,17 +3047,17 @@ void Compiler::compCompileFinish()
     genTreeNsizHist.record(static_cast<unsigned>(genNodeSizeStatsPerFunc.genTreeNodeSize));
 #endif
 
-#if defined(DEBUG)
+#ifdef DEBUG
     // Small methods should fit in ArenaAllocator::getDefaultPageSize(), or else
     // we should bump up ArenaAllocator::getDefaultPageSize()
 
-    if ((info.compILCodeSize <= 32) &&     // Is it a reasonably small method?
-        (info.compNativeCodeSize < 512) && // Some trivial methods generate huge native code. eg. pushing a single huge
-                                           // struct
-        (compInlinedCodeSize <= 128) &&    // Is the the inlining reasonably bounded?
-                                           // Small methods cannot meaningfully have a big number of locals
-                                           // or arguments. We always track arguments at the start of
-                                           // the prolog which requires memory
+    if ((info.compILCodeSize <= 32) &&    // Is it a reasonably small method?
+        (codeGen->GetCodeSize() < 512) && // Some trivial methods generate huge native code. eg. pushing a single
+                                          // huge struct
+        (compInlinedCodeSize <= 128) &&   // Is the the inlining reasonably bounded?
+                                          // Small methods cannot meaningfully have a big number of locals
+                                          // or arguments. We always track arguments at the start of
+                                          // the prolog which requires memory
         (info.compLocalsCount <= 32) && (!opts.MinOpts()) && // We may have too many local variables, etc
         (getJitStressLevel() == 0) &&                        // We need extra memory for stress
         !opts.optRepeat &&                                   // We need extra memory to repeat opts
@@ -3209,7 +3206,7 @@ void Compiler::compCompileFinish()
 
         printf(" %3d |", optCallCount);
         printf(" %3d |", optIndirectCallCount);
-        printf(" %3d |", fgBBcountAtCodegen);
+        printf(" %3d |", fgBBcount);
         printf(" %3d |", lvaCount);
 
         if (opts.MinOpts())
@@ -3222,18 +3219,18 @@ void Compiler::compCompileFinish()
             printf(" %3d |", cseCount);
         }
 
-        if (info.compPerfScore < 9999.995)
+        if (codeGen->GetPerfScore() < 9999.995)
         {
-            printf(" %7.2f |", info.compPerfScore);
+            printf(" %7.2f |", codeGen->GetPerfScore());
         }
         else
         {
-            printf(" %7.0f |", info.compPerfScore);
+            printf(" %7.0f |", codeGen->GetPerfScore());
         }
 
         printf(" %4d |", info.compMethodInfo->ILCodeSize);
-        printf(" %5d |", info.compTotalHotCodeSize);
-        printf(" %3d |", info.compTotalColdCodeSize);
+        printf(" %5d |", codeGen->GetHotCodeSize());
+        printf(" %3d |", codeGen->GetColdCodeSize());
 
         printf(" %s\n", eeGetMethodFullName(info.compMethodHnd));
         printf(""); // in our logic this causes a flush
@@ -3530,7 +3527,6 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
     INDEBUG(compFunctionTraceStart());
     compCompile(nativeCode, nativeCodeSize, jitFlags);
     INDEBUG(compFunctionTraceEnd(*nativeCode, *nativeCodeSize, false));
-    JITDUMP("Method code size: %u\n", *nativeCodeSize);
     compCompileFinish();
 
     // Did we just compile for a target architecture that the VM isn't expecting? If so, the VM
@@ -4320,14 +4316,13 @@ void JitTimer::PrintCsvMethodStats(Compiler* comp)
 
     comp->m_inlineStrategy->DumpCsvData(s_csvFile);
 
-    fprintf(s_csvFile, "%u,", comp->info.compNativeCodeSize);
-
-#ifdef JIT32_GCENCODER
     if (comp->codeGen != nullptr)
     {
-        fprintf(s_csvFile, "%Iu,", comp->codeGen->compInfoBlkSize);
-    }
+        fprintf(s_csvFile, "%u,", comp->codeGen->GetCodeSize());
+#ifdef JIT32_GCENCODER
+        fprintf(s_csvFile, "%u,", comp->codeGen->GetGCInfoSize());
 #endif
+    }
 
     fprintf(s_csvFile, "%Iu,", comp->compGetArenaAllocator()->getTotalBytesAllocated());
     fprintf(s_csvFile, "%I64u,", m_info.m_totalCycles);

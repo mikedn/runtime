@@ -4,15 +4,6 @@
 #ifndef HASHBV_H
 #define HASHBV_H
 
-#if defined(_M_AMD64) || defined(_M_X86)
-#include <xmmintrin.h>
-#endif
-
-#include <stdlib.h>
-#include <stdio.h>
-#include <memory.h>
-#include <windows.h>
-
 //#define TESTING 1
 
 #define LOG2_BITS_PER_ELEMENT 5

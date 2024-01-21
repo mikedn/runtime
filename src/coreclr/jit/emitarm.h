@@ -14,15 +14,16 @@ typedef unsigned int code_t;
 /*         Routines that compute the size of / encode instructions      */
 /************************************************************************/
 
-insSize emitInsSize(insFormat insFmt);
+static insSize emitInsSize(insFormat insFmt);
 size_t emitGetInstrDescSize(const instrDesc* id);
 
 #ifdef FEATURE_ITINSTRUCTION
 BYTE* emitOutputIT(BYTE* dst, instruction ins, insFormat fmt, code_t condcode);
 #endif // FEATURE_ITINSTRUCTION
 
-BYTE* emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* id);
-BYTE* emitOutputShortBranch(BYTE* dst, instruction ins, insFormat fmt, ssize_t distVal, instrDescJmp* id);
+uint8_t* emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig);
+uint8_t* emitOutputRL(uint8_t* dst, instrDescJmp* id);
+uint8_t* emitOutputShortBranch(uint8_t* dst, instruction ins, insFormat fmt, ssize_t distVal, instrDesc* id);
 
 unsigned emitOutput_Thumb1Instr(uint8_t* dst, uint32_t code);
 unsigned emitOutput_Thumb2Instr(uint8_t* dst, uint32_t code);
@@ -42,6 +43,7 @@ void emitDispShiftOpts(insOpts opt);
 void emitDispRegmask(int imm, bool encodedPC_LR);
 void emitDispRegRange(regNumber reg, int len, emitAttr attr);
 void emitDispReg(regNumber reg, emitAttr attr, bool addComma);
+void emitDispLabel(instrDescJmp* id);
 void emitDispAddrR(regNumber reg, emitAttr attr);
 void emitDispAddrRI(regNumber reg, int imm, emitAttr attr);
 void emitDispAddrRR(regNumber reg1, regNumber reg2, emitAttr attr);
@@ -49,22 +51,15 @@ void emitDispAddrRRI(regNumber reg1, regNumber reg2, int imm, emitAttr attr);
 void emitDispAddrPUW(regNumber reg, int imm, insOpts opt, emitAttr attr);
 void emitDispGC(emitAttr attr);
 
-void emitDispInsHelp(instrDesc* id,
-                     bool       isNew,
-                     bool       doffs,
-                     bool       asmfm,
-                     unsigned   offs = 0,
-                     BYTE*      code = 0,
-                     size_t     sz   = 0,
-                     insGroup*  ig   = NULL);
+void emitDispInsHelp(
+    instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offs = 0, BYTE* code = 0, size_t sz = 0);
 void emitDispIns(instrDesc* id,
                  bool       isNew = false,
                  bool       doffs = false,
                  bool       asmfm = false,
                  unsigned   offs  = 0,
-                 BYTE*      code  = 0,
-                 size_t     sz    = 0,
-                 insGroup*  ig    = NULL);
+                 uint8_t*   code  = 0,
+                 size_t     sz    = 0);
 
 #endif // DEBUG
 
@@ -86,7 +81,6 @@ static bool emitInsIsCompare(instruction ins);
 static bool emitInsIsLoad(instruction ins);
 static bool emitInsIsStore(instruction ins);
 static bool emitInsIsLoadOrStore(instruction ins);
-insFormat emitInsFormat(instruction ins);
 code_t emitInsCode(instruction ins, insFormat fmt);
 
 static bool IsMovInstruction(instruction ins);
@@ -120,6 +114,8 @@ static unsigned getBitWidth(emitAttr size)
 /************************************************************************/
 
 public:
+static instruction emitJumpKindToBranch(emitJumpKind jumpKind);
+
 static bool emitIns_valid_imm_for_alu(int imm);
 static bool emitIns_valid_imm_for_mov(int imm);
 static bool emitIns_valid_imm_for_small_mov(regNumber reg, int imm, insFlags flags);
@@ -130,6 +126,9 @@ static bool emitIns_valid_imm_for_ldst_offset(int imm, emitAttr size);
 static bool emitIns_valid_imm_for_vldst_offset(int imm);
 
 void emitIns(instruction ins);
+
+void emitIns_J(instruction ins, int instrCount);
+void emitIns_J(instruction ins, insGroup* label);
 
 void emitIns_I(instruction ins, emitAttr attr, int32_t imm);
 
@@ -192,11 +191,11 @@ void emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, int varNum, int
 
 void emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, int varNum, int varOffs);
 
-void emitIns_R_L(instruction ins, BasicBlock* dst, regNumber reg);
+void emitIns_R_L(instruction ins, RegNum reg, insGroup* label);
 
 void emitIns_R_D(instruction ins, unsigned offs, regNumber reg);
 
-void emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg);
+void emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, regNumber reg);
 
 enum EmitCallType
 {
@@ -256,19 +255,13 @@ inline bool emitIsLoadLabel(instrDesc* jmp)
 /*                   Interface for generating unwind information        */
 /************************************************************************/
 public:
-bool emitIsFuncEnd(emitLocation* emitLoc, emitLocation* emitLocNextFragment = NULL);
-
-void emitSplit(emitLocation*         startLoc,
-               emitLocation*         endLoc,
-               UNATIVE_OFFSET        maxSplitSize,
-               void*                 context,
-               emitSplitCallbackType callbackFunc);
-
-void emitUnwindNopPadding(emitLocation* locFrom, Compiler* comp);
-
-unsigned emitGetInstructionSize(emitLocation* emitLoc);
+void emitUnwindNopPadding(const emitLocation& loc);
+unsigned emitGetInstructionSize(const emitLocation& emit);
 
 private:
+void emitSetShortJump(instrDescJmp* id);
+void emitSetMediumJump(instrDescJmp* id);
+
 // Returns true if instruction "id->idIns()" writes to a register that might be used to contain a GC
 // pointer. This exempts the SP and PC registers, and floating point registers. Memory access
 // instructions that pre- or post-increment their memory address registers are *not* considered to write
@@ -285,5 +278,18 @@ unsigned insEncodeSetFlags(insFlags sf);
 unsigned insEncodeShiftOpts(insOpts opt);
 unsigned insEncodePUW_G0(insOpts opt, int imm);
 unsigned insEncodePUW_H0(insOpts opt, int imm);
+
+template <typename T>
+T* AllocInstr(bool updateLastIns = true);
+
+instrDesc* emitNewInstr();
+instrDesc* emitNewInstrSmall();
+instrDesc* emitNewInstrSC(int32_t cns);
+instrDesc* emitNewInstrCns(int32_t cns);
+instrDesc* emitNewInstrGCReg(emitAttr attr, regNumber reg);
+instrDescJmp*  emitNewInstrJmp();
+instrDescCGCA* emitAllocInstrCGCA();
+
+int32_t emitGetInsSC(instrDesc* id);
 
 #endif // TARGET_ARM
