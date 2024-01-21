@@ -189,7 +189,7 @@ insGroup* emitter::emitAllocIG(unsigned num)
 
 void emitter::emitNewIG()
 {
-    assert(emitIGlast == emitCurIG);
+    assert((emitIGlast == emitCurIG) || (emitCurIG == nullptr));
 
     insGroup* ig = emitAllocIG(emitIGlast->igNum + 1);
     ig->igFlags |= (emitIGlast->igFlags & IGF_COLD);
@@ -1966,6 +1966,20 @@ void emitter::emitDispCommentForHandle(void* handle, HandleKind kind)
 void emitter::emitLoopAlignment()
 {
     assert(emitComp->opts.alignLoops);
+
+    // After an epilog we don't have a suitable IG to insert the align instruction.
+    // We can't want to put it into the epilog, as it may affect the epilog size we
+    // report to the VM (and we can't do it anyway because at this point the epilog
+    // is only a placeholder and can't have any instructions in it). And we don't
+    // want to put it into the next IG because that belongs to the loop and the NOP
+    // would be executed on every iteration. So we pull an IG out of the hat.
+    if (emitCurIG == nullptr)
+    {
+        assert(emitIGlast->IsEpilog());
+
+        emitNewIG();
+        emitCurIG->igFlags |= IGF_EXTEND;
+    }
 
     uint16_t paddingBytes;
 
