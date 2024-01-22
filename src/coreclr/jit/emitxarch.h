@@ -263,13 +263,6 @@ void emitDispIns(instrDesc* id,
                  unsigned   offs  = 0,
                  uint8_t*   code  = nullptr,
                  size_t     sz    = 0);
-void PrintIns(instrDesc* id, bool asmfm = false);
-void PrintImm(instrDesc* id, ssize_t val);
-void PrintReloc(ssize_t value);
-void PrintAddrMode(instrDesc* id, const char* sizeOper);
-void PrintClsVar(instrDesc* id, const char* sizeOper);
-void PrintShiftCL(instruction ins);
-void PrintFrameRef(instrDesc* id, bool asmfm, const char* sizeOper);
 #endif
 
 /************************************************************************/
