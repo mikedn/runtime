@@ -2965,7 +2965,7 @@ void emitter::emitEndCodeGen()
 #endif
 }
 
-unsigned emitter::emitFindInsNum(insGroup* ig, instrDesc* idMatch)
+unsigned emitter::emitFindInsNum(const insGroup* ig, const instrDesc* instr)
 {
     uint8_t* insData = ig->igData;
 
@@ -2973,7 +2973,7 @@ unsigned emitter::emitFindInsNum(insGroup* ig, instrDesc* idMatch)
     {
         instrDesc* id = reinterpret_cast<instrDesc*>(insData);
 
-        if (id == idMatch)
+        if (id == instr)
         {
             return i;
         }

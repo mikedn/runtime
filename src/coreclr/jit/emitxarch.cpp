@@ -275,7 +275,7 @@ static bool DoesResetOverflowAndCarryFlags(instruction ins)
 // form for the legacy, VEX, and EVEX encodings.
 // That is, the instruction takes two operands, one of which is immediate,
 // and it does not need to encode any data in the VEX.vvvv field.
-bool emitter::IsSseDstSrcImm(instruction ins)
+static bool IsSseDstSrcImm(instruction ins)
 {
     switch (ins)
     {

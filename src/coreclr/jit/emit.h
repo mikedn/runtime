@@ -1411,7 +1411,7 @@ public:
     /*    Methods to record a code position and later convert to offset     */
     /************************************************************************/
 
-    unsigned emitFindInsNum(insGroup* ig, instrDesc* id);
+    static unsigned emitFindInsNum(const insGroup* ig, const instrDesc* instr);
 
     /************************************************************************/
     /*        Members and methods used to issue (encode) instructions.      */

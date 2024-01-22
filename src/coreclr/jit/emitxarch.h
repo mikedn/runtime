@@ -242,7 +242,6 @@ bool IsRedundantMov(instruction ins, emitAttr size, regNumber dst, regNumber src
 bool TakesVexPrefix(instruction ins) const;
 code_t AddVexPrefixIfNeeded(instruction ins, code_t code, emitAttr size);
 
-bool IsSseDstSrcImm(instruction ins);
 bool IsVexDstDstSrc(instruction ins);
 bool IsVexDstSrcSrc(instruction ins);
 INDEBUG(bool IsVexTernary(instruction ins);)
