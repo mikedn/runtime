@@ -3830,7 +3830,7 @@ AGAIN:
         {
             instr->idjOffs -= instrIGSizeReduction;
 
-            assert((previousInstr == nullptr) || (instr->idjOffs > previousInstr->idjOffs));
+            assert((previousInstr == nullptr) || (instr->idjOffs >= previousInstr->idjOffs));
         }
         else
         {
@@ -3843,7 +3843,7 @@ AGAIN:
                 JITDUMP(" to % 04X\n", ig->igOffs);
             }
 
-            assert(instrIG->igOffs > previousInstrIG->igOffs);
+            assert(instrIG->igOffs >= previousInstrIG->igOffs);
 
             previousInstrIG = instrIG;
         }
@@ -3853,19 +3853,17 @@ AGAIN:
             continue;
         }
 
-        if (instr->idIsCnsReloc())
+        if (instr->idIsCnsReloc() || !instr->HasLabel())
         {
             continue;
         }
 
         uint32_t currentSize = instr->idCodeSize();
 
-        if (currentSize <= JMP_JCC_SIZE_SMALL)
+        if (currentSize == 0)
         {
             continue;
         }
-
-        assert(!instr->HasInstrCount());
 
         uint32_t  instrOffs    = instrIG->igOffs + instr->idjOffs;
         uint32_t  instrEndOffs = instrOffs + JMP_JCC_SIZE_SMALL;
@@ -3895,9 +3893,30 @@ AGAIN:
             continue;
         }
 
-        instr->idCodeSize(JMP_JCC_SIZE_SMALL);
+        unsigned newSize;
 
-        uint32_t sizeReduction = currentSize - JMP_JCC_SIZE_SMALL;
+        if (instrOffs + currentSize == labelOffs)
+        {
+            // Removing a "jump to next" could produce another "jump to next", we need to force another pass
+            // to eliminate that too. Ideally we'd traverse the jump list backwards, but it's a forward only
+            // list and given the rarity of such nested jumps it's hard to justify the extra code and memory
+            // required to traverse the list both ways.
+            minDistanceOverflow = 0;
+
+            newSize = 0;
+        }
+        else if (currentSize > JMP_JCC_SIZE_SMALL)
+        {
+            newSize = JMP_JCC_SIZE_SMALL;
+        }
+        else
+        {
+            continue;
+        }
+
+        instr->idCodeSize(newSize);
+
+        uint32_t sizeReduction = currentSize - newSize;
         instrIG->igSize -= static_cast<uint16_t>(sizeReduction);
         instrIG->igFlags |= IGF_UPD_ISZ;
         instrIGSizeReduction += sizeReduction;
@@ -7281,6 +7300,10 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
         dst += emitOutputByte(dst, insCodeJ(ins));
         dst += emitOutputByte(dst, distance);
+    }
+    else if (id->idCodeSize() == 0)
+    {
+        assert(distance == 0);
     }
     else
     {

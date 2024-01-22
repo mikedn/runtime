@@ -713,6 +713,7 @@ private:
                 case IF_LARGEJMP: // b<cond> + b<uncond>
                     return 8;
                 case IF_GC_REG:
+                case IF_NOP_JMP:
                     return 0;
                 default:
                     return 4;
@@ -898,7 +899,13 @@ private:
         {
             return (_idInsFmt == IF_GC_REG)
 #ifdef TARGET_XARCH
-                   || (_idIns == INS_align)
+                   || (_idIns == INS_align) || (_idCodeSize == 0)
+#endif
+#ifdef TARGET_ARM
+                   || (_idInsSize == ISZ_NONE)
+#endif
+#ifdef TARGET_ARM64
+                   || (_idInsFmt == IF_NOP_JMP)
 #endif
                 ;
         }

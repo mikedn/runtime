@@ -18,11 +18,13 @@
 // clang-format off
 IF_DEF(NONE, IS_NONE, NONE) //
 
+IF_DEF(GC_REG, IS_NONE, NONE)  // GC reg update
+
+IF_DEF(NOP_JMP,  IS_NONE, JMP) // nop branch (distance = 0)
 IF_DEF(LARGEJMP, IS_NONE, JMP) // large conditional branch pseudo-op (cond branch + uncond branch)
 IF_DEF(LARGEADR, IS_NONE, JMP) // large address pseudo-op (adrp + add)
 IF_DEF(LARGELDC, IS_NONE, JMP) // large constant pseudo-op (adrp + ldr)
 IF_DEF(SMALLADR, IS_NONE, JMP) // small address pseudo-op (adr)
-IF_DEF(GC_REG, IS_NONE, NONE)  // GC reg update
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
