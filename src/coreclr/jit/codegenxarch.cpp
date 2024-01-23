@@ -2492,7 +2492,7 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
 #endif
         }
 
-        instruction simdMov = simdUnalignedMovIns();
+        instruction xmmMov  = INS_movups;
         unsigned    regSize = XMM_REGSIZE_BYTES;
         unsigned    minSize = XMM_REGSIZE_BYTES;
 
@@ -2501,7 +2501,7 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
 
         if (store->IsObj() && layout->HasGCPtr())
         {
-            simdMov = INS_movq;
+            xmmMov  = INS_movq;
             regSize = 8;
         }
 #endif
@@ -2511,18 +2511,18 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
 #ifdef TARGET_X86
             if (regSize > size)
             {
-                simdMov = INS_movq;
+                xmmMov  = INS_movq;
                 regSize = 8;
             }
 #endif
 
             if (dstLclNum != BAD_VAR_NUM)
             {
-                emit->emitIns_S_R(simdMov, EA_ATTR(regSize), srcXmmReg, dstLclNum, dstOffset);
+                emit->emitIns_S_R(xmmMov, EA_ATTR(regSize), srcXmmReg, dstLclNum, dstOffset);
             }
             else
             {
-                emit->emitIns_ARX_R(simdMov, EA_ATTR(regSize), srcXmmReg, dstAddrBaseReg, dstAddrIndexReg,
+                emit->emitIns_ARX_R(xmmMov, EA_ATTR(regSize), srcXmmReg, dstAddrBaseReg, dstAddrIndexReg,
                                     dstAddrIndexScale, dstOffset);
             }
         }
@@ -2663,27 +2663,26 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
     {
         regNumber tempReg = store->GetSingleTempReg(RBM_ALLFLOAT);
 
-        instruction simdMov = simdUnalignedMovIns();
         for (unsigned regSize = XMM_REGSIZE_BYTES; size >= regSize;
              size -= regSize, srcOffset += regSize, dstOffset += regSize)
         {
             if (srcLclNum != BAD_VAR_NUM)
             {
-                emit->emitIns_R_S(simdMov, EA_ATTR(regSize), tempReg, srcLclNum, srcOffset);
+                emit->emitIns_R_S(INS_movups, EA_ATTR(regSize), tempReg, srcLclNum, srcOffset);
             }
             else
             {
-                emit->emitIns_R_ARX(simdMov, EA_ATTR(regSize), tempReg, srcAddrBaseReg, srcAddrIndexReg,
+                emit->emitIns_R_ARX(INS_movups, EA_ATTR(regSize), tempReg, srcAddrBaseReg, srcAddrIndexReg,
                                     srcAddrIndexScale, srcOffset);
             }
 
             if (dstLclNum != BAD_VAR_NUM)
             {
-                emit->emitIns_S_R(simdMov, EA_ATTR(regSize), tempReg, dstLclNum, dstOffset);
+                emit->emitIns_S_R(INS_movups, EA_ATTR(regSize), tempReg, dstLclNum, dstOffset);
             }
             else
             {
-                emit->emitIns_ARX_R(simdMov, EA_ATTR(regSize), tempReg, dstAddrBaseReg, dstAddrIndexReg,
+                emit->emitIns_ARX_R(INS_movups, EA_ATTR(regSize), tempReg, dstAddrBaseReg, dstAddrIndexReg,
                                     dstAddrIndexScale, dstOffset);
             }
         }
@@ -6951,7 +6950,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
 
             if (regSize == 16)
             {
-                ins    = INS_movdqu;
+                ins    = INS_movups;
                 tmpReg = xmmTmpReg;
             }
 #ifdef TARGET_X86
@@ -7138,14 +7137,14 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
 
             if (srcLclNum != BAD_VAR_NUM)
             {
-                GetEmitter()->emitIns_R_S(INS_movdqu, EA_16BYTE, xmmTmpReg, srcLclNum, srcOffset);
+                GetEmitter()->emitIns_R_S(INS_movups, EA_16BYTE, xmmTmpReg, srcLclNum, srcOffset);
             }
             else
             {
-                GetEmitter()->emitIns_R_ARX(INS_movdqu, EA_16BYTE, xmmTmpReg, srcAddrBaseReg, srcAddrIndexReg,
+                GetEmitter()->emitIns_R_ARX(INS_movups, EA_16BYTE, xmmTmpReg, srcAddrBaseReg, srcAddrIndexReg,
                                             srcAddrIndexScale, srcOffset);
             }
-            GetEmitter()->emitIns_S_R(INS_movdqu, EA_16BYTE, xmmTmpReg, outArgLclNum,
+            GetEmitter()->emitIns_S_R(INS_movups, EA_16BYTE, xmmTmpReg, outArgLclNum,
                                       outArgLclOffs + i * REGSIZE_BYTES);
             srcOffset += 2 * REGSIZE_BYTES;
             i++;
@@ -8187,7 +8186,7 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
     assert((genRegMask(initReg) & paramRegState.intRegLiveIn) == RBM_NONE);
 #if defined(TARGET_AMD64)
     // We will align on x64 so can use the aligned mov
-    instruction simdMov = simdAlignedMovIns();
+    instruction simdMov = INS_movaps;
     // Aligning low we want to move up to next boundary
     int alignedLclLo = (untrLclLo + (XMM_REGSIZE_BYTES - 1)) & -XMM_REGSIZE_BYTES;
 
@@ -8195,11 +8194,11 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
     {
         // If unaligned and smaller then 2 x SIMD size we won't bother trying to align
         assert((alignedLclLo - untrLclLo) < XMM_REGSIZE_BYTES);
-        simdMov = simdUnalignedMovIns();
+        simdMov = INS_movups;
     }
 #else // !defined(TARGET_AMD64)
     // We aren't going to try and align on x86
-    instruction simdMov      = simdUnalignedMovIns();
+    instruction simdMov      = INS_movups;
     int         alignedLclLo = untrLclLo;
 #endif
 
@@ -8982,14 +8981,7 @@ instruction CodeGen::ins_Load(var_types srcType, bool aligned)
             return INS_movsd;
         }
 
-        if (compiler->canUseVexEncoding())
-        {
-            return aligned ? INS_movapd : INS_movupd;
-        }
-        else
-        {
-            return aligned ? INS_movaps : INS_movups;
-        }
+        return aligned ? INS_movaps : INS_movups;
     }
 #endif
 
@@ -9016,14 +9008,7 @@ instruction CodeGen::ins_Store(var_types dstType, bool aligned)
             return INS_movsd;
         }
 
-        if (compiler->canUseVexEncoding())
-        {
-            return aligned ? INS_movapd : INS_movupd;
-        }
-        else
-        {
-            return aligned ? INS_movaps : INS_movups;
-        }
+        return aligned ? INS_movaps : INS_movups;
     }
 #endif
 
