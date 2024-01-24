@@ -62,7 +62,12 @@ class DisAssembler
     using AddrToAddrMap         = JitHashTable<size_t, SizeTKeyFuncs<size_t>, size_t>;
 
 public:
-    DisAssembler(Compiler* compiler, CodeGen* codeGen) : disComp(compiler), codeGen(codeGen)
+    DisAssembler::DisAssembler(Compiler* compiler, CodeGen* codeGen)
+        : disComp(compiler)
+        , codeGen(codeGen)
+        , addrToMethodHandleMap(compiler->getAllocator(CMK_DebugOnly))
+        , helperAddrToMethodHandleMap(compiler->getAllocator(CMK_DebugOnly))
+        , relocationMap(compiler->getAllocator(CMK_DebugOnly))
     {
     }
 
@@ -126,24 +131,21 @@ private:
      * points to */
     size_t disGetBufferSize(size_t offset);
 
+    Compiler* disComp;
+    CodeGen*  codeGen;
+
     // Map of instruction addresses to call target method handles for normal calls.
-    AddrToMethodHandleMap* disAddrToMethodHandleMap = nullptr;
-    AddrToMethodHandleMap* GetAddrToMethodHandleMap();
+    AddrToMethodHandleMap addrToMethodHandleMap;
 
     // Map of instruction addresses to call target method handles for JIT helper calls.
-    AddrToMethodHandleMap* disHelperAddrToMethodHandleMap = nullptr;
-    AddrToMethodHandleMap* GetHelperAddrToMethodHandleMap();
+    AddrToMethodHandleMap helperAddrToMethodHandleMap;
 
     // Map of relocation addresses to relocation target.
-    AddrToAddrMap* disRelocationMap = nullptr;
-    AddrToAddrMap* GetRelocationMap();
+    AddrToAddrMap relocationMap;
 
     const char* disGetMethodFullName(size_t addr);
 
     FILE* disAsmFile = nullptr;
-
-    Compiler* disComp;
-    CodeGen*  codeGen;
 
     bool disDiffable = false; // 'true' if the output should be diffable (hide or obscure absolute addresses)
 
