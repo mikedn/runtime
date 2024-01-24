@@ -25,12 +25,14 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #endif
 
 emitter::emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo)
-    : emitComp(compiler), gcInfo(compiler), codeGen(codeGen), emitCmpHandle(jitInfo)
-{
+    : emitComp(compiler)
+    , gcInfo(compiler)
+    , codeGen(codeGen)
+    , emitCmpHandle(jitInfo)
 #ifdef LATE_DISASM
-    disasm = new (emitComp, CMK_DebugOnly) DisAssembler();
-    disasm->disInit(compiler);
+    , disasm(new (emitComp, CMK_DebugOnly) DisAssembler(compiler))
 #endif
+{
 }
 
 bool emitter::InDifferentRegions(insGroup* ig1, insGroup* ig2)
@@ -2980,8 +2982,6 @@ void emitter::disSetMethod(size_t addr, CORINFO_METHOD_HANDLE methHnd)
 
 void emitter::Disassemble()
 {
-    disasm->disOpenForLateDisAsm(emitComp->info.compMethodName, emitComp->info.compClassName,
-                                 emitComp->info.compMethodInfo->args.pSig);
     disasm->disAsmCode(GetHotCodeAddr(), GetHotCodeSize(), GetColdCodeAddr(), GetColdCodeSize());
 }
 #endif

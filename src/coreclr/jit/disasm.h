@@ -44,33 +44,27 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #error Unsupported or unset target architecture
 #endif
 
-/*****************************************************************************/
-
-#ifdef HOST_64BIT
-template <typename T>
-struct SizeTKeyFuncs : JitLargePrimitiveKeyFuncs<T>
-{
-};
-#else  // !HOST_64BIT
-template <typename T>
-struct SizeTKeyFuncs : JitSmallPrimitiveKeyFuncs<T>
-{
-};
-#endif // HOST_64BIT
-
-typedef JitHashTable<size_t, SizeTKeyFuncs<size_t>, CORINFO_METHOD_HANDLE> AddrToMethodHandleMap;
-typedef JitHashTable<size_t, SizeTKeyFuncs<size_t>, size_t>                AddrToAddrMap;
-
-class Compiler;
-
 class DisAssembler
 {
-public:
-    // Constructor
-    void disInit(Compiler* pComp);
+#ifdef HOST_64BIT
+    template <typename T>
+    struct SizeTKeyFuncs : JitLargePrimitiveKeyFuncs<T>
+    {
+    };
+#else
+    template <typename T>
+    struct SizeTKeyFuncs : JitSmallPrimitiveKeyFuncs<T>
+    {
+    };
+#endif
 
-    // Initialize the class for the current method being generated.
-    void disOpenForLateDisAsm(const char* curMethodName, const char* curClassName, PCCOR_SIGNATURE sig);
+    using AddrToMethodHandleMap = JitHashTable<size_t, SizeTKeyFuncs<size_t>, CORINFO_METHOD_HANDLE>;
+    using AddrToAddrMap         = JitHashTable<size_t, SizeTKeyFuncs<size_t>, size_t>;
+
+public:
+    DisAssembler(Compiler* compiler) : disComp(compiler)
+    {
+    }
 
     // Disassemble a buffer: called after code for a method is generated.
     void disAsmCode(BYTE* hotCodePtr, size_t hotCodeSize, BYTE* coldCodePtr, size_t coldCodeSize);
@@ -109,19 +103,15 @@ private:
     // TODO-Review: there is some issue here where this is never set!
     char disFuncTempBuf[1024];
 
-    /* Method and class name to output */
-    const char* disCurMethodName;
-    const char* disCurClassName;
-
     /* flag that signals when replacing a symbol name has been deferred for following callbacks */
     // TODO-Review: there is some issue here where this is never set to 'true'!
-    bool disHasName;
+    bool disHasName = false;
 
     /* An array of labels, for jumps, LEAs, etc. There is one element in the array for each byte in the generated code.
      * That byte is zero if the corresponding byte of generated code is not a label. Otherwise, the value
      * is a label number.
      */
-    BYTE* disLabels;
+    BYTE* disLabels = nullptr;
 
     void DisasmBuffer(FILE* pfile, bool printit);
 
@@ -137,24 +127,24 @@ private:
     size_t disGetBufferSize(size_t offset);
 
     // Map of instruction addresses to call target method handles for normal calls.
-    AddrToMethodHandleMap* disAddrToMethodHandleMap;
+    AddrToMethodHandleMap* disAddrToMethodHandleMap = nullptr;
     AddrToMethodHandleMap* GetAddrToMethodHandleMap();
 
     // Map of instruction addresses to call target method handles for JIT helper calls.
-    AddrToMethodHandleMap* disHelperAddrToMethodHandleMap;
+    AddrToMethodHandleMap* disHelperAddrToMethodHandleMap = nullptr;
     AddrToMethodHandleMap* GetHelperAddrToMethodHandleMap();
 
     // Map of relocation addresses to relocation target.
-    AddrToAddrMap* disRelocationMap;
+    AddrToAddrMap* disRelocationMap = nullptr;
     AddrToAddrMap* GetRelocationMap();
 
     const char* disGetMethodFullName(size_t addr);
 
-    FILE* disAsmFile;
+    FILE* disAsmFile = nullptr;
 
     Compiler* disComp;
 
-    bool disDiffable; // 'true' if the output should be diffable (hide or obscure absolute addresses)
+    bool disDiffable = false; // 'true' if the output should be diffable (hide or obscure absolute addresses)
 
     template <typename T>
     T dspAddr(T addr)

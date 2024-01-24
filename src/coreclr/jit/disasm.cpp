@@ -840,7 +840,7 @@ size_t DisAssembler::disCchRegMember(const DIS* pdis, DIS::REGA reg, __in_ecount
 /*****************************************************************************
  * Helper function to lazily create a map from code address to CORINFO_METHOD_HANDLE.
  */
-AddrToMethodHandleMap* DisAssembler::GetAddrToMethodHandleMap()
+DisAssembler::AddrToMethodHandleMap* DisAssembler::GetAddrToMethodHandleMap()
 {
     if (disAddrToMethodHandleMap == nullptr)
     {
@@ -852,7 +852,7 @@ AddrToMethodHandleMap* DisAssembler::GetAddrToMethodHandleMap()
 /*****************************************************************************
  * Helper function to lazily create a map from code address to CORINFO_METHOD_HANDLE.
  */
-AddrToMethodHandleMap* DisAssembler::GetHelperAddrToMethodHandleMap()
+DisAssembler::AddrToMethodHandleMap* DisAssembler::GetHelperAddrToMethodHandleMap()
 {
     if (disHelperAddrToMethodHandleMap == nullptr)
     {
@@ -864,7 +864,7 @@ AddrToMethodHandleMap* DisAssembler::GetHelperAddrToMethodHandleMap()
 /*****************************************************************************
  * Helper function to lazily create a map from relocation address to relocation target address.
  */
-AddrToAddrMap* DisAssembler::GetRelocationMap()
+DisAssembler::AddrToAddrMap* DisAssembler::GetRelocationMap()
 {
     if (disRelocationMap == nullptr)
     {
@@ -1469,6 +1469,9 @@ void DisAssembler::disAsmCode(BYTE* hotCodePtr, size_t hotCodeSize, BYTE* coldCo
 
     // As this writes to a common file, this is not reentrant.
 
+    const char* disCurMethodName = disComp->info.compMethodName;
+    const char* disCurClassName  = disComp->info.compClassName;
+
     assert(hotCodeSize > 0);
     if (coldCodeSize == 0)
     {
@@ -1510,36 +1513,4 @@ void DisAssembler::disAsmCode(BYTE* hotCodePtr, size_t hotCodeSize, BYTE* coldCo
     }
 }
 
-/*****************************************************************************/
-// This function is called for every method. Checks if we are supposed to disassemble
-// the method, and where to send the disassembly output.
-
-void DisAssembler::disOpenForLateDisAsm(const char* curMethodName, const char* curClassName, PCCOR_SIGNATURE sig)
-{
-    if (!disComp->opts.doLateDisasm)
-    {
-        return;
-    }
-
-    disCurMethodName = curMethodName;
-    disCurClassName  = curClassName;
-}
-
-/*****************************************************************************/
-
-void DisAssembler::disInit(Compiler* pComp)
-{
-    assert(pComp);
-    disComp                        = pComp;
-    disHasName                     = false;
-    disLabels                      = nullptr;
-    disAddrToMethodHandleMap       = nullptr;
-    disHelperAddrToMethodHandleMap = nullptr;
-    disRelocationMap               = nullptr;
-    disDiffable                    = false;
-    disAsmFile                     = nullptr;
-}
-
-/*****************************************************************************/
 #endif // LATE_DISASM
-/*****************************************************************************/
