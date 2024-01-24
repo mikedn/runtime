@@ -1920,7 +1920,21 @@ void emitter::emitDispCommentForHandle(void* handle, HandleKind kind)
     }
     else if (kind == HandleKind::Class)
     {
-        str = emitComp->eeGetClassName(static_cast<CORINFO_CLASS_HANDLE>(handle));
+        if (emitComp->opts.compReloc)
+        {
+            // TODO-MIKE-Cleanup: Sometimes the JIT generates code that accesses runtime
+            // class members, and then constant-folds the resulting address expression
+            // producing a constant address that's still marked as a class handle but
+            // points somewhere inside the runtime class.
+            // The folding is correct but we need to change the handle kind to something
+            // else so we don't try to get the name. For now just ignore class handles in
+            // the JIT case (in pre-JIT we need relocs, and those prevent constant folding).
+            str = emitComp->eeGetClassName(static_cast<CORINFO_CLASS_HANDLE>(handle));
+        }
+        else
+        {
+            str = "class handle";
+        }
     }
 #ifndef TARGET_XARCH
     // These are less useful for xarch:
