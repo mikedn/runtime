@@ -37,30 +37,22 @@ inline var_types TypeGet(var_types v)
     return v;
 }
 
-#ifdef FEATURE_SIMD
 template <class T>
 inline bool varTypeIsSIMD(T vt)
 {
     switch (TypeGet(vt))
     {
+#ifdef FEATURE_SIMD
         case TYP_SIMD8:
         case TYP_SIMD12:
         case TYP_SIMD16:
         case TYP_SIMD32:
             return true;
+#endif
         default:
             return false;
     }
 }
-#else  // FEATURE_SIMD
-
-// Always return false if FEATURE_SIMD is not enabled
-template <class T>
-inline bool varTypeIsSIMD(T vt)
-{
-    return false;
-}
-#endif // !FEATURE_SIMD
 
 template <class T>
 inline bool varTypeIsIntegral(T vt)
