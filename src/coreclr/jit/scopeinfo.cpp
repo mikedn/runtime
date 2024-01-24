@@ -306,7 +306,6 @@ bool DbgInfoVarLoc::IsInReg(RegNum reg) const
         case VLT_STK_REG:
             return vlStkReg.vlsrReg == reg;
         default:
-            assert(!"Bad locType");
             return false;
     }
 }
@@ -329,13 +328,13 @@ bool DbgInfoVarLoc::IsOnStack(RegNum reg, int offset) const
             actualReg = IsAmbientSP(vlStkReg.vlsrStk.vlsrsBaseReg) ? REG_SPBASE : vlStkReg.vlsrStk.vlsrsBaseReg;
             return (actualReg == reg) && (vlStkReg.vlsrStk.vlsrsOffset == offset);
         case VLT_STK:
+        case VLT_STK_BYREF:
             actualReg = IsAmbientSP(vlStk.vlsBaseReg) ? REG_SPBASE : vlStk.vlsBaseReg;
             return (actualReg == reg) && (vlStk.vlsOffset == offset);
         case VLT_STK2:
             actualReg = IsAmbientSP(vlStk2.vls2BaseReg) ? REG_SPBASE : vlStk2.vls2BaseReg;
             return (actualReg == reg) && ((vlStk2.vls2Offset == offset) || (vlStk2.vls2Offset == (offset - 4)));
         default:
-            assert(!"Bad locType");
             return false;
     }
 }
