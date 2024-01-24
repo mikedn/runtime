@@ -21,21 +21,6 @@ enum var_types_classification
 
 #include "vartypesdef.h"
 
-/*****************************************************************************
- * C-style pointers are implemented as TYP_INT or TYP_LONG depending on the
- * platform
- */
-
-#ifdef TARGET_64BIT
-#define TYP_I_IMPL TYP_LONG
-#define TYP_U_IMPL TYP_ULONG
-#else
-#define TYP_I_IMPL TYP_INT
-#define TYP_U_IMPL TYP_UINT
-#endif
-
-/*****************************************************************************/
-
 const extern BYTE varTypeClassification[TYP_COUNT];
 
 // make any class with a TypeGet member also have a function TypeGet() that does the same thing
