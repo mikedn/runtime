@@ -30,7 +30,7 @@ emitter::emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo)
     , codeGen(codeGen)
     , emitCmpHandle(jitInfo)
 #ifdef LATE_DISASM
-    , disasm(new (emitComp, CMK_DebugOnly) DisAssembler(compiler))
+    , disasm(new (emitComp, CMK_DebugOnly) DisAssembler(compiler, codeGen))
 #endif
 {
 }

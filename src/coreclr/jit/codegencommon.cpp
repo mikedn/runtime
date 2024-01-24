@@ -71,18 +71,6 @@ double CodeGenInterface::GetPerfScore() const
 }
 #endif
 
-#ifdef LATE_DISASM
-const char* CodeGenInterface::siRegVarName(size_t offs, size_t size, unsigned reg)
-{
-    return static_cast<CodeGen*>(this)->siRegVarName(offs, size, reg);
-}
-
-const char* CodeGenInterface::siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs)
-{
-    return static_cast<CodeGen*>(this)->siStackVarName(offs, size, reg, stkOffs);
-}
-#endif
-
 CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), liveness(compiler)
 {
     m_cgEmitter = new (compiler, CMK_Codegen) emitter(compiler, this, compiler->info.compCompHnd);

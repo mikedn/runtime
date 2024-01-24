@@ -22,6 +22,7 @@
 /*****************************************************************************/
 
 #include "disasm.h"
+#include "codegen.h"
 
 // Define DISASM_DEBUG to get verbose output of late disassembler inner workings.
 //#define DISASM_DEBUG
@@ -599,7 +600,7 @@ size_t DisAssembler::disCchRegRelMember(
         case DISX86::trmtaTrap:
         case DISX86::trmtaTrapCc:
 
-            var = disComp->codeGen->siStackVarName((size_t)(pdis->Addr() - disStartAddr), pdis->Cb(), reg, disp);
+            var = codeGen->siStackVarName((size_t)(pdis->Addr() - disStartAddr), pdis->Cb(), reg, disp);
             if (var)
             {
                 swprintf_s(wz, cchMax, W("%hs+%Xh '%hs'"), getRegName(reg), disp, var);
@@ -694,7 +695,7 @@ size_t DisAssembler::disCchRegRelMember(
         case DISARM64::TRMTA::trmtaTrap:
         case DISARM64::TRMTA::trmtaTrapCc:
 
-            var = disComp->codeGen->siStackVarName((size_t)(pdis->Addr() - disStartAddr), pdis->Cb(), reg, disp);
+            var = codeGen->siStackVarName((size_t)(pdis->Addr() - disStartAddr), pdis->Cb(), reg, disp);
             if (var)
             {
                 swprintf_s(wz, cchMax, W("%hs+%Xh '%hs'"), getRegName(reg), disp, var);
@@ -798,10 +799,7 @@ size_t DisAssembler::disCchRegMember(const DIS* pdis, DIS::REGA reg, __in_ecount
     return 0;
 
 #if 0
-    const char * var = disComp->codeGen->siRegVarName(
-                                            (size_t)(pdis->Addr() - disStartAddr),
-                                            pdis->Cb(),
-                                            reg);
+    const char* var = codeGen->siRegVarName((size_t)(pdis->Addr() - disStartAddr), pdis->Cb(), reg);
 
     if (var)
     {

@@ -213,11 +213,6 @@ public:
 #if defined(DEBUG) || defined(LATE_DISASM)
     double GetPerfScore() const;
 #endif
-
-#ifdef LATE_DISASM
-    const char* siRegVarName(size_t offs, size_t size, unsigned reg);
-    const char* siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs);
-#endif
 };
 
 StructStoreKind GetStructStoreKind(bool isLocalStore, ClassLayout* layout, GenTree* src);

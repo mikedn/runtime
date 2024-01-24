@@ -62,7 +62,7 @@ class DisAssembler
     using AddrToAddrMap         = JitHashTable<size_t, SizeTKeyFuncs<size_t>, size_t>;
 
 public:
-    DisAssembler(Compiler* compiler) : disComp(compiler)
+    DisAssembler(Compiler* compiler, CodeGen* codeGen) : disComp(compiler), codeGen(codeGen)
     {
     }
 
@@ -143,6 +143,7 @@ private:
     FILE* disAsmFile = nullptr;
 
     Compiler* disComp;
+    CodeGen*  codeGen;
 
     bool disDiffable = false; // 'true' if the output should be diffable (hide or obscure absolute addresses)
 
