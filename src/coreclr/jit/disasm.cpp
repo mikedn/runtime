@@ -174,6 +174,9 @@ size_t DisAssembler::disCchAddrMember(
 
             break;
 
+        case DISX86::trmtaCallInd:
+            break;
+
 #ifdef TARGET_AMD64
 
         case DISX86::trmtaFallThrough:
