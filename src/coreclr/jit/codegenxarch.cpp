@@ -869,8 +869,7 @@ void CodeGen::GenFloatAbs(GenTreeIntrinsic* node)
     regNumber dstReg = node->GetRegNum();
     regNumber srcReg = UseReg(node->GetOp(0));
 
-    // TODO-MIKE-Review: The size should be EA_16BYTE but using that results in diffs!?!
-    GetEmitter()->emitIns_SIMD_R_R_C(INS_andps, emitTypeSize(node->GetType()), dstReg, srcReg, maskField);
+    GetEmitter()->emitIns_SIMD_R_R_C(INS_andps, EA_16BYTE, dstReg, srcReg, maskField);
 }
 
 void CodeGen::GenFloatNegate(GenTreeUnOp* node)
@@ -892,8 +891,7 @@ void CodeGen::GenFloatNegate(GenTreeUnOp* node)
     regNumber dstReg = node->GetRegNum();
     regNumber srcReg = UseReg(node->GetOp(0));
 
-    // TODO-MIKE-Review: The size should be EA_16BYTE but using that results in diffs!?!
-    GetEmitter()->emitIns_SIMD_R_R_C(INS_xorps, emitTypeSize(node->GetType()), dstReg, srcReg, maskField);
+    GetEmitter()->emitIns_SIMD_R_R_C(INS_xorps, EA_16BYTE, dstReg, srcReg, maskField);
 
     DefReg(node);
 }
