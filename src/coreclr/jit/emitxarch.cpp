@@ -2201,6 +2201,14 @@ void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regN
         case INS_movaps:
         case INS_movdqa:
         case INS_movdqu:
+            // TODO-MIKE-Review: CodeGen is messed up and passes EA_4/8BYTE for float/double reg
+            // copies, even the instruction is really copying at least 16 bytes, this confuses
+            // the redundant mov elimination code.
+            if (EA_SIZE_IN_BYTES(attr) < 16)
+            {
+                attr = EA_16BYTE;
+            }
+            FALLTHROUGH;
         case INS_movsd:
         case INS_movss:
         case INS_movupd:
