@@ -19,30 +19,6 @@ enum var_types_classification
     VTF_S   = 0x0040, // is a struct type
 };
 
-#include "vartypesdef.h"
-
-/*****************************************************************************
- * C-style pointers are implemented as TYP_INT or TYP_LONG depending on the
- * platform
- */
-
-#ifdef TARGET_64BIT
-#define TYP_I_IMPL TYP_LONG
-#define TYP_U_IMPL TYP_ULONG
-#else
-#define TYP_I_IMPL TYP_INT
-#define TYP_U_IMPL TYP_UINT
-#ifdef _PREFAST_
-// We silence this in the 32-bit build because for portability, we like to have asserts like this:
-// assert(op2->gtType == TYP_INT || op2->gtType == TYP_I_IMPL);
-// This is obviously redundant for 32-bit builds, but we don't want to have ifdefs and different
-// asserts just for 64-bit builds, so for now just silence the assert
-#pragma warning(disable : 6287) // warning 6287: the left and right sub-expressions are identical
-#endif                          //_PREFAST_
-#endif
-
-/*****************************************************************************/
-
 const extern BYTE varTypeClassification[TYP_COUNT];
 
 // make any class with a TypeGet member also have a function TypeGet() that does the same thing
@@ -61,30 +37,22 @@ inline var_types TypeGet(var_types v)
     return v;
 }
 
-#ifdef FEATURE_SIMD
 template <class T>
 inline bool varTypeIsSIMD(T vt)
 {
     switch (TypeGet(vt))
     {
+#ifdef FEATURE_SIMD
         case TYP_SIMD8:
         case TYP_SIMD12:
         case TYP_SIMD16:
         case TYP_SIMD32:
             return true;
+#endif
         default:
             return false;
     }
 }
-#else  // FEATURE_SIMD
-
-// Always return false if FEATURE_SIMD is not enabled
-template <class T>
-inline bool varTypeIsSIMD(T vt)
-{
-    return false;
-}
-#endif // !FEATURE_SIMD
 
 template <class T>
 inline bool varTypeIsIntegral(T vt)

@@ -25,6 +25,7 @@ class CodeGen final : public CodeGenInterface
     friend class CodeGenInterface;
 
     class LinearScan* m_lsra = nullptr;
+    emitter*          m_cgEmitter;
 
     ILMapping*  firstILMapping = nullptr;
     ILMapping*  lastILMapping  = nullptr;
@@ -43,6 +44,12 @@ public:
     CodeGen(Compiler* compiler);
 
     void genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize);
+
+    emitter* GetEmitter() const
+    {
+        return m_cgEmitter;
+    }
+
 #ifdef LATE_DISASM
     const char* siRegVarName(size_t offs, size_t size, unsigned reg);
     const char* siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs);
@@ -85,21 +92,6 @@ private:
     void GenFloatAbs(GenTreeIntrinsic* node);
 
     void genSSE41RoundOp(GenTreeIntrinsic* node);
-
-    instruction simdAlignedMovIns()
-    {
-        // We use movaps when non-VEX because it is a smaller instruction;
-        // however the VEX version vmovaps would be used which is the same size as vmovdqa;
-        // also vmovdqa has more available CPU ports on older processors so we switch to that
-        return compiler->canUseVexEncoding() ? INS_movdqa : INS_movaps;
-    }
-    instruction simdUnalignedMovIns()
-    {
-        // We use movups when non-VEX because it is a smaller instruction;
-        // however the VEX version vmovups would be used which is the same size as vmovdqu;
-        // but vmovdqu has more available CPU ports on older processors so we switch to that
-        return compiler->canUseVexEncoding() ? INS_movdqu : INS_movups;
-    }
 #endif // defined(TARGET_XARCH)
 
     void genMarkLabelsForCodegen();
@@ -650,9 +642,12 @@ protected:
     void genPutArgSplit(GenTreePutArgSplit* treeNode);
 #endif
 
-#ifdef FEATURE_SIMD
+#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
     void genSIMDUpperSpill(GenTreeUnOp* node);
     void genSIMDUpperUnspill(GenTreeUnOp* node);
+#endif
+
+#ifdef FEATURE_SIMD
     void LoadSIMD12(GenTree* load);
 #ifdef TARGET_X86
     void genStoreSIMD12ToStack(regNumber operandReg, regNumber tmpReg);

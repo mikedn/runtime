@@ -258,6 +258,9 @@ class emitter
     GCInfo       gcInfo;
     CodeGen*     codeGen;
     ICorJitInfo* emitCmpHandle;
+#ifdef LATE_DISASM
+    class DisAssembler* disasm;
+#endif
 
 public:
     emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo);
@@ -275,6 +278,10 @@ public:
 private:
     static bool InDifferentRegions(insGroup* ig1, insGroup* ig2);
 
+#ifdef LATE_DISASM
+    void disSetMethod(size_t addr, CORINFO_METHOD_HANDLE methHnd);
+#endif
+
     /************************************************************************/
     /*       Overall emitter control (including startup and shutdown)       */
     /************************************************************************/
@@ -283,6 +290,10 @@ public:
     void emitBegFN();
     void emitComputeCodeSizes();
     void emitEndCodeGen();
+
+#ifdef LATE_DISASM
+    void Disassemble();
+#endif
 
     /************************************************************************/
     /*                      Method prolog and epilog                        */
@@ -1411,7 +1422,7 @@ public:
     /*    Methods to record a code position and later convert to offset     */
     /************************************************************************/
 
-    unsigned emitFindInsNum(insGroup* ig, instrDesc* id);
+    static unsigned emitFindInsNum(const insGroup* ig, const instrDesc* instr);
 
     /************************************************************************/
     /*        Members and methods used to issue (encode) instructions.      */

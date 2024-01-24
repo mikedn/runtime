@@ -275,7 +275,7 @@ static bool DoesResetOverflowAndCarryFlags(instruction ins)
 // form for the legacy, VEX, and EVEX encodings.
 // That is, the instruction takes two operands, one of which is immediate,
 // and it does not need to encode any data in the VEX.vvvv field.
-bool emitter::IsSseDstSrcImm(instruction ins)
+static bool IsSseDstSrcImm(instruction ins)
 {
     switch (ins)
     {
@@ -2201,6 +2201,14 @@ void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regN
         case INS_movaps:
         case INS_movdqa:
         case INS_movdqu:
+            // TODO-MIKE-Review: CodeGen is messed up and passes EA_4/8BYTE for float/double reg
+            // copies, even the instruction is really copying at least 16 bytes, this confuses
+            // the redundant mov elimination code.
+            if (EA_SIZE_IN_BYTES(attr) < 16)
+            {
+                attr = EA_16BYTE;
+            }
+            FALLTHROUGH;
         case INS_movsd:
         case INS_movss:
         case INS_movupd:
@@ -3748,7 +3756,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
 #ifdef LATE_DISASM
     if (addr != nullptr)
     {
-        codeGen->getDisAssembler().disSetMethod(reinterpret_cast<size_t>(addr), methodHandle);
+        disSetMethod(reinterpret_cast<size_t>(addr), methodHandle);
     }
 #endif
 

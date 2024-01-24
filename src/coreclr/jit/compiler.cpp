@@ -1307,7 +1307,6 @@ void Compiler::compInitConfigOptions()
         if (cfg.JitLateDisasm().contains(methodName, className, methodParams))
         {
             opts.doLateDisasm = true;
-            codeGen->getDisAssembler().disOpenForLateDisAsm(methodName, className, methodParams->pSig);
         }
 #endif
 
@@ -2051,9 +2050,6 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
 {
     assert(!compIsForInlining());
 
-#pragma warning(suppress : 4101)
-    unsigned jitMinOpts;
-
     bool theMinOptsValue = false;
 
     if (opts.optFlags == CLFLG_MINOPT)
@@ -2063,7 +2059,7 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
     }
 
 #ifdef DEBUG
-    jitMinOpts = JitConfig.JitMinOpts();
+    unsigned jitMinOpts = JitConfig.JitMinOpts();
 
     if (!theMinOptsValue && (jitMinOpts > 0))
     {

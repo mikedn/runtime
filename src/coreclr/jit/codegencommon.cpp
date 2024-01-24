@@ -34,7 +34,7 @@ CORINFO_FIELD_HANDLE CodeGenInterface::GetConst(const void* data,
                                                 unsigned    size,
                                                 unsigned align DEBUGARG(var_types type))
 {
-    return GetEmitter()->GetConst(data, size, align DEBUGARG(type));
+    return static_cast<CodeGen*>(this)->GetEmitter()->GetConst(data, size, align DEBUGARG(type));
 }
 
 void CodeGenInterface::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
@@ -44,17 +44,17 @@ void CodeGenInterface::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSi
 
 unsigned CodeGenInterface::GetHotCodeSize() const
 {
-    return GetEmitter()->GetHotCodeSize();
+    return static_cast<const CodeGen*>(this)->GetEmitter()->GetHotCodeSize();
 }
 
 unsigned CodeGenInterface::GetColdCodeSize() const
 {
-    return GetEmitter()->GetColdCodeSize();
+    return static_cast<const CodeGen*>(this)->GetEmitter()->GetColdCodeSize();
 }
 
 unsigned CodeGenInterface::GetCodeSize() const
 {
-    return GetEmitter()->GetCodeSize();
+    return static_cast<const CodeGen*>(this)->GetEmitter()->GetCodeSize();
 }
 
 #ifdef JIT32_GCENCODER
@@ -67,35 +67,21 @@ unsigned CodeGenInterface::GetGCInfoSize() const
 #if defined(DEBUG) || defined(LATE_DISASM)
 double CodeGenInterface::GetPerfScore() const
 {
-    return GetEmitter()->GetPerfScore();
+    return static_cast<const CodeGen*>(this)->GetEmitter()->GetPerfScore();
 }
 #endif
 
-#ifdef LATE_DISASM
-const char* CodeGenInterface::siRegVarName(size_t offs, size_t size, unsigned reg)
+CodeGen::CodeGen(Compiler* compiler)
+    : CodeGenInterface(compiler)
+    , m_cgEmitter(new (compiler, CMK_Codegen) emitter(compiler, this, compiler->info.compCompHnd))
+    , liveness(compiler)
 {
-    return static_cast<CodeGen*>(this)->siRegVarName(offs, size, reg);
-}
-
-const char* CodeGenInterface::siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs)
-{
-    return static_cast<CodeGen*>(this)->siStackVarName(offs, size, reg, stkOffs);
-}
-#endif
-
-CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), liveness(compiler)
-{
-    m_cgEmitter = new (compiler, CMK_Codegen) emitter(compiler, this, compiler->info.compCompHnd);
-
-#ifdef LATE_DISASM
-    getDisAssembler().disInit(compiler);
-#endif
 }
 
 #ifdef TARGET_XARCH
 void CodeGenInterface::SetUseVEXEncoding(bool value)
 {
-    GetEmitter()->SetUseVEXEncoding(value);
+    static_cast<CodeGen*>(this)->GetEmitter()->SetUseVEXEncoding(value);
 }
 #endif
 
@@ -461,8 +447,7 @@ void CodeGen::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
     DoPhase(this, PHASE_EMIT_GCEH, &CodeGen::genEmitUnwindDebugGCandEH);
 
 #ifdef LATE_DISASM
-    getDisAssembler().disAsmCode(GetEmitter()->GetHotCodeAddr(), GetEmitter()->GetHotCodeSize(),
-                                 GetEmitter()->GetColdCodeAddr(), GetEmitter()->GetColdCodeSize());
+    GetEmitter()->Disassemble();
 #endif
 
 #if DISPLAY_SIZES

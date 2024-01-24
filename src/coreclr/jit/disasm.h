@@ -29,10 +29,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #define free(x) assert(false && "Must not call free(). Use a ClrXXX function instead.")
 #endif
 
-#if CHECK_STRUCT_PADDING
-#pragma warning(pop)
-#endif // CHECK_STRUCT_PADDING
-
 #define _OLD_IOSTREAMS
 // This pragma is needed because public\vc\inc\xiosbase contains
 // a static local variable
@@ -48,38 +44,32 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #error Unsupported or unset target architecture
 #endif
 
-#if CHECK_STRUCT_PADDING
-#pragma warning(push)
-#pragma warning(default : 4820) // 'bytes' bytes padding added after construct 'member_name'
-#endif                          // CHECK_STRUCT_PADDING
-
-/*****************************************************************************/
-
-#ifdef HOST_64BIT
-template <typename T>
-struct SizeTKeyFuncs : JitLargePrimitiveKeyFuncs<T>
-{
-};
-#else  // !HOST_64BIT
-template <typename T>
-struct SizeTKeyFuncs : JitSmallPrimitiveKeyFuncs<T>
-{
-};
-#endif // HOST_64BIT
-
-typedef JitHashTable<size_t, SizeTKeyFuncs<size_t>, CORINFO_METHOD_HANDLE> AddrToMethodHandleMap;
-typedef JitHashTable<size_t, SizeTKeyFuncs<size_t>, size_t>                AddrToAddrMap;
-
-class Compiler;
-
 class DisAssembler
 {
-public:
-    // Constructor
-    void disInit(Compiler* pComp);
+#ifdef HOST_64BIT
+    template <typename T>
+    struct SizeTKeyFuncs : JitLargePrimitiveKeyFuncs<T>
+    {
+    };
+#else
+    template <typename T>
+    struct SizeTKeyFuncs : JitSmallPrimitiveKeyFuncs<T>
+    {
+    };
+#endif
 
-    // Initialize the class for the current method being generated.
-    void disOpenForLateDisAsm(const char* curMethodName, const char* curClassName, PCCOR_SIGNATURE sig);
+    using AddrToMethodHandleMap = JitHashTable<size_t, SizeTKeyFuncs<size_t>, CORINFO_METHOD_HANDLE>;
+    using AddrToAddrMap         = JitHashTable<size_t, SizeTKeyFuncs<size_t>, size_t>;
+
+public:
+    DisAssembler::DisAssembler(Compiler* compiler, CodeGen* codeGen)
+        : disComp(compiler)
+        , codeGen(codeGen)
+        , addrToMethodHandleMap(compiler->getAllocator(CMK_DebugOnly))
+        , helperAddrToMethodHandleMap(compiler->getAllocator(CMK_DebugOnly))
+        , relocationMap(compiler->getAllocator(CMK_DebugOnly))
+    {
+    }
 
     // Disassemble a buffer: called after code for a method is generated.
     void disAsmCode(BYTE* hotCodePtr, size_t hotCodeSize, BYTE* coldCodePtr, size_t coldCodeSize);
@@ -118,19 +108,15 @@ private:
     // TODO-Review: there is some issue here where this is never set!
     char disFuncTempBuf[1024];
 
-    /* Method and class name to output */
-    const char* disCurMethodName;
-    const char* disCurClassName;
-
     /* flag that signals when replacing a symbol name has been deferred for following callbacks */
     // TODO-Review: there is some issue here where this is never set to 'true'!
-    bool disHasName;
+    bool disHasName = false;
 
     /* An array of labels, for jumps, LEAs, etc. There is one element in the array for each byte in the generated code.
      * That byte is zero if the corresponding byte of generated code is not a label. Otherwise, the value
      * is a label number.
      */
-    BYTE* disLabels;
+    BYTE* disLabels = nullptr;
 
     void DisasmBuffer(FILE* pfile, bool printit);
 
@@ -145,25 +131,23 @@ private:
      * points to */
     size_t disGetBufferSize(size_t offset);
 
+    Compiler* disComp;
+    CodeGen*  codeGen;
+
     // Map of instruction addresses to call target method handles for normal calls.
-    AddrToMethodHandleMap* disAddrToMethodHandleMap;
-    AddrToMethodHandleMap* GetAddrToMethodHandleMap();
+    AddrToMethodHandleMap addrToMethodHandleMap;
 
     // Map of instruction addresses to call target method handles for JIT helper calls.
-    AddrToMethodHandleMap* disHelperAddrToMethodHandleMap;
-    AddrToMethodHandleMap* GetHelperAddrToMethodHandleMap();
+    AddrToMethodHandleMap helperAddrToMethodHandleMap;
 
     // Map of relocation addresses to relocation target.
-    AddrToAddrMap* disRelocationMap;
-    AddrToAddrMap* GetRelocationMap();
+    AddrToAddrMap relocationMap;
 
     const char* disGetMethodFullName(size_t addr);
 
-    FILE* disAsmFile;
+    FILE* disAsmFile = nullptr;
 
-    Compiler* disComp;
-
-    bool disDiffable; // 'true' if the output should be diffable (hide or obscure absolute addresses)
+    bool disDiffable = false; // 'true' if the output should be diffable (hide or obscure absolute addresses)
 
     template <typename T>
     T dspAddr(T addr)

@@ -35,10 +35,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "jitexpandarray.h"
 #include "namedintrinsiclist.h"
 #include "phase.h"
-#ifdef LATE_DISASM
-#include "disasm.h"
-#endif
-
 #include "codegeninterface.h"
 #include "hwintrinsic.h"
 
@@ -6844,7 +6840,7 @@ public:
             case GT_RUNTIMELOOKUP:
             case GT_KEEPALIVE:
             case GT_INC_SATURATE:
-#ifdef FEATURE_SIMD
+#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
             case GT_SIMD_UPPER_SPILL:
             case GT_SIMD_UPPER_UNSPILL:
 #endif

@@ -1196,11 +1196,6 @@ void RandomPolicy::DetermineProfitability(CORINFO_METHOD_INFO* methodInfo)
 
 #endif // defined(DEBUG) || defined(INLINE_DATA)
 
-#ifdef _MSC_VER
-// Disable warning about new array member initialization behavior
-#pragma warning(disable : 4351)
-#endif
-
 //------------------------------------------------------------------------
 // NoteInt: handle an observed boolean value
 //

@@ -4212,7 +4212,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
 #ifdef LATE_DISASM
     if (addr != nullptr)
     {
-        codeGen->getDisAssembler().disSetMethod(reinterpret_cast<size_t>(addr), methodHandle);
+        disSetMethod(reinterpret_cast<size_t>(addr), methodHandle);
     }
 #endif
 

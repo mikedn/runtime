@@ -5797,9 +5797,6 @@ bool Compiler::fgUpdateFlowGraph(Lowering* lowering, bool doTailDuplication)
 
     return modified;
 }
-#ifdef _PREFAST_
-#pragma warning(pop)
-#endif
 
 #ifdef FEATURE_JIT_METHOD_PERF
 

@@ -12,10 +12,7 @@
   #define CPBLK_UNROLL_LIMIT       64      // Upper bound to let the code generator to loop unroll CpBlk.
   #define INITBLK_UNROLL_LIMIT     64      // Upper bound to let the code generator to loop unroll InitBlk.
 
-#ifdef FEATURE_SIMD
   #define FEATURE_PARTIAL_SIMD_CALLEE_SAVE 1 // Whether SIMD registers are partially saved at calls
-#endif // FEATURE_SIMD
-
   #define FEATURE_FIXED_OUT_ARGS   1       // Preallocate the outgoing arg area in the prolog
   #define FEATURE_FASTTAILCALL     1       // Tail calls made as epilog+jmp
   #define FEATURE_TAILCALL_OPT     1       // opportunistic Tail calls (i.e. without ".tail" prefix) made as fast tail calls.

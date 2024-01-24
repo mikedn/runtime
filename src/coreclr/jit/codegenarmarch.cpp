@@ -182,7 +182,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             genIntrinsic(treeNode->AsIntrinsic());
             break;
 
-#ifdef FEATURE_SIMD
+#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
         case GT_SIMD_UPPER_SPILL:
             genSIMDUpperSpill(treeNode->AsUnOp());
             break;

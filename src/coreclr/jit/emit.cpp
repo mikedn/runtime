@@ -20,9 +20,18 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "codegen.h"
 #include "gcinfotypes.h"
 #include "unwind.h"
+#ifdef LATE_DISASM
+#include "disasm.h"
+#endif
 
 emitter::emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo)
-    : emitComp(compiler), gcInfo(compiler), codeGen(codeGen), emitCmpHandle(jitInfo)
+    : emitComp(compiler)
+    , gcInfo(compiler)
+    , codeGen(codeGen)
+    , emitCmpHandle(jitInfo)
+#ifdef LATE_DISASM
+    , disasm(new (emitComp, CMK_DebugOnly) DisAssembler(compiler, codeGen))
+#endif
 {
 }
 
@@ -1911,7 +1920,21 @@ void emitter::emitDispCommentForHandle(void* handle, HandleKind kind)
     }
     else if (kind == HandleKind::Class)
     {
-        str = emitComp->eeGetClassName(static_cast<CORINFO_CLASS_HANDLE>(handle));
+        if (emitComp->opts.compReloc)
+        {
+            // TODO-MIKE-Cleanup: Sometimes the JIT generates code that accesses runtime
+            // class members, and then constant-folds the resulting address expression
+            // producing a constant address that's still marked as a class handle but
+            // points somewhere inside the runtime class.
+            // The folding is correct but we need to change the handle kind to something
+            // else so we don't try to get the name. For now just ignore class handles in
+            // the JIT case (in pre-JIT we need relocs, and those prevent constant folding).
+            str = emitComp->eeGetClassName(static_cast<CORINFO_CLASS_HANDLE>(handle));
+        }
+        else
+        {
+            str = "class handle";
+        }
     }
 #ifndef TARGET_XARCH
     // These are less useful for xarch:
@@ -2965,7 +2988,19 @@ void emitter::emitEndCodeGen()
 #endif
 }
 
-unsigned emitter::emitFindInsNum(insGroup* ig, instrDesc* idMatch)
+#ifdef LATE_DISASM
+void emitter::disSetMethod(size_t addr, CORINFO_METHOD_HANDLE methHnd)
+{
+    disasm->disSetMethod(addr, methHnd);
+}
+
+void emitter::Disassemble()
+{
+    disasm->disAsmCode(GetHotCodeAddr(), GetHotCodeSize(), GetColdCodeAddr(), GetColdCodeSize());
+}
+#endif
+
+unsigned emitter::emitFindInsNum(const insGroup* ig, const instrDesc* instr)
 {
     uint8_t* insData = ig->igData;
 
@@ -2973,7 +3008,7 @@ unsigned emitter::emitFindInsNum(insGroup* ig, instrDesc* idMatch)
     {
         instrDesc* id = reinterpret_cast<instrDesc*>(insData);
 
-        if (id == idMatch)
+        if (id == instr)
         {
             return i;
         }
@@ -3526,7 +3561,7 @@ void emitter::emitRecordRelocation(void* location, void* target, uint16_t relocT
     }
 
 #ifdef LATE_DISASM
-    codeGen->getDisAssembler().disRecordRelocation((size_t)location, (size_t)target);
+    disasm->disRecordRelocation((size_t)location, (size_t)target);
 #endif
 }
 

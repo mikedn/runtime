@@ -1235,8 +1235,8 @@ private:
     {
         assert(val.IsLocation());
 
-        GenTree* node = val.Node();
-        GenTree* addr = node->AsIndir()->GetAddr();
+        GenTreeIndir* node = val.Node()->AsIndir();
+        GenTree*      addr = node->GetAddr();
 
         m_compiler->lvaSetAddressExposed(val.LclNum());
 
@@ -1244,9 +1244,14 @@ private:
         addrVal.Address(val.LclNum(), val.Offset(), val.FieldSeq());
         CanonicalizeLocalAddress(addrVal, node);
 
-        node->AsIndir()->SetAddr(addr);
+        node->SetAddr(addr);
         node->gtFlags &= GTF_IND_UNALIGNED | GTF_IND_VOLATILE;
         node->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP;
+
+        if (node->IsVolatile())
+        {
+            node->AddSideEffects(GTF_ORDER_SIDEEFF);
+        }
 
         INDEBUG(m_stmtModified = true;)
     }

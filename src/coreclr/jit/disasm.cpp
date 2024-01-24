@@ -21,6 +21,9 @@
 #ifdef LATE_DISASM
 /*****************************************************************************/
 
+#include "disasm.h"
+#include "codegen.h"
+
 // Define DISASM_DEBUG to get verbose output of late disassembler inner workings.
 //#define DISASM_DEBUG
 #ifdef DISASM_DEBUG
@@ -169,6 +172,9 @@ size_t DisAssembler::disCchAddrMember(
                 }
             }
 
+            break;
+
+        case DISX86::trmtaCallInd:
             break;
 
 #ifdef TARGET_AMD64
@@ -350,7 +356,7 @@ size_t DisAssembler::disCchFixupMember(
 
     size_t absoluteAddr = (size_t)disGetLinearAddr((size_t)addr);
     size_t targetAddr;
-    bool   anyReloc = GetRelocationMap()->Lookup(absoluteAddr, &targetAddr);
+    bool   anyReloc = relocationMap.Lookup(absoluteAddr, &targetAddr);
 
     switch (terminationType)
     {
@@ -452,7 +458,7 @@ size_t DisAssembler::disCchFixupMember(
 
     size_t absoluteAddr = (size_t)disGetLinearAddr((size_t)addr);
     size_t targetAddr;
-    bool   anyReloc = GetRelocationMap()->Lookup(absoluteAddr, &targetAddr);
+    bool   anyReloc = relocationMap.Lookup(absoluteAddr, &targetAddr);
 
     switch (terminationType)
     {
@@ -597,7 +603,7 @@ size_t DisAssembler::disCchRegRelMember(
         case DISX86::trmtaTrap:
         case DISX86::trmtaTrapCc:
 
-            var = disComp->codeGen->siStackVarName((size_t)(pdis->Addr() - disStartAddr), pdis->Cb(), reg, disp);
+            var = codeGen->siStackVarName((size_t)(pdis->Addr() - disStartAddr), pdis->Cb(), reg, disp);
             if (var)
             {
                 swprintf_s(wz, cchMax, W("%hs+%Xh '%hs'"), getRegName(reg), disp, var);
@@ -692,7 +698,7 @@ size_t DisAssembler::disCchRegRelMember(
         case DISARM64::TRMTA::trmtaTrap:
         case DISARM64::TRMTA::trmtaTrapCc:
 
-            var = disComp->codeGen->siStackVarName((size_t)(pdis->Addr() - disStartAddr), pdis->Cb(), reg, disp);
+            var = codeGen->siStackVarName((size_t)(pdis->Addr() - disStartAddr), pdis->Cb(), reg, disp);
             if (var)
             {
                 swprintf_s(wz, cchMax, W("%hs+%Xh '%hs'"), getRegName(reg), disp, var);
@@ -796,10 +802,7 @@ size_t DisAssembler::disCchRegMember(const DIS* pdis, DIS::REGA reg, __in_ecount
     return 0;
 
 #if 0
-    const char * var = disComp->codeGen->siRegVarName(
-                                            (size_t)(pdis->Addr() - disStartAddr),
-                                            pdis->Cb(),
-                                            reg);
+    const char* var = codeGen->siRegVarName((size_t)(pdis->Addr() - disStartAddr), pdis->Cb(), reg);
 
     if (var)
     {
@@ -833,42 +836,6 @@ size_t DisAssembler::disCchRegMember(const DIS* pdis, DIS::REGA reg, __in_ecount
         return 0;
     }
 #endif // 0
-}
-
-/*****************************************************************************
- * Helper function to lazily create a map from code address to CORINFO_METHOD_HANDLE.
- */
-AddrToMethodHandleMap* DisAssembler::GetAddrToMethodHandleMap()
-{
-    if (disAddrToMethodHandleMap == nullptr)
-    {
-        disAddrToMethodHandleMap = new (disComp->getAllocator()) AddrToMethodHandleMap(disComp->getAllocator());
-    }
-    return disAddrToMethodHandleMap;
-}
-
-/*****************************************************************************
- * Helper function to lazily create a map from code address to CORINFO_METHOD_HANDLE.
- */
-AddrToMethodHandleMap* DisAssembler::GetHelperAddrToMethodHandleMap()
-{
-    if (disHelperAddrToMethodHandleMap == nullptr)
-    {
-        disHelperAddrToMethodHandleMap = new (disComp->getAllocator()) AddrToMethodHandleMap(disComp->getAllocator());
-    }
-    return disHelperAddrToMethodHandleMap;
-}
-
-/*****************************************************************************
- * Helper function to lazily create a map from relocation address to relocation target address.
- */
-AddrToAddrMap* DisAssembler::GetRelocationMap()
-{
-    if (disRelocationMap == nullptr)
-    {
-        disRelocationMap = new (disComp->getAllocator()) AddrToAddrMap(disComp->getAllocator());
-    }
-    return disRelocationMap;
 }
 
 /*****************************************************************************
@@ -937,7 +904,7 @@ size_t DisAssembler::CbDisassemble(DIS*        pdis,
                     (size_t)disGetLinearAddr((size_t)pdis->AddrAddress(1)); // Get the address in the instruction of the
                                                                             // call target address (the address the
                                                                             // reloc is applied to).
-                if (GetRelocationMap()->Lookup(absoluteAddr, &targetAddr))
+                if (relocationMap.Lookup(absoluteAddr, &targetAddr))
                 {
                     break;
                 }
@@ -995,7 +962,7 @@ size_t DisAssembler::CbDisassemble(DIS*        pdis,
                     (size_t)disGetLinearAddr((size_t)pdis->AddrAddress(1)); // Get the address in the instruction of the
                                                                             // call target address (the address the
                                                                             // reloc is applied to).
-                if (GetRelocationMap()->Lookup(absoluteAddr, &targetAddr))
+                if (relocationMap.Lookup(absoluteAddr, &targetAddr))
                 {
                     break;
                 }
@@ -1365,13 +1332,13 @@ const char* DisAssembler::disGetMethodFullName(size_t addr)
     CORINFO_METHOD_HANDLE res;
 
     // First check the JIT helper table: they're very common.
-    if (GetHelperAddrToMethodHandleMap()->Lookup(addr, &res))
+    if (helperAddrToMethodHandleMap.Lookup(addr, &res))
     {
         return disComp->eeGetMethodFullName(res);
     }
 
     // Next check the "normal" registered call targets
-    if (GetAddrToMethodHandleMap()->Lookup(addr, &res))
+    if (addrToMethodHandleMap.Lookup(addr, &res))
     {
         return disComp->eeGetMethodFullName(res);
     }
@@ -1397,12 +1364,12 @@ void DisAssembler::disSetMethod(size_t addr, CORINFO_METHOD_HANDLE methHnd)
     if (disComp->eeGetHelperNum(methHnd))
     {
         DISASM_DUMP("Helper function: %p => %p\n", addr, methHnd);
-        GetHelperAddrToMethodHandleMap()->Set(addr, methHnd);
+        helperAddrToMethodHandleMap.Set(addr, methHnd, AddrToMethodHandleMap::Overwrite);
     }
     else
     {
         DISASM_DUMP("Function: %p => %p\n", addr, methHnd);
-        GetAddrToMethodHandleMap()->Set(addr, methHnd);
+        addrToMethodHandleMap.Set(addr, methHnd, AddrToMethodHandleMap::Overwrite);
     }
 }
 
@@ -1422,7 +1389,7 @@ void DisAssembler::disRecordRelocation(size_t relocAddr, size_t targetAddr)
     }
 
     DISASM_DUMP("Relocation %p => %p\n", relocAddr, targetAddr);
-    GetRelocationMap()->Set(relocAddr, targetAddr);
+    relocationMap.Set(relocAddr, targetAddr);
 }
 
 /*****************************************************************************
@@ -1467,6 +1434,9 @@ void DisAssembler::disAsmCode(BYTE* hotCodePtr, size_t hotCodeSize, BYTE* coldCo
 
     // As this writes to a common file, this is not reentrant.
 
+    const char* disCurMethodName = disComp->info.compMethodName;
+    const char* disCurClassName  = disComp->info.compClassName;
+
     assert(hotCodeSize > 0);
     if (coldCodeSize == 0)
     {
@@ -1508,36 +1478,4 @@ void DisAssembler::disAsmCode(BYTE* hotCodePtr, size_t hotCodeSize, BYTE* coldCo
     }
 }
 
-/*****************************************************************************/
-// This function is called for every method. Checks if we are supposed to disassemble
-// the method, and where to send the disassembly output.
-
-void DisAssembler::disOpenForLateDisAsm(const char* curMethodName, const char* curClassName, PCCOR_SIGNATURE sig)
-{
-    if (!disComp->opts.doLateDisasm)
-    {
-        return;
-    }
-
-    disCurMethodName = curMethodName;
-    disCurClassName  = curClassName;
-}
-
-/*****************************************************************************/
-
-void DisAssembler::disInit(Compiler* pComp)
-{
-    assert(pComp);
-    disComp                        = pComp;
-    disHasName                     = false;
-    disLabels                      = nullptr;
-    disAddrToMethodHandleMap       = nullptr;
-    disHelperAddrToMethodHandleMap = nullptr;
-    disRelocationMap               = nullptr;
-    disDiffable                    = false;
-    disAsmFile                     = nullptr;
-}
-
-/*****************************************************************************/
 #endif // LATE_DISASM
-/*****************************************************************************/

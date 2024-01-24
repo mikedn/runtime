@@ -21,9 +21,6 @@ class CodeGenInterface
 {
     friend class emitter;
 
-protected:
-    emitter* m_cgEmitter;
-
 public:
     Compiler*     compiler;
     ParamRegState paramRegState;
@@ -89,9 +86,6 @@ private:
 #endif
 #ifdef TARGET_ARMARCH
     bool m_cgHasTailCalls = false;
-#endif
-#ifdef LATE_DISASM
-    DisAssembler m_cgDisAsm;
 #endif
 
 protected:
@@ -199,11 +193,6 @@ public:
     }
 #endif
 
-    emitter* GetEmitter() const
-    {
-        return m_cgEmitter;
-    }
-
     CORINFO_FIELD_HANDLE GetConst(const void* data, unsigned size, unsigned align DEBUGARG(var_types type));
 
     unsigned GetHotCodeSize() const;
@@ -215,16 +204,6 @@ public:
 
 #if defined(DEBUG) || defined(LATE_DISASM)
     double GetPerfScore() const;
-#endif
-
-#ifdef LATE_DISASM
-    const char* siRegVarName(size_t offs, size_t size, unsigned reg);
-    const char* siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs);
-
-    DisAssembler& getDisAssembler()
-    {
-        return m_cgDisAsm;
-    }
 #endif
 };
 

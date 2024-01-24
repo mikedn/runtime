@@ -5788,11 +5788,11 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_BSWAP16:
         case GT_KEEPALIVE:
         case GT_INC_SATURATE:
+        case GT_RETURNTRAP:
 #if FEATURE_ARG_SPLIT
         case GT_PUTARG_SPLIT:
-#endif // FEATURE_ARG_SPLIT
-        case GT_RETURNTRAP:
-#ifdef FEATURE_SIMD
+#endif
+#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
         case GT_SIMD_UPPER_SPILL:
         case GT_SIMD_UPPER_UNSPILL:
 #endif
