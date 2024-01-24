@@ -25,6 +25,7 @@ class CodeGen final : public CodeGenInterface
     friend class CodeGenInterface;
 
     class LinearScan* m_lsra = nullptr;
+    emitter*          m_cgEmitter;
 
     ILMapping*  firstILMapping = nullptr;
     ILMapping*  lastILMapping  = nullptr;
@@ -43,6 +44,12 @@ public:
     CodeGen(Compiler* compiler);
 
     void genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize);
+
+    emitter* GetEmitter() const
+    {
+        return m_cgEmitter;
+    }
+
 #ifdef LATE_DISASM
     const char* siRegVarName(size_t offs, size_t size, unsigned reg);
     const char* siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs);

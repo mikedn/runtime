@@ -21,9 +21,6 @@ class CodeGenInterface
 {
     friend class emitter;
 
-protected:
-    emitter* m_cgEmitter;
-
 public:
     Compiler*     compiler;
     ParamRegState paramRegState;
@@ -195,11 +192,6 @@ public:
         m_cgDoubleAlign = true;
     }
 #endif
-
-    emitter* GetEmitter() const
-    {
-        return m_cgEmitter;
-    }
 
     CORINFO_FIELD_HANDLE GetConst(const void* data, unsigned size, unsigned align DEBUGARG(var_types type));
 
