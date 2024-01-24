@@ -179,6 +179,7 @@
 
 #include "utilcode.h" // this defines assert as _ASSERTE
 #include "host.h"     // this redefines assert for the JIT to use assertAbort
+#include "vartypesdef.h"
 #include "utils.h"
 
 #ifdef DEBUG

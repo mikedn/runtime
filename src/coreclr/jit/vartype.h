@@ -19,8 +19,6 @@ enum var_types_classification
     VTF_S   = 0x0040, // is a struct type
 };
 
-#include "vartypesdef.h"
-
 const extern BYTE varTypeClassification[TYP_COUNT];
 
 // make any class with a TypeGet member also have a function TypeGet() that does the same thing
