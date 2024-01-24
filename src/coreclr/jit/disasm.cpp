@@ -21,6 +21,8 @@
 #ifdef LATE_DISASM
 /*****************************************************************************/
 
+#include "disasm.h"
+
 // Define DISASM_DEBUG to get verbose output of late disassembler inner workings.
 //#define DISASM_DEBUG
 #ifdef DISASM_DEBUG

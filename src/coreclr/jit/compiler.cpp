@@ -1307,7 +1307,6 @@ void Compiler::compInitConfigOptions()
         if (cfg.JitLateDisasm().contains(methodName, className, methodParams))
         {
             opts.doLateDisasm = true;
-            codeGen->getDisAssembler().disOpenForLateDisAsm(methodName, className, methodParams->pSig);
         }
 #endif
 

@@ -86,10 +86,6 @@ const char* CodeGenInterface::siStackVarName(size_t offs, size_t size, unsigned 
 CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), liveness(compiler)
 {
     m_cgEmitter = new (compiler, CMK_Codegen) emitter(compiler, this, compiler->info.compCompHnd);
-
-#ifdef LATE_DISASM
-    getDisAssembler().disInit(compiler);
-#endif
 }
 
 #ifdef TARGET_XARCH
@@ -461,8 +457,7 @@ void CodeGen::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
     DoPhase(this, PHASE_EMIT_GCEH, &CodeGen::genEmitUnwindDebugGCandEH);
 
 #ifdef LATE_DISASM
-    getDisAssembler().disAsmCode(GetEmitter()->GetHotCodeAddr(), GetEmitter()->GetHotCodeSize(),
-                                 GetEmitter()->GetColdCodeAddr(), GetEmitter()->GetColdCodeSize());
+    GetEmitter()->Disassemble();
 #endif
 
 #if DISPLAY_SIZES

@@ -90,9 +90,6 @@ private:
 #ifdef TARGET_ARMARCH
     bool m_cgHasTailCalls = false;
 #endif
-#ifdef LATE_DISASM
-    DisAssembler m_cgDisAsm;
-#endif
 
 protected:
     CodeGenInterface(Compiler* compiler);
@@ -220,11 +217,6 @@ public:
 #ifdef LATE_DISASM
     const char* siRegVarName(size_t offs, size_t size, unsigned reg);
     const char* siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs);
-
-    DisAssembler& getDisAssembler()
-    {
-        return m_cgDisAsm;
-    }
 #endif
 };
 

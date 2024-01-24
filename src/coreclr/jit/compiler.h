@@ -35,10 +35,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "jitexpandarray.h"
 #include "namedintrinsiclist.h"
 #include "phase.h"
-#ifdef LATE_DISASM
-#include "disasm.h"
-#endif
-
 #include "codegeninterface.h"
 #include "hwintrinsic.h"
 

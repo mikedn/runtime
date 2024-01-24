@@ -20,10 +20,17 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "codegen.h"
 #include "gcinfotypes.h"
 #include "unwind.h"
+#ifdef LATE_DISASM
+#include "disasm.h"
+#endif
 
 emitter::emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo)
     : emitComp(compiler), gcInfo(compiler), codeGen(codeGen), emitCmpHandle(jitInfo)
 {
+#ifdef LATE_DISASM
+    disasm = new (emitComp, CMK_DebugOnly) DisAssembler();
+    disasm->disInit(compiler);
+#endif
 }
 
 bool emitter::InDifferentRegions(insGroup* ig1, insGroup* ig2)
@@ -2965,6 +2972,20 @@ void emitter::emitEndCodeGen()
 #endif
 }
 
+#ifdef LATE_DISASM
+void emitter::disSetMethod(size_t addr, CORINFO_METHOD_HANDLE methHnd)
+{
+    disasm->disSetMethod(addr, methHnd);
+}
+
+void emitter::Disassemble()
+{
+    disasm->disOpenForLateDisAsm(emitComp->info.compMethodName, emitComp->info.compClassName,
+                                 emitComp->info.compMethodInfo->args.pSig);
+    disasm->disAsmCode(GetHotCodeAddr(), GetHotCodeSize(), GetColdCodeAddr(), GetColdCodeSize());
+}
+#endif
+
 unsigned emitter::emitFindInsNum(const insGroup* ig, const instrDesc* instr)
 {
     uint8_t* insData = ig->igData;
@@ -3526,7 +3547,7 @@ void emitter::emitRecordRelocation(void* location, void* target, uint16_t relocT
     }
 
 #ifdef LATE_DISASM
-    codeGen->getDisAssembler().disRecordRelocation((size_t)location, (size_t)target);
+    disasm->disRecordRelocation((size_t)location, (size_t)target);
 #endif
 }
 
