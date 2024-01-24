@@ -1384,7 +1384,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             genIntrinsic(treeNode->AsIntrinsic());
             break;
 
-#ifdef FEATURE_SIMD
+#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
         case GT_SIMD_UPPER_SPILL:
             genSIMDUpperSpill(treeNode->AsUnOp());
             break;
@@ -1397,7 +1397,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
         case GT_HWINTRINSIC:
             genHWIntrinsic(treeNode->AsHWIntrinsic());
             break;
-#endif // FEATURE_HW_INTRINSICS
+#endif
 
         case GT_CKFINITE:
             genCkfinite(treeNode);
@@ -7902,7 +7902,7 @@ void CodeGen::genStoreSIMD12ToStack(regNumber valueReg, regNumber tmpReg)
 
 #endif // TARGET_X86
 
-#ifdef FEATURE_SIMD
+#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 
 // Save the upper half of a TYP_SIMD32 vector to the given register, if any, or to memory.
 // The upper half of all AVX registers is volatile, even the callee-save registers.
@@ -7961,7 +7961,7 @@ void CodeGen::genSIMDUpperUnspill(GenTreeUnOp* node)
     }
 }
 
-#endif // FEATURE_SIMD
+#endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 
 void CodeGen::PrologPushCalleeSavedRegisters()
 {

@@ -269,7 +269,7 @@ GTNODE(SWAP             , GenTreeOp           , GTK_BINOP|GTK_NOVALUE)          
 GTNODE(IL_OFFSET        , GenTreeILOffset     , GTK_LEAF|GTK_NOVALUE)            // marks an IL offset for debugging purposes
 GTNODE(INSTR            , GenTreeInstr        , GTK_SPECIAL)
 
-#ifdef FEATURE_SIMD
+#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 GTNODE(SIMD_UPPER_SPILL  ,GenTreeUnOp         , GTK_UNOP)
 GTNODE(SIMD_UPPER_UNSPILL,GenTreeUnOp         , GTK_UNOP)
 #endif

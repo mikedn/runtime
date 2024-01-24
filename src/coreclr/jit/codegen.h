@@ -635,9 +635,12 @@ protected:
     void genPutArgSplit(GenTreePutArgSplit* treeNode);
 #endif
 
-#ifdef FEATURE_SIMD
+#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
     void genSIMDUpperSpill(GenTreeUnOp* node);
     void genSIMDUpperUnspill(GenTreeUnOp* node);
+#endif
+
+#ifdef FEATURE_SIMD
     void LoadSIMD12(GenTree* load);
 #ifdef TARGET_X86
     void genStoreSIMD12ToStack(regNumber operandReg, regNumber tmpReg);
