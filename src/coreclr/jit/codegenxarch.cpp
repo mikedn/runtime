@@ -3,10 +3,6 @@
 
 #include "jitpch.h"
 
-#ifdef _MSC_VER
-#pragma warning(disable : 4310) // cast truncates constant shift - happens for (int8_t)0xb1
-#endif
-
 #ifdef TARGET_XARCH
 
 #include "emit.h"
@@ -5921,7 +5917,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     if (targetType == TYP_DOUBLE)
     {
         inst_Mov(targetType, targetReg, srcReg, /* canSkip */ true);
-        GetEmitter()->emitIns_R_R_I(INS_shufps, EA_16BYTE, targetReg, targetReg, (int8_t)0xb1);
+        GetEmitter()->emitIns_R_R_I(INS_shufps, EA_16BYTE, targetReg, targetReg, 0xffffffb1);
         copyToTmpSrcReg = targetReg;
     }
     else
@@ -5943,7 +5939,7 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     if ((targetType == TYP_DOUBLE) && (targetReg == srcReg))
     {
         // We need to re-shuffle the targetReg to get the correct result.
-        GetEmitter()->emitIns_R_R_I(INS_shufps, EA_16BYTE, targetReg, targetReg, (int8_t)0xb1);
+        GetEmitter()->emitIns_R_R_I(INS_shufps, EA_16BYTE, targetReg, targetReg, 0xffffffb1);
     }
     else
     {

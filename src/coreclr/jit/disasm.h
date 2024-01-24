@@ -29,10 +29,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #define free(x) assert(false && "Must not call free(). Use a ClrXXX function instead.")
 #endif
 
-#if CHECK_STRUCT_PADDING
-#pragma warning(pop)
-#endif // CHECK_STRUCT_PADDING
-
 #define _OLD_IOSTREAMS
 // This pragma is needed because public\vc\inc\xiosbase contains
 // a static local variable
@@ -47,11 +43,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #else // TARGET*
 #error Unsupported or unset target architecture
 #endif
-
-#if CHECK_STRUCT_PADDING
-#pragma warning(push)
-#pragma warning(default : 4820) // 'bytes' bytes padding added after construct 'member_name'
-#endif                          // CHECK_STRUCT_PADDING
 
 /*****************************************************************************/
 
