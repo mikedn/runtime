@@ -1571,11 +1571,11 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_JMPTABLE:
-            GenJmpTable(treeNode, block);
+            GenJmpTable(treeNode, block->GetSwitchDesc());
             break;
 
         case GT_SWITCH_TABLE:
-            genTableBasedSwitch(treeNode->AsOp());
+            GenSwitchTable(treeNode->AsOp());
             break;
 
         case GT_ARR_INDEX:
@@ -3059,34 +3059,29 @@ void CodeGen::PrologClearVector3StackParamUpperBits()
 }
 #endif // defined(UNIX_AMD64_ABI) && defined(FEATURE_SIMD)
 
-void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
+void CodeGen::GenJmpTable(GenTree* node, const BBswtDesc& switchDesc)
 {
-    regNumber idxReg  = UseReg(treeNode->GetOp(0));
-    regNumber baseReg = UseReg(treeNode->GetOp(1));
-
-    regNumber tmpReg = treeNode->GetSingleTempReg();
-
-    // load the ip-relative offset (which is relative to start of fgFirstBB)
-    GetEmitter()->emitIns_R_ARX(INS_mov, EA_4BYTE, baseReg, baseReg, idxReg, 4, 0);
-
-    // add it to the absolute address of fgFirstBB
-    GetEmitter()->emitIns_R_L(tmpReg, compiler->fgFirstBB->emitLabel);
-    GetEmitter()->emitIns_R_R(INS_add, EA_PTRSIZE, baseReg, tmpReg);
-    // jmp baseReg
-    GetEmitter()->emitIns_R(INS_i_jmp, EA_PTRSIZE, baseReg);
-}
-
-void CodeGen::GenJmpTable(GenTree* node, BasicBlock* switchBlock)
-{
-    assert(switchBlock->KindIs(BBJ_SWITCH));
     assert(node->OperIs(GT_JMPTABLE));
 
-    unsigned     jumpCount  = switchBlock->bbJumpSwt->bbsCount;
-    BasicBlock** jumpTable  = switchBlock->bbJumpSwt->bbsDstTab;
-    unsigned     jmpTabBase = GetEmitter()->CreateBlockLabelTable(jumpTable, jumpCount, true);
+    unsigned jumpTable = GetEmitter()->CreateBlockLabelTable(switchDesc.bbsDstTab, switchDesc.bbsCount, true);
 
-    GetEmitter()->emitIns_R_C(INS_lea, EA_PTRSIZE, node->GetRegNum(), Emitter::MakeRoDataField(jmpTabBase));
+    GetEmitter()->emitIns_R_C(INS_lea, EA_PTRSIZE, node->GetRegNum(), Emitter::MakeRoDataField(jumpTable));
     DefReg(node);
+}
+
+void CodeGen::GenSwitchTable(GenTreeOp* node)
+{
+    assert(node->OperIs(GT_SWITCH_TABLE));
+
+    RegNum   indexReg = UseReg(node->GetOp(0));
+    RegNum   baseReg  = UseReg(node->GetOp(1));
+    RegNum   tempReg  = node->GetSingleTempReg();
+    Emitter& emit     = *GetEmitter();
+
+    emit.emitIns_R_ARX(INS_mov, EA_4BYTE, baseReg, baseReg, indexReg, 4, 0);
+    emit.emitIns_R_L(tempReg, compiler->fgFirstBB->emitLabel);
+    emit.emitIns_R_R(INS_add, EA_PTRSIZE, baseReg, tempReg);
+    emit.emitIns_R(INS_i_jmp, EA_PTRSIZE, baseReg);
 }
 
 void CodeGen::genCodeForLockAdd(GenTreeOp* node)

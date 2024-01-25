@@ -609,25 +609,24 @@ int32_t CodeGen::genStackPointerConstantAdjustmentLoopWithProbe(int32_t spDelta,
     return lastTouchDelta;
 }
 
-void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
+void CodeGen::GenJmpTable(GenTree* node, const BBswtDesc& switchDesc)
 {
-    regNumber idxReg  = UseReg(treeNode->GetOp(0));
-    regNumber baseReg = UseReg(treeNode->GetOp(1));
-
-    GetEmitter()->emitIns_R_R_R_I(INS_ldr, EA_4BYTE, REG_PC, baseReg, idxReg, 2, INS_FLAGS_DONT_CARE, INS_OPTS_LSL);
-}
-
-void CodeGen::GenJmpTable(GenTree* node, BasicBlock* switchBlock)
-{
-    assert(switchBlock->KindIs(BBJ_SWITCH));
     assert(node->OperIs(GT_JMPTABLE));
 
-    unsigned     jumpCount  = switchBlock->bbJumpSwt->bbsCount;
-    BasicBlock** jumpTable  = switchBlock->bbJumpSwt->bbsDstTab;
-    unsigned     jmpTabBase = GetEmitter()->CreateBlockLabelTable(jumpTable, jumpCount, false);
+    unsigned jumpTable = GetEmitter()->CreateBlockLabelTable(switchDesc.bbsDstTab, switchDesc.bbsCount, false);
 
-    genMov32RelocatableDataLabel(jmpTabBase, node->GetRegNum());
+    genMov32RelocatableDataLabel(jumpTable, node->GetRegNum());
     DefReg(node);
+}
+
+void CodeGen::GenSwitchTable(GenTreeOp* node)
+{
+    assert(node->OperIs(GT_SWITCH_TABLE));
+
+    RegNum indexReg = UseReg(node->GetOp(0));
+    RegNum baseReg  = UseReg(node->GetOp(1));
+
+    GetEmitter()->emitIns_R_R_R_I(INS_ldr, EA_4BYTE, REG_PC, baseReg, indexReg, 2, INS_FLAGS_DONT_CARE, INS_OPTS_LSL);
 }
 
 instruction CodeGen::genGetInsForOper(genTreeOps oper)

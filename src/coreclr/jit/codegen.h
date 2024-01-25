@@ -853,8 +853,8 @@ protected:
 #if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
     void GenStructStoreUnrollRegsWB(GenTreeObj* store);
 #endif
-    void GenJmpTable(GenTree* node, BasicBlock* switchBlock);
-    void genTableBasedSwitch(GenTreeOp* tree);
+    void GenJmpTable(GenTree* node, const BBswtDesc& switchDesc);
+    void GenSwitchTable(GenTreeOp* node);
     void genCodeForArrIndex(GenTreeArrIndex* treeNode);
     void genCodeForArrOffset(GenTreeArrOffs* treeNode);
     instruction genGetInsForOper(genTreeOps oper);
