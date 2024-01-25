@@ -1058,6 +1058,15 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
     assert(ins != INS_bt);
     assert((IF_ARD <= id->idInsFmt()) && (id->idInsFmt() <= IF_AWR_RRD_CNS));
 
+#ifdef TARGET_X86
+    // Special case: "mov eax, [addr]" and "mov [addr], eax" have smaller encoding.
+    if ((ins == INS_mov) && ((id->idInsFmt() == IF_RWR_ARD) || (id->idInsFmt() == IF_AWR_RRD)) &&
+        (id->idReg1() == REG_EAX) && (baseReg == REG_NA) && (indexReg == REG_NA))
+    {
+        return (size == EA_2BYTE) + 1 + 4;
+    }
+#endif
+
     unsigned sz;
 
     if (TakesVexPrefix(ins))
@@ -2770,7 +2779,7 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
     // instruction.
     if ((ins == INS_mov) && (reg == REG_EAX))
     {
-        sz = (EA_SIZE(attr) == EA_2BYTE) + 1 + 4;
+        sz = (attr == EA_2BYTE) + 1 + 4;
     }
     else
 #endif
@@ -5629,6 +5638,44 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     // BT with memory operands is practically useless and CMOV is not currently generated.
     assert((ins != INS_bt) && !IsCmov(ins));
     assert(TakesVexPrefix(ins) == hasVexPrefix(code));
+
+#ifdef TARGET_X86
+    // Special case: "mov eax, [addr]" and "mov [addr], eax" have smaller encoding.
+    if ((ins == INS_mov) && ((id->idInsFmt() == IF_RWR_ARD) || (id->idInsFmt() == IF_AWR_RRD)) &&
+        (id->idReg1() == REG_EAX) && (baseReg == REG_NA) && (indexReg == REG_NA))
+    {
+        assert(imm == nullptr);
+
+        if (id->idOpSize() == EA_2BYTE)
+        {
+            dst += emitOutputByte(dst, 0x66);
+        }
+
+        dst += emitOutputByte(dst, 0xA0 | ((id->idInsFmt() == IF_AWR_RRD) << 1) | (id->idOpSize() != EA_1BYTE));
+
+        ssize_t disp = id->GetAmDisp();
+        dst += emitOutputLong(dst, disp);
+
+        if (id->idIsDspReloc())
+        {
+            emitRecordRelocation(dst - 4, reinterpret_cast<void*>(disp), IMAGE_REL_BASED_HIGHLOW, 0);
+        }
+
+        if (id->idInsFmt() == IF_RWR_ARD)
+        {
+            if (id->idGCref() != GCT_NONE)
+            {
+                emitGCregLiveUpd(id->idGCref(), id->idReg1(), dst);
+            }
+            else
+            {
+                emitGCregDeadUpd(id->idReg1(), dst);
+            }
+        }
+
+        return dst;
+    }
+#endif // TARGET_X86
 
 #ifdef TARGET_AMD64
     if (IsExtendedReg(baseReg))
