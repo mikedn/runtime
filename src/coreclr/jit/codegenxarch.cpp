@@ -3065,6 +3065,10 @@ void CodeGen::GenJmpTable(GenTree* node, const BBswtDesc& switchDesc)
 
     unsigned jumpTable = GetEmitter()->CreateBlockLabelTable(switchDesc.bbsDstTab, switchDesc.bbsCount, true);
 
+    // TODO-MIKE-CQ: On x86 this needs to be folded into the address mode of the SWITCH_TABLE generated load.
+    // Can't do that easily though since only emitIns_R_C accepts a .rodata offset. For the same reason, x86
+    // JIT can't generate the usual "JMP [reg*4+table]" single instruction switch jump. It's probably more
+    // trouble than it's worth to add that to x86 at this point.
     GetEmitter()->emitIns_R_C(INS_lea, EA_PTRSIZE, node->GetRegNum(), Emitter::MakeRoDataField(jumpTable));
     DefReg(node);
 }
@@ -3078,10 +3082,16 @@ void CodeGen::GenSwitchTable(GenTreeOp* node)
     RegNum   tempReg  = node->GetSingleTempReg();
     Emitter& emit     = *GetEmitter();
 
+#ifdef TARGET_X86
+    emit.emitIns_R_L(tempReg, compiler->fgFirstBB->emitLabel);
+    emit.emitIns_R_ARX(INS_add, EA_4BYTE, tempReg, baseReg, indexReg, 4, 0);
+    emit.emitIns_R(INS_i_jmp, EA_4BYTE, tempReg);
+#else
     emit.emitIns_R_ARX(INS_mov, EA_4BYTE, baseReg, baseReg, indexReg, 4, 0);
     emit.emitIns_R_L(tempReg, compiler->fgFirstBB->emitLabel);
-    emit.emitIns_R_R(INS_add, EA_PTRSIZE, baseReg, tempReg);
-    emit.emitIns_R(INS_i_jmp, EA_PTRSIZE, baseReg);
+    emit.emitIns_R_R(INS_add, EA_8BYTE, baseReg, tempReg);
+    emit.emitIns_R(INS_i_jmp, EA_8BYTE, baseReg);
+#endif
 }
 
 void CodeGen::genCodeForLockAdd(GenTreeOp* node)
