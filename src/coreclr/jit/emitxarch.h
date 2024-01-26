@@ -101,6 +101,9 @@ void emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HA
 void emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, regNumber reg);
 void emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, int32_t imm);
 void emitIns_R_L(RegNum reg, insGroup* label);
+#ifdef TARGET_X86
+void emitIns_R_L(RegNum reg, CORINFO_FIELD_HANDLE field);
+#endif
 void emitIns_R_AH(instruction ins, regNumber ireg, void* addr);
 void emitIns_AR(instruction ins, emitAttr attr, regNumber base, int32_t disp);
 void emitIns_ARX(instruction ins, emitAttr attr, regNumber base, regNumber index, unsigned scaled, int32_t disp);

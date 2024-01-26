@@ -2552,10 +2552,10 @@ unsigned emitter::emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offs
 void emitter::emitCheckFuncletBranch(instrDescJmp* jmp) const
 {
 #ifdef TARGET_XARCH
-    // An lea of a code address (for constant data stored with the code)
+    // An lea of a code or data address (for constant data stored with the code)
     // is treated like a jump for emission purposes but is not really a jump so
     // we don't have to check anything here.
-    if (jmp->idIns() == INS_lea)
+    if ((jmp->idIns() == INS_lea) || (jmp->idIns() == INS_mov))
     {
         return;
     }

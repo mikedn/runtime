@@ -2874,7 +2874,7 @@ void emitter::emitIns_R_L(RegNum reg, insGroup* label)
     INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (codeGen->GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
 
 #ifdef TARGET_X86
-    unsigned sz = 1 + 4; // 0xB8 DISP32
+    unsigned sz = 1 + 4; // 0xB8 IMM32
 #else
     unsigned sz = 1 + 1 + 1 + 4; // REX 0x8D RM DISP32
 #endif
@@ -2882,6 +2882,26 @@ void emitter::emitIns_R_L(RegNum reg, insGroup* label)
     dispIns(id);
     emitCurIGsize += sz;
 }
+
+#ifdef TARGET_X86
+void emitter::emitIns_R_L(RegNum reg, CORINFO_FIELD_HANDLE field)
+{
+    assert(IsRoDataField(field));
+
+    instrDescJmp* id = emitNewInstrJmp();
+    id->idIns(INS_mov);
+    id->idOpSize(EA_PTRSIZE);
+    id->idInsFmt(IF_RWR_LABEL);
+    id->idReg1(reg);
+    id->SetRoDataOffset(GetRoDataOffset(field));
+    id->idSetIsCnsReloc(emitComp->opts.compReloc);
+
+    unsigned sz = 1 + 4; // 0xB8 IMM32
+    id->idCodeSize(sz);
+    dispIns(id);
+    emitCurIGsize += sz;
+}
+#endif // TARGET_X86
 
 void emitter::emitIns_R_AH(instruction ins, regNumber reg, void* addr)
 {
@@ -4462,6 +4482,12 @@ private:
         {
             printf("%3d instr", id->GetInstrCount());
         }
+#ifdef TARGET_X86
+        else if (id->HasRoDataOffset())
+        {
+            printf("RWD%02u", id->GetRoDataOffset());
+        }
+#endif
         else
         {
             emitter->emitPrintLabel(id->GetLabel());
@@ -7261,13 +7287,24 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     assert(id->idOpSize() == EA_PTRSIZE);
     assert(id->idGCref() == GCT_NONE);
 
-    unsigned instrOffs = emitCurCodeOffs(dst);
-    uint8_t* instrAddr = emitOffsetToPtr(instrOffs);
-    unsigned labelOffs = id->GetLabel()->igOffs;
-    uint8_t* labelAddr = emitOffsetToPtr(labelOffs);
-
 #ifdef TARGET_X86
     assert(id->idIns() == INS_mov);
+
+    uint8_t* labelAddr;
+
+    if (id->HasRoDataOffset())
+    {
+        labelAddr = emitConsBlock + id->GetRoDataOffset();
+    }
+    else
+    {
+        unsigned instrOffs = emitCurCodeOffs(dst);
+        uint8_t* instrAddr = emitOffsetToPtr(instrOffs);
+        unsigned labelOffs = id->GetLabel()->igOffs;
+
+        labelAddr = emitOffsetToPtr(labelOffs);
+    }
+
     assert((0 <= id->idReg1()) && id->idReg1() <= 7);
 
     dst += emitOutputByte(dst, 0xB8 + id->idReg1());
@@ -7283,6 +7320,11 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     }
 #else
     assert(id->idIns() == INS_lea);
+
+    unsigned instrOffs = emitCurCodeOffs(dst);
+    uint8_t* instrAddr = emitOffsetToPtr(instrOffs);
+    unsigned labelOffs = id->GetLabel()->igOffs;
+    uint8_t* labelAddr = emitOffsetToPtr(labelOffs);
 
     code_t code = 0x8D;
     assert(insCodeRM(INS_lea) == code);
