@@ -419,7 +419,49 @@ void CodeGen::genEHFinallyOrFilterRet(BasicBlock* block)
     }
 }
 
+void CodeGen::GenEndLFin(GenTreeEndLFin* node)
+{
+    // Have to clear the ShadowSP of the nesting level which encloses the finally. Generates:
+    //     mov dword ptr [ebp-0xC], 0  // for some slot of the ShadowSP local var
+
+    unsigned finallyNesting = node->GetNesting();
+    noway_assert(finallyNesting < compiler->compHndBBtabCount);
+
+    unsigned   shadowSPSlotsLclNum = compiler->lvaShadowSPslotsVar;
+    LclVarDsc* shadowSPSlotsLcl    = compiler->lvaGetDesc(shadowSPSlotsLclNum);
+
+    // The last slot is reserved for ICodeManager::FixContext(ppEndRegion)
+    assert(shadowSPSlotsLcl->GetBlockSize() > REGSIZE_BYTES);
+    unsigned filterEndOffsetSlotOffs = shadowSPSlotsLcl->GetBlockSize() - REGSIZE_BYTES;
+
+    unsigned curNestingSlotOffs = filterEndOffsetSlotOffs - (finallyNesting + 1) * REGSIZE_BYTES;
+    GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, shadowSPSlotsLclNum, curNestingSlotOffs, 0);
+}
+
 #endif // !FEATURE_EH_FUNCLETS
+
+void CodeGen::GenClsVarAddr(GenTreeClsVar* node)
+{
+    RegNum               reg   = node->GetRegNum();
+    CORINFO_FIELD_HANDLE field = node->GetFieldHandle();
+
+#ifdef TARGET_X86
+    if (Emitter::IsRoDataField(field))
+    {
+        GetEmitter()->emitIns_R_L(reg, field);
+    }
+    else
+    {
+        void* addr = compiler->info.compCompHnd->getFieldAddress(field, nullptr);
+        noway_assert(addr != nullptr);
+        GetEmitter()->emitIns_R_H(INS_mov, reg, addr);
+    }
+#else
+    GetEmitter()->emitIns_R_C(INS_lea, EA_8BYTE, reg, field);
+#endif
+
+    DefReg(node);
+}
 
 void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
 {
@@ -1526,25 +1568,9 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 
 #ifndef FEATURE_EH_FUNCLETS
         case GT_END_LFIN:
-        {
-            // Have to clear the ShadowSP of the nesting level which encloses the finally. Generates:
-            //     mov dword ptr [ebp-0xC], 0  // for some slot of the ShadowSP local var
-
-            unsigned finallyNesting = treeNode->AsEndLFin()->GetNesting();
-            noway_assert(finallyNesting < compiler->compHndBBtabCount);
-
-            unsigned   shadowSPSlotsLclNum = compiler->lvaShadowSPslotsVar;
-            LclVarDsc* shadowSPSlotsLcl    = compiler->lvaGetDesc(shadowSPSlotsLclNum);
-
-            // The last slot is reserved for ICodeManager::FixContext(ppEndRegion)
-            assert(shadowSPSlotsLcl->GetBlockSize() > REGSIZE_BYTES);
-            unsigned filterEndOffsetSlotOffs = shadowSPSlotsLcl->GetBlockSize() - REGSIZE_BYTES;
-
-            unsigned curNestingSlotOffs = filterEndOffsetSlotOffs - ((finallyNesting + 1) * REGSIZE_BYTES);
-            GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, shadowSPSlotsLclNum, curNestingSlotOffs, 0);
-        }
-        break;
-#endif // !FEATURE_EH_FUNCLETS
+            GenEndLFin(treeNode->AsEndLFin());
+            break;
+#endif
 
         case GT_PINVOKE_PROLOG:
             noway_assert((liveness.GetGCRegs() & ~fullIntArgRegMask()) == 0);
@@ -1587,9 +1613,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_CLS_VAR_ADDR:
-            GetEmitter()->emitIns_R_C(INS_lea, EA_PTRSIZE, treeNode->GetRegNum(),
-                                      treeNode->AsClsVar()->GetFieldHandle());
-            DefReg(treeNode);
+            GenClsVarAddr(treeNode->AsClsVar());
             break;
 
         case GT_INSTR:

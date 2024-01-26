@@ -486,6 +486,8 @@ protected:
     unsigned           genTrnslLocalVarCount = 0;
 #endif
 
+    void GenClsVarAddr(GenTreeClsVar* node);
+
 #ifdef TARGET_XARCH
     void GenIntCon(GenTreeIntCon* node, regNumber reg, var_types type);
     void GenDblCon(GenTreeDblCon* node, regNumber reg, var_types type);
@@ -879,6 +881,7 @@ protected:
     void genEHCatchRet(BasicBlock* block);
 #else
     void genEHFinallyOrFilterRet(BasicBlock* block);
+    void GenEndLFin(GenTreeEndLFin* node);
 #endif
 
 #ifndef WINDOWS_AMD64_ABI
