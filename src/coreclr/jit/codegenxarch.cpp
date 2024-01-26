@@ -3110,6 +3110,12 @@ void CodeGen::GenSwitchTable(GenTreeOp* node)
     }
 #else
     emit.emitIns_R_ARX(INS_mov, EA_4BYTE, baseReg, baseReg, indexReg, 4, 0);
+    // TODO-MIKE-CQ: There should be no need to have 2 LEAs, one for the jump table address
+    // and one for the base label address, we can have one base address and make everything
+    // relative to that. But we may need special reloc support from crossgen to do that, as
+    // we don't know the delta between code and data sections.
+    // Also, is there any point in having a separate JMPTABLE node? It seems like it would
+    // only complicate this further.
     emit.emitIns_R_L(tempReg, compiler->fgFirstBB->emitLabel);
     emit.emitIns_R_R(INS_add, EA_8BYTE, baseReg, tempReg);
     emit.emitIns_R(INS_i_jmp, EA_8BYTE, baseReg);
