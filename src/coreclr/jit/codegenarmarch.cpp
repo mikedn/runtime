@@ -377,16 +377,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_CLS_VAR_ADDR:
-#ifdef TARGET_ARM
-            void* addr;
-            addr = compiler->info.compCompHnd->getFieldAddress(treeNode->AsClsVar()->GetFieldHandle(), nullptr);
-            noway_assert(addr != nullptr);
-            instGen_Set_Reg_To_Addr(treeNode->GetRegNum(), addr);
-#else
-            GetEmitter()->emitIns_R_C(INS_adr, EA_8BYTE, treeNode->GetRegNum(), REG_NA,
-                                      treeNode->AsClsVar()->GetFieldHandle());
-#endif
-            DefReg(treeNode);
+            GenClsVarAddr(treeNode->AsClsVar());
             break;
 
         case GT_INSTR:

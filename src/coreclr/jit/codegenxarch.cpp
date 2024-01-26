@@ -421,6 +421,29 @@ void CodeGen::genEHFinallyOrFilterRet(BasicBlock* block)
 
 #endif // !FEATURE_EH_FUNCLETS
 
+void CodeGen::GenClsVarAddr(GenTreeClsVar* node)
+{
+    RegNum               reg   = node->GetRegNum();
+    CORINFO_FIELD_HANDLE field = node->GetFieldHandle();
+
+#ifdef TARGET_X86
+    if (Emitter::IsRoDataField(field))
+    {
+        GetEmitter()->emitIns_R_L(reg, field);
+    }
+    else
+    {
+        void* addr = compiler->info.compCompHnd->getFieldAddress(field, nullptr);
+        noway_assert(addr != nullptr);
+        GetEmitter()->emitIns_R_H(INS_mov, reg, addr);
+    }
+#else
+    GetEmitter()->emitIns_R_C(INS_lea, EA_8BYTE, reg, field);
+#endif
+
+    DefReg(node);
+}
+
 void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
 {
     GetEmitter()->emitIns_R_R(INS_xor, size, reg, reg);
@@ -1587,23 +1610,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_CLS_VAR_ADDR:
-#ifdef TARGET_X86
-            if (Emitter::IsRoDataField(treeNode->AsClsVar()->GetFieldHandle()))
-            {
-                GetEmitter()->emitIns_R_L(treeNode->GetRegNum(), treeNode->AsClsVar()->GetFieldHandle());
-            }
-            else
-            {
-                void* addr =
-                    compiler->info.compCompHnd->getFieldAddress(treeNode->AsClsVar()->GetFieldHandle(), nullptr);
-                noway_assert(addr != nullptr);
-                GetEmitter()->emitIns_R_H(INS_mov, treeNode->GetRegNum(), addr);
-            }
-#else
-            GetEmitter()->emitIns_R_C(INS_lea, EA_PTRSIZE, treeNode->GetRegNum(),
-                                      treeNode->AsClsVar()->GetFieldHandle());
-#endif
-            DefReg(treeNode);
+            GenClsVarAddr(treeNode->AsClsVar());
             break;
 
         case GT_INSTR:

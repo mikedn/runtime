@@ -101,6 +101,14 @@ void CodeGen::genMov32RelocatableDataLabel(unsigned value, regNumber reg)
     }
 }
 
+void CodeGen::GenClsVarAddr(GenTreeClsVar* node)
+{
+    void* addr = compiler->info.compCompHnd->getFieldAddress(node->GetFieldHandle(), nullptr);
+    noway_assert(addr != nullptr);
+    instGen_Set_Reg_To_Addr(node->GetRegNum(), addr);
+    DefReg(node);
+}
+
 void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
 {
     GetEmitter()->emitIns_R_I(INS_mov, size, reg, 0);

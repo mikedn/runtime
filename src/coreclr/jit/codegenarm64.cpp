@@ -1438,6 +1438,12 @@ void CodeGen::genEHCatchRet(BasicBlock* block)
     GetEmitter()->emitIns_R_L(REG_INTRET, block->bbJumpDest->emitLabel);
 }
 
+void CodeGen::GenClsVarAddr(GenTreeClsVar* node)
+{
+    GetEmitter()->emitIns_R_C(INS_adr, EA_8BYTE, node->GetRegNum(), REG_NA, node->GetFieldHandle());
+    DefReg(node);
+}
+
 void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
 {
     GetEmitter()->emitIns_R_I(INS_mov, size, reg, 0);
