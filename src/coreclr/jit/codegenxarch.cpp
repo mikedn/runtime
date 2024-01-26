@@ -3063,7 +3063,18 @@ void CodeGen::GenJmpTable(GenTree* node, const BBswtDesc& switchDesc)
 {
     assert(node->OperIs(GT_JMPTABLE));
 
-    unsigned jumpTable = GetEmitter()->CreateBlockLabelTable(switchDesc.bbsDstTab, switchDesc.bbsCount, true);
+#ifdef TARGET_X86
+    // On x86, both relative and absolute jump tables have 4 byte entries, but when pre-JITing
+    // it's useful to avoid relocations so we only use absolute jump tables when JITing.
+    const bool relative = compiler->opts.compReloc;
+#else
+    // On x64 we always use relative jump tables as they're smaller.
+    // TODO-MIKE-Review: Perhaps it would be useful to use absolute jump tables for small jump
+    // tables (e.g. 8 entries or less)?
+    const bool relative = true;
+#endif
+
+    unsigned jumpTable = GetEmitter()->CreateBlockLabelTable(switchDesc.bbsDstTab, switchDesc.bbsCount, relative);
 
     // TODO-MIKE-CQ: On x86 this needs to be folded into the address mode of the SWITCH_TABLE generated load.
     // Can't do that easily though since only emitIns_R_C accepts a .rodata offset. For the same reason, x86
@@ -3083,9 +3094,16 @@ void CodeGen::GenSwitchTable(GenTreeOp* node)
     Emitter& emit     = *GetEmitter();
 
 #ifdef TARGET_X86
-    emit.emitIns_R_L(tempReg, compiler->fgFirstBB->emitLabel);
-    emit.emitIns_R_ARX(INS_add, EA_4BYTE, tempReg, baseReg, indexReg, 4, 0);
-    emit.emitIns_R(INS_i_jmp, EA_4BYTE, tempReg);
+    if (compiler->opts.compReloc)
+    {
+        emit.emitIns_R_L(tempReg, compiler->fgFirstBB->emitLabel);
+        emit.emitIns_R_ARX(INS_add, EA_4BYTE, tempReg, baseReg, indexReg, 4, 0);
+        emit.emitIns_R(INS_i_jmp, EA_4BYTE, tempReg);
+    }
+    else
+    {
+        emit.emitIns_ARX(INS_i_jmp, EA_4BYTE, baseReg, indexReg, 4, 0);
+    }
 #else
     emit.emitIns_R_ARX(INS_mov, EA_4BYTE, baseReg, baseReg, indexReg, 4, 0);
     emit.emitIns_R_L(tempReg, compiler->fgFirstBB->emitLabel);
