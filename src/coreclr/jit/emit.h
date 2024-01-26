@@ -1124,7 +1124,7 @@ private:
         enum : uintptr_t
         {
             LabelTag = 0,
-#ifdef TARGET_ARM64
+#if defined(TARGET_ARM64) || defined(TARGET_X86)
             RoDataOffsetTag = 1,
 #endif
             InstrCountTag = 2,
@@ -1156,7 +1156,7 @@ private:
             _idAddrUnion.label = reinterpret_cast<uintptr_t>(label);
         }
 
-#ifdef TARGET_ARM64
+#if defined(TARGET_ARM64) || defined(TARGET_X86)
         bool HasRoDataOffset() const
         {
             return (_idAddrUnion.label & TagMask) == RoDataOffsetTag;

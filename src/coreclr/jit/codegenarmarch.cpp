@@ -361,11 +361,11 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_JMPTABLE:
-            GenJmpTable(treeNode, block);
+            GenJmpTable(treeNode, block->GetSwitchDesc());
             break;
 
         case GT_SWITCH_TABLE:
-            genTableBasedSwitch(treeNode->AsOp());
+            GenSwitchTable(treeNode->AsOp());
             break;
 
         case GT_ARR_INDEX:

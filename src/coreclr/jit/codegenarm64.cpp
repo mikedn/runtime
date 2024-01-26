@@ -2331,35 +2331,29 @@ void CodeGen::GenDivMod(GenTreeOp* div)
     DefReg(div);
 }
 
-void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
+void CodeGen::GenJmpTable(GenTree* node, const BBswtDesc& switchDesc)
 {
-    regNumber idxReg  = UseReg(treeNode->GetOp(0));
-    regNumber baseReg = UseReg(treeNode->GetOp(1));
-
-    regNumber tmpReg = treeNode->GetSingleTempReg();
-
-    // load the ip-relative offset (which is relative to start of fgFirstBB)
-    GetEmitter()->emitIns_R_R_R(INS_ldr, EA_4BYTE, baseReg, baseReg, idxReg, INS_OPTS_LSL);
-
-    // add it to the absolute address of fgFirstBB
-    GetEmitter()->emitIns_R_L(tmpReg, compiler->fgFirstBB->emitLabel);
-    GetEmitter()->emitIns_R_R_R(INS_add, EA_8BYTE, baseReg, baseReg, tmpReg);
-
-    // br baseReg
-    GetEmitter()->emitIns_R(INS_br, EA_8BYTE, baseReg);
-}
-
-void CodeGen::GenJmpTable(GenTree* node, BasicBlock* switchBlock)
-{
-    assert(switchBlock->KindIs(BBJ_SWITCH));
     assert(node->OperIs(GT_JMPTABLE));
 
-    unsigned     jumpCount  = switchBlock->bbJumpSwt->bbsCount;
-    BasicBlock** jumpTable  = switchBlock->bbJumpSwt->bbsDstTab;
-    unsigned     jmpTabBase = GetEmitter()->CreateBlockLabelTable(jumpTable, jumpCount, true);
+    unsigned jumpTable = GetEmitter()->CreateBlockLabelTable(switchDesc.bbsDstTab, switchDesc.bbsCount, true);
 
-    GetEmitter()->emitIns_R_C(INS_adr, EA_8BYTE, node->GetRegNum(), REG_NA, Emitter::MakeRoDataField(jmpTabBase));
+    GetEmitter()->emitIns_R_C(INS_adr, EA_8BYTE, node->GetRegNum(), REG_NA, Emitter::MakeRoDataField(jumpTable));
     DefReg(node);
+}
+
+void CodeGen::GenSwitchTable(GenTreeOp* node)
+{
+    assert(node->OperIs(GT_SWITCH_TABLE));
+
+    RegNum   indexReg = UseReg(node->GetOp(0));
+    RegNum   baseReg  = UseReg(node->GetOp(1));
+    RegNum   tempReg  = node->GetSingleTempReg();
+    Emitter& emit     = *GetEmitter();
+
+    emit.emitIns_R_R_R(INS_ldr, EA_4BYTE, baseReg, baseReg, indexReg, INS_OPTS_LSL);
+    emit.emitIns_R_L(tempReg, compiler->fgFirstBB->emitLabel);
+    emit.emitIns_R_R_R(INS_add, EA_8BYTE, baseReg, baseReg, tempReg);
+    emit.emitIns_R(INS_br, EA_8BYTE, baseReg);
 }
 
 void CodeGen::genLockedInstructions(GenTreeOp* treeNode)

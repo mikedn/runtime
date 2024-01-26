@@ -835,6 +835,12 @@ struct BasicBlock : private LIR::Range
     BasicBlock* GetSucc(unsigned i) const;
     BasicBlock* GetSucc(unsigned i, Compiler* comp);
 
+    BBswtDesc& GetSwitchDesc()
+    {
+        assert(bbJumpKind == BBJ_SWITCH);
+        return *bbJumpSwt;
+    }
+
     // SwitchTargets: convenience methods for enabling range-based `for` iteration over a switch block's targets, e.g.:
     //    for (BasicBlock* const bTarget : block->SwitchTargets()) ...
     //

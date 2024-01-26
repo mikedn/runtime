@@ -1571,11 +1571,11 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_JMPTABLE:
-            GenJmpTable(treeNode, block);
+            GenJmpTable(treeNode, block->GetSwitchDesc());
             break;
 
         case GT_SWITCH_TABLE:
-            genTableBasedSwitch(treeNode->AsOp());
+            GenSwitchTable(treeNode->AsOp());
             break;
 
         case GT_ARR_INDEX:
@@ -3059,34 +3059,67 @@ void CodeGen::PrologClearVector3StackParamUpperBits()
 }
 #endif // defined(UNIX_AMD64_ABI) && defined(FEATURE_SIMD)
 
-void CodeGen::genTableBasedSwitch(GenTreeOp* treeNode)
+void CodeGen::GenJmpTable(GenTree* node, const BBswtDesc& switchDesc)
 {
-    regNumber idxReg  = UseReg(treeNode->GetOp(0));
-    regNumber baseReg = UseReg(treeNode->GetOp(1));
-
-    regNumber tmpReg = treeNode->GetSingleTempReg();
-
-    // load the ip-relative offset (which is relative to start of fgFirstBB)
-    GetEmitter()->emitIns_R_ARX(INS_mov, EA_4BYTE, baseReg, baseReg, idxReg, 4, 0);
-
-    // add it to the absolute address of fgFirstBB
-    GetEmitter()->emitIns_R_L(tmpReg, compiler->fgFirstBB->emitLabel);
-    GetEmitter()->emitIns_R_R(INS_add, EA_PTRSIZE, baseReg, tmpReg);
-    // jmp baseReg
-    GetEmitter()->emitIns_R(INS_i_jmp, EA_PTRSIZE, baseReg);
-}
-
-void CodeGen::GenJmpTable(GenTree* node, BasicBlock* switchBlock)
-{
-    assert(switchBlock->KindIs(BBJ_SWITCH));
     assert(node->OperIs(GT_JMPTABLE));
 
-    unsigned     jumpCount  = switchBlock->bbJumpSwt->bbsCount;
-    BasicBlock** jumpTable  = switchBlock->bbJumpSwt->bbsDstTab;
-    unsigned     jmpTabBase = GetEmitter()->CreateBlockLabelTable(jumpTable, jumpCount, true);
+#ifdef TARGET_X86
+    // On x86, both relative and absolute jump tables have 4 byte entries, but when pre-JITing
+    // it's useful to avoid relocations so we only use absolute jump tables when JITing.
+    const bool relative = compiler->opts.compReloc;
+#else
+    // On x64 we always use relative jump tables as they're smaller.
+    // TODO-MIKE-Review: Perhaps it would be useful to use absolute jump tables for small jump
+    // tables (e.g. 8 entries or less)?
+    const bool relative = true;
+#endif
 
-    GetEmitter()->emitIns_R_C(INS_lea, EA_PTRSIZE, node->GetRegNum(), Emitter::MakeRoDataField(jmpTabBase));
+    unsigned jumpTable = GetEmitter()->CreateBlockLabelTable(switchDesc.bbsDstTab, switchDesc.bbsCount, relative);
+
+#ifdef TARGET_X86
+    // TODO-MIKE-CQ: This needs to be folded into the address mode of the SWITCH_TABLE generated load.
+    // Can't do that easily though since there's no emitIns_ARX version that accepts a .rodata offset
+    // as displacement. It's probably more trouble than it's worth to add that to x86 at this point.
+    GetEmitter()->emitIns_R_L(node->GetRegNum(), Emitter::MakeRoDataField(jumpTable));
+#else
+    GetEmitter()->emitIns_R_C(INS_lea, EA_8BYTE, node->GetRegNum(), Emitter::MakeRoDataField(jumpTable));
+#endif
+
     DefReg(node);
+}
+
+void CodeGen::GenSwitchTable(GenTreeOp* node)
+{
+    assert(node->OperIs(GT_SWITCH_TABLE));
+
+    RegNum   indexReg = UseReg(node->GetOp(0));
+    RegNum   baseReg  = UseReg(node->GetOp(1));
+    RegNum   tempReg  = node->GetSingleTempReg();
+    Emitter& emit     = *GetEmitter();
+
+#ifdef TARGET_X86
+    if (compiler->opts.compReloc)
+    {
+        emit.emitIns_R_L(tempReg, compiler->fgFirstBB->emitLabel);
+        emit.emitIns_R_ARX(INS_add, EA_4BYTE, tempReg, baseReg, indexReg, 4, 0);
+        emit.emitIns_R(INS_i_jmp, EA_4BYTE, tempReg);
+    }
+    else
+    {
+        emit.emitIns_ARX(INS_i_jmp, EA_4BYTE, baseReg, indexReg, 4, 0);
+    }
+#else
+    emit.emitIns_R_ARX(INS_mov, EA_4BYTE, baseReg, baseReg, indexReg, 4, 0);
+    // TODO-MIKE-CQ: There should be no need to have 2 LEAs, one for the jump table address
+    // and one for the base label address, we can have one base address and make everything
+    // relative to that. But we may need special reloc support from crossgen to do that, as
+    // we don't know the delta between code and data sections.
+    // Also, is there any point in having a separate JMPTABLE node? It seems like it would
+    // only complicate this further.
+    emit.emitIns_R_L(tempReg, compiler->fgFirstBB->emitLabel);
+    emit.emitIns_R_R(INS_add, EA_8BYTE, baseReg, tempReg);
+    emit.emitIns_R(INS_i_jmp, EA_8BYTE, baseReg);
+#endif
 }
 
 void CodeGen::genCodeForLockAdd(GenTreeOp* node)
