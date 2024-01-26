@@ -1587,8 +1587,22 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_CLS_VAR_ADDR:
+#ifdef TARGET_X86
+            if (Emitter::IsRoDataField(treeNode->AsClsVar()->GetFieldHandle()))
+            {
+                GetEmitter()->emitIns_R_L(treeNode->GetRegNum(), treeNode->AsClsVar()->GetFieldHandle());
+            }
+            else
+            {
+                void* addr =
+                    compiler->info.compCompHnd->getFieldAddress(treeNode->AsClsVar()->GetFieldHandle(), nullptr);
+                noway_assert(addr != nullptr);
+                GetEmitter()->emitIns_R_H(INS_mov, treeNode->GetRegNum(), addr);
+            }
+#else
             GetEmitter()->emitIns_R_C(INS_lea, EA_PTRSIZE, treeNode->GetRegNum(),
                                       treeNode->AsClsVar()->GetFieldHandle());
+#endif
             DefReg(treeNode);
             break;
 
