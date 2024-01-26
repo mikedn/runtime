@@ -881,6 +881,7 @@ protected:
     void genEHCatchRet(BasicBlock* block);
 #else
     void genEHFinallyOrFilterRet(BasicBlock* block);
+    void GenEndLFin(GenTreeEndLFin* node);
 #endif
 
 #ifndef WINDOWS_AMD64_ABI
