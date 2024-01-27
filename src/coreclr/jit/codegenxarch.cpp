@@ -445,17 +445,10 @@ void CodeGen::GenClsVarAddr(GenTreeClsVar* node)
     RegNum               reg   = node->GetRegNum();
     CORINFO_FIELD_HANDLE field = node->GetFieldHandle();
 
+    assert(Emitter::IsRoDataField(field));
+
 #ifdef TARGET_X86
-    if (Emitter::IsRoDataField(field))
-    {
-        GetEmitter()->emitIns_R_L(reg, field);
-    }
-    else
-    {
-        void* addr = compiler->info.compCompHnd->getFieldAddress(field, nullptr);
-        noway_assert(addr != nullptr);
-        GetEmitter()->emitIns_R_H(INS_mov, reg, addr);
-    }
+    GetEmitter()->emitIns_R_L(reg, field);
 #else
     GetEmitter()->emitIns_R_C(INS_lea, EA_8BYTE, reg, field);
 #endif

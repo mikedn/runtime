@@ -206,6 +206,7 @@ private:
 
     bool TryTransformStoreObjToStoreInd(GenTreeObj* store);
 
+    void LowerClsVarAddr(GenTreeClsVar* node);
     GenTree* LowerSwitch(GenTreeUnOp* node);
     bool TryLowerSwitchToBitTest(
         BasicBlock* jumpTable[], unsigned jumpCount, unsigned targetCount, BasicBlock* bbSwitch, GenTree* switchValue);

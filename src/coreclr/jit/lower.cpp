@@ -22,6 +22,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 #include "lower.h"
 #include "jitgcinfo.h"
+#include "emit.h"
 
 #ifndef TARGET_64BIT
 #include "decomposelongs.h"
@@ -369,6 +370,10 @@ GenTree* Lowering::LowerNode(GenTree* node)
             node->AsUnOp()->GetOp(0)->SetRegOptional();
             break;
 
+        case GT_CLS_VAR_ADDR:
+            LowerClsVarAddr(node->AsClsVar());
+            break;
+
         case GT_LCL_ADDR:
             assert(comp->lvaGetDesc(node->AsLclAddr())->IsAddressExposed());
             break;
@@ -378,6 +383,31 @@ GenTree* Lowering::LowerNode(GenTree* node)
     }
 
     return node->gtNext;
+}
+
+void Lowering::LowerClsVarAddr(GenTreeClsVar* node)
+{
+    CORINFO_FIELD_HANDLE field = node->AsClsVar()->GetFieldHandle();
+
+#ifdef TARGET_ARM64
+    assert(Emitter::IsRoDataField(field));
+#else
+    if (!Emitter::IsRoDataField(field))
+    {
+        assert(!comp->opts.compReloc);
+        INDEBUG(FieldSeqNode* fieldSeq = node->GetFieldSeq());
+
+        void* addr = comp->info.compCompHnd->getFieldAddress(field, nullptr);
+        noway_assert(addr != nullptr);
+        GenTreeIntCon* intCon = node->ChangeToIntCon(TYP_I_IMPL, reinterpret_cast<ssize_t>(addr));
+
+#ifdef DEBUG
+        intCon->SetHandleKind(HandleKind::Static);
+        intCon->SetDumpHandle(field);
+        intCon->SetFieldSeq(fieldSeq);
+#endif
+    }
+#endif
 }
 
 /**  -- Switch Lowering --

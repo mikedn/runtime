@@ -6123,8 +6123,15 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     assert((ins != INS_bt) && !IsCmov(ins));
     assert(TakesVexPrefix(ins) == hasVexPrefix(code));
 
-    if (IsRoDataField(field))
+#ifdef WINDOWS_X86_ABI
+    if (field == FS_SEG_FIELD)
     {
+        dst += emitOutputByte(dst, 0x64);
+    }
+    else
+#endif
+    {
+        assert(IsRoDataField(field));
         size_t addr = reinterpret_cast<size_t>(emitConsBlock) + GetRoDataOffset(field);
 
 #ifdef DEBUG
@@ -6164,18 +6171,6 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 #endif // DEBUG
 
         disp += addr;
-    }
-#ifdef WINDOWS_X86_ABI
-    else if (field == FS_SEG_FIELD)
-    {
-        dst += emitOutputByte(dst, 0x64);
-    }
-#endif
-    else
-    {
-        void* addr = static_cast<uint8_t*>(emitComp->info.compCompHnd->getFieldAddress(field, nullptr));
-        noway_assert(addr != nullptr);
-        disp += reinterpret_cast<ssize_t>(addr);
     }
 
     unsigned immSize = 0;

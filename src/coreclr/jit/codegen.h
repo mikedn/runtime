@@ -486,7 +486,9 @@ protected:
     unsigned           genTrnslLocalVarCount = 0;
 #endif
 
+#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
     void GenClsVarAddr(GenTreeClsVar* node);
+#endif
 
 #ifdef TARGET_XARCH
     void GenIntCon(GenTreeIntCon* node, regNumber reg, var_types type);
