@@ -6545,6 +6545,13 @@ int Compiler::dmpNodeFlags(GenTree* tree)
             break;
 #endif
 
+        case GT_CLS_VAR_ADDR:
+            if ((flags & GTF_CLS_VAR_INITCLASS) != 0)
+            {
+                operFlag = 'I';
+            }
+            break;
+
         case GT_CNS_INT:
             if (tree->IsIconHandle())
             {
