@@ -5241,16 +5241,8 @@ void Importer::PopUnmanagedCallArgs(GenTreeCall* call, CORINFO_SIG_INFO* sig)
     }
 }
 
-GenTree* Importer::impInitClass(CORINFO_RESOLVED_TOKEN* resolvedToken)
+GenTree* Importer::CreateClassInitTree(CORINFO_RESOLVED_TOKEN* resolvedToken)
 {
-    CorInfoInitClassResult initClass =
-        info.compCompHnd->initClass(resolvedToken->hField, info.compMethodHnd, impTokenLookupContextHandle);
-
-    if ((initClass & CORINFO_INITCLASS_USE_HELPER) == 0)
-    {
-        return nullptr;
-    }
-
     bool     runtimeLookup;
     GenTree* node = impParentClassTokenToHandle(resolvedToken, /* mustRestoreHandle */ false, &runtimeLookup);
 
@@ -5631,16 +5623,20 @@ GenTree* Importer::impImportLdSFld(OPCODE                    opcode,
         return field;
     }
 
-    GenTree* helperNode = impInitClass(resolvedToken);
+    CorInfoInitClassResult initClass =
+        info.compCompHnd->initClass(resolvedToken->hField, info.compMethodHnd, impTokenLookupContextHandle);
+
+    if ((initClass & CORINFO_INITCLASS_USE_HELPER) == 0)
+    {
+        return field;
+    }
+
+    GenTree* helperNode = CreateClassInitTree(resolvedToken);
 
     if (helperNode == nullptr)
     {
-        if (compDonotInline())
-        {
-            return nullptr;
-        }
-
-        return field;
+        assert(compDonotInline());
+        return nullptr;
     }
 
     // Avoid creating struct COMMA nodes by adding the COMMA on top of the indirection's
@@ -5750,11 +5746,18 @@ GenTree* Importer::impImportStSFld(GenTree*                  value,
 
     if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
     {
-        helperNode = impInitClass(resolvedToken);
+        CorInfoInitClassResult initClass =
+            info.compCompHnd->initClass(resolvedToken->hField, info.compMethodHnd, impTokenLookupContextHandle);
 
-        if (compDonotInline())
+        if ((initClass & CORINFO_INITCLASS_USE_HELPER) != 0)
         {
-            return nullptr;
+            helperNode = CreateClassInitTree(resolvedToken);
+
+            if (helperNode == nullptr)
+            {
+                assert(compDonotInline());
+                return nullptr;
+            }
         }
     }
 

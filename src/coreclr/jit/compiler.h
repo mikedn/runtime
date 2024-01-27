@@ -2062,7 +2062,7 @@ struct Importer
     GenTree* impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CLASS_HANDLE retClass);
 #endif
     GenTree* impSpillPseudoReturnBufferCall(GenTreeCall* call);
-    GenTree* impInitClass(CORINFO_RESOLVED_TOKEN* pResolvedToken);
+    GenTree* CreateClassInitTree(CORINFO_RESOLVED_TOKEN* pResolvedToken);
     GenTree* impImportStaticReadOnlyField(void* fldAddr, var_types lclTyp);
     GenTreeFieldAddr* impImportFieldAddr(GenTree*                      addr,
                                          const CORINFO_RESOLVED_TOKEN& resolvedToken,
