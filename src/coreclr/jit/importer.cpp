@@ -5241,30 +5241,18 @@ void Importer::PopUnmanagedCallArgs(GenTreeCall* call, CORINFO_SIG_INFO* sig)
     }
 }
 
-//------------------------------------------------------------------------
-// impInitClass: Build a node to initialize the class before accessing the
-//               field if necessary
-//
-// Arguments:
-//    resolvedToken - The CORINFO_RESOLVED_TOKEN that has been initialized
-//                     by a call to CEEInfo::resolveToken().
-//
-// Return Value: If needed, a pointer to the node that will perform the class
-//               initializtion.  Otherwise, nullptr.
-//
-
-GenTree* Importer::impInitClass(CORINFO_RESOLVED_TOKEN* pResolvedToken)
+GenTree* Importer::impInitClass(CORINFO_RESOLVED_TOKEN* resolvedToken)
 {
-    CorInfoInitClassResult initClassResult =
-        info.compCompHnd->initClass(pResolvedToken->hField, info.compMethodHnd, impTokenLookupContextHandle);
+    CorInfoInitClassResult initClass =
+        info.compCompHnd->initClass(resolvedToken->hField, info.compMethodHnd, impTokenLookupContextHandle);
 
-    if ((initClassResult & CORINFO_INITCLASS_USE_HELPER) == 0)
+    if ((initClass & CORINFO_INITCLASS_USE_HELPER) == 0)
     {
         return nullptr;
     }
 
     bool     runtimeLookup;
-    GenTree* node = impParentClassTokenToHandle(pResolvedToken, /* mustRestoreHandle */ false, &runtimeLookup);
+    GenTree* node = impParentClassTokenToHandle(resolvedToken, /* mustRestoreHandle */ false, &runtimeLookup);
 
     if (node == nullptr)
     {
@@ -5274,15 +5262,11 @@ GenTree* Importer::impInitClass(CORINFO_RESOLVED_TOKEN* pResolvedToken)
 
     if (runtimeLookup)
     {
-        node = gtNewHelperCallNode(CORINFO_HELP_INITCLASS, TYP_VOID, gtNewCallArgs(node));
-    }
-    else
-    {
-        // Call the shared non gc static helper, as its the fastest
-        node = gtNewSharedCctorHelperCall(pResolvedToken->hClass);
+        return gtNewHelperCallNode(CORINFO_HELP_INITCLASS, TYP_VOID, gtNewCallArgs(node));
     }
 
-    return node;
+    // Call the shared non gc static helper, as its the fastest
+    return gtNewSharedCctorHelperCall(resolvedToken->hClass);
 }
 
 GenTree* Importer::impImportStaticReadOnlyField(void* addr, var_types type)
@@ -5642,73 +5626,78 @@ GenTree* Importer::impImportLdSFld(OPCODE                    opcode,
         }
     }
 
-    if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
+    if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) == 0)
     {
-        GenTree* helperNode = impInitClass(resolvedToken);
+        return field;
+    }
 
+    GenTree* helperNode = impInitClass(resolvedToken);
+
+    if (helperNode == nullptr)
+    {
         if (compDonotInline())
         {
             return nullptr;
         }
 
-        if (helperNode != nullptr)
-        {
-            // Avoid creating struct COMMA nodes by adding the COMMA on top of the indirection's
-            // address (we always get an IND/OBJ for a static struct field load). They would be
-            // later transformed by fgMorphStructComma anyway.
-            //
-            // Extracting the helper call to a separate statement does have some advantages:
-            //   - Avoids "poisoning" the entire tree with side effects from the helper call.
-            //     This was only done for assignments and these are typically top level during
-            //     import so it doesn't really matter.
-            //   - Avoids poor register allocation due to a call appearing inside the tree.
-            //     PMI diff does show a few diffs caused by register allocation changes.
-            // However, loop hoisting depends on the type initialization helper call being
-            // present in the tree, if it's in a separate statement it doesn't know if it's
-            // safe to hoist the load.
-
-            // TODO-MIKE-CQ: If the type has BeforeFieldInit initialization semantics we could
-            // extract the helper call to a separate statement without worrying about side effect
-            // ordering. We could even insert it at the start of the block and avoid any stack
-            // spilling. But we still need to deal with the loop hoisting issue...
-
-            // TODO-MIKE-Cleanup: SIMD COMMAs should not need this and previous implementation
-            // actually preserved them in some cases (e.g. when the resulting tree was used
-            // by a SIMD/HWINTRINSIC node rather than an assignment or call). Doesn't seem to
-            // matter and anyway there'are many other places that insist on transforming SIMD
-            // COMMAs for no reason. Actually we could simply preserve all struct COMMAs but
-            // there seems to be little advantage in doing that and requires a bit of work.
-
-            if (GenTreeFieldAddr* fieldAddr = field->IsFieldAddr())
-            {
-                fieldAddr->SetAddr(gtNewCommaNode(helperNode, fieldAddr->GetAddr()));
-                fieldAddr->AddSideEffects(helperNode->GetSideEffects());
-            }
-            else if (varTypeIsStruct(field->GetType()))
-            {
-                GenTree* addr = field->AsIndir()->GetAddr();
-
-                if (GenTreeFieldAddr* fieldAddr = addr->IsFieldAddr())
-                {
-                    fieldAddr->SetAddr(gtNewCommaNode(helperNode, fieldAddr->GetAddr()));
-                    fieldAddr->AddSideEffects(helperNode->GetSideEffects());
-                }
-                else
-                {
-                    addr = gtNewCommaNode(helperNode, addr);
-                }
-
-                field->AsIndir()->SetAddr(addr);
-                field->AddSideEffects(addr->GetSideEffects());
-            }
-            else
-            {
-                field = gtNewCommaNode(helperNode, field);
-            }
-        }
+        return field;
     }
 
-    return field;
+    // Avoid creating struct COMMA nodes by adding the COMMA on top of the indirection's
+    // address (we always get an IND/OBJ for a static struct field load). They would be
+    // later transformed by fgMorphStructComma anyway.
+    //
+    // Extracting the helper call to a separate statement does have some advantages:
+    //   - Avoids "poisoning" the entire tree with side effects from the helper call.
+    //     This was only done for assignments and these are typically top level during
+    //     import so it doesn't really matter.
+    //   - Avoids poor register allocation due to a call appearing inside the tree.
+    //     PMI diff does show a few diffs caused by register allocation changes.
+    // However, loop hoisting depends on the type initialization helper call being
+    // present in the tree, if it's in a separate statement it doesn't know if it's
+    // safe to hoist the load.
+
+    // TODO-MIKE-CQ: If the type has BeforeFieldInit initialization semantics we could
+    // extract the helper call to a separate statement without worrying about side effect
+    // ordering. We could even insert it at the start of the block and avoid any stack
+    // spilling. But we still need to deal with the loop hoisting issue...
+
+    // TODO-MIKE-Cleanup: SIMD COMMAs should not need this and previous implementation
+    // actually preserved them in some cases (e.g. when the resulting tree was used
+    // by a SIMD/HWINTRINSIC node rather than an assignment or call). Doesn't seem to
+    // matter and anyway there are many other places that insist on transforming SIMD
+    // COMMAs for no reason. Actually we could simply preserve all struct COMMAs but
+    // there seems to be little advantage in doing that and requires a bit of work.
+
+    if (GenTreeFieldAddr* fieldAddr = field->IsFieldAddr())
+    {
+        fieldAddr->SetAddr(gtNewCommaNode(helperNode, fieldAddr->GetAddr()));
+        fieldAddr->AddSideEffects(helperNode->GetSideEffects());
+
+        return fieldAddr;
+    }
+
+    if (varTypeIsStruct(field->GetType()))
+    {
+        GenTree* addr = field->AsIndir()->GetAddr();
+
+        if (GenTreeFieldAddr* fieldAddr = addr->IsFieldAddr())
+        {
+            fieldAddr->SetAddr(gtNewCommaNode(helperNode, fieldAddr->GetAddr()));
+            fieldAddr->AddSideEffects(helperNode->GetSideEffects());
+        }
+        else
+        {
+            addr = gtNewCommaNode(helperNode, addr);
+        }
+
+        field->AsIndir()->SetAddr(addr);
+        field->AddSideEffects(addr->GetSideEffects());
+
+        return field;
+    }
+
+    return gtNewCommaNode(helperNode, field);
 }
 
 GenTree* Importer::impImportStSFld(GenTree*                  value,
@@ -5762,6 +5751,7 @@ GenTree* Importer::impImportStSFld(GenTree*                  value,
     if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
     {
         helperNode = impInitClass(resolvedToken);
+
         if (compDonotInline())
         {
             return nullptr;
