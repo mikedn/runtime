@@ -2087,9 +2087,12 @@ struct Importer
                              const CORINFO_FIELD_INFO& fieldInfo,
                              unsigned                  prefixFlags);
 
-    GenTree* impImportStaticFieldAccess(OPCODE                    opcode,
-                                        CORINFO_RESOLVED_TOKEN*   resolvedToken,
-                                        const CORINFO_FIELD_INFO& fieldInfo);
+    GenTree* CreateStaticFieldHelperAccess(OPCODE                    opcode,
+                                         CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                         const CORINFO_FIELD_INFO& fieldInfo);
+    GenTree* CreateStaticFieldAddressAccess(OPCODE                    opcode,
+                                          CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                          const CORINFO_FIELD_INFO& fieldInfo);
 
     GenTree* impConvertFieldStoreValue(var_types storeType, GenTree* value);
 
@@ -2131,7 +2134,7 @@ struct Importer
 
     void impImportDup();
 
-    GenTree* impImportTlsFieldAccess(OPCODE                    opcode,
+    GenTree* CreateStaticFieldTlsAccess(OPCODE                    opcode,
                                      CORINFO_RESOLVED_TOKEN*   resolvedToken,
                                      const CORINFO_FIELD_INFO& fieldInfo);
 

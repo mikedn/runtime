@@ -5521,6 +5521,13 @@ GenTree* Importer::impImportStaticFieldAddressHelper(OPCODE                    o
     return addr;
 }
 
+static bool IsStaticFieldHelperAccess(const CORINFO_FIELD_INFO& fieldInfo)
+{
+    return (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_GENERICS_STATIC_HELPER) ||
+           (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_SHARED_STATIC_HELPER) ||
+           (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_READYTORUN_HELPER);
+}
+
 GenTree* Importer::impImportLdSFld(OPCODE                    opcode,
                                    CORINFO_RESOLVED_TOKEN*   resolvedToken,
                                    const CORINFO_FIELD_INFO& fieldInfo,
@@ -5596,11 +5603,15 @@ GenTree* Importer::impImportLdSFld(OPCODE                    opcode,
 
     if (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_TLS)
     {
-        field = impImportTlsFieldAccess(opcode, resolvedToken, fieldInfo);
+        field = CreateStaticFieldTlsAccess(opcode, resolvedToken, fieldInfo);
+    }
+    else if (IsStaticFieldHelperAccess(fieldInfo))
+    {
+        field = CreateStaticFieldHelperAccess(opcode, resolvedToken, fieldInfo);
     }
     else
     {
-        field = impImportStaticFieldAccess(opcode, resolvedToken, fieldInfo);
+        field = CreateStaticFieldAddressAccess(opcode, resolvedToken, fieldInfo);
 
         if ((opcode == CEE_LDSFLD) && field->OperIsConst())
         {
@@ -5726,11 +5737,15 @@ GenTree* Importer::impImportStSFld(GenTree*                  value,
 
     if (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_TLS)
     {
-        field = impImportTlsFieldAccess(CEE_STSFLD, resolvedToken, fieldInfo);
+        field = CreateStaticFieldTlsAccess(CEE_STSFLD, resolvedToken, fieldInfo);
+    }
+    else if (IsStaticFieldHelperAccess(fieldInfo))
+    {
+        field = CreateStaticFieldHelperAccess(CEE_STSFLD, resolvedToken, fieldInfo);
     }
     else
     {
-        field = impImportStaticFieldAccess(CEE_STSFLD, resolvedToken, fieldInfo);
+        field = CreateStaticFieldAddressAccess(CEE_STSFLD, resolvedToken, fieldInfo);
     }
 
     var_types fieldType = CorTypeToVarType(fieldInfo.fieldType);
@@ -5792,65 +5807,71 @@ GenTree* Importer::impImportStSFld(GenTree*                  value,
     return field;
 }
 
-GenTree* Importer::impImportStaticFieldAccess(OPCODE                    opcode,
-                                              CORINFO_RESOLVED_TOKEN*   resolvedToken,
-                                              const CORINFO_FIELD_INFO& fieldInfo)
+GenTree* Importer::CreateStaticFieldHelperAccess(OPCODE                    opcode,
+                                                 CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                                 const CORINFO_FIELD_INFO& fieldInfo)
 {
     assert((opcode == CEE_LDSFLD) || (opcode == CEE_STSFLD) || (opcode == CEE_LDSFLDA));
+    assert(IsStaticFieldHelperAccess(fieldInfo));
 
     var_types    type   = CorTypeToVarType(fieldInfo.fieldType);
     ClassLayout* layout = type != TYP_STRUCT ? nullptr : typGetObjLayout(fieldInfo.structType);
 
-    if ((fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_GENERICS_STATIC_HELPER) ||
-        (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_SHARED_STATIC_HELPER) ||
-        (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_READYTORUN_HELPER))
+    GenTree* addr = impImportStaticFieldAddressHelper(opcode, resolvedToken, fieldInfo);
+
+    if ((layout != nullptr) && addr->IsFieldAddr())
     {
-        GenTree* addr = impImportStaticFieldAddressHelper(opcode, resolvedToken, fieldInfo);
-
-        if ((layout != nullptr) && addr->IsFieldAddr())
-        {
-            addr->AsFieldAddr()->SetLayoutNum(typGetLayoutNum(layout));
-        }
-
-        if (opcode == CEE_LDSFLDA)
-        {
-            return addr;
-        }
-
-        GenTree* indir;
-
-        if (type == TYP_STRUCT)
-        {
-            indir = gtNewObjNode(layout, addr);
-        }
-        else
-        {
-            indir = gtNewIndir(type, addr);
-        }
-
-        indir->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
-
-        if (indir->TypeIs(TYP_REF) && addr->TypeIs(TYP_BYREF))
-        {
-            // Storing an object reference into a static field requires a write barrier.
-            // But what kind of barrier? GCInfo::GetWriteBarrierForm has trouble
-            // figuring it out because the address is a byref that comes from a helper
-            // call, rather than being derived from an object reference.
-            //
-            // Set GTF_IND_TGT_HEAP to tell GetWriteBarrierForm that this is really
-            // a GC heap store so an unchecked write barrier can be used.
-
-            // TODO-MIKE-Review: Are the checked barriers significantly slower than the
-            // unchecked barriers to worth this trouble?
-
-            indir->gtFlags |= GTF_IND_TGT_HEAP;
-        }
-
-        return indir;
+        addr->AsFieldAddr()->SetLayoutNum(typGetLayoutNum(layout));
     }
 
+    if (opcode == CEE_LDSFLDA)
+    {
+        return addr;
+    }
+
+    GenTree* indir;
+
+    if (type == TYP_STRUCT)
+    {
+        indir = gtNewObjNode(layout, addr);
+    }
+    else
+    {
+        indir = gtNewIndir(type, addr);
+    }
+
+    indir->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
+
+    if (indir->TypeIs(TYP_REF) && addr->TypeIs(TYP_BYREF))
+    {
+        // Storing an object reference into a static field requires a write barrier.
+        // But what kind of barrier? GCInfo::GetWriteBarrierForm has trouble
+        // figuring it out because the address is a byref that comes from a helper
+        // call, rather than being derived from an object reference.
+        //
+        // Set GTF_IND_TGT_HEAP to tell GetWriteBarrierForm that this is really
+        // a GC heap store so an unchecked write barrier can be used.
+
+        // TODO-MIKE-Review: Are the checked barriers significantly slower than the
+        // unchecked barriers to worth this trouble?
+
+        indir->gtFlags |= GTF_IND_TGT_HEAP;
+    }
+
+    return indir;
+}
+
+GenTree* Importer::CreateStaticFieldAddressAccess(OPCODE                    opcode,
+                                                  CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                                  const CORINFO_FIELD_INFO& fieldInfo)
+{
+    assert((opcode == CEE_LDSFLD) || (opcode == CEE_STSFLD) || (opcode == CEE_LDSFLDA));
+    assert(!IsStaticFieldHelperAccess(fieldInfo));
     assert((fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_ADDRESS) ||
            (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_RVA_ADDRESS));
+
+    var_types    type   = CorTypeToVarType(fieldInfo.fieldType);
+    ClassLayout* layout = type != TYP_STRUCT ? nullptr : typGetObjLayout(fieldInfo.structType);
 
     void* pFldAddr = nullptr;
     void* fldAddr  = info.compCompHnd->getFieldAddress(resolvedToken->hField, &pFldAddr);
@@ -16443,9 +16464,9 @@ GenTree* Importer::impImportPop(BasicBlock* block)
     return op1;
 }
 
-GenTree* Importer::impImportTlsFieldAccess(OPCODE                    opcode,
-                                           CORINFO_RESOLVED_TOKEN*   resolvedToken,
-                                           const CORINFO_FIELD_INFO& fieldInfo)
+GenTree* Importer::CreateStaticFieldTlsAccess(OPCODE                    opcode,
+                                              CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                              const CORINFO_FIELD_INFO& fieldInfo)
 {
     assert((opcode == CEE_LDSFLD) || (opcode == CEE_STSFLD) || (opcode == CEE_LDSFLDA));
 
