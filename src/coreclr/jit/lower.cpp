@@ -388,25 +388,21 @@ GenTree* Lowering::LowerNode(GenTree* node)
 void Lowering::LowerClsVarAddr(GenTreeClsVar* node)
 {
     CORINFO_FIELD_HANDLE field = node->AsClsVar()->GetFieldHandle();
+    assert(!Emitter::IsRoDataField(field));
 
-#ifdef TARGET_ARM64
-    assert(Emitter::IsRoDataField(field));
-#else
-    if (!Emitter::IsRoDataField(field))
-    {
-        assert(!comp->opts.compReloc);
-        INDEBUG(FieldSeqNode* fieldSeq = node->GetFieldSeq());
+#ifndef TARGET_ARM64
+    assert(!comp->opts.compReloc);
+    INDEBUG(FieldSeqNode* fieldSeq = node->GetFieldSeq());
 
-        void* addr = comp->info.compCompHnd->getFieldAddress(field, nullptr);
-        noway_assert(addr != nullptr);
-        GenTreeIntCon* intCon = node->ChangeToIntCon(TYP_I_IMPL, reinterpret_cast<ssize_t>(addr));
+    void* addr = comp->info.compCompHnd->getFieldAddress(field, nullptr);
+    noway_assert(addr != nullptr);
+    GenTreeIntCon* intCon = node->ChangeToIntCon(TYP_I_IMPL, reinterpret_cast<ssize_t>(addr));
 
 #ifdef DEBUG
-        intCon->SetHandleKind(HandleKind::Static);
-        intCon->SetDumpHandle(field);
-        intCon->SetFieldSeq(fieldSeq);
+    intCon->SetHandleKind(HandleKind::Static);
+    intCon->SetDumpHandle(field);
+    intCon->SetFieldSeq(fieldSeq);
 #endif
-    }
 #endif
 }
 
@@ -5598,7 +5594,7 @@ bool Lowering::ContainSIMD12MemToMemCopy(GenTree* store, GenTree* value)
     {
         GenTree* addr = value->AsIndir()->GetAddr();
 
-        if (addr->isContained() && (addr->IsClsVar() || addr->IsIntCon() || !IsSafeToContainMem(store, addr)))
+        if (addr->isContained() && (!addr->IsAddrMode() || !IsSafeToContainMem(store, addr)))
         {
             addr->ClearContained();
         }

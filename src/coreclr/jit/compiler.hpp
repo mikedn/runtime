@@ -1636,11 +1636,12 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_START_NONGC:
         case GT_START_PREEMPTGC:
         case GT_PROF_HOOK:
-#if !defined(FEATURE_EH_FUNCLETS)
+#ifndef FEATURE_EH_FUNCLETS
         case GT_END_LFIN:
-#endif // !FEATURE_EH_FUNCLETS
+#endif
         case GT_JMPTABLE:
         case GT_CLS_VAR_ADDR:
+        case GT_CONST_ADDR:
         case GT_ARGPLACE:
         case GT_PHYSREG:
         case GT_EMITNOP:

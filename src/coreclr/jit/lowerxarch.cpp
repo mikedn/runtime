@@ -2341,7 +2341,7 @@ void Lowering::LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* node, const Vecto
 
     CORINFO_FIELD_HANDLE field = comp->codeGen->GetConst(vecConst.u8, size, align DEBUGARG(getSIMDTypeForSize(size)));
 
-    GenTree* addr = new (comp, GT_CLS_VAR_ADDR) GenTreeClsVar(field);
+    GenTree* addr = new (comp, GT_CONST_ADDR) GenTreeConstAddr(field);
     BlockRange().InsertBefore(node, addr);
 
     GenTree* indir = node;
@@ -3357,7 +3357,7 @@ void Lowering::ContainCheckIndir(GenTreeIndir* node)
     }
 #endif
 
-    if (addr->OperIs(GT_CLS_VAR_ADDR, GT_LCL_ADDR))
+    if (addr->OperIs(GT_CONST_ADDR, GT_LCL_ADDR))
     {
         addr->SetContained();
     }
@@ -3386,13 +3386,12 @@ void Lowering::ContainCheckStoreIndir(GenTreeStoreInd* store)
 #endif
 
     // If the source is a containable immediate, make it contained, unless it is
-    // an int-size or larger store of zero to memory, because we can generate smaller code
-    // by zeroing a register and then storing it.
+    // and INT or LONG store of zero to memory, because we can generate smaller
+    // code by zeroing a register and then storing it.
 
-    if (IsContainableImmed(store, value) &&
-        (!value->IsIntegralConst(0) || varTypeIsSmall(store->GetType()) || store->GetAddr()->OperIs(GT_CLS_VAR_ADDR)))
+    if (IsContainableImmed(store, value) && (!value->IsIntegralConst(0) || varTypeIsSmall(store->GetType())))
     {
-        MakeSrcContained(store, value);
+        value->SetContained();
     }
 }
 
@@ -4535,7 +4534,7 @@ void Lowering::ContainCheckHWIntrinsicAddr(GenTreeHWIntrinsic* node, GenTree* ad
 {
     assert(addr->TypeIs(TYP_I_IMPL, TYP_BYREF));
     TryCreateAddrMode(addr, true);
-    if ((addr->OperIs(GT_CLS_VAR_ADDR, GT_LCL_ADDR, GT_LEA) ||
+    if ((addr->OperIs(GT_CONST_ADDR, GT_LCL_ADDR, GT_LEA) ||
          (addr->IsIntCon() AMD64_ONLY(&&addr->AsIntCon()->FitsInAddrBase(comp)))) &&
         IsSafeToContainMem(node, addr))
     {

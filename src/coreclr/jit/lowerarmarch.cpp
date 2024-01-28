@@ -810,7 +810,7 @@ void Lowering::LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* node, const Vecto
 
     CORINFO_FIELD_HANDLE field = comp->codeGen->GetConst(vecConst.u8, size, size DEBUGARG(getSIMDTypeForSize(size)));
 
-    GenTree* addr = new (comp, GT_CLS_VAR_ADDR) GenTreeClsVar(field);
+    GenTree* addr = new (comp, GT_CONST_ADDR) GenTreeConstAddr(field);
     BlockRange().InsertBefore(node, addr);
 
     GenTree* indir = node;
@@ -967,7 +967,7 @@ void Lowering::ContainCheckIndir(GenTreeIndir* indirNode)
     }
 #endif // FEATURE_SIMD
 
-    if ((addr->OperGet() == GT_LEA) && IsSafeToContainMem(indirNode, addr))
+    if (addr->IsAddrMode() && IsSafeToContainMem(indirNode, addr))
     {
         bool makeContained = true;
 
@@ -989,7 +989,7 @@ void Lowering::ContainCheckIndir(GenTreeIndir* indirNode)
         }
     }
 #ifdef TARGET_ARM64
-    else if (addr->OperIs(GT_CLS_VAR_ADDR, GT_LCL_ADDR))
+    else if (addr->OperIs(GT_CONST_ADDR, GT_LCL_ADDR))
 #else
     else if (addr->OperIs(GT_LCL_ADDR))
 #endif

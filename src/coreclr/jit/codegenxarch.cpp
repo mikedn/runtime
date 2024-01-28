@@ -440,7 +440,7 @@ void CodeGen::GenEndLFin(GenTreeEndLFin* node)
 
 #endif // !FEATURE_EH_FUNCLETS
 
-void CodeGen::GenClsVarAddr(GenTreeClsVar* node)
+void CodeGen::GenConstAddr(GenTreeConstAddr* node)
 {
     RegNum               reg   = node->GetRegNum();
     CORINFO_FIELD_HANDLE field = node->GetFieldHandle();
@@ -1605,8 +1605,8 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             genCodeForArrOffset(treeNode->AsArrOffs());
             break;
 
-        case GT_CLS_VAR_ADDR:
-            GenClsVarAddr(treeNode->AsClsVar());
+        case GT_CONST_ADDR:
+            GenConstAddr(treeNode->AsConstAddr());
             break;
 
         case GT_INSTR:

@@ -1438,7 +1438,7 @@ void CodeGen::genEHCatchRet(BasicBlock* block)
     GetEmitter()->emitIns_R_L(REG_INTRET, block->bbJumpDest->emitLabel);
 }
 
-void CodeGen::GenClsVarAddr(GenTreeClsVar* node)
+void CodeGen::GenConstAddr(GenTreeConstAddr* node)
 {
     GetEmitter()->emitIns_R_C(INS_adr, EA_8BYTE, node->GetRegNum(), REG_NA, node->GetFieldHandle());
     DefReg(node);
@@ -8435,10 +8435,10 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
         return;
     }
 
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
         regNumber tmpReg = indir->GetSingleTempReg();
-        emit->emitIns_R_C(ins, attr, valueReg, tmpReg, addr->AsClsVar()->GetFieldHandle());
+        emit->emitIns_R_C(ins, attr, valueReg, tmpReg, constAddr->GetFieldHandle());
 
         return;
     }

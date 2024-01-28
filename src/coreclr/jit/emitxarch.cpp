@@ -1613,9 +1613,9 @@ void emitter::PrologSpillParamRegsToShadowSlots()
 
 void emitter::emitIns_A(instruction ins, emitAttr attr, GenTree* addr)
 {
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_C(ins, attr, clsAddr->GetFieldHandle());
+        emitIns_C(ins, attr, constAddr->GetFieldHandle());
         return;
     }
 
@@ -1652,9 +1652,9 @@ void emitter::emitIns_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t
 {
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_C_I(ins, attr, clsAddr->GetFieldHandle(), imm);
+        emitIns_C_I(ins, attr, constAddr->GetFieldHandle(), imm);
         return;
     }
 
@@ -1684,9 +1684,9 @@ void emitter::emitIns_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumb
 {
     assert(!IsReallyVexTernary(ins));
 
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_C_R(ins, attr, clsAddr->GetFieldHandle(), reg);
+        emitIns_C_R(ins, attr, constAddr->GetFieldHandle(), reg);
         return;
     }
 
@@ -2273,9 +2273,9 @@ void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg, GenTree
 {
     assert(!HasImplicitRegPairDest(ins) && (ins != INS_imuli));
 
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_R_C(ins, attr, reg, clsAddr->GetFieldHandle());
+        emitIns_R_C(ins, attr, reg, constAddr->GetFieldHandle());
         return;
     }
 
@@ -2307,9 +2307,9 @@ void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenT
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
     assert(!EA_IS_GCREF_OR_BYREF(attr));
 
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_R_C_I(ins, attr, reg1, clsAddr->GetFieldHandle(), imm);
+        emitIns_R_C_I(ins, attr, reg1, constAddr->GetFieldHandle(), imm);
         return;
     }
 
@@ -2378,9 +2378,9 @@ void emitter::emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, int 
 
 void emitter::emitIns_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr)
 {
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_R_R_C(ins, attr, reg1, reg2, clsAddr->GetFieldHandle());
+        emitIns_R_R_C(ins, attr, reg1, reg2, constAddr->GetFieldHandle());
         return;
     }
 
@@ -2493,9 +2493,9 @@ void emitter::emitIns_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regN
 void emitter::emitIns_R_R_A_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr, int32_t imm)
 {
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_R_R_C_I(ins, attr, reg1, reg2, clsAddr->GetFieldHandle(), imm);
+        emitIns_R_R_C_I(ins, attr, reg1, reg2, constAddr->GetFieldHandle(), imm);
         return;
     }
 
@@ -2601,9 +2601,9 @@ void emitter::emitIns_R_R_A_R(
     assert(IsAvxBlendv(ins));
     assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
 
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_R_R_C_R(MapSse41BlendvToAvxBlendv(ins), attr, reg1, reg2, reg3, clsAddr->GetFieldHandle());
+        emitIns_R_R_C_R(MapSse41BlendvToAvxBlendv(ins), attr, reg1, reg2, reg3, constAddr->GetFieldHandle());
         return;
     }
 
@@ -2882,9 +2882,9 @@ void emitter::emitIns_S_R_I(instruction ins, emitAttr attr, int varNum, int offs
 
 void emitter::emitIns_A_R_I(instruction ins, emitAttr attr, GenTree* addr, regNumber reg, int32_t imm)
 {
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_C_R_I(ins, attr, clsAddr->GetFieldHandle(), reg, imm);
+        emitIns_C_R_I(ins, attr, constAddr->GetFieldHandle(), reg, imm);
         return;
     }
 
@@ -3048,9 +3048,9 @@ void emitter::emitIns_SIMD_R_R_I(instruction ins, emitAttr attr, regNumber reg1,
 
 void emitter::emitIns_SIMD_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr)
 {
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_SIMD_R_R_C(ins, attr, reg1, reg2, clsAddr->GetFieldHandle());
+        emitIns_SIMD_R_R_C(ins, attr, reg1, reg2, constAddr->GetFieldHandle());
     }
     else if (UseVEXEncoding())
     {
@@ -3117,9 +3117,9 @@ void emitter::emitIns_SIMD_R_R_S(instruction ins, emitAttr attr, regNumber reg1,
 void emitter::emitIns_SIMD_R_R_A_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr, int32_t imm)
 {
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_SIMD_R_R_C_I(ins, attr, reg1, reg2, clsAddr->GetFieldHandle(), imm);
+        emitIns_SIMD_R_R_C_I(ins, attr, reg1, reg2, constAddr->GetFieldHandle(), imm);
     }
     else if (UseVEXEncoding())
     {
@@ -3180,9 +3180,9 @@ void emitter::emitIns_SIMD_R_R_S_I(
 void emitter::emitIns_SIMD_R_R_R_A(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, GenTree* addr)
 {
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_SIMD_R_R_R_C(ins, attr, reg1, reg2, reg3, clsAddr->GetFieldHandle());
+        emitIns_SIMD_R_R_R_C(ins, attr, reg1, reg2, reg3, constAddr->GetFieldHandle());
         return;
     }
 

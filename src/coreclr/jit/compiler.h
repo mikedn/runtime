@@ -6779,6 +6779,7 @@ public:
 #endif
             case GT_JMPTABLE:
             case GT_CLS_VAR_ADDR:
+            case GT_CONST_ADDR:
             case GT_ARGPLACE:
             case GT_PHYSREG:
             case GT_EMITNOP:

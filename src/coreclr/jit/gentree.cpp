@@ -1062,6 +1062,8 @@ AGAIN:
                 return GenTreeLclAddr::Equals(op1->AsLclAddr(), op2->AsLclAddr());
             case GT_CLS_VAR_ADDR:
                 return op1->AsClsVar()->GetFieldHandle() == op2->AsClsVar()->GetFieldHandle();
+            case GT_CONST_ADDR:
+                return GenTreeConstAddr::Equals(op1->AsConstAddr(), op2->AsConstAddr());
             case GT_LABEL:
             case GT_ARGPLACE:
                 return true;
@@ -3727,7 +3729,7 @@ bool Compiler::fgAddrCouldBeNull(GenTree* addr)
         return !addr->IsIconHandle();
     }
 
-    if (addr->OperIs(GT_CNS_STR, GT_FIELD_ADDR, GT_INDEX_ADDR, GT_LCL_ADDR, GT_CLS_VAR_ADDR))
+    if (addr->OperIs(GT_CNS_STR, GT_FIELD_ADDR, GT_INDEX_ADDR, GT_LCL_ADDR, GT_CLS_VAR_ADDR, GT_CONST_ADDR))
     {
         return false;
     }
@@ -5003,6 +5005,9 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
             case GT_CLS_VAR_ADDR:
                 copy = new (this, oper) GenTreeClsVar(tree->AsClsVar());
                 goto DONE;
+            case GT_CONST_ADDR:
+                copy = new (this, oper) GenTreeConstAddr(tree->AsConstAddr());
+                goto DONE;
             case GT_METHOD_ADDR:
                 copy = new (this, oper) GenTreeMethodAddr(tree->AsMethodAddr());
                 goto DONE;
@@ -5747,6 +5752,7 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
 #endif
         case GT_JMPTABLE:
         case GT_CLS_VAR_ADDR:
+        case GT_CONST_ADDR:
         case GT_ARGPLACE:
         case GT_PHYSREG:
         case GT_EMITNOP:
@@ -7231,6 +7237,10 @@ void Compiler::gtDispLeaf(GenTree* tree)
                 dmpFieldSeqFields(tree->AsClsVar()->GetFieldSeq());
                 printf(")");
             }
+            break;
+
+        case GT_CONST_ADDR:
+            printf(" RWD%02u", reinterpret_cast<uintptr_t>(tree->AsConstAddr()->GetFieldHandle()) >> 2);
             break;
 
         case GT_JMP:

@@ -487,7 +487,7 @@ protected:
 #endif
 
 #if defined(TARGET_XARCH) || defined(TARGET_ARM64)
-    void GenClsVarAddr(GenTreeClsVar* node);
+    void GenConstAddr(GenTreeConstAddr* node);
 #endif
 
 #ifdef TARGET_XARCH

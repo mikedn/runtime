@@ -6968,9 +6968,34 @@ public:
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeClsVar() : GenTree()
+    GenTreeClsVar() = default;
+#endif
+};
+
+struct GenTreeConstAddr : public GenTree
+{
+    CORINFO_FIELD_HANDLE field;
+
+    GenTreeConstAddr(CORINFO_FIELD_HANDLE field) : GenTree(GT_CONST_ADDR, TYP_I_IMPL), field(field)
     {
     }
+
+    GenTreeConstAddr(const GenTreeConstAddr* copyFrom) : GenTree(GT_CONST_ADDR, TYP_I_IMPL), field(copyFrom->field)
+    {
+    }
+
+    CORINFO_FIELD_HANDLE GetFieldHandle() const
+    {
+        return field;
+    }
+
+    static bool Equals(const GenTreeConstAddr* x, const GenTreeConstAddr* y)
+    {
+        return x->field == y->field;
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeConstAddr() = default;
 #endif
 };
 
