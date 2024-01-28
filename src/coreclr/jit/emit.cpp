@@ -3114,10 +3114,10 @@ bool emitter::emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset)
 }
 #endif // DEBUG
 
-DataSection* emitter::CreateBlockLabelTable(BasicBlock** blocks, unsigned count, bool relative)
+ConstData* emitter::CreateBlockLabelTable(BasicBlock** blocks, unsigned count, bool relative)
 {
     DataSection* section = CreateLabelTable(count, relative);
-    insGroup**   labels  = reinterpret_cast<insGroup**>(section->GetData());
+    insGroup**   labels  = reinterpret_cast<insGroup**>(section->data.GetData());
 
     for (unsigned i = 0; i < count; i++)
     {
@@ -3126,31 +3126,31 @@ DataSection* emitter::CreateBlockLabelTable(BasicBlock** blocks, unsigned count,
         labels[i] = target->emitLabel;
     }
 
-    return section;
+    return &section->data;
 }
 
-DataSection* emitter::CreateTempLabelTable(insGroup*** labels, unsigned count, bool relative)
+ConstData* emitter::CreateTempLabelTable(insGroup*** labels, unsigned count, bool relative)
 {
     DataSection* section = CreateLabelTable(count, true);
-    *labels              = reinterpret_cast<insGroup**>(section->GetData());
+    *labels              = reinterpret_cast<insGroup**>(section->data.GetData());
 
     for (unsigned i = 0; i < count; i++)
     {
         (*labels)[i] = CreateTempLabel();
     }
 
-    return section;
+    return &section->data;
 }
 
-DataSection* emitter::CreateLabelTable(unsigned count, bool relative)
+emitter::DataSection* emitter::CreateLabelTable(unsigned count, bool relative)
 {
     DataSection* section = static_cast<DataSection*>(emitGetMem(sizeof(DataSection) + count * sizeof(insGroup*)));
 
-    section->next   = nullptr;
-    section->offset = roData.size;
-    section->size   = count * (relative ? 4 : TARGET_POINTER_SIZE);
-    section->kind   = relative ? DataSection::LabelRel32 : DataSection::LabelAddr;
-    INDEBUG(section->type = TYP_UNDEF);
+    section->next        = nullptr;
+    section->data.offset = roData.size;
+    section->data.size   = count * (relative ? 4 : TARGET_POINTER_SIZE);
+    section->data.kind   = relative ? ConstData::LabelRel32 : ConstData::LabelAddr;
+    INDEBUG(section->data.type = TYP_UNDEF);
 
     if (roData.last != nullptr)
     {
@@ -3162,14 +3162,14 @@ DataSection* emitter::CreateLabelTable(unsigned count, bool relative)
     }
 
     roData.last = section;
-    roData.size += section->size;
+    roData.size += section->data.size;
 
-    JITDUMP("RWD%02u LABEL DWORD\n", section->offset);
+    JITDUMP("RWD%02u LABEL DWORD\n", section->data.offset);
 
     return section;
 }
 
-DataSection* emitter::GetFloatConst(double value, var_types type)
+ConstData* emitter::GetFloatConst(double value, var_types type)
 {
     const void* data;
     uint32_t    size;
@@ -3196,46 +3196,48 @@ DataSection* emitter::GetFloatConst(double value, var_types type)
     {
         // TODO-MIKE-Review: Is this .rodata size optimization worth it?
         // The cost of accessing misaligned data that straddles cache lines is pretty high.
-        align = DataSection::MinAlign;
+        align = ConstData::MinAlign;
     }
 #endif
 
     return GetConst(data, size, align DEBUGARG(type));
 }
 
-DataSection* emitter::GetConst(const void* data, unsigned size, unsigned align DEBUGARG(var_types type))
+ConstData* emitter::GetConst(const void* data, unsigned size, unsigned align DEBUGARG(var_types type))
 {
     if (DataSection* section = roData.Find(data, size, align))
     {
 #ifdef DEBUG
-        if ((section->type != type) && (section->size == size) && varTypeIsFloating(type))
+        if ((section->data.type != type) && (section->data.size == size) && varTypeIsFloating(type))
         {
-            section->type = type;
+            section->data.type = type;
         }
 #endif
 
-        return section;
+        return &section->data;
     }
 
-    return CreateConst(data, size, align DEBUGARG(type));
+    return &CreateConst(data, size, align DEBUGARG(type))->data;
 }
 
-DataSection* emitter::CreateConst(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type))
+emitter::DataSection* emitter::CreateConst(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type))
 {
     return CreateConstSection(data, size, align DEBUGARG(type));
 }
 
-DataSection* emitter::CreateConstSection(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type))
+emitter::DataSection* emitter::CreateConstSection(const void* data,
+                                                  uint32_t    size,
+                                                  uint32_t align DEBUGARG(var_types type))
 {
-    assert((size != 0) && (size % DataSection::MinAlign == 0));
-    assert(isPow2(align) && (align <= DataSection::MaxAlign));
+    assert((size != 0) && (size % ConstData::MinAlign == 0));
+    assert(isPow2(align) && (align <= ConstData::MaxAlign));
 
     uint32_t offset = roData.size;
 
-    if ((offset % align != 0) && (align > DataSection::MinAlign))
+    if ((offset % align != 0) && (align > ConstData::MinAlign))
     {
-        uint8_t zeros[DataSection::MaxAlign]{};
-        CreateConst(&zeros, align - offset % align, DataSection::MinAlign DEBUGARG(TYP_INT));
+        uint8_t zeros[ConstData::MaxAlign]{};
+        CreateConst(&zeros, align - offset % align, ConstData::MinAlign DEBUGARG(TYP_INT));
         offset = roData.size;
     }
 
@@ -3243,12 +3245,12 @@ DataSection* emitter::CreateConstSection(const void* data, uint32_t size, uint32
 
     DataSection* section = static_cast<DataSection*>(emitGetMem(sizeof(DataSection) + size));
 
-    section->next   = nullptr;
-    section->offset = offset;
-    section->size   = size;
-    section->kind   = DataSection::Const;
-    INDEBUG(section->type = type);
-    memcpy(section->GetData(), data, size);
+    section->next        = nullptr;
+    section->data.offset = offset;
+    section->data.size   = size;
+    section->data.kind   = ConstData::Const;
+    INDEBUG(section->data.type = type);
+    memcpy(section->data.GetData(), data, size);
 
     if (roData.last != nullptr)
     {
@@ -3266,7 +3268,7 @@ DataSection* emitter::CreateConstSection(const void* data, uint32_t size, uint32
     return section;
 }
 
-DataSection* emitter::RoData::Find(const void* data, uint32_t size, uint32_t align) const
+emitter::DataSection* emitter::RoData::Find(const void* data, uint32_t size, uint32_t align) const
 {
     // We're doing a linear search, limit it to avoid poor throughput.
     const unsigned MaxCount = 64;
@@ -3276,9 +3278,10 @@ DataSection* emitter::RoData::Find(const void* data, uint32_t size, uint32_t ali
 
     for (DataSection *section = first; (section != nullptr) && (index < MaxCount); section = section->next, index++)
     {
-        if ((section->kind == DataSection::Const) && (section->size >= size) && ((section->offset & (align - 1)) == 0))
+        if ((section->data.kind == ConstData::Const) && (section->data.size >= size) &&
+            ((section->data.offset & (align - 1)) == 0))
         {
-            if (memcmp(data, section->GetData(), size) == 0)
+            if (memcmp(data, section->data.GetData(), size) == 0)
             {
                 return section;
             }
@@ -3301,17 +3304,18 @@ void emitter::OutputRoData(uint8_t* dst)
 
     for (DataSection* section = roData.first; section != nullptr; section = section->next)
     {
-        JITDUMP("RWD%2u: ; size %u", section->offset, section->size);
+        const ConstData& data = section->data;
+        JITDUMP("RWD%2u: ; size %u", data.offset, data.size);
 
-        if (section->kind == DataSection::LabelAddr)
+        if (data.kind == ConstData::LabelAddr)
         {
             JITDUMP(", label addr\n");
-            assert((section->size != 0) && (section->size % TARGET_POINTER_SIZE == 0));
+            assert((data.size != 0) && (data.size % TARGET_POINTER_SIZE == 0));
 
-            target_size_t* dstRW  = reinterpret_cast<target_size_t*>(dst + section->offset);
-            insGroup**     labels = reinterpret_cast<insGroup**>(section->GetData());
+            target_size_t* dstRW  = reinterpret_cast<target_size_t*>(dst + data.offset);
+            insGroup**     labels = reinterpret_cast<insGroup**>(data.GetData());
 
-            for (unsigned i = 0, count = section->size / TARGET_POINTER_SIZE; i < count; i++)
+            for (unsigned i = 0, count = data.size / TARGET_POINTER_SIZE; i < count; i++)
             {
                 insGroup* label = labels[i];
                 size_t    addr  = reinterpret_cast<size_t>(emitOffsetToPtr(label->igOffs));
@@ -3329,15 +3333,15 @@ void emitter::OutputRoData(uint8_t* dst)
             continue;
         }
 
-        if (section->kind == DataSection::LabelRel32)
+        if (data.kind == ConstData::LabelRel32)
         {
             JITDUMP(", label rel32\n");
 
-            uint32_t*  dstRW     = reinterpret_cast<uint32_t*>(dst + section->offset);
-            insGroup** labels    = reinterpret_cast<insGroup**>(section->GetData());
+            uint32_t*  dstRW     = reinterpret_cast<uint32_t*>(dst + data.offset);
+            insGroup** labels    = reinterpret_cast<insGroup**>(data.GetData());
             insGroup*  baseLabel = emitComp->fgFirstBB->emitLabel;
 
-            for (unsigned i = 0, count = section->size / 4; i < count; i++)
+            for (unsigned i = 0, count = data.size / 4; i < count; i++)
             {
                 insGroup* label = labels[i];
                 assert(FitsIn<uint32_t>(label->igOffs - baseLabel->igOffs));
@@ -3348,32 +3352,32 @@ void emitter::OutputRoData(uint8_t* dst)
             continue;
         }
 
-        assert(section->kind == DataSection::Const);
+        assert(data.kind == ConstData::Const);
 
-        memcpy(dst + section->offset, section->GetData(), section->size);
+        memcpy(dst + data.offset, data.GetData(), data.size);
 
 #ifdef DEBUG
         if (emitComp->verbose)
         {
             printf("\n\t");
 
-            for (uint32_t offset = 0; offset < section->size; offset++)
+            for (uint32_t offset = 0; offset < data.size; offset++)
             {
-                printf("%02x ", static_cast<uint8_t*>(section->GetData())[offset]);
+                printf("%02x ", static_cast<uint8_t*>(data.GetData())[offset]);
 
-                if (((offset + 1) % 16 == 0) && (offset + 1 != section->size))
+                if (((offset + 1) % 16 == 0) && (offset + 1 != data.size))
                 {
                     printf("\n\t");
                 }
             }
 
-            switch (section->type)
+            switch (data.type)
             {
                 case TYP_FLOAT:
-                    printf(" ; %.9gf", *static_cast<float*>(section->GetData()));
+                    printf(" ; %.9gf", *static_cast<float*>(data.GetData()));
                     break;
                 case TYP_DOUBLE:
-                    printf(" ; %.17g", *static_cast<double*>(section->GetData()));
+                    printf(" ; %.17g", *static_cast<double*>(data.GetData()));
                     break;
                 default:
                     break;
@@ -3392,16 +3396,18 @@ void emitter::PrintRoData() const
 
     for (DataSection* section = roData.first; section != nullptr; section = section->next)
     {
+        const ConstData& data = section->data;
+
         const char* labelFormat = "%-7s";
         char        labelName[64];
-        sprintf_s(labelName, _countof(labelName), "RWD%02u", section->offset);
+        sprintf_s(labelName, _countof(labelName), "RWD%02u", data.offset);
         printf(labelFormat, labelName);
 
-        if ((section->kind == DataSection::LabelRel32) || (section->kind == DataSection::LabelAddr))
+        if ((data.kind == ConstData::LabelRel32) || (data.kind == ConstData::LabelAddr))
         {
-            bool       relative   = section->kind == DataSection::LabelRel32;
-            unsigned   labelCount = section->size / (relative ? 4 : TARGET_POINTER_SIZE);
-            insGroup** labels     = reinterpret_cast<insGroup**>(section->GetData());
+            bool       relative   = data.kind == ConstData::LabelRel32;
+            unsigned   labelCount = data.size / (relative ? 4 : TARGET_POINTER_SIZE);
+            insGroup** labels     = reinterpret_cast<insGroup**>(data.GetData());
             insGroup*  baseLabel  = emitComp->fgFirstBB->emitLabel;
 
             for (unsigned i = 0; i < labelCount; i++)
@@ -3454,21 +3460,21 @@ void emitter::PrintRoData() const
             continue;
         }
 
-        assert(section->kind == DataSection::Const);
+        assert(data.kind == ConstData::Const);
 
-        unsigned elemSize = varTypeSize(section->type);
+        unsigned elemSize = varTypeSize(data.type);
 
         if (elemSize == 0)
         {
-            if ((section->size % 8) == 0)
+            if ((data.size % 8) == 0)
             {
                 elemSize = 8;
             }
-            else if ((section->size % 4) == 0)
+            else if ((data.size % 4) == 0)
             {
                 elemSize = 4;
             }
-            else if ((section->size % 2) == 0)
+            else if ((data.size % 2) == 0)
             {
                 elemSize = 2;
             }
@@ -3478,12 +3484,14 @@ void emitter::PrintRoData() const
             }
         }
 
-        for (uint32_t offset = 0; offset < section->size;)
+        for (uint32_t offset = 0; offset < data.size;)
         {
-            if (section->type == TYP_FLOAT)
+            uint8_t* bytes = static_cast<uint8_t*>(data.GetData());
+
+            if (data.type == TYP_FLOAT)
             {
-                assert(section->size >= 4);
-                uint32_t bits = static_cast<uint32_t*>(section->GetData())[offset];
+                assert(data.size >= 4);
+                uint32_t bits = reinterpret_cast<uint32_t&>(bytes[offset]);
                 offset += 4;
                 printf("\tdd\t%08Xh\t", bits);
                 printf("\t; %.9gf\n", jitstd::bit_cast<float>(bits));
@@ -3491,10 +3499,10 @@ void emitter::PrintRoData() const
                 continue;
             }
 
-            if (section->type == TYP_DOUBLE)
+            if (data.type == TYP_DOUBLE)
             {
-                assert(section->size >= 8);
-                uint64_t bits = static_cast<uint64_t*>(section->GetData())[offset];
+                assert(data.size >= 8);
+                uint64_t bits = reinterpret_cast<uint64_t&>(bytes[offset]);
                 offset += 8;
                 printf("\tdq\t%016llXh", bits);
                 printf("\t; %.17g\n", jitstd::bit_cast<double>(bits));
@@ -3506,36 +3514,36 @@ void emitter::PrintRoData() const
             {
                 case 1:
                     printf("\tdb\t");
-                    for (unsigned j = 0; j < 16 && offset < section->size; j++, offset++)
+                    for (unsigned j = 0; j < 16 && offset < data.size; j++, offset++)
                     {
-                        printf("%s%02Xh", j ? ", " : "", static_cast<uint8_t*>(section->GetData())[offset]);
+                        printf("%s%02Xh", j ? ", " : "", reinterpret_cast<uint8_t&>(bytes[offset]));
                     }
                     break;
                 case 2:
-                    assert((section->size % 2) == 0);
+                    assert(data.size % 2 == 0);
                     printf("\tdw\t");
-                    for (unsigned j = 0; j < 12 && offset < section->size; j++, offset += 2)
+                    for (unsigned j = 0; j < 12 && offset < data.size; j++, offset += 2)
                     {
-                        printf("%s%04Xh", j ? ", " : "", static_cast<uint16_t*>(section->GetData())[offset]);
+                        printf("%s%04Xh", j ? ", " : "", reinterpret_cast<uint16_t&>(bytes[offset]));
                     }
                     break;
                 case 12:
                 case 4:
-                    assert((section->size % 4) == 0);
+                    assert(data.size % 4 == 0);
                     printf("\tdd\t");
-                    for (unsigned j = 0; j < 6 && offset < section->size; j++, offset += 4)
+                    for (unsigned j = 0; j < 6 && offset < data.size; j++, offset += 4)
                     {
-                        printf("%s%08Xh", j ? ", " : "", static_cast<uint32_t*>(section->GetData())[offset]);
+                        printf("%s%08Xh", j ? ", " : "", reinterpret_cast<uint32_t&>(bytes[offset]));
                     }
                     break;
                 case 32:
                 case 16:
                 case 8:
-                    assert((section->size % 8) == 0);
+                    assert(data.size % 8 == 0);
                     printf("\tdq\t");
-                    for (unsigned j = 0; j < 4 && offset < section->size; j++, offset += 8)
+                    for (unsigned j = 0; j < 4 && offset < data.size; j++, offset += 8)
                     {
-                        printf("%s%016llXh", j ? ", " : "", static_cast<uint64_t*>(section->GetData())[offset]);
+                        printf("%s%016llXh", j ? ", " : "", reinterpret_cast<uint64_t&>(bytes[offset]));
                     }
                     break;
                 default:

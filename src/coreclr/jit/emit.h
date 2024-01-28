@@ -260,10 +260,9 @@ struct ConstData
         LabelRel32
     };
 
-    ConstData* next;
-    uint32_t   offset;
-    uint32_t   size;
-    Kind       kind;
+    uint32_t offset;
+    uint32_t size;
+    Kind     kind;
     INDEBUG(var_types type;)
 
     void* GetData() const
@@ -272,8 +271,6 @@ struct ConstData
         return const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(this)) + sizeof(ConstData);
     }
 };
-
-using DataSection = ConstData;
 
 class emitter
 {
@@ -371,11 +368,11 @@ public:
     /************************************************************************/
 
 public:
-    DataSection* CreateBlockLabelTable(BasicBlock** blocks, unsigned count, bool relative);
-    DataSection* CreateTempLabelTable(insGroup*** labels, unsigned count, bool relative);
+    ConstData* CreateBlockLabelTable(BasicBlock** blocks, unsigned count, bool relative);
+    ConstData* CreateTempLabelTable(insGroup*** labels, unsigned count, bool relative);
 
-    DataSection* GetFloatConst(double value, var_types type);
-    DataSection* GetConst(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
+    ConstData* GetFloatConst(double value, var_types type);
+    ConstData* GetConst(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
 
 #if DISPLAY_SIZES
     uint32_t GetRoDataSize() const
@@ -385,6 +382,12 @@ public:
 #endif
 
 private:
+    struct DataSection
+    {
+        DataSection* next;
+        ConstData    data;
+    };
+
     DataSection* CreateLabelTable(unsigned count, bool relative);
     DataSection* CreateConst(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
     DataSection* CreateConstSection(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
@@ -1694,7 +1697,7 @@ private:
         DataSection* first = nullptr;
         DataSection* last  = nullptr;
         uint32_t     size  = 0;
-        uint32_t     align = DataSection::MinAlign;
+        uint32_t     align = ConstData::MinAlign;
 
         DataSection* Find(const void* data, uint32_t size, uint32_t align) const;
     };
