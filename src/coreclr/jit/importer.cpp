@@ -5909,10 +5909,11 @@ GenTree* Importer::CreateStaticFieldAddressAccess(OPCODE                    opco
     FieldSeqNode* fieldSeq = GetFieldSeqStore()->CreateSingleton(resolvedToken->hField);
     GenTree*      addr     = nullptr;
 
-#if defined(TARGET_AMD64)
-    if ((opcode == CEE_LDSFLDA) || !comp->eeIsRIPRelativeAddress(fldAddr) || isStaticReadOnlyInited)
-#elif !defined(TARGET_ARM64)
-    if (opcode == CEE_LDSFLDA)
+#if defined(TARGET_AMD64) || defined(TARGET_X86) || defined(TARGET_ARM)
+    // TODO-MIKE-Cleanup: CLS_VAR_ADDR is almost useless, only VN still needs it.
+    // VN treats it differently from CNS_INT and removing it causes some diffs.
+    if ((opcode == CEE_LDSFLDA) ||
+        opts.OptimizationDisabled() AMD64_ONLY(|| !comp->eeIsRIPRelativeAddress(fldAddr) || isStaticReadOnlyInited))
 #endif
     {
         addr = gtNewIconHandleNode(fldAddr, HandleKind::Static, fieldSeq);
