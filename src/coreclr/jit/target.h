@@ -46,8 +46,6 @@ using IntRegMask = uint32_t;
 #error Unsupported target architecture
 #endif
 
-#define REGMASK_BITS sizeof(IntRegMask)
-
 // Each register list in register.h must declare REG_STK as the last value.
 // In the following enum declaration, the following REG_XXX are created beyond
 // the "real" registers:
