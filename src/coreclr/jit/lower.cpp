@@ -364,12 +364,6 @@ GenTree* Lowering::LowerNode(GenTree* node)
             node->AsUnOp()->GetOp(0)->SetRegOptional();
             break;
 
-#ifndef TARGET_ARM64
-        case GT_CLS_VAR_ADDR:
-            LowerClsVarAddr(node->AsClsVar());
-            break;
-#endif
-
         case GT_LCL_ADDR:
             assert(comp->lvaGetDesc(node->AsLclAddr())->IsAddressExposed());
             break;
@@ -380,22 +374,6 @@ GenTree* Lowering::LowerNode(GenTree* node)
 
     return node->gtNext;
 }
-
-#ifndef TARGET_ARM64
-void Lowering::LowerClsVarAddr(GenTreeClsVar* node)
-{
-    assert(!comp->opts.compReloc);
-    INDEBUG(FieldSeqNode* fieldSeq = node->GetFieldSeq());
-
-    GenTreeIntCon* intCon = node->ChangeToIntCon(TYP_I_IMPL, reinterpret_cast<ssize_t>(node->GetFieldAddr()));
-
-#ifdef DEBUG
-    intCon->SetHandleKind(HandleKind::Static);
-    intCon->SetDumpHandle(fieldSeq->GetFieldHandle());
-    intCon->SetFieldSeq(fieldSeq);
-#endif
-}
-#endif // TARGET_ARM64
 
 /**  -- Switch Lowering --
  * The main idea of switch lowering is to keep transparency of the register requirements of this node
