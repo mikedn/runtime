@@ -6205,13 +6205,22 @@ void emitter::emitDispLabel(instrDescJmp* id)
 
     if (id->HasInstrCount())
     {
-        unsigned instrNum   = emitFindInsNum(id->idjIG, id);
-        uint32_t instrOffs  = id->idjIG->igOffs + id->idjOffs;
-        int      instrCount = id->GetInstrCount();
-        uint32_t labelOffs  = id->idjIG->igOffs + id->idjIG->FindInsOffset(instrNum + 1 + instrCount);
-        ssize_t  distance   = emitOffsetToPtr(labelOffs) - emitOffsetToPtr(instrOffs) - 2;
+        if (id->idjIG == nullptr)
+        {
+            // This is the instruction synthesized by emitDispIns, we can't get
+            // its number because it's not part of an actual instruction group.
+            printf("pc%s%d instructions", instrCount >= 0 ? "+" : "", instrCount);
+        }
+        else
+        {
+            unsigned instrNum   = emitFindInsNum(id->idjIG, id);
+            uint32_t instrOffs  = id->idjIG->igOffs + id->idjOffs;
+            int      instrCount = id->GetInstrCount();
+            uint32_t labelOffs  = id->idjIG->igOffs + id->idjIG->FindInsOffset(instrNum + 1 + instrCount);
+            ssize_t  distance   = emitOffsetToPtr(labelOffs) - emitOffsetToPtr(instrOffs) - 2;
 
-        printf("pc%s%d (%d instructions)", distance >= 0 ? "+" : "", distance, instrCount);
+            printf("pc%s%d (%d instructions)", distance >= 0 ? "+" : "", distance, instrCount);
+        }
     }
     else
     {
@@ -6911,11 +6920,10 @@ void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, uns
         idJmp.idInsFmt(IF_T2_J2);
         idJmp.idInsSize(ISZ_32BIT);
         idJmp.SetLabel(ij->GetLabel());
-
         idJmp.idDebugOnlyInfo(id->idDebugOnlyInfo()); // share the idDebugOnlyInfo() field
 
         size_t brSizeOrZero = (code == NULL) ? 0 : 4; // unconditional branch is 4 bytes
-        emitDispInsHelp(&idJmp, isNew, doffs, asmfm, offset, code, brSizeOrZero);
+        emitDispInsHelp(&idJmp, false, doffs, asmfm, offset, code, brSizeOrZero);
     }
     else
     {
