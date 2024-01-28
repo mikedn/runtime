@@ -1192,46 +1192,36 @@ struct CompilerOptions
 #define MAX_LV_NUM_COUNT_FOR_INLINING 512
 
     bool compMinOpts : 1;
-    bool compMinOptsIsSet : 1;
 #ifdef DEBUG
-    mutable bool compMinOptsIsUsed;
+    bool         compMinOptsIsSet : 1;
+    mutable bool compMinOptsIsUsed : 1;
+#endif
 
     bool MinOpts() const
     {
         assert(compMinOptsIsSet);
-        compMinOptsIsUsed = true;
-        return compMinOpts;
-    }
-    bool IsMinOptsSet()
-    {
-        return compMinOptsIsSet;
-    }
-#else  // !DEBUG
-    bool MinOpts() const
-    {
-        return compMinOpts;
-    }
-    bool IsMinOptsSet()
-    {
-        return compMinOptsIsSet;
-    }
-#endif // !DEBUG
+        INDEBUG(compMinOptsIsUsed = true);
 
-    bool OptimizationDisabled() const
-    {
-        return MinOpts() || compDbgCode;
-    }
-    bool OptimizationEnabled() const
-    {
-        return !OptimizationDisabled();
+        return compMinOpts;
     }
 
     void SetMinOpts(bool val)
     {
         assert(!compMinOptsIsUsed);
         assert(!compMinOptsIsSet || (compMinOpts == val));
-        compMinOpts      = val;
-        compMinOptsIsSet = true;
+        INDEBUG(compMinOptsIsSet = true);
+
+        compMinOpts = val;
+    }
+
+    bool OptimizationDisabled() const
+    {
+        return MinOpts() || compDbgCode;
+    }
+
+    bool OptimizationEnabled() const
+    {
+        return !OptimizationDisabled();
     }
 
     bool OptEnabled(OptFlags optFlag) const
@@ -1364,7 +1354,7 @@ struct CompilerOptions
 // likely complicated enough that loop alignment will not impact performance.
 #define DEFAULT_MAX_LOOPSIZE_FOR_ALIGN DEFAULT_ALIGN_LOOP_BOUNDARY * 3
 
-    bool alignLoops;
+    bool alignLoops : 1;
 
 #ifdef DEBUG
     // Loop alignment variables
