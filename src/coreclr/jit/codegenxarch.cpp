@@ -442,15 +442,10 @@ void CodeGen::GenEndLFin(GenTreeEndLFin* node)
 
 void CodeGen::GenConstAddr(GenTreeConstAddr* node)
 {
-    RegNum               reg   = node->GetRegNum();
-    CORINFO_FIELD_HANDLE field = node->GetFieldHandle();
-
-    assert(Emitter::IsRoDataField(field));
-
 #ifdef TARGET_X86
-    GetEmitter()->emitIns_R_L(reg, field);
+    GetEmitter()->emitIns_R_L(node->GetRegNum(), node->GetData());
 #else
-    GetEmitter()->emitIns_R_C(INS_lea, EA_8BYTE, reg, field);
+    GetEmitter()->emitIns_R_C(INS_lea, EA_8BYTE, node->GetRegNum(), node->GetData());
 #endif
 
     DefReg(node);
@@ -539,7 +534,7 @@ void CodeGen::GenDblCon(GenTreeDblCon* node, regNumber reg, var_types type)
         return;
     }
 
-    CORINFO_FIELD_HANDLE data = GetEmitter()->GetFloatConst(node->GetValue(), node->GetType());
+    ConstData* data = GetEmitter()->GetFloatConst(node->GetValue(), node->GetType());
     GetEmitter()->emitIns_R_C(ins_Load(type), emitTypeSize(node->GetType()), reg, data);
 }
 
@@ -887,7 +882,7 @@ void CodeGen::GenFloatAbs(GenTreeIntrinsic* node)
     assert(node->GetOp(0)->GetType() == node->GetType());
     assert(node->GetRegNum() != REG_NA);
 
-    CORINFO_FIELD_HANDLE& maskField = node->TypeIs(TYP_FLOAT) ? absBitmaskFlt : absBitmaskDbl;
+    ConstData*& maskField = node->TypeIs(TYP_FLOAT) ? absBitmaskFlt : absBitmaskDbl;
 
     if (maskField == nullptr)
     {
@@ -909,7 +904,7 @@ void CodeGen::GenFloatNegate(GenTreeUnOp* node)
     assert(node->GetOp(0)->GetType() == node->GetType());
     assert(node->GetRegNum() != REG_NA);
 
-    CORINFO_FIELD_HANDLE& maskField = node->TypeIs(TYP_FLOAT) ? negBitmaskFlt : negBitmaskDbl;
+    ConstData*& maskField = node->TypeIs(TYP_FLOAT) ? negBitmaskFlt : negBitmaskDbl;
 
     if (maskField == nullptr)
     {
@@ -3091,15 +3086,15 @@ void CodeGen::GenJmpTable(GenTree* node, const BBswtDesc& switchDesc)
     const bool relative = true;
 #endif
 
-    unsigned jumpTable = GetEmitter()->CreateBlockLabelTable(switchDesc.bbsDstTab, switchDesc.bbsCount, relative);
+    ConstData* data = GetEmitter()->CreateBlockLabelTable(switchDesc.bbsDstTab, switchDesc.bbsCount, relative);
 
 #ifdef TARGET_X86
     // TODO-MIKE-CQ: This needs to be folded into the address mode of the SWITCH_TABLE generated load.
     // Can't do that easily though since there's no emitIns_ARX version that accepts a .rodata offset
     // as displacement. It's probably more trouble than it's worth to add that to x86 at this point.
-    GetEmitter()->emitIns_R_L(node->GetRegNum(), Emitter::MakeRoDataField(jumpTable));
+    GetEmitter()->emitIns_R_L(node->GetRegNum(), data);
 #else
-    GetEmitter()->emitIns_R_C(INS_lea, EA_8BYTE, node->GetRegNum(), Emitter::MakeRoDataField(jumpTable));
+    GetEmitter()->emitIns_R_C(INS_lea, EA_8BYTE, node->GetRegNum(), data);
 #endif
 
     DefReg(node);
@@ -5799,7 +5794,7 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
         // instructions below, FloatingPointUtils::convertUInt64ToDouble should be also updated
         // for consistent conversion result.
 
-        CORINFO_FIELD_HANDLE field;
+        ConstData* data;
 
         if (dstType == TYP_DOUBLE)
         {
@@ -5809,9 +5804,9 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
                     GetEmitter()->GetFloatConst(jitstd::bit_cast<double>(0x43f0000000000000ULL), TYP_DOUBLE);
             }
 
-            ins   = INS_addsd;
-            size  = EA_8BYTE;
-            field = u8ToDblBitmask;
+            ins  = INS_addsd;
+            size = EA_8BYTE;
+            data = u8ToDblBitmask;
         }
         else
         {
@@ -5820,15 +5815,15 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
                 u8ToFltBitmask = GetEmitter()->GetFloatConst(jitstd::bit_cast<float>(0x5f800000U), TYP_FLOAT);
             }
 
-            ins   = INS_addss;
-            size  = EA_4BYTE;
-            field = u8ToFltBitmask;
+            ins  = INS_addss;
+            size = EA_4BYTE;
+            data = u8ToFltBitmask;
         }
 
         insGroup* label = GetEmitter()->CreateTempLabel();
         GetEmitter()->emitIns_R_R(INS_test, EA_8BYTE, srcReg, srcReg);
         GetEmitter()->emitIns_J(INS_jge, label);
-        GetEmitter()->emitIns_R_C(ins, size, dstReg, field);
+        GetEmitter()->emitIns_R_C(ins, size, dstReg, data);
         GetEmitter()->DefineTempLabel(label);
     }
 #endif

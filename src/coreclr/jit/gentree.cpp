@@ -7240,7 +7240,7 @@ void Compiler::gtDispLeaf(GenTree* tree)
             break;
 
         case GT_CONST_ADDR:
-            printf(" RWD%02u", reinterpret_cast<uintptr_t>(tree->AsConstAddr()->GetFieldHandle()) >> 2);
+            printf(" RWD%02u", CodeGenInterface::GetConstOffset(tree->AsConstAddr()->GetData()));
             break;
 
         case GT_JMP:

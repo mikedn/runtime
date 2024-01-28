@@ -634,7 +634,7 @@ void emitIns_R_R_S_S(
 
 void emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, int val);
 
-void emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumber tmpReg, CORINFO_FIELD_HANDLE fldHnd);
+void emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumber tmpReg, ConstData* data);
 
 void emitIns_R_L(RegNum reg, insGroup* label);
 

@@ -193,7 +193,8 @@ public:
     }
 #endif
 
-    CORINFO_FIELD_HANDLE GetConst(const void* data, unsigned size, unsigned align DEBUGARG(var_types type));
+    ConstData* GetConst(const void* data, unsigned size, unsigned align DEBUGARG(var_types type));
+    INDEBUG(static unsigned GetConstOffset(ConstData* data));
 
     unsigned GetHotCodeSize() const;
     unsigned GetColdCodeSize() const;

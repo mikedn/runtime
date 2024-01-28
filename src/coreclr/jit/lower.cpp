@@ -16,14 +16,8 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
 #include "lower.h"
 #include "jitgcinfo.h"
-#include "emit.h"
-
 #ifndef TARGET_64BIT
 #include "decomposelongs.h"
 #endif
@@ -388,7 +382,6 @@ GenTree* Lowering::LowerNode(GenTree* node)
 void Lowering::LowerClsVarAddr(GenTreeClsVar* node)
 {
     CORINFO_FIELD_HANDLE field = node->AsClsVar()->GetFieldHandle();
-    assert(!Emitter::IsRoDataField(field));
 
 #ifndef TARGET_ARM64
     assert(!comp->opts.compReloc);

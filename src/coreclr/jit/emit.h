@@ -247,6 +247,34 @@ enum insFormat : unsigned
 
 class AsmPrinter;
 
+struct ConstData
+{
+    // Alignments greater than 32 requires VM changes (see ICorJitInfo::allocMem)
+    const static uint32_t MinAlign = 4;
+    const static uint32_t MaxAlign = 32;
+
+    enum Kind : uint8_t
+    {
+        Const,
+        LabelAddr,
+        LabelRel32
+    };
+
+    ConstData* next;
+    uint32_t   offset;
+    uint32_t   size;
+    Kind       kind;
+    INDEBUG(var_types type;)
+
+    void* GetData() const
+    {
+        assert(size != 0);
+        return const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(this)) + sizeof(ConstData);
+    }
+};
+
+using DataSection = ConstData;
+
 class emitter
 {
     friend class emitLocation;
@@ -342,50 +370,12 @@ public:
     /*                   Emit initialized data sections                     */
     /************************************************************************/
 
-private:
-    enum idAddrUnionTag
-    {
-        iaut_ALIGNED_POINTER = 0x0,
-        iaut_DATA_OFFSET     = 0x1,
-        iaut_INST_COUNT      = 0x2,
-        iaut_UNUSED_TAG      = 0x3,
-
-        iaut_MASK  = 0x3,
-        iaut_SHIFT = 2
-    };
-
 public:
-    static CORINFO_FIELD_HANDLE MakeRoDataField(unsigned offset)
-    {
-        assert(offset < 0x40000000);
-        uintptr_t bits = static_cast<uintptr_t>((offset << iaut_SHIFT) | iaut_DATA_OFFSET);
-        return reinterpret_cast<CORINFO_FIELD_HANDLE>(bits);
-    }
+    DataSection* CreateBlockLabelTable(BasicBlock** blocks, unsigned count, bool relative);
+    DataSection* CreateTempLabelTable(insGroup*** labels, unsigned count, bool relative);
 
-    static bool IsRoDataField(CORINFO_FIELD_HANDLE field)
-    {
-        uintptr_t bits = reinterpret_cast<uintptr_t>(field);
-        return (bits <= UINT_MAX) && ((bits & iaut_MASK) == iaut_DATA_OFFSET);
-    }
-
-    static int GetRoDataOffset(CORINFO_FIELD_HANDLE field)
-    {
-        if (IsRoDataField(field))
-        {
-            uintptr_t bits = reinterpret_cast<uintptr_t>(field);
-            return static_cast<int>(bits >> iaut_SHIFT);
-        }
-        else
-        {
-            return -1;
-        }
-    }
-
-    uint32_t CreateBlockLabelTable(BasicBlock** blocks, unsigned count, bool relative);
-    uint32_t CreateTempLabelTable(insGroup*** labels, unsigned count, bool relative);
-
-    CORINFO_FIELD_HANDLE GetFloatConst(double value, var_types type);
-    CORINFO_FIELD_HANDLE GetConst(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
+    DataSection* GetFloatConst(double value, var_types type);
+    DataSection* GetConst(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
 
 #if DISPLAY_SIZES
     uint32_t GetRoDataSize() const
@@ -395,30 +385,9 @@ public:
 #endif
 
 private:
-    struct DataSection
-    {
-        // Alignments greater than 32 requires VM changes (see ICorJitInfo::allocMem)
-        const static uint32_t MinAlign = 4;
-        const static uint32_t MaxAlign = 32;
-
-        enum Kind : uint8_t
-        {
-            Const,
-            LabelAddr,
-            LabelRel32
-        };
-
-        DataSection* next;
-        uint32_t     offset;
-        uint32_t     size;
-        Kind         kind;
-        INDEBUG(var_types type;)
-        uint8_t data[0];
-    };
-
     DataSection* CreateLabelTable(unsigned count, bool relative);
-    uint32_t CreateConst(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
-    uint32_t CreateConstSection(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
+    DataSection* CreateConst(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
+    DataSection* CreateConstSection(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
 
     void* emitGetMem(size_t sz);
 
@@ -887,7 +856,7 @@ private:
             uintptr_t label;
             uintptr_t addr;
 #ifdef TARGET_XARCH
-            CORINFO_FIELD_HANDLE field;
+            ConstData* data;
 #endif
 
 #ifdef TARGET_ARM
@@ -998,16 +967,16 @@ private:
         ssize_t GetAmDisp() const;
         ssize_t GetCallDisp() const;
 
-        CORINFO_FIELD_HANDLE GetField() const
+        ConstData* GetConstData() const
         {
             assert((IF_MRD <= _idInsFmt) && (_idInsFmt <= IF_MWR_RRD_CNS));
-            return idAddr()->field;
+            return idAddr()->data;
         }
 
-        void SetField(CORINFO_FIELD_HANDLE field)
+        void SetConstData(ConstData* data)
         {
             assert((IF_MRD <= _idInsFmt) && (_idInsFmt <= IF_MWR_RRD_CNS));
-            idAddr()->field = field;
+            idAddr()->data = data;
         }
 
         regNumber idReg3() const
@@ -1125,7 +1094,7 @@ private:
         {
             LabelTag = 0,
 #if defined(TARGET_ARM64) || defined(TARGET_X86)
-            RoDataOffsetTag = 1,
+            ConstDataTag = 1,
 #endif
             InstrCountTag = 2,
             TagMask       = 3,
@@ -1157,20 +1126,20 @@ private:
         }
 
 #if defined(TARGET_ARM64) || defined(TARGET_X86)
-        bool HasRoDataOffset() const
+        bool HasConstData() const
         {
-            return (_idAddrUnion.label & TagMask) == RoDataOffsetTag;
+            return (_idAddrUnion.label & TagMask) == ConstDataTag;
         }
 
-        uint32_t GetRoDataOffset() const
+        ConstData* GetConstData() const
         {
-            assert(HasRoDataOffset());
-            return static_cast<uint32_t>(_idAddrUnion.label >> TagSize);
+            assert(HasConstData());
+            return reinterpret_cast<ConstData*>(_idAddrUnion.label & ~TagMask);
         }
 
-        void SetRoDataOffset(uint32_t offset)
+        void SetConstData(ConstData* data)
         {
-            _idAddrUnion.label = (static_cast<uintptr_t>(offset) << TagSize) | RoDataOffsetTag;
+            _idAddrUnion.label = reinterpret_cast<uintptr_t>(data) | ConstDataTag;
         }
 #endif
 

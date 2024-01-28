@@ -6972,26 +6972,28 @@ public:
 #endif
 };
 
+struct ConstData;
+
 struct GenTreeConstAddr : public GenTree
 {
-    CORINFO_FIELD_HANDLE field;
+    ConstData* data;
 
-    GenTreeConstAddr(CORINFO_FIELD_HANDLE field) : GenTree(GT_CONST_ADDR, TYP_I_IMPL), field(field)
+    GenTreeConstAddr(ConstData* data) : GenTree(GT_CONST_ADDR, TYP_I_IMPL), data(data)
     {
     }
 
-    GenTreeConstAddr(const GenTreeConstAddr* copyFrom) : GenTree(GT_CONST_ADDR, TYP_I_IMPL), field(copyFrom->field)
+    GenTreeConstAddr(const GenTreeConstAddr* copyFrom) : GenTree(GT_CONST_ADDR, TYP_I_IMPL), data(copyFrom->data)
     {
     }
 
-    CORINFO_FIELD_HANDLE GetFieldHandle() const
+    ConstData* GetData() const
     {
-        return field;
+        return data;
     }
 
     static bool Equals(const GenTreeConstAddr* x, const GenTreeConstAddr* y)
     {
-        return x->field == y->field;
+        return x->data == y->data;
     }
 
 #if DEBUGGABLE_GENTREE

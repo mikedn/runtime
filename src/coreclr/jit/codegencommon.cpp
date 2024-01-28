@@ -30,12 +30,17 @@ CodeGenInterface::CodeGenInterface(Compiler* compiler) : compiler(compiler), spi
 {
 }
 
-CORINFO_FIELD_HANDLE CodeGenInterface::GetConst(const void* data,
-                                                unsigned    size,
-                                                unsigned align DEBUGARG(var_types type))
+ConstData* CodeGenInterface::GetConst(const void* data, unsigned size, unsigned align DEBUGARG(var_types type))
 {
     return static_cast<CodeGen*>(this)->GetEmitter()->GetConst(data, size, align DEBUGARG(type));
 }
+
+#ifdef DEBUG
+unsigned CodeGenInterface::GetConstOffset(ConstData* data)
+{
+    return data->offset;
+}
+#endif
 
 void CodeGenInterface::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
 {

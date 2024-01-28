@@ -4148,11 +4148,11 @@ void emitter::emitIns_R_L(instruction ins, RegNum reg, insGroup* label)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_D(instruction ins, unsigned offs, regNumber reg)
+void emitter::emitIns_R_D(instruction ins, RegNum reg, ConstData* data)
 {
     assert((ins == INS_movw) || (ins == INS_movt));
 
-    instrDesc* id = emitNewInstrSC(offs);
+    instrDesc* id = emitNewInstrSC(data->offset);
     id->idIns(ins);
     id->idReg1(reg);
     id->idInsFmt(IF_T2_N2);

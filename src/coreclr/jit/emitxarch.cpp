@@ -561,15 +561,15 @@ static bool IsExtendedReg(regNumber reg, emitAttr attr)
 }
 
 #ifdef WINDOWS_X86_ABI
-// Special CORINFO_FIELD_HANDLE that references the FS segment, for x86 TLS access.
-static const CORINFO_FIELD_HANDLE FS_SEG_FIELD = reinterpret_cast<CORINFO_FIELD_HANDLE>(-8);
+// Special ConstData that references the FS segment, for x86 TLS access.
+static ConstData FS_SEG_FIELD;
 #endif
 
 #ifdef DEBUG
-static bool FieldDispRequiresRelocation(CORINFO_FIELD_HANDLE field)
+static bool FieldDispRequiresRelocation(ConstData* data)
 {
 #ifdef WINDOWS_X86_ABI
-    return field != FS_SEG_FIELD;
+    return data != &FS_SEG_FIELD;
 #else
     return true;
 #endif
@@ -1615,7 +1615,7 @@ void emitter::emitIns_A(instruction ins, emitAttr attr, GenTree* addr)
 {
     if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_C(ins, attr, constAddr->GetFieldHandle());
+        emitIns_C(ins, attr, constAddr->GetData());
         return;
     }
 
@@ -1654,7 +1654,7 @@ void emitter::emitIns_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t
 
     if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_C_I(ins, attr, constAddr->GetFieldHandle(), imm);
+        emitIns_C_I(ins, attr, constAddr->GetData(), imm);
         return;
     }
 
@@ -1686,7 +1686,7 @@ void emitter::emitIns_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumb
 
     if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_C_R(ins, attr, constAddr->GetFieldHandle(), reg);
+        emitIns_C_R(ins, attr, constAddr->GetData(), reg);
         return;
     }
 
@@ -1888,7 +1888,7 @@ void emitter::emitInsMov_R_FS(regNumber reg, int32_t offs)
     id->idOpSize(EA_4BYTE);
     id->idInsFmt(emitInsModeFormat(INS_mov, IF_RRD_MRD));
     id->idReg1(reg);
-    id->SetField(FS_SEG_FIELD);
+    id->SetConstData(&FS_SEG_FIELD);
 
     unsigned sz = 1 + (reg == REG_EAX ? 1 : 2) + 4;
     id->idCodeSize(sz);
@@ -1934,9 +1934,9 @@ void emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
 #endif
 }
 
-void emitter::emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field)
+void emitter::emitIns_C(instruction ins, emitAttr attr, ConstData* data)
 {
-    assert(FieldDispRequiresRelocation(field));
+    assert(FieldDispRequiresRelocation(data));
 
     instrDesc* id = emitNewInstr();
     id->idIns(ins);
@@ -1944,7 +1944,7 @@ void emitter::emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE fie
     id->idInsFmt(emitInsModeFormat(ins, IF_MRD));
     INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
     id->idSetIsDspReloc();
-    id->SetField(field);
+    id->SetConstData(data);
 
     unsigned sz = emitInsSizeCV(id, insCodeMR(ins));
     id->idCodeSize(sz);
@@ -2275,7 +2275,7 @@ void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg, GenTree
 
     if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_R_C(ins, attr, reg, constAddr->GetFieldHandle());
+        emitIns_R_C(ins, attr, reg, constAddr->GetData());
         return;
     }
 
@@ -2309,7 +2309,7 @@ void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenT
 
     if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_R_C_I(ins, attr, reg1, constAddr->GetFieldHandle(), imm);
+        emitIns_R_C_I(ins, attr, reg1, constAddr->GetData(), imm);
         return;
     }
 
@@ -2330,12 +2330,12 @@ void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenT
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, CORINFO_FIELD_HANDLE field, int32_t imm)
+void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, ConstData* data, int32_t imm)
 {
     assert(IsSSEOrAVXOrBMIInstruction(ins) || (ins == INS_imuli));
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
     assert(!EA_IS_GCREF_OR_BYREF(attr));
-    assert(FieldDispRequiresRelocation(field));
+    assert(FieldDispRequiresRelocation(data));
 
     X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg1)));
 
@@ -2346,7 +2346,7 @@ void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, CORI
     id->idInsFmt(IF_RRW_MRD_CNS);
     id->idReg1(reg1);
     id->idSetIsDspReloc();
-    id->SetField(field);
+    id->SetConstData(data);
 
     unsigned sz = emitInsSizeCV(id, insCodeRM(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
@@ -2380,7 +2380,7 @@ void emitter::emitIns_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regN
 {
     if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_R_R_C(ins, attr, reg1, reg2, constAddr->GetFieldHandle());
+        emitIns_R_R_C(ins, attr, reg1, reg2, constAddr->GetData());
         return;
     }
 
@@ -2434,10 +2434,10 @@ void emitter::emitIns_R_AR_R(instruction ins,
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE field)
+void emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ConstData* data)
 {
     assert(IsVexTernary(ins) && !EA_IS_GCREF_OR_BYREF(attr));
-    assert(FieldDispRequiresRelocation(field));
+    assert(FieldDispRequiresRelocation(data));
 
     instrDesc* id = emitNewInstr();
     id->idIns(ins);
@@ -2446,7 +2446,7 @@ void emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regN
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idSetIsDspReloc();
-    id->SetField(field);
+    id->SetConstData(data);
 
     unsigned sz = emitInsSizeCV(id, insCodeRM(ins));
     id->idCodeSize(sz);
@@ -2495,7 +2495,7 @@ void emitter::emitIns_R_R_A_I(
 {
     if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_R_R_C_I(ins, attr, reg1, reg2, constAddr->GetFieldHandle(), imm);
+        emitIns_R_R_C_I(ins, attr, reg1, reg2, constAddr->GetData(), imm);
         return;
     }
 
@@ -2518,11 +2518,11 @@ void emitter::emitIns_R_R_A_I(
 }
 
 void emitter::emitIns_R_R_C_I(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE field, int32_t imm)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ConstData* data, int32_t imm)
 {
     assert(IsVexTernary(ins));
     assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
-    assert(FieldDispRequiresRelocation(field));
+    assert(FieldDispRequiresRelocation(data));
     assert(IsImm8(imm));
 
     instrDesc* id = emitNewInstrCns(imm);
@@ -2532,7 +2532,7 @@ void emitter::emitIns_R_R_C_I(
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idSetIsDspReloc();
-    id->SetField(field);
+    id->SetConstData(data);
 
     unsigned sz = emitInsSizeCV(id, insCodeRM(ins)) + 1;
     id->idCodeSize(sz);
@@ -2603,7 +2603,7 @@ void emitter::emitIns_R_R_A_R(
 
     if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_R_R_C_R(MapSse41BlendvToAvxBlendv(ins), attr, reg1, reg2, reg3, constAddr->GetFieldHandle());
+        emitIns_R_R_C_R(MapSse41BlendvToAvxBlendv(ins), attr, reg1, reg2, reg3, constAddr->GetData());
         return;
     }
 
@@ -2622,12 +2622,12 @@ void emitter::emitIns_R_R_A_R(
 }
 
 void emitter::emitIns_R_R_C_R(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, CORINFO_FIELD_HANDLE field)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, ConstData* data)
 {
     assert(UseVEXEncoding());
     assert(IsAvxBlendv(ins));
     assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
-    assert(FieldDispRequiresRelocation(field));
+    assert(FieldDispRequiresRelocation(data));
 
     instrDesc* id = emitNewInstrCns(EncodeXmmRegAsImm(reg3));
     id->idIns(ins);
@@ -2636,7 +2636,7 @@ void emitter::emitIns_R_R_C_R(
     id->idReg2(reg2);
     id->idInsFmt(IF_RWR_RRD_MRD_RRD);
     id->idSetIsDspReloc();
-    id->SetField(field);
+    id->SetConstData(data);
 
     unsigned sz = emitInsSizeCV(id, insCodeRM(ins)) + 1;
     id->idCodeSize(sz);
@@ -2686,10 +2686,10 @@ void emitter::emitIns_R_R_R_R(
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE field)
+void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, ConstData* data)
 {
     assert(!HasImplicitRegPairDest(ins) && (ins != INS_imuli));
-    assert(FieldDispRequiresRelocation(field));
+    assert(FieldDispRequiresRelocation(data));
     X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg)));
 
     instrDesc* id = emitNewInstr();
@@ -2699,7 +2699,7 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
     id->idGCref(EA_GC_TYPE(attr));
     id->idReg1(reg);
     id->idSetIsDspReloc();
-    id->SetField(field);
+    id->SetConstData(data);
 
     unsigned sz;
 
@@ -2723,9 +2723,9 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, regNumber reg)
+void emitter::emitIns_C_R(instruction ins, emitAttr attr, ConstData* data, regNumber reg)
 {
-    assert(FieldDispRequiresRelocation(field));
+    assert(FieldDispRequiresRelocation(data));
     X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg)));
 
     emitAttr size = EA_SIZE(attr);
@@ -2743,7 +2743,7 @@ void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     id->idInsFmt(emitInsModeFormat(ins, IF_MRD_RRD));
     id->idReg1(reg);
     id->idSetIsDspReloc();
-    id->SetField(field);
+    id->SetConstData(data);
 
     unsigned sz;
 
@@ -2767,10 +2767,10 @@ void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, int32_t imm)
+void emitter::emitIns_C_I(instruction ins, emitAttr attr, ConstData* data, int32_t imm)
 {
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
-    assert(FieldDispRequiresRelocation(field));
+    assert(FieldDispRequiresRelocation(data));
 
     instrDesc* id = emitNewInstrCns(imm);
     id->idIns(ins);
@@ -2779,7 +2779,7 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
     id->idInsFmt(emitInsModeFormat(ins, IF_MRD_CNS));
     id->idSetIsDspReloc();
-    id->SetField(field);
+    id->SetConstData(data);
 
     unsigned sz = emitInsSizeCV(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
@@ -2815,16 +2815,14 @@ void emitter::emitIns_R_L(RegNum reg, insGroup* label)
 }
 
 #ifdef TARGET_X86
-void emitter::emitIns_R_L(RegNum reg, CORINFO_FIELD_HANDLE field)
+void emitter::emitIns_R_L(RegNum reg, ConstData* data)
 {
-    assert(IsRoDataField(field));
-
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(INS_mov);
     id->idOpSize(EA_PTRSIZE);
     id->idInsFmt(IF_RWR_LABEL);
     id->idReg1(reg);
-    id->SetRoDataOffset(GetRoDataOffset(field));
+    id->SetConstData(data);
     id->idSetIsCnsReloc(emitComp->opts.compReloc);
 
     unsigned sz = 1 + 4; // 0xB8 IMM32
@@ -2884,7 +2882,7 @@ void emitter::emitIns_A_R_I(instruction ins, emitAttr attr, GenTree* addr, regNu
 {
     if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_C_R_I(ins, attr, constAddr->GetFieldHandle(), reg, imm);
+        emitIns_C_R_I(ins, attr, constAddr->GetData(), reg, imm);
         return;
     }
 
@@ -2906,7 +2904,7 @@ void emitter::emitIns_A_R_I(instruction ins, emitAttr attr, GenTree* addr, regNu
     emitCurIGsize += size;
 }
 
-void emitter::emitIns_C_R_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, regNumber reg, int32_t imm)
+void emitter::emitIns_C_R_I(instruction ins, emitAttr attr, ConstData* data, regNumber reg, int32_t imm)
 {
     assert((ins == INS_vextracti128) || (ins == INS_vextractf128));
     assert(attr == EA_32BYTE);
@@ -2919,7 +2917,7 @@ void emitter::emitIns_C_R_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE
     id->idInsFmt(IF_MWR_RRD_CNS);
     id->idReg1(reg);
     id->idSetIsDspReloc();
-    id->SetField(field);
+    id->SetConstData(data);
 
     unsigned size = emitInsSizeCV(id, insCodeMR(ins)) + 1;
     id->idCodeSize(size);
@@ -3050,7 +3048,7 @@ void emitter::emitIns_SIMD_R_R_A(instruction ins, emitAttr attr, regNumber reg1,
 {
     if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_SIMD_R_R_C(ins, attr, reg1, reg2, constAddr->GetFieldHandle());
+        emitIns_SIMD_R_R_C(ins, attr, reg1, reg2, constAddr->GetData());
     }
     else if (UseVEXEncoding())
     {
@@ -3063,17 +3061,16 @@ void emitter::emitIns_SIMD_R_R_A(instruction ins, emitAttr attr, regNumber reg1,
     }
 }
 
-void emitter::emitIns_SIMD_R_R_C(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE field)
+void emitter::emitIns_SIMD_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ConstData* data)
 {
     if (UseVEXEncoding())
     {
-        emitIns_R_R_C(ins, attr, reg1, reg2, field);
+        emitIns_R_R_C(ins, attr, reg1, reg2, data);
     }
     else
     {
         emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-        emitIns_R_C(ins, attr, reg1, field);
+        emitIns_R_C(ins, attr, reg1, data);
     }
 }
 
@@ -3119,7 +3116,7 @@ void emitter::emitIns_SIMD_R_R_A_I(
 {
     if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_SIMD_R_R_C_I(ins, attr, reg1, reg2, constAddr->GetFieldHandle(), imm);
+        emitIns_SIMD_R_R_C_I(ins, attr, reg1, reg2, constAddr->GetData(), imm);
     }
     else if (UseVEXEncoding())
     {
@@ -3133,16 +3130,16 @@ void emitter::emitIns_SIMD_R_R_A_I(
 }
 
 void emitter::emitIns_SIMD_R_R_C_I(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE field, int32_t imm)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ConstData* data, int32_t imm)
 {
     if (UseVEXEncoding())
     {
-        emitIns_R_R_C_I(ins, attr, reg1, reg2, field, imm);
+        emitIns_R_R_C_I(ins, attr, reg1, reg2, data, imm);
     }
     else
     {
         emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-        emitIns_R_C_I(ins, attr, reg1, field, imm);
+        emitIns_R_C_I(ins, attr, reg1, data, imm);
     }
 }
 
@@ -3182,7 +3179,7 @@ void emitter::emitIns_SIMD_R_R_R_A(
 {
     if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_SIMD_R_R_R_C(ins, attr, reg1, reg2, reg3, constAddr->GetFieldHandle());
+        emitIns_SIMD_R_R_R_C(ins, attr, reg1, reg2, reg3, constAddr->GetData());
         return;
     }
 
@@ -3197,7 +3194,7 @@ void emitter::emitIns_SIMD_R_R_R_A(
 }
 
 void emitter::emitIns_SIMD_R_R_R_C(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, CORINFO_FIELD_HANDLE field)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, ConstData* data)
 {
     assert(IsFMAInstruction(ins));
     assert(UseVEXEncoding());
@@ -3206,7 +3203,7 @@ void emitter::emitIns_SIMD_R_R_R_C(
     assert((reg3 != reg1) || (reg2 == reg1));
 
     emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-    emitIns_R_R_C(ins, attr, reg1, reg3, field);
+    emitIns_R_R_C(ins, attr, reg1, reg3, data);
 }
 
 void emitter::emitIns_SIMD_R_R_R_R(
@@ -4131,13 +4128,13 @@ private:
         }
     }
 
-    void PrintClsVar(instrDesc* id, emitAttr size)
+    void PrintConstDataLabel(instrDesc* id, emitAttr size)
     {
-        CORINFO_FIELD_HANDLE field = id->GetField();
-        ssize_t              offs  = id->GetMemDisp();
+        ConstData* data = id->GetConstData();
+        ssize_t    offs = id->GetMemDisp();
 
 #ifdef WINDOWS_X86_ABI
-        if (field == FS_SEG_FIELD)
+        if (data == &FS_SEG_FIELD)
         {
             printf("fs:[0x%04X]", offs);
             return;
@@ -4151,14 +4148,7 @@ private:
             printf("reloc ");
         }
 
-        if (Emitter::IsRoDataField(field))
-        {
-            printf("@RWD%02u", Emitter::GetRoDataOffset(field));
-        }
-        else
-        {
-            printf("classVar[%#x]", compiler->dspPtr(field));
-        }
+        printf("@RWD%02u", data->offset);
 
         if (offs != 0)
         {
@@ -4414,9 +4404,9 @@ private:
             printf("%3d instr", id->GetInstrCount());
         }
 #ifdef TARGET_X86
-        else if (id->HasRoDataOffset())
+        else if (id->HasConstData())
         {
-            printf("RWD%02u", id->GetRoDataOffset());
+            printf("RWD%02u", id->GetConstData()->offset);
         }
 #endif
         else
@@ -4806,52 +4796,52 @@ private:
             case IF_RWR_MRD:
             case IF_RRW_MRD:
                 printf("%s, ", RegName(id->idReg1(), attr1));
-                PrintClsVar(id, mattr);
+                PrintConstDataLabel(id, mattr);
                 break;
 
             case IF_RRW_MRD_CNS:
             case IF_RWR_MRD_CNS:
                 printf("%s, ", RegName(id->idReg1(), attr));
-                PrintClsVar(id, mattr);
+                PrintConstDataLabel(id, mattr);
                 printf(", ");
                 PrintImm(id);
                 break;
 
             case IF_MWR_RRD_CNS:
-                PrintClsVar(id, EA_16BYTE);
+                PrintConstDataLabel(id, EA_16BYTE);
                 printf(", %s, ", RegName(id->idReg1(), attr));
                 PrintImm(id);
                 break;
 
             case IF_RWR_RRD_MRD:
                 printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
-                PrintClsVar(id, mattr);
+                PrintConstDataLabel(id, mattr);
                 break;
 
             case IF_RWR_RRD_MRD_CNS:
                 printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
-                PrintClsVar(id, mattr);
+                PrintConstDataLabel(id, mattr);
                 printf(", ");
                 PrintImm(id);
                 break;
 
             case IF_RWR_RRD_MRD_RRD:
                 printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
-                PrintClsVar(id, EA_UNKNOWN);
+                PrintConstDataLabel(id, EA_UNKNOWN);
                 printf(", %s", RegName(id->idReg4(), attr));
                 break;
 
             case IF_MRD_RRD:
             case IF_MWR_RRD:
             case IF_MRW_RRD:
-                PrintClsVar(id, mattr);
+                PrintConstDataLabel(id, mattr);
                 printf(", %s", RegName(id->idReg1(), attr));
                 break;
 
             case IF_MRD_CNS:
             case IF_MWR_CNS:
             case IF_MRW_CNS:
-                PrintClsVar(id, mattr);
+                PrintConstDataLabel(id, mattr);
                 printf(", ");
                 PrintImm(id);
                 break;
@@ -4859,7 +4849,7 @@ private:
             case IF_MRD:
             case IF_MWR:
             case IF_MRW:
-                PrintClsVar(id, mattr);
+                PrintConstDataLabel(id, mattr);
                 PrintShiftCL(ins);
                 break;
 
@@ -6045,9 +6035,9 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
 uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm)
 {
-    instruction          ins   = id->idIns();
-    CORINFO_FIELD_HANDLE field = id->GetField();
-    ssize_t              disp  = id->GetMemDisp();
+    instruction ins  = id->idIns();
+    ConstData*  data = id->GetConstData();
+    ssize_t     disp = id->GetMemDisp();
 
     // BT/CMOV support 16 bit operands and this code doesn't add the necessary 66 prefix.
     // BT with memory operands is practically useless and CMOV is not currently generated.
@@ -6055,15 +6045,14 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     assert(TakesVexPrefix(ins) == hasVexPrefix(code));
 
 #ifdef WINDOWS_X86_ABI
-    if (field == FS_SEG_FIELD)
+    if (data == &FS_SEG_FIELD)
     {
         dst += emitOutputByte(dst, 0x64);
     }
     else
 #endif
     {
-        assert(IsRoDataField(field));
-        size_t addr = reinterpret_cast<size_t>(emitConsBlock) + GetRoDataOffset(field);
+        size_t addr = reinterpret_cast<size_t>(emitConsBlock) + data->offset;
 
 #ifdef DEBUG
         size_t align;
@@ -7218,9 +7207,9 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
     uint8_t* labelAddr;
 
-    if (id->HasRoDataOffset())
+    if (id->HasConstData())
     {
-        labelAddr = emitConsBlock + id->GetRoDataOffset();
+        labelAddr = emitConsBlock + id->GetConstData()->offset;
     }
     else
     {

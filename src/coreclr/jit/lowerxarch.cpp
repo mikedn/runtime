@@ -2339,9 +2339,9 @@ void Lowering::LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* node, const Vecto
     size           = size == 12 ? 16 : size;
     unsigned align = comp->compCodeOpt() == SMALL_CODE ? 1 : size;
 
-    CORINFO_FIELD_HANDLE field = comp->codeGen->GetConst(vecConst.u8, size, align DEBUGARG(getSIMDTypeForSize(size)));
+    ConstData* data = comp->codeGen->GetConst(vecConst.u8, size, align DEBUGARG(getSIMDTypeForSize(size)));
 
-    GenTree* addr = new (comp, GT_CONST_ADDR) GenTreeConstAddr(field);
+    GenTree* addr = new (comp, GT_CONST_ADDR) GenTreeConstAddr(data);
     BlockRange().InsertBefore(node, addr);
 
     GenTree* indir = node;
