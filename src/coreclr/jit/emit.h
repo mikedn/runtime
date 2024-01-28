@@ -419,17 +419,38 @@ private:
 /************************************************************************/
 
 #ifdef TARGET_XARCH
-#define AM_DISP_BITS ((sizeof(unsigned) * 8) - 2 * (REGNUM_BITS + 1) - 2)
-#define AM_DISP_BIG_VAL (-(1 << (AM_DISP_BITS - 1)))
-#define AM_DISP_MIN (-((1 << (AM_DISP_BITS - 1)) - 1))
-#define AM_DISP_MAX (+((1 << (AM_DISP_BITS - 1)) - 1))
-
     struct emitAddrMode
     {
-        RegNum   base : REGNUM_BITS + 1;
-        RegNum   index : REGNUM_BITS + 1;
+#ifdef TARGET_AMD64
+        // x64 has 32 registers currently but APX has 64.
+        // We need to be able to store REG_NA too so we'll need an extra bit.
+        static_assert_no_msg(REG_NA <= 127);
+        static constexpr unsigned RegBits  = 7;
+        static constexpr unsigned DispBits = 16;
+        static constexpr unsigned DispMin  = -32767;
+        static constexpr unsigned DispMax  = 32767;
+        INDEBUG(static constexpr int32_t LargeDispMarker = -32768;)
+#else
+        static_assert_no_msg(REG_NA <= 31);
+        static constexpr unsigned RegBits  = 5;
+        static constexpr unsigned DispBits = 16;
+        static constexpr unsigned DispMin  = -32767;
+        static constexpr unsigned DispMax  = 32767;
+        INDEBUG(static constexpr int32_t LargeDispMarker = -32768;)
+#endif
+
+        RegNum   base : RegBits;
+        RegNum   index : RegBits;
         uint32_t scale : 2;
-        int32_t  disp : AM_DISP_BITS;
+#ifdef TARGET_X86
+        unsigned spare : 4; // Give these to disp? Though 16 bits should be enough for everybody...
+#endif
+        int32_t disp : DispBits;
+
+        static bool IsLargeDisp(ssize_t disp)
+        {
+            return (disp < DispMin) && (DispMax < disp);
+        }
     };
 #endif // TARGET_XARCH
 
@@ -474,28 +495,56 @@ private:
     {
         friend struct instrDesc;
 
-    private:
-#ifdef TARGET_XARCH
+#ifdef TARGET_AMD64
         static_assert_no_msg(INS_COUNT <= 1024);
         static_assert_no_msg(IF_COUNT <= 128);
-        static_assert_no_msg(ACTUAL_REG_COUNT <= 64);
+        static_assert_no_msg(ACTUAL_REG_COUNT <= 64); // 32 currently but APX has 64
+        static constexpr unsigned RegBits      = 6;
         static constexpr unsigned SmallImmBits = 16;
 
-        instruction _idIns : 10;      // Instruction opcode
-        insFormat   _idInsFmt : 7;    // Instruction format
-        unsigned    _idOpSize : 3;    // Operation size (log 2)
-        GCtype      _idGCref : 2;     // GC type of the first destination register
-        unsigned    _idCnsReloc : 1;  // Immediate is relocatable
-        unsigned    _idDspReloc : 1;  // Address mode displacement is relocatable
-        unsigned    _idSmallDsc : 1;  // this is instrDescSmall
-        unsigned    _idLargeCall : 1; // this is instrDescCGCA
-        unsigned    _idLargeCns : 1;  // this is instrDescCns/instrDescCnsAmd
-        unsigned    _idLargeDsp : 1;  // this is instrDescAmd
-        unsigned    _idCodeSize : 4;  // Encoded instruction size
-        RegNum      _idReg1 : 6;      // First register, also holds the GC ref reg mask for calls
-        RegNum      _idReg2 : 6;      // Second register, also holds the GC byref reg mask for calls
-        unsigned    _idNoGC : 1;      // Helper call that does not need GC information
-        unsigned    _idSpare : 3;     // Reserved for EVEX/APX registers?
+    private:
+        instruction _idIns : 10;       // Instruction opcode
+        insFormat   _idInsFmt : 7;     // Instruction format
+        unsigned    _idOpSize : 3;     // Operation size (log 2)
+        GCtype      _idGCref : 2;      // GC type of the first destination register
+        unsigned    _idCnsReloc : 1;   // Immediate is relocatable
+        unsigned    _idDspReloc : 1;   // Address mode displacement is relocatable
+        unsigned    _idSmallDsc : 1;   // this is instrDescSmall
+        unsigned    _idLargeCall : 1;  // this is instrDescCGCA
+        unsigned    _idLargeCns : 1;   // this is instrDescCns/instrDescCnsAmd
+        unsigned    _idLargeDsp : 1;   // this is instrDescAmd
+        unsigned    _idCodeSize : 4;   // Encoded instruction size
+        RegNum      _idReg1 : RegBits; // First register, also holds the GC ref reg mask for calls
+        RegNum      _idReg2 : RegBits; // Second register, also holds the GC byref reg mask for calls
+        unsigned    _idNoGC : 1;       // Helper call that does not need GC information
+        unsigned    _idSpare : 3;      // Reserved for EVEX stuff?
+        unsigned    _idSmallCns : SmallImmBits;
+#endif // TARGET_XARCH
+
+#ifdef TARGET_X86
+        static_assert_no_msg(INS_COUNT <= 1024);
+        static_assert_no_msg(IF_COUNT <= 128);
+        static_assert_no_msg(ACTUAL_REG_COUNT == 16);
+        static constexpr unsigned RegBits      = 4;
+        static constexpr unsigned SmallImmBits = 16;
+
+    private:
+        instruction _idIns : 10;       // Instruction opcode
+        insFormat   _idInsFmt : 7;     // Instruction format
+        unsigned    _idOpSize : 3;     // Operation size (log 2)
+        GCtype      _idGCref : 2;      // GC type of the first destination register
+        unsigned    _idCnsReloc : 1;   // Immediate is relocatable
+        unsigned    _idDspReloc : 1;   // Address mode displacement is relocatable
+        unsigned    _idSmallDsc : 1;   // this is instrDescSmall
+        unsigned    _idLargeCall : 1;  // this is instrDescCGCA
+        unsigned    _idLargeCns : 1;   // this is instrDescCns/instrDescCnsAmd
+        unsigned    _idLargeDsp : 1;   // this is instrDescAmd
+        unsigned    _idCodeSize : 4;   // Encoded instruction size
+        RegNum      _idReg1 : RegBits; // First register, also holds the GC ref reg mask for calls
+        RegNum      _idReg2 : RegBits; // Second register, also holds the GC byref reg mask for calls
+        unsigned    _idNoGC : 1;       // Helper call that does not need GC information
+        unsigned    _idSpare : 6;      // EVEX stuff?
+        unsigned    _idSpare : 7;      // EVEX stuff?
         unsigned    _idSmallCns : SmallImmBits;
 #endif // TARGET_XARCH
 
@@ -504,22 +553,24 @@ private:
         static_assert_no_msg(IF_COUNT <= 128);
         // REG_SP is included the in actual reg count but we don't need that here.
         static_assert_no_msg(ACTUAL_REG_COUNT - 1 <= 64);
+        static constexpr unsigned RegBits      = 6;
         static constexpr unsigned SmallImmBits = 16;
 
-        instruction _idIns : 9;       // Instruction opcode
-        insFormat   _idInsFmt : 7;    // Instruction format
-        insOpts     _idInsOpt : 6;    // Instruction options
-        unsigned    _idOpSize : 3;    // Operation size (log 2)
-        GCtype      _idGCref : 2;     // GC type of the first destination register
-        unsigned    _idSmallDsc : 1;  // this is instrDescSmall
-        unsigned    _idLargeCall : 1; // this is instrDescCGCA
-        unsigned    _idLargeCns : 1;  // this is instrDescCns
-        unsigned    _idCnsReloc : 1;  // Immediate is relocatable
-        unsigned    _idLclVar : 1;    // Local load/store
-        RegNum      _idReg1 : 6;      // First register, also holds the GC ref reg mask for calls
-        RegNum      _idReg2 : 6;      // Second register, also holds the GC byref reg mask for calls
-        unsigned    _idNoGC : 1;      // Helper call that does not need GC information
-        unsigned    _idSpare : 3;     // Give these to small imm?
+    private:
+        instruction _idIns : 9;        // Instruction opcode
+        insFormat   _idInsFmt : 7;     // Instruction format
+        insOpts     _idInsOpt : 6;     // Instruction options
+        unsigned    _idOpSize : 3;     // Operation size (log 2)
+        GCtype      _idGCref : 2;      // GC type of the first destination register
+        unsigned    _idSmallDsc : 1;   // this is instrDescSmall
+        unsigned    _idLargeCall : 1;  // this is instrDescCGCA
+        unsigned    _idLargeCns : 1;   // this is instrDescCns
+        unsigned    _idCnsReloc : 1;   // Immediate is relocatable
+        unsigned    _idLclVar : 1;     // Local load/store
+        RegNum      _idReg1 : RegBits; // First register, also holds the GC ref reg mask for calls
+        RegNum      _idReg2 : RegBits; // Second register, also holds the GC byref reg mask for calls
+        unsigned    _idNoGC : 1;       // Helper call that does not need GC information
+        unsigned    _idSpare : 3;      // Give these to small imm?
         unsigned    _idSmallCns : SmallImmBits;
 #endif // TARGET_ARM64
 
@@ -527,25 +578,27 @@ private:
         static_assert_no_msg(INS_COUNT <= 256);
         static_assert_no_msg(IF_COUNT <= 128);
         static_assert_no_msg(ACTUAL_REG_COUNT <= 64);
+        static constexpr unsigned RegBits      = 6;
         static constexpr unsigned SmallImmBits = 16;
 
-        instruction _idIns : 8;       // Instruction opcode
-        insFormat   _idInsFmt : 7;    // Instruction format
-        insOpts     _idInsOpt : 3;    // Instruction options
-        insFlags    _idInsFlags : 1;  // Instruction sets flags
-        unsigned    _idOpSize : 2;    // Operation size (log 2)
-        GCtype      _idGCref : 2;     // GC type of the first destination register
-        unsigned    _idSmallDsc : 1;  // this is instrDescSmall
-        unsigned    _idLargeCall : 1; // this is instrDescCGCA
-        unsigned    _idLargeCns : 1;  // this is instrDescCns
-        unsigned    _idSpare1 : 1;    // Give this to small imm?
-        unsigned    _idNoGC : 1;      // Helper call that does not need GC information
-        insSize     _idInsSize : 2;   // Encoded instruction size: 16, 32 or 48 bits
-        unsigned    _idLclVar : 1;    // Local load/store
-        unsigned    _idCnsReloc : 1;  // Immediate is relocatable
-        RegNum      _idReg1 : 6;      // First register, also holds the GC ref reg mask for calls
-        RegNum      _idReg2 : 6;      // Second register, also holds the GC byref reg mask for calls
-        unsigned    _idSpare : 4;     // Give these to small imm?
+    private:
+        instruction _idIns : 8;        // Instruction opcode
+        insFormat   _idInsFmt : 7;     // Instruction format
+        insOpts     _idInsOpt : 3;     // Instruction options
+        insFlags    _idInsFlags : 1;   // Instruction sets flags
+        unsigned    _idOpSize : 2;     // Operation size (log 2)
+        GCtype      _idGCref : 2;      // GC type of the first destination register
+        unsigned    _idSmallDsc : 1;   // this is instrDescSmall
+        unsigned    _idLargeCall : 1;  // this is instrDescCGCA
+        unsigned    _idLargeCns : 1;   // this is instrDescCns
+        unsigned    _idSpare1 : 1;     // Give this to small imm?
+        unsigned    _idNoGC : 1;       // Helper call that does not need GC information
+        insSize     _idInsSize : 2;    // Encoded instruction size: 16, 32 or 48 bits
+        unsigned    _idLclVar : 1;     // Local load/store
+        unsigned    _idCnsReloc : 1;   // Immediate is relocatable
+        RegNum      _idReg1 : RegBits; // First register, also holds the GC ref reg mask for calls
+        RegNum      _idReg2 : RegBits; // Second register, also holds the GC byref reg mask for calls
+        unsigned    _idSpare : 4;      // Give these to small imm?
         unsigned    _idSmallCns : SmallImmBits;
 #endif // TARGET_ARM
 
@@ -872,14 +925,14 @@ private:
 
             struct
             {
-                regNumber _idReg3 : REGNUM_BITS;
-                regNumber _idReg4 : REGNUM_BITS;
+                regNumber _idReg3 : RegBits;
+                regNumber _idReg4 : RegBits;
             };
 #endif
 
 #ifdef TARGET_X86
             emitAddrMode iiaAddrMode;
-            regNumber    _idReg3 : REGNUM_BITS;
+            regNumber    _idReg3 : RegBits;
 
             struct
             {
@@ -891,7 +944,7 @@ private:
 
 #ifdef TARGET_AMD64
             emitAddrMode iiaAddrMode;
-            regNumber    _idReg3 : REGNUM_BITS;
+            regNumber    _idReg3 : RegBits;
 
             struct
             {
@@ -905,8 +958,8 @@ private:
 #ifdef TARGET_ARM64
             struct
             {
-                regNumber _idReg3 : REGNUM_BITS;
-                regNumber _idReg4 : REGNUM_BITS;
+                regNumber _idReg3 : RegBits;
+                regNumber _idReg4 : RegBits;
                 unsigned  _idReg3Scaled : 1;
                 GCtype    _idGCref2 : 2;
                 unsigned  isTrackedGCSlotStore : 1;

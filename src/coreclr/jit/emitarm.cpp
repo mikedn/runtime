@@ -4222,7 +4222,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
 
 void emitter::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
 {
-    static_assert_no_msg((4 <= REGNUM_BITS) && (REGNUM_BITS <= 8));
+    static_assert_no_msg(instrDesc::RegBits >= 4);
     assert((regs & RBM_CALLEE_TRASH) == RBM_NONE);
 
     unsigned encoded = 0;
@@ -4254,8 +4254,6 @@ void emitter::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
 
 unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 {
-    static_assert_no_msg((4 <= REGNUM_BITS) && (REGNUM_BITS <= 8));
-
     unsigned encoded = id->idReg1() | (id->idReg2() << 8);
     unsigned regs    = 0;
 

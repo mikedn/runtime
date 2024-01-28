@@ -1559,7 +1559,7 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
         || !instrDesc::fitsInSmallCns(argSlotCount)
 #endif
 #ifdef TARGET_XARCH
-        || (disp < AM_DISP_MIN) || (disp > AM_DISP_MAX)
+        || emitAddrMode::IsLargeDisp(disp)
 #endif
             )
     {

@@ -1275,11 +1275,11 @@ emitter::instrDesc* emitter::emitNewInstrDsp(int32_t disp)
 
 emitter::instrDesc* emitter::emitNewInstrAmd(ssize_t disp)
 {
-    if ((disp < AM_DISP_MIN) || (disp > AM_DISP_MAX))
+    if (emitAddrMode::IsLargeDisp(disp))
     {
         instrDescAmd* id = AllocInstr<instrDescAmd>();
         id->idSetIsLargeDsp();
-        INDEBUG(id->idAddr()->iiaAddrMode.disp = AM_DISP_BIG_VAL);
+        INDEBUG(id->idAddr()->iiaAddrMode.disp = emitAddrMode::LargeDispMarker);
         id->idaAmdVal = disp;
 
         return id;
@@ -1293,7 +1293,7 @@ emitter::instrDesc* emitter::emitNewInstrAmd(ssize_t disp)
 
 emitter::instrDesc* emitter::emitNewInstrAmdCns(ssize_t disp, int32_t imm)
 {
-    if ((disp >= AM_DISP_MIN) && (disp <= AM_DISP_MAX))
+    if (emitAddrMode::IsLargeDisp(disp))
     {
         instrDesc* id                  = emitNewInstrCns(imm);
         id->idAddr()->iiaAddrMode.disp = disp;
@@ -1306,7 +1306,7 @@ emitter::instrDesc* emitter::emitNewInstrAmdCns(ssize_t disp, int32_t imm)
     {
         instrDescAmd* id = AllocInstr<instrDescAmd>();
         id->idSetIsLargeDsp();
-        INDEBUG(id->idAddr()->iiaAddrMode.disp = AM_DISP_BIG_VAL);
+        INDEBUG(id->idAddr()->iiaAddrMode.disp = emitAddrMode::LargeDispMarker);
         id->idaAmdVal = disp;
         id->idSmallCns(imm);
 
@@ -1317,7 +1317,7 @@ emitter::instrDesc* emitter::emitNewInstrAmdCns(ssize_t disp, int32_t imm)
     id->idSetIsLargeCns();
     id->idcCnsVal = imm;
     id->idSetIsLargeDsp();
-    INDEBUG(id->idAddr()->iiaAddrMode.disp = AM_DISP_BIG_VAL);
+    INDEBUG(id->idAddr()->iiaAddrMode.disp = emitAddrMode::LargeDispMarker);
     id->idacAmdVal = disp;
 
     return id;
@@ -3742,7 +3742,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
 
 void emitter::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
 {
-    static_assert_no_msg((4 <= REGNUM_BITS) && (REGNUM_BITS <= 8));
+    static_assert_no_msg(instrDesc::RegBits >= 4);
     assert((regs & RBM_CALLEE_TRASH) == RBM_NONE);
 
     unsigned encoded = 0;
@@ -3778,8 +3778,6 @@ void emitter::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
 
 unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 {
-    static_assert_no_msg((4 <= REGNUM_BITS) && (REGNUM_BITS <= 8));
-
     unsigned encoded;
 
     if (id->idInsFmt() == IF_RRD)
