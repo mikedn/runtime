@@ -42,9 +42,6 @@ void emitIns_J(instruction ins, int instrCount = 0);
 void emitInsRMW_A(instruction ins, emitAttr attr, GenTree* addr);
 void emitInsRMW_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t imm);
 void emitInsRMW_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumber reg);
-void emitInsRMW_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field);
-void emitInsRMW_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, int32_t imm);
-void emitInsRMW_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, regNumber reg);
 void emitIns_Nop(unsigned size);
 void emitIns_Lock();
 #ifdef TARGET_AMD64

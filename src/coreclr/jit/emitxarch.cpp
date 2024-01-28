@@ -1714,12 +1714,6 @@ void emitter::emitIns_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumb
 
 void emitter::emitInsRMW_A(instruction ins, emitAttr attr, GenTree* addr)
 {
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
-    {
-        emitInsRMW_C(ins, attr, clsAddr->GetFieldHandle());
-        return;
-    }
-
     instrDesc* id = emitNewInstrAmd(GetAddrModeDisp(addr));
     id->idIns(ins);
     id->idInsFmt(IF_ARW);
@@ -1735,12 +1729,6 @@ void emitter::emitInsRMW_A(instruction ins, emitAttr attr, GenTree* addr)
 
 void emitter::emitInsRMW_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t imm)
 {
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
-    {
-        emitInsRMW_C_I(ins, attr, clsAddr->GetFieldHandle(), imm);
-        return;
-    }
-
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
     instrDesc* id = emitNewInstrAmdCns(GetAddrModeDisp(addr), imm);
@@ -1758,12 +1746,6 @@ void emitter::emitInsRMW_A_I(instruction ins, emitAttr attr, GenTree* addr, int3
 
 void emitter::emitInsRMW_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumber reg)
 {
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
-    {
-        emitInsRMW_C_R(ins, attr, clsAddr->GetFieldHandle(), reg);
-        return;
-    }
-
     instrDesc* id = emitNewInstrAmd(GetAddrModeDisp(addr));
     id->idIns(ins);
     id->idInsFmt(IF_ARW_RRD);
@@ -1773,57 +1755,6 @@ void emitter::emitInsRMW_A_R(instruction ins, emitAttr attr, GenTree* addr, regN
     SetInstrAddrMode(id, addr);
 
     unsigned sz = emitInsSizeAM(id, insCodeMR(ins));
-    id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
-}
-
-void emitter::emitInsRMW_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field)
-{
-    instrDesc* id = emitNewInstr();
-    id->idIns(ins);
-    id->idOpSize(EA_SIZE(attr));
-    id->idInsFmt(IF_MRW);
-    INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
-    id->idSetIsDspReloc();
-    id->SetField(field);
-
-    unsigned sz = emitInsSizeCV(id, insCodeMR(ins));
-    id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
-}
-
-void emitter::emitInsRMW_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, int32_t imm)
-{
-    AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
-
-    instrDesc* id = emitNewInstrCns(imm);
-    id->idIns(ins);
-    id->idOpSize(EA_SIZE(attr));
-    id->idInsFmt(IF_MRW_CNS);
-    INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
-    id->idSetIsDspReloc();
-    id->SetField(field);
-
-    unsigned sz = emitInsSizeCV(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
-    id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
-}
-
-void emitter::emitInsRMW_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, regNumber reg)
-{
-    instrDesc* id = emitNewInstr();
-    id->idIns(ins);
-    id->idOpSize(EA_SIZE(attr));
-    id->idInsFmt(IF_MRW_RRD);
-    INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
-    id->idReg1(reg);
-    id->idSetIsDspReloc();
-    id->SetField(field);
-
-    unsigned sz = emitInsSizeCV(id, insCodeMR(ins));
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
