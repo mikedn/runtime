@@ -5961,7 +5961,7 @@ GenTree* Importer::CreateStaticFieldAddressAccess(OPCODE                    opco
 #ifndef TARGET_ARM64
     if (addr == nullptr)
     {
-        addr = new (comp, GT_CLS_VAR_ADDR) GenTreeClsVar(resolvedToken->hField, fieldSeq);
+        addr = new (comp, GT_CLS_VAR_ADDR) GenTreeClsVar(fldAddr, fieldSeq);
 
         if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
         {

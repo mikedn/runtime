@@ -6923,48 +6923,36 @@ public:
 
 struct GenTreeClsVar : public GenTree
 {
-    CORINFO_FIELD_HANDLE gtClsVarHnd;
-
 private:
-    FieldSeqNode* m_fieldSeq;
+    void*         addr;
+    FieldSeqNode* fieldSeq;
 
 public:
-    GenTreeClsVar(CORINFO_FIELD_HANDLE fieldHandle, FieldSeqNode* fieldSeq = nullptr)
-        : GenTree(GT_CLS_VAR_ADDR, TYP_I_IMPL), gtClsVarHnd(fieldHandle), m_fieldSeq(fieldSeq)
+    GenTreeClsVar(void* addr, FieldSeqNode* fieldSeq)
+        : GenTree(GT_CLS_VAR_ADDR, TYP_I_IMPL), addr(addr), fieldSeq(fieldSeq)
     {
+        assert(addr != nullptr);
+        assert((fieldSeq != nullptr) && fieldSeq->IsField());
     }
 
     GenTreeClsVar(const GenTreeClsVar* copyFrom)
-        : GenTree(copyFrom->GetOper(), copyFrom->GetType())
-        , gtClsVarHnd(copyFrom->gtClsVarHnd)
-        , m_fieldSeq(copyFrom->m_fieldSeq)
+        : GenTree(copyFrom->GetOper(), copyFrom->GetType()), addr(copyFrom->addr), fieldSeq(copyFrom->fieldSeq)
     {
     }
 
-    CORINFO_FIELD_HANDLE GetFieldHandle() const
+    void* GetFieldAddr() const
     {
-        return gtClsVarHnd;
+        return addr;
     }
 
     FieldSeqNode* GetFieldSeq() const
     {
-        assert((m_fieldSeq == nullptr) || (m_fieldSeq->GetFieldHandle() == gtClsVarHnd));
-        return m_fieldSeq;
+        return fieldSeq;
     }
 
-    void SetFieldHandle(CORINFO_FIELD_HANDLE fieldHandle, FieldSeqNode* fieldSeq)
+    static bool Equals(const GenTreeClsVar* x, const GenTreeClsVar* y)
     {
-        // TODO-MIKE-Consider: The field sequence is pretty much pointless since it should
-        // always be a singleton for the field handle we already have. Storing it in the
-        // node only avoids a hashtable lookup in those not so many places that care about
-        // field sequences.
-
-        assert(fieldHandle != nullptr);
-        assert(fieldSeq->GetFieldHandle() == fieldHandle);
-        assert(fieldSeq->GetNext() == nullptr);
-
-        gtClsVarHnd = fieldHandle;
-        m_fieldSeq  = fieldSeq;
+        return x->addr == y->addr;
     }
 
 #if DEBUGGABLE_GENTREE

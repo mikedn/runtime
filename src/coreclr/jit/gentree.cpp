@@ -1061,7 +1061,7 @@ AGAIN:
             case GT_LCL_ADDR:
                 return GenTreeLclAddr::Equals(op1->AsLclAddr(), op2->AsLclAddr());
             case GT_CLS_VAR_ADDR:
-                return op1->AsClsVar()->GetFieldHandle() == op2->AsClsVar()->GetFieldHandle();
+                return GenTreeClsVar::Equals(op1->AsClsVar(), op2->AsClsVar());
             case GT_CONST_ADDR:
                 return GenTreeConstAddr::Equals(op1->AsConstAddr(), op2->AsConstAddr());
             case GT_LABEL:
@@ -7229,14 +7229,9 @@ void Compiler::gtDispLeaf(GenTree* tree)
             break;
 
         case GT_CLS_VAR_ADDR:
-            printf(" %#x", dspPtr(tree->AsClsVar()->GetFieldHandle()));
-
-            if (tree->AsClsVar()->GetFieldSeq() != nullptr)
-            {
-                printf(" (");
-                dmpFieldSeqFields(tree->AsClsVar()->GetFieldSeq());
-                printf(")");
-            }
+            printf(" 0x%X (", dspPtr(tree->AsClsVar()->GetFieldAddr()));
+            dmpFieldSeqFields(tree->AsClsVar()->GetFieldSeq());
+            printf(")");
             break;
 
         case GT_CONST_ADDR:
@@ -11752,7 +11747,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
             }
             else if (GenTreeClsVar* clsVarAddr = addr->IsClsVar())
             {
-                CORINFO_FIELD_HANDLE fieldHandle = clsVarAddr->GetFieldHandle();
+                CORINFO_FIELD_HANDLE fieldHandle = clsVarAddr->GetFieldSeq()->GetFieldHandle();
                 assert(info.compCompHnd->isFieldStatic(fieldHandle));
                 objClass = gtGetFieldClassHandle(fieldHandle, pIsExact, pIsNonNull);
             }
