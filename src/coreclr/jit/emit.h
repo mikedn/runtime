@@ -449,7 +449,7 @@ private:
 
         static bool IsLargeDisp(ssize_t disp)
         {
-            return (disp < DispMin) && (DispMax < disp);
+            return (disp < DispMin) || (DispMax < disp);
         }
     };
 #endif // TARGET_XARCH
@@ -543,8 +543,8 @@ private:
         RegNum      _idReg1 : RegBits; // First register, also holds the GC ref reg mask for calls
         RegNum      _idReg2 : RegBits; // Second register, also holds the GC byref reg mask for calls
         unsigned    _idNoGC : 1;       // Helper call that does not need GC information
+        unsigned    _idFSPrefix : 1;   // FS segment prefix
         unsigned    _idSpare : 6;      // EVEX stuff?
-        unsigned    _idSpare : 7;      // EVEX stuff?
         unsigned    _idSmallCns : SmallImmBits;
 #endif // TARGET_XARCH
 
@@ -681,6 +681,22 @@ private:
         void idSetIsSmallDsp()
         {
             _idLargeDsp = false;
+        }
+
+#ifdef WINDOWS_X86_ABI
+        void SetHasFSPrefix()
+        {
+            _idFSPrefix = true;
+        }
+#endif
+
+        bool HasFSPrefix() const
+        {
+#ifdef WINDOWS_X86_ABI
+            return _idFSPrefix;
+#else
+            return false;
+#endif
         }
 #endif // TARGET_XARCH
 

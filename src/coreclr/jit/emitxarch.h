@@ -52,7 +52,7 @@ void emitIns_H(instruction ins, void* addr);
 void emitIns_L(instruction ins, insGroup* label);
 #endif
 #ifdef WINDOWS_X86_ABI
-void emitInsMov_R_FS(regNumber reg, int32_t offs);
+void emitInsMov_R_FS(regNumber reg, int32_t disp);
 #endif
 void emitIns_I(instruction ins, emitAttr attr, int32_t val);
 void emitIns_R(instruction ins, emitAttr attr, regNumber reg);

@@ -560,22 +560,6 @@ static bool IsExtendedReg(regNumber reg, emitAttr attr)
 #endif
 }
 
-#ifdef WINDOWS_X86_ABI
-// Special ConstData that references the FS segment, for x86 TLS access.
-static ConstData FS_SEG_FIELD;
-#endif
-
-#ifdef DEBUG
-static bool FieldDispRequiresRelocation(ConstData* data)
-{
-#ifdef WINDOWS_X86_ABI
-    return data != &FS_SEG_FIELD;
-#else
-    return true;
-#endif
-}
-#endif
-
 const char* insName(instruction ins)
 {
     static const char* const insNames[]{
@@ -1057,6 +1041,7 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
     // BT supports 16 bit operands and this code doesn't handle the necessary 66 prefix.
     assert(ins != INS_bt);
     assert((IF_ARD <= id->idInsFmt()) && (id->idInsFmt() <= IF_AWR_RRD_CNS));
+    assert(!id->HasFSPrefix());
 
 #ifdef TARGET_X86
     // Special case: "mov eax, [addr]" and "mov [addr], eax" have smaller encoding.
@@ -1293,7 +1278,7 @@ emitter::instrDesc* emitter::emitNewInstrAmd(ssize_t disp)
 
 emitter::instrDesc* emitter::emitNewInstrAmdCns(ssize_t disp, int32_t imm)
 {
-    if (emitAddrMode::IsLargeDisp(disp))
+    if (!emitAddrMode::IsLargeDisp(disp))
     {
         instrDesc* id                  = emitNewInstrCns(imm);
         id->idAddr()->iiaAddrMode.disp = disp;
@@ -1879,16 +1864,18 @@ void emitter::emitIns_H(instruction ins, void* addr)
 #endif
 
 #ifdef WINDOWS_X86_ABI
-void emitter::emitInsMov_R_FS(regNumber reg, int32_t offs)
+void emitter::emitInsMov_R_FS(regNumber reg, int32_t disp)
 {
     assert(genIsValidIntReg(reg));
 
-    instrDesc* id = emitNewInstrDsp(offs);
+    instrDesc* id = emitNewInstrAmd(disp);
     id->idIns(INS_mov);
     id->idOpSize(EA_4BYTE);
-    id->idInsFmt(emitInsModeFormat(INS_mov, IF_RRD_MRD));
+    id->idInsFmt(emitInsModeFormat(INS_mov, IF_RRD_ARD));
+    id->SetHasFSPrefix();
     id->idReg1(reg);
-    id->SetConstData(&FS_SEG_FIELD);
+    id->idAddr()->iiaAddrMode.base  = REG_NA;
+    id->idAddr()->iiaAddrMode.index = REG_NA;
 
     unsigned sz = 1 + (reg == REG_EAX ? 1 : 2) + 4;
     id->idCodeSize(sz);
@@ -1936,8 +1923,6 @@ void emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
 
 void emitter::emitIns_C(instruction ins, emitAttr attr, ConstData* data)
 {
-    assert(FieldDispRequiresRelocation(data));
-
     instrDesc* id = emitNewInstr();
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
@@ -2335,8 +2320,6 @@ void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, Cons
     assert(IsSSEOrAVXOrBMIInstruction(ins) || (ins == INS_imuli));
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
     assert(!EA_IS_GCREF_OR_BYREF(attr));
-    assert(FieldDispRequiresRelocation(data));
-
     X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg1)));
 
     instrDesc* id = emitNewInstrCns(imm);
@@ -2437,7 +2420,6 @@ void emitter::emitIns_R_AR_R(instruction ins,
 void emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ConstData* data)
 {
     assert(IsVexTernary(ins) && !EA_IS_GCREF_OR_BYREF(attr));
-    assert(FieldDispRequiresRelocation(data));
 
     instrDesc* id = emitNewInstr();
     id->idIns(ins);
@@ -2522,7 +2504,6 @@ void emitter::emitIns_R_R_C_I(
 {
     assert(IsVexTernary(ins));
     assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
-    assert(FieldDispRequiresRelocation(data));
     assert(IsImm8(imm));
 
     instrDesc* id = emitNewInstrCns(imm);
@@ -2627,7 +2608,6 @@ void emitter::emitIns_R_R_C_R(
     assert(UseVEXEncoding());
     assert(IsAvxBlendv(ins));
     assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
-    assert(FieldDispRequiresRelocation(data));
 
     instrDesc* id = emitNewInstrCns(EncodeXmmRegAsImm(reg3));
     id->idIns(ins);
@@ -2689,7 +2669,6 @@ void emitter::emitIns_R_R_R_R(
 void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, ConstData* data)
 {
     assert(!HasImplicitRegPairDest(ins) && (ins != INS_imuli));
-    assert(FieldDispRequiresRelocation(data));
     X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg)));
 
     instrDesc* id = emitNewInstr();
@@ -2725,7 +2704,6 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, ConstDa
 
 void emitter::emitIns_C_R(instruction ins, emitAttr attr, ConstData* data, regNumber reg)
 {
-    assert(FieldDispRequiresRelocation(data));
     X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg)));
 
     emitAttr size = EA_SIZE(attr);
@@ -2770,7 +2748,6 @@ void emitter::emitIns_C_R(instruction ins, emitAttr attr, ConstData* data, regNu
 void emitter::emitIns_C_I(instruction ins, emitAttr attr, ConstData* data, int32_t imm)
 {
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
-    assert(FieldDispRequiresRelocation(data));
 
     instrDesc* id = emitNewInstrCns(imm);
     id->idIns(ins);
@@ -4131,14 +4108,6 @@ private:
         ConstData* data = id->GetConstData();
         ssize_t    offs = id->GetMemDisp();
 
-#ifdef WINDOWS_X86_ABI
-        if (data == &FS_SEG_FIELD)
-        {
-            printf("fs:[0x%04X]", offs);
-            return;
-        }
-#endif
-
         printf("%s[", GetSizeOperator(size));
 
         if (id->idIsDspReloc())
@@ -4273,7 +4242,7 @@ private:
         bool        frameRef  = false;
         const char* separator = "";
 
-        printf("%s[", GetSizeOperator(size));
+        printf("%s%s[", GetSizeOperator(size), id->HasFSPrefix() ? "fs:" : "");
 
         if (am.base != REG_NA)
         {
@@ -5596,6 +5565,11 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     assert((ins != INS_bt) && !IsCmov(ins));
     assert(TakesVexPrefix(ins) == hasVexPrefix(code));
 
+    if (id->HasFSPrefix())
+    {
+        dst += emitOutputByte(dst, 0x64);
+    }
+
 #ifdef TARGET_X86
     // Special case: "mov eax, [addr]" and "mov [addr], eax" have smaller encoding.
     if ((ins == INS_mov) && ((id->idInsFmt() == IF_RWR_ARD) || (id->idInsFmt() == IF_AWR_RRD)) &&
@@ -5871,6 +5845,7 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     // BT with memory operands is practically useless and CMOV is not currently generated.
     assert((ins != INS_bt) && !IsCmov(ins));
     assert(TakesVexPrefix(ins) == hasVexPrefix(code));
+    assert(!id->HasFSPrefix());
 
     unsigned immSize = 0;
 
@@ -6041,55 +6016,47 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     // BT with memory operands is practically useless and CMOV is not currently generated.
     assert((ins != INS_bt) && !IsCmov(ins));
     assert(TakesVexPrefix(ins) == hasVexPrefix(code));
+    assert(!id->HasFSPrefix());
 
-#ifdef WINDOWS_X86_ABI
-    if (data == &FS_SEG_FIELD)
-    {
-        dst += emitOutputByte(dst, 0x64);
-    }
-    else
-#endif
-    {
-        size_t addr = reinterpret_cast<size_t>(emitConsBlock) + data->offset;
+    size_t addr = reinterpret_cast<size_t>(emitConsBlock) + data->offset;
 
 #ifdef DEBUG
-        size_t align;
+    size_t align;
 
-        switch (ins)
-        {
-            case INS_cvttss2si:
-            case INS_cvtss2sd:
-            case INS_vbroadcastss:
-            case INS_insertps:
-            case INS_movss:
-                align = 4;
-                break;
-            case INS_vbroadcastsd:
-            case INS_movsd:
-                align = 8;
-                break;
-            case INS_vinsertf128:
-            case INS_vinserti128:
-                align = 16;
-                break;
-            case INS_lea:
-                align = 1;
-                break;
-            default:
-                align = EA_SIZE_IN_BYTES(id->idOpSize());
-                break;
-        }
+    switch (ins)
+    {
+        case INS_cvttss2si:
+        case INS_cvtss2sd:
+        case INS_vbroadcastss:
+        case INS_insertps:
+        case INS_movss:
+            align = 4;
+            break;
+        case INS_vbroadcastsd:
+        case INS_movsd:
+            align = 8;
+            break;
+        case INS_vinsertf128:
+        case INS_vinserti128:
+            align = 16;
+            break;
+        case INS_lea:
+            align = 1;
+            break;
+        default:
+            align = EA_SIZE_IN_BYTES(id->idOpSize());
+            break;
+    }
 
-        // Check that the offset is properly aligned (i.e. the ddd in [ddd])
-        // When SMALL_CODE is set, we only expect 4-byte alignment, otherwise
-        // we expect the same alignment as the size of the constant.
-        // TODO-MIKE-Review: Figure out why this check is disabled in crossgen.
-        assert(((addr & (align - 1)) == 0) || ((emitComp->compCodeOpt() == SMALL_CODE) && ((addr & 3) == 0)) ||
-               emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT));
+    // Check that the offset is properly aligned (i.e. the ddd in [ddd])
+    // When SMALL_CODE is set, we only expect 4-byte alignment, otherwise
+    // we expect the same alignment as the size of the constant.
+    // TODO-MIKE-Review: Figure out why this check is disabled in crossgen.
+    assert(((addr & (align - 1)) == 0) || ((emitComp->compCodeOpt() == SMALL_CODE) && ((addr & 3) == 0)) ||
+           emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT));
 #endif // DEBUG
 
-        disp += addr;
-    }
+    disp += addr;
 
     unsigned immSize = 0;
 
@@ -6235,6 +6202,8 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
 uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
 {
+    assert(!id->HasFSPrefix());
+
     instruction ins  = id->idIns();
     regNumber   reg  = id->idReg1();
     emitAttr    size = id->idOpSize();
@@ -6427,6 +6396,8 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
 
 uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 {
+    assert(!id->HasFSPrefix());
+
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
     regNumber   reg1 = id->idReg1();
@@ -6770,6 +6741,7 @@ uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
     assert(IsVexTernary(id->idIns()));
     assert((id->idInsFmt() == IF_RWR_RRD_RRD) || (id->idInsFmt() == IF_RWR_RRD_RRD_CNS) ||
            (id->idInsFmt() == IF_RWR_RRD_RRD_RRD));
+    assert(!id->HasFSPrefix());
 
     instruction ins  = id->idIns();
     regNumber   reg1 = id->idReg1();
@@ -6804,6 +6776,8 @@ uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
 
 uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
 {
+    assert(!id->HasFSPrefix());
+
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
 
@@ -6905,6 +6879,8 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
 
 uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
 {
+    assert(!id->HasFSPrefix());
+
     emitAttr    size = id->idOpSize();
     instruction ins  = id->idIns();
     regNumber   reg  = id->idReg1();
@@ -7152,6 +7128,8 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
 
 uint8_t* emitter::emitOutputIV(uint8_t* dst, instrDesc* id)
 {
+    assert(!id->HasFSPrefix());
+
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
     ssize_t     val  = id->GetImm();
@@ -7199,6 +7177,7 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     assert(id->idInsFmt() == IF_RWR_LABEL);
     assert(id->idOpSize() == EA_PTRSIZE);
     assert(id->idGCref() == GCT_NONE);
+    assert(!id->HasFSPrefix());
 
 #ifdef TARGET_X86
     assert(id->idIns() == INS_mov);
@@ -7271,6 +7250,7 @@ uint8_t* emitter::emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     assert(id->idInsFmt() == IF_LABEL);
     assert(id->idGCref() == GCT_NONE);
     assert(!id->HasInstrCount());
+    assert(!id->HasFSPrefix());
 
     unsigned labelOffs = id->GetLabel()->igOffs;
     uint8_t* labelAddr = emitOffsetToPtr(labelOffs);
@@ -7296,6 +7276,7 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 {
     assert(id->idInsFmt() == IF_LABEL);
     assert(id->idGCref() == GCT_NONE);
+    assert(!id->HasFSPrefix());
 
     unsigned labelOffs;
 
@@ -7390,6 +7371,8 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
 uint8_t* emitter::emitOutputCall(uint8_t* dst, instrDesc* id)
 {
+    assert(!id->HasFSPrefix());
+
     instruction ins = id->idIns();
 
     void* addr = id->GetAddr();
@@ -7454,6 +7437,8 @@ uint8_t* emitter::emitOutputCall(uint8_t* dst, instrDesc* id)
 
 uint8_t* emitter::emitOutputNoOperands(uint8_t* dst, instrDesc* id)
 {
+    assert(!id->HasFSPrefix());
+
     instruction ins = id->idIns();
 
     if (ins == INS_nop)
