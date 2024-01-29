@@ -3854,8 +3854,7 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_I(
-    instruction ins, emitAttr attr, regNumber reg, ssize_t imm, insOpts opt DEBUGARG(HandleKind handleKind))
+void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t imm, insOpts opt)
 {
     emitAttr  size      = EA_SIZE(attr);
     emitAttr  elemsize  = EA_UNKNOWN;
@@ -4031,7 +4030,6 @@ void emitter::emitIns_R_I(
     id->idGCref(EA_GC_TYPE(attr));
     id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg);
-    INDEBUG(id->idDebugOnlyInfo()->idHandleKind = handleKind);
 
     dispIns(id);
     appendToCurIG(id);

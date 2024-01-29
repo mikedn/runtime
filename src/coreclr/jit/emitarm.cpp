@@ -1879,8 +1879,7 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_I(
-    instruction ins, emitAttr attr, regNumber reg, int32_t imm, insFlags flags DEBUGARG(HandleKind handleKind))
+void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, int32_t imm, insFlags flags)
 {
     insFormat fmt = IF_NONE;
     insFlags  sf  = INS_FLAGS_DONT_CARE;
@@ -2179,7 +2178,6 @@ void emitter::emitIns_R_I(
     id->idInsSize(emitInsSize(fmt));
     id->idInsFlags(sf);
     id->idReg1(reg);
-    INDEBUG(id->idDebugOnlyInfo()->idHandleKind = handleKind);
 
     dispIns(id);
     appendToCurIG(id);
