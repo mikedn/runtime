@@ -3164,8 +3164,6 @@ emitter::DataSection* emitter::CreateLabelTable(unsigned count, bool relative)
     roData.last = section;
     roData.size += section->data.size;
 
-    JITDUMP("RWD%02u LABEL DWORD\n", section->data.offset);
-
     return section;
 }
 
@@ -3305,7 +3303,7 @@ void emitter::OutputRoData(uint8_t* dst)
     for (DataSection* section = roData.first; section != nullptr; section = section->next)
     {
         const ConstData& data = section->data;
-        JITDUMP("RWD%2u: ; size %u", data.offset, data.size);
+        JITDUMP("RWD%02u: ; size %u", data.offset, data.size);
 
         if (data.kind == ConstData::LabelAddr)
         {

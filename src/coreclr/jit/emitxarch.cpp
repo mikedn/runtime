@@ -4106,28 +4106,11 @@ private:
     void PrintConstDataLabel(instrDesc* id, emitAttr size)
     {
         ConstData* data = id->GetConstData();
-        ssize_t    offs = id->GetMemDisp();
 
-        printf("%s[", GetSizeOperator(size));
+        printf("%s[RWD%02u", GetSizeOperator(size), data->offset);
 
-        if (id->idIsDspReloc())
+        if (ssize_t offs = id->GetMemDisp())
         {
-            printf("reloc ");
-        }
-
-        printf("@RWD%02u", data->offset);
-
-        if (offs != 0)
-        {
-            if (compiler->opts.disDiffable)
-            {
-                ssize_t top12bits = (offs >> 20);
-                if ((top12bits != 0) && (top12bits != -1))
-                {
-                    offs = 0xD1FFAB1E;
-                }
-            }
-
             printf("%+Id", offs);
         }
 

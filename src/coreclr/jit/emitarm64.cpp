@@ -10788,11 +10788,14 @@ void emitter::emitDispAddrLoadLabel(instrDescJmp* id)
         printf("(LARGELDC) ");
     }
 
-    printf("[");
+    if ((id->idIns() == INS_ldr) || (id->idIns() == INS_ldrsw))
+    {
+        printf("[");
+    }
 
     if (id->HasConstData())
     {
-        printf("@RWD%02u", id->GetConstData()->offset);
+        printf("RWD%02u", id->GetConstData()->offset);
     }
     else
     {
@@ -10804,7 +10807,10 @@ void emitter::emitDispAddrLoadLabel(instrDescJmp* id)
         printf("%+Id", imm);
     }
 
-    printf("]");
+    if ((id->idIns() == INS_ldr) || (id->idIns() == INS_ldrsw))
+    {
+        printf("]");
+    }
 }
 
 void emitter::emitDispJumpLabel(instrDescJmp* id)

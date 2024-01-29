@@ -6535,7 +6535,7 @@ void emitter::emitDispInsHelp(instrDesc* id, bool isNew, bool doffs, bool asmfm,
 
         case IF_T2_N2:
             emitDispReg(id->idReg1(), attr, true);
-            printf("%s @RWD%02u", id->idIns() == INS_movw ? "LOW" : "HIGH", emitGetInsSC(id));
+            printf("%s RWD%02u", id->idIns() == INS_movw ? "LOW" : "HIGH", emitGetInsSC(id));
             break;
 
         case IF_T2_H2: // [Reg+imm]
