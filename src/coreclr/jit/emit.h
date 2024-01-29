@@ -457,15 +457,18 @@ private:
 #ifdef DEBUG // This information is used in DEBUG builds to display the method name for call instructions
     struct instrDescDebugInfo
     {
-        unsigned          idNum;
-        uint16_t          idSize;                // size of the instruction descriptor
-        bool              idFinallyCall = false; // Branch instruction is a call to finally
-        bool              idCatchRet    = false; // Instruction is for a catch 'return'
-        int               varNum        = INT_MIN;
-        int               varOffs       = 0;
-        HandleKind        idHandleKind  = HandleKind::None;
-        void*             idHandle      = nullptr;
-        CORINFO_SIG_INFO* idCallSig     = nullptr; // Used to report native call site signatures to the EE
+        unsigned idNum;
+        uint16_t idSize;                // size of the instruction descriptor
+        bool     idFinallyCall = false; // Branch instruction is a call to finally
+        bool     idCatchRet    = false; // Instruction is for a catch 'return'
+        int      varNum        = INT_MIN;
+        int      varOffs       = 0;
+#ifdef TARGET_XARCH
+        HandleKind dispHandleKind = HandleKind::None;
+#endif
+        HandleKind        idHandleKind = HandleKind::None;
+        void*             idHandle     = nullptr;
+        CORINFO_SIG_INFO* idCallSig    = nullptr; // Used to report native call site signatures to the EE
 
         instrDescDebugInfo(unsigned num, unsigned size) : idNum(num), idSize(static_cast<uint16_t>(size))
         {

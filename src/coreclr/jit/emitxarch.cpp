@@ -1534,6 +1534,8 @@ void emitter::SetInstrAddrMode(instrDesc* id, GenTree* addr)
         // The displacement must have already been set by the caller.
         assert(id->GetAmDisp() == intConAddr->GetValue());
 
+        INDEBUG(id->idDebugOnlyInfo()->dispHandleKind = intConAddr->GetHandleKind());
+
         return;
     }
 
@@ -4308,20 +4310,9 @@ private:
 
         if (id->idIns() == INS_mov)
         {
-            // Pretty print string if it looks like one
-            if ((id->idGCref() == GCT_GCREF) && (am.base == REG_NA))
+            if (id->idDebugOnlyInfo()->dispHandleKind == HandleKind::String)
             {
-                // TODO-MIKE-Review: This stuff is dubious, probably it only works because strings are the only
-                // case of loading a REF from a memory location. Well, you would expect a static object field
-                // load to look identical but on x86 such loads will use CLS_VAR_ADDR as address and this is
-                // treated as reloc (even when jitting, why?!?). And on x64 apparently RIP addressing is not used
-                // in this case so this is never hit.
-                // Besides, this should be displayed as an instruction comment, not as part of the operand.
-
-                if (const WCHAR* str = compiler->eeGetCPString(reinterpret_cast<void*>(disp)))
-                {
-                    printf("      '%S'", str);
-                }
+                emitter->emitDispCommentForHandle(reinterpret_cast<void*>(disp), HandleKind::String);
             }
         }
         else if ((id->idIns() == INS_call) || (id->idIns() == INS_i_jmp))
