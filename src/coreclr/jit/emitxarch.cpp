@@ -4218,14 +4218,7 @@ private:
 
     void PrintReloc(ssize_t value, const char* prefix = "")
     {
-        if (compiler->opts.disAsm && compiler->opts.disDiffable)
-        {
-            printf("%s(reloc)", prefix);
-        }
-        else
-        {
-            printf("%s(reloc 0x%Ix)", prefix, compiler->dspPtr(value));
-        }
+        printf("%s%s0x%IX", prefix, compiler->opts.compReloc ? "reloc " : "", compiler->dspPtr(value));
     }
 
     void PrintAddrMode(instrDesc* id, emitAttr size)
