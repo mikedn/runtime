@@ -4258,7 +4258,7 @@ private:
         // It's assumed to be a pointer when disp is outside of the range (-1M, +1M); top bits are not 0 or -1
         else if (!frameRef && compiler->opts.disDiffable && (static_cast<size_t>((disp >> 20) + 1) > 1))
         {
-            printf("%sD1FFAB1EH", separator);
+            printf("%s0x%IX", separator, compiler->dspPtr(disp));
         }
         else if (disp > 0)
         {
@@ -4272,11 +4272,11 @@ private:
             }
             else if (disp <= 0xFFFF)
             {
-                printf("%s%04XH", separator, disp);
+                printf("%s0x%04X", separator, disp);
             }
             else
             {
-                printf("%s%08XH", separator, disp);
+                printf("%s0x%08IX", separator, disp);
             }
         }
         else if (disp < 0)
@@ -4291,15 +4291,15 @@ private:
             }
             else if (disp >= -0xFFFF)
             {
-                printf("-%04XH", -disp);
+                printf("-0x%04X", -disp);
             }
             else if (disp < -0xFFFFFF)
             {
-                printf("%s%08XH", separator, disp);
+                printf("%s0x%08X", separator, disp);
             }
             else
             {
-                printf("-%08XH", -disp);
+                printf("-0x%08IX", -disp);
             }
         }
         else if (separator[0] == 0)
