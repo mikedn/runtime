@@ -803,9 +803,47 @@ void Compiler::compDispLocalVars()
  */
 
 #ifdef TARGET_AMD64
-bool Compiler::eeIsRIPRelativeAddress(void* addr)
+bool Compiler::eeIsRIPRelativeAddress(void* addr) const
 {
     return info.compMatchedVM && info.compCompHnd->getRelocTypeHint(addr) == IMAGE_REL_BASED_REL32;
+}
+
+bool Compiler::IsRIPRelativeAddress(GenTreeIntCon* intCon) const
+{
+#ifdef DEBUG
+    if (!opts.enableRIPRelativeAddressing)
+    {
+        return false;
+    }
+#endif
+
+    void* addr = reinterpret_cast<void*>(intCon->GetValue());
+
+    if (opts.compReloc)
+    {
+        // In the crossgen case the only addresses that we care about are those derived from handles
+        // returned by crossgen. The handles aren't real addresses but they should eventually resolve
+        // to addresses within the generated PE image, which is limited to 2GB in size. This means
+        // that every handle is expected to be RIP relative (but we still ask crossgen to avoid making
+        // assumptions).
+        // User code could contain hardcoded addresses but such addresses can't be RIP relative since
+        // the load address of the generated PE image is arbitrary.
+
+        return intCon->IsHandle() && eeIsRIPRelativeAddress(addr);
+    }
+
+    // At JIT time we get real memory addresses instead of handles, but we don't know the address of
+    // the generated code yet. The runtime tries to keep code and data close enough and optimistically
+    // assumes that RIP relative addressing can be used. Once this assumption fails, it recompiles the
+    // method that triggered the failure and rejects future attempts of using RIP relative addressing.
+    //
+    // TODO-MIKE-Review: This code also allows addresses that happen to fit in disp32 even if these
+    // aren't actually RIP relative. This is fine, as the callers only care if the address can be made
+    // part of an address mode, but it's likely pointless as most of the time code and data end up
+    // above the 2GB range. It may also be risky, as this requires a different address mode encoding
+    // and that may not be tested properly.
+
+    return FitsIn<int32_t>(reinterpret_cast<int64_t>(addr)) || eeIsRIPRelativeAddress(addr);
 }
 #endif
 

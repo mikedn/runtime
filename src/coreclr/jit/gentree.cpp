@@ -11442,50 +11442,6 @@ bool GenTreeIntCon::ImmedValNeedsReloc(Compiler* comp)
     return comp->opts.compReloc && IsIconHandle();
 }
 
-#ifdef TARGET_AMD64
-// Returns true if this absolute address fits within the base of an addr mode.
-// On Amd64 this effectively means, whether an absolute indirect address can
-// be encoded as 32-bit offset relative to IP or zero.
-bool GenTreeIntCon::FitsInAddrBase(Compiler* comp)
-{
-#ifdef DEBUG
-    // Early out if PC-rel encoding of absolute addr is disabled.
-    if (!comp->opts.enableRIPRelativeAddressing)
-    {
-        return false;
-    }
-#endif
-
-    if (comp->opts.compReloc)
-    {
-        // During Ngen JIT is always asked to generate relocatable code.
-        // Hence JIT will try to encode only icon handles as pc-relative offsets.
-
-        return IsIconHandle() && comp->eeIsRIPRelativeAddress(reinterpret_cast<void*>(gtIconVal));
-    }
-
-    // During Jitting, we are allowed to generate non-relocatable code.
-    // On Amd64 we can encode an absolute indirect addr as an offset relative to zero or RIP.
-    // An absolute indir addr that can fit within 32-bits can ben encoded as an offset relative
-    // to zero. All other absolute indir addr could be attempted to be encoded as RIP relative
-    // based on reloc hint provided by VM.  RIP relative encoding is preferred over relative
-    // to zero, because the former is one byte smaller than the latter.  For this reason
-    // we check for reloc hint first and then whether addr fits in 32-bits next.
-    //
-    // VM starts off with an initial state to allow both data and code address to be encoded as
-    // pc-relative offsets.  Hence JIT will attempt to encode all absolute addresses as pc-relative
-    // offsets.  It is possible while jitting a method, an address could not be encoded as a
-    // pc-relative offset.  In that case VM will note the overflow and will trigger re-jitting
-    // of the method with reloc hints turned off for all future methods. Second time around
-    // jitting will succeed since JIT will not attempt to encode data addresses as pc-relative
-    // offsets.  Note that JIT will always attempt to relocate code addresses (.e.g call addr).
-    // After an overflow, VM will assume any relocation recorded is for a code address and will
-    // emit jump thunk if it cannot be encoded as pc-relative offset.
-
-    return FitsIn<int32_t>(gtIconVal) || comp->eeIsRIPRelativeAddress(reinterpret_cast<void*>(gtIconVal));
-}
-#endif // TARGET_AMD64
-
 ClassLayout* GenTreeLclFld::GetLayout(Compiler* compiler) const
 {
     return (m_layoutNum == 0) ? nullptr : compiler->typGetLayoutByNum(m_layoutNum);

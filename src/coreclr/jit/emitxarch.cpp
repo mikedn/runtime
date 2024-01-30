@@ -1484,10 +1484,18 @@ bool emitter::IntConNeedsReloc(GenTreeIntCon* con)
 #ifdef TARGET_AMD64
     if (emitComp->opts.compReloc && !con->IsIconHandle())
     {
-        // During Ngen JIT is always asked to generate relocatable code.
-        // Hence JIT will try to encode only icon handles as pc-relative offsets.
+        // Only handles need relocations and can be RIP relative in crossgen mode.
+        // TODO-MIKE-Cleanup: There should be no need to make the eeIsRIPRelativeAddress
+        // call below for non-handles. If they are not handles then they are hardcoded
+        // addresses in user code and those can't ever be RIP relative since we do not
+        // know the load address of the R2R image.
+
         return false;
     }
+
+    // At JIT time we try to use RIP relative addressing by default but that can fail
+    // if a lot of code is generated. For the runtime to detect such failures we need
+    // to call recordRelocation (even though no relocation is actually performed).
 
     return emitComp->eeIsRIPRelativeAddress(reinterpret_cast<void*>(con->GetValue()));
 #else
@@ -1525,7 +1533,7 @@ void emitter::SetInstrAddrMode(instrDesc* id, GenTree* addr)
     if (GenTreeIntCon* intConAddr = addr->IsIntCon())
     {
         // Absolute addresses marked as contained should fit within the base of addr mode.
-        AMD64_ONLY(assert(intConAddr->FitsInAddrBase(emitComp)));
+        AMD64_ONLY(assert(emitComp->IsRIPRelativeAddress(intConAddr)));
 
         id->idSetIsDspReloc(IntConNeedsReloc(intConAddr));
         id->idAddr()->iiaAddrMode.base  = REG_NA;

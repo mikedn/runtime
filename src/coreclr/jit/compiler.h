@@ -5368,7 +5368,8 @@ public:
 // ICorJitInfo wrappers
 
 #ifdef TARGET_AMD64
-    bool eeIsRIPRelativeAddress(void* addr);
+    bool IsRIPRelativeAddress(GenTreeIntCon* intCon) const;
+    bool eeIsRIPRelativeAddress(void* addr) const;
 #endif
 #ifdef TARGET_ARM
     bool eeIsThumbBranch24TargetAddress(void* target);

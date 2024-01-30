@@ -2833,10 +2833,6 @@ struct GenTreeIntCon : public GenTreeIntConCommon
 
     bool ImmedValNeedsReloc(Compiler* comp);
 
-#ifdef TARGET_AMD64
-    bool FitsInAddrBase(Compiler* comp);
-#endif
-
 #ifdef TARGET_64BIT
     void TruncateOrSignExtend32()
     {

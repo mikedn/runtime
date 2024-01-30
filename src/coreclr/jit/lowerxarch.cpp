@@ -3361,7 +3361,7 @@ void Lowering::ContainCheckIndir(GenTreeIndir* node)
     {
         addr->SetContained();
     }
-    else if (addr->IsIntCon() AMD64_ONLY(&&addr->AsIntCon()->FitsInAddrBase(comp)))
+    else if (addr->IsIntCon() AMD64_ONLY(&&comp->IsRIPRelativeAddress(addr->AsIntCon())))
     {
         addr->SetContained();
     }
@@ -4535,7 +4535,7 @@ void Lowering::ContainCheckHWIntrinsicAddr(GenTreeHWIntrinsic* node, GenTree* ad
     assert(addr->TypeIs(TYP_I_IMPL, TYP_BYREF));
     TryCreateAddrMode(addr, true);
     if ((addr->OperIs(GT_CONST_ADDR, GT_LCL_ADDR, GT_LEA) ||
-         (addr->IsIntCon() AMD64_ONLY(&&addr->AsIntCon()->FitsInAddrBase(comp)))) &&
+         (addr->IsIntCon() AMD64_ONLY(&&comp->IsRIPRelativeAddress(addr->AsIntCon())))) &&
         IsSafeToContainMem(node, addr))
     {
         MakeSrcContained(node, addr);
