@@ -1482,21 +1482,16 @@ void emitter::SetInstrLclAddrMode(instrDesc* id, int varNum, int varOffs)
 bool emitter::IntConNeedsReloc(GenTreeIntCon* con)
 {
 #ifdef TARGET_AMD64
-    if (emitComp->opts.compReloc && !con->IsIconHandle())
+    if (emitComp->opts.compReloc)
     {
         // Only handles need relocations and can be RIP relative in crossgen mode.
-        // TODO-MIKE-Cleanup: There should be no need to make the eeIsRIPRelativeAddress
-        // call below for non-handles. If they are not handles then they are hardcoded
-        // addresses in user code and those can't ever be RIP relative since we do not
-        // know the load address of the R2R image.
-
-        return false;
+        return con->IsIconHandle();
     }
 
     // At JIT time we try to use RIP relative addressing by default but that can fail
     // if a lot of code is generated. For the runtime to detect such failures we need
-    // to call recordRelocation (even though no relocation is actually performed).
-
+    // to call recordRelocation (which may also perform relocation for code addresses
+    // by means of jump stubs).
     return emitComp->eeIsRIPRelativeAddress(reinterpret_cast<void*>(con->GetValue()));
 #else
     return con->ImmedValNeedsReloc(emitComp);
