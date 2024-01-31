@@ -1438,9 +1438,9 @@ void CodeGen::genEHCatchRet(BasicBlock* block)
     GetEmitter()->emitIns_R_L(REG_INTRET, block->bbJumpDest->emitLabel);
 }
 
-void CodeGen::GenClsVarAddr(GenTreeClsVar* node)
+void CodeGen::GenConstAddr(GenTreeConstAddr* node)
 {
-    GetEmitter()->emitIns_R_C(INS_adr, EA_8BYTE, node->GetRegNum(), REG_NA, node->GetFieldHandle());
+    GetEmitter()->emitIns_R_C(INS_adr, EA_8BYTE, node->GetRegNum(), REG_NA, node->GetData());
     DefReg(node);
 }
 
@@ -1575,8 +1575,8 @@ void CodeGen::GenDblCon(GenTreeDblCon* node)
     }
     else
     {
-        regNumber            temp = node->GetSingleTempReg();
-        CORINFO_FIELD_HANDLE data = GetEmitter()->GetFloatConst(node->GetValue(), node->GetType());
+        RegNum     temp = node->GetSingleTempReg();
+        ConstData* data = GetEmitter()->GetFloatConst(node->GetValue(), node->GetType());
 
         GetEmitter()->emitIns_R_C(INS_ldr, emitTypeSize(node->GetType()), node->GetRegNum(), temp, data);
     }
@@ -2341,9 +2341,9 @@ void CodeGen::GenJmpTable(GenTree* node, const BBswtDesc& switchDesc)
 {
     assert(node->OperIs(GT_JMPTABLE));
 
-    unsigned jumpTable = GetEmitter()->CreateBlockLabelTable(switchDesc.bbsDstTab, switchDesc.bbsCount, true);
+    ConstData* data = GetEmitter()->CreateBlockLabelTable(switchDesc.bbsDstTab, switchDesc.bbsCount, true);
 
-    GetEmitter()->emitIns_R_C(INS_adr, EA_8BYTE, node->GetRegNum(), REG_NA, Emitter::MakeRoDataField(jumpTable));
+    GetEmitter()->emitIns_R_C(INS_adr, EA_8BYTE, node->GetRegNum(), REG_NA, data);
     DefReg(node);
 }
 
@@ -8435,10 +8435,10 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
         return;
     }
 
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
         regNumber tmpReg = indir->GetSingleTempReg();
-        emit->emitIns_R_C(ins, attr, valueReg, tmpReg, addr->AsClsVar()->GetFieldHandle());
+        emit->emitIns_R_C(ins, attr, valueReg, tmpReg, constAddr->GetData());
 
         return;
     }

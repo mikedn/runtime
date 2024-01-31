@@ -1879,8 +1879,7 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_I(
-    instruction ins, emitAttr attr, regNumber reg, int32_t imm, insFlags flags DEBUGARG(HandleKind handleKind))
+void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, int32_t imm, insFlags flags)
 {
     insFormat fmt = IF_NONE;
     insFlags  sf  = INS_FLAGS_DONT_CARE;
@@ -2179,7 +2178,6 @@ void emitter::emitIns_R_I(
     id->idInsSize(emitInsSize(fmt));
     id->idInsFlags(sf);
     id->idReg1(reg);
-    INDEBUG(id->idDebugOnlyInfo()->idHandleKind = handleKind);
 
     dispIns(id);
     appendToCurIG(id);
@@ -4148,11 +4146,11 @@ void emitter::emitIns_R_L(instruction ins, RegNum reg, insGroup* label)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_D(instruction ins, unsigned offs, regNumber reg)
+void emitter::emitIns_R_D(instruction ins, RegNum reg, ConstData* data)
 {
     assert((ins == INS_movw) || (ins == INS_movt));
 
-    instrDesc* id = emitNewInstrSC(offs);
+    instrDesc* id = emitNewInstrSC(data->offset);
     id->idIns(ins);
     id->idReg1(reg);
     id->idInsFmt(IF_T2_N2);
@@ -4222,7 +4220,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
 
 void emitter::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
 {
-    static_assert_no_msg((4 <= REGNUM_BITS) && (REGNUM_BITS <= 8));
+    static_assert_no_msg(instrDesc::RegBits >= 4);
     assert((regs & RBM_CALLEE_TRASH) == RBM_NONE);
 
     unsigned encoded = 0;
@@ -4254,8 +4252,6 @@ void emitter::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
 
 unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 {
-    static_assert_no_msg((4 <= REGNUM_BITS) && (REGNUM_BITS <= 8));
-
     unsigned encoded = id->idReg1() | (id->idReg2() << 8);
     unsigned regs    = 0;
 
@@ -6205,13 +6201,22 @@ void emitter::emitDispLabel(instrDescJmp* id)
 
     if (id->HasInstrCount())
     {
-        unsigned instrNum   = emitFindInsNum(id->idjIG, id);
-        uint32_t instrOffs  = id->idjIG->igOffs + id->idjOffs;
-        int      instrCount = id->GetInstrCount();
-        uint32_t labelOffs  = id->idjIG->igOffs + id->idjIG->FindInsOffset(instrNum + 1 + instrCount);
-        ssize_t  distance   = emitOffsetToPtr(labelOffs) - emitOffsetToPtr(instrOffs) - 2;
+        if (id->idjIG == nullptr)
+        {
+            // This is the instruction synthesized by emitDispIns, we can't get
+            // its number because it's not part of an actual instruction group.
+            printf("pc%s%d instructions", instrCount >= 0 ? "+" : "", instrCount);
+        }
+        else
+        {
+            unsigned instrNum   = emitFindInsNum(id->idjIG, id);
+            uint32_t instrOffs  = id->idjIG->igOffs + id->idjOffs;
+            int      instrCount = id->GetInstrCount();
+            uint32_t labelOffs  = id->idjIG->igOffs + id->idjIG->FindInsOffset(instrNum + 1 + instrCount);
+            ssize_t  distance   = emitOffsetToPtr(labelOffs) - emitOffsetToPtr(instrOffs) - 2;
 
-        printf("pc%s%d (%d instructions)", distance >= 0 ? "+" : "", distance, instrCount);
+            printf("pc%s%d (%d instructions)", distance >= 0 ? "+" : "", distance, instrCount);
+        }
     }
     else
     {
@@ -6528,7 +6533,7 @@ void emitter::emitDispInsHelp(instrDesc* id, bool isNew, bool doffs, bool asmfm,
 
         case IF_T2_N2:
             emitDispReg(id->idReg1(), attr, true);
-            printf("%s @RWD%02u", id->idIns() == INS_movw ? "LOW" : "HIGH", emitGetInsSC(id));
+            printf("%s RWD%02u", id->idIns() == INS_movw ? "LOW" : "HIGH", emitGetInsSC(id));
             break;
 
         case IF_T2_H2: // [Reg+imm]
@@ -6911,11 +6916,10 @@ void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, uns
         idJmp.idInsFmt(IF_T2_J2);
         idJmp.idInsSize(ISZ_32BIT);
         idJmp.SetLabel(ij->GetLabel());
-
         idJmp.idDebugOnlyInfo(id->idDebugOnlyInfo()); // share the idDebugOnlyInfo() field
 
         size_t brSizeOrZero = (code == NULL) ? 0 : 4; // unconditional branch is 4 bytes
-        emitDispInsHelp(&idJmp, isNew, doffs, asmfm, offset, code, brSizeOrZero);
+        emitDispInsHelp(&idJmp, false, doffs, asmfm, offset, code, brSizeOrZero);
     }
     else
     {

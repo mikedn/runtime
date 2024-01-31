@@ -2339,9 +2339,9 @@ void Lowering::LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* node, const Vecto
     size           = size == 12 ? 16 : size;
     unsigned align = comp->compCodeOpt() == SMALL_CODE ? 1 : size;
 
-    CORINFO_FIELD_HANDLE field = comp->codeGen->GetConst(vecConst.u8, size, align DEBUGARG(getSIMDTypeForSize(size)));
+    ConstData* data = comp->codeGen->GetConst(vecConst.u8, size, align DEBUGARG(getSIMDTypeForSize(size)));
 
-    GenTree* addr = new (comp, GT_CLS_VAR_ADDR) GenTreeClsVar(field);
+    GenTree* addr = new (comp, GT_CONST_ADDR) GenTreeConstAddr(data);
     BlockRange().InsertBefore(node, addr);
 
     GenTree* indir = node;
@@ -2951,12 +2951,12 @@ bool Lowering::IsLoadIndRMWCandidate(GenTreeStoreInd* store, GenTreeIndir* load,
     GenTree* loadAddr  = load->GetAddr();
     GenTree* storeAddr = store->GetAddr();
 
-    if ((loadAddr->GetOper() != storeAddr->GetOper()) || !IndirsAreEquivalent(load, store))
+    if ((loadAddr->GetOper() != storeAddr->GetOper()) || !IndirsAreRMWEquivalent(load, store))
     {
         return false;
     }
 
-    // RMW stores require multiple interference checks to ensure corectness:
+    // RMW stores require multiple interference checks to ensure correctness:
     //  - The RMW operation (e.g. ADD) needs to be moved before the store. This is
     //    trivial for the operation itself, it's always side effect free, but binary
     //    operations have a source operand that needs checking if it's a LCL_VAR.
@@ -2964,7 +2964,7 @@ bool Lowering::IsLoadIndRMWCandidate(GenTreeStoreInd* store, GenTreeIndir* load,
     //  - Load and store addresses need not be moved, it would be perfectly fine if
     //    the store address is computed into a register anywhere before the store.
     //    But this gets more complicated if addresses contain LCL_VAR uses because
-    //    IndirsAreEquivalent only checks that the 2 addresses expressions are the
+    //    IndirsAreRMWEquivalent only checks that the 2 addresses expressions are the
     //    same, not that they produce the same value.
     // Reg candidate LCL_VARs are treated as if they're contained - the register is
     // guaranteed to be available at user's position, not at LCL_VAR's position. So:
@@ -3062,7 +3062,7 @@ bool Lowering::IsLoadIndRMWCandidate(GenTreeStoreInd* store, GenTreeIndir* load,
     return !hasInterference;
 }
 
-bool Lowering::IndirsAreEquivalent(GenTreeIndir* indir1, GenTreeIndir* indir2)
+bool Lowering::IndirsAreRMWEquivalent(GenTreeIndir* indir1, GenTreeIndir* indir2)
 {
     assert(indir1->OperIs(GT_IND));
     assert(indir2->OperIs(GT_STOREIND));
@@ -3083,16 +3083,15 @@ bool Lowering::IndirsAreEquivalent(GenTreeIndir* indir1, GenTreeIndir* indir2)
     switch (addr1->GetOper())
     {
         case GT_LCL_VAR:
-        case GT_CLS_VAR_ADDR:
         case GT_CNS_INT:
-            return NodesAreEquivalentLeaves(addr1, addr2);
+            return LeavesAreRMWEquivalent(addr1, addr2);
 
         case GT_LEA:
         {
             GenTreeAddrMode* am1 = addr1->AsAddrMode();
             GenTreeAddrMode* am2 = addr2->AsAddrMode();
-            return NodesAreEquivalentLeaves(am1->GetBase(), am2->GetBase()) &&
-                   NodesAreEquivalentLeaves(am1->GetIndex(), am2->GetIndex()) && (am1->GetScale() == am2->GetScale()) &&
+            return LeavesAreRMWEquivalent(am1->GetBase(), am2->GetBase()) &&
+                   LeavesAreRMWEquivalent(am1->GetIndex(), am2->GetIndex()) && (am1->GetScale() == am2->GetScale()) &&
                    (am1->GetOffset() == am2->GetOffset());
         }
 
@@ -3101,7 +3100,7 @@ bool Lowering::IndirsAreEquivalent(GenTreeIndir* indir1, GenTreeIndir* indir2)
     }
 }
 
-bool Lowering::NodesAreEquivalentLeaves(GenTree* node1, GenTree* node2)
+bool Lowering::LeavesAreRMWEquivalent(GenTree* node1, GenTree* node2)
 {
     if ((node1 == nullptr) || (node2 == nullptr))
     {
@@ -3120,8 +3119,6 @@ bool Lowering::NodesAreEquivalentLeaves(GenTree* node1, GenTree* node2)
                    (node1->IsIconHandle() == node2->IsIconHandle());
         case GT_LCL_VAR:
             return node1->AsLclVar()->GetLclNum() == node2->AsLclVar()->GetLclNum();
-        case GT_CLS_VAR_ADDR:
-            return node1->AsClsVar()->GetFieldHandle() == node2->AsClsVar()->GetFieldHandle();
         default:
             return false;
     }
@@ -3133,7 +3130,7 @@ GenTreeIndir* Lowering::IsStoreIndRMW(GenTreeStoreInd* store)
 
     GenTree* storeAddr = store->GetAddr();
 
-    if (!storeAddr->OperIs(GT_LEA, GT_LCL_VAR, GT_CLS_VAR_ADDR, GT_CNS_INT))
+    if (!storeAddr->OperIs(GT_LEA, GT_LCL_VAR, GT_CNS_INT))
     {
         return nullptr;
     }
@@ -3360,11 +3357,11 @@ void Lowering::ContainCheckIndir(GenTreeIndir* node)
     }
 #endif
 
-    if (addr->OperIs(GT_CLS_VAR_ADDR, GT_LCL_ADDR))
+    if (addr->OperIs(GT_CONST_ADDR, GT_LCL_ADDR))
     {
         addr->SetContained();
     }
-    else if (addr->IsIntCon() AMD64_ONLY(&&addr->AsIntCon()->FitsInAddrBase(comp)))
+    else if (addr->IsIntCon() AMD64_ONLY(&&comp->IsRIPRelativeAddress(addr->AsIntCon())))
     {
         addr->SetContained();
     }
@@ -3389,13 +3386,12 @@ void Lowering::ContainCheckStoreIndir(GenTreeStoreInd* store)
 #endif
 
     // If the source is a containable immediate, make it contained, unless it is
-    // an int-size or larger store of zero to memory, because we can generate smaller code
-    // by zeroing a register and then storing it.
+    // and INT or LONG store of zero to memory, because we can generate smaller
+    // code by zeroing a register and then storing it.
 
-    if (IsContainableImmed(store, value) &&
-        (!value->IsIntegralConst(0) || varTypeIsSmall(store->GetType()) || store->GetAddr()->OperIs(GT_CLS_VAR_ADDR)))
+    if (IsContainableImmed(store, value) && (!value->IsIntegralConst(0) || varTypeIsSmall(store->GetType())))
     {
-        MakeSrcContained(store, value);
+        value->SetContained();
     }
 }
 
@@ -4538,8 +4534,8 @@ void Lowering::ContainCheckHWIntrinsicAddr(GenTreeHWIntrinsic* node, GenTree* ad
 {
     assert(addr->TypeIs(TYP_I_IMPL, TYP_BYREF));
     TryCreateAddrMode(addr, true);
-    if ((addr->OperIs(GT_CLS_VAR_ADDR, GT_LCL_ADDR, GT_LEA) ||
-         (addr->IsIntCon() AMD64_ONLY(&&addr->AsIntCon()->FitsInAddrBase(comp)))) &&
+    if ((addr->OperIs(GT_CONST_ADDR, GT_LCL_ADDR, GT_LEA) ||
+         (addr->IsIntCon() AMD64_ONLY(&&comp->IsRIPRelativeAddress(addr->AsIntCon())))) &&
         IsSafeToContainMem(node, addr))
     {
         MakeSrcContained(node, addr);

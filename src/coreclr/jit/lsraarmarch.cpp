@@ -39,7 +39,7 @@ void LinearScan::BuildIndir(GenTreeIndir* indir)
             }
         }
 #ifdef TARGET_ARM64
-        else if (addr->OperIs(GT_CLS_VAR_ADDR))
+        else if (addr->OperIs(GT_CONST_ADDR))
         {
             BuildInternalIntDef(indir);
         }

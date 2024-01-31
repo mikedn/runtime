@@ -247,6 +247,31 @@ enum insFormat : unsigned
 
 class AsmPrinter;
 
+struct ConstData
+{
+    // Alignments greater than 32 requires VM changes (see ICorJitInfo::allocMem)
+    const static uint32_t MinAlign = 4;
+    const static uint32_t MaxAlign = 32;
+
+    enum Kind : uint8_t
+    {
+        Const,
+        LabelAddr,
+        LabelRel32
+    };
+
+    uint32_t offset;
+    uint32_t size;
+    Kind     kind;
+    INDEBUG(var_types type;)
+
+    void* GetData() const
+    {
+        assert(size != 0);
+        return const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(this)) + sizeof(ConstData);
+    }
+};
+
 class emitter
 {
     friend class emitLocation;
@@ -342,50 +367,12 @@ public:
     /*                   Emit initialized data sections                     */
     /************************************************************************/
 
-private:
-    enum idAddrUnionTag
-    {
-        iaut_ALIGNED_POINTER = 0x0,
-        iaut_DATA_OFFSET     = 0x1,
-        iaut_INST_COUNT      = 0x2,
-        iaut_UNUSED_TAG      = 0x3,
-
-        iaut_MASK  = 0x3,
-        iaut_SHIFT = 2
-    };
-
 public:
-    static CORINFO_FIELD_HANDLE MakeRoDataField(unsigned offset)
-    {
-        assert(offset < 0x40000000);
-        uintptr_t bits = static_cast<uintptr_t>((offset << iaut_SHIFT) | iaut_DATA_OFFSET);
-        return reinterpret_cast<CORINFO_FIELD_HANDLE>(bits);
-    }
+    ConstData* CreateBlockLabelTable(BasicBlock** blocks, unsigned count, bool relative);
+    ConstData* CreateTempLabelTable(insGroup*** labels, unsigned count, bool relative);
 
-    static bool IsRoDataField(CORINFO_FIELD_HANDLE field)
-    {
-        uintptr_t bits = reinterpret_cast<uintptr_t>(field);
-        return (bits <= UINT_MAX) && ((bits & iaut_MASK) == iaut_DATA_OFFSET);
-    }
-
-    static int GetRoDataOffset(CORINFO_FIELD_HANDLE field)
-    {
-        if (IsRoDataField(field))
-        {
-            uintptr_t bits = reinterpret_cast<uintptr_t>(field);
-            return static_cast<int>(bits >> iaut_SHIFT);
-        }
-        else
-        {
-            return -1;
-        }
-    }
-
-    uint32_t CreateBlockLabelTable(BasicBlock** blocks, unsigned count, bool relative);
-    uint32_t CreateTempLabelTable(insGroup*** labels, unsigned count, bool relative);
-
-    CORINFO_FIELD_HANDLE GetFloatConst(double value, var_types type);
-    CORINFO_FIELD_HANDLE GetConst(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
+    ConstData* GetFloatConst(double value, var_types type);
+    ConstData* GetConst(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
 
 #if DISPLAY_SIZES
     uint32_t GetRoDataSize() const
@@ -397,28 +384,13 @@ public:
 private:
     struct DataSection
     {
-        // Alignments greater than 32 requires VM changes (see ICorJitInfo::allocMem)
-        const static uint32_t MinAlign = 4;
-        const static uint32_t MaxAlign = 32;
-
-        enum Kind : uint8_t
-        {
-            Const,
-            LabelAddr,
-            LabelRel32
-        };
-
         DataSection* next;
-        uint32_t     offset;
-        uint32_t     size;
-        Kind         kind;
-        INDEBUG(var_types type;)
-        uint8_t data[0];
+        ConstData    data;
     };
 
     DataSection* CreateLabelTable(unsigned count, bool relative);
-    uint32_t CreateConst(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
-    uint32_t CreateConstSection(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
+    DataSection* CreateConst(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
+    DataSection* CreateConstSection(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
 
     void* emitGetMem(size_t sz);
 
@@ -447,32 +419,56 @@ private:
 /************************************************************************/
 
 #ifdef TARGET_XARCH
-#define AM_DISP_BITS ((sizeof(unsigned) * 8) - 2 * (REGNUM_BITS + 1) - 2)
-#define AM_DISP_BIG_VAL (-(1 << (AM_DISP_BITS - 1)))
-#define AM_DISP_MIN (-((1 << (AM_DISP_BITS - 1)) - 1))
-#define AM_DISP_MAX (+((1 << (AM_DISP_BITS - 1)) - 1))
-
     struct emitAddrMode
     {
-        RegNum   base : REGNUM_BITS + 1;
-        RegNum   index : REGNUM_BITS + 1;
+#ifdef TARGET_AMD64
+        // x64 has 32 registers currently but APX has 64.
+        // We need to be able to store REG_NA too so we'll need an extra bit.
+        static_assert_no_msg(REG_NA <= 127);
+        static constexpr unsigned RegBits  = 7;
+        static constexpr unsigned DispBits = 16;
+        static constexpr unsigned DispMin  = -32767;
+        static constexpr unsigned DispMax  = 32767;
+        INDEBUG(static constexpr int32_t LargeDispMarker = -32768;)
+#else
+        static_assert_no_msg(REG_NA <= 31);
+        static constexpr unsigned RegBits  = 5;
+        static constexpr unsigned DispBits = 16;
+        static constexpr unsigned DispMin  = -32767;
+        static constexpr unsigned DispMax  = 32767;
+        INDEBUG(static constexpr int32_t LargeDispMarker = -32768;)
+#endif
+
+        RegNum   base : RegBits;
+        RegNum   index : RegBits;
         uint32_t scale : 2;
-        int32_t  disp : AM_DISP_BITS;
+#ifdef TARGET_X86
+        unsigned spare : 4; // Give these to disp? Though 16 bits should be enough for everybody...
+#endif
+        int32_t disp : DispBits;
+
+        static bool IsLargeDisp(ssize_t disp)
+        {
+            return (disp < DispMin) || (DispMax < disp);
+        }
     };
 #endif // TARGET_XARCH
 
 #ifdef DEBUG // This information is used in DEBUG builds to display the method name for call instructions
     struct instrDescDebugInfo
     {
-        unsigned          idNum;
-        uint16_t          idSize;                // size of the instruction descriptor
-        bool              idFinallyCall = false; // Branch instruction is a call to finally
-        bool              idCatchRet    = false; // Instruction is for a catch 'return'
-        int               varNum        = INT_MIN;
-        int               varOffs       = 0;
-        HandleKind        idHandleKind  = HandleKind::None;
-        void*             idHandle      = nullptr;
-        CORINFO_SIG_INFO* idCallSig     = nullptr; // Used to report native call site signatures to the EE
+        unsigned idNum;
+        uint16_t idSize;                // size of the instruction descriptor
+        bool     idFinallyCall = false; // Branch instruction is a call to finally
+        bool     idCatchRet    = false; // Instruction is for a catch 'return'
+        int      varNum        = INT_MIN;
+        int      varOffs       = 0;
+#ifdef TARGET_XARCH
+        HandleKind dispHandleKind = HandleKind::None;
+#endif
+        HandleKind        idHandleKind = HandleKind::None;
+        void*             idHandle     = nullptr;
+        CORINFO_SIG_INFO* idCallSig    = nullptr; // Used to report native call site signatures to the EE
 
         instrDescDebugInfo(unsigned num, unsigned size) : idNum(num), idSize(static_cast<uint16_t>(size))
         {
@@ -502,28 +498,56 @@ private:
     {
         friend struct instrDesc;
 
-    private:
-#ifdef TARGET_XARCH
+#ifdef TARGET_AMD64
         static_assert_no_msg(INS_COUNT <= 1024);
         static_assert_no_msg(IF_COUNT <= 128);
-        static_assert_no_msg(ACTUAL_REG_COUNT <= 64);
+        static_assert_no_msg(ACTUAL_REG_COUNT <= 64); // 32 currently but APX has 64
+        static constexpr unsigned RegBits      = 6;
         static constexpr unsigned SmallImmBits = 16;
 
-        instruction _idIns : 10;      // Instruction opcode
-        insFormat   _idInsFmt : 7;    // Instruction format
-        unsigned    _idOpSize : 3;    // Operation size (log 2)
-        GCtype      _idGCref : 2;     // GC type of the first destination register
-        unsigned    _idCnsReloc : 1;  // Immediate is relocatable
-        unsigned    _idDspReloc : 1;  // Address mode displacement is relocatable
-        unsigned    _idSmallDsc : 1;  // this is instrDescSmall
-        unsigned    _idLargeCall : 1; // this is instrDescCGCA
-        unsigned    _idLargeCns : 1;  // this is instrDescCns/instrDescCnsAmd
-        unsigned    _idLargeDsp : 1;  // this is instrDescAmd
-        unsigned    _idCodeSize : 4;  // Encoded instruction size
-        RegNum      _idReg1 : 6;      // First register, also holds the GC ref reg mask for calls
-        RegNum      _idReg2 : 6;      // Second register, also holds the GC byref reg mask for calls
-        unsigned    _idNoGC : 1;      // Helper call that does not need GC information
-        unsigned    _idSpare : 3;     // Reserved for EVEX/APX registers?
+    private:
+        instruction _idIns : 10;       // Instruction opcode
+        insFormat   _idInsFmt : 7;     // Instruction format
+        unsigned    _idOpSize : 3;     // Operation size (log 2)
+        GCtype      _idGCref : 2;      // GC type of the first destination register
+        unsigned    _idCnsReloc : 1;   // Immediate is relocatable
+        unsigned    _idDspReloc : 1;   // Address mode displacement is relocatable
+        unsigned    _idSmallDsc : 1;   // this is instrDescSmall
+        unsigned    _idLargeCall : 1;  // this is instrDescCGCA
+        unsigned    _idLargeCns : 1;   // this is instrDescCns/instrDescCnsAmd
+        unsigned    _idLargeDsp : 1;   // this is instrDescAmd
+        unsigned    _idCodeSize : 4;   // Encoded instruction size
+        RegNum      _idReg1 : RegBits; // First register, also holds the GC ref reg mask for calls
+        RegNum      _idReg2 : RegBits; // Second register, also holds the GC byref reg mask for calls
+        unsigned    _idNoGC : 1;       // Helper call that does not need GC information
+        unsigned    _idSpare : 3;      // Reserved for EVEX stuff?
+        unsigned    _idSmallCns : SmallImmBits;
+#endif // TARGET_XARCH
+
+#ifdef TARGET_X86
+        static_assert_no_msg(INS_COUNT <= 1024);
+        static_assert_no_msg(IF_COUNT <= 128);
+        static_assert_no_msg(ACTUAL_REG_COUNT == 16);
+        static constexpr unsigned RegBits      = 4;
+        static constexpr unsigned SmallImmBits = 16;
+
+    private:
+        instruction _idIns : 10;       // Instruction opcode
+        insFormat   _idInsFmt : 7;     // Instruction format
+        unsigned    _idOpSize : 3;     // Operation size (log 2)
+        GCtype      _idGCref : 2;      // GC type of the first destination register
+        unsigned    _idCnsReloc : 1;   // Immediate is relocatable
+        unsigned    _idDspReloc : 1;   // Address mode displacement is relocatable
+        unsigned    _idSmallDsc : 1;   // this is instrDescSmall
+        unsigned    _idLargeCall : 1;  // this is instrDescCGCA
+        unsigned    _idLargeCns : 1;   // this is instrDescCns/instrDescCnsAmd
+        unsigned    _idLargeDsp : 1;   // this is instrDescAmd
+        unsigned    _idCodeSize : 4;   // Encoded instruction size
+        RegNum      _idReg1 : RegBits; // First register, also holds the GC ref reg mask for calls
+        RegNum      _idReg2 : RegBits; // Second register, also holds the GC byref reg mask for calls
+        unsigned    _idNoGC : 1;       // Helper call that does not need GC information
+        unsigned    _idFSPrefix : 1;   // FS segment prefix
+        unsigned    _idSpare : 6;      // EVEX stuff?
         unsigned    _idSmallCns : SmallImmBits;
 #endif // TARGET_XARCH
 
@@ -532,22 +556,24 @@ private:
         static_assert_no_msg(IF_COUNT <= 128);
         // REG_SP is included the in actual reg count but we don't need that here.
         static_assert_no_msg(ACTUAL_REG_COUNT - 1 <= 64);
+        static constexpr unsigned RegBits      = 6;
         static constexpr unsigned SmallImmBits = 16;
 
-        instruction _idIns : 9;       // Instruction opcode
-        insFormat   _idInsFmt : 7;    // Instruction format
-        insOpts     _idInsOpt : 6;    // Instruction options
-        unsigned    _idOpSize : 3;    // Operation size (log 2)
-        GCtype      _idGCref : 2;     // GC type of the first destination register
-        unsigned    _idSmallDsc : 1;  // this is instrDescSmall
-        unsigned    _idLargeCall : 1; // this is instrDescCGCA
-        unsigned    _idLargeCns : 1;  // this is instrDescCns
-        unsigned    _idCnsReloc : 1;  // Immediate is relocatable
-        unsigned    _idLclVar : 1;    // Local load/store
-        RegNum      _idReg1 : 6;      // First register, also holds the GC ref reg mask for calls
-        RegNum      _idReg2 : 6;      // Second register, also holds the GC byref reg mask for calls
-        unsigned    _idNoGC : 1;      // Helper call that does not need GC information
-        unsigned    _idSpare : 3;     // Give these to small imm?
+    private:
+        instruction _idIns : 9;        // Instruction opcode
+        insFormat   _idInsFmt : 7;     // Instruction format
+        insOpts     _idInsOpt : 6;     // Instruction options
+        unsigned    _idOpSize : 3;     // Operation size (log 2)
+        GCtype      _idGCref : 2;      // GC type of the first destination register
+        unsigned    _idSmallDsc : 1;   // this is instrDescSmall
+        unsigned    _idLargeCall : 1;  // this is instrDescCGCA
+        unsigned    _idLargeCns : 1;   // this is instrDescCns
+        unsigned    _idCnsReloc : 1;   // Immediate is relocatable
+        unsigned    _idLclVar : 1;     // Local load/store
+        RegNum      _idReg1 : RegBits; // First register, also holds the GC ref reg mask for calls
+        RegNum      _idReg2 : RegBits; // Second register, also holds the GC byref reg mask for calls
+        unsigned    _idNoGC : 1;       // Helper call that does not need GC information
+        unsigned    _idSpare : 3;      // Give these to small imm?
         unsigned    _idSmallCns : SmallImmBits;
 #endif // TARGET_ARM64
 
@@ -555,25 +581,27 @@ private:
         static_assert_no_msg(INS_COUNT <= 256);
         static_assert_no_msg(IF_COUNT <= 128);
         static_assert_no_msg(ACTUAL_REG_COUNT <= 64);
+        static constexpr unsigned RegBits      = 6;
         static constexpr unsigned SmallImmBits = 16;
 
-        instruction _idIns : 8;       // Instruction opcode
-        insFormat   _idInsFmt : 7;    // Instruction format
-        insOpts     _idInsOpt : 3;    // Instruction options
-        insFlags    _idInsFlags : 1;  // Instruction sets flags
-        unsigned    _idOpSize : 2;    // Operation size (log 2)
-        GCtype      _idGCref : 2;     // GC type of the first destination register
-        unsigned    _idSmallDsc : 1;  // this is instrDescSmall
-        unsigned    _idLargeCall : 1; // this is instrDescCGCA
-        unsigned    _idLargeCns : 1;  // this is instrDescCns
-        unsigned    _idSpare1 : 1;    // Give this to small imm?
-        unsigned    _idNoGC : 1;      // Helper call that does not need GC information
-        insSize     _idInsSize : 2;   // Encoded instruction size: 16, 32 or 48 bits
-        unsigned    _idLclVar : 1;    // Local load/store
-        unsigned    _idCnsReloc : 1;  // Immediate is relocatable
-        RegNum      _idReg1 : 6;      // First register, also holds the GC ref reg mask for calls
-        RegNum      _idReg2 : 6;      // Second register, also holds the GC byref reg mask for calls
-        unsigned    _idSpare : 4;     // Give these to small imm?
+    private:
+        instruction _idIns : 8;        // Instruction opcode
+        insFormat   _idInsFmt : 7;     // Instruction format
+        insOpts     _idInsOpt : 3;     // Instruction options
+        insFlags    _idInsFlags : 1;   // Instruction sets flags
+        unsigned    _idOpSize : 2;     // Operation size (log 2)
+        GCtype      _idGCref : 2;      // GC type of the first destination register
+        unsigned    _idSmallDsc : 1;   // this is instrDescSmall
+        unsigned    _idLargeCall : 1;  // this is instrDescCGCA
+        unsigned    _idLargeCns : 1;   // this is instrDescCns
+        unsigned    _idSpare1 : 1;     // Give this to small imm?
+        unsigned    _idNoGC : 1;       // Helper call that does not need GC information
+        insSize     _idInsSize : 2;    // Encoded instruction size: 16, 32 or 48 bits
+        unsigned    _idLclVar : 1;     // Local load/store
+        unsigned    _idCnsReloc : 1;   // Immediate is relocatable
+        RegNum      _idReg1 : RegBits; // First register, also holds the GC ref reg mask for calls
+        RegNum      _idReg2 : RegBits; // Second register, also holds the GC byref reg mask for calls
+        unsigned    _idSpare : 4;      // Give these to small imm?
         unsigned    _idSmallCns : SmallImmBits;
 #endif // TARGET_ARM
 
@@ -656,6 +684,22 @@ private:
         void idSetIsSmallDsp()
         {
             _idLargeDsp = false;
+        }
+
+#ifdef WINDOWS_X86_ABI
+        void SetHasFSPrefix()
+        {
+            _idFSPrefix = true;
+        }
+#endif
+
+        bool HasFSPrefix() const
+        {
+#ifdef WINDOWS_X86_ABI
+            return _idFSPrefix;
+#else
+            return false;
+#endif
         }
 #endif // TARGET_XARCH
 
@@ -887,7 +931,7 @@ private:
             uintptr_t label;
             uintptr_t addr;
 #ifdef TARGET_XARCH
-            CORINFO_FIELD_HANDLE field;
+            ConstData* data;
 #endif
 
 #ifdef TARGET_ARM
@@ -900,14 +944,14 @@ private:
 
             struct
             {
-                regNumber _idReg3 : REGNUM_BITS;
-                regNumber _idReg4 : REGNUM_BITS;
+                regNumber _idReg3 : RegBits;
+                regNumber _idReg4 : RegBits;
             };
 #endif
 
 #ifdef TARGET_X86
             emitAddrMode iiaAddrMode;
-            regNumber    _idReg3 : REGNUM_BITS;
+            regNumber    _idReg3 : RegBits;
 
             struct
             {
@@ -919,7 +963,7 @@ private:
 
 #ifdef TARGET_AMD64
             emitAddrMode iiaAddrMode;
-            regNumber    _idReg3 : REGNUM_BITS;
+            regNumber    _idReg3 : RegBits;
 
             struct
             {
@@ -933,8 +977,8 @@ private:
 #ifdef TARGET_ARM64
             struct
             {
-                regNumber _idReg3 : REGNUM_BITS;
-                regNumber _idReg4 : REGNUM_BITS;
+                regNumber _idReg3 : RegBits;
+                regNumber _idReg4 : RegBits;
                 unsigned  _idReg3Scaled : 1;
                 GCtype    _idGCref2 : 2;
                 unsigned  isTrackedGCSlotStore : 1;
@@ -998,16 +1042,16 @@ private:
         ssize_t GetAmDisp() const;
         ssize_t GetCallDisp() const;
 
-        CORINFO_FIELD_HANDLE GetField() const
+        ConstData* GetConstData() const
         {
             assert((IF_MRD <= _idInsFmt) && (_idInsFmt <= IF_MWR_RRD_CNS));
-            return idAddr()->field;
+            return idAddr()->data;
         }
 
-        void SetField(CORINFO_FIELD_HANDLE field)
+        void SetConstData(ConstData* data)
         {
             assert((IF_MRD <= _idInsFmt) && (_idInsFmt <= IF_MWR_RRD_CNS));
-            idAddr()->field = field;
+            idAddr()->data = data;
         }
 
         regNumber idReg3() const
@@ -1125,7 +1169,7 @@ private:
         {
             LabelTag = 0,
 #if defined(TARGET_ARM64) || defined(TARGET_X86)
-            RoDataOffsetTag = 1,
+            ConstDataTag = 1,
 #endif
             InstrCountTag = 2,
             TagMask       = 3,
@@ -1157,20 +1201,20 @@ private:
         }
 
 #if defined(TARGET_ARM64) || defined(TARGET_X86)
-        bool HasRoDataOffset() const
+        bool HasConstData() const
         {
-            return (_idAddrUnion.label & TagMask) == RoDataOffsetTag;
+            return (_idAddrUnion.label & TagMask) == ConstDataTag;
         }
 
-        uint32_t GetRoDataOffset() const
+        ConstData* GetConstData() const
         {
-            assert(HasRoDataOffset());
-            return static_cast<uint32_t>(_idAddrUnion.label >> TagSize);
+            assert(HasConstData());
+            return reinterpret_cast<ConstData*>(_idAddrUnion.label & ~TagMask);
         }
 
-        void SetRoDataOffset(uint32_t offset)
+        void SetConstData(ConstData* data)
         {
-            _idAddrUnion.label = (static_cast<uintptr_t>(offset) << TagSize) | RoDataOffsetTag;
+            _idAddrUnion.label = reinterpret_cast<uintptr_t>(data) | ConstDataTag;
         }
 #endif
 
@@ -1725,7 +1769,7 @@ private:
         DataSection* first = nullptr;
         DataSection* last  = nullptr;
         uint32_t     size  = 0;
-        uint32_t     align = DataSection::MinAlign;
+        uint32_t     align = ConstData::MinAlign;
 
         DataSection* Find(const void* data, uint32_t size, uint32_t align) const;
     };

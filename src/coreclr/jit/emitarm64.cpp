@@ -3854,8 +3854,7 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_I(
-    instruction ins, emitAttr attr, regNumber reg, ssize_t imm, insOpts opt DEBUGARG(HandleKind handleKind))
+void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t imm, insOpts opt)
 {
     emitAttr  size      = EA_SIZE(attr);
     emitAttr  elemsize  = EA_UNKNOWN;
@@ -4031,7 +4030,6 @@ void emitter::emitIns_R_I(
     id->idGCref(EA_GC_TYPE(attr));
     id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg);
-    INDEBUG(id->idDebugOnlyInfo()->idHandleKind = handleKind);
 
     dispIns(id);
     appendToCurIG(id);
@@ -7740,10 +7738,8 @@ void emitter::Ins_R_R_S(
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumber addrReg, CORINFO_FIELD_HANDLE fldHnd)
+void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumber addrReg, ConstData* data)
 {
-    assert(IsRoDataField(fldHnd));
-
     emitAttr  size = EA_SIZE(attr);
     insFormat fmt;
 
@@ -7781,7 +7777,7 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumb
     id->idInsFmt(fmt);
     id->idOpSize(size);
     id->idReg1(reg);
-    id->SetRoDataOffset(GetRoDataOffset(fldHnd));
+    id->SetConstData(data);
     // We put the constant data right after the hot code section, cold code will need relocs.
     id->idSetIsCnsReloc(emitComp->opts.compReloc && emitCurIG->IsCold());
 
@@ -8028,7 +8024,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
 
 void emitter::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
 {
-    static_assert_no_msg((5 <= REGNUM_BITS) && (REGNUM_BITS <= 8));
+    static_assert_no_msg(instrDesc::RegBits >= 5);
     assert((regs & RBM_CALLEE_TRASH) == RBM_NONE);
 
     unsigned encoded = 0;
@@ -8064,8 +8060,6 @@ void emitter::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
 
 unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 {
-    static_assert_no_msg((5 <= REGNUM_BITS) && (REGNUM_BITS <= 8));
-
     unsigned encoded = id->idReg1() | (id->idReg2() << 8);
     unsigned regs    = 0;
 
@@ -8164,9 +8158,9 @@ AGAIN:
         uint32_t instrOffs = instrIG->igOffs + instr->idjOffs;
         int32_t  distanceOverflow;
 
-        if (instr->HasRoDataOffset())
+        if (instr->HasConstData())
         {
-            uint32_t dataOffs = instr->GetRoDataOffset();
+            uint32_t dataOffs = instr->GetConstData()->offset;
 
             ssize_t imm = emitGetInsSC(instr);
             assert((imm >= 0) && (imm < 0x1000)); // 0x1000 is arbitrary, currently 'imm' is always 0
@@ -9301,7 +9295,7 @@ uint8_t* emitter::emitOutputDL(uint8_t* dst, instrDescJmp* id)
     uint32_t instrOffs = emitCurCodeOffs(dst);
     uint8_t* instrAddr = emitOffsetToPtr(instrOffs);
 
-    uint32_t dataOffset = id->GetRoDataOffset();
+    uint32_t dataOffset = id->GetConstData()->offset;
 
     int64_t imm = emitGetInsSC(id);
     assert((imm >= 0) && (imm < 0x1000)); // 0x1000 is arbitrary, currently 'imm' is always 0
@@ -9359,7 +9353,7 @@ uint8_t* emitter::emitOutputDL(uint8_t* dst, instrDescJmp* id)
 
 uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 {
-    assert(!id->HasRoDataOffset());
+    assert(!id->HasConstData());
     assert(id->idInsOpt() == INS_OPTS_NONE);
     assert(id->idGCref() == GCT_NONE);
 
@@ -9599,7 +9593,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_SMALLADR:
         case IF_LARGEADR:
         case IF_LARGELDC:
-            if (static_cast<instrDescJmp*>(id)->HasRoDataOffset())
+            if (static_cast<instrDescJmp*>(id)->HasConstData())
             {
                 dst = emitOutputDL(dst, static_cast<instrDescJmp*>(id));
                 sz  = sizeof(instrDescJmp);
@@ -10792,11 +10786,14 @@ void emitter::emitDispAddrLoadLabel(instrDescJmp* id)
         printf("(LARGELDC) ");
     }
 
-    printf("[");
-
-    if (id->HasRoDataOffset())
+    if ((id->idIns() == INS_ldr) || (id->idIns() == INS_ldrsw))
     {
-        printf("@RWD%02u", id->GetRoDataOffset());
+        printf("[");
+    }
+
+    if (id->HasConstData())
+    {
+        printf("RWD%02u", id->GetConstData()->offset);
     }
     else
     {
@@ -10808,7 +10805,10 @@ void emitter::emitDispAddrLoadLabel(instrDescJmp* id)
         printf("%+Id", imm);
     }
 
-    printf("]");
+    if ((id->idIns() == INS_ldr) || (id->idIns() == INS_ldrsw))
+    {
+        printf("]");
+    }
 }
 
 void emitter::emitDispJumpLabel(instrDescJmp* id)

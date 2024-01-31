@@ -113,7 +113,7 @@ void LinearScan::BuildNode(GenTree* tree)
             FALLTHROUGH;
         case GT_JMPTABLE:
         case GT_LCL_ADDR:
-        case GT_CLS_VAR_ADDR:
+        case GT_CONST_ADDR:
         case GT_PHYSREG:
         case GT_LABEL:
         case GT_SETCC:

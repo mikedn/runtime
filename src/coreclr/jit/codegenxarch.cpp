@@ -440,24 +440,12 @@ void CodeGen::GenEndLFin(GenTreeEndLFin* node)
 
 #endif // !FEATURE_EH_FUNCLETS
 
-void CodeGen::GenClsVarAddr(GenTreeClsVar* node)
+void CodeGen::GenConstAddr(GenTreeConstAddr* node)
 {
-    RegNum               reg   = node->GetRegNum();
-    CORINFO_FIELD_HANDLE field = node->GetFieldHandle();
-
 #ifdef TARGET_X86
-    if (Emitter::IsRoDataField(field))
-    {
-        GetEmitter()->emitIns_R_L(reg, field);
-    }
-    else
-    {
-        void* addr = compiler->info.compCompHnd->getFieldAddress(field, nullptr);
-        noway_assert(addr != nullptr);
-        GetEmitter()->emitIns_R_H(INS_mov, reg, addr);
-    }
+    GetEmitter()->emitIns_R_L(node->GetRegNum(), node->GetData());
 #else
-    GetEmitter()->emitIns_R_C(INS_lea, EA_8BYTE, reg, field);
+    GetEmitter()->emitIns_R_C(INS_lea, EA_8BYTE, node->GetRegNum(), node->GetData());
 #endif
 
     DefReg(node);
@@ -546,7 +534,7 @@ void CodeGen::GenDblCon(GenTreeDblCon* node, regNumber reg, var_types type)
         return;
     }
 
-    CORINFO_FIELD_HANDLE data = GetEmitter()->GetFloatConst(node->GetValue(), node->GetType());
+    ConstData* data = GetEmitter()->GetFloatConst(node->GetValue(), node->GetType());
     GetEmitter()->emitIns_R_C(ins_Load(type), emitTypeSize(node->GetType()), reg, data);
 }
 
@@ -894,7 +882,7 @@ void CodeGen::GenFloatAbs(GenTreeIntrinsic* node)
     assert(node->GetOp(0)->GetType() == node->GetType());
     assert(node->GetRegNum() != REG_NA);
 
-    CORINFO_FIELD_HANDLE& maskField = node->TypeIs(TYP_FLOAT) ? absBitmaskFlt : absBitmaskDbl;
+    ConstData*& maskField = node->TypeIs(TYP_FLOAT) ? absBitmaskFlt : absBitmaskDbl;
 
     if (maskField == nullptr)
     {
@@ -916,7 +904,7 @@ void CodeGen::GenFloatNegate(GenTreeUnOp* node)
     assert(node->GetOp(0)->GetType() == node->GetType());
     assert(node->GetRegNum() != REG_NA);
 
-    CORINFO_FIELD_HANDLE& maskField = node->TypeIs(TYP_FLOAT) ? negBitmaskFlt : negBitmaskDbl;
+    ConstData*& maskField = node->TypeIs(TYP_FLOAT) ? negBitmaskFlt : negBitmaskDbl;
 
     if (maskField == nullptr)
     {
@@ -1612,8 +1600,8 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             genCodeForArrOffset(treeNode->AsArrOffs());
             break;
 
-        case GT_CLS_VAR_ADDR:
-            GenClsVarAddr(treeNode->AsClsVar());
+        case GT_CONST_ADDR:
+            GenConstAddr(treeNode->AsConstAddr());
             break;
 
         case GT_INSTR:
@@ -3098,15 +3086,15 @@ void CodeGen::GenJmpTable(GenTree* node, const BBswtDesc& switchDesc)
     const bool relative = true;
 #endif
 
-    unsigned jumpTable = GetEmitter()->CreateBlockLabelTable(switchDesc.bbsDstTab, switchDesc.bbsCount, relative);
+    ConstData* data = GetEmitter()->CreateBlockLabelTable(switchDesc.bbsDstTab, switchDesc.bbsCount, relative);
 
 #ifdef TARGET_X86
     // TODO-MIKE-CQ: This needs to be folded into the address mode of the SWITCH_TABLE generated load.
     // Can't do that easily though since there's no emitIns_ARX version that accepts a .rodata offset
     // as displacement. It's probably more trouble than it's worth to add that to x86 at this point.
-    GetEmitter()->emitIns_R_L(node->GetRegNum(), Emitter::MakeRoDataField(jumpTable));
+    GetEmitter()->emitIns_R_L(node->GetRegNum(), data);
 #else
-    GetEmitter()->emitIns_R_C(INS_lea, EA_8BYTE, node->GetRegNum(), Emitter::MakeRoDataField(jumpTable));
+    GetEmitter()->emitIns_R_C(INS_lea, EA_8BYTE, node->GetRegNum(), data);
 #endif
 
     DefReg(node);
@@ -4753,7 +4741,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             {
                 // Note that if gtControlExpr is an indir of an absolute address, we mark it as
                 // contained only if it can be encoded as PC-relative offset.
-                AMD64_ONLY(assert(intConAddr->FitsInAddrBase(compiler)));
+                AMD64_ONLY(assert(compiler->IsRIPRelativeAddress(intConAddr)));
 
                 emitCallType = emitter::EC_FUNC_TOKEN_INDIR;
                 callAddr     = reinterpret_cast<void*>(intConAddr->GetValue());
@@ -5806,7 +5794,7 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
         // instructions below, FloatingPointUtils::convertUInt64ToDouble should be also updated
         // for consistent conversion result.
 
-        CORINFO_FIELD_HANDLE field;
+        ConstData* data;
 
         if (dstType == TYP_DOUBLE)
         {
@@ -5816,9 +5804,9 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
                     GetEmitter()->GetFloatConst(jitstd::bit_cast<double>(0x43f0000000000000ULL), TYP_DOUBLE);
             }
 
-            ins   = INS_addsd;
-            size  = EA_8BYTE;
-            field = u8ToDblBitmask;
+            ins  = INS_addsd;
+            size = EA_8BYTE;
+            data = u8ToDblBitmask;
         }
         else
         {
@@ -5827,15 +5815,15 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
                 u8ToFltBitmask = GetEmitter()->GetFloatConst(jitstd::bit_cast<float>(0x5f800000U), TYP_FLOAT);
             }
 
-            ins   = INS_addss;
-            size  = EA_4BYTE;
-            field = u8ToFltBitmask;
+            ins  = INS_addss;
+            size = EA_4BYTE;
+            data = u8ToFltBitmask;
         }
 
         insGroup* label = GetEmitter()->CreateTempLabel();
         GetEmitter()->emitIns_R_R(INS_test, EA_8BYTE, srcReg, srcReg);
         GetEmitter()->emitIns_J(INS_jge, label);
-        GetEmitter()->emitIns_R_C(ins, size, dstReg, field);
+        GetEmitter()->emitIns_R_C(ins, size, dstReg, data);
         GetEmitter()->DefineTempLabel(label);
     }
 #endif

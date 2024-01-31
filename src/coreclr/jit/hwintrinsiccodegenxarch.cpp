@@ -363,21 +363,20 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
     }
 }
 
-bool CodeGen::IsMemoryOperand(
-    GenTree* op, unsigned* lclNum, unsigned* lclOffs, GenTree** addr, CORINFO_FIELD_HANDLE* field)
+bool CodeGen::IsMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs, GenTree** addr, ConstData** data)
 {
     if (IsLocalMemoryOperand(op, lclNum, lclOffs))
     {
-        *addr  = nullptr;
-        *field = nullptr;
+        *addr = nullptr;
+        *data = nullptr;
 
         return true;
     }
 
     if (GenTreeDblCon* dblCon = op->IsDblCon())
     {
-        *addr  = nullptr;
-        *field = GetEmitter()->GetFloatConst(dblCon->GetValue(), dblCon->GetType());
+        *addr = nullptr;
+        *data = GetEmitter()->GetFloatConst(dblCon->GetValue(), dblCon->GetType());
 
         return true;
     }
@@ -409,12 +408,12 @@ bool CodeGen::IsMemoryOperand(
         *lclNum  = loadAddr->AsLclAddr()->GetLclNum();
         *lclOffs = loadAddr->AsLclAddr()->GetLclOffs();
         *addr    = nullptr;
-        *field   = nullptr;
+        *data    = nullptr;
     }
     else
     {
-        *addr  = loadAddr;
-        *field = nullptr;
+        *addr = loadAddr;
+        *data = nullptr;
     }
 
     return true;
@@ -444,12 +443,12 @@ void CodeGen::genHWIntrinsic_R_RM(
     assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
     assert(IsContainableHWIntrinsicOp(compiler, node, rmOp));
 
-    unsigned             lclNum;
-    unsigned             lclOffs;
-    GenTree*             addr;
-    CORINFO_FIELD_HANDLE field;
+    unsigned   lclNum;
+    unsigned   lclOffs;
+    GenTree*   addr;
+    ConstData* data;
 
-    if (!IsMemoryOperand(rmOp, &lclNum, &lclOffs, &addr, &field))
+    if (!IsMemoryOperand(rmOp, &lclNum, &lclOffs, &addr, &data))
     {
         unreached();
     }
@@ -457,9 +456,9 @@ void CodeGen::genHWIntrinsic_R_RM(
     {
         emit.emitIns_R_A(ins, attr, reg, addr);
     }
-    else if (field != nullptr)
+    else if (data != nullptr)
     {
-        emit.emitIns_R_C(ins, attr, reg, field);
+        emit.emitIns_R_C(ins, attr, reg, data);
     }
     else
     {
@@ -501,12 +500,12 @@ void CodeGen::inst_RV_TT_IV(instruction ins, emitAttr attr, regNumber reg1, GenT
         return;
     }
 
-    unsigned             lclNum;
-    unsigned             lclOffs;
-    GenTree*             addr;
-    CORINFO_FIELD_HANDLE field;
+    unsigned   lclNum;
+    unsigned   lclOffs;
+    GenTree*   addr;
+    ConstData* data;
 
-    if (!IsMemoryOperand(rmOp, &lclNum, &lclOffs, &addr, &field))
+    if (!IsMemoryOperand(rmOp, &lclNum, &lclOffs, &addr, &data))
     {
         unreached();
     }
@@ -514,9 +513,9 @@ void CodeGen::inst_RV_TT_IV(instruction ins, emitAttr attr, regNumber reg1, GenT
     {
         emit.emitIns_R_A_I(ins, attr, reg1, addr, ival);
     }
-    else if (field != nullptr)
+    else if (data != nullptr)
     {
-        emit.emitIns_R_C_I(ins, attr, reg1, field, ival);
+        emit.emitIns_R_C_I(ins, attr, reg1, data, ival);
     }
     else
     {
@@ -584,12 +583,12 @@ void CodeGen::inst_RV_RV_TT(
         return;
     }
 
-    unsigned             lclNum;
-    unsigned             lclOffs;
-    GenTree*             addr;
-    CORINFO_FIELD_HANDLE field;
+    unsigned   lclNum;
+    unsigned   lclOffs;
+    GenTree*   addr;
+    ConstData* data;
 
-    if (!IsMemoryOperand(op2, &lclNum, &lclOffs, &addr, &field))
+    if (!IsMemoryOperand(op2, &lclNum, &lclOffs, &addr, &data))
     {
         unreached();
     }
@@ -597,9 +596,9 @@ void CodeGen::inst_RV_RV_TT(
     {
         emit.emitIns_SIMD_R_R_A(ins, size, targetReg, op1Reg, addr);
     }
-    else if (field != nullptr)
+    else if (data != nullptr)
     {
-        emit.emitIns_SIMD_R_R_C(ins, size, targetReg, op1Reg, field);
+        emit.emitIns_SIMD_R_R_C(ins, size, targetReg, op1Reg, data);
     }
     else
     {
@@ -672,12 +671,12 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
     assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
     assert((ins == INS_insertps) || IsContainableHWIntrinsicOp(compiler, node, op2));
 
-    unsigned             lclNum;
-    unsigned             lclOffs;
-    GenTree*             addr;
-    CORINFO_FIELD_HANDLE field;
+    unsigned   lclNum;
+    unsigned   lclOffs;
+    GenTree*   addr;
+    ConstData* data;
 
-    if (!IsMemoryOperand(op2, &lclNum, &lclOffs, &addr, &field))
+    if (!IsMemoryOperand(op2, &lclNum, &lclOffs, &addr, &data))
     {
         unreached();
     }
@@ -685,9 +684,9 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
     {
         emit.emitIns_SIMD_R_R_A_I(ins, simdSize, targetReg, op1Reg, addr, ival);
     }
-    else if (field != nullptr)
+    else if (data != nullptr)
     {
-        emit.emitIns_SIMD_R_R_C_I(ins, simdSize, targetReg, op1Reg, field, ival);
+        emit.emitIns_SIMD_R_R_C_I(ins, simdSize, targetReg, op1Reg, data, ival);
     }
     else
     {
@@ -721,12 +720,12 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
     assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
     assert(IsContainableHWIntrinsicOp(compiler, node, op2));
 
-    unsigned             lclNum;
-    unsigned             lclOffs;
-    GenTree*             addr;
-    CORINFO_FIELD_HANDLE field;
+    unsigned   lclNum;
+    unsigned   lclOffs;
+    GenTree*   addr;
+    ConstData* data;
 
-    if (!IsMemoryOperand(op2, &lclNum, &lclOffs, &addr, &field))
+    if (!IsMemoryOperand(op2, &lclNum, &lclOffs, &addr, &data))
     {
         unreached();
     }
@@ -734,7 +733,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
     {
         emit.emitIns_SIMD_R_R_A_R(ins, simdSize, targetReg, op1Reg, op3Reg, addr);
     }
-    else if (field != nullptr)
+    else if (data != nullptr)
     {
         // We can't have a DblCon operand on blend instructions.
         unreached();
@@ -761,12 +760,12 @@ void CodeGen::genHWIntrinsic_R_R_R_RM(
         return;
     }
 
-    unsigned             lclNum;
-    unsigned             lclOffs;
-    GenTree*             addr;
-    CORINFO_FIELD_HANDLE field;
+    unsigned   lclNum;
+    unsigned   lclOffs;
+    GenTree*   addr;
+    ConstData* data;
 
-    if (!IsMemoryOperand(op3, &lclNum, &lclOffs, &addr, &field))
+    if (!IsMemoryOperand(op3, &lclNum, &lclOffs, &addr, &data))
     {
         unreached();
     }
@@ -774,9 +773,9 @@ void CodeGen::genHWIntrinsic_R_R_R_RM(
     {
         emit.emitIns_SIMD_R_R_R_A(ins, attr, targetReg, op1Reg, op2Reg, addr);
     }
-    else if (field != nullptr)
+    else if (data != nullptr)
     {
-        emit.emitIns_SIMD_R_R_R_C(ins, attr, targetReg, op1Reg, op2Reg, field);
+        emit.emitIns_SIMD_R_R_R_C(ins, attr, targetReg, op1Reg, op2Reg, data);
     }
     else
     {
@@ -800,10 +799,10 @@ void CodeGen::genHWIntrinsicJumpTableFallback(NamedIntrinsic            intrinsi
     const unsigned maxByte = static_cast<unsigned>(HWIntrinsicInfo::lookupImmUpperBound(intrinsic) + 1);
     assert(maxByte <= 256);
 
-    insGroup** jmpTable;
-    unsigned   jmpTableBase = emit.CreateTempLabelTable(&jmpTable, maxByte, true);
+    insGroup** labels;
+    ConstData* data = emit.CreateTempLabelTable(&labels, maxByte, true);
 
-    emit.emitIns_R_C(INS_lea, EA_PTRSIZE, offsReg, Emitter::MakeRoDataField(jmpTableBase));
+    emit.emitIns_R_C(INS_lea, EA_PTRSIZE, offsReg, data);
     emit.emitIns_R_ARX(INS_mov, EA_4BYTE, offsReg, offsReg, nonConstImmReg, 4, 0);
     emit.emitIns_R_L(baseReg, compiler->fgFirstBB->emitLabel);
     emit.emitIns_R_R(INS_add, EA_PTRSIZE, offsReg, baseReg);
@@ -813,7 +812,7 @@ void CodeGen::genHWIntrinsicJumpTableFallback(NamedIntrinsic            intrinsi
 
     for (unsigned i = 0; i < maxByte; i++)
     {
-        emit.DefineTempLabel(jmpTable[i]);
+        emit.DefineTempLabel(labels[i]);
         emitSwCase(static_cast<int8_t>(i));
         emit.emitIns_J(INS_jmp, switchTableEnd);
     }

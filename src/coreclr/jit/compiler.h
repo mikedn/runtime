@@ -1192,46 +1192,36 @@ struct CompilerOptions
 #define MAX_LV_NUM_COUNT_FOR_INLINING 512
 
     bool compMinOpts : 1;
-    bool compMinOptsIsSet : 1;
 #ifdef DEBUG
-    mutable bool compMinOptsIsUsed;
+    bool         compMinOptsIsSet : 1;
+    mutable bool compMinOptsIsUsed : 1;
+#endif
 
     bool MinOpts() const
     {
         assert(compMinOptsIsSet);
-        compMinOptsIsUsed = true;
-        return compMinOpts;
-    }
-    bool IsMinOptsSet()
-    {
-        return compMinOptsIsSet;
-    }
-#else  // !DEBUG
-    bool MinOpts() const
-    {
-        return compMinOpts;
-    }
-    bool IsMinOptsSet()
-    {
-        return compMinOptsIsSet;
-    }
-#endif // !DEBUG
+        INDEBUG(compMinOptsIsUsed = true);
 
-    bool OptimizationDisabled() const
-    {
-        return MinOpts() || compDbgCode;
-    }
-    bool OptimizationEnabled() const
-    {
-        return !OptimizationDisabled();
+        return compMinOpts;
     }
 
     void SetMinOpts(bool val)
     {
         assert(!compMinOptsIsUsed);
         assert(!compMinOptsIsSet || (compMinOpts == val));
-        compMinOpts      = val;
-        compMinOptsIsSet = true;
+        INDEBUG(compMinOptsIsSet = true);
+
+        compMinOpts = val;
+    }
+
+    bool OptimizationDisabled() const
+    {
+        return MinOpts() || compDbgCode;
+    }
+
+    bool OptimizationEnabled() const
+    {
+        return !OptimizationDisabled();
     }
 
     bool OptEnabled(OptFlags optFlag) const
@@ -1364,7 +1354,7 @@ struct CompilerOptions
 // likely complicated enough that loop alignment will not impact performance.
 #define DEFAULT_MAX_LOOPSIZE_FOR_ALIGN DEFAULT_ALIGN_LOOP_BOUNDARY * 3
 
-    bool alignLoops;
+    bool alignLoops : 1;
 
 #ifdef DEBUG
     // Loop alignment variables
@@ -2062,7 +2052,7 @@ struct Importer
     GenTree* impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CLASS_HANDLE retClass);
 #endif
     GenTree* impSpillPseudoReturnBufferCall(GenTreeCall* call);
-    GenTree* impInitClass(CORINFO_RESOLVED_TOKEN* pResolvedToken);
+    GenTree* CreateClassInitTree(CORINFO_RESOLVED_TOKEN* pResolvedToken);
     GenTree* impImportStaticReadOnlyField(void* fldAddr, var_types lclTyp);
     GenTreeFieldAddr* impImportFieldAddr(GenTree*                      addr,
                                          const CORINFO_RESOLVED_TOKEN& resolvedToken,
@@ -2087,9 +2077,12 @@ struct Importer
                              const CORINFO_FIELD_INFO& fieldInfo,
                              unsigned                  prefixFlags);
 
-    GenTree* impImportStaticFieldAccess(OPCODE                    opcode,
-                                        CORINFO_RESOLVED_TOKEN*   resolvedToken,
-                                        const CORINFO_FIELD_INFO& fieldInfo);
+    GenTree* CreateStaticFieldHelperAccess(OPCODE                    opcode,
+                                           CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                           const CORINFO_FIELD_INFO& fieldInfo);
+    GenTree* CreateStaticFieldAddressAccess(OPCODE                    opcode,
+                                            CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                            const CORINFO_FIELD_INFO& fieldInfo);
 
     GenTree* impConvertFieldStoreValue(var_types storeType, GenTree* value);
 
@@ -2131,9 +2124,9 @@ struct Importer
 
     void impImportDup();
 
-    GenTree* impImportTlsFieldAccess(OPCODE                    opcode,
-                                     CORINFO_RESOLVED_TOKEN*   resolvedToken,
-                                     const CORINFO_FIELD_INFO& fieldInfo);
+    GenTree* CreateStaticFieldTlsAccess(OPCODE                    opcode,
+                                        CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                        const CORINFO_FIELD_INFO& fieldInfo);
 
 #ifdef DEBUG
     void fgDispBasicBlocks(BasicBlock* firstBlock, BasicBlock* lastBlock, bool dumpTrees);
@@ -5375,7 +5368,8 @@ public:
 // ICorJitInfo wrappers
 
 #ifdef TARGET_AMD64
-    bool eeIsRIPRelativeAddress(void* addr);
+    bool IsRIPRelativeAddress(GenTreeIntCon* intCon) const;
+    bool eeIsRIPRelativeAddress(void* addr) const;
 #endif
 #ifdef TARGET_ARM
     bool eeIsThumbBranch24TargetAddress(void* target);
@@ -6619,6 +6613,260 @@ public:
 #endif
 };
 
+template <typename TVisitor>
+void GenTree::VisitOperands(TVisitor visitor)
+{
+    switch (OperGet())
+    {
+        // Leaf nodes
+        case GT_LCL_USE:
+        case GT_LCL_VAR:
+        case GT_LCL_FLD:
+        case GT_LCL_ADDR:
+        case GT_CATCH_ARG:
+        case GT_LABEL:
+        case GT_METHOD_ADDR:
+        case GT_RET_EXPR:
+        case GT_CNS_INT:
+#ifndef TARGET_64BIT
+        case GT_CNS_LNG:
+#endif
+        case GT_CNS_DBL:
+        case GT_CNS_STR:
+        case GT_MEMORYBARRIER:
+        case GT_JMP:
+        case GT_JCC:
+        case GT_SETCC:
+        case GT_NO_OP:
+        case GT_START_NONGC:
+        case GT_START_PREEMPTGC:
+        case GT_PROF_HOOK:
+#ifndef FEATURE_EH_FUNCLETS
+        case GT_END_LFIN:
+#endif
+        case GT_JMPTABLE:
+        case GT_CLS_VAR_ADDR:
+        case GT_CONST_ADDR:
+        case GT_ARGPLACE:
+        case GT_PHYSREG:
+        case GT_EMITNOP:
+        case GT_PINVOKE_PROLOG:
+        case GT_PINVOKE_EPILOG:
+        case GT_IL_OFFSET:
+            return;
+
+        // Unary operators with an optional operand
+        case GT_NOP:
+        case GT_RETURN:
+        case GT_RETFILT:
+            if (this->AsUnOp()->gtOp1 == nullptr)
+            {
+                return;
+            }
+            FALLTHROUGH;
+
+        // Standard unary operators
+        case GT_LCL_DEF:
+        case GT_STORE_LCL_VAR:
+        case GT_STORE_LCL_FLD:
+        case GT_NOT:
+        case GT_NEG:
+        case GT_FNEG:
+        case GT_BSWAP:
+        case GT_BSWAP16:
+        case GT_COPY:
+        case GT_RELOAD:
+        case GT_ARR_LENGTH:
+        case GT_CAST:
+        case GT_BITCAST:
+        case GT_EXTRACT:
+        case GT_CKFINITE:
+        case GT_LCLHEAP:
+        case GT_FIELD_ADDR:
+        case GT_IND:
+        case GT_OBJ:
+        case GT_BLK:
+        case GT_BOX:
+        case GT_ALLOCOBJ:
+        case GT_RUNTIMELOOKUP:
+        case GT_INIT_VAL:
+        case GT_JTRUE:
+        case GT_SWITCH:
+        case GT_NULLCHECK:
+        case GT_PUTARG_REG:
+        case GT_PUTARG_STK:
+        case GT_RETURNTRAP:
+        case GT_KEEPALIVE:
+        case GT_INC_SATURATE:
+#if FEATURE_ARG_SPLIT
+        case GT_PUTARG_SPLIT:
+#endif
+#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
+        case GT_SIMD_UPPER_SPILL:
+        case GT_SIMD_UPPER_UNSPILL:
+#endif
+            visitor(AsUnOp()->gtOp1);
+            return;
+
+        // Special nodes
+        case GT_PHI:
+            for (GenTreePhi::Use& use : AsPhi()->Uses())
+            {
+                if (visitor(use.NodeRef()) == VisitResult::Abort)
+                {
+                    break;
+                }
+            }
+            return;
+
+        case GT_FIELD_LIST:
+            for (GenTreeFieldList::Use& field : AsFieldList()->Uses())
+            {
+                if (visitor(field.NodeRef()) == VisitResult::Abort)
+                {
+                    break;
+                }
+            }
+            return;
+
+#ifdef FEATURE_HW_INTRINSICS
+        case GT_HWINTRINSIC:
+            for (GenTreeHWIntrinsic::Use& use : AsHWIntrinsic()->Uses())
+            {
+                if (visitor(use.NodeRef()) == VisitResult::Abort)
+                {
+                    break;
+                }
+            }
+            return;
+#endif // FEATURE_HW_INTRINSICS
+
+        case GT_INSTR:
+            for (GenTreeInstr::Use& use : AsInstr()->Uses())
+            {
+                if (visitor(use.NodeRef()) == VisitResult::Abort)
+                {
+                    break;
+                }
+            }
+            return;
+
+        case GT_ARR_ELEM:
+        {
+            GenTreeArrElem* const arrElem = this->AsArrElem();
+            if (visitor(arrElem->gtArrObj) == VisitResult::Abort)
+            {
+                return;
+            }
+            for (unsigned i = 0; i < arrElem->gtArrRank; i++)
+            {
+                if (visitor(arrElem->gtArrInds[i]) == VisitResult::Abort)
+                {
+                    return;
+                }
+            }
+            return;
+        }
+
+        case GT_ARR_OFFSET:
+        case GT_CMPXCHG:
+        case GT_COPY_BLK:
+        case GT_INIT_BLK:
+        case GT_QMARK:
+            if (visitor(AsTernaryOp()->gtOp1) == VisitResult::Abort)
+            {
+                return;
+            }
+            if (visitor(AsTernaryOp()->gtOp2) == VisitResult::Abort)
+            {
+                return;
+            }
+            visitor(AsTernaryOp()->gtOp3);
+            return;
+
+        case GT_CALL:
+        {
+            GenTreeCall* const call = this->AsCall();
+            if ((call->gtCallThisArg != nullptr) && (visitor(call->gtCallThisArg->NodeRef()) == VisitResult::Abort))
+            {
+                return;
+            }
+
+            for (GenTreeCall::Use& use : call->Args())
+            {
+                if (visitor(use.NodeRef()) == VisitResult::Abort)
+                {
+                    return;
+                }
+            }
+
+            for (GenTreeCall::Use& use : call->LateArgs())
+            {
+                if (visitor(use.NodeRef()) == VisitResult::Abort)
+                {
+                    return;
+                }
+            }
+
+            if (call->IsIndirectCall())
+            {
+                if ((call->gtCallCookie != nullptr) && (visitor(call->gtCallCookie) == VisitResult::Abort))
+                {
+                    return;
+                }
+
+                if (visitor(call->gtCallAddr) == VisitResult::Abort)
+                {
+                    return;
+                }
+            }
+
+            if ((call->gtControlExpr != nullptr))
+            {
+                visitor(call->gtControlExpr);
+            }
+
+            return;
+        }
+
+        case GT_LEA:
+        case GT_INTRINSIC:
+        {
+            GenTreeOp* const op = AsOp();
+
+            if ((op->gtOp1 != nullptr) && (visitor(op->gtOp1) == VisitResult::Abort))
+            {
+                return;
+            }
+
+            if (op->gtOp2 != nullptr)
+            {
+                visitor(op->gtOp2);
+            }
+            return;
+        }
+
+        default:
+            VisitBinOpOperands<TVisitor>(visitor);
+            return;
+    }
+}
+
+template <typename TVisitor>
+void GenTree::VisitBinOpOperands(TVisitor visitor)
+{
+    assert(OperIsBinary());
+
+    GenTreeOp* const op = AsOp();
+    assert(op->gtOp1 != nullptr);
+    assert(op->gtOp2 != nullptr);
+
+    if (visitor(op->gtOp1) != VisitResult::Abort)
+    {
+        visitor(op->gtOp2);
+    }
+}
+
 //---------------------------------------------------------------------------------------------------------------------
 // GenTreeVisitor: a flexible tree walker implemented using the curiously-recurring-template pattern.
 //
@@ -6776,6 +7024,7 @@ public:
 #endif
             case GT_JMPTABLE:
             case GT_CLS_VAR_ADDR:
+            case GT_CONST_ADDR:
             case GT_ARGPLACE:
             case GT_PHYSREG:
             case GT_EMITNOP:

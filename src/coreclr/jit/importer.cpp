@@ -5241,30 +5241,10 @@ void Importer::PopUnmanagedCallArgs(GenTreeCall* call, CORINFO_SIG_INFO* sig)
     }
 }
 
-//------------------------------------------------------------------------
-// impInitClass: Build a node to initialize the class before accessing the
-//               field if necessary
-//
-// Arguments:
-//    resolvedToken - The CORINFO_RESOLVED_TOKEN that has been initialized
-//                     by a call to CEEInfo::resolveToken().
-//
-// Return Value: If needed, a pointer to the node that will perform the class
-//               initializtion.  Otherwise, nullptr.
-//
-
-GenTree* Importer::impInitClass(CORINFO_RESOLVED_TOKEN* pResolvedToken)
+GenTree* Importer::CreateClassInitTree(CORINFO_RESOLVED_TOKEN* resolvedToken)
 {
-    CorInfoInitClassResult initClassResult =
-        info.compCompHnd->initClass(pResolvedToken->hField, info.compMethodHnd, impTokenLookupContextHandle);
-
-    if ((initClassResult & CORINFO_INITCLASS_USE_HELPER) == 0)
-    {
-        return nullptr;
-    }
-
     bool     runtimeLookup;
-    GenTree* node = impParentClassTokenToHandle(pResolvedToken, /* mustRestoreHandle */ false, &runtimeLookup);
+    GenTree* node = impParentClassTokenToHandle(resolvedToken, /* mustRestoreHandle */ false, &runtimeLookup);
 
     if (node == nullptr)
     {
@@ -5274,15 +5254,11 @@ GenTree* Importer::impInitClass(CORINFO_RESOLVED_TOKEN* pResolvedToken)
 
     if (runtimeLookup)
     {
-        node = gtNewHelperCallNode(CORINFO_HELP_INITCLASS, TYP_VOID, gtNewCallArgs(node));
-    }
-    else
-    {
-        // Call the shared non gc static helper, as its the fastest
-        node = gtNewSharedCctorHelperCall(pResolvedToken->hClass);
+        return gtNewHelperCallNode(CORINFO_HELP_INITCLASS, TYP_VOID, gtNewCallArgs(node));
     }
 
-    return node;
+    // Call the shared non gc static helper, as its the fastest
+    return gtNewSharedCctorHelperCall(resolvedToken->hClass);
 }
 
 GenTree* Importer::impImportStaticReadOnlyField(void* addr, var_types type)
@@ -5545,6 +5521,13 @@ GenTree* Importer::impImportStaticFieldAddressHelper(OPCODE                    o
     return addr;
 }
 
+static bool IsStaticFieldHelperAccess(const CORINFO_FIELD_INFO& fieldInfo)
+{
+    return (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_GENERICS_STATIC_HELPER) ||
+           (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_SHARED_STATIC_HELPER) ||
+           (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_READYTORUN_HELPER);
+}
+
 GenTree* Importer::impImportLdSFld(OPCODE                    opcode,
                                    CORINFO_RESOLVED_TOKEN*   resolvedToken,
                                    const CORINFO_FIELD_INFO& fieldInfo,
@@ -5620,11 +5603,15 @@ GenTree* Importer::impImportLdSFld(OPCODE                    opcode,
 
     if (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_TLS)
     {
-        field = impImportTlsFieldAccess(opcode, resolvedToken, fieldInfo);
+        field = CreateStaticFieldTlsAccess(opcode, resolvedToken, fieldInfo);
+    }
+    else if (IsStaticFieldHelperAccess(fieldInfo))
+    {
+        field = CreateStaticFieldHelperAccess(opcode, resolvedToken, fieldInfo);
     }
     else
     {
-        field = impImportStaticFieldAccess(opcode, resolvedToken, fieldInfo);
+        field = CreateStaticFieldAddressAccess(opcode, resolvedToken, fieldInfo);
 
         if ((opcode == CEE_LDSFLD) && field->OperIsConst())
         {
@@ -5642,73 +5629,82 @@ GenTree* Importer::impImportLdSFld(OPCODE                    opcode,
         }
     }
 
-    if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
+    if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) == 0)
     {
-        GenTree* helperNode = impInitClass(resolvedToken);
-
-        if (compDonotInline())
-        {
-            return nullptr;
-        }
-
-        if (helperNode != nullptr)
-        {
-            // Avoid creating struct COMMA nodes by adding the COMMA on top of the indirection's
-            // address (we always get an IND/OBJ for a static struct field load). They would be
-            // later transformed by fgMorphStructComma anyway.
-            //
-            // Extracting the helper call to a separate statement does have some advantages:
-            //   - Avoids "poisoning" the entire tree with side effects from the helper call.
-            //     This was only done for assignments and these are typically top level during
-            //     import so it doesn't really matter.
-            //   - Avoids poor register allocation due to a call appearing inside the tree.
-            //     PMI diff does show a few diffs caused by register allocation changes.
-            // However, loop hoisting depends on the type initialization helper call being
-            // present in the tree, if it's in a separate statement it doesn't know if it's
-            // safe to hoist the load.
-
-            // TODO-MIKE-CQ: If the type has BeforeFieldInit initialization semantics we could
-            // extract the helper call to a separate statement without worrying about side effect
-            // ordering. We could even insert it at the start of the block and avoid any stack
-            // spilling. But we still need to deal with the loop hoisting issue...
-
-            // TODO-MIKE-Cleanup: SIMD COMMAs should not need this and previous implementation
-            // actually preserved them in some cases (e.g. when the resulting tree was used
-            // by a SIMD/HWINTRINSIC node rather than an assignment or call). Doesn't seem to
-            // matter and anyway there'are many other places that insist on transforming SIMD
-            // COMMAs for no reason. Actually we could simply preserve all struct COMMAs but
-            // there seems to be little advantage in doing that and requires a bit of work.
-
-            if (GenTreeFieldAddr* fieldAddr = field->IsFieldAddr())
-            {
-                fieldAddr->SetAddr(gtNewCommaNode(helperNode, fieldAddr->GetAddr()));
-                fieldAddr->AddSideEffects(helperNode->GetSideEffects());
-            }
-            else if (varTypeIsStruct(field->GetType()))
-            {
-                GenTree* addr = field->AsIndir()->GetAddr();
-
-                if (GenTreeFieldAddr* fieldAddr = addr->IsFieldAddr())
-                {
-                    fieldAddr->SetAddr(gtNewCommaNode(helperNode, fieldAddr->GetAddr()));
-                    fieldAddr->AddSideEffects(helperNode->GetSideEffects());
-                }
-                else
-                {
-                    addr = gtNewCommaNode(helperNode, addr);
-                }
-
-                field->AsIndir()->SetAddr(addr);
-                field->AddSideEffects(addr->GetSideEffects());
-            }
-            else
-            {
-                field = gtNewCommaNode(helperNode, field);
-            }
-        }
+        return field;
     }
 
-    return field;
+    CorInfoInitClassResult initClass =
+        info.compCompHnd->initClass(resolvedToken->hField, info.compMethodHnd, impTokenLookupContextHandle);
+
+    if ((initClass & CORINFO_INITCLASS_USE_HELPER) == 0)
+    {
+        return field;
+    }
+
+    GenTree* helperNode = CreateClassInitTree(resolvedToken);
+
+    if (helperNode == nullptr)
+    {
+        assert(compDonotInline());
+        return nullptr;
+    }
+
+    // Avoid creating struct COMMA nodes by adding the COMMA on top of the indirection's
+    // address (we always get an IND/OBJ for a static struct field load). They would be
+    // later transformed by fgMorphStructComma anyway.
+    //
+    // Extracting the helper call to a separate statement does have some advantages:
+    //   - Avoids "poisoning" the entire tree with side effects from the helper call.
+    //     This was only done for assignments and these are typically top level during
+    //     import so it doesn't really matter.
+    //   - Avoids poor register allocation due to a call appearing inside the tree.
+    //     PMI diff does show a few diffs caused by register allocation changes.
+    // However, loop hoisting depends on the type initialization helper call being
+    // present in the tree, if it's in a separate statement it doesn't know if it's
+    // safe to hoist the load.
+
+    // TODO-MIKE-CQ: If the type has BeforeFieldInit initialization semantics we could
+    // extract the helper call to a separate statement without worrying about side effect
+    // ordering. We could even insert it at the start of the block and avoid any stack
+    // spilling. But we still need to deal with the loop hoisting issue...
+
+    // TODO-MIKE-Cleanup: SIMD COMMAs should not need this and previous implementation
+    // actually preserved them in some cases (e.g. when the resulting tree was used
+    // by a SIMD/HWINTRINSIC node rather than an assignment or call). Doesn't seem to
+    // matter and anyway there are many other places that insist on transforming SIMD
+    // COMMAs for no reason. Actually we could simply preserve all struct COMMAs but
+    // there seems to be little advantage in doing that and requires a bit of work.
+
+    if (GenTreeFieldAddr* fieldAddr = field->IsFieldAddr())
+    {
+        fieldAddr->SetAddr(gtNewCommaNode(helperNode, fieldAddr->GetAddr()));
+        fieldAddr->AddSideEffects(helperNode->GetSideEffects());
+
+        return fieldAddr;
+    }
+
+    if (varTypeIsStruct(field->GetType()))
+    {
+        GenTree* addr = field->AsIndir()->GetAddr();
+
+        if (GenTreeFieldAddr* fieldAddr = addr->IsFieldAddr())
+        {
+            fieldAddr->SetAddr(gtNewCommaNode(helperNode, fieldAddr->GetAddr()));
+            fieldAddr->AddSideEffects(helperNode->GetSideEffects());
+        }
+        else
+        {
+            addr = gtNewCommaNode(helperNode, addr);
+        }
+
+        field->AsIndir()->SetAddr(addr);
+        field->AddSideEffects(addr->GetSideEffects());
+
+        return field;
+    }
+
+    return gtNewCommaNode(helperNode, field);
 }
 
 GenTree* Importer::impImportStSFld(GenTree*                  value,
@@ -5741,11 +5737,15 @@ GenTree* Importer::impImportStSFld(GenTree*                  value,
 
     if (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_TLS)
     {
-        field = impImportTlsFieldAccess(CEE_STSFLD, resolvedToken, fieldInfo);
+        field = CreateStaticFieldTlsAccess(CEE_STSFLD, resolvedToken, fieldInfo);
+    }
+    else if (IsStaticFieldHelperAccess(fieldInfo))
+    {
+        field = CreateStaticFieldHelperAccess(CEE_STSFLD, resolvedToken, fieldInfo);
     }
     else
     {
-        field = impImportStaticFieldAccess(CEE_STSFLD, resolvedToken, fieldInfo);
+        field = CreateStaticFieldAddressAccess(CEE_STSFLD, resolvedToken, fieldInfo);
     }
 
     var_types fieldType = CorTypeToVarType(fieldInfo.fieldType);
@@ -5761,10 +5761,18 @@ GenTree* Importer::impImportStSFld(GenTree*                  value,
 
     if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
     {
-        helperNode = impInitClass(resolvedToken);
-        if (compDonotInline())
+        CorInfoInitClassResult initClass =
+            info.compCompHnd->initClass(resolvedToken->hField, info.compMethodHnd, impTokenLookupContextHandle);
+
+        if ((initClass & CORINFO_INITCLASS_USE_HELPER) != 0)
         {
-            return nullptr;
+            helperNode = CreateClassInitTree(resolvedToken);
+
+            if (helperNode == nullptr)
+            {
+                assert(compDonotInline());
+                return nullptr;
+            }
         }
     }
 
@@ -5799,65 +5807,71 @@ GenTree* Importer::impImportStSFld(GenTree*                  value,
     return field;
 }
 
-GenTree* Importer::impImportStaticFieldAccess(OPCODE                    opcode,
-                                              CORINFO_RESOLVED_TOKEN*   resolvedToken,
-                                              const CORINFO_FIELD_INFO& fieldInfo)
+GenTree* Importer::CreateStaticFieldHelperAccess(OPCODE                    opcode,
+                                                 CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                                 const CORINFO_FIELD_INFO& fieldInfo)
 {
     assert((opcode == CEE_LDSFLD) || (opcode == CEE_STSFLD) || (opcode == CEE_LDSFLDA));
+    assert(IsStaticFieldHelperAccess(fieldInfo));
 
     var_types    type   = CorTypeToVarType(fieldInfo.fieldType);
     ClassLayout* layout = type != TYP_STRUCT ? nullptr : typGetObjLayout(fieldInfo.structType);
 
-    if ((fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_GENERICS_STATIC_HELPER) ||
-        (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_SHARED_STATIC_HELPER) ||
-        (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_READYTORUN_HELPER))
+    GenTree* addr = impImportStaticFieldAddressHelper(opcode, resolvedToken, fieldInfo);
+
+    if ((layout != nullptr) && addr->IsFieldAddr())
     {
-        GenTree* addr = impImportStaticFieldAddressHelper(opcode, resolvedToken, fieldInfo);
-
-        if ((layout != nullptr) && addr->IsFieldAddr())
-        {
-            addr->AsFieldAddr()->SetLayoutNum(typGetLayoutNum(layout));
-        }
-
-        if (opcode == CEE_LDSFLDA)
-        {
-            return addr;
-        }
-
-        GenTree* indir;
-
-        if (type == TYP_STRUCT)
-        {
-            indir = gtNewObjNode(layout, addr);
-        }
-        else
-        {
-            indir = gtNewIndir(type, addr);
-        }
-
-        indir->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
-
-        if (indir->TypeIs(TYP_REF) && addr->TypeIs(TYP_BYREF))
-        {
-            // Storing an object reference into a static field requires a write barrier.
-            // But what kind of barrier? GCInfo::GetWriteBarrierForm has trouble
-            // figuring it out because the address is a byref that comes from a helper
-            // call, rather than being derived from an object reference.
-            //
-            // Set GTF_IND_TGT_HEAP to tell GetWriteBarrierForm that this is really
-            // a GC heap store so an unchecked write barrier can be used.
-
-            // TODO-MIKE-Review: Are the checked barriers significantly slower than the
-            // unchecked barriers to worth this trouble?
-
-            indir->gtFlags |= GTF_IND_TGT_HEAP;
-        }
-
-        return indir;
+        addr->AsFieldAddr()->SetLayoutNum(typGetLayoutNum(layout));
     }
 
+    if (opcode == CEE_LDSFLDA)
+    {
+        return addr;
+    }
+
+    GenTree* indir;
+
+    if (type == TYP_STRUCT)
+    {
+        indir = gtNewObjNode(layout, addr);
+    }
+    else
+    {
+        indir = gtNewIndir(type, addr);
+    }
+
+    indir->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
+
+    if (indir->TypeIs(TYP_REF) && addr->TypeIs(TYP_BYREF))
+    {
+        // Storing an object reference into a static field requires a write barrier.
+        // But what kind of barrier? GCInfo::GetWriteBarrierForm has trouble
+        // figuring it out because the address is a byref that comes from a helper
+        // call, rather than being derived from an object reference.
+        //
+        // Set GTF_IND_TGT_HEAP to tell GetWriteBarrierForm that this is really
+        // a GC heap store so an unchecked write barrier can be used.
+
+        // TODO-MIKE-Review: Are the checked barriers significantly slower than the
+        // unchecked barriers to worth this trouble?
+
+        indir->gtFlags |= GTF_IND_TGT_HEAP;
+    }
+
+    return indir;
+}
+
+GenTree* Importer::CreateStaticFieldAddressAccess(OPCODE                    opcode,
+                                                  CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                                  const CORINFO_FIELD_INFO& fieldInfo)
+{
+    assert((opcode == CEE_LDSFLD) || (opcode == CEE_STSFLD) || (opcode == CEE_LDSFLDA));
+    assert(!IsStaticFieldHelperAccess(fieldInfo));
     assert((fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_ADDRESS) ||
            (fieldInfo.fieldAccessor == CORINFO_FIELD_STATIC_RVA_ADDRESS));
+
+    var_types    type   = CorTypeToVarType(fieldInfo.fieldType);
+    ClassLayout* layout = type != TYP_STRUCT ? nullptr : typGetObjLayout(fieldInfo.structType);
 
     void* pFldAddr = nullptr;
     void* fldAddr  = info.compCompHnd->getFieldAddress(resolvedToken->hField, &pFldAddr);
@@ -5895,10 +5909,11 @@ GenTree* Importer::impImportStaticFieldAccess(OPCODE                    opcode,
     FieldSeqNode* fieldSeq = GetFieldSeqStore()->CreateSingleton(resolvedToken->hField);
     GenTree*      addr     = nullptr;
 
-#if defined(TARGET_AMD64)
-    if ((opcode == CEE_LDSFLDA) || !comp->eeIsRIPRelativeAddress(fldAddr) || isStaticReadOnlyInited)
-#elif !defined(TARGET_ARM64)
-    if (opcode == CEE_LDSFLDA)
+#if defined(TARGET_AMD64) || defined(TARGET_X86) || defined(TARGET_ARM)
+    // TODO-MIKE-Cleanup: CLS_VAR_ADDR is almost useless, only VN still needs it.
+    // VN treats it differently from CNS_INT and removing it causes some diffs.
+    if ((opcode == CEE_LDSFLDA) ||
+        opts.OptimizationDisabled() AMD64_ONLY(|| !comp->eeIsRIPRelativeAddress(fldAddr) || isStaticReadOnlyInited))
 #endif
     {
         addr = gtNewIconHandleNode(fldAddr, HandleKind::Static, fieldSeq);
@@ -5947,7 +5962,7 @@ GenTree* Importer::impImportStaticFieldAccess(OPCODE                    opcode,
 #ifndef TARGET_ARM64
     if (addr == nullptr)
     {
-        addr = new (comp, GT_CLS_VAR_ADDR) GenTreeClsVar(resolvedToken->hField, fieldSeq);
+        addr = new (comp, GT_CLS_VAR_ADDR) GenTreeClsVar(fldAddr, fieldSeq);
 
         if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
         {
@@ -16450,9 +16465,9 @@ GenTree* Importer::impImportPop(BasicBlock* block)
     return op1;
 }
 
-GenTree* Importer::impImportTlsFieldAccess(OPCODE                    opcode,
-                                           CORINFO_RESOLVED_TOKEN*   resolvedToken,
-                                           const CORINFO_FIELD_INFO& fieldInfo)
+GenTree* Importer::CreateStaticFieldTlsAccess(OPCODE                    opcode,
+                                              CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                              const CORINFO_FIELD_INFO& fieldInfo)
 {
     assert((opcode == CEE_LDSFLD) || (opcode == CEE_STSFLD) || (opcode == CEE_LDSFLDA));
 

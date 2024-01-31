@@ -16,13 +16,8 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
 #include "lower.h"
 #include "jitgcinfo.h"
-
 #ifndef TARGET_64BIT
 #include "decomposelongs.h"
 #endif
@@ -5568,7 +5563,7 @@ bool Lowering::ContainSIMD12MemToMemCopy(GenTree* store, GenTree* value)
     {
         GenTree* addr = value->AsIndir()->GetAddr();
 
-        if (addr->isContained() && (addr->IsClsVar() || addr->IsIntCon() || !IsSafeToContainMem(store, addr)))
+        if (addr->isContained() && (!addr->IsAddrMode() || !IsSafeToContainMem(store, addr)))
         {
             addr->ClearContained();
         }

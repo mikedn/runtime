@@ -560,22 +560,6 @@ static bool IsExtendedReg(regNumber reg, emitAttr attr)
 #endif
 }
 
-#ifdef WINDOWS_X86_ABI
-// Special CORINFO_FIELD_HANDLE that references the FS segment, for x86 TLS access.
-static const CORINFO_FIELD_HANDLE FS_SEG_FIELD = reinterpret_cast<CORINFO_FIELD_HANDLE>(-8);
-#endif
-
-#ifdef DEBUG
-static bool FieldDispRequiresRelocation(CORINFO_FIELD_HANDLE field)
-{
-#ifdef WINDOWS_X86_ABI
-    return field != FS_SEG_FIELD;
-#else
-    return true;
-#endif
-}
-#endif
-
 const char* insName(instruction ins)
 {
     static const char* const insNames[]{
@@ -1057,6 +1041,7 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
     // BT supports 16 bit operands and this code doesn't handle the necessary 66 prefix.
     assert(ins != INS_bt);
     assert((IF_ARD <= id->idInsFmt()) && (id->idInsFmt() <= IF_AWR_RRD_CNS));
+    assert(!id->HasFSPrefix());
 
 #ifdef TARGET_X86
     // Special case: "mov eax, [addr]" and "mov [addr], eax" have smaller encoding.
@@ -1275,11 +1260,11 @@ emitter::instrDesc* emitter::emitNewInstrDsp(int32_t disp)
 
 emitter::instrDesc* emitter::emitNewInstrAmd(ssize_t disp)
 {
-    if ((disp < AM_DISP_MIN) || (disp > AM_DISP_MAX))
+    if (emitAddrMode::IsLargeDisp(disp))
     {
         instrDescAmd* id = AllocInstr<instrDescAmd>();
         id->idSetIsLargeDsp();
-        INDEBUG(id->idAddr()->iiaAddrMode.disp = AM_DISP_BIG_VAL);
+        INDEBUG(id->idAddr()->iiaAddrMode.disp = emitAddrMode::LargeDispMarker);
         id->idaAmdVal = disp;
 
         return id;
@@ -1293,7 +1278,7 @@ emitter::instrDesc* emitter::emitNewInstrAmd(ssize_t disp)
 
 emitter::instrDesc* emitter::emitNewInstrAmdCns(ssize_t disp, int32_t imm)
 {
-    if ((disp >= AM_DISP_MIN) && (disp <= AM_DISP_MAX))
+    if (!emitAddrMode::IsLargeDisp(disp))
     {
         instrDesc* id                  = emitNewInstrCns(imm);
         id->idAddr()->iiaAddrMode.disp = disp;
@@ -1306,7 +1291,7 @@ emitter::instrDesc* emitter::emitNewInstrAmdCns(ssize_t disp, int32_t imm)
     {
         instrDescAmd* id = AllocInstr<instrDescAmd>();
         id->idSetIsLargeDsp();
-        INDEBUG(id->idAddr()->iiaAddrMode.disp = AM_DISP_BIG_VAL);
+        INDEBUG(id->idAddr()->iiaAddrMode.disp = emitAddrMode::LargeDispMarker);
         id->idaAmdVal = disp;
         id->idSmallCns(imm);
 
@@ -1317,7 +1302,7 @@ emitter::instrDesc* emitter::emitNewInstrAmdCns(ssize_t disp, int32_t imm)
     id->idSetIsLargeCns();
     id->idcCnsVal = imm;
     id->idSetIsLargeDsp();
-    INDEBUG(id->idAddr()->iiaAddrMode.disp = AM_DISP_BIG_VAL);
+    INDEBUG(id->idAddr()->iiaAddrMode.disp = emitAddrMode::LargeDispMarker);
     id->idacAmdVal = disp;
 
     return id;
@@ -1497,13 +1482,16 @@ void emitter::SetInstrLclAddrMode(instrDesc* id, int varNum, int varOffs)
 bool emitter::IntConNeedsReloc(GenTreeIntCon* con)
 {
 #ifdef TARGET_AMD64
-    if (emitComp->opts.compReloc && !con->IsIconHandle())
+    if (emitComp->opts.compReloc)
     {
-        // During Ngen JIT is always asked to generate relocatable code.
-        // Hence JIT will try to encode only icon handles as pc-relative offsets.
-        return false;
+        // Only handles need relocations and can be RIP relative in crossgen mode.
+        return con->IsIconHandle();
     }
 
+    // At JIT time we try to use RIP relative addressing by default but that can fail
+    // if a lot of code is generated. For the runtime to detect such failures we need
+    // to call recordRelocation (which may also perform relocation for code addresses
+    // by means of jump stubs).
     return emitComp->eeIsRIPRelativeAddress(reinterpret_cast<void*>(con->GetValue()));
 #else
     return con->ImmedValNeedsReloc(emitComp);
@@ -1540,7 +1528,7 @@ void emitter::SetInstrAddrMode(instrDesc* id, GenTree* addr)
     if (GenTreeIntCon* intConAddr = addr->IsIntCon())
     {
         // Absolute addresses marked as contained should fit within the base of addr mode.
-        AMD64_ONLY(assert(intConAddr->FitsInAddrBase(emitComp)));
+        AMD64_ONLY(assert(emitComp->IsRIPRelativeAddress(intConAddr)));
 
         id->idSetIsDspReloc(IntConNeedsReloc(intConAddr));
         id->idAddr()->iiaAddrMode.base  = REG_NA;
@@ -1548,6 +1536,8 @@ void emitter::SetInstrAddrMode(instrDesc* id, GenTree* addr)
         id->idAddr()->iiaAddrMode.scale = 0;
         // The displacement must have already been set by the caller.
         assert(id->GetAmDisp() == intConAddr->GetValue());
+
+        INDEBUG(id->idDebugOnlyInfo()->dispHandleKind = intConAddr->GetHandleKind());
 
         return;
     }
@@ -1613,9 +1603,9 @@ void emitter::PrologSpillParamRegsToShadowSlots()
 
 void emitter::emitIns_A(instruction ins, emitAttr attr, GenTree* addr)
 {
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_C(ins, attr, clsAddr->GetFieldHandle());
+        emitIns_C(ins, attr, constAddr->GetData());
         return;
     }
 
@@ -1652,9 +1642,9 @@ void emitter::emitIns_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t
 {
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_C_I(ins, attr, clsAddr->GetFieldHandle(), imm);
+        emitIns_C_I(ins, attr, constAddr->GetData(), imm);
         return;
     }
 
@@ -1684,9 +1674,9 @@ void emitter::emitIns_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumb
 {
     assert(!IsReallyVexTernary(ins));
 
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_C_R(ins, attr, clsAddr->GetFieldHandle(), reg);
+        emitIns_C_R(ins, attr, constAddr->GetData(), reg);
         return;
     }
 
@@ -1714,12 +1704,6 @@ void emitter::emitIns_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumb
 
 void emitter::emitInsRMW_A(instruction ins, emitAttr attr, GenTree* addr)
 {
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
-    {
-        emitInsRMW_C(ins, attr, clsAddr->GetFieldHandle());
-        return;
-    }
-
     instrDesc* id = emitNewInstrAmd(GetAddrModeDisp(addr));
     id->idIns(ins);
     id->idInsFmt(IF_ARW);
@@ -1735,12 +1719,6 @@ void emitter::emitInsRMW_A(instruction ins, emitAttr attr, GenTree* addr)
 
 void emitter::emitInsRMW_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t imm)
 {
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
-    {
-        emitInsRMW_C_I(ins, attr, clsAddr->GetFieldHandle(), imm);
-        return;
-    }
-
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
     instrDesc* id = emitNewInstrAmdCns(GetAddrModeDisp(addr), imm);
@@ -1758,12 +1736,6 @@ void emitter::emitInsRMW_A_I(instruction ins, emitAttr attr, GenTree* addr, int3
 
 void emitter::emitInsRMW_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumber reg)
 {
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
-    {
-        emitInsRMW_C_R(ins, attr, clsAddr->GetFieldHandle(), reg);
-        return;
-    }
-
     instrDesc* id = emitNewInstrAmd(GetAddrModeDisp(addr));
     id->idIns(ins);
     id->idInsFmt(IF_ARW_RRD);
@@ -1773,57 +1745,6 @@ void emitter::emitInsRMW_A_R(instruction ins, emitAttr attr, GenTree* addr, regN
     SetInstrAddrMode(id, addr);
 
     unsigned sz = emitInsSizeAM(id, insCodeMR(ins));
-    id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
-}
-
-void emitter::emitInsRMW_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field)
-{
-    instrDesc* id = emitNewInstr();
-    id->idIns(ins);
-    id->idOpSize(EA_SIZE(attr));
-    id->idInsFmt(IF_MRW);
-    INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
-    id->idSetIsDspReloc();
-    id->SetField(field);
-
-    unsigned sz = emitInsSizeCV(id, insCodeMR(ins));
-    id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
-}
-
-void emitter::emitInsRMW_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, int32_t imm)
-{
-    AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
-
-    instrDesc* id = emitNewInstrCns(imm);
-    id->idIns(ins);
-    id->idOpSize(EA_SIZE(attr));
-    id->idInsFmt(IF_MRW_CNS);
-    INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
-    id->idSetIsDspReloc();
-    id->SetField(field);
-
-    unsigned sz = emitInsSizeCV(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
-    id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
-}
-
-void emitter::emitInsRMW_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, regNumber reg)
-{
-    instrDesc* id = emitNewInstr();
-    id->idIns(ins);
-    id->idOpSize(EA_SIZE(attr));
-    id->idInsFmt(IF_MRW_RRD);
-    INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
-    id->idReg1(reg);
-    id->idSetIsDspReloc();
-    id->SetField(field);
-
-    unsigned sz = emitInsSizeCV(id, insCodeMR(ins));
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -1948,16 +1869,18 @@ void emitter::emitIns_H(instruction ins, void* addr)
 #endif
 
 #ifdef WINDOWS_X86_ABI
-void emitter::emitInsMov_R_FS(regNumber reg, int32_t offs)
+void emitter::emitInsMov_R_FS(regNumber reg, int32_t disp)
 {
     assert(genIsValidIntReg(reg));
 
-    instrDesc* id = emitNewInstrDsp(offs);
+    instrDesc* id = emitNewInstrAmd(disp);
     id->idIns(INS_mov);
     id->idOpSize(EA_4BYTE);
-    id->idInsFmt(emitInsModeFormat(INS_mov, IF_RRD_MRD));
+    id->idInsFmt(emitInsModeFormat(INS_mov, IF_RRD_ARD));
+    id->SetHasFSPrefix();
     id->idReg1(reg);
-    id->SetField(FS_SEG_FIELD);
+    id->idAddr()->iiaAddrMode.base  = REG_NA;
+    id->idAddr()->iiaAddrMode.index = REG_NA;
 
     unsigned sz = 1 + (reg == REG_EAX ? 1 : 2) + 4;
     id->idCodeSize(sz);
@@ -2003,17 +1926,15 @@ void emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
 #endif
 }
 
-void emitter::emitIns_C(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field)
+void emitter::emitIns_C(instruction ins, emitAttr attr, ConstData* data)
 {
-    assert(FieldDispRequiresRelocation(field));
-
     instrDesc* id = emitNewInstr();
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(emitInsModeFormat(ins, IF_MRD));
     INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
     id->idSetIsDspReloc();
-    id->SetField(field);
+    id->SetConstData(data);
 
     unsigned sz = emitInsSizeCV(id, insCodeMR(ins));
     id->idCodeSize(sz);
@@ -2342,9 +2263,9 @@ void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg, GenTree
 {
     assert(!HasImplicitRegPairDest(ins) && (ins != INS_imuli));
 
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_R_C(ins, attr, reg, clsAddr->GetFieldHandle());
+        emitIns_R_C(ins, attr, reg, constAddr->GetData());
         return;
     }
 
@@ -2376,9 +2297,9 @@ void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenT
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
     assert(!EA_IS_GCREF_OR_BYREF(attr));
 
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_R_C_I(ins, attr, reg1, clsAddr->GetFieldHandle(), imm);
+        emitIns_R_C_I(ins, attr, reg1, constAddr->GetData(), imm);
         return;
     }
 
@@ -2399,13 +2320,11 @@ void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenT
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, CORINFO_FIELD_HANDLE field, int32_t imm)
+void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, ConstData* data, int32_t imm)
 {
     assert(IsSSEOrAVXOrBMIInstruction(ins) || (ins == INS_imuli));
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
     assert(!EA_IS_GCREF_OR_BYREF(attr));
-    assert(FieldDispRequiresRelocation(field));
-
     X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg1)));
 
     instrDesc* id = emitNewInstrCns(imm);
@@ -2415,7 +2334,7 @@ void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, CORI
     id->idInsFmt(IF_RRW_MRD_CNS);
     id->idReg1(reg1);
     id->idSetIsDspReloc();
-    id->SetField(field);
+    id->SetConstData(data);
 
     unsigned sz = emitInsSizeCV(id, insCodeRM(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
@@ -2447,9 +2366,9 @@ void emitter::emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, int 
 
 void emitter::emitIns_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr)
 {
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_R_R_C(ins, attr, reg1, reg2, clsAddr->GetFieldHandle());
+        emitIns_R_R_C(ins, attr, reg1, reg2, constAddr->GetData());
         return;
     }
 
@@ -2503,10 +2422,9 @@ void emitter::emitIns_R_AR_R(instruction ins,
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE field)
+void emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ConstData* data)
 {
     assert(IsVexTernary(ins) && !EA_IS_GCREF_OR_BYREF(attr));
-    assert(FieldDispRequiresRelocation(field));
 
     instrDesc* id = emitNewInstr();
     id->idIns(ins);
@@ -2515,7 +2433,7 @@ void emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regN
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idSetIsDspReloc();
-    id->SetField(field);
+    id->SetConstData(data);
 
     unsigned sz = emitInsSizeCV(id, insCodeRM(ins));
     id->idCodeSize(sz);
@@ -2562,9 +2480,9 @@ void emitter::emitIns_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regN
 void emitter::emitIns_R_R_A_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr, int32_t imm)
 {
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_R_R_C_I(ins, attr, reg1, reg2, clsAddr->GetFieldHandle(), imm);
+        emitIns_R_R_C_I(ins, attr, reg1, reg2, constAddr->GetData(), imm);
         return;
     }
 
@@ -2587,11 +2505,10 @@ void emitter::emitIns_R_R_A_I(
 }
 
 void emitter::emitIns_R_R_C_I(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE field, int32_t imm)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ConstData* data, int32_t imm)
 {
     assert(IsVexTernary(ins));
     assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
-    assert(FieldDispRequiresRelocation(field));
     assert(IsImm8(imm));
 
     instrDesc* id = emitNewInstrCns(imm);
@@ -2601,7 +2518,7 @@ void emitter::emitIns_R_R_C_I(
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idSetIsDspReloc();
-    id->SetField(field);
+    id->SetConstData(data);
 
     unsigned sz = emitInsSizeCV(id, insCodeRM(ins)) + 1;
     id->idCodeSize(sz);
@@ -2670,9 +2587,9 @@ void emitter::emitIns_R_R_A_R(
     assert(IsAvxBlendv(ins));
     assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
 
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_R_R_C_R(MapSse41BlendvToAvxBlendv(ins), attr, reg1, reg2, reg3, clsAddr->GetFieldHandle());
+        emitIns_R_R_C_R(MapSse41BlendvToAvxBlendv(ins), attr, reg1, reg2, reg3, constAddr->GetData());
         return;
     }
 
@@ -2691,12 +2608,11 @@ void emitter::emitIns_R_R_A_R(
 }
 
 void emitter::emitIns_R_R_C_R(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, CORINFO_FIELD_HANDLE field)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, ConstData* data)
 {
     assert(UseVEXEncoding());
     assert(IsAvxBlendv(ins));
     assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
-    assert(FieldDispRequiresRelocation(field));
 
     instrDesc* id = emitNewInstrCns(EncodeXmmRegAsImm(reg3));
     id->idIns(ins);
@@ -2705,7 +2621,7 @@ void emitter::emitIns_R_R_C_R(
     id->idReg2(reg2);
     id->idInsFmt(IF_RWR_RRD_MRD_RRD);
     id->idSetIsDspReloc();
-    id->SetField(field);
+    id->SetConstData(data);
 
     unsigned sz = emitInsSizeCV(id, insCodeRM(ins)) + 1;
     id->idCodeSize(sz);
@@ -2755,10 +2671,9 @@ void emitter::emitIns_R_R_R_R(
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE field)
+void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, ConstData* data)
 {
     assert(!HasImplicitRegPairDest(ins) && (ins != INS_imuli));
-    assert(FieldDispRequiresRelocation(field));
     X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg)));
 
     instrDesc* id = emitNewInstr();
@@ -2768,7 +2683,7 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
     id->idGCref(EA_GC_TYPE(attr));
     id->idReg1(reg);
     id->idSetIsDspReloc();
-    id->SetField(field);
+    id->SetConstData(data);
 
     unsigned sz;
 
@@ -2792,9 +2707,8 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, regNumber reg)
+void emitter::emitIns_C_R(instruction ins, emitAttr attr, ConstData* data, regNumber reg)
 {
-    assert(FieldDispRequiresRelocation(field));
     X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg)));
 
     emitAttr size = EA_SIZE(attr);
@@ -2812,7 +2726,7 @@ void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     id->idInsFmt(emitInsModeFormat(ins, IF_MRD_RRD));
     id->idReg1(reg);
     id->idSetIsDspReloc();
-    id->SetField(field);
+    id->SetConstData(data);
 
     unsigned sz;
 
@@ -2836,10 +2750,9 @@ void emitter::emitIns_C_R(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, int32_t imm)
+void emitter::emitIns_C_I(instruction ins, emitAttr attr, ConstData* data, int32_t imm)
 {
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
-    assert(FieldDispRequiresRelocation(field));
 
     instrDesc* id = emitNewInstrCns(imm);
     id->idIns(ins);
@@ -2848,7 +2761,7 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE f
     X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
     id->idInsFmt(emitInsModeFormat(ins, IF_MRD_CNS));
     id->idSetIsDspReloc();
-    id->SetField(field);
+    id->SetConstData(data);
 
     unsigned sz = emitInsSizeCV(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
@@ -2884,16 +2797,14 @@ void emitter::emitIns_R_L(RegNum reg, insGroup* label)
 }
 
 #ifdef TARGET_X86
-void emitter::emitIns_R_L(RegNum reg, CORINFO_FIELD_HANDLE field)
+void emitter::emitIns_R_L(RegNum reg, ConstData* data)
 {
-    assert(IsRoDataField(field));
-
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(INS_mov);
     id->idOpSize(EA_PTRSIZE);
     id->idInsFmt(IF_RWR_LABEL);
     id->idReg1(reg);
-    id->SetRoDataOffset(GetRoDataOffset(field));
+    id->SetConstData(data);
     id->idSetIsCnsReloc(emitComp->opts.compReloc);
 
     unsigned sz = 1 + 4; // 0xB8 IMM32
@@ -2951,9 +2862,9 @@ void emitter::emitIns_S_R_I(instruction ins, emitAttr attr, int varNum, int offs
 
 void emitter::emitIns_A_R_I(instruction ins, emitAttr attr, GenTree* addr, regNumber reg, int32_t imm)
 {
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_C_R_I(ins, attr, clsAddr->GetFieldHandle(), reg, imm);
+        emitIns_C_R_I(ins, attr, constAddr->GetData(), reg, imm);
         return;
     }
 
@@ -2975,7 +2886,7 @@ void emitter::emitIns_A_R_I(instruction ins, emitAttr attr, GenTree* addr, regNu
     emitCurIGsize += size;
 }
 
-void emitter::emitIns_C_R_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE field, regNumber reg, int32_t imm)
+void emitter::emitIns_C_R_I(instruction ins, emitAttr attr, ConstData* data, regNumber reg, int32_t imm)
 {
     assert((ins == INS_vextracti128) || (ins == INS_vextractf128));
     assert(attr == EA_32BYTE);
@@ -2988,7 +2899,7 @@ void emitter::emitIns_C_R_I(instruction ins, emitAttr attr, CORINFO_FIELD_HANDLE
     id->idInsFmt(IF_MWR_RRD_CNS);
     id->idReg1(reg);
     id->idSetIsDspReloc();
-    id->SetField(field);
+    id->SetConstData(data);
 
     unsigned size = emitInsSizeCV(id, insCodeMR(ins)) + 1;
     id->idCodeSize(size);
@@ -3117,9 +3028,9 @@ void emitter::emitIns_SIMD_R_R_I(instruction ins, emitAttr attr, regNumber reg1,
 
 void emitter::emitIns_SIMD_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr)
 {
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_SIMD_R_R_C(ins, attr, reg1, reg2, clsAddr->GetFieldHandle());
+        emitIns_SIMD_R_R_C(ins, attr, reg1, reg2, constAddr->GetData());
     }
     else if (UseVEXEncoding())
     {
@@ -3132,17 +3043,16 @@ void emitter::emitIns_SIMD_R_R_A(instruction ins, emitAttr attr, regNumber reg1,
     }
 }
 
-void emitter::emitIns_SIMD_R_R_C(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE field)
+void emitter::emitIns_SIMD_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ConstData* data)
 {
     if (UseVEXEncoding())
     {
-        emitIns_R_R_C(ins, attr, reg1, reg2, field);
+        emitIns_R_R_C(ins, attr, reg1, reg2, data);
     }
     else
     {
         emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-        emitIns_R_C(ins, attr, reg1, field);
+        emitIns_R_C(ins, attr, reg1, data);
     }
 }
 
@@ -3186,9 +3096,9 @@ void emitter::emitIns_SIMD_R_R_S(instruction ins, emitAttr attr, regNumber reg1,
 void emitter::emitIns_SIMD_R_R_A_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr, int32_t imm)
 {
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_SIMD_R_R_C_I(ins, attr, reg1, reg2, clsAddr->GetFieldHandle(), imm);
+        emitIns_SIMD_R_R_C_I(ins, attr, reg1, reg2, constAddr->GetData(), imm);
     }
     else if (UseVEXEncoding())
     {
@@ -3202,16 +3112,16 @@ void emitter::emitIns_SIMD_R_R_A_I(
 }
 
 void emitter::emitIns_SIMD_R_R_C_I(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE field, int32_t imm)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ConstData* data, int32_t imm)
 {
     if (UseVEXEncoding())
     {
-        emitIns_R_R_C_I(ins, attr, reg1, reg2, field, imm);
+        emitIns_R_R_C_I(ins, attr, reg1, reg2, data, imm);
     }
     else
     {
         emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-        emitIns_R_C_I(ins, attr, reg1, field, imm);
+        emitIns_R_C_I(ins, attr, reg1, data, imm);
     }
 }
 
@@ -3249,9 +3159,9 @@ void emitter::emitIns_SIMD_R_R_S_I(
 void emitter::emitIns_SIMD_R_R_R_A(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, GenTree* addr)
 {
-    if (GenTreeClsVar* clsAddr = addr->IsClsVar())
+    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_SIMD_R_R_R_C(ins, attr, reg1, reg2, reg3, clsAddr->GetFieldHandle());
+        emitIns_SIMD_R_R_R_C(ins, attr, reg1, reg2, reg3, constAddr->GetData());
         return;
     }
 
@@ -3266,7 +3176,7 @@ void emitter::emitIns_SIMD_R_R_R_A(
 }
 
 void emitter::emitIns_SIMD_R_R_R_C(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, CORINFO_FIELD_HANDLE field)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, ConstData* data)
 {
     assert(IsFMAInstruction(ins));
     assert(UseVEXEncoding());
@@ -3275,7 +3185,7 @@ void emitter::emitIns_SIMD_R_R_R_C(
     assert((reg3 != reg1) || (reg2 == reg1));
 
     emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-    emitIns_R_R_C(ins, attr, reg1, reg3, field);
+    emitIns_R_R_C(ins, attr, reg1, reg3, data);
 }
 
 void emitter::emitIns_SIMD_R_R_R_R(
@@ -3814,7 +3724,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
 
 void emitter::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
 {
-    static_assert_no_msg((4 <= REGNUM_BITS) && (REGNUM_BITS <= 8));
+    static_assert_no_msg(instrDesc::RegBits >= 4);
     assert((regs & RBM_CALLEE_TRASH) == RBM_NONE);
 
     unsigned encoded = 0;
@@ -3850,8 +3760,6 @@ void emitter::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
 
 unsigned emitter::DecodeCallGCRegs(instrDesc* id)
 {
-    static_assert_no_msg((4 <= REGNUM_BITS) && (REGNUM_BITS <= 8));
-
     unsigned encoded;
 
     if (id->idInsFmt() == IF_RRD)
@@ -4200,46 +4108,14 @@ private:
         }
     }
 
-    void PrintClsVar(instrDesc* id, emitAttr size)
+    void PrintConstDataLabel(instrDesc* id, emitAttr size)
     {
-        CORINFO_FIELD_HANDLE field = id->GetField();
-        ssize_t              offs  = id->GetMemDisp();
+        ConstData* data = id->GetConstData();
 
-#ifdef WINDOWS_X86_ABI
-        if (field == FS_SEG_FIELD)
+        printf("%s[RWD%02u", GetSizeOperator(size), data->offset);
+
+        if (ssize_t offs = id->GetMemDisp())
         {
-            printf("fs:[0x%04X]", offs);
-            return;
-        }
-#endif
-
-        printf("%s[", GetSizeOperator(size));
-
-        if (id->idIsDspReloc())
-        {
-            printf("reloc ");
-        }
-
-        if (Emitter::IsRoDataField(field))
-        {
-            printf("@RWD%02u", Emitter::GetRoDataOffset(field));
-        }
-        else
-        {
-            printf("classVar[%#x]", compiler->dspPtr(field));
-        }
-
-        if (offs != 0)
-        {
-            if (compiler->opts.disDiffable)
-            {
-                ssize_t top12bits = (offs >> 20);
-                if ((top12bits != 0) && (top12bits != -1))
-                {
-                    offs = 0xD1FFAB1E;
-                }
-            }
-
             printf("%+Id", offs);
         }
 
@@ -4337,14 +4213,7 @@ private:
 
     void PrintReloc(ssize_t value, const char* prefix = "")
     {
-        if (compiler->opts.disAsm && compiler->opts.disDiffable)
-        {
-            printf("%s(reloc)", prefix);
-        }
-        else
-        {
-            printf("%s(reloc 0x%Ix)", prefix, compiler->dspPtr(value));
-        }
+        printf("%s%s0x%IX", prefix, compiler->opts.compReloc ? "reloc " : "", compiler->dspPtr(value));
     }
 
     void PrintAddrMode(instrDesc* id, emitAttr size)
@@ -4354,7 +4223,7 @@ private:
         bool        frameRef  = false;
         const char* separator = "";
 
-        printf("%s[", GetSizeOperator(size));
+        printf("%s%s[", GetSizeOperator(size), id->HasFSPrefix() ? "fs:" : "");
 
         if (am.base != REG_NA)
         {
@@ -4384,7 +4253,7 @@ private:
         // It's assumed to be a pointer when disp is outside of the range (-1M, +1M); top bits are not 0 or -1
         else if (!frameRef && compiler->opts.disDiffable && (static_cast<size_t>((disp >> 20) + 1) > 1))
         {
-            printf("%sD1FFAB1EH", separator);
+            printf("%s0x%IX", separator, compiler->dspPtr(disp));
         }
         else if (disp > 0)
         {
@@ -4398,11 +4267,11 @@ private:
             }
             else if (disp <= 0xFFFF)
             {
-                printf("%s%04XH", separator, disp);
+                printf("%s0x%04X", separator, disp);
             }
             else
             {
-                printf("%s%08XH", separator, disp);
+                printf("%s0x%08IX", separator, disp);
             }
         }
         else if (disp < 0)
@@ -4417,15 +4286,15 @@ private:
             }
             else if (disp >= -0xFFFF)
             {
-                printf("-%04XH", -disp);
+                printf("-0x%04X", -disp);
             }
             else if (disp < -0xFFFFFF)
             {
-                printf("%s%08XH", separator, disp);
+                printf("%s0x%08X", separator, disp);
             }
             else
             {
-                printf("-%08XH", -disp);
+                printf("-0x%08IX", -disp);
             }
         }
         else if (separator[0] == 0)
@@ -4437,20 +4306,9 @@ private:
 
         if (id->idIns() == INS_mov)
         {
-            // Pretty print string if it looks like one
-            if ((id->idGCref() == GCT_GCREF) && (am.base == REG_NA))
+            if (id->idDebugOnlyInfo()->dispHandleKind == HandleKind::String)
             {
-                // TODO-MIKE-Review: This stuff is dubious, probably it only works because strings are the only
-                // case of loading a REF from a memory location. Well, you would expect a static object field
-                // load to look identical but on x86 such loads will use CLS_VAR_ADDR as address and this is
-                // treated as reloc (even when jitting, why?!?). And on x64 apparently RIP addressing is not used
-                // in this case so this is never hit.
-                // Besides, this should be displayed as an instruction comment, not as part of the operand.
-
-                if (const WCHAR* str = compiler->eeGetCPString(reinterpret_cast<void*>(disp)))
-                {
-                    printf("      '%S'", str);
-                }
+                emitter->emitDispCommentForHandle(reinterpret_cast<void*>(disp), HandleKind::String);
             }
         }
         else if ((id->idIns() == INS_call) || (id->idIns() == INS_i_jmp))
@@ -4483,9 +4341,9 @@ private:
             printf("%3d instr", id->GetInstrCount());
         }
 #ifdef TARGET_X86
-        else if (id->HasRoDataOffset())
+        else if (id->HasConstData())
         {
-            printf("RWD%02u", id->GetRoDataOffset());
+            printf("RWD%02u", id->GetConstData()->offset);
         }
 #endif
         else
@@ -4875,52 +4733,52 @@ private:
             case IF_RWR_MRD:
             case IF_RRW_MRD:
                 printf("%s, ", RegName(id->idReg1(), attr1));
-                PrintClsVar(id, mattr);
+                PrintConstDataLabel(id, mattr);
                 break;
 
             case IF_RRW_MRD_CNS:
             case IF_RWR_MRD_CNS:
                 printf("%s, ", RegName(id->idReg1(), attr));
-                PrintClsVar(id, mattr);
+                PrintConstDataLabel(id, mattr);
                 printf(", ");
                 PrintImm(id);
                 break;
 
             case IF_MWR_RRD_CNS:
-                PrintClsVar(id, EA_16BYTE);
+                PrintConstDataLabel(id, EA_16BYTE);
                 printf(", %s, ", RegName(id->idReg1(), attr));
                 PrintImm(id);
                 break;
 
             case IF_RWR_RRD_MRD:
                 printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
-                PrintClsVar(id, mattr);
+                PrintConstDataLabel(id, mattr);
                 break;
 
             case IF_RWR_RRD_MRD_CNS:
                 printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
-                PrintClsVar(id, mattr);
+                PrintConstDataLabel(id, mattr);
                 printf(", ");
                 PrintImm(id);
                 break;
 
             case IF_RWR_RRD_MRD_RRD:
                 printf("%s, %s, ", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr));
-                PrintClsVar(id, EA_UNKNOWN);
+                PrintConstDataLabel(id, EA_UNKNOWN);
                 printf(", %s", RegName(id->idReg4(), attr));
                 break;
 
             case IF_MRD_RRD:
             case IF_MWR_RRD:
             case IF_MRW_RRD:
-                PrintClsVar(id, mattr);
+                PrintConstDataLabel(id, mattr);
                 printf(", %s", RegName(id->idReg1(), attr));
                 break;
 
             case IF_MRD_CNS:
             case IF_MWR_CNS:
             case IF_MRW_CNS:
-                PrintClsVar(id, mattr);
+                PrintConstDataLabel(id, mattr);
                 printf(", ");
                 PrintImm(id);
                 break;
@@ -4928,7 +4786,7 @@ private:
             case IF_MRD:
             case IF_MWR:
             case IF_MRW:
-                PrintClsVar(id, mattr);
+                PrintConstDataLabel(id, mattr);
                 PrintShiftCL(ins);
                 break;
 
@@ -5677,6 +5535,11 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     assert((ins != INS_bt) && !IsCmov(ins));
     assert(TakesVexPrefix(ins) == hasVexPrefix(code));
 
+    if (id->HasFSPrefix())
+    {
+        dst += emitOutputByte(dst, 0x64);
+    }
+
 #ifdef TARGET_X86
     // Special case: "mov eax, [addr]" and "mov [addr], eax" have smaller encoding.
     if ((ins == INS_mov) && ((id->idInsFmt() == IF_RWR_ARD) || (id->idInsFmt() == IF_AWR_RRD)) &&
@@ -5952,6 +5815,7 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     // BT with memory operands is practically useless and CMOV is not currently generated.
     assert((ins != INS_bt) && !IsCmov(ins));
     assert(TakesVexPrefix(ins) == hasVexPrefix(code));
+    assert(!id->HasFSPrefix());
 
     unsigned immSize = 0;
 
@@ -6114,69 +5978,55 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
 uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm)
 {
-    instruction          ins   = id->idIns();
-    CORINFO_FIELD_HANDLE field = id->GetField();
-    ssize_t              disp  = id->GetMemDisp();
+    instruction ins  = id->idIns();
+    ConstData*  data = id->GetConstData();
+    ssize_t     disp = id->GetMemDisp();
 
     // BT/CMOV support 16 bit operands and this code doesn't add the necessary 66 prefix.
     // BT with memory operands is practically useless and CMOV is not currently generated.
     assert((ins != INS_bt) && !IsCmov(ins));
     assert(TakesVexPrefix(ins) == hasVexPrefix(code));
+    assert(!id->HasFSPrefix());
 
-    if (IsRoDataField(field))
-    {
-        size_t addr = reinterpret_cast<size_t>(emitConsBlock) + GetRoDataOffset(field);
+    size_t addr = reinterpret_cast<size_t>(emitConsBlock) + data->offset;
 
 #ifdef DEBUG
-        size_t align;
+    size_t align;
 
-        switch (ins)
-        {
-            case INS_cvttss2si:
-            case INS_cvtss2sd:
-            case INS_vbroadcastss:
-            case INS_insertps:
-            case INS_movss:
-                align = 4;
-                break;
-            case INS_vbroadcastsd:
-            case INS_movsd:
-                align = 8;
-                break;
-            case INS_vinsertf128:
-            case INS_vinserti128:
-                align = 16;
-                break;
-            case INS_lea:
-                align = 1;
-                break;
-            default:
-                align = EA_SIZE_IN_BYTES(id->idOpSize());
-                break;
-        }
+    switch (ins)
+    {
+        case INS_cvttss2si:
+        case INS_cvtss2sd:
+        case INS_vbroadcastss:
+        case INS_insertps:
+        case INS_movss:
+            align = 4;
+            break;
+        case INS_vbroadcastsd:
+        case INS_movsd:
+            align = 8;
+            break;
+        case INS_vinsertf128:
+        case INS_vinserti128:
+            align = 16;
+            break;
+        case INS_lea:
+            align = 1;
+            break;
+        default:
+            align = EA_SIZE_IN_BYTES(id->idOpSize());
+            break;
+    }
 
-        // Check that the offset is properly aligned (i.e. the ddd in [ddd])
-        // When SMALL_CODE is set, we only expect 4-byte alignment, otherwise
-        // we expect the same alignment as the size of the constant.
-        // TODO-MIKE-Review: Figure out why this check is disabled in crossgen.
-        assert(((addr & (align - 1)) == 0) || ((emitComp->compCodeOpt() == SMALL_CODE) && ((addr & 3) == 0)) ||
-               emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT));
+    // Check that the offset is properly aligned (i.e. the ddd in [ddd])
+    // When SMALL_CODE is set, we only expect 4-byte alignment, otherwise
+    // we expect the same alignment as the size of the constant.
+    // TODO-MIKE-Review: Figure out why this check is disabled in crossgen.
+    assert(((addr & (align - 1)) == 0) || ((emitComp->compCodeOpt() == SMALL_CODE) && ((addr & 3) == 0)) ||
+           emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT));
 #endif // DEBUG
 
-        disp += addr;
-    }
-#ifdef WINDOWS_X86_ABI
-    else if (field == FS_SEG_FIELD)
-    {
-        dst += emitOutputByte(dst, 0x64);
-    }
-#endif
-    else
-    {
-        void* addr = static_cast<uint8_t*>(emitComp->info.compCompHnd->getFieldAddress(field, nullptr));
-        noway_assert(addr != nullptr);
-        disp += reinterpret_cast<ssize_t>(addr);
-    }
+    disp += addr;
 
     unsigned immSize = 0;
 
@@ -6322,6 +6172,8 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
 
 uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
 {
+    assert(!id->HasFSPrefix());
+
     instruction ins  = id->idIns();
     regNumber   reg  = id->idReg1();
     emitAttr    size = id->idOpSize();
@@ -6514,6 +6366,8 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
 
 uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
 {
+    assert(!id->HasFSPrefix());
+
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
     regNumber   reg1 = id->idReg1();
@@ -6857,6 +6711,7 @@ uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
     assert(IsVexTernary(id->idIns()));
     assert((id->idInsFmt() == IF_RWR_RRD_RRD) || (id->idInsFmt() == IF_RWR_RRD_RRD_CNS) ||
            (id->idInsFmt() == IF_RWR_RRD_RRD_RRD));
+    assert(!id->HasFSPrefix());
 
     instruction ins  = id->idIns();
     regNumber   reg1 = id->idReg1();
@@ -6891,6 +6746,8 @@ uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
 
 uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
 {
+    assert(!id->HasFSPrefix());
+
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
 
@@ -6992,6 +6849,8 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
 
 uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
 {
+    assert(!id->HasFSPrefix());
+
     emitAttr    size = id->idOpSize();
     instruction ins  = id->idIns();
     regNumber   reg  = id->idReg1();
@@ -7239,6 +7098,8 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
 
 uint8_t* emitter::emitOutputIV(uint8_t* dst, instrDesc* id)
 {
+    assert(!id->HasFSPrefix());
+
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
     ssize_t     val  = id->GetImm();
@@ -7286,15 +7147,16 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     assert(id->idInsFmt() == IF_RWR_LABEL);
     assert(id->idOpSize() == EA_PTRSIZE);
     assert(id->idGCref() == GCT_NONE);
+    assert(!id->HasFSPrefix());
 
 #ifdef TARGET_X86
     assert(id->idIns() == INS_mov);
 
     uint8_t* labelAddr;
 
-    if (id->HasRoDataOffset())
+    if (id->HasConstData())
     {
-        labelAddr = emitConsBlock + id->GetRoDataOffset();
+        labelAddr = emitConsBlock + id->GetConstData()->offset;
     }
     else
     {
@@ -7358,6 +7220,7 @@ uint8_t* emitter::emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     assert(id->idInsFmt() == IF_LABEL);
     assert(id->idGCref() == GCT_NONE);
     assert(!id->HasInstrCount());
+    assert(!id->HasFSPrefix());
 
     unsigned labelOffs = id->GetLabel()->igOffs;
     uint8_t* labelAddr = emitOffsetToPtr(labelOffs);
@@ -7383,6 +7246,7 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 {
     assert(id->idInsFmt() == IF_LABEL);
     assert(id->idGCref() == GCT_NONE);
+    assert(!id->HasFSPrefix());
 
     unsigned labelOffs;
 
@@ -7477,6 +7341,8 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
 uint8_t* emitter::emitOutputCall(uint8_t* dst, instrDesc* id)
 {
+    assert(!id->HasFSPrefix());
+
     instruction ins = id->idIns();
 
     void* addr = id->GetAddr();
@@ -7541,6 +7407,8 @@ uint8_t* emitter::emitOutputCall(uint8_t* dst, instrDesc* id)
 
 uint8_t* emitter::emitOutputNoOperands(uint8_t* dst, instrDesc* id)
 {
+    assert(!id->HasFSPrefix());
+
     instruction ins = id->idIns();
 
     if (ins == INS_nop)

@@ -200,6 +200,24 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
             }
             break;
 
+#ifndef TARGET_ARM64
+        case GT_CLS_VAR_ADDR:
+            assert(!comp->opts.compReloc);
+            {
+                INDEBUG(FieldSeqNode* fieldSeq = node->AsClsVar()->GetFieldSeq());
+
+                GenTreeIntCon* intCon =
+                    node->ChangeToIntCon(TYP_I_IMPL, reinterpret_cast<ssize_t>(node->AsClsVar()->GetFieldAddr()));
+
+#ifdef DEBUG
+                intCon->SetHandleKind(HandleKind::Static);
+                intCon->SetDumpHandle(fieldSeq->GetFieldHandle());
+                intCon->SetFieldSeq(fieldSeq);
+#endif
+            }
+            break;
+#endif // TARGET_ARM64
+
         case GT_NOP:
             // fgMorph sometimes inserts NOP nodes between defs and uses supposedly
             // 'to prevent constant folding'. In this case, remove the NOP.

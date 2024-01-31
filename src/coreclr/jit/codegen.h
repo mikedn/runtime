@@ -74,25 +74,22 @@ public:
     }
 
 private:
-#if defined(TARGET_XARCH)
+#ifdef TARGET_XARCH
     // Bit masks used in negating a float or double number.
     // This is to avoid creating more than one data constant for these bitmasks when a
     // method has more than one GT_FNEG operation on floating point values.
-    CORINFO_FIELD_HANDLE negBitmaskFlt = nullptr;
-    CORINFO_FIELD_HANDLE negBitmaskDbl = nullptr;
-
+    ConstData* negBitmaskFlt = nullptr;
+    ConstData* negBitmaskDbl = nullptr;
     // Bit masks used in computing Math.Abs() of a float or double number.
-    CORINFO_FIELD_HANDLE absBitmaskFlt = nullptr;
-    CORINFO_FIELD_HANDLE absBitmaskDbl = nullptr;
-
+    ConstData* absBitmaskFlt = nullptr;
+    ConstData* absBitmaskDbl = nullptr;
     // Bit mask used in U8 -> double conversion to adjust the result.
-    CORINFO_FIELD_HANDLE u8ToDblBitmask = nullptr;
-    CORINFO_FIELD_HANDLE u8ToFltBitmask = nullptr;
+    ConstData* u8ToDblBitmask = nullptr;
+    ConstData* u8ToFltBitmask = nullptr;
 
     void GenFloatAbs(GenTreeIntrinsic* node);
-
     void genSSE41RoundOp(GenTreeIntrinsic* node);
-#endif // defined(TARGET_XARCH)
+#endif
 
     void genMarkLabelsForCodegen();
 
@@ -320,7 +317,7 @@ public:
     regMaskTP genStackAllocRegisterMask(unsigned frameSize, regMaskTP maskCalleeSavedFloat);
     void genFreeLclFrame(unsigned frameSize, bool* pUnwindStarted);
     void genMov32RelocatableDisplacement(insGroup* block, regNumber reg);
-    void genMov32RelocatableDataLabel(unsigned value, regNumber reg);
+    void genMov32RelocatableDataLabel(RegNum reg, ConstData* data);
 
     bool genUsedPopToReturn; // True if we use the pop into PC to return,
                              // False if we didn't and must branch to LR to return.
@@ -486,7 +483,9 @@ protected:
     unsigned           genTrnslLocalVarCount = 0;
 #endif
 
-    void GenClsVarAddr(GenTreeClsVar* node);
+#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
+    void GenConstAddr(GenTreeConstAddr* node);
+#endif
 
 #ifdef TARGET_XARCH
     void GenIntCon(GenTreeIntCon* node, regNumber reg, var_types type);
@@ -940,7 +939,7 @@ public:
 
 #ifdef TARGET_XARCH
     void inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned val);
-    bool IsMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs, GenTree** addr, CORINFO_FIELD_HANDLE* field);
+    bool IsMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs, GenTree** addr, ConstData** data);
     void emitInsRM(instruction ins, emitAttr attr, GenTree* src);
     void emitInsRegRM(instruction ins, emitAttr attr, regNumber reg, GenTree* mem);
     void emitInsCmp(instruction ins, emitAttr attr, GenTree* op1, GenTree* op2);

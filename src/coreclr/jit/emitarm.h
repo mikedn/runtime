@@ -134,11 +134,7 @@ void emitIns_I(instruction ins, emitAttr attr, int32_t imm);
 
 void emitIns_R(instruction ins, emitAttr attr, regNumber reg);
 
-void emitIns_R_I(instruction ins,
-                 emitAttr    attr,
-                 regNumber   reg,
-                 int32_t     imm,
-                 insFlags flags = INS_FLAGS_DONT_CARE DEBUGARG(HandleKind handleKind = HandleKind::None));
+void emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, int32_t imm, insFlags flags = INS_FLAGS_DONT_CARE);
 void emitIns_MovRelocatableImmediate(instruction ins, regNumber reg, void* addr);
 
 void emitIns_Mov(instruction ins,
@@ -193,7 +189,7 @@ void emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, int varNum, int
 
 void emitIns_R_L(instruction ins, RegNum reg, insGroup* label);
 
-void emitIns_R_D(instruction ins, unsigned offs, regNumber reg);
+void emitIns_R_D(instruction ins, RegNum reg, ConstData* data);
 
 void emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, regNumber reg);
 

@@ -1733,7 +1733,7 @@ bool Compiler::compCanSwitchToOptimized()
     {
         // Ensure that it would be safe to change the opt level
         assert(opts.optFlags == CLFLG_MINOPT);
-        assert(!opts.IsMinOptsSet());
+        assert(!opts.compMinOptsIsSet);
     }
 
     return result;

@@ -376,9 +376,11 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             genCodeForArrOffset(treeNode->AsArrOffs());
             break;
 
-        case GT_CLS_VAR_ADDR:
-            GenClsVarAddr(treeNode->AsClsVar());
+#ifdef TARGET_ARM64
+        case GT_CONST_ADDR:
+            GenConstAddr(treeNode->AsConstAddr());
             break;
+#endif
 
         case GT_INSTR:
             genCodeForInstr(treeNode->AsInstr());

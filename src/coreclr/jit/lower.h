@@ -217,8 +217,8 @@ private:
     bool IsLoadIndRMWCandidate(GenTreeStoreInd* store, GenTreeIndir* load, GenTree* src);
     GenTreeIndir* IsStoreIndRMW(GenTreeStoreInd* store);
     void LowerStoreIndRMW(GenTreeStoreInd* store);
-    static bool IndirsAreEquivalent(GenTreeIndir* indir1, GenTreeIndir* indir2);
-    static bool NodesAreEquivalentLeaves(GenTree* node1, GenTree* node2);
+    static bool IndirsAreRMWEquivalent(GenTreeIndir* indir1, GenTreeIndir* indir2);
+    static bool LeavesAreRMWEquivalent(GenTree* node1, GenTree* node2);
 
 private:
 #endif

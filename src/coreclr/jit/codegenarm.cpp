@@ -90,23 +90,15 @@ void CodeGen::genMov32RelocatableDisplacement(insGroup* label, regNumber reg)
     }
 }
 
-void CodeGen::genMov32RelocatableDataLabel(unsigned value, regNumber reg)
+void CodeGen::genMov32RelocatableDataLabel(RegNum reg, ConstData* data)
 {
-    GetEmitter()->emitIns_R_D(INS_movw, value, reg);
-    GetEmitter()->emitIns_R_D(INS_movt, value, reg);
+    GetEmitter()->emitIns_R_D(INS_movw, reg, data);
+    GetEmitter()->emitIns_R_D(INS_movt, reg, data);
 
     if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_RELATIVE_CODE_RELOCS))
     {
         GetEmitter()->emitIns_R_R_R(INS_add, EA_4BYTE, reg, reg, REG_PC);
     }
-}
-
-void CodeGen::GenClsVarAddr(GenTreeClsVar* node)
-{
-    void* addr = compiler->info.compCompHnd->getFieldAddress(node->GetFieldHandle(), nullptr);
-    noway_assert(addr != nullptr);
-    instGen_Set_Reg_To_Addr(node->GetRegNum(), addr);
-    DefReg(node);
 }
 
 void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
@@ -621,9 +613,9 @@ void CodeGen::GenJmpTable(GenTree* node, const BBswtDesc& switchDesc)
 {
     assert(node->OperIs(GT_JMPTABLE));
 
-    unsigned jumpTable = GetEmitter()->CreateBlockLabelTable(switchDesc.bbsDstTab, switchDesc.bbsCount, false);
+    ConstData* data = GetEmitter()->CreateBlockLabelTable(switchDesc.bbsDstTab, switchDesc.bbsCount, false);
 
-    genMov32RelocatableDataLabel(jumpTable, node->GetRegNum());
+    genMov32RelocatableDataLabel(node->GetRegNum(), data);
     DefReg(node);
 }
 
