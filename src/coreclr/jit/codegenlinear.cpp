@@ -541,6 +541,28 @@ void CodeGen::genCodeForBBlist()
 
             case BBJ_ALWAYS:
                 assert(!block->IsThrowHelperBlock());
+
+                if (block->bbJumpDest == block->bbNext)
+                {
+#ifdef TARGET_AMD64
+                    // We need to have another instruction after a call if a different EH region follows,
+                    // but we can't properly check the EH region in this case because the next block may
+                    // be in the same EH region and also be a "jump to next" block which goes into another
+                    // EH region, or an empty block that falls through to another EH region, or perhaps a
+                    // block that isn't empty but becomes empty due to redundant mov elimination in the
+                    // emitter etc. Such cases are rare but they do happen, at least in minopts, where the
+                    // front end doesn't optimize the flow graph. And such failures can be rather subtle
+                    // and not easily caught by tests. So just insert a nop anytime EH is present in the
+                    // method. Anyway it's better than the old code, which kept a useless "jump to next".
+                    if (GetEmitter()->IsLastInsCall() && compiler->fgHasEH())
+                    {
+                        GetEmitter()->emitIns(INS_nop);
+                    }
+#endif
+
+                    break;
+                }
+
 #ifdef TARGET_ARMARCH
                 GetEmitter()->emitIns_J(INS_b, block->bbJumpDest->emitLabel);
 #else
