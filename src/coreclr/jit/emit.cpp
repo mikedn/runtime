@@ -173,7 +173,7 @@ insGroup* emitter::emitAllocIG(unsigned num)
     ig->igNum    = num;
     ig->igOffs   = emitCurCodeOffset;
 #ifdef FEATURE_EH_FUNCLETS
-    ig->igFuncIdx = codeGen->currentFuncletIndex;
+    ig->igFuncIdx = 0;
 #endif
     ig->igSize    = 0;
     ig->igFlags   = 0;
@@ -202,6 +202,9 @@ void emitter::emitNewIG()
 
     insGroup* ig = emitAllocIG(emitIGlast->igNum + 1);
     ig->igFlags |= (emitIGlast->igFlags & IGF_COLD);
+#ifdef FEATURE_EH_FUNCLETS
+    ig->igFuncIdx = emitIGlast->GetFuncletIndex();
+#endif
 
     emitIGlast->igNext = ig;
     emitIGlast         = ig;
@@ -812,13 +815,14 @@ static constexpr unsigned MAX_PLACEHOLDER_IG_SIZE = 256;
 #ifdef FEATURE_EH_FUNCLETS
 void emitter::ReserveFuncletProlog(BasicBlock* block)
 {
-    assert((block->bbFlags & BBF_FUNCLET_BEG) != 0);
     assert(!IsMainProlog(emitCurIG));
+    assert(codeGen->funGetFuncIdx(block) == codeGen->GetCurrentFuncletIndex());
 
     // We should already have an empty group added by DefineBlockLabel for the first
     // block in the funclet. We'll use that for the funclet prolog and create another
     // one for the funclet body.
     assert(!emitCurIGnonEmpty());
+    assert(emitCurIG->GetFuncletIndex() == codeGen->GetCurrentFuncletIndex());
 
     // Currently, no registers are live on entry to the prolog, except maybe
     // the exception object. There might be some live stack vars, but they
@@ -840,9 +844,8 @@ void emitter::ReserveFuncletProlog(BasicBlock* block)
         codeGen->genIPmappingAdd(ICorDebugInfo::PROLOG, true);
     }
 
-    insGroup* ig  = emitCurIG;
-    ig->igPhData  = block;
-    ig->igFuncIdx = codeGen->currentFuncletIndex;
+    insGroup* ig = emitCurIG;
+    ig->igPhData = block;
     ig->igFlags |= IGF_PLACEHOLDER | IGF_PROLOG;
 
     Placeholder* ph = new (emitComp, CMK_InstDesc) Placeholder(ig);
@@ -891,6 +894,7 @@ void emitter::ReserveEpilog(BasicBlock* block)
 
 #ifdef FEATURE_EH_FUNCLETS
     assert(block->KindIs(BBJ_RETURN, BBJ_EHCATCHRET, BBJ_EHFINALLYRET, BBJ_EHFILTERRET));
+    assert(emitCurIG->GetFuncletIndex() == codeGen->GetCurrentFuncletIndex());
     const bool isFunclet = !block->KindIs(BBJ_RETURN);
 #else
     assert(block->KindIs(BBJ_RETURN));
@@ -930,9 +934,6 @@ void emitter::ReserveEpilog(BasicBlock* block)
 
     insGroup* ig = emitCurIG;
     ig->igPhData = block;
-#ifdef FEATURE_EH_FUNCLETS
-    ig->igFuncIdx = codeGen->currentFuncletIndex;
-#endif
     ig->igFlags |= IGF_PLACEHOLDER | IGF_EPILOG;
 
     Placeholder* ph = new (emitComp, CMK_InstDesc) Placeholder(ig);
@@ -1152,9 +1153,13 @@ bool emitter::HasSingleEpilogAtEnd()
 
 #endif // JIT32_GCENCODER
 
-insGroup* emitter::CreateBlockLabel(BasicBlock* block)
+insGroup* emitter::CreateBlockLabel(BasicBlock* block, unsigned funcletIndex)
 {
     insGroup* ig = emitAllocIG(0);
+#ifdef FEATURE_EH_FUNCLETS
+    assert(funcletIndex <= UINT16_MAX);
+    ig->igFuncIdx = static_cast<uint16_t>(funcletIndex);
+#endif
 #if defined(DEBUG) || defined(LATE_DISASM)
     ig->igWeight = block->getBBWeight(emitComp);
 #endif
@@ -1181,10 +1186,6 @@ void emitter::DefineBlockLabel(insGroup* label)
         emitCurLabel = label;
     }
 
-#ifdef FEATURE_EH_FUNCLETS
-    label->igFuncIdx = codeGen->currentFuncletIndex;
-#endif
-
     if (label->IsCold() && (emitFirstColdIG == nullptr))
     {
         JITDUMP("\nThis is the start of the cold region of the method\n");
@@ -1195,13 +1196,19 @@ void emitter::DefineBlockLabel(insGroup* label)
 insGroup* emitter::CreateTempLabel()
 {
     insGroup* label = emitAllocIG(0);
-    label->igFlags |= (emitIGlast->igFlags & IGF_COLD);
+    label->igFlags |= (emitCurIG->igFlags & IGF_COLD);
+#ifdef FEATURE_EH_FUNCLETS
+    label->igFuncIdx = emitCurIG->GetFuncletIndex();
+#endif
     return label;
 }
 
 void emitter::DefineTempLabel(insGroup* label)
 {
     assert(!IsMainProlog(emitCurIG));
+#ifdef FEATURE_EH_FUNCLETS
+    assert(label->GetFuncletIndex() == emitCurIG->GetFuncletIndex());
+#endif
 
     emitFinishIG();
     emitAppendIG(label);
@@ -1266,6 +1273,9 @@ insGroup* emitter::DefineInlineTempLabel()
 void emitter::DefineInlineTempLabel(insGroup* label)
 {
     assert(!IsMainProlog(emitCurIG));
+#ifdef FEATURE_EH_FUNCLETS
+    assert(label->GetFuncletIndex() == emitCurIG->GetFuncletIndex());
+#endif
 
     emitFinishIG(true);
     emitAppendIG(label);
@@ -1991,10 +2001,10 @@ void emitter::emitLoopAlignment()
     assert(emitComp->opts.alignLoops);
 
     // After an epilog we don't have a suitable IG to insert the align instruction.
-    // We can't want to put it into the epilog, as it may affect the epilog size we
-    // report to the VM (and we can't do it anyway because at this point the epilog
-    // is only a placeholder and can't have any instructions in it). And we don't
-    // want to put it into the next IG because that belongs to the loop and the NOP
+    // We can't put it into the epilog, as it may affect the epilog size we report
+    // to the VM (and we can't do it anyway because at this point the epilog is
+    // only a placeholder and can't have any instructions in it). And we don't want
+    // to put it into the next IG because that belongs to the loop and the NOP
     // would be executed on every iteration. So we pull an IG out of the hat.
     if (emitCurIG == nullptr)
     {
@@ -2544,116 +2554,64 @@ unsigned emitter::emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offs
 #endif // FEATURE_LOOP_ALIGN
 
 #ifdef DEBUG
-// We should not be jumping/branching across funclets/functions
-// Except possibly a 'call' to a finally funclet for a local unwind
-// or a 'return' from a catch handler (that can go just about anywhere)
-// This routine attempts to validate that any branches across funclets
-// meets one of those criteria...
-void emitter::emitCheckFuncletBranch(instrDescJmp* jmp) const
+void emitter::VerifyCallFinally(insGroup* tgtIG) const
 {
-#ifdef TARGET_XARCH
-    // An lea of a code or data address (for constant data stored with the code)
-    // is treated like a jump for emission purposes but is not really a jump so
-    // we don't have to check anything here.
-    if ((jmp->idIns() == INS_lea) || (jmp->idIns() == INS_mov))
-    {
-        return;
-    }
-#endif
-
-    if (jmp->HasInstrCount())
-    {
-        // Too hard to figure out funclets from just an instruction count
-        // You're on your own!
-        return;
-    }
-
-#ifdef TARGET_ARM64
-    // No interest if it's not jmp.
-    if (emitIsLoadLabel(jmp) || emitIsLoadConstant(jmp))
-    {
-        return;
-    }
-#endif // TARGET_ARM64
-
-    insGroup* jmpIG = jmp->idjIG;
-    insGroup* tgtIG = jmp->GetLabel();
     assert(tgtIG != nullptr);
 
-#ifndef FEATURE_EH_FUNCLETS
-    assert(tgtIG->GetFuncletIndex() == 0);
-    assert(jmpIG->GetFuncletIndex() == 0);
-#else
-    if (tgtIG->igFuncIdx != jmpIG->igFuncIdx)
-    {
-        if (jmp->idDebugOnlyInfo()->idFinallyCall)
-        {
-            // We don't record enough information to determine this accurately, so instead
-            // we assume that any branch to the very start of a finally is OK.
+#ifdef FEATURE_EH_FUNCLETS
+    // We don't record enough information to determine this accurately, so instead
+    // we assume that any branch to the very start of a finally is OK.
 
-            // No branches back to the root method
-            assert(tgtIG->igFuncIdx > 0);
-            const FuncInfoDsc& tgtFunc = codeGen->funGetFunc(tgtIG->igFuncIdx);
-            assert(tgtFunc.kind == FUNC_HANDLER);
-            EHblkDsc* tgtEH = emitComp->ehGetDsc(tgtFunc.ehIndex);
+    // No branches back to the root method
+    assert(tgtIG->GetFuncletIndex() > 0);
+    const FuncInfoDsc& tgtFunc = codeGen->funGetFunc(tgtIG->GetFuncletIndex());
+    assert(tgtFunc.kind == FUNC_HANDLER);
+    EHblkDsc* tgtEH = emitComp->ehGetDsc(tgtFunc.ehIndex);
 
-            // Only branches to finallys (not faults, catches, filters, etc.)
-            assert(tgtEH->HasFinallyHandler());
+    // Only branches to finallys (not faults, catches, filters, etc.)
+    assert(tgtEH->HasFinallyHandler());
 
-            // Only to the first block of the finally (which is properly marked)
-            BasicBlock* tgtBlk = tgtEH->ebdHndBeg;
-            assert(tgtBlk->bbFlags & BBF_FUNCLET_BEG);
+    // Only to the first block of the finally (which is properly marked)
+    BasicBlock* tgtBlk = tgtEH->ebdHndBeg;
+    assert(tgtBlk->bbFlags & BBF_FUNCLET_BEG);
 
-            // And now we made it back to where we started
-            assert(tgtIG == tgtBlk->emitLabel);
-            assert(tgtIG->igFuncIdx == codeGen->funGetFuncIdx(tgtBlk));
-        }
-        else if (jmp->idDebugOnlyInfo()->idCatchRet)
-        {
-            // Again there isn't enough information to prove this correct
-            // so just allow a 'branch' to any other 'parent' funclet
-
-            const FuncInfoDsc& jmpFunc = codeGen->funGetFunc(jmpIG->igFuncIdx);
-            assert(jmpFunc.kind == FUNC_HANDLER);
-            EHblkDsc* jmpEH = emitComp->ehGetDsc(jmpFunc.ehIndex);
-
-            // Only branches out of catches
-            assert(jmpEH->HasCatchHandler());
-
-            const FuncInfoDsc& tgtFunc = codeGen->funGetFunc(tgtIG->igFuncIdx);
-            if (tgtFunc.kind == FUNC_HANDLER)
-            {
-                // An outward chain to the containing funclet/EH handler
-                // Note that it might be anywhere within nested try bodies
-                assert(jmpEH->ebdEnclosingHndIndex == tgtFunc.ehIndex);
-            }
-            else
-            {
-                // This funclet is 'top level' and so it is branching back to the
-                // root function, and should have no containing EH handlers
-                // but it could be nested within try bodies...
-                assert(tgtFunc.kind == FUNC_ROOT);
-                assert(jmpEH->ebdEnclosingHndIndex == EHblkDsc::NO_ENCLOSING_INDEX);
-            }
-        }
-        else
-        {
-            printf("Hit an illegal branch between funclets!");
-            assert(tgtIG->igFuncIdx == jmpIG->igFuncIdx);
-        }
-    }
+    // And now we made it back to where we started
+    assert(tgtIG == tgtBlk->emitLabel);
+    assert(tgtIG->GetFuncletIndex() == codeGen->funGetFuncIdx(tgtBlk));
 #endif // FEATURE_EH_FUNCLETS
 }
 
-void emitter::VerifyBranches() const
+void emitter::VerifyCatchRet(insGroup* tgtIG) const
 {
-    for (instrDescJmp* instr = emitJumpList; instr != nullptr; instr = instr->idjNext)
+    assert(tgtIG != nullptr);
+
+#ifdef FEATURE_EH_FUNCLETS
+    // Again there isn't enough information to prove this correct
+    // so just allow a 'branch' to any other 'parent' funclet
+
+    const FuncInfoDsc& jmpFunc = codeGen->funGetFunc(emitCurIG->GetFuncletIndex());
+    assert(jmpFunc.kind == FUNC_HANDLER);
+    EHblkDsc* jmpEH = emitComp->ehGetDsc(jmpFunc.ehIndex);
+
+    // Only branches out of catches
+    assert(jmpEH->HasCatchHandler());
+
+    const FuncInfoDsc& tgtFunc = codeGen->funGetFunc(tgtIG->GetFuncletIndex());
+    if (tgtFunc.kind == FUNC_HANDLER)
     {
-#ifdef TARGET_XARCH
-        assert((instr->idInsFmt() == IF_LABEL) || (instr->idInsFmt() == IF_RWR_LABEL));
-#endif
-        INDEBUG(emitCheckFuncletBranch(instr));
+        // An outward chain to the containing funclet/EH handler
+        // Note that it might be anywhere within nested try bodies
+        assert(jmpEH->ebdEnclosingHndIndex == tgtFunc.ehIndex);
     }
+    else
+    {
+        // This funclet is 'top level' and so it is branching back to the
+        // root function, and should have no containing EH handlers
+        // but it could be nested within try bodies...
+        assert(tgtFunc.kind == FUNC_ROOT);
+        assert(jmpEH->ebdEnclosingHndIndex == EHblkDsc::NO_ENCLOSING_INDEX);
+    }
+#endif // FEATURE_EH_FUNCLETS
 }
 #endif // DEBUG
 

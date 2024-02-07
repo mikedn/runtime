@@ -373,6 +373,13 @@ public:
         return funGetFunc(currentFuncletIndex);
     }
 
+#ifdef DEBUG
+    unsigned GetCurrentFuncletIndex() const
+    {
+        return currentFuncletIndex;
+    }
+#endif
+
     FuncInfoDsc& funSetCurrentFunc(unsigned index)
     {
         assert(FitsIn<uint16_t>(index));

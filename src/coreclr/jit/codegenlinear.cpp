@@ -195,18 +195,26 @@ void CodeGen::genMarkLabelsForCodegen()
         }
     }
 
-    bool isInColdRegion = false;
+    unsigned funcletIndex   = 0;
+    bool     isInColdRegion = false;
 
     for (BasicBlock* block : compiler->Blocks())
     {
         if ((block->bbFlags & BBF_HAS_LABEL) != 0)
         {
+#ifdef FEATURE_EH_FUNCLETS
+            if ((block->bbFlags & BBF_FUNCLET_BEG) != 0)
+            {
+                funcletIndex = funGetFuncIdx(block);
+            }
+#endif
+
             if (block == compiler->fgFirstColdBlock)
             {
                 isInColdRegion = true;
             }
 
-            block->emitLabel = GetEmitter()->CreateBlockLabel(block);
+            block->emitLabel = GetEmitter()->CreateBlockLabel(block, funcletIndex);
 
             if (isInColdRegion)
             {
@@ -279,6 +287,10 @@ void CodeGen::genCodeForBBlist()
         {
             assert(!GetEmitter()->emitEndsWithAlignInstr());
         }
+#endif
+
+#ifdef FEATURE_EH_FUNCLETS
+        assert(currentFuncletIndex == GetEmitter()->GetCurrentInsGroup()->GetFuncletIndex());
 #endif
 
 #if !FEATURE_FIXED_OUT_ARGS
@@ -644,7 +656,6 @@ void CodeGen::genCodeForBBlist()
 #endif
 
     GetEmitter()->emitGeneratePrologEpilog();
-    INDEBUG(GetEmitter()->VerifyBranches());
     GetEmitter()->ShortenBranches();
 #if FEATURE_LOOP_ALIGN
     GetEmitter()->emitLoopAlignAdjustments();
@@ -675,7 +686,7 @@ void CodeGen::genUpdateCurrentFunclet(BasicBlock* block)
 {
     if ((block->bbFlags & BBF_FUNCLET_BEG) != 0)
     {
-        const FuncInfoDsc& func = funSetCurrentFunc(funGetFuncIdx(block));
+        const FuncInfoDsc& func = funSetCurrentFunc(block->emitLabel->GetFuncletIndex());
 
         if (func.kind == FUNC_FILTER)
         {

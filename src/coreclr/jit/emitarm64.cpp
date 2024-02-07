@@ -7927,8 +7927,9 @@ static bool IsBranch(instruction ins)
 
 void emitter::emitIns_J(instruction ins, int instrCount)
 {
+    assert(IsMainProlog(emitCurIG));
     assert(IsBranch(ins));
-    assert(instrCount != 0);
+    assert(instrCount < 0);
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
@@ -7942,7 +7943,7 @@ void emitter::emitIns_J(instruction ins, int instrCount)
 void emitter::emitIns_J(instruction ins, insGroup* label)
 {
     assert(IsBranch(ins));
-    assert(label != nullptr);
+    assert(emitCurIG->GetFuncletIndex() == label->GetFuncletIndex());
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
@@ -7957,13 +7958,12 @@ void emitter::emitIns_J(instruction ins, insGroup* label)
 void emitter::emitIns_CallFinally(insGroup* label)
 {
     assert(codeGen->GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY);
-    assert(label != nullptr);
+    INDEBUG(VerifyCallFinally(label));
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(INS_bl_local);
     id->idInsFmt(IF_BI_0A);
     id->SetLabel(label);
-    INDEBUG(id->idDebugOnlyInfo()->idFinallyCall = true);
 
     dispIns(id);
     appendToCurIG(id);

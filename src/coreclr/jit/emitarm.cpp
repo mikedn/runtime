@@ -4039,8 +4039,9 @@ static bool IsBranch(instruction ins)
 
 void emitter::emitIns_J(instruction ins, int instrCount)
 {
+    assert(IsMainProlog(emitCurIG));
     assert(IsBranch(ins));
-    assert(instrCount != 0);
+    assert(instrCount < 0);
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
@@ -4055,7 +4056,7 @@ void emitter::emitIns_J(instruction ins, int instrCount)
 void emitter::emitIns_J(instruction ins, insGroup* label)
 {
     assert(IsBranch(ins));
-    assert(label != nullptr);
+    assert(emitCurIG->GetFuncletIndex() == label->GetFuncletIndex());
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
@@ -4096,9 +4097,6 @@ void emitter::emitIns_J(instruction ins, insGroup* label)
         }
     }
 
-    INDEBUG(id->idDebugOnlyInfo()->idFinallyCall =
-                (ins == INS_b) && (codeGen->GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY));
-
     dispIns(id);
     appendToCurIG(id);
 }
@@ -4109,7 +4107,7 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, regNu
     // Their limited range might make using them problematic, we might save a cheap 0 compare
     // and end up with an extra unconditional branch.
     assert((ins == INS_cbz) || (ins == INS_cbnz));
-    assert(label != nullptr);
+    assert(emitCurIG->GetFuncletIndex() == label->GetFuncletIndex());
     assert(isLowRegister(reg));
     assert(!emitComp->opts.compReloc || !InDifferentRegions(emitCurIG, label));
 
@@ -4125,10 +4123,48 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, regNu
     appendToCurIG(id);
 }
 
+void emitter::emitIns_CallFinally(insGroup* label)
+{
+    INDEBUG(VerifyCallFinally(label));
+
+    instrDescJmp* id = emitNewInstrJmp();
+    id->idIns(INS_b);
+    id->idInsFmt(IF_T2_J2);
+    id->idInsSize(ISZ_32BIT);
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label));
+    id->SetLabel(label);
+
+    if (label->IsDefined() && !id->idIsCnsReloc())
+    {
+        // This is a backward jump, we can determine now if it's going to be short/medium/large.
+
+        uint32_t instrOffs = emitCurCodeOffset + emitCurIGsize;
+        int32_t  distance  = instrOffs - label->igOffs;
+        assert(distance >= 0);
+        distance += 4;
+
+        if (JMP_DIST_SMALL_MAX_NEG <= -distance)
+        {
+            id->idInsFmt(IF_T1_M);
+            id->idInsSize(ISZ_16BIT);
+        }
+    }
+
+    dispIns(id);
+    appendToCurIG(id);
+}
+
 void emitter::emitIns_R_L(instruction ins, RegNum reg, insGroup* label)
 {
     assert((ins == INS_movt) || (ins == INS_movw));
     assert(label != nullptr);
+
+#ifdef DEBUG
+    if (codeGen->GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET)
+    {
+        VerifyCatchRet(label);
+    }
+#endif
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
@@ -4138,7 +4174,6 @@ void emitter::emitIns_R_L(instruction ins, RegNum reg, insGroup* label)
     id->idReg1(reg);
     id->SetLabel(label);
     id->idSetIsCnsReloc(emitComp->opts.compReloc);
-    INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (codeGen->GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
 
     dispIns(id);
     appendToCurIG(id);

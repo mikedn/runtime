@@ -2771,7 +2771,12 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, ConstData* data, int32
 
 void emitter::emitIns_R_L(RegNum reg, insGroup* label)
 {
-    assert(label != nullptr);
+#ifdef DEBUG
+    if (codeGen->GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET)
+    {
+        VerifyCatchRet(label);
+    }
+#endif
 
     instrDescJmp* id = emitNewInstrJmp();
 #ifdef TARGET_X86
@@ -2784,7 +2789,6 @@ void emitter::emitIns_R_L(RegNum reg, insGroup* label)
     id->idReg1(reg);
     id->SetLabel(label);
     id->idSetIsCnsReloc(emitComp->opts.compReloc AMD64_ONLY(&&InDifferentRegions(emitCurIG, label)));
-    INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (codeGen->GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
 
 #ifdef TARGET_X86
     unsigned sz = 1 + 4; // 0xB8 IMM32
@@ -3378,14 +3382,14 @@ void emitter::emitIns_L(instruction ins, insGroup* label)
 #ifdef TARGET_AMD64
 void emitter::emitIns_CallFinally(insGroup* label)
 {
-    assert(label != nullptr);
+    assert(codeGen->GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY);
+    INDEBUG(VerifyCallFinally(label));
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label));
     id->idIns(INS_call);
     id->idInsFmt(IF_LABEL);
     id->SetLabel(label);
-    INDEBUG(id->idDebugOnlyInfo()->idFinallyCall = true);
 
     id->idCodeSize(CALL_INST_SIZE);
     dispIns(id);
@@ -3395,8 +3399,8 @@ void emitter::emitIns_CallFinally(insGroup* label)
 
 void emitter::emitIns_J(instruction ins, int instrCount)
 {
-    assert(IsJccInstruction(ins));
     assert(IsMainProlog(emitCurIG));
+    assert(IsJccInstruction(ins));
     assert(instrCount < 0);
 
     instrDescJmp* id = emitNewInstrJmp();
@@ -3412,7 +3416,7 @@ void emitter::emitIns_J(instruction ins, int instrCount)
 void emitter::emitIns_J(instruction ins, insGroup* label)
 {
     assert((ins == INS_jmp) || IsJccInstruction(ins));
-    assert(label != nullptr);
+    assert(emitCurIG->GetFuncletIndex() == label->GetFuncletIndex());
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);

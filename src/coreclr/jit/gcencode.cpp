@@ -4392,7 +4392,7 @@ void GCEncoder::AddFullyInterruptibleRanges(const Emitter& emitter, unsigned cod
     Log("Defining interruptible ranges:\n");
 #endif
 
-    emitter.EnumerateNoGCInsGroups([&](unsigned funcletIndex, unsigned offset, unsigned size) {
+    emitter.EnumerateNoGCInsGroups([&](unsigned offset, unsigned size DEBUGARG(unsigned funcletIndex)) {
         if (offset < prevOffset)
         {
             // We're still in the main method prolog, which has already had it's interruptible range reported.
