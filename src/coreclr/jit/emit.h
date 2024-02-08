@@ -122,6 +122,7 @@ struct insGroup
     double               igPerfScore; // The PerfScore for this insGroup
 #endif
 #ifdef DEBUG
+    uint16_t                  tryIndex;
     jitstd::list<BasicBlock*> igBlocks; // All the blocks that generated code into this insGroup.
 #endif
 

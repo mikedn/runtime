@@ -190,6 +190,7 @@ insGroup* emitter::emitAllocIG(unsigned num)
     ig->igPerfScore = 0.0;
 #endif
 #ifdef DEBUG
+    ig->tryIndex = 0;
     new (&ig->igBlocks) jitstd::list<BasicBlock*>(emitComp->getAllocator(CMK_DebugOnly));
 #endif
 
@@ -204,6 +205,9 @@ void emitter::emitNewIG()
     ig->igFlags |= (emitIGlast->igFlags & IGF_COLD);
 #ifdef FEATURE_EH_FUNCLETS
     ig->igFuncIdx = emitIGlast->GetFuncletIndex();
+#endif
+#ifdef DEBUG
+    ig->tryIndex = emitIGlast->tryIndex;
 #endif
 
     emitIGlast->igNext = ig;
@@ -1163,6 +1167,9 @@ insGroup* emitter::CreateBlockLabel(BasicBlock* block, unsigned funcletIndex)
 #if defined(DEBUG) || defined(LATE_DISASM)
     ig->igWeight = block->getBBWeight(emitComp);
 #endif
+#ifdef DEBUG
+    ig->tryIndex = block->bbTryIndex;
+#endif
     return ig;
 }
 
@@ -1199,6 +1206,9 @@ insGroup* emitter::CreateTempLabel()
     label->igFlags |= (emitCurIG->igFlags & IGF_COLD);
 #ifdef FEATURE_EH_FUNCLETS
     label->igFuncIdx = emitCurIG->GetFuncletIndex();
+#endif
+#ifdef DEBUG
+    label->tryIndex = emitCurIG->tryIndex;
 #endif
     return label;
 }
@@ -2895,6 +2905,12 @@ void emitter::emitEndCodeGen()
                                        curInstrDesc, i + 1 < count ? id : nullptr);
             }
 #endif // DEBUG
+
+#ifdef TARGET_AMD64
+            // We can't have a call at the end of the try region, the unwinder needs
+            // an extra instruction to understand that the call is inside the region.
+            assert((curInstrDesc->idIns() != INS_call) || (i < count - 1) || (ig->tryIndex == ig->igNext->tryIndex));
+#endif
         }
 
         emitCurIG = nullptr;
