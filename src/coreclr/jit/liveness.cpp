@@ -1153,6 +1153,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
             case GT_IL_OFFSET:
             case GT_KEEPALIVE:
             case GT_BOUNDS_CHECK:
+            case GT_NO_OP:
 #ifdef FEATURE_HW_INTRINSICS
             case GT_HWINTRINSIC:
 #endif

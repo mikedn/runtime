@@ -129,6 +129,7 @@ void emitIns(instruction ins);
 
 void emitIns_J(instruction ins, int instrCount);
 void emitIns_J(instruction ins, insGroup* label);
+void emitIns_CallFinally(insGroup* label);
 
 void emitIns_I(instruction ins, emitAttr attr, int32_t imm);
 

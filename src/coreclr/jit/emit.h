@@ -122,6 +122,7 @@ struct insGroup
     double               igPerfScore; // The PerfScore for this insGroup
 #endif
 #ifdef DEBUG
+    uint16_t                  tryIndex;
     jitstd::list<BasicBlock*> igBlocks; // All the blocks that generated code into this insGroup.
 #endif
 
@@ -343,7 +344,7 @@ public:
         {
             if (ig->IsNoGC())
             {
-                callback(ig->igFuncIdx, ig->igOffs, ig->igSize);
+                callback(ig->igOffs, ig->igSize DEBUGARG(ig->GetFuncletIndex()));
             }
         }
     }
@@ -458,11 +459,9 @@ private:
     struct instrDescDebugInfo
     {
         unsigned idNum;
-        uint16_t idSize;                // size of the instruction descriptor
-        bool     idFinallyCall = false; // Branch instruction is a call to finally
-        bool     idCatchRet    = false; // Instruction is for a catch 'return'
-        int      varNum        = INT_MIN;
-        int      varOffs       = 0;
+        uint16_t idSize; // size of the instruction descriptor
+        int      varNum  = INT_MIN;
+        int      varOffs = 0;
 #ifdef TARGET_XARCH
         HandleKind dispHandleKind = HandleKind::None;
 #endif
@@ -713,6 +712,7 @@ private:
                 case IF_LARGEJMP: // b<cond> + b<uncond>
                     return 8;
                 case IF_GC_REG:
+                case IF_NOP_JMP:
                     return 0;
                 default:
                     return 4;
@@ -898,7 +898,13 @@ private:
         {
             return (_idInsFmt == IF_GC_REG)
 #ifdef TARGET_XARCH
-                   || (_idIns == INS_align)
+                   || (_idIns == INS_align) || (_idCodeSize == 0)
+#endif
+#ifdef TARGET_ARM
+                   || (_idInsSize == ISZ_NONE)
+#endif
+#ifdef TARGET_ARM64
+                   || (_idInsFmt == IF_NOP_JMP)
 #endif
                 ;
         }
@@ -1516,7 +1522,6 @@ public:
 
     INDEBUG(static bool IsCodeAligned(UNATIVE_OFFSET offset);)
 
-    INDEBUG(void VerifyBranches() const;)
     void ShortenBranches();
 
 #if FEATURE_LOOP_ALIGN
@@ -1537,7 +1542,10 @@ private:
 #endif
 
 private:
-    INDEBUG(void emitCheckFuncletBranch(instrDescJmp* jmp) const;)
+#ifdef DEBUG
+    void VerifyCallFinally(insGroup* label) const;
+    void VerifyCatchRet(insGroup* label) const;
+#endif
 
     // Are we generating IGF_NOGCINTERRUPT insGroups (for prologs, epilogs, etc.)
     bool emitNoGCIG = false;
@@ -1695,7 +1703,7 @@ private:
 #endif
 
 public:
-    insGroup* CreateBlockLabel(BasicBlock* block);
+    insGroup* CreateBlockLabel(BasicBlock* block, unsigned funcletIndex);
     insGroup* CreateTempLabel();
     insGroup* DefineTempLabel();
     void DefineTempLabel(insGroup* label);

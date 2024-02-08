@@ -195,18 +195,26 @@ void CodeGen::genMarkLabelsForCodegen()
         }
     }
 
-    bool isInColdRegion = false;
+    unsigned funcletIndex   = 0;
+    bool     isInColdRegion = false;
 
     for (BasicBlock* block : compiler->Blocks())
     {
         if ((block->bbFlags & BBF_HAS_LABEL) != 0)
         {
+#ifdef FEATURE_EH_FUNCLETS
+            if ((block->bbFlags & BBF_FUNCLET_BEG) != 0)
+            {
+                funcletIndex = funGetFuncIdx(block);
+            }
+#endif
+
             if (block == compiler->fgFirstColdBlock)
             {
                 isInColdRegion = true;
             }
 
-            block->emitLabel = GetEmitter()->CreateBlockLabel(block);
+            block->emitLabel = GetEmitter()->CreateBlockLabel(block, funcletIndex);
 
             if (isInColdRegion)
             {
@@ -279,6 +287,10 @@ void CodeGen::genCodeForBBlist()
         {
             assert(!GetEmitter()->emitEndsWithAlignInstr());
         }
+#endif
+
+#ifdef FEATURE_EH_FUNCLETS
+        assert(currentFuncletIndex == GetEmitter()->GetCurrentInsGroup()->GetFuncletIndex());
 #endif
 
 #if !FEATURE_FIXED_OUT_ARGS
@@ -541,6 +553,28 @@ void CodeGen::genCodeForBBlist()
 
             case BBJ_ALWAYS:
                 assert(!block->IsThrowHelperBlock());
+
+                if (block->bbJumpDest == block->bbNext)
+                {
+#ifdef TARGET_AMD64
+                    // We need to have another instruction after a call if a different EH region follows,
+                    // but we can't properly check the EH region in this case because the next block may
+                    // be in the same EH region and also be a "jump to next" block which goes into another
+                    // EH region, or an empty block that falls through to another EH region, or perhaps a
+                    // block that isn't empty but becomes empty due to redundant mov elimination in the
+                    // emitter etc. Such cases are rare but they do happen, at least in minopts, where the
+                    // front end doesn't optimize the flow graph. And such failures can be rather subtle
+                    // and not easily caught by tests. So just insert a nop anytime EH is present in the
+                    // method. Anyway it's better than the old code, which kept a useless "jump to next".
+                    if (GetEmitter()->IsLastInsCall() && compiler->fgHasEH())
+                    {
+                        GetEmitter()->emitIns(INS_nop);
+                    }
+#endif
+
+                    break;
+                }
+
 #ifdef TARGET_ARMARCH
                 GetEmitter()->emitIns_J(INS_b, block->bbJumpDest->emitLabel);
 #else
@@ -622,7 +656,6 @@ void CodeGen::genCodeForBBlist()
 #endif
 
     GetEmitter()->emitGeneratePrologEpilog();
-    INDEBUG(GetEmitter()->VerifyBranches());
     GetEmitter()->ShortenBranches();
 #if FEATURE_LOOP_ALIGN
     GetEmitter()->emitLoopAlignAdjustments();
@@ -653,7 +686,7 @@ void CodeGen::genUpdateCurrentFunclet(BasicBlock* block)
 {
     if ((block->bbFlags & BBF_FUNCLET_BEG) != 0)
     {
-        const FuncInfoDsc& func = funSetCurrentFunc(funGetFuncIdx(block));
+        const FuncInfoDsc& func = funSetCurrentFunc(block->emitLabel->GetFuncletIndex());
 
         if (func.kind == FUNC_FILTER)
         {

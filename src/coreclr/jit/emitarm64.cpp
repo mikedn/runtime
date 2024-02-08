@@ -338,6 +338,7 @@ void emitter::emitInsSanityCheck(instrDesc* id)
         case IF_BI_0B: // BI_0B   ......iiiiiiiiii iiiiiiiiiiii....               simm19:00
             break;
 
+        case IF_NOP_JMP:
         case IF_LARGEJMP:
         case IF_LARGEADR:
         case IF_LARGELDC:
@@ -7926,8 +7927,9 @@ static bool IsBranch(instruction ins)
 
 void emitter::emitIns_J(instruction ins, int instrCount)
 {
+    assert(IsMainProlog(emitCurIG));
     assert(IsBranch(ins));
-    assert(instrCount != 0);
+    assert(instrCount < 0);
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
@@ -7941,7 +7943,7 @@ void emitter::emitIns_J(instruction ins, int instrCount)
 void emitter::emitIns_J(instruction ins, insGroup* label)
 {
     assert(IsBranch(ins));
-    assert(label != nullptr);
+    assert(emitCurIG->GetFuncletIndex() == label->GetFuncletIndex());
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
@@ -7956,13 +7958,12 @@ void emitter::emitIns_J(instruction ins, insGroup* label)
 void emitter::emitIns_CallFinally(insGroup* label)
 {
     assert(codeGen->GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY);
-    assert(label != nullptr);
+    INDEBUG(VerifyCallFinally(label));
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(INS_bl_local);
     id->idInsFmt(IF_BI_0A);
     id->SetLabel(label);
-    INDEBUG(id->idDebugOnlyInfo()->idFinallyCall = true);
 
     dispIns(id);
     appendToCurIG(id);
@@ -8126,7 +8127,7 @@ AGAIN:
         {
             instr->idjOffs -= instrIGSizeReduction;
 
-            assert((previousInstr == nullptr) || (instr->idjOffs > previousInstr->idjOffs));
+            assert((previousInstr == nullptr) || (instr->idjOffs >= previousInstr->idjOffs));
         }
         else
         {
@@ -8139,7 +8140,7 @@ AGAIN:
                 JITDUMP(" to % 04X\n", ig->igOffs);
             }
 
-            assert(instrIG->igOffs > previousInstrIG->igOffs);
+            assert(instrIG->igOffs >= previousInstrIG->igOffs);
 
             previousInstrIG = instrIG;
         }
@@ -8149,17 +8150,17 @@ AGAIN:
             continue;
         }
 
-        if ((instr->idInsFmt() != IF_LARGEJMP) && (instr->idInsFmt() != IF_LARGEADR) &&
-            (instr->idInsFmt() != IF_LARGELDC))
-        {
-            continue;
-        }
-
-        uint32_t instrOffs = instrIG->igOffs + instr->idjOffs;
+        uint32_t instrOffs   = instrIG->igOffs + instr->idjOffs;
+        uint32_t currentSize = instr->idCodeSize();
         int32_t  distanceOverflow;
 
         if (instr->HasConstData())
         {
+            if (currentSize <= 4)
+            {
+                continue;
+            }
+
             uint32_t dataOffs = instr->GetConstData()->offset;
 
             ssize_t imm = emitGetInsSC(instr);
@@ -8179,8 +8180,40 @@ AGAIN:
                     instr->idDebugOnlyInfo()->idNum, instrOffs, instrIG->GetId(), dataOffs, dataOffs - instrOffs,
                     distanceOverflow, distanceOverflow <= 0 ? ", adr" : "adrp/add");
         }
-        else
+        else if (instr->HasLabel())
         {
+            insGroup* label     = instr->GetLabel();
+            uint32_t  labelOffs = label->igOffs;
+
+            if (label->igNum > instrIG->igNum)
+            {
+                labelOffs -= totalSizeReduction;
+            }
+
+            if (((instr->idInsFmt() != IF_LARGEADR) || (instr->idInsFmt() != IF_SMALLADR)) &&
+                (instrOffs + currentSize == labelOffs))
+            {
+                // Removing a "jump to next" could produce another "jump to next", we need to force another pass
+                // to eliminate that too. Ideally we'd traverse the jump list backwards, but it's a forward only
+                // list and given the rarity of such nested jumps it's hard to justify the extra code and memory
+                // required to traverse the list both ways.
+                minDistanceOverflow = 0;
+
+                instr->idInsFmt(IF_NOP_JMP);
+
+                instrIG->igSize -= static_cast<uint16_t>(currentSize);
+                instrIG->igFlags |= IGF_UPD_ISZ;
+                instrIGSizeReduction += currentSize;
+                totalSizeReduction += currentSize;
+
+                continue;
+            }
+
+            if (currentSize <= 4)
+            {
+                continue;
+            }
+
             int32_t maxNegativeDistance;
             int32_t maxPositiveDistance;
 
@@ -8195,13 +8228,8 @@ AGAIN:
                 maxPositiveDistance = (1 << 20) - 1;
             }
 
-            insGroup* label     = instr->GetLabel();
-            uint32_t  labelOffs = label->igOffs;
-
             if (label->igNum > instrIG->igNum)
             {
-                labelOffs -= totalSizeReduction;
-
                 distanceOverflow = (labelOffs - instrOffs) - maxPositiveDistance;
             }
             else
@@ -8213,6 +8241,10 @@ AGAIN:
                     instr->idDebugOnlyInfo()->idNum, instrOffs, instrIG->GetId(), labelOffs, label->GetId(),
                     labelOffs - instrOffs, distanceOverflow, distanceOverflow <= 0 ? ", short" : "");
         }
+        else
+        {
+            continue;
+        }
 
         if (distanceOverflow > 0)
         {
@@ -8221,7 +8253,6 @@ AGAIN:
             continue;
         }
 
-        uint32_t currentSize = instr->idCodeSize();
         assert(currentSize > 4);
 
         emitSetShortJump(instr);
@@ -9606,7 +9637,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_BI_1B: // BI_1B   B.......bbbbbiii iiiiiiiiiiittttt      Rt imm6, simm14:00
         case IF_LARGEJMP:
             dst = emitOutputLJ(dst, static_cast<instrDescJmp*>(id), ig);
-            sz  = sizeof(instrDescJmp);
+            FALLTHROUGH;
+        case IF_NOP_JMP:
+            sz = sizeof(instrDescJmp);
             break;
 
         case IF_DI_1E: // DI_1E   .ii.....iiiiiiii iiiiiiiiiiiddddd      Rd       simm21
@@ -11522,6 +11555,9 @@ void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, uns
             emitDispAddrLoadLabel(static_cast<instrDescJmp*>(id));
             break;
 
+        case IF_NOP_JMP:
+            break;
+
         case IF_BI_0C: // BI_0C   ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
             printf("%s",
                    emitComp->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle)));
@@ -12633,6 +12669,11 @@ emitter::insExecutionCharacteristics emitter::getInsExecutionCharacteristics(ins
             break;
 
         case IF_LARGEJMP: // bcc + b
+            result.insThroughput = PERFSCORE_THROUGHPUT_2C;
+            result.insLatency    = PERFSCORE_LATENCY_2C;
+            break;
+
+        case IF_NOP_JMP:
             result.insThroughput = PERFSCORE_THROUGHPUT_2C;
             result.insLatency    = PERFSCORE_LATENCY_2C;
             break;

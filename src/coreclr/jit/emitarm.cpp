@@ -4027,7 +4027,6 @@ void emitter::emitSetMediumJump(instrDescJmp* id)
 #define JMP_SIZE_SMALL (2)
 #define JMP_SIZE_LARGE (4)
 
-#ifdef DEBUG
 static bool IsConditionalBranch(instruction ins)
 {
     return (INS_beq <= ins) && (ins <= INS_ble);
@@ -4037,12 +4036,12 @@ static bool IsBranch(instruction ins)
 {
     return (ins == INS_b) || IsConditionalBranch(ins);
 }
-#endif
 
 void emitter::emitIns_J(instruction ins, int instrCount)
 {
+    assert(IsMainProlog(emitCurIG));
     assert(IsBranch(ins));
-    assert(instrCount != 0);
+    assert(instrCount < 0);
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
@@ -4057,7 +4056,7 @@ void emitter::emitIns_J(instruction ins, int instrCount)
 void emitter::emitIns_J(instruction ins, insGroup* label)
 {
     assert(IsBranch(ins));
-    assert(label != nullptr);
+    assert(emitCurIG->GetFuncletIndex() == label->GetFuncletIndex());
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
@@ -4098,9 +4097,6 @@ void emitter::emitIns_J(instruction ins, insGroup* label)
         }
     }
 
-    INDEBUG(id->idDebugOnlyInfo()->idFinallyCall =
-                (ins == INS_b) && (codeGen->GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY));
-
     dispIns(id);
     appendToCurIG(id);
 }
@@ -4111,7 +4107,7 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, regNu
     // Their limited range might make using them problematic, we might save a cheap 0 compare
     // and end up with an extra unconditional branch.
     assert((ins == INS_cbz) || (ins == INS_cbnz));
-    assert(label != nullptr);
+    assert(emitCurIG->GetFuncletIndex() == label->GetFuncletIndex());
     assert(isLowRegister(reg));
     assert(!emitComp->opts.compReloc || !InDifferentRegions(emitCurIG, label));
 
@@ -4127,10 +4123,48 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, regNu
     appendToCurIG(id);
 }
 
+void emitter::emitIns_CallFinally(insGroup* label)
+{
+    INDEBUG(VerifyCallFinally(label));
+
+    instrDescJmp* id = emitNewInstrJmp();
+    id->idIns(INS_b);
+    id->idInsFmt(IF_T2_J2);
+    id->idInsSize(ISZ_32BIT);
+    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label));
+    id->SetLabel(label);
+
+    if (label->IsDefined() && !id->idIsCnsReloc())
+    {
+        // This is a backward jump, we can determine now if it's going to be short/medium/large.
+
+        uint32_t instrOffs = emitCurCodeOffset + emitCurIGsize;
+        int32_t  distance  = instrOffs - label->igOffs;
+        assert(distance >= 0);
+        distance += 4;
+
+        if (JMP_DIST_SMALL_MAX_NEG <= -distance)
+        {
+            id->idInsFmt(IF_T1_M);
+            id->idInsSize(ISZ_16BIT);
+        }
+    }
+
+    dispIns(id);
+    appendToCurIG(id);
+}
+
 void emitter::emitIns_R_L(instruction ins, RegNum reg, insGroup* label)
 {
     assert((ins == INS_movt) || (ins == INS_movw));
     assert(label != nullptr);
+
+#ifdef DEBUG
+    if (codeGen->GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET)
+    {
+        VerifyCatchRet(label);
+    }
+#endif
 
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
@@ -4140,7 +4174,6 @@ void emitter::emitIns_R_L(instruction ins, RegNum reg, insGroup* label)
     id->idReg1(reg);
     id->SetLabel(label);
     id->idSetIsCnsReloc(emitComp->opts.compReloc);
-    INDEBUG(id->idDebugOnlyInfo()->idCatchRet = (codeGen->GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET));
 
     dispIns(id);
     appendToCurIG(id);
@@ -4313,7 +4346,7 @@ AGAIN:
         {
             instr->idjOffs -= instrIGSizeReduction;
 
-            assert((previousInstr == nullptr) || (instr->idjOffs > previousInstr->idjOffs));
+            assert((previousInstr == nullptr) || (instr->idjOffs >= previousInstr->idjOffs));
         }
         else
         {
@@ -4326,12 +4359,19 @@ AGAIN:
                 JITDUMP(" to % 04X\n", ig->igOffs);
             }
 
-            assert(instrIG->igOffs > previousInstrIG->igOffs);
+            assert(instrIG->igOffs >= previousInstrIG->igOffs);
 
             previousInstrIG = instrIG;
         }
 
-        if (instr->idIsCnsReloc())
+        if (!IsBranch(instr->idIns()) || instr->idIsCnsReloc() || !instr->HasLabel())
+        {
+            continue;
+        }
+
+        uint32_t currentSize = instr->idCodeSize();
+
+        if (currentSize == 0)
         {
             continue;
         }
@@ -4341,14 +4381,7 @@ AGAIN:
         int32_t mediumNegativeDistance;
         int32_t mediumPositiveDistance;
 
-        if ((instr->idInsFmt() == IF_T2_J1) || (instr->idInsFmt() == IF_LARGEJMP))
-        {
-            smallNegativeDistance  = JCC_DIST_SMALL_MAX_NEG;
-            smallPositiveDistance  = JCC_DIST_SMALL_MAX_POS;
-            mediumNegativeDistance = JCC_DIST_MEDIUM_MAX_NEG;
-            mediumPositiveDistance = JCC_DIST_MEDIUM_MAX_POS;
-        }
-        else if (instr->idInsFmt() == IF_T2_J2)
+        if (instr->idInsFmt() == IF_T2_J2)
         {
             smallNegativeDistance  = JMP_DIST_SMALL_MAX_NEG;
             smallPositiveDistance  = JMP_DIST_SMALL_MAX_POS;
@@ -4357,7 +4390,10 @@ AGAIN:
         }
         else
         {
-            continue;
+            smallNegativeDistance  = JCC_DIST_SMALL_MAX_NEG;
+            smallPositiveDistance  = JCC_DIST_SMALL_MAX_POS;
+            mediumNegativeDistance = JCC_DIST_MEDIUM_MAX_NEG;
+            mediumPositiveDistance = JCC_DIST_MEDIUM_MAX_POS;
         }
 
         uint32_t  instrOffs    = instrIG->igOffs + instr->idjOffs;
@@ -4388,15 +4424,27 @@ AGAIN:
                 labelOffs - instrEndOffs, smallDistanceOverflow, mediumDistanceOverflow,
                 smallDistanceOverflow <= 0 ? ", short" : (mediumDistanceOverflow <= 0 ? "medium" : ""));
 
-        uint32_t currentSize = instr->idCodeSize();
-        uint32_t newSize;
+        uint32_t newSize = currentSize;
 
-        if (smallDistanceOverflow <= 0)
+        if (instrOffs + currentSize == labelOffs)
         {
-            emitSetShortJump(instr);
+            // Removing a "jump to next" could produce another "jump to next", we need to force another pass
+            // to eliminate that too. Ideally we'd traverse the jump list backwards, but it's a forward only
+            // list and given the rarity of such nested jumps it's hard to justify the extra code and memory
+            // required to traverse the list both ways.
+            minDistanceOverflow = 0;
 
-            assert(instr->idInsSize() == ISZ_16BIT);
-            newSize = 2;
+            instr->idInsSize(ISZ_NONE);
+            newSize = 0;
+        }
+        else if (smallDistanceOverflow <= 0)
+        {
+            if (currentSize > 2)
+            {
+                emitSetShortJump(instr);
+                assert(instr->idInsSize() == ISZ_16BIT);
+                newSize = 2;
+            }
         }
         else
         {
@@ -4405,23 +4453,23 @@ AGAIN:
             if (mediumDistanceOverflow > 0)
             {
                 minDistanceOverflow = Min(minDistanceOverflow, static_cast<uint32_t>(mediumDistanceOverflow));
-
-                continue;
             }
-
-            emitSetMediumJump(instr);
-
-            assert(instr->idInsSize() == ISZ_32BIT);
-            newSize = 4;
+            else if (currentSize > 4)
+            {
+                emitSetMediumJump(instr);
+                assert(instr->idInsSize() == ISZ_32BIT);
+                newSize = 4;
+            }
         }
 
-        assert(currentSize >= newSize);
-
-        uint32_t sizeReduction = currentSize - newSize;
-        instrIG->igSize -= static_cast<uint16_t>(sizeReduction);
-        instrIG->igFlags |= IGF_UPD_ISZ;
-        instrIGSizeReduction += sizeReduction;
-        totalSizeReduction += sizeReduction;
+        if (newSize != currentSize)
+        {
+            uint32_t sizeReduction = currentSize - newSize;
+            instrIG->igSize -= static_cast<uint16_t>(sizeReduction);
+            instrIG->igFlags |= IGF_UPD_ISZ;
+            instrIGSizeReduction += sizeReduction;
+            totalSizeReduction += sizeReduction;
+        }
     }
 
     if (totalSizeReduction != 0)
@@ -4924,6 +4972,11 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     assert(id->idGCref() == GCT_NONE);
 
     uint32_t labelOffs;
+
+    if (id->idCodeSize() == 0)
+    {
+        return dst;
+    }
 
     if (id->HasInstrCount())
     {
