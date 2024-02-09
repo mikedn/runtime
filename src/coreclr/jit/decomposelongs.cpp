@@ -1875,28 +1875,25 @@ GenTree* DecomposeLongs::StoreMultiRegNodeToLcl(LIR::Use& use)
         return DecomposeLclVar(use);
     }
 
-    unsigned   lclNum    = m_compiler->lvaNewTemp(TYP_LONG, true DEBUGARG("multireg LONG temp"));
-    LclVarDsc* lcl       = m_compiler->lvaGetDesc(lclNum);
+    LclVarDsc* lcl       = m_compiler->lvaNewTemp(TYP_LONG, true DEBUGARG("multireg LONG temp"));
     lcl->lvFieldCnt      = 2;
     lcl->lvFieldLclStart = m_compiler->lvaCount;
     lcl->lvPromoted      = true;
     lcl->lvIsMultiRegRet = true;
 
-    unsigned   fieldLclNumLo    = m_compiler->lvaNewTemp(TYP_INT, false DEBUGARG("promoted long field"));
-    LclVarDsc* fieldLclLo       = m_compiler->lvaGetDesc(fieldLclNumLo);
+    LclVarDsc* fieldLclLo       = m_compiler->lvaNewTemp(TYP_INT, false DEBUGARG("promoted long field"));
     fieldLclLo->lvIsStructField = true;
     fieldLclLo->lvFldOffset     = 0;
-    fieldLclLo->lvParentLcl     = lclNum;
+    fieldLclLo->lvParentLcl     = lcl->GetLclNum();
 
-    unsigned   fieldLclNumHi    = m_compiler->lvaNewTemp(TYP_INT, false DEBUGARG("promoted long field"));
-    LclVarDsc* fieldLclHi       = m_compiler->lvaGetDesc(fieldLclNumHi);
+    LclVarDsc* fieldLclHi       = m_compiler->lvaNewTemp(TYP_INT, false DEBUGARG("promoted long field"));
     fieldLclHi->lvIsStructField = true;
     fieldLclHi->lvFldOffset     = 4;
-    fieldLclHi->lvParentLcl     = lclNum;
+    fieldLclHi->lvParentLcl     = lcl->GetLclNum();
 
-    GenTreeLclVar* store  = m_compiler->gtNewStoreLclVar(lclNum, TYP_LONG, use.Def());
-    GenTreeLclVar* loadLo = m_compiler->gtNewLclvNode(fieldLclNumLo, TYP_INT);
-    GenTreeLclVar* loadHi = m_compiler->gtNewLclvNode(fieldLclNumHi, TYP_INT);
+    GenTreeLclVar* store  = m_compiler->gtNewStoreLclVar(lcl->GetLclNum(), TYP_LONG, use.Def());
+    GenTreeLclVar* loadLo = m_compiler->gtNewLclvNode(fieldLclLo->GetLclNum(), TYP_INT);
+    GenTreeLclVar* loadHi = m_compiler->gtNewLclvNode(fieldLclHi->GetLclNum(), TYP_INT);
 
     Range().InsertAfter(use.Def(), store, loadLo, loadHi);
 
@@ -2053,8 +2050,7 @@ void DecomposeLongs::PromoteLongVars()
 
         for (unsigned index = 0; index < 2; ++index)
         {
-            unsigned   fieldLclNum = m_compiler->lvaNewTemp(TYP_INT, false DEBUGARG("promoted long field"));
-            LclVarDsc* fieldLcl    = m_compiler->lvaGetDesc(fieldLclNum);
+            LclVarDsc* fieldLcl = m_compiler->lvaNewTemp(TYP_INT, false DEBUGARG("promoted long field"));
 
             fieldLcl->lvIsStructField = true;
             fieldLcl->lvFldOffset     = static_cast<uint8_t>(index * varTypeSize(TYP_INT));

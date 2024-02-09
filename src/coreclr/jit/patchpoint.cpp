@@ -115,7 +115,7 @@ private:
         // If we haven't allocated the counter temp yet, set it up
         if (ppCounterLclNum == BAD_VAR_NUM)
         {
-            ppCounterLclNum = compiler->lvaNewTemp(TYP_INT, true DEBUGARG("patchpoint counter"));
+            ppCounterLclNum = compiler->lvaNewTemp(TYP_INT, true DEBUGARG("patchpoint counter"))->GetLclNum();
 
             // and initialize in the entry block
             TransformEntry(compiler->fgFirstBB);

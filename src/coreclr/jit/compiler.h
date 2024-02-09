@@ -599,6 +599,11 @@ private:
 public:
     unsigned lclNum;
 
+    unsigned GetLclNum() const
+    {
+        return lclNum;
+    }
+
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     void     AddImplicitByRefParamAnyRef();
     void     AddImplicitByRefParamCallRef();
@@ -2192,12 +2197,12 @@ struct Importer
 
     StructPassing abiGetStructReturnType(ClassLayout* layout, CorInfoCallConvExtension callConv, bool isVarArgs);
 
-    unsigned lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason));
+    LclVarDsc* lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason));
     unsigned lvaGrabTemps(unsigned count DEBUGARG(const char* reason));
-    unsigned lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason));
-    unsigned lvaNewTemp(ClassLayout* layout, bool shortLifetime DEBUGARG(const char* reason));
-    unsigned lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shortLifetime DEBUGARG(const char* reason));
-    unsigned lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGARG(const char* reason));
+    LclVarDsc* lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason));
+    LclVarDsc* lvaNewTemp(ClassLayout* layout, bool shortLifetime DEBUGARG(const char* reason));
+    LclVarDsc* lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shortLifetime DEBUGARG(const char* reason));
+    LclVarDsc* lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGARG(const char* reason));
     void lvaSetAddressExposed(unsigned lclNum);
     void lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsafeBuffer);
     void lvaSetStruct(unsigned lclNum, CORINFO_CLASS_HANDLE classHandle, bool checkUnsafeBuffer);
@@ -3298,6 +3303,7 @@ public:
     unsigned lvaTrackedToVarNumSize = 0;
 
     void lvaSetImplicitlyReferenced(unsigned lclNum);
+    void lvaSetImplicitlyReferenced(LclVarDsc* lcl);
 
     void lvaSetAddressExposed(unsigned lclNum);
     void lvaSetAddressExposed(LclVarDsc* lcl);
@@ -3483,13 +3489,6 @@ public:
         return lvaTable[lclAddr->GetLclNum()];
     }
 
-#ifdef DEBUG
-    unsigned lvaGetLclNum(const LclVarDsc* lcl) const
-    {
-        return lcl->lclNum;
-    }
-#endif
-
     unsigned lvaTrackedIndexToLclNum(unsigned trackedIndex)
     {
         assert(trackedIndex < lvaTrackedCount);
@@ -3505,12 +3504,12 @@ public:
 
     bool lvaHaveManyLocals() const;
 
-    unsigned lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason));
-    unsigned lvaNewTemp(ClassLayout* layout, bool shortLifetime DEBUGARG(const char* reason));
-    unsigned lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shortLifetime DEBUGARG(const char* reason));
-    unsigned lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGARG(const char* reason));
+    LclVarDsc* lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason));
+    LclVarDsc* lvaNewTemp(ClassLayout* layout, bool shortLifetime DEBUGARG(const char* reason));
+    LclVarDsc* lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shortLifetime DEBUGARG(const char* reason));
+    LclVarDsc* lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGARG(const char* reason));
 
-    unsigned lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason));
+    LclVarDsc* lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason));
     unsigned lvaGrabTemps(unsigned count DEBUGARG(const char* reason));
 
     void lvaResizeTable(unsigned newSize);
@@ -3544,6 +3543,8 @@ public:
     // If the local is TYP_REF, set or update the associated class information.
     void lvaSetClass(unsigned varNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);
     void lvaSetClass(unsigned varNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
+    void lvaSetClass(LclVarDsc* lcl, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);
+    void lvaSetClass(LclVarDsc* lcl, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
     void lvaUpdateClass(unsigned varNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);
     void lvaUpdateClass(unsigned varNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
 

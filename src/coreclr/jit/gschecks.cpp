@@ -36,8 +36,9 @@ void Compiler::phGSCookie()
 
 void Compiler::gsGSChecksInitCookie()
 {
-    lvaGSSecurityCookie = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("GSCookie"));
-    lvaSetImplicitlyReferenced(lvaGSSecurityCookie);
+    LclVarDsc* lcl = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("GSCookie"));
+    lvaSetImplicitlyReferenced(lcl);
+    lvaGSSecurityCookie = lcl->GetLclNum();
 }
 
 /*****************************************************************************
@@ -419,11 +420,9 @@ void Compiler::gsParamsToShadows()
             continue;
         }
 
-        unsigned shadowLclNum = lvaGrabTemp(false DEBUGARG("shadow copy"));
-        JITDUMP("V%02u is shadow param candidate. Shadow copy is V%02u.\n", lclNum, shadowLclNum);
-        gsShadowVarInfo[lclNum].shadowLclNum = shadowLclNum;
-
-        LclVarDsc* shadowLcl = lvaGetDesc(shadowLclNum);
+        LclVarDsc* shadowLcl = lvaGrabTemp(false DEBUGARG("shadow copy"));
+        JITDUMP("V%02u is shadow param candidate. Shadow copy is V%02u.\n", lclNum, shadowLcl->GetLclNum());
+        gsShadowVarInfo[lclNum].shadowLclNum = shadowLcl->GetLclNum();
 
         // TODO-MIKE-Cleanup: varActualType is likely useless, there should be no need to shadow
         // copy small int locals.
@@ -433,7 +432,7 @@ void Compiler::gsParamsToShadows()
         {
             // We don't need checkUnsafeBuffer here since we are copying the params and
             // this flag would have been set on the original param before reaching here.
-            lvaSetStruct(shadowLclNum, lcl->GetLayout(), /* checkUnsafeBuffer */ false);
+            lvaSetStruct(shadowLcl, lcl->GetLayout(), /* checkUnsafeBuffer */ false);
 
             shadowLcl->lvIsMultiRegArg = lcl->lvIsMultiRegArg;
             shadowLcl->lvIsMultiRegRet = lcl->lvIsMultiRegRet;

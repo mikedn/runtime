@@ -1022,48 +1022,49 @@ inline bool Compiler::lvaHaveManyLocals() const
     return (lvaCount >= (unsigned)JitConfig.JitMaxLocalsToTrack());
 }
 
-inline unsigned Compiler::lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason))
+inline LclVarDsc* Compiler::lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason))
 {
-    unsigned lclNum = lvaGrabTemp(shortLifetime DEBUGARG(reason));
-    lvaGetDesc(lclNum)->SetType(type);
-    return lclNum;
+    LclVarDsc* lcl = lvaGrabTemp(shortLifetime DEBUGARG(reason));
+    lcl->SetType(type);
+    return lcl;
 }
 
-inline unsigned Compiler::lvaNewTemp(ClassLayout* layout, bool shortLifetime DEBUGARG(const char* reason))
+inline LclVarDsc* Compiler::lvaNewTemp(ClassLayout* layout, bool shortLifetime DEBUGARG(const char* reason))
 {
     assert(layout->IsValueClass());
 
-    unsigned lclNum = lvaGrabTemp(shortLifetime DEBUGARG(reason));
-    lvaSetStruct(lclNum, layout, false);
-    return lclNum;
+    LclVarDsc* lcl = lvaGrabTemp(shortLifetime DEBUGARG(reason));
+    lvaSetStruct(lcl, layout, false);
+    return lcl;
 }
 
-inline unsigned Compiler::lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shortLifetime DEBUGARG(const char* reason))
+inline LclVarDsc* Compiler::lvaNewTemp(CORINFO_CLASS_HANDLE classHandle,
+                                       bool shortLifetime DEBUGARG(const char* reason))
 {
     assert(info.compCompHnd->isValueClass(classHandle));
 
-    unsigned lclNum = lvaGrabTemp(shortLifetime DEBUGARG(reason));
-    lvaSetStruct(lclNum, classHandle, false);
-    return lclNum;
+    LclVarDsc* lcl = lvaGrabTemp(shortLifetime DEBUGARG(reason));
+    lvaSetStruct(lcl, typGetObjLayout(classHandle), false);
+    return lcl;
 }
 
-inline unsigned Compiler::lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGARG(const char* reason))
+inline LclVarDsc* Compiler::lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGARG(const char* reason))
 {
     assert(varTypeIsSIMD(tree->GetType())); // Only SIMD temps are supported for now.
 
-    unsigned lclNum     = lvaGrabTemp(shortLifetime DEBUGARG(reason));
+    LclVarDsc* lcl      = lvaGrabTemp(shortLifetime DEBUGARG(reason));
     ClassLayout* layout = typGetVectorLayout(tree);
 
     if (layout != nullptr)
     {
-        lvaSetStruct(lclNum, layout, false);
+        lvaSetStruct(lcl, layout, false);
     }
     else
     {
-        lvaGetDesc(lclNum)->lvType = tree->GetType();
+        lcl->lvType = tree->GetType();
     }
 
-    return lclNum;
+    return lcl;
 }
 
 /*

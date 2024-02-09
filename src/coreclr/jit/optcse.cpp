@@ -2158,13 +2158,13 @@ public:
         }
 #endif // DEBUG
 
-        unsigned   lclNum  = compiler->lvaGrabTemp(false DEBUGARG(lclReason));
         var_types  lclType = varActualType(candidate.expr->GetType());
-        LclVarDsc* lcl     = compiler->lvaGetDesc(lclNum);
+        LclVarDsc* lcl     = compiler->lvaGrabTemp(false DEBUGARG(lclReason));
+        unsigned   lclNum  = lcl->GetLclNum();
 
         if (varTypeIsStruct(lclType))
         {
-            compiler->lvaSetStruct(lclNum, candidate.value->layout, false);
+            compiler->lvaSetStruct(lcl, candidate.value->layout, false);
             assert(lcl->GetType() == lclType);
         }
         else

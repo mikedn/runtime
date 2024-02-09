@@ -942,12 +942,12 @@ void Compiler::inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBl
         return;
     }
 
-    unsigned   spillLclNum = lvaGrabTemp(false DEBUGARG("inlinee return spill temp"));
-    LclVarDsc* spillLcl    = lvaGetDesc(spillLclNum);
+    LclVarDsc* spillLcl    = lvaGrabTemp(false DEBUGARG("inlinee return spill temp"));
+    unsigned   spillLclNum = spillLcl->GetLclNum();
 
     if (varTypeIsStruct(info.GetRetSigType()))
     {
-        lvaSetStruct(spillLclNum, info.GetRetLayout(), false);
+        lvaSetStruct(spillLcl, info.GetRetLayout(), false);
     }
     else
     {
@@ -1754,21 +1754,19 @@ unsigned Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNu
 
     assert(!lclInfo.lclIsUsed);
 
-    const unsigned lclNum = lvaGrabTemp(false DEBUGARG("inlinee local"));
-
-    lclInfo.lclNum    = lclNum;
-    lclInfo.lclIsUsed = true;
-
-    LclVarDsc* lcl = lvaGetDesc(lclNum);
+    LclVarDsc* lcl = lvaGrabTemp(false DEBUGARG("inlinee local"));
 
     lcl->m_pinning              = lclInfo.lclIsPinned;
     lcl->lvHasLdAddrOp          = lclInfo.lclHasLdlocaOp;
     lcl->lvHasILStoreOp         = lclInfo.lclHasStlocOp;
     lcl->lvHasMultipleILStoreOp = lclInfo.lclHasMultipleStlocOp;
 
+    lclInfo.lclNum    = lcl->GetLclNum();
+    lclInfo.lclIsUsed = true;
+
     if (varTypeIsStruct(lclInfo.lclType))
     {
-        lvaSetStruct(lclNum, lclInfo.lclClass, /* checkUnsafeBuffer */ true);
+        lvaSetStruct(lcl, typGetObjLayout(lclInfo.lclClass), /* checkUnsafeBuffer */ true);
     }
     else
     {
@@ -1785,10 +1783,10 @@ unsigned Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNu
 
             if (lcl->lvSingleDef)
             {
-                JITDUMP("Marked V%02u as a single def temp\n", lclNum);
+                JITDUMP("Marked V%02u as a single def temp\n", lclInfo.lclNum);
             }
 
-            lvaSetClass(lclNum, lclInfo.lclClass);
+            lvaSetClass(lcl, lclInfo.lclClass);
         }
         else if (lclInfo.lclClass != NO_CLASS_HANDLE)
         {
@@ -1817,7 +1815,7 @@ unsigned Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNu
     }
 #endif
 
-    return lclNum;
+    return lclInfo.lclNum;
 }
 
 GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
@@ -1921,8 +1919,8 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
 
     // Argument is a complex expression - it must be evaluated into a temp.
 
-    unsigned   tmpLclNum = lvaGrabTemp(true DEBUGARG("inlinee arg"));
-    LclVarDsc* tmpLcl    = lvaGetDesc(tmpLclNum);
+    LclVarDsc* tmpLcl    = lvaGrabTemp(true DEBUGARG("inlinee arg"));
+    unsigned   tmpLclNum = tmpLcl->GetLclNum();
 
     if (argInfo.paramIsAddressTaken)
     {
@@ -1931,7 +1929,7 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
 
     if (varTypeIsStruct(argInfo.paramType))
     {
-        lvaSetStruct(tmpLclNum, argInfo.paramClass, /* checkUnsafeBuffer */ true);
+        lvaSetStruct(tmpLcl, typGetObjLayout(argInfo.paramClass), /* checkUnsafeBuffer */ true);
     }
     else
     {
@@ -1949,13 +1947,13 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
 
                 JITDUMP("Marked V%02u as a single def temp\n", tmpLclNum);
 
-                lvaSetClass(tmpLclNum, argInfo.argNode, argInfo.paramClass);
+                lvaSetClass(tmpLcl, argInfo.argNode, argInfo.paramClass);
             }
             else
             {
                 // Arg might be modified, use the declared type of the argument.
 
-                lvaSetClass(tmpLclNum, argInfo.paramClass);
+                lvaSetClass(tmpLcl, argInfo.paramClass);
             }
         }
         else if (argInfo.paramClass != NO_CLASS_HANDLE)
@@ -2235,8 +2233,8 @@ void Compiler::inlPropagateInlineeCompilerState()
     {
         setNeedsGSSecurityCookie();
 
-        unsigned lclNum = lvaNewTemp(TYP_INT, false DEBUGARG("GSCookie dummy"));
-        lvaSetImplicitlyReferenced(lclNum);
+        LclVarDsc* lcl = lvaNewTemp(TYP_INT, false DEBUGARG("GSCookie dummy"));
+        lvaSetImplicitlyReferenced(lcl);
     }
 }
 

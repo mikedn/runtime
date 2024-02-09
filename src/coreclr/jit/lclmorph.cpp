@@ -2935,14 +2935,12 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
             fieldSeq                   = compiler->GetFieldSeqStore()->Append(fieldSeq, fieldSeqNode);
         }
 
-        unsigned fieldLclNum = compiler->lvaGrabTemp(false DEBUGARG("promoted struct field"));
-
-        LclVarDsc* fieldLcl = compiler->lvaGetDesc(fieldLclNum);
+        LclVarDsc* fieldLcl = compiler->lvaGrabTemp(false DEBUGARG("promoted struct field"));
         fieldLcl->MakePromotedStructField(lclNum, field.offset, fieldSeq);
 
         if (varTypeIsSIMD(field.type))
         {
-            compiler->lvaSetStruct(fieldLclNum, field.layout, false);
+            compiler->lvaSetStruct(fieldLcl, field.layout, false);
         }
         else
         {
@@ -3621,9 +3619,8 @@ void Compiler::lvaRetypeImplicitByRefParams()
             }
             else
             {
-                unsigned structLclNum = lvaNewTemp(lcl->GetLayout(), false DEBUGARG("promoted implicit byref param"));
-
-                LclVarDsc* structLcl = lvaGetDesc(structLclNum);
+                LclVarDsc* structLcl    = lvaNewTemp(lcl->GetLayout(), false DEBUGARG("promoted implicit byref param"));
+                unsigned   structLclNum = structLcl->GetLclNum();
 
                 structLcl->lvPromoted        = true;
                 structLcl->lvFieldLclStart   = lcl->lvFieldLclStart;

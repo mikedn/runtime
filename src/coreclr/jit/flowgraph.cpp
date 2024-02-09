@@ -850,7 +850,7 @@ void Compiler::fgAddSyncMethodEnterExit()
 
     // Add monitor enter/exit calls.
 
-    lvaMonAcquired = lvaNewTemp(TYP_INT, true DEBUGARG("monitor 'acquired' temp"));
+    lvaMonAcquired = lvaNewTemp(TYP_INT, true DEBUGARG("monitor 'acquired' temp"))->GetLclNum();
 
     GenTreeOp* init = gtNewAssignNode(gtNewLclvNode(lvaMonAcquired, TYP_INT), gtNewIconNode(0));
     fgNewStmtAtEnd(fgFirstBB, init);
@@ -863,7 +863,7 @@ void Compiler::fgAddSyncMethodEnterExit()
 
     if (!info.compIsStatic)
     {
-        thisCopyLclNum = lvaNewTemp(TYP_REF, true DEBUGARG("monitor EH exit 'this' copy"));
+        thisCopyLclNum = lvaNewTemp(TYP_REF, true DEBUGARG("monitor EH exit 'this' copy"))->GetLclNum();
         init = gtNewAssignNode(gtNewLclvNode(thisCopyLclNum, TYP_REF), gtNewLclvNode(info.compThisArg, TYP_REF));
         fgNewStmtAtEnd(tryBegBB, init);
     }
@@ -915,12 +915,12 @@ void Compiler::fgInsertMonitorCall(BasicBlock* block, CorInfoHelpFunc helper, un
 
         if ((retExpr->GetSideEffects() != 0) || impHasAddressTakenLocals(retExpr))
         {
-            unsigned   retTempLclNum = lvaGrabTemp(true DEBUGARG("monitor 'return' temp"));
-            LclVarDsc* retTempLcl    = lvaGetDesc(retTempLclNum);
+            LclVarDsc* retTempLcl    = lvaGrabTemp(true DEBUGARG("monitor 'return' temp"));
+            unsigned   retTempLclNum = retTempLcl->GetLclNum();
 
             if (varTypeIsStruct(retNode->GetType()))
             {
-                lvaSetStruct(retTempLclNum, info.GetRetLayout(), /* checkUnsafeBuffer */ false);
+                lvaSetStruct(retTempLcl, info.GetRetLayout(), /* checkUnsafeBuffer */ false);
             }
             else
             {
@@ -984,9 +984,10 @@ void Compiler::fgAddReversePInvokeEnterExit()
 {
     assert(opts.IsReversePInvoke());
 
-    lvaReversePInvokeFrameVar = lvaGrabTemp(false DEBUGARG("ReversePInvokeFrame"));
-    lvaGetDesc(lvaReversePInvokeFrameVar)->SetBlockType(eeGetEEInfo()->sizeOfReversePInvokeFrame);
-    lvaSetAddressExposed(lvaReversePInvokeFrameVar);
+    LclVarDsc* frameLcl = lvaGrabTemp(false DEBUGARG("ReversePInvokeFrame"));
+    frameLcl->SetBlockType(eeGetEEInfo()->sizeOfReversePInvokeFrame);
+    lvaSetAddressExposed(frameLcl);
+    lvaReversePInvokeFrameVar = frameLcl->GetLclNum();
 
     // Add enter pinvoke exit callout at the start of prolog
 
@@ -1283,12 +1284,12 @@ private:
         {
             // There is a return value, so create a temp for it.  Real returns will store the value in there and
             // it'll be reloaded by the single return.
-            unsigned   lclNum = comp->lvaGrabTemp(true DEBUGARG("merged return temp"));
-            LclVarDsc* lcl    = comp->lvaGetDesc(lclNum);
+            LclVarDsc* lcl    = comp->lvaGrabTemp(true DEBUGARG("merged return temp"));
+            unsigned   lclNum = lcl->GetLclNum();
 
             if (varTypeIsStruct(comp->info.GetRetSigType()))
             {
-                comp->lvaSetStruct(lclNum, comp->info.GetRetLayout(), false);
+                comp->lvaSetStruct(lcl, comp->info.GetRetLayout(), false);
                 lcl->lvIsMultiRegRet = (comp->info.retDesc.GetRegCount() > 1);
             }
             else
@@ -1712,12 +1713,12 @@ void Compiler::fgAddInternal()
         // TCB variable if we're not using them.
         if (!opts.ShouldUsePInvokeHelpers())
         {
-            lvaPInvokeFrameListVar = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("PInvokeFrameList"));
+            lvaPInvokeFrameListVar = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("PInvokeFrameList"))->GetLclNum();
         }
 
-        lvaInlinedPInvokeFrameVar = lvaGrabTemp(false DEBUGARG("PInvokeFrame"));
-        lvaGetDesc(lvaInlinedPInvokeFrameVar)
-            ->SetBlockType(roundUp(eeGetEEInfo()->inlinedCallFrameInfo.size, REGSIZE_BYTES));
+        LclVarDsc* frameLcl = lvaGrabTemp(false DEBUGARG("PInvokeFrame"));
+        frameLcl->SetBlockType(roundUp(eeGetEEInfo()->inlinedCallFrameInfo.size, REGSIZE_BYTES));
+        lvaInlinedPInvokeFrameVar = frameLcl->GetLclNum();
     }
 
     if (opts.compDbgCode && !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB))

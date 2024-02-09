@@ -1847,9 +1847,7 @@ void Compiler::fgAdjustForAddressTakenOrStoredThis()
     // If this is address taken or written to, create a temp for the modifiable this.
     if (thisParam->lvHasLdAddrOp || thisParam->lvHasILStoreOp)
     {
-        lvaThisLclNum = lvaNewTemp(thisParam->GetType(), false DEBUGARG("'this' copy"));
-
-        LclVarDsc* thisLcl = lvaGetDesc(lvaThisLclNum);
+        LclVarDsc* thisLcl = lvaNewTemp(thisParam->GetType(), false DEBUGARG("'this' copy"));
 
         thisLcl->lvAddrExposed     = thisParam->IsAddressExposed();
         thisLcl->lvDoNotEnregister = thisParam->lvDoNotEnregister;
@@ -1859,6 +1857,7 @@ void Compiler::fgAdjustForAddressTakenOrStoredThis()
         thisLcl->lvLiveInOutOfHndlr = thisParam->lvLiveInOutOfHndlr;
         thisLcl->lvLclFieldExpr     = thisParam->lvLclFieldExpr;
 #endif
+        lvaThisLclNum = thisLcl->GetLclNum();
 
         thisParam->lvAddrExposed  = false;
         thisParam->lvHasLdAddrOp  = false;

@@ -847,7 +847,7 @@ GenTree* Importer::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, const HWIntri
             {
                 // TODO-MIKE-Review: Can we simply set GTF_REVERSE_OPS to avoid creating a temp?
 
-                unsigned lclNum = lvaGrabTemp(true DEBUGARG("AVX2.PermuteVar8x32 temp"));
+                unsigned lclNum = lvaGrabTemp(true DEBUGARG("AVX2.PermuteVar8x32 temp"))->GetLclNum();
                 impAppendTempAssign(lclNum, left, sig.paramLayout[0], CHECK_SPILL_ALL);
                 left = gtNewLclvNode(lclNum, sig.paramType[0]);
             }
@@ -905,7 +905,7 @@ GenTree* Importer::impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, const HWIntr
             {
                 // TODO-MIKE-Review: Can we simply set GTF_REVERSE_OPS to avoid creating a temp?
 
-                unsigned lclNum = lvaGrabTemp(true DEBUGARG("BMI.BitFieldExtract/ZeroHightBits temp"));
+                unsigned lclNum = lvaGrabTemp(true DEBUGARG("BMI.BitFieldExtract/ZeroHightBits temp"))->GetLclNum();
                 impAppendTempAssign(lclNum, op1, CHECK_SPILL_ALL);
                 op1 = gtNewLclvNode(lclNum, varActualType(sig.paramType[0]));
             }

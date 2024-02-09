@@ -505,9 +505,9 @@ unsigned int ObjectAllocator::MorphAllocObjNodeIntoStackAlloc(GenTreeAllocObj* a
     assert(allocObj != nullptr);
     assert(m_AnalysisDone);
 
-    const bool     shortLifetime = false;
-    const unsigned lclNum        = comp->lvaGrabTemp(shortLifetime DEBUGARG("MorphAllocObjNodeIntoStackAlloc temp"));
-    comp->lvaSetStruct(lclNum, allocObj->gtAllocObjClsHnd, /* checkUnsafeBuffer */ true);
+    LclVarDsc* lcl = comp->lvaGrabTemp(/* shortLifetime */ false DEBUGARG("MorphAllocObjNodeIntoStackAlloc temp"));
+    comp->lvaSetStruct(lcl, comp->typGetObjLayout(allocObj->gtAllocObjClsHnd), /* checkUnsafeBuffer */ true);
+    unsigned lclNum = lcl->GetLclNum();
 
     // Initialize the object memory if necessary.
     bool bbInALoop  = (block->bbFlags & BBF_BACKWARD_JUMP) != 0;
@@ -521,8 +521,8 @@ unsigned int ObjectAllocator::MorphAllocObjNodeIntoStackAlloc(GenTreeAllocObj* a
     else
     {
         JITDUMP("\nSuppressing zero-init for V%02u -- expect to zero in prolog\n", lclNum);
-        comp->lvaGetDesc(lclNum)->lvSuppressedZeroInit = 1;
-        comp->compSuppressedZeroInit                   = true;
+        lcl->lvSuppressedZeroInit    = true;
+        comp->compSuppressedZeroInit = true;
     }
 
     GenTreeOp* methodTableAssignment =

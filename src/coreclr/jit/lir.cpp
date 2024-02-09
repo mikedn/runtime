@@ -256,7 +256,7 @@ unsigned LIR::Use::ReplaceWithLclVar(Compiler* compiler, unsigned lclNum, GenTre
 
     if (lclNum == BAD_VAR_NUM)
     {
-        lclNum = compiler->lvaGrabTemp(true DEBUGARG("LIR temp"));
+        lclNum = compiler->lvaGrabTemp(true DEBUGARG("LIR temp"))->GetLclNum();
     }
 
     GenTree*  def  = *m_edge;

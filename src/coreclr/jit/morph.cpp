@@ -171,7 +171,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
 
         // We generate an assignment to native int and then do the cast from native int.
         // With this we avoid the gc problem and we allow casts to bytes, longs,  etc...
-        unsigned lclNum = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("Cast away GC"));
+        unsigned lclNum = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("Cast away GC"))->GetLclNum();
         src->SetType(TYP_I_IMPL);
         GenTree* asg = gtNewAssignNode(gtNewLclvNode(lclNum, TYP_I_IMPL), src);
         src->SetType(srcType);
@@ -1824,8 +1824,8 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInf
                 compiler->compFloatingPointUsed = true;
             }
 
-            unsigned   tempLclNum = compiler->lvaGrabTemp(true DEBUGARG("argument with side effect"));
-            LclVarDsc* tempLcl    = compiler->lvaGetDesc(tempLclNum);
+            LclVarDsc* tempLcl    = compiler->lvaGrabTemp(true DEBUGARG("argument with side effect"));
+            unsigned   tempLclNum = tempLcl->GetLclNum();
 
             argInfo->SetTempLclNum(tempLclNum);
 
@@ -1837,7 +1837,7 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInf
             }
             else if (arg->IsCall() && (arg->AsCall()->GetRegCount() > 1))
             {
-                compiler->lvaSetStruct(tempLclNum, arg->AsCall()->GetRetLayout(), false);
+                compiler->lvaSetStruct(tempLcl, arg->AsCall()->GetRetLayout(), false);
                 tempLcl->lvIsMultiRegRet = true;
                 tempLcl->lvFieldAccessed = true;
 
@@ -1848,8 +1848,6 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInf
 
                 if (structPromotion.TryPromoteStructLocal(tempLclNum))
                 {
-                    tempLcl = compiler->lvaGetDesc(tempLclNum);
-
                     if (tempLcl->GetPromotedFieldCount() == 1)
                     {
                         unsigned   promotedFieldLclNum = tempLcl->GetPromotedFieldLclNum(0);
@@ -1981,7 +1979,7 @@ GenTreeLclVar* Compiler::fgInsertCommaFormTemp(GenTree** use)
     assert(!varTypeIsStruct(tree->GetType()));
 
     var_types type   = varActualType(tree->GetType());
-    unsigned  lclNum = lvaNewTemp(type, true DEBUGARG("fgInsertCommaFormTemp temp"));
+    unsigned  lclNum = lvaNewTemp(type, true DEBUGARG("fgInsertCommaFormTemp temp"))->GetLclNum();
     GenTree*  store  = gtNewStoreLclVar(lclNum, type, tree);
     GenTree*  load   = gtNewLclvNode(lclNum, type);
     *use             = gtNewCommaNode(store, load, type);
@@ -4434,7 +4432,7 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
 
         if (!arg->IsDblCon() && !arg->OperIs(GT_LCL_VAR))
         {
-            tempLclNum = lvaNewTemp(TYP_FLOAT, true DEBUGARG("multi-reg SIMD arg temp"));
+            tempLclNum = lvaNewTemp(TYP_FLOAT, true DEBUGARG("multi-reg SIMD arg temp"))->GetLclNum();
             tempAssign = gtNewStoreLclVar(tempLclNum, TYP_FLOAT, arg);
 
             arg = gtNewLclvNode(tempLclNum, TYP_FLOAT);
@@ -4454,7 +4452,7 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
         // not have a layout for it so for now "convert" the SIMD16 to a DOUBLE.
         arg = gtNewSimdGetElementNode(TYP_SIMD16, TYP_DOUBLE, arg, gtNewIconNode(0));
 
-        unsigned dblTempLclNum = lvaNewTemp(TYP_DOUBLE, true DEBUGARG("multi-reg SIMD arg temp"));
+        unsigned dblTempLclNum = lvaNewTemp(TYP_DOUBLE, true DEBUGARG("multi-reg SIMD arg temp"))->GetLclNum();
         GenTree* dblTempAssign = gtNewStoreLclVar(dblTempLclNum, TYP_DOUBLE, arg);
 
         if (tempAssign != nullptr)
@@ -4473,7 +4471,7 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
     {
         ClassLayout* argLayout = typGetLayoutByNum(argInfo->GetSigTypeNum());
 
-        tempLclNum = lvaNewTemp(argLayout, true DEBUGARG("multi-reg SIMD arg temp"));
+        tempLclNum = lvaNewTemp(argLayout, true DEBUGARG("multi-reg SIMD arg temp"))->GetLclNum();
         tempAssign = gtNewStoreLclVar(tempLclNum, arg->GetType(), arg);
     }
 
@@ -4826,7 +4824,7 @@ GenTree* Compiler::abiMakeIndirAddrMultiUse(GenTree** addrInOut, ssize_t* addrOf
 
     if (addrTempRequired)
     {
-        unsigned addrLclNum = lvaNewTemp(addr->GetType(), true DEBUGARG("call arg addr temp"));
+        unsigned addrLclNum = lvaNewTemp(addr->GetType(), true DEBUGARG("call arg addr temp"))->GetLclNum();
 
         addrAsg = gtNewStoreLclVar(addrLclNum, addr->GetType(), addr);
         addr    = gtNewLclvNode(addrLclNum, addr->GetType());
@@ -4902,8 +4900,8 @@ GenTree* Compiler::abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsig
 
 GenTree* Compiler::abiMorphMultiRegCallArg(CallArgInfo* argInfo, GenTreeCall* arg)
 {
-    unsigned          lclNum = lvaNewTemp(arg->GetRetLayout(), true DEBUGARG("multireg call arg temp"));
-    LclVarDsc*        lcl    = lvaGetDesc(lclNum);
+    LclVarDsc*        lcl    = lvaNewTemp(arg->GetRetLayout(), true DEBUGARG("multireg call arg temp"));
+    unsigned          lclNum = lcl->GetLclNum();
     GenTreeLclVar*    src    = gtNewLclvNode(lclNum, lcl->GetType());
     GenTreeFieldList* fieldList;
 
@@ -4923,8 +4921,6 @@ GenTree* Compiler::abiMorphMultiRegCallArg(CallArgInfo* argInfo, GenTreeCall* ar
     }
     else
     {
-        lcl = lvaGetDesc(lclNum);
-
         if (argInfo->IsHfaArg())
         {
             fieldList = abiMorphMultiRegHfaLclArgPromoted(argInfo, src)->AsFieldList();
@@ -5012,17 +5008,18 @@ unsigned Compiler::abiAllocateStructArgTemp(ClassLayout* argLayout)
     if (tempLclNum == BAD_VAR_NUM)
     {
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-        tempLclNum = lvaGrabTemp(true DEBUGARG("implicit-by-ref arg temp"));
+        LclVarDsc* lcl = lvaGrabTemp(true DEBUGARG("implicit-by-ref arg temp"));
 #else
-        tempLclNum = lvaGrabTemp(true DEBUGARG("struct arg temp"));
+        LclVarDsc* lcl = lvaGrabTemp(true DEBUGARG("struct arg temp"));
 #endif
 
-        LclVarDsc* lcl = lvaGetDesc(tempLclNum);
         lvaSetStruct(lcl, argLayout, false);
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
         lvaSetAddressExposed(lcl);
         lcl->lvIsImplicitByRefArgTemp = true;
 #endif
+
+        tempLclNum = lcl->GetLclNum();
 
         if (m_abiStructArgTemps != nullptr)
         {
@@ -5368,7 +5365,7 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
         if (((array->gtFlags & (GTF_ASG | GTF_CALL | GTF_GLOB_REF)) != 0) || array->OperIs(GT_LCL_FLD) ||
             gtComplexityExceeds(array, MAX_ARR_COMPLEXITY))
         {
-            unsigned arrayTmpNum = lvaNewTemp(array->GetType(), true DEBUGARG("arr expr"));
+            unsigned arrayTmpNum = lvaNewTemp(array->GetType(), true DEBUGARG("arr expr"))->GetLclNum();
 
             arrayTmpStore = gtNewStoreLclVar(arrayTmpNum, array->GetType(), array);
 
@@ -5399,7 +5396,7 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
             gtComplexityExceeds(index, MAX_INDEX_COMPLEXITY))
         {
             var_types indexTmpType = varActualType(index->GetType());
-            unsigned  indexTmpNum  = lvaNewTemp(indexTmpType, true DEBUGARG("index expr"));
+            unsigned  indexTmpNum  = lvaNewTemp(indexTmpType, true DEBUGARG("index expr"))->GetLclNum();
 
             indexTmpStore = gtNewStoreLclVar(indexTmpNum, indexTmpType, index);
 
@@ -5541,7 +5538,7 @@ unsigned Compiler::fgGetLargeFieldOffsetNullCheckTemp(var_types type)
     if (fgLargeFieldOffsetNullCheckTemps[index] == BAD_VAR_NUM)
     {
         fgLargeFieldOffsetNullCheckTemps[index] =
-            lvaNewTemp(type, false DEBUGARG("large field offset null check temp"));
+            lvaNewTemp(type, false DEBUGARG("large field offset null check temp"))->GetLclNum();
     }
 
     unsigned lclNum = fgLargeFieldOffsetNullCheckTemps[index];
@@ -6986,7 +6983,7 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
             // Create a temp and spill "this" to the temp if "this" has side effects or "this" was too complex to clone.
             if (thisPtr == nullptr)
             {
-                unsigned lclNum = lvaNewTemp(objp->GetType(), true DEBUGARG("tail call thisptr"));
+                unsigned lclNum = lvaNewTemp(objp->GetType(), true DEBUGARG("tail call thisptr"))->GetLclNum();
 
                 // tmp = "this"
                 doBeforeStoreArgsStub = gtNewStoreLclVar(lclNum, objp->GetType(), objp);
@@ -7170,19 +7167,19 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
         // the return value argument retValArg to point to the stack.
         // We use a temporary stack allocated return buffer to hold the value during the dispatcher call
         // and copy the value back to the caller return buffer after that.
-        unsigned tmpRetBufNum =
+        LclVarDsc* tmpRetBufLcl =
             lvaNewTemp(origCall->GetRetLayout(), true DEBUGARG("substitute local for return buffer"));
-        lvaSetAddressExposed(tmpRetBufNum);
+        lvaSetAddressExposed(tmpRetBufLcl);
 
-        var_types tmpRetBufType = lvaGetDesc(tmpRetBufNum)->TypeGet();
+        var_types tmpRetBufType = tmpRetBufLcl->TypeGet();
 
-        retValArg = gtNewLclVarAddrNode(tmpRetBufNum);
+        retValArg = gtNewLclVarAddrNode(tmpRetBufLcl->GetLclNum());
 
         var_types callerRetBufType = lvaGetDesc(info.compRetBuffArg)->TypeGet();
 
         GenTree* dstAddr = gtNewLclvNode(info.compRetBuffArg, callerRetBufType);
         GenTree* dst     = gtNewObjNode(origCall->GetRetLayout(), dstAddr);
-        GenTree* src     = gtNewLclvNode(tmpRetBufNum, tmpRetBufType);
+        GenTree* src     = gtNewLclvNode(tmpRetBufLcl->GetLclNum(), tmpRetBufType);
 
         copyToRetBufNode         = dst;
         copyToRetBufNode->gtOper = copyToRetBufNode->TypeIs(TYP_STRUCT) ? GT_STORE_OBJ : GT_STOREIND;
@@ -7197,19 +7194,19 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
     {
         JITDUMP("Creating a new temp for the return value\n");
 
-        unsigned   newRetLclNum = lvaGrabTemp(false DEBUGARG("Return value for tail call dispatcher"));
-        LclVarDsc* newRetLcl    = lvaGetDesc(newRetLclNum);
+        LclVarDsc* newRetLcl    = lvaGrabTemp(false DEBUGARG("Return value for tail call dispatcher"));
+        unsigned   newRetLclNum = newRetLcl->GetLclNum();
 
         if (varTypeIsStruct(origCall->GetType()))
         {
-            lvaSetStruct(newRetLclNum, origCall->GetRetLayout(), false);
+            lvaSetStruct(newRetLcl, origCall->GetRetLayout(), false);
         }
         else
         {
             newRetLcl->SetType(origCall->GetType());
         }
 
-        lvaSetAddressExposed(newRetLclNum);
+        lvaSetAddressExposed(newRetLcl);
 
         if (varTypeIsSmall(origCall->GetRetSigType()))
         {
@@ -7245,8 +7242,9 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
     // Add the caller's return address slot.
     if (lvaRetAddrVar == BAD_VAR_NUM)
     {
-        lvaRetAddrVar = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("Return address"));
-        lvaSetAddressExposed(lvaRetAddrVar);
+        LclVarDsc* lcl = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("Return address"));
+        lvaSetAddressExposed(lcl);
+        lvaRetAddrVar = lcl->GetLclNum();
     }
 
     GenTree* retAddrSlot           = gtNewLclVarAddrNode(lvaRetAddrVar);
@@ -7314,7 +7312,7 @@ GenTree* Compiler::getRuntimeLookupTree(CORINFO_RUNTIME_LOOKUP_KIND kind,
         }
 
         assert(varTypeIsI(tree->GetType()));
-        unsigned temp = lvaNewTemp(tree->GetType(), true DEBUGARG(reason));
+        unsigned temp = lvaNewTemp(tree->GetType(), true DEBUGARG(reason))->GetLclNum();
         stmts.Push(gtNewAssignNode(gtNewLclvNode(temp, tree->GetType()), tree));
         *use = gtNewLclvNode(temp, tree->GetType());
         return gtNewLclvNode(temp, tree->GetType());
@@ -7436,7 +7434,7 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
         // other argument expression modifies it?
         if ((call->IsDelegateInvoke() || call->IsVirtualVtable()) && !thisArg->OperIs(GT_LCL_VAR))
         {
-            unsigned lclNum = lvaNewTemp(thisArg->GetType(), true DEBUGARG("tail call target this temp"));
+            unsigned lclNum = lvaNewTemp(thisArg->GetType(), true DEBUGARG("tail call target this temp"))->GetLclNum();
 
             // TODO-MIKE-Review: fgMorphArgs freaks out when it sees side effects and adds
             // another temp for this argument...
@@ -7465,7 +7463,8 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
 
             if (newThisArg == nullptr)
             {
-                unsigned lclNum = lvaNewTemp(thisArg->GetType(), true DEBUGARG("tail call nullcheck this temp"));
+                unsigned lclNum =
+                    lvaNewTemp(thisArg->GetType(), true DEBUGARG("tail call nullcheck this temp"))->GetLclNum();
 
                 // TODO-MIKE-Review: The NULLCHECK gets added in the wrong place, in the first
                 // argument tree. This means it happens before other arguments are evaluated,
@@ -7894,7 +7893,7 @@ Statement* Compiler::fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,
             // The argument is not stored to a temp. We need to create a new temp and insert a store.
             // TODO: we can avoid a temp store if we can prove that the argument tree
             // doesn't involve any caller parameters.
-            unsigned tmpNum = lvaNewTemp(arg->GetType(), true DEBUGARG("arg temp"));
+            unsigned tmpNum = lvaNewTemp(arg->GetType(), true DEBUGARG("arg temp"))->GetLclNum();
 
             GenTree*   tmpStore     = gtNewStoreLclVar(tmpNum, arg->GetType(), arg);
             Statement* tmpStoreStmt = gtNewStmt(tmpStore, callILOffset);
@@ -8200,8 +8199,8 @@ GenTree* Compiler::fgExpandVirtualVtableCallTarget(GenTreeCall* call)
             // var2 = var1 + vtabOffsOfIndirection + vtabOffsAfterIndirection + [var1 + vtabOffsOfIndirection]
             // result = [var2] + var2
             //
-            unsigned varNum1 = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("var1 - vtab"));
-            unsigned varNum2 = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("var2 - relative"));
+            unsigned varNum1 = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("var1 - vtab"))->GetLclNum();
+            unsigned varNum2 = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("var2 - relative"))->GetLclNum();
             GenTree* asgVar1 = gtNewAssignNode(gtNewLclvNode(varNum1, TYP_I_IMPL), vtab);
 
             // [tmp + vtabOffsOfIndirection]
@@ -9072,11 +9071,10 @@ GenTree* Compiler::fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned dstL
 
     if (!srcIsZero && !srcIsCreate && !src->OperIs(GT_LCL_VAR))
     {
-        unsigned tempLclNum = lvaNewTemp(src, true DEBUGARG("promoted SIMD copy temp"));
+        dstLcl = lvaNewTemp(src, true DEBUGARG("promoted SIMD copy temp"));
 
-        dstLcl    = lvaGetDesc(dstLclNum);
-        tempStore = gtNewStoreLclVar(tempLclNum, src->GetType(), src);
-        src       = gtNewLclvNode(tempLclNum, src->GetType());
+        tempStore = gtNewStoreLclVar(dstLcl->GetLclNum(), src->GetType(), src);
+        src       = gtNewLclvNode(dstLcl->GetLclNum(), src->GetType());
     }
 
     GenTree*       fieldStores[StructPromotionHelper::GetMaxFieldCount()];
@@ -9665,8 +9663,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
 
             if (addrSpillLclNum == BAD_VAR_NUM)
             {
-                addrSpillLclNum = lvaNewTemp(addr->GetType(), true DEBUGARG("promoted struct address"));
-                promotedLcl     = lvaGetDesc(promotedLclNum);
+                addrSpillLclNum = lvaNewTemp(addr->GetType(), true DEBUGARG("promoted struct address"))->GetLclNum();
                 addrAssign      = gtNewStoreLclVar(addrSpillLclNum, addr->GetType(), addr);
                 addr            = gtNewLclvNode(addrSpillLclNum, addr->GetType());
             }

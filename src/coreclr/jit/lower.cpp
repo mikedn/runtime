@@ -503,7 +503,7 @@ GenTree* Lowering::LowerSwitch(GenTreeUnOp* node)
 
         GenTree*  value  = node->GetOp(0);
         var_types type   = varActualType(value->GetType());
-        unsigned  lclNum = comp->lvaNewTemp(type, true DEBUGARG("unused switch value temp"));
+        unsigned  lclNum = comp->lvaNewTemp(type, true DEBUGARG("unused switch value temp"))->GetLclNum();
         GenTree*  store  = comp->gtNewStoreLclVar(lclNum, type, value);
 
         switchBBRange.InsertAfter(node, store);
@@ -1664,18 +1664,16 @@ void Lowering::RehomeParamForFastTailCall(unsigned paramLclNum,
 
         if (tmpLclNum == BAD_VAR_NUM)
         {
-            tmpLclNum = comp->lvaGrabTemp(true DEBUGARG("fast tail call param temp"));
-
-            LclVarDsc* paramLcl = comp->lvaGetDesc(paramLclNum);
-            LclVarDsc* tmpLcl   = comp->lvaGetDesc(tmpLclNum);
-
+            LclVarDsc* paramLcl       = comp->lvaGetDesc(paramLclNum);
+            LclVarDsc* tmpLcl         = comp->lvaGrabTemp(true DEBUGARG("fast tail call param temp"));
             tmpLcl->lvDoNotEnregister = paramLcl->lvDoNotEnregister;
+            tmpLclNum                 = tmpLcl->GetLclNum();
 
             var_types type = varActualType(paramLcl->GetType());
 
             if (varTypeIsStruct(type))
             {
-                comp->lvaSetStruct(tmpLclNum, paramLcl->GetLayout(), /* checkUnsafeBuffer */ false);
+                comp->lvaSetStruct(tmpLcl, paramLcl->GetLayout(), /* checkUnsafeBuffer */ false);
             }
             else
             {
@@ -2216,14 +2214,14 @@ void Lowering::LowerStructReturn(GenTreeUnOp* ret)
 #else
             assert(retLayout->GetSize() < varTypeSize(retRegType));
 
-            unsigned tempLclNum = comp->lvaNewTemp(retLayout, true DEBUGARG("indir ret temp"));
-            comp->lvaSetVarDoNotEnregister(tempLclNum DEBUGARG(Compiler::DNER_LocalField));
+            LclVarDsc* tempLcl = comp->lvaNewTemp(retLayout, true DEBUGARG("indir ret temp"));
+            comp->lvaSetDoNotEnregister(tempLcl DEBUGARG(Compiler::DNER_LocalField));
 
-            GenTree* retRegValue = comp->gtNewLclFldNode(tempLclNum, retRegType, 0);
+            GenTree* retRegValue = comp->gtNewLclFldNode(tempLcl->GetLclNum(), retRegType, 0);
             ret->SetOp(0, retRegValue);
             BlockRange().InsertBefore(ret, retRegValue);
 
-            GenTreeLclVar* tempStore = comp->gtNewStoreLclVar(tempLclNum, src->GetType(), src);
+            GenTreeLclVar* tempStore = comp->gtNewStoreLclVar(tempLcl->GetLclNum(), src->GetType(), src);
             BlockRange().InsertAfter(src, tempStore);
 
             src->ChangeOper(GT_OBJ);
@@ -2375,10 +2373,9 @@ void Lowering::LowerStructCall(GenTreeCall* call)
 // HFAs that somehow got truncated etc.
 GenTree* Lowering::SpillStructCall(GenTreeCall* call, GenTree* user)
 {
-    unsigned   lclNum = comp->lvaNewTemp(call->GetRetLayout(), true DEBUGARG("odd struct call return temp"));
-    LclVarDsc* lcl    = comp->lvaGetDesc(lclNum);
-    GenTree*   store  = comp->gtNewStoreLclVar(lclNum, lcl->GetType(), call);
-    GenTree*   load   = comp->gtNewLclvNode(lclNum, lcl->GetType());
+    LclVarDsc* lcl   = comp->lvaNewTemp(call->GetRetLayout(), true DEBUGARG("odd struct call return temp"));
+    GenTree*   store = comp->gtNewStoreLclVar(lcl->GetLclNum(), lcl->GetType(), call);
+    GenTree*   load  = comp->gtNewLclvNode(lcl->GetLclNum(), lcl->GetType());
     BlockRange().InsertAfter(call, store);
     BlockRange().InsertBefore(user, load);
     return load;
@@ -2594,7 +2591,7 @@ GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call X86_ARG(GenTree* insert
     else
 #endif
     {
-        lclNum = comp->lvaNewTemp(TYP_REF, true DEBUGARG("delegate invoke this"));
+        lclNum = comp->lvaNewTemp(TYP_REF, true DEBUGARG("delegate invoke this"))->GetLclNum();
 
         LIR::Use use(BlockRange(), &thisArgNode->AsUnOp()->gtOp1, thisArgNode);
         delegateThis = ReplaceWithLclVar(use, lclNum);
@@ -2655,7 +2652,7 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* ins
     {
         if (vtableCallTemp == BAD_VAR_NUM)
         {
-            vtableCallTemp = comp->lvaGrabTemp(true DEBUGARG("virtual vtable call"));
+            vtableCallTemp = comp->lvaGrabTemp(true DEBUGARG("virtual vtable call"))->GetLclNum();
         }
 
         LIR::Use thisPtrUse(BlockRange(), &(thisArgInfo->GetNode()->AsUnOp()->gtOp1), thisArgInfo->GetNode());
@@ -2679,7 +2676,7 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* ins
     {
         assert(vtabOffsOfIndirection != CORINFO_VIRTUALCALL_NO_CHUNK);
 
-        unsigned mtTempLclNum = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("vtbl call MT"));
+        unsigned mtTempLclNum = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("vtbl call MT"))->GetLclNum();
         GenTree* mtTempStore  = comp->gtNewStoreLclVar(mtTempLclNum, TYP_I_IMPL, mt);
         BlockRange().InsertBefore(insertBefore, mtTempStore);
 
@@ -2695,7 +2692,7 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* ins
         GenTree* slotAddr      = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, chunkBaseAddr, chunkOffs, 1, 0);
         BlockRange().InsertBefore(insertBefore, mtTempUse2, offs, chunkBaseAddr, slotAddr);
 
-        unsigned slotAddrTempLclNum = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("vtbl call slot addr"));
+        unsigned slotAddrTempLclNum = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("vtbl call slot addr"))->GetLclNum();
         GenTree* slotAddrTempStore  = comp->gtNewStoreLclVar(slotAddrTempLclNum, TYP_I_IMPL, slotAddr);
         BlockRange().InsertBefore(insertBefore, slotAddrTempStore);
 
@@ -5586,8 +5583,7 @@ unsigned Lowering::GetSimdMemoryTemp(var_types type)
 
     if (tempLclNum == BAD_VAR_NUM)
     {
-        tempLclNum = comp->lvaGrabTemp(false DEBUGARG("Vector GetElement temp"));
-
+        LclVarDsc* lclTemp = comp->lvaGrabTemp(false DEBUGARG("Vector GetElement temp"));
         // TODO-MIKE-Cleanup: This creates a SIMD local without using lvaSetStruct
         // so it doesn't set layout, exact size etc. It happens to work because it
         // is done late, after lowering, otherwise at least the lack of exact size
@@ -5596,10 +5592,10 @@ unsigned Lowering::GetSimdMemoryTemp(var_types type)
         // Could also be a TYP_BLK local, codegen only needs a memory location where
         // to store a SIMD register in order to extract an element from it. But if
         // it's TYP_BLK then it won't have SIMD alignment. Bleah.
-
-        LclVarDsc* lclTemp = comp->lvaGetDesc(tempLclNum);
-        lclTemp->lvType    = type;
+        lclTemp->lvType = type;
         comp->lvaSetDoNotEnregister(lclTemp DEBUGARG(Compiler::DNER_LocalField));
+
+        tempLclNum = lclTemp->GetLclNum();
     }
 
     return tempLclNum;

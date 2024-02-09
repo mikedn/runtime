@@ -600,7 +600,7 @@ private:
             }
             else
             {
-                thisLclNum = compiler->lvaNewTemp(TYP_REF, true DEBUGARG("guarded devirt this temp"));
+                thisLclNum = compiler->lvaNewTemp(TYP_REF, true DEBUGARG("guarded devirt this temp"))->GetLclNum();
 
                 GenTree*   asgTree = compiler->gtNewAssignNode(compiler->gtNewLclvNode(thisLclNum, TYP_REF), thisTree);
                 Statement* asgStmt = compiler->gtNewStmt(asgTree, stmt->GetILOffsetX());
@@ -687,7 +687,7 @@ private:
                 }
                 else
                 {
-                    returnTemp = compiler->lvaGrabTemp(false DEBUGARG("guarded devirt return temp"));
+                    returnTemp = compiler->lvaGrabTemp(false DEBUGARG("guarded devirt return temp"))->GetLclNum();
                     JITDUMP("Reworking call(s) to return value via a new temp V%02u\n", returnTemp);
                 }
 
@@ -742,10 +742,11 @@ private:
             CORINFO_CLASS_HANDLE clsHnd     = inlineInfo->guardedClassHandle;
 
             // copy 'this' to temp with exact type.
-            unsigned thisTemp  = compiler->lvaNewTemp(TYP_REF, false DEBUGARG("guarded devirt this exact temp"));
-            GenTree* clonedObj = compiler->gtCloneExpr(origCall->gtCallThisArg->GetNode());
-            GenTree* assign    = compiler->gtNewAssignNode(compiler->gtNewLclvNode(thisTemp, TYP_REF), clonedObj);
-            compiler->lvaSetClass(thisTemp, clsHnd, true);
+            LclVarDsc* thisTempLcl = compiler->lvaNewTemp(TYP_REF, false DEBUGARG("guarded devirt this exact temp"));
+            unsigned   thisTemp    = thisTempLcl->GetLclNum();
+            GenTree*   clonedObj   = compiler->gtCloneExpr(origCall->gtCallThisArg->GetNode());
+            GenTree*   assign      = compiler->gtNewAssignNode(compiler->gtNewLclvNode(thisTemp, TYP_REF), clonedObj);
+            compiler->lvaSetClass(thisTempLcl, clsHnd, true);
             compiler->fgNewStmtAtEnd(thenBlock, assign);
 
             // Clone call. Note we must use the special candidate helper.

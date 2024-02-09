@@ -9868,7 +9868,7 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
     }
     else
     {
-        unsigned   thisTmp     = lvaNewTemp(type, true DEBUGARG("Enum:HasFlag this temp"));
+        unsigned   thisTmp     = lvaNewTemp(type, true DEBUGARG("Enum:HasFlag this temp"))->GetLclNum();
         Statement* thisAsgStmt = thisOp->AsBox()->gtCopyStmtWhenInlinedBoxValue;
         GenTree*   store;
 
@@ -9894,7 +9894,7 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
     }
     else
     {
-        unsigned   flagTmp     = lvaNewTemp(type, true DEBUGARG("Enum:HasFlag flag temp"));
+        unsigned   flagTmp     = lvaNewTemp(type, true DEBUGARG("Enum:HasFlag flag temp"))->GetLclNum();
         Statement* flagAsgStmt = flagOp->AsBox()->gtCopyStmtWhenInlinedBoxValue;
         GenTree*   store;
 

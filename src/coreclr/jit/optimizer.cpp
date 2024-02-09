@@ -5693,16 +5693,17 @@ void Compiler::optAddCopies()
             continue;
         }
 
-        unsigned copyLclNum = lvaGrabTemp(false DEBUGARG("optAddCopies"));
+        LclVarDsc* copyLcl    = lvaGrabTemp(false DEBUGARG("optAddCopies"));
+        unsigned   copyLclNum = copyLcl->GetLclNum();
 
         if (varTypeIsSIMD(varDsc->GetType()))
         {
-            lvaSetStruct(copyLclNum, varDsc->GetLayout(), /* checkUnsafeBuffer */ false);
-            assert(lvaGetDesc(copyLclNum)->GetType() == typ);
+            lvaSetStruct(copyLcl, varDsc->GetLayout(), /* checkUnsafeBuffer */ false);
+            assert(copyLcl->GetType() == typ);
         }
         else
         {
-            lvaGetDesc(copyLclNum)->SetType(typ);
+            copyLcl->SetType(typ);
         }
 
         JITDUMP("Finding the best place to insert the assignment V%02i = V%02i\n", copyLclNum, lclNum);

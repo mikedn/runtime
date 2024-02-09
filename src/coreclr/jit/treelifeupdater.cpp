@@ -502,7 +502,7 @@ void CodeGenLivenessUpdater::AddGCSlot(LclVarDsc* lcl)
         return;
     }
 
-    JITDUMP("Live GC stack var: +" FMT_LCL "\n", compiler->lvaGetLclNum(lcl));
+    JITDUMP("Live GC stack var: +" FMT_LCL "\n", lcl->GetLclNum());
 
     VarSetOps::AddElemD(compiler, liveGCLcl, lcl->GetLivenessBitIndex());
 }
@@ -514,7 +514,7 @@ void CodeGenLivenessUpdater::RemoveGCSlot(LclVarDsc* lcl)
         return;
     }
 
-    JITDUMP("Live GC stack var: -" FMT_LCL "\n", compiler->lvaGetLclNum(lcl));
+    JITDUMP("Live GC stack var: -" FMT_LCL "\n", lcl->GetLclNum());
 
     VarSetOps::RemoveElemD(compiler, liveGCLcl, lcl->GetLivenessBitIndex());
 }
@@ -523,8 +523,7 @@ void CodeGenLivenessUpdater::UpdateLiveLclRegs(const LclVarDsc* lcl, bool isDyin
 {
     regMaskTP regs = GetLclRegs(lcl);
 
-    JITDUMP("Live var reg: V%02u (%c%s)\n", compiler->lvaGetLclNum(lcl), isDying ? '-' : '+',
-            getRegName(lcl->GetRegNum()));
+    JITDUMP("Live var reg: V%02u (%c%s)\n", lcl->GetLclNum(), isDying ? '-' : '+', getRegName(lcl->GetRegNum()));
 
     if (isDying)
     {

@@ -265,21 +265,23 @@ void Compiler::lvaInitLocals()
         // dummy and have frame allocation take care of this.
         // Removing this causes a few diffs so keep it for now.
 
-        unsigned lclNum = lvaNewTemp(TYP_INT, false DEBUGARG("GSCookie dummy"));
-        lvaSetImplicitlyReferenced(lclNum);
+        LclVarDsc* lcl = lvaNewTemp(TYP_INT, false DEBUGARG("GSCookie dummy"));
+        lvaSetImplicitlyReferenced(lcl);
     }
 
 #if FEATURE_FIXED_OUT_ARGS
     // TODO-MIKE-Cleanup: Consider allocating this in lowering.
-    lvaOutgoingArgSpaceVar = lvaGrabTemp(false DEBUGARG("outgoing args area"));
-    lvaGetDesc(lvaOutgoingArgSpaceVar)->SetBlockType(0);
-    lvaSetImplicitlyReferenced(lvaOutgoingArgSpaceVar);
+    LclVarDsc* outgoingArgSpaceLcl = lvaGrabTemp(false DEBUGARG("outgoing args area"));
+    outgoingArgSpaceLcl->SetBlockType(0);
+    lvaSetImplicitlyReferenced(outgoingArgSpaceLcl);
+    lvaOutgoingArgSpaceVar = outgoingArgSpaceLcl->GetLclNum();
 #endif
 
     if (info.compPublishStubParam)
     {
-        lvaStubArgumentVar = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("StubParam"));
-        lvaSetImplicitlyReferenced(lvaStubArgumentVar);
+        LclVarDsc* stubArgumentLcl = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("StubParam"));
+        lvaSetImplicitlyReferenced(stubArgumentLcl);
+        lvaStubArgumentVar = stubArgumentLcl->GetLclNum();
     }
 
     DBEXEC(verbose, lvaTableDump());
@@ -610,7 +612,7 @@ void Compiler::lvaInitVarargsHandleParam(ParamAllocInfo& paramInfo)
     paramInfo.lclNum++;
 
 #ifdef TARGET_X86
-    lvaVarargsBaseOfStkArgs = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("Varargs BaseOfStkArgs"));
+    lvaVarargsBaseOfStkArgs = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("Varargs BaseOfStkArgs"))->GetLclNum();
 #endif
 
 #ifdef TARGET_ARM
@@ -1279,7 +1281,7 @@ unsigned Compiler::compMap2ILvarNum(unsigned varNum) const
     return varNum;
 }
 
-unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason))
+LclVarDsc* Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason))
 {
     if (compIsForInlining())
     {
@@ -1290,13 +1292,13 @@ unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason))
             compInlineResult->NoteFatal(InlineObservation::CALLSITE_TOO_MANY_LOCALS);
         }
 
-        unsigned lclNum = pComp->lvaGrabTemp(shortLifetime DEBUGARG(reason));
+        LclVarDsc* lcl = pComp->lvaGrabTemp(shortLifetime DEBUGARG(reason));
 
         lvaTable     = pComp->lvaTable;
         lvaCount     = pComp->lvaCount;
         lvaTableSize = pComp->lvaTableSize;
 
-        return lclNum;
+        return lcl;
     }
 
     // You cannot allocate more space after frame layout!
@@ -1341,7 +1343,7 @@ unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason))
 
     JITDUMP("\nAllocated %stemp V%02u for \"%s\"\n", shortLifetime ? "" : "long lifetime ", lclNum, reason);
 
-    return lclNum;
+    return lcl;
 }
 
 unsigned Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reason))
@@ -1420,8 +1422,11 @@ bool LclVarDsc::IsDependentPromotedField(Compiler* compiler) const
 
 void Compiler::lvaSetImplicitlyReferenced(unsigned lclNum)
 {
-    LclVarDsc* lcl = lvaGetDesc(lclNum);
+    lvaSetImplicitlyReferenced(lvaGetDesc(lclNum));
+}
 
+void Compiler::lvaSetImplicitlyReferenced(LclVarDsc* lcl)
+{
     lcl->lvImplicitlyReferenced = true;
     lvaSetDoNotEnregister(lcl DEBUGARG(DNER_HasImplicitRefs));
 
@@ -1528,7 +1533,7 @@ void Compiler::lvaSetDoNotEnregister(LclVarDsc* lcl DEBUGARG(DoNotEnregisterReas
                 break;
         }
 
-        printf("\nLocal V%02u should not be enregistered: %s\n", lvaGetLclNum(lcl), message);
+        printf("\nLocal V%02u should not be enregistered: %s\n", lcl->GetLclNum(), message);
     }
 #endif
 }
@@ -1760,16 +1765,18 @@ void Compiler::makeExtraStructQueries(CORINFO_CLASS_HANDLE structHandle, int lev
 
 void Compiler::lvaSetClass(unsigned varNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact)
 {
+    lvaSetClass(lvaGetDesc(varNum), clsHnd, isExact);
+}
+
+void Compiler::lvaSetClass(LclVarDsc* varDsc, CORINFO_CLASS_HANDLE clsHnd, bool isExact)
+{
     assert(clsHnd != nullptr);
-
-    LclVarDsc* varDsc = lvaGetDesc(varNum);
     assert(varDsc->TypeIs(TYP_REF));
-
-    // We shoud not have any ref type information for this var.
+    // We should not have any ref type information for this var.
     assert(varDsc->lvClassHnd == NO_CLASS_HANDLE);
     assert(!varDsc->lvClassIsExact);
 
-    JITDUMP("\nlvaSetClass: setting class for V%02i to (%p) %s %s\n", varNum, dspPtr(clsHnd),
+    JITDUMP("\nlvaSetClass: setting class for V%02i to (%p) %s %s\n", varDsc->GetLclNum(), dspPtr(clsHnd),
             info.compCompHnd->getClassName(clsHnd), isExact ? " [exact]" : "");
 
     varDsc->lvClassHnd     = clsHnd;
@@ -1791,21 +1798,26 @@ void Compiler::lvaSetClass(unsigned varNum, CORINFO_CLASS_HANDLE clsHnd, bool is
 
 void Compiler::lvaSetClass(unsigned varNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHnd)
 {
+    lvaSetClass(lvaGetDesc(varNum), tree, stackHnd);
+}
+
+void Compiler::lvaSetClass(LclVarDsc* lcl, GenTree* tree, CORINFO_CLASS_HANDLE stackHnd)
+{
     bool                 isExact   = false;
     bool                 isNonNull = false;
     CORINFO_CLASS_HANDLE clsHnd    = gtGetClassHandle(tree, &isExact, &isNonNull);
 
     if (clsHnd != nullptr)
     {
-        lvaSetClass(varNum, clsHnd, isExact);
+        lvaSetClass(lcl, clsHnd, isExact);
     }
     else if (stackHnd != nullptr)
     {
-        lvaSetClass(varNum, stackHnd);
+        lvaSetClass(lcl, stackHnd);
     }
     else
     {
-        lvaSetClass(varNum, impGetObjectClass());
+        lvaSetClass(lcl, impGetObjectClass());
     }
 }
 
@@ -2635,7 +2647,7 @@ void Compiler::lvaAddRef(LclVarDsc* lcl, BasicBlock::weight_t weight, bool propa
         }
     }
 
-    JITDUMP("New refCnts for V%02u: refCnt = %2u, refCntWtd = %s\n", lvaGetLclNum(lcl), lcl->GetRefCount(),
+    JITDUMP("New refCnts for V%02u: refCnt = %2u, refCntWtd = %s\n", lcl->GetLclNum(), lcl->GetRefCount(),
             refCntWtd2str(lcl->GetRefWeight()));
 }
 
@@ -2948,14 +2960,16 @@ void Compiler::phAddSpecialLocals()
 #ifdef TARGET_XARCH
     if (opts.compStackCheckOnRet)
     {
-        lvaReturnSpCheck = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("ReturnSpCheck"));
-        lvaSetImplicitlyReferenced(lvaReturnSpCheck);
+        LclVarDsc* returnSpCheckLcl = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("ReturnSpCheck"));
+        lvaSetImplicitlyReferenced(returnSpCheckLcl);
+        lvaReturnSpCheck = returnSpCheckLcl->GetLclNum();
     }
 #ifdef TARGET_X86
     if (opts.compStackCheckOnCall)
     {
-        lvaCallSpCheck = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("CallSpCheck"));
-        lvaSetImplicitlyReferenced(lvaCallSpCheck);
+        LclVarDsc* callSpCheckLcl = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("CallSpCheck"));
+        lvaSetImplicitlyReferenced(callSpCheckLcl);
+        lvaCallSpCheck = callSpCheckLcl->GetLclNum();
     }
 #endif // TARGET_X86
 #endif // TARGET_XARCH
@@ -2980,9 +2994,10 @@ void Compiler::phAddSpecialLocals()
         // For zero-termination of the shadow-Stack-pointer chain
         slotsNeeded++;
 
-        lvaShadowSPslotsVar = lvaGrabTemp(false DEBUGARG("ShadowSPslots"));
-        lvaGetDesc(lvaShadowSPslotsVar)->SetBlockType(slotsNeeded * REGSIZE_BYTES);
-        lvaSetImplicitlyReferenced(lvaShadowSPslotsVar);
+        LclVarDsc* shadowSpSlotsLcl = lvaGrabTemp(false DEBUGARG("ShadowSPslots"));
+        shadowSpSlotsLcl->SetBlockType(slotsNeeded * REGSIZE_BYTES);
+        lvaSetImplicitlyReferenced(shadowSpSlotsLcl);
+        lvaShadowSPslotsVar = shadowSpSlotsLcl->GetLclNum();
     }
 #endif // !FEATURE_EH_FUNCLETS
 
@@ -2992,8 +3007,9 @@ void Compiler::phAddSpecialLocals()
 #if defined(FEATURE_EH_FUNCLETS)
         if (ehNeedsPSPSym())
         {
-            lvaPSPSym = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("PSPSym"));
-            lvaSetImplicitlyReferenced(lvaPSPSym);
+            LclVarDsc* pspSymLcl = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("PSPSym"));
+            lvaSetImplicitlyReferenced(pspSymLcl);
+            lvaPSPSym = pspSymLcl->GetLclNum();
         }
 #endif // FEATURE_EH_FUNCLETS
 
@@ -3013,8 +3029,9 @@ void Compiler::phAddSpecialLocals()
         // See also eetwain.cpp::GetLocallocSPOffset() and its callers.
         if (compLocallocUsed)
         {
-            lvaLocAllocSPvar = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("LocAllocSP"));
-            lvaSetImplicitlyReferenced(lvaLocAllocSPvar);
+            LclVarDsc* locallocSpLcl = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("LocAllocSP"));
+            lvaSetImplicitlyReferenced(locallocSpLcl);
+            lvaLocAllocSPvar = locallocSpLcl->GetLclNum();
         }
 #endif // JIT32_GCENCODER
     }
