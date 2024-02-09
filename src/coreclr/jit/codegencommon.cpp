@@ -2995,11 +2995,10 @@ void CodeGen::PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZero
     };
 #endif
 
-    LclVarDsc* varDsc;
-    unsigned   varNum;
-
-    for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->lvaCount; varNum++, varDsc++)
+    for (unsigned varNum = 0; varNum < compiler->lvaCount; varNum++)
     {
+        LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
+
         if (!varDsc->lvMustInit)
         {
             continue;

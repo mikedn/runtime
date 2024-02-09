@@ -4659,8 +4659,7 @@ void cVarDsc(Compiler* comp, LclVarDsc* varDsc)
 {
     static unsigned sequenceNumber = 0; // separate calls with a number to indicate this function has been called
     printf("===================================================================== *VarDsc %u\n", sequenceNumber++);
-    unsigned lclNum = (unsigned)(varDsc - comp->lvaTable);
-    comp->lvaDumpEntry(lclNum, Compiler::FINAL_FRAME_LAYOUT);
+    comp->lvaDumpEntry(comp->lvaGetLclNum(varDsc), Compiler::FINAL_FRAME_LAYOUT);
 }
 
 void cVars(Compiler* comp)

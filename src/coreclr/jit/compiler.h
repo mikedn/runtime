@@ -3492,6 +3492,14 @@ public:
         return &lvaTable[lclAddr->GetLclNum()];
     }
 
+#ifdef DEBUG
+    unsigned lvaGetLclNum(const LclVarDsc* lcl) const
+    {
+        assert((lvaTable <= lcl) && (lcl < lvaTable + lvaCount));
+        return static_cast<unsigned>(lcl - lvaTable);
+    }
+#endif
+
     unsigned lvaTrackedIndexToLclNum(unsigned trackedIndex)
     {
         assert(trackedIndex < lvaTrackedCount);

@@ -1174,7 +1174,7 @@ VarToRegMap LinearScan::GetBlockLiveInRegMap(BasicBlock* bb)
 
 void Interval::setLocalNumber(Compiler* compiler, unsigned lclNum, LinearScan* linScan)
 {
-    LclVarDsc* varDsc = &compiler->lvaTable[lclNum];
+    LclVarDsc* varDsc = compiler->lvaGetDesc(lclNum);
     assert(varDsc->lvTracked);
     assert(varDsc->lvVarIndex < compiler->lvaTrackedCount);
 
@@ -1350,16 +1350,13 @@ void LinearScan::identifyCandidates()
         identifyCandidatesExceptionDataflow();
     }
 
-    unsigned   lclNum;
-    LclVarDsc* varDsc;
-
     // While we build intervals for the candidate lclVars, we will determine the floating point
     // lclVars, if any, to consider for callee-save register preferencing.
     // We maintain two sets of FP vars - those that meet the first threshold of weighted ref Count,
     // and those that meet the second.
     // The first threshold is used for methods that are heuristically deemed either to have light
     // fp usage, or other factors that encourage conservative use of callee-save registers, such
-    // as multiple exits (where there might be an early exit that woudl be excessively penalized by
+    // as multiple exits (where there might be an early exit that would be excessively penalized by
     // lots of prolog/epilog saves & restores).
     // The second threshold is used where there are factors deemed to make it more likely that fp
     // fp callee save registers will be needed, such as loops or many fp vars.
@@ -1433,8 +1430,10 @@ void LinearScan::identifyCandidates()
     }
 
     INTRACK_STATS(regCandidateVarCount = 0);
-    for (lclNum = 0, varDsc = compiler->lvaTable; lclNum < compiler->lvaCount; lclNum++, varDsc++)
+    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
     {
+        LclVarDsc* varDsc = compiler->lvaGetDesc(lclNum);
+
         assert(!varDsc->IsRegCandidate());
         assert(!varDsc->lvRegister);
         assert(!varDsc->lvOnFrame);
@@ -1734,14 +1733,14 @@ void LinearScan::setInVarRegForBB(unsigned int bbNum, unsigned int varNum, regNu
 {
     assert(enregisterLocalVars);
     assert(reg < UCHAR_MAX && varNum < compiler->lvaCount);
-    inVarToRegMaps[bbNum][compiler->lvaTable[varNum].lvVarIndex] = (regNumberSmall)reg;
+    inVarToRegMaps[bbNum][compiler->lvaGetDesc(varNum)->lvVarIndex] = static_cast<regNumberSmall>(reg);
 }
 
 void LinearScan::setOutVarRegForBB(unsigned int bbNum, unsigned int varNum, regNumber reg)
 {
     assert(enregisterLocalVars);
     assert(reg < UCHAR_MAX && varNum < compiler->lvaCount);
-    outVarToRegMaps[bbNum][compiler->lvaTable[varNum].lvVarIndex] = (regNumberSmall)reg;
+    outVarToRegMaps[bbNum][compiler->lvaGetDesc(varNum)->lvVarIndex] = static_cast<regNumberSmall>(reg);
 }
 
 LinearScan::SplitEdgeInfo LinearScan::getSplitEdgeInfo(unsigned int bbNum)
@@ -6578,10 +6577,10 @@ void LinearScan::resolveRegisters()
         resolveEdges();
 
         // Verify register assignments on variables
-        unsigned   lclNum;
-        LclVarDsc* varDsc;
-        for (lclNum = 0, varDsc = compiler->lvaTable; lclNum < compiler->lvaCount; lclNum++, varDsc++)
+        for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
         {
+            LclVarDsc* varDsc = compiler->lvaGetDesc(lclNum);
+
             if (!varDsc->IsRegCandidate())
             {
                 assert(varDsc->GetRegNum() == REG_STK);
@@ -6746,7 +6745,7 @@ void LinearScan::resolveRegisters()
 void LinearScan::insertMove(
     BasicBlock* block, GenTree* insertionPoint, unsigned lclNum, regNumber fromReg, regNumber toReg)
 {
-    LclVarDsc* varDsc = compiler->lvaTable + lclNum;
+    LclVarDsc* varDsc = compiler->lvaGetDesc(lclNum);
     // the lclVar must be a register candidate
     assert(isRegCandidate(varDsc));
     // One or both MUST be a register
@@ -6852,8 +6851,8 @@ void LinearScan::insertSwap(
     }
 #endif // DEBUG
 
-    LclVarDsc* varDsc1 = compiler->lvaTable + lclNum1;
-    LclVarDsc* varDsc2 = compiler->lvaTable + lclNum2;
+    LclVarDsc* varDsc1 = compiler->lvaGetDesc(lclNum1);
+    LclVarDsc* varDsc2 = compiler->lvaGetDesc(lclNum2);
     assert(reg1 != REG_STK && reg1 != REG_NA && reg2 != REG_STK && reg2 != REG_NA);
 
     GenTree* lcl1 = compiler->gtNewLclvNode(lclNum1, varDsc1->TypeGet());
@@ -8982,7 +8981,7 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
                 {
                     reg = currentRefPosition->assignedReg();
                 }
-                LclVarDsc* varDsc = &(compiler->lvaTable[interval->varNum]);
+                LclVarDsc* varDsc = compiler->lvaGetDesc(interval->varNum);
                 printf("(");
                 regNumber assignedReg = varDsc->GetRegNum();
                 regNumber argReg      = varDsc->IsRegParam() ? varDsc->GetParamReg() : REG_STK;

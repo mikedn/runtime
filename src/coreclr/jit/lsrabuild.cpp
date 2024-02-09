@@ -1897,8 +1897,8 @@ void LinearScan::buildIntervals()
                 unsigned        varIndex = 0;
                 while (iter.NextElem(&varIndex))
                 {
-                    unsigned   varNum = compiler->lvaTrackedToVarNum[varIndex];
-                    LclVarDsc* varDsc = compiler->lvaTable + varNum;
+                    unsigned   varNum = compiler->lvaTrackedIndexToLclNum(varIndex);
+                    LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
                     assert(varDsc->IsRegCandidate());
                     Interval*    interval = getIntervalForLocalVar(varIndex);
                     RefPosition* pos =
@@ -1915,8 +1915,8 @@ void LinearScan::buildIntervals()
             unsigned        varIndex = 0;
             while (iter.NextElem(&varIndex))
             {
-                unsigned         varNum = compiler->lvaTrackedToVarNum[varIndex];
-                LclVarDsc* const varDsc = &compiler->lvaTable[varNum];
+                unsigned         varNum = compiler->lvaTrackedIndexToLclNum(varIndex);
+                LclVarDsc* const varDsc = compiler->lvaGetDesc(varNum);
                 assert(varDsc->IsRegCandidate());
                 RefPosition* const lastRP = getIntervalForLocalVar(varIndex)->lastRefPosition;
                 // We should be able to assert that lastRP is non-null if it is live-out, but sometimes liveness
@@ -1949,9 +1949,8 @@ void LinearScan::buildIntervals()
         if (compiler->lvaKeepAliveAndReportThis())
         {
             // If we need to KeepAliveAndReportThis, add a dummy exposed use of it at the end
-            unsigned keepAliveVarNum = compiler->info.compThisArg;
-            assert(compiler->info.compIsStatic == false);
-            LclVarDsc* varDsc = compiler->lvaTable + keepAliveVarNum;
+            assert(!compiler->info.compIsStatic);
+            LclVarDsc* varDsc = compiler->lvaGetDesc(compiler->info.compThisArg);
             if (varDsc->IsRegCandidate())
             {
                 JITDUMP("Adding exposed use of this, for lvaKeepAliveAndReportThis\n");
@@ -1968,8 +1967,8 @@ void LinearScan::buildIntervals()
             unsigned        varIndex = 0;
             while (iter.NextElem(&varIndex))
             {
-                unsigned   varNum   = compiler->lvaTrackedToVarNum[varIndex];
-                LclVarDsc* varDsc   = compiler->lvaTable + varNum;
+                unsigned   varNum   = compiler->lvaTrackedIndexToLclNum(varIndex);
+                LclVarDsc* varDsc   = compiler->lvaGetDesc(varNum);
                 Interval*  interval = getIntervalForLocalVar(varIndex);
                 assert(interval->isWriteThru);
                 BasicBlock::weight_t weight = varDsc->lvRefCntWtd();

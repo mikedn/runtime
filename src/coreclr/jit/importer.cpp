@@ -12718,7 +12718,7 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
 // Load an argument on the operand stack
 // Shared by the various CEE_LDARG opcodes
 // ilArgNum is the argument index as specified in IL.
-// It will be mapped to the correct lvaTable index
+// It will be mapped to the correct lclNum
 void Importer::impLoadArg(unsigned ilArgNum)
 {
     if (compIsForInlining())
@@ -12752,7 +12752,7 @@ void Importer::impLoadArg(unsigned ilArgNum)
 // Load a local on the operand stack
 // Shared by the various CEE_LDLOC opcodes
 // ilLocNum is the local index as specified in IL.
-// It will be mapped to the correct lvaTable index
+// It will be mapped to the correct lclNum
 void Importer::impLoadLoc(unsigned ilLocNum)
 {
     unsigned lclNum;
@@ -12781,7 +12781,6 @@ void Importer::impLoadLoc(unsigned ilLocNum)
 }
 
 // Load a local/argument on the operand stack
-// lclNum is an index into lvaTable *NOT* the arg/lcl index in the IL
 void Importer::impPushLclVar(unsigned lclNum)
 {
     LclVarDsc* lcl  = lvaGetDesc(lclNum);

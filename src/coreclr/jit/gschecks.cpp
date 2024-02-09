@@ -145,7 +145,7 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
             if (pState->isUnderIndir)
             {
                 // The variable is being dereferenced for a read or a write.
-                comp->lvaTable[lclNum].lvIsPtr = 1;
+                comp->lvaGetDesc(lclNum)->lvIsPtr = true;
             }
 
             if (pState->isAssignSrc)
@@ -303,9 +303,9 @@ bool Compiler::gsFindVulnerableParams()
     // some assign group.
     FixedBitVect* propagated = (lvaCount > 0) ? FixedBitVect::bitVectInit(lvaCount, this) : nullptr;
 
-    for (UINT lclNum = 0; lclNum < lvaCount; lclNum++)
+    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
-        LclVarDsc*          varDsc     = &lvaTable[lclNum];
+        LclVarDsc*          varDsc     = lvaGetDesc(lclNum);
         ShadowParamVarInfo* shadowInfo = &gsShadowVarInfo[lclNum];
 
         // If there was an indirection or if unsafe buffer, then we'd call it vulnerable.
@@ -323,44 +323,37 @@ bool Compiler::gsFindVulnerableParams()
         // Propagate lvIsPtr, so that:
         //   1. Any parameter in the equivalence class can be identified as lvIsPtr and hence shadowed.
         //   2. Buffers with pointers are placed at lower memory addresses than buffers without pointers.
-        UINT isUnderIndir = varDsc->lvIsPtr;
+        bool isUnderIndir = varDsc->lvIsPtr;
 
         // First pass -- find if any variable is vulnerable.
         FixedBitVect* assignGroup = shadowInfo->assignGroup;
-        for (UINT lclNum = assignGroup->bitVectGetFirst(); lclNum != (unsigned)-1 && !isUnderIndir;
-             lclNum      = assignGroup->bitVectGetNext(lclNum))
+        for (unsigned i = assignGroup->bitVectGetFirst(); i != UINT_MAX && !isUnderIndir;
+             i          = assignGroup->bitVectGetNext(i))
         {
-            isUnderIndir |= lvaTable[lclNum].lvIsPtr;
+            isUnderIndir |= lvaGetDesc(i)->lvIsPtr;
         }
 
-        // Vulnerable, so propagate to all members of the equivalence class.
-        if (isUnderIndir)
-        {
-            hasOneVulnerable = true;
-        }
-        // Nothing to propagate.
-        else
+        if (!isUnderIndir)
         {
             continue;
         }
 
+        hasOneVulnerable = true;
+
         // Second pass -- mark all are vulnerable.
-        assert(isUnderIndir);
-        for (UINT lclNum = assignGroup->bitVectGetFirst(); lclNum != (unsigned)-1;
-             lclNum      = assignGroup->bitVectGetNext(lclNum))
+        for (unsigned i = assignGroup->bitVectGetFirst(); i != UINT_MAX; i = assignGroup->bitVectGetNext(i))
         {
-            lvaTable[lclNum].lvIsPtr = true;
-            propagated->bitVectSet(lclNum);
+            lvaGetDesc(i)->lvIsPtr = true;
+            propagated->bitVectSet(i);
         }
 
 #ifdef DEBUG
         if (verbose)
         {
             printf("Equivalence assign group %s: ", isUnderIndir ? "isPtr " : "");
-            for (UINT lclNum = assignGroup->bitVectGetFirst(); lclNum != (unsigned)-1;
-                 lclNum      = assignGroup->bitVectGetNext(lclNum))
+            for (unsigned i = assignGroup->bitVectGetFirst(); i != UINT_MAX; i = assignGroup->bitVectGetNext(i))
             {
-                gtDispLclVar(lclNum, false);
+                gtDispLclVar(i, false);
                 printf(" ");
             }
             printf("\n");

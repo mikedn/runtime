@@ -6846,7 +6846,7 @@ void Compiler::gtGetLclVarNameInfo(unsigned lclNum, const char** ilKindOut, cons
     }
     else
     {
-        if (!lvaTable[lclNum].lvIsStructField)
+        if (!lvaGetDesc(lclNum)->IsPromotedField())
         {
             ilKind = "loc";
         }
@@ -11637,18 +11637,18 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
 
         case GT_IND:
         {
-            GenTree*        addr = obj->AsIndir()->GetAddr();
-            GenTreeLclAddr* lcl  = addr->IsLocalAddrExpr();
+            GenTree* addr = obj->AsIndir()->GetAddr();
 
-            if ((lcl != nullptr) && (addr->OperGet() != GT_ADD))
+            if (GenTreeLclAddr* lcl = addr->IsLocalAddrExpr())
             {
                 // indir(addr(lcl)) --> lcl
                 //
                 // This comes up during constrained callvirt on ref types.
 
-                const unsigned objLcl = lcl->GetLclNum();
-                objClass              = lvaTable[objLcl].lvClassHnd;
-                *pIsExact             = lvaTable[objLcl].lvClassIsExact;
+                LclVarDsc* objLcl = lvaGetDesc(lcl);
+
+                objClass  = objLcl->lvClassHnd;
+                *pIsExact = objLcl->lvClassIsExact;
             }
             else if (addr->OperGet() == GT_ARR_ELEM)
             {

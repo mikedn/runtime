@@ -140,7 +140,7 @@ void Compiler::fgLocalVarLiveness()
     // (e.g. if it's not live in then set it to false).
     for (unsigned lclNum = 0; lclNum < lvaCount; ++lclNum)
     {
-        lvaTable[lclNum].lvMustInit = false;
+        lvaGetDesc(lclNum)->lvMustInit = false;
     }
 
     if (lvaTrackedCount == 0)
@@ -582,14 +582,15 @@ public:
         if (block->EndsWithJmp(m_compiler))
         {
             // A JMP uses all the arguments, so mark them all as live at the JMP instruction.
-            const LclVarDsc* varDscEndParams = m_compiler->lvaTable + m_compiler->info.compArgsCount;
 
-            for (LclVarDsc* varDsc = m_compiler->lvaTable; varDsc < varDscEndParams; varDsc++)
+            for (unsigned lclNum = 0; lclNum < m_compiler->info.compArgsCount; lclNum++)
             {
-                noway_assert(!varDsc->lvPromoted);
-                if (varDsc->lvTracked)
+                LclVarDsc* varDsc = m_compiler->lvaGetDesc(lclNum);
+                noway_assert(!varDsc->IsPromoted());
+
+                if (varDsc->HasLiveness())
                 {
-                    VarSetOps::AddElemD(m_compiler, m_liveOut, varDsc->lvVarIndex);
+                    VarSetOps::AddElemD(m_compiler, m_liveOut, varDsc->GetLivenessBitIndex());
                 }
             }
         }
@@ -611,7 +612,8 @@ public:
 
         if (keepAliveThis)
         {
-            VarSetOps::AddElemD(m_compiler, m_liveOut, m_compiler->lvaTable[m_compiler->info.compThisArg].lvVarIndex);
+            VarSetOps::AddElemD(m_compiler, m_liveOut,
+                                m_compiler->lvaGetDesc(m_compiler->info.compThisArg)->GetLivenessBitIndex());
         }
 
         /* Compute the 'm_liveIn'  set */
@@ -655,10 +657,10 @@ public:
 
     void Run()
     {
-        const bool keepAliveThis =
-            m_compiler->lvaKeepAliveAndReportThis() && m_compiler->lvaTable[m_compiler->info.compThisArg].lvTracked;
+        const bool keepAliveThis = m_compiler->lvaKeepAliveAndReportThis() &&
+                                   m_compiler->lvaGetDesc(m_compiler->info.compThisArg)->HasLiveness();
 
-        /* Live Variable Analysis - Backward dataflow */
+        // Live Variable Analysis - Backward dataflow
         bool changed;
         do
         {

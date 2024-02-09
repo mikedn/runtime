@@ -65,7 +65,7 @@ void SsaOptimizer::Reset()
 
     for (unsigned i = 0; i < compiler->lvaCount; ++i)
     {
-        compiler->lvaTable[i].m_isSsa = false;
+        compiler->lvaGetDesc(i)->m_isSsa = false;
     }
 
     for (BasicBlock* block : compiler->Blocks())

@@ -1503,7 +1503,7 @@ void Compiler::lvaSetDoNotEnregister(LclVarDsc* lcl DEBUGARG(DoNotEnregisterReas
                 break;
         }
 
-        printf("\nLocal V%02u should not be enregistered: %s\n", lcl - lvaTable, message);
+        printf("\nLocal V%02u should not be enregistered: %s\n", lvaGetLclNum(lcl), message);
     }
 #endif
 }
@@ -2610,8 +2610,8 @@ void Compiler::lvaAddRef(LclVarDsc* lcl, BasicBlock::weight_t weight, bool propa
         }
     }
 
-    JITDUMP("New refCnts for V%02u: refCnt = %2u, refCntWtd = %s\n", static_cast<unsigned>(lcl - lvaTable),
-            lcl->lvRefCnt(), refCntWtd2str(lcl->lvRefCntWtd()));
+    JITDUMP("New refCnts for V%02u: refCnt = %2u, refCntWtd = %s\n", lvaGetLclNum(lcl), lcl->GetRefCount(),
+            refCntWtd2str(lcl->GetRefWeight()));
 }
 
 //------------------------------------------------------------------------
@@ -5405,7 +5405,7 @@ int Compiler::lvaGetSimdTypedLocalPreferredAlignment(LclVarDsc* lcl)
 // changes and it is updated throughout code generation based on LSRA register assignments.
 void Compiler::lvaDumpRegLocation(unsigned lclNum)
 {
-    LclVarDsc* varDsc = lvaTable + lclNum;
+    LclVarDsc* varDsc = lvaGetDesc(lclNum);
 
 #ifdef TARGET_ARM
     if (varDsc->TypeGet() == TYP_DOUBLE)
@@ -5677,18 +5677,16 @@ void Compiler::lvaTableDump()
 
     printf(" local variable assignments\n;\n");
 
-    unsigned   lclNum;
-    LclVarDsc* varDsc;
-
     // Figure out some sizes, to help line things up
 
     size_t refCntWtdWidth = 6; // Use 6 as the minimum width
 
     if (lvaRefCountState == RCS_NORMAL)
     {
-        for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
+        for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
         {
-            size_t width = strlen(refCntWtd2str(varDsc->GetRefWeight()));
+            LclVarDsc* varDsc = lvaGetDesc(lclNum);
+            size_t     width  = strlen(refCntWtd2str(varDsc->GetRefWeight()));
             if (width > refCntWtdWidth)
             {
                 refCntWtdWidth = width;
@@ -5696,7 +5694,7 @@ void Compiler::lvaTableDump()
         }
     }
 
-    for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
+    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
         lvaDumpEntry(lclNum, refCntWtdWidth);
     }
@@ -5725,48 +5723,29 @@ void Compiler::lvaDispVarSet(VARSET_VALARG_TP set, VARSET_VALARG_TP allVars)
 {
     printf("{");
 
-    bool needSpace = false;
+    int len = 0;
 
     for (unsigned index = 0; index < lvaTrackedCount; index++)
     {
         if (VarSetOps::IsMember(this, set, index))
         {
-            unsigned   lclNum;
-            LclVarDsc* varDsc;
+            unsigned lclNum;
 
-            /* Look for the matching variable */
-
-            for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
+            for (lclNum = 0; lclNum < lvaCount; lclNum++)
             {
-                if ((varDsc->lvVarIndex == index) && varDsc->lvTracked)
+                LclVarDsc* varDsc = lvaGetDesc(lclNum);
+
+                if (varDsc->HasLiveness() && (varDsc->GetLivenessBitIndex() == index))
                 {
                     break;
                 }
             }
 
-            if (needSpace)
-            {
-                printf(" ");
-            }
-            else
-            {
-                needSpace = true;
-            }
-
-            printf("V%02u", lclNum);
+            len += printf("%sV%02u", len > 0 ? " " : "", lclNum);
         }
         else if (VarSetOps::IsMember(this, allVars, index))
         {
-            if (needSpace)
-            {
-                printf(" ");
-            }
-            else
-            {
-                needSpace = true;
-            }
-
-            printf("   ");
+            len += printf("%s   ", len > 0 ? " " : "");
         }
     }
 

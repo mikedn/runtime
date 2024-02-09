@@ -1646,8 +1646,7 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
     header->gsCookieOffset = INVALID_GS_COOKIE_OFFSET;
     if (compiler->getNeedsGSSecurityCookie())
     {
-        assert(compiler->lvaGSSecurityCookie != BAD_VAR_NUM);
-        int stkOffs            = compiler->lvaTable[compiler->lvaGSSecurityCookie].GetStackOffset();
+        int stkOffs            = compiler->lvaGetDesc(compiler->lvaGSSecurityCookie)->GetStackOffset();
         header->gsCookieOffset = codeGen->isFramePointerUsed() ? -stkOffs : stkOffs;
         assert(header->gsCookieOffset != INVALID_GS_COOKIE_OFFSET);
     }
@@ -1675,8 +1674,7 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
     header->revPInvokeOffset = INVALID_REV_PINVOKE_OFFSET;
     if (compiler->opts.IsReversePInvoke())
     {
-        assert(compiler->lvaReversePInvokeFrameVar != BAD_VAR_NUM);
-        int stkOffs              = compiler->lvaTable[compiler->lvaReversePInvokeFrameVar].GetStackOffset();
+        int stkOffs              = compiler->lvaGetDesc(compiler->lvaReversePInvokeFrameVar)->GetStackOffset();
         header->revPInvokeOffset = codeGen->isFramePointerUsed() ? -stkOffs : stkOffs;
         assert(header->revPInvokeOffset != INVALID_REV_PINVOKE_OFFSET);
     }

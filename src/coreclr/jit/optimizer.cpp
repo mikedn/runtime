@@ -5694,8 +5694,7 @@ void Compiler::optAddCopies()
         }
 
         unsigned copyLclNum = lvaGrabTemp(false DEBUGARG("optAddCopies"));
-        // Because lvaGrabTemp may have reallocated the lvaTable, ensure varDsc
-        // is still in sync with lvaTable[lclNum];
+        // Because lvaGrabTemp may have reallocated the lvaTable we need to update varDsc
         varDsc = lvaGetDesc(lclNum);
 
         if (varTypeIsSIMD(varDsc->GetType()))

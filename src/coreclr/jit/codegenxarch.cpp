@@ -7548,9 +7548,6 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     }
 
 #ifdef WINDOWS_AMD64_ABI
-    unsigned   varNum;
-    LclVarDsc* varDsc;
-
     // Since the method needs to make a profiler callback, it should have out-going arg space allocated.
     noway_assert(compiler->lvaOutgoingArgSpaceVar != BAD_VAR_NUM);
     noway_assert(outgoingArgSpaceSize >= 4 * REGSIZE_BYTES);
@@ -7558,14 +7555,16 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     // Home all arguments passed in arg registers (RCX, RDX, R8 and R9).
     // In case of vararg methods, arg regs are already homed.
     //
-    // Note: Here we don't need to worry about updating gc'info since enter
+    // Note: Here we don't need to worry about updating GC info since enter
     // callback is generated as part of prolog which is non-gc interruptible.
     // Moreover GC cannot kick while executing inside profiler callback which is a
     // profiler requirement so it can examine arguments which could be obj refs.
     if (!compiler->info.compIsVarArgs)
     {
-        for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->info.compArgsCount; varNum++, varDsc++)
+        for (unsigned varNum = 0; varNum < compiler->info.compArgsCount; varNum++)
         {
+            LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
+
             noway_assert(varDsc->IsParam());
 
             if (!varDsc->IsRegParam())
@@ -7624,8 +7623,10 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     // Vararg methods:
     //   - we need to reload only known (i.e. fixed) reg args.
     //   - if floating point type, also reload it into corresponding integer reg
-    for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->info.compArgsCount; varNum++, varDsc++)
+    for (unsigned varNum = 0; varNum < compiler->info.compArgsCount; varNum++)
     {
+        LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
+
         noway_assert(varDsc->IsParam());
 
         if (!varDsc->IsRegParam())
@@ -7718,9 +7719,9 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 
     // If thisPtr needs to be kept alive and reported, it cannot be one of the callee trash
     // registers that profiler callback kills.
-    if (compiler->lvaKeepAliveAndReportThis() && compiler->lvaTable[compiler->info.compThisArg].lvIsInReg())
+    if (compiler->lvaKeepAliveAndReportThis() && compiler->lvaGetDesc(compiler->info.compThisArg)->lvIsInReg())
     {
-        regMaskTP thisPtrMask = genRegMask(compiler->lvaTable[compiler->info.compThisArg].GetRegNum());
+        regMaskTP thisPtrMask = genRegMask(compiler->lvaGetDesc(compiler->info.compThisArg)->GetRegNum());
         noway_assert((RBM_PROFILER_LEAVE_TRASH & thisPtrMask) == 0);
     }
 
@@ -7760,7 +7761,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
         // cannot use caller's SP offset since it is an estimate.  For now we require the
         // method to have at least a single arg so that we can use it to obtain caller's
         // SP.
-        LclVarDsc* varDsc = compiler->lvaTable;
+        LclVarDsc* varDsc = compiler->lvaGetDesc(0u);
         NYI_IF((varDsc == nullptr) || !varDsc->IsParam(), "Profiler ELT callback for a method without any params");
 
         // lea rdx, [FramePointer + Arg0's offset]
@@ -7794,7 +7795,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     }
     else
     {
-        LclVarDsc* varDsc = compiler->lvaTable;
+        LclVarDsc* varDsc = compiler->lvaGetDesc(0u);
         NYI_IF((varDsc == nullptr) || !varDsc->IsParam(), "Profiler ELT callback for a method without any params");
 
         // lea rdx, [FramePointer + Arg0's offset]

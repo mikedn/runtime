@@ -639,7 +639,7 @@ private:
 //
 //    jumpTarget[N] is set to 1 if IL offset N is a jump target in the method.
 //
-//    Also sets lvAddrExposed and lvHasILStoreOp, ilHasMultipleILStoreOp in lvaTable[].
+//    Also sets lvAddrExposed and lvHasILStoreOp, ilHasMultipleILStoreOp in LclVarDsc.
 
 #ifdef _PREFAST_
 #pragma warning(push)
@@ -1830,7 +1830,7 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
 
 // Modifies lvaThisLclNum to refer to a temp if the value of 'this' can
 // change. The original this (info.compThisArg) then remains unmodified
-// in the method. fgAddInternal is reponsible for adding the code to copy
+// in the method. fgAddInternal is responsible for adding the code to copy
 // the initial this into the temp.
 void Compiler::fgAdjustForAddressTakenOrStoredThis()
 {

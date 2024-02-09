@@ -1599,7 +1599,7 @@ void Compiler::fgAddInternal()
     // 5. Verifier does special handling of "this" in the .ctor
     //
     // However, we might overwrite it with a "starg 0".
-    // In this case, we will redirect all "ldarg(a)/starg(a) 0" to a temp lvaTable[lvaThisLclNum]
+    // In this case, we will redirect all "ldarg(a)/starg(a) 0" to a temp lvaThisLclNum
 
     if (!info.compIsStatic && (lvaThisLclNum != info.GetThisParamLclNum()))
     {
