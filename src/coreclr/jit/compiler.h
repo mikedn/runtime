@@ -315,6 +315,21 @@ public:
                                          // the prolog. If the local has gc pointers, there are no gc-safe points
                                          // between the prolog and the explicit initialization.
 
+    INDEBUG(char lvSingleDefDisqualifyReason = 'H';)
+
+private:
+    RegNumSmall _lvRegNum;
+#ifdef UNIX_AMD64_ABI
+    RegNumSmall m_paramRegs[2]{REG_NA, REG_NA};
+#else
+    RegNumSmall m_paramRegs[1]{REG_NA};
+#endif
+    RegNumSmall m_paramInitialReg; // the register into which the argument is loaded at entry
+
+public:
+    uint8_t lvFieldCnt; //  Number of fields in the promoted VarDsc.
+    uint8_t lvFldOffset;
+
     union {
         unsigned lvFieldLclStart; // The index of the local var representing the first field in the promoted
                                   // struct local. For implicit byref parameters, this gets hijacked between
@@ -323,9 +338,6 @@ public:
         unsigned lvParentLcl; // The index of the local var representing the parent (i.e. the promoted struct local).
                               // Valid on promoted struct local fields.
     };
-
-    unsigned char lvFieldCnt; //  Number of fields in the promoted VarDsc.
-    unsigned char lvFldOffset;
 
     void MakePromotedStructField(unsigned parentLclNum, unsigned fieldOffset, FieldSeqNode* fieldSeq)
     {
@@ -390,24 +402,6 @@ public:
         return m_fieldSeq;
     }
 
-    INDEBUG(char lvSingleDefDisqualifyReason = 'H';)
-
-private:
-    regNumberSmall _lvRegNum; // Used to store the register this variable is in (or, the low register of a
-                              // register pair). It is set during codegen any time the
-                              // variable is enregistered (lvRegister is only set
-                              // to non-zero if the variable gets the same register assignment for its entire
-                              // lifetime).
-
-#ifdef UNIX_AMD64_ABI
-    regNumberSmall m_paramRegs[2]{REG_NA, REG_NA};
-#else
-    regNumberSmall m_paramRegs[1]{REG_NA};
-#endif
-
-    regNumberSmall m_paramInitialReg; // the register into which the argument is loaded at entry
-
-public:
     // The register number is stored in a small format (8 bits), but the getters return and the setters take
     // a full-size (unsigned) format, to localize the casts here.
 
@@ -598,13 +592,13 @@ public:
         return m_hasGCLiveness && lvOnFrame;
     }
 
-    unsigned lclNum;
-
 private:
     uint16_t m_refCount;
     uint32_t m_refWeight;
 
 public:
+    unsigned lclNum;
+
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     void     AddImplicitByRefParamAnyRef();
     void     AddImplicitByRefParamCallRef();
