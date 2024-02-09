@@ -460,7 +460,6 @@ bool Compiler::inlInlineCall(BasicBlock* block, Statement* stmt, GenTreeCall* ca
 
     if (result.IsFailure())
     {
-        memset(lvaTable + initialLvaCount, 0, (static_cast<size_t>(lvaCount) - initialLvaCount) * sizeof(lvaTable[0]));
         lvaCount = initialLvaCount;
 
         // Before we do any cleanup, create a failing InlineContext to

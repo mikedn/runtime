@@ -2936,8 +2936,6 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
         }
 
         unsigned fieldLclNum = compiler->lvaGrabTemp(false DEBUGARG("promoted struct field"));
-        // lvaGrabTemp can reallocate the lvaTable, so refresh the cached lcl for lclNum.
-        lcl = compiler->lvaGetDesc(lclNum);
 
         LclVarDsc* fieldLcl = compiler->lvaGetDesc(fieldLclNum);
         fieldLcl->MakePromotedStructField(lclNum, field.offset, fieldSeq);
@@ -3624,8 +3622,6 @@ void Compiler::lvaRetypeImplicitByRefParams()
             else
             {
                 unsigned structLclNum = lvaNewTemp(lcl->GetLayout(), false DEBUGARG("promoted implicit byref param"));
-                // Update varDsc since lvaGrabTemp might have re-allocated the var dsc array.
-                lcl = lvaGetDesc(lclNum);
 
                 LclVarDsc* structLcl = lvaGetDesc(structLclNum);
 

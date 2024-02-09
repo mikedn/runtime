@@ -598,6 +598,8 @@ public:
         return m_hasGCLiveness && lvOnFrame;
     }
 
+    unsigned lclNum;
+
 private:
     uint16_t m_refCount;
     uint32_t m_refWeight;
@@ -681,11 +683,6 @@ public:
     BlockSet   lvUseBlocks; // Set of blocks that contain uses
     Statement* lvDefStmt;   // Pointer to the statement with the single definition
 #endif
-private:
-    unsigned m_dummy; // Keep the old LclVarDsc size (104 on x64), removing it results in a significant PIN regression
-                      // because both MSVC and Clang use a LEA/SHL sequence for the new size (96) instead of IMUL.
-                      // In theory LEA/SHL saves one cycle of latency but it's far from clear that the increase in code
-                      // size is worth it.
 
 public:
     var_types GetType() const
@@ -3288,8 +3285,8 @@ public:
                            // special arguments, IL local variables, and JIT temporary variables
     unsigned lvaTableSize; // lvaTable size (>= lvaCount)
 
-    LclVarDsc* lvaTable           = nullptr; // variable descriptor table
-    unsigned*  lvaTrackedToVarNum = nullptr;
+    LclVarDsc** lvaTable           = nullptr; // variable descriptor table
+    unsigned*   lvaTrackedToVarNum = nullptr;
 
     unsigned lvaTrackedCount             = 0; // actual # of locals being tracked
     unsigned lvaTrackedCountInSizeTUnits = 0; // min # of size_t's sufficient to hold a bit for all tracked locals
@@ -3477,26 +3474,25 @@ public:
     LclVarDsc* lvaGetDesc(unsigned lclNum)
     {
         assert(lclNum < lvaCount);
-        return &lvaTable[lclNum];
+        return lvaTable[lclNum];
     }
 
     LclVarDsc* lvaGetDesc(const GenTreeLclVarCommon* lclVar)
     {
         assert(lclVar->GetLclNum() < lvaCount);
-        return &lvaTable[lclVar->GetLclNum()];
+        return lvaTable[lclVar->GetLclNum()];
     }
 
     LclVarDsc* lvaGetDesc(const GenTreeLclAddr* lclAddr)
     {
         assert(lclAddr->GetLclNum() < lvaCount);
-        return &lvaTable[lclAddr->GetLclNum()];
+        return lvaTable[lclAddr->GetLclNum()];
     }
 
 #ifdef DEBUG
     unsigned lvaGetLclNum(const LclVarDsc* lcl) const
     {
-        assert((lvaTable <= lcl) && (lcl < lvaTable + lvaCount));
-        return static_cast<unsigned>(lcl - lvaTable);
+        return lcl->lclNum;
     }
 #endif
 

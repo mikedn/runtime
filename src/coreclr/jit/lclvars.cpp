@@ -147,14 +147,29 @@ void Compiler::lvaInitTable()
 
     bool hasRetBuffArg = lvaInitLocalsCount();
 
-    lvaCount     = info.compLocalsCount;
-    lvaTableSize = max(16, lvaCount * 2);
-    lvaTable     = getAllocator(CMK_LvaTable).allocate<LclVarDsc>(lvaTableSize);
-    memset(lvaTable, 0, lvaTableSize * sizeof(lvaTable[0]));
-    for (unsigned i = 0; i < lvaCount; i++)
+    unsigned    count    = info.compLocalsCount;
+    unsigned    capacity = max(16, count * 2);
+    LclVarDsc** table    = getAllocator(CMK_LvaTable).allocate<LclVarDsc*>(capacity);
+
+    if (count != 0)
     {
-        new (&lvaTable[i]) LclVarDsc();
+        LclVarDsc* mem = getAllocator(CMK_LvaTable).allocate<LclVarDsc>(count);
+
+        memset(mem, 0, sizeof(mem[0]) * count);
+
+        for (unsigned i = 0; i < count; i++)
+        {
+            LclVarDsc* lcl = new (&mem[i]) LclVarDsc();
+            lcl->lclNum    = i;
+            table[i]       = lcl;
+        }
     }
+
+    memset(table + count, 0, sizeof(table[0]) * (capacity - count));
+
+    lvaCount     = count;
+    lvaTableSize = capacity;
+    lvaTable     = table;
 
     lvaInitParams(hasRetBuffArg);
     lvaInitLocals();
@@ -1294,8 +1309,12 @@ unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason))
 
     unsigned lclNum = lvaCount++;
 
-    LclVarDsc* lcl = new (&lvaTable[lclNum]) LclVarDsc();
+    void* mem = getAllocator(CMK_LvaTable).allocate<LclVarDsc>(1);
+    memset(mem, 0, sizeof(LclVarDsc));
+
+    LclVarDsc* lcl = new (mem) LclVarDsc();
     lcl->lvIsTemp  = shortLifetime;
+    lcl->lclNum    = lclNum;
     INDEBUG(lcl->lvReason = reason;)
 
     // TODO-MIKE-Review: Minopts needs this because it does not do a ref count,
@@ -1317,6 +1336,8 @@ unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason))
         lcl->SetRefCount(1);
         lcl->SetRefWeight(BB_UNITY_WEIGHT);
     }
+
+    lvaTable[lclNum] = lcl;
 
     JITDUMP("\nAllocated %stemp V%02u for \"%s\"\n", shortLifetime ? "" : "long lifetime ", lclNum, reason);
 
@@ -1348,10 +1369,13 @@ unsigned Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reason))
     unsigned lclNum = lvaCount;
     lvaCount += count;
 
+    LclVarDsc* mem = getAllocator(CMK_LvaTable).allocate<LclVarDsc>(count);
+    memset(mem, 0, sizeof(mem[0]) * count);
+
     for (unsigned i = 0; i < count; i++)
     {
-        LclVarDsc* lcl = new (&lvaTable[lclNum + i]) LclVarDsc();
-        assert(!lcl->lvIsTemp);
+        LclVarDsc* lcl = new (&mem[i]) LclVarDsc();
+
         INDEBUG(lcl->lvReason = reason;)
 
         if (opts.OptimizationDisabled())
@@ -1359,6 +1383,10 @@ unsigned Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reason))
             lcl->lvImplicitlyReferenced = true;
             lcl->lvDoNotEnregister      = true;
         }
+
+        lcl->lclNum = lclNum + i;
+
+        lvaTable[lclNum + i] = lcl;
     }
 
     // Could handle this like in lvaGrabTemp probably...
@@ -1377,12 +1405,9 @@ void Compiler::lvaResizeTable(unsigned newSize)
         IMPL_LIMITATION("too many locals");
     }
 
-    LclVarDsc* newTable = getAllocator(CMK_LvaTable).allocate<LclVarDsc>(newSize);
+    LclVarDsc** newTable = getAllocator(CMK_LvaTable).allocate<LclVarDsc*>(newSize);
     memcpy(newTable, lvaTable, lvaCount * sizeof(lvaTable[0]));
     memset(newTable + lvaCount, 0, (static_cast<size_t>(newSize) - lvaCount) * sizeof(lvaTable[0]));
-
-    // Fill the old table with junk to detect accidental use through cached LclVarDsc pointers.
-    INDEBUG(memset(lvaTable, JitConfig.JitDefaultFill(), lvaCount * sizeof(lvaTable[0]));)
 
     lvaTableSize = newSize;
     lvaTable     = newTable;
@@ -2123,11 +2148,11 @@ bool Compiler::lvaReportParamTypeArg()
 // LclVarDsc "less" comparer used to compare the weight of two locals, when optimizing for small code.
 class LclVarDsc_SmallCode_Less
 {
-    const LclVarDsc* m_lvaTable;
+    LclVarDsc** m_lvaTable;
     INDEBUG(unsigned m_lvaCount;)
 
 public:
-    LclVarDsc_SmallCode_Less(const LclVarDsc* lvaTable DEBUGARG(unsigned lvaCount))
+    LclVarDsc_SmallCode_Less(LclVarDsc** lvaTable DEBUGARG(unsigned lvaCount))
         : m_lvaTable(lvaTable)
 #ifdef DEBUG
         , m_lvaCount(lvaCount)
@@ -2140,8 +2165,8 @@ public:
         assert(n1 < m_lvaCount);
         assert(n2 < m_lvaCount);
 
-        const LclVarDsc* dsc1 = &m_lvaTable[n1];
-        const LclVarDsc* dsc2 = &m_lvaTable[n2];
+        const LclVarDsc* dsc1 = m_lvaTable[n1];
+        const LclVarDsc* dsc2 = m_lvaTable[n2];
 
         // We should not be sorting untracked variables
         assert(dsc1->lvTracked);
@@ -2224,19 +2249,19 @@ public:
             return weight1 > weight2;
         }
 
-        // To achieve a stable sort we use the LclNum (by way of the pointer address).
-        return dsc1 < dsc2;
+        // To achieve a stable sort we use the LclNum.
+        return n1 < n2;
     }
 };
 
 // LclVarDsc "less" comparer used to compare the weight of two locals, when optimizing for blended code.
 class LclVarDsc_BlendedCode_Less
 {
-    const LclVarDsc* m_lvaTable;
+    LclVarDsc** m_lvaTable;
     INDEBUG(unsigned m_lvaCount;)
 
 public:
-    LclVarDsc_BlendedCode_Less(const LclVarDsc* lvaTable DEBUGARG(unsigned lvaCount))
+    LclVarDsc_BlendedCode_Less(LclVarDsc** lvaTable DEBUGARG(unsigned lvaCount))
         : m_lvaTable(lvaTable)
 #ifdef DEBUG
         , m_lvaCount(lvaCount)
@@ -2249,8 +2274,8 @@ public:
         assert(n1 < m_lvaCount);
         assert(n2 < m_lvaCount);
 
-        const LclVarDsc* dsc1 = &m_lvaTable[n1];
-        const LclVarDsc* dsc2 = &m_lvaTable[n2];
+        const LclVarDsc* dsc1 = m_lvaTable[n1];
+        const LclVarDsc* dsc2 = m_lvaTable[n2];
 
         // We should not be sorting untracked variables
         assert(dsc1->lvTracked);
@@ -2311,8 +2336,8 @@ public:
             return varTypeIsGC(dsc1->TypeGet());
         }
 
-        // To achieve a stable sort we use the LclNum (by way of the pointer address).
-        return dsc1 < dsc2;
+        // To achieve a stable sort we use the LclNum.
+        return n1 < n2;
     }
 };
 

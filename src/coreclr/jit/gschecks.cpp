@@ -424,8 +424,6 @@ void Compiler::gsParamsToShadows()
         gsShadowVarInfo[lclNum].shadowLclNum = shadowLclNum;
 
         LclVarDsc* shadowLcl = lvaGetDesc(shadowLclNum);
-        // Get lcl again as lvaGrabTemp may have resized the local table.
-        lcl = lvaGetDesc(lclNum);
 
         // TODO-MIKE-Cleanup: varActualType is likely useless, there should be no need to shadow
         // copy small int locals.
