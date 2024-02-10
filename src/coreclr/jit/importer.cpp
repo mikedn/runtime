@@ -2436,7 +2436,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
 #ifdef TARGET_64BIT
             case CORINFO_INTRINSIC_StubHelpers_GetStubContextAddr:
                 noway_assert(comp->lvaStubArgumentVar != BAD_VAR_NUM);
-                lvaSetAddressExposed(comp->lvaStubArgumentVar);
+                lvaSetAddressExposed(comp->lvaGetDesc(comp->lvaStubArgumentVar));
                 return gtNewLclVarAddrNode(comp->lvaStubArgumentVar, TYP_I_IMPL);
 #endif
             default:
@@ -17291,9 +17291,9 @@ LclVarDsc* Importer::lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGARG(const
     return comp->lvaNewTemp(tree, shortLifetime DEBUGARG(reason));
 }
 
-void Importer::lvaSetAddressExposed(unsigned lclNum)
+void Importer::lvaSetAddressExposed(LclVarDsc* lcl)
 {
-    comp->lvaSetAddressExposed(lclNum);
+    comp->lvaSetAddressExposed(lcl);
 }
 
 bool Importer::lvaIsOriginalThisParam(unsigned lclNum)

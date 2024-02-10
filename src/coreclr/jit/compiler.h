@@ -2202,7 +2202,7 @@ struct Importer
     LclVarDsc* lvaNewTemp(ClassLayout* layout, bool shortLifetime DEBUGARG(const char* reason));
     LclVarDsc* lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shortLifetime DEBUGARG(const char* reason));
     LclVarDsc* lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGARG(const char* reason));
-    void lvaSetAddressExposed(unsigned lclNum);
+    void lvaSetAddressExposed(LclVarDsc* lcl);
     bool lvaIsOriginalThisParam(unsigned lclNum);
     bool lvaHaveManyLocals();
     bool fgVarNeedsExplicitZeroInit(unsigned lclNum, bool blockIsInLoop, bool blockIsReturn);
@@ -3292,22 +3292,6 @@ public:
     // reverse map of tracked number to var number
     unsigned lvaTrackedToVarNumSize = 0;
 
-    void lvaSetImplicitlyReferenced(unsigned lclNum);
-    void lvaSetImplicitlyReferenced(LclVarDsc* lcl);
-
-    void lvaSetAddressExposed(unsigned lclNum);
-    void lvaSetAddressExposed(LclVarDsc* lcl);
-
-    // [[deprecated]]
-    void lvaSetVarAddrExposed(unsigned lclNum)
-    {
-        lvaSetAddressExposed(lclNum);
-    }
-
-    void lvaSetLiveInOutOfHandler(unsigned lclNum);
-
-    void lvSetMinOptsDoNotEnreg();
-
 #ifdef DEBUG
     // Reasons why we can't enregister.  Some of these correspond to debug properties of local vars.
     enum DoNotEnregisterReason
@@ -3331,14 +3315,12 @@ public:
     };
 #endif
 
-    void lvaSetDoNotEnregister(unsigned lclNum DEBUGARG(DoNotEnregisterReason reason));
+    void lvaSetImplicitlyReferenced(LclVarDsc* lcl);
+    void lvaSetAddressExposed(LclVarDsc* lcl);
     void lvaSetDoNotEnregister(LclVarDsc* lcl DEBUGARG(DoNotEnregisterReason reason));
+    void lvaSetLiveInOutOfHandler(LclVarDsc* lcl);
 
-    // [[deprecated]]
-    void lvaSetVarDoNotEnregister(unsigned lclNum DEBUGARG(DoNotEnregisterReason reason))
-    {
-        lvaSetDoNotEnregister(lclNum DEBUGARG(reason));
-    }
+    void lvSetMinOptsDoNotEnreg();
 
     unsigned lvaVarargsHandleArg = BAD_VAR_NUM;
 #ifdef TARGET_X86

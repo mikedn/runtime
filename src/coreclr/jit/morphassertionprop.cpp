@@ -1111,7 +1111,7 @@ GenTree* Compiler::morphAssertionPropagateLclFld(GenTreeLclFld* lclFld)
             assert(!lvaGetDesc(lclNumCopySrc)->IsIndependentPromoted());
 
             lclFld->SetLclNum(lclNumCopySrc);
-            lvaSetVarDoNotEnregister(lclNumCopySrc DEBUGARG(DNER_LocalField));
+            lvaSetDoNotEnregister(lvaGetDesc(lclNumCopySrc) DEBUGARG(DNER_LocalField));
 
             return lclFld;
         }

@@ -1348,7 +1348,7 @@ bool Compiler::fgInterBlockLocalVarLiveness()
 
         if (isFinallyLiveOut || VarSetOps::IsMember(this, handlerLive, lcl->GetLivenessBitIndex()))
         {
-            lvaSetLiveInOutOfHandler(lclNum);
+            lvaSetLiveInOutOfHandler(lcl);
 
             if (isFinallyLiveOut && !lcl->IsParam() && varTypeIsGC(lcl->TypeGet()))
             {

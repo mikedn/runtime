@@ -1808,7 +1808,7 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInf
 
             assert(argInfo->IsImplicitByRef());
 
-            compiler->lvaSetVarAddrExposed(argInfo->GetTempLclNum());
+            compiler->lvaSetAddressExposed(compiler->lvaGetDesc(argInfo->GetTempLclNum()));
             lateArg = compiler->gtNewLclVarAddrNode(argInfo->GetTempLclNum());
 #else
             unreached();
@@ -3318,7 +3318,7 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
         else if (arg->OperIs(GT_LCL_VAR))
         {
             canRetype = true;
-            lvaSetVarDoNotEnregister(arg->AsLclVar()->GetLclNum() DEBUGARG(DNER_LocalField));
+            lvaSetDoNotEnregister(lvaGetDesc(arg->AsLclVar()->GetLclNum()) DEBUGARG(DNER_LocalField));
             arg->ChangeOper(GT_LCL_FLD);
         }
 
@@ -3608,7 +3608,7 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 
         arg->SetType(argRegType);
 
-        lvaSetVarDoNotEnregister(arg->AsLclFld()->GetLclNum() DEBUGARG(DNER_LocalField));
+        lvaSetDoNotEnregister(lvaGetDesc(arg->AsLclFld()->GetLclNum()) DEBUGARG(DNER_LocalField));
     }
 }
 
@@ -3825,7 +3825,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
     {
         arg->ChangeOper(GT_LCL_FLD);
         arg->SetType(argRegType);
-        lvaSetVarDoNotEnregister(arg->GetLclNum() DEBUGARG(DNER_LocalField));
+        lvaSetDoNotEnregister(lvaGetDesc(arg->GetLclNum()) DEBUGARG(DNER_LocalField));
         return arg;
     }
 
@@ -4556,7 +4556,7 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
     {
         if (arg->OperIs(GT_LCL_VAR))
         {
-            lvaSetVarDoNotEnregister(arg->GetLclNum() DEBUGARG(DNER_IsStructArg));
+            lvaSetDoNotEnregister(lcl DEBUGARG(DNER_IsStructArg));
         }
 
         return arg;
@@ -4585,7 +4585,7 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
 
     GenTree* tempAssign = nullptr;
 
-    if (arg->OperIs(GT_LCL_VAR) && lvaGetDesc(arg)->IsIndependentPromoted())
+    if (arg->OperIs(GT_LCL_VAR) && lcl->IsIndependentPromoted())
     {
         unsigned tempLclNum = abiAllocateStructArgTemp(argLayout);
         lcl                 = lvaGetDesc(tempLclNum);
@@ -8560,7 +8560,7 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
 
                 if (destLclNode->OperIs(GT_LCL_FLD))
                 {
-                    lvaSetVarDoNotEnregister(destLclNum DEBUGARG(DNER_LocalField));
+                    lvaSetDoNotEnregister(destLclVar DEBUGARG(DNER_LocalField));
                 }
 
                 destLclNode->gtFlags = destFlags;

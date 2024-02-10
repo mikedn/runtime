@@ -661,7 +661,7 @@ void Compiler::lvaInitUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAND
         JITDUMP("-- V%02u is OSR exposed\n", paramInfo.lclNum);
 
         lcl->lvHasLdAddrOp = true;
-        lvaSetVarAddrExposed(paramInfo.lclNum);
+        lvaSetAddressExposed(lcl);
     }
 
     if (corType == CORINFO_TYPE_CLASS)
@@ -1420,11 +1420,6 @@ bool LclVarDsc::IsDependentPromotedField(Compiler* compiler) const
     return lvIsStructField && !compiler->lvaGetDesc(lvParentLcl)->IsIndependentPromoted();
 }
 
-void Compiler::lvaSetImplicitlyReferenced(unsigned lclNum)
-{
-    lvaSetImplicitlyReferenced(lvaGetDesc(lclNum));
-}
-
 void Compiler::lvaSetImplicitlyReferenced(LclVarDsc* lcl)
 {
     lcl->lvImplicitlyReferenced = true;
@@ -1433,11 +1428,6 @@ void Compiler::lvaSetImplicitlyReferenced(LclVarDsc* lcl)
     // Currently this is only used before ref counting starts
     // so there's no need to bother with setting ref counts.
     assert(!lvaLocalVarRefCounted());
-}
-
-void Compiler::lvaSetAddressExposed(unsigned lclNum)
-{
-    lvaSetAddressExposed(lvaGetDesc(lclNum));
 }
 
 void Compiler::lvaSetAddressExposed(LclVarDsc* lcl)
@@ -1462,16 +1452,10 @@ void Compiler::lvaSetAddressExposed(LclVarDsc* lcl)
     }
 }
 
-void Compiler::lvaSetDoNotEnregister(unsigned lclNum DEBUGARG(DoNotEnregisterReason reason))
-{
-    lvaSetDoNotEnregister(lvaGetDesc(lclNum) DEBUGARG(reason));
-}
-
 void Compiler::lvaSetDoNotEnregister(LclVarDsc* lcl DEBUGARG(DoNotEnregisterReason reason))
 {
-    lcl->lvDoNotEnregister = 1;
-
-// TODO-MIKE-Review: Shouldn't this make promoted fields DNER too?
+    // TODO-MIKE-Review: Shouldn't this make promoted fields DNER too?
+    lcl->lvDoNotEnregister = true;
 
 #ifdef DEBUG
     if (verbose)
@@ -1545,14 +1529,12 @@ void Compiler::lvSetMinOptsDoNotEnreg()
 
     for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
-        lvaSetDoNotEnregister(lclNum DEBUGARG(Compiler::DNER_NoRegVars));
+        lvaSetDoNotEnregister(lvaGetDesc(lclNum) DEBUGARG(Compiler::DNER_NoRegVars));
     }
 }
 
-void Compiler::lvaSetLiveInOutOfHandler(unsigned lclNum)
+void Compiler::lvaSetLiveInOutOfHandler(LclVarDsc* lcl)
 {
-    LclVarDsc* lcl = lvaGetDesc(lclNum);
-
     lcl->lvLiveInOutOfHndlr = true;
 
     // For now, only enregister an EH Var if it is a single def and whose refCount > 1.
@@ -1561,7 +1543,7 @@ void Compiler::lvaSetLiveInOutOfHandler(unsigned lclNum)
         lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LiveInOutOfHandler));
     }
 #ifdef JIT32_GCENCODER
-    else if (lvaKeepAliveAndReportThis() && (lclNum == info.compThisArg))
+    else if (lvaKeepAliveAndReportThis() && (lcl->GetLclNum() == info.compThisArg))
     {
         // For the JIT32_GCENCODER, when lvaKeepAliveAndReportThis is true, we must either keep the "this" pointer
         // in the same register for the entire method, or keep it on the stack. If it is EH-exposed, we can't ever

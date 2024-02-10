@@ -1629,13 +1629,14 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
                     }
                     else
                     {
-                        lcl->lvHasLdAddrOp = 1;
+                        lcl->lvHasLdAddrOp = true;
+
                         if (!info.compIsStatic && (varNum == 0))
                         {
                             // Addr taken on "this" pointer is significant,
                             // go ahead to mark it as permanently addr-exposed here.
-                            lvaSetVarAddrExposed(0);
                             // This may be conservative, but probably not very.
+                            lvaSetAddressExposed(lcl);
                         }
                     }
                 }

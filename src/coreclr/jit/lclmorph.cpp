@@ -760,10 +760,10 @@ private:
         {
             if (GenTreeCall* call = user->IsCall())
             {
-                // It seems reasonable to make an exception for the "this" arg
-                // of calls - it would be highly unsual for a struct member method to attempt to access memory
-                // beyond "this" instance. And calling struct member methods is common enough that attempting to
-                // mark the entire struct as address exposed results in CQ regressions.
+                // It seems reasonable to make an exception for the "this" arg of calls - it would
+                // be highly unusual for a struct member method to attempt to access memory beyond
+                // "this" instance. And calling struct member methods is common enough that attempting
+                // to mark the entire struct as address exposed results in CQ regressions.
 
                 if ((call->gtCallThisArg != nullptr) && (val.Node() == call->gtCallThisArg->GetNode()))
                 {
@@ -782,7 +782,8 @@ private:
             }
         }
 
-        m_compiler->lvaSetAddressExposed(exposeParentLcl ? lcl->GetPromotedFieldParentLclNum() : lclNum);
+        m_compiler->lvaSetAddressExposed(exposeParentLcl ? m_compiler->lvaGetDesc(lcl->GetPromotedFieldParentLclNum())
+                                                         : lcl);
 
 #ifdef TARGET_64BIT
         // If the address of a variable is passed in a call and the allocation size of the variable
@@ -1237,8 +1238,9 @@ private:
 
         GenTreeIndir* node = val.Node()->AsIndir();
         GenTree*      addr = node->GetAddr();
+        LclVarDsc*    lcl  = m_compiler->lvaGetDesc(val.LclNum());
 
-        m_compiler->lvaSetAddressExposed(val.LclNum());
+        m_compiler->lvaSetAddressExposed(lcl);
 
         Value addrVal(addr);
         addrVal.Address(val.LclNum(), val.Offset(), val.FieldSeq());
@@ -1470,7 +1472,7 @@ private:
                         // do this is by making the local address exposed which is a big hammer. But
                         // such an indirect store is highly unusual so it's not worth the trouble to
                         // introduce another mechanism.
-                        m_compiler->lvaSetVarAddrExposed(val.LclNum());
+                        m_compiler->lvaSetAddressExposed(varDsc);
                     }
                 }
 
@@ -1850,7 +1852,8 @@ private:
             op2->ChangeOper(GT_LCL_FLD);
             op2->SetType(op1->GetType());
 
-            m_compiler->lvaSetVarDoNotEnregister(op2->AsLclFld()->GetLclNum() DEBUGARG(Compiler::DNER_LocalField));
+            m_compiler->lvaSetDoNotEnregister(m_compiler->lvaGetDesc(op2->AsLclFld()->GetLclNum())
+                                                  DEBUGARG(Compiler::DNER_LocalField));
         }
 
         asg->SetType(op1->GetType());

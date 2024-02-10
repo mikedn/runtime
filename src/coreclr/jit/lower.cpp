@@ -2049,14 +2049,14 @@ void Lowering::LowerLclFld(GenTreeLclFld* lclFld)
 {
     assert(lclFld->OperIs(GT_LCL_FLD));
 
-    comp->lvaSetVarDoNotEnregister(lclFld->GetLclNum() DEBUG_ARG(Compiler::DNER_LocalField));
+    comp->lvaSetDoNotEnregister(comp->lvaGetDesc(lclFld->GetLclNum()) DEBUG_ARG(Compiler::DNER_LocalField));
 }
 
 void Lowering::LowerStoreLclFld(GenTreeLclFld* store)
 {
     assert(store->OperIs(GT_STORE_LCL_FLD));
 
-    comp->lvaSetVarDoNotEnregister(store->GetLclNum() DEBUG_ARG(Compiler::DNER_LocalField));
+    comp->lvaSetDoNotEnregister(comp->lvaGetDesc(store->GetLclNum()) DEBUG_ARG(Compiler::DNER_LocalField));
 
     GenTree* value = store->GetOp(0);
 
@@ -2876,7 +2876,7 @@ void Lowering::InsertFrameLinkUpdate(LIR::Range& block, GenTree* before, FrameLi
     {
         data = comp->gtNewLclFldAddrNode(comp->lvaInlinedPInvokeFrameVar, info.inlinedCallFrameInfo.offsetOfFrameVptr,
                                          FieldSeqStore::NotAField());
-        comp->lvaSetAddressExposed(comp->lvaInlinedPInvokeFrameVar);
+        comp->lvaSetAddressExposed(comp->lvaGetDesc(comp->lvaInlinedPInvokeFrameVar));
     }
     else
     {
@@ -2956,7 +2956,7 @@ void Lowering::InsertPInvokeMethodProlog()
 
     GenTree* frameAddr =
         comp->gtNewLclFldAddrNode(comp->lvaInlinedPInvokeFrameVar, callFrameInfo.offsetOfFrameVptr, nullptr);
-    comp->lvaSetVarAddrExposed(comp->lvaInlinedPInvokeFrameVar);
+    comp->lvaSetAddressExposed(comp->lvaGetDesc(comp->lvaInlinedPInvokeFrameVar));
 
     // Call runtime helper to fill in our InlinedCallFrame and push it on the Frame list:
     //     TCB = CORINFO_HELP_INIT_PINVOKE_FRAME(&symFrameStart, secretArg);
@@ -2991,7 +2991,7 @@ void Lowering::InsertPInvokeMethodProlog()
     GenTreePhysReg* sp = comp->gtNewPhysRegNode(REG_SPBASE, TYP_I_IMPL);
     GenTreeLclFld*  storeSP =
         comp->gtNewStoreLclFld(TYP_I_IMPL, comp->lvaInlinedPInvokeFrameVar, callFrameInfo.offsetOfCallSiteSP, sp);
-    comp->lvaSetVarDoNotEnregister(comp->lvaInlinedPInvokeFrameVar DEBUGARG(Compiler::DNER_LocalField));
+    comp->lvaSetDoNotEnregister(comp->lvaGetDesc(comp->lvaInlinedPInvokeFrameVar) DEBUGARG(Compiler::DNER_LocalField));
     firstBlockRange.InsertBefore(insertionPoint, sp, storeSP);
     DISPTREERANGE(firstBlockRange, storeSP);
 
@@ -3112,7 +3112,7 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
     {
         // First argument is the address of the frame variable.
         GenTree* frameAddr = comp->gtNewLclVarAddrNode(comp->lvaInlinedPInvokeFrameVar);
-        comp->lvaSetAddressExposed(comp->lvaInlinedPInvokeFrameVar);
+        comp->lvaSetAddressExposed(comp->lvaGetDesc(comp->lvaInlinedPInvokeFrameVar));
 
 #if defined(TARGET_X86) && !defined(UNIX_X86_ABI)
         // On x86 targets, PInvoke calls need the size of the stack args in InlinedCallFrame.m_Datum.
@@ -3257,7 +3257,7 @@ void Lowering::InsertPInvokeCallEpilog(GenTreeCall* call)
         noway_assert(comp->lvaInlinedPInvokeFrameVar != BAD_VAR_NUM);
 
         GenTreeCall::Use* args = comp->gtNewCallArgs(comp->gtNewLclVarAddrNode(comp->lvaInlinedPInvokeFrameVar));
-        comp->lvaSetAddressExposed(comp->lvaInlinedPInvokeFrameVar);
+        comp->lvaSetAddressExposed(comp->lvaGetDesc(comp->lvaInlinedPInvokeFrameVar));
         GenTreeCall* pInvokeEnd = comp->gtNewHelperCallNode(CORINFO_HELP_JIT_PINVOKE_END, TYP_VOID, args);
         LIR::InsertHelperCallBefore(comp, BlockRange(), call->gtNext, pInvokeEnd);
 
