@@ -3274,8 +3274,8 @@ public:
                            // special arguments, IL local variables, and JIT temporary variables
     unsigned lvaTableSize; // lvaTable size (>= lvaCount)
 
-    LclVarDsc** lvaTable           = nullptr; // variable descriptor table
-    unsigned*   lvaTrackedToVarNum = nullptr;
+    LclVarDsc** lvaTable   = nullptr; // variable descriptor table
+    LclVarDsc** lvaTracked = nullptr;
 
     unsigned lvaTrackedCount             = 0; // actual # of locals being tracked
     unsigned lvaTrackedCountInSizeTUnits = 0; // min # of size_t's sufficient to hold a bit for all tracked locals
@@ -3464,14 +3464,13 @@ public:
     unsigned lvaTrackedIndexToLclNum(unsigned trackedIndex) const
     {
         assert(trackedIndex < lvaTrackedCount);
-        unsigned lclNum = lvaTrackedToVarNum[trackedIndex];
-        assert(lclNum < lvaCount);
-        return lclNum;
+        return lvaTracked[trackedIndex]->GetLclNum();
     }
 
     LclVarDsc* lvaGetDescByTrackedIndex(unsigned trackedIndex) const
     {
-        return lvaGetDesc(lvaTrackedIndexToLclNum(trackedIndex));
+        assert(trackedIndex < lvaTrackedCount);
+        return lvaTracked[trackedIndex];
     }
 
     bool lvaHaveManyLocals() const;

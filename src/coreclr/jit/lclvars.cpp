@@ -2066,28 +2066,10 @@ bool Compiler::lvaReportParamTypeArg()
 }
 
 // LclVarDsc "less" comparer used to compare the weight of two locals, when optimizing for small code.
-class LclVarDsc_SmallCode_Less
+struct LclVarDsc_SmallCode_Less
 {
-    LclVarDsc* const* m_lvaTable;
-    INDEBUG(unsigned m_lvaCount;)
-
-public:
-    LclVarDsc_SmallCode_Less(LclVarDsc* const* lvaTable DEBUGARG(unsigned lvaCount))
-        : m_lvaTable(lvaTable)
-#ifdef DEBUG
-        , m_lvaCount(lvaCount)
-#endif
+    bool operator()(const LclVarDsc* dsc1, const LclVarDsc* dsc2)
     {
-    }
-
-    bool operator()(unsigned n1, unsigned n2)
-    {
-        assert(n1 < m_lvaCount);
-        assert(n2 < m_lvaCount);
-
-        const LclVarDsc* dsc1 = m_lvaTable[n1];
-        const LclVarDsc* dsc2 = m_lvaTable[n2];
-
         // We should not be sorting untracked variables
         assert(dsc1->lvTracked);
         assert(dsc2->lvTracked);
@@ -2173,33 +2155,15 @@ public:
         }
 
         // To achieve a stable sort we use the LclNum.
-        return n1 < n2;
+        return dsc1->GetLclNum() < dsc2->GetLclNum();
     }
 };
 
 // LclVarDsc "less" comparer used to compare the weight of two locals, when optimizing for blended code.
-class LclVarDsc_BlendedCode_Less
+struct LclVarDsc_BlendedCode_Less
 {
-    LclVarDsc* const* m_lvaTable;
-    INDEBUG(unsigned m_lvaCount;)
-
-public:
-    LclVarDsc_BlendedCode_Less(LclVarDsc* const* lvaTable DEBUGARG(unsigned lvaCount))
-        : m_lvaTable(lvaTable)
-#ifdef DEBUG
-        , m_lvaCount(lvaCount)
-#endif
+    bool operator()(const LclVarDsc* dsc1, const LclVarDsc* dsc2)
     {
-    }
-
-    bool operator()(unsigned n1, unsigned n2)
-    {
-        assert(n1 < m_lvaCount);
-        assert(n2 < m_lvaCount);
-
-        const LclVarDsc* dsc1 = m_lvaTable[n1];
-        const LclVarDsc* dsc2 = m_lvaTable[n2];
-
         // We should not be sorting untracked variables
         assert(dsc1->lvTracked);
         assert(dsc2->lvTracked);
@@ -2263,7 +2227,7 @@ public:
         }
 
         // To achieve a stable sort we use the LclNum.
-        return n1 < n2;
+        return dsc1->GetLclNum() < dsc2->GetLclNum();
     }
 };
 
@@ -2282,11 +2246,11 @@ void Compiler::lvaMarkLivenessTrackedLocals()
     if (lvaTrackedToVarNumSize < lvaCount)
     {
         lvaTrackedToVarNumSize = lvaCount;
-        lvaTrackedToVarNum     = new (getAllocator(CMK_LvaTable)) unsigned[lvaTrackedToVarNumSize];
+        lvaTracked             = new (getAllocator(CMK_LvaTable)) LclVarDsc*[lvaTrackedToVarNumSize];
     }
 
-    unsigned  trackedCount = 0;
-    unsigned* tracked      = lvaTrackedToVarNum;
+    unsigned    trackedCount = 0;
+    LclVarDsc** tracked      = lvaTracked;
 
     for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
@@ -2350,7 +2314,7 @@ void Compiler::lvaMarkLivenessTrackedLocals()
 
         if (lcl->lvTracked)
         {
-            tracked[trackedCount++] = lclNum;
+            tracked[trackedCount++] = lcl;
         }
 
         if (compJmpOpUsed && lcl->IsRegParam())
@@ -2402,11 +2366,11 @@ void Compiler::lvaMarkLivenessTrackedLocals()
 
     if (compCodeOpt() == SMALL_CODE)
     {
-        jitstd::sort(tracked, tracked + trackedCount, LclVarDsc_SmallCode_Less(lvaTable DEBUGARG(lvaCount)));
+        jitstd::sort(tracked, tracked + trackedCount, LclVarDsc_SmallCode_Less());
     }
     else
     {
-        jitstd::sort(tracked, tracked + trackedCount, LclVarDsc_BlendedCode_Less(lvaTable DEBUGARG(lvaCount)));
+        jitstd::sort(tracked, tracked + trackedCount, LclVarDsc_BlendedCode_Less());
     }
 
     lvaTrackedCount = min(static_cast<unsigned>(JitConfig.JitMaxLocalsToTrack()), trackedCount);
@@ -2415,13 +2379,13 @@ void Compiler::lvaMarkLivenessTrackedLocals()
 
     for (unsigned trackedIndex = 0; trackedIndex < lvaTrackedCount; trackedIndex++)
     {
-        LclVarDsc* lcl = lvaGetDesc(tracked[trackedIndex]);
+        LclVarDsc* lcl = tracked[trackedIndex];
 
         assert(lcl->lvTracked);
         lcl->lvVarIndex = static_cast<uint16_t>(trackedIndex);
 
-        DBEXEC(verbose, gtDispLclVar(tracked[trackedIndex]))
-        JITDUMP("Tracked V%02u: refCnt = %4u, refCntWtd = %6s\n", tracked[trackedIndex], lcl->lvRefCnt(),
+        DBEXEC(verbose, gtDispLclVar(lcl->GetLclNum()))
+        JITDUMP("Tracked V%02u: refCnt = %4u, refCntWtd = %6s\n", lcl->GetLclNum(), lcl->lvRefCnt(),
                 refCntWtd2str(lcl->lvRefCntWtd()));
     }
 
@@ -2429,13 +2393,13 @@ void Compiler::lvaMarkLivenessTrackedLocals()
     // them from lvaTrackedToVarNum but lvaTrackedCount reflects the actual tracked count.
     for (unsigned trackedIndex = lvaTrackedCount; trackedIndex < trackedCount; trackedIndex++)
     {
-        LclVarDsc* lcl = lvaGetDesc(tracked[trackedIndex]);
+        LclVarDsc* lcl = tracked[trackedIndex];
 
         assert(lcl->lvTracked);
         lcl->lvTracked = 0;
 
-        DBEXEC(verbose, gtDispLclVar(tracked[trackedIndex]))
-        JITDUMP("Untracked V%02u: refCnt = %4u, refCntWtd = %6s\n", tracked[trackedIndex], lcl->lvRefCnt(),
+        DBEXEC(verbose, gtDispLclVar(lcl->GetLclNum()))
+        JITDUMP("Untracked V%02u: refCnt = %4u, refCntWtd = %6s\n", lcl->GetLclNum(), lcl->lvRefCnt(),
                 refCntWtd2str(lcl->lvRefCntWtd()));
     }
 
