@@ -1586,8 +1586,6 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
                 }
 
                 RehomeParamForFastTailCall(paramLclNum, insertionPoint, lookForUsesFrom, call);
-                // The above call can introduce temps and invalidate the pointer.
-                paramLcl = comp->lvaGetDesc(paramLclNum);
 
                 if (paramLcl->IsPromoted())
                 {
