@@ -228,9 +228,8 @@ GenTree* Importer::impSIMDPopStack(var_types type)
         ClassLayout* layout = tree->IsRetExpr() ? tree->AsRetExpr()->GetLayout() : tree->AsCall()->GetRetLayout();
 
         LclVarDsc* tmpLcl = lvaGrabTemp(true DEBUGARG("struct address for call/obj"));
-        unsigned   tmpNum = tmpLcl->GetLclNum();
-        impAppendTempAssign(tmpNum, tree, layout, CHECK_SPILL_ALL);
-        tree = gtNewLclvNode(tmpNum, tmpLcl->GetType());
+        impAppendTempAssign(tmpLcl, tree, layout, CHECK_SPILL_ALL);
+        tree = gtNewLclvNode(tmpLcl->GetLclNum(), tmpLcl->GetType());
     }
 
     assert(tree->GetType() == type);
@@ -520,49 +519,44 @@ void Importer::impSpillNoneAppendTree(GenTree* op1)
  *  curLevel is the stack level for which the spill to the temp is being done.
  */
 
-void Importer::impAppendTempAssign(unsigned lclNum, GenTree* val, unsigned curLevel)
+void Importer::impAppendTempAssign(LclVarDsc* lcl, GenTree* val, unsigned curLevel)
 {
-    assert(!varTypeIsStruct(val->GetType()));
-
-    LclVarDsc* lcl = lvaGetDesc(lclNum);
     assert(lcl->GetType() == TYP_UNDEF);
 
     var_types type = varActualType(val->GetType());
     lcl->SetType(type);
 
-    GenTree* asg = gtNewAssignNode(gtNewLclvNode(lclNum, type), val);
+    GenTree* asg = gtNewAssignNode(gtNewLclvNode(lcl->GetLclNum(), type), val);
     impAppendTree(asg, curLevel);
 }
 
-void Importer::impAppendTempAssign(unsigned lclNum, GenTree* val, CORINFO_CLASS_HANDLE structType, unsigned curLevel)
+void Importer::impAppendTempAssign(LclVarDsc* lcl, GenTree* val, ClassLayout* layout, unsigned curLevel)
 {
     if (!varTypeIsStruct(val->GetType()))
     {
-        impAppendTempAssign(lclNum, val, curLevel);
-        return;
-    }
-
-    impAppendTempAssign(lclNum, val, typGetObjLayout(structType), curLevel);
-}
-
-void Importer::impAppendTempAssign(unsigned lclNum, GenTree* val, ClassLayout* layout, unsigned curLevel)
-{
-    if (!varTypeIsStruct(val->GetType()))
-    {
-        impAppendTempAssign(lclNum, val, curLevel);
+        impAppendTempAssign(lcl, val, curLevel);
         return;
     }
 
     assert(layout->IsValueClass());
-
-    LclVarDsc* lcl = lvaGetDesc(lclNum);
     assert(lcl->GetType() == TYP_UNDEF);
 
-    lvaSetStruct(lclNum, layout, false);
+    comp->lvaSetStruct(lcl, layout, false);
 
-    GenTree* dest = gtNewLclvNode(lclNum, lcl->GetType());
+    GenTree* dest = gtNewLclvNode(lcl->GetLclNum(), lcl->GetType());
     GenTree* asg  = impAssignStruct(dest, val, curLevel);
     impAppendTree(asg, curLevel);
+}
+
+void Importer::impAppendTempAssign(LclVarDsc* lcl, GenTree* val, CORINFO_CLASS_HANDLE structType, unsigned curLevel)
+{
+    if (!varTypeIsStruct(val->GetType()))
+    {
+        impAppendTempAssign(lcl, val, curLevel);
+        return;
+    }
+
+    impAppendTempAssign(lcl, val, typGetObjLayout(structType), curLevel);
 }
 
 GenTreeCall::Use* Importer::PopCallArgs(CORINFO_SIG_INFO* sig, GenTree* extraArg)
@@ -1000,9 +994,9 @@ GenTree* Importer::impGetStructAddr(GenTree*             value,
         return value->AsObj()->GetAddr();
     }
 
-    unsigned tmpNum = lvaGrabTemp(true DEBUGARG("struct address temp"))->GetLclNum();
-    impAppendTempAssign(tmpNum, value, structHnd, curLevel);
-    return gtNewLclVarAddrNode(tmpNum, TYP_BYREF);
+    LclVarDsc* tmpLcl = lvaGrabTemp(true DEBUGARG("struct address temp"));
+    impAppendTempAssign(tmpLcl, value, structHnd, curLevel);
+    return gtNewLclVarAddrNode(tmpLcl->GetLclNum(), TYP_BYREF);
 }
 
 GenTree* Importer::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLayout, unsigned curLevel)
@@ -1016,10 +1010,9 @@ GenTree* Importer::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
             // TODO-MIKE-CQ: We should not need a temp for single reg return calls either.
             if ((arg->IsCall() ? arg->AsCall() : arg->AsRetExpr()->GetCall())->GetRegCount() <= 1)
             {
-                LclVarDsc* argLcl    = lvaGrabTemp(true DEBUGARG("struct arg temp"));
-                unsigned   argLclNum = argLcl->GetLclNum();
-                impAppendTempAssign(argLclNum, arg, argLayout, curLevel);
-                arg = gtNewLclvNode(argLclNum, argLcl->GetType());
+                LclVarDsc* argLcl = lvaGrabTemp(true DEBUGARG("struct arg temp"));
+                impAppendTempAssign(argLcl, arg, argLayout, curLevel);
+                arg = gtNewLclvNode(argLcl->GetLclNum(), argLcl->GetType());
             }
             return arg;
 
@@ -1371,21 +1364,19 @@ void Importer::impImportDup()
         // TODO-MIKE-Cleanup: This should just use impSpillStackEntry. But it looks like
         // impSpillStackEntry's special RET_EXPR handling hurts CQ...
 
-        unsigned tmpNum = lvaGrabTemp(true DEBUGARG("dup spill"))->GetLclNum();
-        impAppendTempAssign(tmpNum, op1, se.seTypeInfo.GetClassHandle(), CHECK_SPILL_ALL);
-
-        LclVarDsc* lcl = lvaGetDesc(tmpNum);
+        LclVarDsc* lcl = lvaGrabTemp(true DEBUGARG("dup spill"));
+        impAppendTempAssign(lcl, op1, se.seTypeInfo.GetClassHandle(), CHECK_SPILL_ALL);
 
         if (!opts.compDbgCode && lcl->TypeIs(TYP_REF))
         {
             assert(lcl->lvSingleDef == 0);
             lcl->lvSingleDef = 1;
-            JITDUMP("Marked V%02u as a single def local\n", tmpNum);
-            lvaSetClass(tmpNum, op1, se.seTypeInfo.GetClassHandle());
+            JITDUMP("Marked V%02u as a single def local\n", lcl->GetLclNum());
+            comp->lvaSetClass(lcl, op1, se.seTypeInfo.GetClassHandle());
         }
 
-        op1 = gtNewLclvNode(tmpNum, varActualType(lcl->GetType()));
-        op2 = gtNewLclvNode(tmpNum, varActualType(lcl->GetType()));
+        op1 = gtNewLclvNode(lcl->GetLclNum(), varActualType(lcl->GetType()));
+        op2 = gtNewLclvNode(lcl->GetLclNum(), varActualType(lcl->GetType()));
     }
 
     impPushOnStack(op1, se.seTypeInfo);
@@ -1398,29 +1389,28 @@ void Importer::impSpillStackEntry(unsigned level DEBUGARG(const char* reason))
     StackEntry& se   = verCurrentState.esStack[level];
     GenTree*    tree = se.val;
 
-    LclVarDsc* lcl    = lvaGrabTemp(true DEBUGARG(reason));
-    unsigned   tmpNum = lcl->GetLclNum();
-    impAppendTempAssign(tmpNum, tree, se.seTypeInfo.GetClassHandle(), level);
+    LclVarDsc* lcl = lvaGrabTemp(true DEBUGARG(reason));
+    impAppendTempAssign(lcl, tree, se.seTypeInfo.GetClassHandle(), level);
 
     if (lcl->TypeIs(TYP_REF))
     {
         assert(lcl->lvSingleDef == 0);
         lcl->lvSingleDef = 1;
-        JITDUMP("Marked V%02u as a single def temp\n", tmpNum);
-        lvaSetClass(tmpNum, tree, se.seTypeInfo.GetClassHandle());
+        JITDUMP("Marked V%02u as a single def temp\n", lcl->GetLclNum());
+        comp->lvaSetClass(lcl, tree, se.seTypeInfo.GetClassHandle());
 
         // If we're assigning a GT_RET_EXPR, note the temp over on the call,
         // so the inliner can use it in case it needs a return spill temp.
         if (GenTreeRetExpr* retExpr = tree->IsRetExpr())
         {
-            JITDUMP("\n*** see V%02u = GT_RET_EXPR, noting temp\n", tmpNum);
+            JITDUMP("\n*** see V%02u = GT_RET_EXPR, noting temp\n", lcl->GetLclNum());
 
             assert(retExpr->GetRetExpr() == retExpr->GetCall());
-            retExpr->GetCall()->gtInlineCandidateInfo->preexistingSpillTemp = tmpNum;
+            retExpr->GetCall()->gtInlineCandidateInfo->preexistingSpillTemp = lcl->GetLclNum();
         }
     }
 
-    se.val = gtNewLclvNode(tmpNum, varActualType(lcl->GetType()));
+    se.val = gtNewLclvNode(lcl->GetLclNum(), varActualType(lcl->GetType()));
 }
 
 void Importer::EnsureStackSpilled(bool ignoreLeaves DEBUGARG(const char* reason))
@@ -1704,10 +1694,11 @@ void Importer::impMakeMultiUse(GenTree*     tree,
         }
     }
 
-    LclVarDsc* lcl    = lvaGrabTemp(true DEBUGARG(reason));
-    unsigned   lclNum = lcl->GetLclNum();
-    impAppendTempAssign(lclNum, tree, layout, spillCheckLevel);
-    var_types type = varActualType(lcl->GetType());
+    LclVarDsc* lcl = lvaGrabTemp(true DEBUGARG(reason));
+    impAppendTempAssign(lcl, tree, layout, spillCheckLevel);
+
+    unsigned  lclNum = lcl->GetLclNum();
+    var_types type   = varActualType(lcl->GetType());
 
     for (unsigned i = 0; i < useCount; i++)
     {
@@ -6958,14 +6949,13 @@ PUSH_CALL:
             // and removes problems with cutting trees.
             assert(IsTargetAbi(CORINFO_CORERT_ABI));
 
-            LclVarDsc* calliTempLcl    = lvaGrabTemp(true DEBUGARG("calli fat pointer temp"));
-            unsigned   calliTempLclNum = calliTempLcl->GetLclNum();
+            LclVarDsc* calliTempLcl = lvaGrabTemp(true DEBUGARG("calli fat pointer temp"));
             // TODO-MIKE-Review: CHECK_SPILL_NONE followed by CHECK_SPILL_ALL below, this seems
             // bogus. We'll end up with something like tmp = CALL, other stack contents, tmp use
             // instead of other stack contents, tmp = CALL, tmp use.
-            impAppendTempAssign(calliTempLclNum, call, call->GetRetLayout(), CHECK_SPILL_NONE);
+            impAppendTempAssign(calliTempLcl, call, call->GetRetLayout(), CHECK_SPILL_NONE);
 
-            value = gtNewLclvNode(calliTempLclNum, varActualType(calliTempLcl->GetType()));
+            value = gtNewLclvNode(calliTempLcl->GetLclNum(), varActualType(calliTempLcl->GetType()));
         }
         else
         {
@@ -7475,9 +7465,9 @@ GenTree* Importer::impSpillPseudoReturnBufferCall(GenTreeCall* call)
     // feeds the return, then the call must be returning the
     // same structure/class/type.
 
-    unsigned tmpNum = lvaGrabTemp(true DEBUGARG("pseudo return buffer"))->GetLclNum();
-    impAppendTempAssign(tmpNum, call, call->GetRetLayout(), CHECK_SPILL_ALL);
-    return gtNewLclvNode(tmpNum, info.compRetType);
+    LclVarDsc* tmpLcl = lvaGrabTemp(true DEBUGARG("pseudo return buffer"));
+    impAppendTempAssign(tmpLcl, call, call->GetRetLayout(), CHECK_SPILL_ALL);
+    return gtNewLclvNode(tmpLcl->GetLclNum(), info.compRetType);
 }
 
 /*****************************************************************************
@@ -11380,9 +11370,9 @@ void Importer::ImportRefAnyType()
 
     if (!op1->OperIs(GT_LCL_VAR, GT_MKREFANY))
     {
-        unsigned tmpNum = lvaGrabTemp(true DEBUGARG("refanytype temp"))->GetLclNum();
-        impAppendTempAssign(tmpNum, op1, impGetRefAnyClass(), CHECK_SPILL_ALL);
-        op1 = gtNewLclvNode(tmpNum, TYP_STRUCT);
+        LclVarDsc* tmpLcl = lvaGrabTemp(true DEBUGARG("refanytype temp"));
+        impAppendTempAssign(tmpLcl, op1, impGetRefAnyClass(), CHECK_SPILL_ALL);
+        op1 = gtNewLclvNode(tmpLcl->GetLclNum(), TYP_STRUCT);
     }
 
     if (op1->OperIs(GT_LCL_VAR))
@@ -11432,9 +11422,9 @@ void Importer::ImportRefAnyVal(const BYTE* codeAddr)
 
     if (op1->OperIs(GT_CALL, GT_RET_EXPR))
     {
-        unsigned tmpNum = lvaGrabTemp(true DEBUGARG("refanyval temp"))->GetLclNum();
-        impAppendTempAssign(tmpNum, op1, impGetRefAnyClass(), CHECK_SPILL_ALL);
-        op1 = gtNewLclvNode(tmpNum, TYP_STRUCT);
+        LclVarDsc* tmpLcl = lvaGrabTemp(true DEBUGARG("refanyval temp"));
+        impAppendTempAssign(tmpLcl, op1, impGetRefAnyClass(), CHECK_SPILL_ALL);
+        op1 = gtNewLclvNode(tmpLcl->GetLclNum(), TYP_STRUCT);
     }
 
     {
@@ -13163,14 +13153,13 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
 
         for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
         {
-            unsigned   spillTempLclNum = spillTempBaseLclNum + level;
-            LclVarDsc* spillTempLcl    = lvaGetDesc(spillTempLclNum);
-            GenTree*   tree            = verCurrentState.esStack[level].val;
-            typeInfo   stackType       = verCurrentState.esStack[level].seTypeInfo;
+            LclVarDsc* spillTempLcl = lvaGetDesc(spillTempBaseLclNum + level);
+            GenTree*   tree         = verCurrentState.esStack[level].val;
+            typeInfo   stackType    = verCurrentState.esStack[level].seTypeInfo;
 
             JITDUMPTREE(tree, "Stack entry %u:\n", level);
 
-            impAppendTempAssign(spillTempLclNum, tree, stackType.GetClassHandle(), CHECK_SPILL_NONE);
+            impAppendTempAssign(spillTempLcl, tree, stackType.GetClassHandle(), CHECK_SPILL_NONE);
 
             if (stackType.IsType(TI_STRUCT))
             {
@@ -13288,17 +13277,15 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
                     if (impHasLclRef(relOp->GetOp(0), spillTempLclNum))
                     {
                         LclVarDsc* tempLcl = lvaGrabTemp(true DEBUGARG("branch spill temp"));
-                        unsigned   temp    = tempLcl->GetLclNum();
-                        impAppendTempAssign(temp, relOp->GetOp(0), level);
-                        relOp->SetOp(0, gtNewLclvNode(temp, tempLcl->GetType()));
+                        impAppendTempAssign(tempLcl, relOp->GetOp(0), level);
+                        relOp->SetOp(0, gtNewLclvNode(tempLcl->GetLclNum(), tempLcl->GetType()));
                     }
 
                     if (impHasLclRef(relOp->GetOp(1), spillTempLclNum))
                     {
                         LclVarDsc* tempLcl = lvaGrabTemp(true DEBUGARG("branch spill temp"));
-                        unsigned   temp    = tempLcl->GetLclNum();
-                        impAppendTempAssign(temp, relOp->GetOp(1), level);
-                        relOp->SetOp(1, gtNewLclvNode(temp, tempLcl->GetType()));
+                        impAppendTempAssign(tempLcl, relOp->GetOp(1), level);
+                        relOp->SetOp(1, gtNewLclvNode(tempLcl->GetLclNum(), tempLcl->GetType()));
                     }
                 }
                 else
@@ -13308,9 +13295,8 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
                     if (impHasLclRef(branch->GetOp(0), spillTempLclNum))
                     {
                         LclVarDsc* tempLcl = lvaGrabTemp(true DEBUGARG("branch spill temp"));
-                        unsigned   temp    = tempLcl->GetLclNum();
-                        impAppendTempAssign(temp, branch->GetOp(0), level);
-                        branch->SetOp(0, gtNewLclvNode(temp, tempLcl->GetType()));
+                        impAppendTempAssign(tempLcl, branch->GetOp(0), level);
+                        branch->SetOp(0, gtNewLclvNode(tempLcl->GetLclNum(), tempLcl->GetType()));
                     }
                 }
             }
@@ -15764,24 +15750,22 @@ public:
         GenTreeRetExpr* retExpr = (*use)->AsRetExpr();
 
         LclVarDsc* lcl = m_compiler->lvaGrabTemp(true DEBUGARG("RET_EXPR temp"));
-        unsigned   tmp = lcl->GetLclNum();
-        JITDUMP("Storing return expression [%06u] to a local var V%02u.\n", retExpr->GetID(), tmp);
-        importer->impAppendTempAssign(tmp, retExpr, retExpr->GetLayout(), Importer::CHECK_SPILL_NONE);
-        *use = m_compiler->gtNewLclvNode(tmp, retExpr->GetType());
+        JITDUMP("Storing return expression [%06u] to a local var V%02u.\n", retExpr->GetID(), lcl->GetLclNum());
+        importer->impAppendTempAssign(lcl, retExpr, retExpr->GetLayout(), Importer::CHECK_SPILL_NONE);
+        *use = m_compiler->gtNewLclvNode(lcl->GetLclNum(), retExpr->GetType());
 
         if (retExpr->TypeIs(TYP_REF))
         {
+            JITDUMP("Marked V%02u as a single def temp\n", lcl->GetLclNum());
+
             assert(!lcl->lvSingleDef);
             lcl->lvSingleDef = true;
-            JITDUMP("Marked V%02u as a single def temp\n", tmp);
 
             bool isExact   = false;
             bool isNonNull = false;
-
-            CORINFO_CLASS_HANDLE retClsHnd = m_compiler->gtGetClassHandle(retExpr, &isExact, &isNonNull);
-            if (retClsHnd != nullptr)
+            if (CORINFO_CLASS_HANDLE retClsHnd = m_compiler->gtGetClassHandle(retExpr, &isExact, &isNonNull))
             {
-                m_compiler->lvaSetClass(tmp, retClsHnd, isExact);
+                m_compiler->lvaSetClass(lcl, retClsHnd, isExact);
             }
         }
     }

@@ -1648,9 +1648,9 @@ struct Importer
     Statement* impAppendTree(GenTree* tree, unsigned chkLevel);
     void impSpillAllAppendTree(GenTree* tree);
     void impSpillNoneAppendTree(GenTree* tree);
-    void impAppendTempAssign(unsigned lclNum, GenTree* val, unsigned curLevel);
-    void impAppendTempAssign(unsigned lclNum, GenTree* val, ClassLayout* layout, unsigned curLevel);
-    void impAppendTempAssign(unsigned lclNum, GenTree* val, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
+    void impAppendTempAssign(LclVarDsc* lcl, GenTree* val, unsigned curLevel);
+    void impAppendTempAssign(LclVarDsc* lcl, GenTree* val, ClassLayout* layout, unsigned curLevel);
+    void impAppendTempAssign(LclVarDsc* lcl, GenTree* val, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
 
     GenTree* impCloneExpr(GenTree* tree, GenTree** clone, unsigned spillCheckLevel DEBUGARG(const char* reason));
     GenTree* impCloneExpr(GenTree*     tree,
