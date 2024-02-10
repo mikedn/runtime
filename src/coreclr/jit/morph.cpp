@@ -3342,12 +3342,13 @@ void Compiler::abiMorphStackLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* 
 {
     assert(argInfo->GetRegCount() == 0);
 
-    if (!lvaGetDesc(arg)->IsIndependentPromoted())
+    LclVarDsc* lcl = lvaGetDesc(arg);
+
+    if (!lcl->IsIndependentPromoted())
     {
         return;
     }
 
-    LclVarDsc* lcl = lvaGetDesc(arg);
     assert(lcl->GetPromotedFieldCount() > 1);
 
     GenTreeFieldList* fieldList = abiMakeFieldList(arg);

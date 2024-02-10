@@ -2210,9 +2210,6 @@ struct Importer
     void lvaSetClass(unsigned lclNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
     void lvaUpdateClass(unsigned lclNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);
     void lvaUpdateClass(unsigned lclNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
-    LclVarDsc* lvaGetDesc(unsigned lclNum);
-    LclVarDsc* lvaGetDesc(GenTreeLclVarCommon* lclNode);
-    LclVarDsc* lvaGetDesc(GenTreeLclAddr* lclAddr);
     bool lvaIsOriginalThisParam(unsigned lclNum);
     bool lvaHaveManyLocals();
     bool fgVarNeedsExplicitZeroInit(unsigned lclNum, bool blockIsInLoop, bool blockIsReturn);

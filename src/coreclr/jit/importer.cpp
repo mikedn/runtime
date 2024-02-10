@@ -363,7 +363,7 @@ void Importer::AppendStmtCheck(GenTree* tree, unsigned chkLevel)
         if (tree->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR))
         {
             unsigned   lclNum = tree->AsOp()->GetOp(0)->AsLclVar()->GetLclNum();
-            LclVarDsc* lcl    = lvaGetDesc(lclNum);
+            LclVarDsc* lcl    = comp->lvaGetDesc(lclNum);
 
             for (unsigned level = 0; level < chkLevel; level++)
             {
@@ -932,8 +932,6 @@ GenTree* Importer::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLeve
 
     if (dest->OperIs(GT_LCL_VAR))
     {
-        LclVarDsc* lcl = lvaGetDesc(dest->AsLclVar());
-
 #if FEATURE_MULTIREG_RET
 #ifdef UNIX_AMD64_ABI
         if (src->OperIs(GT_CALL))
@@ -960,7 +958,7 @@ GenTree* Importer::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLeve
             // But what about ARMARCH?!
             // Oh well, the usual mess.
 
-            lcl->lvIsMultiRegRet = true;
+            comp->lvaGetDesc(dest->AsLclVar())->lvIsMultiRegRet = true;
         }
 #endif
     }
@@ -1017,7 +1015,7 @@ GenTree* Importer::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
             return arg;
 
         case GT_LCL_VAR:
-            assert(arg->GetType() == lvaGetDesc(arg->AsLclVar())->GetType());
+            assert(arg->GetType() == comp->lvaGetDesc(arg->AsLclVar())->GetType());
             return arg;
 
 #ifdef FEATURE_SIMD
@@ -4739,7 +4737,7 @@ void Importer::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
         }
         else
         {
-            argsLcl = lvaGetDesc(lvaNewObjArrayArgs);
+            argsLcl = comp->lvaGetDesc(lvaNewObjArrayArgs);
         }
 
         // Increase size of lvaNewObjArrayArgs to be the largest size needed to hold 'numArgs' integers
@@ -7426,7 +7424,7 @@ GenTree* Importer::impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CL
 
     if (value->OperIs(GT_LCL_VAR))
     {
-        lcl = lvaGetDesc(value->AsLclVar());
+        lcl = comp->lvaGetDesc(value->AsLclVar());
 
         if (lcl->IsImplicitByRefParam())
         {
@@ -8722,8 +8720,9 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
     GenTree* op2Var = op2;
     if (isCastClass)
     {
-        op2Var                                  = fgInsertCommaFormTemp(&op2);
-        lvaGetDesc(op2Var->AsLclVar())->lvIsCSE = true;
+        op2Var = fgInsertCommaFormTemp(&op2);
+
+        comp->lvaGetDesc(op2Var->AsLclVar())->lvIsCSE = true;
     }
     temp   = gtNewMethodTableLookup(temp);
     condMT = gtNewOperNode(GT_NE, TYP_INT, temp, op2);
@@ -8769,20 +8768,19 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
     qmarkNull->gtFlags |= GTF_QMARK_CAST_INSTOF;
 
     // Make QMark node a top level node by spilling it.
-    unsigned tmp = lvaNewTemp(TYP_REF, true DEBUGARG("spilling QMark2"))->GetLclNum();
-    GenTree* asg = gtNewAssignNode(gtNewLclvNode(tmp, TYP_REF), qmarkNull);
+    LclVarDsc* lclDsc = lvaNewTemp(TYP_REF, true DEBUGARG("spilling QMark2"));
+    GenTree*   asg    = gtNewAssignNode(gtNewLclvNode(lclDsc->GetLclNum(), TYP_REF), qmarkNull);
     impAppendTree(asg, CHECK_SPILL_NONE);
 
     // TODO-CQ: Is it possible op1 has a better type?
     //
     // See also gtGetHelperCallClassHandle where we make the same
     // determination for the helper call variants.
-    LclVarDsc* lclDsc = lvaGetDesc(tmp);
-    assert(lclDsc->lvSingleDef == 0);
-    lclDsc->lvSingleDef = 1;
-    JITDUMP("Marked V%02u as a single def temp\n", tmp);
-    lvaSetClass(tmp, pResolvedToken->hClass);
-    return gtNewLclvNode(tmp, TYP_REF);
+    assert(!lclDsc->lvSingleDef);
+    lclDsc->lvSingleDef = true;
+    JITDUMP("Marked V%02u as a single def temp\n", lclDsc->GetLclNum());
+    comp->lvaSetClass(lclDsc, pResolvedToken->hClass);
+    return gtNewLclvNode(lclDsc->GetLclNum(), TYP_REF);
 }
 
 //------------------------------------------------------------------------
@@ -9163,7 +9161,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         lclNum = comp->lvaThisLclNum;
                     }
 
-                    assert(lvaGetDesc(lclNum)->lvHasILStoreOp);
+                    assert(comp->lvaGetDesc(lclNum)->lvHasILStoreOp);
                 }
 
                 isLocal = false;
@@ -9185,6 +9183,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
             STLOC:
                 isLocal = true;
 
+                LclVarDsc* lcl;
+
                 if (compIsForInlining())
                 {
                     if (lclNum >= impInlineInfo->ilLocCount)
@@ -9194,7 +9194,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     }
 
                     lclNum = inlGetInlineeLocal(impInlineInfo, lclNum);
-                    lclTyp = lvaGetDesc(lclNum)->GetType();
+                    lcl    = comp->lvaGetDesc(lclNum);
+                    lclTyp = lcl->GetType();
                 }
                 else
                 {
@@ -9206,8 +9207,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     lclNum += info.compArgsCount;
 
                 STLCL:
-                    LclVarDsc* lcl = lvaGetDesc(lclNum);
-                    lclTyp         = lcl->GetType();
+                    lcl    = comp->lvaGetDesc(lclNum);
+                    lclTyp = lcl->GetType();
 
                     if (!lcl->lvNormalizeOnLoad())
                     {
@@ -9234,7 +9235,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (verCurrentState.esStackDepth > 0)
                 {
-                    LclVarDsc*   lcl              = lvaGetDesc(lclNum);
                     GenTreeFlags spillSideEffects = GTF_EMPTY;
 
                     if (lcl->IsPinning())
@@ -9338,10 +9338,10 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         if (isLocal)
                         {
                             // We should have seen a stloc in our IL prescan.
-                            assert(lvaGetDesc(lclNum)->lvHasILStoreOp);
+                            assert(lcl->lvHasILStoreOp);
 
                             // Is there just one place this local is defined?
-                            const bool isSingleDefLocal = lvaGetDesc(lclNum)->lvSingleDef;
+                            const bool isSingleDefLocal = lcl->lvSingleDef;
 
                             // TODO-MIKE-Cleanup: This check is probably no longer needed. It used to be the case
                             // that ref class handles were propagated from predecessors without merging, resulting
@@ -11318,7 +11318,7 @@ void Importer::ImportArgList()
     }
 
     assert(info.compMethodInfo->args.getCallConv() == CORINFO_CALLCONV_VARARG);
-    assert(lvaGetDesc(comp->lvaVarargsHandleArg)->IsAddressExposed());
+    assert(comp->lvaGetDesc(comp->lvaVarargsHandleArg)->IsAddressExposed());
 
     impPushOnStack(gtNewLclVarAddrNode(comp->lvaVarargsHandleArg, TYP_I_IMPL));
 }
@@ -12779,7 +12779,7 @@ void Importer::impLoadLoc(unsigned ilLocNum)
 // Load a local/argument on the operand stack
 void Importer::impPushLclVar(unsigned lclNum)
 {
-    LclVarDsc* lcl  = lvaGetDesc(lclNum);
+    LclVarDsc* lcl  = comp->lvaGetDesc(lclNum);
     var_types  type = lcl->GetType();
 
     if (!lcl->lvNormalizeOnLoad())
@@ -13153,7 +13153,7 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
 
         for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
         {
-            LclVarDsc* spillTempLcl = lvaGetDesc(spillTempBaseLclNum + level);
+            LclVarDsc* spillTempLcl = comp->lvaGetDesc(spillTempBaseLclNum + level);
             GenTree*   tree         = verCurrentState.esStack[level].val;
             typeInfo   stackType    = verCurrentState.esStack[level].seTypeInfo;
 
@@ -13182,7 +13182,7 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
         for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
         {
             unsigned   spillTempLclNum = state->GetSpillTempBaseLclNum() + level;
-            LclVarDsc* spillTempLcl    = lvaGetDesc(spillTempLclNum);
+            LclVarDsc* spillTempLcl    = comp->lvaGetDesc(spillTempLclNum);
             GenTree*   tree            = verCurrentState.esStack[level].val;
 
             JITDUMPTREE(tree, "Stack entry %u:\n", level);
@@ -13571,7 +13571,7 @@ void Importer::impSetCurrentState(BasicBlock* block)
     for (unsigned i = 0; i < verCurrentState.esStackDepth; i++)
     {
         unsigned   lclNum = block->bbEntryState->GetSpillTempBaseLclNum() + i;
-        LclVarDsc* lcl    = lvaGetDesc(lclNum);
+        LclVarDsc* lcl    = comp->lvaGetDesc(lclNum);
 
         verCurrentState.esStack[i].val        = gtNewLclvNode(lclNum, lcl->GetType());
         verCurrentState.esStack[i].seTypeInfo = lcl->lvImpTypeInfo;
@@ -16118,7 +16118,7 @@ bool Importer::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
             // under COMMAs so the only source of intereference are probably calls. Then we
             // could check for GTF_CALL and lvHasLdAddrOp.
 
-            if ((valueLcl == arrayLcl) && !lvaGetDesc(arrayLcl)->IsAddressExposed())
+            if ((valueLcl == arrayLcl) && !comp->lvaGetDesc(arrayLcl)->IsAddressExposed())
             {
                 JITDUMP("\nstelem of ref from same array: skipping covariant store check\n");
                 return true;
@@ -16208,7 +16208,7 @@ void Importer::impImportInitObj(GenTree* dstAddr, ClassLayout* layout)
         // Currently the importer doesn't generate local field addresses.
         assert(dstAddr->AsLclAddr()->GetLclOffs() == 0);
 
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
+        LclVarDsc* lcl = comp->lvaGetDesc(lclNum);
 
         if (varTypeIsStruct(lcl->GetType()) && (layout->GetSize() >= lcl->GetLayout()->GetSize()))
         {
@@ -16255,7 +16255,7 @@ void Importer::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* l
         // Currently the importer doesn't generate local field addresses.
         assert(dstAddr->AsLclAddr()->GetLclOffs() == 0);
 
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
+        LclVarDsc* lcl = comp->lvaGetDesc(lclNum);
 
         if (varTypeIsStruct(lcl->GetType()) && !lcl->IsImplicitByRefParam() && (lcl->GetLayout() == layout))
         {
@@ -16282,7 +16282,7 @@ void Importer::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* l
         src = srcAddr;
         src->SetOper(GT_LCL_VAR);
         src->AsLclVar()->SetLclNum(lclNum);
-        src->SetType(lvaGetDesc(lclNum)->GetType());
+        src->SetType(comp->lvaGetDesc(lclNum)->GetType());
     }
     else
     {
@@ -17324,21 +17324,6 @@ void Importer::lvaUpdateClass(unsigned lclNum, CORINFO_CLASS_HANDLE clsHnd, bool
 void Importer::lvaUpdateClass(unsigned lclNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle)
 {
     comp->lvaUpdateClass(lclNum, tree, stackHandle);
-}
-
-LclVarDsc* Importer::lvaGetDesc(unsigned lclNum)
-{
-    return comp->lvaGetDesc(lclNum);
-}
-
-LclVarDsc* Importer::lvaGetDesc(GenTreeLclVarCommon* lclNode)
-{
-    return comp->lvaGetDesc(lclNode);
-}
-
-LclVarDsc* Importer::lvaGetDesc(GenTreeLclAddr* lclAddr)
-{
-    return comp->lvaGetDesc(lclAddr);
 }
 
 bool Importer::lvaIsOriginalThisParam(unsigned lclNum)

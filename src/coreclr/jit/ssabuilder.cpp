@@ -22,7 +22,7 @@ public:
     void Build();
 
 private:
-    bool IncludeInSsa(unsigned lclNum);
+    bool IncludeInSsa(LclVarDsc* lcl);
     unsigned TopologicalSort(BasicBlock** postOrder, int count);
     static BasicBlock* IntersectDom(BasicBlock* finger1, BasicBlock* finger2);
     void ComputeImmediateDom(BasicBlock** postOrder, int count);
@@ -126,7 +126,8 @@ void SsaBuilder::Build()
 {
     for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
     {
-        compiler->lvaGetDesc(lclNum)->m_isSsa = IncludeInSsa(lclNum);
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
+        lcl->m_isSsa = IncludeInSsa(lcl);
     }
 
     InsertPhiFunctions();
@@ -136,10 +137,8 @@ void SsaBuilder::Build()
     compiler->EndPhase(PHASE_BUILD_SSA_RENAME);
 }
 
-bool SsaBuilder::IncludeInSsa(unsigned lclNum)
+bool SsaBuilder::IncludeInSsa(LclVarDsc* lcl)
 {
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
     if (!lcl->HasLiveness())
     {
         if (lcl->IsIndependentPromoted() && !lcl->IsParam() && !lcl->lvIsMultiRegRet)

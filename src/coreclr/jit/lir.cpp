@@ -254,9 +254,16 @@ unsigned LIR::Use::ReplaceWithLclVar(Compiler* compiler, unsigned lclNum, GenTre
     assert(m_range->Contains(m_user));
     assert(m_range->Contains(*m_edge));
 
+    LclVarDsc* lcl;
+
     if (lclNum == BAD_VAR_NUM)
     {
-        lclNum = compiler->lvaGrabTemp(true DEBUGARG("LIR temp"))->GetLclNum();
+        lcl    = compiler->lvaGrabTemp(true DEBUGARG("LIR temp"));
+        lclNum = lcl->GetLclNum();
+    }
+    else
+    {
+        lcl = compiler->lvaGetDesc(lclNum);
     }
 
     GenTree*  def  = *m_edge;
@@ -264,8 +271,6 @@ unsigned LIR::Use::ReplaceWithLclVar(Compiler* compiler, unsigned lclNum, GenTre
 
     // Currently we don't create struct temps in lowering.
     assert(type != TYP_STRUCT);
-
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
     if (lcl->GetType() != TYP_UNDEF)
     {

@@ -758,7 +758,7 @@ GenTree* Importer::impPopStackAddrAsVector(var_types type)
         BADCODE("incompatible stack type");
     }
 
-    if (addr->OperIs(GT_LCL_ADDR) && (lvaGetDesc(addr->AsLclAddr())->GetType() == type))
+    if (addr->OperIs(GT_LCL_ADDR) && (comp->lvaGetDesc(addr->AsLclAddr())->GetType() == type))
     {
         unsigned lclNum = addr->AsLclAddr()->GetLclNum();
         // Currently the importer doesn't generate local field addresses.
@@ -782,7 +782,7 @@ GenTree* Importer::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
 
     GenTree* dest;
 
-    if (destAddr->OperIs(GT_LCL_ADDR) && (lvaGetDesc(destAddr->AsLclAddr())->GetType() == src->GetType()))
+    if (destAddr->OperIs(GT_LCL_ADDR) && (comp->lvaGetDesc(destAddr->AsLclAddr())->GetType() == src->GetType()))
     {
         unsigned lclNum = destAddr->AsLclAddr()->GetLclNum();
         // Currently the importer doesn't generate local field addresses.
