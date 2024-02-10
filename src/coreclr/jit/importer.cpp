@@ -10732,7 +10732,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     assert((fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE) ||
                            (fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_WITH_BASE));
 
-                    if (tiObj.IsType(TI_STRUCT))
+                    if (tiObj.IsStruct())
                     {
                         // If the object is a struct, what we really want is
                         // for the field to operate on the address of the struct.
@@ -12487,7 +12487,7 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
         if (impStackHeight() > 0)
         {
             typeInfo delegateTypeInfo = impStackTop().seTypeInfo;
-            if (delegateTypeInfo.IsToken())
+            if (delegateTypeInfo.IsMethod())
             {
                 ldftnToken = delegateTypeInfo.GetToken();
             }
@@ -13161,7 +13161,7 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
 
             impAppendTempAssign(spillTempLcl, tree, stackType.GetClassHandle(), CHECK_SPILL_NONE);
 
-            if (stackType.IsType(TI_STRUCT))
+            if (stackType.IsStruct())
             {
                 // We must propagate stack type info if it's TI_STRUCT, at least because
                 // LDFLD import code needs it to recognize "normed types".

@@ -1394,7 +1394,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
         {
             // TODO-MIKE-Cleanup: This is incorrect, it classifies all primitive types
             // as "normed". It is based on old code that used typeInfo's IsValueClass
-            // instead of IsType(TI_STRUCT). Fixing this produces some diffs.
+            // instead of IsStruct(). Fixing this produces some diffs.
 
             argInfo[i].paramHasNormedType = true;
         }
@@ -1691,7 +1691,7 @@ bool Compiler::inlAnalyzeInlineeLocals(InlineInfo* inlineInfo)
         {
             // TODO-MIKE-Cleanup: This is incorrect, it classifies all primitive types
             // as "normed". It is based on old code that used typeInfo's IsValueClass
-            // instead of IsType(TI_STRUCT). Fixing this produces some diffs.
+            // instead of IsStruct(). Fixing this produces some diffs.
 
             lclHasNormedType = true;
         }

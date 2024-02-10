@@ -1600,7 +1600,7 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
 
                     LclVarDsc* lcl = lvaGetDesc(varNum);
 
-                    typeIsNormed = !varTypeIsStruct(lcl->GetType()) && lcl->lvImpTypeInfo.IsType(TI_STRUCT);
+                    typeIsNormed = !varTypeIsStruct(lcl->GetType()) && lcl->lvImpTypeInfo.IsStruct();
 
                     // Determine if the next instruction will consume
                     // the address. If so we won't mark this var as
