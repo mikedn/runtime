@@ -198,21 +198,7 @@ public:
 
     void PrologEstablishFramePointer(int delta, bool reportUnwindData);
 
-    struct ParamRegInfo
-    {
-        unsigned lclNum;
-        // index into the param registers table of the register that will be copied to this register.
-        // That is, for paramRegs[x].trashBy = y, argument register number 'y' will be copied to
-        // argument register number 'x'. Only used when circular = true.
-        unsigned trashBy;
-
-        uint8_t   regIndex;
-        bool      stackArg;  // true if the argument gets homed to the stack
-        bool      writeThru; // true if the argument gets homed to both stack and register
-        bool      processed; // true after we've processed the argument (and it is in its final location)
-        bool      circular;  // true if this register participates in a circular dependency loop.
-        var_types type;
-    };
+    struct ParamRegInfo;
 
     void genPrologMoveParamRegs(
         unsigned regCount, regMaskTP regLiveIn, bool isFloat, regNumber tempReg, bool* tempRegClobbered);

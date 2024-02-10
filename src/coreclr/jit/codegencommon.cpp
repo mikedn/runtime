@@ -1354,6 +1354,23 @@ void CodeGen::PrologMoveParams(regNumber initReg, bool* initRegZeroed)
     genPrologEnregisterIncomingStackParams();
 }
 
+struct CodeGen::ParamRegInfo
+{
+    LclVarDsc* lcl;
+
+    // index into the param registers table of the register that will be copied to this register.
+    // That is, for paramRegs[x].trashBy = y, argument register number 'y' will be copied to
+    // argument register number 'x'. Only used when circular = true.
+    unsigned trashBy;
+
+    uint8_t   regIndex;
+    bool      stackArg;  // true if the argument gets homed to the stack
+    bool      writeThru; // true if the argument gets homed to both stack and register
+    bool      processed; // true after we've processed the argument (and it is in its final location)
+    bool      circular;  // true if this register participates in a circular dependency loop.
+    var_types type;
+};
+
 // Generates code for moving incoming register arguments to their
 // assigned location, in the function prolog.
 void CodeGen::genPrologMoveParamRegs(
@@ -1562,7 +1579,7 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
                 noway_assert(paramRegIndex < paramRegCount);
                 noway_assert(paramRegs[paramRegIndex].type == TYP_UNDEF);
 
-                paramRegs[paramRegIndex].lclNum   = lclNum;
+                paramRegs[paramRegIndex].lcl      = lcl;
                 paramRegs[paramRegIndex].regIndex = static_cast<uint8_t>(regIndex);
                 paramRegs[paramRegIndex].type     = regType;
 
@@ -1615,7 +1632,7 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
             {
                 noway_assert(paramRegs[paramRegIndex + i].type == TYP_UNDEF);
 
-                paramRegs[paramRegIndex + i].lclNum   = lclNum;
+                paramRegs[paramRegIndex + i].lcl      = lcl;
                 paramRegs[paramRegIndex + i].regIndex = static_cast<uint8_t>(i);
                 paramRegs[paramRegIndex + i].type     = regType;
             }
@@ -1749,8 +1766,7 @@ void CodeGen::genPrologMarkParamRegsCircularDependencies(ParamRegInfo* paramRegs
                 continue;
             }
 
-            unsigned   lclNum = paramRegs[paramRegIndex].lclNum;
-            LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+            LclVarDsc* lcl = paramRegs[paramRegIndex].lcl;
 
             // Cannot possibly have stack arguments.
             noway_assert(lcl->lvIsInReg() && !paramRegs[paramRegIndex].stackArg);
@@ -1777,7 +1793,7 @@ void CodeGen::genPrologMarkParamRegsCircularDependencies(ParamRegInfo* paramRegs
                 assert(varTypeIsSIMD(lcl->GetType()) && !lcl->GetLayout()->IsOpaqueVector());
                 assert(paramRegs[paramRegIndex].regIndex < lcl->GetLayout()->GetHfaRegCount());
                 assert(paramRegIndex != 0);
-                assert(paramRegs[paramRegIndex - 1].lclNum == lclNum);
+                assert(paramRegs[paramRegIndex - 1].lcl == lcl);
 
                 liveParamRegs &= ~genRegMask(regNum);
                 paramRegs[paramRegIndex].circular = false;
@@ -1793,7 +1809,7 @@ void CodeGen::genPrologMarkParamRegsCircularDependencies(ParamRegInfo* paramRegs
                 assert(paramRegs[paramRegIndex].regIndex == 1);
                 assert(paramRegIndex > 0);
                 assert(paramRegs[paramRegIndex - 1].regIndex == 0);
-                assert(paramRegs[paramRegIndex - 1].lclNum == lclNum);
+                assert(paramRegs[paramRegIndex - 1].lcl == lcl);
                 assert((lclRegType == TYP_SIMD12) || (lclRegType == TYP_SIMD16));
 
                 liveParamRegs &= ~genRegMask(regNum);
@@ -1874,8 +1890,7 @@ regMaskTP CodeGen::genPrologSpillParamRegs(ParamRegInfo* paramRegs, unsigned par
             continue;
         }
 
-        unsigned   lclNum = paramRegs[paramRegIndex].lclNum;
-        LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+        LclVarDsc* lcl = paramRegs[paramRegIndex].lcl;
 
         // If this arg is never on the stack, go to the next one.
         if (!paramRegs[paramRegIndex].stackArg && !paramRegs[paramRegIndex].writeThru)
@@ -1962,7 +1977,7 @@ regMaskTP CodeGen::genPrologSpillParamRegs(ParamRegInfo* paramRegs, unsigned par
         {
             unsigned baseOffset = paramRegs[paramRegIndex].regIndex * slotSize;
 
-            GetEmitter()->emitIns_S_R(ins_Store(storeType), size, srcRegNum, lclNum, baseOffset);
+            GetEmitter()->emitIns_S_R(ins_Store(storeType), size, srcRegNum, lcl->GetLclNum(), baseOffset);
 
 #ifndef UNIX_AMD64_ABI
             // TODO-MIKE-Cleanup: This should be valid on unix-x64 too.
@@ -2086,10 +2101,8 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
         unsigned srcRegIndex   = paramRegs[paramRegIndex].trashBy;
         noway_assert(srcRegIndex < paramRegCount);
 
-        unsigned   destLclNum = paramRegs[destRegIndex].lclNum;
-        LclVarDsc* destLcl    = compiler->lvaGetDesc(destLclNum);
-        unsigned   srcLclNum  = paramRegs[srcRegIndex].lclNum;
-        LclVarDsc* srcLcl     = compiler->lvaGetDesc(srcLclNum);
+        LclVarDsc* destLcl = paramRegs[destRegIndex].lcl;
+        LclVarDsc* srcLcl  = paramRegs[srcRegIndex].lcl;
 
 #ifdef TARGET_XARCH
         if (destRegIndex == paramRegs[srcRegIndex].trashBy)
@@ -2132,7 +2145,7 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
         unsigned iter = beginRegIndex;
         do
         {
-            if (!compiler->lvaGetDesc(paramRegs[iter].lclNum)->TypeIs(TYP_DOUBLE))
+            if (!paramRegs[iter].lcl->TypeIs(TYP_DOUBLE))
             {
                 cycleAllDouble = false;
                 break;
@@ -2217,8 +2230,7 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
             }
 #endif
 
-            srcLclNum = paramRegs[srcRegIndex].lclNum;
-            srcLcl    = compiler->lvaGetDesc(srcLclNum);
+            srcLcl = paramRegs[srcRegIndex].lcl;
 
             if (destMemType == TYP_REF)
             {
@@ -2270,8 +2282,7 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
                 continue;
             }
 
-            unsigned   lclNum = paramRegs[paramRegIndex].lclNum;
-            LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+            LclVarDsc* lcl = paramRegs[paramRegIndex].lcl;
 
             noway_assert(lcl->lvIsInReg() && !paramRegs[paramRegIndex].circular);
 #ifdef TARGET_X86
@@ -2430,7 +2441,7 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
                 regCount = 2;
 
                 regNumber nextRegNum = genMapRegArgNumToRegNum(paramRegIndex + 1, paramRegs[paramRegIndex + 1].type);
-                noway_assert(paramRegs[paramRegIndex + 1].lclNum == lclNum);
+                noway_assert(paramRegs[paramRegIndex + 1].lcl == lcl);
 
                 if (lcl->TypeIs(TYP_SIMD12) && compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
                 {
@@ -2482,7 +2493,7 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
                             ParamRegInfo& nextParamReg = paramRegs[paramRegIndex + i];
                             regNumber     nextRegNum   = genMapRegArgNumToRegNum(paramRegIndex + i, nextParamReg.type);
 
-                            noway_assert(nextParamReg.lclNum == lclNum);
+                            noway_assert(nextParamReg.lcl == lcl);
                             noway_assert(genIsValidFloatReg(nextRegNum));
                             noway_assert(genIsValidFloatReg(destRegNum));
 
@@ -2502,7 +2513,7 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
                             ParamRegInfo& nextParamReg = paramRegs[paramRegIndex + i];
                             regNumber     nextRegNum   = genMapRegArgNumToRegNum(paramRegIndex + i, nextParamReg.type);
 
-                            noway_assert(nextParamReg.lclNum == lclNum);
+                            noway_assert(nextParamReg.lcl == lcl);
                             noway_assert(genIsValidFloatReg(nextRegNum));
                             noway_assert(genIsValidFloatReg(destRegNum));
 
