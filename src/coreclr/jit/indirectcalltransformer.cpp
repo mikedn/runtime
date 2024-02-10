@@ -660,6 +660,8 @@ private:
                 //
                 returnTemp = inlineInfo->preexistingSpillTemp;
 
+                LclVarDsc* returnTempLcl;
+
                 if (returnTemp != BAD_VAR_NUM)
                 {
                     JITDUMP("Reworking call(s) to return value via a existing return temp V%02u\n", returnTemp);
@@ -673,42 +675,42 @@ private:
                     // the return temp is type D, because we don't know what type the fallback
                     // path returns. So we have to stick with the current type for B as the
                     // return type.
-                    //
-                    LclVarDsc* const returnTempLcl = compiler->lvaGetDesc(returnTemp);
 
-                    if (returnTempLcl->lvSingleDef == 1)
+                    returnTempLcl = compiler->lvaGetDesc(returnTemp);
+
+                    if (returnTempLcl->lvSingleDef)
                     {
                         // In this case it's ok if we already updated the type assuming single def,
                         // we just don't want any further updates.
                         //
                         JITDUMP("Return temp V%02u is no longer a single def temp\n", returnTemp);
-                        returnTempLcl->lvSingleDef = 0;
+                        returnTempLcl->lvSingleDef = false;
                     }
                 }
                 else
                 {
-                    returnTemp = compiler->lvaGrabTemp(false DEBUGARG("guarded devirt return temp"))->GetLclNum();
+                    returnTempLcl = compiler->lvaGrabTemp(false DEBUGARG("guarded devirt return temp"));
+                    returnTemp    = returnTempLcl->GetLclNum();
                     JITDUMP("Reworking call(s) to return value via a new temp V%02u\n", returnTemp);
                 }
 
                 if (varTypeIsStruct(origCall->GetType()))
                 {
-                    compiler->lvaSetStruct(returnTemp, origCall->GetRetLayout(), false);
+                    compiler->lvaSetStruct(returnTempLcl, origCall->GetRetLayout(), false);
 
                     if (origCall->HasMultiRegRetVal())
                     {
-                        compiler->lvaGetDesc(returnTemp)->lvIsMultiRegRet = true;
+                        returnTempLcl->lvIsMultiRegRet = true;
                     }
                 }
                 else
                 {
-                    compiler->lvaGetDesc(returnTemp)->SetType(origCall->GetType());
+                    returnTempLcl->SetType(origCall->GetType());
                 }
 
                 GenTree* tempTree = compiler->gtNewLclvNode(returnTemp, origCall->GetType());
 
-                JITDUMP("Bashing GT_RET_EXPR [%06u] to refer to temp V%02u\n", compiler->dspTreeID(retExpr),
-                        returnTemp);
+                JITDUMP("Bashing GT_RET_EXPR [%06u] to refer to temp V%02u\n", retExpr->GetID(), returnTemp);
 
                 retExpr->ReplaceWith(tempTree, compiler);
             }
@@ -721,7 +723,7 @@ private:
                 // benefit they provide is stitching back larger trees for failed inlines
                 // of void-returning methods. But then the calls likely sit in commas and
                 // the benefit of a larger tree is unclear.
-                JITDUMP("Bashing GT_RET_EXPR [%06u] for VOID return to NOP\n", compiler->dspTreeID(retExpr));
+                JITDUMP("Bashing GT_RET_EXPR [%06u] for VOID return to NOP\n", retExpr->GetID());
                 retExpr->ChangeToNothingNode();
             }
             else
