@@ -1587,25 +1587,13 @@ void Compiler::lvaSetLiveInOutOfHandler(unsigned lclNum)
     }
 }
 
-void Compiler::lvaSetStruct(unsigned lclNum, CORINFO_CLASS_HANDLE classHandle, bool checkUnsafeBuffer)
-{
-    lvaSetStruct(lclNum, typGetObjLayout(classHandle), checkUnsafeBuffer);
-}
-
-void Compiler::lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsafeBuffer)
-{
-    noway_assert(lclNum < lvaCount);
-
-    lvaSetStruct(lvaGetDesc(lclNum), layout, checkUnsafeBuffer);
-}
-
 void Compiler::lvaSetStruct(LclVarDsc* lcl, ClassLayout* layout, bool checkUnsafeBuffer)
 {
     assert(!layout->IsBlockLayout());
 
     if (lcl->lvExactSize != 0)
     {
-        // TODO-MIKE-Cleanup: Normally we should not attemp to call lvaSetStruct on a local that
+        // TODO-MIKE-Cleanup: Normally we should not attempt to call lvaSetStruct on a local that
         // already has struct type. Some trivial cases have been fixed but there are a at least
         // 2 more:
         //   - Spill clique temps may be assigned multiple times via impAssignTempGen.

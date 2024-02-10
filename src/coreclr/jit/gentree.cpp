@@ -9526,7 +9526,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
         assert(boxTemp->OperIs(GT_LCL_VAR));
         const unsigned boxTempLclNum = boxTemp->GetLclNum();
         LclVarDsc*     boxTempLclDsc = lvaGetDesc(boxTempLclNum);
-        assert(boxTempLclDsc->TypeGet() == TYP_REF);
+        assert(boxTempLclDsc->TypeIs(TYP_REF));
         assert(boxTempLclDsc->lvClassHnd != nullptr);
 
         GenTree*  copyDstAddr;
@@ -9585,7 +9585,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
         if (varTypeIsStruct(storeType))
         {
             JITDUMP("Retyping box temp V%02u to struct %s\n", boxTempLclNum, eeGetClassName(boxTempLclDsc->lvClassHnd));
-            lvaSetStruct(boxTempLclNum, boxTempLclDsc->lvClassHnd, /* checkUnsafeBuffer */ false);
+            lvaSetStruct(boxTempLclDsc, typGetObjLayout(boxTempLclDsc->lvClassHnd), /* checkUnsafeBuffer */ false);
         }
         else
         {

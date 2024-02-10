@@ -2203,8 +2203,6 @@ struct Importer
     LclVarDsc* lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shortLifetime DEBUGARG(const char* reason));
     LclVarDsc* lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGARG(const char* reason));
     void lvaSetAddressExposed(unsigned lclNum);
-    void lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsafeBuffer);
-    void lvaSetStruct(unsigned lclNum, CORINFO_CLASS_HANDLE classHandle, bool checkUnsafeBuffer);
     bool lvaIsOriginalThisParam(unsigned lclNum);
     bool lvaHaveManyLocals();
     bool fgVarNeedsExplicitZeroInit(unsigned lclNum, bool blockIsInLoop, bool blockIsReturn);

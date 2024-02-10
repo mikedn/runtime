@@ -286,7 +286,7 @@ unsigned LIR::Use::ReplaceWithLclVar(Compiler* compiler, unsigned lclNum, GenTre
 
         if (layout != nullptr)
         {
-            compiler->lvaSetStruct(lclNum, layout, false);
+            compiler->lvaSetStruct(lcl, layout, false);
         }
         else
         {

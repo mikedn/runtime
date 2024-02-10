@@ -1872,7 +1872,7 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInf
                 ClassLayout* layout = compiler->typGetVectorLayout(arg);
                 if (layout != nullptr)
                 {
-                    compiler->lvaSetStruct(tempLclNum, layout, /* checkUnsafeBuffer */ false);
+                    compiler->lvaSetStruct(tempLcl, layout, /* checkUnsafeBuffer */ false);
                 }
                 else
                 {
@@ -1894,7 +1894,7 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInf
 #ifdef WINDOWS_AMD64_ABI
                 unreached();
 #else
-                compiler->lvaSetStruct(tempLclNum, compiler->impGetRefAnyClass(), false);
+                compiler->lvaSetStruct(tempLcl, compiler->typGetObjLayout(compiler->impGetRefAnyClass()), false);
                 setupArg = compiler->abiMorphMkRefAnyToStore(tempLclNum, arg->AsOp());
 #endif
             }
@@ -1902,7 +1902,7 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInf
             else
             {
                 ClassLayout* layout = compiler->typGetStructLayout(arg);
-                compiler->lvaSetStruct(tempLclNum, layout, /* checkUnsafeBuffer */ false);
+                compiler->lvaSetStruct(tempLcl, layout, /* checkUnsafeBuffer */ false);
                 setupArg = compiler->gtNewAssignNode(compiler->gtNewLclvNode(tempLclNum, TYP_STRUCT), arg);
                 setupArg = compiler->fgMorphStructAssignment(setupArg->AsOp());
             }

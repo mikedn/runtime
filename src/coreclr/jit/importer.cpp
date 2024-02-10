@@ -17296,16 +17296,6 @@ void Importer::lvaSetAddressExposed(unsigned lclNum)
     comp->lvaSetAddressExposed(lclNum);
 }
 
-void Importer::lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsafeBuffer)
-{
-    comp->lvaSetStruct(lclNum, layout, checkUnsafeBuffer);
-}
-
-void Importer::lvaSetStruct(unsigned lclNum, CORINFO_CLASS_HANDLE classHandle, bool checkUnsafeBuffer)
-{
-    comp->lvaSetStruct(lclNum, classHandle, checkUnsafeBuffer);
-}
-
 bool Importer::lvaIsOriginalThisParam(unsigned lclNum)
 {
     return comp->lvaIsOriginalThisParam(lclNum);
