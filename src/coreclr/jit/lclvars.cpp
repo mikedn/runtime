@@ -2405,7 +2405,7 @@ void Compiler::lvaMarkLivenessTrackedLocals()
 
     JITDUMP("\n");
 
-    lvaCurEpoch++;
+    INDEBUG(lvaCurEpoch++);
     lvaTrackedCountInSizeTUnits =
         roundUp(lvaTrackedCount, static_cast<unsigned>(sizeof(size_t) * 8)) / static_cast<unsigned>(sizeof(size_t) * 8);
 }

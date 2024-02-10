@@ -3280,19 +3280,19 @@ public:
     unsigned lvaTrackedCount             = 0; // actual # of locals being tracked
     unsigned lvaTrackedCountInSizeTUnits = 0; // min # of size_t's sufficient to hold a bit for all tracked locals
 
-    unsigned lvaCurEpoch = 0; // VarSets are relative to a specific set of tracked var indices.
-                              // It that changes, this changes.  VarSets from different epochs
-                              // cannot be meaningfully combined.
-
-    unsigned GetCurLVEpoch()
-    {
-        return lvaCurEpoch;
-    }
-
     // reverse map of tracked number to var number
     unsigned lvaTrackedToVarNumSize = 0;
 
 #ifdef DEBUG
+    unsigned lvaCurEpoch = 0; // VarSets are relative to a specific set of tracked var indices.
+    // It that changes, this changes.  VarSets from different epochs
+    // cannot be meaningfully combined.
+
+    unsigned GetCurLVEpoch() const
+    {
+        return lvaCurEpoch;
+    }
+
     // Reasons why we can't enregister.  Some of these correspond to debug properties of local vars.
     enum DoNotEnregisterReason
     {
