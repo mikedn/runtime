@@ -2420,9 +2420,10 @@ unsigned GCEncoder::AddTrackedStackSlots(uint8_t* dest, const int mask)
         // "this". So report it as a tracked variable with a liveness
         // extending over the entire method.
 
-        assert(compiler->lvaGetDesc(trackedThisLclNum)->TypeIs(TYP_REF));
+        LclVarDsc* trackedThisLcl = compiler->lvaGetDesc(trackedThisLclNum);
+        assert(trackedThisLcl->TypeIs(TYP_REF));
 
-        unsigned slotOffset = compiler->lvaGetDesc(trackedThisLclNum)->GetStackOffset();
+        unsigned slotOffset = trackedThisLcl->GetStackOffset();
 
         slotOffset = abs(static_cast<int>(slotOffset));
         slotOffset |= this_OFFSET_FLAG;
