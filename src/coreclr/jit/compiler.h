@@ -109,59 +109,191 @@ enum RefCountState : uint8_t
 class LclVarDsc
 {
 public:
+    var_types lvType;
+
+    bool lvIsParam : 1;  // is this a parameter?
+    bool lvIsRegArg : 1; // is this an argument that was passed by register?
+#ifdef TARGET_ARM64
+    unsigned char m_paramRegCount : 3;
+#elif defined(TARGET_ARM)
+    unsigned char m_paramRegCount : 4;
+#endif
+    bool lvFramePointerBased : 1; // 0 = off of REG_SPBASE (e.g., ESP), 1 = off of REG_FPBASE (e.g., EBP)
+
+    bool lvOnFrame : 1;  // (part of) the variable lives on the frame
+    bool lvRegister : 1; // assigned to live in a register? For RyuJIT backend, this is only set if the
+    // variable is in the same register for the entire function.
+    bool lvTracked : 1; // is this a tracked variable?
+    bool m_hasGCLiveness : 1;
+    bool m_pinning : 1;
+
+    bool lvMustInit : 1;    // must be initialized
+    bool lvAddrExposed : 1; // The address of this variable is "exposed" -- passed as an argument, stored in a
+    // global location, etc.
+    // We cannot reason reliably about the value of the variable.
+    bool lvDoNotEnregister : 1; // Do not enregister this variable.
+    bool lvFieldAccessed : 1;   // The var is a struct local, and a field of the variable is accessed.  Affects
+    // struct promotion.
+    bool lvLiveInOutOfHndlr : 1; // The variable is live in or out of an exception handler, and therefore must
+// be on the stack (at least at those boundaries.)
+#ifdef DEBUG
+    bool lvLclFieldExpr : 1;   // The variable has (STORE_)LCL_FLD accesses.
+    bool lvLclBlockOpAddr : 1; // The variable was written to via a block operation.
+#endif
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+    bool lvIsImplicitByRefArgTemp : 1;
+#endif
+    bool m_isSsa : 1; // The variable is in SSA form (set by SsaBuilder)
+
+    bool lvIsCSE : 1;                // Indicates if this LclVar is a CSE variable.
+    bool lvHasLdAddrOp : 1;          // has ldloca or ldarga opcode on this local.
+    bool lvHasILStoreOp : 1;         // there is at least one STLOC or STARG on this local
+    bool lvHasMultipleILStoreOp : 1; // there is more than one STLOC on this local
+
+    bool lvIsTemp : 1; // Short-lifetime compiler temp
+
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+    bool lvIsImplicitByRef : 1; // Set if the argument is an implicit byref.
+#endif
+#if OPT_BOOL_OPS
+    bool lvIsBoolean : 1; // set if variable is boolean
+#endif
+    bool lvSingleDef : 1; // variable has a single def
+    // before lvaMarkLocalVars: identifies ref type locals that can get type updates
+    // after lvaMarkLocalVars: identifies locals that are suitable for optAddCopies
+
+    bool lvSingleDefRegCandidate : 1; // variable has a single def and hence is a register candidate
+    // Currently, this is only used to decide if an EH variable can be
+    // a register candiate or not.
+
+    bool lvDisqualifySingleDefRegCandidate : 1; // tracks variable that are disqualified from register
+    // candidancy
+
+    bool lvSpillAtSingleDef : 1; // variable has a single def (as determined by LSRA interval scan)
+// and is spilled making it candidate to spill right after the
+// first (and only) definition.
+// Note: We cannot reuse lvSingleDefRegCandidate because it is set
+// in earlier phase and the information might not be appropriate
+// in LSRA.
+
+#if ASSERTION_PROP
+    bool lvDisqualifyAddCopy : 1; // local isn't a candidate for optAddCopies
+#endif
+
+    bool lvHasEHRefs : 1; // local has EH references
+    bool lvHasEHUses : 1; // local has EH uses
+
+#ifndef TARGET_64BIT
+    bool lvStructDoubleAlign : 1; // Must we double align this struct?
+#endif                            // !TARGET_64BIT
+#ifdef TARGET_64BIT
+    bool lvQuirkToLong : 1; // Quirk to allocate this LclVar as a 64-bit long
+#endif
+    bool lvIsPtr : 1; // Might this be used in an address computation? (used by buffer overflow security
+    // checks)
+    bool lvIsUnsafeBuffer : 1; // Does this contain an unsafe buffer requiring buffer overflow security checks?
+    bool lvPromoted : 1;       // True when this local is a promoted struct, a normed struct, or a "split" long on a
+    // 32-bit target.  For implicit byref parameters, this gets hijacked between
+    // lvaRetypeImplicitByRefParams and lvaDemoteImplicitByRefParams to indicate whether
+    // references to the arg are being rewritten as references to a promoted shadow local.
+    bool lvIsStructField : 1; // Is this local var a field of a promoted struct local?
+    bool lvWasStructField : 1;
+    bool lvOverlappingFields : 1; // True when we have a struct with possibly overlapping fields
+    bool lvContainsHoles : 1;     // True when we have a promoted struct that contains holes
+    bool lvCustomLayout : 1;      // True when this struct has "CustomLayout"
+
+    bool lvIsMultiRegArg : 1; // true if this is a multireg LclVar struct used in an argument context
+    bool lvIsMultiRegRet : 1; // true if this is a multireg LclVar struct assigned from a multireg call
+
+#ifdef FEATURE_HFA
+    bool m_isHfa : 1;
+#endif
+
+    bool lvLRACandidate : 1; // Tracked for linear scan register allocation purposes
+
+#ifdef FEATURE_SIMD
+    bool lvUsedInSIMDIntrinsic : 1; // This tells lclvar is used for simd intrinsic
+#endif
+
+    bool lvClassIsExact : 1;              // lvClassHandle is the exact type
+    INDEBUG(bool lvClassInfoUpdated : 1;) // true if this var has updated class handle or exactness
+
+    bool lvImplicitlyReferenced : 1; // true if there are non-IR references to this local (prolog, epilog, gc, eh)
+
+    bool lvSuppressedZeroInit : 1; // local needs zero init if we transform tail call to loop
+
+    bool lvHasExplicitInit : 1; // The local is explicitly initialized and doesn't need zero initialization in
+    // the prolog. If the local has gc pointers, there are no gc-safe points
+    // between the prolog and the explicit initialization.
+
+    INDEBUG(char lvSingleDefDisqualifyReason = 'H';)
+
+private:
+    RegNumSmall _lvRegNum;
+#ifdef UNIX_AMD64_ABI
+    RegNumSmall m_paramRegs[2]{REG_NA, REG_NA};
+#else
+    RegNumSmall   m_paramRegs[1]{REG_NA};
+#endif
+    RegNumSmall m_paramInitialReg; // the register into which the argument is loaded at entry
+
+public:
+    uint8_t lvFieldCnt; //  Number of fields in the promoted VarDsc.
+    uint8_t lvFldOffset;
+
+    union {
+        unsigned lvFieldLclStart; // The index of the local var representing the first field in the promoted
+        // struct local. For implicit byref parameters, this gets hijacked between
+        // lvaRetypeImplicitByRefParams and lvaDemoteImplicitByRefParams to point to
+        // the struct local created to model the parameter's struct promotion, if any.
+        unsigned lvParentLcl; // The index of the local var representing the parent (i.e. the promoted struct local).
+        // Valid on promoted struct local fields.
+    };
+
+    uint16_t lvVarIndex;
+
+private:
+    uint16_t m_refCount;
+    uint32_t m_refWeight;
+
+public:
+    unsigned lclNum;
+
+private:
+    int lvStkOffs; // stack offset of home in bytes.
+public:
+    unsigned lvExactSize; // (exact) size of the type in bytes
+
+    // TODO-MIKE-Cleanup: Maybe lvImpTypeInfo can be replaced with CORINFO_CLASS_HANDLE
+    // since the rest of the bits in typeInfo aren't very useful, they can be recreated
+    // from the local's type. Also:
+    //   - For primitive type locals this is not supposed to be set/used.
+    //   - For struct type locals this is a duplicate of m_layout.
+    //   - For REF type locals this is similar to lvClassHnd (but not identical).
+    //   - Only "normed type" locals truly need this.
+    typeInfo lvImpTypeInfo;
+
+    // class handle for the local or null if not known or not a class,
+    // for a struct handle use `GetStructHnd()`.
+    CORINFO_CLASS_HANDLE lvClassHnd;
+
+private:
+    ClassLayout*  m_layout;   // layout info for structs
+    FieldSeqNode* m_fieldSeq; // field sequence for promoted struct fields
+public:
+#if ASSERTION_PROP
+    BlockSet   lvUseBlocks; // Set of blocks that contain uses
+    Statement* lvDefStmt;   // Pointer to the statement with the single definition
+#endif
+
+    INDEBUG(const char* lvReason;)
+
     LclVarDsc()
     {
         // It is expected that the memory allocated for LclVarDsc is already zeroed.
         assert(lvType == TYP_UNDEF);
         assert(lvClassHnd == NO_CLASS_HANDLE);
     }
-
-    var_types lvType;
-
-    unsigned char lvIsParam : 1;  // is this a parameter?
-    unsigned char lvIsRegArg : 1; // is this an argument that was passed by register?
-#ifdef TARGET_ARM64
-    unsigned char m_paramRegCount : 3;
-#elif defined(TARGET_ARM)
-    unsigned char m_paramRegCount : 4;
-#endif
-    unsigned char lvFramePointerBased : 1; // 0 = off of REG_SPBASE (e.g., ESP), 1 = off of REG_FPBASE (e.g., EBP)
-
-    unsigned char lvOnFrame : 1;  // (part of) the variable lives on the frame
-    unsigned char lvRegister : 1; // assigned to live in a register? For RyuJIT backend, this is only set if the
-                                  // variable is in the same register for the entire function.
-    unsigned char lvTracked : 1;  // is this a tracked variable?
-    unsigned char m_hasGCLiveness : 1;
-    unsigned char m_pinning : 1;
-
-    unsigned char lvMustInit : 1;    // must be initialized
-    unsigned char lvAddrExposed : 1; // The address of this variable is "exposed" -- passed as an argument, stored in a
-                                     // global location, etc.
-                                     // We cannot reason reliably about the value of the variable.
-    unsigned char lvDoNotEnregister : 1; // Do not enregister this variable.
-    unsigned char lvFieldAccessed : 1;   // The var is a struct local, and a field of the variable is accessed.  Affects
-                                         // struct promotion.
-    unsigned char lvLiveInOutOfHndlr : 1; // The variable is live in or out of an exception handler, and therefore must
-                                          // be on the stack (at least at those boundaries.)
-#ifdef DEBUG
-    unsigned char lvLclFieldExpr : 1;   // The variable has (STORE_)LCL_FLD accesses.
-    unsigned char lvLclBlockOpAddr : 1; // The variable was written to via a block operation.
-#endif
-#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-    unsigned char lvIsImplicitByRefArgTemp : 1;
-#endif
-    unsigned char m_isSsa : 1; // The variable is in SSA form (set by SsaBuilder)
-
-    unsigned char lvIsCSE : 1;                // Indicates if this LclVar is a CSE variable.
-    unsigned char lvHasLdAddrOp : 1;          // has ldloca or ldarga opcode on this local.
-    unsigned char lvHasILStoreOp : 1;         // there is at least one STLOC or STARG on this local
-    unsigned char lvHasMultipleILStoreOp : 1; // there is more than one STLOC on this local
-
-    unsigned char lvIsTemp : 1; // Short-lifetime compiler temp
-
-#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-    unsigned char lvIsImplicitByRef : 1; // Set if the argument is an implicit byref.
-#endif
 
     bool IsParam() const
     {
@@ -242,102 +374,6 @@ public:
     {
         return m_isSsa;
     }
-
-#if OPT_BOOL_OPS
-    unsigned char lvIsBoolean : 1; // set if variable is boolean
-#endif
-    unsigned char lvSingleDef : 1; // variable has a single def
-                                   // before lvaMarkLocalVars: identifies ref type locals that can get type updates
-                                   // after lvaMarkLocalVars: identifies locals that are suitable for optAddCopies
-
-    unsigned char lvSingleDefRegCandidate : 1; // variable has a single def and hence is a register candidate
-                                               // Currently, this is only used to decide if an EH variable can be
-                                               // a register candiate or not.
-
-    unsigned char lvDisqualifySingleDefRegCandidate : 1; // tracks variable that are disqualified from register
-                                                         // candidancy
-
-    unsigned char lvSpillAtSingleDef : 1; // variable has a single def (as determined by LSRA interval scan)
-                                          // and is spilled making it candidate to spill right after the
-                                          // first (and only) definition.
-                                          // Note: We cannot reuse lvSingleDefRegCandidate because it is set
-                                          // in earlier phase and the information might not be appropriate
-                                          // in LSRA.
-
-#if ASSERTION_PROP
-    unsigned char lvDisqualifyAddCopy : 1; // local isn't a candidate for optAddCopies
-#endif
-
-    unsigned char lvHasEHRefs : 1; // local has EH references
-    unsigned char lvHasEHUses : 1; // local has EH uses
-
-#ifndef TARGET_64BIT
-    unsigned char lvStructDoubleAlign : 1; // Must we double align this struct?
-#endif                                     // !TARGET_64BIT
-#ifdef TARGET_64BIT
-    unsigned char lvQuirkToLong : 1; // Quirk to allocate this LclVar as a 64-bit long
-#endif
-    unsigned char lvIsPtr : 1; // Might this be used in an address computation? (used by buffer overflow security
-                               // checks)
-    unsigned char lvIsUnsafeBuffer : 1; // Does this contain an unsafe buffer requiring buffer overflow security checks?
-    unsigned char lvPromoted : 1; // True when this local is a promoted struct, a normed struct, or a "split" long on a
-                                  // 32-bit target.  For implicit byref parameters, this gets hijacked between
-    // lvaRetypeImplicitByRefParams and lvaDemoteImplicitByRefParams to indicate whether
-    // references to the arg are being rewritten as references to a promoted shadow local.
-    unsigned char lvIsStructField : 1; // Is this local var a field of a promoted struct local?
-    unsigned char lvWasStructField : 1;
-    unsigned char lvOverlappingFields : 1; // True when we have a struct with possibly overlapping fields
-    unsigned char lvContainsHoles : 1;     // True when we have a promoted struct that contains holes
-    unsigned char lvCustomLayout : 1;      // True when this struct has "CustomLayout"
-
-    unsigned char lvIsMultiRegArg : 1; // true if this is a multireg LclVar struct used in an argument context
-    unsigned char lvIsMultiRegRet : 1; // true if this is a multireg LclVar struct assigned from a multireg call
-
-#ifdef FEATURE_HFA
-    unsigned char m_isHfa : 1;
-#endif
-
-    unsigned char lvLRACandidate : 1; // Tracked for linear scan register allocation purposes
-
-#ifdef FEATURE_SIMD
-    unsigned char lvUsedInSIMDIntrinsic : 1; // This tells lclvar is used for simd intrinsic
-#endif
-
-    unsigned char lvClassIsExact : 1;              // lvClassHandle is the exact type
-    INDEBUG(unsigned char lvClassInfoUpdated : 1;) // true if this var has updated class handle or exactness
-
-    unsigned char lvImplicitlyReferenced : 1; // true if there are non-IR references to this local (prolog, epilog, gc,
-                                              // eh)
-
-    unsigned char lvSuppressedZeroInit : 1; // local needs zero init if we transform tail call to loop
-
-    unsigned char lvHasExplicitInit : 1; // The local is explicitly initialized and doesn't need zero initialization in
-                                         // the prolog. If the local has gc pointers, there are no gc-safe points
-                                         // between the prolog and the explicit initialization.
-
-    INDEBUG(char lvSingleDefDisqualifyReason = 'H';)
-
-private:
-    RegNumSmall _lvRegNum;
-#ifdef UNIX_AMD64_ABI
-    RegNumSmall m_paramRegs[2]{REG_NA, REG_NA};
-#else
-    RegNumSmall m_paramRegs[1]{REG_NA};
-#endif
-    RegNumSmall m_paramInitialReg; // the register into which the argument is loaded at entry
-
-public:
-    uint8_t lvFieldCnt; //  Number of fields in the promoted VarDsc.
-    uint8_t lvFldOffset;
-
-    union {
-        unsigned lvFieldLclStart; // The index of the local var representing the first field in the promoted
-                                  // struct local. For implicit byref parameters, this gets hijacked between
-                                  // lvaRetypeImplicitByRefParams and lvaDemoteImplicitByRefParams to point to
-                                  // the struct local created to model the parameter's struct promotion, if any.
-        unsigned lvParentLcl; // The index of the local var representing the parent (i.e. the promoted struct local).
-                              // Valid on promoted struct local fields.
-    };
 
     void MakePromotedStructField(unsigned parentLclNum, unsigned fieldOffset, FieldSeqNode* fieldSeq)
     {
@@ -563,8 +599,6 @@ public:
         return lvLRACandidate && (GetRegNum() != REG_STK);
     }
 
-    uint16_t lvVarIndex;
-
     bool HasLiveness() const
     {
         return lvTracked;
@@ -591,13 +625,6 @@ public:
     {
         return m_hasGCLiveness && lvOnFrame;
     }
-
-private:
-    uint16_t m_refCount;
-    uint32_t m_refWeight;
-
-public:
-    unsigned lclNum;
 
     unsigned GetLclNum() const
     {
@@ -629,10 +656,6 @@ public:
         return GetRefWeight();
     }
 
-private:
-    int lvStkOffs; // stack offset of home in bytes.
-
-public:
     int GetStackOffset() const
     {
         return lvStkOffs;
@@ -642,8 +665,6 @@ public:
     {
         lvStkOffs = offset;
     }
-
-    unsigned lvExactSize; // (exact) size of the type in bytes
 
     // Is this a promoted struct?
     // This method returns true only for structs (including SIMD structs), not for
@@ -661,29 +682,6 @@ public:
 #endif // defined(TARGET_64BIT)
     }
 
-    // TODO-MIKE-Cleanup: Maybe lvImpTypeInfo can be replaced with CORINFO_CLASS_HANDLE
-    // since the rest of the bits in typeInfo aren't very useful, they can be recreated
-    // from the local's type. Also:
-    //   - For primitive type locals this is not supposed to be set/used.
-    //   - For struct type locals this is a duplicate of m_layout.
-    //   - For REF type locals this is similar to lvClassHnd (but not identical).
-    //   - Only "normed type" locals truly need this.
-    typeInfo lvImpTypeInfo;
-
-    // class handle for the local or null if not known or not a class,
-    // for a struct handle use `GetStructHnd()`.
-    CORINFO_CLASS_HANDLE lvClassHnd;
-
-private:
-    ClassLayout*  m_layout;   // layout info for structs
-    FieldSeqNode* m_fieldSeq; // field sequence for promoted struct fields
-public:
-#if ASSERTION_PROP
-    BlockSet   lvUseBlocks; // Set of blocks that contain uses
-    Statement* lvDefStmt;   // Pointer to the statement with the single definition
-#endif
-
-public:
     var_types GetType() const
     {
         return lvType;
@@ -787,8 +785,6 @@ public:
     {
         return lvLiveInOutOfHndlr || lvSpillAtSingleDef;
     }
-
-    INDEBUG(const char* lvReason;)
 };
 
 // The following enum provides a simple 1:1 mapping to CLR API's
