@@ -3270,18 +3270,15 @@ public:
         return lvaRefCountState == RCS_NORMAL;
     }
 
-    unsigned lvaCount;     // total number of locals, which includes function arguments,
-                           // special arguments, IL local variables, and JIT temporary variables
-    unsigned lvaTableSize; // lvaTable size (>= lvaCount)
+    unsigned    lvaCount         = 0;
+    unsigned    lvaTableCapacity = 0;
+    LclVarDsc** lvaTable         = nullptr;
 
-    LclVarDsc** lvaTable   = nullptr; // variable descriptor table
-    LclVarDsc** lvaTracked = nullptr;
+    unsigned    lvaTrackedCount    = 0;
+    unsigned    lvaTrackedCapacity = 0;
+    LclVarDsc** lvaTracked         = nullptr;
 
-    unsigned lvaTrackedCount             = 0; // actual # of locals being tracked
     unsigned lvaTrackedCountInSizeTUnits = 0; // min # of size_t's sufficient to hold a bit for all tracked locals
-
-    // reverse map of tracked number to var number
-    unsigned lvaTrackedToVarNumSize = 0;
 
 #ifdef DEBUG
     unsigned lvaCurEpoch = 0; // VarSets are relative to a specific set of tracked var indices.

@@ -125,7 +125,7 @@ void Compiler::lvaInitInline()
 
     lvaTable           = inlinerCompiler->lvaTable;
     lvaCount           = inlinerCompiler->lvaCount;
-    lvaTableSize       = inlinerCompiler->lvaTableSize;
+    lvaTableCapacity   = inlinerCompiler->lvaTableCapacity;
     lvaStubArgumentVar = inlinerCompiler->lvaStubArgumentVar;
 }
 
@@ -167,9 +167,9 @@ void Compiler::lvaInitTable()
 
     memset(table + count, 0, sizeof(table[0]) * (capacity - count));
 
-    lvaCount     = count;
-    lvaTableSize = capacity;
-    lvaTable     = table;
+    lvaCount         = count;
+    lvaTableCapacity = capacity;
+    lvaTable         = table;
 
     lvaInitParams(hasRetBuffArg);
     lvaInitLocals();
@@ -1285,18 +1285,18 @@ LclVarDsc* Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason)
 {
     if (compIsForInlining())
     {
-        Compiler* pComp = impInlineInfo->InlinerCompiler;
+        Compiler* inliner = impInlineInfo->InlinerCompiler;
 
-        if (pComp->lvaHaveManyLocals())
+        if (inliner->lvaHaveManyLocals())
         {
             compInlineResult->NoteFatal(InlineObservation::CALLSITE_TOO_MANY_LOCALS);
         }
 
-        LclVarDsc* lcl = pComp->lvaGrabTemp(shortLifetime DEBUGARG(reason));
+        LclVarDsc* lcl = inliner->lvaGrabTemp(shortLifetime DEBUGARG(reason));
 
-        lvaTable     = pComp->lvaTable;
-        lvaCount     = pComp->lvaCount;
-        lvaTableSize = pComp->lvaTableSize;
+        lvaTable         = inliner->lvaTable;
+        lvaCount         = inliner->lvaCount;
+        lvaTableCapacity = inliner->lvaTableCapacity;
 
         return lcl;
     }
@@ -1304,7 +1304,7 @@ LclVarDsc* Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason)
     // You cannot allocate more space after frame layout!
     noway_assert(lvaDoneFrameLayout < FINAL_FRAME_LAYOUT);
 
-    if (lvaCount + 1 > lvaTableSize)
+    if (lvaCount + 1 > lvaTableCapacity)
     {
         lvaResizeTable(lvaCount + (lvaCount / 2) + 1);
     }
@@ -1350,20 +1350,22 @@ unsigned Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reason))
 {
     if (compIsForInlining())
     {
+        Compiler* inliner = impInlineInfo->InlinerCompiler;
+
         // TODO-MIKE-Cleanup: Why doesn't this check for too many locals like lvaGrabTemp?
 
-        unsigned lclNum = impInlineInfo->InlinerCompiler->lvaGrabTemps(count DEBUGARG(reason));
+        unsigned lclNum = inliner->lvaGrabTemps(count DEBUGARG(reason));
 
-        lvaTable     = impInlineInfo->InlinerCompiler->lvaTable;
-        lvaCount     = impInlineInfo->InlinerCompiler->lvaCount;
-        lvaTableSize = impInlineInfo->InlinerCompiler->lvaTableSize;
+        lvaTable         = inliner->lvaTable;
+        lvaCount         = inliner->lvaCount;
+        lvaTableCapacity = inliner->lvaTableCapacity;
 
         return lclNum;
     }
 
     noway_assert(lvaDoneFrameLayout < FINAL_FRAME_LAYOUT);
 
-    if (lvaCount + count > lvaTableSize)
+    if (lvaCount + count > lvaTableCapacity)
     {
         lvaResizeTable(lvaCount + max(lvaCount / 2 + 1, count));
     }
@@ -1399,20 +1401,20 @@ unsigned Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reason))
     return lclNum;
 }
 
-void Compiler::lvaResizeTable(unsigned newSize)
+void Compiler::lvaResizeTable(unsigned newCapacity)
 {
     // Check for overflow
-    if (newSize <= lvaCount)
+    if (newCapacity <= lvaCount)
     {
         IMPL_LIMITATION("too many locals");
     }
 
-    LclVarDsc** newTable = getAllocator(CMK_LvaTable).allocate<LclVarDsc*>(newSize);
+    LclVarDsc** newTable = getAllocator(CMK_LvaTable).allocate<LclVarDsc*>(newCapacity);
     memcpy(newTable, lvaTable, lvaCount * sizeof(lvaTable[0]));
-    memset(newTable + lvaCount, 0, (static_cast<size_t>(newSize) - lvaCount) * sizeof(lvaTable[0]));
+    memset(newTable + lvaCount, 0, (static_cast<size_t>(newCapacity) - lvaCount) * sizeof(lvaTable[0]));
 
-    lvaTableSize = newSize;
-    lvaTable     = newTable;
+    lvaTableCapacity = newCapacity;
+    lvaTable         = newTable;
 }
 
 bool LclVarDsc::IsDependentPromotedField(Compiler* compiler) const
@@ -2243,10 +2245,10 @@ void Compiler::lvaMarkLivenessTrackedLocals()
         return;
     }
 
-    if (lvaTrackedToVarNumSize < lvaCount)
+    if (lvaTrackedCapacity < lvaCount)
     {
-        lvaTrackedToVarNumSize = lvaCount;
-        lvaTracked             = new (getAllocator(CMK_LvaTable)) LclVarDsc*[lvaTrackedToVarNumSize];
+        lvaTrackedCapacity = lvaCount;
+        lvaTracked         = new (getAllocator(CMK_LvaTable)) LclVarDsc*[lvaTrackedCapacity];
     }
 
     unsigned    trackedCount = 0;
