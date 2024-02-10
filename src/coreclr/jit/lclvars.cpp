@@ -1646,8 +1646,12 @@ void Compiler::lvaSetStruct(LclVarDsc* lcl, ClassLayout* layout, bool checkUnsaf
     {
         lcl->lvType = TYP_STRUCT;
         lcl->SetLayout(layout);
-        lcl->lvExactSize   = layout->GetSize();
-        lcl->lvImpTypeInfo = typeInfo(TI_STRUCT, layout->GetClassHandle());
+        lcl->lvExactSize = layout->GetSize();
+
+        if (lvaRefCountState == RCS_INVALID)
+        {
+            lcl->lvImpTypeInfo = typeInfo(TI_STRUCT, layout->GetClassHandle());
+        }
 
         if (layout->IsValueClass())
         {
@@ -3164,6 +3168,11 @@ void Compiler::lvaComputeLclRefCounts()
             lcl->lvSingleDef             = lcl->IsParam() || info.compInitMem;
             lcl->lvSingleDefRegCandidate = lcl->IsParam();
         }
+
+#if ASSERTION_PROP
+        lcl->lvUseBlocks = BlockSetOps::UninitVal();
+        lcl->lvDefStmt   = nullptr;
+#endif
     }
 
     // Second, count all explicit local variable references. This will also set

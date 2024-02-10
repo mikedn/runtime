@@ -255,23 +255,11 @@ public:
 private:
     uint16_t m_refCount;
     uint32_t m_refWeight;
+    int      lvStkOffs; // stack offset of home in bytes.
 
 public:
     unsigned lclNum;
-
-private:
-    int lvStkOffs; // stack offset of home in bytes.
-public:
     unsigned lvExactSize; // (exact) size of the type in bytes
-
-    // TODO-MIKE-Cleanup: Maybe lvImpTypeInfo can be replaced with CORINFO_CLASS_HANDLE
-    // since the rest of the bits in typeInfo aren't very useful, they can be recreated
-    // from the local's type. Also:
-    //   - For primitive type locals this is not supposed to be set/used.
-    //   - For struct type locals this is a duplicate of m_layout.
-    //   - For REF type locals this is similar to lvClassHnd (but not identical).
-    //   - Only "normed type" locals truly need this.
-    typeInfo lvImpTypeInfo;
 
     // class handle for the local or null if not known or not a class,
     // for a struct handle use `GetStructHnd()`.
@@ -280,11 +268,26 @@ public:
 private:
     ClassLayout*  m_layout;   // layout info for structs
     FieldSeqNode* m_fieldSeq; // field sequence for promoted struct fields
+
 public:
+    union {
+        // TODO-MIKE-Cleanup: Maybe lvImpTypeInfo can be replaced with CORINFO_CLASS_HANDLE
+        // since the rest of the bits in typeInfo aren't very useful, they can be recreated
+        // from the local's type. Also:
+        //   - For primitive type locals this is not supposed to be set/used.
+        //   - For struct type locals this is a duplicate of m_layout.
+        //   - For REF type locals this is similar to lvClassHnd (but not identical).
+        //   - Only "normed type" locals truly need this.
+        typeInfo lvImpTypeInfo;
+
 #if ASSERTION_PROP
-    BlockSet   lvUseBlocks; // Set of blocks that contain uses
-    Statement* lvDefStmt;   // Pointer to the statement with the single definition
+        struct
+        {
+            BlockSet   lvUseBlocks; // Set of blocks that contain uses
+            Statement* lvDefStmt;   // Pointer to the statement with the single definition
+        };
 #endif
+    };
 
     INDEBUG(const char* lvReason;)
 
