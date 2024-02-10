@@ -2617,7 +2617,7 @@ void CodeGen::MarkStackLocals()
         // and the struct return buffer parameter, if present. We cannot report
         // any other parameters to the GC becaue they do not have correct frame
         // offsets.
-        if (compiler->lvaIsX86VarargsStackParam(lclNum))
+        if (compiler->lvaIsX86VarargsStackParam(lcl))
         {
             assert((lcl->GetRefCount() == 0) && !lcl->lvRegister);
 

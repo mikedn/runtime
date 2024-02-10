@@ -3316,6 +3316,7 @@ public:
     void lvaSetAddressExposed(LclVarDsc* lcl);
     void lvaSetDoNotEnregister(LclVarDsc* lcl DEBUGARG(DoNotEnregisterReason reason));
     void lvaSetLiveInOutOfHandler(LclVarDsc* lcl);
+    bool lvaIsX86VarargsStackParam(LclVarDsc* lcl);
 
     void lvSetMinOptsDoNotEnreg();
 
@@ -5209,9 +5210,6 @@ public:
 
 protected:
     bool rpMustCreateEBPFrame();
-
-private:
-    bool lvaIsX86VarargsStackParam(unsigned lclNum);
 
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

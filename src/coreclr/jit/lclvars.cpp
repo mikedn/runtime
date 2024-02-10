@@ -2960,11 +2960,10 @@ void Compiler::phRefCountLocals()
 // Such parameters are not accessed directly, they're accessed via an indirection
 // based on the address passed in lvaVarargsHandleArg and they cannot be tracked
 // by GC (their offsets in the stack are not known at compile time).
-bool Compiler::lvaIsX86VarargsStackParam(unsigned lclNum)
+bool Compiler::lvaIsX86VarargsStackParam(LclVarDsc* lcl)
 {
 #ifdef TARGET_X86
-    LclVarDsc* lcl = lvaGetDesc(lclNum);
-    return info.compIsVarArgs && lcl->IsParam() && !lcl->IsRegParam() && (lclNum != lvaVarargsHandleArg);
+    return info.compIsVarArgs && lcl->IsParam() && !lcl->IsRegParam() && (lcl->GetLclNum() != lvaVarargsHandleArg);
 #else
     return false;
 #endif
@@ -2985,7 +2984,7 @@ void Compiler::lvaSetImplictlyReferenced()
         assert(!lcl->lvTracked);
 
         // X86 varargs stack params must remain unreferenced.
-        if (lvaIsX86VarargsStackParam(lclNum))
+        if (lvaIsX86VarargsStackParam(lcl))
         {
             assert(!lcl->lvImplicitlyReferenced);
             assert(lcl->GetRefCount() == 0);
@@ -3017,7 +3016,7 @@ void Compiler::lvaComputeLclRefCounts()
 
         noway_assert(varTypeIsValidLclType(lcl->GetType()));
 
-        if (lcl->lvImplicitlyReferenced && !lvaIsX86VarargsStackParam(lclNum))
+        if (lcl->lvImplicitlyReferenced && !lvaIsX86VarargsStackParam(lcl))
         {
             lcl->SetRefCount(1);
             lcl->SetRefWeight(BB_UNITY_WEIGHT);
@@ -3099,7 +3098,7 @@ void Compiler::lvaComputeLclRefCounts()
             // the stack. In that case, it's important for the ref count to be zero, so that
             // we don't attempt to track them for GC info (which is not possible since we
             // don't know their offset in the stack). See the assert at the end of raMarkStkVars.
-            if ((lcl->GetRefCount() == 0) && !lvaIsX86VarargsStackParam(lclNum))
+            if ((lcl->GetRefCount() == 0) && !lvaIsX86VarargsStackParam(lcl))
             {
                 lcl->lvImplicitlyReferenced = true;
                 lcl->SetRefCount(1);
