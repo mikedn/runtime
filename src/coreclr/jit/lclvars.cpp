@@ -2160,11 +2160,11 @@ bool Compiler::lvaReportParamTypeArg()
 // LclVarDsc "less" comparer used to compare the weight of two locals, when optimizing for small code.
 class LclVarDsc_SmallCode_Less
 {
-    LclVarDsc** m_lvaTable;
+    LclVarDsc* const* m_lvaTable;
     INDEBUG(unsigned m_lvaCount;)
 
 public:
-    LclVarDsc_SmallCode_Less(LclVarDsc** lvaTable DEBUGARG(unsigned lvaCount))
+    LclVarDsc_SmallCode_Less(LclVarDsc* const* lvaTable DEBUGARG(unsigned lvaCount))
         : m_lvaTable(lvaTable)
 #ifdef DEBUG
         , m_lvaCount(lvaCount)
@@ -2187,8 +2187,8 @@ public:
         assert(!dsc1->lvRegister);
         assert(!dsc2->lvRegister);
 
-        unsigned weight1 = dsc1->lvRefCnt();
-        unsigned weight2 = dsc2->lvRefCnt();
+        unsigned refCount1 = dsc1->GetRefCount();
+        unsigned refCount2 = dsc2->GetRefCount();
 
 #ifndef TARGET_ARM
         // ARM-TODO: this was disabled for ARM under !FEATURE_FP_REGALLOC; it was probably a left-over from
@@ -2200,27 +2200,30 @@ public:
 
         if (isFloat1 != isFloat2)
         {
-            if ((weight2 != 0) && isFloat1)
+            if ((refCount2 != 0) && isFloat1)
             {
                 return false;
             }
 
-            if ((weight1 != 0) && isFloat2)
+            if ((refCount1 != 0) && isFloat2)
             {
                 return true;
             }
         }
 #endif
 
+        if (refCount1 != refCount2)
+        {
+            return refCount1 > refCount2;
+        }
+
+        const BasicBlock::weight_t weight1 = dsc1->GetRefWeight();
+        const BasicBlock::weight_t weight2 = dsc2->GetRefWeight();
+
+        // If the weighted ref counts are different then use their difference.
         if (weight1 != weight2)
         {
             return weight1 > weight2;
-        }
-
-        // If the weighted ref counts are different then use their difference.
-        if (dsc1->lvRefCntWtd() != dsc2->lvRefCntWtd())
-        {
-            return dsc1->lvRefCntWtd() > dsc2->lvRefCntWtd();
         }
 
         // We have equal ref counts and weighted ref counts.
@@ -2230,35 +2233,35 @@ public:
         //
         // Review: seems odd that this is mixing counts and weights.
 
-        if (weight1 != 0)
+        if (refCount1 != 0)
         {
             if (dsc1->IsRegParam())
             {
-                weight1 += 2 * BB_UNITY_WEIGHT_UNSIGNED;
+                refCount1 += 2 * BB_UNITY_WEIGHT_UNSIGNED;
             }
 
-            if (varTypeIsGC(dsc1->TypeGet()))
+            if (varTypeIsGC(dsc1->GetType()))
             {
-                weight1 += BB_UNITY_WEIGHT_UNSIGNED / 2;
+                refCount1 += BB_UNITY_WEIGHT_UNSIGNED / 2;
             }
         }
 
-        if (weight2 != 0)
+        if (refCount2 != 0)
         {
             if (dsc2->IsRegParam())
             {
-                weight2 += 2 * BB_UNITY_WEIGHT_UNSIGNED;
+                refCount2 += 2 * BB_UNITY_WEIGHT_UNSIGNED;
             }
 
-            if (varTypeIsGC(dsc2->TypeGet()))
+            if (varTypeIsGC(dsc2->GetType()))
             {
-                weight2 += BB_UNITY_WEIGHT_UNSIGNED / 2;
+                refCount2 += BB_UNITY_WEIGHT_UNSIGNED / 2;
             }
         }
 
-        if (weight1 != weight2)
+        if (refCount1 != refCount2)
         {
-            return weight1 > weight2;
+            return refCount1 > refCount2;
         }
 
         // To achieve a stable sort we use the LclNum.
@@ -2269,11 +2272,11 @@ public:
 // LclVarDsc "less" comparer used to compare the weight of two locals, when optimizing for blended code.
 class LclVarDsc_BlendedCode_Less
 {
-    LclVarDsc** m_lvaTable;
+    LclVarDsc* const* m_lvaTable;
     INDEBUG(unsigned m_lvaCount;)
 
 public:
-    LclVarDsc_BlendedCode_Less(LclVarDsc** lvaTable DEBUGARG(unsigned lvaCount))
+    LclVarDsc_BlendedCode_Less(LclVarDsc* const* lvaTable DEBUGARG(unsigned lvaCount))
         : m_lvaTable(lvaTable)
 #ifdef DEBUG
         , m_lvaCount(lvaCount)
@@ -2296,8 +2299,8 @@ public:
         assert(!dsc1->lvRegister);
         assert(!dsc2->lvRegister);
 
-        BasicBlock::weight_t weight1 = dsc1->lvRefCntWtd();
-        BasicBlock::weight_t weight2 = dsc2->lvRefCntWtd();
+        BasicBlock::weight_t weight1 = dsc1->GetRefWeight();
+        BasicBlock::weight_t weight2 = dsc2->GetRefWeight();
 
 #ifndef TARGET_ARM
         // ARM-TODO: this was disabled for ARM under !FEATURE_FP_REGALLOC; it was probably a left-over from
@@ -2336,16 +2339,19 @@ public:
             return weight1 > weight2;
         }
 
+        const unsigned refCount1 = dsc1->GetRefCount();
+        const unsigned refCount2 = dsc2->GetRefCount();
+
         // If the weighted ref counts are different then try the unweighted ref counts.
-        if (dsc1->lvRefCnt() != dsc2->lvRefCnt())
+        if (refCount1 != refCount2)
         {
-            return dsc1->lvRefCnt() > dsc2->lvRefCnt();
+            return refCount1 > refCount2;
         }
 
         // If one is a GC type and the other is not the GC type wins.
-        if (varTypeIsGC(dsc1->TypeGet()) != varTypeIsGC(dsc2->TypeGet()))
+        if (varTypeIsGC(dsc1->GetType()) != varTypeIsGC(dsc2->GetType()))
         {
-            return varTypeIsGC(dsc1->TypeGet());
+            return varTypeIsGC(dsc1->GetType());
         }
 
         // To achieve a stable sort we use the LclNum.
@@ -2431,7 +2437,7 @@ void Compiler::lvaMarkLivenessTrackedLocals()
         // no explicit references in IR so tracking achieves nothing, except eating into the
         // tracking count limit. And lvaStubArgumentVar is weird in that it does have uses
         // in IR but the definition is implicit. This makes it live in and the start of the
-        // method so we risk treating it as zero iniitialized in VN if compInitMem is set.
+        // method so we risk treating it as zero initialized in VN if compInitMem is set.
         // Luckily that doesn't happen because generated stubs do not use .localsinit now.
 
         if (lcl->lvTracked)
