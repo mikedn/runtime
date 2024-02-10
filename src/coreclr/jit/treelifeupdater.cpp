@@ -71,8 +71,7 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
 
         for (VarSetOps::Enumerator en(compiler, newLife); en.MoveNext();)
         {
-            unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(en.Current());
-            LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+            LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(en.Current());
 
             if (!lcl->IsRegCandidate())
             {
@@ -93,7 +92,7 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
                     // lcl was alive on previous block end ("bb->bbPrev->bbLiveOut"), so it has an open
                     // "DbgInfoVarRange" which should change to be according "getInVarToRegMap"
                     JITDUMP("\n");
-                    UpdateRange(codeGen, lcl, lclNum);
+                    UpdateRange(codeGen, lcl, lcl->GetLclNum());
                 }
             }
             else if (newRegNum != REG_STK)
@@ -110,8 +109,7 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
 
             for (auto e = VarSetOps::EnumOp(compiler, SymmetricDiff, currentLife, newLife); e.MoveNext();)
             {
-                unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(e.Current());
-                LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+                LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(e.Current());
 
                 if (VarSetOps::IsMember(compiler, currentLife, e.Current()))
                 {
@@ -120,11 +118,11 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
                         VarSetOps::RemoveElemD(compiler, liveGCLcl, e.Current());
                     }
 
-                    EndRange(codeGen, lclNum);
+                    EndRange(codeGen, lcl->GetLclNum());
                 }
                 else
                 {
-                    StartRange(codeGen, lcl, lclNum);
+                    StartRange(codeGen, lcl, lcl->GetLclNum());
                 }
             }
 
@@ -775,7 +773,7 @@ void CodeGenLivenessUpdater::EndCodeGen(CodeGen* codeGen)
         {
             for (VarSetOps::Enumerator en(compiler, codeGen->GetLiveSet()); en.MoveNext();)
             {
-                EndRange(codeGen, compiler->lvaTrackedIndexToLclNum(en.Current()));
+                EndRange(codeGen, compiler->lvaGetDescByTrackedIndex(en.Current())->GetLclNum());
             }
         }
         else

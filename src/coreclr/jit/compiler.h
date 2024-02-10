@@ -3458,12 +3458,6 @@ public:
         return lvaTable[lclAddr->GetLclNum()];
     }
 
-    unsigned lvaTrackedIndexToLclNum(unsigned trackedIndex) const
-    {
-        assert(trackedIndex < lvaTrackedCount);
-        return lvaTracked[trackedIndex]->GetLclNum();
-    }
-
     LclVarDsc* lvaGetDescByTrackedIndex(unsigned trackedIndex) const
     {
         assert(trackedIndex < lvaTrackedCount);

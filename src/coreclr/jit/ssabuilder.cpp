@@ -127,7 +127,7 @@ void SsaBuilder::Build()
     for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
     {
         LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-        lcl->m_isSsa = IncludeInSsa(lcl);
+        lcl->m_isSsa   = IncludeInSsa(lcl);
     }
 
     InsertPhiFunctions();
@@ -631,8 +631,7 @@ void SsaBuilder::InsertPhiFunctions()
         // For each local var number "lclNum" that "block" assigns to...
         for (VarSetOps::Enumerator en(compiler, block->bbVarDef); en.MoveNext();)
         {
-            unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(en.Current());
-            LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+            LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(en.Current());
             DBG_SSA_JITDUMP("  Considering local var V%02u:\n", lcl->GetLclNum());
 
             if (!lcl->IsSsa())
@@ -640,6 +639,8 @@ void SsaBuilder::InsertPhiFunctions()
                 DBG_SSA_JITDUMP("  Skipping because it is excluded.\n");
                 continue;
             }
+
+            unsigned lclNum = lcl->GetLclNum();
 
             // For each block "bbInDomFront" that is in the dominance frontier of "block"...
             for (BasicBlock* bbInDomFront : blockIDF)
