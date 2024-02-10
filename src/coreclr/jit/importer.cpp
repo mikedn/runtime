@@ -9353,7 +9353,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                             if (isSingleDefLocal && hasSingleReachingDef)
                             {
-                                lvaUpdateClass(lclNum, op1, clsHnd);
+                                comp->lvaUpdateClass(lcl, op1, clsHnd);
                             }
                         }
                     }
@@ -17304,26 +17304,6 @@ void Importer::lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsa
 void Importer::lvaSetStruct(unsigned lclNum, CORINFO_CLASS_HANDLE classHandle, bool checkUnsafeBuffer)
 {
     comp->lvaSetStruct(lclNum, classHandle, checkUnsafeBuffer);
-}
-
-void Importer::lvaSetClass(unsigned lclNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact)
-{
-    return comp->lvaSetClass(lclNum, clsHnd, isExact);
-}
-
-void Importer::lvaSetClass(unsigned lclNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle)
-{
-    return comp->lvaSetClass(lclNum, tree, stackHandle);
-}
-
-void Importer::lvaUpdateClass(unsigned lclNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact)
-{
-    comp->lvaUpdateClass(lclNum, clsHnd, isExact);
-}
-
-void Importer::lvaUpdateClass(unsigned lclNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle)
-{
-    comp->lvaUpdateClass(lclNum, tree, stackHandle);
 }
 
 bool Importer::lvaIsOriginalThisParam(unsigned lclNum)

@@ -299,7 +299,7 @@ public:
 
                 if (newClass != NO_CLASS_HANDLE)
                 {
-                    m_compiler->lvaUpdateClass(lhs->AsLclVar()->GetLclNum(), newClass, isExact);
+                    m_compiler->lvaUpdateClass(m_compiler->lvaGetDesc(lhs->AsLclVar()), newClass, isExact);
                 }
             }
 
@@ -967,7 +967,7 @@ void Compiler::inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBl
 
             if (info.compMethodInfo->args.retTypeClass != nullptr)
             {
-                lvaSetClass(spillLclNum, info.compMethodInfo->args.retTypeClass);
+                lvaSetClass(spillLcl, info.compMethodInfo->args.retTypeClass);
             }
         }
     }
@@ -1177,14 +1177,13 @@ void Compiler::inlUpdateRetSpillTempClass(InlineInfo* inlineInfo)
 
     if (inlineInfo->retSpillTempLclNum != BAD_VAR_NUM)
     {
-        CORINFO_CLASS_HANDLE retExprClassHnd = inlineInfo->retExprClassHnd;
-        if (retExprClassHnd != nullptr)
+        if (CORINFO_CLASS_HANDLE retExprClassHnd = inlineInfo->retExprClassHnd)
         {
             LclVarDsc* returnSpillVarDsc = lvaGetDesc(inlineInfo->retSpillTempLclNum);
 
             if (returnSpillVarDsc->lvSingleDef)
             {
-                lvaUpdateClass(inlineInfo->retSpillTempLclNum, retExprClassHnd, inlineInfo->retExprClassHndIsExact);
+                lvaUpdateClass(returnSpillVarDsc, retExprClassHnd, inlineInfo->retExprClassHndIsExact);
             }
         }
     }

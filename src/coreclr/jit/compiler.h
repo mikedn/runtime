@@ -2205,10 +2205,6 @@ struct Importer
     void lvaSetAddressExposed(unsigned lclNum);
     void lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsafeBuffer);
     void lvaSetStruct(unsigned lclNum, CORINFO_CLASS_HANDLE classHandle, bool checkUnsafeBuffer);
-    void lvaSetClass(unsigned lclNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);
-    void lvaSetClass(unsigned lclNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
-    void lvaUpdateClass(unsigned lclNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);
-    void lvaUpdateClass(unsigned lclNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
     bool lvaIsOriginalThisParam(unsigned lclNum);
     bool lvaHaveManyLocals();
     bool fgVarNeedsExplicitZeroInit(unsigned lclNum, bool blockIsInLoop, bool blockIsReturn);
@@ -3537,12 +3533,10 @@ public:
     void lvaSetStruct(LclVarDsc* lcl, ClassLayout* layout, bool checkUnsafeBuffer);
 
     // If the local is TYP_REF, set or update the associated class information.
-    void lvaSetClass(unsigned varNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);
-    void lvaSetClass(unsigned varNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
     void lvaSetClass(LclVarDsc* lcl, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);
     void lvaSetClass(LclVarDsc* lcl, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
-    void lvaUpdateClass(unsigned varNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);
-    void lvaUpdateClass(unsigned varNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
+    void lvaUpdateClass(LclVarDsc* lcl, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);
+    void lvaUpdateClass(LclVarDsc* lcl, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
 
     bool lvaTempsHaveLargerOffsetThanVars();
 

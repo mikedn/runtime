@@ -207,7 +207,7 @@ void Compiler::lvaInitLocals()
 
         if (corType == CORINFO_TYPE_CLASS)
         {
-            lvaSetClass(lclNum, info.compCompHnd->getArgClass(&info.compMethodInfo->locals, local));
+            lvaSetClass(lcl, info.compCompHnd->getArgClass(&info.compMethodInfo->locals, local));
         }
 
         if (opts.IsOSR() && info.compPatchpointInfo->IsExposed(lclNum))
@@ -217,7 +217,7 @@ void Compiler::lvaInitLocals()
 
             if (!lcl->TypeIs(TYP_STRUCT))
             {
-                lvaSetVarAddrExposed(lclNum);
+                lvaSetAddressExposed(lcl);
             }
         }
     }
@@ -465,7 +465,7 @@ void Compiler::lvaInitThisParam(ParamAllocInfo& paramInfo)
     else
     {
         lcl->SetType(TYP_REF);
-        lvaSetClass(paramInfo.lclNum, info.compClassHnd);
+        lvaSetClass(lcl, info.compClassHnd);
     }
 
     lcl->lvIsParam = true;
@@ -666,7 +666,7 @@ void Compiler::lvaInitUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAND
 
     if (corType == CORINFO_TYPE_CLASS)
     {
-        lvaSetClass(paramInfo.lclNum, info.compCompHnd->getArgClass(&info.compMethodInfo->args, param));
+        lvaSetClass(lcl, info.compCompHnd->getArgClass(&info.compMethodInfo->args, param));
     }
 }
 
@@ -1756,29 +1756,13 @@ void Compiler::makeExtraStructQueries(CORINFO_CLASS_HANDLE structHandle, int lev
 }
 #endif // DEBUG
 
-//------------------------------------------------------------------------
-// lvaSetClass: set class information for a local var.
-//
-// Arguments:
-//    varNum -- number of the variable
-//    clsHnd -- class handle to use in set or update
-//    isExact -- true if class is known exactly
-//
-// Notes:
-//    varNum must not already have a ref class handle.
-
-void Compiler::lvaSetClass(unsigned varNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact)
-{
-    lvaSetClass(lvaGetDesc(varNum), clsHnd, isExact);
-}
-
+// Set class information for a local var.
 void Compiler::lvaSetClass(LclVarDsc* varDsc, CORINFO_CLASS_HANDLE clsHnd, bool isExact)
 {
-    assert(clsHnd != nullptr);
     assert(varDsc->TypeIs(TYP_REF));
-    // We should not have any ref type information for this var.
     assert(varDsc->lvClassHnd == NO_CLASS_HANDLE);
     assert(!varDsc->lvClassIsExact);
+    assert(clsHnd != nullptr);
 
     JITDUMP("\nlvaSetClass: setting class for V%02i to (%p) %s %s\n", varDsc->GetLclNum(), dspPtr(clsHnd),
             info.compCompHnd->getClassName(clsHnd), isExact ? " [exact]" : "");
@@ -1787,31 +1771,16 @@ void Compiler::lvaSetClass(LclVarDsc* varDsc, CORINFO_CLASS_HANDLE clsHnd, bool 
     varDsc->lvClassIsExact = isExact;
 }
 
-//------------------------------------------------------------------------
-// lvaSetClass: set class information for a local var from a tree or stack type
-//
-// Arguments:
-//    varNum -- number of the variable. Must be a single def local
-//    tree  -- tree establishing the variable's value
-//    stackHnd -- handle for the type from the evaluation stack
-//
-// Notes:
-//    Preferentially uses the tree's type, when available. Since not all
-//    tree kinds can track ref types, the stack type is used as a
-//    fallback. If there is no stack type, then the class is set to object.
-
-void Compiler::lvaSetClass(unsigned varNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHnd)
-{
-    lvaSetClass(lvaGetDesc(varNum), tree, stackHnd);
-}
-
+// Set class information for a local var from a tree or stack type
+// Preferentially uses the tree's type, when available. Since not all
+// tree kinds can track ref types, the stack type is used as a
+// fallback. If there is no stack type, then the class is set to object.
 void Compiler::lvaSetClass(LclVarDsc* lcl, GenTree* tree, CORINFO_CLASS_HANDLE stackHnd)
 {
-    bool                 isExact   = false;
-    bool                 isNonNull = false;
-    CORINFO_CLASS_HANDLE clsHnd    = gtGetClassHandle(tree, &isExact, &isNonNull);
+    bool isExact   = false;
+    bool isNonNull = false;
 
-    if (clsHnd != nullptr)
+    if (CORINFO_CLASS_HANDLE clsHnd = gtGetClassHandle(tree, &isExact, &isNonNull))
     {
         lvaSetClass(lcl, clsHnd, isExact);
     }
@@ -1825,45 +1794,27 @@ void Compiler::lvaSetClass(LclVarDsc* lcl, GenTree* tree, CORINFO_CLASS_HANDLE s
     }
 }
 
-//------------------------------------------------------------------------
-// lvaUpdateClass: update class information for a local var.
+// Update class information for a local var.
 //
-// Arguments:
-//    varNum -- number of the variable
-//    clsHnd -- class handle to use in set or update
-//    isExact -- true if class is known exactly
+// This method models the type update rule for an assignment.
 //
-// Notes:
+// Updates currently should only happen for single-def user args or
+// locals, when we are processing the expression actually being
+// used to initialize the local (or inlined arg). The update will
+// change the local from the declared type to the type of the
+// initial value.
 //
-//    This method models the type update rule for an assignment.
-//
-//    Updates currently should only happen for single-def user args or
-//    locals, when we are processing the expression actually being
-//    used to initialize the local (or inlined arg). The update will
-//    change the local from the declared type to the type of the
-//    initial value.
-//
-//    These updates should always *improve* what we know about the
-//    type, that is making an inexact type exact, or changing a type
-//    to some subtype. However the jit lacks precise type information
-//    for shared code, so ensuring this is so is currently not
-//    possible.
-
-void Compiler::lvaUpdateClass(unsigned varNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact)
+// These updates should always *improve* what we know about the
+// type, that is making an inexact type exact, or changing a type
+// to some subtype. However the jit lacks precise type information
+// for shared code, so ensuring this is so is currently not
+// possible.
+void Compiler::lvaUpdateClass(LclVarDsc* varDsc, CORINFO_CLASS_HANDLE clsHnd, bool isExact)
 {
-    assert(varNum < lvaCount);
-
-    // Else we should have a class handle to consider
-    assert(clsHnd != nullptr);
-
-    LclVarDsc* varDsc = lvaGetDesc(varNum);
     assert(varDsc->TypeIs(TYP_REF));
-
-    // We should already have a class
-    assert(varDsc->lvClassHnd != NO_CLASS_HANDLE);
-
-    // We should only be updating classes for single-def locals.
     assert(varDsc->lvSingleDef);
+    assert(varDsc->lvClassHnd != NO_CLASS_HANDLE);
+    assert(clsHnd != nullptr);
 
     // Now see if we should update.
     //
@@ -1888,7 +1839,7 @@ void Compiler::lvaUpdateClass(unsigned varNum, CORINFO_CLASS_HANDLE clsHnd, bool
 #if DEBUG
     if (isNewClass || (isExact != varDsc->lvClassIsExact))
     {
-        JITDUMP("\nlvaUpdateClass:%s Updating class for V%02u", shouldUpdate ? "" : " NOT", varNum);
+        JITDUMP("\nlvaUpdateClass:%s Updating class for V%02u", shouldUpdate ? "" : " NOT", varDsc->GetLclNum());
         JITDUMP(" from (%p) %s%s", dspPtr(varDsc->lvClassHnd), info.compCompHnd->getClassName(varDsc->lvClassHnd),
                 varDsc->lvClassIsExact ? " [exact]" : "");
         JITDUMP(" to (%p) %s%s\n", dspPtr(clsHnd), info.compCompHnd->getClassName(clsHnd), isExact ? " [exact]" : "");
@@ -1900,42 +1851,25 @@ void Compiler::lvaUpdateClass(unsigned varNum, CORINFO_CLASS_HANDLE clsHnd, bool
         varDsc->lvClassHnd     = clsHnd;
         varDsc->lvClassIsExact = isExact;
 
-#if DEBUG
-        // Note we've modified the type...
-        varDsc->lvClassInfoUpdated = true;
-#endif // DEBUG
+        INDEBUG(varDsc->lvClassInfoUpdated = true);
     }
-
-    return;
 }
 
-//------------------------------------------------------------------------
-// lvaUpdateClass: Uupdate class information for a local var from a tree
-//  or stack type
-//
-// Arguments:
-//    varNum -- number of the variable. Must be a single def local
-//    tree  -- tree establishing the variable's value
-//    stackHnd -- handle for the type from the evaluation stack
-//
-// Notes:
-//    Preferentially uses the tree's type, when available. Since not all
-//    tree kinds can track ref types, the stack type is used as a
-//    fallback.
-
-void Compiler::lvaUpdateClass(unsigned varNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHnd)
+// Update class information for a local var from a tree or stack type
+// Preferentially uses the tree's type, when available. Since not all
+// tree kinds can track ref types, the stack type is used as a fallback.
+void Compiler::lvaUpdateClass(LclVarDsc* lcl, GenTree* tree, CORINFO_CLASS_HANDLE stackHnd)
 {
-    bool                 isExact   = false;
-    bool                 isNonNull = false;
-    CORINFO_CLASS_HANDLE clsHnd    = gtGetClassHandle(tree, &isExact, &isNonNull);
+    bool isExact   = false;
+    bool isNonNull = false;
 
-    if (clsHnd != nullptr)
+    if (CORINFO_CLASS_HANDLE clsHnd = gtGetClassHandle(tree, &isExact, &isNonNull))
     {
-        lvaUpdateClass(varNum, clsHnd, isExact);
+        lvaUpdateClass(lcl, clsHnd, isExact);
     }
     else if (stackHnd != nullptr)
     {
-        lvaUpdateClass(varNum, stackHnd);
+        lvaUpdateClass(lcl, stackHnd);
     }
 }
 
