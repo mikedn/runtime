@@ -633,7 +633,7 @@ void SsaBuilder::InsertPhiFunctions()
         {
             unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(en.Current());
             LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
-            DBG_SSA_JITDUMP("  Considering local var V%02u:\n", lclNum);
+            DBG_SSA_JITDUMP("  Considering local var V%02u:\n", lcl->GetLclNum());
 
             if (!lcl->IsSsa())
             {

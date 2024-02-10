@@ -3443,25 +3443,25 @@ public:
 
     void lvaInitVarDsc(LclVarDsc* lcl, CorInfoType corType, CORINFO_CLASS_HANDLE typeHnd);
 
-    LclVarDsc* lvaGetDesc(unsigned lclNum)
+    LclVarDsc* lvaGetDesc(unsigned lclNum) const
     {
         assert(lclNum < lvaCount);
         return lvaTable[lclNum];
     }
 
-    LclVarDsc* lvaGetDesc(const GenTreeLclVarCommon* lclVar)
+    LclVarDsc* lvaGetDesc(const GenTreeLclVarCommon* lclVar) const
     {
         assert(lclVar->GetLclNum() < lvaCount);
         return lvaTable[lclVar->GetLclNum()];
     }
 
-    LclVarDsc* lvaGetDesc(const GenTreeLclAddr* lclAddr)
+    LclVarDsc* lvaGetDesc(const GenTreeLclAddr* lclAddr) const
     {
         assert(lclAddr->GetLclNum() < lvaCount);
         return lvaTable[lclAddr->GetLclNum()];
     }
 
-    unsigned lvaTrackedIndexToLclNum(unsigned trackedIndex)
+    unsigned lvaTrackedIndexToLclNum(unsigned trackedIndex) const
     {
         assert(trackedIndex < lvaTrackedCount);
         unsigned lclNum = lvaTrackedToVarNum[trackedIndex];
@@ -3469,7 +3469,7 @@ public:
         return lclNum;
     }
 
-    LclVarDsc* lvaGetDescByTrackedIndex(unsigned trackedIndex)
+    LclVarDsc* lvaGetDescByTrackedIndex(unsigned trackedIndex) const
     {
         return lvaGetDesc(lvaTrackedIndexToLclNum(trackedIndex));
     }

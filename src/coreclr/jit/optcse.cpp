@@ -1364,7 +1364,7 @@ public:
             if (frameSize > 128)
             {
                 // On XARCH stack frame displacements can either use a 1-byte or a 4-byte displacement.
-                // With a large franme we will need to use some 4-byte displacements.
+                // With a large frame we will need to use some 4-byte displacements.
                 largeFrame = true;
                 break;
             }
@@ -1406,7 +1406,7 @@ public:
         // enregCount reaches a certain value we assign the current local weight to
         // aggressiveWeight or moderateWeight.
         //
-        // On Windows x64 this yeilds aggressiveEnregNum == 12 and moderateEnregNum == 38
+        // On Windows x64 this yields aggressiveEnregNum == 12 and moderateEnregNum == 38
         // thus we will typically set the cutoff values for
         //   aggressiveWeight based upon the weight of the 13th tracked local
         //   moderateWeight based upon the weight of the 39th tracked local
@@ -1416,7 +1416,7 @@ public:
         const unsigned moderateEnregNum   = (CNT_CALLEE_ENREG * 3) + (CNT_CALLEE_TRASH * 2);
 
         // Iterate over the sorted sideEffects of tracked local variables these are the register candidates
-        // for LSRA. We normally vist locals in order of their weighted ref counts and our heuristic
+        // for LSRA. We normally visit locals in order of their weighted ref counts and our heuristic
         // assumes that the highest weight local swill be enregistered and that the lowest weight
         // locals are likely be allocated in the stack frame.
         // The value of enregCount is incremented when we visit a local that can be enregistered.
@@ -1435,7 +1435,7 @@ public:
             }
 
             // The enregCount only tracks the uses of integer registers.
-            // We could track floating point register usage seperately but it isn't worth
+            // We could track floating point register usage separately but it isn't worth
             // the additional complexity as floating point CSEs are rare and we typically
             // have plenty of floating point register available.
             //

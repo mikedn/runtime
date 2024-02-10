@@ -515,7 +515,7 @@ void LinearScan::dumpVarToRegMap(VarToRegMap map)
     {
         if (map[varIndex] != REG_STK)
         {
-            printf("V%02u=%s ", compiler->lvaTrackedIndexToLclNum(varIndex), getRegName(map[varIndex]));
+            printf("V%02u=%s ", compiler->lvaGetDescByTrackedIndex(varIndex)->GetLclNum(), getRegName(map[varIndex]));
             anyPrinted = true;
         }
     }
@@ -1226,16 +1226,14 @@ void LinearScan::identifyCandidatesExceptionDataflow()
 
     // All variables live on exit from a 'finally' block should be marked lvLiveInOutOfHndlr.
     // and as 'explicitly initialized' (must-init) for GC-ref types.
-    VarSetOps::Iter iter(compiler, exceptVars);
-    unsigned        varIndex = 0;
-    while (iter.NextElem(&varIndex))
+    for (VarSetOps::Enumerator e(compiler, exceptVars); e.MoveNext();)
     {
-        unsigned   varNum = compiler->lvaTrackedIndexToLclNum(varIndex);
-        LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
+        LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(e.Current());
 
         assert(varDsc->lvLiveInOutOfHndlr);
 
-        if (varTypeIsGC(varDsc) && VarSetOps::IsMember(compiler, finallyVars, varIndex) && !varDsc->IsParam())
+        if (varTypeIsGC(varDsc->GetType()) && !varDsc->IsParam() &&
+            VarSetOps::IsMember(compiler, finallyVars, e.Current()))
         {
             assert(varDsc->lvMustInit);
         }
@@ -1908,8 +1906,9 @@ void LinearScan::checkLastUses(BasicBlock* block)
         assert(currentRefPosition->refType != RefTypeParamDef && currentRefPosition->refType != RefTypeZeroInit);
         if (currentRefPosition->isIntervalRef() && currentRefPosition->getInterval()->isLocalVar)
         {
-            unsigned varNum   = currentRefPosition->getInterval()->varNum;
-            unsigned varIndex = currentRefPosition->getInterval()->getVarIndex(compiler);
+            unsigned   varNum   = currentRefPosition->getInterval()->varNum;
+            LclVarDsc* lcl      = compiler->lvaGetDesc(varNum);
+            unsigned   varIndex = lcl->GetLivenessBitIndex();
 
             LsraLocation loc = currentRefPosition->nodeLocation;
 
@@ -1938,15 +1937,14 @@ void LinearScan::checkLastUses(BasicBlock* block)
                 }
                 else if (!currentRefPosition->lastUse)
                 {
-                    JITDUMP("missing expected last use of V%02u @%u\n", compiler->lvaTrackedIndexToLclNum(varIndex),
-                            loc);
+                    JITDUMP("missing expected last use of V%02u @%u\n", varNum, loc);
                     foundDiff = true;
                 }
                 VarSetOps::AddElemD(compiler, computedLive, varIndex);
             }
             else if (currentRefPosition->lastUse)
             {
-                JITDUMP("unexpected last use of V%02u @%u\n", compiler->lvaTrackedIndexToLclNum(varIndex), loc);
+                JITDUMP("unexpected last use of V%02u @%u\n", varNum, loc);
                 foundDiff = true;
             }
             else if (extendLifetimes() && tree != nullptr)
@@ -1978,8 +1976,7 @@ void LinearScan::checkLastUses(BasicBlock* block)
         LclVarDsc* varDesc = compiler->lvaGetDescByTrackedIndex(liveInNotComputedLiveIndex);
         if (varDesc->IsRegCandidate())
         {
-            JITDUMP(FMT_BB ": V%02u is in LiveIn set, but not computed live.\n", block->bbNum,
-                    compiler->lvaTrackedIndexToLclNum(liveInNotComputedLiveIndex));
+            JITDUMP(FMT_BB ": V%02u is in LiveIn set, but not computed live.\n", block->bbNum, varDesc->GetLclNum());
             foundDiff = true;
         }
     }
@@ -1993,8 +1990,7 @@ void LinearScan::checkLastUses(BasicBlock* block)
         LclVarDsc* varDesc = compiler->lvaGetDescByTrackedIndex(computedLiveNotLiveInIndex);
         if (varDesc->IsRegCandidate())
         {
-            JITDUMP(FMT_BB ": V%02u is computed live, but not in LiveIn set.\n", block->bbNum,
-                    compiler->lvaTrackedIndexToLclNum(computedLiveNotLiveInIndex));
+            JITDUMP(FMT_BB ": V%02u is computed live, but not in LiveIn set.\n", block->bbNum, varDesc->GetLclNum());
             foundDiff = true;
         }
     }

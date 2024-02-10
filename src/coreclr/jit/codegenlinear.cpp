@@ -22,14 +22,13 @@ void CodeGen::InitLclBlockLiveInRegs()
 
     for (VarSetOps::Enumerator en(compiler, firstBlock->bbLiveIn); en.MoveNext();)
     {
-        unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(en.Current());
-        LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+        LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(en.Current());
 
         if (lcl->IsRegCandidate())
         {
             regNumber regNum = static_cast<regNumber>(varRegMap[en.Current()]);
             lcl->SetRegNum(regNum);
-            JITDUMP("  V%02u (%s)", lclNum, getRegName(regNum));
+            JITDUMP("  V%02u (%s)", lcl->GetLclNum(), getRegName(regNum));
         }
     }
 

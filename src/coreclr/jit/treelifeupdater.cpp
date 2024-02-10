@@ -86,7 +86,7 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
             {
                 lcl->SetRegNum(newRegNum);
 
-                JITDUMP(" V%02u (%s -> %s)", lclNum, getRegName(oldRegNum), getRegName(newRegNum));
+                JITDUMP(" V%02u (%s -> %s)", lcl->GetLclNum(), getRegName(oldRegNum), getRegName(newRegNum));
 
                 if ((block->bbPrev != nullptr) && VarSetOps::IsMember(compiler, block->bbPrev->bbLiveOut, en.Current()))
                 {
@@ -98,7 +98,7 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
             }
             else if (newRegNum != REG_STK)
             {
-                JITDUMP(" V%02u (%s)", lclNum, getRegName(newRegNum));
+                JITDUMP(" V%02u (%s)", lcl->GetLclNum(), getRegName(newRegNum));
             }
         }
 
@@ -1077,7 +1077,7 @@ void CodeGenLivenessUpdater::VerifyLiveRegVars(BasicBlock* block)
                 foundMismatch = true;
             }
 
-            JITDUMP(" " FMT_LCL, compiler->lvaTrackedIndexToLclNum(en.Current()));
+            JITDUMP(" " FMT_LCL, lcl->GetLclNum());
         }
     }
 

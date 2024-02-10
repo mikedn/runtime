@@ -4476,35 +4476,29 @@ FILE* Compiler::compJitFuncInfoFile = nullptr;
 // not be big enough to handle all possible variable numbers.
 void dumpConvertedVarSet(Compiler* comp, VARSET_VALARG_TP vars)
 {
-    BYTE* pVarNumSet; // trivial set: one byte per varNum, 0 means not in set, 1 means in set.
-
-    size_t varNumSetBytes = comp->lvaCount * sizeof(BYTE);
-    pVarNumSet            = (BYTE*)_alloca(varNumSetBytes);
-    memset(pVarNumSet, 0, varNumSetBytes); // empty the set
+    bool* lclSet = static_cast<bool*>(_alloca(comp->lvaCount * sizeof(bool)));
+    memset(lclSet, 0, comp->lvaCount * sizeof(bool));
 
     if (!VarSetOps::MayBeUninit(vars))
     {
-        VarSetOps::Iter iter(comp, vars);
-        for (unsigned varIndex = 0; iter.NextElem(&varIndex);)
+        for (VarSetOps::Enumerator e(comp, vars); e.MoveNext();)
         {
-            pVarNumSet[comp->lvaTrackedIndexToLclNum(varIndex)] = 1;
+            lclSet[comp->lvaGetDescByTrackedIndex(e.Current())->GetLclNum()] = true;
         }
     }
 
     bool first = true;
     printf("{");
-    for (size_t varNum = 0; varNum < comp->lvaCount; varNum++)
+
+    for (size_t lclNum = 0; lclNum < comp->lvaCount; lclNum++)
     {
-        if (pVarNumSet[varNum] == 1)
+        if (lclSet[lclNum])
         {
-            if (!first)
-            {
-                printf(" ");
-            }
-            printf("V%02u", varNum);
+            printf("%sV%02u", first ? "" : " ", lclNum);
             first = false;
         }
     }
+
     printf("}");
 }
 
@@ -4517,12 +4511,12 @@ void Compiler::dmpVarSetDiff(const char* name, VARSET_VALARG_TP from, VARSET_VAL
 
     for (VarSetOps::Enumerator e(this, from); e.MoveNext();)
     {
-        fromBits[lvaTrackedIndexToLclNum(e.Current())] = true;
+        fromBits[lvaGetDescByTrackedIndex(e.Current())->GetLclNum()] = true;
     }
 
     for (VarSetOps::Enumerator e(this, to); e.MoveNext();)
     {
-        toBits[lvaTrackedIndexToLclNum(e.Current())] = true;
+        toBits[lvaGetDescByTrackedIndex(e.Current())->GetLclNum()] = true;
     }
 
     printf("%s{ ", name);

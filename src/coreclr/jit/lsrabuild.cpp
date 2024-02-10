@@ -1456,22 +1456,20 @@ void LinearScan::insertZeroInitRefPositions()
 
     // insert defs for this, then a block boundary
 
-    VarSetOps::Iter iter(compiler, currentLiveVars);
-    unsigned        varIndex = 0;
-    while (iter.NextElem(&varIndex))
+    for (VarSetOps::Enumerator e(compiler, currentLiveVars); e.MoveNext();)
     {
-        LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(varIndex);
+        LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(e.Current());
 
         if (!varDsc->IsParam() && varDsc->IsRegCandidate())
         {
-            JITDUMP("V%02u was live in to first block:", compiler->lvaTrackedIndexToLclNum(varIndex));
-            Interval* interval = getIntervalForLocalVar(varIndex);
-            if (compiler->info.compInitMem || varTypeIsGC(varDsc->TypeGet()))
+            JITDUMP("V%02u was live in to first block:", varDsc->GetLclNum());
+            Interval* interval = getIntervalForLocalVar(e.Current());
+            if (compiler->info.compInitMem || varTypeIsGC(varDsc->GetType()))
             {
                 varDsc->lvMustInit = true;
 
                 // OSR will handle init of locals and promoted fields thereof
-                if (compiler->lvaIsOSRLocal(compiler->lvaGetDesc(compiler->lvaTrackedIndexToLclNum(varIndex))))
+                if (compiler->lvaIsOSRLocal(varDsc))
                 {
                     JITDUMP(" will be initialized by OSR\n");
                     // setIntervalAsSpilled(interval);
@@ -1494,17 +1492,15 @@ void LinearScan::insertZeroInitRefPositions()
     // We must also insert zero-inits for any finallyVars if they are refs or if compInitMem is true.
     if (compiler->lvaEnregEHVars)
     {
-        VarSetOps::Iter iter(compiler, finallyVars);
-        unsigned        varIndex = 0;
-        while (iter.NextElem(&varIndex))
+        for (VarSetOps::Enumerator e(compiler, finallyVars); e.MoveNext();)
         {
-            LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(varIndex);
+            LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(e.Current());
 
             if (!varDsc->IsParam() && varDsc->IsRegCandidate())
             {
-                JITDUMP("V%02u is a finally var:", compiler->lvaTrackedIndexToLclNum(varIndex));
-                Interval* interval = getIntervalForLocalVar(varIndex);
-                if (compiler->info.compInitMem || varTypeIsGC(varDsc->TypeGet()))
+                JITDUMP("V%02u is a finally var:", varDsc->GetLclNum());
+                Interval* interval = getIntervalForLocalVar(e.Current());
+                if (compiler->info.compInitMem || varTypeIsGC(varDsc->GetType()))
                 {
                     if (interval->recentRefPosition == nullptr)
                     {
@@ -1893,32 +1889,27 @@ void LinearScan::buildIntervals()
             if (!VarSetOps::IsEmpty(compiler, expUseSet))
             {
                 JITDUMP("Exposed uses:");
-                VarSetOps::Iter iter(compiler, expUseSet);
-                unsigned        varIndex = 0;
-                while (iter.NextElem(&varIndex))
+                for (VarSetOps::Enumerator e(compiler, expUseSet); e.MoveNext();)
                 {
-                    unsigned   varNum = compiler->lvaTrackedIndexToLclNum(varIndex);
-                    LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
+                    LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(e.Current());
                     assert(varDsc->IsRegCandidate());
-                    Interval*    interval = getIntervalForLocalVar(varIndex);
+                    Interval*    interval = getIntervalForLocalVar(e.Current());
                     RefPosition* pos =
                         newRefPosition(interval, currentLoc, RefTypeExpUse, nullptr, allRegs(interval->registerType));
                     pos->setRegOptional(true);
-                    JITDUMP(" V%02u", varNum);
+                    JITDUMP(" V%02u", varDsc->GetLclNum());
                 }
                 JITDUMP("\n");
             }
 
             // Clear the "last use" flag on any vars that are live-out from this block.
-            VARSET_TP       bbLiveDefs(VarSetOps::Intersection(compiler, registerCandidateVars, block->bbLiveOut));
-            VarSetOps::Iter iter(compiler, bbLiveDefs);
-            unsigned        varIndex = 0;
-            while (iter.NextElem(&varIndex))
+            VARSET_TP bbLiveDefs(VarSetOps::Intersection(compiler, registerCandidateVars, block->bbLiveOut));
+
+            for (VarSetOps::Enumerator e(compiler, bbLiveDefs); e.MoveNext();)
             {
-                unsigned         varNum = compiler->lvaTrackedIndexToLclNum(varIndex);
-                LclVarDsc* const varDsc = compiler->lvaGetDesc(varNum);
+                LclVarDsc* const varDsc = compiler->lvaGetDescByTrackedIndex(e.Current());
                 assert(varDsc->IsRegCandidate());
-                RefPosition* const lastRP = getIntervalForLocalVar(varIndex)->lastRefPosition;
+                RefPosition* const lastRP = getIntervalForLocalVar(e.Current())->lastRefPosition;
                 // We should be able to assert that lastRP is non-null if it is live-out, but sometimes liveness
                 // lies.
                 if ((lastRP != nullptr) && (lastRP->bbNum == block->bbNum))
@@ -1963,13 +1954,10 @@ void LinearScan::buildIntervals()
         // Adjust heuristics for writeThru intervals.
         if (compiler->compHndBBtabCount > 0)
         {
-            VarSetOps::Iter iter(compiler, exceptVars);
-            unsigned        varIndex = 0;
-            while (iter.NextElem(&varIndex))
+            for (VarSetOps::Enumerator e(compiler, exceptVars); e.MoveNext();)
             {
-                unsigned   varNum   = compiler->lvaTrackedIndexToLclNum(varIndex);
-                LclVarDsc* varDsc   = compiler->lvaGetDesc(varNum);
-                Interval*  interval = getIntervalForLocalVar(varIndex);
+                LclVarDsc* varDsc   = compiler->lvaGetDescByTrackedIndex(e.Current());
+                Interval*  interval = getIntervalForLocalVar(e.Current());
                 assert(interval->isWriteThru);
                 BasicBlock::weight_t weight = varDsc->lvRefCntWtd();
 
