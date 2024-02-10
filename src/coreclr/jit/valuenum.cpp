@@ -6471,7 +6471,7 @@ void ValueNumbering::NumberInitDefs()
 
             // For OSR, locals or promoted fields of locals may be missing the initial def
             // because of partial importation. We can't assume they are zero.
-            if (compiler->lvaIsOSRLocal(lclNum))
+            if (compiler->lvaIsOSRLocal(lcl))
             {
                 isZeroed = false;
             }

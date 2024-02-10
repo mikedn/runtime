@@ -5413,23 +5413,21 @@ bool Compiler::killGCRefs(GenTree* tree)
 //    true       - this is an OSR compile and this local requires special treatment
 //    false      - not an OSR compile, or not an interesting local for OSR
 
-bool Compiler::lvaIsOSRLocal(unsigned varNum)
+bool Compiler::lvaIsOSRLocal(LclVarDsc* lcl)
 {
     if (!opts.IsOSR())
     {
         return false;
     }
 
-    if (varNum < info.compLocalsCount)
+    if (lcl->GetLclNum() < info.compLocalsCount)
     {
         return true;
     }
 
-    LclVarDsc* varDsc = lvaGetDesc(varNum);
-
-    if (varDsc->lvIsStructField)
+    if (lcl->IsPromotedField())
     {
-        return (varDsc->lvParentLcl < info.compLocalsCount);
+        return (lcl->GetPromotedFieldParentLclNum() < info.compLocalsCount);
     }
 
     return false;

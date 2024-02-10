@@ -1471,7 +1471,7 @@ void LinearScan::insertZeroInitRefPositions()
                 varDsc->lvMustInit = true;
 
                 // OSR will handle init of locals and promoted fields thereof
-                if (compiler->lvaIsOSRLocal(compiler->lvaTrackedIndexToLclNum(varIndex)))
+                if (compiler->lvaIsOSRLocal(compiler->lvaGetDesc(compiler->lvaTrackedIndexToLclNum(varIndex))))
                 {
                     JITDUMP(" will be initialized by OSR\n");
                     // setIntervalAsSpilled(interval);

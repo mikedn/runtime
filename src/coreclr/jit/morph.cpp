@@ -1846,7 +1846,7 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInf
 
                 StructPromotionHelper structPromotion(compiler);
 
-                if (structPromotion.TryPromoteStructLocal(tempLclNum))
+                if (structPromotion.TryPromoteStructLocal(tempLcl))
                 {
                     if (tempLcl->GetPromotedFieldCount() == 1)
                     {
@@ -4913,7 +4913,7 @@ GenTree* Compiler::abiMorphMultiRegCallArg(CallArgInfo* argInfo, GenTreeCall* ar
     unsigned  storeLclNum = BAD_VAR_NUM;
     var_types storeType   = TYP_UNDEF;
 
-    if (!structPromotion.TryPromoteStructLocal(lclNum))
+    if (!structPromotion.TryPromoteStructLocal(lcl))
     {
         fieldList = abiMorphMultiRegLclArg(argInfo, src)->AsFieldList();
 

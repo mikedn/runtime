@@ -3437,7 +3437,7 @@ public:
 
     // True if this is an OSR compilation and this local is potentially
     // located on the original method stack frame.
-    bool lvaIsOSRLocal(unsigned varNum);
+    bool lvaIsOSRLocal(LclVarDsc* lcl);
 
     //------------------------ For splitting types ----------------------------
 
@@ -4054,7 +4054,7 @@ public:
     }
 
     // Returns "true" if this is a special variable that is never zero initialized in the prolog.
-    bool lvaIsNeverZeroInitializedInProlog(unsigned lclNum);
+    bool lvaIsNeverZeroInitializedInProlog(LclVarDsc* lcl);
 
     // Returns "true" if the variable needs explicit zero initialization.
     inline bool fgVarNeedsExplicitZeroInit(unsigned varNum, bool bbInALoop, bool bbIsReturn);
@@ -6295,12 +6295,12 @@ public:
     }
 
     bool CanPromoteStructType(CORINFO_CLASS_HANDLE typeHandle);
-    bool TryPromoteStructLocal(unsigned lclNum);
+    bool TryPromoteStructLocal(LclVarDsc* lcl);
 
 private:
-    bool CanPromoteStructLocal(unsigned lclNum);
-    bool ShouldPromoteStructLocal(unsigned lclNum);
-    void PromoteStructLocal(unsigned lclNum);
+    bool CanPromoteStructLocal(LclVarDsc* lcl);
+    bool ShouldPromoteStructLocal(LclVarDsc* lcl);
+    void PromoteStructLocal(LclVarDsc* lcl);
     void SortFields();
 
     void GetFieldInfo(unsigned index);

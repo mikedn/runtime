@@ -3290,8 +3290,10 @@ unsigned Compiler::lvaGetParamAlignment(var_types type, bool isFloatHfa)
 }
 
 // Check whether the variable is never zero initialized in the prolog.
-bool Compiler::lvaIsNeverZeroInitializedInProlog(unsigned lclNum)
+bool Compiler::lvaIsNeverZeroInitializedInProlog(LclVarDsc* lcl)
 {
+    unsigned lclNum = lcl->GetLclNum();
+
     if ((lclNum == lvaGSSecurityCookie) ||
 #if FEATURE_FIXED_OUT_ARGS
         (lclNum == lvaOutgoingArgSpaceVar) ||
@@ -3300,12 +3302,12 @@ bool Compiler::lvaIsNeverZeroInitializedInProlog(unsigned lclNum)
         (lclNum == lvaPSPSym) ||
 #endif
         (lclNum == lvaInlinedPInvokeFrameVar) || (lclNum == lvaStubArgumentVar) || (lclNum == lvaRetAddrVar) ||
-        lvaIsOSRLocal(lclNum))
+        lvaIsOSRLocal(lcl))
     {
         return true;
     }
 
-    return lvaGetDesc(lclNum)->IsParam();
+    return lcl->IsParam();
 }
 
 // clang-format off
@@ -4408,13 +4410,13 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
             //
             // Note we must do this even for "non frame" locals, as we sometimes
             // will refer to their memory homes.
-            if (lvaIsOSRLocal(lclNum))
+            if (lvaIsOSRLocal(lcl))
             {
                 // TODO-CQ: enable struct promotion for OSR locals; when that happens, figure out
                 // how to properly refer to the original frame slots for the promoted fields.
                 assert(!lcl->IsPromotedField());
 
-                // Add frampointer-relative offset of this OSR live local in the original frame
+                // Add frame pointer relative offset of this OSR live local in the original frame
                 // to the offset of original frame in our new frame.
                 int originalOffset = info.compPatchpointInfo->Offset(lclNum);
                 int offset         = originalFrameStkOffs + originalOffset;

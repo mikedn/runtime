@@ -1569,7 +1569,7 @@ bool Compiler::fgVarNeedsExplicitZeroInit(unsigned varNum, bool bbInALoop, bool 
         return true;
     }
 
-    if (lvaIsNeverZeroInitializedInProlog(varNum))
+    if (lvaIsNeverZeroInitializedInProlog(varDsc))
     {
         return true;
     }

@@ -2707,13 +2707,13 @@ void CodeGen::CheckUseBlockInit()
         }
 
         // Initialization of OSR locals must be handled specially
-        if (compiler->lvaIsOSRLocal(lclNum))
+        if (compiler->lvaIsOSRLocal(lcl))
         {
             lcl->lvMustInit = false;
             continue;
         }
 
-        if (compiler->lvaIsNeverZeroInitializedInProlog(lclNum))
+        if (compiler->lvaIsNeverZeroInitializedInProlog(lcl))
         {
             continue;
         }
@@ -3098,12 +3098,12 @@ void CodeGen::PrologInitOsrLocals()
 
         for (unsigned varNum = 0; varNum < compiler->lvaCount; varNum++)
         {
-            if (!compiler->lvaIsOSRLocal(varNum))
+            LclVarDsc* const varDsc = compiler->lvaGetDesc(varNum);
+
+            if (!compiler->lvaIsOSRLocal(varDsc))
             {
                 continue;
             }
-
-            LclVarDsc* const varDsc = compiler->lvaGetDesc(varNum);
 
             if (!varDsc->lvIsInReg())
             {

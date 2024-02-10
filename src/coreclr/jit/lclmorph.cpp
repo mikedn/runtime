@@ -2353,16 +2353,16 @@ void Compiler::lvaRecordSimdIntrinsicDef(unsigned lclNum, GenTreeHWIntrinsic* sr
 }
 #endif // FEATURE_SIMD
 
-bool StructPromotionHelper::TryPromoteStructLocal(unsigned lclNum)
+bool StructPromotionHelper::TryPromoteStructLocal(LclVarDsc* lcl)
 {
-    if (CanPromoteStructLocal(lclNum) && ShouldPromoteStructLocal(lclNum))
+    if (CanPromoteStructLocal(lcl) && ShouldPromoteStructLocal(lcl))
     {
-        PromoteStructLocal(lclNum);
+        PromoteStructLocal(lcl);
         return true;
     }
 
     // If we don't promote then lvIsMultiRegRet is meaningless.
-    compiler->lvaGetDesc(lclNum)->lvIsMultiRegRet = false;
+    lcl->lvIsMultiRegRet = false;
 
     return false;
 }
@@ -2518,10 +2518,8 @@ bool StructPromotionHelper::CanPromoteStructType(CORINFO_CLASS_HANDLE typeHandle
     return true;
 }
 
-bool StructPromotionHelper::CanPromoteStructLocal(unsigned lclNum)
+bool StructPromotionHelper::CanPromoteStructLocal(LclVarDsc* lcl)
 {
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
     assert(varTypeIsStruct(lcl->GetType()));
     assert(!lcl->IsPromoted());
 
@@ -2532,7 +2530,7 @@ bool StructPromotionHelper::CanPromoteStructLocal(unsigned lclNum)
             // If the local is used by vector intrinsics, then we do not want to promote
             // since the cost of packing individual fields into a single SIMD register
             // can be pretty high.
-            JITDUMP("  promotion of V%02u is disabled due to SIMD intrinsic uses\n", lclNum);
+            JITDUMP("  promotion of V%02u is disabled due to SIMD intrinsic uses\n", lcl->GetLclNum());
             return false;
         }
 
@@ -2555,7 +2553,7 @@ bool StructPromotionHelper::CanPromoteStructLocal(unsigned lclNum)
     // If GS stack reordering is enabled we may introduce shadow copies of parameters.
     if (lcl->IsParam() && compiler->compGSReorderStackLayout)
     {
-        JITDUMP("  promotion of param V%02u is disabled due to GS stack layout reordering\n", lclNum);
+        JITDUMP("  promotion of param V%02u is disabled due to GS stack layout reordering\n", lcl->GetLclNum());
         return false;
     }
 
@@ -2563,21 +2561,21 @@ bool StructPromotionHelper::CanPromoteStructLocal(unsigned lclNum)
     {
         if (lcl->lvIsMultiRegArg)
         {
-            JITDUMP("  promotion of V%02u is disabled because it is a multi-reg arg\n", lclNum);
+            JITDUMP("  promotion of V%02u is disabled because it is a multi-reg arg\n", lcl->GetLclNum());
             return false;
         }
 
         if (lcl->lvIsMultiRegRet)
         {
-            JITDUMP("  promotion of V%02u is disabled because it is a multi-reg return\n", lclNum);
+            JITDUMP("  promotion of V%02u is disabled because it is a multi-reg return\n", lcl->GetLclNum());
             return false;
         }
     }
 
     // TODO-CQ: enable promotion for OSR locals
-    if (compiler->lvaIsOSRLocal(lclNum))
+    if (compiler->lvaIsOSRLocal(lcl))
     {
-        JITDUMP("  promotion of V%02u is disabled because it is an OSR local\n", lclNum);
+        JITDUMP("  promotion of V%02u is disabled because it is an OSR local\n", lcl->GetLclNum());
         return false;
     }
 
@@ -2594,7 +2592,8 @@ bool StructPromotionHelper::CanPromoteStructLocal(unsigned lclNum)
     // does that is a pile of garbage...
     if (lcl->IsParam() && (info.fieldCount == 1) && varTypeIsFloating(info.fields[0].type))
     {
-        JITDUMP("Not promoting param V%02u: struct has a single float/double field.\n", lclNum, info.fieldCount);
+        JITDUMP("Not promoting param V%02u: struct has a single float/double field.\n", lcl->GetLclNum(),
+                info.fieldCount);
         return false;
     }
 #endif
@@ -2686,10 +2685,8 @@ bool StructPromotionHelper::CanPromoteStructLocal(unsigned lclNum)
     return true;
 }
 
-bool StructPromotionHelper::ShouldPromoteStructLocal(unsigned lclNum)
+bool StructPromotionHelper::ShouldPromoteStructLocal(LclVarDsc* lcl)
 {
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
     assert(varTypeIsStruct(lcl->GetType()));
     assert(lcl->GetLayout()->GetClassHandle() == info.typeHandle);
     assert(info.canPromoteStructType);
@@ -2716,7 +2713,7 @@ bool StructPromotionHelper::ShouldPromoteStructLocal(unsigned lclNum)
 
     // TODO: If the lvRefCnt is zero and we have a struct promoted parameter we can end up
     // with an extra store of the the incoming register into the stack frame slot.
-    // In that case, we would like to avoid promortion.
+    // In that case, we would like to avoid promotion.
     // However we haven't yet computed the lvRefCnt values so we can't do that.
 
     // TODO-MIKE-CQ: SIMD promotion is still messy as lvFieldAccessed is way too limited.
@@ -2736,14 +2733,14 @@ bool StructPromotionHelper::ShouldPromoteStructLocal(unsigned lclNum)
 
     if (!lcl->lvFieldAccessed && (info.fieldCount > 3 || varTypeIsSIMD(lcl->GetType())))
     {
-        JITDUMP("Not promoting V%02u: type = %s, #fields = %d, fieldAccessed = %d.\n", lclNum,
+        JITDUMP("Not promoting V%02u: type = %s, #fields = %d, fieldAccessed = %d.\n", lcl->GetLclNum(),
                 varTypeName(lcl->GetType()), info.fieldCount, lcl->lvFieldAccessed);
         return false;
     }
 
     if (lcl->lvIsMultiRegRet && info.containsHoles && info.customLayout)
     {
-        JITDUMP("Not promoting multi-reg returned V%02u with holes.\n", lclNum);
+        JITDUMP("Not promoting multi-reg returned V%02u with holes.\n", lcl->GetLclNum());
         return false;
     }
 
@@ -2760,7 +2757,7 @@ bool StructPromotionHelper::ShouldPromoteStructLocal(unsigned lclNum)
         {
             if ((info.fieldCount != 2) && ((info.fieldCount != 1) || !varTypeIsSIMD(info.fields[0].type)))
             {
-                JITDUMP("Not promoting multireg param V%02u, #fields != 2 and it's not SIMD.\n", lclNum);
+                JITDUMP("Not promoting multireg param V%02u, #fields != 2 and it's not SIMD.\n", lcl->GetLclNum());
                 return false;
             }
         }
@@ -2773,21 +2770,21 @@ bool StructPromotionHelper::ShouldPromoteStructLocal(unsigned lclNum)
             //             overwrite other fields.
             if (info.fieldCount != 1)
         {
-            JITDUMP("Not promoting param V%02u, #fields = %u.\n", lclNum, info.fieldCount);
+            JITDUMP("Not promoting param V%02u, #fields = %u.\n", lcl->GetLclNum(), info.fieldCount);
             return false;
         }
     }
 
-    if ((lclNum == compiler->genReturnLocal) && (info.fieldCount > 1))
+    if ((lcl->GetLclNum() == compiler->genReturnLocal) && (info.fieldCount > 1))
     {
         // TODO-1stClassStructs: a temporary solution to keep diffs small, it will be fixed later.
         return false;
     }
 
 #ifdef DEBUG
-    if (compiler->compPromoteFewerStructs(lclNum))
+    if (compiler->compPromoteFewerStructs(lcl->GetLclNum()))
     {
-        JITDUMP("Not promoting promotable V%02u, because of STRESS_PROMOTE_FEWER_STRUCTS\n", lclNum);
+        JITDUMP("Not promoting promotable V%02u, because of STRESS_PROMOTE_FEWER_STRUCTS\n", lcl->GetLclNum());
         return false;
     }
 #endif
@@ -2896,10 +2893,8 @@ void StructPromotionHelper::GetSingleFieldStructInfo(FieldInfo& field, CORINFO_C
     }
 }
 
-void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
+void StructPromotionHelper::PromoteStructLocal(LclVarDsc* lcl)
 {
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
     assert(lcl->GetLayout()->GetClassHandle() == info.typeHandle);
     assert(info.canPromoteStructType);
 
@@ -2909,7 +2904,7 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
     lcl->lvContainsHoles = info.containsHoles;
     lcl->lvCustomLayout  = info.customLayout;
 
-    JITDUMP("\nPromoting struct local V%02u (%s):", lclNum, lcl->GetLayout()->GetClassName());
+    JITDUMP("\nPromoting struct local V%02u (%s):", lcl->GetLclNum(), lcl->GetLayout()->GetClassName());
 
     SortFields();
 
@@ -2936,7 +2931,7 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
         }
 
         LclVarDsc* fieldLcl = compiler->lvaGrabTemp(false DEBUGARG("promoted struct field"));
-        fieldLcl->MakePromotedStructField(lclNum, field.offset, fieldSeq);
+        fieldLcl->MakePromotedStructField(lcl->GetLclNum(), field.offset, fieldSeq);
 
         if (varTypeIsSIMD(field.type))
         {
@@ -3078,7 +3073,7 @@ void Compiler::fgPromoteStructs()
         }
 #endif
 
-        helper.TryPromoteStructLocal(lclNum);
+        helper.TryPromoteStructLocal(lcl);
     }
 
 #ifdef DEBUG
