@@ -77,10 +77,16 @@ struct MarkPtrsInfo
 {
     Compiler*      comp;
     FixedBitVect** lclAssignGroups;
-    unsigned       lvAssignDef;  // Which local variable is the tree being assigned to?
-    bool           isAssignSrc;  // Is this the source value for an assignment?
-    bool           isUnderIndir; // Is this a pointer value tree that is being dereferenced?
-    bool           skipNextNode; // Skip a single node during the tree-walk
+    unsigned       storeLclNum  = BAD_VAR_NUM; // Which local variable is the tree being assigned to?
+    bool           isStoreSrc   = false;       // Is this the source value for an assignment?
+    bool           isUnderIndir = false;       // Is this a pointer value tree that is being dereferenced?
+    bool           skipNextNode = false;       // Skip a single node during the tree-walk
+
+    MarkPtrsInfo(Compiler* comp) : comp(comp), lclAssignGroups(new (comp, CMK_GS) FixedBitVect*[comp->lvaCount]())
+    {
+    }
+
+    MarkPtrsInfo(const MarkPtrsInfo&) = default;
 };
 
 /*****************************************************************************
@@ -95,13 +101,12 @@ struct MarkPtrsInfo
 Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWalkData* data)
 {
     MarkPtrsInfo*  pState          = static_cast<MarkPtrsInfo*>(data->pCallbackData);
-    MarkPtrsInfo   newState        = *pState;
     Compiler*      comp            = data->compiler;
     GenTree*       tree            = *pTree;
     FixedBitVect** lclAssignGroups = pState->lclAssignGroups;
     assert(lclAssignGroups != nullptr);
 
-    assert(!pState->isAssignSrc || pState->lvAssignDef != (unsigned)-1);
+    assert(!pState->isStoreSrc || (pState->storeLclNum != BAD_VAR_NUM));
 
     if (pState->skipNextNode)
     {
@@ -109,7 +114,9 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
         return WALK_CONTINUE;
     }
 
-    switch (tree->OperGet())
+    MarkPtrsInfo newState = *pState;
+
+    switch (tree->GetOper())
     {
         // Indirections - look for *p uses and defs
         case GT_IND:
@@ -130,50 +137,51 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
         case GT_LCL_VAR:
         case GT_LCL_FLD:
         {
-            unsigned lclNum = tree->AsLclVarCommon()->GetLclNum();
+            unsigned loadLclNum = tree->AsLclVarCommon()->GetLclNum();
 
             if (pState->isUnderIndir)
             {
                 // The variable is being dereferenced for a read or a write.
-                comp->lvaGetDesc(lclNum)->lvIsPtr = true;
+                comp->lvaGetDesc(loadLclNum)->lvIsPtr = true;
             }
 
-            if (pState->isAssignSrc)
+            if (pState->isStoreSrc)
             {
-                //
-                // Add lvAssignDef and lclNum to a common assign group
-                if (lclAssignGroups[pState->lvAssignDef] != nullptr)
+                unsigned storeLclNum = pState->storeLclNum;
+
+                // Add storeLclNum and loadLclNum to a common assign group
+                if (lclAssignGroups[storeLclNum] != nullptr)
                 {
-                    if (lclAssignGroups[lclNum] != nullptr)
+                    if (lclAssignGroups[loadLclNum] != nullptr)
                     {
                         // OR both bit vector
-                        lclAssignGroups[pState->lvAssignDef]->bitVectOr(lclAssignGroups[lclNum]);
+                        lclAssignGroups[storeLclNum]->bitVectOr(lclAssignGroups[loadLclNum]);
                     }
                     else
                     {
-                        lclAssignGroups[pState->lvAssignDef]->bitVectSet(lclNum);
+                        lclAssignGroups[storeLclNum]->bitVectSet(loadLclNum);
                     }
 
                     // Point both to the same bit vector
-                    lclAssignGroups[lclNum] = lclAssignGroups[pState->lvAssignDef];
+                    lclAssignGroups[loadLclNum] = lclAssignGroups[storeLclNum];
                 }
-                else if (lclAssignGroups[lclNum] != nullptr)
+                else if (lclAssignGroups[loadLclNum] != nullptr)
                 {
-                    lclAssignGroups[lclNum]->bitVectSet(pState->lvAssignDef);
+                    lclAssignGroups[loadLclNum]->bitVectSet(storeLclNum);
 
                     // Point both to the same bit vector
-                    lclAssignGroups[pState->lvAssignDef] = lclAssignGroups[lclNum];
+                    lclAssignGroups[storeLclNum] = lclAssignGroups[loadLclNum];
                 }
                 else
                 {
                     FixedBitVect* bv = FixedBitVect::bitVectInit(pState->comp->lvaCount, pState->comp);
 
-                    // (shadowVarInfo[pState->lvAssignDef] == NULL && shadowVarInfo[lclNew] == NULL);
+                    // (shadowVarInfo[pState->storeLclNum] == NULL && shadowVarInfo[lclNew] == NULL);
                     // Neither of them has an assign group yet.  Make a new one.
-                    lclAssignGroups[pState->lvAssignDef] = bv;
-                    lclAssignGroups[lclNum]              = bv;
-                    bv->bitVectSet(pState->lvAssignDef);
-                    bv->bitVectSet(lclNum);
+                    lclAssignGroups[storeLclNum] = bv;
+                    lclAssignGroups[loadLclNum]  = bv;
+                    bv->bitVectSet(storeLclNum);
+                    bv->bitVectSet(loadLclNum);
                 }
             }
             return WALK_CONTINUE;
@@ -183,7 +191,7 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
         case GT_CALL:
 
             newState.isUnderIndir = false;
-            newState.isAssignSrc  = false;
+            newState.isStoreSrc   = false;
             {
                 if (tree->AsCall()->gtCallThisArg != nullptr)
                 {
@@ -247,8 +255,8 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
         {
             GenTreeLclVarCommon* store = tree->AsLclVarCommon();
             GenTree*             value = store->GetOp(0);
-            newState.lvAssignDef       = store->GetLclNum();
-            newState.isAssignSrc       = true;
+            newState.storeLclNum       = store->GetLclNum();
+            newState.isStoreSrc        = true;
             comp->fgWalkTreePre(&value, comp->gsMarkPtrsAndAssignGroups, &newState);
             return WALK_SKIP_SUBTREES;
         }
@@ -269,14 +277,7 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
 
 bool Compiler::gsFindVulnerableParams()
 {
-    MarkPtrsInfo info;
-
-    info.comp            = this;
-    info.lclAssignGroups = new (this, CMK_GS) FixedBitVect*[lvaCount]();
-    info.lvAssignDef     = UINT_MAX;
-    info.isUnderIndir    = false;
-    info.isAssignSrc     = false;
-    info.skipNextNode    = false;
+    MarkPtrsInfo info(this);
 
     // Walk all the trees setting lvIsWritePtr, lvIsOutgoingArg, lvIsPtr and assignGroup.
     for (BasicBlock* const block : Blocks())
