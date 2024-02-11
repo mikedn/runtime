@@ -1172,18 +1172,6 @@ VarToRegMap LinearScan::GetBlockLiveInRegMap(BasicBlock* bb)
     return enregisterLocalVars ? getInVarToRegMap(bb->bbNum) : nullptr;
 }
 
-void Interval::setLocalNumber(Compiler* compiler, LclVarDsc* varDsc, LinearScan* linScan)
-{
-    assert(varDsc->lvTracked);
-    assert(varDsc->lvVarIndex < compiler->lvaTrackedCount);
-
-    linScan->localVarIntervals[varDsc->lvVarIndex] = this;
-
-    assert(linScan->getIntervalForLocalVar(varDsc->lvVarIndex) == this);
-    this->isLocalVar = true;
-    this->varNum     = varDsc->GetLclNum();
-}
-
 //------------------------------------------------------------------------
 // LinearScan:identifyCandidatesExceptionDataflow: Build the set of variables exposed on EH flow edges
 //
@@ -1522,9 +1510,12 @@ void LinearScan::identifyCandidates()
         {
             compiler->compFloatingPointUsed = true;
         }
-        Interval* newInt = newInterval(type);
-        newInt->setLocalNumber(compiler, varDsc, this);
-        VarSetOps::AddElemD(compiler, registerCandidateVars, varDsc->lvVarIndex);
+        Interval* newInt   = newInterval(type);
+        newInt->isLocalVar = true;
+        newInt->varNum     = varDsc->GetLclNum();
+        assert(varDsc->GetLivenessBitIndex() < compiler->lvaTrackedCount);
+        localVarIntervals[varDsc->GetLivenessBitIndex()] = newInt;
+        VarSetOps::AddElemD(compiler, registerCandidateVars, varDsc->GetLivenessBitIndex());
 
         // we will set this later when we have determined liveness
         varDsc->lvMustInit = false;
