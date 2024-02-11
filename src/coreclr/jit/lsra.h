@@ -1708,7 +1708,7 @@ public:
     void microDump();
 #endif // DEBUG
 
-    void setLocalNumber(Compiler* compiler, unsigned lclNum, LinearScan* l);
+    void setLocalNumber(Compiler* compiler, LclVarDsc* lcl, LinearScan* l);
 
     // Fixed registers for which this Interval has a preference
     regMaskTP registerPreferences;

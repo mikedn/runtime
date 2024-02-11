@@ -1172,9 +1172,8 @@ VarToRegMap LinearScan::GetBlockLiveInRegMap(BasicBlock* bb)
     return enregisterLocalVars ? getInVarToRegMap(bb->bbNum) : nullptr;
 }
 
-void Interval::setLocalNumber(Compiler* compiler, unsigned lclNum, LinearScan* linScan)
+void Interval::setLocalNumber(Compiler* compiler, LclVarDsc* varDsc, LinearScan* linScan)
 {
-    LclVarDsc* varDsc = compiler->lvaGetDesc(lclNum);
     assert(varDsc->lvTracked);
     assert(varDsc->lvVarIndex < compiler->lvaTrackedCount);
 
@@ -1182,7 +1181,7 @@ void Interval::setLocalNumber(Compiler* compiler, unsigned lclNum, LinearScan* l
 
     assert(linScan->getIntervalForLocalVar(varDsc->lvVarIndex) == this);
     this->isLocalVar = true;
-    this->varNum     = lclNum;
+    this->varNum     = varDsc->GetLclNum();
 }
 
 //------------------------------------------------------------------------
@@ -1524,7 +1523,7 @@ void LinearScan::identifyCandidates()
             compiler->compFloatingPointUsed = true;
         }
         Interval* newInt = newInterval(type);
-        newInt->setLocalNumber(compiler, lclNum, this);
+        newInt->setLocalNumber(compiler, varDsc, this);
         VarSetOps::AddElemD(compiler, registerCandidateVars, varDsc->lvVarIndex);
 
         // we will set this later when we have determined liveness
