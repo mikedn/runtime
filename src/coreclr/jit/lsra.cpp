@@ -1717,18 +1717,18 @@ void LinearScan::initVarRegMaps()
     }
 }
 
-void LinearScan::setInVarRegForBB(unsigned int bbNum, unsigned int varNum, regNumber reg)
+void LinearScan::setInVarRegForBB(unsigned bbNum, LclVarDsc* lcl, regNumber reg)
 {
     assert(enregisterLocalVars);
-    assert(reg < UCHAR_MAX && varNum < compiler->lvaCount);
-    inVarToRegMaps[bbNum][compiler->lvaGetDesc(varNum)->lvVarIndex] = static_cast<regNumberSmall>(reg);
+    assert(reg < UCHAR_MAX);
+    inVarToRegMaps[bbNum][lcl->lvVarIndex] = static_cast<regNumberSmall>(reg);
 }
 
-void LinearScan::setOutVarRegForBB(unsigned int bbNum, unsigned int varNum, regNumber reg)
+void LinearScan::setOutVarRegForBB(unsigned bbNum, LclVarDsc* lcl, regNumber reg)
 {
     assert(enregisterLocalVars);
-    assert(reg < UCHAR_MAX && varNum < compiler->lvaCount);
-    outVarToRegMaps[bbNum][compiler->lvaGetDesc(varNum)->lvVarIndex] = static_cast<regNumberSmall>(reg);
+    assert(reg < UCHAR_MAX);
+    outVarToRegMaps[bbNum][lcl->lvVarIndex] = static_cast<regNumberSmall>(reg);
 }
 
 LinearScan::SplitEdgeInfo LinearScan::getSplitEdgeInfo(unsigned int bbNum)
@@ -2986,7 +2986,7 @@ void LinearScan::spillInterval(Interval* interval, RefPosition* fromRefPosition 
     {
         // This must be a lclVar interval
         assert(interval->isLocalVar);
-        setInVarRegForBB(curBBNum, interval->varNum, REG_STK);
+        setInVarRegForBB(curBBNum, interval->getLocalVar(compiler), REG_STK);
     }
 }
 
@@ -3243,7 +3243,7 @@ void LinearScan::unassignPhysReg(RegRecord* regRec, RefPosition* spillRefPositio
             // to mark this as living on the stack.
             if (spillRefPosition->nodeLocation <= curBBStartLocation)
             {
-                setInVarRegForBB(curBBNum, assignedInterval->varNum, REG_STK);
+                setInVarRegForBB(curBBNum, assignedInterval->getLocalVar(compiler), REG_STK);
                 if (spillRefPosition->nextRefPosition != nullptr)
                 {
                     setIntervalAsSpilled(assignedInterval);
@@ -5068,7 +5068,7 @@ void LinearScan::allocateRegisters()
 
             if (refType == RefTypeDummyDef && assignedRegister != REG_NA)
             {
-                setInVarRegForBB(curBBNum, currentInterval->varNum, assignedRegister);
+                setInVarRegForBB(curBBNum, currentInterval->getLocalVar(compiler), assignedRegister);
             }
 
             // If we allocated a register, and this is a use of a spilled value,
@@ -6275,7 +6275,7 @@ void LinearScan::resolveRegisters()
                     reg                                         = REG_STK;
                     currentRefPosition->getInterval()->isActive = false;
                 }
-                setInVarRegForBB(curBBNum, currentRefPosition->getInterval()->varNum, reg);
+                setInVarRegForBB(curBBNum, currentRefPosition->getInterval()->getLocalVar(compiler), reg);
             }
         }
 

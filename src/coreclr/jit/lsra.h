@@ -1082,8 +1082,8 @@ private:
     SplitEdgeInfo getSplitEdgeInfo(unsigned int bbNum);
 
     void initVarRegMaps();
-    void setInVarRegForBB(unsigned int bbNum, unsigned int varNum, regNumber reg);
-    void setOutVarRegForBB(unsigned int bbNum, unsigned int varNum, regNumber reg);
+    void setInVarRegForBB(unsigned bbNum, LclVarDsc* lcl, regNumber reg);
+    void setOutVarRegForBB(unsigned bbNum, LclVarDsc* lcl, regNumber reg);
     VarToRegMap getInVarToRegMap(unsigned int bbNum);
     VarToRegMap getOutVarToRegMap(unsigned int bbNum);
     void setVarReg(VarToRegMap map, unsigned int trackedVarIndex, regNumber reg);
