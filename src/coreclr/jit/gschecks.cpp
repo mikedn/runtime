@@ -61,8 +61,6 @@ void Compiler::gsCopyShadowParams()
         return;
     }
 
-    gsLclShadowMap = new (this, CMK_GS) unsigned[lvaCount]();
-
     // Find groups of variables assigned to each other, and also
     // tracks variables which are dereferenced and marks them as ptrs.
     // Look for assignments to *p, and ptrs passed to functions
@@ -394,6 +392,8 @@ static bool MayNeedShadowCopy(LclVarDsc* lcl)
 void Compiler::gsParamsToShadows()
 {
     jitstd::span<LclVarDsc*> locals = Locals();
+
+    gsLclShadowMap = new (this, CMK_GS) unsigned[locals.size()];
 
     for (LclVarDsc* lcl : locals)
     {
