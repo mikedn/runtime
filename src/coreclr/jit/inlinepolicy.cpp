@@ -183,7 +183,7 @@ void LegalPolicy::SetFailure(InlineObservation obs)
             // Repeated failure only ok if evaluating a prejit root
             // (since we can't fail fast because we're not inlining)
             // or if inlining and the observation is CALLSITE_TOO_MANY_LOCALS
-            // (since we can't fail fast from lvaGrabTemp).
+            // (since we can't fail fast from lvaAllocTemp).
             assert(m_IsPrejitRoot || (obs == InlineObservation::CALLSITE_TOO_MANY_LOCALS));
             break;
         case InlineDecision::UNDECIDED:

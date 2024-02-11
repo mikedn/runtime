@@ -942,7 +942,7 @@ void Compiler::inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBl
         return;
     }
 
-    LclVarDsc* spillLcl    = lvaGrabTemp(false DEBUGARG("inlinee return spill temp"));
+    LclVarDsc* spillLcl    = lvaAllocTemp(false DEBUGARG("inlinee return spill temp"));
     unsigned   spillLclNum = spillLcl->GetLclNum();
 
     if (varTypeIsStruct(info.GetRetSigType()))
@@ -1753,7 +1753,7 @@ unsigned Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNu
 
     assert(!lclInfo.lclIsUsed);
 
-    LclVarDsc* lcl = lvaGrabTemp(false DEBUGARG("inlinee local"));
+    LclVarDsc* lcl = lvaAllocTemp(false DEBUGARG("inlinee local"));
 
     lcl->m_pinning              = lclInfo.lclIsPinned;
     lcl->lvHasLdAddrOp          = lclInfo.lclHasLdlocaOp;
@@ -1918,7 +1918,7 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
 
     // Argument is a complex expression - it must be evaluated into a temp.
 
-    LclVarDsc* tmpLcl    = lvaGrabTemp(true DEBUGARG("inlinee arg"));
+    LclVarDsc* tmpLcl    = lvaAllocTemp(true DEBUGARG("inlinee arg"));
     unsigned   tmpLclNum = tmpLcl->GetLclNum();
 
     if (argInfo.paramIsAddressTaken)

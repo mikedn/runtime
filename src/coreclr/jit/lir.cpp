@@ -258,7 +258,7 @@ unsigned LIR::Use::ReplaceWithLclVar(Compiler* compiler, unsigned lclNum, GenTre
 
     if (lclNum == BAD_VAR_NUM)
     {
-        lcl    = compiler->lvaGrabTemp(true DEBUGARG("LIR temp"));
+        lcl    = compiler->lvaAllocTemp(true DEBUGARG("LIR temp"));
         lclNum = lcl->GetLclNum();
     }
     else

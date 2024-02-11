@@ -1019,7 +1019,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 inline LclVarDsc* Compiler::lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason))
 {
-    LclVarDsc* lcl = lvaGrabTemp(shortLifetime DEBUGARG(reason));
+    LclVarDsc* lcl = lvaAllocTemp(shortLifetime DEBUGARG(reason));
     lcl->SetType(type);
     return lcl;
 }
@@ -1028,7 +1028,7 @@ inline LclVarDsc* Compiler::lvaNewTemp(ClassLayout* layout, bool shortLifetime D
 {
     assert(layout->IsValueClass());
 
-    LclVarDsc* lcl = lvaGrabTemp(shortLifetime DEBUGARG(reason));
+    LclVarDsc* lcl = lvaAllocTemp(shortLifetime DEBUGARG(reason));
     lvaSetStruct(lcl, layout, false);
     return lcl;
 }
@@ -1038,7 +1038,7 @@ inline LclVarDsc* Compiler::lvaNewTemp(CORINFO_CLASS_HANDLE classHandle,
 {
     assert(info.compCompHnd->isValueClass(classHandle));
 
-    LclVarDsc* lcl = lvaGrabTemp(shortLifetime DEBUGARG(reason));
+    LclVarDsc* lcl = lvaAllocTemp(shortLifetime DEBUGARG(reason));
     lvaSetStruct(lcl, typGetObjLayout(classHandle), false);
     return lcl;
 }
@@ -1047,7 +1047,7 @@ inline LclVarDsc* Compiler::lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGAR
 {
     assert(varTypeIsSIMD(tree->GetType())); // Only SIMD temps are supported for now.
 
-    LclVarDsc* lcl      = lvaGrabTemp(shortLifetime DEBUGARG(reason));
+    LclVarDsc* lcl      = lvaAllocTemp(shortLifetime DEBUGARG(reason));
     ClassLayout* layout = typGetVectorLayout(tree);
 
     if (layout != nullptr)

@@ -689,7 +689,7 @@ private:
                 }
                 else
                 {
-                    returnTempLcl = compiler->lvaGrabTemp(false DEBUGARG("guarded devirt return temp"));
+                    returnTempLcl = compiler->lvaAllocTemp(false DEBUGARG("guarded devirt return temp"));
                     returnTemp    = returnTempLcl->GetLclNum();
                     JITDUMP("Reworking call(s) to return value via a new temp V%02u\n", returnTemp);
                 }

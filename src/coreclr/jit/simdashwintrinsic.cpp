@@ -1361,7 +1361,7 @@ GenTree* Importer::impVectorTAndNot(const HWIntrinsicSignature& sig, GenTree* op
     {
         // TODO-MIKE-Review: Can we simply set GTF_REVERSE_OPS to avoid creating a temp?
 
-        LclVarDsc* tempLcl = lvaGrabTemp(true DEBUGARG("Vector<T>.AndNot temp"));
+        LclVarDsc* tempLcl = lvaAllocTemp(true DEBUGARG("Vector<T>.AndNot temp"));
         impAppendTempAssign(tempLcl, op1, sig.paramLayout[0], CHECK_SPILL_ALL);
         op1 = gtNewLclvNode(tempLcl->GetLclNum(), sig.paramType[0]);
     }

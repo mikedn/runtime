@@ -5693,7 +5693,7 @@ void Compiler::optAddCopies()
             continue;
         }
 
-        LclVarDsc* copyLcl    = lvaGrabTemp(false DEBUGARG("optAddCopies"));
+        LclVarDsc* copyLcl    = lvaAllocTemp(false DEBUGARG("optAddCopies"));
         unsigned   copyLclNum = copyLcl->GetLclNum();
 
         if (varTypeIsSIMD(varDsc->GetType()))

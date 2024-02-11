@@ -1663,7 +1663,7 @@ void Lowering::RehomeParamForFastTailCall(unsigned paramLclNum,
         if (tmpLclNum == BAD_VAR_NUM)
         {
             LclVarDsc* paramLcl       = comp->lvaGetDesc(paramLclNum);
-            LclVarDsc* tmpLcl         = comp->lvaGrabTemp(true DEBUGARG("fast tail call param temp"));
+            LclVarDsc* tmpLcl         = comp->lvaAllocTemp(true DEBUGARG("fast tail call param temp"));
             tmpLcl->lvDoNotEnregister = paramLcl->lvDoNotEnregister;
             tmpLclNum                 = tmpLcl->GetLclNum();
 
@@ -2650,7 +2650,7 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* ins
     {
         if (vtableCallTemp == BAD_VAR_NUM)
         {
-            vtableCallTemp = comp->lvaGrabTemp(true DEBUGARG("virtual vtable call"))->GetLclNum();
+            vtableCallTemp = comp->lvaAllocTemp(true DEBUGARG("virtual vtable call"))->GetLclNum();
         }
 
         LIR::Use thisPtrUse(BlockRange(), &(thisArgInfo->GetNode()->AsUnOp()->gtOp1), thisArgInfo->GetNode());
@@ -4736,7 +4736,7 @@ void Lowering::CheckAllLocalsImplicitlyReferenced()
         }
         else
         {
-            // lvaGrabTemp should automatically set lvImplicitlyReferenced after lvaMarkLocalVars phase.
+            // lvaAllocTemp should automatically set lvImplicitlyReferenced after lvaMarkLocalVars phase.
             assert(lcl->lvImplicitlyReferenced);
         }
 
@@ -5579,7 +5579,7 @@ unsigned Lowering::GetSimdMemoryTemp(var_types type)
 
     if (tempLclNum == BAD_VAR_NUM)
     {
-        LclVarDsc* lclTemp = comp->lvaGrabTemp(false DEBUGARG("Vector GetElement temp"));
+        LclVarDsc* lclTemp = comp->lvaAllocTemp(false DEBUGARG("Vector GetElement temp"));
         // TODO-MIKE-Cleanup: This creates a SIMD local without using lvaSetStruct
         // so it doesn't set layout, exact size etc. It happens to work because it
         // is done late, after lowering, otherwise at least the lack of exact size

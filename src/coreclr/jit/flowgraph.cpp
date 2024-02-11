@@ -915,7 +915,7 @@ void Compiler::fgInsertMonitorCall(BasicBlock* block, CorInfoHelpFunc helper, un
 
         if ((retExpr->GetSideEffects() != 0) || impHasAddressTakenLocals(retExpr))
         {
-            LclVarDsc* retTempLcl    = lvaGrabTemp(true DEBUGARG("monitor 'return' temp"));
+            LclVarDsc* retTempLcl    = lvaAllocTemp(true DEBUGARG("monitor 'return' temp"));
             unsigned   retTempLclNum = retTempLcl->GetLclNum();
 
             if (varTypeIsStruct(retNode->GetType()))
@@ -984,7 +984,7 @@ void Compiler::fgAddReversePInvokeEnterExit()
 {
     assert(opts.IsReversePInvoke());
 
-    LclVarDsc* frameLcl = lvaGrabTemp(false DEBUGARG("ReversePInvokeFrame"));
+    LclVarDsc* frameLcl = lvaAllocTemp(false DEBUGARG("ReversePInvokeFrame"));
     frameLcl->SetBlockType(eeGetEEInfo()->sizeOfReversePInvokeFrame);
     lvaSetAddressExposed(frameLcl);
     lvaReversePInvokeFrameVar = frameLcl->GetLclNum();
@@ -1284,7 +1284,7 @@ private:
         {
             // There is a return value, so create a temp for it.  Real returns will store the value in there and
             // it'll be reloaded by the single return.
-            LclVarDsc* lcl    = comp->lvaGrabTemp(true DEBUGARG("merged return temp"));
+            LclVarDsc* lcl    = comp->lvaAllocTemp(true DEBUGARG("merged return temp"));
             unsigned   lclNum = lcl->GetLclNum();
 
             if (varTypeIsStruct(comp->info.GetRetSigType()))
@@ -1716,7 +1716,7 @@ void Compiler::fgAddInternal()
             lvaPInvokeFrameListVar = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("PInvokeFrameList"))->GetLclNum();
         }
 
-        LclVarDsc* frameLcl = lvaGrabTemp(false DEBUGARG("PInvokeFrame"));
+        LclVarDsc* frameLcl = lvaAllocTemp(false DEBUGARG("PInvokeFrame"));
         frameLcl->SetBlockType(roundUp(eeGetEEInfo()->inlinedCallFrameInfo.size, REGSIZE_BYTES));
         lvaInlinedPInvokeFrameVar = frameLcl->GetLclNum();
     }

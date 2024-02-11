@@ -2933,7 +2933,7 @@ void StructPromotionHelper::PromoteStructLocal(LclVarDsc* lcl)
             fieldSeq                   = compiler->GetFieldSeqStore()->Append(fieldSeq, fieldSeqNode);
         }
 
-        LclVarDsc* fieldLcl = compiler->lvaGrabTemp(false DEBUGARG("promoted struct field"));
+        LclVarDsc* fieldLcl = compiler->lvaAllocTemp(false DEBUGARG("promoted struct field"));
         fieldLcl->MakePromotedStructField(lcl->GetLclNum(), field.offset, fieldSeq);
 
         if (varTypeIsSIMD(field.type))

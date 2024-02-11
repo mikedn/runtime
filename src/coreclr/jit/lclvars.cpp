@@ -271,7 +271,7 @@ void Compiler::lvaInitLocals()
 
 #if FEATURE_FIXED_OUT_ARGS
     // TODO-MIKE-Cleanup: Consider allocating this in lowering.
-    LclVarDsc* outgoingArgSpaceLcl = lvaGrabTemp(false DEBUGARG("outgoing args area"));
+    LclVarDsc* outgoingArgSpaceLcl = lvaAllocTemp(false DEBUGARG("outgoing args area"));
     outgoingArgSpaceLcl->SetBlockType(0);
     lvaSetImplicitlyReferenced(outgoingArgSpaceLcl);
     lvaOutgoingArgSpaceVar = outgoingArgSpaceLcl->GetLclNum();
@@ -1281,7 +1281,7 @@ unsigned Compiler::compMap2ILvarNum(unsigned varNum) const
     return varNum;
 }
 
-LclVarDsc* Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason))
+LclVarDsc* Compiler::lvaAllocTemp(bool shortLifetime DEBUGARG(const char* reason))
 {
     if (compIsForInlining())
     {
@@ -1292,7 +1292,7 @@ LclVarDsc* Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason)
             compInlineResult->NoteFatal(InlineObservation::CALLSITE_TOO_MANY_LOCALS);
         }
 
-        LclVarDsc* lcl = inliner->lvaGrabTemp(shortLifetime DEBUGARG(reason));
+        LclVarDsc* lcl = inliner->lvaAllocTemp(shortLifetime DEBUGARG(reason));
 
         lvaTable         = inliner->lvaTable;
         lvaCount         = inliner->lvaCount;
@@ -1346,15 +1346,15 @@ LclVarDsc* Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason)
     return lcl;
 }
 
-LclVarDsc* Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reason))
+LclVarDsc* Compiler::lvaAllocTemps(unsigned count DEBUGARG(const char* reason))
 {
     if (compIsForInlining())
     {
         Compiler* inliner = impInlineInfo->InlinerCompiler;
 
-        // TODO-MIKE-Cleanup: Why doesn't this check for too many locals like lvaGrabTemp?
+        // TODO-MIKE-Cleanup: Why doesn't this check for too many locals like lvaAllocTemp?
 
-        LclVarDsc* temps = inliner->lvaGrabTemps(count DEBUGARG(reason));
+        LclVarDsc* temps = inliner->lvaAllocTemps(count DEBUGARG(reason));
 
         lvaTable         = inliner->lvaTable;
         lvaCount         = inliner->lvaCount;
@@ -1393,7 +1393,7 @@ LclVarDsc* Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reason))
         lvaTable[lclNum + i] = lcl;
     }
 
-    // Could handle this like in lvaGrabTemp probably...
+    // Could handle this like in lvaAllocTemp probably...
     assert(!lvaLocalVarRefCounted());
 
     JITDUMP("\nAllocated %u long lifetime temps V%02u..V%02u for \"%s\"\n", count, lclNum, lclNum + count - 1, reason);
@@ -2874,7 +2874,7 @@ void Compiler::phAddSpecialLocals()
         // For zero-termination of the shadow-Stack-pointer chain
         slotsNeeded++;
 
-        LclVarDsc* shadowSpSlotsLcl = lvaGrabTemp(false DEBUGARG("ShadowSPslots"));
+        LclVarDsc* shadowSpSlotsLcl = lvaAllocTemp(false DEBUGARG("ShadowSPslots"));
         shadowSpSlotsLcl->SetBlockType(slotsNeeded * REGSIZE_BYTES);
         lvaSetImplicitlyReferenced(shadowSpSlotsLcl);
         lvaShadowSPslotsVar = shadowSpSlotsLcl->GetLclNum();

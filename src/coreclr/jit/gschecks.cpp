@@ -420,7 +420,7 @@ void Compiler::gsParamsToShadows()
             continue;
         }
 
-        LclVarDsc* shadowLcl = lvaGrabTemp(false DEBUGARG("shadow copy"));
+        LclVarDsc* shadowLcl = lvaAllocTemp(false DEBUGARG("shadow copy"));
         JITDUMP("V%02u is shadow param candidate. Shadow copy is V%02u.\n", lclNum, shadowLcl->GetLclNum());
         gsShadowVarInfo[lclNum].shadowLclNum = shadowLcl->GetLclNum();
 

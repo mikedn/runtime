@@ -501,7 +501,7 @@ unsigned int ObjectAllocator::MorphAllocObjNodeIntoStackAlloc(GenTreeAllocObj* a
     assert(allocObj != nullptr);
     assert(m_AnalysisDone);
 
-    LclVarDsc* lcl = comp->lvaGrabTemp(/* shortLifetime */ false DEBUGARG("MorphAllocObjNodeIntoStackAlloc temp"));
+    LclVarDsc* lcl = comp->lvaAllocTemp(/* shortLifetime */ false DEBUGARG("MorphAllocObjNodeIntoStackAlloc temp"));
     comp->lvaSetStruct(lcl, comp->typGetObjLayout(allocObj->gtAllocObjClsHnd), /* checkUnsafeBuffer */ true);
     unsigned lclNum = lcl->GetLclNum();
 

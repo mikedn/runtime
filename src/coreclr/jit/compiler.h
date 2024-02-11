@@ -2196,8 +2196,8 @@ struct Importer
 
     StructPassing abiGetStructReturnType(ClassLayout* layout, CorInfoCallConvExtension callConv, bool isVarArgs);
 
-    LclVarDsc* lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason));
-    LclVarDsc* lvaGrabTemps(unsigned count DEBUGARG(const char* reason));
+    LclVarDsc* lvaAllocTemp(bool shortLifetime DEBUGARG(const char* reason));
+    LclVarDsc* lvaAllocTemps(unsigned count DEBUGARG(const char* reason));
     LclVarDsc* lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason));
     LclVarDsc* lvaNewTemp(ClassLayout* layout, bool shortLifetime DEBUGARG(const char* reason));
     LclVarDsc* lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shortLifetime DEBUGARG(const char* reason));
@@ -3497,8 +3497,8 @@ public:
     LclVarDsc* lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shortLifetime DEBUGARG(const char* reason));
     LclVarDsc* lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGARG(const char* reason));
 
-    LclVarDsc* lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason));
-    LclVarDsc* lvaGrabTemps(unsigned count DEBUGARG(const char* reason));
+    LclVarDsc* lvaAllocTemp(bool shortLifetime DEBUGARG(const char* reason));
+    LclVarDsc* lvaAllocTemps(unsigned count DEBUGARG(const char* reason));
 
     void lvaResizeTable(unsigned newSize);
 

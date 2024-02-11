@@ -1824,7 +1824,7 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInf
                 compiler->compFloatingPointUsed = true;
             }
 
-            LclVarDsc* tempLcl    = compiler->lvaGrabTemp(true DEBUGARG("argument with side effect"));
+            LclVarDsc* tempLcl    = compiler->lvaAllocTemp(true DEBUGARG("argument with side effect"));
             unsigned   tempLclNum = tempLcl->GetLclNum();
 
             argInfo->SetTempLclNum(tempLclNum);
@@ -5009,9 +5009,9 @@ unsigned Compiler::abiAllocateStructArgTemp(ClassLayout* argLayout)
     if (tempLclNum == BAD_VAR_NUM)
     {
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-        LclVarDsc* lcl = lvaGrabTemp(true DEBUGARG("implicit-by-ref arg temp"));
+        LclVarDsc* lcl = lvaAllocTemp(true DEBUGARG("implicit-by-ref arg temp"));
 #else
-        LclVarDsc* lcl = lvaGrabTemp(true DEBUGARG("struct arg temp"));
+        LclVarDsc* lcl = lvaAllocTemp(true DEBUGARG("struct arg temp"));
 #endif
 
         lvaSetStruct(lcl, argLayout, false);
@@ -7193,7 +7193,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
     {
         JITDUMP("Creating a new temp for the return value\n");
 
-        LclVarDsc* newRetLcl    = lvaGrabTemp(false DEBUGARG("Return value for tail call dispatcher"));
+        LclVarDsc* newRetLcl    = lvaAllocTemp(false DEBUGARG("Return value for tail call dispatcher"));
         unsigned   newRetLclNum = newRetLcl->GetLclNum();
 
         if (varTypeIsStruct(origCall->GetType()))

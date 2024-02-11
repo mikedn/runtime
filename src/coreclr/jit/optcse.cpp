@@ -2158,7 +2158,7 @@ public:
 #endif // DEBUG
 
         var_types  lclType = varActualType(candidate.expr->GetType());
-        LclVarDsc* lcl     = compiler->lvaGrabTemp(false DEBUGARG(lclReason));
+        LclVarDsc* lcl     = compiler->lvaAllocTemp(false DEBUGARG(lclReason));
         unsigned   lclNum  = lcl->GetLclNum();
 
         if (varTypeIsStruct(lclType))
