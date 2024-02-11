@@ -75,13 +75,12 @@ void Compiler::gsCopyShadowParams()
 
 struct MarkPtrsInfo
 {
-    Compiler*      comp;
     FixedBitVect** lclAssignGroups;
     unsigned       storeLclNum  = BAD_VAR_NUM; // Which local variable is the tree being assigned to?
     bool           isUnderIndir = false;       // Is this a pointer value tree that is being dereferenced?
     bool           skipNextNode = false;       // Skip a single node during the tree-walk
 
-    MarkPtrsInfo(Compiler* comp) : comp(comp), lclAssignGroups(new (comp, CMK_GS) FixedBitVect*[comp->lvaCount]())
+    MarkPtrsInfo(Compiler* comp) : lclAssignGroups(new (comp, CMK_GS) FixedBitVect*[comp->lvaCount]())
     {
     }
 
@@ -120,12 +119,14 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
         case GT_BLK:
         case GT_OBJ:
         case GT_ARR_ELEM:
-        case GT_ARR_INDEX:
-        case GT_ARR_OFFSET:
             newState.isUnderIndir = true;
             newState.skipNextNode = true; // Don't have to worry about which kind of node we're dealing with
             comp->fgWalkTreePre(&tree, comp->gsMarkPtrsAndAssignGroups, &newState);
             return WALK_SKIP_SUBTREES;
+
+        case GT_ARR_INDEX:
+        case GT_ARR_OFFSET:
+            unreached();
 
         // local vars and param uses
         case GT_LCL_VAR:
@@ -168,7 +169,7 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
                 }
                 else
                 {
-                    FixedBitVect* bv = FixedBitVect::bitVectInit(pState->comp->lvaCount, pState->comp);
+                    FixedBitVect* bv = FixedBitVect::bitVectInit(comp->lvaCount, comp);
 
                     // (shadowVarInfo[pState->storeLclNum] == NULL && shadowVarInfo[lclNew] == NULL);
                     // Neither of them has an assign group yet.  Make a new one.
