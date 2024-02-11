@@ -325,11 +325,9 @@ void Compiler::fgComputeEnterBlocksSet()
     if (verbose)
     {
         printf("Enter blocks: ");
-        BlockSetOps::Iter iter(this, fgEnterBlks);
-        unsigned          bbNum = 0;
-        while (iter.NextElem(&bbNum))
+        for (BlockSetOps::Enumerator e(this, fgEnterBlks); e.MoveNext();)
         {
-            printf(FMT_BB " ", bbNum);
+            printf(FMT_BB " ", e.Current());
         }
         printf("\n");
     }
@@ -689,11 +687,9 @@ BlockSet_ValRet_T Compiler::fgDomFindStartNodes()
     if (verbose)
     {
         printf("\nDominator computation start blocks (those blocks with no incoming edges):\n");
-        BlockSetOps::Iter iter(this, startNodes);
-        unsigned          bbNum = 0;
-        while (iter.NextElem(&bbNum))
+        for (BlockSetOps::Enumerator e(this, startNodes); e.MoveNext();)
         {
-            printf(FMT_BB " ", bbNum);
+            printf(FMT_BB " ", e.Current());
         }
         printf("\n");
     }

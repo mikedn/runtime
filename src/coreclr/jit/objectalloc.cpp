@@ -235,16 +235,14 @@ void ObjectAllocator::ComputeEscapingNodes(BitVecTraits* bitVecTraits, BitVec& e
     BitSetShortLongRep escapingNodesToProcess = BitVecOps::MakeCopy(bitVecTraits, escapingNodes);
     BitSetShortLongRep newEscapingNodes       = BitVecOps::UninitVal();
 
-    unsigned int lclNum;
-
-    bool doOneMoreIteration = true;
-    while (doOneMoreIteration)
+    for (bool doOneMoreIteration = true; doOneMoreIteration;)
     {
-        BitVecOps::Iter iterator(bitVecTraits, escapingNodesToProcess);
         doOneMoreIteration = false;
 
-        while (iterator.NextElem(&lclNum))
+        for (BitVecOps::Enumerator e(bitVecTraits, escapingNodesToProcess); e.MoveNext();)
         {
+            const unsigned lclNum = e.Current();
+
             if (m_ConnGraphAdjacencyMatrix[lclNum] != nullptr)
             {
                 doOneMoreIteration = true;
@@ -301,11 +299,9 @@ void ObjectAllocator::ComputeStackObjectPointers(BitVecTraits* bitVecTraits)
                         assert(bitCount <= 1);
                         if (bitCount == 1)
                         {
-                            BitVecOps::Iter iter(bitVecTraits, m_ConnGraphAdjacencyMatrix[lclNum]);
-                            unsigned        rhsLclNum = 0;
-                            iter.NextElem(&rhsLclNum);
+                            BitVecOps::Enumerator e(bitVecTraits, m_ConnGraphAdjacencyMatrix[lclNum]);
 
-                            if (DoesLclVarPointToStack(rhsLclNum))
+                            if (e.MoveNext() && DoesLclVarPointToStack(e.Current()))
                             {
                                 // The only assignment to lclNum local is definitely-stack-pointing
                                 // rhsLclNum local so lclNum local is also definitely-stack-pointing.

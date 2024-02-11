@@ -26,12 +26,10 @@ void BitSetSupport::RunTests(typename BitSetTraits::Env env)
     LclBitSetOps::AddElemD(env, bs1, bs1bits[2]);
     LclBitSetOps::AddElemD(env, bs1, bs1bits[3]);
 
-    typename LclBitSetOps::Iter bsi(env, bs1);
-    unsigned                    bitNum = 0;
-    unsigned                    k      = 0;
-    while (bsi.NextElem(&bitNum))
+    unsigned k = 0;
+    for (typename LclBitSetOps::Enumerator bsi(env, bs1); bsi.MoveNext();)
     {
-        assert(bitNum == bs1bits[k]);
+        assert(bsi.Current() == bs1bits[k]);
         k++;
     }
     assert(k == 4);
@@ -51,22 +49,18 @@ void BitSetSupport::RunTests(typename BitSetTraits::Env env)
     unsigned   unionBits[] = {0, 10, 44, 45, 50, 51};
     BitSetType bsU12;
     LclBitSetOps::AssignNoCopy(env, bsU12, LclBitSetOps::Union(env, bs1, bs2));
-    k      = 0;
-    bsi    = typename LclBitSetOps::Iter(env, bsU12);
-    bitNum = 0;
-    while (bsi.NextElem(&bitNum))
+    k = 0;
+    for (typename LclBitSetOps::Enumerator bsi(env, bsU12); bsi.MoveNext();)
     {
-        assert(bitNum == unionBits[k]);
+        assert(bsi.Current() == unionBits[k]);
         k++;
     }
     assert(k == 6);
 
-    k                                = 0;
-    typename LclBitSetOps::Iter bsiL = typename LclBitSetOps::Iter(env, bsU12);
-    bitNum                           = 0;
-    while (bsiL.NextElem(&bitNum))
+    k = 0;
+    for (typename LclBitSetOps::Enumerator bsiL(env, bsU12); bsiL.MoveNext();)
     {
-        assert(bitNum == unionBits[k]);
+        assert(bsiL.Current() == unionBits[k]);
         k++;
     }
     assert(k == 6);
@@ -74,12 +68,10 @@ void BitSetSupport::RunTests(typename BitSetTraits::Env env)
     unsigned   intersectionBits[] = {0, 10};
     BitSetType bsI12;
     LclBitSetOps::AssignNoCopy(env, bsI12, LclBitSetOps::Intersection(env, bs1, bs2));
-    k      = 0;
-    bsi    = typename LclBitSetOps::Iter(env, bsI12);
-    bitNum = 0;
-    while (bsi.NextElem(&bitNum))
+    k = 0;
+    for (typename LclBitSetOps::Enumerator bsi(env, bsI12); bsi.MoveNext();)
     {
-        assert(bitNum == intersectionBits[k]);
+        assert(bsi.Current() == intersectionBits[k]);
         k++;
     }
     assert(k == 2);

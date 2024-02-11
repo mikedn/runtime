@@ -1687,11 +1687,9 @@ void Compiler::fgDispReach()
     for (BasicBlock* const block : Blocks())
     {
         printf(FMT_BB " : ", block->bbNum);
-        BlockSetOps::Iter iter(this, block->bbReach);
-        unsigned          bbNum = 0;
-        while (iter.NextElem(&bbNum))
+        for (BlockSetOps::Enumerator e(this, block->bbReach); e.MoveNext();)
         {
-            printf(FMT_BB " ", bbNum);
+            printf(FMT_BB " ", e.Current());
         }
         printf("\n");
     }

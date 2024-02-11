@@ -5585,10 +5585,10 @@ void Compiler::optAddCopies()
 
         bool isDominatedByFirstBB = false;
 
-        BlockSetOps::Iter iter(this, varDsc->lvUseBlocks);
-        unsigned          bbNum = 0;
-        while (iter.NextElem(&bbNum))
+        for (BlockSetOps::Enumerator e(this, varDsc->lvUseBlocks); e.MoveNext();)
         {
+            const unsigned bbNum = e.Current();
+
             /* Find the block 'bbNum' */
             BasicBlock* block = fgFirstBB;
             while (block && (block->bbNum != bbNum))
@@ -5738,10 +5738,10 @@ void Compiler::optAddCopies()
 #endif
 
             /* We have already calculated paramImportantUseDom above. */
-            BlockSetOps::Iter iter(this, paramImportantUseDom);
-            unsigned          bbNum = 0;
-            while (iter.NextElem(&bbNum))
+            for (BlockSetOps::Enumerator e(this, paramImportantUseDom); e.MoveNext();)
             {
+                const unsigned bbNum = e.Current();
+
                 /* Advance block to point to 'bbNum' */
                 /* This assumes that the iterator returns block number is increasing lexical order. */
                 while (block && (block->bbNum != bbNum))

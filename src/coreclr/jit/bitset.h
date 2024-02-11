@@ -104,10 +104,7 @@ FORCEINLINE unsigned BitSetSupport::CountBitsInIntegral<uint32_t>(uint32_t c)
 // BitSetType is a class, type, BitSetValueArgType may need to be "const BitSetType&", for example.)
 //
 // In addition to implementing the method signatures here, an instantiation of BitSetOps must also export a
-// BitSetOps::Iter type, which supports the following operations:
-//      Iter(BitSetValueArgType):        a constructor
-//      bool NextElem(unsigned* pElem):  returns true if the iteration is not complete, and sets *pElem to the next
-//                                       yielded member.
+// BitSetOps::Enumerator type.
 //
 // Finally, it should export two further types:
 //
@@ -226,10 +223,12 @@ class BitSetOps
 #endif
 
     // Declare this as a type -- will be a real class in real instantiations.
-    class Iter {
-      public:
-        Iter(Env env, BitSetValueArgType bs) {}
-        bool NextElem(unsigned* pElem) { return false; }
+    class Enumerator
+    {
+    public:
+        Enumerator(Env env, BitSetValueArgType bs) {}
+        bool MoveNext() { return false; }
+        unsigned Current() const { return 0; }
     };
 
     typename ValArgType;
