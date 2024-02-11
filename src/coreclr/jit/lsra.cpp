@@ -1512,10 +1512,10 @@ void LinearScan::identifyCandidates()
         }
         Interval* newInt   = newInterval(type);
         newInt->isLocalVar = true;
-        newInt->varNum     = varDsc->GetLclNum();
-        assert(varDsc->GetLivenessBitIndex() < compiler->lvaTrackedCount);
-        localVarIntervals[varDsc->GetLivenessBitIndex()] = newInt;
-        VarSetOps::AddElemD(compiler, registerCandidateVars, varDsc->GetLivenessBitIndex());
+        newInt->varIndex   = varDsc->GetLivenessBitIndex();
+        assert(newInt->varIndex < compiler->lvaTrackedCount);
+        localVarIntervals[newInt->varIndex] = newInt;
+        VarSetOps::AddElemD(compiler, registerCandidateVars, newInt->varIndex);
 
         // we will set this later when we have determined liveness
         varDsc->lvMustInit = false;

@@ -1672,7 +1672,7 @@ public:
         : registerPreferences(registerPreferences)
         , relatedInterval(nullptr)
         , assignedReg(nullptr)
-        , varNum(0)
+        , varIndex(0)
         , physReg(REG_COUNT)
         , registerType(registerType)
         , isActive(false)
@@ -1721,7 +1721,7 @@ public:
     // register it currently occupies.
     RegRecord* assignedReg;
 
-    unsigned int varNum; // This is the "variable number": the index into the lvaTable array
+    unsigned varIndex; // index into the lvaTracked array
 
     // The register to which it is currently assigned.
     regNumber physReg;
@@ -1796,15 +1796,14 @@ public:
     LclVarDsc* getLocalVar(Compiler* comp)
     {
         assert(isLocalVar);
-        return comp->lvaGetDesc(this->varNum);
+        return comp->lvaGetDescByTrackedIndex(varIndex);
     }
 
     // Get the local tracked variable "index" (lvVarIndex), used in bitmasks.
     unsigned getVarIndex(Compiler* comp)
     {
-        LclVarDsc* varDsc = getLocalVar(comp);
-        assert(varDsc->lvTracked); // If this isn't true, we shouldn't be calling this function!
-        return varDsc->lvVarIndex;
+        assert(isLocalVar);
+        return varIndex;
     }
 
     bool isAssignedTo(regNumber regNum)
