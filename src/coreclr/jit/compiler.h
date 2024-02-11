@@ -6027,25 +6027,12 @@ public:
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     */
 public:
-    struct ShadowParamVarInfo
-    {
-        FixedBitVect* assignGroup; // the closure set of variables whose values depend on each other
-        unsigned      shadowLclNum;
-
-#ifdef DEBUG
-        void Print()
-        {
-            printf("assignGroup [%p]; shadowCopy: %V02u;\n", assignGroup, shadowLclNum);
-        }
-#endif
-    };
-
-    ShadowParamVarInfo* gsShadowVarInfo = nullptr; // Table used by shadow param analysis code
+    unsigned* gsLclShadowMap = nullptr;
 
     void gsGSChecksInitCookie();   // Grabs cookie variable
-    void gsCopyShadowParams();     // Identify vulnerable params and create dhadow copies
+    void gsCopyShadowParams();     // Identify vulnerable params and create shadow copies
     bool gsFindVulnerableParams(); // Shadow param analysis code
-    void gsParamsToShadows();      // Insert copy code and replave param uses by shadow
+    void gsParamsToShadows();      // Insert copy code and replace param uses by shadow
 
     static fgWalkPreFn gsMarkPtrsAndAssignGroups; // Shadow param analysis tree-walk
     static fgWalkPreFn gsReplaceShadowParams;     // Shadow param replacement tree-walk

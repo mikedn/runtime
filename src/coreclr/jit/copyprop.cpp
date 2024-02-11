@@ -295,8 +295,8 @@ public:
             }
 #endif
 
-            if ((m_compiler->gsShadowVarInfo != nullptr) && newLcl->IsParam() &&
-                (m_compiler->gsShadowVarInfo[newLclNum].shadowLclNum == lclNum))
+            if ((m_compiler->gsLclShadowMap != nullptr) && newLcl->IsParam() &&
+                (m_compiler->gsLclShadowMap[newLclNum] == lclNum))
             {
                 continue;
             }

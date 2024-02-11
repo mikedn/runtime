@@ -61,8 +61,7 @@ void Compiler::gsCopyShadowParams()
         return;
     }
 
-    // Allocate array for shadow param info
-    gsShadowVarInfo = new (this, CMK_GS) ShadowParamVarInfo[lvaCount]();
+    gsLclShadowMap = new (this, CMK_GS) unsigned[lvaCount]();
 
     // Find groups of variables assigned to each other, and also
     // tracks variables which are dereferenced and marks them as ptrs.
@@ -78,20 +77,12 @@ void Compiler::gsCopyShadowParams()
 
 struct MarkPtrsInfo
 {
-    Compiler* comp;
-    unsigned  lvAssignDef;  // Which local variable is the tree being assigned to?
-    bool      isAssignSrc;  // Is this the source value for an assignment?
-    bool      isUnderIndir; // Is this a pointer value tree that is being dereferenced?
-    bool      skipNextNode; // Skip a single node during the tree-walk
-
-#ifdef DEBUG
-    void Print()
-    {
-        printf(
-            "[MarkPtrsInfo] = {comp = %p, lvAssignDef = %d, isAssignSrc = %d, isUnderIndir = %d, skipNextNode = %d}\n",
-            comp, lvAssignDef, isAssignSrc, isUnderIndir, skipNextNode);
-    }
-#endif
+    Compiler*      comp;
+    FixedBitVect** lclAssignGroups;
+    unsigned       lvAssignDef;  // Which local variable is the tree being assigned to?
+    bool           isAssignSrc;  // Is this the source value for an assignment?
+    bool           isUnderIndir; // Is this a pointer value tree that is being dereferenced?
+    bool           skipNextNode; // Skip a single node during the tree-walk
 };
 
 /*****************************************************************************
@@ -105,12 +96,12 @@ struct MarkPtrsInfo
  */
 Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWalkData* data)
 {
-    struct MarkPtrsInfo* pState        = (MarkPtrsInfo*)data->pCallbackData;
-    struct MarkPtrsInfo  newState      = *pState;
-    Compiler*            comp          = data->compiler;
-    GenTree*             tree          = *pTree;
-    ShadowParamVarInfo*  shadowVarInfo = pState->comp->gsShadowVarInfo;
-    assert(shadowVarInfo);
+    MarkPtrsInfo*  pState          = static_cast<MarkPtrsInfo*>(data->pCallbackData);
+    MarkPtrsInfo   newState        = *pState;
+    Compiler*      comp            = data->compiler;
+    GenTree*       tree            = *pTree;
+    FixedBitVect** lclAssignGroups = pState->lclAssignGroups;
+    assert(lclAssignGroups != nullptr);
 
     assert(!pState->isAssignSrc || pState->lvAssignDef != (unsigned)-1);
 
@@ -153,27 +144,27 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
             {
                 //
                 // Add lvAssignDef and lclNum to a common assign group
-                if (shadowVarInfo[pState->lvAssignDef].assignGroup)
+                if (lclAssignGroups[pState->lvAssignDef] != nullptr)
                 {
-                    if (shadowVarInfo[lclNum].assignGroup)
+                    if (lclAssignGroups[lclNum] != nullptr)
                     {
                         // OR both bit vector
-                        shadowVarInfo[pState->lvAssignDef].assignGroup->bitVectOr(shadowVarInfo[lclNum].assignGroup);
+                        lclAssignGroups[pState->lvAssignDef]->bitVectOr(lclAssignGroups[lclNum]);
                     }
                     else
                     {
-                        shadowVarInfo[pState->lvAssignDef].assignGroup->bitVectSet(lclNum);
+                        lclAssignGroups[pState->lvAssignDef]->bitVectSet(lclNum);
                     }
 
                     // Point both to the same bit vector
-                    shadowVarInfo[lclNum].assignGroup = shadowVarInfo[pState->lvAssignDef].assignGroup;
+                    lclAssignGroups[lclNum] = lclAssignGroups[pState->lvAssignDef];
                 }
-                else if (shadowVarInfo[lclNum].assignGroup)
+                else if (lclAssignGroups[lclNum] != nullptr)
                 {
-                    shadowVarInfo[lclNum].assignGroup->bitVectSet(pState->lvAssignDef);
+                    lclAssignGroups[lclNum]->bitVectSet(pState->lvAssignDef);
 
                     // Point both to the same bit vector
-                    shadowVarInfo[pState->lvAssignDef].assignGroup = shadowVarInfo[lclNum].assignGroup;
+                    lclAssignGroups[pState->lvAssignDef] = lclAssignGroups[lclNum];
                 }
                 else
                 {
@@ -181,8 +172,8 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
 
                     // (shadowVarInfo[pState->lvAssignDef] == NULL && shadowVarInfo[lclNew] == NULL);
                     // Neither of them has an assign group yet.  Make a new one.
-                    shadowVarInfo[pState->lvAssignDef].assignGroup = bv;
-                    shadowVarInfo[lclNum].assignGroup              = bv;
+                    lclAssignGroups[pState->lvAssignDef] = bv;
+                    lclAssignGroups[lclNum]              = bv;
                     bv->bitVectSet(pState->lvAssignDef);
                     bv->bitVectSet(lclNum);
                 }
@@ -282,11 +273,12 @@ bool Compiler::gsFindVulnerableParams()
 {
     MarkPtrsInfo info;
 
-    info.comp         = this;
-    info.lvAssignDef  = (unsigned)-1;
-    info.isUnderIndir = false;
-    info.isAssignSrc  = false;
-    info.skipNextNode = false;
+    info.comp            = this;
+    info.lclAssignGroups = new (this, CMK_GS) FixedBitVect*[lvaCount]();
+    info.lvAssignDef     = UINT_MAX;
+    info.isUnderIndir    = false;
+    info.isAssignSrc     = false;
+    info.skipNextNode    = false;
 
     // Walk all the trees setting lvIsWritePtr, lvIsOutgoingArg, lvIsPtr and assignGroup.
     for (BasicBlock* const block : Blocks())
@@ -306,8 +298,8 @@ bool Compiler::gsFindVulnerableParams()
 
     for (LclVarDsc* varDsc : Locals())
     {
-        unsigned            lclNum     = varDsc->GetLclNum();
-        ShadowParamVarInfo* shadowInfo = &gsShadowVarInfo[lclNum];
+        unsigned      lclNum      = varDsc->GetLclNum();
+        FixedBitVect* assignGroup = info.lclAssignGroups[lclNum];
 
         // If there was an indirection or if unsafe buffer, then we'd call it vulnerable.
         if (varDsc->lvIsPtr || varDsc->lvIsUnsafeBuffer)
@@ -316,7 +308,7 @@ bool Compiler::gsFindVulnerableParams()
         }
 
         // Now, propagate the info through the assign group (an equivalence class of vars transitively assigned.)
-        if (shadowInfo->assignGroup == nullptr || propagated->bitVectTest(lclNum))
+        if ((assignGroup == nullptr) || propagated->bitVectTest(lclNum))
         {
             continue;
         }
@@ -327,7 +319,6 @@ bool Compiler::gsFindVulnerableParams()
         bool isUnderIndir = varDsc->lvIsPtr;
 
         // First pass -- find if any variable is vulnerable.
-        FixedBitVect* assignGroup = shadowInfo->assignGroup;
         for (unsigned i = assignGroup->bitVectGetFirst(); i != UINT_MAX && !isUnderIndir;
              i          = assignGroup->bitVectGetNext(i))
         {
@@ -408,21 +399,16 @@ void Compiler::gsParamsToShadows()
     {
         unsigned lclNum = lcl->GetLclNum();
 
-        gsShadowVarInfo[lclNum].shadowLclNum = BAD_VAR_NUM;
-
-        if (!MayNeedShadowCopy(lcl))
+        if (!MayNeedShadowCopy(lcl) || (!lcl->lvIsPtr && !lcl->lvIsUnsafeBuffer))
         {
-            continue;
-        }
+            gsLclShadowMap[lclNum] = BAD_VAR_NUM;
 
-        if (!lcl->lvIsPtr && !lcl->lvIsUnsafeBuffer)
-        {
             continue;
         }
 
         LclVarDsc* shadowLcl = lvaAllocTemp(false DEBUGARG("shadow copy"));
         JITDUMP("V%02u is shadow param candidate. Shadow copy is V%02u.\n", lclNum, shadowLcl->GetLclNum());
-        gsShadowVarInfo[lclNum].shadowLclNum = shadowLcl->GetLclNum();
+        gsLclShadowMap[lclNum] = shadowLcl->GetLclNum();
 
         // TODO-MIKE-Cleanup: varActualType is likely useless, there should be no need to shadow
         // copy small int locals.
@@ -477,7 +463,7 @@ void Compiler::gsParamsToShadows()
             GenTree* tree = *use;
 
             unsigned lclNum       = tree->AsLclVarCommon()->GetLclNum();
-            unsigned shadowLclNum = m_compiler->gsShadowVarInfo[lclNum].shadowLclNum;
+            unsigned shadowLclNum = m_compiler->gsLclShadowMap[lclNum];
 
             if (shadowLclNum != BAD_VAR_NUM)
             {
@@ -509,7 +495,7 @@ void Compiler::gsParamsToShadows()
     {
         unsigned lclNum = lcl->GetLclNum();
 
-        unsigned shadowLclNum = gsShadowVarInfo[lclNum].shadowLclNum;
+        unsigned shadowLclNum = gsLclShadowMap[lclNum];
         if (shadowLclNum == BAD_VAR_NUM)
         {
             continue;
@@ -543,7 +529,7 @@ void Compiler::gsParamsToShadows()
             for (LclVarDsc* lcl : Params())
             {
                 unsigned lclNum       = lcl->GetLclNum();
-                unsigned shadowLclNum = gsShadowVarInfo[lclNum].shadowLclNum;
+                unsigned shadowLclNum = gsLclShadowMap[lclNum];
                 if (shadowLclNum == BAD_VAR_NUM)
                 {
                     continue;
