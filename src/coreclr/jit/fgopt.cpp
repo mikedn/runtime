@@ -4882,8 +4882,8 @@ bool Compiler::fgReorderBlocks()
 
         if (compHndBBtabCount > 0)
         {
-            fStartIsInTry = new (this, CMK_Unknown) bool[compHndBBtabCount];
-            fStartIsInHnd = new (this, CMK_Unknown) bool[compHndBBtabCount];
+            fStartIsInTry = new (this, CMK_ReorderBlocks) bool[compHndBBtabCount];
+            fStartIsInHnd = new (this, CMK_ReorderBlocks) bool[compHndBBtabCount];
 
             for (XTnum = 0, HBtab = compHndBBtab; XTnum < compHndBBtabCount; XTnum++, HBtab++)
             {

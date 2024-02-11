@@ -1909,7 +1909,7 @@ public:
     {
         if (pasMaxDepth > BITS_IN_pasMask)
         {
-            pasTopArray = pComp->getAllocator(CMK_Unknown).allocate<BYTE>(pasMaxDepth - BITS_IN_pasMask);
+            pasTopArray = pComp->getAllocator(CMK_GC).allocate<BYTE>(pasMaxDepth - BITS_IN_pasMask);
         }
     }
 

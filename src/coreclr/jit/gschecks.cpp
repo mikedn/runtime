@@ -62,7 +62,7 @@ void Compiler::gsCopyShadowParams()
     }
 
     // Allocate array for shadow param info
-    gsShadowVarInfo = new (this, CMK_Unknown) ShadowParamVarInfo[lvaCount]();
+    gsShadowVarInfo = new (this, CMK_GS) ShadowParamVarInfo[lvaCount]();
 
     // Find groups of variables assigned to each other, and also
     // tracks variables which are dereferenced and marks them as ptrs.

@@ -6913,7 +6913,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
 DONE:
     // In debug we want to be able to register callsites with the EE.
-    INDEBUG(call->callSig = new (comp, CMK_Generic) CORINFO_SIG_INFO(*sig));
+    INDEBUG(call->callSig = new (comp, CMK_DebugOnly) CORINFO_SIG_INFO(*sig));
 
     if (call->TypeIs(TYP_STRUCT))
     {
