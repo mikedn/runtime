@@ -1896,9 +1896,10 @@ void LinearScan::buildIntervals()
             }
 
             // Clear the "last use" flag on any vars that are live-out from this block.
-            VARSET_TP bbLiveDefs(VarSetOps::Intersection(compiler, registerCandidateVars, block->bbLiveOut));
 
-            for (VarSetOps::Enumerator e(compiler, bbLiveDefs); e.MoveNext();)
+            for (auto e =
+                     VarSetOps::EnumOp(compiler, VarSetOps::IntersectionOp, registerCandidateVars, block->bbLiveOut);
+                 e.MoveNext();)
             {
                 LclVarDsc* const varDsc = compiler->lvaGetDescByTrackedIndex(e.Current());
                 assert(varDsc->IsRegCandidate());
