@@ -1451,13 +1451,11 @@ void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeOp* asg)
     assert(DepBitVecOps::IsEmpty(this, killed));
 }
 
-void Compiler::morphAssertionKill(unsigned lclNum DEBUGARG(GenTreeOp* asg))
+void Compiler::morphAssertionKill(LclVarDsc* lcl DEBUGARG(GenTreeOp* asg))
 {
     assert(fgGlobalMorph);
 
-    morphAssertionKillSingle(lclNum DEBUGARG(asg));
-
-    LclVarDsc* lcl = lvaGetDesc(lclNum);
+    morphAssertionKillSingle(lcl->GetLclNum() DEBUGARG(asg));
 
     if (lcl->IsPromoted())
     {
