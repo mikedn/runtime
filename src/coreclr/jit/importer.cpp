@@ -1506,6 +1506,54 @@ void Importer::impSpillLclReferences(unsigned lclNum)
     }
 }
 
+class ImportSpillCliqueState
+{
+    unsigned const hasCatchArg : 1;
+    unsigned const spillTempCount : 31;
+    union {
+        CORINFO_CLASS_HANDLE const catchArgType;
+        LclVarDsc* const           spillTemps;
+    };
+
+public:
+    ImportSpillCliqueState(CORINFO_CLASS_HANDLE catchArgType)
+        : hasCatchArg(1), spillTempCount(0), catchArgType(catchArgType)
+    {
+    }
+
+    ImportSpillCliqueState(LclVarDsc* spillTemps, unsigned spillTempCount)
+        : hasCatchArg(0), spillTempCount(spillTempCount), spillTemps(spillTemps)
+    {
+    }
+
+    bool HasCatchArg() const
+    {
+        return hasCatchArg;
+    }
+
+    CORINFO_CLASS_HANDLE GetCatchArgType() const
+    {
+        assert(hasCatchArg);
+        return catchArgType;
+    }
+
+    unsigned GetSpillTempCount() const
+    {
+        return spillTempCount;
+    }
+
+    LclVarDsc* GetSpillTemps() const
+    {
+        assert(!hasCatchArg);
+        return spillTemps;
+    }
+
+    unsigned GetStackDepth() const
+    {
+        return hasCatchArg ? 1 : spillTempCount;
+    }
+};
+
 /*****************************************************************************
  *
  *  Push catch arg onto the stack.
