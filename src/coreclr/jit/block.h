@@ -67,6 +67,7 @@ struct BasicBlockList;
 struct flowList;
 struct EHblkDsc;
 struct BBswtDesc;
+class LclVarDsc;
 
 class ImportSpillCliqueState
 {
@@ -74,7 +75,7 @@ class ImportSpillCliqueState
     unsigned const spillTempCount : 31;
     union {
         CORINFO_CLASS_HANDLE const catchArgType;
-        unsigned const             spillTempBaseLclNum;
+        LclVarDsc* const           spillTemps;
     };
 
 public:
@@ -83,8 +84,8 @@ public:
     {
     }
 
-    ImportSpillCliqueState(unsigned spillTempBaseLclNum, unsigned spillTempCount)
-        : hasCatchArg(0), spillTempCount(spillTempCount), spillTempBaseLclNum(spillTempBaseLclNum)
+    ImportSpillCliqueState(LclVarDsc* spillTemps, unsigned spillTempCount)
+        : hasCatchArg(0), spillTempCount(spillTempCount), spillTemps(spillTemps)
     {
     }
 
@@ -104,10 +105,10 @@ public:
         return spillTempCount;
     }
 
-    unsigned GetSpillTempBaseLclNum() const
+    LclVarDsc* GetSpillTemps() const
     {
         assert(!hasCatchArg);
-        return spillTempBaseLclNum;
+        return spillTemps;
     }
 
     unsigned GetStackDepth() const

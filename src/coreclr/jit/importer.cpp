@@ -1575,8 +1575,8 @@ BasicBlock* Importer::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
         hndBlk->bbRefs++;
 
         // Spill into a temp.
-        unsigned   tempNum = lvaNewTemp(TYP_REF, false DEBUGARG("CATCH_ARG spill temp"))->GetLclNum();
-        GenTree*   argAsg  = gtNewAssignNode(gtNewLclvNode(tempNum, TYP_REF), impNewCatchArg());
+        LclVarDsc* tempLcl = lvaNewTemp(TYP_REF, false DEBUGARG("CATCH_ARG spill temp"));
+        GenTree*   argAsg  = gtNewAssignNode(gtNewLclvNode(tempLcl->GetLclNum(), TYP_REF), impNewCatchArg());
         Statement* argStmt;
 
         if (compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES)
@@ -1598,7 +1598,7 @@ BasicBlock* Importer::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
             fgAddCheapPred(hndBlk, newBlk);
         }
 
-        impSetSpillCliqueState(newBlk, new (comp, CMK_Importer) ImportSpillCliqueState(tempNum, 1));
+        impSetSpillCliqueState(newBlk, new (comp, CMK_Importer) ImportSpillCliqueState(tempLcl, 1));
     }
 
     return hndBlk;
@@ -13145,15 +13145,15 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
 
     if (state == nullptr)
     {
-        unsigned spillTempBaseLclNum = lvaGrabTemps(verCurrentState.esStackDepth DEBUGARG("spill clique temp"));
+        LclVarDsc* spillTemps = lvaGrabTemps(verCurrentState.esStackDepth DEBUGARG("spill clique temp"));
 
-        state = new (comp, CMK_Importer) ImportSpillCliqueState(spillTempBaseLclNum, verCurrentState.esStackDepth);
+        state = new (comp, CMK_Importer) ImportSpillCliqueState(spillTemps, verCurrentState.esStackDepth);
 
         impSetSpillCliqueState(block, state);
 
         for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
         {
-            LclVarDsc* spillTempLcl = comp->lvaGetDesc(spillTempBaseLclNum + level);
+            LclVarDsc* spillTempLcl = &spillTemps[level];
             GenTree*   tree         = verCurrentState.esStack[level].val;
             typeInfo   stackType    = verCurrentState.esStack[level].seTypeInfo;
 
@@ -13179,10 +13179,12 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
             BADCODE("Same spill clique blocks have different stack depths at end.");
         }
 
+        LclVarDsc* spillTemps = state->GetSpillTemps();
+
         for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
         {
-            unsigned   spillTempLclNum = state->GetSpillTempBaseLclNum() + level;
-            LclVarDsc* spillTempLcl    = comp->lvaGetDesc(spillTempLclNum);
+            LclVarDsc* spillTempLcl    = &spillTemps[level];
+            unsigned   spillTempLclNum = spillTempLcl->GetLclNum();
             GenTree*   tree            = verCurrentState.esStack[level].val;
 
             JITDUMPTREE(tree, "Stack entry %u:\n", level);
@@ -13568,12 +13570,13 @@ void Importer::impSetCurrentState(BasicBlock* block)
 
     verCurrentState.esStackDepth = block->bbEntryState->GetSpillTempCount();
 
+    LclVarDsc* spillTemps = block->bbEntryState->GetSpillTemps();
+
     for (unsigned i = 0; i < verCurrentState.esStackDepth; i++)
     {
-        unsigned   lclNum = block->bbEntryState->GetSpillTempBaseLclNum() + i;
-        LclVarDsc* lcl    = comp->lvaGetDesc(lclNum);
+        LclVarDsc* lcl = &spillTemps[i];
 
-        verCurrentState.esStack[i].val        = gtNewLclvNode(lclNum, lcl->GetType());
+        verCurrentState.esStack[i].val        = gtNewLclvNode(lcl->GetLclNum(), lcl->GetType());
         verCurrentState.esStack[i].seTypeInfo = lcl->lvImpTypeInfo;
     }
 }
@@ -17266,7 +17269,7 @@ LclVarDsc* Importer::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason)
     return comp->lvaGrabTemp(shortLifetime DEBUGARG(reason));
 }
 
-unsigned Importer::lvaGrabTemps(unsigned count DEBUGARG(const char* reason))
+LclVarDsc* Importer::lvaGrabTemps(unsigned count DEBUGARG(const char* reason))
 {
     return comp->lvaGrabTemps(count DEBUGARG(reason));
 }

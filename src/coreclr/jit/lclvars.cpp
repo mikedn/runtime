@@ -1346,7 +1346,7 @@ LclVarDsc* Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason)
     return lcl;
 }
 
-unsigned Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reason))
+LclVarDsc* Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reason))
 {
     if (compIsForInlining())
     {
@@ -1354,13 +1354,13 @@ unsigned Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reason))
 
         // TODO-MIKE-Cleanup: Why doesn't this check for too many locals like lvaGrabTemp?
 
-        unsigned lclNum = inliner->lvaGrabTemps(count DEBUGARG(reason));
+        LclVarDsc* temps = inliner->lvaGrabTemps(count DEBUGARG(reason));
 
         lvaTable         = inliner->lvaTable;
         lvaCount         = inliner->lvaCount;
         lvaTableCapacity = inliner->lvaTableCapacity;
 
-        return lclNum;
+        return temps;
     }
 
     noway_assert(lvaDoneFrameLayout < FINAL_FRAME_LAYOUT);
@@ -1398,7 +1398,7 @@ unsigned Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reason))
 
     JITDUMP("\nAllocated %u long lifetime temps V%02u..V%02u for \"%s\"\n", count, lclNum, lclNum + count - 1, reason);
 
-    return lclNum;
+    return mem;
 }
 
 void Compiler::lvaResizeTable(unsigned newCapacity)
