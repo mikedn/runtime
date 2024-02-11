@@ -1342,7 +1342,10 @@ public:
     CheckLclVarSemanticsHelper(Compiler*         compiler,
                                const LIR::Range* range,
                                SmallHashTable<GenTree*, bool, 32U>& unusedDefs)
-        : compiler(compiler), range(range), unusedDefs(unusedDefs), unusedLclVarReads(compiler->getAllocator())
+        : compiler(compiler)
+        , range(range)
+        , unusedDefs(unusedDefs)
+        , unusedLclVarReads(compiler->getAllocator(CMK_DebugOnly))
     {
     }
 

@@ -77,7 +77,7 @@ inline ObjectAllocator::ObjectAllocator(Compiler* comp)
     , m_IsObjectStackAllocationEnabled(false)
     , m_AnalysisDone(false)
     , m_bitVecTraits(comp->lvaCount, comp)
-    , m_HeapLocalToStackLocalMap(comp->getAllocator())
+    , m_HeapLocalToStackLocalMap(comp->getAllocator(CMK_ObjectAllocator))
 {
     m_EscapingPointers                = BitVecOps::UninitVal();
     m_PossiblyStackPointingPointers   = BitVecOps::UninitVal();

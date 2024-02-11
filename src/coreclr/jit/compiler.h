@@ -1527,7 +1527,7 @@ struct Importer
 
     Importer(Compiler* compiler);
 
-    CompAllocator getAllocator(CompMemKind kind = CMK_Generic);
+    CompAllocator getAllocator(CompMemKind kind);
 
     void InitDebuggingInfo();
     void eeGetStmtOffsets();
@@ -5999,9 +5999,9 @@ protected:
     size_t compMaxUncheckedOffsetForNullObject;
 
 public:
-    CompAllocator getAllocator(CompMemKind cmk = CMK_Generic)
+    CompAllocator getAllocator(CompMemKind cmk)
     {
-        return CompAllocator(compArenaAllocator, cmk);
+        return {compArenaAllocator, cmk};
     }
 
 #ifdef DEBUG

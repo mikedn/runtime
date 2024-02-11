@@ -943,7 +943,7 @@ BBswtDesc* Compiler::GetDescriptorForSwitch(BasicBlock* switchBlk)
         // Now we have a set of unique successors.
         unsigned numNonDups = BitVecOps::Count(&blockVecTraits, uniqueSuccBlocks);
 
-        BasicBlock** nonDups = new (getAllocator()) BasicBlock*[numNonDups];
+        BasicBlock** nonDups = new (this, CMK_SwitchDedup) BasicBlock*[numNonDups];
 
         unsigned nonDupInd = 0;
         // At this point, all unique targets are in "uniqueSuccBlocks".  As we encounter each,
@@ -1067,7 +1067,7 @@ void Compiler::UpdateSwitchTableTarget(BasicBlock* switchBlk, BasicBlock* from, 
         return;
     }
 
-    switchBlk->bbJumpSwt->UpdateTarget(getAllocator(), switchBlk, from, to);
+    switchBlk->bbJumpSwt->UpdateTarget(getAllocator(CMK_SwitchDedup), switchBlk, from, to);
 }
 
 void Compiler::InvalidateUniqueSwitchSuccMap()
