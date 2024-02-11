@@ -6044,6 +6044,12 @@ struct GenTreeArrElem : public GenTree
         return i == 0 ? gtArrObj : gtArrInds[i - 1];
     }
 
+    GenTree** GetUse(unsigned i)
+    {
+        assert(i <= gtArrRank);
+        return i == 0 ? &gtArrObj : &gtArrInds[i - 1];
+    }
+
 #if DEBUGGABLE_GENTREE
     GenTreeArrElem() = default;
 #endif

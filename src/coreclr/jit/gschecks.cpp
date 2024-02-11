@@ -78,7 +78,6 @@ struct MarkPtrsInfo
     FixedBitVect** lclAssignGroups;
     unsigned       storeLclNum  = BAD_VAR_NUM; // Which local variable is the tree being assigned to?
     bool           isUnderIndir = false;       // Is this a pointer value tree that is being dereferenced?
-    bool           skipNextNode = false;       // Skip a single node during the tree-walk
 
     MarkPtrsInfo(Compiler* comp) : lclAssignGroups(new (comp, CMK_GS) FixedBitVect*[comp->lvaCount]())
     {
@@ -98,17 +97,9 @@ struct MarkPtrsInfo
  */
 Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWalkData* data)
 {
-    MarkPtrsInfo*  pState          = static_cast<MarkPtrsInfo*>(data->pCallbackData);
-    Compiler*      comp            = data->compiler;
-    GenTree*       tree            = *pTree;
-    FixedBitVect** lclAssignGroups = pState->lclAssignGroups;
-    assert(lclAssignGroups != nullptr);
-
-    if (pState->skipNextNode)
-    {
-        pState->skipNextNode = false;
-        return WALK_CONTINUE;
-    }
+    MarkPtrsInfo* pState = static_cast<MarkPtrsInfo*>(data->pCallbackData);
+    Compiler*     comp   = data->compiler;
+    GenTree*      tree   = *pTree;
 
     MarkPtrsInfo newState = *pState;
 
@@ -118,10 +109,16 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
         case GT_IND:
         case GT_BLK:
         case GT_OBJ:
+            newState.isUnderIndir = true;
+            comp->fgWalkTreePre(&tree->AsIndir()->gtOp1, comp->gsMarkPtrsAndAssignGroups, &newState);
+            return WALK_SKIP_SUBTREES;
+
         case GT_ARR_ELEM:
             newState.isUnderIndir = true;
-            newState.skipNextNode = true; // Don't have to worry about which kind of node we're dealing with
-            comp->fgWalkTreePre(&tree, comp->gsMarkPtrsAndAssignGroups, &newState);
+            for (unsigned i = 0; i < tree->AsArrElem()->GetNumOps(); i++)
+            {
+                comp->fgWalkTreePre(tree->AsArrElem()->GetUse(i), comp->gsMarkPtrsAndAssignGroups, &newState);
+            }
             return WALK_SKIP_SUBTREES;
 
         case GT_ARR_INDEX:
@@ -142,7 +139,8 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
 
             if (pState->storeLclNum != BAD_VAR_NUM)
             {
-                unsigned storeLclNum = pState->storeLclNum;
+                unsigned       storeLclNum     = pState->storeLclNum;
+                FixedBitVect** lclAssignGroups = pState->lclAssignGroups;
 
                 // Add storeLclNum and loadLclNum to a common assign group
                 if (lclAssignGroups[storeLclNum] != nullptr)
@@ -179,7 +177,7 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
                     bv->bitVectSet(loadLclNum);
                 }
             }
-            return WALK_CONTINUE;
+            return WALK_SKIP_SUBTREES;
         }
 
         // Calls - Mark arg variables
