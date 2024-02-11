@@ -6175,7 +6175,7 @@ void ValueNumStore::RunTests(Compiler* comp)
 
     SsaOptimizer ssa(comp);
 
-    ValueNumStore* vns    = new (comp->getAllocatorDebugOnly()) ValueNumStore(ssa);
+    ValueNumStore* vns    = new (comp, CMK_DebugOnly) ValueNumStore(ssa);
     ValueNum       vnNull = NullVN();
     assert(vnNull == NullVN());
 

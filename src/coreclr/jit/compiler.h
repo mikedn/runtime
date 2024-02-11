@@ -6005,17 +6005,6 @@ public:
     }
 
 #ifdef DEBUG
-    CompAllocator getAllocatorDebugOnly()
-    {
-        return getAllocator(CMK_DebugOnly);
-    }
-#endif // DEBUG
-
-public:
-// The following is used to track liveness of local variables, initialization
-// of valueclass constructors, and type safe use of IL instructions.
-
-#ifdef DEBUG
     // One line log function. Default level is 0. Increasing it gives you
     // more log information
 

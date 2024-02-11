@@ -905,7 +905,7 @@ void Compiler::compDoComponentUnitTestsOnce()
     {
         DidComponentUnitTests = true;
         RunValueNumStoreTests(this);
-        BitSetSupport::TestSuite(getAllocatorDebugOnly());
+        BitSetSupport::TestSuite(getAllocator(CMK_DebugOnly));
     }
 }
 
