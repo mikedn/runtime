@@ -1287,11 +1287,12 @@ public:
     {
         unsigned frameSize        = 0;
         unsigned regAvailEstimate = (CNT_CALLEE_ENREG * 3) + (CNT_CALLEE_TRASH * 2) + 1;
+#if FEATURE_FIXED_OUT_ARGS
+        LclVarDsc* outgoingArgsSpaceLcl = compiler->lvaGetDesc(compiler->lvaOutgoingArgSpaceVar);
+#endif
 
-        for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+        for (LclVarDsc* lcl : compiler->Locals())
         {
-            LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
             // Locals with no references don't use any local stack frame slots
             if (lcl->GetRefCount() == 0)
             {
@@ -1312,9 +1313,7 @@ public:
             // have ref count 0 at this point so we skip it anyway above.
             // P.S. Yeah, except we treat it as implicitly referenced so it actually has
             // ref count 1.
-            assert(compiler->lvaOutgoingArgSpaceVar != BAD_VAR_NUM);
-
-            if (lclNum == compiler->lvaOutgoingArgSpaceVar)
+            if (lcl == outgoingArgsSpaceLcl)
             {
                 continue;
             }

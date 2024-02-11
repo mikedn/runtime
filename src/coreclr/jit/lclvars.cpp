@@ -1415,6 +1415,8 @@ void Compiler::lvaResizeTable(unsigned newCapacity)
 
     lvaTableCapacity = newCapacity;
     lvaTable         = newTable;
+
+    // Note that we rely on the old array not being freed nor cleared, see comment in Locals().
 }
 
 bool LclVarDsc::IsDependentPromotedField(Compiler* compiler) const
@@ -1529,9 +1531,9 @@ void Compiler::lvSetMinOptsDoNotEnreg()
     JITDUMP("compEnregLocals() is false, setting doNotEnreg flag for all locals.");
     assert(!compEnregLocals());
 
-    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
+    for (LclVarDsc* lcl : Locals())
     {
-        lvaSetDoNotEnregister(lvaGetDesc(lclNum) DEBUGARG(Compiler::DNER_NoRegVars));
+        lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_NoRegVars));
     }
 }
 
@@ -2254,10 +2256,8 @@ void Compiler::lvaMarkLivenessTrackedLocals()
     unsigned    trackedCount = 0;
     LclVarDsc** tracked      = lvaTracked;
 
-    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
+    for (LclVarDsc* lcl : Locals())
     {
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
-
         // Start by assuming that the variable will be tracked.
         lcl->lvTracked = 1;
 
@@ -2976,10 +2976,8 @@ void Compiler::lvaSetImplictlyReferenced()
 
     lvaRefCountState = RCS_NORMAL;
 
-    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
+    for (LclVarDsc* lcl : Locals())
     {
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
-
         noway_assert(varTypeIsValidLclType(lcl->GetType()));
         assert(!lcl->lvTracked);
 
@@ -3010,10 +3008,8 @@ void Compiler::lvaComputeLclRefCounts()
 
     // First, reset all explicit ref counts and weights.
 
-    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
+    for (LclVarDsc* lcl : Locals())
     {
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
-
         noway_assert(varTypeIsValidLclType(lcl->GetType()));
 
         if (lcl->lvImplicitlyReferenced && !lvaIsX86VarargsStackParam(lcl))
@@ -3072,14 +3068,12 @@ void Compiler::lvaComputeLclRefCounts()
 
     // Third, bump ref counts for some implicit prolog references
 
-    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
+    for (LclVarDsc* lcl : Locals())
     {
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
-
         // TODO-MIKE-Review: It seems like nobody knows why is this done...
         if (lcl->IsRegParam())
         {
-            if ((lclNum < info.compArgsCount) && (lcl->GetRefCount() > 0))
+            if ((lcl->GetLclNum() < info.compArgsCount) && (lcl->GetRefCount() > 0))
             {
                 lvaAddRef(lcl, BB_UNITY_WEIGHT);
                 lvaAddRef(lcl, BB_UNITY_WEIGHT);
@@ -3769,10 +3763,8 @@ void Compiler::lvaFixVirtualFrameOffsets()
 
     JITDUMP("--- virtual stack offset to actual stack offset delta is %d\n", delta);
 
-    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
+    for (LclVarDsc* lcl : Locals())
     {
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
-
         // Can't be relative to EBP unless we have an EBP
         noway_assert(!lcl->lvFramePointerBased || codeGen->IsFramePointerRequired());
 
@@ -3808,7 +3800,7 @@ void Compiler::lvaFixVirtualFrameOffsets()
         }
 #endif
 
-        JITDUMP("-- V%02u was %d, now %d\n", lclNum, lcl->GetStackOffset(), lcl->GetStackOffset() + delta);
+        JITDUMP("-- V%02u was %d, now %d\n", lcl->GetLclNum(), lcl->GetStackOffset(), lcl->GetStackOffset() + delta);
 
         lcl->SetStackOffset(lcl->GetStackOffset() + delta);
 
@@ -3875,10 +3867,8 @@ void Compiler::lvaFixVirtualFrameOffsets()
 // Assign offsets to fields within a promoted struct (worker for lvaAssignFrameOffsets).
 void Compiler::lvaAssignPromotedFieldsVirtualFrameOffsets()
 {
-    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
+    for (LclVarDsc* lcl : Locals())
     {
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
-
         if (!lcl->IsPromotedField())
         {
             continue;
@@ -4337,14 +4327,14 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
 
         assignNext = 0;
 
-        for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
+        for (LclVarDsc* lcl : Locals())
         {
-            LclVarDsc* lcl = lvaGetDesc(lclNum);
-
             if (lcl->IsDependentPromotedField(this))
             {
                 continue;
             }
+
+            unsigned lclNum = lcl->GetLclNum();
 
 #if FEATURE_FIXED_OUT_ARGS
             if (lclNum == lvaOutgoingArgSpaceVar)
@@ -5611,14 +5601,9 @@ void Compiler::lvaTableDump()
 
     if (lvaRefCountState == RCS_NORMAL)
     {
-        for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
+        for (LclVarDsc* lcl : Locals())
         {
-            LclVarDsc* varDsc = lvaGetDesc(lclNum);
-            size_t     width  = strlen(refCntWtd2str(varDsc->GetRefWeight()));
-            if (width > refCntWtdWidth)
-            {
-                refCntWtdWidth = width;
-            }
+            refCntWtdWidth = Max(refCntWtdWidth, strlen(refCntWtd2str(lcl->GetRefWeight())));
         }
     }
 
@@ -5657,14 +5642,13 @@ void Compiler::lvaDispVarSet(VARSET_VALARG_TP set, VARSET_VALARG_TP allVars)
     {
         if (VarSetOps::IsMember(this, set, index))
         {
-            unsigned lclNum;
+            unsigned lclNum = BAD_VAR_NUM;
 
-            for (lclNum = 0; lclNum < lvaCount; lclNum++)
+            for (LclVarDsc* lcl : Locals())
             {
-                LclVarDsc* varDsc = lvaGetDesc(lclNum);
-
-                if (varDsc->HasLiveness() && (varDsc->GetLivenessBitIndex() == index))
+                if (lcl->HasLiveness() && (lcl->GetLivenessBitIndex() == index))
                 {
+                    lclNum = lcl->GetLclNum();
                     break;
                 }
             }

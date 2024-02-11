@@ -2002,12 +2002,11 @@ void LinearScan::buildIntervals()
 #ifdef DEBUG
         if (getLsraExtendLifeTimes())
         {
-            for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+            for (LclVarDsc* varDsc : compiler->Locals())
             {
-                LclVarDsc* varDsc = compiler->lvaGetDesc(lclNum);
                 if (varDsc->IsRegCandidate())
                 {
-                    JITDUMP("Adding exposed use of V%02u for LsraExtendLifetimes\n", lclNum);
+                    JITDUMP("Adding exposed use of V%02u for LsraExtendLifetimes\n", varDsc->GetLclNum());
                     Interval*    interval = getIntervalForLocalVar(varDsc->lvVarIndex);
                     RefPosition* pos =
                         newRefPosition(interval, currentLoc, RefTypeExpUse, nullptr, allRegs(interval->registerType));

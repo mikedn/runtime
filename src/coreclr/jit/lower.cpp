@@ -4726,10 +4726,8 @@ void Lowering::CheckAllLocalsImplicitlyReferenced()
     assert(!comp->compEnregLocals());
     assert(!comp->fgLocalVarLivenessDone);
 
-    for (unsigned lclNum = 0; lclNum < comp->lvaCount; lclNum++)
+    for (LclVarDsc* lcl : comp->Locals())
     {
-        LclVarDsc* lcl = comp->lvaGetDesc(lclNum);
-
         assert(varTypeIsValidLclType(lcl->GetType()));
 
         if (comp->lvaIsX86VarargsStackParam(lcl))

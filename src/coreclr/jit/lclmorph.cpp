@@ -3053,15 +3053,13 @@ void Compiler::fgPromoteStructs()
 
     StructPromotionHelper helper(this);
 
-    for (unsigned lclNum = 0, lclCount = lvaCount; lclNum < lclCount; lclNum++)
+    for (LclVarDsc* lcl : Locals())
     {
         if (lvaHaveManyLocals())
         {
             JITDUMP("Stopped promoting struct fields, due to too many locals.\n");
             break;
         }
-
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
 
         // TODO-ObjectStackAllocation: Enable promotion of fields of stack-allocated objects.
         if (!varTypeIsStruct(lcl->GetType()) || !lcl->GetLayout()->IsValueClass())

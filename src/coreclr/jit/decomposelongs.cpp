@@ -2009,10 +2009,8 @@ void DecomposeLongs::PromoteLongVars()
         return;
     }
 
-    for (unsigned lclNum = 0, count = m_compiler->lvaCount; lclNum < count; lclNum++)
+    for (LclVarDsc* varDsc : m_compiler->Locals())
     {
-        LclVarDsc* varDsc = m_compiler->lvaGetDesc(lclNum);
-
         if (!varDsc->TypeIs(TYP_LONG) || (varDsc->GetRefCount() == 0))
         {
             continue;
@@ -2044,9 +2042,10 @@ void DecomposeLongs::PromoteLongVars()
         varDsc->lvPromoted      = true;
         varDsc->lvContainsHoles = false;
 
-        JITDUMP("\nPromoting long local V%02u:", lclNum);
+        JITDUMP("\nPromoting long local V%02u:", varDsc->GetLclNum());
 
-        bool isParam = varDsc->IsParam();
+        bool     isParam = varDsc->IsParam();
+        unsigned lclNum  = varDsc->GetLclNum();
 
         for (unsigned index = 0; index < 2; ++index)
         {

@@ -6329,10 +6329,8 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
     }
 
     bool hasStructParam = false;
-    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
+    for (LclVarDsc* lcl : Locals())
     {
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
-
         if (lcl->IsPromotedField() && lvaGetDesc(lcl->GetPromotedFieldParentLclNum())->IsImplicitByRefParam())
         {
             // This was a promoted field of an implicit byref param but promotion was
@@ -6351,19 +6349,19 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
             // lvAddrExposed because it's reset by lvaRetypeImplicitByRefParams.
             if (lcl->lvHasLdAddrOp && !lcl->IsImplicitByRefParam())
             {
-                failTailCall("Local address taken", lclNum);
+                failTailCall("Local address taken", lcl->GetLclNum());
                 return nullptr;
             }
 
             if (lcl->IsAddressExposed())
             {
-                failTailCall("Local address taken", lclNum);
+                failTailCall("Local address taken", lcl->GetLclNum());
                 return nullptr;
             }
 
             if (lcl->IsPromoted() && lcl->IsParam())
             {
-                failTailCall("Has Struct Promoted Param", lclNum);
+                failTailCall("Has Struct Promoted Param", lcl->GetLclNum());
                 return nullptr;
             }
 
@@ -6371,7 +6369,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
             // goes away for the callee.
             if (lcl->IsPinning())
             {
-                failTailCall("Has pinning local", lclNum);
+                failTailCall("Has pinning local", lcl->GetLclNum());
                 return nullptr;
             }
         }
@@ -7734,19 +7732,18 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
     // Liveness phase will remove unnecessary initializations.
     if (info.compInitMem || compSuppressedZeroInit)
     {
-        for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
+        for (LclVarDsc* lcl : Locals())
         {
-#if FEATURE_FIXED_OUT_ARGS
-            if (lclNum == lvaOutgoingArgSpaceVar)
-            {
-                continue;
-            }
-#endif
-
-            LclVarDsc* lcl = lvaGetDesc(lclNum);
-
             if (!lcl->IsParam())
             {
+                unsigned lclNum = lcl->GetLclNum();
+
+#if FEATURE_FIXED_OUT_ARGS
+                if (lclNum == lvaOutgoingArgSpaceVar)
+                {
+                    continue;
+                }
+#endif
                 bool isUserLocal        = lclNum < info.compLocalsCount;
                 bool structWithGCFields = lcl->TypeIs(TYP_STRUCT) && lcl->GetLayout()->HasGCPtr();
                 bool hadSuppressedInit  = lcl->lvSuppressedZeroInit;

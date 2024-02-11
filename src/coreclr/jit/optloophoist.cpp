@@ -149,10 +149,8 @@ void LoopHoist::HoistExpr(GenTree* expr, unsigned loopNum)
 
 bool LoopHoist::Run()
 {
-    for (unsigned i = 0; i < compiler->lvaCount; i++)
+    for (LclVarDsc* lcl : compiler->Locals())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(i);
-
         if (lcl->HasLiveness())
         {
             if (varTypeIsFloating(lcl->GetType()))

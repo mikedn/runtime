@@ -304,9 +304,9 @@ bool Compiler::gsFindVulnerableParams()
     // some assign group.
     FixedBitVect* propagated = (lvaCount > 0) ? FixedBitVect::bitVectInit(lvaCount, this) : nullptr;
 
-    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
+    for (LclVarDsc* varDsc : Locals())
     {
-        LclVarDsc*          varDsc     = lvaGetDesc(lclNum);
+        unsigned            lclNum     = varDsc->GetLclNum();
         ShadowParamVarInfo* shadowInfo = &gsShadowVarInfo[lclNum];
 
         // If there was an indirection or if unsafe buffer, then we'd call it vulnerable.
@@ -390,7 +390,7 @@ static bool MayNeedShadowCopy(LclVarDsc* lcl)
     //     to take conservative approach.
     //
     // Possible solution to address case (b)
-    //   - Whenver a parameter passed in an argument register needs to be spilled by LSRA, we
+    //   - Whenever a parameter passed in an argument register needs to be spilled by LSRA, we
     //     create a new spill temp if the method needs GS cookie check.
     return lcl->IsParam();
 #else
@@ -402,13 +402,13 @@ static bool MayNeedShadowCopy(LclVarDsc* lcl)
 // copy and replace uses of the param by the shadow copy.
 void Compiler::gsParamsToShadows()
 {
-    unsigned lvaOldCount = lvaCount;
+    jitstd::span<LclVarDsc*> locals = Locals();
 
-    for (unsigned lclNum = 0; lclNum < lvaOldCount; lclNum++)
+    for (LclVarDsc* lcl : locals)
     {
-        gsShadowVarInfo[lclNum].shadowLclNum = BAD_VAR_NUM;
+        unsigned lclNum = lcl->GetLclNum();
 
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
+        gsShadowVarInfo[lclNum].shadowLclNum = BAD_VAR_NUM;
 
         if (!MayNeedShadowCopy(lcl))
         {
@@ -505,8 +505,10 @@ void Compiler::gsParamsToShadows()
     }
 
     // Now insert code to copy the params to their shadow copy.
-    for (unsigned lclNum = 0; lclNum < lvaOldCount; lclNum++)
+    for (LclVarDsc* lcl : locals)
     {
+        unsigned lclNum = lcl->GetLclNum();
+
         unsigned shadowLclNum = gsShadowVarInfo[lclNum].shadowLclNum;
         if (shadowLclNum == BAD_VAR_NUM)
         {

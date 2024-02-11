@@ -1485,10 +1485,8 @@ unsigned genGetParamRegIndex(regNumber regNum)
 regMaskTP CodeGen::genPrologBuildParamRegsTable(
     ParamRegInfo* paramRegs, unsigned paramRegCount, regMaskTP liveParamRegs, bool isFloat, regNumber tempReg)
 {
-    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; ++lclNum)
+    for (LclVarDsc* lcl : compiler->Locals())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
         if (!lcl->IsParam() || !lcl->IsRegParam())
         {
             continue;
@@ -2552,10 +2550,8 @@ void CodeGen::genPrologEnregisterIncomingStackParams()
     assert(!compiler->opts.IsOSR());
     assert(generatingProlog);
 
-    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Locals())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
         if (!lcl->IsParam())
         {
             continue;
@@ -2588,16 +2584,14 @@ void CodeGen::genPrologEnregisterIncomingStackParams()
         assert(regNum != REG_STK);
         var_types regType = lcl->GetActualRegisterType();
 
-        GetEmitter()->emitIns_R_S(ins_Load(regType), emitTypeSize(regType), regNum, lclNum, 0);
+        GetEmitter()->emitIns_R_S(ins_Load(regType), emitTypeSize(regType), regNum, lcl->GetLclNum(), 0);
     }
 }
 
 void CodeGen::MarkStackLocals()
 {
-    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Locals())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
         lcl->lvFramePointerBased = isFramePointerUsed();
 
 #if DOUBLE_ALIGN
@@ -2647,7 +2641,7 @@ void CodeGen::MarkStackLocals()
             assert(!lcl->lvRegister);
 #if FEATURE_FIXED_OUT_ARGS
             // lvaOutgoingArgSpaceVar is implicitly referenced.
-            assert(lclNum != compiler->lvaOutgoingArgSpaceVar);
+            assert(lcl->GetLclNum() != compiler->lvaOutgoingArgSpaceVar);
 #endif
 
             if (lcl->IsAddressExposed())
@@ -2696,10 +2690,8 @@ void CodeGen::CheckUseBlockInit()
     // The number of int-sized stack slots that need to be initialized.
     unsigned slotCount = 0;
 
-    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Locals())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
         if (!lcl->lvIsInReg() && !lcl->lvOnFrame)
         {
             noway_assert(lcl->GetRefCount() == 0);
@@ -2765,14 +2757,14 @@ void CodeGen::CheckUseBlockInit()
         {
             if (hasGCPtr && !isTracked)
             {
-                JITDUMP("must init V%02u because it has a GC ref\n", lclNum);
+                JITDUMP("must init V%02u because it has a GC ref\n", lcl->GetLclNum());
 
                 blockInit = true;
             }
             else if (hasGCPtr && varTypeIsStruct(lcl->GetType()))
             {
                 // TODO-1stClassStructs: support precise liveness reporting for such structs.
-                JITDUMP("must init a tracked V%02u because it a struct with a GC ref\n", lclNum);
+                JITDUMP("must init a tracked V%02u because it a struct with a GC ref\n", lcl->GetLclNum());
 
                 blockInit = true;
             }
@@ -2782,7 +2774,7 @@ void CodeGen::CheckUseBlockInit()
 
                 if (compInitMem)
                 {
-                    JITDUMP("must init V%02u because compInitMem is set and it is not a temp\n", lclNum);
+                    JITDUMP("must init V%02u because compInitMem is set and it is not a temp\n", lcl->GetLclNum());
 
                     blockInit = true;
                 }
@@ -2857,10 +2849,8 @@ void CodeGen::MarkGCTrackedSlots(int&       minBlockInitOffset,
     int minGCTrackedOffset = INT_MAX;
     int maxGCTrackedOffset = INT_MIN;
 
-    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Locals())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
         if (lcl->IsParam() && !lcl->IsRegParam())
         {
             continue;
@@ -3006,10 +2996,8 @@ void CodeGen::PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZero
     };
 #endif
 
-    for (unsigned varNum = 0; varNum < compiler->lvaCount; varNum++)
+    for (LclVarDsc* varDsc : compiler->Locals())
     {
-        LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
-
         if (!varDsc->lvMustInit)
         {
             continue;
@@ -3030,6 +3018,8 @@ void CodeGen::PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZero
         {
             continue;
         }
+
+        unsigned varNum = varDsc->GetLclNum();
 
         if (varDsc->TypeIs(TYP_STRUCT) && !compiler->info.compInitMem && varDsc->HasGCPtr())
         {
@@ -3096,10 +3086,8 @@ void CodeGen::PrologInitOsrLocals()
         const int      originalFrameSize = patchpointInfo->FpToSpDelta();
         const unsigned patchpointInfoLen = patchpointInfo->NumberOfLocals();
 
-        for (unsigned varNum = 0; varNum < compiler->lvaCount; varNum++)
+        for (LclVarDsc* const varDsc : compiler->Locals())
         {
-            LclVarDsc* const varDsc = compiler->lvaGetDesc(varNum);
-
             if (!compiler->lvaIsOSRLocal(varDsc))
             {
                 continue;
@@ -3107,18 +3095,18 @@ void CodeGen::PrologInitOsrLocals()
 
             if (!varDsc->lvIsInReg())
             {
-                JITDUMP("---OSR--- V%02u in memory\n", varNum);
+                JITDUMP("---OSR--- V%02u in memory\n", varDsc->GetLclNum());
                 continue;
             }
 
             if (!VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, varDsc->lvVarIndex))
             {
-                JITDUMP("---OSR--- V%02u (reg) not live at entry\n", varNum);
+                JITDUMP("---OSR--- V%02u (reg) not live at entry\n", varDsc->GetLclNum());
                 continue;
             }
 
             int      fieldOffset = 0;
-            unsigned lclNum      = varNum;
+            unsigned lclNum      = varDsc->GetLclNum();
 
             if (varDsc->lvIsStructField)
             {
@@ -3126,7 +3114,8 @@ void CodeGen::PrologInitOsrLocals()
                 assert(lclNum < patchpointInfoLen);
 
                 fieldOffset = varDsc->lvFldOffset;
-                JITDUMP("---OSR--- V%02u is promoted field of V%02u at offset %d\n", varNum, lclNum, fieldOffset);
+                JITDUMP("---OSR--- V%02u is promoted field of V%02u at offset %d\n", varDsc->GetLclNum(), lclNum,
+                        fieldOffset);
             }
 
             // Note we are always reading from the original frame here
@@ -3200,7 +3189,7 @@ void CodeGen::PrologInitOsrLocals()
             }
 
             JITDUMP("---OSR--- V%02u (reg) old rbp offset %d old frame %d this frame sp-fp %d new offset %d (%02xH)\n",
-                    varNum, stkOffs, originalFrameSize, genSPtoFPdelta(), offset, offset);
+                    varDsc->GetLclNum(), stkOffs, originalFrameSize, genSPtoFPdelta(), offset, offset);
 
 #ifdef TARGET_XARCH
             GetEmitter()->emitIns_R_AR(ins_Load(lclTyp), size, varDsc->GetRegNum(), genFramePointerReg(), offset);

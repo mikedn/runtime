@@ -138,9 +138,9 @@ void Compiler::fgLocalVarLiveness()
 
     // TODO-MIKE-Review: See if we can simply reset these during liveness computation
     // (e.g. if it's not live in then set it to false).
-    for (unsigned lclNum = 0; lclNum < lvaCount; ++lclNum)
+    for (LclVarDsc* lcl : Locals())
     {
-        lvaGetDesc(lclNum)->lvMustInit = false;
+        lcl->lvMustInit = false;
     }
 
     if (lvaTrackedCount == 0)
@@ -1319,10 +1319,8 @@ bool Compiler::fgInterBlockLocalVarLiveness()
         }
     }
 
-    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
+    for (LclVarDsc* lcl : Locals())
     {
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
-
         if (!lcl->HasLiveness())
         {
             continue;

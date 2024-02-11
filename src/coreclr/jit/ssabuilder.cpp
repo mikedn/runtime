@@ -63,9 +63,9 @@ void SsaOptimizer::Reset()
     assertionCount = 0;
     assertionTable = nullptr;
 
-    for (unsigned i = 0; i < compiler->lvaCount; ++i)
+    for (LclVarDsc* lcl : compiler->Locals())
     {
-        compiler->lvaGetDesc(i)->m_isSsa = false;
+        lcl->m_isSsa = false;
     }
 
     for (BasicBlock* block : compiler->Blocks())
@@ -124,10 +124,9 @@ SsaBuilder::SsaBuilder(SsaOptimizer& ssa)
 
 void SsaBuilder::Build()
 {
-    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Locals())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-        lcl->m_isSsa   = IncludeInSsa(lcl);
+        lcl->m_isSsa = IncludeInSsa(lcl);
     }
 
     InsertPhiFunctions();
@@ -717,10 +716,8 @@ public:
         GenTreeLclDef* firstInitSsaDef = nullptr;
         GenTreeLclDef* lastInitSsaDef  = nullptr;
 
-        for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+        for (LclVarDsc* lcl : compiler->Locals())
         {
-            LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
             if (lcl->IsSsa() && VarSetOps::IsMember(compiler, firstBlock->bbLiveIn, lcl->GetLivenessBitIndex()))
             {
                 // TODO-MIKE-SSA: Having a SSA_UNDEF oper might be better than using a LCL_VAR
@@ -729,6 +726,8 @@ public:
                 // that are supposed to be in SSA form. Though these nodes are not part of any
                 // basic block so they're invisible to anything except SSA code, which can treat
                 // them specially (by basically ignoring them).
+
+                unsigned lclNum = lcl->GetLclNum();
 
                 GenTreeLclVar* arg = compiler->gtNewLclvNode(lclNum, lcl->GetType());
                 GenTreeLclDef* def = new (compiler, GT_LCL_DEF) GenTreeLclDef(arg, firstBlock, lclNum);

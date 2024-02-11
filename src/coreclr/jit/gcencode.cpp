@@ -330,14 +330,14 @@ unsigned GCEncoder::GetUntrackedStackSlotCount()
 {
     unsigned int untrackedCount = 0;
 
-    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Locals())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
         if (lcl->IsDependentPromotedField(compiler) || !lcl->lvOnFrame || lcl->HasGCSlotLiveness())
         {
             continue;
         }
+
+        unsigned lclNum = lcl->GetLclNum();
 
         if (varTypeIsGC(lcl->GetType()))
         {
@@ -2279,10 +2279,8 @@ unsigned GCEncoder::AddUntrackedStackSlots(uint8_t* dest, const int mask)
     unsigned totalSize  = 0;
     int      lastoffset = 0;
 
-    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Locals())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
         if (lcl->IsDependentPromotedField(compiler) || !lcl->lvOnFrame || lcl->HasGCSlotLiveness())
         {
             continue;
@@ -2291,7 +2289,7 @@ unsigned GCEncoder::AddUntrackedStackSlots(uint8_t* dest, const int mask)
         if (varTypeIsGC(lcl->GetType()))
         {
 #ifndef FEATURE_EH_FUNCLETS
-            if (lclNum == trackedThisLclNum)
+            if (lcl->GetLclNum() == trackedThisLclNum)
             {
                 continue;
             }
@@ -4240,10 +4238,8 @@ void GCEncoder::SetHeaderInfo(unsigned codeSize, unsigned prologSize, ReturnKind
 
 void GCEncoder::AddUntrackedStackSlots()
 {
-    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Locals())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
         if (lcl->IsDependentPromotedField(compiler) || !lcl->lvOnFrame || lcl->HasGCSlotLiveness())
         {
             continue;

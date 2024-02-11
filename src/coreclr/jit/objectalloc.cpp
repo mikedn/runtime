@@ -191,9 +191,9 @@ void ObjectAllocator::MarkEscapingVarsAndBuildConnGraph()
         }
     };
 
-    for (unsigned lclNum = 0; lclNum < comp->lvaCount; ++lclNum)
+    for (LclVarDsc* lcl : comp->Locals())
     {
-        LclVarDsc* lcl = comp->lvaGetDesc(lclNum);
+        unsigned lclNum = lcl->GetLclNum();
 
         if (lcl->TypeIs(TYP_REF, TYP_BYREF, TYP_I_IMPL))
         {
@@ -278,12 +278,12 @@ void ObjectAllocator::ComputeStackObjectPointers(BitVecTraits* bitVecTraits)
     while (changed)
     {
         changed = false;
-        for (unsigned lclNum = 0; lclNum < comp->lvaCount; ++lclNum)
+        for (LclVarDsc* lcl : comp->Locals())
         {
-            LclVarDsc* lcl = comp->lvaGetDesc(lclNum);
-
             if (lcl->TypeIs(TYP_REF, TYP_BYREF, TYP_I_IMPL))
             {
+                unsigned lclNum = lcl->GetLclNum();
+
                 if (!MayLclVarPointToStack(lclNum) &&
                     !BitVecOps::IsEmptyIntersection(bitVecTraits, m_PossiblyStackPointingPointers,
                                                     m_ConnGraphAdjacencyMatrix[lclNum]))

@@ -1415,10 +1415,8 @@ void LinearScan::identifyCandidates()
     }
 
     INTRACK_STATS(regCandidateVarCount = 0);
-    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+    for (LclVarDsc* varDsc : compiler->Locals())
     {
-        LclVarDsc* varDsc = compiler->lvaGetDesc(lclNum);
-
         assert(!varDsc->IsRegCandidate());
         assert(!varDsc->lvRegister);
         assert(!varDsc->lvOnFrame);
@@ -2164,11 +2162,10 @@ void LinearScan::dumpVarRefPositions(const char* title)
     {
         printf("\nVAR REFPOSITIONS %s\n", title);
 
-        for (unsigned i = 0; i < compiler->lvaCount; i++)
+        for (LclVarDsc* varDsc : compiler->Locals())
         {
-            printf("--- V%02u", i);
+            printf("--- V%02u", varDsc->GetLclNum());
 
-            LclVarDsc* varDsc = compiler->lvaGetDesc(i);
             if (varDsc->IsRegCandidate())
             {
                 Interval* interval = getIntervalForLocalVar(varDsc->lvVarIndex);
@@ -6540,10 +6537,8 @@ void LinearScan::resolveRegisters()
         resolveEdges();
 
         // Verify register assignments on variables
-        for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+        for (LclVarDsc* varDsc : compiler->Locals())
         {
-            LclVarDsc* varDsc = compiler->lvaGetDesc(lclNum);
-
             if (!varDsc->IsRegCandidate())
             {
                 assert(varDsc->GetRegNum() == REG_STK);
@@ -6572,7 +6567,8 @@ void LinearScan::resolveRegisters()
 #endif // TARGET_ARM
                 {
                     varDsc->SetParamInitialReg(initialReg);
-                    JITDUMP("  Set V%02u parameter initial register to %s\n", lclNum, getRegName(initialReg));
+                    JITDUMP("  Set V%02u parameter initial register to %s\n", varDsc->GetLclNum(),
+                            getRegName(initialReg));
                 }
 
                 // Stack args that are part of dependently-promoted structs should never be register candidates (see

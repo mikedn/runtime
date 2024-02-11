@@ -5500,10 +5500,9 @@ void Compiler::optAddCopies()
         return;
     }
 
-    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
+    for (LclVarDsc* varDsc : Locals())
     {
-        LclVarDsc* varDsc = lvaGetDesc(lclNum);
-        var_types  typ    = varDsc->TypeGet();
+        var_types typ = varDsc->TypeGet();
 
         // We only add copies for non temp local variables
         // that have a single def and that can possibly be enregistered
@@ -5574,7 +5573,8 @@ void Compiler::optAddCopies()
         BasicBlock::weight_t paramAvgWtdRefDiv2 =
             (varDsc->lvRefCntWtd() + varDsc->lvRefCnt() / 2) / (varDsc->lvRefCnt() * 2);
 
-        bool paramFoundImportantUse = false;
+        bool     paramFoundImportantUse = false;
+        unsigned lclNum                 = varDsc->GetLclNum();
 
         JITDUMP("Trying to add a copy for %s V%02u, avg_wtd = %s\n", varDsc->IsParam() ? "param" : "local", lclNum,
                 refCntWtd2str(paramAvgWtdRefDiv2));

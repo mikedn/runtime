@@ -3280,6 +3280,17 @@ public:
 
     unsigned lvaTrackedCountInSizeTUnits = 0; // min # of size_t's sufficient to hold a bit for all tracked locals
 
+    jitstd::span<LclVarDsc*> Locals() const
+    {
+        // TODO-MIKE-Review: A few uses of this rely on the fact that the JIT doesn't free any allocated
+        // memory until compilation ends and so the locals array remains valid, even if new locals are
+        // added and the array is resized. This is rather convenient because it allows iterating over the
+        // existing locals and ignoring any locals that are added during the iteration, which is exactly
+        // what we need most of the time. But if we ever want to free memory this will need to be changed.
+
+        return jitstd::span<LclVarDsc*>(lvaTable, lvaCount);
+    }
+
 #ifdef DEBUG
     unsigned lvaCurEpoch = 0; // VarSets are relative to a specific set of tracked var indices.
     // It that changes, this changes.  VarSets from different epochs
