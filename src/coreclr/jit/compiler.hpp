@@ -1017,11 +1017,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
-inline bool Compiler::lvaHaveManyLocals() const
-{
-    return (lvaCount >= (unsigned)JitConfig.JitMaxLocalsToTrack());
-}
-
 inline LclVarDsc* Compiler::lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason))
 {
     LclVarDsc* lcl = lvaGrabTemp(shortLifetime DEBUGARG(reason));

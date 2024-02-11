@@ -2170,32 +2170,33 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
     // unless unless CLFLG_MINOPT is set
     else if (!opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
     {
-        if ((unsigned)JitConfig.JitMinOptsCodeSize() < info.compILCodeSize)
+        if (JitConfig.JitMinOptsCodeSize() < info.compILCodeSize)
         {
             JITLOG((LL_INFO10, "IL Code Size exceeded, using MinOpts for method %s\n", info.compFullName));
             theMinOptsValue = true;
         }
-        else if ((unsigned)JitConfig.JitMinOptsInstrCount() < ilStats.instrCount)
+        else if (JitConfig.JitMinOptsInstrCount() < ilStats.instrCount)
         {
             JITLOG((LL_INFO10, "IL instruction count exceeded, using MinOpts for method %s\n", info.compFullName));
             theMinOptsValue = true;
         }
-        else if ((unsigned)JitConfig.JitMinOptsBbCount() < fgBBcount)
+        else if (JitConfig.JitMinOptsBbCount() < fgBBcount)
         {
             JITLOG((LL_INFO10, "Basic Block count exceeded, using MinOpts for method %s\n", info.compFullName));
             theMinOptsValue = true;
         }
-        else if ((unsigned)JitConfig.JitMinOptsLvNumCount() < lvaCount)
+        else if (JitConfig.JitMinOptsLvNumCount() < lvaCount)
         {
             JITLOG((LL_INFO10, "Local Variable Num count exceeded, using MinOpts for method %s\n", info.compFullName));
             theMinOptsValue = true;
         }
-        else if ((unsigned)JitConfig.JitMinOptsLvRefCount() < ilStats.lclRefCount)
+        else if (JitConfig.JitMinOptsLvRefCount() < ilStats.lclRefCount)
         {
             JITLOG((LL_INFO10, "Local Variable Ref count exceeded, using MinOpts for method %s\n", info.compFullName));
             theMinOptsValue = true;
         }
-        if (theMinOptsValue == true)
+
+        if (theMinOptsValue)
         {
             JITLOG((LL_INFO10000, "IL Code Size,Instr %4d,%4d, Basic Block count %3d, Local Variable Num,Ref count "
                                   "%3d,%3d for method %s\n",

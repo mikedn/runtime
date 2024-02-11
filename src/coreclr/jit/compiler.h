@@ -3465,7 +3465,10 @@ public:
         return lvaTracked[trackedIndex];
     }
 
-    bool lvaHaveManyLocals() const;
+    bool lvaHaveManyLocals() const
+    {
+        return lvaCount >= JitConfig.JitMaxLocalsToTrack();
+    }
 
     LclVarDsc* lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason));
     LclVarDsc* lvaNewTemp(ClassLayout* layout, bool shortLifetime DEBUGARG(const char* reason));

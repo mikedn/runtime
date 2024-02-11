@@ -2375,7 +2375,7 @@ void Compiler::lvaMarkLivenessTrackedLocals()
         jitstd::sort(tracked, tracked + trackedCount, LclVarDsc_BlendedCode_Less());
     }
 
-    lvaTrackedCount = min(static_cast<unsigned>(JitConfig.JitMaxLocalsToTrack()), trackedCount);
+    lvaTrackedCount = Min(JitConfig.JitMaxLocalsToTrack(), trackedCount);
 
     JITDUMP("Tracked local (%u out of %u) table:\n", lvaTrackedCount, lvaCount);
 
