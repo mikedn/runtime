@@ -837,11 +837,11 @@ private:
     void writeLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl, regNumber reg);
     void resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, RefPosition* currentRefPosition);
 
-    void insertMove(BasicBlock* block, GenTree* insertionPoint, unsigned lclNum, regNumber inReg, regNumber outReg);
+    void insertMove(BasicBlock* block, GenTree* insertionPoint, Interval* interval, RegNum inReg, RegNum outReg);
 
 #ifdef TARGET_XARCH
     void insertSwap(
-        BasicBlock* block, GenTree* insertionPoint, unsigned lclNum1, regNumber reg1, unsigned lclNum2, regNumber reg2);
+        BasicBlock* block, GenTree* insertionPoint, Interval* interval1, RegNum reg1, Interval* interval2, RegNum reg2);
 #endif
 
 private:

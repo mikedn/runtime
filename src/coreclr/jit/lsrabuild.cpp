@@ -2056,12 +2056,13 @@ void LinearScan::validateIntervals()
     {
         for (unsigned i = 0; i < compiler->lvaTrackedCount; i++)
         {
-            if (!compiler->lvaGetDescByTrackedIndex(i)->IsRegCandidate())
+            LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(i);
+            if (!lcl->IsRegCandidate())
             {
                 continue;
             }
             Interval* interval = getIntervalForLocalVar(i);
-
+            assert(interval->getLocalVar(compiler) == lcl);
             bool     defined      = false;
             unsigned lastUseBBNum = 0;
             JITDUMP("-----------------\n");
@@ -2080,7 +2081,7 @@ void LinearScan::validateIntervals()
                         {
                             JITDUMP("%s: ", compiler->info.compMethodName);
                         }
-                        JITDUMP("LocalVar V%02u: undefined use at %u\n", interval->varNum, ref->nodeLocation);
+                        JITDUMP("LocalVar V%02u: undefined use at %u\n", lcl->GetLclNum(), ref->nodeLocation);
                         assert(false);
                     }
                 }

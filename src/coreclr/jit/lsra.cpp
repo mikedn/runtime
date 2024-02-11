@@ -1870,11 +1870,11 @@ void LinearScan::checkLastUses(BasicBlock* block)
         JITDUMP("\n==============================\n");
     }
 
-    unsigned keepAliveVarNum = BAD_VAR_NUM;
+    LclVarDsc* keepAliveThisLcl = nullptr;
     if (compiler->lvaKeepAliveAndReportThis())
     {
-        keepAliveVarNum = compiler->info.compThisArg;
-        assert(compiler->info.compIsStatic == false);
+        assert(!compiler->info.compIsStatic);
+        keepAliveThisLcl = compiler->lvaGetDesc(compiler->info.compThisArg);
     }
 
     // find which uses are lastUses
@@ -1896,8 +1896,7 @@ void LinearScan::checkLastUses(BasicBlock* block)
         assert(currentRefPosition->refType != RefTypeParamDef && currentRefPosition->refType != RefTypeZeroInit);
         if (currentRefPosition->isIntervalRef() && currentRefPosition->getInterval()->isLocalVar)
         {
-            unsigned   varNum   = currentRefPosition->getInterval()->varNum;
-            LclVarDsc* lcl      = compiler->lvaGetDesc(varNum);
+            LclVarDsc* lcl      = currentRefPosition->getInterval()->getLocalVar(compiler);
             unsigned   varIndex = lcl->GetLivenessBitIndex();
 
             LsraLocation loc = currentRefPosition->nodeLocation;
@@ -1907,7 +1906,7 @@ void LinearScan::checkLastUses(BasicBlock* block)
             assert(tree != nullptr || currentRefPosition->refType == RefTypeExpUse ||
                    currentRefPosition->refType == RefTypeDummyDef);
 
-            if (!VarSetOps::IsMember(compiler, computedLive, varIndex) && varNum != keepAliveVarNum)
+            if (!VarSetOps::IsMember(compiler, computedLive, varIndex) && (lcl != keepAliveThisLcl))
             {
                 // There was no exposed use, so this is a "last use" (and we mark it thus even if it's a def)
 
@@ -1927,14 +1926,14 @@ void LinearScan::checkLastUses(BasicBlock* block)
                 }
                 else if (!currentRefPosition->lastUse)
                 {
-                    JITDUMP("missing expected last use of V%02u @%u\n", varNum, loc);
+                    JITDUMP("missing expected last use of V%02u @%u\n", lcl->GetLclNum(), loc);
                     foundDiff = true;
                 }
                 VarSetOps::AddElemD(compiler, computedLive, varIndex);
             }
             else if (currentRefPosition->lastUse)
             {
-                JITDUMP("unexpected last use of V%02u @%u\n", varNum, loc);
+                JITDUMP("unexpected last use of V%02u @%u\n", lcl->GetLclNum(), loc);
                 foundDiff = true;
             }
             else if (extendLifetimes() && tree != nullptr)
@@ -5878,7 +5877,7 @@ void LinearScan::insertUpperVectorSave(GenTree*     tree,
         return;
     }
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclVarInterval->varNum);
+    LclVarDsc* lcl = lclVarInterval->getLocalVar(compiler);
     assert(Compiler::varTypeNeedsPartialCalleeSave(lcl->GetRegisterType()));
 
     // On Arm64, we must always have a register to save the upper half,
@@ -5896,7 +5895,7 @@ void LinearScan::insertUpperVectorSave(GenTree*     tree,
 
     // Insert the save before the call.
 
-    GenTree* saveLcl = compiler->gtNewLclvNode(lclVarInterval->varNum, lcl->GetType());
+    GenTree* saveLcl = compiler->gtNewLclvNode(lcl->GetLclNum(), lcl->GetType());
     saveLcl->SetRegNum(lclVarReg);
     saveLcl->ClearRegSpillSet();
     SetLsraAdded(saveLcl);
@@ -5949,10 +5948,10 @@ void LinearScan::insertUpperVectorRestore(GenTree*     tree,
     // We should not call this method if the lclVar is not in a register (we should have simply marked the entire
     // lclVar as spilled).
     assert(lclVarReg != REG_NA);
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclVarInterval->varNum);
+    LclVarDsc* lcl = lclVarInterval->getLocalVar(compiler);
     assert(Compiler::varTypeNeedsPartialCalleeSave(lcl->GetRegisterType()));
 
-    GenTree* restoreLcl = compiler->gtNewLclvNode(lclVarInterval->varNum, lcl->GetType());
+    GenTree* restoreLcl = compiler->gtNewLclvNode(lcl->GetLclNum(), lcl->GetType());
     restoreLcl->SetRegNum(lclVarReg);
     restoreLcl->ClearRegSpillSet();
     SetLsraAdded(restoreLcl);
@@ -6718,9 +6717,9 @@ void LinearScan::resolveRegisters()
 //    If fromReg or toReg is REG_STK, then move from/to memory, respectively.
 
 void LinearScan::insertMove(
-    BasicBlock* block, GenTree* insertionPoint, unsigned lclNum, regNumber fromReg, regNumber toReg)
+    BasicBlock* block, GenTree* insertionPoint, Interval* interval, RegNum fromReg, RegNum toReg)
 {
-    LclVarDsc* varDsc = compiler->lvaGetDesc(lclNum);
+    LclVarDsc* varDsc = interval->getLocalVar(compiler);
     // the lclVar must be a register candidate
     assert(isRegCandidate(varDsc));
     // One or both MUST be a register
@@ -6731,7 +6730,7 @@ void LinearScan::insertMove(
     // This var can't be marked lvRegister now
     varDsc->SetRegNum(REG_STK);
 
-    GenTree* src = compiler->gtNewLclvNode(lclNum, varDsc->TypeGet());
+    GenTree* src = compiler->gtNewLclvNode(varDsc->GetLclNum(), varDsc->GetType());
     src->ClearRegSpillSet();
     SetLsraAdded(src);
 
@@ -6811,31 +6810,23 @@ void LinearScan::insertMove(
 
 #ifdef TARGET_XARCH
 void LinearScan::insertSwap(
-    BasicBlock* block, GenTree* insertionPoint, unsigned lclNum1, regNumber reg1, unsigned lclNum2, regNumber reg2)
+    BasicBlock* block, GenTree* insertionPoint, Interval* interval1, RegNum reg1, Interval* interval2, RegNum reg2)
 {
-#ifdef DEBUG
-    if (VERBOSE)
-    {
-        const char* insertionPointString = "top";
-        if (insertionPoint == nullptr)
-        {
-            insertionPointString = "bottom";
-        }
-        printf("   " FMT_BB " %s: swap V%02u in %s with V%02u in %s\n", block->bbNum, insertionPointString, lclNum1,
-               getRegName(reg1), lclNum2, getRegName(reg2));
-    }
-#endif // DEBUG
+    LclVarDsc* varDsc1 = interval1->getLocalVar(compiler);
+    LclVarDsc* varDsc2 = interval2->getLocalVar(compiler);
 
-    LclVarDsc* varDsc1 = compiler->lvaGetDesc(lclNum1);
-    LclVarDsc* varDsc2 = compiler->lvaGetDesc(lclNum2);
+    JITDUMP("   " FMT_BB " %s: swap V%02u in %s with V%02u in %s\n", block->bbNum,
+            insertionPoint == nullptr ? "bottom" : "top", varDsc1->GetLclNum(), getRegName(reg1), varDsc2->GetLclNum(),
+            getRegName(reg2));
+
     assert(reg1 != REG_STK && reg1 != REG_NA && reg2 != REG_STK && reg2 != REG_NA);
 
-    GenTree* lcl1 = compiler->gtNewLclvNode(lclNum1, varDsc1->TypeGet());
+    GenTree* lcl1 = compiler->gtNewLclvNode(varDsc1->GetLclNum(), varDsc1->GetType());
     lcl1->SetRegNum(reg1);
     lcl1->ClearRegSpillSet();
     SetLsraAdded(lcl1);
 
-    GenTree* lcl2 = compiler->gtNewLclvNode(lclNum2, varDsc2->TypeGet());
+    GenTree* lcl2 = compiler->gtNewLclvNode(varDsc2->GetLclNum(), varDsc2->GetType());
     lcl2->SetRegNum(reg2);
     lcl2->ClearRegSpillSet();
     SetLsraAdded(lcl2);
@@ -7072,12 +7063,12 @@ void LinearScan::addResolution(
     // We should never add resolution move inside BBCallAlwaysPairTail.
     noway_assert(!block->isBBCallAlwaysPairTail());
 
+    JITDUMP("   " FMT_BB " %s: move V%02u from %s to %s", block->bbNum, insertionPointString,
+            interval->getLocalVar(compiler)->GetLclNum(), getRegName(fromReg), getRegName(toReg));
 #endif // DEBUG
 
-    JITDUMP("   " FMT_BB " %s: move V%02u from ", block->bbNum, insertionPointString, interval->varNum);
-    JITDUMP("%s to %s", getRegName(fromReg), getRegName(toReg));
+    insertMove(block, insertionPoint, interval, fromReg, toReg);
 
-    insertMove(block, insertionPoint, interval->varNum, fromReg, toReg);
     if (fromReg == REG_STK || toReg == REG_STK)
     {
         assert(interval->isSpilled);
@@ -7601,7 +7592,8 @@ void LinearScan::resolveEdges()
                             foundMismatch = true;
                             printf("Found mismatched var locations after resolution!\n");
                         }
-                        printf(" V%02u: " FMT_BB " to " FMT_BB ": %s to %s\n", interval->varNum, predBlock->bbNum,
+                        printf(" V%02u: " FMT_BB " to " FMT_BB ": %s to %s\n",
+                               compiler->lvaGetDescByTrackedIndex(varIndex)->GetLclNum(), predBlock->bbNum,
                                block->bbNum, getRegName(fromReg), getRegName(toReg));
                     }
                 }
@@ -8028,8 +8020,8 @@ void LinearScan::resolveEdge(BasicBlock*      fromBlock,
                     if (useSwap)
                     {
                         // Generate a "swap" of fromReg and targetReg
-                        insertSwap(block, insertionPoint, sourceIntervals[source[otherTargetReg]]->varNum, targetReg,
-                                   sourceIntervals[sourceReg]->varNum, fromReg);
+                        insertSwap(block, insertionPoint, sourceIntervals[source[otherTargetReg]], targetReg,
+                                   sourceIntervals[sourceReg], fromReg);
                         location[sourceReg]              = REG_NA;
                         location[source[otherTargetReg]] = (regNumberSmall)fromReg;
 
@@ -8582,12 +8574,12 @@ void Interval::dump()
 
     if (isLocalVar)
     {
-        printf(" (V%02u)", varNum);
+        printf(" (V%02u)", getLocalVar(JitTls::GetCompiler())->GetLclNum());
     }
     else if (IsUpperVector())
     {
         assert(relatedInterval != nullptr);
-        printf(" (U%02u)", relatedInterval->varNum);
+        printf(" (U%02u)", relatedInterval->getLocalVar(JitTls::GetCompiler())->GetLclNum());
     }
     printf(" %s", varTypeName(registerType));
     if (isInternal)
@@ -8666,12 +8658,12 @@ void Interval::tinyDump()
     printf("<Ivl:%u", intervalIndex);
     if (isLocalVar)
     {
-        printf(" V%02u", varNum);
+        printf(" V%02u", getLocalVar(JitTls::GetCompiler())->GetLclNum());
     }
     else if (IsUpperVector())
     {
         assert(relatedInterval != nullptr);
-        printf(" (U%02u)", relatedInterval->varNum);
+        printf(" (U%02u)", relatedInterval->getLocalVar(JitTls::GetCompiler())->GetLclNum());
     }
     else if (isInternal)
     {
@@ -8685,13 +8677,13 @@ void Interval::microDump()
 {
     if (isLocalVar)
     {
-        printf("<V%02u/L%u>", varNum, intervalIndex);
+        printf("<V%02u/L%u>", getLocalVar(JitTls::GetCompiler())->GetLclNum(), intervalIndex);
         return;
     }
     else if (IsUpperVector())
     {
         assert(relatedInterval != nullptr);
-        printf(" (U%02u)", relatedInterval->varNum);
+        printf(" (U%02u)", relatedInterval->getLocalVar(JitTls::GetCompiler())->GetLclNum());
     }
     char intervalTypeChar = 'I';
     if (isInternal)
@@ -8822,11 +8814,9 @@ void LinearScan::lsraDispNode(GenTree* tree, LsraTupleDumpMode mode, bool hasDes
     printf("%c N%04u. ", spillChar, tree->gtSeqNum);
 
     LclVarDsc* varDsc = nullptr;
-    unsigned   varNum = BAD_VAR_NUM;
     if (tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
     {
-        varNum = tree->AsLclVar()->GetLclNum();
-        varDsc = compiler->lvaGetDesc(varNum);
+        varDsc = compiler->lvaGetDesc(tree->AsLclVar());
         if (varDsc->IsRegCandidate())
         {
             hasDest = false;
@@ -8845,12 +8835,13 @@ void LinearScan::lsraDispNode(GenTree* tree, LsraTupleDumpMode mode, bool hasDes
     {
         if (mode == LSRA_DUMP_REFPOS)
         {
-            printf(" V%02u(L%d) ", varNum, getIntervalForLocalVar(varDsc->GetLivenessBitIndex())->intervalIndex);
+            printf(" V%02u(L%d) ", varDsc->GetLclNum(),
+                   getIntervalForLocalVar(varDsc->GetLivenessBitIndex())->intervalIndex);
         }
         else
         {
             lsraGetOperandString(tree, mode, operandString, operandStringLength);
-            printf(" V%02u(%s) ", varNum, operandString);
+            printf(" V%02u(%s) ", varDsc->GetLclNum(), operandString);
             if (mode == LinearScan::LSRA_DUMP_POST && tree->IsAnyRegSpilled())
             {
                 printf("R ");
@@ -8942,9 +8933,9 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
         for (; refPosIterator != refPositions.end() && currentRefPosition->refType != RefTypeBB;
              ++refPosIterator, currentRefPosition = &refPosIterator)
         {
-            Interval* interval = currentRefPosition->getInterval();
-            assert(interval != nullptr && interval->isLocalVar);
-            printf(" V%02d", interval->varNum);
+            Interval*  interval = currentRefPosition->getInterval();
+            LclVarDsc* varDsc   = interval->getLocalVar(compiler);
+            printf(" V%02d", varDsc->GetLclNum());
             if (mode == LSRA_DUMP_POST)
             {
                 regNumber reg;
@@ -8956,7 +8947,6 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
                 {
                     reg = currentRefPosition->assignedReg();
                 }
-                LclVarDsc* varDsc = compiler->lvaGetDesc(interval->varNum);
                 printf("(");
                 regNumber assignedReg = varDsc->GetRegNum();
                 regNumber argReg      = varDsc->IsRegParam() ? varDsc->GetParamReg() : REG_STK;
@@ -8996,12 +8986,14 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
                     case RefTypeExpUse:
                         assert(interval != nullptr);
                         assert(interval->isLocalVar);
-                        printf("  Exposed use of V%02u at #%d\n", interval->varNum, currentRefPosition->rpNum);
+                        printf("  Exposed use of V%02u at #%d\n", interval->getLocalVar(compiler)->GetLclNum(),
+                               currentRefPosition->rpNum);
                         break;
                     case RefTypeDummyDef:
                         assert(interval != nullptr);
                         assert(interval->isLocalVar);
-                        printf("  Dummy def of V%02u at #%d\n", interval->varNum, currentRefPosition->rpNum);
+                        printf("  Dummy def of V%02u at #%d\n", interval->getLocalVar(compiler)->GetLclNum(),
+                               currentRefPosition->rpNum);
                         break;
                     case RefTypeBB:
                         block->dspBlockHeader(compiler);
@@ -9615,11 +9607,11 @@ void LinearScan::dumpIntervalName(Interval* interval)
 {
     if (interval->isLocalVar)
     {
-        printf(intervalNameFormat, 'V', interval->varNum);
+        printf(intervalNameFormat, 'V', interval->getLocalVar(compiler)->GetLclNum());
     }
     else if (interval->IsUpperVector())
     {
-        printf(intervalNameFormat, 'U', interval->relatedInterval->varNum);
+        printf(intervalNameFormat, 'U', interval->relatedInterval->getLocalVar(compiler)->GetLclNum());
     }
     else if (interval->isConstant)
     {
