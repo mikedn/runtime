@@ -491,10 +491,8 @@ void Compiler::gsParamsToShadows()
     }
 
     // Now insert code to copy the params to their shadow copy.
-    for (LclVarDsc* lcl : locals)
+    for (unsigned lclNum = 0; lclNum < locals.size(); lclNum++)
     {
-        unsigned lclNum = lcl->GetLclNum();
-
         unsigned shadowLclNum = gsLclShadowMap[lclNum];
         if (shadowLclNum == BAD_VAR_NUM)
         {
