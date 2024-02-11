@@ -859,11 +859,10 @@ bool LinearScan::buildKillPositionsForNode(GenTree* tree, LsraLocation currentLo
         // if (!blockSequence[curBBSeqNum]->isRunRarely())
         if (enregisterLocalVars)
         {
-            VarSetOps::Iter iter(compiler, currentLiveVars);
-            unsigned        varIndex = 0;
-            while (iter.NextElem(&varIndex))
+            for (VarSetOps::Enumerator e(compiler, currentLiveVars); e.MoveNext();)
             {
-                LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(varIndex);
+                const unsigned varIndex = e.Current();
+                LclVarDsc*     varDsc   = compiler->lvaGetDescByTrackedIndex(varIndex);
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
                 if (Compiler::varTypeNeedsPartialCalleeSave(varDsc->GetRegisterType()))
                 {
@@ -1079,15 +1078,13 @@ void LinearScan::buildUpperVectorSaveRefPositions(GenTree* tree, LsraLocation cu
         assert((fpCalleeKillSet & RBM_FLT_CALLEE_SAVED) == RBM_NONE);
 
         // We only need to save the upper half of any large vector vars that are currently live.
-        VARSET_TP       liveLargeVectors(VarSetOps::Intersection(compiler, currentLiveVars, largeVectorVars));
-        VarSetOps::Iter iter(compiler, liveLargeVectors);
-        unsigned        varIndex = 0;
-        while (iter.NextElem(&varIndex))
+        for (auto e = VarSetOps::EnumOp(compiler, VarSetOps::IntersectionOp, currentLiveVars, largeVectorVars);
+             e.MoveNext();)
         {
-            Interval* varInterval = getIntervalForLocalVar(varIndex);
+            Interval* varInterval = getIntervalForLocalVar(e.Current());
             if (!varInterval->isPartiallySpilled)
             {
-                Interval*    upperVectorInterval = getUpperVectorInterval(varIndex);
+                Interval*    upperVectorInterval = getUpperVectorInterval(e.Current());
                 RefPosition* pos =
                     newRefPosition(upperVectorInterval, currentLoc, RefTypeUpperVectorSave, tree, RBM_FLT_CALLEE_SAVED);
                 varInterval->isPartiallySpilled = true;
@@ -1742,14 +1739,12 @@ void LinearScan::buildIntervals()
                         assert(!predBlockIsAllocated);
 
                         JITDUMP("Creating dummy definitions\n");
-                        VarSetOps::Iter iter(compiler, newLiveIn);
-                        unsigned        varIndex = 0;
-                        while (iter.NextElem(&varIndex))
+                        for (VarSetOps::Enumerator e(compiler, newLiveIn); e.MoveNext();)
                         {
                             // Add a dummyDef for any candidate vars that are in the "newLiveIn" set.
-                            LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(varIndex);
+                            LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(e.Current());
                             assert(varDsc->IsRegCandidate());
-                            Interval*    interval = getIntervalForLocalVar(varIndex);
+                            Interval*    interval = getIntervalForLocalVar(e.Current());
                             RefPosition* pos      = newRefPosition(interval, currentLoc, RefTypeDummyDef, nullptr,
                                                               allRegs(interval->registerType));
                             pos->setRegOptional(true);
@@ -1823,11 +1818,9 @@ void LinearScan::buildIntervals()
         // they *may) be partially spilled at any point.
         if (enregisterLocalVars)
         {
-            VarSetOps::Iter largeVectorVarsIter(compiler, largeVectorVars);
-            unsigned        largeVectorVarIndex = 0;
-            while (largeVectorVarsIter.NextElem(&largeVectorVarIndex))
+            for (VarSetOps::Enumerator e(compiler, largeVectorVars); e.MoveNext();)
             {
-                Interval* lclVarInterval = getIntervalForLocalVar(largeVectorVarIndex);
+                Interval* lclVarInterval = getIntervalForLocalVar(e.Current());
                 buildUpperVectorRestoreRefPosition(lclVarInterval, currentLoc, nullptr);
             }
         }

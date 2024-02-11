@@ -613,6 +613,16 @@ public:
         return {s1, s2, BitSetTraits::GetArrSize(env, sizeof(size_t)), op};
     }
 
+    static size_t IntersectionOp(size_t x, size_t y)
+    {
+        return x & y;
+    }
+
+    static size_t SymmetricDiffOp(size_t x, size_t y)
+    {
+        return x ^ y;
+    }
+
 private:
     static void AssignLong(Env env, Set lhs, ConstSet rhs)
     {

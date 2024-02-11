@@ -105,9 +105,7 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
 
         if (!VarSetOps::Equal(compiler, currentLife, newLife))
         {
-            auto SymmetricDiff = [](size_t x, size_t y) { return x ^ y; };
-
-            for (auto e = VarSetOps::EnumOp(compiler, SymmetricDiff, currentLife, newLife); e.MoveNext();)
+            for (auto e = VarSetOps::EnumOp(compiler, VarSetOps::SymmetricDiffOp, currentLife, newLife); e.MoveNext();)
             {
                 LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(e.Current());
 
@@ -1061,9 +1059,9 @@ void CodeGenLivenessUpdater::VerifyLiveRegVars(BasicBlock* block)
     // we don't keep it up to date for locals that are not register candidates.
 
     bool foundMismatch = false;
-    auto SymmetricDiff = [](size_t x, size_t y) { return x ^ y; };
 
-    for (auto en = VarSetOps::EnumOp(compiler, SymmetricDiff, currentLife, block->bbLiveOut); en.MoveNext();)
+    for (auto en = VarSetOps::EnumOp(compiler, VarSetOps::SymmetricDiffOp, currentLife, block->bbLiveOut);
+         en.MoveNext();)
     {
         LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(en.Current());
 
