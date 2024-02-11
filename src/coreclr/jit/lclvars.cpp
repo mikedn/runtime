@@ -153,7 +153,7 @@ void Compiler::lvaInitTable()
 
     if (count != 0)
     {
-        LclVarDsc* mem = getAllocator(CMK_LvaTable).allocate<LclVarDsc>(count);
+        LclVarDsc* mem = getAllocator(CMK_LclVarDsc).allocate<LclVarDsc>(count);
 
         memset(mem, 0, sizeof(mem[0]) * count);
 
@@ -1311,7 +1311,7 @@ LclVarDsc* Compiler::lvaAllocTemp(bool shortLifetime DEBUGARG(const char* reason
 
     unsigned lclNum = lvaCount++;
 
-    void* mem = getAllocator(CMK_LvaTable).allocate<LclVarDsc>(1);
+    void* mem = getAllocator(CMK_LclVarDsc).allocate<LclVarDsc>(1);
     memset(mem, 0, sizeof(LclVarDsc));
 
     LclVarDsc* lcl = new (mem) LclVarDsc();
@@ -1373,7 +1373,7 @@ LclVarDsc* Compiler::lvaAllocTemps(unsigned count DEBUGARG(const char* reason))
     unsigned lclNum = lvaCount;
     lvaCount += count;
 
-    LclVarDsc* mem = getAllocator(CMK_LvaTable).allocate<LclVarDsc>(count);
+    LclVarDsc* mem = getAllocator(CMK_LclVarDsc).allocate<LclVarDsc>(count);
     memset(mem, 0, sizeof(mem[0]) * count);
 
     for (unsigned i = 0; i < count; i++)
@@ -2250,7 +2250,7 @@ void Compiler::lvaMarkLivenessTrackedLocals()
     if (lvaTrackedCapacity < lvaCount)
     {
         lvaTrackedCapacity = lvaCount;
-        lvaTracked         = new (getAllocator(CMK_LvaTable)) LclVarDsc*[lvaTrackedCapacity];
+        lvaTracked         = getAllocator(CMK_LvaTracked).allocate<LclVarDsc*>(lvaTrackedCapacity);
     }
 
     unsigned    trackedCount = 0;
