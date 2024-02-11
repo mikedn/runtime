@@ -78,7 +78,6 @@ struct MarkPtrsInfo
     Compiler*      comp;
     FixedBitVect** lclAssignGroups;
     unsigned       storeLclNum  = BAD_VAR_NUM; // Which local variable is the tree being assigned to?
-    bool           isStoreSrc   = false;       // Is this the source value for an assignment?
     bool           isUnderIndir = false;       // Is this a pointer value tree that is being dereferenced?
     bool           skipNextNode = false;       // Skip a single node during the tree-walk
 
@@ -106,8 +105,6 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
     FixedBitVect** lclAssignGroups = pState->lclAssignGroups;
     assert(lclAssignGroups != nullptr);
 
-    assert(!pState->isStoreSrc || (pState->storeLclNum != BAD_VAR_NUM));
-
     if (pState->skipNextNode)
     {
         pState->skipNextNode = false;
@@ -126,11 +123,8 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
         case GT_ARR_INDEX:
         case GT_ARR_OFFSET:
             newState.isUnderIndir = true;
-            {
-                newState.skipNextNode = true; // Don't have to worry about which kind of node we're dealing with
-                comp->fgWalkTreePre(&tree, comp->gsMarkPtrsAndAssignGroups, &newState);
-            }
-
+            newState.skipNextNode = true; // Don't have to worry about which kind of node we're dealing with
+            comp->fgWalkTreePre(&tree, comp->gsMarkPtrsAndAssignGroups, &newState);
             return WALK_SKIP_SUBTREES;
 
         // local vars and param uses
@@ -145,7 +139,7 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
                 comp->lvaGetDesc(loadLclNum)->lvIsPtr = true;
             }
 
-            if (pState->isStoreSrc)
+            if (pState->storeLclNum != BAD_VAR_NUM)
             {
                 unsigned storeLclNum = pState->storeLclNum;
 
@@ -189,51 +183,49 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
 
         // Calls - Mark arg variables
         case GT_CALL:
-
             newState.isUnderIndir = false;
-            newState.isStoreSrc   = false;
+            newState.storeLclNum  = BAD_VAR_NUM;
+
+            if (tree->AsCall()->gtCallThisArg != nullptr)
             {
-                if (tree->AsCall()->gtCallThisArg != nullptr)
-                {
-                    newState.isUnderIndir = true;
-                    comp->fgWalkTreePre(&tree->AsCall()->gtCallThisArg->NodeRef(), gsMarkPtrsAndAssignGroups,
-                                        &newState);
-                }
-
-                for (GenTreeCall::Use& use : tree->AsCall()->Args())
-                {
-                    if (use.GetNode()->OperIs(GT_LCL_VAR, GT_LCL_FLD) && use.GetNode()->TypeIs(TYP_STRUCT))
-                    {
-                        // Skip STRUCT typed LCL_VAR|FLD call args, previously these were wrapped in OBJs,
-                        // which this code ignored. Which is probably a bug since a struct can contain
-                        // pointers. Needless to say that fixing this will result in regressions due to
-                        // extra copying of current method's parameters.
-                        continue;
-                    }
-
-                    comp->fgWalkTreePre(&use.NodeRef(), gsMarkPtrsAndAssignGroups, &newState);
-                }
-
-                for (GenTreeCall::Use& use : tree->AsCall()->LateArgs())
-                {
-                    if (use.GetNode()->OperIs(GT_LCL_VAR, GT_LCL_FLD) && use.GetNode()->TypeIs(TYP_STRUCT))
-                    {
-                        continue;
-                    }
-
-                    comp->fgWalkTreePre(&use.NodeRef(), gsMarkPtrsAndAssignGroups, &newState);
-                }
-
-                if (tree->AsCall()->IsIndirectCall())
-                {
-                    newState.isUnderIndir = true;
-
-                    // A function pointer is treated like a write-through pointer since
-                    // it controls what code gets executed, and so indirectly can cause
-                    // a write to memory.
-                    comp->fgWalkTreePre(&tree->AsCall()->gtCallAddr, gsMarkPtrsAndAssignGroups, &newState);
-                }
+                newState.isUnderIndir = true;
+                comp->fgWalkTreePre(&tree->AsCall()->gtCallThisArg->NodeRef(), gsMarkPtrsAndAssignGroups, &newState);
             }
+
+            for (GenTreeCall::Use& use : tree->AsCall()->Args())
+            {
+                if (use.GetNode()->OperIs(GT_LCL_VAR, GT_LCL_FLD) && use.GetNode()->TypeIs(TYP_STRUCT))
+                {
+                    // Skip STRUCT typed LCL_VAR|FLD call args, previously these were wrapped in OBJs,
+                    // which this code ignored. Which is probably a bug since a struct can contain
+                    // pointers. Needless to say that fixing this will result in regressions due to
+                    // extra copying of current method's parameters.
+                    continue;
+                }
+
+                comp->fgWalkTreePre(&use.NodeRef(), gsMarkPtrsAndAssignGroups, &newState);
+            }
+
+            for (GenTreeCall::Use& use : tree->AsCall()->LateArgs())
+            {
+                if (use.GetNode()->OperIs(GT_LCL_VAR, GT_LCL_FLD) && use.GetNode()->TypeIs(TYP_STRUCT))
+                {
+                    continue;
+                }
+
+                comp->fgWalkTreePre(&use.NodeRef(), gsMarkPtrsAndAssignGroups, &newState);
+            }
+
+            if (tree->AsCall()->IsIndirectCall())
+            {
+                newState.isUnderIndir = true;
+
+                // A function pointer is treated like a write-through pointer since
+                // it controls what code gets executed, and so indirectly can cause
+                // a write to memory.
+                comp->fgWalkTreePre(&tree->AsCall()->gtCallAddr, gsMarkPtrsAndAssignGroups, &newState);
+            }
+
             return WALK_SKIP_SUBTREES;
 
         case GT_STOREIND:
@@ -256,7 +248,6 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
             GenTreeLclVarCommon* store = tree->AsLclVarCommon();
             GenTree*             value = store->GetOp(0);
             newState.storeLclNum       = store->GetLclNum();
-            newState.isStoreSrc        = true;
             comp->fgWalkTreePre(&value, comp->gsMarkPtrsAndAssignGroups, &newState);
             return WALK_SKIP_SUBTREES;
         }
