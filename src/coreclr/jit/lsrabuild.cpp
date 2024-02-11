@@ -1635,10 +1635,8 @@ void LinearScan::buildIntervals()
     // (We do this here because we want to generate the ParamDef RefPositions in tracked
     // order, so that loop doesn't hit the non-tracked args)
 
-    for (unsigned argNum = 0; argNum < compiler->info.compArgsCount; argNum++)
+    for (LclVarDsc* argDsc : compiler->Params())
     {
-        LclVarDsc* argDsc = compiler->lvaGetDesc(argNum);
-
         if (argDsc->lvPromotedStruct())
         {
             for (unsigned fieldVarNum = argDsc->lvFieldLclStart;

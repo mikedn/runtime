@@ -3291,6 +3291,11 @@ public:
         return jitstd::span<LclVarDsc*>(lvaTable, lvaCount);
     }
 
+    jitstd::span<LclVarDsc*> Params() const
+    {
+        return jitstd::span<LclVarDsc*>(lvaTable, info.compArgsCount);
+    }
+
 #ifdef DEBUG
     unsigned lvaCurEpoch = 0; // VarSets are relative to a specific set of tracked var indices.
     // It that changes, this changes.  VarSets from different epochs

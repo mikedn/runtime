@@ -583,9 +583,8 @@ public:
         {
             // A JMP uses all the arguments, so mark them all as live at the JMP instruction.
 
-            for (unsigned lclNum = 0; lclNum < m_compiler->info.compArgsCount; lclNum++)
+            for (LclVarDsc* varDsc : m_compiler->Params())
             {
-                LclVarDsc* varDsc = m_compiler->lvaGetDesc(lclNum);
                 noway_assert(!varDsc->IsPromoted());
 
                 if (varDsc->HasLiveness())

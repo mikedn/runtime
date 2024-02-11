@@ -2561,10 +2561,8 @@ void CodeGen::GenJmp(GenTree* jmp)
 
     // Move any register parameters back to their register.
 
-    for (unsigned lclNum = 0; lclNum < compiler->info.compArgsCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Params())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
         noway_assert(lcl->IsParam() && !lcl->IsPromoted());
 
         if (!lcl->IsRegParam())
@@ -2575,6 +2573,8 @@ void CodeGen::GenJmp(GenTree* jmp)
         // We expect all params to be DNER, otherwise we'd need to deal with moving between
         // assigned registers and param registers and potential circular dependencies.
         noway_assert(lcl->lvDoNotEnregister);
+
+        const unsigned lclNum = lcl->GetLclNum();
 
         if (lcl->IsHfaRegParam())
         {
@@ -2661,10 +2661,8 @@ void CodeGen::GenJmp(GenTree* jmp)
 
     regMaskTP varargsIntRegMask = RBM_ARG_REGS;
 
-    for (unsigned lclNum = 0; lclNum < compiler->info.compArgsCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Params())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
         if (lcl->IsRegParam())
         {
             for (unsigned i = 0; i < lcl->GetParamRegCount(); i++)

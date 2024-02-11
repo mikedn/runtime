@@ -3514,10 +3514,8 @@ void Compiler::lvaResetImplicitByRefParamsRefCount()
     lvaRefCountState          = RCS_MORPH;
     lvaHasImplicitByRefParams = false;
 
-    for (unsigned lclNum = 0; lclNum < info.compArgsCount; ++lclNum)
+    for (LclVarDsc* lcl : Params())
     {
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
-
         if (lcl->IsImplicitByRefParam())
         {
             // We haven't use ref counts until now so they should be 0.
@@ -3550,10 +3548,8 @@ void Compiler::lvaRetypeImplicitByRefParams()
         return;
     }
 
-    for (unsigned lclNum = 0; lclNum < info.compArgsCount; lclNum++)
+    for (LclVarDsc* lcl : Params())
     {
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
-
         if (!lcl->IsImplicitByRefParam())
         {
             continue;
@@ -3590,7 +3586,7 @@ void Compiler::lvaRetypeImplicitByRefParams()
             bool undoPromotion = isDependentPromoted || (nonCallAppearances <= lcl->lvFieldCnt);
 
             JITDUMP("%s promotion of implicit byref V%02u: %s total: %u non-call: %u fields: %u\n",
-                    undoPromotion ? "Undoing" : "Keeping", lclNum, isDependentPromoted ? "dependent;" : "",
+                    undoPromotion ? "Undoing" : "Keeping", lcl->GetLclNum(), isDependentPromoted ? "dependent;" : "",
                     totalAppearances, nonCallAppearances, lcl->lvFieldCnt);
 
             if (undoPromotion)
@@ -3601,7 +3597,7 @@ void Compiler::lvaRetypeImplicitByRefParams()
 
                     // Leave lvParentLcl pointing to the parameter so that fgMorphIndirectParams
                     // will know to rewrite appearances of this local.
-                    assert(fieldLcl->lvParentLcl == lclNum);
+                    assert(fieldLcl->lvParentLcl == lcl->GetLclNum());
 
                     // The fields shouldn't inherit any register preferences from the parameter.
                     fieldLcl->lvIsParam = false;
@@ -3633,7 +3629,7 @@ void Compiler::lvaRetypeImplicitByRefParams()
 
                 fgEnsureFirstBBisScratch();
                 GenTree* lhs  = gtNewLclvNode(structLclNum, lcl->GetType());
-                GenTree* addr = gtNewLclvNode(lclNum, TYP_BYREF);
+                GenTree* addr = gtNewLclvNode(lcl->GetLclNum(), TYP_BYREF);
                 GenTree* rhs  = gtNewObjNode(structLcl->GetType(), structLcl->GetLayout(), addr);
                 fgNewStmtAtBeg(fgFirstBB, gtNewAssignNode(lhs, rhs));
 
@@ -3677,7 +3673,7 @@ void Compiler::lvaRetypeImplicitByRefParams()
         lcl->lvAddrExposed     = false;
         lcl->lvDoNotEnregister = false;
 
-        JITDUMP("Changed the type of struct parameter V%02d to TYP_BYREF.\n", lclNum);
+        JITDUMP("Changed the type of struct parameter V%02d to TYP_BYREF.\n", lcl->GetLclNum());
     }
 }
 #endif // WINDOWS_AMD64_ABI || TARGET_ARM64

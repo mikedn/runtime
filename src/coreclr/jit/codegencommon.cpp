@@ -3403,10 +3403,8 @@ void CodeGen::UpdateParamsWithInitialReg()
         }
     };
 
-    for (unsigned lclNum = 0; lclNum < compiler->info.compArgsCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Params())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
         if (lcl->lvPromotedStruct())
         {
             for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)

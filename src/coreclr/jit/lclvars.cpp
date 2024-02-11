@@ -3918,10 +3918,8 @@ void Compiler::lvaAssignParamsVirtualFrameOffsets()
 
     if (info.compIsVarArgs)
     {
-        for (unsigned i = 0; i < info.compArgsCount; i++)
+        for (LclVarDsc* lcl : Params())
         {
-            LclVarDsc* lcl = lvaGetDesc(i);
-
             if (lcl->IsRegParam() && (lcl->GetParamReg() != REG_ARG_RET_BUFF))
             {
                 assert(genIsValidIntReg(lcl->GetParamReg()));
@@ -3939,10 +3937,8 @@ void Compiler::lvaAssignParamsVirtualFrameOffsets()
     regMaskTP preSpillRegs = codeGen->GetPreSpillRegs();
     int       preSpillSize = codeGen->GetPreSpillSize();
 
-    for (unsigned i = 0; i < info.compArgsCount; i++)
+    for (LclVarDsc* lcl : Params())
     {
-        LclVarDsc* lcl = lvaGetDesc(i);
-
         if (lcl->IsPreSpilledRegParam(preSpillRegs))
         {
             regMaskTP regsBelow = genRegMask(lcl->GetParamReg()) - 1;

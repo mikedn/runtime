@@ -540,8 +540,9 @@ void Compiler::gsParamsToShadows()
                 continue;
             }
 
-            for (unsigned lclNum = 0; lclNum < info.compArgsCount; lclNum++)
+            for (LclVarDsc* lcl : Params())
             {
+                unsigned lclNum       = lcl->GetLclNum();
                 unsigned shadowLclNum = gsShadowVarInfo[lclNum].shadowLclNum;
                 if (shadowLclNum == BAD_VAR_NUM)
                 {
@@ -549,7 +550,7 @@ void Compiler::gsParamsToShadows()
                 }
 
                 GenTree* src = gtNewLclvNode(shadowLclNum, lvaGetDesc(shadowLclNum)->GetType());
-                GenTree* dst = gtNewLclvNode(lclNum, lvaGetDesc(lclNum)->GetType());
+                GenTree* dst = gtNewLclvNode(lclNum, lcl->GetType());
 
                 src->gtFlags |= GTF_DONT_CSE;
                 dst->gtFlags |= GTF_DONT_CSE;

@@ -3056,16 +3056,15 @@ void CodeGen::PrologClearVector3StackParamUpperBits()
 
     assert(generatingProlog);
 
-    for (unsigned lclNum = 0; lclNum < compiler->info.compArgsCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Params())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
         assert(lcl->IsParam());
 
         // This is needed only for stack params, zeroing reg params is
         // done when the 2 param registers are packed together.
         if (lcl->TypeIs(TYP_SIMD12) && !lcl->IsRegParam())
         {
-            GetEmitter()->emitIns_S_I(INS_mov, EA_4BYTE, lclNum, 12, 0);
+            GetEmitter()->emitIns_S_I(INS_mov, EA_4BYTE, lcl->GetLclNum(), 12, 0);
         }
     }
 }
@@ -5009,10 +5008,8 @@ void CodeGen::GenJmp(GenTree* jmp)
 
     // Move any register parameters back to their register.
 
-    for (unsigned lclNum = 0; lclNum < compiler->info.compArgsCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Params())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
         noway_assert(lcl->IsParam() && !lcl->IsPromoted());
 
         if (!lcl->IsRegParam())
@@ -5023,6 +5020,8 @@ void CodeGen::GenJmp(GenTree* jmp)
         // We expect all params to be DNER, otherwise we'd need to deal with moving between
         // assigned registers and param registers and potential circular dependencies.
         noway_assert(lcl->lvDoNotEnregister);
+
+        const unsigned lclNum = lcl->GetLclNum();
 
 #ifdef UNIX_AMD64_ABI
         if (varTypeIsStruct(lcl->GetType()))
@@ -5086,10 +5085,8 @@ void CodeGen::GenJmp(GenTree* jmp)
 
     regMaskTP varargsIntRegMask = RBM_ARG_REGS;
 
-    for (unsigned lclNum = 0; lclNum < compiler->info.compArgsCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Params())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
         if (lcl->IsRegParam())
         {
             regNumber reg = lcl->GetParamReg();
@@ -7561,10 +7558,8 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     // profiler requirement so it can examine arguments which could be obj refs.
     if (!compiler->info.compIsVarArgs)
     {
-        for (unsigned varNum = 0; varNum < compiler->info.compArgsCount; varNum++)
+        for (LclVarDsc* varDsc : compiler->Params())
         {
-            LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
-
             noway_assert(varDsc->IsParam());
 
             if (!varDsc->IsRegParam())
@@ -7582,7 +7577,7 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
                 type = varDsc->GetLayout()->GetSize() <= 4 ? TYP_INT : varDsc->GetLayout()->GetGCPtrType(0);
             }
 
-            GetEmitter()->emitIns_S_R(ins_Store(type), emitTypeSize(type), reg, varNum, 0);
+            GetEmitter()->emitIns_S_R(ins_Store(type), emitTypeSize(type), reg, varDsc->GetLclNum(), 0);
         }
     }
 
@@ -7623,10 +7618,8 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     // Vararg methods:
     //   - we need to reload only known (i.e. fixed) reg args.
     //   - if floating point type, also reload it into corresponding integer reg
-    for (unsigned varNum = 0; varNum < compiler->info.compArgsCount; varNum++)
+    for (LclVarDsc* varDsc : compiler->Params())
     {
-        LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
-
         noway_assert(varDsc->IsParam());
 
         if (!varDsc->IsRegParam())
@@ -7644,7 +7637,7 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
             type = varDsc->GetLayout()->GetSize() <= 4 ? TYP_INT : varDsc->GetLayout()->GetGCPtrType(0);
         }
 
-        GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, varNum, 0);
+        GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, varDsc->GetLclNum(), 0);
 
         if (compiler->info.compIsVarArgs && varTypeIsFloating(type))
         {
