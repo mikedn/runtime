@@ -1318,13 +1318,8 @@ bool Compiler::fgInterBlockLocalVarLiveness()
         }
     }
 
-    for (LclVarDsc* lcl : Locals())
+    for (LclVarDsc* lcl : LivenessLocals())
     {
-        if (!lcl->HasLiveness())
-        {
-            continue;
-        }
-
         // Uninitialized locals may need auto-initialization. Note that the liveness of
         // such locals will bubble to the top (fgFirstBB) in fgInterBlockLocalVarLiveness.
 

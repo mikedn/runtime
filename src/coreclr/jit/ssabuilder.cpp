@@ -716,7 +716,7 @@ public:
         GenTreeLclDef* firstInitSsaDef = nullptr;
         GenTreeLclDef* lastInitSsaDef  = nullptr;
 
-        for (LclVarDsc* lcl : compiler->Locals())
+        for (LclVarDsc* lcl : compiler->LivenessLocals())
         {
             if (lcl->IsSsa() && VarSetOps::IsMember(compiler, firstBlock->bbLiveIn, lcl->GetLivenessBitIndex()))
             {

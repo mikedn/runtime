@@ -149,21 +149,18 @@ void LoopHoist::HoistExpr(GenTree* expr, unsigned loopNum)
 
 bool LoopHoist::Run()
 {
-    for (LclVarDsc* lcl : compiler->Locals())
+    for (LclVarDsc* lcl : compiler->LivenessLocals())
     {
-        if (lcl->HasLiveness())
+        if (varTypeIsFloating(lcl->GetType()))
         {
-            if (varTypeIsFloating(lcl->GetType()))
-            {
-                VarSetOps::AddElemD(compiler, stats.floatLocals, lcl->GetLivenessBitIndex());
-            }
-#ifndef TARGET_64BIT
-            else if (lcl->TypeIs(TYP_LONG))
-            {
-                VarSetOps::AddElemD(compiler, stats.longLocals, lcl->GetLivenessBitIndex());
-            }
-#endif
+            VarSetOps::AddElemD(compiler, stats.floatLocals, lcl->GetLivenessBitIndex());
         }
+#ifndef TARGET_64BIT
+        else if (lcl->TypeIs(TYP_LONG))
+        {
+            VarSetOps::AddElemD(compiler, stats.longLocals, lcl->GetLivenessBitIndex());
+        }
+#endif
     }
 
     for (unsigned i = 0; i < loopCount; i++)

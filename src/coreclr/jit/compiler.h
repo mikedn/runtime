@@ -3296,6 +3296,12 @@ public:
         return jitstd::span<LclVarDsc*>(lvaTable, info.compArgsCount);
     }
 
+    jitstd::span<LclVarDsc*> LivenessLocals() const
+    {
+        assert((lvaTracked != nullptr) || (lvaTrackedCount == 0));
+        return jitstd::span<LclVarDsc*>(lvaTracked, lvaTrackedCount);
+    }
+
 #ifdef DEBUG
     unsigned lvaCurEpoch = 0; // VarSets are relative to a specific set of tracked var indices.
     // It that changes, this changes.  VarSets from different epochs

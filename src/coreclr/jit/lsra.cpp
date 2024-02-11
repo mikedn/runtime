@@ -6537,7 +6537,7 @@ void LinearScan::resolveRegisters()
         resolveEdges();
 
         // Verify register assignments on variables
-        for (LclVarDsc* varDsc : compiler->Locals())
+        for (LclVarDsc* varDsc : compiler->LivenessLocals())
         {
             if (!varDsc->IsRegCandidate())
             {
