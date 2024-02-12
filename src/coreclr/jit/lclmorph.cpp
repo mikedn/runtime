@@ -2901,9 +2901,7 @@ void StructPromotionHelper::PromoteStructLocal(LclVarDsc* lcl)
     assert(lcl->GetLayout()->GetClassHandle() == info.typeHandle);
     assert(info.canPromoteStructType);
 
-    lcl->lvFieldCnt      = info.fieldCount;
-    lcl->lvFieldLclStart = compiler->lvaCount;
-    lcl->lvPromoted      = true;
+    lcl->SetPromotedFields(compiler->lvaCount, info.fieldCount);
     lcl->lvContainsHoles = info.containsHoles;
     lcl->lvCustomLayout  = info.customLayout;
 
@@ -2934,7 +2932,7 @@ void StructPromotionHelper::PromoteStructLocal(LclVarDsc* lcl)
         }
 
         LclVarDsc* fieldLcl = compiler->lvaAllocTemp(false DEBUGARG("promoted struct field"));
-        fieldLcl->MakePromotedStructField(lcl->GetLclNum(), field.offset, fieldSeq);
+        fieldLcl->MakePromotedField(lcl->GetLclNum(), field.offset, fieldSeq);
 
         if (varTypeIsSIMD(field.type))
         {
@@ -3583,11 +3581,11 @@ void Compiler::lvaRetypeImplicitByRefParams()
             unsigned nonCallAppearances  = totalAppearances - callAppearances;
             bool     isDependentPromoted = lcl->IsDependentPromoted();
 
-            bool undoPromotion = isDependentPromoted || (nonCallAppearances <= lcl->lvFieldCnt);
+            bool undoPromotion = isDependentPromoted || (nonCallAppearances <= lcl->GetPromotedFieldCount());
 
             JITDUMP("%s promotion of implicit byref V%02u: %s total: %u non-call: %u fields: %u\n",
                     undoPromotion ? "Undoing" : "Keeping", lcl->GetLclNum(), isDependentPromoted ? "dependent;" : "",
-                    totalAppearances, nonCallAppearances, lcl->lvFieldCnt);
+                    totalAppearances, nonCallAppearances, lcl->GetPromotedFieldCount());
 
             if (undoPromotion)
             {
@@ -3597,7 +3595,7 @@ void Compiler::lvaRetypeImplicitByRefParams()
 
                     // Leave lvParentLcl pointing to the parameter so that fgMorphIndirectParams
                     // will know to rewrite appearances of this local.
-                    assert(fieldLcl->lvParentLcl == lcl->GetLclNum());
+                    assert(fieldLcl->GetPromotedFieldParentLclNum() == lcl->GetLclNum());
 
                     // The fields shouldn't inherit any register preferences from the parameter.
                     fieldLcl->lvIsParam = false;
@@ -3611,12 +3609,9 @@ void Compiler::lvaRetypeImplicitByRefParams()
             }
             else
             {
-                LclVarDsc* structLcl    = lvaNewTemp(lcl->GetLayout(), false DEBUGARG("promoted implicit byref param"));
-                unsigned   structLclNum = structLcl->GetLclNum();
+                LclVarDsc* structLcl = lvaNewTemp(lcl->GetLayout(), false DEBUGARG("promoted implicit byref param"));
 
-                structLcl->lvPromoted        = true;
-                structLcl->lvFieldLclStart   = lcl->lvFieldLclStart;
-                structLcl->lvFieldCnt        = lcl->lvFieldCnt;
+                structLcl->SetPromotedFields(lcl->GetPromotedFieldLclNum(0), lcl->GetPromotedFieldCount());
                 structLcl->lvContainsHoles   = lcl->lvContainsHoles;
                 structLcl->lvCustomLayout    = lcl->lvCustomLayout;
                 structLcl->lvAddrExposed     = lcl->IsAddressExposed();
@@ -3626,6 +3621,8 @@ void Compiler::lvaRetypeImplicitByRefParams()
                 structLcl->lvLclFieldExpr     = lcl->lvLclFieldExpr;
                 structLcl->lvLiveInOutOfHndlr = lcl->lvLiveInOutOfHndlr;
 #endif
+
+                unsigned structLclNum = structLcl->GetLclNum();
 
                 fgEnsureFirstBBisScratch();
                 GenTree* lhs  = gtNewLclvNode(structLclNum, lcl->GetType());
@@ -3639,7 +3636,6 @@ void Compiler::lvaRetypeImplicitByRefParams()
                 {
                     LclVarDsc* fieldLcl = lvaGetDesc(structLcl->GetPromotedFieldLclNum(i));
 
-                    // Set the new parent.
                     fieldLcl->lvParentLcl = structLclNum;
 
                     // The fields shouldn't inherit any register preferences from the parameter.
@@ -3709,10 +3705,8 @@ void Compiler::lvaDemoteImplicitByRefParams()
         return;
     }
 
-    for (unsigned lclNum = 0; lclNum < info.compArgsCount; lclNum++)
+    for (LclVarDsc* lcl : Params())
     {
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
-
         if (!lcl->IsImplicitByRefParam())
         {
             continue;
@@ -3727,7 +3721,7 @@ void Compiler::lvaDemoteImplicitByRefParams()
             for (unsigned i = 0; i < lcl->lvFieldCnt; i++)
             {
                 LclVarDsc* fieldLcl = lvaGetDesc(lcl->lvFieldLclStart + i);
-                assert(fieldLcl->lvParentLcl == lclNum);
+                assert(fieldLcl->lvParentLcl == lcl->GetLclNum());
                 fieldLcl->lvParentLcl     = 0;
                 fieldLcl->lvIsStructField = false;
                 fieldLcl->lvAddrExposed   = false;

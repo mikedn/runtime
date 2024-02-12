@@ -5544,7 +5544,7 @@ void Compiler::optAddCopies()
         }
 
         // We don't want to add a copy for a variable that is part of a struct
-        if (varDsc->lvIsStructField)
+        if (varDsc->IsPromotedField())
         {
             continue;
         }
@@ -5712,7 +5712,7 @@ void Compiler::optAddCopies()
 
         if (varDsc->IsParam())
         {
-            noway_assert((varDsc->lvDefStmt == nullptr) || varDsc->lvIsStructField);
+            noway_assert((varDsc->lvDefStmt == nullptr) || varDsc->IsPromotedField());
 
             // Create a new copy assignment tree
             GenTree* copyAsgn = gtNewStoreLclVar(copyLclNum, typ, gtNewLclvNode(lclNum, typ));

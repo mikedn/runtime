@@ -3108,12 +3108,12 @@ void CodeGen::PrologInitOsrLocals()
             int      fieldOffset = 0;
             unsigned lclNum      = varDsc->GetLclNum();
 
-            if (varDsc->lvIsStructField)
+            if (varDsc->IsPromotedField())
             {
-                lclNum = varDsc->lvParentLcl;
+                lclNum = varDsc->GetPromotedFieldParentLclNum();
                 assert(lclNum < patchpointInfoLen);
 
-                fieldOffset = varDsc->lvFldOffset;
+                fieldOffset = varDsc->GetPromotedFieldOffset();
                 JITDUMP("---OSR--- V%02u is promoted field of V%02u at offset %d\n", varDsc->GetLclNum(), lclNum,
                         fieldOffset);
             }
@@ -3405,7 +3405,7 @@ void CodeGen::UpdateParamsWithInitialReg()
 
     for (LclVarDsc* lcl : compiler->Params())
     {
-        if (lcl->lvPromotedStruct())
+        if (lcl->IsPromotedStruct())
         {
             for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
             {

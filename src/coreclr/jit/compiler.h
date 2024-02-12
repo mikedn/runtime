@@ -111,31 +111,27 @@ class LclVarDsc
 public:
     var_types lvType;
 
-    bool lvIsParam : 1;  // is this a parameter?
-    bool lvIsRegArg : 1; // is this an argument that was passed by register?
 #ifdef TARGET_ARM64
-    unsigned char m_paramRegCount : 3;
+    uint8_t m_paramRegCount : 3;
 #elif defined(TARGET_ARM)
-    unsigned char m_paramRegCount : 4;
+    uint8_t     m_paramRegCount : 4;
 #endif
+    bool lvIsParam : 1;
+    bool lvIsRegArg : 1;
     bool lvFramePointerBased : 1; // 0 = off of REG_SPBASE (e.g., ESP), 1 = off of REG_FPBASE (e.g., EBP)
-
-    bool lvOnFrame : 1;  // (part of) the variable lives on the frame
-    bool lvRegister : 1; // assigned to live in a register? For RyuJIT backend, this is only set if the
-    // variable is in the same register for the entire function.
-    bool lvTracked : 1; // is this a tracked variable?
+    bool lvOnFrame : 1;           // (part of) the variable lives on the frame
+    bool lvRegister : 1;          // Set if the variable is in the same register for the entire function.
+    bool lvTracked : 1;
     bool m_hasGCLiveness : 1;
     bool m_pinning : 1;
-
-    bool lvMustInit : 1;    // must be initialized
-    bool lvAddrExposed : 1; // The address of this variable is "exposed" -- passed as an argument, stored in a
-    // global location, etc.
-    // We cannot reason reliably about the value of the variable.
-    bool lvDoNotEnregister : 1; // Do not enregister this variable.
-    bool lvFieldAccessed : 1;   // The var is a struct local, and a field of the variable is accessed.  Affects
-    // struct promotion.
+    bool lvMustInit : 1;
+    bool lvAddrExposed : 1;      // The address of this variable is "exposed" -- passed as an argument, stored
+                                 // in a global location, etc.
+    bool lvDoNotEnregister : 1;  // Do not enregister this variable.
+    bool lvFieldAccessed : 1;    // The var is a struct local, and a field of the variable is accessed. Affects
+                                 // struct promotion.
     bool lvLiveInOutOfHndlr : 1; // The variable is live in or out of an exception handler, and therefore must
-// be on the stack (at least at those boundaries.)
+                                 // be on the stack (at least at those boundaries.)
 #ifdef DEBUG
     bool lvLclFieldExpr : 1;   // The variable has (STORE_)LCL_FLD accesses.
     bool lvLclBlockOpAddr : 1; // The variable was written to via a block operation.
@@ -143,111 +139,91 @@ public:
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     bool lvIsImplicitByRefArgTemp : 1;
 #endif
-    bool m_isSsa : 1; // The variable is in SSA form (set by SsaBuilder)
-
+    bool m_isSsa : 1;                // The variable is in SSA form (set by SsaBuilder)
     bool lvIsCSE : 1;                // Indicates if this LclVar is a CSE variable.
     bool lvHasLdAddrOp : 1;          // has ldloca or ldarga opcode on this local.
     bool lvHasILStoreOp : 1;         // there is at least one STLOC or STARG on this local
     bool lvHasMultipleILStoreOp : 1; // there is more than one STLOC on this local
-
-    bool lvIsTemp : 1; // Short-lifetime compiler temp
-
+    bool lvIsTemp : 1;               // Short-lifetime compiler temp
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     bool lvIsImplicitByRef : 1; // Set if the argument is an implicit byref.
 #endif
 #if OPT_BOOL_OPS
     bool lvIsBoolean : 1; // set if variable is boolean
 #endif
-    bool lvSingleDef : 1; // variable has a single def
-    // before lvaMarkLocalVars: identifies ref type locals that can get type updates
-    // after lvaMarkLocalVars: identifies locals that are suitable for optAddCopies
-
+    bool lvSingleDef : 1;             // variable has a single def
+                                      // before lvaMarkLocalVars: identifies ref type locals that can get type updates
+                                      // after lvaMarkLocalVars: identifies locals that are suitable for optAddCopies
     bool lvSingleDefRegCandidate : 1; // variable has a single def and hence is a register candidate
-    // Currently, this is only used to decide if an EH variable can be
-    // a register candiate or not.
-
-    bool lvDisqualifySingleDefRegCandidate : 1; // tracks variable that are disqualified from register
-    // candidancy
-
-    bool lvSpillAtSingleDef : 1; // variable has a single def (as determined by LSRA interval scan)
-// and is spilled making it candidate to spill right after the
-// first (and only) definition.
-// Note: We cannot reuse lvSingleDefRegCandidate because it is set
-// in earlier phase and the information might not be appropriate
-// in LSRA.
-
+                                      // Currently, this is only used to decide if an EH variable can be
+                                      // a register candidate or not.
+    bool lvDisqualifySingleDefRegCandidate : 1; // tracks variable that are disqualified from register candidacy
+    bool lvSpillAtSingleDef : 1;                // variable has a single def (as determined by LSRA interval scan)
+                                                // and is spilled making it candidate to spill right after the
+                                                // first (and only) definition.
+                                                // Note: We cannot reuse lvSingleDefRegCandidate because it is set
+                                                // in earlier phase and the information might not be appropriate
+                                                // in LSRA.
 #if ASSERTION_PROP
     bool lvDisqualifyAddCopy : 1; // local isn't a candidate for optAddCopies
 #endif
-
     bool lvHasEHRefs : 1; // local has EH references
     bool lvHasEHUses : 1; // local has EH uses
-
 #ifndef TARGET_64BIT
     bool lvStructDoubleAlign : 1; // Must we double align this struct?
-#endif                            // !TARGET_64BIT
+#endif
 #ifdef TARGET_64BIT
     bool lvQuirkToLong : 1; // Quirk to allocate this LclVar as a 64-bit long
 #endif
-    bool lvIsPtr : 1; // Might this be used in an address computation? (used by buffer overflow security
-    // checks)
+    bool lvIsPtr : 1;          // May be used in an address computation? (used by buffer overflow security checks)
     bool lvIsUnsafeBuffer : 1; // Does this contain an unsafe buffer requiring buffer overflow security checks?
-    bool lvPromoted : 1;       // True when this local is a promoted struct, a normed struct, or a "split" long on a
-    // 32-bit target.  For implicit byref parameters, this gets hijacked between
-    // lvaRetypeImplicitByRefParams and lvaDemoteImplicitByRefParams to indicate whether
-    // references to the arg are being rewritten as references to a promoted shadow local.
-    bool lvIsStructField : 1; // Is this local var a field of a promoted struct local?
+    bool lvPromoted : 1;       // True when this local is a promoted struct, a normed struct, or a "split" long on
+                               // a 32-bit target. For implicit byref parameters, this gets hijacked between
+                               // lvaRetypeImplicitByRefParams and lvaDemoteImplicitByRefParams to indicate whether
+                               // references to the arg are being rewritten as references to a promoted shadow local.
+    bool lvIsStructField : 1;  // Is this local var a field of a promoted struct local?
     bool lvWasStructField : 1;
     bool lvOverlappingFields : 1; // True when we have a struct with possibly overlapping fields
     bool lvContainsHoles : 1;     // True when we have a promoted struct that contains holes
     bool lvCustomLayout : 1;      // True when this struct has "CustomLayout"
-
-    bool lvIsMultiRegArg : 1; // true if this is a multireg LclVar struct used in an argument context
-    bool lvIsMultiRegRet : 1; // true if this is a multireg LclVar struct assigned from a multireg call
-
+    bool lvIsMultiRegArg : 1;     // true if this is a multireg LclVar struct used in an argument context
+    bool lvIsMultiRegRet : 1;     // true if this is a multireg LclVar struct assigned from a multireg call
 #ifdef FEATURE_HFA
     bool m_isHfa : 1;
 #endif
-
     bool lvLRACandidate : 1; // Tracked for linear scan register allocation purposes
-
 #ifdef FEATURE_SIMD
-    bool lvUsedInSIMDIntrinsic : 1; // This tells lclvar is used for simd intrinsic
+    bool lvUsedInSIMDIntrinsic : 1; // This local is referenced by a SIMD intrinsic
 #endif
-
     bool lvClassIsExact : 1;              // lvClassHandle is the exact type
     INDEBUG(bool lvClassInfoUpdated : 1;) // true if this var has updated class handle or exactness
-
-    bool lvImplicitlyReferenced : 1; // true if there are non-IR references to this local (prolog, epilog, gc, eh)
-
-    bool lvSuppressedZeroInit : 1; // local needs zero init if we transform tail call to loop
-
-    bool lvHasExplicitInit : 1; // The local is explicitly initialized and doesn't need zero initialization in
-    // the prolog. If the local has gc pointers, there are no gc-safe points
-    // between the prolog and the explicit initialization.
+    bool lvImplicitlyReferenced : 1;      // true if there are non-IR references to this local (prolog, epilog, GC, EH)
+    bool lvSuppressedZeroInit : 1;        // local needs zero init if we transform tail call to loop
+    bool lvHasExplicitInit : 1;           // The local is explicitly initialized and doesn't need zero initialization
+                                          // in the prolog. If the local has gc pointers, there are no gc-safe points
+                                          // between the prolog and the explicit initialization.
 
     INDEBUG(char lvSingleDefDisqualifyReason = 'H';)
 
 private:
-    RegNumSmall _lvRegNum;
+    RegNumSmall m_reg;
 #ifdef UNIX_AMD64_ABI
     RegNumSmall m_paramRegs[2]{REG_NA, REG_NA};
 #else
-    RegNumSmall   m_paramRegs[1]{REG_NA};
+    RegNumSmall m_paramRegs[1]{REG_NA};
 #endif
     RegNumSmall m_paramInitialReg; // the register into which the argument is loaded at entry
 
 public:
-    uint8_t lvFieldCnt; //  Number of fields in the promoted VarDsc.
+    uint8_t lvFieldCnt; //  Number of promoted fields
     uint8_t lvFldOffset;
 
     union {
         unsigned lvFieldLclStart; // The index of the local var representing the first field in the promoted
-        // struct local. For implicit byref parameters, this gets hijacked between
-        // lvaRetypeImplicitByRefParams and lvaDemoteImplicitByRefParams to point to
-        // the struct local created to model the parameter's struct promotion, if any.
-        unsigned lvParentLcl; // The index of the local var representing the parent (i.e. the promoted struct local).
-        // Valid on promoted struct local fields.
+                                  // struct local. For implicit byref parameters, this gets hijacked between
+                                  // lvaRetypeImplicitByRefParams and lvaDemoteImplicitByRefParams to point to
+                                  // the struct local created to model the parameter's struct promotion, if any.
+        unsigned lvParentLcl;     // The index of the local var representing the promoted local.
     };
 
     uint16_t lvVarIndex;
@@ -378,7 +354,7 @@ public:
         return m_isSsa;
     }
 
-    void MakePromotedStructField(unsigned parentLclNum, unsigned fieldOffset, FieldSeqNode* fieldSeq)
+    void MakePromotedField(unsigned parentLclNum, unsigned fieldOffset, FieldSeqNode* fieldSeq)
     {
         assert(fieldOffset <= UINT8_MAX);
 
@@ -386,6 +362,16 @@ public:
         lvParentLcl     = parentLclNum;
         lvFldOffset     = static_cast<uint8_t>(fieldOffset);
         m_fieldSeq      = fieldSeq;
+    }
+
+    void SetPromotedFields(unsigned firstFieldLclNum, unsigned count)
+    {
+        assert(!lvPromoted);
+        assert(count < UINT8_MAX);
+
+        lvPromoted      = true;
+        lvFieldLclStart = firstFieldLclNum;
+        lvFieldCnt      = static_cast<uint8_t>(count);
     }
 
     bool IsPromoted() const
@@ -441,52 +427,46 @@ public:
         return m_fieldSeq;
     }
 
-    // The register number is stored in a small format (8 bits), but the getters return and the setters take
-    // a full-size (unsigned) format, to localize the casts here.
-
-    /////////////////////
-
-    regNumber GetRegNum() const
+    RegNum GetRegNum() const
     {
-        return (regNumber)_lvRegNum;
+        return static_cast<RegNum>(m_reg);
     }
 
-    void SetRegNum(regNumber reg)
+    void SetRegNum(RegNum reg)
     {
-        _lvRegNum = (regNumberSmall)reg;
-        assert(_lvRegNum == reg);
+        m_reg = static_cast<RegNumSmall>(reg);
     }
 
-    regNumber GetParamReg() const
+    RegNum GetParamReg() const
     {
-        return static_cast<regNumber>(m_paramRegs[0]);
+        return static_cast<RegNum>(m_paramRegs[0]);
     }
 
 #ifdef UNIX_AMD64_ABI
-    regNumber GetParamReg(unsigned index) const
+    RegNum GetParamReg(unsigned index) const
     {
         assert(index < _countof(m_paramRegs));
 
-        return static_cast<regNumber>(m_paramRegs[index]);
+        return static_cast<RegNum>(m_paramRegs[index]);
     }
 
-    void SetParamReg(unsigned index, regNumber reg)
+    void SetParamReg(unsigned index, RegNum reg)
     {
         assert(index < _countof(m_paramRegs));
         assert(reg != REG_STK);
 
-        m_paramRegs[index] = static_cast<regNumberSmall>(reg);
+        m_paramRegs[index] = static_cast<RegNumSmall>(reg);
     }
 
-    void SetParamRegs(regNumber reg0, regNumber reg1 = REG_NA)
+    void SetParamRegs(RegNum reg0, RegNum reg1 = REG_NA)
     {
         assert(lvIsParam);
         assert((reg0 != REG_STK) && (reg0 != REG_NA) && (reg1 != REG_STK));
 
         lvIsRegArg = true;
 
-        m_paramRegs[0] = static_cast<regNumberSmall>(reg0);
-        m_paramRegs[1] = static_cast<regNumberSmall>(reg1);
+        m_paramRegs[0] = static_cast<RegNumSmall>(reg0);
+        m_paramRegs[1] = static_cast<RegNumSmall>(reg1);
     }
 
     void ClearParamRegs()
@@ -500,21 +480,21 @@ public:
         m_paramRegs[1] = REG_NA;
     }
 #elif defined(TARGET_XARCH)
-    regNumber GetParamReg(unsigned index) const
+    RegNum GetParamReg(unsigned index) const
     {
         assert(index < _countof(m_paramRegs));
 
-        return static_cast<regNumber>(m_paramRegs[index]);
+        return static_cast<RegNum>(m_paramRegs[index]);
     }
 
-    void SetParamRegs(regNumber reg)
+    void SetParamRegs(RegNum reg)
     {
         assert(lvIsParam);
         assert((reg != REG_STK) && (reg != REG_NA));
 
         lvIsRegArg = true;
 
-        m_paramRegs[0] = static_cast<regNumberSmall>(reg);
+        m_paramRegs[0] = static_cast<RegNumSmall>(reg);
     }
 
     void ClearParamRegs()
@@ -525,14 +505,14 @@ public:
         m_paramRegs[0] = REG_NA;
     }
 #elif defined(TARGET_ARMARCH)
-    regNumber GetParamReg(unsigned index) const
+    RegNum GetParamReg(unsigned index) const
     {
         assert(index < m_paramRegCount);
 
-        return static_cast<regNumber>(m_paramRegs[0] + index);
+        return static_cast<RegNum>(m_paramRegs[0] + index);
     }
 
-    void SetParamRegs(regNumber reg0, unsigned regCount = 1)
+    void SetParamRegs(RegNum reg0, unsigned regCount = 1)
     {
         assert((reg0 != REG_STK) && (reg0 != REG_NA));
 #ifdef TARGET_ARM64
@@ -547,7 +527,7 @@ public:
 
         lvIsRegArg = true;
 
-        m_paramRegs[0]  = static_cast<regNumberSmall>(reg0);
+        m_paramRegs[0]  = static_cast<RegNumSmall>(reg0);
         m_paramRegCount = regCount;
     }
 
@@ -572,17 +552,16 @@ public:
 #endif
     }
 
-    regNumber GetParamInitialReg() const
+    RegNum GetParamInitialReg() const
     {
-        return static_cast<regNumber>(m_paramInitialReg);
+        return static_cast<RegNum>(m_paramInitialReg);
     }
 
-    void SetParamInitialReg(regNumber reg)
+    void SetParamInitialReg(RegNum reg)
     {
-        m_paramInitialReg = static_cast<regNumberSmall>(reg);
+        m_paramInitialReg = static_cast<RegNumSmall>(reg);
     }
 
-    // Is this is a SIMD struct which is used for SIMD intrinsic?
     bool lvIsUsedInSIMDIntrinsic() const
     {
 #ifdef FEATURE_SIMD
@@ -669,20 +648,13 @@ public:
         lvStkOffs = offset;
     }
 
-    // Is this a promoted struct?
-    // This method returns true only for structs (including SIMD structs), not for
-    // locals that are split on a 32-bit target.
-    // It is only necessary to use this:
-    //   1) if only structs are wanted, and
-    //   2) if Lowering has already been done.
-    // Otherwise lvPromoted is valid.
-    bool lvPromotedStruct()
+    bool IsPromotedStruct() const
     {
-#if !defined(TARGET_64BIT)
-        return (lvPromoted && !varTypeIsLong(lvType));
-#else  // defined(TARGET_64BIT)
+#ifdef TARGET_64BIT
         return lvPromoted;
-#endif // defined(TARGET_64BIT)
+#else
+        return lvPromoted && !varTypeIsLong(lvType);
+#endif
     }
 
     var_types GetType() const

@@ -360,13 +360,11 @@ GenTree* DecomposeLongs::DecomposeLclVar(LIR::Use& use)
     GenTree* hiResult = m_compiler->gtNewLclvNode(varNum, TYP_INT);
     Range().InsertAfter(loResult, hiResult);
 
-    if (varDsc->lvPromoted)
+    if (varDsc->IsPromoted())
     {
-        assert(varDsc->lvFieldCnt == 2);
-        unsigned loVarNum = varDsc->lvFieldLclStart;
-        unsigned hiVarNum = loVarNum + 1;
-        loResult->AsLclVar()->SetLclNum(loVarNum);
-        hiResult->AsLclVar()->SetLclNum(hiVarNum);
+        assert(varDsc->GetPromotedFieldCount() == 2);
+        loResult->AsLclVar()->SetLclNum(varDsc->GetPromotedFieldLclNum(0));
+        hiResult->AsLclVar()->SetLclNum(varDsc->GetPromotedFieldLclNum(1));
     }
     else
     {
@@ -1875,21 +1873,16 @@ GenTree* DecomposeLongs::StoreMultiRegNodeToLcl(LIR::Use& use)
         return DecomposeLclVar(use);
     }
 
-    LclVarDsc* lcl       = m_compiler->lvaNewTemp(TYP_LONG, true DEBUGARG("multireg LONG temp"));
-    lcl->lvFieldCnt      = 2;
-    lcl->lvFieldLclStart = m_compiler->lvaCount;
-    lcl->lvPromoted      = true;
+    LclVarDsc* lcl = m_compiler->lvaNewTemp(TYP_LONG, true DEBUGARG("multireg LONG temp"));
+
+    LclVarDsc* fieldLclLo = m_compiler->lvaNewTemp(TYP_INT, false DEBUGARG("promoted long field"));
+    fieldLclLo->MakePromotedField(lcl->GetLclNum(), 0, FieldSeqStore::NotAField());
+
+    LclVarDsc* fieldLclHi = m_compiler->lvaNewTemp(TYP_INT, false DEBUGARG("promoted long field"));
+    fieldLclHi->MakePromotedField(lcl->GetLclNum(), 4, FieldSeqStore::NotAField());
+
+    lcl->SetPromotedFields(fieldLclLo->GetLclNum(), 2);
     lcl->lvIsMultiRegRet = true;
-
-    LclVarDsc* fieldLclLo       = m_compiler->lvaNewTemp(TYP_INT, false DEBUGARG("promoted long field"));
-    fieldLclLo->lvIsStructField = true;
-    fieldLclLo->lvFldOffset     = 0;
-    fieldLclLo->lvParentLcl     = lcl->GetLclNum();
-
-    LclVarDsc* fieldLclHi       = m_compiler->lvaNewTemp(TYP_INT, false DEBUGARG("promoted long field"));
-    fieldLclHi->lvIsStructField = true;
-    fieldLclHi->lvFldOffset     = 4;
-    fieldLclHi->lvParentLcl     = lcl->GetLclNum();
 
     GenTreeLclVar* store  = m_compiler->gtNewStoreLclVar(lcl->GetLclNum(), TYP_LONG, use.Def());
     GenTreeLclVar* loadLo = m_compiler->gtNewLclvNode(fieldLclLo->GetLclNum(), TYP_INT);
@@ -1993,15 +1986,6 @@ genTreeOps DecomposeLongs::GetLoOper(genTreeOps oper)
     }
 }
 
-//------------------------------------------------------------------------
-// PromoteLongVars: "Struct promote" all register candidate longs as if they are structs of two ints.
-//
-// Arguments:
-//    None.
-//
-// Return Value:
-//    None.
-//
 void DecomposeLongs::PromoteLongVars()
 {
     if (!m_compiler->compEnregLocals() || m_compiler->fgNoStructPromotion)
@@ -2009,20 +1993,20 @@ void DecomposeLongs::PromoteLongVars()
         return;
     }
 
-    for (LclVarDsc* varDsc : m_compiler->Locals())
+    for (LclVarDsc* lcl : m_compiler->Locals())
     {
-        if (!varDsc->TypeIs(TYP_LONG) || (varDsc->GetRefCount() == 0))
+        if (!lcl->TypeIs(TYP_LONG) || (lcl->GetRefCount() == 0))
         {
             continue;
         }
 
-        if (varDsc->lvDoNotEnregister || varDsc->IsPromotedField() || varDsc->lvWasStructField)
+        if (lcl->lvDoNotEnregister || lcl->IsPromotedField() || lcl->lvWasStructField)
         {
             continue;
         }
 
 #ifdef DEBUG
-        if (varDsc->IsParam() && m_compiler->fgNoStructParamPromotion)
+        if (lcl->IsParam() && m_compiler->fgNoStructParamPromotion)
         {
             continue;
         }
@@ -2030,38 +2014,35 @@ void DecomposeLongs::PromoteLongVars()
 
 #ifdef TARGET_ARM
         // TODO-MIKE-CQ: Promote ARM long params.
-        if (varDsc->IsParam())
+        if (lcl->IsParam())
         {
             continue;
         }
 #endif
 
-        assert(!varDsc->lvIsMultiRegArg && !varDsc->lvIsMultiRegRet);
-        varDsc->lvFieldCnt      = 2;
-        varDsc->lvFieldLclStart = m_compiler->lvaCount;
-        varDsc->lvPromoted      = true;
-        varDsc->lvContainsHoles = false;
+        assert(!lcl->lvIsMultiRegArg && !lcl->lvIsMultiRegRet);
+        lcl->lvContainsHoles = false;
 
-        JITDUMP("\nPromoting long local V%02u:", varDsc->GetLclNum());
+        JITDUMP("\nPromoting long local V%02u:", lcl->GetLclNum());
 
-        bool     isParam = varDsc->IsParam();
-        unsigned lclNum  = varDsc->GetLclNum();
+        unsigned lclNum = lcl->GetLclNum();
 
-        for (unsigned index = 0; index < 2; ++index)
+        LclVarDsc* fieldLclLo = m_compiler->lvaNewTemp(TYP_INT, false DEBUGARG("promoted long field"));
+        fieldLclLo->MakePromotedField(lclNum, 0, FieldSeq::NotAField());
+        LclVarDsc* fieldLclHi = m_compiler->lvaNewTemp(TYP_INT, false DEBUGARG("promoted long field"));
+        fieldLclHi->MakePromotedField(lclNum, 4, FieldSeq::NotAField());
+
+        if (lcl->IsParam())
         {
-            LclVarDsc* fieldLcl = m_compiler->lvaNewTemp(TYP_INT, false DEBUGARG("promoted long field"));
-
-            fieldLcl->lvIsStructField = true;
-            fieldLcl->lvFldOffset     = static_cast<uint8_t>(index * varTypeSize(TYP_INT));
-            fieldLcl->lvParentLcl     = lclNum;
+            fieldLclLo->lvIsParam = true;
+            fieldLclHi->lvIsParam = true;
 
             // Currently we do not support enregistering incoming promoted aggregates with more than one field.
-            if (isParam)
-            {
-                fieldLcl->lvIsParam = true;
-                m_compiler->lvaSetDoNotEnregister(fieldLcl DEBUGARG(Compiler::DNER_LongParamField));
-            }
+            m_compiler->lvaSetDoNotEnregister(fieldLclLo DEBUGARG(Compiler::DNER_LongParamField));
+            m_compiler->lvaSetDoNotEnregister(fieldLclHi DEBUGARG(Compiler::DNER_LongParamField));
         }
+
+        lcl->SetPromotedFields(fieldLclLo->GetLclNum(), 2);
     }
 
 #ifdef DEBUG

@@ -1457,13 +1457,13 @@ void LinearScan::identifyCandidates()
 
         if (!regCandidate)
         {
-            if (varDsc->lvTracked)
+            if (varDsc->HasLiveness())
             {
-                localVarIntervals[varDsc->lvVarIndex] = nullptr;
+                localVarIntervals[varDsc->GetLivenessBitIndex()] = nullptr;
             }
 
             // The current implementation of multi-reg structs that are referenced collectively
-            // (i.e. by refering to the parent lclVar rather than each field separately) relies
+            // (i.e. by referring to the parent lclVar rather than each field separately) relies
             // on all or none of the fields being candidates.
             //
             // TODO-MIKE-Review: This sucks. Not necessarily because a DNER fields makes all
@@ -1471,29 +1471,35 @@ void LinearScan::identifyCandidates()
             // isn't tracked and thus not a reg candidate. This happens with promoted LONG on
             // 32 bit too, there are cases where only one half (usually the low one) is used.
             // And this is done way too late, in general we want to DNER as early as possible.
-            if (varDsc->lvIsStructField)
+            if (varDsc->IsPromotedField())
             {
-                LclVarDsc* parentVarDsc = compiler->lvaGetDesc(varDsc->lvParentLcl);
-                if (parentVarDsc->lvIsMultiRegRet && !parentVarDsc->lvDoNotEnregister)
+                LclVarDsc* promotedLcl = compiler->lvaGetDesc(varDsc->GetPromotedFieldParentLclNum());
+
+                if (promotedLcl->lvIsMultiRegRet && !promotedLcl->lvDoNotEnregister)
                 {
-                    JITDUMP("Setting multi-reg struct V%02u as not enregisterable:", varDsc->lvParentLcl);
-                    compiler->lvaSetDoNotEnregister(parentVarDsc DEBUGARG(Compiler::DNER_BlockOp));
-                    for (unsigned int i = 0; i < parentVarDsc->lvFieldCnt; i++)
+                    compiler->lvaSetDoNotEnregister(promotedLcl DEBUGARG(Compiler::DNER_BlockOp));
+
+                    for (unsigned int i = 0; i < promotedLcl->GetPromotedFieldCount(); i++)
                     {
-                        LclVarDsc* fieldVarDsc = compiler->lvaGetDesc(parentVarDsc->lvFieldLclStart + i);
-                        JITDUMP(" V%02u", parentVarDsc->lvFieldLclStart + i);
-                        if (fieldVarDsc->lvTracked)
+                        LclVarDsc* fieldLcl = compiler->lvaGetDesc(promotedLcl->GetPromotedFieldLclNum(i));
+                        JITDUMP(" V%02u", fieldLcl->GetLclNum());
+
+                        if (fieldLcl->HasLiveness())
                         {
-                            fieldVarDsc->lvLRACandidate                = false;
-                            fieldVarDsc->lvDoNotEnregister             = true;
-                            localVarIntervals[fieldVarDsc->lvVarIndex] = nullptr;
-                            VarSetOps::RemoveElemD(compiler, registerCandidateVars, fieldVarDsc->lvVarIndex);
+                            fieldLcl->lvLRACandidate    = false;
+                            fieldLcl->lvDoNotEnregister = true;
+
+                            localVarIntervals[fieldLcl->GetLivenessBitIndex()] = nullptr;
+                            VarSetOps::RemoveElemD(compiler, registerCandidateVars, fieldLcl->GetLivenessBitIndex());
+
                             JITDUMP("*");
                         }
+
                         // This is not accurate, but we need a non-zero refCnt for the parent so that it will
                         // be allocated to the stack.
-                        parentVarDsc->SetRefCount(parentVarDsc->GetRefCount() + fieldVarDsc->GetRefCount());
+                        promotedLcl->SetRefCount(promotedLcl->GetRefCount() + fieldLcl->GetRefCount());
                     }
+
                     JITDUMP("\n");
                 }
             }
@@ -1518,7 +1524,7 @@ void LinearScan::identifyCandidates()
         // we will set this later when we have determined liveness
         varDsc->lvMustInit = false;
 
-        if (varDsc->lvIsStructField)
+        if (varDsc->IsPromotedField())
         {
             newInt->isStructField = true;
         }

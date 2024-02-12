@@ -1635,30 +1635,28 @@ void LinearScan::buildIntervals()
     // (We do this here because we want to generate the ParamDef RefPositions in tracked
     // order, so that loop doesn't hit the non-tracked args)
 
-    for (LclVarDsc* argDsc : compiler->Params())
+    for (LclVarDsc* paramLcl : compiler->Params())
     {
-        if (argDsc->lvPromotedStruct())
+        if (paramLcl->IsPromotedStruct())
         {
-            for (unsigned fieldVarNum = argDsc->lvFieldLclStart;
-                 fieldVarNum < argDsc->lvFieldLclStart + argDsc->lvFieldCnt; ++fieldVarNum)
+            for (unsigned i = 0; i < paramLcl->GetPromotedFieldCount(); i++)
             {
-                LclVarDsc* fieldVarDsc = compiler->lvaGetDesc(fieldVarNum);
+                LclVarDsc* fieldLcl = compiler->lvaGetDesc(paramLcl->GetPromotedFieldLclNum(i));
+                assert(fieldLcl->IsParam());
 
-                noway_assert(fieldVarDsc->IsParam());
-
-                if (!fieldVarDsc->HasLiveness() && fieldVarDsc->IsRegParam())
+                if (!fieldLcl->HasLiveness() && fieldLcl->IsRegParam())
                 {
-                    AddLiveParamRegs(fieldVarDsc);
+                    AddLiveParamRegs(fieldLcl);
                 }
             }
         }
         else
         {
-            noway_assert(argDsc->IsParam());
+            noway_assert(paramLcl->IsParam());
 
-            if (!argDsc->HasLiveness() && argDsc->IsRegParam())
+            if (!paramLcl->HasLiveness() && paramLcl->IsRegParam())
             {
-                AddLiveParamRegs(argDsc);
+                AddLiveParamRegs(paramLcl);
             }
         }
     }
@@ -2265,22 +2263,25 @@ RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int re
         // we can update currentLiveVars at the same place that we create the RefPosition.
         if ((operand->gtFlags & GTF_VAR_DEATH) != 0)
         {
-            unsigned varIndex = interval->getVarIndex(compiler);
-            VarSetOps::RemoveElemD(compiler, currentLiveVars, varIndex);
+            VarSetOps::RemoveElemD(compiler, currentLiveVars, interval->getVarIndex(compiler));
         }
+
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
         buildUpperVectorRestoreRefPosition(interval, currentLoc, operand);
 #endif
     }
     else if (operand->IsMultiRegLclVar())
     {
-        LclVarDsc* varDsc      = compiler->lvaGetDesc(operand->AsLclVar()->GetLclNum());
-        LclVarDsc* fieldVarDsc = compiler->lvaGetDesc(varDsc->lvFieldLclStart + regIndex);
-        interval               = getIntervalForLocalVar(fieldVarDsc->lvVarIndex);
+        LclVarDsc* lcl      = compiler->lvaGetDesc(operand->AsLclVar()->GetLclNum());
+        LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(regIndex));
+
+        interval = getIntervalForLocalVar(fieldLcl->GetLivenessBitIndex());
+
         if (operand->AsLclVar()->IsLastUse(regIndex))
         {
-            VarSetOps::RemoveElemD(compiler, currentLiveVars, fieldVarDsc->lvVarIndex);
+            VarSetOps::RemoveElemD(compiler, currentLiveVars, fieldLcl->GetLivenessBitIndex());
         }
+
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
         buildUpperVectorRestoreRefPosition(interval, currentLoc, operand);
 #endif
