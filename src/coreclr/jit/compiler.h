@@ -594,7 +594,7 @@ public:
 
     bool IsRegCandidate() const
     {
-        return lvLRACandidate != 0;
+        return lvLRACandidate;
     }
 
     bool lvIsInReg() const

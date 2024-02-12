@@ -6706,7 +6706,7 @@ void LinearScan::insertMove(
 {
     LclVarDsc* varDsc = interval->getLocalVar(compiler);
     // the lclVar must be a register candidate
-    assert(isRegCandidate(varDsc));
+    assert(varDsc->IsRegCandidate());
     // One or both MUST be a register
     assert(fromReg != REG_STK || toReg != REG_STK);
     // They must not be the same register.
