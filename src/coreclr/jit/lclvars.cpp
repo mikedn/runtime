@@ -4968,66 +4968,74 @@ int Compiler::lvaAllocateTemps(int stkOffs
 
 // Determine the stack frame offset of the given local,
 // and how to generate an address to that local's stack location.
-int Compiler::lvaFrameAddress(int varNum, bool* pFPbased)
+int Compiler::lvaFrameAddress(int varNum, bool* fpBased) const
 {
-    assert(lvaDoneFrameLayout == FINAL_FRAME_LAYOUT);
-
-    bool fpBased;
-    int  varOffset;
-
     if (varNum >= 0)
     {
-        LclVarDsc* lcl = lvaGetDesc(static_cast<unsigned>(varNum));
-
-        fpBased   = lcl->lvFramePointerBased;
-        varOffset = lcl->GetStackOffset();
-
-#ifdef DEBUG
-        bool isPrespilledArg = false;
-#if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
-        isPrespilledArg =
-            lcl->IsParam() && compIsProfilerHookNeeded() && lcl->IsPreSpilledRegParam(codeGen->preSpillParamRegs);
-#endif
-
-        if (!lcl->lvOnFrame)
-        {
-#ifdef WINDOWS_AMD64_ABI
-            assert(lcl->IsParam());
-#endif
-#ifndef TARGET_AMD64
-            assert((lcl->IsParam() && !lcl->IsRegParam()) || isPrespilledArg);
-#endif
-        }
-
-#if FEATURE_FIXED_OUT_ARGS
-        if (static_cast<unsigned>(varNum) == lvaOutgoingArgSpaceVar)
-        {
-            assert(!fpBased);
-        }
-        else
-#endif
-        {
-#ifdef TARGET_X86
-#if DOUBLE_ALIGN
-            assert(fpBased == (codeGen->isFramePointerUsed() ||
-                               (codeGen->doDoubleAlign() && lcl->IsParam() && !lcl->IsRegParam())));
-#else
-            assert(fpBased == codeGen->isFramePointerUsed());
-#endif
-#endif
-        }
-#endif // DEBUG
+        return lvaLclFrameAddress(static_cast<unsigned>(varNum), fpBased);
     }
     else
     {
-        SpillTemp* temp = codeGen->spillTemps.FindTempByNum(varNum);
+        return lvaSpillTempFrameAddress(varNum, fpBased);
+    }
+}
 
-        fpBased   = codeGen->isFramePointerUsed();
-        varOffset = temp->GetOffset();
+int Compiler::lvaLclFrameAddress(unsigned lclNum, bool* fpBased) const
+{
+    assert(lvaDoneFrameLayout == FINAL_FRAME_LAYOUT);
+
+    LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+    *fpBased      = lcl->lvFramePointerBased;
+    int varOffset = lcl->GetStackOffset();
+
+#ifdef DEBUG
+    bool isPrespilledArg = false;
+#if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
+    isPrespilledArg =
+        lcl->IsParam() && compIsProfilerHookNeeded() && lcl->IsPreSpilledRegParam(codeGen->preSpillParamRegs);
+#endif
+
+    if (!lcl->lvOnFrame)
+    {
+#ifdef WINDOWS_AMD64_ABI
+        assert(lcl->IsParam());
+#endif
+#ifndef TARGET_AMD64
+        assert((lcl->IsParam() && !lcl->IsRegParam()) || isPrespilledArg);
+#endif
     }
 
-    *pFPbased = fpBased;
+#if FEATURE_FIXED_OUT_ARGS
+    if (lclNum == lvaOutgoingArgSpaceVar)
+    {
+        assert(!*fpBased);
+    }
+    else
+#endif
+    {
+#ifdef TARGET_X86
+#if DOUBLE_ALIGN
+        assert(*fpBased ==
+               (codeGen->isFramePointerUsed() || (codeGen->doDoubleAlign() && lcl->IsParam() && !lcl->IsRegParam())));
+#else
+        assert(*fpBased == codeGen->isFramePointerUsed());
+#endif
+#endif
+    }
+#endif // DEBUG
+
     return varOffset;
+}
+
+int Compiler::lvaSpillTempFrameAddress(int tempNum, bool* fpBased) const
+{
+    assert(lvaDoneFrameLayout == FINAL_FRAME_LAYOUT);
+
+    SpillTemp* temp = codeGen->spillTemps.FindTempByNum(tempNum);
+
+    *fpBased = codeGen->isFramePointerUsed();
+    return temp->GetOffset();
 }
 
 #ifdef TARGET_ARMARCH
@@ -5347,7 +5355,7 @@ void Compiler::lvaDumpRegLocation(unsigned lclNum)
 void Compiler::lvaDumpFrameLocation(unsigned lclNum)
 {
     bool      fpBased;
-    int       offset  = lvaFrameAddress(lclNum, &fpBased);
+    int       offset  = lvaLclFrameAddress(lclNum, &fpBased);
     regNumber baseReg = fpBased ? REG_FPBASE : REG_SPBASE;
 
 #ifdef TARGET_ARM64

@@ -5718,7 +5718,7 @@ bool CodeGen::IsSimdLocalAligned(unsigned lclNum)
     }
 
     bool rbpBased;
-    int  off = compiler->lvaFrameAddress(lclNum, &rbpBased);
+    int  off = compiler->lvaLclFrameAddress(lclNum, &rbpBased);
     // On SysV and Winx64 ABIs RSP+8 will be 16-byte aligned at the
     // first instruction of a function. If our frame is RBP based
     // then RBP will always be 16 bytes aligned, so we can simply
@@ -5760,16 +5760,16 @@ void CodeGen::genPoisonFrame(regMaskTP regLiveIn)
     const int imm = 0xcdcdcdcd;
 #endif
 
-    for (unsigned varNum = 0; varNum < compiler->info.compLocalsCount; varNum++)
+    for (unsigned lclNum = 0; lclNum < compiler->info.compLocalsCount; lclNum++)
     {
-        LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
-        if (varDsc->IsParam() || varDsc->lvMustInit || !varDsc->IsAddressExposed())
+        if (lcl->IsParam() || lcl->lvMustInit || !lcl->IsAddressExposed())
         {
             continue;
         }
 
-        assert(varDsc->lvOnFrame);
+        assert(lcl->lvOnFrame);
 
         if (immReg == REG_NA)
         {
@@ -5782,28 +5782,30 @@ void CodeGen::genPoisonFrame(regMaskTP regLiveIn)
 #endif
         }
 
-// For 64-bit we check if the local is 8-byte aligned. For 32-bit, we assume everything is always 4-byte aligned.
 #ifdef TARGET_64BIT
+        // For 64-bit we check if the local is 8-byte aligned.
         bool fpBased;
-        int  addr = compiler->lvaFrameAddress((int)varNum, &fpBased);
+        int  addr = compiler->lvaLclFrameAddress(lclNum, &fpBased);
 #else
+        // For 32 - bit, we assume everything is always 4 byte aligned.
         int addr = 0;
 #endif
-        int size = varDsc->GetFrameSize();
+        int size = lcl->GetFrameSize();
         int end  = addr + size;
+
         for (int offs = addr; offs < end;)
         {
 #ifdef TARGET_64BIT
-            if ((offs % 8) == 0 && end - offs >= 8)
+            if ((offs % 8 == 0) && (end - offs >= 8))
             {
-                GetEmitter()->emitIns_S_R(ins_Store(TYP_LONG), EA_8BYTE, immReg, (int)varNum, offs - addr);
+                GetEmitter()->emitIns_S_R(ins_Store(TYP_LONG), EA_8BYTE, immReg, static_cast<int>(lclNum), offs - addr);
                 offs += 8;
                 continue;
             }
 #endif
 
-            assert((offs % 4) == 0 && end - offs >= 4);
-            GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, immReg, (int)varNum, offs - addr);
+            assert((offs % 4 == 0) && (end - offs >= 4));
+            GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, immReg, static_cast<int>(lclNum), offs - addr);
             offs += 4;
         }
     }

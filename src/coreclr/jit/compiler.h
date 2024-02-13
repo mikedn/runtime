@@ -3487,7 +3487,9 @@ public:
     void lvaDispVarSet(VARSET_VALARG_TP set);
 #endif
 
-    int lvaFrameAddress(int varNum, bool* pFPbased);
+    int lvaFrameAddress(int varNum, bool* pFPbased) const;
+    int lvaLclFrameAddress(unsigned lclNum, bool* pFPbased) const;
+    int lvaSpillTempFrameAddress(int varNum, bool* pFPbased) const;
 
     bool lvaIsOriginalThisParam(unsigned lclNum);
 
