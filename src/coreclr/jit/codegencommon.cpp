@@ -5710,7 +5710,7 @@ bool CodeGen::IsSimdLocalAligned(unsigned lclNum)
         return false;
     }
 
-    int alignment = compiler->lvaGetSimdTypedLocalPreferredAlignment(lcl);
+    int alignment = static_cast<int>(lcl->GetVectorTypePreferredAlignment());
 
     if (alignment > STACK_ALIGN)
     {
@@ -5719,6 +5719,7 @@ bool CodeGen::IsSimdLocalAligned(unsigned lclNum)
 
     bool rbpBased;
     int  off = compiler->lvaLclFrameAddress(lclNum, &rbpBased);
+
     // On SysV and Winx64 ABIs RSP+8 will be 16-byte aligned at the
     // first instruction of a function. If our frame is RBP based
     // then RBP will always be 16 bytes aligned, so we can simply

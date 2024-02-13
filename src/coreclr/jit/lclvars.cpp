@@ -4710,7 +4710,7 @@ int Compiler::lvaAllocLocalAndSetVirtualOffset(unsigned lclNum, unsigned size, i
 #ifdef FEATURE_SIMD
             if (varTypeIsSIMD(lcl->GetType()))
             {
-                int alignment = lvaGetSimdTypedLocalPreferredAlignment(lcl);
+                int alignment = static_cast<int>(lcl->GetVectorTypePreferredAlignment());
 
                 if (stkOffs % alignment != 0)
                 {
@@ -5305,21 +5305,6 @@ int Compiler::lvaGetPSPSymInitialSPRelativeOffset()
     }
 }
 #endif // TARGET_AMD64
-
-#ifdef FEATURE_SIMD
-// Get the preferred alignment of SIMD typed local for better performance.
-int Compiler::lvaGetSimdTypedLocalPreferredAlignment(LclVarDsc* lcl)
-{
-    assert(varTypeIsSIMD(lcl->GetType()));
-
-    if (lcl->GetType() == TYP_SIMD12)
-    {
-        return 16;
-    }
-
-    return varTypeSize(lcl->GetType());
-}
-#endif // FEATURE_SIMD
 
 #ifdef DEBUG
 

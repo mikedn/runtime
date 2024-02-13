@@ -713,6 +713,25 @@ public:
 
     unsigned GetFrameSize() const;
 
+#ifdef FEATURE_SIMD
+    unsigned GetVectorTypePreferredAlignment() const
+    {
+        switch (lvType)
+        {
+#ifdef TARGET_XARCH
+            case TYP_SIMD32:
+                return 32;
+#endif
+            case TYP_SIMD12:
+            case TYP_SIMD16:
+                return 16;
+            default:
+                assert(lvType == TYP_SIMD8);
+                return 8;
+        }
+    }
+#endif
+
     bool lvNormalizeOnLoad() const
     {
         return varTypeIsSmall(lvType) &&
@@ -5471,9 +5490,6 @@ public:
     // Get the type for the hardware SIMD vector.
     // This is the maximum SIMD type supported for this target.
     var_types GetVectorTSimdType();
-
-    // Get preferred alignment of SIMD type.
-    int lvaGetSimdTypedLocalPreferredAlignment(LclVarDsc* lcl);
 #endif // FEATURE_SIMD
 
 private:
