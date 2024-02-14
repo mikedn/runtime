@@ -956,8 +956,10 @@ void CodeGen::genVectorGetElement(GenTreeHWIntrinsic* node)
 
         if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
+            LclVarDsc* lcl = compiler->lvaGetDesc(src->AsLclVarCommon());
+
             bool isEBPbased;
-            int  frameOffset = compiler->lvaLclFrameAddress(src->AsLclVarCommon()->GetLclNum(), &isEBPbased);
+            int  frameOffset = compiler->lvaLclFrameAddress(lcl, &isEBPbased);
 
 #if !FEATURE_FIXED_OUT_ARGS
             if (!isEBPbased)

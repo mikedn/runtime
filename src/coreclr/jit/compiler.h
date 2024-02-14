@@ -3407,9 +3407,9 @@ public:
                          );
 
 #ifdef DEBUG
-    void lvaDumpRegLocation(unsigned lclNum);
-    void lvaDumpFrameLocation(unsigned lclNum);
-    void lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth = 6);
+    void lvaDumpRegLocation(LclVarDsc* lcl);
+    void lvaDumpFrameLocation(LclVarDsc* lcl);
+    void lvaDumpEntry(LclVarDsc* lcl, size_t refCntWtdWidth = 6);
     void lvaTableDump();
 #endif
 
@@ -3506,9 +3506,9 @@ public:
     void lvaDispVarSet(VARSET_VALARG_TP set);
 #endif
 
-    int lvaFrameAddress(int varNum, bool* pFPbased) const;
-    int lvaLclFrameAddress(unsigned lclNum, bool* pFPbased) const;
-    int lvaSpillTempFrameAddress(int varNum, bool* pFPbased) const;
+    int lvaFrameAddress(int varNum, bool* fpBased) const;
+    int lvaLclFrameAddress(LclVarDsc* lcl, bool* fpBased) const;
+    int lvaSpillTempFrameAddress(int tempNum, bool* fpBased) const;
 
     bool lvaIsOriginalThisParam(unsigned lclNum);
 
@@ -5958,7 +5958,7 @@ public:
     VarScopeDsc* compGetNextEnterScopeScan(unsigned offs, unsigned* nextEnterScope);
     VarScopeDsc* compGetNextExitScopeScan(unsigned offs, unsigned* nextExitScope);
 
-    bool compIsProfilerHookNeeded();
+    bool compIsProfilerHookNeeded() const;
 
 public:
 #ifdef DEBUG

@@ -1476,16 +1476,16 @@ inline ArenaAllocator* Compiler::compGetArenaAllocator()
     return compArenaAllocator;
 }
 
-inline bool Compiler::compIsProfilerHookNeeded()
+inline bool Compiler::compIsProfilerHookNeeded() const
 {
 #ifdef PROFILING_SUPPORTED
     return compProfilerHookNeeded
            // IL stubs are excluded by VM and we need to do the same even running
            // under a complus env hook to generate profiler hooks
            || (opts.compJitELTHookEnabled && !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB));
-#else  // !PROFILING_SUPPORTED
+#else
     return false;
-#endif // !PROFILING_SUPPORTED
+#endif
 }
 
 /*****************************************************************************

@@ -4972,7 +4972,7 @@ int Compiler::lvaFrameAddress(int varNum, bool* fpBased) const
 {
     if (varNum >= 0)
     {
-        return lvaLclFrameAddress(static_cast<unsigned>(varNum), fpBased);
+        return lvaLclFrameAddress(lvaGetDesc(static_cast<unsigned>(varNum)), fpBased);
     }
     else
     {
@@ -4980,11 +4980,9 @@ int Compiler::lvaFrameAddress(int varNum, bool* fpBased) const
     }
 }
 
-int Compiler::lvaLclFrameAddress(unsigned lclNum, bool* fpBased) const
+int Compiler::lvaLclFrameAddress(LclVarDsc* lcl, bool* fpBased) const
 {
     assert(lvaDoneFrameLayout == FINAL_FRAME_LAYOUT);
-
-    LclVarDsc* lcl = lvaGetDesc(lclNum);
 
     *fpBased      = lcl->lvFramePointerBased;
     int varOffset = lcl->GetStackOffset();
@@ -5007,7 +5005,7 @@ int Compiler::lvaLclFrameAddress(unsigned lclNum, bool* fpBased) const
     }
 
 #if FEATURE_FIXED_OUT_ARGS
-    if (lclNum == lvaOutgoingArgSpaceVar)
+    if (lcl->GetLclNum() == lvaOutgoingArgSpaceVar)
     {
         assert(!*fpBased);
     }
@@ -5310,54 +5308,51 @@ int Compiler::lvaGetPSPSymInitialSPRelativeOffset()
 
 // Dump the register a local is in right now. It is only the current location, since the location
 // changes and it is updated throughout code generation based on LSRA register assignments.
-void Compiler::lvaDumpRegLocation(unsigned lclNum)
+void Compiler::lvaDumpRegLocation(LclVarDsc* lcl)
 {
-    LclVarDsc* varDsc = lvaGetDesc(lclNum);
-
 #ifdef TARGET_ARM
-    if (varDsc->TypeGet() == TYP_DOUBLE)
+    if (lcl->TypeIs(TYP_DOUBLE))
     {
-        printf("%3s:%-3s    ", getRegName(varDsc->GetRegNum()), getRegName(REG_NEXT(varDsc->GetRegNum())));
+        printf("%3s:%-3s    ", getRegName(lcl->GetRegNum()), getRegName(REG_NEXT(lcl->GetRegNum())));
     }
     else
 #endif
 #ifdef TARGET_XARCH
-        if (varTypeUsesFloatReg(varDsc->GetType()))
+        if (varTypeUsesFloatReg(lcl->GetType()))
     {
         // TODO-MIKE-Cleanup: Remove this workaround. Old getRegName returned bogus names
         // for XMM registers - mm0-mm15 - fixing it resulted in disassembly diffs.
-        printf("%3s        ", getRegName(varDsc->GetRegNum()) + 1);
+        printf("%3s        ", getRegName(lcl->GetRegNum()) + 1);
     }
     else
 #endif
     {
-        printf("%3s        ", getRegName(varDsc->GetRegNum()));
+        printf("%3s        ", getRegName(lcl->GetRegNum()));
     }
 }
 
 // Dump the frame location assigned to a local.
 // It's the home location, even though the variable doesn't always live in its home location.
-void Compiler::lvaDumpFrameLocation(unsigned lclNum)
+void Compiler::lvaDumpFrameLocation(LclVarDsc* lcl)
 {
     bool      fpBased;
-    int       offset  = lvaLclFrameAddress(lclNum, &fpBased);
+    int       offset  = lvaLclFrameAddress(lcl, &fpBased);
     regNumber baseReg = fpBased ? REG_FPBASE : REG_SPBASE;
 
 #ifdef TARGET_ARM64
     printf("[%s,#%d]  ", getRegName(baseReg), offset);
 #else
-    printf("[%2s%1s%02XH]  ", getRegName(baseReg), (offset < 0 ? "-" : "+"), (offset < 0 ? -offset : offset));
+    printf("[%2s%1s%02XH]  ", getRegName(baseReg), offset < 0 ? "-" : "+", offset < 0 ? -offset : offset);
 #endif
 }
 
-void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
+void Compiler::lvaDumpEntry(LclVarDsc* varDsc, size_t refCntWtdWidth)
 {
-    LclVarDsc* varDsc = lvaGetDesc(lclNum);
-    var_types  type   = varDsc->TypeGet();
+    var_types type = varDsc->TypeGet();
 
     printf("; ");
 
-    gtDispLclVar(lclNum);
+    gtDispLclVar(varDsc->GetLclNum());
 
     if (lvaTrackedCount != 0)
     {
@@ -5393,7 +5388,7 @@ void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
             gtDispClassLayout(layout, type);
         }
 #if FEATURE_FIXED_OUT_ARGS
-        else if (lclNum == lvaOutgoingArgSpaceVar)
+        else if (varDsc->GetLclNum() == lvaOutgoingArgSpaceVar)
         {
             if (codeGen->outgoingArgSpaceSize.HasFinalValue())
             {
@@ -5419,7 +5414,7 @@ void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
 
         if (varDsc->IsParam() && !varDsc->IsRegParam())
         {
-            lvaDumpFrameLocation(lclNum);
+            lvaDumpFrameLocation(varDsc);
         }
         else if (varDsc->GetRefCount() == 0)
         {
@@ -5427,7 +5422,7 @@ void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
         }
         else if (varDsc->lvRegister)
         {
-            lvaDumpRegLocation(lclNum);
+            lvaDumpRegLocation(varDsc);
         }
         else if (!varDsc->lvOnFrame)
         {
@@ -5435,7 +5430,7 @@ void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
         }
         else
         {
-            lvaDumpFrameLocation(lclNum);
+            lvaDumpFrameLocation(varDsc);
         }
     }
 
@@ -5596,9 +5591,9 @@ void Compiler::lvaTableDump()
         }
     }
 
-    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
+    for (LclVarDsc* lcl : Locals())
     {
-        lvaDumpEntry(lclNum, refCntWtdWidth);
+        lvaDumpEntry(lcl, refCntWtdWidth);
     }
 
     for (SpillTemp& temp : codeGen->spillTemps)

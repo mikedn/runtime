@@ -5718,7 +5718,7 @@ bool CodeGen::IsSimdLocalAligned(unsigned lclNum)
     }
 
     bool rbpBased;
-    int  off = compiler->lvaLclFrameAddress(lclNum, &rbpBased);
+    int  off = compiler->lvaLclFrameAddress(lcl, &rbpBased);
 
     // On SysV and Winx64 ABIs RSP+8 will be 16-byte aligned at the
     // first instruction of a function. If our frame is RBP based
@@ -5786,7 +5786,7 @@ void CodeGen::genPoisonFrame(regMaskTP regLiveIn)
 #ifdef TARGET_64BIT
         // For 64-bit we check if the local is 8-byte aligned.
         bool fpBased;
-        int  addr = compiler->lvaLclFrameAddress(lclNum, &fpBased);
+        int  addr = compiler->lvaLclFrameAddress(lcl, &fpBased);
 #else
         // For 32 - bit, we assume everything is always 4 byte aligned.
         int addr = 0;
