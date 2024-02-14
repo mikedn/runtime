@@ -4526,7 +4526,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
             }
 #endif // !TARGET_64BIT
 
-            stkOffs = lvaAllocLocalAndSetVirtualOffset(lclNum, lcl->GetFrameSize(), stkOffs);
+            stkOffs = lvaAllocLocalAndSetVirtualOffset(lcl, lcl->GetFrameSize(), stkOffs);
         }
     }
 
@@ -4672,13 +4672,13 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
 
 int Compiler::lvaAllocLocalAndSetVirtualOffset(unsigned lclNum, unsigned size, int stkOffs)
 {
-    noway_assert(lclNum != BAD_VAR_NUM);
-    assert((size != 0) && (size % 4 == 0));
+    return lvaAllocLocalAndSetVirtualOffset(lvaGetDesc(lclNum), size, stkOffs);
+}
+
+int Compiler::lvaAllocLocalAndSetVirtualOffset(LclVarDsc* lcl, unsigned size, int stkOffs)
+{
+    assert((size != 0) && (size % 4 == 0) && (size >= lcl->GetTypeSize()));
     assert(stkOffs <= 0);
-
-    LclVarDsc* lcl = lvaGetDesc(lclNum);
-
-    assert(size >= lcl->GetTypeSize());
 
 #ifdef TARGET_64BIT
     if (size >= 8)
@@ -4744,7 +4744,7 @@ int Compiler::lvaAllocLocalAndSetVirtualOffset(unsigned lclNum, unsigned size, i
             lvaIncrementFrameSize(pad);
             stkOffs -= pad;
 
-            JITDUMP("Pad %u V%02u stack offset %c0x%x (size %u)", pad, lclNum, stkOffs < 0 ? '-' : '+',
+            JITDUMP("Pad %u V%02u stack offset %c0x%x (size %u)", pad, lcl->GetLclNum(), stkOffs < 0 ? '-' : '+',
                     stkOffs < 0 ? -stkOffs : stkOffs, size);
         }
     }
@@ -4754,7 +4754,7 @@ int Compiler::lvaAllocLocalAndSetVirtualOffset(unsigned lclNum, unsigned size, i
     stkOffs -= size;
     lcl->SetStackOffset(stkOffs);
 
-    JITDUMP("Assign V%02u stack offset %c0x%x (size %u)\n", lclNum, stkOffs < 0 ? '-' : '+',
+    JITDUMP("Assign V%02u stack offset %c0x%x (size %u)\n", lcl->GetLclNum(), stkOffs < 0 ? '-' : '+',
             stkOffs < 0 ? -stkOffs : stkOffs, size);
 
     return stkOffs;
