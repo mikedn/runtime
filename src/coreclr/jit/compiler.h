@@ -3513,13 +3513,6 @@ public:
 
     bool lvaIsOriginalThisParam(unsigned lclNum);
 
-    bool lvaIsImplicitByRefLocal(unsigned lclNum)
-    {
-        return lvaGetDesc(lclNum)->IsImplicitByRefParam();
-    }
-
-    void lvaSetStruct(unsigned lclNum, CORINFO_CLASS_HANDLE classHandle, bool checkUnsafeBuffer);
-    void lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsafeBuffer);
     void lvaSetStruct(LclVarDsc* lcl, ClassLayout* layout, bool checkUnsafeBuffer);
 
     // If the local is TYP_REF, set or update the associated class information.

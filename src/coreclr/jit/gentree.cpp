@@ -4460,7 +4460,7 @@ GenTreeObj* Compiler::gtNewObjNode(var_types type, ClassLayout* layout, GenTree*
         objNode->gtFlags |= GTF_IND_NONFAULTING;
 
         // An Obj is not a global reference, if it is known to be a local struct.
-        if (((addr->gtFlags & GTF_GLOB_REF) == 0) && !lvaIsImplicitByRefLocal(lclNode->GetLclNum()))
+        if (((addr->gtFlags & GTF_GLOB_REF) == 0) && !lvaGetDesc(lclNode)->IsImplicitByRefParam())
         {
             objNode->gtFlags &= ~GTF_GLOB_REF;
         }
