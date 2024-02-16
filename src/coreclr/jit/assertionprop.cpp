@@ -484,7 +484,7 @@ private:
                 }
 
                 assertion.op1.kind              = O1K_LCLVAR;
-                assertion.op1.lclNum            = op1->GetDef()->GetLcl()->GetLclNum();
+                assertion.op1.lclNum            = lcl->GetLclNum();
                 assertion.op2.kind              = O2K_CONST_INT;
                 assertion.op2.intCon.value      = op2->AsIntCon()->GetValue(lcl->GetType());
                 assertion.op2.intCon.handleKind = op2->AsIntCon()->GetHandleKind();
@@ -493,7 +493,7 @@ private:
 #ifndef TARGET_64BIT
             case GT_CNS_LNG:
                 assertion.op1.kind         = O1K_LCLVAR;
-                assertion.op1.lclNum       = op1->GetDef()->GetLcl()->GetLclNum();
+                assertion.op1.lclNum       = lcl->GetLclNum();
                 assertion.op2.kind         = O2K_CONST_LONG;
                 assertion.op2.lngCon.value = op2->AsLngCon()->GetValue();
                 break;
@@ -510,14 +510,14 @@ private:
                 }
 
                 assertion.op1.kind         = O1K_LCLVAR;
-                assertion.op1.lclNum       = op1->GetDef()->GetLcl()->GetLclNum();
+                assertion.op1.lclNum       = lcl->GetLclNum();
                 assertion.op2.kind         = O2K_CONST_DOUBLE;
                 assertion.op2.dblCon.value = op2->AsDblCon()->GetValue();
                 break;
 
             case GT_LCL_VAR:
             {
-                if (op1->GetDef()->GetLcl()->GetLclNum() == op2->AsLclVar()->GetLclNum())
+                if (lcl->GetLclNum() == op2->AsLclVar()->GetLclNum())
                 {
                     return NO_ASSERTION_INDEX;
                 }
@@ -546,7 +546,7 @@ private:
 
             case GT_LCL_USE:
             {
-                if (op1->GetDef()->GetLcl() == op2->AsLclUse()->GetDef()->GetLcl())
+                if (lcl == op2->AsLclUse()->GetDef()->GetLcl())
                 {
                     return NO_ASSERTION_INDEX;
                 }

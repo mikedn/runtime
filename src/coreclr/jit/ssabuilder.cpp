@@ -30,8 +30,8 @@ private:
     void ComputeIteratedDominanceFrontier(BasicBlock* b, const BlockDFMap* mapDF, BlockVector* bIDF);
 
     void               InsertPhiFunctions();
-    static GenTreePhi* GetPhiNode(BasicBlock* block, unsigned lclNum);
-    void InsertPhi(BasicBlock* block, unsigned lclNum);
+    static GenTreePhi* GetPhiNode(BasicBlock* block, LclVarDsc* lcl);
+    void InsertPhi(BasicBlock* block, LclVarDsc* lcl);
 
     void RenameVariables();
 
@@ -511,7 +511,7 @@ void SsaBuilder::ComputeIteratedDominanceFrontier(BasicBlock* b, const BlockDFMa
 #endif
 }
 
-GenTreePhi* SsaBuilder::GetPhiNode(BasicBlock* block, unsigned lclNum)
+GenTreePhi* SsaBuilder::GetPhiNode(BasicBlock* block, LclVarDsc* lcl)
 {
     for (Statement* const stmt : block->Statements())
     {
@@ -522,7 +522,7 @@ GenTreePhi* SsaBuilder::GetPhiNode(BasicBlock* block, unsigned lclNum)
             break;
         }
 
-        if (tree->AsLclDef()->GetLcl()->GetLclNum() == lclNum)
+        if (tree->AsLclDef()->GetLcl() == lcl)
         {
             return tree->AsLclDef()->GetValue()->AsPhi();
         }
@@ -531,10 +531,9 @@ GenTreePhi* SsaBuilder::GetPhiNode(BasicBlock* block, unsigned lclNum)
     return nullptr;
 }
 
-void SsaBuilder::InsertPhi(BasicBlock* block, unsigned lclNum)
+void SsaBuilder::InsertPhi(BasicBlock* block, LclVarDsc* lcl)
 {
-    LclVarDsc* lcl  = compiler->lvaGetDesc(lclNum);
-    var_types  type = lcl->GetType();
+    var_types type = lcl->GetType();
 
     GenTreePhi* phi = new (compiler, GT_PHI) GenTreePhi(type);
     phi->SetCosts(0, 0);
@@ -558,7 +557,7 @@ void SsaBuilder::InsertPhi(BasicBlock* block, unsigned lclNum)
 
     compiler->fgInsertStmtAtBeg(block, stmt);
 
-    JITDUMP("Added PHI definition for V%02u at start of " FMT_BB ".\n", lclNum, block->bbNum);
+    JITDUMP("Added PHI definition for V%02u at start of " FMT_BB ".\n", lcl->GetLclNum(), block->bbNum);
 }
 
 // Special value to represent a to-be-filled in Memory Phi arg list.
@@ -640,8 +639,6 @@ void SsaBuilder::InsertPhiFunctions()
                 continue;
             }
 
-            unsigned lclNum = lcl->GetLclNum();
-
             // For each block "bbInDomFront" that is in the dominance frontier of "block"...
             for (BasicBlock* bbInDomFront : blockIDF)
             {
@@ -655,11 +652,11 @@ void SsaBuilder::InsertPhiFunctions()
                 }
 
                 // Check if we've already inserted a phi node.
-                if (GetPhiNode(bbInDomFront, lclNum) == nullptr)
+                if (GetPhiNode(bbInDomFront, lcl) == nullptr)
                 {
                     // We have a variable i that is defined in block j and live at l, and l belongs to dom frontier of
                     // j. So insert a phi node at l.
-                    InsertPhi(bbInDomFront, lclNum);
+                    InsertPhi(bbInDomFront, lcl);
                 }
             }
         }
@@ -1035,8 +1032,9 @@ void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclVarCommon* lclNode, Stateme
 
 void SsaRenameDomTreeVisitor::AddDefToHandlerPhis(BasicBlock* block, GenTreeLclDef* def)
 {
-    unsigned  lclIndex  = def->GetLcl()->GetLivenessBitIndex();
-    EHblkDsc* tryRegion = m_compiler->ehGetBlockExnFlowDsc(block);
+    LclVarDsc* lcl       = def->GetLcl();
+    unsigned   lclIndex  = lcl->GetLivenessBitIndex();
+    EHblkDsc*  tryRegion = m_compiler->ehGetBlockExnFlowDsc(block);
 
     while (tryRegion != nullptr)
     {
@@ -1045,7 +1043,7 @@ void SsaRenameDomTreeVisitor::AddDefToHandlerPhis(BasicBlock* block, GenTreeLclD
         if (VarSetOps::IsMember(m_compiler, handler->bbLiveIn, lclIndex))
         {
             DBG_SSA_JITDUMP("Adding PHI arg for V%02u from [%06u] " FMT_BB " to exception handler" FMT_BB ".\n",
-                            def->GetLcl()->GetLclNum(), def->GetID(), block->bbNum, handler->bbNum);
+                            lcl->GetLclNum(), def->GetID(), block->bbNum, handler->bbNum);
 
             INDEBUG(bool phiFound = false);
 
@@ -1058,7 +1056,7 @@ void SsaRenameDomTreeVisitor::AddDefToHandlerPhis(BasicBlock* block, GenTreeLclD
                     break;
                 }
 
-                if (tree->AsLclDef()->GetLcl() == def->GetLcl())
+                if (tree->AsLclDef()->GetLcl() == lcl)
                 {
                     AddPhiArg(block, def, stmt, tree->AsLclDef()->GetValue()->AsPhi() DEBUGARG(handler));
                     INDEBUG(phiFound = true);
