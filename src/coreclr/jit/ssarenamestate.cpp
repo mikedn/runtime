@@ -49,7 +49,7 @@ GenTreeLclDef* SsaRenameState::Top(unsigned lclNum)
     noway_assert(m_stacks != nullptr);
     StackNode* top = m_stacks[lclNum].Top();
     noway_assert(top != nullptr);
-    assert(top->m_lclDef->GetLclNum() == lclNum);
+    assert(top->m_lclDef->GetLcl()->GetLclNum() == lclNum);
     return top->m_lclDef;
 }
 

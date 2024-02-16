@@ -58,8 +58,8 @@ class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
     LclSsaStackMap lclSsaStackMap;
     SsaStack*      stackListTail = nullptr;
     SsaStack       freeStack;
-    unsigned       thisParamLclNum = BAD_VAR_NUM;
-    unsigned       copyPropCount   = 0;
+    LclVarDsc*     thisParamLcl  = nullptr;
+    unsigned       copyPropCount = 0;
 
     template <class... Args>
     SsaStackNode* AllocStackNode(Args&&... args)
@@ -78,9 +78,9 @@ class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
         return new (stack) SsaStackNode(std::forward<Args>(args)...);
     }
 
-    bool IsThisParam(unsigned lclNum) const
+    bool IsThisParam(LclVarDsc* lcl) const
     {
-        return lclNum == thisParamLclNum;
+        return thisParamLcl == lcl;
     }
 
     void PushSsaDef(SsaStack* stack, BasicBlock* block, GenTreeLclDef* def)
@@ -146,14 +146,14 @@ public:
     {
         for (GenTreeLclDef* def = ssa.GetInitLclDefs(); def != nullptr; def = static_cast<GenTreeLclDef*>(def->gtNext))
         {
-            unsigned lclNum = def->GetLclNum();
+            LclVarDsc* lcl = def->GetLcl();
 
-            if (lclNum == m_compiler->info.compThisArg)
+            if (lcl->GetLclNum() == m_compiler->info.compThisArg)
             {
-                thisParamLclNum = m_compiler->info.compThisArg;
+                thisParamLcl = m_compiler->lvaGetDesc(m_compiler->info.compThisArg);
             }
 
-            PushSsaDef(lclSsaStackMap.Emplace(lclNum), m_compiler->fgFirstBB, def);
+            PushSsaDef(lclSsaStackMap.Emplace(lcl->GetLclNum()), m_compiler->fgFirstBB, def);
         }
     }
 
@@ -176,7 +176,7 @@ public:
                 break;
             }
 
-            PushSsaDef(lclSsaStackMap.Emplace(root->AsLclDef()->GetLclNum()), block, root->AsLclDef());
+            PushSsaDef(lclSsaStackMap.Emplace(root->AsLclDef()->GetLcl()->GetLclNum()), block, root->AsLclDef());
         }
 
         for (Statement* stmt : block->NonPhiStatements())
@@ -185,18 +185,18 @@ public:
             {
                 if (GenTreeLclDef* def = node->IsLclDef())
                 {
-                    PushSsaDef(lclSsaStackMap.Emplace(def->GetLclNum()), block, def);
+                    PushSsaDef(lclSsaStackMap.Emplace(def->GetLcl()->GetLclNum()), block, def);
                 }
                 else if (GenTreeLclUse* use = node->IsLclUse())
                 {
-                    unsigned lclNum = use->GetDef()->GetLclNum();
+                    LclVarDsc* lcl = use->GetDef()->GetLcl();
 
                     // `this` param normally has no explicit definitions so we prefer to keep using it.
                     // The importer introduces a temp if the IL attempts to modify the `this` param so
                     // we can get defs only if the JIT itself introduces new defs, which is a rare case
                     // (tail call to loop conversion does this). This is only a heuristic so we simply
                     // assume that there are no defs.
-                    if (IsThisParam(lclNum))
+                    if (IsThisParam(lcl))
                     {
                         continue;
                     }
@@ -209,7 +209,7 @@ public:
 
                         if (!use->TypeIs(TYP_STRUCT))
                         {
-                            PushSsaDef(lclSsaStackMap.Emplace(lclNum), block, nullptr);
+                            PushSsaDef(lclSsaStackMap.Emplace(lcl->GetLclNum()), block, nullptr);
                         }
                     }
 
@@ -239,8 +239,8 @@ public:
         }
 
         ValueNum   defVN  = use->GetDef()->GetConservativeVN();
-        unsigned   lclNum = use->GetDef()->GetLclNum();
-        LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
+        LclVarDsc* lcl    = use->GetDef()->GetLcl();
+        unsigned   lclNum = lcl->GetLclNum();
 
         // TODO-MIKE-Review: The whole "search the SSA defs for a def with matching VN" approach
         // is rather shoddy, partly due to it being just a linear search (and funnily enough, in
@@ -252,15 +252,13 @@ public:
 
         for (const auto& pair : lclSsaStackMap)
         {
-            unsigned       newLclNum = pair.key;
-            GenTreeLclDef* newDef    = pair.value.Top()->m_lclDef;
+            LclVarDsc*     newLcl = m_compiler->lvaGetDesc(pair.key);
+            GenTreeLclDef* newDef = pair.value.Top()->m_lclDef;
 
-            if ((lclNum == newLclNum) || (newDef == nullptr))
+            if ((lcl == newLcl) || (newDef == nullptr))
             {
                 continue;
             }
-
-            LclVarDsc* newLcl = m_compiler->lvaGetDesc(newLclNum);
 
             if (varActualType(newLcl->GetType()) != varActualType(lcl->GetType()))
             {
@@ -296,12 +294,12 @@ public:
 #endif
 
             if ((m_compiler->gsLclShadowMap != nullptr) && newLcl->IsParam() &&
-                (m_compiler->gsLclShadowMap[newLclNum] == lclNum))
+                (m_compiler->gsLclShadowMap[newLcl->GetLclNum()] == lclNum))
             {
                 continue;
             }
 
-            if (!IsThisParam(newLclNum) && (pair.value.Top()->m_block != block) &&
+            if (!IsThisParam(newLcl) && (pair.value.Top()->m_block != block) &&
                 !VarSetOps::IsMember(m_compiler, block->bbLiveIn, newLcl->GetLivenessBitIndex()))
             {
                 continue;
@@ -316,8 +314,8 @@ public:
                 continue;
             }
 
-            JITDUMP("[%06u] replacing V%02u def [%06u] by V%02u def [%06u]\n", use->GetID(), use->GetDef()->GetLclNum(),
-                    use->GetDef()->GetID(), newLclNum, newDef->GetID());
+            JITDUMP("[%06u] replacing V%02u def [%06u] by V%02u def [%06u]\n", use->GetID(),
+                    use->GetDef()->GetLcl()->GetLclNum(), use->GetDef()->GetID(), newLcl->GetLclNum(), newDef->GetID());
 
             use->GetDef()->RemoveUse(use);
             newDef->AddUse(use);

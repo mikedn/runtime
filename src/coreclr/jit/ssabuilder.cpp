@@ -522,7 +522,7 @@ GenTreePhi* SsaBuilder::GetPhiNode(BasicBlock* block, unsigned lclNum)
             break;
         }
 
-        if (tree->AsLclDef()->GetLclNum() == lclNum)
+        if (tree->AsLclDef()->GetLcl()->GetLclNum() == lclNum)
         {
             return tree->AsLclDef()->GetValue()->AsPhi();
         }
@@ -533,12 +533,13 @@ GenTreePhi* SsaBuilder::GetPhiNode(BasicBlock* block, unsigned lclNum)
 
 void SsaBuilder::InsertPhi(BasicBlock* block, unsigned lclNum)
 {
-    var_types type = compiler->lvaGetDesc(lclNum)->GetType();
+    LclVarDsc* lcl  = compiler->lvaGetDesc(lclNum);
+    var_types  type = lcl->GetType();
 
     GenTreePhi* phi = new (compiler, GT_PHI) GenTreePhi(type);
     phi->SetCosts(0, 0);
 
-    GenTreeLclDef* def = new (compiler, GT_LCL_DEF) GenTreeLclDef(phi, block, lclNum);
+    GenTreeLclDef* def = new (compiler, GT_LCL_DEF) GenTreeLclDef(phi, block, lcl);
     def->gtFlags       = GTF_ASG;
     def->SetCosts(0, 0);
 
@@ -730,7 +731,7 @@ public:
                 unsigned lclNum = lcl->GetLclNum();
 
                 GenTreeLclVar* arg = compiler->gtNewLclvNode(lclNum, lcl->GetType());
-                GenTreeLclDef* def = new (compiler, GT_LCL_DEF) GenTreeLclDef(arg, firstBlock, lclNum);
+                GenTreeLclDef* def = new (compiler, GT_LCL_DEF) GenTreeLclDef(arg, firstBlock, lcl);
 
                 renameStack.Push(firstBlock, lclNum, def);
 
@@ -827,8 +828,8 @@ void SsaRenameDomTreeVisitor::AddPhiArg(BasicBlock*    pred,
     }
 #endif // DEBUG
 
-    DBG_SSA_JITDUMP("Added PHI arg for V%02u from [%06u] " FMT_BB " in " FMT_BB ".\n", def->GetLclNum(), def->GetID(),
-                    pred->bbNum, block->bbNum);
+    DBG_SSA_JITDUMP("Added PHI arg for V%02u from [%06u] " FMT_BB " in " FMT_BB ".\n", def->GetLcl()->GetLclNum(),
+                    def->GetID(), pred->bbNum, block->bbNum);
 }
 
 void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclVarCommon* store, BasicBlock* block)
@@ -908,7 +909,7 @@ void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclVarCommon* store, BasicBl
         GenTree* def = store;
         def->SetOper(GT_LCL_DEF);
         def->AsLclDef()->Init();
-        def->AsLclDef()->SetLclNum(lclNum);
+        def->AsLclDef()->SetLcl(lcl);
         def->AsLclDef()->SetBlock(block);
         def->AsLclDef()->SetValue(value);
         def->SetType(lcl->lvNormalizeOnStore() ? varActualType(lcl->GetType()) : lcl->GetType());
@@ -961,7 +962,7 @@ void SsaRenameDomTreeVisitor::RenameMemoryStore(GenTreeIndir* store, BasicBlock*
 
 void SsaRenameDomTreeVisitor::RenamePhiDef(GenTreeLclDef* def, BasicBlock* block)
 {
-    unsigned lclNum = def->GetLclNum();
+    unsigned lclNum = def->GetLcl()->GetLclNum();
     renameStack.Push(block, lclNum, def);
 }
 
@@ -1034,7 +1035,7 @@ void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclVarCommon* lclNode, Stateme
 
 void SsaRenameDomTreeVisitor::AddDefToHandlerPhis(BasicBlock* block, GenTreeLclDef* def)
 {
-    unsigned  lclIndex  = m_compiler->lvaGetDesc(def->GetLclNum())->GetLivenessBitIndex();
+    unsigned  lclIndex  = def->GetLcl()->GetLivenessBitIndex();
     EHblkDsc* tryRegion = m_compiler->ehGetBlockExnFlowDsc(block);
 
     while (tryRegion != nullptr)
@@ -1044,7 +1045,7 @@ void SsaRenameDomTreeVisitor::AddDefToHandlerPhis(BasicBlock* block, GenTreeLclD
         if (VarSetOps::IsMember(m_compiler, handler->bbLiveIn, lclIndex))
         {
             DBG_SSA_JITDUMP("Adding PHI arg for V%02u from [%06u] " FMT_BB " to exception handler" FMT_BB ".\n",
-                            def->GetLclNum(), def->GetID(), block->bbNum, handler->bbNum);
+                            def->GetLcl()->GetLclNum(), def->GetID(), block->bbNum, handler->bbNum);
 
             INDEBUG(bool phiFound = false);
 
@@ -1057,7 +1058,7 @@ void SsaRenameDomTreeVisitor::AddDefToHandlerPhis(BasicBlock* block, GenTreeLclD
                     break;
                 }
 
-                if (tree->AsLclDef()->GetLclNum() == def->GetLclNum())
+                if (tree->AsLclDef()->GetLcl() == def->GetLcl())
                 {
                     AddPhiArg(block, def, stmt, tree->AsLclDef()->GetValue()->AsPhi() DEBUGARG(handler));
                     INDEBUG(phiFound = true);
@@ -1256,7 +1257,7 @@ void SsaRenameDomTreeVisitor::AddPhiArgsToSuccessors(BasicBlock* block)
             }
 
             GenTreePhi*    phi = tree->AsLclDef()->GetValue()->AsPhi();
-            GenTreeLclDef* def = renameStack.Top(tree->AsLclDef()->GetLclNum());
+            GenTreeLclDef* def = renameStack.Top(tree->AsLclDef()->GetLcl()->GetLclNum());
 
             bool found = false;
 
@@ -1359,12 +1360,11 @@ void SsaRenameDomTreeVisitor::AddPhiArgsToSuccessors(BasicBlock* block)
                         break;
                     }
 
-                    unsigned lclNum = tree->AsLclDef()->GetLclNum();
+                    LclVarDsc* lclVarDsc = tree->AsLclDef()->GetLcl();
 
                     // If the variable is live-out of "blk", and is therefore live on entry to the try-block-start
                     // "succ", then we make sure the current SSA name for the
                     // var is one of the args of the phi node.  If not, go on.
-                    LclVarDsc* lclVarDsc = m_compiler->lvaGetDesc(lclNum);
 
                     if (!VarSetOps::IsMember(m_compiler, block->bbLiveOut, lclVarDsc->GetLivenessBitIndex()))
                     {
@@ -1372,7 +1372,7 @@ void SsaRenameDomTreeVisitor::AddPhiArgsToSuccessors(BasicBlock* block)
                     }
 
                     GenTreePhi*    phi = tree->AsLclDef()->GetValue()->AsPhi();
-                    GenTreeLclDef* def = renameStack.Top(lclNum);
+                    GenTreeLclDef* def = renameStack.Top(lclVarDsc->GetLclNum());
 
                     bool alreadyArg = false;
 
@@ -1504,7 +1504,7 @@ bool GenTreePhi::Equals(GenTreePhi* phi1, GenTreePhi* phi2)
 
 static void DestroySsaUses(GenTreeLclDef* def)
 {
-    unsigned       lclNum = def->GetLclNum();
+    unsigned       lclNum = def->GetLcl()->GetLclNum();
     GenTreeLclUse* uses   = def->GetUseList();
 
     // TODO-MIKE-SSA: The SSA_DEF Uses iterator cannot be used because
@@ -1533,7 +1533,7 @@ static void DestroySsaDef(Compiler* compiler, GenTreeLclDef* def, Statement* stm
 {
     DestroySsaUses(def);
 
-    unsigned lclNum = def->GetLclNum();
+    unsigned lclNum = def->GetLcl()->GetLclNum();
     GenTree* store  = def;
 
     if (GenTreeInsert* insert = def->GetValue()->IsInsert())
@@ -1544,7 +1544,7 @@ static void DestroySsaDef(Compiler* compiler, GenTreeLclDef* def, Statement* stm
 #ifdef DEBUG
         if (GenTreeLclUse* use = structValue->IsLclUse())
         {
-            assert(use->GetDef()->GetLclNum() == lclNum);
+            assert(use->GetDef()->GetLcl()->GetLclNum() == lclNum);
         }
         else if (structValue->OperIs(GT_LCL_VAR))
         {
@@ -1606,7 +1606,7 @@ static void DestroyExtract(Statement* stmt, GenTreeExtract* extract)
 
     if (GenTreeLclUse* use = src->IsLclUse())
     {
-        lclNum = use->GetDef()->GetLclNum();
+        lclNum = use->GetDef()->GetLcl()->GetLclNum();
     }
     else
     {

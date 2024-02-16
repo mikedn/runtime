@@ -587,7 +587,7 @@ private:
 
     bool CanMoveNullCheckPastLclDef(GenTreeLclDef* def, bool isInsideTry)
     {
-        return !isInsideTry || !compiler->lvaGetDesc(def->GetLclNum())->lvHasEHUses;
+        return !isInsideTry || !def->GetLcl()->lvHasEHUses;
     }
 };
 

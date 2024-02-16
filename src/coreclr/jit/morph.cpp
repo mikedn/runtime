@@ -9307,7 +9307,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
     }
     else if (GenTreeLclUse* use = src->IsLclUse())
     {
-        srcLcl = lvaGetDesc(use->GetDef()->GetLclNum());
+        srcLcl = use->GetDef()->GetLcl();
     }
     else if (src->IsExtract())
     {

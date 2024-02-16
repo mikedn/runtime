@@ -151,7 +151,7 @@ private:
     void NumbeCkFinite(GenTreeUnOp* node);
 
 #ifdef DEBUG
-    void TraceLocal(unsigned lclNum, ValueNumPair vnp, const char* comment = nullptr);
+    void TraceLocal(LclVarDsc* lcl, ValueNumPair vnp, const char* comment = nullptr);
     void TraceMem(ValueNum vn, const char* comment = nullptr);
 #endif
 
@@ -3976,7 +3976,7 @@ void ValueNumbering::NumberLclStore(GenTreeLclVar* store)
 
 void ValueNumbering::NumberLclDef(GenTreeLclDef* def)
 {
-    LclVarDsc*   lcl   = lvaGetDesc(def->GetLclNum());
+    LclVarDsc*   lcl   = def->GetLcl();
     GenTree*     value = def->GetValue();
     ValueNumPair valueVNP;
 
@@ -4056,7 +4056,7 @@ void ValueNumbering::NumberLclDef(GenTreeLclDef* def)
 
     def->SetVNP(valueVNP);
 
-    INDEBUG(TraceLocal(def->GetLclNum(), valueVNP));
+    INDEBUG(TraceLocal(def->GetLcl(), valueVNP));
 }
 
 void ValueNumbering::NumberLclLoad(GenTreeLclVar* load)
@@ -4084,7 +4084,7 @@ void ValueNumbering::NumberLclLoad(GenTreeLclVar* load)
 void ValueNumbering::NumberLclUse(GenTreeLclUse* use)
 {
     GenTreeLclDef* def = use->GetDef();
-    LclVarDsc*     lcl = lvaGetDesc(def->GetLclNum());
+    LclVarDsc*     lcl = def->GetLcl();
     ValueNumPair   vnp = def->GetVNP();
 
     assert(vnp.GetLiberal() != NoVN);
@@ -6460,8 +6460,7 @@ void ValueNumbering::NumberInitDefs()
 
     for (GenTreeLclDef* def = ssa.GetInitLclDefs(); def != nullptr; def = static_cast<GenTreeLclDef*>(def->gtNext))
     {
-        unsigned   lclNum   = def->GetLclNum();
-        LclVarDsc* lcl      = compiler->lvaGetDesc(lclNum);
+        LclVarDsc* lcl      = def->GetLcl();
         var_types  type     = lcl->GetType();
         bool       isZeroed = false;
 
@@ -6477,7 +6476,7 @@ void ValueNumbering::NumberInitDefs()
             }
 
 #ifdef TARGET_X86
-            if (lclNum == compiler->lvaVarargsBaseOfStkArgs)
+            if (lcl->GetLclNum() == compiler->lvaVarargsBaseOfStkArgs)
             {
                 isZeroed = false;
             }
@@ -6496,7 +6495,7 @@ void ValueNumbering::NumberInitDefs()
 
         ValueNum initVN = isZeroed ? vnStore->VNZeroForType(type) : vnStore->VNForExpr(compiler->fgFirstBB, type);
         def->SetVNP(ValueNumPair{initVN});
-        INDEBUG(TraceLocal(lclNum, def->GetVNP()));
+        INDEBUG(TraceLocal(lcl, def->GetVNP()));
     }
 
     // Give memory an initial value number (about which we know nothing).
@@ -6666,7 +6665,7 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
                 blockVN = vnStore->VNForHostPtr(block);
             }
 
-            ValueNum lclNumVN = vnStore->VNForIntCon(def->GetLclNum());
+            ValueNum lclNumVN = vnStore->VNForIntCon(def->GetLcl()->GetLclNum());
 
             phiVNP =
                 vnStore->VNPairForFunc(def->GetType(), VNF_Phi, argsVNP, ValueNumPair{blockVN}, ValueNumPair{lclNumVN});
@@ -6675,7 +6674,7 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
         def->SetVNP(phiVNP);
         phi->SetVNP(phiVNP);
 
-        INDEBUG(TraceLocal(def->GetLclNum(), phiVNP));
+        INDEBUG(TraceLocal(def->GetLcl(), phiVNP));
     }
 
     // Now do the same for memory.
@@ -8588,11 +8587,11 @@ void ValueNumStore::Trace(ValueNumPair vnp, const char* comment)
     }
 }
 
-void ValueNumbering::TraceLocal(unsigned lclNum, ValueNumPair vnp, const char* comment)
+void ValueNumbering::TraceLocal(LclVarDsc* lcl, ValueNumPair vnp, const char* comment)
 {
     if (compiler->verbose)
     {
-        printf("    V%02u = %s ", lclNum, varTypeName(vnStore->TypeOfVN(vnp.GetLiberal())));
+        printf("    V%02u = %s ", lcl->GetLclNum(), varTypeName(vnStore->TypeOfVN(vnp.GetLiberal())));
         vnStore->Print(vnp, 1);
 
         if (comment != nullptr)

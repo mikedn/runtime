@@ -1966,22 +1966,20 @@ void Compiler::gtSetCallArgsCosts(const GenTreeCall::UseList& args,
 
 LclVarDsc* Compiler::gtIsLikelyRegVar(GenTree* tree)
 {
-    unsigned lclNum;
+    LclVarDsc* lcl;
 
     if (tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
     {
-        lclNum = tree->AsLclVar()->GetLclNum();
+        lcl = lvaGetDesc(tree->AsLclVar());
     }
     else if (tree->OperIs(GT_LCL_USE))
     {
-        lclNum = tree->AsLclUse()->GetDef()->GetLclNum();
+        lcl = tree->AsLclUse()->GetDef()->GetLcl();
     }
     else
     {
         return nullptr;
     }
-
-    LclVarDsc* lcl = lvaGetDesc(lclNum);
 
     if (lcl->lvDoNotEnregister)
     {
@@ -6619,11 +6617,11 @@ void Compiler::gtDispNode(GenTree* tree)
         }
         else if (GenTreeLclDef* def = tree->IsLclDef())
         {
-            lcl = lvaGetDesc(def->GetLclNum());
+            lcl = def->GetLcl();
         }
         else if (GenTreeLclUse* use = tree->IsLclUse())
         {
-            lcl = lvaGetDesc(use->GetDef()->GetLclNum());
+            lcl = use->GetDef()->GetLcl();
         }
         else if (GenTreeLclFld* lclFld = tree->IsLclFld())
         {
@@ -7434,14 +7432,13 @@ void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node)
 
 void Compiler::dmpSsaDefUse(GenTree* node)
 {
-    GenTreeLclUse* use    = node->IsLclUse();
-    GenTreeLclDef* def    = use != nullptr ? use->GetDef() : node->IsLclDef();
-    unsigned       lclNum = def->GetLclNum();
-    LclVarDsc*     lcl    = lvaGetDesc(lclNum);
+    GenTreeLclUse* use = node->IsLclUse();
+    GenTreeLclDef* def = use != nullptr ? use->GetDef() : node->IsLclDef();
+    LclVarDsc*     lcl = def->GetLcl();
 
-    printf(" V%02u ", lclNum);
+    printf(" V%02u ", lcl->GetLclNum());
 
-    int         nameLength = dmpLclName(lclNum);
+    int         nameLength = dmpLclName(lcl->GetLclNum());
     const char* prefix     = nameLength > 0 ? " (" : "(";
 
     printf("%s[%06u]", prefix, def->GetID());

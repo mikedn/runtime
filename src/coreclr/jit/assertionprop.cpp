@@ -344,8 +344,8 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        unsigned   lclNum = addr->IsLclUse() ? addr->AsLclUse()->GetDef()->GetLclNum() : addr->AsLclVar()->GetLclNum();
-        LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+        LclVarDsc* lcl = addr->IsLclUse() ? addr->AsLclUse()->GetDef()->GetLcl()
+                                          : compiler->lvaGetDesc(addr->AsLclVar()->GetLclNum());
 
         AssertionDsc assertion;
 
@@ -361,7 +361,7 @@ private:
 
             assertion.op1.kind   = O1K_LCLVAR;
             assertion.op1.vn     = addr->GetConservativeVN();
-            assertion.op1.lclNum = lclNum;
+            assertion.op1.lclNum = lcl->GetLclNum();
         }
         else if (lcl->TypeIs(TYP_BYREF))
         {
@@ -440,7 +440,7 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        LclVarDsc* lcl = compiler->lvaGetDesc(value->AsLclUse()->GetDef()->GetLclNum());
+        LclVarDsc* lcl = value->AsLclUse()->GetDef()->GetLcl();
 
         assert(!lcl->IsAddressExposed());
 
@@ -460,7 +460,7 @@ private:
         assert((op1 != nullptr) && (op2 != nullptr));
         assert((kind == OAK_EQUAL) || (kind == OAK_NOT_EQUAL));
 
-        LclVarDsc* lcl = compiler->lvaGetDesc(op1->GetDef()->GetLclNum());
+        LclVarDsc* lcl = op1->GetDef()->GetLcl();
 
         assert(!lcl->IsAddressExposed());
 
@@ -484,7 +484,7 @@ private:
                 }
 
                 assertion.op1.kind              = O1K_LCLVAR;
-                assertion.op1.lclNum            = op1->GetDef()->GetLclNum();
+                assertion.op1.lclNum            = op1->GetDef()->GetLcl()->GetLclNum();
                 assertion.op2.kind              = O2K_CONST_INT;
                 assertion.op2.intCon.value      = op2->AsIntCon()->GetValue(lcl->GetType());
                 assertion.op2.intCon.handleKind = op2->AsIntCon()->GetHandleKind();
@@ -493,7 +493,7 @@ private:
 #ifndef TARGET_64BIT
             case GT_CNS_LNG:
                 assertion.op1.kind         = O1K_LCLVAR;
-                assertion.op1.lclNum       = op1->GetDef()->GetLclNum();
+                assertion.op1.lclNum       = op1->GetDef()->GetLcl()->GetLclNum();
                 assertion.op2.kind         = O2K_CONST_LONG;
                 assertion.op2.lngCon.value = op2->AsLngCon()->GetValue();
                 break;
@@ -510,14 +510,14 @@ private:
                 }
 
                 assertion.op1.kind         = O1K_LCLVAR;
-                assertion.op1.lclNum       = op1->GetDef()->GetLclNum();
+                assertion.op1.lclNum       = op1->GetDef()->GetLcl()->GetLclNum();
                 assertion.op2.kind         = O2K_CONST_DOUBLE;
                 assertion.op2.dblCon.value = op2->AsDblCon()->GetValue();
                 break;
 
             case GT_LCL_VAR:
             {
-                if (op1->GetDef()->GetLclNum() == op2->AsLclVar()->GetLclNum())
+                if (op1->GetDef()->GetLcl()->GetLclNum() == op2->AsLclVar()->GetLclNum())
                 {
                     return NO_ASSERTION_INDEX;
                 }
@@ -546,12 +546,12 @@ private:
 
             case GT_LCL_USE:
             {
-                if (op1->GetDef()->GetLclNum() == op2->AsLclUse()->GetDef()->GetLclNum())
+                if (op1->GetDef()->GetLcl() == op2->AsLclUse()->GetDef()->GetLcl())
                 {
                     return NO_ASSERTION_INDEX;
                 }
 
-                LclVarDsc* valLcl = compiler->lvaGetDesc(op2->AsLclUse()->GetDef()->GetLclNum());
+                LclVarDsc* valLcl = op2->AsLclUse()->GetDef()->GetLcl();
 
                 assert(!valLcl->IsAddressExposed());
 
@@ -1366,7 +1366,7 @@ private:
     GenTree* PropagateSsaUseConst(const AssertionDsc& assertion, GenTreeLclUse* use, Statement* stmt)
     {
 #ifdef DEBUG
-        LclVarDsc* lcl = compiler->lvaGetDesc(use->GetDef()->GetLclNum());
+        LclVarDsc* lcl = use->GetDef()->GetLcl();
 
         assert(!lcl->IsAddressExposed() && !lcl->lvIsCSE);
         assert(use->GetType() == lcl->GetType());
@@ -1513,8 +1513,7 @@ private:
 
     GenTree* PropagateLclUse(const ASSERT_TP assertions, GenTreeLclUse* use, Statement* stmt)
     {
-        unsigned   lclNum = use->GetDef()->GetLclNum();
-        LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+        LclVarDsc* lcl = use->GetDef()->GetLcl();
 
         assert(!lcl->IsAddressExposed());
 
@@ -1537,7 +1536,7 @@ private:
             return nullptr;
         }
 
-        const AssertionDsc* assertion = FindConstAssertion(assertions, use->GetConservativeVN(), lclNum);
+        const AssertionDsc* assertion = FindConstAssertion(assertions, use->GetConservativeVN(), lcl->GetLclNum());
 
         if (assertion == nullptr)
         {
@@ -1784,9 +1783,8 @@ private:
 
         if (actualOp1->OperIs(GT_LCL_VAR, GT_LCL_USE))
         {
-            LclVarDsc* lcl =
-                compiler->lvaGetDesc(actualOp1->OperIs(GT_LCL_VAR) ? actualOp1->AsLclVar()->GetLclNum()
-                                                                   : actualOp1->AsLclUse()->GetDef()->GetLclNum());
+            LclVarDsc* lcl = actualOp1->OperIs(GT_LCL_VAR) ? compiler->lvaGetDesc(actualOp1->AsLclVar()->GetLclNum())
+                                                           : actualOp1->AsLclUse()->GetDef()->GetLcl();
 
             // TODO-MIKE-Review: Usually we can't eliminate load "normalization" casts.
             // They're usually present on every LCL_VAR use so we'll never get assertions
@@ -3188,7 +3186,7 @@ private:
 
                 case GT_LCL_USE:
                     // Don't undo constant CSEs.
-                    if (m_compiler->lvaGetDesc(tree->AsLclUse()->GetDef()->GetLclNum())->lvIsCSE)
+                    if (tree->AsLclUse()->GetDef()->GetLcl()->lvIsCSE)
                     {
                         return Compiler::WALK_CONTINUE;
                     }
