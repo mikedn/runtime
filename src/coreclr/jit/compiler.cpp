@@ -1944,29 +1944,12 @@ bool Compiler::compStressCompileHelper(compStressArea stressArea, unsigned weigh
     return (hash < weight);
 }
 
-//------------------------------------------------------------------------
-// compPromoteFewerStructs: helper to determine if the local
-//   should not be promoted under a stress mode.
-//
-// Arguments:
-//   lclNum - local number to test
-//
-// Returns:
-//   true if this local should not be promoted.
-//
-// Notes:
-//   Reject ~50% of the potential promotions if STRESS_PROMOTE_FEWER_STRUCTS is active.
-//
+// Helper to determine if the local should not be promoted under a stress mode.
+// Rejects ~50% of the potential promotions if STRESS_PROMOTE_FEWER_STRUCTS is active.
 bool Compiler::compPromoteFewerStructs(LclVarDsc* lcl)
 {
-    bool       rejectThisPromo = false;
-    const bool promoteLess     = compStressCompile(STRESS_PROMOTE_FEWER_STRUCTS, 50);
-    if (promoteLess)
-    {
-
-        rejectThisPromo = (((info.compMethodHash() ^ lcl->GetLclNum()) & 1) == 0);
-    }
-    return rejectThisPromo;
+    return compStressCompile(STRESS_PROMOTE_FEWER_STRUCTS, 50) &&
+           (((info.compMethodHash() ^ lcl->GetLclNum()) & 1) == 0);
 }
 
 #endif // DEBUG
