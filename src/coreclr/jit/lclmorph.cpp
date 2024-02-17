@@ -400,11 +400,11 @@ public:
         {
             if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
             {
-                UpdateImplicitByRefParamRefCounts(node->AsLclVarCommon()->GetLclNum());
+                UpdateImplicitByRefParamRefCounts(m_compiler->lvaGetDesc(node->AsLclVarCommon()));
             }
             else if (node->OperIs(GT_LCL_ADDR))
             {
-                UpdateImplicitByRefParamRefCounts(node->AsLclAddr()->GetLclNum());
+                UpdateImplicitByRefParamRefCounts(m_compiler->lvaGetDesc(node->AsLclAddr()));
             }
         }
 #endif
@@ -2211,21 +2211,12 @@ private:
     }
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-    //------------------------------------------------------------------------
-    // UpdateImplicitByRefParamRefCounts: updates the ref count for implicit byref params.
-    //
-    // Arguments:
-    //    lclNum - the local number to update the count for.
-    //
-    // Notes:
-    //    abiMakeImplicityByRefStructArgCopy checks the ref counts for implicit byref params when it decides
-    //    if it's legal to elide certain copies of them;
-    //    lvaRetypeImplicitByRefParams checks the ref counts when it decides to undo promotions.
-    //
-    void UpdateImplicitByRefParamRefCounts(unsigned lclNum)
+    // Updates the ref count for implicit byref params.
+    // abiMakeImplicityByRefStructArgCopy checks the ref counts for implicit byref params when
+    // it decides if it's legal to elide certain copies of them;
+    // lvaRetypeImplicitByRefParams checks the ref counts when it decides to undo promotions.
+    void UpdateImplicitByRefParamRefCounts(LclVarDsc* lcl)
     {
-        LclVarDsc* lcl = m_compiler->lvaGetDesc(lclNum);
-
         // We should not encounter any promoted fields yet.
         assert(!lcl->IsPromotedField());
 
@@ -2234,7 +2225,7 @@ private:
             return;
         }
 
-        JITDUMP("Adding V%02u implicit-by-ref param any ref\n", lclNum);
+        JITDUMP("Adding V%02u implicit-by-ref param any ref\n", lcl->GetLclNum());
 
         lcl->AddImplicitByRefParamAnyRef();
 
@@ -2256,7 +2247,7 @@ private:
             ((m_ancestors.Size() >= 2) && m_ancestors.Top(0)->OperIs(GT_LCL_VAR) &&
              m_ancestors.Top(0)->TypeIs(TYP_STRUCT) && m_ancestors.Top(1)->OperIs(GT_CALL)))
         {
-            JITDUMP("Adding V%02u implicit-by-ref param call ref\n", lclNum);
+            JITDUMP("Adding V%02u implicit-by-ref param call ref\n", lcl->GetLclNum());
 
             lcl->AddImplicitByRefParamCallRef();
         }
@@ -2312,31 +2303,31 @@ void Compiler::lvaRecordSimdIntrinsicUse(GenTree* op)
 
         if (addr->OperIs(GT_LCL_ADDR) && (addr->AsLclAddr()->GetLclOffs() == 0))
         {
-            lvaRecordSimdIntrinsicUse(addr->AsLclAddr()->GetLclNum());
+            lvaRecordSimdIntrinsicUse(lvaGetDesc(addr->AsLclAddr()));
         }
     }
     else if (op->OperIs(GT_LCL_VAR))
     {
-        lvaRecordSimdIntrinsicUse(op->AsLclVar()->GetLclNum());
+        lvaRecordSimdIntrinsicUse(op->AsLclVar());
     }
 }
 
 void Compiler::lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar)
 {
-    lvaRecordSimdIntrinsicUse(lclVar->GetLclNum());
+    lvaRecordSimdIntrinsicUse(lvaGetDesc(lclVar));
 }
 
-void Compiler::lvaRecordSimdIntrinsicUse(unsigned lclNum)
+void Compiler::lvaRecordSimdIntrinsicUse(LclVarDsc* lcl)
 {
-    lvaGetDesc(lclNum)->lvUsedInSIMDIntrinsic = true;
+    lcl->lvUsedInSIMDIntrinsic = true;
 }
 
 void Compiler::lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrinsic* src)
 {
-    lvaRecordSimdIntrinsicDef(lclVar->GetLclNum(), src);
+    lvaRecordSimdIntrinsicDef(lvaGetDesc(lclVar), src);
 }
 
-void Compiler::lvaRecordSimdIntrinsicDef(unsigned lclNum, GenTreeHWIntrinsic* src)
+void Compiler::lvaRecordSimdIntrinsicDef(LclVarDsc* lcl, GenTreeHWIntrinsic* src)
 {
     // Don't block promotion due to Create/Zero intrinsics, we can promote these.
     switch (src->GetIntrinsic())
@@ -2352,7 +2343,7 @@ void Compiler::lvaRecordSimdIntrinsicDef(unsigned lclNum, GenTreeHWIntrinsic* sr
             break;
     }
 
-    lvaGetDesc(lclNum)->lvUsedInSIMDIntrinsic = true;
+    lcl->lvUsedInSIMDIntrinsic = true;
 }
 #endif // FEATURE_SIMD
 
@@ -2785,7 +2776,7 @@ bool StructPromotionHelper::ShouldPromoteStructLocal(LclVarDsc* lcl)
     }
 
 #ifdef DEBUG
-    if (compiler->compPromoteFewerStructs(lcl->GetLclNum()))
+    if (compiler->compPromoteFewerStructs(lcl))
     {
         JITDUMP("Not promoting promotable V%02u, because of STRESS_PROMOTE_FEWER_STRUCTS\n", lcl->GetLclNum());
         return false;

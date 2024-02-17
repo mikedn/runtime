@@ -2326,9 +2326,9 @@ struct Importer
 
     void lvaRecordSimdIntrinsicUse(GenTree* op);
     void lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar);
-    void lvaRecordSimdIntrinsicUse(unsigned lclNum);
+    void lvaRecordSimdIntrinsicUse(LclVarDsc* lcl);
     void lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrinsic* src);
-    void lvaRecordSimdIntrinsicDef(unsigned lclNum, GenTreeHWIntrinsic* src);
+    void lvaRecordSimdIntrinsicDef(LclVarDsc* lcl, GenTreeHWIntrinsic* src);
 #endif // FEATURE_HW_INTRINSICS
 
     static GenTreeLclAddr* impIsAddressInLocal(GenTree* tree);
@@ -5477,9 +5477,9 @@ public:
 
     void lvaRecordSimdIntrinsicUse(GenTree* op);
     void lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar);
-    void lvaRecordSimdIntrinsicUse(unsigned lclNum);
+    void lvaRecordSimdIntrinsicUse(LclVarDsc* lcl);
     void lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrinsic* src);
-    void lvaRecordSimdIntrinsicDef(unsigned lclNum, GenTreeHWIntrinsic* src);
+    void lvaRecordSimdIntrinsicDef(LclVarDsc* lcl, GenTreeHWIntrinsic* src);
 
     // Get the type for the hardware SIMD vector.
     // This is the maximum SIMD type supported for this target.
@@ -5735,7 +5735,7 @@ public:
         return compStressCompile(STRESS_RANDOM_INLINE, 50);
     }
 
-    bool compPromoteFewerStructs(unsigned lclNum);
+    bool compPromoteFewerStructs(LclVarDsc* lcl);
 
 #endif // DEBUG
 

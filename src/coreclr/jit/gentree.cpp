@@ -4721,9 +4721,11 @@ void Compiler::gtInitStructCopyAsg(GenTreeOp* asg)
     {
         if (GenTreeHWIntrinsic* hwi = src->IsHWIntrinsic())
         {
-            if (varTypeIsSIMD(lvaGetDesc(dstLclNum)->GetType()))
+            LclVarDsc* dstLcl = lvaGetDesc(dstLclNum);
+
+            if (varTypeIsSIMD(dstLcl->GetType()))
             {
-                lvaRecordSimdIntrinsicDef(dstLclNum, hwi);
+                lvaRecordSimdIntrinsicDef(dstLcl, hwi);
             }
         }
     }

@@ -1957,14 +1957,14 @@ bool Compiler::compStressCompileHelper(compStressArea stressArea, unsigned weigh
 // Notes:
 //   Reject ~50% of the potential promotions if STRESS_PROMOTE_FEWER_STRUCTS is active.
 //
-bool Compiler::compPromoteFewerStructs(unsigned lclNum)
+bool Compiler::compPromoteFewerStructs(LclVarDsc* lcl)
 {
     bool       rejectThisPromo = false;
     const bool promoteLess     = compStressCompile(STRESS_PROMOTE_FEWER_STRUCTS, 50);
     if (promoteLess)
     {
 
-        rejectThisPromo = (((info.compMethodHash() ^ lclNum) & 1) == 0);
+        rejectThisPromo = (((info.compMethodHash() ^ lcl->GetLclNum()) & 1) == 0);
     }
     return rejectThisPromo;
 }

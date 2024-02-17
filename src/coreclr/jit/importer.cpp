@@ -17760,9 +17760,9 @@ void Importer::lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar)
     comp->lvaRecordSimdIntrinsicUse(lclVar);
 }
 
-void Importer::lvaRecordSimdIntrinsicUse(unsigned lclNum)
+void Importer::lvaRecordSimdIntrinsicUse(LclVarDsc* lcl)
 {
-    comp->lvaRecordSimdIntrinsicUse(lclNum);
+    comp->lvaRecordSimdIntrinsicUse(lcl);
 }
 
 void Importer::lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrinsic* src)
@@ -17770,9 +17770,9 @@ void Importer::lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrins
     comp->lvaRecordSimdIntrinsicDef(lclVar, src);
 }
 
-void Importer::lvaRecordSimdIntrinsicDef(unsigned lclNum, GenTreeHWIntrinsic* src)
+void Importer::lvaRecordSimdIntrinsicDef(LclVarDsc* lcl, GenTreeHWIntrinsic* src)
 {
-    comp->lvaRecordSimdIntrinsicDef(lclNum, src);
+    comp->lvaRecordSimdIntrinsicDef(lcl, src);
 }
 
 #endif // FEATURE_HW_INTRINSICS

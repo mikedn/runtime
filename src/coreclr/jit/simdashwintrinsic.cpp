@@ -632,7 +632,7 @@ GenTree* Importer::impVector234Create(const HWIntrinsicSignature& sig, ClassLayo
 
         if ((destAddr != nullptr) && destAddr->OperIs(GT_LCL_ADDR) && (destAddr->AsLclAddr()->GetLclOffs() == 0))
         {
-            lvaRecordSimdIntrinsicUse(destAddr->AsLclAddr()->GetLclNum());
+            lvaRecordSimdIntrinsicUse(comp->lvaGetDesc(destAddr->AsLclAddr()));
         }
     }
     else if (areArgsZero)
@@ -784,13 +784,12 @@ GenTree* Importer::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
 
     if (destAddr->OperIs(GT_LCL_ADDR) && (comp->lvaGetDesc(destAddr->AsLclAddr())->GetType() == src->GetType()))
     {
-        unsigned lclNum = destAddr->AsLclAddr()->GetLclNum();
         // Currently the importer doesn't generate local field addresses.
         assert(destAddr->AsLclAddr()->GetLclOffs() == 0);
 
         dest = destAddr;
         dest->SetOper(GT_LCL_VAR);
-        dest->AsLclVar()->SetLclNum(lclNum);
+        dest->AsLclVar()->SetLclNum(destAddr->AsLclAddr()->GetLclNum());
         dest->SetType(src->GetType());
 
         if (GenTreeHWIntrinsic* hwi = src->IsHWIntrinsic())
@@ -3198,7 +3197,7 @@ void SIMDCoalescingBuffer::Mark(Compiler* compiler, Statement* stmt)
         return;
     }
 
-    compiler->lvaRecordSimdIntrinsicUse(simdLclNum);
+    compiler->lvaRecordSimdIntrinsicUse(compiler->lvaGetDesc(simdLclNum));
 
     GenTree* dest = asg->AsOp()->GetOp(0);
 
@@ -3210,7 +3209,7 @@ void SIMDCoalescingBuffer::Mark(Compiler* compiler, Statement* stmt)
 
             if (addr->OperIs(GT_LCL_ADDR) && (addr->AsLclAddr()->GetLclOffs() == 0))
             {
-                compiler->lvaRecordSimdIntrinsicUse(addr->AsLclAddr()->GetLclNum());
+                compiler->lvaRecordSimdIntrinsicUse(compiler->lvaGetDesc(addr->AsLclAddr()));
             }
         }
     }
