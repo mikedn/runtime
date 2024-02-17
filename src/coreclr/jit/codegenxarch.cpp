@@ -3655,10 +3655,10 @@ void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
 #endif
 
     var_types   type = lcl->GetRegisterType(load);
-    instruction ins  = ins_Load(type, IsSimdLocalAligned(load->GetLclNum()));
+    instruction ins  = ins_Load(type, IsSimdLocalAligned(lcl));
     emitAttr    attr = emitTypeSize(type);
 
-    GetEmitter()->emitIns_R_S(ins, attr, load->GetRegNum(), load->GetLclNum(), 0);
+    GetEmitter()->emitIns_R_S(ins, attr, load->GetRegNum(), lcl->GetLclNum(), 0);
 
     DefLclVarReg(load);
 }
@@ -3786,11 +3786,11 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 #endif
 
     regNumber dstReg = store->GetRegNum();
-    unsigned  lclNum = store->GetLclNum();
 
     if (dstReg == REG_NA)
     {
-        bool        isAligned = IsSimdLocalAligned(lclNum);
+        bool        isAligned = IsSimdLocalAligned(lcl);
+        unsigned    lclNum    = lcl->GetLclNum();
         instruction ins       = ins_Store(lclRegType, isAligned);
         emitAttr    attr      = emitTypeSize(lclRegType);
 
@@ -3819,7 +3819,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         {
             regNumber srcReg = UseReg(src);
 
-            GetEmitter()->emitIns_S_R(ins, attr, srcReg, store->GetLclNum(), 0);
+            GetEmitter()->emitIns_S_R(ins, attr, srcReg, lclNum, 0);
         }
 
         liveness.UpdateLife(this, store);
@@ -6195,7 +6195,7 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
     if (src->isContained())
     {
         unsigned    lclNum = src->AsLclVar()->GetLclNum();
-        instruction ins    = ins_Load(dstType, IsSimdLocalAligned(lclNum));
+        instruction ins    = ins_Load(dstType, IsSimdLocalAligned(compiler->lvaGetDesc(lclNum)));
         GetEmitter()->emitIns_R_S(ins, emitTypeSize(dstType), dstReg, lclNum, 0);
     }
     else

@@ -699,7 +699,7 @@ protected:
 #ifndef TARGET_64BIT
     void DefLongRegs(GenTree* node);
 #endif
-    void SpillLclVarReg(unsigned varNum, var_types type, GenTreeLclVar* lclNode, regNumber regNum);
+    void SpillLclVarReg(LclVarDsc* lcl, GenTreeLclVar* lclNode);
     void UnspillRegIfNeeded(GenTree* node);
     void UnspillRegCandidateLclVar(GenTreeLclVar* node);
     void UnspillRegIfNeeded(GenTree* node, unsigned regIndex);
@@ -1104,7 +1104,7 @@ public:
 
     INDEBUG(bool IsValidSourceType(var_types instrType, var_types sourceType);)
 
-    bool IsSimdLocalAligned(unsigned lclNum);
+    bool IsSimdLocalAligned(LclVarDsc* lcl);
 
     INDEBUG(void DumpDisasmHeader() const;)
 

@@ -746,8 +746,6 @@ bool CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
         // SPILLED on a write-thru/single-def def, for which we should not be calling this method.
         assert(!lclVar->IsRegSpilled(0));
 
-        unsigned lclNum = lclVar->GetLclNum();
-
         // If this is a write-thru or a single-def variable, we don't actually spill at a use,
         // but we will kill the var in the reg (below).
         if (!lcl->IsAlwaysAliveInMemory())
@@ -760,9 +758,9 @@ bool CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
             // a local may be allocated to a register that is not addressable at the granularity of the
             // local's defined type (e.g. x86).
             var_types   type = lcl->GetActualRegisterType();
-            instruction ins  = ins_Store(type, IsSimdLocalAligned(lclNum));
+            instruction ins  = ins_Store(type, IsSimdLocalAligned(lcl));
 
-            GetEmitter()->emitIns_S_R(ins, emitTypeSize(type), lclVar->GetRegNum(), lclNum, 0);
+            GetEmitter()->emitIns_S_R(ins, emitTypeSize(type), lclVar->GetRegNum(), lcl->GetLclNum(), 0);
         }
 
         liveness.Spill(lcl, lclVar);
@@ -965,10 +963,9 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
 #endif
 
     regNumber dstReg = node->GetRegNum();
-    unsigned  lclNum = node->GetLclNum();
 
-    instruction ins = ins_Load(regType, IsSimdLocalAligned(lclNum));
-    GetEmitter()->emitIns_R_S(ins, emitTypeSize(regType), dstReg, lclNum, 0);
+    instruction ins = ins_Load(regType, IsSimdLocalAligned(lcl));
+    GetEmitter()->emitIns_R_S(ins, emitTypeSize(regType), dstReg, lcl->GetLclNum(), 0);
 
     liveness.Unspill(this, lcl, node, dstReg, regType);
 }
@@ -1495,18 +1492,15 @@ void CodeGen::DefLclVarReg(GenTreeLclVar* lclVar)
 
     if (lclVar->IsAnyRegSpill())
     {
-        if (lcl->IsRegCandidate())
-        {
-            unsigned  lclNum    = lclVar->GetLclNum();
-            var_types spillType = lcl->GetRegisterType(lclVar);
-            SpillLclVarReg(lclNum, spillType, lclVar, lclVar->GetRegNum());
-        }
-        else
+        if (!lcl->IsRegCandidate())
         {
             SpillNodeReg(lclVar, lclVar->GetType(), 0);
-
+            // TODO-MIKE-Review: Shouldn't this call UpdateLife too? Not being
+            // a register candidate does not imply lack of liveness.
             return;
         }
+
+        SpillLclVarReg(lcl, lclVar);
     }
 
     if (lclVar->OperIs(GT_STORE_LCL_VAR))
@@ -1520,12 +1514,9 @@ void CodeGen::DefLclVarReg(GenTreeLclVar* lclVar)
     }
 }
 
-void CodeGen::SpillLclVarReg(unsigned lclNum, var_types type, GenTreeLclVar* lclVar, regNumber reg)
+void CodeGen::SpillLclVarReg(LclVarDsc* lcl, GenTreeLclVar* lclVar)
 {
     assert(lclVar->OperIs(GT_STORE_LCL_VAR, GT_LCL_VAR));
-
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-    assert(!lcl->lvNormalizeOnStore() || (type == lcl->GetActualRegisterType()));
 
     // We have a register candidate local that is marked with SPILL.
     // This flag generally means that we need to spill this local.
@@ -1539,7 +1530,12 @@ void CodeGen::SpillLclVarReg(unsigned lclNum, var_types type, GenTreeLclVar* lcl
         return;
     }
 
-    GetEmitter()->emitIns_S_R(ins_Store(type, IsSimdLocalAligned(lclNum)), emitTypeSize(type), reg, lclNum, 0);
+    var_types type = lcl->GetRegisterType(lclVar);
+
+    assert(!lcl->lvNormalizeOnStore() || (type == lcl->GetActualRegisterType()));
+
+    GetEmitter()->emitIns_S_R(ins_Store(type, IsSimdLocalAligned(lcl)), emitTypeSize(type), lclVar->GetRegNum(),
+                              lcl->GetLclNum(), 0);
 }
 
 #if FEATURE_ARG_SPLIT

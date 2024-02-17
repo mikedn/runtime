@@ -5698,13 +5698,11 @@ bool CodeGen::IsValidSourceType(var_types instrType, var_types sourceType)
 // aligned. For RSP-based frames these are only sometimes aligned, depending
 // on the frame size.
 //
-bool CodeGen::IsSimdLocalAligned(unsigned lclNum)
+bool CodeGen::IsSimdLocalAligned(LclVarDsc* lcl)
 {
 #ifndef FEATURE_SIMD
     return false;
 #else
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
     if (!varTypeIsSIMD(lcl->GetType()))
     {
         return false;
