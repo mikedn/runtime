@@ -389,7 +389,7 @@ bool ObjectAllocator::MorphAllocObjNodes()
                 {
                     JITDUMP("Allocating local variable V%02u on the stack\n", lclNum);
 
-                    const unsigned int stackLclNum = MorphAllocObjNodeIntoStackAlloc(asAllocObj, block, stmt);
+                    const unsigned stackLclNum = MorphAllocObjNodeIntoStackAlloc(asAllocObj, block, stmt);
                     m_HeapLocalToStackLocalMap.AddOrUpdate(lclNum, stackLclNum);
                     // We keep the set of possibly-stack-pointing pointers as a superset of the set of
                     // definitely-stack-pointing pointers. All definitely-stack-pointing pointers are in both sets.
@@ -494,9 +494,7 @@ GenTree* ObjectAllocator::MorphAllocObjNodeIntoHelperCall(GenTreeAllocObj* alloc
 // Notes:
 //    This function can insert additional statements before stmt.
 
-unsigned int ObjectAllocator::MorphAllocObjNodeIntoStackAlloc(GenTreeAllocObj* allocObj,
-                                                              BasicBlock*      block,
-                                                              Statement*       stmt)
+unsigned ObjectAllocator::MorphAllocObjNodeIntoStackAlloc(GenTreeAllocObj* allocObj, BasicBlock* block, Statement* stmt)
 {
     assert(allocObj != nullptr);
     assert(m_AnalysisDone);
@@ -508,7 +506,7 @@ unsigned int ObjectAllocator::MorphAllocObjNodeIntoStackAlloc(GenTreeAllocObj* a
     // Initialize the object memory if necessary.
     bool bbInALoop  = (block->bbFlags & BBF_BACKWARD_JUMP) != 0;
     bool bbIsReturn = block->bbJumpKind == BBJ_RETURN;
-    if (comp->fgVarNeedsExplicitZeroInit(lclNum, bbInALoop, bbIsReturn))
+    if (comp->fgVarNeedsExplicitZeroInit(lcl, bbInALoop, bbIsReturn))
     {
         GenTree*   init    = comp->gtNewAssignNode(comp->gtNewLclvNode(lclNum, TYP_STRUCT), comp->gtNewIconNode(0));
         Statement* newStmt = comp->gtNewStmt(init);

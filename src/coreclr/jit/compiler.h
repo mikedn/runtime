@@ -2196,7 +2196,7 @@ struct Importer
     void lvaSetAddressExposed(LclVarDsc* lcl);
     bool lvaIsOriginalThisParam(unsigned lclNum);
     bool lvaHaveManyLocals();
-    bool fgVarNeedsExplicitZeroInit(unsigned lclNum, bool blockIsInLoop, bool blockIsReturn);
+    bool fgVarNeedsExplicitZeroInit(LclVarDsc* lcl, bool blockIsInLoop, bool blockIsReturn);
     unsigned compMapILargNum(unsigned ilArgNum);
 
     Statement* gtNewStmt(GenTree* expr = nullptr, IL_OFFSETX offset = BAD_IL_OFFSET);
@@ -4042,7 +4042,7 @@ public:
     bool lvaIsNeverZeroInitializedInProlog(LclVarDsc* lcl);
 
     // Returns "true" if the variable needs explicit zero initialization.
-    inline bool fgVarNeedsExplicitZeroInit(unsigned varNum, bool bbInALoop, bool bbIsReturn);
+    inline bool fgVarNeedsExplicitZeroInit(LclVarDsc* lcl, bool bbInALoop, bool bbIsReturn);
 
     // The value numbers for this compilation.
     ValueNumStore* vnStore = nullptr;

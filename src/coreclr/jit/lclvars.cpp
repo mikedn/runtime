@@ -2630,8 +2630,7 @@ void Compiler::lvaComputeRefCountsHIR()
 
         void MarkLclRefs(GenTreeLclVarCommon* node, GenTree* user)
         {
-            unsigned   lclNum = node->GetLclNum();
-            LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
+            LclVarDsc* lcl = m_compiler->lvaGetDesc(node);
 
             m_compiler->lvaAddRef(lcl, m_weight);
 
@@ -2733,7 +2732,7 @@ void Compiler::lvaComputeRefCountsHIR()
                 // similar condition here as well.
                 // if (compiler->info.compInitMem || varTypeIsGC(lcl->TypeGet()))
 
-                bool needsExplicitZeroInit = m_compiler->fgVarNeedsExplicitZeroInit(lclNum, bbInALoop, bbIsReturn);
+                bool needsExplicitZeroInit = m_compiler->fgVarNeedsExplicitZeroInit(lcl, bbInALoop, bbIsReturn);
 
                 // TODO-MIKE-Review: Disabling single def reg stuff for lvIsMultiRegRet, it seems
                 // broken. For a multireg store lvSingleDefRegCandidate probably needs to be set
@@ -2741,7 +2740,7 @@ void Compiler::lvaComputeRefCountsHIR()
 
                 if (lcl->lvSingleDefRegCandidate || needsExplicitZeroInit || lcl->lvIsMultiRegRet)
                 {
-                    JITDUMP("V%02u %s. Disqualified as a single-def register candidate.\n", lclNum,
+                    JITDUMP("V%02u %s. Disqualified as a single-def register candidate.\n", lcl->GetLclNum(),
                             needsExplicitZeroInit ? "needs explicit zero init" : "has multiple definitions");
 
                     INDEBUG(lcl->lvSingleDefDisqualifyReason = needsExplicitZeroInit ? 'Z' : 'M');
@@ -2758,7 +2757,7 @@ void Compiler::lvaComputeRefCountsHIR()
                     {
                         lcl->lvSingleDefRegCandidate = true;
 
-                        JITDUMP("Marking EH V%02u as a single-def register candidate.\n", lclNum);
+                        JITDUMP("Marking EH V%02u as a single-def register candidate.\n", lcl->GetLclNum());
                     }
                 }
             }

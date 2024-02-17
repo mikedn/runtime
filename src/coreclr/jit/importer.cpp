@@ -12456,7 +12456,7 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
         bool bbIsReturn = (block->bbJumpKind == BBJ_RETURN) &&
                           (!compIsForInlining() || (impInlineInfo->iciBlock->bbJumpKind == BBJ_RETURN));
 
-        if (fgVarNeedsExplicitZeroInit(lclNum, bbInALoop, bbIsReturn))
+        if (fgVarNeedsExplicitZeroInit(lcl, bbInALoop, bbIsReturn))
         {
             impSpillNoneAppendTree(gtNewAssignNode(gtNewLclvNode(lclNum, lcl->GetType()), gtNewIconNode(0)));
         }
@@ -17357,9 +17357,9 @@ bool Importer::lvaHaveManyLocals()
     return comp->lvaHaveManyLocals();
 }
 
-bool Importer::fgVarNeedsExplicitZeroInit(unsigned lclNum, bool blockIsInLoop, bool blockIsReturn)
+bool Importer::fgVarNeedsExplicitZeroInit(LclVarDsc* lcl, bool blockIsInLoop, bool blockIsReturn)
 {
-    return comp->fgVarNeedsExplicitZeroInit(lclNum, blockIsInLoop, blockIsReturn);
+    return comp->fgVarNeedsExplicitZeroInit(lcl, blockIsInLoop, blockIsReturn);
 }
 
 unsigned Importer::compMapILargNum(unsigned ilArgNum)

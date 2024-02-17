@@ -6026,7 +6026,7 @@ void Compiler::phRemoveRedundantZeroInits()
                                      BitVecOps::IsMember(&bitVecTraits, zeroInitLocals,
                                                          lcl->GetPromotedFieldParentLclNum())) ||
                                     ((!lcl->HasLiveness() || !totalOverlap) &&
-                                     !fgVarNeedsExplicitZeroInit(lclNum, bbInALoop, bbIsReturn)))
+                                     !fgVarNeedsExplicitZeroInit(lcl, bbInALoop, bbIsReturn)))
                                 {
                                     // We are guaranteed to have a zero initialization in the prolog or a
                                     // dominating explicit zero initialization and the local hasn't been redefined

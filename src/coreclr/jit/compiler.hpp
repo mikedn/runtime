@@ -1547,16 +1547,13 @@ inline void Compiler::CLR_API_Leave(API_ICorJitInfo_Names ename)
 //      - compInitMem is set and the variable has a long lifetime or has gc fields.
 //     In these cases we will insert zero-initialization in the prolog if necessary.
 
-bool Compiler::fgVarNeedsExplicitZeroInit(unsigned varNum, bool bbInALoop, bool bbIsReturn)
+bool Compiler::fgVarNeedsExplicitZeroInit(LclVarDsc* varDsc, bool bbInALoop, bool bbIsReturn)
 {
-    LclVarDsc* varDsc = lvaGetDesc(varNum);
-
     if (varDsc->IsDependentPromotedField(this))
     {
         // Fields of dependently promoted structs may only be initialized in the prolog
         // when the whole struct is initialized in the prolog.
-        varNum = varDsc->GetPromotedFieldParentLclNum();
-        varDsc = lvaGetDesc(varNum);
+        varDsc = lvaGetDesc(varDsc->GetPromotedFieldParentLclNum());
     }
 
     if (bbInALoop && !bbIsReturn)

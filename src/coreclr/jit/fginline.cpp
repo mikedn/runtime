@@ -2666,7 +2666,7 @@ Statement* Compiler::inlInitInlineeLocals(const InlineInfo* inlineInfo, Statemen
 
         LclVarDsc* lcl = lvaGetDesc(lclInfo.lclNum);
 
-        if (!fgVarNeedsExplicitZeroInit(lclInfo.lclNum, blockIsInLoop, blockIsReturn))
+        if (!fgVarNeedsExplicitZeroInit(lcl, blockIsInLoop, blockIsReturn))
         {
             JITDUMP("Suppressing zero-init for V%02u, expect to zero in inliner's prolog\n", lclInfo.lclNum);
             lcl->lvSuppressedZeroInit = 1;
