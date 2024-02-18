@@ -850,48 +850,54 @@ void Compiler::fgAddSyncMethodEnterExit()
 
     // Add monitor enter/exit calls.
 
-    lvaMonAcquired = lvaNewTemp(TYP_INT, true DEBUGARG("monitor 'acquired' temp"))->GetLclNum();
+    LclVarDsc* acquiredLcl = lvaNewTemp(TYP_INT, true DEBUGARG("monitor 'acquired' temp"));
+    lvaMonAcquired         = acquiredLcl->GetLclNum();
 
-    GenTreeOp* init = gtNewAssignNode(gtNewLclvNode(lvaGetDesc(lvaMonAcquired), TYP_INT), gtNewIconNode(0));
+    GenTreeOp* init = gtNewAssignNode(gtNewLclvNode(acquiredLcl, TYP_INT), gtNewIconNode(0));
     fgNewStmtAtEnd(fgFirstBB, init);
     JITDUMPTREE(init, "\nSynchronized method - Add 'acquired' initialization in first block " FMT_BB "\n",
                 fgFirstBB->bbNum);
 
-    // Make a copy of the 'this' pointer to be used in the handler so it does
-    // not inhibit enregistration of all uses of the variable.
-    unsigned thisCopyLclNum = 0;
+    LclVarDsc* thisArgLcl  = nullptr;
+    LclVarDsc* thisCopyLcl = nullptr;
 
     if (!info.compIsStatic)
     {
-        thisCopyLclNum = lvaNewTemp(TYP_REF, true DEBUGARG("monitor EH exit 'this' copy"))->GetLclNum();
-        init           = gtNewAssignNode(gtNewLclvNode(lvaGetDesc(thisCopyLclNum), TYP_REF),
-                               gtNewLclvNode(lvaGetDesc(info.compThisArg), TYP_REF));
+        // Make a copy of the 'this' pointer to be used in the handler, so
+        // it does not inhibit enregistration of all uses of the variable.
+
+        thisArgLcl  = lvaGetDesc(info.compThisArg);
+        thisCopyLcl = lvaNewTemp(TYP_REF, true DEBUGARG("monitor EH exit 'this' copy"));
+        init        = gtNewAssignNode(gtNewLclvNode(thisCopyLcl, TYP_REF), gtNewLclvNode(thisArgLcl, TYP_REF));
+
         fgNewStmtAtEnd(tryBegBB, init);
     }
 
     CorInfoHelpFunc enterHelper = info.compIsStatic ? CORINFO_HELP_MON_ENTER_STATIC : CORINFO_HELP_MON_ENTER;
     CorInfoHelpFunc exitHelper  = info.compIsStatic ? CORINFO_HELP_MON_EXIT_STATIC : CORINFO_HELP_MON_EXIT;
 
-    fgInsertMonitorCall(tryBegBB, enterHelper, info.compThisArg);
-    fgInsertMonitorCall(faultBB, exitHelper, thisCopyLclNum);
+    fgInsertMonitorCall(tryBegBB, enterHelper, thisArgLcl, acquiredLcl);
+    fgInsertMonitorCall(faultBB, exitHelper, thisCopyLcl, acquiredLcl);
 
     for (BasicBlock* const block : Blocks())
     {
         if (block->bbJumpKind == BBJ_RETURN)
         {
-            fgInsertMonitorCall(block, exitHelper, info.compThisArg);
+            fgInsertMonitorCall(block, exitHelper, thisArgLcl, acquiredLcl);
         }
     }
 }
 
-void Compiler::fgInsertMonitorCall(BasicBlock* block, CorInfoHelpFunc helper, unsigned thisLclNum)
+void Compiler::fgInsertMonitorCall(BasicBlock*     block,
+                                   CorInfoHelpFunc helper,
+                                   LclVarDsc*      thisLcl,
+                                   LclVarDsc*      acquiredLcl)
 {
     assert((block->bbJumpKind == BBJ_NONE) || (block->bbJumpKind == BBJ_RETURN) ||
            (block->bbJumpKind == BBJ_EHFINALLYRET));
 
-    GenTree* monitor =
-        info.compIsStatic ? gtNewStaticMethodMonitorAddr() : gtNewLclvNode(lvaGetDesc(thisLclNum), TYP_REF);
-    GenTree* acquired = gtNewLclVarAddrNode(lvaGetDesc(lvaMonAcquired));
+    GenTree* monitor  = thisLcl == nullptr ? gtNewStaticMethodMonitorAddr() : gtNewLclvNode(thisLcl, TYP_REF);
+    GenTree* acquired = gtNewLclVarAddrNode(acquiredLcl);
     GenTree* call     = gtNewHelperCallNode(helper, TYP_VOID, gtNewCallArgs(monitor, acquired));
 
     JITDUMPTREE(call, "\nSynchronized method - Add monitor call to block " FMT_BB "\n", block->bbNum);

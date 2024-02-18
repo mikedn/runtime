@@ -3915,7 +3915,7 @@ public:
 
     void fgAddSyncMethodEnterExit();
 
-    void fgInsertMonitorCall(BasicBlock* block, CorInfoHelpFunc helper, unsigned thisLclNum);
+    void fgInsertMonitorCall(BasicBlock* block, CorInfoHelpFunc helper, LclVarDsc* thisLcl, LclVarDsc* acquiredLcl);
 
     void fgConvertSyncReturnToLeave(BasicBlock* block);
 

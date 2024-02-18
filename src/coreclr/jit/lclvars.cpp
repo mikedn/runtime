@@ -4134,11 +4134,11 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
     if (lvaMonAcquired != BAD_VAR_NUM)
     {
         // This var must go first, in what is called the 'frame header' for EnC so that it is
-        // preserved when remapping occurs.  See vm\eetwain.cpp for detailed comment specifying frame
-        // layout requirements for EnC to work.
-        // TODO-MIKE-Review: lvaMonAcquired is INT so in theory it needs only 4 bytes, even on
-        // 64 bit targets. But lvQuirkToLong used to (unnecessarily) affect this so we allocate
-        // 8 bytes on 64 targets.
+        // preserved when remapping occurs. See vm\eetwain.cpp for detailed comment specifying
+        // frame layout requirements for EnC to work.
+        // TODO-MIKE-Review: This local is INT so in theory it needs only 4 bytes, even on 64 bit
+        // targets. But lvQuirkToLong used to (unnecessarily) affect this so we allocate 8 bytes
+        // on 64 targets.
         stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaMonAcquired, REGSIZE_BYTES, stkOffs);
     }
 
