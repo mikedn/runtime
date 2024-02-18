@@ -1760,9 +1760,11 @@ void Compiler::fgAddInternal()
         }
         else
         {
-            noway_assert(lvaGetDesc(info.compThisArg)->TypeIs(TYP_REF));
+            LclVarDsc* thisParam = lvaGetDesc(info.compThisArg);
 
-            tree = gtNewLclvNode(lvaGetDesc(info.compThisArg), TYP_REF);
+            noway_assert(thisParam->TypeIs(TYP_REF));
+
+            tree = gtNewLclvNode(thisParam, TYP_REF);
             tree = gtNewHelperCallNode(CORINFO_HELP_MON_ENTER, TYP_VOID, gtNewCallArgs(tree));
         }
 
@@ -1795,7 +1797,11 @@ void Compiler::fgAddInternal()
         }
         else
         {
-            tree = gtNewLclvNode(lvaGetDesc(info.compThisArg), TYP_REF);
+            LclVarDsc* thisParam = lvaGetDesc(info.compThisArg);
+
+            noway_assert(thisParam->TypeIs(TYP_REF));
+
+            tree = gtNewLclvNode(thisParam, TYP_REF);
             tree = gtNewHelperCallNode(CORINFO_HELP_MON_EXIT, TYP_VOID, gtNewCallArgs(tree));
         }
 
