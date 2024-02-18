@@ -1479,9 +1479,8 @@ void LinearScan::identifyCandidates()
                 {
                     compiler->lvaSetDoNotEnregister(promotedLcl DEBUGARG(Compiler::DNER_BlockOp));
 
-                    for (unsigned int i = 0; i < promotedLcl->GetPromotedFieldCount(); i++)
+                    for (LclVarDsc* fieldLcl : compiler->PromotedFields(promotedLcl))
                     {
-                        LclVarDsc* fieldLcl = compiler->lvaGetDesc(promotedLcl->GetPromotedFieldLclNum(i));
                         JITDUMP(" V%02u", fieldLcl->GetLclNum());
 
                         if (fieldLcl->HasLiveness())

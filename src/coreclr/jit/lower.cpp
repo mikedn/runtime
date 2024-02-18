@@ -1587,10 +1587,9 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
 
                 if (paramLcl->IsPromoted())
                 {
-                    for (unsigned j = 0; j < paramLcl->GetPromotedFieldCount(); j++)
+                    for (LclVarDsc* fieldLcl : comp->PromotedFields(paramLcl))
                     {
-                        RehomeParamForFastTailCall(comp->lvaGetDesc(paramLcl->GetPromotedFieldLclNum(j)),
-                                                   insertionPoint, lookForUsesFrom, call);
+                        RehomeParamForFastTailCall(fieldLcl, insertionPoint, lookForUsesFrom, call);
                     }
                 }
             }

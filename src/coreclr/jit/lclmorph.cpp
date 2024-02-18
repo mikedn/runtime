@@ -1094,10 +1094,8 @@ private:
     //
     LclVarDsc* FindPromotedField(LclVarDsc* lcl, unsigned offset, unsigned size) const
     {
-        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+        for (LclVarDsc* fieldLcl : m_compiler->PromotedFields(lcl))
         {
-            LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
-
             assert(fieldLcl->GetType() != TYP_STRUCT);
 
             if ((offset >= fieldLcl->GetPromotedFieldOffset()) &&
@@ -3550,10 +3548,8 @@ void Compiler::lvaRetypeImplicitByRefParams()
 
             if (undoPromotion)
             {
-                for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+                for (LclVarDsc* fieldLcl : PromotedFields(lcl))
                 {
-                    LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
-
                     // Leave lvParentLcl pointing to the parameter so that fgMorphIndirectParams
                     // will know to rewrite appearances of this local.
                     assert(fieldLcl->GetPromotedFieldParentLclNum() == lcl->GetLclNum());
@@ -3593,10 +3589,8 @@ void Compiler::lvaRetypeImplicitByRefParams()
 
                 // Update the locals corresponding to the promoted fields.
 
-                for (unsigned i = 0; i < structLcl->GetPromotedFieldCount(); i++)
+                for (LclVarDsc* fieldLcl : PromotedFields(structLcl))
                 {
-                    LclVarDsc* fieldLcl = lvaGetDesc(structLcl->GetPromotedFieldLclNum(i));
-
                     fieldLcl->lvParentLcl = structLclNum;
 
                     // The fields shouldn't inherit any register preferences from the parameter.

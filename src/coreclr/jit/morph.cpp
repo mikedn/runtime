@@ -3353,9 +3353,8 @@ void Compiler::abiMorphStackLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* 
 
     GenTreeFieldList* fieldList = abiMakeFieldList(arg);
 
-    for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+    for (LclVarDsc* fieldLcl : PromotedFields(lcl))
     {
-        LclVarDsc*     fieldLcl    = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
         var_types      fieldType   = fieldLcl->GetType();
         unsigned       fieldOffset = fieldLcl->GetPromotedFieldOffset();
         GenTreeLclVar* fieldLclVar = gtNewLclvNode(fieldLcl, fieldType);
@@ -3866,11 +3865,9 @@ GenTree* Compiler::abiMorphMultiRegHfaLclArgPromoted(CallArgInfo* argInfo, GenTr
     unsigned   regSize   = varTypeSize(regType);
     unsigned   regOffset = 0;
 
-    for (unsigned field = 0; field < lcl->GetPromotedFieldCount(); field++)
+    for (LclVarDsc* fieldLcl : PromotedFields(lcl))
     {
-        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
-        LclVarDsc* fieldLcl    = lvaGetDesc(fieldLclNum);
-        var_types  fieldType   = fieldLcl->GetType();
+        var_types fieldType = fieldLcl->GetType();
 
         if (regOffset != fieldLcl->GetPromotedFieldOffset())
         {
@@ -7775,9 +7772,9 @@ void Compiler::fgMorphCreateLclInit(LclVarDsc* lcl, BasicBlock* block, Statement
 {
     if (lcl->IsIndependentPromoted())
     {
-        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+        for (LclVarDsc* fieldLcl : PromotedFields(lcl))
         {
-            fgMorphCreateLclInit(lvaGetDesc(lcl->GetPromotedFieldLclNum(i)), block, beforeStmt, ilOffset);
+            fgMorphCreateLclInit(fieldLcl, block, beforeStmt, ilOffset);
         }
 
         return;
@@ -8783,11 +8780,8 @@ GenTree* Compiler::fgMorphPromoteLocalInitStruct(GenTreeOp* asg, LclVarDsc* dest
 
     if ((initVal->AsIntCon()->GetValue() & 0xFF) != 0)
     {
-        for (unsigned i = 0; i < destLcl->GetPromotedFieldCount(); ++i)
+        for (LclVarDsc* destFieldLcl : PromotedFields(destLcl))
         {
-            unsigned   destFieldLclNum = destLcl->GetPromotedFieldLclNum(i);
-            LclVarDsc* destFieldLcl    = lvaGetDesc(destFieldLclNum);
-
             if (varTypeIsGC(destFieldLcl->GetType()))
             {
                 JITDUMP(" dest contains GC and fields and source constant is not 0.\n");

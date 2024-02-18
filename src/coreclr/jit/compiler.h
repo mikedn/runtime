@@ -3332,6 +3332,11 @@ public:
         return jitstd::span<LclVarDsc*>(lvaTable, info.compArgsCount);
     }
 
+    jitstd::span<LclVarDsc*> PromotedFields(LclVarDsc* lcl) const
+    {
+        return jitstd::span<LclVarDsc*>(lvaTable + lcl->GetPromotedFieldLclNum(0), lcl->GetPromotedFieldCount());
+    }
+
     jitstd::span<LclVarDsc*> LivenessLocals() const
     {
         assert((lvaTracked != nullptr) || (lvaTrackedCount == 0));

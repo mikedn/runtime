@@ -950,10 +950,8 @@ bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclVar* store)
     }
 
 #ifdef DEBUG
-    for (unsigned int i = 0; i < varDsc->GetPromotedFieldCount(); i++)
+    for (LclVarDsc* fieldLcl : compiler->PromotedFields(varDsc))
     {
-        LclVarDsc* fieldLcl = compiler->lvaGetDesc(varDsc->GetPromotedFieldLclNum(i));
-
         assert(fieldLcl->IsRegCandidate() == isMultiReg);
     }
 #endif
@@ -1637,9 +1635,8 @@ void LinearScan::buildIntervals()
     {
         if (paramLcl->IsPromotedStruct())
         {
-            for (unsigned i = 0; i < paramLcl->GetPromotedFieldCount(); i++)
+            for (LclVarDsc* fieldLcl : compiler->PromotedFields(paramLcl))
             {
-                LclVarDsc* fieldLcl = compiler->lvaGetDesc(paramLcl->GetPromotedFieldLclNum(i));
                 assert(fieldLcl->IsParam());
 
                 if (!fieldLcl->HasLiveness() && fieldLcl->IsRegParam())

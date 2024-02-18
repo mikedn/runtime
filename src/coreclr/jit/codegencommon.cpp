@@ -3407,9 +3407,9 @@ void CodeGen::UpdateParamsWithInitialReg()
     {
         if (lcl->IsPromotedStruct())
         {
-            for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+            for (LclVarDsc* fieldLcl : compiler->PromotedFields(lcl))
             {
-                setParamReg(compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i)));
+                setParamReg(fieldLcl);
             }
         }
         else

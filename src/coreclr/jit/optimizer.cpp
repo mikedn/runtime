@@ -5968,13 +5968,11 @@ void Compiler::phRemoveRedundantZeroInits()
                         else if (lcl->IsPromoted() &&
                                  (lclNode->OperIs(GT_STORE_LCL_VAR) || !lclNode->IsPartialLclFld(this)))
                         {
-                            for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
+                            for (LclVarDsc* fieldLcl : PromotedFields(lcl))
                             {
-                                unsigned fieldLclNum = lcl->GetPromotedFieldLclNum(i);
-
-                                if (lvaGetDesc(fieldLclNum)->HasLiveness())
+                                if (fieldLcl->HasLiveness())
                                 {
-                                    (*defsInBlock.Emplace(fieldLclNum, 0))++;
+                                    (*defsInBlock.Emplace(fieldLcl->GetLclNum(), 0))++;
                                 }
                             }
                         }

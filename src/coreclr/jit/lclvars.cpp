@@ -1446,10 +1446,8 @@ void Compiler::lvaSetAddressExposed(LclVarDsc* lcl)
 
     if (lcl->IsPromoted())
     {
-        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
+        for (LclVarDsc* fieldLcl : PromotedFields(lcl))
         {
-            LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
-
             fieldLcl->lvAddrExposed = true;
             lvaSetDoNotEnregister(fieldLcl DEBUGARG(DNER_AddrExposed));
         }
@@ -1558,10 +1556,8 @@ void Compiler::lvaSetLiveInOutOfHandler(LclVarDsc* lcl)
 
     if (lcl->IsPromoted())
     {
-        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
+        for (LclVarDsc* fieldLcl : PromotedFields(lcl))
         {
-            LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
-
             fieldLcl->lvLiveInOutOfHndlr = 1;
 
             // For now, only enregister an EH Var if it is a single def and whose refCount > 1.
@@ -2662,9 +2658,9 @@ void Compiler::lvaComputeRefCountsHIR()
                     }
                     else if (lcl->IsPromoted())
                     {
-                        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+                        for (LclVarDsc* fieldLcl : m_compiler->PromotedFields(lcl))
                         {
-                            m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i))->lvHasEHUses = true;
+                            fieldLcl->lvHasEHUses = true;
                         }
                     }
                 }

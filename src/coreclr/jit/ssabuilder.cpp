@@ -142,10 +142,8 @@ bool SsaBuilder::IncludeInSsa(LclVarDsc* lcl)
     {
         if (lcl->IsIndependentPromoted() && !lcl->IsParam() && !lcl->lvIsMultiRegRet)
         {
-            for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+            for (LclVarDsc* fieldLcl : compiler->PromotedFields(lcl))
             {
-                LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
-
                 fieldLcl->lvIsStructField = false;
                 // TODO-MIKE-CQ: Remove this. Causes all sorts of diffs due to small int "normalization"
                 // changes, and promotion of LONG fields on 32 bit targets.

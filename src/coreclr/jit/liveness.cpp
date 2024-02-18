@@ -56,10 +56,8 @@ void Compiler::fgMarkUseDef(LivenessState& state, GenTreeLclVarCommon* node)
                                                                : varTypeSize(lclFld->GetType()));
     }
 
-    for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
+    for (LclVarDsc* fieldLcl : PromotedFields(lcl))
     {
-        LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
-
         assert(!fieldLcl->TypeIs(TYP_STRUCT));
 
         unsigned fieldOffset    = fieldLcl->GetPromotedFieldOffset();
