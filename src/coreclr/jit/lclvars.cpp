@@ -2839,16 +2839,14 @@ void Compiler::phAddSpecialLocals()
 #ifdef TARGET_XARCH
     if (opts.compStackCheckOnRet)
     {
-        LclVarDsc* returnSpCheckLcl = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("ReturnSpCheck"));
-        lvaSetImplicitlyReferenced(returnSpCheckLcl);
-        lvaReturnSpCheck = returnSpCheckLcl->GetLclNum();
+        lvaReturnSpCheckLcl = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("ReturnSpCheck"));
+        lvaSetImplicitlyReferenced(lvaReturnSpCheckLcl);
     }
 #ifdef TARGET_X86
     if (opts.compStackCheckOnCall)
     {
-        LclVarDsc* callSpCheckLcl = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("CallSpCheck"));
-        lvaSetImplicitlyReferenced(callSpCheckLcl);
-        lvaCallSpCheck = callSpCheckLcl->GetLclNum();
+        lvaCallSpCheckLcl = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("CallSpCheck"));
+        lvaSetImplicitlyReferenced(lvaCallSpCheckLcl);
     }
 #endif // TARGET_X86
 #endif // TARGET_XARCH

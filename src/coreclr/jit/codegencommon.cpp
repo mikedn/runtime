@@ -3635,15 +3635,15 @@ void CodeGen::genFinalizeFrame()
     // Check stack pointer on return stress mode is not compatible with fully interruptible GC. REVIEW: why?
     // It is also not compatible with any function that makes a tailcall: we aren't smart enough to only
     // insert the SP check in the non-tailcall returns.
-    if ((GetInterruptible() || compiler->compTailCallUsed) && (compiler->lvaReturnSpCheck != BAD_VAR_NUM))
+    if ((GetInterruptible() || compiler->compTailCallUsed) && (compiler->lvaReturnSpCheckLcl != nullptr))
     {
-        compiler->lvaReturnSpCheck = BAD_VAR_NUM;
+        compiler->lvaReturnSpCheckLcl = nullptr;
     }
 #ifdef TARGET_X86
     // Check stack pointer on call stress mode is not compatible with fully interruptible GC. REVIEW: why?
-    if (GetInterruptible() && (compiler->lvaCallSpCheck != BAD_VAR_NUM))
+    if (GetInterruptible() && (compiler->lvaCallSpCheckLcl != nullptr))
     {
-        compiler->lvaCallSpCheck = BAD_VAR_NUM;
+        compiler->lvaCallSpCheckLcl = nullptr;
     }
 #endif // TARGET_X86
 #endif // TARGET_XARCH
@@ -3970,11 +3970,10 @@ void CodeGen::genFnProlog()
 #endif
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
-    if (compiler->lvaReturnSpCheck != BAD_VAR_NUM)
+    if (LclVarDsc* lcl = compiler->lvaReturnSpCheckLcl)
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(compiler->lvaReturnSpCheck);
         assert(lcl->lvOnFrame && lcl->lvDoNotEnregister);
-        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, compiler->lvaReturnSpCheck, 0);
+        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, lcl->GetLclNum(), 0);
     }
 #endif
 
@@ -5105,7 +5104,7 @@ void CodeGen::GenReturn(GenTree* ret, BasicBlock* block)
 #endif // PROFILING_SUPPORTED
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
-    if (compiler->lvaReturnSpCheck != BAD_VAR_NUM)
+    if (compiler->lvaReturnSpCheckLcl != nullptr)
     {
         genStackPointerCheck();
     }

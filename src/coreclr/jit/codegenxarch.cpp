@@ -138,10 +138,10 @@ void CodeGen::EpilogGSCookieCheck(bool tailCallEpilog)
 // TODO-MIKE-Review: Is this of any use on x64? Maybe in methods with localloc?
 void CodeGen::genStackPointerCheck()
 {
-    LclVarDsc* lcl = compiler->lvaGetDesc(compiler->lvaReturnSpCheck);
+    LclVarDsc* lcl = compiler->lvaReturnSpCheckLcl;
     assert(lcl->lvOnFrame && lcl->lvDoNotEnregister);
 
-    GetEmitter()->emitIns_S_R(INS_cmp, EA_PTRSIZE, REG_SPBASE, compiler->lvaReturnSpCheck, 0);
+    GetEmitter()->emitIns_S_R(INS_cmp, EA_PTRSIZE, REG_SPBASE, lcl->GetLclNum(), 0);
 
     insGroup* spCheckEndLabel = GetEmitter()->CreateTempLabel();
     GetEmitter()->emitIns_J(INS_je, spCheckEndLabel);
@@ -1911,7 +1911,7 @@ void CodeGen::genLclHeap(GenTree* tree)
     target_ssize_t lastTouchDelta = (target_ssize_t)-1;
 
 #ifdef DEBUG
-    if (compiler->lvaReturnSpCheck != BAD_VAR_NUM)
+    if (compiler->lvaReturnSpCheckLcl != nullptr)
     {
         genStackPointerCheck();
     }
@@ -2194,11 +2194,10 @@ ALLOC_DONE:
 
 #ifdef DEBUG
     // Update local variable to reflect the new stack pointer.
-    if (compiler->lvaReturnSpCheck != BAD_VAR_NUM)
+    if (LclVarDsc* lcl = compiler->lvaReturnSpCheckLcl)
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(compiler->lvaReturnSpCheck);
         assert(lcl->lvOnFrame && lcl->lvDoNotEnregister);
-        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, compiler->lvaReturnSpCheck, 0);
+        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, lcl->GetLclNum(), 0);
     }
 #endif
 
@@ -4652,11 +4651,11 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
 #if defined(DEBUG) && defined(TARGET_X86)
     // Store the stack pointer so we can check it after the call.
-    if ((compiler->lvaCallSpCheck != BAD_VAR_NUM) && call->IsUserCall())
+    if ((compiler->lvaCallSpCheckLcl != nullptr) && call->IsUserCall())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(compiler->lvaCallSpCheck);
+        LclVarDsc* lcl = compiler->lvaCallSpCheckLcl;
         assert(lcl->lvOnFrame && lcl->lvDoNotEnregister);
-        GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, REG_SPBASE, compiler->lvaCallSpCheck, 0);
+        GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, REG_SPBASE, lcl->GetLclNum(), 0);
     }
 #endif // defined(DEBUG) && defined(TARGET_X86)
 
@@ -4923,7 +4922,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     }
 
 #if defined(DEBUG) && defined(TARGET_X86)
-    if ((compiler->lvaCallSpCheck != BAD_VAR_NUM) && call->IsUserCall())
+    if ((compiler->lvaCallSpCheckLcl != nullptr) && call->IsUserCall())
     {
         Emitter& emit = *GetEmitter();
 
@@ -4936,12 +4935,12 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             // to do some math to figure a good comparison.
             emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_ARG_0, REG_SPBASE, /* canSkip */ false);
             emit.emitIns_R_I(INS_sub, EA_4BYTE, REG_ARG_0, stackArgBytes);
-            emit.emitIns_S_R(INS_cmp, EA_4BYTE, REG_ARG_0, compiler->lvaCallSpCheck, 0);
+            emit.emitIns_S_R(INS_cmp, EA_4BYTE, REG_ARG_0, compiler->lvaCallSpCheckLcl->GetLclNum(), 0);
             spRegCheck = REG_ARG_0;
         }
 
         insGroup* spCheckEndLabel = emit.CreateTempLabel();
-        emit.emitIns_S_R(INS_cmp, EA_4BYTE, spRegCheck, compiler->lvaCallSpCheck, 0);
+        emit.emitIns_S_R(INS_cmp, EA_4BYTE, spRegCheck, compiler->lvaCallSpCheckLcl->GetLclNum(), 0);
         emit.emitIns_J(INS_je, spCheckEndLabel);
         emit.emitIns(INS_BREAKPOINT);
         emit.DefineTempLabel(spCheckEndLabel);

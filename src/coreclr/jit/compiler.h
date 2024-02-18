@@ -3360,9 +3360,9 @@ public:
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
     // Stores SP to confirm it is not corrupted on return.
-    unsigned lvaReturnSpCheck = BAD_VAR_NUM;
+    LclVarDsc* lvaReturnSpCheckLcl = nullptr;
     // Stores SP to confirm it is not corrupted after every call.
-    X86_ONLY(unsigned lvaCallSpCheck = BAD_VAR_NUM;)
+    X86_ONLY(LclVarDsc* lvaCallSpCheckLcl = nullptr;)
 #endif
 
     bool lvaKeepAliveAndReportThis(); // Synchronized instance method of a reference type, or
