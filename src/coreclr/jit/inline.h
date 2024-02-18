@@ -691,8 +691,8 @@ struct InlineInfo
     GenTree*             retExpr;
     BasicBlockFlags      retBlockIRSummary;
     CORINFO_CLASS_HANDLE retExprClassHnd;
+    LclVarDsc*           retSpillTempLcl;
     bool                 retExprClassHndIsExact;
-    unsigned             retSpillTempLclNum;
 
     bool hasGCRefLocals;
     bool thisDereferencedFirst;
