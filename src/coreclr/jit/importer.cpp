@@ -11365,9 +11365,11 @@ void Importer::ImportArgList()
     }
 
     assert(info.compMethodInfo->args.getCallConv() == CORINFO_CALLCONV_VARARG);
-    assert(comp->lvaGetDesc(comp->lvaVarargsHandleArg)->IsAddressExposed());
 
-    impPushOnStack(gtNewLclVarAddrNode(comp->lvaGetDesc(comp->lvaVarargsHandleArg), TYP_I_IMPL));
+    LclVarDsc* varargsHandleParam = comp->lvaGetDesc(comp->lvaVarargsHandleArg);
+    assert(varargsHandleParam->IsAddressExposed());
+
+    impPushOnStack(gtNewLclVarAddrNode(varargsHandleParam, TYP_I_IMPL));
 }
 
 void Importer::ImportMkRefAny(const BYTE* codeAddr)
@@ -12910,9 +12912,10 @@ void Importer::impReturnInstruction(INDEBUG(bool isTailcall))
 
         if (info.compRetBuffArg != BAD_VAR_NUM)
         {
-            GenTree* retBuffAddr  = gtNewLclvNode(comp->lvaGetDesc(info.compRetBuffArg), TYP_BYREF);
-            GenTree* retBuffIndir = gtNewObjNode(info.GetRetLayout(), retBuffAddr);
-            value                 = impAssignStruct(retBuffIndir, value, CHECK_SPILL_ALL);
+            LclVarDsc* retBuffLcl   = comp->lvaGetDesc(info.compRetBuffArg);
+            GenTree*   retBuffAddr  = gtNewLclvNode(retBuffLcl, TYP_BYREF);
+            GenTree*   retBuffIndir = gtNewObjNode(info.GetRetLayout(), retBuffAddr);
+            value                   = impAssignStruct(retBuffIndir, value, CHECK_SPILL_ALL);
 
             impAppendTree(value, CHECK_SPILL_NONE);
 
@@ -12927,8 +12930,7 @@ void Importer::impReturnInstruction(INDEBUG(bool isTailcall))
                 assert(info.retDesc.GetRegCount() == 1);
                 assert(info.retDesc.GetRegType(0) == TYP_BYREF);
 
-                ret = gtNewOperNode(GT_RETURN, TYP_BYREF,
-                                    gtNewLclvNode(comp->lvaGetDesc(info.compRetBuffArg), TYP_BYREF));
+                ret = gtNewOperNode(GT_RETURN, TYP_BYREF, gtNewLclvNode(retBuffLcl, TYP_BYREF));
             }
         }
         else
