@@ -4922,14 +4922,14 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
     return copy;
 }
 
-GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsigned varNum, const int varVal)
+GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVarDsc* constLcl, const int constVal)
 {
     // Currently this is the only flag that makes sense adding.
     assert((addFlags & ~GTF_MAKE_CSE) == GTF_NONE);
     // We don't currently need to replace an AX local and doing so would leave pointless
     // GLOB_REF side effects in the cloned tree. It probably doesn't really matter, as
     // removing such GLOB_REFs have always been problematic.
-    assert((varNum == BAD_VAR_NUM) || !lvaGetDesc(varNum)->IsAddressExposed());
+    assert((constLcl == nullptr) || !constLcl->IsAddressExposed());
 
     if (tree == nullptr)
     {
@@ -4941,8 +4941,6 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
     genTreeOps oper = tree->OperGet();
     unsigned   kind = tree->OperKind();
     GenTree*   copy;
-
-    LclVarDsc* constLcl = varNum == BAD_VAR_NUM ? nullptr : lvaGetDesc(varNum);
 
     /* Is this a constant or leaf node? */
 
@@ -4968,7 +4966,7 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
             case GT_LCL_VAR:
                 if (tree->AsLclVar()->GetLcl() == constLcl)
                 {
-                    copy = gtNewIconNode(varVal, tree->gtType);
+                    copy = gtNewIconNode(constVal, tree->GetType());
                 }
                 else
                 {
@@ -5074,8 +5072,8 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
             case GT_ARR_INDEX:
                 copy = new (this, GT_ARR_INDEX)
                     GenTreeArrIndex(tree->TypeGet(),
-                                    gtCloneExpr(tree->AsArrIndex()->ArrObj(), addFlags, varNum, varVal),
-                                    gtCloneExpr(tree->AsArrIndex()->IndexExpr(), addFlags, varNum, varVal),
+                                    gtCloneExpr(tree->AsArrIndex()->ArrObj(), addFlags, constLcl, constVal),
+                                    gtCloneExpr(tree->AsArrIndex()->IndexExpr(), addFlags, constLcl, constVal),
                                     tree->AsArrIndex()->gtCurrDim, tree->AsArrIndex()->gtArrRank,
                                     tree->AsArrIndex()->gtArrElemType);
                 break;
@@ -5178,14 +5176,14 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
 
         if (tree->AsOp()->gtOp1 != nullptr)
         {
-            assert(!tree->OperIs(GT_ASG) || (varNum == BAD_VAR_NUM));
+            assert(!tree->OperIs(GT_ASG) || (constLcl == nullptr));
 
-            copy->AsOp()->gtOp1 = gtCloneExpr(tree->AsOp()->gtOp1, addFlags, varNum, varVal);
+            copy->AsOp()->gtOp1 = gtCloneExpr(tree->AsOp()->gtOp1, addFlags, constLcl, constVal);
         }
 
         if (tree->gtGetOp2IfPresent() != nullptr)
         {
-            copy->AsOp()->gtOp2 = gtCloneExpr(tree->AsOp()->gtOp2, addFlags, varNum, varVal);
+            copy->AsOp()->gtOp2 = gtCloneExpr(tree->AsOp()->gtOp2, addFlags, constLcl, constVal);
         }
 
         addFlags |= tree->gtFlags;
@@ -5214,7 +5212,7 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
                 NO_WAY("Cloning of calls with associated GT_RET_EXPR nodes is not supported");
             }
 
-            copy = gtCloneExprCallHelper(tree->AsCall(), addFlags, varNum, varVal);
+            copy = gtCloneExprCallHelper(tree->AsCall(), addFlags, constLcl, constVal);
             break;
 
         case GT_ARR_ELEM:
@@ -5223,7 +5221,7 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
             GenTree*        ops[1 + GenTreeArrElem::MaxRank];
             for (unsigned i = 0; i < 1 + arrElem->GetRank(); i++)
             {
-                ops[i] = gtCloneExpr(arrElem->GetOp(i), addFlags, varNum, varVal);
+                ops[i] = gtCloneExpr(arrElem->GetOp(i), addFlags, constLcl, constVal);
             }
             copy = new (this, GT_ARR_ELEM) GenTreeArrElem(arrElem->GetType(), ops[0], arrElem->gtArrRank,
                                                           arrElem->gtArrElemSize, arrElem->gtArrElemType, &ops[1]);
@@ -5247,7 +5245,7 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
             copy = new (this, GT_FIELD_LIST) GenTreeFieldList();
             for (GenTreeFieldList::Use& use : tree->AsFieldList()->Uses())
             {
-                copy->AsFieldList()->AddField(this, gtCloneExpr(use.GetNode(), addFlags, varNum, varVal),
+                copy->AsFieldList()->AddField(this, gtCloneExpr(use.GetNode(), addFlags, constLcl, constVal),
                                               use.GetOffset(), use.GetType());
             }
             break;
@@ -5257,7 +5255,8 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
             copy = new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(tree->AsHWIntrinsic(), getAllocator(CMK_ASTNode));
             for (unsigned i = 0; i < copy->AsHWIntrinsic()->GetNumOps(); i++)
             {
-                copy->AsHWIntrinsic()->SetOp(i, gtCloneExpr(tree->AsHWIntrinsic()->GetOp(i), addFlags, varNum, varVal));
+                copy->AsHWIntrinsic()->SetOp(i, gtCloneExpr(tree->AsHWIntrinsic()->GetOp(i), addFlags, constLcl,
+                                                            constVal));
             }
             break;
 #endif
@@ -5331,23 +5330,22 @@ DONE:
 // Returns:
 //    Cloned copy of call and all subtrees.
 
-GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree,
-                                             GenTreeFlags addFlags,
-                                             unsigned     deepVarNum,
-                                             int          deepVarVal)
+GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall*     tree,
+                                             GenTreeFlags     addFlags,
+                                             const LclVarDsc* constLcl,
+                                             const int        constVal)
 {
     GenTreeCall* copy = new (this, GT_CALL) GenTreeCall(tree);
 
     if (tree->gtCallThisArg != nullptr)
     {
-        copy->gtCallThisArg =
-            gtNewCallArgs(gtCloneExpr(tree->gtCallThisArg->GetNode(), addFlags, deepVarNum, deepVarVal));
+        copy->gtCallThisArg = gtNewCallArgs(gtCloneExpr(tree->gtCallThisArg->GetNode(), addFlags, constLcl, constVal));
     }
 
     GenTreeCall::Use** argsTail = &copy->gtCallArgs;
     for (GenTreeCall::Use& use : tree->Args())
     {
-        *argsTail = gtNewCallArgs(gtCloneExpr(use.GetNode(), addFlags, deepVarNum, deepVarVal));
+        *argsTail = gtNewCallArgs(gtCloneExpr(use.GetNode(), addFlags, constLcl, constVal));
         (*argsTail)->SetSigTypeNum(use.GetSigTypeNum());
         argsTail = &((*argsTail)->NextRef());
     }
@@ -5355,7 +5353,7 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree,
     argsTail = &copy->gtCallLateArgs;
     for (GenTreeCall::Use& use : tree->LateArgs())
     {
-        *argsTail = gtNewCallArgs(gtCloneExpr(use.GetNode(), addFlags, deepVarNum, deepVarVal));
+        *argsTail = gtNewCallArgs(gtCloneExpr(use.GetNode(), addFlags, constLcl, constVal));
         argsTail  = &((*argsTail)->NextRef());
     }
 
@@ -5379,10 +5377,10 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree,
         }
         else
         {
-            copy->gtCallCookie = gtCloneExpr(tree->gtCallCookie, addFlags, deepVarNum, deepVarVal);
+            copy->gtCallCookie = gtCloneExpr(tree->gtCallCookie, addFlags, constLcl, constVal);
         }
 
-        copy->gtCallAddr = gtCloneExpr(tree->gtCallAddr, addFlags, deepVarNum, deepVarVal);
+        copy->gtCallAddr = gtCloneExpr(tree->gtCallAddr, addFlags, constLcl, constVal);
     }
     else
     {
@@ -5399,7 +5397,7 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree,
 
         if (tree->gtControlExpr != nullptr)
         {
-            copy->gtControlExpr = gtCloneExpr(tree->gtControlExpr, addFlags, deepVarNum, deepVarVal);
+            copy->gtControlExpr = gtCloneExpr(tree->gtControlExpr, addFlags, constLcl, constVal);
         }
     }
 

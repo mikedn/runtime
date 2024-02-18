@@ -3003,10 +3003,10 @@ public:
 
     GenTree* gtClone(GenTree* tree, bool complexOK = false);
 
-    GenTree* gtCloneExpr(GenTree*     tree,
-                         GenTreeFlags addFlags = GTF_EMPTY,
-                         unsigned     varNum   = BAD_VAR_NUM,
-                         int          varVal   = 0);
+    GenTree* gtCloneExpr(GenTree*         tree,
+                         GenTreeFlags     addFlags = GTF_EMPTY,
+                         const LclVarDsc* constLcl = nullptr,
+                         int              constVal = 0);
 
     Statement* gtCloneStmt(Statement* stmt)
     {
@@ -3015,10 +3015,10 @@ public:
     }
 
     // Internal helper for cloning a call
-    GenTreeCall* gtCloneExprCallHelper(GenTreeCall* call,
-                                       GenTreeFlags addFlags   = GTF_EMPTY,
-                                       unsigned     deepVarNum = BAD_VAR_NUM,
-                                       int          deepVarVal = 0);
+    GenTreeCall* gtCloneExprCallHelper(GenTreeCall*     call,
+                                       GenTreeFlags     addFlags = GTF_EMPTY,
+                                       const LclVarDsc* constLcl = nullptr,
+                                       int              constVal = 0);
 
     // Create copy of an inline or guarded devirtualization candidate tree.
     GenTreeCall* gtCloneCandidateCall(GenTreeCall* call);
@@ -4784,7 +4784,7 @@ public:
         GenTreeLclVar* lpIterTree; // The "i = i <op> const" tree
         GenTreeOp*     lpTestTree; // pointer to the node containing the loop test
 
-        unsigned   lpIterVar() const;   // iterator variable #
+        LclVarDsc* lpIterVar() const;   // iterator variable
         int        lpIterConst() const; // the constant with which the iterator is incremented
         genTreeOps lpIterOper() const;  // the type of the operation on the iterator (ASG_ADD, ASG_SUB, etc.)
         INDEBUG(void VerifyIterator() const;)
@@ -4799,9 +4799,9 @@ public:
         // : Valid if LPFLG_CONST_LIMIT
         int lpConstLimit() const;
 
-        // The lclVar # in the loop condition ( "i RELOP lclVar" )
+        // The lclVar in the loop condition ( "i RELOP lclVar" )
         // : Valid if LPFLG_VAR_LIMIT
-        unsigned lpVarLimit() const;
+        LclVarDsc* lpVarLimit() const;
 
         // Returns "true" iff "*this" contains the blk.
         bool lpContains(BasicBlock* blk) const

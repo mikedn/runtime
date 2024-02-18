@@ -733,7 +733,7 @@ const char* BasicBlock::dspToString(int blockNumPadding /* = 0 */)
 //    block `to` will be fully populated.
 
 bool BasicBlock::CloneBlockState(
-    Compiler* compiler, BasicBlock* to, const BasicBlock* from, unsigned varNum, int varVal)
+    Compiler* compiler, BasicBlock* to, const BasicBlock* from, const LclVarDsc* constLcl, const int constVal)
 {
     assert(to->bbStmtList == nullptr);
 
@@ -749,7 +749,7 @@ bool BasicBlock::CloneBlockState(
 
     for (Statement* const fromStmt : from->Statements())
     {
-        auto newExpr = compiler->gtCloneExpr(fromStmt->GetRootNode(), GTF_EMPTY, varNum, varVal);
+        auto newExpr = compiler->gtCloneExpr(fromStmt->GetRootNode(), GTF_EMPTY, constLcl, constVal);
         if (!newExpr)
         {
             // gtCloneExpr doesn't handle all opcodes, so may fail to clone a statement.

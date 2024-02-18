@@ -718,7 +718,7 @@ bool LoopCloneContext::DeriveLoopCloningConditions(unsigned loopNum)
     }
     else if ((loop.lpFlags & LPFLG_VAR_LIMIT) != 0)
     {
-        limit = LcIdent(loop.lpVarLimit(), LcIdent::Lcl);
+        limit = LcIdent(loop.lpVarLimit()->GetLclNum(), LcIdent::Lcl);
 
         EnsureConditions(loopNum)->Emplace(GT_GE, LcExpr(limit), LcExpr(LcIdent(0, LcIdent::Const)));
     }
@@ -854,7 +854,7 @@ bool LoopCloneContext::IsLoopClonable(unsigned loopNum) const
         return false;
     }
 
-    assert(!compiler->lvaGetDesc(loop.lpIterVar())->IsAddressExposed());
+    assert(!loop.lpIterVar()->IsAddressExposed());
 
     if ((loop.lpFlags & (LPFLG_CONST_INIT | LPFLG_VAR_INIT)) == 0)
     {
@@ -884,9 +884,9 @@ bool LoopCloneContext::IsLoopClonable(unsigned loopNum) const
     }
     else if ((loop.lpFlags & LPFLG_VAR_LIMIT) != 0)
     {
-        if (compiler->lvaGetDesc(loop.lpVarLimit())->IsAddressExposed())
+        if (loop.lpVarLimit()->IsAddressExposed())
         {
-            JITDUMP("Rejecting loop. IV limit V%02u is address exposed.\n", loop.lpVarLimit());
+            JITDUMP("Rejecting loop. IV limit V%02u is address exposed.\n", loop.lpVarLimit()->GetLclNum());
             return false;
         }
     }
@@ -1624,9 +1624,9 @@ void LoopCloneVisitorInfo::AddArrayIndex(const ArrIndex& arrIndex)
         return;
     }
 
-    if (arrIndex.indexLclNum != loop.lpIterVar())
+    if (arrIndex.indexLclNum != loop.lpIterVar()->GetLclNum())
     {
-        JITDUMP("Index V%02u is not loop IV\n", loop.lpIterVar());
+        JITDUMP("Index V%02u is not loop IV\n", loop.lpIterVar()->GetLclNum());
         return;
     }
 

@@ -1293,10 +1293,10 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
-inline unsigned Compiler::LoopDsc::lpIterVar() const
+inline LclVarDsc* Compiler::LoopDsc::lpIterVar() const
 {
     INDEBUG(VerifyIterator());
-    return lpIterTree->GetLcl()->GetLclNum();
+    return lpIterTree->GetLcl();
 }
 
 inline int Compiler::LoopDsc::lpIterConst() const
@@ -1345,14 +1345,14 @@ inline int Compiler::LoopDsc::lpConstLimit() const
     return limit->AsIntCon()->GetInt32Value();
 }
 
-inline unsigned Compiler::LoopDsc::lpVarLimit() const
+inline LclVarDsc* Compiler::LoopDsc::lpVarLimit() const
 {
     INDEBUG(VerifyIterator());
     assert(lpFlags & LPFLG_VAR_LIMIT);
 
     GenTree* limit = lpLimit();
     assert(limit->OperIs(GT_LCL_VAR));
-    return limit->AsLclVar()->GetLcl()->GetLclNum();
+    return limit->AsLclVar()->GetLcl();
 }
 
 /*

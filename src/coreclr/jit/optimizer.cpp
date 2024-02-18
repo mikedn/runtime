@@ -1143,7 +1143,7 @@ void Compiler::optPrintLoopRecording(unsigned loopInd) const
     // If an iterator loop print the iterator and the initialization.
     if (loop.lpIterTree != nullptr)
     {
-        printf(" [over V%02u", loop.lpIterVar());
+        printf(" [over V%02u", loop.lpIterVar()->GetLclNum());
         printf(" (");
         printf(GenTree::OpName(loop.lpIterOper()));
         printf(" ");
@@ -1168,7 +1168,7 @@ void Compiler::optPrintLoopRecording(unsigned loopInd) const
 
         if (loop.lpFlags & LPFLG_VAR_LIMIT)
         {
-            printf("V%02u ", loop.lpVarLimit());
+            printf(FMT_LCL " ", loop.lpVarLimit()->GetLclNum());
         }
 
         printf("]");
@@ -3373,12 +3373,11 @@ PhaseStatus Compiler::phUnrollLoops()
         const int        lbeg     = optLoopTable[lnum].lpConstInit;
         const int        llim     = optLoopTable[lnum].lpConstLimit();
         const genTreeOps testOper = optLoopTable[lnum].lpTestOper();
-        const unsigned   lvar     = optLoopTable[lnum].lpIterVar();
+        const LclVarDsc* llvar    = optLoopTable[lnum].lpIterVar();
         const int        iterInc  = optLoopTable[lnum].lpIterConst();
         const genTreeOps iterOper = optLoopTable[lnum].lpIterOper();
         const bool       unsTest  = optLoopTable[lnum].lpTestTree->IsUnsigned();
 
-        LclVarDsc* llvar = lvaGetDesc(lvar);
         assert(!llvar->IsAddressExposed());
 
         if (llvar->IsPromotedField())
@@ -3544,7 +3543,7 @@ PhaseStatus Compiler::phUnrollLoops()
                 {
                     printf(".." FMT_BB, bottom->bbNum);
                 }
-                printf(" over V%02u from %u to %u unrollCostSz = %d\n\n", lvar, lbeg, llim, unrollCostSz);
+                printf(" over V%02u from %u to %u unrollCostSz = %d\n\n", llvar->GetLclNum(), lbeg, llim, unrollCostSz);
             }
 #endif
         }
@@ -3578,7 +3577,7 @@ PhaseStatus Compiler::phUnrollLoops()
                         fgNewBBafter(block->bbJumpKind, insertAfter, /*extendRegion*/ true);
                     blockMap.Set(block, newBlock, BlockToBlockMap::Overwrite);
 
-                    if (!BasicBlock::CloneBlockState(this, newBlock, block, lvar, lval))
+                    if (!BasicBlock::CloneBlockState(this, newBlock, block, llvar, lval))
                     {
                         // cloneExpr doesn't handle everything
                         BasicBlock* oldBottomNext = insertAfter->bbNext;
