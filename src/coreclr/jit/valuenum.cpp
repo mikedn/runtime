@@ -33,7 +33,7 @@ public:
     VNLoopMemorySummary(ValueNumbering* valueNumbering, unsigned loopNum);
     void AddMemoryHavoc();
     void AddCall();
-    void AddAddressExposedLocal(LclVarDsc* lcl);
+    void AddAddressExposedLocal(INDEBUG(LclVarDsc* lcl));
     void AddField(CORINFO_FIELD_HANDLE fieldHandle);
     void AddArrayType(unsigned elemTypeNum);
     bool IsComplete() const;
@@ -154,11 +154,6 @@ private:
     void TraceLocal(LclVarDsc* lcl, ValueNumPair vnp, const char* comment = nullptr);
     void TraceMem(ValueNum vn, const char* comment = nullptr);
 #endif
-
-    LclVarDsc* lvaGetDesc(unsigned lclNum) const
-    {
-        return compiler->lvaGetDesc(lclNum);
-    }
 };
 
 // We need to use target-specific NaN values when statically compute expressions.
@@ -3937,7 +3932,7 @@ void ValueNumbering::SummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store, 
 {
     if (store->GetLcl()->IsAddressExposed())
     {
-        summary.AddAddressExposedLocal(store->GetLcl());
+        summary.AddAddressExposedLocal(INDEBUG(store->GetLcl()));
     }
 }
 
@@ -4265,7 +4260,7 @@ void ValueNumbering::SummarizeLoopIndirMemoryStores(GenTreeIndir* store, VNLoopM
     if (func == VNF_LclAddr)
     {
         unsigned lclNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(funcApp[0]));
-        summary.AddAddressExposedLocal(lvaGetDesc(lclNum));
+        summary.AddAddressExposedLocal(INDEBUG(compiler->lvaGetDesc(lclNum)));
 
         return;
     }
@@ -4326,7 +4321,7 @@ void ValueNumbering::NumberIndirStore(GenTreeIndir* store)
 
     if (func == VNF_LclAddr)
     {
-        assert(lvaGetDesc(vnStore->ConstantValue<int32_t>(funcApp[0]))->IsAddressExposed());
+        assert(compiler->lvaGetDesc(vnStore->ConstantValue<int32_t>(funcApp[0]))->IsAddressExposed());
         ValueNum memVN = StoreAddressExposedLocal(store, addrVN, value);
         UpdateMemory(store, memVN DEBUGARG("address-exposed local store"));
 
@@ -6796,7 +6791,7 @@ void VNLoopMemorySummary::AddCall()
     m_hasCall = true;
 }
 
-void VNLoopMemorySummary::AddAddressExposedLocal(LclVarDsc* lcl)
+void VNLoopMemorySummary::AddAddressExposedLocal(INDEBUG(LclVarDsc* lcl))
 {
     assert(lcl->IsAddressExposed());
 
