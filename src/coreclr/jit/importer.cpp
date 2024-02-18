@@ -9266,7 +9266,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
 
                 // Filter out simple assignments to itself
-                if (op1->OperIs(GT_LCL_VAR) && (op1->AsLclVar()->GetLcl()->GetLclNum() == lclNum))
+                if (op1->OperIs(GT_LCL_VAR) && (op1->AsLclVar()->GetLcl() == lcl))
                 {
                     if (opts.compDbgCode)
                     {
@@ -9328,7 +9328,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                             spillSideEffects = GTF_SIDE_EFFECT;
                         }
 
-                        impSpillLclReferences(comp->lvaGetDesc(lclNum));
+                        impSpillLclReferences(lcl);
                     }
 
                     if (spillSideEffects != GTF_EMPTY)
@@ -9339,7 +9339,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 // Create and append the assignment statement
 
-                op2 = gtNewLclvNode(comp->lvaGetDesc(lclNum), lclTyp);
+                op2 = gtNewLclvNode(lcl, lclTyp);
 
                 if (varTypeIsStruct(lclTyp))
                 {
