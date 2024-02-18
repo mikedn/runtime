@@ -998,7 +998,7 @@ void Compiler::fgAddReversePInvokeEnterExit()
 
     // Add enter pinvoke exit callout at the start of prolog
 
-    GenTree*        pInvokeFrameVar = gtNewLclVarAddrNode(lvaGetDesc(lvaReversePInvokeFrameVar));
+    GenTree*        pInvokeFrameVar = gtNewLclVarAddrNode(frameLcl);
     CorInfoHelpFunc reversePInvokeEnterHelper;
 
     GenTreeCall::Use* args;
@@ -1046,7 +1046,7 @@ void Compiler::fgAddReversePInvokeEnterExit()
 
     // Add reverse pinvoke exit callout at the end of epilog
 
-    tree = gtNewLclVarAddrNode(lvaGetDesc(lvaReversePInvokeFrameVar));
+    tree = gtNewLclVarAddrNode(frameLcl);
 
     CorInfoHelpFunc reversePInvokeExitHelper = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TRACK_TRANSITIONS)
                                                    ? CORINFO_HELP_JIT_REVERSE_PINVOKE_EXIT_TRACK_TRANSITIONS
