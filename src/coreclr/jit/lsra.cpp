@@ -130,7 +130,7 @@ BasicBlock::weight_t LinearScan::getWeight(RefPosition* refPos)
         {
             // Tracked locals: use weighted ref cnt as the weight of the
             // ref position.
-            LclVarDsc* varDsc = compiler->lvaGetDesc(treeNode->AsLclVar());
+            LclVarDsc* varDsc = treeNode->AsLclVar()->GetLcl();
             weight            = varDsc->lvRefCntWtd();
             if (refPos->getInterval()->isSpilled)
             {
@@ -5377,9 +5377,7 @@ void LinearScan::updatePreviousInterval(RegRecord* reg, Interval* interval, Regi
 
 void LinearScan::writeLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl, regNumber reg)
 {
-    unsigned lclNum = lcl->GetLclNum();
-
-    if (lclNode->GetLclNum() == lclNum)
+    if (lclNode->GetLcl() == lcl)
     {
         assert(!lclNode->IsMultiReg());
 
@@ -5389,9 +5387,9 @@ void LinearScan::writeLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl, regNumber
     {
         assert(lclNode->IsMultiReg());
 
-        LclVarDsc* promotedLcl = compiler->lvaGetDesc(lclNode->GetLclNum());
+        LclVarDsc* promotedLcl = lclNode->GetLcl();
         // TODO-MIKE-Review: This should assert that lcl is really a field of the promoted local.
-        lclNode->SetRegNum(lclNum - promotedLcl->GetPromotedFieldLclNum(0), reg);
+        lclNode->SetRegNum(lcl->GetLclNum() - promotedLcl->GetPromotedFieldLclNum(0), reg);
     }
 }
 
@@ -5812,7 +5810,7 @@ void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned m
             // TODO-MIKE-Review: This probably doesn't need LCL_FLD.
             assert(tree->OperIs(GT_LCL_VAR, GT_LCL_FLD));
             const GenTreeLclVarCommon* lcl    = tree->AsLclVarCommon();
-            const LclVarDsc*           varDsc = compiler->lvaGetDesc(lcl);
+            const LclVarDsc*           varDsc = lcl->GetLcl();
             // We create struct copies with a primitive type so we don't bother copy node with parsing structHndl.
             // Note that for multiReg node we keep each regType in the tree and don't need this.
             regType = varDsc->GetRegisterType(lcl);
@@ -5887,7 +5885,7 @@ void LinearScan::insertUpperVectorSave(GenTree*     tree,
 
     // Insert the save before the call.
 
-    GenTree* saveLcl = compiler->gtNewLclvNode(lcl->GetLclNum(), lcl->GetType());
+    GenTree* saveLcl = compiler->gtNewLclvNode(lcl, lcl->GetType());
     saveLcl->SetRegNum(lclVarReg);
     saveLcl->ClearRegSpillSet();
     SetLsraAdded(saveLcl);
@@ -5943,7 +5941,7 @@ void LinearScan::insertUpperVectorRestore(GenTree*     tree,
     LclVarDsc* lcl = lclVarInterval->getLocalVar(compiler);
     assert(Compiler::varTypeNeedsPartialCalleeSave(lcl->GetRegisterType()));
 
-    GenTree* restoreLcl = compiler->gtNewLclvNode(lcl->GetLclNum(), lcl->GetType());
+    GenTree* restoreLcl = compiler->gtNewLclvNode(lcl, lcl->GetType());
     restoreLcl->SetRegNum(lclVarReg);
     restoreLcl->ClearRegSpillSet();
     SetLsraAdded(restoreLcl);
@@ -6721,7 +6719,7 @@ void LinearScan::insertMove(
     // This var can't be marked lvRegister now
     varDsc->SetRegNum(REG_STK);
 
-    GenTree* src = compiler->gtNewLclvNode(varDsc->GetLclNum(), varDsc->GetType());
+    GenTree* src = compiler->gtNewLclvNode(varDsc, varDsc->GetType());
     src->ClearRegSpillSet();
     SetLsraAdded(src);
 
@@ -6812,12 +6810,12 @@ void LinearScan::insertSwap(
 
     assert(reg1 != REG_STK && reg1 != REG_NA && reg2 != REG_STK && reg2 != REG_NA);
 
-    GenTree* lcl1 = compiler->gtNewLclvNode(varDsc1->GetLclNum(), varDsc1->GetType());
+    GenTree* lcl1 = compiler->gtNewLclvNode(varDsc1, varDsc1->GetType());
     lcl1->SetRegNum(reg1);
     lcl1->ClearRegSpillSet();
     SetLsraAdded(lcl1);
 
-    GenTree* lcl2 = compiler->gtNewLclvNode(varDsc2->GetLclNum(), varDsc2->GetType());
+    GenTree* lcl2 = compiler->gtNewLclvNode(varDsc2, varDsc2->GetType());
     lcl2->SetRegNum(reg2);
     lcl2->ClearRegSpillSet();
     SetLsraAdded(lcl2);
@@ -7180,7 +7178,7 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block)
             }
             else if (op1->OperIs(GT_LCL_VAR))
             {
-                jcmpLocalVarDsc = compiler->lvaGetDesc(op1->AsLclVar());
+                jcmpLocalVarDsc = op1->AsLclVar()->GetLcl();
 
                 if (!jcmpLocalVarDsc->IsRegCandidate())
                 {
@@ -8797,7 +8795,7 @@ void LinearScan::lsraDispNode(GenTree* tree, LsraTupleDumpMode mode, bool hasDes
     LclVarDsc* varDsc = nullptr;
     if (tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
     {
-        varDsc = compiler->lvaGetDesc(tree->AsLclVar());
+        varDsc = tree->AsLclVar()->GetLcl();
         if (varDsc->IsRegCandidate())
         {
             hasDest = false;
@@ -10301,8 +10299,8 @@ void LinearScan::verifyResolutionMove(GenTree* resolutionMove, LsraLocation curr
         GenTreeLclVar* right         = dst->gtGetOp2()->AsLclVar();
         regNumber      leftRegNum    = left->GetRegNum();
         regNumber      rightRegNum   = right->GetRegNum();
-        LclVarDsc*     leftVarDsc    = compiler->lvaGetDesc(left);
-        LclVarDsc*     rightVarDsc   = compiler->lvaGetDesc(right);
+        LclVarDsc*     leftVarDsc    = left->GetLcl();
+        LclVarDsc*     rightVarDsc   = right->GetLcl();
         Interval*      leftInterval  = getIntervalForLocalVar(leftVarDsc->lvVarIndex);
         Interval*      rightInterval = getIntervalForLocalVar(rightVarDsc->lvVarIndex);
         assert(leftInterval->physReg == leftRegNum && rightInterval->physReg == rightRegNum);

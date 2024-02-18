@@ -344,8 +344,7 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        LclVarDsc* lcl = addr->IsLclUse() ? addr->AsLclUse()->GetDef()->GetLcl()
-                                          : compiler->lvaGetDesc(addr->AsLclVar()->GetLclNum());
+        LclVarDsc* lcl = addr->IsLclUse() ? addr->AsLclUse()->GetDef()->GetLcl() : addr->AsLclVar()->GetLcl();
 
         AssertionDsc assertion;
 
@@ -517,12 +516,12 @@ private:
 
             case GT_LCL_VAR:
             {
-                if (lcl->GetLclNum() == op2->AsLclVar()->GetLclNum())
+                if (lcl == op2->AsLclVar()->GetLcl())
                 {
                     return NO_ASSERTION_INDEX;
                 }
 
-                LclVarDsc* valLcl = compiler->lvaGetDesc(op2->AsLclVar());
+                LclVarDsc* valLcl = op2->AsLclVar()->GetLcl();
 
                 if (lcl->GetType() != valLcl->GetType())
                 {
@@ -972,7 +971,7 @@ private:
 
         if (op2->OperIs(GT_LCL_VAR) && op1->OperIs(GT_STORE_LCL_VAR))
         {
-            if (op1->AsLclVar()->GetLclNum() == op2->AsLclVar()->GetLclNum())
+            if (op1->AsLclVar()->GetLcl() == op2->AsLclVar()->GetLcl())
             {
                 return op1->AsLclVar()->GetOp(0);
             }
@@ -1066,7 +1065,7 @@ private:
     bool IsUnaliasedLocal(GenTree* node)
     {
         return node->OperIs(GT_LCL_USE) ||
-               (node->OperIs(GT_LCL_VAR) && !compiler->lvaGetDesc(node->AsLclVar())->IsAddressExposed());
+               (node->OperIs(GT_LCL_VAR) && !node->AsLclVar()->GetLcl()->IsAddressExposed());
     }
 
     AssertionIndex GenerateJTrueReadyToRunTypeAssertions(GenTree* op1, GenTree* op2, ApKind assertionKind)
@@ -1302,7 +1301,7 @@ private:
     GenTree* PropagateLclVarConst(const AssertionDsc& assertion, GenTreeLclVar* lclVar, Statement* stmt)
     {
 #ifdef DEBUG
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
+        LclVarDsc* lcl = lclVar->GetLcl();
 
         assert(!lcl->IsAddressExposed() && !lcl->lvIsCSE);
         assert(lclVar->GetType() == lcl->GetType());
@@ -1471,7 +1470,7 @@ private:
     {
         assert(lclVar->OperIs(GT_LCL_VAR));
 
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
+        LclVarDsc* lcl = lclVar->GetLcl();
 
         // TODO-MIKE-Review: It's not clear why propagation is blocked for AX and CSE temps.
         // For AX it should be perfectly fine to do it, we're using VN after all. And we'd
@@ -1501,7 +1500,7 @@ private:
         }
 
         const AssertionDsc* assertion =
-            FindConstAssertion(assertions, lclVar->GetConservativeVN(), lclVar->GetLclNum());
+            FindConstAssertion(assertions, lclVar->GetConservativeVN(), lclVar->GetLcl()->GetLclNum());
 
         if (assertion == nullptr)
         {
@@ -1783,7 +1782,7 @@ private:
 
         if (actualOp1->OperIs(GT_LCL_VAR, GT_LCL_USE))
         {
-            LclVarDsc* lcl = actualOp1->OperIs(GT_LCL_VAR) ? compiler->lvaGetDesc(actualOp1->AsLclVar()->GetLclNum())
+            LclVarDsc* lcl = actualOp1->OperIs(GT_LCL_VAR) ? actualOp1->AsLclVar()->GetLcl()
                                                            : actualOp1->AsLclUse()->GetDef()->GetLcl();
 
             // TODO-MIKE-Review: Usually we can't eliminate load "normalization" casts.
@@ -3178,7 +3177,7 @@ private:
             {
                 case GT_LCL_VAR:
                     // Don't undo constant CSEs.
-                    if (m_compiler->lvaGetDesc(tree->AsLclVar())->lvIsCSE)
+                    if (tree->AsLclVar()->GetLcl()->lvIsCSE)
                     {
                         return Compiler::WALK_CONTINUE;
                     }
@@ -3425,8 +3424,9 @@ private:
             unsigned      lclNum   = m_vnStore->ConstantValue<unsigned>(lclAddr[0]);
             target_size_t offset   = m_vnStore->ConstantValue<target_size_t>(lclAddr[1]);
             FieldSeqNode* fieldSeq = m_vnStore->FieldSeqVNToFieldSeq(lclAddr[2]);
+            LclVarDsc*    lcl      = m_compiler->lvaGetDesc(lclNum);
 
-            if ((offset > UINT16_MAX) || (offset >= m_compiler->lvaGetDesc(lclNum)->GetTypeSize()))
+            if ((offset > UINT16_MAX) || (offset >= lcl->GetTypeSize()))
             {
                 return false;
             }
@@ -3438,11 +3438,11 @@ private:
 
             if ((offset == 0) && (fieldSeq == nullptr))
             {
-                node->ChangeToLclAddr(TYP_I_IMPL, lclNum);
+                node->ChangeToLclAddr(TYP_I_IMPL, lcl);
             }
             else
             {
-                node->ChangeToLclAddr(TYP_I_IMPL, lclNum, static_cast<unsigned>(offset),
+                node->ChangeToLclAddr(TYP_I_IMPL, lcl, static_cast<unsigned>(offset),
                                       fieldSeq == nullptr ? FieldSeqNode::NotAField() : fieldSeq);
             }
 

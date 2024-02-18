@@ -92,7 +92,7 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
                     // lcl was alive on previous block end ("bb->bbPrev->bbLiveOut"), so it has an open
                     // "DbgInfoVarRange" which should change to be according "getInVarToRegMap"
                     JITDUMP("\n");
-                    UpdateRange(codeGen, lcl, lcl->GetLclNum());
+                    UpdateRange(codeGen, lcl);
                 }
             }
             else if (newRegNum != REG_STK)
@@ -116,11 +116,11 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
                         VarSetOps::RemoveElemD(compiler, liveGCLcl, e.Current());
                     }
 
-                    EndRange(codeGen, lcl->GetLclNum());
+                    EndRange(codeGen, lcl);
                 }
                 else
                 {
-                    StartRange(codeGen, lcl, lcl->GetLclNum());
+                    StartRange(codeGen, lcl);
                 }
             }
 
@@ -196,7 +196,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
     assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) && !lclNode->IsMultiRegLclVar());
     assert(compiler->GetCurLVEpoch() == epoch);
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
+    LclVarDsc* lcl = lclNode->GetLcl();
 
     if (!lcl->HasLiveness())
     {
@@ -276,11 +276,11 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
             if (isDying)
             {
-                EndRange(codeGen, lclNode->GetLclNum());
+                EndRange(codeGen, lcl);
             }
             else
             {
-                StartRange(codeGen, lcl, lclNode->GetLclNum());
+                StartRange(codeGen, lcl);
             }
         }
     }
@@ -293,12 +293,12 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
         // to begin with?
         if (codeGen->SpillRegCandidateLclVar(lclNode->AsLclVar()))
         {
-            UpdateRange(codeGen, lcl, lclNode->GetLclNum());
+            UpdateRange(codeGen, lcl);
         }
 
         if (lcl->HasGCSlotLiveness() && VarSetOps::TryAddElemD(compiler, liveGCLcl, lcl->lvVarIndex))
         {
-            JITDUMP("GC pointer V%02u becoming live on stack\n", lclNode->GetLclNum());
+            JITDUMP("GC pointer V%02u becoming live on stack\n", lcl->GetLclNum());
         }
     }
 }
@@ -310,7 +310,7 @@ void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar*
     DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, currentLife);)
     DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet2, liveGCLcl);)
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
+    LclVarDsc* lcl = lclNode->GetLcl();
 
     assert(lcl->IsIndependentPromoted());
 
@@ -362,7 +362,7 @@ void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarC
     DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, currentLife);)
     DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet2, liveGCLcl);)
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
+    LclVarDsc* lcl = lclNode->GetLcl();
 
     unsigned lclOffset    = 0;
     unsigned lclEndOffset = lcl->TypeIs(TYP_STRUCT) ? lcl->GetLayout()->GetSize() : varTypeSize(lcl->GetType());
@@ -435,7 +435,7 @@ void CodeGenLivenessUpdater::MoveReg(CodeGen* codeGen, LclVarDsc* lcl, GenTreeLc
     UpdateLiveLclRegs(lcl, /* isDying */ true);
     RemoveGCRegs(genRegMask(srcReg));
     lcl->SetRegNum(dstReg);
-    UpdateRange(codeGen, lcl, src->AsLclVar()->GetLclNum());
+    UpdateRange(codeGen, lcl);
     UpdateLiveLclRegs(lcl, /* isDying */ false);
     SetGCRegType(dstReg, dst->GetType());
 }
@@ -464,7 +464,7 @@ void CodeGenLivenessUpdater::Unspill(
         // dead on the same native offset.
         if (!src->IsLastUse(0))
         {
-            UpdateRange(codeGen, lcl, src->GetLclNum());
+            UpdateRange(codeGen, lcl);
         }
 
         if (!lcl->IsAlwaysAliveInMemory())
@@ -472,7 +472,7 @@ void CodeGenLivenessUpdater::Unspill(
             RemoveGCSlot(lcl);
         }
 
-        JITDUMP("Live var reg: V%02u (+%s)\n", src->GetLclNum(), getRegName(lcl->GetRegNum()));
+        JITDUMP("Live var reg: V%02u (+%s)\n", lcl->GetLclNum(), getRegName(lcl->GetRegNum()));
 
         AddLiveLclRegs(GetLclRegs(lcl));
     }
@@ -716,8 +716,10 @@ void DbgInfoVar::InsertRangeFront(DbgInfoVarRange* range)
     count++;
 }
 
-void CodeGenLivenessUpdater::StartRange(CodeGen* codeGen, const LclVarDsc* lcl, unsigned lclNum)
+void CodeGenLivenessUpdater::StartRange(CodeGen* codeGen, const LclVarDsc* lcl)
 {
+    unsigned lclNum = lcl->GetLclNum();
+
     if (lclNum >= dbgInfoVarCount)
     {
         return;
@@ -730,8 +732,10 @@ void CodeGenLivenessUpdater::StartRange(CodeGen* codeGen, const LclVarDsc* lcl, 
     DBEXEC(compiler->verbose, range->startOffset.Print("\n"));
 }
 
-void CodeGenLivenessUpdater::EndRange(CodeGen* codeGen, unsigned lclNum)
+void CodeGenLivenessUpdater::EndRange(CodeGen* codeGen, const LclVarDsc* lcl)
 {
+    unsigned lclNum = lcl->GetLclNum();
+
     if ((lclNum >= dbgInfoVarCount) || lastBlockHasBeenEmited)
     {
         return;
@@ -744,8 +748,10 @@ void CodeGenLivenessUpdater::EndRange(CodeGen* codeGen, unsigned lclNum)
     DBEXEC(compiler->verbose, range->endOffset.Print("\n"));
 }
 
-void CodeGenLivenessUpdater::UpdateRange(CodeGen* codeGen, const LclVarDsc* lcl, unsigned lclNum)
+void CodeGenLivenessUpdater::UpdateRange(CodeGen* codeGen, const LclVarDsc* lcl)
 {
+    unsigned lclNum = lcl->GetLclNum();
+
     if (lclNum >= dbgInfoVarCount || lastBlockHasBeenEmited)
     {
         return;
@@ -771,7 +777,7 @@ void CodeGenLivenessUpdater::EndCodeGen(CodeGen* codeGen)
         {
             for (VarSetOps::Enumerator en(compiler, codeGen->GetLiveSet()); en.MoveNext();)
             {
-                EndRange(codeGen, compiler->lvaGetDescByTrackedIndex(en.Current())->GetLclNum());
+                EndRange(codeGen, compiler->lvaGetDescByTrackedIndex(en.Current()));
             }
         }
         else
@@ -780,7 +786,7 @@ void CodeGenLivenessUpdater::EndCodeGen(CodeGen* codeGen)
             {
                 if (dbgInfoVars[i].HasOpenRange())
                 {
-                    EndRange(codeGen, i);
+                    EndRange(codeGen, compiler->lvaGetDesc(i));
                 }
             }
         }
@@ -901,7 +907,7 @@ void CodeGenLivenessUpdater::StartUntrackedVarsRanges(CodeGen*    codeGen,
             continue;
         }
 
-        StartRange(codeGen, lcl, scope->lclNum);
+        StartRange(codeGen, lcl);
     }
 
     unsigned endILOffset = block->bbCodeOffsEnd;

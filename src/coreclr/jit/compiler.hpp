@@ -603,7 +603,7 @@ inline GenTreeFieldAddr* Compiler::gtNewFieldAddr(GenTree* addr, FieldSeqNode* f
     // If "addr" is the address of a local, note that a field of that struct local has been accessed.
     if (addr->OperIs(GT_LCL_ADDR))
     {
-        lvaGetDesc(addr->AsLclAddr())->lvFieldAccessed = 1;
+        addr->AsLclAddr()->GetLcl()->lvFieldAccessed = true;
     }
 
     return new (this, GT_FIELD_ADDR) GenTreeFieldAddr(addr, fieldSeq, offset);
@@ -909,7 +909,7 @@ inline GenTreeFieldList* GenTree::ChangeToFieldList()
     return fieldList;
 }
 
-inline GenTreeLclFld* GenTree::ChangeToLclFld(var_types type, unsigned lclNum, unsigned offset, FieldSeqNode* fieldSeq)
+inline GenTreeLclFld* GenTree::ChangeToLclFld(var_types type, LclVarDsc* lcl, unsigned offset, FieldSeqNode* fieldSeq)
 {
     assert(offset <= UINT16_MAX);
     assert((fieldSeq == nullptr) || (fieldSeq == FieldSeqNode::NotAField()) || fieldSeq->IsField());
@@ -918,14 +918,14 @@ inline GenTreeLclFld* GenTree::ChangeToLclFld(var_types type, unsigned lclNum, u
 
     GenTreeLclFld* lclFld = AsLclFld();
     lclFld->SetType(type);
-    lclFld->SetLclNum(lclNum);
+    lclFld->SetLcl(lcl);
     lclFld->SetLclOffs(offset);
     lclFld->SetLayoutNum(0);
     lclFld->SetFieldSeq(fieldSeq == nullptr ? FieldSeqNode::NotAField() : fieldSeq);
     return lclFld;
 }
 
-inline GenTreeLclAddr* GenTree::ChangeToLclAddr(var_types type, unsigned lclNum)
+inline GenTreeLclAddr* GenTree::ChangeToLclAddr(var_types type, LclVarDsc* lcl)
 {
     // TODO-MIKE-Review: GTF_VAR_CLONED should not be needed on LCL_ADDR. Inlining
     // needs it only on params that are neither struct nor address taken and there
@@ -940,16 +940,13 @@ inline GenTreeLclAddr* GenTree::ChangeToLclAddr(var_types type, unsigned lclNum)
 
     GenTreeLclAddr* addr = AsLclAddr();
     addr->SetType(type);
-    addr->SetLclNum(lclNum);
+    addr->SetLcl(lcl);
     addr->SetLclOffs(0);
     addr->SetFieldSeq(nullptr);
     return addr;
 }
 
-inline GenTreeLclAddr* GenTree::ChangeToLclAddr(var_types     type,
-                                                unsigned      lclNum,
-                                                unsigned      offset,
-                                                FieldSeqNode* fieldSeq)
+inline GenTreeLclAddr* GenTree::ChangeToLclAddr(var_types type, LclVarDsc* lcl, unsigned offset, FieldSeqNode* fieldSeq)
 {
     assert(offset <= UINT16_MAX);
     assert((fieldSeq == FieldSeqNode::NotAField()) || fieldSeq->IsField());
@@ -959,7 +956,7 @@ inline GenTreeLclAddr* GenTree::ChangeToLclAddr(var_types     type,
 
     GenTreeLclAddr* addr = AsLclAddr();
     addr->SetType(type);
-    addr->SetLclNum(lclNum);
+    addr->SetLcl(lcl);
     addr->SetLclOffs(offset);
     addr->SetFieldSeq(fieldSeq);
     return addr;
@@ -1299,7 +1296,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 inline unsigned Compiler::LoopDsc::lpIterVar() const
 {
     INDEBUG(VerifyIterator());
-    return lpIterTree->GetLclNum();
+    return lpIterTree->GetLcl()->GetLclNum();
 }
 
 inline int Compiler::LoopDsc::lpIterConst() const
@@ -1318,7 +1315,7 @@ inline bool Compiler::LoopDsc::lpIsReversed() const
 {
     INDEBUG(VerifyIterator());
     return lpTestTree->GetOp(1)->OperIs(GT_LCL_VAR) &&
-           (lpTestTree->GetOp(1)->AsLclVar()->GetLclNum() == lpIterTree->GetLclNum());
+           (lpTestTree->GetOp(1)->AsLclVar()->GetLcl() == lpIterTree->GetLcl());
 }
 
 inline genTreeOps Compiler::LoopDsc::lpTestOper() const
@@ -1355,7 +1352,7 @@ inline unsigned Compiler::LoopDsc::lpVarLimit() const
 
     GenTree* limit = lpLimit();
     assert(limit->OperIs(GT_LCL_VAR));
-    return limit->AsLclVar()->GetLclNum();
+    return limit->AsLclVar()->GetLcl()->GetLclNum();
 }
 
 /*

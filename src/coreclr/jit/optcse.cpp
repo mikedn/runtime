@@ -2159,7 +2159,6 @@ public:
 
         var_types  lclType = varActualType(candidate.expr->GetType());
         LclVarDsc* lcl     = compiler->lvaAllocTemp(false DEBUGARG(lclReason));
-        unsigned   lclNum  = lcl->GetLclNum();
 
         if (varTypeIsStruct(lclType))
         {
@@ -2261,7 +2260,7 @@ public:
             expr->ClearCseInfo();
 
             JITDUMP("Replacing " FMT_CSE " %s [%06u] with V%02u\n", value->index, isDef ? "def" : "use", expr->GetID(),
-                    lclNum);
+                    lcl->GetLclNum());
 
             var_types exprType = varActualType(expr->GetType());
             // TODO-MIKE-Review: This seems to be the wrong place to check this, types should
@@ -2282,7 +2281,7 @@ public:
             }
             else
             {
-                newExpr = compiler->gtNewLclvNode(lclNum, lclType);
+                newExpr = compiler->gtNewLclvNode(lcl, lclType);
             }
 
             if (isSharedConst)
@@ -2340,7 +2339,7 @@ public:
                 }
                 else
                 {
-                    GenTreeLclVar* store = compiler->gtNewStoreLclVar(lclNum, lclType, defExpr);
+                    GenTreeLclVar* store = compiler->gtNewStoreLclVar(lcl, lclType, defExpr);
                     store->AddSideEffects(defExpr->GetSideEffects());
                     store->SetVNP(defExpr->GetVNP());
 

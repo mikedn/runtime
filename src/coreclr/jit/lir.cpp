@@ -239,31 +239,15 @@ void LIR::Use::ReplaceWith(Compiler* compiler, GenTree* replacement)
 //          /--*  t18 int
 //          *  jmpTrue   void
 //
-// Arguments:
-//    compiler - The Compiler context.
-//    lclNum - The local to use for temporary storage. If BAD_VAR_NUM (the
-//             default) is provided, this method will create and use a new
-//             local var.
-//    assign - On return, if non null, contains the created assignment node
-//
-// Return Value: The number of the local var used for temporary storage.
-//
-unsigned LIR::Use::ReplaceWithLclVar(Compiler* compiler, unsigned lclNum, GenTreeLclVar** newStore)
+LclVarDsc* LIR::Use::ReplaceWithLclVar(Compiler* compiler, LclVarDsc* lcl, GenTreeLclVar** newStore)
 {
     assert(IsInitialized());
     assert(m_range->Contains(m_user));
     assert(m_range->Contains(*m_edge));
 
-    LclVarDsc* lcl;
-
-    if (lclNum == BAD_VAR_NUM)
+    if (lcl == nullptr)
     {
-        lcl    = compiler->lvaAllocTemp(true DEBUGARG("LIR temp"));
-        lclNum = lcl->GetLclNum();
-    }
-    else
-    {
-        lcl = compiler->lvaGetDesc(lclNum);
+        lcl = compiler->lvaAllocTemp(true DEBUGARG("LIR temp"));
     }
 
     GenTree*  def  = *m_edge;
@@ -302,8 +286,8 @@ unsigned LIR::Use::ReplaceWithLclVar(Compiler* compiler, unsigned lclNum, GenTre
         }
     }
 
-    GenTreeLclVar* store = compiler->gtNewStoreLclVar(lclNum, type, def);
-    GenTreeLclVar* load  = compiler->gtNewLclvNode(lclNum, type);
+    GenTreeLclVar* store = compiler->gtNewStoreLclVar(lcl, type, def);
+    GenTreeLclVar* load  = compiler->gtNewLclvNode(lcl, type);
     m_range->InsertAfter(def, store, load);
 
     ReplaceWith(compiler, load);
@@ -315,7 +299,8 @@ unsigned LIR::Use::ReplaceWithLclVar(Compiler* compiler, unsigned lclNum, GenTre
     {
         *newStore = store;
     }
-    return lclNum;
+
+    return lcl;
 }
 
 LIR::ReadOnlyRange::ReadOnlyRange() : m_firstNode(nullptr), m_lastNode(nullptr)

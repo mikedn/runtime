@@ -754,7 +754,7 @@ protected:
     void genCodeForLclFld(GenTreeLclFld* tree);
     void GenStoreLclFld(GenTreeLclFld* store);
     void GenStoreLclVar(GenTreeLclVar* store);
-    void GenStoreLclRMW(var_types type, unsigned lclNum, unsigned lclOffs, GenTree* src);
+    void GenStoreLclRMW(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* src);
 #ifndef TARGET_64BIT
     void GenStoreLclVarLong(GenTreeLclVar* store);
 #endif
@@ -909,7 +909,7 @@ protected:
 
     GenTreeLclVar* IsRegCandidateLclVar(GenTree* node)
     {
-        return node->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && compiler->lvaGetDesc(node->AsLclVar())->IsRegCandidate()
+        return node->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && node->AsLclVar()->GetLcl()->IsRegCandidate()
                    ? node->AsLclVar()
                    : nullptr;
     }
@@ -958,15 +958,15 @@ public:
 
     class GenAddrMode
     {
-        regNumber m_base;
-        regNumber m_index;
-        unsigned  m_scale;
-        int       m_disp;
-        unsigned  m_lclNum;
+        regNumber  m_base;
+        regNumber  m_index;
+        unsigned   m_scale;
+        int        m_disp;
+        LclVarDsc* m_lcl;
 
     public:
-        GenAddrMode(unsigned lclNum, unsigned lclOffs)
-            : m_base(REG_NA), m_index(REG_NA), m_scale(1), m_disp(lclOffs), m_lclNum(lclNum)
+        GenAddrMode(LclVarDsc* lcl, unsigned lclOffs)
+            : m_base(REG_NA), m_index(REG_NA), m_scale(1), m_disp(lclOffs), m_lcl(lcl)
         {
         }
 
@@ -1002,12 +1002,12 @@ public:
 
         bool IsLcl() const
         {
-            return m_lclNum != BAD_VAR_NUM;
+            return m_lcl != nullptr;
         }
 
-        unsigned LclNum() const
+        LclVarDsc* Lcl() const
         {
-            return m_lclNum;
+            return m_lcl;
         }
     };
 

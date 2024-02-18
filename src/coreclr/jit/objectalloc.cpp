@@ -162,29 +162,29 @@ void ObjectAllocator::MarkEscapingVarsAndBuildConnGraph()
 
             assert(tree == m_ancestors.Top());
 
-            unsigned lclNum  = BAD_VAR_NUM;
-            bool     escapes = false;
+            LclVarDsc* lcl     = nullptr;
+            bool       escapes = false;
 
             if (tree->OperIs(GT_LCL_VAR))
             {
-                lclNum  = tree->AsLclVar()->GetLclNum();
+                lcl     = tree->AsLclVar()->GetLcl();
                 escapes = tree->TypeIs(TYP_REF, TYP_BYREF, TYP_I_IMPL) &&
-                          m_allocator->CanLclVarEscapeViaParentStack(&m_ancestors, lclNum);
+                          m_allocator->CanLclVarEscapeViaParentStack(&m_ancestors, lcl->GetLclNum());
             }
             else if (tree->OperIs(GT_LCL_ADDR))
             {
-                lclNum  = tree->AsLclAddr()->GetLclNum();
-                escapes = m_compiler->lvaGetDesc(lclNum)->TypeIs(TYP_REF, TYP_BYREF, TYP_I_IMPL);
+                lcl     = tree->AsLclAddr()->GetLcl();
+                escapes = lcl->TypeIs(TYP_REF, TYP_BYREF, TYP_I_IMPL);
             }
 
             if (escapes)
             {
-                if (!m_allocator->CanLclVarEscape(lclNum))
+                if (!m_allocator->CanLclVarEscape(lcl->GetLclNum()))
                 {
-                    JITDUMP("V%02u first escapes via [%06u]\n", lclNum, tree->GetID());
+                    JITDUMP("V%02u first escapes via [%06u]\n", lcl->GetLclNum(), tree->GetID());
                 }
 
-                m_allocator->MarkLclVarAsEscaping(lclNum);
+                m_allocator->MarkLclVarAsEscaping(lcl->GetLclNum());
             }
 
             return Compiler::fgWalkResult::WALK_CONTINUE;
@@ -380,7 +380,8 @@ bool ObjectAllocator::MorphAllocObjNodes()
                 assert(op2->OperGet() == GT_ALLOCOBJ);
 
                 GenTreeAllocObj*     asAllocObj = op2->AsAllocObj();
-                unsigned int         lclNum     = op1->AsLclVar()->GetLclNum();
+                LclVarDsc*           lcl        = op1->AsLclVar()->GetLcl();
+                unsigned             lclNum     = lcl->GetLclNum();
                 CORINFO_CLASS_HANDLE clsHnd     = op2->AsAllocObj()->gtAllocObjClsHnd;
 
                 // Don't attempt to do stack allocations inside basic blocks that may be in a loop.
@@ -501,30 +502,29 @@ unsigned ObjectAllocator::MorphAllocObjNodeIntoStackAlloc(GenTreeAllocObj* alloc
 
     LclVarDsc* lcl = comp->lvaAllocTemp(/* shortLifetime */ false DEBUGARG("MorphAllocObjNodeIntoStackAlloc temp"));
     comp->lvaSetStruct(lcl, comp->typGetObjLayout(allocObj->gtAllocObjClsHnd), /* checkUnsafeBuffer */ true);
-    unsigned lclNum = lcl->GetLclNum();
 
     // Initialize the object memory if necessary.
     bool bbInALoop  = (block->bbFlags & BBF_BACKWARD_JUMP) != 0;
     bool bbIsReturn = block->bbJumpKind == BBJ_RETURN;
     if (comp->fgVarNeedsExplicitZeroInit(lcl, bbInALoop, bbIsReturn))
     {
-        GenTree*   init    = comp->gtNewAssignNode(comp->gtNewLclvNode(lclNum, TYP_STRUCT), comp->gtNewIconNode(0));
+        GenTree*   init    = comp->gtNewAssignNode(comp->gtNewLclvNode(lcl, TYP_STRUCT), comp->gtNewIconNode(0));
         Statement* newStmt = comp->gtNewStmt(init);
         comp->fgInsertStmtBefore(block, stmt, newStmt);
     }
     else
     {
-        JITDUMP("\nSuppressing zero-init for V%02u -- expect to zero in prolog\n", lclNum);
+        JITDUMP("\nSuppressing zero-init for V%02u -- expect to zero in prolog\n", lcl->GetLclNum());
         lcl->lvSuppressedZeroInit    = true;
         comp->compSuppressedZeroInit = true;
     }
 
     GenTreeOp* methodTableAssignment =
-        comp->gtNewAssignNode(comp->gtNewLclFldNode(lclNum, TYP_I_IMPL, 0), allocObj->GetOp(0));
+        comp->gtNewAssignNode(comp->gtNewLclFldNode(lcl, TYP_I_IMPL, 0), allocObj->GetOp(0));
 
     comp->fgInsertStmtBefore(block, stmt, comp->gtNewStmt(methodTableAssignment));
 
-    return lclNum;
+    return lcl->GetLclNum();
 }
 
 //------------------------------------------------------------------------
@@ -598,7 +598,7 @@ bool ObjectAllocator::CanLclVarEscapeViaParentStack(ArrayStack<GenTree*>* parent
                         //   \--*  GT_LCL_VAR    ref    lhsLclVar
 
                         // Add an edge to the connection graph.
-                        const unsigned int lhsLclNum = op1->AsLclVar()->GetLclNum();
+                        const unsigned int lhsLclNum = op1->AsLclVar()->GetLcl()->GetLclNum();
                         const unsigned int rhsLclNum = lclNum;
 
                         AddConnGraphEdge(lhsLclNum, rhsLclNum);
@@ -794,9 +794,9 @@ void ObjectAllocator::RewriteUses()
 
         Compiler::fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
-            GenTree* tree = *use;
-
-            const unsigned lclNum = tree->AsLclVarCommon()->GetLclNum();
+            GenTree*   tree   = *use;
+            LclVarDsc* lcl    = tree->AsLclVarCommon()->GetLcl();
+            unsigned   lclNum = lcl->GetLclNum();
 
             if ((lclNum < BitVecTraits::GetSize(&m_allocator->m_bitVecTraits)) &&
                 m_allocator->MayLclVarPointToStack(lclNum))
@@ -807,7 +807,7 @@ void ObjectAllocator::RewriteUses()
                 if (m_allocator->m_HeapLocalToStackLocalMap.TryGetValue(lclNum, &newLclNum))
                 {
                     newType = TYP_I_IMPL;
-                    tree    = m_compiler->gtNewLclVarAddrNode(newLclNum, newType);
+                    tree    = m_compiler->gtNewLclVarAddrNode(m_compiler->lvaGetDesc(newLclNum), newType);
                     *use    = tree;
                 }
                 else
@@ -819,8 +819,6 @@ void ObjectAllocator::RewriteUses()
                         tree->SetType(newType);
                     }
                 }
-
-                LclVarDsc* lcl = m_compiler->lvaGetDesc(lclNum);
 
                 if (lcl->GetType() != newType)
                 {

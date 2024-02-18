@@ -1611,12 +1611,11 @@ void emitter::emitIns_A(instruction ins, emitAttr attr, GenTree* addr)
 
     // TODO-MIKE-Cleanup: IND with GT_LCL_ADDR address is nonsense.
 
-    if (addr->OperIs(GT_LCL_ADDR))
+    if (GenTreeLclAddr* lclAddr = addr->IsLclAddr())
     {
-        GenTreeLclAddr* lclAddr = addr->AsLclAddr();
-        assert(emitComp->lvaGetDesc(lclAddr)->IsAddressExposed());
-
-        emitIns_S(ins, attr, lclAddr->GetLclNum(), lclAddr->GetLclOffs());
+        LclVarDsc* lcl = lclAddr->GetLcl();
+        assert(lcl->IsAddressExposed());
+        emitIns_S(ins, attr, lcl->GetLclNum(), lclAddr->GetLclOffs());
 
         return;
     }
@@ -1648,11 +1647,12 @@ void emitter::emitIns_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t
         return;
     }
 
-    if (addr->OperIs(GT_LCL_ADDR))
+    if (GenTreeLclAddr* lclAddr = addr->IsLclAddr())
     {
-        GenTreeLclAddr* lclAddr = addr->AsLclAddr();
-        assert(emitComp->lvaGetDesc(lclAddr)->IsAddressExposed());
-        emitIns_S_I(ins, attr, lclAddr->GetLclNum(), lclAddr->GetLclOffs(), imm);
+        LclVarDsc* lcl = lclAddr->GetLcl();
+        assert(lcl->IsAddressExposed());
+        emitIns_S_I(ins, attr, lcl->GetLclNum(), lclAddr->GetLclOffs(), imm);
+
         return;
     }
 
@@ -1680,11 +1680,12 @@ void emitter::emitIns_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumb
         return;
     }
 
-    if (addr->OperIs(GT_LCL_ADDR))
+    if (GenTreeLclAddr* lclAddr = addr->IsLclAddr())
     {
-        GenTreeLclAddr* lclAddr = addr->AsLclAddr();
-        assert(emitComp->lvaGetDesc(lclAddr)->IsAddressExposed());
-        emitIns_S_R(ins, attr, reg, lclAddr->GetLclNum(), lclAddr->GetLclOffs());
+        LclVarDsc* lcl = lclAddr->GetLcl();
+        assert(lcl->IsAddressExposed());
+        emitIns_S_R(ins, attr, reg, lcl->GetLclNum(), lclAddr->GetLclOffs());
+
         return;
     }
 
@@ -2269,11 +2270,12 @@ void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg, GenTree
         return;
     }
 
-    if (addr->OperIs(GT_LCL_ADDR))
+    if (GenTreeLclAddr* lclAddr = addr->IsLclAddr())
     {
-        GenTreeLclAddr* lclAddr = addr->AsLclAddr();
-        assert(emitComp->lvaGetDesc(lclAddr)->IsAddressExposed());
-        emitIns_R_S(ins, attr, reg, lclAddr->GetLclNum(), lclAddr->GetLclOffs());
+        LclVarDsc* lcl = lclAddr->GetLcl();
+        assert(lcl->IsAddressExposed());
+        emitIns_R_S(ins, attr, reg, lcl->GetLclNum(), lclAddr->GetLclOffs());
+
         return;
     }
 

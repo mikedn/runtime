@@ -725,12 +725,10 @@ public:
                 // basic block so they're invisible to anything except SSA code, which can treat
                 // them specially (by basically ignoring them).
 
-                unsigned lclNum = lcl->GetLclNum();
-
-                GenTreeLclVar* arg = compiler->gtNewLclvNode(lclNum, lcl->GetType());
+                GenTreeLclVar* arg = compiler->gtNewLclvNode(lcl, lcl->GetType());
                 GenTreeLclDef* def = new (compiler, GT_LCL_DEF) GenTreeLclDef(arg, firstBlock, lcl);
 
-                renameStack.Push(firstBlock, lclNum, def);
+                renameStack.Push(firstBlock, lcl->GetLclNum(), def);
 
                 if (firstInitSsaDef == nullptr)
                 {
@@ -833,9 +831,8 @@ void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclVarCommon* store, BasicBl
 {
     assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
-    GenTree*   value  = store->GetOp(0);
-    unsigned   lclNum = store->GetLclNum();
-    LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
+    GenTree*   value = store->GetOp(0);
+    LclVarDsc* lcl   = store->GetLcl();
 
     if (lcl->IsSsa())
     {
@@ -844,6 +841,7 @@ void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclVarCommon* store, BasicBl
         // If it's a SSA local then it cannot be address exposed and thus does not define SSA memory.
         assert(!lcl->IsAddressExposed());
 
+        unsigned     lclNum   = lcl->GetLclNum();
         GenTreeFlags defFlags = store->gtFlags & ~GTF_DONT_CSE;
 
         if (GenTreeLclFld* lclFld = store->IsLclFld())
@@ -967,8 +965,7 @@ void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclVarCommon* lclNode, Stateme
 {
     assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
 
-    unsigned   lclNum = lclNode->GetLclNum();
-    LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
+    LclVarDsc* lcl = lclNode->GetLcl();
 
     if (!lcl->IsSsa())
     {
@@ -978,7 +975,7 @@ void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclVarCommon* lclNode, Stateme
     // Promoted variables are not in SSA, only their fields are.
     assert(!lcl->IsPromoted());
 
-    GenTreeLclDef* def = renameStack.Top(lclNum);
+    GenTreeLclDef* def = renameStack.Top(lcl->GetLclNum());
 
     if (GenTreeLclFld* lclFld = lclNode->IsLclFld())
     {
@@ -1502,8 +1499,8 @@ bool GenTreePhi::Equals(GenTreePhi* phi1, GenTreePhi* phi2)
 
 static void DestroySsaUses(GenTreeLclDef* def)
 {
-    unsigned       lclNum = def->GetLcl()->GetLclNum();
-    GenTreeLclUse* uses   = def->GetUseList();
+    LclVarDsc*     lcl  = def->GetLcl();
+    GenTreeLclUse* uses = def->GetUseList();
 
     // TODO-MIKE-SSA: The SSA_DEF Uses iterator cannot be used because
     // we change the uses to LCL_VAR as we visit them. Maybe it can be
@@ -1520,7 +1517,7 @@ static void DestroySsaUses(GenTreeLclDef* def)
 
             GenTree* load = use;
             load->SetOper(GT_LCL_VAR);
-            load->AsLclVar()->SetLclNum(lclNum);
+            load->AsLclVar()->SetLcl(lcl);
 
             use = nextUse;
         } while (use != uses);
@@ -1531,8 +1528,8 @@ static void DestroySsaDef(Compiler* compiler, GenTreeLclDef* def, Statement* stm
 {
     DestroySsaUses(def);
 
-    unsigned lclNum = def->GetLcl()->GetLclNum();
-    GenTree* store  = def;
+    LclVarDsc* lcl   = def->GetLcl();
+    GenTree*   store = def;
 
     if (GenTreeInsert* insert = def->GetValue()->IsInsert())
     {
@@ -1542,11 +1539,11 @@ static void DestroySsaDef(Compiler* compiler, GenTreeLclDef* def, Statement* stm
 #ifdef DEBUG
         if (GenTreeLclUse* use = structValue->IsLclUse())
         {
-            assert(use->GetDef()->GetLcl()->GetLclNum() == lclNum);
+            assert(use->GetDef()->GetLcl() == lcl);
         }
         else if (structValue->OperIs(GT_LCL_VAR))
         {
-            assert(structValue->AsLclVar()->GetLclNum() == lclNum);
+            assert(structValue->AsLclVar()->GetLcl() == lcl);
         }
         else
         {
@@ -1565,7 +1562,7 @@ static void DestroySsaDef(Compiler* compiler, GenTreeLclDef* def, Statement* stm
         store->AsLclFld()->SetLayoutNum(field.GetLayoutNum());
         store->AsLclFld()->SetLclOffs(field.GetOffset());
         store->AsLclFld()->SetFieldSeq(field.GetFieldSeq());
-        store->AsLclFld()->SetLclNum(lclNum);
+        store->AsLclFld()->SetLcl(lcl);
 
         structValue->gtNext->gtPrev = structValue->gtPrev;
 
@@ -1585,7 +1582,7 @@ static void DestroySsaDef(Compiler* compiler, GenTreeLclDef* def, Statement* stm
     else
     {
         store->SetOper(GT_STORE_LCL_VAR);
-        store->AsLclVar()->SetLclNum(lclNum);
+        store->AsLclVar()->SetLcl(lcl);
     }
 }
 
@@ -1593,7 +1590,7 @@ static void DestroyExtract(Statement* stmt, GenTreeExtract* extract)
 {
     GenTree* src = extract->GetStructValue();
 
-    unsigned lclNum;
+    LclVarDsc* lcl;
 
     // TODO-MIKE-SSA: Initially the source is always SSA_USE but during
     // destruction we'll tipically encounter the corresponding SSA_DEF
@@ -1604,18 +1601,18 @@ static void DestroyExtract(Statement* stmt, GenTreeExtract* extract)
 
     if (GenTreeLclUse* use = src->IsLclUse())
     {
-        lclNum = use->GetDef()->GetLcl()->GetLclNum();
+        lcl = use->GetDef()->GetLcl();
     }
     else
     {
-        lclNum = src->AsLclVar()->GetLclNum();
+        lcl = src->AsLclVar()->GetLcl();
     }
 
     FieldInfo field  = extract->GetField();
     GenTree*  lclFld = extract;
 
     lclFld->SetOper(GT_LCL_FLD);
-    lclFld->AsLclFld()->SetLclNum(lclNum);
+    lclFld->AsLclFld()->SetLcl(lcl);
     lclFld->AsLclFld()->SetLclOffs(field.GetOffset());
     lclFld->AsLclFld()->SetLayoutNum(field.GetLayoutNum());
     lclFld->AsLclFld()->SetFieldSeq(field.GetFieldSeq());

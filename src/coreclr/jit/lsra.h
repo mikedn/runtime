@@ -760,7 +760,7 @@ private:
 
     inline bool isCandidateLclVar(GenTree* tree)
     {
-        return tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && compiler->lvaGetDesc(tree->AsLclVar())->IsRegCandidate();
+        return tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && tree->AsLclVar()->GetLcl()->IsRegCandidate();
     }
 
     // Helpers for getKillSetForNode().
@@ -803,7 +803,7 @@ private:
         {
             assert(tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
             GenTreeLclVar* lclVar = tree->AsLclVar();
-            LclVarDsc*     varDsc = compiler->lvaGetDesc(lclVar);
+            LclVarDsc*     varDsc = lclVar->GetLcl();
             type                  = varDsc->GetRegisterType(lclVar);
         }
         assert(type != TYP_UNDEF && type != TYP_STRUCT);
@@ -856,7 +856,7 @@ private:
 
     Interval* getIntervalForLocalVarNode(GenTreeLclVar* tree)
     {
-        LclVarDsc* varDsc = compiler->lvaGetDesc(tree);
+        LclVarDsc* varDsc = tree->GetLcl();
         assert(varDsc->lvTracked);
         return getIntervalForLocalVar(varDsc->lvVarIndex);
     }

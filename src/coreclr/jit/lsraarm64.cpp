@@ -16,7 +16,7 @@ void LinearScan::BuildNode(GenTree* tree)
     {
         case GT_LCL_VAR:
         case GT_LCL_FLD:
-            assert(!compiler->lvaGetDesc(tree->AsLclVarCommon())->IsRegCandidate());
+            assert(!tree->AsLclVarCommon()->GetLcl()->IsRegCandidate());
 
             // Need an additional register to read upper 4 bytes of Vector3.
             if (tree->TypeIs(TYP_SIMD12))

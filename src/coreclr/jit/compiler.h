@@ -1395,13 +1395,13 @@ class SIMDCoalescingBuffer
 {
     Statement* m_firstStmt;
     Statement* m_lastStmt;
-    unsigned   m_lclNum;
+    LclVarDsc* m_lcl;
     unsigned   m_index;
 
-    unsigned IsSimdLocalField(GenTree* node, Compiler* compiler);
-    unsigned IsSimdLocalExtract(GenTree* node);
+    LclVarDsc* IsSimdLocalField(GenTree* node, Compiler* compiler);
+    LclVarDsc* IsSimdLocalExtract(GenTree* node);
 
-    bool Add(Compiler* compiler, Statement* stmt, GenTreeOp* asg, unsigned simdLclNum);
+    bool Add(Compiler* compiler, Statement* stmt, GenTreeOp* asg, LclVarDsc* simdLcl);
 
 public:
     SIMDCoalescingBuffer() : m_index(0)
@@ -1479,8 +1479,8 @@ struct Importer
     Statement*  impStmtList  = nullptr; // Statements for the BB being imported.
     Statement*  impLastStmt  = nullptr; // The last statement for the current BB.
 
-    bool     impBoxTempInUse = false;
-    unsigned impBoxTemp      = BAD_VAR_NUM;
+    bool       impBoxTempInUse = false;
+    LclVarDsc* impBoxTempLcl   = nullptr;
 
     // IL offset of the stmt currently being imported. It gets set to
     // BAD_IL_OFFSET after it has been set in the appended trees. Then it gets
@@ -1735,7 +1735,7 @@ struct Importer
     void EnsureStackSpilled(bool ignoreLeaves DEBUGARG(const char* reason));
     void SpillCatchArg();
     void impSpillSideEffects(GenTreeFlags spillSideEffects, unsigned chkLevel DEBUGARG(const char* reason));
-    void impSpillLclReferences(unsigned lclNum);
+    void impSpillLclReferences(LclVarDsc* lcl);
 
     BasicBlock* impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_HANDLE clsHnd, bool isSingleBlockFilter);
     GenTree* impNewCatchArg();
@@ -2201,9 +2201,9 @@ struct Importer
 
     Statement* gtNewStmt(GenTree* expr = nullptr, IL_OFFSETX offset = BAD_IL_OFFSET);
 
-    GenTreeLclVar* gtNewLclvNode(unsigned lclNum, var_types type);
-    GenTreeLclAddr* gtNewLclVarAddrNode(unsigned lclNum, var_types type = TYP_I_IMPL);
-    GenTreeLclFld* gtNewLclFldNode(unsigned lclNum, var_types type, unsigned offset);
+    GenTreeLclVar* gtNewLclvNode(LclVarDsc* lcl, var_types type);
+    GenTreeLclAddr* gtNewLclVarAddrNode(LclVarDsc* lcl, var_types type = TYP_I_IMPL);
+    GenTreeLclFld* gtNewLclFldNode(LclVarDsc* lcl, var_types type, unsigned offset);
     GenTreeIntCon* gtNewIconNode(ssize_t value, var_types type = TYP_INT);
     GenTreeIntCon* gtNewIconNode(unsigned fieldOffset, FieldSeqNode* fieldSeq);
     GenTree* gtNewLconNode(int64_t value);
@@ -2333,7 +2333,7 @@ struct Importer
 
     static GenTreeLclAddr* impIsAddressInLocal(GenTree* tree);
     static GenTreeLclAddr* impIsLocalAddrExpr(GenTree* node);
-    bool impHasLclRef(GenTree* tree, unsigned lclNum);
+    bool impHasLclRef(GenTree* tree, LclVarDsc* lcl);
     bool impHasAddressTakenLocals(GenTree* tree);
 
     void impDevirtualizeCall(GenTreeCall*            call,
@@ -2855,8 +2855,8 @@ public:
 
     GenTree* gtNewOneConNode(var_types type);
 
-    GenTreeLclVar* gtNewStoreLclVar(unsigned lclNum, var_types type, GenTree* value);
-    GenTreeLclFld* gtNewStoreLclFld(var_types type, unsigned lclNum, unsigned lclOffs, GenTree* value);
+    GenTreeLclVar* gtNewStoreLclVar(LclVarDsc* lcl, var_types type, GenTree* value);
+    GenTreeLclFld* gtNewStoreLclFld(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* value);
 
     GenTreeUnOp* gtNewBitCastNode(var_types type, GenTree* arg);
 
@@ -2891,11 +2891,11 @@ public:
                                                   GenTree*                ctxTree,
                                                   void*                   compileTimeHandle);
 
-    GenTreeLclVar* gtNewLclvNode(unsigned lnum, var_types type);
-    GenTreeLclVar* gtNewLclVarLargeNode(unsigned lnum, var_types type);
+    GenTreeLclVar* gtNewLclvNode(LclVarDsc* lcl, var_types type);
+    GenTreeLclVar* gtNewLclVarLargeNode(LclVarDsc* lcl, var_types type);
 
-    GenTreeLclAddr* gtNewLclVarAddrNode(unsigned lclNum, var_types type = TYP_I_IMPL);
-    GenTreeLclAddr* gtNewLclFldAddrNode(unsigned      lclNum,
+    GenTreeLclAddr* gtNewLclVarAddrNode(LclVarDsc* lcl, var_types type = TYP_I_IMPL);
+    GenTreeLclAddr* gtNewLclFldAddrNode(LclVarDsc*    lcl,
                                         unsigned      lclOffs,
                                         FieldSeqNode* fieldSeq,
                                         var_types     type = TYP_I_IMPL);
@@ -2961,7 +2961,7 @@ public:
         var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1, GenTree* op2, GenTree* op3);
 #endif // FEATURE_HW_INTRINSICS
 
-    GenTreeLclFld* gtNewLclFldNode(unsigned lnum, var_types type, unsigned offset);
+    GenTreeLclFld* gtNewLclFldNode(LclVarDsc* lcl, var_types type, unsigned offset);
     GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call);
 
     GenTreeIndir* gtNewIndir(var_types type, GenTree* addr);
@@ -3461,18 +3461,6 @@ public:
         return lvaTable[lclNum];
     }
 
-    LclVarDsc* lvaGetDesc(const GenTreeLclVarCommon* lclVar) const
-    {
-        assert(lclVar->GetLclNum() < lvaCount);
-        return lvaTable[lclVar->GetLclNum()];
-    }
-
-    LclVarDsc* lvaGetDesc(const GenTreeLclAddr* lclAddr) const
-    {
-        assert(lclAddr->GetLclNum() < lvaCount);
-        return lvaTable[lclAddr->GetLclNum()];
-    }
-
     LclVarDsc* lvaGetDescByTrackedIndex(unsigned trackedIndex) const
     {
         assert(trackedIndex < lvaTrackedCount);
@@ -3652,7 +3640,7 @@ private:
 
     static GenTreeLclAddr* impIsAddressInLocal(GenTree* tree);
     static GenTreeLclAddr* impIsLocalAddrExpr(GenTree* node);
-    bool impHasLclRef(GenTree* tree, unsigned lclNum);
+    bool impHasLclRef(GenTree* tree, LclVarDsc* lcl);
     bool impHasAddressTakenLocals(GenTree* tree);
 
     // STATIC inlining decision based on the IL code.
@@ -4269,9 +4257,9 @@ public:
 
     bool fgOptimizeUncondBranchToSimpleCond(BasicBlock* block, BasicBlock* target);
 
-    bool fgBlockEndFavorsTailDuplication(BasicBlock* block, unsigned lclNum);
+    bool fgBlockEndFavorsTailDuplication(BasicBlock* block, LclVarDsc* lcl);
 
-    bool fgBlockIsGoodTailDuplicationCandidate(BasicBlock* block, unsigned* lclNum);
+    bool fgBlockIsGoodTailDuplicationCandidate(BasicBlock* block, LclVarDsc** lcl);
 
     bool fgOptimizeEmptyBlock(BasicBlock* block);
 
@@ -4567,7 +4555,7 @@ private:
     GenTree* fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt);
     GenTree* fgGetStubAddrArg(GenTreeCall* call);
     void fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCall* recursiveTailCall);
-    void fgMorphCreateLclInit(unsigned lclNum, BasicBlock* block, Statement* beforeStmt, IL_OFFSETX ilOffset);
+    void fgMorphCreateLclInit(LclVarDsc* lcl, BasicBlock* block, Statement* beforeStmt, IL_OFFSETX ilOffset);
     Statement* fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,
                                                      fgArgTabEntry* argTabEntry,
                                                      BasicBlock*    block,
@@ -4999,7 +4987,7 @@ private:
                            unsigned*  iterCount);
 
 public:
-    bool optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip, unsigned lclNum);
+    bool optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip, LclVarDsc* lcl);
 
     bool fgMorphNarrowTree(GenTree* tree, var_types srct, var_types dstt, ValueNumPair vnpNarrow, bool doit);
 
@@ -6148,7 +6136,7 @@ public:
     GenTree* abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types argRegType, unsigned argSize);
 #ifndef TARGET_X86
     void abiMorphArgs2ndPass(GenTreeCall* call);
-    GenTree* abiMorphMkRefAnyToStore(unsigned tempLclNum, GenTreeOp* mkrefany);
+    GenTree* abiMorphMkRefAnyToStore(LclVarDsc* tempLcl, GenTreeOp* mkrefany);
 #endif
 #if FEATURE_MULTIREG_ARGS || FEATURE_MULTIREG_RET
     GenTree* abiMorphMultiRegHfaLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg);
@@ -6164,7 +6152,7 @@ public:
     GenTree* abiMorphMultiRegCallArg(CallArgInfo* argInfo, GenTreeCall* arg);
 #endif
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64) || defined(TARGET_ARM)
-    unsigned abiAllocateStructArgTemp(ClassLayout* argLayout);
+    LclVarDsc* abiAllocateStructArgTemp(ClassLayout* argLayout);
     void abiFreeAllStructArgTemps();
 #endif
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)

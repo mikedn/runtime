@@ -495,12 +495,12 @@ private:
 
     class GuardedDevirtualizationTransformer final : public Transformer
     {
-        unsigned   returnTemp;
+        LclVarDsc* returnTemp = nullptr;
         Statement* lastStmt;
 
     public:
         GuardedDevirtualizationTransformer(Compiler* compiler, BasicBlock* block, Statement* stmt)
-            : Transformer(compiler, block, stmt), returnTemp(BAD_VAR_NUM)
+            : Transformer(compiler, block, stmt)
         {
         }
 
@@ -586,8 +586,8 @@ private:
             checkBlock             = currBlock;
             checkBlock->bbJumpKind = BBJ_COND;
 
-            GenTree* thisTree = origCall->gtCallThisArg->GetNode();
-            unsigned thisLclNum;
+            GenTree*   thisTree = origCall->gtCallThisArg->GetNode();
+            LclVarDsc* thisLcl;
 
             if (thisTree->OperIs(GT_LCL_VAR))
             {
@@ -596,20 +596,20 @@ private:
                 // extremely unusual but if it happens then type safety is compromised. And anyway,
                 // using a DNER local will result in poor codegen.
 
-                thisLclNum = thisTree->AsLclVar()->GetLclNum();
+                thisLcl = thisTree->AsLclVar()->GetLcl();
             }
             else
             {
-                thisLclNum = compiler->lvaNewTemp(TYP_REF, true DEBUGARG("guarded devirt this temp"))->GetLclNum();
+                thisLcl = compiler->lvaNewTemp(TYP_REF, true DEBUGARG("guarded devirt this temp"));
 
-                GenTree*   asgTree = compiler->gtNewAssignNode(compiler->gtNewLclvNode(thisLclNum, TYP_REF), thisTree);
+                GenTree*   asgTree = compiler->gtNewAssignNode(compiler->gtNewLclvNode(thisLcl, TYP_REF), thisTree);
                 Statement* asgStmt = compiler->gtNewStmt(asgTree, stmt->GetILOffsetX());
                 compiler->fgInsertStmtAtEnd(checkBlock, asgStmt);
 
-                origCall->gtCallThisArg->SetNode(compiler->gtNewLclvNode(thisLclNum, TYP_REF));
+                origCall->gtCallThisArg->SetNode(compiler->gtNewLclvNode(thisLcl, TYP_REF));
             }
 
-            thisTree = compiler->gtNewLclvNode(thisLclNum, TYP_REF);
+            thisTree = compiler->gtNewLclvNode(thisLcl, TYP_REF);
 
             // Remember the current last statement. If we're doing a chained GDV, we'll clone/copy
             // all the code in the check block up to and including this statement.
@@ -662,9 +662,10 @@ private:
 
                 LclVarDsc* returnTempLcl;
 
-                if (returnTemp != BAD_VAR_NUM)
+                if (returnTemp != nullptr)
                 {
-                    JITDUMP("Reworking call(s) to return value via a existing return temp V%02u\n", returnTemp);
+                    JITDUMP("Reworking call(s) to return value via a existing return temp V%02u\n",
+                            returnTemp->GetLclNum());
 
                     // We will be introducing multiple defs for this temp, so make sure
                     // it is no longer marked as single def.
@@ -676,22 +677,22 @@ private:
                     // path returns. So we have to stick with the current type for B as the
                     // return type.
 
-                    returnTempLcl = compiler->lvaGetDesc(returnTemp);
+                    returnTempLcl = returnTemp;
 
                     if (returnTempLcl->lvSingleDef)
                     {
                         // In this case it's ok if we already updated the type assuming single def,
                         // we just don't want any further updates.
                         //
-                        JITDUMP("Return temp V%02u is no longer a single def temp\n", returnTemp);
+                        JITDUMP("Return temp V%02u is no longer a single def temp\n", returnTemp->GetLclNum());
                         returnTempLcl->lvSingleDef = false;
                     }
                 }
                 else
                 {
                     returnTempLcl = compiler->lvaAllocTemp(false DEBUGARG("guarded devirt return temp"));
-                    returnTemp    = returnTempLcl->GetLclNum();
-                    JITDUMP("Reworking call(s) to return value via a new temp V%02u\n", returnTemp);
+                    returnTemp    = returnTempLcl;
+                    JITDUMP("Reworking call(s) to return value via a new temp V%02u\n", returnTemp->GetLclNum());
                 }
 
                 if (varTypeIsStruct(origCall->GetType()))
@@ -710,7 +711,8 @@ private:
 
                 GenTree* tempTree = compiler->gtNewLclvNode(returnTemp, origCall->GetType());
 
-                JITDUMP("Bashing GT_RET_EXPR [%06u] to refer to temp V%02u\n", retExpr->GetID(), returnTemp);
+                JITDUMP("Bashing GT_RET_EXPR [%06u] to refer to temp V%02u\n", retExpr->GetID(),
+                        returnTemp->GetLclNum());
 
                 retExpr->ReplaceWith(tempTree, compiler);
             }
@@ -747,13 +749,13 @@ private:
             LclVarDsc* thisTempLcl = compiler->lvaNewTemp(TYP_REF, false DEBUGARG("guarded devirt this exact temp"));
             unsigned   thisTemp    = thisTempLcl->GetLclNum();
             GenTree*   clonedObj   = compiler->gtCloneExpr(origCall->gtCallThisArg->GetNode());
-            GenTree*   assign      = compiler->gtNewAssignNode(compiler->gtNewLclvNode(thisTemp, TYP_REF), clonedObj);
+            GenTree*   assign = compiler->gtNewAssignNode(compiler->gtNewLclvNode(thisTempLcl, TYP_REF), clonedObj);
             compiler->lvaSetClass(thisTempLcl, clsHnd, true);
             compiler->fgNewStmtAtEnd(thenBlock, assign);
 
             // Clone call. Note we must use the special candidate helper.
             GenTreeCall* call   = compiler->gtCloneCandidateCall(origCall);
-            call->gtCallThisArg = compiler->gtNewCallArgs(compiler->gtNewLclvNode(thisTemp, TYP_REF));
+            call->gtCallThisArg = compiler->gtNewCallArgs(compiler->gtNewLclvNode(thisTempLcl, TYP_REF));
             call->SetIsGuarded();
 
             JITDUMP("Direct call [%06u] in block " FMT_BB "\n", compiler->dspTreeID(call), thenBlock->bbNum);
@@ -783,7 +785,7 @@ private:
                 call->gtFlags &= ~GTF_CALL_INLINE_CANDIDATE;
                 call->gtInlineCandidateInfo = nullptr;
 
-                if (returnTemp != BAD_VAR_NUM)
+                if (returnTemp != nullptr)
                 {
                     GenTree* assign =
                         compiler->gtNewAssignNode(compiler->gtNewLclvNode(returnTemp, call->GetType()), call);
@@ -819,7 +821,7 @@ private:
 
                     GenTree* retExpr = inlineInfo->retExprPlaceholder;
 
-                    if (returnTemp != BAD_VAR_NUM)
+                    if (returnTemp != nullptr)
                     {
                         retExpr =
                             compiler->gtNewAssignNode(compiler->gtNewLclvNode(returnTemp, call->GetType()), retExpr);
@@ -850,7 +852,7 @@ private:
 
             JITDUMP("Residual call [%06u] moved to block " FMT_BB "\n", compiler->dspTreeID(call), elseBlock->bbNum);
 
-            if (returnTemp != BAD_VAR_NUM)
+            if (returnTemp != nullptr)
             {
                 newStmt->SetRootNode(
                     compiler->gtNewAssignNode(compiler->gtNewLclvNode(returnTemp, call->GetType()), call));
@@ -1117,16 +1119,14 @@ private:
     //
     class ExpRuntimeLookupTransformer final : public Transformer
     {
-        BasicBlock* checkBlock2;
-        unsigned    resultLclNum;
+        BasicBlock* checkBlock2 = nullptr;
+        LclVarDsc*  resultLcl;
 
     public:
         ExpRuntimeLookupTransformer(Compiler* compiler, BasicBlock* block, Statement* stmt)
-            : Transformer(compiler, block, stmt)
-            , checkBlock2(nullptr)
-            , resultLclNum(stmt->GetRootNode()->AsOp()->GetOp(0)->AsLclVar()->GetLclNum())
+            : Transformer(compiler, block, stmt), resultLcl(stmt->GetRootNode()->AsOp()->GetOp(0)->AsLclVar()->GetLcl())
         {
-            assert(compiler->lvaGetDesc(resultLclNum)->TypeIs(TYP_I_IMPL));
+            assert(resultLcl->TypeIs(TYP_I_IMPL));
 
             origCall = GetCall(stmt);
         }
@@ -1219,7 +1219,7 @@ private:
 
         void AssignResult(BasicBlock* block, GenTree* result)
         {
-            GenTree* asg = compiler->gtNewAssignNode(compiler->gtNewLclvNode(resultLclNum, TYP_I_IMPL), result);
+            GenTree* asg = compiler->gtNewAssignNode(compiler->gtNewLclvNode(resultLcl, TYP_I_IMPL), result);
             compiler->fgInsertStmtAtEnd(block, compiler->gtNewStmt(asg, stmt->GetILOffsetX()));
         }
 

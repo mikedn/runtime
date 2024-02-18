@@ -725,7 +725,7 @@ void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
 {
     assert(load->OperIs(GT_LCL_VAR));
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(load);
+    LclVarDsc* lcl = load->GetLcl();
 
     assert(!lcl->IsIndependentPromoted());
 
@@ -739,7 +739,7 @@ void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
     instruction ins  = ins_Load(type);
     emitAttr    attr = emitTypeSize(type);
 
-    GetEmitter()->emitIns_R_S(ins, attr, load->GetRegNum(), load->GetLclNum(), 0);
+    GetEmitter()->emitIns_R_S(ins, attr, load->GetRegNum(), lcl->GetLclNum(), 0);
 
     DefLclVarReg(load);
 }
@@ -763,7 +763,7 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
 
         regNumber srcReg  = genConsumeReg(src);
         unsigned  lclOffs = store->GetLclOffs();
-        unsigned  lclNum  = store->GetLclNum();
+        unsigned  lclNum  = store->GetLcl()->GetLclNum();
         emitter*  emit    = GetEmitter();
 
         if (store->IsOffsetMisaligned())
@@ -804,7 +804,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(store);
+    LclVarDsc* lcl = store->GetLcl();
 
     if (lcl->IsIndependentPromoted())
     {
@@ -836,8 +836,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
     if (dstReg == REG_NA)
     {
-        unsigned lclNum = store->GetLclNum();
-        GetEmitter()->emitIns_S_R(ins_Store(lclRegType), emitTypeSize(lclRegType), srcReg, lclNum, 0);
+        GetEmitter()->emitIns_S_R(ins_Store(lclRegType), emitTypeSize(lclRegType), srcReg, lcl->GetLclNum(), 0);
         liveness.UpdateLife(this, store);
         lcl->SetRegNum(REG_STK);
 
@@ -1565,7 +1564,7 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
     if (addr->OperIs(GT_LCL_ADDR))
     {
         GenTreeLclAddr* lclAddr = addr->AsLclAddr();
-        unsigned        lclNum  = lclAddr->GetLclNum();
+        unsigned        lclNum  = lclAddr->GetLcl()->GetLclNum();
         unsigned        offset  = lclAddr->GetLclOffs();
 
         if (emitter::emitInsIsStore(ins))

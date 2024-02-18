@@ -180,7 +180,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                     if (addr->OperIs(GT_LCL_ADDR))
                     {
                         GetEmitter()->emitIns_SIMD_R_R_S(ins, simdSize, targetReg, otherReg,
-                                                         addr->AsLclAddr()->GetLclNum(),
+                                                         addr->AsLclAddr()->GetLcl()->GetLclNum(),
                                                          addr->AsLclAddr()->GetLclOffs());
                     }
                     else
@@ -405,7 +405,7 @@ bool CodeGen::IsMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs, 
     {
         assert(loadAddr->isContained());
 
-        *lclNum  = loadAddr->AsLclAddr()->GetLclNum();
+        *lclNum  = loadAddr->AsLclAddr()->GetLcl()->GetLclNum();
         *lclOffs = loadAddr->AsLclAddr()->GetLclOffs();
         *addr    = nullptr;
         *data    = nullptr;
@@ -956,7 +956,7 @@ void CodeGen::genVectorGetElement(GenTreeHWIntrinsic* node)
 
         if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
-            LclVarDsc* lcl = compiler->lvaGetDesc(src->AsLclVarCommon());
+            LclVarDsc* lcl = src->AsLclVarCommon()->GetLcl();
 
             bool isEBPbased;
             int  frameOffset = compiler->lvaLclFrameAddress(lcl, &isEBPbased);

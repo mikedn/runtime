@@ -753,9 +753,8 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* tree)
         case GT_STORE_LCL_FLD:
             if (tree->TypeIs(TYP_STRUCT) && !tree->AsLclVarCommon()->GetOp(0)->IsCall())
             {
-                ClassLayout* layout = tree->OperIs(GT_STORE_LCL_VAR)
-                                          ? compiler->lvaGetDesc(tree->AsLclVar())->GetLayout()
-                                          : tree->AsLclFld()->GetLayout(compiler);
+                ClassLayout* layout = tree->OperIs(GT_STORE_LCL_VAR) ? tree->AsLclVar()->GetLcl()->GetLayout()
+                                                                     : tree->AsLclFld()->GetLayout(compiler);
                 StructStoreKind kind = GetStructStoreKind(true, layout, tree->AsLclVarCommon()->GetOp(0));
                 killMask             = getKillSetForStructStore(kind);
             }
@@ -940,7 +939,7 @@ bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclVar* store)
         return false;
     }
 
-    LclVarDsc* varDsc = compiler->lvaGetDesc(store);
+    LclVarDsc* varDsc = store->GetLcl();
     assert(varDsc->IsPromoted());
 
     bool isMultiReg = varDsc->IsIndependentPromoted();
@@ -983,7 +982,7 @@ bool LinearScan::checkContainedOrCandidateLclVar(GenTreeLclVar* lclNode)
     // We shouldn't be calling this if this node was already contained.
     assert(!lclNode->isContained());
 
-    bool isCandidate = compiler->lvaGetDesc(lclNode)->IsRegCandidate();
+    bool isCandidate = lclNode->GetLcl()->IsRegCandidate();
 
     if (!isCandidate && lclNode->IsRegOptional())
     {
@@ -1111,7 +1110,7 @@ void LinearScan::buildUpperVectorSaveRefPositions(GenTree* tree, LsraLocation cu
 
             if (defNode->OperIs(GT_LCL_VAR))
             {
-                regType = compiler->lvaGetDesc(defNode->AsLclVar())->GetRegisterType();
+                regType = defNode->AsLclVar()->GetLcl()->GetRegisterType();
             }
             else
             {
@@ -1243,7 +1242,7 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
         // address computation. In this case we need to check whether it is a last use.
         if (tree->OperIs(GT_LCL_VAR) && ((tree->gtFlags & GTF_VAR_DEATH) != 0))
         {
-            LclVarDsc* lcl = compiler->lvaGetDesc(tree->AsLclVar());
+            LclVarDsc* lcl = tree->AsLclVar()->GetLcl();
 
             if (lcl->IsRegCandidate())
             {
@@ -1291,10 +1290,9 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
         // RegOptional LCL_VARs may become contained.
         ((nodeDefCount == 0) && tree->isContained()) ||
         // A reg candidate store is not a value so GetRegisterDstCount returns 0, but it does define a register.
-        ((nodeDefCount == 1) && tree->OperIs(GT_STORE_LCL_VAR) &&
-         compiler->lvaGetDesc(tree->AsLclVar())->IsRegCandidate()) ||
+        ((nodeDefCount == 1) && tree->OperIs(GT_STORE_LCL_VAR) && tree->AsLclVar()->GetLcl()->IsRegCandidate()) ||
         // A reg candidate load is a value so GetRegisterDstCount returns 1, but it does not define a new register.
-        ((nodeDefCount == 0) && tree->OperIs(GT_LCL_VAR) && compiler->lvaGetDesc(tree->AsLclVar())->IsRegCandidate()) ||
+        ((nodeDefCount == 0) && tree->OperIs(GT_LCL_VAR) && tree->AsLclVar()->GetLcl()->IsRegCandidate()) ||
         (nodeDefCount == tree->GetRegisterDstCount(compiler)));
 
     assert((nodeUseCount == 0) || (ComputeAvailableSrcCount(tree) == nodeUseCount));
@@ -2272,7 +2270,7 @@ RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int re
     }
     else if (operand->IsMultiRegLclVar())
     {
-        LclVarDsc* lcl      = compiler->lvaGetDesc(operand->AsLclVar()->GetLclNum());
+        LclVarDsc* lcl      = operand->AsLclVar()->GetLcl();
         LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(regIndex));
 
         interval = getIntervalForLocalVar(fieldLcl->GetLivenessBitIndex());
@@ -2426,7 +2424,7 @@ void LinearScan::BuildStoreLclVarMultiReg(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR) && store->IsMultiReg());
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(store);
+    LclVarDsc* lcl = store->GetLcl();
     assert(lcl->IsIndependentPromoted());
     unsigned regCount = lcl->GetPromotedFieldCount();
 
@@ -2472,7 +2470,7 @@ void LinearScan::BuildStoreLclVar(GenTreeLclVar* store)
         return;
     }
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(store);
+    LclVarDsc* lcl = store->GetLcl();
     GenTree*   src = store->GetOp(0);
 
     if (store->TypeIs(TYP_STRUCT) && !src->IsCall())
@@ -2534,7 +2532,7 @@ void LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
     }
 #endif
 
-    LclVarDsc*   lcl          = compiler->lvaGetDesc(store);
+    LclVarDsc*   lcl          = store->GetLcl();
     RefPosition* singleUseRef = nullptr;
 
     if (src->IsMultiRegNode())

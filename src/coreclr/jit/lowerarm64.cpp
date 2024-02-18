@@ -1618,7 +1618,7 @@ bool Lowering::IsLegalToMoveUseForward(GenTree* oldUser, GenTree* newUser, GenTr
         return true;
     }
 
-    LclVarDsc* lcl = comp->lvaGetDesc(def->AsLclVar());
+    LclVarDsc* lcl = def->AsLclVar()->GetLcl();
 
     if (lcl->lvDoNotEnregister)
     {
@@ -1627,7 +1627,7 @@ bool Lowering::IsLegalToMoveUseForward(GenTree* oldUser, GenTree* newUser, GenTr
 
     for (GenTree* node = oldUser->gtNext; node != nullptr && node != newUser; node = node->gtNext)
     {
-        if (node->OperIs(GT_STORE_LCL_VAR) && (node->AsLclVar()->GetLclNum() == def->AsLclVar()->GetLclNum()))
+        if (node->OperIs(GT_STORE_LCL_VAR) && (node->AsLclVar()->GetLcl() == def->AsLclVar()->GetLcl()))
         {
             return false;
         }

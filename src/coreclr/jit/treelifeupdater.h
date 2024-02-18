@@ -226,9 +226,9 @@ class CodeGenLivenessUpdater
     int GetVarStackOffset(CodeGen* codeGen, const LclVarDsc* lcl) const;
     DbgInfoVarLoc GetVarLocation(CodeGen* codeGen, const LclVarDsc* lcl) const;
 
-    void StartRange(CodeGen* codeGen, const LclVarDsc* lcl, unsigned lclNum);
-    void UpdateRange(CodeGen* codeGen, const LclVarDsc* lcl, unsigned lclNum);
-    void EndRange(CodeGen* codeGen, unsigned lclNum);
+    void StartRange(CodeGen* codeGen, const LclVarDsc* lcl);
+    void UpdateRange(CodeGen* codeGen, const LclVarDsc* lcl);
+    void EndRange(CodeGen* codeGen, const LclVarDsc* lcl);
 
 #ifdef DEBUG
     void DumpDiff(CodeGen* codeGen);

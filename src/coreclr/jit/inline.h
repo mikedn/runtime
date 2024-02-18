@@ -587,8 +587,8 @@ struct InlineCandidateInfo : public GuardedDevirtualizationCandidateInfo
     CORINFO_CLASS_HANDLE   clsHandle;
     CORINFO_CONTEXT_HANDLE exactContextHnd;
     GenTreeRetExpr*        retExprPlaceholder;
+    LclVarDsc*             preexistingSpillTemp;
     DWORD                  dwRestrictions;
-    unsigned               preexistingSpillTemp;
     unsigned               clsAttr;
     unsigned               methAttr;
     CorInfoInitClassResult initClassResult;

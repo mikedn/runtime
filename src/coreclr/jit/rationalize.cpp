@@ -374,7 +374,7 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
         if (node->TypeIs(TYP_LONG) ||
             // We may end up with INT LCL_VAR nodes for LONG locals, we should
             // treat them as LONG in case we want to promote the LONG local.
-            (node->TypeIs(TYP_INT) && node->OperIs(GT_LCL_VAR) && comp->lvaGetDesc(node->AsLclVar())->TypeIs(TYP_LONG)))
+            (node->TypeIs(TYP_INT) && node->OperIs(GT_LCL_VAR) && node->AsLclVar()->GetLcl()->TypeIs(TYP_LONG)))
         {
             comp->compLongUsed = true;
         }

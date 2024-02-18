@@ -109,6 +109,7 @@ enum BasicBlockFlags : uint64_t;
 struct InlineCandidateInfo;
 struct GuardedDevirtualizationCandidateInfo;
 struct ClassProfileCandidateInfo;
+class LclVarDsc;
 
 typedef unsigned AssertionIndex;
 
@@ -1695,9 +1696,9 @@ public:
     GenTreeDblCon* ChangeToDblCon(double value);
     GenTreeDblCon* ChangeToDblCon(var_types type, double value);
     GenTreeFieldList* ChangeToFieldList();
-    GenTreeLclFld* ChangeToLclFld(var_types type, unsigned lclNum, unsigned offset, FieldSeqNode* fieldSeq);
-    GenTreeLclAddr* ChangeToLclAddr(var_types type, unsigned lclNum);
-    GenTreeLclAddr* ChangeToLclAddr(var_types type, unsigned lclNum, unsigned offset, FieldSeqNode* fieldSeq);
+    GenTreeLclFld* ChangeToLclFld(var_types type, LclVarDsc* lcl, unsigned offset, FieldSeqNode* fieldSeq);
+    GenTreeLclAddr* ChangeToLclAddr(var_types type, LclVarDsc* lcl);
+    GenTreeLclAddr* ChangeToLclAddr(var_types type, LclVarDsc* lcl, unsigned offset, FieldSeqNode* fieldSeq);
     GenTreeAddrMode* ChangeToAddrMode(GenTree* base, GenTree* index, unsigned scale, int offset);
 
     void ChangeType(var_types newType)
@@ -3047,32 +3048,34 @@ public:
 struct GenTreeLclVarCommon : public GenTreeUnOp
 {
 private:
-    unsigned m_lclNum;
+    LclVarDsc* m_lcl;
+#ifndef HOST_64BIT
     unsigned m_unused; // to preserve TREE_NODE_SZ_SMALL, which is sizeof(GenTreeLclFld)
+#endif
 
 protected:
     GenTreeLclVarCommon(const GenTreeLclVarCommon* copyFrom)
-        : GenTreeUnOp(copyFrom->GetOper(), copyFrom->GetType()), m_lclNum(copyFrom->m_lclNum)
+        : GenTreeUnOp(copyFrom->GetOper(), copyFrom->GetType()), m_lcl(copyFrom->m_lcl)
     {
     }
 
 public:
-    GenTreeLclVarCommon(genTreeOps oper, var_types type, unsigned lclNum DEBUGARG(bool largeNode = false))
+    GenTreeLclVarCommon(genTreeOps oper, var_types type, LclVarDsc* lcl DEBUGARG(bool largeNode = false))
         : GenTreeUnOp(oper, type DEBUGARG(largeNode))
     {
-        SetLclNum(lclNum);
+        SetLcl(lcl);
     }
 
-    unsigned GetLclNum() const
+    LclVarDsc* GetLcl() const
     {
-        return m_lclNum;
+        return m_lcl;
     }
 
-    void SetLclNum(unsigned lclNum)
+    void SetLcl(LclVarDsc* lcl)
     {
-        assert(lclNum != BAD_VAR_NUM);
+        assert(lcl != nullptr);
 
-        m_lclNum = lclNum;
+        m_lcl = lcl;
     }
 
     uint16_t GetLclOffs() const;
@@ -3102,13 +3105,13 @@ struct GenTreeLclVar : public GenTreeLclVarCommon
     unsigned GetMultiRegCount(Compiler* compiler) const;
     var_types GetMultiRegType(Compiler* compiler, unsigned regIndex);
 
-    GenTreeLclVar(var_types type, unsigned lclNum DEBUGARG(bool largeNode = false))
-        : GenTreeLclVarCommon(GT_LCL_VAR, type, lclNum DEBUGARG(largeNode))
+    GenTreeLclVar(var_types type, LclVarDsc* lcl DEBUGARG(bool largeNode = false))
+        : GenTreeLclVarCommon(GT_LCL_VAR, type, lcl DEBUGARG(largeNode))
     {
     }
 
-    GenTreeLclVar(var_types type, unsigned lclNum, GenTree* value DEBUGARG(bool largeNode = false))
-        : GenTreeLclVarCommon(GT_STORE_LCL_VAR, type, lclNum DEBUGARG(largeNode))
+    GenTreeLclVar(var_types type, LclVarDsc* lcl, GenTree* value DEBUGARG(bool largeNode = false))
+        : GenTreeLclVarCommon(GT_STORE_LCL_VAR, type, lcl DEBUGARG(largeNode))
     {
         gtFlags |= GTF_ASG | value->GetSideEffects();
         SetOp(0, value);
@@ -3132,8 +3135,8 @@ private:
     FieldSeqNode* m_fieldSeq;  // This LclFld node represents some sequences of accesses.
 
 public:
-    GenTreeLclFld(var_types type, unsigned lclNum, unsigned lclOffs)
-        : GenTreeLclVarCommon(GT_LCL_FLD, type, lclNum)
+    GenTreeLclFld(var_types type, LclVarDsc* lcl, unsigned lclOffs)
+        : GenTreeLclVarCommon(GT_LCL_FLD, type, lcl)
         , m_lclOffs(static_cast<uint16_t>(lclOffs))
         , m_layoutNum(0)
         , m_fieldSeq(FieldSeqStore::NotAField())
@@ -3141,8 +3144,8 @@ public:
         assert(lclOffs <= UINT16_MAX);
     }
 
-    GenTreeLclFld(var_types type, unsigned lclNum, unsigned lclOffs, GenTree* value)
-        : GenTreeLclVarCommon(GT_STORE_LCL_FLD, type, lclNum)
+    GenTreeLclFld(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* value)
+        : GenTreeLclVarCommon(GT_STORE_LCL_FLD, type, lcl)
         , m_lclOffs(static_cast<uint16_t>(lclOffs))
         , m_layoutNum(0)
         , m_fieldSeq(FieldSeqStore::NotAField())
@@ -3206,7 +3209,7 @@ public:
     static bool Equals(GenTreeLclFld* f1, GenTreeLclFld* f2)
     {
         assert((f1->OperGet() == f2->OperGet()) && (f1->GetType() == f2->GetType()));
-        return (f1->GetLclNum() == f2->GetLclNum()) && (f1->m_lclOffs == f2->m_lclOffs) &&
+        return (f1->GetLcl() == f2->GetLcl()) && (f1->m_lclOffs == f2->m_lclOffs) &&
                ((f1->m_layoutNum == f2->m_layoutNum) || !varTypeIsStruct(f1->GetType()));
     }
 
@@ -3226,8 +3229,8 @@ private:
     FieldSeqNode* m_fieldSeq;
 
 public:
-    GenTreeLclAddr(var_types type, unsigned lclNum, unsigned lclOffs)
-        : GenTreeLclVarCommon(GT_LCL_ADDR, type, lclNum), m_lclOffs(static_cast<uint16_t>(lclOffs)), m_fieldSeq(nullptr)
+    GenTreeLclAddr(var_types type, LclVarDsc* lcl, unsigned lclOffs)
+        : GenTreeLclVarCommon(GT_LCL_ADDR, type, lcl), m_lclOffs(static_cast<uint16_t>(lclOffs)), m_fieldSeq(nullptr)
     {
         assert(lclOffs <= UINT16_MAX);
     }
@@ -3267,7 +3270,7 @@ public:
     static bool Equals(GenTreeLclAddr* a1, GenTreeLclAddr* a2)
     {
         assert((a1->GetOper() == a2->GetOper()) && (a1->GetType() == a2->GetType()));
-        return (a1->GetLclNum() == a2->GetLclNum()) && (a1->m_lclOffs == a2->m_lclOffs);
+        return (a1->GetLcl() == a2->GetLcl()) && (a1->m_lclOffs == a2->m_lclOffs);
     }
 
 #if DEBUGGABLE_GENTREE

@@ -388,7 +388,7 @@ void Compiler::fgDumpTree(FILE* fgxFile, GenTree* const tree)
     }
     else if (tree->OperIs(GT_LCL_VAR))
     {
-        fprintf(fgxFile, "V%02u", tree->AsLclVar()->GetLclNum());
+        fprintf(fgxFile, FMT_LCL, tree->AsLclVar()->GetLcl()->GetLclNum());
     }
     else if (tree->OperIs(GT_ARR_LENGTH))
     {
@@ -2836,7 +2836,7 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
 
             if (node->IsLclVarCommon() && !node->IsLclAddr())
             {
-                if (m_compiler->lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed())
+                if (node->AsLclVarCommon()->GetLcl()->IsAddressExposed())
                 {
                     expectedFlags |= GTF_GLOB_REF;
                 }

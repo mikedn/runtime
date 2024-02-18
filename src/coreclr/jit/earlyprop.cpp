@@ -390,7 +390,7 @@ private:
             if (nullCheckAddr->OperIs(GT_LCL_VAR))
             {
                 if (!addBase->OperIs(GT_LCL_VAR) ||
-                    (addBase->AsLclVar()->GetLclNum() != nullCheckAddr->AsLclVar()->GetLclNum()))
+                    (addBase->AsLclVar()->GetLcl() != nullCheckAddr->AsLclVar()->GetLcl()))
                 {
                     return nullptr;
                 }
@@ -560,7 +560,7 @@ private:
     bool CanMoveNullCheckPastLclStore(GenTreeLclVarCommon* store, bool isInsideTry)
     {
         assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
-        LclVarDsc* lcl = compiler->lvaGetDesc(store);
+        LclVarDsc* lcl = store->GetLcl();
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
         if (lcl->lvIsImplicitByRefArgTemp)

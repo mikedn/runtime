@@ -2595,7 +2595,7 @@ void Compiler::lvaComputeRefCountsHIR()
                     if (!value->TypeIs(TYP_BOOL) && !value->OperIsCompare() && !value->IsIntegralConst(0) &&
                         !value->IsIntegralConst(1))
                     {
-                        m_compiler->lvaGetDesc(node->AsLclVar())->lvIsBoolean = false;
+                        node->AsLclVar()->GetLcl()->lvIsBoolean = false;
                     }
                 }
                     FALLTHROUGH;
@@ -2606,7 +2606,7 @@ void Compiler::lvaComputeRefCountsHIR()
 
                 case GT_LCL_ADDR:
                 {
-                    LclVarDsc* lcl = m_compiler->lvaGetDesc(node->AsLclAddr());
+                    LclVarDsc* lcl = node->AsLclAddr()->GetLcl();
                     assert(lcl->IsAddressExposed());
 #if ASSERTION_PROP
                     DisqualifyAddCopy(lcl);
@@ -2630,7 +2630,7 @@ void Compiler::lvaComputeRefCountsHIR()
 
         void MarkLclRefs(GenTreeLclVarCommon* node, GenTree* user)
         {
-            LclVarDsc* lcl = m_compiler->lvaGetDesc(node);
+            LclVarDsc* lcl = node->GetLcl();
 
             m_compiler->lvaAddRef(lcl, m_weight);
 
@@ -2792,7 +2792,7 @@ void Compiler::lvaComputeRefCountsLIR()
             {
                 case GT_LCL_ADDR:
                     refWeight = 0;
-                    lcl       = lvaGetDesc(node->AsLclAddr());
+                    lcl       = node->AsLclAddr()->GetLcl();
                     break;
 
                 case GT_LCL_VAR:
@@ -2803,13 +2803,13 @@ void Compiler::lvaComputeRefCountsLIR()
                         lvaGenericsContextInUse = true;
                     }
 
-                    lcl = lvaGetDesc(node->AsLclVarCommon());
+                    lcl = node->AsLclVarCommon()->GetLcl();
                     break;
 
                 case GT_STORE_LCL_VAR:
                 case GT_STORE_LCL_FLD:
                     assert((node->gtFlags & GTF_VAR_CONTEXT) == 0);
-                    lcl = lvaGetDesc(node->AsLclVarCommon());
+                    lcl = node->AsLclVarCommon()->GetLcl();
 
                     // If this is an EH var, use a zero weight for defs, so that we don't
                     // count those in our heuristic for register allocation, since they always

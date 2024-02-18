@@ -130,7 +130,7 @@ void Lowering::LowerStoreLclVarArch(GenTreeLclVar* store)
 
     if (GenTreeIntCon* con = src->IsIntCon())
     {
-        LclVarDsc* lcl = comp->lvaGetDesc(store);
+        LclVarDsc* lcl = store->GetLcl();
 
         // TODO-MIKE-Review: This code is likely useless on ARM64, str and strh/strb
         // have the same encoding size. Also, the imm adjustment appears to have been
@@ -836,11 +836,11 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     {
         if (!vec->isContained())
         {
-            unsigned tempLclNum = GetSimdMemoryTemp(vec->GetType());
-            GenTree* store      = comp->gtNewStoreLclVar(tempLclNum, vec->GetType(), vec);
+            LclVarDsc* tempLcl = GetSimdMemoryTemp(vec->GetType());
+            GenTree*   store   = comp->gtNewStoreLclVar(tempLcl, vec->GetType(), vec);
             BlockRange().InsertAfter(vec, store);
 
-            vec = comp->gtNewLclvNode(tempLclNum, vec->GetType());
+            vec = comp->gtNewLclvNode(tempLcl, vec->GetType());
             BlockRange().InsertBefore(node, vec);
             node->SetOp(0, vec);
             vec->SetContained();
@@ -899,7 +899,7 @@ void Lowering::LowerHWIntrinsicSum(GenTreeHWIntrinsic* node)
     LIR::Use vecUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
     vec = ReplaceWithLclVar(vecUse);
 
-    GenTree* mul2 = comp->gtNewLclvNode(vec->AsLclVar()->GetLclNum(), TYP_SIMD16);
+    GenTree* mul2 = comp->gtNewLclvNode(vec->AsLclVar()->GetLcl(), TYP_SIMD16);
     GenTree* addp = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AdvSimd_Arm64_AddPairwise, TYP_FLOAT, 16, vec, mul2);
     BlockRange().InsertBefore(node, mul2, addp);
     LowerNode(addp);
@@ -1067,7 +1067,7 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
     // If the source is a containable immediate, make it contained, unless it is
     // an int-size or larger store of zero to memory, because we can generate smaller code
     // by zeroing a register and then storing it.
-    var_types type = comp->lvaGetDesc(store)->GetRegisterType(store);
+    var_types type = store->GetLcl()->GetRegisterType(store);
 
     if (IsContainableImmed(store, src) && (!src->IsIntegralConst(0) || varTypeIsSmall(type)))
     {

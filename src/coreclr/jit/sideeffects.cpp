@@ -156,9 +156,9 @@ AliasSet::NodeInfo::NodeInfo(Compiler* compiler, GenTree* node) : m_compiler(com
 
     // `node` is the location being accessed. Determine whether or not it is a memory or local variable access, and if
     // it is the latter, get the number of the lclVar.
-    bool     isMemoryAccess = false;
-    bool     isLclVarAccess = false;
-    unsigned lclNum         = 0;
+    bool       isMemoryAccess = false;
+    bool       isLclVarAccess = false;
+    LclVarDsc* lcl            = nullptr;
 
     if (GenTreeIndir* indir = node->IsIndir())
     {
@@ -167,7 +167,7 @@ AliasSet::NodeInfo::NodeInfo(Compiler* compiler, GenTree* node) : m_compiler(com
         if (GenTreeLclAddr* lclAddr = indir->GetAddr()->IsLclAddr())
         {
             isLclVarAccess = true;
-            lclNum         = lclAddr->GetLclNum();
+            lcl            = lclAddr->GetLcl();
         }
         else
         {
@@ -189,7 +189,7 @@ AliasSet::NodeInfo::NodeInfo(Compiler* compiler, GenTree* node) : m_compiler(com
     else if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
     {
         isLclVarAccess = true;
-        lclNum         = node->AsLclVarCommon()->GetLclNum();
+        lcl            = node->AsLclVarCommon()->GetLcl();
     }
     else
     {
@@ -202,7 +202,7 @@ AliasSet::NodeInfo::NodeInfo(Compiler* compiler, GenTree* node) : m_compiler(com
 
     // Now that we've determined whether or not this access is a read or a write and whether the accessed location is
     // memory or a lclVar, determine whther or not the location is addressable and update the alias set.
-    const bool isAddressableLocation = isMemoryAccess || compiler->lvaGetDesc(lclNum)->IsAddressExposed();
+    const bool isAddressableLocation = isMemoryAccess || lcl->IsAddressExposed();
 
     // TODO-MIKE-Review: Is this missing HWINTRINSIC stores?
     if (!node->OperIsStore())
@@ -215,7 +215,7 @@ AliasSet::NodeInfo::NodeInfo(Compiler* compiler, GenTree* node) : m_compiler(com
         if (isLclVarAccess)
         {
             m_flags |= ALIAS_READS_LCL_VAR;
-            m_lclNum = lclNum;
+            m_lclNum = lcl->GetLclNum();
         }
     }
     else
@@ -228,7 +228,7 @@ AliasSet::NodeInfo::NodeInfo(Compiler* compiler, GenTree* node) : m_compiler(com
         if (isLclVarAccess)
         {
             m_flags |= ALIAS_WRITES_LCL_VAR;
-            m_lclNum = lclNum;
+            m_lclNum = lcl->GetLclNum();
         }
     }
 }
@@ -248,14 +248,14 @@ void AliasSet::AddNode(Compiler* compiler, GenTree* node)
     node->VisitOperands([compiler, this](GenTree* operand) -> GenTree::VisitResult {
         if (operand->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
-            const unsigned lclNum = operand->AsLclVarCommon()->GetLclNum();
+            LclVarDsc* lcl = operand->AsLclVarCommon()->GetLcl();
 
-            if (compiler->lvaGetDesc(lclNum)->IsAddressExposed())
+            if (lcl->IsAddressExposed())
             {
                 m_readsAddressableLocation = true;
             }
 
-            m_lclVarReads.Add(compiler, lclNum);
+            m_lclVarReads.Add(compiler, lcl->GetLclNum());
         }
 
         if (!operand->OperIs(GT_ARGPLACE) && operand->isContained())
@@ -352,15 +352,15 @@ bool AliasSet::InterferesWith(const NodeInfo& other) const
             {
                 // If this set writes any addressable location and the node uses an address-exposed lclVar,
                 // the set interferes with the node.
-                const unsigned lclNum = operand->AsLclVarCommon()->GetLclNum();
+                LclVarDsc* lcl = operand->AsLclVarCommon()->GetLcl();
 
-                if (compiler->lvaGetDesc(lclNum)->IsAddressExposed() && m_writesAddressableLocation)
+                if (lcl->IsAddressExposed() && m_writesAddressableLocation)
                 {
                     return true;
                 }
 
                 // If this set writes to a lclVar used by the node, the set interferes with the node.
-                if (m_lclVarWrites.Contains(lclNum))
+                if (m_lclVarWrites.Contains(lcl->GetLclNum()))
                 {
                     return true;
                 }

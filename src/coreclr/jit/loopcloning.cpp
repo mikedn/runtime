@@ -371,8 +371,9 @@ GenTree* LcArray::ToGenTree(Compiler* comp) const
 {
     assert(kind == SZArray);
 
-    assert(comp->lvaGetDesc(lclNum)->TypeIs(TYP_REF));
-    GenTree* array = comp->gtNewLclvNode(lclNum, TYP_REF);
+    LclVarDsc* lcl = comp->lvaGetDesc(lclNum);
+    assert(lcl->TypeIs(TYP_REF));
+    GenTree* array = comp->gtNewLclvNode(lcl, TYP_REF);
 
     if (oper == ArrLen)
     {
@@ -404,7 +405,7 @@ GenTree* LcIdent::ToGenTree(Compiler* comp) const
             assert(constant <= INT32_MAX);
             return comp->gtNewIconNode(constant);
         case Lcl:
-            return comp->gtNewLclvNode(constant, comp->lvaGetDesc(constant)->GetType());
+            return comp->gtNewLclvNode(comp->lvaGetDesc(constant), comp->lvaGetDesc(constant)->GetType());
         case ArrLen:
             return arrLen.ToGenTree(comp);
         case Null:
@@ -734,9 +735,9 @@ bool LoopCloneContext::DeriveLoopCloningConditions(unsigned loopNum)
         }
 
         // TODO-MIKE-Review: Why do we check for null "a" in a "a.Length" limit if GTF_RELOP_ZTT is required?
-        derefs.Emplace(array->AsLclVar()->GetLclNum());
+        derefs.Emplace(array->AsLclVar()->GetLcl()->GetLclNum());
 
-        limit = LcIdent(LcArray(LcArray::SZArray, array->AsLclVar()->GetLclNum(), LcArray::ArrLen));
+        limit = LcIdent(LcArray(LcArray::SZArray, array->AsLclVar()->GetLcl()->GetLclNum(), LcArray::ArrLen));
     }
 
     for (LcOptInfo* optInfo : *GetLoopOptInfo(loopNum))
@@ -1538,13 +1539,13 @@ void LoopCloneVisitorInfo::SummarizeLocalStoresVisitor(GenTreeLclVarCommon* stor
 {
     assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
-    unsigned lclNum = store->AsLclVarCommon()->GetLclNum();
+    LclVarDsc* lcl = store->AsLclVarCommon()->GetLcl();
 
     // We currently don't add any locals during loop cloning but in case it
     // happens just be conservative and treat any new locals as modified.
-    if (lclNum < BitVecTraits::GetSize(&context.modifiedLocalsTraits))
+    if (lcl->GetLclNum() < BitVecTraits::GetSize(&context.modifiedLocalsTraits))
     {
-        BitVecOps::AddElemD(context.modifiedLocalsTraits, context.modifiedLocals, lclNum);
+        BitVecOps::AddElemD(context.modifiedLocalsTraits, context.modifiedLocals, lcl->GetLclNum());
     }
 
     // Assigning a promoted local modifies all its fields. This is somewhat conservative,
@@ -1555,8 +1556,6 @@ void LoopCloneVisitorInfo::SummarizeLocalStoresVisitor(GenTreeLclVarCommon* stor
     // field, which implies that the parent struct is modified as well. But we only care
     // about scalar locals in loop cloning (INT indices and REF arrays) so we can ignore
     // this case.
-
-    LclVarDsc* lcl = context.compiler->lvaGetDesc(lclNum);
 
     if (lcl->IsPromoted())
     {
@@ -1596,8 +1595,8 @@ bool LoopCloneVisitorInfo::ExtractArrayIndex(GenTreeOp* comma, ArrIndex* result)
         return false;
     }
 
-    result->arrayLclNum = length->GetArray()->AsLclVar()->GetLclNum();
-    result->indexLclNum = index->AsLclVar()->GetLclNum();
+    result->arrayLclNum = length->GetArray()->AsLclVar()->GetLcl()->GetLclNum();
+    result->indexLclNum = index->AsLclVar()->GetLcl()->GetLclNum();
     result->boundsCheck = comma;
 
     return true;

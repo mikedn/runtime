@@ -1694,7 +1694,7 @@ void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
 {
     assert(load->OperIs(GT_LCL_VAR));
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(load);
+    LclVarDsc* lcl = load->GetLcl();
 
     assert(!lcl->IsIndependentPromoted());
 
@@ -1710,7 +1710,7 @@ void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
     instruction ins  = ins_Load(type);
     emitAttr    attr = emitActualTypeSize(type);
 
-    GetEmitter()->emitIns_R_S(ins, attr, load->GetRegNum(), load->GetLclNum(), 0);
+    GetEmitter()->emitIns_R_S(ins, attr, load->GetRegNum(), lcl->GetLclNum(), 0);
 
     DefLclVarReg(load);
 }
@@ -1749,7 +1749,7 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
             srcReg = genConsumeReg(src);
         }
 
-        unsigned lclNum  = store->GetLclNum();
+        unsigned lclNum  = store->GetLcl()->GetLclNum();
         unsigned lclOffs = store->GetLclOffs();
 
         if ((srcReg == REG_ZR) && (type == TYP_SIMD16))
@@ -1771,7 +1771,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(store);
+    LclVarDsc* lcl = store->GetLcl();
 
     if (lcl->IsIndependentPromoted())
     {
@@ -1832,7 +1832,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
     if (dstReg == REG_NA)
     {
-        unsigned lclNum = store->GetLclNum();
+        unsigned lclNum = lcl->GetLclNum();
 
         if ((srcReg == REG_ZR) && (lclRegType == TYP_SIMD16))
         {
@@ -1896,8 +1896,8 @@ void CodeGen::GenStoreLclVarMultiRegSIMDMem(GenTreeLclVar* store)
     GenTree*     src      = store->GetOp(0);
     GenTreeCall* call     = src->gtSkipReloadOrCopy()->AsCall();
     unsigned     regCount = call->GetRegCount();
-    unsigned     lclNum   = store->GetLclNum();
-    LclVarDsc*   lcl      = compiler->lvaGetDesc(lclNum);
+    LclVarDsc*   lcl      = store->GetLcl();
+    unsigned     lclNum   = lcl->GetLclNum();
 
     assert((regCount >= 2) && (regCount <= 4));
     assert(!lcl->IsRegCandidate() || (store->GetRegNum() == REG_NA));
@@ -3258,10 +3258,10 @@ void CodeGen::genSIMDUpperSpill(GenTreeUnOp* node)
 
     if (node->IsRegSpill(0))
     {
-        unsigned lclNum = op1->AsLclVar()->GetLclNum();
-        assert(compiler->lvaGetDesc(lclNum)->lvOnFrame);
+        LclVarDsc* lcl = op1->AsLclVar()->GetLcl();
+        assert(lcl->lvOnFrame);
 
-        GetEmitter()->emitIns_S_R(INS_str, EA_8BYTE, dstReg, lclNum, 8);
+        GetEmitter()->emitIns_S_R(INS_str, EA_8BYTE, dstReg, lcl->GetLclNum(), 8);
     }
     else
     {
@@ -3287,10 +3287,10 @@ void CodeGen::genSIMDUpperUnspill(GenTreeUnOp* node)
 
     if (node->IsRegSpilled(0))
     {
-        unsigned lclNum = op1->AsLclVar()->GetLclNum();
-        assert(compiler->lvaGetDesc(lclNum)->lvOnFrame);
+        LclVarDsc* lcl = op1->AsLclVar()->GetLcl();
+        assert(lcl->lvOnFrame);
 
-        GetEmitter()->emitIns_R_S(INS_ldr, EA_8BYTE, srcReg, lclNum, 8);
+        GetEmitter()->emitIns_R_S(INS_ldr, EA_8BYTE, srcReg, lcl->GetLclNum(), 8);
     }
 
     GetEmitter()->emitIns_R_R_I_I(INS_mov, EA_8BYTE, dstReg, srcReg, 1, 0);
@@ -8349,7 +8349,7 @@ void CodeGen::genCodeForInstr(GenTreeInstr* instr)
 }
 
 CodeGen::GenAddrMode::GenAddrMode(GenTree* tree, CodeGen* codeGen)
-    : m_base(REG_NA), m_index(REG_NA), m_scale(1), m_disp(0), m_lclNum(BAD_VAR_NUM)
+    : m_base(REG_NA), m_index(REG_NA), m_scale(1), m_disp(0), m_lcl(nullptr)
 {
     if (GenTreeIndir* indir = tree->IsIndir())
     {
@@ -8376,7 +8376,7 @@ CodeGen::GenAddrMode::GenAddrMode(GenTree* tree, CodeGen* codeGen)
     }
     else
     {
-        m_lclNum = tree->AsLclVarCommon()->GetLclNum();
+        m_lcl = tree->AsLclVarCommon()->GetLcl();
 
         if (tree->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD))
         {
@@ -8389,7 +8389,7 @@ void CodeGen::inst_R_AM(instruction ins, emitAttr attr, regNumber reg, const Gen
 {
     if (addrMode.IsLcl())
     {
-        GetEmitter()->emitIns_R_S(ins, attr, reg, addrMode.LclNum(), addrMode.Disp(offset));
+        GetEmitter()->emitIns_R_S(ins, attr, reg, addrMode.Lcl()->GetLclNum(), addrMode.Disp(offset));
     }
     else
     {
@@ -8401,7 +8401,7 @@ void CodeGen::inst_AM_R(instruction ins, emitAttr attr, regNumber reg, const Gen
 {
     if (addrMode.IsLcl())
     {
-        GetEmitter()->emitIns_S_R(ins, attr, reg, addrMode.LclNum(), addrMode.Disp(offset));
+        GetEmitter()->emitIns_S_R(ins, attr, reg, addrMode.Lcl()->GetLclNum(), addrMode.Disp(offset));
     }
     else
     {
@@ -8446,7 +8446,7 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
     if (addr->OperIs(GT_LCL_ADDR))
     {
         GenTreeLclAddr* lclAddr = addr->AsLclAddr();
-        unsigned        lclNum  = lclAddr->GetLclNum();
+        unsigned        lclNum  = lclAddr->GetLcl()->GetLclNum();
         unsigned        offset  = lclAddr->GetLclOffs();
 
         if (emitter::emitInsIsStore(ins))

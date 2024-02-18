@@ -731,7 +731,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 bool CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
 {
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
+    LclVarDsc* lcl = lclVar->GetLcl();
 
     assert(lcl->IsRegCandidate());
     assert(lclVar->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
@@ -817,7 +817,7 @@ regNumber CodeGen::UseRegCandidateLclVar(GenTreeLclVar* node)
 {
     assert(IsRegCandidateLclVar(node));
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(node);
+    LclVarDsc* lcl = node->GetLcl();
 
     // Handle the case where we have a lclVar that needs to be copied before use (i.e. because it
     // interferes with one of the other sources (or the target, if it's a "delayed use" register)).
@@ -888,7 +888,7 @@ void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
 
     if (src->OperIs(GT_LCL_VAR) && !src->IsLastUse(0) && !copy->IsLastUse(0))
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(src->AsLclVar());
+        LclVarDsc* lcl = src->AsLclVar()->GetLcl();
 
         if (lcl->GetRegNum() != REG_STK)
         {
@@ -934,7 +934,7 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
     // Reset spilled flag, since we are going to load a local variable from its home location.
     node->SetRegSpilled(0, false);
 
-    LclVarDsc* lcl     = compiler->lvaGetDesc(node);
+    LclVarDsc* lcl     = node->GetLcl();
     var_types  regType = lcl->GetRegisterType(node);
 
     assert(regType != TYP_UNDEF);
@@ -1182,7 +1182,7 @@ bool CodeGen::IsValidContainedLcl(GenTreeLclVarCommon* node)
     // A contained local must be living on stack and marked as reg optional,
     // or not be a register candidate.
     // TODO-MIKE-Review: If it's reg optional it probably needs to be spilled too...
-    LclVarDsc* lcl = compiler->lvaGetDesc(node);
+    LclVarDsc* lcl = node->GetLcl();
 
     return (lcl->GetRegNum() == REG_STK) && (node->IsRegOptional() || !lcl->IsRegCandidate());
 }
@@ -1333,7 +1333,7 @@ void CodeGen::ConsumeStructStore(
     {
         assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
-        unsigned lclNum  = store->AsLclVarCommon()->GetLclNum();
+        unsigned lclNum  = store->AsLclVarCommon()->GetLcl()->GetLclNum();
         unsigned lclOffs = store->AsLclVarCommon()->GetLclOffs();
 
         GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, dstReg, lclNum, lclOffs);
@@ -1343,7 +1343,7 @@ void CodeGen::ConsumeStructStore(
     {
         assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
 
-        unsigned lclNum  = src->AsLclVarCommon()->GetLclNum();
+        unsigned lclNum  = src->AsLclVarCommon()->GetLcl()->GetLclNum();
         unsigned lclOffs = src->AsLclVarCommon()->GetLclOffs();
 
         GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, srcReg, lclNum, lclOffs);
@@ -1486,7 +1486,7 @@ void CodeGen::DefLclVarReg(GenTreeLclVar* lclVar)
     assert((lclVar->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
     INDEBUG(lclVar->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;)
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
+    LclVarDsc* lcl = lclVar->GetLcl();
 
     assert(!lcl->IsIndependentPromoted());
 

@@ -4941,7 +4941,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArg,
 #ifdef FEATURE_SIMD
         if (srcType == TYP_SIMD12)
         {
-            genStoreSIMD12(GenAddrMode(outArgLclNum, dstOffset), src, tmpReg);
+            genStoreSIMD12(GenAddrMode(compiler->lvaGetDesc(outArgLclNum), dstOffset), src, tmpReg);
             continue;
         }
 #endif
@@ -5171,7 +5171,7 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
 void CodeGen::GenStoreLclVarLong(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR) && store->TypeIs(TYP_LONG));
-    assert(compiler->lvaGetDesc(store)->TypeIs(TYP_LONG) && !compiler->lvaGetDesc(store)->IsIndependentPromoted());
+    assert(store->GetLcl()->TypeIs(TYP_LONG) && !store->GetLcl()->IsIndependentPromoted());
 
     GenTree*  src = store->GetOp(0);
     regNumber srcRegs[2];
@@ -5189,8 +5189,9 @@ void CodeGen::GenStoreLclVarLong(GenTreeLclVar* store)
         srcRegs[1] = UseReg(src, 1);
     }
 
-    GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, srcRegs[0], store->GetLclNum(), 0);
-    GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, srcRegs[1], store->GetLclNum(), 4);
+    unsigned lclNum = store->GetLcl()->GetLclNum();
+    GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, srcRegs[0], lclNum, 0);
+    GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, srcRegs[1], lclNum, 4);
 
     liveness.UpdateLife(this, store);
 }
@@ -5206,7 +5207,7 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
     GenTree* src = store->GetOp(0);
     assert(src->IsMultiRegNode());
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(store);
+    LclVarDsc* lcl = store->GetLcl();
     assert(lcl->IsIndependentPromoted() && !lcl->IsRegCandidate());
 
     unsigned regCount = lcl->GetPromotedFieldCount();
@@ -5317,7 +5318,7 @@ bool CodeGen::IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclO
 
     if (op->OperIs(GT_LCL_FLD))
     {
-        *lclNum  = op->AsLclFld()->GetLclNum();
+        *lclNum  = op->AsLclFld()->GetLcl()->GetLclNum();
         *lclOffs = op->AsLclFld()->GetLclOffs();
 
         return true;
@@ -5325,9 +5326,9 @@ bool CodeGen::IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclO
 
     if (op->OperIs(GT_LCL_VAR))
     {
-        assert(op->IsRegOptional() || !compiler->lvaGetDesc(op->AsLclVar())->IsRegCandidate());
+        assert(op->IsRegOptional() || !op->AsLclVar()->GetLcl()->IsRegCandidate());
 
-        *lclNum  = op->AsLclVar()->GetLclNum();
+        *lclNum  = op->AsLclVar()->GetLcl()->GetLclNum();
         *lclOffs = 0;
 
         return true;
@@ -5647,7 +5648,7 @@ void CodeGen::GenLclAddr(GenTreeLclAddr* addr)
     // TODO-MIKE-Review: Shouldn't this simply be EA_PTRSIZE?
     emitAttr attr = emitTypeSize(addr->GetType());
 
-    GetEmitter()->emitIns_R_S(INS_lea, attr, addr->GetRegNum(), addr->GetLclNum(), addr->GetLclOffs());
+    GetEmitter()->emitIns_R_S(INS_lea, attr, addr->GetRegNum(), addr->GetLcl()->GetLclNum(), addr->GetLclOffs());
     DefReg(addr);
 }
 

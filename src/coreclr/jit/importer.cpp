@@ -229,7 +229,7 @@ GenTree* Importer::impSIMDPopStack(var_types type)
 
         LclVarDsc* tmpLcl = lvaAllocTemp(true DEBUGARG("struct address for call/obj"));
         impAppendTempAssign(tmpLcl, tree, layout, CHECK_SPILL_ALL);
-        tree = gtNewLclvNode(tmpLcl->GetLclNum(), tmpLcl->GetType());
+        tree = gtNewLclvNode(tmpLcl, tmpLcl->GetType());
     }
 
     assert(tree->GetType() == type);
@@ -362,14 +362,13 @@ void Importer::AppendStmtCheck(GenTree* tree, unsigned chkLevel)
 
         if (tree->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR))
         {
-            unsigned   lclNum = tree->AsOp()->GetOp(0)->AsLclVar()->GetLclNum();
-            LclVarDsc* lcl    = comp->lvaGetDesc(lclNum);
+            LclVarDsc* lcl = tree->AsOp()->GetOp(0)->AsLclVar()->GetLcl();
 
             for (unsigned level = 0; level < chkLevel; level++)
             {
                 GenTree* val = verCurrentState.esStack[level].val;
 
-                assert(!impHasLclRef(val, lclNum) || impIsAddressInLocal(val));
+                assert(!impHasLclRef(val, lcl) || impIsAddressInLocal(val));
 
                 // TODO-MIKE-Cleanup: Checking IsAddressExposed here is nonsense,
                 // it's rarely set during import.
@@ -526,7 +525,7 @@ void Importer::impAppendTempAssign(LclVarDsc* lcl, GenTree* val, unsigned curLev
     var_types type = varActualType(val->GetType());
     lcl->SetType(type);
 
-    GenTree* asg = gtNewAssignNode(gtNewLclvNode(lcl->GetLclNum(), type), val);
+    GenTree* asg = gtNewAssignNode(gtNewLclvNode(lcl, type), val);
     impAppendTree(asg, curLevel);
 }
 
@@ -543,7 +542,7 @@ void Importer::impAppendTempAssign(LclVarDsc* lcl, GenTree* val, ClassLayout* la
 
     comp->lvaSetStruct(lcl, layout, false);
 
-    GenTree* dest = gtNewLclvNode(lcl->GetLclNum(), lcl->GetType());
+    GenTree* dest = gtNewLclvNode(lcl, lcl->GetType());
     GenTree* asg  = impAssignStruct(dest, val, curLevel);
     impAppendTree(asg, curLevel);
 }
@@ -772,7 +771,7 @@ void Compiler::impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call)
 
     if (dest->OperIs(GT_LCL_VAR))
     {
-        retBufAddr = dest->ChangeToLclAddr(TYP_I_IMPL, dest->AsLclVar()->GetLclNum());
+        retBufAddr = dest->ChangeToLclAddr(TYP_I_IMPL, dest->AsLclVar()->GetLcl());
     }
     else
     {
@@ -860,7 +859,7 @@ GenTree* Importer::impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigne
 
     if (dest->OperIs(GT_LCL_VAR))
     {
-        destAddr = dest->ChangeToLclAddr(TYP_I_IMPL, dest->AsLclVar()->GetLclNum());
+        destAddr = dest->ChangeToLclAddr(TYP_I_IMPL, dest->AsLclVar()->GetLcl());
     }
     else
     {
@@ -958,7 +957,7 @@ GenTree* Importer::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLeve
             // But what about ARMARCH?!
             // Oh well, the usual mess.
 
-            comp->lvaGetDesc(dest->AsLclVar())->lvIsMultiRegRet = true;
+            dest->AsLclVar()->GetLcl()->lvIsMultiRegRet = true;
         }
 #endif
     }
@@ -977,12 +976,12 @@ GenTree* Importer::impGetStructAddr(GenTree*             value,
 
     if (value->OperIs(GT_LCL_VAR))
     {
-        return value->ChangeToLclAddr(TYP_BYREF, value->AsLclVar()->GetLclNum());
+        return value->ChangeToLclAddr(TYP_BYREF, value->AsLclVar()->GetLcl());
     }
 
     if (value->OperIs(GT_LCL_FLD))
     {
-        return value->ChangeToLclAddr(TYP_BYREF, value->AsLclFld()->GetLclNum(), value->AsLclFld()->GetLclOffs(),
+        return value->ChangeToLclAddr(TYP_BYREF, value->AsLclFld()->GetLcl(), value->AsLclFld()->GetLclOffs(),
                                       value->AsLclFld()->GetFieldSeq());
     }
 
@@ -994,7 +993,7 @@ GenTree* Importer::impGetStructAddr(GenTree*             value,
 
     LclVarDsc* tmpLcl = lvaAllocTemp(true DEBUGARG("struct address temp"));
     impAppendTempAssign(tmpLcl, value, structHnd, curLevel);
-    return gtNewLclVarAddrNode(tmpLcl->GetLclNum(), TYP_BYREF);
+    return gtNewLclVarAddrNode(tmpLcl, TYP_BYREF);
 }
 
 GenTree* Importer::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLayout, unsigned curLevel)
@@ -1010,12 +1009,12 @@ GenTree* Importer::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
             {
                 LclVarDsc* argLcl = lvaAllocTemp(true DEBUGARG("struct arg temp"));
                 impAppendTempAssign(argLcl, arg, argLayout, curLevel);
-                arg = gtNewLclvNode(argLcl->GetLclNum(), argLcl->GetType());
+                arg = gtNewLclvNode(argLcl, argLcl->GetType());
             }
             return arg;
 
         case GT_LCL_VAR:
-            assert(arg->GetType() == comp->lvaGetDesc(arg->AsLclVar())->GetType());
+            assert(arg->GetType() == arg->AsLclVar()->GetLcl()->GetType());
             return arg;
 
 #ifdef FEATURE_SIMD
@@ -1249,11 +1248,11 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
 
         impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("bubbling QMark0"));
 
-        unsigned slotLclNum = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("impRuntimeLookup test"))->GetLclNum();
-        GenTree* asg        = gtNewAssignNode(gtNewLclvNode(slotLclNum, TYP_I_IMPL), slotPtrTree);
+        LclVarDsc* slotLcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("impRuntimeLookup test"));
+        GenTree*   asg     = gtNewAssignNode(gtNewLclvNode(slotLcl, TYP_I_IMPL), slotPtrTree);
         impAppendTree(asg, CHECK_SPILL_ALL);
 
-        GenTree* slot = gtNewLclvNode(slotLclNum, TYP_I_IMPL);
+        GenTree* slot = gtNewLclvNode(slotLcl, TYP_I_IMPL);
 #ifdef TARGET_64BIT
         slot = gtNewCastNode(slot, false, TYP_INT);
 #endif
@@ -1262,17 +1261,17 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
         GenTree* relop = gtNewOperNode(GT_EQ, TYP_INT, test, gtNewIconNode(0));
 
         // slot = GT_IND(slot - 1)
-        slot           = gtNewLclvNode(slotLclNum, TYP_I_IMPL);
+        slot           = gtNewLclvNode(slotLcl, TYP_I_IMPL);
         GenTree* add   = gtNewOperNode(GT_ADD, TYP_I_IMPL, slot, gtNewIconNode(-1, TYP_I_IMPL));
         GenTree* indir = gtNewIndir(TYP_I_IMPL, add);
         indir->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
 
-        asg = gtNewAssignNode(gtNewLclvNode(slotLclNum, TYP_I_IMPL), indir);
+        asg = gtNewAssignNode(gtNewLclvNode(slotLcl, TYP_I_IMPL), indir);
 
         GenTree* qmark = gtNewQmarkNode(TYP_VOID, relop, gtNewNothingNode(), asg);
         impAppendTree(qmark, CHECK_SPILL_NONE);
 
-        return gtNewLclvNode(slotLclNum, TYP_I_IMPL);
+        return gtNewLclvNode(slotLcl, TYP_I_IMPL);
     }
 
     assert(runtimeLookup.indirections != 0);
@@ -1329,10 +1328,10 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
         result = gtNewQmarkNode(TYP_I_IMPL, nullCheck, handleForResult, helperCall);
     }
 
-    unsigned tmp = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("spilling Runtime Lookup tree"))->GetLclNum();
-    GenTree* asg = gtNewAssignNode(gtNewLclvNode(tmp, TYP_I_IMPL), result);
+    LclVarDsc* tmpLcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("spilling Runtime Lookup tree"));
+    GenTree*   asg    = gtNewAssignNode(gtNewLclvNode(tmpLcl, TYP_I_IMPL), result);
     impAppendTree(asg, CHECK_SPILL_NONE);
-    return gtNewLclvNode(tmp, TYP_I_IMPL);
+    return gtNewLclvNode(tmpLcl, TYP_I_IMPL);
 }
 
 void Importer::impImportDup()
@@ -1373,8 +1372,8 @@ void Importer::impImportDup()
             comp->lvaSetClass(lcl, op1, se.seTypeInfo.GetClassHandle());
         }
 
-        op1 = gtNewLclvNode(lcl->GetLclNum(), varActualType(lcl->GetType()));
-        op2 = gtNewLclvNode(lcl->GetLclNum(), varActualType(lcl->GetType()));
+        op1 = gtNewLclvNode(lcl, varActualType(lcl->GetType()));
+        op2 = gtNewLclvNode(lcl, varActualType(lcl->GetType()));
     }
 
     impPushOnStack(op1, se.seTypeInfo);
@@ -1404,11 +1403,11 @@ void Importer::impSpillStackEntry(unsigned level DEBUGARG(const char* reason))
             JITDUMP("\n*** see V%02u = GT_RET_EXPR, noting temp\n", lcl->GetLclNum());
 
             assert(retExpr->GetRetExpr() == retExpr->GetCall());
-            retExpr->GetCall()->gtInlineCandidateInfo->preexistingSpillTemp = lcl->GetLclNum();
+            retExpr->GetCall()->gtInlineCandidateInfo->preexistingSpillTemp = lcl;
         }
     }
 
-    se.val = gtNewLclvNode(lcl->GetLclNum(), varActualType(lcl->GetType()));
+    se.val = gtNewLclvNode(lcl, varActualType(lcl->GetType()));
 }
 
 void Importer::EnsureStackSpilled(bool ignoreLeaves DEBUGARG(const char* reason))
@@ -1423,7 +1422,7 @@ void Importer::EnsureStackSpilled(bool ignoreLeaves DEBUGARG(const char* reason)
         }
 
         // Temps introduced by the importer itself don't need to be spilled.
-        if (tree->OperIs(GT_LCL_VAR) && (tree->AsLclVar()->GetLclNum() >= info.compLocalsCount))
+        if (tree->OperIs(GT_LCL_VAR) && (tree->AsLclVar()->GetLcl()->GetLclNum() >= info.compLocalsCount))
         {
             continue;
         }
@@ -1478,7 +1477,7 @@ void Importer::SpillCatchArg()
 }
 
 // Spill all trees containing references to the specified local.
-void Importer::impSpillLclReferences(unsigned lclNum)
+void Importer::impSpillLclReferences(LclVarDsc* lcl)
 {
     for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
     {
@@ -1499,7 +1498,7 @@ void Importer::impSpillLclReferences(unsigned lclNum)
 
         bool xcptnCaught = ((tree->gtFlags & (GTF_CALL | GTF_EXCEPT)) != 0) && ehBlockHasExnFlowDsc(currentBlock);
 
-        if (xcptnCaught || impHasLclRef(tree, lclNum))
+        if (xcptnCaught || impHasLclRef(tree, lcl))
         {
             impSpillStackEntry(level DEBUGARG("STLOC stack spill temp"));
         }
@@ -1582,7 +1581,7 @@ BasicBlock* Importer::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
             if (tree->OperIs(GT_ASG) && tree->AsOp()->gtOp1->OperIs(GT_LCL_VAR) &&
                 tree->AsOp()->gtOp2->OperIs(GT_CATCH_ARG))
             {
-                tree = gtNewLclvNode(tree->AsOp()->gtOp1->AsLclVar()->GetLclNum(), TYP_REF);
+                tree = gtNewLclvNode(tree->AsOp()->gtOp1->AsLclVar()->GetLcl(), TYP_REF);
 
                 assert(hndBlk->bbEntryState->HasCatchArg());
 
@@ -1624,7 +1623,7 @@ BasicBlock* Importer::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
 
         // Spill into a temp.
         LclVarDsc* tempLcl = lvaNewTemp(TYP_REF, false DEBUGARG("CATCH_ARG spill temp"));
-        GenTree*   argAsg  = gtNewAssignNode(gtNewLclvNode(tempLcl->GetLclNum(), TYP_REF), impNewCatchArg());
+        GenTree*   argAsg  = gtNewAssignNode(gtNewLclvNode(tempLcl, TYP_REF), impNewCatchArg());
         Statement* argStmt;
 
         if (compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES)
@@ -1706,13 +1705,13 @@ void Importer::impMakeMultiUse(GenTree*  tree,
         }
     }
 
-    var_types type   = varActualType(tree->GetType());
-    unsigned  lclNum = lvaNewTemp(type, true DEBUGARG(reason))->GetLclNum();
-    impAppendTree(gtNewAssignNode(gtNewLclvNode(lclNum, type), tree), spillCheckLevel);
+    var_types  type = varActualType(tree->GetType());
+    LclVarDsc* lcl  = lvaNewTemp(type, true DEBUGARG(reason));
+    impAppendTree(gtNewAssignNode(gtNewLclvNode(lcl, type), tree), spillCheckLevel);
 
     for (unsigned i = 0; i < useCount; i++)
     {
-        uses[i] = gtNewLclvNode(lclNum, type);
+        uses[i] = gtNewLclvNode(lcl, type);
     }
 }
 
@@ -1743,12 +1742,11 @@ void Importer::impMakeMultiUse(GenTree*     tree,
     LclVarDsc* lcl = lvaAllocTemp(true DEBUGARG(reason));
     impAppendTempAssign(lcl, tree, layout, spillCheckLevel);
 
-    unsigned  lclNum = lcl->GetLclNum();
-    var_types type   = varActualType(lcl->GetType());
+    var_types type = varActualType(lcl->GetType());
 
     for (unsigned i = 0; i < useCount; i++)
     {
-        uses[i] = gtNewLclvNode(lclNum, type);
+        uses[i] = gtNewLclvNode(lcl, type);
     }
 }
 
@@ -2124,7 +2122,7 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
 
     if (!arrayAssignment->OperIs(GT_ASG) || !arrayAssignment->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR) ||
         !arrayLocalNode->OperIs(GT_LCL_VAR) ||
-        (arrayAssignment->AsOp()->GetOp(0)->AsLclVar()->GetLclNum() != arrayLocalNode->AsLclVar()->GetLclNum()))
+        (arrayAssignment->AsOp()->GetOp(0)->AsLclVar()->GetLcl() != arrayLocalNode->AsLclVar()->GetLcl()))
     {
         return nullptr;
     }
@@ -2235,12 +2233,12 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
             static bool IsArgsField(GenTree* tree, unsigned index, unsigned argLclNum)
             {
                 return tree->OperIs(GT_LCL_FLD) && (tree->AsLclFld()->GetLclOffs() == 4 * index) &&
-                       (tree->AsLclFld()->GetLclNum() == argLclNum);
+                       (tree->AsLclFld()->GetLcl()->GetLclNum() == argLclNum);
             }
 
             static bool IsArgsAddr(GenTree* tree, unsigned argLclNum)
             {
-                return tree->OperIs(GT_LCL_ADDR) && (tree->AsLclAddr()->GetLclNum() == argLclNum) &&
+                return tree->OperIs(GT_LCL_ADDR) && (tree->AsLclAddr()->GetLcl()->GetLclNum() == argLclNum) &&
                        (tree->AsLclAddr()->GetLclOffs() == 0);
             }
 
@@ -2480,12 +2478,12 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
                 return new (comp, GT_LABEL) GenTree(GT_LABEL, TYP_I_IMPL);
             case CORINFO_INTRINSIC_StubHelpers_GetStubContext:
                 noway_assert(comp->lvaStubArgumentVar != BAD_VAR_NUM);
-                return gtNewLclvNode(comp->lvaStubArgumentVar, TYP_I_IMPL);
+                return gtNewLclvNode(comp->lvaGetDesc(comp->lvaStubArgumentVar), TYP_I_IMPL);
 #ifdef TARGET_64BIT
             case CORINFO_INTRINSIC_StubHelpers_GetStubContextAddr:
                 noway_assert(comp->lvaStubArgumentVar != BAD_VAR_NUM);
                 lvaSetAddressExposed(comp->lvaGetDesc(comp->lvaStubArgumentVar));
-                return gtNewLclVarAddrNode(comp->lvaStubArgumentVar, TYP_I_IMPL);
+                return gtNewLclVarAddrNode(comp->lvaGetDesc(comp->lvaStubArgumentVar), TYP_I_IMPL);
 #endif
             default:
                 assert(intrinsicId != CORINFO_INTRINSIC_StubHelpers_GetStubContextAddr);
@@ -2849,10 +2847,10 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
 
             noway_assert(rawHandle->TypeIs(TYP_I_IMPL));
 
-            unsigned rawHandleSlot = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("rawHandle"))->GetLclNum();
-            GenTree* asg           = gtNewAssignNode(gtNewLclvNode(rawHandleSlot, TYP_I_IMPL), rawHandle);
+            LclVarDsc* rawHandleSlotLcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("rawHandle"));
+            GenTree*   asg              = gtNewAssignNode(gtNewLclvNode(rawHandleSlotLcl, TYP_I_IMPL), rawHandle);
             impAppendTree(asg, CHECK_SPILL_NONE);
-            GenTree* lclVarAddr = gtNewLclVarAddrNode(rawHandleSlot, TYP_I_IMPL);
+            GenTree* lclVarAddr = gtNewLclVarAddrNode(rawHandleSlotLcl, TYP_I_IMPL);
 
             retNode = gtNewIndir(CorTypeToVarType(sig->retType), lclVarAddr);
 
@@ -3927,7 +3925,7 @@ GenTree* Importer::impUnsupportedNamedIntrinsic(CorInfoHelpFunc       helper,
 
     LclVarDsc* tempLcl = lvaAllocTemp(true DEBUGARG("unsupported named intrinsic temp"));
     comp->lvaSetStruct(tempLcl, layout, false);
-    return gtNewLclvNode(tempLcl->GetLclNum(), TYP_STRUCT);
+    return gtNewLclvNode(tempLcl, TYP_STRUCT);
 }
 
 /*****************************************************************************/
@@ -4571,9 +4569,9 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
             // of box temps by reusing an existing temp when possible.
             // In minopts we don't inline so there's no point in sharing the temp
             // between inliner and inlinees.
-            if (impBoxTempInUse || (impBoxTemp == BAD_VAR_NUM))
+            if (impBoxTempInUse || (impBoxTempLcl == nullptr))
             {
-                impBoxTemp = lvaNewTemp(TYP_REF, true DEBUGARG("Reusable Box Helper"))->GetLclNum();
+                impBoxTempLcl = lvaNewTemp(TYP_REF, true DEBUGARG("Reusable Box Helper"));
             }
         }
         else
@@ -4584,7 +4582,7 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
             boxTempLcl->lvSingleDef = 1;
             JITDUMP("Marking V%02u as a single def local\n", boxTempLcl->GetLclNum());
             comp->lvaSetClass(boxTempLcl, pResolvedToken->hClass, /* isExact */ true);
-            impBoxTemp = boxTempLcl->GetLclNum();
+            impBoxTempLcl = boxTempLcl;
         }
 
         // needs to stay in use until this box expression is appended
@@ -4603,10 +4601,10 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
         currentBlock->bbFlags |= BBF_HAS_NEWOBJ;
         comp->optMethodFlags |= OMF_HAS_NEWOBJ;
 
-        GenTree*   asg     = gtNewAssignNode(gtNewLclvNode(impBoxTemp, TYP_REF), op1);
+        GenTree*   asg     = gtNewAssignNode(gtNewLclvNode(impBoxTempLcl, TYP_REF), op1);
         Statement* asgStmt = impAppendTree(asg, CHECK_SPILL_NONE);
 
-        op1 = gtNewLclvNode(impBoxTemp, TYP_REF);
+        op1 = gtNewLclvNode(impBoxTempLcl, TYP_REF);
         op2 = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
         op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1, op2);
 
@@ -4683,7 +4681,7 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
         // Set up this copy as a second assignment.
         Statement* copyStmt = impAppendTree(op1, CHECK_SPILL_NONE);
 
-        op1 = gtNewLclvNode(impBoxTemp, TYP_REF);
+        op1 = gtNewLclvNode(impBoxTempLcl, TYP_REF);
 
         // Record that this is a "box" node and keep track of the matching parts.
         op1 = new (comp, GT_BOX) GenTreeBox(TYP_REF, op1, asgStmt, copyStmt);
@@ -4804,14 +4802,14 @@ void Importer::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
         //  - Pointer to block of int32 dimensions - address  of lvaNewObjArrayArgs temp.
         //
 
-        node = gtNewLclVarAddrNode(lvaNewObjArrayArgs, TYP_I_IMPL);
+        node = gtNewLclVarAddrNode(argsLcl, TYP_I_IMPL);
 
         // Pop dimension arguments from the stack one at a time and store it
         // into lvaNewObjArrayArgs temp.
         for (int i = pCallInfo->sig.numArgs - 1; i >= 0; i--)
         {
             GenTree* arg  = impImplicitIorI4Cast(impPopStack().val, TYP_INT);
-            GenTree* dest = gtNewLclFldNode(lvaNewObjArrayArgs, TYP_INT, 4 * i);
+            GenTree* dest = gtNewLclFldNode(argsLcl, TYP_INT, 4 * i);
             node          = gtNewCommaNode(gtNewAssignNode(dest, arg), node);
         }
 
@@ -6495,11 +6493,10 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                     // complex expression. As it is evaluated after the args,
                     // it may cause registered args to be spilled. Simply spill it.
 
-                    unsigned lclNum =
-                        lvaNewTemp(TYP_I_IMPL, true DEBUGARG("VirtualCall with runtime lookup"))->GetLclNum();
-                    GenTree* asg = gtNewAssignNode(gtNewLclvNode(lclNum, TYP_I_IMPL), stubAddr);
+                    LclVarDsc* lcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("VirtualCall with runtime lookup"));
+                    GenTree*   asg = gtNewAssignNode(gtNewLclvNode(lcl, TYP_I_IMPL), stubAddr);
                     impAppendTree(asg, CHECK_SPILL_NONE);
-                    stubAddr = gtNewLclvNode(lclNum, TYP_I_IMPL);
+                    stubAddr = gtNewLclvNode(lcl, TYP_I_IMPL);
 
                     // Create the actual call node
 
@@ -6584,11 +6581,10 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
                 // Now make an indirect call through the function pointer
 
-                unsigned lclNum =
-                    lvaNewTemp(TYP_I_IMPL, true DEBUGARG("VirtualCall through function pointer"))->GetLclNum();
-                GenTree* asg = gtNewAssignNode(gtNewLclvNode(lclNum, TYP_I_IMPL), fptr);
+                LclVarDsc* lcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("VirtualCall through function pointer"));
+                GenTree*   asg = gtNewAssignNode(gtNewLclvNode(lcl, TYP_I_IMPL), fptr);
                 impAppendTree(asg, CHECK_SPILL_ALL);
-                fptr = gtNewLclvNode(lclNum, TYP_I_IMPL);
+                fptr = gtNewLclvNode(lcl, TYP_I_IMPL);
 
                 // Create the actual call node
 
@@ -6661,11 +6657,10 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
                 assert(fptr->TypeIs(TYP_I_IMPL));
 
-                unsigned lclNum =
-                    lvaNewTemp(TYP_I_IMPL, true DEBUGARG("Indirect call through function pointer"))->GetLclNum();
-                GenTree* asg = gtNewAssignNode(gtNewLclvNode(lclNum, TYP_I_IMPL), fptr);
+                LclVarDsc* lcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("Indirect call through function pointer"));
+                GenTree*   asg = gtNewAssignNode(gtNewLclvNode(lcl, TYP_I_IMPL), fptr);
                 impAppendTree(asg, CHECK_SPILL_ALL);
-                fptr = gtNewLclvNode(lclNum, TYP_I_IMPL);
+                fptr = gtNewLclvNode(lcl, TYP_I_IMPL);
 
                 call = gtNewIndCallNode(fptr, callRetTyp, nullptr, ilOffset);
 
@@ -7001,7 +6996,7 @@ PUSH_CALL:
             // instead of other stack contents, tmp = CALL, tmp use.
             impAppendTempAssign(calliTempLcl, call, call->GetRetLayout(), CHECK_SPILL_NONE);
 
-            value = gtNewLclvNode(calliTempLcl->GetLclNum(), varActualType(calliTempLcl->GetType()));
+            value = gtNewLclvNode(calliTempLcl, varActualType(calliTempLcl->GetType()));
         }
         else
         {
@@ -7472,7 +7467,7 @@ GenTree* Importer::impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CL
 
     if (value->OperIs(GT_LCL_VAR))
     {
-        lcl = comp->lvaGetDesc(value->AsLclVar());
+        lcl = value->AsLclVar()->GetLcl();
 
         if (lcl->IsImplicitByRefParam())
         {
@@ -7513,7 +7508,7 @@ GenTree* Importer::impSpillPseudoReturnBufferCall(GenTreeCall* call)
 
     LclVarDsc* tmpLcl = lvaAllocTemp(true DEBUGARG("pseudo return buffer"));
     impAppendTempAssign(tmpLcl, call, call->GetRetLayout(), CHECK_SPILL_ALL);
-    return gtNewLclvNode(tmpLcl->GetLclNum(), info.compRetType);
+    return gtNewLclvNode(tmpLcl, info.compRetType);
 }
 
 /*****************************************************************************
@@ -8770,7 +8765,7 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
     {
         op2Var = fgInsertCommaFormTemp(&op2);
 
-        comp->lvaGetDesc(op2Var->AsLclVar())->lvIsCSE = true;
+        op2Var->AsLclVar()->GetLcl()->lvIsCSE = true;
     }
     temp   = gtNewMethodTableLookup(temp);
     condMT = gtNewOperNode(GT_NE, TYP_INT, temp, op2);
@@ -8817,7 +8812,7 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
 
     // Make QMark node a top level node by spilling it.
     LclVarDsc* lclDsc = lvaNewTemp(TYP_REF, true DEBUGARG("spilling QMark2"));
-    GenTree*   asg    = gtNewAssignNode(gtNewLclvNode(lclDsc->GetLclNum(), TYP_REF), qmarkNull);
+    GenTree*   asg    = gtNewAssignNode(gtNewLclvNode(lclDsc, TYP_REF), qmarkNull);
     impAppendTree(asg, CHECK_SPILL_NONE);
 
     // TODO-CQ: Is it possible op1 has a better type?
@@ -8828,7 +8823,7 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
     lclDsc->lvSingleDef = true;
     JITDUMP("Marked V%02u as a single def temp\n", lclDsc->GetLclNum());
     comp->lvaSetClass(lclDsc, pResolvedToken->hClass);
-    return gtNewLclvNode(lclDsc->GetLclNum(), TYP_REF);
+    return gtNewLclvNode(lclDsc, TYP_REF);
 }
 
 //------------------------------------------------------------------------
@@ -9193,7 +9188,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                     op1 = inlUseArg(impInlineInfo, lclNum);
                     noway_assert(op1->OperIs(GT_LCL_VAR));
-                    lclNum = op1->AsLclVar()->GetLclNum();
+                    lclNum = op1->AsLclVar()->GetLcl()->GetLclNum();
                 }
                 else
                 {
@@ -9271,7 +9266,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
 
                 // Filter out simple assignments to itself
-                if (op1->OperIs(GT_LCL_VAR) && (op1->AsLclVar()->GetLclNum() == lclNum))
+                if (op1->OperIs(GT_LCL_VAR) && (op1->AsLclVar()->GetLcl()->GetLclNum() == lclNum))
                 {
                     if (opts.compDbgCode)
                     {
@@ -9333,7 +9328,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                             spillSideEffects = GTF_SIDE_EFFECT;
                         }
 
-                        impSpillLclReferences(lclNum);
+                        impSpillLclReferences(comp->lvaGetDesc(lclNum));
                     }
 
                     if (spillSideEffects != GTF_EMPTY)
@@ -9344,7 +9339,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 // Create and append the assignment statement
 
-                op2 = gtNewLclvNode(lclNum, lclTyp);
+                op2 = gtNewLclvNode(comp->lvaGetDesc(lclNum), lclTyp);
 
                 if (varTypeIsStruct(lclTyp))
                 {
@@ -9434,7 +9429,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     }
 
                     lclNum = inlGetInlineeLocal(impInlineInfo, lclNum);
-                    op1    = gtNewLclVarAddrNode(lclNum, TYP_BYREF);
+                    op1    = gtNewLclVarAddrNode(comp->lvaGetDesc(lclNum), TYP_BYREF);
                     goto PUSH_ADRVAR;
                 }
 
@@ -9466,7 +9461,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     // of getting a LCL_VAR and changing it to LCL_ADDR.
                     op1 = inlUseArg(impInlineInfo, lclNum);
                     noway_assert(op1->OperIs(GT_LCL_VAR));
-                    op1 = op1->ChangeToLclAddr(TYP_BYREF, op1->AsLclVar()->GetLclNum());
+                    op1 = op1->ChangeToLclAddr(TYP_BYREF, op1->AsLclVar()->GetLcl());
 
                     goto PUSH_ADRVAR;
                 }
@@ -9484,7 +9479,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
 
             ADRVAR:
-                op1 = gtNewLclVarAddrNode(lclNum, TYP_BYREF);
+                op1 = gtNewLclVarAddrNode(comp->lvaGetDesc(lclNum), TYP_BYREF);
 
             PUSH_ADRVAR:
                 assert(op1->AsLclAddr()->GetLclOffs() == 0);
@@ -11368,7 +11363,7 @@ void Importer::ImportArgList()
     assert(info.compMethodInfo->args.getCallConv() == CORINFO_CALLCONV_VARARG);
     assert(comp->lvaGetDesc(comp->lvaVarargsHandleArg)->IsAddressExposed());
 
-    impPushOnStack(gtNewLclVarAddrNode(comp->lvaVarargsHandleArg, TYP_I_IMPL));
+    impPushOnStack(gtNewLclVarAddrNode(comp->lvaGetDesc(comp->lvaVarargsHandleArg), TYP_I_IMPL));
 }
 
 void Importer::ImportMkRefAny(const BYTE* codeAddr)
@@ -11420,12 +11415,12 @@ void Importer::ImportRefAnyType()
     {
         LclVarDsc* tmpLcl = lvaAllocTemp(true DEBUGARG("refanytype temp"));
         impAppendTempAssign(tmpLcl, op1, impGetRefAnyClass(), CHECK_SPILL_ALL);
-        op1 = gtNewLclvNode(tmpLcl->GetLclNum(), TYP_STRUCT);
+        op1 = gtNewLclvNode(tmpLcl, TYP_STRUCT);
     }
 
     if (op1->OperIs(GT_LCL_VAR))
     {
-        op1 = gtNewLclFldNode(op1->AsLclVar()->GetLclNum(), TYP_I_IMPL, OFFSETOF__CORINFO_TypedReference__type);
+        op1 = gtNewLclFldNode(op1->AsLclVar()->GetLcl(), TYP_I_IMPL, OFFSETOF__CORINFO_TypedReference__type);
         op1->AsLclFld()->SetFieldSeq(GetRefanyTypeField());
     }
     else
@@ -11472,7 +11467,7 @@ void Importer::ImportRefAnyVal(const BYTE* codeAddr)
     {
         LclVarDsc* tmpLcl = lvaAllocTemp(true DEBUGARG("refanyval temp"));
         impAppendTempAssign(tmpLcl, op1, impGetRefAnyClass(), CHECK_SPILL_ALL);
-        op1 = gtNewLclvNode(tmpLcl->GetLclNum(), TYP_STRUCT);
+        op1 = gtNewLclvNode(tmpLcl, TYP_STRUCT);
     }
 
     {
@@ -11537,7 +11532,7 @@ void Importer::ImportLocAlloc(BasicBlock* block)
 
                 JITDUMP("Converting stackalloc of %zd bytes to new local V%02u\n", allocSize, lcl->GetLclNum());
 
-                op1 = gtNewLclVarAddrNode(lcl->GetLclNum(), TYP_I_IMPL);
+                op1 = gtNewLclVarAddrNode(lcl, TYP_I_IMPL);
 
                 if (!opts.compDbgEnC)
                 {
@@ -11876,11 +11871,10 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
             // is taken to be used further along and potentially be exploitable.
             LclVarDsc* lcl = lvaAllocTemp(true DEBUGARG("unbox nullable temp"));
             comp->lvaSetStruct(lcl, typGetObjLayout(resolvedToken.hClass), /* checkUnsafeBuffer */ true);
-            unsigned tmp = lcl->GetLclNum();
 
-            op2 = gtNewLclvNode(tmp, TYP_STRUCT);
+            op2 = gtNewLclvNode(lcl, TYP_STRUCT);
             op1 = impAssignStruct(op2, op1, CHECK_SPILL_ALL);
-            op2 = gtNewLclVarAddrNode(tmp, TYP_BYREF);
+            op2 = gtNewLclVarAddrNode(lcl, TYP_BYREF);
             op1 = gtNewCommaNode(op1, op2);
         }
 
@@ -11925,11 +11919,9 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
             tmpLcl->lvIsMultiRegArg = true;
             comp->lvaSetStruct(tmpLcl, layout, /* checkUnsafeBuffer */ true);
 
-            unsigned tmp = tmpLcl->GetLclNum();
-
-            op2 = gtNewLclvNode(tmp, TYP_STRUCT);
+            op2 = gtNewLclvNode(tmpLcl, TYP_STRUCT);
             op1 = impAssignStruct(op2, op1, CHECK_SPILL_ALL);
-            op2 = gtNewLclVarAddrNode(tmp, TYP_BYREF);
+            op2 = gtNewLclVarAddrNode(tmpLcl, TYP_BYREF);
             op1 = gtNewCommaNode(op1, op2);
         }
         else
@@ -12335,7 +12327,6 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
 
     GenTree*   newObjThis = nullptr;
     LclVarDsc* lcl        = nullptr;
-    unsigned   lclNum     = BAD_VAR_NUM;
 
     // At present this can only be String
     if ((classFlags & CORINFO_FLG_VAROBJSIZE) != 0)
@@ -12407,8 +12398,7 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
         }
 #endif // FEATURE_SIMD
 
-        lcl    = lvaAllocTemp(true DEBUGARG("newobj temp"));
-        lclNum = lcl->GetLclNum();
+        lcl = lvaAllocTemp(true DEBUGARG("newobj temp"));
 
         if (compIsForInlining())
         {
@@ -12458,17 +12448,17 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
 
         if (fgVarNeedsExplicitZeroInit(lcl, bbInALoop, bbIsReturn))
         {
-            impSpillNoneAppendTree(gtNewAssignNode(gtNewLclvNode(lclNum, lcl->GetType()), gtNewIconNode(0)));
+            impSpillNoneAppendTree(gtNewAssignNode(gtNewLclvNode(lcl, lcl->GetType()), gtNewIconNode(0)));
         }
         else
         {
-            JITDUMP("\nSuppressing zero-init for V%02u -- expect to zero in prolog\n", lclNum);
+            JITDUMP("\nSuppressing zero-init for V%02u -- expect to zero in prolog\n", lcl->GetLclNum());
 
             lcl->lvSuppressedZeroInit    = true;
             comp->compSuppressedZeroInit = true;
         }
 
-        newObjThis = gtNewLclVarAddrNode(lclNum, TYP_BYREF);
+        newObjThis = gtNewLclVarAddrNode(lcl, TYP_BYREF);
     }
     else
     {
@@ -12501,10 +12491,9 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
         block->bbFlags |= BBF_HAS_NEWOBJ;
         comp->optMethodFlags |= OMF_HAS_NEWOBJ;
 
-        lclNum = lcl->GetLclNum();
         assert(lcl->lvSingleDef == 0);
         lcl->lvSingleDef = 1;
-        JITDUMP("Marked V%02u as a single def local\n", lclNum);
+        JITDUMP("Marked V%02u as a single def local\n", lcl->GetLclNum());
         comp->lvaSetClass(lcl, classHandle, /* isExact */ true);
 
         // Append the assignment to the temp/local. We don't need to spill the stack as
@@ -12514,9 +12503,9 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
         // the pattern "temp = allocObj" is required by ObjectAllocator phase to be able
         // to determine ALLOCOBJ nodes without exhaustive walk over all expressions.
 
-        impSpillNoneAppendTree(gtNewAssignNode(gtNewLclvNode(lclNum, TYP_REF), allocObj));
+        impSpillNoneAppendTree(gtNewAssignNode(gtNewLclvNode(lcl, TYP_REF), allocObj));
 
-        newObjThis = gtNewLclvNode(lclNum, TYP_REF);
+        newObjThis = gtNewLclvNode(lcl, TYP_REF);
     }
 
     if (compDonotInline())
@@ -12587,11 +12576,11 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
 
     if ((classFlags & CORINFO_FLG_VALUECLASS) != 0)
     {
-        impPushOnStack(gtNewLclvNode(lclNum, lcl->GetType()), typeInfo(TI_STRUCT, classHandle));
+        impPushOnStack(gtNewLclvNode(lcl, lcl->GetType()), typeInfo(TI_STRUCT, classHandle));
     }
     else
     {
-        impPushOnStack(gtNewLclvNode(lclNum, TYP_REF), typeInfo(TI_REF, classHandle));
+        impPushOnStack(gtNewLclvNode(lcl, TYP_REF), typeInfo(TI_REF, classHandle));
     }
 }
 
@@ -12835,7 +12824,7 @@ void Importer::impPushLclVar(unsigned lclNum)
         type = varActualType(type);
     }
 
-    impPushOnStack(gtNewLclvNode(lclNum, type), lcl->lvImpTypeInfo);
+    impPushOnStack(gtNewLclvNode(lcl, type), lcl->lvImpTypeInfo);
 }
 
 //------------------------------------------------------------------------
@@ -12918,7 +12907,7 @@ void Importer::impReturnInstruction(INDEBUG(bool isTailcall))
 
         if (info.compRetBuffArg != BAD_VAR_NUM)
         {
-            GenTree* retBuffAddr  = gtNewLclvNode(info.compRetBuffArg, TYP_BYREF);
+            GenTree* retBuffAddr  = gtNewLclvNode(comp->lvaGetDesc(info.compRetBuffArg), TYP_BYREF);
             GenTree* retBuffIndir = gtNewObjNode(info.GetRetLayout(), retBuffAddr);
             value                 = impAssignStruct(retBuffIndir, value, CHECK_SPILL_ALL);
 
@@ -12935,7 +12924,8 @@ void Importer::impReturnInstruction(INDEBUG(bool isTailcall))
                 assert(info.retDesc.GetRegCount() == 1);
                 assert(info.retDesc.GetRegType(0) == TYP_BYREF);
 
-                ret = gtNewOperNode(GT_RETURN, TYP_BYREF, gtNewLclvNode(info.compRetBuffArg, TYP_BYREF));
+                ret = gtNewOperNode(GT_RETURN, TYP_BYREF,
+                                    gtNewLclvNode(comp->lvaGetDesc(info.compRetBuffArg), TYP_BYREF));
             }
         }
         else
@@ -13171,7 +13161,7 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
 
     // If a box temp is used in a block that leaves something on the stack, its lifetime
     // is hard to determine, simply don't reuse such temps.
-    impBoxTemp = BAD_VAR_NUM;
+    impBoxTempLcl = nullptr;
 
     // Remove the branch statement at the end of the block (if any) because spilling must
     // be done before it. It will need to be added back once spilling is done.
@@ -13231,13 +13221,12 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
 
         for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
         {
-            LclVarDsc* spillTempLcl    = &spillTemps[level];
-            unsigned   spillTempLclNum = spillTempLcl->GetLclNum();
-            GenTree*   tree            = verCurrentState.esStack[level].val;
+            LclVarDsc* spillTempLcl = &spillTemps[level];
+            GenTree*   tree         = verCurrentState.esStack[level].val;
 
             JITDUMPTREE(tree, "Stack entry %u:\n", level);
 
-            if (tree->OperIs(GT_LCL_VAR) && (tree->AsLclVar()->GetLclNum() == spillTempLclNum))
+            if (tree->OperIs(GT_LCL_VAR) && (tree->AsLclVar()->GetLcl() == spillTempLcl))
             {
                 assert(tree->GetType() == spillTempLcl->GetType());
                 continue;
@@ -13324,34 +13313,34 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
                 {
                     GenTreeOp* relOp = branch->GetOp(0)->AsOp();
 
-                    if (impHasLclRef(relOp->GetOp(0), spillTempLclNum))
+                    if (impHasLclRef(relOp->GetOp(0), spillTempLcl))
                     {
                         LclVarDsc* tempLcl = lvaAllocTemp(true DEBUGARG("branch spill temp"));
                         impAppendTempAssign(tempLcl, relOp->GetOp(0), level);
-                        relOp->SetOp(0, gtNewLclvNode(tempLcl->GetLclNum(), tempLcl->GetType()));
+                        relOp->SetOp(0, gtNewLclvNode(tempLcl, tempLcl->GetType()));
                     }
 
-                    if (impHasLclRef(relOp->GetOp(1), spillTempLclNum))
+                    if (impHasLclRef(relOp->GetOp(1), spillTempLcl))
                     {
                         LclVarDsc* tempLcl = lvaAllocTemp(true DEBUGARG("branch spill temp"));
                         impAppendTempAssign(tempLcl, relOp->GetOp(1), level);
-                        relOp->SetOp(1, gtNewLclvNode(tempLcl->GetLclNum(), tempLcl->GetType()));
+                        relOp->SetOp(1, gtNewLclvNode(tempLcl, tempLcl->GetType()));
                     }
                 }
                 else
                 {
                     assert(branch->OperIs(GT_SWITCH));
 
-                    if (impHasLclRef(branch->GetOp(0), spillTempLclNum))
+                    if (impHasLclRef(branch->GetOp(0), spillTempLcl))
                     {
                         LclVarDsc* tempLcl = lvaAllocTemp(true DEBUGARG("branch spill temp"));
                         impAppendTempAssign(tempLcl, branch->GetOp(0), level);
-                        branch->SetOp(0, gtNewLclvNode(tempLcl->GetLclNum(), tempLcl->GetType()));
+                        branch->SetOp(0, gtNewLclvNode(tempLcl, tempLcl->GetType()));
                     }
                 }
             }
 
-            GenTree* dst = gtNewLclvNode(spillTempLclNum, spillTempLcl->GetType());
+            GenTree* dst = gtNewLclvNode(spillTempLcl, spillTempLcl->GetType());
             GenTree* asg;
 
             if (varTypeIsStruct(spillTempLcl->GetType()))
@@ -13624,7 +13613,7 @@ void Importer::impSetCurrentState(BasicBlock* block)
     {
         LclVarDsc* lcl = &spillTemps[i];
 
-        verCurrentState.esStack[i].val        = gtNewLclvNode(lcl->GetLclNum(), lcl->GetType());
+        verCurrentState.esStack[i].val        = gtNewLclvNode(lcl, lcl->GetType());
         verCurrentState.esStack[i].seTypeInfo = lcl->lvImpTypeInfo;
     }
 }
@@ -14377,7 +14366,7 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
             pInfo->exactContextHnd                = pParam->exactContextHnd;
             pInfo->retExprPlaceholder             = nullptr;
             pInfo->dwRestrictions                 = dwRestrictions;
-            pInfo->preexistingSpillTemp           = BAD_VAR_NUM;
+            pInfo->preexistingSpillTemp           = nullptr;
             pInfo->clsAttr                        = clsAttr;
             pInfo->methAttr                       = pParam->methAttr;
             pInfo->initClassResult                = initClassResult;
@@ -14744,7 +14733,7 @@ void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
     // is also a tail call candidate, it can use the same return spill temp.
     //
     if (compIsForInlining() && call->CanTailCall() &&
-        (impInlineInfo->inlineCandidateInfo->preexistingSpillTemp != BAD_VAR_NUM))
+        (impInlineInfo->inlineCandidateInfo->preexistingSpillTemp != nullptr))
     {
         inlineCandidateInfo->preexistingSpillTemp = impInlineInfo->inlineCandidateInfo->preexistingSpillTemp;
         JITDUMP("Inline candidate [%06u] can share spill temp V%02u\n", dspTreeID(call),
@@ -15803,7 +15792,7 @@ public:
         LclVarDsc* lcl = m_compiler->lvaAllocTemp(true DEBUGARG("RET_EXPR temp"));
         JITDUMP("Storing return expression [%06u] to a local var V%02u.\n", retExpr->GetID(), lcl->GetLclNum());
         importer->impAppendTempAssign(lcl, retExpr, retExpr->GetLayout(), Importer::CHECK_SPILL_NONE);
-        *use = m_compiler->gtNewLclvNode(lcl->GetLclNum(), retExpr->GetType());
+        *use = m_compiler->gtNewLclvNode(lcl, retExpr->GetType());
 
         if (retExpr->TypeIs(TYP_REF))
         {
@@ -16159,17 +16148,17 @@ bool Importer::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
         GenTree* valueIndex = value->AsIndir()->GetAddr()->AsIndexAddr()->GetArray();
         if (valueIndex->OperIs(GT_LCL_VAR))
         {
-            unsigned valueLcl = valueIndex->AsLclVar()->GetLclNum();
-            unsigned arrayLcl = array->AsLclVar()->GetLclNum();
+            LclVarDsc* valueLcl = valueIndex->AsLclVar()->GetLcl();
+            LclVarDsc* arrayLcl = array->AsLclVar()->GetLcl();
 
             // TODO-MIKE-Cleanup: Checking IsAddressExposed here is nonsense, it's rarely set
             // during import. Besides, the check is probably overly conservative, there's a
-            // reasonable good chance that index trees do not interefere with AX locals. During
+            // reasonable good chance that index trees do not interfere with AX locals. During
             // import stores typically end up in their own statements rather than being hidden
-            // under COMMAs so the only source of intereference are probably calls. Then we
+            // under COMMAs so the only source of interference are probably calls. Then we
             // could check for GTF_CALL and lvHasLdAddrOp.
 
-            if ((valueLcl == arrayLcl) && !comp->lvaGetDesc(arrayLcl)->IsAddressExposed())
+            if ((valueLcl == arrayLcl) && !arrayLcl->IsAddressExposed())
             {
                 JITDUMP("\nstelem of ref from same array: skipping covariant store check\n");
                 return true;
@@ -16255,11 +16244,10 @@ void Importer::impImportInitObj(GenTree* dstAddr, ClassLayout* layout)
 
     if (dstAddr->OperIs(GT_LCL_ADDR))
     {
-        unsigned lclNum = dstAddr->AsLclAddr()->GetLclNum();
         // Currently the importer doesn't generate local field addresses.
         assert(dstAddr->AsLclAddr()->GetLclOffs() == 0);
 
-        LclVarDsc* lcl = comp->lvaGetDesc(lclNum);
+        LclVarDsc* lcl = dstAddr->AsLclAddr()->GetLcl();
 
         if (varTypeIsStruct(lcl->GetType()) && (layout->GetSize() >= lcl->GetLayout()->GetSize()))
         {
@@ -16267,7 +16255,7 @@ void Importer::impImportInitObj(GenTree* dstAddr, ClassLayout* layout)
 
             dst = dstAddr;
             dst->SetOper(GT_LCL_VAR);
-            dst->AsLclVar()->SetLclNum(lclNum);
+            dst->AsLclVar()->SetLcl(lcl);
             dst->SetType(lcl->GetType());
         }
     }
@@ -16302,17 +16290,16 @@ void Importer::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* l
 
     if (dstAddr->OperIs(GT_LCL_ADDR))
     {
-        unsigned lclNum = dstAddr->AsLclAddr()->GetLclNum();
         // Currently the importer doesn't generate local field addresses.
         assert(dstAddr->AsLclAddr()->GetLclOffs() == 0);
 
-        LclVarDsc* lcl = comp->lvaGetDesc(lclNum);
+        LclVarDsc* lcl = dstAddr->AsLclAddr()->GetLcl();
 
         if (varTypeIsStruct(lcl->GetType()) && !lcl->IsImplicitByRefParam() && (lcl->GetLayout() == layout))
         {
             dst = dstAddr;
             dst->SetOper(GT_LCL_VAR);
-            dst->AsLclVar()->SetLclNum(lclNum);
+            dst->AsLclVar()->SetLcl(lcl);
             dst->SetType(lcl->GetType());
         }
     }
@@ -16326,14 +16313,15 @@ void Importer::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* l
 
     if (srcAddr->OperIs(GT_LCL_ADDR))
     {
-        unsigned lclNum = srcAddr->AsLclAddr()->GetLclNum();
         // Currently the importer doesn't generate local field addresses.
         assert(srcAddr->AsLclAddr()->GetLclOffs() == 0);
 
+        LclVarDsc* lcl = srcAddr->AsLclAddr()->GetLcl();
+
         src = srcAddr;
         src->SetOper(GT_LCL_VAR);
-        src->AsLclVar()->SetLclNum(lclNum);
-        src->SetType(comp->lvaGetDesc(lclNum)->GetType());
+        src->AsLclVar()->SetLcl(lcl);
+        src->SetType(lcl->GetType());
     }
     else
     {
@@ -16594,8 +16582,8 @@ GenTree* Importer::CreateStaticFieldTlsAccess(OPCODE                    opcode,
     return indir;
 }
 
-// Returns true if the given tree contains a use of a local #lclNum.
-bool Compiler::impHasLclRef(GenTree* tree, unsigned lclNum)
+// Returns true if the given tree contains a use of a local
+bool Compiler::impHasLclRef(GenTree* tree, LclVarDsc* lcl)
 {
     while (tree->OperIsUnary() || (tree->OperIsBinary() && (tree->AsOp()->gtOp2 == nullptr)))
     {
@@ -16611,7 +16599,7 @@ bool Compiler::impHasLclRef(GenTree* tree, unsigned lclNum)
     {
         GenTreeOp* op = tree->AsOp();
 
-        return ((op->gtOp1 != nullptr) && impHasLclRef(op->gtOp1, lclNum)) || impHasLclRef(op->gtOp2, lclNum);
+        return ((op->gtOp1 != nullptr) && impHasLclRef(op->gtOp1, lcl)) || impHasLclRef(op->gtOp2, lcl);
     }
 
     if (tree->OperIsLeaf())
@@ -16620,17 +16608,17 @@ bool Compiler::impHasLclRef(GenTree* tree, unsigned lclNum)
         // of a local variable. Though it depends on what exactly "use" means...
         if (tree->OperIs(GT_LCL_ADDR))
         {
-            return tree->AsLclAddr()->GetLclNum() == lclNum;
+            return tree->AsLclAddr()->GetLcl() == lcl;
         }
 
         if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
-            return tree->AsLclVarCommon()->GetLclNum() == lclNum;
+            return tree->AsLclVarCommon()->GetLcl() == lcl;
         }
 
         if (tree->OperIs(GT_RET_EXPR))
         {
-            return impHasLclRef(tree->AsRetExpr()->GetRetExpr(), lclNum);
+            return impHasLclRef(tree->AsRetExpr()->GetRetExpr(), lcl);
         }
 
         return false;
@@ -16638,14 +16626,14 @@ bool Compiler::impHasLclRef(GenTree* tree, unsigned lclNum)
 
     if (GenTreeBoundsChk* boundsChk = tree->IsBoundsChk())
     {
-        return impHasLclRef(boundsChk->GetIndex(), lclNum) || impHasLclRef(boundsChk->GetLength(), lclNum);
+        return impHasLclRef(boundsChk->GetIndex(), lcl) || impHasLclRef(boundsChk->GetLength(), lcl);
     }
 
     if (GenTreeTernaryOp* ternary = tree->IsTernaryOp())
     {
         for (unsigned i = 0; i < 3; i++)
         {
-            if (impHasLclRef(ternary->GetOp(i), lclNum))
+            if (impHasLclRef(ternary->GetOp(i), lcl))
             {
                 return true;
             }
@@ -16662,7 +16650,7 @@ bool Compiler::impHasLclRef(GenTree* tree, unsigned lclNum)
 
         if (call->gtCallThisArg != nullptr)
         {
-            if (impHasLclRef(call->gtCallThisArg->GetNode(), lclNum))
+            if (impHasLclRef(call->gtCallThisArg->GetNode(), lcl))
             {
                 return true;
             }
@@ -16670,7 +16658,7 @@ bool Compiler::impHasLclRef(GenTree* tree, unsigned lclNum)
 
         for (GenTreeCall::Use& use : call->Args())
         {
-            if (impHasLclRef(use.GetNode(), lclNum))
+            if (impHasLclRef(use.GetNode(), lcl))
             {
                 return true;
             }
@@ -16684,7 +16672,7 @@ bool Compiler::impHasLclRef(GenTree* tree, unsigned lclNum)
             assert((cookie == nullptr) || cookie->IsIntCon() ||
                    (cookie->OperIs(GT_IND) && cookie->AsIndir()->GetAddr()->IsIntCon()));
 
-            return impHasLclRef(call->gtCallAddr, lclNum);
+            return impHasLclRef(call->gtCallAddr, lcl);
         }
 
         return false;
@@ -16694,13 +16682,13 @@ bool Compiler::impHasLclRef(GenTree* tree, unsigned lclNum)
     {
         for (unsigned i = 0; i < arrElem->gtArrRank; i++)
         {
-            if (impHasLclRef(arrElem->gtArrInds[i], lclNum))
+            if (impHasLclRef(arrElem->gtArrInds[i], lcl))
             {
                 return true;
             }
         }
 
-        return impHasLclRef(arrElem->gtArrObj, lclNum);
+        return impHasLclRef(arrElem->gtArrObj, lcl);
     }
 
 #ifdef FEATURE_HW_INTRINSICS
@@ -16708,7 +16696,7 @@ bool Compiler::impHasLclRef(GenTree* tree, unsigned lclNum)
     {
         for (GenTreeHWIntrinsic::Use& use : intrinsic->Uses())
         {
-            if (impHasLclRef(use.GetNode(), lclNum))
+            if (impHasLclRef(use.GetNode(), lcl))
             {
                 return true;
             }
@@ -16742,7 +16730,7 @@ bool Compiler::impHasAddressTakenLocals(GenTree* tree)
 
         if (node->OperIs(GT_LCL_ADDR))
         {
-            LclVarDsc* lcl = data->compiler->lvaGetDesc(node->AsLclAddr());
+            LclVarDsc* lcl = node->AsLclAddr()->GetLcl();
 
             if (lcl->lvHasLdAddrOp)
             {
@@ -16751,7 +16739,7 @@ bool Compiler::impHasAddressTakenLocals(GenTree* tree)
         }
         else if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
-            LclVarDsc* lcl = data->compiler->lvaGetDesc(node->AsLclVarCommon());
+            LclVarDsc* lcl = node->AsLclVarCommon()->GetLcl();
 
             if (lcl->lvHasLdAddrOp)
             {
@@ -16798,10 +16786,10 @@ GenTree* Importer::impCheckForNullPointer(GenTree* addr)
         return addr;
     }
 
-    unsigned lclNum = lvaNewTemp(addr->GetType(), true DEBUGARG("CheckForNullPointer"))->GetLclNum();
-    GenTree* asg    = gtNewAssignNode(gtNewLclvNode(lclNum, addr->GetType()), addr);
+    LclVarDsc* lcl = lvaNewTemp(addr->GetType(), true DEBUGARG("CheckForNullPointer"));
+    GenTree*   asg = gtNewAssignNode(gtNewLclvNode(lcl, addr->GetType()), addr);
     impAppendTree(asg, CHECK_SPILL_NONE);
-    return gtNewLclvNode(lclNum, addr->GetType());
+    return gtNewLclvNode(lcl, addr->GetType());
 }
 
 // Check for the special case where the object is the methods original 'this' pointer.
@@ -16810,7 +16798,7 @@ GenTree* Importer::impCheckForNullPointer(GenTree* addr)
 bool Compiler::impIsThis(GenTree* obj)
 {
     return (obj != nullptr) && obj->OperIs(GT_LCL_VAR) &&
-           impInlineRoot()->lvaIsOriginalThisParam(obj->AsLclVar()->GetLclNum());
+           impInlineRoot()->lvaIsOriginalThisParam(obj->AsLclVar()->GetLcl()->GetLclNum());
 }
 
 bool Importer::impIsPrimitive(CorInfoType jitType)
@@ -17372,19 +17360,19 @@ Statement* Importer::gtNewStmt(GenTree* expr, IL_OFFSETX offset)
     return comp->gtNewStmt(expr, offset);
 }
 
-GenTreeLclVar* Importer::gtNewLclvNode(unsigned lclNum, var_types type)
+GenTreeLclVar* Importer::gtNewLclvNode(LclVarDsc* lcl, var_types type)
 {
-    return comp->gtNewLclvNode(lclNum, type);
+    return comp->gtNewLclvNode(lcl, type);
 }
 
-GenTreeLclAddr* Importer::gtNewLclVarAddrNode(unsigned lclNum, var_types type)
+GenTreeLclAddr* Importer::gtNewLclVarAddrNode(LclVarDsc* lcl, var_types type)
 {
-    return comp->gtNewLclVarAddrNode(lclNum, type);
+    return comp->gtNewLclVarAddrNode(lcl, type);
 }
 
-GenTreeLclFld* Importer::gtNewLclFldNode(unsigned lclNum, var_types type, unsigned offset)
+GenTreeLclFld* Importer::gtNewLclFldNode(LclVarDsc* lcl, var_types type, unsigned offset)
 {
-    return comp->gtNewLclFldNode(lclNum, type, offset);
+    return comp->gtNewLclFldNode(lcl, type, offset);
 }
 
 GenTreeIntCon* Importer::gtNewIconNode(ssize_t value, var_types type)
@@ -17787,9 +17775,9 @@ GenTreeLclAddr* Importer::impIsLocalAddrExpr(GenTree* node)
     return Compiler::impIsLocalAddrExpr(node);
 }
 
-bool Importer::impHasLclRef(GenTree* tree, unsigned lclNum)
+bool Importer::impHasLclRef(GenTree* tree, LclVarDsc* lcl)
 {
-    return comp->impHasLclRef(tree, lclNum);
+    return comp->impHasLclRef(tree, lcl);
 }
 
 bool Importer::impHasAddressTakenLocals(GenTree* tree)
@@ -17845,12 +17833,12 @@ GenTreeLclVar* Importer::fgInsertCommaFormTemp(GenTree** use)
     GenTree* tree = *use;
     assert(!varTypeIsStruct(tree->GetType()));
 
-    var_types type   = varActualType(tree->GetType());
-    unsigned  lclNum = lvaNewTemp(type, true DEBUGARG("fgInsertCommaFormTemp temp"))->GetLclNum();
-    GenTree*  store  = gtNewAssignNode(gtNewLclvNode(lclNum, type), tree);
-    GenTree*  load   = gtNewLclvNode(lclNum, type);
+    var_types  type  = varActualType(tree->GetType());
+    LclVarDsc* lcl   = lvaNewTemp(type, true DEBUGARG("fgInsertCommaFormTemp temp"));
+    GenTree*   store = gtNewAssignNode(gtNewLclvNode(lcl, type), tree);
+    GenTree*   load  = gtNewLclvNode(lcl, type);
     *use             = gtNewCommaNode(store, load, type);
-    return gtNewLclvNode(lclNum, type);
+    return gtNewLclvNode(lcl, type);
 }
 
 void Importer::gtChangeOperToNullCheck(GenTree* tree)

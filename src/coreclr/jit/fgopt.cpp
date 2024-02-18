@@ -2879,14 +2879,14 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
 //     If so then duplicating the successor will likely allow the test to be
 //     optimized away.
 //
-bool Compiler::fgBlockEndFavorsTailDuplication(BasicBlock* block, unsigned lclNum)
+bool Compiler::fgBlockEndFavorsTailDuplication(BasicBlock* block, LclVarDsc* lcl)
 {
     if (block->isRunRarely())
     {
         return false;
     }
 
-    if (lvaGetDesc(lclNum)->IsAddressExposed())
+    if (lcl->IsAddressExposed())
     {
         return false;
     }
@@ -2921,9 +2921,9 @@ bool Compiler::fgBlockEndFavorsTailDuplication(BasicBlock* block, unsigned lclNu
             // the variable that's used in the condition but if we allow LCL_FLD we don't
             // know which field is assigned to and which field is used in the condition.
             // This does not appear to be a correctness issue though.
-            const unsigned op1LclNum = tree->AsLclVarCommon()->GetLclNum();
+            LclVarDsc* op1Lcl = tree->AsLclVarCommon()->GetLcl();
 
-            if (op1LclNum == lclNum)
+            if (op1Lcl == lcl)
             {
                 GenTree* const value = tree->AsLclVarCommon()->GetOp(0);
 
@@ -2969,9 +2969,9 @@ bool Compiler::fgBlockEndFavorsTailDuplication(BasicBlock* block, unsigned lclNu
 //     This is the first half of the evaluation for tail duplication. We subsequently
 //     need to check if predecessors of this block assigns a constant to the local.
 //
-bool Compiler::fgBlockIsGoodTailDuplicationCandidate(BasicBlock* target, unsigned* lclNum)
+bool Compiler::fgBlockIsGoodTailDuplicationCandidate(BasicBlock* target, LclVarDsc** lcl)
 {
-    *lclNum = BAD_VAR_NUM;
+    *lcl = nullptr;
 
     // Here we are looking for blocks with a single statement feeding a conditional branch.
     // These blocks are small, and when duplicated onto the tail of blocks that end in
@@ -3043,30 +3043,30 @@ bool Compiler::fgBlockIsGoodTailDuplicationCandidate(BasicBlock* target, unsigne
 
     // Tree must have one constant and one local, or be comparing
     // the same local to itself.
-    unsigned lclNum1 = BAD_VAR_NUM;
-    unsigned lclNum2 = BAD_VAR_NUM;
+    LclVarDsc* lcl1 = nullptr;
+    LclVarDsc* lcl2 = nullptr;
 
     if (op1->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        lclNum1 = op1->AsLclVarCommon()->GetLclNum();
+        lcl1 = op1->AsLclVarCommon()->GetLcl();
     }
 
     if (op2->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        lclNum2 = op2->AsLclVarCommon()->GetLclNum();
+        lcl2 = op2->AsLclVarCommon()->GetLcl();
     }
 
-    if ((lclNum1 != BAD_VAR_NUM) && op2->OperIsConst())
+    if ((lcl1 != nullptr) && op2->OperIsConst())
     {
-        *lclNum = lclNum1;
+        *lcl = lcl1;
     }
-    else if ((lclNum2 != BAD_VAR_NUM) && op1->OperIsConst())
+    else if ((lcl2 != nullptr) && op1->OperIsConst())
     {
-        *lclNum = lclNum2;
+        *lcl = lcl2;
     }
-    else if ((lclNum1 != BAD_VAR_NUM) && (lclNum1 == lclNum2))
+    else if ((lcl1 != nullptr) && (lcl1 == lcl2))
     {
-        *lclNum = lclNum1;
+        *lcl = lcl1;
     }
     else
     {
@@ -3097,19 +3097,19 @@ bool Compiler::fgOptimizeUncondBranchToSimpleCond(BasicBlock* block, BasicBlock*
         return false;
     }
 
-    unsigned lclNum = BAD_VAR_NUM;
+    LclVarDsc* lcl = nullptr;
 
     // First check if the successor tests a local and then branches on the result
     // of a test, and obtain the local if so.
     //
-    if (!fgBlockIsGoodTailDuplicationCandidate(target, &lclNum))
+    if (!fgBlockIsGoodTailDuplicationCandidate(target, &lcl))
     {
         return false;
     }
 
     // See if this block assigns constant or other interesting tree to that same local.
     //
-    if (!fgBlockEndFavorsTailDuplication(block, lclNum))
+    if (!fgBlockEndFavorsTailDuplication(block, lcl))
     {
         return false;
     }
@@ -3143,7 +3143,7 @@ bool Compiler::fgOptimizeUncondBranchToSimpleCond(BasicBlock* block, BasicBlock*
 
     JITDUMP("fgOptimizeUncondBranchToSimpleCond(from " FMT_BB " to cond " FMT_BB "), created new uncond " FMT_BB "\n",
             block->bbNum, target->bbNum, next->bbNum);
-    JITDUMP("   expecting opts to key off V%02u, added cloned compare [%06u] to " FMT_BB "\n", lclNum,
+    JITDUMP("   expecting opts to key off V%02u, added cloned compare [%06u] to " FMT_BB "\n", lcl->GetLclNum(),
             dspTreeID(cloned), block->bbNum);
 
     if (fgStmtListThreaded)

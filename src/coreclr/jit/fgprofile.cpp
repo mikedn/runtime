@@ -1356,19 +1356,19 @@ public:
 
         // Grab a temp to hold the 'this' object as it will be used three times
         //
-        unsigned const tmpNum = compiler->lvaNewTemp(TYP_REF, true DEBUGARG("class profile tmp"))->GetLclNum();
+        LclVarDsc* tmpLcl = compiler->lvaNewTemp(TYP_REF, true DEBUGARG("class profile tmp"));
 
         // Generate the IR...
         //
         GenTree* const          classProfileNode = compiler->gtNewIconNode((ssize_t)classProfile, TYP_I_IMPL);
-        GenTree* const          tmpNode          = compiler->gtNewLclvNode(tmpNum, TYP_REF);
+        GenTree* const          tmpNode          = compiler->gtNewLclvNode(tmpLcl, TYP_REF);
         GenTreeCall::Use* const args             = compiler->gtNewCallArgs(tmpNode, classProfileNode);
         GenTree* const          helperCallNode =
             compiler->gtNewHelperCallNode(is32 ? CORINFO_HELP_CLASSPROFILE32 : CORINFO_HELP_CLASSPROFILE64, TYP_VOID,
                                           args);
-        GenTree* const tmpNode2      = compiler->gtNewLclvNode(tmpNum, TYP_REF);
+        GenTree* const tmpNode2      = compiler->gtNewLclvNode(tmpLcl, TYP_REF);
         GenTree* const callCommaNode = compiler->gtNewCommaNode(helperCallNode, tmpNode2);
-        GenTree* const tmpNode3      = compiler->gtNewLclvNode(tmpNum, TYP_REF);
+        GenTree* const tmpNode3      = compiler->gtNewLclvNode(tmpLcl, TYP_REF);
         GenTree* const asgNode       = compiler->gtNewAssignNode(tmpNode3, call->gtCallThisArg->GetNode());
         GenTree* const asgCommaNode  = compiler->gtNewCommaNode(asgNode, callCommaNode);
 

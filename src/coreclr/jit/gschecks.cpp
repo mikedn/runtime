@@ -76,8 +76,8 @@ void Compiler::gsCopyShadowParams()
 struct MarkPtrsInfo
 {
     FixedBitVect** lclAssignGroups;
-    unsigned       storeLclNum  = BAD_VAR_NUM; // Which local variable is the tree being assigned to?
-    bool           isUnderIndir = false;       // Is this a pointer value tree that is being dereferenced?
+    LclVarDsc*     storeLcl     = nullptr; // Which local variable is the tree being assigned to?
+    bool           isUnderIndir = false;   // Is this a pointer value tree that is being dereferenced?
 
     MarkPtrsInfo(Compiler* comp) : lclAssignGroups(new (comp, CMK_GS) FixedBitVect*[comp->lvaCount]())
     {
@@ -118,16 +118,17 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** use, fgWalk
         case GT_LCL_VAR:
         case GT_LCL_FLD:
         {
-            unsigned loadLclNum = tree->AsLclVarCommon()->GetLclNum();
+            LclVarDsc* loadLcl = tree->AsLclVarCommon()->GetLcl();
 
             if (state->isUnderIndir)
             {
-                comp->lvaGetDesc(loadLclNum)->lvIsPtr = true;
+                loadLcl->lvIsPtr = true;
             }
 
-            if (state->storeLclNum != BAD_VAR_NUM)
+            if (state->storeLcl != nullptr)
             {
-                unsigned       storeLclNum     = state->storeLclNum;
+                unsigned       loadLclNum      = loadLcl->GetLclNum();
+                unsigned       storeLclNum     = state->storeLcl->GetLclNum();
                 FixedBitVect** lclAssignGroups = state->lclAssignGroups;
 
                 // Add storeLclNum and loadLclNum to a common assign group
@@ -170,9 +171,9 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** use, fgWalk
         }
         case GT_CALL:
         {
-            unsigned prevStoreLclNum = state->storeLclNum;
-            bool     wasUnderIndir   = state->isUnderIndir;
-            state->storeLclNum       = BAD_VAR_NUM;
+            LclVarDsc* prevStoreLcl  = state->storeLcl;
+            bool       wasUnderIndir = state->isUnderIndir;
+            state->storeLcl          = nullptr;
             state->isUnderIndir      = false;
 
             GenTreeCall* call = tree->AsCall();
@@ -215,7 +216,7 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** use, fgWalk
                 comp->fgWalkTreePre(&call->gtCallAddr, gsMarkPtrsAndAssignGroups, state);
             }
 
-            state->storeLclNum  = prevStoreLclNum;
+            state->storeLcl     = prevStoreLcl;
             state->isUnderIndir = wasUnderIndir;
 
             return WALK_SKIP_SUBTREES;
@@ -243,10 +244,10 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** use, fgWalk
             GenTreeLclVarCommon* store = tree->AsLclVarCommon();
             GenTree*             value = store->GetOp(0);
 
-            unsigned prevStoreLclNum = state->storeLclNum;
-            state->storeLclNum       = store->GetLclNum();
+            LclVarDsc* prevStoreLcl = state->storeLcl;
+            state->storeLcl         = store->GetLcl();
             comp->fgWalkTreePre(&value, comp->gsMarkPtrsAndAssignGroups, state);
-            state->storeLclNum = prevStoreLclNum;
+            state->storeLcl = prevStoreLcl;
 
             return WALK_SKIP_SUBTREES;
         }
@@ -457,14 +458,12 @@ void Compiler::gsParamsToShadows()
         {
             GenTree* tree = *use;
 
-            unsigned lclNum       = tree->AsLclVarCommon()->GetLclNum();
-            unsigned shadowLclNum = m_compiler->gsLclShadowMap[lclNum];
+            LclVarDsc* lcl          = tree->AsLclVarCommon()->GetLcl();
+            unsigned   shadowLclNum = m_compiler->gsLclShadowMap[lcl->GetLclNum()];
 
             if (shadowLclNum != BAD_VAR_NUM)
             {
-                LclVarDsc* lcl = m_compiler->lvaGetDesc(lclNum);
-
-                tree->AsLclVarCommon()->SetLclNum(shadowLclNum);
+                tree->AsLclVarCommon()->SetLcl(m_compiler->lvaGetDesc(shadowLclNum));
 
                 if (varTypeIsSmall(lcl->GetType()) && tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
                 {
@@ -494,8 +493,11 @@ void Compiler::gsParamsToShadows()
             continue;
         }
 
-        GenTree* src = gtNewLclvNode(lclNum, lvaGetDesc(lclNum)->GetType());
-        GenTree* dst = gtNewLclvNode(shadowLclNum, lvaGetDesc(shadowLclNum)->GetType());
+        LclVarDsc* lcl       = lvaGetDesc(lclNum);
+        LclVarDsc* shadowLcl = lvaGetDesc(shadowLclNum);
+
+        GenTree* src = gtNewLclvNode(lcl, lcl->GetType());
+        GenTree* dst = gtNewLclvNode(shadowLcl, shadowLcl->GetType());
 
         src->gtFlags |= GTF_DONT_CSE;
         dst->gtFlags |= GTF_DONT_CSE;
@@ -528,8 +530,11 @@ void Compiler::gsParamsToShadows()
                     continue;
                 }
 
-                GenTree* src = gtNewLclvNode(shadowLclNum, lvaGetDesc(shadowLclNum)->GetType());
-                GenTree* dst = gtNewLclvNode(lclNum, lcl->GetType());
+                LclVarDsc* lcl       = lvaGetDesc(lclNum);
+                LclVarDsc* shadowLcl = lvaGetDesc(shadowLclNum);
+
+                GenTree* src = gtNewLclvNode(shadowLcl, shadowLcl->GetType());
+                GenTree* dst = gtNewLclvNode(lcl, lcl->GetType());
 
                 src->gtFlags |= GTF_DONT_CSE;
                 dst->gtFlags |= GTF_DONT_CSE;

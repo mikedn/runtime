@@ -70,17 +70,17 @@ bool Lowering::IsSafeToMoveForward(GenTree* move, GenTree* before)
     return true;
 }
 
-GenTreeLclVar* Lowering::ReplaceWithLclVar(LIR::Use& use, unsigned tempNum)
+GenTreeLclVar* Lowering::ReplaceWithLclVar(LIR::Use& use, LclVarDsc* tempLcl)
 {
     GenTree* def = use.Def();
 
-    if (def->OperIs(GT_LCL_VAR) && (tempNum == BAD_VAR_NUM))
+    if (def->OperIs(GT_LCL_VAR) && (tempLcl == nullptr))
     {
         return def->AsLclVar();
     }
 
     GenTreeLclVar* store;
-    use.ReplaceWithLclVar(comp, tempNum, &store);
+    use.ReplaceWithLclVar(comp, tempLcl, &store);
     GenTreeLclVar* load = use.Def()->AsLclVar();
 
     LowerStoreLclVar(store);
@@ -365,7 +365,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
             break;
 
         case GT_LCL_ADDR:
-            assert(comp->lvaGetDesc(node->AsLclAddr())->IsAddressExposed());
+            assert(node->AsLclAddr()->GetLcl()->IsAddressExposed());
             break;
 
         default:
@@ -501,10 +501,10 @@ GenTree* Lowering::LowerSwitch(GenTreeUnOp* node)
 
         // TODO-MIKE-Cleanup: This seems useless, the switch value should simply be marked unused.
 
-        GenTree*  value  = node->GetOp(0);
-        var_types type   = varActualType(value->GetType());
-        unsigned  lclNum = comp->lvaNewTemp(type, true DEBUGARG("unused switch value temp"))->GetLclNum();
-        GenTree*  store  = comp->gtNewStoreLclVar(lclNum, type, value);
+        GenTree*   value = node->GetOp(0);
+        var_types  type  = varActualType(value->GetType());
+        LclVarDsc* lcl   = comp->lvaNewTemp(type, true DEBUGARG("unused switch value temp"));
+        GenTree*   store = comp->gtNewStoreLclVar(lcl, type, value);
 
         switchBBRange.InsertAfter(node, store);
         switchBBRange.Remove(node);
@@ -525,8 +525,8 @@ GenTree* Lowering::LowerSwitch(GenTreeUnOp* node)
     assert(node->OperIs(GT_SWITCH));
     GenTree* temp = node->AsOp()->gtOp1;
     assert(temp->OperIs(GT_LCL_VAR));
-    unsigned  tempLclNum  = temp->AsLclVar()->GetLclNum();
-    var_types tempLclType = temp->TypeGet();
+    LclVarDsc* tempLcl     = temp->AsLclVar()->GetLcl();
+    var_types  tempLclType = temp->GetType();
 
     BasicBlock* defaultBB   = jumpTab[jumpCnt - 1];
     BasicBlock* followingBB = originalSwitchBB->bbNext;
@@ -556,7 +556,7 @@ GenTree* Lowering::LowerSwitch(GenTreeUnOp* node)
     // both GT_SWITCH lowering code paths.
     // This condition is of the form: if (temp > jumpTableLength - 2){ goto jumpTable[jumpTableLength - 1]; }
 
-    GenTree* switchValue = comp->gtNewLclvNode(tempLclNum, tempLclType);
+    GenTree* switchValue = comp->gtNewLclvNode(tempLcl, tempLclType);
     GenTree* switchLimit = comp->gtNewIconNode(jumpCnt - 2, varActualType(tempLclType));
     GenTree* limitTest   = comp->gtNewOperNode(GT_GT, TYP_INT, switchValue, switchLimit);
     // Make sure we perform an unsigned comparison, just in case the switch index in 'temp'
@@ -724,7 +724,7 @@ GenTree* Lowering::LowerSwitch(GenTreeUnOp* node)
                 // condition statement.
                 currentBlock->bbJumpKind = BBJ_COND;
 
-                GenTree* switchValue = comp->gtNewLclvNode(tempLclNum, tempLclType);
+                GenTree* switchValue = comp->gtNewLclvNode(tempLcl, tempLclType);
                 GenTree* caseValue   = comp->gtNewIconNode(i, tempLclType);
                 GenTree* caseTest    = comp->gtNewOperNode(GT_EQ, TYP_INT, switchValue, caseValue);
                 GenTree* caseBranch  = comp->gtNewOperNode(GT_JTRUE, TYP_VOID, caseTest);
@@ -758,7 +758,7 @@ GenTree* Lowering::LowerSwitch(GenTreeUnOp* node)
         // At this point the default case has already been handled and we need to generate a jump
         // table based switch or a bit test based switch at the end of afterDefaultCondBlock. Both
         // switch variants need the switch value so create the necessary LclVar node here.
-        GenTree*    switchValue      = comp->gtNewLclvNode(tempLclNum, tempLclType);
+        GenTree*    switchValue      = comp->gtNewLclvNode(tempLcl, tempLclType);
         LIR::Range& switchBlockRange = LIR::AsRange(afterDefaultCondBlock);
         switchBlockRange.InsertAtEnd(switchValue);
 
@@ -1058,7 +1058,7 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
 
             if (arg->OperIs(GT_LCL_VAR))
             {
-                layout = comp->lvaGetDesc(arg->AsLclVar())->GetLayout();
+                layout = arg->AsLclVar()->GetLcl()->GetLayout();
             }
             else if (arg->OperIs(GT_LCL_FLD))
             {
@@ -1546,10 +1546,8 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
             unsigned argStartOffset = put->GetSlotOffset();
             unsigned argEndOffset   = argStartOffset + put->GetArgSize();
 
-            for (unsigned paramLclNum = 0; paramLclNum < comp->info.GetParamCount(); paramLclNum++)
+            for (LclVarDsc* paramLcl : comp->Params())
             {
-                LclVarDsc* paramLcl = comp->lvaGetDesc(paramLclNum);
-
                 if (paramLcl->IsRegParam())
                 {
                     continue;
@@ -1585,14 +1583,14 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
                     lookForUsesFrom = insertionPoint;
                 }
 
-                RehomeParamForFastTailCall(paramLclNum, insertionPoint, lookForUsesFrom, call);
+                RehomeParamForFastTailCall(paramLcl, insertionPoint, lookForUsesFrom, call);
 
                 if (paramLcl->IsPromoted())
                 {
                     for (unsigned j = 0; j < paramLcl->GetPromotedFieldCount(); j++)
                     {
-                        RehomeParamForFastTailCall(paramLcl->GetPromotedFieldLclNum(j), insertionPoint, lookForUsesFrom,
-                                                   call);
+                        RehomeParamForFastTailCall(comp->lvaGetDesc(paramLcl->GetPromotedFieldLclNum(j)),
+                                                   insertionPoint, lookForUsesFrom, call);
                     }
                 }
             }
@@ -1641,12 +1639,12 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
 // with the original local's value before "insertTempBefore".
 // It is assumed that the specified local is not accessed inside the range
 // via an address that originated outside of the range.
-void Lowering::RehomeParamForFastTailCall(unsigned paramLclNum,
-                                          GenTree* insertTempBefore,
-                                          GenTree* rangeStart,
-                                          GenTree* rangeEnd)
+void Lowering::RehomeParamForFastTailCall(LclVarDsc* paramLcl,
+                                          GenTree*   insertTempBefore,
+                                          GenTree*   rangeStart,
+                                          GenTree*   rangeEnd)
 {
-    unsigned tmpLclNum = BAD_VAR_NUM;
+    LclVarDsc* tmpLcl = nullptr;
 
     for (GenTree* node = rangeStart; node != rangeEnd; node = node->gtNext)
     {
@@ -1655,17 +1653,15 @@ void Lowering::RehomeParamForFastTailCall(unsigned paramLclNum,
             continue;
         }
 
-        if (node->AsLclVarCommon()->GetLclNum() != paramLclNum)
+        if (node->AsLclVarCommon()->GetLcl() != paramLcl)
         {
             continue;
         }
 
-        if (tmpLclNum == BAD_VAR_NUM)
+        if (tmpLcl == nullptr)
         {
-            LclVarDsc* paramLcl       = comp->lvaGetDesc(paramLclNum);
-            LclVarDsc* tmpLcl         = comp->lvaAllocTemp(true DEBUGARG("fast tail call param temp"));
+            tmpLcl                    = comp->lvaAllocTemp(true DEBUGARG("fast tail call param temp"));
             tmpLcl->lvDoNotEnregister = paramLcl->lvDoNotEnregister;
-            tmpLclNum                 = tmpLcl->GetLclNum();
 
             var_types type = varActualType(paramLcl->GetType());
 
@@ -1678,7 +1674,7 @@ void Lowering::RehomeParamForFastTailCall(unsigned paramLclNum,
                 tmpLcl->SetType(type);
             }
 
-            GenTree* value = comp->gtNewLclvNode(paramLclNum, type);
+            GenTree* value = comp->gtNewLclvNode(paramLcl, type);
 
             if (type == TYP_STRUCT)
             {
@@ -1712,7 +1708,7 @@ void Lowering::RehomeParamForFastTailCall(unsigned paramLclNum,
                 }
             }
 
-            GenTree* store = comp->gtNewStoreLclVar(tmpLclNum, type, value);
+            GenTree* store = comp->gtNewStoreLclVar(tmpLcl, type, value);
             BlockRange().InsertBefore(insertTempBefore, value, store);
 
             if (type == TYP_STRUCT)
@@ -1721,7 +1717,7 @@ void Lowering::RehomeParamForFastTailCall(unsigned paramLclNum,
             }
         }
 
-        node->AsLclVarCommon()->SetLclNum(tmpLclNum);
+        node->AsLclVarCommon()->SetLcl(tmpLcl);
     }
 }
 
@@ -1973,7 +1969,7 @@ void Lowering::LowerLclVar(GenTreeLclVar* lclVar)
 {
     assert(lclVar->OperIs(GT_LCL_VAR));
     assert(!lclVar->IsMultiReg());
-    assert(!comp->lvaGetDesc(lclVar)->IsIndependentPromoted());
+    assert(!lclVar->GetLcl()->IsIndependentPromoted());
 
 #ifdef FEATURE_SIMD
     if (lclVar->TypeIs(TYP_SIMD12))
@@ -1995,7 +1991,7 @@ void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
 #endif
 
     GenTree*   src = store->GetOp(0);
-    LclVarDsc* lcl = comp->lvaGetDesc(store);
+    LclVarDsc* lcl = store->GetLcl();
 
 #if FEATURE_MULTIREG_RET
     if (src->IsMultiRegNode())
@@ -2049,14 +2045,14 @@ void Lowering::LowerLclFld(GenTreeLclFld* lclFld)
 {
     assert(lclFld->OperIs(GT_LCL_FLD));
 
-    comp->lvaSetDoNotEnregister(comp->lvaGetDesc(lclFld->GetLclNum()) DEBUG_ARG(Compiler::DNER_LocalField));
+    comp->lvaSetDoNotEnregister(lclFld->GetLcl() DEBUG_ARG(Compiler::DNER_LocalField));
 }
 
 void Lowering::LowerStoreLclFld(GenTreeLclFld* store)
 {
     assert(store->OperIs(GT_STORE_LCL_FLD));
 
-    comp->lvaSetDoNotEnregister(comp->lvaGetDesc(store->GetLclNum()) DEBUG_ARG(Compiler::DNER_LocalField));
+    comp->lvaSetDoNotEnregister(store->GetLcl() DEBUG_ARG(Compiler::DNER_LocalField));
 
     GenTree* value = store->GetOp(0);
 
@@ -2215,11 +2211,11 @@ void Lowering::LowerStructReturn(GenTreeUnOp* ret)
             LclVarDsc* tempLcl = comp->lvaNewTemp(retLayout, true DEBUGARG("indir ret temp"));
             comp->lvaSetDoNotEnregister(tempLcl DEBUGARG(Compiler::DNER_LocalField));
 
-            GenTree* retRegValue = comp->gtNewLclFldNode(tempLcl->GetLclNum(), retRegType, 0);
+            GenTree* retRegValue = comp->gtNewLclFldNode(tempLcl, retRegType, 0);
             ret->SetOp(0, retRegValue);
             BlockRange().InsertBefore(ret, retRegValue);
 
-            GenTreeLclVar* tempStore = comp->gtNewStoreLclVar(tempLcl->GetLclNum(), src->GetType(), src);
+            GenTreeLclVar* tempStore = comp->gtNewStoreLclVar(tempLcl, src->GetType(), src);
             BlockRange().InsertAfter(src, tempStore);
 
             src->ChangeOper(GT_OBJ);
@@ -2248,7 +2244,7 @@ void Lowering::LowerStructReturn(GenTreeUnOp* ret)
             break;
 
         case GT_LCL_FLD:
-            assert(comp->lvaGetDesc(src->AsLclFld())->lvDoNotEnregister);
+            assert(src->AsLclFld()->GetLcl()->lvDoNotEnregister);
             src->SetType(retRegType);
             break;
 
@@ -2284,9 +2280,7 @@ void Lowering::LowerRetSingleRegStructLclVar(GenTreeUnOp* ret)
     assert(comp->info.retDesc.GetRegCount() == 1);
 
     GenTreeLclVar* lclVar = ret->GetOp(0)->AsLclVar();
-
-    unsigned   lclNum = lclVar->GetLclNum();
-    LclVarDsc* lcl    = comp->lvaGetDesc(lclNum);
+    LclVarDsc*     lcl    = lclVar->GetLcl();
 
     if (lcl->TypeIs(TYP_STRUCT))
     {
@@ -2372,8 +2366,8 @@ void Lowering::LowerStructCall(GenTreeCall* call)
 GenTree* Lowering::SpillStructCall(GenTreeCall* call, GenTree* user)
 {
     LclVarDsc* lcl   = comp->lvaNewTemp(call->GetRetLayout(), true DEBUGARG("odd struct call return temp"));
-    GenTree*   store = comp->gtNewStoreLclVar(lcl->GetLclNum(), lcl->GetType(), call);
-    GenTree*   load  = comp->gtNewLclvNode(lcl->GetLclNum(), lcl->GetType());
+    GenTree*   store = comp->gtNewStoreLclVar(lcl, lcl->GetType(), call);
+    GenTree*   load  = comp->gtNewLclvNode(lcl, lcl->GetType());
     BlockRange().InsertAfter(call, store);
     BlockRange().InsertBefore(user, load);
     return load;
@@ -2574,7 +2568,7 @@ GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call X86_ARG(GenTree* insert
     GenTree* delegateThis = thisArgNode->AsUnOp()->GetOp(0);
     assert(delegateThis->TypeIs(TYP_REF));
 
-    unsigned lclNum;
+    LclVarDsc* lcl;
 
 #ifdef TARGET_X86
     if (call->IsTailCallViaJitHelper() && delegateThis->OperIs(GT_LCL_VAR))
@@ -2584,15 +2578,15 @@ GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call X86_ARG(GenTree* insert
 
         // TODO-MIKE-Review: Should the LCL_VAR be an assert instead? Old
         // code had an assert but also checked for IsLocal, go figure...
-        lclNum = delegateThis->AsLclVar()->GetLclNum();
+        lcl = delegateThis->AsLclVar()->GetLcl();
     }
     else
 #endif
     {
-        lclNum = comp->lvaNewTemp(TYP_REF, true DEBUGARG("delegate invoke this"))->GetLclNum();
+        lcl = comp->lvaNewTemp(TYP_REF, true DEBUGARG("delegate invoke this"));
 
         LIR::Use use(BlockRange(), &thisArgNode->AsUnOp()->gtOp1, thisArgNode);
-        delegateThis = ReplaceWithLclVar(use, lclNum);
+        delegateThis = ReplaceWithLclVar(use, lcl);
     }
 
     const CORINFO_EE_INFO* eeInfo = comp->eeGetEEInfo();
@@ -2609,7 +2603,7 @@ GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call X86_ARG(GenTree* insert
     insertBefore               = insertBefore == nullptr ? call : insertBefore;
 #endif
 
-    delegateThis        = comp->gtNewLclvNode(lclNum, TYP_REF);
+    delegateThis        = comp->gtNewLclvNode(lcl, TYP_REF);
     GenTree* targetAddr = new (comp, GT_LEA) GenTreeAddrMode(delegateThis, eeInfo->offsetOfDelegateFirstTarget);
     GenTree* target     = comp->gtNewIndir(TYP_I_IMPL, targetAddr);
     BlockRange().InsertBefore(insertBefore, delegateThis, targetAddr, target);
@@ -2639,23 +2633,23 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* ins
 
     if (thisPtr->OperIs(GT_LCL_VAR))
     {
-        thisUse = comp->gtNewLclvNode(thisPtr->AsLclVar()->GetLclNum(), thisPtr->GetType());
+        thisUse = comp->gtNewLclvNode(thisPtr->AsLclVar()->GetLcl(), thisPtr->GetType());
     }
     else if (thisPtr->OperIs(GT_LCL_FLD))
     {
-        thisUse = comp->gtNewLclFldNode(thisPtr->AsLclFld()->GetLclNum(), thisPtr->GetType(),
-                                        thisPtr->AsLclFld()->GetLclOffs());
+        thisUse =
+            comp->gtNewLclFldNode(thisPtr->AsLclFld()->GetLcl(), thisPtr->GetType(), thisPtr->AsLclFld()->GetLclOffs());
     }
     else
     {
-        if (vtableCallTemp == BAD_VAR_NUM)
+        if (vtableCallTempLcl == nullptr)
         {
-            vtableCallTemp = comp->lvaAllocTemp(true DEBUGARG("virtual vtable call"))->GetLclNum();
+            vtableCallTempLcl = comp->lvaAllocTemp(true DEBUGARG("virtual vtable call"));
         }
 
         LIR::Use thisPtrUse(BlockRange(), &(thisArgInfo->GetNode()->AsUnOp()->gtOp1), thisArgInfo->GetNode());
-        ReplaceWithLclVar(thisPtrUse, vtableCallTemp);
-        thisUse = comp->gtNewLclvNode(vtableCallTemp, thisPtr->GetType());
+        ReplaceWithLclVar(thisPtrUse, vtableCallTempLcl);
+        thisUse = comp->gtNewLclvNode(vtableCallTempLcl, thisPtr->GetType());
     }
 
 #ifndef TARGET_X86
@@ -2674,29 +2668,29 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* ins
     {
         assert(vtabOffsOfIndirection != CORINFO_VIRTUALCALL_NO_CHUNK);
 
-        unsigned mtTempLclNum = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("vtbl call MT"))->GetLclNum();
-        GenTree* mtTempStore  = comp->gtNewStoreLclVar(mtTempLclNum, TYP_I_IMPL, mt);
+        LclVarDsc* mtTempLcl   = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("vtbl call MT"));
+        GenTree*   mtTempStore = comp->gtNewStoreLclVar(mtTempLcl, TYP_I_IMPL, mt);
         BlockRange().InsertBefore(insertBefore, mtTempStore);
 
-        GenTree* mtTempUse1    = comp->gtNewLclvNode(mtTempLclNum, TYP_I_IMPL);
+        GenTree* mtTempUse1    = comp->gtNewLclvNode(mtTempLcl, TYP_I_IMPL);
         GenTree* chunkOffsAddr = new (comp, GT_LEA) GenTreeAddrMode(mtTempUse1, vtabOffsOfIndirection);
         GenTree* chunkOffs     = comp->gtNewIndir(TYP_I_IMPL, chunkOffsAddr);
         BlockRange().InsertBefore(insertBefore, mtTempUse1, chunkOffsAddr, chunkOffs);
         ContainCheckIndir(chunkOffs->AsIndir());
 
-        GenTree* mtTempUse2    = comp->gtNewLclvNode(mtTempLclNum, TYP_I_IMPL);
+        GenTree* mtTempUse2    = comp->gtNewLclvNode(mtTempLcl, TYP_I_IMPL);
         GenTree* offs          = comp->gtNewIconNode(vtabOffsOfIndirection + vtabOffsAfterIndirection, TYP_I_IMPL);
         GenTree* chunkBaseAddr = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, mtTempUse2, offs);
         GenTree* slotAddr      = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, chunkBaseAddr, chunkOffs, 1, 0);
         BlockRange().InsertBefore(insertBefore, mtTempUse2, offs, chunkBaseAddr, slotAddr);
 
-        unsigned slotAddrTempLclNum = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("vtbl call slot addr"))->GetLclNum();
-        GenTree* slotAddrTempStore  = comp->gtNewStoreLclVar(slotAddrTempLclNum, TYP_I_IMPL, slotAddr);
+        LclVarDsc* slotAddrTempLcl   = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("vtbl call slot addr"));
+        GenTree*   slotAddrTempStore = comp->gtNewStoreLclVar(slotAddrTempLcl, TYP_I_IMPL, slotAddr);
         BlockRange().InsertBefore(insertBefore, slotAddrTempStore);
 
-        GenTree* slotAddrTempUse1 = comp->gtNewLclvNode(slotAddrTempLclNum, TYP_I_IMPL);
+        GenTree* slotAddrTempUse1 = comp->gtNewLclvNode(slotAddrTempLcl, TYP_I_IMPL);
         GenTree* codeOffs         = comp->gtNewIndir(TYP_I_IMPL, slotAddrTempUse1);
-        GenTree* slotAddrTempUse2 = comp->gtNewLclvNode(slotAddrTempLclNum, TYP_I_IMPL);
+        GenTree* slotAddrTempUse2 = comp->gtNewLclvNode(slotAddrTempLcl, TYP_I_IMPL);
         GenTree* target           = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, codeOffs, slotAddrTempUse2);
         BlockRange().InsertBefore(insertBefore, slotAddrTempUse1, codeOffs, slotAddrTempUse2, target);
         ContainCheckIndir(codeOffs->AsIndir());
@@ -2842,7 +2836,9 @@ void Lowering::InsertSetGCState(GenTree* before, int state)
 
     const CORINFO_EE_INFO& info = *comp->eeGetEEInfo();
 
-    GenTreeLclVar*   base      = comp->gtNewLclvNode(comp->lvaPInvokeFrameListVar, TYP_I_IMPL);
+    LclVarDsc* pInvokeFrameListLcl = comp->lvaGetDesc(comp->lvaPInvokeFrameListVar);
+
+    GenTreeLclVar*   base      = comp->gtNewLclvNode(pInvokeFrameListLcl, TYP_I_IMPL);
     GenTreeAddrMode* addr      = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, base, nullptr, 1, info.offsetOfGCState);
     GenTreeIntCon*   stateNode = comp->gtNewIconNode(state);
     GenTreeStoreInd* store     = new (comp, GT_STOREIND) GenTreeStoreInd(TYP_BYTE, addr, stateNode);
@@ -2868,22 +2864,24 @@ void Lowering::InsertFrameLinkUpdate(LIR::Range& block, GenTree* before, FrameLi
 {
     const CORINFO_EE_INFO& info = *comp->eeGetEEInfo();
 
-    GenTree* tcb  = comp->gtNewLclvNode(comp->lvaPInvokeFrameListVar, TYP_I_IMPL);
+    LclVarDsc* pInvokeFrameLcl     = comp->lvaGetDesc(comp->lvaInlinedPInvokeFrameVar);
+    LclVarDsc* pInvokeFrameListLcl = comp->lvaGetDesc(comp->lvaPInvokeFrameListVar);
+
+    GenTree* tcb  = comp->gtNewLclvNode(pInvokeFrameListLcl, TYP_I_IMPL);
     GenTree* addr = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, tcb, nullptr, 1, info.offsetOfThreadFrame);
     GenTree* data = nullptr;
 
     if (action == PushFrame)
     {
-        data = comp->gtNewLclFldAddrNode(comp->lvaInlinedPInvokeFrameVar, info.inlinedCallFrameInfo.offsetOfFrameVptr,
+        data = comp->gtNewLclFldAddrNode(pInvokeFrameLcl, info.inlinedCallFrameInfo.offsetOfFrameVptr,
                                          FieldSeqStore::NotAField());
-        comp->lvaSetAddressExposed(comp->lvaGetDesc(comp->lvaInlinedPInvokeFrameVar));
+        comp->lvaSetAddressExposed(pInvokeFrameLcl);
     }
     else
     {
         assert(action == PopFrame);
 
-        data = comp->gtNewLclFldNode(comp->lvaInlinedPInvokeFrameVar, TYP_BYREF,
-                                     info.inlinedCallFrameInfo.offsetOfFrameLink);
+        data = comp->gtNewLclFldNode(pInvokeFrameLcl, TYP_BYREF, info.inlinedCallFrameInfo.offsetOfFrameLink);
     }
 
     GenTreeStoreInd* store = new (comp, GT_STOREIND) GenTreeStoreInd(TYP_I_IMPL, addr, data);
@@ -2942,6 +2940,9 @@ void Lowering::InsertPInvokeMethodProlog()
         return;
     }
 
+    LclVarDsc* pInvokeFrameLcl     = comp->lvaGetDesc(comp->lvaInlinedPInvokeFrameVar);
+    LclVarDsc* pInvokeFrameListLcl = comp->lvaGetDesc(comp->lvaPInvokeFrameListVar);
+
     JITDUMP("======= Inserting PInvoke method prolog\n");
 
     // The first BB must be a scratch BB in order for us to be able to safely insert the P/Invoke prolog.
@@ -2954,9 +2955,8 @@ void Lowering::InsertPInvokeMethodProlog()
 
     // First arg:  &compiler->lvaInlinedPInvokeFrameVar + callFrameInfo.offsetOfFrameVptr
 
-    GenTree* frameAddr =
-        comp->gtNewLclFldAddrNode(comp->lvaInlinedPInvokeFrameVar, callFrameInfo.offsetOfFrameVptr, nullptr);
-    comp->lvaSetAddressExposed(comp->lvaGetDesc(comp->lvaInlinedPInvokeFrameVar));
+    GenTree* frameAddr = comp->gtNewLclFldAddrNode(pInvokeFrameLcl, callFrameInfo.offsetOfFrameVptr, nullptr);
+    comp->lvaSetAddressExposed(pInvokeFrameLcl);
 
     // Call runtime helper to fill in our InlinedCallFrame and push it on the Frame list:
     //     TCB = CORINFO_HELP_INIT_PINVOKE_FRAME(&symFrameStart, secretArg);
@@ -2978,7 +2978,7 @@ void Lowering::InsertPInvokeMethodProlog()
 
     GenTreeCall* pInvokeInitFrame = comp->gtNewHelperCallNode(CORINFO_HELP_INIT_PINVOKE_FRAME, TYP_I_IMPL, argList);
     LIR::InsertHelperCallBefore(comp, firstBlockRange, insertionPoint, pInvokeInitFrame);
-    GenTree* store = comp->gtNewStoreLclVar(comp->lvaPInvokeFrameListVar, TYP_I_IMPL, pInvokeInitFrame);
+    GenTree* store = comp->gtNewStoreLclVar(pInvokeFrameListLcl, TYP_I_IMPL, pInvokeInitFrame);
     firstBlockRange.InsertBefore(insertionPoint, store);
 
 #if !defined(TARGET_X86) && !defined(TARGET_ARM)
@@ -2988,10 +2988,9 @@ void Lowering::InsertPInvokeMethodProlog()
     // --------------------------------------------------------
     // InlinedCallFrame.m_pCallSiteSP = @RSP;
 
-    GenTreePhysReg* sp = comp->gtNewPhysRegNode(REG_SPBASE, TYP_I_IMPL);
-    GenTreeLclFld*  storeSP =
-        comp->gtNewStoreLclFld(TYP_I_IMPL, comp->lvaInlinedPInvokeFrameVar, callFrameInfo.offsetOfCallSiteSP, sp);
-    comp->lvaSetDoNotEnregister(comp->lvaGetDesc(comp->lvaInlinedPInvokeFrameVar) DEBUGARG(Compiler::DNER_LocalField));
+    GenTreePhysReg* sp      = comp->gtNewPhysRegNode(REG_SPBASE, TYP_I_IMPL);
+    GenTreeLclFld*  storeSP = comp->gtNewStoreLclFld(TYP_I_IMPL, pInvokeFrameLcl, callFrameInfo.offsetOfCallSiteSP, sp);
+    comp->lvaSetDoNotEnregister(pInvokeFrameLcl DEBUGARG(Compiler::DNER_LocalField));
     firstBlockRange.InsertBefore(insertionPoint, sp, storeSP);
     DISPTREERANGE(firstBlockRange, storeSP);
 
@@ -3005,7 +3004,7 @@ void Lowering::InsertPInvokeMethodProlog()
 
     GenTreePhysReg* fp = comp->gtNewPhysRegNode(REG_FPBASE, TYP_I_IMPL);
     GenTreeLclFld*  storeFP =
-        comp->gtNewStoreLclFld(TYP_I_IMPL, comp->lvaInlinedPInvokeFrameVar, callFrameInfo.offsetOfCalleeSavedFP, fp);
+        comp->gtNewStoreLclFld(TYP_I_IMPL, pInvokeFrameLcl, callFrameInfo.offsetOfCalleeSavedFP, fp);
     firstBlockRange.InsertBefore(insertionPoint, fp, storeFP);
     DISPTREERANGE(firstBlockRange, storeFP);
 #endif // !defined(TARGET_ARM)
@@ -3106,13 +3105,15 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
 
     const CORINFO_EE_INFO::InlinedCallFrameInfo& callFrameInfo = comp->eeGetEEInfo()->inlinedCallFrameInfo;
 
+    LclVarDsc* pInvokeFrameLcl = comp->lvaGetDesc(comp->lvaInlinedPInvokeFrameVar);
+
     noway_assert(comp->lvaInlinedPInvokeFrameVar != BAD_VAR_NUM);
 
     if (comp->opts.ShouldUsePInvokeHelpers())
     {
         // First argument is the address of the frame variable.
-        GenTree* frameAddr = comp->gtNewLclVarAddrNode(comp->lvaInlinedPInvokeFrameVar);
-        comp->lvaSetAddressExposed(comp->lvaGetDesc(comp->lvaInlinedPInvokeFrameVar));
+        GenTree* frameAddr = comp->gtNewLclVarAddrNode(pInvokeFrameLcl);
+        comp->lvaSetAddressExposed(pInvokeFrameLcl);
 
 #if defined(TARGET_X86) && !defined(UNIX_X86_ABI)
         // On x86 targets, PInvoke calls need the size of the stack args in InlinedCallFrame.m_Datum.
@@ -3157,7 +3158,7 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
         // If the stub parameter value is not needed, m_Datum will be initialized by the VM.
         if (comp->info.compPublishStubParam)
         {
-            src = comp->gtNewLclvNode(comp->lvaStubArgumentVar, TYP_I_IMPL);
+            src = comp->gtNewLclvNode(comp->lvaGetDesc(comp->lvaStubArgumentVar), TYP_I_IMPL);
         }
 #endif // !defined(TARGET_64BIT)
     }
@@ -3187,7 +3188,7 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
     {
         // Store into InlinedCallFrame.m_Datum, the offset of which is given by offsetOfCallTarget.
         GenTreeLclFld* store =
-            comp->gtNewStoreLclFld(TYP_I_IMPL, comp->lvaInlinedPInvokeFrameVar, callFrameInfo.offsetOfCallTarget, src);
+            comp->gtNewStoreLclFld(TYP_I_IMPL, pInvokeFrameLcl, callFrameInfo.offsetOfCallTarget, src);
         BlockRange().InsertBefore(insertBefore, src, store);
         ContainCheckStoreLcl(store);
     }
@@ -3196,18 +3197,18 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
     // ----------------------------------------------------------------------------------
     // InlinedCallFrame.m_pCallSiteSP = SP
 
-    GenTreePhysReg* callSiteSP      = comp->gtNewPhysRegNode(REG_SPBASE, TYP_I_IMPL);
-    GenTreeLclFld*  storeCallSiteSP = comp->gtNewStoreLclFld(TYP_I_IMPL, comp->lvaInlinedPInvokeFrameVar,
-                                                            callFrameInfo.offsetOfCallSiteSP, callSiteSP);
+    GenTreePhysReg* callSiteSP = comp->gtNewPhysRegNode(REG_SPBASE, TYP_I_IMPL);
+    GenTreeLclFld*  storeCallSiteSP =
+        comp->gtNewStoreLclFld(TYP_I_IMPL, pInvokeFrameLcl, callFrameInfo.offsetOfCallSiteSP, callSiteSP);
     BlockRange().InsertBefore(insertBefore, callSiteSP, storeCallSiteSP);
 #endif
 
     // ----------------------------------------------------------------------------------
     // InlinedCallFrame.m_pCallerReturnAddress = &label (the address of the instruction immediately following the call)
 
-    GenTree*       returnLabel      = new (comp, GT_LABEL) GenTree(GT_LABEL, TYP_I_IMPL);
-    GenTreeLclFld* storeReturnLabel = comp->gtNewStoreLclFld(TYP_I_IMPL, comp->lvaInlinedPInvokeFrameVar,
-                                                             callFrameInfo.offsetOfReturnAddress, returnLabel);
+    GenTree*       returnLabel = new (comp, GT_LABEL) GenTree(GT_LABEL, TYP_I_IMPL);
+    GenTreeLclFld* storeReturnLabel =
+        comp->gtNewStoreLclFld(TYP_I_IMPL, pInvokeFrameLcl, callFrameInfo.offsetOfReturnAddress, returnLabel);
     BlockRange().InsertBefore(insertBefore, returnLabel, storeReturnLabel);
 
     // Push the PInvoke frame if necessary. On 32-bit targets this only happens in the method prolog if a method
@@ -3252,12 +3253,13 @@ void Lowering::InsertPInvokeCallEpilog(GenTreeCall* call)
 {
     JITDUMP("======= Inserting PInvoke call epilog\n");
 
+    noway_assert(comp->lvaInlinedPInvokeFrameVar != BAD_VAR_NUM);
+    LclVarDsc* pInvokeFrameLcl = comp->lvaGetDesc(comp->lvaInlinedPInvokeFrameVar);
+
     if (comp->opts.ShouldUsePInvokeHelpers())
     {
-        noway_assert(comp->lvaInlinedPInvokeFrameVar != BAD_VAR_NUM);
-
-        GenTreeCall::Use* args = comp->gtNewCallArgs(comp->gtNewLclVarAddrNode(comp->lvaInlinedPInvokeFrameVar));
-        comp->lvaSetAddressExposed(comp->lvaGetDesc(comp->lvaInlinedPInvokeFrameVar));
+        GenTreeCall::Use* args = comp->gtNewCallArgs(comp->gtNewLclVarAddrNode(pInvokeFrameLcl));
+        comp->lvaSetAddressExposed(pInvokeFrameLcl);
         GenTreeCall* pInvokeEnd = comp->gtNewHelperCallNode(CORINFO_HELP_JIT_PINVOKE_END, TYP_VOID, args);
         LIR::InsertHelperCallBefore(comp, BlockRange(), call->gtNext, pInvokeEnd);
 
@@ -3286,7 +3288,7 @@ void Lowering::InsertPInvokeCallEpilog(GenTreeCall* call)
 
     GenTreeIntCon* zero = comp->gtNewIconNode(0, TYP_I_IMPL);
     GenTreeLclFld* storeCallSiteTracker =
-        comp->gtNewStoreLclFld(TYP_I_IMPL, comp->lvaInlinedPInvokeFrameVar, callFrameInfo.offsetOfReturnAddress, zero);
+        comp->gtNewStoreLclFld(TYP_I_IMPL, pInvokeFrameLcl, callFrameInfo.offsetOfReturnAddress, zero);
     BlockRange().InsertBefore(insertionPoint, zero, storeCallSiteTracker);
     ContainCheckStoreLcl(storeCallSiteTracker);
 #endif // TARGET_64BIT
@@ -3857,7 +3859,7 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
                 // divisor UMOD dividend = dividend SUB (div MUL divisor)
                 GenTree* divisor = comp->gtNewIconNode(divisorValue, type);
                 GenTree* mul     = comp->gtNewOperNode(GT_MUL, type, mulhi, divisor);
-                dividend         = comp->gtNewLclvNode(dividend->AsLclVar()->GetLclNum(), dividend->TypeGet());
+                dividend         = comp->gtNewLclvNode(dividend->AsLclVar()->GetLcl(), dividend->TypeGet());
 
                 divMod->SetOper(GT_SUB);
                 divMod->gtOp1 = dividend;
@@ -4018,7 +4020,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
 
         if (requiresAddSubAdjust)
         {
-            dividend = comp->gtNewLclvNode(dividend->AsLclVar()->GetLclNum(), dividend->TypeGet());
+            dividend = comp->gtNewLclvNode(dividend->AsLclVar()->GetLcl(), dividend->TypeGet());
             adjusted = comp->gtNewOperNode(divisorValue > 0 ? GT_ADD : GT_SUB, type, mulhi, dividend);
             BlockRange().InsertBefore(divMod, dividend, adjusted);
         }
@@ -4033,7 +4035,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
 
         LIR::Use adjustedUse(BlockRange(), &signBit->AsOp()->gtOp1, signBit);
         adjusted = ReplaceWithLclVar(adjustedUse);
-        adjusted = comp->gtNewLclvNode(adjusted->AsLclVar()->GetLclNum(), adjusted->TypeGet());
+        adjusted = comp->gtNewLclvNode(adjusted->AsLclVar()->GetLcl(), adjusted->TypeGet());
         BlockRange().InsertBefore(divMod, adjusted);
 
         if (requiresShiftAdjust)
@@ -4053,7 +4055,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
         {
             GenTree* div = comp->gtNewOperNode(GT_ADD, type, adjusted, signBit);
 
-            dividend = comp->gtNewLclvNode(dividend->AsLclVar()->GetLclNum(), dividend->TypeGet());
+            dividend = comp->gtNewLclvNode(dividend->AsLclVar()->GetLcl(), dividend->TypeGet());
 
             // divisor % dividend = dividend - divisor x div
             GenTree* divisor = comp->gtNewIconNode(divisorValue, type);
@@ -4110,7 +4112,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
         adjustment = mask;
     }
 
-    dividend                    = comp->gtNewLclvNode(dividend->AsLclVar()->GetLclNum(), dividend->GetType());
+    dividend                    = comp->gtNewLclvNode(dividend->AsLclVar()->GetLcl(), dividend->GetType());
     GenTreeOp* adjustedDividend = comp->gtNewOperNode(GT_ADD, type, adjustment, dividend);
     BlockRange().InsertAfter(adjustment, dividend, adjustedDividend);
     ContainCheckBinary(adjustedDividend);
@@ -4143,7 +4145,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
         divisor->AsIntCon()->SetIconValue(~(absDivisorValue - 1));
 
         GenTreeOp* mask = comp->gtNewOperNode(GT_AND, type, adjustedDividend, divisor);
-        dividend        = comp->gtNewLclvNode(dividend->AsLclVar()->GetLclNum(), dividend->GetType());
+        dividend        = comp->gtNewLclvNode(dividend->AsLclVar()->GetLcl(), dividend->GetType());
         newDivMod       = comp->gtNewOperNode(GT_SUB, type, dividend, mask);
 
         BlockRange().InsertAfter(adjustedDividend, divisor, mask, dividend, newDivMod);
@@ -4364,7 +4366,7 @@ void Lowering::WidenSIMD12IfNecessary(GenTreeLclVar* node)
     // as a return buffer pointer. The callee doesn't write the high 4 bytes, and we don't need to clear
     // it either.
 
-    if (CanWidenSimd12ToSimd16(comp->lvaGetDesc(node)))
+    if (CanWidenSimd12ToSimd16(node->GetLcl()))
     {
         JITDUMP("Mapping TYP_SIMD12 lclvar node to TYP_SIMD16:\n");
         DISPNODE(node);
@@ -4808,7 +4810,7 @@ void Lowering::CheckNode(GenTree* node)
         case GT_LCL_VAR:
         case GT_STORE_LCL_VAR:
         {
-            LclVarDsc* lcl = comp->lvaGetDesc(node->AsLclVar());
+            LclVarDsc* lcl = node->AsLclVar()->GetLcl();
 #ifdef FEATURE_SIMD
             assert(!node->TypeIs(TYP_SIMD12) || !CanWidenSimd12ToSimd16(lcl));
 #endif
@@ -4817,7 +4819,7 @@ void Lowering::CheckNode(GenTree* node)
         break;
 
         case GT_LCL_ADDR:
-            assert(comp->lvaGetDesc(node->AsLclAddr())->IsAddressExposed());
+            assert(node->AsLclAddr()->GetLcl()->IsAddressExposed());
             break;
 
         case GT_PHI:
@@ -4830,7 +4832,7 @@ void Lowering::CheckNode(GenTree* node)
 
         case GT_LCL_FLD:
         case GT_STORE_LCL_FLD:
-            assert(comp->lvaGetDesc(node->AsLclFld())->lvDoNotEnregister);
+            assert(node->AsLclFld()->GetLcl()->lvDoNotEnregister);
             break;
 
         default:
@@ -4881,7 +4883,7 @@ void Lowering::MakeMultiRegStoreLclVar(GenTreeLclVar* store, GenTree* value)
     assert(store->OperIs(GT_STORE_LCL_VAR));
     assert(value->IsMultiRegNode());
 
-    LclVarDsc* lcl = comp->lvaGetDesc(store);
+    LclVarDsc* lcl = store->GetLcl();
 
     bool canEnregister = false;
 
@@ -5023,7 +5025,7 @@ GenTree* Lowering::LowerBitCast(GenTreeUnOp* bitcast)
     }
     else if (src->OperIs(GT_LCL_VAR))
     {
-        LclVarDsc* srcLcl = comp->lvaGetDesc(src->AsLclVar());
+        LclVarDsc* srcLcl = src->AsLclVar()->GetLcl();
 
         if (srcLcl->lvDoNotEnregister)
         {
@@ -5567,19 +5569,19 @@ bool Lowering::ContainSIMD12MemToMemCopy(GenTree* store, GenTree* value)
 #endif
 
 #ifdef FEATURE_HW_INTRINSICS
-unsigned Lowering::GetSimdMemoryTemp(var_types type)
+LclVarDsc* Lowering::GetSimdMemoryTemp(var_types type)
 {
 #if defined(TARGET_XARCH)
     assert((type == TYP_SIMD16) || (type == TYP_SIMD32));
-    unsigned& tempLclNum = type == TYP_SIMD32 ? m_simd32MemoryTemp : m_simd16MemoryTemp;
+    LclVarDsc*& tempLcl = type == TYP_SIMD32 ? m_simd32MemoryTempLcl : m_simd16MemoryTempLcl;
 #elif defined(TARGET_ARM64)
     assert((type == TYP_SIMD16) || (type == TYP_SIMD8));
-    unsigned& tempLclNum = type == TYP_SIMD8 ? m_simd8MemoryTemp : m_simd16MemoryTemp;
+    LclVarDsc*& tempLcl = type == TYP_SIMD8 ? m_simd8MemoryTempLcl : m_simd16MemoryTempLcl;
 #endif
 
-    if (tempLclNum == BAD_VAR_NUM)
+    if (tempLcl == nullptr)
     {
-        LclVarDsc* lclTemp = comp->lvaAllocTemp(false DEBUGARG("Vector GetElement temp"));
+        LclVarDsc* lcl = comp->lvaAllocTemp(false DEBUGARG("Vector GetElement temp"));
         // TODO-MIKE-Cleanup: This creates a SIMD local without using lvaSetStruct
         // so it doesn't set layout, exact size etc. It happens to work because it
         // is done late, after lowering, otherwise at least the lack of exact size
@@ -5588,13 +5590,13 @@ unsigned Lowering::GetSimdMemoryTemp(var_types type)
         // Could also be a TYP_BLK local, codegen only needs a memory location where
         // to store a SIMD register in order to extract an element from it. But if
         // it's TYP_BLK then it won't have SIMD alignment. Bleah.
-        lclTemp->lvType = type;
-        comp->lvaSetDoNotEnregister(lclTemp DEBUGARG(Compiler::DNER_LocalField));
+        lcl->lvType = type;
+        comp->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
 
-        tempLclNum = lclTemp->GetLclNum();
+        tempLcl = lcl;
     }
 
-    return tempLclNum;
+    return tempLcl;
 }
 
 GenTree* Lowering::TryRemoveCastIfPresent(var_types expectedType, GenTree* op)
@@ -5768,7 +5770,7 @@ bool Lowering::IsContainableMemoryOp(Compiler* comp, GenTree* node)
 
     if (node->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
     {
-        return comp->lvaGetDesc(node->AsLclVar())->lvDoNotEnregister;
+        return node->AsLclVar()->GetLcl()->lvDoNotEnregister;
     }
 
     return false;

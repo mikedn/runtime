@@ -8,7 +8,7 @@ void Compiler::fgMarkUseDef(LivenessState& state, GenTreeLclVarCommon* node)
 {
     assert(node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
-    LclVarDsc* lcl = lvaGetDesc(node);
+    LclVarDsc* lcl = node->GetLcl();
 
     assert(!lcl->IsAddressExposed());
 
@@ -16,7 +16,7 @@ void Compiler::fgMarkUseDef(LivenessState& state, GenTreeLclVarCommon* node)
     // TODO-MIKE-Review: It's not clear why promotion makes a difference.
     if ((lcl->lvRefCnt() == 0) && !lcl->IsPromoted())
     {
-        JITDUMP("Found reference to V%02u with zero refCnt.\n", node->GetLclNum());
+        JITDUMP("Found reference to V%02u with zero refCnt.\n", lcl->GetLclNum());
         assert(!"We should never encounter a reference to a lclVar that has a zero refCnt.");
         lcl->SetRefCount(1);
     }
@@ -202,7 +202,7 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
     {
         case GT_LCL_VAR:
         case GT_LCL_FLD:
-            if (lvaGetDesc(tree->AsLclVarCommon())->IsAddressExposed())
+            if (tree->AsLclVarCommon()->GetLcl()->IsAddressExposed())
             {
                 state.fgCurMemoryUse = true;
                 break;
@@ -212,7 +212,7 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
             break;
 
         case GT_LCL_ADDR:
-            assert(lvaGetDesc(tree->AsLclAddr())->IsAddressExposed());
+            assert(tree->AsLclAddr()->GetLcl()->IsAddressExposed());
             break;
 
         case GT_IND:
@@ -230,7 +230,7 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
 
             if (GenTreeLclAddr* lclNode = tree->AsIndir()->GetAddr()->SkipComma()->IsLocalAddrExpr())
             {
-                assert(lvaGetDesc(lclNode)->IsAddressExposed());
+                assert(lclNode->GetLcl()->IsAddressExposed());
             }
 
             state.fgCurMemoryUse = true;
@@ -299,7 +299,7 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
 
         case GT_STORE_LCL_VAR:
         case GT_STORE_LCL_FLD:
-            if (lvaGetDesc(tree->AsLclVarCommon())->IsAddressExposed())
+            if (tree->AsLclVarCommon()->GetLcl()->IsAddressExposed())
             {
                 state.fgCurMemoryDef = true;
                 break;
@@ -313,7 +313,7 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
         case GT_STORE_BLK:
             if (GenTreeLclAddr* lclNode = tree->AsIndir()->GetAddr()->SkipComma()->IsLocalAddrExpr())
             {
-                assert(lvaGetDesc(lclNode)->IsAddressExposed());
+                assert(lclNode->GetLcl()->IsAddressExposed());
             }
 
             state.fgCurMemoryDef = true;
@@ -383,14 +383,14 @@ void Compiler::fgPerBlockLocalVarLivenessLIR()
         {
             if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
             {
-                if (!lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed())
+                if (!node->AsLclVarCommon()->GetLcl()->IsAddressExposed())
                 {
                     fgMarkUseDef(state, node->AsLclVarCommon());
                 }
             }
             else if (node->OperIs(GT_LCL_ADDR))
             {
-                assert(lvaGetDesc(node->AsLclAddr())->IsAddressExposed());
+                assert(node->AsLclAddr()->GetLcl()->IsAddressExposed());
             }
         }
 
@@ -859,7 +859,7 @@ bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
         if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
             GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
-            LclVarDsc*           lcl     = lvaGetDesc(lclNode);
+            LclVarDsc*           lcl     = lclNode->GetLcl();
 
             if (lcl->HasLiveness())
             {
@@ -874,7 +874,7 @@ bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
         else if (node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
         {
             GenTreeLclVarCommon* lclNode     = node->AsLclVarCommon();
-            LclVarDsc*           lcl         = lvaGetDesc(lclNode);
+            LclVarDsc*           lcl         = lclNode->GetLcl();
             bool                 isDeadStore = false;
 
             if (lcl->HasLiveness())
@@ -957,7 +957,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
             case GT_LCL_FLD:
             {
                 GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
-                LclVarDsc*           lcl     = lvaGetDesc(lclNode);
+                LclVarDsc*           lcl     = lclNode->GetLcl();
 
                 if (node->IsUnusedValue())
                 {
@@ -986,7 +986,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
             case GT_STORE_LCL_FLD:
             {
                 GenTreeLclVarCommon* lclNode     = node->AsLclVarCommon();
-                LclVarDsc*           lcl         = lvaGetDesc(lclNode);
+                LclVarDsc*           lcl         = lclNode->GetLcl();
                 bool                 isDeadStore = false;
 
                 if (lcl->HasLiveness())
@@ -1049,7 +1049,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
             }
 
             case GT_LCL_ADDR:
-                assert(lvaGetDesc(node->AsLclAddr())->IsAddressExposed());
+                assert(node->AsLclAddr()->GetLcl()->IsAddressExposed());
                 FALLTHROUGH;
             case GT_LABEL:
             case GT_CNS_INT:
