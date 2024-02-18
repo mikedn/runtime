@@ -1329,7 +1329,8 @@ bool Compiler::morphAssertionIsNotNull(GenTreeLclVar* lclVar)
 {
     assert(fgGlobalMorph);
 
-    unsigned lclNum = lclVar->GetLcl()->GetLclNum();
+    LclVarDsc* lcl    = lclVar->GetLcl();
+    unsigned   lclNum = lcl->GetLclNum();
 
     for (unsigned index = 0; index < morphAssertionCount; index++)
     {
@@ -1339,7 +1340,7 @@ bool Compiler::morphAssertionIsNotNull(GenTreeLclVar* lclVar)
         {
             assert(assertion.valKind == ValueKind::IntCon);
             assert(assertion.val.intCon.value == 0);
-            assert(!lvaGetDesc(lclNum)->IsAddressExposed());
+            assert(!lcl->IsAddressExposed());
 
             DBEXEC(verbose, morphAssertionTrace(assertion, lclVar, "propagated"));
 
