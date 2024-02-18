@@ -485,15 +485,15 @@ void Compiler::gsParamsToShadows()
     }
 
     // Now insert code to copy the params to their shadow copy.
-    for (unsigned lclNum = 0; lclNum < locals.size(); lclNum++)
+    for (LclVarDsc* lcl : locals)
     {
-        unsigned shadowLclNum = gsLclShadowMap[lclNum];
+        unsigned shadowLclNum = gsLclShadowMap[lcl->GetLclNum()];
+
         if (shadowLclNum == BAD_VAR_NUM)
         {
             continue;
         }
 
-        LclVarDsc* lcl       = lvaGetDesc(lclNum);
         LclVarDsc* shadowLcl = lvaGetDesc(shadowLclNum);
 
         GenTree* src = gtNewLclvNode(lcl, lcl->GetType());
@@ -523,14 +523,13 @@ void Compiler::gsParamsToShadows()
 
             for (LclVarDsc* lcl : Params())
             {
-                unsigned lclNum       = lcl->GetLclNum();
-                unsigned shadowLclNum = gsLclShadowMap[lclNum];
+                unsigned shadowLclNum = gsLclShadowMap[lcl->GetLclNum()];
+
                 if (shadowLclNum == BAD_VAR_NUM)
                 {
                     continue;
                 }
 
-                LclVarDsc* lcl       = lvaGetDesc(lclNum);
                 LclVarDsc* shadowLcl = lvaGetDesc(shadowLclNum);
 
                 GenTree* src = gtNewLclvNode(shadowLcl, shadowLcl->GetType());
