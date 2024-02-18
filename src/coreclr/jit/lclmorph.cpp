@@ -706,9 +706,8 @@ private:
             // exposed in those case is unlikely to provide any benefits.
         }
 
-        LclVarDsc* lcl         = val.Lcl();
-        unsigned   fieldLclNum = BAD_VAR_NUM;
-        LclVarDsc* fieldLcl    = nullptr;
+        LclVarDsc* lcl      = val.Lcl();
+        LclVarDsc* fieldLcl = nullptr;
 
         // Try to use the address of a promoted field, if any. We'll have to mark the local
         // address exposed anyway but if we can restrict this to just a promoted field we
@@ -726,16 +725,11 @@ private:
 
         if (lcl->IsPromoted() && (val.FieldSeq() != nullptr) && val.FieldSeq()->IsField())
         {
-            fieldLclNum = FindPromotedField(lcl, val.Offset(), 1);
+            fieldLcl = FindPromotedField(lcl, val.Offset(), 1);
 
-            if (fieldLclNum != BAD_VAR_NUM)
+            if ((fieldLcl != nullptr) && (fieldLcl->GetPromotedFieldOffset() == val.Offset()))
             {
-                fieldLcl = m_compiler->lvaGetDesc(fieldLclNum);
-
-                if (fieldLcl->GetPromotedFieldOffset() == val.Offset())
-                {
-                    lcl = fieldLcl;
-                }
+                lcl = fieldLcl;
             }
         }
 
@@ -924,16 +918,13 @@ private:
 
         if (varTypeIsStruct(lcl->GetType()) && lcl->IsPromoted())
         {
-            // If this is a promoted variable then we can use a promoted field if it completly
+            // If this is a promoted variable then we can use a promoted field if it completely
             // overlaps the indirection. With a lot of work, we could also handle cases where
             // the indirection spans multiple fields (e.g. reading two consecutive INT fields
             // as LONG) which would prevent dependent promotion.
 
-            unsigned fieldLclNum = FindPromotedField(lcl, val.Offset(), indirSize);
-
-            if (fieldLclNum != BAD_VAR_NUM)
+            if (LclVarDsc* fieldLcl = FindPromotedField(lcl, val.Offset(), indirSize))
             {
-                LclVarDsc*    fieldLcl    = m_compiler->lvaGetDesc(fieldLclNum);
                 unsigned      fieldOffset = val.Offset() - fieldLcl->GetPromotedFieldOffset();
                 FieldSeqNode* fieldSeq    = val.FieldSeq();
 
@@ -1063,14 +1054,12 @@ private:
         // The importer does not currently produce STRUCT LCL_FLDs.
         assert(node->OperIs(GT_LCL_FLD) && !node->TypeIs(TYP_STRUCT));
 
-        unsigned fieldLclNum = FindPromotedField(lcl, node->GetLclOffs(), varTypeSize(node->GetType()));
+        LclVarDsc* fieldLcl = FindPromotedField(lcl, node->GetLclOffs(), varTypeSize(node->GetType()));
 
-        if (fieldLclNum == BAD_VAR_NUM)
+        if (fieldLcl == nullptr)
         {
             return false;
         }
-
-        LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(fieldLclNum);
 
         // The importer rarely produces LCL_FLDs, currently only when importing refanytype,
         // so we can get away with handling only the trivial case when types match exactly.
@@ -1103,23 +1092,22 @@ private:
     //    The overlapping promoted struct field local number or BAD_VAR_NUM if
     //    no overlapping field exists.
     //
-    unsigned FindPromotedField(LclVarDsc* lcl, unsigned offset, unsigned size) const
+    LclVarDsc* FindPromotedField(LclVarDsc* lcl, unsigned offset, unsigned size) const
     {
         for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
         {
-            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(i);
-            LclVarDsc* fieldLcl    = m_compiler->lvaGetDesc(fieldLclNum);
+            LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
             assert(fieldLcl->GetType() != TYP_STRUCT);
 
             if ((offset >= fieldLcl->GetPromotedFieldOffset()) &&
                 (offset - fieldLcl->GetPromotedFieldOffset() + size <= varTypeSize(fieldLcl->GetType())))
             {
-                return fieldLclNum;
+                return fieldLcl;
             }
         }
 
-        return BAD_VAR_NUM;
+        return nullptr;
     }
 
     //------------------------------------------------------------------------
