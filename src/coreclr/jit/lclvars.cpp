@@ -235,11 +235,11 @@ void Compiler::lvaInitLocals()
         setNeedsGSSecurityCookie();
         compGSReorderStackLayout = true;
 
-        for (unsigned i = 0; i < lvaCount; i++)
+        for (LclVarDsc* lcl : Locals())
         {
-            if (lvaGetDesc(i)->TypeIs(TYP_STRUCT) && compStressCompile(STRESS_GENERIC_VARN, 60))
+            if (lcl->TypeIs(TYP_STRUCT) && compStressCompile(STRESS_GENERIC_VARN, 60))
             {
-                lvaGetDesc(i)->lvIsUnsafeBuffer = true;
+                lcl->lvIsUnsafeBuffer = true;
             }
         }
     }
