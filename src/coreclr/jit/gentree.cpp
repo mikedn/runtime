@@ -6796,13 +6796,13 @@ void Compiler::gtGetLclVarNameInfo(unsigned lclNum, const char** ilKindOut, cons
             }
 #endif // FEATURE_FIXED_OUT_ARGS
 #if !defined(FEATURE_EH_FUNCLETS)
-            else if (lclNum == lvaShadowSPslotsVar)
+            else if (lvaGetDesc(lclNum) == lvaShadowSPslotsLcl)
             {
                 ilName = "EHSlots";
             }
 #endif // !FEATURE_EH_FUNCLETS
 #ifdef JIT32_GCENCODER
-            else if (lclNum == lvaLocAllocSPvar)
+            else if (lvaGetDesc(lclNum) == lvaLocAllocSPLcl)
             {
                 ilName = "LocAllocSP";
             }

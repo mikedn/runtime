@@ -3374,8 +3374,7 @@ public:
             return;
         }
 
-        GenTree* base =
-            m_compiler->gtNewLclvNode(m_compiler->lvaGetDesc(m_compiler->lvaVarargsBaseOfStkArgs), TYP_I_IMPL);
+        GenTree* base   = m_compiler->gtNewLclvNode(m_compiler->lvaVarargsBaseOfStkLcl, TYP_I_IMPL);
         GenTree* offset = GetVarargsStackParamOffset(lclAddr->GetLcl(), lclAddr->GetLclOffs());
         GenTree* addr   = lclAddr;
 
@@ -3396,8 +3395,7 @@ public:
             return;
         }
 
-        GenTree* base =
-            m_compiler->gtNewLclvNode(m_compiler->lvaGetDesc(m_compiler->lvaVarargsBaseOfStkArgs), TYP_I_IMPL);
+        GenTree* base   = m_compiler->gtNewLclvNode(m_compiler->lvaVarargsBaseOfStkLcl, TYP_I_IMPL);
         GenTree* offset = GetVarargsStackParamOffset(lclNode->GetLcl(), lclNode->GetLclOffs());
         GenTree* addr   = m_compiler->gtNewOperNode(GT_ADD, TYP_I_IMPL, base, offset);
         GenTree* indir  = lclNode;

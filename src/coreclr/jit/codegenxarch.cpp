@@ -350,17 +350,15 @@ void CodeGen::GenCallFinally(BasicBlock* block)
     unsigned finallyNesting = 0;
     compiler->fgGetNestingLevel(block, &finallyNesting);
 
+    LclVarDsc* shadowSlotsLcl = compiler->lvaShadowSPslotsLcl;
     // The last slot is reserved for ICodeManager::FixContext(ppEndRegion)
-    unsigned filterEndOffsetSlotOffs;
-    filterEndOffsetSlotOffs = compiler->lvaGetDesc(compiler->lvaShadowSPslotsVar)->GetBlockSize() - REGSIZE_BYTES;
+    unsigned filterEndOffsetSlotOffs = shadowSlotsLcl->GetBlockSize() - REGSIZE_BYTES;
 
-    unsigned curNestingSlotOffs;
-    curNestingSlotOffs = (unsigned)(filterEndOffsetSlotOffs - ((finallyNesting + 1) * REGSIZE_BYTES));
+    unsigned curNestingSlotOffs = (unsigned)(filterEndOffsetSlotOffs - ((finallyNesting + 1) * REGSIZE_BYTES));
 
     // Zero out the slot for the next nesting level
-    GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, compiler->lvaShadowSPslotsVar, curNestingSlotOffs - REGSIZE_BYTES,
-                              0);
-    GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, compiler->lvaShadowSPslotsVar, curNestingSlotOffs, LCL_FINALLY_MARK);
+    GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, shadowSlotsLcl->GetLclNum(), curNestingSlotOffs - REGSIZE_BYTES, 0);
+    GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, shadowSlotsLcl->GetLclNum(), curNestingSlotOffs, LCL_FINALLY_MARK);
 
     // Now push the address where the finally funclet should return to directly.
     if ((block->bbFlags & BBF_RETLESS_CALL) == 0)
@@ -427,15 +425,14 @@ void CodeGen::GenEndLFin(GenTreeEndLFin* node)
     unsigned finallyNesting = node->GetNesting();
     noway_assert(finallyNesting < compiler->compHndBBtabCount);
 
-    unsigned   shadowSPSlotsLclNum = compiler->lvaShadowSPslotsVar;
-    LclVarDsc* shadowSPSlotsLcl    = compiler->lvaGetDesc(shadowSPSlotsLclNum);
+    LclVarDsc* shadowSPSlotsLcl = compiler->lvaShadowSPslotsLcl;
 
     // The last slot is reserved for ICodeManager::FixContext(ppEndRegion)
     assert(shadowSPSlotsLcl->GetBlockSize() > REGSIZE_BYTES);
     unsigned filterEndOffsetSlotOffs = shadowSPSlotsLcl->GetBlockSize() - REGSIZE_BYTES;
 
     unsigned curNestingSlotOffs = filterEndOffsetSlotOffs - (finallyNesting + 1) * REGSIZE_BYTES;
-    GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, shadowSPSlotsLclNum, curNestingSlotOffs, 0);
+    GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, shadowSPSlotsLcl->GetLclNum(), curNestingSlotOffs, 0);
 }
 
 #endif // !FEATURE_EH_FUNCLETS
@@ -2186,9 +2183,9 @@ ALLOC_DONE:
     }
 
 #ifdef JIT32_GCENCODER
-    if (compiler->lvaLocAllocSPvar != BAD_VAR_NUM)
+    if (LclVarDsc* lcl = compiler->lvaLocAllocSPLcl)
     {
-        GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, REG_SPBASE, compiler->lvaLocAllocSPvar, 0);
+        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, lcl->GetLclNum(), 0);
     }
 #endif // JIT32_GCENCODER
 
@@ -8484,8 +8481,6 @@ void CodeGen::PrologInitVarargsStackParamsBaseOffset()
 {
     JITDUMP("; PrologInitVarargsStackParamsBaseOffset\n");
 
-    LclVarDsc* varDsc = compiler->lvaGetDesc(compiler->lvaVarargsBaseOfStkArgs);
-
     noway_assert(compiler->info.compArgsCount > 0);
 
     GetEmitter()->emitIns_R_S(INS_mov, EA_4BYTE, REG_EAX, compiler->info.compArgsCount - 1, 0);
@@ -8499,13 +8494,15 @@ void CodeGen::PrologInitVarargsStackParamsBaseOffset()
 
     GetEmitter()->emitIns_R_ARX(INS_lea, EA_4BYTE, REG_EAX, genFramePointerReg(), REG_EAX, 1, offset);
 
+    LclVarDsc* varDsc = compiler->lvaVarargsBaseOfStkLcl;
+
     if (varDsc->lvIsInReg())
     {
         GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, varDsc->GetRegNum(), REG_EAX, /* canSkip */ true);
     }
     else
     {
-        GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, REG_EAX, compiler->lvaVarargsBaseOfStkArgs, 0);
+        GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, REG_EAX, varDsc->GetLclNum(), 0);
     }
 }
 #endif // TARGET_X86

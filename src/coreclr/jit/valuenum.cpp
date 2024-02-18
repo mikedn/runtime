@@ -6466,7 +6466,7 @@ void ValueNumbering::NumberInitDefs()
             }
 
 #ifdef TARGET_X86
-            if (lcl->GetLclNum() == compiler->lvaVarargsBaseOfStkArgs)
+            if (lcl == compiler->lvaVarargsBaseOfStkLcl)
             {
                 isZeroed = false;
             }

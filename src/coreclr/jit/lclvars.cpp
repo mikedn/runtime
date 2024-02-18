@@ -612,7 +612,7 @@ void Compiler::lvaInitVarargsHandleParam(ParamAllocInfo& paramInfo)
     paramInfo.lclNum++;
 
 #ifdef TARGET_X86
-    lvaVarargsBaseOfStkArgs = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("Varargs BaseOfStkArgs"))->GetLclNum();
+    lvaVarargsBaseOfStkLcl = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("Varargs BaseOfStkArgs"));
 #endif
 
 #ifdef TARGET_ARM
@@ -2871,10 +2871,9 @@ void Compiler::phAddSpecialLocals()
         // For zero-termination of the shadow-Stack-pointer chain
         slotsNeeded++;
 
-        LclVarDsc* shadowSpSlotsLcl = lvaAllocTemp(false DEBUGARG("ShadowSPslots"));
-        shadowSpSlotsLcl->SetBlockType(slotsNeeded * REGSIZE_BYTES);
-        lvaSetImplicitlyReferenced(shadowSpSlotsLcl);
-        lvaShadowSPslotsVar = shadowSpSlotsLcl->GetLclNum();
+        lvaShadowSPslotsLcl = lvaAllocTemp(false DEBUGARG("ShadowSPslots"));
+        lvaShadowSPslotsLcl->SetBlockType(slotsNeeded * REGSIZE_BYTES);
+        lvaSetImplicitlyReferenced(lvaShadowSPslotsLcl);
     }
 #endif // !FEATURE_EH_FUNCLETS
 
@@ -2906,9 +2905,8 @@ void Compiler::phAddSpecialLocals()
         // See also eetwain.cpp::GetLocallocSPOffset() and its callers.
         if (compLocallocUsed)
         {
-            LclVarDsc* locallocSpLcl = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("LocAllocSP"));
-            lvaSetImplicitlyReferenced(locallocSpLcl);
-            lvaLocAllocSPvar = locallocSpLcl->GetLclNum();
+            lvaLocAllocSPLcl = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("LocAllocSP"));
+            lvaSetImplicitlyReferenced(lvaLocAllocSPLcl);
         }
 #endif // JIT32_GCENCODER
     }
@@ -4141,11 +4139,11 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
     }
 
 #ifdef JIT32_GCENCODER
-    if (lvaLocAllocSPvar != BAD_VAR_NUM)
+    if (LclVarDsc* lcl = lvaLocAllocSPLcl)
     {
         noway_assert(codeGen->isFramePointerUsed());
 
-        stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaLocAllocSPvar, REGSIZE_BYTES, stkOffs);
+        stkOffs = lvaAllocLocalAndSetVirtualOffset(lcl, REGSIZE_BYTES, stkOffs);
     }
 #endif // JIT32_GCENCODER
 
@@ -4223,8 +4221,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
             }
         }
 
-        stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaShadowSPslotsVar, lvaGetDesc(lvaShadowSPslotsVar)->GetBlockSize(),
-                                                   stkOffs);
+        stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaShadowSPslotsLcl, lvaShadowSPslotsLcl->GetBlockSize(), stkOffs);
     }
 #endif // !FEATURE_EH_FUNCLETS
 
@@ -4402,16 +4399,16 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
             // These need to be located as the very first variables (highest memory address)
             // and so they have already been assigned an offset
 
-            if (lclNum == lvaMonAcquired ||
+            if ((lclNum == lvaMonAcquired) ||
 #ifdef FEATURE_EH_FUNCLETS
-                lclNum == lvaPSPSym ||
+                (lclNum == lvaPSPSym) ||
 #else
-                lclNum == lvaShadowSPslotsVar ||
+                (lcl == lvaShadowSPslotsLcl) ||
 #endif
 #ifdef JIT32_GCENCODER
-                lclNum == lvaLocAllocSPvar ||
+                (lcl == lvaLocAllocSPLcl) ||
 #endif
-                lclNum == lvaRetAddrVar)
+                (lclNum == lvaRetAddrVar))
             {
                 assert(lcl->GetStackOffset() != BAD_STK_OFFS);
 

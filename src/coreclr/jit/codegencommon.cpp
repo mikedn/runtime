@@ -3872,9 +3872,9 @@ void CodeGen::genFnProlog()
     // When compInitMem is true the PrologBlockInitLocals will zero out the shadow SP slots.
     if (compiler->ehNeedsShadowSPslots() && !compiler->info.compInitMem)
     {
+        LclVarDsc* shadowSlotsLcl = compiler->lvaShadowSPslotsLcl;
         // The last slot is reserved for ICodeManager::FixContext(ppEndRegion)
-        unsigned filterEndOffsetSlotOffs =
-            compiler->lvaGetDesc(compiler->lvaShadowSPslotsVar)->GetBlockSize() - REGSIZE_BYTES;
+        unsigned filterEndOffsetSlotOffs = shadowSlotsLcl->GetBlockSize() - REGSIZE_BYTES;
 
         // Zero out the slot for nesting level 0
         unsigned firstSlotOffs = filterEndOffsetSlotOffs - REGSIZE_BYTES;
@@ -3885,7 +3885,7 @@ void CodeGen::genFnProlog()
             initRegZeroed = true;
         }
 
-        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, initReg, compiler->lvaShadowSPslotsVar, firstSlotOffs);
+        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, initReg, shadowSlotsLcl->GetLclNum(), firstSlotOffs);
     }
 #endif // !FEATURE_EH_FUNCLETS
 
@@ -3895,9 +3895,9 @@ void CodeGen::genFnProlog()
     }
 
 #ifdef JIT32_GCENCODER
-    if (compiler->lvaLocAllocSPvar != BAD_VAR_NUM)
+    if (LclVarDsc* lcl = compiler->lvaLocAllocSPLcl)
     {
-        GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, REG_ESP, compiler->lvaLocAllocSPvar, 0);
+        GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, REG_ESP, lcl->GetLclNum(), 0);
     }
 #endif
 
@@ -3963,7 +3963,7 @@ void CodeGen::genFnProlog()
     }
 
 #ifdef TARGET_X86
-    if (compiler->info.compIsVarArgs && (compiler->lvaGetDesc(compiler->lvaVarargsBaseOfStkArgs)->GetRefCount() > 0))
+    if (compiler->info.compIsVarArgs && (compiler->lvaVarargsBaseOfStkLcl->GetRefCount() > 0))
     {
         PrologInitVarargsStackParamsBaseOffset();
     }

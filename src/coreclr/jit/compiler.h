@@ -3336,7 +3336,7 @@ public:
     unsigned lvaVarargsHandleArg = BAD_VAR_NUM;
 #ifdef TARGET_X86
     // Pointer (computed based on incoming varargs handle) to the start of the stack arguments
-    unsigned lvaVarargsBaseOfStkArgs = BAD_VAR_NUM;
+    LclVarDsc* lvaVarargsBaseOfStkLcl = nullptr;
 #endif
 
     unsigned lvaPInvokeFrameListVar    = BAD_VAR_NUM; // lclNum for the Frame root
@@ -3372,14 +3372,14 @@ public:
 //-------------------------------------------------------------------------
 // All these frame offsets are inter-related and must be kept in sync
 
-#if !defined(FEATURE_EH_FUNCLETS)
+#ifndef FEATURE_EH_FUNCLETS
     // This is used for the callable handlers
-    unsigned lvaShadowSPslotsVar = BAD_VAR_NUM; // TYP_BLK variable for all the shadow SP slots
+    LclVarDsc* lvaShadowSPslotsLcl = nullptr; // TYP_BLK variable for all the shadow SP slots
 #endif
 
 #ifdef JIT32_GCENCODER
     // variable which stores the value of ESP after the the last alloca/localloc
-    unsigned lvaLocAllocSPvar = BAD_VAR_NUM;
+    LclVarDsc* lvaLocAllocSPLcl = nullptr;
 #endif
 
     unsigned lvaNewObjArrayArgs = BAD_VAR_NUM; // variable with arguments for new MD array helper
