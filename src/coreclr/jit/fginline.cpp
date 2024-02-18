@@ -793,10 +793,10 @@ void Compiler::inlPostInlineFailureCleanup(const InlineInfo* inlineInfo)
         {
             if (!argInfo.argNode->OperIs(GT_LCL_VAR))
             {
-                assert(argInfo.argNode->AsLclAddr()->GetLcl()->GetLclNum() == argInfo.paramLclNum);
+                assert(argInfo.argNode->AsLclAddr()->GetLcl() == argInfo.paramLcl);
 
                 argInfo.argNode->SetOper(GT_LCL_VAR);
-                argInfo.argNode->AsLclVar()->SetLcl(lvaGetDesc(argInfo.paramLclNum));
+                argInfo.argNode->AsLclVar()->SetLcl(argInfo.paramLcl);
                 argInfo.argNode->SetType(argInfo.argType);
             }
         }
@@ -1591,8 +1591,8 @@ typeInfo InlineInfo::GetParamTypeInfo(unsigned ilArgNum) const
 
 bool InlineInfo::IsThisParam(GenTree* tree) const
 {
-    return tree->OperIs(GT_LCL_VAR) && (ilArgCount > 0) &&
-           (tree->AsLclVar()->GetLcl()->GetLclNum() == ilArgInfo[0].paramLclNum) && ilArgInfo[0].paramIsThis;
+    return tree->OperIs(GT_LCL_VAR) && (ilArgCount > 0) && (tree->AsLclVar()->GetLcl() == ilArgInfo[0].paramLcl) &&
+           ilArgInfo[0].paramIsThis;
 }
 
 bool Compiler::inlAnalyzeInlineeLocals(InlineInfo* inlineInfo)
@@ -1735,7 +1735,7 @@ LclVarDsc* Compiler::inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNu
 
     if (inlineInfo->ilLocInfo[ilLocNum].lclIsUsed)
     {
-        return lvaGetDesc(inlineInfo->ilLocInfo[ilLocNum].lclNum);
+        return inlineInfo->ilLocInfo[ilLocNum].lcl;
     }
 
     return inlAllocInlineeLocal(inlineInfo, ilLocNum);
@@ -1754,7 +1754,7 @@ LclVarDsc* Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLoc
     lcl->lvHasILStoreOp         = lclInfo.lclHasStlocOp;
     lcl->lvHasMultipleILStoreOp = lclInfo.lclHasMultipleStlocOp;
 
-    lclInfo.lclNum    = lcl->GetLclNum();
+    lclInfo.lcl       = lcl;
     lclInfo.lclIsUsed = true;
 
     if (varTypeIsStruct(lclInfo.lclType))
@@ -1776,7 +1776,7 @@ LclVarDsc* Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLoc
 
             if (lcl->lvSingleDef)
             {
-                JITDUMP("Marked V%02u as a single def temp\n", lclInfo.lclNum);
+                JITDUMP("Marked V%02u as a single def temp\n", lclInfo.lcl->GetLclNum());
             }
 
             lvaSetClass(lcl, lclInfo.lclClass);
@@ -1869,9 +1869,9 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
         else
         {
             assert(argNode->OperIs(GT_LCL_ADDR));
-            assert(argNode->AsLclAddr()->GetLcl()->GetLclNum() == argInfo.paramLclNum);
+            assert(argNode->AsLclAddr()->GetLcl() == argInfo.paramLcl);
 
-            lcl = lvaGetDesc(argInfo.paramLclNum);
+            lcl = argInfo.paramLcl;
         }
 
         // Use an equivalent copy if this is the second or subsequent
@@ -1880,7 +1880,7 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
         // Note argument type mismatches that prevent inlining should
         // have been caught in inlAnalyzeInlineeArgs.
 
-        if ((argInfo.paramLclNum != BAD_VAR_NUM) || (argNode->GetType() != argInfo.paramType))
+        if ((argInfo.paramLcl != nullptr) || (argNode->GetType() != argInfo.paramType))
         {
             var_types paramType = argInfo.paramType;
 
@@ -1892,7 +1892,7 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
             argNode = gtNewLclvNode(lcl, paramType);
         }
 
-        argInfo.paramLclNum = lcl->GetLclNum();
+        argInfo.paramLcl = lcl;
 
         return argNode;
     }
@@ -1901,7 +1901,7 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
     {
         // We already allocated a temp for this argument, use it.
 
-        argNode = gtNewLclvNode(lvaGetDesc(argInfo.paramLclNum), varActualType(argInfo.paramType));
+        argNode = gtNewLclvNode(argInfo.paramLcl, varActualType(argInfo.paramType));
 
         // This is the second or later use of the this argument,
         // so we have to use the temp (instead of the actual arg).
@@ -1912,8 +1912,7 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
 
     // Argument is a complex expression - it must be evaluated into a temp.
 
-    LclVarDsc* tmpLcl    = lvaAllocTemp(true DEBUGARG("inlinee arg"));
-    unsigned   tmpLclNum = tmpLcl->GetLclNum();
+    LclVarDsc* tmpLcl = lvaAllocTemp(true DEBUGARG("inlinee arg"));
 
     if (argInfo.paramIsAddressTaken)
     {
@@ -1961,7 +1960,7 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
     }
 
     argInfo.paramHasLcl = true;
-    argInfo.paramLclNum = tmpLclNum;
+    argInfo.paramLcl    = tmpLcl;
 
     // If we require strict exception order, then arguments must
     // be evaluated in sequence before the body of the inlined method.
@@ -2335,7 +2334,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
         if (argInfo.paramHasLcl)
         {
-            GenTreeLclVar* dst = gtNewLclvNode(lvaGetDesc(argInfo.paramLclNum), argInfo.paramType);
+            GenTreeLclVar* dst = gtNewLclvNode(argInfo.paramLcl, argInfo.paramType);
             GenTree*       asg;
 
             if (argInfo.paramType != TYP_STRUCT)
@@ -2658,11 +2657,11 @@ Statement* Compiler::inlInitInlineeLocals(const InlineInfo* inlineInfo, Statemen
             continue;
         }
 
-        LclVarDsc* lcl = lvaGetDesc(lclInfo.lclNum);
+        LclVarDsc* lcl = lclInfo.lcl;
 
         if (!fgVarNeedsExplicitZeroInit(lcl, blockIsInLoop, blockIsReturn))
         {
-            JITDUMP("Suppressing zero-init for V%02u, expect to zero in inliner's prolog\n", lclInfo.lclNum);
+            JITDUMP("Suppressing zero-init for V%02u, expect to zero in inliner's prolog\n", lclInfo.lcl->GetLclNum());
             lcl->lvSuppressedZeroInit = 1;
             compSuppressedZeroInit    = true;
             continue;
@@ -2711,7 +2710,7 @@ void Compiler::inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, Statement
             continue;
         }
 
-        LclVarDsc* lcl = lvaGetDesc(lclInfo.lclNum);
+        LclVarDsc* lcl = lclInfo.lcl;
 
         assert(lcl->GetType() == lclInfo.lclType);
 
