@@ -3256,11 +3256,6 @@ public:
     // layout calculations, this is the level we are currently computing.
     FrameLayoutState lvaDoneFrameLayout = NO_FRAME_LAYOUT;
 
-    bool lvaLocalVarRefCounted() const
-    {
-        return lvaRefCountState == RCS_NORMAL;
-    }
-
     unsigned    lvaCount         = 0;
     unsigned    lvaTableCapacity = 0;
     LclVarDsc** lvaTable         = nullptr;
@@ -3270,6 +3265,56 @@ public:
     LclVarDsc** lvaTracked         = nullptr;
 
     unsigned lvaTrackedCountInSizeTUnits = 0; // min # of size_t's sufficient to hold a bit for all tracked locals
+
+    // --- Begin various special local variables ---
+
+    unsigned lvaVarargsHandleArg       = BAD_VAR_NUM;
+    unsigned lvaPInvokeFrameListVar    = BAD_VAR_NUM;
+    unsigned lvaInlinedPInvokeFrameVar = BAD_VAR_NUM;
+    unsigned lvaReversePInvokeFrameVar = BAD_VAR_NUM;
+    unsigned lvaMonAcquired            = BAD_VAR_NUM;
+    unsigned lvaNewObjArrayArgs        = BAD_VAR_NUM;
+    unsigned lvaGSSecurityCookie       = BAD_VAR_NUM;
+    unsigned lvaStubArgumentVar        = BAD_VAR_NUM;
+    unsigned genReturnLocal            = BAD_VAR_NUM;
+
+    // Same as info.compThisArg, except when "this" is address taken or stored to - in which
+    // case this is a temp local initialized from the "this" arg at the start of the method.
+    unsigned lvaThisLclNum = BAD_VAR_NUM;
+
+    // Variable representing the return address. The helper-based tailcall
+    // mechanism passes the address of the return address to a runtime helper
+    // where it is used to detect tail-call chains.
+    unsigned lvaRetAddrVar = BAD_VAR_NUM;
+
+    unsigned fgLargeFieldOffsetNullCheckTemps[3];
+
+#if FEATURE_FIXED_OUT_ARGS
+    unsigned lvaOutgoingArgSpaceVar = BAD_VAR_NUM;
+#endif
+#ifdef FEATURE_EH_FUNCLETS
+    unsigned lvaPSPSym = BAD_VAR_NUM;
+#endif
+#ifdef TARGET_X86
+    // Pointer (computed based on incoming varargs handle) to the start of the stack arguments
+    LclVarDsc* lvaVarargsBaseOfStkLcl = nullptr;
+#endif
+#ifndef FEATURE_EH_FUNCLETS
+    // This is used for the callable handlers
+    LclVarDsc* lvaShadowSPslotsLcl = nullptr; // TYP_BLK variable for all the shadow SP slots
+#endif
+#ifdef JIT32_GCENCODER
+    // variable which stores the value of ESP after the the last alloca/localloc
+    LclVarDsc* lvaLocAllocSPLcl = nullptr;
+#endif
+#if defined(DEBUG) && defined(TARGET_XARCH)
+    // Stores SP to confirm it is not corrupted on return.
+    LclVarDsc* lvaReturnSpCheckLcl = nullptr;
+    // Stores SP to confirm it is not corrupted after every call.
+    X86_ONLY(LclVarDsc* lvaCallSpCheckLcl = nullptr;)
+#endif
+
+    // --- End various special local variables ---
 
     jitstd::span<LclVarDsc*> Locals() const
     {
@@ -3325,6 +3370,11 @@ public:
     };
 #endif
 
+    bool lvaLocalVarRefCounted() const
+    {
+        return lvaRefCountState == RCS_NORMAL;
+    }
+
     void lvaSetImplicitlyReferenced(LclVarDsc* lcl);
     void lvaSetAddressExposed(LclVarDsc* lcl);
     void lvaSetDoNotEnregister(LclVarDsc* lcl DEBUGARG(DoNotEnregisterReason reason));
@@ -3333,56 +3383,10 @@ public:
 
     void lvSetMinOptsDoNotEnreg();
 
-    unsigned lvaVarargsHandleArg = BAD_VAR_NUM;
-#ifdef TARGET_X86
-    // Pointer (computed based on incoming varargs handle) to the start of the stack arguments
-    LclVarDsc* lvaVarargsBaseOfStkLcl = nullptr;
-#endif
-
-    unsigned lvaPInvokeFrameListVar    = BAD_VAR_NUM; // lclNum for the Frame root
-    unsigned lvaInlinedPInvokeFrameVar = BAD_VAR_NUM; // variable representing the InlinedCallFrame
-    unsigned lvaReversePInvokeFrameVar = BAD_VAR_NUM; // variable representing the reverse PInvoke frame
-    unsigned lvaMonAcquired            = BAD_VAR_NUM; // boolean variable introduced into in synchronized methods
-                                                      // that tracks whether the lock has been taken
-
-    // Same as info.compThisArg, except when "this" is address taken or stored to - in which
-    // case this is a temp local initialized from the "this" arg at the start of the method.
-    unsigned lvaThisLclNum = BAD_VAR_NUM;
-
-#if FEATURE_FIXED_OUT_ARGS
-    unsigned lvaOutgoingArgSpaceVar = BAD_VAR_NUM; // TYP_BLK local for fixed outgoing argument space
-#endif
-
-    // Variable representing the return address. The helper-based tailcall
-    // mechanism passes the address of the return address to a runtime helper
-    // where it is used to detect tail-call chains.
-    unsigned lvaRetAddrVar = BAD_VAR_NUM;
-
-#if defined(DEBUG) && defined(TARGET_XARCH)
-    // Stores SP to confirm it is not corrupted on return.
-    LclVarDsc* lvaReturnSpCheckLcl = nullptr;
-    // Stores SP to confirm it is not corrupted after every call.
-    X86_ONLY(LclVarDsc* lvaCallSpCheckLcl = nullptr;)
-#endif
-
-    bool lvaKeepAliveAndReportThis(); // Synchronized instance method of a reference type, or
-                                      // CORINFO_GENERICS_CTXT_FROM_THIS?
-    bool lvaReportParamTypeArg();     // Exceptions and CORINFO_GENERICS_CTXT_FROM_PARAMTYPEARG?
-
-//-------------------------------------------------------------------------
-// All these frame offsets are inter-related and must be kept in sync
-
-#ifndef FEATURE_EH_FUNCLETS
-    // This is used for the callable handlers
-    LclVarDsc* lvaShadowSPslotsLcl = nullptr; // TYP_BLK variable for all the shadow SP slots
-#endif
-
-#ifdef JIT32_GCENCODER
-    // variable which stores the value of ESP after the the last alloca/localloc
-    LclVarDsc* lvaLocAllocSPLcl = nullptr;
-#endif
-
-    unsigned lvaNewObjArrayArgs = BAD_VAR_NUM; // variable with arguments for new MD array helper
+    // Synchronized instance method of a reference type, or CORINFO_GENERICS_CTXT_FROM_THIS?
+    bool lvaKeepAliveAndReportThis();
+    // Exceptions and CORINFO_GENERICS_CTXT_FROM_PARAMTYPEARG?
+    bool lvaReportParamTypeArg();
 
     unsigned lvaGetParamAllocSize(LclVarDsc* lcl);
     static unsigned lvaGetParamAlignment(var_types type, bool isFloatHfa);
@@ -3510,14 +3514,6 @@ public:
     void lvaUpdateClass(LclVarDsc* lcl, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
 
     bool lvaTempsHaveLargerOffsetThanVars();
-
-    unsigned lvaGSSecurityCookie = BAD_VAR_NUM; // LclVar number
-    unsigned lvaStubArgumentVar  = BAD_VAR_NUM; // variable representing the secret stub argument
-#ifdef FEATURE_EH_FUNCLETS
-    unsigned lvaPSPSym = BAD_VAR_NUM; // variable representing the PSPSym
-#endif
-    unsigned genReturnLocal = BAD_VAR_NUM; // Local number for the return value when applicable.
-    unsigned fgLargeFieldOffsetNullCheckTemps[3];
 
     unsigned              impSharedStackSize = 0;
     Importer::StackEntry* impSharedStack     = nullptr;
