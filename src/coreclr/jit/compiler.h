@@ -1809,7 +1809,7 @@ struct Importer
     bool impAddSpillCliqueSuccMember(BasicBlock* block);
     bool impAddSpillCliquePredMember(BasicBlock* block);
 
-    void impPushLclVar(unsigned lclNum);
+    void impPushLclVar(LclVarDsc* lcl);
     void impLoadArg(unsigned ilArgNum);
     void impLoadLoc(unsigned ilLclNum);
     bool impInlineReturnInstruction();
@@ -2371,7 +2371,7 @@ struct Importer
                            CORINFO_CONTEXT_HANDLE exactContextHnd,
                            InlineCandidateInfo**  inlineCandidateInfo,
                            InlineResult*          inlineResult);
-    unsigned inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
+    LclVarDsc* inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
     GenTree* inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum);
     bool inlImportReturn(InlineInfo* inlineInfo, GenTree* op, CORINFO_CLASS_HANDLE retClsHnd);
 };
@@ -4658,8 +4658,8 @@ public:
     bool inlAnalyzeInlineeArg(InlineInfo* inlineInfo, unsigned argNum);
     GenTree* inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum);
     bool inlAnalyzeInlineeLocals(InlineInfo* inlineInfo);
-    unsigned inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
-    unsigned inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
+    LclVarDsc* inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
+    LclVarDsc* inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
     void inlInsertInlineeCode(InlineInfo* pInlineInfo);
     Statement* inlInsertSingleBlockInlineeStatements(const InlineInfo* inlineInfo, Statement* stmtAfter);
     Statement* inlPrependStatements(InlineInfo* inlineInfo);

@@ -1736,19 +1736,19 @@ bool InlineInfo::IsNormedTypeLocal(unsigned ilLocNum) const
     return (ilLocNum < ilLocCount) && ilLocInfo[ilLocNum].lclHasNormedType;
 }
 
-unsigned Compiler::inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum)
+LclVarDsc* Compiler::inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum)
 {
     assert(ilLocNum < inlineInfo->ilLocCount);
 
     if (inlineInfo->ilLocInfo[ilLocNum].lclIsUsed)
     {
-        return inlineInfo->ilLocInfo[ilLocNum].lclNum;
+        return lvaGetDesc(inlineInfo->ilLocInfo[ilLocNum].lclNum);
     }
 
     return inlAllocInlineeLocal(inlineInfo, ilLocNum);
 }
 
-unsigned Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum)
+LclVarDsc* Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum)
 {
     InlLocInfo& lclInfo = inlineInfo->ilLocInfo[ilLocNum];
 
@@ -1815,7 +1815,7 @@ unsigned Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNu
     }
 #endif
 
-    return lclInfo.lclNum;
+    return lcl;
 }
 
 GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)

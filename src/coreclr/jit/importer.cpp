@@ -8956,7 +8956,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
         switch (opcode)
         {
-            unsigned               lclNum;
+            unsigned               ilLocNum;
+            unsigned               ilArgNum;
+            LclVarDsc*             lcl;
             var_types              lclTyp;
             var_types              type;
             GenTree*               op1;
@@ -9130,127 +9132,124 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_LDARG:
-                lclNum = getU2LittleEndian(codeAddr);
-                JITDUMP(" %u", lclNum);
-                impLoadArg(lclNum);
+                ilArgNum = getU2LittleEndian(codeAddr);
+                JITDUMP(" %u", ilArgNum);
+                impLoadArg(ilArgNum);
                 break;
 
             case CEE_LDARG_S:
-                lclNum = getU1LittleEndian(codeAddr);
-                JITDUMP(" %u", lclNum);
-                impLoadArg(lclNum);
+                ilArgNum = getU1LittleEndian(codeAddr);
+                JITDUMP(" %u", ilArgNum);
+                impLoadArg(ilArgNum);
                 break;
 
             case CEE_LDARG_0:
             case CEE_LDARG_1:
             case CEE_LDARG_2:
             case CEE_LDARG_3:
-                lclNum = (opcode - CEE_LDARG_0);
-                impLoadArg(lclNum);
+                ilArgNum = opcode - CEE_LDARG_0;
+                impLoadArg(ilArgNum);
                 break;
 
             case CEE_LDLOC:
-                lclNum = getU2LittleEndian(codeAddr);
-                JITDUMP(" %u", lclNum);
-                impLoadLoc(lclNum);
+                ilLocNum = getU2LittleEndian(codeAddr);
+                JITDUMP(" %u", ilLocNum);
+                impLoadLoc(ilLocNum);
                 break;
 
             case CEE_LDLOC_S:
-                lclNum = getU1LittleEndian(codeAddr);
-                JITDUMP(" %u", lclNum);
-                impLoadLoc(lclNum);
+                ilLocNum = getU1LittleEndian(codeAddr);
+                JITDUMP(" %u", ilLocNum);
+                impLoadLoc(ilLocNum);
                 break;
 
             case CEE_LDLOC_0:
             case CEE_LDLOC_1:
             case CEE_LDLOC_2:
             case CEE_LDLOC_3:
-                lclNum = (opcode - CEE_LDLOC_0);
-                assert(lclNum >= 0 && lclNum < 4);
-                impLoadLoc(lclNum);
+                ilLocNum = opcode - CEE_LDLOC_0;
+                assert((0 <= ilLocNum) && (ilLocNum < 4));
+                impLoadLoc(ilLocNum);
                 break;
 
             case CEE_STARG:
-                lclNum = getU2LittleEndian(codeAddr);
+                ilArgNum = getU2LittleEndian(codeAddr);
                 goto STARG;
             case CEE_STARG_S:
-                lclNum = getU1LittleEndian(codeAddr);
+                ilArgNum = getU1LittleEndian(codeAddr);
             STARG:
-                JITDUMP(" %u", lclNum);
+                JITDUMP(" %u", ilArgNum);
 
                 if (compIsForInlining())
                 {
-                    if (lclNum >= impInlineInfo->ilArgCount)
+                    if (ilArgNum >= impInlineInfo->ilArgCount)
                     {
                         compInlineResult->NoteFatal(InlineObservation::CALLEE_BAD_ARGUMENT_NUMBER);
                         return;
                     }
 
-                    op1 = inlUseArg(impInlineInfo, lclNum);
+                    op1 = inlUseArg(impInlineInfo, ilArgNum);
                     noway_assert(op1->OperIs(GT_LCL_VAR));
-                    lclNum = op1->AsLclVar()->GetLcl()->GetLclNum();
+                    lcl = op1->AsLclVar()->GetLcl();
                 }
                 else
                 {
-                    if (lclNum >= info.compILargsCount)
+                    if (ilArgNum >= info.compILargsCount)
                     {
                         BADCODE("Bad IL arg num");
                     }
 
-                    lclNum = compMapILargNum(lclNum);
+                    unsigned lclNum = compMapILargNum(ilArgNum);
 
                     if (lclNum == info.GetThisParamLclNum())
                     {
                         lclNum = comp->lvaThisLclNum;
                     }
 
-                    assert(comp->lvaGetDesc(lclNum)->lvHasILStoreOp);
+                    lcl = comp->lvaGetDesc(lclNum);
+                    assert(lcl->lvHasILStoreOp);
                 }
 
                 isLocal = false;
                 goto STLCL;
 
             case CEE_STLOC:
-                lclNum = getU2LittleEndian(codeAddr);
-                JITDUMP(" %u", lclNum);
+                ilLocNum = getU2LittleEndian(codeAddr);
+                JITDUMP(" %u", ilLocNum);
                 goto STLOC;
             case CEE_STLOC_S:
-                lclNum = getU1LittleEndian(codeAddr);
-                JITDUMP(" %u", lclNum);
+                ilLocNum = getU1LittleEndian(codeAddr);
+                JITDUMP(" %u", ilLocNum);
                 goto STLOC;
             case CEE_STLOC_0:
             case CEE_STLOC_1:
             case CEE_STLOC_2:
             case CEE_STLOC_3:
-                lclNum = (opcode - CEE_STLOC_0);
+                ilLocNum = opcode - CEE_STLOC_0;
             STLOC:
                 isLocal = true;
 
-                LclVarDsc* lcl;
-
                 if (compIsForInlining())
                 {
-                    if (lclNum >= impInlineInfo->ilLocCount)
+                    if (ilLocNum >= impInlineInfo->ilLocCount)
                     {
                         impInlineInfo->inlineResult->NoteFatal(InlineObservation::CALLEE_BAD_LOCAL_NUMBER);
                         return;
                     }
 
-                    lclNum = inlGetInlineeLocal(impInlineInfo, lclNum);
-                    lcl    = comp->lvaGetDesc(lclNum);
+                    lcl    = inlGetInlineeLocal(impInlineInfo, ilLocNum);
                     lclTyp = lcl->GetType();
                 }
                 else
                 {
-                    if (lclNum >= info.compMethodInfo->locals.numArgs)
+                    if (ilLocNum >= info.compMethodInfo->locals.numArgs)
                     {
                         BADCODE("Bad IL loc num");
                     }
 
-                    lclNum += info.compArgsCount;
+                    lcl = comp->lvaGetDesc(info.compArgsCount + ilLocNum);
 
                 STLCL:
-                    lcl    = comp->lvaGetDesc(lclNum);
                     lclTyp = lcl->GetType();
 
                     if (!lcl->lvNormalizeOnLoad())
@@ -9413,73 +9412,78 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_LDLOCA:
-                lclNum = getU2LittleEndian(codeAddr);
+                ilLocNum = getU2LittleEndian(codeAddr);
                 goto LDLOCA;
             case CEE_LDLOCA_S:
-                lclNum = getU1LittleEndian(codeAddr);
+                ilLocNum = getU1LittleEndian(codeAddr);
             LDLOCA:
-                JITDUMP(" %u", lclNum);
+                JITDUMP(" %u", ilLocNum);
 
                 if (compIsForInlining())
                 {
-                    if (lclNum >= impInlineInfo->ilLocCount)
+                    if (ilLocNum >= impInlineInfo->ilLocCount)
                     {
                         compInlineResult->NoteFatal(InlineObservation::CALLEE_BAD_LOCAL_NUMBER);
                         return;
                     }
 
-                    lclNum = inlGetInlineeLocal(impInlineInfo, lclNum);
-                    op1    = gtNewLclVarAddrNode(comp->lvaGetDesc(lclNum), TYP_BYREF);
+                    LclVarDsc* lcl = inlGetInlineeLocal(impInlineInfo, ilLocNum);
+
+                    op1 = gtNewLclVarAddrNode(lcl, TYP_BYREF);
                     goto PUSH_ADRVAR;
                 }
 
-                if (lclNum >= info.compMethodInfo->locals.numArgs)
+                if (ilLocNum >= info.compMethodInfo->locals.numArgs)
                 {
                     BADCODE("Bad IL loc num");
                 }
 
-                lclNum += info.compArgsCount;
+                lcl = comp->lvaGetDesc(info.compArgsCount + ilLocNum);
                 goto ADRVAR;
 
             case CEE_LDARGA:
-                lclNum = getU2LittleEndian(codeAddr);
+                ilArgNum = getU2LittleEndian(codeAddr);
                 goto LDARGA;
             case CEE_LDARGA_S:
-                lclNum = getU1LittleEndian(codeAddr);
+                ilArgNum = getU1LittleEndian(codeAddr);
             LDARGA:
-                JITDUMP(" %u", lclNum);
+                JITDUMP(" %u", ilArgNum);
 
                 if (compIsForInlining())
                 {
-                    if (lclNum >= impInlineInfo->ilArgCount)
+                    if (ilArgNum >= impInlineInfo->ilArgCount)
                     {
                         compInlineResult->NoteFatal(InlineObservation::CALLEE_BAD_ARGUMENT_NUMBER);
                         return;
                     }
 
-                    // TODO-MIKE-Cleanup: It would make more sense to have inlUseParamAddr instead
-                    // of getting a LCL_VAR and changing it to LCL_ADDR.
-                    op1 = inlUseArg(impInlineInfo, lclNum);
+                    // TODO-MIKE-Cleanup: It would make more sense to have inlUseParamAddr
+                    // instead of getting a LCL_VAR and changing it to LCL_ADDR.
+                    op1 = inlUseArg(impInlineInfo, ilArgNum);
                     noway_assert(op1->OperIs(GT_LCL_VAR));
                     op1 = op1->ChangeToLclAddr(TYP_BYREF, op1->AsLclVar()->GetLcl());
 
                     goto PUSH_ADRVAR;
                 }
 
-                if (lclNum >= info.compILargsCount)
+                if (ilArgNum >= info.compILargsCount)
                 {
                     BADCODE("Bad IL arg num");
                 }
 
-                lclNum = compMapILargNum(lclNum); // account for possible hidden param
-
-                if (lclNum == info.GetThisParamLclNum())
                 {
-                    lclNum = comp->lvaThisLclNum;
+                    unsigned lclNum = compMapILargNum(ilArgNum); // account for possible hidden param
+
+                    if (lclNum == info.GetThisParamLclNum())
+                    {
+                        lclNum = comp->lvaThisLclNum;
+                    }
+
+                    lcl = comp->lvaGetDesc(lclNum);
                 }
 
             ADRVAR:
-                op1 = gtNewLclVarAddrNode(comp->lvaGetDesc(lclNum), TYP_BYREF);
+                op1 = gtNewLclVarAddrNode(lcl, TYP_BYREF);
 
             PUSH_ADRVAR:
                 assert(op1->AsLclAddr()->GetLclOffs() == 0);
@@ -12778,7 +12782,7 @@ void Importer::impLoadArg(unsigned ilArgNum)
             lclNum = comp->lvaThisLclNum;
         }
 
-        impPushLclVar(lclNum);
+        impPushLclVar(comp->lvaGetDesc(lclNum));
     }
 }
 
@@ -12788,7 +12792,7 @@ void Importer::impLoadArg(unsigned ilArgNum)
 // It will be mapped to the correct lclNum
 void Importer::impLoadLoc(unsigned ilLocNum)
 {
-    unsigned lclNum;
+    LclVarDsc* lcl;
 
     if (compIsForInlining())
     {
@@ -12798,7 +12802,7 @@ void Importer::impLoadLoc(unsigned ilLocNum)
             return;
         }
 
-        lclNum = inlGetInlineeLocal(impInlineInfo, ilLocNum);
+        lcl = inlGetInlineeLocal(impInlineInfo, ilLocNum);
     }
     else
     {
@@ -12807,17 +12811,16 @@ void Importer::impLoadLoc(unsigned ilLocNum)
             BADCODE("Bad IL loc num");
         }
 
-        lclNum = info.compArgsCount + ilLocNum;
+        lcl = comp->lvaGetDesc(info.compArgsCount + ilLocNum);
     }
 
-    impPushLclVar(lclNum);
+    impPushLclVar(lcl);
 }
 
 // Load a local/argument on the operand stack
-void Importer::impPushLclVar(unsigned lclNum)
+void Importer::impPushLclVar(LclVarDsc* lcl)
 {
-    LclVarDsc* lcl  = comp->lvaGetDesc(lclNum);
-    var_types  type = lcl->GetType();
+    var_types type = lcl->GetType();
 
     if (!lcl->lvNormalizeOnLoad())
     {
@@ -17891,7 +17894,7 @@ void Importer::impCheckCanInline(GenTreeCall*           call,
     comp->impCheckCanInline(call, methodHandle, methodAttrs, exactContextHnd, inlineCandidateInfo, inlineResult);
 }
 
-unsigned Importer::inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum)
+LclVarDsc* Importer::inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum)
 {
     return comp->inlGetInlineeLocal(inlineInfo, ilLocNum);
 }
