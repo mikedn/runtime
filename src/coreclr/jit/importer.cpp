@@ -2225,20 +2225,20 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
 
         struct Match
         {
-            static bool IsArgsFieldInit(GenTree* tree, unsigned index, unsigned argLclNum)
+            static bool IsArgsFieldInit(GenTree* tree, unsigned index, LclVarDsc* argLcl)
             {
-                return tree->OperIs(GT_ASG) && IsArgsField(tree->AsOp()->GetOp(0), index, argLclNum);
+                return tree->OperIs(GT_ASG) && IsArgsField(tree->AsOp()->GetOp(0), index, argLcl);
             }
 
-            static bool IsArgsField(GenTree* tree, unsigned index, unsigned argLclNum)
+            static bool IsArgsField(GenTree* tree, unsigned index, LclVarDsc* argLcl)
             {
                 return tree->OperIs(GT_LCL_FLD) && (tree->AsLclFld()->GetLclOffs() == 4 * index) &&
-                       (tree->AsLclFld()->GetLcl()->GetLclNum() == argLclNum);
+                       (tree->AsLclFld()->GetLcl() == argLcl);
             }
 
-            static bool IsArgsAddr(GenTree* tree, unsigned argLclNum)
+            static bool IsArgsAddr(GenTree* tree, LclVarDsc* argLcl)
             {
-                return tree->OperIs(GT_LCL_ADDR) && (tree->AsLclAddr()->GetLcl()->GetLclNum() == argLclNum) &&
+                return tree->OperIs(GT_LCL_ADDR) && (tree->AsLclAddr()->GetLcl() == argLcl) &&
                        (tree->AsLclAddr()->GetLclOffs() == 0);
             }
 
@@ -2248,7 +2248,7 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
             }
         };
 
-        INDEBUG(const unsigned lvaNewObjArrayArgs = comp->lvaNewObjArrayArgs;)
+        INDEBUG(LclVarDsc* newObjArrayArgsLcl = comp->lvaGetDesc(comp->lvaNewObjArrayArgs);)
         unsigned argIndex = 0;
         GenTree* comma;
 
@@ -2266,7 +2266,7 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
                 if (rank == 1)
                 {
                     GenTree* lowerBoundAssign = comma->gtGetOp1();
-                    assert(Match::IsArgsFieldInit(lowerBoundAssign, argIndex, lvaNewObjArrayArgs));
+                    assert(Match::IsArgsFieldInit(lowerBoundAssign, argIndex, newObjArrayArgsLcl));
                     GenTree* lowerBoundNode = lowerBoundAssign->gtGetOp2();
 
                     if (lowerBoundNode->IsIntegralConst(0))
@@ -2280,7 +2280,7 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
             }
 
             GenTree* lengthNodeAssign = comma->gtGetOp1();
-            assert(Match::IsArgsFieldInit(lengthNodeAssign, argIndex, lvaNewObjArrayArgs));
+            assert(Match::IsArgsFieldInit(lengthNodeAssign, argIndex, newObjArrayArgsLcl));
             GenTree* lengthNode = lengthNodeAssign->gtGetOp2();
 
             if (!lengthNode->IsCnsIntOrI())
@@ -2292,7 +2292,7 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
             argIndex++;
         }
 
-        assert((comma != nullptr) && Match::IsArgsAddr(comma, lvaNewObjArrayArgs));
+        assert((comma != nullptr) && Match::IsArgsAddr(comma, newObjArrayArgsLcl));
 
         if (argIndex != numArgs)
         {
@@ -4770,20 +4770,21 @@ void Importer::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
         // constructors within a single method.
 
         LclVarDsc* argsLcl;
-        unsigned   lvaNewObjArrayArgs = comp->lvaNewObjArrayArgs;
 
-        if (lvaNewObjArrayArgs == BAD_VAR_NUM)
+        // TODO-MIKE-Cleanup: When inlining this should use the inliner compiler
+        // to share the temp between the inliner and all inlinees.
+
+        if (comp->lvaNewObjArrayArgs == BAD_VAR_NUM)
         {
             argsLcl = lvaAllocTemp(false DEBUGARG("NewObjArrayArgs"));
             argsLcl->SetBlockType(0);
             comp->lvaSetAddressExposed(argsLcl);
 
-            lvaNewObjArrayArgs       = argsLcl->GetLclNum();
-            comp->lvaNewObjArrayArgs = lvaNewObjArrayArgs;
+            comp->lvaNewObjArrayArgs = argsLcl->GetLclNum();
         }
         else
         {
-            argsLcl = comp->lvaGetDesc(lvaNewObjArrayArgs);
+            argsLcl = comp->lvaGetDesc(comp->lvaNewObjArrayArgs);
         }
 
         // Increase size of lvaNewObjArrayArgs to be the largest size needed to hold 'numArgs' integers
