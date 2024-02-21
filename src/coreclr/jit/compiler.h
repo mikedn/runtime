@@ -5853,7 +5853,7 @@ public:
     unsigned  compHndBBtabAllocCount = 0;       // element count of allocated elements in EH data array
 
     unsigned compMapILargNum(unsigned ilArgNum);
-    unsigned compMapILvarNum(unsigned ilVarNum);
+    unsigned eeMapDebugInfoVarNumToLclNum(unsigned ilVarNum);
     unsigned compMap2ILvarNum(unsigned varNum) const;
 
     //-------------------------------------------------------------------------

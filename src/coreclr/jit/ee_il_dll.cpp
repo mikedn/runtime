@@ -558,7 +558,7 @@ void Compiler::eeGetVars(ICorDebugInfo::ILVarInfo* varInfoTable, uint32_t varInf
 
     for (unsigned i = 0; i < varInfoCount; i++, vars++, scopes++)
     {
-        JITDUMP("var:%d start:%d end:%d\n", vars->varNumber, vars->startOffset, vars->endOffset);
+        JITDUMP("var:%u start:%u end:%u\n", vars->varNumber, vars->startOffset, vars->endOffset);
 
         if (vars->startOffset >= vars->endOffset)
         {
@@ -568,7 +568,7 @@ void Compiler::eeGetVars(ICorDebugInfo::ILVarInfo* varInfoTable, uint32_t varInf
         assert(vars->startOffset <= info.compILCodeSize);
         assert(vars->endOffset <= info.compILCodeSize);
 
-        scopes->lclNum      = compMapILvarNum(vars->varNumber);
+        scopes->lclNum      = eeMapDebugInfoVarNumToLclNum(vars->varNumber);
         scopes->startOffset = vars->startOffset;
         scopes->endOffset   = vars->endOffset;
 
@@ -609,54 +609,50 @@ void Compiler::eeGetVars(ICorDebugInfo::ILVarInfo* varInfoTable, uint32_t varInf
     DBEXEC(verbose, compDispLocalVars();)
 }
 
-unsigned Compiler::compMapILvarNum(unsigned ilVarNum)
+unsigned Compiler::eeMapDebugInfoVarNumToLclNum(unsigned varNum)
 {
-    unsigned compILlocalsCount = info.compILargsCount + info.compMethodInfo->locals.numArgs;
+    unsigned lclNum;
 
-    noway_assert((ilVarNum < compILlocalsCount) || (ilVarNum > ICorDebugInfo::UNKNOWN_ILNUM));
-
-    unsigned varNum;
-
-    if (ilVarNum == ICorDebugInfo::VARARGS_HND_ILNUM)
+    if (varNum == ICorDebugInfo::VARARGS_HND_ILNUM)
     {
         noway_assert(info.compIsVarArgs);
 
-        varNum = lvaVarargsHandleArg;
+        lclNum = lvaVarargsHandleArg;
 
-        noway_assert(lvaGetDesc(varNum)->IsParam());
+        noway_assert(lvaGetDesc(lclNum)->IsParam());
     }
-    else if (ilVarNum == ICorDebugInfo::RETBUF_ILNUM)
+    else if (varNum == ICorDebugInfo::RETBUF_ILNUM)
     {
         noway_assert(info.compRetBuffArg != BAD_VAR_NUM);
 
-        varNum = info.compRetBuffArg;
+        lclNum = info.compRetBuffArg;
     }
-    else if (ilVarNum == ICorDebugInfo::TYPECTXT_ILNUM)
+    else if (varNum == ICorDebugInfo::TYPECTXT_ILNUM)
     {
         noway_assert(info.compTypeCtxtArg != BAD_VAR_NUM);
 
-        varNum = info.compTypeCtxtArg;
+        lclNum = info.compTypeCtxtArg;
     }
-    else if (ilVarNum < info.compILargsCount)
+    else if (varNum < info.compILargsCount)
     {
-        varNum = compMapILargNum(ilVarNum);
+        lclNum = compMapILargNum(varNum);
 
-        noway_assert(lvaGetDesc(varNum)->IsParam());
+        noway_assert(lvaGetDesc(lclNum)->IsParam());
     }
-    else if (ilVarNum < compILlocalsCount)
+    else if (varNum < info.compILargsCount + info.compMethodInfo->locals.numArgs)
     {
-        varNum = info.compArgsCount + ilVarNum - info.compILargsCount;
+        lclNum = info.compArgsCount + varNum - info.compILargsCount;
 
-        noway_assert(!lvaGetDesc(varNum)->IsParam());
+        noway_assert(!lvaGetDesc(lclNum)->IsParam());
     }
     else
     {
         unreached();
     }
 
-    noway_assert(varNum < info.compLocalsCount);
+    noway_assert(lclNum < info.compLocalsCount);
 
-    return varNum;
+    return lclNum;
 }
 
 void Compiler::compInitSortedScopeLists()
