@@ -752,18 +752,11 @@ void CodeGen::GenLoadLclFld(GenTreeLclFld* load)
 
     if (load->IsOffsetMisaligned())
     {
-        // TODO-MIKE-Review: FLOAT shouldn't need a temporary for address. Well, DOUBLE doesn't
-        // really need it either but it's probably easier to handle the limited address mode
-        // immediate this way.
-        RegNum addrReg = load->ExtractTempReg();
-
-        emit.emitIns_R_S(INS_lea, EA_PTRSIZE, addrReg, s);
-
         if (type == TYP_FLOAT)
         {
             RegNum tempReg = load->GetSingleTempReg();
 
-            emit.emitIns_R_R(INS_ldr, EA_4BYTE, tempReg, addrReg);
+            emit.emitIns_R_S(INS_ldr, EA_4BYTE, tempReg, s);
             emit.emitIns_Mov(INS_vmov_i2f, EA_4BYTE, load->GetRegNum(), tempReg, /* canSkip */ false);
         }
         else
@@ -771,8 +764,9 @@ void CodeGen::GenLoadLclFld(GenTreeLclFld* load)
             RegNum tempReg1 = load->ExtractTempReg();
             RegNum tempReg2 = load->GetSingleTempReg();
 
-            emit.emitIns_R_R_I(INS_ldr, EA_4BYTE, tempReg1, addrReg, 0);
-            emit.emitIns_R_R_I(INS_ldr, EA_4BYTE, tempReg2, addrReg, 4);
+            emit.emitIns_R_S(INS_lea, EA_PTRSIZE, tempReg2, s);
+            emit.emitIns_R_R_I(INS_ldr, EA_4BYTE, tempReg1, tempReg2, 0);
+            emit.emitIns_R_R_I(INS_ldr, EA_4BYTE, tempReg2, tempReg2, 4);
             emit.emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, load->GetRegNum(), tempReg1, tempReg2);
         }
     }
@@ -807,25 +801,23 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
 
         if (store->IsOffsetMisaligned())
         {
-            RegNum addrReg = store->ExtractTempReg();
-
-            emit.emitIns_R_S(INS_lea, EA_4BYTE, addrReg, s);
-
             if (type == TYP_FLOAT)
             {
                 RegNum tempReg = store->GetSingleTempReg();
 
-                emit.emitIns_R_R(INS_vmov_f2i, EA_4BYTE, tempReg, srcReg);
-                emit.emitIns_R_R(INS_str, EA_4BYTE, tempReg, addrReg);
+                emit.emitIns_Mov(INS_vmov_f2i, EA_4BYTE, tempReg, srcReg, /* canSkip */ false);
+                emit.emitIns_S_R(INS_str, EA_4BYTE, tempReg, s);
             }
             else
             {
                 RegNum tempReg1 = store->ExtractTempReg();
-                RegNum tempReg2 = store->GetSingleTempReg();
+                RegNum tempReg2 = store->ExtractTempReg();
+                RegNum tempReg3 = store->GetSingleTempReg();
 
-                emit.emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, tempReg1, tempReg2, srcReg);
-                emit.emitIns_R_R_I(INS_str, EA_4BYTE, tempReg1, addrReg, 0);
-                emit.emitIns_R_R_I(INS_str, EA_4BYTE, tempReg2, addrReg, 4);
+                emit.emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, tempReg2, tempReg3, srcReg);
+                emit.emitIns_R_S(INS_lea, EA_4BYTE, tempReg1, s);
+                emit.emitIns_R_R_I(INS_str, EA_4BYTE, tempReg2, tempReg1, 0);
+                emit.emitIns_R_R_I(INS_str, EA_4BYTE, tempReg3, tempReg1, 4);
             }
         }
         else

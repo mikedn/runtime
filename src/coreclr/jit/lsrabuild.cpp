@@ -2611,12 +2611,12 @@ void LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
 #ifdef TARGET_ARM
     if (store->OperIs(GT_STORE_LCL_FLD) && store->AsLclFld()->IsOffsetMisaligned())
     {
-        BuildInternalIntDef(store); // to generate address.
-        BuildInternalIntDef(store); // to move float into an int reg.
+        BuildInternalIntDef(store);
 
         if (store->TypeIs(TYP_DOUBLE))
         {
-            BuildInternalIntDef(store); // to move the second half into an int reg.
+            BuildInternalIntDef(store);
+            BuildInternalIntDef(store);
         }
     }
 #endif
