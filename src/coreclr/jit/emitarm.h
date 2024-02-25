@@ -185,7 +185,6 @@ void emitIns_R_R_R_I(instruction ins,
 void emitIns_R_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, regNumber reg4);
 
 void emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, StackAddrMode s);
-
 void emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, StackAddrMode s);
 
 void emitIns_R_L(instruction ins, RegNum reg, insGroup* label);

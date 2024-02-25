@@ -1385,7 +1385,7 @@ void CodeGen::GenCallFinally(BasicBlock* block)
 
     if (compiler->lvaPSPSym != BAD_VAR_NUM)
     {
-        GetEmitter()->emitIns_R_S(INS_ldr, EA_8BYTE, REG_R0, GetStackAddrMode(compiler->lvaPSPSym, 0));
+        GetEmitter()->Ins_R_S(INS_ldr, EA_8BYTE, REG_R0, GetStackAddrMode(compiler->lvaPSPSym, 0));
     }
     else
     {
@@ -1708,7 +1708,7 @@ void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
 
     var_types type = lcl->GetRegisterType(load);
 
-    GetEmitter()->emitIns_R_S(ins_Load(type), emitActualTypeSize(type), load->GetRegNum(), GetStackAddrMode(lcl, 0));
+    GetEmitter()->Ins_R_S(ins_Load(type), emitActualTypeSize(type), load->GetRegNum(), GetStackAddrMode(lcl, 0));
 
     DefLclVarReg(load);
 }
@@ -1729,7 +1729,7 @@ void CodeGen::GenLoadLclFld(GenTreeLclFld* load)
     var_types type = load->GetType();
     assert(type != TYP_STRUCT);
 
-    GetEmitter()->emitIns_R_S(ins_Load(type), emitActualTypeSize(type), load->GetRegNum(), GetStackAddrMode(load));
+    GetEmitter()->Ins_R_S(ins_Load(type), emitActualTypeSize(type), load->GetRegNum(), GetStackAddrMode(load));
 
     DefReg(load);
 }
@@ -1778,7 +1778,7 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
         {
             assert((srcReg != REG_ZR) || (varTypeSize(type) <= REGSIZE_BYTES));
 
-            GetEmitter()->emitIns_S_R(ins_Store(type), emitActualTypeSize(type), srcReg, s);
+            GetEmitter()->Ins_R_S(ins_Store(type), emitActualTypeSize(type), srcReg, s);
         }
     }
 
@@ -1860,7 +1860,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         {
             assert((srcReg != REG_ZR) || (varTypeSize(lclRegType) <= REGSIZE_BYTES));
 
-            GetEmitter()->emitIns_S_R(ins_Store(lclRegType), emitActualTypeSize(lclRegType), srcReg, s);
+            GetEmitter()->Ins_R_S(ins_Store(lclRegType), emitActualTypeSize(lclRegType), srcReg, s);
         }
 
         liveness.UpdateLife(this, store);
@@ -1938,7 +1938,7 @@ void CodeGen::GenStoreLclVarMultiRegSIMDMem(GenTreeLclVar* store)
     else if (regCount == 3)
     {
         // TODO-MIKE-Review: Do we need to store a 0 for the 4th element of Vector3? Old code did not.
-        GetEmitter()->emitIns_S_R(INS_str, EA_4BYTE, regs[2], GetStackAddrMode(lcl, 8));
+        GetEmitter()->Ins_R_S(INS_str, EA_4BYTE, regs[2], GetStackAddrMode(lcl, 8));
     }
 
     liveness.UpdateLife(this, store);
@@ -3278,7 +3278,7 @@ void CodeGen::genSIMDUpperSpill(GenTreeUnOp* node)
         LclVarDsc* lcl = op1->AsLclVar()->GetLcl();
         assert(lcl->lvOnFrame);
 
-        GetEmitter()->emitIns_S_R(INS_str, EA_8BYTE, dstReg, GetStackAddrMode(lcl, 8));
+        GetEmitter()->Ins_R_S(INS_str, EA_8BYTE, dstReg, GetStackAddrMode(lcl, 8));
     }
     else
     {
@@ -3307,7 +3307,7 @@ void CodeGen::genSIMDUpperUnspill(GenTreeUnOp* node)
         LclVarDsc* lcl = op1->AsLclVar()->GetLcl();
         assert(lcl->lvOnFrame);
 
-        GetEmitter()->emitIns_R_S(INS_ldr, EA_8BYTE, srcReg, GetStackAddrMode(lcl, 8));
+        GetEmitter()->Ins_R_S(INS_ldr, EA_8BYTE, srcReg, GetStackAddrMode(lcl, 8));
     }
 
     GetEmitter()->emitIns_R_R_I_I(INS_mov, EA_8BYTE, dstReg, srcReg, 1, 0);
@@ -8406,7 +8406,7 @@ void CodeGen::inst_R_AM(instruction ins, emitAttr attr, regNumber reg, const Gen
 {
     if (addrMode.IsLcl())
     {
-        GetEmitter()->emitIns_R_S(ins, attr, reg, GetStackAddrMode(addrMode.Lcl(), addrMode.Disp(offset)));
+        GetEmitter()->Ins_R_S(ins, attr, reg, GetStackAddrMode(addrMode.Lcl(), addrMode.Disp(offset)));
     }
     else
     {
@@ -8418,7 +8418,7 @@ void CodeGen::inst_AM_R(instruction ins, emitAttr attr, regNumber reg, const Gen
 {
     if (addrMode.IsLcl())
     {
-        GetEmitter()->emitIns_S_R(ins, attr, reg, GetStackAddrMode(addrMode.Lcl(), addrMode.Disp(offset)));
+        GetEmitter()->Ins_R_S(ins, attr, reg, GetStackAddrMode(addrMode.Lcl(), addrMode.Disp(offset)));
     }
     else
     {
@@ -8462,16 +8462,7 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
 
     if (GenTreeLclAddr* lclAddr = addr->IsLclAddr())
     {
-        StackAddrMode s = GetStackAddrMode(lclAddr);
-
-        if (emitter::emitInsIsStore(ins))
-        {
-            emit->emitIns_S_R(ins, attr, valueReg, s);
-        }
-        else
-        {
-            emit->emitIns_R_S(ins, attr, valueReg, s);
-        }
+        emit->Ins_R_S(ins, attr, valueReg, GetStackAddrMode(lclAddr));
 
         return;
     }

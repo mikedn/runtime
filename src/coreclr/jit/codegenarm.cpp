@@ -737,7 +737,7 @@ void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
 
     var_types type = lcl->GetRegisterType(load);
 
-    GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), load->GetRegNum(), GetStackAddrMode(lcl, 0));
+    GetEmitter()->Ins_R_S(ins_Load(type), emitTypeSize(type), load->GetRegNum(), GetStackAddrMode(lcl, 0));
 
     DefLclVarReg(load);
 }
@@ -756,7 +756,7 @@ void CodeGen::GenLoadLclFld(GenTreeLclFld* load)
         {
             RegNum tempReg = load->GetSingleTempReg();
 
-            emit.emitIns_R_S(INS_ldr, EA_4BYTE, tempReg, s);
+            emit.Ins_R_S(INS_ldr, EA_4BYTE, tempReg, s);
             emit.emitIns_Mov(INS_vmov_i2f, EA_4BYTE, load->GetRegNum(), tempReg, /* canSkip */ false);
         }
         else
@@ -764,7 +764,7 @@ void CodeGen::GenLoadLclFld(GenTreeLclFld* load)
             RegNum tempReg1 = load->ExtractTempReg();
             RegNum tempReg2 = load->GetSingleTempReg();
 
-            emit.emitIns_R_S(INS_lea, EA_PTRSIZE, tempReg2, s);
+            emit.Ins_R_S(INS_lea, EA_PTRSIZE, tempReg2, s);
             emit.emitIns_R_R_I(INS_ldr, EA_4BYTE, tempReg1, tempReg2, 0);
             emit.emitIns_R_R_I(INS_ldr, EA_4BYTE, tempReg2, tempReg2, 4);
             emit.emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, load->GetRegNum(), tempReg1, tempReg2);
@@ -772,7 +772,7 @@ void CodeGen::GenLoadLclFld(GenTreeLclFld* load)
     }
     else
     {
-        emit.emitIns_R_S(ins_Load(type), emitActualTypeSize(type), load->GetRegNum(), s);
+        emit.Ins_R_S(ins_Load(type), emitActualTypeSize(type), load->GetRegNum(), s);
     }
 
     DefReg(load);
@@ -806,7 +806,7 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
                 RegNum tempReg = store->GetSingleTempReg();
 
                 emit.emitIns_Mov(INS_vmov_f2i, EA_4BYTE, tempReg, srcReg, /* canSkip */ false);
-                emit.emitIns_S_R(INS_str, EA_4BYTE, tempReg, s);
+                emit.Ins_R_S(INS_str, EA_4BYTE, tempReg, s);
             }
             else
             {
@@ -815,14 +815,14 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
                 RegNum tempReg3 = store->GetSingleTempReg();
 
                 emit.emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, tempReg2, tempReg3, srcReg);
-                emit.emitIns_R_S(INS_lea, EA_4BYTE, tempReg1, s);
+                emit.Ins_R_S(INS_lea, EA_4BYTE, tempReg1, s);
                 emit.emitIns_R_R_I(INS_str, EA_4BYTE, tempReg2, tempReg1, 0);
                 emit.emitIns_R_R_I(INS_str, EA_4BYTE, tempReg3, tempReg1, 4);
             }
         }
         else
         {
-            emit.emitIns_S_R(ins_Store(type), emitTypeSize(type), srcReg, s);
+            emit.Ins_R_S(ins_Store(type), emitTypeSize(type), srcReg, s);
         }
     }
 
@@ -865,7 +865,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
     if (dstReg == REG_NA)
     {
-        GetEmitter()->emitIns_S_R(ins_Store(lclRegType), emitTypeSize(lclRegType), srcReg, GetStackAddrMode(lcl, 0));
+        GetEmitter()->Ins_R_S(ins_Store(lclRegType), emitTypeSize(lclRegType), srcReg, GetStackAddrMode(lcl, 0));
         liveness.UpdateLife(this, store);
         lcl->SetRegNum(REG_STK);
 
@@ -1592,16 +1592,7 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
 
     if (GenTreeLclAddr* lclAddr = addr->IsLclAddr())
     {
-        StackAddrMode s = GetStackAddrMode(lclAddr);
-
-        if (emitter::emitInsIsStore(ins))
-        {
-            emit->emitIns_S_R(ins, attr, valueReg, s);
-        }
-        else
-        {
-            emit->emitIns_R_S(ins, attr, valueReg, s);
-        }
+        emit->Ins_R_S(ins, attr, valueReg, GetStackAddrMode(lclAddr));
 
         return;
     }

@@ -3860,8 +3860,8 @@ void CodeGen::genFnProlog()
         GetEmitter()->emitIns_AR_R(INS_mov, EA_PTRSIZE, REG_SECRET_STUB_PARAM, genFramePointerReg(),
                                    compiler->lvaGetDesc(compiler->lvaStubArgumentVar)->GetStackOffset());
 #else
-        GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, REG_SECRET_STUB_PARAM,
-                                  GetStackAddrMode(compiler->lvaStubArgumentVar, 0));
+        GetEmitter()->Ins_R_S(INS_str, EA_PTRSIZE, REG_SECRET_STUB_PARAM,
+                              GetStackAddrMode(compiler->lvaStubArgumentVar, 0));
 #endif
 
         // It's no longer live; clear it out so it can be used after this in the prolog
@@ -4117,7 +4117,7 @@ void CodeGen::PrologSetPSPSym(regNumber initReg, bool* pInitRegZeroed)
     *pInitRegZeroed  = false;
 
     GetEmitter()->emitIns_R_R_I(INS_add, EA_PTRSIZE, regTmp, regBase, callerSPOffs);
-    GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, regTmp, GetStackAddrMode(compiler->lvaPSPSym, 0));
+    GetEmitter()->Ins_R_S(INS_str, EA_PTRSIZE, regTmp, GetStackAddrMode(compiler->lvaPSPSym, 0));
 
 #elif defined(TARGET_ARM64)
 
@@ -4129,7 +4129,7 @@ void CodeGen::PrologSetPSPSym(regNumber initReg, bool* pInitRegZeroed)
     *pInitRegZeroed  = false;
 
     GetEmitter()->emitIns_R_R_Imm(INS_add, EA_PTRSIZE, regTmp, REG_SPBASE, SPtoCallerSPdelta);
-    GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, regTmp, GetStackAddrMode(compiler->lvaPSPSym, 0));
+    GetEmitter()->Ins_R_S(INS_str, EA_PTRSIZE, regTmp, GetStackAddrMode(compiler->lvaPSPSym, 0));
 
 #elif defined(TARGET_AMD64)
 
@@ -4142,7 +4142,7 @@ void CodeGen::PrologSetPSPSym(regNumber initReg, bool* pInitRegZeroed)
 
     LclVarDsc* pspSymLcl = compiler->lvaGetDesc(compiler->lvaPSPSym);
 
-    GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, REG_SPBASE, GetStackAddrMode(pspSymLcl, 0));
+    GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, GetStackAddrMode(pspSymLcl, 0));
 
 #else // TARGET*
 

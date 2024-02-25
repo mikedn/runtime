@@ -84,9 +84,6 @@ static bool emitInsIsVectorWide(instruction ins);
 emitAttr emitInsTargetRegSize(instrDesc* id);
 emitAttr emitInsLoadStoreSize(instrDesc* id);
 
-void Ins_R_S(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s);
-void Ins_R_R_S(instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, StackAddrMode s);
-
 code_t emitInsCode(instruction ins, insFormat fmt);
 
 //  Emit the 32-bit Arm64 instruction 'code' into the 'dst'  buffer
@@ -624,6 +621,9 @@ void emitIns_S_S_R_R(instruction ins, emitAttr attr, emitAttr attr2, regNumber i
 void emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, StackAddrMode s);
 
 void emitIns_R_R_S_S(instruction ins, emitAttr attr, emitAttr attr2, regNumber ireg, regNumber ireg2, StackAddrMode s);
+
+void Ins_R_S(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s);
+void Ins_R_R_S(instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, StackAddrMode s);
 
 void emitIns_S_I(instruction ins, emitAttr attr, StackAddrMode s, int val);
 

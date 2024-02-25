@@ -3810,26 +3810,24 @@ constexpr bool IsSignedImm12(int imm)
     return (unsigned_abs(imm) & ~4095) == 0;
 }
 
-void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s)
+#ifdef DEBUG
+static bool IsLoad(instruction ins)
 {
     switch (ins)
     {
-        case INS_lea:
         case INS_ldr:
         case INS_ldrh:
         case INS_ldrb:
         case INS_ldrsh:
         case INS_ldrsb:
         case INS_vldr:
-            break;
+            return true;
         default:
-            unreached();
+            return false;
     }
-
-    Ins_R_S(ins, attr, reg, s);
 }
 
-void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s)
+static bool IsStore(instruction ins)
 {
     switch (ins)
     {
@@ -3837,16 +3835,29 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, StackAd
         case INS_strh:
         case INS_strb:
         case INS_vstr:
-            break;
+            return true;
         default:
-            unreached();
+            return false;
     }
+}
+#endif
 
+void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s)
+{
+    assert(IsLoad(ins) || (ins == INS_lea));
+    Ins_R_S(ins, attr, reg, s);
+}
+
+void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s)
+{
+    assert(IsStore(ins));
     Ins_R_S(ins, attr, reg, s);
 }
 
 void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s)
 {
+    assert(IsLoad(ins) || IsStore(ins) || (ins == INS_lea));
+
     bool      isFloatLoadStore = (ins == INS_vldr) || (ins == INS_vstr);
     bool      fpBased;
     int       baseOffset = emitComp->lvaFrameAddress(s.varNum, &fpBased) + s.varOffs;

@@ -412,13 +412,13 @@ void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* initRegZeroed)
         noway_assert(m_gsCookieVal != 0);
 
         instGen_Set_Reg_To_Imm(EA_PTRSIZE, initReg, m_gsCookieVal);
-        GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, initReg, s);
+        GetEmitter()->Ins_R_S(INS_str, EA_PTRSIZE, initReg, s);
     }
     else
     {
         instGen_Set_Reg_To_Addr(initReg, m_gsCookieAddr DEBUGARG(reinterpret_cast<void*>(THT_SetGSCookie)));
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, initReg, initReg, 0);
-        GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, initReg, s);
+        GetEmitter()->Ins_R_S(INS_str, EA_PTRSIZE, initReg, s);
     }
 
     *initRegZeroed = false;
@@ -449,7 +449,7 @@ void CodeGen::EpilogGSCookieCheck()
         emit.emitIns_R_R_I(INS_ldr, EA_PTRSIZE, regGSConst, regGSConst, 0);
     }
 
-    emit.emitIns_R_S(INS_ldr, EA_PTRSIZE, regGSValue, s);
+    emit.Ins_R_S(INS_ldr, EA_PTRSIZE, regGSValue, s);
     emit.emitIns_R_R(INS_cmp, EA_PTRSIZE, regGSConst, regGSValue);
 
     insGroup* gsCheckBlk = emit.CreateTempLabel();
@@ -574,8 +574,8 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArg)
 
         for (unsigned offset = 0; offset < putArg->GetArgSize(); offset += REGSIZE_BYTES)
         {
-            GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, srcReg,
-                                      GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs + offset)));
+            GetEmitter()->Ins_R_S(INS_str, EA_PTRSIZE, srcReg,
+                                  GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs + offset)));
         }
 #endif
 
@@ -602,7 +602,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArg)
         srcReg = genConsumeReg(src);
     }
 
-    GetEmitter()->emitIns_S_R(storeIns, storeAttr, srcReg, GetStackAddrMode(outArgLclNum, outArgLclOffs));
+    GetEmitter()->Ins_R_S(storeIns, storeAttr, srcReg, GetStackAddrMode(outArgLclNum, outArgLclOffs));
 
 #ifdef TARGET_ARM
     if (srcType == TYP_LONG)
@@ -610,7 +610,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArg)
         // This case currently only occurs for double types that are passed as TYP_LONG;
         // actual long types would have been decomposed by now.
         regNumber otherReg = src->GetRegNum(1);
-        GetEmitter()->emitIns_S_R(storeIns, storeAttr, otherReg, GetStackAddrMode(outArgLclNum, outArgLclOffs + 4));
+        GetEmitter()->Ins_R_S(storeIns, storeAttr, otherReg, GetStackAddrMode(outArgLclNum, outArgLclOffs + 4));
     }
 #endif // TARGET_ARM
 }
@@ -737,7 +737,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk,
 
         if (srcLcl != nullptr)
         {
-            emit->emitIns_R_S(loadIns, attr, tempReg, GetStackAddrMode(srcLcl, srcOffset + offset));
+            emit->Ins_R_S(loadIns, attr, tempReg, GetStackAddrMode(srcLcl, srcOffset + offset));
         }
         else
         {
@@ -747,7 +747,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk,
         // We can't write beyound the outgoing area area
         assert(outArgLclOffs + offset + regSize <= outArgLclSize);
 
-        emit->emitIns_S_R(storeIns, attr, tempReg, GetStackAddrMode(outArgLclNum, outArgLclOffs + offset));
+        emit->Ins_R_S(storeIns, attr, tempReg, GetStackAddrMode(outArgLclNum, outArgLclOffs + offset));
     }
 }
 
@@ -810,7 +810,7 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
         StackAddrMode s      = GetStackAddrMode(src->AsLclVar()->GetLcl(), 0);
         regNumber     dstReg = bitcast->GetRegNum();
 
-        GetEmitter()->emitIns_R_S(ins_Load(dstType), emitTypeSize(dstType), dstReg, s);
+        GetEmitter()->Ins_R_S(ins_Load(dstType), emitTypeSize(dstType), dstReg, s);
         DefReg(bitcast);
     }
 #ifdef TARGET_ARM
@@ -858,7 +858,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
             // We can't write beyound the outgoing area area
             assert(dstOffset + REGSIZE_BYTES <= outArgLclSize);
 
-            GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, srcReg, GetStackAddrMode(outArgLclNum, dstOffset));
+            GetEmitter()->Ins_R_S(INS_str, EA_PTRSIZE, srcReg, GetStackAddrMode(outArgLclNum, dstOffset));
         }
 
         for (unsigned i = 0; i < putArg->GetRegCount(); i++)
@@ -890,7 +890,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
 
                 unsigned dstOffset = outArgLclOffs + use.GetOffset() - regSize;
                 assert(dstOffset + EA_SIZE_IN_BYTES(attr) <= outArgLclSize);
-                GetEmitter()->emitIns_S_R(ins_Store(type), attr, fieldReg, GetStackAddrMode(outArgLclNum, dstOffset));
+                GetEmitter()->Ins_R_S(ins_Store(type), attr, fieldReg, GetStackAddrMode(outArgLclNum, dstOffset));
 
                 continue;
             }
@@ -1015,7 +1015,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
 
         if (srcLcl != nullptr)
         {
-            GetEmitter()->emitIns_R_S(loadIns, attr, tempReg, GetStackAddrMode(srcLcl, srcOffset + offset));
+            GetEmitter()->Ins_R_S(loadIns, attr, tempReg, GetStackAddrMode(srcLcl, srcOffset + offset));
         }
         else
         {
@@ -1025,7 +1025,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
         // We can't write beyound the outgoing area area
         assert(dstOffset + regSize <= outArgLclSize);
 
-        GetEmitter()->emitIns_S_R(storeIns, attr, tempReg, GetStackAddrMode(outArgLclNum, dstOffset));
+        GetEmitter()->Ins_R_S(storeIns, attr, tempReg, GetStackAddrMode(outArgLclNum, dstOffset));
     }
 
     for (unsigned i = 0; i < putArg->GetRegCount(); i++)
@@ -1036,7 +1036,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
 
         if (srcLcl != nullptr)
         {
-            GetEmitter()->emitIns_R_S(INS_ldr, slotAttr, dstReg, GetStackAddrMode(srcLcl, offset));
+            GetEmitter()->Ins_R_S(INS_ldr, slotAttr, dstReg, GetStackAddrMode(srcLcl, offset));
         }
         else
         {
@@ -1527,7 +1527,7 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
 
         if (dstLcl != nullptr)
         {
-            emit->emitIns_S_R(storeIns, attr, srcReg, GetStackAddrMode(dstLcl, dstOffset));
+            emit->Ins_R_S(storeIns, attr, srcReg, GetStackAddrMode(dstLcl, dstOffset));
         }
         else
         {
@@ -1705,7 +1705,7 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
 
         if (srcLcl != nullptr)
         {
-            emit->emitIns_R_S(loadIns, attr, tempReg, GetStackAddrMode(srcLcl, srcOffset));
+            emit->Ins_R_S(loadIns, attr, tempReg, GetStackAddrMode(srcLcl, srcOffset));
         }
         else
         {
@@ -1714,7 +1714,7 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
 
         if (dstLcl != nullptr)
         {
-            emit->emitIns_S_R(storeIns, attr, tempReg, GetStackAddrMode(dstLcl, dstOffset));
+            emit->Ins_R_S(storeIns, attr, tempReg, GetStackAddrMode(dstLcl, dstOffset));
         }
         else
         {
@@ -1853,7 +1853,7 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
 
         if (dstLcl != nullptr)
         {
-            emit->emitIns_S_R(ins, attr, reg, GetStackAddrMode(dstLcl, dstOffset));
+            emit->Ins_R_S(ins, attr, reg, GetStackAddrMode(dstLcl, dstOffset));
         }
         else
         {
@@ -1902,7 +1902,7 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
 
             if (dstLcl != nullptr)
             {
-                emit->emitIns_S_R(ins, EA_4BYTE, reg, GetStackAddrMode(dstLcl, dstOffset));
+                emit->Ins_R_S(ins, EA_4BYTE, reg, GetStackAddrMode(dstLcl, dstOffset));
             }
             else
             {
@@ -2539,7 +2539,7 @@ void CodeGen::GenJmp(GenTree* jmp)
             {
                 regNumber reg = lcl->GetParamReg(i);
                 assert(genIsValidFloatReg(reg));
-                GetEmitter()->emitIns_R_S(ins, size, reg, GetStackAddrMode(lcl, i / elementRegCount * EA_SIZE(size)));
+                GetEmitter()->Ins_R_S(ins, size, reg, GetStackAddrMode(lcl, i / elementRegCount * EA_SIZE(size)));
             }
         }
         else if (varTypeIsStruct(lcl->GetType()))
@@ -2557,7 +2557,7 @@ void CodeGen::GenJmp(GenTree* jmp)
 
                 assert(isValidIntArgReg(reg));
 
-                GetEmitter()->emitIns_R_S(INS_ldr, emitTypeSize(type), reg, GetStackAddrMode(lcl, i * REGSIZE_BYTES));
+                GetEmitter()->Ins_R_S(INS_ldr, emitTypeSize(type), reg, GetStackAddrMode(lcl, i * REGSIZE_BYTES));
                 liveness.AddLiveLclRegs(genRegMask(reg));
                 liveness.SetGCRegType(reg, type);
             }
@@ -2572,8 +2572,8 @@ void CodeGen::GenJmp(GenTree* jmp)
 
             assert(isValidIntArgReg(regs[0]) && isValidIntArgReg(regs[1]));
 
-            GetEmitter()->emitIns_R_S(INS_ldr, EA_4BYTE, regs[0], GetStackAddrMode(lcl, 0));
-            GetEmitter()->emitIns_R_S(INS_ldr, EA_4BYTE, regs[1], GetStackAddrMode(lcl, 4));
+            GetEmitter()->Ins_R_S(INS_ldr, EA_4BYTE, regs[0], GetStackAddrMode(lcl, 0));
+            GetEmitter()->Ins_R_S(INS_ldr, EA_4BYTE, regs[1], GetStackAddrMode(lcl, 4));
         }
 #endif
         else
@@ -2583,7 +2583,7 @@ void CodeGen::GenJmp(GenTree* jmp)
             regNumber reg  = lcl->GetParamReg();
             var_types type = compiler->mangleVarArgsType(varActualType(lcl->GetType()));
 
-            GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, GetStackAddrMode(lcl, 0));
+            GetEmitter()->Ins_R_S(ins_Load(type), emitTypeSize(type), reg, GetStackAddrMode(lcl, 0));
 
             // Update argReg life and GC Info to indicate varDsc stack slot is dead and argReg is going live.
             // Note that we cannot modify varDsc->GetRegNum() here because another basic block may not be
@@ -2638,7 +2638,7 @@ void CodeGen::GenJmp(GenTree* jmp)
 
         if ((varargsIntRegMask & genRegMask(reg)) != 0)
         {
-            GetEmitter()->emitIns_R_S(INS_ldr, EA_PTRSIZE, reg, GetStackAddrMode(firstParamLclNum, i * REGSIZE_BYTES));
+            GetEmitter()->Ins_R_S(INS_ldr, EA_PTRSIZE, reg, GetStackAddrMode(firstParamLclNum, i * REGSIZE_BYTES));
         }
     }
 
@@ -2906,7 +2906,7 @@ void CodeGen::genIntToIntCast(GenTreeCast* cast)
 
         if (IsLocalMemoryOperand(src, &s))
         {
-            GetEmitter()->emitIns_R_S(ins, EA_ATTR(insSize), dstReg, s);
+            GetEmitter()->Ins_R_S(ins, EA_ATTR(insSize), dstReg, s);
         }
         else if (src->OperIs(GT_IND))
         {

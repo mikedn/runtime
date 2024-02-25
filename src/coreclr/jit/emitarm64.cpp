@@ -7478,10 +7478,22 @@ void emitter::emitIns_BARR(instruction ins, insBarrier barrier)
     appendToCurIG(id);
 }
 
+#ifdef DEBUG
+static bool IsLoad(instruction ins)
+{
+    return (ins == INS_ldrb) || (ins == INS_ldrsb) || (ins == INS_ldrh) || (ins == INS_ldrsh) || (ins == INS_ldrsw) ||
+           (ins == INS_ldr);
+}
+
+static bool IsStore(instruction ins)
+{
+    return (ins == INS_strb) || (ins == INS_strh) || (ins == INS_str);
+}
+#endif
+
 void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s)
 {
-    assert((ins == INS_ldrb) || (ins == INS_ldrsb) || (ins == INS_ldrh) || (ins == INS_ldrsh) || (ins == INS_ldrsw) ||
-           (ins == INS_ldr) || (ins == INS_lea));
+    assert(IsLoad(ins) || (ins == INS_lea));
     assert(s.varOffs >= 0);
 
     Ins_R_S(ins, attr, reg, s);
@@ -7489,7 +7501,7 @@ void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, StackAd
 
 void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s)
 {
-    assert((ins == INS_strb) || (ins == INS_strh) || (ins == INS_str));
+    assert(IsStore(ins));
     assert(s.varOffs >= 0);
 
     Ins_R_S(ins, attr, reg, s);
@@ -7538,6 +7550,9 @@ bool InsMayBeGCSlotStorePair(instruction ins)
 
 void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s)
 {
+    assert(IsLoad(ins) || IsStore(ins) || (ins == INS_lea));
+    assert(s.varOffs >= 0);
+
     bool fpBased;
     int  baseOffset = emitComp->lvaFrameAddress(s.varNum, &fpBased) + s.varOffs;
 
