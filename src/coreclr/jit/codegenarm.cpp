@@ -735,58 +735,53 @@ void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
         return;
     }
 
-    var_types   type = lcl->GetRegisterType(load);
-    instruction ins  = ins_Load(type);
-    emitAttr    attr = emitTypeSize(type);
+    var_types type = lcl->GetRegisterType(load);
 
-    GetEmitter()->emitIns_R_S(ins, attr, load->GetRegNum(), GetStackAddrMode(lcl, 0));
+    GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), load->GetRegNum(), GetStackAddrMode(lcl, 0));
 
     DefLclVarReg(load);
 }
 
-void CodeGen::GenLoadLclFld(GenTreeLclFld* tree)
+void CodeGen::GenLoadLclFld(GenTreeLclFld* load)
 {
-    assert(tree->OperIs(GT_LCL_FLD));
+    assert(load->OperIs(GT_LCL_FLD));
 
-    var_types targetType = tree->TypeGet();
-    regNumber targetReg  = tree->GetRegNum();
-    emitter*  emit       = GetEmitter();
+    var_types     type = load->GetType();
+    StackAddrMode s    = GetStackAddrMode(load);
+    Emitter&      emit = *GetEmitter();
 
-    NYI_IF(targetType == TYP_STRUCT, "GT_LCL_FLD: struct load local field not supported");
-    assert(targetReg != REG_NA);
-
-    StackAddrMode s = GetStackAddrMode(tree);
-
-    if (tree->IsOffsetMisaligned())
+    if (load->IsOffsetMisaligned())
     {
-        // Arm supports unaligned access only for integer types,
-        // load the floating data as 1 or 2 integer registers and convert them to float.
-        regNumber addr = tree->ExtractTempReg();
-        emit->emitIns_R_S(INS_lea, EA_PTRSIZE, addr, s);
+        // TODO-MIKE-Review: FLOAT shouldn't need a temporary for address. Well, DOUBLE doesn't
+        // really need it either but it's probably easier to handle the limited address mode
+        // immediate this way.
+        RegNum addrReg = load->ExtractTempReg();
 
-        if (targetType == TYP_FLOAT)
+        emit.emitIns_R_S(INS_lea, EA_PTRSIZE, addrReg, s);
+
+        if (type == TYP_FLOAT)
         {
-            regNumber floatAsInt = tree->GetSingleTempReg();
-            emit->emitIns_R_R(INS_ldr, EA_4BYTE, floatAsInt, addr);
-            emit->emitIns_Mov(INS_vmov_i2f, EA_4BYTE, targetReg, floatAsInt, /* canSkip */ false);
+            RegNum tempReg = load->GetSingleTempReg();
+
+            emit.emitIns_R_R(INS_ldr, EA_4BYTE, tempReg, addrReg);
+            emit.emitIns_Mov(INS_vmov_i2f, EA_4BYTE, load->GetRegNum(), tempReg, /* canSkip */ false);
         }
         else
         {
-            regNumber halfdoubleAsInt1 = tree->ExtractTempReg();
-            regNumber halfdoubleAsInt2 = tree->GetSingleTempReg();
-            emit->emitIns_R_R_I(INS_ldr, EA_4BYTE, halfdoubleAsInt1, addr, 0);
-            emit->emitIns_R_R_I(INS_ldr, EA_4BYTE, halfdoubleAsInt2, addr, 4);
-            emit->emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, targetReg, halfdoubleAsInt1, halfdoubleAsInt2);
+            RegNum tempReg1 = load->ExtractTempReg();
+            RegNum tempReg2 = load->GetSingleTempReg();
+
+            emit.emitIns_R_R_I(INS_ldr, EA_4BYTE, tempReg1, addrReg, 0);
+            emit.emitIns_R_R_I(INS_ldr, EA_4BYTE, tempReg2, addrReg, 4);
+            emit.emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, load->GetRegNum(), tempReg1, tempReg2);
         }
     }
     else
     {
-        emitAttr    attr = emitActualTypeSize(targetType);
-        instruction ins  = ins_Load(targetType);
-        emit->emitIns_R_S(ins, attr, targetReg, s);
+        emit.emitIns_R_S(ins_Load(type), emitActualTypeSize(type), load->GetRegNum(), s);
     }
 
-    genProduceReg(tree);
+    DefReg(load);
 }
 
 void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
@@ -806,38 +801,36 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
     {
         assert(IsValidSourceType(type, src->GetType()));
 
-        regNumber     srcReg = genConsumeReg(src);
+        RegNum        srcReg = UseReg(src);
         StackAddrMode s      = GetStackAddrMode(store);
-        emitter*      emit   = GetEmitter();
+        Emitter&      emit   = *GetEmitter();
 
         if (store->IsOffsetMisaligned())
         {
-            // ARM supports unaligned access only for integer types,
-            // use integer stores if the field is not aligned.
+            RegNum addrReg = store->ExtractTempReg();
 
-            regNumber addrReg = store->ExtractTempReg();
-            emit->emitIns_R_S(INS_lea, EA_4BYTE, addrReg, s);
+            emit.emitIns_R_S(INS_lea, EA_4BYTE, addrReg, s);
 
             if (type == TYP_FLOAT)
             {
-                regNumber tempReg = store->GetSingleTempReg();
+                RegNum tempReg = store->GetSingleTempReg();
 
-                emit->emitIns_R_R(INS_vmov_f2i, EA_4BYTE, tempReg, srcReg);
-                emit->emitIns_R_R(INS_str, EA_4BYTE, tempReg, addrReg);
+                emit.emitIns_R_R(INS_vmov_f2i, EA_4BYTE, tempReg, srcReg);
+                emit.emitIns_R_R(INS_str, EA_4BYTE, tempReg, addrReg);
             }
             else
             {
-                regNumber tempRegLo = store->ExtractTempReg();
-                regNumber tempRegHi = store->GetSingleTempReg();
+                RegNum tempReg1 = store->ExtractTempReg();
+                RegNum tempReg2 = store->GetSingleTempReg();
 
-                emit->emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, tempRegLo, tempRegHi, srcReg);
-                emit->emitIns_R_R_I(INS_str, EA_4BYTE, tempRegLo, addrReg, 0);
-                emit->emitIns_R_R_I(INS_str, EA_4BYTE, tempRegHi, addrReg, 4);
+                emit.emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, tempReg1, tempReg2, srcReg);
+                emit.emitIns_R_R_I(INS_str, EA_4BYTE, tempReg1, addrReg, 0);
+                emit.emitIns_R_R_I(INS_str, EA_4BYTE, tempReg2, addrReg, 4);
             }
         }
         else
         {
-            emit->emitIns_S_R(ins_Store(type), emitTypeSize(type), srcReg, s);
+            emit.emitIns_S_R(ins_Store(type), emitTypeSize(type), srcReg, s);
         }
     }
 

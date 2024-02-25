@@ -1706,18 +1706,16 @@ void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
 
     // TODO-MIKE-Review: Does this need special TYP_SIMD12 handling of params on OSX?
 
-    var_types   type = lcl->GetRegisterType(load);
-    instruction ins  = ins_Load(type);
-    emitAttr    attr = emitActualTypeSize(type);
+    var_types type = lcl->GetRegisterType(load);
 
-    GetEmitter()->emitIns_R_S(ins, attr, load->GetRegNum(), GetStackAddrMode(lcl, 0));
+    GetEmitter()->emitIns_R_S(ins_Load(type), emitActualTypeSize(type), load->GetRegNum(), GetStackAddrMode(lcl, 0));
 
     DefLclVarReg(load);
 }
 
-void CodeGen::GenLoadLclFld(GenTreeLclFld* tree)
+void CodeGen::GenLoadLclFld(GenTreeLclFld* load)
 {
-    assert(tree->OperIs(GT_LCL_FLD));
+    assert(load->OperIs(GT_LCL_FLD));
 
     // TODO-MIKE-Review: ARM64 uses 16 byte loads to load Vector3 locals while
     // XARCH uses 12 byte loads. Could XARCH also use 16 byte loads? The problem
@@ -1728,19 +1726,12 @@ void CodeGen::GenLoadLclFld(GenTreeLclFld* tree)
     // on x64 (probably because on x86 attempting to load 16 byte may also result
     // in the load accessing another local.
 
-    var_types targetType = tree->TypeGet();
-    regNumber targetReg  = tree->GetRegNum();
-    emitter*  emit       = GetEmitter();
+    var_types type = load->GetType();
+    assert(type != TYP_STRUCT);
 
-    NYI_IF(targetType == TYP_STRUCT, "GT_LCL_FLD: struct load local field not supported");
-    assert(targetReg != REG_NA);
+    GetEmitter()->emitIns_R_S(ins_Load(type), emitActualTypeSize(type), load->GetRegNum(), GetStackAddrMode(load));
 
-    StackAddrMode s    = GetStackAddrMode(tree);
-    emitAttr      attr = emitActualTypeSize(targetType);
-    instruction   ins  = ins_Load(targetType);
-    emit->emitIns_R_S(ins, attr, targetReg, s);
-
-    genProduceReg(tree);
+    DefReg(load);
 }
 
 void CodeGen::GenStoreLclFld(GenTreeLclFld* store)

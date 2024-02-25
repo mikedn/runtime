@@ -3545,11 +3545,11 @@ void CodeGen::genCodeForShift(GenTreeOp* tree)
 // represents a three operand bit shift or rotate operation (<<Hi, >>Lo).
 //
 // Arguments:
-//    tree - the bit shift node (that specifies the type of bit shift to perform).
+//    load - the bit shift node (that specifies the type of bit shift to perform).
 //
 // Assumptions:
 //    a) All GenTrees are register allocated.
-//    b) The shift-by-amount in tree->AsOp()->gtOp2 is a contained constant
+//    b) The shift-by-amount in load->AsOp()->gtOp2 is a contained constant
 //
 // TODO-X86-CQ: This only handles the case where the operand being shifted is in a register. We don't
 // need sourceHi to be always in reg in case of GT_LSH_HI (because it could be moved from memory to
@@ -3593,35 +3593,6 @@ void CodeGen::genCodeForShiftLong(GenTree* tree)
 }
 #endif
 
-void CodeGen::GenLoadLclFld(GenTreeLclFld* tree)
-{
-    assert(tree->OperIs(GT_LCL_FLD));
-
-#ifdef FEATURE_SIMD
-    if (tree->TypeIs(TYP_SIMD12))
-    {
-        LoadSIMD12(tree);
-        genProduceReg(tree);
-        return;
-    }
-#endif
-
-    var_types targetType = tree->TypeGet();
-    regNumber targetReg  = tree->GetRegNum();
-
-    noway_assert(targetReg != REG_NA);
-
-    noway_assert(targetType != TYP_STRUCT);
-
-    emitAttr   size = emitTypeSize(targetType);
-    unsigned   offs = tree->GetLclOffs();
-    LclVarDsc* lcl  = tree->GetLcl();
-
-    GetEmitter()->emitIns_R_S(ins_Load(targetType), size, targetReg, GetStackAddrMode(lcl, offs));
-
-    genProduceReg(tree);
-}
-
 void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
 {
     assert(load->OperIs(GT_LCL_VAR));
@@ -3641,19 +3612,37 @@ void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
     if (load->TypeIs(TYP_SIMD12))
     {
         LoadSIMD12(load);
-        DefLclVarReg(load);
-
-        return;
     }
+    else
 #endif
+    {
+        var_types type = lcl->GetRegisterType(load);
 
-    var_types   type = lcl->GetRegisterType(load);
-    instruction ins  = ins_Load(type, IsSimdLocalAligned(lcl));
-    emitAttr    attr = emitTypeSize(type);
-
-    GetEmitter()->emitIns_R_S(ins, attr, load->GetRegNum(), GetStackAddrMode(lcl, 0));
+        GetEmitter()->emitIns_R_S(ins_Load(type, IsSimdLocalAligned(lcl)), emitTypeSize(type), load->GetRegNum(),
+                                  GetStackAddrMode(lcl, 0));
+    }
 
     DefLclVarReg(load);
+}
+
+void CodeGen::GenLoadLclFld(GenTreeLclFld* load)
+{
+    assert(load->OperIs(GT_LCL_FLD));
+
+#ifdef FEATURE_SIMD
+    if (load->TypeIs(TYP_SIMD12))
+    {
+        LoadSIMD12(load);
+    }
+    else
+#endif
+    {
+        var_types type = load->GetType();
+
+        GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), load->GetRegNum(), GetStackAddrMode(load));
+    }
+
+    DefReg(load);
 }
 
 void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
@@ -4069,7 +4058,7 @@ void CodeGen::GenStoreLclRMW(var_types type, StackAddrMode s, GenTree* src)
 // genCodeForIndexAddr: Produce code for a GT_INDEX_ADDR node.
 //
 // Arguments:
-//    tree - the GT_INDEX_ADDR node
+//    load - the GT_INDEX_ADDR node
 //
 void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
 {
@@ -4346,7 +4335,7 @@ instruction CodeGen::MapShiftInsToShiftByImmIns(instruction ins)
 // genCodeForSwap: Produce code for a GT_SWAP node.
 //
 // Arguments:
-//    tree - the GT_SWAP node
+//    load - the GT_SWAP node
 //
 void CodeGen::genCodeForSwap(GenTreeOp* tree)
 {
