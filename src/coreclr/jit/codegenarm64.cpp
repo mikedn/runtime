@@ -1715,6 +1715,34 @@ void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
     DefLclVarReg(load);
 }
 
+void CodeGen::GenLoadLclFld(GenTreeLclFld* tree)
+{
+    assert(tree->OperIs(GT_LCL_FLD));
+
+    // TODO-MIKE-Review: ARM64 uses 16 byte loads to load Vector3 locals while
+    // XARCH uses 12 byte loads. Could XARCH also use 16 byte loads? The problem
+    // with ARM64's approach is that the last vector element isn't zeroed. It's
+    // not even guaranteed that the load doesn't access another local.
+    //
+    // XARCH actually does this too but only when loading from a LCL_VAR and only
+    // on x64 (probably because on x86 attempting to load 16 byte may also result
+    // in the load accessing another local.
+
+    var_types targetType = tree->TypeGet();
+    regNumber targetReg  = tree->GetRegNum();
+    emitter*  emit       = GetEmitter();
+
+    NYI_IF(targetType == TYP_STRUCT, "GT_LCL_FLD: struct load local field not supported");
+    assert(targetReg != REG_NA);
+
+    StackAddrMode s    = GetStackAddrMode(tree);
+    emitAttr      attr = emitActualTypeSize(targetType);
+    instruction   ins  = ins_Load(targetType);
+    emit->emitIns_R_S(ins, attr, targetReg, s);
+
+    genProduceReg(tree);
+}
+
 void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
 {
     assert(store->OperIs(GT_STORE_LCL_FLD));

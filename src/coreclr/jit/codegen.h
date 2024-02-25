@@ -756,7 +756,7 @@ protected:
     void genCodeForNegNot(GenTreeUnOp* tree);
     void genCodeForBswap(GenTree* tree);
     void GenLoadLclVar(GenTreeLclVar* load);
-    void genCodeForLclFld(GenTreeLclFld* tree);
+    void GenLoadLclFld(GenTreeLclFld* tree);
     void GenStoreLclFld(GenTreeLclFld* store);
     void GenStoreLclVar(GenTreeLclVar* store);
     void GenStoreLclRMW(var_types type, StackAddrMode s, GenTree* src);

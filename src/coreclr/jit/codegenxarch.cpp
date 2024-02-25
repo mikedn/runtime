@@ -1365,7 +1365,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_LCL_FLD:
-            genCodeForLclFld(treeNode->AsLclFld());
+            GenLoadLclFld(treeNode->AsLclFld());
             break;
 
         case GT_LCL_VAR:
@@ -3593,13 +3593,7 @@ void CodeGen::genCodeForShiftLong(GenTree* tree)
 }
 #endif
 
-//------------------------------------------------------------------------
-// genCodeForLclFld: Produce code for a GT_LCL_FLD node.
-//
-// Arguments:
-//    tree - the GT_LCL_FLD node
-//
-void CodeGen::genCodeForLclFld(GenTreeLclFld* tree)
+void CodeGen::GenLoadLclFld(GenTreeLclFld* tree)
 {
     assert(tree->OperIs(GT_LCL_FLD));
 
