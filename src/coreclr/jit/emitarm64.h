@@ -84,9 +84,8 @@ static bool emitInsIsVectorWide(instruction ins);
 emitAttr emitInsTargetRegSize(instrDesc* id);
 emitAttr emitInsLoadStoreSize(instrDesc* id);
 
-void Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs);
-void Ins_R_R_S(
-    instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, int varNum, int varOffs);
+void Ins_R_S(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s);
+void Ins_R_R_S(instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, StackAddrMode s);
 
 code_t emitInsCode(instruction ins, insFormat fmt);
 
@@ -618,17 +617,15 @@ void emitIns_R_I_FLAGS_COND(instruction ins, emitAttr attr, regNumber reg1, int 
 
 void emitIns_BARR(instruction ins, insBarrier barrier);
 
-void emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, int varx, int offs);
+void emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, StackAddrMode s);
 
-void emitIns_S_S_R_R(
-    instruction ins, emitAttr attr, emitAttr attr2, regNumber ireg, regNumber ireg2, int varx, int offs);
+void emitIns_S_S_R_R(instruction ins, emitAttr attr, emitAttr attr2, regNumber ireg, regNumber ireg2, StackAddrMode s);
 
-void emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, int varx, int offs);
+void emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, StackAddrMode s);
 
-void emitIns_R_R_S_S(
-    instruction ins, emitAttr attr, emitAttr attr2, regNumber ireg, regNumber ireg2, int varx, int offs);
+void emitIns_R_R_S_S(instruction ins, emitAttr attr, emitAttr attr2, regNumber ireg, regNumber ireg2, StackAddrMode s);
 
-void emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, int val);
+void emitIns_S_I(instruction ins, emitAttr attr, StackAddrMode s, int val);
 
 void emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumber tmpReg, ConstData* data);
 

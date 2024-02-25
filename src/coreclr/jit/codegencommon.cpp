@@ -410,6 +410,26 @@ void AddrMode::Extract(Compiler* compiler)
     assert((base != nullptr) || ((index != nullptr) && (scale > 1)));
 }
 
+StackAddrMode CodeGen::GetStackAddrMode(unsigned lclNum, int lclOffs)
+{
+    return {static_cast<int>(lclNum), lclOffs};
+}
+
+StackAddrMode CodeGen::GetStackAddrMode(LclVarDsc* lcl, int lclOffs)
+{
+    return {static_cast<int>(lcl->GetLclNum()), lclOffs};
+}
+
+StackAddrMode CodeGen::GetStackAddrMode(GenTreeLclVarCommon* lclNode)
+{
+    return {static_cast<int>(lclNode->GetLcl()->GetLclNum()), lclNode->GetLclOffs()};
+}
+
+StackAddrMode CodeGen::GetStackAddrMode(SpillTemp* spillTemp)
+{
+    return {spillTemp->GetNum(), 0};
+}
+
 void DoPhase(CodeGen* codeGen, Phases phaseId, void (CodeGen::*action)())
 {
     class CodeGenPhase final : public Phase<CodeGenPhase>
@@ -1975,7 +1995,7 @@ regMaskTP CodeGen::genPrologSpillParamRegs(ParamRegInfo* paramRegs, unsigned par
         {
             unsigned baseOffset = paramRegs[paramRegIndex].regIndex * slotSize;
 
-            GetEmitter()->emitIns_S_R(ins_Store(storeType), size, srcRegNum, lcl->GetLclNum(), baseOffset);
+            GetEmitter()->emitIns_S_R(ins_Store(storeType), size, srcRegNum, GetStackAddrMode(lcl, baseOffset));
 
 #ifndef UNIX_AMD64_ABI
             // TODO-MIKE-Cleanup: This should be valid on unix-x64 too.
@@ -2584,7 +2604,7 @@ void CodeGen::genPrologEnregisterIncomingStackParams()
         assert(regNum != REG_STK);
         var_types regType = lcl->GetActualRegisterType();
 
-        GetEmitter()->emitIns_R_S(ins_Load(regType), emitTypeSize(regType), regNum, lcl->GetLclNum(), 0);
+        GetEmitter()->emitIns_R_S(ins_Load(regType), emitTypeSize(regType), regNum, GetStackAddrMode(lcl, 0));
     }
 }
 
@@ -3019,8 +3039,6 @@ void CodeGen::PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZero
             continue;
         }
 
-        unsigned varNum = varDsc->GetLclNum();
-
         if (varDsc->TypeIs(TYP_STRUCT) && !compiler->info.compInitMem && varDsc->HasGCPtr())
         {
             // We only initialize the GC variables in the TYP_STRUCT
@@ -3030,8 +3048,8 @@ void CodeGen::PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZero
             {
                 if (layout->IsGCPtr(i))
                 {
-                    GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, GetZeroReg(), varNum,
-                                              i * REGSIZE_BYTES);
+                    GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, GetZeroReg(),
+                                              GetStackAddrMode(varDsc, i * REGSIZE_BYTES));
                 }
             }
         }
@@ -3044,14 +3062,14 @@ void CodeGen::PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZero
             unsigned i;
             for (i = 0; i + REGSIZE_BYTES <= lclSize; i += REGSIZE_BYTES)
             {
-                GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, zeroReg, varNum, i);
+                GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, zeroReg, GetStackAddrMode(varDsc, i));
             }
 
 #ifdef TARGET_64BIT
             assert(i == lclSize || (i + sizeof(int) == lclSize));
             if (i != lclSize)
             {
-                GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, zeroReg, varNum, i);
+                GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, zeroReg, GetStackAddrMode(varDsc, i));
                 i += sizeof(int);
             }
 #endif // TARGET_64BIT
@@ -3068,7 +3086,7 @@ void CodeGen::PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZero
                 continue;
             }
 
-            GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, GetZeroReg(), temp.GetNum(), 0);
+            GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, GetZeroReg(), GetStackAddrMode(&temp));
         }
     }
 }
@@ -3842,7 +3860,8 @@ void CodeGen::genFnProlog()
         GetEmitter()->emitIns_AR_R(INS_mov, EA_PTRSIZE, REG_SECRET_STUB_PARAM, genFramePointerReg(),
                                    compiler->lvaGetDesc(compiler->lvaStubArgumentVar)->GetStackOffset());
 #else
-        GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, REG_SECRET_STUB_PARAM, compiler->lvaStubArgumentVar, 0);
+        GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, REG_SECRET_STUB_PARAM,
+                                  GetStackAddrMode(compiler->lvaStubArgumentVar, 0));
 #endif
 
         // It's no longer live; clear it out so it can be used after this in the prolog
@@ -3885,7 +3904,7 @@ void CodeGen::genFnProlog()
             initRegZeroed = true;
         }
 
-        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, initReg, shadowSlotsLcl->GetLclNum(), firstSlotOffs);
+        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, initReg, GetStackAddrMode(shadowSlotsLcl, firstSlotOffs));
     }
 #endif // !FEATURE_EH_FUNCLETS
 
@@ -3897,7 +3916,7 @@ void CodeGen::genFnProlog()
 #ifdef JIT32_GCENCODER
     if (LclVarDsc* lcl = compiler->lvaLocAllocSPLcl)
     {
-        GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, REG_ESP, lcl->GetLclNum(), 0);
+        GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, REG_ESP, GetStackAddrMode(lcl, 0));
     }
 #endif
 
@@ -3973,7 +3992,7 @@ void CodeGen::genFnProlog()
     if (LclVarDsc* lcl = compiler->lvaReturnSpCheckLcl)
     {
         assert(lcl->lvOnFrame && lcl->lvDoNotEnregister);
-        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, lcl->GetLclNum(), 0);
+        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, GetStackAddrMode(lcl, 0));
     }
 #endif
 
@@ -4098,7 +4117,7 @@ void CodeGen::PrologSetPSPSym(regNumber initReg, bool* pInitRegZeroed)
     *pInitRegZeroed  = false;
 
     GetEmitter()->emitIns_R_R_I(INS_add, EA_PTRSIZE, regTmp, regBase, callerSPOffs);
-    GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, regTmp, compiler->lvaPSPSym, 0);
+    GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, regTmp, GetStackAddrMode(compiler->lvaPSPSym, 0));
 
 #elif defined(TARGET_ARM64)
 
@@ -4110,7 +4129,7 @@ void CodeGen::PrologSetPSPSym(regNumber initReg, bool* pInitRegZeroed)
     *pInitRegZeroed  = false;
 
     GetEmitter()->emitIns_R_R_Imm(INS_add, EA_PTRSIZE, regTmp, REG_SPBASE, SPtoCallerSPdelta);
-    GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, regTmp, compiler->lvaPSPSym, 0);
+    GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, regTmp, GetStackAddrMode(compiler->lvaPSPSym, 0));
 
 #elif defined(TARGET_AMD64)
 
@@ -4121,7 +4140,9 @@ void CodeGen::PrologSetPSPSym(regNumber initReg, bool* pInitRegZeroed)
     // We generate:
     //     mov     [rbp-20h], rsp       // store the Initial-SP (our current rsp) in the PSPsym
 
-    GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, REG_SPBASE, compiler->lvaPSPSym, 0);
+    LclVarDsc* pspSymLcl = compiler->lvaGetDesc(compiler->lvaPSPSym);
+
+    GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, REG_SPBASE, GetStackAddrMode(pspSymLcl, 0));
 
 #else // TARGET*
 
@@ -4957,7 +4978,8 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArg,
             srcReg = genConsumeReg(src);
         }
 
-        GetEmitter()->emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, outArgLclNum, dstOffset);
+        GetEmitter()->emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg,
+                                  GetStackAddrMode(outArgLclNum, dstOffset));
     }
 }
 #endif // !TARGET_X86
@@ -5189,8 +5211,8 @@ void CodeGen::GenStoreLclVarLong(GenTreeLclVar* store)
     }
 
     unsigned lclNum = store->GetLcl()->GetLclNum();
-    GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, srcRegs[0], lclNum, 0);
-    GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, srcRegs[1], lclNum, 4);
+    GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, srcRegs[0], GetStackAddrMode(lclNum, 0));
+    GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, srcRegs[1], GetStackAddrMode(lclNum, 4));
 
     liveness.UpdateLife(this, store);
 }
@@ -5242,7 +5264,7 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
         if (!store->IsLastUse(i) && ((fieldReg == REG_STK) || fieldLcl->IsAlwaysAliveInMemory()))
         {
             instruction ins = ins_StoreFromSrc(srcReg, fieldType);
-            GetEmitter()->emitIns_S_R(ins, emitTypeSize(fieldType), srcReg, fieldLclNum, 0);
+            GetEmitter()->emitIns_S_R(ins, emitTypeSize(fieldType), srcReg, GetStackAddrMode(fieldLclNum, 0));
         }
 
         fieldLcl->SetRegNum(fieldReg);
@@ -5298,17 +5320,14 @@ void CodeGen::genCopyRegIfNeeded(GenTree* node, regNumber needReg)
     inst_Mov(node->TypeGet(), needReg, node->GetRegNum(), /* canSkip */ true);
 }
 
-bool CodeGen::IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs)
+bool CodeGen::IsLocalMemoryOperand(GenTree* op, StackAddrMode* am)
 {
     if (op->isUsedFromSpillTemp())
     {
         assert(op->IsRegOptional());
         assert(op->IsRegSpilled(0));
 
-        SpillTemp* temp = spillTemps.UseSpillTemp(op, 0);
-
-        *lclNum  = temp->GetNum();
-        *lclOffs = 0;
+        *am = GetStackAddrMode(spillTemps.UseSpillTemp(op, 0));
 
         return true;
     }
@@ -5317,8 +5336,7 @@ bool CodeGen::IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclO
 
     if (op->OperIs(GT_LCL_FLD))
     {
-        *lclNum  = op->AsLclFld()->GetLcl()->GetLclNum();
-        *lclOffs = op->AsLclFld()->GetLclOffs();
+        *am = GetStackAddrMode(op->AsLclFld());
 
         return true;
     }
@@ -5327,8 +5345,7 @@ bool CodeGen::IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclO
     {
         assert(op->IsRegOptional() || !op->AsLclVar()->GetLcl()->IsRegCandidate());
 
-        *lclNum  = op->AsLclVar()->GetLcl()->GetLclNum();
-        *lclOffs = 0;
+        *am = GetStackAddrMode(op->AsLclVar()->GetLcl(), 0);
 
         return true;
     }
@@ -5647,7 +5664,7 @@ void CodeGen::GenLclAddr(GenTreeLclAddr* addr)
     // TODO-MIKE-Review: Shouldn't this simply be EA_PTRSIZE?
     emitAttr attr = emitTypeSize(addr->GetType());
 
-    GetEmitter()->emitIns_R_S(INS_lea, attr, addr->GetRegNum(), addr->GetLcl()->GetLclNum(), addr->GetLclOffs());
+    GetEmitter()->emitIns_R_S(INS_lea, attr, addr->GetRegNum(), GetStackAddrMode(addr));
     DefReg(addr);
 }
 
@@ -5797,14 +5814,14 @@ void CodeGen::genPoisonFrame(regMaskTP regLiveIn)
 #ifdef TARGET_64BIT
             if ((offs % 8 == 0) && (end - offs >= 8))
             {
-                GetEmitter()->emitIns_S_R(ins_Store(TYP_LONG), EA_8BYTE, immReg, static_cast<int>(lclNum), offs - addr);
+                GetEmitter()->emitIns_S_R(ins_Store(TYP_LONG), EA_8BYTE, immReg, GetStackAddrMode(lclNum, offs - addr));
                 offs += 8;
                 continue;
             }
 #endif
 
             assert((offs % 4 == 0) && (end - offs >= 4));
-            GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, immReg, static_cast<int>(lclNum), offs - addr);
+            GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, immReg, GetStackAddrMode(lclNum, offs - addr));
             offs += 4;
         }
     }

@@ -7478,37 +7478,37 @@ void emitter::emitIns_BARR(instruction ins, insBarrier barrier)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs)
+void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s)
 {
     assert((ins == INS_ldrb) || (ins == INS_ldrsb) || (ins == INS_ldrh) || (ins == INS_ldrsh) || (ins == INS_ldrsw) ||
            (ins == INS_ldr) || (ins == INS_lea));
-    assert(varOffs >= 0);
+    assert(s.varOffs >= 0);
 
-    Ins_R_S(ins, attr, reg, varNum, varOffs);
+    Ins_R_S(ins, attr, reg, s);
 }
 
-void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs)
+void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s)
 {
     assert((ins == INS_strb) || (ins == INS_strh) || (ins == INS_str));
-    assert(varOffs >= 0);
+    assert(s.varOffs >= 0);
 
-    Ins_R_S(ins, attr, reg, varNum, varOffs);
+    Ins_R_S(ins, attr, reg, s);
 }
 
 void emitter::emitIns_R_R_S_S(
-    instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, int varNum, int varOffs)
+    instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, StackAddrMode s)
 {
     assert((ins == INS_ldp) || (ins == INS_ldnp));
 
-    Ins_R_R_S(ins, attr1, attr2, reg1, reg2, varNum, varOffs);
+    Ins_R_R_S(ins, attr1, attr2, reg1, reg2, s);
 }
 
 void emitter::emitIns_S_S_R_R(
-    instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, int varNum, int varOffs)
+    instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, StackAddrMode s)
 {
     assert((ins == INS_stp) || (ins == INS_stnp));
 
-    Ins_R_R_S(ins, attr1, attr2, reg1, reg2, varNum, varOffs);
+    Ins_R_R_S(ins, attr1, attr2, reg1, reg2, s);
 }
 
 constexpr bool IsSignedImm9(int imm)
@@ -7536,10 +7536,10 @@ bool InsMayBeGCSlotStorePair(instruction ins)
     return (ins == INS_stp) || (ins == INS_stnp);
 }
 
-void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs)
+void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s)
 {
     bool fpBased;
-    int  baseOffset = emitComp->lvaFrameAddress(varNum, &fpBased) + varOffs;
+    int  baseOffset = emitComp->lvaFrameAddress(s.varNum, &fpBased) + s.varOffs;
 
     emitAttr size = EA_SIZE(attr);
     int32_t  imm  = baseOffset;
@@ -7643,7 +7643,7 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
     id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg);
     id->idReg2(baseReg);
-    id->SetVarAddr(varNum, varOffs);
+    id->SetVarAddr(INDEBUG(s));
 
     if (offsReg != REG_NA)
     {
@@ -7655,16 +7655,16 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
     {
         id->idAddr()->lclOffset = baseOffset;
 
-        if (varNum < 0)
+        if (s.varNum < 0)
         {
-            assert(varOffs == 0);
+            assert(s.varOffs == 0);
             id->idAddr()->isTrackedGCSlotStore = codeGen->spillTemps.TrackGCSpillTemps();
         }
-        else if (static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar)
+        else if (static_cast<unsigned>(s.varNum) == emitComp->lvaOutgoingArgSpaceVar)
         {
             id->idAddr()->isGCArgStore = true;
         }
-        else if ((varOffs == 0) && (emitComp->lvaGetDesc(static_cast<unsigned>(varNum))->HasGCSlotLiveness()))
+        else if ((s.varOffs == 0) && (emitComp->lvaGetDesc(static_cast<unsigned>(s.varNum))->HasGCSlotLiveness()))
         {
             id->idAddr()->isTrackedGCSlotStore = true;
         }
@@ -7675,15 +7675,15 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
 }
 
 void emitter::Ins_R_R_S(
-    instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, int varNum, int varOffs)
+    instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, StackAddrMode s)
 {
     assert((EA_SIZE(attr1) == EA_8BYTE) || (attr1 == EA_4BYTE) || (isVectorRegister(reg1) && (attr1 == EA_16BYTE)));
     assert((EA_SIZE(attr2) == EA_8BYTE) || (attr2 == EA_4BYTE) || (isVectorRegister(reg2) && (attr2 == EA_16BYTE)));
     assert(EA_SIZE(attr1) == EA_SIZE(attr2));
-    assert(varOffs >= 0);
+    assert(s.varOffs >= 0);
 
     bool fpBased;
-    int  baseOffset = emitComp->lvaFrameAddress(varNum, &fpBased) + varOffs;
+    int  baseOffset = emitComp->lvaFrameAddress(s.varNum, &fpBased) + s.varOffs;
 
     regNumber baseReg = fpBased ? REG_FP : REG_ZR;
     int32_t   imm     = baseOffset;
@@ -7717,19 +7717,19 @@ void emitter::Ins_R_R_S(
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idReg3(baseReg);
-    id->SetVarAddr(varNum, varOffs);
+    id->SetVarAddr(INDEBUG(s));
 
     if (InsMayBeGCSlotStorePair(ins) && (EA_IS_GCREF_OR_BYREF(attr1) || EA_IS_GCREF_OR_BYREF(attr2)))
     {
         id->idAddr()->lclOffset = baseOffset;
 
-        noway_assert(varNum >= 0);
+        noway_assert(s.varNum >= 0);
 
-        if (static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar)
+        if (static_cast<unsigned>(s.varNum) == emitComp->lvaOutgoingArgSpaceVar)
         {
             id->idAddr()->isGCArgStore = true;
         }
-        else if ((varOffs == 0) && (emitComp->lvaGetDesc(static_cast<unsigned>(varNum))->HasGCSlotLiveness()))
+        else if ((s.varOffs == 0) && (emitComp->lvaGetDesc(static_cast<unsigned>(s.varNum))->HasGCSlotLiveness()))
         {
             id->idAddr()->isTrackedGCSlotStore = true;
         }

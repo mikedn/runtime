@@ -380,6 +380,11 @@ public:
     }
 #endif
 
+    StackAddrMode GetStackAddrMode(unsigned lclNum, int lclOffs);
+    StackAddrMode GetStackAddrMode(LclVarDsc* lcl, int lclOffs);
+    StackAddrMode GetStackAddrMode(GenTreeLclVarCommon* lclNode);
+    StackAddrMode GetStackAddrMode(SpillTemp* spillTemp);
+
 #ifdef TARGET_XARCH
     void PrologPreserveCalleeSavedFloatRegs(unsigned lclFrameSize);
     void genRestoreCalleeSavedFltRegs(unsigned lclFrameSize);
@@ -754,7 +759,7 @@ protected:
     void genCodeForLclFld(GenTreeLclFld* tree);
     void GenStoreLclFld(GenTreeLclFld* store);
     void GenStoreLclVar(GenTreeLclVar* store);
-    void GenStoreLclRMW(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* src);
+    void GenStoreLclRMW(var_types type, StackAddrMode s, GenTree* src);
 #ifndef TARGET_64BIT
     void GenStoreLclVarLong(GenTreeLclVar* store);
 #endif
@@ -928,11 +933,11 @@ protected:
 public:
     void inst_Mov(var_types dstType, regNumber dstReg, regNumber srcReg, bool canSkip);
 
-    bool IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs);
+    bool IsLocalMemoryOperand(GenTree* op, StackAddrMode* s);
 
 #ifdef TARGET_XARCH
     void inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned val);
-    bool IsMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs, GenTree** addr, ConstData** data);
+    bool IsMemoryOperand(GenTree* op, StackAddrMode* s, GenTree** addr, ConstData** data);
     void emitInsRM(instruction ins, emitAttr attr, GenTree* src);
     void emitInsRegRM(instruction ins, emitAttr attr, regNumber reg, GenTree* mem);
     void emitInsCmp(instruction ins, emitAttr attr, GenTree* op1, GenTree* op2);

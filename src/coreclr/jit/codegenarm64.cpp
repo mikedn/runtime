@@ -1385,7 +1385,7 @@ void CodeGen::GenCallFinally(BasicBlock* block)
 
     if (compiler->lvaPSPSym != BAD_VAR_NUM)
     {
-        GetEmitter()->emitIns_R_S(INS_ldr, EA_8BYTE, REG_R0, compiler->lvaPSPSym, 0);
+        GetEmitter()->emitIns_R_S(INS_ldr, EA_8BYTE, REG_R0, GetStackAddrMode(compiler->lvaPSPSym, 0));
     }
     else
     {
@@ -1710,7 +1710,7 @@ void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
     instruction ins  = ins_Load(type);
     emitAttr    attr = emitActualTypeSize(type);
 
-    GetEmitter()->emitIns_R_S(ins, attr, load->GetRegNum(), lcl->GetLclNum(), 0);
+    GetEmitter()->emitIns_R_S(ins, attr, load->GetRegNum(), GetStackAddrMode(lcl, 0));
 
     DefLclVarReg(load);
 }
@@ -1749,18 +1749,17 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
             srcReg = genConsumeReg(src);
         }
 
-        unsigned lclNum  = store->GetLcl()->GetLclNum();
-        unsigned lclOffs = store->GetLclOffs();
+        StackAddrMode s = GetStackAddrMode(store);
 
         if ((srcReg == REG_ZR) && (type == TYP_SIMD16))
         {
-            GetEmitter()->emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, srcReg, srcReg, lclNum, lclOffs);
+            GetEmitter()->emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, srcReg, srcReg, s);
         }
         else
         {
             assert((srcReg != REG_ZR) || (varTypeSize(type) <= REGSIZE_BYTES));
 
-            GetEmitter()->emitIns_S_R(ins_Store(type), emitActualTypeSize(type), srcReg, lclNum, lclOffs);
+            GetEmitter()->emitIns_S_R(ins_Store(type), emitActualTypeSize(type), srcReg, s);
         }
     }
 
@@ -1832,17 +1831,17 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
     if (dstReg == REG_NA)
     {
-        unsigned lclNum = lcl->GetLclNum();
+        StackAddrMode s = GetStackAddrMode(lcl, 0);
 
         if ((srcReg == REG_ZR) && (lclRegType == TYP_SIMD16))
         {
-            GetEmitter()->emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, srcReg, srcReg, lclNum, 0);
+            GetEmitter()->emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, srcReg, srcReg, s);
         }
         else
         {
             assert((srcReg != REG_ZR) || (varTypeSize(lclRegType) <= REGSIZE_BYTES));
 
-            GetEmitter()->emitIns_S_R(ins_Store(lclRegType), emitActualTypeSize(lclRegType), srcReg, lclNum, 0);
+            GetEmitter()->emitIns_S_R(ins_Store(lclRegType), emitActualTypeSize(lclRegType), srcReg, s);
         }
 
         liveness.UpdateLife(this, store);
@@ -1897,7 +1896,6 @@ void CodeGen::GenStoreLclVarMultiRegSIMDMem(GenTreeLclVar* store)
     GenTreeCall* call     = src->gtSkipReloadOrCopy()->AsCall();
     unsigned     regCount = call->GetRegCount();
     LclVarDsc*   lcl      = store->GetLcl();
-    unsigned     lclNum   = lcl->GetLclNum();
 
     assert((regCount >= 2) && (regCount <= 4));
     assert(!lcl->IsRegCandidate() || (store->GetRegNum() == REG_NA));
@@ -1912,16 +1910,16 @@ void CodeGen::GenStoreLclVarMultiRegSIMDMem(GenTreeLclVar* store)
         regs[i] = UseReg(src, i);
     }
 
-    GetEmitter()->emitIns_S_S_R_R(INS_stp, EA_4BYTE, EA_4BYTE, regs[0], regs[1], lclNum, 0);
+    GetEmitter()->emitIns_S_S_R_R(INS_stp, EA_4BYTE, EA_4BYTE, regs[0], regs[1], GetStackAddrMode(lcl, 0));
 
     if (regCount == 4)
     {
-        GetEmitter()->emitIns_S_S_R_R(INS_stp, EA_4BYTE, EA_4BYTE, regs[2], regs[3], lclNum, 8);
+        GetEmitter()->emitIns_S_S_R_R(INS_stp, EA_4BYTE, EA_4BYTE, regs[2], regs[3], GetStackAddrMode(lcl, 8));
     }
     else if (regCount == 3)
     {
         // TODO-MIKE-Review: Do we need to store a 0 for the 4th element of Vector3? Old code did not.
-        GetEmitter()->emitIns_S_R(INS_str, EA_4BYTE, regs[2], lclNum, 8);
+        GetEmitter()->emitIns_S_R(INS_str, EA_4BYTE, regs[2], GetStackAddrMode(lcl, 8));
     }
 
     liveness.UpdateLife(this, store);
@@ -3261,7 +3259,7 @@ void CodeGen::genSIMDUpperSpill(GenTreeUnOp* node)
         LclVarDsc* lcl = op1->AsLclVar()->GetLcl();
         assert(lcl->lvOnFrame);
 
-        GetEmitter()->emitIns_S_R(INS_str, EA_8BYTE, dstReg, lcl->GetLclNum(), 8);
+        GetEmitter()->emitIns_S_R(INS_str, EA_8BYTE, dstReg, GetStackAddrMode(lcl, 8));
     }
     else
     {
@@ -3290,7 +3288,7 @@ void CodeGen::genSIMDUpperUnspill(GenTreeUnOp* node)
         LclVarDsc* lcl = op1->AsLclVar()->GetLcl();
         assert(lcl->lvOnFrame);
 
-        GetEmitter()->emitIns_R_S(INS_ldr, EA_8BYTE, srcReg, lcl->GetLclNum(), 8);
+        GetEmitter()->emitIns_R_S(INS_ldr, EA_8BYTE, srcReg, GetStackAddrMode(lcl, 8));
     }
 
     GetEmitter()->emitIns_R_R_I_I(INS_mov, EA_8BYTE, dstReg, srcReg, 1, 0);
@@ -8389,7 +8387,7 @@ void CodeGen::inst_R_AM(instruction ins, emitAttr attr, regNumber reg, const Gen
 {
     if (addrMode.IsLcl())
     {
-        GetEmitter()->emitIns_R_S(ins, attr, reg, addrMode.Lcl()->GetLclNum(), addrMode.Disp(offset));
+        GetEmitter()->emitIns_R_S(ins, attr, reg, GetStackAddrMode(addrMode.Lcl(), addrMode.Disp(offset)));
     }
     else
     {
@@ -8401,7 +8399,7 @@ void CodeGen::inst_AM_R(instruction ins, emitAttr attr, regNumber reg, const Gen
 {
     if (addrMode.IsLcl())
     {
-        GetEmitter()->emitIns_S_R(ins, attr, reg, addrMode.Lcl()->GetLclNum(), addrMode.Disp(offset));
+        GetEmitter()->emitIns_S_R(ins, attr, reg, GetStackAddrMode(addrMode.Lcl(), addrMode.Disp(offset)));
     }
     else
     {
@@ -8443,19 +8441,17 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
         return;
     }
 
-    if (addr->OperIs(GT_LCL_ADDR))
+    if (GenTreeLclAddr* lclAddr = addr->IsLclAddr())
     {
-        GenTreeLclAddr* lclAddr = addr->AsLclAddr();
-        unsigned        lclNum  = lclAddr->GetLcl()->GetLclNum();
-        unsigned        offset  = lclAddr->GetLclOffs();
+        StackAddrMode s = GetStackAddrMode(lclAddr);
 
         if (emitter::emitInsIsStore(ins))
         {
-            emit->emitIns_S_R(ins, attr, valueReg, lclNum, offset);
+            emit->emitIns_S_R(ins, attr, valueReg, s);
         }
         else
         {
-            emit->emitIns_R_S(ins, attr, valueReg, lclNum, offset);
+            emit->emitIns_R_S(ins, attr, valueReg, s);
         }
 
         return;

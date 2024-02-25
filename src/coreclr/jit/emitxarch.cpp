@@ -1449,30 +1449,30 @@ void emitter::emitIns(instruction ins, emitAttr attr)
     emitCurIGsize += sz;
 }
 
-void emitter::SetInstrLclAddrMode(instrDesc* id, int varNum, int varOffs)
+void emitter::SetInstrLclAddrMode(instrDesc* id, StackAddrMode s)
 {
-    id->SetVarAddr(varNum, varOffs);
+    id->SetVarAddr(INDEBUG(s));
 
     bool ebpBased;
-    int  offset = emitComp->lvaFrameAddress(varNum, &ebpBased) + varOffs;
+    int  offset = emitComp->lvaFrameAddress(s.varNum, &ebpBased) + s.varOffs;
 
     id->idAddr()->lclOffset  = offset;
     id->idAddr()->isEbpBased = ebpBased;
 
     if ((id->idGCref() != GCT_NONE) && (id->idInsFmt() == IF_SWR_RRD))
     {
-        if (varNum < 0)
+        if (s.varNum < 0)
         {
-            assert(varOffs == 0);
+            assert(s.varOffs == 0);
             id->idAddr()->isTrackedGCSlotStore = codeGen->spillTemps.TrackGCSpillTemps();
         }
 #if FEATURE_FIXED_OUT_ARGS
-        else if (static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar)
+        else if (static_cast<unsigned>(s.varNum) == emitComp->lvaOutgoingArgSpaceVar)
         {
             id->idAddr()->isGCArgStore = true;
         }
 #endif
-        else if ((varOffs == 0) && (emitComp->lvaGetDesc(static_cast<unsigned>(varNum))->HasGCSlotLiveness()))
+        else if ((s.varOffs == 0) && (emitComp->lvaGetDesc(static_cast<unsigned>(s.varNum))->HasGCSlotLiveness()))
         {
             id->idAddr()->isTrackedGCSlotStore = true;
         }
@@ -1613,9 +1613,8 @@ void emitter::emitIns_A(instruction ins, emitAttr attr, GenTree* addr)
 
     if (GenTreeLclAddr* lclAddr = addr->IsLclAddr())
     {
-        LclVarDsc* lcl = lclAddr->GetLcl();
-        assert(lcl->IsAddressExposed());
-        emitIns_S(ins, attr, lcl->GetLclNum(), lclAddr->GetLclOffs());
+        assert(lclAddr->GetLcl()->IsAddressExposed());
+        emitIns_S(ins, attr, codeGen->GetStackAddrMode(lclAddr));
 
         return;
     }
@@ -1649,9 +1648,8 @@ void emitter::emitIns_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t
 
     if (GenTreeLclAddr* lclAddr = addr->IsLclAddr())
     {
-        LclVarDsc* lcl = lclAddr->GetLcl();
-        assert(lcl->IsAddressExposed());
-        emitIns_S_I(ins, attr, lcl->GetLclNum(), lclAddr->GetLclOffs(), imm);
+        assert(lclAddr->GetLcl()->IsAddressExposed());
+        emitIns_S_I(ins, attr, codeGen->GetStackAddrMode(lclAddr), imm);
 
         return;
     }
@@ -1682,9 +1680,8 @@ void emitter::emitIns_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumb
 
     if (GenTreeLclAddr* lclAddr = addr->IsLclAddr())
     {
-        LclVarDsc* lcl = lclAddr->GetLcl();
-        assert(lcl->IsAddressExposed());
-        emitIns_S_R(ins, attr, reg, lcl->GetLclNum(), lclAddr->GetLclOffs());
+        assert(lclAddr->GetLcl()->IsAddressExposed());
+        emitIns_S_R(ins, attr, reg, codeGen->GetStackAddrMode(lclAddr));
 
         return;
     }
@@ -2272,9 +2269,8 @@ void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg, GenTree
 
     if (GenTreeLclAddr* lclAddr = addr->IsLclAddr())
     {
-        LclVarDsc* lcl = lclAddr->GetLcl();
-        assert(lcl->IsAddressExposed());
-        emitIns_R_S(ins, attr, reg, lcl->GetLclNum(), lclAddr->GetLclOffs());
+        assert(lclAddr->GetLcl()->IsAddressExposed());
+        emitIns_R_S(ins, attr, reg, codeGen->GetStackAddrMode(lclAddr));
 
         return;
     }
@@ -2344,7 +2340,7 @@ void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, Cons
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, int varx, int offs, int32_t imm)
+void emitter::emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, StackAddrMode s, int32_t imm)
 {
     assert(IsSSEOrAVXOrBMIInstruction(ins) || (ins == INS_imuli));
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
@@ -2358,7 +2354,7 @@ void emitter::emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, int 
     X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
     id->idInsFmt(IF_RRW_SRD_CNS);
     id->idReg1(reg1);
-    SetInstrLclAddrMode(id, varx, offs);
+    SetInstrLclAddrMode(id, s);
 
     unsigned sz = emitInsSizeSV(id, insCodeRM(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);
@@ -2461,7 +2457,7 @@ void emitter::emitIns_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regN
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int varx, int offs)
+void emitter::emitIns_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, StackAddrMode s)
 {
     assert(IsVexTernary(ins) && !EA_IS_GCREF_OR_BYREF(attr));
 
@@ -2471,7 +2467,7 @@ void emitter::emitIns_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regN
     id->idInsFmt(IF_RWR_RRD_SRD);
     id->idReg1(reg1);
     id->idReg2(reg2);
-    SetInstrLclAddrMode(id, varx, offs);
+    SetInstrLclAddrMode(id, s);
 
     unsigned sz = emitInsSizeSV(id, insCodeRM(ins));
     id->idCodeSize(sz);
@@ -2550,7 +2546,7 @@ void emitter::emitIns_R_R_R_I(
 }
 
 void emitter::emitIns_R_R_S_I(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int varx, int offs, int32_t imm)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, StackAddrMode s, int32_t imm)
 {
     assert(IsVexTernary(ins));
     assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
@@ -2562,7 +2558,7 @@ void emitter::emitIns_R_R_S_I(
     id->idInsFmt(IF_RWR_RRD_SRD_CNS);
     id->idReg1(reg1);
     id->idReg2(reg2);
-    SetInstrLclAddrMode(id, varx, offs);
+    SetInstrLclAddrMode(id, s);
 
     unsigned sz = emitInsSizeSV(id, insCodeRM(ins)) + 1;
     id->idCodeSize(sz);
@@ -2632,7 +2628,7 @@ void emitter::emitIns_R_R_C_R(
 }
 
 void emitter::emitIns_R_R_S_R(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, int varx, int offs)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, StackAddrMode s)
 {
     assert(UseVEXEncoding());
     assert(IsAvxBlendv(ins));
@@ -2644,7 +2640,7 @@ void emitter::emitIns_R_R_S_R(
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idInsFmt(IF_RWR_RRD_SRD_RRD);
-    SetInstrLclAddrMode(id, varx, offs);
+    SetInstrLclAddrMode(id, s);
 
     unsigned sz = emitInsSizeSV(id, insCodeRM(ins)) + 1;
     id->idCodeSize(sz);
@@ -2846,7 +2842,7 @@ void emitter::emitIns_R_AH(instruction ins, regNumber reg, void* addr)
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_S_R_I(instruction ins, emitAttr attr, int varNum, int offs, regNumber reg, int32_t imm)
+void emitter::emitIns_S_R_I(instruction ins, emitAttr attr, StackAddrMode s, regNumber reg, int32_t imm)
 {
     assert(ins == INS_vextracti128 || ins == INS_vextractf128);
     assert(attr == EA_32BYTE);
@@ -2858,7 +2854,7 @@ void emitter::emitIns_S_R_I(instruction ins, emitAttr attr, int varNum, int offs
     id->idOpSize(EA_32BYTE);
     id->idInsFmt(IF_SWR_RRD_CNS);
     id->idReg1(reg);
-    SetInstrLclAddrMode(id, varNum, offs);
+    SetInstrLclAddrMode(id, s);
 
     unsigned sz = emitInsSizeSV(id, insCodeMR(ins)) + 1;
     id->idCodeSize(sz);
@@ -3086,16 +3082,16 @@ void emitter::emitIns_SIMD_R_R_R(instruction ins, emitAttr attr, regNumber reg1,
     }
 }
 
-void emitter::emitIns_SIMD_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int varx, int offs)
+void emitter::emitIns_SIMD_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, StackAddrMode s)
 {
     if (UseVEXEncoding())
     {
-        emitIns_R_R_S(ins, attr, reg1, reg2, varx, offs);
+        emitIns_R_R_S(ins, attr, reg1, reg2, s);
     }
     else
     {
         emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-        emitIns_R_S(ins, attr, reg1, varx, offs);
+        emitIns_R_S(ins, attr, reg1, s);
     }
 }
 
@@ -3149,16 +3145,16 @@ void emitter::emitIns_SIMD_R_R_R_I(
 }
 
 void emitter::emitIns_SIMD_R_R_S_I(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int varx, int offs, int32_t imm)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, StackAddrMode s, int32_t imm)
 {
     if (UseVEXEncoding())
     {
-        emitIns_R_R_S_I(ins, attr, reg1, reg2, varx, offs, imm);
+        emitIns_R_R_S_I(ins, attr, reg1, reg2, s, imm);
     }
     else
     {
         emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-        emitIns_R_S_I(ins, attr, reg1, varx, offs, imm);
+        emitIns_R_S_I(ins, attr, reg1, s, imm);
     }
 }
 
@@ -3233,7 +3229,7 @@ void emitter::emitIns_SIMD_R_R_R_R(
 }
 
 void emitter::emitIns_SIMD_R_R_R_S(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, int varx, int offs)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, StackAddrMode s)
 {
     assert(IsFMAInstruction(ins) || IsAVXVNNIInstruction(ins));
     assert(UseVEXEncoding());
@@ -3242,7 +3238,7 @@ void emitter::emitIns_SIMD_R_R_R_S(
     assert((reg3 != reg1) || (reg2 == reg1));
 
     emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-    emitIns_R_R_S(ins, attr, reg1, reg3, varx, offs);
+    emitIns_R_R_S(ins, attr, reg1, reg3, s);
 }
 
 void emitter::emitIns_SIMD_R_R_A_R(
@@ -3264,11 +3260,11 @@ void emitter::emitIns_SIMD_R_R_A_R(
 }
 
 void emitter::emitIns_SIMD_R_R_S_R(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, int varx, int offs)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, StackAddrMode s)
 {
     if (UseVEXEncoding())
     {
-        emitIns_R_R_S_R(MapSse41BlendvToAvxBlendv(ins), attr, reg1, reg2, reg3, varx, offs);
+        emitIns_R_R_S_R(MapSse41BlendvToAvxBlendv(ins), attr, reg1, reg2, reg3, s);
     }
     else
     {
@@ -3277,18 +3273,18 @@ void emitter::emitIns_SIMD_R_R_S_R(
 
         emitIns_Mov(INS_movaps, attr, REG_XMM0, reg3, /* canSkip */ true);
         emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-        emitIns_R_S(ins, attr, reg1, varx, offs);
+        emitIns_R_S(ins, attr, reg1, s);
     }
 }
 
-void emitter::emitIns_S(instruction ins, emitAttr attr, int varx, int offs)
+void emitter::emitIns_S(instruction ins, emitAttr attr, StackAddrMode s)
 {
     instrDesc* id = emitNewInstr();
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idGCref(EA_GC_TYPE(attr));
     id->idInsFmt(emitInsModeFormat(ins, IF_SRD));
-    SetInstrLclAddrMode(id, varx, offs);
+    SetInstrLclAddrMode(id, s);
 
     unsigned sz = emitInsSizeSV(id, insCodeMR(ins));
     id->idCodeSize(sz);
@@ -3300,7 +3296,7 @@ void emitter::emitIns_S(instruction ins, emitAttr attr, int varx, int offs)
 #endif
 }
 
-void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int varx, int offs)
+void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s)
 {
     assert(!IsReallyVexTernary(ins));
     X86_ONLY(assert((attr != EA_1BYTE) || isByteReg(reg)));
@@ -3311,7 +3307,7 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int var
     id->idInsFmt(emitInsModeFormat(ins, IF_SRD_RRD));
     INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
     id->idReg1(reg);
-    SetInstrLclAddrMode(id, varx, offs);
+    SetInstrLclAddrMode(id, s);
 
     unsigned sz = emitInsSizeSV(id, insCodeMR(ins));
     id->idCodeSize(sz);
@@ -3319,7 +3315,7 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int var
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, int varx, int offs)
+void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s)
 {
     assert(!HasImplicitRegPairDest(ins) && (ins != INS_imuli));
     X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg)));
@@ -3330,7 +3326,7 @@ void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, int var
     id->idInsFmt(emitInsModeFormat(ins, IF_RRD_SRD));
     id->idGCref(EA_GC_TYPE(attr));
     id->idReg1(reg);
-    SetInstrLclAddrMode(id, varx, offs);
+    SetInstrLclAddrMode(id, s);
 
     unsigned sz = emitInsSizeSV(id, insCodeRM(ins));
     id->idCodeSize(sz);
@@ -3338,7 +3334,7 @@ void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, int var
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, int32_t imm)
+void emitter::emitIns_S_I(instruction ins, emitAttr attr, StackAddrMode s, int32_t imm)
 {
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
@@ -3348,7 +3344,7 @@ void emitter::emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, in
     X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
     id->idInsFmt(emitInsModeFormat(ins, IF_SRD_CNS));
     INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
-    SetInstrLclAddrMode(id, varx, offs);
+    SetInstrLclAddrMode(id, s);
 
     unsigned sz = emitInsSizeSV(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
     id->idCodeSize(sz);

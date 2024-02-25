@@ -760,7 +760,7 @@ bool CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
             var_types   type = lcl->GetActualRegisterType();
             instruction ins  = ins_Store(type, IsSimdLocalAligned(lcl));
 
-            GetEmitter()->emitIns_S_R(ins, emitTypeSize(type), lclVar->GetRegNum(), lcl->GetLclNum(), 0);
+            GetEmitter()->emitIns_S_R(ins, emitTypeSize(type), lclVar->GetRegNum(), GetStackAddrMode(lcl, 0));
         }
 
         liveness.Spill(lcl, lclVar);
@@ -965,7 +965,7 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
     regNumber dstReg = node->GetRegNum();
 
     instruction ins = ins_Load(regType, IsSimdLocalAligned(lcl));
-    GetEmitter()->emitIns_R_S(ins, emitTypeSize(regType), dstReg, lcl->GetLclNum(), 0);
+    GetEmitter()->emitIns_R_S(ins, emitTypeSize(regType), dstReg, GetStackAddrMode(lcl, 0));
 
     liveness.Unspill(this, lcl, node, dstReg, regType);
 }
@@ -1333,20 +1333,14 @@ void CodeGen::ConsumeStructStore(
     {
         assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
-        unsigned lclNum  = store->AsLclVarCommon()->GetLcl()->GetLclNum();
-        unsigned lclOffs = store->AsLclVarCommon()->GetLclOffs();
-
-        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, dstReg, lclNum, lclOffs);
+        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, dstReg, GetStackAddrMode(store->AsLclVarCommon()));
     }
 
     if (src->isContained())
     {
         assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
 
-        unsigned lclNum  = src->AsLclVarCommon()->GetLcl()->GetLclNum();
-        unsigned lclOffs = src->AsLclVarCommon()->GetLclOffs();
-
-        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, srcReg, lclNum, lclOffs);
+        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, srcReg, GetStackAddrMode(src->AsLclVarCommon()));
     }
 
     if (sizeReg != REG_NA)
@@ -1391,7 +1385,7 @@ void CodeGen::SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex)
     instruction ins  = ins_Store(regType);
     emitAttr    attr = emitActualTypeSize(regType);
 
-    GetEmitter()->emitIns_S_R(ins, attr, reg, temp->GetNum(), 0);
+    GetEmitter()->emitIns_S_R(ins, attr, reg, GetStackAddrMode(temp));
 
     node->SetRegSpill(regIndex, false);
     node->SetRegSpilled(regIndex, true);
@@ -1407,7 +1401,7 @@ void CodeGen::SpillST0(GenTree* node)
 
     JITDUMP("Spilling register ST0 after [%06u]\n", node->GetID());
 
-    GetEmitter()->emitIns_S(INS_fstp, emitTypeSize(type), temp->GetNum(), 0);
+    GetEmitter()->emitIns_S(INS_fstp, emitTypeSize(type), GetStackAddrMode(temp));
 
     node->SetRegSpill(0, false);
     node->SetRegSpilled(0, true);
@@ -1430,7 +1424,7 @@ void CodeGen::UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex)
     instruction ins     = ins_Load(regType);
     emitAttr    attr    = emitActualTypeSize(regType);
 
-    GetEmitter()->emitIns_R_S(ins, attr, reg, temp->GetNum(), 0);
+    GetEmitter()->emitIns_R_S(ins, attr, reg, GetStackAddrMode(temp));
 
     liveness.SetGCRegType(reg, regType);
 }
@@ -1446,7 +1440,7 @@ void CodeGen::UnspillST0(GenTree* node)
     JITDUMP("Unspilling ST0 from [%06u]\n", getRegName(oldReg), node->GetID());
 
     var_types regType = temp->GetType();
-    GetEmitter()->emitIns_S(INS_fld, emitTypeSize(regType), temp->GetNum(), 0);
+    GetEmitter()->emitIns_S(INS_fld, emitTypeSize(regType), GetStackAddrMode(temp));
 }
 #endif // TARGET_X86
 
@@ -1535,7 +1529,7 @@ void CodeGen::SpillLclVarReg(LclVarDsc* lcl, GenTreeLclVar* lclVar)
     assert(!lcl->lvNormalizeOnStore() || (type == lcl->GetActualRegisterType()));
 
     GetEmitter()->emitIns_S_R(ins_Store(type, IsSimdLocalAligned(lcl)), emitTypeSize(type), lclVar->GetRegNum(),
-                              lcl->GetLclNum(), 0);
+                              GetStackAddrMode(lcl, 0));
 }
 
 #if FEATURE_ARG_SPLIT

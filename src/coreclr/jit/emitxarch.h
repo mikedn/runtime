@@ -71,27 +71,26 @@ void emitIns_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumber reg);
 void emitIns_R_A(instruction ins, emitAttr attr, regNumber reg1, GenTree* addr);
 void emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenTree* addr, int32_t imm);
 void emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, ConstData* data, int32_t imm);
-void emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, int varx, int offs, int32_t imm);
+void emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, StackAddrMode s, int32_t imm);
 void emitIns_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr);
 void emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ConstData* data);
-void emitIns_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int varx, int offs);
+void emitIns_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, StackAddrMode s);
 void emitIns_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3);
 void emitIns_R_R_A_I(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr, int32_t imm);
-void emitIns_S_R_I(instruction ins, emitAttr attr, int varNum, int offs, regNumber reg, int32_t imm);
+void emitIns_S_R_I(instruction ins, emitAttr attr, StackAddrMode s, regNumber reg, int32_t imm);
 void emitIns_A_R_I(instruction ins, emitAttr attr, GenTree* addr, regNumber reg, int32_t imm);
 void emitIns_C_R_I(instruction ins, emitAttr attr, ConstData* data, regNumber reg, int32_t imm);
 void emitIns_R_R_C_I(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ConstData* data, int32_t imm);
 void emitIns_R_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, int32_t imm);
-void emitIns_R_R_S_I(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int varx, int offs, int32_t imm);
+void emitIns_R_R_S_I(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, StackAddrMode s, int32_t imm);
 void emitIns_R_R_A_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, GenTree* addr);
 void emitIns_R_R_C_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, ConstData* data);
-void emitIns_R_R_S_R(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, int varx, int offs);
+void emitIns_R_R_S_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, StackAddrMode s);
 void emitIns_R_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, regNumber reg4);
-void emitIns_S(instruction ins, emitAttr attr, int varx, int offs);
-void emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int varx, int offs);
-void emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, int varx, int offs);
-void emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, int32_t imm);
+void emitIns_S(instruction ins, emitAttr attr, StackAddrMode s);
+void emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s);
+void emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s);
+void emitIns_S_I(instruction ins, emitAttr attr, StackAddrMode s, int32_t imm);
 void emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, ConstData* data);
 void emitIns_C_R(instruction ins, emitAttr attr, ConstData* data, regNumber reg);
 void emitIns_C_I(instruction ins, emitAttr attr, ConstData* data, int32_t imm);
@@ -123,14 +122,13 @@ void emitIns_SIMD_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regNumbe
 void emitIns_SIMD_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr);
 void emitIns_SIMD_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ConstData* data);
 void emitIns_SIMD_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber op2Reg);
-void emitIns_SIMD_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int varx, int offs);
+void emitIns_SIMD_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, StackAddrMode s);
 void emitIns_SIMD_R_R_A_I(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr, int32_t imm);
 void emitIns_SIMD_R_R_C_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber op1Reg, ConstData* data, int32_t imm);
 void emitIns_SIMD_R_R_R_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber op1Reg, regNumber op2Reg, int32_t imm);
-void emitIns_SIMD_R_R_S_I(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int varx, int offs, int32_t imm);
+void emitIns_SIMD_R_R_S_I(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, StackAddrMode s, int32_t imm);
 void emitIns_SIMD_R_R_R_A(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, GenTree* addr);
 void emitIns_SIMD_R_R_R_C(
@@ -138,11 +136,11 @@ void emitIns_SIMD_R_R_R_C(
 void emitIns_SIMD_R_R_R_R(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, regNumber reg4);
 void emitIns_SIMD_R_R_R_S(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, int varx, int offs);
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, StackAddrMode s);
 void emitIns_SIMD_R_R_A_R(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, GenTree* addr);
 void emitIns_SIMD_R_R_S_R(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, int varx, int offs);
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, StackAddrMode s);
 
 enum EmitCallType
 {
@@ -266,7 +264,7 @@ void emitDispIns(instrDesc* id,
 /*  Private members that deal with target-dependent instr. descriptors  */
 /************************************************************************/
 
-void SetInstrLclAddrMode(instrDesc* id, int varNum, int varOffs);
+void SetInstrLclAddrMode(instrDesc* id, StackAddrMode s);
 ssize_t GetAddrModeDisp(GenTree* addr);
 void SetInstrAddrMode(instrDesc* id, GenTree* addr);
 bool IntConNeedsReloc(GenTreeIntCon* con);
