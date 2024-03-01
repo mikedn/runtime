@@ -8677,6 +8677,7 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
                                               bool                    isCastClass)
 {
     assert(op1->TypeIs(TYP_REF));
+    assert(op2->TypeIs(TYP_I_IMPL));
 
     // Optimistically assume the jit should expand this as an inline test
     bool shouldExpandInline = true;
@@ -8762,12 +8763,18 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
     //
 
     GenTree* op2Var = op2;
+
     if (isCastClass)
     {
-        op2Var = fgInsertCommaFormTemp(&op2);
+        LclVarDsc* lcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("castclass class handle temp"));
+        lcl->lvIsCSE   = true;
 
-        op2Var->AsLclVar()->GetLcl()->lvIsCSE = true;
+        GenTree* store = gtNewAssignNode(gtNewLclvNode(lcl, TYP_I_IMPL), op2);
+
+        op2    = gtNewCommaNode(store, gtNewLclvNode(lcl, TYP_I_IMPL), TYP_I_IMPL);
+        op2Var = gtNewLclvNode(lcl, TYP_I_IMPL);
     }
+
     temp   = gtNewMethodTableLookup(temp);
     condMT = gtNewOperNode(GT_NE, TYP_INT, temp, op2);
 
@@ -17822,19 +17829,6 @@ GenTree* Importer::gtFoldExpr(GenTree* tree)
 GenTree* Importer::gtFoldExprConst(GenTree* tree)
 {
     return comp->gtFoldExprConst(tree);
-}
-
-GenTreeLclVar* Importer::fgInsertCommaFormTemp(GenTree** use)
-{
-    GenTree* tree = *use;
-    assert(!varTypeIsStruct(tree->GetType()));
-
-    var_types  type  = varActualType(tree->GetType());
-    LclVarDsc* lcl   = lvaNewTemp(type, true DEBUGARG("fgInsertCommaFormTemp temp"));
-    GenTree*   store = gtNewAssignNode(gtNewLclvNode(lcl, type), tree);
-    GenTree*   load  = gtNewLclvNode(lcl, type);
-    *use             = gtNewCommaNode(store, load, type);
-    return gtNewLclvNode(lcl, type);
 }
 
 void Importer::gtChangeOperToNullCheck(GenTree* tree)

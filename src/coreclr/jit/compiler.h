@@ -2361,7 +2361,6 @@ struct Importer
     void gtInitStructCopyAsg(GenTreeOp* asg);
     GenTree* gtFoldExpr(GenTree* tree);
     GenTree* gtFoldExprConst(GenTree* tree);
-    GenTreeLclVar* fgInsertCommaFormTemp(GenTree** use);
     void gtChangeOperToNullCheck(GenTree* tree);
     bool gtIsRecursiveCall(GenTreeCall* call);
     bool gtIsRecursiveCall(CORINFO_METHOD_HANDLE callMethodHandle);
