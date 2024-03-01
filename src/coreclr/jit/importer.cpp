@@ -8673,7 +8673,7 @@ GenTree* Importer::impOptimizeCastClassOrIsInst(GenTree* op1, CORINFO_RESOLVED_T
 
 GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
                                               GenTree*                op2,
-                                              CORINFO_RESOLVED_TOKEN* pResolvedToken,
+                                              CORINFO_RESOLVED_TOKEN* resolvedToken,
                                               bool                    isCastClass)
 {
     assert(op1->TypeIs(TYP_REF));
@@ -8700,7 +8700,7 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
 
     // Pessimistically assume the jit cannot expand this as an inline test
     bool                  canExpandInline = false;
-    const CorInfoHelpFunc helper          = info.compCompHnd->getCastingHelper(pResolvedToken, isCastClass);
+    const CorInfoHelpFunc helper          = info.compCompHnd->getCastingHelper(resolvedToken, isCastClass);
 
     // Legality check.
     //
@@ -8718,7 +8718,7 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
             if (helper == CORINFO_HELP_ISINSTANCEOFCLASS)
             {
                 // If the class is exact, the jit can expand the IsInst check inline.
-                canExpandInline = impIsClassExact(pResolvedToken->hClass);
+                canExpandInline = impIsClassExact(resolvedToken->hClass);
             }
         }
     }
@@ -8732,7 +8732,6 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
 
         // If we CSE this class handle we prevent assertionProp from making SubType assertions
         // so instead we force the CSE logic to not consider CSE-ing this class handle.
-        //
         op2->gtFlags |= GTF_DONT_CSE;
 
         return gtNewHelperCallNode(helper, TYP_REF, gtNewCallArgs(op2, op1));
@@ -8740,29 +8739,12 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
 
     JITDUMP("\nExpanding %s inline\n", isCastClass ? "castclass" : "isinst");
 
-    impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("bubbling QMark2"));
+    impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("castclass qmark temp"));
 
-    GenTree* temp;
-    GenTree* condMT;
-    //
-    // expand the methodtable match:
-    //
-    //  condMT ==>   GT_NE
-    //               /    \.
-    //           GT_IND   op2 (typically CNS_INT)
-    //              |
-    //           op1Copy
-    //
+    GenTree* op1Uses[5];
+    impMakeMultiUse(op1, 4 + isCastClass, op1Uses, CHECK_SPILL_ALL DEBUGARG("castclass obj temp"));
 
-    // This can replace op1 with a GT_COMMA that evaluates op1 into a local
-    //
-    op1 = impCloneExpr(op1, &temp, CHECK_SPILL_ALL DEBUGARG("CASTCLASS eval op1"));
-    //
-    // op1 is now known to be a non-complex tree
-    // thus we can use gtClone(op1) from now on
-    //
-
-    GenTree* op2Var = op2;
+    GenTree* op2Use = op2;
 
     if (isCastClass)
     {
@@ -8772,66 +8754,46 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
         GenTree* store = gtNewAssignNode(gtNewLclvNode(lcl, TYP_I_IMPL), op2);
 
         op2    = gtNewCommaNode(store, gtNewLclvNode(lcl, TYP_I_IMPL), TYP_I_IMPL);
-        op2Var = gtNewLclvNode(lcl, TYP_I_IMPL);
+        op2Use = gtNewLclvNode(lcl, TYP_I_IMPL);
     }
 
-    temp   = gtNewMethodTableLookup(temp);
-    condMT = gtNewOperNode(GT_NE, TYP_INT, temp, op2);
-
-    GenTree* condNull;
-    //
-    // expand the null check:
-    //
-    //  condNull ==>   GT_EQ
-    //                 /    \.
-    //             op1Copy CNS_INT
-    //                      null
-    //
-    condNull = gtNewOperNode(GT_EQ, TYP_INT, gtClone(op1), gtNewIconNode(0, TYP_REF));
-
-    //
-    // expand the true and false trees for the condMT
-    //
-    GenTree* condFalse = gtClone(op1);
+    GenTree* condMT    = gtNewOperNode(GT_NE, TYP_INT, gtNewMethodTableLookup(op1Uses[0]), op2);
+    GenTree* condNull  = gtNewOperNode(GT_EQ, TYP_INT, op1Uses[1], gtNewIconNode(0, TYP_REF));
+    GenTree* condFalse = op1Uses[2];
     GenTree* condTrue;
+
     if (isCastClass)
     {
-        //
-        // use the special helper that skips the cases checked by our inlined cast
-        //
-        const CorInfoHelpFunc specialHelper = CORINFO_HELP_CHKCASTCLASS_SPECIAL;
+        condTrue = gtNewHelperCallNode(CORINFO_HELP_CHKCASTCLASS_SPECIAL, TYP_REF, gtNewCallArgs(op2Use, op1Uses[4]));
 
-        condTrue = gtNewHelperCallNode(specialHelper, TYP_REF, gtNewCallArgs(op2Var, gtClone(op1)));
+        if (impIsClassExact(resolvedToken->hClass))
+        {
+            // The helper is used only for throwing InvalidCastException in case of casting to an exact class.
+            condTrue->AsCall()->gtCallMoreFlags |= GTF_CALL_M_DOES_NOT_RETURN;
+        }
     }
     else
     {
         condTrue = gtNewIconNode(0, TYP_REF);
     }
 
-    if (isCastClass && impIsClassExact(pResolvedToken->hClass) && condTrue->IsCall())
-    {
-        // condTrue is used only for throwing InvalidCastException in case of casting to an exact class.
-        condTrue->AsCall()->gtCallMoreFlags |= GTF_CALL_M_DOES_NOT_RETURN;
-    }
-
     GenTree* qmarkMT   = gtNewQmarkNode(TYP_REF, condMT, condTrue, condFalse);
-    GenTree* qmarkNull = gtNewQmarkNode(TYP_REF, condNull, gtClone(op1), qmarkMT);
+    GenTree* qmarkNull = gtNewQmarkNode(TYP_REF, condNull, op1Uses[3], qmarkMT);
     qmarkNull->gtFlags |= GTF_QMARK_CAST_INSTOF;
 
-    // Make QMark node a top level node by spilling it.
-    LclVarDsc* lclDsc = lvaNewTemp(TYP_REF, true DEBUGARG("spilling QMark2"));
-    GenTree*   asg    = gtNewAssignNode(gtNewLclvNode(lclDsc, TYP_REF), qmarkNull);
+    LclVarDsc* lcl = lvaNewTemp(TYP_REF, true DEBUGARG("castclass null qmark temp"));
+    GenTree*   asg = gtNewAssignNode(gtNewLclvNode(lcl, TYP_REF), qmarkNull);
     impAppendTree(asg, CHECK_SPILL_NONE);
 
     // TODO-CQ: Is it possible op1 has a better type?
-    //
     // See also gtGetHelperCallClassHandle where we make the same
     // determination for the helper call variants.
-    assert(!lclDsc->lvSingleDef);
-    lclDsc->lvSingleDef = true;
-    JITDUMP("Marked V%02u as a single def temp\n", lclDsc->GetLclNum());
-    comp->lvaSetClass(lclDsc, pResolvedToken->hClass);
-    return gtNewLclvNode(lclDsc, TYP_REF);
+    assert(!lcl->lvSingleDef);
+    lcl->lvSingleDef = true;
+    JITDUMP("Marked V%02u as a single def temp\n", lcl->GetLclNum());
+    comp->lvaSetClass(lcl, resolvedToken->hClass);
+
+    return gtNewLclvNode(lcl, TYP_REF);
 }
 
 //------------------------------------------------------------------------
