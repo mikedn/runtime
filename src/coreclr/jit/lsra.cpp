@@ -1875,7 +1875,7 @@ void LinearScan::checkLastUses(BasicBlock* block)
     if (compiler->lvaKeepAliveAndReportThis())
     {
         assert(!compiler->info.compIsStatic);
-        keepAliveThisLcl = compiler->lvaGetDesc(compiler->info.compThisArg);
+        keepAliveThisLcl = compiler->lvaGetDesc(compiler->info.GetThisParamLclNum());
     }
 
     // find which uses are lastUses
@@ -5169,10 +5169,10 @@ void LinearScan::allocateRegisters()
     // as we allocate, we will force all refs to the stack if it is split or spilled.
     if (enregisterLocalVars && compiler->lvaKeepAliveAndReportThis())
     {
-        LclVarDsc* thisVarDsc = compiler->lvaGetDesc(compiler->info.compThisArg);
-        if (thisVarDsc->IsRegCandidate())
+        LclVarDsc* thisParamLcl = compiler->lvaGetDesc(compiler->info.GetThisParamLclNum());
+        if (thisParamLcl->IsRegCandidate())
         {
-            Interval* interval = getIntervalForLocalVar(thisVarDsc->lvVarIndex);
+            Interval* interval = getIntervalForLocalVar(thisParamLcl->GetLivenessBitIndex());
             if (interval->isSplit)
             {
                 // We'll have to spill this.
@@ -5188,7 +5188,7 @@ void LinearScan::allocateRegisters()
                     if (RefTypeIsUse(ref->refType) && (ref->bbNum != prevBBNum))
                     {
                         VarToRegMap inVarToRegMap = getInVarToRegMap(ref->bbNum);
-                        setVarReg(inVarToRegMap, thisVarDsc->lvVarIndex, REG_STK);
+                        setVarReg(inVarToRegMap, thisParamLcl->GetLivenessBitIndex(), REG_STK);
                     }
                     if (ref->RegOptional())
                     {

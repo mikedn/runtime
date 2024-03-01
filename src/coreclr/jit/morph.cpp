@@ -1457,7 +1457,7 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
 
                 if (!node->OperIsConst() && !node->OperIs(GT_LCL_ADDR) &&
                     !(node->OperIs(GT_LCL_VAR) &&
-                      (node->AsLclVar()->GetLcl()->GetLclNum() == compiler->info.compThisArg)))
+                      (node->AsLclVar()->GetLcl()->GetLclNum() == compiler->info.GetThisParamLclNum())))
                 {
                     prevArgInfo->SetTempNeeded();
                     needsTemps = true;

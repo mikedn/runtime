@@ -3247,7 +3247,7 @@ void CodeGen::PrologReportGenericContextArg(regNumber initReg, bool* pInitRegZer
     }
 
     // For JIT32_GCENCODER, we won't be here if reportArg is false.
-    unsigned contextArg = reportArg ? compiler->info.compTypeCtxtArg : compiler->info.compThisArg;
+    unsigned contextArg = reportArg ? compiler->info.compTypeCtxtArg : compiler->info.GetThisParamLclNum();
 
     noway_assert(contextArg != BAD_VAR_NUM);
     LclVarDsc* varDsc = compiler->lvaGetDesc(contextArg);
@@ -4214,13 +4214,10 @@ void CodeGen::genSetScopeInfoUsingVariableRanges(VarResultInfo* vars)
 
     for (unsigned lclNum = 0; lclNum < compiler->info.compLocalsCount; lclNum++)
     {
-        LclVarDsc* lcl      = compiler->lvaGetDesc(lclNum);
-        unsigned   ilVarNum = compiler->compMap2ILvarNum(lclNum);
+        LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+        unsigned   varNum = compiler->eeMapLclNumToDebugInfoVarNum(lclNum);
 
-        if (ilVarNum == ICorDebugInfo::UNKNOWN_ILNUM)
-        {
-            continue;
-        }
+        assert(varNum != ICorDebugInfo::UNKNOWN_ILNUM);
 
         for (DbgInfoVarRange* range = liveness.GetDbgInfoRanges(lclNum); range != nullptr; range = range->next)
         {
@@ -4236,7 +4233,7 @@ void CodeGen::genSetScopeInfoUsingVariableRanges(VarResultInfo* vars)
                 endOffs++;
             }
 
-            genSetScopeInfo(vars, liveRangeIndex, startOffs, endOffs, lclNum, ilVarNum, &range->location);
+            genSetScopeInfo(vars, liveRangeIndex, startOffs, endOffs, lclNum, varNum, &range->location);
             liveRangeIndex++;
         }
     }
@@ -4253,8 +4250,8 @@ void CodeGen::genSetScopeInfo(VarResultInfo* vars,
     assert(ilVarNum != ICorDebugInfo::UNKNOWN_ILNUM);
 
 #ifdef TARGET_X86
-    if (compiler->info.compIsVarArgs && (lclNum != compiler->lvaVarargsHandleArg) &&
-        (lclNum < compiler->info.compArgsCount) && !compiler->lvaGetDesc(lclNum)->IsRegParam())
+    if (compiler->info.compIsVarArgs && (lclNum != compiler->info.compVarargsHandleArg) &&
+        (lclNum < compiler->info.GetParamCount()) && !compiler->lvaGetDesc(lclNum)->IsRegParam())
     {
         noway_assert((varLoc->vlType == DbgInfoVarLoc::VLT_STK) || (varLoc->vlType == DbgInfoVarLoc::VLT_STK2));
 
@@ -4262,11 +4259,9 @@ void CodeGen::genSetScopeInfo(VarResultInfo* vars,
         // accessed via the varargs cookie. Discard generated info,
         // and just find its position relative to the varargs handle
 
-        assert(compiler->lvaVarargsHandleArg < compiler->info.compArgsCount);
+        LclVarDsc* varargsHandleLcl = compiler->lvaGetDesc(compiler->info.compVarargsHandleArg);
 
-        LclVarDsc* varargHandleLcl = compiler->lvaGetDesc(compiler->lvaVarargsHandleArg);
-
-        if (!varargHandleLcl->lvOnFrame)
+        if (!varargsHandleLcl->lvOnFrame)
         {
             noway_assert(!compiler->opts.compDbgCode);
             return;
@@ -4278,7 +4273,7 @@ void CodeGen::genSetScopeInfo(VarResultInfo* vars,
         // of vararg functions to avoid reporting them to GC.
         noway_assert(!lcl->lvRegister);
 
-        unsigned cookieOffset = varargHandleLcl->GetStackOffset();
+        unsigned cookieOffset = varargsHandleLcl->GetStackOffset();
         unsigned varOffset    = lcl->GetStackOffset();
 
         noway_assert(cookieOffset < varOffset);

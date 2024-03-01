@@ -3419,7 +3419,7 @@ public:
 
     bool IsVarargsStackParam(LclVarDsc* lcl) const
     {
-        return lcl->IsParam() && !lcl->IsRegParam() && (lcl->GetLclNum() != m_compiler->lvaVarargsHandleArg);
+        return lcl->IsParam() && !lcl->IsRegParam() && (lcl->GetLclNum() != m_compiler->info.compVarargsHandleArg);
     }
 
     GenTreeIntCon* GetVarargsStackParamOffset(LclVarDsc* lcl, unsigned lclOffs) const

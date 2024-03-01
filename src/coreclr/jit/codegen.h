@@ -635,7 +635,7 @@ protected:
     void genPutArgReg(GenTreeUnOp* putArg);
     void genPutArgStk(GenTreePutArgStk* treeNode);
 #if FEATURE_FASTTAILCALL
-    unsigned GetFirstStackParamLclNum();
+    unsigned GetFirstStackParamLclNum() const;
 #endif
 #if FEATURE_ARG_SPLIT
     void genPutArgSplit(GenTreePutArgSplit* treeNode);

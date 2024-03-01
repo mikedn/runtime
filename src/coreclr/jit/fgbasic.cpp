@@ -1456,7 +1456,7 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
                 else
                 {
                     // account for possible hidden param
-                    varNum = compMapILargNum(varNum);
+                    varNum = lvaMapILArgNumToLclNum(varNum);
 
                     // This check is only intended to prevent an AV.  Bad varNum values will later
                     // be handled properly by the verifier.
@@ -1501,7 +1501,7 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
                 }
                 else
                 {
-                    varNum += info.compArgsCount;
+                    varNum += info.GetParamCount();
 
                     // This check is only intended to prevent invalid memory access. Bad varNum values
                     // will later be handled properly by the importer.
@@ -1581,21 +1581,21 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
                 {
                     if ((opcode == CEE_LDLOCA) || (opcode == CEE_LDLOCA_S))
                     {
-                        if (varNum >= info.compMethodInfo->locals.numArgs)
+                        if (varNum >= info.GetILLocCount())
                         {
                             BADCODE("bad local number");
                         }
 
-                        varNum += info.compArgsCount;
+                        varNum += info.GetParamCount();
                     }
                     else
                     {
-                        if (varNum >= info.compILargsCount)
+                        if (varNum >= info.GetILArgCount())
                         {
                             BADCODE("bad argument number");
                         }
 
-                        varNum = compMapILargNum(varNum); // account for possible hidden param
+                        varNum = lvaMapILArgNumToLclNum(varNum);
                     }
 
                     LclVarDsc* lcl = lvaGetDesc(varNum);
@@ -1659,7 +1659,7 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
                     // This doesn't interfere with verification because CEE_JMP
                     // is never verifiable, and there's nothing unsafe you can
                     // do with a an IL stack overflow if the JIT is expecting it.
-                    info.compMaxStack = max(info.compMaxStack, info.compILargsCount);
+                    info.compMaxStack = Max(info.compMaxStack, info.GetILArgCount());
                     break;
                 }
 #endif
@@ -2433,18 +2433,17 @@ void Compiler::compCreateBasicBlocks(ILStats& ilStats)
     // For inlinees we do this over in inlFetchInlineeLocal and
     // inlUseArg (here args are included as we somtimes get
     // new information about the types of inlinee args).
-    const unsigned firstLcl = info.compArgsCount;
-    const unsigned lastLcl  = firstLcl + info.compMethodInfo->locals.numArgs;
-    for (unsigned lclNum = firstLcl; lclNum < lastLcl; lclNum++)
+    for (unsigned i = 0, count = info.GetILLocCount(); i < count; i++)
     {
-        LclVarDsc* lclDsc = lvaGetDesc(lclNum);
-        assert(lclDsc->lvSingleDef == 0);
-        // could restrict this to TYP_REF
-        lclDsc->lvSingleDef = !lclDsc->lvHasMultipleILStoreOp && !lclDsc->lvHasLdAddrOp;
+        LclVarDsc* lcl = lvaGetDesc(info.GetParamCount() + i);
 
-        if (lclDsc->lvSingleDef)
+        assert(!lcl->lvSingleDef);
+        // could restrict this to TYP_REF
+        lcl->lvSingleDef = !lcl->lvHasMultipleILStoreOp && !lcl->lvHasLdAddrOp;
+
+        if (lcl->lvSingleDef)
         {
-            JITDUMP("Marked V%02u as a single def local\n", lclNum);
+            JITDUMP("Marked V%02u as a single def local\n", lcl->GetLclNum());
         }
     }
 

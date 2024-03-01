@@ -1069,34 +1069,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
-inline unsigned Compiler::compMapILargNum(unsigned ILargNum)
-{
-    assert(ILargNum < info.compILargsCount);
-
-    // Note that this works because if compRetBuffArg/compTypeCtxtArg/lvVarargsHandleArg are not present
-    // they will be BAD_VAR_NUM (MAX_UINT), which is larger than any variable number.
-    if (ILargNum >= info.compRetBuffArg)
-    {
-        ILargNum++;
-        assert(ILargNum < info.compLocalsCount); // compLocals count already adjusted.
-    }
-
-    if (ILargNum >= info.compTypeCtxtArg)
-    {
-        ILargNum++;
-        assert(ILargNum < info.compLocalsCount); // compLocals count already adjusted.
-    }
-
-    if (ILargNum >= lvaVarargsHandleArg)
-    {
-        ILargNum++;
-        assert(ILargNum < info.compLocalsCount); // compLocals count already adjusted.
-    }
-
-    assert(ILargNum < info.compArgsCount);
-    return (ILargNum);
-}
-
 #ifdef TARGET_ARMARCH
 inline var_types Compiler::mangleVarArgsType(var_types type)
 {

@@ -79,10 +79,10 @@ class GCEncoder
     StackSlotLifetime* const firstStackSlotLifetime;
     RegArgChange* const      firstRegArgChange;
     CallSite* const          firstCallSite;
+    LclVarDsc*               trackedThisLcl = nullptr;
     bool const               isFullyInterruptible;
     unsigned                 untrackedStackSlotCount;
     unsigned                 trackedStackSlotLifetimeCount;
-    unsigned                 trackedThisLclNum = BAD_VAR_NUM;
     regNumber                syncThisReg;
 
 public:
@@ -337,12 +337,10 @@ unsigned GCEncoder::GetUntrackedStackSlotCount()
             continue;
         }
 
-        unsigned lclNum = lcl->GetLclNum();
-
         if (varTypeIsGC(lcl->GetType()))
         {
 #ifndef FEATURE_EH_FUNCLETS
-            if (compiler->lvaIsOriginalThisParam(lclNum) && compiler->lvaKeepAliveAndReportThis())
+            if (compiler->lvaIsOriginalThisParam(lcl->GetLclNum()) && compiler->lvaKeepAliveAndReportThis())
             {
                 // "this" is untracked, but encoding of untracked variables does not support
                 // reporting "this". So report it as a tracked variable with a liveness extending
@@ -357,7 +355,7 @@ unsigned GCEncoder::GetUntrackedStackSlotCount()
                 // 3) when there is RegArgChange for "this", but keepThisAlive == true;
                 // etc.
 
-                trackedThisLclNum = lclNum;
+                trackedThisLcl = lcl;
 
                 continue;
             }
@@ -423,7 +421,7 @@ unsigned GCEncoder::GetTrackedStackSlotLifetimeCount()
 {
     unsigned stackSlotLifetimeCount = 0;
 
-    if (trackedThisLclNum != BAD_VAR_NUM)
+    if (trackedThisLcl != nullptr)
     {
         stackSlotLifetimeCount++;
     }
@@ -2289,7 +2287,7 @@ unsigned GCEncoder::AddUntrackedStackSlots(uint8_t* dest, const int mask)
         if (varTypeIsGC(lcl->GetType()))
         {
 #ifndef FEATURE_EH_FUNCLETS
-            if (lcl->GetLclNum() == trackedThisLclNum)
+            if (lcl == trackedThisLcl)
             {
                 continue;
             }
@@ -2412,13 +2410,12 @@ unsigned GCEncoder::AddTrackedStackSlots(uint8_t* dest, const int mask)
     unsigned totalSize = 0;
 
 #ifndef FEATURE_EH_FUNCLETS
-    if (trackedThisLclNum != BAD_VAR_NUM)
+    if (trackedThisLcl != nullptr)
     {
         // Encoding of untracked variables does not support reporting
         // "this". So report it as a tracked variable with a liveness
         // extending over the entire method.
 
-        LclVarDsc* trackedThisLcl = compiler->lvaGetDesc(trackedThisLclNum);
         assert(trackedThisLcl->TypeIs(TYP_REF));
 
         unsigned slotOffset = trackedThisLcl->GetStackOffset();
@@ -3034,7 +3031,7 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
 
     if (syncThisReg != REG_NA)
     {
-        assert(trackedThisLclNum == BAD_VAR_NUM);
+        assert(trackedThisLcl == nullptr);
 
         uint8_t regEncoding;
 
@@ -4114,7 +4111,7 @@ void GCEncoder::SetHeaderInfo(unsigned codeSize, unsigned prologSize, ReturnKind
     }
     else if (compiler->lvaKeepAliveAndReportThis())
     {
-        assert(compiler->info.compThisArg != BAD_VAR_NUM);
+        assert(compiler->info.GetThisParamLclNum() != BAD_VAR_NUM);
 
         // OSR can report the root method's frame slot, if that method reported context.
         // If not, the OSR frame will have saved the needed context.
@@ -4321,7 +4318,7 @@ void GCEncoder::AddUntrackedStackSlots()
     if (compiler->lvaKeepAliveAndReportThis())
     {
         assert(!compiler->lvaReportParamTypeArg());
-        assert(compiler->lvaGetDesc(compiler->info.compThisArg)->TypeIs(TYP_REF));
+        assert(compiler->lvaGetDesc(compiler->info.GetThisParamLclNum())->TypeIs(TYP_REF));
 
         GetStackSlotId(compiler->codeGen->cachedGenericContextArgOffset, GC_SLOT_UNTRACKED, slotBase);
     }

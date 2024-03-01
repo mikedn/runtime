@@ -148,9 +148,9 @@ public:
         {
             LclVarDsc* lcl = def->GetLcl();
 
-            if (lcl->GetLclNum() == m_compiler->info.compThisArg)
+            if (lcl->GetLclNum() == m_compiler->info.GetThisParamLclNum())
             {
-                thisParamLcl = m_compiler->lvaGetDesc(m_compiler->info.compThisArg);
+                thisParamLcl = m_compiler->lvaGetDesc(m_compiler->info.GetThisParamLclNum());
             }
 
             PushSsaDef(lclSsaStackMap.Emplace(lcl->GetLclNum()), m_compiler->fgFirstBB, def);

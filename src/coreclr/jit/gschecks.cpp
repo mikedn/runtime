@@ -339,8 +339,7 @@ bool Compiler::gsFindVulnerableParams()
             printf("Equivalence assign group %s: ", isUnderIndir ? "isPtr " : "");
             for (unsigned i = assignGroup->bitVectGetFirst(); i != UINT_MAX; i = assignGroup->bitVectGetNext(i))
             {
-                gtDispLclVar(i, false);
-                printf(" ");
+                printf(FMT_LCL " ", i);
             }
             printf("\n");
         }

@@ -9195,12 +9195,12 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
                 else
                 {
-                    if (ilArgNum >= info.compILargsCount)
+                    if (ilArgNum >= info.GetILArgCount())
                     {
                         BADCODE("Bad IL arg num");
                     }
 
-                    unsigned lclNum = compMapILargNum(ilArgNum);
+                    unsigned lclNum = comp->lvaMapILArgNumToLclNum(ilArgNum);
 
                     if (lclNum == info.GetThisParamLclNum())
                     {
@@ -9243,12 +9243,12 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
                 else
                 {
-                    if (ilLocNum >= info.compMethodInfo->locals.numArgs)
+                    if (ilLocNum >= info.GetILLocCount())
                     {
                         BADCODE("Bad IL loc num");
                     }
 
-                    lcl = comp->lvaGetDesc(info.compArgsCount + ilLocNum);
+                    lcl = comp->lvaGetDesc(info.GetParamCount() + ilLocNum);
 
                 STLCL:
                     lclTyp = lcl->GetType();
@@ -9434,12 +9434,12 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     goto PUSH_ADRVAR;
                 }
 
-                if (ilLocNum >= info.compMethodInfo->locals.numArgs)
+                if (ilLocNum >= info.GetILLocCount())
                 {
                     BADCODE("Bad IL loc num");
                 }
 
-                lcl = comp->lvaGetDesc(info.compArgsCount + ilLocNum);
+                lcl = comp->lvaGetDesc(info.GetParamCount() + ilLocNum);
                 goto ADRVAR;
 
             case CEE_LDARGA:
@@ -9467,13 +9467,13 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     goto PUSH_ADRVAR;
                 }
 
-                if (ilArgNum >= info.compILargsCount)
+                if (ilArgNum >= info.GetILArgCount())
                 {
                     BADCODE("Bad IL arg num");
                 }
 
                 {
-                    unsigned lclNum = compMapILargNum(ilArgNum); // account for possible hidden param
+                    unsigned lclNum = comp->lvaMapILArgNumToLclNum(ilArgNum);
 
                     if (lclNum == info.GetThisParamLclNum())
                     {
@@ -11367,7 +11367,7 @@ void Importer::ImportArgList()
 
     assert(info.compMethodInfo->args.getCallConv() == CORINFO_CALLCONV_VARARG);
 
-    LclVarDsc* varargsHandleParam = comp->lvaGetDesc(comp->lvaVarargsHandleArg);
+    LclVarDsc* varargsHandleParam = comp->lvaGetDesc(comp->info.compVarargsHandleArg);
     assert(varargsHandleParam->IsAddressExposed());
 
     impPushOnStack(gtNewLclVarAddrNode(varargsHandleParam, TYP_I_IMPL));
@@ -12773,12 +12773,12 @@ void Importer::impLoadArg(unsigned ilArgNum)
     }
     else
     {
-        if (ilArgNum >= info.compILargsCount)
+        if (ilArgNum >= info.GetILArgCount())
         {
             BADCODE("Bad IL arg num");
         }
 
-        unsigned lclNum = compMapILargNum(ilArgNum); // account for possible hidden param
+        unsigned lclNum = comp->lvaMapILArgNumToLclNum(ilArgNum);
 
         if (lclNum == info.GetThisParamLclNum())
         {
@@ -12809,12 +12809,12 @@ void Importer::impLoadLoc(unsigned ilLocNum)
     }
     else
     {
-        if (ilLocNum >= info.compMethodInfo->locals.numArgs)
+        if (ilLocNum >= info.GetILLocCount())
         {
             BADCODE("Bad IL loc num");
         }
 
-        lcl = comp->lvaGetDesc(info.compArgsCount + ilLocNum);
+        lcl = comp->lvaGetDesc(info.GetParamCount() + ilLocNum);
     }
 
     impPushLclVar(lcl);
@@ -17341,11 +17341,6 @@ void Importer::lvaSetAddressExposed(LclVarDsc* lcl)
     comp->lvaSetAddressExposed(lcl);
 }
 
-bool Importer::lvaIsOriginalThisParam(unsigned lclNum)
-{
-    return comp->lvaIsOriginalThisParam(lclNum);
-}
-
 bool Importer::lvaHaveManyLocals()
 {
     return comp->lvaHaveManyLocals();
@@ -17354,11 +17349,6 @@ bool Importer::lvaHaveManyLocals()
 bool Importer::fgVarNeedsExplicitZeroInit(LclVarDsc* lcl, bool blockIsInLoop, bool blockIsReturn)
 {
     return comp->fgVarNeedsExplicitZeroInit(lcl, blockIsInLoop, blockIsReturn);
-}
-
-unsigned Importer::compMapILargNum(unsigned ilArgNum)
-{
-    return comp->compMapILargNum(ilArgNum);
 }
 
 Statement* Importer::gtNewStmt(GenTree* expr, IL_OFFSETX offset)

@@ -866,7 +866,7 @@ void Compiler::fgAddSyncMethodEnterExit()
         // Make a copy of the 'this' pointer to be used in the handler, so
         // it does not inhibit enregistration of all uses of the variable.
 
-        thisArgLcl  = lvaGetDesc(info.compThisArg);
+        thisArgLcl  = lvaGetDesc(info.GetThisParamLclNum());
         thisCopyLcl = lvaNewTemp(TYP_REF, true DEBUGARG("monitor EH exit 'this' copy"));
         init        = gtNewAssignNode(gtNewLclvNode(thisCopyLcl, TYP_REF), gtNewLclvNode(thisArgLcl, TYP_REF));
 
@@ -1760,7 +1760,7 @@ void Compiler::fgAddInternal()
         }
         else
         {
-            LclVarDsc* thisParam = lvaGetDesc(info.compThisArg);
+            LclVarDsc* thisParam = lvaGetDesc(info.GetThisParamLclNum());
 
             noway_assert(thisParam->TypeIs(TYP_REF));
 
@@ -1797,7 +1797,7 @@ void Compiler::fgAddInternal()
         }
         else
         {
-            LclVarDsc* thisParam = lvaGetDesc(info.compThisArg);
+            LclVarDsc* thisParam = lvaGetDesc(info.GetThisParamLclNum());
 
             noway_assert(thisParam->TypeIs(TYP_REF));
 

@@ -1042,9 +1042,10 @@ struct CompiledMethodInfo
     IL_OFFSET compILCodeSize; // The IL code size
     IL_OFFSET compILEntry;    // The IL entry point (normally 0)
 
-    unsigned compILargsCount; // Number of arguments (incl. implicit but not hidden)
-    unsigned compArgsCount;   // Number of arguments (incl. implicit and hidden)
     unsigned compMaxStack;
+    unsigned compILArgsCount; // Number of IL arguments
+    unsigned compArgsCount;   // Number of native code arguments (IL and hidden arguments)
+    unsigned compLocalsCount; // Number of IL arguments, hidden arguments and IL locals
 
     // Number of exception-handling clauses read in the method's IL.
     // You should generally use compHndBBtabCount instead: it is the
@@ -1060,7 +1061,8 @@ struct CompiledMethodInfo
     unsigned compRetBuffArg;  // position of hidden return param var (0, 1) (BAD_VAR_NUM means not present);
     unsigned compTypeCtxtArg; // position of hidden param for type context for generic code (CORINFO_CALLCONV_PARAMTYPE)
     unsigned compThisArg;     // position of implicit this pointer param (not to be confused with lvaThisLclNum)
-    unsigned compLocalsCount; // Number of vars : args + locals (incl. implicit and     hidden)
+    unsigned compVarargsHandleArg;
+
     unsigned compUnmanagedCallCountWithGCTransition = 0; // count of unmanaged calls with GC transition.
     unsigned compClassProbeCount                    = 0; // Number of class profile probes in this method
 
@@ -1093,6 +1095,16 @@ struct CompiledMethodInfo
     {
         assert(varTypeIsStruct(compRetType));
         return retLayout;
+    }
+
+    unsigned GetILArgCount() const
+    {
+        return compILArgsCount;
+    }
+
+    unsigned GetILLocCount() const
+    {
+        return compMethodInfo->locals.numArgs;
     }
 
     unsigned GetParamCount() const
@@ -2194,10 +2206,8 @@ struct Importer
     LclVarDsc* lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shortLifetime DEBUGARG(const char* reason));
     LclVarDsc* lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGARG(const char* reason));
     void lvaSetAddressExposed(LclVarDsc* lcl);
-    bool lvaIsOriginalThisParam(unsigned lclNum);
     bool lvaHaveManyLocals();
     bool fgVarNeedsExplicitZeroInit(LclVarDsc* lcl, bool blockIsInLoop, bool blockIsReturn);
-    unsigned compMapILargNum(unsigned ilArgNum);
 
     Statement* gtNewStmt(GenTree* expr = nullptr, IL_OFFSETX offset = BAD_IL_OFFSET);
 
@@ -3146,11 +3156,11 @@ public:
     void gtDispCommonEndLine(GenTree* tree);
     void gtDispTree(GenTree* tree, bool header = true, bool operands = true);
     void gtDispTreeRec(GenTree* tree, IndentStack* indentStack, const char* msg, bool topOnly, bool isLIR, bool header);
-    void gtGetLclVarNameInfo(unsigned lclNum, const char** ilKindOut, const char** ilNameOut, unsigned* ilNumOut);
-    int gtGetLclVarName(unsigned lclNum, char* buf, unsigned buf_remaining);
+    const char* gtGetLclVarNameInfo(unsigned lclNum, const char** kind, unsigned* num);
+    size_t gtGetLclVarName(unsigned lclNum, char* buffer, unsigned bufferSize);
     int dmpLclName(unsigned lclNum);
     char* gtGetLclVarName(unsigned lclNum);
-    void gtDispLclVar(unsigned lclNum, bool padForBiggestDisp = true);
+    void gtDispLclVar(unsigned lclNum, bool padForBiggestDisp);
     void gtDispClassLayout(ClassLayout* layout, var_types type);
     void gtDispStmt(Statement* stmt, const char* msg = nullptr);
     void gtDispBlockStmts(BasicBlock* block);
@@ -3268,7 +3278,6 @@ public:
 
     // --- Begin various special local variables ---
 
-    unsigned lvaVarargsHandleArg       = BAD_VAR_NUM;
     unsigned lvaPInvokeFrameListVar    = BAD_VAR_NUM;
     unsigned lvaInlinedPInvokeFrameVar = BAD_VAR_NUM;
     unsigned lvaReversePInvokeFrameVar = BAD_VAR_NUM;
@@ -3329,7 +3338,7 @@ public:
 
     jitstd::span<LclVarDsc*> Params() const
     {
-        return jitstd::span<LclVarDsc*>(lvaTable, info.compArgsCount);
+        return jitstd::span<LclVarDsc*>(lvaTable, info.GetParamCount());
     }
 
     jitstd::span<LclVarDsc*> PromotedFields(LclVarDsc* lcl) const
@@ -3384,7 +3393,7 @@ public:
     void lvaSetAddressExposed(LclVarDsc* lcl);
     void lvaSetDoNotEnregister(LclVarDsc* lcl DEBUGARG(DoNotEnregisterReason reason));
     void lvaSetLiveInOutOfHandler(LclVarDsc* lcl);
-    bool lvaIsX86VarargsStackParam(LclVarDsc* lcl);
+    bool lvaIsX86VarargsStackParam(LclVarDsc* lcl) const;
 
     void lvSetMinOptsDoNotEnreg();
 
@@ -3508,7 +3517,7 @@ public:
     int lvaLclFrameAddress(LclVarDsc* lcl, bool* fpBased) const;
     int lvaSpillTempFrameAddress(int tempNum, bool* fpBased) const;
 
-    bool lvaIsOriginalThisParam(unsigned lclNum);
+    bool lvaIsOriginalThisParam(unsigned lclNum) const;
 
     void lvaSetStruct(LclVarDsc* lcl, ClassLayout* layout, bool checkUnsafeBuffer);
 
@@ -5011,12 +5020,6 @@ public:
     unsigned cseFirstLclNum = BAD_VAR_NUM; // The first local variable number that is a CSE
     unsigned cseCount       = 0;           // The total count of CSE temp locals introduced.
 
-    // Returns true if the LclVar was introduced by the CSE phase of the compiler.
-    bool lclNumIsTrueCSE(unsigned lclNum) const
-    {
-        return ((cseCount > 0) && (lclNum >= cseFirstLclNum) && (lclNum < cseFirstLclNum + cseCount));
-    }
-
     unsigned apAssertionCount = 0;
 #endif
 
@@ -5852,9 +5855,12 @@ public:
     unsigned  compHndBBtabCount      = 0;       // element count of used elements in EH data array
     unsigned  compHndBBtabAllocCount = 0;       // element count of allocated elements in EH data array
 
-    unsigned compMapILargNum(unsigned ilArgNum);
-    unsigned eeMapDebugInfoVarNumToLclNum(unsigned ilVarNum);
-    unsigned compMap2ILvarNum(unsigned varNum) const;
+    unsigned lvaMapILArgNumToLclNum(unsigned ilArgNum) const;
+    unsigned lvaMapLclNumToILArgNum(unsigned lclNum) const;
+
+    unsigned eeMapDebugInfoVarNumToLclNum(unsigned varNum) const;
+    bool eeLclHasDebugInfo(unsigned lclNum) const;
+    unsigned eeMapLclNumToDebugInfoVarNum(unsigned lclNum) const;
 
     //-------------------------------------------------------------------------
 

@@ -85,7 +85,7 @@ bool Compiler::lvaInitLocalsCount()
         info.compThisArg = BAD_VAR_NUM;
     }
 
-    info.compILargsCount = info.compArgsCount;
+    info.compILArgsCount = info.GetParamCount();
 
     if (hasRetBuffArg)
     {
@@ -100,8 +100,12 @@ bool Compiler::lvaInitLocalsCount()
     {
         info.compArgsCount++;
     }
+    else
+    {
+        info.compVarargsHandleArg = BAD_VAR_NUM;
+    }
 
-    if (info.compMethodInfo->args.callConv & CORINFO_CALLCONV_PARAMTYPE)
+    if (info.compMethodInfo->args.hasTypeArg())
     {
         info.compArgsCount++;
     }
@@ -110,9 +114,53 @@ bool Compiler::lvaInitLocalsCount()
         info.compTypeCtxtArg = BAD_VAR_NUM;
     }
 
-    info.compLocalsCount = info.compArgsCount + info.compMethodInfo->locals.numArgs;
+    info.compLocalsCount = info.GetParamCount() + info.GetILLocCount();
 
     return hasRetBuffArg;
+}
+
+unsigned Compiler::lvaMapILArgNumToLclNum(unsigned ilArgNum) const
+{
+    assert(ilArgNum < info.GetILArgCount());
+
+    if (ilArgNum >= info.compRetBuffArg)
+    {
+        ilArgNum++;
+    }
+
+    if (ilArgNum >= info.compTypeCtxtArg)
+    {
+        ilArgNum++;
+    }
+
+    if (ilArgNum >= info.compVarargsHandleArg)
+    {
+        ilArgNum++;
+    }
+
+    return ilArgNum;
+}
+
+unsigned Compiler::lvaMapLclNumToILArgNum(unsigned lclNum) const
+{
+    assert(lclNum < info.GetParamCount());
+
+    if ((info.compTypeCtxtArg != BAD_VAR_NUM) && (lclNum > info.compTypeCtxtArg))
+    {
+        lclNum--;
+    }
+
+    if ((info.compVarargsHandleArg != BAD_VAR_NUM) && (lclNum > info.compVarargsHandleArg))
+    {
+        lclNum--;
+    }
+
+    if ((info.compRetBuffArg != BAD_VAR_NUM) && (lclNum > info.compRetBuffArg))
+    {
+        lclNum--;
+    }
+
+    return lclNum;
 }
 
 void Compiler::lvaInitInline()
@@ -177,16 +225,17 @@ void Compiler::lvaInitTable()
 
 void Compiler::lvaInitLocals()
 {
-    CORINFO_ARG_LIST_HANDLE local      = info.compMethodInfo->locals.args;
-    unsigned                localCount = info.compMethodInfo->locals.numArgs;
+    CORINFO_SIG_INFO&       locals     = info.compMethodInfo->locals;
+    unsigned                localCount = locals.numArgs;
+    CORINFO_ARG_LIST_HANDLE local      = locals.args;
 
     for (unsigned i = 0; i < localCount; i++, local = info.compCompHnd->getArgNext(local))
     {
         CORINFO_CLASS_HANDLE typeHnd    = NO_CLASS_HANDLE;
-        CorInfoTypeWithMod   corTypeMod = info.compCompHnd->getArgType(&info.compMethodInfo->locals, local, &typeHnd);
+        CorInfoTypeWithMod   corTypeMod = info.compCompHnd->getArgType(&locals, local, &typeHnd);
         CorInfoType          corType    = strip(corTypeMod);
 
-        unsigned   lclNum = info.compArgsCount + i;
+        unsigned   lclNum = info.GetParamCount() + i;
         LclVarDsc* lcl    = lvaGetDesc(lclNum);
 
         lvaInitVarDsc(lcl, corType, typeHnd);
@@ -207,7 +256,7 @@ void Compiler::lvaInitLocals()
 
         if (corType == CORINFO_TYPE_CLASS)
         {
-            lvaSetClass(lcl, info.compCompHnd->getArgClass(&info.compMethodInfo->locals, local));
+            lvaSetClass(lcl, info.compCompHnd->getArgClass(&locals, local));
         }
 
         if (opts.IsOSR() && info.compPatchpointInfo->IsExposed(lclNum))
@@ -391,7 +440,7 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
     lvaInitVarargsHandleParam(paramInfo);
 #endif
 
-    noway_assert(paramInfo.lclNum == info.compArgsCount);
+    noway_assert(paramInfo.lclNum == info.GetParamCount());
     assert(paramInfo.intRegIndex <= MAX_REG_ARG);
 
     codeGen->paramsStackSize             = paramInfo.stackOffset;
@@ -420,7 +469,7 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
         unsigned oldOffset = paramInfo.stackOffset;
         unsigned newOffset = 0;
 
-        for (unsigned i = info.compArgsCount - 1; i != UINT32_MAX; i--)
+        for (unsigned i = info.GetParamCount() - 1; i != UINT32_MAX; i--)
         {
             LclVarDsc* lcl = lvaGetDesc(i);
 
@@ -576,7 +625,7 @@ void Compiler::lvaInitVarargsHandleParam(ParamAllocInfo& paramInfo)
         return;
     }
 
-    lvaVarargsHandleArg = paramInfo.lclNum;
+    info.compVarargsHandleArg = paramInfo.lclNum;
 
     LclVarDsc* lcl = lvaGetDesc(paramInfo.lclNum);
 
@@ -1213,74 +1262,6 @@ void Compiler::lvaInitVarDsc(LclVarDsc* lcl, CorInfoType corType, CORINFO_CLASS_
     INDEBUG(lcl->SetStackOffset(BAD_STK_OFFS);)
 }
 
-/*****************************************************************************
- * Returns the IL variable number given our internal varNum.
- * Special return values are VARG_ILNUM, RETBUF_ILNUM, TYPECTXT_ILNUM.
- *
- * Returns UNKNOWN_ILNUM if it can't be mapped.
- */
-
-unsigned Compiler::compMap2ILvarNum(unsigned varNum) const
-{
-    if (compIsForInlining())
-    {
-        return impInlineInfo->InlinerCompiler->compMap2ILvarNum(varNum);
-    }
-
-    noway_assert(varNum < lvaCount);
-
-    if (varNum == info.compRetBuffArg)
-    {
-        return (unsigned)ICorDebugInfo::RETBUF_ILNUM;
-    }
-
-    // Is this a varargs function?
-    if (info.compIsVarArgs && varNum == lvaVarargsHandleArg)
-    {
-        return (unsigned)ICorDebugInfo::VARARGS_HND_ILNUM;
-    }
-
-    // We create an extra argument for the type context parameter
-    // needed for shared generic code.
-    if ((info.compMethodInfo->args.callConv & CORINFO_CALLCONV_PARAMTYPE) && (varNum == info.compTypeCtxtArg))
-    {
-        return (unsigned)ICorDebugInfo::TYPECTXT_ILNUM;
-    }
-
-#if FEATURE_FIXED_OUT_ARGS
-    if (varNum == lvaOutgoingArgSpaceVar)
-    {
-        return (unsigned)ICorDebugInfo::UNKNOWN_ILNUM; // Cannot be mapped
-    }
-#endif // FEATURE_FIXED_OUT_ARGS
-
-    // Now mutate varNum to remove extra parameters from the count.
-    if ((info.compMethodInfo->args.callConv & CORINFO_CALLCONV_PARAMTYPE) && (varNum > info.compTypeCtxtArg))
-    {
-        varNum--;
-    }
-
-    if (info.compIsVarArgs && varNum > lvaVarargsHandleArg)
-    {
-        varNum--;
-    }
-
-    /* Is there a hidden argument for the return buffer.
-       Note that this code works because if the RetBuffArg is not present,
-       compRetBuffArg will be BAD_VAR_NUM */
-    if (info.compRetBuffArg != BAD_VAR_NUM && varNum > info.compRetBuffArg)
-    {
-        varNum--;
-    }
-
-    if (varNum >= info.compLocalsCount)
-    {
-        return (unsigned)ICorDebugInfo::UNKNOWN_ILNUM; // Cannot be mapped
-    }
-
-    return varNum;
-}
-
 LclVarDsc* Compiler::lvaAllocTemp(bool shortLifetime DEBUGARG(const char* reason))
 {
     if (compIsForInlining())
@@ -1545,7 +1526,7 @@ void Compiler::lvaSetLiveInOutOfHandler(LclVarDsc* lcl)
         lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LiveInOutOfHandler));
     }
 #ifdef JIT32_GCENCODER
-    else if (lvaKeepAliveAndReportThis() && (lcl->GetLclNum() == info.compThisArg))
+    else if (lvaKeepAliveAndReportThis() && (lcl->GetLclNum() == info.GetThisParamLclNum()))
     {
         // For the JIT32_GCENCODER, when lvaKeepAliveAndReportThis is true, we must either keep the "this" pointer
         // in the same register for the entire method, or keep it on the stack. If it is EH-exposed, we can't ever
@@ -1948,10 +1929,8 @@ BasicBlock::weight_t BasicBlock::getBBWeight(Compiler* comp)
     }
 }
 
-bool Compiler::lvaIsOriginalThisParam(unsigned lclNum)
+bool Compiler::lvaIsOriginalThisParam(unsigned lclNum) const
 {
-    assert(lclNum < lvaCount);
-
     bool isOriginalThisParam = !info.compIsStatic && (lclNum == info.GetThisParamLclNum());
 
 #ifdef DEBUG
@@ -2382,9 +2361,8 @@ void Compiler::lvaMarkLivenessTrackedLocals()
         assert(lcl->lvTracked);
         lcl->lvVarIndex = static_cast<uint16_t>(trackedIndex);
 
-        DBEXEC(verbose, gtDispLclVar(lcl->GetLclNum()))
-        JITDUMP("Tracked V%02u: refCnt = %4u, refCntWtd = %6s\n", lcl->GetLclNum(), lcl->lvRefCnt(),
-                refCntWtd2str(lcl->lvRefCntWtd()));
+        JITDUMP("Tracked V%02u: refCnt = %4u, refCntWtd = %6s\n", lcl->GetLclNum(), lcl->GetRefCount(),
+                refCntWtd2str(lcl->GetRefWeight()));
     }
 
     // If we have too many tracked locals mark the rest as untracked. This does not remove
@@ -2396,9 +2374,8 @@ void Compiler::lvaMarkLivenessTrackedLocals()
         assert(lcl->lvTracked);
         lcl->lvTracked = 0;
 
-        DBEXEC(verbose, gtDispLclVar(lcl->GetLclNum()))
-        JITDUMP("Untracked V%02u: refCnt = %4u, refCntWtd = %6s\n", lcl->GetLclNum(), lcl->lvRefCnt(),
-                refCntWtd2str(lcl->lvRefCntWtd()));
+        JITDUMP("Untracked V%02u: refCnt = %4u, refCntWtd = %6s\n", lcl->GetLclNum(), lcl->GetRefCount(),
+                refCntWtd2str(lcl->GetRefWeight()));
     }
 
     JITDUMP("\n");
@@ -2951,10 +2928,11 @@ void Compiler::phRefCountLocals()
 // Such parameters are not accessed directly, they're accessed via an indirection
 // based on the address passed in lvaVarargsHandleArg and they cannot be tracked
 // by GC (their offsets in the stack are not known at compile time).
-bool Compiler::lvaIsX86VarargsStackParam(LclVarDsc* lcl)
+bool Compiler::lvaIsX86VarargsStackParam(LclVarDsc* lcl) const
 {
 #ifdef TARGET_X86
-    return info.compIsVarArgs && lcl->IsParam() && !lcl->IsRegParam() && (lcl->GetLclNum() != lvaVarargsHandleArg);
+    return info.compIsVarArgs && lcl->IsParam() && !lcl->IsRegParam() &&
+           (lcl->GetLclNum() != info.compVarargsHandleArg);
 #else
     return false;
 #endif
@@ -3064,7 +3042,7 @@ void Compiler::lvaComputeLclRefCounts()
         // TODO-MIKE-Review: It seems like nobody knows why is this done...
         if (lcl->IsRegParam())
         {
-            if ((lcl->GetLclNum() < info.compArgsCount) && (lcl->GetRefCount() > 0))
+            if ((lcl->GetLclNum() < info.GetParamCount()) && (lcl->GetRefCount() > 0))
             {
                 lvaAddRef(lcl, BB_UNITY_WEIGHT);
                 lvaAddRef(lcl, BB_UNITY_WEIGHT);
@@ -5342,7 +5320,7 @@ void Compiler::lvaDumpEntry(LclVarDsc* varDsc, size_t refCntWtdWidth)
 
     printf("; ");
 
-    gtDispLclVar(varDsc->GetLclNum());
+    gtDispLclVar(varDsc->GetLclNum(), true);
 
     if (lvaTrackedCount != 0)
     {

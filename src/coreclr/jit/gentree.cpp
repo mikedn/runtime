@@ -6721,206 +6721,177 @@ void Compiler::dmpNodeRegs(GenTree* node)
     printf(" %+*s", 6 + MAX_MULTIREG_COUNT * 6, message);
 }
 
-// We usually/commonly don't expect to print anything longer than this string,
-#define LONGEST_COMMON_LCL_VAR_DISPLAY "V99 PInvokeFrame"
-#define LONGEST_COMMON_LCL_VAR_DISPLAY_LENGTH (sizeof(LONGEST_COMMON_LCL_VAR_DISPLAY))
-#define BUF_SIZE (LONGEST_COMMON_LCL_VAR_DISPLAY_LENGTH * 2)
-
-void Compiler::gtGetLclVarNameInfo(unsigned lclNum, const char** ilKindOut, const char** ilNameOut, unsigned* ilNumOut)
+const char* Compiler::gtGetLclVarNameInfo(unsigned lclNum, const char** kind, unsigned* num)
 {
-    const char* ilKind = nullptr;
-    const char* ilName = nullptr;
-
-    unsigned ilNum = compMap2ILvarNum(lclNum);
-
-    if (ilNum == (unsigned)ICorDebugInfo::RETBUF_ILNUM)
+    if (lclNum >= info.compLocalsCount)
     {
-        ilName = "RetBuf";
-    }
-    else if (ilNum == (unsigned)ICorDebugInfo::VARARGS_HND_ILNUM)
-    {
-        ilName = "VarArgHandle";
-    }
-    else if (ilNum == (unsigned)ICorDebugInfo::TYPECTXT_ILNUM)
-    {
-        ilName = "TypeCtx";
-    }
-    else if (ilNum == (unsigned)ICorDebugInfo::UNKNOWN_ILNUM)
-    {
-        if (lclNumIsTrueCSE(lclNum))
+        if (lclNum == lvaPInvokeFrameListVar)
         {
-            ilKind = "cse";
-            ilNum  = lclNum - cseFirstLclNum;
+            return "FrameList";
         }
-        else if (lclNum >= cseFirstLclNum)
+
+        if (lclNum == lvaInlinedPInvokeFrameVar)
         {
-            // Currently any new LclVar's introduced after the CSE phase
-            // are believed to be created by the "rationalizer" that is what is meant by the "rat" prefix.
-            ilKind = "rat";
-            ilNum  = lclNum - (cseFirstLclNum + cseCount);
+            return "PInvokeFrame";
         }
-        else
+
+        if (lclNum == lvaReversePInvokeFrameVar)
         {
-            if (lclNum == lvaPInvokeFrameListVar)
-            {
-                ilName = "FrameList";
-            }
-            else if (lclNum == lvaInlinedPInvokeFrameVar)
-            {
-                ilName = "PInvokeFrame";
-            }
-            else if (lclNum == lvaReversePInvokeFrameVar)
-            {
-                ilName = "ReversePInvokeFrame";
-            }
-            else if (lclNum == lvaGSSecurityCookie)
-            {
-                ilName = "GsCookie";
-            }
-            else if (lclNum == lvaRetAddrVar)
-            {
-                ilName = "ReturnAddress";
-            }
-            else if (lclNum == genReturnLocal)
-            {
-                ilName = "MergedReturn";
-            }
-            else if (lclNum == lvaStubArgumentVar)
-            {
-                ilName = "StubParam";
-            }
+            return "ReversePInvokeFrame";
+        }
+
+        if (lclNum == lvaGSSecurityCookie)
+        {
+            return "GsCookie";
+        }
+
+        if (lclNum == lvaRetAddrVar)
+        {
+            return "ReturnAddress";
+        }
+
+        if (lclNum == genReturnLocal)
+        {
+            return "MergedReturn";
+        }
+
+        if (lclNum == lvaStubArgumentVar)
+        {
+            return "StubParam";
+        }
+
 #if FEATURE_FIXED_OUT_ARGS
-            else if (lclNum == lvaOutgoingArgSpaceVar)
-            {
-                ilName = "OutArgs";
-            }
-#endif // FEATURE_FIXED_OUT_ARGS
-#if !defined(FEATURE_EH_FUNCLETS)
-            else if (lvaGetDesc(lclNum) == lvaShadowSPslotsLcl)
-            {
-                ilName = "EHSlots";
-            }
-#endif // !FEATURE_EH_FUNCLETS
+        if (lclNum == lvaOutgoingArgSpaceVar)
+        {
+            return "OutArgs";
+        }
+#endif
+
+#ifdef FEATURE_EH_FUNCLETS
+        if (lclNum == lvaPSPSym)
+        {
+            return "PSPSym";
+        }
+#else
+        if (lvaGetDesc(lclNum) == lvaShadowSPslotsLcl)
+        {
+            return "EHSlots";
+        }
+#endif
+
 #ifdef JIT32_GCENCODER
-            else if (lvaGetDesc(lclNum) == lvaLocAllocSPLcl)
-            {
-                ilName = "LocAllocSP";
-            }
-#endif // JIT32_GCENCODER
-#if defined(FEATURE_EH_FUNCLETS)
-            else if (lclNum == lvaPSPSym)
-            {
-                ilName = "PSPSym";
-            }
-#endif // FEATURE_EH_FUNCLETS
-            else
-            {
-                ilKind = "tmp";
-                if (compIsForInlining())
-                {
-                    ilNum = lclNum - impInlineInfo->InlinerCompiler->info.compLocalsCount;
-                }
-                else
-                {
-                    ilNum = lclNum - info.compLocalsCount;
-                }
-            }
-        }
-    }
-    else if (lclNum < (compIsForInlining() ? impInlineInfo->InlinerCompiler->info.compArgsCount : info.compArgsCount))
-    {
-        if (ilNum == 0 && !info.compIsStatic)
+        if (lvaGetDesc(lclNum) == lvaLocAllocSPLcl)
         {
-            ilName = "this";
+            return "LocAllocSP";
         }
-        else
+#endif
+
+        if ((cseCount > 0) && (lclNum >= cseFirstLclNum) && (lclNum < cseFirstLclNum + cseCount))
         {
-            ilKind = "arg";
+            *kind = "cse";
+            *num  = lclNum - cseFirstLclNum;
+            return nullptr;
         }
-    }
-    else
-    {
-        if (!lvaGetDesc(lclNum)->IsPromotedField())
+
+        if (lclNum >= cseFirstLclNum)
         {
-            ilKind = "loc";
+            // Currently any new LclVar's introduced after the CSE phase are believed to
+            // be created by the "rationalizer" that is what is meant by the "rat" prefix.
+            *kind = "rat";
+            *num  = lclNum - (cseFirstLclNum + cseCount);
+            return nullptr;
         }
-        if (compIsForInlining())
-        {
-            ilNum -= impInlineInfo->InlinerCompiler->info.compILargsCount;
-        }
-        else
-        {
-            ilNum -= info.compILargsCount;
-        }
+
+        *kind = "tmp";
+        *num  = lclNum - info.compLocalsCount;
+        return nullptr;
     }
 
-    *ilKindOut = ilKind;
-    *ilNameOut = ilName;
-    *ilNumOut  = ilNum;
+    if (lclNum >= info.GetParamCount())
+    {
+        *kind = "loc";
+        *num  = lclNum - info.GetParamCount();
+        return nullptr;
+    }
+
+    if (lclNum == info.compRetBuffArg)
+    {
+        return "RetBuf";
+    }
+
+    if (lclNum == info.compVarargsHandleArg)
+    {
+        return "VarArgHandle";
+    }
+
+    if (lclNum == info.compTypeCtxtArg)
+    {
+        return "TypeCtx";
+    }
+
+    if (lclNum == info.GetThisParamLclNum())
+    {
+        return "this";
+    }
+
+    *kind = "arg";
+    *num  = lvaMapLclNumToILArgNum(lclNum);
+    return nullptr;
 }
 
-/*****************************************************************************/
-int Compiler::gtGetLclVarName(unsigned lclNum, char* buf, unsigned buf_remaining)
+size_t Compiler::gtGetLclVarName(unsigned lclNum, char* buffer, unsigned bufferSize)
 {
-    char*    bufp_next    = buf;
-    unsigned charsPrinted = 0;
-    int      sprintf_result;
+    char* begin = buffer;
 
-    sprintf_result = sprintf_s(bufp_next, buf_remaining, "V%02u", lclNum);
-
-    if (sprintf_result < 0)
     {
-        return sprintf_result;
-    }
+        int len = sprintf_s(buffer, bufferSize, "V%02u", lclNum);
 
-    charsPrinted += sprintf_result;
-    bufp_next += sprintf_result;
-    buf_remaining -= sprintf_result;
-
-    const char* ilKind = nullptr;
-    const char* ilName = nullptr;
-    unsigned    ilNum  = 0;
-
-    gtGetLclVarNameInfo(lclNum, &ilKind, &ilName, &ilNum);
-
-    if (ilName != nullptr)
-    {
-        sprintf_result = sprintf_s(bufp_next, buf_remaining, " %s", ilName);
-        if (sprintf_result < 0)
+        if (len < 0)
         {
-            return sprintf_result;
+            return 0;
         }
-        charsPrinted += sprintf_result;
-        bufp_next += sprintf_result;
-        buf_remaining -= sprintf_result;
+
+        buffer += len;
+        bufferSize -= len;
     }
-    else if (ilKind != nullptr)
+
+    const char* kind = nullptr;
+    unsigned    num  = 0;
+
+    if (const char* name = gtGetLclVarNameInfo(lclNum, &kind, &num))
     {
-        sprintf_result = sprintf_s(bufp_next, buf_remaining, " %s%d", ilKind, ilNum);
-        if (sprintf_result < 0)
+        int len = sprintf_s(buffer, bufferSize, " %s", name);
+
+        if (len < 0)
         {
-            return sprintf_result;
+            return 0;
         }
-        charsPrinted += sprintf_result;
-        bufp_next += sprintf_result;
-        buf_remaining -= sprintf_result;
+
+        buffer += len;
+        bufferSize -= len;
+    }
+    else if (kind != nullptr)
+    {
+        int len = sprintf_s(buffer, bufferSize, " %s%d", kind, num);
+
+        if (len < 0)
+        {
+            return 0;
+        }
+
+        buffer += len;
+        bufferSize -= len;
     }
 
-    assert(charsPrinted > 0);
-    assert(buf_remaining > 0);
-
-    return (int)charsPrinted;
+    return buffer - begin;
 }
 
 int Compiler::dmpLclName(unsigned lclNum)
 {
     const char* kind = nullptr;
-    const char* name = nullptr;
     unsigned    num  = 0;
 
-    gtGetLclVarNameInfo(lclNum, &kind, &name, &num);
-
-    if (name != nullptr)
+    if (const char* name = gtGetLclVarNameInfo(lclNum, &kind, &num))
     {
         return printf("\"%s\"", name);
     }
@@ -6933,39 +6904,38 @@ int Compiler::dmpLclName(unsigned lclNum)
     return 0;
 }
 
-/*****************************************************************************
- * Get the local var name, and create a copy of the string that can be used in debug output.
- */
+// We usually/commonly don't expect to print anything longer than this string,
+#define LONGEST_COMMON_LCL_VAR_DISPLAY_LENGTH sizeof("V99 PInvokeFrame")
+#define BUF_SIZE (LONGEST_COMMON_LCL_VAR_DISPLAY_LENGTH * 2)
+
 char* Compiler::gtGetLclVarName(unsigned lclNum)
 {
-    char buf[BUF_SIZE];
-    int  charsPrinted = gtGetLclVarName(lclNum, buf, _countof(buf));
-    if (charsPrinted < 0)
+    char buffer[BUF_SIZE];
+
+    if (ssize_t length = gtGetLclVarName(lclNum, buffer, _countof(buffer)))
+    {
+        char* name = new (this, CMK_DebugOnly) char[length + 1];
+        strcpy_s(name, length + 1, buffer);
+        return name;
+    }
+    else
     {
         return nullptr;
     }
-
-    char* retBuf = new (this, CMK_DebugOnly) char[charsPrinted + 1];
-    strcpy_s(retBuf, charsPrinted + 1, buf);
-    return retBuf;
 }
 
-/*****************************************************************************/
 void Compiler::gtDispLclVar(unsigned lclNum, bool padForBiggestDisp)
 {
-    char buf[BUF_SIZE];
-    int  charsPrinted = gtGetLclVarName(lclNum, buf, _countof(buf));
+    char buffer[BUF_SIZE];
 
-    if (charsPrinted < 0)
+    if (size_t length = gtGetLclVarName(lclNum, buffer, _countof(buffer)))
     {
-        return;
-    }
+        printf("%s", buffer);
 
-    printf("%s", buf);
-
-    if (padForBiggestDisp && (charsPrinted < (int)LONGEST_COMMON_LCL_VAR_DISPLAY_LENGTH))
-    {
-        printf("%*c", LONGEST_COMMON_LCL_VAR_DISPLAY_LENGTH - charsPrinted, ' ');
+        if (padForBiggestDisp && (length < LONGEST_COMMON_LCL_VAR_DISPLAY_LENGTH))
+        {
+            printf("%*c", LONGEST_COMMON_LCL_VAR_DISPLAY_LENGTH - length, ' ');
+        }
     }
 }
 
@@ -12051,7 +12021,7 @@ GenTreeFlags Compiler::gtGetFieldIndirFlags(GenTreeFieldAddr* fieldAddr)
 
         if (lcl->IsParam()
 #ifdef TARGET_X86
-            && info.compIsVarArgs && !lcl->IsRegParam() && (lcl->GetLclNum() != lvaVarargsHandleArg)
+            && info.compIsVarArgs && !lcl->IsRegParam() && (lcl->GetLclNum() != info.compVarargsHandleArg)
 #else
             && varTypeIsStruct(lcl->GetType())
 #endif
@@ -13090,7 +13060,7 @@ GenTreeCall* Compiler::gtNewInitThisClassHelperCall()
 
         case CORINFO_LOOKUP_THISOBJ:
             helper  = CORINFO_HELP_INITINSTCLASS;
-            context = gtNewLclvNode(lvaGetDesc(info.compThisArg), TYP_REF);
+            context = gtNewLclvNode(lvaGetDesc(info.GetThisParamLclNum()), TYP_REF);
             context->gtFlags |= GTF_VAR_CONTEXT;
             context = gtNewMethodTableLookup(context);
             // This code takes a this pointer; but we need to pass the static
@@ -13252,7 +13222,7 @@ GenTree* Compiler::gtNewRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind)
 
     if (kind == CORINFO_LOOKUP_THISOBJ)
     {
-        GenTree* ctxTree = gtNewLclvNode(lvaGetDesc(root->info.compThisArg), TYP_REF);
+        GenTree* ctxTree = gtNewLclvNode(lvaGetDesc(root->info.GetThisParamLclNum()), TYP_REF);
         ctxTree->gtFlags |= GTF_VAR_CONTEXT;
 
         // The context is the method table pointer of the this object.

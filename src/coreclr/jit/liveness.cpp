@@ -610,7 +610,7 @@ public:
         if (keepAliveThis)
         {
             VarSetOps::AddElemD(m_compiler, m_liveOut,
-                                m_compiler->lvaGetDesc(m_compiler->info.compThisArg)->GetLivenessBitIndex());
+                                m_compiler->lvaGetDesc(m_compiler->info.GetThisParamLclNum())->GetLivenessBitIndex());
         }
 
         /* Compute the 'm_liveIn'  set */
@@ -655,7 +655,7 @@ public:
     void Run()
     {
         const bool keepAliveThis = m_compiler->lvaKeepAliveAndReportThis() &&
-                                   m_compiler->lvaGetDesc(m_compiler->info.compThisArg)->HasLiveness();
+                                   m_compiler->lvaGetDesc(m_compiler->info.GetThisParamLclNum())->HasLiveness();
 
         // Live Variable Analysis - Backward dataflow
         bool changed;

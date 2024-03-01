@@ -499,14 +499,14 @@ void CodeGen::genIntrinsic(GenTreeIntrinsic* node)
 }
 
 #ifdef TARGET_ARM64
-unsigned CodeGen::GetFirstStackParamLclNum()
+unsigned CodeGen::GetFirstStackParamLclNum() const
 {
 #ifdef TARGET_WINDOWS
     // This can't deal with split params.
     assert(!compiler->info.compIsVarArgs);
 #endif
 
-    for (unsigned i = 0; i < compiler->info.compArgsCount; i++)
+    for (unsigned i = 0, paramCount = compiler->info.GetParamCount(); i < paramCount; i++)
     {
         LclVarDsc* lcl = compiler->lvaGetDesc(i);
 

@@ -806,10 +806,8 @@ unsigned CodeGenLivenessUpdater::GetDbgInfoRangeCount() const
 
     for (unsigned lclNum = 0; lclNum < dbgInfoVarCount; lclNum++)
     {
-        if (compiler->compMap2ILvarNum(lclNum) != ICorDebugInfo::UNKNOWN_ILNUM)
-        {
-            count += dbgInfoVars[lclNum].GetRangeCount();
-        }
+        assert(compiler->eeLclHasDebugInfo(lclNum));
+        count += dbgInfoVars[lclNum].GetRangeCount();
     }
 
     return count;
@@ -930,14 +928,11 @@ void CodeGenLivenessUpdater::CreatePrologDbgInfoRanges(CodeGen* codeGen)
 
     while (VarScopeDsc* scope = compiler->compGetNextEnterScope(0, &nextEnterScope))
     {
+        assert(compiler->eeLclHasDebugInfo(scope->lclNum));
+
         LclVarDsc* lcl = compiler->lvaGetDesc(scope->lclNum);
 
         if (!lcl->IsParam())
-        {
-            continue;
-        }
-
-        if (compiler->compMap2ILvarNum(scope->lclNum) == ICorDebugInfo::UNKNOWN_ILNUM)
         {
             continue;
         }

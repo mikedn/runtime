@@ -1925,12 +1925,13 @@ void LinearScan::buildIntervals()
         if (compiler->lvaKeepAliveAndReportThis())
         {
             // If we need to KeepAliveAndReportThis, add a dummy exposed use of it at the end
-            assert(!compiler->info.compIsStatic);
-            LclVarDsc* varDsc = compiler->lvaGetDesc(compiler->info.compThisArg);
-            if (varDsc->IsRegCandidate())
+
+            LclVarDsc* lcl = compiler->lvaGetDesc(compiler->info.GetThisParamLclNum());
+
+            if (lcl->IsRegCandidate())
             {
                 JITDUMP("Adding exposed use of this, for lvaKeepAliveAndReportThis\n");
-                Interval*    interval = getIntervalForLocalVar(varDsc->lvVarIndex);
+                Interval*    interval = getIntervalForLocalVar(lcl->GetLivenessBitIndex());
                 RefPosition* pos =
                     newRefPosition(interval, currentLoc, RefTypeExpUse, nullptr, allRegs(interval->registerType));
                 pos->setRegOptional(true);

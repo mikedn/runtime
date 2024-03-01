@@ -60,8 +60,9 @@ void CodeGen::EpilogGSCookieCheck(bool tailCallEpilog)
         // or contain 'this' pointer (keep alive this), since we are generating
         // GS cookie check after a GT_RETURN node.
 
-        if (compiler->lvaKeepAliveAndReportThis() && compiler->lvaGetDesc(compiler->info.compThisArg)->lvIsInReg() &&
-            (compiler->lvaGetDesc(compiler->info.compThisArg)->GetRegNum() == REG_ARG_0))
+        if (compiler->lvaKeepAliveAndReportThis() &&
+            compiler->lvaGetDesc(compiler->info.GetThisParamLclNum())->lvIsInReg() &&
+            (compiler->lvaGetDesc(compiler->info.GetThisParamLclNum())->GetRegNum() == REG_ARG_0))
         {
             regGSCheck = REG_ARG_1;
         }
@@ -6479,7 +6480,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
 #endif // TARGET_X86
 
 #if FEATURE_FASTTAILCALL
-unsigned CodeGen::GetFirstStackParamLclNum()
+unsigned CodeGen::GetFirstStackParamLclNum() const
 {
 #ifdef WINDOWS_AMD64_ABI
     // On win-x64 all params have home locations on caller's frame, even if they're passed in registers.
@@ -6488,7 +6489,7 @@ unsigned CodeGen::GetFirstStackParamLclNum()
 
     return 0;
 #else
-    for (unsigned lclNum = 0; lclNum < compiler->info.compArgsCount; lclNum++)
+    for (unsigned lclNum = 0, paramCount = compiler->info.GetParamCount(); lclNum < paramCount; lclNum++)
     {
         LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
@@ -7691,9 +7692,9 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 
     // If thisPtr needs to be kept alive and reported, it cannot be one of the callee trash
     // registers that profiler callback kills.
-    if (compiler->lvaKeepAliveAndReportThis() && compiler->lvaGetDesc(compiler->info.compThisArg)->lvIsInReg())
+    if (compiler->lvaKeepAliveAndReportThis() && compiler->lvaGetDesc(compiler->info.GetThisParamLclNum())->lvIsInReg())
     {
-        regMaskTP thisPtrMask = genRegMask(compiler->lvaGetDesc(compiler->info.compThisArg)->GetRegNum());
+        regMaskTP thisPtrMask = genRegMask(compiler->lvaGetDesc(compiler->info.GetThisParamLclNum())->GetRegNum());
         noway_assert((RBM_PROFILER_LEAVE_TRASH & thisPtrMask) == 0);
     }
 
@@ -8462,12 +8463,12 @@ void CodeGen::PrologInitVarargsStackParamsBaseOffset()
 {
     JITDUMP("; PrologInitVarargsStackParamsBaseOffset\n");
 
-    noway_assert(compiler->info.compArgsCount > 0);
+    unsigned varargsHandleLclNum = compiler->info.compVarargsHandleArg;
 
-    GetEmitter()->emitIns_R_S(INS_mov, EA_4BYTE, REG_EAX, GetStackAddrMode(compiler->info.compArgsCount - 1, 0));
+    GetEmitter()->emitIns_R_S(INS_mov, EA_4BYTE, REG_EAX, GetStackAddrMode(varargsHandleLclNum, 0));
     GetEmitter()->emitIns_R_AR(INS_mov, EA_4BYTE, REG_EAX, REG_EAX, 0);
 
-    LclVarDsc* lastArg = compiler->lvaGetDesc(compiler->info.compArgsCount - 1);
+    LclVarDsc* lastArg = compiler->lvaGetDesc(varargsHandleLclNum);
     noway_assert(!lastArg->lvRegister);
     int32_t offset = lastArg->GetStackOffset();
     assert(offset != BAD_STK_OFFS);
