@@ -62,27 +62,6 @@ public:
         }
     }
 
-    static void AssignAllowUninitRhs(Env env, BitSetShortLongRep& lhs, BitSetShortLongRep rhs)
-    {
-        if (IsShort(env))
-        {
-            // Both are short.
-            lhs = rhs;
-        }
-        else if (rhs == UninitVal())
-        {
-            lhs = rhs;
-        }
-        else if (lhs == UninitVal())
-        {
-            lhs = MakeCopy(env, rhs);
-        }
-        else
-        {
-            AssignLong(env, lhs, rhs);
-        }
-    }
-
     static void ClearD(Env env, BitSetShortLongRep& bs)
     {
         if (IsShort(env))

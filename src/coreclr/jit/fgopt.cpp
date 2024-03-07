@@ -1785,7 +1785,6 @@ void Compiler::fgCompactBlocks(BasicBlock* block, BasicBlock* bNext)
     /* set the right links */
 
     block->bbJumpKind = bNext->bbJumpKind;
-    VarSetOps::AssignAllowUninitRhs(this, block->bbLiveOut, bNext->bbLiveOut);
 
     // Update the beginning and ending IL offsets (bbCodeOffs and bbCodeOffsEnd).
     // Set the beginning IL offset to the minimum, and the ending offset to the maximum, of the respective blocks.
@@ -1923,6 +1922,9 @@ void Compiler::fgCompactBlocks(BasicBlock* block, BasicBlock* bNext)
         JITDUMP("Propagating LOOP_ALIGN flag from " FMT_BB " to " FMT_BB " during compacting.\n", bNext->bbNum,
                 block->bbNum);
     }
+
+    // bNext is no longer needed so we can steal its "live out" set.
+    block->bbLiveOut = bNext->bbLiveOut;
 
     // If we're collapsing a block created after the dominators are
     // computed, copy block number the block and reuse dominator
