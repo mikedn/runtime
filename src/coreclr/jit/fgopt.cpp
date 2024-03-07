@@ -990,7 +990,7 @@ DomTreeNode* Compiler::fgBuildDomTree()
     JITDUMP("\nInside fgBuildDomTree\n");
 
     unsigned     bbArraySize = fgBBNumMax + 1;
-    DomTreeNode* domTree     = new (this, CMK_DominatorMemory) DomTreeNode[bbArraySize]{};
+    DomTreeNode* domTree     = new (this, CMK_DominatorMemory) DomTreeNode[bbArraySize];
 
     BasicBlock* imaginaryRoot = fgFirstBB->bbIDom;
 

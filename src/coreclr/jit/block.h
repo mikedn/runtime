@@ -1897,8 +1897,8 @@ public:
 // The parent is provided by BasicBlock::bbIDom.
 struct DomTreeNode
 {
-    BasicBlock* firstChild;
-    BasicBlock* nextSibling;
+    BasicBlock* firstChild  = nullptr;
+    BasicBlock* nextSibling = nullptr;
 };
 
 /*****************************************************************************/
