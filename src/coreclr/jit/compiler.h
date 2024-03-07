@@ -3147,7 +3147,7 @@ public:
     void dmpSsaDefUse(GenTree* node);
     void dmpExtract(GenTreeExtract* extract);
     void dmpInsert(GenTreeInsert* insert);
-    void dmpVarSetDiff(const char* name, VARSET_VALARG_TP from, VARSET_VALARG_TP to);
+    void dmpVarSetDiff(const char* name, VARSET_TP from, VARSET_TP to);
     void gtDispNodeName(GenTree* tree);
     void dmpNodeRegs(GenTree* node);
     void dmpNodeOperands(GenTree* node);
@@ -3508,8 +3508,8 @@ public:
     void lvaAddRef(LclVarDsc* lcl, BasicBlock::weight_t weight, bool propagate = true);
 
 #ifdef DEBUG
-    void lvaDispVarSet(VARSET_VALARG_TP set, VARSET_VALARG_TP allVars);
-    void lvaDispVarSet(VARSET_VALARG_TP set);
+    void lvaDispVarSet(VARSET_TP set, VARSET_TP allVars);
+    void lvaDispVarSet(VARSET_TP set);
 #endif
 
     int lvaFrameAddress(int varNum, bool* fpBased) const;
@@ -7621,7 +7621,7 @@ extern const BYTE genActualTypes[];
 /*****************************************************************************/
 
 #ifdef DEBUG
-void dumpConvertedVarSet(Compiler* comp, VARSET_VALARG_TP vars);
+void dumpConvertedVarSet(Compiler* comp, VARSET_TP vars);
 #endif // DEBUG
 
 struct AddrMode

@@ -1537,12 +1537,12 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 #endif
                                               )
 {
-    CorInfoHelpFunc  helper       = Compiler::eeGetHelperNum(methodHandle);
-    bool             isNoGCHelper = (helper != CORINFO_HELP_UNDEF) && GCInfo::IsNoGCHelper(helper);
-    regMaskTP        savedRegs    = isNoGCHelper ? GCInfo::GetNoGCHelperCalleeSavedRegs(helper) : RBM_CALLEE_SAVED;
-    VARSET_VALARG_TP gcLcls       = codeGen->liveness.GetGCLiveSet();
-    regMaskTP        refRegs      = codeGen->liveness.GetGCRegs(TYP_REF) & savedRegs;
-    regMaskTP        byrefRegs    = codeGen->liveness.GetGCRegs(TYP_BYREF) & savedRegs;
+    CorInfoHelpFunc helper       = Compiler::eeGetHelperNum(methodHandle);
+    bool            isNoGCHelper = (helper != CORINFO_HELP_UNDEF) && GCInfo::IsNoGCHelper(helper);
+    regMaskTP       savedRegs    = isNoGCHelper ? GCInfo::GetNoGCHelperCalleeSavedRegs(helper) : RBM_CALLEE_SAVED;
+    VARSET_TP       gcLcls       = codeGen->liveness.GetGCLiveSet();
+    regMaskTP       refRegs      = codeGen->liveness.GetGCRegs(TYP_REF) & savedRegs;
+    regMaskTP       byrefRegs    = codeGen->liveness.GetGCRegs(TYP_BYREF) & savedRegs;
 
 #ifdef DEBUG
     if (emitComp->verbose)

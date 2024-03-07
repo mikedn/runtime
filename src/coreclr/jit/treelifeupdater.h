@@ -252,7 +252,7 @@ public:
     void Spill(LclVarDsc* lcl, GenTreeLclVar* lclNode);
     void Unspill(CodeGen* codeGen, LclVarDsc* lcl, GenTreeLclVar* src, RegNum dstReg, var_types dstType);
 
-    VARSET_VALARG_TP GetGCLiveSet() const
+    VARSET_TP GetGCLiveSet() const
     {
         return liveGCLcl;
     }

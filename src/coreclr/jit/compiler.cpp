@@ -4458,7 +4458,7 @@ FILE* Compiler::compJitFuncInfoFile = nullptr;
 // print them as variable numbers. To do this, we use a temporary set indexed by
 // variable number. We can't use the "all varset" type because it is still size-limited, and might
 // not be big enough to handle all possible variable numbers.
-void dumpConvertedVarSet(Compiler* comp, VARSET_VALARG_TP vars)
+void dumpConvertedVarSet(Compiler* comp, VARSET_TP vars)
 {
     bool* lclSet = static_cast<bool*>(_alloca(comp->lvaCount * sizeof(bool)));
     memset(lclSet, 0, comp->lvaCount * sizeof(bool));
@@ -4486,7 +4486,7 @@ void dumpConvertedVarSet(Compiler* comp, VARSET_VALARG_TP vars)
     printf("}");
 }
 
-void Compiler::dmpVarSetDiff(const char* name, VARSET_VALARG_TP from, VARSET_VALARG_TP to)
+void Compiler::dmpVarSetDiff(const char* name, VARSET_TP from, VARSET_TP to)
 {
     bool* fromBits = static_cast<bool*>(_alloca(lvaCount * sizeof(bool)));
     memset(fromBits, 0, lvaCount * sizeof(bool));
@@ -4683,7 +4683,7 @@ void cLiveness(Compiler* comp)
     comp->fgDispBBLiveness();
 }
 
-void cCVarSet(Compiler* comp, VARSET_VALARG_TP vars)
+void cCVarSet(Compiler* comp, VARSET_TP vars)
 {
     static unsigned sequenceNumber = 0; // separate calls with a number to indicate this function has been called
     printf("===================================================================== dCVarSet %u\n", sequenceNumber++);
@@ -4792,7 +4792,7 @@ void dLiveness()
     cLiveness(JitTls::GetCompiler());
 }
 
-void dCVarSet(VARSET_VALARG_TP vars)
+void dCVarSet(VARSET_TP vars)
 {
     cCVarSet(JitTls::GetCompiler(), vars);
 }

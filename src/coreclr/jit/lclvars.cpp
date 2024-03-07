@@ -5578,13 +5578,12 @@ void Compiler::lvaTableDump()
     }
 }
 
-void Compiler::lvaDispVarSet(VARSET_VALARG_TP set)
+void Compiler::lvaDispVarSet(VARSET_TP set)
 {
-    VARSET_TP allVars(VarSetOps::MakeEmpty(this));
-    lvaDispVarSet(set, allVars);
+    lvaDispVarSet(set, VarSetOps::MakeEmpty(this));
 }
 
-void Compiler::lvaDispVarSet(VARSET_VALARG_TP set, VARSET_VALARG_TP allVars)
+void Compiler::lvaDispVarSet(VARSET_TP set, VARSET_TP allVars)
 {
     printf("{");
 
