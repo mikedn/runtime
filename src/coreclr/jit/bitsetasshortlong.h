@@ -83,11 +83,6 @@ public:
         }
     }
 
-    static void AssignNoCopy(Env env, BitSetShortLongRep& lhs, BitSetShortLongRep rhs)
-    {
-        lhs = rhs;
-    }
-
     static void ClearD(Env env, BitSetShortLongRep& bs)
     {
         if (IsShort(env))

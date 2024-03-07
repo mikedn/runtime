@@ -1331,14 +1331,14 @@ void LinearScan::identifyCandidates()
     if (enregisterLocalVars)
     {
         // Initialize the set of lclVars that are candidates for register allocation.
-        VarSetOps::AssignNoCopy(compiler, registerCandidateVars, VarSetOps::MakeEmpty(compiler));
+        registerCandidateVars = VarSetOps::MakeEmpty(compiler);
 
         // Initialize the sets of lclVars that are used to determine whether, and for which lclVars,
         // we need to perform resolution across basic blocks.
         // Note that we can't do this in the constructor because the number of tracked lclVars may
         // change between the constructor and the actual allocation.
-        VarSetOps::AssignNoCopy(compiler, resolutionCandidateVars, VarSetOps::MakeEmpty(compiler));
-        VarSetOps::AssignNoCopy(compiler, splitOrSpilledVars, VarSetOps::MakeEmpty(compiler));
+        resolutionCandidateVars = VarSetOps::MakeEmpty(compiler);
+        splitOrSpilledVars      = VarSetOps::MakeEmpty(compiler);
 
         // We set enregisterLocalVars to true only if there are tracked lclVars
         assert(compiler->lvaCount != 0);
@@ -1350,8 +1350,9 @@ void LinearScan::identifyCandidates()
         return;
     }
 
-    VarSetOps::AssignNoCopy(compiler, exceptVars, VarSetOps::MakeEmpty(compiler));
-    VarSetOps::AssignNoCopy(compiler, finallyVars, VarSetOps::MakeEmpty(compiler));
+    exceptVars  = VarSetOps::MakeEmpty(compiler);
+    finallyVars = VarSetOps::MakeEmpty(compiler);
+
     if (compiler->compHndBBtabCount > 0)
     {
         identifyCandidatesExceptionDataflow();
@@ -1386,12 +1387,12 @@ void LinearScan::identifyCandidates()
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
     if (enregisterLocalVars)
     {
-        VarSetOps::AssignNoCopy(compiler, fpCalleeSaveCandidateVars, VarSetOps::MakeEmpty(compiler));
-        VarSetOps::AssignNoCopy(compiler, fpMaybeCandidateVars, VarSetOps::MakeEmpty(compiler));
+        fpCalleeSaveCandidateVars = VarSetOps::MakeEmpty(compiler);
+        fpMaybeCandidateVars      = VarSetOps::MakeEmpty(compiler);
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-        VarSetOps::AssignNoCopy(compiler, largeVectorVars, VarSetOps::MakeEmpty(compiler));
-        VarSetOps::AssignNoCopy(compiler, largeVectorCalleeSaveCandidateVars, VarSetOps::MakeEmpty(compiler));
-#endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
+        largeVectorVars                    = VarSetOps::MakeEmpty(compiler);
+        largeVectorCalleeSaveCandidateVars = VarSetOps::MakeEmpty(compiler);
+#endif
     }
 #if DOUBLE_ALIGN
     unsigned             refCntStk       = 0;
@@ -3733,7 +3734,7 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
 #ifdef DEBUG
     if (getLsraExtendLifeTimes())
     {
-        VarSetOps::AssignNoCopy(compiler, currentLiveVars, registerCandidateVars);
+        currentLiveVars = registerCandidateVars;
     }
     // If we are rotating register assignments at block boundaries, we want to make the
     // inactive registers available for the rotation.

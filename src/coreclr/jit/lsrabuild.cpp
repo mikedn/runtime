@@ -1639,10 +1639,9 @@ void LinearScan::buildIntervals()
     BasicBlock* predBlock = nullptr;
     BasicBlock* prevBlock = nullptr;
 
-    // Initialize currentLiveVars to the empty set.  We will set it to the current
-    // live-in at the entry to each block (this will include the incoming args on
-    // the first block).
-    VarSetOps::AssignNoCopy(compiler, currentLiveVars, VarSetOps::MakeEmpty(compiler));
+    // Initialize currentLiveVars to the empty set. We will set it to the current live-in
+    // at the entry to each block (this will include the incoming args on the first block).
+    currentLiveVars = VarSetOps::MakeEmpty(compiler);
 
     for (block = startBlockSequence(); block != nullptr; block = moveToNextBlock())
     {

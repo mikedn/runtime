@@ -5607,11 +5607,11 @@ void Compiler::optAddCopies()
                 // Loop Preheader blocks that we insert will have a bbDom set that is nullptr
                 // but we can instead use the bNext successor block's dominator information
                 noway_assert(block->bbNext != nullptr);
-                BlockSetOps::AssignNoCopy(this, blockDom, fgGetDominatorSet(block->bbNext));
+                blockDom = fgGetDominatorSet(block->bbNext);
             }
             else
             {
-                BlockSetOps::AssignNoCopy(this, blockDom, fgGetDominatorSet(block));
+                blockDom = fgGetDominatorSet(block);
             }
 
             if (!BlockSetOps::IsEmpty(this, blockDom))
