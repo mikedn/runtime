@@ -1278,7 +1278,7 @@ public:
     bool IsMultiRegOpLong() const
     {
 #ifdef TARGET_64BIT
-        return nullptr;
+        return false;
 #else
         return TypeIs(TYP_LONG) && OperIs(GT_MUL_LONG, GT_BITCAST, GT_PUTARG_REG);
 #endif

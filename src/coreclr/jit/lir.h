@@ -297,7 +297,7 @@ public:
 
 public:
     static Range& AsRange(BasicBlock* block);
-    static const LIR::Range& LIR::AsRange(const BasicBlock* block);
+    static const LIR::Range& AsRange(const BasicBlock* block);
 
     static void InsertBeforeTerminator(BasicBlock* block, LIR::Range&& range);
     static void InsertHelperCallBefore(Compiler* compiler, Range& range, GenTree* before, GenTreeCall* call);
