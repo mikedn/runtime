@@ -384,38 +384,6 @@ public:
         return (bs1 == bs2) || (!IsShort(env) && EqualLong(env, bs1, bs2));
     }
 
-#ifdef DEBUG
-    // Returns a string valid until the allocator releases the memory.
-    static const char* ToString(Env env, BitSetShortLongRep bs)
-    {
-        if (IsShort(env))
-        {
-            assert(sizeof(BitSetShortLongRep) == sizeof(size_t));
-            const int CharsForSizeT  = sizeof(size_t) * 2;
-            char*     res            = nullptr;
-            const int ShortAllocSize = CharsForSizeT + 4;
-            res                      = (char*)BitSetTraits::DebugAlloc(env, ShortAllocSize);
-            size_t   bits            = (size_t)bs;
-            unsigned remaining       = ShortAllocSize;
-            char*    ptr             = res;
-            if (sizeof(size_t) == sizeof(int64_t))
-            {
-                sprintf_s(ptr, remaining, "%016zX", bits);
-            }
-            else
-            {
-                assert(sizeof(size_t) == sizeof(int));
-                sprintf_s(ptr, remaining, "%08X", (DWORD)bits);
-            }
-            return res;
-        }
-        else
-        {
-            return ToStringLong(env, bs);
-        }
-    }
-#endif
-
     static BitSetShortLongRep MakeEmpty(Env env)
     {
         if (IsShort(env))
@@ -895,35 +863,4 @@ private:
         }
         return true;
     }
-
-#ifdef DEBUG
-    static const char* ToStringLong(Env env, ConstSet bs)
-    {
-        assert(!IsShort(env));
-        unsigned  len           = BitSetTraits::GetArrSize(env, sizeof(size_t));
-        const int CharsForSizeT = sizeof(size_t) * 2;
-        unsigned  allocSz       = len * CharsForSizeT + 4;
-        unsigned  remaining     = allocSz;
-        char*     res           = (char*)BitSetTraits::DebugAlloc(env, allocSz);
-        char*     temp          = res;
-        for (unsigned i = len; 0 < i; i--)
-        {
-            size_t bits = bs[i - 1];
-            if (sizeof(size_t) == sizeof(int64_t))
-            {
-                sprintf_s(temp, remaining, "%016zX", bits);
-                temp += 16;
-                remaining -= 16;
-            }
-            else
-            {
-                assert(sizeof(size_t) == sizeof(unsigned));
-                sprintf_s(temp, remaining, "%08X", (unsigned)bits);
-                temp += 8;
-                remaining -= 8;
-            }
-        }
-        return res;
-    }
-#endif
 };

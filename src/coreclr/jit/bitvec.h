@@ -51,34 +51,17 @@ public:
         unsigned elemBits = 8 * elemSize;
         return roundUp(b->size, elemBits) / elemBits;
     }
-
-#ifdef DEBUG
-    static void* DebugAlloc(const BitVecTraits* b, size_t byteSize);
-
-    static unsigned GetEpoch(const BitVecTraits* b)
-    {
-        return b->size;
-    }
-#endif
 };
 
-using BitVecOps       = BitSetOps<BitSetShortLongRep, BitVecTraits>;
-using BitVec          = BitVecOps::Rep;
-using BitVec_ValArg_T = BitVecOps::ValArgType;
-using BitVec_ValRet_T = BitVecOps::RetValType;
+using BitVecOps = BitSetOps<BitSetShortLongRep, BitVecTraits>;
+using BitVec    = BitVecOps::Rep;
 
-using ASSERT_TP        = BitVec;
-using ASSERT_VALARG_TP = BitVec_ValArg_T;
-using ASSERT_VALRET_TP = BitVec_ValRet_T;
+using ASSERT_TP = BitVec;
 
 class CompAllocBitSetTraits
 {
 public:
     static void* Alloc(Compiler* comp, size_t byteSize);
-
-#ifdef DEBUG
-    static void* DebugAlloc(Compiler* comp, size_t byteSize);
-#endif
 };
 
 // A VARSET_TP is a set of (small) integers representing local variables.
@@ -112,16 +95,11 @@ public:
 
     static unsigned GetSize(Compiler* comp);
     static unsigned GetArrSize(Compiler* comp, unsigned elemSize);
-
-#ifdef DEBUG
-    static unsigned GetEpoch(class Compiler* comp);
-#endif
 };
 
 using VarSetOps        = BitSetOps<BitSetShortLongRep, TrackedVarBitSetTraits>;
 using VARSET_TP        = VarSetOps::Rep;
 using VARSET_VALARG_TP = VarSetOps::ValArgType;
-using VARSET_VALRET_TP = VarSetOps::RetValType;
 
 // A BlockSet is a set of BasicBlocks, represented by the BasicBlock number (bbNum).
 //
@@ -148,10 +126,6 @@ public:
 
     static unsigned GetSize(Compiler* comp);
     static unsigned GetArrSize(Compiler* comp, unsigned elemSize);
-
-#ifdef DEBUG
-    static unsigned GetEpoch(class Compiler* comp);
-#endif
 };
 
 class BlockSetOps : public BitSetOps<BitSetShortLongRep, BasicBlockBitSetTraits>
@@ -167,6 +141,4 @@ public:
     }
 };
 
-using BlockSet          = BlockSetOps::Rep;
-using BlockSet_ValArg_T = BlockSetOps::ValArgType;
-using BlockSet_ValRet_T = BlockSetOps::RetValType;
+using BlockSet = BlockSetOps::Rep;

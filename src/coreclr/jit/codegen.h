@@ -68,11 +68,6 @@ public:
     void genEmitMachineCode();
     void genEmitUnwindDebugGCandEH();
 
-    VARSET_VALARG_TP GetLiveSet() const
-    {
-        return liveness.GetLiveSet();
-    }
-
 private:
 #ifdef TARGET_XARCH
     // Bit masks used in negating a float or double number.

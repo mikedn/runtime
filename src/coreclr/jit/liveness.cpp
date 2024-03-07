@@ -438,7 +438,7 @@ void Compiler::fgPerBlockLocalVarLivenessLIR()
 //        Console.WriteLine("In catch 1");
 //    }
 
-VARSET_VALRET_TP Compiler::fgGetHandlerLiveVars(BasicBlock* block)
+VARSET_TP Compiler::fgGetHandlerLiveVars(BasicBlock* block)
 {
     noway_assert(block);
     noway_assert(ehBlockHasExnFlowDsc(block));

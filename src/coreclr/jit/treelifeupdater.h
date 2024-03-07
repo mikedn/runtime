@@ -212,7 +212,6 @@ class CodeGenLivenessUpdater
 #ifdef DEBUG
     VARSET_TP scratchSet1;
     VARSET_TP scratchSet2;
-    unsigned  epoch;
 #endif
 
     void UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
@@ -252,11 +251,6 @@ public:
     void MoveReg(CodeGen* codeGen, LclVarDsc* lcl, GenTreeLclVar* src, GenTreeCopyOrReload* dst);
     void Spill(LclVarDsc* lcl, GenTreeLclVar* lclNode);
     void Unspill(CodeGen* codeGen, LclVarDsc* lcl, GenTreeLclVar* src, RegNum dstReg, var_types dstType);
-
-    VARSET_VALARG_TP GetLiveSet() const
-    {
-        return currentLife;
-    }
 
     VARSET_VALARG_TP GetGCLiveSet() const
     {

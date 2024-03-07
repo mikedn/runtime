@@ -414,22 +414,6 @@ public:
     }
 
 #ifdef DEBUG
-    static const char* genES2str(BitVecTraits* traits, const BitVec set)
-    {
-        const int    bufSize = 65; // Supports a BitVec of up to 256 bits
-        static char  num1[bufSize];
-        static char  num2[bufSize];
-        static char* nump = num1;
-
-        assert(bufSize > roundUp(BitVecTraits::GetSize(traits), (unsigned)sizeof(char)) / 8);
-
-        char* temp = nump;
-        nump       = (nump == num1) ? num2 : num1;
-        sprintf_s(temp, bufSize, "%s", BitVecOps::ToString(traits, set));
-
-        return temp;
-    }
-
     void DumpDataFlowSet(const BitVec set)
     {
         printf("= { ");
@@ -1007,27 +991,12 @@ public:
             // It is used in EndMerge() to control the termination of the DataFlow algorithm.
             // Note that the first time we visit a block, the value of bbCseOut is MakeFull()
             BitVecOps::Assign(&traits, preMergeOut, block->bbCseOut);
-
-#if 0
-            JITDUMP("StartMerge " FMT_BB "\n", block->bbNum);
-            JITDUMP("  :: cseOut    = %s\n", genES2str(&traits, block->bbCseOut));
-#endif
         }
 
         // Perform the merging of each of the predecessor's liveness values (since this is a forward analysis)
         void Merge(BasicBlock* block, BasicBlock* predBlock, unsigned dupCount)
         {
-#if 0
-            JITDUMP("Merge " FMT_BB " and " FMT_BB "\n", block->bbNum, predBlock->bbNum);
-            JITDUMP("  :: cseIn     = %s\n", genES2str(&traits, block->bbCseIn));
-            JITDUMP("  :: cseOut    = %s\n", genES2str(&traits, block->bbCseOut));
-#endif
-
             BitVecOps::IntersectionD(&traits, block->bbCseIn, predBlock->bbCseOut);
-
-#if 0
-            JITDUMP("  => cseIn     = %s\n", genES2str(&traits, block->bbCseIn));
-#endif
         }
 
         // We can jump to the handler from any instruction in the try region.
@@ -1059,28 +1028,7 @@ public:
             // We always need to visit our successor blocks once, thus we require that that the first time
             // that we visit a block we have a bit set in preMergeOut that won't be set when we compute
             // the new value of bbCseOut.
-            bool notDone = !BitVecOps::Equal(&traits, block->bbCseOut, preMergeOut);
-
-#if 0
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("EndMerge " FMT_BB "\n", block->bbNum);
-            printf("  :: cseIn     = %s\n", genES2str(&traits, block->bbCseIn));
-
-            if (((block->bbFlags & BBF_HAS_CALL) != 0) && !BitVecOps::IsEmpty(&traits, block->bbCseIn))
-            {
-                printf("  -- cseKill   = %s\n", genES2str(&traits, m_comp->cseCallKillsMask));
-            }
-
-            printf("  :: cseGen    = %s\n", genES2str(&traits, block->bbCseGen));
-            printf("  => cseOut    = %s\n", genES2str(&traits, block->bbCseOut));
-            printf("  != preMerge  = %s, => %s\n", genES2str(&traits, m_preMergeOut), notDone ? "true" : "false");
-        }
-#endif // DEBUG
-#endif // 0
-
-            return notDone;
+            return !BitVecOps::Equal(&traits, block->bbCseOut, preMergeOut);
         }
     };
 

@@ -602,7 +602,7 @@ BasicBlock** Compiler::fgDfsInvPostOrder()
     // We begin by figuring out which basic blocks don't have incoming edges and mark them as
     // start nodes.  Later on we run the recursive algorithm for each node that we
     // mark in this step.
-    BlockSet_ValRet_T startNodes = fgDomFindStartNodes();
+    BlockSet startNodes = fgDomFindStartNodes();
 
     // Make sure fgEnterBlks are still there in startNodes, even if they participate in a loop (i.e., there is
     // an incoming edge into the block).
@@ -671,7 +671,7 @@ BasicBlock** Compiler::fgDfsInvPostOrder()
 // Returns:
 //    Block set of start nodes.
 //
-BlockSet_ValRet_T Compiler::fgDomFindStartNodes()
+BlockSet Compiler::fgDomFindStartNodes()
 {
     BlockSet startNodes(BlockSetOps::MakeFull(this));
 
@@ -1176,7 +1176,7 @@ BasicBlock* Compiler::fgIntersectDom(BasicBlock* a, BasicBlock* b)
 // Returns:
 //    A set of blocks which dominate `block`.
 //
-BlockSet_ValRet_T Compiler::fgGetDominatorSet(BasicBlock* block)
+BlockSet Compiler::fgGetDominatorSet(BasicBlock* block)
 {
     assert(block != nullptr);
 

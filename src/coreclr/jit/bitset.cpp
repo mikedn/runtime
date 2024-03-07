@@ -3,15 +3,13 @@
 
 #include "jitpch.h"
 #include "bitset.h"
-#include "bitsetasuint64.h"
 #include "bitsetasshortlong.h"
-#include "bitsetasuint64inclass.h"
 
 const unsigned BitSetSupport::BitCountTable[16]{0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4};
 
 #ifdef DEBUG
 template <typename BitSetType, typename BitSetTraits>
-void BitSetSupport::RunTests(typename BitSetTraits::Env env)
+static void RunTests(typename BitSetTraits::Env env)
 {
     using LclBitSetOps = BitSetOps<BitSetType, BitSetTraits>;
 
@@ -95,17 +93,11 @@ public:
         assert(elemSize == sizeof(size_t));
         return (64 / 8) / sizeof(size_t);
     }
-    static unsigned GetEpoch(CompAllocator alloc)
-    {
-        return 0;
-    }
 };
 
 void BitSetSupport::TestSuite(CompAllocator env)
 {
-    BitSetSupport::RunTests<UINT64, TestBitSetTraits>(env);
-    BitSetSupport::RunTests<BitSetShortLongRep, TestBitSetTraits>(env);
-    BitSetSupport::RunTests<BitSetUint64<TestBitSetTraits>, TestBitSetTraits>(env);
+    RunTests<BitSetShortLongRep, TestBitSetTraits>(env);
 }
 
 #endif // DEBUG

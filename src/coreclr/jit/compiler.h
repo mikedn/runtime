@@ -3990,7 +3990,7 @@ public:
     void fgPerBlockLocalVarLiveness();
     void fgPerBlockLocalVarLivenessLIR();
 
-    VARSET_VALRET_TP fgGetHandlerLiveVars(BasicBlock* block);
+    VARSET_TP fgGetHandlerLiveVars(BasicBlock* block);
 
     void fgLiveVarAnalysis();
 
@@ -4062,7 +4062,7 @@ public:
 
     void fgCompDominatedByExceptionalEntryBlocks(BasicBlock** postOrder);
 
-    BlockSet_ValRet_T fgGetDominatorSet(BasicBlock* block); // Returns a set of blocks that dominate the given block.
+    BlockSet fgGetDominatorSet(BasicBlock* block); // Returns a set of blocks that dominate the given block.
     // Note: this is relatively slow compared to calling fgDominate(),
     // especially if dealing with a single block versus block check.
 
@@ -4079,7 +4079,7 @@ public:
     BasicBlock** fgDfsInvPostOrder();
     void fgDfsInvPostOrderHelper(BasicBlock** postOrder, BasicBlock* block, BlockSet& visited, unsigned* count);
 
-    BlockSet_ValRet_T fgDomFindStartNodes(); // Computes which basic blocks don't have incoming edges in the flow graph.
+    BlockSet fgDomFindStartNodes(); // Computes which basic blocks don't have incoming edges in the flow graph.
                                              // Returns this as a set.
 
     INDEBUG(void fgDispDomTree(DomTreeNode* domTree);) // Helper that prints out the Dominator Tree in debug builds.

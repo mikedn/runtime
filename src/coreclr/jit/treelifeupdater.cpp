@@ -20,7 +20,6 @@ void CodeGenLivenessUpdater::Begin()
 #ifdef DEBUG
     scratchSet1 = VarSetOps::MakeEmpty(compiler);
     scratchSet2 = VarSetOps::MakeEmpty(compiler);
-    epoch       = compiler->GetCurLVEpoch();
 #endif
 }
 
@@ -194,7 +193,6 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
 void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* lclNode)
 {
     assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) && !lclNode->IsMultiRegLclVar());
-    assert(compiler->GetCurLVEpoch() == epoch);
 
     LclVarDsc* lcl = lclNode->GetLcl();
 
@@ -775,7 +773,7 @@ void CodeGenLivenessUpdater::EndCodeGen(CodeGen* codeGen)
     {
         if ((compiler->lvaTrackedCount > 0) || !compiler->opts.OptimizationDisabled())
         {
-            for (VarSetOps::Enumerator en(compiler, codeGen->GetLiveSet()); en.MoveNext();)
+            for (VarSetOps::Enumerator en(compiler, currentLife); en.MoveNext();)
             {
                 EndRange(codeGen, compiler->lvaGetDescByTrackedIndex(en.Current()));
             }
