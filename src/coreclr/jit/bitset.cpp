@@ -32,23 +32,31 @@ static void RunTests(typename BitSetTraits::Env env)
     }
     assert(k == 4);
 
-    assert(LclBitSetOps::Equal(env, bs1, LclBitSetOps::Union(env, bs1, bs1)));
-    assert(LclBitSetOps::Equal(env, bs1, LclBitSetOps::Intersection(env, bs1, bs1)));
+    BitSetType temp = LclBitSetOps::MakeCopy(env, bs1);
+    LclBitSetOps::UnionD(env, temp, bs1);
+    assert(LclBitSetOps::Equal(env, bs1, temp));
+
+    temp = LclBitSetOps::MakeCopy(env, bs1);
+    LclBitSetOps::IntersectionD(env, temp, bs1);
+    assert(LclBitSetOps::Equal(env, bs1, temp));
+
     assert(LclBitSetOps::IsSubset(env, bs1, bs1));
 
     BitSetType bs2;
     LclBitSetOps::AssignNoCopy(env, bs2, LclBitSetOps::MakeEmpty(env));
-    unsigned bs2bits[] = {0, 10, 50, 51};
+
+    unsigned bs2bits[]{0, 10, 50, 51};
     LclBitSetOps::AddElemD(env, bs2, bs2bits[0]);
     LclBitSetOps::AddElemD(env, bs2, bs2bits[1]);
     LclBitSetOps::AddElemD(env, bs2, bs2bits[2]);
     LclBitSetOps::AddElemD(env, bs2, bs2bits[3]);
 
-    unsigned   unionBits[] = {0, 10, 44, 45, 50, 51};
-    BitSetType bsU12;
-    LclBitSetOps::AssignNoCopy(env, bsU12, LclBitSetOps::Union(env, bs1, bs2));
+    temp = LclBitSetOps::MakeCopy(env, bs1);
+    LclBitSetOps::UnionD(env, temp, bs2);
+    unsigned unionBits[]{0, 10, 44, 45, 50, 51};
+
     k = 0;
-    for (typename LclBitSetOps::Enumerator bsi(env, bsU12); bsi.MoveNext();)
+    for (typename LclBitSetOps::Enumerator bsi(env, temp); bsi.MoveNext();)
     {
         assert(bsi.Current() == unionBits[k]);
         k++;
@@ -56,18 +64,19 @@ static void RunTests(typename BitSetTraits::Env env)
     assert(k == 6);
 
     k = 0;
-    for (typename LclBitSetOps::Enumerator bsiL(env, bsU12); bsiL.MoveNext();)
+    for (typename LclBitSetOps::Enumerator bsiL(env, temp); bsiL.MoveNext();)
     {
         assert(bsiL.Current() == unionBits[k]);
         k++;
     }
     assert(k == 6);
 
-    unsigned   intersectionBits[] = {0, 10};
-    BitSetType bsI12;
-    LclBitSetOps::AssignNoCopy(env, bsI12, LclBitSetOps::Intersection(env, bs1, bs2));
+    temp = LclBitSetOps::MakeCopy(env, bs1);
+    LclBitSetOps::IntersectionD(env, temp, bs2);
+    unsigned intersectionBits[] = {0, 10};
+
     k = 0;
-    for (typename LclBitSetOps::Enumerator bsi(env, bsI12); bsi.MoveNext();)
+    for (typename LclBitSetOps::Enumerator bsi(env, temp); bsi.MoveNext();)
     {
         assert(bsi.Current() == intersectionBits[k]);
         k++;

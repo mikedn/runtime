@@ -304,7 +304,8 @@ void LoopHoist::HoistLoop(unsigned lnum)
         VarSetOps::UnionD(compiler, stats.useDefLocals, block->bbVarDef);
     }
 
-    VARSET_TP loopVars(VarSetOps::Intersection(compiler, stats.inOutLocals, stats.useDefLocals));
+    VARSET_TP loopVars = VarSetOps::MakeCopy(compiler, stats.inOutLocals);
+    VarSetOps::IntersectionD(compiler, loopVars, stats.useDefLocals);
 
     stats.intInOutLocalCount  = VarSetOps::Count(compiler, stats.inOutLocals);
     stats.intLocalCount       = VarSetOps::Count(compiler, loopVars);
@@ -315,11 +316,12 @@ void LoopHoist::HoistLoop(unsigned lnum)
 
     if (longVarsCount > 0)
     {
-        // Since 64-bit variables take up two registers on 32-bit targets, we increase
-        //  the Counts such that each TYP_LONG variable counts twice.
-        //
-        VARSET_TP loopLongVars(VarSetOps::Intersection(compiler, loopVars, stats.longLocals));
-        VARSET_TP inOutLongVars(VarSetOps::Intersection(compiler, stats.inOutLocals, stats.longLocals));
+        // Since 64-bit variables take up two registers on 32-bit targets,
+        // we increase the counts such that each LONG variable counts twice.
+        VARSET_TP loopLongVars = VarSetOps::MakeCopy(compiler, loopVars);
+        VarSetOps::IntersectionD(compiler, loopLongVars, stats.longLocals);
+        VARSET_TP inOutLongVars = VarSetOps::MakeCopy(compiler, stats.inOutLocals);
+        VarSetOps::IntersectionD(compiler, inOutLongVars, stats.longLocals);
 
 #ifdef DEBUG
         if (compiler->verbose)
@@ -352,8 +354,10 @@ void LoopHoist::HoistLoop(unsigned lnum)
 
     if (floatVarsCount > 0)
     {
-        VARSET_TP loopFPVars(VarSetOps::Intersection(compiler, loopVars, stats.floatLocals));
-        VARSET_TP inOutFPVars(VarSetOps::Intersection(compiler, stats.inOutLocals, stats.floatLocals));
+        VARSET_TP loopFPVars = VarSetOps::MakeCopy(compiler, loopVars);
+        VarSetOps::IntersectionD(compiler, loopFPVars, stats.floatLocals);
+        VARSET_TP inOutFPVars = VarSetOps::MakeCopy(compiler, stats.inOutLocals);
+        VarSetOps::IntersectionD(compiler, inOutFPVars, stats.floatLocals);
 
         stats.floatLocalCount       = VarSetOps::Count(compiler, loopFPVars);
         stats.floatInOutLocalCount  = VarSetOps::Count(compiler, inOutFPVars);

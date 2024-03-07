@@ -1419,7 +1419,8 @@ void LinearScan::insertZeroInitRefPositions()
 {
     assert(enregisterLocalVars);
 #ifdef DEBUG
-    VARSET_TP expectedLiveVars(VarSetOps::Intersection(compiler, registerCandidateVars, compiler->fgFirstBB->bbLiveIn));
+    VARSET_TP expectedLiveVars = VarSetOps::MakeCopy(compiler, registerCandidateVars);
+    VarSetOps::IntersectionD(compiler, expectedLiveVars, compiler->fgFirstBB->bbLiveIn);
     assert(VarSetOps::Equal(compiler, currentLiveVars, expectedLiveVars));
 #endif //  DEBUG
 
@@ -1660,8 +1661,8 @@ void LinearScan::buildIntervals()
 
         if (enregisterLocalVars)
         {
-            VarSetOps::AssignNoCopy(compiler, currentLiveVars,
-                                    VarSetOps::Intersection(compiler, registerCandidateVars, block->bbLiveIn));
+            currentLiveVars = VarSetOps::MakeCopy(compiler, registerCandidateVars);
+            VarSetOps::IntersectionD(compiler, currentLiveVars, block->bbLiveIn);
 
             if (block == compiler->fgFirstBB)
             {

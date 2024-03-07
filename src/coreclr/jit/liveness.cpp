@@ -1397,7 +1397,9 @@ bool Compiler::fgInterBlockLocalVarLiveness()
 
 void Compiler::fgDispBBLocalLiveness(BasicBlock* block)
 {
-    VARSET_TP allVars(VarSetOps::Union(this, block->bbVarUse, block->bbVarDef));
+    VARSET_TP allVars = VarSetOps::MakeCopy(this, block->bbVarUse);
+    VarSetOps::UnionD(this, allVars, block->bbVarDef);
+
     printf(FMT_BB, block->bbNum);
     printf(" USE(%d)=", VarSetOps::Count(this, block->bbVarUse));
     lvaDispVarSet(block->bbVarUse, allVars);
@@ -1430,7 +1432,9 @@ void Compiler::fgDispBBLocalLiveness(BasicBlock* block)
 
 void Compiler::fgDispBBLiveness(BasicBlock* block)
 {
-    VARSET_TP allVars(VarSetOps::Union(this, block->bbLiveIn, block->bbLiveOut));
+    VARSET_TP allVars = VarSetOps::MakeCopy(this, block->bbLiveIn);
+    VarSetOps::UnionD(this, allVars, block->bbLiveOut);
+
     printf(FMT_BB, block->bbNum);
     printf(" IN (%d)=", VarSetOps::Count(this, block->bbLiveIn));
     lvaDispVarSet(block->bbLiveIn, allVars);

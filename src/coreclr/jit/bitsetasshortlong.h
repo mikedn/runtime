@@ -175,12 +175,6 @@ public:
             UnionDLong(env, bs1, bs2);
         }
     }
-    static BitSetShortLongRep Union(Env env, BitSetShortLongRep bs1, BitSetShortLongRep bs2)
-    {
-        BitSetShortLongRep res = MakeCopy(env, bs1);
-        UnionD(env, res, bs2);
-        return res;
-    }
 
     static void DiffD(Env env, BitSetShortLongRep& bs1, BitSetShortLongRep bs2)
     {
@@ -192,13 +186,6 @@ public:
         {
             DiffDLong(env, bs1, bs2);
         }
-    }
-
-    static BitSetShortLongRep Diff(Env env, BitSetShortLongRep bs1, BitSetShortLongRep bs2)
-    {
-        BitSetShortLongRep res = MakeCopy(env, bs1);
-        DiffD(env, res, bs2);
-        return res;
     }
 
     static void SymmetricDiff(Env env, Set& r, ConstSet s1, ConstSet s2)
@@ -319,12 +306,6 @@ public:
         }
     }
 
-    static BitSetShortLongRep Intersection(Env env, BitSetShortLongRep bs1, BitSetShortLongRep bs2)
-    {
-        BitSetShortLongRep res = MakeCopy(env, bs1);
-        IntersectionD(env, res, bs2);
-        return res;
-    }
     static bool IsEmptyIntersection(Env env, BitSetShortLongRep bs1, BitSetShortLongRep bs2)
     {
         if (IsShort(env))
