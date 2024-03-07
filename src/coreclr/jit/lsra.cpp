@@ -332,7 +332,10 @@ regMaskTP LinearScan::internalFloatRegCandidates()
 bool LinearScan::isFree(RegRecord* regRecord)
 {
     return ((regRecord->assignedInterval == nullptr || !regRecord->assignedInterval->isActive) &&
-            !isRegBusy(regRecord->regNum, regRecord->registerType));
+            // TODO-MIKE-Cleanup: There are a lot of places that use RegRecord::registerType to deal
+            // with ARM's DOUBLE regs, but then reg records are never DOUBLE, they're either INT or
+            // FLOAT. So we may as well delete registerType and pass UNDEF or something like that.
+            !isRegBusy(regRecord->regNum, regRecord->registerType()));
 }
 
 RegRecord* LinearScan::getRegisterRecord(regNumber regNum)
@@ -549,9 +552,28 @@ LinearScan::LinearScan(Compiler* compiler)
 #endif
     , regSelector(new (compiler, CMK_LSRA) RegisterSelection(this))
     , intervals(compiler->getAllocator(CMK_LSRA_Interval))
+    , physRegs{
+#define REGDEF(name, num, mask, ...) {REG_##name},
+#include "register.h"
+    }
     , enregisterLocalVars(compiler->lvaTrackedCount != 0)
     , refPositions(compiler->getAllocator(CMK_LSRA_RefPosition))
 {
+    physRegs[REG_STK].regNum = REG_NA;
+
+    static const RegNumSmall lsraRegOrder[]{REG_VAR_ORDER};
+    static const RegNumSmall lsraRegOrderFlt[]{REG_VAR_ORDER_FLT};
+
+    for (unsigned i = 0; i < _countof(lsraRegOrder); i++)
+    {
+        physRegs[lsraRegOrder[i]].regOrder = static_cast<uint8_t>(i);
+    }
+
+    for (unsigned i = 0; i < _countof(lsraRegOrderFlt); i++)
+    {
+        physRegs[lsraRegOrderFlt[i]].regOrder = static_cast<uint8_t>(i);
+    }
+
 #ifdef DEBUG
 #if 0
     if (lsraStressMask != 0)
@@ -3135,7 +3157,7 @@ void LinearScan::unassignPhysReg(RegRecord* regRec, RefPosition* spillRefPositio
     // Prepare second half RegRecord of a double register for TYP_DOUBLE
     if (assignedInterval->registerType == TYP_DOUBLE)
     {
-        assert(varTypeUsesFloatReg(regRec->registerType));
+        assert(varTypeUsesFloatReg(regRec->registerType()));
         RegRecord* doubleRegRec;
         if (genIsValidDoubleReg(thisRegNum))
         {
@@ -3667,8 +3689,8 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
         {
             RegRecord* physRegRecord    = getRegisterRecord(reg);
             Interval*  assignedInterval = physRegRecord->assignedInterval;
-            clearNextIntervalRef(reg, physRegRecord->registerType);
-            clearSpillCost(reg, physRegRecord->registerType);
+            clearNextIntervalRef(reg, physRegRecord->registerType());
+            clearSpillCost(reg, physRegRecord->registerType());
             if (assignedInterval != nullptr)
             {
                 assert(assignedInterval->isConstant);
@@ -3916,7 +3938,7 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
         RegRecord* physRegRecord = getRegisterRecord(reg);
         if ((liveRegs & genRegMask(reg)) == 0)
         {
-            makeRegAvailable(reg, physRegRecord->registerType);
+            makeRegAvailable(reg, physRegRecord->registerType());
             Interval* assignedInterval = physRegRecord->assignedInterval;
 
             if (assignedInterval != nullptr)
@@ -3955,7 +3977,7 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
                     // Skip next float register, because we already addressed a double register
                     assert(genIsValidDoubleReg(reg));
                     reg = REG_NEXT(reg);
-                    makeRegAvailable(reg, physRegRecord->registerType);
+                    makeRegAvailable(reg, physRegRecord->registerType());
                 }
 #endif // TARGET_ARM
             }
@@ -4090,8 +4112,8 @@ void LinearScan::makeRegisterInactive(RegRecord* physRegRecord)
 void LinearScan::freeRegister(RegRecord* physRegRecord)
 {
     Interval* assignedInterval = physRegRecord->assignedInterval;
-    makeRegAvailable(physRegRecord->regNum, physRegRecord->registerType);
-    clearSpillCost(physRegRecord->regNum, physRegRecord->registerType);
+    makeRegAvailable(physRegRecord->regNum, physRegRecord->registerType());
+    clearSpillCost(physRegRecord->regNum, physRegRecord->registerType());
     makeRegisterInactive(physRegRecord);
 
     if (assignedInterval != nullptr)
@@ -4212,8 +4234,8 @@ void LinearScan::allocateRegisters()
         }
         else
         {
-            clearNextIntervalRef(reg, physRegRecord->registerType);
-            clearSpillCost(reg, physRegRecord->registerType);
+            clearNextIntervalRef(reg, physRegRecord->registerType());
+            clearSpillCost(reg, physRegRecord->registerType());
         }
     }
 
@@ -4267,7 +4289,7 @@ void LinearScan::allocateRegisters()
             tempRegsToMakeInactive &= ~nextRegBit;
             regNumber  nextReg   = genRegNumFromMask(nextRegBit);
             RegRecord* regRecord = getRegisterRecord(nextReg);
-            clearSpillCost(regRecord->regNum, regRecord->registerType);
+            clearSpillCost(regRecord->regNum, regRecord->registerType());
             makeRegisterInactive(regRecord);
         }
         if (currentRefPosition->nodeLocation > prevLocation)
@@ -4423,8 +4445,8 @@ void LinearScan::allocateRegisters()
                     }
                     else
                     {
-                        assert(isRegAvailable(reg, physRegRecord->registerType));
-                        assert(!isRegConstant(reg, physRegRecord->registerType));
+                        assert(isRegAvailable(reg, physRegRecord->registerType()));
+                        assert(!isRegConstant(reg, physRegRecord->registerType()));
                         assert(nextIntervalRef[reg] == MaxLocation);
                         assert(spillCost[reg] == 0);
                     }
@@ -5335,8 +5357,8 @@ void LinearScan::updateAssignedInterval(RegRecord* reg, Interval* interval, Regi
     }
     else
     {
-        clearNextIntervalRef(reg->regNum, reg->registerType);
-        clearSpillCost(reg->regNum, reg->registerType);
+        clearNextIntervalRef(reg->regNum, reg->registerType());
+        clearSpillCost(reg->regNum, reg->registerType());
     }
 }
 

@@ -1399,30 +1399,6 @@ void LinearScan::BuildStressConstraints(GenTree* tree, RefPositionIterator refPo
 }
 #endif // DEBUG
 
-void LinearScan::buildPhysRegRecords()
-{
-    static const regNumber lsraRegOrder[]{REG_VAR_ORDER};
-    static const regNumber lsraRegOrderFlt[]{REG_VAR_ORDER_FLT};
-
-    for (regNumber reg = REG_FIRST; reg < ACTUAL_REG_COUNT; reg = REG_NEXT(reg))
-    {
-        RegRecord* curr = &physRegs[reg];
-        curr->init(reg);
-    }
-    for (unsigned int i = 0; i < ArrLen(lsraRegOrder); i++)
-    {
-        regNumber  reg  = lsraRegOrder[i];
-        RegRecord* curr = &physRegs[reg];
-        curr->regOrder  = (unsigned char)i;
-    }
-    for (unsigned int i = 0; i < ArrLen(lsraRegOrderFlt); i++)
-    {
-        regNumber  reg  = lsraRegOrderFlt[i];
-        RegRecord* curr = &physRegs[reg];
-        curr->regOrder  = (unsigned char)i;
-    }
-}
-
 // Handle lclVars that are live-in to the first block
 //
 // Prior to calling this method, 'currentLiveVars' must be set to the set of register
@@ -1537,9 +1513,6 @@ void LinearScan::buildIntervals()
     BasicBlock* block;
 
     JITDUMP("\nbuildIntervals ========\n");
-
-    // Build (empty) records for all of the physical registers
-    buildPhysRegRecords();
 
 #ifdef DEBUG
     if (VERBOSE)

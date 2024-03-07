@@ -199,23 +199,16 @@ typedef jitstd::list<RefPosition>::reverse_iterator RefPositionReverseIterator;
 class Referenceable
 {
 public:
-    Referenceable()
-    {
-        firstRefPosition  = nullptr;
-        recentRefPosition = nullptr;
-        lastRefPosition   = nullptr;
-    }
+    RefPosition* firstRefPosition  = nullptr;
+    RefPosition* recentRefPosition = nullptr;
+    RefPosition* lastRefPosition   = nullptr;
 
     // A linked list of RefPositions.  These are only traversed in the forward
     // direction, and are not moved, so they don't need to be doubly linked
     // (see RefPosition).
 
-    RefPosition* firstRefPosition;
-    RefPosition* recentRefPosition;
-    RefPosition* lastRefPosition;
-
     // Get the position of the next reference which is at or greater than
-    // the current location (relies upon recentRefPosition being udpated
+    // the current location (relies upon recentRefPosition being updated
     // during traversal).
     RefPosition* getNextRefPosition();
     LsraLocation getNextRefLocation();
@@ -224,63 +217,32 @@ public:
 class RegRecord : public Referenceable
 {
 public:
-    RegRecord()
-    {
-        assignedInterval = nullptr;
-        previousInterval = nullptr;
-        regNum           = REG_NA;
-        isCalleeSave     = false;
-        registerType     = IntRegisterType;
-    }
-
-    void init(regNumber reg)
-    {
-#ifdef TARGET_ARM64
-        // The Zero register, or the SP
-        if ((reg == REG_ZR) || (reg == REG_SP))
-        {
-            // IsGeneralRegister returns false for REG_ZR and REG_SP
-            regNum       = reg;
-            registerType = IntRegisterType;
-        }
-        else
-#endif
-            if (IsFloatReg(reg))
-        {
-            registerType = FloatRegisterType;
-        }
-        else
-        {
-            // The constructor defaults to IntRegisterType
-            assert(IsGeneralRegister(reg) && registerType == IntRegisterType);
-        }
-        regNum       = reg;
-        isCalleeSave = ((RBM_CALLEE_SAVED & genRegMask(reg)) != 0);
-    }
-
-#ifdef DEBUG
-    // print out representation
-    void dump();
-    // concise representation for embedding
-    void tinyDump();
-#endif // DEBUG
-
-    // DATA
-
     // interval to which this register is currently allocated.
     // If the interval is inactive (isActive == false) then it is not currently live,
     // and the register can be unassigned (i.e. setting assignedInterval to nullptr)
     // without spilling the register.
-    Interval* assignedInterval;
+    Interval* assignedInterval = nullptr;
     // Interval to which this register was previously allocated, and which was unassigned
     // because it was inactive.  This register will be reassigned to this Interval when
     // assignedInterval becomes inactive.
-    Interval* previousInterval;
+    Interval* previousInterval = nullptr;
 
-    regNumber     regNum;
-    bool          isCalleeSave;
-    RegisterType  registerType;
-    unsigned char regOrder;
+    RegNum   regNum;
+    unsigned regOrder;
+
+    RegRecord(RegNum reg) : regNum(reg)
+    {
+    }
+
+    RegisterType registerType() const
+    {
+        return IsFloatReg(regNum) ? FloatRegisterType : IntRegisterType;
+    }
+
+#ifdef DEBUG
+    void dump();
+    void tinyDump();
+#endif
 };
 
 /*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
