@@ -16,40 +16,40 @@ static void RunTests(typename BitSetTraits::Env env)
 
     using Ops = BitSetOps<Set, BitSetTraits>;
 
-    Set bs1 = Ops::MakeEmpty(env);
+    Set s1 = Ops::MakeEmpty(env);
 
-    unsigned bs1bits[]{0, 10, 44, 45};
-    Ops::AddElemD(env, bs1, bs1bits[0]);
-    Ops::AddElemD(env, bs1, bs1bits[1]);
-    Ops::AddElemD(env, bs1, bs1bits[2]);
-    Ops::AddElemD(env, bs1, bs1bits[3]);
+    unsigned bits1[]{0, 10, 44, 45};
+    Ops::AddElemD(env, s1, bits1[0]);
+    Ops::AddElemD(env, s1, bits1[1]);
+    Ops::AddElemD(env, s1, bits1[2]);
+    Ops::AddElemD(env, s1, bits1[3]);
 
     unsigned k = 0;
-    for (typename Ops::Enumerator bsi(env, bs1); bsi.MoveNext();)
+    for (typename Ops::Enumerator bsi(env, s1); bsi.MoveNext();)
     {
-        assert(bsi.Current() == bs1bits[k]);
+        assert(bsi.Current() == bits1[k]);
         k++;
     }
     assert(k == 4);
 
     Set temp = Ops::Alloc(env);
-    Ops::Union(env, temp, bs1, bs1);
-    assert(Ops::Equal(env, bs1, temp));
+    Ops::Union(env, temp, s1, s1);
+    assert(Ops::Equal(env, s1, temp));
 
-    Ops::Intersection(env, temp, bs1, bs1);
-    assert(Ops::Equal(env, bs1, temp));
+    Ops::Intersection(env, temp, s1, s1);
+    assert(Ops::Equal(env, s1, temp));
 
-    assert(Ops::IsSubset(env, bs1, bs1));
+    assert(Ops::IsSubset(env, s1, s1));
 
-    Set bs2 = Ops::MakeEmpty(env);
+    Set s2 = Ops::MakeEmpty(env);
 
-    unsigned bs2bits[]{0, 10, 50, 51};
-    Ops::AddElemD(env, bs2, bs2bits[0]);
-    Ops::AddElemD(env, bs2, bs2bits[1]);
-    Ops::AddElemD(env, bs2, bs2bits[2]);
-    Ops::AddElemD(env, bs2, bs2bits[3]);
+    unsigned bits2[]{0, 10, 50, 51};
+    Ops::AddElemD(env, s2, bits2[0]);
+    Ops::AddElemD(env, s2, bits2[1]);
+    Ops::AddElemD(env, s2, bits2[2]);
+    Ops::AddElemD(env, s2, bits2[3]);
 
-    Ops::Union(env, temp, bs1, bs2);
+    Ops::Union(env, temp, s1, s2);
     unsigned unionBits[]{0, 10, 44, 45, 50, 51};
 
     k = 0;
@@ -68,7 +68,7 @@ static void RunTests(typename BitSetTraits::Env env)
     }
     assert(k == 6);
 
-    Ops::Intersection(env, temp, bs1, bs2);
+    Ops::Intersection(env, temp, s1, s2);
     unsigned intersectionBits[]{0, 10};
 
     k = 0;
