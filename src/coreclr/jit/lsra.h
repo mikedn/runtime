@@ -302,16 +302,6 @@ public:
         return (genExactlyOneBit(regMask));
     }
 
-    // Initialize the block traversal for LSRA.
-    // This resets the bbVisitedSet, and on the first invocation sets the blockSequence array,
-    // which determines the order in which blocks will be allocated (currently called during Lowering).
-    BasicBlock* startBlockSequence();
-    // Move to the next block in sequence, updating the current block information.
-    BasicBlock* moveToNextBlock();
-    // Get the next block to be scheduled without changing the current block,
-    // but updating the blockSequence during the first iteration if it is not fully computed.
-    BasicBlock* getNextBlock();
-
     VarToRegMap GetBlockLiveInRegMap(BasicBlock* bb);
 
     // This does the dataflow analysis and builds the intervals
@@ -680,7 +670,6 @@ private:
 
     // Update allocations at start/end of block
     void unassignIntervalBlockStart(RegRecord* regRecord, VarToRegMap inVarToRegMap);
-    void processBlockEndAllocation(BasicBlock* current);
 
     // Record variable locations at start/end of block
     void processBlockStartLocations(BasicBlock* current);
@@ -1266,8 +1255,6 @@ private:
     LsraLocation currentLoc;
     // The first location in a cold or funclet block.
     LsraLocation firstColdLoc = MaxLocation;
-    // The ordinal of the block we're on (i.e. this is the curBBSeqNum-th block we've allocated).
-    unsigned int curBBSeqNum = 0;
     // The number of blocks that we've sequenced.
     unsigned int bbSeqCount = 0;
     // The Location of the start of the current block.

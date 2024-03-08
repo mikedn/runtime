@@ -1040,43 +1040,6 @@ void LinearScan::removeFromBlockSequenceWorkList(BasicBlockList* listNode, Basic
     // compiler->FreeBlockListNode(listNode);
 }
 
-// Initialize the block order for allocation (called each time a new traversal begins).
-BasicBlock* LinearScan::startBlockSequence()
-{
-    assert(blockSequence != nullptr);
-
-    BasicBlock* curBB = blockSequence[0];
-    curBBSeqNum       = 0;
-    curBBNum          = curBB->bbNum;
-    assert(curBB == compiler->fgFirstBB);
-
-    return curBB;
-}
-
-// Move to the next block in order for allocation or resolution.
-// This method is used when the next block is actually going to be handled.
-// It changes curBBNum.
-BasicBlock* LinearScan::moveToNextBlock()
-{
-    BasicBlock* nextBlock = getNextBlock();
-    curBBSeqNum++;
-    if (nextBlock != nullptr)
-    {
-        curBBNum = nextBlock->bbNum;
-    }
-    return nextBlock;
-}
-
-// Get the next block in order for allocation or resolution.
-// This method does not actually change the current block - it is used simply
-// to determine which block will be next.
-BasicBlock* LinearScan::getNextBlock()
-{
-    assert(blockSequence != nullptr);
-    unsigned nextBBSeqNum = curBBSeqNum + 1;
-    return nextBBSeqNum < bbSeqCount ? blockSequence[nextBBSeqNum] : nullptr;
-}
-
 void LinearScan::doLinearScan()
 {
     buildIntervals();
@@ -3133,38 +3096,6 @@ void LinearScan::spillGCRefs(RefPosition* killRefPosition)
 }
 
 //------------------------------------------------------------------------
-// processBlockEndAllocation: Update var locations after 'currentBlock' has been allocated
-//
-// Arguments:
-//    currentBlock - the BasicBlock we have just finished allocating registers for
-//
-// Return Value:
-//    None
-//
-// Notes:
-//    Calls processBlockEndLocations() to set the outVarToRegMap, then gets the next block,
-//    and sets the inVarToRegMap appropriately.
-
-void LinearScan::processBlockEndAllocation(BasicBlock* currentBlock)
-{
-    assert(currentBlock != nullptr);
-    if (enregisterLocalVars)
-    {
-        processBlockEndLocations(currentBlock);
-    }
-
-    // Get the next block to allocate.
-    // When the last block in the method has successors, there will be a final "RefTypeBB" to
-    // ensure that we get the varToRegMap set appropriately, but in that case we don't need
-    // to worry about "nextBlock".
-    BasicBlock* nextBlock = getNextBlock();
-    if (nextBlock != nullptr)
-    {
-        processBlockStartLocations(nextBlock);
-    }
-}
-
-//------------------------------------------------------------------------
 // rotateBlockStartLocation: When in the LSRA_BLOCK_BOUNDARY_ROTATE stress mode, attempt to
 //                           "rotate" the register assignment for a localVar to the next higher
 //                           register that is available.
@@ -4008,7 +3939,9 @@ void LinearScan::allocateRegisters()
     }
 #endif // DEBUG
 
-    BasicBlock* currentBlock = nullptr;
+    BasicBlock* currentBlock  = nullptr;
+    unsigned    blockSeqIndex = 0;
+    unsigned    blockSeqCount = bbSeqCount;
 
     LsraLocation prevLocation            = MinLocation;
     regMaskTP    regsToFree              = RBM_NONE;
@@ -4255,17 +4188,32 @@ void LinearScan::allocateRegisters()
             regsInUseNextLocation = RBM_NONE;
             handledBlockEnd       = true;
             curBBStartLocation    = currentRefPosition->nodeLocation;
+
             if (currentBlock == nullptr)
             {
-                currentBlock = startBlockSequence();
-                INDEBUG(dumpLsraAllocationEvent(LSRA_EVENT_START_BB, nullptr, REG_NA, compiler->fgFirstBB));
+                currentBlock = blockSequence[blockSeqIndex++];
+                curBBNum     = currentBlock->bbNum;
             }
             else
             {
-                processBlockEndAllocation(currentBlock);
-                currentBlock = moveToNextBlock();
-                INDEBUG(dumpLsraAllocationEvent(LSRA_EVENT_START_BB, nullptr, REG_NA, currentBlock));
+                if (enregisterLocalVars)
+                {
+                    processBlockEndLocations(currentBlock);
+                }
+
+                if (blockSeqIndex < blockSeqCount)
+                {
+                    currentBlock = blockSequence[blockSeqIndex++];
+                    processBlockStartLocations(currentBlock);
+                    curBBNum = currentBlock->bbNum;
+                }
+                else
+                {
+                    currentBlock = nullptr;
+                }
             }
+
+            INDEBUG(dumpLsraAllocationEvent(LSRA_EVENT_START_BB, nullptr, REG_NA, currentBlock));
         }
 
         if (refType == RefTypeBB)
@@ -5992,9 +5940,11 @@ void LinearScan::resolveRegisters()
     }
 
     // write back assignments
-    for (BasicBlock* block = startBlockSequence(); block != nullptr; block = moveToNextBlock())
+    for (unsigned blockSeqIndex = 0, blockSeqCount = bbSeqCount; blockSeqIndex < blockSeqCount; blockSeqIndex++)
     {
-        assert(curBBNum == block->bbNum);
+        BasicBlock* block = blockSequence[blockSeqIndex];
+
+        curBBNum = block->bbNum;
 
         if (enregisterLocalVars)
         {
@@ -6069,8 +6019,8 @@ void LinearScan::resolveRegisters()
                     // variable is dead at the entry to the next block.  So we'll mark
                     // it as in its current location and resolution will take care of any
                     // mismatch.
-                    assert(getNextBlock() == nullptr ||
-                           !VarSetOps::IsMember(compiler, getNextBlock()->bbLiveIn,
+                    assert((blockSeqIndex >= blockSeqCount - 1) ||
+                           !VarSetOps::IsMember(compiler, blockSequence[blockSeqIndex + 1]->bbLiveIn,
                                                 currentRefPosition->getInterval()->getVarIndex(compiler)));
                     currentRefPosition->referent->recentRefPosition = currentRefPosition;
                     continue;
@@ -9571,9 +9521,13 @@ void LinearScan::verifyFinalAllocation()
 
     DBEXEC(VERBOSE, dumpRegRecordTitle());
 
-    BasicBlock*  currentBlock                = nullptr;
+    BasicBlock* currentBlock  = nullptr;
+    unsigned    blockSeqIndex = 0;
+    unsigned    blockSeqCount = bbSeqCount;
+
     GenTree*     firstBlockEndResolutionNode = nullptr;
     LsraLocation currentLocation             = MinLocation;
+
     for (RefPosition& refPosition : refPositions)
     {
         RefPosition* currentRefPosition = &refPosition;
@@ -9619,7 +9573,7 @@ void LinearScan::verifyFinalAllocation()
             {
                 if (currentBlock == nullptr)
                 {
-                    currentBlock = startBlockSequence();
+                    currentBlock = blockSequence[blockSeqIndex++];
                 }
                 else
                 {
@@ -9669,7 +9623,7 @@ void LinearScan::verifyFinalAllocation()
                     }
 
                     // Now, record the locations at the beginning of this block.
-                    currentBlock = moveToNextBlock();
+                    currentBlock = blockSeqIndex < blockSeqCount ? blockSequence[blockSeqIndex++] : nullptr;
                 }
 
                 if (currentBlock != nullptr)

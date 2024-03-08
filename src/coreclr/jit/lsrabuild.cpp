@@ -855,7 +855,7 @@ bool LinearScan::buildKillPositionsForNode(GenTree* tree, LsraLocation currentLo
         // to be done before making this change.
         // Also note that we avoid setting callee-save preferences for floating point. This may need
         // revisiting, and note that it doesn't currently apply to SIMD types, only float or double.
-        // if (!blockSequence[curBBSeqNum]->isRunRarely())
+        // if (!currentBlock->isRunRarely())
         if (enregisterLocalVars)
         {
             for (VarSetOps::Enumerator e(compiler, currentLiveVars); e.MoveNext();)
@@ -1634,9 +1634,11 @@ void LinearScan::buildIntervals()
     BlockSetOps::ClearD(compiler, bbVisitedSet);
     BlockSetOps::AddElemD(compiler, bbVisitedSet, blockSequence[0]->bbNum);
 
-    for (BasicBlock* block = startBlockSequence(); block != nullptr; block = moveToNextBlock())
+    for (unsigned blockSeqIndex = 0, blockSeqCount = bbSeqCount; blockSeqIndex < blockSeqCount; blockSeqIndex++)
     {
+        BasicBlock* block = blockSequence[blockSeqIndex];
         JITDUMP("\nNEW BLOCK " FMT_BB "\n", block->bbNum);
+        curBBNum = block->bbNum;
 
         INDEBUG(bool predBlockIsAllocated = false);
         BasicBlock* predBlock = findPredBlockForLiveIn(block, prevBlock DEBUGARG(&predBlockIsAllocated));
@@ -1818,11 +1820,12 @@ void LinearScan::buildIntervals()
 
             VARSET_TP expUseSet = VarSetOps::Alloc(compiler);
             VarSetOps::Intersection(compiler, expUseSet, block->bbLiveOut, registerCandidateVars);
-            BasicBlock* nextBlock = getNextBlock();
-            if (nextBlock != nullptr)
+
+            if (blockSeqIndex + 1 < blockSeqCount)
             {
-                VarSetOps::DiffD(compiler, expUseSet, nextBlock->bbLiveIn);
+                VarSetOps::DiffD(compiler, expUseSet, blockSequence[blockSeqIndex + 1]->bbLiveIn);
             }
+
             for (BasicBlock* succ : block->GetAllSuccs(compiler))
             {
                 if (VarSetOps::IsEmpty(compiler, expUseSet))
