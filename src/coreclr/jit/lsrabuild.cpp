@@ -1682,12 +1682,17 @@ void LinearScan::buildIntervals()
 
                 if (block != compiler->fgFirstBB)
                 {
-                    VARSET_TP newLiveIn = VarSetOps::MakeCopy(compiler, currentLiveVars);
-                    if (predBlock != nullptr)
+                    VARSET_TP newLiveIn = VarSetOps::Alloc(compiler);
+
+                    if (predBlock == nullptr)
                     {
-                        // Compute set difference: newLiveIn = currentLiveVars - predBlock->bbLiveOut
-                        VarSetOps::DiffD(compiler, newLiveIn, predBlock->bbLiveOut);
+                        VarSetOps::Assign(compiler, newLiveIn, currentLiveVars);
                     }
+                    else
+                    {
+                        VarSetOps::Diff(compiler, newLiveIn, currentLiveVars, predBlock->bbLiveOut);
+                    }
+
                     // Don't create dummy defs for EH vars; we'll load them from the stack as/when needed.
                     VarSetOps::DiffD(compiler, newLiveIn, exceptVars);
 
