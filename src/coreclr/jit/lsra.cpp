@@ -3729,17 +3729,22 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
         predVarToRegMap = inVarToRegMap;
     }
 
-    currentLiveVars = VarSetOps::Alloc(compiler);
-    VarSetOps::Intersection(compiler, currentLiveVars, registerCandidateVars, currentBlock->bbLiveIn);
 #ifdef DEBUG
     if (getLsraExtendLifeTimes())
     {
-        currentLiveVars = registerCandidateVars;
+        VarSetOps::Assign(compiler, currentLiveVars, registerCandidateVars);
     }
+    else
+#endif
+    {
+        VarSetOps::Intersection(compiler, currentLiveVars, registerCandidateVars, currentBlock->bbLiveIn);
+    }
+
+#ifdef DEBUG
     // If we are rotating register assignments at block boundaries, we want to make the
     // inactive registers available for the rotation.
     regMaskTP inactiveRegs = RBM_NONE;
-#endif // DEBUG
+#endif
     regMaskTP liveRegs = RBM_NONE;
 
     for (VarSetOps::Enumerator e(compiler, currentLiveVars); e.MoveNext();)
@@ -4020,14 +4025,17 @@ void LinearScan::processBlockEndLocations(BasicBlock* currentBlock)
     assert(currentBlock != nullptr && currentBlock->bbNum == curBBNum);
     VarToRegMap outVarToRegMap = getOutVarToRegMap(curBBNum);
 
-    currentLiveVars = VarSetOps::Alloc(compiler);
-    VarSetOps::Intersection(compiler, currentLiveVars, registerCandidateVars, currentBlock->bbLiveOut);
 #ifdef DEBUG
     if (getLsraExtendLifeTimes())
     {
         VarSetOps::Assign(compiler, currentLiveVars, registerCandidateVars);
     }
-#endif // DEBUG
+    else
+#endif
+    {
+        VarSetOps::Intersection(compiler, currentLiveVars, registerCandidateVars, currentBlock->bbLiveOut);
+    }
+
     for (VarSetOps::Enumerator e(compiler, currentLiveVars); e.MoveNext();)
     {
         Interval* interval = getIntervalForLocalVar(e.Current());

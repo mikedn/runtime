@@ -1660,7 +1660,6 @@ void LinearScan::buildIntervals()
 
         if (enregisterLocalVars)
         {
-            currentLiveVars = VarSetOps::Alloc(compiler);
             VarSetOps::Intersection(compiler, currentLiveVars, registerCandidateVars, block->bbLiveIn);
 
             if (block == compiler->fgFirstBB)
@@ -1672,7 +1671,7 @@ void LinearScan::buildIntervals()
 
             // For blocks that don't have EHBoundaryIn, we need DummyDefs for cases where "predBlock" isn't
             // really a predecessor.
-            // Note that it's possible to have uses of unitialized variables, in which case even the first
+            // Note that it's possible to have uses of uninitialized variables, in which case even the first
             // block may require DummyDefs, which we are not currently adding - this means that these variables
             // will always be considered to be in memory on entry (and reloaded when the use is encountered).
             // TODO-CQ: Consider how best to tune this.  Currently, if we create DummyDefs for uninitialized
