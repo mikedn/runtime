@@ -990,7 +990,15 @@ public:
             // Record the initial value of block->bbCseOut in m_preMergeOut.
             // It is used in EndMerge() to control the termination of the DataFlow algorithm.
             // Note that the first time we visit a block, the value of bbCseOut is MakeFull()
-            BitVecOps::Assign(&traits, preMergeOut, block->bbCseOut);
+
+            if (preMergeOut == BitVecOps::UninitVal())
+            {
+                preMergeOut = BitVecOps::MakeCopy(&traits, block->bbCseOut);
+            }
+            else
+            {
+                BitVecOps::Assign(&traits, preMergeOut, block->bbCseOut);
+            }
         }
 
         // Perform the merging of each of the predecessor's liveness values (since this is a forward analysis)
@@ -1019,7 +1027,15 @@ public:
             }
             else
             {
-                BitVecOps::Assign(&traits, cseInWithCallsKill, block->bbCseIn);
+                if (cseInWithCallsKill == BitVecOps::UninitVal())
+                {
+                    cseInWithCallsKill = BitVecOps::MakeCopy(traits, block->bbCseIn);
+                }
+                else
+                {
+                    BitVecOps::Assign(&traits, cseInWithCallsKill, block->bbCseIn);
+                }
+
                 BitVecOps::IntersectionD(&traits, cseInWithCallsKill, callKillsMask);
                 BitVecOps::DataFlowD(&traits, block->bbCseOut, block->bbCseGen, cseInWithCallsKill);
             }

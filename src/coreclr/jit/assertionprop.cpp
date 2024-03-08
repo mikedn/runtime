@@ -2548,8 +2548,16 @@ private:
             }
 #endif
 
-            BitVecOps::Assign(apTraits, preMergeOut, block->bbAssertionOut);
-            BitVecOps::Assign(apTraits, preMergeJumpDestOut, block->bbAssertionOutJumpDest);
+            if (preMergeOut == BitVecOps::UninitVal())
+            {
+                preMergeOut         = BitVecOps::MakeCopy(apTraits, block->bbAssertionOut);
+                preMergeJumpDestOut = BitVecOps::MakeCopy(apTraits, block->bbAssertionOutJumpDest);
+            }
+            else
+            {
+                BitVecOps::Assign(apTraits, preMergeOut, block->bbAssertionOut);
+                BitVecOps::Assign(apTraits, preMergeJumpDestOut, block->bbAssertionOutJumpDest);
+            }
         }
 
         // During merge, perform the actual merging of the predecessor's (since this is a forward analysis) dataflow

@@ -1090,7 +1090,8 @@ void Compiler::optEnsureUniqueHead(unsigned loopNum, BasicBlock::weight_t ambien
         h2->bbJumpKind = BBJ_ALWAYS;
         h2->bbJumpDest = e;
     }
-    BlockSetOps::Assign(this, h2->bbReach, e->bbReach);
+
+    h2->bbReach = BlockSetOps::MakeCopy(this, e->bbReach);
 
     fgAddRefPred(e, h2);
 
@@ -1187,7 +1188,7 @@ void LoopCloneContext::CloneLoop(unsigned loopNum)
         BasicBlock* newH = compiler->fgNewBBafter(BBJ_NONE, h, /*extendRegion*/ true);
         JITDUMP("Adding " FMT_BB " after " FMT_BB "\n", newH->bbNum, h->bbNum);
         newH->bbWeight = newH->isRunRarely() ? BB_ZERO_WEIGHT : ambientWeight;
-        BlockSetOps::Assign(compiler, newH->bbReach, h->bbReach);
+        newH->bbReach  = BlockSetOps::MakeCopy(compiler, h->bbReach);
         // This is in the scope of a surrounding loop, if one exists -- the parent of the loop we're cloning.
         newH->bbNatLoopNum = ambientLoop;
         compiler->optUpdateLoopHead(loopNum, h, newH);
@@ -1222,7 +1223,7 @@ void LoopCloneContext::CloneLoop(unsigned loopNum)
             x2->bbNatLoopNum = ambientLoop;
 
             x2->bbJumpDest = x;
-            BlockSetOps::Assign(compiler, x2->bbReach, h->bbReach);
+            x2->bbReach    = BlockSetOps::MakeCopy(compiler, h->bbReach);
 
             compiler->fgAddRefPred(x2, b); // Add b->x2 pred edge
             JITDUMP("Adding " FMT_BB " -> " FMT_BB "\n", b->bbNum, x2->bbNum);

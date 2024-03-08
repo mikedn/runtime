@@ -44,17 +44,9 @@ public:
 
     static void Assign(Env env, BitSetShortLongRep& lhs, BitSetShortLongRep rhs)
     {
-        // We can't assert that rhs != UninitVal in the Short case, because in that
-        // case it's a legal value.
         if (IsShort(env))
         {
-            // Both are short.
             lhs = rhs;
-        }
-        else if (lhs == UninitVal())
-        {
-            assert(rhs != UninitVal());
-            lhs = MakeCopy(env, rhs);
         }
         else
         {

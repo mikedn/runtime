@@ -5616,7 +5616,7 @@ void Compiler::optAddCopies()
 
             if (!BlockSetOps::IsEmpty(this, blockDom))
             {
-                BlockSetOps::Assign(this, blockDomSub0, blockDom);
+                blockDomSub0 = BlockSetOps::MakeCopy(this, blockDom);
                 if (isPreHeaderBlock)
                 {
                     // We must clear bbNext block number from the dominator set

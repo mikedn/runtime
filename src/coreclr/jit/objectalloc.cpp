@@ -232,8 +232,8 @@ void ObjectAllocator::MarkEscapingVarsAndBuildConnGraph()
 
 void ObjectAllocator::ComputeEscapingNodes(BitVecTraits* bitVecTraits, BitVec& escapingNodes)
 {
-    BitSetShortLongRep escapingNodesToProcess = BitVecOps::MakeCopy(bitVecTraits, escapingNodes);
-    BitSetShortLongRep newEscapingNodes       = BitVecOps::UninitVal();
+    BitVec escapingNodesToProcess = BitVecOps::MakeCopy(bitVecTraits, escapingNodes);
+    BitVec newEscapingNodes       = BitVecOps::UninitVal();
 
     for (bool doOneMoreIteration = true; doOneMoreIteration;)
     {
@@ -243,19 +243,22 @@ void ObjectAllocator::ComputeEscapingNodes(BitVecTraits* bitVecTraits, BitVec& e
         {
             const unsigned lclNum = e.Current();
 
-            if (m_ConnGraphAdjacencyMatrix[lclNum] != nullptr)
+            if (BitVec adjaceny = m_ConnGraphAdjacencyMatrix[lclNum])
             {
                 doOneMoreIteration = true;
 
-                // newEscapingNodes         = adjacentNodes[lclNum]
-                BitVecOps::Assign(bitVecTraits, newEscapingNodes, m_ConnGraphAdjacencyMatrix[lclNum]);
-                // newEscapingNodes         = newEscapingNodes \ escapingNodes
+                if (newEscapingNodes == BitVecOps::UninitVal())
+                {
+                    newEscapingNodes = BitVecOps::MakeCopy(bitVecTraits, adjaceny);
+                }
+                else
+                {
+                    BitVecOps::Assign(bitVecTraits, newEscapingNodes, adjaceny);
+                }
+
                 BitVecOps::DiffD(bitVecTraits, newEscapingNodes, escapingNodes);
-                // escapingNodesToProcess   = escapingNodesToProcess U newEscapingNodes
                 BitVecOps::UnionD(bitVecTraits, escapingNodesToProcess, newEscapingNodes);
-                // escapingNodes = escapingNodes U newEscapingNodes
                 BitVecOps::UnionD(bitVecTraits, escapingNodes, newEscapingNodes);
-                // escapingNodesToProcess   = escapingNodesToProcess \ { lclNum }
                 BitVecOps::RemoveElemD(bitVecTraits, escapingNodesToProcess, lclNum);
             }
         }

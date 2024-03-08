@@ -223,7 +223,7 @@ void Compiler::fgComputeReachabilitySets()
     // Find the reachable blocks. Also, set BBF_GC_SAFE_POINT.
 
     bool     change;
-    BlockSet newReach(BlockSetOps::MakeEmpty(this));
+    BlockSet newReach = BlockSetOps::MakeEmpty(this);
     do
     {
         change = false;
@@ -1937,7 +1937,18 @@ void Compiler::fgCompactBlocks(BasicBlock* block, BasicBlock* bNext)
     //
     if (fgDomsComputed && (block->bbNum > fgDomBBcount))
     {
-        BlockSetOps::Assign(this, block->bbReach, bNext->bbReach);
+        // TODO-MIKE-Review: Copying bNext's reachability set is dubious,
+        // this should probably remove bNext from block's reachability set.
+
+        if (block->bbReach == BlockSetOps::UninitVal())
+        {
+            block->bbReach = BlockSetOps::MakeCopy(this, bNext->bbReach);
+        }
+        else
+        {
+            BlockSetOps::Assign(this, block->bbReach, bNext->bbReach);
+        }
+
         BlockSetOps::ClearD(this, bNext->bbReach);
 
         block->bbIDom = bNext->bbIDom;
