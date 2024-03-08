@@ -977,7 +977,7 @@ public:
             : traits(cse.dataFlowTraits)
             , callKillsMask(cse.callKillsMask)
             , cseInWithCallsKill(BitVecOps::UninitVal())
-            , preMergeOut(BitVecOps::UninitVal())
+            , preMergeOut(BitVecOps::Alloc(&traits))
 #ifdef DEBUG
             , verbose(compiler->verbose)
 #endif
@@ -990,15 +990,7 @@ public:
             // Record the initial value of block->bbCseOut in m_preMergeOut.
             // It is used in EndMerge() to control the termination of the DataFlow algorithm.
             // Note that the first time we visit a block, the value of bbCseOut is MakeFull()
-
-            if (preMergeOut == BitVecOps::UninitVal())
-            {
-                preMergeOut = BitVecOps::MakeCopy(&traits, block->bbCseOut);
-            }
-            else
-            {
-                BitVecOps::Assign(&traits, preMergeOut, block->bbCseOut);
-            }
+            BitVecOps::Assign(&traits, preMergeOut, block->bbCseOut);
         }
 
         // Perform the merging of each of the predecessor's liveness values (since this is a forward analysis)
@@ -1015,7 +1007,7 @@ public:
         }
 
         // At the end of the merge store results of the dataflow equations, in a postmerge state.
-        // We also handle the case where calls conditionally kill CSE availabilty.
+        // We also handle the case where calls conditionally kill CSE availability.
         bool EndMerge(BasicBlock* block)
         {
             // We can skip the calls kill step when our block doesn't have a callsite
@@ -1029,14 +1021,10 @@ public:
             {
                 if (cseInWithCallsKill == BitVecOps::UninitVal())
                 {
-                    cseInWithCallsKill = BitVecOps::MakeCopy(traits, block->bbCseIn);
-                }
-                else
-                {
-                    BitVecOps::Assign(&traits, cseInWithCallsKill, block->bbCseIn);
+                    cseInWithCallsKill = BitVecOps::Alloc(traits);
                 }
 
-                BitVecOps::IntersectionD(&traits, cseInWithCallsKill, callKillsMask);
+                BitVecOps::Intersection(&traits, cseInWithCallsKill, block->bbCseIn, callKillsMask);
                 BitVecOps::DataFlowD(&traits, block->bbCseOut, block->bbCseGen, cseInWithCallsKill);
             }
 
@@ -1115,11 +1103,12 @@ public:
         InitDataFlow();
         DataFlow();
 
-        BitVec available = BitVecOps::MakeEmpty(&dataFlowTraits);
+        BitVec available = BitVecOps::Alloc(dataFlowTraits);
 
         for (BasicBlock* const block : compiler->Blocks())
         {
             BitVecOps::Assign(&dataFlowTraits, available, block->bbCseIn);
+
             float blockWeight = block->getBBWeight(compiler);
 
             for (Statement* const stmt : block->NonPhiStatements())

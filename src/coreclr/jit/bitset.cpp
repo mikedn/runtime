@@ -32,12 +32,11 @@ static void RunTests(typename BitSetTraits::Env env)
     }
     assert(k == 4);
 
-    Set temp = Ops::MakeCopy(env, bs1);
-    Ops::UnionD(env, temp, bs1);
+    Set temp = Ops::Alloc(env);
+    Ops::Union(env, temp, bs1, bs1);
     assert(Ops::Equal(env, bs1, temp));
 
-    temp = Ops::MakeCopy(env, bs1);
-    Ops::IntersectionD(env, temp, bs1);
+    Ops::Intersection(env, temp, bs1, bs1);
     assert(Ops::Equal(env, bs1, temp));
 
     assert(Ops::IsSubset(env, bs1, bs1));
@@ -50,8 +49,7 @@ static void RunTests(typename BitSetTraits::Env env)
     Ops::AddElemD(env, bs2, bs2bits[2]);
     Ops::AddElemD(env, bs2, bs2bits[3]);
 
-    temp = Ops::MakeCopy(env, bs1);
-    Ops::UnionD(env, temp, bs2);
+    Ops::Union(env, temp, bs1, bs2);
     unsigned unionBits[]{0, 10, 44, 45, 50, 51};
 
     k = 0;
@@ -70,8 +68,7 @@ static void RunTests(typename BitSetTraits::Env env)
     }
     assert(k == 6);
 
-    temp = Ops::MakeCopy(env, bs1);
-    Ops::IntersectionD(env, temp, bs2);
+    Ops::Intersection(env, temp, bs1, bs2);
     unsigned intersectionBits[]{0, 10};
 
     k = 0;

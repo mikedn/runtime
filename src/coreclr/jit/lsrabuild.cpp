@@ -1419,10 +1419,10 @@ void LinearScan::insertZeroInitRefPositions()
 {
     assert(enregisterLocalVars);
 #ifdef DEBUG
-    VARSET_TP expectedLiveVars = VarSetOps::MakeCopy(compiler, registerCandidateVars);
-    VarSetOps::IntersectionD(compiler, expectedLiveVars, compiler->fgFirstBB->bbLiveIn);
+    VARSET_TP expectedLiveVars = VarSetOps::Alloc(compiler);
+    VarSetOps::Intersection(compiler, expectedLiveVars, registerCandidateVars, compiler->fgFirstBB->bbLiveIn);
     assert(VarSetOps::Equal(compiler, currentLiveVars, expectedLiveVars));
-#endif //  DEBUG
+#endif
 
     // insert defs for this, then a block boundary
 
@@ -1660,8 +1660,8 @@ void LinearScan::buildIntervals()
 
         if (enregisterLocalVars)
         {
-            currentLiveVars = VarSetOps::MakeCopy(compiler, registerCandidateVars);
-            VarSetOps::IntersectionD(compiler, currentLiveVars, block->bbLiveIn);
+            currentLiveVars = VarSetOps::Alloc(compiler);
+            VarSetOps::Intersection(compiler, currentLiveVars, registerCandidateVars, block->bbLiveIn);
 
             if (block == compiler->fgFirstBB)
             {
@@ -1686,7 +1686,7 @@ void LinearScan::buildIntervals()
 
                 if (block != compiler->fgFirstBB)
                 {
-                    VARSET_TP newLiveIn(VarSetOps::MakeCopy(compiler, currentLiveVars));
+                    VARSET_TP newLiveIn = VarSetOps::MakeCopy(compiler, currentLiveVars);
                     if (predBlock != nullptr)
                     {
                         // Compute set difference: newLiveIn = currentLiveVars - predBlock->bbLiveOut
@@ -1822,8 +1822,8 @@ void LinearScan::buildIntervals()
             // Note that a block ending with GT_JMP has no successors and hence the variables
             // for which dummy use ref positions are added are arguments of the method.
 
-            VARSET_TP expUseSet(VarSetOps::MakeCopy(compiler, block->bbLiveOut));
-            VarSetOps::IntersectionD(compiler, expUseSet, registerCandidateVars);
+            VARSET_TP expUseSet = VarSetOps::Alloc(compiler);
+            VarSetOps::Intersection(compiler, expUseSet, block->bbLiveOut, registerCandidateVars);
             BasicBlock* nextBlock = getNextBlock();
             if (nextBlock != nullptr)
             {

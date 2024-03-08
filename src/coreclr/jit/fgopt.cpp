@@ -222,11 +222,11 @@ void Compiler::fgComputeReachabilitySets()
 
     // Find the reachable blocks. Also, set BBF_GC_SAFE_POINT.
 
-    bool     change;
-    BlockSet newReach = BlockSetOps::MakeEmpty(this);
-    do
+    BlockSet newReach = BlockSetOps::Alloc(this);
+
+    for (bool changed = true; changed;)
     {
-        change = false;
+        changed = false;
 
         for (BasicBlock* const block : Blocks())
         {
@@ -253,10 +253,10 @@ void Compiler::fgComputeReachabilitySets()
             if (!BlockSetOps::Equal(this, newReach, block->bbReach))
             {
                 BlockSetOps::Assign(this, block->bbReach, newReach);
-                change = true;
+                changed = true;
             }
         }
-    } while (change);
+    }
 
 #ifdef DEBUG
     if (verbose)
@@ -1942,13 +1942,10 @@ void Compiler::fgCompactBlocks(BasicBlock* block, BasicBlock* bNext)
 
         if (block->bbReach == BlockSetOps::UninitVal())
         {
-            block->bbReach = BlockSetOps::MakeCopy(this, bNext->bbReach);
-        }
-        else
-        {
-            BlockSetOps::Assign(this, block->bbReach, bNext->bbReach);
+            block->bbReach = BlockSetOps::Alloc(this);
         }
 
+        BlockSetOps::Assign(this, block->bbReach, bNext->bbReach);
         BlockSetOps::ClearD(this, bNext->bbReach);
 
         block->bbIDom = bNext->bbIDom;

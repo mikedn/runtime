@@ -2532,8 +2532,8 @@ private:
             : ap(ap)
             , apTraits(&ap.countTraits)
             , assertionGen(assertionGen)
-            , preMergeOut(BitVecOps::UninitVal())
-            , preMergeJumpDestOut(BitVecOps::UninitVal())
+            , preMergeOut(BitVecOps::Alloc(apTraits))
+            , preMergeJumpDestOut(BitVecOps::Alloc(apTraits))
         {
         }
 
@@ -2548,16 +2548,8 @@ private:
             }
 #endif
 
-            if (preMergeOut == BitVecOps::UninitVal())
-            {
-                preMergeOut         = BitVecOps::MakeCopy(apTraits, block->bbAssertionOut);
-                preMergeJumpDestOut = BitVecOps::MakeCopy(apTraits, block->bbAssertionOutJumpDest);
-            }
-            else
-            {
-                BitVecOps::Assign(apTraits, preMergeOut, block->bbAssertionOut);
-                BitVecOps::Assign(apTraits, preMergeJumpDestOut, block->bbAssertionOutJumpDest);
-            }
+            BitVecOps::Assign(apTraits, preMergeOut, block->bbAssertionOut);
+            BitVecOps::Assign(apTraits, preMergeJumpDestOut, block->bbAssertionOutJumpDest);
         }
 
         // During merge, perform the actual merging of the predecessor's (since this is a forward analysis) dataflow
@@ -2712,15 +2704,15 @@ private:
                 }
             }
 
-            ASSERT_TP jumpDestAssertions;
+            ASSERT_TP jumpDestAssertions = BitVecOps::Alloc(&countTraits);
 
             if (jtrue == nullptr)
             {
-                jumpDestAssertions = BitVecOps::MakeEmpty(&countTraits);
+                BitVecOps::ClearD(&countTraits, jumpDestAssertions);
             }
             else
             {
-                jumpDestAssertions = BitVecOps::MakeCopy(&countTraits, assertions);
+                BitVecOps::Assign(&countTraits, jumpDestAssertions, assertions);
 
                 if (jtrue->GeneratesAssertion())
                 {
@@ -3522,7 +3514,7 @@ private:
 
     void PropagateAssertions()
     {
-        ASSERT_TP assertions = BitVecOps::MakeEmpty(&countTraits);
+        ASSERT_TP assertions = BitVecOps::Alloc(&countTraits);
 
         for (BasicBlock* const block : compiler->Blocks())
         {

@@ -443,8 +443,8 @@ VARSET_TP Compiler::fgGetHandlerLiveVars(BasicBlock* block)
     noway_assert(block);
     noway_assert(ehBlockHasExnFlowDsc(block));
 
-    VARSET_TP liveVars(VarSetOps::MakeEmpty(this));
-    EHblkDsc* HBtab = ehGetBlockExnFlowDsc(block);
+    VARSET_TP liveVars = VarSetOps::MakeEmpty(this);
+    EHblkDsc* HBtab    = ehGetBlockExnFlowDsc(block);
 
     do
     {
@@ -1350,10 +1350,12 @@ bool Compiler::fgInterBlockLocalVarLiveness()
     bool      useDefRemoved = false;
     bool      changed       = false;
     VARSET_TP keepAlive     = VarSetOps::MakeEmpty(this);
-    VARSET_TP life          = VarSetOps::MakeEmpty(this);
+    VARSET_TP life          = VarSetOps::Alloc(this);
 
     for (BasicBlock* const block : Blocks())
     {
+        VarSetOps::Assign(this, life, block->bbLiveOut);
+
         if (ehBlockHasExnFlowDsc(block))
         {
             VarSetOps::Assign(this, keepAlive, fgGetHandlerLiveVars(block));
@@ -1364,8 +1366,6 @@ bool Compiler::fgInterBlockLocalVarLiveness()
         {
             VarSetOps::ClearD(this, keepAlive);
         }
-
-        VarSetOps::Assign(this, life, block->bbLiveOut);
 
         if (compRationalIRForm)
         {
@@ -1397,8 +1397,8 @@ bool Compiler::fgInterBlockLocalVarLiveness()
 
 void Compiler::fgDispBBLocalLiveness(BasicBlock* block)
 {
-    VARSET_TP allVars = VarSetOps::MakeCopy(this, block->bbVarUse);
-    VarSetOps::UnionD(this, allVars, block->bbVarDef);
+    VARSET_TP allVars = VarSetOps::Alloc(this);
+    VarSetOps::Union(this, allVars, block->bbVarUse, block->bbVarDef);
 
     printf(FMT_BB, block->bbNum);
     printf(" USE(%d)=", VarSetOps::Count(this, block->bbVarUse));
@@ -1432,8 +1432,8 @@ void Compiler::fgDispBBLocalLiveness(BasicBlock* block)
 
 void Compiler::fgDispBBLiveness(BasicBlock* block)
 {
-    VARSET_TP allVars = VarSetOps::MakeCopy(this, block->bbLiveIn);
-    VarSetOps::UnionD(this, allVars, block->bbLiveOut);
+    VARSET_TP allVars = VarSetOps::Alloc(this);
+    VarSetOps::Union(this, allVars, block->bbLiveIn, block->bbLiveOut);
 
     printf(FMT_BB, block->bbNum);
     printf(" IN (%d)=", VarSetOps::Count(this, block->bbLiveIn));

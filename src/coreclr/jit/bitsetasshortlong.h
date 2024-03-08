@@ -19,6 +19,7 @@ public:
     using Env        = typename BitSetTraits::Env;
     using Rep        = BitSetShortLongRep;
     using Set        = BitSetShortLongRep;
+    using Word       = size_t;
     using ConstSet   = const size_t*;
     using ValArgType = const BitSetShortLongRep&;
     using RetValType = BitSetShortLongRep;
@@ -77,6 +78,18 @@ public:
         else
         {
             return MakeSingletonLong(env, bitNum);
+        }
+    }
+
+    static BitSetShortLongRep Alloc(Env env)
+    {
+        if (IsShort(env))
+        {
+            return nullptr;
+        }
+        else
+        {
+            return MakeUninitArrayBits(env);
         }
     }
 
@@ -142,6 +155,18 @@ public:
         }
     }
 
+    static void Union(Env env, Set& r, ConstSet s1, ConstSet s2)
+    {
+        if (IsShort(env))
+        {
+            r = Set(Word(s1) | Word(s2));
+        }
+        else
+        {
+            UnionLong(env, r, s1, s2);
+        }
+    }
+
     static void DiffD(Env env, BitSetShortLongRep& bs1, BitSetShortLongRep bs2)
     {
         if (IsShort(env))
@@ -151,6 +176,18 @@ public:
         else
         {
             DiffDLong(env, bs1, bs2);
+        }
+    }
+
+    static void Diff(Env env, Set& r, ConstSet s1, ConstSet s2)
+    {
+        if (IsShort(env))
+        {
+            r = Set(Word(s1) & ~Word(s2));
+        }
+        else
+        {
+            DiffLong(env, r, s1, s2);
         }
     }
 
@@ -269,6 +306,18 @@ public:
         else
         {
             IntersectionDLong(env, bs1, bs2);
+        }
+    }
+
+    static void Intersection(Env env, Set& r, ConstSet s1, ConstSet s2)
+    {
+        if (IsShort(env))
+        {
+            r = Set(Word(s1) & Word(s2));
+        }
+        else
+        {
+            IntersectionLong(env, r, s1, s2);
         }
     }
 
@@ -606,6 +655,16 @@ private:
         }
     }
 
+    static void UnionLong(Env env, Set r, ConstSet s1, ConstSet s2)
+    {
+        assert(!IsShort(env));
+        unsigned len = BitSetTraits::GetArrSize(env, sizeof(size_t));
+        for (unsigned i = 0; i < len; i++)
+        {
+            r[i] = s1[i] | s2[i];
+        }
+    }
+
     static void DiffDLong(Env env, Set bs1, ConstSet bs2)
     {
         assert(!IsShort(env));
@@ -613,6 +672,16 @@ private:
         for (unsigned i = 0; i < len; i++)
         {
             bs1[i] &= ~bs2[i];
+        }
+    }
+
+    static void DiffLong(Env env, Set r, ConstSet s1, ConstSet s2)
+    {
+        assert(!IsShort(env));
+        unsigned len = BitSetTraits::GetArrSize(env, sizeof(size_t));
+        for (unsigned i = 0; i < len; i++)
+        {
+            r[i] = s1[i] & ~s2[i];
         }
     }
 
@@ -732,6 +801,16 @@ private:
         for (unsigned i = 0; i < len; i++)
         {
             bs1[i] &= bs2[i];
+        }
+    }
+
+    static void IntersectionLong(Env env, Set r, ConstSet s1, ConstSet s2)
+    {
+        assert(!IsShort(env));
+        unsigned len = BitSetTraits::GetArrSize(env, sizeof(size_t));
+        for (unsigned i = 0; i < len; i++)
+        {
+            r[i] = s1[i] & s2[i];
         }
     }
 

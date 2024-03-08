@@ -1908,7 +1908,7 @@ void LinearScan::checkLastUses(BasicBlock* block)
     // block that we've already seen).  When we encounter a use, if it's
     // not in that set, then it's a last use.
 
-    VARSET_TP computedLive(VarSetOps::MakeCopy(compiler, block->bbLiveOut));
+    VARSET_TP computedLive = VarSetOps::MakeCopy(compiler, block->bbLiveOut);
 
     bool                       foundDiff       = false;
     RefPositionReverseIterator reverseIterator = refPositions.rbegin();
@@ -1975,8 +1975,8 @@ void LinearScan::checkLastUses(BasicBlock* block)
         assert(reverseIterator != refPositions.rend());
     }
 
-    VARSET_TP liveInNotComputedLive = VarSetOps::MakeCopy(compiler, block->bbLiveIn);
-    VarSetOps::DiffD(compiler, liveInNotComputedLive, computedLive);
+    VARSET_TP liveInNotComputedLive = VarSetOps::Alloc(compiler);
+    VarSetOps::Diff(compiler, liveInNotComputedLive, block->bbLiveIn, computedLive);
 
     // We may have exception vars in the liveIn set of exception blocks that are not computed live.
     if (compiler->ehBlockHasExnFlowDsc(block))
@@ -3729,8 +3729,8 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
         predVarToRegMap = inVarToRegMap;
     }
 
-    currentLiveVars = VarSetOps::MakeCopy(compiler, registerCandidateVars);
-    VarSetOps::IntersectionD(compiler, currentLiveVars, currentBlock->bbLiveIn);
+    currentLiveVars = VarSetOps::Alloc(compiler);
+    VarSetOps::Intersection(compiler, currentLiveVars, registerCandidateVars, currentBlock->bbLiveIn);
 #ifdef DEBUG
     if (getLsraExtendLifeTimes())
     {
@@ -4020,8 +4020,8 @@ void LinearScan::processBlockEndLocations(BasicBlock* currentBlock)
     assert(currentBlock != nullptr && currentBlock->bbNum == curBBNum);
     VarToRegMap outVarToRegMap = getOutVarToRegMap(curBBNum);
 
-    currentLiveVars = VarSetOps::MakeCopy(compiler, registerCandidateVars);
-    VarSetOps::IntersectionD(compiler, currentLiveVars, currentBlock->bbLiveOut);
+    currentLiveVars = VarSetOps::Alloc(compiler);
+    VarSetOps::Intersection(compiler, currentLiveVars, registerCandidateVars, currentBlock->bbLiveOut);
 #ifdef DEBUG
     if (getLsraExtendLifeTimes())
     {
@@ -7108,14 +7108,14 @@ void LinearScan::addResolution(
 
 void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block)
 {
-    VARSET_TP outResolutionSet = VarSetOps::MakeCopy(compiler, block->bbLiveOut);
-    VarSetOps::IntersectionD(compiler, outResolutionSet, resolutionCandidateVars);
+    VARSET_TP outResolutionSet = VarSetOps::Alloc(compiler);
+    VarSetOps::Intersection(compiler, outResolutionSet, block->bbLiveOut, resolutionCandidateVars);
     if (VarSetOps::IsEmpty(compiler, outResolutionSet))
     {
         return;
     }
-    VARSET_TP sameResolutionSet(VarSetOps::MakeEmpty(compiler));
-    VARSET_TP diffResolutionSet(VarSetOps::MakeEmpty(compiler));
+    VARSET_TP sameResolutionSet = VarSetOps::MakeEmpty(compiler);
+    VARSET_TP diffResolutionSet = VarSetOps::MakeEmpty(compiler);
 
     // Get the outVarToRegMap for this block
     VarToRegMap outVarToRegMap = getOutVarToRegMap(block->bbNum);
@@ -7358,8 +7358,8 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block)
             // Now collect the resolution set for just this edge, if any.
             // Check only the vars in diffResolutionSet that are live-in to this successor.
             VarToRegMap succInVarToRegMap = getInVarToRegMap(succBlock->bbNum);
-            VARSET_TP   edgeResolutionSet = VarSetOps::MakeCopy(compiler, diffResolutionSet);
-            VarSetOps::IntersectionD(compiler, edgeResolutionSet, succBlock->bbLiveIn);
+            VARSET_TP   edgeResolutionSet = VarSetOps::Alloc(compiler);
+            VarSetOps::Intersection(compiler, edgeResolutionSet, diffResolutionSet, succBlock->bbLiveIn);
             for (VarSetOps::Enumerator e(compiler, edgeResolutionSet); e.MoveNext();)
             {
                 regNumber fromReg = getVarReg(outVarToRegMap, e.Current());
@@ -7469,8 +7469,8 @@ void LinearScan::resolveEdges()
         // we may need resolution at the beginning of this block.
         // This may be true even if it's the block we used for starting locations,
         // if a variable was spilled.
-        VARSET_TP inResolutionSet = VarSetOps::MakeCopy(compiler, block->bbLiveIn);
-        VarSetOps::IntersectionD(compiler, inResolutionSet, resolutionCandidateVars);
+        VARSET_TP inResolutionSet = VarSetOps::Alloc(compiler);
+        VarSetOps::Intersection(compiler, inResolutionSet, block->bbLiveIn, resolutionCandidateVars);
         if (!VarSetOps::IsEmpty(compiler, inResolutionSet))
         {
             if (uniquePredBlock != nullptr)
@@ -7499,8 +7499,8 @@ void LinearScan::resolveEdges()
             BasicBlock* succBlock = block->GetSucc(0, compiler);
             if (succBlock->GetUniquePred(compiler) == nullptr)
             {
-                VARSET_TP outResolutionSet = VarSetOps::MakeCopy(compiler, succBlock->bbLiveIn);
-                VarSetOps::IntersectionD(compiler, outResolutionSet, resolutionCandidateVars);
+                VARSET_TP outResolutionSet = VarSetOps::Alloc(compiler);
+                VarSetOps::Intersection(compiler, outResolutionSet, succBlock->bbLiveIn, resolutionCandidateVars);
                 if (!VarSetOps::IsEmpty(compiler, outResolutionSet))
                 {
                     resolveEdge(block, succBlock, ResolveJoin, outResolutionSet);
@@ -7757,8 +7757,8 @@ void LinearScan::resolveEdge(BasicBlock*      fromBlock,
     // for these so that their registers are freed and can be reused.
     if ((resolveType == ResolveJoin) && (compiler->compHndBBtabCount > 0))
     {
-        VARSET_TP extraLiveSet = VarSetOps::MakeCopy(compiler, block->bbLiveOut);
-        VarSetOps::DiffD(compiler, extraLiveSet, toBlock->bbLiveIn);
+        VARSET_TP extraLiveSet = VarSetOps::Alloc(compiler);
+        VarSetOps::Diff(compiler, extraLiveSet, block->bbLiveOut, toBlock->bbLiveIn);
         VarSetOps::IntersectionD(compiler, extraLiveSet, registerCandidateVars);
 
         for (VarSetOps::Enumerator e(compiler, extraLiveSet); e.MoveNext();)

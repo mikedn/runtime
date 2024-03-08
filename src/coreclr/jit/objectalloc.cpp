@@ -243,20 +243,16 @@ void ObjectAllocator::ComputeEscapingNodes(BitVecTraits* bitVecTraits, BitVec& e
         {
             const unsigned lclNum = e.Current();
 
-            if (BitVec adjaceny = m_ConnGraphAdjacencyMatrix[lclNum])
+            if (BitVec adjacency = m_ConnGraphAdjacencyMatrix[lclNum])
             {
                 doOneMoreIteration = true;
 
                 if (newEscapingNodes == BitVecOps::UninitVal())
                 {
-                    newEscapingNodes = BitVecOps::MakeCopy(bitVecTraits, adjaceny);
-                }
-                else
-                {
-                    BitVecOps::Assign(bitVecTraits, newEscapingNodes, adjaceny);
+                    newEscapingNodes = BitVecOps::Alloc(bitVecTraits);
                 }
 
-                BitVecOps::DiffD(bitVecTraits, newEscapingNodes, escapingNodes);
+                BitVecOps::Diff(bitVecTraits, newEscapingNodes, adjacency, escapingNodes);
                 BitVecOps::UnionD(bitVecTraits, escapingNodesToProcess, newEscapingNodes);
                 BitVecOps::UnionD(bitVecTraits, escapingNodes, newEscapingNodes);
                 BitVecOps::RemoveElemD(bitVecTraits, escapingNodesToProcess, lclNum);
