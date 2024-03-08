@@ -1631,6 +1631,9 @@ void LinearScan::buildIntervals()
     // at the entry to each block (this will include the incoming args on the first block).
     currentLiveVars = VarSetOps::MakeEmpty(compiler);
 
+    BlockSetOps::ClearD(compiler, bbVisitedSet);
+    BlockSetOps::AddElemD(compiler, bbVisitedSet, blockSequence[0]->bbNum);
+
     for (BasicBlock* block = startBlockSequence(); block != nullptr; block = moveToNextBlock())
     {
         JITDUMP("\nNEW BLOCK " FMT_BB "\n", block->bbNum);
@@ -1782,7 +1785,6 @@ void LinearScan::buildIntervals()
         }
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 
-        // Note: the visited set is cleared in LinearScan::doLinearScan()
         BlockSetOps::AddElemD(compiler, bbVisitedSet, block->bbNum);
 
 #ifdef DEBUG

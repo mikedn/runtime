@@ -1049,8 +1049,6 @@ BasicBlock* LinearScan::startBlockSequence()
     curBBSeqNum       = 0;
     curBBNum          = curBB->bbNum;
     assert(curBB == compiler->fgFirstBB);
-    BlockSetOps::ClearD(compiler, bbVisitedSet);
-    BlockSetOps::AddElemD(compiler, bbVisitedSet, curBB->bbNum);
 
     return curBB;
 }
@@ -3154,7 +3152,6 @@ void LinearScan::processBlockEndAllocation(BasicBlock* currentBlock)
     {
         processBlockEndLocations(currentBlock);
     }
-    BlockSetOps::AddElemD(compiler, bbVisitedSet, currentBlock->bbNum);
 
     // Get the next block to allocate.
     // When the last block in the method has successors, there will be a final "RefTypeBB" to
