@@ -1043,20 +1043,15 @@ void LinearScan::removeFromBlockSequenceWorkList(BasicBlockList* listNode, Basic
 // Initialize the block order for allocation (called each time a new traversal begins).
 BasicBlock* LinearScan::startBlockSequence()
 {
-    if (blockSequence == nullptr)
-    {
-        setBlockSequence();
-    }
-    else
-    {
-        BlockSetOps::ClearD(compiler, bbVisitedSet);
-    }
+    assert(blockSequence != nullptr);
 
     BasicBlock* curBB = blockSequence[0];
     curBBSeqNum       = 0;
     curBBNum          = curBB->bbNum;
     assert(curBB == compiler->fgFirstBB);
+    BlockSetOps::ClearD(compiler, bbVisitedSet);
     BlockSetOps::AddElemD(compiler, bbVisitedSet, curBB->bbNum);
+
     return curBB;
 }
 
@@ -8729,7 +8724,7 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
         printf("\n");
     }
 
-    for (BasicBlock* block = startBlockSequence(); block != nullptr; block = moveToNextBlock())
+    for (BasicBlock* block : jitstd::span<BasicBlock*>(blockSequence, bbSeqCount))
     {
         currentLoc += 2;
 

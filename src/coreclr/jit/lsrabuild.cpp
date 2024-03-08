@@ -1542,22 +1542,13 @@ void LinearScan::buildIntervals()
     // remove the frame pointer from the masks.
     setFrameType();
 
+    setBlockSequence();
+
     DBEXEC(VERBOSE, TupleStyleDump(LSRA_DUMP_PRE));
 
     JITDUMP("\nbuildIntervals second part ========\n");
 
     currentLoc = 0;
-    // TODO-Cleanup: This duplicates prior behavior where entry (ParamDef) RefPositions were
-    // being assigned the bbNum of the last block traversed in the 2nd phase of Lowering.
-    // Previously, the block sequencing was done for the (formerly separate) Build pass,
-    // and the curBBNum was left as the last block sequenced. This block was then used to set the
-    // weight for the entry (ParamDef) RefPositions. It would be logical to set this to the
-    // normalized entry weight (compiler->fgCalledCount), but that results in a net regression.
-    if (blockSequence == nullptr)
-    {
-        setBlockSequence();
-    }
-
     // Next, create ParamDef RefPositions for all the tracked parameters, in order of their varIndex.
     // Assign these RefPositions to the (nonexistent) BB0.
     curBBNum = 0;
