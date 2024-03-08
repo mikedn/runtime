@@ -674,59 +674,41 @@ LinearScan::LinearScan(Compiler* compiler)
 BasicBlock* LinearScan::getNextCandidateFromWorkList()
 {
     BasicBlockList* nextWorkList = nullptr;
+
     for (BasicBlockList* workList = blockSequenceWorkList; workList != nullptr; workList = nextWorkList)
     {
         nextWorkList          = workList->next;
         BasicBlock* candBlock = workList->block;
         removeFromBlockSequenceWorkList(workList, nullptr);
-        if (!isBlockVisited(candBlock))
+        if (!BlockSetOps::IsMember(compiler, bbVisitedSet, candBlock->bbNum))
         {
             return candBlock;
         }
     }
+
     return nullptr;
 }
 
-//------------------------------------------------------------------------
-// setBlockSequence: Determine the block order for register allocation.
-//
-// Arguments:
-//    None
-//
-// Return Value:
-//    None
-//
-// Notes:
-//    On return, the blockSequence array contains the blocks, in the order in which they
-//    will be allocated.
-//    This method clears the bbVisitedSet on LinearScan, and when it returns the set
-//    contains all the bbNums for the block.
-
+// Determine the block order for register allocation.
+// On return, the blockSequence array contains the blocks,
+// in the order in which they will be allocated.
 void LinearScan::setBlockSequence()
 {
-    assert(!blockSequencingDone); // The method should be called only once.
+    assert((blockSequence == nullptr) && (bbSeqCount == 0)); // The method should be called only once.
+    assert(blockSequenceWorkList == nullptr);
 
     compiler->EnsureBasicBlockEpoch();
-#ifdef DEBUG
-    blockEpoch = compiler->GetCurBasicBlockEpoch();
-#endif // DEBUG
+    INDEBUG(blockEpoch = compiler->GetCurBasicBlockEpoch());
 
-    // Initialize the "visited" blocks set.
     bbVisitedSet = BlockSetOps::MakeEmpty(compiler);
 
-    BlockSet readySet(BlockSetOps::MakeEmpty(compiler));
-    BlockSet predSet(BlockSetOps::MakeEmpty(compiler));
+    BlockSet readySet = BlockSetOps::MakeEmpty(compiler);
+    BlockSet predSet  = BlockSetOps::MakeEmpty(compiler);
 
-    assert(blockSequence == nullptr && bbSeqCount == 0);
     blockSequence            = new (compiler, CMK_LSRA) BasicBlock*[compiler->fgBBcount];
     bbNumMaxBeforeResolution = compiler->fgBBNumMax;
     blockInfo                = new (compiler, CMK_LSRA) LsraBlockInfo[bbNumMaxBeforeResolution + 1];
 
-    assert(blockSequenceWorkList == nullptr);
-
-    verifiedAllBBs   = false;
-    hasCriticalEdges = false;
-    BasicBlock* nextBlock;
     // We use a bbNum of 0 for entry RefPositions.
     // The other information in blockInfo[0] will never be used.
     blockInfo[0].weight = BB_UNITY_WEIGHT;
@@ -738,50 +720,50 @@ void LinearScan::setBlockSequence()
 #endif // TRACK_LSRA_STATS
 
     JITDUMP("Start LSRA Block Sequence: \n");
-    for (BasicBlock* block = compiler->fgFirstBB; block != nullptr; block = nextBlock)
+    bool verifiedAllBBs = false;
+
+    for (BasicBlock *block = compiler->fgFirstBB, *nextBlock; block != nullptr; block = nextBlock)
     {
         JITDUMP("Current block: " FMT_BB "\n", block->bbNum);
-        blockSequence[bbSeqCount] = block;
-        markBlockVisited(block);
-        bbSeqCount++;
+        blockSequence[bbSeqCount++] = block;
+        BlockSetOps::AddElemD(compiler, bbVisitedSet, block->bbNum);
         nextBlock = nullptr;
 
+        LsraBlockInfo& info = blockInfo[block->bbNum];
+
         // Initialize the blockInfo.
+
+        // We treat BBCallAlwaysPairTail blocks as having EH flow, since we can't
+        // insert resolution moves into those blocks.
+        bool isCallFinallyAlwaysPairTail = block->IsCallFinallyAlwaysPairTail();
+
         // predBBNum will be set later.
         // 0 is never used as a bbNum, but is used in blockInfo to designate an exception entry block.
-        blockInfo[block->bbNum].predBBNum = 0;
-        // We check for critical edges below, but initialize to false.
-        blockInfo[block->bbNum].hasCriticalInEdge  = false;
-        blockInfo[block->bbNum].hasCriticalOutEdge = false;
-        blockInfo[block->bbNum].weight             = block->getBBWeight(compiler);
-        blockInfo[block->bbNum].hasEHBoundaryIn    = block->hasEHBoundaryIn();
-        blockInfo[block->bbNum].hasEHBoundaryOut   = block->hasEHBoundaryOut();
-        blockInfo[block->bbNum].hasEHPred          = false;
+        info.predBBNum          = 0;
+        info.weight             = block->getBBWeight(compiler);
+        info.hasEHBoundaryIn    = isCallFinallyAlwaysPairTail || block->hasEHBoundaryIn();
+        info.hasEHBoundaryOut   = isCallFinallyAlwaysPairTail || block->hasEHBoundaryOut();
+        info.hasEHPred          = false;
+        info.hasCriticalInEdge  = false;
+        info.hasCriticalOutEdge = false;
 
 #if TRACK_LSRA_STATS
         for (int statIndex = 0; statIndex < LsraStat::COUNT; statIndex++)
         {
-            blockInfo[block->bbNum].stats[statIndex] = 0;
+            info.stats[statIndex] = 0;
         }
-#endif // TRACK_LSRA_STATS
-
-        // We treat BBCallAlwaysPairTail blocks as having EH flow, since we can't
-        // insert resolution moves into those blocks.
-        if (block->isBBCallAlwaysPairTail())
-        {
-            blockInfo[block->bbNum].hasEHBoundaryIn  = true;
-            blockInfo[block->bbNum].hasEHBoundaryOut = true;
-        }
+#endif
 
         bool hasUniquePred = (block->GetUniquePred(compiler) != nullptr);
+
         for (BasicBlock* const predBlock : block->PredBlocks())
         {
             if (!hasUniquePred)
             {
                 if (predBlock->NumSucc(compiler) > 1)
                 {
-                    blockInfo[block->bbNum].hasCriticalInEdge = true;
-                    hasCriticalEdges                          = true;
+                    info.hasCriticalInEdge = true;
+                    hasCriticalEdges       = true;
                 }
                 else if (predBlock->bbJumpKind == BBJ_SWITCH)
                 {
@@ -797,11 +779,11 @@ void LinearScan::setBlockSequence()
                 if (hasUniquePred)
                 {
                     // A unique pred with an EH out edge won't allow us to keep any variables enregistered.
-                    blockInfo[block->bbNum].hasEHBoundaryIn = true;
+                    info.hasEHBoundaryIn = true;
                 }
                 else
                 {
-                    blockInfo[block->bbNum].hasEHPred = true;
+                    info.hasEHPred = true;
                 }
             }
         }
@@ -812,6 +794,7 @@ void LinearScan::setBlockSequence()
         // according to the desired order.  We will handle the EH successors below.
         const unsigned numSuccs                = block->NumSucc(compiler);
         bool           checkForCriticalOutEdge = (numSuccs > 1);
+
         if (!checkForCriticalOutEdge && block->bbJumpKind == BBJ_SWITCH)
         {
             assert(!"Switch with single successor");
@@ -820,15 +803,16 @@ void LinearScan::setBlockSequence()
         for (unsigned succIndex = 0; succIndex < numSuccs; succIndex++)
         {
             BasicBlock* succ = block->GetSucc(succIndex, compiler);
+
             if (checkForCriticalOutEdge && succ->GetUniquePred(compiler) == nullptr)
             {
-                blockInfo[block->bbNum].hasCriticalOutEdge = true;
-                hasCriticalEdges                           = true;
+                info.hasCriticalOutEdge = true;
+                hasCriticalEdges        = true;
                 // We can stop checking now.
                 checkForCriticalOutEdge = false;
             }
 
-            if (isTraversalLayoutOrder() || isBlockVisited(succ))
+            if (isTraversalLayoutOrder() || BlockSetOps::IsMember(compiler, bbVisitedSet, succ->bbNum))
             {
                 continue;
             }
@@ -869,13 +853,14 @@ void LinearScan::setBlockSequence()
 
                 for (BasicBlock* const seqBlock : compiler->Blocks())
                 {
-                    if (!isBlockVisited(seqBlock))
+                    if (!BlockSetOps::IsMember(compiler, bbVisitedSet, seqBlock->bbNum))
                     {
                         JITDUMP("\tUnvisited block: " FMT_BB, seqBlock->bbNum);
                         addToBlockSequenceWorkList(readySet, seqBlock, predSet);
                         BlockSetOps::AddElemD(compiler, readySet, seqBlock->bbNum);
                     }
                 }
+
                 verifiedAllBBs = true;
             }
             else
@@ -884,36 +869,24 @@ void LinearScan::setBlockSequence()
             }
         }
     }
-    blockSequencingDone = true;
 
 #ifdef DEBUG
     // Make sure that we've visited all the blocks.
     for (BasicBlock* const block : compiler->Blocks())
     {
-        assert(isBlockVisited(block));
+        assert(BlockSetOps::IsMember(compiler, bbVisitedSet, block->bbNum));
     }
 
     JITDUMP("Final LSRA Block Sequence: \n");
-    int i = 1;
-    for (BasicBlock *block = startBlockSequence(); block != nullptr; ++i, block = moveToNextBlock())
-    {
-        JITDUMP(FMT_BB, block->bbNum);
-        JITDUMP("(%6s) ", refCntWtd2str(block->getBBWeight(compiler)));
 
-        if (blockInfo[block->bbNum].hasEHBoundaryIn)
-        {
-            JITDUMP(" EH-in");
-        }
-        if (blockInfo[block->bbNum].hasEHBoundaryOut)
-        {
-            JITDUMP(" EH-out");
-        }
-        if (blockInfo[block->bbNum].hasEHPred)
-        {
-            JITDUMP(" has EH pred");
-        }
-        JITDUMP("\n");
+    for (BasicBlock* block : jitstd::span<BasicBlock*>(blockSequence, bbSeqCount))
+    {
+        JITDUMP(FMT_BB "(%6s) %s%s%s\n", block->bbNum, refCntWtd2str(block->getBBWeight(compiler)),
+                blockInfo[block->bbNum].hasEHBoundaryIn ? " EH-in" : "",
+                blockInfo[block->bbNum].hasEHBoundaryOut ? " EH-out" : "",
+                blockInfo[block->bbNum].hasEHPred ? " has EH pred" : "");
     }
+
     JITDUMP("\n");
 #endif
 }
@@ -965,36 +938,24 @@ int LinearScan::compareBlocksForSequencing(BasicBlock* block1, BasicBlock* block
     }
 }
 
-//------------------------------------------------------------------------
-// addToBlockSequenceWorkList: Add a BasicBlock to the work list for sequencing.
+// Add a BasicBlock to the work list for sequencing.
 //
-// Arguments:
-//    sequencedBlockSet - the set of blocks that are already sequenced
-//    block             - the new block to be added
-//    predSet           - the buffer to save predecessors set. A block set allocated by the caller used here as a
-//    temporary block set for constructing a predecessor set. Allocated by the caller to avoid reallocating a new block
-//    set with every call to this function
+// The first block in the list will be the next one to be sequenced, as soon
+// as we encounter a block whose successors have all been sequenced, in pred-first
+// order, or the very next block if we are traversing in random order (once implemented).
+// This method uses a comparison method to determine the order in which to place
+// the blocks in the list.  This method queries whether all predecessors of the
+// block are sequenced at the time it is added to the list and if so uses block weights
+// for inserting the block.  A block is never inserted ahead of its predecessors.
+// A block at the time of insertion may not have all its predecessors sequenced, in
+// which case it will be sequenced based on its block number. Once a block is inserted,
+// its priority\order will not be changed later once its remaining predecessors are
+// sequenced.  This would mean that work list may not be sorted entirely based on
+// block weights alone.
 //
-// Return Value:
-//    None.
-//
-// Notes:
-//    The first block in the list will be the next one to be sequenced, as soon
-//    as we encounter a block whose successors have all been sequenced, in pred-first
-//    order, or the very next block if we are traversing in random order (once implemented).
-//    This method uses a comparison method to determine the order in which to place
-//    the blocks in the list.  This method queries whether all predecessors of the
-//    block are sequenced at the time it is added to the list and if so uses block weights
-//    for inserting the block.  A block is never inserted ahead of its predecessors.
-//    A block at the time of insertion may not have all its predecessors sequenced, in
-//    which case it will be sequenced based on its block number. Once a block is inserted,
-//    its priority\order will not be changed later once its remaining predecessors are
-//    sequenced.  This would mean that work list may not be sorted entirely based on
-//    block weights alone.
-//
-//    Note also that, when random traversal order is implemented, this method
-//    should insert the blocks into the list in random order, so that we can always
-//    simply select the first block in the list.
+// Note also that, when random traversal order is implemented, this method
+// should insert the blocks into the list in random order, so that we can always
+// simply select the first block in the list.
 void LinearScan::addToBlockSequenceWorkList(BlockSet sequencedBlockSet, BasicBlock* block, BlockSet& predSet)
 {
     // The block that is being added is not already sequenced
@@ -1082,36 +1043,26 @@ void LinearScan::removeFromBlockSequenceWorkList(BasicBlockList* listNode, Basic
 // Initialize the block order for allocation (called each time a new traversal begins).
 BasicBlock* LinearScan::startBlockSequence()
 {
-    if (!blockSequencingDone)
+    if (blockSequence == nullptr)
     {
         setBlockSequence();
     }
     else
     {
-        clearVisitedBlocks();
+        BlockSetOps::ClearD(compiler, bbVisitedSet);
     }
 
-    BasicBlock* curBB = compiler->fgFirstBB;
+    BasicBlock* curBB = blockSequence[0];
     curBBSeqNum       = 0;
     curBBNum          = curBB->bbNum;
-    assert(blockSequence[0] == compiler->fgFirstBB);
-    markBlockVisited(curBB);
+    assert(curBB == compiler->fgFirstBB);
+    BlockSetOps::AddElemD(compiler, bbVisitedSet, curBB->bbNum);
     return curBB;
 }
 
-//------------------------------------------------------------------------
-// moveToNextBlock: Move to the next block in order for allocation or resolution.
-//
-// Arguments:
-//    None
-//
-// Return Value:
-//    The next block.
-//
-// Notes:
-//    This method is used when the next block is actually going to be handled.
-//    It changes curBBNum.
-
+// Move to the next block in order for allocation or resolution.
+// This method is used when the next block is actually going to be handled.
+// It changes curBBNum.
 BasicBlock* LinearScan::moveToNextBlock()
 {
     BasicBlock* nextBlock = getNextBlock();
@@ -1123,39 +1074,15 @@ BasicBlock* LinearScan::moveToNextBlock()
     return nextBlock;
 }
 
-//------------------------------------------------------------------------
-// getNextBlock: Get the next block in order for allocation or resolution.
-//
-// Arguments:
-//    None
-//
-// Return Value:
-//    The next block.
-//
-// Notes:
-//    This method does not actually change the current block - it is used simply
-//    to determine which block will be next.
-
+// Get the next block in order for allocation or resolution.
+// This method does not actually change the current block - it is used simply
+// to determine which block will be next.
 BasicBlock* LinearScan::getNextBlock()
 {
-    assert(blockSequencingDone);
-    unsigned int nextBBSeqNum = curBBSeqNum + 1;
-    if (nextBBSeqNum < bbSeqCount)
-    {
-        return blockSequence[nextBBSeqNum];
-    }
-    return nullptr;
+    assert(blockSequence != nullptr);
+    unsigned nextBBSeqNum = curBBSeqNum + 1;
+    return nextBBSeqNum < bbSeqCount ? blockSequence[nextBBSeqNum] : nullptr;
 }
-
-//------------------------------------------------------------------------
-// doLinearScan: The main method for register allocation.
-//
-// Arguments:
-//    None
-//
-// Return Value:
-//    None.
-//
 
 void LinearScan::doLinearScan()
 {
@@ -1172,7 +1099,7 @@ void LinearScan::doLinearScan()
     resolveRegisters();
     compiler->EndPhase(PHASE_LINEAR_SCAN_RESOLVE);
 
-    assert(blockSequencingDone); // Should do at least one traversal.
+    assert(blockSequence != nullptr); // Should do at least one traversal.
     assert(blockEpoch == compiler->GetCurBasicBlockEpoch());
 
 #if TRACK_LSRA_STATS
@@ -3232,7 +3159,7 @@ void LinearScan::processBlockEndAllocation(BasicBlock* currentBlock)
     {
         processBlockEndLocations(currentBlock);
     }
-    markBlockVisited(currentBlock);
+    BlockSetOps::AddElemD(compiler, bbVisitedSet, currentBlock->bbNum);
 
     // Get the next block to allocate.
     // When the last block in the method has successors, there will be a final "RefTypeBB" to
@@ -6003,7 +5930,6 @@ void LinearScan::resolveRegisters()
     // At each branch, we identify the location of each liveOut interval, and check
     // against the RefPositions at the target.
 
-    BasicBlock*  block;
     LsraLocation currentLocation = MinLocation;
 
     // Clear register assignments - these will be reestablished as lclVar defs (including RefTypeParamDefs)
@@ -6074,7 +6000,7 @@ void LinearScan::resolveRegisters()
     }
 
     // write back assignments
-    for (block = startBlockSequence(); block != nullptr; block = moveToNextBlock())
+    for (BasicBlock* block = startBlockSequence(); block != nullptr; block = moveToNextBlock())
     {
         assert(curBBNum == block->bbNum);
 
@@ -7189,8 +7115,10 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block)
             // Now collect the resolution set for just this edge, if any.
             // Check only the vars in diffResolutionSet that are live-in to this successor.
             VarToRegMap succInVarToRegMap = getInVarToRegMap(succBlock->bbNum);
-            VARSET_TP   edgeResolutionSet = VarSetOps::Alloc(compiler);
+
+            VARSET_TP edgeResolutionSet = VarSetOps::Alloc(compiler);
             VarSetOps::Intersection(compiler, edgeResolutionSet, diffResolutionSet, succBlock->bbLiveIn);
+
             for (VarSetOps::Enumerator e(compiler, edgeResolutionSet); e.MoveNext();)
             {
                 regNumber fromReg = getVarReg(outVarToRegMap, e.Current());
@@ -7201,6 +7129,7 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block)
                     VarSetOps::RemoveElemD(compiler, edgeResolutionSet, e.Current());
                 }
             }
+
             if (!VarSetOps::IsEmpty(compiler, edgeResolutionSet))
             {
                 // For EH vars, we can always safely load them from the stack into the target for this block,
@@ -8738,7 +8667,6 @@ void LinearScan::DumpOperandDefs(
 
 void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
 {
-    BasicBlock*    block;
     LsraLocation   currentLoc          = 1; // 0 is the entry
     const unsigned operandStringLength = 6 * MAX_MULTIREG_COUNT + 1;
     char           operandString[operandStringLength];
@@ -8801,7 +8729,7 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
         printf("\n");
     }
 
-    for (block = startBlockSequence(); block != nullptr; block = moveToNextBlock())
+    for (BasicBlock* block = startBlockSequence(); block != nullptr; block = moveToNextBlock())
     {
         currentLoc += 2;
 

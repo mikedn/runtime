@@ -1511,8 +1511,6 @@ void LinearScan::AddLiveParamRegs(LclVarDsc* lcl)
 
 void LinearScan::buildIntervals()
 {
-    BasicBlock* block;
-
     JITDUMP("\nbuildIntervals ========\n");
 
 #ifdef DEBUG
@@ -1546,8 +1544,8 @@ void LinearScan::buildIntervals()
 
     DBEXEC(VERBOSE, TupleStyleDump(LSRA_DUMP_PRE));
 
-    // second part:
     JITDUMP("\nbuildIntervals second part ========\n");
+
     currentLoc = 0;
     // TODO-Cleanup: This duplicates prior behavior where entry (ParamDef) RefPositions were
     // being assigned the bbNum of the last block traversed in the 2nd phase of Lowering.
@@ -1555,7 +1553,7 @@ void LinearScan::buildIntervals()
     // and the curBBNum was left as the last block sequenced. This block was then used to set the
     // weight for the entry (ParamDef) RefPositions. It would be logical to set this to the
     // normalized entry weight (compiler->fgCalledCount), but that results in a net regression.
-    if (!blockSequencingDone)
+    if (blockSequence == nullptr)
     {
         setBlockSequence();
     }
@@ -1636,19 +1634,18 @@ void LinearScan::buildIntervals()
         compiler->codeGen->paramRegState.intRegLiveIn |= RBM_SECRET_STUB_PARAM;
     }
 
-    BasicBlock* predBlock = nullptr;
     BasicBlock* prevBlock = nullptr;
 
     // Initialize currentLiveVars to the empty set. We will set it to the current live-in
     // at the entry to each block (this will include the incoming args on the first block).
     currentLiveVars = VarSetOps::MakeEmpty(compiler);
 
-    for (block = startBlockSequence(); block != nullptr; block = moveToNextBlock())
+    for (BasicBlock* block = startBlockSequence(); block != nullptr; block = moveToNextBlock())
     {
         JITDUMP("\nNEW BLOCK " FMT_BB "\n", block->bbNum);
 
-        bool predBlockIsAllocated = false;
-        predBlock                 = findPredBlockForLiveIn(block, prevBlock DEBUGARG(&predBlockIsAllocated));
+        INDEBUG(bool predBlockIsAllocated = false);
+        BasicBlock* predBlock = findPredBlockForLiveIn(block, prevBlock DEBUGARG(&predBlockIsAllocated));
         if (predBlock != nullptr)
         {
             JITDUMP("\n\nSetting " FMT_BB " as the predecessor for determining incoming variable registers of " FMT_BB
@@ -1790,7 +1787,7 @@ void LinearScan::buildIntervals()
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 
         // Note: the visited set is cleared in LinearScan::doLinearScan()
-        markBlockVisited(block);
+        BlockSetOps::AddElemD(compiler, bbVisitedSet, block->bbNum);
 
 #ifdef DEBUG
         if (!defList.IsEmpty())
@@ -1835,7 +1832,7 @@ void LinearScan::buildIntervals()
                     break;
                 }
 
-                if (isBlockVisited(succ))
+                if (BlockSetOps::IsMember(compiler, bbVisitedSet, succ->bbNum))
                 {
                     continue;
                 }
@@ -1993,7 +1990,7 @@ void LinearScan::buildIntervals()
     // Make sure we don't have any blocks that were not visited
     for (BasicBlock* const block : compiler->Blocks())
     {
-        assert(isBlockVisited(block));
+        assert(BlockSetOps::IsMember(compiler, bbVisitedSet, block->bbNum));
     }
 
     if (VERBOSE)
@@ -2108,14 +2105,15 @@ BasicBlock* LinearScan::findPredBlockForLiveIn(BasicBlock* block,
         {
             // We should already have returned null if this block has a single incoming EH boundary edge.
             assert(!predBlock->hasEHBoundaryOut());
-            if (isBlockVisited(predBlock))
+            if (BlockSetOps::IsMember(compiler, bbVisitedSet, predBlock->bbNum))
             {
                 if (predBlock->bbJumpKind == BBJ_COND)
                 {
                     // Special handling to improve matching on backedges.
                     BasicBlock* otherBlock = (block == predBlock->bbNext) ? predBlock->bbJumpDest : predBlock->bbNext;
                     noway_assert(otherBlock != nullptr);
-                    if (isBlockVisited(otherBlock) && !blockInfo[otherBlock->bbNum].hasEHBoundaryIn)
+                    if (BlockSetOps::IsMember(compiler, bbVisitedSet, otherBlock->bbNum) &&
+                        !blockInfo[otherBlock->bbNum].hasEHBoundaryIn)
                     {
                         // This is the case when we have a conditional branch where one target has already
                         // been visited.  It would be best to use the same incoming regs as that block,
@@ -2161,7 +2159,7 @@ BasicBlock* LinearScan::findPredBlockForLiveIn(BasicBlock* block,
         {
             for (BasicBlock* const candidatePredBlock : block->PredBlocks())
             {
-                if (isBlockVisited(candidatePredBlock))
+                if (BlockSetOps::IsMember(compiler, bbVisitedSet, candidatePredBlock->bbNum))
                 {
                     if ((predBlock == nullptr) || (predBlock->bbWeight < candidatePredBlock->bbWeight))
                     {

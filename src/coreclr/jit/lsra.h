@@ -1233,18 +1233,6 @@ private:
 
     // Set of blocks that have been visited.
     BlockSet bbVisitedSet;
-    void markBlockVisited(BasicBlock* block)
-    {
-        BlockSetOps::AddElemD(compiler, bbVisitedSet, block->bbNum);
-    }
-    void clearVisitedBlocks()
-    {
-        BlockSetOps::ClearD(compiler, bbVisitedSet);
-    }
-    bool isBlockVisited(BasicBlock* block)
-    {
-        return BlockSetOps::IsMember(compiler, bbVisitedSet, block->bbNum);
-    }
 
 #if DOUBLE_ALIGN
     bool doDoubleAlign = false;
@@ -1258,13 +1246,9 @@ private:
     // The order in which the blocks will be allocated.
     // This is any array of BasicBlock*, in the order in which they should be traversed.
     BasicBlock** blockSequence = nullptr;
-    // The verifiedAllBBs flag indicates whether we have verified that all BBs have been
-    // included in the blockSeuqence above, during setBlockSequence().
-    bool verifiedAllBBs;
-    void setBlockSequence();
+    void         setBlockSequence();
     int compareBlocksForSequencing(BasicBlock* block1, BasicBlock* block2, bool useBlockWeights);
     BasicBlockList* blockSequenceWorkList = nullptr;
-    bool            blockSequencingDone   = false;
 #ifdef DEBUG
     // LSRA must not change number of blocks and blockEpoch that it initializes at start.
     unsigned blockEpoch;
@@ -1289,7 +1273,7 @@ private:
     // The Location of the start of the current block.
     LsraLocation curBBStartLocation;
     // True if the method contains any critical edges.
-    bool hasCriticalEdges;
+    bool hasCriticalEdges = false;
 
     // True if there are any register candidate lclVars available for allocation.
     const bool enregisterLocalVars;
