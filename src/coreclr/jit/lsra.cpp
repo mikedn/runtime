@@ -859,22 +859,9 @@ BlockSet LinearScan::setBlockSequence()
     return visited;
 }
 
-//------------------------------------------------------------------------
-// compareBlocksForSequencing: Compare two basic blocks for sequencing order.
-//
-// Arguments:
-//    block1            - the first block for comparison
-//    block2            - the second block for comparison
-//    useBlockWeights   - whether to use block weights for comparison
-//
-// Return Value:
-//    -1 if block1 is preferred.
-//     0 if the blocks are equivalent.
-//     1 if block2 is preferred.
-//
-// Notes:
-//    See addToBlockSequenceWorkList.
-int LinearScan::compareBlocksForSequencing(BasicBlock* block1, BasicBlock* block2, bool useBlockWeights)
+// Compare two basic blocks for sequencing order.
+// Returns true if block2 is preferred, false otherwise.
+bool LinearScan::compareBlocksForSequencing(BasicBlock* block1, BasicBlock* block2, bool useBlockWeights)
 {
     if (useBlockWeights)
     {
@@ -883,27 +870,16 @@ int LinearScan::compareBlocksForSequencing(BasicBlock* block1, BasicBlock* block
 
         if (weight1 > weight2)
         {
-            return -1;
+            return false;
         }
         else if (weight1 < weight2)
         {
-            return 1;
+            return true;
         }
     }
 
     // If weights are the same prefer LOWER bbnum
-    if (block1->bbNum < block2->bbNum)
-    {
-        return -1;
-    }
-    else if (block1->bbNum == block2->bbNum)
-    {
-        return 0;
-    }
-    else
-    {
-        return 1;
-    }
+    return block2->bbNum < block1->bbNum;
 }
 
 // Add a BasicBlock to the work list for sequencing.
@@ -944,24 +920,25 @@ void LinearScan::addToBlockSequenceWorkList(BlockSet sequencedBlockSet, BasicBlo
     BasicBlockList* nextNode = blockSequenceWorkList;
     while (nextNode != nullptr)
     {
-        int seqResult;
+        BasicBlock* nextBlock = nextNode->block;
+        bool        seqResult;
 
-        if (nextNode->block->isRunRarely())
+        if (nextBlock->isRunRarely())
         {
             // If the block that is yet to be sequenced is a rarely run block, always use block weights for sequencing
-            seqResult = compareBlocksForSequencing(nextNode->block, block, true);
+            seqResult = compareBlocksForSequencing(nextBlock, block, true);
         }
-        else if (BlockSetOps::IsMember(compiler, predSet, nextNode->block->bbNum))
+        else if (BlockSetOps::IsMember(compiler, predSet, nextBlock->bbNum))
         {
             // always prefer unsequenced pred blocks
-            seqResult = -1;
+            seqResult = false;
         }
         else
         {
-            seqResult = compareBlocksForSequencing(nextNode->block, block, useBlockWeight);
+            seqResult = compareBlocksForSequencing(nextBlock, block, useBlockWeight);
         }
 
-        if (seqResult > 0)
+        if (seqResult)
         {
             break;
         }
@@ -981,12 +958,10 @@ void LinearScan::addToBlockSequenceWorkList(BlockSet sequencedBlockSet, BasicBlo
     }
 
 #ifdef DEBUG
-    nextNode = blockSequenceWorkList;
     JITDUMP(", Worklist: [");
-    while (nextNode != nullptr)
+    for (BasicBlockList* node = blockSequenceWorkList; node != nullptr; node = node->next)
     {
-        JITDUMP(FMT_BB " ", nextNode->block->bbNum);
-        nextNode = nextNode->next;
+        JITDUMP(FMT_BB " ", node->block->bbNum);
     }
     JITDUMP("]\n");
 #endif

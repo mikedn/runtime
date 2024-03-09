@@ -1235,7 +1235,7 @@ private:
     // This is any array of BasicBlock*, in the order in which they should be traversed.
     BasicBlock** blockSequence = nullptr;
     BlockSet     setBlockSequence();
-    int compareBlocksForSequencing(BasicBlock* block1, BasicBlock* block2, bool useBlockWeights);
+    bool compareBlocksForSequencing(BasicBlock* block1, BasicBlock* block2, bool useBlockWeights);
     BasicBlockList* blockSequenceWorkList = nullptr;
 #ifdef DEBUG
     // LSRA must not change number of blocks and blockEpoch that it initializes at start.
