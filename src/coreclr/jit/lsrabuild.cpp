@@ -1631,6 +1631,8 @@ void LinearScan::buildIntervals()
     // at the entry to each block (this will include the incoming args on the first block).
     currentLiveVars = VarSetOps::MakeEmpty(compiler);
 
+    VARSET_TP expUseSet = VarSetOps::Alloc(compiler);
+
     BlockSetOps::ClearD(compiler, visited);
     BlockSetOps::AddElemD(compiler, visited, blockSequence[0]->bbNum);
 
@@ -1818,7 +1820,6 @@ void LinearScan::buildIntervals()
             // Note that a block ending with GT_JMP has no successors and hence the variables
             // for which dummy use ref positions are added are arguments of the method.
 
-            VARSET_TP expUseSet = VarSetOps::Alloc(compiler);
             VarSetOps::Intersection(compiler, expUseSet, block->bbLiveOut, registerCandidateVars);
 
             if (blockSeqIndex + 1 < blockSeqCount)
@@ -1833,11 +1834,10 @@ void LinearScan::buildIntervals()
                     break;
                 }
 
-                if (BlockSetOps::IsMember(compiler, visited, succ->bbNum))
+                if (!BlockSetOps::IsMember(compiler, visited, succ->bbNum))
                 {
-                    continue;
+                    VarSetOps::DiffD(compiler, expUseSet, succ->bbLiveIn);
                 }
-                VarSetOps::DiffD(compiler, expUseSet, succ->bbLiveIn);
             }
 
             if (!VarSetOps::IsEmpty(compiler, expUseSet))
@@ -1845,13 +1845,11 @@ void LinearScan::buildIntervals()
                 JITDUMP("Exposed uses:");
                 for (VarSetOps::Enumerator e(compiler, expUseSet); e.MoveNext();)
                 {
-                    LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(e.Current());
-                    assert(varDsc->IsRegCandidate());
                     Interval*    interval = getIntervalForLocalVar(e.Current());
                     RefPosition* pos =
                         newRefPosition(interval, currentLoc, RefTypeExpUse, nullptr, allRegs(interval->registerType));
                     pos->setRegOptional(true);
-                    JITDUMP(" V%02u", varDsc->GetLclNum());
+                    JITDUMP(" " FMT_LCL, compiler->lvaGetDescByTrackedIndex(e.Current())->GetLclNum());
                 }
                 JITDUMP("\n");
             }
@@ -1862,11 +1860,9 @@ void LinearScan::buildIntervals()
                      VarSetOps::EnumOp(compiler, VarSetOps::IntersectionOp, registerCandidateVars, block->bbLiveOut);
                  e.MoveNext();)
             {
-                LclVarDsc* const varDsc = compiler->lvaGetDescByTrackedIndex(e.Current());
-                assert(varDsc->IsRegCandidate());
                 RefPosition* const lastRP = getIntervalForLocalVar(e.Current())->lastRefPosition;
-                // We should be able to assert that lastRP is non-null if it is live-out, but sometimes liveness
-                // lies.
+                // We should be able to assert that lastRP is non-null if it is live-out,
+                // but sometimes liveness lies.
                 if ((lastRP != nullptr) && (lastRP->bbNum == block->bbNum))
                 {
                     lastRP->lastUse = false;
