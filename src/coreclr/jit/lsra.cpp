@@ -657,7 +657,7 @@ LinearScan::LinearScan(Compiler* compiler)
 // Determine the block order for register allocation.
 // On return, the blockSequence array contains the blocks,
 // in the order in which they will be allocated.
-void LinearScan::setBlockSequence()
+BlockSet LinearScan::setBlockSequence()
 {
     assert((blockSequence == nullptr) && (bbSeqCount == 0)); // The method should be called only once.
     assert(blockSequenceWorkList == nullptr);
@@ -665,8 +665,7 @@ void LinearScan::setBlockSequence()
     compiler->EnsureBasicBlockEpoch();
     INDEBUG(blockEpoch = compiler->GetCurBasicBlockEpoch());
 
-    bbVisitedSet = BlockSetOps::MakeEmpty(compiler);
-
+    BlockSet visited  = BlockSetOps::MakeEmpty(compiler);
     BlockSet readySet = BlockSetOps::MakeEmpty(compiler);
     BlockSet predSet  = BlockSetOps::MakeEmpty(compiler);
 
@@ -691,7 +690,7 @@ void LinearScan::setBlockSequence()
     {
         JITDUMP("Current block: " FMT_BB "\n", block->bbNum);
         blockSequence[bbSeqCount++] = block;
-        BlockSetOps::AddElemD(compiler, bbVisitedSet, block->bbNum);
+        BlockSetOps::AddElemD(compiler, visited, block->bbNum);
         nextBlock = nullptr;
 
         LsraBlockInfo& info = blockInfo[block->bbNum];
@@ -777,7 +776,7 @@ void LinearScan::setBlockSequence()
                 checkForCriticalOutEdge = false;
             }
 
-            if (isTraversalLayoutOrder() || BlockSetOps::IsMember(compiler, bbVisitedSet, succ->bbNum))
+            if (isTraversalLayoutOrder() || BlockSetOps::IsMember(compiler, visited, succ->bbNum))
             {
                 continue;
             }
@@ -814,7 +813,7 @@ void LinearScan::setBlockSequence()
 
             for (BasicBlock* const seqBlock : compiler->Blocks())
             {
-                if (!BlockSetOps::IsMember(compiler, bbVisitedSet, seqBlock->bbNum))
+                if (!BlockSetOps::IsMember(compiler, visited, seqBlock->bbNum))
                 {
                     JITDUMP("\tUnvisited block: " FMT_BB, seqBlock->bbNum);
                     addToBlockSequenceWorkList(readySet, seqBlock, predSet);
@@ -832,7 +831,7 @@ void LinearScan::setBlockSequence()
             // TODO-Cleanup: consider merging Compiler::BlockListNode and BasicBlockList
             // compiler->FreeBlockListNode(listNode);
 
-            assert(!BlockSetOps::IsMember(compiler, bbVisitedSet, nextBlock->bbNum));
+            assert(!BlockSetOps::IsMember(compiler, visited, nextBlock->bbNum));
         }
     }
 
@@ -840,7 +839,7 @@ void LinearScan::setBlockSequence()
     // Make sure that we've visited all the blocks.
     for (BasicBlock* const block : compiler->Blocks())
     {
-        assert(BlockSetOps::IsMember(compiler, bbVisitedSet, block->bbNum));
+        assert(BlockSetOps::IsMember(compiler, visited, block->bbNum));
     }
 
     JITDUMP("Final LSRA Block Sequence: \n");
@@ -855,6 +854,9 @@ void LinearScan::setBlockSequence()
 
     JITDUMP("\n");
 #endif
+
+    // Return the visited block set so that buildIntervals can reuse the already allocated memory.
+    return visited;
 }
 
 //------------------------------------------------------------------------

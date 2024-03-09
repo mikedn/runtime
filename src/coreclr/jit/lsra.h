@@ -1220,9 +1220,6 @@ private:
     // Map from tracked variable index to Interval*.
     Interval** localVarIntervals;
 
-    // Set of blocks that have been visited.
-    BlockSet bbVisitedSet;
-
 #if DOUBLE_ALIGN
     bool doDoubleAlign = false;
 #endif
@@ -1230,12 +1227,14 @@ private:
     // A map from bbNum to the block information used during register allocation.
     LsraBlockInfo* blockInfo = nullptr;
 
-    BasicBlock* findPredBlockForLiveIn(BasicBlock* block, BasicBlock* prevBlock DEBUGARG(bool* pPredBlockIsAllocated));
+    BasicBlock* findPredBlockForLiveIn(BasicBlock* block,
+                                       BasicBlock* prevBlock,
+                                       BlockSet visited DEBUGARG(bool* pPredBlockIsAllocated));
 
     // The order in which the blocks will be allocated.
     // This is any array of BasicBlock*, in the order in which they should be traversed.
     BasicBlock** blockSequence = nullptr;
-    void         setBlockSequence();
+    BlockSet     setBlockSequence();
     int compareBlocksForSequencing(BasicBlock* block1, BasicBlock* block2, bool useBlockWeights);
     BasicBlockList* blockSequenceWorkList = nullptr;
 #ifdef DEBUG

@@ -1542,7 +1542,7 @@ void LinearScan::buildIntervals()
     // remove the frame pointer from the masks.
     setFrameType();
 
-    setBlockSequence();
+    BlockSet visited = setBlockSequence();
 
     DBEXEC(VERBOSE, TupleStyleDump(LSRA_DUMP_PRE));
 
@@ -1631,8 +1631,8 @@ void LinearScan::buildIntervals()
     // at the entry to each block (this will include the incoming args on the first block).
     currentLiveVars = VarSetOps::MakeEmpty(compiler);
 
-    BlockSetOps::ClearD(compiler, bbVisitedSet);
-    BlockSetOps::AddElemD(compiler, bbVisitedSet, blockSequence[0]->bbNum);
+    BlockSetOps::ClearD(compiler, visited);
+    BlockSetOps::AddElemD(compiler, visited, blockSequence[0]->bbNum);
 
     for (unsigned blockSeqIndex = 0, blockSeqCount = bbSeqCount; blockSeqIndex < blockSeqCount; blockSeqIndex++)
     {
@@ -1641,7 +1641,7 @@ void LinearScan::buildIntervals()
         curBBNum = block->bbNum;
 
         INDEBUG(bool predBlockIsAllocated = false);
-        BasicBlock* predBlock = findPredBlockForLiveIn(block, prevBlock DEBUGARG(&predBlockIsAllocated));
+        BasicBlock* predBlock = findPredBlockForLiveIn(block, prevBlock, visited DEBUGARG(&predBlockIsAllocated));
         if (predBlock != nullptr)
         {
             JITDUMP("\n\nSetting " FMT_BB " as the predecessor for determining incoming variable registers of " FMT_BB
@@ -1787,7 +1787,7 @@ void LinearScan::buildIntervals()
         }
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 
-        BlockSetOps::AddElemD(compiler, bbVisitedSet, block->bbNum);
+        BlockSetOps::AddElemD(compiler, visited, block->bbNum);
 
 #ifdef DEBUG
         if (!defList.IsEmpty())
@@ -1833,7 +1833,7 @@ void LinearScan::buildIntervals()
                     break;
                 }
 
-                if (BlockSetOps::IsMember(compiler, bbVisitedSet, succ->bbNum))
+                if (BlockSetOps::IsMember(compiler, visited, succ->bbNum))
                 {
                     continue;
                 }
@@ -1991,7 +1991,7 @@ void LinearScan::buildIntervals()
     // Make sure we don't have any blocks that were not visited
     for (BasicBlock* const block : compiler->Blocks())
     {
-        assert(BlockSetOps::IsMember(compiler, bbVisitedSet, block->bbNum));
+        assert(BlockSetOps::IsMember(compiler, visited, block->bbNum));
     }
 
     if (VERBOSE)
@@ -2032,7 +2032,8 @@ void LinearScan::buildIntervals()
 //                                    code.
 
 BasicBlock* LinearScan::findPredBlockForLiveIn(BasicBlock* block,
-                                               BasicBlock* prevBlock DEBUGARG(bool* pPredBlockIsAllocated))
+                                               BasicBlock* prevBlock,
+                                               BlockSet visited DEBUGARG(bool* pPredBlockIsAllocated))
 {
     BasicBlock* predBlock = nullptr;
     assert(*pPredBlockIsAllocated == false);
@@ -2106,14 +2107,14 @@ BasicBlock* LinearScan::findPredBlockForLiveIn(BasicBlock* block,
         {
             // We should already have returned null if this block has a single incoming EH boundary edge.
             assert(!predBlock->hasEHBoundaryOut());
-            if (BlockSetOps::IsMember(compiler, bbVisitedSet, predBlock->bbNum))
+            if (BlockSetOps::IsMember(compiler, visited, predBlock->bbNum))
             {
                 if (predBlock->bbJumpKind == BBJ_COND)
                 {
                     // Special handling to improve matching on backedges.
                     BasicBlock* otherBlock = (block == predBlock->bbNext) ? predBlock->bbJumpDest : predBlock->bbNext;
                     noway_assert(otherBlock != nullptr);
-                    if (BlockSetOps::IsMember(compiler, bbVisitedSet, otherBlock->bbNum) &&
+                    if (BlockSetOps::IsMember(compiler, visited, otherBlock->bbNum) &&
                         !blockInfo[otherBlock->bbNum].hasEHBoundaryIn)
                     {
                         // This is the case when we have a conditional branch where one target has already
@@ -2160,7 +2161,7 @@ BasicBlock* LinearScan::findPredBlockForLiveIn(BasicBlock* block,
         {
             for (BasicBlock* const candidatePredBlock : block->PredBlocks())
             {
-                if (BlockSetOps::IsMember(compiler, bbVisitedSet, candidatePredBlock->bbNum))
+                if (BlockSetOps::IsMember(compiler, visited, candidatePredBlock->bbNum))
                 {
                     if ((predBlock == nullptr) || (predBlock->bbWeight < candidatePredBlock->bbWeight))
                     {
