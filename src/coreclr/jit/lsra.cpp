@@ -826,8 +826,8 @@ BlockSet LinearScan::setBlockSequence()
 
         if (blockSequenceWorkList != nullptr)
         {
-            nextBlock             = blockSequenceWorkList->block;
-            blockSequenceWorkList = blockSequenceWorkList->next;
+            nextBlock             = blockSequenceWorkList;
+            blockSequenceWorkList = nextBlock->lsraSequenceWorklist.next;
             // TODO-Cleanup: consider merging Compiler::BlockListNode and BasicBlockList
             // compiler->FreeBlockListNode(listNode);
 
@@ -916,12 +916,12 @@ void LinearScan::addToBlockSequenceWorkList(BlockSet sequencedBlockSet, BasicBlo
     bool useBlockWeight = block->isRunRarely() || BlockSetOps::IsSubset(compiler, sequencedBlockSet, predSet);
     JITDUMP(", Criteria: %s", useBlockWeight ? "weight" : "bbNum");
 
-    BasicBlockList* prevNode = nullptr;
-    BasicBlockList* nextNode = blockSequenceWorkList;
-    while (nextNode != nullptr)
+    BasicBlock* prevBlock = nullptr;
+    BasicBlock* nextBlock = blockSequenceWorkList;
+
+    while (nextBlock != nullptr)
     {
-        BasicBlock* nextBlock = nextNode->block;
-        bool        seqResult;
+        bool seqResult;
 
         if (nextBlock->isRunRarely())
         {
@@ -943,25 +943,26 @@ void LinearScan::addToBlockSequenceWorkList(BlockSet sequencedBlockSet, BasicBlo
             break;
         }
 
-        prevNode = nextNode;
-        nextNode = nextNode->next;
+        prevBlock = nextBlock;
+        nextBlock = nextBlock->lsraSequenceWorklist.next;
     }
 
-    BasicBlockList* newListNode = new (compiler, CMK_LSRA) BasicBlockList(block, nextNode);
-    if (prevNode == nullptr)
+    if (prevBlock == nullptr)
     {
-        blockSequenceWorkList = newListNode;
+        blockSequenceWorkList            = block;
+        block->lsraSequenceWorklist.next = nextBlock;
     }
     else
     {
-        prevNode->next = newListNode;
+        block->lsraSequenceWorklist.next     = nextBlock;
+        prevBlock->lsraSequenceWorklist.next = block;
     }
 
 #ifdef DEBUG
     JITDUMP(", Worklist: [");
-    for (BasicBlockList* node = blockSequenceWorkList; node != nullptr; node = node->next)
+    for (BasicBlock* block = blockSequenceWorkList; block != nullptr; block = block->lsraSequenceWorklist.next)
     {
-        JITDUMP(FMT_BB " ", node->block->bbNum);
+        JITDUMP(FMT_BB " ", block->bbNum);
     }
     JITDUMP("]\n");
 #endif

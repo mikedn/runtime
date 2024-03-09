@@ -1068,6 +1068,11 @@ struct BasicBlock : private LIR::Range
 
         struct
         {
+            BasicBlock* next;
+        } lsraSequenceWorklist;
+
+        struct
+        {
             struct insGroup* emitLabel;
 #ifdef TARGET_ARM
             struct insGroup* unwindNopEmitLabel;
