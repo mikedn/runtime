@@ -3331,32 +3331,25 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
     }
 
 #ifdef DEBUG
-    if (getLsraExtendLifeTimes())
-    {
-        VarSetOps::Assign(compiler, currentLiveVars, registerCandidateVars);
-    }
-    else
-#endif
-    {
-        VarSetOps::Intersection(compiler, currentLiveVars, registerCandidateVars, currentBlock->bbLiveIn);
-    }
-
-#ifdef DEBUG
     // If we are rotating register assignments at block boundaries, we want to make the
     // inactive registers available for the rotation.
     regMaskTP inactiveRegs = RBM_NONE;
 #endif
     regMaskTP liveRegs = RBM_NONE;
 
-    for (VarSetOps::Enumerator e(compiler, currentLiveVars); e.MoveNext();)
+    VARSET_TP liveInVars = INDEBUG(getLsraExtendLifeTimes() ? registerCandidateVars :) currentBlock->bbLiveIn;
+
+    for (VarSetOps::Enumerator e(compiler, liveInVars); e.MoveNext();)
     {
         const unsigned varIndex = e.Current();
-        if (!compiler->lvaGetDescByTrackedIndex(varIndex)->IsRegCandidate())
+
+        Interval* interval = HasLclInterval(varIndex);
+
+        if (interval == nullptr)
         {
             continue;
         }
-        regNumber    targetReg;
-        Interval*    interval        = getIntervalForLocalVar(varIndex);
+
         RefPosition* nextRefPosition = interval->getNextRefPosition();
         assert((nextRefPosition != nullptr) || (interval->isWriteThru));
 
@@ -3377,6 +3370,8 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
                 leaveOnStack = true;
             }
         }
+
+        regNumber targetReg;
 
         if (!allocationPassComplete)
         {
@@ -3624,35 +3619,29 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
 void LinearScan::processBlockEndLocations(BasicBlock* currentBlock)
 {
     assert(currentBlock != nullptr && currentBlock->bbNum == curBBNum);
+
     VarToRegMap outVarToRegMap = getOutVarToRegMap(curBBNum);
+    VARSET_TP   liveOutVars    = INDEBUG(getLsraExtendLifeTimes() ? registerCandidateVars :) currentBlock->bbLiveOut;
 
-#ifdef DEBUG
-    if (getLsraExtendLifeTimes())
+    for (VarSetOps::Enumerator e(compiler, liveOutVars); e.MoveNext();)
     {
-        VarSetOps::Assign(compiler, currentLiveVars, registerCandidateVars);
-    }
-    else
-#endif
-    {
-        VarSetOps::Intersection(compiler, currentLiveVars, registerCandidateVars, currentBlock->bbLiveOut);
-    }
+        if (Interval* interval = HasLclInterval(e.Current()))
+        {
+            if (interval->isActive)
+            {
+                assert(interval->physReg != REG_NA && interval->physReg != REG_STK);
+                setVarReg(outVarToRegMap, e.Current(), interval->physReg);
+            }
+            else
+            {
+                outVarToRegMap[e.Current()] = REG_STK;
+            }
 
-    for (VarSetOps::Enumerator e(compiler, currentLiveVars); e.MoveNext();)
-    {
-        Interval* interval = getIntervalForLocalVar(e.Current());
-        if (interval->isActive)
-        {
-            assert(interval->physReg != REG_NA && interval->physReg != REG_STK);
-            setVarReg(outVarToRegMap, e.Current(), interval->physReg);
-        }
-        else
-        {
-            outVarToRegMap[e.Current()] = REG_STK;
-        }
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-        // Ensure that we have no partially-spilled large vector locals.
-        assert(!Compiler::varTypeNeedsPartialCalleeSave(interval->registerType) || !interval->isPartiallySpilled);
-#endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
+            // Ensure that we have no partially-spilled large vector locals.
+            assert(!Compiler::varTypeNeedsPartialCalleeSave(interval->registerType) || !interval->isPartiallySpilled);
+#endif
+        }
     }
     INDEBUG(dumpLsraAllocationEvent(LSRA_EVENT_END_BB));
 }
@@ -7387,20 +7376,20 @@ void LinearScan::resolveEdge(BasicBlock*      fromBlock,
     // for these so that their registers are freed and can be reused.
     if ((resolveType == ResolveJoin) && (compiler->compHndBBtabCount > 0))
     {
-        VARSET_TP extraLiveSet = VarSetOps::Alloc(compiler);
-        VarSetOps::Diff(compiler, extraLiveSet, block->bbLiveOut, toBlock->bbLiveIn);
-        VarSetOps::IntersectionD(compiler, extraLiveSet, registerCandidateVars);
-
-        for (VarSetOps::Enumerator e(compiler, extraLiveSet); e.MoveNext();)
+        for (auto e = VarSetOps::EnumOp(compiler, [](size_t x, size_t y) { return x & ~y; }, block->bbLiveOut,
+                                        toBlock->bbLiveIn);
+             e.MoveNext();)
         {
-            Interval* interval = getIntervalForLocalVar(e.Current());
-            assert(interval->isWriteThru);
-            regNumber fromReg = getVarReg(fromVarToRegMap, e.Current());
-            if (fromReg != REG_STK)
+            if (Interval* interval = HasLclInterval(e.Current()))
             {
-                addResolution(block, insertionPoint, interval, REG_STK, fromReg);
-                JITDUMP(" (EH DUMMY)\n");
-                setVarReg(fromVarToRegMap, e.Current(), REG_STK);
+                assert(interval->isWriteThru);
+                regNumber fromReg = getVarReg(fromVarToRegMap, e.Current());
+                if (fromReg != REG_STK)
+                {
+                    addResolution(block, insertionPoint, interval, REG_STK, fromReg);
+                    JITDUMP(" (EH DUMMY)\n");
+                    setVarReg(fromVarToRegMap, e.Current(), REG_STK);
+                }
             }
         }
     }

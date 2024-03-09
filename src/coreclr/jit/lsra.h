@@ -798,7 +798,13 @@ private:
 private:
     Interval* newInterval(var_types regType);
 
-    Interval* getIntervalForLocalVar(unsigned varIndex)
+    Interval* HasLclInterval(unsigned index) const
+    {
+        assert(index < compiler->lvaTrackedCount);
+        return localVarIntervals[index];
+    }
+
+    Interval* getIntervalForLocalVar(unsigned varIndex) const
     {
         assert(varIndex < compiler->lvaTrackedCount);
         assert(localVarIntervals[varIndex] != nullptr);

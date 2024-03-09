@@ -1840,32 +1840,30 @@ void LinearScan::buildIntervals()
                 }
             }
 
-            if (!VarSetOps::IsEmpty(compiler, expUseSet))
+            JITDUMP("Exposed uses:");
+            for (VarSetOps::Enumerator e(compiler, expUseSet); e.MoveNext();)
             {
-                JITDUMP("Exposed uses:");
-                for (VarSetOps::Enumerator e(compiler, expUseSet); e.MoveNext();)
-                {
-                    Interval*    interval = getIntervalForLocalVar(e.Current());
-                    RefPosition* pos =
-                        newRefPosition(interval, currentLoc, RefTypeExpUse, nullptr, allRegs(interval->registerType));
-                    pos->setRegOptional(true);
-                    JITDUMP(" " FMT_LCL, compiler->lvaGetDescByTrackedIndex(e.Current())->GetLclNum());
-                }
-                JITDUMP("\n");
+                Interval*    interval = getIntervalForLocalVar(e.Current());
+                RefPosition* pos =
+                    newRefPosition(interval, currentLoc, RefTypeExpUse, nullptr, allRegs(interval->registerType));
+                pos->setRegOptional(true);
+                JITDUMP(" " FMT_LCL, compiler->lvaGetDescByTrackedIndex(e.Current())->GetLclNum());
             }
+            JITDUMP("\n");
 
             // Clear the "last use" flag on any vars that are live-out from this block.
 
-            for (auto e =
-                     VarSetOps::EnumOp(compiler, VarSetOps::IntersectionOp, registerCandidateVars, block->bbLiveOut);
-                 e.MoveNext();)
+            for (VarSetOps::Enumerator e(compiler, block->bbLiveOut); e.MoveNext();)
             {
-                RefPosition* const lastRP = getIntervalForLocalVar(e.Current())->lastRefPosition;
-                // We should be able to assert that lastRP is non-null if it is live-out,
-                // but sometimes liveness lies.
-                if ((lastRP != nullptr) && (lastRP->bbNum == block->bbNum))
+                if (Interval* interval = HasLclInterval(e.Current()))
                 {
-                    lastRP->lastUse = false;
+                    RefPosition* const lastRP = interval->lastRefPosition;
+                    // We should be able to assert that lastRP is non-null if it is live-out,
+                    // but sometimes liveness lies.
+                    if ((lastRP != nullptr) && (lastRP->bbNum == block->bbNum))
+                    {
+                        lastRP->lastUse = false;
+                    }
                 }
             }
 
