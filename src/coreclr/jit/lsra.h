@@ -1243,8 +1243,6 @@ private:
     unsigned blockEpoch;
 #endif // DEBUG
     void addToBlockSequenceWorkList(BlockSet sequencedBlockSet, BasicBlock* block, BlockSet& predSet);
-    void removeFromBlockSequenceWorkList(BasicBlockList* listNode, BasicBlockList* prevNode);
-    BasicBlock* getNextCandidateFromWorkList();
 
     // Indicates whether the allocation pass has been completed.
     bool allocationPassComplete = false;

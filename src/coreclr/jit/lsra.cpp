@@ -654,41 +654,6 @@ LinearScan::LinearScan(Compiler* compiler)
 #endif // TARGET_AMD64
 }
 
-//------------------------------------------------------------------------
-// getNextCandidateFromWorkList: Get the next candidate for block sequencing
-//
-// Arguments:
-//    None.
-//
-// Return Value:
-//    The next block to be placed in the sequence.
-//
-// Notes:
-//    This method currently always returns the next block in the list, and relies on having
-//    blocks added to the list only when they are "ready", and on the
-//    addToBlockSequenceWorkList() method to insert them in the proper order.
-//    However, a block may be in the list and already selected, if it was subsequently
-//    encountered as both a flow and layout successor of the most recently selected
-//    block.
-
-BasicBlock* LinearScan::getNextCandidateFromWorkList()
-{
-    BasicBlockList* nextWorkList = nullptr;
-
-    for (BasicBlockList* workList = blockSequenceWorkList; workList != nullptr; workList = nextWorkList)
-    {
-        nextWorkList          = workList->next;
-        BasicBlock* candBlock = workList->block;
-        removeFromBlockSequenceWorkList(workList, nullptr);
-        if (!BlockSetOps::IsMember(compiler, bbVisitedSet, candBlock->bbNum))
-        {
-            return candBlock;
-        }
-    }
-
-    return nullptr;
-}
-
 // Determine the block order for register allocation.
 // On return, the blockSequence array contains the blocks,
 // in the order in which they will be allocated.
@@ -835,38 +800,39 @@ void LinearScan::setBlockSequence()
             continue;
         }
 
-        while (nextBlock == nullptr)
+        // TODO-Throughput: We would like to bypass this traversal if we know we've handled all
+        // the blocks - but fgBBcount does not appear to be updated when blocks are removed.
+        if ((blockSequenceWorkList == nullptr) && /* bbSeqCount != compiler->fgBBcount*/ !verifiedAllBBs)
         {
-            nextBlock = getNextCandidateFromWorkList();
+            // If we don't encounter all blocks by traversing the regular successor links, do a full
+            // traversal of all the blocks, and add them in layout order.
+            // This may include:
+            //   - internal-only blocks which may not be in the flow graph
+            //   - blocks that have become unreachable due to optimizations, but that are strongly
+            //     connected (these are not removed)
+            //   - EH blocks
 
-            // TODO-Throughput: We would like to bypass this traversal if we know we've handled all
-            // the blocks - but fgBBcount does not appear to be updated when blocks are removed.
-            if (nextBlock == nullptr /* && bbSeqCount != compiler->fgBBcount*/ && !verifiedAllBBs)
+            for (BasicBlock* const seqBlock : compiler->Blocks())
             {
-                // If we don't encounter all blocks by traversing the regular successor links, do a full
-                // traversal of all the blocks, and add them in layout order.
-                // This may include:
-                //   - internal-only blocks which may not be in the flow graph
-                //   - blocks that have become unreachable due to optimizations, but that are strongly
-                //     connected (these are not removed)
-                //   - EH blocks
-
-                for (BasicBlock* const seqBlock : compiler->Blocks())
+                if (!BlockSetOps::IsMember(compiler, bbVisitedSet, seqBlock->bbNum))
                 {
-                    if (!BlockSetOps::IsMember(compiler, bbVisitedSet, seqBlock->bbNum))
-                    {
-                        JITDUMP("\tUnvisited block: " FMT_BB, seqBlock->bbNum);
-                        addToBlockSequenceWorkList(readySet, seqBlock, predSet);
-                        BlockSetOps::AddElemD(compiler, readySet, seqBlock->bbNum);
-                    }
+                    JITDUMP("\tUnvisited block: " FMT_BB, seqBlock->bbNum);
+                    addToBlockSequenceWorkList(readySet, seqBlock, predSet);
+                    BlockSetOps::AddElemD(compiler, readySet, seqBlock->bbNum);
                 }
+            }
 
-                verifiedAllBBs = true;
-            }
-            else
-            {
-                break;
-            }
+            verifiedAllBBs = true;
+        }
+
+        if (blockSequenceWorkList != nullptr)
+        {
+            nextBlock             = blockSequenceWorkList->block;
+            blockSequenceWorkList = blockSequenceWorkList->next;
+            // TODO-Cleanup: consider merging Compiler::BlockListNode and BasicBlockList
+            // compiler->FreeBlockListNode(listNode);
+
+            assert(!BlockSetOps::IsMember(compiler, bbVisitedSet, nextBlock->bbNum));
         }
     }
 
@@ -1022,22 +988,6 @@ void LinearScan::addToBlockSequenceWorkList(BlockSet sequencedBlockSet, BasicBlo
     }
     JITDUMP("]\n");
 #endif
-}
-
-void LinearScan::removeFromBlockSequenceWorkList(BasicBlockList* listNode, BasicBlockList* prevNode)
-{
-    if (listNode == blockSequenceWorkList)
-    {
-        assert(prevNode == nullptr);
-        blockSequenceWorkList = listNode->next;
-    }
-    else
-    {
-        assert(prevNode != nullptr && prevNode->next == listNode);
-        prevNode->next = listNode->next;
-    }
-    // TODO-Cleanup: consider merging Compiler::BlockListNode and BasicBlockList
-    // compiler->FreeBlockListNode(listNode);
 }
 
 void LinearScan::doLinearScan()
