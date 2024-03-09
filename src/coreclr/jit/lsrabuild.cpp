@@ -1418,44 +1418,41 @@ void LinearScan::BuildStressConstraints(GenTree* tree, RefPositionIterator refPo
 void LinearScan::insertZeroInitRefPositions()
 {
     assert(enregisterLocalVars);
-#ifdef DEBUG
-    VARSET_TP expectedLiveVars = VarSetOps::Alloc(compiler);
-    VarSetOps::Intersection(compiler, expectedLiveVars, registerCandidateVars, compiler->fgFirstBB->bbLiveIn);
-    assert(VarSetOps::Equal(compiler, currentLiveVars, expectedLiveVars));
-#endif
-
-    // insert defs for this, then a block boundary
 
     for (VarSetOps::Enumerator e(compiler, currentLiveVars); e.MoveNext();)
     {
-        LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(e.Current());
+        LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(e.Current());
+        assert(lcl->IsRegCandidate());
 
-        if (!varDsc->IsParam() && varDsc->IsRegCandidate())
+        if (lcl->IsParam())
         {
-            JITDUMP("V%02u was live in to first block:", varDsc->GetLclNum());
-            Interval* interval = getIntervalForLocalVar(e.Current());
-            if (compiler->info.compInitMem || varTypeIsGC(varDsc->GetType()))
-            {
-                varDsc->lvMustInit = true;
+            continue;
+        }
 
-                // OSR will handle init of locals and promoted fields thereof
-                if (compiler->lvaIsOSRLocal(varDsc))
-                {
-                    JITDUMP(" will be initialized by OSR\n");
-                    // setIntervalAsSpilled(interval);
-                    varDsc->lvMustInit = false;
-                }
+        JITDUMP("V%02u was live in to first block:", lcl->GetLclNum());
 
-                JITDUMP(" creating ZeroInit\n");
-                RefPosition* pos = newRefPosition(interval, MinLocation, RefTypeZeroInit, nullptr /* theTreeNode */,
-                                                  allRegs(interval->registerType));
-                pos->setRegOptional(true);
-            }
-            else
+        Interval* interval = getIntervalForLocalVar(e.Current());
+        if (compiler->info.compInitMem || varTypeIsGC(lcl->GetType()))
+        {
+            lcl->lvMustInit = true;
+
+            // OSR will handle init of locals and promoted fields thereof
+            if (compiler->lvaIsOSRLocal(lcl))
             {
-                setIntervalAsSpilled(interval);
-                JITDUMP(" marking as spilled\n");
+                JITDUMP(" will be initialized by OSR\n");
+                // setIntervalAsSpilled(interval);
+                lcl->lvMustInit = false;
             }
+
+            JITDUMP(" creating ZeroInit\n");
+            RefPosition* pos = newRefPosition(interval, MinLocation, RefTypeZeroInit, nullptr /* theTreeNode */,
+                                              allRegs(interval->registerType));
+            pos->setRegOptional(true);
+        }
+        else
+        {
+            setIntervalAsSpilled(interval);
+            JITDUMP(" marking as spilled\n");
         }
     }
 
