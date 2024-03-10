@@ -579,14 +579,11 @@ void Compiler::fgComputeReachability()
 #endif // DEBUG
 }
 
-//-------------------------------------------------------------
-// fgDfsInvPostOrder: Helper function for computing dominance information.
-//
+// Helper function for computing dominance information.
 // In order to be able to compute dominance, we need to first get a DFS reverse post order sort on the basic flow
 // graph for the dominance algorithm to operate correctly. The reason why we need the DFS sort is because we will
 // build the dominance sets using the partial order induced by the DFS sorting.  With this precondition not
 // holding true, the algorithm doesn't work properly.
-//
 BasicBlock** Compiler::fgDfsInvPostOrder()
 {
     // NOTE: This algorithm only pays attention to the actual blocks. It ignores the imaginary entry block.
@@ -600,7 +597,7 @@ BasicBlock** Compiler::fgDfsInvPostOrder()
     // an incoming edge into the block).
     assert(fgEnterBlksSetValid);
 
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+#ifdef TARGET_ARM
     //
     //    BlockSetOps::UnionD(this, startNodes, fgEnterBlks);
     //
@@ -629,7 +626,7 @@ BasicBlock** Compiler::fgDfsInvPostOrder()
         // If the block has no predecessors, and we haven't already visited it (because it's in fgEnterBlks but also
         // reachable from the first block), go ahead and traverse starting from this block.
         if (BlockSetOps::IsMember(this, startNodes, block->bbNum) &&
-            !BlockSetOps::IsMember(this, visited, block->bbNum))
+            BlockSetOps::TryAddElemD(this, visited, block->bbNum))
         {
             fgDfsInvPostOrderHelper(postOrder, block, visited, &postIndex);
         }
@@ -639,33 +636,15 @@ BasicBlock** Compiler::fgDfsInvPostOrder()
     noway_assert(postIndex == fgBBcount + 1);
     noway_assert(fgBBNumMax == fgBBcount);
 
-#ifdef DEBUG
-    if (0 && verbose)
-    {
-        printf("\nAfter doing a post order traversal of the BB graph, this is the ordering:\n");
-        for (unsigned i = 1; i <= fgBBNumMax; ++i)
-        {
-            printf("%02u -> " FMT_BB "\n", i, postOrder[i]->bbNum);
-        }
-        printf("\n");
-    }
-#endif // DEBUG
-
     return postOrder;
 }
 
-//-------------------------------------------------------------
-// fgDomFindStartNodes: Helper for dominance computation to find the start nodes block set.
-//
-// The start nodes is a set that represents which basic blocks in the flow graph don't have incoming edges.
-// We begin assuming everything is a start block and remove any block that is a successor of another.
-//
-// Returns:
-//    Block set of start nodes.
-//
+// Helper for dominance computation to find the start nodes block set,
+// the set of basic blocks in the flow graph which don't have incoming edges.
 BlockSet Compiler::fgDomFindStartNodes()
 {
-    BlockSet startNodes(BlockSetOps::MakeFull(this));
+    // We begin assuming everything is a start block and remove any block that is a successor of another.
+    BlockSet startNodes = BlockSetOps::MakeFull(this);
 
     for (BasicBlock* const block : Blocks())
     {
@@ -690,22 +669,13 @@ BlockSet Compiler::fgDomFindStartNodes()
     return startNodes;
 }
 
-//------------------------------------------------------------------------
-// fgDfsInvPostOrderHelper: Helper to assign post-order numbers to blocks.
-//
-// Arguments:
-//    block   - The starting entry block
-//    visited - The set of visited blocks
-//    count   - Pointer to the Dfs counter
-//
-// Notes:
-//    Compute a non-recursive DFS traversal of the flow graph using an
-//    evaluation stack to assign post-order numbers.
-//
+// Helper to assign post-order numbers to blocks.
+// Compute a non-recursive DFS traversal of the flow graph
+// using an evaluation stack to assign post-order numbers.
 void Compiler::fgDfsInvPostOrderHelper(BasicBlock** postOrder, BasicBlock* block, BlockSet& visited, unsigned* count)
 {
-    // Assume we haven't visited this node yet (callers ensure this).
-    assert(!BlockSetOps::IsMember(this, visited, block->bbNum));
+    // The caller marks the block as visited.
+    assert(BlockSetOps::IsMember(this, visited, block->bbNum));
 
     // Allocate a local stack to hold the DFS traversal actions necessary
     // to compute pre/post-ordering of the control flowgraph.
@@ -713,9 +683,6 @@ void Compiler::fgDfsInvPostOrderHelper(BasicBlock** postOrder, BasicBlock* block
 
     // Push the first block on the stack to seed the traversal.
     stack.Push(DfsBlockEntry(DSS_Pre, block));
-
-    // Flag the node we just visited to avoid backtracking.
-    BlockSetOps::AddElemD(this, visited, block->bbNum);
 
     // The search is terminated once all the actions have been processed.
     while (!stack.Empty())
