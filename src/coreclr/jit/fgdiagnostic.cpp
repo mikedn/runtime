@@ -3218,76 +3218,49 @@ void Compiler::fgDebugCheckBlockLinks()
     }
 }
 
-// UniquenessCheckWalker keeps data that is necessary to check
-// that each tree has it is own unique id and they do not repeat.
-class UniquenessCheckWalker
-{
-public:
-    UniquenessCheckWalker(Compiler* comp)
-        : comp(comp), nodesVecTraits(comp->compGenTreeID, comp), uniqueNodes(BitVecOps::MakeEmpty(&nodesVecTraits))
-    {
-    }
-
-    //------------------------------------------------------------------------
-    // fgMarkTreeId: Visit all subtrees in the tree and check gtTreeIDs.
-    //
-    // Arguments:
-    //    pTree     - Pointer to the tree to walk
-    //    fgWalkPre - the UniquenessCheckWalker instance
-    //
-    static Compiler::fgWalkResult MarkTreeId(GenTree** pTree, Compiler::fgWalkData* fgWalkPre)
-    {
-        UniquenessCheckWalker* walker   = static_cast<UniquenessCheckWalker*>(fgWalkPre->pCallbackData);
-        unsigned               gtTreeID = (*pTree)->gtTreeID;
-        walker->CheckTreeId(gtTreeID);
-        return Compiler::WALK_CONTINUE;
-    }
-
-    //------------------------------------------------------------------------
-    // CheckTreeId: Check that this tree was not visited before and memorize it as visited.
-    //
-    // Arguments:
-    //    gtTreeID - identificator of GenTree.
-    //
-    // Note:
-    //    This method causes an assert failure when we find a duplicated node in our tree
-    //
-    void CheckTreeId(unsigned gtTreeID)
-    {
-        if (BitVecOps::IsMember(&nodesVecTraits, uniqueNodes, gtTreeID))
-        {
-            if (comp->verbose)
-            {
-                printf("Duplicate gtTreeID was found: %d\n", gtTreeID);
-            }
-            assert(!"Duplicate gtTreeID was found");
-        }
-        else
-        {
-            BitVecOps::AddElemD(&nodesVecTraits, uniqueNodes, gtTreeID);
-        }
-    }
-
-private:
-    Compiler*    comp;
-    BitVecTraits nodesVecTraits;
-    BitVec       uniqueNodes;
-};
-
-//------------------------------------------------------------------------------
-// fgDebugCheckNodesUniqueness: Check that each tree in the method has its own unique gtTreeId.
-//
+// Check that each tree in the method has its own unique gtTreeId.
 void Compiler::fgDebugCheckNodesUniqueness()
 {
+    class UniquenessCheckWalker
+    {
+        Compiler*    comp;
+        BitVecTraits uniqueNodesTraits;
+        BitVec       uniqueNodes;
+
+    public:
+        UniquenessCheckWalker(Compiler* comp)
+            : comp(comp)
+            , uniqueNodesTraits(comp->compGenTreeID, comp)
+            , uniqueNodes(BitVecOps::MakeEmpty(&uniqueNodesTraits))
+        {
+        }
+
+        static Compiler::fgWalkResult MarkTreeId(GenTree** use, Compiler::fgWalkData* data)
+        {
+            UniquenessCheckWalker* walker = static_cast<UniquenessCheckWalker*>(data->pCallbackData);
+            walker->CheckTreeId(*use);
+            return Compiler::WALK_CONTINUE;
+        }
+
+        void CheckTreeId(GenTree* node)
+        {
+            if (!BitVecOps::TryAddElemD(&uniqueNodesTraits, uniqueNodes, node->GetID()))
+            {
+                JITDUMP("Duplicate node ID was found: %u\n", node->GetID());
+                assert(!"Duplicate node ID was found");
+            }
+        }
+    };
+
     UniquenessCheckWalker walker(this);
 
     for (BasicBlock* const block : Blocks())
     {
         if (block->IsLIR())
         {
-            for (GenTree* i : LIR::AsRange(block))
+            for (GenTree* node : LIR::AsRange(block))
             {
-                walker.CheckTreeId(i->gtTreeID);
+                walker.CheckTreeId(node);
             }
         }
         else
