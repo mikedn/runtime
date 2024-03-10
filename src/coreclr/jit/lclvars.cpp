@@ -3000,12 +3000,12 @@ void Compiler::lvaComputeLclRefCounts()
         {
             lcl->lvSingleDef             = lcl->IsParam() || info.compInitMem;
             lcl->lvSingleDefRegCandidate = lcl->IsParam();
-        }
 
 #if ASSERTION_PROP
-        lcl->lvUseBlocks = BlockSetOps::UninitVal();
-        lcl->lvDefStmt   = nullptr;
+            lcl->lvUseBlocks = BlockSetOps::UninitVal();
+            lcl->lvDefStmt   = nullptr;
 #endif
+        }
     }
 
     // Second, count all explicit local variable references. This will also set
