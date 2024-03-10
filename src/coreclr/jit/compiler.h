@@ -4059,10 +4059,6 @@ public:
 
     void fgCompDominatedByExceptionalEntryBlocks(BasicBlock** postOrder);
 
-    BlockSet fgGetDominatorSet(BasicBlock* block); // Returns a set of blocks that dominate the given block.
-    // Note: this is relatively slow compared to calling fgDominate(),
-    // especially if dealing with a single block versus block check.
-
     void fgComputeReachabilitySets(); // Compute bbReach sets. (Also sets BBF_GC_SAFE_POINT flag on blocks.)
 
     void fgComputeEnterBlocksSet(); // Compute the set of entry blocks, 'fgEnterBlks'.

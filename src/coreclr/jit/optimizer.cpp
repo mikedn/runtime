@@ -5501,6 +5501,8 @@ void Compiler::optAddCopies()
         return;
     }
 
+    BlockSet domSet = BlockSetOps::UninitVal();
+
     for (LclVarDsc* varDsc : Locals())
     {
         var_types typ = varDsc->TypeGet();
@@ -5597,36 +5599,72 @@ void Compiler::optAddCopies()
             }
             noway_assert(block && (block->bbNum == bbNum));
 
-            bool     importantUseInBlock = varDsc->IsParam() && (block->getBBWeight(this) > paramAvgWtdRefDiv2);
-            bool     isPreHeaderBlock    = ((block->bbFlags & BBF_LOOP_PREHEADER) != 0);
-            BlockSet blockDom(BlockSetOps::UninitVal());
-            BlockSet blockDomSub0(BlockSetOps::UninitVal());
+            bool importantUseInBlock = varDsc->IsParam() && (block->getBBWeight(this) > paramAvgWtdRefDiv2);
+            bool isPreHeaderBlock    = ((block->bbFlags & BBF_LOOP_PREHEADER) != 0);
 
-            if (block->bbIDom == nullptr && isPreHeaderBlock)
+            BasicBlock* domBlock = block;
+
+            if ((domBlock->bbIDom == nullptr) && isPreHeaderBlock)
             {
                 // Loop Preheader blocks that we insert will have a bbDom set that is nullptr
                 // but we can instead use the bNext successor block's dominator information
-                noway_assert(block->bbNext != nullptr);
-                blockDom = fgGetDominatorSet(block->bbNext);
+                noway_assert(domBlock->bbNext != nullptr);
+                domBlock = domBlock->bbNext;
+            }
+
+            // If this is a heavier-than-average block, then track
+            // which blocks dominate this use of the parameter.
+            if (importantUseInBlock)
+            {
+                paramFoundImportantUse = true;
+
+                if (domSet == BlockSetOps::UninitVal())
+                {
+                    domSet = BlockSetOps::MakeEmpty(this);
+                }
+                else
+                {
+                    BlockSetOps::ClearD(this, domSet);
+                }
+
+                do
+                {
+                    if (domBlock == fgFirstBB)
+                    {
+                        isDominatedByFirstBB = true;
+                    }
+
+                    if ((!isPreHeaderBlock || (domBlock != block->bbNext)))
+                    {
+                        BlockSetOps::AddElemD(this, domSet, domBlock->bbNum);
+                    }
+
+                    if (domBlock == domBlock->bbIDom)
+                    {
+                        break; // We found a cycle in the IDom list, so we're done.
+                    }
+
+                    domBlock = domBlock->bbIDom;
+                } while (domBlock != nullptr);
+
+                BlockSetOps::IntersectionD(this, paramImportantUseDom, domSet);
             }
             else
             {
-                blockDom = fgGetDominatorSet(block);
-            }
+                do
+                {
+                    if (domBlock == fgFirstBB)
+                    {
+                        isDominatedByFirstBB = true;
+                    }
 
-            if (!BlockSetOps::IsEmpty(this, blockDom))
-            {
-                blockDomSub0 = BlockSetOps::MakeCopy(this, blockDom);
-                if (isPreHeaderBlock)
-                {
-                    // We must clear bbNext block number from the dominator set
-                    BlockSetOps::RemoveElemD(this, blockDomSub0, block->bbNext->bbNum);
-                }
-                /* Is this block dominated by fgFirstBB? */
-                if (BlockSetOps::IsMember(this, blockDomSub0, fgFirstBB->bbNum))
-                {
-                    isDominatedByFirstBB = true;
-                }
+                    if (domBlock == domBlock->bbIDom)
+                    {
+                        break; // We found a cycle in the IDom list, so we're done.
+                    }
+
+                    domBlock = domBlock->bbIDom;
+                } while (domBlock != nullptr);
             }
 
 #ifdef DEBUG
@@ -5648,15 +5686,6 @@ void Compiler::optAddCopies()
                 printf("\n");
             }
 #endif
-
-            /* If this is a heavier-than-average block, then track which
-               blocks dominate this use of the parameter. */
-            if (importantUseInBlock)
-            {
-                paramFoundImportantUse = true;
-                BlockSetOps::IntersectionD(this, paramImportantUseDom,
-                                           blockDomSub0); // Clear blocks that do not dominate
-            }
         }
 
         // We should have found at least one heavier-than-averageDiv2 block.

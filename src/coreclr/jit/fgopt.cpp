@@ -1164,37 +1164,6 @@ BasicBlock* Compiler::fgIntersectDom(BasicBlock* a, BasicBlock* b)
     return finger1;
 }
 
-//-------------------------------------------------------------
-// fgGetDominatorSet: Return a set of blocks that dominate `block`.
-//
-// Note: this is slow compared to calling fgDominate(), especially if doing a single check comparing
-// two blocks.
-//
-// Arguments:
-//    block - get the set of blocks which dominate this block
-//
-// Returns:
-//    A set of blocks which dominate `block`.
-//
-BlockSet Compiler::fgGetDominatorSet(BasicBlock* block)
-{
-    assert(block != nullptr);
-
-    BlockSet domSet(BlockSetOps::MakeEmpty(this));
-
-    do
-    {
-        BlockSetOps::AddElemD(this, domSet, block->bbNum);
-        if (block == block->bbIDom)
-        {
-            break; // We found a cycle in the IDom list, so we're done.
-        }
-        block = block->bbIDom;
-    } while (block != nullptr);
-
-    return domSet;
-}
-
 void Compiler::phRemoveNotImportedBlocks()
 {
     NewBasicBlockEpoch();
