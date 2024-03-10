@@ -8,13 +8,14 @@
 const unsigned BitSetSupport::BitCountTable[16]{0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4};
 
 #ifdef DEBUG
-template <typename Set, typename BitSetTraits>
-static void RunTests(typename BitSetTraits::Env env)
+template <typename Traits>
+static void RunTests(typename Traits::Env env)
 {
     // The tests require that the Size is at least 52...
-    assert(BitSetTraits::GetSize(env) > 51);
+    assert(Traits::GetSize(env) > 51);
 
-    using Ops = BitSetOps<Set, BitSetTraits>;
+    using Ops = BitSetOps<Traits>;
+    using Set = typename Ops::Set;
 
     Set s1 = Ops::MakeEmpty(env);
 
@@ -83,26 +84,28 @@ static void RunTests(typename BitSetTraits::Env env)
 class TestBitSetTraits
 {
 public:
-    using Env = CompAllocator;
+    using Env  = CompAllocator;
+    using Word = size_t;
 
-    static void* Alloc(CompAllocator alloc, size_t byteSize)
+    static void* Alloc(CompAllocator alloc, unsigned wordCount)
     {
-        return alloc.allocate<char>(byteSize);
+        return alloc.allocate<Word>(wordCount);
     }
+
     static unsigned GetSize(CompAllocator alloc)
     {
         return 64;
     }
-    static unsigned GetArrSize(CompAllocator alloc, unsigned elemSize)
+
+    static unsigned GetWordCount(CompAllocator alloc)
     {
-        assert(elemSize == sizeof(size_t));
-        return (64 / 8) / sizeof(size_t);
+        return GetSize(alloc) / sizeof(Word);
     }
 };
 
 void BitSetSupport::TestSuite(CompAllocator env)
 {
-    RunTests<BitSetShortLongRep, TestBitSetTraits>(env);
+    RunTests<TestBitSetTraits>(env);
 }
 
 #endif // DEBUG

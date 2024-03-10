@@ -11,6 +11,8 @@ class BitVecTraits
     Compiler* comp;
 
 public:
+    using Word = size_t;
+
     // TODO-MIKE-Cleanup: This should not be needed but there's a ton of code
     // that insists on passing a pointer to traits instead of a saner reference.
     // In fact, it may be even better to pass by value, since all these functions
@@ -38,30 +40,30 @@ public:
     {
     }
 
-    static void* Alloc(const BitVecTraits* b, size_t byteSize);
+    static Word* Alloc(const BitVecTraits* b, unsigned wordCount);
 
     static unsigned GetSize(const BitVecTraits* b)
     {
         return b->size;
     }
 
-    static unsigned GetArrSize(const BitVecTraits* b, unsigned elemSize)
+    static unsigned GetWordCount(const BitVecTraits* b)
     {
-        assert(elemSize == sizeof(size_t));
-        unsigned elemBits = 8 * elemSize;
-        return roundUp(b->size, elemBits) / elemBits;
+        unsigned wordBitSize = sizeof(Word) * CHAR_BIT;
+        return roundUp(b->size, wordBitSize) / wordBitSize;
     }
 };
 
-using BitVecOps = BitSetOps<BitSetShortLongRep, BitVecTraits>;
-using BitVec    = BitVecOps::Rep;
-
+using BitVecOps = BitSetOps<BitVecTraits>;
+using BitVec    = BitVecOps::Set;
 using ASSERT_TP = BitVec;
 
 class CompAllocBitSetTraits
 {
 public:
-    static void* Alloc(Compiler* comp, size_t byteSize);
+    using Word = size_t;
+
+    static Word* Alloc(Compiler* comp, unsigned wordCount);
 };
 
 // A VARSET_TP is a set of (small) integers representing local variables.
@@ -94,11 +96,11 @@ public:
     using Env = Compiler*;
 
     static unsigned GetSize(Compiler* comp);
-    static unsigned GetArrSize(Compiler* comp, unsigned elemSize);
+    static unsigned GetWordCount(Compiler* comp);
 };
 
-using VarSetOps = BitSetOps<BitSetShortLongRep, TrackedVarBitSetTraits>;
-using VARSET_TP = VarSetOps::Rep;
+using VarSetOps = BitSetOps<TrackedVarBitSetTraits>;
+using VARSET_TP = VarSetOps::Set;
 
 // A BlockSet is a set of BasicBlocks, represented by the BasicBlock number (bbNum).
 //
@@ -124,20 +126,20 @@ public:
     using Env = Compiler*;
 
     static unsigned GetSize(Compiler* comp);
-    static unsigned GetArrSize(Compiler* comp, unsigned elemSize);
+    static unsigned GetWordCount(Compiler* comp);
 };
 
-class BlockSetOps : public BitSetOps<BitSetShortLongRep, BasicBlockBitSetTraits>
+class BlockSetOps : public BitSetOps<BasicBlockBitSetTraits>
 {
 public:
     // Specialize BlockSetOps::MakeFull(). Since we number basic blocks from one, we
     // remove bit zero from the block set. Otherwise, IsEmpty() would never return true.
-    static Rep MakeFull(Compiler* env)
+    static Set MakeFull(Compiler* env)
     {
-        Rep retval = BitSetOps<BitSetShortLongRep, BasicBlockBitSetTraits>::MakeFull(env);
+        Set retval = BitSetOps<BasicBlockBitSetTraits>::MakeFull(env);
         RemoveElemD(env, retval, 0);
         return retval;
     }
 };
 
-using BlockSet = BlockSetOps::Rep;
+using BlockSet = BlockSetOps::Set;

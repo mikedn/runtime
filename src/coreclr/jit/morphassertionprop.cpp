@@ -134,11 +134,12 @@ static const MorphAssertion::Range& GetSmallTypeRange(var_types type)
 
 struct MorphAssertionBitVecTraits
 {
-    using Env = Compiler*;
+    using Env  = Compiler*;
+    using Word = size_t;
 
-    static void* Alloc(Compiler* c, size_t byteSize)
+    static Word* Alloc(Compiler* c, unsigned wordCount)
     {
-        return c->getAllocator(CMK_MorphAssertion).allocate<char>(byteSize);
+        return c->getAllocator(CMK_MorphAssertion).allocate<Word>(wordCount);
     }
 
     static unsigned GetSize(Compiler*)
@@ -146,10 +147,10 @@ struct MorphAssertionBitVecTraits
         return Compiler::morphAssertionMaxCount;
     }
 
-    static unsigned GetArrSize(Compiler*, unsigned elemSize)
+    static unsigned GetWordCount(Compiler*)
     {
-        unsigned elemBits = 8 * elemSize;
-        return roundUp(Compiler::morphAssertionMaxCount, elemBits) / elemBits;
+        unsigned wordBitSize = sizeof(Word) * CHAR_BIT;
+        return roundUp(Compiler::morphAssertionMaxCount, wordBitSize) / wordBitSize;
     }
 };
 
@@ -164,7 +165,7 @@ struct MorphAssertionBitVecTraits
 // could be used to link assertions directly to locals and entirely avoid the bit vector stuff, not
 // to mention the stupid linear search that's probably one of the reasons the max assertion count is
 // limited to 64 now.
-using DepBitVecOps = BitSetOps<BitSetShortLongRep, MorphAssertionBitVecTraits>;
+using DepBitVecOps = BitSetOps<MorphAssertionBitVecTraits>;
 
 void Compiler::morphAssertionInit()
 {

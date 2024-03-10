@@ -3,9 +3,9 @@
 
 #pragma once
 
-inline void* CompAllocBitSetTraits::Alloc(Compiler* comp, size_t byteSize)
+inline CompAllocBitSetTraits::Word* CompAllocBitSetTraits::Alloc(Compiler* comp, unsigned wordCount)
 {
-    return comp->getAllocator(CMK_bitset).allocate<char>(byteSize);
+    return comp->getAllocator(CMK_bitset).allocate<Word>(wordCount);
 }
 
 inline unsigned TrackedVarBitSetTraits::GetSize(Compiler* comp)
@@ -13,9 +13,8 @@ inline unsigned TrackedVarBitSetTraits::GetSize(Compiler* comp)
     return comp->lvaTrackedCount;
 }
 
-inline unsigned TrackedVarBitSetTraits::GetArrSize(Compiler* comp, unsigned elemSize)
+inline unsigned TrackedVarBitSetTraits::GetWordCount(Compiler* comp)
 {
-    assert(elemSize == sizeof(size_t));
     return comp->lvaTrackedCountInSizeTUnits;
 }
 
@@ -24,17 +23,16 @@ inline unsigned BasicBlockBitSetTraits::GetSize(Compiler* comp)
     return comp->fgCurBBEpochSize;
 }
 
-inline unsigned BasicBlockBitSetTraits::GetArrSize(Compiler* comp, unsigned elemSize)
+inline unsigned BasicBlockBitSetTraits::GetWordCount(Compiler* comp)
 {
     // Assert that the epoch has been initialized. This is a convenient place to assert this because
-    // GetArrSize() is called for every function, via IsShort().
+    // GetWordCount() is called for every function, via IsShort().
     assert(comp->GetCurBasicBlockEpoch() != 0);
 
-    assert(elemSize == sizeof(size_t));
     return comp->fgBBSetCountInSizeTUnits; // This is precomputed to avoid doing math every time this function is called
 }
 
-inline void* BitVecTraits::Alloc(const BitVecTraits* b, size_t byteSize)
+inline BitVecTraits::Word* BitVecTraits::Alloc(const BitVecTraits* b, unsigned wordCount)
 {
-    return b->comp->getAllocator(CMK_bitset).allocate<char>(byteSize);
+    return b->comp->getAllocator(CMK_bitset).allocate<Word>(wordCount);
 }

@@ -3740,7 +3740,7 @@ public:
     unsigned fgCurBBEpochSize = 0;
 
     // The number of "size_t" elements required to hold a bitset large enough for fgCurBBEpochSize
-    // bits. This is precomputed to avoid doing math every time BasicBlockBitSetTraits::GetArrSize() is called.
+    // bits. This is precomputed to avoid doing math every time BasicBlockBitSetTraits::GetWordCount() is called.
     unsigned fgBBSetCountInSizeTUnits = 0;
 
     void NewBasicBlockEpoch()
@@ -3760,7 +3760,7 @@ public:
 
         if (verbose)
         {
-            unsigned epochArrSize = BasicBlockBitSetTraits::GetArrSize(this, sizeof(size_t));
+            unsigned epochArrSize = BasicBlockBitSetTraits::GetWordCount(this);
             printf("\nNew BlockSet epoch %d, # of blocks (including unused BB00): %u, bitset array size: %u (%s)",
                    fgCurBBEpoch, fgCurBBEpochSize, epochArrSize, (epochArrSize <= 1) ? "short" : "long");
             if ((fgCurBBEpoch != 1) && ((oldEpochArrSize <= 1) != (epochArrSize <= 1)))

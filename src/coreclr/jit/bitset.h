@@ -49,11 +49,6 @@ FORCEINLINE unsigned BitSetSupport::CountBitsInIntegral<uint32_t>(uint32_t c)
     return static_cast<unsigned>(c >> 24);
 }
 
-template <typename BitSetType, typename BitSetTraits>
-class BitSetOps
-{
-};
-
 template <typename T>
 inline T genFindLowestBit(T value)
 {
