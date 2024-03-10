@@ -254,14 +254,22 @@ public:
         //   - For struct type locals this is a duplicate of m_layout.
         //   - For REF type locals this is similar to lvClassHnd (but not identical).
         //   - Only "normed type" locals truly need this.
-        typeInfo lvImpTypeInfo;
+        struct
+        {
+            typeInfo lvImpTypeInfo;
+        }; // import
+
+        struct
+        {
+            BitVec assignSet;
+        } gs;
 
 #if ASSERTION_PROP
         struct
         {
             BlockSet   lvUseBlocks; // Set of blocks that contain uses
             Statement* lvDefStmt;   // Pointer to the statement with the single definition
-        };
+        };                          // addCopies
 #endif
     };
 

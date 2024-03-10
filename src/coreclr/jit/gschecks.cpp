@@ -96,12 +96,10 @@ using AssignSet    = AssignSetOps::Set;
 struct MarkPtrsInfo
 {
     AssignSetTraits assignSetTraits;
-    AssignSet*      lclAssignGroups;
     LclVarDsc*      storeLcl     = nullptr; // Which local variable is the tree being assigned to?
     bool            isUnderIndir = false;   // Is this a pointer value tree that is being dereferenced?
 
-    MarkPtrsInfo(Compiler* comp)
-        : assignSetTraits(comp), lclAssignGroups(new (comp, CMK_GS) AssignSet[comp->lvaCount]())
+    MarkPtrsInfo(Compiler* comp) : assignSetTraits(comp)
     {
     }
 };
@@ -149,40 +147,36 @@ static Compiler::fgWalkResult MarkPtrsAndAssignGroups(GenTree** use, Compiler::f
 
             if (LclVarDsc* storeLcl = state->storeLcl)
             {
-                unsigned   loadLclNum      = loadLcl->GetLclNum();
-                unsigned   storeLclNum     = storeLcl->GetLclNum();
-                AssignSet* lclAssignGroups = state->lclAssignGroups;
-
                 // Add storeLclNum and loadLclNum to a common assign group
-                if (AssignSet storeSet = lclAssignGroups[storeLclNum])
+                if (AssignSet storeSet = storeLcl->gs.assignSet)
                 {
-                    if (AssignSet loadSet = lclAssignGroups[loadLclNum])
+                    if (AssignSet loadSet = loadLcl->gs.assignSet)
                     {
                         AssignSetOps::UnionD(state->assignSetTraits, storeSet, loadSet);
                     }
                     else
                     {
-                        AssignSetOps::AddElemD(state->assignSetTraits, storeSet, loadLclNum);
+                        AssignSetOps::AddElemD(state->assignSetTraits, storeSet, loadLcl->GetLclNum());
                     }
 
                     // Point both to the same bit vector
-                    lclAssignGroups[loadLclNum] = storeSet;
+                    loadLcl->gs.assignSet = storeSet;
                 }
-                else if (AssignSet loadSet = lclAssignGroups[loadLclNum])
+                else if (AssignSet loadSet = loadLcl->gs.assignSet)
                 {
-                    AssignSetOps::AddElemD(state->assignSetTraits, loadSet, storeLclNum);
+                    AssignSetOps::AddElemD(state->assignSetTraits, loadSet, storeLcl->GetLclNum());
 
                     // Point both to the same bit vector
-                    lclAssignGroups[storeLclNum] = loadSet;
+                    storeLcl->gs.assignSet = loadSet;
                 }
                 else
                 {
                     AssignSet set = AssignSetOps::MakeEmpty(state->assignSetTraits);
-                    AssignSetOps::AddElemD(state->assignSetTraits, set, storeLclNum);
-                    AssignSetOps::AddElemD(state->assignSetTraits, set, loadLclNum);
+                    AssignSetOps::AddElemD(state->assignSetTraits, set, storeLcl->GetLclNum());
+                    AssignSetOps::AddElemD(state->assignSetTraits, set, loadLcl->GetLclNum());
 
-                    lclAssignGroups[storeLclNum] = set;
-                    lclAssignGroups[loadLclNum]  = set;
+                    storeLcl->gs.assignSet = set;
+                    loadLcl->gs.assignSet  = set;
                 }
             }
 
@@ -288,6 +282,11 @@ bool Compiler::gsFindVulnerableParams()
 {
     MarkPtrsInfo info(this);
 
+    for (LclVarDsc* lcl : Locals())
+    {
+        lcl->gs.assignSet = nullptr;
+    }
+
     // Walk all the trees setting lvIsPtr and assignSet.
     for (BasicBlock* const block : Blocks())
     {
@@ -306,8 +305,7 @@ bool Compiler::gsFindVulnerableParams()
 
     for (LclVarDsc* lcl : Locals())
     {
-        unsigned  lclNum      = lcl->GetLclNum();
-        AssignSet assignGroup = info.lclAssignGroups[lclNum];
+        AssignSet assignGroup = lcl->gs.assignSet;
 
         // If there was an indirection or if unsafe buffer, then we'd call it vulnerable.
         if (lcl->lvIsPtr || lcl->lvIsUnsafeBuffer)
@@ -316,7 +314,7 @@ bool Compiler::gsFindVulnerableParams()
         }
 
         // Now, propagate the info through the assign group (an equivalence class of vars transitively assigned.)
-        if ((assignGroup == nullptr) || AssignSetOps::IsMember(info.assignSetTraits, propagated, lclNum))
+        if ((assignGroup == nullptr) || AssignSetOps::IsMember(info.assignSetTraits, propagated, lcl->GetLclNum()))
         {
             continue;
         }
