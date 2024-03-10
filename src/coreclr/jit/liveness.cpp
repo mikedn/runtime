@@ -438,13 +438,13 @@ void Compiler::fgPerBlockLocalVarLivenessLIR()
 //        Console.WriteLine("In catch 1");
 //    }
 
-VARSET_TP Compiler::fgGetHandlerLiveVars(BasicBlock* block)
+void Compiler::fgGetHandlerLiveVars(BasicBlock* block, VARSET_TP& liveVars)
 {
     noway_assert(block);
     noway_assert(ehBlockHasExnFlowDsc(block));
 
-    VARSET_TP liveVars = VarSetOps::MakeEmpty(this);
-    EHblkDsc* HBtab    = ehGetBlockExnFlowDsc(block);
+    VarSetOps::ClearD(this, liveVars);
+    EHblkDsc* HBtab = ehGetBlockExnFlowDsc(block);
 
     do
     {
@@ -452,7 +452,7 @@ VARSET_TP Compiler::fgGetHandlerLiveVars(BasicBlock* block)
         if (HBtab->HasFilter())
         {
             VarSetOps::UnionD(this, liveVars, HBtab->ebdFilter->bbLiveIn);
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
             // The EH subsystem can trigger a stack walk after the filter
             // has returned, but before invoking the handler, and the only
             // IP address reported from this method will be the original
@@ -460,7 +460,7 @@ VARSET_TP Compiler::fgGetHandlerLiveVars(BasicBlock* block)
             // must report as live any variables live-out of the filter
             // (which is the same as those live-in to the handler)
             VarSetOps::UnionD(this, liveVars, HBtab->ebdHndBeg->bbLiveIn);
-#endif // FEATURE_EH_FUNCLETS
+#endif
         }
         else
         {
@@ -545,8 +545,6 @@ VARSET_TP Compiler::fgGetHandlerLiveVars(BasicBlock* block)
             }
         }
     }
-
-    return liveVars;
 }
 
 // This is the classic algorithm for live variable analysis.
@@ -560,6 +558,7 @@ class LiveVarAnalysis
     bool      m_memoryLiveOut : 1;
     VARSET_TP m_liveIn;
     VARSET_TP m_liveOut;
+    VARSET_TP m_ehLiveVars = VarSetOps::UninitVal();
 
 public:
     LiveVarAnalysis(Compiler* compiler)
@@ -624,9 +623,14 @@ public:
         // If so, include the effects of that flow.
         if (m_compiler->ehBlockHasExnFlowDsc(block))
         {
-            const VARSET_TP& liveVars(m_compiler->fgGetHandlerLiveVars(block));
-            VarSetOps::UnionD(m_compiler, m_liveIn, liveVars);
-            VarSetOps::UnionD(m_compiler, m_liveOut, liveVars);
+            if (m_ehLiveVars == VarSetOps::UninitVal())
+            {
+                m_ehLiveVars = VarSetOps::Alloc(m_compiler);
+            }
+
+            m_compiler->fgGetHandlerLiveVars(block, m_ehLiveVars);
+            VarSetOps::UnionD(m_compiler, m_liveIn, m_ehLiveVars);
+            VarSetOps::UnionD(m_compiler, m_liveOut, m_ehLiveVars);
 
             // Implicit eh edges can induce loop-like behavior,
             // so make sure we iterate to closure.
@@ -1358,8 +1362,7 @@ bool Compiler::fgInterBlockLocalVarLiveness()
 
         if (ehBlockHasExnFlowDsc(block))
         {
-            VarSetOps::Assign(this, keepAlive, fgGetHandlerLiveVars(block));
-
+            fgGetHandlerLiveVars(block, keepAlive);
             noway_assert(VarSetOps::IsSubset(this, keepAlive, handlerLive));
         }
         else
