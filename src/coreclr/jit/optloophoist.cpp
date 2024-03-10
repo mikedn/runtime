@@ -304,87 +304,66 @@ void LoopHoist::HoistLoop(unsigned lnum)
         VarSetOps::UnionD(compiler, stats.useDefLocals, block->bbVarDef);
     }
 
-    VARSET_TP loopVars = VarSetOps::Alloc(compiler);
-    VarSetOps::Intersection(compiler, loopVars, stats.inOutLocals, stats.useDefLocals);
-
-    stats.intInOutLocalCount  = VarSetOps::Count(compiler, stats.inOutLocals);
-    stats.intLocalCount       = VarSetOps::Count(compiler, loopVars);
-    stats.intHoistedExprCount = 0;
-
-#ifndef TARGET_64BIT
-    unsigned longVarsCount = VarSetOps::Count(compiler, stats.longLocals);
-
-    if (longVarsCount > 0)
-    {
-        // Since 64-bit variables take up two registers on 32-bit targets,
-        // we increase the counts such that each LONG variable counts twice.
-        VARSET_TP loopLongVars = VarSetOps::Alloc(compiler);
-        VarSetOps::Intersection(compiler, loopLongVars, loopVars, stats.longLocals);
-        VARSET_TP inOutLongVars = VarSetOps::Alloc(compiler);
-        VarSetOps::Intersection(compiler, inOutLongVars, stats.inOutLocals, stats.longLocals);
-
-#ifdef DEBUG
-        if (compiler->verbose)
-        {
-            printf("\n  LONGVARS(%d)=", VarSetOps::Count(compiler, stats.longLocals));
-            compiler->lvaDispVarSet(stats.longLocals);
-        }
-#endif
-        stats.intLocalCount += VarSetOps::Count(compiler, loopLongVars);
-        stats.intInOutLocalCount += VarSetOps::Count(compiler, inOutLongVars);
-    }
-#endif // !TARGET_64BIT
+    VARSET_TP loopLocals = VarSetOps::Alloc(compiler);
+    VarSetOps::Intersection(compiler, loopLocals, stats.inOutLocals, stats.useDefLocals);
 
 #ifdef DEBUG
     if (compiler->verbose)
     {
-        printf("\n  USEDEF  (%d)=", VarSetOps::Count(compiler, stats.useDefLocals));
+        printf("\n  USEDEF ");
         compiler->lvaDispVarSet(stats.useDefLocals);
+        printf("\n");
 
-        printf("\n  INOUT   (%d)=", stats.intInOutLocalCount);
+        printf("\n  INOUT ");
         compiler->lvaDispVarSet(stats.inOutLocals);
+        printf("\n");
 
-        printf("\n  LOOPVARS(%d)=", stats.intLocalCount);
-        compiler->lvaDispVarSet(loopVars);
+        printf("\n  LOOPVARS ");
+        compiler->lvaDispVarSet(loopLocals);
         printf("\n");
     }
 #endif
 
-    unsigned floatVarsCount = VarSetOps::Count(compiler, stats.floatLocals);
+    stats.intLocalCount      = VarSetOps::Count(compiler, loopLocals);
+    stats.intInOutLocalCount = VarSetOps::Count(compiler, stats.inOutLocals);
 
-    if (floatVarsCount > 0)
+#ifndef TARGET_64BIT
+    if (!VarSetOps::IsEmpty(compiler, stats.longLocals))
     {
-        VARSET_TP loopFPVars = VarSetOps::Alloc(compiler);
-        VarSetOps::Intersection(compiler, loopFPVars, loopVars, stats.floatLocals);
-        VARSET_TP inOutFPVars = VarSetOps::Alloc(compiler);
-        VarSetOps::Intersection(compiler, inOutFPVars, stats.inOutLocals, stats.floatLocals);
+        // Since 64-bit variables take up two registers on 32-bit targets,
+        // we increase the counts such that each LONG variable counts twice.
 
-        stats.floatLocalCount       = VarSetOps::Count(compiler, loopFPVars);
-        stats.floatInOutLocalCount  = VarSetOps::Count(compiler, inOutFPVars);
-        stats.floatHoistedExprCount = 0;
+        VARSET_TP longLocals = VarSetOps::Alloc(compiler);
+        VarSetOps::Intersection(compiler, longLocals, loopLocals, stats.longLocals);
+        stats.intLocalCount += VarSetOps::Count(compiler, longLocals);
 
-        stats.intLocalCount -= stats.floatLocalCount;
-        stats.intInOutLocalCount -= stats.floatInOutLocalCount;
-
-#ifdef DEBUG
-        if (compiler->verbose)
-        {
-            printf("  INOUT-FP(%d)=", stats.floatInOutLocalCount);
-            compiler->lvaDispVarSet(inOutFPVars);
-
-            printf("\n  LOOPV-FP(%d)=", stats.floatLocalCount);
-            compiler->lvaDispVarSet(loopFPVars);
-
-            printf("\n");
-        }
+        VarSetOps::Intersection(compiler, longLocals, stats.inOutLocals, stats.longLocals);
+        stats.intInOutLocalCount += VarSetOps::Count(compiler, longLocals);
+    }
 #endif
-    }
-    else // (floatVarsCount == 0)
+
+    if (!VarSetOps::IsEmpty(compiler, stats.floatLocals))
     {
-        stats.floatLocalCount       = 0;
-        stats.floatInOutLocalCount  = 0;
-        stats.floatHoistedExprCount = 0;
+        VARSET_TP floatLocals = VarSetOps::Alloc(compiler);
+        VarSetOps::Intersection(compiler, floatLocals, loopLocals, stats.floatLocals);
+        stats.floatLocalCount = VarSetOps::Count(compiler, floatLocals);
+        stats.intLocalCount -= stats.floatLocalCount;
+
+        VarSetOps::Intersection(compiler, floatLocals, stats.inOutLocals, stats.floatLocals);
+        stats.floatInOutLocalCount = VarSetOps::Count(compiler, floatLocals);
+        stats.intInOutLocalCount -= stats.floatInOutLocalCount;
     }
+    else
+    {
+        stats.floatLocalCount      = 0;
+        stats.floatInOutLocalCount = 0;
+    }
+
+    JITDUMP("intLocalCount %u, intInOutLocalCount %u, floatLocalCount %u, floatInOutLocalCount %u\n",
+            stats.intLocalCount, stats.intInOutLocalCount, stats.floatLocalCount, stats.floatInOutLocalCount);
+
+    stats.intHoistedExprCount   = 0;
+    stats.floatHoistedExprCount = 0;
 
     // Find the set of definitely-executed blocks.
     // Ideally, the definitely-executed blocks are the ones that post-dominate the entry block.
@@ -477,7 +456,7 @@ bool LoopHoist::IsHoistingProfitable(GenTree* tree, unsigned lnum)
     // For this case we will hoist the expression only if is profitable
     // to place it in a stack home location (GetCostEx() >= 2*IND_COST_EX)
     // as we believe it will be placed in the stack or one of the other
-    // loopVars will be spilled into the stack
+    // loopLocals will be spilled into the stack
     //
     if (loopVarCount >= availRegCount)
     {
