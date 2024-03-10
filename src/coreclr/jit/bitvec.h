@@ -77,6 +77,23 @@ public:
     }
 };
 
+class ILLabelSetTraits : public CompAllocBitSetTraits
+{
+public:
+    using Env = Compiler*;
+
+    static unsigned GetSize(Compiler* comp);
+    static unsigned GetWordCount(Compiler* comp);
+
+    static bool IsShort(Compiler* comp)
+    {
+        return false;
+    }
+};
+
+using ILLabelSetOps = BitSetOps<ILLabelSetTraits>;
+using ILLabelSet    = ILLabelSetOps::Set;
+
 // A VARSET_TP is a set of (small) integers representing local variables.
 //
 // The set of tracked variables may change during a compilation, and variables may be

@@ -863,14 +863,12 @@ void Compiler::inlCreateBasicBlocks()
     // We don't inline method with EH
     noway_assert(info.compXcptnsCount == 0);
 
-    FixedBitVect* jumpTargets = fgFindJumpTargets();
+    ILLabelSet jumpTargets = fgFindJumpTargets();
 
     if (compInlineResult->IsFailure())
     {
         return;
     }
-
-    DBEXEC(verbose, dmpILJumpTargets(jumpTargets);)
 
     unsigned retBlocks = fgMakeBasicBlocks(jumpTargets);
 

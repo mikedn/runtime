@@ -8,6 +8,16 @@ inline CompAllocBitSetTraits::Word* CompAllocBitSetTraits::Alloc(Compiler* comp,
     return comp->getAllocator(CMK_bitset).allocate<Word>(wordCount);
 }
 
+inline unsigned ILLabelSetTraits::GetSize(Compiler* comp)
+{
+    return comp->info.compILCodeSize;
+}
+
+inline unsigned ILLabelSetTraits::GetWordCount(Compiler* comp)
+{
+    return ComputeWordCount(comp->info.compILCodeSize);
+}
+
 inline unsigned LiveBitSetTraits::GetSize(const Compiler* comp)
 {
     return comp->lvaTrackedCount;

@@ -4169,7 +4169,7 @@ public:
 
     void compCreateBasicBlocks(ILStats& ilStats);
     void compCreateEHTable();
-    INDEBUG(void dmpILJumpTargets(FixedBitVect* targets);)
+    INDEBUG(void dmpILJumpTargets(ILLabelSet targets);)
 
     bool fgIsBetterFallThrough(BasicBlock* bCur, BasicBlock* bAlt);
 
@@ -4345,13 +4345,13 @@ protected:
 
     bool fgMayExplicitTailCall();
 
-    FixedBitVect* fgFindJumpTargets(ILStats* ilStats = nullptr);
+    ILLabelSet fgFindJumpTargets(ILStats* ilStats = nullptr);
 
     void fgMarkBackwardJump(BasicBlock* startBlock, BasicBlock* endBlock);
 
     void fgLinkBasicBlocks();
 
-    unsigned fgMakeBasicBlocks(FixedBitVect* jumpTarget);
+    unsigned fgMakeBasicBlocks(ILLabelSet jumpTarget);
 
     void fgCheckBasicBlockControlFlow();
 

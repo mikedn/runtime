@@ -207,52 +207,6 @@ private:
 
 #endif // defined(DEBUG) || defined(INLINE_DATA)
 
-class Compiler;
-
-/*****************************************************************************
- * Fixed bit vector class
- */
-class FixedBitVect
-{
-private:
-    UINT bitVectSize;
-    UINT bitVect[];
-
-    // bitChunkSize() - Returns number of bits in a bitVect chunk
-    static UINT bitChunkSize();
-
-    // bitNumToBit() - Returns a bit mask of the given bit number
-    static UINT bitNumToBit(UINT bitNum);
-
-public:
-    // bitVectInit() - Initializes a bit vector of a given size
-    static FixedBitVect* bitVectInit(UINT size, Compiler* comp);
-
-    // bitVectSet() - Sets the given bit
-    void bitVectSet(UINT bitNum);
-
-    // bitVectTest() - Tests the given bit
-    bool bitVectTest(UINT bitNum);
-
-    // bitVectOr() - Or in the given bit vector
-    void bitVectOr(FixedBitVect* bv);
-
-    // bitVectAnd() - And with passed in bit vector
-    void bitVectAnd(FixedBitVect& bv);
-
-    // bitVectGetFirst() - Find the first bit on and return the bit num.
-    //                    Return -1 if no bits found.
-    UINT bitVectGetFirst();
-
-    // bitVectGetNext() - Find the next bit on given previous bit and return bit num.
-    //                    Return -1 if no bits found.
-    UINT bitVectGetNext(UINT bitNumPrev);
-
-    // bitVectGetNextAndClear() - Find the first bit on, clear it and return it.
-    //                            Return -1 if no bits found.
-    UINT bitVectGetNextAndClear();
-};
-
 /******************************************************************************
  * A specialized version of sprintf_s to simplify conversion to SecureCRT
  *
