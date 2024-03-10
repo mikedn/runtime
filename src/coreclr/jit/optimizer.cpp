@@ -1307,102 +1307,49 @@ namespace
 //
 class LoopSearch
 {
-
-    // Keeping track of which blocks are in the loop requires two block sets since we may add blocks
-    // as we go but the BlockSet type's max ID doesn't increase to accommodate them.  Define a helper
-    // struct to make the ensuing code more readable.
-    struct LoopBlockSet
+    class LoopBlockSet
     {
-    private:
-        // Keep track of blocks with bbNum <= oldBlockMaxNum in a regular BlockSet, since
-        // it can hold all of them.
-        BlockSet oldBlocksInLoop; // Blocks with bbNum <= oldBlockMaxNum
-
-        // Keep track of blocks with bbNum > oldBlockMaxNum in a separate BlockSet, but
-        // indexing them by (blockNum - oldBlockMaxNum); since we won't generate more than
-        // one new block per old block, this must be sufficient to track any new blocks.
-        BlockSet newBlocksInLoop; // Blocks with bbNum > oldBlockMaxNum
-
-        Compiler*    comp;
-        unsigned int oldBlockMaxNum;
+        BitVec       blocksInLoop = BitVecOps::UninitVal();
+        BitVecTraits blockSetTraits;
 
     public:
-        LoopBlockSet(Compiler* comp)
-            : oldBlocksInLoop(BlockSetOps::UninitVal())
-            , newBlocksInLoop(BlockSetOps::UninitVal())
-            , comp(comp)
-            , oldBlockMaxNum(comp->fgBBNumMax)
+        // Loop canonicalization may add new blocks so we need a larger than usual block set.
+        LoopBlockSet(Compiler* comp) : blockSetTraits((comp->fgBBNumMax + 1) * 2, comp)
         {
         }
 
-        void Reset(unsigned int seedBlockNum)
+        void Reset(unsigned seedBlockNum)
         {
-            if (BlockSetOps::MayBeUninit(oldBlocksInLoop))
+            if (BitVecOps::MayBeUninit(blocksInLoop))
             {
-                // Either the block sets are uninitialized (and long), so we need to initialize
-                // them (and allocate their backing storage), or they are short and empty, so
-                // assigning MakeEmpty to them is as cheap as ClearD.
-                oldBlocksInLoop = BlockSetOps::MakeEmpty(comp);
-                newBlocksInLoop = BlockSetOps::MakeEmpty(comp);
+                blocksInLoop = BitVecOps::MakeEmpty(&blockSetTraits);
             }
             else
             {
-                // We know the backing storage is already allocated, so just clear it.
-                BlockSetOps::ClearD(comp, oldBlocksInLoop);
-                BlockSetOps::ClearD(comp, newBlocksInLoop);
+                BitVecOps::ClearD(blockSetTraits, blocksInLoop);
             }
-            assert(seedBlockNum <= oldBlockMaxNum);
-            BlockSetOps::AddElemD(comp, oldBlocksInLoop, seedBlockNum);
+
+            BitVecOps::AddElemD(blockSetTraits, blocksInLoop, seedBlockNum);
         }
 
-        bool CanRepresent(unsigned int blockNum)
+        bool CanRepresent(unsigned blockNum) const
         {
-            // We can represent old blocks up to oldBlockMaxNum, and
-            // new blocks up to 2 * oldBlockMaxNum.
-            return (blockNum <= 2 * oldBlockMaxNum);
+            return blockNum < BitVecTraits::GetSize(&blockSetTraits);
         }
 
-        bool IsMember(unsigned int blockNum)
+        bool IsMember(unsigned blockNum) const
         {
-            if (blockNum > oldBlockMaxNum)
-            {
-                return BlockSetOps::IsMember(comp, newBlocksInLoop, blockNum - oldBlockMaxNum);
-            }
-            return BlockSetOps::IsMember(comp, oldBlocksInLoop, blockNum);
+            return BitVecOps::IsMember(&blockSetTraits, blocksInLoop, blockNum);
         }
 
-        void Insert(unsigned int blockNum)
+        void Insert(unsigned blockNum)
         {
-            if (blockNum > oldBlockMaxNum)
-            {
-                BlockSetOps::AddElemD(comp, newBlocksInLoop, blockNum - oldBlockMaxNum);
-            }
-            else
-            {
-                BlockSetOps::AddElemD(comp, oldBlocksInLoop, blockNum);
-            }
+            BitVecOps::AddElemD(&blockSetTraits, blocksInLoop, blockNum);
         }
 
-        bool TestAndInsert(unsigned int blockNum)
+        bool TestAndInsert(unsigned blockNum)
         {
-            if (blockNum > oldBlockMaxNum)
-            {
-                unsigned int shiftedNum = blockNum - oldBlockMaxNum;
-                if (!BlockSetOps::IsMember(comp, newBlocksInLoop, shiftedNum))
-                {
-                    BlockSetOps::AddElemD(comp, newBlocksInLoop, shiftedNum);
-                    return false;
-                }
-            }
-            else
-            {
-                if (!BlockSetOps::IsMember(comp, oldBlocksInLoop, blockNum))
-                {
-                    BlockSetOps::AddElemD(comp, oldBlocksInLoop, blockNum);
-                    return false;
-                }
-            }
-            return true;
+            return !BitVecOps::TryAddElemD(&blockSetTraits, blocksInLoop, blockNum);
         }
     };
 
