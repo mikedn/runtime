@@ -3729,7 +3729,7 @@ public:
     // If the epoch is zero, then it is uninitialized, and block sets can't be used.
     unsigned fgCurBBEpoch = 0;
 
-    unsigned GetCurBasicBlockEpoch()
+    unsigned GetCurBasicBlockEpoch() const
     {
         return fgCurBBEpoch;
     }

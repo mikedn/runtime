@@ -101,6 +101,11 @@ public:
     {
         return GetSize(alloc) / sizeof(Word);
     }
+
+    static bool IsShort(CompAllocator alloc)
+    {
+        return GetWordCount(alloc) <= 1;
+    }
 };
 
 void BitSetSupport::TestSuite(CompAllocator env)

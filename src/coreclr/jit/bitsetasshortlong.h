@@ -22,11 +22,6 @@ public:
 private:
     static const unsigned WordBitSize = sizeof(Word) * CHAR_BIT;
 
-    inline static bool IsShort(Env env)
-    {
-        return Traits::GetWordCount(env) <= 1;
-    }
-
 public:
     inline static Set UninitVal()
     {
@@ -40,7 +35,7 @@ public:
 
     static void Assign(Env env, Set& lhs, Set rhs)
     {
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             lhs = rhs;
         }
@@ -52,7 +47,7 @@ public:
 
     static void ClearD(Env env, Set& s)
     {
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             s = nullptr;
         }
@@ -66,7 +61,7 @@ public:
     static Set MakeSingleton(Env env, unsigned index)
     {
         assert(index < Traits::GetSize(env));
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             return Set(Word(1) << index);
         }
@@ -78,7 +73,7 @@ public:
 
     static Set Alloc(Env env)
     {
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             return nullptr;
         }
@@ -90,7 +85,7 @@ public:
 
     static Set MakeCopy(Env env, ConstSet s)
     {
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             return Set(Word(s));
         }
@@ -102,7 +97,7 @@ public:
 
     static bool IsEmpty(Env env, ConstSet s)
     {
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             return s == nullptr;
         }
@@ -115,7 +110,7 @@ public:
 
     static unsigned Count(Env env, ConstSet s)
     {
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             return BitSetSupport::CountBitsInIntegral(Word(s));
         }
@@ -128,7 +123,7 @@ public:
 
     static bool IsEmptyUnion(Env env, ConstSet s1, ConstSet s2)
     {
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             return (Word(s1) | Word(s2)) == 0;
         }
@@ -140,7 +135,7 @@ public:
 
     static void UnionD(Env env, Set& s1, ConstSet s2)
     {
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             s1 = Set(Word(s1) | Word(s2));
         }
@@ -152,7 +147,7 @@ public:
 
     static void Union(Env env, Set& r, ConstSet s1, ConstSet s2)
     {
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             r = Set(Word(s1) | Word(s2));
         }
@@ -164,7 +159,7 @@ public:
 
     static void DiffD(Env env, Set& s1, ConstSet s2)
     {
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             s1 = Set(Word(s1) & ~Word(s2));
         }
@@ -176,7 +171,7 @@ public:
 
     static void Diff(Env env, Set& r, ConstSet s1, ConstSet s2)
     {
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             r = Set(Word(s1) & ~Word(s2));
         }
@@ -188,7 +183,7 @@ public:
 
     static void SymmetricDiff(Env env, Set& r, ConstSet s1, ConstSet s2)
     {
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             r = Set(Word(s1) ^ Word(s2));
         }
@@ -201,7 +196,7 @@ public:
     static void RemoveElemD(Env env, Set& s, unsigned i)
     {
         assert(i < Traits::GetSize(env));
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             Word mask = Word(1) << i;
             mask      = ~mask;
@@ -217,7 +212,7 @@ public:
     static bool TryRemoveElemD(Env env, Set& s, unsigned i)
     {
         assert(i < Traits::GetSize(env));
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             Word mask    = Word(1) << i;
             Word bits    = Word(s);
@@ -234,7 +229,7 @@ public:
     static void AddElemD(Env env, Set& s, unsigned i)
     {
         assert(i < Traits::GetSize(env));
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             s = Set(Word(s) | (Word(1) << i));
         }
@@ -247,7 +242,7 @@ public:
     static bool TryAddElemD(Env env, Set& s, unsigned i)
     {
         assert(i < Traits::GetSize(env));
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             Word mask  = Word(1) << i;
             Word bits  = Word(s);
@@ -264,7 +259,7 @@ public:
     static bool IsMember(Env env, ConstSet s, unsigned i)
     {
         assert(i < Traits::GetSize(env));
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             return (Word(s) & (Word(1) << i)) != 0;
         }
@@ -277,7 +272,7 @@ public:
 
     static void IntersectionD(Env env, Set& s1, ConstSet s2)
     {
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             s1 = Set(Word(s1) & Word(s2));
         }
@@ -289,7 +284,7 @@ public:
 
     static void Intersection(Env env, Set& r, ConstSet s1, ConstSet s2)
     {
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             r = Set(Word(s1) & Word(s2));
         }
@@ -301,7 +296,7 @@ public:
 
     static bool IsEmptyIntersection(Env env, ConstSet s1, ConstSet s2)
     {
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             return (Word(s1) & Word(s2)) == 0;
         }
@@ -313,7 +308,7 @@ public:
 
     static void DataFlowD(Env env, Set& out, ConstSet gen, ConstSet in)
     {
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             out = Set(Word(out) & (Word(gen) | Word(in)));
         }
@@ -325,7 +320,7 @@ public:
 
     static void LivenessD(Env env, Set& in, ConstSet def, ConstSet use, ConstSet out)
     {
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             in = Set(Word(use) | (Word(out) & ~Word(def)));
         }
@@ -337,7 +332,7 @@ public:
 
     static bool IsSubset(Env env, ConstSet s1, ConstSet s2)
     {
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             return (Word(s1) & Word(s2)) == Word(s1);
         }
@@ -349,12 +344,12 @@ public:
 
     static bool Equal(Env env, ConstSet s1, ConstSet s2)
     {
-        return (s1 == s2) || (!IsShort(env) && EqualLong(env, s1, s2));
+        return (s1 == s2) || (!Traits::IsShort(env) && EqualLong(env, s1, s2));
     }
 
     static Set MakeEmpty(Env env)
     {
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             return nullptr;
         }
@@ -366,7 +361,7 @@ public:
 
     static Set MakeFull(Env env)
     {
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             unsigned size = Traits::GetSize(env);
             return Set(size == 0 ? 0 : (~Word(0) >> (WordBitSize - size)));
@@ -385,7 +380,7 @@ public:
     public:
         Iter(Env env, ConstSet s) : m_current(s)
         {
-            if (BitSetOps::IsShort(env))
+            if (Traits::IsShort(env))
             {
                 m_bits = Word(s);
                 // Set the iteration end condition, valid even though this is not a pointer in the short case.
@@ -540,7 +535,7 @@ public:
 private:
     static void AssignLong(Env env, Set lhs, ConstSet rhs)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
         unsigned len = Traits::GetWordCount(env);
         for (unsigned i = 0; i < len; i++)
         {
@@ -550,7 +545,7 @@ private:
 
     static Set MakeSingletonLong(Env env, unsigned index)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
         Set s                  = MakeEmptyLong(env);
         s[index / WordBitSize] = Word(1) << (index % WordBitSize);
         return s;
@@ -558,7 +553,7 @@ private:
 
     static Set MakeCopyLong(Env env, ConstSet s)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
         Set r = AllocLong(env);
         for (unsigned i = 0, len = Traits::GetWordCount(env); i < len; i++)
         {
@@ -569,7 +564,7 @@ private:
 
     static bool IsEmptyLong(Env env, ConstSet s)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
         for (unsigned i = 0, len = Traits::GetWordCount(env); i < len; i++)
         {
             if (s[i] != 0)
@@ -582,7 +577,7 @@ private:
 
     static unsigned CountLong(Env env, ConstSet s)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
         unsigned count = 0;
         for (unsigned i = 0, len = Traits::GetWordCount(env); i < len; i++)
         {
@@ -593,7 +588,7 @@ private:
 
     static void UnionDLong(Env env, Set s1, ConstSet s2)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
         for (unsigned i = 0, len = Traits::GetWordCount(env); i < len; i++)
         {
             s1[i] |= s2[i];
@@ -602,7 +597,7 @@ private:
 
     static void UnionLong(Env env, Set r, ConstSet s1, ConstSet s2)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
         for (unsigned i = 0, len = Traits::GetWordCount(env); i < len; i++)
         {
             r[i] = s1[i] | s2[i];
@@ -611,7 +606,7 @@ private:
 
     static void DiffDLong(Env env, Set s1, ConstSet s2)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
         for (unsigned i = 0, len = Traits::GetWordCount(env); i < len; i++)
         {
             s1[i] &= ~s2[i];
@@ -620,7 +615,7 @@ private:
 
     static void DiffLong(Env env, Set r, ConstSet s1, ConstSet s2)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
         for (unsigned i = 0, len = Traits::GetWordCount(env); i < len; i++)
         {
             r[i] = s1[i] & ~s2[i];
@@ -629,7 +624,7 @@ private:
 
     static void SymmetricDiffLong(Env env, Set r, ConstSet s1, ConstSet s2)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
 
         for (unsigned i = 0, len = Traits::GetWordCount(env); i < len; i++)
         {
@@ -639,13 +634,13 @@ private:
 
     static void AddElemDLong(Env env, Set s, unsigned i)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
         s[i / WordBitSize] |= Word(1) << (i % WordBitSize);
     }
 
     static bool TryAddElemDLong(Env env, Set s, unsigned i)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
         unsigned index = i / WordBitSize;
         Word     mask  = Word(1) << (i % WordBitSize);
         Word     bits  = s[index];
@@ -656,13 +651,13 @@ private:
 
     static void RemoveElemDLong(Env env, Set s, unsigned i)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
         s[i / WordBitSize] &= ~(Word(1) << (i % WordBitSize));
     }
 
     static bool TryRemoveElemDLong(Env env, Set s, unsigned i)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
         unsigned index   = i / WordBitSize;
         Word     mask    = Word(1) << (i % WordBitSize);
         Word     bits    = s[index];
@@ -673,7 +668,7 @@ private:
 
     static void ClearDLong(Env env, Set s)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
         for (unsigned i = 0, len = Traits::GetWordCount(env); i < len; i++)
         {
             s[i] = 0;
@@ -682,13 +677,13 @@ private:
 
     static Set AllocLong(Env env)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
         return Set(Traits::Alloc(env, Traits::GetWordCount(env)));
     }
 
     static Set MakeEmptyLong(Env env)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
         unsigned len = Traits::GetWordCount(env);
         assert(len > 1); // Or else would not require an array.
 
@@ -721,13 +716,13 @@ private:
 
     static bool IsMemberLong(Env env, ConstSet s, unsigned i)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
         return (s[i / WordBitSize] & (Word(1) << (i % WordBitSize))) != 0;
     }
 
     static void IntersectionDLong(Env env, Set s1, ConstSet s2)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
         for (unsigned i = 0, len = Traits::GetWordCount(env); i < len; i++)
         {
             s1[i] &= s2[i];
@@ -736,7 +731,7 @@ private:
 
     static void IntersectionLong(Env env, Set r, ConstSet s1, ConstSet s2)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
         for (unsigned i = 0, len = Traits::GetWordCount(env); i < len; i++)
         {
             r[i] = s1[i] & s2[i];
@@ -745,7 +740,7 @@ private:
 
     static bool IsEmptyIntersectionLong(Env env, ConstSet s1, ConstSet s2)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
         for (unsigned i = 0, len = Traits::GetWordCount(env); i < len; i++)
         {
             if ((s1[i] & s2[i]) != 0)
@@ -758,7 +753,7 @@ private:
 
     static bool IsEmptyUnionLong(Env env, ConstSet s1, ConstSet s2)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
         for (unsigned i = 0, len = Traits::GetWordCount(env); i < len; i++)
         {
             if ((s1[i] | s2[i]) != 0)
@@ -771,7 +766,7 @@ private:
 
     static void DataFlowDLong(Env env, Set out, ConstSet gen, ConstSet in)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
         for (unsigned i = 0, len = Traits::GetWordCount(env); i < len; i++)
         {
             out[i] = out[i] & (gen[i] | in[i]);
@@ -780,7 +775,7 @@ private:
 
     static void LivenessDLong(Env env, Set in, ConstSet def, ConstSet use, ConstSet out)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
         for (unsigned i = 0, len = Traits::GetWordCount(env); i < len; i++)
         {
             in[i] = use[i] | (out[i] & ~def[i]);
@@ -789,7 +784,7 @@ private:
 
     static bool EqualLong(Env env, ConstSet s1, ConstSet s2)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
         for (unsigned i = 0, len = Traits::GetWordCount(env); i < len; i++)
         {
             if (s1[i] != s2[i])
@@ -802,7 +797,7 @@ private:
 
     static bool IsSubsetLong(Env env, ConstSet s1, ConstSet s2)
     {
-        assert(!IsShort(env));
+        assert(!Traits::IsShort(env));
         for (unsigned i = 0, len = Traits::GetWordCount(env); i < len; i++)
         {
             if ((s1[i] & s2[i]) != s1[i])

@@ -8,22 +8,22 @@ inline CompAllocBitSetTraits::Word* CompAllocBitSetTraits::Alloc(Compiler* comp,
     return comp->getAllocator(CMK_bitset).allocate<Word>(wordCount);
 }
 
-inline unsigned TrackedVarBitSetTraits::GetSize(Compiler* comp)
+inline unsigned TrackedVarBitSetTraits::GetSize(const Compiler* comp)
 {
     return comp->lvaTrackedCount;
 }
 
-inline unsigned TrackedVarBitSetTraits::GetWordCount(Compiler* comp)
+inline unsigned TrackedVarBitSetTraits::GetWordCount(const Compiler* comp)
 {
     return comp->lvaTrackedCountInSizeTUnits;
 }
 
-inline unsigned BasicBlockBitSetTraits::GetSize(Compiler* comp)
+inline unsigned BasicBlockBitSetTraits::GetSize(const Compiler* comp)
 {
     return comp->fgCurBBEpochSize;
 }
 
-inline unsigned BasicBlockBitSetTraits::GetWordCount(Compiler* comp)
+inline unsigned BasicBlockBitSetTraits::GetWordCount(const Compiler* comp)
 {
     // Assert that the epoch has been initialized. This is a convenient place to assert this because
     // GetWordCount() is called for every function, via IsShort().

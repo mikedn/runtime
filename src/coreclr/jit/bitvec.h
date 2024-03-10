@@ -52,6 +52,11 @@ public:
         unsigned wordBitSize = sizeof(Word) * CHAR_BIT;
         return roundUp(b->size, wordBitSize) / wordBitSize;
     }
+
+    static bool IsShort(const BitVecTraits* t)
+    {
+        return GetWordCount(t) <= 1;
+    }
 };
 
 using BitVecOps = BitSetOps<BitVecTraits>;
@@ -95,8 +100,13 @@ class TrackedVarBitSetTraits : public CompAllocBitSetTraits
 public:
     using Env = Compiler*;
 
-    static unsigned GetSize(Compiler* comp);
-    static unsigned GetWordCount(Compiler* comp);
+    static unsigned GetSize(const Compiler* comp);
+    static unsigned GetWordCount(const Compiler* comp);
+
+    static bool IsShort(const Compiler* comp)
+    {
+        return GetWordCount(comp) <= 1;
+    }
 };
 
 using VarSetOps = BitSetOps<TrackedVarBitSetTraits>;
@@ -125,8 +135,13 @@ class BasicBlockBitSetTraits : public CompAllocBitSetTraits
 public:
     using Env = Compiler*;
 
-    static unsigned GetSize(Compiler* comp);
-    static unsigned GetWordCount(Compiler* comp);
+    static unsigned GetSize(const Compiler* comp);
+    static unsigned GetWordCount(const Compiler* comp);
+
+    static bool IsShort(const Compiler* comp)
+    {
+        return GetWordCount(comp) <= 1;
+    }
 };
 
 class BlockSetOps : public BitSetOps<BasicBlockBitSetTraits>

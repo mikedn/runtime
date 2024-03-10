@@ -142,15 +142,20 @@ struct MorphAssertionBitVecTraits
         return c->getAllocator(CMK_MorphAssertion).allocate<Word>(wordCount);
     }
 
-    static unsigned GetSize(Compiler*)
+    static unsigned GetSize(const Compiler*)
     {
         return Compiler::morphAssertionMaxCount;
     }
 
-    static unsigned GetWordCount(Compiler*)
+    static unsigned GetWordCount(const Compiler*)
     {
         unsigned wordBitSize = sizeof(Word) * CHAR_BIT;
         return roundUp(Compiler::morphAssertionMaxCount, wordBitSize) / wordBitSize;
+    }
+
+    static bool IsShort(const Compiler* c)
+    {
+        return GetWordCount(c) <= 1;
     }
 };
 
