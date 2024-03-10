@@ -56,13 +56,52 @@ void Compiler::gsCopyShadowParams()
     }
 }
 
+struct AssignSetTraits : public CompAllocBitSetTraits
+{
+    Compiler* compiler;
+    unsigned  size;
+
+    using Env = AssignSetTraits;
+
+    AssignSetTraits(Compiler* compiler) : compiler(compiler), size(compiler->lvaCount)
+    {
+    }
+
+    static Word* Alloc(AssignSetTraits t, unsigned wordCount)
+    {
+        return CompAllocBitSetTraits::Alloc(t.compiler, wordCount);
+    }
+
+    static unsigned GetSize(AssignSetTraits t)
+    {
+        return t.size;
+    }
+
+    static unsigned GetWordCount(AssignSetTraits t)
+    {
+        unsigned wordBitSize = sizeof(Word) * CHAR_BIT;
+        return roundUp(t.size, wordBitSize) / wordBitSize;
+    }
+
+    static bool IsShort(AssignSetTraits t)
+    {
+        // We need to share the sets between locals so we always use "long" sets.
+        return false;
+    }
+};
+
+using AssignSetOps = BitSetOps<AssignSetTraits>;
+using AssignSet    = AssignSetOps::Set;
+
 struct MarkPtrsInfo
 {
-    FixedBitVect** lclAssignGroups;
-    LclVarDsc*     storeLcl     = nullptr; // Which local variable is the tree being assigned to?
-    bool           isUnderIndir = false;   // Is this a pointer value tree that is being dereferenced?
+    AssignSetTraits assignSetTraits;
+    AssignSet*      lclAssignGroups;
+    LclVarDsc*      storeLcl     = nullptr; // Which local variable is the tree being assigned to?
+    bool            isUnderIndir = false;   // Is this a pointer value tree that is being dereferenced?
 
-    MarkPtrsInfo(Compiler* comp) : lclAssignGroups(new (comp, CMK_GS) FixedBitVect*[comp->lvaCount]())
+    MarkPtrsInfo(Compiler* comp)
+        : assignSetTraits(comp), lclAssignGroups(new (comp, CMK_GS) AssignSet[comp->lvaCount]())
     {
     }
 };
@@ -108,43 +147,42 @@ static Compiler::fgWalkResult MarkPtrsAndAssignGroups(GenTree** use, Compiler::f
                 loadLcl->lvIsPtr = true;
             }
 
-            if (state->storeLcl != nullptr)
+            if (LclVarDsc* storeLcl = state->storeLcl)
             {
-                unsigned       loadLclNum      = loadLcl->GetLclNum();
-                unsigned       storeLclNum     = state->storeLcl->GetLclNum();
-                FixedBitVect** lclAssignGroups = state->lclAssignGroups;
+                unsigned   loadLclNum      = loadLcl->GetLclNum();
+                unsigned   storeLclNum     = storeLcl->GetLclNum();
+                AssignSet* lclAssignGroups = state->lclAssignGroups;
 
                 // Add storeLclNum and loadLclNum to a common assign group
-                if (lclAssignGroups[storeLclNum] != nullptr)
+                if (AssignSet storeSet = lclAssignGroups[storeLclNum])
                 {
-                    if (lclAssignGroups[loadLclNum] != nullptr)
+                    if (AssignSet loadSet = lclAssignGroups[loadLclNum])
                     {
-                        lclAssignGroups[storeLclNum]->bitVectOr(lclAssignGroups[loadLclNum]);
+                        AssignSetOps::UnionD(state->assignSetTraits, storeSet, loadSet);
                     }
                     else
                     {
-                        lclAssignGroups[storeLclNum]->bitVectSet(loadLclNum);
+                        AssignSetOps::AddElemD(state->assignSetTraits, storeSet, loadLclNum);
                     }
 
                     // Point both to the same bit vector
-                    lclAssignGroups[loadLclNum] = lclAssignGroups[storeLclNum];
+                    lclAssignGroups[loadLclNum] = storeSet;
                 }
-                else if (lclAssignGroups[loadLclNum] != nullptr)
+                else if (AssignSet loadSet = lclAssignGroups[loadLclNum])
                 {
-                    lclAssignGroups[loadLclNum]->bitVectSet(storeLclNum);
+                    AssignSetOps::AddElemD(state->assignSetTraits, loadSet, storeLclNum);
 
                     // Point both to the same bit vector
-                    lclAssignGroups[storeLclNum] = lclAssignGroups[loadLclNum];
+                    lclAssignGroups[storeLclNum] = loadSet;
                 }
                 else
                 {
-                    FixedBitVect* bv = FixedBitVect::bitVectInit(comp->lvaCount, comp);
+                    AssignSet set = AssignSetOps::MakeEmpty(state->assignSetTraits);
+                    AssignSetOps::AddElemD(state->assignSetTraits, set, storeLclNum);
+                    AssignSetOps::AddElemD(state->assignSetTraits, set, loadLclNum);
 
-                    // Neither of them has an assign group yet.  Make a new one.
-                    lclAssignGroups[storeLclNum] = bv;
-                    lclAssignGroups[loadLclNum]  = bv;
-                    bv->bitVectSet(storeLclNum);
-                    bv->bitVectSet(loadLclNum);
+                    lclAssignGroups[storeLclNum] = set;
+                    lclAssignGroups[loadLclNum]  = set;
                 }
             }
 
@@ -264,12 +302,12 @@ bool Compiler::gsFindVulnerableParams()
 
     // Initialize propagated[v0...vn] = {0}^n, so we can skip the ones propagated through
     // some assign group.
-    FixedBitVect* propagated = (lvaCount > 0) ? FixedBitVect::bitVectInit(lvaCount, this) : nullptr;
+    AssignSet propagated = AssignSetOps::MakeEmpty(info.assignSetTraits);
 
     for (LclVarDsc* lcl : Locals())
     {
-        unsigned      lclNum      = lcl->GetLclNum();
-        FixedBitVect* assignGroup = info.lclAssignGroups[lclNum];
+        unsigned  lclNum      = lcl->GetLclNum();
+        AssignSet assignGroup = info.lclAssignGroups[lclNum];
 
         // If there was an indirection or if unsafe buffer, then we'd call it vulnerable.
         if (lcl->lvIsPtr || lcl->lvIsUnsafeBuffer)
@@ -278,7 +316,7 @@ bool Compiler::gsFindVulnerableParams()
         }
 
         // Now, propagate the info through the assign group (an equivalence class of vars transitively assigned.)
-        if ((assignGroup == nullptr) || propagated->bitVectTest(lclNum))
+        if ((assignGroup == nullptr) || AssignSetOps::IsMember(info.assignSetTraits, propagated, lclNum))
         {
             continue;
         }
@@ -289,9 +327,9 @@ bool Compiler::gsFindVulnerableParams()
         bool isPtr = lcl->lvIsPtr;
 
         // First pass -- find if any variable is vulnerable.
-        for (unsigned i = assignGroup->bitVectGetFirst(); i != UINT_MAX && !isPtr; i = assignGroup->bitVectGetNext(i))
+        for (AssignSetOps::Enumerator e(info.assignSetTraits, assignGroup); e.MoveNext() && !isPtr;)
         {
-            isPtr |= lvaGetDesc(i)->lvIsPtr;
+            isPtr |= lvaGetDesc(e.Current())->lvIsPtr;
         }
 
         if (!isPtr)
@@ -302,19 +340,19 @@ bool Compiler::gsFindVulnerableParams()
         hasOneVulnerable = true;
 
         // Second pass -- mark all are vulnerable.
-        for (unsigned i = assignGroup->bitVectGetFirst(); i != UINT_MAX; i = assignGroup->bitVectGetNext(i))
+        for (AssignSetOps::Enumerator e(info.assignSetTraits, assignGroup); e.MoveNext();)
         {
-            lvaGetDesc(i)->lvIsPtr = true;
-            propagated->bitVectSet(i);
+            lvaGetDesc(e.Current())->lvIsPtr = true;
+            AssignSetOps::AddElemD(info.assignSetTraits, propagated, e.Current());
         }
 
 #ifdef DEBUG
         if (verbose)
         {
             printf("Equivalence assign group %s: ", isPtr ? "isPtr " : "");
-            for (unsigned i = assignGroup->bitVectGetFirst(); i != UINT_MAX; i = assignGroup->bitVectGetNext(i))
+            for (AssignSetOps::Enumerator e(info.assignSetTraits, assignGroup); e.MoveNext();)
             {
-                printf(FMT_LCL " ", i);
+                printf(FMT_LCL " ", e.Current());
             }
             printf("\n");
         }

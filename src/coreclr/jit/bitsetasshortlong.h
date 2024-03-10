@@ -685,7 +685,6 @@ private:
     {
         assert(!Traits::IsShort(env));
         unsigned len = Traits::GetWordCount(env);
-        assert(len > 1); // Or else would not require an array.
 
         Set r = Set(Traits::Alloc(env, len));
 
@@ -700,7 +699,6 @@ private:
     static Set MakeFullLong(Env env)
     {
         unsigned len = Traits::GetWordCount(env);
-        assert(len > 1);
 
         Set r = Set(Traits::Alloc(env, len));
 
