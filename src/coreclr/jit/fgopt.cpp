@@ -735,13 +735,12 @@ void Compiler::fgDfsInvPostOrderHelper(BasicBlock** postOrder, BasicBlock* block
             for (BasicBlock* const succ : currentBlock->Succs(this))
             {
                 // If this is a node we haven't seen before, go ahead and process
-                if (!BlockSetOps::IsMember(this, visited, succ->bbNum))
+                if (BlockSetOps::TryAddElemD(this, visited, succ->bbNum))
                 {
                     // Push a pre-visit action for this successor onto the stack and
                     // mark it as visited in case this block has multiple successors
                     // to the same node (multi-graph).
                     stack.Push(DfsBlockEntry(DSS_Pre, succ));
-                    BlockSetOps::AddElemD(this, visited, succ->bbNum);
                 }
             }
         }
