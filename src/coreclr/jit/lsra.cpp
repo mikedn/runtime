@@ -6722,16 +6722,9 @@ void LinearScan::addResolution(
 //    a join edge), if there are any conflicts, split the edge by adding a new block,
 //    and generate the resolution code into that block.
 
-void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block)
+void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block, VARSET_TP outResolutionSet)
 {
-    VARSET_TP outResolutionSet = VarSetOps::Alloc(compiler);
-    VarSetOps::Intersection(compiler, outResolutionSet, block->bbLiveOut, resolutionCandidateVars);
-    if (VarSetOps::IsEmpty(compiler, outResolutionSet))
-    {
-        return;
-    }
-    VARSET_TP sameResolutionSet = VarSetOps::MakeEmpty(compiler);
-    VARSET_TP diffResolutionSet = VarSetOps::MakeEmpty(compiler);
+    assert(!VarSetOps::IsEmpty(compiler, outResolutionSet));
 
     // Get the outVarToRegMap for this block
     VarToRegMap outVarToRegMap = getOutVarToRegMap(block->bbNum);
@@ -6842,6 +6835,9 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block)
     //   write to any registers that are read by those in the diffResolutionSet:
     //     sameResolutionSet
 
+    VARSET_TP sameResolutionSet = VarSetOps::MakeEmpty(compiler);
+    VARSET_TP diffResolutionSet = VarSetOps::MakeEmpty(compiler);
+
     for (VarSetOps::Enumerator e(compiler, outResolutionSet); e.MoveNext();)
     {
         const unsigned outResolutionSetVarIndex = e.Current();
@@ -6950,7 +6946,6 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block)
             // we carefully order them to ensure all the input regs are read before they are
             // overwritten.)
             VarSetOps::UnionD(compiler, diffResolutionSet, sameResolutionSet);
-            VarSetOps::ClearD(compiler, sameResolutionSet);
         }
         else
         {
@@ -6958,8 +6953,11 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block)
             resolveEdge(block, nullptr, ResolveSharedCritical, sameResolutionSet);
         }
     }
+
     if (!VarSetOps::IsEmpty(compiler, diffResolutionSet))
     {
+        VARSET_TP edgeResolutionSet = VarSetOps::Alloc(compiler);
+
         for (unsigned succIndex = 0; succIndex < succCount; succIndex++)
         {
             BasicBlock* succBlock = block->GetSucc(succIndex, compiler);
@@ -6975,7 +6973,6 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block)
             // Check only the vars in diffResolutionSet that are live-in to this successor.
             VarToRegMap succInVarToRegMap = getInVarToRegMap(succBlock->bbNum);
 
-            VARSET_TP edgeResolutionSet = VarSetOps::Alloc(compiler);
             VarSetOps::Intersection(compiler, edgeResolutionSet, diffResolutionSet, succBlock->bbLiveIn);
 
             for (VarSetOps::Enumerator e(compiler, edgeResolutionSet); e.MoveNext();)
@@ -7032,7 +7029,7 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block)
 //    - If this block has a single predecessor that is not the immediately
 //      preceding block, perform any needed 'split' resolution at the beginning of this block
 //    - Otherwise if this block has critical incoming edges, handle them.
-//    - If this block has a single successor that has multiple predecesors, perform any needed
+//    - If this block has a single successor that has multiple predecessors, perform any needed
 //      'join' resolution at the end of this block.
 //    Note that a block may have both 'split' or 'critical' incoming edge(s) and 'join' outgoing
 //    edges.
@@ -7043,7 +7040,7 @@ void LinearScan::resolveEdges()
 
     // The resolutionCandidateVars set was initialized with all the lclVars that are live-in to
     // any block. We now intersect that set with any lclVars that ever spilled or split.
-    // If there are no candidates for resoultion, simply return.
+    // If there are no candidates for resolution, simply return.
 
     VarSetOps::IntersectionD(compiler, resolutionCandidateVars, splitOrSpilledVars);
     if (VarSetOps::IsEmpty(compiler, resolutionCandidateVars))
@@ -7057,6 +7054,8 @@ void LinearScan::resolveEdges()
     // remaining mismatches.  We visit the out-edges, as that allows us to share the moves that are
     // common among all the targets.
 
+    VARSET_TP resolutionSet = VarSetOps::Alloc(compiler);
+
     if (hasCriticalEdges)
     {
         for (BasicBlock* const block : compiler->Blocks())
@@ -7068,7 +7067,12 @@ void LinearScan::resolveEdges()
             }
             if (blockInfo[block->bbNum].hasCriticalOutEdge)
             {
-                handleOutgoingCriticalEdges(block);
+                VarSetOps::Intersection(compiler, resolutionSet, block->bbLiveOut, resolutionCandidateVars);
+
+                if (!VarSetOps::IsEmpty(compiler, resolutionSet))
+                {
+                    handleOutgoingCriticalEdges(block, resolutionSet);
+                }
             }
         }
     }
@@ -7084,15 +7088,14 @@ void LinearScan::resolveEdges()
         unsigned    succCount       = block->NumSucc(compiler);
         BasicBlock* uniquePredBlock = block->GetUniquePred(compiler);
 
-        // First, if this block has a single predecessor,
-        // we may need resolution at the beginning of this block.
-        // This may be true even if it's the block we used for starting locations,
-        // if a variable was spilled.
-        VARSET_TP inResolutionSet = VarSetOps::Alloc(compiler);
-        VarSetOps::Intersection(compiler, inResolutionSet, block->bbLiveIn, resolutionCandidateVars);
-        if (!VarSetOps::IsEmpty(compiler, inResolutionSet))
+        if (uniquePredBlock != nullptr)
         {
-            if (uniquePredBlock != nullptr)
+            // First, if this block has a single predecessor,
+            // we may need resolution at the beginning of this block.
+            // This may be true even if it's the block we used for starting locations,
+            // if a variable was spilled.
+            VarSetOps::Intersection(compiler, resolutionSet, block->bbLiveIn, resolutionCandidateVars);
+            if (!VarSetOps::IsEmpty(compiler, resolutionSet))
             {
                 // We may have split edges during critical edge resolution, and in the process split
                 // a non-critical edge as well.
@@ -7103,7 +7106,7 @@ void LinearScan::resolveEdges()
                     uniquePredBlock = uniquePredBlock->GetUniquePred(compiler);
                     noway_assert(uniquePredBlock != nullptr);
                 }
-                resolveEdge(uniquePredBlock, block, ResolveSplit, inResolutionSet);
+                resolveEdge(uniquePredBlock, block, ResolveSplit, resolutionSet);
             }
         }
 
@@ -7118,11 +7121,10 @@ void LinearScan::resolveEdges()
             BasicBlock* succBlock = block->GetSucc(0, compiler);
             if (succBlock->GetUniquePred(compiler) == nullptr)
             {
-                VARSET_TP outResolutionSet = VarSetOps::Alloc(compiler);
-                VarSetOps::Intersection(compiler, outResolutionSet, succBlock->bbLiveIn, resolutionCandidateVars);
-                if (!VarSetOps::IsEmpty(compiler, outResolutionSet))
+                VarSetOps::Intersection(compiler, resolutionSet, succBlock->bbLiveIn, resolutionCandidateVars);
+                if (!VarSetOps::IsEmpty(compiler, resolutionSet))
                 {
-                    resolveEdge(block, succBlock, ResolveJoin, outResolutionSet);
+                    resolveEdge(block, succBlock, ResolveJoin, resolutionSet);
                 }
             }
         }

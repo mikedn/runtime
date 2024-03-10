@@ -1628,7 +1628,14 @@ void LinearScan::buildIntervals()
     // (this will include the incoming args on the first block).
     currentLiveVars = VarSetOps::Alloc(compiler);
 
-    VARSET_TP expUseSet = VarSetOps::Alloc(compiler);
+    VARSET_TP expUseSet = VarSetOps::UninitVal();
+    VARSET_TP newLiveIn = VarSetOps::UninitVal();
+
+    if (enregisterLocalVars)
+    {
+        expUseSet = VarSetOps::Alloc(compiler);
+        newLiveIn = VarSetOps::Alloc(compiler);
+    }
 
     BlockSetOps::ClearD(compiler, visited);
     BlockSetOps::AddElemD(compiler, visited, blockSequence[0]->bbNum);
@@ -1677,8 +1684,6 @@ void LinearScan::buildIntervals()
 
                 if (block != compiler->fgFirstBB)
                 {
-                    VARSET_TP newLiveIn = VarSetOps::Alloc(compiler);
-
                     if (predBlock == nullptr)
                     {
                         VarSetOps::Assign(compiler, newLiveIn, currentLiveVars);

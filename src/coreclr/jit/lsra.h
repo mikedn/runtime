@@ -367,7 +367,7 @@ public:
     void addResolution(
         BasicBlock* block, GenTree* insertionPoint, Interval* interval, regNumber outReg, regNumber inReg);
 
-    void handleOutgoingCriticalEdges(BasicBlock* block);
+    void handleOutgoingCriticalEdges(BasicBlock* block, VARSET_TP outResolutionSet);
 
     void resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, ResolveType resolveType, VARSET_TP liveSet);
 
