@@ -4047,7 +4047,7 @@ public:
 
     void fgComputeReachabilitySets(); // Compute bbReach sets. (Also sets BBF_GC_SAFE_POINT flag on blocks.)
 
-    void fgComputeEnterBlocksSet(); // Compute the set of entry blocks, 'fgEnterBlks'.
+    BlockSet fgComputeEnterBlocksSet();
 
     bool fgRemoveUnreachableBlocks(); // Remove blocks determined to be unreachable by the bbReach sets.
 
@@ -4057,9 +4057,6 @@ public:
 
     BasicBlock** fgDfsInvPostOrder();
     void fgDfsInvPostOrderHelper(BasicBlock** postOrder, BasicBlock* block, BlockSet& visited, unsigned* count);
-
-    BlockSet fgDomFindStartNodes(); // Computes which basic blocks don't have incoming edges in the flow graph.
-                                    // Returns this as a set.
 
     INDEBUG(void fgDispDomTree(DomTreeNode* domTree);) // Helper that prints out the Dominator Tree in debug builds.
 

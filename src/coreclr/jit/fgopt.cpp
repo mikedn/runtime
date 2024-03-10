@@ -179,7 +179,9 @@ void Compiler::fgUpdateChangedFlowGraph(const bool computePreds)
         fgComputePreds();
     }
 
-    fgComputeEnterBlocksSet();
+    fgEnterBlks = fgComputeEnterBlocksSet();
+    INDEBUG(fgEnterBlksSetValid = true);
+
     fgComputeReachabilitySets();
 }
 
@@ -205,18 +207,11 @@ void Compiler::fgComputeReachabilitySets()
     assert(fgComputePredsDone);
     assert(!fgCheapPredsValid);
 
-#ifdef DEBUG
-    fgReachabilitySetsValid = false;
-#endif // DEBUG
+    INDEBUG(fgReachabilitySetsValid = false);
 
     for (BasicBlock* const block : Blocks())
     {
-        // Initialize the per-block bbReach sets. It creates a new empty set, because
-        // the block set version could change since the previous initialization and
-        // the old set could have wrong size.
         block->bbReach = BlockSetOps::MakeEmpty(this);
-
-        /* Mark block as reaching itself */
         BlockSetOps::AddElemD(this, block->bbReach, block->bbNum);
     }
 
@@ -232,20 +227,19 @@ void Compiler::fgComputeReachabilitySets()
         {
             BlockSetOps::Assign(this, newReach, block->bbReach);
 
-            bool predGcSafe = (block->bbPreds != nullptr); // Do all of our predecessor blocks have a GC safe bit?
+            bool allPredGCSafe = (block->bbPreds != nullptr);
 
             for (BasicBlock* const predBlock : block->PredBlocks())
             {
-                /* Union the predecessor's reachability set into newReach */
                 BlockSetOps::UnionD(this, newReach, predBlock->bbReach);
 
                 if (!predBlock->HasGCSafePoint())
                 {
-                    predGcSafe = false;
+                    allPredGCSafe = false;
                 }
             }
 
-            if (predGcSafe)
+            if (allPredGCSafe)
             {
                 block->bbFlags |= BBF_GC_SAFE_POINT;
             }
@@ -269,32 +263,26 @@ void Compiler::fgComputeReachabilitySets()
 #endif // DEBUG
 }
 
-//------------------------------------------------------------------------
-// fgComputeEnterBlocksSet: Compute the entry blocks set.
-//
-// Initialize fgEnterBlks to the set of blocks for which we don't have explicit control
-// flow edges. These are the entry basic block and each of the EH handler blocks.
+// Compute the set of blocks for which we don't have explicit control flow edges.
+// These are the entry basic block and each of the EH handler blocks.
 // For ARM, also include the BBJ_ALWAYS block of a BBJ_CALLFINALLY/BBJ_ALWAYS pair,
 // to avoid creating "retless" calls, since we need the BBJ_ALWAYS for the purpose
 // of unwinding, even if the call doesn't return (due to an explicit throw, for example).
-//
-void Compiler::fgComputeEnterBlocksSet()
+BlockSet Compiler::fgComputeEnterBlocksSet()
 {
-    INDEBUG(fgEnterBlksSetValid = false);
+    BlockSet entrySet = BlockSetOps::MakeEmpty(this);
 
-    fgEnterBlks = BlockSetOps::MakeEmpty(this);
-
-    BlockSetOps::AddElemD(this, fgEnterBlks, fgFirstBB->bbNum);
+    BlockSetOps::AddElemD(this, entrySet, fgFirstBB->bbNum);
     assert(fgFirstBB->bbNum == 1);
 
     for (EHblkDsc* const HBtab : EHClauses(this))
     {
         if (HBtab->HasFilter())
         {
-            BlockSetOps::AddElemD(this, fgEnterBlks, HBtab->ebdFilter->bbNum);
+            BlockSetOps::AddElemD(this, entrySet, HBtab->ebdFilter->bbNum);
         }
 
-        BlockSetOps::AddElemD(this, fgEnterBlks, HBtab->ebdHndBeg->bbNum);
+        BlockSetOps::AddElemD(this, entrySet, HBtab->ebdHndBeg->bbNum);
     }
 
 #ifdef TARGET_ARM
@@ -310,7 +298,7 @@ void Compiler::fgComputeEnterBlocksSet()
 
             // Don't remove the BBJ_ALWAYS block that is only here for the unwinder. It might be dead
             // if the finally is no-return, so mark it as an entry point.
-            BlockSetOps::AddElemD(this, fgEnterBlks, block->bbNext->bbNum);
+            BlockSetOps::AddElemD(this, entrySet, block->bbNext->bbNum);
         }
     }
 #endif // TARGET_ARM
@@ -318,16 +306,16 @@ void Compiler::fgComputeEnterBlocksSet()
 #ifdef DEBUG
     if (verbose)
     {
-        printf("Enter blocks: ");
-        for (BlockSetOps::Enumerator e(this, fgEnterBlks); e.MoveNext();)
+        printf("Entry blocks: ");
+        for (BlockSetOps::Enumerator e(this, entrySet); e.MoveNext();)
         {
             printf(FMT_BB " ", e.Current());
         }
         printf("\n");
     }
-
-    fgEnterBlksSetValid = true;
 #endif // DEBUG
+
+    return entrySet;
 }
 
 //------------------------------------------------------------------------
@@ -542,17 +530,11 @@ void Compiler::fgComputeReachability()
         // Walk the flow graph, reassign block numbers to keep them in ascending order.
         JITDUMP("\nRenumbering the basic blocks for fgComputeReachability pass #%u\n", passNum);
         passNum++;
+
         fgRenumberBlocks();
 
-        //
-        // Compute fgEnterBlks
-        //
-
-        fgComputeEnterBlocksSet();
-
-        //
-        // Compute bbReach
-        //
+        fgEnterBlks = fgComputeEnterBlocksSet();
+        INDEBUG(fgEnterBlksSetValid = true);
 
         fgComputeReachabilitySets();
 
@@ -589,61 +571,9 @@ BasicBlock** Compiler::fgDfsInvPostOrder()
     // NOTE: This algorithm only pays attention to the actual blocks. It ignores the imaginary entry block.
 
     // We begin by figuring out which basic blocks don't have incoming edges and mark them as
-    // start nodes.  Later on we run the recursive algorithm for each node that we
-    // mark in this step.
-    BlockSet startNodes = fgDomFindStartNodes();
-
-    // Make sure fgEnterBlks are still there in startNodes, even if they participate in a loop (i.e., there is
-    // an incoming edge into the block).
-    assert(fgEnterBlksSetValid);
-
-#ifdef TARGET_ARM
-    //
-    //    BlockSetOps::UnionD(this, startNodes, fgEnterBlks);
-    //
-    // This causes problems on ARM, because we for BBJ_CALLFINALLY/BBJ_ALWAYS pairs, we add the BBJ_ALWAYS
-    // to the enter blocks set to prevent flow graph optimizations from removing it and creating retless call finallies
-    // (BBF_RETLESS_CALL). This leads to an incorrect DFS ordering in some cases, because we start the recursive walk
-    // from the BBJ_ALWAYS, which is reachable from other blocks. A better solution would be to change ARM to avoid
-    // creating retless calls in a different way, not by adding BBJ_ALWAYS to fgEnterBlks.
-    //
-    // So, let us make sure at least fgFirstBB is still there, even if it participates in a loop.
-    BlockSetOps::AddElemD(this, startNodes, 1);
-    assert(fgFirstBB->bbNum == 1);
-#else
-    BlockSetOps::UnionD(this, startNodes, fgEnterBlks);
-#endif
-
-    assert(BlockSetOps::IsMember(this, startNodes, fgFirstBB->bbNum));
-
-    BasicBlock** postOrder = new (this, CMK_DominatorMemory) BasicBlock*[fgBBNumMax + 1]{};
-    BlockSet     visited   = BlockSetOps::MakeEmpty(this);
-
-    // Call the flowgraph DFS traversal helper.
-    unsigned postIndex = 1;
-    for (BasicBlock* const block : Blocks())
-    {
-        // If the block has no predecessors, and we haven't already visited it (because it's in fgEnterBlks but also
-        // reachable from the first block), go ahead and traverse starting from this block.
-        if (BlockSetOps::IsMember(this, startNodes, block->bbNum) &&
-            BlockSetOps::TryAddElemD(this, visited, block->bbNum))
-        {
-            fgDfsInvPostOrderHelper(postOrder, block, visited, &postIndex);
-        }
-    }
-
-    // After the DFS reverse postorder is completed, we must have visited all the basic blocks.
-    noway_assert(postIndex == fgBBcount + 1);
-    noway_assert(fgBBNumMax == fgBBcount);
-
-    return postOrder;
-}
-
-// Helper for dominance computation to find the start nodes block set,
-// the set of basic blocks in the flow graph which don't have incoming edges.
-BlockSet Compiler::fgDomFindStartNodes()
-{
-    // We begin assuming everything is a start block and remove any block that is a successor of another.
+    // start nodes. Later on we run the recursive algorithm for each node that we mark in this
+    // step. We begin assuming everything is a start block and remove any block that is a
+    // successor of another.
     BlockSet startNodes = BlockSetOps::MakeFull(this);
 
     for (BasicBlock* const block : Blocks())
@@ -653,6 +583,27 @@ BlockSet Compiler::fgDomFindStartNodes()
             BlockSetOps::RemoveElemD(this, startNodes, succ->bbNum);
         }
     }
+
+    // Make sure fgEnterBlks are still there in startNodes, even if they
+    // participate in a loop (i.e., there is an incoming edge into the block).
+    assert(fgEnterBlksSetValid);
+
+#ifdef TARGET_ARM
+    // BlockSetOps::UnionD(this, startNodes, fgEnterBlks);
+    //
+    // This causes problems on ARM, because we for BBJ_CALLFINALLY/BBJ_ALWAYS pairs, we add
+    // the BBJ_ALWAYS to the enter blocks set to prevent flow graph optimizations from removing it
+    // and creating retless call finallies (BBF_RETLESS_CALL). This leads to an incorrect DFS
+    // ordering in some cases, because we start the recursive walk from the BBJ_ALWAYS, which is
+    // reachable from other blocks. A better solution would be to change ARM to avoid creating
+    // retless calls in a different way, not by adding BBJ_ALWAYS to fgEnterBlks.
+    //
+    // So, let us make sure at least fgFirstBB is still there, even if it participates in a loop.
+    BlockSetOps::AddElemD(this, startNodes, 1);
+    assert(fgFirstBB->bbNum == 1);
+#else
+    BlockSetOps::UnionD(this, startNodes, fgEnterBlks);
+#endif
 
 #ifdef DEBUG
     if (verbose)
@@ -666,7 +617,30 @@ BlockSet Compiler::fgDomFindStartNodes()
     }
 #endif // DEBUG
 
-    return startNodes;
+    assert(BlockSetOps::IsMember(this, startNodes, fgFirstBB->bbNum));
+
+    BasicBlock** postOrder = new (this, CMK_DominatorMemory) BasicBlock*[fgBBNumMax + 1]{};
+    BlockSet     visited   = BlockSetOps::MakeEmpty(this);
+
+    unsigned postIndex = 1;
+
+    for (BasicBlock* const block : Blocks())
+    {
+        // If the block has no predecessors, and we haven't already visited it (because it's
+        // in fgEnterBlks but also reachable from the first block), go ahead and traverse
+        // starting from this block.
+        if (BlockSetOps::IsMember(this, startNodes, block->bbNum) &&
+            BlockSetOps::TryAddElemD(this, visited, block->bbNum))
+        {
+            fgDfsInvPostOrderHelper(postOrder, block, visited, &postIndex);
+        }
+    }
+
+    // After the DFS reverse postorder is completed, we must have visited all the basic blocks.
+    noway_assert(postIndex == fgBBcount + 1);
+    noway_assert(fgBBNumMax == fgBBcount);
+
+    return postOrder;
 }
 
 // Helper to assign post-order numbers to blocks.
