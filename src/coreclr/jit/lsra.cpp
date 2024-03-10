@@ -1013,6 +1013,9 @@ VarToRegMap LinearScan::GetBlockLiveInRegMap(BasicBlock* bb)
 //
 void LinearScan::identifyCandidatesExceptionDataflow()
 {
+    exceptVars  = VarSetOps::MakeEmpty(compiler);
+    finallyVars = VarSetOps::MakeEmpty(compiler);
+
     for (BasicBlock* const block : compiler->Blocks())
     {
         if (block->hasEHBoundaryIn())
@@ -1160,9 +1163,6 @@ void LinearScan::identifyCandidates()
         // lvLRACandidate field on all the lclVars to false if we have any.
         return;
     }
-
-    exceptVars  = VarSetOps::MakeEmpty(compiler);
-    finallyVars = VarSetOps::MakeEmpty(compiler);
 
     if (compiler->compHndBBtabCount > 0)
     {

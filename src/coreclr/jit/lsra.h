@@ -1297,9 +1297,9 @@ private:
     // Set of floating point variables to consider for callee-save registers.
     VARSET_TP fpCalleeSaveCandidateVars;
     // Set of variables exposed on EH flow edges.
-    VARSET_TP exceptVars;
+    VARSET_TP exceptVars = VarSetOps::UninitVal();
     // Set of variables exposed on finally edges. These must be zero-init if they are refs or if compInitMem is true.
-    VARSET_TP finallyVars;
+    VARSET_TP finallyVars = VarSetOps::UninitVal();
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 #if defined(TARGET_AMD64)

@@ -1457,7 +1457,7 @@ void LinearScan::insertZeroInitRefPositions()
     }
 
     // We must also insert zero-inits for any finallyVars if they are refs or if compInitMem is true.
-    if (compiler->lvaEnregEHVars)
+    if (compiler->lvaEnregEHVars && (compiler->compHndBBtabCount > 0))
     {
         for (VarSetOps::Enumerator e(compiler, finallyVars); e.MoveNext();)
         {
@@ -1688,8 +1688,11 @@ void LinearScan::buildIntervals()
                         VarSetOps::Diff(compiler, newLiveIn, currentLiveVars, predBlock->bbLiveOut);
                     }
 
-                    // Don't create dummy defs for EH vars; we'll load them from the stack as/when needed.
-                    VarSetOps::DiffD(compiler, newLiveIn, exceptVars);
+                    if (compiler->compHndBBtabCount > 0)
+                    {
+                        // Don't create dummy defs for EH vars; we'll load them from the stack as/when needed.
+                        VarSetOps::DiffD(compiler, newLiveIn, exceptVars);
+                    }
 
                     // Create dummy def RefPositions
 
