@@ -1,19 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                               GSChecks                                    XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
 
 void Compiler::phGSCookie()
 {
@@ -41,19 +29,16 @@ void Compiler::gsGSChecksInitCookie()
     lvaGSSecurityCookie = lcl->GetLclNum();
 }
 
-/*****************************************************************************
- * gsCopyShadowParams
- * The current function has an unsafe buffer on the stack.  Search for vulnerable
- * parameters which could be used to modify a code address and take over the process
- * in the case of a buffer overrun. Create a safe local copy for each vulnerable parameter,
- * which will be allocated bellow the unsafe buffer.  Change uses of the param to the
- * shadow copy.
- *
- * A pointer under indirection is considered vulnerable. A malicious user could read from
- * protected memory or write to it. If a parameter is assigned/computed into another variable,
- * and is a pointer (i.e., under indirection), then we consider the variable to be part of the
- * equivalence class with the parameter. All parameters in the equivalence class are shadowed.
- */
+// The current function has an unsafe buffer on the stack.  Search for vulnerable
+// parameters which could be used to modify a code address and take over the process
+// in the case of a buffer overrun. Create a safe local copy for each vulnerable parameter,
+// which will be allocated bellow the unsafe buffer.  Change uses of the param to the
+// shadow copy.
+//
+// A pointer under indirection is considered vulnerable. A malicious user could read from
+// protected memory or write to it. If a parameter is assigned/computed into another variable,
+// and is a pointer (i.e., under indirection), then we consider the variable to be part of the
+// equivalence class with the parameter. All parameters in the equivalence class are shadowed.
 void Compiler::gsCopyShadowParams()
 {
     if (info.compIsVarArgs)
@@ -71,8 +56,6 @@ void Compiler::gsCopyShadowParams()
     }
 }
 
-// This struct tracks how a tree is being used
-
 struct MarkPtrsInfo
 {
     FixedBitVect** lclAssignGroups;
@@ -84,7 +67,7 @@ struct MarkPtrsInfo
     }
 };
 
-Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** use, fgWalkData* data)
+static Compiler::fgWalkResult MarkPtrsAndAssignGroups(GenTree** use, Compiler::fgWalkData* data)
 {
     MarkPtrsInfo* state = static_cast<MarkPtrsInfo*>(data->pCallbackData);
     Compiler*     comp  = data->compiler;
@@ -98,10 +81,10 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** use, fgWalk
         {
             bool wasUnderIndir  = state->isUnderIndir;
             state->isUnderIndir = true;
-            comp->fgWalkTreePre(&tree->AsIndir()->gtOp1, comp->gsMarkPtrsAndAssignGroups, state);
+            comp->fgWalkTreePre(&tree->AsIndir()->gtOp1, MarkPtrsAndAssignGroups, state);
             state->isUnderIndir = wasUnderIndir;
 
-            return WALK_SKIP_SUBTREES;
+            return Compiler::WALK_SKIP_SUBTREES;
         }
         case GT_ARR_ELEM:
         {
@@ -109,11 +92,11 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** use, fgWalk
             state->isUnderIndir = true;
             for (unsigned i = 0; i < tree->AsArrElem()->GetNumOps(); i++)
             {
-                comp->fgWalkTreePre(tree->AsArrElem()->GetUse(i), comp->gsMarkPtrsAndAssignGroups, state);
+                comp->fgWalkTreePre(tree->AsArrElem()->GetUse(i), MarkPtrsAndAssignGroups, state);
             }
             state->isUnderIndir = wasUnderIndir;
 
-            return WALK_SKIP_SUBTREES;
+            return Compiler::WALK_SKIP_SUBTREES;
         }
         case GT_LCL_VAR:
         case GT_LCL_FLD:
@@ -136,7 +119,6 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** use, fgWalk
                 {
                     if (lclAssignGroups[loadLclNum] != nullptr)
                     {
-                        // OR both bit vector
                         lclAssignGroups[storeLclNum]->bitVectOr(lclAssignGroups[loadLclNum]);
                     }
                     else
@@ -158,7 +140,6 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** use, fgWalk
                 {
                     FixedBitVect* bv = FixedBitVect::bitVectInit(comp->lvaCount, comp);
 
-                    // (shadowVarInfo[state->storeLclNum] == NULL && shadowVarInfo[lclNew] == NULL);
                     // Neither of them has an assign group yet.  Make a new one.
                     lclAssignGroups[storeLclNum] = bv;
                     lclAssignGroups[loadLclNum]  = bv;
@@ -167,7 +148,7 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** use, fgWalk
                 }
             }
 
-            return WALK_SKIP_SUBTREES;
+            return Compiler::WALK_SKIP_SUBTREES;
         }
         case GT_CALL:
         {
@@ -181,7 +162,7 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** use, fgWalk
             if (call->gtCallThisArg != nullptr)
             {
                 state->isUnderIndir = true;
-                comp->fgWalkTreePre(&call->gtCallThisArg->NodeRef(), gsMarkPtrsAndAssignGroups, state);
+                comp->fgWalkTreePre(&call->gtCallThisArg->NodeRef(), MarkPtrsAndAssignGroups, state);
                 // TODO-MIKE-Review: This should reset isUnderIndir probably...
             }
 
@@ -194,7 +175,7 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** use, fgWalk
 
                 if (!use.GetNode()->OperIs(GT_LCL_VAR, GT_LCL_FLD) || !use.GetNode()->TypeIs(TYP_STRUCT))
                 {
-                    comp->fgWalkTreePre(&use.NodeRef(), gsMarkPtrsAndAssignGroups, state);
+                    comp->fgWalkTreePre(&use.NodeRef(), MarkPtrsAndAssignGroups, state);
                 }
             }
 
@@ -202,7 +183,7 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** use, fgWalk
             {
                 if (!use.GetNode()->OperIs(GT_LCL_VAR, GT_LCL_FLD) || !use.GetNode()->TypeIs(TYP_STRUCT))
                 {
-                    comp->fgWalkTreePre(&use.NodeRef(), gsMarkPtrsAndAssignGroups, state);
+                    comp->fgWalkTreePre(&use.NodeRef(), MarkPtrsAndAssignGroups, state);
                 }
             }
 
@@ -213,13 +194,13 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** use, fgWalk
                 // a write to memory.
 
                 state->isUnderIndir = true;
-                comp->fgWalkTreePre(&call->gtCallAddr, gsMarkPtrsAndAssignGroups, state);
+                comp->fgWalkTreePre(&call->gtCallAddr, MarkPtrsAndAssignGroups, state);
             }
 
             state->storeLcl     = prevStoreLcl;
             state->isUnderIndir = wasUnderIndir;
 
-            return WALK_SKIP_SUBTREES;
+            return Compiler::WALK_SKIP_SUBTREES;
         }
         case GT_STOREIND:
         case GT_STORE_BLK:
@@ -231,12 +212,12 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** use, fgWalk
 
             bool wasUnderIndir  = state->isUnderIndir;
             state->isUnderIndir = true;
-            comp->fgWalkTreePre(&addr, comp->gsMarkPtrsAndAssignGroups, state);
+            comp->fgWalkTreePre(&addr, MarkPtrsAndAssignGroups, state);
             state->isUnderIndir = false;
-            comp->fgWalkTreePre(&value, comp->gsMarkPtrsAndAssignGroups, state);
+            comp->fgWalkTreePre(&value, MarkPtrsAndAssignGroups, state);
             state->isUnderIndir = wasUnderIndir;
 
-            return WALK_SKIP_SUBTREES;
+            return Compiler::WALK_SKIP_SUBTREES;
         }
         case GT_STORE_LCL_VAR:
         case GT_STORE_LCL_FLD:
@@ -246,10 +227,10 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** use, fgWalk
 
             LclVarDsc* prevStoreLcl = state->storeLcl;
             state->storeLcl         = store->GetLcl();
-            comp->fgWalkTreePre(&value, comp->gsMarkPtrsAndAssignGroups, state);
+            comp->fgWalkTreePre(&value, MarkPtrsAndAssignGroups, state);
             state->storeLcl = prevStoreLcl;
 
-            return WALK_SKIP_SUBTREES;
+            return Compiler::WALK_SKIP_SUBTREES;
         }
 
         case GT_ARR_INDEX:
@@ -257,29 +238,24 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** use, fgWalk
             unreached();
 
         default:
-            return WALK_CONTINUE;
+            return Compiler::WALK_CONTINUE;
     }
 }
 
-/*****************************************************************************
- * gsFindVulnerableParams
- * Walk all the trees looking for ptrs, args, assign groups, *p stores, etc.
- * Then use that info to figure out vulnerable pointers.
- *
- * It returns true if it found atleast one vulnerable pointer parameter that
- * needs to be shadow-copied.
- */
-
+// Walk all the trees looking for ptrs, args, assign groups, *p stores, etc.
+// Then use that info to figure out vulnerable pointers.
+// It returns true if it found atleast one vulnerable pointer parameter that
+// needs to be shadow-copied.
 bool Compiler::gsFindVulnerableParams()
 {
     MarkPtrsInfo info(this);
 
-    // Walk all the trees setting lvIsWritePtr, lvIsOutgoingArg, lvIsPtr and assignGroup.
+    // Walk all the trees setting lvIsPtr and assignSet.
     for (BasicBlock* const block : Blocks())
     {
         for (Statement* const stmt : block->Statements())
         {
-            fgWalkTreePre(stmt->GetRootNodePointer(), gsMarkPtrsAndAssignGroups, &info);
+            fgWalkTreePre(stmt->GetRootNodePointer(), MarkPtrsAndAssignGroups, &info);
         }
     }
 
@@ -290,13 +266,13 @@ bool Compiler::gsFindVulnerableParams()
     // some assign group.
     FixedBitVect* propagated = (lvaCount > 0) ? FixedBitVect::bitVectInit(lvaCount, this) : nullptr;
 
-    for (LclVarDsc* varDsc : Locals())
+    for (LclVarDsc* lcl : Locals())
     {
-        unsigned      lclNum      = varDsc->GetLclNum();
+        unsigned      lclNum      = lcl->GetLclNum();
         FixedBitVect* assignGroup = info.lclAssignGroups[lclNum];
 
         // If there was an indirection or if unsafe buffer, then we'd call it vulnerable.
-        if (varDsc->lvIsPtr || varDsc->lvIsUnsafeBuffer)
+        if (lcl->lvIsPtr || lcl->lvIsUnsafeBuffer)
         {
             hasOneVulnerable = true;
         }
@@ -310,16 +286,15 @@ bool Compiler::gsFindVulnerableParams()
         // Propagate lvIsPtr, so that:
         //   1. Any parameter in the equivalence class can be identified as lvIsPtr and hence shadowed.
         //   2. Buffers with pointers are placed at lower memory addresses than buffers without pointers.
-        bool isUnderIndir = varDsc->lvIsPtr;
+        bool isPtr = lcl->lvIsPtr;
 
         // First pass -- find if any variable is vulnerable.
-        for (unsigned i = assignGroup->bitVectGetFirst(); i != UINT_MAX && !isUnderIndir;
-             i          = assignGroup->bitVectGetNext(i))
+        for (unsigned i = assignGroup->bitVectGetFirst(); i != UINT_MAX && !isPtr; i = assignGroup->bitVectGetNext(i))
         {
-            isUnderIndir |= lvaGetDesc(i)->lvIsPtr;
+            isPtr |= lvaGetDesc(i)->lvIsPtr;
         }
 
-        if (!isUnderIndir)
+        if (!isPtr)
         {
             continue;
         }
@@ -336,7 +311,7 @@ bool Compiler::gsFindVulnerableParams()
 #ifdef DEBUG
         if (verbose)
         {
-            printf("Equivalence assign group %s: ", isUnderIndir ? "isPtr " : "");
+            printf("Equivalence assign group %s: ", isPtr ? "isPtr " : "");
             for (unsigned i = assignGroup->bitVectGetFirst(); i != UINT_MAX; i = assignGroup->bitVectGetNext(i))
             {
                 printf(FMT_LCL " ", i);
@@ -367,7 +342,7 @@ static bool MayNeedShadowCopy(LclVarDsc* lcl)
     //   b) LSRA spills it
     //
     // Possible solution to address case (a)
-    //   - The conditions under which LSRA marks a varDsc as DoNotEnregister could be checked
+    //   - The conditions under which LSRA marks a local as DoNotEnregister could be checked
     //     in this routine.  Note that live out of exception handler is something we may not be
     //     able to do it here since GS cookie logic is invoked ahead of liveness computation.
     //     Therefore, for methods with exception handling and need GS cookie check we might have
