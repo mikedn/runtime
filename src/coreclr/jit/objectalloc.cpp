@@ -19,21 +19,25 @@ class ObjectAllocator final
     typedef SmallHashTable<unsigned int, unsigned int, 8U> LocalToLocalMap;
 
     Compiler*    comp;
-    bool         m_IsObjectStackAllocationEnabled;
-    bool         m_AnalysisDone;
+    bool         m_IsObjectStackAllocationEnabled = false;
+    bool         m_AnalysisDone                   = false;
     BitVecTraits m_bitVecTraits;
-    BitVec       m_EscapingPointers;
+    BitVec       m_EscapingPointers = BitVecOps::UninitVal();
     // We keep the set of possibly-stack-pointing pointers as a superset of the set of
     // definitely-stack-pointing pointers. All definitely-stack-pointing pointers are in both sets.
-    BitVec          m_PossiblyStackPointingPointers;
-    BitVec          m_DefinitelyStackPointingPointers;
+    BitVec          m_PossiblyStackPointingPointers   = BitVecOps::UninitVal();
+    BitVec          m_DefinitelyStackPointingPointers = BitVecOps::UninitVal();
     LocalToLocalMap m_HeapLocalToStackLocalMap;
-    BitVec*         m_ConnGraphAdjacencyMatrix;
+    BitVec*         m_ConnGraphAdjacencyMatrix = nullptr;
 
-    //===============================================================================
-    // Methods
 public:
-    ObjectAllocator(Compiler* comp);
+    ObjectAllocator(Compiler* comp)
+        : comp(comp)
+        , m_bitVecTraits(comp->lvaCount, comp)
+        , m_HeapLocalToStackLocalMap(comp->getAllocator(CMK_ObjectAllocator))
+    {
+    }
+
     bool IsObjectStackAllocationEnabled() const;
     void EnableObjectStackAllocation();
 
@@ -64,21 +68,6 @@ private:
 #endif // DEBUG
     static const unsigned int s_StackAllocMaxSize = 0x2000U;
 };
-
-//===============================================================================
-
-inline ObjectAllocator::ObjectAllocator(Compiler* comp)
-    : comp(comp)
-    , m_IsObjectStackAllocationEnabled(false)
-    , m_AnalysisDone(false)
-    , m_bitVecTraits(comp->lvaCount, comp)
-    , m_HeapLocalToStackLocalMap(comp->getAllocator(CMK_ObjectAllocator))
-{
-    m_EscapingPointers                = BitVecOps::UninitVal();
-    m_PossiblyStackPointingPointers   = BitVecOps::UninitVal();
-    m_DefinitelyStackPointingPointers = BitVecOps::UninitVal();
-    m_ConnGraphAdjacencyMatrix        = nullptr;
-}
 
 //------------------------------------------------------------------------
 // IsObjectStackAllocationEnabled: Returns true iff object stack allocation is enabled
