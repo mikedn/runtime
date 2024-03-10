@@ -3281,7 +3281,10 @@ public:
     unsigned    lvaTrackedCapacity = 0;
     LclVarDsc** lvaTracked         = nullptr;
 
-    unsigned lvaTrackedCountInSizeTUnits = 0; // min # of size_t's sufficient to hold a bit for all tracked locals
+    unsigned lvaLiveSetWordCount = 0;
+#ifdef DEBUG
+    unsigned lvaLiveSetVersion = 0;
+#endif
 
     // --- Begin various special local variables ---
 
@@ -3360,15 +3363,6 @@ public:
     }
 
 #ifdef DEBUG
-    unsigned lvaCurEpoch = 0; // VarSets are relative to a specific set of tracked var indices.
-    // It that changes, this changes.  VarSets from different epochs
-    // cannot be meaningfully combined.
-
-    unsigned GetCurLVEpoch() const
-    {
-        return lvaCurEpoch;
-    }
-
     // Reasons why we can't enregister.  Some of these correspond to debug properties of local vars.
     enum DoNotEnregisterReason
     {
@@ -3728,68 +3722,55 @@ public:
         return getAllocator(cmk).allocate<T>(fgBBNumMax + 1);
     }
 
-    // BlockSets are relative to a specific set of BasicBlock numbers. If that changes
-    // (if the blocks are renumbered), this changes. BlockSets from different epochs
-    // cannot be meaningfully combined. Note that new blocks can be created with higher
-    // block numbers without changing the basic block epoch. These blocks *cannot*
-    // participate in a block set until the blocks are all renumbered, causing the epoch
-    // to change. This is useful if continuing to use previous block sets is valuable.
-    // If the epoch is zero, then it is uninitialized, and block sets can't be used.
-    unsigned fgCurBBEpoch = 0;
+#ifdef DEBUG
+    // BlockSets are relative to a specific BasicBlock numbering. If the blocks are renumbered,
+    // this changes and BlockSets with different versions cannot be meaningfully combined.
+    // Note that new blocks can be created with higher block numbers without changing the version.
+    // These blocks cannot participate in a block set until the blocks are all renumbered,
+    // causing the version to change. This is useful if continuing to use previous block sets is
+    // valuable. If the version is zero, then it is uninitialized, and block sets can't be used.
+    unsigned fgBlockSetVersion = 0;
+#endif
 
-    unsigned GetCurBasicBlockEpoch() const
+    // The number of basic blocks in the current BlockSet version. When the blocks are renumbered,
+    // this is fgBBcount. As blocks are added, fgBBcount increases, but this remains the same,
+    // until a new BlockSet version is created, such as when the blocks are all renumbered.
+    unsigned fgBlockSetSize = 0;
+
+    // The number of words in a BlockSet, precomputed to make IsShort as cheap as possible.
+    unsigned fgBlockSetWordCount = 0;
+
+    void NewBlockSetVersion()
     {
-        return fgCurBBEpoch;
+        INDEBUG(unsigned oldWordCount = fgBlockSetWordCount);
+
+        INDEBUG(fgBlockSetVersion++);
+        fgBlockSetSize      = fgBBNumMax + 1;
+        fgBlockSetWordCount = BlockSetTraits::ComputeWordCount(fgBlockSetSize);
+
+        INDEBUG(fgReachabilitySetsValid = false);
+        INDEBUG(fgEnterBlksSetValid = false);
+
+        JITDUMP("\nNew BlockSet version %u, # of blocks (including unused BB00): %u, bitset word count: %u (%s), prev "
+                "bitset word count: %u (%s)\n",
+                fgBlockSetVersion, fgBlockSetSize, fgBlockSetWordCount, fgBlockSetWordCount <= 1 ? "short" : "long",
+                oldWordCount, oldWordCount <= 1 ? "short" : "long");
     }
 
-    // The number of basic blocks in the current epoch. When the blocks are renumbered,
-    // this is fgBBcount. As blocks are added, fgBBcount increases, fgCurBBEpochSize remains
-    // the same, until a new BasicBlock epoch is created, such as when the blocks are all renumbered.
-    unsigned fgCurBBEpochSize = 0;
-
-    // The number of "size_t" elements required to hold a bitset large enough for fgCurBBEpochSize
-    // bits. This is precomputed to avoid doing math every time BasicBlockBitSetTraits::GetWordCount() is called.
-    unsigned fgBBSetCountInSizeTUnits = 0;
-
-    void NewBasicBlockEpoch()
+    void UpdateBlockSetVersion()
     {
-        INDEBUG(unsigned oldEpochArrSize = fgBBSetCountInSizeTUnits);
-
-        // We have a new epoch. Compute and cache the size needed for new BlockSets.
-        fgCurBBEpoch++;
-        fgCurBBEpochSize = fgBBNumMax + 1;
-        fgBBSetCountInSizeTUnits =
-            roundUp(fgCurBBEpochSize, (unsigned)(sizeof(size_t) * 8)) / unsigned(sizeof(size_t) * 8);
+        if (fgBlockSetSize != fgBBNumMax + 1)
+        {
+            NewBlockSetVersion();
+        }
+    }
 
 #ifdef DEBUG
-        // All BlockSet objects are now invalid!
-        fgReachabilitySetsValid = false; // the bbReach sets are now invalid!
-        fgEnterBlksSetValid     = false; // the fgEnterBlks set is now invalid!
-
-        if (verbose)
-        {
-            unsigned epochArrSize = BasicBlockBitSetTraits::GetWordCount(this);
-            printf("\nNew BlockSet epoch %d, # of blocks (including unused BB00): %u, bitset array size: %u (%s)",
-                   fgCurBBEpoch, fgCurBBEpochSize, epochArrSize, (epochArrSize <= 1) ? "short" : "long");
-            if ((fgCurBBEpoch != 1) && ((oldEpochArrSize <= 1) != (epochArrSize <= 1)))
-            {
-                // If we're not just establishing the first epoch, and the epoch array size has changed such that we're
-                // going to change our bitset representation from short (just a size_t bitset) to long (a pointer to an
-                // array of size_t bitsets), then print that out.
-                printf("; NOTE: BlockSet size was previously %s!", (oldEpochArrSize <= 1) ? "short" : "long");
-            }
-            printf("\n");
-        }
-#endif // DEBUG
-    }
-
-    void EnsureBasicBlockEpoch()
+    unsigned GetBlockSetVersion() const
     {
-        if (fgCurBBEpochSize != fgBBNumMax + 1)
-        {
-            NewBasicBlockEpoch();
-        }
+        return fgBlockSetVersion;
     }
+#endif
 
     void fgEnsureFirstBBisScratch();
     bool fgFirstBBisScratch();

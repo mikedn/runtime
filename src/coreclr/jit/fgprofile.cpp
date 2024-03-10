@@ -590,7 +590,7 @@ void Compiler::WalkSpanningTree(SpanningTreeVisitor* visitor)
     // graph. So for BlockSets and NumSucc, we use the root compiler instance.
     //
     Compiler* const comp = impInlineRoot();
-    comp->NewBasicBlockEpoch();
+    comp->NewBlockSetVersion();
 
     // We will track visited or queued nodes with a bit vector.
     //

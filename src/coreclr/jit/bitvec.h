@@ -69,6 +69,12 @@ public:
     using Word = size_t;
 
     static Word* Alloc(Compiler* comp, unsigned wordCount);
+
+    static unsigned ComputeWordCount(unsigned bitCount)
+    {
+        unsigned wordBitSize = sizeof(Word) * CHAR_BIT;
+        return roundUp(bitCount, wordBitSize) / wordBitSize;
+    }
 };
 
 // A VARSET_TP is a set of (small) integers representing local variables.
@@ -95,7 +101,7 @@ public:
 // This class is customizes the bit set to represent sets of tracked local vars.
 // The size of the bitset is determined by the # of tracked locals (up to some internal
 // maximum), and the Compiler* tracks the tracked local epochs.
-class TrackedVarBitSetTraits : public CompAllocBitSetTraits
+class LiveBitSetTraits : public CompAllocBitSetTraits
 {
 public:
     using Env = Compiler*;
@@ -109,8 +115,10 @@ public:
     }
 };
 
-using VarSetOps = BitSetOps<TrackedVarBitSetTraits>;
-using VARSET_TP = VarSetOps::Set;
+using LiveSetOps = BitSetOps<LiveBitSetTraits>;
+using LiveSet    = LiveSetOps::Set;
+using VarSetOps  = LiveSetOps;
+using VARSET_TP  = LiveSet;
 
 // A BlockSet is a set of BasicBlocks, represented by the BasicBlock number (bbNum).
 //
@@ -130,7 +138,7 @@ using VARSET_TP = VarSetOps::Set;
 // block numbers are higher than the inliner function. fgBBNumMax counts both.
 // Thus, if you only care about the inlinee, during inlining, this bit set will waste
 // the lower numbered block bits.) The Compiler* tracks the BasicBlock epochs.
-class BasicBlockBitSetTraits : public CompAllocBitSetTraits
+class BlockSetTraits : public CompAllocBitSetTraits
 {
 public:
     using Env = Compiler*;
@@ -144,14 +152,14 @@ public:
     }
 };
 
-class BlockSetOps : public BitSetOps<BasicBlockBitSetTraits>
+class BlockSetOps : public BitSetOps<BlockSetTraits>
 {
 public:
     // Specialize BlockSetOps::MakeFull(). Since we number basic blocks from one, we
     // remove bit zero from the block set. Otherwise, IsEmpty() would never return true.
     static Set MakeFull(Compiler* env)
     {
-        Set retval = BitSetOps<BasicBlockBitSetTraits>::MakeFull(env);
+        Set retval = BitSetOps<BlockSetTraits>::MakeFull(env);
         RemoveElemD(env, retval, 0);
         return retval;
     }

@@ -3196,7 +3196,7 @@ void Compiler::fgDebugCheckBlockLinks()
         if ((block->bbJumpKind == BBJ_SWITCH) && (block->bbJumpSwt->nonDuplicates != nullptr))
         {
             // Create a set with all the successors. Don't use BlockSet, so we don't need to worry
-            // about the BlockSet epoch.
+            // about the BlockSet version.
 
             BitVecTraits uniqueSuccSetTraits(fgBBNumMax + 1, this);
             BitVec       uniqueSuccSet   = BitVecOps::MakeEmpty(&uniqueSuccSetTraits);

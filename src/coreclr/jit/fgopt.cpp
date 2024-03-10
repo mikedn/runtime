@@ -162,7 +162,7 @@ bool Compiler::fgReachable(BasicBlock* b1, BasicBlock* b2)
 
     /* Check if b1 can reach b2 */
     assert(fgReachabilitySetsValid);
-    assert(BasicBlockBitSetTraits::GetSize(this) == fgDomBBcount + 1);
+    assert(BlockSetTraits::GetSize(this) == fgDomBBcount + 1);
     return BlockSetOps::IsMember(this, b2->bbReach, b1->bbNum);
 }
 
@@ -187,7 +187,7 @@ void Compiler::fgUpdateChangedFlowGraph(const bool computePreds)
 // fgComputeReachabilitySets: Compute the bbReach sets.
 //
 // This can be called to recompute the bbReach sets after the flow graph changes, such as when the
-// number of BasicBlocks change (and thus, the BlockSet epoch changes).
+// number of BasicBlocks change (and thus, the BlockSet version changes).
 //
 // This also sets the BBF_GC_SAFE_POINT flag on blocks.
 //
@@ -211,9 +211,9 @@ void Compiler::fgComputeReachabilitySets()
 
     for (BasicBlock* const block : Blocks())
     {
-        // Initialize the per-block bbReach sets. It creates a new empty set,
-        // because the block epoch could change since the previous initialization
-        // and the old set could have wrong size.
+        // Initialize the per-block bbReach sets. It creates a new empty set, because
+        // the block set version could change since the previous initialization and
+        // the old set could have wrong size.
         block->bbReach = BlockSetOps::MakeEmpty(this);
 
         /* Mark block as reaching itself */
@@ -751,7 +751,7 @@ void Compiler::fgComputeDoms()
 #endif
 
     assert(fgBBcount == fgBBNumMax);
-    assert(BasicBlockBitSetTraits::GetSize(this) == fgBBNumMax + 1);
+    assert(BlockSetTraits::GetSize(this) == fgBBNumMax + 1);
 
     BasicBlock** postOrder = fgDfsInvPostOrder();
     noway_assert(postOrder[0] == nullptr);
@@ -903,7 +903,7 @@ void Compiler::fgComputeDoms()
     fgDomsComputed = true;
 
     assert(fgBBcount == fgBBNumMax);
-    assert(BasicBlockBitSetTraits::GetSize(this) == fgDomBBcount + 1);
+    assert(BlockSetTraits::GetSize(this) == fgDomBBcount + 1);
 }
 
 void Compiler::fgCompDominatedByExceptionalEntryBlocks(BasicBlock** postOrder)
@@ -1151,7 +1151,7 @@ BasicBlock* Compiler::fgIntersectDom(BasicBlock* a, BasicBlock* b)
 
 void Compiler::phRemoveNotImportedBlocks()
 {
-    NewBasicBlockEpoch();
+    NewBlockSetVersion();
     fgRemoveEmptyBlocks();
     INDEBUG(fgDebugCheckBBlist(false, false));
 }

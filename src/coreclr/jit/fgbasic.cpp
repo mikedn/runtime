@@ -4271,7 +4271,7 @@ BasicBlock* Compiler::fgConnectFallThrough(BasicBlock* bSrc, BasicBlock* bDst)
 //   maximum number of assigned basic blocks (this can happen if we do inlining,
 //   create a new, high-numbered block, then that block goes away. We go to
 //   renumber the blocks, none of them actually change number, but we shrink the
-//   maximum assigned block number. This affects the block set epoch).
+//   maximum assigned block number. This affects the block set version).
 //
 //   As a consequence of renumbering, block pred lists may need to be reordered.
 //
@@ -4364,28 +4364,29 @@ bool Compiler::fgRenumberBlocks()
     }
 #endif // DEBUG
 
-    // Now update the BlockSet epoch, which depends on the block numbers.
-    // If any blocks have been renumbered then create a new BlockSet epoch.
+    // Now update the BlockSet version, which depends on the block numbers.
+    // If any blocks have been renumbered then create a new BlockSet version.
     // Even if we have not renumbered any blocks, we might still need to force
-    // a new BlockSet epoch, for one of several reasons. If there are any new
+    // a new BlockSet version, for one of several reasons. If there are any new
     // blocks with higher numbers than the former maximum numbered block, then we
-    // need a new epoch with a new size matching the new largest numbered block.
+    // need a new version with a new size matching the new largest numbered block.
     // Also, if the number of blocks is different from the last time we set the
-    // BlockSet epoch, then we need a new epoch. This wouldn't happen if we
+    // BlockSet version, then we need a new version. This wouldn't happen if we
     // renumbered blocks after every block addition/deletion, but it might be
     // the case that we can change the number of blocks, then set the BlockSet
-    // epoch without renumbering, then change the number of blocks again, then
+    // version without renumbering, then change the number of blocks again, then
     // renumber.
+
     if (renumbered || newMaxBBNum)
     {
-        NewBasicBlockEpoch();
+        NewBlockSetVersion();
 
         // The key in the unique switch successor map is dependent on the block number, so invalidate that cache.
         InvalidateUniqueSwitchSuccMap();
     }
     else
     {
-        EnsureBasicBlockEpoch();
+        UpdateBlockSetVersion();
     }
 
     // Tell our caller if any blocks actually were renumbered.
@@ -4837,8 +4838,8 @@ DONE:
 // return true if there is a possibility that the method has a loop (a backedge is present)
 bool Compiler::fgMightHaveLoop()
 {
-    // Don't use a BlockSet for this temporary bitset of blocks: we don't want to have to call EnsureBasicBlockEpoch()
-    // and potentially change the block epoch.
+    // Don't use a BlockSet for this temporary bitset of blocks: we don't want to
+    // call UpdateBlockSetVersion and potentially change the BlockSet version.
 
     BitVecTraits blockVecTraits(fgBBNumMax + 1, this);
     BitVec       blocksSeen(BitVecOps::MakeEmpty(&blockVecTraits));

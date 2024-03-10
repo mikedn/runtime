@@ -1244,8 +1244,8 @@ private:
     bool compareBlocksForSequencing(BasicBlock* block1, BasicBlock* block2, bool useBlockWeights);
     BasicBlock* blockSequenceWorkList = nullptr;
 #ifdef DEBUG
-    // LSRA must not change number of blocks and blockEpoch that it initializes at start.
-    unsigned blockEpoch;
+    // LSRA must not change number of blocks and blockSetVersion that it initializes at start.
+    unsigned blockSetVersion;
 #endif // DEBUG
     void addToBlockSequenceWorkList(BlockSet sequencedBlockSet, BasicBlock* block, BlockSet& predSet);
 

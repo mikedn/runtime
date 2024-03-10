@@ -523,7 +523,7 @@ void Compiler::optUpdateLoopsBeforeRemoveBlock(BasicBlock* block, bool skipUnmar
 
     if ((skipUnmarkLoop == false) && ((block->bbJumpKind == BBJ_ALWAYS) || (block->bbJumpKind == BBJ_COND)) &&
         (block->bbJumpDest->isLoopHead()) && (block->bbJumpDest->bbNum <= block->bbNum) && fgDomsComputed &&
-        (fgCurBBEpochSize == fgDomBBcount + 1) && fgReachable(block->bbJumpDest, block))
+        (fgBlockSetSize == fgDomBBcount + 1) && fgReachable(block->bbJumpDest, block))
     {
         optUnmarkLoopBlocks(block->bbJumpDest, block);
     }
@@ -1377,7 +1377,7 @@ public:
         : loopBlocks(comp), comp(comp), oldBlockMaxNum(comp->fgBBNumMax), bottomBlocks(BlockSetOps::MakeEmpty(comp))
     {
         // Make sure we've renumbered such that the bitsets can hold all the bits
-        assert(comp->fgBBNumMax <= comp->fgCurBBEpochSize);
+        assert(comp->fgBBNumMax <= comp->fgBlockSetSize);
     }
 
     //------------------------------------------------------------------------

@@ -8,28 +8,28 @@ inline CompAllocBitSetTraits::Word* CompAllocBitSetTraits::Alloc(Compiler* comp,
     return comp->getAllocator(CMK_bitset).allocate<Word>(wordCount);
 }
 
-inline unsigned TrackedVarBitSetTraits::GetSize(const Compiler* comp)
+inline unsigned LiveBitSetTraits::GetSize(const Compiler* comp)
 {
     return comp->lvaTrackedCount;
 }
 
-inline unsigned TrackedVarBitSetTraits::GetWordCount(const Compiler* comp)
+inline unsigned LiveBitSetTraits::GetWordCount(const Compiler* comp)
 {
-    return comp->lvaTrackedCountInSizeTUnits;
+    return comp->lvaLiveSetWordCount;
 }
 
-inline unsigned BasicBlockBitSetTraits::GetSize(const Compiler* comp)
+inline unsigned BlockSetTraits::GetSize(const Compiler* comp)
 {
-    return comp->fgCurBBEpochSize;
+    return comp->fgBlockSetSize;
 }
 
-inline unsigned BasicBlockBitSetTraits::GetWordCount(const Compiler* comp)
+inline unsigned BlockSetTraits::GetWordCount(const Compiler* comp)
 {
-    // Assert that the epoch has been initialized. This is a convenient place to assert this because
-    // GetWordCount() is called for every function, via IsShort().
-    assert(comp->GetCurBasicBlockEpoch() != 0);
+    // Assert that the version has been initialized. This is a convenient place to
+    // assert this because GetWordCount() is called for every function, via IsShort().
+    assert(comp->GetBlockSetVersion() != 0);
 
-    return comp->fgBBSetCountInSizeTUnits; // This is precomputed to avoid doing math every time this function is called
+    return comp->fgBlockSetWordCount; // This is precomputed to avoid doing math every time this function is called
 }
 
 inline BitVecTraits::Word* BitVecTraits::Alloc(const BitVecTraits* b, unsigned wordCount)

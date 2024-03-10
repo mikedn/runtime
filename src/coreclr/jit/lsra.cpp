@@ -662,8 +662,8 @@ BlockSet LinearScan::setBlockSequence()
     assert((blockSequence == nullptr) && (bbSeqCount == 0)); // The method should be called only once.
     assert(blockSequenceWorkList == nullptr);
 
-    compiler->EnsureBasicBlockEpoch();
-    INDEBUG(blockEpoch = compiler->GetCurBasicBlockEpoch());
+    compiler->UpdateBlockSetVersion();
+    INDEBUG(blockSetVersion = compiler->GetBlockSetVersion());
 
     BlockSet visited  = BlockSetOps::MakeEmpty(compiler);
     BlockSet readySet = BlockSetOps::MakeEmpty(compiler);
@@ -984,7 +984,7 @@ void LinearScan::doLinearScan()
     compiler->EndPhase(PHASE_LINEAR_SCAN_RESOLVE);
 
     assert(blockSequence != nullptr); // Should do at least one traversal.
-    assert(blockEpoch == compiler->GetCurBasicBlockEpoch());
+    assert(blockSetVersion == compiler->GetBlockSetVersion());
 
 #if TRACK_LSRA_STATS
     if ((JitConfig.DisplayLsraStats() == 1)

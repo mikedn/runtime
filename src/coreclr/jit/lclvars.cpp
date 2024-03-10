@@ -2214,8 +2214,8 @@ void Compiler::lvaMarkLivenessTrackedLocals()
 {
     assert(opts.OptimizationEnabled() && compEnregLocals());
 
-    lvaTrackedCount             = 0;
-    lvaTrackedCountInSizeTUnits = 0;
+    lvaTrackedCount     = 0;
+    lvaLiveSetWordCount = 0;
 
     if (lvaCount == 0)
     {
@@ -2380,9 +2380,8 @@ void Compiler::lvaMarkLivenessTrackedLocals()
 
     JITDUMP("\n");
 
-    INDEBUG(lvaCurEpoch++);
-    lvaTrackedCountInSizeTUnits =
-        roundUp(lvaTrackedCount, static_cast<unsigned>(sizeof(size_t) * 8)) / static_cast<unsigned>(sizeof(size_t) * 8);
+    INDEBUG(lvaLiveSetVersion++);
+    lvaLiveSetWordCount = LiveBitSetTraits::ComputeWordCount(lvaTrackedCount);
 }
 
 //------------------------------------------------------------------------

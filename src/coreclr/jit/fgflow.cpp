@@ -929,8 +929,8 @@ BBswtDesc* Compiler::GetDescriptorForSwitch(BasicBlock* switchBlk)
     // successors. We create a temporary bitset of blocks to compute the unique set of successor
     // blocks, since adding a block's number twice leaves just one "copy" in the bitset. Note that
     // we specifically don't use the BlockSet type, because doing so would require making a call
-    // to EnsureBasicBlockEpoch() to make sure the epoch is up-to-date. However, that can create a
-    // new epoch, thus invalidating all existing BlockSet objects, such as reachability information
+    // to UpdateBlockSetVersion() to make sure the size is up-to-date. However, that can create a
+    // new version, thus invalidating all existing BlockSet objects, such as reachability information
     // stored in the blocks. To avoid that, we just use a local BitVec.
 
     BitVecTraits uniqueSuccSetTraits(fgBBNumMax + 1, this);
