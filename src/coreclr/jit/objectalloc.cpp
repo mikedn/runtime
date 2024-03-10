@@ -294,18 +294,18 @@ void ObjectAllocator::ComputeStackObjectPointers(BitVecTraits* bitVecTraits)
                     if (lcl->lvSingleDef == 1)
                     {
                         // Check if we know what is assigned to this pointer.
-                        unsigned bitCount = BitVecOps::Count(bitVecTraits, m_ConnGraphAdjacencyMatrix[lclNum]);
-                        assert(bitCount <= 1);
-                        if (bitCount == 1)
-                        {
-                            BitVecOps::Enumerator e(bitVecTraits, m_ConnGraphAdjacencyMatrix[lclNum]);
+                        BitVecOps::Enumerator e(bitVecTraits, m_ConnGraphAdjacencyMatrix[lclNum]);
 
-                            if (e.MoveNext() && DoesLclVarPointToStack(e.Current()))
+                        if (e.MoveNext())
+                        {
+                            if (DoesLclVarPointToStack(e.Current()))
                             {
                                 // The only assignment to lclNum local is definitely-stack-pointing
                                 // rhsLclNum local so lclNum local is also definitely-stack-pointing.
                                 MarkLclVarAsDefinitelyStackPointing(lclNum);
                             }
+
+                            assert(!e.MoveNext());
                         }
                     }
                     changed = true;

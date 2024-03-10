@@ -924,46 +924,41 @@ BBswtDesc* Compiler::GetDescriptorForSwitch(BasicBlock* switchBlk)
     {
         return switchBlk->bbJumpSwt;
     }
-    else
+
+    // We must compute the descriptor. Find which are dups, by creating a bit set with the unique
+    // successors. We create a temporary bitset of blocks to compute the unique set of successor
+    // blocks, since adding a block's number twice leaves just one "copy" in the bitset. Note that
+    // we specifically don't use the BlockSet type, because doing so would require making a call
+    // to EnsureBasicBlockEpoch() to make sure the epoch is up-to-date. However, that can create a
+    // new epoch, thus invalidating all existing BlockSet objects, such as reachability information
+    // stored in the blocks. To avoid that, we just use a local BitVec.
+
+    BitVecTraits uniqueSuccSetTraits(fgBBNumMax + 1, this);
+    BitVec       uniqueSuccSet   = BitVecOps::MakeEmpty(&uniqueSuccSetTraits);
+    unsigned     uniqueSuccCount = 0;
+
+    for (BasicBlock* const succ : switchBlk->SwitchTargets())
     {
-        // We must compute the descriptor. Find which are dups, by creating a bit set with the unique successors.
-        // We create a temporary bitset of blocks to compute the unique set of successor blocks,
-        // since adding a block's number twice leaves just one "copy" in the bitset. Note that
-        // we specifically don't use the BlockSet type, because doing so would require making a
-        // call to EnsureBasicBlockEpoch() to make sure the epoch is up-to-date. However, that
-        // can create a new epoch, thus invalidating all existing BlockSet objects, such as
-        // reachability information stored in the blocks. To avoid that, we just use a local BitVec.
-
-        BitVecTraits blockVecTraits(fgBBNumMax + 1, this);
-        BitVec       uniqueSuccBlocks(BitVecOps::MakeEmpty(&blockVecTraits));
-        for (BasicBlock* const targ : switchBlk->SwitchTargets())
-        {
-            BitVecOps::AddElemD(&blockVecTraits, uniqueSuccBlocks, targ->bbNum);
-        }
-        // Now we have a set of unique successors.
-        unsigned numNonDups = BitVecOps::Count(&blockVecTraits, uniqueSuccBlocks);
-
-        BasicBlock** nonDups = new (this, CMK_SwitchDedup) BasicBlock*[numNonDups];
-
-        unsigned nonDupInd = 0;
-        // At this point, all unique targets are in "uniqueSuccBlocks".  As we encounter each,
-        // add to nonDups, remove from "uniqueSuccBlocks".
-        for (BasicBlock* const targ : switchBlk->SwitchTargets())
-        {
-            if (BitVecOps::IsMember(&blockVecTraits, uniqueSuccBlocks, targ->bbNum))
-            {
-                nonDups[nonDupInd] = targ;
-                nonDupInd++;
-                BitVecOps::RemoveElemD(&blockVecTraits, uniqueSuccBlocks, targ->bbNum);
-            }
-        }
-
-        assert(nonDupInd == numNonDups);
-        assert(BitVecOps::Count(&blockVecTraits, uniqueSuccBlocks) == 0);
-        switchBlk->bbJumpSwt->numDistinctSuccs = numNonDups;
-        switchBlk->bbJumpSwt->nonDuplicates    = nonDups;
-        return switchBlk->bbJumpSwt;
+        uniqueSuccCount += BitVecOps::TryAddElemD(&uniqueSuccSetTraits, uniqueSuccSet, succ->bbNum);
     }
+
+    BasicBlock** uniqueSucc      = new (this, CMK_SwitchDedup) BasicBlock*[uniqueSuccCount];
+    unsigned     uniqueSuccIndex = 0;
+
+    for (BasicBlock* const succ : switchBlk->SwitchTargets())
+    {
+        if (BitVecOps::TryRemoveElemD(&uniqueSuccSetTraits, uniqueSuccSet, succ->bbNum))
+        {
+            uniqueSucc[uniqueSuccIndex++] = succ;
+        }
+    }
+
+    assert(uniqueSuccIndex == uniqueSuccCount);
+
+    switchBlk->bbJumpSwt->numDistinctSuccs = uniqueSuccCount;
+    switchBlk->bbJumpSwt->nonDuplicates    = uniqueSucc;
+
+    return switchBlk->bbJumpSwt;
 }
 
 void BBswtDesc::UpdateTarget(CompAllocator alloc, BasicBlock* switchBlk, BasicBlock* from, BasicBlock* to)

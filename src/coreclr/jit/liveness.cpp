@@ -1400,8 +1400,7 @@ void Compiler::fgDispBBLocalLiveness(BasicBlock* block)
     VARSET_TP allVars = VarSetOps::Alloc(this);
     VarSetOps::Union(this, allVars, block->bbVarUse, block->bbVarDef);
 
-    printf(FMT_BB, block->bbNum);
-    printf(" USE(%d)=", VarSetOps::Count(this, block->bbVarUse));
+    printf(FMT_BB ":\nUSE = ", block->bbNum);
     lvaDispVarSet(block->bbVarUse, allVars);
 
     if (!block->IsLIR())
@@ -1412,7 +1411,7 @@ void Compiler::fgDispBBLocalLiveness(BasicBlock* block)
         }
     }
 
-    printf("\n     DEF(%d)=", VarSetOps::Count(this, block->bbVarDef));
+    printf("\nDEF = ");
     lvaDispVarSet(block->bbVarDef, allVars);
 
     if (!block->IsLIR())
@@ -1435,8 +1434,7 @@ void Compiler::fgDispBBLiveness(BasicBlock* block)
     VARSET_TP allVars = VarSetOps::Alloc(this);
     VarSetOps::Union(this, allVars, block->bbLiveIn, block->bbLiveOut);
 
-    printf(FMT_BB, block->bbNum);
-    printf(" IN (%d)=", VarSetOps::Count(this, block->bbLiveIn));
+    printf(FMT_BB ":\nIN = ", block->bbNum);
     lvaDispVarSet(block->bbLiveIn, allVars);
 
     if (!block->IsLIR())
@@ -1447,7 +1445,7 @@ void Compiler::fgDispBBLiveness(BasicBlock* block)
         }
     }
 
-    printf("\n     OUT(%d)=", VarSetOps::Count(this, block->bbLiveOut));
+    printf("\nOUT = ");
     lvaDispVarSet(block->bbLiveOut, allVars);
 
     if (!block->IsLIR())

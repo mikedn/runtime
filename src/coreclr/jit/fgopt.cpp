@@ -280,30 +280,24 @@ void Compiler::fgComputeReachabilitySets()
 //
 void Compiler::fgComputeEnterBlocksSet()
 {
-#ifdef DEBUG
-    fgEnterBlksSetValid = false;
-#endif // DEBUG
+    INDEBUG(fgEnterBlksSetValid = false);
 
     fgEnterBlks = BlockSetOps::MakeEmpty(this);
 
-    /* Now set the entry basic block */
     BlockSetOps::AddElemD(this, fgEnterBlks, fgFirstBB->bbNum);
     assert(fgFirstBB->bbNum == 1);
 
-    if (compHndBBtabCount > 0)
+    for (EHblkDsc* const HBtab : EHClauses(this))
     {
-        /* Also 'or' in the handler basic blocks */
-        for (EHblkDsc* const HBtab : EHClauses(this))
+        if (HBtab->HasFilter())
         {
-            if (HBtab->HasFilter())
-            {
-                BlockSetOps::AddElemD(this, fgEnterBlks, HBtab->ebdFilter->bbNum);
-            }
-            BlockSetOps::AddElemD(this, fgEnterBlks, HBtab->ebdHndBeg->bbNum);
+            BlockSetOps::AddElemD(this, fgEnterBlks, HBtab->ebdFilter->bbNum);
         }
+
+        BlockSetOps::AddElemD(this, fgEnterBlks, HBtab->ebdHndBeg->bbNum);
     }
 
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+#ifdef TARGET_ARM
     // TODO-ARM-Cleanup: The ARM code here to prevent creating retless calls by adding the BBJ_ALWAYS
     // to the enter blocks is a bit of a compromise, because sometimes the blocks are already reachable,
     // and it messes up DFS ordering to have them marked as enter block. We should prevent the
@@ -319,7 +313,7 @@ void Compiler::fgComputeEnterBlocksSet()
             BlockSetOps::AddElemD(this, fgEnterBlks, block->bbNext->bbNum);
         }
     }
-#endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+#endif // TARGET_ARM
 
 #ifdef DEBUG
     if (verbose)
@@ -331,9 +325,7 @@ void Compiler::fgComputeEnterBlocksSet()
         }
         printf("\n");
     }
-#endif // DEBUG
 
-#ifdef DEBUG
     fgEnterBlksSetValid = true;
 #endif // DEBUG
 }
@@ -932,7 +924,11 @@ void Compiler::fgComputeDoms()
         }
     }
 
-    fgCompDominatedByExceptionalEntryBlocks(postOrder);
+    if (compHndBBtabCount > 0)
+    {
+        fgCompDominatedByExceptionalEntryBlocks(postOrder);
+    }
+
     DBEXEC(verbose, fgDispDoms(postOrder));
     fgNumberDomTree(fgBuildDomTree());
 
@@ -942,6 +938,29 @@ void Compiler::fgComputeDoms()
 
     assert(fgBBcount == fgBBNumMax);
     assert(BasicBlockBitSetTraits::GetSize(this) == fgDomBBcount + 1);
+}
+
+void Compiler::fgCompDominatedByExceptionalEntryBlocks(BasicBlock** postOrder)
+{
+    assert(fgEnterBlksSetValid);
+    assert(compHndBBtabCount > 0);
+
+    for (unsigned i = 1; i <= fgBBNumMax; ++i)
+    {
+        BasicBlock* block = postOrder[i];
+
+        if (BlockSetOps::IsMember(this, fgEnterBlks, block->bbNum))
+        {
+            if (fgFirstBB != block) // skip the normal entry.
+            {
+                block->SetDominatedByExceptionalEntryFlag();
+            }
+        }
+        else if (block->bbIDom->IsDominatedByExceptionalEntryFlag())
+        {
+            block->SetDominatedByExceptionalEntryFlag();
+        }
+    }
 }
 
 void Compiler::fgEnsureDomTreeRoot()
@@ -5809,28 +5828,3 @@ unsigned Compiler::fgMeasureIR()
 }
 
 #endif // FEATURE_JIT_METHOD_PERF
-
-// Compute blocks that are dominated by not normal entry.
-void Compiler::fgCompDominatedByExceptionalEntryBlocks(BasicBlock** postOrder)
-{
-    assert(fgEnterBlksSetValid);
-
-    if (BlockSetOps::Count(this, fgEnterBlks) != 1) // There are exception entries.
-    {
-        for (unsigned i = 1; i <= fgBBNumMax; ++i)
-        {
-            BasicBlock* block = postOrder[i];
-            if (BlockSetOps::IsMember(this, fgEnterBlks, block->bbNum))
-            {
-                if (fgFirstBB != block) // skip the normal entry.
-                {
-                    block->SetDominatedByExceptionalEntryFlag();
-                }
-            }
-            else if (block->bbIDom->IsDominatedByExceptionalEntryFlag())
-            {
-                block->SetDominatedByExceptionalEntryFlag();
-            }
-        }
-    }
-}

@@ -3197,26 +3197,28 @@ void Compiler::fgDebugCheckBlockLinks()
         {
             // Create a set with all the successors. Don't use BlockSet, so we don't need to worry
             // about the BlockSet epoch.
-            BitVecTraits bitVecTraits(fgBBNumMax + 1, this);
-            BitVec       succBlocks(BitVecOps::MakeEmpty(&bitVecTraits));
-            for (BasicBlock* const bTarget : block->SwitchTargets())
+
+            BitVecTraits uniqueSuccSetTraits(fgBBNumMax + 1, this);
+            BitVec       uniqueSuccSet   = BitVecOps::MakeEmpty(&uniqueSuccSetTraits);
+            unsigned     uniqueSuccCount = 0;
+
+            for (BasicBlock* const succ : block->SwitchTargets())
             {
-                BitVecOps::AddElemD(&bitVecTraits, succBlocks, bTarget->bbNum);
+                uniqueSuccCount += BitVecOps::TryAddElemD(&uniqueSuccSetTraits, uniqueSuccSet, succ->bbNum);
             }
-            // Now we should have a set of unique successors that matches what's in the switchMap.
-            // First, check the number of entries, then make sure all the blocks in uniqueSuccSet
-            // are in the BlockSet.
-            unsigned count = BitVecOps::Count(&bitVecTraits, succBlocks);
-            assert(block->bbJumpSwt->numDistinctSuccs == count);
-            for (unsigned i = 0; i < block->bbJumpSwt->numDistinctSuccs; i++)
+
+            assert(block->bbJumpSwt->numDistinctSuccs == uniqueSuccCount);
+
+            for (unsigned i = 0; i < uniqueSuccCount; i++)
             {
-                assert(BitVecOps::IsMember(&bitVecTraits, succBlocks, block->bbJumpSwt->nonDuplicates[i]->bbNum));
+                assert(BitVecOps::IsMember(&uniqueSuccSetTraits, uniqueSuccSet,
+                                           block->bbJumpSwt->nonDuplicates[i]->bbNum));
             }
         }
     }
 }
 
-// UniquenessCheckWalker keeps data that is neccesary to check
+// UniquenessCheckWalker keeps data that is necessary to check
 // that each tree has it is own unique id and they do not repeat.
 class UniquenessCheckWalker
 {
