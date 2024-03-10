@@ -97,9 +97,8 @@ public:
     static unsigned GetArrSize(Compiler* comp, unsigned elemSize);
 };
 
-using VarSetOps        = BitSetOps<BitSetShortLongRep, TrackedVarBitSetTraits>;
-using VARSET_TP        = VarSetOps::Rep;
-using VARSET_VALARG_TP = VarSetOps::ValArgType;
+using VarSetOps = BitSetOps<BitSetShortLongRep, TrackedVarBitSetTraits>;
+using VARSET_TP = VarSetOps::Rep;
 
 // A BlockSet is a set of BasicBlocks, represented by the BasicBlock number (bbNum).
 //

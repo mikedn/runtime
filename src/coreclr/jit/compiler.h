@@ -3996,17 +3996,14 @@ public:
 
     void fgComputeLifeTrackedLocalUse(VARSET_TP& liveOut, LclVarDsc* lcl, GenTreeLclVarCommon* node);
     bool fgComputeLifeTrackedLocalDef(VARSET_TP&           liveOut,
-                                      VARSET_VALARG_TP     keepAlive,
+                                      VARSET_TP            keepAlive,
                                       LclVarDsc*           lcl,
                                       GenTreeLclVarCommon* node);
-    bool fgComputeLifePromotedLocal(VARSET_TP&           liveOut,
-                                    VARSET_VALARG_TP     keepAlive,
-                                    LclVarDsc*           lcl,
-                                    GenTreeLclVarCommon* node);
+    bool fgComputeLifePromotedLocal(VARSET_TP& liveOut, VARSET_TP keepAlive, LclVarDsc* lcl, GenTreeLclVarCommon* node);
 
-    bool fgComputeLifeBlock(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, BasicBlock* block);
-    bool fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt, BasicBlock* block);
-    bool fgComputeLifeLIR(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, BasicBlock* block);
+    bool fgComputeLifeBlock(VARSET_TP& liveOut, VARSET_TP keepAlive, BasicBlock* block);
+    bool fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_TP keepAlive, Statement* stmt, BasicBlock* block);
+    bool fgComputeLifeLIR(VARSET_TP& liveOut, VARSET_TP keepAlive, BasicBlock* block);
 
     GenTree* fgRemoveDeadStore(GenTreeLclVarCommon* store, Statement* stmt, BasicBlock* block);
 
@@ -4080,7 +4077,7 @@ public:
     void fgDfsInvPostOrderHelper(BasicBlock** postOrder, BasicBlock* block, BlockSet& visited, unsigned* count);
 
     BlockSet fgDomFindStartNodes(); // Computes which basic blocks don't have incoming edges in the flow graph.
-                                             // Returns this as a set.
+                                    // Returns this as a set.
 
     INDEBUG(void fgDispDomTree(DomTreeNode* domTree);) // Helper that prints out the Dominator Tree in debug builds.
 

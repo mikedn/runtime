@@ -7254,10 +7254,7 @@ void LinearScan::resolveEdges()
 //    registers), then the register to register moves, ensuring that the target register
 //    is free before the move, and then finally the stack to register moves.
 
-void LinearScan::resolveEdge(BasicBlock*      fromBlock,
-                             BasicBlock*      toBlock,
-                             ResolveType      resolveType,
-                             VARSET_VALARG_TP liveSet)
+void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, ResolveType resolveType, VARSET_TP liveSet)
 {
     VarToRegMap fromVarToRegMap = getOutVarToRegMap(fromBlock->bbNum);
     VarToRegMap toVarToRegMap;

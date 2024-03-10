@@ -724,7 +724,7 @@ void Compiler::fgComputeLifeTrackedLocalUse(VARSET_TP& liveOut, LclVarDsc* lcl, 
 }
 
 bool Compiler::fgComputeLifeTrackedLocalDef(VARSET_TP&           liveOut,
-                                            VARSET_VALARG_TP     keepAlive,
+                                            VARSET_TP            keepAlive,
                                             LclVarDsc*           lcl,
                                             GenTreeLclVarCommon* node)
 {
@@ -759,7 +759,7 @@ bool Compiler::fgComputeLifeTrackedLocalDef(VARSET_TP&           liveOut,
 }
 
 bool Compiler::fgComputeLifePromotedLocal(VARSET_TP&           liveOut,
-                                          VARSET_VALARG_TP     keepAlive,
+                                          VARSET_TP            keepAlive,
                                           LclVarDsc*           lcl,
                                           GenTreeLclVarCommon* node)
 {
@@ -819,7 +819,7 @@ bool Compiler::fgComputeLifePromotedLocal(VARSET_TP&           liveOut,
     return isDef && isLastUse && !(lcl->lvCustomLayout && lcl->lvContainsHoles);
 }
 
-bool Compiler::fgComputeLifeBlock(VARSET_TP& life, VARSET_VALARG_TP keepAlive, BasicBlock* block)
+bool Compiler::fgComputeLifeBlock(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock* block)
 {
     Statement* firstStmt = block->FirstNonPhiDef();
 
@@ -845,7 +845,7 @@ bool Compiler::fgComputeLifeBlock(VARSET_TP& life, VARSET_VALARG_TP keepAlive, B
     return stmtRemoved;
 }
 
-bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt, BasicBlock* block)
+bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_TP keepAlive, Statement* stmt, BasicBlock* block)
 {
     bool updateStmt = false;
     INDEBUG(bool modified = false);
@@ -931,9 +931,9 @@ bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
     return false;
 }
 
-bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars, BasicBlock* block)
+bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock* block)
 {
-    noway_assert(VarSetOps::IsSubset(this, keepAliveVars, life));
+    noway_assert(VarSetOps::IsSubset(this, keepAlive, life));
 
     LIR::Range& blockRange = LIR::AsRange(block);
     GenTree*    firstNode  = blockRange.FirstNode();
@@ -975,7 +975,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
                 }
                 else if (lcl->IsPromoted() && !lcl->IsAddressExposed())
                 {
-                    fgComputeLifePromotedLocal(life, keepAliveVars, lcl, lclNode);
+                    fgComputeLifePromotedLocal(life, keepAlive, lcl, lclNode);
                 }
                 break;
             }
@@ -989,7 +989,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
 
                 if (lcl->HasLiveness())
                 {
-                    isDeadStore = fgComputeLifeTrackedLocalDef(life, keepAliveVars, lcl, lclNode);
+                    isDeadStore = fgComputeLifeTrackedLocalDef(life, keepAlive, lcl, lclNode);
                 }
                 else
                 {
@@ -1027,7 +1027,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
 
                     if (!isDeadStore && lcl->IsPromoted() && !lcl->IsAddressExposed())
                     {
-                        isDeadStore = fgComputeLifePromotedLocal(life, keepAliveVars, lcl, lclNode);
+                        isDeadStore = fgComputeLifePromotedLocal(life, keepAlive, lcl, lclNode);
                     }
                 }
 
@@ -1349,7 +1349,7 @@ bool Compiler::fgInterBlockLocalVarLiveness()
 
     bool      useDefRemoved = false;
     bool      changed       = false;
-    VARSET_TP keepAlive     = VarSetOps::MakeEmpty(this);
+    VARSET_TP keepAlive     = VarSetOps::Alloc(this);
     VARSET_TP life          = VarSetOps::Alloc(this);
 
     for (BasicBlock* const block : Blocks())
