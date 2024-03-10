@@ -30,10 +30,10 @@ class ObjectAllocator final
     BitVec       m_EscapingPointers;
     // We keep the set of possibly-stack-pointing pointers as a superset of the set of
     // definitely-stack-pointing pointers. All definitely-stack-pointing pointers are in both sets.
-    BitVec              m_PossiblyStackPointingPointers;
-    BitVec              m_DefinitelyStackPointingPointers;
-    LocalToLocalMap     m_HeapLocalToStackLocalMap;
-    BitSetShortLongRep* m_ConnGraphAdjacencyMatrix;
+    BitVec          m_PossiblyStackPointingPointers;
+    BitVec          m_DefinitelyStackPointingPointers;
+    LocalToLocalMap m_HeapLocalToStackLocalMap;
+    BitVec*         m_ConnGraphAdjacencyMatrix;
 
     //===============================================================================
     // Methods
@@ -55,8 +55,8 @@ private:
     void MarkLclVarAsEscaping(unsigned int lclNum);
     void MarkEscapingVarsAndBuildConnGraph();
     void AddConnGraphEdge(unsigned int sourceLclNum, unsigned int targetLclNum);
-    void ComputeEscapingNodes(BitVecTraits* bitVecTraits, BitVec& escapingNodes);
-    void ComputeStackObjectPointers(BitVecTraits* bitVecTraits);
+    void     ComputeEscapingNodes();
+    void     ComputeStackObjectPointers();
     bool     MorphAllocObjNodes();
     void     RewriteUses();
     GenTree* MorphAllocObjNodeIntoHelperCall(GenTreeAllocObj* allocObj);

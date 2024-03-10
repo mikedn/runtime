@@ -39,7 +39,7 @@ PhaseStatus ObjectAllocator::Run()
 
     if (didStackAllocate)
     {
-        ComputeStackObjectPointers(&m_bitVecTraits);
+        ComputeStackObjectPointers();
         RewriteUses();
         return PhaseStatus::MODIFIED_EVERYTHING;
     }
@@ -112,10 +112,10 @@ void ObjectAllocator::DoAnalysis()
     if (comp->lvaCount > 0)
     {
         m_EscapingPointers         = BitVecOps::MakeEmpty(&m_bitVecTraits);
-        m_ConnGraphAdjacencyMatrix = new (comp->getAllocator(CMK_ObjectAllocator)) BitSetShortLongRep[comp->lvaCount];
+        m_ConnGraphAdjacencyMatrix = new (comp->getAllocator(CMK_ObjectAllocator)) BitVec[comp->lvaCount];
 
         MarkEscapingVarsAndBuildConnGraph();
-        ComputeEscapingNodes(&m_bitVecTraits, m_EscapingPointers);
+        ComputeEscapingNodes();
     }
 
     m_AnalysisDone = true;
@@ -222,24 +222,18 @@ void ObjectAllocator::MarkEscapingVarsAndBuildConnGraph()
     }
 }
 
-//------------------------------------------------------------------------------
-// ComputeEscapingNodes : Given an initial set of escaping nodes, update it to contain the full set
-//                        of escaping nodes by computing nodes reachable from the given set.
-//
-// Arguments:
-//    bitVecTraits              - Bit vector traits
-//    escapingNodes  [in/out]   - Initial set of escaping nodes
-
-void ObjectAllocator::ComputeEscapingNodes(BitVecTraits* bitVecTraits, BitVec& escapingNodes)
+// Given an initial set of escaping nodes, update it to contain the full set
+// of escaping nodes by computing nodes reachable from the given set.
+void ObjectAllocator::ComputeEscapingNodes()
 {
-    BitVec escapingNodesToProcess = BitVecOps::MakeCopy(bitVecTraits, escapingNodes);
+    BitVec escapingNodesToProcess = BitVecOps::MakeCopy(m_bitVecTraits, m_EscapingPointers);
     BitVec newEscapingNodes       = BitVecOps::UninitVal();
 
     for (bool doOneMoreIteration = true; doOneMoreIteration;)
     {
         doOneMoreIteration = false;
 
-        for (BitVecOps::Enumerator e(bitVecTraits, escapingNodesToProcess); e.MoveNext();)
+        for (BitVecOps::Enumerator e(m_bitVecTraits, escapingNodesToProcess); e.MoveNext();)
         {
             const unsigned lclNum = e.Current();
 
@@ -249,28 +243,23 @@ void ObjectAllocator::ComputeEscapingNodes(BitVecTraits* bitVecTraits, BitVec& e
 
                 if (newEscapingNodes == BitVecOps::UninitVal())
                 {
-                    newEscapingNodes = BitVecOps::Alloc(bitVecTraits);
+                    newEscapingNodes = BitVecOps::Alloc(m_bitVecTraits);
                 }
 
-                BitVecOps::Diff(bitVecTraits, newEscapingNodes, adjacency, escapingNodes);
-                BitVecOps::UnionD(bitVecTraits, escapingNodesToProcess, newEscapingNodes);
-                BitVecOps::UnionD(bitVecTraits, escapingNodes, newEscapingNodes);
-                BitVecOps::RemoveElemD(bitVecTraits, escapingNodesToProcess, lclNum);
+                BitVecOps::Diff(m_bitVecTraits, newEscapingNodes, adjacency, m_EscapingPointers);
+                BitVecOps::UnionD(m_bitVecTraits, escapingNodesToProcess, newEscapingNodes);
+                BitVecOps::UnionD(m_bitVecTraits, m_EscapingPointers, newEscapingNodes);
+                BitVecOps::RemoveElemD(m_bitVecTraits, escapingNodesToProcess, lclNum);
             }
         }
     }
 }
 
-//------------------------------------------------------------------------------
-// ComputeStackObjectPointers : Given an initial set of possibly stack-pointing nodes,
-//                              and an initial set of definitely stack-pointing nodes,
-//                              update both sets by computing nodes reachable from the
-//                              given set in the reverse connection graph.
-//
-// Arguments:
-//    bitVecTraits                    - Bit vector traits
-
-void ObjectAllocator::ComputeStackObjectPointers(BitVecTraits* bitVecTraits)
+// Given an initial set of possibly stack-pointing nodes,
+// and an initial set of definitely stack-pointing nodes,
+// update both sets by computing nodes reachable from the
+// given set in the reverse connection graph.
+void ObjectAllocator::ComputeStackObjectPointers()
 {
     bool changed = true;
 
@@ -284,7 +273,7 @@ void ObjectAllocator::ComputeStackObjectPointers(BitVecTraits* bitVecTraits)
                 unsigned lclNum = lcl->GetLclNum();
 
                 if (!MayLclVarPointToStack(lclNum) &&
-                    !BitVecOps::IsEmptyIntersection(bitVecTraits, m_PossiblyStackPointingPointers,
+                    !BitVecOps::IsEmptyIntersection(m_bitVecTraits, m_PossiblyStackPointingPointers,
                                                     m_ConnGraphAdjacencyMatrix[lclNum]))
                 {
                     // We discovered a new pointer that may point to the stack.
@@ -294,7 +283,7 @@ void ObjectAllocator::ComputeStackObjectPointers(BitVecTraits* bitVecTraits)
                     if (lcl->lvSingleDef == 1)
                     {
                         // Check if we know what is assigned to this pointer.
-                        BitVecOps::Enumerator e(bitVecTraits, m_ConnGraphAdjacencyMatrix[lclNum]);
+                        BitVecOps::Enumerator e(m_bitVecTraits, m_ConnGraphAdjacencyMatrix[lclNum]);
 
                         if (e.MoveNext())
                         {
