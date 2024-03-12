@@ -26,10 +26,10 @@
 // For IF_XXX_YYY, the first operand is XXX, the second operand is YYY.
 
 // name                 instruction                          ID_OPS  Memory operand type
-//                      scheduling                           
-//                      (unused)                             
-                                                             
-// clang-format off                                          
+//                      scheduling
+//                      (unused)
+
+// clang-format off
 IF_DEF(NONE,            IS_NONE,                             NONE, NONE)
 IF_DEF(GC_REG,          IS_NONE,                             NONE, NONE) // GC reg update
 IF_DEF(LABEL,           IS_NONE,                             JMP,  NONE) // label
