@@ -259,15 +259,20 @@ public:
     static bool IsMember(Env env, ConstSet s, unsigned i)
     {
         assert(i < Traits::GetSize(env));
+
+        Word w;
+
         if (Traits::IsShort(env))
         {
-            return (Word(s) & (Word(1) << i)) != 0;
+            w = Word(s);
         }
         else
         {
             assert(s != UninitVal());
-            return IsMemberLong(env, s, i);
+            w = s[i / WordBitSize];
         }
+
+        return (w & (Word(1) << i)) != 0;
     }
 
     static void IntersectionD(Env env, Set& s1, ConstSet s2)
