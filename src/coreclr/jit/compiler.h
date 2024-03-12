@@ -3709,8 +3709,8 @@ public:
     unsigned* fgDomTreePreOrder;
     unsigned* fgDomTreePostOrder;
 
-    BlockSet fgEnterBlks = BlockSetOps::UninitVal(); // Set of blocks which have a special transfer of control; the
-                                                     // "entry" blocks plus EH handler begin blocks.
+    BlockSet fgEntryBlocks = BlockSetOps::UninitVal(); // Set of blocks which have a special transfer of control; the
+                                                       // "entry" blocks plus EH handler begin blocks.
 
     jitstd::vector<flowList*>* fgPredListSortVector = nullptr;
 
@@ -3749,7 +3749,7 @@ public:
         fgBlockSetWordCount = BlockSetTraits::ComputeWordCount(fgBlockSetSize);
 
         INDEBUG(fgReachabilitySetsValid = false);
-        INDEBUG(fgEnterBlksSetValid = false);
+        INDEBUG(fgEntryBlocksValid = false);
 
         JITDUMP("\nNew BlockSet version %u, # of blocks (including unused BB00): %u, bitset word count: %u (%s), prev "
                 "bitset word count: %u (%s)\n",
@@ -3820,7 +3820,7 @@ public:
 
 #ifdef DEBUG
     bool fgReachabilitySetsValid = false; // Are the bbReach sets valid?
-    bool fgEnterBlksSetValid     = false; // Is the fgEnterBlks set valid?
+    bool fgEntryBlocksValid      = false; // Is the fgEntryBlocks set valid?
     bool fgLinearOrder           = false;
 #endif
 
@@ -3843,7 +3843,7 @@ public:
                                 // since fgMorphTree can be called from several places
 
     bool fgLoopCallMarked = false; // The following check for loops that don't execute calls
-    bool fgHasLoops       = false; // True if this method has any loops, set in fgComputeReachability
+    bool fgHasLoops       = false; // True if this method has any loops, set in phComputeReachability
 
 #ifdef DEBUG
     bool fgLocalVarLivenessDone = false;
@@ -4041,29 +4041,28 @@ public:
     bool fgReachable(BasicBlock* b1, BasicBlock* b2); // Returns true if block b1 can reach block b2
 
     // Compute immediate dominators, the dominator tree and and its pre/post-order travsersal numbers.
-    void fgComputeDoms();
+    void phComputeDoms();
 
-    void fgCompDominatedByExceptionalEntryBlocks(BasicBlock** postOrder);
+    void fgCompDominatedByExceptionalEntryBlocks(BasicBlock** postOrder, BlockSet entryBlocks);
 
-    void fgComputeReachabilitySets(); // Compute bbReach sets. (Also sets BBF_GC_SAFE_POINT flag on blocks.)
+    BlockSet fgComputeReachabilitySets(); // Compute bbReach sets. (Also sets BBF_GC_SAFE_POINT flag on blocks.)
 
-    BlockSet fgComputeEnterBlocksSet();
+    BlockSet fgComputeEntryBlockSet();
 
-    bool fgRemoveUnreachableBlocks(); // Remove blocks determined to be unreachable by the bbReach sets.
+    // Remove blocks determined to be unreachable by the bbReach sets.
+    bool fgRemoveUnreachableBlocks(BlockSet entryBlocks);
 
-    void fgComputeReachability(); // Perform flow graph node reachability analysis.
+    void phComputeReachability(); // Perform flow graph node reachability analysis.
 
     BasicBlock* fgIntersectDom(BasicBlock* a, BasicBlock* b); // Intersect two immediate dominator sets.
 
-    BasicBlock** fgDfsInvPostOrder();
+    BasicBlock** fgDfsInvPostOrder(BlockSet entryBlocks);
     void fgDfsInvPostOrderHelper(BasicBlock** postOrder, BasicBlock* block, BlockSet& visited, unsigned* count);
 
     INDEBUG(void fgDispDomTree(DomTreeNode* domTree);) // Helper that prints out the Dominator Tree in debug builds.
 
     void         fgEnsureDomTreeRoot();
-    DomTreeNode* fgBuildDomTree(); // Once we compute all the immediate dominator sets for each node in the flow graph
-                                   // (performed by fgComputeDoms), this procedure builds the dominance tree represented
-                                   // adjacency lists.
+    DomTreeNode* fgBuildDomTree();
 
     // In order to speed up the queries of the form 'Does A dominates B', we can perform a DFS preorder and postorder
     // traversal of the dominance tree and the dominance query will become A dominates B iif preOrder(A) <= preOrder(B)

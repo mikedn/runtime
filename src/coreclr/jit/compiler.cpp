@@ -2546,8 +2546,8 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     {
         DoPhase(this, PHASE_INVERT_LOOPS, &Compiler::optInvertLoops);
         DoPhase(this, PHASE_OPTIMIZE_LAYOUT, &Compiler::optOptimizeLayout);
-        DoPhase(this, PHASE_COMPUTE_REACHABILITY, &Compiler::fgComputeReachability);
-        DoPhase(this, PHASE_COMPUTE_DOMINATORS, &Compiler::fgComputeDoms);
+        DoPhase(this, PHASE_COMPUTE_REACHABILITY, &Compiler::phComputeReachability);
+        DoPhase(this, PHASE_COMPUTE_DOMINATORS, &Compiler::phComputeDoms);
         DoPhase(this, PHASE_FIND_LOOPS, &Compiler::phFindLoops);
         DoPhase(this, PHASE_CLONE_LOOPS, &Compiler::phCloneLoops);
         DoPhase(this, PHASE_UNROLL_LOOPS, &Compiler::phUnrollLoops);
@@ -2576,7 +2576,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 
     // TODO-MIKE-Review: Can this be done after the SSA optimizations? Those can remove
     // dead code and we may end up with fully interruptible code for no reason.
-    // But this depends on BBF_LOOP_HEAD, which is set only by fgComputeReachability.
+    // But this depends on BBF_LOOP_HEAD, which is set only by phComputeReachability.
     // And optRemoveRedundantZeroInits depends on the code not being fully interruptible.
     DoPhase(this, PHASE_SET_FULLY_INTERRUPTIBLE, &Compiler::phSetFullyInterruptible);
 

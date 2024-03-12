@@ -1755,7 +1755,7 @@ bool LoopCloneContext::Run()
     {
         JITDUMP("Recompute reachability and dominators after loop cloning\n");
         compiler->fgUpdateChangedFlowGraph(/*computePreds*/ false);
-        compiler->fgComputeDoms();
+        compiler->phComputeDoms();
     }
 
 #ifdef DEBUG

@@ -179,17 +179,13 @@ void Compiler::fgUpdateChangedFlowGraph(const bool computePreds)
         fgComputePreds();
     }
 
-    fgEnterBlks = fgComputeEnterBlocksSet();
-    INDEBUG(fgEnterBlksSetValid = true);
-
     fgComputeReachabilitySets();
 }
 
-//------------------------------------------------------------------------
-// fgComputeReachabilitySets: Compute the bbReach sets.
+// Compute the bbReach sets.
 //
-// This can be called to recompute the bbReach sets after the flow graph changes, such as when the
-// number of BasicBlocks change (and thus, the BlockSet version changes).
+// This can be called to recompute the bbReach sets after the flow graph changes, such as
+// when the number of BasicBlocks change (and thus, the BlockSet version changes).
 //
 // This also sets the BBF_GC_SAFE_POINT flag on blocks.
 //
@@ -202,7 +198,7 @@ void Compiler::fgUpdateChangedFlowGraph(const bool computePreds)
 // Assumptions:
 //    Assumes the predecessor lists are correct.
 //
-void Compiler::fgComputeReachabilitySets()
+BlockSet Compiler::fgComputeReachabilitySets()
 {
     assert(fgComputePredsDone);
     assert(!fgCheapPredsValid);
@@ -252,6 +248,8 @@ void Compiler::fgComputeReachabilitySets()
         }
     }
 
+    fgEntryBlocks = fgComputeEntryBlockSet();
+
 #ifdef DEBUG
     if (verbose)
     {
@@ -259,8 +257,11 @@ void Compiler::fgComputeReachabilitySets()
         fgDispReach();
     }
 
+    fgEntryBlocksValid      = true;
     fgReachabilitySetsValid = true;
 #endif // DEBUG
+
+    return fgEntryBlocks;
 }
 
 // Compute the set of blocks for which we don't have explicit control flow edges.
@@ -268,7 +269,7 @@ void Compiler::fgComputeReachabilitySets()
 // For ARM, also include the BBJ_ALWAYS block of a BBJ_CALLFINALLY/BBJ_ALWAYS pair,
 // to avoid creating "retless" calls, since we need the BBJ_ALWAYS for the purpose
 // of unwinding, even if the call doesn't return (due to an explicit throw, for example).
-BlockSet Compiler::fgComputeEnterBlocksSet()
+BlockSet Compiler::fgComputeEntryBlockSet()
 {
     BlockSet entrySet = BlockSetOps::MakeEmpty(this);
 
@@ -336,7 +337,7 @@ BlockSet Compiler::fgComputeEnterBlocksSet()
 //    Sets `BBF_LOOP_HEAD` flag on a block if that block is the target of a backward branch and the block can
 //    reach the source of the branch.
 //
-bool Compiler::fgRemoveUnreachableBlocks()
+bool Compiler::fgRemoveUnreachableBlocks(BlockSet entryBlocks)
 {
     assert(!fgCheapPredsValid);
     assert(fgReachabilitySetsValid);
@@ -364,7 +365,7 @@ bool Compiler::fgRemoveUnreachableBlocks()
         else
         {
             // If any of the entry blocks can reach this block, then we skip it.
-            if (!BlockSetOps::IsEmptyIntersection(this, fgEnterBlks, block->bbReach))
+            if (!BlockSetOps::IsEmptyIntersection(this, entryBlocks, block->bbReach))
             {
                 goto SKIP_BLOCK;
             }
@@ -473,23 +474,19 @@ bool Compiler::fgRemoveUnreachableBlocks()
     return changed;
 }
 
-//------------------------------------------------------------------------
-// fgComputeReachability: Compute the dominator and reachable sets.
-//
-// Use `fgReachable()` to check reachability, `fgDominate()` to check dominance.
-//
-// Also, compute the list of return blocks `fgReturnBlocks` and set of enter blocks `fgEnterBlks`.
+// Compute the reachable sets (use fgReachable to check reachability).
+// Also, compute the list of return blocks and set of entry blocks.
 // Delete unreachable blocks.
 //
-// Via the call to `fgRemoveUnreachableBlocks`, determine if the flow graph has loops and set 'fgHasLoops'
-// accordingly. Set the BBF_LOOP_HEAD flag on the block target of backwards branches.
+// Via the call to fgRemoveUnreachableBlocks, determine if the flow graph has loops
+// and set fgHasLoops accordingly. Set the BBF_LOOP_HEAD flag on the block target
+// of backwards branches.
 //
-// Assumptions:
-//    Assumes the predecessor lists are computed and correct.
+// This requires the predecessor lists to computed and correct.
 //
-void Compiler::fgComputeReachability()
+void Compiler::phComputeReachability()
 {
-    JITDUMP("*************** In fgComputeReachability\n");
+    JITDUMP("*************** In phComputeReachability\n");
 
     assert(fgComputePredsDone);
 #ifdef DEBUG
@@ -497,56 +494,44 @@ void Compiler::fgComputeReachability()
     fgDebugCheckBBlist();
 #endif
 
-    /* Create a list of all BBJ_RETURN blocks. The head of the list is 'fgReturnBlocks'. */
+    // Create a list of all BBJ_RETURN blocks. The head of the list is fgReturnBlocks.
     fgReturnBlocks = nullptr;
 
     for (BasicBlock* const block : Blocks())
     {
-        // If this is a BBJ_RETURN block, add it to our list of all BBJ_RETURN blocks. This list is only
-        // used to find return blocks.
+        // If this is a BBJ_RETURN block, add it to our list of all BBJ_RETURN blocks.
+        // This list is only used to find return blocks.
         if (block->bbJumpKind == BBJ_RETURN)
         {
             fgReturnBlocks = new (this, CMK_Reachability) BasicBlockList(block, fgReturnBlocks);
         }
     }
 
-    // Compute reachability and then delete blocks determined to be unreachable. If we delete blocks, we
-    // need to loop, as that might have caused more blocks to become unreachable. This can happen in the
-    // case where a call to a finally is unreachable and deleted (maybe the call to the finally is
-    // preceded by a throw or an infinite loop), making the blocks following the finally unreachable.
-    // However, all EH entry blocks are considered global entry blocks, causing the blocks following the
-    // call to the finally to stay rooted, until a second round of reachability is done.
-    // The dominator algorithm expects that all blocks can be reached from the fgEnterBlks set.
-    unsigned passNum = 1;
-    bool     changed;
-    do
+    // Compute reachability and then delete blocks determined to be unreachable. If we delete blocks,
+    // we need to loop, as that might have caused more blocks to become unreachable. This can happen
+    // in the case where a call to a finally is unreachable and deleted (maybe the call to the finally
+    // is preceded by a throw or an infinite loop), making the blocks following the finally unreachable.
+    // However, all EH entry blocks are considered global entry blocks, causing the blocks following
+    // the call to the finally to stay rooted, until a second round of reachability is done.
+    // The dominator algorithm expects that all blocks can be reached from the entry block set.
+    unsigned passNum = 0;
+
+    for (bool changed = true; changed;)
     {
         // Just to be paranoid, avoid infinite loops; fall back to minopts.
-        if (passNum > 10)
+        if (++passNum > 10)
         {
             noway_assert(!"Too many unreachable block removal loops");
         }
 
         // Walk the flow graph, reassign block numbers to keep them in ascending order.
-        JITDUMP("\nRenumbering the basic blocks for fgComputeReachability pass #%u\n", passNum);
-        passNum++;
+        JITDUMP("\nRenumbering the basic blocks for phComputeReachability pass #%u\n", passNum);
 
         fgRenumberBlocks();
+        BlockSet entryBlocks = fgComputeReachabilitySets();
 
-        fgEnterBlks = fgComputeEnterBlocksSet();
-        INDEBUG(fgEnterBlksSetValid = true);
-
-        fgComputeReachabilitySets();
-
-        //
-        // Use reachability information to delete unreachable blocks.
-        // Also, determine if the flow graph has loops and set 'fgHasLoops' accordingly.
-        // Set the BBF_LOOP_HEAD flag on the block target of backwards branches.
-        //
-
-        changed = fgRemoveUnreachableBlocks();
-
-    } while (changed);
+        changed = fgRemoveUnreachableBlocks(entryBlocks);
+    }
 
 #ifdef DEBUG
     if (verbose)
@@ -566,7 +551,7 @@ void Compiler::fgComputeReachability()
 // graph for the dominance algorithm to operate correctly. The reason why we need the DFS sort is because we will
 // build the dominance sets using the partial order induced by the DFS sorting.  With this precondition not
 // holding true, the algorithm doesn't work properly.
-BasicBlock** Compiler::fgDfsInvPostOrder()
+BasicBlock** Compiler::fgDfsInvPostOrder(BlockSet entryBlocks)
 {
     // NOTE: This algorithm only pays attention to the actual blocks. It ignores the imaginary entry block.
 
@@ -584,25 +569,21 @@ BasicBlock** Compiler::fgDfsInvPostOrder()
         }
     }
 
-    // Make sure fgEnterBlks are still there in startNodes, even if they
-    // participate in a loop (i.e., there is an incoming edge into the block).
-    assert(fgEnterBlksSetValid);
-
 #ifdef TARGET_ARM
-    // BlockSetOps::UnionD(this, startNodes, fgEnterBlks);
+    // BlockSetOps::UnionD(this, startNodes, entryBlocks);
     //
     // This causes problems on ARM, because we for BBJ_CALLFINALLY/BBJ_ALWAYS pairs, we add
     // the BBJ_ALWAYS to the enter blocks set to prevent flow graph optimizations from removing it
     // and creating retless call finallies (BBF_RETLESS_CALL). This leads to an incorrect DFS
     // ordering in some cases, because we start the recursive walk from the BBJ_ALWAYS, which is
     // reachable from other blocks. A better solution would be to change ARM to avoid creating
-    // retless calls in a different way, not by adding BBJ_ALWAYS to fgEnterBlks.
+    // retless calls in a different way, not by adding BBJ_ALWAYS to entry blocks.
     //
     // So, let us make sure at least fgFirstBB is still there, even if it participates in a loop.
     BlockSetOps::AddElemD(this, startNodes, 1);
     assert(fgFirstBB->bbNum == 1);
 #else
-    BlockSetOps::UnionD(this, startNodes, fgEnterBlks);
+    BlockSetOps::UnionD(this, startNodes, entryBlocks);
 #endif
 
 #ifdef DEBUG
@@ -627,7 +608,7 @@ BasicBlock** Compiler::fgDfsInvPostOrder()
     for (BasicBlock* const block : Blocks())
     {
         // If the block has no predecessors, and we haven't already visited it (because it's
-        // in fgEnterBlks but also reachable from the first block), go ahead and traverse
+        // in entry blocks but also reachable from the first block), go ahead and traverse
         // starting from this block.
         if (BlockSetOps::IsMember(this, startNodes, block->bbNum) &&
             BlockSetOps::TryAddElemD(this, visited, block->bbNum))
@@ -703,20 +684,14 @@ void Compiler::fgDfsInvPostOrderHelper(BasicBlock** postOrder, BasicBlock* block
     }
 }
 
-//------------------------------------------------------------------------
-// fgComputeDoms: Computer dominators. Use `fgDominate()` to check dominance.
-//
 // Compute immediate dominators, the dominator tree and and its pre/post-order traversal numbers.
-//
+// Use fgDominate to check dominance.
 // Also sets BBF_DOMINATED_BY_EXCEPTIONAL_ENTRY flag on blocks dominated by exceptional entry blocks.
-//
-// Notes:
-//    Immediate dominator computation is based on "A Simple, Fast Dominance Algorithm"
-//    by Keith D. Cooper, Timothy J. Harvey, and Ken Kennedy.
-//
-void Compiler::fgComputeDoms()
+// Immediate dominator computation is based on "A Simple, Fast Dominance Algorithm"
+// by Keith D. Cooper, Timothy J. Harvey, and Ken Kennedy.
+void Compiler::phComputeDoms()
 {
-    JITDUMP("*************** In fgComputeDoms\n");
+    JITDUMP("*************** In phComputeDoms\n");
     assert(!fgCheapPredsValid);
 
 #ifdef DEBUG
@@ -726,8 +701,10 @@ void Compiler::fgComputeDoms()
 
     assert(fgBBcount == fgBBNumMax);
     assert(BlockSetTraits::GetSize(this) == fgBBNumMax + 1);
+    assert(fgEntryBlocksValid);
 
-    BasicBlock** postOrder = fgDfsInvPostOrder();
+    BlockSet     entryBlocks = fgEntryBlocks;
+    BasicBlock** postOrder   = fgDfsInvPostOrder(entryBlocks);
     noway_assert(postOrder[0] == nullptr);
 
     // flRoot and bbRoot represent an imaginary unique entry point in the flow graph.
@@ -866,7 +843,7 @@ void Compiler::fgComputeDoms()
 
     if (compHndBBtabCount > 0)
     {
-        fgCompDominatedByExceptionalEntryBlocks(postOrder);
+        fgCompDominatedByExceptionalEntryBlocks(postOrder, entryBlocks);
     }
 
     DBEXEC(verbose, fgDispDoms(postOrder));
@@ -880,16 +857,15 @@ void Compiler::fgComputeDoms()
     assert(BlockSetTraits::GetSize(this) == fgDomBBcount + 1);
 }
 
-void Compiler::fgCompDominatedByExceptionalEntryBlocks(BasicBlock** postOrder)
+void Compiler::fgCompDominatedByExceptionalEntryBlocks(BasicBlock** postOrder, BlockSet entryBlocks)
 {
-    assert(fgEnterBlksSetValid);
     assert(compHndBBtabCount > 0);
 
     for (unsigned i = 1; i <= fgBBNumMax; ++i)
     {
         BasicBlock* block = postOrder[i];
 
-        if (BlockSetOps::IsMember(this, fgEnterBlks, block->bbNum))
+        if (BlockSetOps::IsMember(this, entryBlocks, block->bbNum))
         {
             if (fgFirstBB != block) // skip the normal entry.
             {
@@ -924,7 +900,7 @@ void Compiler::fgEnsureDomTreeRoot()
     // but it shouldn't matter...
     root->inheritWeight(oldFirst);
 
-    // There's an artifical incoming reference count for the first BB. We're about to
+    // There's an artificial incoming reference count for the first BB. We're about to
     // make it no longer the first BB, so decrement that.
     assert(oldFirst->bbRefs > 0);
     oldFirst->bbRefs--;
@@ -934,16 +910,10 @@ void Compiler::fgEnsureDomTreeRoot()
     fgAddRefPred(oldFirst, root);
 }
 
-//------------------------------------------------------------------------
-// fgBuildDomTree: Build the dominator tree for the current flowgraph.
-//
-// Returns:
-//    An array of dominator tree nodes, indexed by BasicBlock::bbNum.
-//
-// Notes:
-//    Immediate dominators must have already been computed in BasicBlock::bbIDom
-//    before calling this.
-//
+// Build the dominator tree for the current flowgraph.
+// Returns an array of dominator tree nodes, indexed by BasicBlock::bbNum.
+// Immediate dominators must have already been computed in BasicBlock::bbIDom
+// before calling this.
 DomTreeNode* Compiler::fgBuildDomTree()
 {
     JITDUMP("\nInside fgBuildDomTree\n");
@@ -956,7 +926,7 @@ DomTreeNode* Compiler::fgBuildDomTree()
     if (imaginaryRoot != nullptr)
     {
         // If the first block has a dominator then this must be the imaginary entry block added
-        // by fgComputeDoms, it is not actually part of the flowgraph and should have number 0.
+        // by phComputeDoms, it is not actually part of the flowgraph and should have number 0.
         assert(imaginaryRoot->bbNum == 0);
         assert(imaginaryRoot->bbIDom == imaginaryRoot);
 

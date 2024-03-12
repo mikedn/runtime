@@ -103,8 +103,8 @@ void SsaOptimizer::Reset()
         }
     }
 
-    compiler->fgComputeReachability();
-    compiler->fgComputeDoms();
+    compiler->phComputeReachability();
+    compiler->phComputeDoms();
     compiler->phFindLoops();
 
     loopTable = compiler->optLoopTable;

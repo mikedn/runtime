@@ -2355,7 +2355,7 @@ NO_MORE_LOOPS:
     if (mod)
     {
         fgUpdateChangedFlowGraph(/*computePreds*/ true);
-        fgComputeDoms();
+        phComputeDoms();
     }
 
 #ifdef DEBUG
@@ -3665,7 +3665,7 @@ PhaseStatus Compiler::phUnrollLoops()
     if (change)
     {
         fgUpdateChangedFlowGraph(/*computePreds*/ true);
-        fgComputeDoms();
+        phComputeDoms();
     }
 
     INDEBUG(fgDebugCheckBBlist(true));
