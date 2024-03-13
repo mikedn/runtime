@@ -55,7 +55,7 @@ public:
 
     static bool IsShort(const BitVecTraits* t)
     {
-        return GetWordCount(t) <= 1;
+        return t->size <= sizeof(Word) * CHAR_BIT;
     }
 };
 
