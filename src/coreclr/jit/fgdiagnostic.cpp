@@ -3199,20 +3199,20 @@ void Compiler::fgDebugCheckBlockLinks()
             // about the BlockSet version.
 
             BitVecTraits uniqueSuccSetTraits(fgBBNumMax + 1, this);
-            BitVec       uniqueSuccSet   = BitVecOps::MakeEmpty(&uniqueSuccSetTraits);
+            BitVec       uniqueSuccSet   = BitVecOps::MakeEmpty(uniqueSuccSetTraits);
             unsigned     uniqueSuccCount = 0;
 
             for (BasicBlock* const succ : block->SwitchTargets())
             {
-                uniqueSuccCount += BitVecOps::TryAddElemD(&uniqueSuccSetTraits, uniqueSuccSet, succ->bbNum);
+                uniqueSuccCount += BitVecOps::TryAddElemD(uniqueSuccSetTraits, uniqueSuccSet, succ->bbNum);
             }
 
             assert(block->bbJumpSwt->numDistinctSuccs == uniqueSuccCount);
 
             for (unsigned i = 0; i < uniqueSuccCount; i++)
             {
-                assert(BitVecOps::IsMember(&uniqueSuccSetTraits, uniqueSuccSet,
-                                           block->bbJumpSwt->nonDuplicates[i]->bbNum));
+                assert(
+                    BitVecOps::IsMember(uniqueSuccSetTraits, uniqueSuccSet, block->bbJumpSwt->nonDuplicates[i]->bbNum));
             }
         }
     }
@@ -3231,7 +3231,7 @@ void Compiler::fgDebugCheckNodesUniqueness()
         UniquenessCheckWalker(Compiler* comp)
             : comp(comp)
             , uniqueNodesTraits(comp->compGenTreeID, comp)
-            , uniqueNodes(BitVecOps::MakeEmpty(&uniqueNodesTraits))
+            , uniqueNodes(BitVecOps::MakeEmpty(uniqueNodesTraits))
         {
         }
 
@@ -3244,7 +3244,7 @@ void Compiler::fgDebugCheckNodesUniqueness()
 
         void CheckTreeId(GenTree* node)
         {
-            if (!BitVecOps::TryAddElemD(&uniqueNodesTraits, uniqueNodes, node->GetID()))
+            if (!BitVecOps::TryAddElemD(uniqueNodesTraits, uniqueNodes, node->GetID()))
             {
                 JITDUMP("Duplicate node ID was found: %u\n", node->GetID());
                 assert(!"Duplicate node ID was found");

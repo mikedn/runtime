@@ -934,12 +934,12 @@ BBswtDesc* Compiler::GetDescriptorForSwitch(BasicBlock* switchBlk)
     // stored in the blocks. To avoid that, we just use a local BitVec.
 
     BitVecTraits uniqueSuccSetTraits(fgBBNumMax + 1, this);
-    BitVec       uniqueSuccSet   = BitVecOps::MakeEmpty(&uniqueSuccSetTraits);
+    BitVec       uniqueSuccSet   = BitVecOps::MakeEmpty(uniqueSuccSetTraits);
     unsigned     uniqueSuccCount = 0;
 
     for (BasicBlock* const succ : switchBlk->SwitchTargets())
     {
-        uniqueSuccCount += BitVecOps::TryAddElemD(&uniqueSuccSetTraits, uniqueSuccSet, succ->bbNum);
+        uniqueSuccCount += BitVecOps::TryAddElemD(uniqueSuccSetTraits, uniqueSuccSet, succ->bbNum);
     }
 
     BasicBlock** uniqueSucc      = new (this, CMK_SwitchDedup) BasicBlock*[uniqueSuccCount];
@@ -947,7 +947,7 @@ BBswtDesc* Compiler::GetDescriptorForSwitch(BasicBlock* switchBlk)
 
     for (BasicBlock* const succ : switchBlk->SwitchTargets())
     {
-        if (BitVecOps::TryRemoveElemD(&uniqueSuccSetTraits, uniqueSuccSet, succ->bbNum))
+        if (BitVecOps::TryRemoveElemD(uniqueSuccSetTraits, uniqueSuccSet, succ->bbNum))
         {
             uniqueSucc[uniqueSuccIndex++] = succ;
         }

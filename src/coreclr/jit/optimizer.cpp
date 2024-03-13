@@ -1322,7 +1322,7 @@ class LoopSearch
         {
             if (BitVecOps::MayBeUninit(blocksInLoop))
             {
-                blocksInLoop = BitVecOps::MakeEmpty(&blockSetTraits);
+                blocksInLoop = BitVecOps::MakeEmpty(blockSetTraits);
             }
             else
             {
@@ -1334,22 +1334,22 @@ class LoopSearch
 
         bool CanRepresent(unsigned blockNum) const
         {
-            return blockNum < BitVecTraits::GetSize(&blockSetTraits);
+            return blockNum < BitVecTraits::GetSize(blockSetTraits);
         }
 
         bool IsMember(unsigned blockNum) const
         {
-            return BitVecOps::IsMember(&blockSetTraits, blocksInLoop, blockNum);
+            return BitVecOps::IsMember(blockSetTraits, blocksInLoop, blockNum);
         }
 
         void Insert(unsigned blockNum)
         {
-            BitVecOps::AddElemD(&blockSetTraits, blocksInLoop, blockNum);
+            BitVecOps::AddElemD(blockSetTraits, blocksInLoop, blockNum);
         }
 
         bool TestAndInsert(unsigned blockNum)
         {
-            return !BitVecOps::TryAddElemD(&blockSetTraits, blocksInLoop, blockNum);
+            return !BitVecOps::TryAddElemD(blockSetTraits, blocksInLoop, blockNum);
         }
     };
 
@@ -5890,8 +5890,8 @@ void Compiler::phRemoveRedundantZeroInits()
     CompAllocator   allocator(getAllocator(CMK_ZeroInit));
     LclVarRefCounts defsInBlock(allocator);
     BitVecTraits    bitVecTraits(lvaCount, this);
-    BitVec          zeroInitLocals   = BitVecOps::MakeEmpty(&bitVecTraits);
-    BitVec          referencedLocals = BitVecOps::MakeEmpty(&bitVecTraits);
+    BitVec          zeroInitLocals   = BitVecOps::MakeEmpty(bitVecTraits);
+    BitVec          referencedLocals = BitVecOps::MakeEmpty(bitVecTraits);
     bool            hasGCSafePoint   = false;
     bool            canThrow         = false;
 
@@ -5996,9 +5996,9 @@ void Compiler::phRemoveRedundantZeroInits()
 
                             if (!bbInALoop || bbIsReturn)
                             {
-                                if (BitVecOps::IsMember(&bitVecTraits, zeroInitLocals, lclNum) ||
+                                if (BitVecOps::IsMember(bitVecTraits, zeroInitLocals, lclNum) ||
                                     (lcl->IsPromotedField() &&
-                                     BitVecOps::IsMember(&bitVecTraits, zeroInitLocals,
+                                     BitVecOps::IsMember(bitVecTraits, zeroInitLocals,
                                                          lcl->GetPromotedFieldParentLclNum())) ||
                                     ((!lcl->HasLiveness() || !totalOverlap) &&
                                      !fgVarNeedsExplicitZeroInit(lcl, bbInALoop, bbIsReturn)))
@@ -6023,7 +6023,7 @@ void Compiler::phRemoveRedundantZeroInits()
 
                                 if (totalOverlap)
                                 {
-                                    BitVecOps::AddElemD(&bitVecTraits, zeroInitLocals, lclNum);
+                                    BitVecOps::AddElemD(bitVecTraits, zeroInitLocals, lclNum);
                                 }
 
                                 BitVecOps::RemoveElemD(bitVecTraits, referencedLocals, lclNum);

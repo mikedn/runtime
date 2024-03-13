@@ -4839,15 +4839,15 @@ bool Compiler::fgMightHaveLoop()
     // call UpdateBlockSetVersion and potentially change the BlockSet version.
 
     BitVecTraits blockVecTraits(fgBBNumMax + 1, this);
-    BitVec       blocksSeen(BitVecOps::MakeEmpty(&blockVecTraits));
+    BitVec       blocksSeen(BitVecOps::MakeEmpty(blockVecTraits));
 
     for (BasicBlock* const block : Blocks())
     {
-        BitVecOps::AddElemD(&blockVecTraits, blocksSeen, block->bbNum);
+        BitVecOps::AddElemD(blockVecTraits, blocksSeen, block->bbNum);
 
         for (BasicBlock* succ : block->GetAllSuccs(this))
         {
-            if (BitVecOps::IsMember(&blockVecTraits, blocksSeen, succ->bbNum))
+            if (BitVecOps::IsMember(blockVecTraits, blocksSeen, succ->bbNum))
             {
                 return true;
             }

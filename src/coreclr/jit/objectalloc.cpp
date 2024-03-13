@@ -136,7 +136,7 @@ inline bool ObjectAllocator::CanAllocateLclVarOnStack(unsigned int lclNum, CORIN
 
 inline bool ObjectAllocator::CanLclVarEscape(unsigned int lclNum)
 {
-    return BitVecOps::IsMember(&m_bitVecTraits, m_EscapingPointers, lclNum);
+    return BitVecOps::IsMember(m_bitVecTraits, m_EscapingPointers, lclNum);
 }
 
 //------------------------------------------------------------------------
@@ -152,7 +152,7 @@ inline bool ObjectAllocator::CanLclVarEscape(unsigned int lclNum)
 inline bool ObjectAllocator::MayLclVarPointToStack(unsigned int lclNum)
 {
     assert(m_AnalysisDone);
-    return BitVecOps::IsMember(&m_bitVecTraits, m_PossiblyStackPointingPointers, lclNum);
+    return BitVecOps::IsMember(m_bitVecTraits, m_PossiblyStackPointingPointers, lclNum);
 }
 
 //------------------------------------------------------------------------
@@ -169,7 +169,7 @@ inline bool ObjectAllocator::MayLclVarPointToStack(unsigned int lclNum)
 inline bool ObjectAllocator::DoesLclVarPointToStack(unsigned int lclNum)
 {
     assert(m_AnalysisDone);
-    return BitVecOps::IsMember(&m_bitVecTraits, m_DefinitelyStackPointingPointers, lclNum);
+    return BitVecOps::IsMember(m_bitVecTraits, m_DefinitelyStackPointingPointers, lclNum);
 }
 
 // Run analysis (if object stack allocation is enabled) and then
@@ -217,7 +217,7 @@ PhaseStatus ObjectAllocator::Run()
 
 void ObjectAllocator::MarkLclVarAsEscaping(unsigned int lclNum)
 {
-    BitVecOps::AddElemD(&m_bitVecTraits, m_EscapingPointers, lclNum);
+    BitVecOps::AddElemD(m_bitVecTraits, m_EscapingPointers, lclNum);
 }
 
 //------------------------------------------------------------------------------
@@ -230,7 +230,7 @@ void ObjectAllocator::MarkLclVarAsEscaping(unsigned int lclNum)
 
 void ObjectAllocator::MarkLclVarAsPossiblyStackPointing(unsigned int lclNum)
 {
-    BitVecOps::AddElemD(&m_bitVecTraits, m_PossiblyStackPointingPointers, lclNum);
+    BitVecOps::AddElemD(m_bitVecTraits, m_PossiblyStackPointingPointers, lclNum);
 }
 
 //------------------------------------------------------------------------------
@@ -243,7 +243,7 @@ void ObjectAllocator::MarkLclVarAsPossiblyStackPointing(unsigned int lclNum)
 
 void ObjectAllocator::MarkLclVarAsDefinitelyStackPointing(unsigned int lclNum)
 {
-    BitVecOps::AddElemD(&m_bitVecTraits, m_DefinitelyStackPointingPointers, lclNum);
+    BitVecOps::AddElemD(m_bitVecTraits, m_DefinitelyStackPointingPointers, lclNum);
 }
 
 //------------------------------------------------------------------------------
@@ -256,7 +256,7 @@ void ObjectAllocator::MarkLclVarAsDefinitelyStackPointing(unsigned int lclNum)
 
 void ObjectAllocator::AddConnGraphEdge(unsigned int sourceLclNum, unsigned int targetLclNum)
 {
-    BitVecOps::AddElemD(&m_bitVecTraits, m_ConnGraphAdjacencyMatrix[sourceLclNum], targetLclNum);
+    BitVecOps::AddElemD(m_bitVecTraits, m_ConnGraphAdjacencyMatrix[sourceLclNum], targetLclNum);
 }
 
 //------------------------------------------------------------------------
@@ -270,7 +270,7 @@ void ObjectAllocator::DoAnalysis()
 
     if (comp->lvaCount > 0)
     {
-        m_EscapingPointers         = BitVecOps::MakeEmpty(&m_bitVecTraits);
+        m_EscapingPointers         = BitVecOps::MakeEmpty(m_bitVecTraits);
         m_ConnGraphAdjacencyMatrix = new (comp->getAllocator(CMK_ObjectAllocator)) BitVec[comp->lvaCount];
 
         MarkEscapingVarsAndBuildConnGraph();
@@ -356,7 +356,7 @@ void ObjectAllocator::MarkEscapingVarsAndBuildConnGraph()
 
         if (lcl->TypeIs(TYP_REF, TYP_BYREF, TYP_I_IMPL))
         {
-            m_ConnGraphAdjacencyMatrix[lclNum] = BitVecOps::MakeEmpty(&m_bitVecTraits);
+            m_ConnGraphAdjacencyMatrix[lclNum] = BitVecOps::MakeEmpty(m_bitVecTraits);
 
             if (lcl->IsAddressExposed())
             {
@@ -476,8 +476,8 @@ void ObjectAllocator::ComputeStackObjectPointers()
 bool ObjectAllocator::MorphAllocObjNodes()
 {
     bool didStackAllocate             = false;
-    m_PossiblyStackPointingPointers   = BitVecOps::MakeEmpty(&m_bitVecTraits);
-    m_DefinitelyStackPointingPointers = BitVecOps::MakeEmpty(&m_bitVecTraits);
+    m_PossiblyStackPointingPointers   = BitVecOps::MakeEmpty(m_bitVecTraits);
+    m_DefinitelyStackPointingPointers = BitVecOps::MakeEmpty(m_bitVecTraits);
 
     for (BasicBlock* const block : comp->Blocks())
     {
@@ -945,7 +945,7 @@ void ObjectAllocator::RewriteUses()
             LclVarDsc* lcl    = tree->AsLclVarCommon()->GetLcl();
             unsigned   lclNum = lcl->GetLclNum();
 
-            if ((lclNum < BitVecTraits::GetSize(&m_allocator->m_bitVecTraits)) &&
+            if ((lclNum < BitVecTraits::GetSize(m_allocator->m_bitVecTraits)) &&
                 m_allocator->MayLclVarPointToStack(lclNum))
             {
                 var_types newType;

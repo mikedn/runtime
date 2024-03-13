@@ -4483,13 +4483,13 @@ static void PrintDbgInfoVar(const ICorDebugInfo::NativeVarInfo& var)
 static void PrintDbgInfoVars(Compiler* compiler, const ICorDebugInfo::NativeVarInfo* vars, unsigned count)
 {
     BitVecTraits varTraits(compiler->lvaCount, compiler);
-    BitVec       uniqueVars = BitVecOps::MakeEmpty(&varTraits);
+    BitVec       uniqueVars = BitVecOps::MakeEmpty(varTraits);
     unsigned     varCount   = 0;
 
     for (unsigned i = 0; i < count; i++)
     {
         if ((vars[i].varNumber < compiler->lvaCount) &&
-            BitVecOps::TryAddElemD(&varTraits, uniqueVars, vars[i].varNumber))
+            BitVecOps::TryAddElemD(varTraits, uniqueVars, vars[i].varNumber))
         {
             varCount++;
         }

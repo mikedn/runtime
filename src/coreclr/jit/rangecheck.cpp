@@ -614,7 +614,7 @@ bool RangeCheck::HasAddOverflow() const
 void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Range* range) const
 {
     BitVecTraits apTraits(ssa.GetAssertionCount(), compiler);
-    for (BitVecOps::Enumerator en(&apTraits, assertions); en.MoveNext();)
+    for (BitVecOps::Enumerator en(apTraits, assertions); en.MoveNext();)
     {
         BoundsAssertion assertion = ssa.GetBoundsAssertion(en.Current());
 

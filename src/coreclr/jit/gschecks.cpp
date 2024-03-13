@@ -56,34 +56,13 @@ void Compiler::gsCopyShadowParams()
     }
 }
 
-struct AssignSetTraits : public CompAllocBitSetTraits
+struct AssignSetTraits : BitVecTraits
 {
-    Compiler* compiler;
-    unsigned  size;
-
-    using Env = AssignSetTraits;
-
-    AssignSetTraits(Compiler* compiler) : compiler(compiler), size(compiler->lvaCount)
+    AssignSetTraits(Compiler* compiler) : BitVecTraits(compiler->lvaCount, compiler)
     {
     }
 
-    static Word* Alloc(AssignSetTraits t, unsigned wordCount)
-    {
-        return CompAllocBitSetTraits::Alloc(t.compiler, wordCount);
-    }
-
-    static unsigned GetSize(AssignSetTraits t)
-    {
-        return t.size;
-    }
-
-    static unsigned GetWordCount(AssignSetTraits t)
-    {
-        unsigned wordBitSize = sizeof(Word) * CHAR_BIT;
-        return roundUp(t.size, wordBitSize) / wordBitSize;
-    }
-
-    static bool IsShort(AssignSetTraits t)
+    static bool IsShort(Env t)
     {
         // We need to share the sets between locals so we always use "long" sets.
         return false;

@@ -118,7 +118,7 @@ SsaBuilder::SsaBuilder(SsaOptimizer& ssa)
     , compiler(ssa.GetCompiler())
     , alloc(compiler->getAllocator(CMK_SSA))
     , m_visitedTraits(compiler->fgBBNumMax + 1, compiler)
-    , m_visited(BitVecOps::MakeEmpty(&m_visitedTraits))
+    , m_visited(BitVecOps::MakeEmpty(m_visitedTraits))
 {
 }
 
@@ -190,7 +190,7 @@ bool SsaBuilder::IncludeInSsa(LclVarDsc* lcl)
 unsigned SsaBuilder::TopologicalSort(BasicBlock** postOrder, int count)
 {
     // TopologicalSort is called first so m_visited should already be empty
-    assert(BitVecOps::IsEmpty(&m_visitedTraits, m_visited));
+    assert(BitVecOps::IsEmpty(m_visitedTraits, m_visited));
 
     Compiler* comp = compiler;
 
@@ -222,7 +222,7 @@ unsigned SsaBuilder::TopologicalSort(BasicBlock** postOrder, int count)
     };
 
     BasicBlock* firstBlock = comp->fgFirstBB;
-    BitVecOps::AddElemD(&m_visitedTraits, m_visited, firstBlock->bbNum);
+    BitVecOps::AddElemD(m_visitedTraits, m_visited, firstBlock->bbNum);
     ArrayStack<AllSuccessorEnumerator> blocks(alloc);
     blocks.Emplace(comp, firstBlock);
     DumpBlockAndSuccessors(comp, firstBlock);
@@ -236,7 +236,7 @@ unsigned SsaBuilder::TopologicalSort(BasicBlock** postOrder, int count)
         if (succ != nullptr)
         {
             // if the block on TOS still has unreached successors, visit them
-            if (BitVecOps::TryAddElemD(&m_visitedTraits, m_visited, succ->bbNum))
+            if (BitVecOps::TryAddElemD(m_visitedTraits, m_visited, succ->bbNum))
             {
                 blocks.Emplace(comp, succ);
                 DumpBlockAndSuccessors(comp, succ);
@@ -298,8 +298,8 @@ void SsaBuilder::ComputeImmediateDom(BasicBlock** postOrder, int count)
     JITDUMP("[SsaBuilder::ComputeImmediateDom]\n");
 
     // Add entry point to visited as its IDom is NULL.
-    BitVecOps::ClearD(&m_visitedTraits, m_visited);
-    BitVecOps::AddElemD(&m_visitedTraits, m_visited, compiler->fgFirstBB->bbNum);
+    BitVecOps::ClearD(m_visitedTraits, m_visited);
+    BitVecOps::AddElemD(m_visitedTraits, m_visited, compiler->fgFirstBB->bbNum);
 
     assert(postOrder[count - 1] == compiler->fgFirstBB);
 
@@ -320,7 +320,7 @@ void SsaBuilder::ComputeImmediateDom(BasicBlock** postOrder, int count)
             BasicBlock* predBlock = nullptr;
             for (flowList* pred = predList; pred != nullptr; pred = pred->flNext)
             {
-                if (BitVecOps::IsMember(&m_visitedTraits, m_visited, pred->getBlock()->bbNum))
+                if (BitVecOps::IsMember(m_visitedTraits, m_visited, pred->getBlock()->bbNum))
                 {
                     predBlock = pred->getBlock();
                     break;
@@ -364,7 +364,7 @@ void SsaBuilder::ComputeImmediateDom(BasicBlock** postOrder, int count)
             }
 
             // Mark the current block as visited.
-            BitVecOps::AddElemD(&m_visitedTraits, m_visited, block->bbNum);
+            BitVecOps::AddElemD(m_visitedTraits, m_visited, block->bbNum);
 
             DBG_SSA_JITDUMP("Marking block " FMT_BB " as processed.\n", block->bbNum);
         }
@@ -464,11 +464,11 @@ void SsaBuilder::ComputeIteratedDominanceFrontier(BasicBlock* b, const BlockDFMa
     {
         // Compute IDF(b) - start by adding DF(b) to IDF(b).
         bIDF->reserve(bDF->size());
-        BitVecOps::ClearD(&m_visitedTraits, m_visited);
+        BitVecOps::ClearD(m_visitedTraits, m_visited);
 
         for (BasicBlock* f : *bDF)
         {
-            BitVecOps::AddElemD(&m_visitedTraits, m_visited, f->bbNum);
+            BitVecOps::AddElemD(m_visitedTraits, m_visited, f->bbNum);
             bIDF->push_back(f);
         }
 
@@ -486,7 +486,7 @@ void SsaBuilder::ComputeIteratedDominanceFrontier(BasicBlock* b, const BlockDFMa
             {
                 for (BasicBlock* ff : *fDF)
                 {
-                    if (BitVecOps::TryAddElemD(&m_visitedTraits, m_visited, ff->bbNum))
+                    if (BitVecOps::TryAddElemD(m_visitedTraits, m_visited, ff->bbNum))
                     {
                         bIDF->push_back(ff);
                     }

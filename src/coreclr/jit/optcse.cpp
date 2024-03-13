@@ -424,9 +424,9 @@ public:
             unsigned availBit          = GetAvailBitIndex(i);
             unsigned availCrossCallBit = GetAvailCrossCallBitIndex(i);
 
-            if (BitVecOps::IsMember(&dataFlowTraits, set, availBit))
+            if (BitVecOps::IsMember(dataFlowTraits, set, availBit))
             {
-                const bool isAvailCrossCall = BitVecOps::IsMember(&dataFlowTraits, set, availCrossCallBit);
+                const bool isAvailCrossCall = BitVecOps::IsMember(dataFlowTraits, set, availCrossCallBit);
 
                 printf("%s" FMT_CSE "%s", prefix, i, isAvailCrossCall ? ".c" : "");
                 prefix = ", ";
@@ -855,11 +855,11 @@ public:
 
         dataFlowTraits = BitVecTraits((valueCount * 2) + 1, compiler);
 
-        callKillsMask = BitVecOps::MakeEmpty(&dataFlowTraits);
+        callKillsMask = BitVecOps::MakeEmpty(dataFlowTraits);
 
         for (unsigned index = 1; index <= valueCount; index++)
         {
-            BitVecOps::AddElemD(&dataFlowTraits, callKillsMask, GetAvailBitIndex(index));
+            BitVecOps::AddElemD(dataFlowTraits, callKillsMask, GetAvailBitIndex(index));
         }
 
         for (BasicBlock* block : compiler->Blocks())
@@ -878,15 +878,15 @@ public:
 
             if (initToZero)
             {
-                block->bbCseIn = BitVecOps::MakeEmpty(&dataFlowTraits);
+                block->bbCseIn = BitVecOps::MakeEmpty(dataFlowTraits);
             }
             else
             {
-                block->bbCseIn = BitVecOps::MakeFull(&dataFlowTraits);
+                block->bbCseIn = BitVecOps::MakeFull(dataFlowTraits);
             }
 
-            block->bbCseOut = BitVecOps::MakeFull(&dataFlowTraits);
-            block->bbCseGen = BitVecOps::MakeEmpty(&dataFlowTraits);
+            block->bbCseOut = BitVecOps::MakeFull(dataFlowTraits);
+            block->bbCseGen = BitVecOps::MakeEmpty(dataFlowTraits);
         }
 
         for (unsigned i = 0; i < valueCount; i++)
@@ -897,11 +897,11 @@ public:
 
             for (const Occurrence* occ = &value->firstOccurrence; occ != nullptr; occ = occ->next)
             {
-                BitVecOps::AddElemD(&dataFlowTraits, occ->block->bbCseGen, availBit);
+                BitVecOps::AddElemD(dataFlowTraits, occ->block->bbCseGen, availBit);
 
                 if ((occ->block->bbFlags & BBF_HAS_CALL) == 0)
                 {
-                    BitVecOps::AddElemD(&dataFlowTraits, occ->block->bbCseGen, availCrossCallBit);
+                    BitVecOps::AddElemD(dataFlowTraits, occ->block->bbCseGen, availCrossCallBit);
                 }
             }
         }
@@ -916,7 +916,7 @@ public:
                 continue;
             }
 
-            if (BitVecOps::IsEmpty(&dataFlowTraits, block->bbCseGen))
+            if (BitVecOps::IsEmpty(dataFlowTraits, block->bbCseGen))
             {
                 continue;
             }
@@ -931,7 +931,7 @@ public:
                     {
                         unsigned availCrossCallBit = GetAvailCrossCallBitIndex(GetCseIndex(node->GetCseInfo()));
 
-                        BitVecOps::AddElemD(&dataFlowTraits, block->bbCseGen, availCrossCallBit);
+                        BitVecOps::AddElemD(dataFlowTraits, block->bbCseGen, availCrossCallBit);
                     }
 
                     if (node->IsCall())
@@ -952,7 +952,7 @@ public:
         {
             for (BasicBlock* block : compiler->Blocks())
             {
-                if (!BitVecOps::IsEmpty(&dataFlowTraits, block->bbCseGen))
+                if (!BitVecOps::IsEmpty(dataFlowTraits, block->bbCseGen))
                 {
                     printf(FMT_BB " gen ", block->bbNum);
                     DumpDataFlowSet(block->bbCseGen);
@@ -977,7 +977,7 @@ public:
             : traits(cse.dataFlowTraits)
             , callKillsMask(cse.callKillsMask)
             , cseInWithCallsKill(BitVecOps::UninitVal())
-            , preMergeOut(BitVecOps::Alloc(&traits))
+            , preMergeOut(BitVecOps::Alloc(traits))
 #ifdef DEBUG
             , verbose(compiler->verbose)
 #endif
@@ -990,13 +990,13 @@ public:
             // Record the initial value of block->bbCseOut in m_preMergeOut.
             // It is used in EndMerge() to control the termination of the DataFlow algorithm.
             // Note that the first time we visit a block, the value of bbCseOut is MakeFull()
-            BitVecOps::Assign(&traits, preMergeOut, block->bbCseOut);
+            BitVecOps::Assign(traits, preMergeOut, block->bbCseOut);
         }
 
         // Perform the merging of each of the predecessor's liveness values (since this is a forward analysis)
         void Merge(BasicBlock* block, BasicBlock* predBlock, unsigned dupCount)
         {
-            BitVecOps::IntersectionD(&traits, block->bbCseIn, predBlock->bbCseOut);
+            BitVecOps::IntersectionD(traits, block->bbCseIn, predBlock->bbCseOut);
         }
 
         // We can jump to the handler from any instruction in the try region.
@@ -1012,10 +1012,10 @@ public:
         {
             // We can skip the calls kill step when our block doesn't have a callsite
             // or we don't have any available CSEs in our bbCseIn
-            if (((block->bbFlags & BBF_HAS_CALL) == 0) || BitVecOps::IsEmpty(&traits, block->bbCseIn))
+            if (((block->bbFlags & BBF_HAS_CALL) == 0) || BitVecOps::IsEmpty(traits, block->bbCseIn))
             {
                 // No callsite in 'block' or 'block->bbCseIn was empty, so we can use bbCseIn directly
-                BitVecOps::DataFlowD(&traits, block->bbCseOut, block->bbCseGen, block->bbCseIn);
+                BitVecOps::DataFlowD(traits, block->bbCseOut, block->bbCseGen, block->bbCseIn);
             }
             else
             {
@@ -1024,15 +1024,15 @@ public:
                     cseInWithCallsKill = BitVecOps::Alloc(traits);
                 }
 
-                BitVecOps::Intersection(&traits, cseInWithCallsKill, block->bbCseIn, callKillsMask);
-                BitVecOps::DataFlowD(&traits, block->bbCseOut, block->bbCseGen, cseInWithCallsKill);
+                BitVecOps::Intersection(traits, cseInWithCallsKill, block->bbCseIn, callKillsMask);
+                BitVecOps::DataFlowD(traits, block->bbCseOut, block->bbCseGen, cseInWithCallsKill);
             }
 
             // This is why we need to allocate an extra bit in our BitVecs.
             // We always need to visit our successor blocks once, thus we require that that the first time
             // that we visit a block we have a bit set in preMergeOut that won't be set when we compute
             // the new value of bbCseOut.
-            return !BitVecOps::Equal(&traits, block->bbCseOut, preMergeOut);
+            return !BitVecOps::Equal(traits, block->bbCseOut, preMergeOut);
         }
     };
 
@@ -1107,7 +1107,7 @@ public:
 
         for (BasicBlock* const block : compiler->Blocks())
         {
-            BitVecOps::Assign(&dataFlowTraits, available, block->bbCseIn);
+            BitVecOps::Assign(dataFlowTraits, available, block->bbCseIn);
 
             float blockWeight = block->getBBWeight(compiler);
 
@@ -1117,10 +1117,10 @@ public:
                 {
                     if (!expr->HasCseInfo())
                     {
-                        if (expr->IsCall() && !BitVecOps::IsEmpty(&dataFlowTraits, available))
+                        if (expr->IsCall() && !BitVecOps::IsEmpty(dataFlowTraits, available))
                         {
                             // Kill whatever cross call CSEs are available at this point.
-                            BitVecOps::IntersectionD(&dataFlowTraits, available, callKillsMask);
+                            BitVecOps::IntersectionD(dataFlowTraits, available, callKillsMask);
                         }
 
                         continue;
@@ -1131,18 +1131,18 @@ public:
                     unsigned availCrossCallBit = GetAvailCrossCallBitIndex(index);
                     Value*   value             = GetValue(index);
 
-                    bool isDef = !BitVecOps::IsMember(&dataFlowTraits, available, availBit);
+                    bool isDef = !BitVecOps::IsMember(dataFlowTraits, available, availBit);
 
                     JITDUMP(FMT_CSE " %s [%06u]\n", index, isDef ? "def" : "use", expr->GetID());
 
                     if (isDef)
                     {
-                        assert(!BitVecOps::IsMember(&dataFlowTraits, available, availCrossCallBit));
+                        assert(!BitVecOps::IsMember(dataFlowTraits, available, availCrossCallBit));
                     }
                     else
                     {
                         if (!value->isLiveAcrossCall &&
-                            !BitVecOps::IsMember(&dataFlowTraits, available, availCrossCallBit))
+                            !BitVecOps::IsMember(dataFlowTraits, available, availCrossCallBit))
                         {
                             value->isLiveAcrossCall = true;
                             JITDUMP("  Becomes live across call.\n");
@@ -1186,8 +1186,8 @@ public:
                         value->defWeight += blockWeight;
                         expr->SetCseInfo(ToCseDefInfo(expr->GetCseInfo()));
 
-                        BitVecOps::AddElemD(&dataFlowTraits, available, availBit);
-                        BitVecOps::AddElemD(&dataFlowTraits, available, availCrossCallBit);
+                        BitVecOps::AddElemD(dataFlowTraits, available, availBit);
+                        BitVecOps::AddElemD(dataFlowTraits, available, availCrossCallBit);
                     }
                     else
                     {
@@ -1225,9 +1225,9 @@ public:
                     // but the call CSE itself is still available.
                     if (expr->IsCall() && isDef)
                     {
-                        BitVecOps::IntersectionD(&dataFlowTraits, available, callKillsMask);
+                        BitVecOps::IntersectionD(dataFlowTraits, available, callKillsMask);
                         unsigned availCrossCallBit = GetAvailCrossCallBitIndex(GetCseIndex(expr->GetCseInfo()));
-                        BitVecOps::AddElemD(&dataFlowTraits, available, availCrossCallBit);
+                        BitVecOps::AddElemD(dataFlowTraits, available, availCrossCallBit);
                     }
                 }
             }

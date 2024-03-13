@@ -12,50 +12,28 @@ class BitVecTraits
 
 public:
     using Word = size_t;
-
-    // TODO-MIKE-Cleanup: This should not be needed but there's a ton of code
-    // that insists on passing a pointer to traits instead of a saner reference.
-    // In fact, it may be even better to pass by value, since all these functions
-    // are supposed to be inlined. Just beware that MSVC might do stupid things
-    // with struct copies.
-    struct Env
-    {
-        const BitVecTraits* traits;
-
-        Env(const BitVecTraits* traits) : traits(traits)
-        {
-        }
-
-        Env(const BitVecTraits& traits) : traits(&traits)
-        {
-        }
-
-        operator const BitVecTraits*() const
-        {
-            return traits;
-        }
-    };
+    using Env  = const BitVecTraits&;
 
     BitVecTraits(unsigned size, Compiler* comp) : size(size), comp(comp)
     {
     }
 
-    static Word* Alloc(const BitVecTraits* b, unsigned wordCount);
+    static Word* Alloc(Env t, unsigned wordCount);
 
-    static unsigned GetSize(const BitVecTraits* b)
+    static unsigned GetSize(Env t)
     {
-        return b->size;
+        return t.size;
     }
 
-    static unsigned GetWordCount(const BitVecTraits* b)
+    static unsigned GetWordCount(Env t)
     {
         unsigned wordBitSize = sizeof(Word) * CHAR_BIT;
-        return roundUp(b->size, wordBitSize) / wordBitSize;
+        return roundUp(t.size, wordBitSize) / wordBitSize;
     }
 
-    static bool IsShort(const BitVecTraits* t)
+    static bool IsShort(Env t)
     {
-        return t->size <= sizeof(Word) * CHAR_BIT;
+        return t.size <= sizeof(Word) * CHAR_BIT;
     }
 };
 

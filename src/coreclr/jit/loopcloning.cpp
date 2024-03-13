@@ -1487,7 +1487,7 @@ bool LoopCloneVisitorInfo::IsLclAssignedInLoop(unsigned lclNum)
 {
     // We currently don't add any locals during loop cloning but in case it
     // happens just be conservative and treat any new locals as modified.
-    if (lclNum >= BitVecTraits::GetSize(&context.modifiedLocalsTraits))
+    if (lclNum >= BitVecTraits::GetSize(context.modifiedLocalsTraits))
     {
         return true;
     }
@@ -1544,7 +1544,7 @@ void LoopCloneVisitorInfo::SummarizeLocalStoresVisitor(GenTreeLclVarCommon* stor
 
     // We currently don't add any locals during loop cloning but in case it
     // happens just be conservative and treat any new locals as modified.
-    if (lcl->GetLclNum() < BitVecTraits::GetSize(&context.modifiedLocalsTraits))
+    if (lcl->GetLclNum() < BitVecTraits::GetSize(context.modifiedLocalsTraits))
     {
         BitVecOps::AddElemD(context.modifiedLocalsTraits, context.modifiedLocals, lcl->GetLclNum());
     }
@@ -1564,7 +1564,7 @@ void LoopCloneVisitorInfo::SummarizeLocalStoresVisitor(GenTreeLclVarCommon* stor
         {
             unsigned fieldLclNum = lcl->GetPromotedFieldLclNum(i);
 
-            if (fieldLclNum < BitVecTraits::GetSize(&context.modifiedLocalsTraits))
+            if (fieldLclNum < BitVecTraits::GetSize(context.modifiedLocalsTraits))
             {
                 BitVecOps::AddElemD(context.modifiedLocalsTraits, context.modifiedLocals, fieldLclNum);
             }

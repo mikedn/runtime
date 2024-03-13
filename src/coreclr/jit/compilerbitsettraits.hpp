@@ -3,6 +3,11 @@
 
 #pragma once
 
+inline BitVecTraits::Word* BitVecTraits::Alloc(Env t, unsigned wordCount)
+{
+    return t.comp->getAllocator(CMK_bitset).allocate<Word>(wordCount);
+}
+
 inline CompAllocBitSetTraits::Word* CompAllocBitSetTraits::Alloc(Compiler* comp, unsigned wordCount)
 {
     return comp->getAllocator(CMK_bitset).allocate<Word>(wordCount);
@@ -40,9 +45,4 @@ inline unsigned BlockSetTraits::GetWordCount(const Compiler* comp)
     assert(comp->GetBlockSetVersion() != 0);
 
     return comp->fgBlockSetWordCount; // This is precomputed to avoid doing math every time this function is called
-}
-
-inline BitVecTraits::Word* BitVecTraits::Alloc(const BitVecTraits* b, unsigned wordCount)
-{
-    return b->comp->getAllocator(CMK_bitset).allocate<Word>(wordCount);
 }
