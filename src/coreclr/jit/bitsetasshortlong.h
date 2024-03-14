@@ -459,8 +459,8 @@ public:
         }
     };
 
-    template <typename Op>
-    class OpEnumerator
+    template <Word (*op)(Word, Word)>
+    class EnumOp
     {
         ConstSet s1;
         ConstSet s2;
@@ -468,12 +468,11 @@ public:
         unsigned lastWordIndex;
         unsigned wordIndex = 0;
         unsigned bitIndex  = 0;
-        Op       op;
 
     public:
-        OpEnumerator(ConstSet s1, ConstSet s2, unsigned size, Op op) : s1(s1), s2(s2), op(op)
+        EnumOp(Env env, ConstSet s1, ConstSet s2) : s1(s1), s2(s2)
         {
-            if (size <= 1)
+            if (Traits::IsShort(env))
             {
                 word          = op(Word(s1), Word(s2));
                 lastWordIndex = 0;
@@ -481,7 +480,7 @@ public:
             else
             {
                 word          = op(s1[0], s2[0]);
-                lastWordIndex = size - 1;
+                lastWordIndex = Traits::GetWordCount(env) - 1;
             }
         }
 
@@ -522,12 +521,6 @@ public:
         }
     };
 
-    template <typename Op>
-    static OpEnumerator<Op> EnumOp(Env env, Op op, ConstSet s1, ConstSet s2)
-    {
-        return {s1, s2, Traits::GetWordCount(env), op};
-    }
-
     static Word IntersectionOp(Word x, Word y)
     {
         return x & y;
@@ -536,6 +529,11 @@ public:
     static Word SymmetricDiffOp(Word x, Word y)
     {
         return x ^ y;
+    }
+
+    static Word DiffOp(Word x, Word y)
+    {
+        return x & ~y;
     }
 
 private:

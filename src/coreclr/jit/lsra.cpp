@@ -7377,9 +7377,7 @@ void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, Resolve
     // for these so that their registers are freed and can be reused.
     if ((resolveType == ResolveJoin) && (compiler->compHndBBtabCount > 0))
     {
-        for (auto e = VarSetOps::EnumOp(compiler, [](size_t x, size_t y) { return x & ~y; }, block->bbLiveOut,
-                                        toBlock->bbLiveIn);
-             e.MoveNext();)
+        for (VarSetOps::EnumOp<VarSetOps::DiffOp> e(compiler, block->bbLiveOut, toBlock->bbLiveIn); e.MoveNext();)
         {
             if (Interval* interval = HasLclInterval(e.Current()))
             {

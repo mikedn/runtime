@@ -1075,8 +1075,7 @@ void LinearScan::buildUpperVectorSaveRefPositions(GenTree* tree, LsraLocation cu
         assert((fpCalleeKillSet & RBM_FLT_CALLEE_SAVED) == RBM_NONE);
 
         // We only need to save the upper half of any large vector vars that are currently live.
-        for (auto e = VarSetOps::EnumOp(compiler, VarSetOps::IntersectionOp, currentLiveVars, largeVectorVars);
-             e.MoveNext();)
+        for (VarSetOps::EnumOp<VarSetOps::IntersectionOp> e(compiler, currentLiveVars, largeVectorVars); e.MoveNext();)
         {
             Interval* varInterval = getIntervalForLocalVar(e.Current());
             if (!varInterval->isPartiallySpilled)
