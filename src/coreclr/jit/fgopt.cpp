@@ -725,10 +725,11 @@ void Compiler::phComputeDoms()
 
     postOrder[0] = &bbRoot;
 
-    BlockSet processedBlks = BlockSetOps::MakeEmpty(this);
+    BitVecTraits processedBlksTraits(fgBBNumMax + 1, this);
+    BitVec       processedBlks = BitVecOps::MakeEmpty(processedBlksTraits);
     // Mark both bbRoot and fgFirstBB processed
-    BlockSetOps::AddElemD(this, processedBlks, 0); // bbRoot    == block #0
-    BlockSetOps::AddElemD(this, processedBlks, 1); // fgFirstBB == block #1
+    BitVecOps::AddElemD(processedBlksTraits, processedBlks, 0); // bbRoot    == block #0
+    BitVecOps::AddElemD(processedBlksTraits, processedBlks, 1); // fgFirstBB == block #1
     assert(fgFirstBB->bbNum == 1);
 
     // Special case fgFirstBB to say its IDom is bbRoot.
@@ -745,7 +746,7 @@ void Compiler::phComputeDoms()
         {
             block->bbPreds = &flRoot;
             block->bbIDom  = &bbRoot;
-            BlockSetOps::AddElemD(this, processedBlks, block->bbNum);
+            BitVecOps::AddElemD(processedBlksTraits, processedBlks, block->bbNum);
         }
         else
         {
@@ -761,10 +762,10 @@ void Compiler::phComputeDoms()
             if (HBtab->HasFilter())
             {
                 HBtab->ebdFilter->bbIDom = &bbRoot;
-                BlockSetOps::AddElemD(this, processedBlks, HBtab->ebdFilter->bbNum);
+                BitVecOps::AddElemD(processedBlksTraits, processedBlks, HBtab->ebdFilter->bbNum);
             }
             HBtab->ebdHndBeg->bbIDom = &bbRoot;
-            BlockSetOps::AddElemD(this, processedBlks, HBtab->ebdHndBeg->bbNum);
+            BitVecOps::AddElemD(processedBlksTraits, processedBlks, HBtab->ebdHndBeg->bbNum);
         }
     }
 
@@ -791,7 +792,7 @@ void Compiler::phComputeDoms()
             // Pick up the first processed predecesor of the current block.
             for (first = block->bbPreds; first != nullptr; first = first->flNext)
             {
-                if (BlockSetOps::IsMember(this, processedBlks, first->getBlock()->bbNum))
+                if (BitVecOps::IsMember(processedBlksTraits, processedBlks, first->getBlock()->bbNum))
                 {
                     break;
                 }
@@ -826,7 +827,7 @@ void Compiler::phComputeDoms()
                 block->bbIDom = newidom;
                 changed       = true;
             }
-            BlockSetOps::AddElemD(this, processedBlks, block->bbNum);
+            BitVecOps::AddElemD(processedBlksTraits, processedBlks, block->bbNum);
         }
     }
 
