@@ -5,10 +5,6 @@
 #include "smallhash.h"
 #include "sideeffects.h"
 
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
 LIR::Use::Use() : m_range(nullptr), m_edge(nullptr), m_user(nullptr)
 {
 }
@@ -976,6 +972,23 @@ void LIR::Range::Remove(GenTree* node, bool markOperandsUnused)
     node->gtNext = nullptr;
 }
 
+#ifdef DEBUG
+static bool Precedes(GenTree* first, GenTree* other)
+{
+    assert(other != nullptr);
+
+    for (GenTree* node = first->gtNext; node != nullptr; node = node->gtNext)
+    {
+        if (node == other)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+#endif // DEBUG
+
 //------------------------------------------------------------------------
 // LIR::Range::Remove: Removes a subrange from this range.
 //
@@ -993,7 +1006,7 @@ LIR::Range LIR::Range::Remove(GenTree* firstNode, GenTree* lastNode)
     assert(firstNode != nullptr);
     assert(lastNode != nullptr);
     assert(Contains(firstNode));
-    assert((firstNode == lastNode) || firstNode->Precedes(lastNode));
+    assert((firstNode == lastNode) || Precedes(firstNode, lastNode));
 
     GenTree* prev = firstNode->gtPrev;
     GenTree* next = lastNode->gtNext;
@@ -1347,16 +1360,16 @@ public:
                 UseNodeOperands(node);
             }
 
-            AliasSet::NodeInfo nodeInfo(compiler, node);
-            if (nodeInfo.IsLclVarRead() && !unusedDefs.Contains(node))
+            AliasSet::NodeInfo nodeInfo(node);
+            if (nodeInfo.IsLclLoad() && !unusedDefs.Contains(node))
             {
                 int count = 0;
-                unusedLclVarReads.TryGetValue(nodeInfo.LclNum(), &count);
-                unusedLclVarReads.AddOrUpdate(nodeInfo.LclNum(), count + 1);
+                unusedLclVarReads.TryGetValue(nodeInfo.Lcl(), &count);
+                unusedLclVarReads.AddOrUpdate(nodeInfo.Lcl(), count + 1);
             }
 
             // If this node is a lclVar write, it must be to a lclVar that does not have an outstanding read.
-            assert(!nodeInfo.IsLclVarWrite() || !unusedLclVarReads.Contains(nodeInfo.LclNum()));
+            assert(!nodeInfo.IsLclStore() || !unusedLclVarReads.Contains(nodeInfo.Lcl()));
         }
 
         return true;
@@ -1382,16 +1395,16 @@ private:
             {
                 UseNodeOperands(operand);
             }
-            AliasSet::NodeInfo operandInfo(compiler, operand);
-            if (operandInfo.IsLclVarRead())
+            AliasSet::NodeInfo operandInfo(operand);
+            if (operandInfo.IsLclLoad())
             {
                 int        count;
-                const bool removed = unusedLclVarReads.TryRemove(operandInfo.LclNum(), &count);
+                const bool removed = unusedLclVarReads.TryRemove(operandInfo.Lcl(), &count);
                 assert(removed);
 
                 if (count > 1)
                 {
-                    unusedLclVarReads.AddOrUpdate(operandInfo.LclNum(), count - 1);
+                    unusedLclVarReads.AddOrUpdate(operandInfo.Lcl(), count - 1);
                 }
             }
         }
@@ -1401,7 +1414,7 @@ private:
     Compiler*         compiler;
     const LIR::Range* range;
     SmallHashTable<GenTree*, bool, 32U>& unusedDefs;
-    SmallHashTable<int, int, 32U>        unusedLclVarReads;
+    SmallHashTable<LclVarDsc*, int, 32U> unusedLclVarReads;
 };
 
 //------------------------------------------------------------------------

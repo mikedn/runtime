@@ -1883,8 +1883,6 @@ private:
     void VisitBinOpOperands(TVisitor visitor);
 
 public:
-    bool Precedes(GenTree* other);
-
     bool IsReuseRegValCandidate()
     {
         return OperIsConst() || IsHWIntrinsicZero();
@@ -4642,7 +4640,7 @@ public:
         return (gtCallMoreFlags & GTF_CALL_M_FAT_POINTER_CHECK) != 0;
     }
 
-    bool IsPure(Compiler* compiler) const;
+    bool IsPure() const;
 
     bool HasSideEffects(Compiler* compiler, bool ignoreExceptions = false, bool ignoreCctors = false) const;
 

@@ -622,28 +622,19 @@ regMaskTP GenTreeCall::GetOtherRegMask() const
     return resultMask;
 }
 
-//-------------------------------------------------------------------------
-// IsPure:
-//    Returns true if this call is pure. For now, this uses the same
-//    definition of "pure" that is that used by HelperCallProperties: a
-//    pure call does not read or write any aliased (e.g. heap) memory or
-//    have other global side effects (e.g. class constructors, finalizers),
-//    but is allowed to throw an exception.
+// Returns true if this call is pure. For now, this uses the same
+// definition of "pure" that is that used by HelperCallProperties: a
+// pure call does not read or write any aliased (e.g. heap) memory or
+// have other global side effects (e.g. class constructors, finalizers),
+// but is allowed to throw an exception.
 //
-//    NOTE: this call currently only returns true if the call target is a
-//    helper method that is known to be pure. No other analysis is
-//    performed.
-//
-// Arguments:
-//    Copiler - the compiler context.
-//
-// Returns:
-//    True if the call is pure; false otherwise.
-//
-bool GenTreeCall::IsPure(Compiler* compiler) const
+// NOTE: this call currently only returns true if the call target is a
+// helper method that is known to be pure. No other analysis is
+// performed.
+bool GenTreeCall::IsPure() const
 {
     return (gtCallType == CT_HELPER) &&
-           compiler->s_helperCallProperties.IsPure(compiler->eeGetHelperNum(gtCallMethHnd));
+           Compiler::s_helperCallProperties.IsPure(Compiler::eeGetHelperNum(gtCallMethHnd));
 }
 
 //-------------------------------------------------------------------------
@@ -6191,21 +6182,6 @@ GenTreeOperandIterator GenTree::OperandsEnd()
 IteratorPair<GenTreeOperandIterator> GenTree::Operands()
 {
     return MakeIteratorPair(OperandsBegin(), OperandsEnd());
-}
-
-bool GenTree::Precedes(GenTree* other)
-{
-    assert(other != nullptr);
-
-    for (GenTree* node = gtNext; node != nullptr; node = node->gtNext)
-    {
-        if (node == other)
-        {
-            return true;
-        }
-    }
-
-    return false;
 }
 
 #ifdef DEBUG
