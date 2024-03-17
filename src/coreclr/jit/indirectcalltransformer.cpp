@@ -747,7 +747,6 @@ private:
 
             // copy 'this' to temp with exact type.
             LclVarDsc* thisTempLcl = compiler->lvaNewTemp(TYP_REF, false DEBUGARG("guarded devirt this exact temp"));
-            unsigned   thisTemp    = thisTempLcl->GetLclNum();
             GenTree*   clonedObj   = compiler->gtCloneExpr(origCall->gtCallThisArg->GetNode());
             GenTree*   assign = compiler->gtNewAssignNode(compiler->gtNewLclvNode(thisTempLcl, TYP_REF), clonedObj);
             compiler->lvaSetClass(thisTempLcl, clsHnd, true);
