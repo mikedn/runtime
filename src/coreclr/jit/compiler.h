@@ -108,10 +108,9 @@ struct SsaDefStackNode;
 
 class SsaDefStack
 {
-    SsaDefStackNode* m_top;
+    SsaDefStackNode* top;
 
 public:
-    SsaDefStack();
     SsaDefStack(SsaDefStackNode* top);
     SsaDefStackNode* Top() const;
     void Push(SsaDefStackNode* node);

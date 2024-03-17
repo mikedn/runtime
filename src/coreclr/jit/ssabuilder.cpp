@@ -127,7 +127,7 @@ void SsaBuilder::Build()
     for (LclVarDsc* lcl : compiler->Locals())
     {
         lcl->m_isSsa = IncludeInSsa(lcl);
-        new (&lcl->ssa.renameStack) SsaDefStack();
+        new (&lcl->ssa.renameStack) SsaDefStack(nullptr);
     }
 
     InsertPhiFunctions();
@@ -690,72 +690,72 @@ void SsaBuilder::InsertPhiFunctions()
 
 class SsaRenameStack
 {
-    CompAllocator m_alloc;
+    CompAllocator alloc;
     // The tail of the list of stacks that have been pushed to
-    SsaDefStack* m_stackListTail = nullptr;
+    SsaDefStack* stackListTail = nullptr;
     // Same state for the special implicit memory variable
-    SsaDefStack m_memoryStack;
+    SsaDefStack memoryStack{nullptr};
     // A stack of free stack nodes
-    SsaDefStack m_freeStack;
+    SsaDefStack freeStack{nullptr};
 #ifdef DEBUG
-    Compiler* m_compiler;
+    Compiler* compiler;
 #endif
 
 public:
     SsaRenameStack(Compiler* compiler)
-        : m_alloc(compiler->getAllocator(CMK_SSA))
+        : alloc(compiler->getAllocator(CMK_SSA))
 #ifdef DEBUG
-        , m_compiler(compiler)
+        , compiler(compiler)
 #endif
     {
     }
 
-    GenTreeLclDef* Top(LclVarDsc* lcl)
+    GenTreeLclDef* TopLclDef(LclVarDsc* lcl) const
     {
         DBG_SSA_JITDUMP("[SsaRenameStack::Top] V%02u\n", lcl->GetLclNum());
 
         SsaDefStackNode* top = lcl->ssa.renameStack.Top();
         noway_assert(top != nullptr);
-        assert(top->m_lclDef->GetLcl() == lcl);
-        return top->m_lclDef;
+        assert(top->lclDef->GetLcl() == lcl);
+        return top->lclDef;
     }
 
-    void Push(BasicBlock* block, LclVarDsc* lcl, GenTreeLclDef* def)
+    void PushLclDef(BasicBlock* block, LclVarDsc* lcl, GenTreeLclDef* def)
     {
         DBG_SSA_JITDUMP("[SsaRenameStack::Push] " FMT_BB ", V%02u, def = [%06u]\n", block->bbNum, lcl->GetLclNum(),
                         def->GetID());
 
-        Push(&lcl->ssa.renameStack, block, def);
+        PushDef(&lcl->ssa.renameStack, block, def);
     }
 
-    SsaMemDef* TopMemory()
+    SsaMemDef* TopMemDef() const
     {
-        return m_memoryStack.Top()->m_memDef;
+        return memoryStack.Top()->memDef;
     }
 
-    void PushMemory(BasicBlock* block, SsaMemDef* def)
+    void PushMemDef(BasicBlock* block, SsaMemDef* def)
     {
-        Push(&m_memoryStack, block, def);
+        PushDef(&memoryStack, block, def);
     }
 
     void PopBlockStacks(BasicBlock* block)
     {
         DBG_SSA_JITDUMP("[SsaRenameStack::PopBlockStacks] " FMT_BB "\n", block->bbNum);
 
-        while ((m_stackListTail != nullptr) && (m_stackListTail->Top()->m_block == block))
+        while ((stackListTail != nullptr) && (stackListTail->Top()->block == block))
         {
-            SsaDefStackNode* top = m_stackListTail->Pop();
-            INDEBUG(DumpStack(m_stackListTail));
-            m_stackListTail = top->m_listPrev;
-            m_freeStack.Push(top);
+            SsaDefStackNode* top = stackListTail->Pop();
+            INDEBUG(DumpStack(stackListTail, top));
+            stackListTail = top->listPrev;
+            freeStack.Push(top);
         }
 
 #ifdef DEBUG
-        for (LclVarDsc* lcl : m_compiler->Locals())
+        for (LclVarDsc* lcl : compiler->Locals())
         {
             if (lcl->ssa.renameStack.Top() != nullptr)
             {
-                assert(lcl->ssa.renameStack.Top()->m_block != block);
+                assert(lcl->ssa.renameStack.Top()->block != block);
             }
         }
 #endif
@@ -765,96 +765,66 @@ private:
     template <class... Args>
     SsaDefStackNode* AllocStackNode(Args&&... args)
     {
-        SsaDefStackNode* stack = m_freeStack.Top();
+        SsaDefStackNode* stack = freeStack.Top();
 
         if (stack != nullptr)
         {
-            m_freeStack.Pop();
+            freeStack.Pop();
         }
         else
         {
-            stack = m_alloc.allocate<SsaDefStackNode>(1);
+            stack = alloc.allocate<SsaDefStackNode>(1);
         }
 
         return new (stack) SsaDefStackNode(std::forward<Args>(args)...);
     }
 
-    void Push(SsaDefStack* stack, BasicBlock* block, SsaMemDef* def)
+    template <class Def>
+    void PushDef(SsaDefStack* stack, BasicBlock* block, Def* def)
     {
         SsaDefStackNode* top = stack->Top();
 
-        if ((top == nullptr) || (top->m_block != block))
+        if ((top == nullptr) || (top->block != block))
         {
-            stack->Push(AllocStackNode(m_stackListTail, block, def));
+            stack->Push(AllocStackNode(stackListTail, block, def));
             // Append the stack to the stack list. The stack list allows
             // PopBlockStacks to easily find stacks that need popping.
-            m_stackListTail = stack;
+            stackListTail = stack;
         }
         else
         {
             // If we already have a stack node for this block then simply
             // update the SSA def, the previous one is no longer needed.
-            top->m_memDef = def;
+            top->SetDef(def);
         }
 
-        INDEBUG(DumpStack(stack));
-    }
-
-    void Push(SsaDefStack* stack, BasicBlock* block, GenTreeLclDef* def)
-    {
-        SsaDefStackNode* top = stack->Top();
-
-        if ((top == nullptr) || (top->m_block != block))
-        {
-            stack->Push(AllocStackNode(m_stackListTail, block, def));
-            // Append the stack to the stack list. The stack list allows
-            // PopBlockStacks to easily find stacks that need popping.
-            m_stackListTail = stack;
-        }
-        else
-        {
-            // If we already have a stack node for this block then simply
-            // update the SSA def, the previous one is no longer needed.
-            top->m_lclDef = def;
-        }
-
-        INDEBUG(DumpStack(stack, def->GetLcl()));
+        INDEBUG(DumpStack(stack, stack->Top()));
     }
 
 #ifdef DEBUG
-    void DumpStack(SsaDefStack* stack, LclVarDsc* lcl = nullptr)
+    void DumpStack(SsaDefStack* stack, SsaDefStackNode* top) const
     {
         if (JitTls::GetCompiler()->verboseSsa)
         {
-            if (stack == &m_memoryStack)
+            if (stack == &memoryStack)
             {
                 printf("Memory: ");
             }
-            else if (lcl != nullptr)
-            {
-                printf("V%02u: ", lcl->GetLclNum());
-            }
             else
             {
-                for (LclVarDsc* lcl : m_compiler->Locals())
-                {
-                    if (&lcl->ssa.renameStack == stack)
-                    {
-                        printf("V%02u: ", lcl->GetLclNum());
-                    }
-                }
+                printf("V%02u: ", top->lclDef->GetLcl()->GetLclNum());
             }
 
-            for (SsaDefStackNode* i = stack->Top(); i != nullptr; i = i->m_stackPrev)
+            for (SsaDefStackNode* i = stack->Top(); i != nullptr; i = i->stackPrev)
             {
-                if (stack == &m_memoryStack)
+                if (stack == &memoryStack)
                 {
-                    printf("%s<" FMT_BB ", %u>", (i == stack->Top()) ? "" : ", ", i->m_block->bbNum, i->m_memDef->num);
+                    printf("%s<" FMT_BB ", %u>", (i == stack->Top()) ? "" : ", ", i->block->bbNum, i->memDef->num);
                 }
                 else
                 {
-                    printf("%s<" FMT_BB ", [%06u]>", (i == stack->Top()) ? "" : ", ", i->m_block->bbNum,
-                           i->m_lclDef->GetID());
+                    printf("%s<" FMT_BB ", [%06u]>", (i == stack->Top()) ? "" : ", ", i->block->bbNum,
+                           i->lclDef->GetID());
                 }
             }
 
@@ -903,7 +873,7 @@ public:
                 GenTreeLclVar* arg = compiler->gtNewLclvNode(lcl, lcl->GetType());
                 GenTreeLclDef* def = new (compiler, GT_LCL_DEF) GenTreeLclDef(arg, firstBlock, lcl);
 
-                renameStack.Push(firstBlock, lcl, def);
+                renameStack.PushLclDef(firstBlock, lcl, def);
 
                 if (firstInitSsaDef == nullptr)
                 {
@@ -922,7 +892,7 @@ public:
 
         SsaMemDef* initMemoryDef = ssa.AllocMemoryDef();
         ssa.SetInitMemoryDef(initMemoryDef);
-        renameStack.PushMemory(firstBlock, initMemoryDef);
+        renameStack.PushMemDef(firstBlock, initMemoryDef);
 
         for (BasicBlock* const block : compiler->Blocks())
         {
@@ -1024,7 +994,7 @@ void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclVarCommon* store, BasicBl
 
             if (lclFld->IsPartialLclFld(m_compiler))
             {
-                structValue = new (m_compiler, GT_LCL_USE) GenTreeLclUse(renameStack.Top(lcl), block);
+                structValue = new (m_compiler, GT_LCL_USE) GenTreeLclUse(renameStack.TopLclDef(lcl), block);
                 // TODO-MIKE-SSA: This is messy, we can't allow 0 to propagate to this
                 // use because we drop it on the floor when we destroy the SSA form.
                 // Destroy SSA needs to deal with this by adding a STORE_LCL_VAR(lclNum, 0)
@@ -1084,7 +1054,7 @@ void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclVarCommon* store, BasicBl
         def->SetType(lcl->lvNormalizeOnStore() ? varActualType(lcl->GetType()) : lcl->GetType());
         def->gtFlags = defFlags | value->GetSideEffects() | GTF_ASG;
 
-        renameStack.Push(block, lcl, def->AsLclDef());
+        renameStack.PushLclDef(block, lcl, def->AsLclDef());
 
         if (!value->IsPhi())
         {
@@ -1104,7 +1074,7 @@ void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclVarCommon* store, BasicBl
     if (!block->bbMemoryHavoc && m_compiler->ehBlockHasExnFlowDsc(block))
     {
         SsaMemDef* def = ssa.AllocNodeMemoryDef(store);
-        renameStack.PushMemory(block, def);
+        renameStack.PushMemDef(block, def);
 
         DBG_SSA_JITDUMP("Node [%06u] in try block defines memory; SSA #%u.\n", store->GetID(), def->num);
 
@@ -1121,7 +1091,7 @@ void SsaRenameDomTreeVisitor::RenameMemoryStore(GenTreeIndir* store, BasicBlock*
     if (!block->bbMemoryHavoc && m_compiler->ehBlockHasExnFlowDsc(block))
     {
         SsaMemDef* def = ssa.AllocNodeMemoryDef(store);
-        renameStack.PushMemory(block, def);
+        renameStack.PushMemDef(block, def);
 
         DBG_SSA_JITDUMP("Node [%06u] in try block defines memory; SSA #%u.\n", store->GetID(), def->num);
 
@@ -1131,7 +1101,7 @@ void SsaRenameDomTreeVisitor::RenameMemoryStore(GenTreeIndir* store, BasicBlock*
 
 void SsaRenameDomTreeVisitor::RenamePhiDef(GenTreeLclDef* def, BasicBlock* block)
 {
-    renameStack.Push(block, def->GetLcl(), def);
+    renameStack.PushLclDef(block, def->GetLcl(), def);
 }
 
 void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclVarCommon* lclNode, Statement* stmt, BasicBlock* block)
@@ -1148,7 +1118,7 @@ void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclVarCommon* lclNode, Stateme
     // Promoted variables are not in SSA, only their fields are.
     assert(!lcl->IsPromoted());
 
-    GenTreeLclDef* def = renameStack.Top(lcl);
+    GenTreeLclDef* def = renameStack.TopLclDef(lcl);
 
     if (GenTreeLclFld* lclFld = lclNode->IsLclFld())
     {
@@ -1292,7 +1262,7 @@ void SsaRenameDomTreeVisitor::BlockRenameVariables(BasicBlock* block)
     if (block->memoryPhi != nullptr)
     {
         SsaMemDef* def = ssa.AllocMemoryDef();
-        renameStack.PushMemory(block, def);
+        renameStack.PushMemDef(block, def);
 
         DBG_SSA_JITDUMP("Ssa # for Memory PHI on entry to " FMT_BB " is %u.\n", block->bbNum, def->num);
 
@@ -1300,7 +1270,7 @@ void SsaRenameDomTreeVisitor::BlockRenameVariables(BasicBlock* block)
     }
     else
     {
-        block->memoryEntryDef = renameStack.TopMemory();
+        block->memoryEntryDef = renameStack.TopMemDef();
     }
 
     BasicBlockFlags earlyPropBlockSummary = BBF_EMPTY;
@@ -1393,7 +1363,7 @@ void SsaRenameDomTreeVisitor::BlockRenameVariables(BasicBlock* block)
     if (block->bbMemoryDef)
     {
         SsaMemDef* def = ssa.AllocMemoryDef();
-        renameStack.PushMemory(block, def);
+        renameStack.PushMemDef(block, def);
 
         if (m_compiler->ehBlockHasExnFlowDsc(block))
         {
@@ -1404,7 +1374,7 @@ void SsaRenameDomTreeVisitor::BlockRenameVariables(BasicBlock* block)
     }
     else
     {
-        block->memoryExitDef = renameStack.TopMemory();
+        block->memoryExitDef = renameStack.TopMemDef();
     }
 
     DBG_SSA_JITDUMP("Ssa # for Memory on entry to " FMT_BB " is %u; on exit is %u.\n", block->bbNum,
@@ -1425,7 +1395,7 @@ void SsaRenameDomTreeVisitor::AddPhiArgsToSuccessors(BasicBlock* block)
             }
 
             GenTreePhi*    phi = tree->AsLclDef()->GetValue()->AsPhi();
-            GenTreeLclDef* def = renameStack.Top(tree->AsLclDef()->GetLcl());
+            GenTreeLclDef* def = renameStack.TopLclDef(tree->AsLclDef()->GetLcl());
 
             bool found = false;
 
@@ -1528,19 +1498,19 @@ void SsaRenameDomTreeVisitor::AddPhiArgsToSuccessors(BasicBlock* block)
                         break;
                     }
 
-                    LclVarDsc* lclVarDsc = tree->AsLclDef()->GetLcl();
+                    LclVarDsc* lcl = tree->AsLclDef()->GetLcl();
 
                     // If the variable is live-out of "blk", and is therefore live on entry to the try-block-start
                     // "succ", then we make sure the current SSA name for the
                     // var is one of the args of the phi node.  If not, go on.
 
-                    if (!VarSetOps::IsMember(m_compiler, block->bbLiveOut, lclVarDsc->GetLivenessBitIndex()))
+                    if (!VarSetOps::IsMember(m_compiler, block->bbLiveOut, lcl->GetLivenessBitIndex()))
                     {
                         continue;
                     }
 
                     GenTreePhi*    phi = tree->AsLclDef()->GetValue()->AsPhi();
-                    GenTreeLclDef* def = renameStack.Top(lclVarDsc);
+                    GenTreeLclDef* def = renameStack.TopLclDef(lcl);
 
                     bool alreadyArg = false;
 

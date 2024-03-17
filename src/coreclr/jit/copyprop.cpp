@@ -50,21 +50,19 @@
 
 class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
 {
-    using SsaStack       = SsaDefStack;
-    using SsaStackNode   = SsaDefStackNode;
-    using LclSsaStackMap = JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, SsaStack>;
+    using LclSsaStackMap = JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, SsaDefStack>;
 
     SsaOptimizer&  ssa;
     LclSsaStackMap lclSsaStackMap;
-    SsaStack*      stackListTail = nullptr;
-    SsaStack       freeStack;
+    SsaDefStack*   stackListTail = nullptr;
+    SsaDefStack    freeStack{nullptr};
     LclVarDsc*     thisParamLcl  = nullptr;
     unsigned       copyPropCount = 0;
 
     template <class... Args>
-    SsaStackNode* AllocStackNode(Args&&... args)
+    SsaDefStackNode* AllocStackNode(Args&&... args)
     {
-        SsaStackNode* stack = freeStack.Top();
+        SsaDefStackNode* stack = freeStack.Top();
 
         if (stack != nullptr)
         {
@@ -72,10 +70,10 @@ class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
         }
         else
         {
-            stack = m_compiler->getAllocator(CMK_CopyProp).allocate<SsaStackNode>(1);
+            stack = m_compiler->getAllocator(CMK_CopyProp).allocate<SsaDefStackNode>(1);
         }
 
-        return new (stack) SsaStackNode(std::forward<Args>(args)...);
+        return new (stack) SsaDefStackNode(std::forward<Args>(args)...);
     }
 
     bool IsThisParam(LclVarDsc* lcl) const
@@ -83,11 +81,12 @@ class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
         return thisParamLcl == lcl;
     }
 
-    void PushSsaDef(SsaStack* stack, BasicBlock* block, GenTreeLclDef* def)
+    void PushSsaDef(LclVarDsc* lcl, BasicBlock* block, GenTreeLclDef* def)
     {
-        SsaStackNode* top = stack->Top();
+        SsaDefStack*     stack = lclSsaStackMap.Emplace(lcl->GetLclNum(), nullptr);
+        SsaDefStackNode* top   = stack->Top();
 
-        if ((top == nullptr) || (top->m_block != block))
+        if ((top == nullptr) || (top->block != block))
         {
             stack->Push(AllocStackNode(stackListTail, block, def));
             // Append the stack to the stack list. The stack list allows PopBlockSsaDefs
@@ -98,18 +97,18 @@ class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
         {
             // If we already have a stack node for this block then simply update
             // update the def, the previous one is no longer needed.
-            top->m_lclDef = def;
+            top->SetDef(def);
         }
     }
 
 #ifdef DEBUG
-    void DumpLiveSsaDefs()
+    void DumpLiveSsaDefs() const
     {
         printf("{ ");
         const char* prefix = "";
         for (const auto& pair : lclSsaStackMap)
         {
-            if (GenTreeLclDef* def = pair.value.Top()->m_lclDef)
+            if (GenTreeLclDef* def = pair.value.Top()->lclDef)
             {
                 printf("%sV%02u [%06u] " FMT_VN, prefix, pair.key, def->GetID(), def->GetConservativeVN());
                 prefix = ", ";
@@ -121,10 +120,10 @@ class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
 
     void PopBlockSsaDefs(BasicBlock* block)
     {
-        while ((stackListTail != nullptr) && (stackListTail->Top()->m_block == block))
+        while ((stackListTail != nullptr) && (stackListTail->Top()->block == block))
         {
-            SsaStackNode* top = stackListTail->Pop();
-            stackListTail     = top->m_listPrev;
+            SsaDefStackNode* top = stackListTail->Pop();
+            stackListTail        = top->listPrev;
             freeStack.Push(top);
         }
     }
@@ -153,7 +152,7 @@ public:
                 thisParamLcl = m_compiler->lvaGetDesc(m_compiler->info.GetThisParamLclNum());
             }
 
-            PushSsaDef(lclSsaStackMap.Emplace(lcl->GetLclNum()), m_compiler->fgFirstBB, def);
+            PushSsaDef(lcl, m_compiler->fgFirstBB, def);
         }
     }
 
@@ -176,7 +175,7 @@ public:
                 break;
             }
 
-            PushSsaDef(lclSsaStackMap.Emplace(root->AsLclDef()->GetLcl()->GetLclNum()), block, root->AsLclDef());
+            PushSsaDef(root->AsLclDef()->GetLcl(), block, root->AsLclDef());
         }
 
         for (Statement* stmt : block->NonPhiStatements())
@@ -185,7 +184,7 @@ public:
             {
                 if (GenTreeLclDef* def = node->IsLclDef())
                 {
-                    PushSsaDef(lclSsaStackMap.Emplace(def->GetLcl()->GetLclNum()), block, def);
+                    PushSsaDef(def->GetLcl(), block, def);
                 }
                 else if (GenTreeLclUse* use = node->IsLclUse())
                 {
@@ -209,7 +208,7 @@ public:
 
                         if (!use->TypeIs(TYP_STRUCT))
                         {
-                            PushSsaDef(lclSsaStackMap.Emplace(lcl->GetLclNum()), block, nullptr);
+                            PushSsaDef(lcl, block, nullptr);
                         }
                     }
 
@@ -253,7 +252,7 @@ public:
         for (const auto& pair : lclSsaStackMap)
         {
             LclVarDsc*     newLcl = m_compiler->lvaGetDesc(pair.key);
-            GenTreeLclDef* newDef = pair.value.Top()->m_lclDef;
+            GenTreeLclDef* newDef = pair.value.Top()->lclDef;
 
             if ((lcl == newLcl) || (newDef == nullptr))
             {
@@ -299,7 +298,7 @@ public:
                 continue;
             }
 
-            if (!IsThisParam(newLcl) && (pair.value.Top()->m_block != block) &&
+            if (!IsThisParam(newLcl) && (pair.value.Top()->block != block) &&
                 !VarSetOps::IsMember(m_compiler, block->bbLiveIn, newLcl->GetLivenessBitIndex()))
             {
                 continue;
