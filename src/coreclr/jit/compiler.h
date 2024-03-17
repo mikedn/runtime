@@ -104,6 +104,20 @@ enum RefCountState : uint8_t
     RCS_NORMAL,  // normal ref counts (from lvaMarkRefs onward)
 };
 
+struct SsaDefStackNode;
+
+class SsaDefStack
+{
+    SsaDefStackNode* m_top;
+
+public:
+    SsaDefStack();
+    SsaDefStack(SsaDefStackNode* top);
+    SsaDefStackNode* Top() const;
+    void Push(SsaDefStackNode* node);
+    SsaDefStackNode* Pop();
+};
+
 #define FMT_LCL "V%02u"
 
 class LclVarDsc
@@ -271,6 +285,10 @@ public:
             Statement* lvDefStmt;   // Pointer to the statement with the single definition
         };                          // addCopies
 #endif
+        struct
+        {
+            SsaDefStack renameStack;
+        } ssa;
     };
 
     INDEBUG(const char* lvReason;)

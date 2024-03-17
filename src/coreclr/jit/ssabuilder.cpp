@@ -127,6 +127,7 @@ void SsaBuilder::Build()
     for (LclVarDsc* lcl : compiler->Locals())
     {
         lcl->m_isSsa = IncludeInSsa(lcl);
+        new (&lcl->ssa.renameStack) SsaDefStack();
     }
 
     InsertPhiFunctions();
@@ -698,7 +699,7 @@ public:
         : DomTreeVisitor(ssa.GetCompiler(), ssa.GetDomTree())
         , ssa(ssa)
         , alloc(m_compiler->getAllocator(CMK_SSA))
-        , renameStack(alloc, m_compiler->lvaCount)
+        , renameStack(m_compiler)
     {
     }
 
@@ -726,7 +727,7 @@ public:
                 GenTreeLclVar* arg = compiler->gtNewLclvNode(lcl, lcl->GetType());
                 GenTreeLclDef* def = new (compiler, GT_LCL_DEF) GenTreeLclDef(arg, firstBlock, lcl);
 
-                renameStack.Push(firstBlock, lcl->GetLclNum(), def);
+                renameStack.Push(firstBlock, lcl, def);
 
                 if (firstInitSsaDef == nullptr)
                 {
@@ -839,7 +840,6 @@ void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclVarCommon* store, BasicBl
         // If it's a SSA local then it cannot be address exposed and thus does not define SSA memory.
         assert(!lcl->IsAddressExposed());
 
-        unsigned     lclNum   = lcl->GetLclNum();
         GenTreeFlags defFlags = store->gtFlags & ~GTF_DONT_CSE;
 
         if (GenTreeLclFld* lclFld = store->IsLclFld())
@@ -848,7 +848,7 @@ void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclVarCommon* store, BasicBl
 
             if (lclFld->IsPartialLclFld(m_compiler))
             {
-                structValue = new (m_compiler, GT_LCL_USE) GenTreeLclUse(renameStack.Top(lclNum), block);
+                structValue = new (m_compiler, GT_LCL_USE) GenTreeLclUse(renameStack.Top(lcl), block);
                 // TODO-MIKE-SSA: This is messy, we can't allow 0 to propagate to this
                 // use because we drop it on the floor when we destroy the SSA form.
                 // Destroy SSA needs to deal with this by adding a STORE_LCL_VAR(lclNum, 0)
@@ -908,7 +908,7 @@ void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclVarCommon* store, BasicBl
         def->SetType(lcl->lvNormalizeOnStore() ? varActualType(lcl->GetType()) : lcl->GetType());
         def->gtFlags = defFlags | value->GetSideEffects() | GTF_ASG;
 
-        renameStack.Push(block, lclNum, def->AsLclDef());
+        renameStack.Push(block, lcl, def->AsLclDef());
 
         if (!value->IsPhi())
         {
@@ -955,8 +955,7 @@ void SsaRenameDomTreeVisitor::RenameMemoryStore(GenTreeIndir* store, BasicBlock*
 
 void SsaRenameDomTreeVisitor::RenamePhiDef(GenTreeLclDef* def, BasicBlock* block)
 {
-    unsigned lclNum = def->GetLcl()->GetLclNum();
-    renameStack.Push(block, lclNum, def);
+    renameStack.Push(block, def->GetLcl(), def);
 }
 
 void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclVarCommon* lclNode, Statement* stmt, BasicBlock* block)
@@ -973,7 +972,7 @@ void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclVarCommon* lclNode, Stateme
     // Promoted variables are not in SSA, only their fields are.
     assert(!lcl->IsPromoted());
 
-    GenTreeLclDef* def = renameStack.Top(lcl->GetLclNum());
+    GenTreeLclDef* def = renameStack.Top(lcl);
 
     if (GenTreeLclFld* lclFld = lclNode->IsLclFld())
     {
@@ -1250,7 +1249,7 @@ void SsaRenameDomTreeVisitor::AddPhiArgsToSuccessors(BasicBlock* block)
             }
 
             GenTreePhi*    phi = tree->AsLclDef()->GetValue()->AsPhi();
-            GenTreeLclDef* def = renameStack.Top(tree->AsLclDef()->GetLcl()->GetLclNum());
+            GenTreeLclDef* def = renameStack.Top(tree->AsLclDef()->GetLcl());
 
             bool found = false;
 
@@ -1365,7 +1364,7 @@ void SsaRenameDomTreeVisitor::AddPhiArgsToSuccessors(BasicBlock* block)
                     }
 
                     GenTreePhi*    phi = tree->AsLclDef()->GetValue()->AsPhi();
-                    GenTreeLclDef* def = renameStack.Top(lclVarDsc->GetLclNum());
+                    GenTreeLclDef* def = renameStack.Top(lclVarDsc);
 
                     bool alreadyArg = false;
 

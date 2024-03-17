@@ -50,8 +50,8 @@
 
 class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
 {
-    using SsaStack       = SsaRenameState::Stack;
-    using SsaStackNode   = SsaRenameState::StackNode;
+    using SsaStack       = SsaDefStack;
+    using SsaStackNode   = SsaDefStackNode;
     using LclSsaStackMap = JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, SsaStack>;
 
     SsaOptimizer&  ssa;

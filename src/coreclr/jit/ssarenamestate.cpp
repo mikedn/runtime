@@ -12,20 +12,12 @@
 //    alloc - A memory allocator
 //    lvaCount - The number of local variables
 //
-SsaRenameState::SsaRenameState(CompAllocator alloc, unsigned lvaCount)
-    : m_alloc(alloc), m_lvaCount(lvaCount), m_stacks(nullptr), m_stackListTail(nullptr)
+SsaRenameState::SsaRenameState(Compiler* compiler)
+    : m_alloc(compiler->getAllocator(CMK_SSA))
+#ifdef DEBUG
+    , m_compiler(compiler)
+#endif
 {
-}
-
-//------------------------------------------------------------------------
-// EnsureStacks: Allocate memory for the stacks array.
-//
-void SsaRenameState::EnsureStacks()
-{
-    if (m_stacks == nullptr)
-    {
-        m_stacks = new (m_alloc) Stack[m_lvaCount]();
-    }
 }
 
 //------------------------------------------------------------------------
@@ -42,14 +34,13 @@ void SsaRenameState::EnsureStacks()
 //    the start of the first block must have associated SSA definitions and their SSA numbers
 //    must have been pushed first.
 //
-GenTreeLclDef* SsaRenameState::Top(unsigned lclNum)
+GenTreeLclDef* SsaRenameState::Top(LclVarDsc* lcl)
 {
-    DBG_SSA_JITDUMP("[SsaRenameState::Top] V%02u\n", lclNum);
+    DBG_SSA_JITDUMP("[SsaRenameState::Top] V%02u\n", lcl->GetLclNum());
 
-    noway_assert(m_stacks != nullptr);
-    StackNode* top = m_stacks[lclNum].Top();
+    SsaDefStackNode* top = lcl->ssa.renameStack.Top();
     noway_assert(top != nullptr);
-    assert(top->m_lclDef->GetLcl()->GetLclNum() == lclNum);
+    assert(top->m_lclDef->GetLcl() == lcl);
     return top->m_lclDef;
 }
 
@@ -61,38 +52,38 @@ GenTreeLclDef* SsaRenameState::Top(unsigned lclNum)
 //    lclNum - The local variable number
 //    ssaNum - The SSA number
 //
-void SsaRenameState::Push(BasicBlock* block, unsigned lclNum, GenTreeLclDef* def)
+void SsaRenameState::Push(BasicBlock* block, LclVarDsc* lcl, GenTreeLclDef* def)
 {
-    DBG_SSA_JITDUMP("[SsaRenameState::Push] " FMT_BB ", V%02u, def = [%06u]\n", block->bbNum, lclNum, def->GetID());
+    DBG_SSA_JITDUMP("[SsaRenameState::Push] " FMT_BB ", V%02u, def = [%06u]\n", block->bbNum, lcl->GetLclNum(),
+                    def->GetID());
 
-    EnsureStacks();
-    Push(&m_stacks[lclNum], block, def);
+    Push(&lcl->ssa.renameStack, block, def);
 }
 
-void SsaRenameState::Push(Stack* stack, BasicBlock* block, SsaMemDef* def)
+void SsaRenameState::Push(SsaDefStack* stack, BasicBlock* block, SsaMemDef* def)
 {
-    StackNode* top = stack->Top();
+    SsaDefStackNode* top = stack->Top();
 
     if ((top == nullptr) || (top->m_block != block))
     {
         stack->Push(AllocStackNode(m_stackListTail, block, def));
-        // Append the stack to the stack list. The stack list allows PopBlockStacks
-        // to easily find stacks that need popping.
+        // Append the stack to the stack list. The stack list allows
+        // PopBlockStacks to easily find stacks that need popping.
         m_stackListTail = stack;
     }
     else
     {
-        // If we already have a stack node for this block then simply update
-        // update the SSA number, the previous one is no longer needed.
+        // If we already have a stack node for this block then simply
+        // update the SSA def, the previous one is no longer needed.
         top->m_memDef = def;
     }
 
     INDEBUG(DumpStack(stack));
 }
 
-void SsaRenameState::Push(Stack* stack, BasicBlock* block, GenTreeLclDef* def)
+void SsaRenameState::Push(SsaDefStack* stack, BasicBlock* block, GenTreeLclDef* def)
 {
-    StackNode* top = stack->Top();
+    SsaDefStackNode* top = stack->Top();
 
     if ((top == nullptr) || (top->m_block != block))
     {
@@ -108,7 +99,7 @@ void SsaRenameState::Push(Stack* stack, BasicBlock* block, GenTreeLclDef* def)
         top->m_lclDef = def;
     }
 
-    INDEBUG(DumpStack(stack));
+    INDEBUG(DumpStack(stack, def->GetLcl()));
 }
 
 void SsaRenameState::PopBlockStacks(BasicBlock* block)
@@ -117,23 +108,20 @@ void SsaRenameState::PopBlockStacks(BasicBlock* block)
 
     while ((m_stackListTail != nullptr) && (m_stackListTail->Top()->m_block == block))
     {
-        StackNode* top = m_stackListTail->Pop();
+        SsaDefStackNode* top = m_stackListTail->Pop();
         INDEBUG(DumpStack(m_stackListTail));
         m_stackListTail = top->m_listPrev;
         m_freeStack.Push(top);
     }
 
 #ifdef DEBUG
-    if (m_stacks != nullptr)
+    // It should now be the case that no stack in stacks has an entry for "block" on top --
+    // the loop above popped them all.
+    for (LclVarDsc* lcl : m_compiler->Locals())
     {
-        // It should now be the case that no stack in stacks has an entry for "block" on top --
-        // the loop above popped them all.
-        for (unsigned i = 0; i < m_lvaCount; ++i)
+        if (lcl->ssa.renameStack.Top() != nullptr)
         {
-            if (m_stacks[i].Top() != nullptr)
-            {
-                assert(m_stacks[i].Top()->m_block != block);
-            }
+            assert(lcl->ssa.renameStack.Top()->m_block != block);
         }
     }
 #endif // DEBUG
@@ -146,7 +134,7 @@ void SsaRenameState::PopBlockStacks(BasicBlock* block)
 // Arguments:
 //    stack - The stack to print
 //
-void SsaRenameState::DumpStack(Stack* stack)
+void SsaRenameState::DumpStack(SsaDefStack* stack, LclVarDsc* lcl)
 {
     if (JitTls::GetCompiler()->verboseSsa)
     {
@@ -154,12 +142,22 @@ void SsaRenameState::DumpStack(Stack* stack)
         {
             printf("Memory: ");
         }
+        else if (lcl != nullptr)
+        {
+            printf("V%02u: ", lcl->GetLclNum());
+        }
         else
         {
-            printf("V%02u: ", stack - m_stacks);
+            for (LclVarDsc* lcl : m_compiler->Locals())
+            {
+                if (&lcl->ssa.renameStack == stack)
+                {
+                    printf("V%02u: ", lcl->GetLclNum());
+                }
+            }
         }
 
-        for (StackNode* i = stack->Top(); i != nullptr; i = i->m_stackPrev)
+        for (SsaDefStackNode* i = stack->Top(); i != nullptr; i = i->m_stackPrev)
         {
             if (stack == &m_memoryStack)
             {
