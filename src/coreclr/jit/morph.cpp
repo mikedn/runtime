@@ -6220,14 +6220,14 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
     // It cannot be an inline candidate
     assert(!call->IsInlineCandidate());
 
-    auto failTailCall = [&](const char* reason, unsigned lclNum = BAD_VAR_NUM) {
+    auto failTailCall = [&](const char* reason, LclVarDsc* lcl = nullptr) {
 #ifdef DEBUG
         if (verbose)
         {
             printf("\nRejecting tail call in morph for call [%06u]: %s", call->GetID(), reason);
-            if (lclNum != BAD_VAR_NUM)
+            if (lcl != nullptr)
             {
-                printf(" V%02u", lclNum);
+                printf(" " FMT_LCL, lcl->GetLclNum());
             }
             printf("\n");
         }
@@ -6337,19 +6337,19 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
             // lvAddrExposed because it's reset by lvaRetypeImplicitByRefParams.
             if (lcl->lvHasLdAddrOp && !lcl->IsImplicitByRefParam())
             {
-                failTailCall("Local address taken", lcl->GetLclNum());
+                failTailCall("Local address taken", lcl);
                 return nullptr;
             }
 
             if (lcl->IsAddressExposed())
             {
-                failTailCall("Local address taken", lcl->GetLclNum());
+                failTailCall("Local address taken", lcl);
                 return nullptr;
             }
 
             if (lcl->IsPromoted() && lcl->IsParam())
             {
-                failTailCall("Has Struct Promoted Param", lcl->GetLclNum());
+                failTailCall("Has Struct Promoted Param", lcl);
                 return nullptr;
             }
 
@@ -6357,7 +6357,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
             // goes away for the callee.
             if (lcl->IsPinning())
             {
-                failTailCall("Has pinning local", lcl->GetLclNum());
+                failTailCall("Has pinning local", lcl);
                 return nullptr;
             }
         }
