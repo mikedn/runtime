@@ -688,11 +688,187 @@ void SsaBuilder::InsertPhiFunctions()
     }
 }
 
+class SsaRenameStack
+{
+    CompAllocator m_alloc;
+    // The tail of the list of stacks that have been pushed to
+    SsaDefStack* m_stackListTail = nullptr;
+    // Same state for the special implicit memory variable
+    SsaDefStack m_memoryStack;
+    // A stack of free stack nodes
+    SsaDefStack m_freeStack;
+#ifdef DEBUG
+    Compiler* m_compiler;
+#endif
+
+public:
+    SsaRenameStack(Compiler* compiler)
+        : m_alloc(compiler->getAllocator(CMK_SSA))
+#ifdef DEBUG
+        , m_compiler(compiler)
+#endif
+    {
+    }
+
+    GenTreeLclDef* Top(LclVarDsc* lcl)
+    {
+        DBG_SSA_JITDUMP("[SsaRenameStack::Top] V%02u\n", lcl->GetLclNum());
+
+        SsaDefStackNode* top = lcl->ssa.renameStack.Top();
+        noway_assert(top != nullptr);
+        assert(top->m_lclDef->GetLcl() == lcl);
+        return top->m_lclDef;
+    }
+
+    void Push(BasicBlock* block, LclVarDsc* lcl, GenTreeLclDef* def)
+    {
+        DBG_SSA_JITDUMP("[SsaRenameStack::Push] " FMT_BB ", V%02u, def = [%06u]\n", block->bbNum, lcl->GetLclNum(),
+                        def->GetID());
+
+        Push(&lcl->ssa.renameStack, block, def);
+    }
+
+    SsaMemDef* TopMemory()
+    {
+        return m_memoryStack.Top()->m_memDef;
+    }
+
+    void PushMemory(BasicBlock* block, SsaMemDef* def)
+    {
+        Push(&m_memoryStack, block, def);
+    }
+
+    void PopBlockStacks(BasicBlock* block)
+    {
+        DBG_SSA_JITDUMP("[SsaRenameStack::PopBlockStacks] " FMT_BB "\n", block->bbNum);
+
+        while ((m_stackListTail != nullptr) && (m_stackListTail->Top()->m_block == block))
+        {
+            SsaDefStackNode* top = m_stackListTail->Pop();
+            INDEBUG(DumpStack(m_stackListTail));
+            m_stackListTail = top->m_listPrev;
+            m_freeStack.Push(top);
+        }
+
+#ifdef DEBUG
+        for (LclVarDsc* lcl : m_compiler->Locals())
+        {
+            if (lcl->ssa.renameStack.Top() != nullptr)
+            {
+                assert(lcl->ssa.renameStack.Top()->m_block != block);
+            }
+        }
+#endif
+    }
+
+private:
+    template <class... Args>
+    SsaDefStackNode* AllocStackNode(Args&&... args)
+    {
+        SsaDefStackNode* stack = m_freeStack.Top();
+
+        if (stack != nullptr)
+        {
+            m_freeStack.Pop();
+        }
+        else
+        {
+            stack = m_alloc.allocate<SsaDefStackNode>(1);
+        }
+
+        return new (stack) SsaDefStackNode(std::forward<Args>(args)...);
+    }
+
+    void Push(SsaDefStack* stack, BasicBlock* block, SsaMemDef* def)
+    {
+        SsaDefStackNode* top = stack->Top();
+
+        if ((top == nullptr) || (top->m_block != block))
+        {
+            stack->Push(AllocStackNode(m_stackListTail, block, def));
+            // Append the stack to the stack list. The stack list allows
+            // PopBlockStacks to easily find stacks that need popping.
+            m_stackListTail = stack;
+        }
+        else
+        {
+            // If we already have a stack node for this block then simply
+            // update the SSA def, the previous one is no longer needed.
+            top->m_memDef = def;
+        }
+
+        INDEBUG(DumpStack(stack));
+    }
+
+    void Push(SsaDefStack* stack, BasicBlock* block, GenTreeLclDef* def)
+    {
+        SsaDefStackNode* top = stack->Top();
+
+        if ((top == nullptr) || (top->m_block != block))
+        {
+            stack->Push(AllocStackNode(m_stackListTail, block, def));
+            // Append the stack to the stack list. The stack list allows
+            // PopBlockStacks to easily find stacks that need popping.
+            m_stackListTail = stack;
+        }
+        else
+        {
+            // If we already have a stack node for this block then simply
+            // update the SSA def, the previous one is no longer needed.
+            top->m_lclDef = def;
+        }
+
+        INDEBUG(DumpStack(stack, def->GetLcl()));
+    }
+
+#ifdef DEBUG
+    void DumpStack(SsaDefStack* stack, LclVarDsc* lcl = nullptr)
+    {
+        if (JitTls::GetCompiler()->verboseSsa)
+        {
+            if (stack == &m_memoryStack)
+            {
+                printf("Memory: ");
+            }
+            else if (lcl != nullptr)
+            {
+                printf("V%02u: ", lcl->GetLclNum());
+            }
+            else
+            {
+                for (LclVarDsc* lcl : m_compiler->Locals())
+                {
+                    if (&lcl->ssa.renameStack == stack)
+                    {
+                        printf("V%02u: ", lcl->GetLclNum());
+                    }
+                }
+            }
+
+            for (SsaDefStackNode* i = stack->Top(); i != nullptr; i = i->m_stackPrev)
+            {
+                if (stack == &m_memoryStack)
+                {
+                    printf("%s<" FMT_BB ", %u>", (i == stack->Top()) ? "" : ", ", i->m_block->bbNum, i->m_memDef->num);
+                }
+                else
+                {
+                    printf("%s<" FMT_BB ", [%06u]>", (i == stack->Top()) ? "" : ", ", i->m_block->bbNum,
+                           i->m_lclDef->GetID());
+                }
+            }
+
+            printf("\n");
+        }
+    }
+#endif // DEBUG
+};
+
 class SsaRenameDomTreeVisitor : public DomTreeVisitor<SsaRenameDomTreeVisitor>
 {
     SsaOptimizer&  ssa;
     CompAllocator  alloc;
-    SsaRenameState renameStack;
+    SsaRenameStack renameStack;
 
 public:
     SsaRenameDomTreeVisitor(SsaOptimizer& ssa)
