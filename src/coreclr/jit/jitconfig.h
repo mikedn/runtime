@@ -54,24 +54,30 @@ public:
     };
 
 private:
-#define CONFIG_INTEGER(name, key, defaultValue) int m_##name;
-#define CONFIG_STRING(name, key) const WCHAR* m_##name;
-#define CONFIG_METHODSET(name, key) MethodSet m_##name;
+#define CONFIG_INTEGER(name, ...) int         m_##name;
+#define CONFIG_UNSIGNED(name, ...) unsigned   m_##name;
+#define CONFIG_STRING(name, ...) const WCHAR* m_##name;
+#define CONFIG_METHODSET(name, ...) MethodSet m_##name;
 #include "jitconfigvalues.h"
 
 public:
-#define CONFIG_INTEGER(name, key, defaultValue)                                                                        \
-    inline int name() const                                                                                            \
+#define CONFIG_INTEGER(name, ...)                                                                                      \
+    int name() const                                                                                                   \
     {                                                                                                                  \
         return m_##name;                                                                                               \
     }
-#define CONFIG_STRING(name, key)                                                                                       \
-    inline const WCHAR* name() const                                                                                   \
+#define CONFIG_UNSIGNED(name, ...)                                                                                     \
+    unsigned name() const                                                                                              \
     {                                                                                                                  \
         return m_##name;                                                                                               \
     }
-#define CONFIG_METHODSET(name, key)                                                                                    \
-    inline const MethodSet& name() const                                                                               \
+#define CONFIG_STRING(name, ...)                                                                                       \
+    const WCHAR* name() const                                                                                          \
+    {                                                                                                                  \
+        return m_##name;                                                                                               \
+    }
+#define CONFIG_METHODSET(name, ...)                                                                                    \
+    const MethodSet& name() const                                                                                      \
     {                                                                                                                  \
         return m_##name;                                                                                               \
     }

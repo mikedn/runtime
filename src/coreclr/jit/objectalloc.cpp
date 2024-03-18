@@ -11,7 +11,166 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
-#include "objectalloc.h"
+#include "phase.h"
+#include "smallhash.h"
+
+class ObjectAllocator final
+{
+    typedef SmallHashTable<unsigned int, unsigned int, 8U> LocalToLocalMap;
+
+    Compiler*    comp;
+    bool         m_IsObjectStackAllocationEnabled = false;
+    bool         m_AnalysisDone                   = false;
+    BitVecTraits m_bitVecTraits;
+    BitVec       m_EscapingPointers = BitVecOps::UninitVal();
+    // We keep the set of possibly-stack-pointing pointers as a superset of the set of
+    // definitely-stack-pointing pointers. All definitely-stack-pointing pointers are in both sets.
+    BitVec          m_PossiblyStackPointingPointers   = BitVecOps::UninitVal();
+    BitVec          m_DefinitelyStackPointingPointers = BitVecOps::UninitVal();
+    LocalToLocalMap m_HeapLocalToStackLocalMap;
+    BitVec*         m_ConnGraphAdjacencyMatrix = nullptr;
+
+public:
+    ObjectAllocator(Compiler* comp)
+        : comp(comp)
+        , m_bitVecTraits(comp->lvaCount, comp)
+        , m_HeapLocalToStackLocalMap(comp->getAllocator(CMK_ObjectAllocator))
+    {
+    }
+
+    bool IsObjectStackAllocationEnabled() const;
+    void EnableObjectStackAllocation();
+
+    PhaseStatus Run();
+
+private:
+    bool CanAllocateLclVarOnStack(unsigned int lclNum, CORINFO_CLASS_HANDLE clsHnd);
+    bool CanLclVarEscape(unsigned int lclNum);
+    void MarkLclVarAsPossiblyStackPointing(unsigned int lclNum);
+    void MarkLclVarAsDefinitelyStackPointing(unsigned int lclNum);
+    bool MayLclVarPointToStack(unsigned int lclNum);
+    bool DoesLclVarPointToStack(unsigned int lclNum);
+    void DoAnalysis();
+    void MarkLclVarAsEscaping(unsigned int lclNum);
+    void MarkEscapingVarsAndBuildConnGraph();
+    void AddConnGraphEdge(unsigned int sourceLclNum, unsigned int targetLclNum);
+    void     ComputeEscapingNodes();
+    void     ComputeStackObjectPointers();
+    bool     MorphAllocObjNodes();
+    void     RewriteUses();
+    GenTree* MorphAllocObjNodeIntoHelperCall(GenTreeAllocObj* allocObj);
+    unsigned MorphAllocObjNodeIntoStackAlloc(GenTreeAllocObj* allocObj, BasicBlock* block, Statement* stmt);
+    struct BuildConnGraphVisitorCallbackData;
+    bool CanLclVarEscapeViaParentStack(ArrayStack<GenTree*>* parentStack, unsigned int lclNum);
+    void UpdateAncestorTypes(GenTree* tree, ArrayStack<GenTree*>* parentStack, var_types newType);
+#ifdef DEBUG
+    static Compiler::fgWalkResult AssertWhenAllocObjFoundVisitor(GenTree** pTree, Compiler::fgWalkData* data);
+#endif // DEBUG
+    static const unsigned int s_StackAllocMaxSize = 0x2000U;
+};
+
+//------------------------------------------------------------------------
+// IsObjectStackAllocationEnabled: Returns true iff object stack allocation is enabled
+//
+// Return Value:
+//    Returns true iff object stack allocation is enabled
+
+inline bool ObjectAllocator::IsObjectStackAllocationEnabled() const
+{
+    return m_IsObjectStackAllocationEnabled;
+}
+
+//------------------------------------------------------------------------
+// EnableObjectStackAllocation:       Enable object stack allocation.
+
+inline void ObjectAllocator::EnableObjectStackAllocation()
+{
+    m_IsObjectStackAllocationEnabled = true;
+}
+
+//------------------------------------------------------------------------
+// CanAllocateLclVarOnStack: Returns true iff local variable can be
+//                           allocated on the stack.
+//
+// Arguments:
+//    lclNum   - Local variable number
+//    clsHnd   - Class handle of the variable class
+//
+// Return Value:
+//    Returns true iff local variable can be allocated on the stack.
+//
+// Notes:
+//    Stack allocation of objects with gc fields and boxed objects is currently disabled.
+
+inline bool ObjectAllocator::CanAllocateLclVarOnStack(unsigned int lclNum, CORINFO_CLASS_HANDLE clsHnd)
+{
+    assert(m_AnalysisDone);
+
+    DWORD classAttribs = comp->info.compCompHnd->getClassAttribs(clsHnd);
+
+    if ((classAttribs & CORINFO_FLG_VALUECLASS) != 0)
+    {
+        // TODO-ObjectStackAllocation: enable stack allocation of boxed structs
+        return false;
+    }
+
+    if (!comp->info.compCompHnd->canAllocateOnStack(clsHnd))
+    {
+        return false;
+    }
+
+    const unsigned int classSize = comp->info.compCompHnd->getHeapClassSize(clsHnd);
+
+    return !CanLclVarEscape(lclNum) && (classSize <= s_StackAllocMaxSize);
+}
+
+//------------------------------------------------------------------------
+// CanLclVarEscape:          Returns true iff local variable can
+//                           potentially escape from the method
+//
+// Arguments:
+//    lclNum   - Local variable number
+//
+// Return Value:
+//    Returns true iff local variable can potentially escape from the method
+
+inline bool ObjectAllocator::CanLclVarEscape(unsigned int lclNum)
+{
+    return BitVecOps::IsMember(m_bitVecTraits, m_EscapingPointers, lclNum);
+}
+
+//------------------------------------------------------------------------
+// MayLclVarPointToStack:          Returns true iff local variable may
+//                                 point to a stack-allocated object
+//
+// Arguments:
+//    lclNum   - Local variable number
+//
+// Return Value:
+//    Returns true iff local variable may point to a stack-allocated object
+
+inline bool ObjectAllocator::MayLclVarPointToStack(unsigned int lclNum)
+{
+    assert(m_AnalysisDone);
+    return BitVecOps::IsMember(m_bitVecTraits, m_PossiblyStackPointingPointers, lclNum);
+}
+
+//------------------------------------------------------------------------
+// DoesLclVarPointToStack:         Returns true iff local variable definitely
+//                                 points to a stack-allocated object (or is null)
+//
+// Arguments:
+//    lclNum   - Local variable number
+//
+// Return Value:
+//    Returns true iff local variable definitely points to a stack-allocated object
+//    (or is null)
+
+inline bool ObjectAllocator::DoesLclVarPointToStack(unsigned int lclNum)
+{
+    assert(m_AnalysisDone);
+    return BitVecOps::IsMember(m_bitVecTraits, m_DefinitelyStackPointingPointers, lclNum);
+}
 
 // Run analysis (if object stack allocation is enabled) and then
 // morph each GT_ALLOCOBJ node either into an allocation helper
@@ -39,7 +198,7 @@ PhaseStatus ObjectAllocator::Run()
 
     if (didStackAllocate)
     {
-        ComputeStackObjectPointers(&m_bitVecTraits);
+        ComputeStackObjectPointers();
         RewriteUses();
         return PhaseStatus::MODIFIED_EVERYTHING;
     }
@@ -58,7 +217,7 @@ PhaseStatus ObjectAllocator::Run()
 
 void ObjectAllocator::MarkLclVarAsEscaping(unsigned int lclNum)
 {
-    BitVecOps::AddElemD(&m_bitVecTraits, m_EscapingPointers, lclNum);
+    BitVecOps::AddElemD(m_bitVecTraits, m_EscapingPointers, lclNum);
 }
 
 //------------------------------------------------------------------------------
@@ -71,7 +230,7 @@ void ObjectAllocator::MarkLclVarAsEscaping(unsigned int lclNum)
 
 void ObjectAllocator::MarkLclVarAsPossiblyStackPointing(unsigned int lclNum)
 {
-    BitVecOps::AddElemD(&m_bitVecTraits, m_PossiblyStackPointingPointers, lclNum);
+    BitVecOps::AddElemD(m_bitVecTraits, m_PossiblyStackPointingPointers, lclNum);
 }
 
 //------------------------------------------------------------------------------
@@ -84,7 +243,7 @@ void ObjectAllocator::MarkLclVarAsPossiblyStackPointing(unsigned int lclNum)
 
 void ObjectAllocator::MarkLclVarAsDefinitelyStackPointing(unsigned int lclNum)
 {
-    BitVecOps::AddElemD(&m_bitVecTraits, m_DefinitelyStackPointingPointers, lclNum);
+    BitVecOps::AddElemD(m_bitVecTraits, m_DefinitelyStackPointingPointers, lclNum);
 }
 
 //------------------------------------------------------------------------------
@@ -97,7 +256,7 @@ void ObjectAllocator::MarkLclVarAsDefinitelyStackPointing(unsigned int lclNum)
 
 void ObjectAllocator::AddConnGraphEdge(unsigned int sourceLclNum, unsigned int targetLclNum)
 {
-    BitVecOps::AddElemD(&m_bitVecTraits, m_ConnGraphAdjacencyMatrix[sourceLclNum], targetLclNum);
+    BitVecOps::AddElemD(m_bitVecTraits, m_ConnGraphAdjacencyMatrix[sourceLclNum], targetLclNum);
 }
 
 //------------------------------------------------------------------------
@@ -111,11 +270,11 @@ void ObjectAllocator::DoAnalysis()
 
     if (comp->lvaCount > 0)
     {
-        m_EscapingPointers         = BitVecOps::MakeEmpty(&m_bitVecTraits);
-        m_ConnGraphAdjacencyMatrix = new (comp->getAllocator(CMK_ObjectAllocator)) BitSetShortLongRep[comp->lvaCount];
+        m_EscapingPointers         = BitVecOps::MakeEmpty(m_bitVecTraits);
+        m_ConnGraphAdjacencyMatrix = new (comp->getAllocator(CMK_ObjectAllocator)) BitVec[comp->lvaCount];
 
         MarkEscapingVarsAndBuildConnGraph();
-        ComputeEscapingNodes(&m_bitVecTraits, m_EscapingPointers);
+        ComputeEscapingNodes();
     }
 
     m_AnalysisDone = true;
@@ -162,42 +321,42 @@ void ObjectAllocator::MarkEscapingVarsAndBuildConnGraph()
 
             assert(tree == m_ancestors.Top());
 
-            unsigned lclNum  = BAD_VAR_NUM;
-            bool     escapes = false;
+            LclVarDsc* lcl     = nullptr;
+            bool       escapes = false;
 
             if (tree->OperIs(GT_LCL_VAR))
             {
-                lclNum  = tree->AsLclVar()->GetLclNum();
+                lcl     = tree->AsLclVar()->GetLcl();
                 escapes = tree->TypeIs(TYP_REF, TYP_BYREF, TYP_I_IMPL) &&
-                          m_allocator->CanLclVarEscapeViaParentStack(&m_ancestors, lclNum);
+                          m_allocator->CanLclVarEscapeViaParentStack(&m_ancestors, lcl->GetLclNum());
             }
             else if (tree->OperIs(GT_LCL_ADDR))
             {
-                lclNum  = tree->AsLclAddr()->GetLclNum();
-                escapes = m_compiler->lvaGetDesc(lclNum)->TypeIs(TYP_REF, TYP_BYREF, TYP_I_IMPL);
+                lcl     = tree->AsLclAddr()->GetLcl();
+                escapes = lcl->TypeIs(TYP_REF, TYP_BYREF, TYP_I_IMPL);
             }
 
             if (escapes)
             {
-                if (!m_allocator->CanLclVarEscape(lclNum))
+                if (!m_allocator->CanLclVarEscape(lcl->GetLclNum()))
                 {
-                    JITDUMP("V%02u first escapes via [%06u]\n", lclNum, tree->GetID());
+                    JITDUMP("V%02u first escapes via [%06u]\n", lcl->GetLclNum(), tree->GetID());
                 }
 
-                m_allocator->MarkLclVarAsEscaping(lclNum);
+                m_allocator->MarkLclVarAsEscaping(lcl->GetLclNum());
             }
 
             return Compiler::fgWalkResult::WALK_CONTINUE;
         }
     };
 
-    for (unsigned lclNum = 0; lclNum < comp->lvaCount; ++lclNum)
+    for (LclVarDsc* lcl : comp->Locals())
     {
-        LclVarDsc* lcl = comp->lvaGetDesc(lclNum);
+        unsigned lclNum = lcl->GetLclNum();
 
         if (lcl->TypeIs(TYP_REF, TYP_BYREF, TYP_I_IMPL))
         {
-            m_ConnGraphAdjacencyMatrix[lclNum] = BitVecOps::MakeEmpty(&m_bitVecTraits);
+            m_ConnGraphAdjacencyMatrix[lclNum] = BitVecOps::MakeEmpty(m_bitVecTraits);
 
             if (lcl->IsAddressExposed())
             {
@@ -222,72 +381,58 @@ void ObjectAllocator::MarkEscapingVarsAndBuildConnGraph()
     }
 }
 
-//------------------------------------------------------------------------------
-// ComputeEscapingNodes : Given an initial set of escaping nodes, update it to contain the full set
-//                        of escaping nodes by computing nodes reachable from the given set.
-//
-// Arguments:
-//    bitVecTraits              - Bit vector traits
-//    escapingNodes  [in/out]   - Initial set of escaping nodes
-
-void ObjectAllocator::ComputeEscapingNodes(BitVecTraits* bitVecTraits, BitVec& escapingNodes)
+// Given an initial set of escaping nodes, update it to contain the full set
+// of escaping nodes by computing nodes reachable from the given set.
+void ObjectAllocator::ComputeEscapingNodes()
 {
-    BitSetShortLongRep escapingNodesToProcess = BitVecOps::MakeCopy(bitVecTraits, escapingNodes);
-    BitSetShortLongRep newEscapingNodes       = BitVecOps::UninitVal();
+    BitVec escapingNodesToProcess = BitVecOps::MakeCopy(m_bitVecTraits, m_EscapingPointers);
+    BitVec newEscapingNodes       = BitVecOps::UninitVal();
 
-    unsigned int lclNum;
-
-    bool doOneMoreIteration = true;
-    while (doOneMoreIteration)
+    for (bool doOneMoreIteration = true; doOneMoreIteration;)
     {
-        BitVecOps::Iter iterator(bitVecTraits, escapingNodesToProcess);
         doOneMoreIteration = false;
 
-        while (iterator.NextElem(&lclNum))
+        for (BitVecOps::Enumerator e(m_bitVecTraits, escapingNodesToProcess); e.MoveNext();)
         {
-            if (m_ConnGraphAdjacencyMatrix[lclNum] != nullptr)
+            const unsigned lclNum = e.Current();
+
+            if (BitVec adjacency = m_ConnGraphAdjacencyMatrix[lclNum])
             {
                 doOneMoreIteration = true;
 
-                // newEscapingNodes         = adjacentNodes[lclNum]
-                BitVecOps::Assign(bitVecTraits, newEscapingNodes, m_ConnGraphAdjacencyMatrix[lclNum]);
-                // newEscapingNodes         = newEscapingNodes \ escapingNodes
-                BitVecOps::DiffD(bitVecTraits, newEscapingNodes, escapingNodes);
-                // escapingNodesToProcess   = escapingNodesToProcess U newEscapingNodes
-                BitVecOps::UnionD(bitVecTraits, escapingNodesToProcess, newEscapingNodes);
-                // escapingNodes = escapingNodes U newEscapingNodes
-                BitVecOps::UnionD(bitVecTraits, escapingNodes, newEscapingNodes);
-                // escapingNodesToProcess   = escapingNodesToProcess \ { lclNum }
-                BitVecOps::RemoveElemD(bitVecTraits, escapingNodesToProcess, lclNum);
+                if (newEscapingNodes == BitVecOps::UninitVal())
+                {
+                    newEscapingNodes = BitVecOps::Alloc(m_bitVecTraits);
+                }
+
+                BitVecOps::Diff(m_bitVecTraits, newEscapingNodes, adjacency, m_EscapingPointers);
+                BitVecOps::UnionD(m_bitVecTraits, escapingNodesToProcess, newEscapingNodes);
+                BitVecOps::UnionD(m_bitVecTraits, m_EscapingPointers, newEscapingNodes);
+                BitVecOps::RemoveElemD(m_bitVecTraits, escapingNodesToProcess, lclNum);
             }
         }
     }
 }
 
-//------------------------------------------------------------------------------
-// ComputeStackObjectPointers : Given an initial set of possibly stack-pointing nodes,
-//                              and an initial set of definitely stack-pointing nodes,
-//                              update both sets by computing nodes reachable from the
-//                              given set in the reverse connection graph.
-//
-// Arguments:
-//    bitVecTraits                    - Bit vector traits
-
-void ObjectAllocator::ComputeStackObjectPointers(BitVecTraits* bitVecTraits)
+// Given an initial set of possibly stack-pointing nodes,
+// and an initial set of definitely stack-pointing nodes,
+// update both sets by computing nodes reachable from the
+// given set in the reverse connection graph.
+void ObjectAllocator::ComputeStackObjectPointers()
 {
     bool changed = true;
 
     while (changed)
     {
         changed = false;
-        for (unsigned lclNum = 0; lclNum < comp->lvaCount; ++lclNum)
+        for (LclVarDsc* lcl : comp->Locals())
         {
-            LclVarDsc* lcl = comp->lvaGetDesc(lclNum);
-
             if (lcl->TypeIs(TYP_REF, TYP_BYREF, TYP_I_IMPL))
             {
+                unsigned lclNum = lcl->GetLclNum();
+
                 if (!MayLclVarPointToStack(lclNum) &&
-                    !BitVecOps::IsEmptyIntersection(bitVecTraits, m_PossiblyStackPointingPointers,
+                    !BitVecOps::IsEmptyIntersection(m_bitVecTraits, m_PossiblyStackPointingPointers,
                                                     m_ConnGraphAdjacencyMatrix[lclNum]))
                 {
                     // We discovered a new pointer that may point to the stack.
@@ -297,20 +442,18 @@ void ObjectAllocator::ComputeStackObjectPointers(BitVecTraits* bitVecTraits)
                     if (lcl->lvSingleDef == 1)
                     {
                         // Check if we know what is assigned to this pointer.
-                        unsigned bitCount = BitVecOps::Count(bitVecTraits, m_ConnGraphAdjacencyMatrix[lclNum]);
-                        assert(bitCount <= 1);
-                        if (bitCount == 1)
-                        {
-                            BitVecOps::Iter iter(bitVecTraits, m_ConnGraphAdjacencyMatrix[lclNum]);
-                            unsigned        rhsLclNum = 0;
-                            iter.NextElem(&rhsLclNum);
+                        BitVecOps::Enumerator e(m_bitVecTraits, m_ConnGraphAdjacencyMatrix[lclNum]);
 
-                            if (DoesLclVarPointToStack(rhsLclNum))
+                        if (e.MoveNext())
+                        {
+                            if (DoesLclVarPointToStack(e.Current()))
                             {
                                 // The only assignment to lclNum local is definitely-stack-pointing
                                 // rhsLclNum local so lclNum local is also definitely-stack-pointing.
                                 MarkLclVarAsDefinitelyStackPointing(lclNum);
                             }
+
+                            assert(!e.MoveNext());
                         }
                     }
                     changed = true;
@@ -333,8 +476,8 @@ void ObjectAllocator::ComputeStackObjectPointers(BitVecTraits* bitVecTraits)
 bool ObjectAllocator::MorphAllocObjNodes()
 {
     bool didStackAllocate             = false;
-    m_PossiblyStackPointingPointers   = BitVecOps::MakeEmpty(&m_bitVecTraits);
-    m_DefinitelyStackPointingPointers = BitVecOps::MakeEmpty(&m_bitVecTraits);
+    m_PossiblyStackPointingPointers   = BitVecOps::MakeEmpty(m_bitVecTraits);
+    m_DefinitelyStackPointingPointers = BitVecOps::MakeEmpty(m_bitVecTraits);
 
     for (BasicBlock* const block : comp->Blocks())
     {
@@ -384,7 +527,8 @@ bool ObjectAllocator::MorphAllocObjNodes()
                 assert(op2->OperGet() == GT_ALLOCOBJ);
 
                 GenTreeAllocObj*     asAllocObj = op2->AsAllocObj();
-                unsigned int         lclNum     = op1->AsLclVar()->GetLclNum();
+                LclVarDsc*           lcl        = op1->AsLclVar()->GetLcl();
+                unsigned             lclNum     = lcl->GetLclNum();
                 CORINFO_CLASS_HANDLE clsHnd     = op2->AsAllocObj()->gtAllocObjClsHnd;
 
                 // Don't attempt to do stack allocations inside basic blocks that may be in a loop.
@@ -393,7 +537,7 @@ bool ObjectAllocator::MorphAllocObjNodes()
                 {
                     JITDUMP("Allocating local variable V%02u on the stack\n", lclNum);
 
-                    const unsigned int stackLclNum = MorphAllocObjNodeIntoStackAlloc(asAllocObj, block, stmt);
+                    const unsigned stackLclNum = MorphAllocObjNodeIntoStackAlloc(asAllocObj, block, stmt);
                     m_HeapLocalToStackLocalMap.AddOrUpdate(lclNum, stackLclNum);
                     // We keep the set of possibly-stack-pointing pointers as a superset of the set of
                     // definitely-stack-pointing pointers. All definitely-stack-pointing pointers are in both sets.
@@ -498,39 +642,36 @@ GenTree* ObjectAllocator::MorphAllocObjNodeIntoHelperCall(GenTreeAllocObj* alloc
 // Notes:
 //    This function can insert additional statements before stmt.
 
-unsigned int ObjectAllocator::MorphAllocObjNodeIntoStackAlloc(GenTreeAllocObj* allocObj,
-                                                              BasicBlock*      block,
-                                                              Statement*       stmt)
+unsigned ObjectAllocator::MorphAllocObjNodeIntoStackAlloc(GenTreeAllocObj* allocObj, BasicBlock* block, Statement* stmt)
 {
     assert(allocObj != nullptr);
     assert(m_AnalysisDone);
 
-    const bool     shortLifetime = false;
-    const unsigned lclNum        = comp->lvaGrabTemp(shortLifetime DEBUGARG("MorphAllocObjNodeIntoStackAlloc temp"));
-    comp->lvaSetStruct(lclNum, allocObj->gtAllocObjClsHnd, /* checkUnsafeBuffer */ true);
+    LclVarDsc* lcl = comp->lvaAllocTemp(/* shortLifetime */ false DEBUGARG("MorphAllocObjNodeIntoStackAlloc temp"));
+    comp->lvaSetStruct(lcl, comp->typGetObjLayout(allocObj->gtAllocObjClsHnd), /* checkUnsafeBuffer */ true);
 
     // Initialize the object memory if necessary.
     bool bbInALoop  = (block->bbFlags & BBF_BACKWARD_JUMP) != 0;
     bool bbIsReturn = block->bbJumpKind == BBJ_RETURN;
-    if (comp->fgVarNeedsExplicitZeroInit(lclNum, bbInALoop, bbIsReturn))
+    if (comp->fgVarNeedsExplicitZeroInit(lcl, bbInALoop, bbIsReturn))
     {
-        GenTree*   init    = comp->gtNewAssignNode(comp->gtNewLclvNode(lclNum, TYP_STRUCT), comp->gtNewIconNode(0));
+        GenTree*   init    = comp->gtNewAssignNode(comp->gtNewLclvNode(lcl, TYP_STRUCT), comp->gtNewIconNode(0));
         Statement* newStmt = comp->gtNewStmt(init);
         comp->fgInsertStmtBefore(block, stmt, newStmt);
     }
     else
     {
-        JITDUMP("\nSuppressing zero-init for V%02u -- expect to zero in prolog\n", lclNum);
-        comp->lvaGetDesc(lclNum)->lvSuppressedZeroInit = 1;
-        comp->compSuppressedZeroInit                   = true;
+        JITDUMP("\nSuppressing zero-init for V%02u -- expect to zero in prolog\n", lcl->GetLclNum());
+        lcl->lvSuppressedZeroInit    = true;
+        comp->compSuppressedZeroInit = true;
     }
 
     GenTreeOp* methodTableAssignment =
-        comp->gtNewAssignNode(comp->gtNewLclFldNode(lclNum, TYP_I_IMPL, 0), allocObj->GetOp(0));
+        comp->gtNewAssignNode(comp->gtNewLclFldNode(lcl, TYP_I_IMPL, 0), allocObj->GetOp(0));
 
     comp->fgInsertStmtBefore(block, stmt, comp->gtNewStmt(methodTableAssignment));
 
-    return lclNum;
+    return lcl->GetLclNum();
 }
 
 //------------------------------------------------------------------------
@@ -604,7 +745,7 @@ bool ObjectAllocator::CanLclVarEscapeViaParentStack(ArrayStack<GenTree*>* parent
                         //   \--*  GT_LCL_VAR    ref    lhsLclVar
 
                         // Add an edge to the connection graph.
-                        const unsigned int lhsLclNum = op1->AsLclVar()->GetLclNum();
+                        const unsigned int lhsLclNum = op1->AsLclVar()->GetLcl()->GetLclNum();
                         const unsigned int rhsLclNum = lclNum;
 
                         AddConnGraphEdge(lhsLclNum, rhsLclNum);
@@ -800,11 +941,11 @@ void ObjectAllocator::RewriteUses()
 
         Compiler::fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
-            GenTree* tree = *use;
+            GenTree*   tree   = *use;
+            LclVarDsc* lcl    = tree->AsLclVarCommon()->GetLcl();
+            unsigned   lclNum = lcl->GetLclNum();
 
-            const unsigned lclNum = tree->AsLclVarCommon()->GetLclNum();
-
-            if ((lclNum < BitVecTraits::GetSize(&m_allocator->m_bitVecTraits)) &&
+            if ((lclNum < BitVecTraits::GetSize(m_allocator->m_bitVecTraits)) &&
                 m_allocator->MayLclVarPointToStack(lclNum))
             {
                 var_types newType;
@@ -813,7 +954,7 @@ void ObjectAllocator::RewriteUses()
                 if (m_allocator->m_HeapLocalToStackLocalMap.TryGetValue(lclNum, &newLclNum))
                 {
                     newType = TYP_I_IMPL;
-                    tree    = m_compiler->gtNewLclVarAddrNode(newLclNum, newType);
+                    tree    = m_compiler->gtNewLclVarAddrNode(m_compiler->lvaGetDesc(newLclNum), newType);
                     *use    = tree;
                 }
                 else
@@ -825,8 +966,6 @@ void ObjectAllocator::RewriteUses()
                         tree->SetType(newType);
                     }
                 }
-
-                LclVarDsc* lcl = m_compiler->lvaGetDesc(lclNum);
 
                 if (lcl->GetType() != newType)
                 {

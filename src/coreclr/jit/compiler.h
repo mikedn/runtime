@@ -104,64 +104,200 @@ enum RefCountState : uint8_t
     RCS_NORMAL,  // normal ref counts (from lvaMarkRefs onward)
 };
 
+struct SsaDefStackNode;
+
+class SsaDefStack
+{
+    SsaDefStackNode* top;
+
+public:
+    SsaDefStack(SsaDefStackNode* top);
+    SsaDefStackNode* Top() const;
+    void Push(SsaDefStackNode* node);
+    SsaDefStackNode* Pop();
+};
+
 #define FMT_LCL "V%02u"
 
 class LclVarDsc
 {
 public:
+    var_types lvType;
+
+#ifdef TARGET_ARM64
+    uint8_t m_paramRegCount : 3;
+#elif defined(TARGET_ARM)
+    uint8_t     m_paramRegCount : 4;
+#endif
+    bool lvIsParam : 1;
+    bool lvIsRegArg : 1;
+    bool lvFramePointerBased : 1; // 0 = off of REG_SPBASE (e.g., ESP), 1 = off of REG_FPBASE (e.g., EBP)
+    bool lvOnFrame : 1;           // (part of) the variable lives on the frame
+    bool lvRegister : 1;          // Set if the variable is in the same register for the entire function.
+    bool lvTracked : 1;
+    bool m_hasGCLiveness : 1;
+    bool m_pinning : 1;
+    bool lvMustInit : 1;
+    bool lvAddrExposed : 1;      // The address of this variable is "exposed" -- passed as an argument, stored
+                                 // in a global location, etc.
+    bool lvDoNotEnregister : 1;  // Do not enregister this variable.
+    bool lvFieldAccessed : 1;    // The var is a struct local, and a field of the variable is accessed. Affects
+                                 // struct promotion.
+    bool lvLiveInOutOfHndlr : 1; // The variable is live in or out of an exception handler, and therefore must
+                                 // be on the stack (at least at those boundaries.)
+#ifdef DEBUG
+    bool lvLclFieldExpr : 1;   // The variable has (STORE_)LCL_FLD accesses.
+    bool lvLclBlockOpAddr : 1; // The variable was written to via a block operation.
+#endif
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+    bool lvIsImplicitByRefArgTemp : 1;
+#endif
+    bool m_isSsa : 1;                // The variable is in SSA form (set by SsaBuilder)
+    bool lvIsCSE : 1;                // Indicates if this LclVar is a CSE variable.
+    bool lvHasLdAddrOp : 1;          // has ldloca or ldarga opcode on this local.
+    bool lvHasILStoreOp : 1;         // there is at least one STLOC or STARG on this local
+    bool lvHasMultipleILStoreOp : 1; // there is more than one STLOC on this local
+    bool lvIsTemp : 1;               // Short-lifetime compiler temp
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+    bool lvIsImplicitByRef : 1; // Set if the argument is an implicit byref.
+#endif
+#if OPT_BOOL_OPS
+    bool lvIsBoolean : 1; // set if variable is boolean
+#endif
+    bool lvSingleDef : 1;             // variable has a single def
+                                      // before lvaMarkLocalVars: identifies ref type locals that can get type updates
+                                      // after lvaMarkLocalVars: identifies locals that are suitable for optAddCopies
+    bool lvSingleDefRegCandidate : 1; // variable has a single def and hence is a register candidate
+                                      // Currently, this is only used to decide if an EH variable can be
+                                      // a register candidate or not.
+    bool lvDisqualifySingleDefRegCandidate : 1; // tracks variable that are disqualified from register candidacy
+    bool lvSpillAtSingleDef : 1;                // variable has a single def (as determined by LSRA interval scan)
+                                                // and is spilled making it candidate to spill right after the
+                                                // first (and only) definition.
+                                                // Note: We cannot reuse lvSingleDefRegCandidate because it is set
+                                                // in earlier phase and the information might not be appropriate
+                                                // in LSRA.
+#if ASSERTION_PROP
+    bool lvDisqualifyAddCopy : 1; // local isn't a candidate for optAddCopies
+#endif
+    bool lvHasEHRefs : 1; // local has EH references
+    bool lvHasEHUses : 1; // local has EH uses
+#ifndef TARGET_64BIT
+    bool lvStructDoubleAlign : 1; // Must we double align this struct?
+#endif
+#ifdef TARGET_64BIT
+    bool lvQuirkToLong : 1; // Quirk to allocate this LclVar as a 64-bit long
+#endif
+    bool lvIsPtr : 1;          // May be used in an address computation? (used by buffer overflow security checks)
+    bool lvIsUnsafeBuffer : 1; // Does this contain an unsafe buffer requiring buffer overflow security checks?
+    bool lvPromoted : 1;       // True when this local is a promoted struct, a normed struct, or a "split" long on
+                               // a 32-bit target. For implicit byref parameters, this gets hijacked between
+                               // lvaRetypeImplicitByRefParams and lvaDemoteImplicitByRefParams to indicate whether
+                               // references to the arg are being rewritten as references to a promoted shadow local.
+    bool lvIsStructField : 1;  // Is this local var a field of a promoted struct local?
+    bool lvWasStructField : 1;
+    bool lvOverlappingFields : 1; // True when we have a struct with possibly overlapping fields
+    bool lvContainsHoles : 1;     // True when we have a promoted struct that contains holes
+    bool lvCustomLayout : 1;      // True when this struct has "CustomLayout"
+    bool lvIsMultiRegArg : 1;     // true if this is a multireg LclVar struct used in an argument context
+    bool lvIsMultiRegRet : 1;     // true if this is a multireg LclVar struct assigned from a multireg call
+#ifdef FEATURE_HFA
+    bool m_isHfa : 1;
+#endif
+    bool lvLRACandidate : 1; // Tracked for linear scan register allocation purposes
+#ifdef FEATURE_SIMD
+    bool lvUsedInSIMDIntrinsic : 1; // This local is referenced by a SIMD intrinsic
+#endif
+    bool lvClassIsExact : 1;              // lvClassHandle is the exact type
+    INDEBUG(bool lvClassInfoUpdated : 1;) // true if this var has updated class handle or exactness
+    bool lvImplicitlyReferenced : 1;      // true if there are non-IR references to this local (prolog, epilog, GC, EH)
+    bool lvSuppressedZeroInit : 1;        // local needs zero init if we transform tail call to loop
+    bool lvHasExplicitInit : 1;           // The local is explicitly initialized and doesn't need zero initialization
+                                          // in the prolog. If the local has gc pointers, there are no gc-safe points
+                                          // between the prolog and the explicit initialization.
+
+    INDEBUG(char lvSingleDefDisqualifyReason = 'H';)
+
+private:
+    RegNumSmall m_reg;
+#ifdef UNIX_AMD64_ABI
+    RegNumSmall m_paramRegs[2]{REG_NA, REG_NA};
+#else
+    RegNumSmall m_paramRegs[1]{REG_NA};
+#endif
+    RegNumSmall m_paramInitialReg; // the register into which the argument is loaded at entry
+
+public:
+    uint8_t lvFieldCnt; //  Number of promoted fields
+    uint8_t lvFldOffset;
+
+    union {
+        unsigned lvFieldLclStart; // The index of the local var representing the first field in the promoted
+                                  // struct local. For implicit byref parameters, this gets hijacked between
+                                  // lvaRetypeImplicitByRefParams and lvaDemoteImplicitByRefParams to point to
+                                  // the struct local created to model the parameter's struct promotion, if any.
+        unsigned lvParentLcl;     // The index of the local var representing the promoted local.
+    };
+
+    uint16_t lvVarIndex;
+
+private:
+    uint16_t m_refCount;
+    uint32_t m_refWeight;
+    int      lvStkOffs; // stack offset of home in bytes.
+
+public:
+    unsigned lclNum;
+    unsigned lvExactSize; // (exact) size of the type in bytes
+
+    // class handle for the local or null if not known or not a class,
+    // for a struct handle use `GetStructHnd()`.
+    CORINFO_CLASS_HANDLE lvClassHnd;
+
+private:
+    ClassLayout*  m_layout;   // layout info for structs
+    FieldSeqNode* m_fieldSeq; // field sequence for promoted struct fields
+
+public:
+    union {
+        // TODO-MIKE-Cleanup: Maybe lvImpTypeInfo can be replaced with CORINFO_CLASS_HANDLE
+        // since the rest of the bits in typeInfo aren't very useful, they can be recreated
+        // from the local's type. Also:
+        //   - For primitive type locals this is not supposed to be set/used.
+        //   - For struct type locals this is a duplicate of m_layout.
+        //   - For REF type locals this is similar to lvClassHnd (but not identical).
+        //   - Only "normed type" locals truly need this.
+        struct
+        {
+            typeInfo lvImpTypeInfo;
+        }; // import
+
+        struct
+        {
+            BitVec assignSet;
+        } gs;
+
+#if ASSERTION_PROP
+        struct
+        {
+            BlockSet   lvUseBlocks; // Set of blocks that contain uses
+            Statement* lvDefStmt;   // Pointer to the statement with the single definition
+        };                          // addCopies
+#endif
+        struct
+        {
+            SsaDefStack renameStack;
+        } ssa;
+    };
+
+    INDEBUG(const char* lvReason;)
+
     LclVarDsc()
     {
         // It is expected that the memory allocated for LclVarDsc is already zeroed.
         assert(lvType == TYP_UNDEF);
         assert(lvClassHnd == NO_CLASS_HANDLE);
     }
-
-    var_types lvType;
-
-    unsigned char lvIsParam : 1;  // is this a parameter?
-    unsigned char lvIsRegArg : 1; // is this an argument that was passed by register?
-#ifdef TARGET_ARM64
-    unsigned char m_paramRegCount : 3;
-#elif defined(TARGET_ARM)
-    unsigned char m_paramRegCount : 4;
-#endif
-    unsigned char lvFramePointerBased : 1; // 0 = off of REG_SPBASE (e.g., ESP), 1 = off of REG_FPBASE (e.g., EBP)
-
-    unsigned char lvOnFrame : 1;  // (part of) the variable lives on the frame
-    unsigned char lvRegister : 1; // assigned to live in a register? For RyuJIT backend, this is only set if the
-                                  // variable is in the same register for the entire function.
-    unsigned char lvTracked : 1;  // is this a tracked variable?
-    unsigned char m_hasGCLiveness : 1;
-    unsigned char m_pinning : 1;
-
-    unsigned char lvMustInit : 1;    // must be initialized
-    unsigned char lvAddrExposed : 1; // The address of this variable is "exposed" -- passed as an argument, stored in a
-                                     // global location, etc.
-                                     // We cannot reason reliably about the value of the variable.
-    unsigned char lvDoNotEnregister : 1; // Do not enregister this variable.
-    unsigned char lvFieldAccessed : 1;   // The var is a struct local, and a field of the variable is accessed.  Affects
-                                         // struct promotion.
-    unsigned char lvLiveInOutOfHndlr : 1; // The variable is live in or out of an exception handler, and therefore must
-                                          // be on the stack (at least at those boundaries.)
-#ifdef DEBUG
-    unsigned char lvLclFieldExpr : 1;   // The variable has (STORE_)LCL_FLD accesses.
-    unsigned char lvLclBlockOpAddr : 1; // The variable was written to via a block operation.
-#endif
-#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-    unsigned char lvIsImplicitByRefArgTemp : 1;
-#endif
-    unsigned char m_isSsa : 1; // The variable is in SSA form (set by SsaBuilder)
-
-    unsigned char lvIsCSE : 1;                // Indicates if this LclVar is a CSE variable.
-    unsigned char lvHasLdAddrOp : 1;          // has ldloca or ldarga opcode on this local.
-    unsigned char lvHasILStoreOp : 1;         // there is at least one STLOC or STARG on this local
-    unsigned char lvHasMultipleILStoreOp : 1; // there is more than one STLOC on this local
-
-    unsigned char lvIsTemp : 1; // Short-lifetime compiler temp
-
-#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-    unsigned char lvIsImplicitByRef : 1; // Set if the argument is an implicit byref.
-#endif
 
     bool IsParam() const
     {
@@ -243,91 +379,7 @@ public:
         return m_isSsa;
     }
 
-#if OPT_BOOL_OPS
-    unsigned char lvIsBoolean : 1; // set if variable is boolean
-#endif
-    unsigned char lvSingleDef : 1; // variable has a single def
-                                   // before lvaMarkLocalVars: identifies ref type locals that can get type updates
-                                   // after lvaMarkLocalVars: identifies locals that are suitable for optAddCopies
-
-    unsigned char lvSingleDefRegCandidate : 1; // variable has a single def and hence is a register candidate
-                                               // Currently, this is only used to decide if an EH variable can be
-                                               // a register candiate or not.
-
-    unsigned char lvDisqualifySingleDefRegCandidate : 1; // tracks variable that are disqualified from register
-                                                         // candidancy
-
-    unsigned char lvSpillAtSingleDef : 1; // variable has a single def (as determined by LSRA interval scan)
-                                          // and is spilled making it candidate to spill right after the
-                                          // first (and only) definition.
-                                          // Note: We cannot reuse lvSingleDefRegCandidate because it is set
-                                          // in earlier phase and the information might not be appropriate
-                                          // in LSRA.
-
-#if ASSERTION_PROP
-    unsigned char lvDisqualifyAddCopy : 1; // local isn't a candidate for optAddCopies
-#endif
-
-    unsigned char lvHasEHRefs : 1; // local has EH references
-    unsigned char lvHasEHUses : 1; // local has EH uses
-
-#ifndef TARGET_64BIT
-    unsigned char lvStructDoubleAlign : 1; // Must we double align this struct?
-#endif                                     // !TARGET_64BIT
-#ifdef TARGET_64BIT
-    unsigned char lvQuirkToLong : 1; // Quirk to allocate this LclVar as a 64-bit long
-#endif
-    unsigned char lvIsPtr : 1; // Might this be used in an address computation? (used by buffer overflow security
-                               // checks)
-    unsigned char lvIsUnsafeBuffer : 1; // Does this contain an unsafe buffer requiring buffer overflow security checks?
-    unsigned char lvPromoted : 1; // True when this local is a promoted struct, a normed struct, or a "split" long on a
-                                  // 32-bit target.  For implicit byref parameters, this gets hijacked between
-    // lvaRetypeImplicitByRefParams and lvaDemoteImplicitByRefParams to indicate whether
-    // references to the arg are being rewritten as references to a promoted shadow local.
-    unsigned char lvIsStructField : 1; // Is this local var a field of a promoted struct local?
-    unsigned char lvWasStructField : 1;
-    unsigned char lvOverlappingFields : 1; // True when we have a struct with possibly overlapping fields
-    unsigned char lvContainsHoles : 1;     // True when we have a promoted struct that contains holes
-    unsigned char lvCustomLayout : 1;      // True when this struct has "CustomLayout"
-
-    unsigned char lvIsMultiRegArg : 1; // true if this is a multireg LclVar struct used in an argument context
-    unsigned char lvIsMultiRegRet : 1; // true if this is a multireg LclVar struct assigned from a multireg call
-
-#ifdef FEATURE_HFA
-    unsigned char m_isHfa : 1;
-#endif
-
-    unsigned char lvLRACandidate : 1; // Tracked for linear scan register allocation purposes
-
-#ifdef FEATURE_SIMD
-    unsigned char lvUsedInSIMDIntrinsic : 1; // This tells lclvar is used for simd intrinsic
-#endif
-
-    unsigned char lvClassIsExact : 1;              // lvClassHandle is the exact type
-    INDEBUG(unsigned char lvClassInfoUpdated : 1;) // true if this var has updated class handle or exactness
-
-    unsigned char lvImplicitlyReferenced : 1; // true if there are non-IR references to this local (prolog, epilog, gc,
-                                              // eh)
-
-    unsigned char lvSuppressedZeroInit : 1; // local needs zero init if we transform tail call to loop
-
-    unsigned char lvHasExplicitInit : 1; // The local is explicitly initialized and doesn't need zero initialization in
-                                         // the prolog. If the local has gc pointers, there are no gc-safe points
-                                         // between the prolog and the explicit initialization.
-
-    union {
-        unsigned lvFieldLclStart; // The index of the local var representing the first field in the promoted
-                                  // struct local. For implicit byref parameters, this gets hijacked between
-                                  // lvaRetypeImplicitByRefParams and lvaDemoteImplicitByRefParams to point to
-                                  // the struct local created to model the parameter's struct promotion, if any.
-        unsigned lvParentLcl; // The index of the local var representing the parent (i.e. the promoted struct local).
-                              // Valid on promoted struct local fields.
-    };
-
-    unsigned char lvFieldCnt; //  Number of fields in the promoted VarDsc.
-    unsigned char lvFldOffset;
-
-    void MakePromotedStructField(unsigned parentLclNum, unsigned fieldOffset, FieldSeqNode* fieldSeq)
+    void MakePromotedField(unsigned parentLclNum, unsigned fieldOffset, FieldSeqNode* fieldSeq)
     {
         assert(fieldOffset <= UINT8_MAX);
 
@@ -335,6 +387,16 @@ public:
         lvParentLcl     = parentLclNum;
         lvFldOffset     = static_cast<uint8_t>(fieldOffset);
         m_fieldSeq      = fieldSeq;
+    }
+
+    void SetPromotedFields(unsigned firstFieldLclNum, unsigned count)
+    {
+        assert(!lvPromoted);
+        assert(count < UINT8_MAX);
+
+        lvPromoted      = true;
+        lvFieldLclStart = firstFieldLclNum;
+        lvFieldCnt      = static_cast<uint8_t>(count);
     }
 
     bool IsPromoted() const
@@ -390,70 +452,46 @@ public:
         return m_fieldSeq;
     }
 
-    INDEBUG(char lvSingleDefDisqualifyReason = 'H';)
-
-private:
-    regNumberSmall _lvRegNum; // Used to store the register this variable is in (or, the low register of a
-                              // register pair). It is set during codegen any time the
-                              // variable is enregistered (lvRegister is only set
-                              // to non-zero if the variable gets the same register assignment for its entire
-                              // lifetime).
-
-#ifdef UNIX_AMD64_ABI
-    regNumberSmall m_paramRegs[2]{REG_NA, REG_NA};
-#else
-    regNumberSmall m_paramRegs[1]{REG_NA};
-#endif
-
-    regNumberSmall m_paramInitialReg; // the register into which the argument is loaded at entry
-
-public:
-    // The register number is stored in a small format (8 bits), but the getters return and the setters take
-    // a full-size (unsigned) format, to localize the casts here.
-
-    /////////////////////
-
-    regNumber GetRegNum() const
+    RegNum GetRegNum() const
     {
-        return (regNumber)_lvRegNum;
+        return static_cast<RegNum>(m_reg);
     }
 
-    void SetRegNum(regNumber reg)
+    void SetRegNum(RegNum reg)
     {
-        _lvRegNum = (regNumberSmall)reg;
-        assert(_lvRegNum == reg);
+        m_reg = static_cast<RegNumSmall>(reg);
     }
 
-    regNumber GetParamReg() const
+    RegNum GetParamReg() const
     {
-        return static_cast<regNumber>(m_paramRegs[0]);
+        return static_cast<RegNum>(m_paramRegs[0]);
     }
 
 #ifdef UNIX_AMD64_ABI
-    regNumber GetParamReg(unsigned index) const
+    RegNum GetParamReg(unsigned index) const
     {
         assert(index < _countof(m_paramRegs));
 
-        return static_cast<regNumber>(m_paramRegs[index]);
+        return static_cast<RegNum>(m_paramRegs[index]);
     }
 
-    void SetParamReg(unsigned index, regNumber reg)
+    void SetParamReg(unsigned index, RegNum reg)
     {
         assert(index < _countof(m_paramRegs));
         assert(reg != REG_STK);
 
-        m_paramRegs[index] = static_cast<regNumberSmall>(reg);
+        m_paramRegs[index] = static_cast<RegNumSmall>(reg);
     }
 
-    void SetParamRegs(regNumber reg0, regNumber reg1 = REG_NA)
+    void SetParamRegs(RegNum reg0, RegNum reg1 = REG_NA)
     {
         assert(lvIsParam);
         assert((reg0 != REG_STK) && (reg0 != REG_NA) && (reg1 != REG_STK));
 
         lvIsRegArg = true;
 
-        m_paramRegs[0] = static_cast<regNumberSmall>(reg0);
-        m_paramRegs[1] = static_cast<regNumberSmall>(reg1);
+        m_paramRegs[0] = static_cast<RegNumSmall>(reg0);
+        m_paramRegs[1] = static_cast<RegNumSmall>(reg1);
     }
 
     void ClearParamRegs()
@@ -467,21 +505,21 @@ public:
         m_paramRegs[1] = REG_NA;
     }
 #elif defined(TARGET_XARCH)
-    regNumber GetParamReg(unsigned index) const
+    RegNum GetParamReg(unsigned index) const
     {
         assert(index < _countof(m_paramRegs));
 
-        return static_cast<regNumber>(m_paramRegs[index]);
+        return static_cast<RegNum>(m_paramRegs[index]);
     }
 
-    void SetParamRegs(regNumber reg)
+    void SetParamRegs(RegNum reg)
     {
         assert(lvIsParam);
         assert((reg != REG_STK) && (reg != REG_NA));
 
         lvIsRegArg = true;
 
-        m_paramRegs[0] = static_cast<regNumberSmall>(reg);
+        m_paramRegs[0] = static_cast<RegNumSmall>(reg);
     }
 
     void ClearParamRegs()
@@ -492,14 +530,14 @@ public:
         m_paramRegs[0] = REG_NA;
     }
 #elif defined(TARGET_ARMARCH)
-    regNumber GetParamReg(unsigned index) const
+    RegNum GetParamReg(unsigned index) const
     {
         assert(index < m_paramRegCount);
 
-        return static_cast<regNumber>(m_paramRegs[0] + index);
+        return static_cast<RegNum>(m_paramRegs[0] + index);
     }
 
-    void SetParamRegs(regNumber reg0, unsigned regCount = 1)
+    void SetParamRegs(RegNum reg0, unsigned regCount = 1)
     {
         assert((reg0 != REG_STK) && (reg0 != REG_NA));
 #ifdef TARGET_ARM64
@@ -514,7 +552,7 @@ public:
 
         lvIsRegArg = true;
 
-        m_paramRegs[0]  = static_cast<regNumberSmall>(reg0);
+        m_paramRegs[0]  = static_cast<RegNumSmall>(reg0);
         m_paramRegCount = regCount;
     }
 
@@ -539,17 +577,16 @@ public:
 #endif
     }
 
-    regNumber GetParamInitialReg() const
+    RegNum GetParamInitialReg() const
     {
-        return static_cast<regNumber>(m_paramInitialReg);
+        return static_cast<RegNum>(m_paramInitialReg);
     }
 
-    void SetParamInitialReg(regNumber reg)
+    void SetParamInitialReg(RegNum reg)
     {
-        m_paramInitialReg = static_cast<regNumberSmall>(reg);
+        m_paramInitialReg = static_cast<RegNumSmall>(reg);
     }
 
-    // Is this is a SIMD struct which is used for SIMD intrinsic?
     bool lvIsUsedInSIMDIntrinsic() const
     {
 #ifdef FEATURE_SIMD
@@ -561,15 +598,13 @@ public:
 
     bool IsRegCandidate() const
     {
-        return lvLRACandidate != 0;
+        return lvLRACandidate;
     }
 
     bool lvIsInReg() const
     {
         return lvLRACandidate && (GetRegNum() != REG_STK);
     }
-
-    uint16_t lvVarIndex;
 
     bool HasLiveness() const
     {
@@ -598,11 +633,11 @@ public:
         return m_hasGCLiveness && lvOnFrame;
     }
 
-private:
-    uint16_t m_refCount;
-    uint32_t m_refWeight;
+    unsigned GetLclNum() const
+    {
+        return lclNum;
+    }
 
-public:
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     void     AddImplicitByRefParamAnyRef();
     void     AddImplicitByRefParamCallRef();
@@ -628,10 +663,6 @@ public:
         return GetRefWeight();
     }
 
-private:
-    int lvStkOffs; // stack offset of home in bytes.
-
-public:
     int GetStackOffset() const
     {
         return lvStkOffs;
@@ -642,52 +673,15 @@ public:
         lvStkOffs = offset;
     }
 
-    unsigned lvExactSize; // (exact) size of the type in bytes
-
-    // Is this a promoted struct?
-    // This method returns true only for structs (including SIMD structs), not for
-    // locals that are split on a 32-bit target.
-    // It is only necessary to use this:
-    //   1) if only structs are wanted, and
-    //   2) if Lowering has already been done.
-    // Otherwise lvPromoted is valid.
-    bool lvPromotedStruct()
+    bool IsPromotedStruct() const
     {
-#if !defined(TARGET_64BIT)
-        return (lvPromoted && !varTypeIsLong(lvType));
-#else  // defined(TARGET_64BIT)
+#ifdef TARGET_64BIT
         return lvPromoted;
-#endif // defined(TARGET_64BIT)
+#else
+        return lvPromoted && !varTypeIsLong(lvType);
+#endif
     }
 
-    // TODO-MIKE-Cleanup: Maybe lvImpTypeInfo can be replaced with CORINFO_CLASS_HANDLE
-    // since the rest of the bits in typeInfo aren't very useful, they can be recreated
-    // from the local's type. Also:
-    //   - For primitive type locals this is not supposed to be set/used.
-    //   - For struct type locals this is a duplicate of m_layout.
-    //   - For REF type locals this is similar to lvClassHnd (but not identical).
-    //   - Only "normed type" locals truly need this.
-    typeInfo lvImpTypeInfo;
-
-    // class handle for the local or null if not known or not a class,
-    // for a struct handle use `GetStructHnd()`.
-    CORINFO_CLASS_HANDLE lvClassHnd;
-
-private:
-    ClassLayout*  m_layout;   // layout info for structs
-    FieldSeqNode* m_fieldSeq; // field sequence for promoted struct fields
-public:
-#if ASSERTION_PROP
-    BlockSet   lvUseBlocks; // Set of blocks that contain uses
-    Statement* lvDefStmt;   // Pointer to the statement with the single definition
-#endif
-private:
-    unsigned m_dummy; // Keep the old LclVarDsc size (104 on x64), removing it results in a significant PIN regression
-                      // because both MSVC and Clang use a LEA/SHL sequence for the new size (96) instead of IMUL.
-                      // In theory LEA/SHL saves one cycle of latency but it's far from clear that the increase in code
-                      // size is worth it.
-
-public:
     var_types GetType() const
     {
         return lvType;
@@ -744,6 +738,25 @@ public:
 
     unsigned GetFrameSize() const;
 
+#ifdef FEATURE_SIMD
+    unsigned GetVectorTypePreferredAlignment() const
+    {
+        switch (lvType)
+        {
+#ifdef TARGET_XARCH
+            case TYP_SIMD32:
+                return 32;
+#endif
+            case TYP_SIMD12:
+            case TYP_SIMD16:
+                return 16;
+            default:
+                assert(lvType == TYP_SIMD8);
+                return 8;
+        }
+    }
+#endif
+
     bool lvNormalizeOnLoad() const
     {
         return varTypeIsSmall(lvType) &&
@@ -791,8 +804,6 @@ public:
     {
         return lvLiveInOutOfHndlr || lvSpillAtSingleDef;
     }
-
-    INDEBUG(const char* lvReason;)
 };
 
 // The following enum provides a simple 1:1 mapping to CLR API's
@@ -1056,9 +1067,10 @@ struct CompiledMethodInfo
     IL_OFFSET compILCodeSize; // The IL code size
     IL_OFFSET compILEntry;    // The IL entry point (normally 0)
 
-    unsigned compILargsCount; // Number of arguments (incl. implicit but not hidden)
-    unsigned compArgsCount;   // Number of arguments (incl. implicit and hidden)
     unsigned compMaxStack;
+    unsigned compILArgsCount; // Number of IL arguments
+    unsigned compArgsCount;   // Number of native code arguments (IL and hidden arguments)
+    unsigned compLocalsCount; // Number of IL arguments, hidden arguments and IL locals
 
     // Number of exception-handling clauses read in the method's IL.
     // You should generally use compHndBBtabCount instead: it is the
@@ -1074,7 +1086,8 @@ struct CompiledMethodInfo
     unsigned compRetBuffArg;  // position of hidden return param var (0, 1) (BAD_VAR_NUM means not present);
     unsigned compTypeCtxtArg; // position of hidden param for type context for generic code (CORINFO_CALLCONV_PARAMTYPE)
     unsigned compThisArg;     // position of implicit this pointer param (not to be confused with lvaThisLclNum)
-    unsigned compLocalsCount; // Number of vars : args + locals (incl. implicit and     hidden)
+    unsigned compVarargsHandleArg;
+
     unsigned compUnmanagedCallCountWithGCTransition = 0; // count of unmanaged calls with GC transition.
     unsigned compClassProbeCount                    = 0; // Number of class profile probes in this method
 
@@ -1107,6 +1120,16 @@ struct CompiledMethodInfo
     {
         assert(varTypeIsStruct(compRetType));
         return retLayout;
+    }
+
+    unsigned GetILArgCount() const
+    {
+        return compILArgsCount;
+    }
+
+    unsigned GetILLocCount() const
+    {
+        return compMethodInfo->locals.numArgs;
     }
 
     unsigned GetParamCount() const
@@ -1409,13 +1432,13 @@ class SIMDCoalescingBuffer
 {
     Statement* m_firstStmt;
     Statement* m_lastStmt;
-    unsigned   m_lclNum;
+    LclVarDsc* m_lcl;
     unsigned   m_index;
 
-    unsigned IsSimdLocalField(GenTree* node, Compiler* compiler);
-    unsigned IsSimdLocalExtract(GenTree* node);
+    LclVarDsc* IsSimdLocalField(GenTree* node, Compiler* compiler);
+    LclVarDsc* IsSimdLocalExtract(GenTree* node);
 
-    bool Add(Compiler* compiler, Statement* stmt, GenTreeOp* asg, unsigned simdLclNum);
+    bool Add(Compiler* compiler, Statement* stmt, GenTreeOp* asg, LclVarDsc* simdLcl);
 
 public:
     SIMDCoalescingBuffer() : m_index(0)
@@ -1493,8 +1516,8 @@ struct Importer
     Statement*  impStmtList  = nullptr; // Statements for the BB being imported.
     Statement*  impLastStmt  = nullptr; // The last statement for the current BB.
 
-    bool     impBoxTempInUse = false;
-    unsigned impBoxTemp      = BAD_VAR_NUM;
+    bool       impBoxTempInUse = false;
+    LclVarDsc* impBoxTempLcl   = nullptr;
 
     // IL offset of the stmt currently being imported. It gets set to
     // BAD_IL_OFFSET after it has been set in the appended trees. Then it gets
@@ -1532,7 +1555,7 @@ struct Importer
 
     Importer(Compiler* compiler);
 
-    CompAllocator getAllocator(CompMemKind kind = CMK_Generic);
+    CompAllocator getAllocator(CompMemKind kind);
 
     void InitDebuggingInfo();
     void eeGetStmtOffsets();
@@ -1652,9 +1675,9 @@ struct Importer
     Statement* impAppendTree(GenTree* tree, unsigned chkLevel);
     void impSpillAllAppendTree(GenTree* tree);
     void impSpillNoneAppendTree(GenTree* tree);
-    void impAppendTempAssign(unsigned lclNum, GenTree* val, unsigned curLevel);
-    void impAppendTempAssign(unsigned lclNum, GenTree* val, ClassLayout* layout, unsigned curLevel);
-    void impAppendTempAssign(unsigned lclNum, GenTree* val, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
+    void impAppendTempAssign(LclVarDsc* lcl, GenTree* val, unsigned curLevel);
+    void impAppendTempAssign(LclVarDsc* lcl, GenTree* val, ClassLayout* layout, unsigned curLevel);
+    void impAppendTempAssign(LclVarDsc* lcl, GenTree* val, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
 
     GenTree* impCloneExpr(GenTree* tree, GenTree** clone, unsigned spillCheckLevel DEBUGARG(const char* reason));
     GenTree* impCloneExpr(GenTree*     tree,
@@ -1749,7 +1772,7 @@ struct Importer
     void EnsureStackSpilled(bool ignoreLeaves DEBUGARG(const char* reason));
     void SpillCatchArg();
     void impSpillSideEffects(GenTreeFlags spillSideEffects, unsigned chkLevel DEBUGARG(const char* reason));
-    void impSpillLclReferences(unsigned lclNum);
+    void impSpillLclReferences(LclVarDsc* lcl);
 
     BasicBlock* impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_HANDLE clsHnd, bool isSingleBlockFilter);
     GenTree* impNewCatchArg();
@@ -1823,7 +1846,7 @@ struct Importer
     bool impAddSpillCliqueSuccMember(BasicBlock* block);
     bool impAddSpillCliquePredMember(BasicBlock* block);
 
-    void impPushLclVar(unsigned lclNum);
+    void impPushLclVar(LclVarDsc* lcl);
     void impLoadArg(unsigned ilArgNum);
     void impLoadLoc(unsigned ilLclNum);
     bool impInlineReturnInstruction();
@@ -2201,32 +2224,21 @@ struct Importer
 
     StructPassing abiGetStructReturnType(ClassLayout* layout, CorInfoCallConvExtension callConv, bool isVarArgs);
 
-    unsigned lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason));
-    unsigned lvaGrabTemps(unsigned count DEBUGARG(const char* reason));
-    unsigned lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason));
-    unsigned lvaNewTemp(ClassLayout* layout, bool shortLifetime DEBUGARG(const char* reason));
-    unsigned lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shortLifetime DEBUGARG(const char* reason));
-    unsigned lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGARG(const char* reason));
-    void lvaSetAddressExposed(unsigned lclNum);
-    void lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsafeBuffer);
-    void lvaSetStruct(unsigned lclNum, CORINFO_CLASS_HANDLE classHandle, bool checkUnsafeBuffer);
-    void lvaSetClass(unsigned lclNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);
-    void lvaSetClass(unsigned lclNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
-    void lvaUpdateClass(unsigned lclNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);
-    void lvaUpdateClass(unsigned lclNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
-    LclVarDsc* lvaGetDesc(unsigned lclNum);
-    LclVarDsc* lvaGetDesc(GenTreeLclVarCommon* lclNode);
-    LclVarDsc* lvaGetDesc(GenTreeLclAddr* lclAddr);
-    bool lvaIsOriginalThisParam(unsigned lclNum);
+    LclVarDsc* lvaAllocTemp(bool shortLifetime DEBUGARG(const char* reason));
+    LclVarDsc* lvaAllocTemps(unsigned count DEBUGARG(const char* reason));
+    LclVarDsc* lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason));
+    LclVarDsc* lvaNewTemp(ClassLayout* layout, bool shortLifetime DEBUGARG(const char* reason));
+    LclVarDsc* lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shortLifetime DEBUGARG(const char* reason));
+    LclVarDsc* lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGARG(const char* reason));
+    void lvaSetAddressExposed(LclVarDsc* lcl);
     bool lvaHaveManyLocals();
-    bool fgVarNeedsExplicitZeroInit(unsigned lclNum, bool blockIsInLoop, bool blockIsReturn);
-    unsigned compMapILargNum(unsigned ilArgNum);
+    bool fgVarNeedsExplicitZeroInit(LclVarDsc* lcl, bool blockIsInLoop, bool blockIsReturn);
 
     Statement* gtNewStmt(GenTree* expr = nullptr, IL_OFFSETX offset = BAD_IL_OFFSET);
 
-    GenTreeLclVar* gtNewLclvNode(unsigned lclNum, var_types type);
-    GenTreeLclAddr* gtNewLclVarAddrNode(unsigned lclNum, var_types type = TYP_I_IMPL);
-    GenTreeLclFld* gtNewLclFldNode(unsigned lclNum, var_types type, unsigned offset);
+    GenTreeLclVar* gtNewLclvNode(LclVarDsc* lcl, var_types type);
+    GenTreeLclAddr* gtNewLclVarAddrNode(LclVarDsc* lcl, var_types type = TYP_I_IMPL);
+    GenTreeLclFld* gtNewLclFldNode(LclVarDsc* lcl, var_types type, unsigned offset);
     GenTreeIntCon* gtNewIconNode(ssize_t value, var_types type = TYP_INT);
     GenTreeIntCon* gtNewIconNode(unsigned fieldOffset, FieldSeqNode* fieldSeq);
     GenTree* gtNewLconNode(int64_t value);
@@ -2349,14 +2361,14 @@ struct Importer
 
     void lvaRecordSimdIntrinsicUse(GenTree* op);
     void lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar);
-    void lvaRecordSimdIntrinsicUse(unsigned lclNum);
+    void lvaRecordSimdIntrinsicUse(LclVarDsc* lcl);
     void lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrinsic* src);
-    void lvaRecordSimdIntrinsicDef(unsigned lclNum, GenTreeHWIntrinsic* src);
+    void lvaRecordSimdIntrinsicDef(LclVarDsc* lcl, GenTreeHWIntrinsic* src);
 #endif // FEATURE_HW_INTRINSICS
 
     static GenTreeLclAddr* impIsAddressInLocal(GenTree* tree);
     static GenTreeLclAddr* impIsLocalAddrExpr(GenTree* node);
-    bool impHasLclRef(GenTree* tree, unsigned lclNum);
+    bool impHasLclRef(GenTree* tree, LclVarDsc* lcl);
     bool impHasAddressTakenLocals(GenTree* tree);
 
     void impDevirtualizeCall(GenTreeCall*            call,
@@ -2374,7 +2386,6 @@ struct Importer
     void gtInitStructCopyAsg(GenTreeOp* asg);
     GenTree* gtFoldExpr(GenTree* tree);
     GenTree* gtFoldExprConst(GenTree* tree);
-    GenTreeLclVar* fgInsertCommaFormTemp(GenTree** use);
     void gtChangeOperToNullCheck(GenTree* tree);
     bool gtIsRecursiveCall(GenTreeCall* call);
     bool gtIsRecursiveCall(CORINFO_METHOD_HANDLE callMethodHandle);
@@ -2394,7 +2405,7 @@ struct Importer
                            CORINFO_CONTEXT_HANDLE exactContextHnd,
                            InlineCandidateInfo**  inlineCandidateInfo,
                            InlineResult*          inlineResult);
-    unsigned inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
+    LclVarDsc* inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
     GenTree* inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum);
     bool inlImportReturn(InlineInfo* inlineInfo, GenTree* op, CORINFO_CLASS_HANDLE retClsHnd);
 };
@@ -2878,8 +2889,8 @@ public:
 
     GenTree* gtNewOneConNode(var_types type);
 
-    GenTreeLclVar* gtNewStoreLclVar(unsigned lclNum, var_types type, GenTree* value);
-    GenTreeLclFld* gtNewStoreLclFld(var_types type, unsigned lclNum, unsigned lclOffs, GenTree* value);
+    GenTreeLclVar* gtNewStoreLclVar(LclVarDsc* lcl, var_types type, GenTree* value);
+    GenTreeLclFld* gtNewStoreLclFld(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* value);
 
     GenTreeUnOp* gtNewBitCastNode(var_types type, GenTree* arg);
 
@@ -2914,11 +2925,11 @@ public:
                                                   GenTree*                ctxTree,
                                                   void*                   compileTimeHandle);
 
-    GenTreeLclVar* gtNewLclvNode(unsigned lnum, var_types type);
-    GenTreeLclVar* gtNewLclVarLargeNode(unsigned lnum, var_types type);
+    GenTreeLclVar* gtNewLclvNode(LclVarDsc* lcl, var_types type);
+    GenTreeLclVar* gtNewLclVarLargeNode(LclVarDsc* lcl, var_types type);
 
-    GenTreeLclAddr* gtNewLclVarAddrNode(unsigned lclNum, var_types type = TYP_I_IMPL);
-    GenTreeLclAddr* gtNewLclFldAddrNode(unsigned      lclNum,
+    GenTreeLclAddr* gtNewLclVarAddrNode(LclVarDsc* lcl, var_types type = TYP_I_IMPL);
+    GenTreeLclAddr* gtNewLclFldAddrNode(LclVarDsc*    lcl,
                                         unsigned      lclOffs,
                                         FieldSeqNode* fieldSeq,
                                         var_types     type = TYP_I_IMPL);
@@ -2984,7 +2995,7 @@ public:
         var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1, GenTree* op2, GenTree* op3);
 #endif // FEATURE_HW_INTRINSICS
 
-    GenTreeLclFld* gtNewLclFldNode(unsigned lnum, var_types type, unsigned offset);
+    GenTreeLclFld* gtNewLclFldNode(LclVarDsc* lcl, var_types type, unsigned offset);
     GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call);
 
     GenTreeIndir* gtNewIndir(var_types type, GenTree* addr);
@@ -3026,10 +3037,10 @@ public:
 
     GenTree* gtClone(GenTree* tree, bool complexOK = false);
 
-    GenTree* gtCloneExpr(GenTree*     tree,
-                         GenTreeFlags addFlags = GTF_EMPTY,
-                         unsigned     varNum   = BAD_VAR_NUM,
-                         int          varVal   = 0);
+    GenTree* gtCloneExpr(GenTree*         tree,
+                         GenTreeFlags     addFlags = GTF_EMPTY,
+                         const LclVarDsc* constLcl = nullptr,
+                         int              constVal = 0);
 
     Statement* gtCloneStmt(Statement* stmt)
     {
@@ -3038,10 +3049,10 @@ public:
     }
 
     // Internal helper for cloning a call
-    GenTreeCall* gtCloneExprCallHelper(GenTreeCall* call,
-                                       GenTreeFlags addFlags   = GTF_EMPTY,
-                                       unsigned     deepVarNum = BAD_VAR_NUM,
-                                       int          deepVarVal = 0);
+    GenTreeCall* gtCloneExprCallHelper(GenTreeCall*     call,
+                                       GenTreeFlags     addFlags = GTF_EMPTY,
+                                       const LclVarDsc* constLcl = nullptr,
+                                       int              constVal = 0);
 
     // Create copy of an inline or guarded devirtualization candidate tree.
     GenTreeCall* gtCloneCandidateCall(GenTreeCall* call);
@@ -3161,7 +3172,7 @@ public:
     void dmpSsaDefUse(GenTree* node);
     void dmpExtract(GenTreeExtract* extract);
     void dmpInsert(GenTreeInsert* insert);
-    void dmpVarSetDiff(const char* name, VARSET_VALARG_TP from, VARSET_VALARG_TP to);
+    void dmpVarSetDiff(const char* name, VARSET_TP from, VARSET_TP to);
     void gtDispNodeName(GenTree* tree);
     void dmpNodeRegs(GenTree* node);
     void dmpNodeOperands(GenTree* node);
@@ -3169,11 +3180,11 @@ public:
     void gtDispCommonEndLine(GenTree* tree);
     void gtDispTree(GenTree* tree, bool header = true, bool operands = true);
     void gtDispTreeRec(GenTree* tree, IndentStack* indentStack, const char* msg, bool topOnly, bool isLIR, bool header);
-    void gtGetLclVarNameInfo(unsigned lclNum, const char** ilKindOut, const char** ilNameOut, unsigned* ilNumOut);
-    int gtGetLclVarName(unsigned lclNum, char* buf, unsigned buf_remaining);
+    const char* gtGetLclVarNameInfo(unsigned lclNum, const char** kind, unsigned* num);
+    size_t gtGetLclVarName(unsigned lclNum, char* buffer, unsigned bufferSize);
     int dmpLclName(unsigned lclNum);
     char* gtGetLclVarName(unsigned lclNum);
-    void gtDispLclVar(unsigned lclNum, bool padForBiggestDisp = true);
+    void gtDispLclVar(unsigned lclNum, bool padForBiggestDisp);
     void gtDispClassLayout(ClassLayout* layout, var_types type);
     void gtDispStmt(Statement* stmt, const char* msg = nullptr);
     void gtDispBlockStmts(BasicBlock* block);
@@ -3279,47 +3290,94 @@ public:
     // layout calculations, this is the level we are currently computing.
     FrameLayoutState lvaDoneFrameLayout = NO_FRAME_LAYOUT;
 
-    bool lvaLocalVarRefCounted() const
+    unsigned    lvaCount         = 0;
+    unsigned    lvaTableCapacity = 0;
+    LclVarDsc** lvaTable         = nullptr;
+
+    unsigned    lvaTrackedCount    = 0;
+    unsigned    lvaTrackedCapacity = 0;
+    LclVarDsc** lvaTracked         = nullptr;
+
+    unsigned lvaLiveSetWordCount = 0;
+#ifdef DEBUG
+    unsigned lvaLiveSetVersion = 0;
+#endif
+
+    // --- Begin various special local variables ---
+
+    unsigned lvaPInvokeFrameListVar    = BAD_VAR_NUM;
+    unsigned lvaInlinedPInvokeFrameVar = BAD_VAR_NUM;
+    unsigned lvaReversePInvokeFrameVar = BAD_VAR_NUM;
+    unsigned lvaMonAcquired            = BAD_VAR_NUM;
+    unsigned lvaNewObjArrayArgs        = BAD_VAR_NUM;
+    unsigned lvaGSSecurityCookie       = BAD_VAR_NUM;
+    unsigned lvaStubArgumentVar        = BAD_VAR_NUM;
+    unsigned genReturnLocal            = BAD_VAR_NUM;
+
+    // Same as info.compThisArg, except when "this" is address taken or stored to - in which
+    // case this is a temp local initialized from the "this" arg at the start of the method.
+    unsigned lvaThisLclNum = BAD_VAR_NUM;
+
+    // Variable representing the return address. The helper-based tailcall
+    // mechanism passes the address of the return address to a runtime helper
+    // where it is used to detect tail-call chains.
+    unsigned lvaRetAddrVar = BAD_VAR_NUM;
+
+    unsigned fgLargeFieldOffsetNullCheckTemps[3];
+
+#if FEATURE_FIXED_OUT_ARGS
+    unsigned lvaOutgoingArgSpaceVar = BAD_VAR_NUM;
+#endif
+#ifdef FEATURE_EH_FUNCLETS
+    unsigned lvaPSPSym = BAD_VAR_NUM;
+#endif
+#ifdef TARGET_X86
+    // Pointer (computed based on incoming varargs handle) to the start of the stack arguments
+    LclVarDsc* lvaVarargsBaseOfStkLcl = nullptr;
+#endif
+#ifndef FEATURE_EH_FUNCLETS
+    // This is used for the callable handlers
+    LclVarDsc* lvaShadowSPslotsLcl = nullptr; // TYP_BLK variable for all the shadow SP slots
+#endif
+#ifdef JIT32_GCENCODER
+    // variable which stores the value of ESP after the the last alloca/localloc
+    LclVarDsc* lvaLocAllocSPLcl = nullptr;
+#endif
+#if defined(DEBUG) && defined(TARGET_XARCH)
+    // Stores SP to confirm it is not corrupted on return.
+    LclVarDsc* lvaReturnSpCheckLcl = nullptr;
+    // Stores SP to confirm it is not corrupted after every call.
+    X86_ONLY(LclVarDsc* lvaCallSpCheckLcl = nullptr;)
+#endif
+
+    // --- End various special local variables ---
+
+    jitstd::span<LclVarDsc*> Locals() const
     {
-        return lvaRefCountState == RCS_NORMAL;
+        // TODO-MIKE-Review: A few uses of this rely on the fact that the JIT doesn't free any allocated
+        // memory until compilation ends and so the locals array remains valid, even if new locals are
+        // added and the array is resized. This is rather convenient because it allows iterating over the
+        // existing locals and ignoring any locals that are added during the iteration, which is exactly
+        // what we need most of the time. But if we ever want to free memory this will need to be changed.
+
+        return jitstd::span<LclVarDsc*>(lvaTable, lvaCount);
     }
 
-    unsigned lvaCount;     // total number of locals, which includes function arguments,
-                           // special arguments, IL local variables, and JIT temporary variables
-    unsigned lvaTableSize; // lvaTable size (>= lvaCount)
-
-    LclVarDsc* lvaTable           = nullptr; // variable descriptor table
-    unsigned*  lvaTrackedToVarNum = nullptr;
-
-    unsigned lvaTrackedCount             = 0; // actual # of locals being tracked
-    unsigned lvaTrackedCountInSizeTUnits = 0; // min # of size_t's sufficient to hold a bit for all tracked locals
-
-    unsigned lvaCurEpoch = 0; // VarSets are relative to a specific set of tracked var indices.
-                              // It that changes, this changes.  VarSets from different epochs
-                              // cannot be meaningfully combined.
-
-    unsigned GetCurLVEpoch()
+    jitstd::span<LclVarDsc*> Params() const
     {
-        return lvaCurEpoch;
+        return jitstd::span<LclVarDsc*>(lvaTable, info.GetParamCount());
     }
 
-    // reverse map of tracked number to var number
-    unsigned lvaTrackedToVarNumSize = 0;
-
-    void lvaSetImplicitlyReferenced(unsigned lclNum);
-
-    void lvaSetAddressExposed(unsigned lclNum);
-    void lvaSetAddressExposed(LclVarDsc* lcl);
-
-    // [[deprecated]]
-    void lvaSetVarAddrExposed(unsigned lclNum)
+    jitstd::span<LclVarDsc*> PromotedFields(LclVarDsc* lcl) const
     {
-        lvaSetAddressExposed(lclNum);
+        return jitstd::span<LclVarDsc*>(lvaTable + lcl->GetPromotedFieldLclNum(0), lcl->GetPromotedFieldCount());
     }
 
-    void lvaSetLiveInOutOfHandler(unsigned lclNum);
-
-    void lvSetMinOptsDoNotEnreg();
+    jitstd::span<LclVarDsc*> LivenessLocals() const
+    {
+        assert((lvaTracked != nullptr) || (lvaTrackedCount == 0));
+        return jitstd::span<LclVarDsc*>(lvaTracked, lvaTrackedCount);
+    }
 
 #ifdef DEBUG
     // Reasons why we can't enregister.  Some of these correspond to debug properties of local vars.
@@ -3344,65 +3402,23 @@ public:
     };
 #endif
 
-    void lvaSetDoNotEnregister(unsigned lclNum DEBUGARG(DoNotEnregisterReason reason));
-    void lvaSetDoNotEnregister(LclVarDsc* lcl DEBUGARG(DoNotEnregisterReason reason));
-
-    // [[deprecated]]
-    void lvaSetVarDoNotEnregister(unsigned lclNum DEBUGARG(DoNotEnregisterReason reason))
+    bool lvaLocalVarRefCounted() const
     {
-        lvaSetDoNotEnregister(lclNum DEBUGARG(reason));
+        return lvaRefCountState == RCS_NORMAL;
     }
 
-    unsigned lvaVarargsHandleArg = BAD_VAR_NUM;
-#ifdef TARGET_X86
-    // Pointer (computed based on incoming varargs handle) to the start of the stack arguments
-    unsigned lvaVarargsBaseOfStkArgs = BAD_VAR_NUM;
-#endif
+    void lvaSetImplicitlyReferenced(LclVarDsc* lcl);
+    void lvaSetAddressExposed(LclVarDsc* lcl);
+    void lvaSetDoNotEnregister(LclVarDsc* lcl DEBUGARG(DoNotEnregisterReason reason));
+    void lvaSetLiveInOutOfHandler(LclVarDsc* lcl);
+    bool lvaIsX86VarargsStackParam(LclVarDsc* lcl) const;
 
-    unsigned lvaPInvokeFrameListVar    = BAD_VAR_NUM; // lclNum for the Frame root
-    unsigned lvaInlinedPInvokeFrameVar = BAD_VAR_NUM; // variable representing the InlinedCallFrame
-    unsigned lvaReversePInvokeFrameVar = BAD_VAR_NUM; // variable representing the reverse PInvoke frame
-    unsigned lvaMonAcquired            = BAD_VAR_NUM; // boolean variable introduced into in synchronized methods
-                                                      // that tracks whether the lock has been taken
+    void lvSetMinOptsDoNotEnreg();
 
-    // Same as info.compThisArg, except when "this" is address taken or stored to - in which
-    // case this is a temp local initialized from the "this" arg at the start of the method.
-    unsigned lvaThisLclNum = BAD_VAR_NUM;
-
-#if FEATURE_FIXED_OUT_ARGS
-    unsigned lvaOutgoingArgSpaceVar = BAD_VAR_NUM; // TYP_BLK local for fixed outgoing argument space
-#endif
-
-    // Variable representing the return address. The helper-based tailcall
-    // mechanism passes the address of the return address to a runtime helper
-    // where it is used to detect tail-call chains.
-    unsigned lvaRetAddrVar = BAD_VAR_NUM;
-
-#if defined(DEBUG) && defined(TARGET_XARCH)
-    // Stores SP to confirm it is not corrupted on return.
-    unsigned lvaReturnSpCheck = BAD_VAR_NUM;
-    // Stores SP to confirm it is not corrupted after every call.
-    X86_ONLY(unsigned lvaCallSpCheck = BAD_VAR_NUM;)
-#endif
-
-    bool lvaKeepAliveAndReportThis(); // Synchronized instance method of a reference type, or
-                                      // CORINFO_GENERICS_CTXT_FROM_THIS?
-    bool lvaReportParamTypeArg();     // Exceptions and CORINFO_GENERICS_CTXT_FROM_PARAMTYPEARG?
-
-//-------------------------------------------------------------------------
-// All these frame offsets are inter-related and must be kept in sync
-
-#if !defined(FEATURE_EH_FUNCLETS)
-    // This is used for the callable handlers
-    unsigned lvaShadowSPslotsVar = BAD_VAR_NUM; // TYP_BLK variable for all the shadow SP slots
-#endif
-
-#ifdef JIT32_GCENCODER
-    // variable which stores the value of ESP after the the last alloca/localloc
-    unsigned lvaLocAllocSPvar = BAD_VAR_NUM;
-#endif
-
-    unsigned lvaNewObjArrayArgs = BAD_VAR_NUM; // variable with arguments for new MD array helper
+    // Synchronized instance method of a reference type, or CORINFO_GENERICS_CTXT_FROM_THIS?
+    bool lvaKeepAliveAndReportThis();
+    // Exceptions and CORINFO_GENERICS_CTXT_FROM_PARAMTYPEARG?
+    bool lvaReportParamTypeArg();
 
     unsigned lvaGetParamAllocSize(LclVarDsc* lcl);
     static unsigned lvaGetParamAlignment(var_types type, bool isFloatHfa);
@@ -3413,6 +3429,7 @@ public:
 #endif
     void lvaAssignLocalsVirtualFrameOffsets();
     int lvaAllocLocalAndSetVirtualOffset(unsigned lclNum, unsigned size, int stkOffs);
+    int lvaAllocLocalAndSetVirtualOffset(LclVarDsc* lcl, unsigned size, int stkOffs);
 #ifdef TARGET_AMD64
     // Returns true if compCalleeRegsPushed (including RBP if used as frame pointer) is even.
     bool lvaIsCalleeSavedIntRegCountEven();
@@ -3427,9 +3444,9 @@ public:
                          );
 
 #ifdef DEBUG
-    void lvaDumpRegLocation(unsigned lclNum);
-    void lvaDumpFrameLocation(unsigned lclNum);
-    void lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth = 6);
+    void lvaDumpRegLocation(LclVarDsc* lcl);
+    void lvaDumpFrameLocation(LclVarDsc* lcl);
+    void lvaDumpEntry(LclVarDsc* lcl, size_t refWeightWidth = 6);
     void lvaTableDump();
 #endif
 
@@ -3450,7 +3467,7 @@ public:
 
     // True if this is an OSR compilation and this local is potentially
     // located on the original method stack frame.
-    bool lvaIsOSRLocal(unsigned varNum);
+    bool lvaIsOSRLocal(LclVarDsc* lcl);
 
     //------------------------ For splitting types ----------------------------
 
@@ -3474,46 +3491,30 @@ public:
 
     void lvaInitVarDsc(LclVarDsc* lcl, CorInfoType corType, CORINFO_CLASS_HANDLE typeHnd);
 
-    LclVarDsc* lvaGetDesc(unsigned lclNum)
+    LclVarDsc* lvaGetDesc(unsigned lclNum) const
     {
         assert(lclNum < lvaCount);
-        return &lvaTable[lclNum];
+        return lvaTable[lclNum];
     }
 
-    LclVarDsc* lvaGetDesc(const GenTreeLclVarCommon* lclVar)
-    {
-        assert(lclVar->GetLclNum() < lvaCount);
-        return &lvaTable[lclVar->GetLclNum()];
-    }
-
-    LclVarDsc* lvaGetDesc(const GenTreeLclAddr* lclAddr)
-    {
-        assert(lclAddr->GetLclNum() < lvaCount);
-        return &lvaTable[lclAddr->GetLclNum()];
-    }
-
-    unsigned lvaTrackedIndexToLclNum(unsigned trackedIndex)
+    LclVarDsc* lvaGetDescByTrackedIndex(unsigned trackedIndex) const
     {
         assert(trackedIndex < lvaTrackedCount);
-        unsigned lclNum = lvaTrackedToVarNum[trackedIndex];
-        assert(lclNum < lvaCount);
-        return lclNum;
+        return lvaTracked[trackedIndex];
     }
 
-    LclVarDsc* lvaGetDescByTrackedIndex(unsigned trackedIndex)
+    bool lvaHaveManyLocals() const
     {
-        return lvaGetDesc(lvaTrackedIndexToLclNum(trackedIndex));
+        return lvaCount >= JitConfig.JitMaxLocalsToTrack();
     }
 
-    bool lvaHaveManyLocals() const;
+    LclVarDsc* lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason));
+    LclVarDsc* lvaNewTemp(ClassLayout* layout, bool shortLifetime DEBUGARG(const char* reason));
+    LclVarDsc* lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shortLifetime DEBUGARG(const char* reason));
+    LclVarDsc* lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGARG(const char* reason));
 
-    unsigned lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason));
-    unsigned lvaNewTemp(ClassLayout* layout, bool shortLifetime DEBUGARG(const char* reason));
-    unsigned lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shortLifetime DEBUGARG(const char* reason));
-    unsigned lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGARG(const char* reason));
-
-    unsigned lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason));
-    unsigned lvaGrabTemps(unsigned count DEBUGARG(const char* reason));
+    LclVarDsc* lvaAllocTemp(bool shortLifetime DEBUGARG(const char* reason));
+    LclVarDsc* lvaAllocTemps(unsigned count DEBUGARG(const char* reason));
 
     void lvaResizeTable(unsigned newSize);
 
@@ -3526,38 +3527,25 @@ public:
     void lvaAddRef(LclVarDsc* lcl, BasicBlock::weight_t weight, bool propagate = true);
 
 #ifdef DEBUG
-    void lvaDispVarSet(VARSET_VALARG_TP set, VARSET_VALARG_TP allVars);
-    void lvaDispVarSet(VARSET_VALARG_TP set);
+    void lvaDispVarSet(VARSET_TP set, VARSET_TP allVars);
+    void lvaDispVarSet(VARSET_TP set);
 #endif
 
-    int lvaFrameAddress(int varNum, bool* pFPbased);
+    int lvaFrameAddress(int varNum, bool* fpBased) const;
+    int lvaLclFrameAddress(LclVarDsc* lcl, bool* fpBased) const;
+    int lvaSpillTempFrameAddress(int tempNum, bool* fpBased) const;
 
-    bool lvaIsOriginalThisParam(unsigned lclNum);
+    bool lvaIsOriginalThisParam(unsigned lclNum) const;
 
-    bool lvaIsImplicitByRefLocal(unsigned lclNum)
-    {
-        return lvaGetDesc(lclNum)->IsImplicitByRefParam();
-    }
-
-    void lvaSetStruct(unsigned lclNum, CORINFO_CLASS_HANDLE classHandle, bool checkUnsafeBuffer);
-    void lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsafeBuffer);
     void lvaSetStruct(LclVarDsc* lcl, ClassLayout* layout, bool checkUnsafeBuffer);
 
     // If the local is TYP_REF, set or update the associated class information.
-    void lvaSetClass(unsigned varNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);
-    void lvaSetClass(unsigned varNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
-    void lvaUpdateClass(unsigned varNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);
-    void lvaUpdateClass(unsigned varNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
+    void lvaSetClass(LclVarDsc* lcl, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);
+    void lvaSetClass(LclVarDsc* lcl, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
+    void lvaUpdateClass(LclVarDsc* lcl, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);
+    void lvaUpdateClass(LclVarDsc* lcl, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
 
     bool lvaTempsHaveLargerOffsetThanVars();
-
-    unsigned lvaGSSecurityCookie = BAD_VAR_NUM; // LclVar number
-    unsigned lvaStubArgumentVar  = BAD_VAR_NUM; // variable representing the secret stub argument
-#ifdef FEATURE_EH_FUNCLETS
-    unsigned lvaPSPSym = BAD_VAR_NUM; // variable representing the PSPSym
-#endif
-    unsigned genReturnLocal = BAD_VAR_NUM; // Local number for the return value when applicable.
-    unsigned fgLargeFieldOffsetNullCheckTemps[3];
 
     unsigned              impSharedStackSize = 0;
     Importer::StackEntry* impSharedStack     = nullptr;
@@ -3680,7 +3668,7 @@ private:
 
     static GenTreeLclAddr* impIsAddressInLocal(GenTree* tree);
     static GenTreeLclAddr* impIsLocalAddrExpr(GenTree* node);
-    bool impHasLclRef(GenTree* tree, unsigned lclNum);
+    bool impHasLclRef(GenTree* tree, LclVarDsc* lcl);
     bool impHasAddressTakenLocals(GenTree* tree);
 
     // STATIC inlining decision based on the IL code.
@@ -3738,8 +3726,8 @@ public:
     unsigned* fgDomTreePreOrder;
     unsigned* fgDomTreePostOrder;
 
-    BlockSet fgEnterBlks = BlockSetOps::UninitVal(); // Set of blocks which have a special transfer of control; the
-                                                     // "entry" blocks plus EH handler begin blocks.
+    BlockSet fgEntryBlocks = BlockSetOps::UninitVal(); // Set of blocks which have a special transfer of control; the
+                                                       // "entry" blocks plus EH handler begin blocks.
 
     jitstd::vector<flowList*>* fgPredListSortVector = nullptr;
 
@@ -3751,68 +3739,55 @@ public:
         return getAllocator(cmk).allocate<T>(fgBBNumMax + 1);
     }
 
-    // BlockSets are relative to a specific set of BasicBlock numbers. If that changes
-    // (if the blocks are renumbered), this changes. BlockSets from different epochs
-    // cannot be meaningfully combined. Note that new blocks can be created with higher
-    // block numbers without changing the basic block epoch. These blocks *cannot*
-    // participate in a block set until the blocks are all renumbered, causing the epoch
-    // to change. This is useful if continuing to use previous block sets is valuable.
-    // If the epoch is zero, then it is uninitialized, and block sets can't be used.
-    unsigned fgCurBBEpoch = 0;
+#ifdef DEBUG
+    // BlockSets are relative to a specific BasicBlock numbering. If the blocks are renumbered,
+    // this changes and BlockSets with different versions cannot be meaningfully combined.
+    // Note that new blocks can be created with higher block numbers without changing the version.
+    // These blocks cannot participate in a block set until the blocks are all renumbered,
+    // causing the version to change. This is useful if continuing to use previous block sets is
+    // valuable. If the version is zero, then it is uninitialized, and block sets can't be used.
+    unsigned fgBlockSetVersion = 0;
+#endif
 
-    unsigned GetCurBasicBlockEpoch()
+    // The number of basic blocks in the current BlockSet version. When the blocks are renumbered,
+    // this is fgBBcount. As blocks are added, fgBBcount increases, but this remains the same,
+    // until a new BlockSet version is created, such as when the blocks are all renumbered.
+    unsigned fgBlockSetSize = 0;
+
+    // The number of words in a BlockSet, precomputed to make IsShort as cheap as possible.
+    unsigned fgBlockSetWordCount = 0;
+
+    void NewBlockSetVersion()
     {
-        return fgCurBBEpoch;
+        INDEBUG(unsigned oldWordCount = fgBlockSetWordCount);
+
+        INDEBUG(fgBlockSetVersion++);
+        fgBlockSetSize      = fgBBNumMax + 1;
+        fgBlockSetWordCount = BlockSetTraits::ComputeWordCount(fgBlockSetSize);
+
+        INDEBUG(fgReachabilitySetsValid = false);
+        INDEBUG(fgEntryBlocksValid = false);
+
+        JITDUMP("\nNew BlockSet version %u, # of blocks (including unused BB00): %u, bitset word count: %u (%s), prev "
+                "bitset word count: %u (%s)\n",
+                fgBlockSetVersion, fgBlockSetSize, fgBlockSetWordCount, fgBlockSetWordCount <= 1 ? "short" : "long",
+                oldWordCount, oldWordCount <= 1 ? "short" : "long");
     }
 
-    // The number of basic blocks in the current epoch. When the blocks are renumbered,
-    // this is fgBBcount. As blocks are added, fgBBcount increases, fgCurBBEpochSize remains
-    // the same, until a new BasicBlock epoch is created, such as when the blocks are all renumbered.
-    unsigned fgCurBBEpochSize = 0;
-
-    // The number of "size_t" elements required to hold a bitset large enough for fgCurBBEpochSize
-    // bits. This is precomputed to avoid doing math every time BasicBlockBitSetTraits::GetArrSize() is called.
-    unsigned fgBBSetCountInSizeTUnits = 0;
-
-    void NewBasicBlockEpoch()
+    void UpdateBlockSetVersion()
     {
-        INDEBUG(unsigned oldEpochArrSize = fgBBSetCountInSizeTUnits);
-
-        // We have a new epoch. Compute and cache the size needed for new BlockSets.
-        fgCurBBEpoch++;
-        fgCurBBEpochSize = fgBBNumMax + 1;
-        fgBBSetCountInSizeTUnits =
-            roundUp(fgCurBBEpochSize, (unsigned)(sizeof(size_t) * 8)) / unsigned(sizeof(size_t) * 8);
+        if (fgBlockSetSize != fgBBNumMax + 1)
+        {
+            NewBlockSetVersion();
+        }
+    }
 
 #ifdef DEBUG
-        // All BlockSet objects are now invalid!
-        fgReachabilitySetsValid = false; // the bbReach sets are now invalid!
-        fgEnterBlksSetValid     = false; // the fgEnterBlks set is now invalid!
-
-        if (verbose)
-        {
-            unsigned epochArrSize = BasicBlockBitSetTraits::GetArrSize(this, sizeof(size_t));
-            printf("\nNew BlockSet epoch %d, # of blocks (including unused BB00): %u, bitset array size: %u (%s)",
-                   fgCurBBEpoch, fgCurBBEpochSize, epochArrSize, (epochArrSize <= 1) ? "short" : "long");
-            if ((fgCurBBEpoch != 1) && ((oldEpochArrSize <= 1) != (epochArrSize <= 1)))
-            {
-                // If we're not just establishing the first epoch, and the epoch array size has changed such that we're
-                // going to change our bitset representation from short (just a size_t bitset) to long (a pointer to an
-                // array of size_t bitsets), then print that out.
-                printf("; NOTE: BlockSet size was previously %s!", (oldEpochArrSize <= 1) ? "short" : "long");
-            }
-            printf("\n");
-        }
-#endif // DEBUG
-    }
-
-    void EnsureBasicBlockEpoch()
+    unsigned GetBlockSetVersion() const
     {
-        if (fgCurBBEpochSize != fgBBNumMax + 1)
-        {
-            NewBasicBlockEpoch();
-        }
+        return fgBlockSetVersion;
     }
+#endif
 
     void fgEnsureFirstBBisScratch();
     bool fgFirstBBisScratch();
@@ -3862,7 +3837,7 @@ public:
 
 #ifdef DEBUG
     bool fgReachabilitySetsValid = false; // Are the bbReach sets valid?
-    bool fgEnterBlksSetValid     = false; // Is the fgEnterBlks set valid?
+    bool fgEntryBlocksValid      = false; // Is the fgEntryBlocks set valid?
     bool fgLinearOrder           = false;
 #endif
 
@@ -3885,7 +3860,7 @@ public:
                                 // since fgMorphTree can be called from several places
 
     bool fgLoopCallMarked = false; // The following check for loops that don't execute calls
-    bool fgHasLoops       = false; // True if this method has any loops, set in fgComputeReachability
+    bool fgHasLoops       = false; // True if this method has any loops, set in phComputeReachability
 
 #ifdef DEBUG
     bool fgLocalVarLivenessDone = false;
@@ -3955,7 +3930,7 @@ public:
 
     void fgAddSyncMethodEnterExit();
 
-    void fgInsertMonitorCall(BasicBlock* block, CorInfoHelpFunc helper, unsigned thisLclNum);
+    void fgInsertMonitorCall(BasicBlock* block, CorInfoHelpFunc helper, LclVarDsc* thisLcl, LclVarDsc* acquiredLcl);
 
     void fgConvertSyncReturnToLeave(BasicBlock* block);
 
@@ -4020,24 +3995,18 @@ public:
     void fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* node);
     void fgPerBlockLocalVarLiveness();
     void fgPerBlockLocalVarLivenessLIR();
-
-    VARSET_VALRET_TP fgGetHandlerLiveVars(BasicBlock* block);
-
+    void fgGetHandlerLiveVars(BasicBlock* block, VARSET_TP& liveVars);
     void fgLiveVarAnalysis();
-
     void fgComputeLifeTrackedLocalUse(VARSET_TP& liveOut, LclVarDsc* lcl, GenTreeLclVarCommon* node);
     bool fgComputeLifeTrackedLocalDef(VARSET_TP&           liveOut,
-                                      VARSET_VALARG_TP     keepAlive,
+                                      VARSET_TP            keepAlive,
                                       LclVarDsc*           lcl,
                                       GenTreeLclVarCommon* node);
-    bool fgComputeLifePromotedLocal(VARSET_TP&           liveOut,
-                                    VARSET_VALARG_TP     keepAlive,
-                                    LclVarDsc*           lcl,
-                                    GenTreeLclVarCommon* node);
+    bool fgComputeLifePromotedLocal(VARSET_TP& liveOut, VARSET_TP keepAlive, LclVarDsc* lcl, GenTreeLclVarCommon* node);
 
-    bool fgComputeLifeBlock(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, BasicBlock* block);
-    bool fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt, BasicBlock* block);
-    bool fgComputeLifeLIR(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, BasicBlock* block);
+    bool fgComputeLifeBlock(VARSET_TP& liveOut, VARSET_TP keepAlive, BasicBlock* block);
+    bool fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_TP keepAlive, Statement* stmt, BasicBlock* block);
+    bool fgComputeLifeLIR(VARSET_TP& liveOut, VARSET_TP keepAlive, BasicBlock* block);
 
     GenTree* fgRemoveDeadStore(GenTreeLclVarCommon* store, Statement* stmt, BasicBlock* block);
 
@@ -4067,10 +4036,10 @@ public:
     }
 
     // Returns "true" if this is a special variable that is never zero initialized in the prolog.
-    bool lvaIsNeverZeroInitializedInProlog(unsigned lclNum);
+    bool lvaIsNeverZeroInitializedInProlog(LclVarDsc* lcl);
 
     // Returns "true" if the variable needs explicit zero initialization.
-    inline bool fgVarNeedsExplicitZeroInit(unsigned varNum, bool bbInALoop, bool bbIsReturn);
+    inline bool fgVarNeedsExplicitZeroInit(LclVarDsc* lcl, bool bbInALoop, bool bbIsReturn);
 
     // The value numbers for this compilation.
     ValueNumStore* vnStore = nullptr;
@@ -4089,36 +4058,28 @@ public:
     bool fgReachable(BasicBlock* b1, BasicBlock* b2); // Returns true if block b1 can reach block b2
 
     // Compute immediate dominators, the dominator tree and and its pre/post-order travsersal numbers.
-    void fgComputeDoms();
+    void phComputeDoms();
 
-    void fgCompDominatedByExceptionalEntryBlocks(BasicBlock** postOrder);
+    void fgCompDominatedByExceptionalEntryBlocks(BasicBlock** postOrder, BlockSet entryBlocks);
 
-    BlockSet_ValRet_T fgGetDominatorSet(BasicBlock* block); // Returns a set of blocks that dominate the given block.
-    // Note: this is relatively slow compared to calling fgDominate(),
-    // especially if dealing with a single block versus block check.
+    BlockSet fgComputeReachabilitySets(); // Compute bbReach sets. (Also sets BBF_GC_SAFE_POINT flag on blocks.)
 
-    void fgComputeReachabilitySets(); // Compute bbReach sets. (Also sets BBF_GC_SAFE_POINT flag on blocks.)
+    BlockSet fgComputeEntryBlockSet();
 
-    void fgComputeEnterBlocksSet(); // Compute the set of entry blocks, 'fgEnterBlks'.
+    // Remove blocks determined to be unreachable by the bbReach sets.
+    bool fgRemoveUnreachableBlocks(BlockSet entryBlocks);
 
-    bool fgRemoveUnreachableBlocks(); // Remove blocks determined to be unreachable by the bbReach sets.
-
-    void fgComputeReachability(); // Perform flow graph node reachability analysis.
+    void phComputeReachability(); // Perform flow graph node reachability analysis.
 
     BasicBlock* fgIntersectDom(BasicBlock* a, BasicBlock* b); // Intersect two immediate dominator sets.
 
-    BasicBlock** fgDfsInvPostOrder();
+    BasicBlock** fgDfsInvPostOrder(BlockSet entryBlocks);
     void fgDfsInvPostOrderHelper(BasicBlock** postOrder, BasicBlock* block, BlockSet& visited, unsigned* count);
-
-    BlockSet_ValRet_T fgDomFindStartNodes(); // Computes which basic blocks don't have incoming edges in the flow graph.
-                                             // Returns this as a set.
 
     INDEBUG(void fgDispDomTree(DomTreeNode* domTree);) // Helper that prints out the Dominator Tree in debug builds.
 
     void         fgEnsureDomTreeRoot();
-    DomTreeNode* fgBuildDomTree(); // Once we compute all the immediate dominator sets for each node in the flow graph
-                                   // (performed by fgComputeDoms), this procedure builds the dominance tree represented
-                                   // adjacency lists.
+    DomTreeNode* fgBuildDomTree();
 
     // In order to speed up the queries of the form 'Does A dominates B', we can perform a DFS preorder and postorder
     // traversal of the dominance tree and the dominance query will become A dominates B iif preOrder(A) <= preOrder(B)
@@ -4221,7 +4182,7 @@ public:
 
     void compCreateBasicBlocks(ILStats& ilStats);
     void compCreateEHTable();
-    INDEBUG(void dmpILJumpTargets(FixedBitVect* targets);)
+    INDEBUG(void dmpILJumpTargets(ILLabelSet targets);)
 
     bool fgIsBetterFallThrough(BasicBlock* bCur, BasicBlock* bAlt);
 
@@ -4297,9 +4258,9 @@ public:
 
     bool fgOptimizeUncondBranchToSimpleCond(BasicBlock* block, BasicBlock* target);
 
-    bool fgBlockEndFavorsTailDuplication(BasicBlock* block, unsigned lclNum);
+    bool fgBlockEndFavorsTailDuplication(BasicBlock* block, LclVarDsc* lcl);
 
-    bool fgBlockIsGoodTailDuplicationCandidate(BasicBlock* block, unsigned* lclNum);
+    bool fgBlockIsGoodTailDuplicationCandidate(BasicBlock* block, LclVarDsc** lcl);
 
     bool fgOptimizeEmptyBlock(BasicBlock* block);
 
@@ -4397,13 +4358,13 @@ protected:
 
     bool fgMayExplicitTailCall();
 
-    FixedBitVect* fgFindJumpTargets(ILStats* ilStats = nullptr);
+    ILLabelSet fgFindJumpTargets(ILStats* ilStats = nullptr);
 
     void fgMarkBackwardJump(BasicBlock* startBlock, BasicBlock* endBlock);
 
     void fgLinkBasicBlocks();
 
-    unsigned fgMakeBasicBlocks(FixedBitVect* jumpTarget);
+    unsigned fgMakeBasicBlocks(ILLabelSet jumpTarget);
 
     void fgCheckBasicBlockControlFlow();
 
@@ -4595,7 +4556,7 @@ private:
     GenTree* fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt);
     GenTree* fgGetStubAddrArg(GenTreeCall* call);
     void fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCall* recursiveTailCall);
-    void fgMorphCreateLclInit(unsigned lclNum, BasicBlock* block, Statement* beforeStmt, IL_OFFSETX ilOffset);
+    void fgMorphCreateLclInit(LclVarDsc* lcl, BasicBlock* block, Statement* beforeStmt, IL_OFFSETX ilOffset);
     Statement* fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,
                                                      fgArgTabEntry* argTabEntry,
                                                      BasicBlock*    block,
@@ -4615,8 +4576,8 @@ private:
     GenTree* fgMorphStructComma(GenTree* tree);
     GenTree* fgMorphStructAssignment(GenTreeOp* asg);
 #ifdef FEATURE_SIMD
-    GenTree* fgMorphPromoteSimdAssignmentSrc(GenTreeOp* asg, unsigned srcLclNum);
-    GenTree* fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, unsigned destLclNum);
+    GenTree* fgMorphPromoteSimdAssignmentSrc(GenTreeOp* asg, LclVarDsc* srcLcl);
+    GenTree* fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, LclVarDsc* destLcl);
 #endif
     GenTree* fgMorphDynBlk(GenTreeDynBlk* dynBlk);
     GenTree* fgMorphBlockAssignment(GenTreeOp* asg);
@@ -4698,8 +4659,8 @@ public:
     bool inlAnalyzeInlineeArg(InlineInfo* inlineInfo, unsigned argNum);
     GenTree* inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum);
     bool inlAnalyzeInlineeLocals(InlineInfo* inlineInfo);
-    unsigned inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
-    unsigned inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
+    LclVarDsc* inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
+    LclVarDsc* inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
     void inlInsertInlineeCode(InlineInfo* pInlineInfo);
     Statement* inlInsertSingleBlockInlineeStatements(const InlineInfo* inlineInfo, Statement* stmtAfter);
     Statement* inlPrependStatements(InlineInfo* inlineInfo);
@@ -4824,7 +4785,7 @@ public:
         GenTreeLclVar* lpIterTree; // The "i = i <op> const" tree
         GenTreeOp*     lpTestTree; // pointer to the node containing the loop test
 
-        unsigned   lpIterVar() const;   // iterator variable #
+        LclVarDsc* lpIterVar() const;   // iterator variable
         int        lpIterConst() const; // the constant with which the iterator is incremented
         genTreeOps lpIterOper() const;  // the type of the operation on the iterator (ASG_ADD, ASG_SUB, etc.)
         INDEBUG(void VerifyIterator() const;)
@@ -4839,9 +4800,9 @@ public:
         // : Valid if LPFLG_CONST_LIMIT
         int lpConstLimit() const;
 
-        // The lclVar # in the loop condition ( "i RELOP lclVar" )
+        // The lclVar in the loop condition ( "i RELOP lclVar" )
         // : Valid if LPFLG_VAR_LIMIT
-        unsigned lpVarLimit() const;
+        LclVarDsc* lpVarLimit() const;
 
         // Returns "true" iff "*this" contains the blk.
         bool lpContains(BasicBlock* blk) const
@@ -5027,7 +4988,7 @@ private:
                            unsigned*  iterCount);
 
 public:
-    bool optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip, unsigned lclNum);
+    bool optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip, LclVarDsc* lcl);
 
     bool fgMorphNarrowTree(GenTree* tree, var_types srct, var_types dstt, ValueNumPair vnpNarrow, bool doit);
 
@@ -5049,12 +5010,6 @@ public:
 #ifdef DEBUG
     unsigned cseFirstLclNum = BAD_VAR_NUM; // The first local variable number that is a CSE
     unsigned cseCount       = 0;           // The total count of CSE temp locals introduced.
-
-    // Returns true if the LclVar was introduced by the CSE phase of the compiler.
-    bool lclNumIsTrueCSE(unsigned lclNum) const
-    {
-        return ((cseCount > 0) && (lclNum >= cseFirstLclNum) && (lclNum < cseFirstLclNum + cseCount));
-    }
 
     unsigned apAssertionCount = 0;
 #endif
@@ -5183,7 +5138,7 @@ public:
     void morphAssertionSetTable(const MorphAssertion* table, unsigned count);
     void morphAssertionMerge(unsigned              elseAssertionCount,
                              const MorphAssertion* elseAssertionTable DEBUGARG(GenTreeQmark* qmark));
-    void morphAssertionKill(unsigned lclNum DEBUGARG(GenTreeOp* asg));
+    void morphAssertionKill(LclVarDsc* lcl DEBUGARG(GenTreeOp* asg));
 
 private:
     BitVec& morphAssertionGetDependent(unsigned lclNum);
@@ -5250,9 +5205,6 @@ public:
 
 protected:
     bool rpMustCreateEBPFrame();
-
-private:
-    bool lvaIsX86VarargsStackParam(unsigned lclNum);
 
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -5508,16 +5460,13 @@ public:
 
     void lvaRecordSimdIntrinsicUse(GenTree* op);
     void lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar);
-    void lvaRecordSimdIntrinsicUse(unsigned lclNum);
+    void lvaRecordSimdIntrinsicUse(LclVarDsc* lcl);
     void lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrinsic* src);
-    void lvaRecordSimdIntrinsicDef(unsigned lclNum, GenTreeHWIntrinsic* src);
+    void lvaRecordSimdIntrinsicDef(LclVarDsc* lcl, GenTreeHWIntrinsic* src);
 
     // Get the type for the hardware SIMD vector.
     // This is the maximum SIMD type supported for this target.
     var_types GetVectorTSimdType();
-
-    // Get preferred alignment of SIMD type.
-    int lvaGetSimdTypedLocalPreferredAlignment(LclVarDsc* lcl);
 #endif // FEATURE_SIMD
 
 private:
@@ -5769,7 +5718,7 @@ public:
         return compStressCompile(STRESS_RANDOM_INLINE, 50);
     }
 
-    bool compPromoteFewerStructs(unsigned lclNum);
+    bool compPromoteFewerStructs(LclVarDsc* lcl);
 
 #endif // DEBUG
 
@@ -5897,9 +5846,12 @@ public:
     unsigned  compHndBBtabCount      = 0;       // element count of used elements in EH data array
     unsigned  compHndBBtabAllocCount = 0;       // element count of allocated elements in EH data array
 
-    unsigned compMapILargNum(unsigned ilArgNum);
-    unsigned compMapILvarNum(unsigned ilVarNum);
-    unsigned compMap2ILvarNum(unsigned varNum) const;
+    unsigned lvaMapILArgNumToLclNum(unsigned ilArgNum) const;
+    unsigned lvaMapLclNumToILArgNum(unsigned lclNum) const;
+
+    unsigned eeMapDebugInfoVarNumToLclNum(unsigned varNum) const;
+    bool eeLclHasDebugInfo(unsigned lclNum) const;
+    unsigned eeMapLclNumToDebugInfoVarNum(unsigned lclNum) const;
 
     //-------------------------------------------------------------------------
 
@@ -5986,7 +5938,7 @@ public:
     VarScopeDsc* compGetNextEnterScopeScan(unsigned offs, unsigned* nextEnterScope);
     VarScopeDsc* compGetNextExitScopeScan(unsigned offs, unsigned* nextExitScope);
 
-    bool compIsProfilerHookNeeded();
+    bool compIsProfilerHookNeeded() const;
 
 public:
 #ifdef DEBUG
@@ -6017,21 +5969,10 @@ protected:
     size_t compMaxUncheckedOffsetForNullObject;
 
 public:
-    CompAllocator getAllocator(CompMemKind cmk = CMK_Generic)
+    CompAllocator getAllocator(CompMemKind cmk)
     {
-        return CompAllocator(compArenaAllocator, cmk);
+        return {compArenaAllocator, cmk};
     }
-
-#ifdef DEBUG
-    CompAllocator getAllocatorDebugOnly()
-    {
-        return getAllocator(CMK_DebugOnly);
-    }
-#endif // DEBUG
-
-public:
-// The following is used to track liveness of local variables, initialization
-// of valueclass constructors, and type safe use of IL instructions.
 
 #ifdef DEBUG
     // One line log function. Default level is 0. Increasing it gives you
@@ -6056,28 +5997,12 @@ public:
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     */
 public:
-    struct ShadowParamVarInfo
-    {
-        FixedBitVect* assignGroup; // the closure set of variables whose values depend on each other
-        unsigned      shadowLclNum;
-
-#ifdef DEBUG
-        void Print()
-        {
-            printf("assignGroup [%p]; shadowCopy: %V02u;\n", assignGroup, shadowLclNum);
-        }
-#endif
-    };
-
-    ShadowParamVarInfo* gsShadowVarInfo = nullptr; // Table used by shadow param analysis code
+    unsigned* gsLclShadowMap = nullptr;
 
     void gsGSChecksInitCookie();   // Grabs cookie variable
-    void gsCopyShadowParams();     // Identify vulnerable params and create dhadow copies
+    void gsCopyShadowParams();     // Identify vulnerable params and create shadow copies
     bool gsFindVulnerableParams(); // Shadow param analysis code
-    void gsParamsToShadows();      // Insert copy code and replave param uses by shadow
-
-    static fgWalkPreFn gsMarkPtrsAndAssignGroups; // Shadow param analysis tree-walk
-    static fgWalkPreFn gsReplaceShadowParams;     // Shadow param replacement tree-walk
+    void gsParamsToShadows();      // Insert copy code and replace param uses by shadow
 
 #define DEFAULT_MAX_INLINE_SIZE 100 // Methods with >  DEFAULT_MAX_INLINE_SIZE IL bytes will never be inlined.
                                     // This can be overwritten by setting complus_JITInlineSize env variable.
@@ -6206,7 +6131,7 @@ public:
     GenTree* abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types argRegType, unsigned argSize);
 #ifndef TARGET_X86
     void abiMorphArgs2ndPass(GenTreeCall* call);
-    GenTree* abiMorphMkRefAnyToStore(unsigned tempLclNum, GenTreeOp* mkrefany);
+    GenTree* abiMorphMkRefAnyToStore(LclVarDsc* tempLcl, GenTreeOp* mkrefany);
 #endif
 #if FEATURE_MULTIREG_ARGS || FEATURE_MULTIREG_RET
     GenTree* abiMorphMultiRegHfaLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg);
@@ -6222,7 +6147,7 @@ public:
     GenTree* abiMorphMultiRegCallArg(CallArgInfo* argInfo, GenTreeCall* arg);
 #endif
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64) || defined(TARGET_ARM)
-    unsigned abiAllocateStructArgTemp(ClassLayout* argLayout);
+    LclVarDsc* abiAllocateStructArgTemp(ClassLayout* argLayout);
     void abiFreeAllStructArgTemps();
 #endif
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
@@ -6308,12 +6233,12 @@ public:
     }
 
     bool CanPromoteStructType(CORINFO_CLASS_HANDLE typeHandle);
-    bool TryPromoteStructLocal(unsigned lclNum);
+    bool TryPromoteStructLocal(LclVarDsc* lcl);
 
 private:
-    bool CanPromoteStructLocal(unsigned lclNum);
-    bool ShouldPromoteStructLocal(unsigned lclNum);
-    void PromoteStructLocal(unsigned lclNum);
+    bool CanPromoteStructLocal(LclVarDsc* lcl);
+    bool ShouldPromoteStructLocal(LclVarDsc* lcl);
+    void PromoteStructLocal(LclVarDsc* lcl);
     void SortFields();
 
     void GetFieldInfo(unsigned index);
@@ -7685,7 +7610,7 @@ extern const BYTE genActualTypes[];
 /*****************************************************************************/
 
 #ifdef DEBUG
-void dumpConvertedVarSet(Compiler* comp, VARSET_VALARG_TP vars);
+void dumpConvertedVarSet(Compiler* comp, VARSET_TP vars);
 #endif // DEBUG
 
 struct AddrMode

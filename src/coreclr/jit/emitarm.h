@@ -89,9 +89,9 @@ static int encodeModImmConst(int imm);
 
 static int insUnscaleImm(instruction ins, int imm);
 
-void MovRegStackOffset(regNumber reg, int32_t imm, int varNum, int varOffs);
+void MovRegStackOffset(regNumber reg, int32_t imm, StackAddrMode s);
 int OptimizeFrameAddress(int fpOffset, bool isFloatLoadStore, regNumber* baseReg);
-void Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs);
+void Ins_R_S(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s);
 
 /************************************************************************/
 /*           Public inline informational methods                        */
@@ -184,9 +184,8 @@ void emitIns_R_R_R_I(instruction ins,
 
 void emitIns_R_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, regNumber reg4);
 
-void emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, int varNum, int varOffs);
-
-void emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, int varNum, int varOffs);
+void emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, StackAddrMode s);
+void emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, StackAddrMode s);
 
 void emitIns_R_L(instruction ins, RegNum reg, insGroup* label);
 

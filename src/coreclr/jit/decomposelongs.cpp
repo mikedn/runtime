@@ -123,7 +123,7 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
     // Handle the case where we are implicitly using the lower half of a long lclVar.
     if (tree->TypeIs(TYP_INT) && tree->OperIs(GT_LCL_VAR))
     {
-        LclVarDsc* varDsc = m_compiler->lvaGetDesc(tree->AsLclVar());
+        LclVarDsc* varDsc = tree->AsLclVar()->GetLcl();
         if (varTypeIsLong(varDsc->GetType()) && varDsc->IsPromoted())
         {
 #ifdef DEBUG
@@ -134,7 +134,7 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
                 m_compiler->gtDispTreeRange(Range(), tree);
             }
 #endif
-            tree->AsLclVar()->SetLclNum(varDsc->GetPromotedFieldLclNum(0));
+            tree->AsLclVar()->SetLcl(m_compiler->lvaGetDesc(varDsc->GetPromotedFieldLclNum(0)));
             return tree->gtNext;
         }
     }
@@ -352,21 +352,18 @@ GenTree* DecomposeLongs::DecomposeLclVar(LIR::Use& use)
     assert(use.Def()->OperIs(GT_LCL_VAR));
 
     GenTree*   tree     = use.Def();
-    unsigned   varNum   = tree->AsLclVar()->GetLclNum();
-    LclVarDsc* varDsc   = m_compiler->lvaGetDesc(varNum);
+    LclVarDsc* varDsc   = tree->AsLclVar()->GetLcl();
     GenTree*   loResult = tree;
     loResult->gtType    = TYP_INT;
 
-    GenTree* hiResult = m_compiler->gtNewLclvNode(varNum, TYP_INT);
+    GenTree* hiResult = m_compiler->gtNewLclvNode(varDsc, TYP_INT);
     Range().InsertAfter(loResult, hiResult);
 
-    if (varDsc->lvPromoted)
+    if (varDsc->IsPromoted())
     {
-        assert(varDsc->lvFieldCnt == 2);
-        unsigned loVarNum = varDsc->lvFieldLclStart;
-        unsigned hiVarNum = loVarNum + 1;
-        loResult->AsLclVar()->SetLclNum(loVarNum);
-        hiResult->AsLclVar()->SetLclNum(hiVarNum);
+        assert(varDsc->GetPromotedFieldCount() == 2);
+        loResult->AsLclVar()->SetLcl(m_compiler->lvaGetDesc(varDsc->GetPromotedFieldLclNum(0)));
+        hiResult->AsLclVar()->SetLcl(m_compiler->lvaGetDesc(varDsc->GetPromotedFieldLclNum(1)));
     }
     else
     {
@@ -401,7 +398,7 @@ GenTree* DecomposeLongs::DecomposeLclFld(LIR::Use& use)
     GenTreeLclFld* loResult = tree->AsLclFld();
     loResult->gtType        = TYP_INT;
 
-    GenTree* hiResult = m_compiler->gtNewLclFldNode(loResult->GetLclNum(), TYP_INT, loResult->GetLclOffs() + 4);
+    GenTree* hiResult = m_compiler->gtNewLclFldNode(loResult->GetLcl(), TYP_INT, loResult->GetLclOffs() + 4);
     Range().InsertAfter(loResult, hiResult);
 
     return FinalizeDecomposition(use, loResult, hiResult, hiResult);
@@ -434,7 +431,7 @@ GenTree* DecomposeLongs::DecomposeStoreLclVar(LIR::Use& use)
 
     noway_assert(rhs->OperIs(GT_LONG));
 
-    LclVarDsc* lcl = m_compiler->lvaGetDesc(tree);
+    LclVarDsc* lcl = tree->GetLcl();
 
     if (!lcl->IsPromoted())
     {
@@ -479,9 +476,10 @@ GenTree* DecomposeLongs::DecomposeStoreLclVar(LIR::Use& use)
 
     GenTreeLclVar* loStore = tree->AsLclVar();
     loStore->SetType(TYP_INT);
-    loStore->SetLclNum(lcl->GetPromotedFieldLclNum(0));
+    loStore->SetLcl(m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0)));
     loStore->SetOp(0, value->GetOp(0));
-    GenTreeLclVar* hiStore = m_compiler->gtNewStoreLclVar(lcl->GetPromotedFieldLclNum(1), TYP_INT, value->GetOp(1));
+    GenTreeLclVar* hiStore =
+        m_compiler->gtNewStoreLclVar(m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(1)), TYP_INT, value->GetOp(1));
 
     Range().InsertAfter(loStore, hiStore);
 
@@ -514,7 +512,7 @@ GenTree* DecomposeLongs::DecomposeStoreLclFld(LIR::Use& use)
     loStore->gtType        = TYP_INT;
 
     // Create the store for the upper half of the GT_LONG and insert it after the low store.
-    GenTreeLclFld* hiStore = m_compiler->gtNewLclFldNode(loStore->GetLclNum(), TYP_INT, loStore->GetLclOffs() + 4);
+    GenTreeLclFld* hiStore = m_compiler->gtNewLclFldNode(loStore->GetLcl(), TYP_INT, loStore->GetLclOffs() + 4);
     hiStore->SetOper(GT_STORE_LCL_FLD);
     hiStore->gtOp1 = value->gtOp2;
 
@@ -619,12 +617,12 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
             }
             else
             {
-                LIR::Use src(Range(), &(cast->AsOp()->gtOp1), cast);
-                unsigned lclNum = src.ReplaceWithLclVar(m_compiler);
+                LIR::Use   src(Range(), &(cast->AsOp()->gtOp1), cast);
+                LclVarDsc* lcl = src.ReplaceWithLclVar(m_compiler);
 
                 loResult = src.Def();
 
-                GenTree* loCopy  = m_compiler->gtNewLclvNode(lclNum, TYP_INT);
+                GenTree* loCopy  = m_compiler->gtNewLclvNode(lcl, TYP_INT);
                 GenTree* shiftBy = m_compiler->gtNewIconNode(31, TYP_INT);
                 hiResult         = m_compiler->gtNewOperNode(GT_RSH, TYP_INT, loCopy, shiftBy);
 
@@ -780,7 +778,7 @@ GenTree* DecomposeLongs::DecomposeStoreInd(LIR::Use& use)
     storeIndLow->gtType = TYP_INT;
 
     assert(addrBase->TypeIs(TYP_BYREF, TYP_I_IMPL));
-    GenTree* addrBaseHigh = m_compiler->gtNewLclvNode(addrBase->GetLclNum(), addrBase->GetType());
+    GenTree* addrBaseHigh = m_compiler->gtNewLclvNode(addrBase->GetLcl(), addrBase->GetType());
     GenTree* addrHigh     = new (m_compiler, GT_LEA) GenTreeAddrMode(addrBase->GetType(), addrBaseHigh, nullptr, 0, 4);
     GenTree* storeIndHigh = new (m_compiler, GT_STOREIND) GenTreeStoreInd(TYP_INT, addrHigh, dataHigh);
     storeIndHigh->gtFlags = (storeIndLow->gtFlags & (GTF_ALL_EFFECT | GTF_SPECIFIC_MASK));
@@ -815,7 +813,7 @@ GenTree* DecomposeLongs::DecomposeInd(LIR::Use& use)
     GenTreeLclVar* addrBase = indLow->GetAddr()->AsLclVar();
     assert(addrBase->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
-    GenTree* addrBaseHigh = m_compiler->gtNewLclvNode(addrBase->GetLclNum(), addrBase->GetType());
+    GenTree* addrBaseHigh = m_compiler->gtNewLclvNode(addrBase->GetLcl(), addrBase->GetType());
     GenTree* addrHigh     = new (m_compiler, GT_LEA) GenTreeAddrMode(addrBase->GetType(), addrBaseHigh, nullptr, 0, 4);
     GenTree* indHigh      = new (m_compiler, GT_IND) GenTreeIndir(GT_IND, TYP_INT, addrHigh, nullptr);
     indHigh->gtFlags |= (indLow->gtFlags & (GTF_GLOB_REF | GTF_EXCEPT | GTF_SPECIFIC_MASK));
@@ -1068,8 +1066,8 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
 
                     Range().Remove(gtLong);
 
-                    loOp1                = RepresentOpAsLocalVar(loOp1, gtLong, &gtLong->AsOp()->gtOp1);
-                    unsigned loOp1LclNum = loOp1->AsLclVar()->GetLclNum();
+                    loOp1               = RepresentOpAsLocalVar(loOp1, gtLong, &gtLong->AsOp()->gtOp1);
+                    LclVarDsc* loOp1Lcl = loOp1->AsLclVar()->GetLcl();
                     Range().Remove(loOp1);
 
                     GenTree* shiftByHi = m_compiler->gtNewIconNode(count, TYP_INT);
@@ -1079,7 +1077,7 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
 
                     // Create a GT_LONG that contains loCopy and hiOp1. This will be used in codegen to
                     // generate the shld instruction
-                    GenTree* loCopy = m_compiler->gtNewLclvNode(loOp1LclNum, TYP_INT);
+                    GenTree* loCopy = m_compiler->gtNewLclvNode(loOp1Lcl, TYP_INT);
                     GenTree* hiOp   = new (m_compiler, GT_LONG) GenTreeOp(GT_LONG, TYP_LONG, loCopy, hiOp1);
                     hiResult        = m_compiler->gtNewOperNode(GT_LSH_HI, TYP_INT, hiOp, shiftByHi);
 
@@ -1151,9 +1149,9 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
                     // shrd lo, reg1, shift
                     // shr hi, shift
 
-                    hiOp1                = RepresentOpAsLocalVar(hiOp1, gtLong, &gtLong->AsOp()->gtOp2);
-                    unsigned hiOp1LclNum = hiOp1->AsLclVar()->GetLclNum();
-                    GenTree* hiCopy      = m_compiler->gtNewLclvNode(hiOp1LclNum, TYP_INT);
+                    hiOp1               = RepresentOpAsLocalVar(hiOp1, gtLong, &gtLong->AsOp()->gtOp2);
+                    LclVarDsc* hiOp1Lcl = hiOp1->AsLclVar()->GetLcl();
+                    GenTree*   hiCopy   = m_compiler->gtNewLclvNode(hiOp1Lcl, TYP_INT);
 
                     GenTree* shiftByHi = m_compiler->gtNewIconNode(count, TYP_INT);
                     GenTree* shiftByLo = m_compiler->gtNewIconNode(count, TYP_INT);
@@ -1214,9 +1212,9 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
             {
                 Range().Remove(gtLong);
 
-                hiOp1                = RepresentOpAsLocalVar(hiOp1, gtLong, &gtLong->AsOp()->gtOp2);
-                unsigned hiOp1LclNum = hiOp1->AsLclVar()->GetLclNum();
-                GenTree* hiCopy      = m_compiler->gtNewLclvNode(hiOp1LclNum, TYP_INT);
+                hiOp1               = RepresentOpAsLocalVar(hiOp1, gtLong, &gtLong->AsOp()->gtOp2);
+                LclVarDsc* hiOp1Lcl = hiOp1->AsLclVar()->GetLcl();
+                GenTree*   hiCopy   = m_compiler->gtNewLclvNode(hiOp1Lcl, TYP_INT);
                 Range().Remove(hiOp1);
 
                 if (count < 32)
@@ -1433,8 +1431,8 @@ GenTree* DecomposeLongs::DecomposeRotate(LIR::Use& use)
             hiOp1 = RepresentOpAsLocalVar(hiOp1, gtLong, &gtLong->AsOp()->gtOp2);
         }
 
-        unsigned loOp1LclNum = loOp1->AsLclVar()->GetLclNum();
-        unsigned hiOp1LclNum = hiOp1->AsLclVar()->GetLclNum();
+        LclVarDsc* loOp1Lcl = loOp1->AsLclVar()->GetLcl();
+        LclVarDsc* hiOp1Lcl = hiOp1->AsLclVar()->GetLcl();
 
         Range().Remove(loOp1);
         Range().Remove(hiOp1);
@@ -1446,13 +1444,13 @@ GenTree* DecomposeLongs::DecomposeRotate(LIR::Use& use)
 
         // Create a GT_LONG that contains loOp1 and hiCopy. This will be used in codegen to
         // generate the shld instruction
-        GenTree* hiCopy = m_compiler->gtNewLclvNode(hiOp1LclNum, TYP_INT);
+        GenTree* hiCopy = m_compiler->gtNewLclvNode(hiOp1Lcl, TYP_INT);
         GenTree* loOp   = new (m_compiler, GT_LONG) GenTreeOp(GT_LONG, TYP_LONG, hiCopy, loOp1);
         loResult        = m_compiler->gtNewOperNode(oper, TYP_INT, loOp, rotateByLo);
 
         // Create a GT_LONG that contains loCopy and hiOp1. This will be used in codegen to
         // generate the shld instruction
-        GenTree* loCopy = m_compiler->gtNewLclvNode(loOp1LclNum, TYP_INT);
+        GenTree* loCopy = m_compiler->gtNewLclvNode(loOp1Lcl, TYP_INT);
         GenTree* hiOp   = new (m_compiler, GT_LONG) GenTreeOp(GT_LONG, TYP_LONG, loCopy, hiOp1);
         hiResult        = m_compiler->gtNewOperNode(oper, TYP_INT, hiOp, rotateByHi);
 
@@ -1663,20 +1661,20 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
         index = op2->AsIntCon()->gtIconVal;
     }
 
-    GenTree* simdTmpVar    = RepresentOpAsLocalVar(op1, node, &node->GetUse(0).NodeRef());
-    unsigned simdTmpVarNum = simdTmpVar->AsLclVar()->GetLclNum();
+    GenTree*   simdTmpVar = RepresentOpAsLocalVar(op1, node, &node->GetUse(0).NodeRef());
+    LclVarDsc* simdTmpLcl = simdTmpVar->AsLclVar()->GetLcl();
     JITDUMP("[DecomposeHWIntrinsicGetElement]: Saving op1 tree to a temp var:\n");
     DISPTREERANGE(Range(), simdTmpVar);
     Range().Remove(simdTmpVar);
     op1 = node->GetOp(0);
 
-    GenTree* indexTmpVar    = nullptr;
-    unsigned indexTmpVarNum = 0;
+    GenTree*   indexTmpVar = nullptr;
+    LclVarDsc* indexTmpLcl = nullptr;
 
     if (!indexIsConst)
     {
-        indexTmpVar    = RepresentOpAsLocalVar(op2, node, &node->GetUse(1).NodeRef());
-        indexTmpVarNum = indexTmpVar->AsLclVar()->GetLclNum();
+        indexTmpVar = RepresentOpAsLocalVar(op2, node, &node->GetUse(1).NodeRef());
+        indexTmpLcl = indexTmpVar->AsLclVar()->GetLcl();
         JITDUMP("[DecomposeHWIntrinsicGetElement]: Saving op2 tree to a temp var:\n");
         DISPTREERANGE(Range(), indexTmpVar);
         Range().Remove(indexTmpVar);
@@ -1713,7 +1711,7 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
     // Create:
     //      hiResult = GT_HWINTRINSIC{GetElement}[int](tmp_simd_var, index * 2 + 1)
 
-    GenTree* simdTmpVar2 = m_compiler->gtNewLclvNode(simdTmpVarNum, op1->TypeGet());
+    GenTree* simdTmpVar2 = m_compiler->gtNewLclvNode(simdTmpLcl, op1->TypeGet());
     GenTree* indexTimesTwoPlusOne;
 
     if (indexIsConst)
@@ -1723,7 +1721,7 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
     }
     else
     {
-        GenTree* indexTmpVar2   = m_compiler->gtNewLclvNode(indexTmpVarNum, TYP_INT);
+        GenTree* indexTmpVar2   = m_compiler->gtNewLclvNode(indexTmpLcl, TYP_INT);
         GenTree* two2           = m_compiler->gtNewIconNode(2, TYP_INT);
         GenTree* indexTimesTwo2 = m_compiler->gtNewOperNode(GT_MUL, TYP_INT, indexTmpVar2, two2);
         GenTree* one            = m_compiler->gtNewIconNode(1, TYP_INT);
@@ -1858,7 +1856,7 @@ GenTree* DecomposeLongs::StoreMultiRegNodeToLcl(LIR::Use& use)
 
     if (use.User()->OperIs(GT_STORE_LCL_VAR))
     {
-        LclVarDsc* lcl = m_compiler->lvaGetDesc(use.User()->AsLclVar());
+        LclVarDsc* lcl = use.User()->AsLclVar()->GetLcl();
 
         if (lcl->IsIndependentPromoted())
         {
@@ -1875,28 +1873,20 @@ GenTree* DecomposeLongs::StoreMultiRegNodeToLcl(LIR::Use& use)
         return DecomposeLclVar(use);
     }
 
-    unsigned   lclNum    = m_compiler->lvaNewTemp(TYP_LONG, true DEBUGARG("multireg LONG temp"));
-    LclVarDsc* lcl       = m_compiler->lvaGetDesc(lclNum);
-    lcl->lvFieldCnt      = 2;
-    lcl->lvFieldLclStart = m_compiler->lvaCount;
-    lcl->lvPromoted      = true;
+    LclVarDsc* lcl = m_compiler->lvaNewTemp(TYP_LONG, true DEBUGARG("multireg LONG temp"));
+
+    LclVarDsc* fieldLclLo = m_compiler->lvaNewTemp(TYP_INT, false DEBUGARG("promoted long field"));
+    fieldLclLo->MakePromotedField(lcl->GetLclNum(), 0, FieldSeqStore::NotAField());
+
+    LclVarDsc* fieldLclHi = m_compiler->lvaNewTemp(TYP_INT, false DEBUGARG("promoted long field"));
+    fieldLclHi->MakePromotedField(lcl->GetLclNum(), 4, FieldSeqStore::NotAField());
+
+    lcl->SetPromotedFields(fieldLclLo->GetLclNum(), 2);
     lcl->lvIsMultiRegRet = true;
 
-    unsigned   fieldLclNumLo    = m_compiler->lvaNewTemp(TYP_INT, false DEBUGARG("promoted long field"));
-    LclVarDsc* fieldLclLo       = m_compiler->lvaGetDesc(fieldLclNumLo);
-    fieldLclLo->lvIsStructField = true;
-    fieldLclLo->lvFldOffset     = 0;
-    fieldLclLo->lvParentLcl     = lclNum;
-
-    unsigned   fieldLclNumHi    = m_compiler->lvaNewTemp(TYP_INT, false DEBUGARG("promoted long field"));
-    LclVarDsc* fieldLclHi       = m_compiler->lvaGetDesc(fieldLclNumHi);
-    fieldLclHi->lvIsStructField = true;
-    fieldLclHi->lvFldOffset     = 4;
-    fieldLclHi->lvParentLcl     = lclNum;
-
-    GenTreeLclVar* store  = m_compiler->gtNewStoreLclVar(lclNum, TYP_LONG, use.Def());
-    GenTreeLclVar* loadLo = m_compiler->gtNewLclvNode(fieldLclNumLo, TYP_INT);
-    GenTreeLclVar* loadHi = m_compiler->gtNewLclvNode(fieldLclNumHi, TYP_INT);
+    GenTreeLclVar* store  = m_compiler->gtNewStoreLclVar(lcl, TYP_LONG, use.Def());
+    GenTreeLclVar* loadLo = m_compiler->gtNewLclvNode(fieldLclLo, TYP_INT);
+    GenTreeLclVar* loadHi = m_compiler->gtNewLclvNode(fieldLclHi, TYP_INT);
 
     Range().InsertAfter(use.Def(), store, loadLo, loadHi);
 
@@ -1996,15 +1986,6 @@ genTreeOps DecomposeLongs::GetLoOper(genTreeOps oper)
     }
 }
 
-//------------------------------------------------------------------------
-// PromoteLongVars: "Struct promote" all register candidate longs as if they are structs of two ints.
-//
-// Arguments:
-//    None.
-//
-// Return Value:
-//    None.
-//
 void DecomposeLongs::PromoteLongVars()
 {
     if (!m_compiler->compEnregLocals() || m_compiler->fgNoStructPromotion)
@@ -2012,22 +1993,20 @@ void DecomposeLongs::PromoteLongVars()
         return;
     }
 
-    for (unsigned lclNum = 0, count = m_compiler->lvaCount; lclNum < count; lclNum++)
+    for (LclVarDsc* lcl : m_compiler->Locals())
     {
-        LclVarDsc* varDsc = m_compiler->lvaGetDesc(lclNum);
-
-        if (!varDsc->TypeIs(TYP_LONG) || (varDsc->GetRefCount() == 0))
+        if (!lcl->TypeIs(TYP_LONG) || (lcl->GetRefCount() == 0))
         {
             continue;
         }
 
-        if (varDsc->lvDoNotEnregister || varDsc->IsPromotedField() || varDsc->lvWasStructField)
+        if (lcl->lvDoNotEnregister || lcl->IsPromotedField() || lcl->lvWasStructField)
         {
             continue;
         }
 
 #ifdef DEBUG
-        if (varDsc->IsParam() && m_compiler->fgNoStructParamPromotion)
+        if (lcl->IsParam() && m_compiler->fgNoStructParamPromotion)
         {
             continue;
         }
@@ -2035,38 +2014,35 @@ void DecomposeLongs::PromoteLongVars()
 
 #ifdef TARGET_ARM
         // TODO-MIKE-CQ: Promote ARM long params.
-        if (varDsc->IsParam())
+        if (lcl->IsParam())
         {
             continue;
         }
 #endif
 
-        assert(!varDsc->lvIsMultiRegArg && !varDsc->lvIsMultiRegRet);
-        varDsc->lvFieldCnt      = 2;
-        varDsc->lvFieldLclStart = m_compiler->lvaCount;
-        varDsc->lvPromoted      = true;
-        varDsc->lvContainsHoles = false;
+        assert(!lcl->lvIsMultiRegArg && !lcl->lvIsMultiRegRet);
+        lcl->lvContainsHoles = false;
 
-        JITDUMP("\nPromoting long local V%02u:", lclNum);
+        JITDUMP("\nPromoting long local V%02u:", lcl->GetLclNum());
 
-        bool isParam = varDsc->IsParam();
+        unsigned lclNum = lcl->GetLclNum();
 
-        for (unsigned index = 0; index < 2; ++index)
+        LclVarDsc* fieldLclLo = m_compiler->lvaNewTemp(TYP_INT, false DEBUGARG("promoted long field"));
+        fieldLclLo->MakePromotedField(lclNum, 0, FieldSeq::NotAField());
+        LclVarDsc* fieldLclHi = m_compiler->lvaNewTemp(TYP_INT, false DEBUGARG("promoted long field"));
+        fieldLclHi->MakePromotedField(lclNum, 4, FieldSeq::NotAField());
+
+        if (lcl->IsParam())
         {
-            unsigned   fieldLclNum = m_compiler->lvaNewTemp(TYP_INT, false DEBUGARG("promoted long field"));
-            LclVarDsc* fieldLcl    = m_compiler->lvaGetDesc(fieldLclNum);
-
-            fieldLcl->lvIsStructField = true;
-            fieldLcl->lvFldOffset     = static_cast<uint8_t>(index * varTypeSize(TYP_INT));
-            fieldLcl->lvParentLcl     = lclNum;
+            fieldLclLo->lvIsParam = true;
+            fieldLclHi->lvIsParam = true;
 
             // Currently we do not support enregistering incoming promoted aggregates with more than one field.
-            if (isParam)
-            {
-                fieldLcl->lvIsParam = true;
-                m_compiler->lvaSetDoNotEnregister(fieldLcl DEBUGARG(Compiler::DNER_LongParamField));
-            }
+            m_compiler->lvaSetDoNotEnregister(fieldLclLo DEBUGARG(Compiler::DNER_LongParamField));
+            m_compiler->lvaSetDoNotEnregister(fieldLclHi DEBUGARG(Compiler::DNER_LongParamField));
         }
+
+        lcl->SetPromotedFields(fieldLclLo->GetLclNum(), 2);
     }
 
 #ifdef DEBUG

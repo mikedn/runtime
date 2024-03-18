@@ -605,9 +605,9 @@ ClassLayout* Compiler::typGetStructLayout(GenTree* node)
         case GT_CALL:
             return node->AsCall()->GetRetLayout();
         case GT_LCL_USE:
-            return lvaGetDesc(node->AsLclUse()->GetDef()->GetLclNum())->GetLayout();
+            return node->AsLclUse()->GetDef()->GetLcl()->GetLayout();
         case GT_LCL_VAR:
-            return lvaGetDesc(node->AsLclVar())->GetLayout();
+            return node->AsLclVar()->GetLcl()->GetLayout();
         case GT_LCL_FLD:
             return node->AsLclFld()->GetLayout(this);
         case GT_EXTRACT:
@@ -637,7 +637,7 @@ ClassLayout* Compiler::typGetVectorLayout(GenTree* node)
         case GT_CALL:
             return node->AsCall()->GetRetLayout();
         case GT_LCL_VAR:
-            return lvaGetDesc(node->AsLclVar())->GetLayout();
+            return node->AsLclVar()->GetLcl()->GetLayout();
         case GT_EXTRACT:
             if (ClassLayout* layout = node->AsExtract()->GetLayout(this))
             {

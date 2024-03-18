@@ -733,13 +733,12 @@ const char* BasicBlock::dspToString(int blockNumPadding /* = 0 */)
 //    block `to` will be fully populated.
 
 bool BasicBlock::CloneBlockState(
-    Compiler* compiler, BasicBlock* to, const BasicBlock* from, unsigned varNum, int varVal)
+    Compiler* compiler, BasicBlock* to, const BasicBlock* from, const LclVarDsc* constLcl, const int constVal)
 {
     assert(to->bbStmtList == nullptr);
 
     to->bbFlags  = from->bbFlags;
     to->bbWeight = from->bbWeight;
-    BlockSetOps::AssignAllowUninitRhs(compiler, to->bbReach, from->bbReach);
     to->copyEHRegion(from);
     to->bbCatchTyp    = from->bbCatchTyp;
     to->bbRefs        = from->bbRefs;
@@ -747,9 +746,23 @@ bool BasicBlock::CloneBlockState(
     to->bbCodeOffsEnd = from->bbCodeOffsEnd;
     to->bbNatLoopNum  = from->bbNatLoopNum;
 
+    if (from->bbReach != BlockSetOps::UninitVal())
+    {
+        // TODO-MIKE-Review: It may be possible to make a shallow copy of bbReach.
+        // It is only modified in fgComputeReachabilitySets, which creates new ones
+        // every time it is run, so any sharing of bitsets between block would not
+        // affect it. But there are a few assignments to bbReach that would need to
+        // be reviewed. In general, bbReach handling is a mess.
+        to->bbReach = BlockSetOps::MakeCopy(compiler, from->bbReach);
+    }
+    else
+    {
+        assert(to->bbReach == BlockSetOps::UninitVal());
+    }
+
     for (Statement* const fromStmt : from->Statements())
     {
-        auto newExpr = compiler->gtCloneExpr(fromStmt->GetRootNode(), GTF_EMPTY, varNum, varVal);
+        auto newExpr = compiler->gtCloneExpr(fromStmt->GetRootNode(), GTF_EMPTY, constLcl, constVal);
         if (!newExpr)
         {
             // gtCloneExpr doesn't handle all opcodes, so may fail to clone a statement.

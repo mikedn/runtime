@@ -18,23 +18,15 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
     class Value
     {
         GenTree*      m_node;
-        FieldSeqNode* m_fieldSeq;
-        unsigned      m_lclNum;
-        unsigned      m_offset;
-        bool          m_address;
-        INDEBUG(mutable bool m_consumed;)
+        FieldSeqNode* m_fieldSeq = nullptr;
+        LclVarDsc*    m_lcl      = nullptr;
+        unsigned      m_offset   = 0;
+        bool          m_address  = false;
+        INDEBUG(mutable bool m_consumed = false;)
 
     public:
         // Produce an unknown value associated with the specified node.
-        Value(GenTree* node)
-            : m_node(node)
-            , m_fieldSeq(nullptr)
-            , m_lclNum(BAD_VAR_NUM)
-            , m_offset(0)
-            , m_address(false)
-#ifdef DEBUG
-            , m_consumed(false)
-#endif // DEBUG
+        Value(GenTree* node) : m_node(node)
         {
         }
 
@@ -47,23 +39,22 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
         // Does this value represent a location?
         bool IsLocation() const
         {
-            return (m_lclNum != BAD_VAR_NUM) && !m_address;
+            return (m_lcl != nullptr) && !m_address;
         }
 
         // Does this value represent the address of a location?
         bool IsAddress() const
         {
-            assert((m_lclNum != BAD_VAR_NUM) || !m_address);
+            assert((m_lcl != nullptr) || !m_address);
 
             return m_address;
         }
 
-        // Get the location's variable number.
-        unsigned LclNum() const
+        LclVarDsc* Lcl() const
         {
             assert(IsLocation() || IsAddress());
 
-            return m_lclNum;
+            return m_lcl;
         }
 
         // Get the location's byte offset.
@@ -94,7 +85,7 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
             assert(lclVar->OperIs(GT_LCL_VAR));
             assert(!IsLocation() && !IsAddress());
 
-            m_lclNum = lclVar->GetLclNum();
+            m_lcl = lclVar->GetLcl();
 
             assert(m_offset == 0);
             assert(m_fieldSeq == nullptr);
@@ -110,7 +101,7 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
             }
 
             m_address  = true;
-            m_lclNum   = val.m_lclNum;
+            m_lcl      = val.m_lcl;
             m_offset   = val.m_offset;
             m_fieldSeq = val.m_fieldSeq;
 
@@ -149,7 +140,7 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
             }
 
             m_address  = true;
-            m_lclNum   = op->m_lclNum;
+            m_lcl      = op->m_lcl;
             m_offset   = newOffset.Value();
             m_fieldSeq = FieldSeqNode::NotAField();
 
@@ -172,16 +163,16 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
             assert(lclFld->OperIs(GT_LCL_FLD));
             assert(!IsLocation() && !IsAddress());
 
-            m_lclNum   = lclFld->GetLclNum();
+            m_lcl      = lclFld->GetLcl();
             m_offset   = lclFld->GetLclOffs();
             m_fieldSeq = lclFld->GetFieldSeq();
         }
 
-        void Location(unsigned lclNum, unsigned lclOffs, FieldSeqNode* fieldSeq)
+        void Location(LclVarDsc* lcl, unsigned lclOffs, FieldSeqNode* fieldSeq)
         {
             assert(!IsLocation() && !IsAddress());
 
-            m_lclNum   = lclNum;
+            m_lcl      = lcl;
             m_offset   = lclOffs;
             m_fieldSeq = fieldSeq;
         }
@@ -199,18 +190,18 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
         {
             assert(!IsLocation() && !IsAddress());
 
-            m_lclNum   = lclAddr->GetLclNum();
+            m_lcl      = lclAddr->GetLcl();
             m_offset   = lclAddr->GetLclOffs();
             m_fieldSeq = lclAddr->GetFieldSeq();
             m_address  = true;
         }
 
-        void Address(unsigned lclNum, unsigned lclOffs, FieldSeqNode* fieldSeq)
+        void Address(LclVarDsc* lcl, unsigned lclOffs, FieldSeqNode* fieldSeq)
         {
             assert(!IsLocation() && !IsAddress());
 
             m_address  = true;
-            m_lclNum   = lclNum;
+            m_lcl      = lcl;
             m_offset   = lclOffs;
             m_fieldSeq = fieldSeq;
         }
@@ -255,7 +246,7 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
                 }
 
                 m_address = true;
-                m_lclNum  = val.m_lclNum;
+                m_lcl     = val.m_lcl;
                 m_offset  = newOffset.Value();
 
                 if (field->MayOverlap())
@@ -299,7 +290,7 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
 
             if (val.IsAddress())
             {
-                m_lclNum   = val.m_lclNum;
+                m_lcl      = val.m_lcl;
                 m_offset   = val.m_offset;
                 m_fieldSeq = val.m_fieldSeq;
             }
@@ -400,11 +391,11 @@ public:
         {
             if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
             {
-                UpdateImplicitByRefParamRefCounts(node->AsLclVarCommon()->GetLclNum());
+                UpdateImplicitByRefParamRefCounts(node->AsLclVarCommon()->GetLcl());
             }
             else if (node->OperIs(GT_LCL_ADDR))
             {
-                UpdateImplicitByRefParamRefCounts(node->AsLclAddr()->GetLclNum());
+                UpdateImplicitByRefParamRefCounts(node->AsLclAddr()->GetLcl());
             }
         }
 #endif
@@ -483,7 +474,7 @@ public:
                     // which also doesn't seem to exist but it could serve an useful purpose: to
                     // obtain the offset of a struct field as a cheap constant.
 
-                    if (v1.IsAddress() && v2.IsAddress() && (v1.LclNum() == v2.LclNum()))
+                    if (v1.IsAddress() && v2.IsAddress() && (v1.Lcl() == v2.Lcl()))
                     {
                         node->ChangeToIntCon(static_cast<ssize_t>(v1.Offset()) - static_cast<ssize_t>(v2.Offset()));
 
@@ -547,8 +538,7 @@ public:
                         // I have a change that introduces more precise and effective solution for that, but it would
                         // be merged separatly.
 
-                        unsigned   lclNum = ret->GetOp(0)->AsLclVar()->GetLclNum();
-                        LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
+                        LclVarDsc* lcl = ret->GetOp(0)->AsLclVar()->GetLcl();
 
                         if ((m_compiler->info.retDesc.GetRegCount() == 1) && !lcl->IsImplicitByRefParam() &&
                             lcl->IsPromoted() && (lcl->GetPromotedFieldCount() > 1) && !varTypeIsSIMD(lcl->GetType()))
@@ -716,10 +706,8 @@ private:
             // exposed in those case is unlikely to provide any benefits.
         }
 
-        unsigned   lclNum      = val.LclNum();
-        LclVarDsc* lcl         = m_compiler->lvaGetDesc(val.LclNum());
-        unsigned   fieldLclNum = BAD_VAR_NUM;
-        LclVarDsc* fieldLcl    = nullptr;
+        LclVarDsc* lcl      = val.Lcl();
+        LclVarDsc* fieldLcl = nullptr;
 
         // Try to use the address of a promoted field, if any. We'll have to mark the local
         // address exposed anyway but if we can restrict this to just a promoted field we
@@ -737,17 +725,11 @@ private:
 
         if (lcl->IsPromoted() && (val.FieldSeq() != nullptr) && val.FieldSeq()->IsField())
         {
-            fieldLclNum = FindPromotedField(lcl, val.Offset(), 1);
+            fieldLcl = FindPromotedField(lcl, val.Offset(), 1);
 
-            if (fieldLclNum != BAD_VAR_NUM)
+            if ((fieldLcl != nullptr) && (fieldLcl->GetPromotedFieldOffset() == val.Offset()))
             {
-                fieldLcl = m_compiler->lvaGetDesc(fieldLclNum);
-
-                if (fieldLcl->GetPromotedFieldOffset() == val.Offset())
-                {
-                    lcl    = fieldLcl;
-                    lclNum = fieldLclNum;
-                }
+                lcl = fieldLcl;
             }
         }
 
@@ -760,10 +742,10 @@ private:
         {
             if (GenTreeCall* call = user->IsCall())
             {
-                // It seems reasonable to make an exception for the "this" arg
-                // of calls - it would be highly unsual for a struct member method to attempt to access memory
-                // beyond "this" instance. And calling struct member methods is common enough that attempting to
-                // mark the entire struct as address exposed results in CQ regressions.
+                // It seems reasonable to make an exception for the "this" arg of calls - it would
+                // be highly unusual for a struct member method to attempt to access memory beyond
+                // "this" instance. And calling struct member methods is common enough that attempting
+                // to mark the entire struct as address exposed results in CQ regressions.
 
                 if ((call->gtCallThisArg != nullptr) && (val.Node() == call->gtCallThisArg->GetNode()))
                 {
@@ -782,7 +764,8 @@ private:
             }
         }
 
-        m_compiler->lvaSetAddressExposed(exposeParentLcl ? lcl->GetPromotedFieldParentLclNum() : lclNum);
+        m_compiler->lvaSetAddressExposed(exposeParentLcl ? m_compiler->lvaGetDesc(lcl->GetPromotedFieldParentLclNum())
+                                                         : lcl);
 
 #ifdef TARGET_64BIT
         // If the address of a variable is passed in a call and the allocation size of the variable
@@ -796,7 +779,7 @@ private:
             if (Compiler::gtHasCallOnStack(&m_ancestors))
             {
                 lcl->lvQuirkToLong = true;
-                JITDUMP("Adding a quirk for the storage size of V%02u of type %s\n", val.LclNum(),
+                JITDUMP("Adding a quirk for the storage size of V%02u of type %s\n", val.Lcl()->GetLclNum(),
                         varTypeName(lcl->GetType()));
             }
         }
@@ -805,7 +788,7 @@ private:
         if (lcl == fieldLcl)
         {
             Value fieldVal(val.Node());
-            fieldVal.Address(lclNum, 0, nullptr);
+            fieldVal.Address(lcl, 0, nullptr);
             CanonicalizeLocalAddress(fieldVal, user);
         }
         else
@@ -832,12 +815,12 @@ private:
         INDEBUG(val.Consume();)
         assert(user != nullptr);
 
-        LclVarDsc* lcl  = m_compiler->lvaGetDesc(val.LclNum());
+        LclVarDsc* lcl  = val.Lcl();
         GenTree*   node = val.Node();
 
         if (node->OperIs(GT_LCL_VAR))
         {
-            assert(node->AsLclVar()->GetLclNum() == val.LclNum());
+            assert(node->AsLclVar()->GetLcl() == lcl);
 
             if (lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 1))
             {
@@ -935,16 +918,13 @@ private:
 
         if (varTypeIsStruct(lcl->GetType()) && lcl->IsPromoted())
         {
-            // If this is a promoted variable then we can use a promoted field if it completly
+            // If this is a promoted variable then we can use a promoted field if it completely
             // overlaps the indirection. With a lot of work, we could also handle cases where
             // the indirection spans multiple fields (e.g. reading two consecutive INT fields
             // as LONG) which would prevent dependent promotion.
 
-            unsigned fieldLclNum = FindPromotedField(lcl, val.Offset(), indirSize);
-
-            if (fieldLclNum != BAD_VAR_NUM)
+            if (LclVarDsc* fieldLcl = FindPromotedField(lcl, val.Offset(), indirSize))
             {
-                LclVarDsc*    fieldLcl    = m_compiler->lvaGetDesc(fieldLclNum);
                 unsigned      fieldOffset = val.Offset() - fieldLcl->GetPromotedFieldOffset();
                 FieldSeqNode* fieldSeq    = val.FieldSeq();
 
@@ -961,7 +941,7 @@ private:
                 }
 
                 Value fieldVal(val.Node());
-                fieldVal.Location(fieldLclNum, fieldOffset, fieldSeq);
+                fieldVal.Location(fieldLcl, fieldOffset, fieldSeq);
                 MorphLocalIndir(fieldVal, user, indirSize);
 
                 return;
@@ -977,12 +957,11 @@ private:
         assert(lcl->GetPromotedFieldCount() == 1);
         assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
 
-        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(0);
-        LclVarDsc* fieldLcl    = m_compiler->lvaGetDesc(fieldLclNum);
+        LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
 
         assert(lcl->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()));
 
-        lclVar->SetLclNum(fieldLclNum);
+        lclVar->SetLcl(fieldLcl);
         lclVar->SetType(fieldLcl->GetType());
 
         INDEBUG(m_stmtModified = true;)
@@ -993,12 +972,11 @@ private:
         assert(lcl->TypeIs(TYP_STRUCT));
         assert(lcl->GetPromotedFieldCount() == 1);
 
-        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(0);
-        LclVarDsc* fieldLcl    = m_compiler->lvaGetDesc(fieldLclNum);
+        LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
 
         assert(lcl->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()));
 
-        lclVar->SetLclNum(fieldLclNum);
+        lclVar->SetLcl(fieldLcl);
         lclVar->SetType(fieldLcl->GetType());
 
         INDEBUG(m_stmtModified = true;)
@@ -1010,12 +988,11 @@ private:
         assert(lcl->GetPromotedFieldCount() == 1);
         assert(ret->TypeIs(TYP_STRUCT));
 
-        unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(0);
-        LclVarDsc* fieldLcl    = m_compiler->lvaGetDesc(fieldLclNum);
+        LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
 
         assert(lcl->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()));
 
-        lclVar->SetLclNum(fieldLclNum);
+        lclVar->SetLcl(fieldLcl);
         lclVar->SetType(fieldLcl->GetType());
 
         INDEBUG(m_stmtModified = true;)
@@ -1077,14 +1054,12 @@ private:
         // The importer does not currently produce STRUCT LCL_FLDs.
         assert(node->OperIs(GT_LCL_FLD) && !node->TypeIs(TYP_STRUCT));
 
-        unsigned fieldLclNum = FindPromotedField(lcl, node->GetLclOffs(), varTypeSize(node->GetType()));
+        LclVarDsc* fieldLcl = FindPromotedField(lcl, node->GetLclOffs(), varTypeSize(node->GetType()));
 
-        if (fieldLclNum == BAD_VAR_NUM)
+        if (fieldLcl == nullptr)
         {
             return false;
         }
-
-        LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(fieldLclNum);
 
         // The importer rarely produces LCL_FLDs, currently only when importing refanytype,
         // so we can get away with handling only the trivial case when types match exactly.
@@ -1097,7 +1072,7 @@ private:
         }
 
         node->ChangeOper(GT_LCL_VAR);
-        node->AsLclVar()->SetLclNum(fieldLclNum);
+        node->AsLclVar()->SetLcl(fieldLcl);
 
         INDEBUG(m_stmtModified = true;)
 
@@ -1117,23 +1092,20 @@ private:
     //    The overlapping promoted struct field local number or BAD_VAR_NUM if
     //    no overlapping field exists.
     //
-    unsigned FindPromotedField(LclVarDsc* lcl, unsigned offset, unsigned size) const
+    LclVarDsc* FindPromotedField(LclVarDsc* lcl, unsigned offset, unsigned size) const
     {
-        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+        for (LclVarDsc* fieldLcl : m_compiler->PromotedFields(lcl))
         {
-            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(i);
-            LclVarDsc* fieldLcl    = m_compiler->lvaGetDesc(fieldLclNum);
-
             assert(fieldLcl->GetType() != TYP_STRUCT);
 
             if ((offset >= fieldLcl->GetPromotedFieldOffset()) &&
                 (offset - fieldLcl->GetPromotedFieldOffset() + size <= varTypeSize(fieldLcl->GetType())))
             {
-                return fieldLclNum;
+                return fieldLcl;
             }
         }
 
-        return BAD_VAR_NUM;
+        return nullptr;
     }
 
     //------------------------------------------------------------------------
@@ -1179,7 +1151,7 @@ private:
             switch (indir->GetOper())
             {
                 case GT_LCL_VAR:
-                    return m_compiler->lvaGetDesc(indir->AsLclVar())->GetLayout()->GetSize();
+                    return indir->AsLclVar()->GetLcl()->GetLayout()->GetSize();
                 case GT_LCL_FLD:
                     return indir->AsLclFld()->GetLayout(m_compiler)->GetSize();
                 default:
@@ -1197,7 +1169,7 @@ private:
         assert(val.IsAddress());
         assert(val.Node()->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
-        LclVarDsc* varDsc = m_compiler->lvaGetDesc(val.LclNum());
+        LclVarDsc* varDsc = val.Lcl();
 
         assert(varDsc->IsAddressExposed());
 
@@ -1208,16 +1180,16 @@ private:
             // The offset is too large to store in a LCL_FLD_ADDR node,
             // use ADD(LCL_VAR_ADDR, offset) instead.
             addr->ChangeOper(GT_ADD);
-            addr->AsOp()->SetOp(0, m_compiler->gtNewLclVarAddrNode(val.LclNum()));
+            addr->AsOp()->SetOp(0, m_compiler->gtNewLclVarAddrNode(varDsc));
             addr->AsOp()->SetOp(1, m_compiler->gtNewIconNode(val.Offset(), val.FieldSeq()));
         }
         else if ((val.Offset() != 0) || ((val.FieldSeq() != nullptr) && (val.FieldSeq() != FieldSeqStore::NotAField())))
         {
-            addr->ChangeToLclAddr(addr->GetType(), val.LclNum(), val.Offset(), val.FieldSeq());
+            addr->ChangeToLclAddr(addr->GetType(), varDsc, val.Offset(), val.FieldSeq());
         }
         else
         {
-            addr->ChangeToLclAddr(addr->GetType(), val.LclNum());
+            addr->ChangeToLclAddr(addr->GetType(), varDsc);
         }
 
         // Local address nodes never have side effects (nor any other flags, at least at this point).
@@ -1237,11 +1209,12 @@ private:
 
         GenTreeIndir* node = val.Node()->AsIndir();
         GenTree*      addr = node->GetAddr();
+        LclVarDsc*    lcl  = val.Lcl();
 
-        m_compiler->lvaSetAddressExposed(val.LclNum());
+        m_compiler->lvaSetAddressExposed(lcl);
 
         Value addrVal(addr);
-        addrVal.Address(val.LclNum(), val.Offset(), val.FieldSeq());
+        addrVal.Address(lcl, val.Offset(), val.FieldSeq());
         CanonicalizeLocalAddress(addrVal, node);
 
         node->SetAddr(addr);
@@ -1278,7 +1251,7 @@ private:
             return;
         }
 
-        LclVarDsc* varDsc = m_compiler->lvaGetDesc(val.LclNum());
+        LclVarDsc* const varDsc = val.Lcl();
 
         if (indir->AsIndir()->IsVolatile())
         {
@@ -1378,7 +1351,7 @@ private:
                         {
                             indir->ChangeOper(GT_LCL_VAR);
                             indir->SetType(lclType);
-                            indir->AsLclVar()->SetLclNum(val.LclNum());
+                            indir->AsLclVar()->SetLcl(varDsc);
                             indir->gtFlags = GTF_DONT_CSE;
                         }
                     }
@@ -1390,7 +1363,7 @@ private:
 
                         indir->ChangeOper(GT_CAST);
                         indir->AsCast()->SetCastType(indirType);
-                        indir->AsCast()->SetOp(0, NewLclVarNode(lclType, val.LclNum()));
+                        indir->AsCast()->SetOp(0, NewLclVarNode(lclType, varDsc));
                         indir->gtFlags = GTF_EMPTY;
                     }
                     else if (varTypeKind(indirType) != varTypeKind(lclType))
@@ -1402,7 +1375,7 @@ private:
                         if (CanBitCastTo(indirType))
                         {
                             indir->ChangeOper(GT_BITCAST);
-                            indir->AsUnOp()->SetOp(0, NewLclVarNode(lclType, val.LclNum()));
+                            indir->AsUnOp()->SetOp(0, NewLclVarNode(lclType, varDsc));
                             indir->gtFlags = GTF_EMPTY;
                         }
                     }
@@ -1418,7 +1391,7 @@ private:
                                ((indirType == TYP_UBYTE) && (lclType == TYP_BOOL)));
 
                         indir->ChangeOper(GT_LCL_VAR);
-                        indir->AsLclVar()->SetLclNum(val.LclNum());
+                        indir->AsLclVar()->SetLcl(varDsc);
                         indir->gtFlags = GTF_EMPTY;
                     }
                 }
@@ -1441,7 +1414,7 @@ private:
                     {
                         indir->ChangeOper(GT_CAST);
                         indir->AsCast()->SetCastType(indirType);
-                        indir->AsCast()->SetOp(0, NewLclVarNode(lclType, val.LclNum()));
+                        indir->AsCast()->SetOp(0, NewLclVarNode(lclType, varDsc));
                         indir->gtFlags = GTF_EMPTY;
                     }
                 }
@@ -1454,7 +1427,7 @@ private:
                 ClassLayout* layout = indir->IsObj() ? indir->AsObj()->GetLayout() : nullptr;
 
                 indir->ChangeOper(GT_LCL_FLD);
-                indir->AsLclFld()->SetLclNum(val.LclNum());
+                indir->AsLclFld()->SetLcl(varDsc);
                 indir->AsLclFld()->SetLclOffs(val.Offset());
                 indir->AsLclFld()->SetLayoutNum(layout == nullptr ? 0 : m_compiler->typGetLayoutNum(layout));
                 indir->gtFlags = GTF_EMPTY;
@@ -1470,7 +1443,7 @@ private:
                         // do this is by making the local address exposed which is a big hammer. But
                         // such an indirect store is highly unusual so it's not worth the trouble to
                         // introduce another mechanism.
-                        m_compiler->lvaSetVarAddrExposed(val.LclNum());
+                        m_compiler->lvaSetAddressExposed(varDsc);
                     }
                 }
 
@@ -1519,19 +1492,19 @@ private:
             {
                 indir->ChangeOper(GT_LCL_VAR);
                 indir->SetType(varDsc->GetType());
-                indir->AsLclVar()->SetLclNum(val.LclNum());
+                indir->AsLclVar()->SetLcl(varDsc);
                 indir->gtFlags = GTF_DONT_CSE;
 
-                user->AsOp()->SetOp(1, NewInsertElement(varDsc->GetType(), val.Offset() / 4, TYP_FLOAT,
-                                                        NewLclVarNode(varDsc->GetType(), val.LclNum()),
-                                                        user->AsOp()->GetOp(1)));
+                user->AsOp()->SetOp(1,
+                                    NewInsertElement(varDsc->GetType(), val.Offset() / 4, TYP_FLOAT,
+                                                     NewLclVarNode(varDsc->GetType(), varDsc), user->AsOp()->GetOp(1)));
                 user->SetType(varDsc->GetType());
             }
             else
             {
                 indir->ChangeOper(GT_HWINTRINSIC);
                 indir->AsHWIntrinsic()->SetIntrinsic(NI_Vector128_GetElement, TYP_FLOAT, 16, 2);
-                indir->AsHWIntrinsic()->SetOp(0, NewLclVarNode(varDsc->GetType(), val.LclNum()));
+                indir->AsHWIntrinsic()->SetOp(0, NewLclVarNode(varDsc->GetType(), varDsc));
                 indir->AsHWIntrinsic()->SetOp(1, NewIntConNode(TYP_INT, val.Offset() / 4));
             }
 
@@ -1617,12 +1590,12 @@ private:
              (varDsc->IsPromoted() && indirLayout->GetSize() == varDsc->GetLayout()->GetSize())))
         {
             indir->ChangeOper(GT_LCL_VAR);
-            indir->AsLclVar()->SetLclNum(val.LclNum());
+            indir->AsLclVar()->SetLcl(varDsc);
         }
         else
         {
             indir->ChangeOper(GT_LCL_FLD);
-            indir->AsLclFld()->SetLclNum(val.LclNum());
+            indir->AsLclFld()->SetLcl(varDsc);
             indir->AsLclFld()->SetLclOffs(val.Offset());
             indir->AsLclFld()->SetFieldSeq(fieldSeq == nullptr ? FieldSeqStore::NotAField() : fieldSeq);
 
@@ -1657,14 +1630,14 @@ private:
         assert(val.Offset() == 0);
         assert(indir->TypeIs(TYP_STRUCT));
 
-        LclVarDsc* lcl = m_compiler->lvaGetDesc(val.LclNum());
+        LclVarDsc* lcl = val.Lcl();
         assert(!lcl->TypeIs(TYP_STRUCT));
 
         if (indirLayout->GetSize() == varTypeSize(lcl->GetType()))
         {
             indir->ChangeOper(GT_LCL_VAR);
             indir->SetType(lcl->GetType());
-            indir->AsLclVar()->SetLclNum(val.LclNum());
+            indir->AsLclVar()->SetLcl(lcl);
             indir->gtFlags = GTF_EMPTY;
 
             INDEBUG(m_stmtModified = true;)
@@ -1687,7 +1660,7 @@ private:
         assert(ret->OperIs(GT_RETURN) && ret->TypeIs(TYP_STRUCT));
         assert(m_compiler->info.GetRetLayout()->GetSize() == indirLayout->GetSize());
 
-        LclVarDsc* lcl = m_compiler->lvaGetDesc(val.LclNum());
+        LclVarDsc* const lcl = val.Lcl();
         assert(!lcl->TypeIs(TYP_STRUCT));
 
         var_types             lclType     = lcl->GetType();
@@ -1788,7 +1761,7 @@ private:
 
             addr->ChangeOper(GT_LCL_VAR);
             addr->SetType(lclType);
-            addr->AsLclVar()->SetLclNum(val.LclNum());
+            addr->AsLclVar()->SetLcl(lcl);
             addr->gtFlags = GTF_EMPTY;
 
             indir->ChangeOper(GT_BITCAST);
@@ -1805,7 +1778,7 @@ private:
         {
             indir->ChangeOper(GT_LCL_VAR);
             indir->SetType(lclType);
-            indir->AsLclVar()->SetLclNum(val.LclNum());
+            indir->AsLclVar()->SetLcl(lcl);
             indir->gtFlags = GTF_EMPTY;
 
             INDEBUG(m_stmtModified = true;)
@@ -1850,7 +1823,7 @@ private:
             op2->ChangeOper(GT_LCL_FLD);
             op2->SetType(op1->GetType());
 
-            m_compiler->lvaSetVarDoNotEnregister(op2->AsLclFld()->GetLclNum() DEBUGARG(Compiler::DNER_LocalField));
+            m_compiler->lvaSetDoNotEnregister(op2->AsLclFld()->GetLcl() DEBUGARG(Compiler::DNER_LocalField));
         }
 
         asg->SetType(op1->GetType());
@@ -2048,10 +2021,10 @@ private:
         {
             assert(structLcl->OperIs(GT_LCL_VAR));
 
-            LclVarDsc*    lcl      = m_compiler->lvaGetDesc(structLcl);
+            LclVarDsc*    lcl      = structLcl->GetLcl();
             FieldSeqNode* fieldSeq = GetFieldSequence(lcl->GetLayout()->GetClassHandle(), type, &fieldLayout);
 
-            structLcl->ChangeToLclFld(type, structLcl->GetLclNum(), 0, fieldSeq);
+            structLcl->ChangeToLclFld(type, lcl, 0, fieldSeq);
 
             m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
         }
@@ -2208,21 +2181,12 @@ private:
     }
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-    //------------------------------------------------------------------------
-    // UpdateImplicitByRefParamRefCounts: updates the ref count for implicit byref params.
-    //
-    // Arguments:
-    //    lclNum - the local number to update the count for.
-    //
-    // Notes:
-    //    abiMakeImplicityByRefStructArgCopy checks the ref counts for implicit byref params when it decides
-    //    if it's legal to elide certain copies of them;
-    //    lvaRetypeImplicitByRefParams checks the ref counts when it decides to undo promotions.
-    //
-    void UpdateImplicitByRefParamRefCounts(unsigned lclNum)
+    // Updates the ref count for implicit byref params.
+    // abiMakeImplicityByRefStructArgCopy checks the ref counts for implicit byref params when
+    // it decides if it's legal to elide certain copies of them;
+    // lvaRetypeImplicitByRefParams checks the ref counts when it decides to undo promotions.
+    void UpdateImplicitByRefParamRefCounts(LclVarDsc* lcl)
     {
-        LclVarDsc* lcl = m_compiler->lvaGetDesc(lclNum);
-
         // We should not encounter any promoted fields yet.
         assert(!lcl->IsPromotedField());
 
@@ -2231,7 +2195,7 @@ private:
             return;
         }
 
-        JITDUMP("Adding V%02u implicit-by-ref param any ref\n", lclNum);
+        JITDUMP("Adding V%02u implicit-by-ref param any ref\n", lcl->GetLclNum());
 
         lcl->AddImplicitByRefParamAnyRef();
 
@@ -2253,7 +2217,7 @@ private:
             ((m_ancestors.Size() >= 2) && m_ancestors.Top(0)->OperIs(GT_LCL_VAR) &&
              m_ancestors.Top(0)->TypeIs(TYP_STRUCT) && m_ancestors.Top(1)->OperIs(GT_CALL)))
         {
-            JITDUMP("Adding V%02u implicit-by-ref param call ref\n", lclNum);
+            JITDUMP("Adding V%02u implicit-by-ref param call ref\n", lcl->GetLclNum());
 
             lcl->AddImplicitByRefParamCallRef();
         }
@@ -2267,12 +2231,11 @@ private:
         return m_compiler->gtNewBitCastNode(type, op);
     }
 
-    GenTreeLclVar* NewLclVarNode(var_types type, unsigned lclNum)
+    GenTreeLclVar* NewLclVarNode(var_types type, LclVarDsc* lcl)
     {
-        assert((type == m_compiler->lvaGetDesc(lclNum)->GetType()) ||
-               (genActualType(type) == genActualType(m_compiler->lvaGetDesc(lclNum)->GetType())));
+        assert((type == lcl->GetType()) || (varActualType(type) == varActualType(lcl->GetType())));
 
-        return m_compiler->gtNewLclvNode(lclNum, type);
+        return m_compiler->gtNewLclvNode(lcl, type);
     }
 
     GenTreeIntCon* NewIntConNode(var_types type, ssize_t value)
@@ -2309,31 +2272,31 @@ void Compiler::lvaRecordSimdIntrinsicUse(GenTree* op)
 
         if (addr->OperIs(GT_LCL_ADDR) && (addr->AsLclAddr()->GetLclOffs() == 0))
         {
-            lvaRecordSimdIntrinsicUse(addr->AsLclAddr()->GetLclNum());
+            lvaRecordSimdIntrinsicUse(addr->AsLclAddr()->GetLcl());
         }
     }
     else if (op->OperIs(GT_LCL_VAR))
     {
-        lvaRecordSimdIntrinsicUse(op->AsLclVar()->GetLclNum());
+        lvaRecordSimdIntrinsicUse(op->AsLclVar()->GetLcl());
     }
 }
 
 void Compiler::lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar)
 {
-    lvaRecordSimdIntrinsicUse(lclVar->GetLclNum());
+    lvaRecordSimdIntrinsicUse(lclVar->GetLcl());
 }
 
-void Compiler::lvaRecordSimdIntrinsicUse(unsigned lclNum)
+void Compiler::lvaRecordSimdIntrinsicUse(LclVarDsc* lcl)
 {
-    lvaGetDesc(lclNum)->lvUsedInSIMDIntrinsic = true;
+    lcl->lvUsedInSIMDIntrinsic = true;
 }
 
 void Compiler::lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrinsic* src)
 {
-    lvaRecordSimdIntrinsicDef(lclVar->GetLclNum(), src);
+    lvaRecordSimdIntrinsicDef(lclVar->GetLcl(), src);
 }
 
-void Compiler::lvaRecordSimdIntrinsicDef(unsigned lclNum, GenTreeHWIntrinsic* src)
+void Compiler::lvaRecordSimdIntrinsicDef(LclVarDsc* lcl, GenTreeHWIntrinsic* src)
 {
     // Don't block promotion due to Create/Zero intrinsics, we can promote these.
     switch (src->GetIntrinsic())
@@ -2349,20 +2312,20 @@ void Compiler::lvaRecordSimdIntrinsicDef(unsigned lclNum, GenTreeHWIntrinsic* sr
             break;
     }
 
-    lvaGetDesc(lclNum)->lvUsedInSIMDIntrinsic = true;
+    lcl->lvUsedInSIMDIntrinsic = true;
 }
 #endif // FEATURE_SIMD
 
-bool StructPromotionHelper::TryPromoteStructLocal(unsigned lclNum)
+bool StructPromotionHelper::TryPromoteStructLocal(LclVarDsc* lcl)
 {
-    if (CanPromoteStructLocal(lclNum) && ShouldPromoteStructLocal(lclNum))
+    if (CanPromoteStructLocal(lcl) && ShouldPromoteStructLocal(lcl))
     {
-        PromoteStructLocal(lclNum);
+        PromoteStructLocal(lcl);
         return true;
     }
 
     // If we don't promote then lvIsMultiRegRet is meaningless.
-    compiler->lvaGetDesc(lclNum)->lvIsMultiRegRet = false;
+    lcl->lvIsMultiRegRet = false;
 
     return false;
 }
@@ -2518,10 +2481,8 @@ bool StructPromotionHelper::CanPromoteStructType(CORINFO_CLASS_HANDLE typeHandle
     return true;
 }
 
-bool StructPromotionHelper::CanPromoteStructLocal(unsigned lclNum)
+bool StructPromotionHelper::CanPromoteStructLocal(LclVarDsc* lcl)
 {
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
     assert(varTypeIsStruct(lcl->GetType()));
     assert(!lcl->IsPromoted());
 
@@ -2532,7 +2493,7 @@ bool StructPromotionHelper::CanPromoteStructLocal(unsigned lclNum)
             // If the local is used by vector intrinsics, then we do not want to promote
             // since the cost of packing individual fields into a single SIMD register
             // can be pretty high.
-            JITDUMP("  promotion of V%02u is disabled due to SIMD intrinsic uses\n", lclNum);
+            JITDUMP("  promotion of V%02u is disabled due to SIMD intrinsic uses\n", lcl->GetLclNum());
             return false;
         }
 
@@ -2555,7 +2516,7 @@ bool StructPromotionHelper::CanPromoteStructLocal(unsigned lclNum)
     // If GS stack reordering is enabled we may introduce shadow copies of parameters.
     if (lcl->IsParam() && compiler->compGSReorderStackLayout)
     {
-        JITDUMP("  promotion of param V%02u is disabled due to GS stack layout reordering\n", lclNum);
+        JITDUMP("  promotion of param V%02u is disabled due to GS stack layout reordering\n", lcl->GetLclNum());
         return false;
     }
 
@@ -2563,21 +2524,21 @@ bool StructPromotionHelper::CanPromoteStructLocal(unsigned lclNum)
     {
         if (lcl->lvIsMultiRegArg)
         {
-            JITDUMP("  promotion of V%02u is disabled because it is a multi-reg arg\n", lclNum);
+            JITDUMP("  promotion of V%02u is disabled because it is a multi-reg arg\n", lcl->GetLclNum());
             return false;
         }
 
         if (lcl->lvIsMultiRegRet)
         {
-            JITDUMP("  promotion of V%02u is disabled because it is a multi-reg return\n", lclNum);
+            JITDUMP("  promotion of V%02u is disabled because it is a multi-reg return\n", lcl->GetLclNum());
             return false;
         }
     }
 
     // TODO-CQ: enable promotion for OSR locals
-    if (compiler->lvaIsOSRLocal(lclNum))
+    if (compiler->lvaIsOSRLocal(lcl))
     {
-        JITDUMP("  promotion of V%02u is disabled because it is an OSR local\n", lclNum);
+        JITDUMP("  promotion of V%02u is disabled because it is an OSR local\n", lcl->GetLclNum());
         return false;
     }
 
@@ -2594,7 +2555,8 @@ bool StructPromotionHelper::CanPromoteStructLocal(unsigned lclNum)
     // does that is a pile of garbage...
     if (lcl->IsParam() && (info.fieldCount == 1) && varTypeIsFloating(info.fields[0].type))
     {
-        JITDUMP("Not promoting param V%02u: struct has a single float/double field.\n", lclNum, info.fieldCount);
+        JITDUMP("Not promoting param V%02u: struct has a single float/double field.\n", lcl->GetLclNum(),
+                info.fieldCount);
         return false;
     }
 #endif
@@ -2686,10 +2648,8 @@ bool StructPromotionHelper::CanPromoteStructLocal(unsigned lclNum)
     return true;
 }
 
-bool StructPromotionHelper::ShouldPromoteStructLocal(unsigned lclNum)
+bool StructPromotionHelper::ShouldPromoteStructLocal(LclVarDsc* lcl)
 {
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
     assert(varTypeIsStruct(lcl->GetType()));
     assert(lcl->GetLayout()->GetClassHandle() == info.typeHandle);
     assert(info.canPromoteStructType);
@@ -2716,7 +2676,7 @@ bool StructPromotionHelper::ShouldPromoteStructLocal(unsigned lclNum)
 
     // TODO: If the lvRefCnt is zero and we have a struct promoted parameter we can end up
     // with an extra store of the the incoming register into the stack frame slot.
-    // In that case, we would like to avoid promortion.
+    // In that case, we would like to avoid promotion.
     // However we haven't yet computed the lvRefCnt values so we can't do that.
 
     // TODO-MIKE-CQ: SIMD promotion is still messy as lvFieldAccessed is way too limited.
@@ -2736,14 +2696,14 @@ bool StructPromotionHelper::ShouldPromoteStructLocal(unsigned lclNum)
 
     if (!lcl->lvFieldAccessed && (info.fieldCount > 3 || varTypeIsSIMD(lcl->GetType())))
     {
-        JITDUMP("Not promoting V%02u: type = %s, #fields = %d, fieldAccessed = %d.\n", lclNum,
+        JITDUMP("Not promoting V%02u: type = %s, #fields = %d, fieldAccessed = %d.\n", lcl->GetLclNum(),
                 varTypeName(lcl->GetType()), info.fieldCount, lcl->lvFieldAccessed);
         return false;
     }
 
     if (lcl->lvIsMultiRegRet && info.containsHoles && info.customLayout)
     {
-        JITDUMP("Not promoting multi-reg returned V%02u with holes.\n", lclNum);
+        JITDUMP("Not promoting multi-reg returned V%02u with holes.\n", lcl->GetLclNum());
         return false;
     }
 
@@ -2760,7 +2720,7 @@ bool StructPromotionHelper::ShouldPromoteStructLocal(unsigned lclNum)
         {
             if ((info.fieldCount != 2) && ((info.fieldCount != 1) || !varTypeIsSIMD(info.fields[0].type)))
             {
-                JITDUMP("Not promoting multireg param V%02u, #fields != 2 and it's not SIMD.\n", lclNum);
+                JITDUMP("Not promoting multireg param V%02u, #fields != 2 and it's not SIMD.\n", lcl->GetLclNum());
                 return false;
             }
         }
@@ -2773,21 +2733,21 @@ bool StructPromotionHelper::ShouldPromoteStructLocal(unsigned lclNum)
             //             overwrite other fields.
             if (info.fieldCount != 1)
         {
-            JITDUMP("Not promoting param V%02u, #fields = %u.\n", lclNum, info.fieldCount);
+            JITDUMP("Not promoting param V%02u, #fields = %u.\n", lcl->GetLclNum(), info.fieldCount);
             return false;
         }
     }
 
-    if ((lclNum == compiler->genReturnLocal) && (info.fieldCount > 1))
+    if ((lcl->GetLclNum() == compiler->genReturnLocal) && (info.fieldCount > 1))
     {
         // TODO-1stClassStructs: a temporary solution to keep diffs small, it will be fixed later.
         return false;
     }
 
 #ifdef DEBUG
-    if (compiler->compPromoteFewerStructs(lclNum))
+    if (compiler->compPromoteFewerStructs(lcl))
     {
-        JITDUMP("Not promoting promotable V%02u, because of STRESS_PROMOTE_FEWER_STRUCTS\n", lclNum);
+        JITDUMP("Not promoting promotable V%02u, because of STRESS_PROMOTE_FEWER_STRUCTS\n", lcl->GetLclNum());
         return false;
     }
 #endif
@@ -2896,20 +2856,16 @@ void StructPromotionHelper::GetSingleFieldStructInfo(FieldInfo& field, CORINFO_C
     }
 }
 
-void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
+void StructPromotionHelper::PromoteStructLocal(LclVarDsc* lcl)
 {
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
     assert(lcl->GetLayout()->GetClassHandle() == info.typeHandle);
     assert(info.canPromoteStructType);
 
-    lcl->lvFieldCnt      = info.fieldCount;
-    lcl->lvFieldLclStart = compiler->lvaCount;
-    lcl->lvPromoted      = true;
+    lcl->SetPromotedFields(compiler->lvaCount, info.fieldCount);
     lcl->lvContainsHoles = info.containsHoles;
     lcl->lvCustomLayout  = info.customLayout;
 
-    JITDUMP("\nPromoting struct local V%02u (%s):", lclNum, lcl->GetLayout()->GetClassName());
+    JITDUMP("\nPromoting struct local V%02u (%s):", lcl->GetLclNum(), lcl->GetLayout()->GetClassName());
 
     SortFields();
 
@@ -2935,16 +2891,12 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
             fieldSeq                   = compiler->GetFieldSeqStore()->Append(fieldSeq, fieldSeqNode);
         }
 
-        unsigned fieldLclNum = compiler->lvaGrabTemp(false DEBUGARG("promoted struct field"));
-        // lvaGrabTemp can reallocate the lvaTable, so refresh the cached lcl for lclNum.
-        lcl = compiler->lvaGetDesc(lclNum);
-
-        LclVarDsc* fieldLcl = compiler->lvaGetDesc(fieldLclNum);
-        fieldLcl->MakePromotedStructField(lclNum, field.offset, fieldSeq);
+        LclVarDsc* fieldLcl = compiler->lvaAllocTemp(false DEBUGARG("promoted struct field"));
+        fieldLcl->MakePromotedField(lcl->GetLclNum(), field.offset, fieldSeq);
 
         if (varTypeIsSIMD(field.type))
         {
-            compiler->lvaSetStruct(fieldLclNum, field.layout, false);
+            compiler->lvaSetStruct(fieldLcl, field.layout, false);
         }
         else
         {
@@ -3059,15 +3011,13 @@ void Compiler::fgPromoteStructs()
 
     StructPromotionHelper helper(this);
 
-    for (unsigned lclNum = 0, lclCount = lvaCount; lclNum < lclCount; lclNum++)
+    for (LclVarDsc* lcl : Locals())
     {
         if (lvaHaveManyLocals())
         {
             JITDUMP("Stopped promoting struct fields, due to too many locals.\n");
             break;
         }
-
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
 
         // TODO-ObjectStackAllocation: Enable promotion of fields of stack-allocated objects.
         if (!varTypeIsStruct(lcl->GetType()) || !lcl->GetLayout()->IsValueClass())
@@ -3082,7 +3032,7 @@ void Compiler::fgPromoteStructs()
         }
 #endif
 
-        helper.TryPromoteStructLocal(lclNum);
+        helper.TryPromoteStructLocal(lcl);
     }
 
 #ifdef DEBUG
@@ -3206,7 +3156,7 @@ public:
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     void MorphImplicitByRefParamAddr(GenTreeLclAddr* addr)
     {
-        LclVarDsc* lcl = m_compiler->lvaGetDesc(addr);
+        LclVarDsc* lcl = addr->GetLcl();
 
         if (lcl->IsImplicitByRefParam())
         {
@@ -3220,7 +3170,6 @@ public:
             // lvFieldCnt remains set to the number of promoted fields.
             assert((lcl->lvFieldLclStart == 0) || (lcl->lvFieldCnt != 0));
 
-            unsigned      lclNum   = addr->GetLclNum();
             unsigned      lclOffs  = addr->GetLclOffs();
             FieldSeqNode* fieldSeq = addr->GetFieldSeq();
 
@@ -3232,7 +3181,7 @@ public:
                 GenTree* add = addr;
                 add->ChangeOper(GT_ADD);
                 add->SetType(TYP_BYREF);
-                add->AsOp()->SetOp(0, m_compiler->gtNewLclvNode(lclNum, TYP_BYREF));
+                add->AsOp()->SetOp(0, m_compiler->gtNewLclvNode(lcl, TYP_BYREF));
                 add->AsOp()->SetOp(1, m_compiler->gtNewIconNode(lclOffs, fieldSeq));
                 add->gtFlags = GTF_EMPTY;
             }
@@ -3240,7 +3189,7 @@ public:
             {
                 addr->ChangeOper(GT_LCL_VAR);
                 addr->SetType(TYP_BYREF);
-                addr->AsLclVar()->SetLclNum(lclNum);
+                addr->AsLclVar()->SetLcl(lcl);
                 addr->gtFlags = GTF_EMPTY;
             }
 
@@ -3254,7 +3203,7 @@ public:
 
             assert(lcl->GetPromotedFieldSeq() != nullptr);
 
-            unsigned      lclNum   = lcl->GetPromotedFieldParentLclNum();
+            LclVarDsc*    paramLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
             unsigned      lclOffs  = lcl->GetPromotedFieldOffset();
             FieldSeqNode* fieldSeq = lcl->GetPromotedFieldSeq();
 
@@ -3268,7 +3217,7 @@ public:
             GenTree* add = addr;
             add->ChangeOper(GT_ADD);
             add->SetType(TYP_BYREF);
-            add->AsOp()->SetOp(0, m_compiler->gtNewLclvNode(lclNum, TYP_BYREF));
+            add->AsOp()->SetOp(0, m_compiler->gtNewLclvNode(paramLcl, TYP_BYREF));
             add->AsOp()->SetOp(1, m_compiler->gtNewIconNode(lclOffs, fieldSeq));
             add->gtFlags = GTF_EMPTY;
 
@@ -3281,8 +3230,7 @@ public:
         assert(tree->OperIs(GT_LCL_VAR, GT_LCL_FLD));
 
         GenTreeLclVarCommon* lclNode = tree->AsLclVarCommon();
-        unsigned             lclNum  = lclNode->GetLclNum();
-        LclVarDsc*           lcl     = m_compiler->lvaGetDesc(lclNode);
+        LclVarDsc*           lcl     = lclNode->GetLcl();
 
         if (lcl->IsImplicitByRefParam())
         {
@@ -3301,10 +3249,12 @@ public:
                 // param. Rewrite this to refer to the new local. We should never encounter a LCL_FLD
                 // because promotion is aborted if it turns out that it is dependent.
 
-                assert(lclNode->OperIs(GT_LCL_VAR));
-                assert(varTypeIsStruct(m_compiler->lvaGetDesc(lcl->lvFieldLclStart)->GetType()));
+                LclVarDsc* promotedLcl = m_compiler->lvaGetDesc(lcl->lvFieldLclStart);
 
-                lclNode->SetLclNum(lcl->lvFieldLclStart);
+                assert(lclNode->OperIs(GT_LCL_VAR));
+                assert(varTypeIsStruct(promotedLcl->GetType()));
+
+                lclNode->SetLcl(promotedLcl);
             }
             else
             {
@@ -3321,7 +3271,7 @@ public:
                     }
                 }
 
-                GenTree* addr = m_compiler->gtNewLclvNode(lclNum, TYP_BYREF);
+                GenTree* addr = m_compiler->gtNewLclvNode(lcl, TYP_BYREF);
 
                 if (offset != nullptr)
                 {
@@ -3404,7 +3354,7 @@ public:
             // TODO-MIKE-Review: Are implicit by ref params really BYREF? They should
             // have local storage, unless the JIT suddenly acquires magical powers that
             // let it elide local copies if a param is known to be not modified/aliased.
-            lclNode = m_compiler->gtNewLclvNode(lclNum, TYP_BYREF);
+            lclNode = m_compiler->gtNewLclvNode(lcl, TYP_BYREF);
 
             tree->AsIndir()->SetAddr(m_compiler->gtNewOperNode(GT_ADD, TYP_BYREF, lclNode, offset));
             tree->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
@@ -3417,13 +3367,13 @@ public:
     {
         assert(lclAddr->OperIs(GT_LCL_ADDR));
 
-        if (!IsVarargsStackParam(lclAddr->GetLclNum()))
+        if (!IsVarargsStackParam(lclAddr->GetLcl()))
         {
             return;
         }
 
-        GenTree* base   = m_compiler->gtNewLclvNode(m_compiler->lvaVarargsBaseOfStkArgs, TYP_I_IMPL);
-        GenTree* offset = GetVarargsStackParamOffset(lclAddr->GetLclNum(), lclAddr->GetLclOffs());
+        GenTree* base   = m_compiler->gtNewLclvNode(m_compiler->lvaVarargsBaseOfStkLcl, TYP_I_IMPL);
+        GenTree* offset = GetVarargsStackParamOffset(lclAddr->GetLcl(), lclAddr->GetLclOffs());
         GenTree* addr   = lclAddr;
 
         addr->ChangeOper(GT_ADD);
@@ -3438,19 +3388,19 @@ public:
     {
         assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
 
-        if (!IsVarargsStackParam(lclNode->GetLclNum()))
+        if (!IsVarargsStackParam(lclNode->GetLcl()))
         {
             return;
         }
 
-        GenTree* base   = m_compiler->gtNewLclvNode(m_compiler->lvaVarargsBaseOfStkArgs, TYP_I_IMPL);
-        GenTree* offset = GetVarargsStackParamOffset(lclNode->GetLclNum(), lclNode->GetLclOffs());
+        GenTree* base   = m_compiler->gtNewLclvNode(m_compiler->lvaVarargsBaseOfStkLcl, TYP_I_IMPL);
+        GenTree* offset = GetVarargsStackParamOffset(lclNode->GetLcl(), lclNode->GetLclOffs());
         GenTree* addr   = m_compiler->gtNewOperNode(GT_ADD, TYP_I_IMPL, base, offset);
         GenTree* indir  = lclNode;
 
         if (varTypeIsStruct(lclNode->GetType()))
         {
-            ClassLayout* layout = lclNode->OperIs(GT_LCL_VAR) ? m_compiler->lvaGetDesc(lclNode)->GetLayout()
+            ClassLayout* layout = lclNode->OperIs(GT_LCL_VAR) ? lclNode->GetLcl()->GetLayout()
                                                               : lclNode->AsLclFld()->GetLayout(m_compiler);
 
             indir->ChangeOper(GT_OBJ);
@@ -3467,15 +3417,14 @@ public:
         INDEBUG(m_stmtModified = true;)
     }
 
-    bool IsVarargsStackParam(unsigned lclNum) const
+    bool IsVarargsStackParam(LclVarDsc* lcl) const
     {
-        LclVarDsc* lcl = m_compiler->lvaGetDesc(lclNum);
-        return lcl->IsParam() && !lcl->IsRegParam() && (lclNum != m_compiler->lvaVarargsHandleArg);
+        return lcl->IsParam() && !lcl->IsRegParam() && (lcl->GetLclNum() != m_compiler->info.compVarargsHandleArg);
     }
 
-    GenTreeIntCon* GetVarargsStackParamOffset(unsigned lclNum, unsigned lclOffs) const
+    GenTreeIntCon* GetVarargsStackParamOffset(LclVarDsc* lcl, unsigned lclOffs) const
     {
-        int stkOffs = m_compiler->lvaGetDesc(lclNum)->GetStackOffset();
+        int stkOffs = lcl->GetStackOffset();
         return m_compiler->gtNewIconNode(stkOffs + lclOffs - m_compiler->codeGen->paramsStackSize, TYP_INT);
     }
 #endif // !TARGET_X86
@@ -3522,10 +3471,8 @@ void Compiler::lvaResetImplicitByRefParamsRefCount()
     lvaRefCountState          = RCS_MORPH;
     lvaHasImplicitByRefParams = false;
 
-    for (unsigned lclNum = 0; lclNum < info.compArgsCount; ++lclNum)
+    for (LclVarDsc* lcl : Params())
     {
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
-
         if (lcl->IsImplicitByRefParam())
         {
             // We haven't use ref counts until now so they should be 0.
@@ -3558,10 +3505,8 @@ void Compiler::lvaRetypeImplicitByRefParams()
         return;
     }
 
-    for (unsigned lclNum = 0; lclNum < info.compArgsCount; lclNum++)
+    for (LclVarDsc* lcl : Params())
     {
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
-
         if (!lcl->IsImplicitByRefParam())
         {
             continue;
@@ -3595,21 +3540,19 @@ void Compiler::lvaRetypeImplicitByRefParams()
             unsigned nonCallAppearances  = totalAppearances - callAppearances;
             bool     isDependentPromoted = lcl->IsDependentPromoted();
 
-            bool undoPromotion = isDependentPromoted || (nonCallAppearances <= lcl->lvFieldCnt);
+            bool undoPromotion = isDependentPromoted || (nonCallAppearances <= lcl->GetPromotedFieldCount());
 
             JITDUMP("%s promotion of implicit byref V%02u: %s total: %u non-call: %u fields: %u\n",
-                    undoPromotion ? "Undoing" : "Keeping", lclNum, isDependentPromoted ? "dependent;" : "",
-                    totalAppearances, nonCallAppearances, lcl->lvFieldCnt);
+                    undoPromotion ? "Undoing" : "Keeping", lcl->GetLclNum(), isDependentPromoted ? "dependent;" : "",
+                    totalAppearances, nonCallAppearances, lcl->GetPromotedFieldCount());
 
             if (undoPromotion)
             {
-                for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+                for (LclVarDsc* fieldLcl : PromotedFields(lcl))
                 {
-                    LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
-
                     // Leave lvParentLcl pointing to the parameter so that fgMorphIndirectParams
                     // will know to rewrite appearances of this local.
-                    assert(fieldLcl->lvParentLcl == lclNum);
+                    assert(fieldLcl->GetPromotedFieldParentLclNum() == lcl->GetLclNum());
 
                     // The fields shouldn't inherit any register preferences from the parameter.
                     fieldLcl->lvIsParam = false;
@@ -3623,15 +3566,9 @@ void Compiler::lvaRetypeImplicitByRefParams()
             }
             else
             {
-                unsigned structLclNum = lvaNewTemp(lcl->GetLayout(), false DEBUGARG("promoted implicit byref param"));
-                // Update varDsc since lvaGrabTemp might have re-allocated the var dsc array.
-                lcl = lvaGetDesc(lclNum);
+                LclVarDsc* structLcl = lvaNewTemp(lcl->GetLayout(), false DEBUGARG("promoted implicit byref param"));
 
-                LclVarDsc* structLcl = lvaGetDesc(structLclNum);
-
-                structLcl->lvPromoted        = true;
-                structLcl->lvFieldLclStart   = lcl->lvFieldLclStart;
-                structLcl->lvFieldCnt        = lcl->lvFieldCnt;
+                structLcl->SetPromotedFields(lcl->GetPromotedFieldLclNum(0), lcl->GetPromotedFieldCount());
                 structLcl->lvContainsHoles   = lcl->lvContainsHoles;
                 structLcl->lvCustomLayout    = lcl->lvCustomLayout;
                 structLcl->lvAddrExposed     = lcl->IsAddressExposed();
@@ -3642,19 +3579,18 @@ void Compiler::lvaRetypeImplicitByRefParams()
                 structLcl->lvLiveInOutOfHndlr = lcl->lvLiveInOutOfHndlr;
 #endif
 
+                unsigned structLclNum = structLcl->GetLclNum();
+
                 fgEnsureFirstBBisScratch();
-                GenTree* lhs  = gtNewLclvNode(structLclNum, lcl->GetType());
-                GenTree* addr = gtNewLclvNode(lclNum, TYP_BYREF);
+                GenTree* lhs  = gtNewLclvNode(structLcl, lcl->GetType());
+                GenTree* addr = gtNewLclvNode(lcl, TYP_BYREF);
                 GenTree* rhs  = gtNewObjNode(structLcl->GetType(), structLcl->GetLayout(), addr);
                 fgNewStmtAtBeg(fgFirstBB, gtNewAssignNode(lhs, rhs));
 
                 // Update the locals corresponding to the promoted fields.
 
-                for (unsigned i = 0; i < structLcl->GetPromotedFieldCount(); i++)
+                for (LclVarDsc* fieldLcl : PromotedFields(structLcl))
                 {
-                    LclVarDsc* fieldLcl = lvaGetDesc(structLcl->GetPromotedFieldLclNum(i));
-
-                    // Set the new parent.
                     fieldLcl->lvParentLcl = structLclNum;
 
                     // The fields shouldn't inherit any register preferences from the parameter.
@@ -3688,7 +3624,7 @@ void Compiler::lvaRetypeImplicitByRefParams()
         lcl->lvAddrExposed     = false;
         lcl->lvDoNotEnregister = false;
 
-        JITDUMP("Changed the type of struct parameter V%02d to TYP_BYREF.\n", lclNum);
+        JITDUMP("Changed the type of struct parameter V%02d to TYP_BYREF.\n", lcl->GetLclNum());
     }
 }
 #endif // WINDOWS_AMD64_ABI || TARGET_ARM64
@@ -3724,10 +3660,8 @@ void Compiler::lvaDemoteImplicitByRefParams()
         return;
     }
 
-    for (unsigned lclNum = 0; lclNum < info.compArgsCount; lclNum++)
+    for (LclVarDsc* lcl : Params())
     {
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
-
         if (!lcl->IsImplicitByRefParam())
         {
             continue;
@@ -3742,7 +3676,7 @@ void Compiler::lvaDemoteImplicitByRefParams()
             for (unsigned i = 0; i < lcl->lvFieldCnt; i++)
             {
                 LclVarDsc* fieldLcl = lvaGetDesc(lcl->lvFieldLclStart + i);
-                assert(fieldLcl->lvParentLcl == lclNum);
+                assert(fieldLcl->lvParentLcl == lcl->GetLclNum());
                 fieldLcl->lvParentLcl     = 0;
                 fieldLcl->lvIsStructField = false;
                 fieldLcl->lvAddrExposed   = false;

@@ -850,46 +850,54 @@ void Compiler::fgAddSyncMethodEnterExit()
 
     // Add monitor enter/exit calls.
 
-    lvaMonAcquired = lvaNewTemp(TYP_INT, true DEBUGARG("monitor 'acquired' temp"));
+    LclVarDsc* acquiredLcl = lvaNewTemp(TYP_INT, true DEBUGARG("monitor 'acquired' temp"));
+    lvaMonAcquired         = acquiredLcl->GetLclNum();
 
-    GenTreeOp* init = gtNewAssignNode(gtNewLclvNode(lvaMonAcquired, TYP_INT), gtNewIconNode(0));
+    GenTreeOp* init = gtNewAssignNode(gtNewLclvNode(acquiredLcl, TYP_INT), gtNewIconNode(0));
     fgNewStmtAtEnd(fgFirstBB, init);
     JITDUMPTREE(init, "\nSynchronized method - Add 'acquired' initialization in first block " FMT_BB "\n",
                 fgFirstBB->bbNum);
 
-    // Make a copy of the 'this' pointer to be used in the handler so it does
-    // not inhibit enregistration of all uses of the variable.
-    unsigned thisCopyLclNum = 0;
+    LclVarDsc* thisArgLcl  = nullptr;
+    LclVarDsc* thisCopyLcl = nullptr;
 
     if (!info.compIsStatic)
     {
-        thisCopyLclNum = lvaNewTemp(TYP_REF, true DEBUGARG("monitor EH exit 'this' copy"));
-        init = gtNewAssignNode(gtNewLclvNode(thisCopyLclNum, TYP_REF), gtNewLclvNode(info.compThisArg, TYP_REF));
+        // Make a copy of the 'this' pointer to be used in the handler, so
+        // it does not inhibit enregistration of all uses of the variable.
+
+        thisArgLcl  = lvaGetDesc(info.GetThisParamLclNum());
+        thisCopyLcl = lvaNewTemp(TYP_REF, true DEBUGARG("monitor EH exit 'this' copy"));
+        init        = gtNewAssignNode(gtNewLclvNode(thisCopyLcl, TYP_REF), gtNewLclvNode(thisArgLcl, TYP_REF));
+
         fgNewStmtAtEnd(tryBegBB, init);
     }
 
     CorInfoHelpFunc enterHelper = info.compIsStatic ? CORINFO_HELP_MON_ENTER_STATIC : CORINFO_HELP_MON_ENTER;
     CorInfoHelpFunc exitHelper  = info.compIsStatic ? CORINFO_HELP_MON_EXIT_STATIC : CORINFO_HELP_MON_EXIT;
 
-    fgInsertMonitorCall(tryBegBB, enterHelper, info.compThisArg);
-    fgInsertMonitorCall(faultBB, exitHelper, thisCopyLclNum);
+    fgInsertMonitorCall(tryBegBB, enterHelper, thisArgLcl, acquiredLcl);
+    fgInsertMonitorCall(faultBB, exitHelper, thisCopyLcl, acquiredLcl);
 
     for (BasicBlock* const block : Blocks())
     {
         if (block->bbJumpKind == BBJ_RETURN)
         {
-            fgInsertMonitorCall(block, exitHelper, info.compThisArg);
+            fgInsertMonitorCall(block, exitHelper, thisArgLcl, acquiredLcl);
         }
     }
 }
 
-void Compiler::fgInsertMonitorCall(BasicBlock* block, CorInfoHelpFunc helper, unsigned thisLclNum)
+void Compiler::fgInsertMonitorCall(BasicBlock*     block,
+                                   CorInfoHelpFunc helper,
+                                   LclVarDsc*      thisLcl,
+                                   LclVarDsc*      acquiredLcl)
 {
     assert((block->bbJumpKind == BBJ_NONE) || (block->bbJumpKind == BBJ_RETURN) ||
            (block->bbJumpKind == BBJ_EHFINALLYRET));
 
-    GenTree* monitor  = info.compIsStatic ? gtNewStaticMethodMonitorAddr() : gtNewLclvNode(thisLclNum, TYP_REF);
-    GenTree* acquired = gtNewLclVarAddrNode(lvaMonAcquired);
+    GenTree* monitor  = thisLcl == nullptr ? gtNewStaticMethodMonitorAddr() : gtNewLclvNode(thisLcl, TYP_REF);
+    GenTree* acquired = gtNewLclVarAddrNode(acquiredLcl);
     GenTree* call     = gtNewHelperCallNode(helper, TYP_VOID, gtNewCallArgs(monitor, acquired));
 
     JITDUMPTREE(call, "\nSynchronized method - Add monitor call to block " FMT_BB "\n", block->bbNum);
@@ -915,21 +923,20 @@ void Compiler::fgInsertMonitorCall(BasicBlock* block, CorInfoHelpFunc helper, un
 
         if ((retExpr->GetSideEffects() != 0) || impHasAddressTakenLocals(retExpr))
         {
-            unsigned   retTempLclNum = lvaGrabTemp(true DEBUGARG("monitor 'return' temp"));
-            LclVarDsc* retTempLcl    = lvaGetDesc(retTempLclNum);
+            LclVarDsc* retTempLcl = lvaAllocTemp(true DEBUGARG("monitor 'return' temp"));
 
             if (varTypeIsStruct(retNode->GetType()))
             {
-                lvaSetStruct(retTempLclNum, info.GetRetLayout(), /* checkUnsafeBuffer */ false);
+                lvaSetStruct(retTempLcl, info.GetRetLayout(), /* checkUnsafeBuffer */ false);
             }
             else
             {
                 retTempLcl->SetType(retNode->GetType());
             }
 
-            GenTreeOp* retTempInit = gtNewAssignNode(gtNewLclvNode(retTempLclNum, retTempLcl->GetType()), retExpr);
+            GenTreeOp* retTempInit = gtNewAssignNode(gtNewLclvNode(retTempLcl, retTempLcl->GetType()), retExpr);
             fgInsertStmtBefore(block, retStmt, gtNewStmt(retTempInit));
-            retNode->AsUnOp()->SetOp(0, gtNewLclvNode(retTempLclNum, retTempLcl->GetType()));
+            retNode->AsUnOp()->SetOp(0, gtNewLclvNode(retTempLcl, retTempLcl->GetType()));
         }
     }
 
@@ -984,13 +991,14 @@ void Compiler::fgAddReversePInvokeEnterExit()
 {
     assert(opts.IsReversePInvoke());
 
-    lvaReversePInvokeFrameVar = lvaGrabTemp(false DEBUGARG("ReversePInvokeFrame"));
-    lvaGetDesc(lvaReversePInvokeFrameVar)->SetBlockType(eeGetEEInfo()->sizeOfReversePInvokeFrame);
-    lvaSetAddressExposed(lvaReversePInvokeFrameVar);
+    LclVarDsc* frameLcl = lvaAllocTemp(false DEBUGARG("ReversePInvokeFrame"));
+    frameLcl->SetBlockType(eeGetEEInfo()->sizeOfReversePInvokeFrame);
+    lvaSetAddressExposed(frameLcl);
+    lvaReversePInvokeFrameVar = frameLcl->GetLclNum();
 
     // Add enter pinvoke exit callout at the start of prolog
 
-    GenTree*        pInvokeFrameVar = gtNewLclVarAddrNode(lvaReversePInvokeFrameVar);
+    GenTree*        pInvokeFrameVar = gtNewLclVarAddrNode(frameLcl);
     CorInfoHelpFunc reversePInvokeEnterHelper;
 
     GenTreeCall::Use* args;
@@ -1005,7 +1013,7 @@ void Compiler::fgAddReversePInvokeEnterExit()
             // If we have a secret param for a Reverse P/Invoke, that means that we are in an IL stub.
             // In this case, the method handle we pass down to the Reverse P/Invoke helper should be
             // the target method, which is passed in the secret parameter.
-            stubArgument = gtNewLclvNode(lvaStubArgumentVar, TYP_I_IMPL);
+            stubArgument = gtNewLclvNode(lvaGetDesc(lvaStubArgumentVar), TYP_I_IMPL);
         }
         else
         {
@@ -1038,7 +1046,7 @@ void Compiler::fgAddReversePInvokeEnterExit()
 
     // Add reverse pinvoke exit callout at the end of epilog
 
-    tree = gtNewLclVarAddrNode(lvaReversePInvokeFrameVar);
+    tree = gtNewLclVarAddrNode(frameLcl);
 
     CorInfoHelpFunc reversePInvokeExitHelper = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TRACK_TRANSITIONS)
                                                    ? CORINFO_HELP_JIT_REVERSE_PINVOKE_EXIT_TRACK_TRANSITIONS
@@ -1273,7 +1281,7 @@ private:
         {
             assert(comp->info.retDesc.GetRegCount() == 1);
 
-            GenTree* retBuffAddr = comp->gtNewLclvNode(comp->info.compRetBuffArg, TYP_BYREF);
+            GenTree* retBuffAddr = comp->gtNewLclvNode(comp->lvaGetDesc(comp->info.compRetBuffArg), TYP_BYREF);
             retBuffAddr->gtFlags |= GTF_DONT_CSE;
             returnExpr = comp->gtNewOperNode(GT_RETURN, TYP_BYREF, retBuffAddr);
 
@@ -1283,12 +1291,11 @@ private:
         {
             // There is a return value, so create a temp for it.  Real returns will store the value in there and
             // it'll be reloaded by the single return.
-            unsigned   lclNum = comp->lvaGrabTemp(true DEBUGARG("merged return temp"));
-            LclVarDsc* lcl    = comp->lvaGetDesc(lclNum);
+            LclVarDsc* lcl = comp->lvaAllocTemp(true DEBUGARG("merged return temp"));
 
             if (varTypeIsStruct(comp->info.GetRetSigType()))
             {
-                comp->lvaSetStruct(lclNum, comp->info.GetRetLayout(), false);
+                comp->lvaSetStruct(lcl, comp->info.GetRetLayout(), false);
                 lcl->lvIsMultiRegRet = (comp->info.retDesc.GetRegCount() > 1);
             }
             else
@@ -1297,12 +1304,12 @@ private:
                 comp->compFloatingPointUsed |= varTypeIsFloating(comp->info.compRetType);
             }
 
-            GenTree* retTemp = comp->gtNewLclvNode(lclNum, lcl->GetType());
+            GenTree* retTemp = comp->gtNewLclvNode(lcl, lcl->GetType());
             // make sure copy prop ignores this node (make sure it always does a reload from the temp).
             retTemp->gtFlags |= GTF_DONT_CSE;
             returnExpr = comp->gtNewOperNode(GT_RETURN, lcl->GetType(), retTemp);
 
-            comp->genReturnLocal = lclNum;
+            comp->genReturnLocal = lcl->GetLclNum();
         }
 
         // Add 'return' expression to the return block
@@ -1561,14 +1568,14 @@ void Compiler::fgAddInternal()
 #ifdef DEBUG
     if (opts.compGcChecks)
     {
-        for (unsigned i = 0; i < info.GetParamCount(); i++)
+        for (LclVarDsc* lcl : Params())
         {
-            if (!lvaGetDesc(i)->TypeIs(TYP_REF))
+            if (!lcl->TypeIs(TYP_REF))
             {
                 continue;
             }
 
-            GenTree* op   = gtNewLclvNode(i, TYP_REF);
+            GenTree* op   = gtNewLclvNode(lcl, TYP_REF);
             GenTree* call = gtNewHelperCallNode(CORINFO_HELP_CHECK_OBJ, TYP_VOID, gtNewCallArgs(op));
 
             fgEnsureFirstBBisScratch();
@@ -1599,7 +1606,7 @@ void Compiler::fgAddInternal()
     // 5. Verifier does special handling of "this" in the .ctor
     //
     // However, we might overwrite it with a "starg 0".
-    // In this case, we will redirect all "ldarg(a)/starg(a) 0" to a temp lvaTable[lvaThisLclNum]
+    // In this case, we will redirect all "ldarg(a)/starg(a) 0" to a temp lvaThisLclNum
 
     if (!info.compIsStatic && (lvaThisLclNum != info.GetThisParamLclNum()))
     {
@@ -1619,8 +1626,7 @@ void Compiler::fgAddInternal()
         noway_assert(thisLcl->IsAddressExposed() || thisLcl->lvHasILStoreOp || genericsContextIsThis);
 
         var_types type = thisParam->GetType();
-        GenTree*  tree =
-            gtNewAssignNode(gtNewLclvNode(lvaThisLclNum, type), gtNewLclvNode(info.GetThisParamLclNum(), type));
+        GenTree*  tree = gtNewAssignNode(gtNewLclvNode(thisLcl, type), gtNewLclvNode(thisParam, type));
 
         fgEnsureFirstBBisScratch();
         fgNewStmtAtEnd(fgFirstBB, tree);
@@ -1712,12 +1718,12 @@ void Compiler::fgAddInternal()
         // TCB variable if we're not using them.
         if (!opts.ShouldUsePInvokeHelpers())
         {
-            lvaPInvokeFrameListVar = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("PInvokeFrameList"));
+            lvaPInvokeFrameListVar = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("PInvokeFrameList"))->GetLclNum();
         }
 
-        lvaInlinedPInvokeFrameVar = lvaGrabTemp(false DEBUGARG("PInvokeFrame"));
-        lvaGetDesc(lvaInlinedPInvokeFrameVar)
-            ->SetBlockType(roundUp(eeGetEEInfo()->inlinedCallFrameInfo.size, REGSIZE_BYTES));
+        LclVarDsc* frameLcl = lvaAllocTemp(false DEBUGARG("PInvokeFrame"));
+        frameLcl->SetBlockType(roundUp(eeGetEEInfo()->inlinedCallFrameInfo.size, REGSIZE_BYTES));
+        lvaInlinedPInvokeFrameVar = frameLcl->GetLclNum();
     }
 
     if (opts.compDbgCode && !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB))
@@ -1754,9 +1760,11 @@ void Compiler::fgAddInternal()
         }
         else
         {
-            noway_assert(lvaGetDesc(info.compThisArg)->TypeIs(TYP_REF));
+            LclVarDsc* thisParam = lvaGetDesc(info.GetThisParamLclNum());
 
-            tree = gtNewLclvNode(info.compThisArg, TYP_REF);
+            noway_assert(thisParam->TypeIs(TYP_REF));
+
+            tree = gtNewLclvNode(thisParam, TYP_REF);
             tree = gtNewHelperCallNode(CORINFO_HELP_MON_ENTER, TYP_VOID, gtNewCallArgs(tree));
         }
 
@@ -1789,7 +1797,11 @@ void Compiler::fgAddInternal()
         }
         else
         {
-            tree = gtNewLclvNode(info.compThisArg, TYP_REF);
+            LclVarDsc* thisParam = lvaGetDesc(info.GetThisParamLclNum());
+
+            noway_assert(thisParam->TypeIs(TYP_REF));
+
+            tree = gtNewLclvNode(thisParam, TYP_REF);
             tree = gtNewHelperCallNode(CORINFO_HELP_MON_EXIT, TYP_VOID, gtNewCallArgs(tree));
         }
 

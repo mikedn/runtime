@@ -8,7 +8,7 @@ void Compiler::fgMarkUseDef(LivenessState& state, GenTreeLclVarCommon* node)
 {
     assert(node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
-    LclVarDsc* lcl = lvaGetDesc(node);
+    LclVarDsc* lcl = node->GetLcl();
 
     assert(!lcl->IsAddressExposed());
 
@@ -16,7 +16,7 @@ void Compiler::fgMarkUseDef(LivenessState& state, GenTreeLclVarCommon* node)
     // TODO-MIKE-Review: It's not clear why promotion makes a difference.
     if ((lcl->lvRefCnt() == 0) && !lcl->IsPromoted())
     {
-        JITDUMP("Found reference to V%02u with zero refCnt.\n", node->GetLclNum());
+        JITDUMP("Found reference to V%02u with zero refCnt.\n", lcl->GetLclNum());
         assert(!"We should never encounter a reference to a lclVar that has a zero refCnt.");
         lcl->SetRefCount(1);
     }
@@ -56,10 +56,8 @@ void Compiler::fgMarkUseDef(LivenessState& state, GenTreeLclVarCommon* node)
                                                                : varTypeSize(lclFld->GetType()));
     }
 
-    for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
+    for (LclVarDsc* fieldLcl : PromotedFields(lcl))
     {
-        LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
-
         assert(!fieldLcl->TypeIs(TYP_STRUCT));
 
         unsigned fieldOffset    = fieldLcl->GetPromotedFieldOffset();
@@ -138,9 +136,9 @@ void Compiler::fgLocalVarLiveness()
 
     // TODO-MIKE-Review: See if we can simply reset these during liveness computation
     // (e.g. if it's not live in then set it to false).
-    for (unsigned lclNum = 0; lclNum < lvaCount; ++lclNum)
+    for (LclVarDsc* lcl : Locals())
     {
-        lvaTable[lclNum].lvMustInit = false;
+        lcl->lvMustInit = false;
     }
 
     if (lvaTrackedCount == 0)
@@ -202,7 +200,7 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
     {
         case GT_LCL_VAR:
         case GT_LCL_FLD:
-            if (lvaGetDesc(tree->AsLclVarCommon())->IsAddressExposed())
+            if (tree->AsLclVarCommon()->GetLcl()->IsAddressExposed())
             {
                 state.fgCurMemoryUse = true;
                 break;
@@ -212,7 +210,7 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
             break;
 
         case GT_LCL_ADDR:
-            assert(lvaGetDesc(tree->AsLclAddr())->IsAddressExposed());
+            assert(tree->AsLclAddr()->GetLcl()->IsAddressExposed());
             break;
 
         case GT_IND:
@@ -230,7 +228,7 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
 
             if (GenTreeLclAddr* lclNode = tree->AsIndir()->GetAddr()->SkipComma()->IsLocalAddrExpr())
             {
-                assert(lvaGetDesc(lclNode)->IsAddressExposed());
+                assert(lclNode->GetLcl()->IsAddressExposed());
             }
 
             state.fgCurMemoryUse = true;
@@ -299,7 +297,7 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
 
         case GT_STORE_LCL_VAR:
         case GT_STORE_LCL_FLD:
-            if (lvaGetDesc(tree->AsLclVarCommon())->IsAddressExposed())
+            if (tree->AsLclVarCommon()->GetLcl()->IsAddressExposed())
             {
                 state.fgCurMemoryDef = true;
                 break;
@@ -313,7 +311,7 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
         case GT_STORE_BLK:
             if (GenTreeLclAddr* lclNode = tree->AsIndir()->GetAddr()->SkipComma()->IsLocalAddrExpr())
             {
-                assert(lvaGetDesc(lclNode)->IsAddressExposed());
+                assert(lclNode->GetLcl()->IsAddressExposed());
             }
 
             state.fgCurMemoryDef = true;
@@ -383,14 +381,14 @@ void Compiler::fgPerBlockLocalVarLivenessLIR()
         {
             if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
             {
-                if (!lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed())
+                if (!node->AsLclVarCommon()->GetLcl()->IsAddressExposed())
                 {
                     fgMarkUseDef(state, node->AsLclVarCommon());
                 }
             }
             else if (node->OperIs(GT_LCL_ADDR))
             {
-                assert(lvaGetDesc(node->AsLclAddr())->IsAddressExposed());
+                assert(node->AsLclAddr()->GetLcl()->IsAddressExposed());
             }
         }
 
@@ -440,12 +438,12 @@ void Compiler::fgPerBlockLocalVarLivenessLIR()
 //        Console.WriteLine("In catch 1");
 //    }
 
-VARSET_VALRET_TP Compiler::fgGetHandlerLiveVars(BasicBlock* block)
+void Compiler::fgGetHandlerLiveVars(BasicBlock* block, VARSET_TP& liveVars)
 {
     noway_assert(block);
     noway_assert(ehBlockHasExnFlowDsc(block));
 
-    VARSET_TP liveVars(VarSetOps::MakeEmpty(this));
+    VarSetOps::ClearD(this, liveVars);
     EHblkDsc* HBtab = ehGetBlockExnFlowDsc(block);
 
     do
@@ -454,7 +452,7 @@ VARSET_VALRET_TP Compiler::fgGetHandlerLiveVars(BasicBlock* block)
         if (HBtab->HasFilter())
         {
             VarSetOps::UnionD(this, liveVars, HBtab->ebdFilter->bbLiveIn);
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
             // The EH subsystem can trigger a stack walk after the filter
             // has returned, but before invoking the handler, and the only
             // IP address reported from this method will be the original
@@ -462,7 +460,7 @@ VARSET_VALRET_TP Compiler::fgGetHandlerLiveVars(BasicBlock* block)
             // must report as live any variables live-out of the filter
             // (which is the same as those live-in to the handler)
             VarSetOps::UnionD(this, liveVars, HBtab->ebdHndBeg->bbLiveIn);
-#endif // FEATURE_EH_FUNCLETS
+#endif
         }
         else
         {
@@ -547,8 +545,6 @@ VARSET_VALRET_TP Compiler::fgGetHandlerLiveVars(BasicBlock* block)
             }
         }
     }
-
-    return liveVars;
 }
 
 // This is the classic algorithm for live variable analysis.
@@ -562,6 +558,7 @@ class LiveVarAnalysis
     bool      m_memoryLiveOut : 1;
     VARSET_TP m_liveIn;
     VARSET_TP m_liveOut;
+    VARSET_TP m_ehLiveVars = VarSetOps::UninitVal();
 
 public:
     LiveVarAnalysis(Compiler* compiler)
@@ -582,14 +579,14 @@ public:
         if (block->EndsWithJmp(m_compiler))
         {
             // A JMP uses all the arguments, so mark them all as live at the JMP instruction.
-            const LclVarDsc* varDscEndParams = m_compiler->lvaTable + m_compiler->info.compArgsCount;
 
-            for (LclVarDsc* varDsc = m_compiler->lvaTable; varDsc < varDscEndParams; varDsc++)
+            for (LclVarDsc* varDsc : m_compiler->Params())
             {
-                noway_assert(!varDsc->lvPromoted);
-                if (varDsc->lvTracked)
+                noway_assert(!varDsc->IsPromoted());
+
+                if (varDsc->HasLiveness())
                 {
-                    VarSetOps::AddElemD(m_compiler, m_liveOut, varDsc->lvVarIndex);
+                    VarSetOps::AddElemD(m_compiler, m_liveOut, varDsc->GetLivenessBitIndex());
                 }
             }
         }
@@ -611,7 +608,8 @@ public:
 
         if (keepAliveThis)
         {
-            VarSetOps::AddElemD(m_compiler, m_liveOut, m_compiler->lvaTable[m_compiler->info.compThisArg].lvVarIndex);
+            VarSetOps::AddElemD(m_compiler, m_liveOut,
+                                m_compiler->lvaGetDesc(m_compiler->info.GetThisParamLclNum())->GetLivenessBitIndex());
         }
 
         /* Compute the 'm_liveIn'  set */
@@ -625,9 +623,14 @@ public:
         // If so, include the effects of that flow.
         if (m_compiler->ehBlockHasExnFlowDsc(block))
         {
-            const VARSET_TP& liveVars(m_compiler->fgGetHandlerLiveVars(block));
-            VarSetOps::UnionD(m_compiler, m_liveIn, liveVars);
-            VarSetOps::UnionD(m_compiler, m_liveOut, liveVars);
+            if (m_ehLiveVars == VarSetOps::UninitVal())
+            {
+                m_ehLiveVars = VarSetOps::Alloc(m_compiler);
+            }
+
+            m_compiler->fgGetHandlerLiveVars(block, m_ehLiveVars);
+            VarSetOps::UnionD(m_compiler, m_liveIn, m_ehLiveVars);
+            VarSetOps::UnionD(m_compiler, m_liveOut, m_ehLiveVars);
 
             // Implicit eh edges can induce loop-like behavior,
             // so make sure we iterate to closure.
@@ -655,10 +658,10 @@ public:
 
     void Run()
     {
-        const bool keepAliveThis =
-            m_compiler->lvaKeepAliveAndReportThis() && m_compiler->lvaTable[m_compiler->info.compThisArg].lvTracked;
+        const bool keepAliveThis = m_compiler->lvaKeepAliveAndReportThis() &&
+                                   m_compiler->lvaGetDesc(m_compiler->info.GetThisParamLclNum())->HasLiveness();
 
-        /* Live Variable Analysis - Backward dataflow */
+        // Live Variable Analysis - Backward dataflow
         bool changed;
         do
         {
@@ -725,7 +728,7 @@ void Compiler::fgComputeLifeTrackedLocalUse(VARSET_TP& liveOut, LclVarDsc* lcl, 
 }
 
 bool Compiler::fgComputeLifeTrackedLocalDef(VARSET_TP&           liveOut,
-                                            VARSET_VALARG_TP     keepAlive,
+                                            VARSET_TP            keepAlive,
                                             LclVarDsc*           lcl,
                                             GenTreeLclVarCommon* node)
 {
@@ -760,7 +763,7 @@ bool Compiler::fgComputeLifeTrackedLocalDef(VARSET_TP&           liveOut,
 }
 
 bool Compiler::fgComputeLifePromotedLocal(VARSET_TP&           liveOut,
-                                          VARSET_VALARG_TP     keepAlive,
+                                          VARSET_TP            keepAlive,
                                           LclVarDsc*           lcl,
                                           GenTreeLclVarCommon* node)
 {
@@ -820,7 +823,7 @@ bool Compiler::fgComputeLifePromotedLocal(VARSET_TP&           liveOut,
     return isDef && isLastUse && !(lcl->lvCustomLayout && lcl->lvContainsHoles);
 }
 
-bool Compiler::fgComputeLifeBlock(VARSET_TP& life, VARSET_VALARG_TP keepAlive, BasicBlock* block)
+bool Compiler::fgComputeLifeBlock(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock* block)
 {
     Statement* firstStmt = block->FirstNonPhiDef();
 
@@ -846,7 +849,7 @@ bool Compiler::fgComputeLifeBlock(VARSET_TP& life, VARSET_VALARG_TP keepAlive, B
     return stmtRemoved;
 }
 
-bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive, Statement* stmt, BasicBlock* block)
+bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_TP keepAlive, Statement* stmt, BasicBlock* block)
 {
     bool updateStmt = false;
     INDEBUG(bool modified = false);
@@ -858,7 +861,7 @@ bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
         if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
             GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
-            LclVarDsc*           lcl     = lvaGetDesc(lclNode);
+            LclVarDsc*           lcl     = lclNode->GetLcl();
 
             if (lcl->HasLiveness())
             {
@@ -873,7 +876,7 @@ bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
         else if (node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
         {
             GenTreeLclVarCommon* lclNode     = node->AsLclVarCommon();
-            LclVarDsc*           lcl         = lvaGetDesc(lclNode);
+            LclVarDsc*           lcl         = lclNode->GetLcl();
             bool                 isDeadStore = false;
 
             if (lcl->HasLiveness())
@@ -932,9 +935,9 @@ bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_VALARG_TP keepAlive,
     return false;
 }
 
-bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars, BasicBlock* block)
+bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock* block)
 {
-    noway_assert(VarSetOps::IsSubset(this, keepAliveVars, life));
+    noway_assert(VarSetOps::IsSubset(this, keepAlive, life));
 
     LIR::Range& blockRange = LIR::AsRange(block);
     GenTree*    firstNode  = blockRange.FirstNode();
@@ -956,7 +959,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
             case GT_LCL_FLD:
             {
                 GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
-                LclVarDsc*           lcl     = lvaGetDesc(lclNode);
+                LclVarDsc*           lcl     = lclNode->GetLcl();
 
                 if (node->IsUnusedValue())
                 {
@@ -976,7 +979,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
                 }
                 else if (lcl->IsPromoted() && !lcl->IsAddressExposed())
                 {
-                    fgComputeLifePromotedLocal(life, keepAliveVars, lcl, lclNode);
+                    fgComputeLifePromotedLocal(life, keepAlive, lcl, lclNode);
                 }
                 break;
             }
@@ -985,12 +988,12 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
             case GT_STORE_LCL_FLD:
             {
                 GenTreeLclVarCommon* lclNode     = node->AsLclVarCommon();
-                LclVarDsc*           lcl         = lvaGetDesc(lclNode);
+                LclVarDsc*           lcl         = lclNode->GetLcl();
                 bool                 isDeadStore = false;
 
                 if (lcl->HasLiveness())
                 {
-                    isDeadStore = fgComputeLifeTrackedLocalDef(life, keepAliveVars, lcl, lclNode);
+                    isDeadStore = fgComputeLifeTrackedLocalDef(life, keepAlive, lcl, lclNode);
                 }
                 else
                 {
@@ -1028,7 +1031,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
 
                     if (!isDeadStore && lcl->IsPromoted() && !lcl->IsAddressExposed())
                     {
-                        isDeadStore = fgComputeLifePromotedLocal(life, keepAliveVars, lcl, lclNode);
+                        isDeadStore = fgComputeLifePromotedLocal(life, keepAlive, lcl, lclNode);
                     }
                 }
 
@@ -1048,7 +1051,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
             }
 
             case GT_LCL_ADDR:
-                assert(lvaGetDesc(node->AsLclAddr())->IsAddressExposed());
+                assert(node->AsLclAddr()->GetLcl()->IsAddressExposed());
                 FALLTHROUGH;
             case GT_LABEL:
             case GT_CNS_INT:
@@ -1317,15 +1320,8 @@ bool Compiler::fgInterBlockLocalVarLiveness()
         }
     }
 
-    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
+    for (LclVarDsc* lcl : LivenessLocals())
     {
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
-
-        if (!lcl->HasLiveness())
-        {
-            continue;
-        }
-
         // Uninitialized locals may need auto-initialization. Note that the liveness of
         // such locals will bubble to the top (fgFirstBB) in fgInterBlockLocalVarLiveness.
 
@@ -1346,7 +1342,7 @@ bool Compiler::fgInterBlockLocalVarLiveness()
 
         if (isFinallyLiveOut || VarSetOps::IsMember(this, handlerLive, lcl->GetLivenessBitIndex()))
         {
-            lvaSetLiveInOutOfHandler(lclNum);
+            lvaSetLiveInOutOfHandler(lcl);
 
             if (isFinallyLiveOut && !lcl->IsParam() && varTypeIsGC(lcl->TypeGet()))
             {
@@ -1357,23 +1353,22 @@ bool Compiler::fgInterBlockLocalVarLiveness()
 
     bool      useDefRemoved = false;
     bool      changed       = false;
-    VARSET_TP keepAlive     = VarSetOps::MakeEmpty(this);
-    VARSET_TP life          = VarSetOps::MakeEmpty(this);
+    VARSET_TP keepAlive     = VarSetOps::Alloc(this);
+    VARSET_TP life          = VarSetOps::Alloc(this);
 
     for (BasicBlock* const block : Blocks())
     {
+        VarSetOps::Assign(this, life, block->bbLiveOut);
+
         if (ehBlockHasExnFlowDsc(block))
         {
-            VarSetOps::Assign(this, keepAlive, fgGetHandlerLiveVars(block));
-
+            fgGetHandlerLiveVars(block, keepAlive);
             noway_assert(VarSetOps::IsSubset(this, keepAlive, handlerLive));
         }
         else
         {
             VarSetOps::ClearD(this, keepAlive);
         }
-
-        VarSetOps::Assign(this, life, block->bbLiveOut);
 
         if (compRationalIRForm)
         {
@@ -1405,9 +1400,10 @@ bool Compiler::fgInterBlockLocalVarLiveness()
 
 void Compiler::fgDispBBLocalLiveness(BasicBlock* block)
 {
-    VARSET_TP allVars(VarSetOps::Union(this, block->bbVarUse, block->bbVarDef));
-    printf(FMT_BB, block->bbNum);
-    printf(" USE(%d)=", VarSetOps::Count(this, block->bbVarUse));
+    VARSET_TP allVars = VarSetOps::Alloc(this);
+    VarSetOps::Union(this, allVars, block->bbVarUse, block->bbVarDef);
+
+    printf(FMT_BB ":\nUSE = ", block->bbNum);
     lvaDispVarSet(block->bbVarUse, allVars);
 
     if (!block->IsLIR())
@@ -1418,7 +1414,7 @@ void Compiler::fgDispBBLocalLiveness(BasicBlock* block)
         }
     }
 
-    printf("\n     DEF(%d)=", VarSetOps::Count(this, block->bbVarDef));
+    printf("\nDEF = ");
     lvaDispVarSet(block->bbVarDef, allVars);
 
     if (!block->IsLIR())
@@ -1438,9 +1434,10 @@ void Compiler::fgDispBBLocalLiveness(BasicBlock* block)
 
 void Compiler::fgDispBBLiveness(BasicBlock* block)
 {
-    VARSET_TP allVars(VarSetOps::Union(this, block->bbLiveIn, block->bbLiveOut));
-    printf(FMT_BB, block->bbNum);
-    printf(" IN (%d)=", VarSetOps::Count(this, block->bbLiveIn));
+    VARSET_TP allVars = VarSetOps::Alloc(this);
+    VarSetOps::Union(this, allVars, block->bbLiveIn, block->bbLiveOut);
+
+    printf(FMT_BB ":\nIN = ", block->bbNum);
     lvaDispVarSet(block->bbLiveIn, allVars);
 
     if (!block->IsLIR())
@@ -1451,7 +1448,7 @@ void Compiler::fgDispBBLiveness(BasicBlock* block)
         }
     }
 
-    printf("\n     OUT(%d)=", VarSetOps::Count(this, block->bbLiveOut));
+    printf("\nOUT = ");
     lvaDispVarSet(block->bbLiveOut, allVars);
 
     if (!block->IsLIR())

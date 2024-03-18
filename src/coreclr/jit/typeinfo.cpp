@@ -2,15 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
 #include "_typeinfo.h"
 
 #ifdef DEBUG
 
-const ti_types g_ti_types_map[CORINFO_TYPE_COUNT] = {
+static const ti_types g_ti_types_map[CORINFO_TYPE_COUNT]{
     // see the definition of enum CorInfoType in file inc/corinfo.h
     TI_ERROR,  // CORINFO_TYPE_UNDEF           = 0x0,
     TI_ERROR,  // CORINFO_TYPE_VOID            = 0x1,
@@ -38,7 +34,7 @@ const ti_types g_ti_types_map[CORINFO_TYPE_COUNT] = {
 };
 
 // Convert the type returned from the VM to a ti_type.
-ti_types JITtype2tiType(CorInfoType type)
+static ti_types JITtype2tiType(CorInfoType type)
 {
     // spot check to make certain enumerations have not changed
     assert(g_ti_types_map[CORINFO_TYPE_CLASS] == TI_REF);
@@ -55,74 +51,72 @@ ti_types JITtype2tiType(CorInfoType type)
     return g_ti_types_map[type];
 };
 
-typeInfo Importer::verMakeTypeInfo(CorInfoType ciType, CORINFO_CLASS_HANDLE clsHnd)
+typeInfo Importer::verMakeTypeInfo(CorInfoType corType, CORINFO_CLASS_HANDLE clsHnd)
 {
-    assert(ciType < CORINFO_TYPE_COUNT);
+    assert(corType < CORINFO_TYPE_COUNT);
 
-    typeInfo tiResult;
-    switch (ciType)
+    typeInfo type;
+
+    switch (corType)
     {
         case CORINFO_TYPE_STRING:
         case CORINFO_TYPE_CLASS:
-            tiResult = verMakeTypeInfo(clsHnd);
-            if (!tiResult.IsType(TI_REF))
-            { // type must be consistent with element type
+            type = verMakeTypeInfo(clsHnd);
+
+            if (!type.IsRef())
+            {
+                // type must be consistent with element type
                 return typeInfo();
             }
-            break;
+
+            return type;
 
 #ifdef TARGET_64BIT
         case CORINFO_TYPE_NATIVEINT:
         case CORINFO_TYPE_NATIVEUINT:
-            if (clsHnd)
+            if (clsHnd != NO_CLASS_HANDLE)
             {
                 // If we have more precise information, use it
                 return verMakeTypeInfo(clsHnd);
             }
-            else
-            {
-                return typeInfo::nativeInt();
-            }
-            break;
+
+            return typeInfo::NativeInt();
 #endif // TARGET_64BIT
 
         case CORINFO_TYPE_VALUECLASS:
         case CORINFO_TYPE_REFANY:
-            tiResult = verMakeTypeInfo(clsHnd);
+            type = verMakeTypeInfo(clsHnd);
+
             // type must be constant with element type;
-            if (!tiResult.IsValueClass())
+            if (!type.IsValueClass())
             {
                 return typeInfo();
             }
-            break;
+
+            return type;
+
+        case CORINFO_TYPE_BYREF:
+            CORINFO_CLASS_HANDLE childClassHandle;
+            CorInfoType          childType;
+            childType = info.compCompHnd->getChildType(clsHnd, &childClassHandle);
+            return verMakeTypeInfo(childType, childClassHandle).MakeByRef();
 
         case CORINFO_TYPE_PTR: // for now, pointers are treated as an error
         case CORINFO_TYPE_VOID:
             return typeInfo();
-            break;
-
-        case CORINFO_TYPE_BYREF:
-        {
-            CORINFO_CLASS_HANDLE childClassHandle;
-            CorInfoType          childType = info.compCompHnd->getChildType(clsHnd, &childClassHandle);
-            return verMakeTypeInfo(childType, childClassHandle).MakeByRef();
-        }
-        break;
 
         case CORINFO_TYPE_VAR:
             unreached();
 
         default:
-            if (clsHnd)
-            { // If we have more precise information, use it
+            if (clsHnd != NO_CLASS_HANDLE)
+            {
+                // If we have more precise information, use it
                 return typeInfo(TI_STRUCT, clsHnd);
             }
-            else
-            {
-                return typeInfo(JITtype2tiType(ciType));
-            }
+
+            return typeInfo(JITtype2tiType(corType));
     }
-    return tiResult;
 }
 
 typeInfo Importer::verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd)
@@ -158,7 +152,7 @@ typeInfo Importer::verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd)
 #ifdef TARGET_64BIT
         if ((t == CORINFO_TYPE_NATIVEINT) || (t == CORINFO_TYPE_NATIVEUINT))
         {
-            return typeInfo::nativeInt();
+            return typeInfo::NativeInt();
         }
 #endif // TARGET_64BIT
 
@@ -185,28 +179,30 @@ typeInfo Importer::verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd)
 // the bit
 bool typeInfo::AreEquivalent(const typeInfo& li, const typeInfo& ti)
 {
-    unsigned allFlags = TI_FLAG_DATA_MASK | TI_FLAG_BYREF;
+    unsigned allFlags = TI_FLAG_TYPE_MASK | TI_FLAG_BYREF;
 #ifdef TARGET_64BIT
     allFlags |= TI_FLAG_NATIVE_INT;
-#endif // TARGET_64BIT
+#endif
 
     if ((li.m_flags & allFlags) != (ti.m_flags & allFlags))
     {
         return false;
     }
 
-    unsigned type = li.m_flags & TI_FLAG_DATA_MASK;
-    // TI_ERROR looks like it needs more than enum.  This optimises the success case a bit
-    assert(TI_ERROR < TI_ONLY_ENUM);
-    if (type > TI_ONLY_ENUM)
-    {
-        return true;
-    }
+    unsigned type = li.m_flags & TI_FLAG_TYPE_MASK;
+
     if (type == TI_ERROR)
     {
         return false; // TI_ERROR != TI_ERROR
     }
-    assert(li.m_cls != NO_CLASS_HANDLE && ti.m_cls != NO_CLASS_HANDLE);
+
+    if (type >= TI_FIRST_PRIMITIVE)
+    {
+        return true;
+    }
+
+    assert((li.m_cls != NO_CLASS_HANDLE) && (ti.m_cls != NO_CLASS_HANDLE));
+
     return li.m_cls == ti.m_cls;
 }
 
@@ -215,7 +211,7 @@ bool Importer::tiCompatibleWith(const typeInfo& child, const typeInfo& parent) c
     return typeInfo::tiCompatibleWith(info.compCompHnd, child, parent);
 }
 
-typeInfo DereferenceByRef(const typeInfo& ti)
+static typeInfo DereferenceByRef(const typeInfo& ti)
 {
     return typeInfo(ti).DereferenceByRef();
 }
@@ -239,8 +235,7 @@ static bool tiCompatibleWithByRef(ICorJitInfo* vm, const typeInfo& child, const 
     }
 
     // Make sure that both types have a valid m_cls
-    if ((childTarget.IsType(TI_REF) || childTarget.IsType(TI_STRUCT)) &&
-        (parentTarget.IsType(TI_REF) || parentTarget.IsType(TI_STRUCT)))
+    if ((childTarget.IsRef() || childTarget.IsStruct()) && (parentTarget.IsRef() || parentTarget.IsStruct()))
     {
         return vm->areTypesEquivalent(childTarget.GetClassHandle(), parentTarget.GetClassHandle());
     }
@@ -283,21 +278,21 @@ static bool tiCompatibleWithByRef(ICorJitInfo* vm, const typeInfo& child, const 
 
 bool typeInfo::tiCompatibleWith(ICorJitInfo* vm, const typeInfo& child, const typeInfo& parent)
 {
-    assert(!parent.IsType(TI_METHOD));
+    assert(!parent.IsMethod());
 
     if (typeInfo::AreEquivalent(child, parent))
     {
         return true;
     }
 
-    if (parent.IsType(TI_REF))
+    if (parent.IsRef())
     {
-        return child.IsType(TI_REF) && vm->canCast(child.m_cls, parent.m_cls);
+        return child.IsRef() && vm->canCast(child.m_cls, parent.m_cls);
     }
 
-    if (parent.IsType(TI_STRUCT))
+    if (parent.IsStruct())
     {
-        return child.IsType(TI_STRUCT) && vm->areTypesEquivalent(child.m_cls, parent.m_cls);
+        return child.IsStruct() && vm->areTypesEquivalent(child.m_cls, parent.m_cls);
     }
 
     if (parent.IsByRef())
@@ -309,12 +304,12 @@ bool typeInfo::tiCompatibleWith(ICorJitInfo* vm, const typeInfo& child, const ty
     // On 64-bit targets we have precise representation for native int, so these rules
     // represent the fact that the ECMA spec permits the implicit conversion
     // between an int32 and a native int.
-    if (parent.IsType(TI_INT) && typeInfo::AreEquivalent(nativeInt(), child))
+    if (parent.IsInt() && typeInfo::AreEquivalent(NativeInt(), child))
     {
         return true;
     }
 
-    if (typeInfo::AreEquivalent(nativeInt(), parent) && child.IsType(TI_INT))
+    if (typeInfo::AreEquivalent(NativeInt(), parent) && child.IsInt())
     {
         return true;
     }

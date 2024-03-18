@@ -177,11 +177,9 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                         otherReg = op1Reg;
                     }
 
-                    if (addr->OperIs(GT_LCL_ADDR))
+                    if (GenTreeLclAddr* lclAddr = addr->IsLclAddr())
                     {
-                        GetEmitter()->emitIns_SIMD_R_R_S(ins, simdSize, targetReg, otherReg,
-                                                         addr->AsLclAddr()->GetLclNum(),
-                                                         addr->AsLclAddr()->GetLclOffs());
+                        GetEmitter()->emitIns_SIMD_R_R_S(ins, simdSize, targetReg, otherReg, GetStackAddrMode(lclAddr));
                     }
                     else
                     {
@@ -363,9 +361,9 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
     }
 }
 
-bool CodeGen::IsMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs, GenTree** addr, ConstData** data)
+bool CodeGen::IsMemoryOperand(GenTree* op, StackAddrMode* s, GenTree** addr, ConstData** data)
 {
-    if (IsLocalMemoryOperand(op, lclNum, lclOffs))
+    if (IsLocalMemoryOperand(op, s))
     {
         *addr = nullptr;
         *data = nullptr;
@@ -401,14 +399,13 @@ bool CodeGen::IsMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs, 
         return false;
     }
 
-    if (loadAddr->OperIs(GT_LCL_ADDR))
+    if (GenTreeLclAddr* lclAddr = loadAddr->IsLclAddr())
     {
-        assert(loadAddr->isContained());
+        assert(lclAddr->isContained());
 
-        *lclNum  = loadAddr->AsLclAddr()->GetLclNum();
-        *lclOffs = loadAddr->AsLclAddr()->GetLclOffs();
-        *addr    = nullptr;
-        *data    = nullptr;
+        *s    = GetStackAddrMode(lclAddr);
+        *addr = nullptr;
+        *data = nullptr;
     }
     else
     {
@@ -443,12 +440,11 @@ void CodeGen::genHWIntrinsic_R_RM(
     assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
     assert(IsContainableHWIntrinsicOp(compiler, node, rmOp));
 
-    unsigned   lclNum;
-    unsigned   lclOffs;
-    GenTree*   addr;
-    ConstData* data;
+    StackAddrMode s;
+    GenTree*      addr;
+    ConstData*    data;
 
-    if (!IsMemoryOperand(rmOp, &lclNum, &lclOffs, &addr, &data))
+    if (!IsMemoryOperand(rmOp, &s, &addr, &data))
     {
         unreached();
     }
@@ -462,7 +458,7 @@ void CodeGen::genHWIntrinsic_R_RM(
     }
     else
     {
-        emit.emitIns_R_S(ins, attr, reg, lclNum, lclOffs);
+        emit.emitIns_R_S(ins, attr, reg, s);
     }
 }
 
@@ -500,12 +496,11 @@ void CodeGen::inst_RV_TT_IV(instruction ins, emitAttr attr, regNumber reg1, GenT
         return;
     }
 
-    unsigned   lclNum;
-    unsigned   lclOffs;
-    GenTree*   addr;
-    ConstData* data;
+    StackAddrMode s;
+    GenTree*      addr;
+    ConstData*    data;
 
-    if (!IsMemoryOperand(rmOp, &lclNum, &lclOffs, &addr, &data))
+    if (!IsMemoryOperand(rmOp, &s, &addr, &data))
     {
         unreached();
     }
@@ -519,7 +514,7 @@ void CodeGen::inst_RV_TT_IV(instruction ins, emitAttr attr, regNumber reg1, GenT
     }
     else
     {
-        emit.emitIns_R_S_I(ins, attr, reg1, lclNum, lclOffs, ival);
+        emit.emitIns_R_S_I(ins, attr, reg1, s, ival);
     }
 }
 
@@ -583,12 +578,11 @@ void CodeGen::inst_RV_RV_TT(
         return;
     }
 
-    unsigned   lclNum;
-    unsigned   lclOffs;
-    GenTree*   addr;
-    ConstData* data;
+    StackAddrMode s;
+    GenTree*      addr;
+    ConstData*    data;
 
-    if (!IsMemoryOperand(op2, &lclNum, &lclOffs, &addr, &data))
+    if (!IsMemoryOperand(op2, &s, &addr, &data))
     {
         unreached();
     }
@@ -602,7 +596,7 @@ void CodeGen::inst_RV_RV_TT(
     }
     else
     {
-        emit.emitIns_SIMD_R_R_S(ins, size, targetReg, op1Reg, lclNum, lclOffs);
+        emit.emitIns_SIMD_R_R_S(ins, size, targetReg, op1Reg, s);
     }
 }
 
@@ -671,12 +665,11 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
     assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
     assert((ins == INS_insertps) || IsContainableHWIntrinsicOp(compiler, node, op2));
 
-    unsigned   lclNum;
-    unsigned   lclOffs;
-    GenTree*   addr;
-    ConstData* data;
+    StackAddrMode s;
+    GenTree*      addr;
+    ConstData*    data;
 
-    if (!IsMemoryOperand(op2, &lclNum, &lclOffs, &addr, &data))
+    if (!IsMemoryOperand(op2, &s, &addr, &data))
     {
         unreached();
     }
@@ -690,7 +683,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
     }
     else
     {
-        emit.emitIns_SIMD_R_R_S_I(ins, simdSize, targetReg, op1Reg, lclNum, lclOffs, ival);
+        emit.emitIns_SIMD_R_R_S_I(ins, simdSize, targetReg, op1Reg, s, ival);
     }
 }
 
@@ -720,12 +713,11 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
     assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
     assert(IsContainableHWIntrinsicOp(compiler, node, op2));
 
-    unsigned   lclNum;
-    unsigned   lclOffs;
-    GenTree*   addr;
-    ConstData* data;
+    StackAddrMode s;
+    GenTree*      addr;
+    ConstData*    data;
 
-    if (!IsMemoryOperand(op2, &lclNum, &lclOffs, &addr, &data))
+    if (!IsMemoryOperand(op2, &s, &addr, &data))
     {
         unreached();
     }
@@ -740,7 +732,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
     }
     else
     {
-        emit.emitIns_SIMD_R_R_S_R(ins, simdSize, targetReg, op1Reg, op3Reg, lclNum, lclOffs);
+        emit.emitIns_SIMD_R_R_S_R(ins, simdSize, targetReg, op1Reg, op3Reg, s);
     }
 }
 
@@ -760,12 +752,11 @@ void CodeGen::genHWIntrinsic_R_R_R_RM(
         return;
     }
 
-    unsigned   lclNum;
-    unsigned   lclOffs;
-    GenTree*   addr;
-    ConstData* data;
+    StackAddrMode s;
+    GenTree*      addr;
+    ConstData*    data;
 
-    if (!IsMemoryOperand(op3, &lclNum, &lclOffs, &addr, &data))
+    if (!IsMemoryOperand(op3, &s, &addr, &data))
     {
         unreached();
     }
@@ -779,7 +770,7 @@ void CodeGen::genHWIntrinsic_R_R_R_RM(
     }
     else
     {
-        emit.emitIns_SIMD_R_R_R_S(ins, attr, targetReg, op1Reg, op2Reg, lclNum, lclOffs);
+        emit.emitIns_SIMD_R_R_R_S(ins, attr, targetReg, op1Reg, op2Reg, s);
     }
 }
 
@@ -956,8 +947,10 @@ void CodeGen::genVectorGetElement(GenTreeHWIntrinsic* node)
 
         if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
+            LclVarDsc* lcl = src->AsLclVarCommon()->GetLcl();
+
             bool isEBPbased;
-            int  frameOffset = compiler->lvaFrameAddress(src->AsLclVarCommon()->GetLclNum(), &isEBPbased);
+            int  frameOffset = compiler->lvaLclFrameAddress(lcl, &isEBPbased);
 
 #if !FEATURE_FIXED_OUT_ARGS
             if (!isEBPbased)

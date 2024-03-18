@@ -15,7 +15,7 @@ void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* initRegZeroed)
 {
     assert(compiler->getNeedsGSSecurityCookie());
 
-    unsigned gsCookieLclNum = compiler->lvaGSSecurityCookie;
+    StackAddrMode s = GetStackAddrMode(compiler->lvaGSSecurityCookie, 0);
 
     if (m_gsCookieAddr == nullptr)
     {
@@ -25,13 +25,13 @@ void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* initRegZeroed)
         if (!FitsIn<int32_t>(m_gsCookieVal))
         {
             GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, initReg, m_gsCookieVal);
-            GetEmitter()->emitIns_S_R(INS_mov, EA_8BYTE, initReg, gsCookieLclNum, 0);
+            GetEmitter()->emitIns_S_R(INS_mov, EA_8BYTE, initReg, s);
             *initRegZeroed = false;
         }
         else
 #endif
         {
-            GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, gsCookieLclNum, 0, static_cast<int>(m_gsCookieVal));
+            GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, s, static_cast<int>(m_gsCookieVal));
         }
     }
     else
@@ -41,7 +41,7 @@ void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* initRegZeroed)
         //  mov   eax, dword ptr [compiler->gsGlobalSecurityCookieAddr]
         //  mov   dword ptr [frame.GSSecurityCookie], eax
         GetEmitter()->emitIns_R_AH(INS_mov, REG_EAX, m_gsCookieAddr);
-        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_EAX, gsCookieLclNum, 0);
+        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_EAX, s);
 
         if (initReg == REG_EAX)
         {
@@ -60,8 +60,9 @@ void CodeGen::EpilogGSCookieCheck(bool tailCallEpilog)
         // or contain 'this' pointer (keep alive this), since we are generating
         // GS cookie check after a GT_RETURN node.
 
-        if (compiler->lvaKeepAliveAndReportThis() && compiler->lvaGetDesc(compiler->info.compThisArg)->lvIsInReg() &&
-            (compiler->lvaGetDesc(compiler->info.compThisArg)->GetRegNum() == REG_ARG_0))
+        if (compiler->lvaKeepAliveAndReportThis() &&
+            compiler->lvaGetDesc(compiler->info.GetThisParamLclNum())->lvIsInReg() &&
+            (compiler->lvaGetDesc(compiler->info.GetThisParamLclNum())->GetRegNum() == REG_ARG_0))
         {
             regGSCheck = REG_ARG_1;
         }
@@ -85,7 +86,7 @@ void CodeGen::EpilogGSCookieCheck(bool tailCallEpilog)
 #endif
     }
 
-    unsigned gsCookieLclNum = compiler->lvaGSSecurityCookie;
+    StackAddrMode s = GetStackAddrMode(compiler->lvaGSSecurityCookie, 0);
 #ifdef TARGET_X86
     var_types pushedRegType = TYP_UNDEF;
 #endif
@@ -99,12 +100,12 @@ void CodeGen::EpilogGSCookieCheck(bool tailCallEpilog)
         if (!FitsIn<int32_t>(m_gsCookieVal))
         {
             emit.emitIns_R_I(INS_mov, EA_8BYTE, regGSCheck, m_gsCookieVal);
-            emit.emitIns_S_R(INS_cmp, EA_8BYTE, regGSCheck, gsCookieLclNum, 0);
+            emit.emitIns_S_R(INS_cmp, EA_8BYTE, regGSCheck, s);
         }
         else
 #endif
         {
-            emit.emitIns_S_I(INS_cmp, EA_PTRSIZE, gsCookieLclNum, 0, static_cast<int>(m_gsCookieVal));
+            emit.emitIns_S_I(INS_cmp, EA_PTRSIZE, s, static_cast<int>(m_gsCookieVal));
         }
     }
     else
@@ -118,7 +119,7 @@ void CodeGen::EpilogGSCookieCheck(bool tailCallEpilog)
 
         instGen_Set_Reg_To_Addr(regGSCheck, m_gsCookieAddr);
         emit.emitIns_R_AR(INS_mov, EA_PTRSIZE, regGSCheck, regGSCheck, 0);
-        emit.emitIns_S_R(INS_cmp, EA_PTRSIZE, regGSCheck, gsCookieLclNum, 0);
+        emit.emitIns_S_R(INS_cmp, EA_PTRSIZE, regGSCheck, s);
     }
 
     insGroup* gsCheckEndLabel = emit.CreateTempLabel();
@@ -138,10 +139,10 @@ void CodeGen::EpilogGSCookieCheck(bool tailCallEpilog)
 // TODO-MIKE-Review: Is this of any use on x64? Maybe in methods with localloc?
 void CodeGen::genStackPointerCheck()
 {
-    LclVarDsc* lcl = compiler->lvaGetDesc(compiler->lvaReturnSpCheck);
+    LclVarDsc* lcl = compiler->lvaReturnSpCheckLcl;
     assert(lcl->lvOnFrame && lcl->lvDoNotEnregister);
 
-    GetEmitter()->emitIns_S_R(INS_cmp, EA_PTRSIZE, REG_SPBASE, compiler->lvaReturnSpCheck, 0);
+    GetEmitter()->emitIns_S_R(INS_cmp, EA_PTRSIZE, REG_SPBASE, GetStackAddrMode(lcl, 0));
 
     insGroup* spCheckEndLabel = GetEmitter()->CreateTempLabel();
     GetEmitter()->emitIns_J(INS_je, spCheckEndLabel);
@@ -277,7 +278,7 @@ void CodeGen::GenCallFinally(BasicBlock* block)
     }
     else
     {
-        GetEmitter()->emitIns_R_S(INS_mov, EA_PTRSIZE, REG_ARG_0, compiler->lvaPSPSym, 0);
+        GetEmitter()->emitIns_R_S(INS_mov, EA_PTRSIZE, REG_ARG_0, GetStackAddrMode(compiler->lvaPSPSym, 0));
     }
 
     GetEmitter()->emitIns_CallFinally(block->bbJumpDest->emitLabel);
@@ -350,17 +351,17 @@ void CodeGen::GenCallFinally(BasicBlock* block)
     unsigned finallyNesting = 0;
     compiler->fgGetNestingLevel(block, &finallyNesting);
 
+    LclVarDsc* shadowSlotsLcl = compiler->lvaShadowSPslotsLcl;
     // The last slot is reserved for ICodeManager::FixContext(ppEndRegion)
-    unsigned filterEndOffsetSlotOffs;
-    filterEndOffsetSlotOffs = compiler->lvaGetDesc(compiler->lvaShadowSPslotsVar)->GetBlockSize() - REGSIZE_BYTES;
+    unsigned filterEndOffsetSlotOffs = shadowSlotsLcl->GetBlockSize() - REGSIZE_BYTES;
 
-    unsigned curNestingSlotOffs;
-    curNestingSlotOffs = (unsigned)(filterEndOffsetSlotOffs - ((finallyNesting + 1) * REGSIZE_BYTES));
+    unsigned curNestingSlotOffs = (unsigned)(filterEndOffsetSlotOffs - ((finallyNesting + 1) * REGSIZE_BYTES));
 
     // Zero out the slot for the next nesting level
-    GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, compiler->lvaShadowSPslotsVar, curNestingSlotOffs - REGSIZE_BYTES,
+    GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, GetStackAddrMode(shadowSlotsLcl, curNestingSlotOffs - REGSIZE_BYTES),
                               0);
-    GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, compiler->lvaShadowSPslotsVar, curNestingSlotOffs, LCL_FINALLY_MARK);
+    GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, GetStackAddrMode(shadowSlotsLcl, curNestingSlotOffs),
+                              LCL_FINALLY_MARK);
 
     // Now push the address where the finally funclet should return to directly.
     if ((block->bbFlags & BBF_RETLESS_CALL) == 0)
@@ -427,15 +428,14 @@ void CodeGen::GenEndLFin(GenTreeEndLFin* node)
     unsigned finallyNesting = node->GetNesting();
     noway_assert(finallyNesting < compiler->compHndBBtabCount);
 
-    unsigned   shadowSPSlotsLclNum = compiler->lvaShadowSPslotsVar;
-    LclVarDsc* shadowSPSlotsLcl    = compiler->lvaGetDesc(shadowSPSlotsLclNum);
+    LclVarDsc* shadowSPSlotsLcl = compiler->lvaShadowSPslotsLcl;
 
     // The last slot is reserved for ICodeManager::FixContext(ppEndRegion)
     assert(shadowSPSlotsLcl->GetBlockSize() > REGSIZE_BYTES);
     unsigned filterEndOffsetSlotOffs = shadowSPSlotsLcl->GetBlockSize() - REGSIZE_BYTES;
 
     unsigned curNestingSlotOffs = filterEndOffsetSlotOffs - (finallyNesting + 1) * REGSIZE_BYTES;
-    GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, shadowSPSlotsLclNum, curNestingSlotOffs, 0);
+    GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, GetStackAddrMode(shadowSPSlotsLcl, curNestingSlotOffs), 0);
 }
 
 #endif // !FEATURE_EH_FUNCLETS
@@ -978,9 +978,8 @@ void CodeGen::GenMul(GenTreeOp* mul)
 
     if (GenTreeIntCon* immOp = op2->IsContainedIntCon())
     {
-        ssize_t  imm = immOp->GetValue();
-        unsigned lclNum;
-        unsigned lclOffs;
+        ssize_t       imm = immOp->GetValue();
+        StackAddrMode s;
 
         if (!checkOverflow && op1->isUsedFromReg() && ((imm == 3) || (imm == 5) || (imm == 9)))
         {
@@ -996,9 +995,9 @@ void CodeGen::GenMul(GenTreeOp* mul)
         {
             GetEmitter()->emitIns_R_R_I(INS_imuli, size, dstReg, op1->GetRegNum(), static_cast<int32_t>(imm));
         }
-        else if (IsLocalMemoryOperand(op1, &lclNum, &lclOffs))
+        else if (IsLocalMemoryOperand(op1, &s))
         {
-            GetEmitter()->emitIns_R_S_I(INS_imuli, size, dstReg, lclNum, lclOffs, static_cast<int32_t>(imm));
+            GetEmitter()->emitIns_R_S_I(INS_imuli, size, dstReg, s, static_cast<int32_t>(imm));
         }
         else
         {
@@ -1061,16 +1060,19 @@ void CodeGen::genFloatReturn(GenTree* src)
     // Spill the return shift register from an XMM register to the stack, then load it on the x87 stack.
     // If it already has a home location, use that. Otherwise, we need a temp.
 
-    if (IsRegCandidateLclVar(src) && compiler->lvaGetDesc(src->AsLclVar())->lvOnFrame)
+    if (IsRegCandidateLclVar(src) && src->AsLclVar()->GetLcl()->lvOnFrame)
     {
-        if (compiler->lvaGetDesc(src->AsLclVar())->GetRegNum() != REG_STK)
+        LclVarDsc*    srcLcl = src->AsLclVar()->GetLcl();
+        StackAddrMode s      = GetStackAddrMode(srcLcl, 0);
+
+        if (srcLcl->GetRegNum() != REG_STK)
         {
             // TODO-MIKE-Review: This seems pointless, it's not like we're going to unspill it later...
             src->SetRegSpill(0, true);
-            GetEmitter()->emitIns_S_R(ins_Store(srcType), srcSize, srcReg, src->AsLclVar()->GetLclNum(), 0);
+            GetEmitter()->emitIns_S_R(ins_Store(srcType), srcSize, srcReg, s);
         }
 
-        GetEmitter()->emitIns_S(INS_fld, srcSize, src->AsLclVar()->GetLclNum(), 0);
+        GetEmitter()->emitIns_S(INS_fld, srcSize, s);
     }
     else
     {
@@ -1364,7 +1366,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_LCL_FLD:
-            genCodeForLclFld(treeNode->AsLclFld());
+            GenLoadLclFld(treeNode->AsLclFld());
             break;
 
         case GT_LCL_VAR:
@@ -1909,7 +1911,7 @@ void CodeGen::genLclHeap(GenTree* tree)
     target_ssize_t lastTouchDelta = (target_ssize_t)-1;
 
 #ifdef DEBUG
-    if (compiler->lvaReturnSpCheck != BAD_VAR_NUM)
+    if (compiler->lvaReturnSpCheckLcl != nullptr)
     {
         genStackPointerCheck();
     }
@@ -2184,19 +2186,18 @@ ALLOC_DONE:
     }
 
 #ifdef JIT32_GCENCODER
-    if (compiler->lvaLocAllocSPvar != BAD_VAR_NUM)
+    if (LclVarDsc* lcl = compiler->lvaLocAllocSPLcl)
     {
-        GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, REG_SPBASE, compiler->lvaLocAllocSPvar, 0);
+        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, GetStackAddrMode(lcl, 0));
     }
 #endif // JIT32_GCENCODER
 
 #ifdef DEBUG
     // Update local variable to reflect the new stack pointer.
-    if (compiler->lvaReturnSpCheck != BAD_VAR_NUM)
+    if (LclVarDsc* lcl = compiler->lvaReturnSpCheckLcl)
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(compiler->lvaReturnSpCheck);
         assert(lcl->lvOnFrame && lcl->lvDoNotEnregister);
-        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, compiler->lvaReturnSpCheck, 0);
+        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, GetStackAddrMode(lcl, 0));
     }
 #endif
 
@@ -2384,16 +2385,16 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
 {
     assert(store->OperIs(GT_STORE_BLK, GT_STORE_OBJ, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
-    unsigned  dstLclNum         = BAD_VAR_NUM;
-    regNumber dstAddrBaseReg    = REG_NA;
-    regNumber dstAddrIndexReg   = REG_NA;
-    unsigned  dstAddrIndexScale = 1;
-    int       dstOffset         = 0;
-    GenTree*  src;
+    LclVarDsc* dstLcl            = nullptr;
+    regNumber  dstAddrBaseReg    = REG_NA;
+    regNumber  dstAddrIndexReg   = REG_NA;
+    unsigned   dstAddrIndexScale = 1;
+    int        dstOffset         = 0;
+    GenTree*   src;
 
     if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
     {
-        dstLclNum = store->AsLclVarCommon()->GetLclNum();
+        dstLcl    = store->AsLclVarCommon()->GetLcl();
         dstOffset = store->AsLclVarCommon()->GetLclOffs();
 
         src = store->AsLclVarCommon()->GetOp(0);
@@ -2423,7 +2424,7 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
         }
         else
         {
-            dstLclNum = dstAddr->AsLclAddr()->GetLclNum();
+            dstLcl    = dstAddr->AsLclAddr()->GetLcl();
             dstOffset = dstAddr->AsLclAddr()->GetLclOffs();
         }
 
@@ -2456,9 +2457,9 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
 
     if (size == 1)
     {
-        if (dstLclNum != BAD_VAR_NUM)
+        if (dstLcl != nullptr)
         {
-            emit->emitIns_S_I(INS_mov, EA_1BYTE, dstLclNum, dstOffset, 0);
+            emit->emitIns_S_I(INS_mov, EA_1BYTE, GetStackAddrMode(dstLcl, dstOffset), 0);
         }
         else
         {
@@ -2522,9 +2523,9 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
             }
 #endif
 
-            if (dstLclNum != BAD_VAR_NUM)
+            if (dstLcl != nullptr)
             {
-                emit->emitIns_S_R(xmmMov, EA_ATTR(regSize), srcXmmReg, dstLclNum, dstOffset);
+                emit->emitIns_S_R(xmmMov, EA_ATTR(regSize), srcXmmReg, GetStackAddrMode(dstLcl, dstOffset));
             }
             else
             {
@@ -2542,9 +2543,9 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
             regSize /= 2;
         }
 
-        if (dstLclNum != BAD_VAR_NUM)
+        if (dstLcl != nullptr)
         {
-            emit->emitIns_S_R(INS_mov, EA_ATTR(regSize), srcIntReg, dstLclNum, dstOffset);
+            emit->emitIns_S_R(INS_mov, EA_ATTR(regSize), srcIntReg, GetStackAddrMode(dstLcl, dstOffset));
         }
         else
         {
@@ -2567,16 +2568,16 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
 #endif
     }
 
-    unsigned  dstLclNum         = BAD_VAR_NUM;
-    regNumber dstAddrBaseReg    = REG_NA;
-    regNumber dstAddrIndexReg   = REG_NA;
-    unsigned  dstAddrIndexScale = 1;
-    int       dstOffset         = 0;
-    GenTree*  src;
+    LclVarDsc* dstLcl            = nullptr;
+    regNumber  dstAddrBaseReg    = REG_NA;
+    regNumber  dstAddrIndexReg   = REG_NA;
+    unsigned   dstAddrIndexScale = 1;
+    int        dstOffset         = 0;
+    GenTree*   src;
 
     if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
     {
-        dstLclNum = store->AsLclVarCommon()->GetLclNum();
+        dstLcl    = store->AsLclVarCommon()->GetLcl();
         dstOffset = store->AsLclVarCommon()->GetLclOffs();
 
         src = store->AsLclVarCommon()->GetOp(0);
@@ -2606,24 +2607,24 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
         }
         else
         {
-            dstLclNum = dstAddr->AsLclAddr()->GetLclNum();
+            dstLcl    = dstAddr->AsLclAddr()->GetLcl();
             dstOffset = dstAddr->AsLclAddr()->GetLclOffs();
         }
 
         src = store->AsIndir()->GetValue();
     }
 
-    unsigned  srcLclNum         = BAD_VAR_NUM;
-    regNumber srcAddrBaseReg    = REG_NA;
-    regNumber srcAddrIndexReg   = REG_NA;
-    unsigned  srcAddrIndexScale = 1;
-    int       srcOffset         = 0;
+    LclVarDsc* srcLcl            = nullptr;
+    regNumber  srcAddrBaseReg    = REG_NA;
+    regNumber  srcAddrIndexReg   = REG_NA;
+    unsigned   srcAddrIndexScale = 1;
+    int        srcOffset         = 0;
 
     assert(src->isContained());
 
     if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        srcLclNum = src->AsLclVarCommon()->GetLclNum();
+        srcLcl    = src->AsLclVarCommon()->GetLcl();
         srcOffset = src->AsLclVarCommon()->GetLclOffs();
     }
     else
@@ -2653,7 +2654,7 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
         }
         else
         {
-            srcLclNum = srcAddr->AsLclAddr()->GetLclNum();
+            srcLcl    = srcAddr->AsLclAddr()->GetLcl();
             srcOffset = srcAddr->AsLclAddr()->GetLclOffs();
         }
     }
@@ -2672,9 +2673,9 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
         for (unsigned regSize = XMM_REGSIZE_BYTES; size >= regSize;
              size -= regSize, srcOffset += regSize, dstOffset += regSize)
         {
-            if (srcLclNum != BAD_VAR_NUM)
+            if (srcLcl != nullptr)
             {
-                emit->emitIns_R_S(INS_movups, EA_ATTR(regSize), tempReg, srcLclNum, srcOffset);
+                emit->emitIns_R_S(INS_movups, EA_ATTR(regSize), tempReg, GetStackAddrMode(srcLcl, srcOffset));
             }
             else
             {
@@ -2682,9 +2683,9 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
                                     srcAddrIndexScale, srcOffset);
             }
 
-            if (dstLclNum != BAD_VAR_NUM)
+            if (dstLcl != nullptr)
             {
-                emit->emitIns_S_R(INS_movups, EA_ATTR(regSize), tempReg, dstLclNum, dstOffset);
+                emit->emitIns_S_R(INS_movups, EA_ATTR(regSize), tempReg, GetStackAddrMode(dstLcl, dstOffset));
             }
             else
             {
@@ -2709,9 +2710,9 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
                 regSize /= 2;
             }
 
-            if (srcLclNum != BAD_VAR_NUM)
+            if (srcLcl != nullptr)
             {
-                emit->emitIns_R_S(INS_mov, EA_ATTR(regSize), tempReg, srcLclNum, srcOffset);
+                emit->emitIns_R_S(INS_mov, EA_ATTR(regSize), tempReg, GetStackAddrMode(srcLcl, srcOffset));
             }
             else
             {
@@ -2719,9 +2720,9 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
                                     srcAddrIndexScale, srcOffset);
             }
 
-            if (dstLclNum != BAD_VAR_NUM)
+            if (dstLcl != nullptr)
             {
-                emit->emitIns_S_R(INS_mov, EA_ATTR(regSize), tempReg, dstLclNum, dstOffset);
+                emit->emitIns_S_R(INS_mov, EA_ATTR(regSize), tempReg, GetStackAddrMode(dstLcl, dstOffset));
             }
             else
             {
@@ -2744,16 +2745,16 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
 #ifdef FEATURE_MULTIREG_RET
 void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
 {
-    unsigned  dstLclNum         = BAD_VAR_NUM;
-    regNumber dstAddrBaseReg    = REG_NA;
-    regNumber dstAddrIndexReg   = REG_NA;
-    unsigned  dstAddrIndexScale = 1;
-    int       dstOffset         = 0;
-    GenTree*  src;
+    LclVarDsc* dstLcl            = nullptr;
+    regNumber  dstAddrBaseReg    = REG_NA;
+    regNumber  dstAddrIndexReg   = REG_NA;
+    unsigned   dstAddrIndexScale = 1;
+    int        dstOffset         = 0;
+    GenTree*   src;
 
     if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
     {
-        dstLclNum = store->AsLclVarCommon()->GetLclNum();
+        dstLcl    = store->AsLclVarCommon()->GetLcl();
         dstOffset = store->AsLclVarCommon()->GetLclOffs();
 
         src = store->AsLclVarCommon()->GetOp(0);
@@ -2783,7 +2784,7 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
         }
         else
         {
-            dstLclNum = dstAddr->AsLclAddr()->GetLclNum();
+            dstLcl    = dstAddr->AsLclAddr()->GetLcl();
             dstOffset = dstAddr->AsLclAddr()->GetLclOffs();
         }
 
@@ -2839,9 +2840,9 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
         instruction ins  = ins_Store(regType);
         emitAttr    attr = emitTypeSize(regType);
 
-        if (dstLclNum != BAD_VAR_NUM)
+        if (dstLcl != nullptr)
         {
-            emit->emitIns_S_R(ins, attr, reg, dstLclNum, dstOffset);
+            emit->emitIns_S_R(ins, attr, reg, GetStackAddrMode(dstLcl, dstOffset));
         }
         else
         {
@@ -2867,9 +2868,9 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
 
             emitAttr attr = EA_ATTR(regSize);
 
-            if (dstLclNum != BAD_VAR_NUM)
+            if (dstLcl != nullptr)
             {
-                emit->emitIns_S_R(INS_mov, attr, reg, dstLclNum, dstOffset);
+                emit->emitIns_S_R(INS_mov, attr, reg, GetStackAddrMode(dstLcl, dstOffset));
             }
             else
             {
@@ -3056,16 +3057,15 @@ void CodeGen::PrologClearVector3StackParamUpperBits()
 
     assert(generatingProlog);
 
-    for (unsigned lclNum = 0; lclNum < compiler->info.compArgsCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Params())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
         assert(lcl->IsParam());
 
         // This is needed only for stack params, zeroing reg params is
         // done when the 2 param registers are packed together.
         if (lcl->TypeIs(TYP_SIMD12) && !lcl->IsRegParam())
         {
-            GetEmitter()->emitIns_S_I(INS_mov, EA_4BYTE, lclNum, 12, 0);
+            GetEmitter()->emitIns_S_I(INS_mov, EA_4BYTE, GetStackAddrMode(lcl, 12), 0);
         }
     }
 }
@@ -3546,11 +3546,11 @@ void CodeGen::genCodeForShift(GenTreeOp* tree)
 // represents a three operand bit shift or rotate operation (<<Hi, >>Lo).
 //
 // Arguments:
-//    tree - the bit shift node (that specifies the type of bit shift to perform).
+//    load - the bit shift node (that specifies the type of bit shift to perform).
 //
 // Assumptions:
 //    a) All GenTrees are register allocated.
-//    b) The shift-by-amount in tree->AsOp()->gtOp2 is a contained constant
+//    b) The shift-by-amount in load->AsOp()->gtOp2 is a contained constant
 //
 // TODO-X86-CQ: This only handles the case where the operand being shifted is in a register. We don't
 // need sourceHi to be always in reg in case of GT_LSH_HI (because it could be moved from memory to
@@ -3594,47 +3594,11 @@ void CodeGen::genCodeForShiftLong(GenTree* tree)
 }
 #endif
 
-//------------------------------------------------------------------------
-// genCodeForLclFld: Produce code for a GT_LCL_FLD node.
-//
-// Arguments:
-//    tree - the GT_LCL_FLD node
-//
-void CodeGen::genCodeForLclFld(GenTreeLclFld* tree)
-{
-    assert(tree->OperIs(GT_LCL_FLD));
-
-#ifdef FEATURE_SIMD
-    if (tree->TypeIs(TYP_SIMD12))
-    {
-        LoadSIMD12(tree);
-        genProduceReg(tree);
-        return;
-    }
-#endif
-
-    var_types targetType = tree->TypeGet();
-    regNumber targetReg  = tree->GetRegNum();
-
-    noway_assert(targetReg != REG_NA);
-
-    noway_assert(targetType != TYP_STRUCT);
-
-    emitAttr size   = emitTypeSize(targetType);
-    unsigned offs   = tree->GetLclOffs();
-    unsigned varNum = tree->GetLclNum();
-    assert(varNum < compiler->lvaCount);
-
-    GetEmitter()->emitIns_R_S(ins_Load(targetType), size, targetReg, varNum, offs);
-
-    genProduceReg(tree);
-}
-
 void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
 {
     assert(load->OperIs(GT_LCL_VAR));
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(load);
+    LclVarDsc* lcl = load->GetLcl();
 
     assert(!lcl->IsIndependentPromoted());
 
@@ -3649,19 +3613,37 @@ void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
     if (load->TypeIs(TYP_SIMD12))
     {
         LoadSIMD12(load);
-        DefLclVarReg(load);
-
-        return;
     }
+    else
 #endif
+    {
+        var_types type = lcl->GetRegisterType(load);
 
-    var_types   type = lcl->GetRegisterType(load);
-    instruction ins  = ins_Load(type, IsSimdLocalAligned(load->GetLclNum()));
-    emitAttr    attr = emitTypeSize(type);
-
-    GetEmitter()->emitIns_R_S(ins, attr, load->GetRegNum(), load->GetLclNum(), 0);
+        GetEmitter()->emitIns_R_S(ins_Load(type, IsSimdLocalAligned(lcl)), emitTypeSize(type), load->GetRegNum(),
+                                  GetStackAddrMode(lcl, 0));
+    }
 
     DefLclVarReg(load);
+}
+
+void CodeGen::GenLoadLclFld(GenTreeLclFld* load)
+{
+    assert(load->OperIs(GT_LCL_FLD));
+
+#ifdef FEATURE_SIMD
+    if (load->TypeIs(TYP_SIMD12))
+    {
+        LoadSIMD12(load);
+    }
+    else
+#endif
+    {
+        var_types type = load->GetType();
+
+        GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), load->GetRegNum(), GetStackAddrMode(load));
+    }
+
+    DefReg(load);
 }
 
 void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
@@ -3685,19 +3667,18 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
 #endif
     else if (src->isContained() && src->OperIsRMWMemOp())
     {
-        GenStoreLclRMW(type, store->GetLclNum(), store->GetLclOffs(), src);
+        GenStoreLclRMW(type, GetStackAddrMode(store), src);
     }
     else if (GenTreeIntCon* imm = src->IsContainedIntCon())
     {
-        GetEmitter()->emitIns_S_I(ins_Store(type), emitTypeSize(type), store->GetLclNum(), store->GetLclOffs(),
-                                  imm->GetInt32Value());
+        GetEmitter()->emitIns_S_I(ins_Store(type), emitTypeSize(type), GetStackAddrMode(store), imm->GetInt32Value());
     }
     else
     {
         assert(IsValidSourceType(type, src->GetType()));
 
         regNumber srcReg = UseReg(src);
-        GetEmitter()->emitIns_S_R(ins_Store(type), emitTypeSize(type), srcReg, store->GetLclNum(), store->GetLclOffs());
+        GetEmitter()->emitIns_S_R(ins_Store(type), emitTypeSize(type), srcReg, GetStackAddrMode(store));
     }
 
     liveness.UpdateLife(this, store);
@@ -3707,7 +3688,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(store);
+    LclVarDsc* lcl = store->GetLcl();
 
     if (lcl->IsIndependentPromoted())
     {
@@ -3762,7 +3743,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         {
             GenTreeLclVar* srcLclVar = src->AsLclVar();
 
-            srcRegType = compiler->lvaGetDesc(srcLclVar)->GetRegisterType(srcLclVar);
+            srcRegType = srcLclVar->GetLcl()->GetRegisterType(srcLclVar);
         }
 
         assert(varTypeUsesFloatReg(lclRegType) == varTypeUsesFloatReg(srcRegType));
@@ -3779,7 +3760,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         // to the local, it always stores to memory. Always storing to memory is probably correct
         // but not always necessary. Problem is, what if the destination register is different
         // from the source register? No reg-reg move is being generated?!?
-        // Unpilling SIMD12 is probably broken too since it doesn't use LoadSIMD12, it looks
+        // Unspilling SIMD12 is probably broken too since it doesn't use LoadSIMD12, it looks
         // like it will emit a movups and load garbage in the 4th vector element instead of 0.
         // See vec3-param-def-spill.cs.
         return;
@@ -3787,13 +3768,13 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 #endif
 
     regNumber dstReg = store->GetRegNum();
-    unsigned  lclNum = store->GetLclNum();
 
     if (dstReg == REG_NA)
     {
-        bool        isAligned = IsSimdLocalAligned(lclNum);
-        instruction ins       = ins_Store(lclRegType, isAligned);
-        emitAttr    attr      = emitTypeSize(lclRegType);
+        bool          isAligned = IsSimdLocalAligned(lcl);
+        StackAddrMode s         = GetStackAddrMode(lcl, 0);
+        instruction   ins       = ins_Store(lclRegType, isAligned);
+        emitAttr      attr      = emitTypeSize(lclRegType);
 
         if (src->isContained())
         {
@@ -3805,22 +3786,22 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
                 ins = ins_Store(bitCastSrcType, isAligned);
 
-                GetEmitter()->emitIns_S_R(ins, attr, bitCastSrcReg, lclNum, 0);
+                GetEmitter()->emitIns_S_R(ins, attr, bitCastSrcReg, s);
             }
             else if (src->OperIsRMWMemOp())
             {
-                GenStoreLclRMW(lclRegType, lclNum, 0, src);
+                GenStoreLclRMW(lclRegType, s, src);
             }
             else
             {
-                GetEmitter()->emitIns_S_I(ins, attr, lclNum, 0, static_cast<int>(src->AsIntCon()->GetValue()));
+                GetEmitter()->emitIns_S_I(ins, attr, s, static_cast<int>(src->AsIntCon()->GetValue()));
             }
         }
         else
         {
             regNumber srcReg = UseReg(src);
 
-            GetEmitter()->emitIns_S_R(ins, attr, srcReg, store->GetLclNum(), 0);
+            GetEmitter()->emitIns_S_R(ins, attr, srcReg, s);
         }
 
         liveness.UpdateLife(this, store);
@@ -3975,10 +3956,9 @@ void CodeGen::GenStoreLclVarMultiRegSIMDMem(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR) && varTypeIsSIMD(store->GetType()) && !store->IsMultiReg());
 
-    GenTree*     src    = store->GetOp(0);
-    GenTreeCall* call   = src->gtSkipReloadOrCopy()->AsCall();
-    unsigned     lclNum = store->GetLclNum();
-    LclVarDsc*   lcl    = compiler->lvaGetDesc(lclNum);
+    GenTree*     src  = store->GetOp(0);
+    GenTreeCall* call = src->gtSkipReloadOrCopy()->AsCall();
+    LclVarDsc*   lcl  = store->GetLcl();
 
     assert(call->GetRegCount() == 2);
     assert(!lcl->IsRegCandidate() || (store->GetRegNum() == REG_NA));
@@ -3990,14 +3970,14 @@ void CodeGen::GenStoreLclVarMultiRegSIMDMem(GenTreeLclVar* store)
     assert(store->TypeIs(TYP_SIMD8));
     assert((call->GetRegType(0) == TYP_INT) && (call->GetRegType(1) == TYP_INT));
 
-    GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, reg0, lclNum, 0);
-    GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, reg1, lclNum, 4);
+    GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, reg0, GetStackAddrMode(lcl, 0));
+    GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, reg1, GetStackAddrMode(lcl, 4));
 #else
     assert(store->TypeIs(TYP_SIMD12, TYP_SIMD16));
     assert(call->GetRegType(0) == TYP_DOUBLE);
     assert((call->GetRegType(1) == TYP_DOUBLE) || (call->GetRegType(1) == TYP_FLOAT));
 
-    GetEmitter()->emitIns_S_R(INS_movsd, EA_8BYTE, reg0, lclNum, 0);
+    GetEmitter()->emitIns_S_R(INS_movsd, EA_8BYTE, reg0, GetStackAddrMode(lcl, 0));
     // TODO-MIKE-Review: Do we need to store a 0 for the 4th element of Vector3? Old code did not.
     // Also, it may be better to do a 8 byte store instead of 4 byte store whenever there is
     // enough space (pretty much always since local sizes are normally rounded up to 8 bytes,
@@ -4005,7 +3985,7 @@ void CodeGen::GenStoreLclVarMultiRegSIMDMem(GenTreeLclVar* store)
     // Actually, it may be even better to pack the 2 regs into one and do a single store, if there
     // are subsequent SIMD loads then doing 2 stores here will block store forwarding.
     GetEmitter()->emitIns_S_R(store->TypeIs(TYP_SIMD12) ? INS_movss : INS_movsd,
-                              store->TypeIs(TYP_SIMD12) ? EA_4BYTE : EA_8BYTE, reg1, lclNum, 8);
+                              store->TypeIs(TYP_SIMD12) ? EA_4BYTE : EA_8BYTE, reg1, GetStackAddrMode(lcl, 8));
 #endif
 
     liveness.UpdateLife(this, store);
@@ -4014,7 +3994,7 @@ void CodeGen::GenStoreLclVarMultiRegSIMDMem(GenTreeLclVar* store)
 
 #endif // defined(UNIX_AMD64_ABI) || defined(TARGET_X86)
 
-void CodeGen::GenStoreLclRMW(var_types type, unsigned lclNum, unsigned lclOffs, GenTree* src)
+void CodeGen::GenStoreLclRMW(var_types type, StackAddrMode s, GenTree* src)
 {
     assert(src->OperIsRMWMemOp());
     assert(varTypeIsIntegral(type));
@@ -4024,14 +4004,14 @@ void CodeGen::GenStoreLclRMW(var_types type, unsigned lclNum, unsigned lclOffs, 
 
     if (src->OperIsUnary())
     {
-        assert(src->AsUnOp()->GetOp(0)->AsLclVarCommon()->GetLclNum() == lclNum);
+        assert(src->AsUnOp()->GetOp(0)->AsLclVarCommon()->GetLcl()->GetLclNum() == static_cast<unsigned>(s.varNum));
 
-        GetEmitter()->emitIns_S(ins, attr, lclNum, lclOffs);
+        GetEmitter()->emitIns_S(ins, attr, s);
 
         return;
     }
 
-    assert(src->AsOp()->GetOp(0)->AsLclVarCommon()->GetLclNum() == lclNum);
+    assert(src->AsOp()->GetOp(0)->AsLclVarCommon()->GetLcl()->GetLclNum() == static_cast<unsigned>(s.varNum));
 
     src = src->AsOp()->GetOp(1);
 
@@ -4043,7 +4023,7 @@ void CodeGen::GenStoreLclRMW(var_types type, unsigned lclNum, unsigned lclOffs, 
 
         if (isShift && (imm == 1))
         {
-            GetEmitter()->emitIns_S(MapShiftInsToShiftBy1Ins(ins), attr, lclNum, lclOffs);
+            GetEmitter()->emitIns_S(MapShiftInsToShiftBy1Ins(ins), attr, s);
         }
         else
         {
@@ -4052,7 +4032,7 @@ void CodeGen::GenStoreLclRMW(var_types type, unsigned lclNum, unsigned lclOffs, 
                 ins = MapShiftInsToShiftByImmIns(ins);
             }
 
-            GetEmitter()->emitIns_S_I(ins, attr, lclNum, lclOffs, imm);
+            GetEmitter()->emitIns_S_I(ins, attr, s, imm);
         }
 
         return;
@@ -4067,19 +4047,19 @@ void CodeGen::GenStoreLclRMW(var_types type, unsigned lclNum, unsigned lclOffs, 
             GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_RCX, srcReg, true);
         }
 
-        GetEmitter()->emitIns_S(ins, attr, lclNum, lclOffs);
+        GetEmitter()->emitIns_S(ins, attr, s);
 
         return;
     }
 
-    GetEmitter()->emitIns_S_R(ins, attr, srcReg, lclNum, lclOffs);
+    GetEmitter()->emitIns_S_R(ins, attr, srcReg, s);
 }
 
 //------------------------------------------------------------------------
 // genCodeForIndexAddr: Produce code for a GT_INDEX_ADDR node.
 //
 // Arguments:
-//    tree - the GT_INDEX_ADDR node
+//    load - the GT_INDEX_ADDR node
 //
 void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
 {
@@ -4356,7 +4336,7 @@ instruction CodeGen::MapShiftInsToShiftByImmIns(instruction ins)
 // genCodeForSwap: Produce code for a GT_SWAP node.
 //
 // Arguments:
-//    tree - the GT_SWAP node
+//    load - the GT_SWAP node
 //
 void CodeGen::genCodeForSwap(GenTreeOp* tree)
 {
@@ -4368,10 +4348,10 @@ void CodeGen::genCodeForSwap(GenTreeOp* tree)
     assert(IsRegCandidateLclVar(tree->gtOp1) && IsRegCandidateLclVar(tree->gtOp2));
 
     GenTreeLclVar* lcl1    = tree->gtOp1->AsLclVar();
-    LclVarDsc*     varDsc1 = compiler->lvaGetDesc(lcl1);
+    LclVarDsc*     varDsc1 = lcl1->GetLcl();
     var_types      type1   = varDsc1->TypeGet();
     GenTreeLclVar* lcl2    = tree->gtOp2->AsLclVar();
-    LclVarDsc*     varDsc2 = compiler->lvaGetDesc(lcl2);
+    LclVarDsc*     varDsc2 = lcl2->GetLcl();
     var_types      type2   = varDsc2->TypeGet();
 
     // We must have both int or both fp regs
@@ -4651,11 +4631,11 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
 #if defined(DEBUG) && defined(TARGET_X86)
     // Store the stack pointer so we can check it after the call.
-    if ((compiler->lvaCallSpCheck != BAD_VAR_NUM) && call->IsUserCall())
+    if ((compiler->lvaCallSpCheckLcl != nullptr) && call->IsUserCall())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(compiler->lvaCallSpCheck);
+        LclVarDsc* lcl = compiler->lvaCallSpCheckLcl;
         assert(lcl->lvOnFrame && lcl->lvDoNotEnregister);
-        GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, REG_SPBASE, compiler->lvaCallSpCheck, 0);
+        GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, REG_SPBASE, GetStackAddrMode(lcl, 0));
     }
 #endif // defined(DEBUG) && defined(TARGET_X86)
 
@@ -4922,7 +4902,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     }
 
 #if defined(DEBUG) && defined(TARGET_X86)
-    if ((compiler->lvaCallSpCheck != BAD_VAR_NUM) && call->IsUserCall())
+    if ((compiler->lvaCallSpCheckLcl != nullptr) && call->IsUserCall())
     {
         Emitter& emit = *GetEmitter();
 
@@ -4935,12 +4915,12 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             // to do some math to figure a good comparison.
             emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_ARG_0, REG_SPBASE, /* canSkip */ false);
             emit.emitIns_R_I(INS_sub, EA_4BYTE, REG_ARG_0, stackArgBytes);
-            emit.emitIns_S_R(INS_cmp, EA_4BYTE, REG_ARG_0, compiler->lvaCallSpCheck, 0);
+            emit.emitIns_S_R(INS_cmp, EA_4BYTE, REG_ARG_0, GetStackAddrMode(compiler->lvaCallSpCheckLcl, 0));
             spRegCheck = REG_ARG_0;
         }
 
         insGroup* spCheckEndLabel = emit.CreateTempLabel();
-        emit.emitIns_S_R(INS_cmp, EA_4BYTE, spRegCheck, compiler->lvaCallSpCheck, 0);
+        emit.emitIns_S_R(INS_cmp, EA_4BYTE, spRegCheck, GetStackAddrMode(compiler->lvaCallSpCheckLcl, 0));
         emit.emitIns_J(INS_je, spCheckEndLabel);
         emit.emitIns(INS_BREAKPOINT);
         emit.DefineTempLabel(spCheckEndLabel);
@@ -5009,10 +4989,8 @@ void CodeGen::GenJmp(GenTree* jmp)
 
     // Move any register parameters back to their register.
 
-    for (unsigned lclNum = 0; lclNum < compiler->info.compArgsCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Params())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
         noway_assert(lcl->IsParam() && !lcl->IsPromoted());
 
         if (!lcl->IsRegParam())
@@ -5032,7 +5010,7 @@ void CodeGen::GenJmp(GenTree* jmp)
             var_types type = varActualType(lcl->GetLayout()->GetSysVAmd64AbiRegType(0));
             regNumber reg  = lcl->GetParamReg(0);
 
-            GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, lclNum, 0);
+            GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, GetStackAddrMode(lcl, 0));
             liveness.AddLiveLclRegs(genRegMask(reg));
             liveness.SetGCRegType(reg, type);
 
@@ -5041,7 +5019,7 @@ void CodeGen::GenJmp(GenTree* jmp)
                 type = varActualType(lcl->GetLayout()->GetSysVAmd64AbiRegType(1));
                 reg  = lcl->GetParamReg(1);
 
-                GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, lclNum, 8);
+                GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, GetStackAddrMode(lcl, 8));
                 liveness.AddLiveLclRegs(genRegMask(reg));
                 liveness.SetGCRegType(reg, type);
             }
@@ -5068,7 +5046,7 @@ void CodeGen::GenJmp(GenTree* jmp)
         regNumber reg = lcl->GetParamReg();
         assert(isValidIntArgReg(reg) || isValidFloatArgReg(reg));
 
-        GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, lclNum, 0);
+        GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, GetStackAddrMode(lcl, 0));
         liveness.AddLiveLclRegs(genRegMask(reg));
         liveness.SetGCRegType(reg, type);
         liveness.RemoveGCSlot(lcl);
@@ -5086,10 +5064,8 @@ void CodeGen::GenJmp(GenTree* jmp)
 
     regMaskTP varargsIntRegMask = RBM_ARG_REGS;
 
-    for (unsigned lclNum = 0; lclNum < compiler->info.compArgsCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Params())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
         if (lcl->IsRegParam())
         {
             regNumber reg = lcl->GetParamReg();
@@ -5122,7 +5098,7 @@ void CodeGen::GenJmp(GenTree* jmp)
 
         if ((varargsIntRegMask & genRegMask(reg)) != 0)
         {
-            GetEmitter()->emitIns_R_S(INS_mov, EA_8BYTE, reg, 0, i * REGSIZE_BYTES);
+            GetEmitter()->emitIns_R_S(INS_mov, EA_8BYTE, reg, GetStackAddrMode(0u, i * REGSIZE_BYTES));
             GetEmitter()->emitIns_Mov(INS_movd, EA_8BYTE, MapVarargsParamIntRegToFloatReg(reg), reg, /*canSkip*/ false);
         }
     }
@@ -5631,12 +5607,11 @@ void CodeGen::genIntToIntCast(GenTreeCast* cast)
         // register will be written only in genProduceReg, after the actual cast is
         // performed.
 
-        unsigned lclNum;
-        unsigned lclOffs;
+        StackAddrMode s;
 
-        if (IsLocalMemoryOperand(src, &lclNum, &lclOffs))
+        if (IsLocalMemoryOperand(src, &s))
         {
-            GetEmitter()->emitIns_R_S(ins, EA_ATTR(desc.LoadSrcSize()), dstReg, lclNum, lclOffs);
+            GetEmitter()->emitIns_R_S(ins, EA_ATTR(desc.LoadSrcSize()), dstReg, s);
         }
         else
         {
@@ -6197,9 +6172,9 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
 
     if (src->isContained())
     {
-        unsigned    lclNum = src->AsLclVar()->GetLclNum();
-        instruction ins    = ins_Load(dstType, IsSimdLocalAligned(lclNum));
-        GetEmitter()->emitIns_R_S(ins, emitTypeSize(dstType), dstReg, lclNum, 0);
+        LclVarDsc*  lcl = src->AsLclVar()->GetLcl();
+        instruction ins = ins_Load(dstType, IsSimdLocalAligned(lcl));
+        GetEmitter()->emitIns_R_S(ins, emitTypeSize(dstType), dstReg, GetStackAddrMode(lcl, 0));
     }
     else
     {
@@ -6420,12 +6395,11 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
             {
                 assert(varTypeSize(varActualType(fieldType)) <= 4);
 
-                unsigned lclNum;
-                unsigned lclOffs;
+                StackAddrMode s;
 
-                if (IsLocalMemoryOperand(fieldNode, &lclNum, &lclOffs))
+                if (IsLocalMemoryOperand(fieldNode, &s))
                 {
-                    emit->emitIns_S(INS_push, emitActualTypeSize(fieldNode->GetType()), lclNum, lclOffs);
+                    emit->emitIns_S(INS_push, emitActualTypeSize(fieldNode->GetType()), s);
                 }
                 else if (fieldNode->IsIconHandle())
                 {
@@ -6449,7 +6423,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
                 if (fieldNode->OperIs(GT_LCL_VAR))
                 {
                     emit->emitIns_R_S(INS_mov, emitTypeSize(fieldNode->GetType()), intTmpReg,
-                                      fieldNode->AsLclVar()->GetLclNum(), 0);
+                                      GetStackAddrMode(fieldNode->AsLclVar()->GetLcl(), 0));
                 }
                 else
                 {
@@ -6506,7 +6480,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
 #endif // TARGET_X86
 
 #if FEATURE_FASTTAILCALL
-unsigned CodeGen::GetFirstStackParamLclNum()
+unsigned CodeGen::GetFirstStackParamLclNum() const
 {
 #ifdef WINDOWS_AMD64_ABI
     // On win-x64 all params have home locations on caller's frame, even if they're passed in registers.
@@ -6515,7 +6489,7 @@ unsigned CodeGen::GetFirstStackParamLclNum()
 
     return 0;
 #else
-    for (unsigned lclNum = 0; lclNum < compiler->info.compArgsCount; lclNum++)
+    for (unsigned lclNum = 0, paramCount = compiler->info.GetParamCount(); lclNum < paramCount; lclNum++)
     {
         LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
@@ -6628,7 +6602,8 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
             genPreAdjustStackForPutArgStk(putArgStk->GetArgSize());
             emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_RDI, REG_SPBASE, /* canSkip */ false);
 #else
-            emit.emitIns_R_S(INS_lea, EA_PTRSIZE, REG_RDI, outArgLclNum, static_cast<int>(outArgLclOffs));
+            emit.emitIns_R_S(INS_lea, EA_PTRSIZE, REG_RDI,
+                             GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)));
 #endif
             emit.emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, putArgStk->GetSlotCount());
             emit.emitIns(INS_rep_stos, EA_PTRSIZE);
@@ -6666,8 +6641,8 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 #ifdef TARGET_X86
                 emit.emitIns_AR_R(INS_movups, EA_16BYTE, zeroXmmReg, REG_SPBASE, offset);
 #else
-                emit.emitIns_S_R(INS_movups, EA_16BYTE, zeroXmmReg, outArgLclNum,
-                                 static_cast<int>(outArgLclOffs + offset));
+                emit.emitIns_S_R(INS_movups, EA_16BYTE, zeroXmmReg,
+                                 GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs + offset)));
 #endif
                 offset += XMM_REGSIZE_BYTES;
             }
@@ -6683,8 +6658,8 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 #ifdef TARGET_X86
                 emit.emitIns_AR_R(INS_movq, EA_8BYTE, zeroXmmReg, REG_SPBASE, offset);
 #else
-                emit.emitIns_S_R(INS_movq, EA_8BYTE, zeroXmmReg, outArgLclNum,
-                                 static_cast<int>(outArgLclOffs + offset));
+                emit.emitIns_S_R(INS_movq, EA_8BYTE, zeroXmmReg,
+                                 GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs + offset)));
 #endif
                 offset += 8;
             }
@@ -6713,8 +6688,8 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
         regNumber srcReg = UseReg(src);
 
 #ifdef TARGET_AMD64
-        emit.emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, outArgLclNum,
-                         static_cast<int>(outArgLclOffs));
+        emit.emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg,
+                         GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)));
 #else
 #ifdef FEATURE_SIMD
         if (varTypeIsSIMD(srcType))
@@ -6743,7 +6718,8 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
     else
     {
 #ifdef TARGET_AMD64
-        emit.emitIns_S_I(ins_Store(srcType), emitTypeSize(srcType), outArgLclNum, static_cast<int>(outArgLclOffs),
+        emit.emitIns_S_I(ins_Store(srcType), emitTypeSize(srcType),
+                         GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)),
                          src->AsIntCon()->GetInt32Value());
 #else
         genConsumeRegs(src);
@@ -6754,12 +6730,11 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 
         assert(EA_SIZE_IN_BYTES(attr) == REGSIZE_BYTES);
 
-        unsigned lclNum;
-        unsigned lclOffs;
+        StackAddrMode s;
 
-        if (IsLocalMemoryOperand(src, &lclNum, &lclOffs))
+        if (IsLocalMemoryOperand(src, &s))
         {
-            emit.emitIns_S(INS_push, attr, lclNum, lclOffs);
+            emit.emitIns_S(INS_push, attr, s);
         }
         else if (src->OperIs(GT_IND))
         {
@@ -6835,7 +6810,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
     assert(src->isContained());
 
     ClassLayout* srcLayout;
-    unsigned     srcLclNum         = BAD_VAR_NUM;
+    LclVarDsc*   srcLcl            = nullptr;
     regNumber    srcAddrBaseReg    = REG_NA;
     regNumber    srcAddrIndexReg   = REG_NA;
     unsigned     srcAddrIndexScale = 1;
@@ -6844,12 +6819,12 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
 
     if (src->OperIs(GT_LCL_VAR))
     {
-        srcLclNum = src->AsLclVar()->GetLclNum();
-        srcLayout = compiler->lvaGetDesc(srcLclNum)->GetLayout();
+        srcLcl    = src->AsLclVar()->GetLcl();
+        srcLayout = srcLcl->GetLayout();
     }
     else if (src->OperIs(GT_LCL_FLD))
     {
-        srcLclNum = src->AsLclFld()->GetLclNum();
+        srcLcl    = src->AsLclFld()->GetLcl();
         srcOffset = src->AsLclFld()->GetLclOffs();
         srcLayout = src->AsLclFld()->GetLayout(compiler);
     }
@@ -6889,7 +6864,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
 
         unsigned size = srcLayout->GetSize();
 
-        if (srcLclNum != BAD_VAR_NUM)
+        if (srcLcl != nullptr)
         {
             size = roundUp(size, REGSIZE_BYTES);
         }
@@ -6915,9 +6890,9 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
 
             if ((size == 1) || (size == 2))
             {
-                if (srcLclNum != BAD_VAR_NUM)
+                if (srcLcl != nullptr)
                 {
-                    GetEmitter()->emitIns_R_S(INS_movzx, EA_ATTR(size), intTmpReg, srcLclNum, srcOffset);
+                    GetEmitter()->emitIns_R_S(INS_movzx, EA_ATTR(size), intTmpReg, GetStackAddrMode(srcLcl, srcOffset));
                 }
                 else
                 {
@@ -6929,9 +6904,9 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
             }
             else if ((size == 4) || (size == 12))
             {
-                if (srcLclNum != BAD_VAR_NUM)
+                if (srcLcl != nullptr)
                 {
-                    GetEmitter()->emitIns_S(INS_push, EA_4BYTE, srcLclNum, srcOffset + (size & 8));
+                    GetEmitter()->emitIns_S(INS_push, EA_4BYTE, GetStackAddrMode(srcLcl, srcOffset + (size & 8)));
                 }
                 else
                 {
@@ -6944,9 +6919,9 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
 
             if (size == 12)
             {
-                if (srcLclNum != BAD_VAR_NUM)
+                if (srcLcl != nullptr)
                 {
-                    GetEmitter()->emitIns_R_S(INS_movq, EA_8BYTE, xmmTmpReg, srcLclNum, srcOffset);
+                    GetEmitter()->emitIns_R_S(INS_movq, EA_8BYTE, xmmTmpReg, GetStackAddrMode(srcLcl, srcOffset));
                 }
                 else
                 {
@@ -7000,9 +6975,9 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
             }
 #endif
 
-            if (srcLclNum != BAD_VAR_NUM)
+            if (srcLcl != nullptr)
             {
-                GetEmitter()->emitIns_R_S(ins, EA_ATTR(regSize), tmpReg, srcLclNum, srcOffset + offset);
+                GetEmitter()->emitIns_R_S(ins, EA_ATTR(regSize), tmpReg, GetStackAddrMode(srcLcl, srcOffset + offset));
             }
             else
             {
@@ -7013,7 +6988,8 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
 #ifdef TARGET_X86
             GetEmitter()->emitIns_AR_R(ins, EA_ATTR(regSize), tmpReg, REG_SPBASE, offset);
 #else
-            GetEmitter()->emitIns_S_R(ins, EA_ATTR(regSize), tmpReg, outArgLclNum, outArgLclOffs + offset);
+            GetEmitter()->emitIns_S_R(ins, EA_ATTR(regSize), tmpReg,
+                                      GetStackAddrMode(outArgLclNum, outArgLclOffs + offset));
 #endif
         }
         return;
@@ -7030,16 +7006,16 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
         // with large numbers of consecutive non-GC-ref-typed fields, we may be able to improve the code size in the
         // future.
 
-        assert((srcLclNum != BAD_VAR_NUM) || (srcLayout->GetSize() % REGSIZE_BYTES == 0));
+        assert((srcLcl != nullptr) || (srcLayout->GetSize() % REGSIZE_BYTES == 0));
 
         for (int i = putArgStk->GetSlotCount() - 1; i >= 0; --i)
         {
             emitAttr slotAttr      = emitTypeSize(srcLayout->GetGCPtrType(i));
             int      slotSrcOffset = srcOffset + i * REGSIZE_BYTES;
 
-            if (srcLclNum != BAD_VAR_NUM)
+            if (srcLcl != nullptr)
             {
-                GetEmitter()->emitIns_S(INS_push, slotAttr, srcLclNum, slotSrcOffset);
+                GetEmitter()->emitIns_S(INS_push, slotAttr, GetStackAddrMode(srcLcl, slotSrcOffset));
             }
             else
             {
@@ -7059,9 +7035,9 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
     genPreAdjustStackForPutArgStk(putArgStk->GetArgSize());
     GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_RDI, REG_SPBASE, /* canSkip */ false);
 
-    if (srcLclNum != BAD_VAR_NUM)
+    if (srcLcl != nullptr)
     {
-        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, REG_RSI, srcLclNum, srcOffset);
+        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, REG_RSI, GetStackAddrMode(srcLcl, srcOffset));
     }
     else if ((srcAddrIndexReg != REG_NA) || (srcOffset != 0))
     {
@@ -7086,11 +7062,11 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
     {
         assert((putArgStk->gtRsvdRegs & (RBM_RSI | RBM_RDI | RBM_RCX)) == (RBM_RSI | RBM_RDI | RBM_RCX));
 
-        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, REG_RDI, outArgLclNum, outArgLclOffs);
+        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, REG_RDI, GetStackAddrMode(outArgLclNum, outArgLclOffs));
 
-        if (srcLclNum != BAD_VAR_NUM)
+        if (srcLcl != nullptr)
         {
-            GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, REG_RSI, srcLclNum, srcOffset);
+            GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, REG_RSI, GetStackAddrMode(srcLcl, srcOffset));
         }
         else if ((srcAddrIndexReg != REG_NA) || (srcOffset != 0))
         {
@@ -7110,7 +7086,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
             return;
         }
 
-        srcLclNum         = BAD_VAR_NUM;
+        srcLcl            = nullptr;
         srcAddrBaseReg    = REG_RSI;
         srcAddrIndexReg   = REG_NA;
         srcAddrIndexScale = 1;
@@ -7156,16 +7132,17 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
 
             emitAttr slotAttr = emitTypeSize(srcLayout->GetGCPtrType(i));
 
-            if (srcLclNum != BAD_VAR_NUM)
+            if (srcLcl != nullptr)
             {
-                GetEmitter()->emitIns_R_S(INS_mov, slotAttr, intTmpReg, srcLclNum, srcOffset);
+                GetEmitter()->emitIns_R_S(INS_mov, slotAttr, intTmpReg, GetStackAddrMode(srcLcl, srcOffset));
             }
             else
             {
                 GetEmitter()->emitIns_R_ARX(INS_mov, slotAttr, intTmpReg, srcAddrBaseReg, srcAddrIndexReg,
                                             srcAddrIndexScale, srcOffset);
             }
-            GetEmitter()->emitIns_S_R(INS_mov, slotAttr, intTmpReg, outArgLclNum, outArgLclOffs + i * REGSIZE_BYTES);
+            GetEmitter()->emitIns_S_R(INS_mov, slotAttr, intTmpReg,
+                                      GetStackAddrMode(outArgLclNum, outArgLclOffs + i * REGSIZE_BYTES));
             srcOffset += REGSIZE_BYTES;
             continue;
         }
@@ -7174,17 +7151,17 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
         {
             assert(xmmTmpReg != REG_NA);
 
-            if (srcLclNum != BAD_VAR_NUM)
+            if (srcLcl != nullptr)
             {
-                GetEmitter()->emitIns_R_S(INS_movups, EA_16BYTE, xmmTmpReg, srcLclNum, srcOffset);
+                GetEmitter()->emitIns_R_S(INS_movups, EA_16BYTE, xmmTmpReg, GetStackAddrMode(srcLcl, srcOffset));
             }
             else
             {
                 GetEmitter()->emitIns_R_ARX(INS_movups, EA_16BYTE, xmmTmpReg, srcAddrBaseReg, srcAddrIndexReg,
                                             srcAddrIndexScale, srcOffset);
             }
-            GetEmitter()->emitIns_S_R(INS_movups, EA_16BYTE, xmmTmpReg, outArgLclNum,
-                                      outArgLclOffs + i * REGSIZE_BYTES);
+            GetEmitter()->emitIns_S_R(INS_movups, EA_16BYTE, xmmTmpReg,
+                                      GetStackAddrMode(outArgLclNum, outArgLclOffs + i * REGSIZE_BYTES));
             srcOffset += 2 * REGSIZE_BYTES;
             i++;
             continue;
@@ -7548,9 +7525,6 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     }
 
 #ifdef WINDOWS_AMD64_ABI
-    unsigned   varNum;
-    LclVarDsc* varDsc;
-
     // Since the method needs to make a profiler callback, it should have out-going arg space allocated.
     noway_assert(compiler->lvaOutgoingArgSpaceVar != BAD_VAR_NUM);
     noway_assert(outgoingArgSpaceSize >= 4 * REGSIZE_BYTES);
@@ -7558,13 +7532,13 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     // Home all arguments passed in arg registers (RCX, RDX, R8 and R9).
     // In case of vararg methods, arg regs are already homed.
     //
-    // Note: Here we don't need to worry about updating gc'info since enter
+    // Note: Here we don't need to worry about updating GC info since enter
     // callback is generated as part of prolog which is non-gc interruptible.
     // Moreover GC cannot kick while executing inside profiler callback which is a
     // profiler requirement so it can examine arguments which could be obj refs.
     if (!compiler->info.compIsVarArgs)
     {
-        for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->info.compArgsCount; varNum++, varDsc++)
+        for (LclVarDsc* varDsc : compiler->Params())
         {
             noway_assert(varDsc->IsParam());
 
@@ -7583,7 +7557,7 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
                 type = varDsc->GetLayout()->GetSize() <= 4 ? TYP_INT : varDsc->GetLayout()->GetGCPtrType(0);
             }
 
-            GetEmitter()->emitIns_S_R(ins_Store(type), emitTypeSize(type), reg, varNum, 0);
+            GetEmitter()->emitIns_S_R(ins_Store(type), emitTypeSize(type), reg, GetStackAddrMode(varDsc, 0));
         }
     }
 
@@ -7624,7 +7598,7 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     // Vararg methods:
     //   - we need to reload only known (i.e. fixed) reg args.
     //   - if floating point type, also reload it into corresponding integer reg
-    for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->info.compArgsCount; varNum++, varDsc++)
+    for (LclVarDsc* varDsc : compiler->Params())
     {
         noway_assert(varDsc->IsParam());
 
@@ -7643,7 +7617,7 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
             type = varDsc->GetLayout()->GetSize() <= 4 ? TYP_INT : varDsc->GetLayout()->GetGCPtrType(0);
         }
 
-        GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, varNum, 0);
+        GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, GetStackAddrMode(varDsc, 0));
 
         if (compiler->info.compIsVarArgs && varTypeIsFloating(type))
         {
@@ -7718,9 +7692,9 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 
     // If thisPtr needs to be kept alive and reported, it cannot be one of the callee trash
     // registers that profiler callback kills.
-    if (compiler->lvaKeepAliveAndReportThis() && compiler->lvaTable[compiler->info.compThisArg].lvIsInReg())
+    if (compiler->lvaKeepAliveAndReportThis() && compiler->lvaGetDesc(compiler->info.GetThisParamLclNum())->lvIsInReg())
     {
-        regMaskTP thisPtrMask = genRegMask(compiler->lvaTable[compiler->info.compThisArg].GetRegNum());
+        regMaskTP thisPtrMask = genRegMask(compiler->lvaGetDesc(compiler->info.GetThisParamLclNum())->GetRegNum());
         noway_assert((RBM_PROFILER_LEAVE_TRASH & thisPtrMask) == 0);
     }
 
@@ -7760,11 +7734,11 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
         // cannot use caller's SP offset since it is an estimate.  For now we require the
         // method to have at least a single arg so that we can use it to obtain caller's
         // SP.
-        LclVarDsc* varDsc = compiler->lvaTable;
+        LclVarDsc* varDsc = compiler->lvaGetDesc(0u);
         NYI_IF((varDsc == nullptr) || !varDsc->IsParam(), "Profiler ELT callback for a method without any params");
 
         // lea rdx, [FramePointer + Arg0's offset]
-        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, REG_ARG_1, 0, 0);
+        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, REG_ARG_1, GetStackAddrMode(varDsc, 0));
     }
 
     // We can use any callee trash register (other than RAX, RCX, RDX) for call target.
@@ -7794,11 +7768,11 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     }
     else
     {
-        LclVarDsc* varDsc = compiler->lvaTable;
+        LclVarDsc* varDsc = compiler->lvaGetDesc(0u);
         NYI_IF((varDsc == nullptr) || !varDsc->IsParam(), "Profiler ELT callback for a method without any params");
 
         // lea rdx, [FramePointer + Arg0's offset]
-        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, REG_ARG_1, 0, 0);
+        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, REG_ARG_1, GetStackAddrMode(0u, 0));
     }
 
     // We can use any callee trash register (other than RAX, RDI, RSI) for call target.
@@ -7820,7 +7794,7 @@ void CodeGen::genCodeForInstr(GenTreeInstr* instr)
 }
 
 CodeGen::GenAddrMode::GenAddrMode(GenTree* tree, CodeGen* codeGen)
-    : m_base(REG_NA), m_index(REG_NA), m_scale(1), m_disp(0), m_lclNum(BAD_VAR_NUM)
+    : m_base(REG_NA), m_index(REG_NA), m_scale(1), m_disp(0), m_lcl(nullptr)
 {
     if (GenTreeIndir* indir = tree->IsIndir())
     {
@@ -7848,7 +7822,7 @@ CodeGen::GenAddrMode::GenAddrMode(GenTree* tree, CodeGen* codeGen)
     }
     else
     {
-        m_lclNum = tree->AsLclVarCommon()->GetLclNum();
+        m_lcl = tree->AsLclVarCommon()->GetLcl();
 
         if (tree->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD))
         {
@@ -7861,7 +7835,7 @@ void CodeGen::inst_R_AM(instruction ins, emitAttr attr, regNumber reg, const Gen
 {
     if (addrMode.IsLcl())
     {
-        GetEmitter()->emitIns_R_S(ins, attr, reg, addrMode.LclNum(), addrMode.Disp(offset));
+        GetEmitter()->emitIns_R_S(ins, attr, reg, GetStackAddrMode(addrMode.Lcl(), addrMode.Disp(offset)));
     }
     else
     {
@@ -7874,7 +7848,7 @@ void CodeGen::inst_AM_R(instruction ins, emitAttr attr, regNumber reg, const Gen
 {
     if (addrMode.IsLcl())
     {
-        GetEmitter()->emitIns_S_R(ins, attr, reg, addrMode.LclNum(), addrMode.Disp(offset));
+        GetEmitter()->emitIns_S_R(ins, attr, reg, GetStackAddrMode(addrMode.Lcl(), addrMode.Disp(offset)));
     }
     else
     {
@@ -7973,10 +7947,10 @@ void CodeGen::genSIMDUpperSpill(GenTreeUnOp* node)
     }
     else
     {
-        unsigned lclNum = op1->AsLclVar()->GetLclNum();
-        assert(compiler->lvaGetDesc(lclNum)->lvOnFrame);
+        LclVarDsc* lcl = op1->AsLclVar()->GetLcl();
+        assert(lcl->lvOnFrame);
 
-        GetEmitter()->emitIns_S_R_I(INS_vextractf128, EA_32BYTE, lclNum, 16, srcReg, 1);
+        GetEmitter()->emitIns_S_R_I(INS_vextractf128, EA_32BYTE, GetStackAddrMode(lcl, 16), srcReg, 1);
     }
 }
 
@@ -7999,10 +7973,10 @@ void CodeGen::genSIMDUpperUnspill(GenTreeUnOp* node)
     }
     else
     {
-        unsigned lclNum = op1->AsLclVar()->GetLclNum();
-        assert(compiler->lvaGetDesc(lclNum)->lvOnFrame);
+        LclVarDsc* lcl = op1->AsLclVar()->GetLcl();
+        assert(lcl->lvOnFrame);
 
-        GetEmitter()->emitIns_R_R_S_I(INS_vinsertf128, EA_32BYTE, dstReg, dstReg, lclNum, 16, 1);
+        GetEmitter()->emitIns_R_R_S_I(INS_vinsertf128, EA_32BYTE, dstReg, dstReg, GetStackAddrMode(lcl, 16), 1);
     }
 }
 
@@ -8489,14 +8463,12 @@ void CodeGen::PrologInitVarargsStackParamsBaseOffset()
 {
     JITDUMP("; PrologInitVarargsStackParamsBaseOffset\n");
 
-    LclVarDsc* varDsc = compiler->lvaGetDesc(compiler->lvaVarargsBaseOfStkArgs);
+    unsigned varargsHandleLclNum = compiler->info.compVarargsHandleArg;
 
-    noway_assert(compiler->info.compArgsCount > 0);
-
-    GetEmitter()->emitIns_R_S(INS_mov, EA_4BYTE, REG_EAX, compiler->info.compArgsCount - 1, 0);
+    GetEmitter()->emitIns_R_S(INS_mov, EA_4BYTE, REG_EAX, GetStackAddrMode(varargsHandleLclNum, 0));
     GetEmitter()->emitIns_R_AR(INS_mov, EA_4BYTE, REG_EAX, REG_EAX, 0);
 
-    LclVarDsc* lastArg = compiler->lvaGetDesc(compiler->info.compArgsCount - 1);
+    LclVarDsc* lastArg = compiler->lvaGetDesc(varargsHandleLclNum);
     noway_assert(!lastArg->lvRegister);
     int32_t offset = lastArg->GetStackOffset();
     assert(offset != BAD_STK_OFFS);
@@ -8504,13 +8476,15 @@ void CodeGen::PrologInitVarargsStackParamsBaseOffset()
 
     GetEmitter()->emitIns_R_ARX(INS_lea, EA_4BYTE, REG_EAX, genFramePointerReg(), REG_EAX, 1, offset);
 
+    LclVarDsc* varDsc = compiler->lvaVarargsBaseOfStkLcl;
+
     if (varDsc->lvIsInReg())
     {
         GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, varDsc->GetRegNum(), REG_EAX, /* canSkip */ true);
     }
     else
     {
-        GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, REG_EAX, compiler->lvaVarargsBaseOfStkArgs, 0);
+        GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, REG_EAX, GetStackAddrMode(varDsc, 0));
     }
 }
 #endif // TARGET_X86
@@ -9081,17 +9055,16 @@ void CodeGen::inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned
 
 void CodeGen::emitInsRM(instruction ins, emitAttr attr, GenTree* src)
 {
-    Emitter& emit = *GetEmitter();
-    unsigned lclNum;
-    unsigned lclOffs;
+    Emitter&      emit = *GetEmitter();
+    StackAddrMode s;
 
     if (src->isUsedFromReg())
     {
         emit.emitIns_R(ins, attr, src->GetRegNum());
     }
-    else if (IsLocalMemoryOperand(src, &lclNum, &lclOffs))
+    else if (IsLocalMemoryOperand(src, &s))
     {
-        emit.emitIns_S(ins, attr, lclNum, lclOffs);
+        emit.emitIns_S(ins, attr, s);
     }
     else
     {
@@ -9101,17 +9074,16 @@ void CodeGen::emitInsRM(instruction ins, emitAttr attr, GenTree* src)
 
 void CodeGen::emitInsRegRM(instruction ins, emitAttr attr, regNumber reg, GenTree* rm)
 {
-    Emitter& emit = *GetEmitter();
-    unsigned lclNum;
-    unsigned lclOffs;
+    Emitter&      emit = *GetEmitter();
+    StackAddrMode s;
 
     if (rm->isUsedFromReg())
     {
         emit.emitIns_R_R(ins, attr, reg, rm->GetRegNum());
     }
-    else if (IsLocalMemoryOperand(rm, &lclNum, &lclOffs))
+    else if (IsLocalMemoryOperand(rm, &s))
     {
-        emit.emitIns_R_S(ins, attr, reg, lclNum, lclOffs);
+        emit.emitIns_R_S(ins, attr, reg, s);
     }
     else if (GenTreeDblCon* dbl = rm->IsDblCon())
     {
@@ -9191,22 +9163,21 @@ void CodeGen::emitInsCmp(instruction ins, emitAttr attr, GenTree* op1, GenTree* 
         return;
     }
 
-    unsigned lclNum;
-    unsigned lclOffs;
+    StackAddrMode s;
 
-    if (IsLocalMemoryOperand(memOp, &lclNum, &lclOffs))
+    if (IsLocalMemoryOperand(memOp, &s))
     {
         if (memOp == op2)
         {
-            emit.emitIns_R_S(ins, attr, regOp->GetRegNum(), lclNum, lclOffs);
+            emit.emitIns_R_S(ins, attr, regOp->GetRegNum(), s);
         }
         else if (immOp != nullptr)
         {
-            emit.emitIns_S_I(ins, attr, lclNum, lclOffs, immOp->AsIntCon()->GetInt32Value());
+            emit.emitIns_S_I(ins, attr, s, immOp->AsIntCon()->GetInt32Value());
         }
         else
         {
-            emit.emitIns_S_R(ins, attr, regOp->GetRegNum(), lclNum, lclOffs);
+            emit.emitIns_S_R(ins, attr, regOp->GetRegNum(), s);
         }
     }
     else

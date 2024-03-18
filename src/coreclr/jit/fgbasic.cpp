@@ -639,13 +639,13 @@ private:
 //
 //    jumpTarget[N] is set to 1 if IL offset N is a jump target in the method.
 //
-//    Also sets lvAddrExposed and lvHasILStoreOp, ilHasMultipleILStoreOp in lvaTable[].
+//    Also sets lvAddrExposed and lvHasILStoreOp, ilHasMultipleILStoreOp in LclVarDsc.
 
 #ifdef _PREFAST_
 #pragma warning(push)
 #pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
 #endif
-FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
+ILLabelSet Compiler::fgFindJumpTargets(ILStats* ilStats)
 {
     const IL_OFFSET codeSize     = info.compILCodeSize;
     InlineResult*   inlineResult = compInlineResult;
@@ -704,7 +704,7 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
     const uint8_t* codeBegin     = info.compCode;
     const uint8_t* codeEnd       = codeBegin + codeSize;
     const uint8_t* codeAddr      = codeBegin;
-    FixedBitVect*  jumpTargets   = nullptr;
+    ILLabelSet     jumpTargets   = nullptr;
     FgStack        pushedStack;
 
     while (codeAddr < codeEnd)
@@ -1216,10 +1216,10 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
 
                 if (jumpTargets == nullptr)
                 {
-                    jumpTargets = FixedBitVect::bitVectInit(info.compILCodeSize, this);
+                    jumpTargets = ILLabelSetOps::MakeEmpty(this);
                 }
 
-                jumpTargets->bitVectSet(targetOffset);
+                ILLabelSetOps::AddElemD(this, jumpTargets, targetOffset);
 
                 if (inlineResult == nullptr)
                 {
@@ -1358,10 +1358,10 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
 
                 if (jumpTargets == nullptr)
                 {
-                    jumpTargets = FixedBitVect::bitVectInit(info.compILCodeSize, this);
+                    jumpTargets = ILLabelSetOps::MakeEmpty(this);
                 }
 
-                jumpTargets->bitVectSet(fallThroughOffset);
+                ILLabelSetOps::AddElemD(this, jumpTargets, fallThroughOffset);
 
                 for (unsigned i = 0; i < targetCount; i++)
                 {
@@ -1374,7 +1374,7 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
                                  static_cast<unsigned>(codeAddr - codeBegin));
                     }
 
-                    jumpTargets->bitVectSet(targetOffset);
+                    ILLabelSetOps::AddElemD(this, jumpTargets, targetOffset);
                 }
 
                 // We've advanced past all the bytes in this instruction
@@ -1456,7 +1456,7 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
                 else
                 {
                     // account for possible hidden param
-                    varNum = compMapILargNum(varNum);
+                    varNum = lvaMapILArgNumToLclNum(varNum);
 
                     // This check is only intended to prevent an AV.  Bad varNum values will later
                     // be handled properly by the verifier.
@@ -1501,7 +1501,7 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
                 }
                 else
                 {
-                    varNum += info.compArgsCount;
+                    varNum += info.GetParamCount();
 
                     // This check is only intended to prevent invalid memory access. Bad varNum values
                     // will later be handled properly by the importer.
@@ -1581,26 +1581,26 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
                 {
                     if ((opcode == CEE_LDLOCA) || (opcode == CEE_LDLOCA_S))
                     {
-                        if (varNum >= info.compMethodInfo->locals.numArgs)
+                        if (varNum >= info.GetILLocCount())
                         {
                             BADCODE("bad local number");
                         }
 
-                        varNum += info.compArgsCount;
+                        varNum += info.GetParamCount();
                     }
                     else
                     {
-                        if (varNum >= info.compILargsCount)
+                        if (varNum >= info.GetILArgCount())
                         {
                             BADCODE("bad argument number");
                         }
 
-                        varNum = compMapILargNum(varNum); // account for possible hidden param
+                        varNum = lvaMapILArgNumToLclNum(varNum);
                     }
 
                     LclVarDsc* lcl = lvaGetDesc(varNum);
 
-                    typeIsNormed = !varTypeIsStruct(lcl->GetType()) && lcl->lvImpTypeInfo.IsType(TI_STRUCT);
+                    typeIsNormed = !varTypeIsStruct(lcl->GetType()) && lcl->lvImpTypeInfo.IsStruct();
 
                     // Determine if the next instruction will consume
                     // the address. If so we won't mark this var as
@@ -1629,13 +1629,14 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
                     }
                     else
                     {
-                        lcl->lvHasLdAddrOp = 1;
+                        lcl->lvHasLdAddrOp = true;
+
                         if (!info.compIsStatic && (varNum == 0))
                         {
                             // Addr taken on "this" pointer is significant,
                             // go ahead to mark it as permanently addr-exposed here.
-                            lvaSetVarAddrExposed(0);
                             // This may be conservative, but probably not very.
+                            lvaSetAddressExposed(lcl);
                         }
                     }
                 }
@@ -1658,7 +1659,7 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
                     // This doesn't interfere with verification because CEE_JMP
                     // is never verifiable, and there's nothing unsafe you can
                     // do with a an IL stack overflow if the JIT is expecting it.
-                    info.compMaxStack = max(info.compMaxStack, info.compILargsCount);
+                    info.compMaxStack = Max(info.compMaxStack, info.GetILArgCount());
                     break;
                 }
 #endif
@@ -1830,7 +1831,7 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
 
 // Modifies lvaThisLclNum to refer to a temp if the value of 'this' can
 // change. The original this (info.compThisArg) then remains unmodified
-// in the method. fgAddInternal is reponsible for adding the code to copy
+// in the method. fgAddInternal is responsible for adding the code to copy
 // the initial this into the temp.
 void Compiler::fgAdjustForAddressTakenOrStoredThis()
 {
@@ -1847,9 +1848,7 @@ void Compiler::fgAdjustForAddressTakenOrStoredThis()
     // If this is address taken or written to, create a temp for the modifiable this.
     if (thisParam->lvHasLdAddrOp || thisParam->lvHasILStoreOp)
     {
-        lvaThisLclNum = lvaNewTemp(thisParam->GetType(), false DEBUGARG("'this' copy"));
-
-        LclVarDsc* thisLcl = lvaGetDesc(lvaThisLclNum);
+        LclVarDsc* thisLcl = lvaNewTemp(thisParam->GetType(), false DEBUGARG("'this' copy"));
 
         thisLcl->lvAddrExposed     = thisParam->IsAddressExposed();
         thisLcl->lvDoNotEnregister = thisParam->lvDoNotEnregister;
@@ -1859,6 +1858,7 @@ void Compiler::fgAdjustForAddressTakenOrStoredThis()
         thisLcl->lvLiveInOutOfHndlr = thisParam->lvLiveInOutOfHndlr;
         thisLcl->lvLclFieldExpr     = thisParam->lvLclFieldExpr;
 #endif
+        lvaThisLclNum = thisLcl->GetLclNum();
 
         thisParam->lvAddrExposed  = false;
         thisParam->lvHasLdAddrOp  = false;
@@ -2077,8 +2077,10 @@ void Compiler::fgLinkBasicBlocks()
 // Notes:
 //   Invoked for prejited and jitted methods, and for all inlinees
 
-unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTargets)
+unsigned Compiler::fgMakeBasicBlocks(ILLabelSet jumpTargets)
 {
+    DBEXEC(verbose, dmpILJumpTargets(jumpTargets);)
+
     // Keep track of where we are in the scope lists, as we will also
     // create blocks at scope boundaries.
 
@@ -2321,7 +2323,7 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTargets)
                 BADCODE3("missing return opcode", " at offset %04X", static_cast<unsigned>(codeAddr - codeBegin));
             }
 
-            bool makeBlock = (jumpTargets != nullptr) && jumpTargets->bitVectTest(nextBlockOffset);
+            bool makeBlock = (jumpTargets != nullptr) && ILLabelSetOps::IsMember(this, jumpTargets, nextBlockOffset);
 
             if (!makeBlock && foundScope)
             {
@@ -2383,20 +2385,17 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTargets)
 }
 
 #ifdef DEBUG
-void Compiler::dmpILJumpTargets(FixedBitVect* targets)
+void Compiler::dmpILJumpTargets(ILLabelSet targets)
 {
     bool anyJumpTargets = false;
     printf("Jump targets:\n");
 
     if (targets != nullptr)
     {
-        for (unsigned i = 0; i < info.compILCodeSize; i++)
+        for (ILLabelSetOps::Enumerator e(this, targets); e.MoveNext();)
         {
-            if (targets->bitVectTest(i))
-            {
-                anyJumpTargets = true;
-                printf("  IL_%04x\n", i);
-            }
+            anyJumpTargets = true;
+            printf("  IL_%04x\n", e.Current());
         }
     }
 
@@ -2416,7 +2415,7 @@ void Compiler::compCreateBasicBlocks(ILStats& ilStats)
     // Call this here so any dump printing it inspires doesn't appear in the bb table.
     INDEBUG(fgStressBBProf());
 
-    FixedBitVect* jumpTargets = fgFindJumpTargets(&ilStats);
+    ILLabelSet jumpTargets = fgFindJumpTargets(&ilStats);
 
     if (!info.compIsStatic)
     {
@@ -2431,26 +2430,25 @@ void Compiler::compCreateBasicBlocks(ILStats& ilStats)
     // about the possible values or types.
     //
     // For inlinees we do this over in inlFetchInlineeLocal and
-    // inlUseArg (here args are included as we somtimes get
+    // inlUseArg (here args are included as we sometimes get
     // new information about the types of inlinee args).
-    const unsigned firstLcl = info.compArgsCount;
-    const unsigned lastLcl  = firstLcl + info.compMethodInfo->locals.numArgs;
-    for (unsigned lclNum = firstLcl; lclNum < lastLcl; lclNum++)
+    for (unsigned i = 0, count = info.GetILLocCount(); i < count; i++)
     {
-        LclVarDsc* lclDsc = lvaGetDesc(lclNum);
-        assert(lclDsc->lvSingleDef == 0);
-        // could restrict this to TYP_REF
-        lclDsc->lvSingleDef = !lclDsc->lvHasMultipleILStoreOp && !lclDsc->lvHasLdAddrOp;
+        LclVarDsc* lcl = lvaGetDesc(info.GetParamCount() + i);
 
-        if (lclDsc->lvSingleDef)
+        assert(!lcl->lvSingleDef);
+        // could restrict this to TYP_REF
+        lcl->lvSingleDef = !lcl->lvHasMultipleILStoreOp && !lcl->lvHasLdAddrOp;
+
+        if (lcl->lvSingleDef)
         {
-            JITDUMP("Marked V%02u as a single def local\n", lclNum);
+            JITDUMP("Marked V%02u as a single def local\n", lcl->GetLclNum());
         }
     }
 
     if ((jumpTargets == nullptr) && (info.compXcptnsCount != 0))
     {
-        jumpTargets = FixedBitVect::bitVectInit(info.compILCodeSize, this);
+        jumpTargets = ILLabelSetOps::MakeEmpty(this);
     }
 
     for (unsigned i = 0, count = info.compXcptnsCount; i < info.compXcptnsCount; i++)
@@ -2495,25 +2493,23 @@ void Compiler::compCreateBasicBlocks(ILStats& ilStats)
                 BADCODE("filter is empty or begins after handler");
             }
 
-            jumpTargets->bitVectSet(clause.FilterOffset);
+            ILLabelSetOps::AddElemD(this, jumpTargets, clause.FilterOffset);
         }
 
-        jumpTargets->bitVectSet(clause.TryOffset);
+        ILLabelSetOps::AddElemD(this, jumpTargets, clause.TryOffset);
 
         if (clause.TryOffset + clause.TryLength < info.compILCodeSize)
         {
-            jumpTargets->bitVectSet(clause.TryOffset + clause.TryLength);
+            ILLabelSetOps::AddElemD(this, jumpTargets, clause.TryOffset + clause.TryLength);
         }
 
-        jumpTargets->bitVectSet(clause.HandlerOffset);
+        ILLabelSetOps::AddElemD(this, jumpTargets, clause.HandlerOffset);
 
         if (clause.HandlerOffset + clause.HandlerLength < info.compILCodeSize)
         {
-            jumpTargets->bitVectSet(clause.HandlerOffset + clause.HandlerLength);
+            ILLabelSetOps::AddElemD(this, jumpTargets, clause.HandlerOffset + clause.HandlerLength);
         }
     }
-
-    DBEXEC(verbose, dmpILJumpTargets(jumpTargets);)
 
     fgMakeBasicBlocks(jumpTargets);
 
@@ -4272,7 +4268,7 @@ BasicBlock* Compiler::fgConnectFallThrough(BasicBlock* bSrc, BasicBlock* bDst)
 //   maximum number of assigned basic blocks (this can happen if we do inlining,
 //   create a new, high-numbered block, then that block goes away. We go to
 //   renumber the blocks, none of them actually change number, but we shrink the
-//   maximum assigned block number. This affects the block set epoch).
+//   maximum assigned block number. This affects the block set version).
 //
 //   As a consequence of renumbering, block pred lists may need to be reordered.
 //
@@ -4365,28 +4361,29 @@ bool Compiler::fgRenumberBlocks()
     }
 #endif // DEBUG
 
-    // Now update the BlockSet epoch, which depends on the block numbers.
-    // If any blocks have been renumbered then create a new BlockSet epoch.
+    // Now update the BlockSet version, which depends on the block numbers.
+    // If any blocks have been renumbered then create a new BlockSet version.
     // Even if we have not renumbered any blocks, we might still need to force
-    // a new BlockSet epoch, for one of several reasons. If there are any new
+    // a new BlockSet version, for one of several reasons. If there are any new
     // blocks with higher numbers than the former maximum numbered block, then we
-    // need a new epoch with a new size matching the new largest numbered block.
+    // need a new version with a new size matching the new largest numbered block.
     // Also, if the number of blocks is different from the last time we set the
-    // BlockSet epoch, then we need a new epoch. This wouldn't happen if we
+    // BlockSet version, then we need a new version. This wouldn't happen if we
     // renumbered blocks after every block addition/deletion, but it might be
     // the case that we can change the number of blocks, then set the BlockSet
-    // epoch without renumbering, then change the number of blocks again, then
+    // version without renumbering, then change the number of blocks again, then
     // renumber.
+
     if (renumbered || newMaxBBNum)
     {
-        NewBasicBlockEpoch();
+        NewBlockSetVersion();
 
         // The key in the unique switch successor map is dependent on the block number, so invalidate that cache.
         InvalidateUniqueSwitchSuccMap();
     }
     else
     {
-        EnsureBasicBlockEpoch();
+        UpdateBlockSetVersion();
     }
 
     // Tell our caller if any blocks actually were renumbered.
@@ -4838,19 +4835,19 @@ DONE:
 // return true if there is a possibility that the method has a loop (a backedge is present)
 bool Compiler::fgMightHaveLoop()
 {
-    // Don't use a BlockSet for this temporary bitset of blocks: we don't want to have to call EnsureBasicBlockEpoch()
-    // and potentially change the block epoch.
+    // Don't use a BlockSet for this temporary bitset of blocks: we don't want to
+    // call UpdateBlockSetVersion and potentially change the BlockSet version.
 
     BitVecTraits blockVecTraits(fgBBNumMax + 1, this);
-    BitVec       blocksSeen(BitVecOps::MakeEmpty(&blockVecTraits));
+    BitVec       blocksSeen(BitVecOps::MakeEmpty(blockVecTraits));
 
     for (BasicBlock* const block : Blocks())
     {
-        BitVecOps::AddElemD(&blockVecTraits, blocksSeen, block->bbNum);
+        BitVecOps::AddElemD(blockVecTraits, blocksSeen, block->bbNum);
 
         for (BasicBlock* succ : block->GetAllSuccs(this))
         {
-            if (BitVecOps::IsMember(&blockVecTraits, blocksSeen, succ->bbNum))
+            if (BitVecOps::IsMember(blockVecTraits, blocksSeen, succ->bbNum))
             {
                 return true;
             }

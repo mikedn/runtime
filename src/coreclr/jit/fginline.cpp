@@ -202,7 +202,7 @@ public:
 
                 if (dst->OperIs(GT_LCL_VAR))
                 {
-                    m_compiler->lvaGetDesc(dst->AsLclVar())->lvIsMultiRegRet = true;
+                    dst->AsLclVar()->GetLcl()->lvIsMultiRegRet = true;
                 }
             }
 #endif
@@ -290,7 +290,7 @@ public:
 
             GenTree* lhs = tree->AsOp()->GetOp(0)->gtEffectiveVal();
 
-            if (lhs->OperIs(GT_LCL_VAR) && lhs->TypeIs(TYP_REF) && m_compiler->lvaGetDesc(lhs->AsLclVar())->lvSingleDef)
+            if (lhs->OperIs(GT_LCL_VAR) && lhs->TypeIs(TYP_REF) && lhs->AsLclVar()->GetLcl()->lvSingleDef)
             {
                 bool                 isExact   = false;
                 bool                 isNonNull = false;
@@ -299,7 +299,7 @@ public:
 
                 if (newClass != NO_CLASS_HANDLE)
                 {
-                    m_compiler->lvaUpdateClass(lhs->AsLclVar()->GetLclNum(), newClass, isExact);
+                    m_compiler->lvaUpdateClass(lhs->AsLclVar()->GetLcl(), newClass, isExact);
                 }
             }
 
@@ -309,7 +309,7 @@ public:
             GenTree* src = tree->AsOp()->GetOp(1);
 
             if (dst->OperIs(GT_LCL_VAR) && src->OperIs(GT_LCL_VAR) &&
-                (dst->AsLclVar()->GetLclNum() == src->AsLclVar()->GetLclNum()))
+                (dst->AsLclVar()->GetLcl() == src->AsLclVar()->GetLcl()))
             {
                 JITDUMPTREE(tree, "Removing self-assignment:");
                 tree->ChangeToNothingNode();
@@ -460,7 +460,6 @@ bool Compiler::inlInlineCall(BasicBlock* block, Statement* stmt, GenTreeCall* ca
 
     if (result.IsFailure())
     {
-        memset(lvaTable + initialLvaCount, 0, (static_cast<size_t>(lvaCount) - initialLvaCount) * sizeof(lvaTable[0]));
         lvaCount = initialLvaCount;
 
         // Before we do any cleanup, create a failing InlineContext to
@@ -706,8 +705,8 @@ void Compiler::inlInvokeInlineeCompiler(BasicBlock*   block,
     inlineInfo.retExpr                = nullptr;
     inlineInfo.retBlockIRSummary      = BBF_EMPTY;
     inlineInfo.retExprClassHnd        = NO_CLASS_HANDLE;
+    inlineInfo.retSpillTempLcl        = nullptr;
     inlineInfo.retExprClassHndIsExact = false;
-    inlineInfo.retSpillTempLclNum     = BAD_VAR_NUM;
 
     inlineInfo.hasGCRefLocals        = false;
     inlineInfo.thisDereferencedFirst = false;
@@ -794,10 +793,10 @@ void Compiler::inlPostInlineFailureCleanup(const InlineInfo* inlineInfo)
         {
             if (!argInfo.argNode->OperIs(GT_LCL_VAR))
             {
-                assert(argInfo.argNode->AsLclAddr()->GetLclNum() == argInfo.paramLclNum);
+                assert(argInfo.argNode->AsLclAddr()->GetLcl() == argInfo.paramLcl);
 
                 argInfo.argNode->SetOper(GT_LCL_VAR);
-                argInfo.argNode->AsLclVar()->SetLclNum(argInfo.paramLclNum);
+                argInfo.argNode->AsLclVar()->SetLcl(argInfo.paramLcl);
                 argInfo.argNode->SetType(argInfo.argType);
             }
         }
@@ -864,14 +863,12 @@ void Compiler::inlCreateBasicBlocks()
     // We don't inline method with EH
     noway_assert(info.compXcptnsCount == 0);
 
-    FixedBitVect* jumpTargets = fgFindJumpTargets();
+    ILLabelSet jumpTargets = fgFindJumpTargets();
 
     if (compInlineResult->IsFailure())
     {
         return;
     }
-
-    DBEXEC(verbose, dmpILJumpTargets(jumpTargets);)
 
     unsigned retBlocks = fgMakeBasicBlocks(jumpTargets);
 
@@ -909,7 +906,7 @@ void Compiler::inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBl
         return;
     }
 
-    if (inlineInfo->inlineCandidateInfo->preexistingSpillTemp != BAD_VAR_NUM)
+    if (LclVarDsc* spillTempLcl = inlineInfo->inlineCandidateInfo->preexistingSpillTemp)
     {
         // If we've spilled the ret expr to a temp we can reuse the temp as the
         // inlinee return spill temp.
@@ -917,9 +914,9 @@ void Compiler::inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBl
         // TODO: see if it is even better to always use this existing temp for
         // return values, even if we otherwise wouldn't need a return spill temp...
 
-        inlineInfo->retSpillTempLclNum = inlineInfo->inlineCandidateInfo->preexistingSpillTemp;
+        inlineInfo->retSpillTempLcl = spillTempLcl;
 
-        JITDUMP("\nInliner: re-using pre-existing spill temp V%02u\n", inlineInfo->retSpillTempLclNum);
+        JITDUMP("\nInliner: re-using pre-existing spill temp V%02u\n", spillTempLcl->GetLclNum());
 
         if (info.GetRetSigType() == TYP_REF)
         {
@@ -927,28 +924,25 @@ void Compiler::inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBl
             // We likely assumed it was single-def at the time, but now
             // we can see it has multiple definitions.
 
-            LclVarDsc* lcl = lvaGetDesc(inlineInfo->retSpillTempLclNum);
-
-            if ((returnBlockCount > 1) && lcl->lvSingleDef)
+            if ((returnBlockCount > 1) && spillTempLcl->lvSingleDef)
             {
                 // Make sure it is no longer marked single def. This is only safe
                 // to do if we haven't ever updated the type.
 
-                assert(!lcl->lvClassInfoUpdated);
-                JITDUMP("Marked return spill temp V%02u as NOT single def temp\n", inlineInfo->retSpillTempLclNum);
-                lcl->lvSingleDef = false;
+                assert(!spillTempLcl->lvClassInfoUpdated);
+                JITDUMP("Marked return spill temp V%02u as NOT single def temp\n", spillTempLcl->GetLclNum());
+                spillTempLcl->lvSingleDef = false;
             }
         }
 
         return;
     }
 
-    unsigned   spillLclNum = lvaGrabTemp(false DEBUGARG("inlinee return spill temp"));
-    LclVarDsc* spillLcl    = lvaGetDesc(spillLclNum);
+    LclVarDsc* spillLcl = lvaAllocTemp(false DEBUGARG("inlinee return spill temp"));
 
     if (varTypeIsStruct(info.GetRetSigType()))
     {
-        lvaSetStruct(spillLclNum, info.GetRetLayout(), false);
+        lvaSetStruct(spillLcl, info.GetRetLayout(), false);
     }
     else
     {
@@ -963,17 +957,17 @@ void Compiler::inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBl
             if (returnBlockCount == 1)
             {
                 spillLcl->lvSingleDef = true;
-                JITDUMP("Marked return spill temp V%02u as a single def temp\n", spillLclNum);
+                JITDUMP("Marked return spill temp V%02u as a single def temp\n", spillLcl->GetLclNum());
             }
 
             if (info.compMethodInfo->args.retTypeClass != nullptr)
             {
-                lvaSetClass(spillLclNum, info.compMethodInfo->args.retTypeClass);
+                lvaSetClass(spillLcl, info.compMethodInfo->args.retTypeClass);
             }
         }
     }
 
-    inlineInfo->retSpillTempLclNum = spillLclNum;
+    inlineInfo->retSpillTempLcl = spillLcl;
 }
 
 bool Compiler::inlImportReturn(Importer&            importer,
@@ -989,7 +983,7 @@ bool Compiler::inlImportReturn(Importer&            importer,
     // for the return value. This temp should have been set up in advance,
     // over in inlAnalyzeInlineeReturn.
 
-    assert(!inlineInfo->hasGCRefLocals || (inlineInfo->retSpillTempLclNum != BAD_VAR_NUM));
+    assert(!inlineInfo->hasGCRefLocals || (inlineInfo->retSpillTempLcl != nullptr));
 
     // Make sure the return value type matches the return signature type.
     {
@@ -1024,7 +1018,7 @@ bool Compiler::inlImportReturn(Importer&            importer,
     }
     else if (info.GetRetSigType() == TYP_REF)
     {
-        if (inlineInfo->retSpillTempLclNum != BAD_VAR_NUM)
+        if (inlineInfo->retSpillTempLcl != nullptr)
         {
             // If this method returns a REF type and we have a spill temp, track the actual types
             // seen in the returns so we can update the spill temp class when inlining is done.
@@ -1062,7 +1056,7 @@ bool Compiler::inlImportReturn(Importer&            importer,
             // Currently the importer doesn't generate local field addresses.
             assert(effectiveRetVal->AsLclAddr()->GetLclOffs() == 0);
 
-            LclVarDsc* lcl = lvaGetDesc(effectiveRetVal->AsLclAddr());
+            LclVarDsc* lcl = effectiveRetVal->AsLclAddr()->GetLcl();
 
             if (varTypeIsStruct(lcl->GetType()) && !lcl->GetLayout()->IsOpaqueVector())
             {
@@ -1080,7 +1074,7 @@ bool Compiler::inlImportReturn(Importer&            importer,
                     // optimizations, in particular, value numbering.
 
                     JITDUMP("\nSetting lvOverlappingFields on V%02u due to struct reinterpretation\n",
-                            effectiveRetVal->AsLclAddr()->GetLclNum());
+                            lcl->GetLclNum());
 
                     lcl->lvOverlappingFields = true;
                 }
@@ -1104,11 +1098,10 @@ bool Compiler::inlImportReturn(Importer&            importer,
         retExpr = importer.impSpillPseudoReturnBufferCall(retExpr->AsCall());
     }
 
-    if (inlineInfo->retSpillTempLclNum != BAD_VAR_NUM)
+    if (LclVarDsc* lcl = inlineInfo->retSpillTempLcl)
     {
-        unsigned  lclNum  = inlineInfo->retSpillTempLclNum;
-        var_types lclType = lvaGetDesc(lclNum)->GetType();
-        GenTree*  dest    = gtNewLclvNode(lclNum, lclType);
+        var_types lclType = lcl->GetType();
+        GenTree*  dest    = gtNewLclvNode(lcl, lclType);
         GenTree*  asg;
 
         if (varTypeIsStruct(retExpr->GetType()))
@@ -1124,16 +1117,16 @@ bool Compiler::inlImportReturn(Importer&            importer,
 
         if (inlineInfo->retExpr == nullptr)
         {
-            retExpr = gtNewLclvNode(lclNum, lclType);
+            retExpr = gtNewLclvNode(lcl, lclType);
         }
         else if (inlineInfo->iciCall->HasRetBufArg())
         {
             assert(inlineInfo->retExpr->OperIs(GT_ASG));
-            assert(inlineInfo->retExpr->AsOp()->GetOp(1)->AsLclVar()->GetLclNum() == lclNum);
+            assert(inlineInfo->retExpr->AsOp()->GetOp(1)->AsLclVar()->GetLcl() == lcl);
         }
         else
         {
-            assert(inlineInfo->retExpr->AsLclVar()->GetLclNum() == lclNum);
+            assert(inlineInfo->retExpr->AsLclVar()->GetLcl() == lcl);
         }
     }
 
@@ -1161,7 +1154,7 @@ bool Compiler::inlImportReturn(Importer&            importer,
         // inliner block. The return expression may contain nodes such as INDEX_ADDR so the
         // inliner block needs to "inherit" the IR summary from inlinee's return block.
 
-        if ((inlineInfo->retSpillTempLclNum == BAD_VAR_NUM) && (fgFirstBB->bbNext != nullptr))
+        if ((inlineInfo->retSpillTempLcl == nullptr) && (fgFirstBB->bbNext != nullptr))
         {
             inlineInfo->retBlockIRSummary = importer.currentBlock->bbFlags & BBF_IR_SUMMARY;
         }
@@ -1176,16 +1169,13 @@ void Compiler::inlUpdateRetSpillTempClass(InlineInfo* inlineInfo)
     // better info when importing the inlinee, and the return
     // spill temp is single def.
 
-    if (inlineInfo->retSpillTempLclNum != BAD_VAR_NUM)
+    if (LclVarDsc* returnSpillVarDsc = inlineInfo->retSpillTempLcl)
     {
-        CORINFO_CLASS_HANDLE retExprClassHnd = inlineInfo->retExprClassHnd;
-        if (retExprClassHnd != nullptr)
+        if (returnSpillVarDsc->lvSingleDef)
         {
-            LclVarDsc* returnSpillVarDsc = lvaGetDesc(inlineInfo->retSpillTempLclNum);
-
-            if (returnSpillVarDsc->lvSingleDef)
+            if (CORINFO_CLASS_HANDLE retExprClassHnd = inlineInfo->retExprClassHnd)
             {
-                lvaUpdateClass(inlineInfo->retSpillTempLclNum, retExprClassHnd, inlineInfo->retExprClassHndIsExact);
+                lvaUpdateClass(returnSpillVarDsc, retExprClassHnd, inlineInfo->retExprClassHndIsExact);
             }
         }
     }
@@ -1395,7 +1385,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
         {
             // TODO-MIKE-Cleanup: This is incorrect, it classifies all primitive types
             // as "normed". It is based on old code that used typeInfo's IsValueClass
-            // instead of IsType(TI_STRUCT). Fixing this produces some diffs.
+            // instead of IsStruct(). Fixing this produces some diffs.
 
             argInfo[i].paramHasNormedType = true;
         }
@@ -1492,7 +1482,7 @@ bool Compiler::inlAnalyzeInlineeArg(InlineInfo* inlineInfo, unsigned argNum)
     }
     else if (argInfo.argNode->OperIs(GT_LCL_VAR))
     {
-        LclVarDsc* lcl = lvaGetDesc(argInfo.argNode->AsLclVar());
+        LclVarDsc* lcl = argInfo.argNode->AsLclVar()->GetLcl();
 
         if (!lcl->lvHasLdAddrOp)
         {
@@ -1512,7 +1502,7 @@ bool Compiler::inlAnalyzeInlineeArg(InlineInfo* inlineInfo, unsigned argNum)
         argInfo.argIsInvariant = true;
 
 #ifdef FEATURE_SIMD
-        if (varTypeIsSIMD(lvaGetDesc(lclAddr)->GetType()))
+        if (varTypeIsSIMD(lclAddr->GetLcl()->GetType()))
         {
             inlineInfo->hasSIMDTypeArgLocalOrReturn = true;
         }
@@ -1599,8 +1589,8 @@ typeInfo InlineInfo::GetParamTypeInfo(unsigned ilArgNum) const
 
 bool InlineInfo::IsThisParam(GenTree* tree) const
 {
-    return tree->OperIs(GT_LCL_VAR) && (ilArgCount > 0) &&
-           (tree->AsLclVar()->GetLclNum() == ilArgInfo[0].paramLclNum) && ilArgInfo[0].paramIsThis;
+    return tree->OperIs(GT_LCL_VAR) && (ilArgCount > 0) && (tree->AsLclVar()->GetLcl() == ilArgInfo[0].paramLcl) &&
+           ilArgInfo[0].paramIsThis;
 }
 
 bool Compiler::inlAnalyzeInlineeLocals(InlineInfo* inlineInfo)
@@ -1692,7 +1682,7 @@ bool Compiler::inlAnalyzeInlineeLocals(InlineInfo* inlineInfo)
         {
             // TODO-MIKE-Cleanup: This is incorrect, it classifies all primitive types
             // as "normed". It is based on old code that used typeInfo's IsValueClass
-            // instead of IsType(TI_STRUCT). Fixing this produces some diffs.
+            // instead of IsStruct(). Fixing this produces some diffs.
 
             lclHasNormedType = true;
         }
@@ -1737,39 +1727,37 @@ bool InlineInfo::IsNormedTypeLocal(unsigned ilLocNum) const
     return (ilLocNum < ilLocCount) && ilLocInfo[ilLocNum].lclHasNormedType;
 }
 
-unsigned Compiler::inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum)
+LclVarDsc* Compiler::inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum)
 {
     assert(ilLocNum < inlineInfo->ilLocCount);
 
     if (inlineInfo->ilLocInfo[ilLocNum].lclIsUsed)
     {
-        return inlineInfo->ilLocInfo[ilLocNum].lclNum;
+        return inlineInfo->ilLocInfo[ilLocNum].lcl;
     }
 
     return inlAllocInlineeLocal(inlineInfo, ilLocNum);
 }
 
-unsigned Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum)
+LclVarDsc* Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum)
 {
     InlLocInfo& lclInfo = inlineInfo->ilLocInfo[ilLocNum];
 
     assert(!lclInfo.lclIsUsed);
 
-    const unsigned lclNum = lvaGrabTemp(false DEBUGARG("inlinee local"));
-
-    lclInfo.lclNum    = lclNum;
-    lclInfo.lclIsUsed = true;
-
-    LclVarDsc* lcl = lvaGetDesc(lclNum);
+    LclVarDsc* lcl = lvaAllocTemp(false DEBUGARG("inlinee local"));
 
     lcl->m_pinning              = lclInfo.lclIsPinned;
     lcl->lvHasLdAddrOp          = lclInfo.lclHasLdlocaOp;
     lcl->lvHasILStoreOp         = lclInfo.lclHasStlocOp;
     lcl->lvHasMultipleILStoreOp = lclInfo.lclHasMultipleStlocOp;
 
+    lclInfo.lcl       = lcl;
+    lclInfo.lclIsUsed = true;
+
     if (varTypeIsStruct(lclInfo.lclType))
     {
-        lvaSetStruct(lclNum, lclInfo.lclClass, /* checkUnsafeBuffer */ true);
+        lvaSetStruct(lcl, typGetObjLayout(lclInfo.lclClass), /* checkUnsafeBuffer */ true);
     }
     else
     {
@@ -1786,10 +1774,10 @@ unsigned Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNu
 
             if (lcl->lvSingleDef)
             {
-                JITDUMP("Marked V%02u as a single def temp\n", lclNum);
+                JITDUMP("Marked V%02u as a single def temp\n", lclInfo.lcl->GetLclNum());
             }
 
-            lvaSetClass(lclNum, lclInfo.lclClass);
+            lvaSetClass(lcl, lclInfo.lclClass);
         }
         else if (lclInfo.lclClass != NO_CLASS_HANDLE)
         {
@@ -1809,7 +1797,7 @@ unsigned Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNu
         // Since there are GC pointer locals we should have seen them earlier
         // and if there was a return value, set up the spill temp.
         assert(impInlineInfo->hasGCRefLocals);
-        assert((info.GetRetSigType() == TYP_VOID) || (inlineInfo->retSpillTempLclNum != BAD_VAR_NUM));
+        assert((info.GetRetSigType() == TYP_VOID) || (inlineInfo->retSpillTempLcl != nullptr));
     }
     else
     {
@@ -1818,7 +1806,7 @@ unsigned Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNu
     }
 #endif
 
-    return lclNum;
+    return lcl;
 }
 
 GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
@@ -1863,11 +1851,11 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
         //
         // Use the caller-supplied node if this is the first use.
 
-        unsigned lclNum;
+        LclVarDsc* lcl;
 
         if (argNode->OperIs(GT_LCL_VAR))
         {
-            lclNum = argNode->AsLclVar()->GetLclNum();
+            lcl = argNode->AsLclVar()->GetLcl();
 
             // The arg node shouldn't have any flags. The importer may change it to LCL_ADDR
             // and remove all flags. If inlining is aborted then we won't be able to restore
@@ -1879,9 +1867,9 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
         else
         {
             assert(argNode->OperIs(GT_LCL_ADDR));
-            assert(argNode->AsLclAddr()->GetLclNum() == argInfo.paramLclNum);
+            assert(argNode->AsLclAddr()->GetLcl() == argInfo.paramLcl);
 
-            lclNum = argInfo.paramLclNum;
+            lcl = argInfo.paramLcl;
         }
 
         // Use an equivalent copy if this is the second or subsequent
@@ -1890,19 +1878,19 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
         // Note argument type mismatches that prevent inlining should
         // have been caught in inlAnalyzeInlineeArgs.
 
-        if ((argInfo.paramLclNum != BAD_VAR_NUM) || (argNode->GetType() != argInfo.paramType))
+        if ((argInfo.paramLcl != nullptr) || (argNode->GetType() != argInfo.paramType))
         {
             var_types paramType = argInfo.paramType;
 
-            if (!lvaGetDesc(lclNum)->lvNormalizeOnLoad())
+            if (!lcl->lvNormalizeOnLoad())
             {
                 paramType = varActualType(paramType);
             }
 
-            argNode = gtNewLclvNode(lclNum, paramType);
+            argNode = gtNewLclvNode(lcl, paramType);
         }
 
-        argInfo.paramLclNum = lclNum;
+        argInfo.paramLcl = lcl;
 
         return argNode;
     }
@@ -1911,7 +1899,7 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
     {
         // We already allocated a temp for this argument, use it.
 
-        argNode = gtNewLclvNode(argInfo.paramLclNum, varActualType(argInfo.paramType));
+        argNode = gtNewLclvNode(argInfo.paramLcl, varActualType(argInfo.paramType));
 
         // This is the second or later use of the this argument,
         // so we have to use the temp (instead of the actual arg).
@@ -1922,8 +1910,7 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
 
     // Argument is a complex expression - it must be evaluated into a temp.
 
-    unsigned   tmpLclNum = lvaGrabTemp(true DEBUGARG("inlinee arg"));
-    LclVarDsc* tmpLcl    = lvaGetDesc(tmpLclNum);
+    LclVarDsc* tmpLcl = lvaAllocTemp(true DEBUGARG("inlinee arg"));
 
     if (argInfo.paramIsAddressTaken)
     {
@@ -1932,7 +1919,7 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
 
     if (varTypeIsStruct(argInfo.paramType))
     {
-        lvaSetStruct(tmpLclNum, argInfo.paramClass, /* checkUnsafeBuffer */ true);
+        lvaSetStruct(tmpLcl, typGetObjLayout(argInfo.paramClass), /* checkUnsafeBuffer */ true);
     }
     else
     {
@@ -1948,15 +1935,15 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
                 assert(tmpLcl->lvSingleDef == 0);
                 tmpLcl->lvSingleDef = 1;
 
-                JITDUMP("Marked V%02u as a single def temp\n", tmpLclNum);
+                JITDUMP("Marked V%02u as a single def temp\n", tmpLcl->GetLclNum());
 
-                lvaSetClass(tmpLclNum, argInfo.argNode, argInfo.paramClass);
+                lvaSetClass(tmpLcl, argInfo.argNode, argInfo.paramClass);
             }
             else
             {
                 // Arg might be modified, use the declared type of the argument.
 
-                lvaSetClass(tmpLclNum, argInfo.paramClass);
+                lvaSetClass(tmpLcl, argInfo.paramClass);
             }
         }
         else if (argInfo.paramClass != NO_CLASS_HANDLE)
@@ -1971,7 +1958,7 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
     }
 
     argInfo.paramHasLcl = true;
-    argInfo.paramLclNum = tmpLclNum;
+    argInfo.paramLcl    = tmpLcl;
 
     // If we require strict exception order, then arguments must
     // be evaluated in sequence before the body of the inlined method.
@@ -1986,14 +1973,14 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
     if (varTypeIsStruct(argInfo.paramType) || argInfo.argHasSideEff || argInfo.argHasGlobRef ||
         argInfo.paramIsAddressTaken || argInfo.paramHasStores)
     {
-        argNode = gtNewLclvNode(tmpLclNum, varActualType(argInfo.paramType));
+        argNode = gtNewLclvNode(tmpLcl, varActualType(argInfo.paramType));
     }
     else
     {
         // Allocate a large LCL_VAR node so we can replace it with any
         // other node if it turns out to be single use.
 
-        argNode = gtNewLclVarLargeNode(tmpLclNum, varActualType(argInfo.paramType));
+        argNode = gtNewLclVarLargeNode(tmpLcl, varActualType(argInfo.paramType));
 
         // Record argNode as the very first use of this argument.
         // If there are no further uses of the arg, we may be
@@ -2236,8 +2223,8 @@ void Compiler::inlPropagateInlineeCompilerState()
     {
         setNeedsGSSecurityCookie();
 
-        unsigned lclNum = lvaNewTemp(TYP_INT, false DEBUGARG("GSCookie dummy"));
-        lvaSetImplicitlyReferenced(lclNum);
+        LclVarDsc* lcl = lvaNewTemp(TYP_INT, false DEBUGARG("GSCookie dummy"));
+        lvaSetImplicitlyReferenced(lcl);
     }
 }
 
@@ -2345,7 +2332,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
         if (argInfo.paramHasLcl)
         {
-            GenTreeLclVar* dst = gtNewLclvNode(argInfo.paramLclNum, argInfo.paramType);
+            GenTreeLclVar* dst = gtNewLclvNode(argInfo.paramLcl, argInfo.paramType);
             GenTree*       asg;
 
             if (argInfo.paramType != TYP_STRUCT)
@@ -2547,7 +2534,7 @@ GenTree* Compiler::inlAssignStruct(GenTreeLclVar* dest, GenTree* src)
 
     // In all other cases we create and return a struct assignment node.
 
-    LclVarDsc* lcl = lvaGetDesc(dest);
+    LclVarDsc* lcl = dest->GetLcl();
 
 #if FEATURE_MULTIREG_RET
 #ifdef UNIX_AMD64_ABI
@@ -2668,11 +2655,11 @@ Statement* Compiler::inlInitInlineeLocals(const InlineInfo* inlineInfo, Statemen
             continue;
         }
 
-        LclVarDsc* lcl = lvaGetDesc(lclInfo.lclNum);
+        LclVarDsc* lcl = lclInfo.lcl;
 
-        if (!fgVarNeedsExplicitZeroInit(lclInfo.lclNum, blockIsInLoop, blockIsReturn))
+        if (!fgVarNeedsExplicitZeroInit(lcl, blockIsInLoop, blockIsReturn))
         {
-            JITDUMP("Suppressing zero-init for V%02u, expect to zero in inliner's prolog\n", lclInfo.lclNum);
+            JITDUMP("Suppressing zero-init for V%02u, expect to zero in inliner's prolog\n", lclInfo.lcl->GetLclNum());
             lcl->lvSuppressedZeroInit = 1;
             compSuppressedZeroInit    = true;
             continue;
@@ -2680,7 +2667,7 @@ Statement* Compiler::inlInitInlineeLocals(const InlineInfo* inlineInfo, Statemen
 
         var_types  lclType = lcl->GetType();
         GenTree*   zero    = varTypeIsStruct(lclType) ? gtNewIconNode(0) : gtNewZeroConNode(lclType);
-        GenTreeOp* asg     = gtNewAssignNode(gtNewLclvNode(lclInfo.lclNum, lclType), zero);
+        GenTreeOp* asg     = gtNewAssignNode(gtNewLclvNode(lcl, lclType), zero);
         Statement* stmt    = gtNewStmt(asg, inlineInfo->iciStmt->GetILOffsetX());
         fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
         afterStmt = stmt;
@@ -2721,7 +2708,9 @@ void Compiler::inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, Statement
             continue;
         }
 
-        assert(lvaGetDesc(lclInfo.lclNum)->GetType() == lclInfo.lclType);
+        LclVarDsc* lcl = lclInfo.lcl;
+
+        assert(lcl->GetType() == lclInfo.lclType);
 
         if (inlineInfo->retExpr != nullptr)
         {
@@ -2729,11 +2718,11 @@ void Compiler::inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, Statement
             // expression? If so we somehow messed up and didn't properly
             // spill the return value. See inlFetchInlineeLocal.
 
-            noway_assert(!impHasLclRef(inlineInfo->retExpr, lclInfo.lclNum));
+            noway_assert(!impHasLclRef(inlineInfo->retExpr, lcl));
         }
 
         GenTree*   zero = gtNewZeroConNode(lclInfo.lclType);
-        GenTree*   asg  = gtNewAssignNode(gtNewLclvNode(lclInfo.lclNum, lclInfo.lclType), zero);
+        GenTree*   asg  = gtNewAssignNode(gtNewLclvNode(lcl, lclInfo.lclType), zero);
         Statement* stmt = gtNewStmt(asg, inlineInfo->iciStmt->GetILOffsetX());
         fgInsertStmtAfter(inlineInfo->iciBlock, stmtAfter, stmt);
         stmtAfter = stmt;

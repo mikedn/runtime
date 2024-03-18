@@ -24,7 +24,7 @@
 //     uint32_t rm : 8;        // The entire RM byte, even if the opcode extension fits in 3 bits only
 //     uint32_t mmm : 3;       // VEX/EVEX map field (3 bits only as VEXm3-4 aren't used)
 //     uint32_t pp : 2;        // VEX/EVEX prefix field
-//     uint32_t vex : 1;       // VEX prefix is present (set only in code, could be set in the table for VEX only instructions)
+//     uint32_t vex : 1;       // VEX prefix is present (set only in code, set in the table for VEX only instructions?)
 //     uint32_t reserved : 2;  // VEX.l/EVX.ll bits?
 //     uint32_t wrxb : 4;      // REX low 4 bits. RXB are always 0, to be set in code as needed.
 //     uint32_t rex : 4;       // 0100 if REX is present. Potentially REX2 R4-X4-B4 bits in the future.

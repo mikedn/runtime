@@ -183,7 +183,7 @@ void LegalPolicy::SetFailure(InlineObservation obs)
             // Repeated failure only ok if evaluating a prejit root
             // (since we can't fail fast because we're not inlining)
             // or if inlining and the observation is CALLSITE_TOO_MANY_LOCALS
-            // (since we can't fail fast from lvaGrabTemp).
+            // (since we can't fail fast from lvaAllocTemp).
             assert(m_IsPrejitRoot || (obs == InlineObservation::CALLSITE_TOO_MANY_LOCALS));
             break;
         case InlineDecision::UNDECIDED:
@@ -1686,13 +1686,13 @@ double ExtendedDefaultPolicy::DetermineMultiplier()
     }
 
     // Slow down if there are already too many locals
-    // TODO-MIKE-Review: Why the crap does this use lvaTableSize instead of lvaCount?!?
-    if (m_RootCompiler->lvaTableSize > 64)
+    // TODO-MIKE-Review: Why the crap does this use lvaTableCapacity instead of lvaCount?!?
+    if (m_RootCompiler->lvaTableCapacity > 64)
     {
         // E.g. MaxLocalsToTrack = 1024 and lvaTableCnt = 512 -> multiplier *= 0.5;
-        const double lclFullness = min(1.0, (double)m_RootCompiler->lvaTableSize / JitConfig.JitMaxLocalsToTrack());
-        multiplier *= (1.0 - lclFullness);
-        JITDUMP("\nCaller has %d locals.  Multiplier decreased to %g.", m_RootCompiler->lvaTableSize, multiplier);
+        double lclFullness = static_cast<double>(m_RootCompiler->lvaTableCapacity) / JitConfig.JitMaxLocalsToTrack();
+        multiplier *= 1.0 - Min(1.0, lclFullness);
+        JITDUMP("\nCaller has %d locals.  Multiplier decreased to %g.", m_RootCompiler->lvaTableCapacity, multiplier);
     }
 
     if (m_BackwardJump)

@@ -603,7 +603,7 @@ inline GenTreeFieldAddr* Compiler::gtNewFieldAddr(GenTree* addr, FieldSeqNode* f
     // If "addr" is the address of a local, note that a field of that struct local has been accessed.
     if (addr->OperIs(GT_LCL_ADDR))
     {
-        lvaGetDesc(addr->AsLclAddr())->lvFieldAccessed = 1;
+        addr->AsLclAddr()->GetLcl()->lvFieldAccessed = true;
     }
 
     return new (this, GT_FIELD_ADDR) GenTreeFieldAddr(addr, fieldSeq, offset);
@@ -909,7 +909,7 @@ inline GenTreeFieldList* GenTree::ChangeToFieldList()
     return fieldList;
 }
 
-inline GenTreeLclFld* GenTree::ChangeToLclFld(var_types type, unsigned lclNum, unsigned offset, FieldSeqNode* fieldSeq)
+inline GenTreeLclFld* GenTree::ChangeToLclFld(var_types type, LclVarDsc* lcl, unsigned offset, FieldSeqNode* fieldSeq)
 {
     assert(offset <= UINT16_MAX);
     assert((fieldSeq == nullptr) || (fieldSeq == FieldSeqNode::NotAField()) || fieldSeq->IsField());
@@ -918,14 +918,14 @@ inline GenTreeLclFld* GenTree::ChangeToLclFld(var_types type, unsigned lclNum, u
 
     GenTreeLclFld* lclFld = AsLclFld();
     lclFld->SetType(type);
-    lclFld->SetLclNum(lclNum);
+    lclFld->SetLcl(lcl);
     lclFld->SetLclOffs(offset);
     lclFld->SetLayoutNum(0);
     lclFld->SetFieldSeq(fieldSeq == nullptr ? FieldSeqNode::NotAField() : fieldSeq);
     return lclFld;
 }
 
-inline GenTreeLclAddr* GenTree::ChangeToLclAddr(var_types type, unsigned lclNum)
+inline GenTreeLclAddr* GenTree::ChangeToLclAddr(var_types type, LclVarDsc* lcl)
 {
     // TODO-MIKE-Review: GTF_VAR_CLONED should not be needed on LCL_ADDR. Inlining
     // needs it only on params that are neither struct nor address taken and there
@@ -940,16 +940,13 @@ inline GenTreeLclAddr* GenTree::ChangeToLclAddr(var_types type, unsigned lclNum)
 
     GenTreeLclAddr* addr = AsLclAddr();
     addr->SetType(type);
-    addr->SetLclNum(lclNum);
+    addr->SetLcl(lcl);
     addr->SetLclOffs(0);
     addr->SetFieldSeq(nullptr);
     return addr;
 }
 
-inline GenTreeLclAddr* GenTree::ChangeToLclAddr(var_types     type,
-                                                unsigned      lclNum,
-                                                unsigned      offset,
-                                                FieldSeqNode* fieldSeq)
+inline GenTreeLclAddr* GenTree::ChangeToLclAddr(var_types type, LclVarDsc* lcl, unsigned offset, FieldSeqNode* fieldSeq)
 {
     assert(offset <= UINT16_MAX);
     assert((fieldSeq == FieldSeqNode::NotAField()) || fieldSeq->IsField());
@@ -959,7 +956,7 @@ inline GenTreeLclAddr* GenTree::ChangeToLclAddr(var_types     type,
 
     GenTreeLclAddr* addr = AsLclAddr();
     addr->SetType(type);
-    addr->SetLclNum(lclNum);
+    addr->SetLcl(lcl);
     addr->SetLclOffs(offset);
     addr->SetFieldSeq(fieldSeq);
     return addr;
@@ -1017,53 +1014,49 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
-inline bool Compiler::lvaHaveManyLocals() const
+inline LclVarDsc* Compiler::lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason))
 {
-    return (lvaCount >= (unsigned)JitConfig.JitMaxLocalsToTrack());
+    LclVarDsc* lcl = lvaAllocTemp(shortLifetime DEBUGARG(reason));
+    lcl->SetType(type);
+    return lcl;
 }
 
-inline unsigned Compiler::lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason))
-{
-    unsigned lclNum = lvaGrabTemp(shortLifetime DEBUGARG(reason));
-    lvaGetDesc(lclNum)->SetType(type);
-    return lclNum;
-}
-
-inline unsigned Compiler::lvaNewTemp(ClassLayout* layout, bool shortLifetime DEBUGARG(const char* reason))
+inline LclVarDsc* Compiler::lvaNewTemp(ClassLayout* layout, bool shortLifetime DEBUGARG(const char* reason))
 {
     assert(layout->IsValueClass());
 
-    unsigned lclNum = lvaGrabTemp(shortLifetime DEBUGARG(reason));
-    lvaSetStruct(lclNum, layout, false);
-    return lclNum;
+    LclVarDsc* lcl = lvaAllocTemp(shortLifetime DEBUGARG(reason));
+    lvaSetStruct(lcl, layout, false);
+    return lcl;
 }
 
-inline unsigned Compiler::lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shortLifetime DEBUGARG(const char* reason))
+inline LclVarDsc* Compiler::lvaNewTemp(CORINFO_CLASS_HANDLE classHandle,
+                                       bool shortLifetime DEBUGARG(const char* reason))
 {
     assert(info.compCompHnd->isValueClass(classHandle));
 
-    unsigned lclNum = lvaGrabTemp(shortLifetime DEBUGARG(reason));
-    lvaSetStruct(lclNum, classHandle, false);
-    return lclNum;
+    LclVarDsc* lcl = lvaAllocTemp(shortLifetime DEBUGARG(reason));
+    lvaSetStruct(lcl, typGetObjLayout(classHandle), false);
+    return lcl;
 }
 
-inline unsigned Compiler::lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGARG(const char* reason))
+inline LclVarDsc* Compiler::lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGARG(const char* reason))
 {
     assert(varTypeIsSIMD(tree->GetType())); // Only SIMD temps are supported for now.
 
-    unsigned lclNum     = lvaGrabTemp(shortLifetime DEBUGARG(reason));
+    LclVarDsc* lcl      = lvaAllocTemp(shortLifetime DEBUGARG(reason));
     ClassLayout* layout = typGetVectorLayout(tree);
 
     if (layout != nullptr)
     {
-        lvaSetStruct(lclNum, layout, false);
+        lvaSetStruct(lcl, layout, false);
     }
     else
     {
-        lvaGetDesc(lclNum)->lvType = tree->GetType();
+        lcl->lvType = tree->GetType();
     }
 
-    return lclNum;
+    return lcl;
 }
 
 /*
@@ -1075,34 +1068,6 @@ XX                                                                           XX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
-
-inline unsigned Compiler::compMapILargNum(unsigned ILargNum)
-{
-    assert(ILargNum < info.compILargsCount);
-
-    // Note that this works because if compRetBuffArg/compTypeCtxtArg/lvVarargsHandleArg are not present
-    // they will be BAD_VAR_NUM (MAX_UINT), which is larger than any variable number.
-    if (ILargNum >= info.compRetBuffArg)
-    {
-        ILargNum++;
-        assert(ILargNum < info.compLocalsCount); // compLocals count already adjusted.
-    }
-
-    if (ILargNum >= info.compTypeCtxtArg)
-    {
-        ILargNum++;
-        assert(ILargNum < info.compLocalsCount); // compLocals count already adjusted.
-    }
-
-    if (ILargNum >= lvaVarargsHandleArg)
-    {
-        ILargNum++;
-        assert(ILargNum < info.compLocalsCount); // compLocals count already adjusted.
-    }
-
-    assert(ILargNum < info.compArgsCount);
-    return (ILargNum);
-}
 
 #ifdef TARGET_ARMARCH
 inline var_types Compiler::mangleVarArgsType(var_types type)
@@ -1300,10 +1265,10 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
-inline unsigned Compiler::LoopDsc::lpIterVar() const
+inline LclVarDsc* Compiler::LoopDsc::lpIterVar() const
 {
     INDEBUG(VerifyIterator());
-    return lpIterTree->GetLclNum();
+    return lpIterTree->GetLcl();
 }
 
 inline int Compiler::LoopDsc::lpIterConst() const
@@ -1322,7 +1287,7 @@ inline bool Compiler::LoopDsc::lpIsReversed() const
 {
     INDEBUG(VerifyIterator());
     return lpTestTree->GetOp(1)->OperIs(GT_LCL_VAR) &&
-           (lpTestTree->GetOp(1)->AsLclVar()->GetLclNum() == lpIterTree->GetLclNum());
+           (lpTestTree->GetOp(1)->AsLclVar()->GetLcl() == lpIterTree->GetLcl());
 }
 
 inline genTreeOps Compiler::LoopDsc::lpTestOper() const
@@ -1352,14 +1317,14 @@ inline int Compiler::LoopDsc::lpConstLimit() const
     return limit->AsIntCon()->GetInt32Value();
 }
 
-inline unsigned Compiler::LoopDsc::lpVarLimit() const
+inline LclVarDsc* Compiler::LoopDsc::lpVarLimit() const
 {
     INDEBUG(VerifyIterator());
     assert(lpFlags & LPFLG_VAR_LIMIT);
 
     GenTree* limit = lpLimit();
     assert(limit->OperIs(GT_LCL_VAR));
-    return limit->AsLclVar()->GetLclNum();
+    return limit->AsLclVar()->GetLcl();
 }
 
 /*
@@ -1480,16 +1445,16 @@ inline ArenaAllocator* Compiler::compGetArenaAllocator()
     return compArenaAllocator;
 }
 
-inline bool Compiler::compIsProfilerHookNeeded()
+inline bool Compiler::compIsProfilerHookNeeded() const
 {
 #ifdef PROFILING_SUPPORTED
     return compProfilerHookNeeded
            // IL stubs are excluded by VM and we need to do the same even running
            // under a complus env hook to generate profiler hooks
            || (opts.compJitELTHookEnabled && !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB));
-#else  // !PROFILING_SUPPORTED
+#else
     return false;
-#endif // !PROFILING_SUPPORTED
+#endif
 }
 
 /*****************************************************************************
@@ -1551,16 +1516,13 @@ inline void Compiler::CLR_API_Leave(API_ICorJitInfo_Names ename)
 //      - compInitMem is set and the variable has a long lifetime or has gc fields.
 //     In these cases we will insert zero-initialization in the prolog if necessary.
 
-bool Compiler::fgVarNeedsExplicitZeroInit(unsigned varNum, bool bbInALoop, bool bbIsReturn)
+bool Compiler::fgVarNeedsExplicitZeroInit(LclVarDsc* varDsc, bool bbInALoop, bool bbIsReturn)
 {
-    LclVarDsc* varDsc = lvaGetDesc(varNum);
-
     if (varDsc->IsDependentPromotedField(this))
     {
         // Fields of dependently promoted structs may only be initialized in the prolog
         // when the whole struct is initialized in the prolog.
-        varNum = varDsc->GetPromotedFieldParentLclNum();
-        varDsc = lvaGetDesc(varNum);
+        varDsc = lvaGetDesc(varDsc->GetPromotedFieldParentLclNum());
     }
 
     if (bbInALoop && !bbIsReturn)
@@ -1568,7 +1530,7 @@ bool Compiler::fgVarNeedsExplicitZeroInit(unsigned varNum, bool bbInALoop, bool 
         return true;
     }
 
-    if (lvaIsNeverZeroInitializedInProlog(varNum))
+    if (lvaIsNeverZeroInitializedInProlog(varDsc))
     {
         return true;
     }

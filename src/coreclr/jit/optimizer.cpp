@@ -523,7 +523,7 @@ void Compiler::optUpdateLoopsBeforeRemoveBlock(BasicBlock* block, bool skipUnmar
 
     if ((skipUnmarkLoop == false) && ((block->bbJumpKind == BBJ_ALWAYS) || (block->bbJumpKind == BBJ_COND)) &&
         (block->bbJumpDest->isLoopHead()) && (block->bbJumpDest->bbNum <= block->bbNum) && fgDomsComputed &&
-        (fgCurBBEpochSize == fgDomBBcount + 1) && fgReachable(block->bbJumpDest, block))
+        (fgBlockSetSize == fgDomBBcount + 1) && fgReachable(block->bbJumpDest, block))
     {
         optUnmarkLoopBlocks(block->bbJumpDest, block);
     }
@@ -602,7 +602,7 @@ void Compiler::optPrintLoopInfo(unsigned lnum) const
 //
 bool Compiler::optPopulateInitInfo(unsigned loopInd, GenTree* init, unsigned iterVar)
 {
-    if (!init->OperIs(GT_STORE_LCL_VAR) || (init->AsLclVar()->GetLclNum() != iterVar))
+    if (!init->OperIs(GT_STORE_LCL_VAR) || (init->AsLclVar()->GetLcl()->GetLclNum() != iterVar))
     {
         return false;
     }
@@ -621,7 +621,7 @@ bool Compiler::optPopulateInitInfo(unsigned loopInd, GenTree* init, unsigned ite
     if (value->OperIs(GT_LCL_VAR))
     {
         optLoopTable[loopInd].lpFlags |= LPFLG_VAR_INIT;
-        optLoopTable[loopInd].lpVarInit = value->AsLclVar()->GetLclNum();
+        optLoopTable[loopInd].lpVarInit = value->AsLclVar()->GetLcl()->GetLclNum();
 
         return true;
     }
@@ -669,12 +669,12 @@ GenTreeOp* Compiler::optGetLoopTest(unsigned loopInd, GenTree* test, BasicBlock*
     GenTree* limitOp;
 
     // Make sure op1 or op2 is the iterVar.
-    if (opr1->OperIs(GT_LCL_VAR) && (opr1->AsLclVar()->GetLclNum() == iterVar))
+    if (opr1->OperIs(GT_LCL_VAR) && (opr1->AsLclVar()->GetLcl()->GetLclNum() == iterVar))
     {
         iterOp  = opr1;
         limitOp = opr2;
     }
-    else if (opr2->OperIs(GT_LCL_VAR) && (opr2->AsLclVar()->GetLclNum() == iterVar))
+    else if (opr2->OperIs(GT_LCL_VAR) && (opr2->AsLclVar()->GetLcl()->GetLclNum() == iterVar))
     {
         iterOp  = opr2;
         limitOp = opr1;
@@ -698,7 +698,7 @@ GenTreeOp* Compiler::optGetLoopTest(unsigned loopInd, GenTree* test, BasicBlock*
             optLoopTable[loopInd].lpFlags |= LPFLG_SIMD_LIMIT;
         }
     }
-    else if (limitOp->OperIs(GT_LCL_VAR) && !optIsVarAssigned(from, to, nullptr, limitOp->AsLclVar()->GetLclNum()))
+    else if (limitOp->OperIs(GT_LCL_VAR) && !optIsVarAssigned(from, to, nullptr, limitOp->AsLclVar()->GetLcl()))
     {
         optLoopTable[loopInd].lpFlags |= LPFLG_VAR_LIMIT;
     }
@@ -736,7 +736,7 @@ unsigned Compiler::optIsLoopIncrTree(GenTree* incr)
     GenTree* step = value->AsOp()->GetOp(1);
     value         = value->AsOp()->GetOp(0);
 
-    if (!value->OperIs(GT_LCL_VAR) || (value->AsLclVar()->GetLclNum() != incr->AsLclVar()->GetLclNum()))
+    if (!value->OperIs(GT_LCL_VAR) || (value->AsLclVar()->GetLcl() != incr->AsLclVar()->GetLcl()))
     {
         return BAD_VAR_NUM;
     }
@@ -746,7 +746,7 @@ unsigned Compiler::optIsLoopIncrTree(GenTree* incr)
         return BAD_VAR_NUM;
     }
 
-    return incr->AsLclVar()->GetLclNum();
+    return incr->AsLclVar()->GetLcl()->GetLclNum();
 }
 
 //----------------------------------------------------------------------------------
@@ -802,7 +802,7 @@ bool Compiler::optIsLoopTestEvalIntoTemp(Statement* testStmt, Statement** newTes
         {
             GenTree* value = tree->AsLclVar()->GetOp(0);
 
-            if ((tree->AsLclVar()->GetLclNum() == opr1->AsLclVar()->GetLclNum()))
+            if ((tree->AsLclVar()->GetLcl() == opr1->AsLclVar()->GetLcl()))
             {
                 if (value->OperIsCompare())
                 {
@@ -1049,12 +1049,13 @@ bool Compiler::optRecordLoop(BasicBlock* head,
             goto DONE_LOOP;
         }
 
-        unsigned iterVar = incr->GetLclNum();
+        LclVarDsc* iterLcl = incr->GetLcl();
+        unsigned   iterVar = iterLcl->GetLclNum();
         assert(optIsLoopIncrTree(incr) == iterVar);
         assert(incr->GetOp(0)->OperIs(GT_ADD, GT_SUB));
 
         // TODO-MIKE-Cleanup: optIsVarAssigned should check AX.
-        if (lvaGetDesc(iterVar)->IsAddressExposed() || optIsVarAssigned(head->bbNext, bottom, incr, iterVar))
+        if (iterLcl->IsAddressExposed() || optIsVarAssigned(head->bbNext, bottom, incr, iterLcl))
         {
             JITDUMP("iterVar is assigned in loop\n");
             goto DONE_LOOP;
@@ -1142,7 +1143,7 @@ void Compiler::optPrintLoopRecording(unsigned loopInd) const
     // If an iterator loop print the iterator and the initialization.
     if (loop.lpIterTree != nullptr)
     {
-        printf(" [over V%02u", loop.lpIterVar());
+        printf(" [over V%02u", loop.lpIterVar()->GetLclNum());
         printf(" (");
         printf(GenTree::OpName(loop.lpIterOper()));
         printf(" ");
@@ -1167,7 +1168,7 @@ void Compiler::optPrintLoopRecording(unsigned loopInd) const
 
         if (loop.lpFlags & LPFLG_VAR_LIMIT)
         {
-            printf("V%02u ", loop.lpVarLimit());
+            printf(FMT_LCL " ", loop.lpVarLimit()->GetLclNum());
         }
 
         printf("]");
@@ -1224,19 +1225,19 @@ void Compiler::LoopDsc::VerifyIterator() const
 
     assert(value->OperIs(GT_ADD, GT_SUB));
     assert(value->GetOp(0)->OperIs(GT_LCL_VAR));
-    assert(value->GetOp(0)->AsLclVar()->GetLclNum() == lpIterTree->GetLclNum());
+    assert(value->GetOp(0)->AsLclVar()->GetLcl() == lpIterTree->GetLcl());
     assert(value->GetOp(1)->IsIntCon());
 
     GenTree* iterator = lpTestTree->GetOp(0);
     GenTree* limit    = lpTestTree->GetOp(1);
 
-    if (limit->OperIs(GT_LCL_VAR) && (limit->AsLclVar()->GetLclNum() == lpIterTree->GetLclNum()))
+    if (limit->OperIs(GT_LCL_VAR) && (limit->AsLclVar()->GetLcl() == lpIterTree->GetLcl()))
     {
         std::swap(iterator, limit);
     }
     else
     {
-        assert(iterator->OperIs(GT_LCL_VAR) && (iterator->AsLclVar()->GetLclNum() == lpIterTree->GetLclNum()));
+        assert(iterator->OperIs(GT_LCL_VAR) && (iterator->AsLclVar()->GetLcl() == lpIterTree->GetLcl()));
     }
 
     if (lpFlags & LPFLG_CONST_LIMIT)
@@ -1306,102 +1307,49 @@ namespace
 //
 class LoopSearch
 {
-
-    // Keeping track of which blocks are in the loop requires two block sets since we may add blocks
-    // as we go but the BlockSet type's max ID doesn't increase to accommodate them.  Define a helper
-    // struct to make the ensuing code more readable.
-    struct LoopBlockSet
+    class LoopBlockSet
     {
-    private:
-        // Keep track of blocks with bbNum <= oldBlockMaxNum in a regular BlockSet, since
-        // it can hold all of them.
-        BlockSet oldBlocksInLoop; // Blocks with bbNum <= oldBlockMaxNum
-
-        // Keep track of blocks with bbNum > oldBlockMaxNum in a separate BlockSet, but
-        // indexing them by (blockNum - oldBlockMaxNum); since we won't generate more than
-        // one new block per old block, this must be sufficient to track any new blocks.
-        BlockSet newBlocksInLoop; // Blocks with bbNum > oldBlockMaxNum
-
-        Compiler*    comp;
-        unsigned int oldBlockMaxNum;
+        BitVec       blocksInLoop = BitVecOps::UninitVal();
+        BitVecTraits blockSetTraits;
 
     public:
-        LoopBlockSet(Compiler* comp)
-            : oldBlocksInLoop(BlockSetOps::UninitVal())
-            , newBlocksInLoop(BlockSetOps::UninitVal())
-            , comp(comp)
-            , oldBlockMaxNum(comp->fgBBNumMax)
+        // Loop canonicalization may add new blocks so we need a larger than usual block set.
+        LoopBlockSet(Compiler* comp) : blockSetTraits((comp->fgBBNumMax + 1) * 2, comp)
         {
         }
 
-        void Reset(unsigned int seedBlockNum)
+        void Reset(unsigned seedBlockNum)
         {
-            if (BlockSetOps::MayBeUninit(oldBlocksInLoop))
+            if (BitVecOps::MayBeUninit(blocksInLoop))
             {
-                // Either the block sets are uninitialized (and long), so we need to initialize
-                // them (and allocate their backing storage), or they are short and empty, so
-                // assigning MakeEmpty to them is as cheap as ClearD.
-                oldBlocksInLoop = BlockSetOps::MakeEmpty(comp);
-                newBlocksInLoop = BlockSetOps::MakeEmpty(comp);
+                blocksInLoop = BitVecOps::MakeEmpty(blockSetTraits);
             }
             else
             {
-                // We know the backing storage is already allocated, so just clear it.
-                BlockSetOps::ClearD(comp, oldBlocksInLoop);
-                BlockSetOps::ClearD(comp, newBlocksInLoop);
+                BitVecOps::ClearD(blockSetTraits, blocksInLoop);
             }
-            assert(seedBlockNum <= oldBlockMaxNum);
-            BlockSetOps::AddElemD(comp, oldBlocksInLoop, seedBlockNum);
+
+            BitVecOps::AddElemD(blockSetTraits, blocksInLoop, seedBlockNum);
         }
 
-        bool CanRepresent(unsigned int blockNum)
+        bool CanRepresent(unsigned blockNum) const
         {
-            // We can represent old blocks up to oldBlockMaxNum, and
-            // new blocks up to 2 * oldBlockMaxNum.
-            return (blockNum <= 2 * oldBlockMaxNum);
+            return blockNum < BitVecTraits::GetSize(blockSetTraits);
         }
 
-        bool IsMember(unsigned int blockNum)
+        bool IsMember(unsigned blockNum) const
         {
-            if (blockNum > oldBlockMaxNum)
-            {
-                return BlockSetOps::IsMember(comp, newBlocksInLoop, blockNum - oldBlockMaxNum);
-            }
-            return BlockSetOps::IsMember(comp, oldBlocksInLoop, blockNum);
+            return BitVecOps::IsMember(blockSetTraits, blocksInLoop, blockNum);
         }
 
-        void Insert(unsigned int blockNum)
+        void Insert(unsigned blockNum)
         {
-            if (blockNum > oldBlockMaxNum)
-            {
-                BlockSetOps::AddElemD(comp, newBlocksInLoop, blockNum - oldBlockMaxNum);
-            }
-            else
-            {
-                BlockSetOps::AddElemD(comp, oldBlocksInLoop, blockNum);
-            }
+            BitVecOps::AddElemD(blockSetTraits, blocksInLoop, blockNum);
         }
 
-        bool TestAndInsert(unsigned int blockNum)
+        bool TestAndInsert(unsigned blockNum)
         {
-            if (blockNum > oldBlockMaxNum)
-            {
-                unsigned int shiftedNum = blockNum - oldBlockMaxNum;
-                if (!BlockSetOps::IsMember(comp, newBlocksInLoop, shiftedNum))
-                {
-                    BlockSetOps::AddElemD(comp, newBlocksInLoop, shiftedNum);
-                    return false;
-                }
-            }
-            else
-            {
-                if (!BlockSetOps::IsMember(comp, oldBlocksInLoop, blockNum))
-                {
-                    BlockSetOps::AddElemD(comp, oldBlocksInLoop, blockNum);
-                    return false;
-                }
-            }
-            return true;
+            return !BitVecOps::TryAddElemD(blockSetTraits, blocksInLoop, blockNum);
         }
     };
 
@@ -1429,7 +1377,7 @@ public:
         : loopBlocks(comp), comp(comp), oldBlockMaxNum(comp->fgBBNumMax), bottomBlocks(BlockSetOps::MakeEmpty(comp))
     {
         // Make sure we've renumbered such that the bitsets can hold all the bits
-        assert(comp->fgBBNumMax <= comp->fgCurBBEpochSize);
+        assert(comp->fgBBNumMax <= comp->fgBlockSetSize);
     }
 
     //------------------------------------------------------------------------
@@ -2407,7 +2355,7 @@ NO_MORE_LOOPS:
     if (mod)
     {
         fgUpdateChangedFlowGraph(/*computePreds*/ true);
-        fgComputeDoms();
+        phComputeDoms();
     }
 
 #ifdef DEBUG
@@ -3372,14 +3320,14 @@ PhaseStatus Compiler::phUnrollLoops()
         const int        lbeg     = optLoopTable[lnum].lpConstInit;
         const int        llim     = optLoopTable[lnum].lpConstLimit();
         const genTreeOps testOper = optLoopTable[lnum].lpTestOper();
-        const unsigned   lvar     = optLoopTable[lnum].lpIterVar();
+        const LclVarDsc* llvar    = optLoopTable[lnum].lpIterVar();
         const int        iterInc  = optLoopTable[lnum].lpIterConst();
         const genTreeOps iterOper = optLoopTable[lnum].lpIterOper();
         const bool       unsTest  = optLoopTable[lnum].lpTestTree->IsUnsigned();
 
-        assert(!lvaGetDesc(lvar)->IsAddressExposed());
+        assert(!llvar->IsAddressExposed());
 
-        if (lvaGetDesc(lvar)->IsPromotedField())
+        if (llvar->IsPromotedField())
         {
             continue;
         }
@@ -3456,11 +3404,11 @@ PhaseStatus Compiler::phUnrollLoops()
         GenTree* init = initStmt->GetRootNode();
 
         // clang-format off
-        if (!init->OperIs(GT_STORE_LCL_VAR) || (init->AsLclVar()->GetLclNum() != lvar) ||
+        if (!init->OperIs(GT_STORE_LCL_VAR) || (init->AsLclVar()->GetLcl() != llvar) ||
             !init->AsLclVar()->GetOp(0)->IsIntCon() || (init->AsLclVar()->GetOp(0)->AsIntCon()->GetValue() != lbeg) ||
             !incr->OperIs(GT_ADD, GT_SUB) ||
             !incr->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR) ||
-            (incr->AsOp()->GetOp(0)->AsLclVar()->GetLclNum() != lvar) ||
+            (incr->AsOp()->GetOp(0)->AsLclVar()->GetLcl() != llvar) ||
             !incr->AsOp()->GetOp(1)->IsIntCon() ||
             (incr->AsOp()->GetOp(1)->AsIntCon()->GetValue() != iterInc) ||
             !testStmt->GetRootNode()->OperIs(GT_JTRUE))
@@ -3542,7 +3490,7 @@ PhaseStatus Compiler::phUnrollLoops()
                 {
                     printf(".." FMT_BB, bottom->bbNum);
                 }
-                printf(" over V%02u from %u to %u unrollCostSz = %d\n\n", lvar, lbeg, llim, unrollCostSz);
+                printf(" over V%02u from %u to %u unrollCostSz = %d\n\n", llvar->GetLclNum(), lbeg, llim, unrollCostSz);
             }
 #endif
         }
@@ -3576,7 +3524,7 @@ PhaseStatus Compiler::phUnrollLoops()
                         fgNewBBafter(block->bbJumpKind, insertAfter, /*extendRegion*/ true);
                     blockMap.Set(block, newBlock, BlockToBlockMap::Overwrite);
 
-                    if (!BasicBlock::CloneBlockState(this, newBlock, block, lvar, lval))
+                    if (!BasicBlock::CloneBlockState(this, newBlock, block, llvar, lval))
                     {
                         // cloneExpr doesn't handle everything
                         BasicBlock* oldBottomNext = insertAfter->bbNext;
@@ -3717,7 +3665,7 @@ PhaseStatus Compiler::phUnrollLoops()
     if (change)
     {
         fgUpdateChangedFlowGraph(/*computePreds*/ true);
-        fgComputeDoms();
+        phComputeDoms();
     }
 
     INDEBUG(fgDebugCheckBBlist(true));
@@ -4421,7 +4369,7 @@ PhaseStatus Compiler::phFindLoops()
     return PhaseStatus::MODIFIED_EVERYTHING;
 }
 
-bool Compiler::optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip, unsigned lclNum)
+bool Compiler::optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip, LclVarDsc* lcl)
 {
     // TODO-MIKE-Fix: This should reject AX locals. This results in some diffs, in some cases
     // the limit is AX but it happens so that the local isn't modified inside the loop so it
@@ -4430,9 +4378,9 @@ bool Compiler::optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip,
 
     struct WalkData
     {
-        GenTree* skip;
-        unsigned lclNum;
-    } walkData{skip, lclNum};
+        GenTree*   skip;
+        LclVarDsc* lcl;
+    } walkData{skip, lcl};
 
     for (;;)
     {
@@ -4448,8 +4396,8 @@ bool Compiler::optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip,
                                   // TODO-MIKE-Cleanup: Why the crap are STORE_LCL_FLDs ignored?
                                   // This is likely used only for INT locals but then you can actually
                                   // modify an INT local with a LCL_FLD...
-                                  return tree->OperIs(GT_STORE_LCL_VAR) &&
-                                                 (tree->AsLclVar()->GetLclNum() == desc->lclNum) && (tree != desc->skip)
+                                  return tree->OperIs(GT_STORE_LCL_VAR) && (tree->AsLclVar()->GetLcl() == desc->lcl) &&
+                                                 (tree != desc->skip)
                                              ? Compiler::WALK_ABORT
                                              : Compiler::WALK_CONTINUE;
                               },
@@ -5299,7 +5247,7 @@ GenTree* OptBoolsDsc::optIsBoolComp(OptTestInfo* pOptTest)
     }
     else if (opr1->OperIs(GT_LCL_VAR))
     {
-        if (m_comp->lvaGetDesc(opr1->AsLclVar())->lvIsBoolean)
+        if (opr1->AsLclVar()->GetLcl()->lvIsBoolean)
         {
             pOptTest->isBool = true;
         }
@@ -5500,10 +5448,11 @@ void Compiler::optAddCopies()
         return;
     }
 
-    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
+    BlockSet domSet = BlockSetOps::UninitVal();
+
+    for (LclVarDsc* varDsc : Locals())
     {
-        LclVarDsc* varDsc = lvaGetDesc(lclNum);
-        var_types  typ    = varDsc->TypeGet();
+        var_types typ = varDsc->TypeGet();
 
         // We only add copies for non temp local variables
         // that have a single def and that can possibly be enregistered
@@ -5545,7 +5494,7 @@ void Compiler::optAddCopies()
         }
 
         // We don't want to add a copy for a variable that is part of a struct
-        if (varDsc->lvIsStructField)
+        if (varDsc->IsPromotedField())
         {
             continue;
         }
@@ -5576,8 +5525,8 @@ void Compiler::optAddCopies()
 
         bool paramFoundImportantUse = false;
 
-        JITDUMP("Trying to add a copy for %s V%02u, avg_wtd = %s\n", varDsc->IsParam() ? "param" : "local", lclNum,
-                refCntWtd2str(paramAvgWtdRefDiv2));
+        JITDUMP("Trying to add a copy for %s V%02u, avg_wtd = %s\n", varDsc->IsParam() ? "param" : "local",
+                varDsc->GetLclNum(), refCntWtd2str(paramAvgWtdRefDiv2));
 
         //
         // We must have a ref in a block that is dominated only by the entry block
@@ -5585,10 +5534,10 @@ void Compiler::optAddCopies()
 
         bool isDominatedByFirstBB = false;
 
-        BlockSetOps::Iter iter(this, varDsc->lvUseBlocks);
-        unsigned          bbNum = 0;
-        while (iter.NextElem(&bbNum))
+        for (BlockSetOps::Enumerator e(this, varDsc->lvUseBlocks); e.MoveNext();)
         {
+            const unsigned bbNum = e.Current();
+
             /* Find the block 'bbNum' */
             BasicBlock* block = fgFirstBB;
             while (block && (block->bbNum != bbNum))
@@ -5597,36 +5546,72 @@ void Compiler::optAddCopies()
             }
             noway_assert(block && (block->bbNum == bbNum));
 
-            bool     importantUseInBlock = varDsc->IsParam() && (block->getBBWeight(this) > paramAvgWtdRefDiv2);
-            bool     isPreHeaderBlock    = ((block->bbFlags & BBF_LOOP_PREHEADER) != 0);
-            BlockSet blockDom(BlockSetOps::UninitVal());
-            BlockSet blockDomSub0(BlockSetOps::UninitVal());
+            bool importantUseInBlock = varDsc->IsParam() && (block->getBBWeight(this) > paramAvgWtdRefDiv2);
+            bool isPreHeaderBlock    = ((block->bbFlags & BBF_LOOP_PREHEADER) != 0);
 
-            if (block->bbIDom == nullptr && isPreHeaderBlock)
+            BasicBlock* domBlock = block;
+
+            if ((domBlock->bbIDom == nullptr) && isPreHeaderBlock)
             {
                 // Loop Preheader blocks that we insert will have a bbDom set that is nullptr
                 // but we can instead use the bNext successor block's dominator information
-                noway_assert(block->bbNext != nullptr);
-                BlockSetOps::AssignNoCopy(this, blockDom, fgGetDominatorSet(block->bbNext));
+                noway_assert(domBlock->bbNext != nullptr);
+                domBlock = domBlock->bbNext;
+            }
+
+            // If this is a heavier-than-average block, then track
+            // which blocks dominate this use of the parameter.
+            if (importantUseInBlock)
+            {
+                paramFoundImportantUse = true;
+
+                if (domSet == BlockSetOps::UninitVal())
+                {
+                    domSet = BlockSetOps::MakeEmpty(this);
+                }
+                else
+                {
+                    BlockSetOps::ClearD(this, domSet);
+                }
+
+                do
+                {
+                    if (domBlock == fgFirstBB)
+                    {
+                        isDominatedByFirstBB = true;
+                    }
+
+                    if ((!isPreHeaderBlock || (domBlock != block->bbNext)))
+                    {
+                        BlockSetOps::AddElemD(this, domSet, domBlock->bbNum);
+                    }
+
+                    if (domBlock == domBlock->bbIDom)
+                    {
+                        break; // We found a cycle in the IDom list, so we're done.
+                    }
+
+                    domBlock = domBlock->bbIDom;
+                } while (domBlock != nullptr);
+
+                BlockSetOps::IntersectionD(this, paramImportantUseDom, domSet);
             }
             else
             {
-                BlockSetOps::AssignNoCopy(this, blockDom, fgGetDominatorSet(block));
-            }
+                do
+                {
+                    if (domBlock == fgFirstBB)
+                    {
+                        isDominatedByFirstBB = true;
+                    }
 
-            if (!BlockSetOps::IsEmpty(this, blockDom))
-            {
-                BlockSetOps::Assign(this, blockDomSub0, blockDom);
-                if (isPreHeaderBlock)
-                {
-                    // We must clear bbNext block number from the dominator set
-                    BlockSetOps::RemoveElemD(this, blockDomSub0, block->bbNext->bbNum);
-                }
-                /* Is this block dominated by fgFirstBB? */
-                if (BlockSetOps::IsMember(this, blockDomSub0, fgFirstBB->bbNum))
-                {
-                    isDominatedByFirstBB = true;
-                }
+                    if (domBlock == domBlock->bbIDom)
+                    {
+                        break; // We found a cycle in the IDom list, so we're done.
+                    }
+
+                    domBlock = domBlock->bbIDom;
+                } while (domBlock != nullptr);
             }
 
 #ifdef DEBUG
@@ -5648,15 +5633,6 @@ void Compiler::optAddCopies()
                 printf("\n");
             }
 #endif
-
-            /* If this is a heavier-than-average block, then track which
-               blocks dominate this use of the parameter. */
-            if (importantUseInBlock)
-            {
-                paramFoundImportantUse = true;
-                BlockSetOps::IntersectionD(this, paramImportantUseDom,
-                                           blockDomSub0); // Clear blocks that do not dominate
-            }
         }
 
         // We should have found at least one heavier-than-averageDiv2 block.
@@ -5693,31 +5669,29 @@ void Compiler::optAddCopies()
             continue;
         }
 
-        unsigned copyLclNum = lvaGrabTemp(false DEBUGARG("optAddCopies"));
-        // Because lvaGrabTemp may have reallocated the lvaTable, ensure varDsc
-        // is still in sync with lvaTable[lclNum];
-        varDsc = lvaGetDesc(lclNum);
+        LclVarDsc* copyLcl = lvaAllocTemp(false DEBUGARG("optAddCopies"));
 
         if (varTypeIsSIMD(varDsc->GetType()))
         {
-            lvaSetStruct(copyLclNum, varDsc->GetLayout(), /* checkUnsafeBuffer */ false);
-            assert(lvaGetDesc(copyLclNum)->GetType() == typ);
+            lvaSetStruct(copyLcl, varDsc->GetLayout(), /* checkUnsafeBuffer */ false);
+            assert(copyLcl->GetType() == typ);
         }
         else
         {
-            lvaGetDesc(copyLclNum)->SetType(typ);
+            copyLcl->SetType(typ);
         }
 
-        JITDUMP("Finding the best place to insert the assignment V%02i = V%02i\n", copyLclNum, lclNum);
+        JITDUMP("Finding the best place to insert the assignment V%02i = V%02i\n", copyLcl->GetLclNum(),
+                varDsc->GetLclNum());
 
         Statement* stmt;
 
         if (varDsc->IsParam())
         {
-            noway_assert((varDsc->lvDefStmt == nullptr) || varDsc->lvIsStructField);
+            noway_assert((varDsc->lvDefStmt == nullptr) || varDsc->IsPromotedField());
 
             // Create a new copy assignment tree
-            GenTree* copyAsgn = gtNewStoreLclVar(copyLclNum, typ, gtNewLclvNode(lclNum, typ));
+            GenTree* copyAsgn = gtNewStoreLclVar(copyLcl, typ, gtNewLclvNode(varDsc, typ));
 
             /* Find the best block to insert the new assignment     */
             /* We will choose the lowest weighted block, and within */
@@ -5740,10 +5714,10 @@ void Compiler::optAddCopies()
 #endif
 
             /* We have already calculated paramImportantUseDom above. */
-            BlockSetOps::Iter iter(this, paramImportantUseDom);
-            unsigned          bbNum = 0;
-            while (iter.NextElem(&bbNum))
+            for (BlockSetOps::Enumerator e(this, paramImportantUseDom); e.MoveNext();)
             {
+                const unsigned bbNum = e.Current();
+
                 /* Advance block to point to 'bbNum' */
                 /* This assumes that the iterator returns block number is increasing lexical order. */
                 while (block && (block->bbNum != bbNum))
@@ -5861,7 +5835,7 @@ void Compiler::optAddCopies()
 
             for (GenTree* node = stmt->GetRootNode(); node != nullptr; node = node->gtPrev)
             {
-                if (!node->OperIs(GT_STORE_LCL_VAR) || (node->AsLclVar()->GetLclNum() != lclNum))
+                if (!node->OperIs(GT_STORE_LCL_VAR) || (node->AsLclVar()->GetLcl() != varDsc))
                 {
                     continue;
                 }
@@ -5872,8 +5846,8 @@ void Compiler::optAddCopies()
 
             noway_assert(tree != nullptr);
 
-            GenTree* newAsg  = gtNewStoreLclVar(copyLclNum, typ, tree->GetOp(0));
-            GenTree* copyAsg = gtNewStoreLclVar(lclNum, typ, gtNewLclvNode(copyLclNum, typ));
+            GenTree* newAsg  = gtNewStoreLclVar(copyLcl, typ, tree->GetOp(0));
+            GenTree* copyAsg = gtNewStoreLclVar(varDsc, typ, gtNewLclvNode(copyLcl, typ));
 
             tree->ChangeOper(GT_COMMA);
             tree->SetOp(0, newAsg);
@@ -5883,7 +5857,7 @@ void Compiler::optAddCopies()
             tree->gtFlags &= ~GTF_REVERSE_OPS;
         }
 
-        JITDUMPTREE(stmt->GetRootNode(), "\nIntroduced a copy for V%02u\n", lclNum);
+        JITDUMPTREE(stmt->GetRootNode(), "\nIntroduced a copy for V%02u\n", varDsc->GetLclNum());
     }
 }
 
@@ -5916,8 +5890,8 @@ void Compiler::phRemoveRedundantZeroInits()
     CompAllocator   allocator(getAllocator(CMK_ZeroInit));
     LclVarRefCounts defsInBlock(allocator);
     BitVecTraits    bitVecTraits(lvaCount, this);
-    BitVec          zeroInitLocals   = BitVecOps::MakeEmpty(&bitVecTraits);
-    BitVec          referencedLocals = BitVecOps::MakeEmpty(&bitVecTraits);
+    BitVec          zeroInitLocals   = BitVecOps::MakeEmpty(bitVecTraits);
+    BitVec          referencedLocals = BitVecOps::MakeEmpty(bitVecTraits);
     bool            hasGCSafePoint   = false;
     bool            canThrow         = false;
 
@@ -5949,15 +5923,16 @@ void Compiler::phRemoveRedundantZeroInits()
                     case GT_LCL_ADDR:
                     case GT_LCL_VAR:
                     case GT_LCL_FLD:
-                        BitVecOps::AddElemD(bitVecTraits, referencedLocals, node->AsLclVarCommon()->GetLclNum());
+                        BitVecOps::AddElemD(bitVecTraits, referencedLocals,
+                                            node->AsLclVarCommon()->GetLcl()->GetLclNum());
                         break;
 
                     case GT_STORE_LCL_VAR:
                     case GT_STORE_LCL_FLD:
                     {
                         GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
-                        unsigned             lclNum  = lclNode->GetLclNum();
-                        LclVarDsc*           lcl     = lvaGetDesc(lclNum);
+                        LclVarDsc*           lcl     = lclNode->GetLcl();
+                        unsigned             lclNum  = lcl->GetLclNum();
 
                         // We need to count the number of tracked var defs in the block
                         // so that we can update block->bbVarDef if we remove any tracked var defs.
@@ -5969,13 +5944,11 @@ void Compiler::phRemoveRedundantZeroInits()
                         else if (lcl->IsPromoted() &&
                                  (lclNode->OperIs(GT_STORE_LCL_VAR) || !lclNode->IsPartialLclFld(this)))
                         {
-                            for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
+                            for (LclVarDsc* fieldLcl : PromotedFields(lcl))
                             {
-                                unsigned fieldLclNum = lcl->GetPromotedFieldLclNum(i);
-
-                                if (lvaGetDesc(fieldLclNum)->HasLiveness())
+                                if (fieldLcl->HasLiveness())
                                 {
-                                    (*defsInBlock.Emplace(fieldLclNum, 0))++;
+                                    (*defsInBlock.Emplace(fieldLcl->GetLclNum(), 0))++;
                                 }
                             }
                         }
@@ -6023,12 +5996,12 @@ void Compiler::phRemoveRedundantZeroInits()
 
                             if (!bbInALoop || bbIsReturn)
                             {
-                                if (BitVecOps::IsMember(&bitVecTraits, zeroInitLocals, lclNum) ||
+                                if (BitVecOps::IsMember(bitVecTraits, zeroInitLocals, lclNum) ||
                                     (lcl->IsPromotedField() &&
-                                     BitVecOps::IsMember(&bitVecTraits, zeroInitLocals,
+                                     BitVecOps::IsMember(bitVecTraits, zeroInitLocals,
                                                          lcl->GetPromotedFieldParentLclNum())) ||
                                     ((!lcl->HasLiveness() || !totalOverlap) &&
-                                     !fgVarNeedsExplicitZeroInit(lclNum, bbInALoop, bbIsReturn)))
+                                     !fgVarNeedsExplicitZeroInit(lcl, bbInALoop, bbIsReturn)))
                                 {
                                     // We are guaranteed to have a zero initialization in the prolog or a
                                     // dominating explicit zero initialization and the local hasn't been redefined
@@ -6050,7 +6023,7 @@ void Compiler::phRemoveRedundantZeroInits()
 
                                 if (totalOverlap)
                                 {
-                                    BitVecOps::AddElemD(&bitVecTraits, zeroInitLocals, lclNum);
+                                    BitVecOps::AddElemD(bitVecTraits, zeroInitLocals, lclNum);
                                 }
 
                                 BitVecOps::RemoveElemD(bitVecTraits, referencedLocals, lclNum);

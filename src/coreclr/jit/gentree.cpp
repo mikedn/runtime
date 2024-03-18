@@ -622,28 +622,19 @@ regMaskTP GenTreeCall::GetOtherRegMask() const
     return resultMask;
 }
 
-//-------------------------------------------------------------------------
-// IsPure:
-//    Returns true if this call is pure. For now, this uses the same
-//    definition of "pure" that is that used by HelperCallProperties: a
-//    pure call does not read or write any aliased (e.g. heap) memory or
-//    have other global side effects (e.g. class constructors, finalizers),
-//    but is allowed to throw an exception.
+// Returns true if this call is pure. For now, this uses the same
+// definition of "pure" that is that used by HelperCallProperties: a
+// pure call does not read or write any aliased (e.g. heap) memory or
+// have other global side effects (e.g. class constructors, finalizers),
+// but is allowed to throw an exception.
 //
-//    NOTE: this call currently only returns true if the call target is a
-//    helper method that is known to be pure. No other analysis is
-//    performed.
-//
-// Arguments:
-//    Copiler - the compiler context.
-//
-// Returns:
-//    True if the call is pure; false otherwise.
-//
-bool GenTreeCall::IsPure(Compiler* compiler) const
+// NOTE: this call currently only returns true if the call target is a
+// helper method that is known to be pure. No other analysis is
+// performed.
+bool GenTreeCall::IsPure() const
 {
     return (gtCallType == CT_HELPER) &&
-           compiler->s_helperCallProperties.IsPure(compiler->eeGetHelperNum(gtCallMethHnd));
+           Compiler::s_helperCallProperties.IsPure(Compiler::eeGetHelperNum(gtCallMethHnd));
 }
 
 //-------------------------------------------------------------------------
@@ -1055,7 +1046,7 @@ AGAIN:
         switch (oper)
         {
             case GT_LCL_VAR:
-                return op1->AsLclVar()->GetLclNum() == op2->AsLclVar()->GetLclNum();
+                return op1->AsLclVar()->GetLcl() == op2->AsLclVar()->GetLcl();
             case GT_LCL_FLD:
                 return GenTreeLclFld::Equals(op1->AsLclFld(), op2->AsLclFld());
             case GT_LCL_ADDR:
@@ -1314,10 +1305,10 @@ AGAIN:
             uint64_t bits;
 
             case GT_LCL_VAR:
-                add = tree->AsLclVar()->GetLclNum();
+                add = tree->AsLclVar()->GetLcl()->GetLclNum();
                 break;
             case GT_LCL_FLD:
-                hash = genTreeHashAdd(hash, tree->AsLclFld()->GetLclNum());
+                hash = genTreeHashAdd(hash, tree->AsLclFld()->GetLcl()->GetLclNum());
                 hash = genTreeHashAdd(hash, tree->AsLclFld()->GetLayoutNum());
                 add  = tree->AsLclFld()->GetLclOffs();
                 break;
@@ -1966,22 +1957,20 @@ void Compiler::gtSetCallArgsCosts(const GenTreeCall::UseList& args,
 
 LclVarDsc* Compiler::gtIsLikelyRegVar(GenTree* tree)
 {
-    unsigned lclNum;
+    LclVarDsc* lcl;
 
     if (tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
     {
-        lclNum = tree->AsLclVar()->GetLclNum();
+        lcl = tree->AsLclVar()->GetLcl();
     }
     else if (tree->OperIs(GT_LCL_USE))
     {
-        lclNum = tree->AsLclUse()->GetDef()->GetLclNum();
+        lcl = tree->AsLclUse()->GetDef()->GetLcl();
     }
     else
     {
         return nullptr;
     }
-
-    LclVarDsc* lcl = lvaGetDesc(lclNum);
 
     if (lcl->lvDoNotEnregister)
     {
@@ -3740,7 +3729,7 @@ bool Compiler::fgAddrCouldBeNull(GenTree* addr)
         // But surprise, the JIT ABI is broken and the address may be null.
         // Oh well, given how the address is used it probably doesn't matter.
 
-        return !lvaGetDesc(addr->AsLclVar())->IsImplicitByRefParam();
+        return !addr->AsLclVar()->GetLcl()->IsImplicitByRefParam();
     }
 
     return true;
@@ -3750,14 +3739,14 @@ unsigned GenTreeLclVar::GetMultiRegCount(Compiler* compiler) const
 {
     assert(IsMultiReg());
 
-    return compiler->lvaGetDesc(GetLclNum())->GetPromotedFieldCount();
+    return GetLcl()->GetPromotedFieldCount();
 }
 
 var_types GenTreeLclVar::GetMultiRegType(Compiler* compiler, unsigned regIndex)
 {
     assert(IsMultiReg());
 
-    LclVarDsc* lcl      = compiler->lvaGetDesc(GetLclNum());
+    LclVarDsc* lcl      = GetLcl();
     LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(regIndex));
     assert(!fieldLcl->TypeIs(TYP_STRUCT));
     return fieldLcl->GetType();
@@ -4149,14 +4138,14 @@ GenTree* Compiler::gtNewOneConNode(var_types type)
     }
 }
 
-GenTreeLclVar* Compiler::gtNewStoreLclVar(unsigned lclNum, var_types type, GenTree* src)
+GenTreeLclVar* Compiler::gtNewStoreLclVar(LclVarDsc* lcl, var_types type, GenTree* src)
 {
-    return new (this, GT_STORE_LCL_VAR) GenTreeLclVar(type, lclNum, src);
+    return new (this, GT_STORE_LCL_VAR) GenTreeLclVar(type, lcl, src);
 }
 
-GenTreeLclFld* Compiler::gtNewStoreLclFld(var_types type, unsigned lclNum, unsigned lclOffs, GenTree* value)
+GenTreeLclFld* Compiler::gtNewStoreLclFld(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* value)
 {
-    return new (this, GT_STORE_LCL_FLD) GenTreeLclFld(type, lclNum, lclOffs, value);
+    return new (this, GT_STORE_LCL_FLD) GenTreeLclFld(type, lcl, lclOffs, value);
 }
 
 GenTreeCall* Compiler::gtNewHelperCallNode(CorInfoHelpFunc helper, var_types type, GenTreeCall::Use* args)
@@ -4263,15 +4252,13 @@ GenTreeCall* Compiler::gtNewCallNode(
     return node;
 }
 
-GenTreeLclVar* Compiler::gtNewLclvNode(unsigned lnum, var_types type)
+GenTreeLclVar* Compiler::gtNewLclvNode(LclVarDsc* lcl, var_types type)
 {
 #ifdef DEBUG
     // We need to ensure that all struct values are normalized.
     // It might be nice to assert this in general, but we have assignments of int to long.
     if (varTypeIsStruct(type))
     {
-        LclVarDsc* lcl = lvaGetDesc(lnum);
-
         // Make an exception for implicit by-ref parameters during global morph, since
         // their lvType has been updated to byref but their appearances have not yet all
         // been rewritten and so may have struct type still.
@@ -4285,14 +4272,12 @@ GenTreeLclVar* Compiler::gtNewLclvNode(unsigned lnum, var_types type)
     }
 #endif
 
-    return new (this, GT_LCL_VAR) GenTreeLclVar(type, lnum);
+    return new (this, GT_LCL_VAR) GenTreeLclVar(type, lcl);
 }
 
-GenTreeLclVar* Compiler::gtNewLclVarLargeNode(unsigned lnum, var_types type)
+GenTreeLclVar* Compiler::gtNewLclVarLargeNode(LclVarDsc* lcl, var_types type)
 {
 #ifdef DEBUG
-    LclVarDsc* lcl = lvaGetDesc(lnum);
-
     // We need to ensure that all struct values are normalized.
     // It might be nice to assert this in general, but we have assignments of int to long.
     if (varTypeIsStruct(type))
@@ -4308,24 +4293,24 @@ GenTreeLclVar* Compiler::gtNewLclVarLargeNode(unsigned lnum, var_types type)
     // This local variable node may later get transformed into a large node
     assert(GenTree::s_gtNodeSizes[LargeOpOpcode()] > GenTree::s_gtNodeSizes[GT_LCL_VAR]);
 
-    return new (this, LargeOpOpcode()) GenTreeLclVar(type, lnum DEBUGARG(/*largeNode*/ true));
+    return new (this, LargeOpOpcode()) GenTreeLclVar(type, lcl DEBUGARG(/*largeNode*/ true));
 }
 
-GenTreeLclAddr* Compiler::gtNewLclVarAddrNode(unsigned lclNum, var_types type)
+GenTreeLclAddr* Compiler::gtNewLclVarAddrNode(LclVarDsc* lcl, var_types type)
 {
-    return new (this, GT_LCL_ADDR) GenTreeLclAddr(type, lclNum, 0);
+    return new (this, GT_LCL_ADDR) GenTreeLclAddr(type, lcl, 0);
 }
 
-GenTreeLclAddr* Compiler::gtNewLclFldAddrNode(unsigned lclNum, unsigned lclOffs, FieldSeqNode* fieldSeq, var_types type)
+GenTreeLclAddr* Compiler::gtNewLclFldAddrNode(LclVarDsc* lcl, unsigned lclOffs, FieldSeqNode* fieldSeq, var_types type)
 {
-    GenTreeLclAddr* node = new (this, GT_LCL_ADDR) GenTreeLclAddr(type, lclNum, lclOffs);
+    GenTreeLclAddr* node = new (this, GT_LCL_ADDR) GenTreeLclAddr(type, lcl, lclOffs);
     node->SetFieldSeq(fieldSeq == nullptr ? FieldSeqStore::NotAField() : fieldSeq);
     return node;
 }
 
-GenTreeLclFld* Compiler::gtNewLclFldNode(unsigned lnum, var_types type, unsigned offset)
+GenTreeLclFld* Compiler::gtNewLclFldNode(LclVarDsc* lcl, var_types type, unsigned offset)
 {
-    return new (this, GT_LCL_FLD) GenTreeLclFld(type, lnum, offset);
+    return new (this, GT_LCL_FLD) GenTreeLclFld(type, lcl, offset);
 }
 
 GenTreeRetExpr* Compiler::gtNewRetExpr(GenTreeCall* call)
@@ -4460,7 +4445,7 @@ GenTreeObj* Compiler::gtNewObjNode(var_types type, ClassLayout* layout, GenTree*
         objNode->gtFlags |= GTF_IND_NONFAULTING;
 
         // An Obj is not a global reference, if it is known to be a local struct.
-        if (((addr->gtFlags & GTF_GLOB_REF) == 0) && !lvaIsImplicitByRefLocal(lclNode->GetLclNum()))
+        if (((addr->gtFlags & GTF_GLOB_REF) == 0) && !lclNode->GetLcl()->IsImplicitByRefParam())
         {
             objNode->gtFlags &= ~GTF_GLOB_REF;
         }
@@ -4681,37 +4666,37 @@ void Compiler::gtInitStructCopyAsg(GenTreeOp* asg)
     // surface if struct promotion is ON (which is the case on x86/arm). But still the
     // fundamental issue exists that needs to be addressed.
 
-    unsigned srcLclNum  = BAD_VAR_NUM;
-    unsigned srcLclOffs = 0;
-    unsigned dstLclNum  = BAD_VAR_NUM;
-    unsigned dstLclOffs = 0;
+    LclVarDsc* srcLcl     = nullptr;
+    unsigned   srcLclOffs = 0;
+    LclVarDsc* dstLcl     = nullptr;
+    unsigned   dstLclOffs = 0;
 
     if (dst->IsIndir() && dst->AsIndir()->GetAddr()->OperIs(GT_LCL_ADDR))
     {
-        dstLclNum  = dst->AsIndir()->GetAddr()->AsLclAddr()->GetLclNum();
-        dstLclOffs = dst->AsIndir()->GetAddr()->AsLclAddr()->GetLclNum();
+        dstLcl     = dst->AsIndir()->GetAddr()->AsLclAddr()->GetLcl();
+        dstLclOffs = dst->AsIndir()->GetAddr()->AsLclAddr()->GetLclOffs();
     }
     else if (dst->OperIs(GT_LCL_VAR))
     {
-        dstLclNum = dst->AsLclVar()->GetLclNum();
+        dstLcl = dst->AsLclVar()->GetLcl();
     }
 
-    if (dstLclNum == BAD_VAR_NUM)
+    if (dstLcl == nullptr)
     {
         return;
     }
 
     if (src->IsIndir() && src->AsIndir()->GetAddr()->OperIs(GT_LCL_ADDR))
     {
-        srcLclNum  = src->AsIndir()->GetAddr()->AsLclAddr()->GetLclNum();
+        srcLcl     = src->AsIndir()->GetAddr()->AsLclAddr()->GetLcl();
         srcLclOffs = src->AsIndir()->GetAddr()->AsLclAddr()->GetLclOffs();
     }
     else if (src->OperIs(GT_LCL_VAR))
     {
-        srcLclNum = src->AsLclVar()->GetLclNum();
+        srcLcl = src->AsLclVar()->GetLcl();
     }
 
-    if ((srcLclNum == dstLclNum) && (srcLclOffs == dstLclOffs))
+    if ((srcLcl == dstLcl) && (srcLclOffs == dstLclOffs))
     {
         asg->ChangeToNothingNode();
 
@@ -4723,9 +4708,9 @@ void Compiler::gtInitStructCopyAsg(GenTreeOp* asg)
     {
         if (GenTreeHWIntrinsic* hwi = src->IsHWIntrinsic())
         {
-            if (varTypeIsSIMD(lvaGetDesc(dstLclNum)->GetType()))
+            if (varTypeIsSIMD(dstLcl->GetType()))
             {
-                lvaRecordSimdIntrinsicDef(dstLclNum, hwi);
+                lvaRecordSimdIntrinsicDef(dstLcl, hwi);
             }
         }
     }
@@ -4928,14 +4913,14 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
     return copy;
 }
 
-GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsigned varNum, const int varVal)
+GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVarDsc* constLcl, const int constVal)
 {
     // Currently this is the only flag that makes sense adding.
     assert((addFlags & ~GTF_MAKE_CSE) == GTF_NONE);
     // We don't currently need to replace an AX local and doing so would leave pointless
     // GLOB_REF side effects in the cloned tree. It probably doesn't really matter, as
     // removing such GLOB_REFs have always been problematic.
-    assert((varNum == BAD_VAR_NUM) || !lvaGetDesc(varNum)->IsAddressExposed());
+    assert((constLcl == nullptr) || !constLcl->IsAddressExposed());
 
     if (tree == nullptr)
     {
@@ -4970,9 +4955,9 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
                 goto DONE;
 
             case GT_LCL_VAR:
-                if (tree->AsLclVar()->GetLclNum() == varNum)
+                if (tree->AsLclVar()->GetLcl() == constLcl)
                 {
-                    copy = gtNewIconNode(varVal, tree->gtType);
+                    copy = gtNewIconNode(constVal, tree->GetType());
                 }
                 else
                 {
@@ -4983,7 +4968,7 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
                 goto DONE;
 
             case GT_LCL_FLD:
-                if (tree->AsLclFld()->GetLclNum() == varNum)
+                if (tree->AsLclFld()->GetLcl() == constLcl)
                 {
                     IMPL_LIMITATION("replacing GT_LCL_FLD with a constant");
                 }
@@ -4994,7 +4979,7 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
                 goto DONE;
 
             case GT_LCL_ADDR:
-                noway_assert(tree->AsLclAddr()->GetLclNum() != varNum);
+                noway_assert(tree->AsLclAddr()->GetLcl() != constLcl);
                 tree->gtFlags |= GTF_VAR_CLONED;
                 copy = new (this, GT_LCL_ADDR) GenTreeLclAddr(tree->AsLclAddr());
                 goto DONE;
@@ -5078,8 +5063,8 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
             case GT_ARR_INDEX:
                 copy = new (this, GT_ARR_INDEX)
                     GenTreeArrIndex(tree->TypeGet(),
-                                    gtCloneExpr(tree->AsArrIndex()->ArrObj(), addFlags, varNum, varVal),
-                                    gtCloneExpr(tree->AsArrIndex()->IndexExpr(), addFlags, varNum, varVal),
+                                    gtCloneExpr(tree->AsArrIndex()->ArrObj(), addFlags, constLcl, constVal),
+                                    gtCloneExpr(tree->AsArrIndex()->IndexExpr(), addFlags, constLcl, constVal),
                                     tree->AsArrIndex()->gtCurrDim, tree->AsArrIndex()->gtArrRank,
                                     tree->AsArrIndex()->gtArrElemType);
                 break;
@@ -5182,14 +5167,14 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
 
         if (tree->AsOp()->gtOp1 != nullptr)
         {
-            assert(!tree->OperIs(GT_ASG) || (varNum == BAD_VAR_NUM));
+            assert(!tree->OperIs(GT_ASG) || (constLcl == nullptr));
 
-            copy->AsOp()->gtOp1 = gtCloneExpr(tree->AsOp()->gtOp1, addFlags, varNum, varVal);
+            copy->AsOp()->gtOp1 = gtCloneExpr(tree->AsOp()->gtOp1, addFlags, constLcl, constVal);
         }
 
         if (tree->gtGetOp2IfPresent() != nullptr)
         {
-            copy->AsOp()->gtOp2 = gtCloneExpr(tree->AsOp()->gtOp2, addFlags, varNum, varVal);
+            copy->AsOp()->gtOp2 = gtCloneExpr(tree->AsOp()->gtOp2, addFlags, constLcl, constVal);
         }
 
         addFlags |= tree->gtFlags;
@@ -5218,7 +5203,7 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
                 NO_WAY("Cloning of calls with associated GT_RET_EXPR nodes is not supported");
             }
 
-            copy = gtCloneExprCallHelper(tree->AsCall(), addFlags, varNum, varVal);
+            copy = gtCloneExprCallHelper(tree->AsCall(), addFlags, constLcl, constVal);
             break;
 
         case GT_ARR_ELEM:
@@ -5227,7 +5212,7 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
             GenTree*        ops[1 + GenTreeArrElem::MaxRank];
             for (unsigned i = 0; i < 1 + arrElem->GetRank(); i++)
             {
-                ops[i] = gtCloneExpr(arrElem->GetOp(i), addFlags, varNum, varVal);
+                ops[i] = gtCloneExpr(arrElem->GetOp(i), addFlags, constLcl, constVal);
             }
             copy = new (this, GT_ARR_ELEM) GenTreeArrElem(arrElem->GetType(), ops[0], arrElem->gtArrRank,
                                                           arrElem->gtArrElemSize, arrElem->gtArrElemType, &ops[1]);
@@ -5251,7 +5236,7 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
             copy = new (this, GT_FIELD_LIST) GenTreeFieldList();
             for (GenTreeFieldList::Use& use : tree->AsFieldList()->Uses())
             {
-                copy->AsFieldList()->AddField(this, gtCloneExpr(use.GetNode(), addFlags, varNum, varVal),
+                copy->AsFieldList()->AddField(this, gtCloneExpr(use.GetNode(), addFlags, constLcl, constVal),
                                               use.GetOffset(), use.GetType());
             }
             break;
@@ -5261,7 +5246,8 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const unsig
             copy = new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(tree->AsHWIntrinsic(), getAllocator(CMK_ASTNode));
             for (unsigned i = 0; i < copy->AsHWIntrinsic()->GetNumOps(); i++)
             {
-                copy->AsHWIntrinsic()->SetOp(i, gtCloneExpr(tree->AsHWIntrinsic()->GetOp(i), addFlags, varNum, varVal));
+                copy->AsHWIntrinsic()->SetOp(i, gtCloneExpr(tree->AsHWIntrinsic()->GetOp(i), addFlags, constLcl,
+                                                            constVal));
             }
             break;
 #endif
@@ -5335,23 +5321,22 @@ DONE:
 // Returns:
 //    Cloned copy of call and all subtrees.
 
-GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree,
-                                             GenTreeFlags addFlags,
-                                             unsigned     deepVarNum,
-                                             int          deepVarVal)
+GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall*     tree,
+                                             GenTreeFlags     addFlags,
+                                             const LclVarDsc* constLcl,
+                                             const int        constVal)
 {
     GenTreeCall* copy = new (this, GT_CALL) GenTreeCall(tree);
 
     if (tree->gtCallThisArg != nullptr)
     {
-        copy->gtCallThisArg =
-            gtNewCallArgs(gtCloneExpr(tree->gtCallThisArg->GetNode(), addFlags, deepVarNum, deepVarVal));
+        copy->gtCallThisArg = gtNewCallArgs(gtCloneExpr(tree->gtCallThisArg->GetNode(), addFlags, constLcl, constVal));
     }
 
     GenTreeCall::Use** argsTail = &copy->gtCallArgs;
     for (GenTreeCall::Use& use : tree->Args())
     {
-        *argsTail = gtNewCallArgs(gtCloneExpr(use.GetNode(), addFlags, deepVarNum, deepVarVal));
+        *argsTail = gtNewCallArgs(gtCloneExpr(use.GetNode(), addFlags, constLcl, constVal));
         (*argsTail)->SetSigTypeNum(use.GetSigTypeNum());
         argsTail = &((*argsTail)->NextRef());
     }
@@ -5359,7 +5344,7 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree,
     argsTail = &copy->gtCallLateArgs;
     for (GenTreeCall::Use& use : tree->LateArgs())
     {
-        *argsTail = gtNewCallArgs(gtCloneExpr(use.GetNode(), addFlags, deepVarNum, deepVarVal));
+        *argsTail = gtNewCallArgs(gtCloneExpr(use.GetNode(), addFlags, constLcl, constVal));
         argsTail  = &((*argsTail)->NextRef());
     }
 
@@ -5383,10 +5368,10 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree,
         }
         else
         {
-            copy->gtCallCookie = gtCloneExpr(tree->gtCallCookie, addFlags, deepVarNum, deepVarVal);
+            copy->gtCallCookie = gtCloneExpr(tree->gtCallCookie, addFlags, constLcl, constVal);
         }
 
-        copy->gtCallAddr = gtCloneExpr(tree->gtCallAddr, addFlags, deepVarNum, deepVarVal);
+        copy->gtCallAddr = gtCloneExpr(tree->gtCallAddr, addFlags, constLcl, constVal);
     }
     else
     {
@@ -5403,7 +5388,7 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree,
 
         if (tree->gtControlExpr != nullptr)
         {
-            copy->gtControlExpr = gtCloneExpr(tree->gtControlExpr, addFlags, deepVarNum, deepVarVal);
+            copy->gtControlExpr = gtCloneExpr(tree->gtControlExpr, addFlags, constLcl, constVal);
         }
     }
 
@@ -6199,21 +6184,6 @@ IteratorPair<GenTreeOperandIterator> GenTree::Operands()
     return MakeIteratorPair(OperandsBegin(), OperandsEnd());
 }
 
-bool GenTree::Precedes(GenTree* other)
-{
-    assert(other != nullptr);
-
-    for (GenTree* node = gtNext; node != nullptr; node = node->gtNext)
-    {
-        if (node == other)
-        {
-            return true;
-        }
-    }
-
-    return false;
-}
-
 #ifdef DEBUG
 
 int Compiler::gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags)
@@ -6615,15 +6585,15 @@ void Compiler::gtDispNode(GenTree* tree)
         }
         else if (tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
         {
-            lcl = lvaGetDesc(tree->AsLclVar());
+            lcl = tree->AsLclVar()->GetLcl();
         }
         else if (GenTreeLclDef* def = tree->IsLclDef())
         {
-            lcl = lvaGetDesc(def->GetLclNum());
+            lcl = def->GetLcl();
         }
         else if (GenTreeLclUse* use = tree->IsLclUse())
         {
-            lcl = lvaGetDesc(use->GetDef()->GetLclNum());
+            lcl = use->GetDef()->GetLcl();
         }
         else if (GenTreeLclFld* lclFld = tree->IsLclFld())
         {
@@ -6727,206 +6697,177 @@ void Compiler::dmpNodeRegs(GenTree* node)
     printf(" %+*s", 6 + MAX_MULTIREG_COUNT * 6, message);
 }
 
-// We usually/commonly don't expect to print anything longer than this string,
-#define LONGEST_COMMON_LCL_VAR_DISPLAY "V99 PInvokeFrame"
-#define LONGEST_COMMON_LCL_VAR_DISPLAY_LENGTH (sizeof(LONGEST_COMMON_LCL_VAR_DISPLAY))
-#define BUF_SIZE (LONGEST_COMMON_LCL_VAR_DISPLAY_LENGTH * 2)
-
-void Compiler::gtGetLclVarNameInfo(unsigned lclNum, const char** ilKindOut, const char** ilNameOut, unsigned* ilNumOut)
+const char* Compiler::gtGetLclVarNameInfo(unsigned lclNum, const char** kind, unsigned* num)
 {
-    const char* ilKind = nullptr;
-    const char* ilName = nullptr;
-
-    unsigned ilNum = compMap2ILvarNum(lclNum);
-
-    if (ilNum == (unsigned)ICorDebugInfo::RETBUF_ILNUM)
+    if (lclNum >= info.compLocalsCount)
     {
-        ilName = "RetBuf";
-    }
-    else if (ilNum == (unsigned)ICorDebugInfo::VARARGS_HND_ILNUM)
-    {
-        ilName = "VarArgHandle";
-    }
-    else if (ilNum == (unsigned)ICorDebugInfo::TYPECTXT_ILNUM)
-    {
-        ilName = "TypeCtx";
-    }
-    else if (ilNum == (unsigned)ICorDebugInfo::UNKNOWN_ILNUM)
-    {
-        if (lclNumIsTrueCSE(lclNum))
+        if (lclNum == lvaPInvokeFrameListVar)
         {
-            ilKind = "cse";
-            ilNum  = lclNum - cseFirstLclNum;
+            return "FrameList";
         }
-        else if (lclNum >= cseFirstLclNum)
+
+        if (lclNum == lvaInlinedPInvokeFrameVar)
         {
-            // Currently any new LclVar's introduced after the CSE phase
-            // are believed to be created by the "rationalizer" that is what is meant by the "rat" prefix.
-            ilKind = "rat";
-            ilNum  = lclNum - (cseFirstLclNum + cseCount);
+            return "PInvokeFrame";
         }
-        else
+
+        if (lclNum == lvaReversePInvokeFrameVar)
         {
-            if (lclNum == lvaPInvokeFrameListVar)
-            {
-                ilName = "FrameList";
-            }
-            else if (lclNum == lvaInlinedPInvokeFrameVar)
-            {
-                ilName = "PInvokeFrame";
-            }
-            else if (lclNum == lvaReversePInvokeFrameVar)
-            {
-                ilName = "ReversePInvokeFrame";
-            }
-            else if (lclNum == lvaGSSecurityCookie)
-            {
-                ilName = "GsCookie";
-            }
-            else if (lclNum == lvaRetAddrVar)
-            {
-                ilName = "ReturnAddress";
-            }
-            else if (lclNum == genReturnLocal)
-            {
-                ilName = "MergedReturn";
-            }
-            else if (lclNum == lvaStubArgumentVar)
-            {
-                ilName = "StubParam";
-            }
+            return "ReversePInvokeFrame";
+        }
+
+        if (lclNum == lvaGSSecurityCookie)
+        {
+            return "GsCookie";
+        }
+
+        if (lclNum == lvaRetAddrVar)
+        {
+            return "ReturnAddress";
+        }
+
+        if (lclNum == genReturnLocal)
+        {
+            return "MergedReturn";
+        }
+
+        if (lclNum == lvaStubArgumentVar)
+        {
+            return "StubParam";
+        }
+
 #if FEATURE_FIXED_OUT_ARGS
-            else if (lclNum == lvaOutgoingArgSpaceVar)
-            {
-                ilName = "OutArgs";
-            }
-#endif // FEATURE_FIXED_OUT_ARGS
-#if !defined(FEATURE_EH_FUNCLETS)
-            else if (lclNum == lvaShadowSPslotsVar)
-            {
-                ilName = "EHSlots";
-            }
-#endif // !FEATURE_EH_FUNCLETS
+        if (lclNum == lvaOutgoingArgSpaceVar)
+        {
+            return "OutArgs";
+        }
+#endif
+
+#ifdef FEATURE_EH_FUNCLETS
+        if (lclNum == lvaPSPSym)
+        {
+            return "PSPSym";
+        }
+#else
+        if (lvaGetDesc(lclNum) == lvaShadowSPslotsLcl)
+        {
+            return "EHSlots";
+        }
+#endif
+
 #ifdef JIT32_GCENCODER
-            else if (lclNum == lvaLocAllocSPvar)
-            {
-                ilName = "LocAllocSP";
-            }
-#endif // JIT32_GCENCODER
-#if defined(FEATURE_EH_FUNCLETS)
-            else if (lclNum == lvaPSPSym)
-            {
-                ilName = "PSPSym";
-            }
-#endif // FEATURE_EH_FUNCLETS
-            else
-            {
-                ilKind = "tmp";
-                if (compIsForInlining())
-                {
-                    ilNum = lclNum - impInlineInfo->InlinerCompiler->info.compLocalsCount;
-                }
-                else
-                {
-                    ilNum = lclNum - info.compLocalsCount;
-                }
-            }
-        }
-    }
-    else if (lclNum < (compIsForInlining() ? impInlineInfo->InlinerCompiler->info.compArgsCount : info.compArgsCount))
-    {
-        if (ilNum == 0 && !info.compIsStatic)
+        if (lvaGetDesc(lclNum) == lvaLocAllocSPLcl)
         {
-            ilName = "this";
+            return "LocAllocSP";
         }
-        else
+#endif
+
+        if ((cseCount > 0) && (lclNum >= cseFirstLclNum) && (lclNum < cseFirstLclNum + cseCount))
         {
-            ilKind = "arg";
+            *kind = "cse";
+            *num  = lclNum - cseFirstLclNum;
+            return nullptr;
         }
-    }
-    else
-    {
-        if (!lvaTable[lclNum].lvIsStructField)
+
+        if (lclNum >= cseFirstLclNum)
         {
-            ilKind = "loc";
+            // Currently any new LclVar's introduced after the CSE phase are believed to
+            // be created by the "rationalizer" that is what is meant by the "rat" prefix.
+            *kind = "rat";
+            *num  = lclNum - (cseFirstLclNum + cseCount);
+            return nullptr;
         }
-        if (compIsForInlining())
-        {
-            ilNum -= impInlineInfo->InlinerCompiler->info.compILargsCount;
-        }
-        else
-        {
-            ilNum -= info.compILargsCount;
-        }
+
+        *kind = "tmp";
+        *num  = lclNum - info.compLocalsCount;
+        return nullptr;
     }
 
-    *ilKindOut = ilKind;
-    *ilNameOut = ilName;
-    *ilNumOut  = ilNum;
+    if (lclNum >= info.GetParamCount())
+    {
+        *kind = "loc";
+        *num  = lclNum - info.GetParamCount();
+        return nullptr;
+    }
+
+    if (lclNum == info.compRetBuffArg)
+    {
+        return "RetBuf";
+    }
+
+    if (lclNum == info.compVarargsHandleArg)
+    {
+        return "VarArgHandle";
+    }
+
+    if (lclNum == info.compTypeCtxtArg)
+    {
+        return "TypeCtx";
+    }
+
+    if (lclNum == info.GetThisParamLclNum())
+    {
+        return "this";
+    }
+
+    *kind = "arg";
+    *num  = lvaMapLclNumToILArgNum(lclNum);
+    return nullptr;
 }
 
-/*****************************************************************************/
-int Compiler::gtGetLclVarName(unsigned lclNum, char* buf, unsigned buf_remaining)
+size_t Compiler::gtGetLclVarName(unsigned lclNum, char* buffer, unsigned bufferSize)
 {
-    char*    bufp_next    = buf;
-    unsigned charsPrinted = 0;
-    int      sprintf_result;
+    char* begin = buffer;
 
-    sprintf_result = sprintf_s(bufp_next, buf_remaining, "V%02u", lclNum);
-
-    if (sprintf_result < 0)
     {
-        return sprintf_result;
-    }
+        int len = sprintf_s(buffer, bufferSize, "V%02u", lclNum);
 
-    charsPrinted += sprintf_result;
-    bufp_next += sprintf_result;
-    buf_remaining -= sprintf_result;
-
-    const char* ilKind = nullptr;
-    const char* ilName = nullptr;
-    unsigned    ilNum  = 0;
-
-    gtGetLclVarNameInfo(lclNum, &ilKind, &ilName, &ilNum);
-
-    if (ilName != nullptr)
-    {
-        sprintf_result = sprintf_s(bufp_next, buf_remaining, " %s", ilName);
-        if (sprintf_result < 0)
+        if (len < 0)
         {
-            return sprintf_result;
+            return 0;
         }
-        charsPrinted += sprintf_result;
-        bufp_next += sprintf_result;
-        buf_remaining -= sprintf_result;
+
+        buffer += len;
+        bufferSize -= len;
     }
-    else if (ilKind != nullptr)
+
+    const char* kind = nullptr;
+    unsigned    num  = 0;
+
+    if (const char* name = gtGetLclVarNameInfo(lclNum, &kind, &num))
     {
-        sprintf_result = sprintf_s(bufp_next, buf_remaining, " %s%d", ilKind, ilNum);
-        if (sprintf_result < 0)
+        int len = sprintf_s(buffer, bufferSize, " %s", name);
+
+        if (len < 0)
         {
-            return sprintf_result;
+            return 0;
         }
-        charsPrinted += sprintf_result;
-        bufp_next += sprintf_result;
-        buf_remaining -= sprintf_result;
+
+        buffer += len;
+        bufferSize -= len;
+    }
+    else if (kind != nullptr)
+    {
+        int len = sprintf_s(buffer, bufferSize, " %s%d", kind, num);
+
+        if (len < 0)
+        {
+            return 0;
+        }
+
+        buffer += len;
+        bufferSize -= len;
     }
 
-    assert(charsPrinted > 0);
-    assert(buf_remaining > 0);
-
-    return (int)charsPrinted;
+    return buffer - begin;
 }
 
 int Compiler::dmpLclName(unsigned lclNum)
 {
     const char* kind = nullptr;
-    const char* name = nullptr;
     unsigned    num  = 0;
 
-    gtGetLclVarNameInfo(lclNum, &kind, &name, &num);
-
-    if (name != nullptr)
+    if (const char* name = gtGetLclVarNameInfo(lclNum, &kind, &num))
     {
         return printf("\"%s\"", name);
     }
@@ -6939,39 +6880,38 @@ int Compiler::dmpLclName(unsigned lclNum)
     return 0;
 }
 
-/*****************************************************************************
- * Get the local var name, and create a copy of the string that can be used in debug output.
- */
+// We usually/commonly don't expect to print anything longer than this string,
+#define LONGEST_COMMON_LCL_VAR_DISPLAY_LENGTH sizeof("V99 PInvokeFrame")
+#define BUF_SIZE (LONGEST_COMMON_LCL_VAR_DISPLAY_LENGTH * 2)
+
 char* Compiler::gtGetLclVarName(unsigned lclNum)
 {
-    char buf[BUF_SIZE];
-    int  charsPrinted = gtGetLclVarName(lclNum, buf, _countof(buf));
-    if (charsPrinted < 0)
+    char buffer[BUF_SIZE];
+
+    if (ssize_t length = gtGetLclVarName(lclNum, buffer, _countof(buffer)))
+    {
+        char* name = new (this, CMK_DebugOnly) char[length + 1];
+        strcpy_s(name, length + 1, buffer);
+        return name;
+    }
+    else
     {
         return nullptr;
     }
-
-    char* retBuf = new (this, CMK_DebugOnly) char[charsPrinted + 1];
-    strcpy_s(retBuf, charsPrinted + 1, buf);
-    return retBuf;
 }
 
-/*****************************************************************************/
 void Compiler::gtDispLclVar(unsigned lclNum, bool padForBiggestDisp)
 {
-    char buf[BUF_SIZE];
-    int  charsPrinted = gtGetLclVarName(lclNum, buf, _countof(buf));
+    char buffer[BUF_SIZE];
 
-    if (charsPrinted < 0)
+    if (size_t length = gtGetLclVarName(lclNum, buffer, _countof(buffer)))
     {
-        return;
-    }
+        printf("%s", buffer);
 
-    printf("%s", buf);
-
-    if (padForBiggestDisp && (charsPrinted < (int)LONGEST_COMMON_LCL_VAR_DISPLAY_LENGTH))
-    {
-        printf("%*c", LONGEST_COMMON_LCL_VAR_DISPLAY_LENGTH - charsPrinted, ' ');
+        if (padForBiggestDisp && (length < LONGEST_COMMON_LCL_VAR_DISPLAY_LENGTH))
+        {
+            printf("%*c", LONGEST_COMMON_LCL_VAR_DISPLAY_LENGTH - length, ' ');
+        }
     }
 }
 
@@ -7303,10 +7243,9 @@ void Compiler::gtDispLeaf(GenTree* tree)
 
 void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node)
 {
-    const unsigned   lclNum = node->GetLclNum();
-    const LclVarDsc* lcl    = lvaGetDesc(lclNum);
+    const LclVarDsc* lcl = node->GetLcl();
 
-    printf(" V%02u", lclNum);
+    printf(" V%02u", lcl->GetLclNum());
 
     if (node->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD))
     {
@@ -7320,7 +7259,7 @@ void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node)
 
     printf(" ");
 
-    int         nameLength = dmpLclName(lclNum);
+    int         nameLength = dmpLclName(lcl->GetLclNum());
     const char* prefix     = nameLength > 0 ? " (" : "(";
 
     if (lcl->IsAddressExposed())
@@ -7434,14 +7373,13 @@ void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node)
 
 void Compiler::dmpSsaDefUse(GenTree* node)
 {
-    GenTreeLclUse* use    = node->IsLclUse();
-    GenTreeLclDef* def    = use != nullptr ? use->GetDef() : node->IsLclDef();
-    unsigned       lclNum = def->GetLclNum();
-    LclVarDsc*     lcl    = lvaGetDesc(lclNum);
+    GenTreeLclUse* use = node->IsLclUse();
+    GenTreeLclDef* def = use != nullptr ? use->GetDef() : node->IsLclDef();
+    LclVarDsc*     lcl = def->GetLcl();
 
-    printf(" V%02u ", lclNum);
+    printf(" V%02u ", lcl->GetLclNum());
 
-    int         nameLength = dmpLclName(lclNum);
+    int         nameLength = dmpLclName(lcl->GetLclNum());
     const char* prefix     = nameLength > 0 ? " (" : "(";
 
     printf("%s[%06u]", prefix, def->GetID());
@@ -9349,7 +9287,7 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
     }
     else if (arg->OperIs(GT_LCL_ADDR) && (arg->AsLclAddr()->GetLclOffs() == 0))
     {
-        nullableLayout = lvaGetDesc(arg->AsLclAddr())->GetLayout();
+        nullableLayout = arg->AsLclAddr()->GetLcl()->GetLayout();
     }
 
     if (nullableLayout == nullptr)
@@ -9369,7 +9307,7 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
     {
         assert(arg->AsLclAddr()->GetLclOffs() == 0);
 
-        newOp = arg->ChangeToLclFld(TYP_BOOL, arg->AsLclAddr()->GetLclNum(), fieldOffset,
+        newOp = arg->ChangeToLclFld(TYP_BOOL, arg->AsLclAddr()->GetLcl(), fieldOffset,
                                     GetFieldSeqStore()->CreateSingleton(fieldHnd));
     }
     else
@@ -9524,9 +9462,8 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
         // Drill into the box to get at the box temp local and the box type
         GenTreeLclVar* boxTemp = box->GetOp(0)->AsLclVar();
         assert(boxTemp->OperIs(GT_LCL_VAR));
-        const unsigned boxTempLclNum = boxTemp->GetLclNum();
-        LclVarDsc*     boxTempLclDsc = lvaGetDesc(boxTempLclNum);
-        assert(boxTempLclDsc->TypeGet() == TYP_REF);
+        LclVarDsc* boxTempLclDsc = boxTemp->GetLcl();
+        assert(boxTempLclDsc->TypeIs(TYP_REF));
         assert(boxTempLclDsc->lvClassHnd != nullptr);
 
         GenTree*  copyDstAddr;
@@ -9562,7 +9499,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
         }
 
         GenTree* copyDstAddrOp1 = copyDstAddr->AsOp()->gtOp1;
-        if ((copyDstAddrOp1->OperGet() != GT_LCL_VAR) || (copyDstAddrOp1->AsLclVar()->GetLclNum() != boxTempLclNum))
+        if ((copyDstAddrOp1->OperGet() != GT_LCL_VAR) || (copyDstAddrOp1->AsLclVar()->GetLcl() != boxTempLclDsc))
         {
             JITDUMP("Unexpected copy dest address 1st addend\n");
             return nullptr;
@@ -9584,13 +9521,14 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
 
         if (varTypeIsStruct(storeType))
         {
-            JITDUMP("Retyping box temp V%02u to struct %s\n", boxTempLclNum, eeGetClassName(boxTempLclDsc->lvClassHnd));
-            lvaSetStruct(boxTempLclNum, boxTempLclDsc->lvClassHnd, /* checkUnsafeBuffer */ false);
+            JITDUMP("Retyping box temp V%02u to struct %s\n", boxTempLclDsc->GetLclNum(),
+                    eeGetClassName(boxTempLclDsc->lvClassHnd));
+            lvaSetStruct(boxTempLclDsc, typGetObjLayout(boxTempLclDsc->lvClassHnd), /* checkUnsafeBuffer */ false);
         }
         else
         {
             assert(storeType == JITtype2varType(info.compCompHnd->asCorInfoType(boxTempLclDsc->lvClassHnd)));
-            JITDUMP("Retyping box temp V%02u to primitive %s\n", boxTempLclNum, varTypeName(storeType));
+            JITDUMP("Retyping box temp V%02u to primitive %s\n", boxTempLclDsc->GetLclNum(), varTypeName(storeType));
             boxTempLclDsc->SetType(storeType);
         }
 
@@ -9599,21 +9537,21 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
             GenTree* copyDst = copy->AsOp()->GetOp(0);
             copyDst->ChangeOper(GT_LCL_VAR);
             copyDst->gtFlags &= ~GTF_ALL_EFFECT;
-            copyDst->AsLclVar()->SetLclNum(boxTempLclNum);
+            copyDst->AsLclVar()->SetLcl(boxTempLclDsc);
         }
         else
         {
             GenTree* value = copy->AsIndir()->GetValue();
             copy->ChangeOper(GT_STORE_LCL_VAR);
             copy->AsLclVar()->SetOp(0, value);
-            copy->AsLclVar()->SetLclNum(boxTempLclNum);
+            copy->AsLclVar()->SetLcl(boxTempLclDsc);
             copy->SetSideEffects(value->GetSideEffects() | GTF_GLOB_REF);
         }
 
         DISPSTMT(copyStmt);
 
         // Return the address of the now-struct typed box temp
-        return gtNewLclVarAddrNode(boxTempLclNum, TYP_BYREF);
+        return gtNewLclVarAddrNode(boxTempLclDsc, TYP_BYREF);
     }
 
     // If the copy is a struct copy, make sure we know how to isolate
@@ -9868,7 +9806,7 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
     }
     else
     {
-        unsigned   thisTmp     = lvaNewTemp(type, true DEBUGARG("Enum:HasFlag this temp"));
+        LclVarDsc* thisTmp     = lvaNewTemp(type, true DEBUGARG("Enum:HasFlag this temp"));
         Statement* thisAsgStmt = thisOp->AsBox()->gtCopyStmtWhenInlinedBoxValue;
         GenTree*   store;
 
@@ -9894,7 +9832,7 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
     }
     else
     {
-        unsigned   flagTmp     = lvaNewTemp(type, true DEBUGARG("Enum:HasFlag flag temp"));
+        LclVarDsc* flagTmp     = lvaNewTemp(type, true DEBUGARG("Enum:HasFlag flag temp"));
         Statement* flagAsgStmt = flagOp->AsBox()->gtCopyStmtWhenInlinedBoxValue;
         GenTree*   store;
 
@@ -11311,7 +11249,7 @@ bool GenTree::IsPartialLclFld(Compiler* comp)
         return true;
     }
 
-    unsigned lclSize = comp->lvaGetDesc(AsLclFld())->GetTypeSize();
+    unsigned lclSize = AsLclFld()->GetLcl()->GetTypeSize();
     unsigned lclFldSize;
 
     if (gtType == TYP_STRUCT)
@@ -11364,7 +11302,7 @@ GenTreeLclVar* GenTree::IsImplicitByrefIndir(Compiler* compiler)
 
         GenTreeLclVar* lclVar = AsIndir()->GetAddr()->AsLclVar();
 
-        if (compiler->lvaGetDesc(lclVar)->IsImplicitByRefParam())
+        if (lclVar->GetLcl()->IsImplicitByRefParam())
         {
             return lclVar;
         }
@@ -11505,7 +11443,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
     {
         case GT_LCL_VAR:
         {
-            LclVarDsc* lcl = lvaGetDesc(obj->AsLclVar());
+            LclVarDsc* lcl = obj->AsLclVar()->GetLcl();
 
             objClass  = lcl->lvClassHnd;
             *pIsExact = lcl->lvClassIsExact;
@@ -11637,18 +11575,18 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
 
         case GT_IND:
         {
-            GenTree*        addr = obj->AsIndir()->GetAddr();
-            GenTreeLclAddr* lcl  = addr->IsLocalAddrExpr();
+            GenTree* addr = obj->AsIndir()->GetAddr();
 
-            if ((lcl != nullptr) && (addr->OperGet() != GT_ADD))
+            if (GenTreeLclAddr* lclAddr = addr->IsLocalAddrExpr())
             {
                 // indir(addr(lcl)) --> lcl
                 //
                 // This comes up during constrained callvirt on ref types.
 
-                const unsigned objLcl = lcl->GetLclNum();
-                objClass              = lvaTable[objLcl].lvClassHnd;
-                *pIsExact             = lvaTable[objLcl].lvClassIsExact;
+                LclVarDsc* objLcl = lclAddr->GetLcl();
+
+                objClass  = objLcl->lvClassHnd;
+                *pIsExact = objLcl->lvClassIsExact;
             }
             else if (addr->OperGet() == GT_ARR_ELEM)
             {
@@ -11731,7 +11669,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
             // Box should just wrap a local var reference which has
             // the type we're looking for. Also box only represents a
             // non-nullable value type so result cannot be null.
-            LclVarDsc* boxTempLcl = lvaGetDesc(obj->AsBox()->GetOp(0)->AsLclVar());
+            LclVarDsc* boxTempLcl = obj->AsBox()->GetOp(0)->AsLclVar()->GetLcl();
             objClass              = boxTempLcl->lvClassHnd;
             *pIsExact             = boxTempLcl->lvClassIsExact;
             *pIsNonNull           = true;
@@ -12032,8 +11970,7 @@ GenTreeFlags Compiler::gtGetFieldIndirFlags(GenTreeFieldAddr* fieldAddr)
     {
         flags |= GTF_IND_NONFAULTING;
 
-        unsigned   lclNum = addr->AsLclAddr()->GetLclNum();
-        LclVarDsc* lcl    = lvaGetDesc(lclNum);
+        LclVarDsc* lcl = addr->AsLclAddr()->GetLcl();
 
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64) || defined(TARGET_X86)
         // Some arguments may end up being accessed via indirections:
@@ -12060,7 +11997,7 @@ GenTreeFlags Compiler::gtGetFieldIndirFlags(GenTreeFieldAddr* fieldAddr)
 
         if (lcl->IsParam()
 #ifdef TARGET_X86
-            && info.compIsVarArgs && !lcl->IsRegParam() && (lclNum != lvaVarargsHandleArg)
+            && info.compIsVarArgs && !lcl->IsRegParam() && (lcl->GetLclNum() != info.compVarargsHandleArg)
 #else
             && varTypeIsStruct(lcl->GetType())
 #endif
@@ -13028,7 +12965,7 @@ bool Compiler::gtIsSmallIntCastNeeded(GenTree* tree, var_types toType)
         // LCL_VARs associated with small int locals may have type INT,
         // we need to check the type of the local variable.
 
-        fromType = lvaGetDesc(tree->AsLclVar())->GetType();
+        fromType = tree->AsLclVar()->GetLcl()->GetType();
     }
 
     if (toType == fromType)
@@ -13099,7 +13036,7 @@ GenTreeCall* Compiler::gtNewInitThisClassHelperCall()
 
         case CORINFO_LOOKUP_THISOBJ:
             helper  = CORINFO_HELP_INITINSTCLASS;
-            context = gtNewLclvNode(info.compThisArg, TYP_REF);
+            context = gtNewLclvNode(lvaGetDesc(info.GetThisParamLclNum()), TYP_REF);
             context->gtFlags |= GTF_VAR_CONTEXT;
             context = gtNewMethodTableLookup(context);
             // This code takes a this pointer; but we need to pass the static
@@ -13108,13 +13045,13 @@ GenTreeCall* Compiler::gtNewInitThisClassHelperCall()
             break;
         case CORINFO_LOOKUP_CLASSPARAM:
             helper  = CORINFO_HELP_INITCLASS;
-            context = gtNewLclvNode(info.compTypeCtxtArg, TYP_I_IMPL);
+            context = gtNewLclvNode(lvaGetDesc(info.compTypeCtxtArg), TYP_I_IMPL);
             context->gtFlags |= GTF_VAR_CONTEXT;
             args = gtNewCallArgs(context);
             break;
         case CORINFO_LOOKUP_METHODPARAM:
             helper  = CORINFO_HELP_INITINSTCLASS;
-            context = gtNewLclvNode(info.compTypeCtxtArg, TYP_I_IMPL);
+            context = gtNewLclvNode(lvaGetDesc(info.compTypeCtxtArg), TYP_I_IMPL);
             context->gtFlags |= GTF_VAR_CONTEXT;
             args = gtNewCallArgs(gtNewIconNode(0), context);
             break;
@@ -13261,7 +13198,7 @@ GenTree* Compiler::gtNewRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind)
 
     if (kind == CORINFO_LOOKUP_THISOBJ)
     {
-        GenTree* ctxTree = gtNewLclvNode(root->info.compThisArg, TYP_REF);
+        GenTree* ctxTree = gtNewLclvNode(lvaGetDesc(root->info.GetThisParamLclNum()), TYP_REF);
         ctxTree->gtFlags |= GTF_VAR_CONTEXT;
 
         // The context is the method table pointer of the this object.
@@ -13271,7 +13208,7 @@ GenTree* Compiler::gtNewRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind)
     assert((kind == CORINFO_LOOKUP_METHODPARAM) || (kind == CORINFO_LOOKUP_CLASSPARAM));
 
     // Exact method descriptor as passed in.
-    GenTree* ctxTree = gtNewLclvNode(root->info.compTypeCtxtArg, TYP_I_IMPL);
+    GenTree* ctxTree = gtNewLclvNode(lvaGetDesc(root->info.compTypeCtxtArg), TYP_I_IMPL);
     ctxTree->gtFlags |= GTF_VAR_CONTEXT;
     return ctxTree;
 }
@@ -13296,7 +13233,7 @@ GenTree* Compiler::gtNewStaticMethodMonitorAddr()
     // the context parameter is this that we don't need the eager reporting logic.)
     lvaGenericsContextInUse = true;
 
-    GenTree* context = gtNewLclvNode(info.compTypeCtxtArg, TYP_I_IMPL);
+    GenTree* context = gtNewLclvNode(lvaGetDesc(info.compTypeCtxtArg), TYP_I_IMPL);
     context->gtFlags |= GTF_VAR_CONTEXT;
     GenTree* classHandle = nullptr;
 

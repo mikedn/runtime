@@ -273,6 +273,12 @@ struct ConstData
     }
 };
 
+struct StackAddrMode
+{
+    int varNum;
+    int varOffs;
+};
+
 class emitter
 {
     friend class emitLocation;
@@ -882,14 +888,14 @@ private:
             _idSmallCns = value;
         }
 
-        void SetVarAddr(int varNum, int varOffs)
+        void SetVarAddr(INDEBUG(StackAddrMode s))
         {
 #ifdef TARGET_ARMARCH
             _idLclVar = true;
 #endif
 #ifdef DEBUG
-            _idDebugOnlyInfo->varNum  = varNum;
-            _idDebugOnlyInfo->varOffs = varOffs;
+            _idDebugOnlyInfo->varNum  = s.varNum;
+            _idDebugOnlyInfo->varOffs = s.varOffs;
 #endif
         }
 

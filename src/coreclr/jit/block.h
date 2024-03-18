@@ -67,54 +67,8 @@ struct BasicBlockList;
 struct flowList;
 struct EHblkDsc;
 struct BBswtDesc;
-
-class ImportSpillCliqueState
-{
-    unsigned const hasCatchArg : 1;
-    unsigned const spillTempCount : 31;
-    union {
-        CORINFO_CLASS_HANDLE const catchArgType;
-        unsigned const             spillTempBaseLclNum;
-    };
-
-public:
-    ImportSpillCliqueState(CORINFO_CLASS_HANDLE catchArgType)
-        : hasCatchArg(1), spillTempCount(0), catchArgType(catchArgType)
-    {
-    }
-
-    ImportSpillCliqueState(unsigned spillTempBaseLclNum, unsigned spillTempCount)
-        : hasCatchArg(0), spillTempCount(spillTempCount), spillTempBaseLclNum(spillTempBaseLclNum)
-    {
-    }
-
-    bool HasCatchArg() const
-    {
-        return hasCatchArg;
-    }
-
-    CORINFO_CLASS_HANDLE GetCatchArgType() const
-    {
-        assert(hasCatchArg);
-        return catchArgType;
-    }
-
-    unsigned GetSpillTempCount() const
-    {
-        return spillTempCount;
-    }
-
-    unsigned GetSpillTempBaseLclNum() const
-    {
-        assert(!hasCatchArg);
-        return spillTempBaseLclNum;
-    }
-
-    unsigned GetStackDepth() const
-    {
-        return hasCatchArg ? 1 : spillTempCount;
-    }
-};
+class LclVarDsc;
+class ImportSpillCliqueState;
 
 // This encapsulates the "exception handling" successors of a block.  That is,
 // if a basic block BB1 occurs in a try block, we consider the first basic block
@@ -1114,6 +1068,11 @@ struct BasicBlock : private LIR::Range
 
         struct
         {
+            BasicBlock* next;
+        } lsraSequenceWorklist;
+
+        struct
+        {
             struct insGroup* emitLabel;
 #ifdef TARGET_ARM
             struct insGroup* unwindNopEmitLabel;
@@ -1381,8 +1340,11 @@ struct BasicBlock : private LIR::Range
     // Try to clone block state and statements from `from` block to `to` block (which must be new/empty),
     // optionally replacing uses of local `varNum` with IntCns `varVal`.  Return true if all statements
     // in the block are cloned successfully, false (with partially-populated `to` block) if one fails.
-    static bool CloneBlockState(
-        Compiler* compiler, BasicBlock* to, const BasicBlock* from, unsigned varNum = (unsigned)-1, int varVal = 0);
+    static bool CloneBlockState(Compiler*         compiler,
+                                BasicBlock*       to,
+                                const BasicBlock* from,
+                                const LclVarDsc*  constLcl = nullptr,
+                                int               constVal = 0);
 
     void MakeLIR();
     bool IsLIR() const;
@@ -1940,8 +1902,8 @@ public:
 // The parent is provided by BasicBlock::bbIDom.
 struct DomTreeNode
 {
-    BasicBlock* firstChild;
-    BasicBlock* nextSibling;
+    BasicBlock* firstChild  = nullptr;
+    BasicBlock* nextSibling = nullptr;
 };
 
 /*****************************************************************************/

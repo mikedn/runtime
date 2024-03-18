@@ -16,16 +16,15 @@ void LinearScan::BuildNode(GenTree* tree)
     {
         case GT_LCL_VAR:
         case GT_LCL_FLD:
-            assert(!compiler->lvaGetDesc(tree->AsLclVarCommon())->IsRegCandidate());
+            assert(!tree->AsLclVarCommon()->GetLcl()->IsRegCandidate());
 
             if (tree->OperIs(GT_LCL_FLD) && tree->AsLclFld()->IsOffsetMisaligned())
             {
-                BuildInternalIntDef(tree); // to generate address.
-                BuildInternalIntDef(tree); // to move float into an int reg.
+                BuildInternalIntDef(tree);
 
                 if (tree->TypeIs(TYP_DOUBLE))
                 {
-                    BuildInternalIntDef(tree); // to move the second half into an int reg.
+                    BuildInternalIntDef(tree);
                 }
 
                 BuildInternalUses();

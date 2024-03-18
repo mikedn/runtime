@@ -11,75 +11,66 @@ class BitVecTraits
     Compiler* comp;
 
 public:
-    // TODO-MIKE-Cleanup: This should not be needed but there's a ton of code
-    // that insists on passing a pointer to traits instead of a saner reference.
-    // In fact, it may be even better to pass by value, since all these functions
-    // are supposed to be inlined. Just beware that MSVC might do stupid things
-    // with struct copies.
-    struct Env
-    {
-        const BitVecTraits* traits;
-
-        Env(const BitVecTraits* traits) : traits(traits)
-        {
-        }
-
-        Env(const BitVecTraits& traits) : traits(&traits)
-        {
-        }
-
-        operator const BitVecTraits*() const
-        {
-            return traits;
-        }
-    };
+    using Word = size_t;
+    using Env  = const BitVecTraits&;
 
     BitVecTraits(unsigned size, Compiler* comp) : size(size), comp(comp)
     {
     }
 
-    static void* Alloc(const BitVecTraits* b, size_t byteSize);
+    static Word* Alloc(Env t, unsigned wordCount);
 
-    static unsigned GetSize(const BitVecTraits* b)
+    static unsigned GetSize(Env t)
     {
-        return b->size;
+        return t.size;
     }
 
-    static unsigned GetArrSize(const BitVecTraits* b, unsigned elemSize)
+    static unsigned GetWordCount(Env t)
     {
-        assert(elemSize == sizeof(size_t));
-        unsigned elemBits = 8 * elemSize;
-        return roundUp(b->size, elemBits) / elemBits;
+        unsigned wordBitSize = sizeof(Word) * CHAR_BIT;
+        return roundUp(t.size, wordBitSize) / wordBitSize;
     }
 
-#ifdef DEBUG
-    static void* DebugAlloc(const BitVecTraits* b, size_t byteSize);
-
-    static unsigned GetEpoch(const BitVecTraits* b)
+    static bool IsShort(Env t)
     {
-        return b->size;
+        return t.size <= sizeof(Word) * CHAR_BIT;
     }
-#endif
 };
 
-using BitVecOps       = BitSetOps<BitSetShortLongRep, BitVecTraits>;
-using BitVec          = BitVecOps::Rep;
-using BitVec_ValArg_T = BitVecOps::ValArgType;
-using BitVec_ValRet_T = BitVecOps::RetValType;
-
-using ASSERT_TP        = BitVec;
-using ASSERT_VALARG_TP = BitVec_ValArg_T;
-using ASSERT_VALRET_TP = BitVec_ValRet_T;
+using BitVecOps = BitSetOps<BitVecTraits>;
+using BitVec    = BitVecOps::Set;
+using ASSERT_TP = BitVec;
 
 class CompAllocBitSetTraits
 {
 public:
-    static void* Alloc(Compiler* comp, size_t byteSize);
+    using Word = size_t;
 
-#ifdef DEBUG
-    static void* DebugAlloc(Compiler* comp, size_t byteSize);
-#endif
+    static Word* Alloc(Compiler* comp, unsigned wordCount);
+
+    static unsigned ComputeWordCount(unsigned bitCount)
+    {
+        unsigned wordBitSize = sizeof(Word) * CHAR_BIT;
+        return roundUp(bitCount, wordBitSize) / wordBitSize;
+    }
 };
+
+class ILLabelSetTraits : public CompAllocBitSetTraits
+{
+public:
+    using Env = Compiler*;
+
+    static unsigned GetSize(Compiler* comp);
+    static unsigned GetWordCount(Compiler* comp);
+
+    static bool IsShort(Compiler* comp)
+    {
+        return false;
+    }
+};
+
+using ILLabelSetOps = BitSetOps<ILLabelSetTraits>;
+using ILLabelSet    = ILLabelSetOps::Set;
 
 // A VARSET_TP is a set of (small) integers representing local variables.
 //
@@ -105,23 +96,24 @@ public:
 // This class is customizes the bit set to represent sets of tracked local vars.
 // The size of the bitset is determined by the # of tracked locals (up to some internal
 // maximum), and the Compiler* tracks the tracked local epochs.
-class TrackedVarBitSetTraits : public CompAllocBitSetTraits
+class LiveBitSetTraits : public CompAllocBitSetTraits
 {
 public:
     using Env = Compiler*;
 
-    static unsigned GetSize(Compiler* comp);
-    static unsigned GetArrSize(Compiler* comp, unsigned elemSize);
+    static unsigned GetSize(const Compiler* comp);
+    static unsigned GetWordCount(const Compiler* comp);
 
-#ifdef DEBUG
-    static unsigned GetEpoch(class Compiler* comp);
-#endif
+    static bool IsShort(const Compiler* comp)
+    {
+        return GetWordCount(comp) <= 1;
+    }
 };
 
-using VarSetOps        = BitSetOps<BitSetShortLongRep, TrackedVarBitSetTraits>;
-using VARSET_TP        = VarSetOps::Rep;
-using VARSET_VALARG_TP = VarSetOps::ValArgType;
-using VARSET_VALRET_TP = VarSetOps::RetValType;
+using LiveSetOps = BitSetOps<LiveBitSetTraits>;
+using LiveSet    = LiveSetOps::Set;
+using VarSetOps  = LiveSetOps;
+using VARSET_TP  = LiveSet;
 
 // A BlockSet is a set of BasicBlocks, represented by the BasicBlock number (bbNum).
 //
@@ -141,32 +133,31 @@ using VARSET_VALRET_TP = VarSetOps::RetValType;
 // block numbers are higher than the inliner function. fgBBNumMax counts both.
 // Thus, if you only care about the inlinee, during inlining, this bit set will waste
 // the lower numbered block bits.) The Compiler* tracks the BasicBlock epochs.
-class BasicBlockBitSetTraits : public CompAllocBitSetTraits
+class BlockSetTraits : public CompAllocBitSetTraits
 {
 public:
     using Env = Compiler*;
 
-    static unsigned GetSize(Compiler* comp);
-    static unsigned GetArrSize(Compiler* comp, unsigned elemSize);
+    static unsigned GetSize(const Compiler* comp);
+    static unsigned GetWordCount(const Compiler* comp);
 
-#ifdef DEBUG
-    static unsigned GetEpoch(class Compiler* comp);
-#endif
+    static bool IsShort(const Compiler* comp)
+    {
+        return GetWordCount(comp) <= 1;
+    }
 };
 
-class BlockSetOps : public BitSetOps<BitSetShortLongRep, BasicBlockBitSetTraits>
+class BlockSetOps : public BitSetOps<BlockSetTraits>
 {
 public:
     // Specialize BlockSetOps::MakeFull(). Since we number basic blocks from one, we
     // remove bit zero from the block set. Otherwise, IsEmpty() would never return true.
-    static Rep MakeFull(Compiler* env)
+    static Set MakeFull(Compiler* env)
     {
-        Rep retval = BitSetOps<BitSetShortLongRep, BasicBlockBitSetTraits>::MakeFull(env);
+        Set retval = BitSetOps<BlockSetTraits>::MakeFull(env);
         RemoveElemD(env, retval, 0);
         return retval;
     }
 };
 
-using BlockSet          = BlockSetOps::Rep;
-using BlockSet_ValArg_T = BlockSetOps::ValArgType;
-using BlockSet_ValRet_T = BlockSetOps::RetValType;
+using BlockSet = BlockSetOps::Set;

@@ -212,7 +212,6 @@ class CodeGenLivenessUpdater
 #ifdef DEBUG
     VARSET_TP scratchSet1;
     VARSET_TP scratchSet2;
-    unsigned  epoch;
 #endif
 
     void UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
@@ -226,9 +225,9 @@ class CodeGenLivenessUpdater
     int GetVarStackOffset(CodeGen* codeGen, const LclVarDsc* lcl) const;
     DbgInfoVarLoc GetVarLocation(CodeGen* codeGen, const LclVarDsc* lcl) const;
 
-    void StartRange(CodeGen* codeGen, const LclVarDsc* lcl, unsigned lclNum);
-    void UpdateRange(CodeGen* codeGen, const LclVarDsc* lcl, unsigned lclNum);
-    void EndRange(CodeGen* codeGen, unsigned lclNum);
+    void StartRange(CodeGen* codeGen, const LclVarDsc* lcl);
+    void UpdateRange(CodeGen* codeGen, const LclVarDsc* lcl);
+    void EndRange(CodeGen* codeGen, const LclVarDsc* lcl);
 
 #ifdef DEBUG
     void DumpDiff(CodeGen* codeGen);
@@ -253,12 +252,7 @@ public:
     void Spill(LclVarDsc* lcl, GenTreeLclVar* lclNode);
     void Unspill(CodeGen* codeGen, LclVarDsc* lcl, GenTreeLclVar* src, RegNum dstReg, var_types dstType);
 
-    VARSET_VALARG_TP GetLiveSet() const
-    {
-        return currentLife;
-    }
-
-    VARSET_VALARG_TP GetGCLiveSet() const
+    VARSET_TP GetGCLiveSet() const
     {
         return liveGCLcl;
     }

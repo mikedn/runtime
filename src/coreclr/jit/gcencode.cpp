@@ -79,10 +79,10 @@ class GCEncoder
     StackSlotLifetime* const firstStackSlotLifetime;
     RegArgChange* const      firstRegArgChange;
     CallSite* const          firstCallSite;
+    LclVarDsc*               trackedThisLcl = nullptr;
     bool const               isFullyInterruptible;
     unsigned                 untrackedStackSlotCount;
     unsigned                 trackedStackSlotLifetimeCount;
-    unsigned                 trackedThisLclNum = BAD_VAR_NUM;
     regNumber                syncThisReg;
 
 public:
@@ -330,10 +330,8 @@ unsigned GCEncoder::GetUntrackedStackSlotCount()
 {
     unsigned int untrackedCount = 0;
 
-    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Locals())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
         if (lcl->IsDependentPromotedField(compiler) || !lcl->lvOnFrame || lcl->HasGCSlotLiveness())
         {
             continue;
@@ -342,7 +340,7 @@ unsigned GCEncoder::GetUntrackedStackSlotCount()
         if (varTypeIsGC(lcl->GetType()))
         {
 #ifndef FEATURE_EH_FUNCLETS
-            if (compiler->lvaIsOriginalThisParam(lclNum) && compiler->lvaKeepAliveAndReportThis())
+            if (compiler->lvaIsOriginalThisParam(lcl->GetLclNum()) && compiler->lvaKeepAliveAndReportThis())
             {
                 // "this" is untracked, but encoding of untracked variables does not support
                 // reporting "this". So report it as a tracked variable with a liveness extending
@@ -357,7 +355,7 @@ unsigned GCEncoder::GetUntrackedStackSlotCount()
                 // 3) when there is RegArgChange for "this", but keepThisAlive == true;
                 // etc.
 
-                trackedThisLclNum = lclNum;
+                trackedThisLcl = lcl;
 
                 continue;
             }
@@ -423,7 +421,7 @@ unsigned GCEncoder::GetTrackedStackSlotLifetimeCount()
 {
     unsigned stackSlotLifetimeCount = 0;
 
-    if (trackedThisLclNum != BAD_VAR_NUM)
+    if (trackedThisLcl != nullptr)
     {
         stackSlotLifetimeCount++;
     }
@@ -1646,8 +1644,7 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
     header->gsCookieOffset = INVALID_GS_COOKIE_OFFSET;
     if (compiler->getNeedsGSSecurityCookie())
     {
-        assert(compiler->lvaGSSecurityCookie != BAD_VAR_NUM);
-        int stkOffs            = compiler->lvaTable[compiler->lvaGSSecurityCookie].GetStackOffset();
+        int stkOffs            = compiler->lvaGetDesc(compiler->lvaGSSecurityCookie)->GetStackOffset();
         header->gsCookieOffset = codeGen->isFramePointerUsed() ? -stkOffs : stkOffs;
         assert(header->gsCookieOffset != INVALID_GS_COOKIE_OFFSET);
     }
@@ -1675,8 +1672,7 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
     header->revPInvokeOffset = INVALID_REV_PINVOKE_OFFSET;
     if (compiler->opts.IsReversePInvoke())
     {
-        assert(compiler->lvaReversePInvokeFrameVar != BAD_VAR_NUM);
-        int stkOffs              = compiler->lvaTable[compiler->lvaReversePInvokeFrameVar].GetStackOffset();
+        int stkOffs              = compiler->lvaGetDesc(compiler->lvaReversePInvokeFrameVar)->GetStackOffset();
         header->revPInvokeOffset = codeGen->isFramePointerUsed() ? -stkOffs : stkOffs;
         assert(header->revPInvokeOffset != INVALID_REV_PINVOKE_OFFSET);
     }
@@ -1911,7 +1907,7 @@ public:
     {
         if (pasMaxDepth > BITS_IN_pasMask)
         {
-            pasTopArray = pComp->getAllocator(CMK_Unknown).allocate<BYTE>(pasMaxDepth - BITS_IN_pasMask);
+            pasTopArray = pComp->getAllocator(CMK_GC).allocate<BYTE>(pasMaxDepth - BITS_IN_pasMask);
         }
     }
 
@@ -2281,10 +2277,8 @@ unsigned GCEncoder::AddUntrackedStackSlots(uint8_t* dest, const int mask)
     unsigned totalSize  = 0;
     int      lastoffset = 0;
 
-    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Locals())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
         if (lcl->IsDependentPromotedField(compiler) || !lcl->lvOnFrame || lcl->HasGCSlotLiveness())
         {
             continue;
@@ -2293,7 +2287,7 @@ unsigned GCEncoder::AddUntrackedStackSlots(uint8_t* dest, const int mask)
         if (varTypeIsGC(lcl->GetType()))
         {
 #ifndef FEATURE_EH_FUNCLETS
-            if (lclNum == trackedThisLclNum)
+            if (lcl == trackedThisLcl)
             {
                 continue;
             }
@@ -2416,15 +2410,15 @@ unsigned GCEncoder::AddTrackedStackSlots(uint8_t* dest, const int mask)
     unsigned totalSize = 0;
 
 #ifndef FEATURE_EH_FUNCLETS
-    if (trackedThisLclNum != BAD_VAR_NUM)
+    if (trackedThisLcl != nullptr)
     {
         // Encoding of untracked variables does not support reporting
         // "this". So report it as a tracked variable with a liveness
         // extending over the entire method.
 
-        assert(compiler->lvaGetDesc(trackedThisLclNum)->TypeIs(TYP_REF));
+        assert(trackedThisLcl->TypeIs(TYP_REF));
 
-        unsigned slotOffset = compiler->lvaGetDesc(trackedThisLclNum)->GetStackOffset();
+        unsigned slotOffset = trackedThisLcl->GetStackOffset();
 
         slotOffset = abs(static_cast<int>(slotOffset));
         slotOffset |= this_OFFSET_FLAG;
@@ -3037,7 +3031,7 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
 
     if (syncThisReg != REG_NA)
     {
-        assert(trackedThisLclNum == BAD_VAR_NUM);
+        assert(trackedThisLcl == nullptr);
 
         uint8_t regEncoding;
 
@@ -4117,7 +4111,7 @@ void GCEncoder::SetHeaderInfo(unsigned codeSize, unsigned prologSize, ReturnKind
     }
     else if (compiler->lvaKeepAliveAndReportThis())
     {
-        assert(compiler->info.compThisArg != BAD_VAR_NUM);
+        assert(compiler->info.GetThisParamLclNum() != BAD_VAR_NUM);
 
         // OSR can report the root method's frame slot, if that method reported context.
         // If not, the OSR frame will have saved the needed context.
@@ -4241,10 +4235,8 @@ void GCEncoder::SetHeaderInfo(unsigned codeSize, unsigned prologSize, ReturnKind
 
 void GCEncoder::AddUntrackedStackSlots()
 {
-    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Locals())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
         if (lcl->IsDependentPromotedField(compiler) || !lcl->lvOnFrame || lcl->HasGCSlotLiveness())
         {
             continue;
@@ -4326,7 +4318,7 @@ void GCEncoder::AddUntrackedStackSlots()
     if (compiler->lvaKeepAliveAndReportThis())
     {
         assert(!compiler->lvaReportParamTypeArg());
-        assert(compiler->lvaGetDesc(compiler->info.compThisArg)->TypeIs(TYP_REF));
+        assert(compiler->lvaGetDesc(compiler->info.GetThisParamLclNum())->TypeIs(TYP_REF));
 
         GetStackSlotId(compiler->codeGen->cachedGenericContextArgOffset, GC_SLOT_UNTRACKED, slotBase);
     }

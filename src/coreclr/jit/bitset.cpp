@@ -3,83 +3,79 @@
 
 #include "jitpch.h"
 #include "bitset.h"
-#include "bitsetasuint64.h"
 #include "bitsetasshortlong.h"
-#include "bitsetasuint64inclass.h"
 
 const unsigned BitSetSupport::BitCountTable[16]{0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4};
 
 #ifdef DEBUG
-template <typename BitSetType, typename BitSetTraits>
-void BitSetSupport::RunTests(typename BitSetTraits::Env env)
+template <typename Traits>
+static void RunTests(typename Traits::Env env)
 {
-    using LclBitSetOps = BitSetOps<BitSetType, BitSetTraits>;
-
     // The tests require that the Size is at least 52...
-    assert(BitSetTraits::GetSize(env) > 51);
+    assert(Traits::GetSize(env) > 51);
 
-    BitSetType bs1;
-    LclBitSetOps::AssignNoCopy(env, bs1, LclBitSetOps::MakeEmpty(env));
-    unsigned bs1bits[] = {0, 10, 44, 45};
-    LclBitSetOps::AddElemD(env, bs1, bs1bits[0]);
-    LclBitSetOps::AddElemD(env, bs1, bs1bits[1]);
-    LclBitSetOps::AddElemD(env, bs1, bs1bits[2]);
-    LclBitSetOps::AddElemD(env, bs1, bs1bits[3]);
+    using Ops = BitSetOps<Traits>;
+    using Set = typename Ops::Set;
 
-    typename LclBitSetOps::Iter bsi(env, bs1);
-    unsigned                    bitNum = 0;
-    unsigned                    k      = 0;
-    while (bsi.NextElem(&bitNum))
+    Set s1 = Ops::MakeEmpty(env);
+
+    unsigned bits1[]{0, 10, 44, 45};
+    Ops::AddElemD(env, s1, bits1[0]);
+    Ops::AddElemD(env, s1, bits1[1]);
+    Ops::AddElemD(env, s1, bits1[2]);
+    Ops::AddElemD(env, s1, bits1[3]);
+
+    unsigned k = 0;
+    for (typename Ops::Enumerator bsi(env, s1); bsi.MoveNext();)
     {
-        assert(bitNum == bs1bits[k]);
+        assert(bsi.Current() == bits1[k]);
         k++;
     }
     assert(k == 4);
 
-    assert(LclBitSetOps::Equal(env, bs1, LclBitSetOps::Union(env, bs1, bs1)));
-    assert(LclBitSetOps::Equal(env, bs1, LclBitSetOps::Intersection(env, bs1, bs1)));
-    assert(LclBitSetOps::IsSubset(env, bs1, bs1));
+    Set temp = Ops::Alloc(env);
+    Ops::Union(env, temp, s1, s1);
+    assert(Ops::Equal(env, s1, temp));
 
-    BitSetType bs2;
-    LclBitSetOps::AssignNoCopy(env, bs2, LclBitSetOps::MakeEmpty(env));
-    unsigned bs2bits[] = {0, 10, 50, 51};
-    LclBitSetOps::AddElemD(env, bs2, bs2bits[0]);
-    LclBitSetOps::AddElemD(env, bs2, bs2bits[1]);
-    LclBitSetOps::AddElemD(env, bs2, bs2bits[2]);
-    LclBitSetOps::AddElemD(env, bs2, bs2bits[3]);
+    Ops::Intersection(env, temp, s1, s1);
+    assert(Ops::Equal(env, s1, temp));
 
-    unsigned   unionBits[] = {0, 10, 44, 45, 50, 51};
-    BitSetType bsU12;
-    LclBitSetOps::AssignNoCopy(env, bsU12, LclBitSetOps::Union(env, bs1, bs2));
-    k      = 0;
-    bsi    = typename LclBitSetOps::Iter(env, bsU12);
-    bitNum = 0;
-    while (bsi.NextElem(&bitNum))
+    assert(Ops::IsSubset(env, s1, s1));
+
+    Set s2 = Ops::MakeEmpty(env);
+
+    unsigned bits2[]{0, 10, 50, 51};
+    Ops::AddElemD(env, s2, bits2[0]);
+    Ops::AddElemD(env, s2, bits2[1]);
+    Ops::AddElemD(env, s2, bits2[2]);
+    Ops::AddElemD(env, s2, bits2[3]);
+
+    Ops::Union(env, temp, s1, s2);
+    unsigned unionBits[]{0, 10, 44, 45, 50, 51};
+
+    k = 0;
+    for (typename Ops::Enumerator bsi(env, temp); bsi.MoveNext();)
     {
-        assert(bitNum == unionBits[k]);
+        assert(bsi.Current() == unionBits[k]);
         k++;
     }
     assert(k == 6);
 
-    k                                = 0;
-    typename LclBitSetOps::Iter bsiL = typename LclBitSetOps::Iter(env, bsU12);
-    bitNum                           = 0;
-    while (bsiL.NextElem(&bitNum))
+    k = 0;
+    for (typename Ops::Enumerator bsiL(env, temp); bsiL.MoveNext();)
     {
-        assert(bitNum == unionBits[k]);
+        assert(bsiL.Current() == unionBits[k]);
         k++;
     }
     assert(k == 6);
 
-    unsigned   intersectionBits[] = {0, 10};
-    BitSetType bsI12;
-    LclBitSetOps::AssignNoCopy(env, bsI12, LclBitSetOps::Intersection(env, bs1, bs2));
-    k      = 0;
-    bsi    = typename LclBitSetOps::Iter(env, bsI12);
-    bitNum = 0;
-    while (bsi.NextElem(&bitNum))
+    Ops::Intersection(env, temp, s1, s2);
+    unsigned intersectionBits[]{0, 10};
+
+    k = 0;
+    for (typename Ops::Enumerator bsi(env, temp); bsi.MoveNext();)
     {
-        assert(bitNum == intersectionBits[k]);
+        assert(bsi.Current() == intersectionBits[k]);
         k++;
     }
     assert(k == 2);
@@ -88,32 +84,33 @@ void BitSetSupport::RunTests(typename BitSetTraits::Env env)
 class TestBitSetTraits
 {
 public:
-    using Env = CompAllocator;
+    using Env  = CompAllocator;
+    using Word = size_t;
 
-    static void* Alloc(CompAllocator alloc, size_t byteSize)
+    static void* Alloc(CompAllocator alloc, unsigned wordCount)
     {
-        return alloc.allocate<char>(byteSize);
+        return alloc.allocate<Word>(wordCount);
     }
+
     static unsigned GetSize(CompAllocator alloc)
     {
         return 64;
     }
-    static unsigned GetArrSize(CompAllocator alloc, unsigned elemSize)
+
+    static unsigned GetWordCount(CompAllocator alloc)
     {
-        assert(elemSize == sizeof(size_t));
-        return (64 / 8) / sizeof(size_t);
+        return GetSize(alloc) / sizeof(Word);
     }
-    static unsigned GetEpoch(CompAllocator alloc)
+
+    static bool IsShort(CompAllocator alloc)
     {
-        return 0;
+        return GetWordCount(alloc) <= 1;
     }
 };
 
 void BitSetSupport::TestSuite(CompAllocator env)
 {
-    BitSetSupport::RunTests<UINT64, TestBitSetTraits>(env);
-    BitSetSupport::RunTests<BitSetShortLongRep, TestBitSetTraits>(env);
-    BitSetSupport::RunTests<BitSetUint64<TestBitSetTraits>, TestBitSetTraits>(env);
+    RunTests<TestBitSetTraits>(env);
 }
 
 #endif // DEBUG

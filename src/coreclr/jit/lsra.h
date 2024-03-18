@@ -199,23 +199,16 @@ typedef jitstd::list<RefPosition>::reverse_iterator RefPositionReverseIterator;
 class Referenceable
 {
 public:
-    Referenceable()
-    {
-        firstRefPosition  = nullptr;
-        recentRefPosition = nullptr;
-        lastRefPosition   = nullptr;
-    }
+    RefPosition* firstRefPosition  = nullptr;
+    RefPosition* recentRefPosition = nullptr;
+    RefPosition* lastRefPosition   = nullptr;
 
     // A linked list of RefPositions.  These are only traversed in the forward
     // direction, and are not moved, so they don't need to be doubly linked
     // (see RefPosition).
 
-    RefPosition* firstRefPosition;
-    RefPosition* recentRefPosition;
-    RefPosition* lastRefPosition;
-
     // Get the position of the next reference which is at or greater than
-    // the current location (relies upon recentRefPosition being udpated
+    // the current location (relies upon recentRefPosition being updated
     // during traversal).
     RefPosition* getNextRefPosition();
     LsraLocation getNextRefLocation();
@@ -224,63 +217,32 @@ public:
 class RegRecord : public Referenceable
 {
 public:
-    RegRecord()
-    {
-        assignedInterval = nullptr;
-        previousInterval = nullptr;
-        regNum           = REG_NA;
-        isCalleeSave     = false;
-        registerType     = IntRegisterType;
-    }
-
-    void init(regNumber reg)
-    {
-#ifdef TARGET_ARM64
-        // The Zero register, or the SP
-        if ((reg == REG_ZR) || (reg == REG_SP))
-        {
-            // IsGeneralRegister returns false for REG_ZR and REG_SP
-            regNum       = reg;
-            registerType = IntRegisterType;
-        }
-        else
-#endif
-            if (IsFloatReg(reg))
-        {
-            registerType = FloatRegisterType;
-        }
-        else
-        {
-            // The constructor defaults to IntRegisterType
-            assert(IsGeneralRegister(reg) && registerType == IntRegisterType);
-        }
-        regNum       = reg;
-        isCalleeSave = ((RBM_CALLEE_SAVED & genRegMask(reg)) != 0);
-    }
-
-#ifdef DEBUG
-    // print out representation
-    void dump();
-    // concise representation for embedding
-    void tinyDump();
-#endif // DEBUG
-
-    // DATA
-
     // interval to which this register is currently allocated.
     // If the interval is inactive (isActive == false) then it is not currently live,
     // and the register can be unassigned (i.e. setting assignedInterval to nullptr)
     // without spilling the register.
-    Interval* assignedInterval;
+    Interval* assignedInterval = nullptr;
     // Interval to which this register was previously allocated, and which was unassigned
     // because it was inactive.  This register will be reassigned to this Interval when
     // assignedInterval becomes inactive.
-    Interval* previousInterval;
+    Interval* previousInterval = nullptr;
 
-    regNumber     regNum;
-    bool          isCalleeSave;
-    RegisterType  registerType;
-    unsigned char regOrder;
+    RegNum   regNum;
+    unsigned regOrder;
+
+    RegRecord(RegNum reg) : regNum(reg)
+    {
+    }
+
+    RegisterType registerType() const
+    {
+        return IsFloatReg(regNum) ? FloatRegisterType : IntRegisterType;
+    }
+
+#ifdef DEBUG
+    void dump();
+    void tinyDump();
+#endif
 };
 
 /*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -339,16 +301,6 @@ public:
     {
         return (genExactlyOneBit(regMask));
     }
-
-    // Initialize the block traversal for LSRA.
-    // This resets the bbVisitedSet, and on the first invocation sets the blockSequence array,
-    // which determines the order in which blocks will be allocated (currently called during Lowering).
-    BasicBlock* startBlockSequence();
-    // Move to the next block in sequence, updating the current block information.
-    BasicBlock* moveToNextBlock();
-    // Get the next block to be scheduled without changing the current block,
-    // but updating the blockSequence during the first iteration if it is not fully computed.
-    BasicBlock* getNextBlock();
 
     VarToRegMap GetBlockLiveInRegMap(BasicBlock* bb);
 
@@ -415,9 +367,9 @@ public:
     void addResolution(
         BasicBlock* block, GenTree* insertionPoint, Interval* interval, regNumber outReg, regNumber inReg);
 
-    void handleOutgoingCriticalEdges(BasicBlock* block);
+    void handleOutgoingCriticalEdges(BasicBlock* block, VARSET_TP outResolutionSet);
 
-    void resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, ResolveType resolveType, VARSET_VALARG_TP liveSet);
+    void resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, ResolveType resolveType, VARSET_TP liveSet);
 
     void resolveEdges();
 
@@ -718,7 +670,6 @@ private:
 
     // Update allocations at start/end of block
     void unassignIntervalBlockStart(RegRecord* regRecord, VarToRegMap inVarToRegMap);
-    void processBlockEndAllocation(BasicBlock* current);
 
     // Record variable locations at start/end of block
     void processBlockStartLocations(BasicBlock* current);
@@ -760,7 +711,7 @@ private:
 
     inline bool isCandidateLclVar(GenTree* tree)
     {
-        return tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && compiler->lvaGetDesc(tree->AsLclVar())->IsRegCandidate();
+        return tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && tree->AsLclVar()->GetLcl()->IsRegCandidate();
     }
 
     // Helpers for getKillSetForNode().
@@ -803,7 +754,7 @@ private:
         {
             assert(tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
             GenTreeLclVar* lclVar = tree->AsLclVar();
-            LclVarDsc*     varDsc = compiler->lvaGetDesc(lclVar);
+            LclVarDsc*     varDsc = lclVar->GetLcl();
             type                  = varDsc->GetRegisterType(lclVar);
         }
         assert(type != TYP_UNDEF && type != TYP_STRUCT);
@@ -834,20 +785,26 @@ private:
         }
     }
 
-    void writeLocalReg(GenTreeLclVar* lclNode, unsigned varNum, regNumber reg);
+    void writeLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl, regNumber reg);
     void resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, RefPosition* currentRefPosition);
 
-    void insertMove(BasicBlock* block, GenTree* insertionPoint, unsigned lclNum, regNumber inReg, regNumber outReg);
+    void insertMove(BasicBlock* block, GenTree* insertionPoint, Interval* interval, RegNum inReg, RegNum outReg);
 
 #ifdef TARGET_XARCH
     void insertSwap(
-        BasicBlock* block, GenTree* insertionPoint, unsigned lclNum1, regNumber reg1, unsigned lclNum2, regNumber reg2);
+        BasicBlock* block, GenTree* insertionPoint, Interval* interval1, RegNum reg1, Interval* interval2, RegNum reg2);
 #endif
 
 private:
     Interval* newInterval(var_types regType);
 
-    Interval* getIntervalForLocalVar(unsigned varIndex)
+    Interval* HasLclInterval(unsigned index) const
+    {
+        assert(index < compiler->lvaTrackedCount);
+        return localVarIntervals[index];
+    }
+
+    Interval* getIntervalForLocalVar(unsigned varIndex) const
     {
         assert(varIndex < compiler->lvaTrackedCount);
         assert(localVarIntervals[varIndex] != nullptr);
@@ -856,7 +813,7 @@ private:
 
     Interval* getIntervalForLocalVarNode(GenTreeLclVar* tree)
     {
-        LclVarDsc* varDsc = compiler->lvaGetDesc(tree);
+        LclVarDsc* varDsc = tree->GetLcl();
         assert(varDsc->lvTracked);
         return getIntervalForLocalVar(varDsc->lvVarIndex);
     }
@@ -1082,8 +1039,8 @@ private:
     SplitEdgeInfo getSplitEdgeInfo(unsigned int bbNum);
 
     void initVarRegMaps();
-    void setInVarRegForBB(unsigned int bbNum, unsigned int varNum, regNumber reg);
-    void setOutVarRegForBB(unsigned int bbNum, unsigned int varNum, regNumber reg);
+    void setInVarRegForBB(unsigned bbNum, LclVarDsc* lcl, regNumber reg);
+    void setOutVarRegForBB(unsigned bbNum, LclVarDsc* lcl, regNumber reg);
     VarToRegMap getInVarToRegMap(unsigned int bbNum);
     VarToRegMap getOutVarToRegMap(unsigned int bbNum);
     void setVarReg(VarToRegMap map, unsigned int trackedVarIndex, regNumber reg);
@@ -1269,21 +1226,6 @@ private:
     // Map from tracked variable index to Interval*.
     Interval** localVarIntervals;
 
-    // Set of blocks that have been visited.
-    BlockSet bbVisitedSet;
-    void markBlockVisited(BasicBlock* block)
-    {
-        BlockSetOps::AddElemD(compiler, bbVisitedSet, block->bbNum);
-    }
-    void clearVisitedBlocks()
-    {
-        BlockSetOps::ClearD(compiler, bbVisitedSet);
-    }
-    bool isBlockVisited(BasicBlock* block)
-    {
-        return BlockSetOps::IsMember(compiler, bbVisitedSet, block->bbNum);
-    }
-
 #if DOUBLE_ALIGN
     bool doDoubleAlign = false;
 #endif
@@ -1291,25 +1233,21 @@ private:
     // A map from bbNum to the block information used during register allocation.
     LsraBlockInfo* blockInfo = nullptr;
 
-    BasicBlock* findPredBlockForLiveIn(BasicBlock* block, BasicBlock* prevBlock DEBUGARG(bool* pPredBlockIsAllocated));
+    BasicBlock* findPredBlockForLiveIn(BasicBlock* block,
+                                       BasicBlock* prevBlock,
+                                       BlockSet visited DEBUGARG(bool* pPredBlockIsAllocated));
 
     // The order in which the blocks will be allocated.
     // This is any array of BasicBlock*, in the order in which they should be traversed.
     BasicBlock** blockSequence = nullptr;
-    // The verifiedAllBBs flag indicates whether we have verified that all BBs have been
-    // included in the blockSeuqence above, during setBlockSequence().
-    bool verifiedAllBBs;
-    void setBlockSequence();
-    int compareBlocksForSequencing(BasicBlock* block1, BasicBlock* block2, bool useBlockWeights);
-    BasicBlockList* blockSequenceWorkList = nullptr;
-    bool            blockSequencingDone   = false;
+    BlockSet     setBlockSequence();
+    bool compareBlocksForSequencing(BasicBlock* block1, BasicBlock* block2, bool useBlockWeights);
+    BasicBlock* blockSequenceWorkList = nullptr;
 #ifdef DEBUG
-    // LSRA must not change number of blocks and blockEpoch that it initializes at start.
-    unsigned blockEpoch;
+    // LSRA must not change number of blocks and blockSetVersion that it initializes at start.
+    unsigned blockSetVersion;
 #endif // DEBUG
     void addToBlockSequenceWorkList(BlockSet sequencedBlockSet, BasicBlock* block, BlockSet& predSet);
-    void removeFromBlockSequenceWorkList(BasicBlockList* listNode, BasicBlockList* prevNode);
-    BasicBlock* getNextCandidateFromWorkList();
 
     // Indicates whether the allocation pass has been completed.
     bool allocationPassComplete = false;
@@ -1320,14 +1258,12 @@ private:
     LsraLocation currentLoc;
     // The first location in a cold or funclet block.
     LsraLocation firstColdLoc = MaxLocation;
-    // The ordinal of the block we're on (i.e. this is the curBBSeqNum-th block we've allocated).
-    unsigned int curBBSeqNum = 0;
     // The number of blocks that we've sequenced.
     unsigned int bbSeqCount = 0;
     // The Location of the start of the current block.
     LsraLocation curBBStartLocation;
     // True if the method contains any critical edges.
-    bool hasCriticalEdges;
+    bool hasCriticalEdges = false;
 
     // True if there are any register candidate lclVars available for allocation.
     const bool enregisterLocalVars;
@@ -1361,9 +1297,9 @@ private:
     // Set of floating point variables to consider for callee-save registers.
     VARSET_TP fpCalleeSaveCandidateVars;
     // Set of variables exposed on EH flow edges.
-    VARSET_TP exceptVars;
+    VARSET_TP exceptVars = VarSetOps::UninitVal();
     // Set of variables exposed on finally edges. These must be zero-init if they are refs or if compInitMem is true.
-    VARSET_TP finallyVars;
+    VARSET_TP finallyVars = VarSetOps::UninitVal();
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 #if defined(TARGET_AMD64)
@@ -1672,7 +1608,7 @@ public:
         : registerPreferences(registerPreferences)
         , relatedInterval(nullptr)
         , assignedReg(nullptr)
-        , varNum(0)
+        , varIndex(0)
         , physReg(REG_COUNT)
         , registerType(registerType)
         , isActive(false)
@@ -1708,8 +1644,6 @@ public:
     void microDump();
 #endif // DEBUG
 
-    void setLocalNumber(Compiler* compiler, unsigned lclNum, LinearScan* l);
-
     // Fixed registers for which this Interval has a preference
     regMaskTP registerPreferences;
 
@@ -1723,7 +1657,7 @@ public:
     // register it currently occupies.
     RegRecord* assignedReg;
 
-    unsigned int varNum; // This is the "variable number": the index into the lvaTable array
+    unsigned varIndex; // index into the lvaTracked array
 
     // The register to which it is currently assigned.
     regNumber physReg;
@@ -1798,15 +1732,14 @@ public:
     LclVarDsc* getLocalVar(Compiler* comp)
     {
         assert(isLocalVar);
-        return comp->lvaGetDesc(this->varNum);
+        return comp->lvaGetDescByTrackedIndex(varIndex);
     }
 
     // Get the local tracked variable "index" (lvVarIndex), used in bitmasks.
     unsigned getVarIndex(Compiler* comp)
     {
-        LclVarDsc* varDsc = getLocalVar(comp);
-        assert(varDsc->lvTracked); // If this isn't true, we shouldn't be calling this function!
-        return varDsc->lvVarIndex;
+        assert(isLocalVar);
+        return varIndex;
     }
 
     bool isAssignedTo(regNumber regNum)

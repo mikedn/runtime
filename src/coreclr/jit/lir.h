@@ -74,9 +74,7 @@ public:
         bool IsDummyUse() const;
 
         void ReplaceWith(Compiler* compiler, GenTree* replacement);
-        unsigned ReplaceWithLclVar(Compiler*       compiler,
-                                   unsigned        lclNum   = BAD_VAR_NUM,
-                                   GenTreeLclVar** newStore = nullptr);
+        LclVarDsc* ReplaceWithLclVar(Compiler* compiler, LclVarDsc* lcl = nullptr, GenTreeLclVar** newStore = nullptr);
     };
 
     //------------------------------------------------------------------------
@@ -299,7 +297,7 @@ public:
 
 public:
     static Range& AsRange(BasicBlock* block);
-    static const LIR::Range& LIR::AsRange(const BasicBlock* block);
+    static const LIR::Range& AsRange(const BasicBlock* block);
 
     static void InsertBeforeTerminator(BasicBlock* block, LIR::Range&& range);
     static void InsertHelperCallBefore(Compiler* compiler, Range& range, GenTree* before, GenTreeCall* call);

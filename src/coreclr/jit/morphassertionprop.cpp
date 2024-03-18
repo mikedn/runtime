@@ -134,22 +134,28 @@ static const MorphAssertion::Range& GetSmallTypeRange(var_types type)
 
 struct MorphAssertionBitVecTraits
 {
-    using Env = Compiler*;
+    using Env  = Compiler*;
+    using Word = size_t;
 
-    static void* Alloc(Compiler* c, size_t byteSize)
+    static Word* Alloc(Compiler* c, unsigned wordCount)
     {
-        return c->getAllocator(CMK_MorphAssertion).allocate<char>(byteSize);
+        return c->getAllocator(CMK_MorphAssertion).allocate<Word>(wordCount);
     }
 
-    static unsigned GetSize(Compiler*)
+    static unsigned GetSize(const Compiler*)
     {
         return Compiler::morphAssertionMaxCount;
     }
 
-    static unsigned GetArrSize(Compiler*, unsigned elemSize)
+    static unsigned GetWordCount(const Compiler*)
     {
-        unsigned elemBits = 8 * elemSize;
-        return roundUp(Compiler::morphAssertionMaxCount, elemBits) / elemBits;
+        unsigned wordBitSize = sizeof(Word) * CHAR_BIT;
+        return roundUp(Compiler::morphAssertionMaxCount, wordBitSize) / wordBitSize;
+    }
+
+    static bool IsShort(const Compiler* c)
+    {
+        return GetWordCount(c) <= 1;
     }
 };
 
@@ -164,7 +170,7 @@ struct MorphAssertionBitVecTraits
 // could be used to link assertions directly to locals and entirely avoid the bit vector stuff, not
 // to mention the stupid linear search that's probably one of the reasons the max assertion count is
 // limited to 64 now.
-using DepBitVecOps = BitSetOps<BitSetShortLongRep, MorphAssertionBitVecTraits>;
+using DepBitVecOps = BitSetOps<MorphAssertionBitVecTraits>;
 
 void Compiler::morphAssertionInit()
 {
@@ -458,8 +464,7 @@ void Compiler::morphAssertionGenerateNotNull(GenTree* addr)
         return;
     }
 
-    unsigned   lclNum = addr->AsLclVar()->GetLclNum();
-    LclVarDsc* lcl    = lvaGetDesc(lclNum);
+    LclVarDsc* lcl = addr->AsLclVar()->GetLcl();
 
     // TODO-MIKE-Review: It's not clear why is this restricted to REF. Old comment
     // stated "we only perform null-checks on GC refs" but that's rather bogus.
@@ -474,6 +479,8 @@ void Compiler::morphAssertionGenerateNotNull(GenTree* addr)
     {
         return;
     }
+
+    unsigned lclNum = lcl->GetLclNum();
 
     // We don't need more than one NotNull assertion for a local. In theory we also
     // don't need a NotNull assertion if we already have a constant assertion, but
@@ -503,13 +510,14 @@ void Compiler::morphAssertionGenerateEqual(GenTreeLclVar* store, GenTree* val)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
 
-    unsigned   lclNum = store->GetLclNum();
-    LclVarDsc* lcl    = lvaGetDesc(lclNum);
+    LclVarDsc* lcl = store->GetLcl();
 
     if (lcl->IsAddressExposed())
     {
         return;
     }
+
+    unsigned lclNum = lcl->GetLclNum();
 
     // We're trying to add an Equal assertion when we already have another assertion
     // about this local. This should not happen, existing assertions should have been
@@ -576,8 +584,8 @@ void Compiler::morphAssertionGenerateEqual(GenTreeLclVar* store, GenTree* val)
 
         case GT_LCL_VAR:
         {
-            unsigned   valLclNum = val->AsLclVar()->GetLclNum();
-            LclVarDsc* valLcl    = lvaGetDesc(valLclNum);
+            LclVarDsc* valLcl    = val->AsLclVar()->GetLcl();
+            unsigned   valLclNum = valLcl->GetLclNum();
 
             if ((lclNum == valLclNum) || valLcl->IsAddressExposed())
             {
@@ -784,7 +792,7 @@ bool Compiler::morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_types type)
         return false;
     }
 
-    const MorphAssertion* assertion = morphAssertionFindRange(lclVar->GetLclNum());
+    const MorphAssertion* assertion = morphAssertionFindRange(lclVar->GetLcl()->GetLclNum());
 
     if (assertion == nullptr)
     {
@@ -806,7 +814,7 @@ bool Compiler::morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_types type)
 
 GenTree* Compiler::morphAssertionPropagateLclVarConst(const MorphAssertion& assertion, GenTreeLclVar* lclVar)
 {
-    LclVarDsc* lcl = lvaGetDesc(lclVar->GetLclNum());
+    LclVarDsc* lcl = lclVar->GetLcl();
 
     assert(!lcl->IsAddressExposed());
 
@@ -938,7 +946,7 @@ GenTree* Compiler::morphAssertionPropagateLclVarCopy(const MorphAssertion& asser
 
     assert(lclNumDst != lclNumSrc);
 
-    unsigned lclNum = lclVar->GetLclNum();
+    unsigned lclNum = lclVar->GetLcl()->GetLclNum();
 
     if ((lclNum != lclNumDst) && (lclNum != lclNumSrc))
     {
@@ -990,7 +998,7 @@ GenTree* Compiler::morphAssertionPropagateLclVarCopy(const MorphAssertion& asser
         return nullptr;
     }
 
-    lclVar->SetLclNum(lclNumCopy);
+    lclVar->SetLcl(lclCopy);
 
     DBEXEC(verbose, morphAssertionTrace(assertion, lclVar, "propagated"));
 
@@ -1007,13 +1015,14 @@ GenTree* Compiler::morphAssertionPropagateLclVar(GenTreeLclVar* lclVar)
         return nullptr;
     }
 
-    unsigned   lclNum = lclVar->GetLclNum();
-    LclVarDsc* lcl    = lvaGetDesc(lclNum);
+    LclVarDsc* lcl = lclVar->GetLcl();
 
     if (lcl->IsAddressExposed())
     {
         return nullptr;
     }
+
+    unsigned lclNum = lcl->GetLclNum();
 
     for (unsigned index = 0; index < morphAssertionCount; ++index)
     {
@@ -1059,13 +1068,14 @@ GenTree* Compiler::morphAssertionPropagateLclFld(GenTreeLclFld* lclFld)
         return nullptr;
     }
 
-    unsigned   lclNum = lclFld->GetLclNum();
-    LclVarDsc* lcl    = lvaGetDesc(lclNum);
+    LclVarDsc* lcl = lclFld->GetLcl();
 
     if (lcl->IsAddressExposed() || !lcl->TypeIs(TYP_STRUCT))
     {
         return nullptr;
     }
+
+    unsigned lclNum = lcl->GetLclNum();
 
     for (unsigned index = 0; index < morphAssertionCount; ++index)
     {
@@ -1105,13 +1115,13 @@ GenTree* Compiler::morphAssertionPropagateLclFld(GenTreeLclFld* lclFld)
 
         if (assertion.valKind == ValueKind::LclVar)
         {
-            unsigned lclNumCopySrc = assertion.val.lcl.lclNum;
+            LclVarDsc* lclNumCopySrcLcl = lvaGetDesc(assertion.val.lcl.lclNum);
 
-            assert(lvaGetDesc(lclNumCopySrc)->TypeIs(TYP_STRUCT));
-            assert(!lvaGetDesc(lclNumCopySrc)->IsIndependentPromoted());
+            assert(lclNumCopySrcLcl->TypeIs(TYP_STRUCT));
+            assert(!lclNumCopySrcLcl->IsIndependentPromoted());
 
-            lclFld->SetLclNum(lclNumCopySrc);
-            lvaSetVarDoNotEnregister(lclNumCopySrc DEBUGARG(DNER_LocalField));
+            lclFld->SetLcl(lclNumCopySrcLcl);
+            lvaSetDoNotEnregister(lclNumCopySrcLcl DEBUGARG(DNER_LocalField));
 
             return lclFld;
         }
@@ -1136,8 +1146,7 @@ GenTree* Compiler::morphAssertionPropagateRelOp(GenTreeOp* relop)
 
     assert(varTypeIsIntegralOrI(op1->GetType()));
 
-    unsigned   lclNum = op1->AsLclVar()->GetLclNum();
-    LclVarDsc* lcl    = lvaGetDesc(lclNum);
+    LclVarDsc* lcl = op1->AsLclVar()->GetLcl();
 
     if (lcl->IsAddressExposed())
     {
@@ -1168,7 +1177,8 @@ GenTree* Compiler::morphAssertionPropagateRelOp(GenTreeOp* relop)
         value &= valueMask;
     }
 
-    int result = -1;
+    unsigned lclNum = lcl->GetLclNum();
+    int      result = -1;
 
     for (unsigned index = 0; index < morphAssertionCount; ++index)
     {
@@ -1225,14 +1235,14 @@ GenTree* Compiler::morphAssertionPropagateCast(GenTreeCast* cast)
         return nullptr;
     }
 
-    LclVarDsc* lcl = lvaGetDesc(actualSrc->AsLclVar());
+    LclVarDsc* lcl = actualSrc->AsLclVar()->GetLcl();
 
     if (lcl->IsAddressExposed() || varTypeIsLong(lcl->GetType()))
     {
         return nullptr;
     }
 
-    const MorphAssertion* assertion = morphAssertionFindRange(actualSrc->AsLclVar()->GetLclNum());
+    const MorphAssertion* assertion = morphAssertionFindRange(actualSrc->AsLclVar()->GetLcl()->GetLclNum());
 
     if (assertion == nullptr)
     {
@@ -1325,7 +1335,8 @@ bool Compiler::morphAssertionIsNotNull(GenTreeLclVar* lclVar)
 {
     assert(fgGlobalMorph);
 
-    unsigned lclNum = lclVar->GetLclNum();
+    LclVarDsc* lcl    = lclVar->GetLcl();
+    unsigned   lclNum = lcl->GetLclNum();
 
     for (unsigned index = 0; index < morphAssertionCount; index++)
     {
@@ -1335,7 +1346,7 @@ bool Compiler::morphAssertionIsNotNull(GenTreeLclVar* lclVar)
         {
             assert(assertion.valKind == ValueKind::IntCon);
             assert(assertion.val.intCon.value == 0);
-            assert(!lvaGetDesc(lclNum)->IsAddressExposed());
+            assert(!lcl->IsAddressExposed());
 
             DBEXEC(verbose, morphAssertionTrace(assertion, lclVar, "propagated"));
 
@@ -1451,13 +1462,11 @@ void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeOp* asg)
     assert(DepBitVecOps::IsEmpty(this, killed));
 }
 
-void Compiler::morphAssertionKill(unsigned lclNum DEBUGARG(GenTreeOp* asg))
+void Compiler::morphAssertionKill(LclVarDsc* lcl DEBUGARG(GenTreeOp* asg))
 {
     assert(fgGlobalMorph);
 
-    morphAssertionKillSingle(lclNum DEBUGARG(asg));
-
-    LclVarDsc* lcl = lvaGetDesc(lclNum);
+    morphAssertionKillSingle(lcl->GetLclNum() DEBUGARG(asg));
 
     if (lcl->IsPromoted())
     {

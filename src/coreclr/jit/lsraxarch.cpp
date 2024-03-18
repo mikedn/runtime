@@ -16,7 +16,7 @@ void LinearScan::BuildNode(GenTree* tree)
     {
         case GT_LCL_VAR:
         case GT_LCL_FLD:
-            assert(!compiler->lvaGetDesc(tree->AsLclVarCommon())->IsRegCandidate());
+            assert(!tree->AsLclVarCommon()->GetLcl()->IsRegCandidate());
 
 #ifdef FEATURE_SIMD
             // Need an additional register to read upper 4 bytes of Vector3.
@@ -1184,7 +1184,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 
                 if (src->OperIs(GT_LCL_VAR))
                 {
-                    layout = compiler->lvaGetDesc(src->AsLclVar())->GetLayout();
+                    layout = src->AsLclVar()->GetLcl()->GetLayout();
                     size   = roundUp(layout->GetSize(), REGSIZE_BYTES);
                 }
                 else if (src->OperIs(GT_LCL_FLD))

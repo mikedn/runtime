@@ -22,14 +22,13 @@ void CodeGen::InitLclBlockLiveInRegs()
 
     for (VarSetOps::Enumerator en(compiler, firstBlock->bbLiveIn); en.MoveNext();)
     {
-        unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(en.Current());
-        LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+        LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(en.Current());
 
         if (lcl->IsRegCandidate())
         {
             regNumber regNum = static_cast<regNumber>(varRegMap[en.Current()]);
             lcl->SetRegNum(regNum);
-            JITDUMP("  V%02u (%s)", lclNum, getRegName(regNum));
+            JITDUMP("  V%02u (%s)", lcl->GetLclNum(), getRegName(regNum));
         }
     }
 
@@ -732,7 +731,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 bool CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
 {
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
+    LclVarDsc* lcl = lclVar->GetLcl();
 
     assert(lcl->IsRegCandidate());
     assert(lclVar->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
@@ -747,8 +746,6 @@ bool CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
         // SPILLED on a write-thru/single-def def, for which we should not be calling this method.
         assert(!lclVar->IsRegSpilled(0));
 
-        unsigned lclNum = lclVar->GetLclNum();
-
         // If this is a write-thru or a single-def variable, we don't actually spill at a use,
         // but we will kill the var in the reg (below).
         if (!lcl->IsAlwaysAliveInMemory())
@@ -761,9 +758,9 @@ bool CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
             // a local may be allocated to a register that is not addressable at the granularity of the
             // local's defined type (e.g. x86).
             var_types   type = lcl->GetActualRegisterType();
-            instruction ins  = ins_Store(type, IsSimdLocalAligned(lclNum));
+            instruction ins  = ins_Store(type, IsSimdLocalAligned(lcl));
 
-            GetEmitter()->emitIns_S_R(ins, emitTypeSize(type), lclVar->GetRegNum(), lclNum, 0);
+            GetEmitter()->emitIns_S_R(ins, emitTypeSize(type), lclVar->GetRegNum(), GetStackAddrMode(lcl, 0));
         }
 
         liveness.Spill(lcl, lclVar);
@@ -820,7 +817,7 @@ regNumber CodeGen::UseRegCandidateLclVar(GenTreeLclVar* node)
 {
     assert(IsRegCandidateLclVar(node));
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(node);
+    LclVarDsc* lcl = node->GetLcl();
 
     // Handle the case where we have a lclVar that needs to be copied before use (i.e. because it
     // interferes with one of the other sources (or the target, if it's a "delayed use" register)).
@@ -891,7 +888,7 @@ void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
 
     if (src->OperIs(GT_LCL_VAR) && !src->IsLastUse(0) && !copy->IsLastUse(0))
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(src->AsLclVar());
+        LclVarDsc* lcl = src->AsLclVar()->GetLcl();
 
         if (lcl->GetRegNum() != REG_STK)
         {
@@ -937,7 +934,7 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
     // Reset spilled flag, since we are going to load a local variable from its home location.
     node->SetRegSpilled(0, false);
 
-    LclVarDsc* lcl     = compiler->lvaGetDesc(node);
+    LclVarDsc* lcl     = node->GetLcl();
     var_types  regType = lcl->GetRegisterType(node);
 
     assert(regType != TYP_UNDEF);
@@ -966,10 +963,9 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
 #endif
 
     regNumber dstReg = node->GetRegNum();
-    unsigned  lclNum = node->GetLclNum();
 
-    instruction ins = ins_Load(regType, IsSimdLocalAligned(lclNum));
-    GetEmitter()->emitIns_R_S(ins, emitTypeSize(regType), dstReg, lclNum, 0);
+    instruction ins = ins_Load(regType, IsSimdLocalAligned(lcl));
+    GetEmitter()->emitIns_R_S(ins, emitTypeSize(regType), dstReg, GetStackAddrMode(lcl, 0));
 
     liveness.Unspill(this, lcl, node, dstReg, regType);
 }
@@ -1186,7 +1182,7 @@ bool CodeGen::IsValidContainedLcl(GenTreeLclVarCommon* node)
     // A contained local must be living on stack and marked as reg optional,
     // or not be a register candidate.
     // TODO-MIKE-Review: If it's reg optional it probably needs to be spilled too...
-    LclVarDsc* lcl = compiler->lvaGetDesc(node);
+    LclVarDsc* lcl = node->GetLcl();
 
     return (lcl->GetRegNum() == REG_STK) && (node->IsRegOptional() || !lcl->IsRegCandidate());
 }
@@ -1337,20 +1333,14 @@ void CodeGen::ConsumeStructStore(
     {
         assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
-        unsigned lclNum  = store->AsLclVarCommon()->GetLclNum();
-        unsigned lclOffs = store->AsLclVarCommon()->GetLclOffs();
-
-        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, dstReg, lclNum, lclOffs);
+        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, dstReg, GetStackAddrMode(store->AsLclVarCommon()));
     }
 
     if (src->isContained())
     {
         assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
 
-        unsigned lclNum  = src->AsLclVarCommon()->GetLclNum();
-        unsigned lclOffs = src->AsLclVarCommon()->GetLclOffs();
-
-        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, srcReg, lclNum, lclOffs);
+        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, srcReg, GetStackAddrMode(src->AsLclVarCommon()));
     }
 
     if (sizeReg != REG_NA)
@@ -1395,7 +1385,7 @@ void CodeGen::SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex)
     instruction ins  = ins_Store(regType);
     emitAttr    attr = emitActualTypeSize(regType);
 
-    GetEmitter()->emitIns_S_R(ins, attr, reg, temp->GetNum(), 0);
+    GetEmitter()->emitIns_S_R(ins, attr, reg, GetStackAddrMode(temp));
 
     node->SetRegSpill(regIndex, false);
     node->SetRegSpilled(regIndex, true);
@@ -1411,7 +1401,7 @@ void CodeGen::SpillST0(GenTree* node)
 
     JITDUMP("Spilling register ST0 after [%06u]\n", node->GetID());
 
-    GetEmitter()->emitIns_S(INS_fstp, emitTypeSize(type), temp->GetNum(), 0);
+    GetEmitter()->emitIns_S(INS_fstp, emitTypeSize(type), GetStackAddrMode(temp));
 
     node->SetRegSpill(0, false);
     node->SetRegSpilled(0, true);
@@ -1434,7 +1424,7 @@ void CodeGen::UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex)
     instruction ins     = ins_Load(regType);
     emitAttr    attr    = emitActualTypeSize(regType);
 
-    GetEmitter()->emitIns_R_S(ins, attr, reg, temp->GetNum(), 0);
+    GetEmitter()->emitIns_R_S(ins, attr, reg, GetStackAddrMode(temp));
 
     liveness.SetGCRegType(reg, regType);
 }
@@ -1450,7 +1440,7 @@ void CodeGen::UnspillST0(GenTree* node)
     JITDUMP("Unspilling ST0 from [%06u]\n", getRegName(oldReg), node->GetID());
 
     var_types regType = temp->GetType();
-    GetEmitter()->emitIns_S(INS_fld, emitTypeSize(regType), temp->GetNum(), 0);
+    GetEmitter()->emitIns_S(INS_fld, emitTypeSize(regType), GetStackAddrMode(temp));
 }
 #endif // TARGET_X86
 
@@ -1490,24 +1480,21 @@ void CodeGen::DefLclVarReg(GenTreeLclVar* lclVar)
     assert((lclVar->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
     INDEBUG(lclVar->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;)
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
+    LclVarDsc* lcl = lclVar->GetLcl();
 
     assert(!lcl->IsIndependentPromoted());
 
     if (lclVar->IsAnyRegSpill())
     {
-        if (lcl->IsRegCandidate())
-        {
-            unsigned  lclNum    = lclVar->GetLclNum();
-            var_types spillType = lcl->GetRegisterType(lclVar);
-            SpillLclVarReg(lclNum, spillType, lclVar, lclVar->GetRegNum());
-        }
-        else
+        if (!lcl->IsRegCandidate())
         {
             SpillNodeReg(lclVar, lclVar->GetType(), 0);
-
+            // TODO-MIKE-Review: Shouldn't this call UpdateLife too? Not being
+            // a register candidate does not imply lack of liveness.
             return;
         }
+
+        SpillLclVarReg(lcl, lclVar);
     }
 
     if (lclVar->OperIs(GT_STORE_LCL_VAR))
@@ -1521,12 +1508,9 @@ void CodeGen::DefLclVarReg(GenTreeLclVar* lclVar)
     }
 }
 
-void CodeGen::SpillLclVarReg(unsigned lclNum, var_types type, GenTreeLclVar* lclVar, regNumber reg)
+void CodeGen::SpillLclVarReg(LclVarDsc* lcl, GenTreeLclVar* lclVar)
 {
     assert(lclVar->OperIs(GT_STORE_LCL_VAR, GT_LCL_VAR));
-
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-    assert(!lcl->lvNormalizeOnStore() || (type == lcl->GetActualRegisterType()));
 
     // We have a register candidate local that is marked with SPILL.
     // This flag generally means that we need to spill this local.
@@ -1540,7 +1524,12 @@ void CodeGen::SpillLclVarReg(unsigned lclNum, var_types type, GenTreeLclVar* lcl
         return;
     }
 
-    GetEmitter()->emitIns_S_R(ins_Store(type, IsSimdLocalAligned(lclNum)), emitTypeSize(type), reg, lclNum, 0);
+    var_types type = lcl->GetRegisterType(lclVar);
+
+    assert(!lcl->lvNormalizeOnStore() || (type == lcl->GetActualRegisterType()));
+
+    GetEmitter()->emitIns_S_R(ins_Store(type, IsSimdLocalAligned(lcl)), emitTypeSize(type), lclVar->GetRegNum(),
+                              GetStackAddrMode(lcl, 0));
 }
 
 #if FEATURE_ARG_SPLIT

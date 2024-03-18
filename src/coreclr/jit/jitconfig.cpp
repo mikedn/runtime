@@ -396,6 +396,8 @@ void JitConfigValues::initialize(ICorJitHost* host)
     assert(!m_isInitialized);
 
 #define CONFIG_INTEGER(name, key, defaultValue) m_##name = host->getIntConfigValue(key, defaultValue);
+#define CONFIG_UNSIGNED(name, key, defaultValue)                                                                       \
+    m_##name = static_cast<unsigned>(host->getIntConfigValue(key, defaultValue));
 #define CONFIG_STRING(name, key) m_##name = host->getStringConfigValue(key);
 #define CONFIG_METHODSET(name, key)                                                                                    \
     const WCHAR* name##value = host->getStringConfigValue(key);                                                        \
@@ -414,9 +416,10 @@ void JitConfigValues::destroy(ICorJitHost* host)
         return;
     }
 
-#define CONFIG_INTEGER(name, key, defaultValue)
-#define CONFIG_STRING(name, key) host->freeStringConfigValue(m_##name);
-#define CONFIG_METHODSET(name, key) m_##name.destroy(host);
+#define CONFIG_INTEGER(...)
+#define CONFIG_UNSIGNED(...)
+#define CONFIG_STRING(name, ...) host->freeStringConfigValue(m_##name);
+#define CONFIG_METHODSET(name, ...) m_##name.destroy(host);
 
 #include "jitconfigvalues.h"
 

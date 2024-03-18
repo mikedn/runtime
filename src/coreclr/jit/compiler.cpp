@@ -905,7 +905,7 @@ void Compiler::compDoComponentUnitTestsOnce()
     {
         DidComponentUnitTests = true;
         RunValueNumStoreTests(this);
-        BitSetSupport::TestSuite(getAllocatorDebugOnly());
+        BitSetSupport::TestSuite(getAllocator(CMK_DebugOnly));
     }
 }
 
@@ -1944,29 +1944,12 @@ bool Compiler::compStressCompileHelper(compStressArea stressArea, unsigned weigh
     return (hash < weight);
 }
 
-//------------------------------------------------------------------------
-// compPromoteFewerStructs: helper to determine if the local
-//   should not be promoted under a stress mode.
-//
-// Arguments:
-//   lclNum - local number to test
-//
-// Returns:
-//   true if this local should not be promoted.
-//
-// Notes:
-//   Reject ~50% of the potential promotions if STRESS_PROMOTE_FEWER_STRUCTS is active.
-//
-bool Compiler::compPromoteFewerStructs(unsigned lclNum)
+// Helper to determine if the local should not be promoted under a stress mode.
+// Rejects ~50% of the potential promotions if STRESS_PROMOTE_FEWER_STRUCTS is active.
+bool Compiler::compPromoteFewerStructs(LclVarDsc* lcl)
 {
-    bool       rejectThisPromo = false;
-    const bool promoteLess     = compStressCompile(STRESS_PROMOTE_FEWER_STRUCTS, 50);
-    if (promoteLess)
-    {
-
-        rejectThisPromo = (((info.compMethodHash() ^ lclNum) & 1) == 0);
-    }
-    return rejectThisPromo;
+    return compStressCompile(STRESS_PROMOTE_FEWER_STRUCTS, 50) &&
+           (((info.compMethodHash() ^ lcl->GetLclNum()) & 1) == 0);
 }
 
 #endif // DEBUG
@@ -2170,32 +2153,33 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
     // unless unless CLFLG_MINOPT is set
     else if (!opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
     {
-        if ((unsigned)JitConfig.JitMinOptsCodeSize() < info.compILCodeSize)
+        if (JitConfig.JitMinOptsCodeSize() < info.compILCodeSize)
         {
             JITLOG((LL_INFO10, "IL Code Size exceeded, using MinOpts for method %s\n", info.compFullName));
             theMinOptsValue = true;
         }
-        else if ((unsigned)JitConfig.JitMinOptsInstrCount() < ilStats.instrCount)
+        else if (JitConfig.JitMinOptsInstrCount() < ilStats.instrCount)
         {
             JITLOG((LL_INFO10, "IL instruction count exceeded, using MinOpts for method %s\n", info.compFullName));
             theMinOptsValue = true;
         }
-        else if ((unsigned)JitConfig.JitMinOptsBbCount() < fgBBcount)
+        else if (JitConfig.JitMinOptsBbCount() < fgBBcount)
         {
             JITLOG((LL_INFO10, "Basic Block count exceeded, using MinOpts for method %s\n", info.compFullName));
             theMinOptsValue = true;
         }
-        else if ((unsigned)JitConfig.JitMinOptsLvNumCount() < lvaCount)
+        else if (JitConfig.JitMinOptsLvNumCount() < lvaCount)
         {
             JITLOG((LL_INFO10, "Local Variable Num count exceeded, using MinOpts for method %s\n", info.compFullName));
             theMinOptsValue = true;
         }
-        else if ((unsigned)JitConfig.JitMinOptsLvRefCount() < ilStats.lclRefCount)
+        else if (JitConfig.JitMinOptsLvRefCount() < ilStats.lclRefCount)
         {
             JITLOG((LL_INFO10, "Local Variable Ref count exceeded, using MinOpts for method %s\n", info.compFullName));
             theMinOptsValue = true;
         }
-        if (theMinOptsValue == true)
+
+        if (theMinOptsValue)
         {
             JITLOG((LL_INFO10000, "IL Code Size,Instr %4d,%4d, Basic Block count %3d, Local Variable Num,Ref count "
                                   "%3d,%3d for method %s\n",
@@ -2562,8 +2546,8 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     {
         DoPhase(this, PHASE_INVERT_LOOPS, &Compiler::optInvertLoops);
         DoPhase(this, PHASE_OPTIMIZE_LAYOUT, &Compiler::optOptimizeLayout);
-        DoPhase(this, PHASE_COMPUTE_REACHABILITY, &Compiler::fgComputeReachability);
-        DoPhase(this, PHASE_COMPUTE_DOMINATORS, &Compiler::fgComputeDoms);
+        DoPhase(this, PHASE_COMPUTE_REACHABILITY, &Compiler::phComputeReachability);
+        DoPhase(this, PHASE_COMPUTE_DOMINATORS, &Compiler::phComputeDoms);
         DoPhase(this, PHASE_FIND_LOOPS, &Compiler::phFindLoops);
         DoPhase(this, PHASE_CLONE_LOOPS, &Compiler::phCloneLoops);
         DoPhase(this, PHASE_UNROLL_LOOPS, &Compiler::phUnrollLoops);
@@ -2592,7 +2576,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 
     // TODO-MIKE-Review: Can this be done after the SSA optimizations? Those can remove
     // dead code and we may end up with fully interruptible code for no reason.
-    // But this depends on BBF_LOOP_HEAD, which is set only by fgComputeReachability.
+    // But this depends on BBF_LOOP_HEAD, which is set only by phComputeReachability.
     // And optRemoveRedundantZeroInits depends on the code not being fully interruptible.
     DoPhase(this, PHASE_SET_FULLY_INTERRUPTIBLE, &Compiler::phSetFullyInterruptible);
 
@@ -4474,41 +4458,35 @@ FILE* Compiler::compJitFuncInfoFile = nullptr;
 // print them as variable numbers. To do this, we use a temporary set indexed by
 // variable number. We can't use the "all varset" type because it is still size-limited, and might
 // not be big enough to handle all possible variable numbers.
-void dumpConvertedVarSet(Compiler* comp, VARSET_VALARG_TP vars)
+void dumpConvertedVarSet(Compiler* comp, VARSET_TP vars)
 {
-    BYTE* pVarNumSet; // trivial set: one byte per varNum, 0 means not in set, 1 means in set.
-
-    size_t varNumSetBytes = comp->lvaCount * sizeof(BYTE);
-    pVarNumSet            = (BYTE*)_alloca(varNumSetBytes);
-    memset(pVarNumSet, 0, varNumSetBytes); // empty the set
+    bool* lclSet = static_cast<bool*>(_alloca(comp->lvaCount * sizeof(bool)));
+    memset(lclSet, 0, comp->lvaCount * sizeof(bool));
 
     if (!VarSetOps::MayBeUninit(vars))
     {
-        VarSetOps::Iter iter(comp, vars);
-        for (unsigned varIndex = 0; iter.NextElem(&varIndex);)
+        for (VarSetOps::Enumerator e(comp, vars); e.MoveNext();)
         {
-            pVarNumSet[comp->lvaTrackedIndexToLclNum(varIndex)] = 1;
+            lclSet[comp->lvaGetDescByTrackedIndex(e.Current())->GetLclNum()] = true;
         }
     }
 
     bool first = true;
     printf("{");
-    for (size_t varNum = 0; varNum < comp->lvaCount; varNum++)
+
+    for (size_t lclNum = 0; lclNum < comp->lvaCount; lclNum++)
     {
-        if (pVarNumSet[varNum] == 1)
+        if (lclSet[lclNum])
         {
-            if (!first)
-            {
-                printf(" ");
-            }
-            printf("V%02u", varNum);
+            printf("%sV%02u", first ? "" : " ", lclNum);
             first = false;
         }
     }
+
     printf("}");
 }
 
-void Compiler::dmpVarSetDiff(const char* name, VARSET_VALARG_TP from, VARSET_VALARG_TP to)
+void Compiler::dmpVarSetDiff(const char* name, VARSET_TP from, VARSET_TP to)
 {
     bool* fromBits = static_cast<bool*>(_alloca(lvaCount * sizeof(bool)));
     memset(fromBits, 0, lvaCount * sizeof(bool));
@@ -4517,12 +4495,12 @@ void Compiler::dmpVarSetDiff(const char* name, VARSET_VALARG_TP from, VARSET_VAL
 
     for (VarSetOps::Enumerator e(this, from); e.MoveNext();)
     {
-        fromBits[lvaTrackedIndexToLclNum(e.Current())] = true;
+        fromBits[lvaGetDescByTrackedIndex(e.Current())->GetLclNum()] = true;
     }
 
     for (VarSetOps::Enumerator e(this, to); e.MoveNext();)
     {
-        toBits[lvaTrackedIndexToLclNum(e.Current())] = true;
+        toBits[lvaGetDescByTrackedIndex(e.Current())->GetLclNum()] = true;
     }
 
     printf("%s{ ", name);
@@ -4652,15 +4630,14 @@ void cVar(Compiler* comp, unsigned lclNum)
 {
     static unsigned sequenceNumber = 0; // separate calls with a number to indicate this function has been called
     printf("===================================================================== *Var %u\n", sequenceNumber++);
-    comp->lvaDumpEntry(lclNum, Compiler::FINAL_FRAME_LAYOUT);
+    comp->lvaDumpEntry(comp->lvaGetDesc(lclNum));
 }
 
-void cVarDsc(Compiler* comp, LclVarDsc* varDsc)
+void cVarDsc(Compiler* comp, LclVarDsc* lcl)
 {
     static unsigned sequenceNumber = 0; // separate calls with a number to indicate this function has been called
     printf("===================================================================== *VarDsc %u\n", sequenceNumber++);
-    unsigned lclNum = (unsigned)(varDsc - comp->lvaTable);
-    comp->lvaDumpEntry(lclNum, Compiler::FINAL_FRAME_LAYOUT);
+    comp->lvaDumpEntry(lcl);
 }
 
 void cVars(Compiler* comp)
@@ -4706,7 +4683,7 @@ void cLiveness(Compiler* comp)
     comp->fgDispBBLiveness();
 }
 
-void cCVarSet(Compiler* comp, VARSET_VALARG_TP vars)
+void cCVarSet(Compiler* comp, VARSET_TP vars)
 {
     static unsigned sequenceNumber = 0; // separate calls with a number to indicate this function has been called
     printf("===================================================================== dCVarSet %u\n", sequenceNumber++);
@@ -4815,7 +4792,7 @@ void dLiveness()
     cLiveness(JitTls::GetCompiler());
 }
 
-void dCVarSet(VARSET_VALARG_TP vars)
+void dCVarSet(VARSET_TP vars)
 {
     cCVarSet(JitTls::GetCompiler(), vars);
 }
@@ -5414,23 +5391,21 @@ bool Compiler::killGCRefs(GenTree* tree)
 //    true       - this is an OSR compile and this local requires special treatment
 //    false      - not an OSR compile, or not an interesting local for OSR
 
-bool Compiler::lvaIsOSRLocal(unsigned varNum)
+bool Compiler::lvaIsOSRLocal(LclVarDsc* lcl)
 {
     if (!opts.IsOSR())
     {
         return false;
     }
 
-    if (varNum < info.compLocalsCount)
+    if (lcl->GetLclNum() < info.compLocalsCount)
     {
         return true;
     }
 
-    LclVarDsc* varDsc = lvaGetDesc(varNum);
-
-    if (varDsc->lvIsStructField)
+    if (lcl->IsPromotedField())
     {
-        return (varDsc->lvParentLcl < info.compLocalsCount);
+        return (lcl->GetPromotedFieldParentLclNum() < info.compLocalsCount);
     }
 
     return false;

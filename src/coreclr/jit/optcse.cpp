@@ -414,22 +414,6 @@ public:
     }
 
 #ifdef DEBUG
-    static const char* genES2str(BitVecTraits* traits, const BitVec set)
-    {
-        const int    bufSize = 65; // Supports a BitVec of up to 256 bits
-        static char  num1[bufSize];
-        static char  num2[bufSize];
-        static char* nump = num1;
-
-        assert(bufSize > roundUp(BitVecTraits::GetSize(traits), (unsigned)sizeof(char)) / 8);
-
-        char* temp = nump;
-        nump       = (nump == num1) ? num2 : num1;
-        sprintf_s(temp, bufSize, "%s", BitVecOps::ToString(traits, set));
-
-        return temp;
-    }
-
     void DumpDataFlowSet(const BitVec set)
     {
         printf("= { ");
@@ -440,9 +424,9 @@ public:
             unsigned availBit          = GetAvailBitIndex(i);
             unsigned availCrossCallBit = GetAvailCrossCallBitIndex(i);
 
-            if (BitVecOps::IsMember(&dataFlowTraits, set, availBit))
+            if (BitVecOps::IsMember(dataFlowTraits, set, availBit))
             {
-                const bool isAvailCrossCall = BitVecOps::IsMember(&dataFlowTraits, set, availCrossCallBit);
+                const bool isAvailCrossCall = BitVecOps::IsMember(dataFlowTraits, set, availCrossCallBit);
 
                 printf("%s" FMT_CSE "%s", prefix, i, isAvailCrossCall ? ".c" : "");
                 prefix = ", ";
@@ -871,11 +855,11 @@ public:
 
         dataFlowTraits = BitVecTraits((valueCount * 2) + 1, compiler);
 
-        callKillsMask = BitVecOps::MakeEmpty(&dataFlowTraits);
+        callKillsMask = BitVecOps::MakeEmpty(dataFlowTraits);
 
         for (unsigned index = 1; index <= valueCount; index++)
         {
-            BitVecOps::AddElemD(&dataFlowTraits, callKillsMask, GetAvailBitIndex(index));
+            BitVecOps::AddElemD(dataFlowTraits, callKillsMask, GetAvailBitIndex(index));
         }
 
         for (BasicBlock* block : compiler->Blocks())
@@ -894,15 +878,15 @@ public:
 
             if (initToZero)
             {
-                block->bbCseIn = BitVecOps::MakeEmpty(&dataFlowTraits);
+                block->bbCseIn = BitVecOps::MakeEmpty(dataFlowTraits);
             }
             else
             {
-                block->bbCseIn = BitVecOps::MakeFull(&dataFlowTraits);
+                block->bbCseIn = BitVecOps::MakeFull(dataFlowTraits);
             }
 
-            block->bbCseOut = BitVecOps::MakeFull(&dataFlowTraits);
-            block->bbCseGen = BitVecOps::MakeEmpty(&dataFlowTraits);
+            block->bbCseOut = BitVecOps::MakeFull(dataFlowTraits);
+            block->bbCseGen = BitVecOps::MakeEmpty(dataFlowTraits);
         }
 
         for (unsigned i = 0; i < valueCount; i++)
@@ -913,11 +897,11 @@ public:
 
             for (const Occurrence* occ = &value->firstOccurrence; occ != nullptr; occ = occ->next)
             {
-                BitVecOps::AddElemD(&dataFlowTraits, occ->block->bbCseGen, availBit);
+                BitVecOps::AddElemD(dataFlowTraits, occ->block->bbCseGen, availBit);
 
                 if ((occ->block->bbFlags & BBF_HAS_CALL) == 0)
                 {
-                    BitVecOps::AddElemD(&dataFlowTraits, occ->block->bbCseGen, availCrossCallBit);
+                    BitVecOps::AddElemD(dataFlowTraits, occ->block->bbCseGen, availCrossCallBit);
                 }
             }
         }
@@ -932,7 +916,7 @@ public:
                 continue;
             }
 
-            if (BitVecOps::IsEmpty(&dataFlowTraits, block->bbCseGen))
+            if (BitVecOps::IsEmpty(dataFlowTraits, block->bbCseGen))
             {
                 continue;
             }
@@ -947,7 +931,7 @@ public:
                     {
                         unsigned availCrossCallBit = GetAvailCrossCallBitIndex(GetCseIndex(node->GetCseInfo()));
 
-                        BitVecOps::AddElemD(&dataFlowTraits, block->bbCseGen, availCrossCallBit);
+                        BitVecOps::AddElemD(dataFlowTraits, block->bbCseGen, availCrossCallBit);
                     }
 
                     if (node->IsCall())
@@ -968,7 +952,7 @@ public:
         {
             for (BasicBlock* block : compiler->Blocks())
             {
-                if (!BitVecOps::IsEmpty(&dataFlowTraits, block->bbCseGen))
+                if (!BitVecOps::IsEmpty(dataFlowTraits, block->bbCseGen))
                 {
                     printf(FMT_BB " gen ", block->bbNum);
                     DumpDataFlowSet(block->bbCseGen);
@@ -993,7 +977,7 @@ public:
             : traits(cse.dataFlowTraits)
             , callKillsMask(cse.callKillsMask)
             , cseInWithCallsKill(BitVecOps::UninitVal())
-            , preMergeOut(BitVecOps::UninitVal())
+            , preMergeOut(BitVecOps::Alloc(traits))
 #ifdef DEBUG
             , verbose(compiler->verbose)
 #endif
@@ -1006,28 +990,13 @@ public:
             // Record the initial value of block->bbCseOut in m_preMergeOut.
             // It is used in EndMerge() to control the termination of the DataFlow algorithm.
             // Note that the first time we visit a block, the value of bbCseOut is MakeFull()
-            BitVecOps::Assign(&traits, preMergeOut, block->bbCseOut);
-
-#if 0
-            JITDUMP("StartMerge " FMT_BB "\n", block->bbNum);
-            JITDUMP("  :: cseOut    = %s\n", genES2str(&traits, block->bbCseOut));
-#endif
+            BitVecOps::Assign(traits, preMergeOut, block->bbCseOut);
         }
 
         // Perform the merging of each of the predecessor's liveness values (since this is a forward analysis)
         void Merge(BasicBlock* block, BasicBlock* predBlock, unsigned dupCount)
         {
-#if 0
-            JITDUMP("Merge " FMT_BB " and " FMT_BB "\n", block->bbNum, predBlock->bbNum);
-            JITDUMP("  :: cseIn     = %s\n", genES2str(&traits, block->bbCseIn));
-            JITDUMP("  :: cseOut    = %s\n", genES2str(&traits, block->bbCseOut));
-#endif
-
-            BitVecOps::IntersectionD(&traits, block->bbCseIn, predBlock->bbCseOut);
-
-#if 0
-            JITDUMP("  => cseIn     = %s\n", genES2str(&traits, block->bbCseIn));
-#endif
+            BitVecOps::IntersectionD(traits, block->bbCseIn, predBlock->bbCseOut);
         }
 
         // We can jump to the handler from any instruction in the try region.
@@ -1038,49 +1007,32 @@ public:
         }
 
         // At the end of the merge store results of the dataflow equations, in a postmerge state.
-        // We also handle the case where calls conditionally kill CSE availabilty.
+        // We also handle the case where calls conditionally kill CSE availability.
         bool EndMerge(BasicBlock* block)
         {
             // We can skip the calls kill step when our block doesn't have a callsite
             // or we don't have any available CSEs in our bbCseIn
-            if (((block->bbFlags & BBF_HAS_CALL) == 0) || BitVecOps::IsEmpty(&traits, block->bbCseIn))
+            if (((block->bbFlags & BBF_HAS_CALL) == 0) || BitVecOps::IsEmpty(traits, block->bbCseIn))
             {
                 // No callsite in 'block' or 'block->bbCseIn was empty, so we can use bbCseIn directly
-                BitVecOps::DataFlowD(&traits, block->bbCseOut, block->bbCseGen, block->bbCseIn);
+                BitVecOps::DataFlowD(traits, block->bbCseOut, block->bbCseGen, block->bbCseIn);
             }
             else
             {
-                BitVecOps::Assign(&traits, cseInWithCallsKill, block->bbCseIn);
-                BitVecOps::IntersectionD(&traits, cseInWithCallsKill, callKillsMask);
-                BitVecOps::DataFlowD(&traits, block->bbCseOut, block->bbCseGen, cseInWithCallsKill);
+                if (cseInWithCallsKill == BitVecOps::UninitVal())
+                {
+                    cseInWithCallsKill = BitVecOps::Alloc(traits);
+                }
+
+                BitVecOps::Intersection(traits, cseInWithCallsKill, block->bbCseIn, callKillsMask);
+                BitVecOps::DataFlowD(traits, block->bbCseOut, block->bbCseGen, cseInWithCallsKill);
             }
 
             // This is why we need to allocate an extra bit in our BitVecs.
             // We always need to visit our successor blocks once, thus we require that that the first time
             // that we visit a block we have a bit set in preMergeOut that won't be set when we compute
             // the new value of bbCseOut.
-            bool notDone = !BitVecOps::Equal(&traits, block->bbCseOut, preMergeOut);
-
-#if 0
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("EndMerge " FMT_BB "\n", block->bbNum);
-            printf("  :: cseIn     = %s\n", genES2str(&traits, block->bbCseIn));
-
-            if (((block->bbFlags & BBF_HAS_CALL) != 0) && !BitVecOps::IsEmpty(&traits, block->bbCseIn))
-            {
-                printf("  -- cseKill   = %s\n", genES2str(&traits, m_comp->cseCallKillsMask));
-            }
-
-            printf("  :: cseGen    = %s\n", genES2str(&traits, block->bbCseGen));
-            printf("  => cseOut    = %s\n", genES2str(&traits, block->bbCseOut));
-            printf("  != preMerge  = %s, => %s\n", genES2str(&traits, m_preMergeOut), notDone ? "true" : "false");
-        }
-#endif // DEBUG
-#endif // 0
-
-            return notDone;
+            return !BitVecOps::Equal(traits, block->bbCseOut, preMergeOut);
         }
     };
 
@@ -1151,11 +1103,12 @@ public:
         InitDataFlow();
         DataFlow();
 
-        BitVec available = BitVecOps::MakeEmpty(&dataFlowTraits);
+        BitVec available = BitVecOps::Alloc(dataFlowTraits);
 
         for (BasicBlock* const block : compiler->Blocks())
         {
-            BitVecOps::Assign(&dataFlowTraits, available, block->bbCseIn);
+            BitVecOps::Assign(dataFlowTraits, available, block->bbCseIn);
+
             float blockWeight = block->getBBWeight(compiler);
 
             for (Statement* const stmt : block->NonPhiStatements())
@@ -1164,10 +1117,10 @@ public:
                 {
                     if (!expr->HasCseInfo())
                     {
-                        if (expr->IsCall() && !BitVecOps::IsEmpty(&dataFlowTraits, available))
+                        if (expr->IsCall() && !BitVecOps::IsEmpty(dataFlowTraits, available))
                         {
                             // Kill whatever cross call CSEs are available at this point.
-                            BitVecOps::IntersectionD(&dataFlowTraits, available, callKillsMask);
+                            BitVecOps::IntersectionD(dataFlowTraits, available, callKillsMask);
                         }
 
                         continue;
@@ -1178,18 +1131,18 @@ public:
                     unsigned availCrossCallBit = GetAvailCrossCallBitIndex(index);
                     Value*   value             = GetValue(index);
 
-                    bool isDef = !BitVecOps::IsMember(&dataFlowTraits, available, availBit);
+                    bool isDef = !BitVecOps::IsMember(dataFlowTraits, available, availBit);
 
                     JITDUMP(FMT_CSE " %s [%06u]\n", index, isDef ? "def" : "use", expr->GetID());
 
                     if (isDef)
                     {
-                        assert(!BitVecOps::IsMember(&dataFlowTraits, available, availCrossCallBit));
+                        assert(!BitVecOps::IsMember(dataFlowTraits, available, availCrossCallBit));
                     }
                     else
                     {
                         if (!value->isLiveAcrossCall &&
-                            !BitVecOps::IsMember(&dataFlowTraits, available, availCrossCallBit))
+                            !BitVecOps::IsMember(dataFlowTraits, available, availCrossCallBit))
                         {
                             value->isLiveAcrossCall = true;
                             JITDUMP("  Becomes live across call.\n");
@@ -1233,8 +1186,8 @@ public:
                         value->defWeight += blockWeight;
                         expr->SetCseInfo(ToCseDefInfo(expr->GetCseInfo()));
 
-                        BitVecOps::AddElemD(&dataFlowTraits, available, availBit);
-                        BitVecOps::AddElemD(&dataFlowTraits, available, availCrossCallBit);
+                        BitVecOps::AddElemD(dataFlowTraits, available, availBit);
+                        BitVecOps::AddElemD(dataFlowTraits, available, availCrossCallBit);
                     }
                     else
                     {
@@ -1272,9 +1225,9 @@ public:
                     // but the call CSE itself is still available.
                     if (expr->IsCall() && isDef)
                     {
-                        BitVecOps::IntersectionD(&dataFlowTraits, available, callKillsMask);
+                        BitVecOps::IntersectionD(dataFlowTraits, available, callKillsMask);
                         unsigned availCrossCallBit = GetAvailCrossCallBitIndex(GetCseIndex(expr->GetCseInfo()));
-                        BitVecOps::AddElemD(&dataFlowTraits, available, availCrossCallBit);
+                        BitVecOps::AddElemD(dataFlowTraits, available, availCrossCallBit);
                     }
                 }
             }
@@ -1287,11 +1240,12 @@ public:
     {
         unsigned frameSize        = 0;
         unsigned regAvailEstimate = (CNT_CALLEE_ENREG * 3) + (CNT_CALLEE_TRASH * 2) + 1;
+#if FEATURE_FIXED_OUT_ARGS
+        LclVarDsc* outgoingArgsSpaceLcl = compiler->lvaGetDesc(compiler->lvaOutgoingArgSpaceVar);
+#endif
 
-        for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+        for (LclVarDsc* lcl : compiler->Locals())
         {
-            LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
             // Locals with no references don't use any local stack frame slots
             if (lcl->GetRefCount() == 0)
             {
@@ -1312,9 +1266,7 @@ public:
             // have ref count 0 at this point so we skip it anyway above.
             // P.S. Yeah, except we treat it as implicitly referenced so it actually has
             // ref count 1.
-            assert(compiler->lvaOutgoingArgSpaceVar != BAD_VAR_NUM);
-
-            if (lclNum == compiler->lvaOutgoingArgSpaceVar)
+            if (lcl == outgoingArgsSpaceLcl)
             {
                 continue;
             }
@@ -1364,7 +1316,7 @@ public:
             if (frameSize > 128)
             {
                 // On XARCH stack frame displacements can either use a 1-byte or a 4-byte displacement.
-                // With a large franme we will need to use some 4-byte displacements.
+                // With a large frame we will need to use some 4-byte displacements.
                 largeFrame = true;
                 break;
             }
@@ -1406,7 +1358,7 @@ public:
         // enregCount reaches a certain value we assign the current local weight to
         // aggressiveWeight or moderateWeight.
         //
-        // On Windows x64 this yeilds aggressiveEnregNum == 12 and moderateEnregNum == 38
+        // On Windows x64 this yields aggressiveEnregNum == 12 and moderateEnregNum == 38
         // thus we will typically set the cutoff values for
         //   aggressiveWeight based upon the weight of the 13th tracked local
         //   moderateWeight based upon the weight of the 39th tracked local
@@ -1416,7 +1368,7 @@ public:
         const unsigned moderateEnregNum   = (CNT_CALLEE_ENREG * 3) + (CNT_CALLEE_TRASH * 2);
 
         // Iterate over the sorted sideEffects of tracked local variables these are the register candidates
-        // for LSRA. We normally vist locals in order of their weighted ref counts and our heuristic
+        // for LSRA. We normally visit locals in order of their weighted ref counts and our heuristic
         // assumes that the highest weight local swill be enregistered and that the lowest weight
         // locals are likely be allocated in the stack frame.
         // The value of enregCount is incremented when we visit a local that can be enregistered.
@@ -1435,7 +1387,7 @@ public:
             }
 
             // The enregCount only tracks the uses of integer registers.
-            // We could track floating point register usage seperately but it isn't worth
+            // We could track floating point register usage separately but it isn't worth
             // the additional complexity as floating point CSEs are rare and we typically
             // have plenty of floating point register available.
             //
@@ -1953,7 +1905,7 @@ public:
                 }
 
                 // If we have maxed out lvaTrackedCount then this CSE may end up as an untracked variable
-                if (compiler->lvaTrackedCount == static_cast<unsigned>(JitConfig.JitMaxLocalsToTrack()))
+                if (compiler->lvaTrackedCount == JitConfig.JitMaxLocalsToTrack())
                 {
                     defCost += 1;
                     useCost += 1;
@@ -2158,13 +2110,12 @@ public:
         }
 #endif // DEBUG
 
-        unsigned   lclNum  = compiler->lvaGrabTemp(false DEBUGARG(lclReason));
         var_types  lclType = varActualType(candidate.expr->GetType());
-        LclVarDsc* lcl     = compiler->lvaGetDesc(lclNum);
+        LclVarDsc* lcl     = compiler->lvaAllocTemp(false DEBUGARG(lclReason));
 
         if (varTypeIsStruct(lclType))
         {
-            compiler->lvaSetStruct(lclNum, candidate.value->layout, false);
+            compiler->lvaSetStruct(lcl, candidate.value->layout, false);
             assert(lcl->GetType() == lclType);
         }
         else
@@ -2246,7 +2197,7 @@ public:
         {
             lcl->m_isSsa = true;
             singleDef =
-                new (compiler, GT_LCL_DEF) GenTreeLclDef(singleDefOccurence->expr, singleDefOccurence->block, lclNum);
+                new (compiler, GT_LCL_DEF) GenTreeLclDef(singleDefOccurence->expr, singleDefOccurence->block, lcl);
         }
 
         for (const Occurrence* occ = &value->firstOccurrence; occ != nullptr; occ = occ->next)
@@ -2262,7 +2213,7 @@ public:
             expr->ClearCseInfo();
 
             JITDUMP("Replacing " FMT_CSE " %s [%06u] with V%02u\n", value->index, isDef ? "def" : "use", expr->GetID(),
-                    lclNum);
+                    lcl->GetLclNum());
 
             var_types exprType = varActualType(expr->GetType());
             // TODO-MIKE-Review: This seems to be the wrong place to check this, types should
@@ -2283,7 +2234,7 @@ public:
             }
             else
             {
-                newExpr = compiler->gtNewLclvNode(lclNum, lclType);
+                newExpr = compiler->gtNewLclvNode(lcl, lclType);
             }
 
             if (isSharedConst)
@@ -2341,7 +2292,7 @@ public:
                 }
                 else
                 {
-                    GenTreeLclVar* store = compiler->gtNewStoreLclVar(lclNum, lclType, defExpr);
+                    GenTreeLclVar* store = compiler->gtNewStoreLclVar(lcl, lclType, defExpr);
                     store->AddSideEffects(defExpr->GetSideEffects());
                     store->SetVNP(defExpr->GetVNP());
 

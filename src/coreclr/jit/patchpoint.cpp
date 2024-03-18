@@ -27,12 +27,12 @@
 //
 class PatchpointTransformer
 {
-    const int HIGH_PROBABILITY = 99;
-    unsigned  ppCounterLclNum;
-    Compiler* compiler;
+    const int  HIGH_PROBABILITY = 99;
+    Compiler*  compiler;
+    LclVarDsc* ppCounterLcl = nullptr;
 
 public:
-    PatchpointTransformer(Compiler* compiler) : ppCounterLclNum(BAD_VAR_NUM), compiler(compiler)
+    PatchpointTransformer(Compiler* compiler) : compiler(compiler)
     {
     }
 
@@ -113,9 +113,9 @@ private:
     void TransformBlock(BasicBlock* block)
     {
         // If we haven't allocated the counter temp yet, set it up
-        if (ppCounterLclNum == BAD_VAR_NUM)
+        if (ppCounterLcl == nullptr)
         {
-            ppCounterLclNum = compiler->lvaNewTemp(TYP_INT, true DEBUGARG("patchpoint counter"));
+            ppCounterLcl = compiler->lvaNewTemp(TYP_INT, true DEBUGARG("patchpoint counter"));
 
             // and initialize in the entry block
             TransformEntry(compiler->fgFirstBB);
@@ -142,8 +142,8 @@ private:
         // Fill in test block
         //
         // --ppCounter;
-        GenTree* ppCounterBefore = compiler->gtNewLclvNode(ppCounterLclNum, TYP_INT);
-        GenTree* ppCounterAfter  = compiler->gtNewLclvNode(ppCounterLclNum, TYP_INT);
+        GenTree* ppCounterBefore = compiler->gtNewLclvNode(ppCounterLcl, TYP_INT);
+        GenTree* ppCounterAfter  = compiler->gtNewLclvNode(ppCounterLcl, TYP_INT);
         GenTree* one             = compiler->gtNewIconNode(1, TYP_INT);
         GenTree* ppCounterSub    = compiler->gtNewOperNode(GT_SUB, TYP_INT, ppCounterBefore, one);
         GenTree* ppCounterAsg    = compiler->gtNewAssignNode(ppCounterAfter, ppCounterSub);
@@ -151,7 +151,7 @@ private:
         compiler->fgNewStmtAtEnd(block, ppCounterAsg);
 
         // if (ppCounter > 0), bypass helper call
-        GenTree* ppCounterUpdated = compiler->gtNewLclvNode(ppCounterLclNum, TYP_INT);
+        GenTree* ppCounterUpdated = compiler->gtNewLclvNode(ppCounterLcl, TYP_INT);
         GenTree* zero             = compiler->gtNewIconNode(0, TYP_INT);
         GenTree* compare          = compiler->gtNewOperNode(GT_GT, TYP_INT, ppCounterUpdated, zero);
         GenTree* jmp              = compiler->gtNewOperNode(GT_JTRUE, TYP_VOID, compare);
@@ -162,7 +162,7 @@ private:
         //
         // call PPHelper(&ppCounter, ilOffset)
         GenTree*          ilOffsetNode  = compiler->gtNewIconNode(ilOffset, TYP_INT);
-        GenTree*          ppCounterAddr = compiler->gtNewLclVarAddrNode(ppCounterLclNum);
+        GenTree*          ppCounterAddr = compiler->gtNewLclVarAddrNode(ppCounterLcl);
         GenTreeCall::Use* helperArgs    = compiler->gtNewCallArgs(ppCounterAddr, ilOffsetNode);
         GenTreeCall*      helperCall    = compiler->gtNewHelperCallNode(CORINFO_HELP_PATCHPOINT, TYP_VOID, helperArgs);
 
@@ -182,7 +182,7 @@ private:
         }
 
         GenTree* initialCounterNode = compiler->gtNewIconNode(initialCounterValue, TYP_INT);
-        GenTree* ppCounterRef       = compiler->gtNewLclvNode(ppCounterLclNum, TYP_INT);
+        GenTree* ppCounterRef       = compiler->gtNewLclvNode(ppCounterLcl, TYP_INT);
         GenTree* ppCounterAsg       = compiler->gtNewAssignNode(ppCounterRef, initialCounterNode);
 
         compiler->fgNewStmtNearEnd(block, ppCounterAsg);

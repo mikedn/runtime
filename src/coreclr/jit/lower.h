@@ -23,17 +23,17 @@ class Lowering
     Compiler*     comp;
     SideEffectSet m_scratchSideEffects; // SideEffectSet used for IsSafeToContainMem and isRMWIndirCandidate
     BasicBlock*   m_block;
-    unsigned      vtableCallTemp = BAD_VAR_NUM; // local variable we use as a temp for vtable calls
+    LclVarDsc*    vtableCallTempLcl = nullptr; // local variable we use as a temp for vtable calls
 #if FEATURE_FIXED_OUT_ARGS
     unsigned outgoingArgAreaSize = 0;
 #endif
 #ifdef FEATURE_HW_INTRINSICS
 #ifdef TARGET_ARM64
-    unsigned m_simd8MemoryTemp = BAD_VAR_NUM;
+    LclVarDsc* m_simd8MemoryTempLcl = nullptr;
 #endif
-    unsigned m_simd16MemoryTemp = BAD_VAR_NUM;
+    LclVarDsc* m_simd16MemoryTempLcl = nullptr;
 #ifdef TARGET_XARCH
-    unsigned m_simd32MemoryTemp = BAD_VAR_NUM;
+    LclVarDsc* m_simd32MemoryTempLcl = nullptr;
 #endif
 #endif // FEATURE_HW_INTRINSICS
 
@@ -126,10 +126,10 @@ private:
 #if FEATURE_FASTTAILCALL
     void LowerFastTailCall(GenTreeCall* callNode);
 #endif
-    void RehomeParamForFastTailCall(unsigned paramLclNum,
-                                    GenTree* insertTempBefore,
-                                    GenTree* rangeStart,
-                                    GenTree* rangeEnd);
+    void RehomeParamForFastTailCall(LclVarDsc* paramLcl,
+                                    GenTree*   insertTempBefore,
+                                    GenTree*   rangeStart,
+                                    GenTree*   rangeEnd);
     void InsertProfTailCallHook(GenTreeCall* callNode, GenTree* insertionPoint);
     GenTree* LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* insertBefore = nullptr));
     void LowerIndirectVirtualStubCall(GenTreeCall* call);
@@ -155,7 +155,7 @@ private:
 
     // Replace the definition of the given use with a lclVar, allocating a new temp
     // if 'tempNum' is BAD_VAR_NUM. Returns the LclVar node.
-    GenTreeLclVar* ReplaceWithLclVar(LIR::Use& use, unsigned tempNum = BAD_VAR_NUM);
+    GenTreeLclVar* ReplaceWithLclVar(LIR::Use& use, LclVarDsc* tempLcl = nullptr);
 
     // return true if this call target is within range of a pc-rel call on the machine
     bool IsCallTargetInRange(void* addr);
@@ -240,7 +240,7 @@ private:
     void LowerHWIntrinsicCreateScalarUnsafe(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node);
-    unsigned GetSimdMemoryTemp(var_types type);
+    LclVarDsc* GetSimdMemoryTemp(var_types type);
 #if defined(TARGET_XARCH)
 #ifdef TARGET_X86
     void LowerHWIntrinsicCreateScalarUnsafeLong(GenTreeHWIntrinsic* node);

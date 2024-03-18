@@ -3,64 +3,46 @@
 
 #pragma once
 
-inline void* CompAllocBitSetTraits::Alloc(Compiler* comp, size_t byteSize)
+inline BitVecTraits::Word* BitVecTraits::Alloc(Env t, unsigned wordCount)
 {
-    return comp->getAllocator(CMK_bitset).allocate<char>(byteSize);
+    return t.comp->getAllocator(CMK_bitset).allocate<Word>(wordCount);
 }
 
-inline unsigned TrackedVarBitSetTraits::GetSize(Compiler* comp)
+inline CompAllocBitSetTraits::Word* CompAllocBitSetTraits::Alloc(Compiler* comp, unsigned wordCount)
+{
+    return comp->getAllocator(CMK_bitset).allocate<Word>(wordCount);
+}
+
+inline unsigned ILLabelSetTraits::GetSize(Compiler* comp)
+{
+    return comp->info.compILCodeSize;
+}
+
+inline unsigned ILLabelSetTraits::GetWordCount(Compiler* comp)
+{
+    return ComputeWordCount(comp->info.compILCodeSize);
+}
+
+inline unsigned LiveBitSetTraits::GetSize(const Compiler* comp)
 {
     return comp->lvaTrackedCount;
 }
 
-inline unsigned TrackedVarBitSetTraits::GetArrSize(Compiler* comp, unsigned elemSize)
+inline unsigned LiveBitSetTraits::GetWordCount(const Compiler* comp)
 {
-    assert(elemSize == sizeof(size_t));
-    return comp->lvaTrackedCountInSizeTUnits;
+    return comp->lvaLiveSetWordCount;
 }
 
-#ifdef DEBUG
-inline void* CompAllocBitSetTraits::DebugAlloc(Compiler* comp, size_t byteSize)
+inline unsigned BlockSetTraits::GetSize(const Compiler* comp)
 {
-    return comp->getAllocator(CMK_DebugOnly).allocate<char>(byteSize);
+    return comp->fgBlockSetSize;
 }
 
-inline unsigned TrackedVarBitSetTraits::GetEpoch(Compiler* comp)
+inline unsigned BlockSetTraits::GetWordCount(const Compiler* comp)
 {
-    return comp->GetCurLVEpoch();
-}
-#endif
+    // Assert that the version has been initialized. This is a convenient place to
+    // assert this because GetWordCount() is called for every function, via IsShort().
+    assert(comp->GetBlockSetVersion() != 0);
 
-inline unsigned BasicBlockBitSetTraits::GetSize(Compiler* comp)
-{
-    return comp->fgCurBBEpochSize;
+    return comp->fgBlockSetWordCount; // This is precomputed to avoid doing math every time this function is called
 }
-
-inline unsigned BasicBlockBitSetTraits::GetArrSize(Compiler* comp, unsigned elemSize)
-{
-    // Assert that the epoch has been initialized. This is a convenient place to assert this because
-    // GetArrSize() is called for every function, via IsShort().
-    assert(GetEpoch(comp) != 0);
-
-    assert(elemSize == sizeof(size_t));
-    return comp->fgBBSetCountInSizeTUnits; // This is precomputed to avoid doing math every time this function is called
-}
-
-#ifdef DEBUG
-inline unsigned BasicBlockBitSetTraits::GetEpoch(Compiler* comp)
-{
-    return comp->GetCurBasicBlockEpoch();
-}
-#endif
-
-inline void* BitVecTraits::Alloc(const BitVecTraits* b, size_t byteSize)
-{
-    return b->comp->getAllocator(CMK_bitset).allocate<char>(byteSize);
-}
-
-#ifdef DEBUG
-inline void* BitVecTraits::DebugAlloc(const BitVecTraits* b, size_t byteSize)
-{
-    return b->comp->getAllocator(CMK_DebugOnly).allocate<char>(byteSize);
-}
-#endif

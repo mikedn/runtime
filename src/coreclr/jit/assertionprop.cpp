@@ -344,8 +344,7 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        unsigned   lclNum = addr->IsLclUse() ? addr->AsLclUse()->GetDef()->GetLclNum() : addr->AsLclVar()->GetLclNum();
-        LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+        LclVarDsc* lcl = addr->IsLclUse() ? addr->AsLclUse()->GetDef()->GetLcl() : addr->AsLclVar()->GetLcl();
 
         AssertionDsc assertion;
 
@@ -361,7 +360,7 @@ private:
 
             assertion.op1.kind   = O1K_LCLVAR;
             assertion.op1.vn     = addr->GetConservativeVN();
-            assertion.op1.lclNum = lclNum;
+            assertion.op1.lclNum = lcl->GetLclNum();
         }
         else if (lcl->TypeIs(TYP_BYREF))
         {
@@ -440,7 +439,7 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        LclVarDsc* lcl = compiler->lvaGetDesc(value->AsLclUse()->GetDef()->GetLclNum());
+        LclVarDsc* lcl = value->AsLclUse()->GetDef()->GetLcl();
 
         assert(!lcl->IsAddressExposed());
 
@@ -460,7 +459,7 @@ private:
         assert((op1 != nullptr) && (op2 != nullptr));
         assert((kind == OAK_EQUAL) || (kind == OAK_NOT_EQUAL));
 
-        LclVarDsc* lcl = compiler->lvaGetDesc(op1->GetDef()->GetLclNum());
+        LclVarDsc* lcl = op1->GetDef()->GetLcl();
 
         assert(!lcl->IsAddressExposed());
 
@@ -484,7 +483,7 @@ private:
                 }
 
                 assertion.op1.kind              = O1K_LCLVAR;
-                assertion.op1.lclNum            = op1->GetDef()->GetLclNum();
+                assertion.op1.lclNum            = lcl->GetLclNum();
                 assertion.op2.kind              = O2K_CONST_INT;
                 assertion.op2.intCon.value      = op2->AsIntCon()->GetValue(lcl->GetType());
                 assertion.op2.intCon.handleKind = op2->AsIntCon()->GetHandleKind();
@@ -493,7 +492,7 @@ private:
 #ifndef TARGET_64BIT
             case GT_CNS_LNG:
                 assertion.op1.kind         = O1K_LCLVAR;
-                assertion.op1.lclNum       = op1->GetDef()->GetLclNum();
+                assertion.op1.lclNum       = lcl->GetLclNum();
                 assertion.op2.kind         = O2K_CONST_LONG;
                 assertion.op2.lngCon.value = op2->AsLngCon()->GetValue();
                 break;
@@ -510,19 +509,19 @@ private:
                 }
 
                 assertion.op1.kind         = O1K_LCLVAR;
-                assertion.op1.lclNum       = op1->GetDef()->GetLclNum();
+                assertion.op1.lclNum       = lcl->GetLclNum();
                 assertion.op2.kind         = O2K_CONST_DOUBLE;
                 assertion.op2.dblCon.value = op2->AsDblCon()->GetValue();
                 break;
 
             case GT_LCL_VAR:
             {
-                if (op1->GetDef()->GetLclNum() == op2->AsLclVar()->GetLclNum())
+                if (lcl == op2->AsLclVar()->GetLcl())
                 {
                     return NO_ASSERTION_INDEX;
                 }
 
-                LclVarDsc* valLcl = compiler->lvaGetDesc(op2->AsLclVar());
+                LclVarDsc* valLcl = op2->AsLclVar()->GetLcl();
 
                 if (lcl->GetType() != valLcl->GetType())
                 {
@@ -546,12 +545,12 @@ private:
 
             case GT_LCL_USE:
             {
-                if (op1->GetDef()->GetLclNum() == op2->AsLclUse()->GetDef()->GetLclNum())
+                if (lcl == op2->AsLclUse()->GetDef()->GetLcl())
                 {
                     return NO_ASSERTION_INDEX;
                 }
 
-                LclVarDsc* valLcl = compiler->lvaGetDesc(op2->AsLclUse()->GetDef()->GetLclNum());
+                LclVarDsc* valLcl = op2->AsLclUse()->GetDef()->GetLcl();
 
                 assert(!valLcl->IsAddressExposed());
 
@@ -790,11 +789,11 @@ private:
 
         if (*set == BitVecOps::UninitVal())
         {
-            *set = BitVecOps::MakeSingleton(&sizeTraits, index - 1);
+            *set = BitVecOps::MakeSingleton(sizeTraits, index - 1);
         }
         else
         {
-            BitVecOps::AddElemD(&sizeTraits, *set, index - 1);
+            BitVecOps::AddElemD(sizeTraits, *set, index - 1);
         }
     }
 
@@ -972,7 +971,7 @@ private:
 
         if (op2->OperIs(GT_LCL_VAR) && op1->OperIs(GT_STORE_LCL_VAR))
         {
-            if (op1->AsLclVar()->GetLclNum() == op2->AsLclVar()->GetLclNum())
+            if (op1->AsLclVar()->GetLcl() == op2->AsLclVar()->GetLcl())
             {
                 return op1->AsLclVar()->GetOp(0);
             }
@@ -1066,7 +1065,7 @@ private:
     bool IsUnaliasedLocal(GenTree* node)
     {
         return node->OperIs(GT_LCL_USE) ||
-               (node->OperIs(GT_LCL_VAR) && !compiler->lvaGetDesc(node->AsLclVar())->IsAddressExposed());
+               (node->OperIs(GT_LCL_VAR) && !node->AsLclVar()->GetLcl()->IsAddressExposed());
     }
 
     AssertionIndex GenerateJTrueReadyToRunTypeAssertions(GenTree* op1, GenTree* op2, ApKind assertionKind)
@@ -1302,7 +1301,7 @@ private:
     GenTree* PropagateLclVarConst(const AssertionDsc& assertion, GenTreeLclVar* lclVar, Statement* stmt)
     {
 #ifdef DEBUG
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
+        LclVarDsc* lcl = lclVar->GetLcl();
 
         assert(!lcl->IsAddressExposed() && !lcl->lvIsCSE);
         assert(lclVar->GetType() == lcl->GetType());
@@ -1366,7 +1365,7 @@ private:
     GenTree* PropagateSsaUseConst(const AssertionDsc& assertion, GenTreeLclUse* use, Statement* stmt)
     {
 #ifdef DEBUG
-        LclVarDsc* lcl = compiler->lvaGetDesc(use->GetDef()->GetLclNum());
+        LclVarDsc* lcl = use->GetDef()->GetLcl();
 
         assert(!lcl->IsAddressExposed() && !lcl->lvIsCSE);
         assert(use->GetType() == lcl->GetType());
@@ -1433,7 +1432,7 @@ private:
 
     const AssertionDsc* FindConstAssertion(const ASSERT_TP assertions, ValueNum vn, unsigned lclNum)
     {
-        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
         {
             const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
 
@@ -1471,7 +1470,7 @@ private:
     {
         assert(lclVar->OperIs(GT_LCL_VAR));
 
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclVar);
+        LclVarDsc* lcl = lclVar->GetLcl();
 
         // TODO-MIKE-Review: It's not clear why propagation is blocked for AX and CSE temps.
         // For AX it should be perfectly fine to do it, we're using VN after all. And we'd
@@ -1501,7 +1500,7 @@ private:
         }
 
         const AssertionDsc* assertion =
-            FindConstAssertion(assertions, lclVar->GetConservativeVN(), lclVar->GetLclNum());
+            FindConstAssertion(assertions, lclVar->GetConservativeVN(), lclVar->GetLcl()->GetLclNum());
 
         if (assertion == nullptr)
         {
@@ -1513,8 +1512,7 @@ private:
 
     GenTree* PropagateLclUse(const ASSERT_TP assertions, GenTreeLclUse* use, Statement* stmt)
     {
-        unsigned   lclNum = use->GetDef()->GetLclNum();
-        LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+        LclVarDsc* lcl = use->GetDef()->GetLcl();
 
         assert(!lcl->IsAddressExposed());
 
@@ -1537,7 +1535,7 @@ private:
             return nullptr;
         }
 
-        const AssertionDsc* assertion = FindConstAssertion(assertions, use->GetConservativeVN(), lclNum);
+        const AssertionDsc* assertion = FindConstAssertion(assertions, use->GetConservativeVN(), lcl->GetLclNum());
 
         if (assertion == nullptr)
         {
@@ -1552,7 +1550,7 @@ private:
         ValueNum vn1 = vnStore->ExtractValue(op1->GetConservativeVN());
         ValueNum vn2 = vnStore->ExtractValue(op2->GetConservativeVN());
 
-        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
         {
             const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
 
@@ -1571,7 +1569,7 @@ private:
         ValueNum vn1 = vnStore->ExtractValue(vn);
         ValueNum vn2 = vnStore->VNZeroForType(type);
 
-        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
         {
             const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
 
@@ -1631,7 +1629,7 @@ private:
                 break;
         }
 
-        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
         {
             const AssertionIndex index     = GetAssertionIndex(en.Current());
             const AssertionDsc&  assertion = GetAssertion(index);
@@ -1745,7 +1743,7 @@ private:
         ssize_t intersectionMin = INT32_MIN;
         ssize_t intersectionMax = INT32_MAX;
 
-        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
         {
             const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
 
@@ -1784,9 +1782,8 @@ private:
 
         if (actualOp1->OperIs(GT_LCL_VAR, GT_LCL_USE))
         {
-            LclVarDsc* lcl =
-                compiler->lvaGetDesc(actualOp1->OperIs(GT_LCL_VAR) ? actualOp1->AsLclVar()->GetLclNum()
-                                                                   : actualOp1->AsLclUse()->GetDef()->GetLclNum());
+            LclVarDsc* lcl = actualOp1->OperIs(GT_LCL_VAR) ? actualOp1->AsLclVar()->GetLcl()
+                                                           : actualOp1->AsLclUse()->GetDef()->GetLcl();
 
             // TODO-MIKE-Review: Usually we can't eliminate load "normalization" casts.
             // They're usually present on every LCL_VAR use so we'll never get assertions
@@ -1865,7 +1862,7 @@ private:
 
     const AssertionDsc* FindPositiveIntAssertion(const ASSERT_TP assertions, ValueNum vn)
     {
-        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
         {
             const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
 
@@ -1984,7 +1981,7 @@ private:
             }
         }
 
-        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
         {
             const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
 
@@ -2043,7 +2040,7 @@ private:
     {
         ValueNum objMTVN = vnStore->HasFunc(TYP_I_IMPL, VNF_ObjMT, objVN);
 
-        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
         {
             const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
 
@@ -2138,7 +2135,7 @@ private:
             INDEBUG(comment = isRedundant ? "a[K1] with a.Length == K2 && K1 < K2" : "");
         }
 
-        for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext() && !isRedundant;)
+        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext() && !isRedundant;)
         {
             const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
             const auto          kind      = assertion.kind;
@@ -2416,7 +2413,7 @@ private:
             return;
         }
 
-        for (BitVecOps::Enumerator en(&sizeTraits, vnAssertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(sizeTraits, vnAssertions); en.MoveNext();)
         {
             const AssertionDsc& notNullAssertion = GetAssertion(GetAssertionIndex(en.Current()));
             assert(notNullAssertion.op1.vn == typeAssertion.op1.vn);
@@ -2432,7 +2429,7 @@ private:
             {
                 assert(notNullAssertion.op2.intCon.value == 0);
 
-                if (BitVecOps::TryAddElemD(&countTraits, assertions, en.Current()))
+                if (BitVecOps::TryAddElemD(countTraits, assertions, en.Current()))
                 {
                     JITDUMP("Assertion A%02d implies A%02d\n", &typeAssertion - assertionTable,
                             &notNullAssertion - assertionTable);
@@ -2481,7 +2478,7 @@ private:
             max = min;
         }
 
-        for (BitVecOps::Enumerator en(&sizeTraits, vnAssertions); en.MoveNext();)
+        for (BitVecOps::Enumerator en(sizeTraits, vnAssertions); en.MoveNext();)
         {
             const AssertionDsc& impliedAssertion = GetAssertion(GetAssertionIndex(en.Current()));
             assert(impliedAssertion.op1.vn == rangeAssertion.op1.vn);
@@ -2508,7 +2505,7 @@ private:
                 }
             }
 
-            if (isImplied && BitVecOps::TryAddElemD(&countTraits, result, en.Current()))
+            if (isImplied && BitVecOps::TryAddElemD(countTraits, result, en.Current()))
             {
                 JITDUMP("Assertion A%02d implies assertion A%02d\n", &rangeAssertion - assertionTable,
                         &impliedAssertion - assertionTable);
@@ -2525,7 +2522,7 @@ private:
     class DataFlowCallback
     {
         AssertionProp&      ap;
-        BitVecTraits*       apTraits;
+        BitVecTraits        apTraits;
         const AssertionGen* assertionGen;
         ASSERT_TP           preMergeOut;
         ASSERT_TP           preMergeJumpDestOut;
@@ -2533,10 +2530,10 @@ private:
     public:
         DataFlowCallback(AssertionProp& ap, const AssertionGen* assertionGen)
             : ap(ap)
-            , apTraits(&ap.countTraits)
+            , apTraits(ap.countTraits)
             , assertionGen(assertionGen)
-            , preMergeOut(BitVecOps::UninitVal())
-            , preMergeJumpDestOut(BitVecOps::UninitVal())
+            , preMergeOut(BitVecOps::Alloc(apTraits))
+            , preMergeJumpDestOut(BitVecOps::Alloc(apTraits))
         {
         }
 
@@ -2683,7 +2680,7 @@ private:
 
         for (BasicBlock* const block : compiler->Blocks())
         {
-            ASSERT_TP assertions = BitVecOps::MakeEmpty(&countTraits);
+            ASSERT_TP assertions = BitVecOps::MakeEmpty(countTraits);
             GenTree*  jtrue      = nullptr;
 
             for (Statement* const stmt : block->Statements())
@@ -2702,20 +2699,20 @@ private:
                     {
                         AssertionInfo info = node->GetAssertionInfo();
                         AddImpliedAssertions(info.GetAssertionIndex(), assertions);
-                        BitVecOps::AddElemD(&countTraits, assertions, info.GetAssertionIndex() - 1);
+                        BitVecOps::AddElemD(countTraits, assertions, info.GetAssertionIndex() - 1);
                     }
                 }
             }
 
-            ASSERT_TP jumpDestAssertions;
+            ASSERT_TP jumpDestAssertions = BitVecOps::Alloc(countTraits);
 
             if (jtrue == nullptr)
             {
-                jumpDestAssertions = BitVecOps::MakeEmpty(&countTraits);
+                BitVecOps::ClearD(countTraits, jumpDestAssertions);
             }
             else
             {
-                jumpDestAssertions = BitVecOps::MakeCopy(&countTraits, assertions);
+                BitVecOps::Assign(countTraits, jumpDestAssertions, assertions);
 
                 if (jtrue->GeneratesAssertion())
                 {
@@ -2737,13 +2734,13 @@ private:
                     if (nextIndex != NO_ASSERTION_INDEX)
                     {
                         AddImpliedAssertions(nextIndex, assertions);
-                        BitVecOps::AddElemD(&countTraits, assertions, nextIndex - 1);
+                        BitVecOps::AddElemD(countTraits, assertions, nextIndex - 1);
                     }
 
                     if (jumpIndex != NO_ASSERTION_INDEX)
                     {
                         AddImpliedAssertions(jumpIndex, jumpDestAssertions);
-                        BitVecOps::AddElemD(&countTraits, jumpDestAssertions, jumpIndex - 1);
+                        BitVecOps::AddElemD(countTraits, jumpDestAssertions, jumpIndex - 1);
                     }
                 }
             }
@@ -2785,12 +2782,12 @@ private:
     {
         for (BasicBlock* const block : compiler->Blocks())
         {
-            block->bbAssertionIn          = BitVecOps::MakeFull(&countTraits);
-            block->bbAssertionOut         = BitVecOps::MakeFull(&countTraits);
-            block->bbAssertionOutJumpDest = BitVecOps::MakeFull(&countTraits);
+            block->bbAssertionIn          = BitVecOps::MakeFull(countTraits);
+            block->bbAssertionOut         = BitVecOps::MakeFull(countTraits);
+            block->bbAssertionOutJumpDest = BitVecOps::MakeFull(countTraits);
         }
 
-        BitVecOps::ClearD(&countTraits, compiler->fgFirstBB->bbAssertionIn);
+        BitVecOps::ClearD(countTraits, compiler->fgFirstBB->bbAssertionIn);
     }
 
     GenTree* ExtractConstantSideEffects(GenTree* tree)
@@ -3180,7 +3177,7 @@ private:
             {
                 case GT_LCL_VAR:
                     // Don't undo constant CSEs.
-                    if (m_compiler->lvaGetDesc(tree->AsLclVar())->lvIsCSE)
+                    if (tree->AsLclVar()->GetLcl()->lvIsCSE)
                     {
                         return Compiler::WALK_CONTINUE;
                     }
@@ -3188,7 +3185,7 @@ private:
 
                 case GT_LCL_USE:
                     // Don't undo constant CSEs.
-                    if (m_compiler->lvaGetDesc(tree->AsLclUse()->GetDef()->GetLclNum())->lvIsCSE)
+                    if (tree->AsLclUse()->GetDef()->GetLcl()->lvIsCSE)
                     {
                         return Compiler::WALK_CONTINUE;
                     }
@@ -3427,8 +3424,9 @@ private:
             unsigned      lclNum   = m_vnStore->ConstantValue<unsigned>(lclAddr[0]);
             target_size_t offset   = m_vnStore->ConstantValue<target_size_t>(lclAddr[1]);
             FieldSeqNode* fieldSeq = m_vnStore->FieldSeqVNToFieldSeq(lclAddr[2]);
+            LclVarDsc*    lcl      = m_compiler->lvaGetDesc(lclNum);
 
-            if ((offset > UINT16_MAX) || (offset >= m_compiler->lvaGetDesc(lclNum)->GetTypeSize()))
+            if ((offset > UINT16_MAX) || (offset >= lcl->GetTypeSize()))
             {
                 return false;
             }
@@ -3440,11 +3438,11 @@ private:
 
             if ((offset == 0) && (fieldSeq == nullptr))
             {
-                node->ChangeToLclAddr(TYP_I_IMPL, lclNum);
+                node->ChangeToLclAddr(TYP_I_IMPL, lcl);
             }
             else
             {
-                node->ChangeToLclAddr(TYP_I_IMPL, lclNum, static_cast<unsigned>(offset),
+                node->ChangeToLclAddr(TYP_I_IMPL, lcl, static_cast<unsigned>(offset),
                                       fieldSeq == nullptr ? FieldSeqNode::NotAField() : fieldSeq);
             }
 
@@ -3516,11 +3514,11 @@ private:
 
     void PropagateAssertions()
     {
-        ASSERT_TP assertions = BitVecOps::MakeEmpty(&countTraits);
+        ASSERT_TP assertions = BitVecOps::Alloc(countTraits);
 
         for (BasicBlock* const block : compiler->Blocks())
         {
-            BitVecOps::Assign(&countTraits, assertions, block->bbAssertionIn);
+            BitVecOps::Assign(countTraits, assertions, block->bbAssertionIn);
 
             // TODO-Review: EH successor/predecessor iteration seems broken.
             // SELF_HOST_TESTS_ARM\jit\Directed\ExcepFilters\fault\fault.exe
@@ -3562,7 +3560,7 @@ private:
                     {
                         AssertionInfo info = node->GetAssertionInfo();
                         AddImpliedAssertions(info.GetAssertionIndex(), assertions);
-                        BitVecOps::AddElemD(&countTraits, assertions, info.GetAssertionIndex() - 1);
+                        BitVecOps::AddElemD(countTraits, assertions, info.GetAssertionIndex() - 1);
                     }
                 }
 
@@ -3782,7 +3780,7 @@ void SsaOptimizer::DumpAssertionIndices(const char* header, ASSERT_TP assertions
     const char* separator = "";
 
     BitVecTraits apTraits(assertionCount, compiler);
-    for (BitVecOps::Enumerator en(&apTraits, assertions); en.MoveNext();)
+    for (BitVecOps::Enumerator en(apTraits, assertions); en.MoveNext();)
     {
         printf("%sA%02u", separator, en.Current());
         separator = ", ";

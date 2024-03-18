@@ -33,7 +33,7 @@ public:
     VNLoopMemorySummary(ValueNumbering* valueNumbering, unsigned loopNum);
     void AddMemoryHavoc();
     void AddCall();
-    void AddAddressExposedLocal(unsigned lclNum);
+    void AddAddressExposedLocal(INDEBUG(LclVarDsc* lcl));
     void AddField(CORINFO_FIELD_HANDLE fieldHandle);
     void AddArrayType(unsigned elemTypeNum);
     bool IsComplete() const;
@@ -151,19 +151,9 @@ private:
     void NumbeCkFinite(GenTreeUnOp* node);
 
 #ifdef DEBUG
-    void TraceLocal(unsigned lclNum, ValueNumPair vnp, const char* comment = nullptr);
+    void TraceLocal(LclVarDsc* lcl, ValueNumPair vnp, const char* comment = nullptr);
     void TraceMem(ValueNum vn, const char* comment = nullptr);
 #endif
-
-    LclVarDsc* lvaGetDesc(unsigned lclNum) const
-    {
-        return compiler->lvaGetDesc(lclNum);
-    }
-
-    LclVarDsc* lvaGetDesc(GenTreeLclVarCommon* lclNode) const
-    {
-        return compiler->lvaGetDesc(lclNode);
-    }
 };
 
 // We need to use target-specific NaN values when statically compute expressions.
@@ -3940,9 +3930,9 @@ ValueNumPair ValueNumbering::ExtractStructField(GenTree* load, ValueNumPair stru
 
 void ValueNumbering::SummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store, VNLoopMemorySummary& summary)
 {
-    if (lvaGetDesc(store)->IsAddressExposed())
+    if (store->GetLcl()->IsAddressExposed())
     {
-        summary.AddAddressExposedLocal(store->GetLclNum());
+        summary.AddAddressExposedLocal(INDEBUG(store->GetLcl()));
     }
 }
 
@@ -3957,16 +3947,16 @@ void ValueNumbering::SummarizeLoopLocalDefs(GenTreeLclDef* def, VNLoopMemorySumm
 void ValueNumbering::NumberLclStore(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
-    assert(!lvaGetDesc(store)->IsSsa());
+    assert(!store->GetLcl()->IsSsa());
 
-    if (!lvaGetDesc(store)->IsAddressExposed())
+    if (!store->GetLcl()->IsAddressExposed())
     {
         assert(ssa.GetMemoryDef(store) == nullptr);
 
         return;
     }
 
-    ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(store->GetLclNum()),
+    ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(store->GetLcl()->GetLclNum()),
                                             vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
     INDEBUG(vnStore->Trace(lclAddrVN));
 
@@ -3976,7 +3966,7 @@ void ValueNumbering::NumberLclStore(GenTreeLclVar* store)
 
 void ValueNumbering::NumberLclDef(GenTreeLclDef* def)
 {
-    LclVarDsc*   lcl   = lvaGetDesc(def->GetLclNum());
+    LclVarDsc*   lcl   = def->GetLcl();
     GenTree*     value = def->GetValue();
     ValueNumPair valueVNP;
 
@@ -4056,22 +4046,22 @@ void ValueNumbering::NumberLclDef(GenTreeLclDef* def)
 
     def->SetVNP(valueVNP);
 
-    INDEBUG(TraceLocal(def->GetLclNum(), valueVNP));
+    INDEBUG(TraceLocal(def->GetLcl(), valueVNP));
 }
 
 void ValueNumbering::NumberLclLoad(GenTreeLclVar* load)
 {
     assert(load->OperIs(GT_LCL_VAR));
-    assert(!lvaGetDesc(load)->IsSsa());
+    assert(!load->GetLcl()->IsSsa());
 
-    if (!lvaGetDesc(load)->IsAddressExposed())
+    if (!load->GetLcl()->IsAddressExposed())
     {
         load->SetVNP(ValueNumPair{vnStore->VNForExpr(load->GetType())});
 
         return;
     }
 
-    ValueNum addrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(load->GetLclNum()),
+    ValueNum addrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(load->GetLcl()->GetLclNum()),
                                          vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
 
     // TODO-MIKE-Review: Setting the conservative VN to a non unique VN is suspect.
@@ -4084,7 +4074,7 @@ void ValueNumbering::NumberLclLoad(GenTreeLclVar* load)
 void ValueNumbering::NumberLclUse(GenTreeLclUse* use)
 {
     GenTreeLclDef* def = use->GetDef();
-    LclVarDsc*     lcl = lvaGetDesc(def->GetLclNum());
+    LclVarDsc*     lcl = def->GetLcl();
     ValueNumPair   vnp = def->GetVNP();
 
     assert(vnp.GetLiberal() != NoVN);
@@ -4129,16 +4119,16 @@ void ValueNumbering::NumberLclUse(GenTreeLclUse* use)
 void ValueNumbering::NumberLclFldStore(GenTreeLclFld* store)
 {
     assert(store->OperIs(GT_STORE_LCL_FLD));
-    assert(!lvaGetDesc(store)->IsSsa());
+    assert(!store->GetLcl()->IsSsa());
 
-    if (!lvaGetDesc(store)->IsAddressExposed())
+    if (!store->GetLcl()->IsAddressExposed())
     {
         assert(ssa.GetMemoryDef(store) == nullptr);
 
         return;
     }
 
-    ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(store->GetLclNum()),
+    ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(store->GetLcl()->GetLclNum()),
                                             vnStore->VNForUPtrSizeIntCon(store->GetLclOffs()),
                                             vnStore->VNForFieldSeq(store->GetFieldSeq()));
     INDEBUG(vnStore->Trace(lclAddrVN));
@@ -4197,9 +4187,9 @@ void ValueNumbering::NumberInsert(GenTreeInsert* insert)
 void ValueNumbering::NumberLclFldLoad(GenTreeLclFld* load)
 {
     assert(load->OperIs(GT_LCL_FLD));
-    assert(!lvaGetDesc(load)->IsSsa());
+    assert(!load->GetLcl()->IsSsa());
 
-    if (!lvaGetDesc(load)->IsAddressExposed())
+    if (!load->GetLcl()->IsAddressExposed())
     {
         load->SetVNP(ValueNumPair{vnStore->VNForExpr(load->GetType())});
 
@@ -4210,7 +4200,7 @@ void ValueNumbering::NumberLclFldLoad(GenTreeLclFld* load)
     // these loads back to a store. We only care about getting the same VN when loading
     // the same type from the same address (provided that there are no interfering stores).
     ValueNum addrVN =
-        vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(load->GetLclNum()),
+        vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(load->GetLcl()->GetLclNum()),
                            vnStore->VNForUPtrSizeIntCon(load->GetLclOffs()), vnStore->VNForFieldSeq(nullptr));
 
     load->SetLiberalVN(LoadMemory(load->GetType(), addrVN));
@@ -4270,7 +4260,7 @@ void ValueNumbering::SummarizeLoopIndirMemoryStores(GenTreeIndir* store, VNLoopM
     if (func == VNF_LclAddr)
     {
         unsigned lclNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(funcApp[0]));
-        summary.AddAddressExposedLocal(lclNum);
+        summary.AddAddressExposedLocal(INDEBUG(compiler->lvaGetDesc(lclNum)));
 
         return;
     }
@@ -4331,7 +4321,7 @@ void ValueNumbering::NumberIndirStore(GenTreeIndir* store)
 
     if (func == VNF_LclAddr)
     {
-        assert(lvaGetDesc(vnStore->ConstantValue<int32_t>(funcApp[0]))->IsAddressExposed());
+        assert(compiler->lvaGetDesc(vnStore->ConstantValue<int32_t>(funcApp[0]))->IsAddressExposed());
         ValueNum memVN = StoreAddressExposedLocal(store, addrVN, value);
         UpdateMemory(store, memVN DEBUGARG("address-exposed local store"));
 
@@ -6175,7 +6165,7 @@ void ValueNumStore::RunTests(Compiler* comp)
 
     SsaOptimizer ssa(comp);
 
-    ValueNumStore* vns    = new (comp->getAllocatorDebugOnly()) ValueNumStore(ssa);
+    ValueNumStore* vns    = new (comp, CMK_DebugOnly) ValueNumStore(ssa);
     ValueNum       vnNull = NullVN();
     assert(vnNull == NullVN());
 
@@ -6460,8 +6450,7 @@ void ValueNumbering::NumberInitDefs()
 
     for (GenTreeLclDef* def = ssa.GetInitLclDefs(); def != nullptr; def = static_cast<GenTreeLclDef*>(def->gtNext))
     {
-        unsigned   lclNum   = def->GetLclNum();
-        LclVarDsc* lcl      = compiler->lvaGetDesc(lclNum);
+        LclVarDsc* lcl      = def->GetLcl();
         var_types  type     = lcl->GetType();
         bool       isZeroed = false;
 
@@ -6471,13 +6460,13 @@ void ValueNumbering::NumberInitDefs()
 
             // For OSR, locals or promoted fields of locals may be missing the initial def
             // because of partial importation. We can't assume they are zero.
-            if (compiler->lvaIsOSRLocal(lclNum))
+            if (compiler->lvaIsOSRLocal(lcl))
             {
                 isZeroed = false;
             }
 
 #ifdef TARGET_X86
-            if (lclNum == compiler->lvaVarargsBaseOfStkArgs)
+            if (lcl == compiler->lvaVarargsBaseOfStkLcl)
             {
                 isZeroed = false;
             }
@@ -6496,7 +6485,7 @@ void ValueNumbering::NumberInitDefs()
 
         ValueNum initVN = isZeroed ? vnStore->VNZeroForType(type) : vnStore->VNForExpr(compiler->fgFirstBB, type);
         def->SetVNP(ValueNumPair{initVN});
-        INDEBUG(TraceLocal(lclNum, def->GetVNP()));
+        INDEBUG(TraceLocal(lcl, def->GetVNP()));
     }
 
     // Give memory an initial value number (about which we know nothing).
@@ -6666,7 +6655,7 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
                 blockVN = vnStore->VNForHostPtr(block);
             }
 
-            ValueNum lclNumVN = vnStore->VNForIntCon(def->GetLclNum());
+            ValueNum lclNumVN = vnStore->VNForIntCon(def->GetLcl()->GetLclNum());
 
             phiVNP =
                 vnStore->VNPairForFunc(def->GetType(), VNF_Phi, argsVNP, ValueNumPair{blockVN}, ValueNumPair{lclNumVN});
@@ -6675,7 +6664,7 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
         def->SetVNP(phiVNP);
         phi->SetVNP(phiVNP);
 
-        INDEBUG(TraceLocal(def->GetLclNum(), phiVNP));
+        INDEBUG(TraceLocal(def->GetLcl(), phiVNP));
     }
 
     // Now do the same for memory.
@@ -6802,9 +6791,9 @@ void VNLoopMemorySummary::AddCall()
     m_hasCall = true;
 }
 
-void VNLoopMemorySummary::AddAddressExposedLocal(unsigned lclNum)
+void VNLoopMemorySummary::AddAddressExposedLocal(INDEBUG(LclVarDsc* lcl))
 {
-    assert(m_compiler->lvaGetDesc(lclNum)->IsAddressExposed());
+    assert(lcl->IsAddressExposed());
 
     if (m_modifiesAddressExposedLocals || m_memoryHavoc)
     {
@@ -6819,7 +6808,7 @@ void VNLoopMemorySummary::AddAddressExposedLocal(unsigned lclNum)
 
         if (!loop.modifiesAddressExposedLocals)
         {
-            JITDUMP("Loop " FMT_LP " stores to address-exposed local V%02u\n", n, lclNum);
+            JITDUMP("Loop " FMT_LP " stores to address-exposed local V%02u\n", n, lcl->GetLclNum());
         }
 
         loop.modifiesAddressExposedLocals = true;
@@ -7156,11 +7145,11 @@ void ValueNumbering::SummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySu
             break;
 
         case GT_LCL_ADDR:
-            assert(lvaGetDesc(node->AsLclAddr())->IsAddressExposed());
+            assert(node->AsLclAddr()->GetLcl()->IsAddressExposed());
             // TODO-MIKE-CQ: If the local is a promoted field we should use the parent instead,
             // so that byref exposed loads don't unnecessarily produce different value numbers.
             node->SetLiberalVN(vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr,
-                                                  vnStore->VNForIntCon(node->AsLclAddr()->GetLclNum()),
+                                                  vnStore->VNForIntCon(node->AsLclAddr()->GetLcl()->GetLclNum()),
                                                   vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr)));
             break;
 
@@ -7220,11 +7209,11 @@ void ValueNumbering::NumberNode(GenTree* node)
             break;
 
         case GT_LCL_ADDR:
-            assert(lvaGetDesc(node->AsLclAddr())->IsAddressExposed());
+            assert(node->AsLclAddr()->GetLcl()->IsAddressExposed());
             // TODO-MIKE-CQ: If the local is a promoted field we should use the parent instead,
             // so that byref exposed loads don't unnecessarily produce different value numbers.
             node->SetVNP(ValueNumPair{vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr,
-                                                         vnStore->VNForIntCon(node->AsLclAddr()->GetLclNum()),
+                                                         vnStore->VNForIntCon(node->AsLclAddr()->GetLcl()->GetLclNum()),
                                                          vnStore->VNForUPtrSizeIntCon(node->AsLclAddr()->GetLclOffs()),
                                                          vnStore->VNForFieldSeq(node->AsLclAddr()->GetFieldSeq()))});
             break;
@@ -8588,11 +8577,11 @@ void ValueNumStore::Trace(ValueNumPair vnp, const char* comment)
     }
 }
 
-void ValueNumbering::TraceLocal(unsigned lclNum, ValueNumPair vnp, const char* comment)
+void ValueNumbering::TraceLocal(LclVarDsc* lcl, ValueNumPair vnp, const char* comment)
 {
     if (compiler->verbose)
     {
-        printf("    V%02u = %s ", lclNum, varTypeName(vnStore->TypeOfVN(vnp.GetLiberal())));
+        printf("    V%02u = %s ", lcl->GetLclNum(), varTypeName(vnStore->TypeOfVN(vnp.GetLiberal())));
         vnStore->Print(vnp, 1);
 
         if (comment != nullptr)

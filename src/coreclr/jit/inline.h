@@ -587,8 +587,8 @@ struct InlineCandidateInfo : public GuardedDevirtualizationCandidateInfo
     CORINFO_CLASS_HANDLE   clsHandle;
     CORINFO_CONTEXT_HANDLE exactContextHnd;
     GenTreeRetExpr*        retExprPlaceholder;
+    LclVarDsc*             preexistingSpillTemp;
     DWORD                  dwRestrictions;
-    unsigned               preexistingSpillTemp;
     unsigned               clsAttr;
     unsigned               methAttr;
     CorInfoInitClassResult initClassResult;
@@ -602,7 +602,7 @@ struct InlArgInfo
     GenTree*             argNode;
     GenTree*             paramSingleUse;
     CORINFO_CLASS_HANDLE paramClass;
-    unsigned             paramLclNum;
+    LclVarDsc*           paramLcl;
     var_types            paramType;
     var_types            argType;
 
@@ -626,7 +626,7 @@ struct InlArgInfo
         : argNode(argNode)
         , paramSingleUse(nullptr)
         , paramClass(NO_CLASS_HANDLE)
-        , paramLclNum(BAD_VAR_NUM)
+        , paramLcl(nullptr)
         , paramType(TYP_UNDEF)
         , argType(argNode->GetType())
         , argIsInvariant(false)
@@ -648,7 +648,7 @@ struct InlArgInfo
 struct InlLocInfo
 {
     CORINFO_CLASS_HANDLE lclClass;
-    unsigned             lclNum;
+    LclVarDsc*           lcl;
     var_types            lclType;
 
     bool lclIsPinned : 1;
@@ -665,7 +665,7 @@ struct InlLocInfo
 
     InlLocInfo(var_types lclType, CORINFO_CLASS_HANDLE lclClass, bool lclIsPinned, bool lclHasNormedType)
         : lclClass(lclClass)
-        , lclNum(BAD_VAR_NUM)
+        , lcl(nullptr)
         , lclType(lclType)
         , lclIsPinned(lclIsPinned)
         , lclIsUsed(false)
@@ -691,8 +691,8 @@ struct InlineInfo
     GenTree*             retExpr;
     BasicBlockFlags      retBlockIRSummary;
     CORINFO_CLASS_HANDLE retExprClassHnd;
+    LclVarDsc*           retSpillTempLcl;
     bool                 retExprClassHndIsExact;
-    unsigned             retSpillTempLclNum;
 
     bool hasGCRefLocals;
     bool thisDereferencedFirst;

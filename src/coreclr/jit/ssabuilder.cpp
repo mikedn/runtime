@@ -22,7 +22,7 @@ public:
     void Build();
 
 private:
-    bool IncludeInSsa(unsigned lclNum);
+    bool IncludeInSsa(LclVarDsc* lcl);
     unsigned TopologicalSort(BasicBlock** postOrder, int count);
     static BasicBlock* IntersectDom(BasicBlock* finger1, BasicBlock* finger2);
     void ComputeImmediateDom(BasicBlock** postOrder, int count);
@@ -30,8 +30,8 @@ private:
     void ComputeIteratedDominanceFrontier(BasicBlock* b, const BlockDFMap* mapDF, BlockVector* bIDF);
 
     void               InsertPhiFunctions();
-    static GenTreePhi* GetPhiNode(BasicBlock* block, unsigned lclNum);
-    void InsertPhi(BasicBlock* block, unsigned lclNum);
+    static GenTreePhi* GetPhiNode(BasicBlock* block, LclVarDsc* lcl);
+    void InsertPhi(BasicBlock* block, LclVarDsc* lcl);
 
     void RenameVariables();
 
@@ -63,9 +63,9 @@ void SsaOptimizer::Reset()
     assertionCount = 0;
     assertionTable = nullptr;
 
-    for (unsigned i = 0; i < compiler->lvaCount; ++i)
+    for (LclVarDsc* lcl : compiler->Locals())
     {
-        compiler->lvaTable[i].m_isSsa = false;
+        lcl->m_isSsa = false;
     }
 
     for (BasicBlock* block : compiler->Blocks())
@@ -103,8 +103,8 @@ void SsaOptimizer::Reset()
         }
     }
 
-    compiler->fgComputeReachability();
-    compiler->fgComputeDoms();
+    compiler->phComputeReachability();
+    compiler->phComputeDoms();
     compiler->phFindLoops();
 
     loopTable = compiler->optLoopTable;
@@ -118,15 +118,16 @@ SsaBuilder::SsaBuilder(SsaOptimizer& ssa)
     , compiler(ssa.GetCompiler())
     , alloc(compiler->getAllocator(CMK_SSA))
     , m_visitedTraits(compiler->fgBBNumMax + 1, compiler)
-    , m_visited(BitVecOps::MakeEmpty(&m_visitedTraits))
+    , m_visited(BitVecOps::MakeEmpty(m_visitedTraits))
 {
 }
 
 void SsaBuilder::Build()
 {
-    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Locals())
     {
-        compiler->lvaGetDesc(lclNum)->m_isSsa = IncludeInSsa(lclNum);
+        lcl->m_isSsa = IncludeInSsa(lcl);
+        new (&lcl->ssa.renameStack) SsaDefStack(nullptr);
     }
 
     InsertPhiFunctions();
@@ -136,18 +137,14 @@ void SsaBuilder::Build()
     compiler->EndPhase(PHASE_BUILD_SSA_RENAME);
 }
 
-bool SsaBuilder::IncludeInSsa(unsigned lclNum)
+bool SsaBuilder::IncludeInSsa(LclVarDsc* lcl)
 {
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
     if (!lcl->HasLiveness())
     {
         if (lcl->IsIndependentPromoted() && !lcl->IsParam() && !lcl->lvIsMultiRegRet)
         {
-            for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+            for (LclVarDsc* fieldLcl : compiler->PromotedFields(lcl))
             {
-                LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
-
                 fieldLcl->lvIsStructField = false;
                 // TODO-MIKE-CQ: Remove this. Causes all sorts of diffs due to small int "normalization"
                 // changes, and promotion of LONG fields on 32 bit targets.
@@ -194,7 +191,7 @@ bool SsaBuilder::IncludeInSsa(unsigned lclNum)
 unsigned SsaBuilder::TopologicalSort(BasicBlock** postOrder, int count)
 {
     // TopologicalSort is called first so m_visited should already be empty
-    assert(BitVecOps::IsEmpty(&m_visitedTraits, m_visited));
+    assert(BitVecOps::IsEmpty(m_visitedTraits, m_visited));
 
     Compiler* comp = compiler;
 
@@ -226,7 +223,7 @@ unsigned SsaBuilder::TopologicalSort(BasicBlock** postOrder, int count)
     };
 
     BasicBlock* firstBlock = comp->fgFirstBB;
-    BitVecOps::AddElemD(&m_visitedTraits, m_visited, firstBlock->bbNum);
+    BitVecOps::AddElemD(m_visitedTraits, m_visited, firstBlock->bbNum);
     ArrayStack<AllSuccessorEnumerator> blocks(alloc);
     blocks.Emplace(comp, firstBlock);
     DumpBlockAndSuccessors(comp, firstBlock);
@@ -240,7 +237,7 @@ unsigned SsaBuilder::TopologicalSort(BasicBlock** postOrder, int count)
         if (succ != nullptr)
         {
             // if the block on TOS still has unreached successors, visit them
-            if (BitVecOps::TryAddElemD(&m_visitedTraits, m_visited, succ->bbNum))
+            if (BitVecOps::TryAddElemD(m_visitedTraits, m_visited, succ->bbNum))
             {
                 blocks.Emplace(comp, succ);
                 DumpBlockAndSuccessors(comp, succ);
@@ -302,8 +299,8 @@ void SsaBuilder::ComputeImmediateDom(BasicBlock** postOrder, int count)
     JITDUMP("[SsaBuilder::ComputeImmediateDom]\n");
 
     // Add entry point to visited as its IDom is NULL.
-    BitVecOps::ClearD(&m_visitedTraits, m_visited);
-    BitVecOps::AddElemD(&m_visitedTraits, m_visited, compiler->fgFirstBB->bbNum);
+    BitVecOps::ClearD(m_visitedTraits, m_visited);
+    BitVecOps::AddElemD(m_visitedTraits, m_visited, compiler->fgFirstBB->bbNum);
 
     assert(postOrder[count - 1] == compiler->fgFirstBB);
 
@@ -324,7 +321,7 @@ void SsaBuilder::ComputeImmediateDom(BasicBlock** postOrder, int count)
             BasicBlock* predBlock = nullptr;
             for (flowList* pred = predList; pred != nullptr; pred = pred->flNext)
             {
-                if (BitVecOps::IsMember(&m_visitedTraits, m_visited, pred->getBlock()->bbNum))
+                if (BitVecOps::IsMember(m_visitedTraits, m_visited, pred->getBlock()->bbNum))
                 {
                     predBlock = pred->getBlock();
                     break;
@@ -368,7 +365,7 @@ void SsaBuilder::ComputeImmediateDom(BasicBlock** postOrder, int count)
             }
 
             // Mark the current block as visited.
-            BitVecOps::AddElemD(&m_visitedTraits, m_visited, block->bbNum);
+            BitVecOps::AddElemD(m_visitedTraits, m_visited, block->bbNum);
 
             DBG_SSA_JITDUMP("Marking block " FMT_BB " as processed.\n", block->bbNum);
         }
@@ -468,11 +465,11 @@ void SsaBuilder::ComputeIteratedDominanceFrontier(BasicBlock* b, const BlockDFMa
     {
         // Compute IDF(b) - start by adding DF(b) to IDF(b).
         bIDF->reserve(bDF->size());
-        BitVecOps::ClearD(&m_visitedTraits, m_visited);
+        BitVecOps::ClearD(m_visitedTraits, m_visited);
 
         for (BasicBlock* f : *bDF)
         {
-            BitVecOps::AddElemD(&m_visitedTraits, m_visited, f->bbNum);
+            BitVecOps::AddElemD(m_visitedTraits, m_visited, f->bbNum);
             bIDF->push_back(f);
         }
 
@@ -490,7 +487,7 @@ void SsaBuilder::ComputeIteratedDominanceFrontier(BasicBlock* b, const BlockDFMa
             {
                 for (BasicBlock* ff : *fDF)
                 {
-                    if (BitVecOps::TryAddElemD(&m_visitedTraits, m_visited, ff->bbNum))
+                    if (BitVecOps::TryAddElemD(m_visitedTraits, m_visited, ff->bbNum))
                     {
                         bIDF->push_back(ff);
                     }
@@ -513,7 +510,7 @@ void SsaBuilder::ComputeIteratedDominanceFrontier(BasicBlock* b, const BlockDFMa
 #endif
 }
 
-GenTreePhi* SsaBuilder::GetPhiNode(BasicBlock* block, unsigned lclNum)
+GenTreePhi* SsaBuilder::GetPhiNode(BasicBlock* block, LclVarDsc* lcl)
 {
     for (Statement* const stmt : block->Statements())
     {
@@ -524,7 +521,7 @@ GenTreePhi* SsaBuilder::GetPhiNode(BasicBlock* block, unsigned lclNum)
             break;
         }
 
-        if (tree->AsLclDef()->GetLclNum() == lclNum)
+        if (tree->AsLclDef()->GetLcl() == lcl)
         {
             return tree->AsLclDef()->GetValue()->AsPhi();
         }
@@ -533,14 +530,14 @@ GenTreePhi* SsaBuilder::GetPhiNode(BasicBlock* block, unsigned lclNum)
     return nullptr;
 }
 
-void SsaBuilder::InsertPhi(BasicBlock* block, unsigned lclNum)
+void SsaBuilder::InsertPhi(BasicBlock* block, LclVarDsc* lcl)
 {
-    var_types type = compiler->lvaGetDesc(lclNum)->GetType();
+    var_types type = lcl->GetType();
 
     GenTreePhi* phi = new (compiler, GT_PHI) GenTreePhi(type);
     phi->SetCosts(0, 0);
 
-    GenTreeLclDef* def = new (compiler, GT_LCL_DEF) GenTreeLclDef(phi, block, lclNum);
+    GenTreeLclDef* def = new (compiler, GT_LCL_DEF) GenTreeLclDef(phi, block, lcl);
     def->gtFlags       = GTF_ASG;
     def->SetCosts(0, 0);
 
@@ -559,7 +556,7 @@ void SsaBuilder::InsertPhi(BasicBlock* block, unsigned lclNum)
 
     compiler->fgInsertStmtAtBeg(block, stmt);
 
-    JITDUMP("Added PHI definition for V%02u at start of " FMT_BB ".\n", lclNum, block->bbNum);
+    JITDUMP("Added PHI definition for V%02u at start of " FMT_BB ".\n", lcl->GetLclNum(), block->bbNum);
 }
 
 // Special value to represent a to-be-filled in Memory Phi arg list.
@@ -632,9 +629,8 @@ void SsaBuilder::InsertPhiFunctions()
         // For each local var number "lclNum" that "block" assigns to...
         for (VarSetOps::Enumerator en(compiler, block->bbVarDef); en.MoveNext();)
         {
-            unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(en.Current());
-            LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
-            DBG_SSA_JITDUMP("  Considering local var V%02u:\n", lclNum);
+            LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(en.Current());
+            DBG_SSA_JITDUMP("  Considering local var V%02u:\n", lcl->GetLclNum());
 
             if (!lcl->IsSsa())
             {
@@ -655,11 +651,11 @@ void SsaBuilder::InsertPhiFunctions()
                 }
 
                 // Check if we've already inserted a phi node.
-                if (GetPhiNode(bbInDomFront, lclNum) == nullptr)
+                if (GetPhiNode(bbInDomFront, lcl) == nullptr)
                 {
                     // We have a variable i that is defined in block j and live at l, and l belongs to dom frontier of
                     // j. So insert a phi node at l.
-                    InsertPhi(bbInDomFront, lclNum);
+                    InsertPhi(bbInDomFront, lcl);
                 }
             }
         }
@@ -692,18 +688,164 @@ void SsaBuilder::InsertPhiFunctions()
     }
 }
 
+class SsaRenameStack
+{
+    CompAllocator alloc;
+    // The tail of the list of stacks that have been pushed to
+    SsaDefStack* stackListTail = nullptr;
+    // Same state for the special implicit memory variable
+    SsaDefStack memoryStack{nullptr};
+    // A stack of free stack nodes
+    SsaDefStack freeStack{nullptr};
+#ifdef DEBUG
+    Compiler* compiler;
+#endif
+
+public:
+    SsaRenameStack(Compiler* compiler)
+        : alloc(compiler->getAllocator(CMK_SSA))
+#ifdef DEBUG
+        , compiler(compiler)
+#endif
+    {
+    }
+
+    GenTreeLclDef* TopLclDef(LclVarDsc* lcl) const
+    {
+        DBG_SSA_JITDUMP("[SsaRenameStack::Top] V%02u\n", lcl->GetLclNum());
+
+        SsaDefStackNode* top = lcl->ssa.renameStack.Top();
+        noway_assert(top != nullptr);
+        assert(top->lclDef->GetLcl() == lcl);
+        return top->lclDef;
+    }
+
+    void PushLclDef(BasicBlock* block, LclVarDsc* lcl, GenTreeLclDef* def)
+    {
+        DBG_SSA_JITDUMP("[SsaRenameStack::Push] " FMT_BB ", V%02u, def = [%06u]\n", block->bbNum, lcl->GetLclNum(),
+                        def->GetID());
+
+        PushDef(&lcl->ssa.renameStack, block, def);
+    }
+
+    SsaMemDef* TopMemDef() const
+    {
+        return memoryStack.Top()->memDef;
+    }
+
+    void PushMemDef(BasicBlock* block, SsaMemDef* def)
+    {
+        PushDef(&memoryStack, block, def);
+    }
+
+    void PopBlockStacks(BasicBlock* block)
+    {
+        DBG_SSA_JITDUMP("[SsaRenameStack::PopBlockStacks] " FMT_BB "\n", block->bbNum);
+
+        while ((stackListTail != nullptr) && (stackListTail->Top()->block == block))
+        {
+            SsaDefStackNode* top = stackListTail->Pop();
+            INDEBUG(DumpStack(stackListTail, top));
+            stackListTail = top->listPrev;
+            freeStack.Push(top);
+        }
+
+#ifdef DEBUG
+        for (LclVarDsc* lcl : compiler->Locals())
+        {
+            if (lcl->ssa.renameStack.Top() != nullptr)
+            {
+                assert(lcl->ssa.renameStack.Top()->block != block);
+            }
+        }
+#endif
+    }
+
+private:
+    template <class... Args>
+    SsaDefStackNode* AllocStackNode(Args&&... args)
+    {
+        SsaDefStackNode* stack = freeStack.Top();
+
+        if (stack != nullptr)
+        {
+            freeStack.Pop();
+        }
+        else
+        {
+            stack = alloc.allocate<SsaDefStackNode>(1);
+        }
+
+        return new (stack) SsaDefStackNode(std::forward<Args>(args)...);
+    }
+
+    template <class Def>
+    void PushDef(SsaDefStack* stack, BasicBlock* block, Def* def)
+    {
+        SsaDefStackNode* top = stack->Top();
+
+        if ((top == nullptr) || (top->block != block))
+        {
+            stack->Push(AllocStackNode(stackListTail, block, def));
+            // Append the stack to the stack list. The stack list allows
+            // PopBlockStacks to easily find stacks that need popping.
+            stackListTail = stack;
+        }
+        else
+        {
+            // If we already have a stack node for this block then simply
+            // update the SSA def, the previous one is no longer needed.
+            top->SetDef(def);
+        }
+
+        INDEBUG(DumpStack(stack, stack->Top()));
+    }
+
+#ifdef DEBUG
+    void DumpStack(SsaDefStack* stack, SsaDefStackNode* top) const
+    {
+        if (JitTls::GetCompiler()->verboseSsa)
+        {
+            if (stack == &memoryStack)
+            {
+                printf("Memory: ");
+            }
+            else
+            {
+                printf("V%02u: ", top->lclDef->GetLcl()->GetLclNum());
+            }
+
+            for (SsaDefStackNode* i = stack->Top(); i != nullptr; i = i->stackPrev)
+            {
+                if (stack == &memoryStack)
+                {
+                    printf("%s<" FMT_BB ", %u>", (i == stack->Top()) ? "" : ", ", i->block->bbNum, i->memDef->num);
+                }
+                else
+                {
+                    printf("%s<" FMT_BB ", [%06u]>", (i == stack->Top()) ? "" : ", ", i->block->bbNum,
+                           i->lclDef->GetID());
+                }
+            }
+
+            printf("\n");
+        }
+    }
+#endif // DEBUG
+};
+
 class SsaRenameDomTreeVisitor : public DomTreeVisitor<SsaRenameDomTreeVisitor>
 {
     SsaOptimizer&  ssa;
     CompAllocator  alloc;
-    SsaRenameState renameStack;
+    SsaRenameStack renameStack;
 
 public:
     SsaRenameDomTreeVisitor(SsaOptimizer& ssa)
         : DomTreeVisitor(ssa.GetCompiler(), ssa.GetDomTree())
         , ssa(ssa)
         , alloc(m_compiler->getAllocator(CMK_SSA))
-        , renameStack(alloc, m_compiler->lvaCount)
+        , renameStack(m_compiler)
     {
     }
 
@@ -717,10 +859,8 @@ public:
         GenTreeLclDef* firstInitSsaDef = nullptr;
         GenTreeLclDef* lastInitSsaDef  = nullptr;
 
-        for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+        for (LclVarDsc* lcl : compiler->LivenessLocals())
         {
-            LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
             if (lcl->IsSsa() && VarSetOps::IsMember(compiler, firstBlock->bbLiveIn, lcl->GetLivenessBitIndex()))
             {
                 // TODO-MIKE-SSA: Having a SSA_UNDEF oper might be better than using a LCL_VAR
@@ -730,10 +870,10 @@ public:
                 // basic block so they're invisible to anything except SSA code, which can treat
                 // them specially (by basically ignoring them).
 
-                GenTreeLclVar* arg = compiler->gtNewLclvNode(lclNum, lcl->GetType());
-                GenTreeLclDef* def = new (compiler, GT_LCL_DEF) GenTreeLclDef(arg, firstBlock, lclNum);
+                GenTreeLclVar* arg = compiler->gtNewLclvNode(lcl, lcl->GetType());
+                GenTreeLclDef* def = new (compiler, GT_LCL_DEF) GenTreeLclDef(arg, firstBlock, lcl);
 
-                renameStack.Push(firstBlock, lclNum, def);
+                renameStack.PushLclDef(firstBlock, lcl, def);
 
                 if (firstInitSsaDef == nullptr)
                 {
@@ -752,7 +892,7 @@ public:
 
         SsaMemDef* initMemoryDef = ssa.AllocMemoryDef();
         ssa.SetInitMemoryDef(initMemoryDef);
-        renameStack.PushMemory(firstBlock, initMemoryDef);
+        renameStack.PushMemDef(firstBlock, initMemoryDef);
 
         for (BasicBlock* const block : compiler->Blocks())
         {
@@ -828,17 +968,16 @@ void SsaRenameDomTreeVisitor::AddPhiArg(BasicBlock*    pred,
     }
 #endif // DEBUG
 
-    DBG_SSA_JITDUMP("Added PHI arg for V%02u from [%06u] " FMT_BB " in " FMT_BB ".\n", def->GetLclNum(), def->GetID(),
-                    pred->bbNum, block->bbNum);
+    DBG_SSA_JITDUMP("Added PHI arg for V%02u from [%06u] " FMT_BB " in " FMT_BB ".\n", def->GetLcl()->GetLclNum(),
+                    def->GetID(), pred->bbNum, block->bbNum);
 }
 
 void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclVarCommon* store, BasicBlock* block)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
-    GenTree*   value  = store->GetOp(0);
-    unsigned   lclNum = store->GetLclNum();
-    LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
+    GenTree*   value = store->GetOp(0);
+    LclVarDsc* lcl   = store->GetLcl();
 
     if (lcl->IsSsa())
     {
@@ -855,7 +994,7 @@ void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclVarCommon* store, BasicBl
 
             if (lclFld->IsPartialLclFld(m_compiler))
             {
-                structValue = new (m_compiler, GT_LCL_USE) GenTreeLclUse(renameStack.Top(lclNum), block);
+                structValue = new (m_compiler, GT_LCL_USE) GenTreeLclUse(renameStack.TopLclDef(lcl), block);
                 // TODO-MIKE-SSA: This is messy, we can't allow 0 to propagate to this
                 // use because we drop it on the floor when we destroy the SSA form.
                 // Destroy SSA needs to deal with this by adding a STORE_LCL_VAR(lclNum, 0)
@@ -909,13 +1048,13 @@ void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclVarCommon* store, BasicBl
         GenTree* def = store;
         def->SetOper(GT_LCL_DEF);
         def->AsLclDef()->Init();
-        def->AsLclDef()->SetLclNum(lclNum);
+        def->AsLclDef()->SetLcl(lcl);
         def->AsLclDef()->SetBlock(block);
         def->AsLclDef()->SetValue(value);
         def->SetType(lcl->lvNormalizeOnStore() ? varActualType(lcl->GetType()) : lcl->GetType());
         def->gtFlags = defFlags | value->GetSideEffects() | GTF_ASG;
 
-        renameStack.Push(block, lclNum, def->AsLclDef());
+        renameStack.PushLclDef(block, lcl, def->AsLclDef());
 
         if (!value->IsPhi())
         {
@@ -935,7 +1074,7 @@ void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclVarCommon* store, BasicBl
     if (!block->bbMemoryHavoc && m_compiler->ehBlockHasExnFlowDsc(block))
     {
         SsaMemDef* def = ssa.AllocNodeMemoryDef(store);
-        renameStack.PushMemory(block, def);
+        renameStack.PushMemDef(block, def);
 
         DBG_SSA_JITDUMP("Node [%06u] in try block defines memory; SSA #%u.\n", store->GetID(), def->num);
 
@@ -952,7 +1091,7 @@ void SsaRenameDomTreeVisitor::RenameMemoryStore(GenTreeIndir* store, BasicBlock*
     if (!block->bbMemoryHavoc && m_compiler->ehBlockHasExnFlowDsc(block))
     {
         SsaMemDef* def = ssa.AllocNodeMemoryDef(store);
-        renameStack.PushMemory(block, def);
+        renameStack.PushMemDef(block, def);
 
         DBG_SSA_JITDUMP("Node [%06u] in try block defines memory; SSA #%u.\n", store->GetID(), def->num);
 
@@ -962,16 +1101,14 @@ void SsaRenameDomTreeVisitor::RenameMemoryStore(GenTreeIndir* store, BasicBlock*
 
 void SsaRenameDomTreeVisitor::RenamePhiDef(GenTreeLclDef* def, BasicBlock* block)
 {
-    unsigned lclNum = def->GetLclNum();
-    renameStack.Push(block, lclNum, def);
+    renameStack.PushLclDef(block, def->GetLcl(), def);
 }
 
 void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclVarCommon* lclNode, Statement* stmt, BasicBlock* block)
 {
     assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
 
-    unsigned   lclNum = lclNode->GetLclNum();
-    LclVarDsc* lcl    = m_compiler->lvaGetDesc(lclNum);
+    LclVarDsc* lcl = lclNode->GetLcl();
 
     if (!lcl->IsSsa())
     {
@@ -981,7 +1118,7 @@ void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclVarCommon* lclNode, Stateme
     // Promoted variables are not in SSA, only their fields are.
     assert(!lcl->IsPromoted());
 
-    GenTreeLclDef* def = renameStack.Top(lclNum);
+    GenTreeLclDef* def = renameStack.TopLclDef(lcl);
 
     if (GenTreeLclFld* lclFld = lclNode->IsLclFld())
     {
@@ -1035,8 +1172,9 @@ void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclVarCommon* lclNode, Stateme
 
 void SsaRenameDomTreeVisitor::AddDefToHandlerPhis(BasicBlock* block, GenTreeLclDef* def)
 {
-    unsigned  lclIndex  = m_compiler->lvaGetDesc(def->GetLclNum())->GetLivenessBitIndex();
-    EHblkDsc* tryRegion = m_compiler->ehGetBlockExnFlowDsc(block);
+    LclVarDsc* lcl       = def->GetLcl();
+    unsigned   lclIndex  = lcl->GetLivenessBitIndex();
+    EHblkDsc*  tryRegion = m_compiler->ehGetBlockExnFlowDsc(block);
 
     while (tryRegion != nullptr)
     {
@@ -1045,7 +1183,7 @@ void SsaRenameDomTreeVisitor::AddDefToHandlerPhis(BasicBlock* block, GenTreeLclD
         if (VarSetOps::IsMember(m_compiler, handler->bbLiveIn, lclIndex))
         {
             DBG_SSA_JITDUMP("Adding PHI arg for V%02u from [%06u] " FMT_BB " to exception handler" FMT_BB ".\n",
-                            def->GetLclNum(), def->GetID(), block->bbNum, handler->bbNum);
+                            lcl->GetLclNum(), def->GetID(), block->bbNum, handler->bbNum);
 
             INDEBUG(bool phiFound = false);
 
@@ -1058,7 +1196,7 @@ void SsaRenameDomTreeVisitor::AddDefToHandlerPhis(BasicBlock* block, GenTreeLclD
                     break;
                 }
 
-                if (tree->AsLclDef()->GetLclNum() == def->GetLclNum())
+                if (tree->AsLclDef()->GetLcl() == lcl)
                 {
                     AddPhiArg(block, def, stmt, tree->AsLclDef()->GetValue()->AsPhi() DEBUGARG(handler));
                     INDEBUG(phiFound = true);
@@ -1124,7 +1262,7 @@ void SsaRenameDomTreeVisitor::BlockRenameVariables(BasicBlock* block)
     if (block->memoryPhi != nullptr)
     {
         SsaMemDef* def = ssa.AllocMemoryDef();
-        renameStack.PushMemory(block, def);
+        renameStack.PushMemDef(block, def);
 
         DBG_SSA_JITDUMP("Ssa # for Memory PHI on entry to " FMT_BB " is %u.\n", block->bbNum, def->num);
 
@@ -1132,7 +1270,7 @@ void SsaRenameDomTreeVisitor::BlockRenameVariables(BasicBlock* block)
     }
     else
     {
-        block->memoryEntryDef = renameStack.TopMemory();
+        block->memoryEntryDef = renameStack.TopMemDef();
     }
 
     BasicBlockFlags earlyPropBlockSummary = BBF_EMPTY;
@@ -1225,7 +1363,7 @@ void SsaRenameDomTreeVisitor::BlockRenameVariables(BasicBlock* block)
     if (block->bbMemoryDef)
     {
         SsaMemDef* def = ssa.AllocMemoryDef();
-        renameStack.PushMemory(block, def);
+        renameStack.PushMemDef(block, def);
 
         if (m_compiler->ehBlockHasExnFlowDsc(block))
         {
@@ -1236,7 +1374,7 @@ void SsaRenameDomTreeVisitor::BlockRenameVariables(BasicBlock* block)
     }
     else
     {
-        block->memoryExitDef = renameStack.TopMemory();
+        block->memoryExitDef = renameStack.TopMemDef();
     }
 
     DBG_SSA_JITDUMP("Ssa # for Memory on entry to " FMT_BB " is %u; on exit is %u.\n", block->bbNum,
@@ -1257,7 +1395,7 @@ void SsaRenameDomTreeVisitor::AddPhiArgsToSuccessors(BasicBlock* block)
             }
 
             GenTreePhi*    phi = tree->AsLclDef()->GetValue()->AsPhi();
-            GenTreeLclDef* def = renameStack.Top(tree->AsLclDef()->GetLclNum());
+            GenTreeLclDef* def = renameStack.TopLclDef(tree->AsLclDef()->GetLcl());
 
             bool found = false;
 
@@ -1360,20 +1498,19 @@ void SsaRenameDomTreeVisitor::AddPhiArgsToSuccessors(BasicBlock* block)
                         break;
                     }
 
-                    unsigned lclNum = tree->AsLclDef()->GetLclNum();
+                    LclVarDsc* lcl = tree->AsLclDef()->GetLcl();
 
                     // If the variable is live-out of "blk", and is therefore live on entry to the try-block-start
                     // "succ", then we make sure the current SSA name for the
                     // var is one of the args of the phi node.  If not, go on.
-                    LclVarDsc* lclVarDsc = m_compiler->lvaGetDesc(lclNum);
 
-                    if (!VarSetOps::IsMember(m_compiler, block->bbLiveOut, lclVarDsc->GetLivenessBitIndex()))
+                    if (!VarSetOps::IsMember(m_compiler, block->bbLiveOut, lcl->GetLivenessBitIndex()))
                     {
                         continue;
                     }
 
                     GenTreePhi*    phi = tree->AsLclDef()->GetValue()->AsPhi();
-                    GenTreeLclDef* def = renameStack.Top(lclNum);
+                    GenTreeLclDef* def = renameStack.TopLclDef(lcl);
 
                     bool alreadyArg = false;
 
@@ -1505,8 +1642,8 @@ bool GenTreePhi::Equals(GenTreePhi* phi1, GenTreePhi* phi2)
 
 static void DestroySsaUses(GenTreeLclDef* def)
 {
-    unsigned       lclNum = def->GetLclNum();
-    GenTreeLclUse* uses   = def->GetUseList();
+    LclVarDsc*     lcl  = def->GetLcl();
+    GenTreeLclUse* uses = def->GetUseList();
 
     // TODO-MIKE-SSA: The SSA_DEF Uses iterator cannot be used because
     // we change the uses to LCL_VAR as we visit them. Maybe it can be
@@ -1523,7 +1660,7 @@ static void DestroySsaUses(GenTreeLclDef* def)
 
             GenTree* load = use;
             load->SetOper(GT_LCL_VAR);
-            load->AsLclVar()->SetLclNum(lclNum);
+            load->AsLclVar()->SetLcl(lcl);
 
             use = nextUse;
         } while (use != uses);
@@ -1534,8 +1671,8 @@ static void DestroySsaDef(Compiler* compiler, GenTreeLclDef* def, Statement* stm
 {
     DestroySsaUses(def);
 
-    unsigned lclNum = def->GetLclNum();
-    GenTree* store  = def;
+    LclVarDsc* lcl   = def->GetLcl();
+    GenTree*   store = def;
 
     if (GenTreeInsert* insert = def->GetValue()->IsInsert())
     {
@@ -1545,11 +1682,11 @@ static void DestroySsaDef(Compiler* compiler, GenTreeLclDef* def, Statement* stm
 #ifdef DEBUG
         if (GenTreeLclUse* use = structValue->IsLclUse())
         {
-            assert(use->GetDef()->GetLclNum() == lclNum);
+            assert(use->GetDef()->GetLcl() == lcl);
         }
         else if (structValue->OperIs(GT_LCL_VAR))
         {
-            assert(structValue->AsLclVar()->GetLclNum() == lclNum);
+            assert(structValue->AsLclVar()->GetLcl() == lcl);
         }
         else
         {
@@ -1568,7 +1705,7 @@ static void DestroySsaDef(Compiler* compiler, GenTreeLclDef* def, Statement* stm
         store->AsLclFld()->SetLayoutNum(field.GetLayoutNum());
         store->AsLclFld()->SetLclOffs(field.GetOffset());
         store->AsLclFld()->SetFieldSeq(field.GetFieldSeq());
-        store->AsLclFld()->SetLclNum(lclNum);
+        store->AsLclFld()->SetLcl(lcl);
 
         structValue->gtNext->gtPrev = structValue->gtPrev;
 
@@ -1588,7 +1725,7 @@ static void DestroySsaDef(Compiler* compiler, GenTreeLclDef* def, Statement* stm
     else
     {
         store->SetOper(GT_STORE_LCL_VAR);
-        store->AsLclVar()->SetLclNum(lclNum);
+        store->AsLclVar()->SetLcl(lcl);
     }
 }
 
@@ -1596,7 +1733,7 @@ static void DestroyExtract(Statement* stmt, GenTreeExtract* extract)
 {
     GenTree* src = extract->GetStructValue();
 
-    unsigned lclNum;
+    LclVarDsc* lcl;
 
     // TODO-MIKE-SSA: Initially the source is always SSA_USE but during
     // destruction we'll tipically encounter the corresponding SSA_DEF
@@ -1607,18 +1744,18 @@ static void DestroyExtract(Statement* stmt, GenTreeExtract* extract)
 
     if (GenTreeLclUse* use = src->IsLclUse())
     {
-        lclNum = use->GetDef()->GetLclNum();
+        lcl = use->GetDef()->GetLcl();
     }
     else
     {
-        lclNum = src->AsLclVar()->GetLclNum();
+        lcl = src->AsLclVar()->GetLcl();
     }
 
     FieldInfo field  = extract->GetField();
     GenTree*  lclFld = extract;
 
     lclFld->SetOper(GT_LCL_FLD);
-    lclFld->AsLclFld()->SetLclNum(lclNum);
+    lclFld->AsLclFld()->SetLcl(lcl);
     lclFld->AsLclFld()->SetLclOffs(field.GetOffset());
     lclFld->AsLclFld()->SetLayoutNum(field.GetLayoutNum());
     lclFld->AsLclFld()->SetFieldSeq(field.GetFieldSeq());

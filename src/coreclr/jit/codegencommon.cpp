@@ -410,6 +410,26 @@ void AddrMode::Extract(Compiler* compiler)
     assert((base != nullptr) || ((index != nullptr) && (scale > 1)));
 }
 
+StackAddrMode CodeGen::GetStackAddrMode(unsigned lclNum, int lclOffs)
+{
+    return {static_cast<int>(lclNum), lclOffs};
+}
+
+StackAddrMode CodeGen::GetStackAddrMode(LclVarDsc* lcl, int lclOffs)
+{
+    return {static_cast<int>(lcl->GetLclNum()), lclOffs};
+}
+
+StackAddrMode CodeGen::GetStackAddrMode(GenTreeLclVarCommon* lclNode)
+{
+    return {static_cast<int>(lclNode->GetLcl()->GetLclNum()), lclNode->GetLclOffs()};
+}
+
+StackAddrMode CodeGen::GetStackAddrMode(SpillTemp* spillTemp)
+{
+    return {spillTemp->GetNum(), 0};
+}
+
 void DoPhase(CodeGen* codeGen, Phases phaseId, void (CodeGen::*action)())
 {
     class CodeGenPhase final : public Phase<CodeGenPhase>
@@ -1354,6 +1374,23 @@ void CodeGen::PrologMoveParams(regNumber initReg, bool* initRegZeroed)
     genPrologEnregisterIncomingStackParams();
 }
 
+struct CodeGen::ParamRegInfo
+{
+    LclVarDsc* lcl;
+
+    // index into the param registers table of the register that will be copied to this register.
+    // That is, for paramRegs[x].trashBy = y, argument register number 'y' will be copied to
+    // argument register number 'x'. Only used when circular = true.
+    unsigned trashBy;
+
+    uint8_t   regIndex;
+    bool      stackArg;  // true if the argument gets homed to the stack
+    bool      writeThru; // true if the argument gets homed to both stack and register
+    bool      processed; // true after we've processed the argument (and it is in its final location)
+    bool      circular;  // true if this register participates in a circular dependency loop.
+    var_types type;
+};
+
 // Generates code for moving incoming register arguments to their
 // assigned location, in the function prolog.
 void CodeGen::genPrologMoveParamRegs(
@@ -1468,10 +1505,8 @@ unsigned genGetParamRegIndex(regNumber regNum)
 regMaskTP CodeGen::genPrologBuildParamRegsTable(
     ParamRegInfo* paramRegs, unsigned paramRegCount, regMaskTP liveParamRegs, bool isFloat, regNumber tempReg)
 {
-    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; ++lclNum)
+    for (LclVarDsc* lcl : compiler->Locals())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
         if (!lcl->IsParam() || !lcl->IsRegParam())
         {
             continue;
@@ -1562,7 +1597,7 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
                 noway_assert(paramRegIndex < paramRegCount);
                 noway_assert(paramRegs[paramRegIndex].type == TYP_UNDEF);
 
-                paramRegs[paramRegIndex].lclNum   = lclNum;
+                paramRegs[paramRegIndex].lcl      = lcl;
                 paramRegs[paramRegIndex].regIndex = static_cast<uint8_t>(regIndex);
                 paramRegs[paramRegIndex].type     = regType;
 
@@ -1615,7 +1650,7 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
             {
                 noway_assert(paramRegs[paramRegIndex + i].type == TYP_UNDEF);
 
-                paramRegs[paramRegIndex + i].lclNum   = lclNum;
+                paramRegs[paramRegIndex + i].lcl      = lcl;
                 paramRegs[paramRegIndex + i].regIndex = static_cast<uint8_t>(i);
                 paramRegs[paramRegIndex + i].type     = regType;
             }
@@ -1749,8 +1784,7 @@ void CodeGen::genPrologMarkParamRegsCircularDependencies(ParamRegInfo* paramRegs
                 continue;
             }
 
-            unsigned   lclNum = paramRegs[paramRegIndex].lclNum;
-            LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+            LclVarDsc* lcl = paramRegs[paramRegIndex].lcl;
 
             // Cannot possibly have stack arguments.
             noway_assert(lcl->lvIsInReg() && !paramRegs[paramRegIndex].stackArg);
@@ -1777,7 +1811,7 @@ void CodeGen::genPrologMarkParamRegsCircularDependencies(ParamRegInfo* paramRegs
                 assert(varTypeIsSIMD(lcl->GetType()) && !lcl->GetLayout()->IsOpaqueVector());
                 assert(paramRegs[paramRegIndex].regIndex < lcl->GetLayout()->GetHfaRegCount());
                 assert(paramRegIndex != 0);
-                assert(paramRegs[paramRegIndex - 1].lclNum == lclNum);
+                assert(paramRegs[paramRegIndex - 1].lcl == lcl);
 
                 liveParamRegs &= ~genRegMask(regNum);
                 paramRegs[paramRegIndex].circular = false;
@@ -1793,7 +1827,7 @@ void CodeGen::genPrologMarkParamRegsCircularDependencies(ParamRegInfo* paramRegs
                 assert(paramRegs[paramRegIndex].regIndex == 1);
                 assert(paramRegIndex > 0);
                 assert(paramRegs[paramRegIndex - 1].regIndex == 0);
-                assert(paramRegs[paramRegIndex - 1].lclNum == lclNum);
+                assert(paramRegs[paramRegIndex - 1].lcl == lcl);
                 assert((lclRegType == TYP_SIMD12) || (lclRegType == TYP_SIMD16));
 
                 liveParamRegs &= ~genRegMask(regNum);
@@ -1874,8 +1908,7 @@ regMaskTP CodeGen::genPrologSpillParamRegs(ParamRegInfo* paramRegs, unsigned par
             continue;
         }
 
-        unsigned   lclNum = paramRegs[paramRegIndex].lclNum;
-        LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+        LclVarDsc* lcl = paramRegs[paramRegIndex].lcl;
 
         // If this arg is never on the stack, go to the next one.
         if (!paramRegs[paramRegIndex].stackArg && !paramRegs[paramRegIndex].writeThru)
@@ -1962,7 +1995,7 @@ regMaskTP CodeGen::genPrologSpillParamRegs(ParamRegInfo* paramRegs, unsigned par
         {
             unsigned baseOffset = paramRegs[paramRegIndex].regIndex * slotSize;
 
-            GetEmitter()->emitIns_S_R(ins_Store(storeType), size, srcRegNum, lclNum, baseOffset);
+            GetEmitter()->emitIns_S_R(ins_Store(storeType), size, srcRegNum, GetStackAddrMode(lcl, baseOffset));
 
 #ifndef UNIX_AMD64_ABI
             // TODO-MIKE-Cleanup: This should be valid on unix-x64 too.
@@ -2086,10 +2119,8 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
         unsigned srcRegIndex   = paramRegs[paramRegIndex].trashBy;
         noway_assert(srcRegIndex < paramRegCount);
 
-        unsigned   destLclNum = paramRegs[destRegIndex].lclNum;
-        LclVarDsc* destLcl    = compiler->lvaGetDesc(destLclNum);
-        unsigned   srcLclNum  = paramRegs[srcRegIndex].lclNum;
-        LclVarDsc* srcLcl     = compiler->lvaGetDesc(srcLclNum);
+        LclVarDsc* destLcl = paramRegs[destRegIndex].lcl;
+        LclVarDsc* srcLcl  = paramRegs[srcRegIndex].lcl;
 
 #ifdef TARGET_XARCH
         if (destRegIndex == paramRegs[srcRegIndex].trashBy)
@@ -2132,7 +2163,7 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
         unsigned iter = beginRegIndex;
         do
         {
-            if (!compiler->lvaGetDesc(paramRegs[iter].lclNum)->TypeIs(TYP_DOUBLE))
+            if (!paramRegs[iter].lcl->TypeIs(TYP_DOUBLE))
             {
                 cycleAllDouble = false;
                 break;
@@ -2217,8 +2248,7 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
             }
 #endif
 
-            srcLclNum = paramRegs[srcRegIndex].lclNum;
-            srcLcl    = compiler->lvaGetDesc(srcLclNum);
+            srcLcl = paramRegs[srcRegIndex].lcl;
 
             if (destMemType == TYP_REF)
             {
@@ -2270,8 +2300,7 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
                 continue;
             }
 
-            unsigned   lclNum = paramRegs[paramRegIndex].lclNum;
-            LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+            LclVarDsc* lcl = paramRegs[paramRegIndex].lcl;
 
             noway_assert(lcl->lvIsInReg() && !paramRegs[paramRegIndex].circular);
 #ifdef TARGET_X86
@@ -2430,7 +2459,7 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
                 regCount = 2;
 
                 regNumber nextRegNum = genMapRegArgNumToRegNum(paramRegIndex + 1, paramRegs[paramRegIndex + 1].type);
-                noway_assert(paramRegs[paramRegIndex + 1].lclNum == lclNum);
+                noway_assert(paramRegs[paramRegIndex + 1].lcl == lcl);
 
                 if (lcl->TypeIs(TYP_SIMD12) && compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
                 {
@@ -2482,7 +2511,7 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
                             ParamRegInfo& nextParamReg = paramRegs[paramRegIndex + i];
                             regNumber     nextRegNum   = genMapRegArgNumToRegNum(paramRegIndex + i, nextParamReg.type);
 
-                            noway_assert(nextParamReg.lclNum == lclNum);
+                            noway_assert(nextParamReg.lcl == lcl);
                             noway_assert(genIsValidFloatReg(nextRegNum));
                             noway_assert(genIsValidFloatReg(destRegNum));
 
@@ -2502,7 +2531,7 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
                             ParamRegInfo& nextParamReg = paramRegs[paramRegIndex + i];
                             regNumber     nextRegNum   = genMapRegArgNumToRegNum(paramRegIndex + i, nextParamReg.type);
 
-                            noway_assert(nextParamReg.lclNum == lclNum);
+                            noway_assert(nextParamReg.lcl == lcl);
                             noway_assert(genIsValidFloatReg(nextRegNum));
                             noway_assert(genIsValidFloatReg(destRegNum));
 
@@ -2541,10 +2570,8 @@ void CodeGen::genPrologEnregisterIncomingStackParams()
     assert(!compiler->opts.IsOSR());
     assert(generatingProlog);
 
-    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Locals())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
         if (!lcl->IsParam())
         {
             continue;
@@ -2577,16 +2604,14 @@ void CodeGen::genPrologEnregisterIncomingStackParams()
         assert(regNum != REG_STK);
         var_types regType = lcl->GetActualRegisterType();
 
-        GetEmitter()->emitIns_R_S(ins_Load(regType), emitTypeSize(regType), regNum, lclNum, 0);
+        GetEmitter()->emitIns_R_S(ins_Load(regType), emitTypeSize(regType), regNum, GetStackAddrMode(lcl, 0));
     }
 }
 
 void CodeGen::MarkStackLocals()
 {
-    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Locals())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
         lcl->lvFramePointerBased = isFramePointerUsed();
 
 #if DOUBLE_ALIGN
@@ -2606,7 +2631,7 @@ void CodeGen::MarkStackLocals()
         // and the struct return buffer parameter, if present. We cannot report
         // any other parameters to the GC becaue they do not have correct frame
         // offsets.
-        if (compiler->lvaIsX86VarargsStackParam(lclNum))
+        if (compiler->lvaIsX86VarargsStackParam(lcl))
         {
             assert((lcl->GetRefCount() == 0) && !lcl->lvRegister);
 
@@ -2636,7 +2661,7 @@ void CodeGen::MarkStackLocals()
             assert(!lcl->lvRegister);
 #if FEATURE_FIXED_OUT_ARGS
             // lvaOutgoingArgSpaceVar is implicitly referenced.
-            assert(lclNum != compiler->lvaOutgoingArgSpaceVar);
+            assert(lcl->GetLclNum() != compiler->lvaOutgoingArgSpaceVar);
 #endif
 
             if (lcl->IsAddressExposed())
@@ -2685,10 +2710,8 @@ void CodeGen::CheckUseBlockInit()
     // The number of int-sized stack slots that need to be initialized.
     unsigned slotCount = 0;
 
-    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Locals())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
         if (!lcl->lvIsInReg() && !lcl->lvOnFrame)
         {
             noway_assert(lcl->GetRefCount() == 0);
@@ -2696,13 +2719,13 @@ void CodeGen::CheckUseBlockInit()
         }
 
         // Initialization of OSR locals must be handled specially
-        if (compiler->lvaIsOSRLocal(lclNum))
+        if (compiler->lvaIsOSRLocal(lcl))
         {
             lcl->lvMustInit = false;
             continue;
         }
 
-        if (compiler->lvaIsNeverZeroInitializedInProlog(lclNum))
+        if (compiler->lvaIsNeverZeroInitializedInProlog(lcl))
         {
             continue;
         }
@@ -2754,14 +2777,14 @@ void CodeGen::CheckUseBlockInit()
         {
             if (hasGCPtr && !isTracked)
             {
-                JITDUMP("must init V%02u because it has a GC ref\n", lclNum);
+                JITDUMP("must init V%02u because it has a GC ref\n", lcl->GetLclNum());
 
                 blockInit = true;
             }
             else if (hasGCPtr && varTypeIsStruct(lcl->GetType()))
             {
                 // TODO-1stClassStructs: support precise liveness reporting for such structs.
-                JITDUMP("must init a tracked V%02u because it a struct with a GC ref\n", lclNum);
+                JITDUMP("must init a tracked V%02u because it a struct with a GC ref\n", lcl->GetLclNum());
 
                 blockInit = true;
             }
@@ -2771,7 +2794,7 @@ void CodeGen::CheckUseBlockInit()
 
                 if (compInitMem)
                 {
-                    JITDUMP("must init V%02u because compInitMem is set and it is not a temp\n", lclNum);
+                    JITDUMP("must init V%02u because compInitMem is set and it is not a temp\n", lcl->GetLclNum());
 
                     blockInit = true;
                 }
@@ -2846,10 +2869,8 @@ void CodeGen::MarkGCTrackedSlots(int&       minBlockInitOffset,
     int minGCTrackedOffset = INT_MAX;
     int maxGCTrackedOffset = INT_MIN;
 
-    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Locals())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
         if (lcl->IsParam() && !lcl->IsRegParam())
         {
             continue;
@@ -2995,10 +3016,7 @@ void CodeGen::PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZero
     };
 #endif
 
-    LclVarDsc* varDsc;
-    unsigned   varNum;
-
-    for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->lvaCount; varNum++, varDsc++)
+    for (LclVarDsc* varDsc : compiler->Locals())
     {
         if (!varDsc->lvMustInit)
         {
@@ -3030,8 +3048,8 @@ void CodeGen::PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZero
             {
                 if (layout->IsGCPtr(i))
                 {
-                    GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, GetZeroReg(), varNum,
-                                              i * REGSIZE_BYTES);
+                    GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, GetZeroReg(),
+                                              GetStackAddrMode(varDsc, i * REGSIZE_BYTES));
                 }
             }
         }
@@ -3044,14 +3062,14 @@ void CodeGen::PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZero
             unsigned i;
             for (i = 0; i + REGSIZE_BYTES <= lclSize; i += REGSIZE_BYTES)
             {
-                GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, zeroReg, varNum, i);
+                GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, zeroReg, GetStackAddrMode(varDsc, i));
             }
 
 #ifdef TARGET_64BIT
             assert(i == lclSize || (i + sizeof(int) == lclSize));
             if (i != lclSize)
             {
-                GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, zeroReg, varNum, i);
+                GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, zeroReg, GetStackAddrMode(varDsc, i));
                 i += sizeof(int);
             }
 #endif // TARGET_64BIT
@@ -3068,7 +3086,7 @@ void CodeGen::PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZero
                 continue;
             }
 
-            GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, GetZeroReg(), temp.GetNum(), 0);
+            GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, GetZeroReg(), GetStackAddrMode(&temp));
         }
     }
 }
@@ -3086,37 +3104,36 @@ void CodeGen::PrologInitOsrLocals()
         const int      originalFrameSize = patchpointInfo->FpToSpDelta();
         const unsigned patchpointInfoLen = patchpointInfo->NumberOfLocals();
 
-        for (unsigned varNum = 0; varNum < compiler->lvaCount; varNum++)
+        for (LclVarDsc* const varDsc : compiler->Locals())
         {
-            if (!compiler->lvaIsOSRLocal(varNum))
+            if (!compiler->lvaIsOSRLocal(varDsc))
             {
                 continue;
             }
 
-            LclVarDsc* const varDsc = compiler->lvaGetDesc(varNum);
-
             if (!varDsc->lvIsInReg())
             {
-                JITDUMP("---OSR--- V%02u in memory\n", varNum);
+                JITDUMP("---OSR--- V%02u in memory\n", varDsc->GetLclNum());
                 continue;
             }
 
             if (!VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, varDsc->lvVarIndex))
             {
-                JITDUMP("---OSR--- V%02u (reg) not live at entry\n", varNum);
+                JITDUMP("---OSR--- V%02u (reg) not live at entry\n", varDsc->GetLclNum());
                 continue;
             }
 
             int      fieldOffset = 0;
-            unsigned lclNum      = varNum;
+            unsigned lclNum      = varDsc->GetLclNum();
 
-            if (varDsc->lvIsStructField)
+            if (varDsc->IsPromotedField())
             {
-                lclNum = varDsc->lvParentLcl;
+                lclNum = varDsc->GetPromotedFieldParentLclNum();
                 assert(lclNum < patchpointInfoLen);
 
-                fieldOffset = varDsc->lvFldOffset;
-                JITDUMP("---OSR--- V%02u is promoted field of V%02u at offset %d\n", varNum, lclNum, fieldOffset);
+                fieldOffset = varDsc->GetPromotedFieldOffset();
+                JITDUMP("---OSR--- V%02u is promoted field of V%02u at offset %d\n", varDsc->GetLclNum(), lclNum,
+                        fieldOffset);
             }
 
             // Note we are always reading from the original frame here
@@ -3190,7 +3207,7 @@ void CodeGen::PrologInitOsrLocals()
             }
 
             JITDUMP("---OSR--- V%02u (reg) old rbp offset %d old frame %d this frame sp-fp %d new offset %d (%02xH)\n",
-                    varNum, stkOffs, originalFrameSize, genSPtoFPdelta(), offset, offset);
+                    varDsc->GetLclNum(), stkOffs, originalFrameSize, genSPtoFPdelta(), offset, offset);
 
 #ifdef TARGET_XARCH
             GetEmitter()->emitIns_R_AR(ins_Load(lclTyp), size, varDsc->GetRegNum(), genFramePointerReg(), offset);
@@ -3230,7 +3247,7 @@ void CodeGen::PrologReportGenericContextArg(regNumber initReg, bool* pInitRegZer
     }
 
     // For JIT32_GCENCODER, we won't be here if reportArg is false.
-    unsigned contextArg = reportArg ? compiler->info.compTypeCtxtArg : compiler->info.compThisArg;
+    unsigned contextArg = reportArg ? compiler->info.compTypeCtxtArg : compiler->info.GetThisParamLclNum();
 
     noway_assert(contextArg != BAD_VAR_NUM);
     LclVarDsc* varDsc = compiler->lvaGetDesc(contextArg);
@@ -3404,15 +3421,13 @@ void CodeGen::UpdateParamsWithInitialReg()
         }
     };
 
-    for (unsigned lclNum = 0; lclNum < compiler->info.compArgsCount; lclNum++)
+    for (LclVarDsc* lcl : compiler->Params())
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
-        if (lcl->lvPromotedStruct())
+        if (lcl->IsPromotedStruct())
         {
-            for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+            for (LclVarDsc* fieldLcl : compiler->PromotedFields(lcl))
             {
-                setParamReg(compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i)));
+                setParamReg(fieldLcl);
             }
         }
         else
@@ -3638,15 +3653,15 @@ void CodeGen::genFinalizeFrame()
     // Check stack pointer on return stress mode is not compatible with fully interruptible GC. REVIEW: why?
     // It is also not compatible with any function that makes a tailcall: we aren't smart enough to only
     // insert the SP check in the non-tailcall returns.
-    if ((GetInterruptible() || compiler->compTailCallUsed) && (compiler->lvaReturnSpCheck != BAD_VAR_NUM))
+    if ((GetInterruptible() || compiler->compTailCallUsed) && (compiler->lvaReturnSpCheckLcl != nullptr))
     {
-        compiler->lvaReturnSpCheck = BAD_VAR_NUM;
+        compiler->lvaReturnSpCheckLcl = nullptr;
     }
 #ifdef TARGET_X86
     // Check stack pointer on call stress mode is not compatible with fully interruptible GC. REVIEW: why?
-    if (GetInterruptible() && (compiler->lvaCallSpCheck != BAD_VAR_NUM))
+    if (GetInterruptible() && (compiler->lvaCallSpCheckLcl != nullptr))
     {
-        compiler->lvaCallSpCheck = BAD_VAR_NUM;
+        compiler->lvaCallSpCheckLcl = nullptr;
     }
 #endif // TARGET_X86
 #endif // TARGET_XARCH
@@ -3845,7 +3860,8 @@ void CodeGen::genFnProlog()
         GetEmitter()->emitIns_AR_R(INS_mov, EA_PTRSIZE, REG_SECRET_STUB_PARAM, genFramePointerReg(),
                                    compiler->lvaGetDesc(compiler->lvaStubArgumentVar)->GetStackOffset());
 #else
-        GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, REG_SECRET_STUB_PARAM, compiler->lvaStubArgumentVar, 0);
+        GetEmitter()->Ins_R_S(INS_str, EA_PTRSIZE, REG_SECRET_STUB_PARAM,
+                              GetStackAddrMode(compiler->lvaStubArgumentVar, 0));
 #endif
 
         // It's no longer live; clear it out so it can be used after this in the prolog
@@ -3875,9 +3891,9 @@ void CodeGen::genFnProlog()
     // When compInitMem is true the PrologBlockInitLocals will zero out the shadow SP slots.
     if (compiler->ehNeedsShadowSPslots() && !compiler->info.compInitMem)
     {
+        LclVarDsc* shadowSlotsLcl = compiler->lvaShadowSPslotsLcl;
         // The last slot is reserved for ICodeManager::FixContext(ppEndRegion)
-        unsigned filterEndOffsetSlotOffs =
-            compiler->lvaGetDesc(compiler->lvaShadowSPslotsVar)->GetBlockSize() - REGSIZE_BYTES;
+        unsigned filterEndOffsetSlotOffs = shadowSlotsLcl->GetBlockSize() - REGSIZE_BYTES;
 
         // Zero out the slot for nesting level 0
         unsigned firstSlotOffs = filterEndOffsetSlotOffs - REGSIZE_BYTES;
@@ -3888,7 +3904,7 @@ void CodeGen::genFnProlog()
             initRegZeroed = true;
         }
 
-        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, initReg, compiler->lvaShadowSPslotsVar, firstSlotOffs);
+        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, initReg, GetStackAddrMode(shadowSlotsLcl, firstSlotOffs));
     }
 #endif // !FEATURE_EH_FUNCLETS
 
@@ -3898,9 +3914,9 @@ void CodeGen::genFnProlog()
     }
 
 #ifdef JIT32_GCENCODER
-    if (compiler->lvaLocAllocSPvar != BAD_VAR_NUM)
+    if (LclVarDsc* lcl = compiler->lvaLocAllocSPLcl)
     {
-        GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, REG_ESP, compiler->lvaLocAllocSPvar, 0);
+        GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, REG_ESP, GetStackAddrMode(lcl, 0));
     }
 #endif
 
@@ -3966,18 +3982,17 @@ void CodeGen::genFnProlog()
     }
 
 #ifdef TARGET_X86
-    if (compiler->info.compIsVarArgs && (compiler->lvaGetDesc(compiler->lvaVarargsBaseOfStkArgs)->GetRefCount() > 0))
+    if (compiler->info.compIsVarArgs && (compiler->lvaVarargsBaseOfStkLcl->GetRefCount() > 0))
     {
         PrologInitVarargsStackParamsBaseOffset();
     }
 #endif
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
-    if (compiler->lvaReturnSpCheck != BAD_VAR_NUM)
+    if (LclVarDsc* lcl = compiler->lvaReturnSpCheckLcl)
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(compiler->lvaReturnSpCheck);
         assert(lcl->lvOnFrame && lcl->lvDoNotEnregister);
-        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, compiler->lvaReturnSpCheck, 0);
+        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, GetStackAddrMode(lcl, 0));
     }
 #endif
 
@@ -4102,7 +4117,7 @@ void CodeGen::PrologSetPSPSym(regNumber initReg, bool* pInitRegZeroed)
     *pInitRegZeroed  = false;
 
     GetEmitter()->emitIns_R_R_I(INS_add, EA_PTRSIZE, regTmp, regBase, callerSPOffs);
-    GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, regTmp, compiler->lvaPSPSym, 0);
+    GetEmitter()->Ins_R_S(INS_str, EA_PTRSIZE, regTmp, GetStackAddrMode(compiler->lvaPSPSym, 0));
 
 #elif defined(TARGET_ARM64)
 
@@ -4114,7 +4129,7 @@ void CodeGen::PrologSetPSPSym(regNumber initReg, bool* pInitRegZeroed)
     *pInitRegZeroed  = false;
 
     GetEmitter()->emitIns_R_R_Imm(INS_add, EA_PTRSIZE, regTmp, REG_SPBASE, SPtoCallerSPdelta);
-    GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, regTmp, compiler->lvaPSPSym, 0);
+    GetEmitter()->Ins_R_S(INS_str, EA_PTRSIZE, regTmp, GetStackAddrMode(compiler->lvaPSPSym, 0));
 
 #elif defined(TARGET_AMD64)
 
@@ -4125,7 +4140,9 @@ void CodeGen::PrologSetPSPSym(regNumber initReg, bool* pInitRegZeroed)
     // We generate:
     //     mov     [rbp-20h], rsp       // store the Initial-SP (our current rsp) in the PSPsym
 
-    GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, REG_SPBASE, compiler->lvaPSPSym, 0);
+    LclVarDsc* pspSymLcl = compiler->lvaGetDesc(compiler->lvaPSPSym);
+
+    GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, GetStackAddrMode(pspSymLcl, 0));
 
 #else // TARGET*
 
@@ -4197,13 +4214,10 @@ void CodeGen::genSetScopeInfoUsingVariableRanges(VarResultInfo* vars)
 
     for (unsigned lclNum = 0; lclNum < compiler->info.compLocalsCount; lclNum++)
     {
-        LclVarDsc* lcl      = compiler->lvaGetDesc(lclNum);
-        unsigned   ilVarNum = compiler->compMap2ILvarNum(lclNum);
+        LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+        unsigned   varNum = compiler->eeMapLclNumToDebugInfoVarNum(lclNum);
 
-        if (ilVarNum == ICorDebugInfo::UNKNOWN_ILNUM)
-        {
-            continue;
-        }
+        assert(varNum != ICorDebugInfo::UNKNOWN_ILNUM);
 
         for (DbgInfoVarRange* range = liveness.GetDbgInfoRanges(lclNum); range != nullptr; range = range->next)
         {
@@ -4219,7 +4233,7 @@ void CodeGen::genSetScopeInfoUsingVariableRanges(VarResultInfo* vars)
                 endOffs++;
             }
 
-            genSetScopeInfo(vars, liveRangeIndex, startOffs, endOffs, lclNum, ilVarNum, &range->location);
+            genSetScopeInfo(vars, liveRangeIndex, startOffs, endOffs, lclNum, varNum, &range->location);
             liveRangeIndex++;
         }
     }
@@ -4236,8 +4250,8 @@ void CodeGen::genSetScopeInfo(VarResultInfo* vars,
     assert(ilVarNum != ICorDebugInfo::UNKNOWN_ILNUM);
 
 #ifdef TARGET_X86
-    if (compiler->info.compIsVarArgs && (lclNum != compiler->lvaVarargsHandleArg) &&
-        (lclNum < compiler->info.compArgsCount) && !compiler->lvaGetDesc(lclNum)->IsRegParam())
+    if (compiler->info.compIsVarArgs && (lclNum != compiler->info.compVarargsHandleArg) &&
+        (lclNum < compiler->info.GetParamCount()) && !compiler->lvaGetDesc(lclNum)->IsRegParam())
     {
         noway_assert((varLoc->vlType == DbgInfoVarLoc::VLT_STK) || (varLoc->vlType == DbgInfoVarLoc::VLT_STK2));
 
@@ -4245,11 +4259,9 @@ void CodeGen::genSetScopeInfo(VarResultInfo* vars,
         // accessed via the varargs cookie. Discard generated info,
         // and just find its position relative to the varargs handle
 
-        assert(compiler->lvaVarargsHandleArg < compiler->info.compArgsCount);
+        LclVarDsc* varargsHandleLcl = compiler->lvaGetDesc(compiler->info.compVarargsHandleArg);
 
-        LclVarDsc* varargHandleLcl = compiler->lvaGetDesc(compiler->lvaVarargsHandleArg);
-
-        if (!varargHandleLcl->lvOnFrame)
+        if (!varargsHandleLcl->lvOnFrame)
         {
             noway_assert(!compiler->opts.compDbgCode);
             return;
@@ -4261,7 +4273,7 @@ void CodeGen::genSetScopeInfo(VarResultInfo* vars,
         // of vararg functions to avoid reporting them to GC.
         noway_assert(!lcl->lvRegister);
 
-        unsigned cookieOffset = varargHandleLcl->GetStackOffset();
+        unsigned cookieOffset = varargsHandleLcl->GetStackOffset();
         unsigned varOffset    = lcl->GetStackOffset();
 
         noway_assert(cookieOffset < varOffset);
@@ -4471,13 +4483,13 @@ static void PrintDbgInfoVar(const ICorDebugInfo::NativeVarInfo& var)
 static void PrintDbgInfoVars(Compiler* compiler, const ICorDebugInfo::NativeVarInfo* vars, unsigned count)
 {
     BitVecTraits varTraits(compiler->lvaCount, compiler);
-    BitVec       uniqueVars = BitVecOps::MakeEmpty(&varTraits);
+    BitVec       uniqueVars = BitVecOps::MakeEmpty(varTraits);
     unsigned     varCount   = 0;
 
     for (unsigned i = 0; i < count; i++)
     {
         if ((vars[i].varNumber < compiler->lvaCount) &&
-            BitVecOps::TryAddElemD(&varTraits, uniqueVars, vars[i].varNumber))
+            BitVecOps::TryAddElemD(varTraits, uniqueVars, vars[i].varNumber))
         {
             varCount++;
         }
@@ -4944,7 +4956,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArg,
 #ifdef FEATURE_SIMD
         if (srcType == TYP_SIMD12)
         {
-            genStoreSIMD12(GenAddrMode(outArgLclNum, dstOffset), src, tmpReg);
+            genStoreSIMD12(GenAddrMode(compiler->lvaGetDesc(outArgLclNum), dstOffset), src, tmpReg);
             continue;
         }
 #endif
@@ -4961,7 +4973,8 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArg,
             srcReg = genConsumeReg(src);
         }
 
-        GetEmitter()->emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, outArgLclNum, dstOffset);
+        GetEmitter()->emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg,
+                                  GetStackAddrMode(outArgLclNum, dstOffset));
     }
 }
 #endif // !TARGET_X86
@@ -5108,7 +5121,7 @@ void CodeGen::GenReturn(GenTree* ret, BasicBlock* block)
 #endif // PROFILING_SUPPORTED
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
-    if (compiler->lvaReturnSpCheck != BAD_VAR_NUM)
+    if (compiler->lvaReturnSpCheckLcl != nullptr)
     {
         genStackPointerCheck();
     }
@@ -5174,7 +5187,7 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
 void CodeGen::GenStoreLclVarLong(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR) && store->TypeIs(TYP_LONG));
-    assert(compiler->lvaGetDesc(store)->TypeIs(TYP_LONG) && !compiler->lvaGetDesc(store)->IsIndependentPromoted());
+    assert(store->GetLcl()->TypeIs(TYP_LONG) && !store->GetLcl()->IsIndependentPromoted());
 
     GenTree*  src = store->GetOp(0);
     regNumber srcRegs[2];
@@ -5192,8 +5205,9 @@ void CodeGen::GenStoreLclVarLong(GenTreeLclVar* store)
         srcRegs[1] = UseReg(src, 1);
     }
 
-    GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, srcRegs[0], store->GetLclNum(), 0);
-    GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, srcRegs[1], store->GetLclNum(), 4);
+    unsigned lclNum = store->GetLcl()->GetLclNum();
+    GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, srcRegs[0], GetStackAddrMode(lclNum, 0));
+    GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, srcRegs[1], GetStackAddrMode(lclNum, 4));
 
     liveness.UpdateLife(this, store);
 }
@@ -5209,7 +5223,7 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
     GenTree* src = store->GetOp(0);
     assert(src->IsMultiRegNode());
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(store);
+    LclVarDsc* lcl = store->GetLcl();
     assert(lcl->IsIndependentPromoted() && !lcl->IsRegCandidate());
 
     unsigned regCount = lcl->GetPromotedFieldCount();
@@ -5245,7 +5259,7 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
         if (!store->IsLastUse(i) && ((fieldReg == REG_STK) || fieldLcl->IsAlwaysAliveInMemory()))
         {
             instruction ins = ins_StoreFromSrc(srcReg, fieldType);
-            GetEmitter()->emitIns_S_R(ins, emitTypeSize(fieldType), srcReg, fieldLclNum, 0);
+            GetEmitter()->emitIns_S_R(ins, emitTypeSize(fieldType), srcReg, GetStackAddrMode(fieldLclNum, 0));
         }
 
         fieldLcl->SetRegNum(fieldReg);
@@ -5301,17 +5315,14 @@ void CodeGen::genCopyRegIfNeeded(GenTree* node, regNumber needReg)
     inst_Mov(node->TypeGet(), needReg, node->GetRegNum(), /* canSkip */ true);
 }
 
-bool CodeGen::IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs)
+bool CodeGen::IsLocalMemoryOperand(GenTree* op, StackAddrMode* am)
 {
     if (op->isUsedFromSpillTemp())
     {
         assert(op->IsRegOptional());
         assert(op->IsRegSpilled(0));
 
-        SpillTemp* temp = spillTemps.UseSpillTemp(op, 0);
-
-        *lclNum  = temp->GetNum();
-        *lclOffs = 0;
+        *am = GetStackAddrMode(spillTemps.UseSpillTemp(op, 0));
 
         return true;
     }
@@ -5320,18 +5331,16 @@ bool CodeGen::IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclO
 
     if (op->OperIs(GT_LCL_FLD))
     {
-        *lclNum  = op->AsLclFld()->GetLclNum();
-        *lclOffs = op->AsLclFld()->GetLclOffs();
+        *am = GetStackAddrMode(op->AsLclFld());
 
         return true;
     }
 
     if (op->OperIs(GT_LCL_VAR))
     {
-        assert(op->IsRegOptional() || !compiler->lvaGetDesc(op->AsLclVar())->IsRegCandidate());
+        assert(op->IsRegOptional() || !op->AsLclVar()->GetLcl()->IsRegCandidate());
 
-        *lclNum  = op->AsLclVar()->GetLclNum();
-        *lclOffs = 0;
+        *am = GetStackAddrMode(op->AsLclVar()->GetLcl(), 0);
 
         return true;
     }
@@ -5650,7 +5659,7 @@ void CodeGen::GenLclAddr(GenTreeLclAddr* addr)
     // TODO-MIKE-Review: Shouldn't this simply be EA_PTRSIZE?
     emitAttr attr = emitTypeSize(addr->GetType());
 
-    GetEmitter()->emitIns_R_S(INS_lea, attr, addr->GetRegNum(), addr->GetLclNum(), addr->GetLclOffs());
+    GetEmitter()->emitIns_R_S(INS_lea, attr, addr->GetRegNum(), GetStackAddrMode(addr));
     DefReg(addr);
 }
 
@@ -5701,19 +5710,17 @@ bool CodeGen::IsValidSourceType(var_types instrType, var_types sourceType)
 // aligned. For RSP-based frames these are only sometimes aligned, depending
 // on the frame size.
 //
-bool CodeGen::IsSimdLocalAligned(unsigned lclNum)
+bool CodeGen::IsSimdLocalAligned(LclVarDsc* lcl)
 {
 #ifndef FEATURE_SIMD
     return false;
 #else
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
     if (!varTypeIsSIMD(lcl->GetType()))
     {
         return false;
     }
 
-    int alignment = compiler->lvaGetSimdTypedLocalPreferredAlignment(lcl);
+    int alignment = static_cast<int>(lcl->GetVectorTypePreferredAlignment());
 
     if (alignment > STACK_ALIGN)
     {
@@ -5721,7 +5728,8 @@ bool CodeGen::IsSimdLocalAligned(unsigned lclNum)
     }
 
     bool rbpBased;
-    int  off = compiler->lvaFrameAddress(lclNum, &rbpBased);
+    int  off = compiler->lvaLclFrameAddress(lcl, &rbpBased);
+
     // On SysV and Winx64 ABIs RSP+8 will be 16-byte aligned at the
     // first instruction of a function. If our frame is RBP based
     // then RBP will always be 16 bytes aligned, so we can simply
@@ -5763,16 +5771,16 @@ void CodeGen::genPoisonFrame(regMaskTP regLiveIn)
     const int imm = 0xcdcdcdcd;
 #endif
 
-    for (unsigned varNum = 0; varNum < compiler->info.compLocalsCount; varNum++)
+    for (unsigned lclNum = 0; lclNum < compiler->info.compLocalsCount; lclNum++)
     {
-        LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
-        if (varDsc->IsParam() || varDsc->lvMustInit || !varDsc->IsAddressExposed())
+        if (lcl->IsParam() || lcl->lvMustInit || !lcl->IsAddressExposed())
         {
             continue;
         }
 
-        assert(varDsc->lvOnFrame);
+        assert(lcl->lvOnFrame);
 
         if (immReg == REG_NA)
         {
@@ -5785,28 +5793,30 @@ void CodeGen::genPoisonFrame(regMaskTP regLiveIn)
 #endif
         }
 
-// For 64-bit we check if the local is 8-byte aligned. For 32-bit, we assume everything is always 4-byte aligned.
 #ifdef TARGET_64BIT
+        // For 64-bit we check if the local is 8-byte aligned.
         bool fpBased;
-        int  addr = compiler->lvaFrameAddress((int)varNum, &fpBased);
+        int  addr = compiler->lvaLclFrameAddress(lcl, &fpBased);
 #else
+        // For 32 - bit, we assume everything is always 4 byte aligned.
         int addr = 0;
 #endif
-        int size = varDsc->GetFrameSize();
+        int size = lcl->GetFrameSize();
         int end  = addr + size;
+
         for (int offs = addr; offs < end;)
         {
 #ifdef TARGET_64BIT
-            if ((offs % 8) == 0 && end - offs >= 8)
+            if ((offs % 8 == 0) && (end - offs >= 8))
             {
-                GetEmitter()->emitIns_S_R(ins_Store(TYP_LONG), EA_8BYTE, immReg, (int)varNum, offs - addr);
+                GetEmitter()->emitIns_S_R(ins_Store(TYP_LONG), EA_8BYTE, immReg, GetStackAddrMode(lclNum, offs - addr));
                 offs += 8;
                 continue;
             }
 #endif
 
-            assert((offs % 4) == 0 && end - offs >= 4);
-            GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, immReg, (int)varNum, offs - addr);
+            assert((offs % 4 == 0) && (end - offs >= 4));
+            GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, immReg, GetStackAddrMode(lclNum, offs - addr));
             offs += 4;
         }
     }

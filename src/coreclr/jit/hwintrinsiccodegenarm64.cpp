@@ -687,9 +687,8 @@ void CodeGen::genVectorGetElement(GenTreeHWIntrinsic* node)
 
         if (vec->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
-            unsigned lclNum = vec->AsLclVarCommon()->GetLclNum();
-            baseReg         = node->ExtractTempReg();
-            emit.emitIns_R_S(INS_lea, EA_PTRSIZE, baseReg, lclNum, 0);
+            baseReg = node->ExtractTempReg();
+            emit.Ins_R_S(INS_lea, EA_PTRSIZE, baseReg, GetStackAddrMode(vec->AsLclVarCommon()));
         }
         else
         {
@@ -709,10 +708,8 @@ void CodeGen::genVectorGetElement(GenTreeHWIntrinsic* node)
 
     if (vec->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        unsigned lclNum = vec->AsLclVarCommon()->GetLclNum();
-        offset += vec->AsLclVarCommon()->GetLclOffs();
-
-        emit.emitIns_R_S(ins_Load(eltType), emitActualTypeSize(eltType), destReg, lclNum, offset);
+        emit.Ins_R_S(ins_Load(eltType), emitActualTypeSize(eltType), destReg,
+                     GetStackAddrMode(vec->AsLclVarCommon()->GetLcl(), vec->AsLclVarCommon()->GetLclOffs() + offset));
 
         return;
     }

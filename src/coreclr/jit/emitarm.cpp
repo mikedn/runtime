@@ -3766,7 +3766,7 @@ void emitter::emitIns_R_R_R_R(
     appendToCurIG(id);
 }
 
-void emitter::MovRegStackOffset(regNumber reg, int32_t imm, int varNum, int varOffs)
+void emitter::MovRegStackOffset(regNumber reg, int32_t imm, StackAddrMode s)
 {
     auto mov = [&](instruction ins, int32_t imm) {
         instrDesc* id = emitNewInstrCns(imm);
@@ -3776,7 +3776,7 @@ void emitter::MovRegStackOffset(regNumber reg, int32_t imm, int varNum, int varO
         id->idInsSize(ISZ_32BIT);
         id->idReg1(reg);
         // TODO-MIKE-Cleanup: Only disassembly uses this...
-        id->SetVarAddr(varNum, varOffs);
+        id->SetVarAddr(INDEBUG(s));
 
         dispIns(id);
         appendToCurIG(id);
@@ -3810,26 +3810,24 @@ constexpr bool IsSignedImm12(int imm)
     return (unsigned_abs(imm) & ~4095) == 0;
 }
 
-void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs)
+#ifdef DEBUG
+static bool IsLoad(instruction ins)
 {
     switch (ins)
     {
-        case INS_lea:
         case INS_ldr:
         case INS_ldrh:
         case INS_ldrb:
         case INS_ldrsh:
         case INS_ldrsb:
         case INS_vldr:
-            break;
+            return true;
         default:
-            unreached();
+            return false;
     }
-
-    Ins_R_S(ins, attr, reg, varNum, varOffs);
 }
 
-void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs)
+static bool IsStore(instruction ins)
 {
     switch (ins)
     {
@@ -3837,19 +3835,32 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int var
         case INS_strh:
         case INS_strb:
         case INS_vstr:
-            break;
+            return true;
         default:
-            unreached();
+            return false;
     }
+}
+#endif
 
-    Ins_R_S(ins, attr, reg, varNum, varOffs);
+void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s)
+{
+    assert(IsLoad(ins) || (ins == INS_lea));
+    Ins_R_S(ins, attr, reg, s);
 }
 
-void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs)
+void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s)
 {
+    assert(IsStore(ins));
+    Ins_R_S(ins, attr, reg, s);
+}
+
+void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s)
+{
+    assert(IsLoad(ins) || IsStore(ins) || (ins == INS_lea));
+
     bool      isFloatLoadStore = (ins == INS_vldr) || (ins == INS_vstr);
     bool      fpBased;
-    int       baseOffset = emitComp->lvaFrameAddress(varNum, &fpBased) + varOffs;
+    int       baseOffset = emitComp->lvaFrameAddress(s.varNum, &fpBased) + s.varOffs;
     int32_t   imm        = baseOffset;
     regNumber baseReg;
 
@@ -3892,7 +3903,7 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
         else
         {
             regNumber tempReg = codeGen->rsGetRsvdReg();
-            MovRegStackOffset(tempReg, imm, varNum, varOffs);
+            MovRegStackOffset(tempReg, imm, s);
             emitIns_R_R_R(INS_add, attr, reg, baseReg, tempReg);
 
             return;
@@ -3903,7 +3914,7 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
         if (!IsSignedImm8(imm, 2))
         {
             regNumber tempReg = codeGen->rsGetRsvdReg();
-            MovRegStackOffset(tempReg, imm, varNum, varOffs);
+            MovRegStackOffset(tempReg, imm, s);
             emitIns_R_R(INS_add, EA_4BYTE, tempReg, baseReg);
             emitIns_R_R_I(ins, attr, reg, tempReg, 0);
 
@@ -3927,7 +3938,7 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
     }
     else
     {
-        MovRegStackOffset(codeGen->rsGetRsvdReg(), imm, varNum, varOffs);
+        MovRegStackOffset(codeGen->rsGetRsvdReg(), imm, s);
 
         fmt = IF_T2_E0;
     }
@@ -3940,22 +3951,22 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
     id->idInsSize(emitInsSize(fmt));
     id->idReg1(reg);
     id->idReg2(baseReg);
-    id->SetVarAddr(varNum, varOffs);
+    id->SetVarAddr(INDEBUG(s));
 
     if ((ins == INS_str) && EA_IS_GCREF_OR_BYREF(attr))
     {
         id->idAddr()->lclOffset = baseOffset;
 
-        if (varNum < 0)
+        if (s.varNum < 0)
         {
-            assert(varOffs == 0);
+            assert(s.varOffs == 0);
             id->idAddr()->isTrackedGCSlotStore = codeGen->spillTemps.TrackGCSpillTemps();
         }
-        else if (static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar)
+        else if (static_cast<unsigned>(s.varNum) == emitComp->lvaOutgoingArgSpaceVar)
         {
             id->idAddr()->isGCArgStore = true;
         }
-        else if ((varOffs == 0) && (emitComp->lvaGetDesc(static_cast<unsigned>(varNum))->HasGCSlotLiveness()))
+        else if ((s.varOffs == 0) && (emitComp->lvaGetDesc(static_cast<unsigned>(s.varNum))->HasGCSlotLiveness()))
         {
             id->idAddr()->isTrackedGCSlotStore = true;
         }

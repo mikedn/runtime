@@ -68,11 +68,6 @@ public:
     void genEmitMachineCode();
     void genEmitUnwindDebugGCandEH();
 
-    VARSET_VALARG_TP GetLiveSet() const
-    {
-        return liveness.GetLiveSet();
-    }
-
 private:
 #ifdef TARGET_XARCH
     // Bit masks used in negating a float or double number.
@@ -198,21 +193,7 @@ public:
 
     void PrologEstablishFramePointer(int delta, bool reportUnwindData);
 
-    struct ParamRegInfo
-    {
-        unsigned lclNum;
-        // index into the param registers table of the register that will be copied to this register.
-        // That is, for paramRegs[x].trashBy = y, argument register number 'y' will be copied to
-        // argument register number 'x'. Only used when circular = true.
-        unsigned trashBy;
-
-        uint8_t   regIndex;
-        bool      stackArg;  // true if the argument gets homed to the stack
-        bool      writeThru; // true if the argument gets homed to both stack and register
-        bool      processed; // true after we've processed the argument (and it is in its final location)
-        bool      circular;  // true if this register participates in a circular dependency loop.
-        var_types type;
-    };
+    struct ParamRegInfo;
 
     void genPrologMoveParamRegs(
         unsigned regCount, regMaskTP regLiveIn, bool isFloat, regNumber tempReg, bool* tempRegClobbered);
@@ -393,6 +374,11 @@ public:
         assert(index == 0);
     }
 #endif
+
+    StackAddrMode GetStackAddrMode(unsigned lclNum, int lclOffs);
+    StackAddrMode GetStackAddrMode(LclVarDsc* lcl, int lclOffs);
+    StackAddrMode GetStackAddrMode(GenTreeLclVarCommon* lclNode);
+    StackAddrMode GetStackAddrMode(SpillTemp* spillTemp);
 
 #ifdef TARGET_XARCH
     void PrologPreserveCalleeSavedFloatRegs(unsigned lclFrameSize);
@@ -644,7 +630,7 @@ protected:
     void genPutArgReg(GenTreeUnOp* putArg);
     void genPutArgStk(GenTreePutArgStk* treeNode);
 #if FEATURE_FASTTAILCALL
-    unsigned GetFirstStackParamLclNum();
+    unsigned GetFirstStackParamLclNum() const;
 #endif
 #if FEATURE_ARG_SPLIT
     void genPutArgSplit(GenTreePutArgSplit* treeNode);
@@ -713,7 +699,7 @@ protected:
 #ifndef TARGET_64BIT
     void DefLongRegs(GenTree* node);
 #endif
-    void SpillLclVarReg(unsigned varNum, var_types type, GenTreeLclVar* lclNode, regNumber regNum);
+    void SpillLclVarReg(LclVarDsc* lcl, GenTreeLclVar* lclNode);
     void UnspillRegIfNeeded(GenTree* node);
     void UnspillRegCandidateLclVar(GenTreeLclVar* node);
     void UnspillRegIfNeeded(GenTree* node, unsigned regIndex);
@@ -765,10 +751,10 @@ protected:
     void genCodeForNegNot(GenTreeUnOp* tree);
     void genCodeForBswap(GenTree* tree);
     void GenLoadLclVar(GenTreeLclVar* load);
-    void genCodeForLclFld(GenTreeLclFld* tree);
+    void GenLoadLclFld(GenTreeLclFld* load);
     void GenStoreLclFld(GenTreeLclFld* store);
     void GenStoreLclVar(GenTreeLclVar* store);
-    void GenStoreLclRMW(var_types type, unsigned lclNum, unsigned lclOffs, GenTree* src);
+    void GenStoreLclRMW(var_types type, StackAddrMode s, GenTree* src);
 #ifndef TARGET_64BIT
     void GenStoreLclVarLong(GenTreeLclVar* store);
 #endif
@@ -923,7 +909,7 @@ protected:
 
     GenTreeLclVar* IsRegCandidateLclVar(GenTree* node)
     {
-        return node->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && compiler->lvaGetDesc(node->AsLclVar())->IsRegCandidate()
+        return node->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && node->AsLclVar()->GetLcl()->IsRegCandidate()
                    ? node->AsLclVar()
                    : nullptr;
     }
@@ -942,11 +928,11 @@ protected:
 public:
     void inst_Mov(var_types dstType, regNumber dstReg, regNumber srcReg, bool canSkip);
 
-    bool IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs);
+    bool IsLocalMemoryOperand(GenTree* op, StackAddrMode* s);
 
 #ifdef TARGET_XARCH
     void inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned val);
-    bool IsMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs, GenTree** addr, ConstData** data);
+    bool IsMemoryOperand(GenTree* op, StackAddrMode* s, GenTree** addr, ConstData** data);
     void emitInsRM(instruction ins, emitAttr attr, GenTree* src);
     void emitInsRegRM(instruction ins, emitAttr attr, regNumber reg, GenTree* mem);
     void emitInsCmp(instruction ins, emitAttr attr, GenTree* op1, GenTree* op2);
@@ -972,15 +958,15 @@ public:
 
     class GenAddrMode
     {
-        regNumber m_base;
-        regNumber m_index;
-        unsigned  m_scale;
-        int       m_disp;
-        unsigned  m_lclNum;
+        regNumber  m_base;
+        regNumber  m_index;
+        unsigned   m_scale;
+        int        m_disp;
+        LclVarDsc* m_lcl;
 
     public:
-        GenAddrMode(unsigned lclNum, unsigned lclOffs)
-            : m_base(REG_NA), m_index(REG_NA), m_scale(1), m_disp(lclOffs), m_lclNum(lclNum)
+        GenAddrMode(LclVarDsc* lcl, unsigned lclOffs)
+            : m_base(REG_NA), m_index(REG_NA), m_scale(1), m_disp(lclOffs), m_lcl(lcl)
         {
         }
 
@@ -1016,12 +1002,12 @@ public:
 
         bool IsLcl() const
         {
-            return m_lclNum != BAD_VAR_NUM;
+            return m_lcl != nullptr;
         }
 
-        unsigned LclNum() const
+        LclVarDsc* Lcl() const
         {
-            return m_lclNum;
+            return m_lcl;
         }
     };
 
@@ -1118,7 +1104,7 @@ public:
 
     INDEBUG(bool IsValidSourceType(var_types instrType, var_types sourceType);)
 
-    bool IsSimdLocalAligned(unsigned lclNum);
+    bool IsSimdLocalAligned(LclVarDsc* lcl);
 
     INDEBUG(void DumpDisasmHeader() const;)
 

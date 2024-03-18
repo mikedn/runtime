@@ -1,7 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-// A set of integers in the range [0..N], for some N defined by the "Env" (via "BitSetTraits").
+// A set of integers in the range [0..N], for some N defined by the "Env" (via "Traits").
 //
 // Represented as a pointer-sized item.  If N bits can fit in this item, the representation is "direct"; otherwise,
 // the item is a pointer to an array of K size_t's, where K is the number of size_t's necessary to hold N bits.
@@ -10,513 +10,430 @@
 
 #include "bitset.h"
 
-using BitSetShortLongRep = size_t*;
-
-template <typename BitSetTraits>
-class BitSetOps<BitSetShortLongRep, BitSetTraits>
+template <typename Traits>
+class BitSetOps
 {
 public:
-    using Env        = typename BitSetTraits::Env;
-    using Rep        = BitSetShortLongRep;
-    using Set        = BitSetShortLongRep;
-    using ConstSet   = const size_t*;
-    using ValArgType = const BitSetShortLongRep&;
-    using RetValType = BitSetShortLongRep;
+    using Env      = typename Traits::Env;
+    using Word     = typename Traits::Word;
+    using Set      = Word*;
+    using ConstSet = const Word*;
 
 private:
-    static const unsigned BitsInSizeT = sizeof(size_t) * CHAR_BIT;
-
-    inline static bool IsShort(Env env)
-    {
-        return BitSetTraits::GetArrSize(env, sizeof(size_t)) <= 1;
-    }
+    static const unsigned WordBitSize = sizeof(Word) * CHAR_BIT;
 
 public:
-    inline static BitSetShortLongRep UninitVal()
+    static Set UninitVal()
     {
         return nullptr;
     }
 
-    static bool MayBeUninit(BitSetShortLongRep bs)
+    static bool MayBeUninit(Set s)
     {
-        return bs == UninitVal();
+        return s == UninitVal();
     }
 
-    static void Assign(Env env, BitSetShortLongRep& lhs, BitSetShortLongRep rhs)
+    static Set Alloc(Env env)
     {
-        // We can't assert that rhs != UninitVal in the Short case, because in that
-        // case it's a legal value.
-        if (IsShort(env))
-        {
-            // Both are short.
-            lhs = rhs;
-        }
-        else if (lhs == UninitVal())
-        {
-            assert(rhs != UninitVal());
-            lhs = MakeCopy(env, rhs);
-        }
-        else
-        {
-            AssignLong(env, lhs, rhs);
-        }
-    }
-
-    static void AssignAllowUninitRhs(Env env, BitSetShortLongRep& lhs, BitSetShortLongRep rhs)
-    {
-        if (IsShort(env))
-        {
-            // Both are short.
-            lhs = rhs;
-        }
-        else if (rhs == UninitVal())
-        {
-            lhs = rhs;
-        }
-        else if (lhs == UninitVal())
-        {
-            lhs = MakeCopy(env, rhs);
-        }
-        else
-        {
-            AssignLong(env, lhs, rhs);
-        }
-    }
-
-    static void AssignNoCopy(Env env, BitSetShortLongRep& lhs, BitSetShortLongRep rhs)
-    {
-        lhs = rhs;
-    }
-
-    static void ClearD(Env env, BitSetShortLongRep& bs)
-    {
-        if (IsShort(env))
-        {
-            bs = (BitSetShortLongRep) nullptr;
-        }
-        else
-        {
-            assert(bs != UninitVal());
-            ClearDLong(env, bs);
-        }
-    }
-
-    static BitSetShortLongRep MakeSingleton(Env env, unsigned bitNum)
-    {
-        assert(bitNum < BitSetTraits::GetSize(env));
-        if (IsShort(env))
-        {
-            return BitSetShortLongRep(((size_t)1) << bitNum);
-        }
-        else
-        {
-            return MakeSingletonLong(env, bitNum);
-        }
-    }
-
-    static BitSetShortLongRep MakeCopy(Env env, BitSetShortLongRep bs)
-    {
-        if (IsShort(env))
-        {
-            return bs;
-        }
-        else
-        {
-            return MakeCopyLong(env, bs);
-        }
-    }
-
-    static bool IsEmpty(Env env, BitSetShortLongRep bs)
-    {
-        if (IsShort(env))
-        {
-            return bs == nullptr;
-        }
-        else
-        {
-            assert(bs != UninitVal());
-            return IsEmptyLong(env, bs);
-        }
-    }
-
-    static unsigned Count(Env env, BitSetShortLongRep bs)
-    {
-        if (IsShort(env))
-        {
-            return BitSetSupport::CountBitsInIntegral(size_t(bs));
-        }
-        else
-        {
-            assert(bs != UninitVal());
-            return CountLong(env, bs);
-        }
-    }
-
-    static bool IsEmptyUnion(Env env, BitSetShortLongRep bs1, BitSetShortLongRep bs2)
-    {
-        if (IsShort(env))
-        {
-            return (((size_t)bs1) | ((size_t)bs2)) == 0;
-        }
-        else
-        {
-            return IsEmptyUnionLong(env, bs1, bs2);
-        }
-    }
-
-    static void UnionD(Env env, BitSetShortLongRep& bs1, BitSetShortLongRep bs2)
-    {
-        if (IsShort(env))
-        {
-            bs1 = (BitSetShortLongRep)(((size_t)bs1) | ((size_t)bs2));
-        }
-        else
-        {
-            UnionDLong(env, bs1, bs2);
-        }
-    }
-    static BitSetShortLongRep Union(Env env, BitSetShortLongRep bs1, BitSetShortLongRep bs2)
-    {
-        BitSetShortLongRep res = MakeCopy(env, bs1);
-        UnionD(env, res, bs2);
-        return res;
-    }
-
-    static void DiffD(Env env, BitSetShortLongRep& bs1, BitSetShortLongRep bs2)
-    {
-        if (IsShort(env))
-        {
-            bs1 = (BitSetShortLongRep)(((size_t)bs1) & (~(size_t)bs2));
-        }
-        else
-        {
-            DiffDLong(env, bs1, bs2);
-        }
-    }
-
-    static BitSetShortLongRep Diff(Env env, BitSetShortLongRep bs1, BitSetShortLongRep bs2)
-    {
-        BitSetShortLongRep res = MakeCopy(env, bs1);
-        DiffD(env, res, bs2);
-        return res;
-    }
-
-    static void SymmetricDiff(Env env, Set& r, ConstSet s1, ConstSet s2)
-    {
-        if (IsShort(env))
-        {
-            r = reinterpret_cast<Set>(reinterpret_cast<size_t>(s1) ^ reinterpret_cast<size_t>(s2));
-        }
-        else
-        {
-            SymmetricDiffLong(env, r, s1, s2);
-        }
-    }
-
-    static void RemoveElemD(Env env, BitSetShortLongRep& bs, unsigned i)
-    {
-        assert(i < BitSetTraits::GetSize(env));
-        if (IsShort(env))
-        {
-            size_t mask = ((size_t)1) << i;
-            mask        = ~mask;
-            bs          = (BitSetShortLongRep)(((size_t)bs) & mask);
-        }
-        else
-        {
-            assert(bs != UninitVal());
-            RemoveElemDLong(env, bs, i);
-        }
-    }
-    static BitSetShortLongRep RemoveElem(Env env, BitSetShortLongRep bs, unsigned i)
-    {
-        BitSetShortLongRep res = MakeCopy(env, bs);
-        RemoveElemD(env, res, i);
-        return res;
-    }
-
-    static bool TryRemoveElemD(Env env, BitSetShortLongRep& bs, unsigned i)
-    {
-        assert(i < BitSetTraits::GetSize(env));
-        if (IsShort(env))
-        {
-            size_t mask    = ((size_t)1) << i;
-            size_t bits    = (size_t)bs;
-            bool   removed = (bits & mask) != 0;
-            bs             = (BitSetShortLongRep)(bits & ~mask);
-            return removed;
-        }
-        else
-        {
-            return TryRemoveElemDLong(env, bs, i);
-        }
-    }
-
-    static void AddElemD(Env env, BitSetShortLongRep& bs, unsigned i)
-    {
-        assert(i < BitSetTraits::GetSize(env));
-        if (IsShort(env))
-        {
-            size_t mask = ((size_t)1) << i;
-            bs          = (BitSetShortLongRep)(((size_t)bs) | mask);
-        }
-        else
-        {
-            AddElemDLong(env, bs, i);
-        }
-    }
-    static BitSetShortLongRep AddElem(Env env, BitSetShortLongRep bs, unsigned i)
-    {
-        BitSetShortLongRep res = MakeCopy(env, bs);
-        AddElemD(env, res, i);
-        return res;
-    }
-
-    static bool TryAddElemD(Env env, BitSetShortLongRep& bs, unsigned i)
-    {
-        assert(i < BitSetTraits::GetSize(env));
-        if (IsShort(env))
-        {
-            size_t mask  = ((size_t)1) << i;
-            size_t bits  = (size_t)bs;
-            bool   added = (bits & mask) == 0;
-            bs           = (BitSetShortLongRep)(bits | mask);
-            return added;
-        }
-        else
-        {
-            return TryAddElemDLong(env, bs, i);
-        }
-    }
-
-    static bool IsMember(Env env, const BitSetShortLongRep bs, unsigned i)
-    {
-        assert(i < BitSetTraits::GetSize(env));
-        if (IsShort(env))
-        {
-            size_t mask = ((size_t)1) << i;
-            return (((size_t)bs) & mask) != 0;
-        }
-        else
-        {
-            assert(bs != UninitVal());
-            return IsMemberLong(env, bs, i);
-        }
-    }
-
-    static void IntersectionD(Env env, BitSetShortLongRep& bs1, BitSetShortLongRep bs2)
-    {
-        if (IsShort(env))
-        {
-            size_t val = (size_t)bs1;
-
-            val &= (size_t)bs2;
-            bs1 = (BitSetShortLongRep)val;
-        }
-        else
-        {
-            IntersectionDLong(env, bs1, bs2);
-        }
-    }
-
-    static BitSetShortLongRep Intersection(Env env, BitSetShortLongRep bs1, BitSetShortLongRep bs2)
-    {
-        BitSetShortLongRep res = MakeCopy(env, bs1);
-        IntersectionD(env, res, bs2);
-        return res;
-    }
-    static bool IsEmptyIntersection(Env env, BitSetShortLongRep bs1, BitSetShortLongRep bs2)
-    {
-        if (IsShort(env))
-        {
-            return (((size_t)bs1) & ((size_t)bs2)) == 0;
-        }
-        else
-        {
-            return IsEmptyIntersectionLong(env, bs1, bs2);
-        }
-    }
-
-    static void DataFlowD(Env env, BitSetShortLongRep& out, const BitSetShortLongRep gen, const BitSetShortLongRep in)
-    {
-        if (IsShort(env))
-        {
-            (size_t&)out = (size_t)out & ((size_t)gen | (size_t)in);
-        }
-        else
-        {
-            DataFlowDLong(env, out, gen, in);
-        }
-    }
-
-    static void LivenessD(Env                      env,
-                          BitSetShortLongRep&      in,
-                          const BitSetShortLongRep def,
-                          const BitSetShortLongRep use,
-                          const BitSetShortLongRep out)
-    {
-        if (IsShort(env))
-        {
-            (size_t&)in = (size_t)use | ((size_t)out & ~(size_t)def);
-        }
-        else
-        {
-            LivenessDLong(env, in, def, use, out);
-        }
-    }
-
-    static bool IsSubset(Env env, BitSetShortLongRep bs1, BitSetShortLongRep bs2)
-    {
-        if (IsShort(env))
-        {
-            size_t u1 = (size_t)bs1;
-            size_t u2 = (size_t)bs2;
-            return (u1 & u2) == u1;
-        }
-        else
-        {
-            return IsSubsetLong(env, bs1, bs2);
-        }
-    }
-
-    static bool Equal(Env env, BitSetShortLongRep bs1, BitSetShortLongRep bs2)
-    {
-        return (bs1 == bs2) || (!IsShort(env) && EqualLong(env, bs1, bs2));
-    }
-
-#ifdef DEBUG
-    // Returns a string valid until the allocator releases the memory.
-    static const char* ToString(Env env, BitSetShortLongRep bs)
-    {
-        if (IsShort(env))
-        {
-            assert(sizeof(BitSetShortLongRep) == sizeof(size_t));
-            const int CharsForSizeT  = sizeof(size_t) * 2;
-            char*     res            = nullptr;
-            const int ShortAllocSize = CharsForSizeT + 4;
-            res                      = (char*)BitSetTraits::DebugAlloc(env, ShortAllocSize);
-            size_t   bits            = (size_t)bs;
-            unsigned remaining       = ShortAllocSize;
-            char*    ptr             = res;
-            if (sizeof(size_t) == sizeof(int64_t))
-            {
-                sprintf_s(ptr, remaining, "%016zX", bits);
-            }
-            else
-            {
-                assert(sizeof(size_t) == sizeof(int));
-                sprintf_s(ptr, remaining, "%08X", (DWORD)bits);
-            }
-            return res;
-        }
-        else
-        {
-            return ToStringLong(env, bs);
-        }
-    }
-#endif
-
-    static BitSetShortLongRep MakeEmpty(Env env)
-    {
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
             return nullptr;
         }
         else
         {
-            return MakeEmptyArrayBits(env);
+            return AllocLong(env);
         }
     }
 
-    static BitSetShortLongRep MakeFull(Env env)
+    static Set MakeEmpty(Env env)
     {
-        if (IsShort(env))
+        if (Traits::IsShort(env))
         {
-            unsigned numBits = BitSetTraits::GetSize(env);
-            return BitSetShortLongRep(numBits == 0 ? 0 : (SIZE_T_MAX >> (BitsInSizeT - numBits)));
+            return nullptr;
+        }
+        else
+        {
+            return MakeEmptyLong(env);
+        }
+    }
+
+    static Set MakeFull(Env env)
+    {
+        if (Traits::IsShort(env))
+        {
+            unsigned size = Traits::GetSize(env);
+            return Set(size == 0 ? 0 : (~Word(0) >> (WordBitSize - size)));
         }
 
-        return MakeFullArrayBits(env);
+        return MakeFullLong(env);
+    }
+
+    static Set MakeCopy(Env env, ConstSet s)
+    {
+        if (Traits::IsShort(env))
+        {
+            return Set(Word(s));
+        }
+        else
+        {
+            return MakeCopyLong(env, s);
+        }
+    }
+
+    static Set MakeSingleton(Env env, unsigned index)
+    {
+        assert(index < Traits::GetSize(env));
+        if (Traits::IsShort(env))
+        {
+            return Set(Word(1) << index);
+        }
+        else
+        {
+            return MakeSingletonLong(env, index);
+        }
+    }
+
+    static void Assign(Env env, Set& lhs, Set rhs)
+    {
+        if (Traits::IsShort(env))
+        {
+            lhs = rhs;
+        }
+        else
+        {
+            AssignLong(Traits::GetWordCount(env), lhs, rhs);
+        }
+    }
+
+    static void ClearD(Env env, Set& s)
+    {
+        if (Traits::IsShort(env))
+        {
+            s = nullptr;
+        }
+        else
+        {
+            assert(s != UninitVal());
+            ClearDLong(Traits::GetWordCount(env), s);
+        }
+    }
+
+    static bool IsEmpty(Env env, ConstSet s)
+    {
+        if (Traits::IsShort(env))
+        {
+            return s == nullptr;
+        }
+        else
+        {
+            assert(s != UninitVal());
+            return IsEmptyLong(Traits::GetWordCount(env), s);
+        }
+    }
+
+    static unsigned Count(Env env, ConstSet s)
+    {
+        if (Traits::IsShort(env))
+        {
+            return BitSetSupport::CountBitsInIntegral(Word(s));
+        }
+        else
+        {
+            assert(s != UninitVal());
+            return CountLong(Traits::GetWordCount(env), s);
+        }
+    }
+
+    static bool IsEmptyUnion(Env env, ConstSet s1, ConstSet s2)
+    {
+        if (Traits::IsShort(env))
+        {
+            return (Word(s1) | Word(s2)) == 0;
+        }
+        else
+        {
+            return IsEmptyUnionLong(Traits::GetWordCount(env), s1, s2);
+        }
+    }
+
+    static void UnionD(Env env, Set& s1, ConstSet s2)
+    {
+        if (Traits::IsShort(env))
+        {
+            s1 = Set(Word(s1) | Word(s2));
+        }
+        else
+        {
+            UnionDLong(Traits::GetWordCount(env), s1, s2);
+        }
+    }
+
+    static void Union(Env env, Set& r, ConstSet s1, ConstSet s2)
+    {
+        if (Traits::IsShort(env))
+        {
+            r = Set(Word(s1) | Word(s2));
+        }
+        else
+        {
+            UnionLong(Traits::GetWordCount(env), r, s1, s2);
+        }
+    }
+
+    static void DiffD(Env env, Set& s1, ConstSet s2)
+    {
+        if (Traits::IsShort(env))
+        {
+            s1 = Set(Word(s1) & ~Word(s2));
+        }
+        else
+        {
+            DiffDLong(Traits::GetWordCount(env), s1, s2);
+        }
+    }
+
+    static void Diff(Env env, Set& r, ConstSet s1, ConstSet s2)
+    {
+        if (Traits::IsShort(env))
+        {
+            r = Set(Word(s1) & ~Word(s2));
+        }
+        else
+        {
+            DiffLong(Traits::GetWordCount(env), r, s1, s2);
+        }
+    }
+
+    static void SymmetricDiff(Env env, Set& r, ConstSet s1, ConstSet s2)
+    {
+        if (Traits::IsShort(env))
+        {
+            r = Set(Word(s1) ^ Word(s2));
+        }
+        else
+        {
+            SymmetricDiffLong(Traits::GetWordCount(env), r, s1, s2);
+        }
+    }
+
+    static void RemoveElemD(Env env, Set& s, unsigned i)
+    {
+        assert(i < Traits::GetSize(env));
+
+        if (Traits::IsShort(env))
+        {
+            s = Set(Word(s) & ~(Word(1) << i));
+        }
+        else
+        {
+            RemoveElemDLong(s, i);
+        }
+    }
+
+    static bool TryRemoveElemD(Env env, Set& s, unsigned i)
+    {
+        assert(i < Traits::GetSize(env));
+
+        if (Traits::IsShort(env))
+        {
+            Word mask    = Word(1) << i;
+            Word bits    = Word(s);
+            bool removed = (bits & mask) != 0;
+            s            = Set(bits & ~mask);
+            return removed;
+        }
+        else
+        {
+            return TryRemoveElemDLong(s, i);
+        }
+    }
+
+    static void AddElemD(Env env, Set& s, unsigned i)
+    {
+        assert(i < Traits::GetSize(env));
+
+        if (Traits::IsShort(env))
+        {
+            s = Set(Word(s) | (Word(1) << i));
+        }
+        else
+        {
+            AddElemDLong(s, i);
+        }
+    }
+
+    static bool TryAddElemD(Env env, Set& s, unsigned i)
+    {
+        assert(i < Traits::GetSize(env));
+
+        if (Traits::IsShort(env))
+        {
+            Word mask  = Word(1) << i;
+            Word bits  = Word(s);
+            bool added = (bits & mask) == 0;
+            s          = Set(bits | mask);
+            return added;
+        }
+        else
+        {
+            return TryAddElemDLong(s, i);
+        }
+    }
+
+    static bool IsMember(Env env, ConstSet s, unsigned i)
+    {
+        assert(i < Traits::GetSize(env));
+
+        Word w;
+
+        if (Traits::IsShort(env))
+        {
+            w = Word(s);
+        }
+        else
+        {
+            assert(s != UninitVal());
+            w = s[i / WordBitSize];
+        }
+
+        return (w & (Word(1) << i)) != 0;
+    }
+
+    static void IntersectionD(Env env, Set& s1, ConstSet s2)
+    {
+        if (Traits::IsShort(env))
+        {
+            s1 = Set(Word(s1) & Word(s2));
+        }
+        else
+        {
+            IntersectionDLong(Traits::GetWordCount(env), s1, s2);
+        }
+    }
+
+    static void Intersection(Env env, Set& r, ConstSet s1, ConstSet s2)
+    {
+        if (Traits::IsShort(env))
+        {
+            r = Set(Word(s1) & Word(s2));
+        }
+        else
+        {
+            IntersectionLong(Traits::GetWordCount(env), r, s1, s2);
+        }
+    }
+
+    static bool IsEmptyIntersection(Env env, ConstSet s1, ConstSet s2)
+    {
+        if (Traits::IsShort(env))
+        {
+            return (Word(s1) & Word(s2)) == 0;
+        }
+        else
+        {
+            return IsEmptyIntersectionLong(Traits::GetWordCount(env), s1, s2);
+        }
+    }
+
+    static void DataFlowD(Env env, Set& out, ConstSet gen, ConstSet in)
+    {
+        if (Traits::IsShort(env))
+        {
+            out = Set(Word(out) & (Word(gen) | Word(in)));
+        }
+        else
+        {
+            DataFlowDLong(Traits::GetWordCount(env), out, gen, in);
+        }
+    }
+
+    static void LivenessD(Env env, Set& in, ConstSet def, ConstSet use, ConstSet out)
+    {
+        if (Traits::IsShort(env))
+        {
+            in = Set(Word(use) | (Word(out) & ~Word(def)));
+        }
+        else
+        {
+            LivenessDLong(Traits::GetWordCount(env), in, def, use, out);
+        }
+    }
+
+    static bool IsSubset(Env env, ConstSet s1, ConstSet s2)
+    {
+        if (Traits::IsShort(env))
+        {
+            return (Word(s1) & Word(s2)) == Word(s1);
+        }
+        else
+        {
+            return IsSubsetLong(Traits::GetWordCount(env), s1, s2);
+        }
+    }
+
+    static bool Equal(Env env, ConstSet s1, ConstSet s2)
+    {
+        return (s1 == s2) || (!Traits::IsShort(env) && EqualLong(Traits::GetWordCount(env), s1, s2));
     }
 
     class Iter
     {
-        // The BitSet that we're iterating over. This is updated to point at the current
-        // size_t set of bits.
-        BitSetShortLongRep m_bs;
-
-        // The end of the iteration.
-        BitSetShortLongRep m_bsEnd;
-
-        // The remaining bits to be iterated over in the current size_t set of bits.
-        // In the "short" case, these are all the remaining bits.
-        // In the "long" case, these are remaining bits in the current element;
-        // these and the bits in the remaining elements comprise the remaining bits.
-        size_t m_bits;
-
-        // The number of bits that have already been iterated over (set or clear). If you
-        // add this to the bit number of the next bit in "m_bits", you get the proper bit number of that
-        // bit in "m_bs". This is only updated when we increment m_bs.
-        unsigned m_bitNum;
+        ConstSet m_current;
+        ConstSet m_end;
+        Word     m_bits;
+        unsigned m_index = 0;
 
     public:
-        Iter(Env env, const BitSetShortLongRep& bs) : m_bs(bs), m_bitNum(0)
+        Iter(Env env, ConstSet s) : m_current(s)
         {
-            if (BitSetOps::IsShort(env))
+            if (Traits::IsShort(env))
             {
-                m_bits = (size_t)bs;
-
+                m_bits = Word(s);
                 // Set the iteration end condition, valid even though this is not a pointer in the short case.
-                m_bsEnd = bs + 1;
+                m_end = s + 1;
             }
             else
             {
-                assert(bs != BitSetOps::UninitVal());
-                m_bits = bs[0];
-
-                unsigned len = BitSetTraits::GetArrSize(env, sizeof(size_t));
-                m_bsEnd      = bs + len;
+                assert(s != UninitVal());
+                m_bits = s[0];
+                m_end  = s + Traits::GetWordCount(env);
             }
         }
 
         bool NextElem(unsigned* pElem)
         {
-#if BITSET_TRACK_OPCOUNTS
-            BitSetStaticsImpl::RecordOp(BitSetStaticsImpl::BSOP_NextBit);
-#endif
             for (;;)
             {
                 DWORD nextBit;
                 bool  hasBit;
 #ifdef HOST_64BIT
-                static_assert_no_msg(sizeof(size_t) == 8);
+                static_assert_no_msg(sizeof(Word) == 8);
                 hasBit = BitScanForward64(&nextBit, m_bits);
 #else
-                static_assert_no_msg(sizeof(size_t) == 4);
+                static_assert_no_msg(sizeof(Word) == 4);
                 hasBit = BitScanForward(&nextBit, m_bits);
 #endif
 
                 // If there's a bit, doesn't matter if we're short or long.
                 if (hasBit)
                 {
-                    *pElem = m_bitNum + nextBit;
-                    m_bits &= ~(((size_t)1) << nextBit); // clear bit we just found so we don't find it again
+                    *pElem = m_index + nextBit;
+                    m_bits &= ~(Word(1) << nextBit); // clear bit we just found so we don't find it again
+
                     return true;
                 }
-                else
-                {
-                    // Go to the next size_t bit element. For short bitsets, this will hit the end condition
-                    // and exit.
-                    ++m_bs;
-                    if (m_bs == m_bsEnd)
-                    {
-                        return false;
-                    }
 
-                    // If we get here, it's not a short type, so get the next size_t element.
-                    m_bitNum += sizeof(size_t) * CHAR_BIT;
-                    m_bits = *m_bs;
+                // Go to the next word. For short bitsets, this will hit the end condition and exit.
+                ++m_current;
+
+                if (m_current == m_end)
+                {
+                    return false;
                 }
+
+                // If we get here, it's not a short type, so get the next word.
+                m_index += WordBitSize;
+                m_bits = *m_current;
             }
         }
     };
@@ -524,10 +441,10 @@ public:
     class Enumerator
     {
         Iter     iter;
-        unsigned index;
+        unsigned index = 0;
 
     public:
-        Enumerator(Env env, const BitSetShortLongRep& s) : iter(env, s), index(0)
+        Enumerator(Env env, ConstSet s) : iter(env, s)
         {
         }
 
@@ -542,31 +459,28 @@ public:
         }
     };
 
-    template <typename Op>
-    class OpEnumerator
+    template <Word (*op)(Word, Word)>
+    class EnumOp
     {
-        using WordType = size_t;
-
-        const WordType* s1;
-        const WordType* s2;
-        WordType        word;
-        unsigned        lastWordIndex;
-        unsigned        wordIndex = 0;
-        unsigned        bitIndex  = 0;
-        Op              op;
+        ConstSet s1;
+        ConstSet s2;
+        Word     word;
+        unsigned lastWordIndex;
+        unsigned wordIndex = 0;
+        unsigned bitIndex  = 0;
 
     public:
-        OpEnumerator(const WordType* s1, const WordType* s2, unsigned size, Op op) : s1(s1), s2(s2), op(op)
+        EnumOp(Env env, ConstSet s1, ConstSet s2) : s1(s1), s2(s2)
         {
-            if (size <= 1)
+            if (Traits::IsShort(env))
             {
-                word          = op(reinterpret_cast<WordType>(s1), reinterpret_cast<WordType>(s2));
+                word          = op(Word(s1), Word(s2));
                 lastWordIndex = 0;
             }
             else
             {
                 word          = op(s1[0], s2[0]);
-                lastWordIndex = size - 1;
+                lastWordIndex = Traits::GetWordCount(env) - 1;
             }
         }
 
@@ -585,18 +499,18 @@ public:
 
             DWORD nextBit;
 #ifdef HOST_64BIT
-            static_assert_no_msg(sizeof(WordType) == 8);
+            static_assert_no_msg(sizeof(Word) == 8);
             if (!BitScanForward64(&nextBit, word))
 #else
-            static_assert_no_msg(sizeof(WordType) == 4);
+            static_assert_no_msg(sizeof(Word) == 4);
             if (!BitScanForward(&nextBit, word))
 #endif
             {
                 return false;
             }
 
-            bitIndex = wordIndex * sizeof(WordType) * CHAR_BIT + nextBit;
-            word &= ~(WordType(1) << nextBit);
+            bitIndex = wordIndex * WordBitSize + nextBit;
+            word &= ~(Word(1) << nextBit);
 
             return true;
         }
@@ -607,51 +521,95 @@ public:
         }
     };
 
-    template <typename Op>
-    static OpEnumerator<Op> EnumOp(Env env, Op op, ConstSet s1, ConstSet s2)
+    static Word IntersectionOp(Word x, Word y)
     {
-        return {s1, s2, BitSetTraits::GetArrSize(env, sizeof(size_t)), op};
+        return x & y;
+    }
+
+    static Word SymmetricDiffOp(Word x, Word y)
+    {
+        return x ^ y;
+    }
+
+    static Word DiffOp(Word x, Word y)
+    {
+        return x & ~y;
     }
 
 private:
-    static void AssignLong(Env env, Set lhs, ConstSet rhs)
+    static Set AllocLong(Env env)
     {
-        assert(!IsShort(env));
-        unsigned len = BitSetTraits::GetArrSize(env, sizeof(size_t));
+        assert(!Traits::IsShort(env));
+        return Set(Traits::Alloc(env, Traits::GetWordCount(env)));
+    }
+
+    static Set MakeEmptyLong(Env env)
+    {
+        assert(!Traits::IsShort(env));
+
+        unsigned len = Traits::GetWordCount(env);
+        Set      r   = Set(Traits::Alloc(env, len));
+
+        for (unsigned i = 0; i < len; i++)
+        {
+            r[i] = 0;
+        }
+
+        return r;
+    }
+
+    static Set MakeFullLong(Env env)
+    {
+        assert(!Traits::IsShort(env));
+
+        unsigned len = Traits::GetWordCount(env);
+        Set      r   = Set(Traits::Alloc(env, len));
+
+        for (unsigned i = 0; i < len - 1; i++)
+        {
+            r[i] = ~Word(0);
+        }
+
+        r[len - 1] = ~Word(0) >> (WordBitSize - (Traits::GetSize(env) - (len - 1) * WordBitSize));
+
+        return r;
+    }
+
+    static Set MakeCopyLong(Env env, ConstSet s)
+    {
+        assert(!Traits::IsShort(env));
+
+        unsigned len = Traits::GetWordCount(env);
+        Set      r   = Set(Traits::Alloc(env, len));
+
+        for (unsigned i = 0; i < len; i++)
+        {
+            r[i] = s[i];
+        }
+
+        return r;
+    }
+
+    static Set MakeSingletonLong(Env env, unsigned index)
+    {
+        Set s                  = MakeEmptyLong(env);
+        s[index / WordBitSize] = Word(1) << (index % WordBitSize);
+        return s;
+    }
+
+    static void AssignLong(unsigned len, Set lhs, ConstSet rhs)
+    {
         for (unsigned i = 0; i < len; i++)
         {
             lhs[i] = rhs[i];
         }
     }
 
-    static Set MakeSingletonLong(Env env, unsigned bitNum)
+    static bool IsEmptyLong(unsigned len, ConstSet s)
     {
-        assert(!IsShort(env));
-        Set      res   = MakeEmptyArrayBits(env);
-        unsigned index = bitNum / BitsInSizeT;
-        res[index]     = ((size_t)1) << (bitNum % BitsInSizeT);
-        return res;
-    }
-
-    static Set MakeCopyLong(Env env, ConstSet bs)
-    {
-        assert(!IsShort(env));
-        Set      res = MakeUninitArrayBits(env);
-        unsigned len = BitSetTraits::GetArrSize(env, sizeof(size_t));
         for (unsigned i = 0; i < len; i++)
         {
-            res[i] = bs[i];
-        }
-        return res;
-    }
-
-    static bool IsEmptyLong(Env env, ConstSet bs)
-    {
-        assert(!IsShort(env));
-        unsigned len = BitSetTraits::GetArrSize(env, sizeof(size_t));
-        for (unsigned i = 0; i < len; i++)
-        {
-            if (bs[i] != 0)
+            if (s[i] != 0)
             {
                 return false;
             }
@@ -659,164 +617,120 @@ private:
         return true;
     }
 
-    static unsigned CountLong(Env env, ConstSet bs)
+    static unsigned CountLong(unsigned len, ConstSet s)
     {
-        assert(!IsShort(env));
-        unsigned len = BitSetTraits::GetArrSize(env, sizeof(size_t));
-        unsigned res = 0;
+        unsigned count = 0;
         for (unsigned i = 0; i < len; i++)
         {
-            res += BitSetSupport::CountBitsInIntegral(bs[i]);
+            count += BitSetSupport::CountBitsInIntegral(s[i]);
         }
-        return res;
+        return count;
     }
 
-    static void UnionDLong(Env env, Set bs1, ConstSet bs2)
+    static void UnionDLong(unsigned len, Set s1, ConstSet s2)
     {
-        assert(!IsShort(env));
-        unsigned len = BitSetTraits::GetArrSize(env, sizeof(size_t));
         for (unsigned i = 0; i < len; i++)
         {
-            bs1[i] |= bs2[i];
+            s1[i] |= s2[i];
         }
     }
 
-    static void DiffDLong(Env env, Set bs1, ConstSet bs2)
+    static void UnionLong(unsigned len, Set r, ConstSet s1, ConstSet s2)
     {
-        assert(!IsShort(env));
-        unsigned len = BitSetTraits::GetArrSize(env, sizeof(size_t));
         for (unsigned i = 0; i < len; i++)
         {
-            bs1[i] &= ~bs2[i];
+            r[i] = s1[i] | s2[i];
         }
     }
 
-    static void SymmetricDiffLong(Env env, Set r, ConstSet s1, ConstSet s2)
+    static void DiffDLong(unsigned len, Set s1, ConstSet s2)
     {
-        assert(!IsShort(env));
+        for (unsigned i = 0; i < len; i++)
+        {
+            s1[i] &= ~s2[i];
+        }
+    }
 
-        for (unsigned i = 0, len = BitSetTraits::GetArrSize(env, sizeof(size_t)); i < len; i++)
+    static void DiffLong(unsigned len, Set r, ConstSet s1, ConstSet s2)
+    {
+        for (unsigned i = 0; i < len; i++)
+        {
+            r[i] = s1[i] & ~s2[i];
+        }
+    }
+
+    static void SymmetricDiffLong(unsigned len, Set r, ConstSet s1, ConstSet s2)
+    {
+        for (unsigned i = 0; i < len; i++)
         {
             r[i] = s1[i] ^ s2[i];
         }
     }
 
-    static void AddElemDLong(Env env, Set bs, unsigned i)
+    static void AddElemDLong(Set s, unsigned i)
     {
-        assert(!IsShort(env));
-        unsigned index = i / BitsInSizeT;
-        size_t   mask  = ((size_t)1) << (i % BitsInSizeT);
-        bs[index] |= mask;
+        s[i / WordBitSize] |= Word(1) << (i % WordBitSize);
     }
 
-    static bool TryAddElemDLong(Env env, Set bs, unsigned i)
+    static bool TryAddElemDLong(Set s, unsigned i)
     {
-        assert(!IsShort(env));
-        unsigned index = i / BitsInSizeT;
-        size_t   mask  = ((size_t)1) << (i % BitsInSizeT);
-        size_t   bits  = bs[index];
+        unsigned index = i / WordBitSize;
+        Word     mask  = Word(1) << (i % WordBitSize);
+        Word     bits  = s[index];
         bool     added = (bits & mask) == 0;
-        bs[index]      = bits | mask;
+        s[index]       = bits | mask;
         return added;
     }
 
-    static void RemoveElemDLong(Env env, Set bs, unsigned i)
+    static void RemoveElemDLong(Set s, unsigned i)
     {
-        assert(!IsShort(env));
-        unsigned index = i / BitsInSizeT;
-        size_t   mask  = ((size_t)1) << (i % BitsInSizeT);
-        mask           = ~mask;
-        bs[index] &= mask;
+        s[i / WordBitSize] &= ~(Word(1) << (i % WordBitSize));
     }
 
-    static bool TryRemoveElemDLong(Env env, Set bs, unsigned i)
+    static bool TryRemoveElemDLong(Set s, unsigned i)
     {
-        assert(!IsShort(env));
-        unsigned index   = i / BitsInSizeT;
-        size_t   mask    = ((size_t)1) << (i % BitsInSizeT);
-        size_t   bits    = bs[index];
+        unsigned index   = i / WordBitSize;
+        Word     mask    = Word(1) << (i % WordBitSize);
+        Word     bits    = s[index];
         bool     removed = (bits & mask) != 0;
-        bs[index]        = bits & ~mask;
+        s[index]         = bits & ~mask;
         return removed;
     }
 
-    static void ClearDLong(Env env, Set bs)
+    static void ClearDLong(unsigned len, Set s)
     {
-        assert(!IsShort(env));
-        unsigned len = BitSetTraits::GetArrSize(env, sizeof(size_t));
         for (unsigned i = 0; i < len; i++)
         {
-            bs[i] = 0;
+            s[i] = 0;
         }
     }
 
-    static Set MakeUninitArrayBits(Env env)
+    static bool IsMemberLong(ConstSet s, unsigned i)
     {
-        assert(!IsShort(env));
-        unsigned len = BitSetTraits::GetArrSize(env, sizeof(size_t));
-        assert(len > 1); // Or else would not require an array.
-        return (Set)(BitSetTraits::Alloc(env, len * sizeof(size_t)));
+        return (s[i / WordBitSize] & (Word(1) << (i % WordBitSize))) != 0;
     }
 
-    static Set MakeEmptyArrayBits(Env env)
+    static void IntersectionDLong(unsigned len, Set s1, ConstSet s2)
     {
-        assert(!IsShort(env));
-        unsigned len = BitSetTraits::GetArrSize(env, sizeof(size_t));
-        assert(len > 1); // Or else would not require an array.
-        Set res = (Set)(BitSetTraits::Alloc(env, len * sizeof(size_t)));
         for (unsigned i = 0; i < len; i++)
         {
-            res[i] = 0;
-        }
-        return res;
-    }
-
-    static Set MakeFullArrayBits(Env env)
-    {
-        unsigned len = BitSetTraits::GetArrSize(env, sizeof(size_t));
-        assert(len > 1);
-
-        unsigned lastElemNumBits = BitSetTraits::GetSize(env) - (len - 1) * BitsInSizeT;
-        size_t   lastElemtBits   = SIZE_T_MAX >> (BitsInSizeT - lastElemNumBits);
-
-        Set bits = static_cast<Set>(BitSetTraits::Alloc(env, len * sizeof(size_t)));
-
-        for (unsigned i = 0; i < len - 1; i++)
-        {
-            bits[i] = SIZE_T_MAX;
-        }
-
-        bits[len - 1] = lastElemtBits;
-
-        return bits;
-    }
-
-    static bool IsMemberLong(Env env, ConstSet bs, unsigned i)
-    {
-        assert(!IsShort(env));
-        unsigned index     = i / BitsInSizeT;
-        unsigned bitInElem = (i % BitsInSizeT);
-        size_t   mask      = ((size_t)1) << bitInElem;
-        return (bs[index] & mask) != 0;
-    }
-
-    static void IntersectionDLong(Env env, Set bs1, ConstSet bs2)
-    {
-        assert(!IsShort(env));
-        unsigned len = BitSetTraits::GetArrSize(env, sizeof(size_t));
-        for (unsigned i = 0; i < len; i++)
-        {
-            bs1[i] &= bs2[i];
+            s1[i] &= s2[i];
         }
     }
 
-    static bool IsEmptyIntersectionLong(Env env, ConstSet bs1, ConstSet bs2)
+    static void IntersectionLong(unsigned len, Set r, ConstSet s1, ConstSet s2)
     {
-        assert(!IsShort(env));
-        unsigned len = BitSetTraits::GetArrSize(env, sizeof(size_t));
         for (unsigned i = 0; i < len; i++)
         {
-            if ((bs1[i] & bs2[i]) != 0)
+            r[i] = s1[i] & s2[i];
+        }
+    }
+
+    static bool IsEmptyIntersectionLong(unsigned len, ConstSet s1, ConstSet s2)
+    {
+        for (unsigned i = 0; i < len; i++)
+        {
+            if ((s1[i] & s2[i]) != 0)
             {
                 return false;
             }
@@ -824,13 +738,11 @@ private:
         return true;
     }
 
-    static bool IsEmptyUnionLong(Env env, ConstSet bs1, ConstSet bs2)
+    static bool IsEmptyUnionLong(unsigned len, ConstSet s1, ConstSet s2)
     {
-        assert(!IsShort(env));
-        unsigned len = BitSetTraits::GetArrSize(env, sizeof(size_t));
         for (unsigned i = 0; i < len; i++)
         {
-            if ((bs1[i] | bs2[i]) != 0)
+            if ((s1[i] | s2[i]) != 0)
             {
                 return false;
             }
@@ -838,33 +750,27 @@ private:
         return true;
     }
 
-    static void DataFlowDLong(Env env, Set out, ConstSet gen, ConstSet in)
+    static void DataFlowDLong(unsigned len, Set out, ConstSet gen, ConstSet in)
     {
-        assert(!IsShort(env));
-        unsigned len = BitSetTraits::GetArrSize(env, sizeof(size_t));
         for (unsigned i = 0; i < len; i++)
         {
             out[i] = out[i] & (gen[i] | in[i]);
         }
     }
 
-    static void LivenessDLong(Env env, Set in, ConstSet def, ConstSet use, ConstSet out)
+    static void LivenessDLong(unsigned len, Set in, ConstSet def, ConstSet use, ConstSet out)
     {
-        assert(!IsShort(env));
-        unsigned len = BitSetTraits::GetArrSize(env, sizeof(size_t));
         for (unsigned i = 0; i < len; i++)
         {
             in[i] = use[i] | (out[i] & ~def[i]);
         }
     }
 
-    static bool EqualLong(Env env, ConstSet bs1, ConstSet bs2)
+    static bool EqualLong(unsigned len, ConstSet s1, ConstSet s2)
     {
-        assert(!IsShort(env));
-        unsigned len = BitSetTraits::GetArrSize(env, sizeof(size_t));
         for (unsigned i = 0; i < len; i++)
         {
-            if (bs1[i] != bs2[i])
+            if (s1[i] != s2[i])
             {
                 return false;
             }
@@ -872,48 +778,15 @@ private:
         return true;
     }
 
-    static bool IsSubsetLong(Env env, ConstSet bs1, ConstSet bs2)
+    static bool IsSubsetLong(unsigned len, ConstSet s1, ConstSet s2)
     {
-        assert(!IsShort(env));
-        unsigned len = BitSetTraits::GetArrSize(env, sizeof(size_t));
         for (unsigned i = 0; i < len; i++)
         {
-            if ((bs1[i] & bs2[i]) != bs1[i])
+            if ((s1[i] & s2[i]) != s1[i])
             {
                 return false;
             }
         }
         return true;
     }
-
-#ifdef DEBUG
-    static const char* ToStringLong(Env env, ConstSet bs)
-    {
-        assert(!IsShort(env));
-        unsigned  len           = BitSetTraits::GetArrSize(env, sizeof(size_t));
-        const int CharsForSizeT = sizeof(size_t) * 2;
-        unsigned  allocSz       = len * CharsForSizeT + 4;
-        unsigned  remaining     = allocSz;
-        char*     res           = (char*)BitSetTraits::DebugAlloc(env, allocSz);
-        char*     temp          = res;
-        for (unsigned i = len; 0 < i; i--)
-        {
-            size_t bits = bs[i - 1];
-            if (sizeof(size_t) == sizeof(int64_t))
-            {
-                sprintf_s(temp, remaining, "%016zX", bits);
-                temp += 16;
-                remaining -= 16;
-            }
-            else
-            {
-                assert(sizeof(size_t) == sizeof(unsigned));
-                sprintf_s(temp, remaining, "%08X", (unsigned)bits);
-                temp += 8;
-                remaining -= 8;
-            }
-        }
-        return res;
-    }
-#endif
 };

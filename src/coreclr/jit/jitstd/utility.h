@@ -95,6 +95,25 @@ namespace jitstd
         return (v << ((64 - s) & 63)) | (v >> (s & 63));
     }
 
+    template <typename T>
+    class span
+    {
+    public:
+        using element_type = T;
+        using pointer = element_type*;
+
+    private:
+        pointer const first;
+        size_t const count;
+
+    public:
+        span(pointer first, size_t count) : first(first), count(count) { }
+
+        pointer begin() const { return first; }
+        pointer end() const { return first + count; }
+        size_t size() const { return count; }
+    };
+
 namespace utility
 {
     // Template class for scoped execution of a lambda.

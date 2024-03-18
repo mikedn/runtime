@@ -989,7 +989,7 @@ PhaseStatus Compiler::fgCloneFinally()
         //
         const unsigned             finallyTryIndex = firstBlock->bbTryIndex;
         BasicBlock*                insertAfter     = nullptr;
-        BlockToBlockMap            blockMap(getAllocator());
+        BlockToBlockMap            blockMap(getAllocator(CMK_EHOpts));
         bool                       clonedOk     = true;
         unsigned                   cloneBBCount = 0;
         BasicBlock::weight_t const originalWeight =
@@ -1654,7 +1654,7 @@ PhaseStatus Compiler::fgMergeFinallyChains()
     // chains: outer merges may enable inner merges.
     bool            canMerge = false;
     bool            didMerge = false;
-    BlockToBlockMap continuationMap(getAllocator());
+    BlockToBlockMap continuationMap(getAllocator(CMK_EHOpts));
 
     // Note XTnum is signed here so we can count down.
     for (int XTnum = compHndBBtabCount - 1; XTnum >= 0; XTnum--)

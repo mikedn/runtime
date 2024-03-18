@@ -21,7 +21,7 @@
 template <typename TCallback>
 void ForwardDataFlow(TCallback&& callback, Compiler* compiler)
 {
-    jitstd::list<BasicBlock*> worklist(jitstd::allocator<void>(compiler->getAllocator()));
+    jitstd::list<BasicBlock*> worklist(jitstd::allocator<void>(compiler->getAllocator(CMK_DataFlow)));
 
     worklist.insert(worklist.begin(), compiler->fgFirstBB);
     while (!worklist.empty())

@@ -847,9 +847,9 @@ GenTree* Importer::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, const HWIntri
             {
                 // TODO-MIKE-Review: Can we simply set GTF_REVERSE_OPS to avoid creating a temp?
 
-                unsigned lclNum = lvaGrabTemp(true DEBUGARG("AVX2.PermuteVar8x32 temp"));
-                impAppendTempAssign(lclNum, left, sig.paramLayout[0], CHECK_SPILL_ALL);
-                left = gtNewLclvNode(lclNum, sig.paramType[0]);
+                LclVarDsc* tempLcl = lvaAllocTemp(true DEBUGARG("AVX2.PermuteVar8x32 temp"));
+                impAppendTempAssign(tempLcl, left, sig.paramLayout[0], CHECK_SPILL_ALL);
+                left = gtNewLclvNode(tempLcl, sig.paramType[0]);
             }
 
             return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_PermuteVar8x32, eltType, 32, control, left);
@@ -905,9 +905,9 @@ GenTree* Importer::impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, const HWIntr
             {
                 // TODO-MIKE-Review: Can we simply set GTF_REVERSE_OPS to avoid creating a temp?
 
-                unsigned lclNum = lvaGrabTemp(true DEBUGARG("BMI.BitFieldExtract/ZeroHightBits temp"));
-                impAppendTempAssign(lclNum, op1, CHECK_SPILL_ALL);
-                op1 = gtNewLclvNode(lclNum, varActualType(sig.paramType[0]));
+                LclVarDsc* tempLcl = lvaAllocTemp(true DEBUGARG("BMI.BitFieldExtract/ZeroHightBits temp"));
+                impAppendTempAssign(tempLcl, op1, CHECK_SPILL_ALL);
+                op1 = gtNewLclvNode(tempLcl, varActualType(sig.paramType[0]));
             }
 
             // Instructions BZHI and BEXTR require to encode op2 (3rd register) in VEX.vvvv and op1

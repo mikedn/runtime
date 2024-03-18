@@ -725,7 +725,7 @@ void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
 {
     assert(load->OperIs(GT_LCL_VAR));
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(load);
+    LclVarDsc* lcl = load->GetLcl();
 
     assert(!lcl->IsIndependentPromoted());
 
@@ -735,13 +735,47 @@ void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
         return;
     }
 
-    var_types   type = lcl->GetRegisterType(load);
-    instruction ins  = ins_Load(type);
-    emitAttr    attr = emitTypeSize(type);
+    var_types type = lcl->GetRegisterType(load);
 
-    GetEmitter()->emitIns_R_S(ins, attr, load->GetRegNum(), load->GetLclNum(), 0);
+    GetEmitter()->Ins_R_S(ins_Load(type), emitTypeSize(type), load->GetRegNum(), GetStackAddrMode(lcl, 0));
 
     DefLclVarReg(load);
+}
+
+void CodeGen::GenLoadLclFld(GenTreeLclFld* load)
+{
+    assert(load->OperIs(GT_LCL_FLD));
+
+    var_types     type = load->GetType();
+    StackAddrMode s    = GetStackAddrMode(load);
+    Emitter&      emit = *GetEmitter();
+
+    if (load->IsOffsetMisaligned())
+    {
+        if (type == TYP_FLOAT)
+        {
+            RegNum tempReg = load->GetSingleTempReg();
+
+            emit.Ins_R_S(INS_ldr, EA_4BYTE, tempReg, s);
+            emit.emitIns_Mov(INS_vmov_i2f, EA_4BYTE, load->GetRegNum(), tempReg, /* canSkip */ false);
+        }
+        else
+        {
+            RegNum tempReg1 = load->ExtractTempReg();
+            RegNum tempReg2 = load->GetSingleTempReg();
+
+            emit.Ins_R_S(INS_lea, EA_PTRSIZE, tempReg2, s);
+            emit.emitIns_R_R_I(INS_ldr, EA_4BYTE, tempReg1, tempReg2, 0);
+            emit.emitIns_R_R_I(INS_ldr, EA_4BYTE, tempReg2, tempReg2, 4);
+            emit.emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, load->GetRegNum(), tempReg1, tempReg2);
+        }
+    }
+    else
+    {
+        emit.Ins_R_S(ins_Load(type), emitActualTypeSize(type), load->GetRegNum(), s);
+    }
+
+    DefReg(load);
 }
 
 void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
@@ -761,39 +795,34 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
     {
         assert(IsValidSourceType(type, src->GetType()));
 
-        regNumber srcReg  = genConsumeReg(src);
-        unsigned  lclOffs = store->GetLclOffs();
-        unsigned  lclNum  = store->GetLclNum();
-        emitter*  emit    = GetEmitter();
+        RegNum        srcReg = UseReg(src);
+        StackAddrMode s      = GetStackAddrMode(store);
+        Emitter&      emit   = *GetEmitter();
 
         if (store->IsOffsetMisaligned())
         {
-            // ARM supports unaligned access only for integer types,
-            // use integer stores if the field is not aligned.
-
-            regNumber addrReg = store->ExtractTempReg();
-            emit->emitIns_R_S(INS_lea, EA_4BYTE, addrReg, lclNum, lclOffs);
-
             if (type == TYP_FLOAT)
             {
-                regNumber tempReg = store->GetSingleTempReg();
+                RegNum tempReg = store->GetSingleTempReg();
 
-                emit->emitIns_R_R(INS_vmov_f2i, EA_4BYTE, tempReg, srcReg);
-                emit->emitIns_R_R(INS_str, EA_4BYTE, tempReg, addrReg);
+                emit.emitIns_Mov(INS_vmov_f2i, EA_4BYTE, tempReg, srcReg, /* canSkip */ false);
+                emit.Ins_R_S(INS_str, EA_4BYTE, tempReg, s);
             }
             else
             {
-                regNumber tempRegLo = store->ExtractTempReg();
-                regNumber tempRegHi = store->GetSingleTempReg();
+                RegNum tempReg1 = store->ExtractTempReg();
+                RegNum tempReg2 = store->ExtractTempReg();
+                RegNum tempReg3 = store->GetSingleTempReg();
 
-                emit->emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, tempRegLo, tempRegHi, srcReg);
-                emit->emitIns_R_R_I(INS_str, EA_4BYTE, tempRegLo, addrReg, 0);
-                emit->emitIns_R_R_I(INS_str, EA_4BYTE, tempRegHi, addrReg, 4);
+                emit.emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, tempReg2, tempReg3, srcReg);
+                emit.Ins_R_S(INS_lea, EA_4BYTE, tempReg1, s);
+                emit.emitIns_R_R_I(INS_str, EA_4BYTE, tempReg2, tempReg1, 0);
+                emit.emitIns_R_R_I(INS_str, EA_4BYTE, tempReg3, tempReg1, 4);
             }
         }
         else
         {
-            emit->emitIns_S_R(ins_Store(type), emitTypeSize(type), srcReg, lclNum, lclOffs);
+            emit.Ins_R_S(ins_Store(type), emitTypeSize(type), srcReg, s);
         }
     }
 
@@ -804,7 +833,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
 
-    LclVarDsc* lcl = compiler->lvaGetDesc(store);
+    LclVarDsc* lcl = store->GetLcl();
 
     if (lcl->IsIndependentPromoted())
     {
@@ -836,8 +865,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
     if (dstReg == REG_NA)
     {
-        unsigned lclNum = store->GetLclNum();
-        GetEmitter()->emitIns_S_R(ins_Store(lclRegType), emitTypeSize(lclRegType), srcReg, lclNum, 0);
+        GetEmitter()->Ins_R_S(ins_Store(lclRegType), emitTypeSize(lclRegType), srcReg, GetStackAddrMode(lcl, 0));
         liveness.UpdateLife(this, store);
         lcl->SetRegNum(REG_STK);
 
@@ -1562,20 +1590,9 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
         return;
     }
 
-    if (addr->OperIs(GT_LCL_ADDR))
+    if (GenTreeLclAddr* lclAddr = addr->IsLclAddr())
     {
-        GenTreeLclAddr* lclAddr = addr->AsLclAddr();
-        unsigned        lclNum  = lclAddr->GetLclNum();
-        unsigned        offset  = lclAddr->GetLclOffs();
-
-        if (emitter::emitInsIsStore(ins))
-        {
-            emit->emitIns_S_R(ins, attr, valueReg, lclNum, offset);
-        }
-        else
-        {
-            emit->emitIns_R_S(ins, attr, valueReg, lclNum, offset);
-        }
+        emit->Ins_R_S(ins, attr, valueReg, GetStackAddrMode(lclAddr));
 
         return;
     }

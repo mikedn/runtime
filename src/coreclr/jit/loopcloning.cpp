@@ -371,8 +371,9 @@ GenTree* LcArray::ToGenTree(Compiler* comp) const
 {
     assert(kind == SZArray);
 
-    assert(comp->lvaGetDesc(lclNum)->TypeIs(TYP_REF));
-    GenTree* array = comp->gtNewLclvNode(lclNum, TYP_REF);
+    LclVarDsc* lcl = comp->lvaGetDesc(lclNum);
+    assert(lcl->TypeIs(TYP_REF));
+    GenTree* array = comp->gtNewLclvNode(lcl, TYP_REF);
 
     if (oper == ArrLen)
     {
@@ -404,7 +405,7 @@ GenTree* LcIdent::ToGenTree(Compiler* comp) const
             assert(constant <= INT32_MAX);
             return comp->gtNewIconNode(constant);
         case Lcl:
-            return comp->gtNewLclvNode(constant, comp->lvaGetDesc(constant)->GetType());
+            return comp->gtNewLclvNode(comp->lvaGetDesc(constant), comp->lvaGetDesc(constant)->GetType());
         case ArrLen:
             return arrLen.ToGenTree(comp);
         case Null:
@@ -717,7 +718,7 @@ bool LoopCloneContext::DeriveLoopCloningConditions(unsigned loopNum)
     }
     else if ((loop.lpFlags & LPFLG_VAR_LIMIT) != 0)
     {
-        limit = LcIdent(loop.lpVarLimit(), LcIdent::Lcl);
+        limit = LcIdent(loop.lpVarLimit()->GetLclNum(), LcIdent::Lcl);
 
         EnsureConditions(loopNum)->Emplace(GT_GE, LcExpr(limit), LcExpr(LcIdent(0, LcIdent::Const)));
     }
@@ -734,9 +735,9 @@ bool LoopCloneContext::DeriveLoopCloningConditions(unsigned loopNum)
         }
 
         // TODO-MIKE-Review: Why do we check for null "a" in a "a.Length" limit if GTF_RELOP_ZTT is required?
-        derefs.Emplace(array->AsLclVar()->GetLclNum());
+        derefs.Emplace(array->AsLclVar()->GetLcl()->GetLclNum());
 
-        limit = LcIdent(LcArray(LcArray::SZArray, array->AsLclVar()->GetLclNum(), LcArray::ArrLen));
+        limit = LcIdent(LcArray(LcArray::SZArray, array->AsLclVar()->GetLcl()->GetLclNum(), LcArray::ArrLen));
     }
 
     for (LcOptInfo* optInfo : *GetLoopOptInfo(loopNum))
@@ -853,7 +854,7 @@ bool LoopCloneContext::IsLoopClonable(unsigned loopNum) const
         return false;
     }
 
-    assert(!compiler->lvaGetDesc(loop.lpIterVar())->IsAddressExposed());
+    assert(!loop.lpIterVar()->IsAddressExposed());
 
     if ((loop.lpFlags & (LPFLG_CONST_INIT | LPFLG_VAR_INIT)) == 0)
     {
@@ -883,9 +884,9 @@ bool LoopCloneContext::IsLoopClonable(unsigned loopNum) const
     }
     else if ((loop.lpFlags & LPFLG_VAR_LIMIT) != 0)
     {
-        if (compiler->lvaGetDesc(loop.lpVarLimit())->IsAddressExposed())
+        if (loop.lpVarLimit()->IsAddressExposed())
         {
-            JITDUMP("Rejecting loop. IV limit V%02u is address exposed.\n", loop.lpVarLimit());
+            JITDUMP("Rejecting loop. IV limit V%02u is address exposed.\n", loop.lpVarLimit()->GetLclNum());
             return false;
         }
     }
@@ -1089,7 +1090,8 @@ void Compiler::optEnsureUniqueHead(unsigned loopNum, BasicBlock::weight_t ambien
         h2->bbJumpKind = BBJ_ALWAYS;
         h2->bbJumpDest = e;
     }
-    BlockSetOps::Assign(this, h2->bbReach, e->bbReach);
+
+    h2->bbReach = BlockSetOps::MakeCopy(this, e->bbReach);
 
     fgAddRefPred(e, h2);
 
@@ -1186,7 +1188,7 @@ void LoopCloneContext::CloneLoop(unsigned loopNum)
         BasicBlock* newH = compiler->fgNewBBafter(BBJ_NONE, h, /*extendRegion*/ true);
         JITDUMP("Adding " FMT_BB " after " FMT_BB "\n", newH->bbNum, h->bbNum);
         newH->bbWeight = newH->isRunRarely() ? BB_ZERO_WEIGHT : ambientWeight;
-        BlockSetOps::Assign(compiler, newH->bbReach, h->bbReach);
+        newH->bbReach  = BlockSetOps::MakeCopy(compiler, h->bbReach);
         // This is in the scope of a surrounding loop, if one exists -- the parent of the loop we're cloning.
         newH->bbNatLoopNum = ambientLoop;
         compiler->optUpdateLoopHead(loopNum, h, newH);
@@ -1221,7 +1223,7 @@ void LoopCloneContext::CloneLoop(unsigned loopNum)
             x2->bbNatLoopNum = ambientLoop;
 
             x2->bbJumpDest = x;
-            BlockSetOps::Assign(compiler, x2->bbReach, h->bbReach);
+            x2->bbReach    = BlockSetOps::MakeCopy(compiler, h->bbReach);
 
             compiler->fgAddRefPred(x2, b); // Add b->x2 pred edge
             JITDUMP("Adding " FMT_BB " -> " FMT_BB "\n", b->bbNum, x2->bbNum);
@@ -1485,7 +1487,7 @@ bool LoopCloneVisitorInfo::IsLclAssignedInLoop(unsigned lclNum)
 {
     // We currently don't add any locals during loop cloning but in case it
     // happens just be conservative and treat any new locals as modified.
-    if (lclNum >= BitVecTraits::GetSize(&context.modifiedLocalsTraits))
+    if (lclNum >= BitVecTraits::GetSize(context.modifiedLocalsTraits))
     {
         return true;
     }
@@ -1538,13 +1540,13 @@ void LoopCloneVisitorInfo::SummarizeLocalStoresVisitor(GenTreeLclVarCommon* stor
 {
     assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
-    unsigned lclNum = store->AsLclVarCommon()->GetLclNum();
+    LclVarDsc* lcl = store->AsLclVarCommon()->GetLcl();
 
     // We currently don't add any locals during loop cloning but in case it
     // happens just be conservative and treat any new locals as modified.
-    if (lclNum < BitVecTraits::GetSize(&context.modifiedLocalsTraits))
+    if (lcl->GetLclNum() < BitVecTraits::GetSize(context.modifiedLocalsTraits))
     {
-        BitVecOps::AddElemD(context.modifiedLocalsTraits, context.modifiedLocals, lclNum);
+        BitVecOps::AddElemD(context.modifiedLocalsTraits, context.modifiedLocals, lcl->GetLclNum());
     }
 
     // Assigning a promoted local modifies all its fields. This is somewhat conservative,
@@ -1556,15 +1558,13 @@ void LoopCloneVisitorInfo::SummarizeLocalStoresVisitor(GenTreeLclVarCommon* stor
     // about scalar locals in loop cloning (INT indices and REF arrays) so we can ignore
     // this case.
 
-    LclVarDsc* lcl = context.compiler->lvaGetDesc(lclNum);
-
     if (lcl->IsPromoted())
     {
         for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
         {
             unsigned fieldLclNum = lcl->GetPromotedFieldLclNum(i);
 
-            if (fieldLclNum < BitVecTraits::GetSize(&context.modifiedLocalsTraits))
+            if (fieldLclNum < BitVecTraits::GetSize(context.modifiedLocalsTraits))
             {
                 BitVecOps::AddElemD(context.modifiedLocalsTraits, context.modifiedLocals, fieldLclNum);
             }
@@ -1596,8 +1596,8 @@ bool LoopCloneVisitorInfo::ExtractArrayIndex(GenTreeOp* comma, ArrIndex* result)
         return false;
     }
 
-    result->arrayLclNum = length->GetArray()->AsLclVar()->GetLclNum();
-    result->indexLclNum = index->AsLclVar()->GetLclNum();
+    result->arrayLclNum = length->GetArray()->AsLclVar()->GetLcl()->GetLclNum();
+    result->indexLclNum = index->AsLclVar()->GetLcl()->GetLclNum();
     result->boundsCheck = comma;
 
     return true;
@@ -1625,9 +1625,9 @@ void LoopCloneVisitorInfo::AddArrayIndex(const ArrIndex& arrIndex)
         return;
     }
 
-    if (arrIndex.indexLclNum != loop.lpIterVar())
+    if (arrIndex.indexLclNum != loop.lpIterVar()->GetLclNum())
     {
-        JITDUMP("Index V%02u is not loop IV\n", loop.lpIterVar());
+        JITDUMP("Index V%02u is not loop IV\n", loop.lpIterVar()->GetLclNum());
         return;
     }
 
@@ -1755,7 +1755,7 @@ bool LoopCloneContext::Run()
     {
         JITDUMP("Recompute reachability and dominators after loop cloning\n");
         compiler->fgUpdateChangedFlowGraph(/*computePreds*/ false);
-        compiler->fgComputeDoms();
+        compiler->phComputeDoms();
     }
 
 #ifdef DEBUG

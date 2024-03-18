@@ -102,16 +102,12 @@ CONFIG_INTEGER(JitInlineDepth, W("JITInlineDepth"), DEFAULT_MAX_INLINE_DEPTH)
 CONFIG_INTEGER(JitLongAddress, W("JitLongAddress"), 0) // Force using the large pseudo instruction form for long address
 CONFIG_INTEGER(JitMaxTempAssert, W("JITMaxTempAssert"), 1)
 CONFIG_INTEGER(JitMaxUncheckedOffset, W("JitMaxUncheckedOffset"), 8)
-CONFIG_INTEGER(JitMinOpts, W("JITMinOpts"), 0)                                       // Forces MinOpts
-CONFIG_INTEGER(JitMinOptsBbCount, W("JITMinOptsBbCount"), DEFAULT_MIN_OPTS_BB_COUNT) // Internal jit control of MinOpts
-CONFIG_INTEGER(JitMinOptsCodeSize, W("JITMinOptsCodeSize"), DEFAULT_MIN_OPTS_CODE_SIZE)       // Internal jit control of
-                                                                                              // MinOpts
-CONFIG_INTEGER(JitMinOptsInstrCount, W("JITMinOptsInstrCount"), DEFAULT_MIN_OPTS_INSTR_COUNT) // Internal jit control of
-                                                                                              // MinOpts
-CONFIG_INTEGER(JitMinOptsLvNumCount, W("JITMinOptsLvNumcount"), DEFAULT_MIN_OPTS_LV_NUM_COUNT) // Internal jit control
-                                                                                               // of MinOpts
-CONFIG_INTEGER(JitMinOptsLvRefCount, W("JITMinOptsLvRefcount"), DEFAULT_MIN_OPTS_LV_REF_COUNT) // Internal jit control
-                                                                                               // of MinOpts
+CONFIG_INTEGER(JitMinOpts, W("JITMinOpts"), 0) // Forces MinOpts
+CONFIG_UNSIGNED(JitMinOptsBbCount, W("JITMinOptsBbCount"), DEFAULT_MIN_OPTS_BB_COUNT)
+CONFIG_UNSIGNED(JitMinOptsCodeSize, W("JITMinOptsCodeSize"), DEFAULT_MIN_OPTS_CODE_SIZE)
+CONFIG_UNSIGNED(JitMinOptsInstrCount, W("JITMinOptsInstrCount"), DEFAULT_MIN_OPTS_INSTR_COUNT)
+CONFIG_UNSIGNED(JitMinOptsLvNumCount, W("JITMinOptsLvNumcount"), DEFAULT_MIN_OPTS_LV_NUM_COUNT)
+CONFIG_UNSIGNED(JitMinOptsLvRefCount, W("JITMinOptsLvRefcount"), DEFAULT_MIN_OPTS_LV_REF_COUNT)
 CONFIG_INTEGER(JitNoCMOV, W("JitNoCMOV"), 0)
 CONFIG_INTEGER(JitNoCSE, W("JitNoCSE"), 0)
 CONFIG_INTEGER(JitNoCSE2, W("JitNoCSE2"), 0)
@@ -368,8 +364,7 @@ CONFIG_INTEGER(JitAggressiveInlining, W("JitAggressiveInlining"), 0) // Aggressi
 CONFIG_INTEGER(JitELTHookEnabled, W("JitELTHookEnabled"), 0)         // If 1, emit Enter/Leave/TailCall callbacks
 CONFIG_INTEGER(JitInlineSIMDMultiplier, W("JitInlineSIMDMultiplier"), 3)
 
-// Ex lclMAX_TRACKED constant.
-CONFIG_INTEGER(JitMaxLocalsToTrack, W("JitMaxLocalsToTrack"), 0x400)
+CONFIG_UNSIGNED(JitMaxLocalsToTrack, W("JitMaxLocalsToTrack"), 1024)
 
 #if defined(FEATURE_ENABLE_NO_RANGE_CHECKS)
 CONFIG_INTEGER(JitNoRngChks, W("JitNoRngChks"), 0) // If 1, don't generate range checks
@@ -539,5 +534,6 @@ CONFIG_INTEGER(JitSaveFpLrWithCalleeSavedRegisters, W("JitSaveFpLrWithCalleeSave
 CONFIG_INTEGER(JitEnregStructLocals, W("JitEnregStructLocals"), 0) // Allow to enregister locals with struct type.
 
 #undef CONFIG_INTEGER
+#undef CONFIG_UNSIGNED
 #undef CONFIG_STRING
 #undef CONFIG_METHODSET
