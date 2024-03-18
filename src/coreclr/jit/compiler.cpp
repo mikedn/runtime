@@ -4630,14 +4630,14 @@ void cVar(Compiler* comp, unsigned lclNum)
 {
     static unsigned sequenceNumber = 0; // separate calls with a number to indicate this function has been called
     printf("===================================================================== *Var %u\n", sequenceNumber++);
-    comp->lvaDumpEntry(comp->lvaGetDesc(lclNum), Compiler::FINAL_FRAME_LAYOUT);
+    comp->lvaDumpEntry(comp->lvaGetDesc(lclNum));
 }
 
-void cVarDsc(Compiler* comp, LclVarDsc* varDsc)
+void cVarDsc(Compiler* comp, LclVarDsc* lcl)
 {
     static unsigned sequenceNumber = 0; // separate calls with a number to indicate this function has been called
     printf("===================================================================== *VarDsc %u\n", sequenceNumber++);
-    comp->lvaDumpEntry(varDsc, Compiler::FINAL_FRAME_LAYOUT);
+    comp->lvaDumpEntry(lcl);
 }
 
 void cVars(Compiler* comp)

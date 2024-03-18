@@ -3446,7 +3446,7 @@ public:
 #ifdef DEBUG
     void lvaDumpRegLocation(LclVarDsc* lcl);
     void lvaDumpFrameLocation(LclVarDsc* lcl);
-    void lvaDumpEntry(LclVarDsc* lcl, size_t refCntWtdWidth = 6);
+    void lvaDumpEntry(LclVarDsc* lcl, size_t refWeightWidth = 6);
     void lvaTableDump();
 #endif
 

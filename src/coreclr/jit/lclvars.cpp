@@ -1708,18 +1708,18 @@ void Compiler::makeExtraStructQueries(CORINFO_CLASS_HANDLE structHandle, int lev
 #endif // DEBUG
 
 // Set class information for a local var.
-void Compiler::lvaSetClass(LclVarDsc* varDsc, CORINFO_CLASS_HANDLE clsHnd, bool isExact)
+void Compiler::lvaSetClass(LclVarDsc* lcl, CORINFO_CLASS_HANDLE clsHnd, bool isExact)
 {
-    assert(varDsc->TypeIs(TYP_REF));
-    assert(varDsc->lvClassHnd == NO_CLASS_HANDLE);
-    assert(!varDsc->lvClassIsExact);
+    assert(lcl->TypeIs(TYP_REF));
+    assert(lcl->lvClassHnd == NO_CLASS_HANDLE);
+    assert(!lcl->lvClassIsExact);
     assert(clsHnd != nullptr);
 
-    JITDUMP("\nlvaSetClass: setting class for V%02i to (%p) %s %s\n", varDsc->GetLclNum(), dspPtr(clsHnd),
+    JITDUMP("\nlvaSetClass: setting class for V%02i to (%p) %s %s\n", lcl->GetLclNum(), dspPtr(clsHnd),
             info.compCompHnd->getClassName(clsHnd), isExact ? " [exact]" : "");
 
-    varDsc->lvClassHnd     = clsHnd;
-    varDsc->lvClassIsExact = isExact;
+    lcl->lvClassHnd     = clsHnd;
+    lcl->lvClassIsExact = isExact;
 }
 
 // Set class information for a local var from a tree or stack type
@@ -1760,49 +1760,49 @@ void Compiler::lvaSetClass(LclVarDsc* lcl, GenTree* tree, CORINFO_CLASS_HANDLE s
 // to some subtype. However the jit lacks precise type information
 // for shared code, so ensuring this is so is currently not
 // possible.
-void Compiler::lvaUpdateClass(LclVarDsc* varDsc, CORINFO_CLASS_HANDLE clsHnd, bool isExact)
+void Compiler::lvaUpdateClass(LclVarDsc* lcl, CORINFO_CLASS_HANDLE clsHnd, bool isExact)
 {
-    assert(varDsc->TypeIs(TYP_REF));
-    assert(varDsc->lvSingleDef);
-    assert(varDsc->lvClassHnd != NO_CLASS_HANDLE);
+    assert(lcl->TypeIs(TYP_REF));
+    assert(lcl->lvSingleDef);
+    assert(lcl->lvClassHnd != NO_CLASS_HANDLE);
     assert(clsHnd != nullptr);
 
     // Now see if we should update.
     //
     // New information may not always be "better" so do some
     // simple analysis to decide if the update is worthwhile.
-    const bool isNewClass   = (clsHnd != varDsc->lvClassHnd);
+    const bool isNewClass   = (clsHnd != lcl->lvClassHnd);
     bool       shouldUpdate = false;
 
     // Are we attempting to update the class? Only check this when we have
     // an new type and the existing class is inexact... we should not be
     // updating exact classes.
-    if (!varDsc->lvClassIsExact && isNewClass)
+    if (!lcl->lvClassIsExact && isNewClass)
     {
-        shouldUpdate = !!info.compCompHnd->isMoreSpecificType(varDsc->lvClassHnd, clsHnd);
+        shouldUpdate = !!info.compCompHnd->isMoreSpecificType(lcl->lvClassHnd, clsHnd);
     }
     // Else are we attempting to update exactness?
-    else if (isExact && !varDsc->lvClassIsExact && !isNewClass)
+    else if (isExact && !lcl->lvClassIsExact && !isNewClass)
     {
         shouldUpdate = true;
     }
 
 #if DEBUG
-    if (isNewClass || (isExact != varDsc->lvClassIsExact))
+    if (isNewClass || (isExact != lcl->lvClassIsExact))
     {
-        JITDUMP("\nlvaUpdateClass:%s Updating class for V%02u", shouldUpdate ? "" : " NOT", varDsc->GetLclNum());
-        JITDUMP(" from (%p) %s%s", dspPtr(varDsc->lvClassHnd), info.compCompHnd->getClassName(varDsc->lvClassHnd),
-                varDsc->lvClassIsExact ? " [exact]" : "");
+        JITDUMP("\nlvaUpdateClass:%s Updating class for V%02u", shouldUpdate ? "" : " NOT", lcl->GetLclNum());
+        JITDUMP(" from (%p) %s%s", dspPtr(lcl->lvClassHnd), info.compCompHnd->getClassName(lcl->lvClassHnd),
+                lcl->lvClassIsExact ? " [exact]" : "");
         JITDUMP(" to (%p) %s%s\n", dspPtr(clsHnd), info.compCompHnd->getClassName(clsHnd), isExact ? " [exact]" : "");
     }
 #endif // DEBUG
 
     if (shouldUpdate)
     {
-        varDsc->lvClassHnd     = clsHnd;
-        varDsc->lvClassIsExact = isExact;
+        lcl->lvClassHnd     = clsHnd;
+        lcl->lvClassIsExact = isExact;
 
-        INDEBUG(varDsc->lvClassInfoUpdated = true);
+        INDEBUG(lcl->lvClassInfoUpdated = true);
     }
 }
 
@@ -5313,19 +5313,17 @@ void Compiler::lvaDumpFrameLocation(LclVarDsc* lcl)
 #endif
 }
 
-void Compiler::lvaDumpEntry(LclVarDsc* varDsc, size_t refCntWtdWidth)
+void Compiler::lvaDumpEntry(LclVarDsc* lcl, size_t refWeightWidth)
 {
-    var_types type = varDsc->TypeGet();
-
     printf("; ");
 
-    gtDispLclVar(varDsc->GetLclNum(), true);
+    gtDispLclVar(lcl->GetLclNum(), true);
 
     if (lvaTrackedCount != 0)
     {
-        if (varDsc->HasLiveness())
+        if (lcl->HasLiveness())
         {
-            printf("[L%02u]", varDsc->GetLivenessBitIndex());
+            printf("[L%02u]", lcl->GetLivenessBitIndex());
         }
         else
         {
@@ -5335,27 +5333,27 @@ void Compiler::lvaDumpEntry(LclVarDsc* varDsc, size_t refCntWtdWidth)
 
     if (lvaRefCountState == RCS_NORMAL)
     {
-        printf(" (%3u,%*s)", varDsc->GetRefCount(), (int)refCntWtdWidth, refCntWtd2str(varDsc->GetRefWeight()));
+        printf(" (%3u,%*s)", lcl->GetRefCount(), (int)refWeightWidth, refCntWtd2str(lcl->GetRefWeight()));
     }
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     else if (lvaRefCountState == RCS_MORPH)
     {
-        printf(" (%3u,%3u)", varDsc->GetImplicitByRefParamAnyRefCount(), varDsc->GetImplicitByRefParamCallRefCount());
+        printf(" (%3u,%3u)", lcl->GetImplicitByRefParamAnyRefCount(), lcl->GetImplicitByRefParamCallRefCount());
     }
 #endif
 
-    printf(" %-6s", varTypeName(type));
+    printf(" %-6s", varTypeName(lcl->GetType()));
 
     if (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)
     {
-        if (type == TYP_STRUCT)
+        if (lcl->TypeIs(TYP_STRUCT))
         {
-            ClassLayout* layout = varDsc->GetLayout();
+            ClassLayout* layout = lcl->GetLayout();
             assert(layout != nullptr);
-            gtDispClassLayout(layout, type);
+            gtDispClassLayout(layout, lcl->GetType());
         }
 #if FEATURE_FIXED_OUT_ARGS
-        else if (varDsc->GetLclNum() == lvaOutgoingArgSpaceVar)
+        else if (lcl->GetLclNum() == lvaOutgoingArgSpaceVar)
         {
             if (codeGen->outgoingArgSpaceSize.HasFinalValue())
             {
@@ -5370,158 +5368,158 @@ void Compiler::lvaDumpEntry(LclVarDsc* varDsc, size_t refCntWtdWidth)
     }
     else
     {
-        if (varTypeIsStruct(type) || (type == TYP_BLK))
+        if (varTypeIsStruct(lcl->GetType()) || lcl->TypeIs(TYP_BLK))
         {
-            printf("<%2u>  ", varDsc->GetFrameSize());
+            printf("<%2u>  ", lcl->GetFrameSize());
         }
         else
         {
             printf("      ");
         }
 
-        if (varDsc->IsParam() && !varDsc->IsRegParam())
+        if (lcl->IsParam() && !lcl->IsRegParam())
         {
-            lvaDumpFrameLocation(varDsc);
+            lvaDumpFrameLocation(lcl);
         }
-        else if (varDsc->GetRefCount() == 0)
+        else if (lcl->GetRefCount() == 0)
         {
             printf("           ");
         }
-        else if (varDsc->lvRegister)
+        else if (lcl->lvRegister)
         {
-            lvaDumpRegLocation(varDsc);
+            lvaDumpRegLocation(lcl);
         }
-        else if (!varDsc->lvOnFrame)
+        else if (!lcl->lvOnFrame)
         {
             printf("registers  ");
         }
         else
         {
-            lvaDumpFrameLocation(varDsc);
+            lvaDumpFrameLocation(lcl);
         }
     }
 
-    if (varDsc->lvDoNotEnregister)
+    if (lcl->lvDoNotEnregister)
     {
         printf(" do-not-enreg[");
-        if (varDsc->IsAddressExposed())
+        if (lcl->IsAddressExposed())
         {
             printf("X");
         }
-        if (varTypeIsStruct(varDsc))
+        if (varTypeIsStruct(lcl->GetType()))
         {
             printf("S");
         }
-        if (lvaEnregEHVars && varDsc->lvLiveInOutOfHndlr)
+        if (lvaEnregEHVars && lcl->lvLiveInOutOfHndlr)
         {
-            printf("%c", varDsc->lvSingleDefDisqualifyReason);
+            printf("%c", lcl->lvSingleDefDisqualifyReason);
         }
-        if (varDsc->lvLclFieldExpr)
+        if (lcl->lvLclFieldExpr)
         {
             printf("F");
         }
-        if (varDsc->lvLclBlockOpAddr)
+        if (lcl->lvLclBlockOpAddr)
         {
             printf("B");
         }
-        if (varDsc->lvIsMultiRegArg)
+        if (lcl->lvIsMultiRegArg)
         {
             printf("A");
         }
-        if (varDsc->lvIsMultiRegRet)
+        if (lcl->lvIsMultiRegRet)
         {
             printf("R");
         }
-        if (varDsc->IsPinning())
+        if (lcl->IsPinning())
         {
             printf("P");
         }
         printf("]");
     }
 
-    if (varDsc->lvIsMultiRegArg)
+    if (lcl->lvIsMultiRegArg)
     {
         printf(" multireg-arg");
     }
-    if (varDsc->lvIsMultiRegRet)
+    if (lcl->lvIsMultiRegRet)
     {
         printf(" multireg-ret");
     }
-    if (varDsc->lvMustInit)
+    if (lcl->lvMustInit)
     {
         printf(" must-init");
     }
-    if (varDsc->IsAddressExposed())
+    if (lcl->IsAddressExposed())
     {
         printf(" addr-exposed");
     }
-    if (varDsc->lvHasLdAddrOp)
+    if (lcl->lvHasLdAddrOp)
     {
         printf(" ld-addr-op");
     }
-    if (varDsc->IsPinning())
+    if (lcl->IsPinning())
     {
         printf(" pinning");
     }
-    if (varDsc->lvClassHnd != NO_CLASS_HANDLE)
+    if (lcl->lvClassHnd != NO_CLASS_HANDLE)
     {
         printf(" class-hnd");
     }
-    if (varDsc->lvClassIsExact)
+    if (lcl->lvClassIsExact)
     {
         printf(" exact");
     }
-    if (varDsc->lvLiveInOutOfHndlr)
+    if (lcl->lvLiveInOutOfHndlr)
     {
         printf(" EH-live");
     }
-    if (varDsc->lvSpillAtSingleDef)
+    if (lcl->lvSpillAtSingleDef)
     {
         printf(" spill-single-def");
     }
-    else if (varDsc->lvSingleDefRegCandidate)
+    else if (lcl->lvSingleDefRegCandidate)
     {
         printf(" single-def");
     }
 #ifndef TARGET_64BIT
-    if (varDsc->lvStructDoubleAlign)
+    if (lcl->lvStructDoubleAlign)
     {
         printf(" double-align");
     }
 #endif
-    if (varDsc->lvOverlappingFields)
+    if (lcl->lvOverlappingFields)
     {
         printf(" overlapping-fields");
     }
 
-    if (compGSReorderStackLayout && !varDsc->lvRegister)
+    if (compGSReorderStackLayout && !lcl->lvRegister)
     {
-        if (varDsc->lvIsPtr)
+        if (lcl->lvIsPtr)
         {
             printf(" ptr");
         }
-        if (varDsc->lvIsUnsafeBuffer)
+        if (lcl->lvIsUnsafeBuffer)
         {
             printf(" unsafe-buffer");
         }
     }
 
-    if (varDsc->IsPromotedField())
+    if (lcl->IsPromotedField())
     {
-        LclVarDsc* parentLcl = lvaGetDesc(varDsc->GetPromotedFieldParentLclNum());
+        LclVarDsc* parentLcl = lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
         printf(" %s", parentLcl->IsIndependentPromoted() ? "P-INDEP" : "P-DEP");
-        printf(" V%02u@%u", varDsc->GetPromotedFieldParentLclNum(), varDsc->GetPromotedFieldOffset());
+        printf(" V%02u@%u", lcl->GetPromotedFieldParentLclNum(), lcl->GetPromotedFieldOffset());
 
-        if (varDsc->GetPromotedFieldSeq() != nullptr)
+        if (varTypeIsStruct(parentLcl->GetType()) && (lcl->GetPromotedFieldSeq() != nullptr))
         {
             printf(" ");
-            dmpFieldSeqFields(varDsc->GetPromotedFieldSeq());
+            dmpFieldSeqFields(lcl->GetPromotedFieldSeq());
         }
     }
 
-    if (varDsc->lvReason != nullptr)
+    if (lcl->lvReason != nullptr)
     {
-        printf(" \"%s\"", varDsc->lvReason);
+        printf(" \"%s\"", lcl->lvReason);
     }
 
     printf("\n");
@@ -5548,24 +5546,24 @@ void Compiler::lvaTableDump()
 
     // Figure out some sizes, to help line things up
 
-    size_t refCntWtdWidth = 6; // Use 6 as the minimum width
+    size_t refWeightWidth = 6; // Use 6 as the minimum width
 
     if (lvaRefCountState == RCS_NORMAL)
     {
         for (LclVarDsc* lcl : Locals())
         {
-            refCntWtdWidth = Max(refCntWtdWidth, strlen(refCntWtd2str(lcl->GetRefWeight())));
+            refWeightWidth = Max(refWeightWidth, strlen(refCntWtd2str(lcl->GetRefWeight())));
         }
     }
 
     for (LclVarDsc* lcl : Locals())
     {
-        lvaDumpEntry(lcl, refCntWtdWidth);
+        lvaDumpEntry(lcl, refWeightWidth);
     }
 
     for (SpillTemp& temp : codeGen->spillTemps)
     {
-        printf("; T%02u %25s%*s%7s      [%2s%1s%02XH]\n", -temp.GetNum(), " ", refCntWtdWidth, " ",
+        printf("; T%02u %25s%*s%7s      [%2s%1s%02XH]\n", -temp.GetNum(), " ", refWeightWidth, " ",
                varTypeName(temp.GetType()), codeGen->isFramePointerUsed() ? STR_FPBASE : STR_SPBASE,
                temp.GetOffset() < 0 ? "-" : "+", abs(temp.GetOffset()));
     }
