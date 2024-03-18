@@ -8276,7 +8276,7 @@ emitter::insExecutionCharacteristics emitter::getInsExecutionCharacteristics(ins
                 //
                 result.insThroughput = PERFSCORE_THROUGHPUT_1C;
             }
-            else if (insFmt != IF_RWR_SRD)
+            else if (insFmt == IF_RWR_ARD)
             {
                 if (id->idAddr()->iiaAddrMode.index != REG_NA)
                 {
