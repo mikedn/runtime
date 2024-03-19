@@ -9767,10 +9767,10 @@ unsigned Arm64Encoder::emitOutput_Instr(BYTE* dst, code_t code)
     return 4;
 }
 
-size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
+size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, BYTE** dp)
 {
     Arm64Encoder encoder(this);
-    return encoder.emitOutputInstr(ig, id, dp);
+    return encoder.emitIssue1Instr(ig, id, dp);
 }
 
 /*****************************************************************************
@@ -12715,7 +12715,7 @@ void emitter::emitDispFrameRef(instrDesc* id)
 
 #if defined(DEBUG) || defined(LATE_DISASM)
 
-void emitter::getMemoryOperation(instrDesc* id, unsigned* pMemAccessKind, bool* pIsLocalAccess)
+void emitter::Encoder::getMemoryOperation(instrDesc* id, unsigned* pMemAccessKind, bool* pIsLocalAccess)
 {
     unsigned    memAccessKind = PERFSCORE_MEMORY_NONE;
     bool        isLocalAccess = false;
@@ -12805,7 +12805,7 @@ void emitter::getMemoryOperation(instrDesc* id, unsigned* pMemAccessKind, bool* 
 //    The Arm Cortex-A55 Software Optimization Guide:
 //    https://static.docs.arm.com/epm128372/20/arm_cortex_a55_software_optimization_guide_v2.pdf
 //
-emitter::insExecutionCharacteristics emitter::getInsExecutionCharacteristics(instrDesc* id)
+emitter::insExecutionCharacteristics emitter::Encoder::getInsExecutionCharacteristics(instrDesc* id)
 {
     insExecutionCharacteristics result;
     instruction                 ins    = id->idIns();
@@ -13135,7 +13135,7 @@ emitter::insExecutionCharacteristics emitter::getInsExecutionCharacteristics(ins
             {
                 // ldp, ldpsw, ldnp
                 result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-                if (emitCurIG->IsMainEpilog() && (ins == INS_ldp))
+                if (emit.emitCurIG->IsMainEpilog() && (ins == INS_ldp))
                 {
                     // Reduce latency for ldp instructions in the epilog
                     //

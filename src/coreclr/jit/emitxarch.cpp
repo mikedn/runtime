@@ -7589,10 +7589,10 @@ uint8_t* X86Encoder::emitOutputNoOperands(uint8_t* dst, instrDesc* id)
     return dst;
 }
 
-size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
+size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp)
 {
     X86Encoder encoder(this);
-    return encoder.emitOutputInstr(ig, id, dp);
+    return encoder.emitIssue1Instr(ig, id, dp);
 }
 
 size_t X86Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
@@ -8161,7 +8161,7 @@ size_t X86Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
 #if defined(DEBUG) || defined(LATE_DISASM)
 
-insFormat emitter::getMemoryOperation(instrDesc* id)
+insFormat emitter::Encoder::getMemoryOperation(instrDesc* id)
 {
     if (id->idIns() == INS_lea)
     {
@@ -8182,7 +8182,7 @@ insFormat emitter::getMemoryOperation(instrDesc* id)
 //   1. Agner.org - https://www.agner.org/optimize/instruction_tables.pdf
 //   2. uops.info - https://uops.info/table.html
 //
-emitter::insExecutionCharacteristics emitter::getInsExecutionCharacteristics(instrDesc* id)
+emitter::insExecutionCharacteristics emitter::Encoder::getInsExecutionCharacteristics(instrDesc* id)
 {
     insExecutionCharacteristics result;
     instruction                 ins    = id->idIns();

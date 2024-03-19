@@ -510,7 +510,7 @@ int emitter::emitNextRandomNop()
 //    calls getInsExecutionCharacteristics and uses the result
 //    to compute an estimated execution cost
 //
-float emitter::insEvaluateExecutionCost(instrDesc* id)
+float emitter::Encoder::insEvaluateExecutionCost(instrDesc* id)
 {
     assert(id->idInsFmt() != IF_GC_REG);
 
@@ -557,7 +557,7 @@ float emitter::insEvaluateExecutionCost(instrDesc* id)
 //     This method asserts with a debug/checked build
 //     and returns default latencies of 1 cycle otherwise.
 //
-void emitter::perfScoreUnhandledInstruction(instrDesc* id, insExecutionCharacteristics* pResult)
+void emitter::Encoder::perfScoreUnhandledInstruction(instrDesc* id, insExecutionCharacteristics* pResult)
 {
 #ifdef DEBUG
     printf("PerfScore: unhandled instruction: %s, format %s", insName(id->idIns()), emitIfName(id->idInsFmt()));
@@ -1811,7 +1811,7 @@ void emitter::emitDispIGlist(bool dispInstr)
 
 #endif // DEBUG
 
-size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp)
+size_t emitter::Encoder::emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp)
 {
     assert(id->idInsFmt() != IF_GC_REG);
 
@@ -1839,7 +1839,7 @@ size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp)
 #if defined(DEBUG) || defined(LATE_DISASM)
     double insExecCost  = insEvaluateExecutionCost(id);
     double insPerfScore = (static_cast<double>(ig->igWeight) / BB_UNITY_WEIGHT) * insExecCost;
-    perfScore += insPerfScore;
+    emit.perfScore += insPerfScore;
     ig->igPerfScore += insPerfScore;
 #endif
 

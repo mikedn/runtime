@@ -1272,12 +1272,6 @@ private:
     };
 
 #if defined(DEBUG) || defined(LATE_DISASM)
-#if defined(TARGET_XARCH)
-    static insFormat getMemoryOperation(instrDesc* id);
-#elif defined(TARGET_ARM64)
-    void getMemoryOperation(instrDesc* id, unsigned* pMemAccessKind, bool* pIsLocalAccess);
-#endif
-
 #define PERFSCORE_THROUGHPUT_ILLEGAL -1024.0f
 
 #define PERFSCORE_THROUGHPUT_ZERO 0.0f // Only used for pseudo-instructions that don't generate code
@@ -1395,12 +1389,6 @@ private:
         unsigned insMemoryAccessKind;
     };
 
-    float insEvaluateExecutionCost(instrDesc* id);
-
-    insExecutionCharacteristics getInsExecutionCharacteristics(instrDesc* id);
-
-    void perfScoreUnhandledInstruction(instrDesc* id, insExecutionCharacteristics* result);
-
     BasicBlock::weight_t getCurrentBlockWeight();
 #endif // defined(DEBUG) || defined(LATE_DISASM)
 
@@ -1508,7 +1496,6 @@ public:
     INDEBUG(bool emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset);)
 
     size_t emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp);
-    size_t emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp);
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
     bool emitInInstrumentation = false;
@@ -1845,7 +1832,22 @@ private:
         {
         }
 
+    public:
+        size_t emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp);
+
+    protected:
         virtual size_t emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp) = 0;
+
+#if defined(DEBUG) || defined(LATE_DISASM)
+#if defined(TARGET_XARCH)
+        static insFormat getMemoryOperation(instrDesc* id);
+#elif defined(TARGET_ARM64)
+        void getMemoryOperation(instrDesc* id, unsigned* pMemAccessKind, bool* pIsLocalAccess);
+#endif
+        float insEvaluateExecutionCost(instrDesc* id);
+        insExecutionCharacteristics getInsExecutionCharacteristics(instrDesc* id);
+        void perfScoreUnhandledInstruction(instrDesc* id, insExecutionCharacteristics* result);
+#endif
 
         void emitGCregLiveUpd(GCtype gcType, RegNum reg, uint8_t* addr)
         {

@@ -5313,10 +5313,10 @@ unsigned emitter::emitGetInstructionSize(const emitLocation& emitLoc)
  *  descriptor in bytes.
  */
 
-size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
+size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, BYTE** dp)
 {
     ArmEncoder encoder(this);
-    return encoder.emitOutputInstr(ig, id, dp);
+    return encoder.emitIssue1Instr(ig, id, dp);
 }
 
 size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
@@ -7122,7 +7122,7 @@ void emitter::emitDispFrameRef(instrDesc* id)
 //
 // Notes:
 //
-emitter::insExecutionCharacteristics emitter::getInsExecutionCharacteristics(instrDesc* id)
+emitter::insExecutionCharacteristics emitter::Encoder::getInsExecutionCharacteristics(instrDesc* id)
 {
     insExecutionCharacteristics result;
 
