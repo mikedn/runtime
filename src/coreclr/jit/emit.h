@@ -279,6 +279,16 @@ struct StackAddrMode
     int varOffs;
 };
 
+#if defined(TARGET_XARCH)
+class X86Encoder;
+#elif defined(TARGET_ARM)
+class ArmEncoder;
+#elif defined(TARGET_ARM64)
+class Arm64Encoder;
+#else
+#error Unsupported or unset target architecture
+#endif
+
 class emitter
 {
     friend class emitLocation;
@@ -355,7 +365,7 @@ public:
         }
     }
 #else
-    unsigned                  GetMaxStackDepth()
+    unsigned GetMaxStackDepth()
     {
         return emitMaxStackDepth;
     }
@@ -1398,7 +1408,7 @@ private:
 
     void appendToCurIG(instrDesc* id);
 
-    size_t emitGetInstrDescSizeSC(const instrDesc* id);
+    static size_t emitGetInstrDescSizeSC(const instrDesc* id);
 
 #ifdef DEBUG
     static const char* emitIfName(unsigned f);
@@ -1798,6 +1808,140 @@ private:
     void emitRecordCallSite(ULONG                 instrOffset,   /* IN */
                             CORINFO_SIG_INFO*     callSig,       /* IN */
                             CORINFO_METHOD_HANDLE methodHandle); /* IN */
+
+    class Encoder
+    {
+    protected:
+        using instrDescSmall = instrDescSmall;
+        using instrDesc      = instrDesc;
+        using instrDescJmp   = instrDescJmp;
+#ifdef TARGET_ARMARCH
+        using instrDescCns = instrDescCns;
+#endif
+#if FEATURE_LOOP_ALIGN
+        using instrDescAlign = instrDescAlign;
+#endif
+
+        Compiler*      emitComp;
+        emitter&       emit;
+        GCInfo&        gcInfo;
+        RoData&        roData;
+        uint8_t* const emitConsBlock;
+        size_t const   writeableOffset;
+#ifdef JIT32_GCENCODER
+        unsigned const emitCurStackLvl;
+#endif
+
+        Encoder(emitter* emit)
+            : emitComp(emit->emitComp)
+            , emit(*emit)
+            , gcInfo(emit->gcInfo)
+            , roData(emit->roData)
+            , emitConsBlock(emit->emitConsBlock)
+            , writeableOffset(emit->writeableOffset)
+#ifdef JIT32_GCENCODER
+            , emitCurStackLvl(emit->emitCurStackLvl)
+#endif
+        {
+        }
+
+        virtual size_t emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp) = 0;
+
+        void emitGCregLiveUpd(GCtype gcType, RegNum reg, uint8_t* addr)
+        {
+            emit.emitGCregLiveUpd(gcType, reg, addr);
+        }
+
+        void emitGCregDeadUpd(RegNum reg, uint8_t* addr)
+        {
+            emit.emitGCregDeadUpd(reg, addr);
+        }
+
+        void emitGCvarLiveUpd(int slotOffs, GCtype gcType, uint8_t* addr DEBUGARG(int varNum))
+        {
+            emit.emitGCvarLiveUpd(slotOffs, gcType, addr DEBUGARG(varNum));
+        }
+
+#if FEATURE_FIXED_OUT_ARGS
+        void emitGCargLiveUpd(int offs, GCtype gcType, uint8_t* addr DEBUGARG(int varNum))
+        {
+            emit.emitGCargLiveUpd(offs, gcType, addr DEBUGARG(varNum));
+        }
+#endif
+
+#ifdef FEATURE_EH_FUNCLETS
+        void emitGCregDeadAll(uint8_t* addr)
+        {
+            emit.emitGCregDeadAll(addr);
+        }
+#endif
+
+        size_t emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* callEndAddr)
+        {
+            return emit.emitRecordGCCall(id, callAddr, callEndAddr);
+        }
+
+        void emitRecordRelocation(void* location, void* target, uint16_t relocType, int32_t addlDelta = 0)
+        {
+            emit.emitRecordRelocation(location, target, relocType, addlDelta);
+        }
+
+        unsigned emitFindInsNum(const insGroup* ig, const instrDesc* instr)
+        {
+            return emit.emitFindInsNum(ig, instr);
+        }
+
+        unsigned emitCurCodeOffs(uint8_t* dst)
+        {
+            return emit.emitCurCodeOffs(dst);
+        }
+
+        uint8_t* emitOffsetToPtr(unsigned offset) const
+        {
+            return emit.emitOffsetToPtr(offset);
+        }
+
+        uint8_t* emitDataOffsetToPtr(unsigned offset) const
+        {
+            return emit.emitDataOffsetToPtr(offset);
+        }
+
+#if FEATURE_LOOP_ALIGN
+        unsigned emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offset DEBUG_ARG(bool isAlignAdjusted))
+        {
+            return emit.emitCalculatePaddingForLoopAlignment(ig, offset DEBUGARG(isAlignAdjusted));
+        }
+#endif
+
+#ifdef JIT32_GCENCODER
+        void emitStackPush(unsigned codeOffs, GCtype type)
+        {
+            emit.emitStackPush(codeOffs, type);
+        }
+
+        void emitStackPushN(unsigned codeOffs, unsigned count)
+        {
+            emit.emitStackPushN(codeOffs, count);
+        }
+
+        void emitStackPop(unsigned codeOffs, unsigned count)
+        {
+            emit.emitStackPop(codeOffs, count);
+        }
+#endif
+
+#ifdef DEBUG
+        bool emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset)
+        {
+            return emit.emitJumpCrossHotColdBoundary(srcOffset, dstOffset);
+        }
+
+        const char* emitIfName(unsigned f)
+        {
+            return emit.emitIfName(f);
+        }
+#endif
+    };
 
 #if defined(TARGET_XARCH)
 #include "emitxarch.h"

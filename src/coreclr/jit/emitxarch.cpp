@@ -302,7 +302,7 @@ static bool IsSseDstSrcImm(instruction ins)
 // TODO-XArch-Cleanup: This is a temporary solution for now. Eventually this needs to
 // be formalized by adding an additional field to instruction table to
 // to indicate whether a 3-operand instruction.
-bool emitter::IsVexDstDstSrc(instruction ins)
+bool emitter::IsVexDstDstSrc(instruction ins) const
 {
     return ((InsFlags(ins) & INS_Flags_VexDstDstSrc) != 0) && UseVEXEncoding();
 }
@@ -312,18 +312,18 @@ bool emitter::IsVexDstDstSrc(instruction ins)
 // TODO-XArch-Cleanup: This is a temporary solution for now. Eventually this needs to
 // be formalized by adding an additional field to instruction table to
 // to indicate whether a 3-operand instruction.
-bool emitter::IsVexDstSrcSrc(instruction ins)
+bool emitter::IsVexDstSrcSrc(instruction ins) const
 {
     return ((InsFlags(ins) & INS_Flags_VexDstSrcSrc) != 0) && UseVEXEncoding();
 }
 
 #ifdef DEBUG
-bool emitter::IsVexTernary(instruction ins)
+bool emitter::IsVexTernary(instruction ins) const
 {
     return IsVexDstDstSrc(ins) || IsVexDstSrcSrc(ins);
 }
 
-bool emitter::IsReallyVexTernary(instruction ins)
+bool emitter::IsReallyVexTernary(instruction ins) const
 {
     // TODO-MIKE-Cleanup: The VexDstSrcSrc/DstDstSrc are incorrecly placed on instructions
     // when they're in fact a property of the encoding. movss & co. are not DstSrcSrc in
@@ -5059,16 +5059,6 @@ static code_t AddVexPrefix(instruction ins, code_t code, emitAttr attr)
     return code;
 }
 
-emitter::code_t emitter::AddVexPrefixIfNeeded(instruction ins, code_t code, emitAttr size)
-{
-    if (TakesVexPrefix(ins))
-    {
-        code = AddVexPrefix(ins, code, size);
-    }
-
-    return code;
-}
-
 static_assert_no_msg((REG_RAX & 0x7) == 0);
 static_assert_no_msg((REG_XMM0 & 0x7) == 0);
 
@@ -5171,26 +5161,120 @@ static bool HasSBit(instruction ins)
     return ((INS_add <= ins) && (ins <= INS_cmp)) || (ins == INS_imuli);
 }
 
-size_t emitter::emitOutputByte(uint8_t* dst, ssize_t val)
+class X86Encoder : public Emitter::Encoder
+{
+public:
+    X86Encoder(Emitter* emit) : Encoder(emit)
+    {
+    }
+
+    size_t emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp) override;
+
+private:
+    size_t emitOutputByte(uint8_t* dst, ssize_t val);
+    size_t emitOutputWord(uint8_t* dst, ssize_t val);
+    size_t emitOutputLong(uint8_t* dst, ssize_t val);
+
+#ifdef TARGET_AMD64
+    size_t emitOutputI64(uint8_t* dst, int64_t val);
+#endif
+
+#if defined(TARGET_X86) && !defined(HOST_64BIT)
+    size_t emitOutputByte(uint8_t* dst, uint32_t val);
+    size_t emitOutputWord(uint8_t* dst, uint32_t val);
+    size_t emitOutputLong(uint8_t* dst, uint32_t val);
+
+    size_t emitOutputByte(uint8_t* dst, uint64_t val);
+    size_t emitOutputWord(uint8_t* dst, uint64_t val);
+    size_t emitOutputLong(uint8_t* dst, uint64_t val);
+#endif
+
+    size_t emitOutputImm(uint8_t* dst, instrDesc* id, size_t size, ssize_t imm);
+
+    uint8_t* emitOutputAlign(insGroup* ig, instrDesc* id, uint8_t* dst);
+
+    uint8_t* emitOutputOpcode(uint8_t* dst, instrDesc* id, code_t& code);
+    uint8_t* emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm = nullptr);
+    uint8_t* emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm = nullptr);
+    uint8_t* emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm = nullptr);
+
+    uint8_t* emitOutputR(uint8_t* dst, instrDesc* id);
+    uint8_t* emitOutputRI(uint8_t* dst, instrDesc* id);
+    uint8_t* emitOutputRR(uint8_t* dst, instrDesc* id);
+    uint8_t* emitOutputIV(uint8_t* dst, instrDesc* id);
+    uint8_t* emitOutputRRR(uint8_t* dst, instrDesc* id);
+    uint8_t* emitOutputRRI(uint8_t* dst, instrDesc* id);
+    uint8_t* emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig);
+#ifdef TARGET_X86
+    uint8_t* emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig);
+#endif
+    uint8_t* emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig);
+    uint8_t* emitOutputCall(uint8_t* dst, instrDesc* id);
+    uint8_t* emitOutputNoOperands(uint8_t* dst, instrDesc* id);
+
+    size_t emitOutputVexPrefix(uint8_t* dst, code_t code DEBUGARG(instruction ins));
+#ifdef TARGET_AMD64
+    size_t emitOutputRexPrefix(uint8_t* dst, code_t code);
+#endif
+    size_t emitOutputRexPrefixIfNeeded(uint8_t* dst, code_t code);
+    size_t emitOutputRexOrVexPrefixIfNeeded(uint8_t* dst, code_t code DEBUGARG(instruction ins));
+    size_t emitOutputPrefixesIfNeeded(uint8_t* dst, code_t code);
+
+    code_t AddVexPrefixIfNeeded(instruction ins, code_t code, emitAttr size);
+
+    bool UseVEXEncoding() const
+    {
+        return emit.UseVEXEncoding();
+    }
+
+    bool TakesVexPrefix(instruction ins) const
+    {
+        return emit.TakesVexPrefix(ins);
+    }
+
+#ifdef DEBUG
+    bool IsVexTernary(instruction ins) const
+    {
+        return emit.IsVexTernary(ins);
+    }
+
+    bool IsReallyVexTernary(instruction ins) const
+    {
+        return emit.IsReallyVexTernary(ins);
+    }
+#endif
+
+    bool IsVexDstDstSrc(instruction ins) const
+    {
+        return emit.IsVexDstDstSrc(ins);
+    }
+
+    bool IsVexDstSrcSrc(instruction ins) const
+    {
+        return emit.IsVexDstSrcSrc(ins);
+    }
+};
+
+size_t X86Encoder::emitOutputByte(uint8_t* dst, ssize_t val)
 {
     *(dst + writeableOffset) = static_cast<uint8_t>(val);
     return 1;
 }
 
-size_t emitter::emitOutputWord(uint8_t* dst, ssize_t val)
+size_t X86Encoder::emitOutputWord(uint8_t* dst, ssize_t val)
 {
     *reinterpret_cast<int16_t*>(dst + writeableOffset) = static_cast<int16_t>(val);
     return 2;
 }
 
-size_t emitter::emitOutputLong(uint8_t* dst, ssize_t val)
+size_t X86Encoder::emitOutputLong(uint8_t* dst, ssize_t val)
 {
     *reinterpret_cast<int32_t*>(dst + writeableOffset) = static_cast<int32_t>(val);
     return 4;
 }
 
 #ifdef TARGET_AMD64
-size_t emitter::emitOutputI64(uint8_t* dst, int64_t val)
+size_t X86Encoder::emitOutputI64(uint8_t* dst, int64_t val)
 {
     *reinterpret_cast<int64_t*>(dst + writeableOffset) = val;
     return 8;
@@ -5198,38 +5282,38 @@ size_t emitter::emitOutputI64(uint8_t* dst, int64_t val)
 #endif
 
 #if defined(TARGET_X86) && !defined(HOST_64BIT)
-size_t emitter::emitOutputByte(uint8_t* dst, uint32_t val)
+size_t X86Encoder::emitOutputByte(uint8_t* dst, uint32_t val)
 {
     return emitOutputByte(dst, static_cast<int32_t>(val));
 }
 
-size_t emitter::emitOutputWord(uint8_t* dst, uint32_t val)
+size_t X86Encoder::emitOutputWord(uint8_t* dst, uint32_t val)
 {
     return emitOutputWord(dst, static_cast<int32_t>(val));
 }
 
-size_t emitter::emitOutputLong(uint8_t* dst, uint32_t val)
+size_t X86Encoder::emitOutputLong(uint8_t* dst, uint32_t val)
 {
     return emitOutputLong(dst, static_cast<int32_t>(val));
 }
 
-size_t emitter::emitOutputByte(uint8_t* dst, uint64_t val)
+size_t X86Encoder::emitOutputByte(uint8_t* dst, uint64_t val)
 {
     return emitOutputByte(dst, static_cast<int32_t>(val));
 }
 
-size_t emitter::emitOutputWord(uint8_t* dst, uint64_t val)
+size_t X86Encoder::emitOutputWord(uint8_t* dst, uint64_t val)
 {
     return emitOutputWord(dst, static_cast<int32_t>(val));
 }
 
-size_t emitter::emitOutputLong(uint8_t* dst, uint64_t val)
+size_t X86Encoder::emitOutputLong(uint8_t* dst, uint64_t val)
 {
     return emitOutputLong(dst, static_cast<int32_t>(val));
 }
 #endif // defined(TARGET_X86) && !defined(HOST_64BIT)
 
-size_t emitter::emitOutputVexPrefix(uint8_t* dst, code_t code DEBUGARG(instruction ins))
+size_t X86Encoder::emitOutputVexPrefix(uint8_t* dst, code_t code DEBUGARG(instruction ins))
 {
     assert(TakesVexPrefix(ins) && hasVexPrefix(code));
     // There should be some prefixes (opcdoe map 0 doesn't use VEX).
@@ -5259,7 +5343,7 @@ size_t emitter::emitOutputVexPrefix(uint8_t* dst, code_t code DEBUGARG(instructi
 }
 
 #ifdef TARGET_AMD64
-size_t emitter::emitOutputRexPrefix(uint8_t* dst, code_t code)
+size_t X86Encoder::emitOutputRexPrefix(uint8_t* dst, code_t code)
 {
     assert(!hasVexPrefix(code));
     uint32_t rex = (code >> RexBitOffset) & 0xFF;
@@ -5268,7 +5352,7 @@ size_t emitter::emitOutputRexPrefix(uint8_t* dst, code_t code)
 }
 #endif // TARGET_AMD64
 
-size_t emitter::emitOutputRexPrefixIfNeeded(uint8_t* dst, code_t code)
+size_t X86Encoder::emitOutputRexPrefixIfNeeded(uint8_t* dst, code_t code)
 {
     assert(!hasVexPrefix(code));
 
@@ -5282,7 +5366,7 @@ size_t emitter::emitOutputRexPrefixIfNeeded(uint8_t* dst, code_t code)
     return 0;
 }
 
-size_t emitter::emitOutputRexOrVexPrefixIfNeeded(uint8_t* dst, code_t code DEBUGARG(instruction ins))
+size_t X86Encoder::emitOutputRexOrVexPrefixIfNeeded(uint8_t* dst, code_t code DEBUGARG(instruction ins))
 {
     if (hasVexPrefix(code))
     {
@@ -5297,7 +5381,7 @@ size_t emitter::emitOutputRexOrVexPrefixIfNeeded(uint8_t* dst, code_t code DEBUG
     return 0;
 }
 
-size_t emitter::emitOutputPrefixesIfNeeded(uint8_t* dst, code_t code)
+size_t X86Encoder::emitOutputPrefixesIfNeeded(uint8_t* dst, code_t code)
 {
     uint8_t* start = dst;
 
@@ -5333,7 +5417,7 @@ size_t emitter::emitOutputPrefixesIfNeeded(uint8_t* dst, code_t code)
     return dst - start;
 }
 
-size_t emitter::emitOutputImm(uint8_t* dst, instrDesc* id, size_t size, ssize_t imm)
+size_t X86Encoder::emitOutputImm(uint8_t* dst, instrDesc* id, size_t size, ssize_t imm)
 {
     switch (size)
     {
@@ -5453,7 +5537,7 @@ static uint8_t* emitOutputNOP(uint8_t* dstRW, size_t nBytes)
     return dstRW;
 }
 
-uint8_t* emitter::emitOutputAlign(insGroup* ig, instrDesc* id, uint8_t* dst)
+uint8_t* X86Encoder::emitOutputAlign(insGroup* ig, instrDesc* id, uint8_t* dst)
 {
     assert(emitComp->opts.alignLoops);
 
@@ -5491,7 +5575,7 @@ uint8_t* emitter::emitOutputAlign(insGroup* ig, instrDesc* id, uint8_t* dst)
     return emitOutputNOP(dst + writeableOffset, paddingToAdd) - writeableOffset;
 }
 
-uint8_t* emitter::emitOutputOpcode(uint8_t* dst, instrDesc* id, code_t& code)
+uint8_t* X86Encoder::emitOutputOpcode(uint8_t* dst, instrDesc* id, code_t& code)
 {
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
@@ -5545,7 +5629,7 @@ uint8_t* emitter::emitOutputOpcode(uint8_t* dst, instrDesc* id, code_t& code)
     return dst;
 }
 
-uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm)
+uint8_t* X86Encoder::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm)
 {
     instruction ins      = id->idIns();
     regNumber   baseReg  = id->idAddr()->iiaAddrMode.base;
@@ -5827,7 +5911,7 @@ uint8_t* emitter::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     return dst;
 }
 
-uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm)
+uint8_t* X86Encoder::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm)
 {
     instruction ins = id->idIns();
 
@@ -5997,7 +6081,7 @@ uint8_t* emitter::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     return dst;
 }
 
-uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm)
+uint8_t* X86Encoder::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm)
 {
     instruction ins  = id->idIns();
     ConstData*  data = id->GetConstData();
@@ -6191,7 +6275,7 @@ uint8_t* emitter::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t
     return dst;
 }
 
-uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
+uint8_t* X86Encoder::emitOutputR(uint8_t* dst, instrDesc* id)
 {
     assert(!id->HasFSPrefix());
 
@@ -6385,7 +6469,17 @@ uint8_t* emitter::emitOutputR(uint8_t* dst, instrDesc* id)
     return dst;
 }
 
-uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
+emitter::code_t X86Encoder::AddVexPrefixIfNeeded(instruction ins, code_t code, emitAttr size)
+{
+    if (TakesVexPrefix(ins))
+    {
+        code = AddVexPrefix(ins, code, size);
+    }
+
+    return code;
+}
+
+uint8_t* X86Encoder::emitOutputRR(uint8_t* dst, instrDesc* id)
 {
     assert(!id->HasFSPrefix());
 
@@ -6727,7 +6821,7 @@ uint8_t* emitter::emitOutputRR(uint8_t* dst, instrDesc* id)
     return dst;
 }
 
-uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
+uint8_t* X86Encoder::emitOutputRRR(uint8_t* dst, instrDesc* id)
 {
     assert(IsVexTernary(id->idIns()));
     assert((id->idInsFmt() == IF_RWR_RRD_RRD) || (id->idInsFmt() == IF_RWR_RRD_RRD_CNS) ||
@@ -6765,7 +6859,7 @@ uint8_t* emitter::emitOutputRRR(uint8_t* dst, instrDesc* id)
     return dst;
 }
 
-uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
+uint8_t* X86Encoder::emitOutputRRI(uint8_t* dst, instrDesc* id)
 {
     assert(!id->HasFSPrefix());
 
@@ -6868,7 +6962,7 @@ uint8_t* emitter::emitOutputRRI(uint8_t* dst, instrDesc* id)
     return dst;
 }
 
-uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
+uint8_t* X86Encoder::emitOutputRI(uint8_t* dst, instrDesc* id)
 {
     assert(!id->HasFSPrefix());
 
@@ -7117,7 +7211,7 @@ uint8_t* emitter::emitOutputRI(uint8_t* dst, instrDesc* id)
     return dst;
 }
 
-uint8_t* emitter::emitOutputIV(uint8_t* dst, instrDesc* id)
+uint8_t* X86Encoder::emitOutputIV(uint8_t* dst, instrDesc* id)
 {
     assert(!id->HasFSPrefix());
 
@@ -7163,7 +7257,7 @@ uint8_t* emitter::emitOutputIV(uint8_t* dst, instrDesc* id)
     return dst;
 }
 
-uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
+uint8_t* X86Encoder::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 {
     assert(id->idInsFmt() == IF_RWR_LABEL);
     assert(id->idOpSize() == EA_PTRSIZE);
@@ -7235,7 +7329,7 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 }
 
 #ifdef TARGET_X86
-uint8_t* emitter::emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
+uint8_t* X86Encoder::emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 {
     assert(id->idIns() == INS_push_hide);
     assert(id->idInsFmt() == IF_LABEL);
@@ -7263,7 +7357,7 @@ uint8_t* emitter::emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 }
 #endif // TARGET_X86
 
-uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
+uint8_t* X86Encoder::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 {
     assert(id->idInsFmt() == IF_LABEL);
     assert(id->idGCref() == GCT_NONE);
@@ -7364,7 +7458,7 @@ uint8_t* emitter::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     return dst;
 }
 
-uint8_t* emitter::emitOutputCall(uint8_t* dst, instrDesc* id)
+uint8_t* X86Encoder::emitOutputCall(uint8_t* dst, instrDesc* id)
 {
     assert(!id->HasFSPrefix());
 
@@ -7430,7 +7524,7 @@ uint8_t* emitter::emitOutputCall(uint8_t* dst, instrDesc* id)
     return dst;
 }
 
-uint8_t* emitter::emitOutputNoOperands(uint8_t* dst, instrDesc* id)
+uint8_t* X86Encoder::emitOutputNoOperands(uint8_t* dst, instrDesc* id)
 {
     assert(!id->HasFSPrefix());
 
@@ -7497,8 +7591,12 @@ uint8_t* emitter::emitOutputNoOperands(uint8_t* dst, instrDesc* id)
 
 size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 {
-    assert(emitIssuing);
+    X86Encoder encoder(this);
+    return encoder.emitOutputInstr(ig, id, dp);
+}
 
+size_t X86Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
+{
     uint8_t*    dst  = *dp;
     size_t      sz   = sizeof(instrDesc);
     instruction ins  = id->idIns();
@@ -8052,7 +8150,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
     {
         bool dspOffs = emitComp->opts.dspGCtbls;
 
-        emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(*dp), *dp, dst - *dp);
+        emit.emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(*dp), *dp, dst - *dp);
     }
 #endif
 

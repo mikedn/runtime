@@ -3,6 +3,8 @@
 
 #ifdef TARGET_XARCH
 
+friend class X86Encoder;
+
 private:
 bool useVEXEncodings = false;
 
@@ -11,6 +13,11 @@ void SetUseVEXEncoding(bool value)
 {
     useVEXEncodings = value;
 }
+
+// code_t is a type used to accumulate bits of opcode + prefixes. On amd64, it must be 64 bits
+// to support the REX prefixes. On both x86 and amd64, it must be 64 bits to support AVX, with
+// its 3-byte VEX prefix.
+using code_t = uint64_t;
 
 static bool IsMovInstruction(instruction ins);
 
@@ -169,11 +176,6 @@ void emitIns_Call(EmitCallType          kind,
                   int32_t   amDisp  = 0,
                   bool      isJump  = false);
 
-// code_t is a type used to accumulate bits of opcode + prefixes. On amd64, it must be 64 bits
-// to support the REX prefixes. On both x86 and amd64, it must be 64 bits to support AVX, with
-// its 3-byte VEX prefix.
-typedef uint64_t code_t;
-
 private:
 bool UseVEXEncoding() const;
 
@@ -187,61 +189,14 @@ unsigned emitInsSizeSV(instrDesc* id, code_t code);
 unsigned emitInsSizeAM(instrDesc* id, code_t code);
 unsigned emitInsSizeCV(instrDesc* id, code_t code);
 
-size_t emitOutputByte(uint8_t* dst, ssize_t val);
-size_t emitOutputWord(uint8_t* dst, ssize_t val);
-size_t emitOutputLong(uint8_t* dst, ssize_t val);
-AMD64_ONLY(size_t emitOutputI64(uint8_t* dst, int64_t val);)
-
-#if defined(TARGET_X86) && !defined(HOST_64BIT)
-size_t emitOutputByte(uint8_t* dst, uint32_t val);
-size_t emitOutputWord(uint8_t* dst, uint32_t val);
-size_t emitOutputLong(uint8_t* dst, uint32_t val);
-
-size_t emitOutputByte(uint8_t* dst, uint64_t val);
-size_t emitOutputWord(uint8_t* dst, uint64_t val);
-size_t emitOutputLong(uint8_t* dst, uint64_t val);
-#endif // defined(TARGET_X86) && !defined(HOST_64BIT)
-
-size_t emitOutputImm(uint8_t* dst, instrDesc* id, size_t size, ssize_t imm);
-
-uint8_t* emitOutputAlign(insGroup* ig, instrDesc* id, uint8_t* dst);
-
-uint8_t* emitOutputOpcode(uint8_t* dst, instrDesc* id, code_t& code);
-uint8_t* emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm = nullptr);
-uint8_t* emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm = nullptr);
-uint8_t* emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm = nullptr);
-
-uint8_t* emitOutputR(uint8_t* dst, instrDesc* id);
-uint8_t* emitOutputRI(uint8_t* dst, instrDesc* id);
-uint8_t* emitOutputRR(uint8_t* dst, instrDesc* id);
-uint8_t* emitOutputIV(uint8_t* dst, instrDesc* id);
-uint8_t* emitOutputRRR(uint8_t* dst, instrDesc* id);
-uint8_t* emitOutputRRI(uint8_t* dst, instrDesc* id);
-uint8_t* emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig);
-#ifdef TARGET_X86
-uint8_t* emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig);
-#endif
-uint8_t* emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig);
-uint8_t* emitOutputCall(uint8_t* dst, instrDesc* id);
-uint8_t* emitOutputNoOperands(uint8_t* dst, instrDesc* id);
-
-size_t emitOutputVexPrefix(uint8_t* dst, code_t code DEBUGARG(instruction ins));
-#ifdef TARGET_AMD64
-size_t emitOutputRexPrefix(uint8_t* dst, code_t code);
-#endif
-size_t emitOutputRexPrefixIfNeeded(uint8_t* dst, code_t code);
-size_t emitOutputRexOrVexPrefixIfNeeded(uint8_t* dst, code_t code DEBUGARG(instruction ins));
-size_t emitOutputPrefixesIfNeeded(uint8_t* dst, code_t code);
-
 bool IsRedundantMov(instruction ins, emitAttr size, regNumber dst, regNumber src, bool canIgnoreSideEffects);
 
 bool TakesVexPrefix(instruction ins) const;
-code_t AddVexPrefixIfNeeded(instruction ins, code_t code, emitAttr size);
 
-bool IsVexDstDstSrc(instruction ins);
-bool IsVexDstSrcSrc(instruction ins);
-INDEBUG(bool IsVexTernary(instruction ins);)
-INDEBUG(bool IsReallyVexTernary(instruction ins);)
+bool IsVexDstDstSrc(instruction ins) const;
+bool IsVexDstSrcSrc(instruction ins) const;
+INDEBUG(bool IsVexTernary(instruction ins) const;)
+INDEBUG(bool IsReallyVexTernary(instruction ins) const;)
 
 bool AreFlagsAlwaysModified(instrDesc* id);
 

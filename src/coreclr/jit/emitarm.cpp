@@ -24,6 +24,9 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "codegen.h"
 #include "unwind.h"
 
+static bool isModImmConst(int val32);
+static int insUnscaleImm(instruction ins, int imm);
+
 #ifdef DEBUG
 static bool isGeneralRegister(regNumber reg)
 {
@@ -215,7 +218,7 @@ size_t emitter::instrDescSmall::GetDescSize() const
     }
 }
 
-bool offsetFitsInVectorMem(int disp)
+static bool offsetFitsInVectorMem(int disp)
 {
     unsigned imm = unsigned_abs(disp);
     return ((imm & 0x03fc) == imm);
@@ -566,7 +569,65 @@ void emitter::emitInsSanityCheck(instrDesc* id)
 }
 #endif // DEBUG
 
-bool emitter::emitInsMayWriteToGCReg(instrDesc* id)
+class ArmEncoder : public Emitter::Encoder
+{
+    using code_t = Emitter::code_t;
+
+    CodeGen* const codeGen;
+    uint8_t* const emitCodeBlock;
+
+public:
+    ArmEncoder(Emitter* emit) : Encoder(emit), codeGen(emit->codeGen), emitCodeBlock(emit->emitCodeBlock)
+    {
+    }
+
+    size_t emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp) override;
+
+private:
+    static int encodeModImmConst(int imm);
+    code_t emitInsCode(instruction ins, insFormat fmt);
+
+#ifdef FEATURE_ITINSTRUCTION
+    uint8_t* emitOutputIT(uint8_t* dst, instruction ins, insFormat fmt, code_t condcode);
+#endif
+    uint8_t* emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig);
+    uint8_t* emitOutputRL(uint8_t* dst, instrDescJmp* id);
+    uint8_t* emitOutputShortBranch(uint8_t* dst, instruction ins, insFormat fmt, ssize_t distVal, instrDesc* id);
+
+    unsigned emitOutput_Thumb1Instr(uint8_t* dst, uint32_t code);
+    unsigned emitOutput_Thumb2Instr(uint8_t* dst, uint32_t code);
+
+    void emitHandlePCRelativeMov32(void* location, void* target);
+
+    // Returns true if the instruction may write to more than one register.
+    bool emitInsMayWriteMultipleRegs(instrDesc* id);
+
+    // Returns true if instruction "id->idIns()" writes to a register that might be used to contain a GC
+    // pointer. This exempts the SP and PC registers, and floating point registers. Memory access
+    // instructions that pre- or post-increment their memory address registers are *not* considered to write
+    // to GC registers, even if that memory address is a by-ref: such an instruction cannot change the GC
+    // status of that register, since it must be a byref before and remains one after.
+    //
+    // This may return false positives.
+    bool emitInsMayWriteToGCReg(instrDesc* id);
+
+    int32_t emitGetInsSC(instrDesc* id)
+    {
+        return Emitter::emitGetInsSC(id);
+    }
+
+    size_t emitGetInstrDescSize(const instrDesc* id)
+    {
+        return Emitter::emitGetInstrDescSize(id);
+    }
+
+    size_t emitGetInstrDescSizeSC(const instrDesc* id)
+    {
+        return Emitter::emitGetInstrDescSizeSC(id);
+    }
+};
+
+bool ArmEncoder::emitInsMayWriteToGCReg(instrDesc* id)
 {
     instruction ins = id->idIns();
     insFormat   fmt = id->idInsFmt();
@@ -659,7 +720,7 @@ bool emitter::emitInsMayWriteToGCReg(instrDesc* id)
     }
 }
 
-bool emitter::emitInsMayWriteMultipleRegs(instrDesc* id)
+bool ArmEncoder::emitInsMayWriteMultipleRegs(instrDesc* id)
 {
     instruction ins = id->idIns();
     insFormat   fmt = id->idInsFmt();
@@ -821,7 +882,7 @@ bool emitter::emitInsIsLoadOrStore(instruction ins)
  *  Returns the specific encoding of the given CPU instruction and format
  */
 
-emitter::code_t emitter::emitInsCode(instruction ins, insFormat fmt)
+emitter::code_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
 {
     // clang-format off
     const static code_t insCodes1[] =
@@ -1297,7 +1358,7 @@ bool emitter::IsMovInstruction(instruction ins)
  *   using the special modified immediate constant available in Thumb
  */
 
-/*static*/ bool emitter::isModImmConst(int val32)
+static bool isModImmConst(int val32)
 {
     unsigned uval32 = (unsigned)val32;
     unsigned imm8   = uval32 & 0xff;
@@ -1345,7 +1406,7 @@ bool emitter::IsMovInstruction(instruction ins)
  *   If the imm can not be encoded then 0x0BADC0DE is returned.
  */
 
-/*static*/ int emitter::encodeModImmConst(int val32)
+/*static*/ int ArmEncoder::encodeModImmConst(int val32)
 {
     unsigned uval32 = (unsigned)val32;
     unsigned imm8   = uval32 & 0xff;
@@ -4710,7 +4771,7 @@ inline unsigned insEncodeRegT2_M(regNumber reg)
  *  Returns the encoding for the Set Flags bit to be used in a Thumb-2 encoding
  */
 
-unsigned emitter::insEncodeSetFlags(insFlags sf)
+static unsigned insEncodeSetFlags(insFlags sf)
 {
     if (sf == INS_FLAGS_SET)
         return (1 << 20);
@@ -4723,7 +4784,7 @@ unsigned emitter::insEncodeSetFlags(insFlags sf)
  *  Returns the encoding for the Shift Type bits to be used in a Thumb-2 encoding
  */
 
-unsigned emitter::insEncodeShiftOpts(insOpts opt)
+static unsigned insEncodeShiftOpts(insOpts opt)
 {
     if (opt == INS_OPTS_NONE)
         return 0;
@@ -4747,7 +4808,7 @@ unsigned emitter::insEncodeShiftOpts(insOpts opt)
  *  Returns the encoding for the PUW bits to be used in a T2_G0 Thumb-2 encoding
  */
 
-unsigned emitter::insEncodePUW_G0(insOpts opt, int imm)
+static unsigned insEncodePUW_G0(insOpts opt, int imm)
 {
     unsigned result = 0;
 
@@ -4767,7 +4828,7 @@ unsigned emitter::insEncodePUW_G0(insOpts opt, int imm)
  *  Returns the encoding for the PUW bits to be used in a T2_H0 Thumb-2 encoding
  */
 
-unsigned emitter::insEncodePUW_H0(insOpts opt, int imm)
+static unsigned insEncodePUW_H0(insOpts opt, int imm)
 {
     unsigned result = 0;
 
@@ -4844,7 +4905,7 @@ inline unsigned insEncodeImmT2_Mov(int imm)
 // Return Value:
 //    The unscaled immediate value
 //
-/*static*/ int emitter::insUnscaleImm(instruction ins, int imm)
+static int insUnscaleImm(instruction ins, int imm)
 {
     switch (ins)
     {
@@ -4872,7 +4933,7 @@ inline unsigned insEncodeImmT2_Mov(int imm)
     return imm;
 }
 
-unsigned emitter::emitOutput_Thumb1Instr(uint8_t* dst, uint32_t code)
+unsigned ArmEncoder::emitOutput_Thumb1Instr(uint8_t* dst, uint32_t code)
 {
     assert((code & 0xFFFF0000) == 0);
     assert((code >> (16 - 5)) < 29);
@@ -4881,7 +4942,7 @@ unsigned emitter::emitOutput_Thumb1Instr(uint8_t* dst, uint32_t code)
     return 2;
 }
 
-unsigned emitter::emitOutput_Thumb2Instr(uint8_t* dst, uint32_t code)
+unsigned ArmEncoder::emitOutput_Thumb2Instr(uint8_t* dst, uint32_t code)
 {
     assert((code >> (32 - 5)) >= 29);
 
@@ -4891,7 +4952,7 @@ unsigned emitter::emitOutput_Thumb2Instr(uint8_t* dst, uint32_t code)
     return 4;
 }
 
-uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id)
+uint8_t* ArmEncoder::emitOutputRL(uint8_t* dst, instrDescJmp* id)
 {
     assert(id->idGCref() == GCT_NONE);
 
@@ -4978,7 +5039,7 @@ uint8_t* emitter::emitOutputRL(uint8_t* dst, instrDescJmp* id)
     return dst + emitOutput_Thumb2Instr(dst, code);
 }
 
-uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
+uint8_t* ArmEncoder::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 {
     assert(id->idGCref() == GCT_NONE);
 
@@ -5013,7 +5074,7 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     // Adjust the offset to emit relative to the end of the instruction.
     distance -= 4;
 
-    if (id->idInsSize() == ISZ_16BIT)
+    if (id->idInsSize() == Emitter::ISZ_16BIT)
     {
         assert(!id->idIsCnsReloc());
         assert(!emitJumpCrossHotColdBoundary(instrOffs, labelOffs));
@@ -5049,7 +5110,7 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
         // to get a greater branch target range than we can get by using a straightforward conditional
         // branch. It is encoded as a short conditional branch that branches around a long unconditional
         // branch.
-        instruction reverse = emitJumpKindToBranch(emitReverseJumpKind(BranchToJumpKind(ins)));
+        instruction reverse = Emitter::emitJumpKindToBranch(Emitter::emitReverseJumpKind(BranchToJumpKind(ins)));
         dst                 = emitOutputShortBranch(dst, reverse, IF_T1_K, 2, nullptr);
 
         // The distance was computed based on the beginning of the pseudo-instruction.
@@ -5104,7 +5165,8 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     return dst + 4;
 }
 
-uint8_t* emitter::emitOutputShortBranch(uint8_t* dst, instruction ins, insFormat fmt, ssize_t distance, instrDesc* id)
+uint8_t* ArmEncoder::emitOutputShortBranch(
+    uint8_t* dst, instruction ins, insFormat fmt, ssize_t distance, instrDesc* id)
 {
     code_t code = emitInsCode(ins, fmt);
 
@@ -5159,7 +5221,7 @@ uint8_t* emitter::emitOutputShortBranch(uint8_t* dst, instruction ins, insFormat
  *  Output an IT instruction.
  */
 
-BYTE* emitter::emitOutputIT(BYTE* dst, instruction ins, insFormat fmt, code_t condcode)
+BYTE* ArmEncoder::emitOutputIT(BYTE* dst, instruction ins, insFormat fmt, code_t condcode)
 {
     code_t imm0;
     code_t code, mask, bit;
@@ -5211,7 +5273,7 @@ size_t emitter::emitGetInstrDescSizeSC(const instrDesc* id)
 // or creates a virtual relocation entry to perform offset fixup during
 // compilation without recording it with EE - depending on which of
 // absolute/relocative relocations mode are used for code section.
-void emitter::emitHandlePCRelativeMov32(void* location, void* target)
+void ArmEncoder::emitHandlePCRelativeMov32(void* location, void* target)
 {
     if (emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_RELATIVE_CODE_RELOCS))
     {
@@ -5252,6 +5314,12 @@ unsigned emitter::emitGetInstructionSize(const emitLocation& emitLoc)
  */
 
 size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
+{
+    ArmEncoder encoder(this);
+    return encoder.emitOutputInstr(ig, id, dp);
+}
+
+size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 {
     BYTE*       dst  = *dp;
     BYTE*       odst = dst;
@@ -6023,7 +6091,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     {
         bool dspOffs = emitComp->opts.dspGCtbls || !emitComp->opts.disDiffable;
 
-        emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(*dp), *dp, dst - *dp);
+        emit.emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(*dp), *dp, dst - *dp);
     }
 #endif
 

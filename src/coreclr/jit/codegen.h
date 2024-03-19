@@ -23,6 +23,9 @@ class CodeGen final : public CodeGenInterface
     friend class DisAssembler;
     friend class CodeGenLivenessUpdater;
     friend class CodeGenInterface;
+#ifdef TARGET_ARM
+    friend class ArmEncoder;
+#endif
 
     class LinearScan* m_lsra = nullptr;
     emitter*          m_cgEmitter;

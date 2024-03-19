@@ -24,6 +24,168 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "emit.h"
 #include "codegen.h"
 
+using code_t       = Emitter::code_t;
+using bitMaskImm   = Emitter::bitMaskImm;
+using condFlagsImm = Emitter::condFlagsImm;
+
+static bool emitInsIsVectorRightShift(instruction ins);
+
+#ifdef DEBUG
+// Returns true if 'reg' represents an integer register.
+static bool isIntegerRegister(regNumber reg)
+{
+    return (reg >= REG_INT_FIRST) && (reg <= REG_INT_LAST);
+}
+
+//  Returns true if reg encodes for REG_SP or REG_FP
+static bool isStackRegister(regNumber reg)
+{
+    return (reg == REG_ZR) || (reg == REG_FP);
+} // ZR (R31) encodes the SP register
+
+//  The return value replaces REG_ZR with REG_SP
+static regNumber encodingZRtoSP(regNumber reg)
+{
+    return (reg == REG_ZR) ? REG_SP : reg;
+} // ZR (R31) encodes the SP register
+#endif
+
+//  The return value replaces REG_SP with REG_ZR
+static regNumber encodingSPtoZR(regNumber reg)
+{
+    return (reg == REG_SP) ? REG_ZR : reg;
+} // SP is encoded using ZR (R31)
+
+#ifdef DEBUG
+// Returns true if 'value' is a legal unsigned immediate 8 bit encoding (such as for fMOV).
+static bool isValidUimm8(ssize_t value)
+{
+    return (0 <= value) && (value <= 0xFFLL);
+};
+
+// Returns true if 'value' is a legal unsigned immediate 12 bit encoding (such as for CMP, CMN).
+static bool isValidUimm12(ssize_t value)
+{
+    return (0 <= value) && (value <= 0xFFFLL);
+};
+
+// Returns true if 'value' is a legal unsigned immediate 16 bit encoding (such as for MOVZ, MOVN, MOVK).
+static bool isValidUimm16(ssize_t value)
+{
+    return (0 <= value) && (value <= 0xFFFFLL);
+};
+#endif // DEBUG
+
+// Returns true if 'value' is a legal signed immediate 26 bit encoding (such as for B or BL).
+static bool isValidSimm26(ssize_t value)
+{
+    return (-0x2000000LL <= value) && (value <= 0x1FFFFFFLL);
+};
+// Returns true if 'value' is a legal signed immediate 19 bit encoding (such as for B.cond, CBNZ, CBZ).
+static bool isValidSimm19(ssize_t value)
+{
+    return (-0x40000LL <= value) && (value <= 0x3FFFFLL);
+};
+// Returns true if 'value' is a legal signed immediate 14 bit encoding (such as for TBNZ, TBZ).
+static bool isValidSimm14(ssize_t value)
+{
+    return (-0x2000LL <= value) && (value <= 0x1FFFLL);
+};
+
+#ifdef DEBUG
+// Returns true if 'value' represents a valid 'bitmask immediate' encoding.
+static bool isValidImmNRS(size_t value, emitAttr size)
+{
+    return (value >= 0) && (value < 0x2000);
+} // any unsigned 13-bit immediate
+
+// Returns true if 'value' represents a valid 'halfword immediate' encoding.
+static bool isValidImmHWVal(size_t value, emitAttr size)
+{
+    return (value >= 0) && (value < 0x40000);
+} // any unsigned 18-bit immediate
+
+// Returns true if 'value' represents a valid 'byteShifted immediate' encoding.
+static bool isValidImmBSVal(size_t value, emitAttr size)
+{
+    return (value >= 0) && (value < 0x800);
+} // any unsigned 11-bit immediate
+#endif // DEBUG
+
+static unsigned getBitWidth(emitAttr size)
+{
+    return Emitter::getBitWidth(size);
+}
+
+#ifdef DEBUG
+// Returns true if the imm represents a valid bit shift or bit position for the given 'size' [0..31] or [0..63]
+static unsigned isValidImmShift(ssize_t imm, emitAttr size)
+{
+    return (imm >= 0) && (imm < getBitWidth(size));
+}
+
+// Returns true if the 'shiftAmount' represents a valid shift for the given 'size'.
+static unsigned isValidVectorShiftAmount(ssize_t shiftAmount, emitAttr size, bool rightShift)
+{
+    return (rightShift && (shiftAmount >= 1) && (shiftAmount <= getBitWidth(size))) ||
+           ((shiftAmount >= 0) && (shiftAmount < getBitWidth(size)));
+}
+
+/*****************************************************************************
+ *
+ *  Returns true if 'imm' is valid Cond encoding
+ */
+
+static bool isValidImmCond(ssize_t imm)
+{
+    // range check the ssize_t value, to make sure it is a small unsigned value
+    // and that only the bits in the cfi.cond are set
+    if ((imm < 0) || (imm > 0xF))
+        return false;
+
+    condFlagsImm cfi;
+    cfi.immCFVal = (unsigned)imm;
+
+    return (cfi.cond <= INS_COND_LE); // Don't allow 14 & 15 (AL & NV).
+}
+
+/*****************************************************************************
+ *
+ *  Returns true if 'imm' is valid Cond/Flags encoding
+ */
+
+static bool isValidImmCondFlags(ssize_t imm)
+{
+    // range check the ssize_t value, to make sure it is a small unsigned value
+    // and that only the bits in the cfi.cond or cfi.flags are set
+    if ((imm < 0) || (imm > 0xFF))
+        return false;
+
+    condFlagsImm cfi;
+    cfi.immCFVal = (unsigned)imm;
+
+    return (cfi.cond <= INS_COND_LE); // Don't allow 14 & 15 (AL & NV).
+}
+
+/*****************************************************************************
+ *
+ *  Returns true if 'imm' is valid Cond/Flags/Imm5 encoding
+ */
+
+static bool isValidImmCondFlagsImm5(ssize_t imm)
+{
+    // range check the ssize_t value, to make sure it is a small unsigned value
+    // and that only the bits in the cfi.cond, cfi.flags or cfi.imm5 are set
+    if ((imm < 0) || (imm > 0x1FFF))
+        return false;
+
+    condFlagsImm cfi;
+    cfi.immCFVal = (unsigned)imm;
+
+    return (cfi.cond <= INS_COND_LE); // Don't allow 14 & 15 (AL & NV).
+}
+#endif // DEBUG
+
 static bool isGeneralRegister(regNumber reg)
 {
     return IsGeneralRegister(reg);
@@ -1090,7 +1252,50 @@ void emitter::emitInsSanityCheck(instrDesc* id)
 }
 #endif // DEBUG
 
-bool emitter::emitInsMayWriteToGCReg(instrDesc* id)
+class Arm64Encoder : public Emitter::Encoder
+{
+    using code_t = Emitter::code_t;
+
+public:
+    Arm64Encoder(Emitter* emit) : Encoder(emit)
+    {
+    }
+
+    size_t emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp) override;
+
+private:
+    //  Emit the 32-bit Arm64 instruction 'code' into the 'dst'  buffer
+    unsigned emitOutput_Instr(BYTE* dst, code_t code);
+
+    code_t emitInsCode(instruction ins, insFormat fmt);
+
+    uint8_t* emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig);
+    uint8_t* emitOutputDL(uint8_t* dst, instrDescJmp* id);
+    uint8_t* emitOutputLoadLabel(uint8_t* dst, uint8_t* srcAddr, uint8_t* dstAddr, instrDescJmp* id);
+    uint8_t* emitOutputShortBranch(uint8_t* dst, instruction ins, insFormat fmt, ssize_t distVal, instrDescJmp* id);
+    uint8_t* emitOutputShortAddress(uint8_t* dst, instruction ins, ssize_t distance, RegNum reg);
+    uint8_t* emitOutputShortConstant(
+        uint8_t* dst, instruction ins, insFormat fmt, ssize_t distVal, regNumber reg, emitAttr opSize);
+
+    // Returns true if instruction "id->idIns()" writes to a register that might be used to contain a GC
+    // pointer. This exempts the SP and PC registers, and floating point registers. Memory access
+    // instructions that pre- or post-increment their memory address registers are *not* considered to write
+    // to GC registers, even if that memory address is a by-ref: such an instruction cannot change the GC
+    // status of that register, since it must be a byref before and remains one after.
+    //
+    // This may return false positives.
+    bool emitInsMayWriteToGCReg(instrDesc* id);
+
+    // Returns true if the instruction may write to more than one register.
+    bool emitInsMayWriteMultipleRegs(instrDesc* id);
+
+    int64_t emitGetInsSC(instrDesc* id)
+    {
+        return id->idIsLargeCns() ? static_cast<instrDescCns*>(id)->idcCnsVal : id->idSmallCns();
+    }
+};
+
+bool Arm64Encoder::emitInsMayWriteToGCReg(instrDesc* id)
 {
     instruction ins = id->idIns();
     insFormat   fmt = id->idInsFmt();
@@ -1185,20 +1390,20 @@ bool emitter::emitInsMayWriteToGCReg(instrDesc* id)
 
             // For the Store instructions the "target" register is actually a "source" value
 
-            if (emitInsIsStore(ins))
+            if (Emitter::emitInsIsStore(ins))
             {
                 return false;
             }
             else
             {
-                assert(emitInsIsLoad(ins));
+                assert(Emitter::emitInsIsLoad(ins));
                 return true;
             }
 
         case IF_LS_3E: // LS_3E   .X.........mmmmm ......nnnnnttttt      Rm Rt Rn ARMv8.1 LSE Atomics
             // ARMv8.1 Atomics
-            assert(emitInsIsStore(ins));
-            assert(emitInsIsLoad(ins));
+            assert(Emitter::emitInsIsStore(ins));
+            assert(Emitter::emitInsIsLoad(ins));
             return true;
 
         default:
@@ -1207,7 +1412,7 @@ bool emitter::emitInsMayWriteToGCReg(instrDesc* id)
     }
 }
 
-bool emitter::emitInsMayWriteMultipleRegs(instrDesc* id)
+bool Arm64Encoder::emitInsMayWriteMultipleRegs(instrDesc* id)
 {
     instruction ins = id->idIns();
 
@@ -1541,7 +1746,7 @@ bool emitter::emitInsIsLoadOrStore(instruction ins)
     return (ins < _countof(instInfo)) && ((instInfo[ins] & (LD | ST)) != 0);
 }
 
-bool emitter::emitInsIsVectorRightShift(instruction ins)
+static bool emitInsIsVectorRightShift(instruction ins)
 {
     // We have pseudo ins like lea which are not included in emitInsLdStTab.
     return (ins < _countof(instInfo)) && ((instInfo[ins] & RSH) != 0);
@@ -1575,7 +1780,7 @@ bool emitter::emitInsIsVectorWide(instruction ins)
  *  Returns the specific encoding of the given CPU instruction and format
  */
 
-emitter::code_t emitter::emitInsCode(instruction ins, insFormat fmt)
+emitter::code_t Arm64Encoder::emitInsCode(instruction ins, insFormat fmt)
 {
     // clang-format off
     const static code_t insCodes1[] =
@@ -3467,6 +3672,11 @@ bool emitter::validImmForBL(ssize_t addr, Compiler* compiler)
     }
 }
 
+static emitAttr optGetElemsize(insOpts arrangement)
+{
+    return Emitter::optGetElemsize(arrangement);
+}
+
 insOpts emitSimdArrangementOpt(emitAttr size, var_types elementType)
 {
     assert((size == EA_16BYTE) || (size == EA_8BYTE));
@@ -3699,6 +3909,13 @@ insOpts emitSimdArrangementOpt(emitAttr size, var_types elementType)
     }
     return result;
 }
+
+#ifdef DEBUG
+static bool isValidVectorIndex(emitAttr datasize, emitAttr elemsize, ssize_t index)
+{
+    return Emitter::isValidVectorIndex(datasize, elemsize, index);
+}
+#endif
 
 template <typename T>
 T* emitter::AllocInstr(bool updateLastIns)
@@ -8315,64 +8532,10 @@ AGAIN:
 
 /*****************************************************************************
  *
- *  Returns true if 'imm' is valid Cond encoding
- */
-
-/*static*/ bool emitter::isValidImmCond(ssize_t imm)
-{
-    // range check the ssize_t value, to make sure it is a small unsigned value
-    // and that only the bits in the cfi.cond are set
-    if ((imm < 0) || (imm > 0xF))
-        return false;
-
-    condFlagsImm cfi;
-    cfi.immCFVal = (unsigned)imm;
-
-    return (cfi.cond <= INS_COND_LE); // Don't allow 14 & 15 (AL & NV).
-}
-
-/*****************************************************************************
- *
- *  Returns true if 'imm' is valid Cond/Flags encoding
- */
-
-/*static*/ bool emitter::isValidImmCondFlags(ssize_t imm)
-{
-    // range check the ssize_t value, to make sure it is a small unsigned value
-    // and that only the bits in the cfi.cond or cfi.flags are set
-    if ((imm < 0) || (imm > 0xFF))
-        return false;
-
-    condFlagsImm cfi;
-    cfi.immCFVal = (unsigned)imm;
-
-    return (cfi.cond <= INS_COND_LE); // Don't allow 14 & 15 (AL & NV).
-}
-
-/*****************************************************************************
- *
- *  Returns true if 'imm' is valid Cond/Flags/Imm5 encoding
- */
-
-/*static*/ bool emitter::isValidImmCondFlagsImm5(ssize_t imm)
-{
-    // range check the ssize_t value, to make sure it is a small unsigned value
-    // and that only the bits in the cfi.cond, cfi.flags or cfi.imm5 are set
-    if ((imm < 0) || (imm > 0x1FFF))
-        return false;
-
-    condFlagsImm cfi;
-    cfi.immCFVal = (unsigned)imm;
-
-    return (cfi.cond <= INS_COND_LE); // Don't allow 14 & 15 (AL & NV).
-}
-
-/*****************************************************************************
- *
  *  Returns an encoding for the specified register used in the 'Rd' position
  */
 
-/*static*/ emitter::code_t emitter::insEncodeReg_Rd(regNumber reg)
+static emitter::code_t insEncodeReg_Rd(regNumber reg)
 {
     assert(isIntegerRegister(reg));
     emitter::code_t ureg = (emitter::code_t)reg;
@@ -8385,7 +8548,7 @@ AGAIN:
  *  Returns an encoding for the specified register used in the 'Rt' position
  */
 
-/*static*/ emitter::code_t emitter::insEncodeReg_Rt(regNumber reg)
+static emitter::code_t insEncodeReg_Rt(regNumber reg)
 {
     assert(isIntegerRegister(reg));
     emitter::code_t ureg = (emitter::code_t)reg;
@@ -8398,7 +8561,7 @@ AGAIN:
  *  Returns an encoding for the specified register used in the 'Rn' position
  */
 
-/*static*/ emitter::code_t emitter::insEncodeReg_Rn(regNumber reg)
+static emitter::code_t insEncodeReg_Rn(regNumber reg)
 {
     assert(isIntegerRegister(reg));
     emitter::code_t ureg = (emitter::code_t)reg;
@@ -8411,7 +8574,7 @@ AGAIN:
  *  Returns an encoding for the specified register used in the 'Rm' position
  */
 
-/*static*/ emitter::code_t emitter::insEncodeReg_Rm(regNumber reg)
+static emitter::code_t insEncodeReg_Rm(regNumber reg)
 {
     assert(isIntegerRegister(reg));
     emitter::code_t ureg = (emitter::code_t)reg;
@@ -8424,7 +8587,7 @@ AGAIN:
  *  Returns an encoding for the specified register used in the 'Ra' position
  */
 
-/*static*/ emitter::code_t emitter::insEncodeReg_Ra(regNumber reg)
+static emitter::code_t insEncodeReg_Ra(regNumber reg)
 {
     assert(isIntegerRegister(reg));
     code_t ureg = (code_t)reg;
@@ -8437,7 +8600,7 @@ AGAIN:
  *  Returns an encoding for the specified register used in the 'Vd' position
  */
 
-/*static*/ emitter::code_t emitter::insEncodeReg_Vd(regNumber reg)
+static emitter::code_t insEncodeReg_Vd(regNumber reg)
 {
     assert(isVectorRegister(reg));
     code_t ureg = (code_t)reg - (code_t)REG_V0;
@@ -8450,7 +8613,7 @@ AGAIN:
  *  Returns an encoding for the specified register used in the 'Vt' position
  */
 
-/*static*/ emitter::code_t emitter::insEncodeReg_Vt(regNumber reg)
+static emitter::code_t insEncodeReg_Vt(regNumber reg)
 {
     assert(isVectorRegister(reg));
     code_t ureg = (code_t)reg - (code_t)REG_V0;
@@ -8463,7 +8626,7 @@ AGAIN:
  *  Returns an encoding for the specified register used in the 'Vn' position
  */
 
-/*static*/ emitter::code_t emitter::insEncodeReg_Vn(regNumber reg)
+static emitter::code_t insEncodeReg_Vn(regNumber reg)
 {
     assert(isVectorRegister(reg));
     code_t ureg = (code_t)reg - (code_t)REG_V0;
@@ -8476,7 +8639,7 @@ AGAIN:
  *  Returns an encoding for the specified register used in the 'Vm' position
  */
 
-/*static*/ emitter::code_t emitter::insEncodeReg_Vm(regNumber reg)
+static emitter::code_t insEncodeReg_Vm(regNumber reg)
 {
     assert(isVectorRegister(reg));
     code_t ureg = (code_t)reg - (code_t)REG_V0;
@@ -8489,7 +8652,7 @@ AGAIN:
  *  Returns an encoding for the specified register used in the 'Va' position
  */
 
-/*static*/ emitter::code_t emitter::insEncodeReg_Va(regNumber reg)
+static emitter::code_t insEncodeReg_Va(regNumber reg)
 {
     assert(isVectorRegister(reg));
     code_t ureg = (code_t)reg - (code_t)REG_V0;
@@ -8502,7 +8665,7 @@ AGAIN:
  *  Returns an encoding for the specified condition code.
  */
 
-/*static*/ emitter::code_t emitter::insEncodeCond(insCond cond)
+static emitter::code_t insEncodeCond(insCond cond)
 {
     code_t uimm = (code_t)cond;
     return uimm << 12;
@@ -8514,7 +8677,7 @@ AGAIN:
  *  architecture manual).
  */
 
-/*static*/ emitter::code_t emitter::insEncodeInvertedCond(insCond cond)
+static emitter::code_t insEncodeInvertedCond(insCond cond)
 {
     code_t uimm = (code_t)cond;
     uimm ^= 1; // invert the lowest bit
@@ -8526,7 +8689,7 @@ AGAIN:
  *  Returns an encoding for the specified flags.
  */
 
-/*static*/ emitter::code_t emitter::insEncodeFlags(insCflags flags)
+static emitter::code_t insEncodeFlags(insCflags flags)
 {
     emitter::code_t uimm = (emitter::code_t)flags;
     return uimm;
@@ -8537,7 +8700,7 @@ AGAIN:
  *  Returns the encoding for the Shift Count bits to be used for Arm64 encodings
  */
 
-/*static*/ emitter::code_t emitter::insEncodeShiftCount(ssize_t imm, emitAttr size)
+static emitter::code_t insEncodeShiftCount(ssize_t imm, emitAttr size)
 {
     assert((imm & 0x003F) == imm);
     assert(((imm & 0x0020) == 0) || (size == EA_8BYTE));
@@ -8550,7 +8713,7 @@ AGAIN:
  *  Returns the encoding to select a 64-bit datasize for an Arm64 instruction
  */
 
-/*static*/ emitter::code_t emitter::insEncodeDatasize(emitAttr size)
+static emitter::code_t insEncodeDatasize(emitAttr size)
 {
     if (size == EA_8BYTE)
     {
@@ -8569,7 +8732,7 @@ AGAIN:
  *
  */
 
-/*static*/ emitter::code_t emitter::insEncodeDatasizeLS(emitter::code_t code, emitAttr size)
+static emitter::code_t insEncodeDatasizeLS(emitter::code_t code, emitAttr size)
 {
     bool exclusive = ((code & 0x35000000) == 0);
     bool atomic    = ((code & 0x31200C00) == 0x30200000);
@@ -8600,7 +8763,7 @@ AGAIN:
  *
  */
 
-/*static*/ emitter::code_t emitter::insEncodeDatasizeVLS(emitter::code_t code, emitAttr size)
+static emitter::code_t insEncodeDatasizeVLS(emitter::code_t code, emitAttr size)
 {
     code_t result = 0;
 
@@ -8671,7 +8834,7 @@ AGAIN:
  *
  */
 
-/*static*/ emitter::code_t emitter::insEncodeDatasizeVPLS(emitter::code_t code, emitAttr size)
+static emitter::code_t insEncodeDatasizeVPLS(emitter::code_t code, emitAttr size)
 {
     code_t result = 0;
 
@@ -8704,7 +8867,7 @@ AGAIN:
  *
  */
 
-/*static*/ emitter::code_t emitter::insEncodeDatasizeBF(emitter::code_t code, emitAttr size)
+static emitter::code_t insEncodeDatasizeBF(emitter::code_t code, emitAttr size)
 {
     // is bit 30 equal to 0?
     if ((code & 0x40000000) == 0) // is the opcode one of extr, sxtb, sxth or sxtw
@@ -8722,7 +8885,7 @@ AGAIN:
  *  Returns the encoding to select the 64/128-bit datasize for an Arm64 vector instruction
  */
 
-/*static*/ emitter::code_t emitter::insEncodeVectorsize(emitAttr size)
+static emitter::code_t insEncodeVectorsize(emitAttr size)
 {
     if (size == EA_16BYTE)
     {
@@ -8739,7 +8902,7 @@ AGAIN:
  *
  *  Returns the encoding to select 'index' for an Arm64 vector elem instruction
  */
-/*static*/ emitter::code_t emitter::insEncodeVectorIndex(emitAttr elemsize, ssize_t index)
+static emitter::code_t insEncodeVectorIndex(emitAttr elemsize, ssize_t index)
 {
     code_t bits = (code_t)index;
     if (elemsize == EA_1BYTE)
@@ -8772,7 +8935,7 @@ AGAIN:
  *
  *  Returns the encoding to select 'index2' for an Arm64 'ins' elem instruction
  */
-/*static*/ emitter::code_t emitter::insEncodeVectorIndex2(emitAttr elemsize, ssize_t index2)
+static emitter::code_t insEncodeVectorIndex2(emitAttr elemsize, ssize_t index2)
 {
     code_t bits = (code_t)index2;
     if (elemsize == EA_1BYTE)
@@ -8801,7 +8964,7 @@ AGAIN:
  *
  *  Returns the encoding to select the 'index' for an Arm64 'mul' by element instruction
  */
-/*static*/ emitter::code_t emitter::insEncodeVectorIndexLMH(emitAttr elemsize, ssize_t index)
+static emitter::code_t insEncodeVectorIndexLMH(emitAttr elemsize, ssize_t index)
 {
     code_t bits = 0;
 
@@ -8850,7 +9013,7 @@ AGAIN:
 // Returns:
 //    "immh:immb" field of the instruction that contains encoded shift amount.
 //
-/*static*/ emitter::code_t emitter::insEncodeVectorShift(emitAttr size, ssize_t shiftAmount)
+static emitter::code_t insEncodeVectorShift(emitAttr size, ssize_t shiftAmount)
 {
     if (shiftAmount < 0)
     {
@@ -8875,7 +9038,7 @@ AGAIN:
  *  Returns the encoding to select the 1/2/4/8 byte elemsize for an Arm64 vector instruction
  */
 
-/*static*/ emitter::code_t emitter::insEncodeElemsize(emitAttr size)
+static emitter::code_t insEncodeElemsize(emitAttr size)
 {
     if (size == EA_8BYTE)
     {
@@ -8898,7 +9061,7 @@ AGAIN:
  *  Returns the encoding to select the 4/8 byte elemsize for an Arm64 float vector instruction
  */
 
-/*static*/ emitter::code_t emitter::insEncodeFloatElemsize(emitAttr size)
+static emitter::code_t insEncodeFloatElemsize(emitAttr size)
 {
     if (size == EA_8BYTE)
     {
@@ -8909,7 +9072,7 @@ AGAIN:
 }
 
 // Returns the encoding to select the index for an Arm64 float vector by element instruction
-/*static*/ emitter::code_t emitter::insEncodeFloatIndex(emitAttr elemsize, ssize_t index)
+static emitter::code_t insEncodeFloatIndex(emitAttr elemsize, ssize_t index)
 {
     code_t result = 0x00000000;
     if (elemsize == EA_8BYTE)
@@ -8941,7 +9104,7 @@ AGAIN:
  *  Returns the encoding to select the vector elemsize for an Arm64 ld/st# vector instruction
  */
 
-/*static*/ emitter::code_t emitter::insEncodeVLSElemsize(emitAttr size)
+static emitter::code_t insEncodeVLSElemsize(emitAttr size)
 {
     code_t result = 0x00000000;
 
@@ -8986,7 +9149,7 @@ AGAIN:
  *  Returns the encoding to select the index for an Arm64 ld/st# vector by element instruction
  */
 
-/*static*/ emitter::code_t emitter::insEncodeVLSIndex(emitAttr size, ssize_t index)
+static emitter::code_t insEncodeVLSIndex(emitAttr size, ssize_t index)
 {
     code_t result = 0x00000000;
 
@@ -9058,7 +9221,7 @@ AGAIN:
  *
  *  Returns the encoding to select the fcvt operation for Arm64 instructions
  */
-/*static*/ emitter::code_t emitter::insEncodeConvertOpt(insFormat fmt, insOpts conversion)
+static emitter::code_t insEncodeConvertOpt(insFormat fmt, insOpts conversion)
 {
     code_t result = 0;
     switch (conversion)
@@ -9146,7 +9309,7 @@ AGAIN:
  *  or not updated
  */
 
-emitter::code_t emitter::insEncodeIndexedOpt(insOpts opt)
+static emitter::code_t insEncodeIndexedOpt(insOpts opt)
 {
     assert(insOptsNone(opt) || insOptsIndexed(opt));
 
@@ -9175,7 +9338,7 @@ emitter::code_t emitter::insEncodeIndexedOpt(insOpts opt)
  *  be updated Pre/Post indexed or not updated
  */
 
-/*static*/ emitter::code_t emitter::insEncodePairIndexedOpt(instruction ins, insOpts opt)
+static emitter::code_t insEncodePairIndexedOpt(instruction ins, insOpts opt)
 {
     assert(insOptsNone(opt) || insOptsIndexed(opt));
 
@@ -9211,7 +9374,7 @@ emitter::code_t emitter::insEncodeIndexedOpt(insOpts opt)
  *  Returns the encoding to apply a Shift Type on the Rm register
  */
 
-emitter::code_t emitter::insEncodeShiftType(insOpts opt)
+static emitter::code_t insEncodeShiftType(insOpts opt)
 {
     if (insOptsNone(opt))
     {
@@ -9231,7 +9394,7 @@ emitter::code_t emitter::insEncodeShiftType(insOpts opt)
  *  Returns the encoding to apply a 12 bit left shift to the immediate
  */
 
-emitter::code_t emitter::insEncodeShiftImm12(insOpts opt)
+static emitter::code_t insEncodeShiftImm12(insOpts opt)
 {
     if (insOptsLSL12(opt))
     {
@@ -9245,7 +9408,7 @@ emitter::code_t emitter::insEncodeShiftImm12(insOpts opt)
  *  Returns the encoding to have the Rm register use an extend operation
  */
 
-emitter::code_t emitter::insEncodeExtend(insOpts opt)
+static emitter::code_t insEncodeExtend(insOpts opt)
 {
     if (insOptsNone(opt) || (opt == INS_OPTS_LSL))
     {
@@ -9266,7 +9429,7 @@ emitter::code_t emitter::insEncodeExtend(insOpts opt)
  *  when using an extend operation
  */
 
-/*static*/ emitter::code_t emitter::insEncodeExtendScale(ssize_t imm)
+static emitter::code_t insEncodeExtendScale(ssize_t imm)
 {
     assert((imm >= 0) && (imm <= 4));
 
@@ -9278,7 +9441,7 @@ emitter::code_t emitter::insEncodeExtend(insOpts opt)
  *  Returns the encoding to have the Rm register be auto scaled by the ld/st size
  */
 
-emitter::code_t emitter::insEncodeReg3Scale(bool isScaled)
+static emitter::code_t insEncodeReg3Scale(bool isScaled)
 {
     if (isScaled)
     {
@@ -9295,7 +9458,7 @@ static ssize_t ComputeRelPageAddr(void* dstAddr, void* srcAddr)
     return (reinterpret_cast<ssize_t>(dstAddr) >> 12) - (reinterpret_cast<ssize_t>(srcAddr) >> 12);
 }
 
-uint8_t* emitter::emitOutputLoadLabel(uint8_t* dst, uint8_t* instrAddr, uint8_t* labelAddr, instrDescJmp* id)
+uint8_t* Arm64Encoder::emitOutputLoadLabel(uint8_t* dst, uint8_t* instrAddr, uint8_t* labelAddr, instrDescJmp* id)
 {
     instruction ins    = id->idIns();
     insFormat   fmt    = id->idInsFmt();
@@ -9326,7 +9489,7 @@ uint8_t* emitter::emitOutputLoadLabel(uint8_t* dst, uint8_t* instrAddr, uint8_t*
     return dst + emitOutput_Instr(dst, code);
 }
 
-uint8_t* emitter::emitOutputDL(uint8_t* dst, instrDescJmp* id)
+uint8_t* Arm64Encoder::emitOutputDL(uint8_t* dst, instrDescJmp* id)
 {
     instruction ins = id->idIns();
     insFormat   fmt = id->idInsFmt();
@@ -9397,7 +9560,7 @@ uint8_t* emitter::emitOutputDL(uint8_t* dst, instrDescJmp* id)
     return dst + emitOutput_Instr(dst, code);
 }
 
-uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
+uint8_t* Arm64Encoder::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 {
     assert(!id->HasConstData());
     assert(id->idInsOpt() == INS_OPTS_NONE);
@@ -9468,7 +9631,7 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
                 reverseFmt = IF_BI_1B;
                 break;
             default:
-                reverseIns = emitJumpKindToBranch(emitReverseJumpKind(BranchToJumpKind(ins)));
+                reverseIns = Emitter::emitJumpKindToBranch(Emitter::emitReverseJumpKind(BranchToJumpKind(ins)));
                 reverseFmt = IF_BI_0B;
                 break;
         }
@@ -9488,7 +9651,7 @@ uint8_t* emitter::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     return emitOutputShortBranch(dst, ins, fmt, distance, id);
 }
 
-uint8_t* emitter::emitOutputShortBranch(
+uint8_t* Arm64Encoder::emitOutputShortBranch(
     uint8_t* dst, instruction ins, insFormat fmt, ssize_t distance, instrDescJmp* id)
 {
     noway_assert((distance & 3) == 0);
@@ -9543,7 +9706,7 @@ uint8_t* emitter::emitOutputShortBranch(
     return dst + emitOutput_Instr(dst, code);
 }
 
-uint8_t* emitter::emitOutputShortAddress(uint8_t* dst, instruction ins, ssize_t distance, RegNum reg)
+uint8_t* Arm64Encoder::emitOutputShortAddress(uint8_t* dst, instruction ins, ssize_t distance, RegNum reg)
 {
     assert((ins == INS_adr) || (ins == INS_adrp));
     assert(IsGeneralRegister(reg));
@@ -9559,7 +9722,7 @@ uint8_t* emitter::emitOutputShortAddress(uint8_t* dst, instruction ins, ssize_t 
     return dst + emitOutput_Instr(dst, code);
 }
 
-uint8_t* emitter::emitOutputShortConstant(
+uint8_t* Arm64Encoder::emitOutputShortConstant(
     uint8_t* dst, instruction ins, insFormat fmt, ssize_t imm, regNumber reg, emitAttr opSize)
 {
     assert(ins == INS_ldr);
@@ -9596,12 +9759,18 @@ uint8_t* emitter::emitOutputShortConstant(
     return dst + emitOutput_Instr(dst, code);
 }
 
-unsigned emitter::emitOutput_Instr(BYTE* dst, code_t code)
+unsigned Arm64Encoder::emitOutput_Instr(BYTE* dst, code_t code)
 {
     static_assert_no_msg(sizeof(code_t) == 4);
 
     *reinterpret_cast<code_t*>(dst + writeableOffset) = code;
     return 4;
+}
+
+size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
+{
+    Arm64Encoder encoder(this);
+    return encoder.emitOutputInstr(ig, id, dp);
 }
 
 /*****************************************************************************
@@ -9613,7 +9782,7 @@ unsigned emitter::emitOutput_Instr(BYTE* dst, code_t code)
  *  descriptor in bytes.
  */
 
-size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
+size_t Arm64Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 {
     BYTE*             dst  = *dp;
     BYTE*             odst = dst;
@@ -9621,7 +9790,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     const instruction ins  = id->idIns();
     const insFormat   fmt  = id->idInsFmt();
     const emitAttr    size = id->idOpSize();
-    size_t            sz   = emitGetInstrDescSize(id); // TODO-ARM64-Cleanup: on ARM, this is set in each case. why?
+    size_t sz = Emitter::emitGetInstrDescSize(id); // TODO-ARM64-Cleanup: on ARM, this is set in each case. why?
 
     assert(REG_NA == (int)REG_NA);
 
@@ -10783,7 +10952,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         bool dspOffs = !emitComp->opts.disDiffable;
 #endif
 
-        emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(*dp), *dp, dst - *dp);
+        emit.emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(*dp), *dp, dst - *dp);
     }
 #endif
 

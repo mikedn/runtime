@@ -3,30 +3,18 @@
 
 #ifdef TARGET_ARM
 
-private:
-void emitHandlePCRelativeMov32(void* location, void* target);
+friend class ArmEncoder;
 
+public:
 // This typedef defines the type that we use to hold encoded instructions.
-//
-typedef unsigned int code_t;
+using code_t = uint32_t;
 
 /************************************************************************/
 /*         Routines that compute the size of / encode instructions      */
 /************************************************************************/
 
 static insSize emitInsSize(insFormat insFmt);
-size_t emitGetInstrDescSize(const instrDesc* id);
-
-#ifdef FEATURE_ITINSTRUCTION
-BYTE* emitOutputIT(BYTE* dst, instruction ins, insFormat fmt, code_t condcode);
-#endif // FEATURE_ITINSTRUCTION
-
-uint8_t* emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig);
-uint8_t* emitOutputRL(uint8_t* dst, instrDescJmp* id);
-uint8_t* emitOutputShortBranch(uint8_t* dst, instruction ins, insFormat fmt, ssize_t distVal, instrDesc* id);
-
-unsigned emitOutput_Thumb1Instr(uint8_t* dst, uint32_t code);
-unsigned emitOutput_Thumb2Instr(uint8_t* dst, uint32_t code);
+static size_t emitGetInstrDescSize(const instrDesc* id);
 
 /************************************************************************/
 /*             Debug-only routines to display instructions              */
@@ -81,13 +69,8 @@ static bool emitInsIsCompare(instruction ins);
 static bool emitInsIsLoad(instruction ins);
 static bool emitInsIsStore(instruction ins);
 static bool emitInsIsLoadOrStore(instruction ins);
-code_t emitInsCode(instruction ins, insFormat fmt);
 
 static bool IsMovInstruction(instruction ins);
-static bool isModImmConst(int imm);
-static int encodeModImmConst(int imm);
-
-static int insUnscaleImm(instruction ins, int imm);
 
 void MovRegStackOffset(regNumber reg, int32_t imm, StackAddrMode s);
 int OptimizeFrameAddress(int fpOffset, bool isFloatLoadStore, regNumber* baseReg);
@@ -258,23 +241,6 @@ private:
 void emitSetShortJump(instrDescJmp* id);
 void emitSetMediumJump(instrDescJmp* id);
 
-// Returns true if instruction "id->idIns()" writes to a register that might be used to contain a GC
-// pointer. This exempts the SP and PC registers, and floating point registers. Memory access
-// instructions that pre- or post-increment their memory address registers are *not* considered to write
-// to GC registers, even if that memory address is a by-ref: such an instruction cannot change the GC
-// status of that register, since it must be a byref before and remains one after.
-//
-// This may return false positives.
-bool emitInsMayWriteToGCReg(instrDesc* id);
-
-// Returns true if the instruction may write to more than one register.
-bool emitInsMayWriteMultipleRegs(instrDesc* id);
-
-unsigned insEncodeSetFlags(insFlags sf);
-unsigned insEncodeShiftOpts(insOpts opt);
-unsigned insEncodePUW_G0(insOpts opt, int imm);
-unsigned insEncodePUW_H0(insOpts opt, int imm);
-
 template <typename T>
 T* AllocInstr(bool updateLastIns = true);
 
@@ -286,6 +252,6 @@ instrDesc* emitNewInstrGCReg(emitAttr attr, regNumber reg);
 instrDescJmp*  emitNewInstrJmp();
 instrDescCGCA* emitAllocInstrCGCA();
 
-int32_t emitGetInsSC(instrDesc* id);
+static int32_t emitGetInsSC(instrDesc* id);
 
 #endif // TARGET_ARM
