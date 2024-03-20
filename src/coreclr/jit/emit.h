@@ -1147,7 +1147,7 @@ private:
         }
 
         int64_t emitGetInsSC() const;
-        size_t emitGetInstrDescSize() const;
+        size_t  emitGetInstrDescSize() const;
 #endif // TARGET_ARM64
     };
 
@@ -1567,8 +1567,8 @@ private:
 
     CodePos mainPrologNoGCEndCodePos;
 
-    UNATIVE_OFFSET emitTotalCodeSize    = 0; // bytes of code in entire method
-    UNATIVE_OFFSET emitTotalHotCodeSize = 0;
+    unsigned emitTotalCodeSize    = 0; // bytes of code in entire method
+    unsigned emitTotalHotCodeSize = 0;
 
     insGroup* emitFirstColdIG = nullptr; // first cold instruction group
 
@@ -1786,6 +1786,8 @@ private:
         emitter&   emit;
         GCInfo&    gcInfo;
         RoData&    roData;
+        unsigned   totalCodeSize;
+        unsigned   hotCodeSize;
         uint8_t*   emitCodeBlock;
         uint8_t*   emitColdCodeBlock;
         uint8_t*   emitConsBlock;
@@ -1801,6 +1803,8 @@ private:
             , emit(*emit)
             , gcInfo(emit->gcInfo)
             , roData(emit->roData)
+            , totalCodeSize(emit->emitTotalCodeSize)
+            , hotCodeSize(emit->emitTotalHotCodeSize)
             , emitCurIG(emit->emitCurIG)
 #ifdef JIT32_GCENCODER
             , emitCurStackLvl(emit->emitCurStackLvl)
@@ -1813,6 +1817,11 @@ private:
         void emitEndCodeGen();
 
     protected:
+        unsigned GetColdCodeSize() const
+        {
+            return totalCodeSize - hotCodeSize;
+        }
+
         size_t emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp);
         virtual size_t emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp) = 0;
         void OutputRoData(uint8_t* dst);

@@ -2683,7 +2683,7 @@ void emitter::Encoder::emitEndCodeGen()
             allocMemFlag = CORJIT_ALLOCMEM_FLG_16BYTE_ALIGN;
         }
     }
-    else if (emit.emitTotalHotCodeSize <= 16)
+    else if (hotCodeSize <= 16)
     {
         allocMemFlag = CORJIT_ALLOCMEM_FLG_16BYTE_ALIGN;
     }
@@ -2693,7 +2693,7 @@ void emitter::Encoder::emitEndCodeGen()
     // For x64/x86, align methods that are "optimizations enabled" to 32 byte
     // boundaries if they are larger than 16 bytes and contain a loop.
     if (emitComp->opts.OptimizationEnabled() && !emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) &&
-        (emit.emitTotalHotCodeSize > 16) && emitComp->fgHasLoops)
+        (hotCodeSize > 16) && emitComp->fgHasLoops)
     {
         allocMemFlag = CORJIT_ALLOCMEM_FLG_32BYTE_ALIGN;
     }
@@ -2729,16 +2729,16 @@ void emitter::Encoder::emitEndCodeGen()
     if (roData.size && (roData.align == TARGET_POINTER_SIZE))
     {
         uint32_t roDataAlignment = TARGET_POINTER_SIZE; // 8 Byte align by default.
-        roDataAlignmentDelta     = ALIGN_UP(emit.emitTotalHotCodeSize, roDataAlignment) - emit.emitTotalHotCodeSize;
+        roDataAlignmentDelta     = ALIGN_UP(hotCodeSize, roDataAlignment) - hotCodeSize;
         assert((roDataAlignmentDelta == 0) || (roDataAlignmentDelta == 4));
     }
 
-    args.hotCodeSize = emit.emitTotalHotCodeSize + roDataAlignmentDelta + roData.size;
+    args.hotCodeSize = hotCodeSize + roDataAlignmentDelta + roData.size;
 #else
-    args.hotCodeSize       = emit.emitTotalHotCodeSize;
+    args.hotCodeSize       = hotCodeSize;
     args.roDataSize        = roData.size;
 #endif
-    args.coldCodeSize = emit.GetColdCodeSize();
+    args.coldCodeSize = GetColdCodeSize();
     args.xcptnsCount  = emitComp->compHndBBtabCount;
     args.flag         = allocMemFlag;
 
@@ -2749,8 +2749,8 @@ void emitter::Encoder::emitEndCodeGen()
     uint8_t* coldCodeBlock   = static_cast<uint8_t*>(args.coldCodeBlock);
     uint8_t* coldCodeBlockRW = static_cast<uint8_t*>(args.coldCodeBlockRW);
 #ifdef TARGET_ARM64
-    uint8_t* roDataBlock   = codeBlock + emit.emitTotalHotCodeSize + roDataAlignmentDelta;
-    uint8_t* roDataBlockRW = codeBlockRW + emit.emitTotalHotCodeSize + roDataAlignmentDelta;
+    uint8_t* roDataBlock   = codeBlock + hotCodeSize + roDataAlignmentDelta;
+    uint8_t* roDataBlockRW = codeBlockRW + hotCodeSize + roDataAlignmentDelta;
 #else
     uint8_t* roDataBlock   = static_cast<uint8_t*>(args.roDataBlock);
     uint8_t* roDataBlockRW = static_cast<uint8_t*>(args.roDataBlockRW);
@@ -2783,7 +2783,7 @@ void emitter::Encoder::emitEndCodeGen()
 
         if (ig == emit.emitFirstColdIG)
         {
-            assert(emitCurCodeOffs(cp) == emit.emitTotalHotCodeSize);
+            assert(emitCurCodeOffs(cp) == hotCodeSize);
             assert(coldCodeBlock != nullptr);
 
             cp              = coldCodeBlock;
@@ -2935,7 +2935,7 @@ void emitter::Encoder::emitEndCodeGen()
 #endif
     }
 
-    assert(emit.emitTotalCodeSize == emitCurCodeOffs(cp));
+    assert(totalCodeSize == emitCurCodeOffs(cp));
 #if !FEATURE_FIXED_OUT_ARGS
     assert(emitCurStackLvl == 0);
 #endif
@@ -2956,8 +2956,8 @@ void emitter::Encoder::emitEndCodeGen()
 
 #if defined(DEBUG) || defined(LATE_DISASM)
     // Add code size information into the Perf Score
-    emit.perfScore += static_cast<double>(emit.GetHotCodeSize()) * PERFSCORE_CODESIZE_COST_HOT;
-    emit.perfScore += static_cast<double>(emit.GetColdCodeSize()) * PERFSCORE_CODESIZE_COST_COLD;
+    emit.perfScore += static_cast<double>(hotCodeSize) * PERFSCORE_CODESIZE_COST_HOT;
+    emit.perfScore += static_cast<double>(GetColdCodeSize()) * PERFSCORE_CODESIZE_COST_COLD;
 #endif
 
 #ifdef DEBUG
@@ -3047,7 +3047,7 @@ unsigned emitter::Encoder::emitCurCodeOffs(uint8_t* dst) const
 {
     size_t distance;
 
-    if ((dst >= emitCodeBlock) && (dst <= (emitCodeBlock + emit.emitTotalHotCodeSize)))
+    if ((dst >= emitCodeBlock) && (dst <= emitCodeBlock + hotCodeSize))
     {
         distance = dst - emitCodeBlock;
     }
@@ -3055,9 +3055,9 @@ unsigned emitter::Encoder::emitCurCodeOffs(uint8_t* dst) const
     {
         assert(emit.emitFirstColdIG != nullptr);
         assert(emitColdCodeBlock != nullptr);
-        assert((dst >= emitColdCodeBlock) && (dst <= (emit.emitColdCodeBlock + emit.GetColdCodeSize())));
+        assert((dst >= emitColdCodeBlock) && (dst <= emitColdCodeBlock + GetColdCodeSize()));
 
-        distance = dst - emitColdCodeBlock + emit.emitTotalHotCodeSize;
+        distance = dst - emitColdCodeBlock + hotCodeSize;
     }
 
     noway_assert(distance <= UINT_MAX);
@@ -3067,15 +3067,15 @@ unsigned emitter::Encoder::emitCurCodeOffs(uint8_t* dst) const
 
 uint8_t* emitter::Encoder::emitOffsetToPtr(unsigned offset) const
 {
-    if (offset < emit.emitTotalHotCodeSize)
+    if (offset < hotCodeSize)
     {
         return emitCodeBlock + offset;
     }
     else
     {
-        assert(offset < emit.emitTotalHotCodeSize + emit.GetColdCodeSize());
+        assert(offset < totalCodeSize);
 
-        return emitColdCodeBlock + (offset - emit.emitTotalHotCodeSize);
+        return emitColdCodeBlock + (offset - hotCodeSize);
     }
 }
 
@@ -3104,10 +3104,10 @@ uint8_t* emitter::Encoder::emitDataOffsetToPtr(unsigned offset) const
 #ifdef DEBUG
 bool emitter::Encoder::emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset) const
 {
-    assert(srcOffset < emit.emitTotalCodeSize);
-    assert(dstOffset < emit.emitTotalCodeSize);
+    assert(srcOffset < totalCodeSize);
+    assert(dstOffset < totalCodeSize);
 
-    return (srcOffset < emit.emitTotalHotCodeSize) != (dstOffset < emit.emitTotalHotCodeSize);
+    return (srcOffset < hotCodeSize) != (dstOffset < hotCodeSize);
 }
 #endif // DEBUG
 
