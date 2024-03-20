@@ -1485,11 +1485,9 @@ public:
     // If we have started issuing instructions from the list of instrDesc, this is set
     INDEBUG(bool emitIssuing = false;)
 
-    BYTE*  emitCodeBlock     = nullptr; // Hot code block
-    BYTE*  emitColdCodeBlock = nullptr; // Cold code block
-    BYTE*  emitConsBlock     = nullptr; // Read-only (constant) data block
-
-    BYTE* emitOffsetToPtr(UNATIVE_OFFSET offset) const;
+    BYTE* emitCodeBlock     = nullptr; // Hot code block
+    BYTE* emitColdCodeBlock = nullptr; // Cold code block
+    BYTE* emitConsBlock     = nullptr; // Read-only (constant) data block
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
     bool emitInInstrumentation = false;
@@ -1830,12 +1828,7 @@ private:
         }
 
         unsigned emitCurCodeOffs(uint8_t* dst) const;
-
-        uint8_t* emitOffsetToPtr(unsigned offset) const
-        {
-            return emit.emitOffsetToPtr(offset);
-        }
-
+        uint8_t* emitOffsetToPtr(unsigned offset) const;
         uint8_t* emitDataOffsetToPtr(unsigned offset) const;
 
 #if FEATURE_LOOP_ALIGN

@@ -3065,17 +3065,17 @@ unsigned emitter::Encoder::emitCurCodeOffs(uint8_t* dst) const
     return static_cast<unsigned>(distance);
 }
 
-BYTE* emitter::emitOffsetToPtr(UNATIVE_OFFSET offset) const
+uint8_t* emitter::Encoder::emitOffsetToPtr(unsigned offset) const
 {
-    if (offset < emitTotalHotCodeSize)
+    if (offset < emit.emitTotalHotCodeSize)
     {
         return emitCodeBlock + offset;
     }
     else
     {
-        assert(offset < (emitTotalHotCodeSize + GetColdCodeSize()));
+        assert(offset < emit.emitTotalHotCodeSize + emit.GetColdCodeSize());
 
-        return emitColdCodeBlock + (offset - emitTotalHotCodeSize);
+        return emit.emitColdCodeBlock + (offset - emit.emitTotalHotCodeSize);
     }
 }
 
