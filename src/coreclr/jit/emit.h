@@ -1405,7 +1405,6 @@ private:
 
     static const char* emitRegName(regNumber reg, emitAttr size = EA_PTRSIZE);
 
-    void GetGCDeltaDumpHeader(char* buffer, size_t count);
     void emitDispIG(insGroup* ig, bool dispInstr);
     void emitDispIGlist(bool dispInstr);
     void emitDispInsAddr(BYTE* code);
@@ -1848,6 +1847,7 @@ private:
 
 #ifdef DEBUG
         void PrintRoData() const;
+        void GetGCDeltaDumpHeader(char* buffer, size_t count);
         bool emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset) const;
 
         const char* emitIfName(unsigned f)

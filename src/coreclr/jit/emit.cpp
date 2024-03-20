@@ -2864,7 +2864,7 @@ void emitter::Encoder::emitEndCodeGen()
             if (emitComp->verbose || emitComp->opts.disasmWithGC)
             {
                 char header[128];
-                emit.GetGCDeltaDumpHeader(header, _countof(header));
+                GetGCDeltaDumpHeader(header, _countof(header));
                 gcInfo.DumpDelta(header);
             }
 #endif
@@ -2899,7 +2899,7 @@ void emitter::Encoder::emitEndCodeGen()
             if (emitComp->verbose || emitComp->opts.disasmWithGC)
             {
                 char header[128];
-                emit.GetGCDeltaDumpHeader(header, _countof(header));
+                GetGCDeltaDumpHeader(header, _countof(header));
                 gcInfo.DumpDelta(header);
             }
 
@@ -3735,7 +3735,7 @@ size_t emitter::Encoder::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint
         if (emitComp->verbose || emitComp->opts.disasmWithGC)
         {
             char header[128];
-            emit.GetGCDeltaDumpHeader(header, _countof(header));
+            GetGCDeltaDumpHeader(header, _countof(header));
             gcInfo.DumpStackSlotLifetimeDelta(header);
         }
 #endif
@@ -3859,7 +3859,7 @@ void emitter::Encoder::emitStackKillArgs(unsigned codeOffs, unsigned count)
 
 #ifdef DEBUG
 
-void emitter::GetGCDeltaDumpHeader(char* buffer, size_t count)
+void emitter::Encoder::GetGCDeltaDumpHeader(char* buffer, size_t count)
 {
 // Interleaved GC info dumping.
 // We'll attempt to line this up with the opcode, which indented differently for
