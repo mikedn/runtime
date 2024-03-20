@@ -3551,9 +3551,9 @@ void emitter::emitRecordRelocation(void* location, void* target, uint16_t relocT
 }
 
 // A helper for recording a call site with the EE.
-void emitter::emitRecordCallSite(ULONG                 instrOffset,  /* IN */
-                                 CORINFO_SIG_INFO*     callSig,      /* IN */
-                                 CORINFO_METHOD_HANDLE methodHandle) /* IN */
+void emitter::Encoder::emitRecordCallSite(unsigned              instrOffset,
+                                          CORINFO_SIG_INFO*     callSig,
+                                          CORINFO_METHOD_HANDLE methodHandle)
 {
 #ifdef DEBUG
     // Since CORINFO_SIG_INFO is a heavyweight structure, in most cases we can
@@ -3573,7 +3573,7 @@ void emitter::emitRecordCallSite(ULONG                 instrOffset,  /* IN */
         }
     }
 
-    emitCmpHandle->recordCallSite(instrOffset, callSig, methodHandle);
+    emitComp->info.compCompHnd->recordCallSite(instrOffset, callSig, methodHandle);
 #endif // DEBUG
 }
 
@@ -3639,9 +3639,8 @@ const char* emitter::emitOffsetToLabel(unsigned offs)
 
 #endif // DEBUG
 
-void emitter::emitGCvarLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(int varNum))
+void emitter::Encoder::emitGCvarLiveUpd(int offs, GCtype gcType, uint8_t* addr DEBUGARG(int varNum))
 {
-    assert(emitIssuing);
     assert(gcType != GCT_NONE);
     assert((varNum < 0) || (emitComp->lvaGetDesc(static_cast<unsigned>(varNum))->HasGCSlotLiveness()));
 #if FEATURE_FIXED_OUT_ARGS
@@ -3658,7 +3657,7 @@ void emitter::emitGCvarLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(int 
 
 #if FEATURE_FIXED_OUT_ARGS
 
-void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(int varNum))
+void emitter::Encoder::emitGCargLiveUpd(int offs, GCtype gcType, uint8_t* addr DEBUGARG(int varNum))
 {
     assert(abs(offs) % REGSIZE_BYTES == 0);
     assert(gcType != GCT_NONE);
@@ -3672,10 +3671,8 @@ void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(int 
 
 #endif // FEATURE_FIXED_OUT_ARGS
 
-size_t emitter::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* callEndAddr)
+size_t emitter::Encoder::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* callEndAddr)
 {
-    assert(emitIssuing);
-
     regMaskTP refRegs;
     regMaskTP byrefRegs;
     VARSET_TP gcLcls;
@@ -3702,7 +3699,7 @@ size_t emitter::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* call
 
         refRegs   = DecodeCallGCRegs(id);
         byrefRegs = RBM_NONE;
-        gcLcls    = emitEmptyGCrefVars;
+        gcLcls    = emit.emitEmptyGCrefVars;
         X86_ONLY(argCount = id->idSmallCns());
 
         if (id->idGCref() == GCT_GCREF)
@@ -3736,7 +3733,7 @@ size_t emitter::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* call
         if (emitComp->verbose || emitComp->opts.disasmWithGC)
         {
             char header[128];
-            GetGCDeltaDumpHeader(header, _countof(header));
+            emit.GetGCDeltaDumpHeader(header, _countof(header));
             gcInfo.DumpStackSlotLifetimeDelta(header);
         }
 #endif
@@ -3799,20 +3796,16 @@ size_t emitter::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* call
     return sz;
 }
 
-void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
+void emitter::Encoder::emitGCregLiveUpd(GCtype gcType, RegNum reg, uint8_t* addr)
 {
-    assert(emitIssuing);
-
     if (!emitCurIG->IsMainEpilog())
     {
         gcInfo.AddLiveReg(gcType, reg, emitCurCodeOffs(addr));
     }
 }
 
-void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
+void emitter::Encoder::emitGCregDeadUpd(RegNum reg, uint8_t* addr)
 {
-    assert(emitIssuing);
-
     if (!emitCurIG->IsMainEpilog())
     {
         gcInfo.RemoveLiveReg(reg, emitCurCodeOffs(addr));
@@ -3820,10 +3813,8 @@ void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
 }
 
 #ifdef FEATURE_EH_FUNCLETS
-void emitter::emitGCregDeadAll(BYTE* addr)
+void emitter::Encoder::emitGCregDeadAll(uint8_t* addr)
 {
-    assert(emitIssuing);
-
     if (!emitCurIG->IsMainEpilog())
     {
         gcInfo.RemoveAllLiveRegs(emitCurCodeOffs(addr));
@@ -3833,42 +3824,32 @@ void emitter::emitGCregDeadAll(BYTE* addr)
 
 #ifdef JIT32_GCENCODER
 
-void emitter::emitStackPush(unsigned codeOffs, GCtype type)
+void emitter::Encoder::emitStackPush(unsigned codeOffs, GCtype type)
 {
-    assert(emitIssuing);
-
     gcInfo.StackPush(type, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs);
     emitCurStackLvl += TARGET_POINTER_SIZE;
 }
 
-void emitter::emitStackPushN(unsigned codeOffs, unsigned count)
+void emitter::Encoder::emitStackPushN(unsigned codeOffs, unsigned count)
 {
-    assert(emitIssuing);
-
     gcInfo.StackPushMultiple(count, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs);
     emitCurStackLvl += count * TARGET_POINTER_SIZE;
 }
 
-void emitter::emitStackPop(unsigned codeOffs, unsigned count)
+void emitter::Encoder::emitStackPop(unsigned codeOffs, unsigned count)
 {
-    assert(emitIssuing);
-
     gcInfo.StackPop(count, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs, false);
     emitCurStackLvl -= count * TARGET_POINTER_SIZE;
 }
 
-void emitter::emitStackPopArgs(unsigned codeOffs, unsigned count)
+void emitter::Encoder::emitStackPopArgs(unsigned codeOffs, unsigned count)
 {
-    assert(emitIssuing);
-
     gcInfo.StackPop(count, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs, true);
     emitCurStackLvl -= count * TARGET_POINTER_SIZE;
 }
 
-void emitter::emitStackKillArgs(unsigned codeOffs, unsigned count)
+void emitter::Encoder::emitStackKillArgs(unsigned codeOffs, unsigned count)
 {
-    assert(emitIssuing);
-
     gcInfo.StackKill(count, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs);
 }
 

@@ -1742,14 +1742,7 @@ private:
     unsigned emitCntStackDepth;     // 0 in prolog/epilog, One DWORD elsewhere
     unsigned emitMaxStackDepth = 0; // actual computed max. stack depth
     unsigned emitCurStackLvl   = 0; // amount of bytes pushed on stack
-
-    void emitStackPush(unsigned codeOffs, GCtype type);
-    void emitStackPushN(unsigned codeOffs, unsigned count);
-    void emitStackPop(unsigned codeOffs, unsigned count);
-    void emitStackPopArgs(unsigned codeOffs, unsigned count);
-    void emitStackKillArgs(unsigned codeOffs, unsigned count);
 #endif
-    size_t emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* callEndAddr);
 
 #ifdef DEBUG
 public:
@@ -1757,17 +1750,6 @@ public:
 
 private:
 #endif
-
-    void emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr);
-    void emitGCregDeadUpd(regNumber reg, BYTE* addr);
-#ifdef FEATURE_EH_FUNCLETS
-    void emitGCregDeadAll(BYTE* addr);
-#endif
-
-#if FEATURE_FIXED_OUT_ARGS
-    void emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(int varNum));
-#endif
-    void emitGCvarLiveUpd(int slotOffs, GCtype gcType, BYTE* addr DEBUGARG(int varNum));
 
     /************************************************************************/
     /*      The following logic keeps track of initialized data sections    */
@@ -1789,10 +1771,6 @@ private:
     INDEBUG(void PrintRoData() const;)
 
     void emitRecordRelocation(void* location, void* target, uint16_t fRelocType, int32_t addlDelta = 0);
-
-    void emitRecordCallSite(ULONG                 instrOffset,   /* IN */
-                            CORINFO_SIG_INFO*     callSig,       /* IN */
-                            CORINFO_METHOD_HANDLE methodHandle); /* IN */
 
     class Encoder
     {
@@ -1841,39 +1819,18 @@ private:
         size_t emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp);
         virtual size_t emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp) = 0;
 
-        void emitGCregLiveUpd(GCtype gcType, RegNum reg, uint8_t* addr)
-        {
-            emit.emitGCregLiveUpd(gcType, reg, addr);
-        }
-
-        void emitGCregDeadUpd(RegNum reg, uint8_t* addr)
-        {
-            emit.emitGCregDeadUpd(reg, addr);
-        }
-
-        void emitGCvarLiveUpd(int slotOffs, GCtype gcType, uint8_t* addr DEBUGARG(int varNum))
-        {
-            emit.emitGCvarLiveUpd(slotOffs, gcType, addr DEBUGARG(varNum));
-        }
-
-#if FEATURE_FIXED_OUT_ARGS
-        void emitGCargLiveUpd(int offs, GCtype gcType, uint8_t* addr DEBUGARG(int varNum))
-        {
-            emit.emitGCargLiveUpd(offs, gcType, addr DEBUGARG(varNum));
-        }
-#endif
-
+        void emitGCregLiveUpd(GCtype gcType, RegNum reg, uint8_t* addr);
+        void emitGCregDeadUpd(RegNum reg, uint8_t* addr);
 #ifdef FEATURE_EH_FUNCLETS
-        void emitGCregDeadAll(uint8_t* addr)
-        {
-            emit.emitGCregDeadAll(addr);
-        }
+        void emitGCregDeadAll(uint8_t* addr);
+#endif
+        void emitGCvarLiveUpd(int slotOffs, GCtype gcType, uint8_t* addr DEBUGARG(int varNum));
+#if FEATURE_FIXED_OUT_ARGS
+        void emitGCargLiveUpd(int offs, GCtype gcType, uint8_t* addr DEBUGARG(int varNum));
 #endif
 
-        size_t emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* callEndAddr)
-        {
-            return emit.emitRecordGCCall(id, callAddr, callEndAddr);
-        }
+        size_t emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* callEndAddr);
+        void emitRecordCallSite(unsigned instrOffset, CORINFO_SIG_INFO* callSig, CORINFO_METHOD_HANDLE methodHandle);
 
         void emitRecordRelocation(void* location, void* target, uint16_t relocType, int32_t addlDelta = 0)
         {
@@ -1908,20 +1865,11 @@ private:
 #endif
 
 #ifdef JIT32_GCENCODER
-        void emitStackPush(unsigned codeOffs, GCtype type)
-        {
-            emit.emitStackPush(codeOffs, type);
-        }
-
-        void emitStackPushN(unsigned codeOffs, unsigned count)
-        {
-            emit.emitStackPushN(codeOffs, count);
-        }
-
-        void emitStackPop(unsigned codeOffs, unsigned count)
-        {
-            emit.emitStackPop(codeOffs, count);
-        }
+        void emitStackPush(unsigned codeOffs, GCtype type);
+        void emitStackPushN(unsigned codeOffs, unsigned count);
+        void emitStackPop(unsigned codeOffs, unsigned count);
+        void emitStackPopArgs(unsigned codeOffs, unsigned count);
+        void emitStackKillArgs(unsigned codeOffs, unsigned count);
 #endif
 
 #ifdef DEBUG
