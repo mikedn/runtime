@@ -446,59 +446,6 @@ void emitIns_Call(EmitCallType          kind,
 private:
 void emitSetShortJump(instrDescJmp* id);
 
-/*****************************************************************************
- *
- *  Given an instrDesc, return true if it's a conditional jump.
- */
-
-static bool emitIsCondJump(instrDesc* jmp)
-{
-    return ((jmp->idInsFmt() == IF_BI_0B) || (jmp->idInsFmt() == IF_BI_1A) || (jmp->idInsFmt() == IF_BI_1B) ||
-            (jmp->idInsFmt() == IF_LARGEJMP));
-}
-
-/*****************************************************************************
- *
- *  Given a instrDesc, return true if it's an unconditional jump.
- */
-
-static bool emitIsUncondJump(instrDesc* jmp)
-{
-    return (jmp->idInsFmt() == IF_BI_0A);
-}
-
-/*****************************************************************************
- *
- *  Given a instrDesc, return true if it's a direct call.
- */
-
-static bool emitIsDirectCall(instrDesc* call)
-{
-    return (call->idInsFmt() == IF_BI_0C);
-}
-
-/*****************************************************************************
- *
- *  Given a instrDesc, return true if it's a load label instruction.
- */
-
-static bool emitIsLoadLabel(instrDesc* jmp)
-{
-    return ((jmp->idInsFmt() == IF_DI_1E) || // adr or arp
-            (jmp->idInsFmt() == IF_LARGEADR));
-}
-
-/*****************************************************************************
-*
-*  Given a instrDesc, return true if it's a load constant instruction.
-*/
-
-static bool emitIsLoadConstant(instrDesc* jmp)
-{
-    return ((jmp->idInsFmt() == IF_LS_1A) || // ldr
-            (jmp->idInsFmt() == IF_LARGELDC));
-}
-
 /************************************************************************/
 /*                   Interface for generating unwind information        */
 /************************************************************************/

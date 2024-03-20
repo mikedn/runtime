@@ -188,47 +188,6 @@ void emitIns_Call(EmitCallType          kind,
                   regNumber reg    = REG_NA,
                   bool      isJump = false);
 
-private:
-/*****************************************************************************
- *
- *  Given an instrDesc, return true if it's a conditional jump.
- */
-
-inline bool emitIsCondJump(instrDesc* jmp)
-{
-    return (jmp->idInsFmt() == IF_T2_J1) || (jmp->idInsFmt() == IF_T1_K) || (jmp->idInsFmt() == IF_LARGEJMP);
-}
-
-/*****************************************************************************
- *
- *  Given an instrDesc, return true if it's a comapre and jump.
- */
-
-inline bool emitIsCmpJump(instrDesc* jmp)
-{
-    return (jmp->idInsFmt() == IF_T1_I);
-}
-
-/*****************************************************************************
- *
- *  Given a instrDesc, return true if it's an unconditional jump.
- */
-
-inline bool emitIsUncondJump(instrDesc* jmp)
-{
-    return (jmp->idInsFmt() == IF_T2_J2) || (jmp->idInsFmt() == IF_T1_M);
-}
-
-/*****************************************************************************
- *
- *  Given a instrDesc, return true if it's a load label instruction.
- */
-
-inline bool emitIsLoadLabel(instrDesc* jmp)
-{
-    return (jmp->idInsFmt() == IF_T2_M1) || (jmp->idInsFmt() == IF_T1_J3) || (jmp->idInsFmt() == IF_T2_N1);
-}
-
 /************************************************************************/
 /*                   Interface for generating unwind information        */
 /************************************************************************/
