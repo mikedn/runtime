@@ -1492,7 +1492,6 @@ public:
 
     BYTE* emitOffsetToPtr(UNATIVE_OFFSET offset) const;
     BYTE* emitDataOffsetToPtr(UNATIVE_OFFSET offset);
-    INDEBUG(bool emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset);)
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
     bool emitInInstrumentation = false;
@@ -1869,10 +1868,7 @@ private:
 #endif
 
 #ifdef DEBUG
-        bool emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset)
-        {
-            return emit.emitJumpCrossHotColdBoundary(srcOffset, dstOffset);
-        }
+        bool emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset) const;
 
         const char* emitIfName(unsigned f)
         {

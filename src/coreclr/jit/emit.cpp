@@ -3087,12 +3087,12 @@ BYTE* emitter::emitDataOffsetToPtr(UNATIVE_OFFSET offset)
 }
 
 #ifdef DEBUG
-bool emitter::emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset)
+bool emitter::Encoder::emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset) const
 {
-    assert(srcOffset < emitTotalCodeSize);
-    assert(dstOffset < emitTotalCodeSize);
+    assert(srcOffset < emit.emitTotalCodeSize);
+    assert(dstOffset < emit.emitTotalCodeSize);
 
-    return (srcOffset < emitTotalHotCodeSize) != (dstOffset < emitTotalHotCodeSize);
+    return (srcOffset < emit.emitTotalHotCodeSize) != (dstOffset < emit.emitTotalHotCodeSize);
 }
 #endif // DEBUG
 
