@@ -1488,7 +1488,6 @@ public:
     BYTE*  emitCodeBlock     = nullptr; // Hot code block
     BYTE*  emitColdCodeBlock = nullptr; // Cold code block
     BYTE*  emitConsBlock     = nullptr; // Read-only (constant) data block
-    size_t writeableOffset   = 0;       // Offset applied to a code address to get memory location that can be written
 
     BYTE* emitOffsetToPtr(UNATIVE_OFFSET offset) const;
 

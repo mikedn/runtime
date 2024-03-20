@@ -2763,12 +2763,11 @@ void emitter::Encoder::emitEndCodeGen()
     emit.emitColdCodeBlock = coldCodeBlock;
     emit.emitConsBlock     = roDataBlock;
 
-    uint8_t* cp          = codeBlock;
-    emit.writeableOffset = codeBlockRW - codeBlock;
+    uint8_t* cp = codeBlock;
 
     emitCodeBlock   = emit.emitCodeBlock;
     emitConsBlock   = emit.emitConsBlock;
-    writeableOffset = emit.writeableOffset;
+    writeableOffset = codeBlockRW - codeBlock;
 
 #if !FEATURE_FIXED_OUT_ARGS
     emitCurStackLvl = 0;
