@@ -3079,6 +3079,22 @@ uint8_t* emitter::Encoder::emitOffsetToPtr(unsigned offset) const
     }
 }
 
+#ifdef TARGET_ARMARCH
+uint8_t* emitter::emitOffsetToPtr(unsigned offset) const
+{
+    if (offset < emitTotalHotCodeSize)
+    {
+        return emitCodeBlock + offset;
+    }
+    else
+    {
+        assert(offset < emitTotalHotCodeSize + GetColdCodeSize());
+
+        return emitColdCodeBlock + (offset - emitTotalHotCodeSize);
+    }
+}
+#endif
+
 uint8_t* emitter::Encoder::emitDataOffsetToPtr(unsigned offset) const
 {
     assert(offset < roData.size);

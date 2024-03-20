@@ -235,6 +235,7 @@ inline bool emitIsLoadLabel(instrDesc* jmp)
 public:
 void emitUnwindNopPadding(const emitLocation& loc);
 unsigned emitGetInstructionSize(const emitLocation& emit);
+uint8_t* emitOffsetToPtr(unsigned offset) const;
 
 private:
 void emitSetShortJump(instrDescJmp* id);

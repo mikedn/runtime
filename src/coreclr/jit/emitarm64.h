@@ -517,4 +517,6 @@ instrDesc* emitNewInstrGCReg(emitAttr attr, regNumber reg);
 instrDescJmp*  emitNewInstrJmp();
 instrDescCGCA* emitAllocInstrCGCA();
 
+uint8_t* emitOffsetToPtr(unsigned offset) const;
+
 #endif // TARGET_ARM64
