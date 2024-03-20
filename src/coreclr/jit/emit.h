@@ -1490,7 +1490,6 @@ public:
     BYTE*  emitConsBlock     = nullptr; // Read-only (constant) data block
     size_t writeableOffset   = 0;       // Offset applied to a code address to get memory location that can be written
 
-    UNATIVE_OFFSET emitCurCodeOffs(BYTE* dst);
     BYTE* emitOffsetToPtr(UNATIVE_OFFSET offset) const;
     BYTE* emitDataOffsetToPtr(UNATIVE_OFFSET offset);
     INDEBUG(bool emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset);)
@@ -1842,10 +1841,7 @@ private:
             return emit.emitFindInsNum(ig, instr);
         }
 
-        unsigned emitCurCodeOffs(uint8_t* dst)
-        {
-            return emit.emitCurCodeOffs(dst);
-        }
+        unsigned emitCurCodeOffs(uint8_t* dst) const;
 
         uint8_t* emitOffsetToPtr(unsigned offset) const
         {

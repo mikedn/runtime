@@ -3044,23 +3044,26 @@ uint32_t insGroup::GetCodeOffset(CodePos codePos) const
     return igOffs + insOffs;
 }
 
-UNATIVE_OFFSET emitter::emitCurCodeOffs(BYTE* dst)
+unsigned emitter::Encoder::emitCurCodeOffs(uint8_t* dst) const
 {
     size_t distance;
-    if ((dst >= emitCodeBlock) && (dst <= (emitCodeBlock + emitTotalHotCodeSize)))
+
+    if ((dst >= emitCodeBlock) && (dst <= (emitCodeBlock + emit.emitTotalHotCodeSize)))
     {
-        distance = (dst - emitCodeBlock);
+        distance = dst - emitCodeBlock;
     }
     else
     {
-        assert(emitFirstColdIG);
-        assert(emitColdCodeBlock);
-        assert((dst >= emitColdCodeBlock) && (dst <= (emitColdCodeBlock + GetColdCodeSize())));
+        assert(emit.emitFirstColdIG != nullptr);
+        assert(emit.emitColdCodeBlock != nullptr);
+        assert((dst >= emit.emitColdCodeBlock) && (dst <= (emit.emitColdCodeBlock + emit.GetColdCodeSize())));
 
-        distance = (dst - emitColdCodeBlock + emitTotalHotCodeSize);
+        distance = dst - emit.emitColdCodeBlock + emit.emitTotalHotCodeSize;
     }
-    noway_assert((UNATIVE_OFFSET)distance == distance);
-    return (UNATIVE_OFFSET)distance;
+
+    noway_assert(distance <= UINT_MAX);
+
+    return static_cast<unsigned>(distance);
 }
 
 BYTE* emitter::emitOffsetToPtr(UNATIVE_OFFSET offset) const
