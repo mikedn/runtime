@@ -1119,6 +1119,12 @@ private:
         }
 #endif // TARGET_ARMARCH
 
+#ifdef TARGET_ARM
+        size_t  emitGetInstrDescSize() const;
+        size_t  emitGetInstrDescSizeSC() const;
+        int32_t emitGetInsSC() const;
+#endif
+
 #ifdef TARGET_ARM64
         GCtype idGCrefReg2() const
         {
@@ -1139,6 +1145,9 @@ private:
         {
             idAddr()->_idReg3Scaled = val;
         }
+
+        int64_t emitGetInsSC() const;
+        size_t emitGetInstrDescSize() const;
 #endif // TARGET_ARM64
     };
 

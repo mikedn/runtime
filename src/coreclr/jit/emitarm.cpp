@@ -122,14 +122,14 @@ static emitJumpKind BranchToJumpKind(instruction ins)
     return static_cast<emitJumpKind>(EJ_jmp + (ins - INS_b));
 }
 
-size_t emitter::emitGetInstrDescSize(const instrDesc* id)
+size_t emitter::instrDesc::emitGetInstrDescSize() const
 {
-    if (id->idIsSmallDsc())
+    if (idIsSmallDsc())
     {
         return sizeof(instrDescSmall);
     }
 
-    if (id->idIsLargeCns())
+    if (idIsLargeCns())
     {
         return sizeof(instrDescCns);
     }
@@ -224,9 +224,9 @@ static bool offsetFitsInVectorMem(int disp)
     return ((imm & 0x03fc) == imm);
 }
 
-int32_t emitter::emitGetInsSC(instrDesc* id)
+int32_t emitter::instrDesc::emitGetInsSC() const
 {
-    return id->idIsLargeCns() ? static_cast<instrDescCns*>(id)->idcCnsVal : id->idSmallCns();
+    return idIsLargeCns() ? static_cast<const instrDescCns*>(this)->idcCnsVal : idSmallCns();
 }
 
 #ifdef DEBUG
@@ -246,13 +246,13 @@ void emitter::emitInsSanityCheck(instrDesc* id)
 
         case IF_T1_B: // T1_B    ........cccc....                                           cond
         case IF_T2_B: // T2_B    ................ ............iiii                          imm4
-            assert(emitGetInsSC(id) < 0x10);
+            assert(id->emitGetInsSC() < 0x10);
             break;
 
         case IF_T1_C: // T1_C    .....iiiiinnnddd                       R1  R2              imm5
             assert(isLowRegister(id->idReg1()));
             assert(isLowRegister(id->idReg2()));
-            assert(insUnscaleImm(id->idIns(), emitGetInsSC(id)) < 0x20);
+            assert(insUnscaleImm(id->idIns(), id->emitGetInsSC()) < 0x20);
             break;
 
         case IF_T1_D0: // T1_D0   ........Dmmmmddd                       R1* R2*
@@ -277,7 +277,7 @@ void emitter::emitInsSanityCheck(instrDesc* id)
         case IF_T1_F: // T1_F    .........iiiiiii                       SP                  imm7
             assert(id->idReg1() == REG_SP);
             assert(id->idOpSize() == EA_4BYTE);
-            assert((emitGetInsSC(id) & ~0x1FC) == 0);
+            assert((id->emitGetInsSC() & ~0x1FC) == 0);
             break;
 
         case IF_T1_G: // T1_G    .......iiinnnddd                       R1  R2              imm3
@@ -298,34 +298,34 @@ void emitter::emitInsSanityCheck(instrDesc* id)
 
         case IF_T1_J0: // T1_J0   .....dddiiiiiiii                       R1                  imm8
             assert(isLowRegister(id->idReg1()));
-            assert(emitGetInsSC(id) < 0x100);
+            assert(id->emitGetInsSC() < 0x100);
             break;
 
         case IF_T1_J1: // T1_J1   .....dddiiiiiiii                       R1                  <regmask8>
             assert(isLowRegister(id->idReg1()));
-            assert(emitGetInsSC(id) < 0x100);
+            assert(id->emitGetInsSC() < 0x100);
             break;
 
         case IF_T1_J2: // T1_J2   .....dddiiiiiiii                       R1  SP              imm8
             assert(isLowRegister(id->idReg1()));
             assert(id->idReg2() == REG_SP);
             assert(id->idOpSize() == EA_4BYTE);
-            assert((emitGetInsSC(id) & ~0x3FC) == 0);
+            assert((id->emitGetInsSC() & ~0x3FC) == 0);
             break;
 
         case IF_T1_L0: // T1_L0   ........iiiiiiii                                           imm8
-            assert(emitGetInsSC(id) < 0x100);
+            assert(id->emitGetInsSC() < 0x100);
             break;
 
         case IF_T1_L1: // T1_L1   .......Rrrrrrrrr                                           <regmask8+2>
-            assert(emitGetInsSC(id) < 0x400);
+            assert(id->emitGetInsSC() < 0x400);
             break;
 
         case IF_T2_C0: // T2_C0   ...........Snnnn .iiiddddiishmmmm       R1  R2  R3      S, imm5, sh
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
             assert(isGeneralRegister(id->idReg3()));
-            assert(emitGetInsSC(id) < 0x20);
+            assert(id->emitGetInsSC() < 0x20);
             break;
 
         case IF_T2_C4: // T2_C4   ...........Snnnn ....dddd....mmmm       R1  R2  R3      S
@@ -341,14 +341,14 @@ void emitter::emitInsSanityCheck(instrDesc* id)
         case IF_T2_C8: // T2_C8   ............nnnn .iii....iishmmmm       R1  R2             imm5, sh
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
-            assert(emitGetInsSC(id) < 0x20);
+            assert(id->emitGetInsSC() < 0x20);
             break;
 
         case IF_T2_C6: // T2_C6   ................ ....dddd..iimmmm       R1  R2                   imm2
         case IF_T2_C7: // T2_C7   ............nnnn ..........shmmmm       R1  R2                   imm2
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
-            assert(emitGetInsSC(id) < 0x4);
+            assert(id->emitGetInsSC() < 0x4);
             break;
 
         case IF_T2_C3:  // T2_C3   ...........S.... ....dddd....mmmm       R1  R2          S
@@ -361,12 +361,12 @@ void emitter::emitInsSanityCheck(instrDesc* id)
         case IF_T2_D0: // T2_D0   ............nnnn .iiiddddii.wwwww       R1  R2             imm5, imm5
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
-            assert(emitGetInsSC(id) < 0x400);
+            assert(id->emitGetInsSC() < 0x400);
             break;
 
         case IF_T2_D1: // T2_D1   ................ .iiiddddii.wwwww       R1                 imm5, imm5
             assert(isGeneralRegister(id->idReg1()));
-            assert(emitGetInsSC(id) < 0x400);
+            assert(id->emitGetInsSC() < 0x400);
             break;
 
         case IF_T2_E0: // T2_E0   ............nnnn tttt......shmmmm       R1  R2  R3               imm2
@@ -379,7 +379,7 @@ void emitter::emitInsSanityCheck(instrDesc* id)
             else
             {
                 assert(isGeneralRegister(id->idReg3()));
-                assert(emitGetInsSC(id) < 0x4);
+                assert(id->emitGetInsSC() < 0x4);
             }
             break;
 
@@ -404,29 +404,29 @@ void emitter::emitInsSanityCheck(instrDesc* id)
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
             assert(isGeneralRegister(id->idReg3()));
-            assert(unsigned_abs(emitGetInsSC(id)) < 0x100);
+            assert(unsigned_abs(id->emitGetInsSC()) < 0x100);
             break;
 
         case IF_T2_H0: // T2_H0   ............nnnn tttt.PUWiiiiiiii       R1  R2             imm8, PUW
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
-            assert(unsigned_abs(emitGetInsSC(id)) < 0x100);
+            assert(unsigned_abs(id->emitGetInsSC()) < 0x100);
             break;
 
         case IF_T2_H1: // T2_H1   ............nnnn tttt....iiiiiiii       R1  R2             imm8
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
-            assert(emitGetInsSC(id) < 0x100);
+            assert(id->emitGetInsSC() < 0x100);
             break;
 
         case IF_T2_H2: // T2_H2   ............nnnn ........iiiiiiii       R1                 imm8
             assert(isGeneralRegister(id->idReg1()));
-            assert(emitGetInsSC(id) < 0x100);
+            assert(id->emitGetInsSC() < 0x100);
             break;
 
         case IF_T2_I0: // T2_I0   ..........W.nnnn rrrrrrrrrrrrrrrr       R1              W, imm16
             assert(isGeneralRegister(id->idReg1()));
-            assert(emitGetInsSC(id) < 0x10000);
+            assert(id->emitGetInsSC() < 0x10000);
             break;
 
         case IF_T2_N: // T2_N    .....i......iiii .iiiddddiiiiiiii       R1                 imm16
@@ -436,7 +436,7 @@ void emitter::emitInsSanityCheck(instrDesc* id)
 
         case IF_T2_N2: // T2_N2   .....i......iiii .iiiddddiiiiiiii       R1                 imm16
             assert(isGeneralRegister(id->idReg1()));
-            assert((size_t)emitGetInsSC(id) < roData.size);
+            assert((size_t)id->emitGetInsSC() < roData.size);
             break;
 
         case IF_T2_N3: // T2_N3   .....i......iiii .iiiddddiiiiiiii       R1                 imm16
@@ -445,49 +445,49 @@ void emitter::emitInsSanityCheck(instrDesc* id)
             break;
 
         case IF_T2_I1: // T2_I1   ................ rrrrrrrrrrrrrrrr                          imm16
-            assert(emitGetInsSC(id) < 0x10000);
+            assert(id->emitGetInsSC() < 0x10000);
             break;
 
         case IF_T2_K1: // T2_K1   ............nnnn ttttiiiiiiiiiiii       R1  R2             imm12
         case IF_T2_M0: // T2_M0   .....i......nnnn .iiiddddiiiiiiii       R1  R2             imm12
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
-            assert(emitGetInsSC(id) < 0x1000);
+            assert(id->emitGetInsSC() < 0x1000);
             break;
 
         case IF_T2_L0: // T2_L0   .....i.....Snnnn .iiiddddiiiiiiii       R1  R2          S, imm8<<imm4
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
-            assert(isModImmConst(emitGetInsSC(id)));
+            assert(isModImmConst(id->emitGetInsSC()));
             break;
 
         case IF_T2_K4: // T2_K4   ........U....... ttttiiiiiiiiiiii       R1  PC          U, imm12
         case IF_T2_M1: // T2_M1   .....i.......... .iiiddddiiiiiiii       R1  PC             imm12
             assert(isGeneralRegister(id->idReg1()));
             assert(id->idReg2() == REG_PC);
-            assert(emitGetInsSC(id) < 0x1000);
+            assert(id->emitGetInsSC() < 0x1000);
             break;
 
         case IF_T2_K3: // T2_K3   ........U....... ....iiiiiiiiiiii       PC              U, imm12
             assert(id->idReg1() == REG_PC);
-            assert(emitGetInsSC(id) < 0x1000);
+            assert(id->emitGetInsSC() < 0x1000);
             break;
 
         case IF_T2_K2: // T2_K2   ............nnnn ....iiiiiiiiiiii       R1                 imm12
             assert(isGeneralRegister(id->idReg1()));
-            assert(emitGetInsSC(id) < 0x1000);
+            assert(id->emitGetInsSC() < 0x1000);
             break;
 
         case IF_T2_L1: // T2_L1   .....i.....S.... .iiiddddiiiiiiii       R1              S, imm8<<imm4
         case IF_T2_L2: // T2_L2   .....i......nnnn .iii....iiiiiiii       R1                 imm8<<imm4
             assert(isGeneralRegister(id->idReg1()));
-            assert(isModImmConst(emitGetInsSC(id)));
+            assert(isModImmConst(id->emitGetInsSC()));
             break;
 
         case IF_T1_J3: // T1_J3   .....dddiiiiiiii                        R1  PC             imm8
             assert(isGeneralRegister(id->idReg1()));
             assert(id->idReg2() == REG_PC);
-            assert(emitGetInsSC(id) < 0x100);
+            assert(id->emitGetInsSC() < 0x100);
             break;
 
         case IF_T1_K:  // T1_K    ....cccciiiiiiii                        Branch             imm8, cond4
@@ -526,7 +526,7 @@ void emitter::emitInsSanityCheck(instrDesc* id)
             else
                 assert(isFloatReg(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
-            assert(offsetFitsInVectorMem(emitGetInsSC(id)));
+            assert(offsetFitsInVectorMem(id->emitGetInsSC()));
             break;
 
         case IF_T2_VMOVD:
@@ -607,21 +607,6 @@ private:
     //
     // This may return false positives.
     bool emitInsMayWriteToGCReg(instrDesc* id);
-
-    int32_t emitGetInsSC(instrDesc* id)
-    {
-        return Emitter::emitGetInsSC(id);
-    }
-
-    size_t emitGetInstrDescSize(const instrDesc* id)
-    {
-        return Emitter::emitGetInstrDescSize(id);
-    }
-
-    size_t emitGetInstrDescSizeSC(const instrDesc* id)
-    {
-        return Emitter::emitGetInstrDescSizeSC(id);
-    }
 };
 
 bool ArmEncoder::emitInsMayWriteToGCReg(instrDesc* id)
@@ -5248,13 +5233,13 @@ BYTE* ArmEncoder::emitOutputIT(BYTE* dst, instruction ins, insFormat fmt, code_t
 
 #endif // FEATURE_ITINSTRUCTION
 
-size_t emitter::emitGetInstrDescSizeSC(const instrDesc* id)
+size_t emitter::instrDesc::emitGetInstrDescSizeSC() const
 {
-    if (id->idIsSmallDsc())
+    if (idIsSmallDsc())
     {
         return sizeof(instrDescSmall);
     }
-    else if (id->idIsLargeCns())
+    else if (idIsLargeCns())
     {
         return sizeof(instrDescCns);
     }
@@ -5360,7 +5345,7 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_T1_B: // T1_B    ........cccc....                                           cond
         {
             assert(id->idGCref() == GCT_NONE);
-            int32_t condcode = emitGetInsSC(id);
+            int32_t condcode = id->emitGetInsSC();
             dst              = emitOutputIT(dst, ins, fmt, condcode);
             sz               = sizeof(instrDescSmall);
         }
@@ -5369,7 +5354,7 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
         case IF_T1_C: // T1_C    .....iiiiinnnddd                       R1  R2              imm5
             sz   = sizeof(instrDescSmall);
-            imm  = emitGetInsSC(id);
+            imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT1_D3(id->idReg1());
             code |= insEncodeRegT1_N3(id->idReg2());
@@ -5396,8 +5381,8 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             break;
 
         case IF_T1_F: // T1_F    .........iiiiiii                       SP                  imm7
-            sz   = emitGetInstrDescSize(id);
-            imm  = emitGetInsSC(id);
+            sz   = id->emitGetInstrDescSize();
+            imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             assert((ins == INS_add) || (ins == INS_sub));
             assert((imm & 0x0003) == 0);
@@ -5409,7 +5394,7 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
         case IF_T1_G: // T1_G    .......iiinnnddd                       R1  R2              imm3
             sz   = sizeof(instrDescSmall);
-            imm  = emitGetInsSC(id);
+            imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT1_D3(id->idReg1());
             code |= insEncodeRegT1_N3(id->idReg2());
@@ -5419,7 +5404,7 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             break;
 
         case IF_T1_H: // T1_H    .......mmmnnnddd                       R1  R2  R3
-            sz   = emitGetInstrDescSize(id);
+            sz   = id->emitGetInstrDescSize();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT1_D3(id->idReg1());
             code |= insEncodeRegT1_N3(id->idReg2());
@@ -5430,8 +5415,8 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_T1_J0: // T1_J0   .....dddiiiiiiii                       R1                  imm8
         case IF_T1_J1: // T1_J1   .....dddiiiiiiii                       R1                  <regmask8>
         case IF_T1_J2: // T1_J2   .....dddiiiiiiii                       R1  SP              imm8
-            sz   = emitGetInstrDescSize(id);
-            imm  = emitGetInsSC(id);
+            sz   = id->emitGetInstrDescSize();
+            imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT1_DI(id->idReg1());
             if (fmt == IF_T1_J2)
@@ -5447,8 +5432,8 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
         case IF_T1_L0: // T1_L0   ........iiiiiiii                                           imm8
         case IF_T1_L1: // T1_L1   .......Rrrrrrrrr                                           <regmask8>
-            sz   = emitGetInstrDescSize(id);
-            imm  = emitGetInsSC(id);
+            sz   = id->emitGetInstrDescSize();
+            imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             if (fmt == IF_T1_L1)
             {
@@ -5470,7 +5455,7 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
         case IF_T2_B: // T2_B    ................ ............iiii                          imm4
             sz   = sizeof(instrDescSmall);
-            imm  = emitGetInsSC(id);
+            imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             assert((imm & 0x000F) == imm);
             code |= imm;
@@ -5480,7 +5465,7 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_T2_C0: // T2_C0   ...........Snnnn .iiiddddiishmmmm       R1  R2  R3      S, imm5, sh
         case IF_T2_C4: // T2_C4   ...........Snnnn ....dddd....mmmm       R1  R2  R3      S
         case IF_T2_C5: // T2_C5   ............nnnn ....dddd....mmmm       R1  R2  R3
-            sz   = emitGetInstrDescSize(id);
+            sz   = id->emitGetInstrDescSize();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
             code |= insEncodeRegT2_N(id->idReg2());
@@ -5489,7 +5474,7 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 code |= insEncodeSetFlags(id->idInsFlags());
             if (fmt == IF_T2_C0)
             {
-                imm = emitGetInsSC(id);
+                imm = id->emitGetInsSC();
                 code |= insEncodeShiftCount(imm);
                 code |= insEncodeShiftOpts(id->idInsOpt());
             }
@@ -5500,7 +5485,7 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_T2_C2: // T2_C2   ...........S.... .iiiddddii..mmmm       R1  R2          S, imm5
         case IF_T2_C6: // T2_C6   ................ ....dddd..iimmmm       R1  R2                   imm2
             sz   = sizeof(instrDescSmall);
-            imm  = emitGetInsSC(id);
+            imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
             code |= insEncodeRegT2_M(id->idReg2());
@@ -5531,7 +5516,7 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_T2_C7: // T2_C7   ............nnnn ..........shmmmm       R1  R2                   imm2
         case IF_T2_C8: // T2_C8   ............nnnn .iii....iishmmmm       R1  R2             imm5, sh
             sz   = sizeof(instrDescSmall);
-            imm  = emitGetInsSC(id);
+            imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_N(id->idReg1());
             code |= insEncodeRegT2_M(id->idReg2());
@@ -5568,7 +5553,7 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_T2_D0: // T2_D0   ............nnnn .iiiddddii.wwwww       R1  R2             imm5, imm5
         case IF_T2_D1: // T2_D1   ................ .iiiddddii.wwwww       R1                 imm5, imm5
             sz   = sizeof(instrDescSmall);
-            imm  = emitGetInsSC(id);
+            imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
             if (fmt == IF_T2_D0)
@@ -5584,7 +5569,7 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             code |= insEncodeRegT2_T(id->idReg1());
             if (fmt == IF_T2_E0)
             {
-                sz = emitGetInstrDescSize(id);
+                sz = id->emitGetInstrDescSize();
                 code |= insEncodeRegT2_N(id->idReg2());
                 if (id->idIsLclVar())
                 {
@@ -5594,7 +5579,7 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 else
                 {
                     code |= insEncodeRegT2_M(id->idReg3());
-                    imm = emitGetInsSC(id);
+                    imm = id->emitGetInsSC();
                     assert((imm & 0x0003) == imm);
                     code |= (imm << 4);
                 }
@@ -5611,7 +5596,7 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             break;
 
         case IF_T2_F1: // T2_F1    ............nnnn ttttdddd....mmmm       R1  R2  R3  R4
-            sz = emitGetInstrDescSize(id);
+            sz = id->emitGetInstrDescSize();
             ;
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_T(id->idReg1());
@@ -5622,7 +5607,7 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             break;
 
         case IF_T2_F2: // T2_F2    ............nnnn aaaadddd....mmmm       R1  R2  R3  R4
-            sz   = emitGetInstrDescSize(id);
+            sz   = id->emitGetInstrDescSize();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
             code |= insEncodeRegT2_N(id->idReg2());
@@ -5639,15 +5624,15 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             code |= insEncodeRegT2_N(id->idReg3());
             if (fmt == IF_T2_G0)
             {
-                sz  = emitGetInstrDescSizeSC(id);
-                imm = emitGetInsSC(id);
+                sz  = id->emitGetInstrDescSizeSC();
+                imm = id->emitGetInsSC();
                 assert(unsigned_abs(imm) <= 0x00ff);
                 code |= abs(imm);
                 code |= insEncodePUW_G0(id->idInsOpt(), imm);
             }
             else
             {
-                sz = emitGetInstrDescSize(id);
+                sz = id->emitGetInstrDescSize();
             }
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
@@ -5655,8 +5640,8 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_T2_H0: // T2_H0   ............nnnn tttt.PUWiiiiiiii       R1  R2             imm8, PUW
         case IF_T2_H1: // T2_H1   ............nnnn tttt....iiiiiiii       R1  R2             imm8
         case IF_T2_H2: // T2_H2   ............nnnn ........iiiiiiii       R1                 imm8
-            sz   = emitGetInstrDescSizeSC(id);
-            imm  = emitGetInsSC(id);
+            sz   = id->emitGetInstrDescSizeSC();
+            imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_T(id->idReg1());
 
@@ -5679,14 +5664,14 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
         case IF_T2_I0: // T2_I0   ..........W.nnnn rrrrrrrrrrrrrrrr       R1              W, imm16
         case IF_T2_I1: // T2_I1   ................ rrrrrrrrrrrrrrrr                          imm16
-            sz   = emitGetInstrDescSizeSC(id);
+            sz   = id->emitGetInstrDescSizeSC();
             code = emitInsCode(ins, fmt);
             if (fmt == IF_T2_I0)
             {
                 code |= insEncodeRegT2_N(id->idReg1());
                 code |= (1 << 21); //  W bit
             }
-            imm = emitGetInsSC(id);
+            imm = id->emitGetInsSC();
             assert((imm & 0x3) != 0x3);
             if (imm & 0x2)
                 code |= 0x8000; //  PC bit
@@ -5701,8 +5686,8 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_T2_K1: // T2_K1   ............nnnn ttttiiiiiiiiiiii       R1  R2             imm12
         case IF_T2_K4: // T2_K4   ........U....... ttttiiiiiiiiiiii       R1  PC          U, imm12
         case IF_T2_K3: // T2_K3   ........U....... ....iiiiiiiiiiii       PC              U, imm12
-            sz   = emitGetInstrDescSize(id);
-            imm  = emitGetInsSC(id);
+            sz   = id->emitGetInstrDescSize();
+            imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             if (fmt != IF_T2_K3)
             {
@@ -5725,8 +5710,8 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             break;
 
         case IF_T2_K2: // T2_K2   ............nnnn ....iiiiiiiiiiii       R1                 imm12
-            sz   = emitGetInstrDescSizeSC(id);
-            imm  = emitGetInsSC(id);
+            sz   = id->emitGetInstrDescSizeSC();
+            imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_N(id->idReg1());
             assert(imm <= 0xfff); //  12 bits
@@ -5737,8 +5722,8 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_T2_L0: // T2_L0   .....i.....Snnnn .iiiddddiiiiiiii       R1  R2          S, imm8<<imm4
         case IF_T2_L1: // T2_L1   .....i.....S.... .iiiddddiiiiiiii       R1              S, imm8<<imm4
         case IF_T2_L2: // T2_L2   .....i......nnnn .iii....iiiiiiii       R1                 imm8<<imm4
-            sz   = emitGetInstrDescSize(id);
-            imm  = emitGetInsSC(id);
+            sz   = id->emitGetInstrDescSize();
+            imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
 
             if (fmt == IF_T2_L2)
@@ -5760,13 +5745,13 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             break;
 
         case IF_T2_M0: // T2_M0   .....i......nnnn .iiiddddiiiiiiii       R1  R2             imm12
-            sz   = emitGetInstrDescSizeSC(id);
-            imm  = emitGetInsSC(id);
+            sz   = id->emitGetInstrDescSizeSC();
+            imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
             if (fmt == IF_T2_M0)
                 code |= insEncodeRegT2_N(id->idReg2());
-            imm = emitGetInsSC(id);
+            imm = id->emitGetInsSC();
             assert(imm <= 0xfff); //  12 bits
             code |= (imm & 0x00ff);
             code |= (imm & 0x0700) << 4;
@@ -5776,18 +5761,18 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
         case IF_T2_N: // T2_N    .....i......iiii .iiiddddiiiiiiii       R1                 imm16
             assert(!id->idIsCnsReloc());
-            sz   = emitGetInstrDescSizeSC(id);
+            sz   = id->emitGetInstrDescSizeSC();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
-            code |= insEncodeImmT2_Mov(emitGetInsSC(id));
+            code |= insEncodeImmT2_Mov(id->emitGetInsSC());
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
         case IF_T2_N2: // T2_N2   .....i......iiii .iiiddddiiiiiiii       R1                 imm16
-            sz   = emitGetInstrDescSizeSC(id);
+            sz   = id->emitGetInstrDescSizeSC();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
-            imm  = emitGetInsSC(id);
+            imm  = id->emitGetInsSC();
             addr = emitConsBlock + imm;
             if (!id->idIsCnsReloc())
             {
@@ -5835,7 +5820,7 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_T2_VFP3:
             // these are the binary operators
             // d = n - m
-            sz   = emitGetInstrDescSize(id);
+            sz   = id->emitGetInstrDescSize();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_VectorN(id->idReg2(), size, true);
             code |= insEncodeRegT2_VectorM(id->idReg3(), size, true);
@@ -5881,7 +5866,7 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                     break;
             }
 
-            sz   = emitGetInstrDescSize(id);
+            sz   = id->emitGetInstrDescSize();
             code = emitInsCode(ins, fmt);
             code |= szCode;
             code |= insEncodeRegT2_VectorD(id->idReg1(), dstSize, true);
@@ -5892,12 +5877,12 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         }
 
         case IF_T2_VLDST:
-            sz   = emitGetInstrDescSizeSC(id);
+            sz   = id->emitGetInstrDescSizeSC();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_N(id->idReg2());
             code |= insEncodeRegT2_VectorD(id->idReg1(), size, true);
 
-            imm = emitGetInsSC(id);
+            imm = id->emitGetInsSC();
             if (imm < 0)
                 imm = -imm; // bit 23 at 0 means negate
             else
@@ -5915,7 +5900,7 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
         case IF_T2_VMOVD:
             // 3op assemble a double from two int regs (or back)
-            sz   = emitGetInstrDescSize(id);
+            sz   = id->emitGetInstrDescSize();
             code = emitInsCode(ins, fmt);
             if (ins == INS_vmov_i2d)
             {
@@ -5935,7 +5920,7 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
         case IF_T2_VMOVS:
             // 2op assemble a float from one int reg (or back)
-            sz   = emitGetInstrDescSize(id);
+            sz   = id->emitGetInstrDescSize();
             code = emitInsCode(ins, fmt);
             if (ins == INS_vmov_f2i)
             {
@@ -6589,16 +6574,16 @@ void emitter::emitDispInsHelp(instrDesc* id, bool isNew, bool doffs, bool asmfm,
 
         case IF_T1_L0: // Imm
         case IF_T2_B:
-            emitDispImm(emitGetInsSC(id), false);
+            emitDispImm(id->emitGetInsSC(), false);
             break;
 
         case IF_T1_B: // <cond>
-            emitDispCond(emitGetInsSC(id));
+            emitDispCond(id->emitGetInsSC());
             break;
 
         case IF_T1_L1: // <regmask8>
         case IF_T2_I1: // <regmask16>
-            emitDispRegmask(emitGetInsSC(id), true);
+            emitDispRegmask(id->emitGetInsSC(), true);
             break;
 
         case IF_T2_E2: // Reg
@@ -6635,20 +6620,20 @@ void emitter::emitDispInsHelp(instrDesc* id, bool isNew, bool doffs, bool asmfm,
 
         case IF_T1_F: // SP, Imm
             emitDispReg(REG_SP, attr, true);
-            emitDispImm(emitGetInsSC(id), false);
+            emitDispImm(id->emitGetInsSC(), false);
             break;
 
         case IF_T1_J0: // Reg, Imm
         case IF_T2_L1:
         case IF_T2_L2:
             emitDispReg(id->idReg1(), attr, true);
-            imm = emitGetInsSC(id);
+            imm = id->emitGetInsSC();
             emitDispImm(imm, false, false);
             break;
 
         case IF_T2_N:
             emitDispReg(id->idReg1(), attr, true);
-            imm = emitGetInsSC(id);
+            imm = id->emitGetInsSC();
             if (emitComp->opts.disDiffable)
                 imm = 0xD1FF;
             emitDispImm(imm, false, true);
@@ -6662,23 +6647,23 @@ void emitter::emitDispInsHelp(instrDesc* id, bool isNew, bool doffs, bool asmfm,
 
         case IF_T2_N2:
             emitDispReg(id->idReg1(), attr, true);
-            printf("%s RWD%02u", id->idIns() == INS_movw ? "LOW" : "HIGH", emitGetInsSC(id));
+            printf("%s RWD%02u", id->idIns() == INS_movw ? "LOW" : "HIGH", id->emitGetInsSC());
             break;
 
         case IF_T2_H2: // [Reg+imm]
         case IF_T2_K2:
-            emitDispAddrRI(id->idReg1(), emitGetInsSC(id), attr);
+            emitDispAddrRI(id->idReg1(), id->emitGetInsSC(), attr);
             break;
 
         case IF_T2_K3: // [PC+imm]
-            emitDispAddrRI(REG_PC, emitGetInsSC(id), attr);
+            emitDispAddrRI(REG_PC, id->emitGetInsSC(), attr);
             break;
 
         case IF_T1_J1: // reg, <regmask8>
         case IF_T2_I0: // reg, <regmask16>
             emitDispReg(id->idReg1(), attr, false);
             printf("!, ");
-            emitDispRegmask(emitGetInsSC(id), false);
+            emitDispRegmask(id->emitGetInsSC(), false);
             break;
 
         case IF_T1_D0: // Reg, Reg
@@ -6701,7 +6686,7 @@ void emitter::emitDispInsHelp(instrDesc* id, bool isNew, bool doffs, bool asmfm,
 
         case IF_T2_D1: // Reg, Imm, Imm
             emitDispReg(id->idReg1(), attr, true);
-            imm = emitGetInsSC(id);
+            imm = id->emitGetInsSC();
             {
                 int lsb  = (imm >> 5) & 0x1f;
                 int msb  = imm & 0x1f;
@@ -6720,7 +6705,7 @@ void emitter::emitDispInsHelp(instrDesc* id, bool isNew, bool doffs, bool asmfm,
         case IF_T2_L0:
         case IF_T2_M0:
             emitDispReg(id->idReg1(), attr, true);
-            imm = emitGetInsSC(id);
+            imm = id->emitGetInsSC();
             if (emitInsIsLoadOrStore(ins))
             {
                 emitDispAddrRI(id->idReg2(), imm, attr);
@@ -6734,7 +6719,7 @@ void emitter::emitDispInsHelp(instrDesc* id, bool isNew, bool doffs, bool asmfm,
 
         case IF_T1_J2:
             emitDispReg(id->idReg1(), attr, true);
-            imm = emitGetInsSC(id);
+            imm = id->emitGetInsSC();
             if (emitInsIsLoadOrStore(ins))
             {
                 emitDispAddrRI(REG_SP, imm, attr);
@@ -6748,14 +6733,14 @@ void emitter::emitDispInsHelp(instrDesc* id, bool isNew, bool doffs, bool asmfm,
 
         case IF_T2_K4:
             emitDispReg(id->idReg1(), attr, true);
-            emitDispAddrRI(REG_PC, emitGetInsSC(id), attr);
+            emitDispAddrRI(REG_PC, id->emitGetInsSC(), attr);
             break;
 
         case IF_T2_C1:
         case IF_T2_C8:
             emitDispReg(id->idReg1(), attr, true);
             emitDispReg(id->idReg2(), attr, false);
-            imm = emitGetInsSC(id);
+            imm = id->emitGetInsSC();
             if (id->idInsOpt() == INS_OPTS_RRX)
             {
                 emitDispShiftOpts(id->idInsOpt());
@@ -6769,7 +6754,7 @@ void emitter::emitDispInsHelp(instrDesc* id, bool isNew, bool doffs, bool asmfm,
             break;
 
         case IF_T2_C6:
-            imm = emitGetInsSC(id);
+            imm = id->emitGetInsSC();
             emitDispReg(id->idReg1(), attr, true);
             emitDispReg(id->idReg2(), attr, (imm != 0));
             if (imm != 0)
@@ -6779,12 +6764,12 @@ void emitter::emitDispInsHelp(instrDesc* id, bool isNew, bool doffs, bool asmfm,
             break;
 
         case IF_T2_C7:
-            emitDispAddrRRI(id->idReg1(), id->idReg2(), emitGetInsSC(id), attr);
+            emitDispAddrRRI(id->idReg1(), id->idReg2(), id->emitGetInsSC(), attr);
             break;
 
         case IF_T2_H0:
             emitDispReg(id->idReg1(), attr, true);
-            emitDispAddrPUW(id->idReg2(), emitGetInsSC(id), id->idInsOpt(), attr);
+            emitDispAddrPUW(id->idReg2(), id->emitGetInsSC(), id->idInsOpt(), attr);
             break;
 
         case IF_T1_H: // Reg, Reg, Reg
@@ -6840,7 +6825,7 @@ void emitter::emitDispInsHelp(instrDesc* id, bool isNew, bool doffs, bool asmfm,
             break;
 
         case IF_T2_VLDST:
-            imm = emitGetInsSC(id);
+            imm = id->emitGetInsSC();
             switch (id->idIns())
             {
                 case INS_vldr:
@@ -6899,7 +6884,7 @@ void emitter::emitDispInsHelp(instrDesc* id, bool isNew, bool doffs, bool asmfm,
         case IF_T2_D0: // Reg, Reg, Imm, Imm
             emitDispReg(id->idReg1(), attr, true);
             emitDispReg(id->idReg2(), attr, true);
-            imm = emitGetInsSC(id);
+            imm = id->emitGetInsSC();
             if (ins == INS_bfi)
             {
                 int lsb  = (imm >> 5) & 0x1f;
@@ -6924,7 +6909,7 @@ void emitter::emitDispInsHelp(instrDesc* id, bool isNew, bool doffs, bool asmfm,
             emitDispReg(id->idReg1(), attr, true);
             emitDispReg(id->idReg2(), attr, true);
             emitDispReg(id->idReg3(), attr, false);
-            imm = emitGetInsSC(id);
+            imm = id->emitGetInsSC();
             if (id->idInsOpt() == INS_OPTS_RRX)
             {
                 emitDispShiftOpts(id->idInsOpt());
@@ -6945,14 +6930,14 @@ void emitter::emitDispInsHelp(instrDesc* id, bool isNew, bool doffs, bool asmfm,
             }
             else
             {
-                emitDispAddrRRI(id->idReg2(), id->idReg3(), emitGetInsSC(id), attr);
+                emitDispAddrRRI(id->idReg2(), id->idReg3(), id->emitGetInsSC(), attr);
             }
             break;
 
         case IF_T2_G0:
             emitDispReg(id->idReg1(), attr, true);
             emitDispReg(id->idReg2(), attr, true);
-            emitDispAddrPUW(id->idReg3(), emitGetInsSC(id), id->idInsOpt(), attr);
+            emitDispAddrPUW(id->idReg3(), id->emitGetInsSC(), id->idInsOpt(), attr);
             break;
 
         case IF_T2_F1: // Reg, Reg, Reg, Reg

@@ -517,6 +517,4 @@ instrDesc* emitNewInstrGCReg(emitAttr attr, regNumber reg);
 instrDescJmp*  emitNewInstrJmp();
 instrDescCGCA* emitAllocInstrCGCA();
 
-int64_t emitGetInsSC(instrDesc* id);
-
 #endif // TARGET_ARM64

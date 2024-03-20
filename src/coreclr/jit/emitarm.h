@@ -14,7 +14,6 @@ using code_t = uint32_t;
 /************************************************************************/
 
 static insSize emitInsSize(insFormat insFmt);
-static size_t emitGetInstrDescSize(const instrDesc* id);
 
 /************************************************************************/
 /*             Debug-only routines to display instructions              */
@@ -251,7 +250,5 @@ instrDesc* emitNewInstrCns(int32_t cns);
 instrDesc* emitNewInstrGCReg(emitAttr attr, regNumber reg);
 instrDescJmp*  emitNewInstrJmp();
 instrDescCGCA* emitAllocInstrCGCA();
-
-static int32_t emitGetInsSC(instrDesc* id);
 
 #endif // TARGET_ARM
