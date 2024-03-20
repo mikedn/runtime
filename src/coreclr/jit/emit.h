@@ -1484,8 +1484,8 @@ public:
     // If we have started issuing instructions from the list of instrDesc, this is set
     INDEBUG(bool emitIssuing = false;)
 
-    BYTE* emitCodeBlock     = nullptr; // Hot code block
-    BYTE* emitColdCodeBlock = nullptr; // Cold code block
+    uint8_t* emitCodeBlock     = nullptr; // Hot code block
+    uint8_t* emitColdCodeBlock = nullptr; // Cold code block
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
     bool emitInInstrumentation = false;
@@ -1778,6 +1778,7 @@ private:
         GCInfo&    gcInfo;
         RoData&    roData;
         uint8_t*   emitCodeBlock;
+        uint8_t*   emitColdCodeBlock;
         uint8_t*   emitConsBlock;
         size_t     writeableOffset = 0;
         insGroup*& emitCurIG;

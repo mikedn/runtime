@@ -2762,9 +2762,10 @@ void emitter::Encoder::emitEndCodeGen()
     emit.emitCodeBlock     = codeBlock;
     emit.emitColdCodeBlock = coldCodeBlock;
 
-    emitCodeBlock   = codeBlock;
-    emitConsBlock   = roDataBlock;
-    writeableOffset = codeBlockRW - codeBlock;
+    emitCodeBlock     = codeBlock;
+    emitColdCodeBlock = coldCodeBlock;
+    emitConsBlock     = roDataBlock;
+    writeableOffset   = codeBlockRW - codeBlock;
 
 #if !FEATURE_FIXED_OUT_ARGS
     emitCurStackLvl = 0;
@@ -3053,10 +3054,10 @@ unsigned emitter::Encoder::emitCurCodeOffs(uint8_t* dst) const
     else
     {
         assert(emit.emitFirstColdIG != nullptr);
-        assert(emit.emitColdCodeBlock != nullptr);
-        assert((dst >= emit.emitColdCodeBlock) && (dst <= (emit.emitColdCodeBlock + emit.GetColdCodeSize())));
+        assert(emitColdCodeBlock != nullptr);
+        assert((dst >= emitColdCodeBlock) && (dst <= (emit.emitColdCodeBlock + emit.GetColdCodeSize())));
 
-        distance = dst - emit.emitColdCodeBlock + emit.emitTotalHotCodeSize;
+        distance = dst - emitColdCodeBlock + emit.emitTotalHotCodeSize;
     }
 
     noway_assert(distance <= UINT_MAX);
@@ -3074,7 +3075,7 @@ uint8_t* emitter::Encoder::emitOffsetToPtr(unsigned offset) const
     {
         assert(offset < emit.emitTotalHotCodeSize + emit.GetColdCodeSize());
 
-        return emit.emitColdCodeBlock + (offset - emit.emitTotalHotCodeSize);
+        return emitColdCodeBlock + (offset - emit.emitTotalHotCodeSize);
     }
 }
 
