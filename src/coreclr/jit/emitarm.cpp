@@ -1,67 +1,28 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                             emitArm.cpp                                   XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
 
-#if defined(TARGET_ARM)
-
-/*****************************************************************************/
-/*****************************************************************************/
+#ifdef TARGET_ARM
 
 #include "instr.h"
 #include "emit.h"
 #include "codegen.h"
 #include "unwind.h"
 
+using code_t = Emitter::code_t;
+
 static bool isModImmConst(int val32);
 static int insUnscaleImm(instruction ins, int imm);
 
-#ifdef DEBUG
-static bool isGeneralRegister(regNumber reg)
-{
-    return IsGeneralRegister(reg);
-}
-
-static bool isFloatReg(regNumber reg)
-{
-    return IsFloatReg(reg);
-}
-
-static bool isDoubleReg(regNumber reg)
-{
-    return isFloatReg(reg) && ((reg % 2) == 0);
-}
-
-static bool insOptsLSL(insOpts opt)
-{
-    return (opt == INS_OPTS_LSL);
-}
-
-static bool insOptAnyShift(insOpts opt)
-{
-    return ((opt >= INS_OPTS_RRX) && (opt <= INS_OPTS_ROR));
-}
-#endif // DEBUG
-
 static bool insSetsFlags(insFlags flags)
 {
-    return (flags != INS_FLAGS_NOT_SET);
+    return flags != INS_FLAGS_NOT_SET;
 }
 
 static bool insDoesNotSetFlags(insFlags flags)
 {
-    return (flags != INS_FLAGS_SET);
+    return flags != INS_FLAGS_SET;
 }
 
 static insFlags insMustSetFlags(insFlags flags)
@@ -71,7 +32,7 @@ static insFlags insMustSetFlags(insFlags flags)
 
 static bool insOptsNone(insOpts opt)
 {
-    return (opt == INS_OPTS_NONE);
+    return opt == INS_OPTS_NONE;
 }
 
 static bool insOptAnyInc(insOpts opt)
@@ -81,12 +42,12 @@ static bool insOptAnyInc(insOpts opt)
 
 static bool insOptsPostInc(insOpts opt)
 {
-    return (opt == INS_OPTS_LDST_POST_INC);
+    return opt == INS_OPTS_LDST_POST_INC;
 }
 
 static bool insOptsRRX(insOpts opt)
 {
-    return (opt == INS_OPTS_RRX);
+    return opt == INS_OPTS_RRX;
 }
 
 instruction emitter::emitJumpKindToBranch(emitJumpKind kind)
@@ -120,21 +81,6 @@ static emitJumpKind BranchToJumpKind(instruction ins)
 #include "emitjmps.h"
 
     return static_cast<emitJumpKind>(EJ_jmp + (ins - INS_b));
-}
-
-size_t emitter::instrDesc::emitGetInstrDescSize() const
-{
-    if (idIsSmallDsc())
-    {
-        return sizeof(instrDescSmall);
-    }
-
-    if (idIsLargeCns())
-    {
-        return sizeof(instrDescCns);
-    }
-
-    return sizeof(instrDesc);
 }
 
 enum ID_OPS : uint8_t
@@ -193,7 +139,7 @@ size_t emitter::instrDescSmall::GetDescSize() const
             assert(isCallIns || maybeCallIns);
             if (_idLargeCall)
             {
-                /* Must be a "fat" indirect call descriptor */
+                // Must be a "fat" indirect call descriptor
                 return sizeof(instrDescCGCA);
             }
             else
@@ -208,36 +154,63 @@ size_t emitter::instrDescSmall::GetDescSize() const
             break;
     }
 
+    return _idLargeCns ? sizeof(instrDescCns) : sizeof(instrDesc);
+}
+
+size_t emitter::instrDesc::emitGetInstrDescSize() const
+{
+    if (_idSmallDsc)
+    {
+        return sizeof(instrDescSmall);
+    }
+
     if (_idLargeCns)
     {
         return sizeof(instrDescCns);
     }
-    else
-    {
-        return sizeof(instrDesc);
-    }
+
+    return sizeof(instrDesc);
 }
 
+int32_t emitter::instrDesc::emitGetInsSC() const
+{
+    return _idLargeCns ? static_cast<const instrDescCns*>(this)->idcCnsVal : _idSmallCns;
+}
+
+#ifdef DEBUG
 static bool offsetFitsInVectorMem(int disp)
 {
     unsigned imm = unsigned_abs(disp);
     return ((imm & 0x03fc) == imm);
 }
 
-int32_t emitter::instrDesc::emitGetInsSC() const
+static bool isGeneralRegister(RegNum reg)
 {
-    return idIsLargeCns() ? static_cast<const instrDescCns*>(this)->idcCnsVal : idSmallCns();
+    return IsGeneralRegister(reg);
 }
 
-#ifdef DEBUG
-/*****************************************************************************
- *
- *  The following called for each recorded instruction -- use for debugging.
- */
+static bool isFloatReg(RegNum reg)
+{
+    return IsFloatReg(reg);
+}
+
+static bool isDoubleReg(RegNum reg)
+{
+    return isFloatReg(reg) && ((reg % 2) == 0);
+}
+
+static bool insOptsLSL(insOpts opt)
+{
+    return opt == INS_OPTS_LSL;
+}
+
+static bool insOptAnyShift(insOpts opt)
+{
+    return (opt >= INS_OPTS_RRX) && (opt <= INS_OPTS_ROR);
+}
+
 void emitter::emitInsSanityCheck(instrDesc* id)
 {
-    /* What instruction format have we got? */
-
     switch (id->idInsFmt())
     {
         case IF_T1_A: // T1_A    ................
@@ -571,8 +544,6 @@ void emitter::emitInsSanityCheck(instrDesc* id)
 
 class ArmEncoder : public Emitter::Encoder
 {
-    using code_t = Emitter::code_t;
-
 public:
     ArmEncoder(Emitter* emit) : Encoder(emit)
     {
@@ -616,7 +587,6 @@ bool ArmEncoder::emitInsMayWriteToGCReg(instrDesc* id)
 
     switch (fmt)
     {
-
         // These are the formats with "destination" or "target" registers:
         case IF_T1_C:
         case IF_T1_D0:
@@ -718,11 +688,8 @@ bool ArmEncoder::emitInsMayWriteMultipleRegs(instrDesc* id)
         case INS_vmov_d2i:
             return true;
         case INS_pop:
-            if (fmt != IF_T2_E2) // T2_E2 is pop single register encoding
-            {
-                return true;
-            }
-            return false;
+            // T2_E2 is pop single register encoding
+            return fmt != IF_T2_E2;
         default:
             return false;
     }
@@ -730,7 +697,7 @@ bool ArmEncoder::emitInsMayWriteMultipleRegs(instrDesc* id)
 
 #ifdef DEBUG
 
-const char* emitter::emitRegName(regNumber reg, emitAttr attr)
+const char* emitter::emitRegName(RegNum reg, emitAttr attr)
 {
     return getRegName(reg);
 }
@@ -740,7 +707,7 @@ const char* emitter::emitRegName(regNumber reg, emitAttr attr)
 const char* insName(instruction ins)
 {
     // clang-format off
-    static const char* const insNames[] =
+    static const char* const insNames[]
     {
 #define INST1(id, nm, fp, ldst, fmt, e1                                 ) nm,
 #define INST2(id, nm, fp, ldst, fmt, e1, e2                             ) nm,
@@ -859,15 +826,11 @@ bool emitter::emitInsIsLoadOrStore(instruction ins)
 #undef ST
 #undef CMP
 
-/*****************************************************************************
- *
- *  Returns the specific encoding of the given CPU instruction and format
- */
-
-emitter::code_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
+// Returns the specific encoding of the given CPU instruction and format
+code_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
 {
     // clang-format off
-    const static code_t insCodes1[] =
+    const static code_t insCodes1[]
     {
         #define INST1(id, nm, fp, ldst, fmt, e1                                ) e1,
         #define INST2(id, nm, fp, ldst, fmt, e1, e2                            ) e1,
@@ -879,7 +842,7 @@ emitter::code_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e1,
         #include "instrsarm.h"
     };
-    const static code_t insCodes2[] =
+    const static code_t insCodes2[]
     {
         #define INST1(id, nm, fp, ldst, fmt, e1                                )
         #define INST2(id, nm, fp, ldst, fmt, e1, e2                            ) e2,
@@ -891,7 +854,7 @@ emitter::code_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e2,
         #include "instrsarm.h"
     };
-    const static code_t insCodes3[] =
+    const static code_t insCodes3[]
     {
         #define INST1(id, nm, fp, ldst, fmt, e1                                )
         #define INST2(id, nm, fp, ldst, fmt, e1, e2                            )
@@ -903,7 +866,7 @@ emitter::code_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e3,
         #include "instrsarm.h"
     };
-    const static code_t insCodes4[] =
+    const static code_t insCodes4[]
     {
         #define INST1(id, nm, fp, ldst, fmt, e1                                )
         #define INST2(id, nm, fp, ldst, fmt, e1, e2                            )
@@ -915,7 +878,7 @@ emitter::code_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e4,
         #include "instrsarm.h"
     };
-    const static code_t insCodes5[] =
+    const static code_t insCodes5[]
     {
         #define INST1(id, nm, fp, ldst, fmt, e1                                )
         #define INST2(id, nm, fp, ldst, fmt, e1, e2                            )
@@ -927,7 +890,7 @@ emitter::code_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e5,
         #include "instrsarm.h"
     };
-    const static code_t insCodes6[] =
+    const static code_t insCodes6[]
     {
         #define INST1(id, nm, fp, ldst, fmt, e1                                )
         #define INST2(id, nm, fp, ldst, fmt, e1, e2                            )
@@ -939,7 +902,7 @@ emitter::code_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e6,
         #include "instrsarm.h"
     };
-    const static code_t insCodes7[] =
+    const static code_t insCodes7[]
     {
         #define INST1(id, nm, fp, ldst, fmt, e1                                )
         #define INST2(id, nm, fp, ldst, fmt, e1, e2                            )
@@ -951,7 +914,7 @@ emitter::code_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e7,
         #include "instrsarm.h"
     };
-    const static code_t insCodes8[] =
+    const static code_t insCodes8[]
     {
         #define INST1(id, nm, fp, ldst, fmt, e1                                )
         #define INST2(id, nm, fp, ldst, fmt, e1, e2                            )
@@ -963,7 +926,7 @@ emitter::code_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e8,
         #include "instrsarm.h"
     };
-    const static code_t insCodes9[] =
+    const static code_t insCodes9[]
     {
         #define INST1(id, nm, fp, ldst, fmt, e1                                )
         #define INST2(id, nm, fp, ldst, fmt, e1, e2                            )
@@ -975,27 +938,27 @@ emitter::code_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e9,
         #include "instrsarm.h"
     };
-    const static insFormat formatEncode9[9]  = { IF_T1_D0, IF_T1_H,  IF_T1_J0, IF_T1_G,  IF_T2_L0, IF_T2_C0, IF_T1_F,  IF_T1_J2, IF_T1_J3 };
-    const static insFormat formatEncode8[8]  = { IF_T1_H,  IF_T1_C,  IF_T2_E0, IF_T2_H0, IF_T2_K1, IF_T2_K4, IF_T1_J2, IF_T1_J3 };
-    const static insFormat formatEncode6A[6] = { IF_T1_H,  IF_T1_C,  IF_T2_E0, IF_T2_H0, IF_T2_K1, IF_T2_K4};
-    const static insFormat formatEncode6B[6] = { IF_T1_H,  IF_T1_C,  IF_T2_E0, IF_T2_H0, IF_T2_K1, IF_T1_J2 };
-    const static insFormat formatEncode5A[5] = { IF_T1_E,  IF_T1_D0, IF_T1_J0, IF_T2_L1, IF_T2_C3 };
-    const static insFormat formatEncode5B[5] = { IF_T1_E,  IF_T1_D0, IF_T1_J0, IF_T2_L2, IF_T2_C8 };
-    const static insFormat formatEncode4A[4] = { IF_T1_E,  IF_T1_C,  IF_T2_C4, IF_T2_C2 };
-    const static insFormat formatEncode4B[4] = { IF_T2_K2, IF_T2_H2, IF_T2_C7, IF_T2_K3 };
-    const static insFormat formatEncode4C[4] = { IF_T2_N,  IF_T2_N1, IF_T2_N2, IF_T2_N3 };
-    const static insFormat formatEncode3A[3] = { IF_T1_E,  IF_T2_C0, IF_T2_L0 };
-    const static insFormat formatEncode3B[3] = { IF_T1_E,  IF_T2_C8, IF_T2_L2 };
-    const static insFormat formatEncode3C[3] = { IF_T1_E,  IF_T2_C1, IF_T2_L1 };
-    const static insFormat formatEncode3D[3] = { IF_T1_L1, IF_T2_E2, IF_T2_I1 };
-    const static insFormat formatEncode3E[3] = { IF_T1_M,  IF_T2_J2, IF_T2_J3 };
-    const static insFormat formatEncode2A[2] = { IF_T1_K,  IF_T2_J1 };
-    const static insFormat formatEncode2B[2] = { IF_T1_D1, IF_T1_D2 };
-    const static insFormat formatEncode2C[2] = { IF_T1_D2, IF_T2_J3 };
-    const static insFormat formatEncode2D[2] = { IF_T1_J1, IF_T2_I0 };
-    const static insFormat formatEncode2E[2] = { IF_T1_E,  IF_T2_C6 };
-    const static insFormat formatEncode2F[2] = { IF_T1_E,  IF_T2_C5 };
-    const static insFormat formatEncode2G[2] = { IF_T1_J3, IF_T2_M1 };
+    const static insFormat formatEncode9[9]  { IF_T1_D0, IF_T1_H,  IF_T1_J0, IF_T1_G,  IF_T2_L0, IF_T2_C0, IF_T1_F,  IF_T1_J2, IF_T1_J3 };
+    const static insFormat formatEncode8[8]  { IF_T1_H,  IF_T1_C,  IF_T2_E0, IF_T2_H0, IF_T2_K1, IF_T2_K4, IF_T1_J2, IF_T1_J3 };
+    const static insFormat formatEncode6A[6] { IF_T1_H,  IF_T1_C,  IF_T2_E0, IF_T2_H0, IF_T2_K1, IF_T2_K4};
+    const static insFormat formatEncode6B[6] { IF_T1_H,  IF_T1_C,  IF_T2_E0, IF_T2_H0, IF_T2_K1, IF_T1_J2 };
+    const static insFormat formatEncode5A[5] { IF_T1_E,  IF_T1_D0, IF_T1_J0, IF_T2_L1, IF_T2_C3 };
+    const static insFormat formatEncode5B[5] { IF_T1_E,  IF_T1_D0, IF_T1_J0, IF_T2_L2, IF_T2_C8 };
+    const static insFormat formatEncode4A[4] { IF_T1_E,  IF_T1_C,  IF_T2_C4, IF_T2_C2 };
+    const static insFormat formatEncode4B[4] { IF_T2_K2, IF_T2_H2, IF_T2_C7, IF_T2_K3 };
+    const static insFormat formatEncode4C[4] { IF_T2_N,  IF_T2_N1, IF_T2_N2, IF_T2_N3 };
+    const static insFormat formatEncode3A[3] { IF_T1_E,  IF_T2_C0, IF_T2_L0 };
+    const static insFormat formatEncode3B[3] { IF_T1_E,  IF_T2_C8, IF_T2_L2 };
+    const static insFormat formatEncode3C[3] { IF_T1_E,  IF_T2_C1, IF_T2_L1 };
+    const static insFormat formatEncode3D[3] { IF_T1_L1, IF_T2_E2, IF_T2_I1 };
+    const static insFormat formatEncode3E[3] { IF_T1_M,  IF_T2_J2, IF_T2_J3 };
+    const static insFormat formatEncode2A[2] { IF_T1_K,  IF_T2_J1 };
+    const static insFormat formatEncode2B[2] { IF_T1_D1, IF_T1_D2 };
+    const static insFormat formatEncode2C[2] { IF_T1_D2, IF_T2_J3 };
+    const static insFormat formatEncode2D[2] { IF_T1_J1, IF_T2_I0 };
+    const static insFormat formatEncode2E[2] { IF_T1_E,  IF_T2_C6 };
+    const static insFormat formatEncode2F[2] { IF_T1_E,  IF_T2_C5 };
+    const static insFormat formatEncode2G[2] { IF_T1_J3, IF_T2_M1 };
     // clang-format on
 
     code_t  code   = BAD_CODE;
@@ -1239,39 +1202,39 @@ emitter::code_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
     switch (index)
     {
         case 0:
-            assert(ins < ArrLen(insCodes1));
+            assert(ins < _countof(insCodes1));
             code = insCodes1[ins];
             break;
         case 1:
-            assert(ins < ArrLen(insCodes2));
+            assert(ins < _countof(insCodes2));
             code = insCodes2[ins];
             break;
         case 2:
-            assert(ins < ArrLen(insCodes3));
+            assert(ins < _countof(insCodes3));
             code = insCodes3[ins];
             break;
         case 3:
-            assert(ins < ArrLen(insCodes4));
+            assert(ins < _countof(insCodes4));
             code = insCodes4[ins];
             break;
         case 4:
-            assert(ins < ArrLen(insCodes5));
+            assert(ins < _countof(insCodes5));
             code = insCodes5[ins];
             break;
         case 5:
-            assert(ins < ArrLen(insCodes6));
+            assert(ins < _countof(insCodes6));
             code = insCodes6[ins];
             break;
         case 6:
-            assert(ins < ArrLen(insCodes7));
+            assert(ins < _countof(insCodes7));
             code = insCodes7[ins];
             break;
         case 7:
-            assert(ins < ArrLen(insCodes8));
+            assert(ins < _countof(insCodes8));
             code = insCodes8[ins];
             break;
         case 8:
-            assert(ins < ArrLen(insCodes9));
+            assert(ins < _countof(insCodes9));
             code = insCodes9[ins];
             break;
     }
@@ -1305,12 +1268,6 @@ emitter::insSize emitter::emitInsSize(insFormat insFmt)
     return ISZ_NONE;
 }
 
-//------------------------------------------------------------------------
-// IsMovInstruction: Determines whether a give instruction is a move instruction
-//
-// Arguments:
-//    ins       -- The instruction being checked
-//
 bool emitter::IsMovInstruction(instruction ins)
 {
     switch (ins)
@@ -1323,50 +1280,40 @@ bool emitter::IsMovInstruction(instruction ins)
         case INS_vmov:
         case INS_vmov_i2f:
         case INS_vmov_f2i:
-        {
             return true;
-        }
-
         default:
-        {
             return false;
-        }
     }
 }
 
-/*****************************************************************************
- *
- *  isModImmConst() returns true when immediate 'val32' can be encoded
- *   using the special modified immediate constant available in Thumb
- */
-
+// Returns true when immediate 'val32' can be encoded using the special modified immediate constant available in Thumb
 static bool isModImmConst(int val32)
 {
     unsigned uval32 = (unsigned)val32;
     unsigned imm8   = uval32 & 0xff;
 
-    /* encode = 0000x */
+    // encode = 0000x
     if (imm8 == uval32)
         return true;
 
     unsigned imm32a = (imm8 << 16) | imm8;
-    /* encode = 0001x */
+    // encode = 0001x
     if (imm32a == uval32)
         return true;
 
     unsigned imm32b = (imm32a << 8);
-    /* encode = 0010x */
+    // encode = 0010x
     if (imm32b == uval32)
         return true;
 
     unsigned imm32c = (imm32a | imm32b);
-    /* encode = 0011x */
+    // encode = 0011x
     if (imm32c == uval32)
         return true;
 
     unsigned mask32 = 0x00000ff;
 
-    unsigned encode = 31; /* 11111 */
+    unsigned encode = 31; // 11111
     unsigned temp;
 
     do
@@ -1381,14 +1328,9 @@ static bool isModImmConst(int val32)
     return false;
 }
 
-/*****************************************************************************
- *
- *  encodeModImmConst() returns the special ARM 12-bit immediate encoding.
- *   that is used to encode the immediate.  (4-bits, 8-bits)
- *   If the imm can not be encoded then 0x0BADC0DE is returned.
- */
-
-/*static*/ int ArmEncoder::encodeModImmConst(int val32)
+// Returns the special ARM 12-bit immediate encoding that is used to encode the immediate. (4-bits, 8-bits)
+// If the imm can not be encoded then 0x0BADC0DE is returned.
+int ArmEncoder::encodeModImmConst(int val32)
 {
     unsigned uval32 = (unsigned)val32;
     unsigned imm8   = uval32 & 0xff;
@@ -1399,14 +1341,14 @@ static bool isModImmConst(int val32)
     unsigned mask32;
     unsigned temp;
 
-    /* encode = 0000x */
+    // encode = 0000x
     if (imm8 == uval32)
     {
         goto DONE;
     }
 
     imm32a = (imm8 << 16) | imm8;
-    /* encode = 0001x */
+    // encode = 0001x
     if (imm32a == uval32)
     {
         encode += 2;
@@ -1414,7 +1356,7 @@ static bool isModImmConst(int val32)
     }
 
     imm32b = (imm32a << 8);
-    /* encode = 0010x */
+    // encode = 0010x
     if (imm32b == uval32)
     {
         encode += 4;
@@ -1422,7 +1364,7 @@ static bool isModImmConst(int val32)
     }
 
     imm32c = (imm32a | imm32b);
-    /* encode = 0011x */
+    // encode = 0011x
     if (imm32c == uval32)
     {
         encode += 6;
@@ -1431,7 +1373,7 @@ static bool isModImmConst(int val32)
 
     mask32 = 0x00000ff;
 
-    encode = 31; /* 11111 */
+    encode = 31; // 11111
     do
     {
         mask32 <<= 1;
@@ -1518,15 +1460,13 @@ bool emitter::validImmForBL(ssize_t addr, Compiler* compiler)
     return compiler->eeIsThumbBranch24TargetAddress(reinterpret_cast<void*>(addr));
 }
 
-// emitIns_valid_imm_for_alu() returns true when the immediate 'imm'
-// can be encoded using the 12-bit funky Arm immediate encoding
+// Returns true when the immediate 'imm' can be encoded using the 12-bit funky Arm immediate encoding.
 bool emitter::emitIns_valid_imm_for_alu(int imm)
 {
     return isModImmConst(imm);
 }
 
-// emitIns_valid_imm_for_mov() returns true when the immediate 'imm'
-// can be encoded using a single mov or mvn instruction.
+// Returns true when the immediate 'imm' can be encoded using a single mov or mvn instruction.
 bool emitter::emitIns_valid_imm_for_mov(int imm)
 {
     if ((imm & 0x0000ffff) == imm) // 16-bit immediate
@@ -1538,22 +1478,14 @@ bool emitter::emitIns_valid_imm_for_mov(int imm)
     return false;
 }
 
-/*****************************************************************************
- *
- *  emitIns_valid_imm_for_small_mov() returns true when the immediate 'imm'
- *   can be encoded using a single 2-byte mov instruction.
- */
-/*static*/ bool emitter::emitIns_valid_imm_for_small_mov(regNumber reg, int imm, insFlags flags)
+// Returns true when the immediate 'imm' can be encoded using a single 2-byte mov instruction.
+bool emitter::emitIns_valid_imm_for_small_mov(RegNum reg, int imm, insFlags flags)
 {
     return isLowRegister(reg) && insSetsFlags(flags) && ((imm & 0x00ff) == imm);
 }
 
-/*****************************************************************************
- *
- *  emitins_valid_imm_for_add() returns true when the immediate 'imm'
- *   can be encoded using a single add or sub instruction.
- */
-/*static*/ bool emitter::emitIns_valid_imm_for_add(int imm, insFlags flags)
+// Returns true when the immediate 'imm' can be encoded using a single add or sub instruction.
+bool emitter::emitIns_valid_imm_for_add(int imm, insFlags flags)
 {
     if ((unsigned_abs(imm) <= 0x00000fff) && (flags != INS_FLAGS_SET)) // 12-bit immediate via add/sub
         return true;
@@ -1564,12 +1496,8 @@ bool emitter::emitIns_valid_imm_for_mov(int imm)
     return false;
 }
 
-/*****************************************************************************
- *
- *  emitins_valid_imm_for_cmp() returns true if this 'imm'
- *   can be encoded as a input operand to an cmp instruction.
- */
-/*static*/ bool emitter::emitIns_valid_imm_for_cmp(int imm, insFlags flags)
+// Returns true if this 'imm' can be encoded as a input operand to an cmp instruction.
+bool emitter::emitIns_valid_imm_for_cmp(int imm, insFlags flags)
 {
     if (isModImmConst(imm)) // funky arm immediate
         return true;
@@ -1578,24 +1506,16 @@ bool emitter::emitIns_valid_imm_for_mov(int imm)
     return false;
 }
 
-/*****************************************************************************
- *
- *  emitIns_valid_imm_for_add_sp() returns true when the immediate 'imm'
- *   can be encoded in "add Rd,SP,i10".
- */
-/*static*/ bool emitter::emitIns_valid_imm_for_add_sp(int imm)
+// Returns true when the immediate 'imm' can be encoded in "add Rd,SP,i10".
+bool emitter::emitIns_valid_imm_for_add_sp(int imm)
 {
     if ((imm & 0x03fc) == imm)
         return true;
     return false;
 }
 
-/*****************************************************************************
- *
- *  emitIns_valid_imm_for_ldst_offset() returns true when the immediate 'imm'
- *   can be encoded as the offset in a ldr/str instruction.
- */
-/*static*/ bool emitter::emitIns_valid_imm_for_ldst_offset(int imm, emitAttr size)
+// Returns true when the immediate 'imm' can be encoded as the offset in a ldr/str instruction.
+bool emitter::emitIns_valid_imm_for_ldst_offset(int imm, emitAttr size)
 {
     if ((imm & 0x0fff) == imm)
         return true; // encodable using IF_T2_K1
@@ -1604,13 +1524,9 @@ bool emitter::emitIns_valid_imm_for_mov(int imm)
     return false;
 }
 
-/*****************************************************************************
- *
- *  emitIns_valid_imm_for_vldst_offset() returns true when the immediate 'imm'
- *   can be encoded as the offset in a vldr/vstr instruction, i.e. when it is
- *   a non-negative multiple of 4 that is less than 1024.
- */
-/*static*/ bool emitter::emitIns_valid_imm_for_vldst_offset(int imm)
+// Returns true when the immediate 'imm' can be encoded as the offset in a vldr/vstr instruction,
+// i.e. when it is a non-negative multiple of 4 that is less than 1024.
+bool emitter::emitIns_valid_imm_for_vldst_offset(int imm)
 {
     if ((imm & 0x3fc) == imm)
         return true;
@@ -1684,7 +1600,7 @@ emitter::instrDescCGCA* emitter::emitAllocInstrCGCA()
     return AllocInstr<instrDescCGCA>();
 }
 
-emitter::instrDesc* emitter::emitNewInstrGCReg(emitAttr attr, regNumber reg)
+emitter::instrDesc* emitter::emitNewInstrGCReg(emitAttr attr, RegNum reg)
 {
     assert(EA_IS_GCREF_OR_BYREF(attr));
     assert(IsGeneralRegister(reg));
@@ -1706,11 +1622,6 @@ emitter::instrDesc* emitter::emitNewInstrGCReg(emitAttr attr, regNumber reg)
     return id;
 }
 
-/*****************************************************************************
- *
- *  Add an instruction with no operands.
- */
-
 void emitter::emitIns(instruction ins)
 {
     insFormat fmt = static_cast<insFormat>(emitInsFormat(ins));
@@ -1727,11 +1638,6 @@ void emitter::emitIns(instruction ins)
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction with a single immediate value.
- */
-
 void emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
 {
     insFormat fmt         = IF_NONE;
@@ -1739,7 +1645,7 @@ void emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
     bool      hasPC       = false;
     bool      useT2       = false;
     bool      isSingleBit = false;
-    /* Figure out the encoding format of the instruction */
+
     switch (ins)
     {
 #ifdef FEATURE_ITINSTRUCTION
@@ -1813,7 +1719,7 @@ void emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
                 {
                     imm |= 0x4000;
                 }
-                regNumber reg = genRegNumFromMask(imm);
+                RegNum reg = genRegNumFromMask(imm);
                 emitIns_R(ins, attr, reg);
                 return;
             }
@@ -1875,7 +1781,7 @@ void emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
+void emitter::emitIns_R(instruction ins, emitAttr attr, RegNum reg)
 {
     insFormat fmt;
 
@@ -1922,12 +1828,11 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, int32_t imm, insFlags flags)
+void emitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, int32_t imm, insFlags flags)
 {
     insFormat fmt = IF_NONE;
     insFlags  sf  = INS_FLAGS_DONT_CARE;
 
-    /* Figure out the encoding format of the instruction */
     switch (ins)
     {
         case INS_add:
@@ -2226,7 +2131,7 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, int32_t
     appendToCurIG(id);
 }
 
-void emitter::emitIns_MovRelocatableImmediate(instruction ins, regNumber reg, void* addr)
+void emitter::emitIns_MovRelocatableImmediate(instruction ins, RegNum reg, void* addr)
 {
     assert((ins == INS_movw) || (ins == INS_movt));
 
@@ -2244,23 +2149,7 @@ void emitter::emitIns_MovRelocatableImmediate(instruction ins, regNumber reg, vo
     appendToCurIG(id);
 }
 
-//------------------------------------------------------------------------
-// emitIns_Mov: Emits a move instruction
-//
-// Arguments:
-//    ins       -- The instruction being emitted
-//    attr      -- The emit attribute
-//    dstReg    -- The destination register
-//    srcReg    -- The source register
-//    canSkip   -- true if the move can be elided when dstReg == srcReg, otherwise false
-//    flags     -- The instructiion flags
-//
-void emitter::emitIns_Mov(instruction ins,
-                          emitAttr    attr,
-                          regNumber   dstReg,
-                          regNumber   srcReg,
-                          bool        canSkip,
-                          insFlags    flags /* = INS_FLAGS_DONT_CARE */)
+void emitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegNum srcReg, bool canSkip, insFlags flags)
 {
     assert(IsMovInstruction(ins));
 
@@ -2268,7 +2157,6 @@ void emitter::emitIns_Mov(instruction ins,
     insFormat fmt  = IF_NONE;
     insFlags  sf   = INS_FLAGS_DONT_CARE;
 
-    /* Figure out the encoding format of the instruction */
     switch (ins)
     {
         case INS_mov:
@@ -2395,9 +2283,7 @@ void emitter::emitIns_Mov(instruction ins,
         }
 
         default:
-        {
             unreached();
-        }
     }
 
     assert(sf != INS_FLAGS_DONT_CARE);
@@ -2416,14 +2302,7 @@ void emitter::emitIns_Mov(instruction ins,
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction referencing two registers
- */
-
-void emitter::emitIns_R_R(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, insFlags flags /* = INS_FLAGS_DONT_CARE */)
-
+void emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, insFlags flags)
 {
     if (IsMovInstruction(ins))
     {
@@ -2435,7 +2314,6 @@ void emitter::emitIns_R_R(
     insFormat fmt  = IF_NONE;
     insFlags  sf   = INS_FLAGS_DONT_CARE;
 
-    /* Figure out the encoding format of the instruction */
     switch (ins)
     {
         case INS_add:
@@ -2687,12 +2565,7 @@ void emitter::emitIns_R_R(
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction referencing a register and two constants.
- */
-
-void emitter::emitIns_R_I_I(instruction ins, emitAttr attr, regNumber reg, int imm1, int imm2, insFlags flags)
+void emitter::emitIns_R_I_I(instruction ins, emitAttr attr, RegNum reg, int imm1, int imm2, insFlags flags)
 {
     int imm = 0; // combined immediates
 
@@ -2723,18 +2596,8 @@ void emitter::emitIns_R_I_I(instruction ins, emitAttr attr, regNumber reg, int i
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction referencing two registers and a constant.
- */
-
-void emitter::emitIns_R_R_I(instruction ins,
-                            emitAttr    attr,
-                            regNumber   reg1,
-                            regNumber   reg2,
-                            int         imm,
-                            insFlags    flags /* = INS_FLAGS_DONT_CARE */,
-                            insOpts     opt /* = INS_OPTS_NONE */)
+void emitter::emitIns_R_R_I(
+    instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, int imm, insFlags flags, insOpts opt)
 {
     emitAttr  size = EA_SIZE(attr);
     insFormat fmt  = IF_NONE;
@@ -2745,7 +2608,6 @@ void emitter::emitIns_R_R_I(instruction ins,
         ins = INS_add;
     }
 
-    /* Figure out the encoding format of the instruction */
     switch (ins)
     {
         case INS_add:
@@ -3216,7 +3078,7 @@ void emitter::emitIns_R_R_I(instruction ins,
                 else
                 {
                     // Load imm into a register
-                    regNumber rsvdReg = codeGen->rsGetRsvdReg();
+                    RegNum rsvdReg = codeGen->rsGetRsvdReg();
                     codeGen->instGen_Set_Reg_To_Imm(EA_4BYTE, rsvdReg, (ssize_t)imm);
                     emitIns_R_R_R(ins, attr, reg1, reg2, rsvdReg);
                     return;
@@ -3264,23 +3126,12 @@ void emitter::emitIns_R_R_I(instruction ins,
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction referencing three registers.
- */
-
-void emitter::emitIns_R_R_R(instruction ins,
-                            emitAttr    attr,
-                            regNumber   reg1,
-                            regNumber   reg2,
-                            regNumber   reg3,
-                            insFlags    flags /* = INS_FLAGS_DONT_CARE */)
+void emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, insFlags flags)
 {
     emitAttr  size = EA_SIZE(attr);
     insFormat fmt  = IF_NONE;
     insFlags  sf   = INS_FLAGS_DONT_CARE;
 
-    /* Figure out the encoding format of the instruction */
     switch (ins)
     {
         case INS_add:
@@ -3514,18 +3365,8 @@ void emitter::emitIns_R_R_R(instruction ins,
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction referencing two registers and two constants.
- */
-
-void emitter::emitIns_R_R_I_I(instruction ins,
-                              emitAttr    attr,
-                              regNumber   reg1,
-                              regNumber   reg2,
-                              int         imm1,
-                              int         imm2,
-                              insFlags    flags /* = INS_FLAGS_DONT_CARE */)
+void emitter::emitIns_R_R_I_I(
+    instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, int imm1, int imm2, insFlags flags)
 {
     insFormat fmt = IF_NONE;
     insFlags  sf  = INS_FLAGS_DONT_CARE;
@@ -3533,14 +3374,13 @@ void emitter::emitIns_R_R_I_I(instruction ins,
     int lsb   = imm1;
     int width = imm2;
     int msb   = lsb + width - 1;
-    int imm   = 0; /* combined immediate */
+    int imm   = 0; // combined immediate
 
     assert((lsb >= 0) && (lsb <= 31));    // required for encodings
     assert((width > 0) && (width <= 32)); // required for encodings
     assert((msb >= 0) && (msb <= 31));    // required for encodings
     assert(msb >= lsb);                   // required for encodings
 
-    /* Figure out the encoding format of the instruction */
     switch (ins)
     {
         case INS_bfi:
@@ -3586,20 +3426,13 @@ void emitter::emitIns_R_R_I_I(instruction ins,
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_R_R_I(instruction ins,
-                              emitAttr    attr,
-                              regNumber   reg1,
-                              regNumber   reg2,
-                              regNumber   reg3,
-                              int32_t     imm,
-                              insFlags    flags,
-                              insOpts     opt)
+void emitter::emitIns_R_R_R_I(
+    instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, int32_t imm, insFlags flags, insOpts opt)
 {
     emitAttr  size = EA_SIZE(attr);
     insFormat fmt  = IF_NONE;
     insFlags  sf   = INS_FLAGS_DONT_CARE;
 
-    /* Figure out the encoding format of the instruction */
     switch (ins)
     {
 
@@ -3757,18 +3590,11 @@ void emitter::emitIns_R_R_R_I(instruction ins,
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction referencing four registers.
- */
-
-void emitter::emitIns_R_R_R_R(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, regNumber reg4)
+void emitter::emitIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, RegNum reg4)
 {
     insFormat fmt = IF_NONE;
     insFlags  sf  = INS_FLAGS_NOT_SET;
 
-    /* Figure out the encoding format of the instruction */
     switch (ins)
     {
 
@@ -3809,7 +3635,7 @@ void emitter::emitIns_R_R_R_R(
     appendToCurIG(id);
 }
 
-void emitter::MovRegStackOffset(regNumber reg, int32_t imm, StackAddrMode s)
+void emitter::MovRegStackOffset(RegNum reg, int32_t imm, StackAddrMode s)
 {
     auto mov = [&](instruction ins, int32_t imm) {
         instrDesc* id = emitNewInstrCns(imm);
@@ -3833,22 +3659,22 @@ void emitter::MovRegStackOffset(regNumber reg, int32_t imm, StackAddrMode s)
     }
 }
 
-constexpr bool IsUnsignedImm8(int imm, unsigned shift = 0)
+static constexpr bool IsUnsignedImm8(int imm, unsigned shift = 0)
 {
     return (imm & ~(255 << shift)) == 0;
 }
 
-constexpr bool IsSignedImm8(int imm, unsigned shift = 0)
+static constexpr bool IsSignedImm8(int imm, unsigned shift = 0)
 {
     return (unsigned_abs(imm) & ~(255 << shift)) == 0;
 }
 
-constexpr bool IsUnsignedImm12(int imm)
+static constexpr bool IsUnsignedImm12(int imm)
 {
     return (imm & ~4095) == 0;
 }
 
-constexpr bool IsSignedImm12(int imm)
+static constexpr bool IsSignedImm12(int imm)
 {
     return (unsigned_abs(imm) & ~4095) == 0;
 }
@@ -3885,27 +3711,27 @@ static bool IsStore(instruction ins)
 }
 #endif
 
-void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s)
+void emitter::emitIns_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s)
 {
     assert(IsLoad(ins) || (ins == INS_lea));
     Ins_R_S(ins, attr, reg, s);
 }
 
-void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s)
+void emitter::emitIns_S_R(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s)
 {
     assert(IsStore(ins));
     Ins_R_S(ins, attr, reg, s);
 }
 
-void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s)
+void emitter::Ins_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s)
 {
     assert(IsLoad(ins) || IsStore(ins) || (ins == INS_lea));
 
-    bool      isFloatLoadStore = (ins == INS_vldr) || (ins == INS_vstr);
-    bool      fpBased;
-    int       baseOffset = emitComp->lvaFrameAddress(s.varNum, &fpBased) + s.varOffs;
-    int32_t   imm        = baseOffset;
-    regNumber baseReg;
+    bool    isFloatLoadStore = (ins == INS_vldr) || (ins == INS_vstr);
+    bool    fpBased;
+    int     baseOffset = emitComp->lvaFrameAddress(s.varNum, &fpBased) + s.varOffs;
+    int32_t imm        = baseOffset;
+    RegNum  baseReg;
 
     if (!fpBased)
     {
@@ -3945,7 +3771,7 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, StackAddrMo
         }
         else
         {
-            regNumber tempReg = codeGen->rsGetRsvdReg();
+            RegNum tempReg = codeGen->rsGetRsvdReg();
             MovRegStackOffset(tempReg, imm, s);
             emitIns_R_R_R(INS_add, attr, reg, baseReg, tempReg);
 
@@ -3956,7 +3782,7 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, StackAddrMo
     {
         if (!IsSignedImm8(imm, 2))
         {
-            regNumber tempReg = codeGen->rsGetRsvdReg();
+            RegNum tempReg = codeGen->rsGetRsvdReg();
             MovRegStackOffset(tempReg, imm, s);
             emitIns_R_R(INS_add, EA_4BYTE, tempReg, baseReg);
             emitIns_R_R_I(ins, attr, reg, tempReg, 0);
@@ -4020,7 +3846,7 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, StackAddrMo
 }
 
 // Change frame pointer based addressing to SP-based addressing when possible because it has smaller encoding.
-int emitter::OptimizeFrameAddress(int fpOffset, bool isFloatLoadStore, regNumber* baseReg)
+int emitter::OptimizeFrameAddress(int fpOffset, bool isFloatLoadStore, RegNum* baseReg)
 {
     int spOffset = fpOffset + codeGen->genSPtoFPdelta();
 
@@ -4155,7 +3981,7 @@ void emitter::emitIns_J(instruction ins, insGroup* label)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, regNumber reg)
+void emitter::emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, RegNum reg)
 {
     // TODO-MIKE-Review: cbz/cbnz aren't used on ARM. Delete or try to use these instructions?
     // Their limited range might make using them problematic, we might save a cheap 0 compare
@@ -4258,10 +4084,10 @@ void emitter::emitIns_R_D(instruction ins, RegNum reg, ConstData* data)
 //
 void emitter::emitIns_Call(EmitCallType          kind,
                            CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo),
-                           void*     addr,
-                           emitAttr  retSize,
-                           regNumber reg,
-                           bool      isJump)
+                           void*    addr,
+                           emitAttr retSize,
+                           RegNum   reg,
+                           bool     isJump)
 {
     assert((kind == EC_INDIR_R) || (reg == REG_NA));
     assert((kind != EC_INDIR_R) || (addr == nullptr));
@@ -4321,7 +4147,7 @@ void emitter::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
     if ((regs & RBM_R7) != RBM_NONE)
         encoded |= 0x08;
 
-    id->idReg1(static_cast<regNumber>(encoded));
+    id->idReg1(static_cast<RegNum>(encoded));
 
     encoded = 0;
 
@@ -4334,7 +4160,7 @@ void emitter::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
     if ((regs & RBM_R11) != RBM_NONE)
         encoded |= 0x08;
 
-    id->idReg2(static_cast<regNumber>(encoded));
+    id->idReg2(static_cast<RegNum>(encoded));
 }
 
 unsigned emitter::DecodeCallGCRegs(instrDesc* id)
@@ -4558,97 +4384,63 @@ AGAIN:
 #endif
 }
 
-/*****************************************************************************
- *
- *  Returns an encoding for the specified register (any-reg) to be used in
- *   a Thumb-1 encoding in the M4 position
- */
-
-inline unsigned insEncodeRegT1_M4(regNumber reg)
+// Returns an encoding for the specified register (any-reg) to be used in a Thumb-1 encoding in the M4 position.
+static unsigned insEncodeRegT1_M4(RegNum reg)
 {
     assert(reg < REG_STK);
 
     return reg << 3;
 }
 
-/*****************************************************************************
- *
- *  Returns an encoding for the specified register (any-reg) to be used in
- *   a Thumb-1 encoding in the D4 position
- */
-
-inline unsigned insEncodeRegT1_D4(regNumber reg)
+// Returns an encoding for the specified register (any-reg) to be used in a Thumb-1 encoding in the D4 position.
+static unsigned insEncodeRegT1_D4(RegNum reg)
 {
     assert(reg < REG_STK);
 
     return (reg & 0x7) | ((reg & 0x8) << 4);
 }
 
-/*****************************************************************************
- *
- *  Returns an encoding for the specified register (low-only) to be used in
- *   a Thumb-1 encoding in the M3 position
- */
-
-inline unsigned insEncodeRegT1_M3(regNumber reg)
+// Returns an encoding for the specified register (low-only) to be used in a Thumb-1 encoding in the M3 position.
+static unsigned insEncodeRegT1_M3(RegNum reg)
 {
     assert(reg < REG_R8);
 
     return reg << 6;
 }
 
-/*****************************************************************************
- *
- *  Returns an encoding for the specified register (low-only) to be used in
- *   a Thumb-1 encoding in the N3 position
- */
-
-inline unsigned insEncodeRegT1_N3(regNumber reg)
+// Returns an encoding for the specified register (low-only) to be used in a Thumb-1 encoding in the N3 position.
+static unsigned insEncodeRegT1_N3(RegNum reg)
 {
     assert(reg < REG_R8);
 
     return reg << 3;
 }
 
-/*****************************************************************************
- *
- *  Returns an encoding for the specified register (low-only) to be used in
- *   a Thumb-1 encoding in the D3 position
- */
-
-inline unsigned insEncodeRegT1_D3(regNumber reg)
+// Returns an encoding for the specified register (low-only) to be used in a Thumb-1 encoding in the D3 position.
+static unsigned insEncodeRegT1_D3(RegNum reg)
 {
     assert(reg < REG_R8);
 
     return reg;
 }
-/*****************************************************************************
- *
- *  Returns an encoding for the specified register (low-only) to be used in
- *   a Thumb-1 encoding in the DI position
- */
 
-inline unsigned insEncodeRegT1_DI(regNumber reg)
+// Returns an encoding for the specified register (low-only) to be used in a Thumb-1 encoding in the DI position.
+static unsigned insEncodeRegT1_DI(RegNum reg)
 {
     assert(reg < REG_R8);
 
     return reg << 8;
 }
 
-/*****************************************************************************
- *
- *  Returns an encoding for the specified register to be used in
- *   a Thumb-2 encoding in the N position
- */
-
-inline unsigned insEncodeRegT2_N(regNumber reg)
+// Returns an encoding for the specified register to be used in a Thumb-2 encoding in the N position.
+static unsigned insEncodeRegT2_N(RegNum reg)
 {
     assert(reg < REG_STK);
 
     return reg << 16;
 }
 
-inline unsigned floatRegIndex(regNumber reg, int size)
+static unsigned floatRegIndex(RegNum reg, int size)
 {
     // theoretically this could support quad floats as well but for now...
     assert(size == EA_8BYTE || size == EA_4BYTE);
@@ -4669,13 +4461,11 @@ inline unsigned floatRegIndex(regNumber reg, int size)
     return result;
 }
 
-// variant: SOME arm VFP instructions use the convention that
-// for doubles, the split bit holds the msb of the register index
-// for singles it holds the lsb
+// Some ARM VFP instructions use the convention that for doubles, the split bit holds
+// the msb of the register index for singles it holds the lsb
 // excerpt : d = if dp_operation then UInt(D:Vd)
 // if single  UInt(Vd:D);
-
-inline unsigned floatRegEncoding(unsigned index, int size, bool variant = false)
+static unsigned floatRegEncoding(unsigned index, int size, bool variant = false)
 {
     if (!variant || size == EA_8BYTE)
         return index;
@@ -4686,7 +4476,7 @@ inline unsigned floatRegEncoding(unsigned index, int size, bool variant = false)
 }
 
 // thumb2 VFP M register encoding
-inline unsigned insEncodeRegT2_VectorM(regNumber reg, int size, bool variant)
+static unsigned insEncodeRegT2_VectorM(RegNum reg, int size, bool variant)
 {
     unsigned enc = floatRegIndex(reg, size);
     enc          = floatRegEncoding(enc, size, variant);
@@ -4694,7 +4484,7 @@ inline unsigned insEncodeRegT2_VectorM(regNumber reg, int size, bool variant)
 }
 
 // thumb2 VFP N register encoding
-inline unsigned insEncodeRegT2_VectorN(regNumber reg, int size, bool variant)
+static unsigned insEncodeRegT2_VectorN(RegNum reg, int size, bool variant)
 {
     unsigned enc = floatRegIndex(reg, size);
     enc          = floatRegEncoding(enc, size, variant);
@@ -4702,57 +4492,38 @@ inline unsigned insEncodeRegT2_VectorN(regNumber reg, int size, bool variant)
 }
 
 // thumb2 VFP D register encoding
-inline unsigned insEncodeRegT2_VectorD(regNumber reg, int size, bool variant)
+static unsigned insEncodeRegT2_VectorD(RegNum reg, int size, bool variant)
 {
     unsigned enc = floatRegIndex(reg, size);
     enc          = floatRegEncoding(enc, size, variant);
     return ((enc & 0xf) << 12) | ((enc & 0x10) << 18);
 }
 
-/*****************************************************************************
- *
- *  Returns an encoding for the specified register to be used in
- *   a Thumb-2 encoding in the T position
- */
-
-inline unsigned insEncodeRegT2_T(regNumber reg)
+// Returns an encoding for the specified register to be used in a Thumb-2 encoding in the T position.
+static unsigned insEncodeRegT2_T(RegNum reg)
 {
     assert(reg < REG_STK);
 
     return reg << 12;
 }
 
-/*****************************************************************************
- *
- *  Returns an encoding for the specified register to be used in
- *   a Thumb-2 encoding in the D position
- */
-
-inline unsigned insEncodeRegT2_D(regNumber reg)
+// Returns an encoding for the specified register to be used in a Thumb-2 encoding in the D position.
+static unsigned insEncodeRegT2_D(RegNum reg)
 {
     assert(reg < REG_STK);
 
     return reg << 8;
 }
 
-/*****************************************************************************
- *
- *  Returns an encoding for the specified register to be used in
- *   a Thumb-2 encoding in the M position
- */
-
-inline unsigned insEncodeRegT2_M(regNumber reg)
+// Returns an encoding for the specified register to be used in a Thumb-2 encoding in the M position.
+static unsigned insEncodeRegT2_M(RegNum reg)
 {
     assert(reg < REG_STK);
 
     return reg;
 }
 
-/*****************************************************************************
- *
- *  Returns the encoding for the Set Flags bit to be used in a Thumb-2 encoding
- */
-
+// Returns the encoding for the Set Flags bit to be used in a Thumb-2 encoding.
 static unsigned insEncodeSetFlags(insFlags sf)
 {
     if (sf == INS_FLAGS_SET)
@@ -4761,11 +4532,7 @@ static unsigned insEncodeSetFlags(insFlags sf)
         return 0;
 }
 
-/*****************************************************************************
- *
- *  Returns the encoding for the Shift Type bits to be used in a Thumb-2 encoding
- */
-
+// Returns the encoding for the Shift Type bits to be used in a Thumb-2 encoding.
 static unsigned insEncodeShiftOpts(insOpts opt)
 {
     if (opt == INS_OPTS_NONE)
@@ -4785,11 +4552,7 @@ static unsigned insEncodeShiftOpts(insOpts opt)
     return 0;
 }
 
-/*****************************************************************************
- *
- *  Returns the encoding for the PUW bits to be used in a T2_G0 Thumb-2 encoding
- */
-
+// Returns the encoding for the PUW bits to be used in a T2_G0 Thumb-2 encoding.
 static unsigned insEncodePUW_G0(insOpts opt, int imm)
 {
     unsigned result = 0;
@@ -4805,11 +4568,7 @@ static unsigned insEncodePUW_G0(insOpts opt, int imm)
     return result;
 }
 
-/*****************************************************************************
- *
- *  Returns the encoding for the PUW bits to be used in a T2_H0 Thumb-2 encoding
- */
-
+// Returns the encoding for the PUW bits to be used in a T2_H0 Thumb-2 encoding.
 static unsigned insEncodePUW_H0(insOpts opt, int imm)
 {
     unsigned result = 0;
@@ -4826,12 +4585,8 @@ static unsigned insEncodePUW_H0(insOpts opt, int imm)
     return result;
 }
 
-/*****************************************************************************
- *
- *  Returns the encoding for the Shift Count bits to be used in a Thumb-2 encoding
- */
-
-inline unsigned insEncodeShiftCount(int imm)
+// Returns the encoding for the Shift Count bits to be used in a Thumb-2 encoding.
+static unsigned insEncodeShiftCount(int imm)
 {
     unsigned result;
 
@@ -4842,12 +4597,8 @@ inline unsigned insEncodeShiftCount(int imm)
     return result;
 }
 
-/*****************************************************************************
- *
- *  Returns the encoding for the immediate use by BFI/BFC Thumb-2 encodings
- */
-
-inline unsigned insEncodeBitFieldImm(int imm)
+// Returns the encoding for the immediate use by BFI/BFC Thumb-2 encodings.
+static unsigned insEncodeBitFieldImm(int imm)
 {
     unsigned result;
 
@@ -4859,12 +4610,8 @@ inline unsigned insEncodeBitFieldImm(int imm)
     return result;
 }
 
-/*****************************************************************************
- *
- *  Returns an encoding for the immediate use by MOV/MOVW Thumb-2 encodings
- */
-
-inline unsigned insEncodeImmT2_Mov(int imm)
+// Returns an encoding for the immediate use by MOV/MOVW Thumb-2 encodings.
+static unsigned insEncodeImmT2_Mov(int imm)
 {
     unsigned result;
 
@@ -4877,16 +4624,7 @@ inline unsigned insEncodeImmT2_Mov(int imm)
     return result;
 }
 
-//------------------------------------------------------------------------
-// insUnscaleImm: Unscales the immediate operand of a given IF_T1_C instruction.
-//
-// Arguments:
-//    ins - the instruction
-//    imm - the immediate value to unscale
-//
-// Return Value:
-//    The unscaled immediate value
-//
+// Unscales the immediate operand of a given IF_T1_C instruction.
 static int insUnscaleImm(instruction ins, int imm)
 {
     switch (ins)
@@ -5193,17 +4931,9 @@ uint8_t* ArmEncoder::emitOutputShortBranch(
 
 #ifdef FEATURE_ITINSTRUCTION
 
-/*****************************************************************************
- * The "IT" instruction is deprecated (with a very few exceptions). Don't generate it!
- * Don't delete this code, though, in case we ever want to bring it back.
- *****************************************************************************/
-
-/*****************************************************************************
- *
- *  Output an IT instruction.
- */
-
-BYTE* ArmEncoder::emitOutputIT(BYTE* dst, instruction ins, insFormat fmt, code_t condcode)
+// The "IT" instruction is deprecated (with a very few exceptions). Don't generate it!
+// Don't delete this code, though, in case we ever want to bring it back.
+uint8_t* ArmEncoder::emitOutputIT(uint8_t* dst, instruction ins, insFormat fmt, code_t condcode)
 {
     code_t imm0;
     code_t code, mask, bit;
@@ -5286,25 +5016,21 @@ unsigned emitter::emitGetInstructionSize(const emitLocation& emitLoc)
     return id->idCodeSize();
 }
 
-/*****************************************************************************
-*
- *  Append the machine code corresponding to the given instruction descriptor
- *  to the code block at '*dp'; the base of the code block is 'bp', and 'ig'
- *  is the instruction group that contains the instruction. Updates '*dp' to
- *  point past the generated code, and returns the size of the instruction
- *  descriptor in bytes.
- */
-
 void emitter::emitEndCodeGen()
 {
     ArmEncoder encoder(this);
     encoder.emitEndCodeGen();
 }
 
-size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
+// Append the machine code corresponding to the given instruction descriptor
+// to the code block at '*dp'; the base of the code block is 'bp', and 'ig'
+// is the instruction group that contains the instruction. Updates '*dp' to
+// point past the generated code, and returns the size of the instruction
+// descriptor in bytes.
+size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 {
-    BYTE*       dst  = *dp;
-    BYTE*       odst = dst;
+    uint8_t*    dst  = *dp;
+    uint8_t*    odst = dst;
     instruction ins  = id->idIns();
     insFormat   fmt  = id->idInsFmt();
     emitAttr    size = id->idOpSize();
@@ -5953,7 +5679,7 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             break;
 
         case IF_T2_J3:                    // T2_J3   .....Siiiiiiiiii ..j.jiiiiiiiiii.      Call                imm24
-            if (id->GetAddr() == nullptr) /* a recursive call */
+            if (id->GetAddr() == nullptr) // a recursive call
             {
                 addr = emitCodeBlock;
             }
@@ -5970,9 +5696,9 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             }
             else
             {
-                addr = (BYTE*)((size_t)addr & ~1); // Clear the lowest bit from target address
+                addr = (uint8_t*)((size_t)addr & ~1); // Clear the lowest bit from target address
 
-                /* Calculate PC relative displacement */
+                // Calculate PC relative displacement
                 ptrdiff_t disp = static_cast<uint8_t*>(addr) - (dst + 4);
                 bool      S    = (disp < 0);
                 bool      I1   = ((disp & 0x00800000) == 0);
@@ -6102,19 +5828,14 @@ static bool insAlwaysSetFlags(instruction ins)
     return result;
 }
 
-/*****************************************************************************
- *
- *  Display the instruction name, optionally the instruction
- *   can add the "s" suffix if it must set the flags.
- */
+// Display the instruction name, optionally the instruction can add the "s" suffix if it must set the flags.
 void emitter::emitDispInst(instruction ins, insFlags flags)
 {
     const char* insstr = insName(ins);
     size_t      len    = strlen(insstr);
 
-    /* Display the instruction name */
-
     printf("%s", insstr);
+
     if (insSetsFlags(flags) && !insAlwaysSetFlags(ins))
     {
         printf("s");
@@ -6133,11 +5854,7 @@ void emitter::emitDispInst(instruction ins, insFlags flags)
 
 #define STRICT_ARM_ASM 0
 
-/*****************************************************************************
- *
- *  Display an immediate value
- */
-void emitter::emitDispImm(int imm, bool addComma, bool alwaysHex /* =false */)
+void emitter::emitDispImm(int imm, bool addComma, bool alwaysHex)
 {
     if (!alwaysHex && (imm > -1000) && (imm < 1000))
         printf("%d", imm);
@@ -6152,47 +5869,31 @@ void emitter::emitDispImm(int imm, bool addComma, bool alwaysHex /* =false */)
         printf(", ");
 }
 
-/*****************************************************************************
- *
- *  Display a relocatable immediate value
- */
 void emitter::emitDispReloc(void* addr)
 {
     printf("0x%p", dspPtr(addr));
 }
 
-/*****************************************************************************
- *
- *  Display an arm condition for the IT instructions
- */
 void emitter::emitDispCond(int cond)
 {
-    const static char* armCond[16] = {"eq", "ne", "hs", "lo", "mi", "pl", "vs", "vc",
-                                      "hi", "ls", "ge", "lt", "gt", "le", "AL", "NV"}; // The last two are invalid
-    assert(0 <= cond && (unsigned)cond < ArrLen(armCond));
+    const static char* armCond[16]{"eq", "ne", "hs", "lo", "mi", "pl", "vs", "vc",
+                                   "hi", "ls", "ge", "lt", "gt", "le", "AL", "NV"}; // The last two are invalid
+    assert(0 <= cond && (unsigned)cond < _countof(armCond));
     printf(armCond[cond]);
 }
 
-/*****************************************************************************
- *
- *  Display a register range in a range format
- */
-void emitter::emitDispRegRange(regNumber reg, int len, emitAttr attr)
+void emitter::emitDispRegRange(RegNum reg, int len, emitAttr attr)
 {
     printf("{");
     emitDispReg(reg, attr, false);
     if (len > 1)
     {
         printf("-");
-        emitDispReg((regNumber)(reg + len - 1), attr, false);
+        emitDispReg((RegNum)(reg + len - 1), attr, false);
     }
     printf("}");
 }
 
-/*****************************************************************************
- *
- *  Display an register mask in a list format
- */
 void emitter::emitDispRegmask(int imm, bool encodedPC_LR)
 {
     bool printedOne = false;
@@ -6212,8 +5913,8 @@ void emitter::emitDispRegmask(int imm, bool encodedPC_LR)
         imm &= ~(RBM_PC | RBM_LR);
     }
 
-    regNumber reg = REG_R0;
-    unsigned  bit = 1;
+    RegNum   reg = REG_R0;
+    unsigned bit = 1;
 
     printf("{");
     while (imm != 0)
@@ -6227,7 +5928,7 @@ void emitter::emitDispRegmask(int imm, bool encodedPC_LR)
             imm -= bit;
         }
 
-        reg = regNumber(reg + 1);
+        reg = RegNum(reg + 1);
         bit <<= 1;
     }
 
@@ -6275,11 +5976,7 @@ void emitter::emitDispShiftOpts(insOpts opt)
     printf(" %s ", insOptsName(opt));
 }
 
-/*****************************************************************************
- *
- *  Display a register
- */
-void emitter::emitDispReg(regNumber reg, emitAttr attr, bool addComma)
+void emitter::emitDispReg(RegNum reg, emitAttr attr, bool addComma)
 {
     if (isFloatReg(reg))
     {
@@ -6338,11 +6035,7 @@ void emitter::emitDispLabel(instrDescJmp* id)
     }
 }
 
-/*****************************************************************************
- *
- *  Display an addressing operand [reg]
- */
-void emitter::emitDispAddrR(regNumber reg, emitAttr attr)
+void emitter::emitDispAddrR(RegNum reg, emitAttr attr)
 {
     printf("[");
     emitDispReg(reg, attr, false);
@@ -6350,11 +6043,7 @@ void emitter::emitDispAddrR(regNumber reg, emitAttr attr)
     emitDispGC(attr);
 }
 
-/*****************************************************************************
- *
- *  Display an addressing operand [reg + imm]
- */
-void emitter::emitDispAddrRI(regNumber reg, int imm, emitAttr attr)
+void emitter::emitDispAddrRI(RegNum reg, int imm, emitAttr attr)
 {
     bool regIsSPorFP = (reg == REG_SP) || (reg == REG_FP);
 
@@ -6376,11 +6065,7 @@ void emitter::emitDispAddrRI(regNumber reg, int imm, emitAttr attr)
     emitDispGC(attr);
 }
 
-/*****************************************************************************
- *
- *  Display an addressing operand [reg + reg]
- */
-void emitter::emitDispAddrRR(regNumber reg1, regNumber reg2, emitAttr attr)
+void emitter::emitDispAddrRR(RegNum reg1, RegNum reg2, emitAttr attr)
 {
     printf("[");
     emitDispReg(reg1, attr, false);
@@ -6394,11 +6079,7 @@ void emitter::emitDispAddrRR(regNumber reg1, regNumber reg2, emitAttr attr)
     emitDispGC(attr);
 }
 
-/*****************************************************************************
- *
- *  Display an addressing operand [reg + reg * imm]
- */
-void emitter::emitDispAddrRRI(regNumber reg1, regNumber reg2, int imm, emitAttr attr)
+void emitter::emitDispAddrRRI(RegNum reg1, RegNum reg2, int imm, emitAttr attr)
 {
     printf("[");
     emitDispReg(reg1, attr, false);
@@ -6423,11 +6104,7 @@ void emitter::emitDispAddrRRI(regNumber reg1, regNumber reg2, int imm, emitAttr 
     emitDispGC(attr);
 }
 
-/*****************************************************************************
- *
- *  Display an addressing operand [reg + imm]
- */
-void emitter::emitDispAddrPUW(regNumber reg, int imm, insOpts opt, emitAttr attr)
+void emitter::emitDispAddrPUW(RegNum reg, int imm, insOpts opt, emitAttr attr)
 {
     bool regIsSPorFP = (reg == REG_SP) || (reg == REG_FP);
 
@@ -6453,10 +6130,6 @@ void emitter::emitDispAddrPUW(regNumber reg, int imm, insOpts opt, emitAttr attr
     emitDispGC(attr);
 }
 
-/*****************************************************************************
- *
- *  Display the gc-ness of the operand
- */
 void emitter::emitDispGC(emitAttr attr)
 {
 #if 0
@@ -6468,12 +6141,7 @@ void emitter::emitDispGC(emitAttr attr)
 #endif
 }
 
-/*****************************************************************************
- *
- *  Display (optionally) the instruction encoding in hex
- */
-
-void emitter::emitDispInsHex(instrDesc* id, BYTE* code, size_t sz)
+void emitter::emitDispInsHex(instrDesc* id, uint8_t* code, size_t sz)
 {
     // We do not display the instruction hex if we want diff-able disassembly
     if (!emitComp->opts.disDiffable)
@@ -6510,12 +6178,8 @@ void emitter::emitDispInsHex(instrDesc* id, BYTE* code, size_t sz)
     }
 }
 
-/****************************************************************************
- *
- *  Display the given instruction.
- */
-
-void emitter::emitDispInsHelp(instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, BYTE* code, size_t sz)
+void emitter::emitDispInsHelp(
+    instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, uint8_t* code, size_t sz)
 {
     JITDUMP("IN%04X: ", id->idDebugOnlyInfo()->idNum);
 
@@ -6529,39 +6193,33 @@ void emitter::emitDispInsHelp(instrDesc* id, bool isNew, bool doffs, bool asmfm,
         doffs = true;
     }
 
-    /* Display the instruction address */
-
     emitDispInsAddr(code);
-
-    /* Display the instruction offset */
-
     emitDispInsOffs(offset, doffs);
-
-    /* Display the instruction hex code */
-
     emitDispInsHex(id, code, sz);
 
     printf("      ");
-
-    /* Get the instruction and format */
 
     instruction ins = id->idIns();
     insFormat   fmt = id->idInsFmt();
 
     emitDispInst(ins, id->idInsFlags());
 
-    /* If this instruction has just been added, check its size */
-
     assert(!isNew || (static_cast<int>(id->GetDescSize()) == emitCurIGfreeNext - reinterpret_cast<uint8_t*>(id)));
 
-    /* Figure out the operand size */
     emitAttr attr;
+
     if (id->idGCref() == GCT_GCREF)
+    {
         attr = EA_GCREF;
+    }
     else if (id->idGCref() == GCT_BYREF)
+    {
         attr = EA_BYREF;
+    }
     else
+    {
         attr = id->idOpSize();
+    }
 
     switch (fmt)
     {
@@ -6988,7 +6646,7 @@ void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, uns
         return;
     }
 
-    /* Special-case IF_LARGEJMP */
+    // Special-case IF_LARGEJMP
 
     if ((fmt == IF_LARGEJMP) && static_cast<instrDescJmp*>(id)->HasLabel())
     {
@@ -7092,18 +6750,6 @@ void emitter::emitDispFrameRef(instrDesc* id)
 
 #if defined(DEBUG) || defined(LATE_DISASM)
 
-//----------------------------------------------------------------------------------------
-// getInsExecutionCharacteristics:
-//    Returns the current instruction execution characteristics
-//
-// Arguments:
-//    id  - The current instruction descriptor to be evaluated
-//
-// Return Value:
-//    A struct containing the current instruction execution characteristics
-//
-// Notes:
-//
 emitter::insExecutionCharacteristics emitter::Encoder::getInsExecutionCharacteristics(instrDesc* id)
 {
     insExecutionCharacteristics result;
@@ -7121,4 +6767,4 @@ emitter::insExecutionCharacteristics emitter::Encoder::getInsExecutionCharacteri
 
 #endif // defined(DEBUG) || defined(LATE_DISASM)
 
-#endif // defined(TARGET_ARM)
+#endif // TARGET_ARM

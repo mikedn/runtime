@@ -20,7 +20,7 @@ static insSize emitInsSize(insFormat insFmt);
 /************************************************************************/
 
 #ifdef DEBUG
-void emitDispInsHex(instrDesc* id, BYTE* code, size_t sz);
+void emitDispInsHex(instrDesc* id, uint8_t* code, size_t sz);
 void emitDispInst(instruction ins, insFlags flags);
 void emitDispImm(int imm, bool addComma, bool alwaysHex = false);
 void emitDispReloc(void* addr);
@@ -39,7 +39,7 @@ void emitDispAddrPUW(regNumber reg, int imm, insOpts opt, emitAttr attr);
 void emitDispGC(emitAttr attr);
 
 void emitDispInsHelp(
-    instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offs = 0, BYTE* code = 0, size_t sz = 0);
+    instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offs = 0, uint8_t* code = 0, size_t sz = 0);
 void emitDispIns(instrDesc* id,
                  bool       isNew = false,
                  bool       doffs = false,
