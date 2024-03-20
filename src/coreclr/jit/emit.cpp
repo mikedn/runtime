@@ -3538,18 +3538,18 @@ void emitter::Encoder::PrintRoData() const
 #endif // DEBUG
 
 // A helper for recording a relocation with the EE.
-void emitter::emitRecordRelocation(void* location, void* target, uint16_t relocType, int32_t addlDelta)
+void emitter::Encoder::emitRecordRelocation(void* location, void* target, uint16_t relocType, int32_t addlDelta)
 {
     // If we're an unmatched altjit, don't tell the VM anything. We still record the relocation for
     // late disassembly; maybe we'll need it?
     if (emitComp->info.compMatchedVM)
     {
         void* locationRW = static_cast<uint8_t*>(location) + writeableOffset;
-        emitCmpHandle->recordRelocation(location, locationRW, target, relocType, 0, addlDelta);
+        emitComp->info.compCompHnd->recordRelocation(location, locationRW, target, relocType, 0, addlDelta);
     }
 
 #ifdef LATE_DISASM
-    disasm->disRecordRelocation((size_t)location, (size_t)target);
+    emit.disasm->disRecordRelocation((size_t)location, (size_t)target);
 #endif
 }
 

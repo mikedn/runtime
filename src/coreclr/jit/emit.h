@@ -1764,8 +1764,6 @@ private:
 
     RoData roData;
 
-    void emitRecordRelocation(void* location, void* target, uint16_t fRelocType, int32_t addlDelta = 0);
-
     class Encoder
     {
     protected:
@@ -1823,14 +1821,9 @@ private:
 #if FEATURE_FIXED_OUT_ARGS
         void emitGCargLiveUpd(int offs, GCtype gcType, uint8_t* addr DEBUGARG(int varNum));
 #endif
-
         size_t emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* callEndAddr);
         void emitRecordCallSite(unsigned instrOffset, CORINFO_SIG_INFO* callSig, CORINFO_METHOD_HANDLE methodHandle);
-
-        void emitRecordRelocation(void* location, void* target, uint16_t relocType, int32_t addlDelta = 0)
-        {
-            emit.emitRecordRelocation(location, target, relocType, addlDelta);
-        }
+        void emitRecordRelocation(void* location, void* target, uint16_t relocType, int32_t addlDelta = 0);
 
         unsigned emitFindInsNum(const insGroup* ig, const instrDesc* instr)
         {
