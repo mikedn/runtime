@@ -1486,7 +1486,6 @@ public:
 
     BYTE* emitCodeBlock     = nullptr; // Hot code block
     BYTE* emitColdCodeBlock = nullptr; // Cold code block
-    BYTE* emitConsBlock     = nullptr; // Read-only (constant) data block
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
     bool emitInInstrumentation = false;

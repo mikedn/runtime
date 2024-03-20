@@ -2761,12 +2761,9 @@ void emitter::Encoder::emitEndCodeGen()
 
     emit.emitCodeBlock     = codeBlock;
     emit.emitColdCodeBlock = coldCodeBlock;
-    emit.emitConsBlock     = roDataBlock;
 
-    uint8_t* cp = codeBlock;
-
-    emitCodeBlock   = emit.emitCodeBlock;
-    emitConsBlock   = emit.emitConsBlock;
+    emitCodeBlock   = codeBlock;
+    emitConsBlock   = roDataBlock;
     writeableOffset = codeBlockRW - codeBlock;
 
 #if !FEATURE_FIXED_OUT_ARGS
@@ -2776,6 +2773,8 @@ void emitter::Encoder::emitEndCodeGen()
     emit.emitIssuing      = true;
     double blockPerfScore = 0.0;
 #endif
+
+    uint8_t* cp = codeBlock;
 
     for (insGroup *ig = emit.emitIGfirst, *prevIG = nullptr; ig != nullptr; prevIG = ig, ig = ig->igNext)
     {
