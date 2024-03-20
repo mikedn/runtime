@@ -3080,7 +3080,7 @@ BYTE* emitter::emitOffsetToPtr(UNATIVE_OFFSET offset) const
     }
 }
 
-BYTE* emitter::emitDataOffsetToPtr(UNATIVE_OFFSET offset)
+uint8_t* emitter::Encoder::emitDataOffsetToPtr(unsigned offset) const
 {
     assert(offset < roData.size);
     return emitConsBlock + offset;

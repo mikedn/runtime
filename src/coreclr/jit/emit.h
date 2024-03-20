@@ -1491,7 +1491,6 @@ public:
     size_t writeableOffset   = 0;       // Offset applied to a code address to get memory location that can be written
 
     BYTE* emitOffsetToPtr(UNATIVE_OFFSET offset) const;
-    BYTE* emitDataOffsetToPtr(UNATIVE_OFFSET offset);
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
     bool emitInInstrumentation = false;
@@ -1847,10 +1846,7 @@ private:
             return emit.emitOffsetToPtr(offset);
         }
 
-        uint8_t* emitDataOffsetToPtr(unsigned offset) const
-        {
-            return emit.emitDataOffsetToPtr(offset);
-        }
+        uint8_t* emitDataOffsetToPtr(unsigned offset) const;
 
 #if FEATURE_LOOP_ALIGN
         unsigned emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offset DEBUG_ARG(bool isAlignAdjusted))
