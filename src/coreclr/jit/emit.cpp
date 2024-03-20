@@ -2945,7 +2945,7 @@ void emitter::Encoder::emitEndCodeGen()
 
     if (roData.size != 0)
     {
-        emit.OutputRoData(roDataBlock + writeableOffset);
+        OutputRoData(roDataBlock + writeableOffset);
     }
 
 #ifdef DEBUG
@@ -3271,7 +3271,7 @@ emitter::DataSection* emitter::RoData::Find(const void* data, uint32_t size, uin
     return nullptr;
 }
 
-void emitter::OutputRoData(uint8_t* dst)
+void emitter::Encoder::OutputRoData(uint8_t* dst)
 {
     JITDUMP("\nEmitting data sections: %u total bytes\n", roData.size);
 
@@ -3370,7 +3370,7 @@ void emitter::OutputRoData(uint8_t* dst)
 }
 
 #ifdef DEBUG
-void emitter::PrintRoData() const
+void emitter::Encoder::PrintRoData() const
 {
     printf("\n");
 
@@ -3399,8 +3399,8 @@ void emitter::PrintRoData() const
 
                 insGroup* label = labels[i];
 
-                const char* baseLabelName = emitLabelString(baseLabel);
-                const char* labelName     = emitLabelString(label);
+                const char* baseLabelName = emit.emitLabelString(baseLabel);
+                const char* labelName     = emit.emitLabelString(label);
 
                 if (emitComp->opts.disDiffable)
                 {

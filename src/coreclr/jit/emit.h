@@ -1764,9 +1764,6 @@ private:
 
     RoData roData;
 
-    void OutputRoData(uint8_t* dst);
-    INDEBUG(void PrintRoData() const;)
-
     void emitRecordRelocation(void* location, void* target, uint16_t fRelocType, int32_t addlDelta = 0);
 
     class Encoder
@@ -1815,6 +1812,7 @@ private:
     protected:
         size_t emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp);
         virtual size_t emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp) = 0;
+        void OutputRoData(uint8_t* dst);
 
         void emitGCregLiveUpd(GCtype gcType, RegNum reg, uint8_t* addr);
         void emitGCregDeadUpd(RegNum reg, uint8_t* addr);
@@ -1864,6 +1862,7 @@ private:
 #endif
 
 #ifdef DEBUG
+        void PrintRoData() const;
         bool emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset) const;
 
         const char* emitIfName(unsigned f)
