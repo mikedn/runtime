@@ -9767,10 +9767,10 @@ unsigned Arm64Encoder::emitOutput_Instr(BYTE* dst, code_t code)
     return 4;
 }
 
-size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, BYTE** dp)
+void emitter::emitEndCodeGen()
 {
     Arm64Encoder encoder(this);
-    return encoder.emitIssue1Instr(ig, id, dp);
+    encoder.emitEndCodeGen();
 }
 
 /*****************************************************************************

@@ -7589,10 +7589,10 @@ uint8_t* X86Encoder::emitOutputNoOperands(uint8_t* dst, instrDesc* id)
     return dst;
 }
 
-size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp)
+void emitter::emitEndCodeGen()
 {
     X86Encoder encoder(this);
-    return encoder.emitIssue1Instr(ig, id, dp);
+    encoder.emitEndCodeGen();
 }
 
 size_t X86Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)

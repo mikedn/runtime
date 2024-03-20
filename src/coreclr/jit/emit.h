@@ -1495,8 +1495,6 @@ public:
     BYTE* emitDataOffsetToPtr(UNATIVE_OFFSET offset);
     INDEBUG(bool emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset);)
 
-    size_t emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp);
-
 #ifdef PSEUDORANDOM_NOP_INSERTION
     bool emitInInstrumentation = false;
 #endif
@@ -1809,45 +1807,39 @@ private:
         using instrDescAlign = instrDescAlign;
 #endif
 
-        Compiler*      emitComp;
-        emitter&       emit;
-        GCInfo&        gcInfo;
-        RoData&        roData;
-        uint8_t* const emitConsBlock;
-        size_t const   writeableOffset;
+        Compiler*  emitComp;
+        CodeGen*   codeGen;
+        emitter&   emit;
+        GCInfo&    gcInfo;
+        RoData&    roData;
+        uint8_t*   emitCodeBlock;
+        uint8_t*   emitConsBlock;
+        size_t     writeableOffset = 0;
+        insGroup*& emitCurIG;
 #ifdef JIT32_GCENCODER
-        unsigned const emitCurStackLvl;
+        unsigned& emitCurStackLvl;
 #endif
 
         Encoder(emitter* emit)
             : emitComp(emit->emitComp)
+            , codeGen(emit->codeGen)
             , emit(*emit)
             , gcInfo(emit->gcInfo)
             , roData(emit->roData)
-            , emitConsBlock(emit->emitConsBlock)
-            , writeableOffset(emit->writeableOffset)
+            , emitCurIG(emit->emitCurIG)
 #ifdef JIT32_GCENCODER
             , emitCurStackLvl(emit->emitCurStackLvl)
 #endif
         {
+            assert(emitCurIG == nullptr);
         }
 
     public:
-        size_t emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp);
+        void emitEndCodeGen();
 
     protected:
+        size_t emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp);
         virtual size_t emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp) = 0;
-
-#if defined(DEBUG) || defined(LATE_DISASM)
-#if defined(TARGET_XARCH)
-        static insFormat getMemoryOperation(instrDesc* id);
-#elif defined(TARGET_ARM64)
-        void getMemoryOperation(instrDesc* id, unsigned* pMemAccessKind, bool* pIsLocalAccess);
-#endif
-        float insEvaluateExecutionCost(instrDesc* id);
-        insExecutionCharacteristics getInsExecutionCharacteristics(instrDesc* id);
-        void perfScoreUnhandledInstruction(instrDesc* id, insExecutionCharacteristics* result);
-#endif
 
         void emitGCregLiveUpd(GCtype gcType, RegNum reg, uint8_t* addr)
         {
@@ -1942,6 +1934,17 @@ private:
         {
             return emit.emitIfName(f);
         }
+#endif
+
+#if defined(DEBUG) || defined(LATE_DISASM)
+#if defined(TARGET_XARCH)
+        static insFormat getMemoryOperation(instrDesc* id);
+#elif defined(TARGET_ARM64)
+        void getMemoryOperation(instrDesc* id, unsigned* pMemAccessKind, bool* pIsLocalAccess);
+#endif
+        float insEvaluateExecutionCost(instrDesc* id);
+        insExecutionCharacteristics getInsExecutionCharacteristics(instrDesc* id);
+        void perfScoreUnhandledInstruction(instrDesc* id, insExecutionCharacteristics* result);
 #endif
     };
 

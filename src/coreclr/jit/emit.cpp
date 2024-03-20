@@ -2642,7 +2642,7 @@ void emitter::emitComputeCodeSizes()
     JITDUMP("\nHot code size = 0x%X bytes\nCold code size = 0x%X bytes\n", emitTotalHotCodeSize, GetColdCodeSize());
 }
 
-void emitter::emitEndCodeGen()
+void emitter::Encoder::emitEndCodeGen()
 {
     JITDUMP("*************** In emitEndCodeGen()\n");
 
@@ -2651,15 +2651,15 @@ void emitter::emitEndCodeGen()
 #ifndef JIT32_GCENCODER
     gcInfo.Begin();
 #else
-    unsigned maxStackDepthIn4ByteElements = emitMaxStackDepth / REGSIZE_BYTES;
-    JITDUMP("Converting emitMaxStackDepth from bytes (%d) to elements (%d)\n", emitMaxStackDepth,
+    unsigned maxStackDepthIn4ByteElements = emit.emitMaxStackDepth / REGSIZE_BYTES;
+    JITDUMP("Converting emitMaxStackDepth from bytes (%d) to elements (%d)\n", emit.emitMaxStackDepth,
             maxStackDepthIn4ByteElements);
-    emitMaxStackDepth = maxStackDepthIn4ByteElements;
+    emit.emitMaxStackDepth = maxStackDepthIn4ByteElements;
 
-    gcInfo.Begin(emitMaxStackDepth);
+    gcInfo.Begin(emit.emitMaxStackDepth);
 #endif // JIT32_GCENCODER
 
-    INDEBUG(emitCheckIGoffsets());
+    INDEBUG(emit.emitCheckIGoffsets());
 
     CorJitAllocMemFlag allocMemFlag = CORJIT_ALLOCMEM_DEFAULT_CODE_ALIGN;
 
@@ -2683,7 +2683,7 @@ void emitter::emitEndCodeGen()
             allocMemFlag = CORJIT_ALLOCMEM_FLG_16BYTE_ALIGN;
         }
     }
-    else if (emitTotalHotCodeSize <= 16)
+    else if (emit.emitTotalHotCodeSize <= 16)
     {
         allocMemFlag = CORJIT_ALLOCMEM_FLG_16BYTE_ALIGN;
     }
@@ -2693,7 +2693,7 @@ void emitter::emitEndCodeGen()
     // For x64/x86, align methods that are "optimizations enabled" to 32 byte
     // boundaries if they are larger than 16 bytes and contain a loop.
     if (emitComp->opts.OptimizationEnabled() && !emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) &&
-        (emitTotalHotCodeSize > 16) && emitComp->fgHasLoops)
+        (emit.emitTotalHotCodeSize > 16) && emitComp->fgHasLoops)
     {
         allocMemFlag = CORJIT_ALLOCMEM_FLG_32BYTE_ALIGN;
     }
@@ -2718,7 +2718,7 @@ void emitter::emitEndCodeGen()
     // For arm64, we want to allocate JIT data always adjacent to code similar to what native compiler does.
     // This way allows us to use a single `ldr` to access such data like float constant/jmp table.
 
-    if (emitFirstColdIG != nullptr)
+    if (emit.emitFirstColdIG != nullptr)
     {
         // JIT data might be far away from the cold code.
         NYI_ARM64("Need to handle fix-up to data from cold code.");
@@ -2729,28 +2729,28 @@ void emitter::emitEndCodeGen()
     if (roData.size && (roData.align == TARGET_POINTER_SIZE))
     {
         uint32_t roDataAlignment = TARGET_POINTER_SIZE; // 8 Byte align by default.
-        roDataAlignmentDelta     = ALIGN_UP(emitTotalHotCodeSize, roDataAlignment) - emitTotalHotCodeSize;
+        roDataAlignmentDelta     = ALIGN_UP(emit.emitTotalHotCodeSize, roDataAlignment) - emit.emitTotalHotCodeSize;
         assert((roDataAlignmentDelta == 0) || (roDataAlignmentDelta == 4));
     }
 
-    args.hotCodeSize = emitTotalHotCodeSize + roDataAlignmentDelta + roData.size;
+    args.hotCodeSize = emit.emitTotalHotCodeSize + roDataAlignmentDelta + roData.size;
 #else
-    args.hotCodeSize       = emitTotalHotCodeSize;
+    args.hotCodeSize       = emit.emitTotalHotCodeSize;
     args.roDataSize        = roData.size;
 #endif
-    args.coldCodeSize = GetColdCodeSize();
+    args.coldCodeSize = emit.GetColdCodeSize();
     args.xcptnsCount  = emitComp->compHndBBtabCount;
     args.flag         = allocMemFlag;
 
-    emitCmpHandle->allocMem(&args);
+    emit.emitCmpHandle->allocMem(&args);
 
     uint8_t* codeBlock       = static_cast<uint8_t*>(args.hotCodeBlock);
     uint8_t* codeBlockRW     = static_cast<uint8_t*>(args.hotCodeBlockRW);
     uint8_t* coldCodeBlock   = static_cast<uint8_t*>(args.coldCodeBlock);
     uint8_t* coldCodeBlockRW = static_cast<uint8_t*>(args.coldCodeBlockRW);
 #ifdef TARGET_ARM64
-    uint8_t* roDataBlock   = codeBlock + emitTotalHotCodeSize + roDataAlignmentDelta;
-    uint8_t* roDataBlockRW = codeBlockRW + emitTotalHotCodeSize + roDataAlignmentDelta;
+    uint8_t* roDataBlock   = codeBlock + emit.emitTotalHotCodeSize + roDataAlignmentDelta;
+    uint8_t* roDataBlockRW = codeBlockRW + emit.emitTotalHotCodeSize + roDataAlignmentDelta;
 #else
     uint8_t* roDataBlock   = static_cast<uint8_t*>(args.roDataBlock);
     uint8_t* roDataBlockRW = static_cast<uint8_t*>(args.roDataBlockRW);
@@ -2759,27 +2759,32 @@ void emitter::emitEndCodeGen()
     assert(((allocMemFlag & CORJIT_ALLOCMEM_FLG_32BYTE_ALIGN) == 0) ||
            ((reinterpret_cast<size_t>(codeBlock) & 31) == 0));
 
-    emitCodeBlock     = codeBlock;
-    emitColdCodeBlock = coldCodeBlock;
-    emitConsBlock     = roDataBlock;
+    emit.emitCodeBlock     = codeBlock;
+    emit.emitColdCodeBlock = coldCodeBlock;
+    emit.emitConsBlock     = roDataBlock;
 
-    uint8_t* cp     = codeBlock;
-    writeableOffset = codeBlockRW - codeBlock;
+    uint8_t* cp          = codeBlock;
+    emit.writeableOffset = codeBlockRW - codeBlock;
+
+    emitCodeBlock   = emit.emitCodeBlock;
+    emitConsBlock   = emit.emitConsBlock;
+    writeableOffset = emit.writeableOffset;
+
 #if !FEATURE_FIXED_OUT_ARGS
     emitCurStackLvl = 0;
 #endif
 #ifdef DEBUG
-    emitIssuing           = true;
+    emit.emitIssuing      = true;
     double blockPerfScore = 0.0;
 #endif
 
-    for (insGroup *ig = emitIGfirst, *prevIG = nullptr; ig != nullptr; prevIG = ig, ig = ig->igNext)
+    for (insGroup *ig = emit.emitIGfirst, *prevIG = nullptr; ig != nullptr; prevIG = ig, ig = ig->igNext)
     {
         assert((ig->igFlags & IGF_PLACEHOLDER) == 0);
 
-        if (ig == emitFirstColdIG)
+        if (ig == emit.emitFirstColdIG)
         {
-            assert(emitCurCodeOffs(cp) == emitTotalHotCodeSize);
+            assert(emitCurCodeOffs(cp) == emit.emitTotalHotCodeSize);
             assert(coldCodeBlock != nullptr);
 
             cp              = coldCodeBlock;
@@ -2799,12 +2804,12 @@ void emitter::emitEndCodeGen()
             if (emitComp->verbose || emitComp->opts.disasmWithGC)
             {
                 printf("\n");
-                emitDispIG(ig, false);
+                emit.emitDispIG(ig, false);
             }
             else if (!ig->IsExtension() || ig->IsMainEpilog() || ig->IsFuncletPrologOrEpilog() || (prevIG == nullptr) ||
                      (ig->IsNoGC() != prevIG->IsNoGC()))
             {
-                printf("\n%s:", emitLabelString(ig));
+                printf("\n%s:", emit.emitLabelString(ig));
 
                 if (!emitComp->opts.disDiffable)
                 {
@@ -2829,7 +2834,7 @@ void emitter::emitEndCodeGen()
         }
 #endif
 
-        if (!ig->IsExtension() && (ig != GetProlog()))
+        if (!ig->IsExtension() && (ig != emit.GetProlog()))
         {
             gcInfo.SetLiveLclStackSlots(ig->GetGCLcls(), codeOffs);
 
@@ -2860,7 +2865,7 @@ void emitter::emitEndCodeGen()
             if (emitComp->verbose || emitComp->opts.disasmWithGC)
             {
                 char header[128];
-                GetGCDeltaDumpHeader(header, _countof(header));
+                emit.GetGCDeltaDumpHeader(header, _countof(header));
                 gcInfo.DumpDelta(header);
             }
 #endif
@@ -2895,14 +2900,14 @@ void emitter::emitEndCodeGen()
             if (emitComp->verbose || emitComp->opts.disasmWithGC)
             {
                 char header[128];
-                GetGCDeltaDumpHeader(header, _countof(header));
+                emit.GetGCDeltaDumpHeader(header, _countof(header));
                 gcInfo.DumpDelta(header);
             }
 
             if ((emitComp->opts.disAsm || emitComp->verbose) && (emitComp->opts.disAddr || emitComp->opts.disAlignment))
             {
-                PrintAlignmentBoundary(reinterpret_cast<size_t>(curInstrAddr), reinterpret_cast<size_t>(cp),
-                                       curInstrDesc, i + 1 < count ? id : nullptr);
+                emit.PrintAlignmentBoundary(reinterpret_cast<size_t>(curInstrAddr), reinterpret_cast<size_t>(cp),
+                                            curInstrDesc, i + 1 < count ? id : nullptr);
             }
 #endif // DEBUG
 
@@ -2917,7 +2922,7 @@ void emitter::emitEndCodeGen()
         assert(ig->igSize == cp - bp);
 
 #ifdef DEBUG
-        instrCount += ig->igInsCnt;
+        emit.instrCount += ig->igInsCnt;
         blockPerfScore += ig->igPerfScore;
 
         if (emitComp->verbose ||
@@ -2931,7 +2936,7 @@ void emitter::emitEndCodeGen()
 #endif
     }
 
-    assert(emitTotalCodeSize == emitCurCodeOffs(cp));
+    assert(emit.emitTotalCodeSize == emitCurCodeOffs(cp));
 #if !FEATURE_FIXED_OUT_ARGS
     assert(emitCurStackLvl == 0);
 #endif
@@ -2940,7 +2945,7 @@ void emitter::emitEndCodeGen()
 
     if (roData.size != 0)
     {
-        OutputRoData(roDataBlock + writeableOffset);
+        emit.OutputRoData(roDataBlock + writeableOffset);
     }
 
 #ifdef DEBUG
@@ -2952,13 +2957,13 @@ void emitter::emitEndCodeGen()
 
 #if defined(DEBUG) || defined(LATE_DISASM)
     // Add code size information into the Perf Score
-    perfScore += static_cast<double>(GetHotCodeSize()) * PERFSCORE_CODESIZE_COST_HOT;
-    perfScore += static_cast<double>(GetColdCodeSize()) * PERFSCORE_CODESIZE_COST_COLD;
+    emit.perfScore += static_cast<double>(emit.GetHotCodeSize()) * PERFSCORE_CODESIZE_COST_HOT;
+    emit.perfScore += static_cast<double>(emit.GetColdCodeSize()) * PERFSCORE_CODESIZE_COST_COLD;
 #endif
 
 #ifdef DEBUG
-    assert(!compCodeGenDone);
-    compCodeGenDone = true;
+    assert(!emit.compCodeGenDone);
+    emit.compCodeGenDone = true;
 #endif
 }
 

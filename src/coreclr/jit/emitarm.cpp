@@ -573,11 +573,8 @@ class ArmEncoder : public Emitter::Encoder
 {
     using code_t = Emitter::code_t;
 
-    CodeGen* const codeGen;
-    uint8_t* const emitCodeBlock;
-
 public:
-    ArmEncoder(Emitter* emit) : Encoder(emit), codeGen(emit->codeGen), emitCodeBlock(emit->emitCodeBlock)
+    ArmEncoder(Emitter* emit) : Encoder(emit)
     {
     }
 
@@ -5313,10 +5310,10 @@ unsigned emitter::emitGetInstructionSize(const emitLocation& emitLoc)
  *  descriptor in bytes.
  */
 
-size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, BYTE** dp)
+void emitter::emitEndCodeGen()
 {
     ArmEncoder encoder(this);
-    return encoder.emitIssue1Instr(ig, id, dp);
+    encoder.emitEndCodeGen();
 }
 
 size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
