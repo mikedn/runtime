@@ -324,10 +324,6 @@ private:
     void disSetMethod(size_t addr, CORINFO_METHOD_HANDLE methHnd);
 #endif
 
-    /************************************************************************/
-    /*       Overall emitter control (including startup and shutdown)       */
-    /************************************************************************/
-
 public:
     void emitBegFN();
     void emitComputeCodeSizes();
@@ -336,10 +332,6 @@ public:
 #ifdef LATE_DISASM
     void Disassemble();
 #endif
-
-    /************************************************************************/
-    /*                      Method prolog and epilog                        */
-    /************************************************************************/
 
     void     emitBegProlog();
     unsigned emitGetCurrentPrologCodeSize();
@@ -371,18 +363,10 @@ public:
     }
 #endif // JIT32_GCENCODER
 
-    /************************************************************************/
-    /*           Record a code position and later convert it to offset      */
-    /************************************************************************/
-
     CodePos emitCurCodePos() const;
     bool IsCurrentLocation(const emitLocation& loc) const;
     bool IsPreviousLocation(const emitLocation& loc) const;
     INDEBUG(const char* emitOffsetToLabel(unsigned offs);)
-
-    /************************************************************************/
-    /*                   Emit initialized data sections                     */
-    /************************************************************************/
 
 public:
     ConstData* CreateBlockLabelTable(BasicBlock** blocks, unsigned count, bool relative);
@@ -428,12 +412,7 @@ private:
     }
 
     void emitRecomputeIGoffsets();
-
     void emitDispCommentForHandle(void* handle, HandleKind kind);
-
-/************************************************************************/
-/*          The following describes a single instruction                */
-/************************************************************************/
 
 #ifdef TARGET_XARCH
     struct emitAddrMode
@@ -1268,48 +1247,47 @@ public:
         }
     };
 
-    struct instrDescCGCA : instrDesc // call with ...
+    struct instrDescCGCA : instrDesc
     {
-        VARSET_TP idcGCvars; // ... updated GC vars or
+        VARSET_TP idcGCvars;
 #ifdef TARGET_XARCH
-        int32_t idcDisp; // ... big addrmode disp
+        int32_t idcDisp;
 #endif
-        regMaskTP idcGcrefRegs; // ... gcref registers
-        regMaskTP idcByrefRegs; // ... byref registers
+        regMaskTP idcGcrefRegs;
+        regMaskTP idcByrefRegs;
 #ifdef TARGET_X86
-        int idcArgCnt; // ... lots of args or (<0 ==> caller pops args)
+        int idcArgCnt;
 #endif
     };
 
-private:
 #if defined(DEBUG) || defined(LATE_DISASM)
 #define PERFSCORE_THROUGHPUT_ILLEGAL -1024.0f
 
 #define PERFSCORE_THROUGHPUT_ZERO 0.0f // Only used for pseudo-instructions that don't generate code
 
-#define PERFSCORE_THROUGHPUT_6X (1.0f / 6.0f) // Hextuple issue
-#define PERFSCORE_THROUGHPUT_5X 0.20f         // Pentuple issue
-#define PERFSCORE_THROUGHPUT_4X 0.25f         // Quad issue
-#define PERFSCORE_THROUGHPUT_3X (1.0f / 3.0f) // Three issue
-#define PERFSCORE_THROUGHPUT_2X 0.5f          // Dual issue
+#define PERFSCORE_THROUGHPUT_6X (1.0f / 6.0f)
+#define PERFSCORE_THROUGHPUT_5X 0.20f
+#define PERFSCORE_THROUGHPUT_4X 0.25f
+#define PERFSCORE_THROUGHPUT_3X (1.0f / 3.0f)
+#define PERFSCORE_THROUGHPUT_2X 0.5f
 
-#define PERFSCORE_THROUGHPUT_1C 1.0f // Single Issue
+#define PERFSCORE_THROUGHPUT_1C 1.0f
 
-#define PERFSCORE_THROUGHPUT_2C 2.0f   // slower - 2 cycles
-#define PERFSCORE_THROUGHPUT_3C 3.0f   // slower - 3 cycles
-#define PERFSCORE_THROUGHPUT_4C 4.0f   // slower - 4 cycles
-#define PERFSCORE_THROUGHPUT_5C 5.0f   // slower - 5 cycles
-#define PERFSCORE_THROUGHPUT_6C 6.0f   // slower - 6 cycles
-#define PERFSCORE_THROUGHPUT_7C 7.0f   // slower - 7 cycles
-#define PERFSCORE_THROUGHPUT_8C 8.0f   // slower - 8 cycles
-#define PERFSCORE_THROUGHPUT_9C 9.0f   // slower - 9 cycles
-#define PERFSCORE_THROUGHPUT_10C 10.0f // slower - 10 cycles
-#define PERFSCORE_THROUGHPUT_13C 13.0f // slower - 13 cycles
-#define PERFSCORE_THROUGHPUT_19C 19.0f // slower - 19 cycles
-#define PERFSCORE_THROUGHPUT_25C 25.0f // slower - 25 cycles
-#define PERFSCORE_THROUGHPUT_33C 33.0f // slower - 33 cycles
-#define PERFSCORE_THROUGHPUT_52C 52.0f // slower - 52 cycles
-#define PERFSCORE_THROUGHPUT_57C 57.0f // slower - 57 cycles
+#define PERFSCORE_THROUGHPUT_2C 2.0f
+#define PERFSCORE_THROUGHPUT_3C 3.0f
+#define PERFSCORE_THROUGHPUT_4C 4.0f
+#define PERFSCORE_THROUGHPUT_5C 5.0f
+#define PERFSCORE_THROUGHPUT_6C 6.0f
+#define PERFSCORE_THROUGHPUT_7C 7.0f
+#define PERFSCORE_THROUGHPUT_8C 8.0f
+#define PERFSCORE_THROUGHPUT_9C 9.0f
+#define PERFSCORE_THROUGHPUT_10C 10.0f
+#define PERFSCORE_THROUGHPUT_13C 13.0f
+#define PERFSCORE_THROUGHPUT_19C 19.0f
+#define PERFSCORE_THROUGHPUT_25C 25.0f
+#define PERFSCORE_THROUGHPUT_33C 33.0f
+#define PERFSCORE_THROUGHPUT_52C 52.0f
+#define PERFSCORE_THROUGHPUT_57C 57.0f
 
 #define PERFSCORE_LATENCY_ILLEGAL -1024.0f
 
@@ -1336,7 +1314,7 @@ private:
 #define PERFSCORE_LATENCY_26C 26.0f
 #define PERFSCORE_LATENCY_62C 62.0f
 #define PERFSCORE_LATENCY_69C 69.0f
-#define PERFSCORE_LATENCY_400C 400.0f // Intel microcode issue with these instuctions
+#define PERFSCORE_LATENCY_400C 400.0f // Intel microcode issue with these instructions
 
 #define PERFSCORE_LATENCY_BRANCH_DIRECT 1.0f   // cost of an unconditional branch
 #define PERFSCORE_LATENCY_BRANCH_COND 2.0f     // includes cost of a possible misprediction
@@ -1380,13 +1358,12 @@ private:
 
 #endif // TARGET_XXX
 
-// Make this an enum:
-//
 #define PERFSCORE_MEMORY_NONE 0
 #define PERFSCORE_MEMORY_READ 1
 #define PERFSCORE_MEMORY_WRITE 2
 #define PERFSCORE_MEMORY_READ_WRITE 3
 
+private:
     // TODO-MIKE-Cleanup: These should be double. Bozos defined them as float, even if they wanted
     // double precision computations. Now of course that changing these now to double resuls in
     // perf scores diffs, because 0.10f isn't the same as 0.10.
@@ -1419,10 +1396,6 @@ private:
     void emitDispInsAddr(BYTE* code);
     void emitDispInsOffs(unsigned offs, bool doffs);
 #endif // !DEBUG
-
-    /************************************************************************/
-    /*                      Method prolog and epilog                        */
-    /************************************************************************/
 
     struct Placeholder
     {
@@ -1480,15 +1453,7 @@ public:
     }
 #endif // JIT32_GCENCODER
 
-    /************************************************************************/
-    /*    Methods to record a code position and later convert to offset     */
-    /************************************************************************/
-
     static unsigned emitFindInsNum(const insGroup* ig, const instrDesc* instr);
-
-    /************************************************************************/
-    /*        Members and methods used to issue (encode) instructions.      */
-    /************************************************************************/
 
     // If we have started issuing instructions from the list of instrDesc, this is set
     INDEBUG(bool emitIssuing = false;)
@@ -1504,10 +1469,6 @@ public:
     insGroup* emitCurLabel = nullptr;
 
 private:
-    /************************************************************************/
-    /*      The logic that creates and keeps track of instruction groups    */
-    /************************************************************************/
-
     insGroup* emitIGfirst = nullptr;
     insGroup* emitIGlast  = nullptr;
 
@@ -1522,7 +1483,7 @@ public:
 
     void PrologSpillParamRegsToShadowSlots();
 
-    INDEBUG(static bool IsCodeAligned(UNATIVE_OFFSET offset);)
+    INDEBUG(static bool IsCodeAligned(unsigned offset);)
 
     void ShortenBranches();
 
@@ -1561,9 +1522,9 @@ private:
 
     instrDescJmp* emitCurIGjmpList = nullptr; // list of jumps   in current IG
 
-    unsigned       emitCurIGinsCnt;       // # of collected instr's in buffer
-    unsigned       emitCurIGsize;         // estimated code size of current group in bytes
-    UNATIVE_OFFSET emitCurCodeOffset = 0; // current code offset within group
+    unsigned emitCurIGinsCnt;       // # of collected instr's in buffer
+    unsigned emitCurIGsize;         // estimated code size of current group in bytes
+    unsigned emitCurCodeOffset = 0; // current code offset within group
 
     CodePos mainPrologNoGCEndCodePos;
 
@@ -1645,7 +1606,6 @@ private:
     static unsigned DecodeCallGCRegs(instrDesc* id);
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
-
     // random nop insertion to break up nop sleds
     unsigned emitNextNop;
     bool     emitRandomNops;
@@ -1654,11 +1614,11 @@ private:
     {
         emitRandomNops = true;
     }
+
     void emitDisableRandomNops()
     {
         emitRandomNops = false;
     }
-
 #endif // PSEUDORANDOM_NOP_INSERTION
 
     insGroup* emitAllocIG(unsigned num);
@@ -1735,10 +1695,6 @@ private:
     void emitInsSanityCheck(instrDesc* id);
 #endif
 
-/************************************************************************/
-/*    The following is used to distinguish helper vs non-helper calls   */
-/************************************************************************/
-
 #ifdef JIT32_GCENCODER
     unsigned emitCntStackDepth;     // 0 in prolog/epilog, One DWORD elsewhere
     unsigned emitMaxStackDepth = 0; // actual computed max. stack depth
@@ -1751,10 +1707,6 @@ public:
 
 private:
 #endif
-
-    /************************************************************************/
-    /*      The following logic keeps track of initialized data sections    */
-    /************************************************************************/
 
     struct RoData
     {

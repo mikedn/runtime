@@ -108,7 +108,7 @@ void emitLocation::Print(const char* suffix) const
 
 const char* emitter::emitIfName(unsigned f)
 {
-    static const char* const ifNames[] = {
+    static const char* const ifNames[]{
 #define IF_DEF(en, ...) "IF_" #en,
 #include "emitfmts.h"
     };
@@ -144,7 +144,7 @@ void* emitter::emitGetMem(size_t sz)
 }
 
 #ifdef DEBUG
-bool emitter::IsCodeAligned(UNATIVE_OFFSET offset)
+bool emitter::IsCodeAligned(unsigned offset)
 {
     return ((offset & (CODE_ALIGN - 1)) == 0);
 }
@@ -486,17 +486,6 @@ int emitter::emitNextRandomNop()
 
 #if defined(DEBUG) || defined(LATE_DISASM)
 
-//----------------------------------------------------------------------------------------
-// insEvaluateExecutionCost:
-//    Returns the estimated execution cost for the current instruction
-//
-// Arguments:
-//    id  - The current instruction descriptor to be evaluated
-//
-// Return Value:
-//    calls getInsExecutionCharacteristics and uses the result
-//    to compute an estimated execution cost
-//
 float emitter::Encoder::insEvaluateExecutionCost(instrDesc* id)
 {
     assert(id->idInsFmt() != IF_GC_REG);
@@ -507,8 +496,8 @@ float emitter::Encoder::insEvaluateExecutionCost(instrDesc* id)
     unsigned                    memAccessKind = result.insMemoryAccessKind;
 
     // Check for PERFSCORE_THROUGHPUT_ILLEGAL and PERFSCORE_LATENCY_ILLEGAL.
-    // Note that 0.0 throughput is allowed for pseudo-instructions in the instrDesc list that won't actually
-    // generate code.
+    // Note that 0.0 throughput is allowed for pseudo-instructions in
+    // the instrDesc list that won't actually generate code.
     assert(throughput >= 0.0);
     assert(latency >= 0.0);
 
@@ -521,35 +510,19 @@ float emitter::Encoder::insEvaluateExecutionCost(instrDesc* id)
     else if (latency >= 1.0) // Otherwise, If we aren't performing a memory write
     {
         // We assume that the processor's speculation will typically eliminate one cycle of latency
-        //
         latency -= 1.0;
     }
 
     return max(throughput, latency);
 }
 
-//------------------------------------------------------------------------------------
-// perfScoreUnhandledInstruction:
-//    Helper method used to report an unhandled instruction
-//
-// Arguments:
-//    id  - The current instruction descriptor to be evaluated
-//    pResult - pointer to struct holding the instruction characteristics
-//              if we return these are updated with default values
-//
-// Notes:
-//     We print the instruction and instruction group
-//     and instead of returning we will assert
-//
-//     This method asserts with a debug/checked build
-//     and returns default latencies of 1 cycle otherwise.
-//
 void emitter::Encoder::perfScoreUnhandledInstruction(instrDesc* id, insExecutionCharacteristics* pResult)
 {
 #ifdef DEBUG
     printf("PerfScore: unhandled instruction: %s, format %s", insName(id->idIns()), emitIfName(id->idInsFmt()));
     assert(!"PerfScore: unhandled instruction");
 #endif
+
     pResult->insThroughput = PERFSCORE_THROUGHPUT_1C;
     pResult->insLatency    = PERFSCORE_LATENCY_1C;
 }
@@ -592,11 +565,6 @@ void emitter::appendToCurIG(instrDesc* id)
 {
     emitCurIGsize += id->idCodeSize();
 }
-
-/*****************************************************************************
- *
- *  Display (optionally) an instruction offset.
- */
 
 #ifdef DEBUG
 
@@ -709,14 +677,11 @@ emitter::instrDescSmall* emitter::emitAllocAnyInstr(unsigned sz, bool updateLast
 
 #ifdef DEBUG
 
-//------------------------------------------------------------------------
-// emitCheckIGoffsets: Make sure the code offsets of all instruction groups look reasonable.
-//
+// Make sure the code offsets of all instruction groups look reasonable.
 // Note: It checks that each instruction group starts right after the previous ig.
 // For the first cold ig offset is also should be the last hot ig + its size.
 // emitCurCodeOffs maintains distance for the split case to look like they are consistent.
 // Also it checks total code size.
-//
 void emitter::emitCheckIGoffsets()
 {
     size_t currentOffset = 0;
@@ -1306,49 +1271,41 @@ const char* emitter::emitLabelString(insGroup* ig) const
 
 #ifdef TARGET_ARMARCH
 
-/*****************************************************************************
- *
- * Given an instruction group, find the array of instructions (instrDesc) and
- * number of instructions in the array. If the IG is the current IG, we assume
- * that igData does NOT hold the instructions; they are unsaved and pointed
- * to by emitCurIGfreeBase.
- *
- * This function can't be called for placeholder groups, which have no instrDescs.
- */
-
+// Given an instruction group, find the array of instructions (instrDesc) and
+// number of instructions in the array. If the IG is the current IG, we assume
+// that igData does NOT hold the instructions; they are unsaved and pointed
+// to by emitCurIGfreeBase.
+// This function can't be called for placeholder groups, which have no instrDescs.
 void emitter::emitGetInstrDescs(insGroup* ig, instrDesc** id, int* insCnt)
 {
-    assert(!(ig->igFlags & IGF_PLACEHOLDER));
+    assert((ig->igFlags & IGF_PLACEHOLDER) == 0);
+
     if (ig == emitCurIG)
     {
-        *id     = (instrDesc*)emitCurIGfreeBase;
+        *id     = reinterpret_cast<instrDesc*>(emitCurIGfreeBase);
         *insCnt = emitCurIGinsCnt;
     }
     else
     {
-        *id     = (instrDesc*)ig->igData;
+        *id     = reinterpret_cast<instrDesc*>(ig->igData);
         *insCnt = ig->igInsCnt;
     }
 
     assert(*id);
 }
 
-/*****************************************************************************
- *
- * Given a location (an 'emitLocation'), find the instruction group (IG) and
- * instruction descriptor (instrDesc) corresponding to that location. Returns
- * 'true' if there is an instruction, 'false' if there is no instruction
- * (i.e., we're at the end of the instruction list). Also, optionally return
- * the number of instructions that follow that instruction in the IG (in *pinsRemaining,
- * if pinsRemaining is non-NULL), which can be used for iterating over the
- * remaining instrDescs in the IG.
- *
- * We assume that emitCurIG points to the end of the instructions we care about.
- * For the prologs or epilogs, it points to the last IG of the prolog or epilog
- * that is being generated. For body code gen, it points to the place we are currently
- * adding code, namely, the end of currently generated code.
- */
-
+// Given a location (an 'emitLocation'), find the instruction group (IG) and
+// instruction descriptor (instrDesc) corresponding to that location. Returns
+// 'true' if there is an instruction, 'false' if there is no instruction
+// (i.e., we're at the end of the instruction list). Also, optionally return
+// the number of instructions that follow that instruction in the IG (in *pinsRemaining,
+// if pinsRemaining is non-NULL), which can be used for iterating over the
+// remaining instrDescs in the IG.
+//
+// We assume that emitCurIG points to the end of the instructions we care about.
+// For the prologs or epilogs, it points to the last IG of the prolog or epilog
+// that is being generated. For body code gen, it points to the place we are currently
+// adding code, namely, the end of currently generated code.
 bool emitter::emitGetLocationInfo(const emitLocation& emitLoc, insGroup** pig, instrDesc** pid, int* pinsRemaining)
 {
     assert(emitLoc.Valid());
@@ -1487,26 +1444,6 @@ void emitter::emitUnwindNopPadding(const emitLocation& fromLoc)
 }
 
 #endif // TARGET_ARMARCH
-
-#ifdef DEBUG
-/*****************************************************************************
- *
- *  Returns the name for the register to use to access frame based variables
- */
-
-const char* emitter::emitGetFrameReg()
-{
-    if (codeGen->isFramePointerUsed())
-    {
-        return STR_FPBASE;
-    }
-    else
-    {
-        return STR_SPBASE;
-    }
-}
-
-#endif // DEBUG
 
 emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
                                               emitAttr              retRegAttr
@@ -1796,6 +1733,11 @@ void emitter::emitDispIGlist(bool dispInstr)
     }
 }
 
+const char* emitter::emitGetFrameReg()
+{
+    return codeGen->isFramePointerUsed() ? STR_FPBASE : STR_SPBASE;
+}
+
 #endif // DEBUG
 
 size_t emitter::Encoder::emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp)
@@ -1850,16 +1792,12 @@ size_t emitter::Encoder::emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** 
     return instrDescSize;
 }
 
-/*****************************************************************************
- *
- *  Update the offsets of all the instruction groups (note: please don't be
- *  lazy and call this routine frequently, it walks the list of instruction
- *  groups and thus it isn't cheap).
- */
-
+// Update the offsets of all the instruction groups (note: please don't be
+// lazy and call this routine frequently, it walks the list of instruction
+// groups and thus it isn't cheap).
 void emitter::emitRecomputeIGoffsets()
 {
-    UNATIVE_OFFSET offs = 0;
+    unsigned offs = 0;
 
     for (insGroup* ig = emitIGfirst; ig != nullptr; ig = ig->igNext)
     {
@@ -1988,11 +1926,8 @@ void emitter::emitDispCommentForHandle(void* handle, HandleKind kind)
 
 #if FEATURE_LOOP_ALIGN
 
-//-----------------------------------------------------------------------------
-// emitLoopAlignment: Insert an align instruction at the end of emitCurIG and
-//                    mark it as IGF_LOOP_ALIGN to indicate that next IG  is a
-//                    loop needing alignment.
-//
+// Insert an align instruction at the end of emitCurIG and mark it as
+// IGF_LOOP_ALIGN to indicate that next IG is a loop needing alignment.
 void emitter::emitLoopAlignment()
 {
     assert(emitComp->opts.alignLoops);
@@ -2033,29 +1968,24 @@ void emitter::emitLoopAlignment()
     INDEBUG(emitComp->loopAlignCandidates++);
 }
 
-//-----------------------------------------------------------------------------
-//  emitEndsWithAlignInstr: Checks if current IG ends with loop align instruction.
-//
-//  Returns:  true if current IG ends with align instruction.
-//
+// Checks if current IG ends with loop align instruction.
+// Returns true if current IG ends with align instruction.
 bool emitter::emitEndsWithAlignInstr()
 {
     return emitCurIG->isLoopAlign();
 }
 
-//-----------------------------------------------------------------------------
-//  getLoopSize: Starting from loopHeaderIg, find the size of the smallest possible loop
-//               such that it doesn't exceed the maxLoopSize.
+// Starting from loopHeaderIg, find the size of the smallest possible loop
+// such that it doesn't exceed the maxLoopSize.
 //
-//  Arguments:
-//       igLoopHeader    - The header IG of a loop
-//       maxLoopSize     - Maximum loop size. If the loop is bigger than this value, we will just
-//                         return this value.
-//       isAlignAdjusted - Determine if adjustments are done to the align instructions or not.
-//                         During generating code, it is 'false' (because we haven't adjusted the size yet).
-//                         During outputting code, it is 'true'.
+// igLoopHeader    - The header IG of a loop
+// maxLoopSize     - Maximum loop size. If the loop is bigger than this value, we will just
+//                   return this value.
+// isAlignAdjusted - Determine if adjustments are done to the align instructions or not.
+//                   During generating code, it is 'false' (because we haven't adjusted the size yet).
+//                   During outputting code, it is 'true'.
 //
-//  Returns:  size of a loop in bytes.
+// Returns the size of a loop in bytes.
 //
 unsigned emitter::getLoopSize(insGroup* igLoopHeader, unsigned maxLoopSize DEBUG_ARG(bool isAlignAdjusted))
 {
@@ -2153,18 +2083,15 @@ unsigned emitter::getLoopSize(insGroup* igLoopHeader, unsigned maxLoopSize DEBUG
     return loopSize;
 }
 
-//-----------------------------------------------------------------------------
-// emitSetLoopBackEdge : Sets igLoopBackEdge field, if not already set and
-//                       if currIG has back-edge to dstIG.
+// Sets igLoopBackEdge field, if not already set and if currIG has back-edge to dstIG.
 //
-// Notes:
-//    Despite we align only inner most loop, we might see intersected loops because of control flow
-//    re-arrangement like adding a split edge in LSRA.
+// Despite we align only inner most loop, we might see intersected loops because of control flow
+// re-arrangement like adding a split edge in LSRA.
 //
-//    If there is an intersection of current loop with last loop that is already marked as align,
-//    then *do not align* one of the loop that completely encloses the other one. Or if they both intersect,
-//    then *do not align* either of them because since the flow is complicated enough that aligning one of them
-//    will not improve the performance.
+// If there is an intersection of current loop with last loop that is already marked as align,
+// then *do not align* one of the loop that completely encloses the other one. Or if they both intersect,
+// then *do not align* either of them because since the flow is complicated enough that aligning one of them
+// will not improve the performance.
 //
 void emitter::emitSetLoopBackEdge(insGroup* dstIG)
 {
@@ -2261,14 +2188,11 @@ void emitter::emitSetLoopBackEdge(insGroup* dstIG)
     }
 }
 
-//-----------------------------------------------------------------------------
-//  emitLoopAlignAdjustments: Walk all the align instructions and update them
-//    with actual padding needed.
+// Walk all the align instructions and update them with actual padding needed.
 //
-//  Notes:
-//     For IGs that have align instructions in the end, calculate the actual offset
-//     of loop start and determine how much padding is needed. Based on that, update
-//     the igOffs, igSize and emitTotalCodeSize.
+// For IGs that have align instructions in the end, calculate the actual offset
+// of loop start and determine how much padding is needed. Based on that, update
+// the igOffs, igSize and emitTotalCodeSize.
 //
 void emitter::emitLoopAlignAdjustments()
 {
@@ -3539,11 +3463,10 @@ void emitter::Encoder::PrintRoData() const
 }
 #endif // DEBUG
 
-// A helper for recording a relocation with the EE.
 void emitter::Encoder::emitRecordRelocation(void* location, void* target, uint16_t relocType, int32_t addlDelta)
 {
-    // If we're an unmatched altjit, don't tell the VM anything. We still record the relocation for
-    // late disassembly; maybe we'll need it?
+    // If we're an unmatched altjit, don't tell the VM anything. We still
+    // record the relocation for late disassembly; maybe we'll need it?
     if (emitComp->info.compMatchedVM)
     {
         void* locationRW = static_cast<uint8_t*>(location) + writeableOffset;
@@ -3555,7 +3478,6 @@ void emitter::Encoder::emitRecordRelocation(void* location, void* target, uint16
 #endif
 }
 
-// A helper for recording a call site with the EE.
 void emitter::Encoder::emitRecordCallSite(unsigned              instrOffset,
                                           CORINFO_SIG_INFO*     callSig,
                                           CORINFO_METHOD_HANDLE methodHandle)
@@ -3584,24 +3506,19 @@ void emitter::Encoder::emitRecordCallSite(unsigned              instrOffset,
 
 #ifdef DEBUG
 
-/*****************************************************************************
- *  Given a code offset, return a string representing a label for that offset.
- *  If the code offset is just after the end of the code of the function, the
- *  label will be "END". If the code offset doesn't correspond to any known
- *  offset, the label will be "UNKNOWN". The strings are returned from static
- *  buffers. This function rotates amongst four such static buffers (there are
- *  cases where this function is called four times to provide data for a single
- *  printf()).
- */
-
+// Given a code offset, return a string representing a label for that offset.
+// If the code offset is just after the end of the code of the function, the label
+// will be "END". If the code offset doesn't correspond to any known offset, the label
+// will be "UNKNOWN". The strings are returned from static buffers. This function
+// rotates amongst four such static buffers (there are cases where this function is
+// called four times to provide data for a single printf()).
 const char* emitter::emitOffsetToLabel(unsigned offs)
 {
     const size_t    TEMP_BUFFER_LEN = 40;
     static unsigned curBuf          = 0;
     static char     buf[4][TEMP_BUFFER_LEN];
     char*           retbuf;
-
-    UNATIVE_OFFSET nextof = 0;
+    unsigned        nextof = 0;
 
     for (insGroup* ig = emitIGfirst; ig != nullptr; ig = ig->igNext)
     {
@@ -3613,12 +3530,14 @@ const char* emitter::emitOffsetToLabel(unsigned offs)
         {
             return emitLabelString(ig);
         }
-        else if (ig->igOffs > offs)
+
+        if (ig->igOffs > offs)
         {
             // We went past the requested offset but didn't find it.
             sprintf_s(buf[curBuf], TEMP_BUFFER_LEN, "UNKNOWN");
             retbuf = buf[curBuf];
             curBuf = (curBuf + 1) % 4;
+
             return retbuf;
         }
 
@@ -3631,15 +3550,15 @@ const char* emitter::emitOffsetToLabel(unsigned offs)
         sprintf_s(buf[curBuf], TEMP_BUFFER_LEN, "END");
         retbuf = buf[curBuf];
         curBuf = (curBuf + 1) % 4;
+
         return retbuf;
     }
-    else
-    {
-        sprintf_s(buf[curBuf], TEMP_BUFFER_LEN, "UNKNOWN");
-        retbuf = buf[curBuf];
-        curBuf = (curBuf + 1) % 4;
-        return retbuf;
-    }
+
+    sprintf_s(buf[curBuf], TEMP_BUFFER_LEN, "UNKNOWN");
+    retbuf = buf[curBuf];
+    curBuf = (curBuf + 1) % 4;
+
+    return retbuf;
 }
 
 #endif // DEBUG
