@@ -29,33 +29,6 @@ static size_t emitGetInstrDescSize(const instrDesc* id);
 const char* emitVectorRegName(RegNum reg);
 
 void emitDispInsHex(instrDesc* id, uint8_t* code, size_t sz);
-void emitDispInst(instruction ins);
-void emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm);
-void emitDispAddrLoadLabel(instrDescJmp* id);
-void emitDispJumpLabel(instrDescJmp* id);
-void emitDispImm(ssize_t imm, bool addComma, bool alwaysHex = false);
-void emitDispFrameRef(instrDesc* id);
-void emitDispFloatZero();
-void emitDispFloatImm(ssize_t imm8);
-void emitDispImmOptsLSL12(ssize_t imm, insOpts opt);
-void emitDispCond(insCond cond);
-void emitDispFlags(insCflags flags);
-void emitDispBarrier(insBarrier barrier);
-void emitDispShiftOpts(insOpts opt);
-void emitDispExtendOpts(insOpts opt);
-void emitDispLSExtendOpts(insOpts opt);
-void emitDispReg(RegNum reg, emitAttr attr, bool addComma);
-void emitDispVectorReg(RegNum reg, insOpts opt, bool addComma);
-void emitDispVectorRegIndex(RegNum reg, emitAttr elemsize, ssize_t index, bool addComma);
-void emitDispVectorRegList(RegNum firstReg, unsigned listSize, insOpts opt, bool addComma);
-void emitDispVectorElemList(RegNum firstReg, unsigned listSize, emitAttr elemsize, unsigned index, bool addComma);
-void emitDispArrangement(insOpts opt);
-void emitDispElemsize(emitAttr elemsize);
-void emitDispShiftedReg(RegNum reg, insOpts opt, ssize_t imm, emitAttr attr);
-void emitDispExtendReg(RegNum reg, insOpts opt, ssize_t imm);
-void emitDispAddrRI(RegNum reg, insOpts opt, ssize_t imm);
-void emitDispAddrRRExt(RegNum reg1, RegNum reg2, insOpts opt, bool isScaled, emitAttr size);
-
 void emitDispIns(instrDesc* id,
                  bool       isNew = false,
                  bool       doffs = false,
@@ -117,12 +90,6 @@ static instruction insReverse(instruction ins);
 
 // For the given 'datasize' and 'elemsize' returns the insOpts that specifies the vector register arrangement
 static insOpts optMakeArrangement(emitAttr datasize, emitAttr elemsize);
-
-//  For the given 'datasize' and 'opt' returns true if it specifies a valid vector register arrangement
-static bool isValidArrangement(emitAttr datasize, insOpts opt);
-
-// For the given 'conversion' returns the 'dstsize' specified by the conversion option
-static emitAttr optGetDstsize(insOpts conversion);
 
 /************************************************************************/
 /*           Public inline informational methods                        */

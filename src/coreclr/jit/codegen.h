@@ -25,6 +25,7 @@ class CodeGen final : public CodeGenInterface
     friend class CodeGenInterface;
 #ifdef TARGET_ARM
     friend class ArmEncoder;
+    friend class AsmPrinter;
 #endif
 
     class LinearScan* m_lsra = nullptr;

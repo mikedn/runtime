@@ -21,23 +21,6 @@ static insSize emitInsSize(insFormat insFmt);
 
 #ifdef DEBUG
 void emitDispInsHex(instrDesc* id, uint8_t* code, size_t sz);
-void emitDispInst(instruction ins, insFlags flags);
-void emitDispImm(int imm, bool addComma, bool alwaysHex = false);
-void emitDispReloc(void* addr);
-void emitDispFrameRef(instrDesc* id);
-void emitDispCond(int cond);
-void emitDispShiftOpts(insOpts opt);
-void emitDispRegmask(int imm, bool encodedPC_LR);
-void emitDispRegRange(regNumber reg, int len, emitAttr attr);
-void emitDispReg(regNumber reg, emitAttr attr, bool addComma);
-void emitDispLabel(instrDescJmp* id);
-void emitDispAddrR(regNumber reg, emitAttr attr);
-void emitDispAddrRI(regNumber reg, int imm, emitAttr attr);
-void emitDispAddrRR(regNumber reg1, regNumber reg2, emitAttr attr);
-void emitDispAddrRRI(regNumber reg1, regNumber reg2, int imm, emitAttr attr);
-void emitDispAddrPUW(regNumber reg, int imm, insOpts opt, emitAttr attr);
-void emitDispGC(emitAttr attr);
-
 void emitDispInsHelp(
     instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offs = 0, uint8_t* code = 0, size_t sz = 0);
 void emitDispIns(instrDesc* id,

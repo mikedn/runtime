@@ -1412,8 +1412,6 @@ private:
 
     unsigned emitInsCount = 0;
 
-    static const char* emitRegName(regNumber reg, emitAttr size = EA_PTRSIZE);
-
     void emitDispIG(insGroup* ig, bool dispInstr);
     void emitDispIGlist(bool dispInstr);
     void emitDispInsAddr(BYTE* code);

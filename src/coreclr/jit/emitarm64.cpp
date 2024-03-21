@@ -447,6 +447,8 @@ int64_t emitter::instrDesc::emitGetInsSC() const
 }
 
 static emitAttr optGetSrcsize(insOpts conversion);
+static emitAttr optGetDstsize(insOpts conversion);
+static bool isValidArrangement(emitAttr datasize, insOpts opt);
 
 #ifdef DEBUG
 void emitter::emitInsSanityCheck(instrDesc* id)
@@ -1504,26 +1506,6 @@ emitAttr emitter::emitInsLoadStoreSize(instrDesc* id)
             unreached();
     }
 }
-
-#ifdef DEBUG
-
-const char* emitter::emitRegName(RegNum reg, emitAttr attr)
-{
-    return RegName(reg, attr);
-}
-
-const char* emitter::emitVectorRegName(RegNum reg)
-{
-    static const char* const vRegNames[]{"v0",  "v1",  "v2",  "v3",  "v4",  "v5",  "v6",  "v7",  "v8",  "v9",  "v10",
-                                         "v11", "v12", "v13", "v14", "v15", "v16", "v17", "v18", "v19", "v20", "v21",
-                                         "v22", "v23", "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31"};
-
-    assert((reg >= REG_V0) && (reg <= REG_V31));
-
-    return vRegNames[reg - REG_V0];
-}
-
-#endif // DEBUG
 
 const char* insName(instruction ins)
 {
@@ -3357,8 +3339,9 @@ insOpts emitter::optMakeArrangement(emitAttr datasize, emitAttr elemsize)
     return result;
 }
 
+#ifdef DEBUG
 // For the given 'datasize' and arrangement 'opts' returns true is the pair spcifies a valid arrangement
-bool emitter::isValidArrangement(emitAttr datasize, insOpts opt)
+static bool isValidArrangement(emitAttr datasize, insOpts opt)
 {
     if (datasize == EA_8BYTE)
     {
@@ -3376,6 +3359,7 @@ bool emitter::isValidArrangement(emitAttr datasize, insOpts opt)
     }
     return false;
 }
+#endif
 
 // For a given instruction 'ins' which contains a register lists returns a
 // number of consecutive SIMD registers the instruction loads to/store from.
@@ -3477,6 +3461,7 @@ insOpts emitSimdArrangementOpt(emitAttr size, var_types elementType)
     }
 }
 
+#ifdef DEBUG
 // For the given 'arrangement' returns the one with the element width that is double that of the 'arrangement' element.
 static insOpts optWidenElemsizeArrangement(insOpts arrangement)
 {
@@ -3547,7 +3532,7 @@ static insOpts optWidenDstArrangement(insOpts srcArrangement)
 }
 
 // For the given 'conversion' returns the 'dstsize' specified by the conversion option
-emitAttr emitter::optGetDstsize(insOpts conversion)
+static emitAttr optGetDstsize(insOpts conversion)
 {
     switch (conversion)
     {
@@ -3601,6 +3586,7 @@ static emitAttr optGetSrcsize(insOpts conversion)
             return EA_UNKNOWN;
     }
 }
+#endif // DEBUG
 
 // For the given 'size' and 'index' returns true if it specifies a valid index for a vector register of 'size'
 bool emitter::isValidVectorIndex(emitAttr datasize, emitAttr elemsize, ssize_t index)
@@ -10355,7 +10341,69 @@ size_t Arm64Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
 #ifdef DEBUG
 
-void emitter::emitDispInst(instruction ins)
+class AsmPrinter
+{
+    using instrDesc    = Emitter::instrDesc;
+    using instrDescJmp = Emitter::instrDescJmp;
+
+    Compiler* compiler;
+    Emitter*  emitter;
+    bool      strictArmAsm;
+
+public:
+    AsmPrinter(Emitter* emitter) : compiler(emitter->emitComp), emitter(emitter), strictArmAsm(Emitter::strictArmAsm)
+    {
+    }
+
+    void Print(instrDesc* id);
+
+private:
+    const char* emitRegName(RegNum reg, emitAttr attr)
+    {
+        return RegName(reg, attr);
+    }
+
+    const char* emitVectorRegName(RegNum reg)
+    {
+        static const char* const vRegNames[]{"v0",  "v1",  "v2",  "v3",  "v4",  "v5",  "v6",  "v7",
+                                             "v8",  "v9",  "v10", "v11", "v12", "v13", "v14", "v15",
+                                             "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23",
+                                             "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31"};
+
+        assert((reg >= REG_V0) && (reg <= REG_V31));
+
+        return vRegNames[reg - REG_V0];
+    }
+
+    void emitDispInst(instruction ins);
+    void emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm);
+    void emitDispAddrLoadLabel(instrDescJmp* id);
+    void emitDispJumpLabel(instrDescJmp* id);
+    void emitDispImm(ssize_t imm, bool addComma, bool alwaysHex = false);
+    void emitDispFrameRef(instrDesc* id);
+    void emitDispFloatZero();
+    void emitDispFloatImm(ssize_t imm8);
+    void emitDispImmOptsLSL12(ssize_t imm, insOpts opt);
+    void emitDispCond(insCond cond);
+    void emitDispFlags(insCflags flags);
+    void emitDispBarrier(insBarrier barrier);
+    void emitDispShiftOpts(insOpts opt);
+    void emitDispExtendOpts(insOpts opt);
+    void emitDispLSExtendOpts(insOpts opt);
+    void emitDispReg(RegNum reg, emitAttr attr, bool addComma);
+    void emitDispVectorReg(RegNum reg, insOpts opt, bool addComma);
+    void emitDispVectorRegIndex(RegNum reg, emitAttr elemsize, ssize_t index, bool addComma);
+    void emitDispVectorRegList(RegNum firstReg, unsigned listSize, insOpts opt, bool addComma);
+    void emitDispVectorElemList(RegNum firstReg, unsigned listSize, emitAttr elemsize, unsigned index, bool addComma);
+    void emitDispArrangement(insOpts opt);
+    void emitDispElemsize(emitAttr elemsize);
+    void emitDispShiftedReg(RegNum reg, insOpts opt, ssize_t imm, emitAttr attr);
+    void emitDispExtendReg(RegNum reg, insOpts opt, ssize_t imm);
+    void emitDispAddrRI(RegNum reg, insOpts opt, ssize_t imm);
+    void emitDispAddrRRExt(RegNum reg1, RegNum reg2, insOpts opt, bool isScaled, emitAttr size);
+};
+
+void AsmPrinter::emitDispInst(instruction ins)
 {
     const char* insstr = insName(ins);
     size_t      len    = strlen(insstr);
@@ -10372,7 +10420,7 @@ void emitter::emitDispInst(instruction ins)
     } while (len < 8);
 }
 
-void emitter::emitDispAddrLoadLabel(instrDescJmp* id)
+void AsmPrinter::emitDispAddrLoadLabel(instrDescJmp* id)
 {
     assert(insOptsNone(id->idInsOpt()));
 
@@ -10400,7 +10448,7 @@ void emitter::emitDispAddrLoadLabel(instrDescJmp* id)
     }
     else
     {
-        emitPrintLabel(id->GetLabel());
+        emitter->emitPrintLabel(id->GetLabel());
     }
 
     if (ssize_t imm = id->emitGetInsSC())
@@ -10414,7 +10462,7 @@ void emitter::emitDispAddrLoadLabel(instrDescJmp* id)
     }
 }
 
-void emitter::emitDispJumpLabel(instrDescJmp* id)
+void AsmPrinter::emitDispJumpLabel(instrDescJmp* id)
 {
     assert(insOptsNone(id->idInsOpt()));
 
@@ -10437,21 +10485,21 @@ void emitter::emitDispJumpLabel(instrDescJmp* id)
 
     if (id->HasInstrCount())
     {
-        unsigned instrNum   = emitFindInsNum(id->idjIG, id);
+        unsigned instrNum   = Emitter::emitFindInsNum(id->idjIG, id);
         uint32_t instrOffs  = id->idjIG->igOffs + id->idjOffs;
         int      instrCount = id->GetInstrCount();
         uint32_t labelOffs  = id->idjIG->igOffs + id->idjIG->FindInsOffset(instrNum + 1 + instrCount);
-        ssize_t  distance   = emitOffsetToPtr(labelOffs) - emitOffsetToPtr(instrOffs) - 4;
+        ssize_t  distance   = emitter->emitOffsetToPtr(labelOffs) - emitter->emitOffsetToPtr(instrOffs) - 4;
 
         printf("pc%s%d (%d instructions)", distance >= 0 ? "+" : "", distance, instrCount);
     }
     else
     {
-        emitPrintLabel(id->GetLabel());
+        emitter->emitPrintLabel(id->GetLabel());
     }
 }
 
-void emitter::emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm)
+void AsmPrinter::emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm)
 {
     assert(imm == 0);
     assert(fmt == IF_DI_1E);
@@ -10484,11 +10532,11 @@ void emitter::emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm)
     }
     else
     {
-        emitDispCommentForHandle(id->idDebugOnlyInfo()->idHandle, id->idDebugOnlyInfo()->idHandleKind);
+        emitter->emitDispCommentForHandle(id->idDebugOnlyInfo()->idHandle, id->idDebugOnlyInfo()->idHandleKind);
     }
 }
 
-void emitter::emitDispImm(ssize_t imm, bool addComma, bool alwaysHex)
+void AsmPrinter::emitDispImm(ssize_t imm, bool addComma, bool alwaysHex)
 {
     if (strictArmAsm)
     {
@@ -10498,7 +10546,7 @@ void emitter::emitDispImm(ssize_t imm, bool addComma, bool alwaysHex)
     // Munge any pointers if we want diff-able disassembly.
     // Since some may be emitted as partial words, print as diffable anything that has
     // significant bits beyond the lowest 8-bits.
-    if (emitComp->opts.disDiffable)
+    if (compiler->opts.disDiffable)
     {
         ssize_t top56bits = (imm >> 8);
         if ((top56bits != 0) && (top56bits != -1))
@@ -10531,7 +10579,7 @@ void emitter::emitDispImm(ssize_t imm, bool addComma, bool alwaysHex)
         printf(", ");
 }
 
-void emitter::emitDispFloatZero()
+void AsmPrinter::emitDispFloatZero()
 {
     if (strictArmAsm)
     {
@@ -10540,7 +10588,7 @@ void emitter::emitDispFloatZero()
     printf("0.0");
 }
 
-void emitter::emitDispFloatImm(ssize_t imm8)
+void AsmPrinter::emitDispFloatImm(ssize_t imm8)
 {
     assert((0 <= imm8) && (imm8 <= 0x0ff));
     if (strictArmAsm)
@@ -10555,7 +10603,7 @@ void emitter::emitDispFloatImm(ssize_t imm8)
     printf("%.4f", result);
 }
 
-void emitter::emitDispImmOptsLSL12(ssize_t imm, insOpts opt)
+void AsmPrinter::emitDispImmOptsLSL12(ssize_t imm, insOpts opt)
 {
     if (!strictArmAsm && insOptsLSL12(opt))
     {
@@ -10568,7 +10616,7 @@ void emitter::emitDispImmOptsLSL12(ssize_t imm, insOpts opt)
     }
 }
 
-void emitter::emitDispCond(insCond cond)
+void AsmPrinter::emitDispCond(insCond cond)
 {
     const static char* armCond[16]{"eq", "ne", "hs", "lo", "mi", "pl", "vs", "vc",
                                    "hi", "ls", "ge", "lt", "gt", "le", "AL", "NV"}; // The last two are invalid
@@ -10577,7 +10625,7 @@ void emitter::emitDispCond(insCond cond)
     printf(armCond[imm]);
 }
 
-void emitter::emitDispFlags(insCflags flags)
+void AsmPrinter::emitDispFlags(insCflags flags)
 {
     const static char* armFlags[16]{"0", "v",  "c",  "cv",  "z",  "zv",  "zc",  "zcv",
                                     "n", "nv", "nc", "ncv", "nz", "nzv", "nzc", "nzcv"};
@@ -10586,7 +10634,7 @@ void emitter::emitDispFlags(insCflags flags)
     printf(armFlags[imm]);
 }
 
-void emitter::emitDispBarrier(insBarrier barrier)
+void AsmPrinter::emitDispBarrier(insBarrier barrier)
 {
     const static char* armBarriers[16]{"#0", "oshld", "oshst", "osh", "#4",  "nshld", "nshst", "nsh",
                                        "#8", "ishld", "ishst", "ish", "#12", "ld",    "st",    "sy"};
@@ -10632,22 +10680,22 @@ const char* insOptsName(insOpts opt)
     }
 }
 
-void emitter::emitDispShiftOpts(insOpts opt)
+void AsmPrinter::emitDispShiftOpts(insOpts opt)
 {
     printf(" %s ", insOptsName(opt));
 }
 
-void emitter::emitDispExtendOpts(insOpts opt)
+void AsmPrinter::emitDispExtendOpts(insOpts opt)
 {
     printf("%s", insOptsName(opt));
 }
 
-void emitter::emitDispLSExtendOpts(insOpts opt)
+void AsmPrinter::emitDispLSExtendOpts(insOpts opt)
 {
     printf("%s", insOptsName(opt));
 }
 
-void emitter::emitDispReg(RegNum reg, emitAttr attr, bool addComma)
+void AsmPrinter::emitDispReg(RegNum reg, emitAttr attr, bool addComma)
 {
     emitAttr size = EA_SIZE(attr);
     printf(emitRegName(reg, size));
@@ -10656,7 +10704,7 @@ void emitter::emitDispReg(RegNum reg, emitAttr attr, bool addComma)
         printf(", ");
 }
 
-void emitter::emitDispVectorReg(RegNum reg, insOpts opt, bool addComma)
+void AsmPrinter::emitDispVectorReg(RegNum reg, insOpts opt, bool addComma)
 {
     assert(isVectorRegister(reg));
     printf(emitVectorRegName(reg));
@@ -10666,7 +10714,7 @@ void emitter::emitDispVectorReg(RegNum reg, insOpts opt, bool addComma)
         printf(", ");
 }
 
-void emitter::emitDispVectorRegIndex(RegNum reg, emitAttr elemsize, ssize_t index, bool addComma)
+void AsmPrinter::emitDispVectorRegIndex(RegNum reg, emitAttr elemsize, ssize_t index, bool addComma)
 {
     assert(isVectorRegister(reg));
     printf(emitVectorRegName(reg));
@@ -10677,7 +10725,7 @@ void emitter::emitDispVectorRegIndex(RegNum reg, emitAttr elemsize, ssize_t inde
         printf(", ");
 }
 
-void emitter::emitDispVectorRegList(RegNum firstReg, unsigned listSize, insOpts opt, bool addComma)
+void AsmPrinter::emitDispVectorRegList(RegNum firstReg, unsigned listSize, insOpts opt, bool addComma)
 {
     assert(isVectorRegister(firstReg));
 
@@ -10698,7 +10746,7 @@ void emitter::emitDispVectorRegList(RegNum firstReg, unsigned listSize, insOpts 
     }
 }
 
-void emitter::emitDispVectorElemList(
+void AsmPrinter::emitDispVectorElemList(
     RegNum firstReg, unsigned listSize, emitAttr elemsize, unsigned index, bool addComma)
 {
     assert(isVectorRegister(firstReg));
@@ -10726,7 +10774,7 @@ void emitter::emitDispVectorElemList(
     }
 }
 
-void emitter::emitDispArrangement(insOpts opt)
+void AsmPrinter::emitDispArrangement(insOpts opt)
 {
     const char* str = "???";
 
@@ -10764,7 +10812,7 @@ void emitter::emitDispArrangement(insOpts opt)
     printf(str);
 }
 
-void emitter::emitDispElemsize(emitAttr elemsize)
+void AsmPrinter::emitDispElemsize(emitAttr elemsize)
 {
     const char* str = "???";
 
@@ -10791,7 +10839,7 @@ void emitter::emitDispElemsize(emitAttr elemsize)
     printf(str);
 }
 
-void emitter::emitDispShiftedReg(RegNum reg, insOpts opt, ssize_t imm, emitAttr attr)
+void AsmPrinter::emitDispShiftedReg(RegNum reg, insOpts opt, ssize_t imm, emitAttr attr)
 {
     emitAttr size = EA_SIZE(attr);
     assert((imm & 0x003F) == imm);
@@ -10810,7 +10858,7 @@ void emitter::emitDispShiftedReg(RegNum reg, insOpts opt, ssize_t imm, emitAttr 
     }
 }
 
-void emitter::emitDispExtendReg(RegNum reg, insOpts opt, ssize_t imm)
+void AsmPrinter::emitDispExtendReg(RegNum reg, insOpts opt, ssize_t imm)
 {
     assert((imm >= 0) && (imm <= 4));
     assert(insOptsNone(opt) || insOptsAnyExtend(opt) || (opt == INS_OPTS_LSL));
@@ -10862,7 +10910,7 @@ void emitter::emitDispExtendReg(RegNum reg, insOpts opt, ssize_t imm)
     }
 }
 
-void emitter::emitDispAddrRI(RegNum reg, insOpts opt, ssize_t imm)
+void AsmPrinter::emitDispAddrRI(RegNum reg, insOpts opt, ssize_t imm)
 {
     reg = encodingZRtoSP(reg); // ZR (R31) encodes the SP register
 
@@ -10925,7 +10973,7 @@ void emitter::emitDispAddrRI(RegNum reg, insOpts opt, ssize_t imm)
     }
 }
 
-void emitter::emitDispAddrRRExt(RegNum reg1, RegNum reg2, insOpts opt, bool isScaled, emitAttr size)
+void AsmPrinter::emitDispAddrRRExt(RegNum reg1, RegNum reg2, insOpts opt, bool isScaled, emitAttr size)
 {
     reg1 = encodingZRtoSP(reg1); // ZR (R31) encodes the SP register
 
@@ -10983,6 +11031,8 @@ void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, uns
 
     JITDUMP("IN%04X: ", id->idDebugOnlyInfo()->idNum);
 
+    assert(!isNew || (static_cast<int>(id->GetDescSize()) == emitCurIGfreeNext - reinterpret_cast<uint8_t*>(id)));
+
     if (code == nullptr)
     {
         sz = 0;
@@ -10997,12 +11047,16 @@ void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, uns
     emitDispInsOffs(offset, doffs);
     emitDispInsHex(id, code, sz);
 
+    AsmPrinter printer(this);
+    printer.Print(id);
+}
+
+void AsmPrinter::Print(instrDesc* id)
+{
     instruction ins = id->idIns();
     insFormat   fmt = id->idInsFmt();
 
     emitDispInst(ins);
-
-    assert(!isNew || (static_cast<int>(id->GetDescSize()) == emitCurIGfreeNext - reinterpret_cast<uint8_t*>(id)));
 
     emitAttr size = id->idOpSize();
     emitAttr attr = size;
@@ -11053,7 +11107,7 @@ void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, uns
 
         case IF_BI_0C: // BI_0C   ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
             printf("%s",
-                   emitComp->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle)));
+                   compiler->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle)));
             break;
 
         case IF_BR_1A: // BR_1A   ................ ......nnnnn.....         Rn
@@ -11076,23 +11130,23 @@ void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, uns
         case IF_LS_2A: // LS_2A   .X.......X...... ......nnnnnttttt      Rt Rn
             assert(insOptsNone(id->idInsOpt()));
             assert(id->emitGetInsSC() == 0);
-            emitDispReg(id->idReg1(), emitInsTargetRegSize(id), true);
+            emitDispReg(id->idReg1(), Emitter::emitInsTargetRegSize(id), true);
             emitDispAddrRI(id->idReg2(), id->idInsOpt(), 0);
             break;
 
         case IF_LS_2B: // LS_2B   .X.......Xiiiiii iiiiiinnnnnttttt      Rt Rn    imm(0-4095)
             assert(insOptsNone(id->idInsOpt()));
             imm   = id->emitGetInsSC();
-            scale = NaturalScale_helper(emitInsLoadStoreSize(id));
+            scale = NaturalScale_helper(Emitter::emitInsLoadStoreSize(id));
             imm <<= scale; // The immediate is scaled by the size of the ld/st
-            emitDispReg(id->idReg1(), emitInsTargetRegSize(id), true);
+            emitDispReg(id->idReg1(), Emitter::emitInsTargetRegSize(id), true);
             emitDispAddrRI(id->idReg2(), id->idInsOpt(), imm);
             break;
 
         case IF_LS_2C: // LS_2C   .X.......X.iiiii iiiiPPnnnnnttttt      Rt Rn    imm(-256..+255) no/pre/post inc
             assert(insOptsNone(id->idInsOpt()) || insOptsIndexed(id->idInsOpt()));
             imm = id->emitGetInsSC();
-            emitDispReg(id->idReg1(), emitInsTargetRegSize(id), true);
+            emitDispReg(id->idReg1(), Emitter::emitInsTargetRegSize(id), true);
             emitDispAddrRI(id->idReg2(), id->idInsOpt(), imm);
             break;
 
@@ -11135,32 +11189,32 @@ void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, uns
 
         case IF_LS_3A: // LS_3A   .X.......X.mmmmm oooS..nnnnnttttt      Rt Rn Rm ext(Rm) LSL {}
             assert(insOptsLSExtend(id->idInsOpt()));
-            emitDispReg(id->idReg1(), emitInsTargetRegSize(id), true);
+            emitDispReg(id->idReg1(), Emitter::emitInsTargetRegSize(id), true);
             emitDispAddrRRExt(id->idReg2(), id->idReg3(), id->idInsOpt(), id->idReg3Scaled(), size);
             break;
 
         case IF_LS_3B: // LS_3B   X............... .aaaaannnnnddddd      Rt Ra Rn
             assert(insOptsNone(id->idInsOpt()));
             assert(id->emitGetInsSC() == 0);
-            emitDispReg(id->idReg1(), emitInsTargetRegSize(id), true);
-            emitDispReg(id->idReg2(), emitInsTargetRegSize(id), true);
+            emitDispReg(id->idReg1(), Emitter::emitInsTargetRegSize(id), true);
+            emitDispReg(id->idReg2(), Emitter::emitInsTargetRegSize(id), true);
             emitDispAddrRI(id->idReg3(), id->idInsOpt(), 0);
             break;
 
         case IF_LS_3C: // LS_3C   X.........iiiiii iaaaaannnnnddddd      Rt Ra Rn imm(im7,sh)
             assert(insOptsNone(id->idInsOpt()) || insOptsIndexed(id->idInsOpt()));
             imm   = id->emitGetInsSC();
-            scale = NaturalScale_helper(emitInsLoadStoreSize(id));
+            scale = NaturalScale_helper(Emitter::emitInsLoadStoreSize(id));
             imm <<= scale;
-            emitDispReg(id->idReg1(), emitInsTargetRegSize(id), true);
-            emitDispReg(id->idReg2(), emitInsTargetRegSize(id), true);
+            emitDispReg(id->idReg1(), Emitter::emitInsTargetRegSize(id), true);
+            emitDispReg(id->idReg2(), Emitter::emitInsTargetRegSize(id), true);
             emitDispAddrRI(id->idReg3(), id->idInsOpt(), imm);
             break;
 
         case IF_LS_3D: // LS_3D   .X.......X.mmmmm ......nnnnnttttt      Wm Rt Rn
             assert(insOptsNone(id->idInsOpt()));
             emitDispReg(id->idReg1(), EA_4BYTE, true);
-            emitDispReg(id->idReg2(), emitInsTargetRegSize(id), true);
+            emitDispReg(id->idReg2(), Emitter::emitInsTargetRegSize(id), true);
             emitDispAddrRI(id->idReg3(), id->idInsOpt(), 0);
             break;
 
@@ -11221,13 +11275,13 @@ void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, uns
         case IF_DI_1C: // DI_1C   X........Nrrrrrr ssssssnnnnn.....         Rn    imm(N,r,s)
             emitDispReg(id->idReg1(), size, true);
             bmi.immNRS = (unsigned)id->emitGetInsSC();
-            emitDispImm(emitDecodeBitMaskImm(bmi, size), false);
+            emitDispImm(Emitter::emitDecodeBitMaskImm(bmi, size), false);
             break;
 
         case IF_DI_1D: // DI_1D   X........Nrrrrrr ssssss.....ddddd      Rd       imm(N,r,s)
             emitDispReg(encodingZRtoSP(id->idReg1()), size, true);
             bmi.immNRS = (unsigned)id->emitGetInsSC();
-            emitDispImm(emitDecodeBitMaskImm(bmi, size), false);
+            emitDispImm(Emitter::emitDecodeBitMaskImm(bmi, size), false);
             break;
 
         case IF_DI_2A: // DI_2A   X.......shiiiiii iiiiiinnnnnddddd      Rd Rn    imm(i12,sh)
@@ -11272,7 +11326,7 @@ void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, uns
             }
             emitDispReg(id->idReg2(), size, true);
             bmi.immNRS = (unsigned)id->emitGetInsSC();
-            emitDispImm(emitDecodeBitMaskImm(bmi, size), false);
+            emitDispImm(Emitter::emitDecodeBitMaskImm(bmi, size), false);
             break;
 
         case IF_DI_2D: // DI_2D   X........Nrrrrrr ssssssnnnnnddddd      Rd Rn    imr, ims   (N,r,s)
@@ -11960,7 +12014,7 @@ void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, uns
             break;
 
         default:
-            printf("unexpected format %s", emitIfName(id->idInsFmt()));
+            printf("unexpected format %s", Emitter::emitIfName(id->idInsFmt()));
             assert(!"unexpectedFormat");
             break;
     }
@@ -11996,7 +12050,7 @@ void emitter::PrintAlignmentBoundary(size_t instrAddr, size_t instrEndAddr, cons
     }
 }
 
-void emitter::emitDispFrameRef(instrDesc* id)
+void AsmPrinter::emitDispFrameRef(instrDesc* id)
 {
     int varNum  = id->idDebugOnlyInfo()->varNum;
     int varOffs = id->idDebugOnlyInfo()->varOffs;
@@ -12009,7 +12063,7 @@ void emitter::emitDispFrameRef(instrDesc* id)
     }
     else
     {
-        emitComp->gtDispLclVar(static_cast<unsigned>(varNum), false);
+        compiler->gtDispLclVar(static_cast<unsigned>(varNum), false);
     }
 
     if (varOffs != 0)

@@ -695,15 +695,6 @@ bool ArmEncoder::emitInsMayWriteMultipleRegs(instrDesc* id)
     }
 }
 
-#ifdef DEBUG
-
-const char* emitter::emitRegName(RegNum reg, emitAttr attr)
-{
-    return getRegName(reg);
-}
-
-#endif
-
 const char* insName(instruction ins)
 {
     // clang-format off
@@ -5828,8 +5819,47 @@ static bool insAlwaysSetFlags(instruction ins)
     return result;
 }
 
+class AsmPrinter
+{
+    using instrDesc    = Emitter::instrDesc;
+    using instrDescJmp = Emitter::instrDescJmp;
+
+    Compiler* compiler;
+    Emitter*  emitter;
+
+public:
+    AsmPrinter(Emitter* emitter) : compiler(emitter->emitComp), emitter(emitter)
+    {
+    }
+
+    void Print(instrDesc* id);
+
+private:
+    static const char* emitRegName(RegNum reg, emitAttr attr = EA_4BYTE)
+    {
+        return getRegName(reg);
+    }
+
+    void emitDispInst(instruction ins, insFlags flags);
+    void emitDispImm(int imm, bool addComma, bool alwaysHex = false);
+    void emitDispReloc(void* addr);
+    void emitDispFrameRef(instrDesc* id);
+    void emitDispCond(int cond);
+    void emitDispShiftOpts(insOpts opt);
+    void emitDispRegmask(int imm, bool encodedPC_LR);
+    void emitDispRegRange(regNumber reg, int len, emitAttr attr);
+    void emitDispReg(regNumber reg, emitAttr attr, bool addComma);
+    void emitDispLabel(instrDescJmp* id);
+    void emitDispAddrR(regNumber reg, emitAttr attr);
+    void emitDispAddrRI(regNumber reg, int imm, emitAttr attr);
+    void emitDispAddrRR(regNumber reg1, regNumber reg2, emitAttr attr);
+    void emitDispAddrRRI(regNumber reg1, regNumber reg2, int imm, emitAttr attr);
+    void emitDispAddrPUW(regNumber reg, int imm, insOpts opt, emitAttr attr);
+    void emitDispGC(emitAttr attr);
+};
+
 // Display the instruction name, optionally the instruction can add the "s" suffix if it must set the flags.
-void emitter::emitDispInst(instruction ins, insFlags flags)
+void AsmPrinter::emitDispInst(instruction ins, insFlags flags)
 {
     const char* insstr = insName(ins);
     size_t      len    = strlen(insstr);
@@ -5854,13 +5884,13 @@ void emitter::emitDispInst(instruction ins, insFlags flags)
 
 #define STRICT_ARM_ASM 0
 
-void emitter::emitDispImm(int imm, bool addComma, bool alwaysHex)
+void AsmPrinter::emitDispImm(int imm, bool addComma, bool alwaysHex)
 {
     if (!alwaysHex && (imm > -1000) && (imm < 1000))
         printf("%d", imm);
     else if ((imm > 0) ||
              (imm == -imm) || // -0x80000000 == 0x80000000. So we don't want to add an extra "-" at the beginning.
-             (emitComp->opts.disDiffable && (imm == 0xD1FFAB1E))) // Don't display this as negative
+             (compiler->opts.disDiffable && (imm == 0xD1FFAB1E))) // Don't display this as negative
         printf("0x%02x", imm);
     else // val <= -1000
         printf("-0x%02x", -imm);
@@ -5869,12 +5899,12 @@ void emitter::emitDispImm(int imm, bool addComma, bool alwaysHex)
         printf(", ");
 }
 
-void emitter::emitDispReloc(void* addr)
+void AsmPrinter::emitDispReloc(void* addr)
 {
     printf("0x%p", dspPtr(addr));
 }
 
-void emitter::emitDispCond(int cond)
+void AsmPrinter::emitDispCond(int cond)
 {
     const static char* armCond[16]{"eq", "ne", "hs", "lo", "mi", "pl", "vs", "vc",
                                    "hi", "ls", "ge", "lt", "gt", "le", "AL", "NV"}; // The last two are invalid
@@ -5882,7 +5912,7 @@ void emitter::emitDispCond(int cond)
     printf(armCond[cond]);
 }
 
-void emitter::emitDispRegRange(RegNum reg, int len, emitAttr attr)
+void AsmPrinter::emitDispRegRange(RegNum reg, int len, emitAttr attr)
 {
     printf("{");
     emitDispReg(reg, attr, false);
@@ -5894,7 +5924,7 @@ void emitter::emitDispRegRange(RegNum reg, int len, emitAttr attr)
     printf("}");
 }
 
-void emitter::emitDispRegmask(int imm, bool encodedPC_LR)
+void AsmPrinter::emitDispRegmask(int imm, bool encodedPC_LR)
 {
     bool printedOne = false;
     bool hasPC;
@@ -5971,12 +6001,12 @@ const char* insOptsName(insOpts opt)
     }
 }
 
-void emitter::emitDispShiftOpts(insOpts opt)
+void AsmPrinter::emitDispShiftOpts(insOpts opt)
 {
     printf(" %s ", insOptsName(opt));
 }
 
-void emitter::emitDispReg(RegNum reg, emitAttr attr, bool addComma)
+void AsmPrinter::emitDispReg(RegNum reg, emitAttr attr, bool addComma)
 {
     if (isFloatReg(reg))
     {
@@ -5992,7 +6022,7 @@ void emitter::emitDispReg(RegNum reg, emitAttr attr, bool addComma)
         printf(", ");
 }
 
-void emitter::emitDispLabel(instrDescJmp* id)
+void AsmPrinter::emitDispLabel(instrDescJmp* id)
 {
     insFormat fmt = id->idInsFmt();
 
@@ -6016,26 +6046,26 @@ void emitter::emitDispLabel(instrDescJmp* id)
         {
             // This is the instruction synthesized by emitDispIns, we can't get
             // its number because it's not part of an actual instruction group.
-            printf("pc%s%d instructions", instrCount >= 0 ? "+" : "", instrCount);
+            printf("pc%s%d instructions", emitter->instrCount >= 0 ? "+" : "", emitter->instrCount);
         }
         else
         {
-            unsigned instrNum   = emitFindInsNum(id->idjIG, id);
+            unsigned instrNum   = emitter->emitFindInsNum(id->idjIG, id);
             uint32_t instrOffs  = id->idjIG->igOffs + id->idjOffs;
             int      instrCount = id->GetInstrCount();
             uint32_t labelOffs  = id->idjIG->igOffs + id->idjIG->FindInsOffset(instrNum + 1 + instrCount);
-            ssize_t  distance   = emitOffsetToPtr(labelOffs) - emitOffsetToPtr(instrOffs) - 2;
+            ssize_t  distance   = emitter->emitOffsetToPtr(labelOffs) - emitter->emitOffsetToPtr(instrOffs) - 2;
 
             printf("pc%s%d (%d instructions)", distance >= 0 ? "+" : "", distance, instrCount);
         }
     }
     else
     {
-        emitPrintLabel(id->GetLabel());
+        emitter->emitPrintLabel(id->GetLabel());
     }
 }
 
-void emitter::emitDispAddrR(RegNum reg, emitAttr attr)
+void AsmPrinter::emitDispAddrR(RegNum reg, emitAttr attr)
 {
     printf("[");
     emitDispReg(reg, attr, false);
@@ -6043,7 +6073,7 @@ void emitter::emitDispAddrR(RegNum reg, emitAttr attr)
     emitDispGC(attr);
 }
 
-void emitter::emitDispAddrRI(RegNum reg, int imm, emitAttr attr)
+void AsmPrinter::emitDispAddrRI(RegNum reg, int imm, emitAttr attr)
 {
     bool regIsSPorFP = (reg == REG_SP) || (reg == REG_FP);
 
@@ -6065,7 +6095,7 @@ void emitter::emitDispAddrRI(RegNum reg, int imm, emitAttr attr)
     emitDispGC(attr);
 }
 
-void emitter::emitDispAddrRR(RegNum reg1, RegNum reg2, emitAttr attr)
+void AsmPrinter::emitDispAddrRR(RegNum reg1, RegNum reg2, emitAttr attr)
 {
     printf("[");
     emitDispReg(reg1, attr, false);
@@ -6079,7 +6109,7 @@ void emitter::emitDispAddrRR(RegNum reg1, RegNum reg2, emitAttr attr)
     emitDispGC(attr);
 }
 
-void emitter::emitDispAddrRRI(RegNum reg1, RegNum reg2, int imm, emitAttr attr)
+void AsmPrinter::emitDispAddrRRI(RegNum reg1, RegNum reg2, int imm, emitAttr attr)
 {
     printf("[");
     emitDispReg(reg1, attr, false);
@@ -6104,7 +6134,7 @@ void emitter::emitDispAddrRRI(RegNum reg1, RegNum reg2, int imm, emitAttr attr)
     emitDispGC(attr);
 }
 
-void emitter::emitDispAddrPUW(RegNum reg, int imm, insOpts opt, emitAttr attr)
+void AsmPrinter::emitDispAddrPUW(RegNum reg, int imm, insOpts opt, emitAttr attr)
 {
     bool regIsSPorFP = (reg == REG_SP) || (reg == REG_FP);
 
@@ -6130,7 +6160,7 @@ void emitter::emitDispAddrPUW(RegNum reg, int imm, insOpts opt, emitAttr attr)
     emitDispGC(attr);
 }
 
-void emitter::emitDispGC(emitAttr attr)
+void AsmPrinter::emitDispGC(emitAttr attr)
 {
 #if 0
     // TODO-ARM-Cleanup: Fix or delete.
@@ -6183,6 +6213,8 @@ void emitter::emitDispInsHelp(
 {
     JITDUMP("IN%04X: ", id->idDebugOnlyInfo()->idNum);
 
+    assert(!isNew || (static_cast<int>(id->GetDescSize()) == emitCurIGfreeNext - reinterpret_cast<uint8_t*>(id)));
+
     if (code == nullptr)
     {
         sz = 0;
@@ -6197,14 +6229,18 @@ void emitter::emitDispInsHelp(
     emitDispInsOffs(offset, doffs);
     emitDispInsHex(id, code, sz);
 
+    AsmPrinter printer(this);
+    printer.Print(id);
+}
+
+void AsmPrinter::Print(instrDesc* id)
+{
     printf("      ");
 
     instruction ins = id->idIns();
     insFormat   fmt = id->idInsFmt();
 
     emitDispInst(ins, id->idInsFlags());
-
-    assert(!isNew || (static_cast<int>(id->GetDescSize()) == emitCurIGfreeNext - reinterpret_cast<uint8_t*>(id)));
 
     emitAttr attr;
 
@@ -6271,7 +6307,7 @@ void emitter::emitDispInsHelp(
             emitDispReg(id->idReg3(), attr, false);
             if (CORINFO_METHOD_HANDLE handle = static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle))
             {
-                methodName = emitComp->eeGetMethodFullName(handle);
+                methodName = compiler->eeGetMethodFullName(handle);
                 printf("\t\t// %s", methodName);
             }
             break;
@@ -6291,9 +6327,7 @@ void emitter::emitDispInsHelp(
 
         case IF_T2_N:
             emitDispReg(id->idReg1(), attr, true);
-            imm = id->emitGetInsSC();
-            if (emitComp->opts.disDiffable)
-                imm = 0xD1FF;
+            imm = compiler->opts.disDiffable ? 0xD1FF : id->emitGetInsSC();
             emitDispImm(imm, false, true);
             break;
 
@@ -6364,7 +6398,7 @@ void emitter::emitDispInsHelp(
         case IF_T2_M0:
             emitDispReg(id->idReg1(), attr, true);
             imm = id->emitGetInsSC();
-            if (emitInsIsLoadOrStore(ins))
+            if (Emitter::emitInsIsLoadOrStore(ins))
             {
                 emitDispAddrRI(id->idReg2(), imm, attr);
             }
@@ -6378,7 +6412,7 @@ void emitter::emitDispInsHelp(
         case IF_T1_J2:
             emitDispReg(id->idReg1(), attr, true);
             imm = id->emitGetInsSC();
-            if (emitInsIsLoadOrStore(ins))
+            if (Emitter::emitInsIsLoadOrStore(ins))
             {
                 emitDispAddrRI(REG_SP, imm, attr);
             }
@@ -6432,7 +6466,7 @@ void emitter::emitDispInsHelp(
 
         case IF_T1_H: // Reg, Reg, Reg
             emitDispReg(id->idReg1(), attr, true);
-            if (emitInsIsLoadOrStore(ins))
+            if (Emitter::emitInsIsLoadOrStore(ins))
             {
                 emitDispAddrRR(id->idReg2(), id->idReg3(), attr);
             }
@@ -6584,7 +6618,7 @@ void emitter::emitDispInsHelp(
             emitDispReg(id->idReg1(), attr, true);
             if (id->idIsLclVar())
             {
-                emitDispAddrRRI(id->idReg2(), codeGen->rsGetRsvdReg(), 0, attr);
+                emitDispAddrRRI(id->idReg2(), emitter->codeGen->rsGetRsvdReg(), 0, attr);
             }
             else
             {
@@ -6620,11 +6654,11 @@ void emitter::emitDispInsHelp(
 
         case IF_T2_J3:
             printf("%s",
-                   emitComp->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle)));
+                   compiler->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle)));
             break;
 
         default:
-            printf("unexpected format %s", emitIfName(id->idInsFmt()));
+            printf("unexpected format %s", Emitter::emitIfName(id->idInsFmt()));
             assert(!"unexpectedFormat");
             break;
     }
@@ -6722,7 +6756,7 @@ void emitter::PrintAlignmentBoundary(size_t instrAddr, size_t instrEndAddr, cons
     }
 }
 
-void emitter::emitDispFrameRef(instrDesc* id)
+void AsmPrinter::emitDispFrameRef(instrDesc* id)
 {
     int varNum  = id->idDebugOnlyInfo()->varNum;
     int varOffs = id->idDebugOnlyInfo()->varOffs;
@@ -6735,7 +6769,7 @@ void emitter::emitDispFrameRef(instrDesc* id)
     }
     else
     {
-        emitComp->gtDispLclVar(static_cast<unsigned>(varNum), false);
+        compiler->gtDispLclVar(static_cast<unsigned>(varNum), false);
     }
 
     if (varOffs != 0)
