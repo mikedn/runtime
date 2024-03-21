@@ -47,7 +47,7 @@ instruction emitter::emitJumpKindToBranch(emitJumpKind kind)
     return map[kind];
 }
 
-emitJumpKind emitter::emitReverseJumpKind(emitJumpKind kind)
+emitJumpKind EmitterBase::emitReverseJumpKind(emitJumpKind kind)
 {
     static const uint8_t map[]{
         EJ_NONE, EJ_jmp,
@@ -3724,7 +3724,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
 #endif
 }
 
-void emitter::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
+void EmitterBase::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
 {
     static_assert_no_msg(instrDesc::RegBits >= 4);
     assert((regs & RBM_CALLEE_TRASH) == RBM_NONE);
@@ -3760,7 +3760,7 @@ void emitter::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
 #endif
 }
 
-unsigned emitter::DecodeCallGCRegs(instrDesc* id)
+unsigned EmitterBase::DecodeCallGCRegs(instrDesc* id)
 {
     unsigned encoded;
 
@@ -3800,7 +3800,7 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
     return regs;
 }
 
-void emitter::ShortenBranches()
+void EmitterBase::ShortenBranches()
 {
     if (emitJumpList == nullptr)
     {
@@ -3981,7 +3981,7 @@ static ID_OPS GetFormatOp(insFormat format)
 }
 
 #ifdef DEBUG
-void emitter::emitInsSanityCheck(instrDesc* id)
+void EmitterBase::emitInsSanityCheck(instrDesc* id)
 {
     // make certain you only try to put relocs on things that can have them.
 
@@ -4888,10 +4888,10 @@ void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, uns
     printf("\n");
 }
 
-void emitter::PrintAlignmentBoundary(size_t           instrAddr,
-                                     size_t           instrEndAddr,
-                                     const instrDesc* instr,
-                                     const instrDesc* nextInstr)
+void EmitterBase::PrintAlignmentBoundary(size_t           instrAddr,
+                                         size_t           instrEndAddr,
+                                         const instrDesc* instr,
+                                         const instrDesc* nextInstr)
 {
     // Determine if this instruction is part of a set that matches the Intel jcc erratum characteristic
     // described here:
@@ -5161,7 +5161,7 @@ static bool HasSBit(instruction ins)
     return ((INS_add <= ins) && (ins <= INS_cmp)) || (ins == INS_imuli);
 }
 
-class X86Encoder : public Emitter::Encoder
+class X86Encoder : public Emitter::Encoder<emitter>
 {
 public:
     X86Encoder(Emitter* emit) : Encoder(emit)
@@ -7589,9 +7589,9 @@ uint8_t* X86Encoder::emitOutputNoOperands(uint8_t* dst, instrDesc* id)
     return dst;
 }
 
-void emitter::emitEndCodeGen()
+void EmitterBase::emitEndCodeGen()
 {
-    X86Encoder encoder(this);
+    X86Encoder encoder(static_cast<emitter*>(this));
     encoder.emitEndCodeGen();
 }
 
@@ -8161,7 +8161,8 @@ size_t X86Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
 #if defined(DEBUG) || defined(LATE_DISASM)
 
-insFormat emitter::Encoder::getMemoryOperation(instrDesc* id)
+template <>
+insFormat emitter::Encoder<emitter>::getMemoryOperation(instrDesc* id)
 {
     if (id->idIns() == INS_lea)
     {
@@ -8182,7 +8183,8 @@ insFormat emitter::Encoder::getMemoryOperation(instrDesc* id)
 //   1. Agner.org - https://www.agner.org/optimize/instruction_tables.pdf
 //   2. uops.info - https://uops.info/table.html
 //
-emitter::insExecutionCharacteristics emitter::Encoder::getInsExecutionCharacteristics(instrDesc* id)
+template <>
+emitter::insExecutionCharacteristics emitter::Encoder<emitter>::getInsExecutionCharacteristics(instrDesc* id)
 {
     insExecutionCharacteristics result;
     instruction                 ins    = id->idIns();

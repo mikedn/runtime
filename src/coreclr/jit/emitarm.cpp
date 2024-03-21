@@ -63,7 +63,7 @@ instruction emitter::emitJumpKindToBranch(emitJumpKind kind)
     return map[kind];
 }
 
-emitJumpKind emitter::emitReverseJumpKind(emitJumpKind kind)
+emitJumpKind EmitterBase::emitReverseJumpKind(emitJumpKind kind)
 {
     static const emitJumpKind map[]{
         EJ_NONE, EJ_jmp,
@@ -210,7 +210,7 @@ static bool insOptAnyShift(insOpts opt)
     return (opt >= INS_OPTS_RRX) && (opt <= INS_OPTS_ROR);
 }
 
-void emitter::emitInsSanityCheck(instrDesc* id)
+void EmitterBase::emitInsSanityCheck(instrDesc* id)
 {
     switch (id->idInsFmt())
     {
@@ -543,7 +543,7 @@ void emitter::emitInsSanityCheck(instrDesc* id)
 }
 #endif // DEBUG
 
-class ArmEncoder : public Emitter::Encoder
+class ArmEncoder : public Emitter::Encoder<emitter>
 {
 public:
     ArmEncoder(Emitter* emit) : Encoder(emit)
@@ -4111,7 +4111,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
     appendToCurIG(id);
 }
 
-void emitter::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
+void EmitterBase::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
 {
     static_assert_no_msg(instrDesc::RegBits >= 4);
     assert((regs & RBM_CALLEE_TRASH) == RBM_NONE);
@@ -4143,7 +4143,7 @@ void emitter::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
     id->idReg2(static_cast<RegNum>(encoded));
 }
 
-unsigned emitter::DecodeCallGCRegs(instrDesc* id)
+unsigned EmitterBase::DecodeCallGCRegs(instrDesc* id)
 {
     unsigned encoded = id->idReg1() | (id->idReg2() << 8);
     unsigned regs    = 0;
@@ -4169,7 +4169,7 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
     return regs;
 }
 
-void emitter::ShortenBranches()
+void EmitterBase::ShortenBranches()
 {
     if (emitJumpList == nullptr)
     {
@@ -4301,7 +4301,7 @@ AGAIN:
         {
             if (currentSize > 2)
             {
-                emitSetShortJump(instr);
+                static_cast<emitter*>(this)->emitSetShortJump(instr);
                 assert(instr->idInsSize() == ISZ_16BIT);
                 newSize = 2;
             }
@@ -4316,7 +4316,7 @@ AGAIN:
             }
             else if (currentSize > 4)
             {
-                emitSetMediumJump(instr);
+                static_cast<emitter*>(this)->emitSetMediumJump(instr);
                 assert(instr->idInsSize() == ISZ_32BIT);
                 newSize = 4;
             }
@@ -4996,9 +4996,9 @@ unsigned emitter::emitGetInstructionSize(const emitLocation& emitLoc)
     return id->idCodeSize();
 }
 
-void emitter::emitEndCodeGen()
+void EmitterBase::emitEndCodeGen()
 {
-    ArmEncoder encoder(this);
+    ArmEncoder encoder(static_cast<emitter*>(this));
     encoder.emitEndCodeGen();
 }
 
@@ -6722,7 +6722,10 @@ void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, uns
     }
 }
 
-void emitter::PrintAlignmentBoundary(size_t instrAddr, size_t instrEndAddr, const instrDesc* instr, const instrDesc*)
+void EmitterBase::PrintAlignmentBoundary(size_t           instrAddr,
+                                         size_t           instrEndAddr,
+                                         const instrDesc* instr,
+                                         const instrDesc*)
 {
     const size_t alignment    = emitComp->opts.compJitAlignLoopBoundary;
     const size_t boundaryAddr = instrEndAddr & ~(alignment - 1);
@@ -6773,7 +6776,8 @@ void AsmPrinter::emitDispFrameRef(instrDesc* id)
 
 #if defined(DEBUG) || defined(LATE_DISASM)
 
-emitter::insExecutionCharacteristics emitter::Encoder::getInsExecutionCharacteristics(instrDesc* id)
+template <>
+emitter::insExecutionCharacteristics emitter::Encoder<emitter>::getInsExecutionCharacteristics(instrDesc* id)
 {
     insExecutionCharacteristics result;
 

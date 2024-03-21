@@ -343,7 +343,7 @@ instruction emitter::emitJumpKindToBranch(emitJumpKind kind)
     return map[kind];
 }
 
-emitJumpKind emitter::emitReverseJumpKind(emitJumpKind kind)
+emitJumpKind EmitterBase::emitReverseJumpKind(emitJumpKind kind)
 {
     static const uint8_t map[]{
         EJ_NONE, EJ_jmp,
@@ -453,10 +453,12 @@ int64_t emitter::instrDesc::emitGetInsSC() const
 
 static emitAttr optGetSrcsize(insOpts conversion);
 static emitAttr optGetDstsize(insOpts conversion);
+static emitAttr optGetElemsize(insOpts arrangement);
 static bool isValidArrangement(emitAttr datasize, insOpts opt);
+static bool isValidVectorIndex(emitAttr datasize, emitAttr elemsize, ssize_t index);
 
 #ifdef DEBUG
-void emitter::emitInsSanityCheck(instrDesc* id)
+void EmitterBase::emitInsSanityCheck(instrDesc* id)
 {
     switch (id->idInsFmt())
     {
@@ -1230,7 +1232,7 @@ void emitter::emitInsSanityCheck(instrDesc* id)
 
 static bool emitInsIsStore(instruction ins);
 
-class Arm64Encoder : public Emitter::Encoder
+class Arm64Encoder : public Emitter::Encoder<emitter>
 {
 public:
     Arm64Encoder(Emitter* emit) : Encoder(emit)
@@ -1396,6 +1398,7 @@ bool Arm64Encoder::emitInsMayWriteMultipleRegs(instrDesc* id)
     }
 }
 
+#ifdef DEBUG
 // Takes an instrDesc 'id' and uses the instruction 'ins' to determine the
 // size of the target register that is written or read by the instruction.
 // Note that even if EA_4BYTE is returned a load instruction will still
@@ -1511,6 +1514,7 @@ static emitAttr emitInsLoadStoreSize(emitter::instrDesc* id)
             unreached();
     }
 }
+#endif // DEBUG
 
 const char* insName(instruction ins)
 {
@@ -7845,7 +7849,7 @@ void emitter::emitIns_Call(EmitCallType          kind,
     appendToCurIG(id);
 }
 
-void emitter::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
+void EmitterBase::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
 {
     static_assert_no_msg(instrDesc::RegBits >= 5);
     assert((regs & RBM_CALLEE_TRASH) == RBM_NONE);
@@ -7881,7 +7885,7 @@ void emitter::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
     id->idReg2(static_cast<RegNum>(encoded));
 }
 
-unsigned emitter::DecodeCallGCRegs(instrDesc* id)
+unsigned EmitterBase::DecodeCallGCRegs(instrDesc* id)
 {
     unsigned encoded = id->idReg1() | (id->idReg2() << 8);
     unsigned regs    = 0;
@@ -7911,7 +7915,7 @@ unsigned emitter::DecodeCallGCRegs(instrDesc* id)
     return regs;
 }
 
-void emitter::ShortenBranches()
+void EmitterBase::ShortenBranches()
 {
     if (emitJumpList == nullptr)
     {
@@ -8077,7 +8081,7 @@ AGAIN:
 
         assert(currentSize > 4);
 
-        emitSetShortJump(instr);
+        static_cast<emitter*>(this)->emitSetShortJump(instr);
         assert(instr->idCodeSize() == 4);
 
         uint32_t sizeReduction = currentSize - 4;
@@ -9134,9 +9138,9 @@ unsigned Arm64Encoder::emitOutput_Instr(BYTE* dst, code_t code)
     return 4;
 }
 
-void emitter::emitEndCodeGen()
+void EmitterBase::emitEndCodeGen()
 {
-    Arm64Encoder encoder(this);
+    Arm64Encoder encoder(static_cast<emitter*>(this));
     encoder.emitEndCodeGen();
 }
 
@@ -12011,7 +12015,10 @@ void AsmPrinter::Print(instrDesc* id)
     printf("\n");
 }
 
-void emitter::PrintAlignmentBoundary(size_t instrAddr, size_t instrEndAddr, const instrDesc* instr, const instrDesc*)
+void EmitterBase::PrintAlignmentBoundary(size_t           instrAddr,
+                                         size_t           instrEndAddr,
+                                         const instrDesc* instr,
+                                         const instrDesc*)
 {
     const size_t alignment    = emitComp->opts.compJitAlignLoopBoundary;
     const size_t boundaryAddr = instrEndAddr & ~(alignment - 1);
@@ -12062,7 +12069,8 @@ void AsmPrinter::emitDispFrameRef(instrDesc* id)
 
 #if defined(DEBUG) || defined(LATE_DISASM)
 
-void emitter::Encoder::getMemoryOperation(instrDesc* id, unsigned* pMemAccessKind, bool* pIsLocalAccess)
+template <>
+void emitter::Encoder<emitter>::getMemoryOperation(instrDesc* id, unsigned* pMemAccessKind, bool* pIsLocalAccess)
 {
     unsigned    memAccessKind = PERFSCORE_MEMORY_NONE;
     bool        isLocalAccess = false;
@@ -12070,7 +12078,7 @@ void emitter::Encoder::getMemoryOperation(instrDesc* id, unsigned* pMemAccessKin
 
     if (emitInsIsLoadOrStore(ins))
     {
-        if (emitInsIsLoad(ins))
+        if (emitter::emitInsIsLoad(ins))
         {
             if (emitInsIsStore(ins))
             {
@@ -12139,7 +12147,8 @@ void emitter::Encoder::getMemoryOperation(instrDesc* id, unsigned* pMemAccessKin
 // The instruction latencies and throughput values returned by this function
 // are from The Arm Cortex-A55 Software Optimization Guide:
 // https://static.docs.arm.com/epm128372/20/arm_cortex_a55_software_optimization_guide_v2.pdf
-emitter::insExecutionCharacteristics emitter::Encoder::getInsExecutionCharacteristics(instrDesc* id)
+template <>
+emitter::insExecutionCharacteristics emitter::Encoder<emitter>::getInsExecutionCharacteristics(instrDesc* id)
 {
     insExecutionCharacteristics result;
     instruction                 ins    = id->idIns();

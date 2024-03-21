@@ -13,6 +13,7 @@ insOpts emitSimdArrangementOpt(emitAttr size, var_types elementType);
 #define FMT_IG "IG%02u"
 
 class CodeGen;
+class EmitterBase;
 class emitter;
 struct insGroup;
 
@@ -51,7 +52,7 @@ public:
         codePos = CodePos::First;
     }
 
-    void CaptureLocation(const emitter* emit);
+    void CaptureLocation(const EmitterBase* emit);
 
     insGroup* GetIG() const
     {
@@ -289,13 +290,14 @@ class Arm64Encoder;
 #error Unsupported or unset target architecture
 #endif
 
-class emitter
+class EmitterBase
 {
     friend class emitLocation;
     friend class GCInfo;
     friend class AsmPrinter;
     friend struct insGroup;
 
+protected:
     Compiler*    emitComp;
     GCInfo       gcInfo;
     CodeGen*     codeGen;
@@ -305,7 +307,7 @@ class emitter
 #endif
 
 public:
-    emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo);
+    EmitterBase(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo);
 
     GCInfo& GetGCInfo()
     {
@@ -317,7 +319,7 @@ public:
         return emitIGfirst;
     }
 
-private:
+protected:
     static bool InDifferentRegions(insGroup* ig1, insGroup* ig2);
 
 #ifdef LATE_DISASM
@@ -382,7 +384,7 @@ public:
     }
 #endif
 
-private:
+protected:
     struct DataSection
     {
         DataSection* next;
@@ -1363,7 +1365,7 @@ public:
 #define PERFSCORE_MEMORY_WRITE 2
 #define PERFSCORE_MEMORY_READ_WRITE 3
 
-private:
+protected:
     // TODO-MIKE-Cleanup: These should be double. Bozos defined them as float, even if they wanted
     // double precision computations. Now of course that changing these now to double resuls in
     // perf scores diffs, because 0.10f isn't the same as 0.10.
@@ -1468,7 +1470,7 @@ public:
     insGroup* emitCurIG;
     insGroup* emitCurLabel = nullptr;
 
-private:
+protected:
     insGroup* emitIGfirst = nullptr;
     insGroup* emitIGlast  = nullptr;
 
@@ -1481,8 +1483,6 @@ public:
         return emitCurIG;
     }
 
-    void PrologSpillParamRegsToShadowSlots();
-
     INDEBUG(static bool IsCodeAligned(unsigned offset);)
 
     void ShortenBranches();
@@ -1493,7 +1493,7 @@ public:
     void emitSetLoopBackEdge(insGroup* dstIG);
     void emitLoopAlignAdjustments(); // Predict if loop alignment is needed and make appropriate adjustments
 
-private:
+protected:
     instrDescAlign* emitCurIGAlignList = nullptr; // list of align instructions in current IG
     unsigned        emitLastLoopStart  = 0;       // Start IG of last inner loop
     unsigned        emitLastLoopEnd    = 0;       // End IG of last inner loop
@@ -1504,7 +1504,7 @@ private:
     unsigned emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offset DEBUG_ARG(bool isAlignAdjusted));
 #endif
 
-private:
+protected:
 #ifdef DEBUG
     void VerifyCallFinally(insGroup* label) const;
     void VerifyCatchRet(insGroup* label) const;
@@ -1599,7 +1599,7 @@ public:
     }
 #endif
 
-private:
+protected:
     VARSET_TP emitEmptyGCrefVars = VarSetOps::UninitVal();
 
     static void EncodeCallGCRegs(regMaskTP regs, instrDesc* id);
@@ -1638,7 +1638,7 @@ public:
     void emitDisableGC();
     void emitEnableGC();
 
-private:
+protected:
 #endif
 
     bool emitCurIGnonEmpty() const
@@ -1674,7 +1674,7 @@ public:
     void SetLabelGCLiveness(insGroup* label);
     insGroup* DefineInlineTempLabel();
 
-private:
+protected:
 #ifdef TARGET_ARMARCH
     void emitGetInstrDescs(insGroup* ig, instrDesc** id, int* insCnt);
     bool emitGetLocationInfo(const emitLocation& emitLoc, insGroup** pig, instrDesc** pid, int* pinsRemaining = NULL);
@@ -1690,7 +1690,7 @@ private:
 public:
     static emitJumpKind emitReverseJumpKind(emitJumpKind jumpKind);
 
-private:
+protected:
 #ifdef DEBUG
     void emitInsSanityCheck(instrDesc* id);
 #endif
@@ -1705,7 +1705,7 @@ private:
 public:
     const char* emitGetFrameReg();
 
-private:
+protected:
 #endif
 
     struct RoData
@@ -1720,6 +1720,7 @@ private:
 
     RoData roData;
 
+    template <typename E>
     class Encoder
     {
     protected:
@@ -1735,7 +1736,7 @@ private:
 
         Compiler*  emitComp;
         CodeGen*   codeGen;
-        emitter&   emit;
+        E&         emit;
         GCInfo&    gcInfo;
         RoData&    roData;
         unsigned   totalCodeSize;
@@ -1749,7 +1750,7 @@ private:
         unsigned& emitCurStackLvl;
 #endif
 
-        Encoder(emitter* emit)
+        Encoder(E* emit)
             : emitComp(emit->emitComp)
             , codeGen(emit->codeGen)
             , emit(*emit)
@@ -1837,6 +1838,7 @@ private:
         void perfScoreUnhandledInstruction(instrDesc* id, insExecutionCharacteristics* result);
 #endif
     };
+};
 
 #if defined(TARGET_XARCH)
 #include "emitxarch.h"
@@ -1847,6 +1849,5 @@ private:
 #else
 #error Unsupported or unset target architecture
 #endif
-};
 
 using Emitter = emitter;

@@ -19,6 +19,7 @@ struct VarResultInfo;
 
 class CodeGen final : public CodeGenInterface
 {
+    friend class EmitterBase;
     friend class emitter;
     friend class DisAssembler;
     friend class CodeGenLivenessUpdater;
