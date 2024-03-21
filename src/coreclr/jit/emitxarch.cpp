@@ -4089,11 +4089,11 @@ class AsmPrinter
     using instrDescJmp = Emitter::instrDescJmp;
 
     Compiler*   compiler;
-    X86Emitter* emitter;
+    X86Emitter& emit;
     bool        asmfm;
 
 public:
-    AsmPrinter(X86Emitter* emitter, bool asmfm) : compiler(emitter->emitComp), emitter(emitter), asmfm(asmfm)
+    AsmPrinter(X86Emitter& emit, bool asmfm) : compiler(emit.emitComp), emit(emit), asmfm(asmfm)
     {
     }
 
@@ -4171,7 +4171,7 @@ private:
 #if !FEATURE_FIXED_OUT_ARGS
         if (!ebpBased)
         {
-            unsigned stackLevel = emitter->emitCurStackLvl;
+            unsigned stackLevel = emit.emitCurStackLvl;
 
             if (id->idIns() == INS_pop)
             {
@@ -4228,8 +4228,7 @@ private:
 
         if (id->idDebugOnlyInfo()->idHandleKind != HandleKind::None)
         {
-            emitter->emitDispCommentForHandle(reinterpret_cast<void*>(id->GetImm()),
-                                              id->idDebugOnlyInfo()->idHandleKind);
+            emit.emitDispCommentForHandle(reinterpret_cast<void*>(id->GetImm()), id->idDebugOnlyInfo()->idHandleKind);
         }
     }
 
@@ -4252,7 +4251,7 @@ private:
             printf("%s", getRegName(am.base));
 
             separator = "+";
-            frameRef  = (am.base == REG_ESP) || ((am.base == REG_EBP) && emitter->codeGen->isFramePointerUsed());
+            frameRef  = (am.base == REG_ESP) || ((am.base == REG_EBP) && emit.codeGen->isFramePointerUsed());
         }
 
         if (am.index != REG_NA)
@@ -4330,7 +4329,7 @@ private:
         {
             if (id->idDebugOnlyInfo()->dispHandleKind == HandleKind::String)
             {
-                emitter->emitDispCommentForHandle(reinterpret_cast<void*>(disp), HandleKind::String);
+                emit.emitDispCommentForHandle(reinterpret_cast<void*>(disp), HandleKind::String);
             }
         }
         else if ((id->idIns() == INS_call) || (id->idIns() == INS_i_jmp))
@@ -4370,7 +4369,7 @@ private:
 #endif
         else
         {
-            emitter->emitPrintLabel(id->GetLabel());
+            emit.emitPrintLabel(id->GetLabel());
         }
     }
 
@@ -4398,7 +4397,7 @@ private:
         static unsigned curBuf = 0;
         static char     buf[4][40];
 
-        if ((INS_FIRST_VEX_INSTRUCTION <= ins) && (ins <= INS_LAST_SSE_INSTRUCTION) && emitter->UseVEXEncoding())
+        if ((INS_FIRST_VEX_INSTRUCTION <= ins) && (ins <= INS_LAST_SSE_INSTRUCTION) && emit.UseVEXEncoding())
         {
             auto& retbuf = buf[curBuf++ % _countof(buf)];
             sprintf_s(retbuf, _countof(retbuf), "v%s", name);
@@ -4879,7 +4878,7 @@ void X86Emitter::emitDispIns(
         }
     }
 
-    AsmPrinter printer(this, asmfm);
+    AsmPrinter printer(*this, asmfm);
     printer.Print(id);
 
     if ((sz != 0) && (sz != id->idCodeSize()) && (!asmfm || emitComp->verbose))

@@ -1235,7 +1235,7 @@ static bool emitInsIsStore(instruction ins);
 class Arm64Encoder : public Emitter::Encoder<Arm64Emitter>
 {
 public:
-    Arm64Encoder(Emitter* emit) : Encoder(emit)
+    Arm64Encoder(Arm64Emitter* emit) : Encoder(emit)
     {
     }
 
@@ -9143,7 +9143,7 @@ unsigned Arm64Encoder::emitOutput_Instr(BYTE* dst, code_t code)
 
 void EmitterBase::emitEndCodeGen()
 {
-    Arm64Encoder encoder(static_cast<emitter*>(this));
+    Arm64Encoder encoder(static_cast<Arm64Emitter*>(this));
     encoder.emitEndCodeGen();
 }
 
@@ -10339,10 +10339,10 @@ class AsmPrinter
     using instrDescJmp = Emitter::instrDescJmp;
 
     Compiler*     compiler;
-    Arm64Emitter* emitter;
+    Arm64Emitter& emit;
 
 public:
-    AsmPrinter(Arm64Emitter* emitter) : compiler(emitter->emitComp), emitter(emitter)
+    AsmPrinter(Arm64Emitter& emit) : compiler(emit.emitComp), emit(emit)
     {
     }
 
@@ -10439,7 +10439,7 @@ void AsmPrinter::emitDispAddrLoadLabel(instrDescJmp* id)
     }
     else
     {
-        emitter->emitPrintLabel(id->GetLabel());
+        emit.emitPrintLabel(id->GetLabel());
     }
 
     if (ssize_t imm = id->emitGetInsSC())
@@ -10480,13 +10480,13 @@ void AsmPrinter::emitDispJumpLabel(instrDescJmp* id)
         uint32_t instrOffs  = id->idjIG->igOffs + id->idjOffs;
         int      instrCount = id->GetInstrCount();
         uint32_t labelOffs  = id->idjIG->igOffs + id->idjIG->FindInsOffset(instrNum + 1 + instrCount);
-        ssize_t  distance   = emitter->emitOffsetToPtr(labelOffs) - emitter->emitOffsetToPtr(instrOffs) - 4;
+        ssize_t  distance   = emit.emitOffsetToPtr(labelOffs) - emit.emitOffsetToPtr(instrOffs) - 4;
 
         printf("pc%s%d (%d instructions)", distance >= 0 ? "+" : "", distance, instrCount);
     }
     else
     {
-        emitter->emitPrintLabel(id->GetLabel());
+        emit.emitPrintLabel(id->GetLabel());
     }
 }
 
@@ -10523,7 +10523,7 @@ void AsmPrinter::emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm)
     }
     else
     {
-        emitter->emitDispCommentForHandle(id->idDebugOnlyInfo()->idHandle, id->idDebugOnlyInfo()->idHandleKind);
+        emit.emitDispCommentForHandle(id->idDebugOnlyInfo()->idHandle, id->idDebugOnlyInfo()->idHandleKind);
     }
 }
 
@@ -11039,7 +11039,7 @@ void Arm64Emitter::emitDispIns(
     emitDispInsOffs(offset, doffs);
     emitDispInsHex(id, code, sz);
 
-    AsmPrinter printer(this);
+    AsmPrinter printer(*this);
     printer.Print(id);
 }
 

@@ -546,7 +546,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
 class ArmEncoder : public Emitter::Encoder<ArmEmitter>
 {
 public:
-    ArmEncoder(Emitter* emit) : Encoder(emit)
+    ArmEncoder(ArmEmitter* emit) : Encoder(emit)
     {
     }
 
@@ -4998,7 +4998,7 @@ unsigned ArmEmitter::emitGetInstructionSize(const emitLocation& emitLoc)
 
 void EmitterBase::emitEndCodeGen()
 {
-    ArmEncoder encoder(static_cast<emitter*>(this));
+    ArmEncoder encoder(static_cast<ArmEmitter*>(this));
     encoder.emitEndCodeGen();
 }
 
@@ -5814,10 +5814,10 @@ class AsmPrinter
     using instrDescJmp = Emitter::instrDescJmp;
 
     Compiler*   compiler;
-    ArmEmitter* emitter;
+    ArmEmitter& emit;
 
 public:
-    AsmPrinter(ArmEmitter* emitter) : compiler(emitter->emitComp), emitter(emitter)
+    AsmPrinter(ArmEmitter& emit) : compiler(emit.emitComp), emit(emit)
     {
     }
 
@@ -6031,26 +6031,27 @@ void AsmPrinter::emitDispLabel(instrDescJmp* id)
 
     if (id->HasInstrCount())
     {
+        int instrCount = id->GetInstrCount();
+
         if (id->idjIG == nullptr)
         {
             // This is the instruction synthesized by emitDispIns, we can't get
             // its number because it's not part of an actual instruction group.
-            printf("pc%s%d instructions", emitter->instrCount >= 0 ? "+" : "", emitter->instrCount);
+            printf("pc%s%d instructions", instrCount >= 0 ? "+" : "", instrCount);
         }
         else
         {
-            unsigned instrNum   = emitter->emitFindInsNum(id->idjIG, id);
-            uint32_t instrOffs  = id->idjIG->igOffs + id->idjOffs;
-            int      instrCount = id->GetInstrCount();
-            uint32_t labelOffs  = id->idjIG->igOffs + id->idjIG->FindInsOffset(instrNum + 1 + instrCount);
-            ssize_t  distance   = emitter->emitOffsetToPtr(labelOffs) - emitter->emitOffsetToPtr(instrOffs) - 2;
+            unsigned instrNum  = Emitter::emitFindInsNum(id->idjIG, id);
+            uint32_t instrOffs = id->idjIG->igOffs + id->idjOffs;
+            uint32_t labelOffs = id->idjIG->igOffs + id->idjIG->FindInsOffset(instrNum + 1 + instrCount);
+            ssize_t  distance  = emit.emitOffsetToPtr(labelOffs) - emit.emitOffsetToPtr(instrOffs) - 2;
 
             printf("pc%s%d (%d instructions)", distance >= 0 ? "+" : "", distance, instrCount);
         }
     }
     else
     {
-        emitter->emitPrintLabel(id->GetLabel());
+        emit.emitPrintLabel(id->GetLabel());
     }
 }
 
@@ -6218,7 +6219,7 @@ void ArmEmitter::emitDispInsHelp(
     emitDispInsOffs(offset, doffs);
     emitDispInsHex(id, code, sz);
 
-    AsmPrinter printer(this);
+    AsmPrinter printer(*this);
     printer.Print(id);
 }
 
@@ -6607,7 +6608,7 @@ void AsmPrinter::Print(instrDesc* id)
             emitDispReg(id->idReg1(), attr, true);
             if (id->idIsLclVar())
             {
-                emitDispAddrRRI(id->idReg2(), emitter->codeGen->rsGetRsvdReg(), 0, attr);
+                emitDispAddrRRI(id->idReg2(), emit.codeGen->rsGetRsvdReg(), 0, attr);
             }
             else
             {
