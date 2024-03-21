@@ -104,9 +104,6 @@ public:
     uint8_t* emitOffsetToPtr(unsigned offset) const;
 
 private:
-    void emitSetShortJump(instrDescJmp* id);
-    void emitSetMediumJump(instrDescJmp* id);
-
     template <typename T>
     T* AllocInstr(bool updateLastIns = true);
 

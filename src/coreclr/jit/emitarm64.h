@@ -184,8 +184,6 @@ private:
     instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle, emitAttr retSize, emitAttr secondRetSize);
     instrDescCGCA* emitAllocInstrCGCA();
 
-    void emitSetShortJump(instrDescJmp* id);
-
     uint8_t* emitOffsetToPtr(unsigned offset) const;
 
     // Method to do check if mov is redundant with respect to the last instruction.

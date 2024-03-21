@@ -3849,22 +3849,22 @@ int ArmEmitter::OptimizeFrameAddress(int fpOffset, bool isFloatLoadStore, RegNum
     }
 }
 
-void ArmEmitter::emitSetShortJump(instrDescJmp* id)
+void ArmEmitter::instrDescJmp::SetShortJump()
 {
-    assert((id->idInsFmt() == IF_T2_J1) || (id->idInsFmt() == IF_T2_J2) || (id->idInsFmt() == IF_LARGEJMP));
-    assert(!id->idIsCnsReloc());
+    assert((idInsFmt() == IF_T2_J1) || (idInsFmt() == IF_T2_J2) || (idInsFmt() == IF_LARGEJMP));
+    assert(!idIsCnsReloc());
 
-    id->idInsFmt(id->idInsFmt() == IF_T2_J2 ? IF_T1_M : IF_T1_K);
-    id->idInsSize(ISZ_16BIT);
+    idInsFmt(idInsFmt() == IF_T2_J2 ? IF_T1_M : IF_T1_K);
+    idInsSize(ISZ_16BIT);
 }
 
-void ArmEmitter::emitSetMediumJump(instrDescJmp* id)
+void ArmEmitter::instrDescJmp::SetMediumJump()
 {
-    assert((id->idInsFmt() == IF_T2_J1) || (id->idInsFmt() == IF_LARGEJMP));
-    assert(!id->idIsCnsReloc());
+    assert((idInsFmt() == IF_T2_J1) || (idInsFmt() == IF_LARGEJMP));
+    assert(!idIsCnsReloc());
 
-    id->idInsFmt(IF_T2_J1);
-    id->idInsSize(ISZ_32BIT);
+    idInsFmt(IF_T2_J1);
+    idInsSize(ISZ_32BIT);
 }
 
 #define LBL_DIST_SMALL_MAX_NEG (0)
@@ -4301,7 +4301,7 @@ AGAIN:
         {
             if (currentSize > 2)
             {
-                static_cast<emitter*>(this)->emitSetShortJump(instr);
+                instr->SetShortJump();
                 assert(instr->idInsSize() == ISZ_16BIT);
                 newSize = 2;
             }
@@ -4316,7 +4316,7 @@ AGAIN:
             }
             else if (currentSize > 4)
             {
-                static_cast<emitter*>(this)->emitSetMediumJump(instr);
+                instr->SetMediumJump();
                 assert(instr->idInsSize() == ISZ_32BIT);
                 newSize = 4;
             }

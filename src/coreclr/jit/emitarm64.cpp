@@ -7653,15 +7653,15 @@ void Arm64Emitter::emitIns_R_AH(RegNum reg, void* addr DEBUGARG(void* handle) DE
     appendToCurIG(id);
 }
 
-void Arm64Emitter::emitSetShortJump(instrDescJmp* id)
+void Arm64Emitter::instrDescJmp::SetShortJump()
 {
-    assert(!id->idIsCnsReloc());
+    assert(!idIsCnsReloc());
 
     insFormat fmt;
 
-    if (id->idInsFmt() == IF_LARGEJMP)
+    if (idInsFmt() == IF_LARGEJMP)
     {
-        switch (id->idIns())
+        switch (idIns())
         {
             case INS_cbz:
             case INS_cbnz:
@@ -7676,17 +7676,17 @@ void Arm64Emitter::emitSetShortJump(instrDescJmp* id)
                 break;
         }
     }
-    else if (id->idInsFmt() == IF_LARGEADR)
+    else if (idInsFmt() == IF_LARGEADR)
     {
         fmt = IF_SMALLADR;
     }
     else
     {
-        assert(id->idInsFmt() == IF_LARGELDC);
+        assert(idInsFmt() == IF_LARGELDC);
         fmt = IF_LS_1A;
     }
 
-    id->idInsFmt(fmt);
+    idInsFmt(fmt);
 }
 
 void Arm64Emitter::emitIns_R_L(RegNum reg, insGroup* label)
@@ -8084,7 +8084,7 @@ AGAIN:
 
         assert(currentSize > 4);
 
-        static_cast<emitter*>(this)->emitSetShortJump(instr);
+        instr->SetShortJump();
         assert(instr->idCodeSize() == 4);
 
         uint32_t sizeReduction = currentSize - 4;

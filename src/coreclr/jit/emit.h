@@ -1247,6 +1247,15 @@ public:
             assert(abs(count) < 10);
             _idAddrUnion.label = (static_cast<intptr_t>(count) << TagSize) | InstrCountTag;
         }
+
+#ifdef TARGET_ARM
+        void SetShortJump();
+        void SetMediumJump();
+#endif
+
+#ifdef TARGET_ARM64
+        void SetShortJump();
+#endif
     };
 
     struct instrDescCGCA : instrDesc
