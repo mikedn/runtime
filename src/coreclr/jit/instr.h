@@ -274,6 +274,7 @@ enum emitAttr : unsigned
 #define EA_ATTR(x) static_cast<emitAttr>(x)
 #define EA_SIZE(x) static_cast<emitAttr>((x)&EA_SIZE_MASK)
 #define EA_SIZE_IN_BYTES(x) ((x)&EA_SIZE_MASK)
+#define EA_BIT_SIZE(x) (EA_SIZE_IN_BYTES(x) * 8)
 #define EA_GC_TYPE(x) static_cast<GCtype>(((x) >> 7) & 3)
 #define EA_IS_GCREF_OR_BYREF(x) (EA_GC_TYPE(x) != GCT_NONE)
 #define EA_IS_GCREF(x) (EA_GC_TYPE(x) == GCT_GCREF)

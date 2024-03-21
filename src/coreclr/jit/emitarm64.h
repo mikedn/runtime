@@ -6,64 +6,11 @@
 friend class Arm64Encoder;
 
 public:
-// The ARM64 instructions are all 32 bits in size.
-// we use an unsigned int to hold the encoded instructions.
-// This typedef defines the type that we use to hold encoded instructions.
-using code_t = uint32_t;
-
-private:
-static bool strictArmAsm;
-
-/************************************************************************/
-/*         Routines that compute the size of / encode instructions      */
-/************************************************************************/
-
-static size_t emitGetInstrDescSize(const instrDesc* id);
-
-#ifdef DEBUG
-
-/************************************************************************/
-/*             Debug-only routines to display instructions              */
-/************************************************************************/
-
-const char* emitVectorRegName(RegNum reg);
-
-void emitDispInsHex(instrDesc* id, uint8_t* code, size_t sz);
-void emitDispIns(instrDesc* id,
-                 bool       isNew = false,
-                 bool       doffs = false,
-                 bool       asmfm = false,
-                 unsigned   offs  = 0,
-                 uint8_t*   code  = 0,
-                 size_t     sz    = 0);
-#endif // DEBUG
-
-/************************************************************************/
-/*  Private members that deal with target-dependent instr. descriptors  */
-/************************************************************************/
-
-private:
-instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle, emitAttr retSize, emitAttr secondRetSize);
-
-/************************************************************************/
-/*               Private helpers for instruction output                 */
-/************************************************************************/
-
-private:
-static emitAttr emitInsTargetRegSize(instrDesc* id);
-static emitAttr emitInsLoadStoreSize(instrDesc* id);
-
-// Method to do check if mov is redundant with respect to the last instruction.
-// If yes, the caller of this method can choose to omit current mov instruction.
-bool IsRedundantMov(instruction ins, emitAttr size, RegNum dst, RegNum src, bool canSkip);
-bool IsRedundantLdStr(instruction ins, RegNum reg1, RegNum reg2, ssize_t imm, emitAttr size, insFormat fmt);
-
-public:
 static bool emitInsIsLoad(instruction ins);
 // For the given 'arrangement' returns the 'elemsize' specified by the vector register arrangement
 static emitAttr optGetElemsize(insOpts arrangement);
-//  For the given 'datasize', 'elemsize' and 'index' returns true, if it specifies a valid 'index'
-//  for an element of size 'elemsize' in a vector register of size 'datasize'
+// For the given 'datasize', 'elemsize' and 'index' returns true, if it specifies a valid 'index'
+// for an element of size 'elemsize' in a vector register of size 'datasize'
 static bool isValidVectorIndex(emitAttr datasize, emitAttr elemsize, ssize_t index);
 
 static bool IsMovInstruction(instruction ins);
@@ -84,18 +31,10 @@ union bitMaskImm {
 static bitMaskImm emitEncodeBitMaskImm(int64_t imm, emitAttr size);
 static int64_t emitDecodeBitMaskImm(const bitMaskImm bmImm, emitAttr size);
 
-private:
-// For the given 'ins' returns the reverse instruction, if one exists, otherwise returns INS_INVALID
-static instruction insReverse(instruction ins);
-
-// For the given 'datasize' and 'elemsize' returns the insOpts that specifies the vector register arrangement
-static insOpts optMakeArrangement(emitAttr datasize, emitAttr elemsize);
-
 /************************************************************************/
 /*           Public inline informational methods                        */
 /************************************************************************/
 
-public:
 // true if this 'imm' can be encoded as a input operand to a mov instruction
 static bool emitIns_valid_imm_for_mov(int64_t imm, emitAttr size);
 
@@ -138,62 +77,32 @@ static bool emitIns_valid_imm_for_ldst_offset(int64_t imm, emitAttr size);
 
 static bool validImmForBL(ssize_t addr, Compiler* compiler);
 
-// true if 'imm' can use the left shifted by 12 bits encoding
-static bool canEncodeWithShiftImmBy12(int64_t imm);
-
-// Normalize the 'imm' so that the upper bits, as defined by 'size' are zero
-static int64_t normalizeImm64(int64_t imm, emitAttr size);
-
-// Normalize the 'imm' so that the upper bits, as defined by 'size' are zero
-static int32_t normalizeImm32(int32_t imm, emitAttr size);
-
 // true if 'imm' can be encoded using a 'bitmask immediate', also returns the encoding if wbBMI is non-null
 static bool canEncodeBitMaskImm(int64_t imm, emitAttr size, bitMaskImm* wbBMI = nullptr);
-
-// Returns the number of bits used by the given 'size'.
-static unsigned getBitWidth(emitAttr size)
-{
-    assert(size <= EA_8BYTE);
-    return (unsigned)size * BITS_PER_BYTE;
-}
 
 /************************************************************************/
 /*           The public entry points to output instructions             */
 /************************************************************************/
 
-public:
 static insCond emitJumpKindToCond(emitJumpKind jumpKind);
 static instruction emitJumpKindToBranch(emitJumpKind jumpKind);
 
 void emitIns(instruction ins);
-
 void emitIns_J(instruction ins, int instrCount);
 void emitIns_J(instruction ins, insGroup* label);
 void emitIns_CallFinally(insGroup* label);
-
 void emitIns_BRK(uint16_t imm);
-
 void emitIns_R(instruction ins, emitAttr attr, RegNum reg);
-
 void emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, ssize_t imm, insOpts opt = INS_OPTS_NONE);
-
 void emitIns_R_F(instruction ins, emitAttr attr, RegNum reg, double immDbl, insOpts opt = INS_OPTS_NONE);
-
 void emitIns_Mov(
     instruction ins, emitAttr attr, RegNum dstReg, RegNum srcReg, bool canSkip, insOpts opt = INS_OPTS_NONE);
-
 void emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, insOpts opt = INS_OPTS_NONE);
-
 void emitIns_R_I_I(
     instruction ins, emitAttr attr, RegNum reg1, ssize_t imm1, ssize_t imm2, insOpts opt = INS_OPTS_NONE);
-
 void emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, ssize_t imm, insOpts opt = INS_OPTS_NONE);
-
-// Checks for a large immediate that needs a second instruction
 void emitIns_R_R_Imm(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, ssize_t imm);
-
 void emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, insOpts opt = INS_OPTS_NONE);
-
 void emitIns_R_R_R_I(instruction ins,
                      emitAttr    attr,
                      RegNum      reg1,
@@ -202,7 +111,6 @@ void emitIns_R_R_R_I(instruction ins,
                      int32_t     imm,
                      insOpts     opt      = INS_OPTS_NONE,
                      emitAttr    attrReg2 = EA_UNKNOWN);
-
 void emitIns_R_R_R_Ext(instruction ins,
                        emitAttr    attr,
                        RegNum      reg1,
@@ -210,45 +118,26 @@ void emitIns_R_R_R_Ext(instruction ins,
                        RegNum      reg3,
                        insOpts     opt         = INS_OPTS_NONE,
                        int         shiftAmount = -1);
-
 void emitIns_R_R_I_I(
     instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, int imm1, int imm2, insOpts opt = INS_OPTS_NONE);
-
 void emitIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, RegNum reg4);
-
 void emitIns_R_COND(instruction ins, emitAttr attr, RegNum reg, insCond cond);
-
 void emitIns_R_R_COND(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, insCond cond);
-
 void emitIns_R_R_R_COND(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, insCond cond);
-
 void emitIns_R_R_FLAGS_COND(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, insCflags flags, insCond cond);
-
 void emitIns_R_I_FLAGS_COND(instruction ins, emitAttr attr, RegNum reg1, int imm, insCflags flags, insCond cond);
-
 void emitIns_BARR(instruction ins, insBarrier barrier);
-
 void emitIns_S_R(instruction ins, emitAttr attr, RegNum ireg, StackAddrMode s);
-
 void emitIns_S_S_R_R(instruction ins, emitAttr attr, emitAttr attr2, RegNum ireg, RegNum ireg2, StackAddrMode s);
-
 void emitIns_R_S(instruction ins, emitAttr attr, RegNum ireg, StackAddrMode s);
-
 void emitIns_R_R_S_S(instruction ins, emitAttr attr, emitAttr attr2, RegNum ireg, RegNum ireg2, StackAddrMode s);
-
 void Ins_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s);
 void Ins_R_R_S(instruction ins, emitAttr attr1, emitAttr attr2, RegNum reg1, RegNum reg2, StackAddrMode s);
-
 void emitIns_S_I(instruction ins, emitAttr attr, StackAddrMode s, int val);
-
 void emitIns_R_C(instruction ins, emitAttr attr, RegNum reg, RegNum tmpReg, ConstData* data);
-
 void emitIns_R_L(RegNum reg, insGroup* label);
-
 void emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, RegNum reg);
-
 void emitIns_J_R_I(instruction ins, emitAttr attr, insGroup* label, RegNum reg, int imm);
-
 void emitIns_R_AH(RegNum reg,
                   void* addr DEBUGARG(void* handle = nullptr) DEBUGARG(HandleKind handleKind = HandleKind::None));
 
@@ -266,13 +155,9 @@ void emitIns_Call(EmitCallType          kind,
                   RegNum   reg    = REG_NA,
                   bool     isJump = false);
 
-private:
-void emitSetShortJump(instrDescJmp* id);
-
 /************************************************************************/
 /*                   Interface for generating unwind information        */
 /************************************************************************/
-public:
 void emitUnwindNopPadding(const emitLocation& loc);
 
 private:
@@ -284,9 +169,32 @@ instrDesc* emitNewInstrSmall();
 instrDesc* emitNewInstrSC(int64_t imm);
 instrDesc* emitNewInstrCns(int32_t imm);
 instrDesc* emitNewInstrGCReg(emitAttr attr, RegNum reg);
-instrDescJmp*  emitNewInstrJmp();
+instrDescJmp* emitNewInstrJmp();
+instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle, emitAttr retSize, emitAttr secondRetSize);
 instrDescCGCA* emitAllocInstrCGCA();
+
+void emitSetShortJump(instrDescJmp* id);
 
 uint8_t* emitOffsetToPtr(unsigned offset) const;
 
+// Method to do check if mov is redundant with respect to the last instruction.
+// If yes, the caller of this method can choose to omit current mov instruction.
+bool IsRedundantMov(instruction ins, emitAttr size, RegNum dst, RegNum src, bool canSkip);
+bool IsRedundantLdStr(instruction ins, RegNum reg1, RegNum reg2, ssize_t imm, emitAttr size, insFormat fmt);
+
+#ifdef DEBUG
+
+/************************************************************************/
+/*             Debug-only routines to display instructions              */
+/************************************************************************/
+
+void emitDispInsHex(instrDesc* id, uint8_t* code, size_t sz);
+void emitDispIns(instrDesc* id,
+                 bool       isNew = false,
+                 bool       doffs = false,
+                 bool       asmfm = false,
+                 unsigned   offs  = 0,
+                 uint8_t*   code  = 0,
+                 size_t     sz    = 0);
+#endif // DEBUG
 #endif // TARGET_ARM64

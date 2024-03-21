@@ -492,6 +492,7 @@ private:
     };
 #endif // DEBUG
 
+public:
 #ifdef TARGET_ARM
     enum insSize : unsigned
     {
@@ -1280,6 +1281,7 @@ private:
 #endif
     };
 
+private:
 #if defined(DEBUG) || defined(LATE_DISASM)
 #define PERFSCORE_THROUGHPUT_ILLEGAL -1024.0f
 

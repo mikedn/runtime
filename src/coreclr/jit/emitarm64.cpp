@@ -9,7 +9,11 @@
 #include "emit.h"
 #include "codegen.h"
 
-using code_t     = Emitter::code_t;
+// The ARM64 instructions are all 32 bits in size.
+// we use an unsigned int to hold the encoded instructions.
+// This typedef defines the type that we use to hold encoded instructions.
+using code_t = uint32_t;
+
 using bitMaskImm = Emitter::bitMaskImm;
 
 static bool emitInsIsVectorRightShift(instruction ins);
@@ -58,7 +62,8 @@ static bool isGeneralRegisterOrSP(RegNum reg)
 
 static unsigned getBitWidth(emitAttr size)
 {
-    return Emitter::getBitWidth(size);
+    assert(size <= EA_8BYTE);
+    return EA_BIT_SIZE(size);
 }
 
 // This union is used to to encode/decode the cond, nzcv and imm5 values for
@@ -310,7 +315,7 @@ static bool isVectorRegister(RegNum reg)
     return IsVectorRegister(reg);
 }
 
-bool emitter::strictArmAsm = true;
+static constexpr bool strictArmAsm = true;
 
 insCond emitter::emitJumpKindToCond(emitJumpKind kind)
 {
@@ -1402,7 +1407,7 @@ bool Arm64Encoder::emitInsMayWriteMultipleRegs(instrDesc* id)
 // By convention the small unsigned load instructions are considered to write
 // a 4 byte sized target register, though since these also zero the upper 4 bytes
 // they could equally be considered to write the unsigned value to full 8 byte register.
-emitAttr emitter::emitInsTargetRegSize(instrDesc* id)
+static emitAttr emitInsTargetRegSize(emitter::instrDesc* id)
 {
     // This is used to determine the size of the target registers for a load/store instruction
 
@@ -1462,7 +1467,7 @@ emitAttr emitter::emitInsTargetRegSize(instrDesc* id)
 
 // Takes an instrDesc and uses the instruction to determine the 'size' of the
 // data that is loaded from memory.
-emitAttr emitter::emitInsLoadStoreSize(instrDesc* id)
+static emitAttr emitInsLoadStoreSize(emitter::instrDesc* id)
 {
     // The 'result' returned is the 'size' of the data that is loaded from memory.
 
@@ -2594,6 +2599,8 @@ bool emitter::emitIns_valid_imm_for_fmov(double immDbl)
     return canEncodeFloatImm8(immDbl);
 }
 
+static bool canEncodeWithShiftImmBy12(int64_t imm);
+
 // true if this 'imm' can be encoded as a input operand to an add instruction
 bool emitter::emitIns_valid_imm_for_add(int64_t imm, emitAttr size)
 {
@@ -2706,7 +2713,7 @@ int64_t emitter::emitDecodeBitMaskImm(const bitMaskImm bmImm, emitAttr size)
 }
 
 // Check if an immediate can use the left shifted by 12 bits encoding
-bool emitter::canEncodeWithShiftImmBy12(int64_t imm)
+static bool canEncodeWithShiftImmBy12(int64_t imm)
 {
     if (imm < 0)
     {
@@ -2729,7 +2736,7 @@ bool emitter::canEncodeWithShiftImmBy12(int64_t imm)
 }
 
 // Normalize the 'imm' so that the upper bits, as defined by 'size' are zero
-int64_t emitter::normalizeImm64(int64_t imm, emitAttr size)
+static int64_t normalizeImm64(int64_t imm, emitAttr size)
 {
     unsigned immWidth = getBitWidth(size);
     int64_t  result   = imm;
@@ -2742,28 +2749,6 @@ int64_t emitter::normalizeImm64(int64_t imm, emitAttr size)
         int64_t hiBitsMask  = ~lowBitsMask;
         int64_t signBitsMask =
             hiBitsMask | (1LL << (immWidth - 1)); // The high bits must be set, and the top bit (sign bit) must be set.
-        assert((imm < maxVal) || ((imm & signBitsMask) == signBitsMask));
-
-        // mask off the hiBits
-        result &= lowBitsMask;
-    }
-    return result;
-}
-
-// Normalize the 'imm' so that the upper bits, as defined by 'size' are zero
-int32_t emitter::normalizeImm32(int32_t imm, emitAttr size)
-{
-    unsigned immWidth = getBitWidth(size);
-    int32_t  result   = imm;
-
-    if (immWidth < 32)
-    {
-        // Check that 'imm' fits in 'immWidth' bits. Don't consider "sign" bits above width.
-        int32_t maxVal       = 1 << immWidth;
-        int32_t lowBitsMask  = maxVal - 1;
-        int32_t hiBitsMask   = ~lowBitsMask;
-        int32_t signBitsMask = hiBitsMask | (1 << (immWidth - 1)); // The high bits must be set, and the top bit
-                                                                   // (sign bit) must be set.
         assert((imm < maxVal) || ((imm & signBitsMask) == signBitsMask));
 
         // mask off the hiBits
@@ -3022,7 +3007,7 @@ static bool canEncodeHalfwordImm(int64_t imm, emitAttr size, halfwordImm* wbHWI)
     const uint64_t immMask = ((uint64_t)-1) >> (64 - immWidth);
     const int64_t  mask16  = (int64_t)0xFFFF;
 
-    imm = Emitter::normalizeImm64(imm, size);
+    imm = normalizeImm64(imm, size);
 
     // Try each of the valid hw shift sizes
     for (unsigned hw = 0; (hw < maxHW); hw++)
@@ -3111,7 +3096,7 @@ static bool canEncodeByteShiftedImm(int64_t imm, emitAttr size, byteShiftedImm* 
     unsigned bySh      = 0;     // number of bytes to shift: 0, 1, 2, 3
     unsigned imm8      = 0;     // immediate to use in the encoding
 
-    imm = Emitter::normalizeImm64(imm, size);
+    imm = normalizeImm64(imm, size);
 
     assert((size == EA_2BYTE) || (size == EA_4BYTE)); // Only EA_2BYTE or EA_4BYTE forms
 
@@ -3258,7 +3243,7 @@ static bool canEncodeFloatImm8(double immDbl, floatImm8* wbFPI)
 }
 
 // For the given 'ins' returns the reverse instruction if one exists, otherwise returns INS_INVALID
-instruction emitter::insReverse(instruction ins)
+static instruction insReverse(instruction ins)
 {
     switch (ins)
     {
@@ -3290,7 +3275,7 @@ instruction emitter::insReverse(instruction ins)
 // For the given 'datasize' and 'elemsize', make the proper arrangement option
 // returns the insOpts that specifies the vector register arrangement
 // if one does not exist returns INS_OPTS_NONE
-insOpts emitter::optMakeArrangement(emitAttr datasize, emitAttr elemsize)
+static insOpts optMakeArrangement(emitAttr datasize, emitAttr elemsize)
 {
     insOpts result = INS_OPTS_NONE;
 
@@ -10348,22 +10333,21 @@ class AsmPrinter
 
     Compiler* compiler;
     Emitter*  emitter;
-    bool      strictArmAsm;
 
 public:
-    AsmPrinter(Emitter* emitter) : compiler(emitter->emitComp), emitter(emitter), strictArmAsm(Emitter::strictArmAsm)
+    AsmPrinter(Emitter* emitter) : compiler(emitter->emitComp), emitter(emitter)
     {
     }
 
     void Print(instrDesc* id);
 
 private:
-    const char* emitRegName(RegNum reg, emitAttr attr)
+    static const char* emitRegName(RegNum reg, emitAttr attr)
     {
         return RegName(reg, attr);
     }
 
-    const char* emitVectorRegName(RegNum reg)
+    static const char* emitVectorRegName(RegNum reg)
     {
         static const char* const vRegNames[]{"v0",  "v1",  "v2",  "v3",  "v4",  "v5",  "v6",  "v7",
                                              "v8",  "v9",  "v10", "v11", "v12", "v13", "v14", "v15",
@@ -11130,23 +11114,23 @@ void AsmPrinter::Print(instrDesc* id)
         case IF_LS_2A: // LS_2A   .X.......X...... ......nnnnnttttt      Rt Rn
             assert(insOptsNone(id->idInsOpt()));
             assert(id->emitGetInsSC() == 0);
-            emitDispReg(id->idReg1(), Emitter::emitInsTargetRegSize(id), true);
+            emitDispReg(id->idReg1(), emitInsTargetRegSize(id), true);
             emitDispAddrRI(id->idReg2(), id->idInsOpt(), 0);
             break;
 
         case IF_LS_2B: // LS_2B   .X.......Xiiiiii iiiiiinnnnnttttt      Rt Rn    imm(0-4095)
             assert(insOptsNone(id->idInsOpt()));
             imm   = id->emitGetInsSC();
-            scale = NaturalScale_helper(Emitter::emitInsLoadStoreSize(id));
+            scale = NaturalScale_helper(emitInsLoadStoreSize(id));
             imm <<= scale; // The immediate is scaled by the size of the ld/st
-            emitDispReg(id->idReg1(), Emitter::emitInsTargetRegSize(id), true);
+            emitDispReg(id->idReg1(), emitInsTargetRegSize(id), true);
             emitDispAddrRI(id->idReg2(), id->idInsOpt(), imm);
             break;
 
         case IF_LS_2C: // LS_2C   .X.......X.iiiii iiiiPPnnnnnttttt      Rt Rn    imm(-256..+255) no/pre/post inc
             assert(insOptsNone(id->idInsOpt()) || insOptsIndexed(id->idInsOpt()));
             imm = id->emitGetInsSC();
-            emitDispReg(id->idReg1(), Emitter::emitInsTargetRegSize(id), true);
+            emitDispReg(id->idReg1(), emitInsTargetRegSize(id), true);
             emitDispAddrRI(id->idReg2(), id->idInsOpt(), imm);
             break;
 
@@ -11189,32 +11173,32 @@ void AsmPrinter::Print(instrDesc* id)
 
         case IF_LS_3A: // LS_3A   .X.......X.mmmmm oooS..nnnnnttttt      Rt Rn Rm ext(Rm) LSL {}
             assert(insOptsLSExtend(id->idInsOpt()));
-            emitDispReg(id->idReg1(), Emitter::emitInsTargetRegSize(id), true);
+            emitDispReg(id->idReg1(), emitInsTargetRegSize(id), true);
             emitDispAddrRRExt(id->idReg2(), id->idReg3(), id->idInsOpt(), id->idReg3Scaled(), size);
             break;
 
         case IF_LS_3B: // LS_3B   X............... .aaaaannnnnddddd      Rt Ra Rn
             assert(insOptsNone(id->idInsOpt()));
             assert(id->emitGetInsSC() == 0);
-            emitDispReg(id->idReg1(), Emitter::emitInsTargetRegSize(id), true);
-            emitDispReg(id->idReg2(), Emitter::emitInsTargetRegSize(id), true);
+            emitDispReg(id->idReg1(), emitInsTargetRegSize(id), true);
+            emitDispReg(id->idReg2(), emitInsTargetRegSize(id), true);
             emitDispAddrRI(id->idReg3(), id->idInsOpt(), 0);
             break;
 
         case IF_LS_3C: // LS_3C   X.........iiiiii iaaaaannnnnddddd      Rt Ra Rn imm(im7,sh)
             assert(insOptsNone(id->idInsOpt()) || insOptsIndexed(id->idInsOpt()));
             imm   = id->emitGetInsSC();
-            scale = NaturalScale_helper(Emitter::emitInsLoadStoreSize(id));
+            scale = NaturalScale_helper(emitInsLoadStoreSize(id));
             imm <<= scale;
-            emitDispReg(id->idReg1(), Emitter::emitInsTargetRegSize(id), true);
-            emitDispReg(id->idReg2(), Emitter::emitInsTargetRegSize(id), true);
+            emitDispReg(id->idReg1(), emitInsTargetRegSize(id), true);
+            emitDispReg(id->idReg2(), emitInsTargetRegSize(id), true);
             emitDispAddrRI(id->idReg3(), id->idInsOpt(), imm);
             break;
 
         case IF_LS_3D: // LS_3D   .X.......X.mmmmm ......nnnnnttttt      Wm Rt Rn
             assert(insOptsNone(id->idInsOpt()));
             emitDispReg(id->idReg1(), EA_4BYTE, true);
-            emitDispReg(id->idReg2(), Emitter::emitInsTargetRegSize(id), true);
+            emitDispReg(id->idReg2(), emitInsTargetRegSize(id), true);
             emitDispAddrRI(id->idReg3(), id->idInsOpt(), 0);
             break;
 

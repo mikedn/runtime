@@ -10,7 +10,8 @@
 #include "codegen.h"
 #include "unwind.h"
 
-using code_t = Emitter::code_t;
+// This typedef defines the type that we use to hold encoded instructions.
+using code_t = uint32_t;
 
 static bool isModImmConst(int val32);
 static int insUnscaleImm(instruction ins, int imm);
@@ -795,19 +796,7 @@ bool emitter::emitInsIsLoad(instruction ins)
     return (ins < _countof(instInfo)) && ((instInfo[ins] & LD) != 0);
 }
 
-bool emitter::emitInsIsCompare(instruction ins)
-{
-    // We have pseudo ins like lea which are not included in emitInsLdStTab.
-    return (ins < _countof(instInfo)) && ((instInfo[ins] & CMP) != 0);
-}
-
-bool emitter::emitInsIsStore(instruction ins)
-{
-    // We have pseudo ins like lea which are not included in emitInsLdStTab.
-    return (ins < _countof(instInfo)) && ((instInfo[ins] & ST) != 0);
-}
-
-bool emitter::emitInsIsLoadOrStore(instruction ins)
+static bool emitInsIsLoadOrStore(instruction ins)
 {
     // We have pseudo ins like lea which are not included in emitInsLdStTab.
     return (ins < _countof(instInfo)) && ((instInfo[ins] & (LD | ST)) != 0);
@@ -1235,28 +1224,28 @@ code_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
     return code;
 }
 
-emitter::insSize emitter::emitInsSize(insFormat insFmt)
+static emitter::insSize emitInsSize(insFormat insFmt)
 {
     assert(insFmt < IF_COUNT);
 
     if (insFmt >= IF_T2_A)
     {
-        return ISZ_32BIT;
+        return emitter::ISZ_32BIT;
     }
 
     if (insFmt >= IF_T1_A)
     {
-        return ISZ_16BIT;
+        return emitter::ISZ_16BIT;
     }
 
     if (insFmt == IF_LARGEJMP)
     {
-        return ISZ_48BIT;
+        return emitter::ISZ_48BIT;
     }
 
     assert(insFmt == IF_GC_REG);
 
-    return ISZ_NONE;
+    return emitter::ISZ_NONE;
 }
 
 bool emitter::IsMovInstruction(instruction ins)
@@ -1388,6 +1377,11 @@ DONE:
     return (int)result;
 }
 
+static bool validDispForLdSt(int32_t disp, var_types type)
+{
+    return varTypeIsFloating(type) ? ((disp & 0x3FC) == disp) : ((disp >= -0x00ff) && (disp <= 0x0fff));
+}
+
 bool emitter::validImmForInstr(instruction ins, int32_t imm, insFlags flags)
 {
     if (emitInsIsLoadOrStore(ins) && !instIsFP(ins))
@@ -1432,11 +1426,6 @@ bool emitter::validImmForInstr(instruction ins, int32_t imm, insFlags flags)
         default:
             return false;
     }
-}
-
-bool emitter::validDispForLdSt(int32_t disp, var_types type)
-{
-    return varTypeIsFloating(type) ? ((disp & 0x3FC) == disp) : ((disp >= -0x00ff) && (disp <= 0x0fff));
 }
 
 bool emitter::validImmForBL(ssize_t addr, Compiler* compiler)
@@ -6398,7 +6387,7 @@ void AsmPrinter::Print(instrDesc* id)
         case IF_T2_M0:
             emitDispReg(id->idReg1(), attr, true);
             imm = id->emitGetInsSC();
-            if (Emitter::emitInsIsLoadOrStore(ins))
+            if (emitInsIsLoadOrStore(ins))
             {
                 emitDispAddrRI(id->idReg2(), imm, attr);
             }
@@ -6412,7 +6401,7 @@ void AsmPrinter::Print(instrDesc* id)
         case IF_T1_J2:
             emitDispReg(id->idReg1(), attr, true);
             imm = id->emitGetInsSC();
-            if (Emitter::emitInsIsLoadOrStore(ins))
+            if (emitInsIsLoadOrStore(ins))
             {
                 emitDispAddrRI(REG_SP, imm, attr);
             }
@@ -6466,7 +6455,7 @@ void AsmPrinter::Print(instrDesc* id)
 
         case IF_T1_H: // Reg, Reg, Reg
             emitDispReg(id->idReg1(), attr, true);
-            if (Emitter::emitInsIsLoadOrStore(ins))
+            if (emitInsIsLoadOrStore(ins))
             {
                 emitDispAddrRR(id->idReg2(), id->idReg3(), attr);
             }

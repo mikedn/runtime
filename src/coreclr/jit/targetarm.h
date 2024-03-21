@@ -286,7 +286,12 @@ constexpr bool IsGeneralRegister(regNumber reg)
     return reg <= REG_R15;
 }
 
+constexpr bool isLowRegister(RegNum reg)
+{
+    return reg <= REG_R7;
+}
+
 constexpr bool IsFloatReg(regNumber reg)
 {
-    return (reg >= REG_F0 && reg <= REG_F31);
+    return reg >= REG_F0 && reg <= REG_F31;
 }

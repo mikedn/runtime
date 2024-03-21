@@ -180,7 +180,7 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
     // halfword and save two bytes of encoding. This can happen for
     // small magnitude negative numbers 'n' for -32768 <= n <= -1.
 
-    if (GetEmitter()->isLowRegister(reg) && (imm_hi16 == 0xffff) && ((imm_lo16 & 0x8000) == 0x8000))
+    if (isLowRegister(reg) && (imm_hi16 == 0xffff) && ((imm_lo16 & 0x8000) == 0x8000))
     {
         GetEmitter()->emitIns_Mov(INS_sxth, EA_4BYTE, reg, reg, /* canSkip */ false);
     }
