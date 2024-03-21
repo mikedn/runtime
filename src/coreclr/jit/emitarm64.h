@@ -3,14 +3,14 @@
 
 #ifdef TARGET_ARM64
 
-class emitter : public EmitterBase
+class Arm64Emitter : public EmitterBase
 {
     friend class Arm64Encoder;
     friend class AsmPrinter;
     friend class EmitterBase;
 
 public:
-    emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo) : EmitterBase(compiler, codeGen, jitInfo)
+    Arm64Emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo) : EmitterBase(compiler, codeGen, jitInfo)
     {
     }
 
@@ -209,5 +209,7 @@ private:
                      size_t     sz    = 0);
 #endif // DEBUG
 };
+
+using ArchEmitter = Arm64Emitter;
 
 #endif // TARGET_ARM64

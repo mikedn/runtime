@@ -1850,4 +1850,12 @@ protected:
 #error Unsupported or unset target architecture
 #endif
 
+class emitter : public ArchEmitter
+{
+public:
+    emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo) : ArchEmitter(compiler, codeGen, jitInfo)
+    {
+    }
+};
+
 using Emitter = emitter;

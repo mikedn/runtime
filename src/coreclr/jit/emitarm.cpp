@@ -51,7 +51,7 @@ static bool insOptsRRX(insOpts opt)
     return opt == INS_OPTS_RRX;
 }
 
-instruction emitter::emitJumpKindToBranch(emitJumpKind kind)
+instruction ArmEmitter::emitJumpKindToBranch(emitJumpKind kind)
 {
     static const instruction map[]{
         INS_nop, INS_b,
@@ -105,7 +105,7 @@ static ID_OPS GetFormatOp(insFormat format)
 }
 
 // Return the allocated size (in bytes) of the given instruction descriptor.
-size_t emitter::instrDescSmall::GetDescSize() const
+size_t ArmEmitter::instrDescSmall::GetDescSize() const
 {
     if (_idSmallDsc)
     {
@@ -158,7 +158,7 @@ size_t emitter::instrDescSmall::GetDescSize() const
     return _idLargeCns ? sizeof(instrDescCns) : sizeof(instrDesc);
 }
 
-size_t emitter::instrDesc::emitGetInstrDescSize() const
+size_t ArmEmitter::instrDesc::emitGetInstrDescSize() const
 {
     if (_idSmallDsc)
     {
@@ -173,7 +173,7 @@ size_t emitter::instrDesc::emitGetInstrDescSize() const
     return sizeof(instrDesc);
 }
 
-int32_t emitter::instrDesc::emitGetInsSC() const
+int32_t ArmEmitter::instrDesc::emitGetInsSC() const
 {
     return _idLargeCns ? static_cast<const instrDescCns*>(this)->idcCnsVal : _idSmallCns;
 }
@@ -543,7 +543,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
 }
 #endif // DEBUG
 
-class ArmEncoder : public Emitter::Encoder<emitter>
+class ArmEncoder : public Emitter::Encoder<ArmEmitter>
 {
 public:
     ArmEncoder(Emitter* emit) : Encoder(emit)
@@ -790,7 +790,7 @@ static bool instIsFP(instruction ins)
     return (instInfo[ins] & INST_FP) != 0;
 }
 
-bool emitter::emitInsIsLoad(instruction ins)
+bool ArmEmitter::emitInsIsLoad(instruction ins)
 {
     // We have pseudo ins like lea which are not included in emitInsLdStTab.
     return (ins < _countof(instInfo)) && ((instInfo[ins] & LD) != 0);
@@ -1224,31 +1224,31 @@ code_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
     return code;
 }
 
-static emitter::insSize emitInsSize(insFormat insFmt)
+static ArmEmitter::insSize emitInsSize(insFormat insFmt)
 {
     assert(insFmt < IF_COUNT);
 
     if (insFmt >= IF_T2_A)
     {
-        return emitter::ISZ_32BIT;
+        return ArmEmitter::ISZ_32BIT;
     }
 
     if (insFmt >= IF_T1_A)
     {
-        return emitter::ISZ_16BIT;
+        return ArmEmitter::ISZ_16BIT;
     }
 
     if (insFmt == IF_LARGEJMP)
     {
-        return emitter::ISZ_48BIT;
+        return ArmEmitter::ISZ_48BIT;
     }
 
     assert(insFmt == IF_GC_REG);
 
-    return emitter::ISZ_NONE;
+    return ArmEmitter::ISZ_NONE;
 }
 
-bool emitter::IsMovInstruction(instruction ins)
+bool ArmEmitter::IsMovInstruction(instruction ins)
 {
     switch (ins)
     {
@@ -1382,7 +1382,7 @@ static bool validDispForLdSt(int32_t disp, var_types type)
     return varTypeIsFloating(type) ? ((disp & 0x3FC) == disp) : ((disp >= -0x00ff) && (disp <= 0x0fff));
 }
 
-bool emitter::validImmForInstr(instruction ins, int32_t imm, insFlags flags)
+bool ArmEmitter::validImmForInstr(instruction ins, int32_t imm, insFlags flags)
 {
     if (emitInsIsLoadOrStore(ins) && !instIsFP(ins))
     {
@@ -1428,7 +1428,7 @@ bool emitter::validImmForInstr(instruction ins, int32_t imm, insFlags flags)
     }
 }
 
-bool emitter::validImmForBL(ssize_t addr, Compiler* compiler)
+bool ArmEmitter::validImmForBL(ssize_t addr, Compiler* compiler)
 {
     if (!compiler->info.compMatchedVM)
     {
@@ -1441,13 +1441,13 @@ bool emitter::validImmForBL(ssize_t addr, Compiler* compiler)
 }
 
 // Returns true when the immediate 'imm' can be encoded using the 12-bit funky Arm immediate encoding.
-bool emitter::emitIns_valid_imm_for_alu(int imm)
+bool ArmEmitter::emitIns_valid_imm_for_alu(int imm)
 {
     return isModImmConst(imm);
 }
 
 // Returns true when the immediate 'imm' can be encoded using a single mov or mvn instruction.
-bool emitter::emitIns_valid_imm_for_mov(int imm)
+bool ArmEmitter::emitIns_valid_imm_for_mov(int imm)
 {
     if ((imm & 0x0000ffff) == imm) // 16-bit immediate
         return true;
@@ -1459,13 +1459,13 @@ bool emitter::emitIns_valid_imm_for_mov(int imm)
 }
 
 // Returns true when the immediate 'imm' can be encoded using a single 2-byte mov instruction.
-bool emitter::emitIns_valid_imm_for_small_mov(RegNum reg, int imm, insFlags flags)
+bool ArmEmitter::emitIns_valid_imm_for_small_mov(RegNum reg, int imm, insFlags flags)
 {
     return isLowRegister(reg) && insSetsFlags(flags) && ((imm & 0x00ff) == imm);
 }
 
 // Returns true when the immediate 'imm' can be encoded using a single add or sub instruction.
-bool emitter::emitIns_valid_imm_for_add(int imm, insFlags flags)
+bool ArmEmitter::emitIns_valid_imm_for_add(int imm, insFlags flags)
 {
     if ((unsigned_abs(imm) <= 0x00000fff) && (flags != INS_FLAGS_SET)) // 12-bit immediate via add/sub
         return true;
@@ -1477,7 +1477,7 @@ bool emitter::emitIns_valid_imm_for_add(int imm, insFlags flags)
 }
 
 // Returns true if this 'imm' can be encoded as a input operand to an cmp instruction.
-bool emitter::emitIns_valid_imm_for_cmp(int imm, insFlags flags)
+bool ArmEmitter::emitIns_valid_imm_for_cmp(int imm, insFlags flags)
 {
     if (isModImmConst(imm)) // funky arm immediate
         return true;
@@ -1487,7 +1487,7 @@ bool emitter::emitIns_valid_imm_for_cmp(int imm, insFlags flags)
 }
 
 // Returns true when the immediate 'imm' can be encoded in "add Rd,SP,i10".
-bool emitter::emitIns_valid_imm_for_add_sp(int imm)
+bool ArmEmitter::emitIns_valid_imm_for_add_sp(int imm)
 {
     if ((imm & 0x03fc) == imm)
         return true;
@@ -1495,7 +1495,7 @@ bool emitter::emitIns_valid_imm_for_add_sp(int imm)
 }
 
 // Returns true when the immediate 'imm' can be encoded as the offset in a ldr/str instruction.
-bool emitter::emitIns_valid_imm_for_ldst_offset(int imm, emitAttr size)
+bool ArmEmitter::emitIns_valid_imm_for_ldst_offset(int imm, emitAttr size)
 {
     if ((imm & 0x0fff) == imm)
         return true; // encodable using IF_T2_K1
@@ -1506,7 +1506,7 @@ bool emitter::emitIns_valid_imm_for_ldst_offset(int imm, emitAttr size)
 
 // Returns true when the immediate 'imm' can be encoded as the offset in a vldr/vstr instruction,
 // i.e. when it is a non-negative multiple of 4 that is less than 1024.
-bool emitter::emitIns_valid_imm_for_vldst_offset(int imm)
+bool ArmEmitter::emitIns_valid_imm_for_vldst_offset(int imm)
 {
     if ((imm & 0x3fc) == imm)
         return true;
@@ -1514,7 +1514,7 @@ bool emitter::emitIns_valid_imm_for_vldst_offset(int imm)
 }
 
 template <typename T>
-T* emitter::AllocInstr(bool updateLastIns)
+T* ArmEmitter::AllocInstr(bool updateLastIns)
 {
     instrDescSmall* id = emitAllocAnyInstr(sizeof(T), updateLastIns);
     memset(id, 0, sizeof(T));
@@ -1523,19 +1523,19 @@ T* emitter::AllocInstr(bool updateLastIns)
     return static_cast<T*>(id);
 }
 
-emitter::instrDesc* emitter::emitNewInstr()
+ArmEmitter::instrDesc* ArmEmitter::emitNewInstr()
 {
     return AllocInstr<instrDesc>();
 }
 
-emitter::instrDesc* emitter::emitNewInstrSmall()
+ArmEmitter::instrDesc* ArmEmitter::emitNewInstrSmall()
 {
     instrDescSmall* id = AllocInstr<instrDescSmall>();
     id->idSetIsSmallDsc();
     return static_cast<instrDesc*>(id);
 }
 
-emitter::instrDesc* emitter::emitNewInstrSC(int32_t cns)
+ArmEmitter::instrDesc* ArmEmitter::emitNewInstrSC(int32_t cns)
 {
     if (!instrDesc::fitsInSmallCns(cns))
     {
@@ -1550,7 +1550,7 @@ emitter::instrDesc* emitter::emitNewInstrSC(int32_t cns)
     return id;
 }
 
-emitter::instrDesc* emitter::emitNewInstrCns(int32_t cns)
+ArmEmitter::instrDesc* ArmEmitter::emitNewInstrCns(int32_t cns)
 {
     if (!instrDesc::fitsInSmallCns(cns))
     {
@@ -1565,7 +1565,7 @@ emitter::instrDesc* emitter::emitNewInstrCns(int32_t cns)
     return id;
 }
 
-emitter::instrDescJmp* emitter::emitNewInstrJmp()
+ArmEmitter::instrDescJmp* ArmEmitter::emitNewInstrJmp()
 {
     instrDescJmp* id = AllocInstr<instrDescJmp>();
     id->idjIG        = emitCurIG;
@@ -1575,12 +1575,12 @@ emitter::instrDescJmp* emitter::emitNewInstrJmp()
     return id;
 }
 
-emitter::instrDescCGCA* emitter::emitAllocInstrCGCA()
+ArmEmitter::instrDescCGCA* ArmEmitter::emitAllocInstrCGCA()
 {
     return AllocInstr<instrDescCGCA>();
 }
 
-emitter::instrDesc* emitter::emitNewInstrGCReg(emitAttr attr, RegNum reg)
+ArmEmitter::instrDesc* ArmEmitter::emitNewInstrGCReg(emitAttr attr, RegNum reg)
 {
     assert(EA_IS_GCREF_OR_BYREF(attr));
     assert(IsGeneralRegister(reg));
@@ -1602,7 +1602,7 @@ emitter::instrDesc* emitter::emitNewInstrGCReg(emitAttr attr, RegNum reg)
     return id;
 }
 
-void emitter::emitIns(instruction ins)
+void ArmEmitter::emitIns(instruction ins)
 {
     insFormat fmt = static_cast<insFormat>(emitInsFormat(ins));
 
@@ -1618,7 +1618,7 @@ void emitter::emitIns(instruction ins)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
+void ArmEmitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
 {
     insFormat fmt         = IF_NONE;
     bool      hasLR       = false;
@@ -1761,7 +1761,7 @@ void emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R(instruction ins, emitAttr attr, RegNum reg)
+void ArmEmitter::emitIns_R(instruction ins, emitAttr attr, RegNum reg)
 {
     insFormat fmt;
 
@@ -1808,7 +1808,7 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, RegNum reg)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, int32_t imm, insFlags flags)
+void ArmEmitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, int32_t imm, insFlags flags)
 {
     insFormat fmt = IF_NONE;
     insFlags  sf  = INS_FLAGS_DONT_CARE;
@@ -2111,7 +2111,7 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, int32_t im
     appendToCurIG(id);
 }
 
-void emitter::emitIns_MovRelocatableImmediate(instruction ins, RegNum reg, void* addr)
+void ArmEmitter::emitIns_MovRelocatableImmediate(instruction ins, RegNum reg, void* addr)
 {
     assert((ins == INS_movw) || (ins == INS_movt));
 
@@ -2129,7 +2129,7 @@ void emitter::emitIns_MovRelocatableImmediate(instruction ins, RegNum reg, void*
     appendToCurIG(id);
 }
 
-void emitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegNum srcReg, bool canSkip, insFlags flags)
+void ArmEmitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegNum srcReg, bool canSkip, insFlags flags)
 {
     assert(IsMovInstruction(ins));
 
@@ -2282,7 +2282,7 @@ void emitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegNum 
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, insFlags flags)
+void ArmEmitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, insFlags flags)
 {
     if (IsMovInstruction(ins))
     {
@@ -2545,7 +2545,7 @@ void emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum re
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_I_I(instruction ins, emitAttr attr, RegNum reg, int imm1, int imm2, insFlags flags)
+void ArmEmitter::emitIns_R_I_I(instruction ins, emitAttr attr, RegNum reg, int imm1, int imm2, insFlags flags)
 {
     int imm = 0; // combined immediates
 
@@ -2576,7 +2576,7 @@ void emitter::emitIns_R_I_I(instruction ins, emitAttr attr, RegNum reg, int imm1
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_R_I(
+void ArmEmitter::emitIns_R_R_I(
     instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, int imm, insFlags flags, insOpts opt)
 {
     emitAttr  size = EA_SIZE(attr);
@@ -3106,7 +3106,7 @@ void emitter::emitIns_R_R_I(
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, insFlags flags)
+void ArmEmitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, insFlags flags)
 {
     emitAttr  size = EA_SIZE(attr);
     insFormat fmt  = IF_NONE;
@@ -3345,7 +3345,7 @@ void emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum 
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_R_I_I(
+void ArmEmitter::emitIns_R_R_I_I(
     instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, int imm1, int imm2, insFlags flags)
 {
     insFormat fmt = IF_NONE;
@@ -3406,7 +3406,7 @@ void emitter::emitIns_R_R_I_I(
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_R_R_I(
+void ArmEmitter::emitIns_R_R_R_I(
     instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, int32_t imm, insFlags flags, insOpts opt)
 {
     emitAttr  size = EA_SIZE(attr);
@@ -3570,7 +3570,7 @@ void emitter::emitIns_R_R_R_I(
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, RegNum reg4)
+void ArmEmitter::emitIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, RegNum reg4)
 {
     insFormat fmt = IF_NONE;
     insFlags  sf  = INS_FLAGS_NOT_SET;
@@ -3615,7 +3615,7 @@ void emitter::emitIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNu
     appendToCurIG(id);
 }
 
-void emitter::MovRegStackOffset(RegNum reg, int32_t imm, StackAddrMode s)
+void ArmEmitter::MovRegStackOffset(RegNum reg, int32_t imm, StackAddrMode s)
 {
     auto mov = [&](instruction ins, int32_t imm) {
         instrDesc* id = emitNewInstrCns(imm);
@@ -3691,19 +3691,19 @@ static bool IsStore(instruction ins)
 }
 #endif
 
-void emitter::emitIns_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s)
+void ArmEmitter::emitIns_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s)
 {
     assert(IsLoad(ins) || (ins == INS_lea));
     Ins_R_S(ins, attr, reg, s);
 }
 
-void emitter::emitIns_S_R(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s)
+void ArmEmitter::emitIns_S_R(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s)
 {
     assert(IsStore(ins));
     Ins_R_S(ins, attr, reg, s);
 }
 
-void emitter::Ins_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s)
+void ArmEmitter::Ins_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s)
 {
     assert(IsLoad(ins) || IsStore(ins) || (ins == INS_lea));
 
@@ -3826,7 +3826,7 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrMode 
 }
 
 // Change frame pointer based addressing to SP-based addressing when possible because it has smaller encoding.
-int emitter::OptimizeFrameAddress(int fpOffset, bool isFloatLoadStore, RegNum* baseReg)
+int ArmEmitter::OptimizeFrameAddress(int fpOffset, bool isFloatLoadStore, RegNum* baseReg)
 {
     int spOffset = fpOffset + codeGen->genSPtoFPdelta();
 
@@ -3849,7 +3849,7 @@ int emitter::OptimizeFrameAddress(int fpOffset, bool isFloatLoadStore, RegNum* b
     }
 }
 
-void emitter::emitSetShortJump(instrDescJmp* id)
+void ArmEmitter::emitSetShortJump(instrDescJmp* id)
 {
     assert((id->idInsFmt() == IF_T2_J1) || (id->idInsFmt() == IF_T2_J2) || (id->idInsFmt() == IF_LARGEJMP));
     assert(!id->idIsCnsReloc());
@@ -3858,7 +3858,7 @@ void emitter::emitSetShortJump(instrDescJmp* id)
     id->idInsSize(ISZ_16BIT);
 }
 
-void emitter::emitSetMediumJump(instrDescJmp* id)
+void ArmEmitter::emitSetMediumJump(instrDescJmp* id)
 {
     assert((id->idInsFmt() == IF_T2_J1) || (id->idInsFmt() == IF_LARGEJMP));
     assert(!id->idIsCnsReloc());
@@ -3897,7 +3897,7 @@ static bool IsBranch(instruction ins)
     return (ins == INS_b) || IsConditionalBranch(ins);
 }
 
-void emitter::emitIns_J(instruction ins, int instrCount)
+void ArmEmitter::emitIns_J(instruction ins, int instrCount)
 {
     assert(IsMainProlog(emitCurIG));
     assert(IsBranch(ins));
@@ -3913,7 +3913,7 @@ void emitter::emitIns_J(instruction ins, int instrCount)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_J(instruction ins, insGroup* label)
+void ArmEmitter::emitIns_J(instruction ins, insGroup* label)
 {
     assert(IsBranch(ins));
     assert(emitCurIG->GetFuncletIndex() == label->GetFuncletIndex());
@@ -3961,7 +3961,7 @@ void emitter::emitIns_J(instruction ins, insGroup* label)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, RegNum reg)
+void ArmEmitter::emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, RegNum reg)
 {
     // TODO-MIKE-Review: cbz/cbnz aren't used on ARM. Delete or try to use these instructions?
     // Their limited range might make using them problematic, we might save a cheap 0 compare
@@ -3983,7 +3983,7 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, RegNu
     appendToCurIG(id);
 }
 
-void emitter::emitIns_CallFinally(insGroup* label)
+void ArmEmitter::emitIns_CallFinally(insGroup* label)
 {
     INDEBUG(VerifyCallFinally(label));
 
@@ -4014,7 +4014,7 @@ void emitter::emitIns_CallFinally(insGroup* label)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_L(instruction ins, RegNum reg, insGroup* label)
+void ArmEmitter::emitIns_R_L(instruction ins, RegNum reg, insGroup* label)
 {
     assert((ins == INS_movt) || (ins == INS_movw));
     assert(label != nullptr);
@@ -4039,7 +4039,7 @@ void emitter::emitIns_R_L(instruction ins, RegNum reg, insGroup* label)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_D(instruction ins, RegNum reg, ConstData* data)
+void ArmEmitter::emitIns_R_D(instruction ins, RegNum reg, ConstData* data)
 {
     assert((ins == INS_movw) || (ins == INS_movt));
 
@@ -4062,12 +4062,12 @@ void emitter::emitIns_R_D(instruction ins, RegNum reg, ConstData* data)
 //
 // Please consult the "debugger team notification" comment in genFnProlog().
 //
-void emitter::emitIns_Call(EmitCallType          kind,
-                           CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo),
-                           void*    addr,
-                           emitAttr retSize,
-                           RegNum   reg,
-                           bool     isJump)
+void ArmEmitter::emitIns_Call(EmitCallType          kind,
+                              CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo),
+                              void*    addr,
+                              emitAttr retSize,
+                              RegNum   reg,
+                              bool     isJump)
 {
     assert((kind == EC_INDIR_R) || (reg == REG_NA));
     assert((kind != EC_INDIR_R) || (addr == nullptr));
@@ -4943,7 +4943,7 @@ uint8_t* ArmEncoder::emitOutputIT(uint8_t* dst, instruction ins, insFormat fmt, 
 
 #endif // FEATURE_ITINSTRUCTION
 
-size_t emitter::instrDesc::emitGetInstrDescSizeSC() const
+size_t ArmEmitter::instrDesc::emitGetInstrDescSizeSC() const
 {
     if (idIsSmallDsc())
     {
@@ -4983,7 +4983,7 @@ void ArmEncoder::emitHandlePCRelativeMov32(void* location, void* target)
 // the unwind codes have a one-to-one relationship with instructions, and the
 // unwind codes have an implicit instruction size that must match the instruction size.)
 // An instruction must exist at the specified location.
-unsigned emitter::emitGetInstructionSize(const emitLocation& emitLoc)
+unsigned ArmEmitter::emitGetInstructionSize(const emitLocation& emitLoc)
 {
     insGroup*  ig;
     instrDesc* id;
@@ -5813,11 +5813,11 @@ class AsmPrinter
     using instrDesc    = Emitter::instrDesc;
     using instrDescJmp = Emitter::instrDescJmp;
 
-    Compiler* compiler;
-    Emitter*  emitter;
+    Compiler*   compiler;
+    ArmEmitter* emitter;
 
 public:
-    AsmPrinter(Emitter* emitter) : compiler(emitter->emitComp), emitter(emitter)
+    AsmPrinter(ArmEmitter* emitter) : compiler(emitter->emitComp), emitter(emitter)
     {
     }
 
@@ -6160,7 +6160,7 @@ void AsmPrinter::emitDispGC(emitAttr attr)
 #endif
 }
 
-void emitter::emitDispInsHex(instrDesc* id, uint8_t* code, size_t sz)
+void ArmEmitter::emitDispInsHex(instrDesc* id, uint8_t* code, size_t sz)
 {
     // We do not display the instruction hex if we want diff-able disassembly
     if (!emitComp->opts.disDiffable)
@@ -6197,7 +6197,7 @@ void emitter::emitDispInsHex(instrDesc* id, uint8_t* code, size_t sz)
     }
 }
 
-void emitter::emitDispInsHelp(
+void ArmEmitter::emitDispInsHelp(
     instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, uint8_t* code, size_t sz)
 {
     JITDUMP("IN%04X: ", id->idDebugOnlyInfo()->idNum);
@@ -6660,7 +6660,8 @@ void AsmPrinter::Print(instrDesc* id)
     printf("\n");
 }
 
-void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, uint8_t* code, size_t sz)
+void ArmEmitter::emitDispIns(
+    instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, uint8_t* code, size_t sz)
 {
     insFormat fmt = id->idInsFmt();
 
@@ -6674,7 +6675,7 @@ void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, uns
     if ((fmt == IF_LARGEJMP) && static_cast<instrDescJmp*>(id)->HasLabel())
     {
         // This is a pseudo-instruction format representing a large conditional branch. See the comment
-        // in emitter::emitOutputLJ() for the full description.
+        // in ArmEmitter::emitOutputLJ() for the full description.
         //
         // For this pseudo-instruction, we will actually generate:
         //
@@ -6777,7 +6778,7 @@ void AsmPrinter::emitDispFrameRef(instrDesc* id)
 #if defined(DEBUG) || defined(LATE_DISASM)
 
 template <>
-emitter::insExecutionCharacteristics emitter::Encoder<emitter>::getInsExecutionCharacteristics(instrDesc* id)
+ArmEmitter::insExecutionCharacteristics ArmEmitter::Encoder<ArmEmitter>::getInsExecutionCharacteristics(instrDesc* id)
 {
     insExecutionCharacteristics result;
 

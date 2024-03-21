@@ -20,13 +20,19 @@ struct VarResultInfo;
 class CodeGen final : public CodeGenInterface
 {
     friend class EmitterBase;
-    friend class emitter;
     friend class DisAssembler;
     friend class CodeGenLivenessUpdater;
     friend class CodeGenInterface;
 #ifdef TARGET_ARM
     friend class ArmEncoder;
     friend class AsmPrinter;
+    friend class ArmEmitter;
+#endif
+#ifdef TARGET_ARM64
+    friend class Arm64Emitter;
+#endif
+#ifdef TARGET_XARCH
+    friend class X86Emitter;
 #endif
 
     class LinearScan* m_lsra = nullptr;

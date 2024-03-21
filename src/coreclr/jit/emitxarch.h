@@ -3,7 +3,7 @@
 
 #ifdef TARGET_XARCH
 
-class emitter : public EmitterBase
+class X86Emitter : public EmitterBase
 {
     friend class X86Encoder;
     friend class AsmPrinter;
@@ -13,7 +13,7 @@ private:
     bool useVEXEncodings = false;
 
 public:
-    emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo) : EmitterBase(compiler, codeGen, jitInfo)
+    X86Emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo) : EmitterBase(compiler, codeGen, jitInfo)
     {
     }
 
@@ -255,5 +255,7 @@ private:
 
 #endif // DEBUG
 };
+
+using ArchEmitter = X86Emitter;
 
 #endif // TARGET_XARCH

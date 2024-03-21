@@ -487,7 +487,7 @@ int EmitterBase::emitNextRandomNop()
 #if defined(DEBUG) || defined(LATE_DISASM)
 
 template <>
-float EmitterBase::Encoder<emitter>::insEvaluateExecutionCost(instrDesc* id)
+float EmitterBase::Encoder<ArchEmitter>::insEvaluateExecutionCost(instrDesc* id)
 {
     assert(id->idInsFmt() != IF_GC_REG);
 
@@ -518,7 +518,8 @@ float EmitterBase::Encoder<emitter>::insEvaluateExecutionCost(instrDesc* id)
 }
 
 template <>
-void EmitterBase::Encoder<emitter>::perfScoreUnhandledInstruction(instrDesc* id, insExecutionCharacteristics* pResult)
+void EmitterBase::Encoder<ArchEmitter>::perfScoreUnhandledInstruction(instrDesc*                   id,
+                                                                      insExecutionCharacteristics* pResult)
 {
 #ifdef DEBUG
     printf("PerfScore: unhandled instruction: %s, format %s", insName(id->idIns()), emitIfName(id->idInsFmt()));
@@ -1438,7 +1439,7 @@ void EmitterBase::WalkInstr(const emitLocation& fromLoc, WalkInstrCallback callb
     } while (GetNextInstr(ig, id, insRemaining));
 }
 
-void emitter::emitUnwindNopPadding(const emitLocation& fromLoc)
+void ArchEmitter::emitUnwindNopPadding(const emitLocation& fromLoc)
 {
     WalkInstr(fromLoc, [](instrDesc* id,
                           void* context) { static_cast<CodeGen*>(context)->unwindNop(ARM_ONLY(id->idCodeSize())); },
@@ -1447,21 +1448,21 @@ void emitter::emitUnwindNopPadding(const emitLocation& fromLoc)
 
 #endif // TARGET_ARMARCH
 
-EmitterBase::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
-                                                  emitAttr              retRegAttr
+EmitterBase::instrDesc* ArchEmitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
+                                                      emitAttr              retRegAttr
 #if MULTIREG_HAS_SECOND_GC_RET
-                                                  ,
-                                                  emitAttr retReg2Attr
+                                                      ,
+                                                      emitAttr retReg2Attr
 #endif
 #ifdef TARGET_X86
-                                                  ,
-                                                  int argSlotCount
+                                                      ,
+                                                      int argSlotCount
 #endif
 #ifdef TARGET_XARCH
-                                                  ,
-                                                  int32_t disp
+                                                      ,
+                                                      int32_t disp
 #endif
-                                                  )
+                                                      )
 {
     CorInfoHelpFunc helper       = Compiler::eeGetHelperNum(methodHandle);
     bool            isNoGCHelper = (helper != CORINFO_HELP_UNDEF) && GCInfo::IsNoGCHelper(helper);
@@ -1743,7 +1744,7 @@ const char* EmitterBase::emitGetFrameReg()
 #endif // DEBUG
 
 template <>
-size_t EmitterBase::Encoder<emitter>::emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp)
+size_t EmitterBase::Encoder<ArchEmitter>::emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp)
 {
     assert(id->idInsFmt() != IF_GC_REG);
 
@@ -2557,7 +2558,7 @@ void EmitterBase::emitComputeCodeSizes()
 }
 
 template <>
-void EmitterBase::Encoder<emitter>::emitEndCodeGen()
+void EmitterBase::Encoder<ArchEmitter>::emitEndCodeGen()
 {
     JITDUMP("*************** In emitEndCodeGen()\n");
 
@@ -2959,7 +2960,7 @@ uint32_t insGroup::GetCodeOffset(CodePos codePos) const
 }
 
 template <>
-unsigned EmitterBase::Encoder<emitter>::emitCurCodeOffs(uint8_t* dst) const
+unsigned EmitterBase::Encoder<ArchEmitter>::emitCurCodeOffs(uint8_t* dst) const
 {
     size_t distance;
 
@@ -2982,7 +2983,7 @@ unsigned EmitterBase::Encoder<emitter>::emitCurCodeOffs(uint8_t* dst) const
 }
 
 template <>
-uint8_t* EmitterBase::Encoder<emitter>::emitOffsetToPtr(unsigned offset) const
+uint8_t* EmitterBase::Encoder<ArchEmitter>::emitOffsetToPtr(unsigned offset) const
 {
     if (offset < hotCodeSize)
     {
@@ -2997,7 +2998,7 @@ uint8_t* EmitterBase::Encoder<emitter>::emitOffsetToPtr(unsigned offset) const
 }
 
 #ifdef TARGET_ARMARCH
-uint8_t* emitter::emitOffsetToPtr(unsigned offset) const
+uint8_t* ArchEmitter::emitOffsetToPtr(unsigned offset) const
 {
     if (offset < emitTotalHotCodeSize)
     {
@@ -3013,7 +3014,7 @@ uint8_t* emitter::emitOffsetToPtr(unsigned offset) const
 #endif
 
 template <>
-uint8_t* EmitterBase::Encoder<emitter>::emitDataOffsetToPtr(unsigned offset) const
+uint8_t* EmitterBase::Encoder<ArchEmitter>::emitDataOffsetToPtr(unsigned offset) const
 {
     assert(offset < roData.size);
     return emitConsBlock + offset;
@@ -3021,7 +3022,7 @@ uint8_t* EmitterBase::Encoder<emitter>::emitDataOffsetToPtr(unsigned offset) con
 
 #ifdef DEBUG
 template <>
-bool EmitterBase::Encoder<emitter>::emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset) const
+bool EmitterBase::Encoder<ArchEmitter>::emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset) const
 {
     assert(srcOffset < totalCodeSize);
     assert(dstOffset < totalCodeSize);
@@ -3208,7 +3209,7 @@ EmitterBase::DataSection* EmitterBase::RoData::Find(const void* data, uint32_t s
 }
 
 template <>
-void EmitterBase::Encoder<emitter>::OutputRoData(uint8_t* dst)
+void EmitterBase::Encoder<ArchEmitter>::OutputRoData(uint8_t* dst)
 {
     JITDUMP("\nEmitting data sections: %u total bytes\n", roData.size);
 
@@ -3308,7 +3309,7 @@ void EmitterBase::Encoder<emitter>::OutputRoData(uint8_t* dst)
 
 #ifdef DEBUG
 template <>
-void EmitterBase::Encoder<emitter>::PrintRoData() const
+void EmitterBase::Encoder<ArchEmitter>::PrintRoData() const
 {
     printf("\n");
 
@@ -3476,10 +3477,10 @@ void EmitterBase::Encoder<emitter>::PrintRoData() const
 #endif // DEBUG
 
 template <>
-void EmitterBase::Encoder<emitter>::emitRecordRelocation(void*    location,
-                                                         void*    target,
-                                                         uint16_t relocType,
-                                                         int32_t  addlDelta)
+void EmitterBase::Encoder<ArchEmitter>::emitRecordRelocation(void*    location,
+                                                             void*    target,
+                                                             uint16_t relocType,
+                                                             int32_t  addlDelta)
 {
     // If we're an unmatched altjit, don't tell the VM anything. We still
     // record the relocation for late disassembly; maybe we'll need it?
@@ -3495,9 +3496,9 @@ void EmitterBase::Encoder<emitter>::emitRecordRelocation(void*    location,
 }
 
 template <>
-void EmitterBase::Encoder<emitter>::emitRecordCallSite(unsigned              instrOffset,
-                                                       CORINFO_SIG_INFO*     callSig,
-                                                       CORINFO_METHOD_HANDLE methodHandle)
+void EmitterBase::Encoder<ArchEmitter>::emitRecordCallSite(unsigned              instrOffset,
+                                                           CORINFO_SIG_INFO*     callSig,
+                                                           CORINFO_METHOD_HANDLE methodHandle)
 {
 #ifdef DEBUG
     // Since CORINFO_SIG_INFO is a heavyweight structure, in most cases we can
@@ -3581,7 +3582,7 @@ const char* EmitterBase::emitOffsetToLabel(unsigned offs)
 #endif // DEBUG
 
 template <>
-void EmitterBase::Encoder<emitter>::emitGCvarLiveUpd(int offs, GCtype gcType, uint8_t* addr DEBUGARG(int varNum))
+void EmitterBase::Encoder<ArchEmitter>::emitGCvarLiveUpd(int offs, GCtype gcType, uint8_t* addr DEBUGARG(int varNum))
 {
     assert(gcType != GCT_NONE);
     assert((varNum < 0) || (emitComp->lvaGetDesc(static_cast<unsigned>(varNum))->HasGCSlotLiveness()));
@@ -3600,7 +3601,7 @@ void EmitterBase::Encoder<emitter>::emitGCvarLiveUpd(int offs, GCtype gcType, ui
 #if FEATURE_FIXED_OUT_ARGS
 
 template <>
-void EmitterBase::Encoder<emitter>::emitGCargLiveUpd(int offs, GCtype gcType, uint8_t* addr DEBUGARG(int varNum))
+void EmitterBase::Encoder<ArchEmitter>::emitGCargLiveUpd(int offs, GCtype gcType, uint8_t* addr DEBUGARG(int varNum))
 {
     assert(abs(offs) % REGSIZE_BYTES == 0);
     assert(gcType != GCT_NONE);
@@ -3615,7 +3616,7 @@ void EmitterBase::Encoder<emitter>::emitGCargLiveUpd(int offs, GCtype gcType, ui
 #endif // FEATURE_FIXED_OUT_ARGS
 
 template <>
-size_t EmitterBase::Encoder<emitter>::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* callEndAddr)
+size_t EmitterBase::Encoder<ArchEmitter>::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* callEndAddr)
 {
     regMaskTP refRegs;
     regMaskTP byrefRegs;
@@ -3741,7 +3742,7 @@ size_t EmitterBase::Encoder<emitter>::emitRecordGCCall(instrDesc* id, uint8_t* c
 }
 
 template <>
-void EmitterBase::Encoder<emitter>::emitGCregLiveUpd(GCtype gcType, RegNum reg, uint8_t* addr)
+void EmitterBase::Encoder<ArchEmitter>::emitGCregLiveUpd(GCtype gcType, RegNum reg, uint8_t* addr)
 {
     if (!emitCurIG->IsMainEpilog())
     {
@@ -3750,7 +3751,7 @@ void EmitterBase::Encoder<emitter>::emitGCregLiveUpd(GCtype gcType, RegNum reg, 
 }
 
 template <>
-void EmitterBase::Encoder<emitter>::emitGCregDeadUpd(RegNum reg, uint8_t* addr)
+void EmitterBase::Encoder<ArchEmitter>::emitGCregDeadUpd(RegNum reg, uint8_t* addr)
 {
     if (!emitCurIG->IsMainEpilog())
     {
@@ -3760,7 +3761,7 @@ void EmitterBase::Encoder<emitter>::emitGCregDeadUpd(RegNum reg, uint8_t* addr)
 
 #ifdef FEATURE_EH_FUNCLETS
 template <>
-void EmitterBase::Encoder<emitter>::emitGCregDeadAll(uint8_t* addr)
+void EmitterBase::Encoder<ArchEmitter>::emitGCregDeadAll(uint8_t* addr)
 {
     if (!emitCurIG->IsMainEpilog())
     {
@@ -3772,35 +3773,35 @@ void EmitterBase::Encoder<emitter>::emitGCregDeadAll(uint8_t* addr)
 #ifdef JIT32_GCENCODER
 
 template <>
-void EmitterBase::Encoder<emitter>::emitStackPush(unsigned codeOffs, GCtype type)
+void EmitterBase::Encoder<ArchEmitter>::emitStackPush(unsigned codeOffs, GCtype type)
 {
     gcInfo.StackPush(type, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs);
     emitCurStackLvl += TARGET_POINTER_SIZE;
 }
 
 template <>
-void EmitterBase::Encoder<emitter>::emitStackPushN(unsigned codeOffs, unsigned count)
+void EmitterBase::Encoder<ArchEmitter>::emitStackPushN(unsigned codeOffs, unsigned count)
 {
     gcInfo.StackPushMultiple(count, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs);
     emitCurStackLvl += count * TARGET_POINTER_SIZE;
 }
 
 template <>
-void EmitterBase::Encoder<emitter>::emitStackPop(unsigned codeOffs, unsigned count)
+void EmitterBase::Encoder<ArchEmitter>::emitStackPop(unsigned codeOffs, unsigned count)
 {
     gcInfo.StackPop(count, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs, false);
     emitCurStackLvl -= count * TARGET_POINTER_SIZE;
 }
 
 template <>
-void EmitterBase::Encoder<emitter>::emitStackPopArgs(unsigned codeOffs, unsigned count)
+void EmitterBase::Encoder<ArchEmitter>::emitStackPopArgs(unsigned codeOffs, unsigned count)
 {
     gcInfo.StackPop(count, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs, true);
     emitCurStackLvl -= count * TARGET_POINTER_SIZE;
 }
 
 template <>
-void EmitterBase::Encoder<emitter>::emitStackKillArgs(unsigned codeOffs, unsigned count)
+void EmitterBase::Encoder<ArchEmitter>::emitStackKillArgs(unsigned codeOffs, unsigned count)
 {
     gcInfo.StackKill(count, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs);
 }
@@ -3810,7 +3811,7 @@ void EmitterBase::Encoder<emitter>::emitStackKillArgs(unsigned codeOffs, unsigne
 #ifdef DEBUG
 
 template <>
-void EmitterBase::Encoder<emitter>::GetGCDeltaDumpHeader(char* buffer, size_t count)
+void EmitterBase::Encoder<ArchEmitter>::GetGCDeltaDumpHeader(char* buffer, size_t count)
 {
 // Interleaved GC info dumping.
 // We'll attempt to line this up with the opcode, which indented differently for

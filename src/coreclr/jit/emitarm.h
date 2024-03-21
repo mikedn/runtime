@@ -3,13 +3,13 @@
 
 #ifdef TARGET_ARM
 
-class emitter : public EmitterBase
+class ArmEmitter : public EmitterBase
 {
     friend class ArmEncoder;
     friend class EmitterBase;
 
 public:
-    emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo) : EmitterBase(compiler, codeGen, jitInfo)
+    ArmEmitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo) : EmitterBase(compiler, codeGen, jitInfo)
     {
     }
 
@@ -140,5 +140,7 @@ private:
 
 #endif // DEBUG
 };
+
+using ArchEmitter = ArmEmitter;
 
 #endif // TARGET_ARM

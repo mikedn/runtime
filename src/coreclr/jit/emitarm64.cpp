@@ -317,7 +317,7 @@ static bool isVectorRegister(RegNum reg)
 
 static constexpr bool strictArmAsm = true;
 
-insCond emitter::emitJumpKindToCond(emitJumpKind kind)
+insCond Arm64Emitter::emitJumpKindToCond(emitJumpKind kind)
 {
     assert((EJ_eq <= kind) && (kind <= EJ_le));
 
@@ -331,7 +331,7 @@ insCond emitter::emitJumpKindToCond(emitJumpKind kind)
     return static_cast<insCond>(map[kind]);
 }
 
-instruction emitter::emitJumpKindToBranch(emitJumpKind kind)
+instruction Arm64Emitter::emitJumpKindToBranch(emitJumpKind kind)
 {
     static const instruction map[]{
         INS_nop, INS_b,
@@ -390,7 +390,7 @@ static ID_OPS GetFormatOp(insFormat format)
 }
 
 // Return the allocated size (in bytes) of the given instruction descriptor.
-size_t emitter::instrDescSmall::GetDescSize() const
+size_t Arm64Emitter::instrDescSmall::GetDescSize() const
 {
     if (_idSmallDsc)
     {
@@ -431,7 +431,7 @@ size_t emitter::instrDescSmall::GetDescSize() const
     return _idLargeCns ? sizeof(instrDescCns) : sizeof(instrDesc);
 }
 
-size_t emitter::instrDesc::emitGetInstrDescSize() const
+size_t Arm64Emitter::instrDesc::emitGetInstrDescSize() const
 {
     if (_idSmallDsc)
     {
@@ -446,7 +446,7 @@ size_t emitter::instrDesc::emitGetInstrDescSize() const
     return sizeof(instrDesc);
 }
 
-int64_t emitter::instrDesc::emitGetInsSC() const
+int64_t Arm64Emitter::instrDesc::emitGetInsSC() const
 {
     return _idLargeCns ? static_cast<const instrDescCns*>(this)->idcCnsVal : _idSmallCns;
 }
@@ -1232,7 +1232,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
 
 static bool emitInsIsStore(instruction ins);
 
-class Arm64Encoder : public Emitter::Encoder<emitter>
+class Arm64Encoder : public Emitter::Encoder<Arm64Emitter>
 {
 public:
     Arm64Encoder(Emitter* emit) : Encoder(emit)
@@ -1410,7 +1410,7 @@ bool Arm64Encoder::emitInsMayWriteMultipleRegs(instrDesc* id)
 // By convention the small unsigned load instructions are considered to write
 // a 4 byte sized target register, though since these also zero the upper 4 bytes
 // they could equally be considered to write the unsigned value to full 8 byte register.
-static emitAttr emitInsTargetRegSize(emitter::instrDesc* id)
+static emitAttr emitInsTargetRegSize(Arm64Emitter::instrDesc* id)
 {
     // This is used to determine the size of the target registers for a load/store instruction
 
@@ -1470,7 +1470,7 @@ static emitAttr emitInsTargetRegSize(emitter::instrDesc* id)
 
 // Takes an instrDesc and uses the instruction to determine the 'size' of the
 // data that is loaded from memory.
-static emitAttr emitInsLoadStoreSize(emitter::instrDesc* id)
+static emitAttr emitInsLoadStoreSize(Arm64Emitter::instrDesc* id)
 {
     // The 'result' returned is the 'size' of the data that is loaded from memory.
 
@@ -1627,7 +1627,7 @@ const uint8_t instInfo[]{
 #include "instrsarm64.h"
 };
 
-bool emitter::emitInsIsLoad(instruction ins)
+bool Arm64Emitter::emitInsIsLoad(instruction ins)
 {
     // We have pseudo ins like lea which are not included in emitInsLdStTab.
     return (ins < _countof(instInfo)) && ((instInfo[ins] & LD) != 0);
@@ -2476,7 +2476,7 @@ static uint64_t Replicate_helper(uint64_t value, unsigned width, emitAttr size)
 static bool canEncodeHalfwordImm(int64_t imm, emitAttr size, union halfwordImm* wbHWI = nullptr);
 
 // true if this 'imm' can be encoded as a input operand to a mov instruction
-bool emitter::emitIns_valid_imm_for_mov(int64_t imm, emitAttr size)
+bool Arm64Emitter::emitIns_valid_imm_for_mov(int64_t imm, emitAttr size)
 {
     // Check for "MOV (wide immediate)".
     if (canEncodeHalfwordImm(imm, size))
@@ -2496,7 +2496,7 @@ bool emitter::emitIns_valid_imm_for_mov(int64_t imm, emitAttr size)
 }
 
 // true if this 'imm' can be encoded as a input operand to a vector movi instruction
-emitter::MoviImm emitter::EncodeMoviImm(uint64_t value, insOpts opt)
+Arm64Emitter::MoviImm Arm64Emitter::EncodeMoviImm(uint64_t value, insOpts opt)
 {
     auto msl   = [](uint64_t value, unsigned shift) { return ((value & 0xFF) << shift) | ~(UINT64_MAX << shift); };
     auto lsl   = [](uint64_t value, unsigned shift) { return (value & 0xFF) << shift; };
@@ -2598,7 +2598,7 @@ emitter::MoviImm emitter::EncodeMoviImm(uint64_t value, insOpts opt)
 static bool canEncodeFloatImm8(double immDbl, union floatImm8* wbFPI = nullptr);
 
 // true if this 'imm' can be encoded as a input operand to a fmov instruction
-bool emitter::emitIns_valid_imm_for_fmov(double immDbl)
+bool Arm64Emitter::emitIns_valid_imm_for_fmov(double immDbl)
 {
     return canEncodeFloatImm8(immDbl);
 }
@@ -2606,7 +2606,7 @@ bool emitter::emitIns_valid_imm_for_fmov(double immDbl)
 static bool canEncodeWithShiftImmBy12(int64_t imm);
 
 // true if this 'imm' can be encoded as a input operand to an add instruction
-bool emitter::emitIns_valid_imm_for_add(int64_t imm, emitAttr size)
+bool Arm64Emitter::emitIns_valid_imm_for_add(int64_t imm, emitAttr size)
 {
     if (unsigned_abs(imm) <= 0x0fff)
         return true;
@@ -2617,19 +2617,19 @@ bool emitter::emitIns_valid_imm_for_add(int64_t imm, emitAttr size)
 }
 
 // true if this 'imm' can be encoded as a input operand to an non-add/sub alu instruction
-bool emitter::emitIns_valid_imm_for_cmp(int64_t imm, emitAttr size)
+bool Arm64Emitter::emitIns_valid_imm_for_cmp(int64_t imm, emitAttr size)
 {
     return emitIns_valid_imm_for_add(imm, size);
 }
 
 // true if this 'imm' can be encoded as a input operand to an non-add/sub alu instruction
-bool emitter::emitIns_valid_imm_for_alu(int64_t imm, emitAttr size)
+bool Arm64Emitter::emitIns_valid_imm_for_alu(int64_t imm, emitAttr size)
 {
     return canEncodeBitMaskImm(imm, size);
 }
 
 // true if this 'imm' can be encoded as the offset in a ldr/str instruction
-bool emitter::emitIns_valid_imm_for_ldst_offset(int64_t imm, emitAttr attr)
+bool Arm64Emitter::emitIns_valid_imm_for_ldst_offset(int64_t imm, emitAttr attr)
 {
     if (imm == 0)
         return true; // Encodable using IF_LS_2A
@@ -2650,7 +2650,7 @@ bool emitter::emitIns_valid_imm_for_ldst_offset(int64_t imm, emitAttr attr)
     return false; // not encodable
 }
 
-bool emitter::validImmForBL(ssize_t addr, Compiler* compiler)
+bool Arm64Emitter::validImmForBL(ssize_t addr, Compiler* compiler)
 {
     // On arm64, we always assume a call target is in range and generate a 28-bit relative
     // 'bl' instruction. If this isn't sufficient range, the VM will generate a jump stub when
@@ -2661,7 +2661,7 @@ bool emitter::validImmForBL(ssize_t addr, Compiler* compiler)
 
 // Convert an imm(N,r,s) into a 64-bit immediate
 // inputs 'bmImm' a bitMaskImm struct, 'size' specifies the size of the result (64 or 32 bits)
-int64_t emitter::emitDecodeBitMaskImm(const bitMaskImm bmImm, emitAttr size)
+int64_t Arm64Emitter::emitDecodeBitMaskImm(const bitMaskImm bmImm, emitAttr size)
 {
     assert(isValidGeneralDatasize(size)); // Only EA_4BYTE or EA_8BYTE forms
 
@@ -2764,7 +2764,7 @@ static int64_t normalizeImm64(int64_t imm, emitAttr size)
 // Returns true if 'imm' of 'size bits (32/64) can be encoded using the ARM64 'bitmask immediate' form.
 // When a non-null value is passed for 'wbBMI' then this method writes back the 'N','S' and 'R' values
 // use to encode this immediate
-bool emitter::canEncodeBitMaskImm(int64_t imm, emitAttr size, emitter::bitMaskImm* wbBMI)
+bool Arm64Emitter::canEncodeBitMaskImm(int64_t imm, emitAttr size, Arm64Emitter::bitMaskImm* wbBMI)
 {
     assert(isValidGeneralDatasize(size)); // Only EA_4BYTE or EA_8BYTE forms
 
@@ -2958,9 +2958,9 @@ bool emitter::canEncodeBitMaskImm(int64_t imm, emitAttr size, emitter::bitMaskIm
 }
 
 // Convert a 64-bit immediate into its 'bitmask immediate' representation imm(N,r,s)
-emitter::bitMaskImm emitter::emitEncodeBitMaskImm(int64_t imm, emitAttr size)
+Arm64Emitter::bitMaskImm Arm64Emitter::emitEncodeBitMaskImm(int64_t imm, emitAttr size)
 {
-    emitter::bitMaskImm result;
+    Arm64Emitter::bitMaskImm result;
     result.immNRS = 0;
 
     bool canEncode = canEncodeBitMaskImm(imm, size, &result);
@@ -3393,7 +3393,7 @@ static unsigned insGetRegisterListSize(instruction ins)
 
 // For the given 'arrangement' returns the 'elemsize' specified by the vector register arrangement
 // asserts and returns EA_UNKNOWN if an invalid 'arrangement' value is passed
-emitAttr emitter::optGetElemsize(insOpts arrangement)
+emitAttr Arm64Emitter::optGetElemsize(insOpts arrangement)
 {
     if ((arrangement == INS_OPTS_8B) || (arrangement == INS_OPTS_16B))
     {
@@ -3578,7 +3578,7 @@ static emitAttr optGetSrcsize(insOpts conversion)
 #endif // DEBUG
 
 // For the given 'size' and 'index' returns true if it specifies a valid index for a vector register of 'size'
-bool emitter::isValidVectorIndex(emitAttr datasize, emitAttr elemsize, ssize_t index)
+bool Arm64Emitter::isValidVectorIndex(emitAttr datasize, emitAttr elemsize, ssize_t index)
 {
     assert(isValidVectorDatasize(datasize));
     assert(isValidVectorElemsize(elemsize));
@@ -3640,7 +3640,7 @@ static bool isValidVectorIndex(emitAttr datasize, emitAttr elemsize, ssize_t ind
 #endif
 
 template <typename T>
-T* emitter::AllocInstr(bool updateLastIns)
+T* Arm64Emitter::AllocInstr(bool updateLastIns)
 {
     instrDescSmall* id = emitAllocAnyInstr(sizeof(T), updateLastIns);
     memset(id, 0, sizeof(T));
@@ -3649,19 +3649,19 @@ T* emitter::AllocInstr(bool updateLastIns)
     return static_cast<T*>(id);
 }
 
-emitter::instrDesc* emitter::emitNewInstr()
+Arm64Emitter::instrDesc* Arm64Emitter::emitNewInstr()
 {
     return AllocInstr<instrDesc>();
 }
 
-emitter::instrDesc* emitter::emitNewInstrSmall()
+Arm64Emitter::instrDesc* Arm64Emitter::emitNewInstrSmall()
 {
     instrDescSmall* id = AllocInstr<instrDescSmall>();
     id->idSetIsSmallDsc();
     return static_cast<instrDesc*>(id);
 }
 
-emitter::instrDesc* emitter::emitNewInstrSC(int64_t cns)
+Arm64Emitter::instrDesc* Arm64Emitter::emitNewInstrSC(int64_t cns)
 {
     if (!instrDesc::fitsInSmallCns(cns))
     {
@@ -3676,7 +3676,7 @@ emitter::instrDesc* emitter::emitNewInstrSC(int64_t cns)
     return id;
 }
 
-emitter::instrDesc* emitter::emitNewInstrCns(int32_t cns)
+Arm64Emitter::instrDesc* Arm64Emitter::emitNewInstrCns(int32_t cns)
 {
     if (!instrDesc::fitsInSmallCns(cns))
     {
@@ -3691,7 +3691,7 @@ emitter::instrDesc* emitter::emitNewInstrCns(int32_t cns)
     return id;
 }
 
-emitter::instrDescJmp* emitter::emitNewInstrJmp()
+Arm64Emitter::instrDescJmp* Arm64Emitter::emitNewInstrJmp()
 {
     instrDescJmp* id = AllocInstr<instrDescJmp>();
     id->idjIG        = emitCurIG;
@@ -3701,12 +3701,12 @@ emitter::instrDescJmp* emitter::emitNewInstrJmp()
     return id;
 }
 
-emitter::instrDescCGCA* emitter::emitAllocInstrCGCA()
+Arm64Emitter::instrDescCGCA* Arm64Emitter::emitAllocInstrCGCA()
 {
     return AllocInstr<instrDescCGCA>();
 }
 
-emitter::instrDesc* emitter::emitNewInstrGCReg(emitAttr attr, RegNum reg)
+Arm64Emitter::instrDesc* Arm64Emitter::emitNewInstrGCReg(emitAttr attr, RegNum reg)
 {
     assert(EA_IS_GCREF_OR_BYREF(attr));
     assert(IsGeneralRegister(reg));
@@ -3728,7 +3728,7 @@ emitter::instrDesc* emitter::emitNewInstrGCReg(emitAttr attr, RegNum reg)
     return id;
 }
 
-void emitter::emitIns(instruction ins)
+void Arm64Emitter::emitIns(instruction ins)
 {
     insFormat fmt = static_cast<insFormat>(emitInsFormat(ins));
 
@@ -3743,7 +3743,7 @@ void emitter::emitIns(instruction ins)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_BRK(uint16_t imm)
+void Arm64Emitter::emitIns_BRK(uint16_t imm)
 {
     instrDesc* id = emitNewInstrSC(imm);
     id->idIns(INS_brk);
@@ -3754,7 +3754,7 @@ void emitter::emitIns_BRK(uint16_t imm)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R(instruction ins, emitAttr attr, RegNum reg)
+void Arm64Emitter::emitIns_R(instruction ins, emitAttr attr, RegNum reg)
 {
     assert(attr == EA_8BYTE);
 
@@ -3784,7 +3784,7 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, RegNum reg)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, ssize_t imm, insOpts opt)
+void Arm64Emitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, ssize_t imm, insOpts opt)
 {
     emitAttr  size      = EA_SIZE(attr);
     emitAttr  elemsize  = EA_UNKNOWN;
@@ -3964,7 +3964,7 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, ssize_t im
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_F(instruction ins, emitAttr attr, RegNum reg, double immDbl, insOpts opt)
+void Arm64Emitter::emitIns_R_F(instruction ins, emitAttr attr, RegNum reg, double immDbl, insOpts opt)
 
 {
     emitAttr  size      = EA_SIZE(attr);
@@ -4046,7 +4046,7 @@ void emitter::emitIns_R_F(instruction ins, emitAttr attr, RegNum reg, double imm
     appendToCurIG(id);
 }
 
-void emitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegNum srcReg, bool canSkip, insOpts opt)
+void Arm64Emitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegNum srcReg, bool canSkip, insOpts opt)
 {
     assert(IsMovInstruction(ins));
 
@@ -4206,7 +4206,7 @@ void emitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegNum 
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, insOpts opt)
+void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, insOpts opt)
 {
     if (IsMovInstruction(ins))
     {
@@ -4866,7 +4866,7 @@ void emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum re
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_I_I(instruction ins, emitAttr attr, RegNum reg, ssize_t imm1, ssize_t imm2, insOpts opt)
+void Arm64Emitter::emitIns_R_I_I(instruction ins, emitAttr attr, RegNum reg, ssize_t imm1, ssize_t imm2, insOpts opt)
 {
     emitAttr  size   = EA_SIZE(attr);
     insFormat fmt    = IF_NONE;
@@ -4956,7 +4956,7 @@ void emitter::emitIns_R_I_I(instruction ins, emitAttr attr, RegNum reg, ssize_t 
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, ssize_t imm, insOpts opt)
+void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, ssize_t imm, insOpts opt)
 {
     emitAttr  size       = EA_SIZE(attr);
     emitAttr  elemsize   = EA_UNKNOWN;
@@ -5656,7 +5656,7 @@ void emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, RegNum 
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_R_Imm(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, ssize_t imm)
+void Arm64Emitter::emitIns_R_R_Imm(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, ssize_t imm)
 {
     assert(isGeneralRegister(reg1));
     assert(reg1 != reg2);
@@ -5669,14 +5669,14 @@ void emitter::emitIns_R_R_Imm(instruction ins, emitAttr attr, RegNum reg1, RegNu
         case INS_adds:
         case INS_sub:
         case INS_subs:
-            immFits = emitter::emitIns_valid_imm_for_add(imm, attr);
+            immFits = Arm64Emitter::emitIns_valid_imm_for_add(imm, attr);
             break;
 
         case INS_ands:
         case INS_and:
         case INS_eor:
         case INS_orr:
-            immFits = emitter::emitIns_valid_imm_for_alu(imm, attr);
+            immFits = Arm64Emitter::emitIns_valid_imm_for_alu(imm, attr);
             break;
 
         default:
@@ -5697,7 +5697,7 @@ void emitter::emitIns_R_R_Imm(instruction ins, emitAttr attr, RegNum reg1, RegNu
     }
 }
 
-void emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, insOpts opt)
+void Arm64Emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, insOpts opt)
 {
     emitAttr  size     = EA_SIZE(attr);
     emitAttr  elemsize = EA_UNKNOWN;
@@ -6370,7 +6370,7 @@ void emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum 
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_R_R_I(
+void Arm64Emitter::emitIns_R_R_R_I(
     instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, int32_t imm, insOpts opt, emitAttr attrReg2)
 {
     emitAttr  size     = EA_SIZE(attr);
@@ -6802,7 +6802,7 @@ void emitter::emitIns_R_R_R_I(
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_R_R_Ext(
+void Arm64Emitter::emitIns_R_R_R_Ext(
     instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, insOpts opt, int shiftAmount)
 {
     emitAttr  size   = EA_SIZE(attr);
@@ -6898,7 +6898,8 @@ void emitter::emitIns_R_R_R_Ext(
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_R_I_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, int imm1, int imm2, insOpts opt)
+void Arm64Emitter::emitIns_R_R_I_I(
+    instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, int imm1, int imm2, insOpts opt)
 {
     emitAttr  size     = EA_SIZE(attr);
     emitAttr  elemsize = EA_UNKNOWN;
@@ -7021,7 +7022,7 @@ void emitter::emitIns_R_R_I_I(instruction ins, emitAttr attr, RegNum reg1, RegNu
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, RegNum reg4)
+void Arm64Emitter::emitIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, RegNum reg4)
 {
     emitAttr  size = EA_SIZE(attr);
     insFormat fmt  = IF_NONE;
@@ -7079,7 +7080,7 @@ void emitter::emitIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNu
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_COND(instruction ins, emitAttr attr, RegNum reg, insCond cond)
+void Arm64Emitter::emitIns_R_COND(instruction ins, emitAttr attr, RegNum reg, insCond cond)
 {
     insFormat    fmt = IF_NONE;
     condFlagsImm cfi;
@@ -7114,7 +7115,7 @@ void emitter::emitIns_R_COND(instruction ins, emitAttr attr, RegNum reg, insCond
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_R_COND(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, insCond cond)
+void Arm64Emitter::emitIns_R_R_COND(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, insCond cond)
 {
     insFormat    fmt = IF_NONE;
     condFlagsImm cfi;
@@ -7151,7 +7152,8 @@ void emitter::emitIns_R_R_COND(instruction ins, emitAttr attr, RegNum reg1, RegN
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_R_R_COND(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, insCond cond)
+void Arm64Emitter::emitIns_R_R_R_COND(
+    instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, insCond cond)
 {
     insFormat    fmt = IF_NONE;
     condFlagsImm cfi;
@@ -7193,7 +7195,7 @@ void emitter::emitIns_R_R_R_COND(instruction ins, emitAttr attr, RegNum reg1, Re
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_R_FLAGS_COND(
+void Arm64Emitter::emitIns_R_R_FLAGS_COND(
     instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, insCflags flags, insCond cond)
 {
     insFormat    fmt = IF_NONE;
@@ -7230,7 +7232,8 @@ void emitter::emitIns_R_R_FLAGS_COND(
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_I_FLAGS_COND(instruction ins, emitAttr attr, RegNum reg, int imm, insCflags flags, insCond cond)
+void Arm64Emitter::emitIns_R_I_FLAGS_COND(
+    instruction ins, emitAttr attr, RegNum reg, int imm, insCflags flags, insCond cond)
 {
     insFormat    fmt = IF_NONE;
     condFlagsImm cfi;
@@ -7277,7 +7280,7 @@ void emitter::emitIns_R_I_FLAGS_COND(instruction ins, emitAttr attr, RegNum reg,
     appendToCurIG(id);
 }
 
-void emitter::emitIns_BARR(instruction ins, insBarrier barrier)
+void Arm64Emitter::emitIns_BARR(instruction ins, insBarrier barrier)
 {
     assert((ins == INS_dsb) || (ins == INS_dmb) || (ins == INS_isb));
 
@@ -7303,7 +7306,7 @@ static bool IsStore(instruction ins)
 }
 #endif
 
-void emitter::emitIns_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s)
+void Arm64Emitter::emitIns_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s)
 {
     assert(IsLoad(ins) || (ins == INS_lea));
     assert(s.varOffs >= 0);
@@ -7311,7 +7314,7 @@ void emitter::emitIns_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrM
     Ins_R_S(ins, attr, reg, s);
 }
 
-void emitter::emitIns_S_R(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s)
+void Arm64Emitter::emitIns_S_R(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s)
 {
     assert(IsStore(ins));
     assert(s.varOffs >= 0);
@@ -7319,7 +7322,7 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, RegNum reg, StackAddrM
     Ins_R_S(ins, attr, reg, s);
 }
 
-void emitter::emitIns_R_R_S_S(
+void Arm64Emitter::emitIns_R_R_S_S(
     instruction ins, emitAttr attr1, emitAttr attr2, RegNum reg1, RegNum reg2, StackAddrMode s)
 {
     assert((ins == INS_ldp) || (ins == INS_ldnp));
@@ -7327,7 +7330,7 @@ void emitter::emitIns_R_R_S_S(
     Ins_R_R_S(ins, attr1, attr2, reg1, reg2, s);
 }
 
-void emitter::emitIns_S_S_R_R(
+void Arm64Emitter::emitIns_S_S_R_R(
     instruction ins, emitAttr attr1, emitAttr attr2, RegNum reg1, RegNum reg2, StackAddrMode s)
 {
     assert((ins == INS_stp) || (ins == INS_stnp));
@@ -7360,7 +7363,7 @@ static bool InsMayBeGCSlotStorePair(instruction ins)
     return (ins == INS_stp) || (ins == INS_stnp);
 }
 
-void emitter::Ins_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s)
+void Arm64Emitter::Ins_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s)
 {
     assert(IsLoad(ins) || IsStore(ins) || (ins == INS_lea));
     assert(s.varOffs >= 0);
@@ -7501,7 +7504,7 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrMode 
     appendToCurIG(id);
 }
 
-void emitter::Ins_R_R_S(instruction ins, emitAttr attr1, emitAttr attr2, RegNum reg1, RegNum reg2, StackAddrMode s)
+void Arm64Emitter::Ins_R_R_S(instruction ins, emitAttr attr1, emitAttr attr2, RegNum reg1, RegNum reg2, StackAddrMode s)
 {
     assert((EA_SIZE(attr1) == EA_8BYTE) || (attr1 == EA_4BYTE) || (isVectorRegister(reg1) && (attr1 == EA_16BYTE)));
     assert((EA_SIZE(attr2) == EA_8BYTE) || (attr2 == EA_4BYTE) || (isVectorRegister(reg2) && (attr2 == EA_16BYTE)));
@@ -7565,7 +7568,7 @@ void emitter::Ins_R_R_S(instruction ins, emitAttr attr1, emitAttr attr2, RegNum 
     appendToCurIG(id);
 }
 
-void emitter::emitIns_R_C(instruction ins, emitAttr attr, RegNum reg, RegNum addrReg, ConstData* data)
+void Arm64Emitter::emitIns_R_C(instruction ins, emitAttr attr, RegNum reg, RegNum addrReg, ConstData* data)
 {
     emitAttr  size = EA_SIZE(attr);
     insFormat fmt;
@@ -7618,7 +7621,7 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, RegNum reg, RegNum add
 }
 
 // This computes address from the immediate which is relocatable.
-void emitter::emitIns_R_AH(RegNum reg, void* addr DEBUGARG(void* handle) DEBUGARG(HandleKind handleKind))
+void Arm64Emitter::emitIns_R_AH(RegNum reg, void* addr DEBUGARG(void* handle) DEBUGARG(HandleKind handleKind))
 {
     assert(emitComp->opts.compReloc);
 
@@ -7650,7 +7653,7 @@ void emitter::emitIns_R_AH(RegNum reg, void* addr DEBUGARG(void* handle) DEBUGAR
     appendToCurIG(id);
 }
 
-void emitter::emitSetShortJump(instrDescJmp* id)
+void Arm64Emitter::emitSetShortJump(instrDescJmp* id)
 {
     assert(!id->idIsCnsReloc());
 
@@ -7686,7 +7689,7 @@ void emitter::emitSetShortJump(instrDescJmp* id)
     id->idInsFmt(fmt);
 }
 
-void emitter::emitIns_R_L(RegNum reg, insGroup* label)
+void Arm64Emitter::emitIns_R_L(RegNum reg, insGroup* label)
 {
     assert(label != nullptr);
 
@@ -7702,7 +7705,7 @@ void emitter::emitIns_R_L(RegNum reg, insGroup* label)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, RegNum reg)
+void Arm64Emitter::emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, RegNum reg)
 {
     assert((ins == INS_cbz) || (ins == INS_cbnz));
     assert(label != nullptr);
@@ -7719,7 +7722,7 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, RegNu
     appendToCurIG(id);
 }
 
-void emitter::emitIns_J_R_I(instruction ins, emitAttr attr, insGroup* label, RegNum reg, int imm)
+void Arm64Emitter::emitIns_J_R_I(instruction ins, emitAttr attr, insGroup* label, RegNum reg, int imm)
 {
     assert((ins == INS_tbz) || (ins == INS_tbnz));
     assert((EA_SIZE(attr) == EA_4BYTE) || (EA_SIZE(attr) == EA_8BYTE));
@@ -7751,7 +7754,7 @@ static bool IsBranch(instruction ins)
 }
 #endif
 
-void emitter::emitIns_J(instruction ins, int instrCount)
+void Arm64Emitter::emitIns_J(instruction ins, int instrCount)
 {
     assert(IsMainProlog(emitCurIG));
     assert(IsBranch(ins));
@@ -7766,7 +7769,7 @@ void emitter::emitIns_J(instruction ins, int instrCount)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_J(instruction ins, insGroup* label)
+void Arm64Emitter::emitIns_J(instruction ins, insGroup* label)
 {
     assert(IsBranch(ins));
     assert(emitCurIG->GetFuncletIndex() == label->GetFuncletIndex());
@@ -7781,7 +7784,7 @@ void emitter::emitIns_J(instruction ins, insGroup* label)
     appendToCurIG(id);
 }
 
-void emitter::emitIns_CallFinally(insGroup* label)
+void Arm64Emitter::emitIns_CallFinally(insGroup* label)
 {
     assert(codeGen->GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY);
     INDEBUG(VerifyCallFinally(label));
@@ -7802,13 +7805,13 @@ void emitter::emitIns_CallFinally(insGroup* label)
 //
 // Please consult the "debugger team notification" comment in genFnProlog().
 //
-void emitter::emitIns_Call(EmitCallType          kind,
-                           CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo),
-                           void*    addr,
-                           emitAttr retRegAttr,
-                           emitAttr retReg2Attr,
-                           RegNum   reg,
-                           bool     isJump)
+void Arm64Emitter::emitIns_Call(EmitCallType          kind,
+                                CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo),
+                                void*    addr,
+                                emitAttr retRegAttr,
+                                emitAttr retReg2Attr,
+                                RegNum   reg,
+                                bool     isJump)
 {
     assert((kind == EC_INDIR_R) || (reg == REG_NA));
     assert((kind != EC_INDIR_R) || (addr == nullptr));
@@ -10335,11 +10338,11 @@ class AsmPrinter
     using instrDesc    = Emitter::instrDesc;
     using instrDescJmp = Emitter::instrDescJmp;
 
-    Compiler* compiler;
-    Emitter*  emitter;
+    Compiler*     compiler;
+    Arm64Emitter* emitter;
 
 public:
-    AsmPrinter(Emitter* emitter) : compiler(emitter->emitComp), emitter(emitter)
+    AsmPrinter(Arm64Emitter* emitter) : compiler(emitter->emitComp), emitter(emitter)
     {
     }
 
@@ -10988,7 +10991,7 @@ void AsmPrinter::emitDispAddrRRExt(RegNum reg1, RegNum reg2, insOpts opt, bool i
     printf("]");
 }
 
-void emitter::emitDispInsHex(instrDesc* id, uint8_t* code, size_t sz)
+void Arm64Emitter::emitDispInsHex(instrDesc* id, uint8_t* code, size_t sz)
 {
     // We do not display the instruction hex if we want diff-able disassembly
     if (emitComp->opts.disDiffable)
@@ -11010,7 +11013,8 @@ void emitter::emitDispInsHex(instrDesc* id, uint8_t* code, size_t sz)
     }
 }
 
-void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, uint8_t* code, size_t sz)
+void Arm64Emitter::emitDispIns(
+    instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, uint8_t* code, size_t sz)
 {
     if (id->idInsFmt() == IF_GC_REG)
     {
@@ -12070,7 +12074,9 @@ void AsmPrinter::emitDispFrameRef(instrDesc* id)
 #if defined(DEBUG) || defined(LATE_DISASM)
 
 template <>
-void emitter::Encoder<emitter>::getMemoryOperation(instrDesc* id, unsigned* pMemAccessKind, bool* pIsLocalAccess)
+void Arm64Emitter::Encoder<Arm64Emitter>::getMemoryOperation(instrDesc* id,
+                                                             unsigned*  pMemAccessKind,
+                                                             bool*      pIsLocalAccess)
 {
     unsigned    memAccessKind = PERFSCORE_MEMORY_NONE;
     bool        isLocalAccess = false;
@@ -12078,7 +12084,7 @@ void emitter::Encoder<emitter>::getMemoryOperation(instrDesc* id, unsigned* pMem
 
     if (emitInsIsLoadOrStore(ins))
     {
-        if (emitter::emitInsIsLoad(ins))
+        if (Arm64Emitter::emitInsIsLoad(ins))
         {
             if (emitInsIsStore(ins))
             {
@@ -12148,7 +12154,8 @@ void emitter::Encoder<emitter>::getMemoryOperation(instrDesc* id, unsigned* pMem
 // are from The Arm Cortex-A55 Software Optimization Guide:
 // https://static.docs.arm.com/epm128372/20/arm_cortex_a55_software_optimization_guide_v2.pdf
 template <>
-emitter::insExecutionCharacteristics emitter::Encoder<emitter>::getInsExecutionCharacteristics(instrDesc* id)
+Arm64Emitter::insExecutionCharacteristics Arm64Emitter::Encoder<Arm64Emitter>::getInsExecutionCharacteristics(
+    instrDesc* id)
 {
     insExecutionCharacteristics result;
     instruction                 ins    = id->idIns();
@@ -13820,7 +13827,7 @@ emitter::insExecutionCharacteristics emitter::Encoder<emitter>::getInsExecutionC
 
 #endif // defined(DEBUG) || defined(LATE_DISASM)
 
-bool emitter::IsMovInstruction(instruction ins)
+bool Arm64Emitter::IsMovInstruction(instruction ins)
 {
     switch (ins)
     {
@@ -13865,7 +13872,7 @@ bool emitter::IsMovInstruction(instruction ins)
 // Return Value:
 // true if previous instruction moved from current dst to src.
 
-bool emitter::IsRedundantMov(instruction ins, emitAttr size, RegNum dst, RegNum src, bool canSkip)
+bool Arm64Emitter::IsRedundantMov(instruction ins, emitAttr size, RegNum dst, RegNum src, bool canSkip)
 {
     assert(ins == INS_mov);
 
@@ -13974,7 +13981,8 @@ bool emitter::IsRedundantMov(instruction ins, emitAttr size, RegNum dst, RegNum 
 // Return Value:
 // true if previous instruction already has desired value in register/memory location.
 
-bool emitter::IsRedundantLdStr(instruction ins, RegNum reg1, RegNum reg2, ssize_t imm, emitAttr size, insFormat fmt)
+bool Arm64Emitter::IsRedundantLdStr(
+    instruction ins, RegNum reg1, RegNum reg2, ssize_t imm, emitAttr size, insFormat fmt)
 {
     instrDesc* lastIns = GetLastInsInCurrentBlock();
 

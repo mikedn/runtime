@@ -21,7 +21,7 @@ static bool IsJmpInstruction(instruction ins)
 }
 #endif
 
-instruction emitter::emitJumpKindToSetcc(emitJumpKind kind)
+instruction X86Emitter::emitJumpKindToSetcc(emitJumpKind kind)
 {
     assert((EJ_o <= kind) && (kind <= EJ_g));
 
@@ -35,7 +35,7 @@ instruction emitter::emitJumpKindToSetcc(emitJumpKind kind)
     return map[kind];
 }
 
-instruction emitter::emitJumpKindToBranch(emitJumpKind kind)
+instruction X86Emitter::emitJumpKindToBranch(emitJumpKind kind)
 {
     static const instruction map[]{
         INS_nop, INS_jmp,
@@ -157,7 +157,7 @@ static bool IsPrefetch(instruction ins)
     return (ins == INS_prefetcht0) || (ins == INS_prefetcht1) || (ins == INS_prefetcht2) || (ins == INS_prefetchnta);
 }
 
-bool emitter::UseVEXEncoding() const
+bool X86Emitter::UseVEXEncoding() const
 {
     return useVEXEncodings;
 }
@@ -302,7 +302,7 @@ static bool IsSseDstSrcImm(instruction ins)
 // TODO-XArch-Cleanup: This is a temporary solution for now. Eventually this needs to
 // be formalized by adding an additional field to instruction table to
 // to indicate whether a 3-operand instruction.
-bool emitter::IsVexDstDstSrc(instruction ins) const
+bool X86Emitter::IsVexDstDstSrc(instruction ins) const
 {
     return ((InsFlags(ins) & INS_Flags_VexDstDstSrc) != 0) && UseVEXEncoding();
 }
@@ -312,18 +312,18 @@ bool emitter::IsVexDstDstSrc(instruction ins) const
 // TODO-XArch-Cleanup: This is a temporary solution for now. Eventually this needs to
 // be formalized by adding an additional field to instruction table to
 // to indicate whether a 3-operand instruction.
-bool emitter::IsVexDstSrcSrc(instruction ins) const
+bool X86Emitter::IsVexDstSrcSrc(instruction ins) const
 {
     return ((InsFlags(ins) & INS_Flags_VexDstSrcSrc) != 0) && UseVEXEncoding();
 }
 
 #ifdef DEBUG
-bool emitter::IsVexTernary(instruction ins) const
+bool X86Emitter::IsVexTernary(instruction ins) const
 {
     return IsVexDstDstSrc(ins) || IsVexDstSrcSrc(ins);
 }
 
-bool emitter::IsReallyVexTernary(instruction ins) const
+bool X86Emitter::IsReallyVexTernary(instruction ins) const
 {
     // TODO-MIKE-Cleanup: The VexDstSrcSrc/DstDstSrc are incorrecly placed on instructions
     // when they're in fact a property of the encoding. movss & co. are not DstSrcSrc in
@@ -346,7 +346,7 @@ static bool IsX87LdSt(instruction ins)
 }
 #endif
 
-bool emitter::AreFlagsAlwaysModified(instrDesc* id)
+bool X86Emitter::AreFlagsAlwaysModified(instrDesc* id)
 {
     instruction ins = id->idIns();
 
@@ -355,7 +355,7 @@ bool emitter::AreFlagsAlwaysModified(instrDesc* id)
 
 // Check if some previously emitted instruction set the upper 32 bits of reg to zero.
 // Currently only looks back one instruction.
-bool emitter::AreUpper32BitsZero(regNumber reg)
+bool X86Emitter::AreUpper32BitsZero(regNumber reg)
 {
     instrDesc* id = GetLastInsInCurrentBlock();
 
@@ -414,7 +414,7 @@ bool emitter::AreUpper32BitsZero(regNumber reg)
 // Checks if the previous instruction set the SZ, and optionally OC, flags to the same
 // values as if there were a compare to 0
 // Currently only looks back one instruction.
-bool emitter::AreFlagsSetToZeroCmp(regNumber reg, emitAttr opSize, genTreeOps treeOps)
+bool X86Emitter::AreFlagsSetToZeroCmp(regNumber reg, emitAttr opSize, genTreeOps treeOps)
 {
     assert(reg != REG_NA);
 
@@ -469,7 +469,7 @@ bool emitter::AreFlagsSetToZeroCmp(regNumber reg, emitAttr opSize, genTreeOps tr
     return false;
 }
 
-bool emitter::TakesVexPrefix(instruction ins) const
+bool X86Emitter::TakesVexPrefix(instruction ins) const
 {
     return UseVEXEncoding() && (INS_FIRST_VEX_INSTRUCTION <= ins) && (ins <= INS_LAST_VEX_INSTRUCTION);
 }
@@ -484,7 +484,7 @@ constexpr unsigned VexBitOffset      = 32;
 constexpr unsigned VexLBitOffset     = 34;
 constexpr unsigned VexVvvvBitOffset  = 35;
 
-using code_t = emitter::code_t;
+using code_t = X86Emitter::code_t;
 
 static bool IsMap0F(code_t code)
 {
@@ -766,7 +766,7 @@ static unsigned emitInsSize(code_t code)
     return size;
 }
 
-unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr size, code_t code, bool isRR)
+unsigned X86Emitter::emitGetAdjustedSize(instruction ins, emitAttr size, code_t code, bool isRR)
 {
     assert(ins != INS_invalid);
     assert(!TakesVexPrefix(ins));
@@ -795,7 +795,7 @@ unsigned emitter::emitGetAdjustedSize(instruction ins, emitAttr size, code_t cod
     return sz;
 }
 
-unsigned emitter::emitInsSizeR(instruction ins, emitAttr size, regNumber reg)
+unsigned X86Emitter::emitInsSizeR(instruction ins, emitAttr size, regNumber reg)
 {
     if ((ins == INS_push) || (ins == INS_push_hide) || (ins == INS_pop) || (ins == INS_pop_hide))
     {
@@ -829,7 +829,7 @@ unsigned emitter::emitInsSizeR(instruction ins, emitAttr size, regNumber reg)
     return (size == EA_2BYTE) + (hasRexPrefix(code) || IsExtendedReg(reg, size) || TakesRexWPrefix(ins, size)) + 2;
 }
 
-unsigned emitter::emitInsSizeRI(instruction ins, emitAttr size, regNumber reg, ssize_t imm)
+unsigned X86Emitter::emitInsSizeRI(instruction ins, emitAttr size, regNumber reg, ssize_t imm)
 {
     if (IsShiftImm(ins))
     {
@@ -889,7 +889,7 @@ unsigned emitter::emitInsSizeRI(instruction ins, emitAttr size, regNumber reg, s
     return sz;
 }
 
-unsigned emitter::emitInsSizeRR(instruction ins, emitAttr size, regNumber reg1, regNumber reg2)
+unsigned X86Emitter::emitInsSizeRR(instruction ins, emitAttr size, regNumber reg1, regNumber reg2)
 {
     if (TakesVexPrefix(ins))
     {
@@ -921,7 +921,7 @@ unsigned emitter::emitInsSizeRR(instruction ins, emitAttr size, regNumber reg1, 
     return sz;
 }
 
-unsigned emitter::emitInsSizeRRI(instruction ins, emitAttr size, regNumber reg1, regNumber reg2)
+unsigned X86Emitter::emitInsSizeRRI(instruction ins, emitAttr size, regNumber reg1, regNumber reg2)
 {
     if (TakesVexPrefix(ins))
     {
@@ -978,7 +978,7 @@ unsigned emitter::emitInsSizeRRI(instruction ins, emitAttr size, regNumber reg1,
     return sz;
 }
 
-unsigned emitter::emitInsSizeRRR(instruction ins, emitAttr size, RegNum reg3)
+unsigned X86Emitter::emitInsSizeRRR(instruction ins, emitAttr size, RegNum reg3)
 {
     assert(TakesVexPrefix(ins));
 
@@ -987,7 +987,7 @@ unsigned emitter::emitInsSizeRRR(instruction ins, emitAttr size, RegNum reg3)
     return 2 + (HasRexW(code) || !IsMap0F(code) || TakesRexWPrefix(ins, size) || IsExtendedReg(reg3)) + 1 + 1;
 }
 
-unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code)
+unsigned X86Emitter::emitInsSizeSV(instrDesc* id, code_t code)
 {
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
@@ -1028,7 +1028,7 @@ unsigned emitter::emitInsSizeSV(instrDesc* id, code_t code)
     return sz;
 }
 
-unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
+unsigned X86Emitter::emitInsSizeAM(instrDesc* id, code_t code)
 {
     instruction ins      = id->idIns();
     emitAttr    size     = id->idOpSize();
@@ -1134,7 +1134,7 @@ unsigned emitter::emitInsSizeAM(instrDesc* id, code_t code)
     return sz;
 }
 
-unsigned emitter::emitInsSizeCV(instrDesc* id, code_t code)
+unsigned X86Emitter::emitInsSizeCV(instrDesc* id, code_t code)
 {
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
@@ -1177,7 +1177,7 @@ static unsigned emitInsSizeImm(instruction ins, emitAttr attr, int32_t imm)
 }
 
 template <typename T>
-T* emitter::AllocInstr(bool updateLastIns)
+T* X86Emitter::AllocInstr(bool updateLastIns)
 {
     instrDescSmall* id = emitAllocAnyInstr(sizeof(T), updateLastIns);
     memset(id, 0, sizeof(T));
@@ -1186,12 +1186,12 @@ T* emitter::AllocInstr(bool updateLastIns)
     return static_cast<T*>(id);
 }
 
-emitter::instrDesc* emitter::emitNewInstr()
+X86Emitter::instrDesc* X86Emitter::emitNewInstr()
 {
     return AllocInstr<instrDesc>();
 }
 
-emitter::instrDescJmp* emitter::emitNewInstrJmp()
+X86Emitter::instrDescJmp* X86Emitter::emitNewInstrJmp()
 {
     instrDescJmp* jmp = AllocInstr<instrDescJmp>();
     jmp->idjIG        = emitCurIG;
@@ -1201,19 +1201,19 @@ emitter::instrDescJmp* emitter::emitNewInstrJmp()
     return jmp;
 }
 
-emitter::instrDescCGCA* emitter::emitAllocInstrCGCA()
+X86Emitter::instrDescCGCA* X86Emitter::emitAllocInstrCGCA()
 {
     return AllocInstr<instrDescCGCA>();
 }
 
-emitter::instrDesc* emitter::emitNewInstrSmall()
+X86Emitter::instrDesc* X86Emitter::emitNewInstrSmall()
 {
     instrDescSmall* id = AllocInstr<instrDescSmall>();
     id->idSetIsSmallDsc();
     return static_cast<instrDesc*>(id);
 }
 
-emitter::instrDesc* emitter::emitNewInstrSC(ssize_t cns)
+X86Emitter::instrDesc* X86Emitter::emitNewInstrSC(ssize_t cns)
 {
     if (!instrDesc::fitsInSmallCns(cns))
     {
@@ -1228,7 +1228,7 @@ emitter::instrDesc* emitter::emitNewInstrSC(ssize_t cns)
     return id;
 }
 
-emitter::instrDesc* emitter::emitNewInstrCns(int32_t cns)
+X86Emitter::instrDesc* X86Emitter::emitNewInstrCns(int32_t cns)
 {
     if (!instrDesc::fitsInSmallCns(cns))
     {
@@ -1244,7 +1244,7 @@ emitter::instrDesc* emitter::emitNewInstrCns(int32_t cns)
 }
 
 #ifdef TARGET_X86
-emitter::instrDesc* emitter::emitNewInstrDsp(int32_t disp)
+X86Emitter::instrDesc* X86Emitter::emitNewInstrDsp(int32_t disp)
 {
     if (disp == 0)
     {
@@ -1258,7 +1258,7 @@ emitter::instrDesc* emitter::emitNewInstrDsp(int32_t disp)
 }
 #endif // TARGET_X86
 
-emitter::instrDesc* emitter::emitNewInstrAmd(ssize_t disp)
+X86Emitter::instrDesc* X86Emitter::emitNewInstrAmd(ssize_t disp)
 {
     if (emitAddrMode::IsLargeDisp(disp))
     {
@@ -1276,7 +1276,7 @@ emitter::instrDesc* emitter::emitNewInstrAmd(ssize_t disp)
     return id;
 }
 
-emitter::instrDesc* emitter::emitNewInstrAmdCns(ssize_t disp, int32_t imm)
+X86Emitter::instrDesc* X86Emitter::emitNewInstrAmdCns(ssize_t disp, int32_t imm)
 {
     if (!emitAddrMode::IsLargeDisp(disp))
     {
@@ -1308,7 +1308,7 @@ emitter::instrDesc* emitter::emitNewInstrAmdCns(ssize_t disp, int32_t imm)
     return id;
 }
 
-emitter::instrDesc* emitter::emitNewInstrGCReg(emitAttr attr, regNumber reg)
+X86Emitter::instrDesc* X86Emitter::emitNewInstrGCReg(emitAttr attr, regNumber reg)
 {
     assert(EA_IS_GCREF_OR_BYREF(attr));
     assert(IsGeneralRegister(reg));
@@ -1329,7 +1329,7 @@ emitter::instrDesc* emitter::emitNewInstrGCReg(emitAttr attr, regNumber reg)
     return id;
 }
 
-void emitter::emitLoopAlign(uint16_t paddingBytes)
+void X86Emitter::emitLoopAlign(uint16_t paddingBytes)
 {
     assert(paddingBytes <= MAX_ENCODED_SIZE);
     paddingBytes = min(paddingBytes, MAX_ENCODED_SIZE); // We may need to skip up to 15 bytes of code
@@ -1344,7 +1344,7 @@ void emitter::emitLoopAlign(uint16_t paddingBytes)
     emitCurIGAlignList = id;
 }
 
-void emitter::emitLongLoopAlign(uint16_t alignmentBoundary)
+void X86Emitter::emitLongLoopAlign(uint16_t alignmentBoundary)
 {
     unsigned short nPaddingBytes    = alignmentBoundary - 1;
     unsigned short nAlignInstr      = (nPaddingBytes + (MAX_ENCODED_SIZE - 1)) / MAX_ENCODED_SIZE;
@@ -1366,7 +1366,7 @@ void emitter::emitLongLoopAlign(uint16_t alignmentBoundary)
     emitLoopAlign(lastInsAlignSize);
 }
 
-void emitter::emitIns_Nop(unsigned size)
+void X86Emitter::emitIns_Nop(unsigned size)
 {
     assert(size <= MAX_ENCODED_SIZE);
 
@@ -1379,7 +1379,7 @@ void emitter::emitIns_Nop(unsigned size)
     emitCurIGsize += size;
 }
 
-void emitter::emitIns_Lock()
+void X86Emitter::emitIns_Lock()
 {
     instrDesc* id = emitNewInstr();
     id->idIns(INS_lock);
@@ -1397,7 +1397,7 @@ void emitter::emitIns_Lock()
 #endif
 }
 
-void emitter::emitIns(instruction ins)
+void X86Emitter::emitIns(instruction ins)
 {
     assert((ins == INS_int3) || (ins == INS_leave) || (ins == INS_nop) || (ins == INS_ret) || (ins == INS_vzeroupper) ||
            (ins == INS_lfence) || (ins == INS_mfence) || (ins == INS_sfence));
@@ -1429,7 +1429,7 @@ void emitter::emitIns(instruction ins)
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns(instruction ins, emitAttr attr)
+void X86Emitter::emitIns(instruction ins, emitAttr attr)
 {
     assert((ins == INS_cdq) || (ins == INS_movs) || (ins == INS_stos) || (ins == INS_rep_movs) ||
            (ins == INS_rep_stos));
@@ -1449,7 +1449,7 @@ void emitter::emitIns(instruction ins, emitAttr attr)
     emitCurIGsize += sz;
 }
 
-void emitter::SetInstrLclAddrMode(instrDesc* id, StackAddrMode s)
+void X86Emitter::SetInstrLclAddrMode(instrDesc* id, StackAddrMode s)
 {
     id->SetVarAddr(INDEBUG(s));
 
@@ -1479,7 +1479,7 @@ void emitter::SetInstrLclAddrMode(instrDesc* id, StackAddrMode s)
     }
 }
 
-bool emitter::IntConNeedsReloc(GenTreeIntCon* con)
+bool X86Emitter::IntConNeedsReloc(GenTreeIntCon* con)
 {
 #ifdef TARGET_AMD64
     if (emitComp->opts.compReloc)
@@ -1498,7 +1498,7 @@ bool emitter::IntConNeedsReloc(GenTreeIntCon* con)
 #endif
 }
 
-ssize_t emitter::GetAddrModeDisp(GenTree* addr)
+ssize_t X86Emitter::GetAddrModeDisp(GenTree* addr)
 {
     if (!addr->isContained())
     {
@@ -1513,7 +1513,7 @@ ssize_t emitter::GetAddrModeDisp(GenTree* addr)
     return addr->AsAddrMode()->GetOffset();
 }
 
-void emitter::SetInstrAddrMode(instrDesc* id, GenTree* addr)
+void X86Emitter::SetInstrAddrMode(instrDesc* id, GenTree* addr)
 {
     if (!addr->isContained())
     {
@@ -1574,7 +1574,7 @@ void emitter::SetInstrAddrMode(instrDesc* id, GenTree* addr)
 
 // Takes care of storing all incoming register parameters into
 // its corresponding shadow space (defined by the win-x64 ABI).
-void emitter::PrologSpillParamRegsToShadowSlots()
+void X86Emitter::PrologSpillParamRegsToShadowSlots()
 {
     assert(codeGen->generatingProlog);
 
@@ -1601,7 +1601,7 @@ void emitter::PrologSpillParamRegsToShadowSlots()
     }
 }
 
-void emitter::emitIns_A(instruction ins, emitAttr attr, GenTree* addr)
+void X86Emitter::emitIns_A(instruction ins, emitAttr attr, GenTree* addr)
 {
     if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
@@ -1636,7 +1636,7 @@ void emitter::emitIns_A(instruction ins, emitAttr attr, GenTree* addr)
 #endif
 }
 
-void emitter::emitIns_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t imm)
+void X86Emitter::emitIns_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t imm)
 {
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
@@ -1668,7 +1668,7 @@ void emitter::emitIns_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumber reg)
+void X86Emitter::emitIns_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumber reg)
 {
     assert(!IsReallyVexTernary(ins));
 
@@ -1700,7 +1700,7 @@ void emitter::emitIns_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumb
     emitCurIGsize += sz;
 }
 
-void emitter::emitInsRMW_A(instruction ins, emitAttr attr, GenTree* addr)
+void X86Emitter::emitInsRMW_A(instruction ins, emitAttr attr, GenTree* addr)
 {
     instrDesc* id = emitNewInstrAmd(GetAddrModeDisp(addr));
     id->idIns(ins);
@@ -1715,7 +1715,7 @@ void emitter::emitInsRMW_A(instruction ins, emitAttr attr, GenTree* addr)
     emitCurIGsize += sz;
 }
 
-void emitter::emitInsRMW_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t imm)
+void X86Emitter::emitInsRMW_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t imm)
 {
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
@@ -1732,7 +1732,7 @@ void emitter::emitInsRMW_A_I(instruction ins, emitAttr attr, GenTree* addr, int3
     emitCurIGsize += sz;
 }
 
-void emitter::emitInsRMW_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumber reg)
+void X86Emitter::emitInsRMW_A_R(instruction ins, emitAttr attr, GenTree* addr, regNumber reg)
 {
     instrDesc* id = emitNewInstrAmd(GetAddrModeDisp(addr));
     id->idIns(ins);
@@ -1748,7 +1748,7 @@ void emitter::emitInsRMW_A_R(instruction ins, emitAttr attr, GenTree* addr, regN
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
+void X86Emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
 {
     X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg)));
 
@@ -1772,7 +1772,7 @@ void emitter::emitIns_R(instruction ins, emitAttr attr, regNumber reg)
 #endif
 }
 
-void emitter::emitIns_R_H(instruction ins, regNumber reg, void* addr DEBUGARG(HandleKind handleKind))
+void X86Emitter::emitIns_R_H(instruction ins, regNumber reg, void* addr DEBUGARG(HandleKind handleKind))
 {
     assert(ins == INS_mov);
     assert(genIsValidIntReg(reg) && (reg != REG_RSP));
@@ -1797,7 +1797,7 @@ void emitter::emitIns_R_H(instruction ins, regNumber reg, void* addr DEBUGARG(Ha
     emitCurIGsize += size;
 }
 
-void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t imm DEBUGARG(HandleKind handleKind))
+void X86Emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t imm DEBUGARG(HandleKind handleKind))
 {
     // BT reg,imm might be useful but it requires special handling of the immediate value
     // (it is always encoded in a byte). Let's not complicate things until this is needed.
@@ -1846,7 +1846,7 @@ void emitter::emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t
 }
 
 #ifdef TARGET_X86
-void emitter::emitIns_H(instruction ins, void* addr)
+void X86Emitter::emitIns_H(instruction ins, void* addr)
 {
     assert((ins == INS_push) || (ins == INS_push_hide));
 
@@ -1867,7 +1867,7 @@ void emitter::emitIns_H(instruction ins, void* addr)
 #endif
 
 #ifdef WINDOWS_X86_ABI
-void emitter::emitInsMov_R_FS(regNumber reg, int32_t disp)
+void X86Emitter::emitInsMov_R_FS(regNumber reg, int32_t disp)
 {
     assert(genIsValidIntReg(reg));
 
@@ -1887,7 +1887,7 @@ void emitter::emitInsMov_R_FS(regNumber reg, int32_t disp)
 }
 #endif // WINDOWS_X86_ABI
 
-void emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
+void X86Emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
 {
     instrDesc* id = emitNewInstrSC(imm);
     id->idIns(ins);
@@ -1924,7 +1924,7 @@ void emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
 #endif
 }
 
-void emitter::emitIns_C(instruction ins, emitAttr attr, ConstData* data)
+void X86Emitter::emitIns_C(instruction ins, emitAttr attr, ConstData* data)
 {
     instrDesc* id = emitNewInstr();
     id->idIns(ins);
@@ -1944,7 +1944,7 @@ void emitter::emitIns_C(instruction ins, emitAttr attr, ConstData* data)
 #endif
 }
 
-bool emitter::IsMovInstruction(instruction ins)
+bool X86Emitter::IsMovInstruction(instruction ins)
 {
     switch (ins)
     {
@@ -1988,7 +1988,7 @@ bool emitter::IsMovInstruction(instruction ins)
 //         mov rax, rbx  # <-- last instruction
 //         mov rbx, rax  # <-- current instruction can be omitted.
 //
-bool emitter::IsRedundantMov(instruction ins, emitAttr size, regNumber dst, regNumber src, bool canIgnoreSideEffects)
+bool X86Emitter::IsRedundantMov(instruction ins, emitAttr size, regNumber dst, regNumber src, bool canIgnoreSideEffects)
 {
     assert(IsMovInstruction(ins));
 
@@ -2103,7 +2103,7 @@ bool emitter::IsRedundantMov(instruction ins, emitAttr size, regNumber dst, regN
     return false;
 }
 
-void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regNumber srcReg, bool canSkip)
+void X86Emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regNumber srcReg, bool canSkip)
 {
     assert(IsMovInstruction(ins));
 
@@ -2180,7 +2180,7 @@ void emitter::emitIns_Mov(instruction ins, emitAttr attr, regNumber dstReg, regN
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2)
+void X86Emitter::emitIns_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2)
 {
     assert(!HasImplicitRegPairDest(ins) && (ins != INS_imuli));
     assert(!IsMovInstruction(ins));
@@ -2201,7 +2201,7 @@ void emitter::emitIns_R_R(instruction ins, emitAttr attr, regNumber reg1, regNum
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int32_t imm)
+void X86Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int32_t imm)
 {
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
@@ -2220,7 +2220,7 @@ void emitter::emitIns_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regN
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_AR(instruction ins, emitAttr attr, regNumber base, int32_t disp)
+void X86Emitter::emitIns_AR(instruction ins, emitAttr attr, regNumber base, int32_t disp)
 {
     assert(IsPrefetch(ins) && (attr == EA_1BYTE));
 
@@ -2236,7 +2236,7 @@ void emitter::emitIns_AR(instruction ins, emitAttr attr, regNumber base, int32_t
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_AR_R_R(
+void X86Emitter::emitIns_AR_R_R(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber base, int32_t disp)
 {
     assert(IsVexTernary(ins) && !EA_IS_GCREF_OR_BYREF(attr));
@@ -2257,7 +2257,7 @@ void emitter::emitIns_AR_R_R(
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg, GenTree* addr)
+void X86Emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg, GenTree* addr)
 {
     assert(!HasImplicitRegPairDest(ins) && (ins != INS_imuli));
 
@@ -2289,7 +2289,7 @@ void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg, GenTree
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenTree* addr, int32_t imm)
+void X86Emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenTree* addr, int32_t imm)
 {
     assert(IsSSEOrAVXOrBMIInstruction(ins) || (ins == INS_imuli));
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
@@ -2318,7 +2318,7 @@ void emitter::emitIns_R_A_I(instruction ins, emitAttr attr, regNumber reg1, GenT
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, ConstData* data, int32_t imm)
+void X86Emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, ConstData* data, int32_t imm)
 {
     assert(IsSSEOrAVXOrBMIInstruction(ins) || (ins == INS_imuli));
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
@@ -2340,7 +2340,7 @@ void emitter::emitIns_R_C_I(instruction ins, emitAttr attr, regNumber reg1, Cons
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, StackAddrMode s, int32_t imm)
+void X86Emitter::emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, StackAddrMode s, int32_t imm)
 {
     assert(IsSSEOrAVXOrBMIInstruction(ins) || (ins == INS_imuli));
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
@@ -2362,7 +2362,7 @@ void emitter::emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, Stac
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr)
+void X86Emitter::emitIns_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr)
 {
     if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
@@ -2393,14 +2393,14 @@ static bool IsAVX2GatherInstruction(instruction ins)
 }
 #endif
 
-void emitter::emitIns_R_AR_R(instruction ins,
-                             emitAttr    attr,
-                             regNumber   reg1,
-                             regNumber   reg2,
-                             regNumber   base,
-                             regNumber   index,
-                             int         scale,
-                             int32_t     disp)
+void X86Emitter::emitIns_R_AR_R(instruction ins,
+                                emitAttr    attr,
+                                regNumber   reg1,
+                                regNumber   reg2,
+                                regNumber   base,
+                                regNumber   index,
+                                int         scale,
+                                int32_t     disp)
 {
     assert(IsAVX2GatherInstruction(ins) && !EA_IS_GCREF_OR_BYREF(attr));
 
@@ -2420,7 +2420,7 @@ void emitter::emitIns_R_AR_R(instruction ins,
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ConstData* data)
+void X86Emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ConstData* data)
 {
     assert(IsVexTernary(ins) && !EA_IS_GCREF_OR_BYREF(attr));
 
@@ -2439,7 +2439,7 @@ void emitter::emitIns_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regN
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3)
+void X86Emitter::emitIns_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3)
 {
     assert(IsVexTernary(ins) && !EA_IS_GCREF_OR_BYREF(attr));
 
@@ -2457,7 +2457,7 @@ void emitter::emitIns_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regN
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, StackAddrMode s)
+void X86Emitter::emitIns_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, StackAddrMode s)
 {
     assert(IsVexTernary(ins) && !EA_IS_GCREF_OR_BYREF(attr));
 
@@ -2475,7 +2475,7 @@ void emitter::emitIns_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regN
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_R_A_I(
+void X86Emitter::emitIns_R_R_A_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr, int32_t imm)
 {
     if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
@@ -2502,7 +2502,7 @@ void emitter::emitIns_R_R_A_I(
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_R_C_I(
+void X86Emitter::emitIns_R_R_C_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ConstData* data, int32_t imm)
 {
     assert(IsVexTernary(ins));
@@ -2524,7 +2524,7 @@ void emitter::emitIns_R_R_C_I(
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_R_R_I(
+void X86Emitter::emitIns_R_R_R_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, int32_t imm)
 {
     assert(IsVexTernary(ins));
@@ -2545,7 +2545,7 @@ void emitter::emitIns_R_R_R_I(
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_R_S_I(
+void X86Emitter::emitIns_R_R_S_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, StackAddrMode s, int32_t imm)
 {
     assert(IsVexTernary(ins));
@@ -2578,7 +2578,7 @@ static int8_t EncodeXmmRegAsImm(regNumber reg)
     return static_cast<int8_t>(imm);
 }
 
-void emitter::emitIns_R_R_A_R(
+void X86Emitter::emitIns_R_R_A_R(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, GenTree* addr)
 {
     assert(UseVEXEncoding());
@@ -2605,7 +2605,7 @@ void emitter::emitIns_R_R_A_R(
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_R_C_R(
+void X86Emitter::emitIns_R_R_C_R(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, ConstData* data)
 {
     assert(UseVEXEncoding());
@@ -2627,7 +2627,7 @@ void emitter::emitIns_R_R_C_R(
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_R_S_R(
+void X86Emitter::emitIns_R_R_S_R(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, StackAddrMode s)
 {
     assert(UseVEXEncoding());
@@ -2648,7 +2648,7 @@ void emitter::emitIns_R_R_S_R(
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_R_R_R(
+void X86Emitter::emitIns_R_R_R_R(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, regNumber reg4)
 {
     assert(IsAvxBlendv(ins));
@@ -2669,7 +2669,7 @@ void emitter::emitIns_R_R_R_R(
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, ConstData* data)
+void X86Emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, ConstData* data)
 {
     assert(!HasImplicitRegPairDest(ins) && (ins != INS_imuli));
     X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg)));
@@ -2705,7 +2705,7 @@ void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, ConstDa
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_C_R(instruction ins, emitAttr attr, ConstData* data, regNumber reg)
+void X86Emitter::emitIns_C_R(instruction ins, emitAttr attr, ConstData* data, regNumber reg)
 {
     X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg)));
 
@@ -2748,7 +2748,7 @@ void emitter::emitIns_C_R(instruction ins, emitAttr attr, ConstData* data, regNu
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_C_I(instruction ins, emitAttr attr, ConstData* data, int32_t imm)
+void X86Emitter::emitIns_C_I(instruction ins, emitAttr attr, ConstData* data, int32_t imm)
 {
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
@@ -2767,7 +2767,7 @@ void emitter::emitIns_C_I(instruction ins, emitAttr attr, ConstData* data, int32
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_L(RegNum reg, insGroup* label)
+void X86Emitter::emitIns_R_L(RegNum reg, insGroup* label)
 {
 #ifdef DEBUG
     if (codeGen->GetCurrentBlock()->bbJumpKind == BBJ_EHCATCHRET)
@@ -2799,7 +2799,7 @@ void emitter::emitIns_R_L(RegNum reg, insGroup* label)
 }
 
 #ifdef TARGET_X86
-void emitter::emitIns_R_L(RegNum reg, ConstData* data)
+void X86Emitter::emitIns_R_L(RegNum reg, ConstData* data)
 {
     instrDescJmp* id = emitNewInstrJmp();
     id->idIns(INS_mov);
@@ -2816,7 +2816,7 @@ void emitter::emitIns_R_L(RegNum reg, ConstData* data)
 }
 #endif // TARGET_X86
 
-void emitter::emitIns_R_AH(instruction ins, regNumber reg, void* addr)
+void X86Emitter::emitIns_R_AH(instruction ins, regNumber reg, void* addr)
 {
 #ifdef TARGET_X86
     assert(ins == INS_mov);
@@ -2842,7 +2842,7 @@ void emitter::emitIns_R_AH(instruction ins, regNumber reg, void* addr)
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_S_R_I(instruction ins, emitAttr attr, StackAddrMode s, regNumber reg, int32_t imm)
+void X86Emitter::emitIns_S_R_I(instruction ins, emitAttr attr, StackAddrMode s, regNumber reg, int32_t imm)
 {
     assert(ins == INS_vextracti128 || ins == INS_vextractf128);
     assert(attr == EA_32BYTE);
@@ -2862,7 +2862,7 @@ void emitter::emitIns_S_R_I(instruction ins, emitAttr attr, StackAddrMode s, reg
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_A_R_I(instruction ins, emitAttr attr, GenTree* addr, regNumber reg, int32_t imm)
+void X86Emitter::emitIns_A_R_I(instruction ins, emitAttr attr, GenTree* addr, regNumber reg, int32_t imm)
 {
     if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
@@ -2888,7 +2888,7 @@ void emitter::emitIns_A_R_I(instruction ins, emitAttr attr, GenTree* addr, regNu
     emitCurIGsize += size;
 }
 
-void emitter::emitIns_C_R_I(instruction ins, emitAttr attr, ConstData* data, regNumber reg, int32_t imm)
+void X86Emitter::emitIns_C_R_I(instruction ins, emitAttr attr, ConstData* data, regNumber reg, int32_t imm)
 {
     assert((ins == INS_vextracti128) || (ins == INS_vextractf128));
     assert(attr == EA_32BYTE);
@@ -2909,7 +2909,7 @@ void emitter::emitIns_C_R_I(instruction ins, emitAttr attr, ConstData* data, reg
     emitCurIGsize += size;
 }
 
-void emitter::emitIns_ARX_I(
+void X86Emitter::emitIns_ARX_I(
     instruction ins, emitAttr attr, regNumber base, regNumber index, unsigned scale, int32_t disp, int32_t imm)
 {
     assert(!IsX87LdSt(ins) && (EA_SIZE(attr) <= EA_8BYTE));
@@ -2930,12 +2930,12 @@ void emitter::emitIns_ARX_I(
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_AR(instruction ins, emitAttr attr, regNumber reg, regNumber base, int32_t disp)
+void X86Emitter::emitIns_R_AR(instruction ins, emitAttr attr, regNumber reg, regNumber base, int32_t disp)
 {
     emitIns_R_ARX(ins, attr, reg, base, REG_NA, 1, disp);
 }
 
-void emitter::emitIns_R_ARX(
+void X86Emitter::emitIns_R_ARX(
     instruction ins, emitAttr attr, regNumber reg, regNumber base, regNumber index, unsigned scale, int32_t disp)
 {
     assert(!IsX87LdSt(ins) && (EA_SIZE(attr) <= EA_32BYTE) && (reg != REG_NA));
@@ -2943,7 +2943,7 @@ void emitter::emitIns_R_ARX(
 
     if ((ins == INS_lea) && (reg == base) && (index == REG_NA) && (disp == 0))
     {
-        // Maybe the emitter is not the common place for this optimization, but it's a better choke point
+        // Maybe the X86Emitter is not the common place for this optimization, but it's a better choke point
         // for all the emitIns(ins, tree), we would have to be analyzing at each call site
         //
         return;
@@ -2965,17 +2965,18 @@ void emitter::emitIns_R_ARX(
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_ARX(instruction ins, emitAttr attr, regNumber base, regNumber index, unsigned scale, int32_t disp)
+void X86Emitter::emitIns_ARX(
+    instruction ins, emitAttr attr, regNumber base, regNumber index, unsigned scale, int32_t disp)
 {
     emitIns_ARX_R(ins, attr, REG_NA, base, index, scale, disp);
 }
 
-void emitter::emitIns_AR_R(instruction ins, emitAttr attr, regNumber reg, regNumber base, int32_t disp)
+void X86Emitter::emitIns_AR_R(instruction ins, emitAttr attr, regNumber reg, regNumber base, int32_t disp)
 {
     emitIns_ARX_R(ins, attr, reg, base, REG_NA, 1, disp);
 }
 
-void emitter::emitIns_ARX_R(
+void X86Emitter::emitIns_ARX_R(
     instruction ins, emitAttr attr, regNumber reg, regNumber base, regNumber index, unsigned scale, int32_t disp)
 {
     assert(!IsReallyVexTernary(ins));
@@ -3015,7 +3016,7 @@ void emitter::emitIns_ARX_R(
 #endif
 }
 
-void emitter::emitIns_SIMD_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int32_t imm)
+void X86Emitter::emitIns_SIMD_R_R_I(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int32_t imm)
 {
     if (UseVEXEncoding() || IsSseDstSrcImm(ins))
     {
@@ -3028,7 +3029,7 @@ void emitter::emitIns_SIMD_R_R_I(instruction ins, emitAttr attr, regNumber reg1,
     }
 }
 
-void emitter::emitIns_SIMD_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr)
+void X86Emitter::emitIns_SIMD_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr)
 {
     if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
@@ -3045,7 +3046,7 @@ void emitter::emitIns_SIMD_R_R_A(instruction ins, emitAttr attr, regNumber reg1,
     }
 }
 
-void emitter::emitIns_SIMD_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ConstData* data)
+void X86Emitter::emitIns_SIMD_R_R_C(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ConstData* data)
 {
     if (UseVEXEncoding())
     {
@@ -3058,7 +3059,7 @@ void emitter::emitIns_SIMD_R_R_C(instruction ins, emitAttr attr, regNumber reg1,
     }
 }
 
-void emitter::emitIns_SIMD_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3)
+void X86Emitter::emitIns_SIMD_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3)
 {
     if (UseVEXEncoding())
     {
@@ -3082,7 +3083,7 @@ void emitter::emitIns_SIMD_R_R_R(instruction ins, emitAttr attr, regNumber reg1,
     }
 }
 
-void emitter::emitIns_SIMD_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, StackAddrMode s)
+void X86Emitter::emitIns_SIMD_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, StackAddrMode s)
 {
     if (UseVEXEncoding())
     {
@@ -3095,7 +3096,7 @@ void emitter::emitIns_SIMD_R_R_S(instruction ins, emitAttr attr, regNumber reg1,
     }
 }
 
-void emitter::emitIns_SIMD_R_R_A_I(
+void X86Emitter::emitIns_SIMD_R_R_A_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, GenTree* addr, int32_t imm)
 {
     if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
@@ -3113,7 +3114,7 @@ void emitter::emitIns_SIMD_R_R_A_I(
     }
 }
 
-void emitter::emitIns_SIMD_R_R_C_I(
+void X86Emitter::emitIns_SIMD_R_R_C_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ConstData* data, int32_t imm)
 {
     if (UseVEXEncoding())
@@ -3127,7 +3128,7 @@ void emitter::emitIns_SIMD_R_R_C_I(
     }
 }
 
-void emitter::emitIns_SIMD_R_R_R_I(
+void X86Emitter::emitIns_SIMD_R_R_R_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, int32_t imm)
 {
     if (UseVEXEncoding())
@@ -3144,7 +3145,7 @@ void emitter::emitIns_SIMD_R_R_R_I(
     }
 }
 
-void emitter::emitIns_SIMD_R_R_S_I(
+void X86Emitter::emitIns_SIMD_R_R_S_I(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, StackAddrMode s, int32_t imm)
 {
     if (UseVEXEncoding())
@@ -3158,7 +3159,7 @@ void emitter::emitIns_SIMD_R_R_S_I(
     }
 }
 
-void emitter::emitIns_SIMD_R_R_R_A(
+void X86Emitter::emitIns_SIMD_R_R_R_A(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, GenTree* addr)
 {
     if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
@@ -3177,7 +3178,7 @@ void emitter::emitIns_SIMD_R_R_R_A(
     emitIns_R_R_A(ins, attr, reg1, reg3, addr);
 }
 
-void emitter::emitIns_SIMD_R_R_R_C(
+void X86Emitter::emitIns_SIMD_R_R_R_C(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, ConstData* data)
 {
     assert(IsFMAInstruction(ins));
@@ -3190,7 +3191,7 @@ void emitter::emitIns_SIMD_R_R_R_C(
     emitIns_R_R_C(ins, attr, reg1, reg3, data);
 }
 
-void emitter::emitIns_SIMD_R_R_R_R(
+void X86Emitter::emitIns_SIMD_R_R_R_R(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, regNumber reg4)
 {
     if (IsFMAInstruction(ins) || IsAVXVNNIInstruction(ins))
@@ -3228,7 +3229,7 @@ void emitter::emitIns_SIMD_R_R_R_R(
     }
 }
 
-void emitter::emitIns_SIMD_R_R_R_S(
+void X86Emitter::emitIns_SIMD_R_R_R_S(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, StackAddrMode s)
 {
     assert(IsFMAInstruction(ins) || IsAVXVNNIInstruction(ins));
@@ -3241,7 +3242,7 @@ void emitter::emitIns_SIMD_R_R_R_S(
     emitIns_R_R_S(ins, attr, reg1, reg3, s);
 }
 
-void emitter::emitIns_SIMD_R_R_A_R(
+void X86Emitter::emitIns_SIMD_R_R_A_R(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, GenTree* addr)
 {
     if (UseVEXEncoding())
@@ -3259,7 +3260,7 @@ void emitter::emitIns_SIMD_R_R_A_R(
     }
 }
 
-void emitter::emitIns_SIMD_R_R_S_R(
+void X86Emitter::emitIns_SIMD_R_R_S_R(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, StackAddrMode s)
 {
     if (UseVEXEncoding())
@@ -3277,7 +3278,7 @@ void emitter::emitIns_SIMD_R_R_S_R(
     }
 }
 
-void emitter::emitIns_S(instruction ins, emitAttr attr, StackAddrMode s)
+void X86Emitter::emitIns_S(instruction ins, emitAttr attr, StackAddrMode s)
 {
     instrDesc* id = emitNewInstr();
     id->idIns(ins);
@@ -3296,7 +3297,7 @@ void emitter::emitIns_S(instruction ins, emitAttr attr, StackAddrMode s)
 #endif
 }
 
-void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s)
+void X86Emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s)
 {
     assert(!IsReallyVexTernary(ins));
     X86_ONLY(assert((attr != EA_1BYTE) || isByteReg(reg)));
@@ -3315,7 +3316,7 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, StackAd
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s)
+void X86Emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s)
 {
     assert(!HasImplicitRegPairDest(ins) && (ins != INS_imuli));
     X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg)));
@@ -3334,7 +3335,7 @@ void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, StackAd
     emitCurIGsize += sz;
 }
 
-void emitter::emitIns_S_I(instruction ins, emitAttr attr, StackAddrMode s, int32_t imm)
+void X86Emitter::emitIns_S_I(instruction ins, emitAttr attr, StackAddrMode s, int32_t imm)
 {
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
@@ -3359,7 +3360,7 @@ void emitter::emitIns_S_I(instruction ins, emitAttr attr, StackAddrMode s, int32
 #define CALL_INST_SIZE (5)
 
 #ifdef TARGET_X86
-void emitter::emitIns_L(instruction ins, insGroup* label)
+void X86Emitter::emitIns_L(instruction ins, insGroup* label)
 {
     assert(ins == INS_push_hide);
     assert(label != nullptr);
@@ -3378,7 +3379,7 @@ void emitter::emitIns_L(instruction ins, insGroup* label)
 #endif // TARGET_X86
 
 #ifdef TARGET_AMD64
-void emitter::emitIns_CallFinally(insGroup* label)
+void X86Emitter::emitIns_CallFinally(insGroup* label)
 {
     assert(codeGen->GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY);
     INDEBUG(VerifyCallFinally(label));
@@ -3395,7 +3396,7 @@ void emitter::emitIns_CallFinally(insGroup* label)
 }
 #endif // TARGET_AMD64
 
-void emitter::emitIns_J(instruction ins, int instrCount)
+void X86Emitter::emitIns_J(instruction ins, int instrCount)
 {
     assert(IsMainProlog(emitCurIG));
     assert(IsJccInstruction(ins));
@@ -3411,7 +3412,7 @@ void emitter::emitIns_J(instruction ins, int instrCount)
     emitCurIGsize += JMP_JCC_SIZE_SMALL;
 }
 
-void emitter::emitIns_J(instruction ins, insGroup* label)
+void X86Emitter::emitIns_J(instruction ins, insGroup* label)
 {
     assert((ins == INS_jmp) || IsJccInstruction(ins));
     assert(emitCurIG->GetFuncletIndex() == label->GetFuncletIndex());
@@ -3445,12 +3446,12 @@ void emitter::emitIns_J(instruction ins, insGroup* label)
     emitCurIGsize += sz;
 }
 
-ssize_t emitter::instrDesc::GetImm() const
+ssize_t X86Emitter::instrDesc::GetImm() const
 {
     return _idLargeCns ? static_cast<const instrDescCns*>(this)->idcCnsVal : _idSmallCns;
 }
 
-ssize_t emitter::instrDesc::GetMemDisp() const
+ssize_t X86Emitter::instrDesc::GetMemDisp() const
 {
     if (!_idLargeDsp)
     {
@@ -3466,7 +3467,7 @@ ssize_t emitter::instrDesc::GetMemDisp() const
     }
 }
 
-ssize_t emitter::instrDesc::GetAmDisp() const
+ssize_t X86Emitter::instrDesc::GetAmDisp() const
 {
     if (!_idLargeDsp)
     {
@@ -3482,7 +3483,7 @@ ssize_t emitter::instrDesc::GetAmDisp() const
     }
 }
 
-ssize_t emitter::instrDesc::GetCallDisp() const
+ssize_t X86Emitter::instrDesc::GetCallDisp() const
 {
     if (_idLargeCall)
     {
@@ -3498,7 +3499,7 @@ ssize_t emitter::instrDesc::GetCallDisp() const
 }
 
 #if !FEATURE_FIXED_OUT_ARGS
-void emitter::emitMarkStackLvl(unsigned stackLevel)
+void X86Emitter::emitMarkStackLvl(unsigned stackLevel)
 {
     assert(int(stackLevel) >= 0);
     assert(emitCurStackLvl == 0);
@@ -3516,7 +3517,7 @@ void emitter::emitMarkStackLvl(unsigned stackLevel)
     }
 }
 
-void emitter::emitAdjustStackDepthPushPop(instruction ins)
+void X86Emitter::emitAdjustStackDepthPushPop(instruction ins)
 {
     if (ins == INS_push)
     {
@@ -3535,7 +3536,7 @@ void emitter::emitAdjustStackDepthPushPop(instruction ins)
     }
 }
 
-void emitter::emitAdjustStackDepth(instruction ins, ssize_t val)
+void X86Emitter::emitAdjustStackDepth(instruction ins, ssize_t val)
 {
     // If we're in the prolog or epilog, or otherwise not tracking the stack depth, just return.
     if (emitCntStackDepth == 0)
@@ -3577,24 +3578,24 @@ void emitter::emitAdjustStackDepth(instruction ins, ssize_t val)
 // EC_INDIR_R          : call ireg (addr has to be null)
 // EC_INDIR_ARD        : call [ireg + xreg * xmul + disp] (addr has to be null)
 //
-void emitter::emitIns_Call(EmitCallType          kind,
-                           CORINFO_METHOD_HANDLE methodHandle,
+void X86Emitter::emitIns_Call(EmitCallType          kind,
+                              CORINFO_METHOD_HANDLE methodHandle,
 #ifdef DEBUG
-                           CORINFO_SIG_INFO* sigInfo,
+                              CORINFO_SIG_INFO* sigInfo,
 #endif
-                           void* addr,
+                              void* addr,
 #ifdef TARGET_X86
-                           int32_t argSize,
+                              int32_t argSize,
 #endif
-                           emitAttr retRegAttr,
+                              emitAttr retRegAttr,
 #ifdef UNIX_AMD64_ABI
-                           emitAttr retReg2Attr,
+                              emitAttr retReg2Attr,
 #endif
-                           regNumber amBase,
-                           regNumber amIndex,
-                           unsigned  amScale,
-                           int32_t   amDisp,
-                           bool      isJump)
+                              regNumber amBase,
+                              regNumber amIndex,
+                              unsigned  amScale,
+                              int32_t   amDisp,
+                              bool      isJump)
 {
     assert((kind != EC_FUNC_TOKEN && kind != EC_FUNC_TOKEN_INDIR) ||
            (amBase == REG_NA && amIndex == REG_NA && amScale == 0 && amDisp == 0));
@@ -4001,7 +4002,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
 }
 #endif
 
-size_t emitter::instrDescSmall::GetDescSize() const
+size_t X86Emitter::instrDescSmall::GetDescSize() const
 {
     if (_idSmallDsc)
     {
@@ -4052,7 +4053,7 @@ size_t emitter::instrDescSmall::GetDescSize() const
 
 #ifdef DEBUG
 
-void emitter::PrintHexCode(instrDesc* id, const uint8_t* code, size_t size)
+void X86Emitter::PrintHexCode(instrDesc* id, const uint8_t* code, size_t size)
 {
     constexpr size_t minSize = 6 AMD64_ONLY(+4);
     constexpr size_t maxSize = 15;
@@ -4087,12 +4088,12 @@ class AsmPrinter
     using instrDesc    = Emitter::instrDesc;
     using instrDescJmp = Emitter::instrDescJmp;
 
-    Compiler* compiler;
-    Emitter*  emitter;
-    bool      asmfm;
+    Compiler*   compiler;
+    X86Emitter* emitter;
+    bool        asmfm;
 
 public:
-    AsmPrinter(Emitter* emitter, bool asmfm) : compiler(emitter->emitComp), emitter(emitter), asmfm(asmfm)
+    AsmPrinter(X86Emitter* emitter, bool asmfm) : compiler(emitter->emitComp), emitter(emitter), asmfm(asmfm)
     {
     }
 
@@ -4846,7 +4847,8 @@ private:
     }
 };
 
-void emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, uint8_t* code, size_t sz)
+void X86Emitter::emitDispIns(
+    instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, uint8_t* code, size_t sz)
 {
     if (id->idInsFmt() == IF_GC_REG)
     {
@@ -5161,10 +5163,10 @@ static bool HasSBit(instruction ins)
     return ((INS_add <= ins) && (ins <= INS_cmp)) || (ins == INS_imuli);
 }
 
-class X86Encoder : public Emitter::Encoder<emitter>
+class X86Encoder : public Emitter::Encoder<X86Emitter>
 {
 public:
-    X86Encoder(Emitter* emit) : Encoder(emit)
+    X86Encoder(X86Emitter* emit) : Encoder(emit)
     {
     }
 
@@ -6469,7 +6471,7 @@ uint8_t* X86Encoder::emitOutputR(uint8_t* dst, instrDesc* id)
     return dst;
 }
 
-emitter::code_t X86Encoder::AddVexPrefixIfNeeded(instruction ins, code_t code, emitAttr size)
+X86Emitter::code_t X86Encoder::AddVexPrefixIfNeeded(instruction ins, code_t code, emitAttr size)
 {
     if (TakesVexPrefix(ins))
     {
@@ -6738,7 +6740,7 @@ uint8_t* X86Encoder::emitOutputRR(uint8_t* dst, instrDesc* id)
                         //        *  STORE_LCL_VAR byref  V40 tmp31 rdx REG rdx                 
                         // Here, V01 is type `long` on entry, then is stored as a byref. But because
                         // the register allocator assigned the same register, no instruction was
-                        // generated, and we only (currently) make gcref/byref changes in emitter GC info
+                        // generated, and we only (currently) make gcref/byref changes in X86Emitter GC info
                         // when an instruction is generated. We still generate correct GC info, as this
                         // instruction, if writing a GC ref even through reading a long, will go live here.
                         // These situations typically occur due to unsafe casting, such as with Span<T>.
@@ -7591,7 +7593,7 @@ uint8_t* X86Encoder::emitOutputNoOperands(uint8_t* dst, instrDesc* id)
 
 void EmitterBase::emitEndCodeGen()
 {
-    X86Encoder encoder(static_cast<emitter*>(this));
+    X86Encoder encoder(static_cast<X86Emitter*>(this));
     encoder.emitEndCodeGen();
 }
 
@@ -8162,7 +8164,7 @@ size_t X86Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 #if defined(DEBUG) || defined(LATE_DISASM)
 
 template <>
-insFormat emitter::Encoder<emitter>::getMemoryOperation(instrDesc* id)
+insFormat X86Emitter::Encoder<X86Emitter>::getMemoryOperation(instrDesc* id)
 {
     if (id->idIns() == INS_lea)
     {
@@ -8184,7 +8186,7 @@ insFormat emitter::Encoder<emitter>::getMemoryOperation(instrDesc* id)
 //   2. uops.info - https://uops.info/table.html
 //
 template <>
-emitter::insExecutionCharacteristics emitter::Encoder<emitter>::getInsExecutionCharacteristics(instrDesc* id)
+X86Emitter::insExecutionCharacteristics X86Emitter::Encoder<X86Emitter>::getInsExecutionCharacteristics(instrDesc* id)
 {
     insExecutionCharacteristics result;
     instruction                 ins    = id->idIns();
