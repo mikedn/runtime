@@ -6,6 +6,7 @@
 class ArmEmitter : public EmitterBase
 {
     friend class ArmEncoder;
+    friend class AsmPrinter;
     friend class EmitterBase;
 
 public:
@@ -99,9 +100,7 @@ public:
     /************************************************************************/
     /*                   Interface for generating unwind information        */
     /************************************************************************/
-    void emitUnwindNopPadding(const emitLocation& loc);
     unsigned emitGetInstructionSize(const emitLocation& emit);
-    uint8_t* emitOffsetToPtr(unsigned offset) const;
 
 private:
     template <typename T>
@@ -134,7 +133,7 @@ private:
                      unsigned   offs  = 0,
                      uint8_t*   code  = 0,
                      size_t     sz    = 0);
-
+    uint8_t* emitOffsetToPtr(unsigned offset) const;
 #endif // DEBUG
 };
 

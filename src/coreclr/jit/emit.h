@@ -15,6 +15,7 @@ insOpts emitSimdArrangementOpt(emitAttr size, var_types elementType);
 class CodeGen;
 class EmitterBase;
 class emitter;
+class Encoder;
 struct insGroup;
 
 struct CodeRange
@@ -295,6 +296,7 @@ class EmitterBase
     friend class emitLocation;
     friend class GCInfo;
     friend class AsmPrinter;
+    friend class Encoder;
     friend struct insGroup;
 
 protected:
@@ -1375,19 +1377,6 @@ public:
 #define PERFSCORE_MEMORY_READ_WRITE 3
 
 protected:
-    // TODO-MIKE-Cleanup: These should be double. Bozos defined them as float, even if they wanted
-    // double precision computations. Now of course that changing these now to double resuls in
-    // perf scores diffs, because 0.10f isn't the same as 0.10.
-    static constexpr float PERFSCORE_CODESIZE_COST_HOT  = 0.10f;
-    static constexpr float PERFSCORE_CODESIZE_COST_COLD = 0.01f;
-
-    struct insExecutionCharacteristics
-    {
-        float    insThroughput;
-        float    insLatency;
-        unsigned insMemoryAccessKind;
-    };
-
     BasicBlock::weight_t getCurrentBlockWeight();
 #endif // defined(DEBUG) || defined(LATE_DISASM)
 
@@ -1683,15 +1672,19 @@ public:
     void SetLabelGCLiveness(insGroup* label);
     insGroup* DefineInlineTempLabel();
 
-protected:
 #ifdef TARGET_ARMARCH
+protected:
     void emitGetInstrDescs(insGroup* ig, instrDesc** id, int* insCnt);
     bool emitGetLocationInfo(const emitLocation& emitLoc, insGroup** pig, instrDesc** pid, int* pinsRemaining = NULL);
     bool GetNextInstr(insGroup*& ig, instrDesc*& id, int& insRemaining);
     typedef void (*WalkInstrCallback)(instrDesc* id, void* context);
     void WalkInstr(const emitLocation& locFrom, WalkInstrCallback callback, void* context);
+
+public:
+    void emitUnwindNopPadding(const emitLocation& loc);
 #endif // TARGET_ARMARCH
 
+protected:
     int emitNextRandomNop();
 
     instrDescSmall* emitAllocAnyInstr(unsigned sz, bool updateLastIns);
@@ -1728,125 +1721,6 @@ protected:
     };
 
     RoData roData;
-
-    template <typename E>
-    class Encoder
-    {
-    protected:
-        using instrDescSmall = instrDescSmall;
-        using instrDesc      = instrDesc;
-        using instrDescJmp   = instrDescJmp;
-#ifdef TARGET_ARMARCH
-        using instrDescCns = instrDescCns;
-#endif
-#if FEATURE_LOOP_ALIGN
-        using instrDescAlign = instrDescAlign;
-#endif
-
-        Compiler*  emitComp;
-        CodeGen*   codeGen;
-        E&         emit;
-        GCInfo&    gcInfo;
-        RoData&    roData;
-        unsigned   totalCodeSize;
-        unsigned   hotCodeSize;
-        uint8_t*   emitCodeBlock;
-        uint8_t*   emitColdCodeBlock;
-        uint8_t*   emitConsBlock;
-        size_t     writeableOffset = 0;
-        insGroup*& emitCurIG;
-#ifdef JIT32_GCENCODER
-        unsigned& emitCurStackLvl;
-#endif
-
-        Encoder(E* emit)
-            : emitComp(emit->emitComp)
-            , codeGen(emit->codeGen)
-            , emit(*emit)
-            , gcInfo(emit->gcInfo)
-            , roData(emit->roData)
-            , totalCodeSize(emit->emitTotalCodeSize)
-            , hotCodeSize(emit->emitTotalHotCodeSize)
-            , emitCurIG(emit->emitCurIG)
-#ifdef JIT32_GCENCODER
-            , emitCurStackLvl(emit->emitCurStackLvl)
-#endif
-        {
-            assert(emitCurIG == nullptr);
-        }
-
-    public:
-        void emitEndCodeGen();
-
-    protected:
-        unsigned GetColdCodeSize() const
-        {
-            return totalCodeSize - hotCodeSize;
-        }
-
-        size_t emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp);
-        virtual size_t emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp) = 0;
-        void OutputRoData(uint8_t* dst);
-
-        void emitGCregLiveUpd(GCtype gcType, RegNum reg, uint8_t* addr);
-        void emitGCregDeadUpd(RegNum reg, uint8_t* addr);
-#ifdef FEATURE_EH_FUNCLETS
-        void emitGCregDeadAll(uint8_t* addr);
-#endif
-        void emitGCvarLiveUpd(int slotOffs, GCtype gcType, uint8_t* addr DEBUGARG(int varNum));
-#if FEATURE_FIXED_OUT_ARGS
-        void emitGCargLiveUpd(int offs, GCtype gcType, uint8_t* addr DEBUGARG(int varNum));
-#endif
-        size_t emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* callEndAddr);
-        void emitRecordCallSite(unsigned instrOffset, CORINFO_SIG_INFO* callSig, CORINFO_METHOD_HANDLE methodHandle);
-        void emitRecordRelocation(void* location, void* target, uint16_t relocType, int32_t addlDelta = 0);
-
-        unsigned emitFindInsNum(const insGroup* ig, const instrDesc* instr)
-        {
-            return emit.emitFindInsNum(ig, instr);
-        }
-
-        unsigned emitCurCodeOffs(uint8_t* dst) const;
-        uint8_t* emitOffsetToPtr(unsigned offset) const;
-        uint8_t* emitDataOffsetToPtr(unsigned offset) const;
-
-#if FEATURE_LOOP_ALIGN
-        unsigned emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offset DEBUG_ARG(bool isAlignAdjusted))
-        {
-            return emit.emitCalculatePaddingForLoopAlignment(ig, offset DEBUGARG(isAlignAdjusted));
-        }
-#endif
-
-#ifdef JIT32_GCENCODER
-        void emitStackPush(unsigned codeOffs, GCtype type);
-        void emitStackPushN(unsigned codeOffs, unsigned count);
-        void emitStackPop(unsigned codeOffs, unsigned count);
-        void emitStackPopArgs(unsigned codeOffs, unsigned count);
-        void emitStackKillArgs(unsigned codeOffs, unsigned count);
-#endif
-
-#ifdef DEBUG
-        void PrintRoData() const;
-        void GetGCDeltaDumpHeader(char* buffer, size_t count);
-        bool emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset) const;
-
-        const char* emitIfName(unsigned f)
-        {
-            return emit.emitIfName(f);
-        }
-#endif
-
-#if defined(DEBUG) || defined(LATE_DISASM)
-#if defined(TARGET_XARCH)
-        static insFormat getMemoryOperation(instrDesc* id);
-#elif defined(TARGET_ARM64)
-        void getMemoryOperation(instrDesc* id, unsigned* pMemAccessKind, bool* pIsLocalAccess);
-#endif
-        float insEvaluateExecutionCost(instrDesc* id);
-        insExecutionCharacteristics getInsExecutionCharacteristics(instrDesc* id);
-        void perfScoreUnhandledInstruction(instrDesc* id, insExecutionCharacteristics* result);
-#endif
-    };
 };
 
 #if defined(TARGET_XARCH)
@@ -1868,3 +1742,137 @@ public:
 };
 
 using Emitter = emitter;
+
+class Encoder
+{
+protected:
+    using instrDescSmall = Emitter::instrDescSmall;
+    using instrDesc      = Emitter::instrDesc;
+    using instrDescJmp   = Emitter::instrDescJmp;
+    using instrDescCGCA  = Emitter::instrDescCGCA;
+#ifdef TARGET_ARMARCH
+    using instrDescCns = Emitter::instrDescCns;
+#endif
+#if FEATURE_LOOP_ALIGN
+    using instrDescAlign = Emitter::instrDescAlign;
+#endif
+    using RoData      = EmitterBase::RoData;
+    using DataSection = EmitterBase::DataSection;
+
+    Compiler*    emitComp;
+    CodeGen*     codeGen;
+    ArchEmitter& emit;
+    GCInfo&      gcInfo;
+    RoData&      roData;
+    unsigned     totalCodeSize;
+    unsigned     hotCodeSize;
+    uint8_t*     emitCodeBlock;
+    uint8_t*     emitColdCodeBlock;
+    uint8_t*     emitConsBlock;
+    size_t       writeableOffset = 0;
+    insGroup*&   emitCurIG;
+#ifdef JIT32_GCENCODER
+    unsigned& emitCurStackLvl;
+#endif
+
+    Encoder(ArchEmitter* emit)
+        : emitComp(emit->emitComp)
+        , codeGen(emit->codeGen)
+        , emit(*emit)
+        , gcInfo(emit->gcInfo)
+        , roData(emit->roData)
+        , totalCodeSize(emit->emitTotalCodeSize)
+        , hotCodeSize(emit->emitTotalHotCodeSize)
+        , emitCurIG(emit->emitCurIG)
+#ifdef JIT32_GCENCODER
+        , emitCurStackLvl(emit->emitCurStackLvl)
+#endif
+    {
+        assert(emitCurIG == nullptr);
+    }
+
+public:
+    void emitEndCodeGen();
+
+protected:
+    unsigned GetColdCodeSize() const
+    {
+        return totalCodeSize - hotCodeSize;
+    }
+
+    size_t emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp);
+    virtual size_t emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp) = 0;
+    void OutputRoData(uint8_t* dst);
+
+    void emitGCregLiveUpd(GCtype gcType, RegNum reg, uint8_t* addr);
+    void emitGCregDeadUpd(RegNum reg, uint8_t* addr);
+#ifdef FEATURE_EH_FUNCLETS
+    void emitGCregDeadAll(uint8_t* addr);
+#endif
+    void emitGCvarLiveUpd(int slotOffs, GCtype gcType, uint8_t* addr DEBUGARG(int varNum));
+#if FEATURE_FIXED_OUT_ARGS
+    void emitGCargLiveUpd(int offs, GCtype gcType, uint8_t* addr DEBUGARG(int varNum));
+#endif
+    size_t emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* callEndAddr);
+    void emitRecordCallSite(unsigned instrOffset, CORINFO_SIG_INFO* callSig, CORINFO_METHOD_HANDLE methodHandle);
+    void emitRecordRelocation(void* location, void* target, uint16_t relocType, int32_t addlDelta = 0);
+
+    unsigned emitFindInsNum(const insGroup* ig, const instrDesc* instr)
+    {
+        return emit.emitFindInsNum(ig, instr);
+    }
+
+    unsigned emitCurCodeOffs(uint8_t* dst) const;
+    uint8_t* emitOffsetToPtr(unsigned offset) const;
+    uint8_t* emitDataOffsetToPtr(unsigned offset) const;
+
+#if FEATURE_LOOP_ALIGN
+    unsigned emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offset DEBUG_ARG(bool isAlignAdjusted))
+    {
+        return emit.emitCalculatePaddingForLoopAlignment(ig, offset DEBUGARG(isAlignAdjusted));
+    }
+#endif
+
+#ifdef JIT32_GCENCODER
+    void emitStackPush(unsigned codeOffs, GCtype type);
+    void emitStackPushN(unsigned codeOffs, unsigned count);
+    void emitStackPop(unsigned codeOffs, unsigned count);
+    void emitStackPopArgs(unsigned codeOffs, unsigned count);
+    void emitStackKillArgs(unsigned codeOffs, unsigned count);
+#endif
+
+#ifdef DEBUG
+    void PrintRoData() const;
+    void GetGCDeltaDumpHeader(char* buffer, size_t count);
+    bool emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset) const;
+
+    const char* emitIfName(unsigned f)
+    {
+        return emit.emitIfName(f);
+    }
+#endif
+
+#if defined(DEBUG) || defined(LATE_DISASM)
+    // TODO-MIKE-Cleanup: These should be double. Bozos defined them as float, even if they wanted
+    // double precision computations. Now of course that changing these now to double resuls in
+    // perf scores diffs, because 0.10f isn't the same as 0.10.
+    static constexpr float PERFSCORE_CODESIZE_COST_HOT  = 0.10f;
+    static constexpr float PERFSCORE_CODESIZE_COST_COLD = 0.01f;
+
+    struct insExecutionCharacteristics
+    {
+        float    insThroughput;
+        float    insLatency;
+        unsigned insMemoryAccessKind;
+    };
+
+#if defined(TARGET_XARCH)
+    static insFormat getMemoryOperation(instrDesc* id);
+#elif defined(TARGET_ARM64)
+    void getMemoryOperation(instrDesc* id, unsigned* pMemAccessKind, bool* pIsLocalAccess);
+#endif
+    float insEvaluateExecutionCost(instrDesc* id);
+    insExecutionCharacteristics getInsExecutionCharacteristics(instrDesc* id);
+    void perfScoreUnhandledInstruction(instrDesc* id, insExecutionCharacteristics* result);
+#endif
+};

@@ -1232,7 +1232,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
 
 static bool emitInsIsStore(instruction ins);
 
-class Arm64Encoder : public Emitter::Encoder<Arm64Emitter>
+class Arm64Encoder : public Encoder
 {
 public:
     Arm64Encoder(Arm64Emitter* emit) : Encoder(emit)
@@ -12073,10 +12073,7 @@ void AsmPrinter::emitDispFrameRef(instrDesc* id)
 
 #if defined(DEBUG) || defined(LATE_DISASM)
 
-template <>
-void Arm64Emitter::Encoder<Arm64Emitter>::getMemoryOperation(instrDesc* id,
-                                                             unsigned*  pMemAccessKind,
-                                                             bool*      pIsLocalAccess)
+void Encoder::getMemoryOperation(instrDesc* id, unsigned* pMemAccessKind, bool* pIsLocalAccess)
 {
     unsigned    memAccessKind = PERFSCORE_MEMORY_NONE;
     bool        isLocalAccess = false;
@@ -12153,18 +12150,16 @@ void Arm64Emitter::Encoder<Arm64Emitter>::getMemoryOperation(instrDesc* id,
 // The instruction latencies and throughput values returned by this function
 // are from The Arm Cortex-A55 Software Optimization Guide:
 // https://static.docs.arm.com/epm128372/20/arm_cortex_a55_software_optimization_guide_v2.pdf
-template <>
-Arm64Emitter::insExecutionCharacteristics Arm64Emitter::Encoder<Arm64Emitter>::getInsExecutionCharacteristics(
-    instrDesc* id)
+Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(instrDesc* id)
 {
-    insExecutionCharacteristics result;
-    instruction                 ins    = id->idIns();
-    insFormat                   insFmt = id->idInsFmt();
+    instruction ins    = id->idIns();
+    insFormat   insFmt = id->idInsFmt();
 
     unsigned memAccessKind;
     bool     isLocalAccess;
     getMemoryOperation(id, &memAccessKind, &isLocalAccess);
 
+    insExecutionCharacteristics result;
     result.insThroughput = PERFSCORE_THROUGHPUT_ILLEGAL;
     result.insLatency    = PERFSCORE_LATENCY_ILLEGAL;
 

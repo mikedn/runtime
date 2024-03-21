@@ -4397,7 +4397,6 @@ protected:
 #endif
     }
 
-    bool fgHaveProfileData();
     bool fgGetProfileWeightForBasicBlock(IL_OFFSET offset, BasicBlock::weight_t* weight);
 
     Instrumentor* fgCountInstrumentor = nullptr;
@@ -4416,6 +4415,8 @@ protected:
                                                CLRRandom*                             random);
 
 public:
+    bool fgHaveProfileData();
+
     const char*                            fgPgoFailReason              = nullptr;
     ICorJitInfo::PgoInstrumentationSchema* fgPgoSchema                  = nullptr;
     BYTE*                                  fgPgoData                    = nullptr;

@@ -166,11 +166,6 @@ public:
                       RegNum   reg    = REG_NA,
                       bool     isJump = false);
 
-    /************************************************************************/
-    /*                   Interface for generating unwind information        */
-    /************************************************************************/
-    void emitUnwindNopPadding(const emitLocation& loc);
-
 private:
     template <typename T>
     T* AllocInstr(bool updateLastIns = true);
@@ -184,15 +179,12 @@ private:
     instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle, emitAttr retSize, emitAttr secondRetSize);
     instrDescCGCA* emitAllocInstrCGCA();
 
-    uint8_t* emitOffsetToPtr(unsigned offset) const;
-
     // Method to do check if mov is redundant with respect to the last instruction.
     // If yes, the caller of this method can choose to omit current mov instruction.
     bool IsRedundantMov(instruction ins, emitAttr size, RegNum dst, RegNum src, bool canSkip);
     bool IsRedundantLdStr(instruction ins, RegNum reg1, RegNum reg2, ssize_t imm, emitAttr size, insFormat fmt);
 
 #ifdef DEBUG
-
     /************************************************************************/
     /*             Debug-only routines to display instructions              */
     /************************************************************************/
@@ -205,6 +197,7 @@ private:
                      unsigned   offs  = 0,
                      uint8_t*   code  = 0,
                      size_t     sz    = 0);
+    uint8_t* emitOffsetToPtr(unsigned offset) const;
 #endif // DEBUG
 };
 

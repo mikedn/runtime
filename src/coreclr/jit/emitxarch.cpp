@@ -5162,7 +5162,7 @@ static bool HasSBit(instruction ins)
     return ((INS_add <= ins) && (ins <= INS_cmp)) || (ins == INS_imuli);
 }
 
-class X86Encoder : public Emitter::Encoder<X86Emitter>
+class X86Encoder : public Encoder
 {
 public:
     X86Encoder(X86Emitter* emit) : Encoder(emit)
@@ -8162,8 +8162,7 @@ size_t X86Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
 #if defined(DEBUG) || defined(LATE_DISASM)
 
-template <>
-insFormat X86Emitter::Encoder<X86Emitter>::getMemoryOperation(instrDesc* id)
+insFormat Encoder::getMemoryOperation(instrDesc* id)
 {
     if (id->idIns() == INS_lea)
     {
@@ -8184,15 +8183,14 @@ insFormat X86Emitter::Encoder<X86Emitter>::getMemoryOperation(instrDesc* id)
 //   1. Agner.org - https://www.agner.org/optimize/instruction_tables.pdf
 //   2. uops.info - https://uops.info/table.html
 //
-template <>
-X86Emitter::insExecutionCharacteristics X86Emitter::Encoder<X86Emitter>::getInsExecutionCharacteristics(instrDesc* id)
+Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(instrDesc* id)
 {
-    insExecutionCharacteristics result;
-    instruction                 ins    = id->idIns();
-    insFormat                   insFmt = id->idInsFmt();
-    insFormat                   memFmt = getMemoryOperation(id);
-    unsigned                    memAccessKind;
+    instruction ins    = id->idIns();
+    insFormat   insFmt = id->idInsFmt();
+    insFormat   memFmt = getMemoryOperation(id);
+    unsigned    memAccessKind;
 
+    insExecutionCharacteristics result;
     result.insThroughput = PERFSCORE_THROUGHPUT_ILLEGAL;
     result.insLatency    = PERFSCORE_LATENCY_ILLEGAL;
 

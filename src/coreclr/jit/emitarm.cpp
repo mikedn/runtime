@@ -543,7 +543,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
 }
 #endif // DEBUG
 
-class ArmEncoder : public Emitter::Encoder<ArmEmitter>
+class ArmEncoder : public Encoder
 {
 public:
     ArmEncoder(ArmEmitter* emit) : Encoder(emit)
@@ -6778,19 +6778,12 @@ void AsmPrinter::emitDispFrameRef(instrDesc* id)
 
 #if defined(DEBUG) || defined(LATE_DISASM)
 
-template <>
-ArmEmitter::insExecutionCharacteristics ArmEmitter::Encoder<ArmEmitter>::getInsExecutionCharacteristics(instrDesc* id)
+Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(instrDesc* id)
 {
-    insExecutionCharacteristics result;
-
-    instruction ins    = id->idIns();
-    insFormat   insFmt = id->idInsFmt();
-
     // ToDo: Calculate actual throughput and latency values
-    //
+    insExecutionCharacteristics result;
     result.insThroughput = PERFSCORE_THROUGHPUT_1C;
     result.insLatency    = PERFSCORE_LATENCY_1C;
-
     return result;
 }
 
