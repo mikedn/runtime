@@ -119,7 +119,7 @@ private:
     int OptimizeFrameAddress(int fpOffset, bool isFloatLoadStore, RegNum* baseReg);
 
 #ifdef DEBUG
-    void emitDispIns(instrDesc* id, bool isNew, unsigned offs);
+    void PrintIns(instrDesc* id);
 #endif
 };
 

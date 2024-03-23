@@ -1390,7 +1390,6 @@ protected:
 
     void emitDispIG(insGroup* ig, bool dispInstr);
     void emitDispIGlist(bool dispInstr);
-    void emitDispInsOffs(unsigned offs, bool doffs);
 #endif // !DEBUG
 
     struct Placeholder

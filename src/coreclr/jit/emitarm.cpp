@@ -6031,8 +6031,8 @@ void ArmAsmPrinter::emitDispLabel(instrDescJmp* id)
 
         if (id->idjIG == nullptr)
         {
-            // This is the instruction synthesized by emitDispIns, we can't get
-            // its number because it's not part of an actual instruction group.
+            // This is the instruction synthesized by encoder's PrintIns, we can't
+            // get its number because it's not part of an actual instruction group.
             printf("pc%s%d instructions", instrCount >= 0 ? "+" : "", instrCount);
         }
         else
@@ -6611,19 +6611,13 @@ void ArmAsmPrinter::Print(instrDesc* id)
     printf("\n");
 }
 
-void ArmEmitter::emitDispIns(instrDesc* id, bool isNew, unsigned offset)
+void ArmEmitter::PrintIns(instrDesc* id)
 {
-    if (id->idInsFmt() == IF_GC_REG)
+    if (id->idInsFmt() != IF_GC_REG)
     {
-        return;
+        ArmAsmPrinter printer(*this);
+        printer.Print(id);
     }
-
-    JITDUMP("IN%04X: ", id->idDebugOnlyInfo()->idNum);
-
-    emitDispInsOffs(offset, !isNew);
-
-    ArmAsmPrinter printer(*this);
-    printer.Print(id);
 }
 
 void ArmEncoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)

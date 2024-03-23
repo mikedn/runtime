@@ -552,7 +552,8 @@ void EmitterBase::dispIns(instrDesc* id)
 
     if (emitComp->verbose)
     {
-        static_cast<ArchEmitter*>(this)->emitDispIns(id, true, 0);
+        JITDUMP("IN%04X: %06X ", id->idDebugOnlyInfo()->idNum, emitCurCodeOffset + emitCurIGsize);
+        static_cast<ArchEmitter*>(this)->PrintIns(id);
     }
 #endif
 
@@ -578,18 +579,6 @@ void Encoder::PrintInsAddr(const uint8_t* code) const
     if (emitComp->opts.dspGCtbls)
     {
         printf("%06X", emitCurCodeOffs(code));
-    }
-    else
-    {
-        printf("      ");
-    }
-}
-
-void EmitterBase::emitDispInsOffs(unsigned offs, bool doffs)
-{
-    if (doffs)
-    {
-        printf("%06X", offs);
     }
     else
     {
@@ -1725,7 +1714,8 @@ void EmitterBase::emitDispIG(insGroup* ig, bool dispInstr)
         for (unsigned i = 0; i < ig->igInsCnt; i++)
         {
             instrDesc* id = reinterpret_cast<instrDesc*>(ins);
-            static_cast<ArchEmitter*>(this)->emitDispIns(id, false, ofs);
+            JITDUMP("IN%04X: %06X ", id->idDebugOnlyInfo()->idNum, ofs);
+            static_cast<ArchEmitter*>(this)->PrintIns(id);
             ins += id->GetDescSize();
             ofs += id->idCodeSize();
         }

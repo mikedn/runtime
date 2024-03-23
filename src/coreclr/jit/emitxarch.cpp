@@ -4867,21 +4867,14 @@ private:
     }
 };
 
-void X86Emitter::emitDispIns(instrDesc* id, bool isNew, unsigned offset)
+void X86Emitter::PrintIns(instrDesc* id)
 {
-    if (id->idInsFmt() == IF_GC_REG)
+    if (id->idInsFmt() != IF_GC_REG)
     {
-        return;
+        X86AsmPrinter printer(*this, false);
+        printer.Print(id);
+        printf("\n");
     }
-
-    JITDUMP("IN%04X: ", id->idDebugOnlyInfo()->idNum);
-
-    emitDispInsOffs(offset, !isNew);
-
-    X86AsmPrinter printer(*this, false);
-    printer.Print(id);
-
-    printf("\n");
 }
 
 void Encoder::PrintAlignmentBoundary(size_t           instrAddr,

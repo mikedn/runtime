@@ -185,7 +185,7 @@ private:
     bool IsRedundantLdStr(instruction ins, RegNum reg1, RegNum reg2, ssize_t imm, emitAttr size, insFormat fmt);
 
 #ifdef DEBUG
-    void emitDispIns(instrDesc* id, bool isNew, unsigned offs);
+    void PrintIns(instrDesc* id);
 #endif
 };
 

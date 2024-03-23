@@ -10999,19 +10999,13 @@ static void PrintHexCode(uint8_t* code, size_t sz)
     }
 }
 
-void Arm64Emitter::emitDispIns(instrDesc* id, bool isNew, unsigned offset)
+void Arm64Emitter::PrintIns(instrDesc* id)
 {
-    if (id->idInsFmt() == IF_GC_REG)
+    if (id->idInsFmt() != IF_GC_REG)
     {
-        return;
+        Arm64AsmPrinter printer(*this);
+        printer.Print(id);
     }
-
-    JITDUMP("IN%04X: ", id->idDebugOnlyInfo()->idNum);
-
-    emitDispInsOffs(offset, !isNew);
-
-    Arm64AsmPrinter printer(*this);
-    printer.Print(id);
 }
 
 void Arm64AsmPrinter::Print(instrDesc* id)

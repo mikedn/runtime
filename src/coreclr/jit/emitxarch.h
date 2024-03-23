@@ -239,7 +239,7 @@ private:
     void emitLongLoopAlign(uint16_t alignmentBoundary);
 
 #ifdef DEBUG
-    void emitDispIns(instrDesc* id, bool isNew, unsigned offs);
+    void PrintIns(instrDesc* id);
 #endif
 };
 
