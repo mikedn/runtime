@@ -2562,8 +2562,6 @@ void Encoder::emitEndCodeGen()
     gcInfo.Begin(emit.emitMaxStackDepth);
 #endif // JIT32_GCENCODER
 
-    INDEBUG(emit.emitCheckIGoffsets());
-
     CorJitAllocMemFlag allocMemFlag = CORJIT_ALLOCMEM_DEFAULT_CODE_ALIGN;
 
 #ifdef TARGET_X86
