@@ -12047,7 +12047,7 @@ void Arm64Encoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
     bool doffs = !emitComp->opts.disDiffable;
 #endif
 
-    emit.emitDispInsAddr(code);
+    PrintInsAddr(code);
     emit.emitDispInsOffs(emitCurCodeOffs(code), doffs);
 
     if (emitComp->opts.disDiffable)

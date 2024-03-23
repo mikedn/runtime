@@ -6635,7 +6635,7 @@ void ArmEncoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
     auto Print = [&](instrDesc* id, bool doffs, unsigned offset, uint8_t* code, size_t sz) {
         JITDUMP("IN%04X: ", id->idDebugOnlyInfo()->idNum);
 
-        emit.emitDispInsAddr(code);
+        PrintInsAddr(code);
         emit.emitDispInsOffs(offset, doffs);
 
         if (!emitComp->opts.disDiffable)

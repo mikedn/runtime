@@ -5260,7 +5260,7 @@ void X86Encoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
 {
     JITDUMP("IN%04X: ", id->idDebugOnlyInfo()->idNum);
 
-    emit.emitDispInsAddr(code);
+    PrintInsAddr(code);
     emit.emitDispInsOffs(emitCurCodeOffs(code), emitComp->opts.dspGCtbls);
 
     assert(((code >= emitCodeBlock) && (code < emitCodeBlock + hotCodeSize)) ||

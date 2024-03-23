@@ -568,7 +568,7 @@ void EmitterBase::appendToCurIG(instrDesc* id)
 
 #ifdef DEBUG
 
-void EmitterBase::emitDispInsAddr(BYTE* code)
+void Encoder::PrintInsAddr(const uint8_t* code) const
 {
     if (emitComp->opts.disAddr)
     {

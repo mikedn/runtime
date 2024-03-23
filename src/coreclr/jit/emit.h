@@ -1390,7 +1390,6 @@ protected:
 
     void emitDispIG(insGroup* ig, bool dispInstr);
     void emitDispIGlist(bool dispInstr);
-    void emitDispInsAddr(BYTE* code);
     void emitDispInsOffs(unsigned offs, bool doffs);
 #endif // !DEBUG
 
@@ -1818,6 +1817,7 @@ protected:
 #endif
 
 #ifdef DEBUG
+    void PrintInsAddr(const uint8_t* code) const;
     void PrintRoData() const;
     void GetGCDeltaDumpHeader(char* buffer, size_t count);
     bool emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset) const;
