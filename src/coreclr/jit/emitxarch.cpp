@@ -4112,6 +4112,9 @@ class X86AsmPrinter final : public AsmPrinter
 {
     const bool asmfm;
     const bool useVex;
+#if !FEATURE_FIXED_OUT_ARGS
+    int stackLevel = 0;
+#endif
 
 public:
     X86AsmPrinter(X86Emitter& emit, bool asmfm) : AsmPrinter(emit), asmfm(asmfm), useVex(emit.UseVEXEncoding())
@@ -4122,6 +4125,13 @@ public:
     {
         PrintIns(id);
     }
+
+#if !FEATURE_FIXED_OUT_ARGS
+    void SetStackLevel(int level)
+    {
+        stackLevel = level;
+    }
+#endif
 
 private:
     static const char* GetSizeOperator(emitAttr attr)
@@ -4192,16 +4202,16 @@ private:
 #if !FEATURE_FIXED_OUT_ARGS
         if (!ebpBased)
         {
-            unsigned stackLevel = emit.emitCurStackLvl;
+            unsigned level = stackLevel;
 
             if (id->idIns() == INS_pop)
             {
-                stackLevel -= REGSIZE_BYTES;
+                level -= REGSIZE_BYTES;
             }
 
-            if (stackLevel != 0)
+            if (level != 0)
             {
-                printf("+%02XH", stackLevel);
+                printf("+%02XH", level);
             }
         }
 #endif
@@ -4876,6 +4886,9 @@ private:
 void X86Emitter::PrintIns(instrDesc* id)
 {
     X86AsmPrinter printer(*this, false);
+#if !FEATURE_FIXED_OUT_ARGS
+    printer.SetStackLevel(emitCurStackLvl);
+#endif
     printer.Print(id);
     printf("\n");
 }
@@ -5267,6 +5280,9 @@ void X86Encoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
     }
 
     X86AsmPrinter printer(emit, true);
+#if !FEATURE_FIXED_OUT_ARGS
+    printer.SetStackLevel(stackLevel);
+#endif
     printer.Print(id);
 
     if (sz != id->idCodeSize())

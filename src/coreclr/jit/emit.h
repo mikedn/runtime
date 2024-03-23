@@ -1752,8 +1752,8 @@ protected:
     uint8_t*     emitConsBlock;
     size_t       writeableOffset = 0;
     insGroup*    currentIG       = nullptr;
-#ifdef JIT32_GCENCODER
-    unsigned& stackLevel;
+#if !FEATURE_FIXED_OUT_ARGS
+    unsigned stackLevel = 0;
 #endif
 
     Encoder(ArchEmitter* emit)
@@ -1767,9 +1767,6 @@ protected:
         , hotCodeSize(emit->emitTotalHotCodeSize)
         , firstIG(emit->emitIGfirst)
         , firstColdIG(emit->emitFirstColdIG)
-#ifdef JIT32_GCENCODER
-        , stackLevel(emit->emitCurStackLvl)
-#endif
     {
         assert(currentIG == nullptr);
     }

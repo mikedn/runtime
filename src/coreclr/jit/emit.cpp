@@ -541,13 +541,16 @@ BasicBlock::weight_t EmitterBase::getCurrentBlockWeight()
 
 void EmitterBase::dispIns(instrDesc* id)
 {
+#ifdef DEBUG
     assert(id->idDebugOnlyInfo()->idSize == id->GetDescSize());
     assert(emitCurIGfreeNext - reinterpret_cast<uint8_t*>(id) == static_cast<ssize_t>(id->GetDescSize()));
 #ifdef TARGET_XARCH
     assert((id->idCodeSize() != 0) || id->InstrHasNoCode());
 #endif
+#if !FEATURE_FIXED_OUT_ARGS
+    assert(emitCurStackLvl <= INT32_MAX);
+#endif
 
-#ifdef DEBUG
     emitInsSanityCheck(id);
 
     if (emitComp->verbose)
@@ -555,10 +558,6 @@ void EmitterBase::dispIns(instrDesc* id)
         JITDUMP("IN%04X: %06X ", id->idDebugOnlyInfo()->idNum, emitCurCodeOffset + emitCurIGsize);
         static_cast<ArchEmitter*>(this)->PrintIns(id);
     }
-#endif
-
-#if !FEATURE_FIXED_OUT_ARGS
-    assert(emitCurStackLvl <= INT32_MAX);
 #endif
 }
 
