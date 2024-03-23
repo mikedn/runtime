@@ -6038,7 +6038,7 @@ void ArmAsmPrinter::emitDispLabel(instrDescJmp* id)
             unsigned instrNum  = Emitter::emitFindInsNum(id->idjIG, id);
             uint32_t instrOffs = id->idjIG->igOffs + id->idjOffs;
             uint32_t labelOffs = id->idjIG->igOffs + id->idjIG->FindInsOffset(instrNum + 1 + instrCount);
-            ssize_t  distance  = emit.emitOffsetToPtr(labelOffs) - emit.emitOffsetToPtr(instrOffs) - 2;
+            ssize_t  distance  = GetCodeDistance(labelOffs, instrOffs) - 2;
 
             printf("pc%s%d (%d instructions)", distance >= 0 ? "+" : "", distance, instrCount);
         }

@@ -133,7 +133,6 @@ private:
                      unsigned   offs  = 0,
                      uint8_t*   code  = 0,
                      size_t     sz    = 0);
-    uint8_t* emitOffsetToPtr(unsigned offset) const;
 #endif // DEBUG
 };
 
