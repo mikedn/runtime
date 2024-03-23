@@ -2558,7 +2558,7 @@ void Encoder::emitEndCodeGen()
 {
     JITDUMP("*************** In emitEndCodeGen()\n");
 
-    assert(emitCurIG == nullptr);
+    assert(currentIG == nullptr);
 
 #ifndef JIT32_GCENCODER
     gcInfo.Begin();
@@ -2680,7 +2680,7 @@ void Encoder::emitEndCodeGen()
     writeableOffset   = codeBlockRW - codeBlock;
 
 #if !FEATURE_FIXED_OUT_ARGS
-    emitCurStackLvl = 0;
+    stackLevel = 0;
 #endif
 #ifdef DEBUG
     emit.emitIssuing      = true;
@@ -2737,11 +2737,11 @@ void Encoder::emitEndCodeGen()
         assert(EmitterBase::IsCodeAligned(codeOffs));
 
 #if !FEATURE_FIXED_OUT_ARGS
-        if (ig->igStkLvl != emitCurStackLvl)
+        if (ig->igStkLvl != stackLevel)
         {
             // We are pushing stuff implicitly at this label.
-            assert(ig->igStkLvl > emitCurStackLvl);
-            emitStackPushN(codeOffs, (ig->igStkLvl - emitCurStackLvl) / REGSIZE_BYTES);
+            assert(ig->igStkLvl > stackLevel);
+            emitStackPushN(codeOffs, (ig->igStkLvl - stackLevel) / REGSIZE_BYTES);
         }
 #endif
 
@@ -2782,7 +2782,7 @@ void Encoder::emitEndCodeGen()
 #endif
         }
 
-        emitCurIG     = ig;
+        currentIG     = ig;
         instrDesc* id = reinterpret_cast<instrDesc*>(ig->igData);
         INDEBUG(const uint8_t* const bp = cp);
 
@@ -2829,7 +2829,7 @@ void Encoder::emitEndCodeGen()
 #endif
         }
 
-        emitCurIG = nullptr;
+        currentIG = nullptr;
         assert(ig->igSize == cp - bp);
 
 #ifdef DEBUG
@@ -2849,7 +2849,7 @@ void Encoder::emitEndCodeGen()
 
     assert(totalCodeSize == emitCurCodeOffs(cp));
 #if !FEATURE_FIXED_OUT_ARGS
-    assert(emitCurStackLvl == 0);
+    assert(stackLevel == 0);
 #endif
 
     gcInfo.End(emitCurCodeOffs(cp));
@@ -3644,7 +3644,7 @@ size_t Encoder::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* call
     unsigned callOffs    = emitCurCodeOffs(callAddr);
     unsigned callEndOffs = callOffs + static_cast<unsigned>(callEndAddr - callAddr);
 
-    if (!emitCurIG->IsMainEpilog())
+    if (!currentIG->IsMainEpilog())
     {
         // We update tracked stack slot GC info before the call as they cannot
         // be used by the call (they'd need to be address exposed, thus untracked).
@@ -3696,7 +3696,7 @@ size_t Encoder::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* call
 
     if (!isNoGC && gcInfo.ReportCallSites())
     {
-        gcInfo.AddCallSite(emitCurStackLvl / TARGET_POINTER_SIZE, callEndOffs);
+        gcInfo.AddCallSite(stackLevel / TARGET_POINTER_SIZE, callEndOffs);
     }
 #else
     if (!id->idIsNoGC())
@@ -3725,7 +3725,7 @@ size_t Encoder::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* call
 
 void Encoder::emitGCregLiveUpd(GCtype gcType, RegNum reg, uint8_t* addr)
 {
-    if (!emitCurIG->IsMainEpilog())
+    if (!currentIG->IsMainEpilog())
     {
         gcInfo.AddLiveReg(gcType, reg, emitCurCodeOffs(addr));
     }
@@ -3733,7 +3733,7 @@ void Encoder::emitGCregLiveUpd(GCtype gcType, RegNum reg, uint8_t* addr)
 
 void Encoder::emitGCregDeadUpd(RegNum reg, uint8_t* addr)
 {
-    if (!emitCurIG->IsMainEpilog())
+    if (!currentIG->IsMainEpilog())
     {
         gcInfo.RemoveLiveReg(reg, emitCurCodeOffs(addr));
     }
@@ -3743,7 +3743,7 @@ void Encoder::emitGCregDeadUpd(RegNum reg, uint8_t* addr)
 
 void Encoder::emitGCregDeadAll(uint8_t* addr)
 {
-    if (!emitCurIG->IsMainEpilog())
+    if (!currentIG->IsMainEpilog())
     {
         gcInfo.RemoveAllLiveRegs(emitCurCodeOffs(addr));
     }
@@ -3754,31 +3754,31 @@ void Encoder::emitGCregDeadAll(uint8_t* addr)
 
 void Encoder::emitStackPush(unsigned codeOffs, GCtype type)
 {
-    gcInfo.StackPush(type, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs);
-    emitCurStackLvl += TARGET_POINTER_SIZE;
+    gcInfo.StackPush(type, stackLevel / TARGET_POINTER_SIZE, codeOffs);
+    stackLevel += TARGET_POINTER_SIZE;
 }
 
 void Encoder::emitStackPushN(unsigned codeOffs, unsigned count)
 {
-    gcInfo.StackPushMultiple(count, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs);
-    emitCurStackLvl += count * TARGET_POINTER_SIZE;
+    gcInfo.StackPushMultiple(count, stackLevel / TARGET_POINTER_SIZE, codeOffs);
+    stackLevel += count * TARGET_POINTER_SIZE;
 }
 
 void Encoder::emitStackPop(unsigned codeOffs, unsigned count)
 {
-    gcInfo.StackPop(count, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs, false);
-    emitCurStackLvl -= count * TARGET_POINTER_SIZE;
+    gcInfo.StackPop(count, stackLevel / TARGET_POINTER_SIZE, codeOffs, false);
+    stackLevel -= count * TARGET_POINTER_SIZE;
 }
 
 void Encoder::emitStackPopArgs(unsigned codeOffs, unsigned count)
 {
-    gcInfo.StackPop(count, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs, true);
-    emitCurStackLvl -= count * TARGET_POINTER_SIZE;
+    gcInfo.StackPop(count, stackLevel / TARGET_POINTER_SIZE, codeOffs, true);
+    stackLevel -= count * TARGET_POINTER_SIZE;
 }
 
 void Encoder::emitStackKillArgs(unsigned codeOffs, unsigned count)
 {
-    gcInfo.StackKill(count, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs);
+    gcInfo.StackKill(count, stackLevel / TARGET_POINTER_SIZE, codeOffs);
 }
 
 #endif // JIT32_GCENCODER

@@ -5954,7 +5954,7 @@ uint8_t* X86Encoder::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssiz
 #if !FEATURE_FIXED_OUT_ARGS
     if (!ebpBased)
     {
-        disp += emitCurStackLvl;
+        disp += stackLevel;
 
         if (ins == INS_pop)
         {
@@ -8134,7 +8134,7 @@ size_t X86Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         }
     }
 
-    assert(emitCurStackLvl <= INT32_MAX);
+    assert(stackLevel <= INT32_MAX);
 #endif // !FEATURE_FIXED_OUT_ARGS
 
     if (ins == INS_mulEAX || ins == INS_imulEAX)

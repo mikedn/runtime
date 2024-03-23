@@ -1762,9 +1762,9 @@ protected:
     uint8_t*     emitColdCodeBlock;
     uint8_t*     emitConsBlock;
     size_t       writeableOffset = 0;
-    insGroup*&   emitCurIG;
+    insGroup*&   currentIG;
 #ifdef JIT32_GCENCODER
-    unsigned& emitCurStackLvl;
+    unsigned& stackLevel;
 #endif
 
     Encoder(ArchEmitter* emit)
@@ -1775,12 +1775,12 @@ protected:
         , roData(emit->roData)
         , totalCodeSize(emit->emitTotalCodeSize)
         , hotCodeSize(emit->emitTotalHotCodeSize)
-        , emitCurIG(emit->emitCurIG)
+        , currentIG(emit->emitCurIG)
 #ifdef JIT32_GCENCODER
-        , emitCurStackLvl(emit->emitCurStackLvl)
+        , stackLevel(emit->emitCurStackLvl)
 #endif
     {
-        assert(emitCurIG == nullptr);
+        assert(currentIG == nullptr);
     }
 
 public:

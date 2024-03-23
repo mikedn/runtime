@@ -12480,7 +12480,7 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
             {
                 // ldp, ldpsw, ldnp
                 result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-                if (emit.emitCurIG->IsMainEpilog() && (ins == INS_ldp))
+                if (currentIG->IsMainEpilog() && (ins == INS_ldp))
                 {
                     // Reduce latency for ldp instructions in the epilog
                     //
