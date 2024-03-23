@@ -1745,6 +1745,7 @@ protected:
     RoData&      roData;
     unsigned     totalCodeSize;
     unsigned     hotCodeSize;
+    insGroup*    firstIG;
     insGroup*    firstColdIG;
     uint8_t*     emitCodeBlock;
     uint8_t*     emitColdCodeBlock;
@@ -1764,6 +1765,7 @@ protected:
         , roData(emit->roData)
         , totalCodeSize(emit->emitTotalCodeSize)
         , hotCodeSize(emit->emitTotalHotCodeSize)
+        , firstIG(emit->emitIGfirst)
         , firstColdIG(emit->emitFirstColdIG)
         , currentIG(emit->emitCurIG)
 #ifdef JIT32_GCENCODER

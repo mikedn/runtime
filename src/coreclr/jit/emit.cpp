@@ -2680,7 +2680,7 @@ void Encoder::emitEndCodeGen()
 
     uint8_t* cp = codeBlock;
 
-    for (insGroup *ig = emit.emitIGfirst, *prevIG = nullptr; ig != nullptr; prevIG = ig, ig = ig->igNext)
+    for (insGroup *ig = firstIG, *prevIG = nullptr; ig != nullptr; prevIG = ig, ig = ig->igNext)
     {
         assert((ig->igFlags & IGF_PLACEHOLDER) == 0);
 
@@ -2736,7 +2736,7 @@ void Encoder::emitEndCodeGen()
         }
 #endif
 
-        if (!ig->IsExtension() && (ig != emit.GetProlog()))
+        if (!ig->IsExtension() && (ig != firstIG))
         {
             gcInfo.SetLiveLclStackSlots(ig->GetGCLcls(), codeOffs);
 
