@@ -10982,7 +10982,7 @@ void Arm64AsmPrinter::emitDispAddrRRExt(RegNum reg1, RegNum reg2, insOpts opt, b
     printf("]");
 }
 
-void Arm64Emitter::emitDispInsHex(instrDesc* id, uint8_t* code, size_t sz)
+void Arm64Emitter::emitDispInsHex(uint8_t* code, size_t sz)
 {
     // We do not display the instruction hex if we want diff-able disassembly
     if (emitComp->opts.disDiffable)
@@ -11004,7 +11004,7 @@ void Arm64Emitter::emitDispInsHex(instrDesc* id, uint8_t* code, size_t sz)
     }
 }
 
-void Arm64Emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, unsigned offset)
+void Arm64Emitter::emitDispIns(instrDesc* id, bool isNew, unsigned offset)
 {
     if (id->idInsFmt() == IF_GC_REG)
     {
@@ -11013,7 +11013,7 @@ void Arm64Emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, unsigned o
 
     JITDUMP("IN%04X: ", id->idDebugOnlyInfo()->idNum);
 
-    emitDispInsOffs(offset, doffs);
+    emitDispInsOffs(offset, !isNew);
 
     Arm64AsmPrinter printer(*this);
     printer.Print(id);
@@ -12054,7 +12054,7 @@ void Arm64Encoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
 
     emit.emitDispInsAddr(code);
     emit.emitDispInsOffs(emitCurCodeOffs(code), doffs);
-    emit.emitDispInsHex(id, code, sz);
+    emit.emitDispInsHex(code, sz);
 
     Arm64AsmPrinter printer(emit);
     printer.Print(id);

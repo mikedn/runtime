@@ -244,8 +244,8 @@ private:
     /*             Debug-only routines to display instructions              */
     /************************************************************************/
 
-    void PrintHexCode(instrDesc* id, const uint8_t* code, size_t sz);
-    void emitDispIns(instrDesc* id, bool isNew, bool doffs, unsigned offs);
+    void PrintHexCode(const uint8_t* code, size_t sz);
+    void emitDispIns(instrDesc* id, bool isNew, unsigned offs);
 
 #endif // DEBUG
 };

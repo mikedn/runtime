@@ -4078,7 +4078,7 @@ size_t X86Emitter::instrDescSmall::GetDescSize() const
 
 #ifdef DEBUG
 
-void X86Emitter::PrintHexCode(instrDesc* id, const uint8_t* code, size_t size)
+void X86Emitter::PrintHexCode(const uint8_t* code, size_t size)
 {
     constexpr size_t minSize = 6 AMD64_ONLY(+4);
     constexpr size_t maxSize = 15;
@@ -4867,7 +4867,7 @@ private:
     }
 };
 
-void X86Emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, unsigned offset)
+void X86Emitter::emitDispIns(instrDesc* id, bool isNew, unsigned offset)
 {
     if (id->idInsFmt() == IF_GC_REG)
     {
@@ -4876,7 +4876,7 @@ void X86Emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, unsigned off
 
     JITDUMP("IN%04X: ", id->idDebugOnlyInfo()->idNum);
 
-    emitDispInsOffs(offset, doffs || !isNew);
+    emitDispInsOffs(offset, !isNew);
 
     X86AsmPrinter printer(*this, false);
     printer.Print(id);
@@ -5268,7 +5268,7 @@ void X86Encoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
 
     if (!emitComp->opts.disDiffable)
     {
-        emit.PrintHexCode(id, code, sz);
+        emit.PrintHexCode(code, sz);
     }
 
     X86AsmPrinter printer(emit, true);

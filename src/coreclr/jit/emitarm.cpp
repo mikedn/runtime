@@ -6632,7 +6632,7 @@ void ArmAsmPrinter::Print(instrDesc* id)
     printf("\n");
 }
 
-void ArmEmitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, unsigned offset)
+void ArmEmitter::emitDispIns(instrDesc* id, bool isNew, unsigned offset)
 {
     if (id->idInsFmt() == IF_GC_REG)
     {
@@ -6641,7 +6641,7 @@ void ArmEmitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, unsigned off
 
     JITDUMP("IN%04X: ", id->idDebugOnlyInfo()->idNum);
 
-    emitDispInsOffs(offset, doffs);
+    emitDispInsOffs(offset, !isNew);
 
     ArmAsmPrinter printer(*this);
     printer.Print(id);

@@ -552,7 +552,7 @@ void EmitterBase::dispIns(instrDesc* id)
 
     if (emitComp->verbose)
     {
-        static_cast<ArchEmitter*>(this)->emitDispIns(id, true, false, 0);
+        static_cast<ArchEmitter*>(this)->emitDispIns(id, true, 0);
     }
 #endif
 
@@ -1716,7 +1716,7 @@ void EmitterBase::emitDispIG(insGroup* ig, bool dispInstr)
         for (unsigned i = 0; i < ig->igInsCnt; i++)
         {
             instrDesc* id = reinterpret_cast<instrDesc*>(ins);
-            static_cast<ArchEmitter*>(this)->emitDispIns(id, false, true, ofs);
+            static_cast<ArchEmitter*>(this)->emitDispIns(id, false, ofs);
             ins += id->GetDescSize();
             ofs += id->idCodeSize();
         }
