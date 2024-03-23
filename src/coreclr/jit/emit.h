@@ -1751,7 +1751,7 @@ protected:
     uint8_t*     emitColdCodeBlock;
     uint8_t*     emitConsBlock;
     size_t       writeableOffset = 0;
-    insGroup*&   currentIG;
+    insGroup*    currentIG       = nullptr;
 #ifdef JIT32_GCENCODER
     unsigned& stackLevel;
 #endif
@@ -1767,7 +1767,6 @@ protected:
         , hotCodeSize(emit->emitTotalHotCodeSize)
         , firstIG(emit->emitIGfirst)
         , firstColdIG(emit->emitFirstColdIG)
-        , currentIG(emit->emitCurIG)
 #ifdef JIT32_GCENCODER
         , stackLevel(emit->emitCurStackLvl)
 #endif
