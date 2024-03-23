@@ -1450,9 +1450,6 @@ public:
 
     static unsigned emitFindInsNum(const insGroup* ig, const instrDesc* instr);
 
-    // If we have started issuing instructions from the list of instrDesc, this is set
-    INDEBUG(bool emitIssuing = false;)
-
     uint8_t* emitCodeBlock     = nullptr; // Hot code block
     uint8_t* emitColdCodeBlock = nullptr; // Cold code block
 
@@ -1527,8 +1524,7 @@ protected:
     insGroup* emitFirstColdIG = nullptr; // first cold instruction group
 
 #ifdef DEBUG
-    unsigned instrCount      = 0;
-    bool     compCodeGenDone = false;
+    unsigned instrCount = 0;
 #endif
 #if defined(DEBUG) || defined(LATE_DISASM)
     double perfScore = 0.0;

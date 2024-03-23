@@ -1679,12 +1679,6 @@ void EmitterBase::emitDispIG(insGroup* ig, bool dispInstr)
         return;
     }
 
-    if (compCodeGenDone)
-    {
-        printf("%c weight %s, perf-score %.2f", separator, refCntWtd2str(ig->igWeight), ig->igPerfScore);
-        separator = ',';
-    }
-
 #if FEATURE_LOOP_ALIGN
     if (ig->igLoopBackEdge != nullptr)
     {
@@ -2681,7 +2675,6 @@ void Encoder::emitEndCodeGen()
     stackLevel = 0;
 #endif
 #ifdef DEBUG
-    emit.emitIssuing      = true;
     double blockPerfScore = 0.0;
 #endif
 
@@ -2868,11 +2861,6 @@ void Encoder::emitEndCodeGen()
     // Add code size information into the Perf Score
     emit.perfScore += static_cast<double>(hotCodeSize) * PERFSCORE_CODESIZE_COST_HOT;
     emit.perfScore += static_cast<double>(GetColdCodeSize()) * PERFSCORE_CODESIZE_COST_COLD;
-#endif
-
-#ifdef DEBUG
-    assert(!emit.compCodeGenDone);
-    emit.compCodeGenDone = true;
 #endif
 }
 
