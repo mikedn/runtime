@@ -579,6 +579,10 @@ private:
     //
     // This may return false positives.
     bool emitInsMayWriteToGCReg(instrDesc* id);
+
+#ifdef DEBUG
+    void PrintIns(instrDesc* id, uint8_t* code, size_t sz);
+#endif
 };
 
 bool ArmEncoder::emitInsMayWriteToGCReg(instrDesc* id)
@@ -5777,9 +5781,7 @@ size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 #ifdef DEBUG
     if ((emitComp->opts.disAsm || emitComp->verbose) && (*dp != dst))
     {
-        bool dspOffs = emitComp->opts.dspGCtbls || !emitComp->opts.disDiffable;
-
-        emit.emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(*dp), *dp, dst - *dp);
+        PrintIns(id, *dp, dst - *dp);
     }
 #endif
 
@@ -6196,18 +6198,6 @@ void ArmEmitter::emitDispInsHelp(
     instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, uint8_t* code, size_t sz)
 {
     JITDUMP("IN%04X: ", id->idDebugOnlyInfo()->idNum);
-
-    assert(!isNew || (static_cast<int>(id->GetDescSize()) == emitCurIGfreeNext - reinterpret_cast<uint8_t*>(id)));
-
-    if (code == nullptr)
-    {
-        sz = 0;
-    }
-
-    if (!isNew && !asmfm && sz)
-    {
-        doffs = true;
-    }
 
     emitDispInsAddr(code);
     emitDispInsOffs(offset, doffs);
@@ -6655,8 +6645,7 @@ void ArmAsmPrinter::Print(instrDesc* id)
     printf("\n");
 }
 
-void ArmEmitter::emitDispIns(
-    instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, uint8_t* code, size_t sz)
+void ArmEmitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, unsigned offset)
 {
     insFormat fmt = id->idInsFmt();
 
@@ -6664,6 +6653,8 @@ void ArmEmitter::emitDispIns(
     {
         return;
     }
+
+    assert(!isNew || (static_cast<int>(id->GetDescSize()) == emitCurIGfreeNext - reinterpret_cast<uint8_t*>(id)));
 
     // Special-case IF_LARGEJMP
 
@@ -6694,10 +6685,8 @@ void ArmEmitter::emitDispIns(
         idJmp.SetInstrCount(1);
         idJmp.idDebugOnlyInfo(id->idDebugOnlyInfo()); // share the idDebugOnlyInfo() field
 
-        size_t bcondSizeOrZero = (code == NULL) ? 0 : 2; // branch is 2 bytes
-        emitDispInsHelp(&idJmp, false, doffs, asmfm, offset, code, bcondSizeOrZero);
+        emitDispInsHelp(&idJmp, false, doffs, false, offset, nullptr, 0);
 
-        code += bcondSizeOrZero;
         offset += 2;
 
         // Next, display the unconditional branch
@@ -6709,12 +6698,46 @@ void ArmEmitter::emitDispIns(
         idJmp.SetLabel(ij->GetLabel());
         idJmp.idDebugOnlyInfo(id->idDebugOnlyInfo()); // share the idDebugOnlyInfo() field
 
-        size_t brSizeOrZero = (code == NULL) ? 0 : 4; // unconditional branch is 4 bytes
-        emitDispInsHelp(&idJmp, false, doffs, asmfm, offset, code, brSizeOrZero);
+        emitDispInsHelp(&idJmp, false, doffs, false, offset, nullptr, 0);
     }
     else
     {
-        emitDispInsHelp(id, isNew, doffs, asmfm, offset, code, sz);
+        emitDispInsHelp(id, isNew, doffs, false, offset, nullptr, 0);
+    }
+}
+
+void ArmEncoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
+{
+    bool      doffs  = emitComp->opts.dspGCtbls || !emitComp->opts.disDiffable;
+    unsigned  offset = emitCurCodeOffs(code);
+    insFormat fmt    = id->idInsFmt();
+
+    // TODO-MIKE-Cleanup: Move this (and the above copy) to the printer.
+
+    if ((fmt == IF_LARGEJMP) && static_cast<instrDescJmp*>(id)->HasLabel())
+    {
+        instrDescJmp* ij = static_cast<instrDescJmp*>(id);
+        instrDescJmp  idJmp;
+        memset(&idJmp, 0, sizeof(idJmp));
+        idJmp.idIns(Emitter::emitJumpKindToBranch(Emitter::emitReverseJumpKind(BranchToJumpKind(id->idIns()))));
+        idJmp.idInsFmt(IF_T1_K);
+        idJmp.idInsSize(Emitter::ISZ_16BIT);
+        idJmp.SetInstrCount(1);
+        idJmp.idDebugOnlyInfo(id->idDebugOnlyInfo()); // share the idDebugOnlyInfo() field
+        emit.emitDispInsHelp(&idJmp, false, doffs, true, offset, code, 2);
+        code += 2;
+        offset += 2;
+        memset(&idJmp, 0, sizeof(idJmp));
+        idJmp.idIns(INS_b);
+        idJmp.idInsFmt(IF_T2_J2);
+        idJmp.idInsSize(Emitter::ISZ_32BIT);
+        idJmp.SetLabel(ij->GetLabel());
+        idJmp.idDebugOnlyInfo(id->idDebugOnlyInfo()); // share the idDebugOnlyInfo() field
+        emit.emitDispInsHelp(&idJmp, false, doffs, true, offset, code, 4);
+    }
+    else
+    {
+        emit.emitDispInsHelp(id, false, doffs, true, offset, code, sz);
     }
 }
 

@@ -190,13 +190,7 @@ private:
     /************************************************************************/
 
     void emitDispInsHex(instrDesc* id, uint8_t* code, size_t sz);
-    void emitDispIns(instrDesc* id,
-                     bool       isNew = false,
-                     bool       doffs = false,
-                     bool       asmfm = false,
-                     unsigned   offs  = 0,
-                     uint8_t*   code  = 0,
-                     size_t     sz    = 0);
+    void emitDispIns(instrDesc* id, bool isNew, bool doffs, unsigned offs);
 #endif // DEBUG
 };
 

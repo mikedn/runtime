@@ -4867,45 +4867,19 @@ private:
     }
 };
 
-void X86Emitter::emitDispIns(
-    instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, uint8_t* code, size_t sz)
+void X86Emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, unsigned offset)
 {
     if (id->idInsFmt() == IF_GC_REG)
     {
         return;
     }
 
-    if (emitComp->verbose)
-    {
-        printf("IN%04X: ", id->idDebugOnlyInfo()->idNum);
-    }
+    JITDUMP("IN%04X: ", id->idDebugOnlyInfo()->idNum);
 
-    if (!isNew && !asmfm)
-    {
-        doffs = true;
-    }
+    emitDispInsOffs(offset, doffs || !isNew);
 
-    emitDispInsAddr(code);
-    emitDispInsOffs(offset, doffs);
-
-    if (code != nullptr)
-    {
-        assert(((code >= emitCodeBlock) && (code < emitCodeBlock + emitTotalHotCodeSize)) ||
-               ((code >= emitColdCodeBlock) && (code < emitColdCodeBlock + GetColdCodeSize())));
-
-        if (!emitComp->opts.disDiffable)
-        {
-            PrintHexCode(id, code, sz);
-        }
-    }
-
-    X86AsmPrinter printer(*this, asmfm);
+    X86AsmPrinter printer(*this, false);
     printer.Print(id);
-
-    if ((sz != 0) && (sz != id->idCodeSize()) && (!asmfm || emitComp->verbose))
-    {
-        printf(" (ECS:%d, ACS:%d)", id->idCodeSize(), sz);
-    }
 
     printf("\n");
 }
@@ -5276,8 +5250,39 @@ private:
     {
         return ::IsReallyVexTernary(ins, useVEXEncodings);
     }
+
+    void PrintIns(instrDesc* id, uint8_t* code, size_t sz);
 #endif
 };
+
+#ifdef DEBUG
+void X86Encoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
+{
+    JITDUMP("IN%04X: ", id->idDebugOnlyInfo()->idNum);
+
+    emit.emitDispInsAddr(code);
+    emit.emitDispInsOffs(emitCurCodeOffs(code), emitComp->opts.dspGCtbls);
+
+    assert(((code >= emitCodeBlock) && (code < emitCodeBlock + hotCodeSize)) ||
+           ((code >= emitColdCodeBlock) && (code < emitColdCodeBlock + GetColdCodeSize())));
+
+    if (!emitComp->opts.disDiffable)
+    {
+        emit.PrintHexCode(id, code, sz);
+    }
+
+    X86AsmPrinter printer(emit, true);
+    printer.Print(id);
+
+    if (sz != id->idCodeSize())
+    {
+        JITDUMP(" (ECS:%d, ACS:%d)", id->idCodeSize(), sz);
+    }
+
+    printf("\n");
+}
+
+#endif // DEBUG
 
 size_t X86Encoder::emitOutputByte(uint8_t* dst, ssize_t val)
 {
@@ -8172,9 +8177,7 @@ size_t X86Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 #ifdef DEBUG
     if ((emitComp->opts.disAsm || emitComp->verbose) && (*dp != dst))
     {
-        bool dspOffs = emitComp->opts.dspGCtbls;
-
-        emit.emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(*dp), *dp, dst - *dp);
+        PrintIns(id, *dp, dst - *dp);
     }
 #endif
 

@@ -1266,6 +1266,10 @@ private:
 
     // Returns true if the instruction may write to more than one register.
     bool emitInsMayWriteMultipleRegs(instrDesc* id);
+
+#ifdef DEBUG
+    void PrintIns(instrDesc* id, uint8_t* code, size_t sz);
+#endif
 };
 
 bool Arm64Encoder::emitInsMayWriteToGCReg(instrDesc* id)
@@ -1275,7 +1279,6 @@ bool Arm64Encoder::emitInsMayWriteToGCReg(instrDesc* id)
 
     switch (fmt)
     {
-
         // These are the formats with "destination" registers:
 
         // TODO-MIKE-Review: Is this missing IF_LARGEADR/IF_LARGELDC?
@@ -10316,13 +10319,7 @@ size_t Arm64Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 #ifdef DEBUG
     if ((emitComp->opts.disAsm || emitComp->verbose) && (*dp != dst))
     {
-#if DUMP_GC_TABLES
-        bool dspOffs = emitComp->opts.dspGCtbls;
-#else
-        bool dspOffs = !emitComp->opts.disDiffable;
-#endif
-
-        emit.emitDispIns(id, false, dspOffs, true, emitCurCodeOffs(*dp), *dp, dst - *dp);
+        PrintIns(id, *dp, dst - *dp);
     }
 #endif
 
@@ -11007,8 +11004,7 @@ void Arm64Emitter::emitDispInsHex(instrDesc* id, uint8_t* code, size_t sz)
     }
 }
 
-void Arm64Emitter::emitDispIns(
-    instrDesc* id, bool isNew, bool doffs, bool asmfm, unsigned offset, uint8_t* code, size_t sz)
+void Arm64Emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, unsigned offset)
 {
     if (id->idInsFmt() == IF_GC_REG)
     {
@@ -11019,19 +11015,8 @@ void Arm64Emitter::emitDispIns(
 
     assert(!isNew || (static_cast<int>(id->GetDescSize()) == emitCurIGfreeNext - reinterpret_cast<uint8_t*>(id)));
 
-    if (code == nullptr)
-    {
-        sz = 0;
-    }
-
-    if (!isNew && !asmfm && sz)
-    {
-        doffs = true;
-    }
-
-    emitDispInsAddr(code);
     emitDispInsOffs(offset, doffs);
-    emitDispInsHex(id, code, sz);
+    emitDispInsHex(id, nullptr, 0);
 
     Arm64AsmPrinter printer(*this);
     printer.Print(id);
@@ -12058,6 +12043,24 @@ void Arm64AsmPrinter::emitDispFrameRef(instrDesc* id)
     }
 
     printf("]");
+}
+
+void Arm64Encoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
+{
+    JITDUMP("IN%04X: ", id->idDebugOnlyInfo()->idNum);
+
+#if DUMP_GC_TABLES
+    bool doffs = emitComp->opts.dspGCtbls;
+#else
+    bool doffs = !emitComp->opts.disDiffable;
+#endif
+
+    emit.emitDispInsAddr(code);
+    emit.emitDispInsOffs(emitCurCodeOffs(code), doffs);
+    emit.emitDispInsHex(id, code, sz);
+
+    Arm64AsmPrinter printer(emit);
+    printer.Print(id);
 }
 
 #endif // DEBUG
