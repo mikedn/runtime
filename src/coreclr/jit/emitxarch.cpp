@@ -4390,7 +4390,7 @@ private:
 #endif
         else
         {
-            emit.emitPrintLabel(id->GetLabel());
+            AsmPrinter::PrintLabel(id->GetLabel());
         }
     }
 

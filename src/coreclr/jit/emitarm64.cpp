@@ -10433,7 +10433,7 @@ void Arm64AsmPrinter::emitDispAddrLoadLabel(instrDescJmp* id)
     }
     else
     {
-        emit.emitPrintLabel(id->GetLabel());
+        PrintLabel(id->GetLabel());
     }
 
     if (ssize_t imm = id->emitGetInsSC())
@@ -10480,7 +10480,7 @@ void Arm64AsmPrinter::emitDispJumpLabel(instrDescJmp* id)
     }
     else
     {
-        emit.emitPrintLabel(id->GetLabel());
+        PrintLabel(id->GetLabel());
     }
 }
 

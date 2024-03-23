@@ -1651,7 +1651,6 @@ protected:
 
 #ifdef DEBUG
     void emitCheckIGoffsets();
-    void emitPrintLabel(insGroup* ig);
     const char* emitLabelString(insGroup* ig) const;
     void PrintAlignmentBoundary(size_t           instrAddr,
                                 size_t           instrEndAddr,
@@ -1877,6 +1876,7 @@ protected:
     {
     }
 
+    void PrintLabel(insGroup* ig);
     void PrintHandleComment(void* handle, HandleKind kind);
 };
 

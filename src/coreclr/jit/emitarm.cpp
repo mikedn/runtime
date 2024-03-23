@@ -6045,7 +6045,7 @@ void ArmAsmPrinter::emitDispLabel(instrDescJmp* id)
     }
     else
     {
-        emit.emitPrintLabel(id->GetLabel());
+        PrintLabel(id->GetLabel());
     }
 }
 

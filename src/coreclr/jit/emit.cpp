@@ -1249,9 +1249,9 @@ void EmitterBase::DefineInlineTempLabel(insGroup* label)
 
 #ifdef DEBUG
 
-void EmitterBase::emitPrintLabel(insGroup* ig)
+void AsmPrinter::PrintLabel(insGroup* ig)
 {
-    printf("G_M%03u_IG%02u", emitComp->compMethodID, ig->GetId());
+    printf("G_M%03u_IG%02u", compiler->compMethodID, ig->GetId());
 }
 
 const char* EmitterBase::emitLabelString(insGroup* ig) const
