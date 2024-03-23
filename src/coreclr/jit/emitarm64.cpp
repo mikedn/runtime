@@ -11013,8 +11013,6 @@ void Arm64Emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, unsigned o
 
     JITDUMP("IN%04X: ", id->idDebugOnlyInfo()->idNum);
 
-    assert(!isNew || (static_cast<int>(id->GetDescSize()) == emitCurIGfreeNext - reinterpret_cast<uint8_t*>(id)));
-
     emitDispInsOffs(offset, doffs);
     emitDispInsHex(id, nullptr, 0);
 

@@ -542,7 +542,7 @@ BasicBlock::weight_t EmitterBase::getCurrentBlockWeight()
 void EmitterBase::dispIns(instrDesc* id)
 {
     assert(id->idDebugOnlyInfo()->idSize == id->GetDescSize());
-
+    assert(emitCurIGfreeNext - reinterpret_cast<uint8_t*>(id) == static_cast<ssize_t>(id->GetDescSize()));
 #ifdef TARGET_XARCH
     assert((id->idCodeSize() != 0) || id->InstrHasNoCode());
 #endif

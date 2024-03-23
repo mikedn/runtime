@@ -6634,8 +6634,6 @@ void ArmAsmPrinter::Print(instrDesc* id)
 
 void ArmEmitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, unsigned offset)
 {
-    assert(!isNew || (static_cast<int>(id->GetDescSize()) == emitCurIGfreeNext - reinterpret_cast<uint8_t*>(id)));
-
     if (id->idInsFmt() == IF_GC_REG)
     {
         return;
