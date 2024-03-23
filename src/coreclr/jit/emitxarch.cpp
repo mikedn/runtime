@@ -5175,7 +5175,7 @@ public:
     {
     }
 
-    size_t emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp) override;
+    size_t EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp);
 
 private:
     size_t emitOutputByte(uint8_t* dst, ssize_t val);
@@ -7635,7 +7635,12 @@ void EmitterBase::emitEndCodeGen()
     encoder.emitEndCodeGen();
 }
 
-size_t X86Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
+size_t Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
+{
+    return static_cast<X86Encoder*>(this)->EncodeInstr(ig, id, dp);
+}
+
+size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 {
     uint8_t*    dst  = *dp;
     size_t      sz   = sizeof(instrDesc);

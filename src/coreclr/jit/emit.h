@@ -1781,7 +1781,7 @@ protected:
     }
 
     size_t emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp);
-    virtual size_t emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp) = 0;
+    size_t emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp);
     void OutputRoData(uint8_t* dst);
 
     void emitGCregLiveUpd(GCtype gcType, RegNum reg, uint8_t* addr);

@@ -1239,7 +1239,7 @@ public:
     {
     }
 
-    size_t emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp) override;
+    size_t EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp);
 
 private:
     // Emit the 32-bit Arm64 instruction 'code' into the 'dst'  buffer
@@ -9150,12 +9150,17 @@ void EmitterBase::emitEndCodeGen()
     encoder.emitEndCodeGen();
 }
 
+size_t Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
+{
+    return static_cast<Arm64Encoder*>(this)->EncodeInstr(ig, id, dp);
+}
+
 // Append the machine code corresponding to the given instruction descriptor
 // to the code block at '*dp'; the base of the code block is 'bp', and 'ig'
 // is the instruction group that contains the instruction. Updates '*dp' to
 // point past the generated code, and returns the size of the instruction
 // descriptor in bytes.
-size_t Arm64Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
+size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 {
     BYTE*             dst  = *dp;
     BYTE*             odst = dst;

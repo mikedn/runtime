@@ -550,7 +550,7 @@ public:
     {
     }
 
-    size_t emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp) override;
+    size_t EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp);
 
 private:
     static int encodeModImmConst(int imm);
@@ -5006,12 +5006,17 @@ void EmitterBase::emitEndCodeGen()
     encoder.emitEndCodeGen();
 }
 
+size_t Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
+{
+    return static_cast<ArmEncoder*>(this)->EncodeInstr(ig, id, dp);
+}
+
 // Append the machine code corresponding to the given instruction descriptor
 // to the code block at '*dp'; the base of the code block is 'bp', and 'ig'
 // is the instruction group that contains the instruction. Updates '*dp' to
 // point past the generated code, and returns the size of the instruction
 // descriptor in bytes.
-size_t ArmEncoder::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
+size_t ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 {
     uint8_t*    dst  = *dp;
     uint8_t*    odst = dst;
