@@ -302,9 +302,14 @@ static bool IsSseDstSrcImm(instruction ins)
 // TODO-XArch-Cleanup: This is a temporary solution for now. Eventually this needs to
 // be formalized by adding an additional field to instruction table to
 // to indicate whether a 3-operand instruction.
+static bool IsVexDstDstSrc(instruction ins, bool vexAvailable)
+{
+    return ((InsFlags(ins) & INS_Flags_VexDstDstSrc) != 0) && vexAvailable;
+}
+
 bool X86Emitter::IsVexDstDstSrc(instruction ins) const
 {
-    return ((InsFlags(ins) & INS_Flags_VexDstDstSrc) != 0) && UseVEXEncoding();
+    return ::IsVexDstDstSrc(ins, UseVEXEncoding());
 }
 
 // Returns true if the AVX instruction requires 3 operands that duplicate the source
@@ -312,26 +317,41 @@ bool X86Emitter::IsVexDstDstSrc(instruction ins) const
 // TODO-XArch-Cleanup: This is a temporary solution for now. Eventually this needs to
 // be formalized by adding an additional field to instruction table to
 // to indicate whether a 3-operand instruction.
+static bool IsVexDstSrcSrc(instruction ins, bool vexAvailable)
+{
+    return ((InsFlags(ins) & INS_Flags_VexDstSrcSrc) != 0) && vexAvailable;
+}
+
 bool X86Emitter::IsVexDstSrcSrc(instruction ins) const
 {
-    return ((InsFlags(ins) & INS_Flags_VexDstSrcSrc) != 0) && UseVEXEncoding();
+    return ::IsVexDstSrcSrc(ins, UseVEXEncoding());
 }
 
 #ifdef DEBUG
+static bool IsVexTernary(instruction ins, bool vexAvailable)
+{
+    return IsVexDstDstSrc(ins, vexAvailable) || IsVexDstSrcSrc(ins, vexAvailable);
+}
+
 bool X86Emitter::IsVexTernary(instruction ins) const
 {
-    return IsVexDstDstSrc(ins) || IsVexDstSrcSrc(ins);
+    return ::IsVexTernary(ins, UseVEXEncoding());
+}
+
+static bool IsReallyVexTernary(instruction ins, bool vexAvailable)
+{
+    // TODO-MIKE-Cleanup: The VexDstSrcSrc/DstDstSrc are incorrectly placed on instructions
+    // when they're in fact a property of the encoding. movss & co. are not DstSrcSrc in
+    // their mem,reg forms. Actually movss isn't DstSrcSrc even in its reg,mem form, only
+    // in its reg,reg form.
+    return IsVexTernary(ins, vexAvailable) &&
+           !((ins == INS_movss) || (ins == INS_movsd) || (ins == INS_movlps) || (ins == INS_movlpd) ||
+             (ins == INS_movhps) || (ins == INS_movhpd));
 }
 
 bool X86Emitter::IsReallyVexTernary(instruction ins) const
 {
-    // TODO-MIKE-Cleanup: The VexDstSrcSrc/DstDstSrc are incorrecly placed on instructions
-    // when they're in fact a property of the encoding. movss & co. are not DstSrcSrc in
-    // their mem,reg forms. Actually movss isn't DstSrcSrc even in its reg,mem form, only
-    // in its reg,reg form.
-    return IsVexTernary(ins) &&
-           !((ins == INS_movss) || (ins == INS_movsd) || (ins == INS_movlps) || (ins == INS_movlpd) ||
-             (ins == INS_movhps) || (ins == INS_movhpd));
+    return ::IsReallyVexTernary(ins, UseVEXEncoding());
 }
 #endif
 
@@ -469,9 +489,14 @@ bool X86Emitter::AreFlagsSetToZeroCmp(regNumber reg, emitAttr opSize, genTreeOps
     return false;
 }
 
+static bool TakesVexPrefix(instruction ins, bool vexAvailable)
+{
+    return vexAvailable && (INS_FIRST_VEX_INSTRUCTION <= ins) && (ins <= INS_LAST_VEX_INSTRUCTION);
+}
+
 bool X86Emitter::TakesVexPrefix(instruction ins) const
 {
-    return UseVEXEncoding() && (INS_FIRST_VEX_INSTRUCTION <= ins) && (ins <= INS_LAST_VEX_INSTRUCTION);
+    return ::TakesVexPrefix(ins, UseVEXEncoding());
 }
 
 constexpr unsigned PrefixesBitOffset = 16;
@@ -5164,8 +5189,10 @@ static bool HasSBit(instruction ins)
 
 class X86Encoder final : public Encoder
 {
+    const bool useVEXEncodings;
+
 public:
-    X86Encoder(X86Emitter* emit) : Encoder(emit)
+    X86Encoder(X86Emitter* emit) : Encoder(emit), useVEXEncodings(emit->useVEXEncodings)
     {
     }
 
@@ -5225,35 +5252,35 @@ private:
 
     bool UseVEXEncoding() const
     {
-        return emit.UseVEXEncoding();
+        return useVEXEncodings;
     }
 
     bool TakesVexPrefix(instruction ins) const
     {
-        return emit.TakesVexPrefix(ins);
+        return ::TakesVexPrefix(ins, useVEXEncodings);
+    }
+
+    bool IsVexDstDstSrc(instruction ins) const
+    {
+        return ::IsVexDstDstSrc(ins, useVEXEncodings);
+    }
+
+    bool IsVexDstSrcSrc(instruction ins) const
+    {
+        return ::IsVexDstSrcSrc(ins, useVEXEncodings);
     }
 
 #ifdef DEBUG
     bool IsVexTernary(instruction ins) const
     {
-        return emit.IsVexTernary(ins);
+        return ::IsVexTernary(ins, useVEXEncodings);
     }
 
     bool IsReallyVexTernary(instruction ins) const
     {
-        return emit.IsReallyVexTernary(ins);
+        return ::IsReallyVexTernary(ins, useVEXEncodings);
     }
 #endif
-
-    bool IsVexDstDstSrc(instruction ins) const
-    {
-        return emit.IsVexDstDstSrc(ins);
-    }
-
-    bool IsVexDstSrcSrc(instruction ins) const
-    {
-        return emit.IsVexDstSrcSrc(ins);
-    }
 };
 
 size_t X86Encoder::emitOutputByte(uint8_t* dst, ssize_t val)
