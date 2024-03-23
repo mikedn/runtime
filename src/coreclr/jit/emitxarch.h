@@ -6,7 +6,7 @@
 class X86Emitter final : public EmitterBase
 {
     friend class X86Encoder;
-    friend class AsmPrinter;
+    friend class X86AsmPrinter;
     friend class EmitterBase;
 
 private:

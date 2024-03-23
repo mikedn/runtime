@@ -4108,17 +4108,13 @@ void X86Emitter::PrintHexCode(instrDesc* id, const uint8_t* code, size_t size)
     printf("%s", buffer);
 }
 
-class AsmPrinter final
+class X86AsmPrinter final : public AsmPrinter
 {
-    using instrDesc    = Emitter::instrDesc;
-    using instrDescJmp = Emitter::instrDescJmp;
-
-    Compiler*   compiler;
-    X86Emitter& emit;
-    bool        asmfm;
+    const bool asmfm;
+    const bool useVex;
 
 public:
-    AsmPrinter(X86Emitter& emit, bool asmfm) : compiler(emit.emitComp), emit(emit), asmfm(asmfm)
+    X86AsmPrinter(X86Emitter& emit, bool asmfm) : AsmPrinter(emit), asmfm(asmfm), useVex(emit.UseVEXEncoding())
     {
     }
 
@@ -4276,7 +4272,7 @@ private:
             printf("%s", getRegName(am.base));
 
             separator = "+";
-            frameRef  = (am.base == REG_ESP) || ((am.base == REG_EBP) && emit.codeGen->isFramePointerUsed());
+            frameRef  = (am.base == REG_ESP) || ((am.base == REG_EBP) && codeGen->isFramePointerUsed());
         }
 
         if (am.index != REG_NA)
@@ -4422,7 +4418,7 @@ private:
         static unsigned curBuf = 0;
         static char     buf[4][40];
 
-        if ((INS_FIRST_VEX_INSTRUCTION <= ins) && (ins <= INS_LAST_SSE_INSTRUCTION) && emit.UseVEXEncoding())
+        if ((INS_FIRST_VEX_INSTRUCTION <= ins) && (ins <= INS_LAST_SSE_INSTRUCTION) && useVex)
         {
             auto& retbuf = buf[curBuf++ % _countof(buf)];
             sprintf_s(retbuf, _countof(retbuf), "v%s", name);
@@ -4903,7 +4899,7 @@ void X86Emitter::emitDispIns(
         }
     }
 
-    AsmPrinter printer(*this, asmfm);
+    X86AsmPrinter printer(*this, asmfm);
     printer.Print(id);
 
     if ((sz != 0) && (sz != id->idCodeSize()) && (!asmfm || emitComp->verbose))

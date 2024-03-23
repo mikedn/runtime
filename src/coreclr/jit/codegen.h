@@ -25,7 +25,7 @@ class CodeGen final : public CodeGenInterface
     friend class CodeGenInterface;
 #ifdef TARGET_ARM
     friend class ArmEncoder;
-    friend class AsmPrinter;
+    friend class ArmAsmPrinter;
     friend class ArmEmitter;
 #endif
 #ifdef TARGET_ARM64

@@ -10333,16 +10333,10 @@ size_t Arm64Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
 #ifdef DEBUG
 
-class AsmPrinter final
+class Arm64AsmPrinter final : public AsmPrinter
 {
-    using instrDesc    = Emitter::instrDesc;
-    using instrDescJmp = Emitter::instrDescJmp;
-
-    Compiler*     compiler;
-    Arm64Emitter& emit;
-
 public:
-    AsmPrinter(Arm64Emitter& emit) : compiler(emit.emitComp), emit(emit)
+    Arm64AsmPrinter(Arm64Emitter& emit) : AsmPrinter(emit)
     {
     }
 
@@ -10394,7 +10388,7 @@ private:
     void emitDispAddrRRExt(RegNum reg1, RegNum reg2, insOpts opt, bool isScaled, emitAttr size);
 };
 
-void AsmPrinter::emitDispInst(instruction ins)
+void Arm64AsmPrinter::emitDispInst(instruction ins)
 {
     const char* insstr = insName(ins);
     size_t      len    = strlen(insstr);
@@ -10411,7 +10405,7 @@ void AsmPrinter::emitDispInst(instruction ins)
     } while (len < 8);
 }
 
-void AsmPrinter::emitDispAddrLoadLabel(instrDescJmp* id)
+void Arm64AsmPrinter::emitDispAddrLoadLabel(instrDescJmp* id)
 {
     assert(insOptsNone(id->idInsOpt()));
 
@@ -10453,7 +10447,7 @@ void AsmPrinter::emitDispAddrLoadLabel(instrDescJmp* id)
     }
 }
 
-void AsmPrinter::emitDispJumpLabel(instrDescJmp* id)
+void Arm64AsmPrinter::emitDispJumpLabel(instrDescJmp* id)
 {
     assert(insOptsNone(id->idInsOpt()));
 
@@ -10490,7 +10484,7 @@ void AsmPrinter::emitDispJumpLabel(instrDescJmp* id)
     }
 }
 
-void AsmPrinter::emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm)
+void Arm64AsmPrinter::emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm)
 {
     assert(imm == 0);
     assert(fmt == IF_DI_1E);
@@ -10527,7 +10521,7 @@ void AsmPrinter::emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm)
     }
 }
 
-void AsmPrinter::emitDispImm(ssize_t imm, bool addComma, bool alwaysHex)
+void Arm64AsmPrinter::emitDispImm(ssize_t imm, bool addComma, bool alwaysHex)
 {
     if (strictArmAsm)
     {
@@ -10570,7 +10564,7 @@ void AsmPrinter::emitDispImm(ssize_t imm, bool addComma, bool alwaysHex)
         printf(", ");
 }
 
-void AsmPrinter::emitDispFloatZero()
+void Arm64AsmPrinter::emitDispFloatZero()
 {
     if (strictArmAsm)
     {
@@ -10579,7 +10573,7 @@ void AsmPrinter::emitDispFloatZero()
     printf("0.0");
 }
 
-void AsmPrinter::emitDispFloatImm(ssize_t imm8)
+void Arm64AsmPrinter::emitDispFloatImm(ssize_t imm8)
 {
     assert((0 <= imm8) && (imm8 <= 0x0ff));
     if (strictArmAsm)
@@ -10594,7 +10588,7 @@ void AsmPrinter::emitDispFloatImm(ssize_t imm8)
     printf("%.4f", result);
 }
 
-void AsmPrinter::emitDispImmOptsLSL12(ssize_t imm, insOpts opt)
+void Arm64AsmPrinter::emitDispImmOptsLSL12(ssize_t imm, insOpts opt)
 {
     if (!strictArmAsm && insOptsLSL12(opt))
     {
@@ -10607,7 +10601,7 @@ void AsmPrinter::emitDispImmOptsLSL12(ssize_t imm, insOpts opt)
     }
 }
 
-void AsmPrinter::emitDispCond(insCond cond)
+void Arm64AsmPrinter::emitDispCond(insCond cond)
 {
     const static char* armCond[16]{"eq", "ne", "hs", "lo", "mi", "pl", "vs", "vc",
                                    "hi", "ls", "ge", "lt", "gt", "le", "AL", "NV"}; // The last two are invalid
@@ -10616,7 +10610,7 @@ void AsmPrinter::emitDispCond(insCond cond)
     printf(armCond[imm]);
 }
 
-void AsmPrinter::emitDispFlags(insCflags flags)
+void Arm64AsmPrinter::emitDispFlags(insCflags flags)
 {
     const static char* armFlags[16]{"0", "v",  "c",  "cv",  "z",  "zv",  "zc",  "zcv",
                                     "n", "nv", "nc", "ncv", "nz", "nzv", "nzc", "nzcv"};
@@ -10625,7 +10619,7 @@ void AsmPrinter::emitDispFlags(insCflags flags)
     printf(armFlags[imm]);
 }
 
-void AsmPrinter::emitDispBarrier(insBarrier barrier)
+void Arm64AsmPrinter::emitDispBarrier(insBarrier barrier)
 {
     const static char* armBarriers[16]{"#0", "oshld", "oshst", "osh", "#4",  "nshld", "nshst", "nsh",
                                        "#8", "ishld", "ishst", "ish", "#12", "ld",    "st",    "sy"};
@@ -10671,22 +10665,22 @@ const char* insOptsName(insOpts opt)
     }
 }
 
-void AsmPrinter::emitDispShiftOpts(insOpts opt)
+void Arm64AsmPrinter::emitDispShiftOpts(insOpts opt)
 {
     printf(" %s ", insOptsName(opt));
 }
 
-void AsmPrinter::emitDispExtendOpts(insOpts opt)
+void Arm64AsmPrinter::emitDispExtendOpts(insOpts opt)
 {
     printf("%s", insOptsName(opt));
 }
 
-void AsmPrinter::emitDispLSExtendOpts(insOpts opt)
+void Arm64AsmPrinter::emitDispLSExtendOpts(insOpts opt)
 {
     printf("%s", insOptsName(opt));
 }
 
-void AsmPrinter::emitDispReg(RegNum reg, emitAttr attr, bool addComma)
+void Arm64AsmPrinter::emitDispReg(RegNum reg, emitAttr attr, bool addComma)
 {
     emitAttr size = EA_SIZE(attr);
     printf(emitRegName(reg, size));
@@ -10695,7 +10689,7 @@ void AsmPrinter::emitDispReg(RegNum reg, emitAttr attr, bool addComma)
         printf(", ");
 }
 
-void AsmPrinter::emitDispVectorReg(RegNum reg, insOpts opt, bool addComma)
+void Arm64AsmPrinter::emitDispVectorReg(RegNum reg, insOpts opt, bool addComma)
 {
     assert(isVectorRegister(reg));
     printf(emitVectorRegName(reg));
@@ -10705,7 +10699,7 @@ void AsmPrinter::emitDispVectorReg(RegNum reg, insOpts opt, bool addComma)
         printf(", ");
 }
 
-void AsmPrinter::emitDispVectorRegIndex(RegNum reg, emitAttr elemsize, ssize_t index, bool addComma)
+void Arm64AsmPrinter::emitDispVectorRegIndex(RegNum reg, emitAttr elemsize, ssize_t index, bool addComma)
 {
     assert(isVectorRegister(reg));
     printf(emitVectorRegName(reg));
@@ -10716,7 +10710,7 @@ void AsmPrinter::emitDispVectorRegIndex(RegNum reg, emitAttr elemsize, ssize_t i
         printf(", ");
 }
 
-void AsmPrinter::emitDispVectorRegList(RegNum firstReg, unsigned listSize, insOpts opt, bool addComma)
+void Arm64AsmPrinter::emitDispVectorRegList(RegNum firstReg, unsigned listSize, insOpts opt, bool addComma)
 {
     assert(isVectorRegister(firstReg));
 
@@ -10737,7 +10731,7 @@ void AsmPrinter::emitDispVectorRegList(RegNum firstReg, unsigned listSize, insOp
     }
 }
 
-void AsmPrinter::emitDispVectorElemList(
+void Arm64AsmPrinter::emitDispVectorElemList(
     RegNum firstReg, unsigned listSize, emitAttr elemsize, unsigned index, bool addComma)
 {
     assert(isVectorRegister(firstReg));
@@ -10765,7 +10759,7 @@ void AsmPrinter::emitDispVectorElemList(
     }
 }
 
-void AsmPrinter::emitDispArrangement(insOpts opt)
+void Arm64AsmPrinter::emitDispArrangement(insOpts opt)
 {
     const char* str = "???";
 
@@ -10803,7 +10797,7 @@ void AsmPrinter::emitDispArrangement(insOpts opt)
     printf(str);
 }
 
-void AsmPrinter::emitDispElemsize(emitAttr elemsize)
+void Arm64AsmPrinter::emitDispElemsize(emitAttr elemsize)
 {
     const char* str = "???";
 
@@ -10830,7 +10824,7 @@ void AsmPrinter::emitDispElemsize(emitAttr elemsize)
     printf(str);
 }
 
-void AsmPrinter::emitDispShiftedReg(RegNum reg, insOpts opt, ssize_t imm, emitAttr attr)
+void Arm64AsmPrinter::emitDispShiftedReg(RegNum reg, insOpts opt, ssize_t imm, emitAttr attr)
 {
     emitAttr size = EA_SIZE(attr);
     assert((imm & 0x003F) == imm);
@@ -10849,7 +10843,7 @@ void AsmPrinter::emitDispShiftedReg(RegNum reg, insOpts opt, ssize_t imm, emitAt
     }
 }
 
-void AsmPrinter::emitDispExtendReg(RegNum reg, insOpts opt, ssize_t imm)
+void Arm64AsmPrinter::emitDispExtendReg(RegNum reg, insOpts opt, ssize_t imm)
 {
     assert((imm >= 0) && (imm <= 4));
     assert(insOptsNone(opt) || insOptsAnyExtend(opt) || (opt == INS_OPTS_LSL));
@@ -10901,7 +10895,7 @@ void AsmPrinter::emitDispExtendReg(RegNum reg, insOpts opt, ssize_t imm)
     }
 }
 
-void AsmPrinter::emitDispAddrRI(RegNum reg, insOpts opt, ssize_t imm)
+void Arm64AsmPrinter::emitDispAddrRI(RegNum reg, insOpts opt, ssize_t imm)
 {
     reg = encodingZRtoSP(reg); // ZR (R31) encodes the SP register
 
@@ -10964,7 +10958,7 @@ void AsmPrinter::emitDispAddrRI(RegNum reg, insOpts opt, ssize_t imm)
     }
 }
 
-void AsmPrinter::emitDispAddrRRExt(RegNum reg1, RegNum reg2, insOpts opt, bool isScaled, emitAttr size)
+void Arm64AsmPrinter::emitDispAddrRRExt(RegNum reg1, RegNum reg2, insOpts opt, bool isScaled, emitAttr size)
 {
     reg1 = encodingZRtoSP(reg1); // ZR (R31) encodes the SP register
 
@@ -11039,11 +11033,11 @@ void Arm64Emitter::emitDispIns(
     emitDispInsOffs(offset, doffs);
     emitDispInsHex(id, code, sz);
 
-    AsmPrinter printer(*this);
+    Arm64AsmPrinter printer(*this);
     printer.Print(id);
 }
 
-void AsmPrinter::Print(instrDesc* id)
+void Arm64AsmPrinter::Print(instrDesc* id)
 {
     instruction ins = id->idIns();
     insFormat   fmt = id->idInsFmt();
@@ -12045,7 +12039,7 @@ void EmitterBase::PrintAlignmentBoundary(size_t           instrAddr,
     }
 }
 
-void AsmPrinter::emitDispFrameRef(instrDesc* id)
+void Arm64AsmPrinter::emitDispFrameRef(instrDesc* id)
 {
     int varNum  = id->idDebugOnlyInfo()->varNum;
     int varOffs = id->idDebugOnlyInfo()->varOffs;

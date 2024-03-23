@@ -247,8 +247,6 @@ enum insFormat : unsigned
     IF_COUNT
 };
 
-class AsmPrinter;
-
 struct ConstData
 {
     // Alignments greater than 32 requires VM changes (see ICorJitInfo::allocMem)
@@ -289,6 +287,8 @@ class Arm64Encoder;
 #else
 #error Unsupported or unset target architecture
 #endif
+
+class AsmPrinter;
 
 class EmitterBase
 {
@@ -1854,3 +1854,38 @@ protected:
     void perfScoreUnhandledInstruction(instrDesc* id, insExecutionCharacteristics* result);
 #endif
 };
+
+#ifdef DEBUG
+class AsmPrinter
+{
+protected:
+    using instrDescSmall = Emitter::instrDescSmall;
+    using instrDesc      = Emitter::instrDesc;
+    using instrDescJmp   = Emitter::instrDescJmp;
+    using instrDescCGCA  = Emitter::instrDescCGCA;
+#ifdef TARGET_ARMARCH
+    using instrDescCns = Emitter::instrDescCns;
+#endif
+#if FEATURE_LOOP_ALIGN
+    using instrDescAlign = Emitter::instrDescAlign;
+#endif
+
+    Compiler*    compiler;
+    CodeGen*     codeGen;
+    ArchEmitter& emit;
+
+    AsmPrinter(ArchEmitter& emit) : compiler(emit.emitComp), codeGen(emit.codeGen), emit(emit)
+    {
+    }
+};
+
+#if defined(TARGET_XARCH)
+class X86AsmPrinter;
+#elif defined(TARGET_ARM)
+class ArmAsmPrinter;
+#elif defined(TARGET_ARM64)
+class Arm64AsmPrinter;
+#else
+#error Unsupported or unset target architecture
+#endif
+#endif // DEBUG

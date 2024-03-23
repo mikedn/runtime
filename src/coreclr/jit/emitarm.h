@@ -6,7 +6,7 @@
 class ArmEmitter final : public EmitterBase
 {
     friend class ArmEncoder;
-    friend class AsmPrinter;
+    friend class ArmAsmPrinter;
     friend class EmitterBase;
 
 public:

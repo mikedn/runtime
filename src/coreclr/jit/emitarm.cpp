@@ -5808,16 +5808,10 @@ static bool insAlwaysSetFlags(instruction ins)
     return result;
 }
 
-class AsmPrinter final
+class ArmAsmPrinter final : public AsmPrinter
 {
-    using instrDesc    = Emitter::instrDesc;
-    using instrDescJmp = Emitter::instrDescJmp;
-
-    Compiler*   compiler;
-    ArmEmitter& emit;
-
 public:
-    AsmPrinter(ArmEmitter& emit) : compiler(emit.emitComp), emit(emit)
+    ArmAsmPrinter(ArmEmitter& emit) : AsmPrinter(emit)
     {
     }
 
@@ -5848,7 +5842,7 @@ private:
 };
 
 // Display the instruction name, optionally the instruction can add the "s" suffix if it must set the flags.
-void AsmPrinter::emitDispInst(instruction ins, insFlags flags)
+void ArmAsmPrinter::emitDispInst(instruction ins, insFlags flags)
 {
     const char* insstr = insName(ins);
     size_t      len    = strlen(insstr);
@@ -5873,7 +5867,7 @@ void AsmPrinter::emitDispInst(instruction ins, insFlags flags)
 
 #define STRICT_ARM_ASM 0
 
-void AsmPrinter::emitDispImm(int imm, bool addComma, bool alwaysHex)
+void ArmAsmPrinter::emitDispImm(int imm, bool addComma, bool alwaysHex)
 {
     if (!alwaysHex && (imm > -1000) && (imm < 1000))
         printf("%d", imm);
@@ -5888,12 +5882,12 @@ void AsmPrinter::emitDispImm(int imm, bool addComma, bool alwaysHex)
         printf(", ");
 }
 
-void AsmPrinter::emitDispReloc(void* addr)
+void ArmAsmPrinter::emitDispReloc(void* addr)
 {
     printf("0x%p", dspPtr(addr));
 }
 
-void AsmPrinter::emitDispCond(int cond)
+void ArmAsmPrinter::emitDispCond(int cond)
 {
     const static char* armCond[16]{"eq", "ne", "hs", "lo", "mi", "pl", "vs", "vc",
                                    "hi", "ls", "ge", "lt", "gt", "le", "AL", "NV"}; // The last two are invalid
@@ -5901,7 +5895,7 @@ void AsmPrinter::emitDispCond(int cond)
     printf(armCond[cond]);
 }
 
-void AsmPrinter::emitDispRegRange(RegNum reg, int len, emitAttr attr)
+void ArmAsmPrinter::emitDispRegRange(RegNum reg, int len, emitAttr attr)
 {
     printf("{");
     emitDispReg(reg, attr, false);
@@ -5913,7 +5907,7 @@ void AsmPrinter::emitDispRegRange(RegNum reg, int len, emitAttr attr)
     printf("}");
 }
 
-void AsmPrinter::emitDispRegmask(int imm, bool encodedPC_LR)
+void ArmAsmPrinter::emitDispRegmask(int imm, bool encodedPC_LR)
 {
     bool printedOne = false;
     bool hasPC;
@@ -5990,12 +5984,12 @@ const char* insOptsName(insOpts opt)
     }
 }
 
-void AsmPrinter::emitDispShiftOpts(insOpts opt)
+void ArmAsmPrinter::emitDispShiftOpts(insOpts opt)
 {
     printf(" %s ", insOptsName(opt));
 }
 
-void AsmPrinter::emitDispReg(RegNum reg, emitAttr attr, bool addComma)
+void ArmAsmPrinter::emitDispReg(RegNum reg, emitAttr attr, bool addComma)
 {
     if (isFloatReg(reg))
     {
@@ -6011,7 +6005,7 @@ void AsmPrinter::emitDispReg(RegNum reg, emitAttr attr, bool addComma)
         printf(", ");
 }
 
-void AsmPrinter::emitDispLabel(instrDescJmp* id)
+void ArmAsmPrinter::emitDispLabel(instrDescJmp* id)
 {
     insFormat fmt = id->idInsFmt();
 
@@ -6055,7 +6049,7 @@ void AsmPrinter::emitDispLabel(instrDescJmp* id)
     }
 }
 
-void AsmPrinter::emitDispAddrR(RegNum reg, emitAttr attr)
+void ArmAsmPrinter::emitDispAddrR(RegNum reg, emitAttr attr)
 {
     printf("[");
     emitDispReg(reg, attr, false);
@@ -6063,7 +6057,7 @@ void AsmPrinter::emitDispAddrR(RegNum reg, emitAttr attr)
     emitDispGC(attr);
 }
 
-void AsmPrinter::emitDispAddrRI(RegNum reg, int imm, emitAttr attr)
+void ArmAsmPrinter::emitDispAddrRI(RegNum reg, int imm, emitAttr attr)
 {
     bool regIsSPorFP = (reg == REG_SP) || (reg == REG_FP);
 
@@ -6085,7 +6079,7 @@ void AsmPrinter::emitDispAddrRI(RegNum reg, int imm, emitAttr attr)
     emitDispGC(attr);
 }
 
-void AsmPrinter::emitDispAddrRR(RegNum reg1, RegNum reg2, emitAttr attr)
+void ArmAsmPrinter::emitDispAddrRR(RegNum reg1, RegNum reg2, emitAttr attr)
 {
     printf("[");
     emitDispReg(reg1, attr, false);
@@ -6099,7 +6093,7 @@ void AsmPrinter::emitDispAddrRR(RegNum reg1, RegNum reg2, emitAttr attr)
     emitDispGC(attr);
 }
 
-void AsmPrinter::emitDispAddrRRI(RegNum reg1, RegNum reg2, int imm, emitAttr attr)
+void ArmAsmPrinter::emitDispAddrRRI(RegNum reg1, RegNum reg2, int imm, emitAttr attr)
 {
     printf("[");
     emitDispReg(reg1, attr, false);
@@ -6124,7 +6118,7 @@ void AsmPrinter::emitDispAddrRRI(RegNum reg1, RegNum reg2, int imm, emitAttr att
     emitDispGC(attr);
 }
 
-void AsmPrinter::emitDispAddrPUW(RegNum reg, int imm, insOpts opt, emitAttr attr)
+void ArmAsmPrinter::emitDispAddrPUW(RegNum reg, int imm, insOpts opt, emitAttr attr)
 {
     bool regIsSPorFP = (reg == REG_SP) || (reg == REG_FP);
 
@@ -6150,7 +6144,7 @@ void AsmPrinter::emitDispAddrPUW(RegNum reg, int imm, insOpts opt, emitAttr attr
     emitDispGC(attr);
 }
 
-void AsmPrinter::emitDispGC(emitAttr attr)
+void ArmAsmPrinter::emitDispGC(emitAttr attr)
 {
 #if 0
     // TODO-ARM-Cleanup: Fix or delete.
@@ -6219,11 +6213,11 @@ void ArmEmitter::emitDispInsHelp(
     emitDispInsOffs(offset, doffs);
     emitDispInsHex(id, code, sz);
 
-    AsmPrinter printer(*this);
+    ArmAsmPrinter printer(*this);
     printer.Print(id);
 }
 
-void AsmPrinter::Print(instrDesc* id)
+void ArmAsmPrinter::Print(instrDesc* id)
 {
     printf("      ");
 
@@ -6608,7 +6602,7 @@ void AsmPrinter::Print(instrDesc* id)
             emitDispReg(id->idReg1(), attr, true);
             if (id->idIsLclVar())
             {
-                emitDispAddrRRI(id->idReg2(), emit.codeGen->rsGetRsvdReg(), 0, attr);
+                emitDispAddrRRI(id->idReg2(), codeGen->rsGetRsvdReg(), 0, attr);
             }
             else
             {
@@ -6750,7 +6744,7 @@ void EmitterBase::PrintAlignmentBoundary(size_t           instrAddr,
     }
 }
 
-void AsmPrinter::emitDispFrameRef(instrDesc* id)
+void ArmAsmPrinter::emitDispFrameRef(instrDesc* id)
 {
     int varNum  = id->idDebugOnlyInfo()->varNum;
     int varOffs = id->idDebugOnlyInfo()->varOffs;
