@@ -299,10 +299,9 @@ class EmitterBase
     friend struct insGroup;
 
 protected:
-    Compiler*    emitComp;
-    GCInfo       gcInfo;
-    CodeGen*     codeGen;
-    ICorJitInfo* emitCmpHandle;
+    Compiler* emitComp;
+    GCInfo    gcInfo;
+    CodeGen*  codeGen;
 #ifdef LATE_DISASM
     class DisAssembler* disasm;
 #endif
@@ -1752,6 +1751,7 @@ protected:
     using DataSection = EmitterBase::DataSection;
 
     Compiler*    emitComp;
+    ICorJitInfo* jitInfo;
     CodeGen*     codeGen;
     ArchEmitter& emit;
     GCInfo&      gcInfo;
@@ -1770,6 +1770,7 @@ protected:
 
     Encoder(ArchEmitter* emit)
         : emitComp(emit->emitComp)
+        , jitInfo(emit->emitComp->info.compCompHnd)
         , codeGen(emit->codeGen)
         , emit(*emit)
         , gcInfo(emit->gcInfo)

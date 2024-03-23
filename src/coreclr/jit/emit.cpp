@@ -15,7 +15,6 @@ EmitterBase::EmitterBase(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitI
     : emitComp(compiler)
     , gcInfo(compiler)
     , codeGen(codeGen)
-    , emitCmpHandle(jitInfo)
 #ifdef LATE_DISASM
     , disasm(new (emitComp, CMK_DebugOnly) DisAssembler(compiler, codeGen))
 #endif
@@ -2654,7 +2653,7 @@ void Encoder::emitEndCodeGen()
     args.xcptnsCount  = emitComp->compHndBBtabCount;
     args.flag         = allocMemFlag;
 
-    emit.emitCmpHandle->allocMem(&args);
+    jitInfo->allocMem(&args);
 
     uint8_t* codeBlock       = static_cast<uint8_t*>(args.hotCodeBlock);
     uint8_t* codeBlockRW     = static_cast<uint8_t*>(args.hotCodeBlockRW);
@@ -3475,7 +3474,7 @@ void Encoder::emitRecordRelocation(void* location, void* target, uint16_t relocT
     if (emitComp->info.compMatchedVM)
     {
         void* locationRW = static_cast<uint8_t*>(location) + writeableOffset;
-        emitComp->info.compCompHnd->recordRelocation(location, locationRW, target, relocType, 0, addlDelta);
+        jitInfo->recordRelocation(location, locationRW, target, relocType, 0, addlDelta);
     }
 
 #ifdef LATE_DISASM
@@ -3503,7 +3502,7 @@ void Encoder::emitRecordCallSite(unsigned instrOffset, CORINFO_SIG_INFO* callSig
         }
     }
 
-    emitComp->info.compCompHnd->recordCallSite(instrOffset, callSig, methodHandle);
+    jitInfo->recordCallSite(instrOffset, callSig, methodHandle);
 #endif // DEBUG
 }
 
