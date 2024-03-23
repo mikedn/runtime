@@ -4440,6 +4440,12 @@ private:
 
     void PrintIns(instrDesc* id)
     {
+        if (id->idInsFmt() == IF_GC_REG)
+        {
+            printf(".gcreg    %s", RegName(id->idReg1(), id->idGCref() == GCT_GCREF ? EA_GCREF : EA_BYREF));
+            return;
+        }
+
         const char* insName = GetInsName(id);
         printf(" %-9s", insName);
 
@@ -4869,12 +4875,9 @@ private:
 
 void X86Emitter::PrintIns(instrDesc* id)
 {
-    if (id->idInsFmt() != IF_GC_REG)
-    {
-        X86AsmPrinter printer(*this, false);
-        printer.Print(id);
-        printf("\n");
-    }
+    X86AsmPrinter printer(*this, false);
+    printer.Print(id);
+    printf("\n");
 }
 
 void Encoder::PrintAlignmentBoundary(size_t           instrAddr,

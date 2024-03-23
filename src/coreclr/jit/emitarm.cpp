@@ -6180,6 +6180,12 @@ void ArmAsmPrinter::Print(instrDesc* id)
     instruction ins = id->idIns();
     insFormat   fmt = id->idInsFmt();
 
+    if (fmt == IF_GC_REG)
+    {
+        printf(".gcreg  %s\n", RegName(id->idReg1(), id->idGCref() == GCT_GCREF ? EA_GCREF : EA_BYREF));
+        return;
+    }
+
     emitDispInst(ins, id->idInsFlags());
 
     emitAttr attr;
@@ -6613,11 +6619,8 @@ void ArmAsmPrinter::Print(instrDesc* id)
 
 void ArmEmitter::PrintIns(instrDesc* id)
 {
-    if (id->idInsFmt() != IF_GC_REG)
-    {
-        ArmAsmPrinter printer(*this);
-        printer.Print(id);
-    }
+    ArmAsmPrinter printer(*this);
+    printer.Print(id);
 }
 
 void ArmEncoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
