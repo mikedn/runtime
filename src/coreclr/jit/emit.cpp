@@ -2630,7 +2630,7 @@ void Encoder::emitEndCodeGen()
     // For arm64, we want to allocate JIT data always adjacent to code similar to what native compiler does.
     // This way allows us to use a single `ldr` to access such data like float constant/jmp table.
 
-    if (emit.emitFirstColdIG != nullptr)
+    if (firstColdIG != nullptr)
     {
         // JIT data might be far away from the cold code.
         NYI_ARM64("Need to handle fix-up to data from cold code.");
@@ -2693,7 +2693,7 @@ void Encoder::emitEndCodeGen()
     {
         assert((ig->igFlags & IGF_PLACEHOLDER) == 0);
 
-        if (ig == emit.emitFirstColdIG)
+        if (ig == firstColdIG)
         {
             assert(emitCurCodeOffs(cp) == hotCodeSize);
             assert(coldCodeBlock != nullptr);
@@ -2965,7 +2965,7 @@ unsigned Encoder::emitCurCodeOffs(uint8_t* dst) const
     }
     else
     {
-        assert(emit.emitFirstColdIG != nullptr);
+        assert(firstColdIG != nullptr);
         assert(emitColdCodeBlock != nullptr);
         assert((dst >= emitColdCodeBlock) && (dst <= emitColdCodeBlock + GetColdCodeSize()));
 
