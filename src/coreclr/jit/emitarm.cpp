@@ -543,7 +543,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
 }
 #endif // DEBUG
 
-class ArmEncoder : public Encoder
+class ArmEncoder final : public Encoder
 {
 public:
     ArmEncoder(ArmEmitter* emit) : Encoder(emit)
@@ -5808,7 +5808,7 @@ static bool insAlwaysSetFlags(instruction ins)
     return result;
 }
 
-class AsmPrinter
+class AsmPrinter final
 {
     using instrDesc    = Emitter::instrDesc;
     using instrDescJmp = Emitter::instrDescJmp;

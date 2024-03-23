@@ -8,7 +8,6 @@
 
 class LclVarDsc;
 class EmitterBase;
-class emitter;
 
 struct ParamRegState
 {
@@ -21,7 +20,6 @@ struct ParamRegState
 class CodeGenInterface
 {
     friend class EmitterBase;
-    friend class emitter;
 
 public:
     Compiler*     compiler;

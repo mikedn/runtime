@@ -552,7 +552,7 @@ void EmitterBase::dispIns(instrDesc* id)
 
     if (emitComp->verbose)
     {
-        static_cast<emitter*>(this)->emitDispIns(id, true);
+        static_cast<ArchEmitter*>(this)->emitDispIns(id, true);
     }
 #endif
 
@@ -842,9 +842,9 @@ void EmitterBase::ReserveEpilog(BasicBlock* block)
 #ifdef TARGET_AMD64
     // We're about to create an epilog. If the last instruction we output was a 'call',
     // then we need to insert a NOP, to allow for proper exception handling behavior.
-    if (static_cast<emitter*>(this)->IsLastInsCall())
+    if (static_cast<X86Emitter*>(this)->IsLastInsCall())
     {
-        static_cast<emitter*>(this)->emitIns(INS_nop);
+        static_cast<X86Emitter*>(this)->emitIns(INS_nop);
     }
 #endif
 
@@ -1716,7 +1716,7 @@ void EmitterBase::emitDispIG(insGroup* ig, bool dispInstr)
         for (unsigned i = 0; i < ig->igInsCnt; i++)
         {
             instrDesc* id = reinterpret_cast<instrDesc*>(ins);
-            static_cast<emitter*>(this)->emitDispIns(id, false, true, false, ofs, nullptr, 0);
+            static_cast<ArchEmitter*>(this)->emitDispIns(id, false, true, false, ofs, nullptr, 0);
             ins += id->GetDescSize();
             ofs += id->idCodeSize();
         }
@@ -1951,12 +1951,12 @@ void EmitterBase::emitLoopAlignment()
     if ((emitComp->opts.compJitAlignLoopBoundary > 16) && (!emitComp->opts.compJitAlignLoopAdaptive))
     {
         paddingBytes = emitComp->opts.compJitAlignLoopBoundary;
-        static_cast<emitter*>(this)->emitLongLoopAlign(paddingBytes);
+        static_cast<X86Emitter*>(this)->emitLongLoopAlign(paddingBytes);
     }
     else
     {
         paddingBytes = MAX_ENCODED_SIZE;
-        static_cast<emitter*>(this)->emitLoopAlign(paddingBytes);
+        static_cast<X86Emitter*>(this)->emitLoopAlign(paddingBytes);
     }
 
     // Mark this IG as need alignment so during EmitterBase we can check the instruction count heuristics of

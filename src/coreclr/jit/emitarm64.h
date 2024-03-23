@@ -3,7 +3,7 @@
 
 #ifdef TARGET_ARM64
 
-class Arm64Emitter : public EmitterBase
+class Arm64Emitter final : public EmitterBase
 {
     friend class Arm64Encoder;
     friend class AsmPrinter;

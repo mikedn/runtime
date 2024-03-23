@@ -3,7 +3,7 @@
 
 #ifdef TARGET_ARM
 
-class ArmEmitter : public EmitterBase
+class ArmEmitter final : public EmitterBase
 {
     friend class ArmEncoder;
     friend class AsmPrinter;

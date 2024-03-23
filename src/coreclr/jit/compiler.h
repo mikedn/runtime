@@ -45,7 +45,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 struct InfoHdr;
 struct escapeMapping_t;
 class EmitterBase;
-class emitter;
 struct ShadowParamVarInfo;
 struct ParamAllocInfo;
 class FgStack;
@@ -2432,7 +2431,6 @@ struct ThrowHelperBlock
 class Compiler
 {
     friend class EmitterBase;
-    friend class emitter;
     friend class JitTimer;
     friend class LinearScan;
     friend class CallInfo;

@@ -14,7 +14,6 @@ insOpts emitSimdArrangementOpt(emitAttr size, var_types elementType);
 
 class CodeGen;
 class EmitterBase;
-class emitter;
 class Encoder;
 struct insGroup;
 
@@ -1733,15 +1732,8 @@ protected:
 #error Unsupported or unset target architecture
 #endif
 
-class emitter : public ArchEmitter
-{
-public:
-    emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo) : ArchEmitter(compiler, codeGen, jitInfo)
-    {
-    }
-};
-
-using Emitter = emitter;
+using Emitter = ArchEmitter;
+using emitter = ArchEmitter;
 
 class Encoder
 {

@@ -4083,7 +4083,7 @@ void X86Emitter::PrintHexCode(instrDesc* id, const uint8_t* code, size_t size)
     printf("%s", buffer);
 }
 
-class AsmPrinter
+class AsmPrinter final
 {
     using instrDesc    = Emitter::instrDesc;
     using instrDescJmp = Emitter::instrDescJmp;
@@ -5162,7 +5162,7 @@ static bool HasSBit(instruction ins)
     return ((INS_add <= ins) && (ins <= INS_cmp)) || (ins == INS_imuli);
 }
 
-class X86Encoder : public Encoder
+class X86Encoder final : public Encoder
 {
 public:
     X86Encoder(X86Emitter* emit) : Encoder(emit)

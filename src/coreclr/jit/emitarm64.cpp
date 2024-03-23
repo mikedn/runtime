@@ -1232,7 +1232,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
 
 static bool emitInsIsStore(instruction ins);
 
-class Arm64Encoder : public Encoder
+class Arm64Encoder final : public Encoder
 {
 public:
     Arm64Encoder(Arm64Emitter* emit) : Encoder(emit)
@@ -10333,7 +10333,7 @@ size_t Arm64Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
 #ifdef DEBUG
 
-class AsmPrinter
+class AsmPrinter final
 {
     using instrDesc    = Emitter::instrDesc;
     using instrDescJmp = Emitter::instrDescJmp;

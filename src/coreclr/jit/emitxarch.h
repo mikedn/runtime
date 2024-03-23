@@ -3,7 +3,7 @@
 
 #ifdef TARGET_XARCH
 
-class X86Emitter : public EmitterBase
+class X86Emitter final : public EmitterBase
 {
     friend class X86Encoder;
     friend class AsmPrinter;
