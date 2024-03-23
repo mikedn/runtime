@@ -4910,10 +4910,10 @@ void X86Emitter::emitDispIns(
     printf("\n");
 }
 
-void EmitterBase::PrintAlignmentBoundary(size_t           instrAddr,
-                                         size_t           instrEndAddr,
-                                         const instrDesc* instr,
-                                         const instrDesc* nextInstr)
+void Encoder::PrintAlignmentBoundary(size_t           instrAddr,
+                                     size_t           instrEndAddr,
+                                     const instrDesc* instr,
+                                     const instrDesc* nextInstr)
 {
     // Determine if this instruction is part of a set that matches the Intel jcc erratum characteristic
     // described here:

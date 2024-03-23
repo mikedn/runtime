@@ -1651,10 +1651,6 @@ protected:
 
 #ifdef DEBUG
     void emitCheckIGoffsets();
-    void PrintAlignmentBoundary(size_t           instrAddr,
-                                size_t           instrEndAddr,
-                                const instrDesc* instr,
-                                const instrDesc* nextInstr);
 #endif
 
 public:
@@ -1825,6 +1821,10 @@ protected:
     void PrintRoData() const;
     void GetGCDeltaDumpHeader(char* buffer, size_t count);
     bool emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset) const;
+    void PrintAlignmentBoundary(size_t           instrAddr,
+                                size_t           instrEndAddr,
+                                const instrDesc* instr,
+                                const instrDesc* nextInstr);
 #endif
 
 #if defined(DEBUG) || defined(LATE_DISASM)

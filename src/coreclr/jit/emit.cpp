@@ -2816,8 +2816,8 @@ void Encoder::emitEndCodeGen()
 
             if ((emitComp->opts.disAsm || emitComp->verbose) && (emitComp->opts.disAddr || emitComp->opts.disAlignment))
             {
-                emit.PrintAlignmentBoundary(reinterpret_cast<size_t>(curInstrAddr), reinterpret_cast<size_t>(cp),
-                                            curInstrDesc, i + 1 < count ? id : nullptr);
+                PrintAlignmentBoundary(reinterpret_cast<size_t>(curInstrAddr), reinterpret_cast<size_t>(cp),
+                                       curInstrDesc, i + 1 < count ? id : nullptr);
             }
 #endif // DEBUG
 

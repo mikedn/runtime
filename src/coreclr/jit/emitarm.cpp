@@ -6718,10 +6718,7 @@ void ArmEmitter::emitDispIns(
     }
 }
 
-void EmitterBase::PrintAlignmentBoundary(size_t           instrAddr,
-                                         size_t           instrEndAddr,
-                                         const instrDesc* instr,
-                                         const instrDesc*)
+void Encoder::PrintAlignmentBoundary(size_t instrAddr, size_t instrEndAddr, const instrDesc* instr, const instrDesc*)
 {
     const size_t alignment    = emitComp->opts.compJitAlignLoopBoundary;
     const size_t boundaryAddr = instrEndAddr & ~(alignment - 1);
