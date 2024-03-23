@@ -6628,15 +6628,12 @@ void ArmEmitter::emitDispIns(instrDesc* id, bool isNew, unsigned offset)
 
 void ArmEncoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
 {
-    bool      doffs  = emitComp->opts.dspGCtbls || !emitComp->opts.disDiffable;
-    unsigned  offset = emitCurCodeOffs(code);
-    insFormat fmt    = id->idInsFmt();
+    insFormat fmt = id->idInsFmt();
 
-    auto Print = [&](instrDesc* id, bool doffs, unsigned offset, uint8_t* code, size_t sz) {
+    auto Print = [&](instrDesc* id, uint8_t* code, size_t sz) {
         JITDUMP("IN%04X: ", id->idDebugOnlyInfo()->idNum);
 
         PrintInsAddr(code);
-        emit.emitDispInsOffs(offset, doffs);
 
         if (!emitComp->opts.disDiffable)
         {
@@ -6657,20 +6654,19 @@ void ArmEncoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
         idJmp.idInsSize(Emitter::ISZ_16BIT);
         idJmp.SetInstrCount(1);
         idJmp.idDebugOnlyInfo(id->idDebugOnlyInfo()); // share the idDebugOnlyInfo() field
-        Print(&idJmp, doffs, offset, code, 2);
+        Print(&idJmp, code, 2);
         code += 2;
-        offset += 2;
         memset(&idJmp, 0, sizeof(idJmp));
         idJmp.idIns(INS_b);
         idJmp.idInsFmt(IF_T2_J2);
         idJmp.idInsSize(Emitter::ISZ_32BIT);
         idJmp.SetLabel(ij->GetLabel());
         idJmp.idDebugOnlyInfo(id->idDebugOnlyInfo()); // share the idDebugOnlyInfo() field
-        Print(&idJmp, doffs, offset, code, 4);
+        Print(&idJmp, code, 4);
     }
     else
     {
-        Print(id, doffs, offset, code, sz);
+        Print(id, code, sz);
     }
 }
 

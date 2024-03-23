@@ -12041,14 +12041,7 @@ void Arm64Encoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
 {
     JITDUMP("IN%04X: ", id->idDebugOnlyInfo()->idNum);
 
-#if DUMP_GC_TABLES
-    bool doffs = emitComp->opts.dspGCtbls;
-#else
-    bool doffs = !emitComp->opts.disDiffable;
-#endif
-
     PrintInsAddr(code);
-    emit.emitDispInsOffs(emitCurCodeOffs(code), doffs);
 
     if (emitComp->opts.disDiffable)
     {

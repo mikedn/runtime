@@ -1804,7 +1804,7 @@ protected:
     void emitRecordCallSite(unsigned instrOffset, CORINFO_SIG_INFO* callSig, CORINFO_METHOD_HANDLE methodHandle);
     void emitRecordRelocation(void* location, void* target, uint16_t relocType, int32_t addlDelta = 0);
 
-    unsigned emitCurCodeOffs(uint8_t* dst) const;
+    unsigned emitCurCodeOffs(const uint8_t* dst) const;
     uint8_t* emitOffsetToPtr(unsigned offset) const;
     uint8_t* emitDataOffsetToPtr(unsigned offset) const;
 

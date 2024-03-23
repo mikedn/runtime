@@ -574,6 +574,15 @@ void Encoder::PrintInsAddr(const uint8_t* code) const
     {
         printf(FMT_ADDR, DBG_ADDR(code));
     }
+
+    if (emitComp->opts.dspGCtbls)
+    {
+        printf("%06X", emitCurCodeOffs(code));
+    }
+    else
+    {
+        printf("      ");
+    }
 }
 
 void EmitterBase::emitDispInsOffs(unsigned offs, bool doffs)
@@ -2954,7 +2963,7 @@ uint32_t insGroup::GetCodeOffset(CodePos codePos) const
     return igOffs + insOffs;
 }
 
-unsigned Encoder::emitCurCodeOffs(uint8_t* dst) const
+unsigned Encoder::emitCurCodeOffs(const uint8_t* dst) const
 {
     size_t distance;
 
