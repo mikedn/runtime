@@ -4249,7 +4249,7 @@ private:
 
         if (id->idDebugOnlyInfo()->idHandleKind != HandleKind::None)
         {
-            emit.emitDispCommentForHandle(reinterpret_cast<void*>(id->GetImm()), id->idDebugOnlyInfo()->idHandleKind);
+            PrintHandleComment(reinterpret_cast<void*>(id->GetImm()), id->idDebugOnlyInfo()->idHandleKind);
         }
     }
 
@@ -4350,7 +4350,7 @@ private:
         {
             if (id->idDebugOnlyInfo()->dispHandleKind == HandleKind::String)
             {
-                emit.emitDispCommentForHandle(reinterpret_cast<void*>(disp), HandleKind::String);
+                PrintHandleComment(reinterpret_cast<void*>(disp), HandleKind::String);
             }
         }
         else if ((id->idIns() == INS_call) || (id->idIns() == INS_i_jmp))

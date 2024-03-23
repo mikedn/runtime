@@ -414,7 +414,6 @@ protected:
     }
 
     void emitRecomputeIGoffsets();
-    void emitDispCommentForHandle(void* handle, HandleKind kind);
 
 #ifdef TARGET_XARCH
     struct emitAddrMode
@@ -1877,6 +1876,8 @@ protected:
     AsmPrinter(ArchEmitter& emit) : compiler(emit.emitComp), codeGen(emit.codeGen), emit(emit)
     {
     }
+
+    void PrintHandleComment(void* handle, HandleKind kind);
 };
 
 #if defined(TARGET_XARCH)

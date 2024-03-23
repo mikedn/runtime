@@ -10517,7 +10517,7 @@ void Arm64AsmPrinter::emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm
     }
     else
     {
-        emit.emitDispCommentForHandle(id->idDebugOnlyInfo()->idHandle, id->idDebugOnlyInfo()->idHandleKind);
+        PrintHandleComment(id->idDebugOnlyInfo()->idHandle, id->idDebugOnlyInfo()->idHandleKind);
     }
 }
 

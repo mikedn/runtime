@@ -1811,9 +1811,9 @@ void EmitterBase::emitRecomputeIGoffsets()
     INDEBUG(emitCheckIGoffsets());
 }
 
-void EmitterBase::emitDispCommentForHandle(void* handle, HandleKind kind)
-{
 #ifdef DEBUG
+void AsmPrinter::PrintHandleComment(void* handle, HandleKind kind)
+{
     if (handle == nullptr)
     {
         return;
@@ -1829,7 +1829,7 @@ void EmitterBase::emitDispCommentForHandle(void* handle, HandleKind kind)
 
     if (kind == HandleKind::String)
     {
-        const WCHAR* wstr = emitComp->eeGetCPString(handle);
+        const WCHAR* wstr = compiler->eeGetCPString(handle);
 
         // NOTE: eGetCPString always returns nullptr on Linux/ARM
         if (wstr == nullptr)
@@ -1865,7 +1865,7 @@ void EmitterBase::emitDispCommentForHandle(void* handle, HandleKind kind)
     }
     else if (kind == HandleKind::Class)
     {
-        if (emitComp->opts.compReloc)
+        if (compiler->opts.compReloc)
         {
             // TODO-MIKE-Cleanup: Sometimes the JIT generates code that accesses runtime
             // class members, and then constant-folds the resulting address expression
@@ -1874,7 +1874,7 @@ void EmitterBase::emitDispCommentForHandle(void* handle, HandleKind kind)
             // The folding is correct but we need to change the handle kind to something
             // else so we don't try to get the name. For now just ignore class handles in
             // the JIT case (in pre-JIT we need relocs, and those prevent constant folding).
-            str = emitComp->eeGetClassName(static_cast<CORINFO_CLASS_HANDLE>(handle));
+            str = compiler->eeGetClassName(static_cast<CORINFO_CLASS_HANDLE>(handle));
         }
         else
         {
@@ -1885,11 +1885,11 @@ void EmitterBase::emitDispCommentForHandle(void* handle, HandleKind kind)
     // These are less useful for xarch:
     else if (kind == HandleKind::Field)
     {
-        str = emitComp->eeGetFieldName(static_cast<CORINFO_FIELD_HANDLE>(handle));
+        str = compiler->eeGetFieldName(static_cast<CORINFO_FIELD_HANDLE>(handle));
     }
     else if (kind == HandleKind::Method)
     {
-        str = emitComp->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(handle));
+        str = compiler->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(handle));
     }
     else if (kind == HandleKind::ConstData)
     {
@@ -1921,8 +1921,8 @@ void EmitterBase::emitDispCommentForHandle(void* handle, HandleKind kind)
     {
         printf("%s %s", commentPrefix, str);
     }
-#endif // DEBUG
 }
+#endif // DEBUG
 
 #if FEATURE_LOOP_ALIGN
 
