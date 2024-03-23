@@ -239,15 +239,8 @@ private:
     void emitLongLoopAlign(uint16_t alignmentBoundary);
 
 #ifdef DEBUG
-
-    /************************************************************************/
-    /*             Debug-only routines to display instructions              */
-    /************************************************************************/
-
-    void PrintHexCode(const uint8_t* code, size_t sz);
     void emitDispIns(instrDesc* id, bool isNew, unsigned offs);
-
-#endif // DEBUG
+#endif
 };
 
 using ArchEmitter = X86Emitter;

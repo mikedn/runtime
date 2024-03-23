@@ -185,13 +185,8 @@ private:
     bool IsRedundantLdStr(instruction ins, RegNum reg1, RegNum reg2, ssize_t imm, emitAttr size, insFormat fmt);
 
 #ifdef DEBUG
-    /************************************************************************/
-    /*             Debug-only routines to display instructions              */
-    /************************************************************************/
-
-    void emitDispInsHex(uint8_t* code, size_t sz);
     void emitDispIns(instrDesc* id, bool isNew, unsigned offs);
-#endif // DEBUG
+#endif
 };
 
 using ArchEmitter = Arm64Emitter;

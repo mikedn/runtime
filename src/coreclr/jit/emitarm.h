@@ -119,13 +119,8 @@ private:
     int OptimizeFrameAddress(int fpOffset, bool isFloatLoadStore, RegNum* baseReg);
 
 #ifdef DEBUG
-    /************************************************************************/
-    /*             Debug-only routines to display instructions              */
-    /************************************************************************/
-
-    void emitDispInsHex(instrDesc* id, uint8_t* code, size_t sz);
     void emitDispIns(instrDesc* id, bool isNew, unsigned offs);
-#endif // DEBUG
+#endif
 };
 
 using ArchEmitter = ArmEmitter;

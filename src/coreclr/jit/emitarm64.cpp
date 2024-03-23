@@ -10982,25 +10982,20 @@ void Arm64AsmPrinter::emitDispAddrRRExt(RegNum reg1, RegNum reg2, insOpts opt, b
     printf("]");
 }
 
-void Arm64Emitter::emitDispInsHex(uint8_t* code, size_t sz)
+static void PrintHexCode(uint8_t* code, size_t sz)
 {
-    // We do not display the instruction hex if we want diff-able disassembly
-    if (emitComp->opts.disDiffable)
-    {
-        printf("      ");
-    }
-    else if (sz == 0)
+    if (sz == 0)
     {
         printf("                    ");
     }
     else if (sz == 4)
     {
-        printf("  %08X          ", *reinterpret_cast<code_t*>(code));
+        printf("  %08X          ", reinterpret_cast<uint32_t*>(code)[0]);
     }
     else
     {
         assert(sz == 8);
-        printf("  %08X %08X ", *reinterpret_cast<code_t*>(code), *reinterpret_cast<code_t*>(code + 4));
+        printf("  %08X %08X ", reinterpret_cast<uint32_t*>(code)[0], reinterpret_cast<uint32_t*>(code)[1]);
     }
 }
 
@@ -12054,7 +12049,16 @@ void Arm64Encoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
 
     emit.emitDispInsAddr(code);
     emit.emitDispInsOffs(emitCurCodeOffs(code), doffs);
-    emit.emitDispInsHex(code, sz);
+
+    if (emitComp->opts.disDiffable)
+    {
+        // TODO-MIKE-Cleanup: Remove this, only ARM64 has it and there's no need for it.
+        printf("      ");
+    }
+    else
+    {
+        PrintHexCode(code, sz);
+    }
 
     Arm64AsmPrinter printer(emit);
     printer.Print(id);

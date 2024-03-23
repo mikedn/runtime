@@ -3794,7 +3794,7 @@ void Encoder::GetGCDeltaDumpHeader(char* buffer, size_t count)
 // We'll attempt to line this up with the opcode, which indented differently for
 // diffable and non-diffable dumps.
 // This is approximate, and is better tuned for disassembly than for jitdumps.
-// See emitDispInsHex().
+// See PrintHexCode().
 #ifdef TARGET_AMD64
     constexpr int basicIndent     = 7;
     constexpr int hexEncodingSize = 21;

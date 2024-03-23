@@ -6157,40 +6157,19 @@ void ArmAsmPrinter::emitDispGC(emitAttr attr)
 #endif
 }
 
-void ArmEmitter::emitDispInsHex(instrDesc* id, uint8_t* code, size_t sz)
+static void PrintHexCode(uint8_t* code, size_t sz)
 {
-    // We do not display the instruction hex if we want diff-able disassembly
-    if (!emitComp->opts.disDiffable)
+    if (sz == 2)
     {
-        if (sz == 2)
-        {
-            printf("  %04X     ", (*((unsigned short*)code)));
-        }
-        else if (sz == 4)
-        {
-            printf("  %04X %04X", (*((unsigned short*)(code + 0))), (*((unsigned short*)(code + 2))));
-        }
-        else
-        {
-            assert(sz == 0);
-
-            // At least display the encoding size of the instruction, even if not displaying its actual encoding.
-            insSize isz = emitInsSize(id->idInsFmt());
-            switch (isz)
-            {
-                case ISZ_16BIT:
-                    printf("  2B");
-                    break;
-                case ISZ_32BIT:
-                    printf("  4B");
-                    break;
-                case ISZ_48BIT:
-                    printf("  6B");
-                    break;
-                default:
-                    unreached();
-            }
-        }
+        printf("  %04X     ", reinterpret_cast<uint16_t*>(code)[0]);
+    }
+    else if (sz == 4)
+    {
+        printf("  %04X %04X", reinterpret_cast<uint16_t*>(code)[0], reinterpret_cast<uint16_t*>(code)[1]);
+    }
+    else
+    {
+        printf("           ");
     }
 }
 
@@ -6658,7 +6637,11 @@ void ArmEncoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
 
         emit.emitDispInsAddr(code);
         emit.emitDispInsOffs(offset, doffs);
-        emit.emitDispInsHex(id, code, sz);
+
+        if (!emitComp->opts.disDiffable)
+        {
+            PrintHexCode(code, sz);
+        }
 
         ArmAsmPrinter printer(emit);
         printer.Print(id);

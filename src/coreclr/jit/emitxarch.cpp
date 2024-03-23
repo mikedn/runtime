@@ -4078,7 +4078,7 @@ size_t X86Emitter::instrDescSmall::GetDescSize() const
 
 #ifdef DEBUG
 
-void X86Emitter::PrintHexCode(const uint8_t* code, size_t size)
+static void PrintHexCode(const uint8_t* code, size_t size)
 {
     constexpr size_t minSize = 6 AMD64_ONLY(+4);
     constexpr size_t maxSize = 15;
@@ -5268,7 +5268,7 @@ void X86Encoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
 
     if (!emitComp->opts.disDiffable)
     {
-        emit.PrintHexCode(code, sz);
+        PrintHexCode(code, sz);
     }
 
     X86AsmPrinter printer(emit, true);
