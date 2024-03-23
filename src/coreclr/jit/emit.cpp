@@ -1254,14 +1254,14 @@ void AsmPrinter::PrintLabel(insGroup* ig)
     printf("G_M%03u_IG%02u", compiler->compMethodID, ig->GetId());
 }
 
-const char* EmitterBase::emitLabelString(insGroup* ig) const
+static const char* emitLabelString(Compiler* compiler, insGroup* ig)
 {
     const int       TEMP_BUFFER_LEN = 40;
     static unsigned curBuf          = 0;
     static char     buf[4][TEMP_BUFFER_LEN];
     const char*     retbuf;
 
-    sprintf_s(buf[curBuf], TEMP_BUFFER_LEN, "G_M%03u_IG%02u", emitComp->compMethodID, ig->GetId());
+    sprintf_s(buf[curBuf], TEMP_BUFFER_LEN, "G_M%03u_IG%02u", compiler->compMethodID, ig->GetId());
     retbuf = buf[curBuf];
     curBuf = (curBuf + 1) % 4;
     return retbuf;
@@ -2719,7 +2719,7 @@ void Encoder::emitEndCodeGen()
             else if (!ig->IsExtension() || ig->IsMainEpilog() || ig->IsFuncletPrologOrEpilog() || (prevIG == nullptr) ||
                      (ig->IsNoGC() != prevIG->IsNoGC()))
             {
-                printf("\n%s:", emit.emitLabelString(ig));
+                printf("\n%s:", emitLabelString(emitComp, ig));
 
                 if (!emitComp->opts.disDiffable)
                 {
@@ -3329,8 +3329,8 @@ void Encoder::PrintRoData() const
 
                 insGroup* label = labels[i];
 
-                const char* baseLabelName = emit.emitLabelString(baseLabel);
-                const char* labelName     = emit.emitLabelString(label);
+                const char* baseLabelName = emitLabelString(emitComp, baseLabel);
+                const char* labelName     = emitLabelString(emitComp, label);
 
                 if (emitComp->opts.disDiffable)
                 {
@@ -3530,7 +3530,7 @@ const char* EmitterBase::emitOffsetToLabel(unsigned offs)
 
         if (ig->igOffs == offs)
         {
-            return emitLabelString(ig);
+            return emitLabelString(emitComp, ig);
         }
 
         if (ig->igOffs > offs)
