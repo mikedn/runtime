@@ -11014,7 +11014,6 @@ void Arm64Emitter::emitDispIns(instrDesc* id, bool isNew, bool doffs, unsigned o
     JITDUMP("IN%04X: ", id->idDebugOnlyInfo()->idNum);
 
     emitDispInsOffs(offset, doffs);
-    emitDispInsHex(id, nullptr, 0);
 
     Arm64AsmPrinter printer(*this);
     printer.Print(id);
