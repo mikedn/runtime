@@ -519,7 +519,8 @@ float Encoder::insEvaluateExecutionCost(instrDesc* id)
 void Encoder::perfScoreUnhandledInstruction(instrDesc* id, insExecutionCharacteristics* pResult)
 {
 #ifdef DEBUG
-    printf("PerfScore: unhandled instruction: %s, format %s", insName(id->idIns()), emitIfName(id->idInsFmt()));
+    printf("PerfScore: unhandled instruction: %s, format %s", insName(id->idIns()),
+           EmitterBase::emitIfName(id->idInsFmt()));
     assert(!"PerfScore: unhandled instruction");
 #endif
 
@@ -1783,7 +1784,7 @@ size_t Encoder::emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp)
     if (instrDescSize != id->GetDescSize())
     {
         printf("IN%04X %s: expected size %u, actual size %u\n", id->idDebugOnlyInfo()->idNum,
-               emitIfName(id->idInsFmt()), instrDescSize, id->GetDescSize());
+               EmitterBase::emitIfName(id->idInsFmt()), instrDescSize, id->GetDescSize());
 
         assert(instrDescSize == id->GetDescSize());
     }

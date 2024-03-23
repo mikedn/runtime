@@ -5562,7 +5562,7 @@ uint8_t* X86Encoder::emitOutputAlign(insGroup* ig, instrDesc* id, uint8_t* dst)
     assert(0 <= paddingToAdd && paddingToAdd < emitComp->opts.compJitAlignLoopBoundary);
 
 #ifdef DEBUG
-    unsigned paddingNeeded = emitCalculatePaddingForLoopAlignment(ig, (size_t)dst, true);
+    unsigned paddingNeeded = emit.emitCalculatePaddingForLoopAlignment(ig, (size_t)dst, true);
 
     // For non-adaptive, padding size is spread in multiple instructions, so don't bother checking
     if (emitComp->opts.compJitAlignLoopAdaptive)
@@ -5872,7 +5872,7 @@ uint8_t* X86Encoder::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssiz
             case IF_RRD_ARD:
                 break;
             default:
-                INDEBUG(printf(emitIfName(id->idInsFmt())));
+                INDEBUG(printf("%s", EmitterBase::emitIfName(id->idInsFmt())));
                 assert(!"unexpected GC ref instruction format");
         }
 
@@ -6046,7 +6046,7 @@ uint8_t* X86Encoder::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssiz
             case IF_SWR_RRD:
                 break;
             default:
-                INDEBUG(printf(emitIfName(id->idInsFmt())));
+                INDEBUG(printf("%s", EmitterBase::emitIfName(id->idInsFmt())));
                 assert(!"unexpected GC ref instruction format");
         }
     }
@@ -6240,7 +6240,7 @@ uint8_t* X86Encoder::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssiz
             case IF_MRW_CNS:
                 break;
             default:
-                INDEBUG(printf(emitIfName(id->idInsFmt())));
+                INDEBUG(printf("%s", EmitterBase::emitIfName(id->idInsFmt())));
                 assert(!"unexpected GC ref instruction format");
         }
     }
@@ -6462,7 +6462,7 @@ uint8_t* X86Encoder::emitOutputR(uint8_t* dst, instrDesc* id)
         case IF_RRD:
             break;
         default:
-            INDEBUG(printf(emitIfName(id->idInsFmt())));
+            INDEBUG(printf("%s", EmitterBase::emitIfName(id->idInsFmt())));
             assert(!"unexpected instruction format");
             break;
     }
@@ -6756,7 +6756,7 @@ uint8_t* X86Encoder::emitOutputRR(uint8_t* dst, instrDesc* id)
                         break;
 
                     default:
-                        INDEBUG(printf(emitIfName(id->idInsFmt())));
+                        INDEBUG(printf("%s", EmitterBase::emitIfName(id->idInsFmt())));
                         assert(!"unexpected GC base update instruction");
                 }
                 break;
@@ -6797,7 +6797,7 @@ uint8_t* X86Encoder::emitOutputRR(uint8_t* dst, instrDesc* id)
                 break;
 
             default:
-                INDEBUG(printf(emitIfName(id->idInsFmt())));
+                INDEBUG(printf("%s", EmitterBase::emitIfName(id->idInsFmt())));
                 assert(!"unexpected GC ref instruction format");
         }
     }
@@ -7187,7 +7187,7 @@ uint8_t* X86Encoder::emitOutputRI(uint8_t* dst, instrDesc* id)
             case IF_RRD_CNS:
                 break;
             default:
-                INDEBUG(printf(emitIfName(id->idInsFmt())));
+                INDEBUG(printf("%s", EmitterBase::emitIfName(id->idInsFmt())));
                 assert(!"unexpected GC ref instruction format");
         }
     }
@@ -7204,7 +7204,7 @@ uint8_t* X86Encoder::emitOutputRI(uint8_t* dst, instrDesc* id)
                 assert(ins != INS_mulEAX && ins != INS_imulEAX && ins != INS_imuli);
                 break;
             default:
-                INDEBUG(printf(emitIfName(id->idInsFmt())));
+                INDEBUG(printf("%s", EmitterBase::emitIfName(id->idInsFmt())));
                 assert(!"unexpected GC ref instruction format");
         }
     }
@@ -7371,7 +7371,7 @@ uint8_t* X86Encoder::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
         assert(ig != nullptr);
 
         int      instrCount   = id->GetInstrCount();
-        unsigned jumpInstrNum = emitFindInsNum(ig, id);
+        unsigned jumpInstrNum = EmitterBase::emitFindInsNum(ig, id);
 
         assert((instrCount >= 0) || (jumpInstrNum + 1 >= static_cast<unsigned>(-instrCount)));
 

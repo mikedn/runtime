@@ -1809,21 +1809,9 @@ protected:
     void emitRecordCallSite(unsigned instrOffset, CORINFO_SIG_INFO* callSig, CORINFO_METHOD_HANDLE methodHandle);
     void emitRecordRelocation(void* location, void* target, uint16_t relocType, int32_t addlDelta = 0);
 
-    unsigned emitFindInsNum(const insGroup* ig, const instrDesc* instr)
-    {
-        return emit.emitFindInsNum(ig, instr);
-    }
-
     unsigned emitCurCodeOffs(uint8_t* dst) const;
     uint8_t* emitOffsetToPtr(unsigned offset) const;
     uint8_t* emitDataOffsetToPtr(unsigned offset) const;
-
-#if FEATURE_LOOP_ALIGN
-    unsigned emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offset DEBUG_ARG(bool isAlignAdjusted))
-    {
-        return emit.emitCalculatePaddingForLoopAlignment(ig, offset DEBUGARG(isAlignAdjusted));
-    }
-#endif
 
 #ifdef JIT32_GCENCODER
     void emitStackPush(unsigned codeOffs, GCtype type);
@@ -1837,11 +1825,6 @@ protected:
     void PrintRoData() const;
     void GetGCDeltaDumpHeader(char* buffer, size_t count);
     bool emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset) const;
-
-    const char* emitIfName(unsigned f)
-    {
-        return emit.emitIfName(f);
-    }
 #endif
 
 #if defined(DEBUG) || defined(LATE_DISASM)
