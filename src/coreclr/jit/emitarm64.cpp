@@ -10472,7 +10472,7 @@ void Arm64AsmPrinter::emitDispJumpLabel(instrDescJmp* id)
 
     if (id->HasInstrCount())
     {
-        unsigned instrNum   = Emitter::emitFindInsNum(id->idjIG, id);
+        unsigned instrNum   = EmitterBase::emitFindInsNum(id->idjIG, id);
         uint32_t instrOffs  = id->idjIG->igOffs + id->idjOffs;
         int      instrCount = id->GetInstrCount();
         uint32_t labelOffs  = id->idjIG->igOffs + id->idjIG->FindInsOffset(instrNum + 1 + instrCount);
@@ -11979,7 +11979,7 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             break;
 
         default:
-            printf("unexpected format %s", Emitter::emitIfName(id->idInsFmt()));
+            printf("unexpected format %s", EmitterBase::emitIfName(id->idInsFmt()));
             assert(!"unexpectedFormat");
             break;
     }

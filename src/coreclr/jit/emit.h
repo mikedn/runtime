@@ -1388,8 +1388,10 @@ protected:
     static size_t emitGetInstrDescSizeSC(const instrDesc* id);
 
 #ifdef DEBUG
-    static const char* emitIfName(unsigned f);
+public:
+    static const char* emitIfName(insFormat f);
 
+protected:
     unsigned emitInsCount = 0;
 
     void emitDispIGInstrs(insGroup* ig);
@@ -1452,8 +1454,10 @@ public:
     }
 #endif // JIT32_GCENCODER
 
+public:
     static unsigned emitFindInsNum(const insGroup* ig, const instrDesc* instr);
 
+protected:
     uint8_t* emitCodeBlock     = nullptr; // Hot code block
     uint8_t* emitColdCodeBlock = nullptr; // Cold code block
 
@@ -1772,7 +1776,6 @@ protected:
         , firstIG(emit->emitIGfirst)
         , firstColdIG(emit->emitFirstColdIG)
     {
-        assert(currentIG == nullptr);
     }
 
 public:

@@ -105,7 +105,7 @@ void emitLocation::Print(const char* suffix) const
     printf("(" FMT_IG ", ins %u, ofs %u)%s", ig->GetId(), insNum, insOfs, suffix == nullptr ? "" : suffix);
 }
 
-const char* EmitterBase::emitIfName(unsigned f)
+const char* EmitterBase::emitIfName(insFormat format)
 {
     static const char* const ifNames[]{
 #define IF_DEF(en, ...) "IF_" #en,
@@ -114,12 +114,12 @@ const char* EmitterBase::emitIfName(unsigned f)
 
     static char errBuff[32];
 
-    if (f < _countof(ifNames))
+    if (format < _countof(ifNames))
     {
-        return ifNames[f];
+        return ifNames[format];
     }
 
-    sprintf_s(errBuff, sizeof(errBuff), "??%u??", f);
+    sprintf_s(errBuff, sizeof(errBuff), "??%u??", format);
     return errBuff;
 }
 
@@ -2551,10 +2551,6 @@ void EmitterBase::emitComputeCodeSizes()
 
 void Encoder::emitEndCodeGen()
 {
-    JITDUMP("*************** In emitEndCodeGen()\n");
-
-    assert(currentIG == nullptr);
-
 #ifndef JIT32_GCENCODER
     gcInfo.Begin();
 #else
@@ -2662,16 +2658,12 @@ void Encoder::emitEndCodeGen()
     emit.emitCodeBlock     = hotCodeBlock;
     emit.emitColdCodeBlock = coldCodeBlock;
 
-    writeableOffset = hotCodeBlockRW - hotCodeBlock;
-
-#if !FEATURE_FIXED_OUT_ARGS
-    stackLevel = 0;
-#endif
 #ifdef DEBUG
     double blockPerfScore = 0.0;
 #endif
 
-    uint8_t* cp = hotCodeBlock;
+    uint8_t* code   = hotCodeBlock;
+    writeableOffset = hotCodeBlockRW - hotCodeBlock;
 
     for (insGroup *ig = firstIG, *prevIG = nullptr; ig != nullptr; prevIG = ig, ig = ig->igNext)
     {
@@ -2679,36 +2671,33 @@ void Encoder::emitEndCodeGen()
 
         if (ig == firstColdIG)
         {
-            assert(emitCurCodeOffs(cp) == hotCodeSize);
+            assert(emitCurCodeOffs(code) == hotCodeSize);
             assert(coldCodeBlock != nullptr);
 
-            cp              = coldCodeBlock;
+            code            = coldCodeBlock;
             writeableOffset = coldCodeBlockRW - coldCodeBlock;
-
-#ifdef DEBUG
-            if (emitComp->opts.disAsm || emitComp->verbose)
-            {
-                printf("\n************** Beginning of cold code **************\n");
-            }
-#endif
         }
 
 #ifdef DEBUG
-        if (emitComp->opts.disAsm || emitComp->verbose)
+        if (emitComp->verbose || emitComp->opts.disAsm)
         {
+            if (ig == firstColdIG)
+            {
+                printf("\n************** Beginning of cold code **************\n");
+            }
+
             if (emitComp->verbose || emitComp->opts.disasmWithGC)
             {
                 printf("\n");
                 ig->Print(emitComp);
             }
-            else if (!ig->IsExtension() || ig->IsMainEpilog() || ig->IsFuncletPrologOrEpilog() || (prevIG == nullptr) ||
-                     (ig->IsNoGC() != prevIG->IsNoGC()))
+            else if (!ig->IsExtension() || ig->IsPrologOrEpilog() || (ig->IsNoGC() != prevIG->IsNoGC()))
             {
                 printf("\n%s:", emitLabelString(emitComp, ig));
 
                 if (!emitComp->opts.disDiffable)
                 {
-                    printf("              ;; offset=%04XH", emitCurCodeOffs(cp));
+                    printf("              ;; offset=%04XH", emitCurCodeOffs(code));
                 }
 
                 printf("\n");
@@ -2717,7 +2706,7 @@ void Encoder::emitEndCodeGen()
 #endif // DEBUG
 
         const uint32_t codeOffs = ig->igOffs;
-        noway_assert(codeOffs == emitCurCodeOffs(cp));
+        noway_assert(codeOffs == emitCurCodeOffs(code));
         assert(EmitterBase::IsCodeAligned(codeOffs));
 
 #if !FEATURE_FIXED_OUT_ARGS
@@ -2768,28 +2757,28 @@ void Encoder::emitEndCodeGen()
 
         currentIG     = ig;
         instrDesc* id = reinterpret_cast<instrDesc*>(ig->igData);
-        INDEBUG(const uint8_t* const bp = cp);
+        INDEBUG(const uint8_t* const igCode = code);
 
         for (unsigned i = 0, count = ig->igInsCnt; i < count; i++)
         {
 #ifdef DEBUG
-            const uint8_t*   curInstrAddr = cp;
+            const uint8_t*   curInstrAddr = code;
             const instrDesc* curInstrDesc = id;
 #endif
-            size_t sz;
+            size_t instrDescSize;
 
             if (id->idInsFmt() == IF_GC_REG)
             {
-                emitGCregLiveUpd(id->idGCref(), id->idReg1(), cp);
+                emitGCregLiveUpd(id->idGCref(), id->idReg1(), code);
                 assert(id->idIsSmallDsc());
-                sz = sizeof(instrDescSmall);
+                instrDescSize = sizeof(instrDescSmall);
             }
             else
             {
-                sz = emitIssue1Instr(ig, id, &cp);
+                instrDescSize = emitIssue1Instr(ig, id, &code);
             }
 
-            id = reinterpret_cast<instrDesc*>(reinterpret_cast<uint8_t*>(id) + sz);
+            id = reinterpret_cast<instrDesc*>(reinterpret_cast<uint8_t*>(id) + instrDescSize);
 
 #ifdef DEBUG
             if (emitComp->verbose || emitComp->opts.disasmWithGC)
@@ -2799,9 +2788,9 @@ void Encoder::emitEndCodeGen()
                 gcInfo.DumpDelta(header);
             }
 
-            if ((emitComp->opts.disAsm || emitComp->verbose) && (emitComp->opts.disAddr || emitComp->opts.disAlignment))
+            if ((emitComp->verbose || emitComp->opts.disAsm) && (emitComp->opts.disAddr || emitComp->opts.disAlignment))
             {
-                PrintAlignmentBoundary(reinterpret_cast<size_t>(curInstrAddr), reinterpret_cast<size_t>(cp),
+                PrintAlignmentBoundary(reinterpret_cast<size_t>(curInstrAddr), reinterpret_cast<size_t>(code),
                                        curInstrDesc, i + 1 < count ? id : nullptr);
             }
 #endif // DEBUG
@@ -2809,21 +2798,20 @@ void Encoder::emitEndCodeGen()
 #ifdef TARGET_AMD64
             // We can't have a call at the end of the try region, the unwinder needs
             // an extra instruction to understand that the call is inside the region.
+            // TODO-MIKE-Fix: This has a problem with a prolog profiler helper call on linux-x64.
             assert((curInstrDesc->idIns() != INS_call) || (i < count - 1) || (ig->tryIndex == ig->igNext->tryIndex));
 #endif
         }
 
         currentIG = nullptr;
-        assert(ig->igSize == cp - bp);
+        assert(ig->igSize == code - igCode);
 
 #ifdef DEBUG
         emit.instrCount += ig->igInsCnt;
         blockPerfScore += ig->igPerfScore;
 
-        if (emitComp->verbose ||
-            (emitComp->opts.disAsm &&
-             ((ig->igNext == nullptr) || !ig->igNext->IsExtension() || ig->IsMainProlog() || ig->IsFuncletProlog() ||
-              ig->igNext->IsMainEpilog() || ig->igNext->IsFuncletEpilog())))
+        if (emitComp->verbose || (emitComp->opts.disAsm && ((ig->igNext == nullptr) || !ig->igNext->IsExtension() ||
+                                                            ig->IsProlog() || ig->igNext->IsEpilog())))
         {
             printf("\t\t\t\t\t\t;; bbWeight=%s PerfScore %.2f", refCntWtd2str(ig->igWeight), blockPerfScore);
             blockPerfScore = 0.0;
@@ -2831,12 +2819,12 @@ void Encoder::emitEndCodeGen()
 #endif
     }
 
-    assert(totalCodeSize == emitCurCodeOffs(cp));
+    assert(totalCodeSize == emitCurCodeOffs(code));
 #if !FEATURE_FIXED_OUT_ARGS
     assert(stackLevel == 0);
 #endif
 
-    gcInfo.End(emitCurCodeOffs(cp));
+    gcInfo.End(emitCurCodeOffs(code));
 
     if (roData.size != 0)
     {
