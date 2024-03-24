@@ -3526,19 +3526,17 @@ ssize_t X86Emitter::instrDesc::GetCallDisp() const
 #if !FEATURE_FIXED_OUT_ARGS
 void X86Emitter::emitMarkStackLvl(unsigned stackLevel)
 {
-    assert(int(stackLevel) >= 0);
+    assert((stackLevel != 0) && (stackLevel < INT32_MAX) && (stackLevel % REGSIZE_BYTES == 0));
     assert(emitCurStackLvl == 0);
     assert(emitCurIG->igStkLvl == 0);
     assert(emitCurIGfreeNext == emitCurIGfreeBase);
-
-    assert(stackLevel && stackLevel % REGSIZE_BYTES == 0);
 
     emitCurStackLvl = emitCurIG->igStkLvl = stackLevel;
 
     if (emitMaxStackDepth < emitCurStackLvl)
     {
-        JITDUMP("Upping emitMaxStackDepth from %d to %d\n", emitMaxStackDepth, emitCurStackLvl);
         emitMaxStackDepth = emitCurStackLvl;
+        JITDUMP("Max stack depth: %u\n", emitMaxStackDepth);
     }
 }
 
@@ -3550,14 +3548,14 @@ void X86Emitter::emitAdjustStackDepthPushPop(instruction ins)
 
         if (emitMaxStackDepth < emitCurStackLvl)
         {
-            JITDUMP("Upping emitMaxStackDepth from %d to %d\n", emitMaxStackDepth, emitCurStackLvl);
             emitMaxStackDepth = emitCurStackLvl;
+            JITDUMP("Max stack depth: %u\n", emitMaxStackDepth);
         }
     }
     else if (ins == INS_pop)
     {
         emitCurStackLvl -= emitCntStackDepth;
-        assert((int)emitCurStackLvl >= 0);
+        assert(emitCurStackLvl < INT32_MAX);
     }
 }
 
@@ -3579,8 +3577,8 @@ void X86Emitter::emitAdjustStackDepth(instruction ins, ssize_t val)
 
         if (emitMaxStackDepth < emitCurStackLvl)
         {
-            JITDUMP("Upping emitMaxStackDepth from %d to %d\n", emitMaxStackDepth, emitCurStackLvl);
             emitMaxStackDepth = emitCurStackLvl;
+            JITDUMP("Max stack depth: %u\n", emitMaxStackDepth);
         }
     }
     else if (ins == INS_add)

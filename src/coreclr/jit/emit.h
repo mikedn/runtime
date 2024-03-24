@@ -359,7 +359,7 @@ public:
         }
     }
 #else
-    unsigned GetMaxStackDepth()
+    unsigned GetMaxStackDepth() const
     {
         return emitMaxStackDepth;
     }

@@ -782,23 +782,22 @@ void CodeGen::genEmitMachineCode()
 #endif
 
 #ifdef DEBUG_ARG_SLOTS
-    // Check our max stack level. Needed for fgGetThrowHelperBlock.
-    // We need to relax the assert as our estimation won't include code-gen
-    // stack changes (which we know don't affect fgGetThrowHelperBlock).
-    // NOTE: after emitEndCodeGen (including here), emitMaxStackDepth is a
-    // count of DWORD-sized arguments, NOT argument size in bytes.
     {
-        unsigned maxAllowedStackDepth = compiler->fgGetPtrArgCntMax() + // Max number of pointer-sized stack arguments.
-                                        compiler->compHndBBtabCount +   // Return address for locally-called finallys
-                                        2 + // longs/doubles may be transferred via stack, etc
-                                        (compiler->compTailCallUsed ? 4 : 0); // CORINFO_HELP_TAILCALL args
+        // Check our max stack level. Needed for fgGetThrowHelperBlock.
+        // We need to relax the assert as our estimation won't include code-gen
+        // stack changes (which we know don't affect fgGetThrowHelperBlock).
+
+        unsigned maxAllowedStackDepth =
+            4 * compiler->fgGetPtrArgCntMax() +     // Max number of pointer-sized stack arguments.
+            4 * compiler->compHndBBtabCount +       // Return address for locally-called finallys
+            8 +                                     // longs/doubles may be transferred via stack, etc
+            (compiler->compTailCallUsed ? 16 : 0)); // CORINFO_HELP_TAILCALL args
+
 #ifdef UNIX_X86_ABI
-        // Convert maxNestedAlignment to DWORD count before adding to maxAllowedStackDepth.
-        assert(maxNestedAlignment % 4 == 0);
-        maxAllowedStackDepth += maxNestedAlignment / 4;
+        maxAllowedStackDepth += maxNestedAlignment;
 #endif
 
-        assert(GetEmitter()->emitMaxStackDepth <= maxAllowedStackDepth);
+        assert(GetEmitter()->GetMaxStackDepth() <= maxAllowedStackDepth);
     }
 #endif // DEBUG_ARG_SLOTS
 

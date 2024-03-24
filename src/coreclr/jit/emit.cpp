@@ -2554,13 +2554,8 @@ void Encoder::emitEndCodeGen()
 #ifndef JIT32_GCENCODER
     gcInfo.Begin();
 #else
-    unsigned maxStackDepthIn4ByteElements = emit.emitMaxStackDepth / REGSIZE_BYTES;
-    JITDUMP("Converting emitMaxStackDepth from bytes (%d) to elements (%d)\n", emit.emitMaxStackDepth,
-            maxStackDepthIn4ByteElements);
-    emit.emitMaxStackDepth = maxStackDepthIn4ByteElements;
-
-    gcInfo.Begin(emit.emitMaxStackDepth);
-#endif // JIT32_GCENCODER
+    gcInfo.Begin(emit.GetMaxStackDepth());
+#endif
 
     CorJitAllocMemFlag allocMemFlag = CORJIT_ALLOCMEM_DEFAULT_CODE_ALIGN;
 
