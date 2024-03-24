@@ -1567,8 +1567,10 @@ EmitterBase::instrDesc* ArchEmitter::emitNewInstrCall(CORINFO_METHOD_HANDLE meth
 
 #ifdef DEBUG
 
-void EmitterBase::emitDispIG(insGroup* ig)
+void insGroup::Print(Compiler* compiler) const
 {
+    const insGroup* ig = this;
+
     char buff[40];
     sprintf_s(buff, _countof(buff), FMT_IG ": ", ig->GetId());
     printf("%s", buff);
@@ -1576,7 +1578,7 @@ void EmitterBase::emitDispIG(insGroup* ig)
     char     separator = ';';
     unsigned flags     = ig->igFlags;
 
-    if (emitComp->verbose)
+    if (compiler->verbose)
     {
         printf("%c func %u, offs %06XH, size %04XH", separator, ig->GetFuncletIndex(), ig->igOffs, ig->igSize);
         separator = ',';
@@ -1641,18 +1643,12 @@ void EmitterBase::emitDispIG(insGroup* ig)
         separator = ',';
     }
 
-    if (ig == emitCurIG)
-    {
-        printf("%c current", separator);
-        separator = ',';
-    }
-
-    if (!ig->IsExtension() && (ig != GetProlog()))
+    if (!ig->IsExtension() && !ig->IsMainProlog())
     {
         if (ig->gcLcls != VarSetOps::UninitVal())
         {
             printf("%c gc-lcls ", separator);
-            dumpConvertedVarSet(emitComp, ig->gcLcls);
+            dumpConvertedVarSet(compiler, ig->gcLcls);
             separator = ',';
         }
 
@@ -1686,7 +1682,7 @@ void EmitterBase::emitDispIG(insGroup* ig)
     }
 #endif
 
-    if (emitComp->verbose)
+    if (compiler->verbose)
     {
         for (auto block : ig->igBlocks)
         {
@@ -1724,7 +1720,7 @@ void EmitterBase::emitDispIGlist(bool dispInstr)
 {
     for (insGroup* ig = emitIGfirst; ig != nullptr; ig = ig->igNext)
     {
-        emitDispIG(ig);
+        ig->Print(emitComp);
 
         if (dispInstr)
         {
@@ -2703,7 +2699,7 @@ void Encoder::emitEndCodeGen()
             if (emitComp->verbose || emitComp->opts.disasmWithGC)
             {
                 printf("\n");
-                emit.emitDispIG(ig);
+                ig->Print(emitComp);
             }
             else if (!ig->IsExtension() || ig->IsMainEpilog() || ig->IsFuncletPrologOrEpilog() || (prevIG == nullptr) ||
                      (ig->IsNoGC() != prevIG->IsNoGC()))

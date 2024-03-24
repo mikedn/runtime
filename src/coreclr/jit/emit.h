@@ -238,6 +238,10 @@ struct insGroup
     {
         return (igFlags & IGF_COLD) != 0;
     }
+
+#ifdef DEBUG
+    void Print(Compiler* compiler) const;
+#endif
 };
 
 enum insFormat : unsigned
@@ -1388,7 +1392,6 @@ protected:
 
     unsigned emitInsCount = 0;
 
-    void emitDispIG(insGroup* ig);
     void emitDispIGInstrs(insGroup* ig);
     void emitDispIGlist(bool dispInstr);
 #endif // !DEBUG
