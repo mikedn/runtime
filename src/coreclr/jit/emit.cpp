@@ -851,7 +851,7 @@ void EmitterBase::ReserveEpilog(BasicBlock* block)
     const bool isFunclet = !block->KindIs(BBJ_RETURN);
 #else
     assert(block->KindIs(BBJ_RETURN));
-    const bool isFunclet                  = false;
+    const bool isFunclet = false;
 #endif
 
     if (emitCurIGnonEmpty())
@@ -1549,7 +1549,7 @@ EmitterBase::instrDesc* ArchEmitter::emitNewInstrCall(CORINFO_METHOD_HANDLE meth
 #ifdef TARGET_X86
         id = emitNewInstrCns(argSlotCount);
 #else
-        id                                = emitNewInstr();
+        id               = emitNewInstr();
 #endif
         id->idOpSize(EA_SIZE(retRegAttr));
         id->idGCref(EA_GC_TYPE(retRegAttr));
@@ -1567,7 +1567,7 @@ EmitterBase::instrDesc* ArchEmitter::emitNewInstrCall(CORINFO_METHOD_HANDLE meth
 
 #ifdef DEBUG
 
-void EmitterBase::emitDispIG(insGroup* ig, bool dispInstr)
+void EmitterBase::emitDispIG(insGroup* ig)
 {
     char buff[40];
     sprintf_s(buff, _countof(buff), FMT_IG ": ", ig->GetId());
@@ -1696,8 +1696,11 @@ void EmitterBase::emitDispIG(insGroup* ig, bool dispInstr)
     }
 
     printf("\n");
+}
 
-    if (dispInstr && (ig->igInsCnt != 0))
+void EmitterBase::emitDispIGInstrs(insGroup* ig)
+{
+    if (ig->igInsCnt != 0)
     {
         printf("\n");
 
@@ -1721,7 +1724,12 @@ void EmitterBase::emitDispIGlist(bool dispInstr)
 {
     for (insGroup* ig = emitIGfirst; ig != nullptr; ig = ig->igNext)
     {
-        emitDispIG(ig, dispInstr);
+        emitDispIG(ig);
+
+        if (dispInstr)
+        {
+            emitDispIGInstrs(ig);
+        }
     }
 }
 
@@ -2695,7 +2703,7 @@ void Encoder::emitEndCodeGen()
             if (emitComp->verbose || emitComp->opts.disasmWithGC)
             {
                 printf("\n");
-                emit.emitDispIG(ig, false);
+                emit.emitDispIG(ig);
             }
             else if (!ig->IsExtension() || ig->IsMainEpilog() || ig->IsFuncletPrologOrEpilog() || (prevIG == nullptr) ||
                      (ig->IsNoGC() != prevIG->IsNoGC()))

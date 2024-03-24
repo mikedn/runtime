@@ -1388,7 +1388,8 @@ protected:
 
     unsigned emitInsCount = 0;
 
-    void emitDispIG(insGroup* ig, bool dispInstr);
+    void emitDispIG(insGroup* ig);
+    void emitDispIGInstrs(insGroup* ig);
     void emitDispIGlist(bool dispInstr);
 #endif // !DEBUG
 
