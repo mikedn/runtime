@@ -1747,9 +1747,9 @@ protected:
     unsigned     hotCodeSize;
     insGroup*    firstIG;
     insGroup*    firstColdIG;
-    uint8_t*     emitCodeBlock;
-    uint8_t*     emitColdCodeBlock;
-    uint8_t*     emitConsBlock;
+    uint8_t*     hotCodeBlock;
+    uint8_t*     coldCodeBlock;
+    uint8_t*     roDataBlock;
     size_t       writeableOffset = 0;
     insGroup*    currentIG       = nullptr;
 #if !FEATURE_FIXED_OUT_ARGS

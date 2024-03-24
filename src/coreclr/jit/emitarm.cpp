@@ -5488,7 +5488,7 @@ size_t ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
             imm  = id->emitGetInsSC();
-            addr = emitConsBlock + imm;
+            addr = roDataBlock + imm;
             if (!id->idIsCnsReloc())
             {
                 assert(sizeof(size_t) == sizeof(target_size_t));
@@ -5670,7 +5670,7 @@ size_t ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_T2_J3:                    // T2_J3   .....Siiiiiiiiii ..j.jiiiiiiiiii.      Call                imm24
             if (id->GetAddr() == nullptr) // a recursive call
             {
-                addr = emitCodeBlock;
+                addr = hotCodeBlock;
             }
             else
             {

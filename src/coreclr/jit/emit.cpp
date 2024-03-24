@@ -2645,28 +2645,25 @@ void Encoder::emitEndCodeGen()
 
     jitInfo->allocMem(&args);
 
-    uint8_t* codeBlock       = static_cast<uint8_t*>(args.hotCodeBlock);
-    uint8_t* codeBlockRW     = static_cast<uint8_t*>(args.hotCodeBlockRW);
-    uint8_t* coldCodeBlock   = static_cast<uint8_t*>(args.coldCodeBlock);
+    hotCodeBlock             = static_cast<uint8_t*>(args.hotCodeBlock);
+    uint8_t* hotCodeBlockRW  = static_cast<uint8_t*>(args.hotCodeBlockRW);
+    coldCodeBlock            = static_cast<uint8_t*>(args.coldCodeBlock);
     uint8_t* coldCodeBlockRW = static_cast<uint8_t*>(args.coldCodeBlockRW);
 #ifdef TARGET_ARM64
-    uint8_t* roDataBlock   = codeBlock + hotCodeSize + roDataAlignmentDelta;
-    uint8_t* roDataBlockRW = codeBlockRW + hotCodeSize + roDataAlignmentDelta;
+    roDataBlock            = hotCodeBlock + hotCodeSize + roDataAlignmentDelta;
+    uint8_t* roDataBlockRW = hotCodeBlockRW + hotCodeSize + roDataAlignmentDelta;
 #else
-    uint8_t* roDataBlock   = static_cast<uint8_t*>(args.roDataBlock);
+    roDataBlock            = static_cast<uint8_t*>(args.roDataBlock);
     uint8_t* roDataBlockRW = static_cast<uint8_t*>(args.roDataBlockRW);
 #endif
 
     assert(((allocMemFlag & CORJIT_ALLOCMEM_FLG_32BYTE_ALIGN) == 0) ||
-           ((reinterpret_cast<size_t>(codeBlock) & 31) == 0));
+           ((reinterpret_cast<size_t>(hotCodeBlock) & 31) == 0));
 
-    emit.emitCodeBlock     = codeBlock;
+    emit.emitCodeBlock     = hotCodeBlock;
     emit.emitColdCodeBlock = coldCodeBlock;
 
-    emitCodeBlock     = codeBlock;
-    emitColdCodeBlock = coldCodeBlock;
-    emitConsBlock     = roDataBlock;
-    writeableOffset   = codeBlockRW - codeBlock;
+    writeableOffset = hotCodeBlockRW - hotCodeBlock;
 
 #if !FEATURE_FIXED_OUT_ARGS
     stackLevel = 0;
@@ -2675,7 +2672,7 @@ void Encoder::emitEndCodeGen()
     double blockPerfScore = 0.0;
 #endif
 
-    uint8_t* cp = codeBlock;
+    uint8_t* cp = hotCodeBlock;
 
     for (insGroup *ig = firstIG, *prevIG = nullptr; ig != nullptr; prevIG = ig, ig = ig->igNext)
     {
@@ -2942,17 +2939,17 @@ unsigned Encoder::emitCurCodeOffs(const uint8_t* dst) const
 {
     size_t distance;
 
-    if ((dst >= emitCodeBlock) && (dst <= emitCodeBlock + hotCodeSize))
+    if ((dst >= hotCodeBlock) && (dst <= hotCodeBlock + hotCodeSize))
     {
-        distance = dst - emitCodeBlock;
+        distance = dst - hotCodeBlock;
     }
     else
     {
         assert(firstColdIG != nullptr);
-        assert(emitColdCodeBlock != nullptr);
-        assert((dst >= emitColdCodeBlock) && (dst <= emitColdCodeBlock + GetColdCodeSize()));
+        assert(coldCodeBlock != nullptr);
+        assert((dst >= coldCodeBlock) && (dst <= coldCodeBlock + GetColdCodeSize()));
 
-        distance = dst - emitColdCodeBlock + hotCodeSize;
+        distance = dst - coldCodeBlock + hotCodeSize;
     }
 
     noway_assert(distance <= UINT_MAX);
@@ -2964,13 +2961,13 @@ uint8_t* Encoder::emitOffsetToPtr(unsigned offset) const
 {
     if (offset < hotCodeSize)
     {
-        return emitCodeBlock + offset;
+        return hotCodeBlock + offset;
     }
     else
     {
         assert(offset < totalCodeSize);
 
-        return emitColdCodeBlock + (offset - hotCodeSize);
+        return coldCodeBlock + (offset - hotCodeSize);
     }
 }
 
@@ -2997,7 +2994,7 @@ ssize_t AsmPrinter::GetCodeDistance(unsigned offset1, unsigned offset2) const
 uint8_t* Encoder::emitDataOffsetToPtr(unsigned offset) const
 {
     assert(offset < roData.size);
-    return emitConsBlock + offset;
+    return roDataBlock + offset;
 }
 
 #ifdef DEBUG

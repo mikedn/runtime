@@ -5271,8 +5271,8 @@ void X86Encoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
 
     PrintInsAddr(code);
 
-    assert(((code >= emitCodeBlock) && (code < emitCodeBlock + hotCodeSize)) ||
-           ((code >= emitColdCodeBlock) && (code < emitColdCodeBlock + GetColdCodeSize())));
+    assert(((code >= hotCodeBlock) && (code < hotCodeBlock + hotCodeSize)) ||
+           ((code >= coldCodeBlock) && (code < coldCodeBlock + GetColdCodeSize())));
 
     if (!emitComp->opts.disDiffable)
     {
@@ -6133,7 +6133,7 @@ uint8_t* X86Encoder::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssiz
     assert(TakesVexPrefix(ins) == hasVexPrefix(code));
     assert(!id->HasFSPrefix());
 
-    size_t addr = reinterpret_cast<size_t>(emitConsBlock) + data->offset;
+    size_t addr = reinterpret_cast<size_t>(roDataBlock) + data->offset;
 
 #ifdef DEBUG
     size_t align;
@@ -7311,7 +7311,7 @@ uint8_t* X86Encoder::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
     if (id->HasConstData())
     {
-        labelAddr = emitConsBlock + id->GetConstData()->offset;
+        labelAddr = roDataBlock + id->GetConstData()->offset;
     }
     else
     {
