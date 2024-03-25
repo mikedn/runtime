@@ -1235,7 +1235,7 @@ static bool emitInsIsStore(instruction ins);
 class Arm64Encoder final : public Encoder
 {
 public:
-    Arm64Encoder(Arm64Emitter* emit) : Encoder(emit)
+    Arm64Encoder(Arm64Emitter& emit) : Encoder(emit)
     {
     }
 
@@ -9161,8 +9161,9 @@ unsigned Arm64Encoder::emitOutput_Instr(BYTE* dst, code_t code)
 
 void EmitterBase::emitEndCodeGen()
 {
-    Arm64Encoder encoder(static_cast<Arm64Emitter*>(this));
-    encoder.emitEndCodeGen();
+    Arm64Emitter& emit = *static_cast<Arm64Emitter*>(this);
+    Arm64Encoder  encoder(emit);
+    encoder.emitEndCodeGen(emit);
 }
 
 size_t Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
@@ -10353,7 +10354,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 class Arm64AsmPrinter final : public AsmPrinter
 {
 public:
-    Arm64AsmPrinter(Arm64Emitter& emit) : AsmPrinter(emit)
+    Arm64AsmPrinter(Compiler* compiler, CodeGen* codeGen) : AsmPrinter(compiler, codeGen)
     {
     }
 
@@ -11021,7 +11022,7 @@ static void PrintHexCode(uint8_t* code, size_t sz)
 
 void Arm64Emitter::PrintIns(instrDesc* id)
 {
-    Arm64AsmPrinter printer(*this);
+    Arm64AsmPrinter printer(emitComp, codeGen);
     printer.Print(id);
 }
 
@@ -12070,7 +12071,7 @@ void Arm64Encoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
         PrintHexCode(code, sz);
     }
 
-    Arm64AsmPrinter printer(emit);
+    Arm64AsmPrinter printer(emitComp, codeGen);
     printer.Print(id);
 }
 

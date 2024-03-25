@@ -546,7 +546,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
 class ArmEncoder final : public Encoder
 {
 public:
-    ArmEncoder(ArmEmitter* emit) : Encoder(emit)
+    ArmEncoder(ArmEmitter& emit) : Encoder(emit)
     {
     }
 
@@ -5012,8 +5012,9 @@ unsigned ArmEmitter::emitGetInstructionSize(const emitLocation& emitLoc)
 
 void EmitterBase::emitEndCodeGen()
 {
-    ArmEncoder encoder(static_cast<ArmEmitter*>(this));
-    encoder.emitEndCodeGen();
+    ArmEmitter& emit = *static_cast<ArmEmitter*>(this);
+    ArmEncoder  encoder(emit);
+    encoder.emitEndCodeGen(emit);
 }
 
 size_t Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
@@ -5828,7 +5829,7 @@ static bool insAlwaysSetFlags(instruction ins)
 class ArmAsmPrinter final : public AsmPrinter
 {
 public:
-    ArmAsmPrinter(ArmEmitter& emit) : AsmPrinter(emit)
+    ArmAsmPrinter(Compiler* compiler, CodeGen* codeGen) : AsmPrinter(compiler, codeGen)
     {
     }
 
@@ -6634,7 +6635,7 @@ void ArmAsmPrinter::Print(instrDesc* id)
 
 void ArmEmitter::PrintIns(instrDesc* id)
 {
-    ArmAsmPrinter printer(*this);
+    ArmAsmPrinter printer(emitComp, codeGen);
     printer.Print(id);
 }
 
@@ -6652,7 +6653,7 @@ void ArmEncoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
             PrintHexCode(code, sz);
         }
 
-        ArmAsmPrinter printer(emit);
+        ArmAsmPrinter printer(emitComp, codeGen);
         printer.Print(id);
     };
 

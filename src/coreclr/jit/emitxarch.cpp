@@ -4115,7 +4115,8 @@ class X86AsmPrinter final : public AsmPrinter
 #endif
 
 public:
-    X86AsmPrinter(X86Emitter& emit, bool asmfm) : AsmPrinter(emit), asmfm(asmfm), useVex(emit.UseVEXEncoding())
+    X86AsmPrinter(Compiler* compiler, CodeGen* codeGen, bool asmfm, bool useVex)
+        : AsmPrinter(compiler, codeGen), asmfm(asmfm), useVex(useVex)
     {
     }
 
@@ -4883,7 +4884,7 @@ private:
 
 void X86Emitter::PrintIns(instrDesc* id)
 {
-    X86AsmPrinter printer(*this, false);
+    X86AsmPrinter printer(emitComp, codeGen, false, UseVEXEncoding());
 #if !FEATURE_FIXED_OUT_ARGS
     printer.SetStackLevel(emitCurStackLvl);
 #endif
@@ -5169,7 +5170,7 @@ class X86Encoder final : public Encoder
     const bool useVEXEncodings;
 
 public:
-    X86Encoder(X86Emitter* emit) : Encoder(emit), useVEXEncodings(emit->useVEXEncodings)
+    X86Encoder(X86Emitter& emit) : Encoder(emit), useVEXEncodings(emit.useVEXEncodings)
     {
     }
 
@@ -5277,7 +5278,7 @@ void X86Encoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
         PrintHexCode(code, sz);
     }
 
-    X86AsmPrinter printer(emit, true);
+    X86AsmPrinter printer(emitComp, codeGen, true, UseVEXEncoding());
 #if !FEATURE_FIXED_OUT_ARGS
     printer.SetStackLevel(stackLevel);
 #endif
@@ -7629,8 +7630,9 @@ uint8_t* X86Encoder::emitOutputNoOperands(uint8_t* dst, instrDesc* id)
 
 void EmitterBase::emitEndCodeGen()
 {
-    X86Encoder encoder(static_cast<X86Emitter*>(this));
-    encoder.emitEndCodeGen();
+    X86Emitter& emit = *static_cast<X86Emitter*>(this);
+    X86Encoder  encoder(emit);
+    encoder.emitEndCodeGen(emit);
 }
 
 size_t Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)

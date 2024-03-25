@@ -1748,13 +1748,13 @@ protected:
     Compiler*    emitComp;
     ICorJitInfo* jitInfo;
     CodeGen*     codeGen;
-    ArchEmitter& emit;
     GCInfo&      gcInfo;
     RoData&      roData;
     unsigned     totalCodeSize;
     unsigned     hotCodeSize;
     insGroup*    firstIG;
     insGroup*    firstColdIG;
+    VARSET_TP    emptyVarSet;
     uint8_t*     hotCodeBlock;
     uint8_t*     coldCodeBlock;
     uint8_t*     roDataBlock;
@@ -1763,23 +1763,35 @@ protected:
 #if !FEATURE_FIXED_OUT_ARGS
     unsigned stackLevel = 0;
 #endif
+#ifdef DEBUG
+    ArchEmitter& emit;
+#endif
+#ifdef LATE_DISASM
+    class DisAssembler* disasm;
+#endif
 
-    Encoder(ArchEmitter* emit)
-        : emitComp(emit->emitComp)
-        , jitInfo(emit->emitComp->info.compCompHnd)
-        , codeGen(emit->codeGen)
-        , emit(*emit)
-        , gcInfo(emit->gcInfo)
-        , roData(emit->roData)
-        , totalCodeSize(emit->emitTotalCodeSize)
-        , hotCodeSize(emit->emitTotalHotCodeSize)
-        , firstIG(emit->emitIGfirst)
-        , firstColdIG(emit->emitFirstColdIG)
+    Encoder(ArchEmitter& emit)
+        : emitComp(emit.emitComp)
+        , jitInfo(emit.emitComp->info.compCompHnd)
+        , codeGen(emit.codeGen)
+        , gcInfo(emit.gcInfo)
+        , roData(emit.roData)
+        , totalCodeSize(emit.emitTotalCodeSize)
+        , hotCodeSize(emit.emitTotalHotCodeSize)
+        , firstIG(emit.emitIGfirst)
+        , firstColdIG(emit.emitFirstColdIG)
+        , emptyVarSet(emit.emitEmptyGCrefVars)
+#ifdef DEBUG
+        , emit(emit)
+#endif
+#ifdef LATE_DISASM
+        , disasm(emit.disasm)
+#endif
     {
     }
 
 public:
-    void emitEndCodeGen();
+    void emitEndCodeGen(ArchEmitter& emit);
 
 protected:
     unsigned GetColdCodeSize() const
@@ -1867,11 +1879,10 @@ protected:
     using instrDescAlign = Emitter::instrDescAlign;
 #endif
 
-    Compiler*    compiler;
-    CodeGen*     codeGen;
-    ArchEmitter& emit;
+    Compiler* compiler;
+    CodeGen*  codeGen;
 
-    AsmPrinter(ArchEmitter& emit) : compiler(emit.emitComp), codeGen(emit.codeGen), emit(emit)
+    AsmPrinter(Compiler* compiler, CodeGen* codeGen) : compiler(compiler), codeGen(codeGen)
     {
     }
 

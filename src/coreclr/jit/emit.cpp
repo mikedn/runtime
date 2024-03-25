@@ -2548,7 +2548,7 @@ void EmitterBase::emitComputeCodeSizes()
     JITDUMP("\nHot code size = 0x%X bytes\nCold code size = 0x%X bytes\n", emitTotalHotCodeSize, GetColdCodeSize());
 }
 
-void Encoder::emitEndCodeGen()
+void Encoder::emitEndCodeGen(ArchEmitter& emit)
 {
 #ifndef JIT32_GCENCODER
     gcInfo.Begin();
@@ -3433,7 +3433,7 @@ void Encoder::emitRecordRelocation(void* location, void* target, uint16_t relocT
     }
 
 #ifdef LATE_DISASM
-    emit.disasm->disRecordRelocation((size_t)location, (size_t)target);
+    disasm->disRecordRelocation((size_t)location, (size_t)target);
 #endif
 }
 
@@ -3580,7 +3580,7 @@ size_t Encoder::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* call
 
         refRegs   = ArchEmitter::DecodeCallGCRegs(id);
         byrefRegs = RBM_NONE;
-        gcLcls    = emit.emitEmptyGCrefVars;
+        gcLcls    = emptyVarSet;
         X86_ONLY(argCount = id->idSmallCns());
 
         if (id->idGCref() == GCT_GCREF)
