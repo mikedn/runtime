@@ -1877,7 +1877,6 @@ protected:
 
     void PrintLabel(insGroup* ig);
     void PrintHandleComment(void* handle, HandleKind kind);
-    ssize_t GetCodeDistance(unsigned offset1, unsigned offset2) const;
 };
 
 #if defined(TARGET_XARCH)

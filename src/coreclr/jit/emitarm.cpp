@@ -4778,6 +4778,16 @@ uint8_t* ArmEncoder::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     // Adjust the offset to emit relative to the end of the instruction.
     distance -= 4;
 
+#ifdef DEBUG
+    if (id->HasInstrCount())
+    {
+        assert(FitsIn<int8_t>(distance));
+        // Store the jump distance into the (unused) imm field of the instruction,
+        // so the printer doesn't need to recompute it.
+        id->idSmallCns(distance + -INT8_MIN);
+    }
+#endif
+
     if (id->idInsSize() == Emitter::ISZ_16BIT)
     {
         assert(!id->idIsCnsReloc());
@@ -6042,11 +6052,11 @@ void ArmAsmPrinter::emitDispLabel(instrDescJmp* id)
         }
         else
         {
-            unsigned instrNum  = EmitterBase::emitFindInsNum(id->idjIG, id);
-            uint32_t instrOffs = id->idjIG->igOffs + id->idjOffs;
-            uint32_t labelOffs = id->idjIG->igOffs + id->idjIG->FindInsOffset(instrNum + 1 + instrCount);
-            ssize_t  distance  = GetCodeDistance(labelOffs, instrOffs) - 2;
+            int distance = static_cast<int>(id->idSmallCns()) - -INT8_MIN + 2;
 
+            // TODO-MIKE-Cleanup: The proper assembly format seems to show the jump
+            // distance as an immediate value (e.g. beq #24) not this pc-4 thing.
+            // And the instruction count should be displayed as a comment.
             printf("pc%s%d (%d instructions)", distance >= 0 ? "+" : "", distance, instrCount);
         }
     }

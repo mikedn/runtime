@@ -2958,26 +2958,6 @@ uint8_t* Encoder::emitOffsetToPtr(unsigned offset) const
     }
 }
 
-#ifdef DEBUG
-ssize_t AsmPrinter::GetCodeDistance(unsigned offset1, unsigned offset2) const
-{
-    size_t addr1 = offset1;
-    size_t addr2 = offset2;
-
-    if (emit.emitColdCodeBlock != nullptr)
-    {
-        size_t codeAddr       = reinterpret_cast<size_t>(emit.emitCodeBlock);
-        size_t coldCodeAddr   = reinterpret_cast<size_t>(emit.emitColdCodeBlock);
-        size_t coldCodeOffset = emit.emitTotalHotCodeSize;
-
-        addr1 += addr1 < coldCodeOffset ? codeAddr : coldCodeAddr - coldCodeOffset;
-        addr2 += addr2 < coldCodeOffset ? codeAddr : coldCodeAddr - coldCodeOffset;
-    }
-
-    return addr1 - addr2;
-}
-#endif // DEBUG
-
 uint8_t* Encoder::emitDataOffsetToPtr(unsigned offset) const
 {
     assert(offset < roData.size);

@@ -8979,6 +8979,21 @@ uint8_t* Arm64Encoder::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig
         return emitOutputLoadLabel(dst, instrAddr, labelAddr, id);
     }
 
+#ifdef DEBUG
+    if (id->HasInstrCount())
+    {
+        assert(FitsIn<int8_t>(distance));
+        assert((ins != INS_tbz) || (ins != INS_tbnz));
+        // Store the jump distance into the (unused) imm field of the instruction,
+        // so the printer doesn't need to recompute it.
+        // TODO-MIKE-Cleanup: It may be nice to have a distinct instruction field
+        // for this, to avoid conflicts with tbz/tbnz. But adding a new field to
+        // instrDescJmp increases its size, which then causes some diffs due to
+        // changes of number of instructions that fit in a group...
+        id->idSmallCns(distance + -INT8_MIN);
+    }
+#endif
+
     if (fmt == IF_LARGEJMP)
     {
         // This is a pseudo-instruction format representing a large conditional branch, to allow
@@ -10472,12 +10487,12 @@ void Arm64AsmPrinter::emitDispJumpLabel(instrDescJmp* id)
 
     if (id->HasInstrCount())
     {
-        unsigned instrNum   = EmitterBase::emitFindInsNum(id->idjIG, id);
-        uint32_t instrOffs  = id->idjIG->igOffs + id->idjOffs;
-        int      instrCount = id->GetInstrCount();
-        uint32_t labelOffs  = id->idjIG->igOffs + id->idjIG->FindInsOffset(instrNum + 1 + instrCount);
-        ssize_t  distance   = GetCodeDistance(labelOffs, instrOffs) - 4;
+        int instrCount = id->GetInstrCount();
+        int distance   = static_cast<int>(id->idSmallCns()) - -INT8_MIN - 4;
 
+        // TODO-MIKE-Cleanup: The proper assembly format seems to show the jump
+        // distance as an immediate value (e.g. beq #24) not this pc-4 thing.
+        // And the instruction count should be displayed as a comment.
         printf("pc%s%d (%d instructions)", distance >= 0 ? "+" : "", distance, instrCount);
     }
     else
