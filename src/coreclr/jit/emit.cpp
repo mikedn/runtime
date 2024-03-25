@@ -1764,7 +1764,6 @@ size_t Encoder::emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp)
 #if defined(DEBUG) || defined(LATE_DISASM)
     double insExecCost  = insEvaluateExecutionCost(id);
     double insPerfScore = (static_cast<double>(ig->igWeight) / BB_UNITY_WEIGHT) * insExecCost;
-    emit.perfScore += insPerfScore;
     ig->igPerfScore += insPerfScore;
 #endif
 
@@ -2659,7 +2658,9 @@ void Encoder::emitEndCodeGen()
     emit.emitColdCodeBlock = coldCodeBlock;
 
 #ifdef DEBUG
-    double blockPerfScore = 0.0;
+    double   totalPerfScore = 0.0;
+    double   blockPerfScore = 0.0;
+    unsigned instrCount     = 0;
 #endif
 
     uint8_t* code   = hotCodeBlock;
@@ -2807,7 +2808,8 @@ void Encoder::emitEndCodeGen()
         assert(ig->igSize == code - igCode);
 
 #ifdef DEBUG
-        emit.instrCount += ig->igInsCnt;
+        instrCount += ig->igInsCnt;
+        totalPerfScore += ig->igPerfScore;
         blockPerfScore += ig->igPerfScore;
 
         if (emitComp->verbose || (emitComp->opts.disAsm && ((ig->igNext == nullptr) || !ig->igNext->IsExtension() ||
@@ -2836,12 +2838,13 @@ void Encoder::emitEndCodeGen()
     {
         printf("\n");
     }
-#endif
 
-#if defined(DEBUG) || defined(LATE_DISASM)
     // Add code size information into the Perf Score
-    emit.perfScore += static_cast<double>(hotCodeSize) * PERFSCORE_CODESIZE_COST_HOT;
-    emit.perfScore += static_cast<double>(GetColdCodeSize()) * PERFSCORE_CODESIZE_COST_COLD;
+    totalPerfScore += static_cast<double>(hotCodeSize) * PERFSCORE_CODESIZE_COST_HOT;
+    totalPerfScore += static_cast<double>(GetColdCodeSize()) * PERFSCORE_CODESIZE_COST_COLD;
+
+    emit.perfScore  = totalPerfScore;
+    emit.instrCount = instrCount;
 #endif
 }
 
