@@ -776,14 +776,20 @@ void CodeGen::genEmitMachineCode()
     unwindReserve();
 #endif
 
-    GCInfo gcInfo(compiler);
+    Emitter& emit = *GetEmitter();
+    GCInfo   gcInfo(compiler);
 
     if (maxGCTrackedOffset != INT_MIN)
     {
         gcInfo.SetTrackedStackSlotRange(minGCTrackedOffset, maxGCTrackedOffset + REGSIZE_BYTES);
     }
 
-    Emitter& emit = *GetEmitter();
+#ifndef JIT32_GCENCODER
+    gcInfo.Begin();
+#else
+    gcInfo.Begin(emit.GetMaxStackDepth());
+#endif
+
     emit.emitEndCodeGen(gcInfo);
 
 #ifdef DEBUG

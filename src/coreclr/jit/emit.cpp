@@ -2549,12 +2549,6 @@ void EmitterBase::emitComputeCodeSizes()
 
 void Encoder::emitEndCodeGen(ArchEmitter& emit)
 {
-#ifndef JIT32_GCENCODER
-    gcInfo.Begin();
-#else
-    gcInfo.Begin(emit.GetMaxStackDepth());
-#endif
-
     CorJitAllocMemFlag allocMemFlag = CORJIT_ALLOCMEM_DEFAULT_CODE_ALIGN;
 
 #ifdef TARGET_X86
