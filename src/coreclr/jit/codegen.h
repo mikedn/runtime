@@ -77,7 +77,6 @@ public:
     void genAllocateRegisters();
     void genGenerateMachineCode();
     void genEmitMachineCode();
-    void genEmitUnwindDebugGCandEH();
 
 private:
 #ifdef TARGET_XARCH

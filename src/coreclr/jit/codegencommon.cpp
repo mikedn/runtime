@@ -469,7 +469,6 @@ void CodeGen::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
     DoPhase(this, PHASE_LINEAR_SCAN, &CodeGen::genAllocateRegisters);
     DoPhase(this, PHASE_GENERATE_CODE, &CodeGen::genGenerateMachineCode);
     DoPhase(this, PHASE_EMIT_CODE, &CodeGen::genEmitMachineCode);
-    DoPhase(this, PHASE_EMIT_GCEH, &CodeGen::genEmitUnwindDebugGCandEH);
 
 #ifdef LATE_DISASM
     GetEmitter()->Disassemble();
@@ -799,10 +798,7 @@ void CodeGen::genEmitMachineCode()
         printf("; ============================================================\n\n");
     }
 #endif
-}
 
-void CodeGen::genEmitUnwindDebugGCandEH()
-{
 #ifdef FEATURE_EH_FUNCLETS
     unwindEmit();
 #endif
@@ -813,17 +809,17 @@ void CodeGen::genEmitUnwindDebugGCandEH()
         genSetScopeInfo();
     }
 
-    genReportEH();
-    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this);
+    if (compiler->compHndBBtabCount == 0)
+    {
+        genReportEH();
+    }
+
+    emit.GetGCInfo().CreateAndStoreGCInfo(this);
 }
 
 void CodeGen::genReportEH()
 {
-    if (compiler->compHndBBtabCount == 0)
-    {
-        return;
-    }
-
+    assert(compiler->compHndBBtabCount != 0);
     DBEXEC(compiler->opts.dspEHTable, printf("*************** EH table for %s\n", compiler->info.compFullName));
 
     bool     isCoreRTABI = compiler->IsTargetAbi(CORINFO_CORERT_ABI);
