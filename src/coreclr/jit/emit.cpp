@@ -2663,6 +2663,12 @@ void Encoder::emitEndCodeGen(ArchEmitter& emit)
     unsigned instrCount     = 0;
 #endif
 
+    // Make sure that the x86 alignment and cache prefetch optimization rules were
+    // obeyed - don't start a method in the last 7 bytes of a 16-byte alignment area
+    // unless we are generating SMALL_CODE.
+    // TODO-MIKE-Review: What's up with this?
+    // noway_assert((reinterpret_cast<size_t>(hotCodeBlock) % 16 <= 8) || (emitComp->compCodeOpt() == SMALL_CODE));
+
     uint8_t* code   = hotCodeBlock;
     writeableOffset = hotCodeBlockRW - hotCodeBlock;
 

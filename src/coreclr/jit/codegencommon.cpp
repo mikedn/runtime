@@ -753,6 +753,25 @@ void CodeGen::genEmitMachineCode()
         }
     }
 #endif // DEBUG
+#ifdef DEBUG_ARG_SLOTS
+    {
+        // Check our max stack level. Needed for fgGetThrowHelperBlock.
+        // We need to relax the assert as our estimation won't include code-gen
+        // stack changes (which we know don't affect fgGetThrowHelperBlock).
+
+        unsigned maxAllowedStackDepth =
+            4 * compiler->fgGetPtrArgCntMax() +     // Max number of pointer-sized stack arguments.
+            4 * compiler->compHndBBtabCount +       // Return address for locally-called finallys
+            8 +                                     // longs/doubles may be transferred via stack, etc
+            (compiler->compTailCallUsed ? 16 : 0)); // CORINFO_HELP_TAILCALL args
+
+#ifdef UNIX_X86_ABI
+        maxAllowedStackDepth += maxNestedAlignment;
+#endif
+
+        assert(GetEmitter()->GetMaxStackDepth() <= maxAllowedStackDepth);
+    }
+#endif // DEBUG_ARG_SLOTS
 
 #ifdef FEATURE_EH_FUNCLETS
     unwindReserve();
@@ -780,32 +799,6 @@ void CodeGen::genEmitMachineCode()
         printf("; ============================================================\n\n");
     }
 #endif
-
-#ifdef DEBUG_ARG_SLOTS
-    {
-        // Check our max stack level. Needed for fgGetThrowHelperBlock.
-        // We need to relax the assert as our estimation won't include code-gen
-        // stack changes (which we know don't affect fgGetThrowHelperBlock).
-
-        unsigned maxAllowedStackDepth =
-            4 * compiler->fgGetPtrArgCntMax() +     // Max number of pointer-sized stack arguments.
-            4 * compiler->compHndBBtabCount +       // Return address for locally-called finallys
-            8 +                                     // longs/doubles may be transferred via stack, etc
-            (compiler->compTailCallUsed ? 16 : 0)); // CORINFO_HELP_TAILCALL args
-
-#ifdef UNIX_X86_ABI
-        maxAllowedStackDepth += maxNestedAlignment;
-#endif
-
-        assert(GetEmitter()->GetMaxStackDepth() <= maxAllowedStackDepth);
-    }
-#endif // DEBUG_ARG_SLOTS
-
-    // Make sure that the x86 alignment and cache prefetch optimization rules were
-    // obeyed - don't start a method in the last 7 bytes of a 16-byte alignment area
-    // unless we are generating SMALL_CODE.
-    // TODO-MIKE-Review: What's up with this?
-    // noway_assert((reinterpret_cast<size_t>(codePtr) % 16 <= 8) || (compiler->compCodeOpt() == SMALL_CODE));
 }
 
 void CodeGen::genEmitUnwindDebugGCandEH()
