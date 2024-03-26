@@ -546,7 +546,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
 class ArmEncoder final : public Encoder
 {
 public:
-    ArmEncoder(ArmEmitter& emit) : Encoder(emit)
+    ArmEncoder(ArmEmitter& emit, GCInfo& gcInfo) : Encoder(emit, gcInfo)
     {
     }
 
@@ -5010,10 +5010,10 @@ unsigned ArmEmitter::emitGetInstructionSize(const emitLocation& emitLoc)
     return id->idCodeSize();
 }
 
-void EmitterBase::emitEndCodeGen()
+void EmitterBase::emitEndCodeGen(GCInfo& gcInfo)
 {
     ArmEmitter& emit = *static_cast<ArmEmitter*>(this);
-    ArmEncoder  encoder(emit);
+    ArmEncoder  encoder(emit, gcInfo);
     encoder.emitEndCodeGen(emit);
 }
 

@@ -776,14 +776,21 @@ void CodeGen::genEmitMachineCode()
     unwindReserve();
 #endif
 
+    GCInfo gcInfo(compiler);
+
+    if (maxGCTrackedOffset != INT_MIN)
+    {
+        gcInfo.SetTrackedStackSlotRange(minGCTrackedOffset, maxGCTrackedOffset + REGSIZE_BYTES);
+    }
+
     Emitter& emit = *GetEmitter();
-    emit.emitEndCodeGen();
+    emit.emitEndCodeGen(gcInfo);
 
 #ifdef DEBUG
     if (compiler->opts.disAsm || compiler->verbose)
     {
-        printf("\n; Total bytes of code %d, prolog size %d, PerfScore %.2f, instruction count %d, allocated bytes for "
-               "code %d",
+        printf("\n; Total bytes of code %u, prolog size %u, PerfScore %.2f, instruction count %u, allocated bytes for "
+               "code %u",
                emit.GetCodeSize(), emit.GetMainPrologNoGCSize(), emit.GetPerfScore(), emit.GetInstrCount(),
                emit.GetHotCodeSize() + emit.GetColdCodeSize());
 
@@ -809,12 +816,12 @@ void CodeGen::genEmitMachineCode()
         genSetScopeInfo();
     }
 
-    if (compiler->compHndBBtabCount == 0)
+    if (compiler->compHndBBtabCount != 0)
     {
         genReportEH();
     }
 
-    emit.GetGCInfo().CreateAndStoreGCInfo(this);
+    gcInfo.CreateAndStoreGCInfo(this);
 }
 
 void CodeGen::genReportEH()
@@ -2854,8 +2861,8 @@ void CodeGen::MarkGCTrackedSlots(int&       minBlockInitOffset,
     initRegs           = RBM_NONE;
     ARM_ONLY(initDblRegs = RBM_NONE);
 
-    int minGCTrackedOffset = INT_MAX;
-    int maxGCTrackedOffset = INT_MIN;
+    minGCTrackedOffset = INT_MAX;
+    maxGCTrackedOffset = INT_MIN;
 
     for (LclVarDsc* lcl : compiler->Locals())
     {
@@ -2975,8 +2982,6 @@ void CodeGen::MarkGCTrackedSlots(int&       minBlockInitOffset,
                 abs(minGCTrackedOffset), GetEmitter()->emitGetFrameReg(), maxGCTrackedOffset < 0 ? '-' : '+',
                 abs(maxGCTrackedOffset));
 #endif
-
-        GetEmitter()->GetGCInfo().SetTrackedStackSlotRange(minGCTrackedOffset, maxGCTrackedOffset + REGSIZE_BYTES);
     }
     else
     {

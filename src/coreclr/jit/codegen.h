@@ -138,6 +138,9 @@ private:
     bool     genUseBlockInit;  // true if we plan to block-initialize the local stack frame
     unsigned genInitStkLclCnt; // The count of local variables that we need to zero init
 
+    int minGCTrackedOffset = INT_MAX;
+    int maxGCTrackedOffset = INT_MIN;
+
 #if !FEATURE_FIXED_OUT_ARGS
     void SubtractStackLevel(unsigned adjustment);
     void AddStackLevel(unsigned adjustment);

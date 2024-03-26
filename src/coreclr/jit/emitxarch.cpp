@@ -5170,7 +5170,7 @@ class X86Encoder final : public Encoder
     const bool useVEXEncodings;
 
 public:
-    X86Encoder(X86Emitter& emit) : Encoder(emit), useVEXEncodings(emit.useVEXEncodings)
+    X86Encoder(X86Emitter& emit, GCInfo& gcInfo) : Encoder(emit, gcInfo), useVEXEncodings(emit.useVEXEncodings)
     {
     }
 
@@ -7628,10 +7628,10 @@ uint8_t* X86Encoder::emitOutputNoOperands(uint8_t* dst, instrDesc* id)
     return dst;
 }
 
-void EmitterBase::emitEndCodeGen()
+void EmitterBase::emitEndCodeGen(GCInfo& gcInfo)
 {
     X86Emitter& emit = *static_cast<X86Emitter*>(this);
-    X86Encoder  encoder(emit);
+    X86Encoder  encoder(emit, gcInfo);
     encoder.emitEndCodeGen(emit);
 }
 

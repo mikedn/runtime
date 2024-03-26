@@ -304,7 +304,6 @@ class EmitterBase
 
 protected:
     Compiler* emitComp;
-    GCInfo    gcInfo;
     CodeGen*  codeGen;
 #ifdef LATE_DISASM
     class DisAssembler* disasm;
@@ -312,11 +311,6 @@ protected:
 
 public:
     EmitterBase(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo);
-
-    GCInfo& GetGCInfo()
-    {
-        return gcInfo;
-    }
 
     insGroup* GetProlog() const
     {
@@ -333,7 +327,7 @@ protected:
 public:
     void emitBegFN();
     void emitComputeCodeSizes();
-    void emitEndCodeGen();
+    void emitEndCodeGen(GCInfo& gcInfo);
 
 #ifdef LATE_DISASM
     void Disassemble();
@@ -1770,11 +1764,11 @@ protected:
     class DisAssembler* disasm;
 #endif
 
-    Encoder(ArchEmitter& emit)
+    Encoder(ArchEmitter& emit, GCInfo& gcInfo)
         : emitComp(emit.emitComp)
         , jitInfo(emit.emitComp->info.compCompHnd)
         , codeGen(emit.codeGen)
-        , gcInfo(emit.gcInfo)
+        , gcInfo(gcInfo)
         , roData(emit.roData)
         , totalCodeSize(emit.emitTotalCodeSize)
         , hotCodeSize(emit.emitTotalHotCodeSize)

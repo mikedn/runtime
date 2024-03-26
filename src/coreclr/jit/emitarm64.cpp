@@ -1235,7 +1235,7 @@ static bool emitInsIsStore(instruction ins);
 class Arm64Encoder final : public Encoder
 {
 public:
-    Arm64Encoder(Arm64Emitter& emit) : Encoder(emit)
+    Arm64Encoder(Arm64Emitter& emit, GCInfo& gcInfo) : Encoder(emit, gcInfo)
     {
     }
 
@@ -9159,10 +9159,10 @@ unsigned Arm64Encoder::emitOutput_Instr(BYTE* dst, code_t code)
     return 4;
 }
 
-void EmitterBase::emitEndCodeGen()
+void EmitterBase::emitEndCodeGen(GCInfo& gcInfo)
 {
     Arm64Emitter& emit = *static_cast<Arm64Emitter*>(this);
-    Arm64Encoder  encoder(emit);
+    Arm64Encoder  encoder(emit, gcInfo);
     encoder.emitEndCodeGen(emit);
 }
 

@@ -13,7 +13,6 @@
 
 EmitterBase::EmitterBase(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo)
     : emitComp(compiler)
-    , gcInfo(compiler)
     , codeGen(codeGen)
 #ifdef LATE_DISASM
     , disasm(new (emitComp, CMK_DebugOnly) DisAssembler(compiler, codeGen))
