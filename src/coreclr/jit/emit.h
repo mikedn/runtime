@@ -302,11 +302,90 @@ class EmitterBase
     friend class Encoder;
     friend struct insGroup;
 
+public:
+    struct instrDescSmall;
+    struct instrDesc;
+    struct instrDescJmp;
+#if FEATURE_LOOP_ALIGN
+    struct instrDescAlign;
+#endif
+
 protected:
+    struct Placeholder;
+    struct Epilog;
+    struct DataSection;
+
+    struct RoData
+    {
+        DataSection* first = nullptr;
+        DataSection* last  = nullptr;
+        uint32_t     size  = 0;
+        uint32_t     align = ConstData::MinAlign;
+
+        DataSection* Find(const void* data, uint32_t size, uint32_t align) const;
+    };
+
     Compiler* emitComp;
     CodeGen*  codeGen;
 #ifdef LATE_DISASM
     class DisAssembler* disasm;
+#endif
+    insGroup*     emitIGfirst              = nullptr;
+    insGroup*     emitIGlast               = nullptr;
+    insGroup*     emitCurIG                = nullptr;
+    insGroup*     emitCurLabel             = nullptr;
+    instrDescJmp* emitCurIGjmpList         = nullptr; // list of jumps   in current IG
+    instrDescJmp* emitJumpList             = nullptr;
+    instrDescJmp* emitJumpLast             = nullptr;
+    Placeholder*  firstPlaceholder         = nullptr;
+    Placeholder*  lastPlaceholder          = nullptr;
+    uint8_t*      emitCurIGfreeBase        = nullptr; // first byte address
+    uint8_t*      emitCurIGfreeNext        = nullptr; // next available byte in buffer
+    uint8_t*      emitCurIGfreeEndp        = nullptr; // one byte past the last available byte in buffer
+    bool          emitNoGCIG               = false;   // Are we generating IGF_NOGCINTERRUPT insGroups
+    bool          emitForceNewIG           = false; // Force creation of a new instruction group at the next instruction
+    unsigned      emitCurIGinsCnt          = 0;     // # of collected instr's in buffer
+    unsigned      emitCurIGsize            = 0;     // estimated code size of current group in bytes
+    unsigned      emitCurCodeOffset        = 0;     // current code offset within group
+    unsigned      emitTotalCodeSize        = 0;     // bytes of code in entire method
+    unsigned      emitTotalHotCodeSize     = 0;
+    CodePos       mainPrologNoGCEndCodePos = CodePos::First;
+    insGroup*     emitFirstColdIG          = nullptr;
+    instrDesc*    emitLastIns              = nullptr;
+    insGroup*     emitLastInsLabel         = nullptr;
+    VARSET_TP     emitEmptyGCrefVars       = VarSetOps::UninitVal();
+    uint8_t*      emitCodeBlock            = nullptr;
+    uint8_t*      emitColdCodeBlock        = nullptr;
+    RoData        roData;
+#if FEATURE_LOOP_ALIGN
+    instrDescAlign* emitCurIGAlignList = nullptr; // list of align instructions in current IG
+    instrDescAlign* emitAlignList      = nullptr; // list of local align instructions in method
+    instrDescAlign* emitAlignLast      = nullptr; // last align instruction in method
+    unsigned        emitLastLoopStart  = 0;       // Start IG of last inner loop
+    unsigned        emitLastLoopEnd    = 0;       // End IG of last inner loop
+#endif
+#ifdef JIT32_GCENCODER
+    emitLocation epilogExitLoc;
+    Epilog*      firstEpilog       = nullptr;
+    Epilog*      lastEpilog        = nullptr;
+    unsigned     epilogCount       = 0;
+    unsigned     epilogCommonSize  = 0;
+    unsigned     epilogExitSize    = 0;
+    unsigned     emitCntStackDepth = 0; // 0 in prolog/epilog, One DWORD elsewhere
+    unsigned     emitMaxStackDepth = 0; // actual computed max. stack depth
+    unsigned     emitCurStackLvl   = 0; // amount of bytes pushed on stack
+#endif
+#ifdef PSEUDORANDOM_NOP_INSERTION
+    bool     emitInInstrumentation = false;
+    bool     emitRandomNops        = false;
+    unsigned emitNextNop           = 0;
+#endif
+#ifdef DEBUG
+    unsigned emitInsCount = 0;
+    unsigned instrCount   = 0;
+#endif
+#if defined(DEBUG) || defined(LATE_DISASM)
+    double perfScore = 0.0;
 #endif
 
 public:
@@ -317,34 +396,92 @@ public:
         return emitIGfirst;
     }
 
-protected:
-    static bool InDifferentRegions(insGroup* ig1, insGroup* ig2);
+    uint8_t* GetHotCodeAddr() const
+    {
+        return emitCodeBlock;
+    }
 
-#ifdef LATE_DISASM
-    void disSetMethod(size_t addr, CORINFO_METHOD_HANDLE methHnd);
+    unsigned GetHotCodeSize() const
+    {
+        assert(emitTotalHotCodeSize != 0);
+        return emitTotalHotCodeSize;
+    }
+
+    uint8_t* GetColdCodeAddr() const
+    {
+        return emitColdCodeBlock;
+    }
+
+    unsigned GetColdCodeSize() const
+    {
+        assert(emitTotalCodeSize != 0);
+        return emitTotalCodeSize - emitTotalHotCodeSize;
+    }
+
+    unsigned GetCodeSize() const
+    {
+        assert(emitTotalCodeSize != 0);
+        return emitTotalCodeSize;
+    }
+
+#if DISPLAY_SIZES
+    uint32_t GetRoDataSize() const
+    {
+        return roData.size;
+    }
 #endif
 
-public:
-    void emitBegFN();
-    void emitComputeCodeSizes();
-    void emitEndCodeGen(GCInfo& gcInfo);
+    unsigned GetMainPrologNoGCSize() const
+    {
+        return GetProlog()->GetCodeOffset(mainPrologNoGCEndCodePos);
+    }
 
-#ifdef LATE_DISASM
-    void Disassemble();
-#endif
+    insGroup* GetCurrentInsGroup() const
+    {
+        return emitCurIG;
+    }
 
+    CodePos emitCurCodePos() const;
+
+    bool IsCurrentLocation(const emitLocation& loc) const;
+    bool IsPreviousLocation(const emitLocation& loc) const;
+
+    static emitJumpKind emitReverseJumpKind(emitJumpKind jumpKind);
+    static unsigned emitFindInsNum(const insGroup* ig, const instrDesc* instr);
+
+    ConstData* GetFloatConst(double value, var_types type);
+    ConstData* GetConst(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
+    ConstData* CreateBlockLabelTable(BasicBlock** blocks, unsigned count, bool relative);
+    ConstData* CreateTempLabelTable(insGroup*** labels, unsigned count, bool relative);
+
+    void     emitBegFN();
+    void     emitGeneratePrologEpilog();
     void     emitBegProlog();
     unsigned emitGetCurrentPrologCodeSize();
-    void     MarkMainPrologNoGCEnd();
-    void     EndMainProlog();
-
+    void     emitComputeCodeSizes();
+    void     ShortenBranches();
+    void emitEndCodeGen(GCInfo& gcInfo);
+    void      MarkMainPrologNoGCEnd();
+    void      EndMainProlog();
+    insGroup* CreateBlockLabel(BasicBlock* block, unsigned funcletIndex);
+    insGroup* CreateTempLabel();
+    insGroup* DefineTempLabel();
+    void DefineTempLabel(insGroup* label);
+    void DefineInlineTempLabel(insGroup* label);
+    void DefineBlockLabel(insGroup* label);
+    void SetLabelGCLiveness(insGroup* label);
+    insGroup* DefineInlineTempLabel();
+    void ReserveEpilog(BasicBlock* block);
 #ifdef FEATURE_EH_FUNCLETS
     void ReserveFuncletProlog(BasicBlock* block);
 #endif
-    void ReserveEpilog(BasicBlock* block);
-    void emitGeneratePrologEpilog();
-
+#ifdef TARGET_ARMARCH
+    void emitUnwindNopPadding(const emitLocation& loc);
+#endif
 #ifndef JIT32_GCENCODER
+    void emitDisableGC();
+    void emitEnableGC();
+
     template <typename Callback>
     void EnumerateNoGCInsGroups(Callback callback) const
     {
@@ -357,32 +494,95 @@ public:
         }
     }
 #else
+    void MarkGCEpilogStart() const;
+    void MarkGCEpilogExit();
+
+    bool HasSingleEpilogAtEnd();
+
     unsigned GetMaxStackDepth() const
     {
         return emitMaxStackDepth;
     }
+
+    unsigned GetEpilogSize() const
+    {
+        // Currently, in methods with multiple epilogs, all epilogs must have the same
+        // size. epilogSize is the size of just one of these epilogs, not the cumulative
+        // size of all of the method's epilogs.
+        return epilogCommonSize + epilogExitSize;
+    }
+
+    unsigned GetEpilogCount() const
+    {
+        return epilogCount;
+    }
+
+    template <typename Callback>
+    void EnumerateEpilogs(Callback callback)
+    {
+        for (Epilog* e = firstEpilog; e != nullptr; e = e->next)
+        {
+            assert(e->startLoc.GetIG()->IsMainEpilog());
+
+            callback(e->startLoc.GetCodeOffset());
+        }
+    }
 #endif // JIT32_GCENCODER
 
-    CodePos emitCurCodePos() const;
-    bool IsCurrentLocation(const emitLocation& loc) const;
-    bool IsPreviousLocation(const emitLocation& loc) const;
-    INDEBUG(const char* emitOffsetToLabel(unsigned offs);)
+#if FEATURE_LOOP_ALIGN
+    void emitLoopAlignment();
+    bool emitEndsWithAlignInstr(); // Validate if newLabel is appropriate
+    void emitSetLoopBackEdge(insGroup* dstIG);
+    void emitLoopAlignAdjustments(); // Predict if loop alignment is needed and make appropriate adjustments
+#endif
 
-public:
-    ConstData* CreateBlockLabelTable(BasicBlock** blocks, unsigned count, bool relative);
-    ConstData* CreateTempLabelTable(insGroup*** labels, unsigned count, bool relative);
-
-    ConstData* GetFloatConst(double value, var_types type);
-    ConstData* GetConst(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
-
-#if DISPLAY_SIZES
-    uint32_t GetRoDataSize() const
+#ifdef PSEUDORANDOM_NOP_INSERTION
+    void emitEnableRandomNops()
     {
-        return roData.size;
+        emitRandomNops = true;
     }
+
+    void emitDisableRandomNops()
+    {
+        emitRandomNops = false;
+    }
+#endif
+#ifdef DEBUG
+    const char*        emitGetFrameReg();
+    static const char* emitIfName(insFormat f);
+    void emitDispIGInstrs(insGroup* ig);
+    void emitDispIGlist(bool dispInstr);
+    static bool IsCodeAligned(unsigned offset);
+    const char* emitOffsetToLabel(unsigned offs);
+
+    unsigned GetInstrCount() const
+    {
+        return instrCount;
+    }
+#endif
+#if defined(DEBUG) || defined(LATE_DISASM)
+    double GetPerfScore() const
+    {
+        return perfScore;
+    }
+#endif
+#ifdef LATE_DISASM
+    void Disassemble();
 #endif
 
 protected:
+    static bool InDifferentRegions(insGroup* ig1, insGroup* ig2);
+
+    void* emitGetMem(size_t sz);
+    void dispIns(instrDesc* id);
+    void appendToCurIG(instrDesc* id);
+    static size_t emitGetInstrDescSizeSC(const instrDesc* id);
+#if FEATURE_LOOP_ALIGN
+    unsigned getLoopSize(insGroup* igLoopHeader,
+                         unsigned maxLoopSize DEBUG_ARG(bool isAlignAdjusted)); // Get the smallest loop size
+    unsigned emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offset DEBUG_ARG(bool isAlignAdjusted));
+#endif
+
     struct DataSection
     {
         DataSection* next;
@@ -393,25 +593,106 @@ protected:
     DataSection* CreateConst(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
     DataSection* CreateConstSection(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
 
-    void* emitGetMem(size_t sz);
-
-    enum opSize : unsigned
-    {
-        OPSZ1  = 0,
-        OPSZ2  = 1,
-        OPSZ4  = 2,
-        OPSZ8  = 3,
-        OPSZ16 = 4,
-        OPSZ32 = 5
-    };
-
     bool IsMainProlog(const insGroup* ig) const
     {
         // Currently, we only allow one IG for the prolog
         return ig == emitIGfirst;
     }
 
+    BasicBlock* BeginPrologEpilog(insGroup* ig);
+    void EndPrologEpilog();
+
+    bool emitCurIGnonEmpty() const
+    {
+        return (emitCurIG != nullptr) && (emitCurIGfreeNext > emitCurIGfreeBase);
+    }
+
+    instrDesc* GetLastInsInCurrentBlock() const
+    {
+        return (emitLastIns != nullptr) && (emitLastInsLabel == emitCurLabel) ? emitLastIns : nullptr;
+    }
+
     void emitRecomputeIGoffsets();
+
+    struct Placeholder
+    {
+        Placeholder* next = nullptr;
+        insGroup*    ig;
+
+        Placeholder(insGroup* ig) : ig(ig)
+        {
+        }
+    };
+
+#ifdef JIT32_GCENCODER
+    struct Epilog
+    {
+        Epilog*      next = nullptr;
+        emitLocation startLoc;
+    };
+
+    void BeginGCEpilog();
+    void EndGCEpilog();
+#endif // JIT32_GCENCODER
+
+    static void EncodeCallGCRegs(regMaskTP regs, instrDesc* id);
+    static unsigned DecodeCallGCRegs(instrDesc* id);
+
+#ifdef DEBUG // This information is used in DEBUG builds to display the method name for call instructions
+    void VerifyCallFinally(insGroup* label) const;
+    void VerifyCatchRet(insGroup* label) const;
+    void emitCheckIGoffsets();
+    void emitInsSanityCheck(instrDesc* id);
+
+    struct instrDescDebugInfo
+    {
+        unsigned idNum;
+        uint16_t idSize; // size of the instruction descriptor
+        int      varNum  = INT_MIN;
+        int      varOffs = 0;
+#ifdef TARGET_XARCH
+        HandleKind dispHandleKind = HandleKind::None;
+#endif
+        HandleKind        idHandleKind = HandleKind::None;
+        void*             idHandle     = nullptr;
+        CORINFO_SIG_INFO* idCallSig    = nullptr; // Used to report native call site signatures to the EE
+
+        instrDescDebugInfo(unsigned num, unsigned size) : idNum(num), idSize(static_cast<uint16_t>(size))
+        {
+            assert(size <= UINT16_MAX);
+        }
+    };
+#endif // DEBUG
+#if defined(DEBUG) || defined(LATE_DISASM)
+    BasicBlock::weight_t getCurrentBlockWeight();
+#endif
+#ifdef LATE_DISASM
+    void disSetMethod(size_t addr, CORINFO_METHOD_HANDLE methHnd);
+#endif
+
+    insGroup* emitAllocIG(unsigned num);
+
+    void emitNewIG();
+    void emitAppendIG(insGroup* ig);
+    void emitGenIG(insGroup* ig);
+    void emitExtendIG();
+    void emitFinishIG(bool extend = false);
+    void MoveJumpInstrList(insGroup* ig);
+#if FEATURE_LOOP_ALIGN
+    void MoveAlignInstrList(insGroup* ig);
+#endif
+
+#ifdef TARGET_ARMARCH
+    void emitGetInstrDescs(insGroup* ig, instrDesc** id, int* insCnt);
+    bool emitGetLocationInfo(const emitLocation& emitLoc, insGroup** pig, instrDesc** pid, int* pinsRemaining = NULL);
+    bool GetNextInstr(insGroup*& ig, instrDesc*& id, int& insRemaining);
+    typedef void (*WalkInstrCallback)(instrDesc* id, void* context);
+    void WalkInstr(const emitLocation& locFrom, WalkInstrCallback callback, void* context);
+#endif
+
+    int emitNextRandomNop();
+
+    instrDescSmall* emitAllocAnyInstr(unsigned sz, bool updateLastIns);
 
 #ifdef TARGET_XARCH
     struct emitAddrMode
@@ -449,28 +730,17 @@ protected:
     };
 #endif // TARGET_XARCH
 
-#ifdef DEBUG // This information is used in DEBUG builds to display the method name for call instructions
-    struct instrDescDebugInfo
-    {
-        unsigned idNum;
-        uint16_t idSize; // size of the instruction descriptor
-        int      varNum  = INT_MIN;
-        int      varOffs = 0;
-#ifdef TARGET_XARCH
-        HandleKind dispHandleKind = HandleKind::None;
-#endif
-        HandleKind        idHandleKind = HandleKind::None;
-        void*             idHandle     = nullptr;
-        CORINFO_SIG_INFO* idCallSig    = nullptr; // Used to report native call site signatures to the EE
-
-        instrDescDebugInfo(unsigned num, unsigned size) : idNum(num), idSize(static_cast<uint16_t>(size))
-        {
-            assert(size <= UINT16_MAX);
-        }
-    };
-#endif // DEBUG
-
 public:
+    enum opSize : unsigned
+    {
+        OPSZ1  = 0,
+        OPSZ2  = 1,
+        OPSZ4  = 2,
+        OPSZ8  = 3,
+        OPSZ16 = 4,
+        OPSZ32 = 5
+    };
+
 #ifdef TARGET_ARM
     enum insSize : unsigned
     {
@@ -485,8 +755,6 @@ public:
 #ifdef TARGET_XARCH
 #define MAX_ENCODED_SIZE 15
 #endif
-
-    struct instrDesc;
 
     struct instrDescSmall
     {
@@ -918,8 +1186,6 @@ public:
 
     static_assert(sizeof(instrDescSmall) == 8 INDEBUG(+sizeof(void*)), "Bad instrDescSmall size");
 
-    struct instrDescJmp;
-
     struct instrDesc : public instrDescSmall
     {
         friend struct instrDescJmp;
@@ -1267,447 +1533,6 @@ public:
         int idcArgCnt;
 #endif
     };
-
-#if defined(DEBUG) || defined(LATE_DISASM)
-#define PERFSCORE_THROUGHPUT_ILLEGAL -1024.0f
-
-#define PERFSCORE_THROUGHPUT_ZERO 0.0f // Only used for pseudo-instructions that don't generate code
-
-#define PERFSCORE_THROUGHPUT_6X (1.0f / 6.0f)
-#define PERFSCORE_THROUGHPUT_5X 0.20f
-#define PERFSCORE_THROUGHPUT_4X 0.25f
-#define PERFSCORE_THROUGHPUT_3X (1.0f / 3.0f)
-#define PERFSCORE_THROUGHPUT_2X 0.5f
-
-#define PERFSCORE_THROUGHPUT_1C 1.0f
-
-#define PERFSCORE_THROUGHPUT_2C 2.0f
-#define PERFSCORE_THROUGHPUT_3C 3.0f
-#define PERFSCORE_THROUGHPUT_4C 4.0f
-#define PERFSCORE_THROUGHPUT_5C 5.0f
-#define PERFSCORE_THROUGHPUT_6C 6.0f
-#define PERFSCORE_THROUGHPUT_7C 7.0f
-#define PERFSCORE_THROUGHPUT_8C 8.0f
-#define PERFSCORE_THROUGHPUT_9C 9.0f
-#define PERFSCORE_THROUGHPUT_10C 10.0f
-#define PERFSCORE_THROUGHPUT_13C 13.0f
-#define PERFSCORE_THROUGHPUT_19C 19.0f
-#define PERFSCORE_THROUGHPUT_25C 25.0f
-#define PERFSCORE_THROUGHPUT_33C 33.0f
-#define PERFSCORE_THROUGHPUT_52C 52.0f
-#define PERFSCORE_THROUGHPUT_57C 57.0f
-
-#define PERFSCORE_LATENCY_ILLEGAL -1024.0f
-
-#define PERFSCORE_LATENCY_ZERO 0.0f
-#define PERFSCORE_LATENCY_1C 1.0f
-#define PERFSCORE_LATENCY_2C 2.0f
-#define PERFSCORE_LATENCY_3C 3.0f
-#define PERFSCORE_LATENCY_4C 4.0f
-#define PERFSCORE_LATENCY_5C 5.0f
-#define PERFSCORE_LATENCY_6C 6.0f
-#define PERFSCORE_LATENCY_7C 7.0f
-#define PERFSCORE_LATENCY_8C 8.0f
-#define PERFSCORE_LATENCY_9C 9.0f
-#define PERFSCORE_LATENCY_10C 10.0f
-#define PERFSCORE_LATENCY_11C 11.0f
-#define PERFSCORE_LATENCY_12C 12.0f
-#define PERFSCORE_LATENCY_13C 13.0f
-#define PERFSCORE_LATENCY_15C 15.0f
-#define PERFSCORE_LATENCY_16C 16.0f
-#define PERFSCORE_LATENCY_18C 18.0f
-#define PERFSCORE_LATENCY_20C 20.0f
-#define PERFSCORE_LATENCY_22C 22.0f
-#define PERFSCORE_LATENCY_23C 23.0f
-#define PERFSCORE_LATENCY_26C 26.0f
-#define PERFSCORE_LATENCY_62C 62.0f
-#define PERFSCORE_LATENCY_69C 69.0f
-#define PERFSCORE_LATENCY_400C 400.0f // Intel microcode issue with these instructions
-
-#define PERFSCORE_LATENCY_BRANCH_DIRECT 1.0f   // cost of an unconditional branch
-#define PERFSCORE_LATENCY_BRANCH_COND 2.0f     // includes cost of a possible misprediction
-#define PERFSCORE_LATENCY_BRANCH_INDIRECT 2.0f // includes cost of a possible misprediction
-
-#if defined(TARGET_XARCH)
-
-// a read,write or modify from stack location, possible def to use latency from L0 cache
-#define PERFSCORE_LATENCY_RD_STACK PERFSCORE_LATENCY_2C
-#define PERFSCORE_LATENCY_WR_STACK PERFSCORE_LATENCY_2C
-#define PERFSCORE_LATENCY_RD_WR_STACK PERFSCORE_LATENCY_5C
-
-// a read, write or modify from constant location, possible def to use latency from L0 cache
-#define PERFSCORE_LATENCY_RD_CONST_ADDR PERFSCORE_LATENCY_2C
-#define PERFSCORE_LATENCY_WR_CONST_ADDR PERFSCORE_LATENCY_2C
-#define PERFSCORE_LATENCY_RD_WR_CONST_ADDR PERFSCORE_LATENCY_5C
-
-// a read, write or modify from memory location, possible def to use latency from L0 or L1 cache
-// plus an extra cost  (of 1.0) for a increased chance  of a cache miss
-#define PERFSCORE_LATENCY_RD_GENERAL PERFSCORE_LATENCY_3C
-#define PERFSCORE_LATENCY_WR_GENERAL PERFSCORE_LATENCY_3C
-#define PERFSCORE_LATENCY_RD_WR_GENERAL PERFSCORE_LATENCY_6C
-
-#elif defined(TARGET_ARM64) || defined(TARGET_ARM)
-
-// a read,write or modify from stack location, possible def to use latency from L0 cache
-#define PERFSCORE_LATENCY_RD_STACK PERFSCORE_LATENCY_3C
-#define PERFSCORE_LATENCY_WR_STACK PERFSCORE_LATENCY_1C
-#define PERFSCORE_LATENCY_RD_WR_STACK PERFSCORE_LATENCY_3C
-
-// a read, write or modify from constant location, possible def to use latency from L0 cache
-#define PERFSCORE_LATENCY_RD_CONST_ADDR PERFSCORE_LATENCY_3C
-#define PERFSCORE_LATENCY_WR_CONST_ADDR PERFSCORE_LATENCY_1C
-#define PERFSCORE_LATENCY_RD_WR_CONST_ADDR PERFSCORE_LATENCY_3C
-
-// a read, write or modify from memory location, possible def to use latency from L0 or L1 cache
-// plus an extra cost  (of 1.0) for a increased chance  of a cache miss
-#define PERFSCORE_LATENCY_RD_GENERAL PERFSCORE_LATENCY_4C
-#define PERFSCORE_LATENCY_WR_GENERAL PERFSCORE_LATENCY_1C
-#define PERFSCORE_LATENCY_RD_WR_GENERAL PERFSCORE_LATENCY_4C
-
-#endif // TARGET_XXX
-
-#define PERFSCORE_MEMORY_NONE 0
-#define PERFSCORE_MEMORY_READ 1
-#define PERFSCORE_MEMORY_WRITE 2
-#define PERFSCORE_MEMORY_READ_WRITE 3
-
-protected:
-    BasicBlock::weight_t getCurrentBlockWeight();
-#endif // defined(DEBUG) || defined(LATE_DISASM)
-
-    void dispIns(instrDesc* id);
-
-    void appendToCurIG(instrDesc* id);
-
-    static size_t emitGetInstrDescSizeSC(const instrDesc* id);
-
-#ifdef DEBUG
-public:
-    static const char* emitIfName(insFormat f);
-
-protected:
-    unsigned emitInsCount = 0;
-
-    void emitDispIGInstrs(insGroup* ig);
-    void emitDispIGlist(bool dispInstr);
-#endif // !DEBUG
-
-    struct Placeholder
-    {
-        Placeholder* next = nullptr;
-        insGroup*    ig;
-
-        Placeholder(insGroup* ig) : ig(ig)
-        {
-        }
-    };
-
-    Placeholder* firstPlaceholder = nullptr;
-    Placeholder* lastPlaceholder  = nullptr;
-
-    BasicBlock* BeginPrologEpilog(insGroup* ig);
-    void EndPrologEpilog();
-
-#ifdef JIT32_GCENCODER
-    struct Epilog
-    {
-        Epilog*      next = nullptr;
-        emitLocation startLoc;
-    };
-
-    Epilog*      firstEpilog = nullptr;
-    Epilog*      lastEpilog  = nullptr;
-    emitLocation epilogExitLoc;
-    unsigned     epilogCount      = 0;
-    unsigned     epilogCommonSize = 0;
-    unsigned     epilogExitSize   = 0;
-
-    void BeginGCEpilog();
-    void EndGCEpilog();
-
-public:
-    void MarkGCEpilogStart() const;
-    void MarkGCEpilogExit();
-
-    bool HasSingleEpilogAtEnd();
-
-    unsigned GetEpilogCount() const
-    {
-        return epilogCount;
-    }
-
-    template <typename Callback>
-    void EnumerateEpilogs(Callback callback)
-    {
-        for (Epilog* e = firstEpilog; e != nullptr; e = e->next)
-        {
-            assert(e->startLoc.GetIG()->IsMainEpilog());
-
-            callback(e->startLoc.GetCodeOffset());
-        }
-    }
-#endif // JIT32_GCENCODER
-
-public:
-    static unsigned emitFindInsNum(const insGroup* ig, const instrDesc* instr);
-
-protected:
-    uint8_t* emitCodeBlock     = nullptr; // Hot code block
-    uint8_t* emitColdCodeBlock = nullptr; // Cold code block
-
-#ifdef PSEUDORANDOM_NOP_INSERTION
-    bool emitInInstrumentation = false;
-#endif
-
-    insGroup* emitCurIG;
-    insGroup* emitCurLabel = nullptr;
-
-protected:
-    insGroup* emitIGfirst = nullptr;
-    insGroup* emitIGlast  = nullptr;
-
-    instrDescJmp* emitJumpList = nullptr; // list of local jumps in method
-    instrDescJmp* emitJumpLast = nullptr; // last of local jumps in method
-
-public:
-    insGroup* GetCurrentInsGroup() const
-    {
-        return emitCurIG;
-    }
-
-    INDEBUG(static bool IsCodeAligned(unsigned offset);)
-
-    void ShortenBranches();
-
-#if FEATURE_LOOP_ALIGN
-    void emitLoopAlignment();
-    bool emitEndsWithAlignInstr(); // Validate if newLabel is appropriate
-    void emitSetLoopBackEdge(insGroup* dstIG);
-    void emitLoopAlignAdjustments(); // Predict if loop alignment is needed and make appropriate adjustments
-
-protected:
-    instrDescAlign* emitCurIGAlignList = nullptr; // list of align instructions in current IG
-    unsigned        emitLastLoopStart  = 0;       // Start IG of last inner loop
-    unsigned        emitLastLoopEnd    = 0;       // End IG of last inner loop
-    instrDescAlign* emitAlignList      = nullptr; // list of local align instructions in method
-    instrDescAlign* emitAlignLast      = nullptr; // last align instruction in method
-    unsigned getLoopSize(insGroup* igLoopHeader,
-                         unsigned maxLoopSize DEBUG_ARG(bool isAlignAdjusted)); // Get the smallest loop size
-    unsigned emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offset DEBUG_ARG(bool isAlignAdjusted));
-#endif
-
-protected:
-#ifdef DEBUG
-    void VerifyCallFinally(insGroup* label) const;
-    void VerifyCatchRet(insGroup* label) const;
-#endif
-
-    // Are we generating IGF_NOGCINTERRUPT insGroups (for prologs, epilogs, etc.)
-    bool emitNoGCIG = false;
-    // If we generate an instruction, and not another instruction group, force create a new emitAdd
-    // instruction group.
-    bool emitForceNewIG = false;
-
-    BYTE* emitCurIGfreeNext;           // next available byte in buffer
-    BYTE* emitCurIGfreeEndp;           // one byte past the last available byte in buffer
-    BYTE* emitCurIGfreeBase = nullptr; // first byte address
-
-    instrDescJmp* emitCurIGjmpList = nullptr; // list of jumps   in current IG
-
-    unsigned emitCurIGinsCnt;       // # of collected instr's in buffer
-    unsigned emitCurIGsize;         // estimated code size of current group in bytes
-    unsigned emitCurCodeOffset = 0; // current code offset within group
-
-    CodePos mainPrologNoGCEndCodePos;
-
-    unsigned emitTotalCodeSize    = 0; // bytes of code in entire method
-    unsigned emitTotalHotCodeSize = 0;
-
-    insGroup* emitFirstColdIG = nullptr; // first cold instruction group
-
-#ifdef DEBUG
-    unsigned instrCount = 0;
-#endif
-#if defined(DEBUG) || defined(LATE_DISASM)
-    double perfScore = 0.0;
-#endif
-
-public:
-    uint8_t* GetHotCodeAddr() const
-    {
-        return emitCodeBlock;
-    }
-
-    unsigned GetHotCodeSize() const
-    {
-        assert(emitTotalHotCodeSize != 0);
-        return emitTotalHotCodeSize;
-    }
-
-    uint8_t* GetColdCodeAddr() const
-    {
-        return emitColdCodeBlock;
-    }
-
-    unsigned GetColdCodeSize() const
-    {
-        assert(emitTotalCodeSize != 0);
-        return emitTotalCodeSize - emitTotalHotCodeSize;
-    }
-
-    unsigned GetCodeSize() const
-    {
-        assert(emitTotalCodeSize != 0);
-        return emitTotalCodeSize;
-    }
-
-    unsigned GetMainPrologNoGCSize() const
-    {
-        return GetProlog()->GetCodeOffset(mainPrologNoGCEndCodePos);
-    }
-
-#ifdef JIT32_GCENCODER
-    unsigned GetEpilogSize() const
-    {
-        // Currently, in methods with multiple epilogs, all epilogs must have the same
-        // size. epilogSize is the size of just one of these epilogs, not the cumulative
-        // size of all of the method's epilogs.
-        return epilogCommonSize + epilogExitSize;
-    }
-#endif
-
-#ifdef DEBUG
-    unsigned GetInstrCount() const
-    {
-        return instrCount;
-    }
-#endif
-
-#if defined(DEBUG) || defined(LATE_DISASM)
-    double GetPerfScore() const
-    {
-        return perfScore;
-    }
-#endif
-
-protected:
-    VARSET_TP emitEmptyGCrefVars = VarSetOps::UninitVal();
-
-    static void EncodeCallGCRegs(regMaskTP regs, instrDesc* id);
-    static unsigned DecodeCallGCRegs(instrDesc* id);
-
-#ifdef PSEUDORANDOM_NOP_INSERTION
-    // random nop insertion to break up nop sleds
-    unsigned emitNextNop;
-    bool     emitRandomNops;
-
-    void emitEnableRandomNops()
-    {
-        emitRandomNops = true;
-    }
-
-    void emitDisableRandomNops()
-    {
-        emitRandomNops = false;
-    }
-#endif // PSEUDORANDOM_NOP_INSERTION
-
-    insGroup* emitAllocIG(unsigned num);
-
-    void emitNewIG();
-    void emitAppendIG(insGroup* ig);
-    void emitGenIG(insGroup* ig);
-    void emitExtendIG();
-    void emitFinishIG(bool extend = false);
-    void MoveJumpInstrList(insGroup* ig);
-#if FEATURE_LOOP_ALIGN
-    void MoveAlignInstrList(insGroup* ig);
-#endif
-
-#ifndef JIT32_GCENCODER
-public:
-    void emitDisableGC();
-    void emitEnableGC();
-
-protected:
-#endif
-
-    bool emitCurIGnonEmpty() const
-    {
-        return (emitCurIG != nullptr) && (emitCurIGfreeNext > emitCurIGfreeBase);
-    }
-
-    instrDesc* emitLastIns      = nullptr;
-    insGroup*  emitLastInsLabel = nullptr;
-
-    instrDesc* GetLastInsInCurrentBlock() const
-    {
-        return (emitLastIns != nullptr) && (emitLastInsLabel == emitCurLabel) ? emitLastIns : nullptr;
-    }
-
-#ifdef DEBUG
-    void emitCheckIGoffsets();
-#endif
-
-public:
-    insGroup* CreateBlockLabel(BasicBlock* block, unsigned funcletIndex);
-    insGroup* CreateTempLabel();
-    insGroup* DefineTempLabel();
-    void DefineTempLabel(insGroup* label);
-    void DefineInlineTempLabel(insGroup* label);
-    void DefineBlockLabel(insGroup* label);
-    void SetLabelGCLiveness(insGroup* label);
-    insGroup* DefineInlineTempLabel();
-
-#ifdef TARGET_ARMARCH
-protected:
-    void emitGetInstrDescs(insGroup* ig, instrDesc** id, int* insCnt);
-    bool emitGetLocationInfo(const emitLocation& emitLoc, insGroup** pig, instrDesc** pid, int* pinsRemaining = NULL);
-    bool GetNextInstr(insGroup*& ig, instrDesc*& id, int& insRemaining);
-    typedef void (*WalkInstrCallback)(instrDesc* id, void* context);
-    void WalkInstr(const emitLocation& locFrom, WalkInstrCallback callback, void* context);
-
-public:
-    void emitUnwindNopPadding(const emitLocation& loc);
-#endif // TARGET_ARMARCH
-
-protected:
-    int emitNextRandomNop();
-
-    instrDescSmall* emitAllocAnyInstr(unsigned sz, bool updateLastIns);
-
-public:
-    static emitJumpKind emitReverseJumpKind(emitJumpKind jumpKind);
-
-protected:
-#ifdef DEBUG
-    void emitInsSanityCheck(instrDesc* id);
-#endif
-
-#ifdef JIT32_GCENCODER
-    unsigned emitCntStackDepth;     // 0 in prolog/epilog, One DWORD elsewhere
-    unsigned emitMaxStackDepth = 0; // actual computed max. stack depth
-    unsigned emitCurStackLvl   = 0; // amount of bytes pushed on stack
-#endif
-
-#ifdef DEBUG
-public:
-    const char* emitGetFrameReg();
-
-protected:
-#endif
-
-    struct RoData
-    {
-        DataSection* first = nullptr;
-        DataSection* last  = nullptr;
-        uint32_t     size  = 0;
-        uint32_t     align = ConstData::MinAlign;
-
-        DataSection* Find(const void* data, uint32_t size, uint32_t align) const;
-    };
-
-    RoData roData;
 };
 
 #if defined(TARGET_XARCH)
@@ -1834,17 +1659,122 @@ protected:
 #endif
 
 #if defined(DEBUG) || defined(LATE_DISASM)
+#define PERFSCORE_THROUGHPUT_ILLEGAL -1024.0f
+
+#define PERFSCORE_THROUGHPUT_ZERO 0.0f // Only used for pseudo-instructions that don't generate code
+
+#define PERFSCORE_THROUGHPUT_6X (1.0f / 6.0f)
+#define PERFSCORE_THROUGHPUT_5X 0.20f
+#define PERFSCORE_THROUGHPUT_4X 0.25f
+#define PERFSCORE_THROUGHPUT_3X (1.0f / 3.0f)
+#define PERFSCORE_THROUGHPUT_2X 0.5f
+
+#define PERFSCORE_THROUGHPUT_1C 1.0f
+
+#define PERFSCORE_THROUGHPUT_2C 2.0f
+#define PERFSCORE_THROUGHPUT_3C 3.0f
+#define PERFSCORE_THROUGHPUT_4C 4.0f
+#define PERFSCORE_THROUGHPUT_5C 5.0f
+#define PERFSCORE_THROUGHPUT_6C 6.0f
+#define PERFSCORE_THROUGHPUT_7C 7.0f
+#define PERFSCORE_THROUGHPUT_8C 8.0f
+#define PERFSCORE_THROUGHPUT_9C 9.0f
+#define PERFSCORE_THROUGHPUT_10C 10.0f
+#define PERFSCORE_THROUGHPUT_13C 13.0f
+#define PERFSCORE_THROUGHPUT_19C 19.0f
+#define PERFSCORE_THROUGHPUT_25C 25.0f
+#define PERFSCORE_THROUGHPUT_33C 33.0f
+#define PERFSCORE_THROUGHPUT_52C 52.0f
+#define PERFSCORE_THROUGHPUT_57C 57.0f
+
+#define PERFSCORE_LATENCY_ILLEGAL -1024.0f
+
+#define PERFSCORE_LATENCY_ZERO 0.0f
+#define PERFSCORE_LATENCY_1C 1.0f
+#define PERFSCORE_LATENCY_2C 2.0f
+#define PERFSCORE_LATENCY_3C 3.0f
+#define PERFSCORE_LATENCY_4C 4.0f
+#define PERFSCORE_LATENCY_5C 5.0f
+#define PERFSCORE_LATENCY_6C 6.0f
+#define PERFSCORE_LATENCY_7C 7.0f
+#define PERFSCORE_LATENCY_8C 8.0f
+#define PERFSCORE_LATENCY_9C 9.0f
+#define PERFSCORE_LATENCY_10C 10.0f
+#define PERFSCORE_LATENCY_11C 11.0f
+#define PERFSCORE_LATENCY_12C 12.0f
+#define PERFSCORE_LATENCY_13C 13.0f
+#define PERFSCORE_LATENCY_15C 15.0f
+#define PERFSCORE_LATENCY_16C 16.0f
+#define PERFSCORE_LATENCY_18C 18.0f
+#define PERFSCORE_LATENCY_20C 20.0f
+#define PERFSCORE_LATENCY_22C 22.0f
+#define PERFSCORE_LATENCY_23C 23.0f
+#define PERFSCORE_LATENCY_26C 26.0f
+#define PERFSCORE_LATENCY_62C 62.0f
+#define PERFSCORE_LATENCY_69C 69.0f
+#define PERFSCORE_LATENCY_400C 400.0f // Intel microcode issue with these instructions
+
+#define PERFSCORE_LATENCY_BRANCH_DIRECT 1.0f   // cost of an unconditional branch
+#define PERFSCORE_LATENCY_BRANCH_COND 2.0f     // includes cost of a possible misprediction
+#define PERFSCORE_LATENCY_BRANCH_INDIRECT 2.0f // includes cost of a possible misprediction
+
+#if defined(TARGET_XARCH)
+
+// a read,write or modify from stack location, possible def to use latency from L0 cache
+#define PERFSCORE_LATENCY_RD_STACK PERFSCORE_LATENCY_2C
+#define PERFSCORE_LATENCY_WR_STACK PERFSCORE_LATENCY_2C
+#define PERFSCORE_LATENCY_RD_WR_STACK PERFSCORE_LATENCY_5C
+
+// a read, write or modify from constant location, possible def to use latency from L0 cache
+#define PERFSCORE_LATENCY_RD_CONST_ADDR PERFSCORE_LATENCY_2C
+#define PERFSCORE_LATENCY_WR_CONST_ADDR PERFSCORE_LATENCY_2C
+#define PERFSCORE_LATENCY_RD_WR_CONST_ADDR PERFSCORE_LATENCY_5C
+
+// a read, write or modify from memory location, possible def to use latency from L0 or L1 cache
+// plus an extra cost  (of 1.0) for a increased chance  of a cache miss
+#define PERFSCORE_LATENCY_RD_GENERAL PERFSCORE_LATENCY_3C
+#define PERFSCORE_LATENCY_WR_GENERAL PERFSCORE_LATENCY_3C
+#define PERFSCORE_LATENCY_RD_WR_GENERAL PERFSCORE_LATENCY_6C
+
+#elif defined(TARGET_ARM64) || defined(TARGET_ARM)
+
+// a read,write or modify from stack location, possible def to use latency from L0 cache
+#define PERFSCORE_LATENCY_RD_STACK PERFSCORE_LATENCY_3C
+#define PERFSCORE_LATENCY_WR_STACK PERFSCORE_LATENCY_1C
+#define PERFSCORE_LATENCY_RD_WR_STACK PERFSCORE_LATENCY_3C
+
+// a read, write or modify from constant location, possible def to use latency from L0 cache
+#define PERFSCORE_LATENCY_RD_CONST_ADDR PERFSCORE_LATENCY_3C
+#define PERFSCORE_LATENCY_WR_CONST_ADDR PERFSCORE_LATENCY_1C
+#define PERFSCORE_LATENCY_RD_WR_CONST_ADDR PERFSCORE_LATENCY_3C
+
+// a read, write or modify from memory location, possible def to use latency from L0 or L1 cache
+// plus an extra cost  (of 1.0) for a increased chance  of a cache miss
+#define PERFSCORE_LATENCY_RD_GENERAL PERFSCORE_LATENCY_4C
+#define PERFSCORE_LATENCY_WR_GENERAL PERFSCORE_LATENCY_1C
+#define PERFSCORE_LATENCY_RD_WR_GENERAL PERFSCORE_LATENCY_4C
+
+#endif // TARGET_XXX
+
     // TODO-MIKE-Cleanup: These should be double. Bozos defined them as float, even if they wanted
-    // double precision computations. Now of course that changing these now to double resuls in
+    // double precision computations. Now of course that changing these now to double results in
     // perf scores diffs, because 0.10f isn't the same as 0.10.
     static constexpr float PERFSCORE_CODESIZE_COST_HOT  = 0.10f;
     static constexpr float PERFSCORE_CODESIZE_COST_COLD = 0.01f;
 
+    enum PerfScoreMemoryKind
+    {
+        PERFSCORE_MEMORY_NONE,
+        PERFSCORE_MEMORY_READ,
+        PERFSCORE_MEMORY_WRITE,
+        PERFSCORE_MEMORY_READ_WRITE
+    };
+
     struct insExecutionCharacteristics
     {
-        float    insThroughput;
-        float    insLatency;
-        unsigned insMemoryAccessKind;
+        float               insThroughput;
+        float               insLatency;
+        PerfScoreMemoryKind insMemoryAccessKind;
     };
 
 #if defined(TARGET_XARCH)

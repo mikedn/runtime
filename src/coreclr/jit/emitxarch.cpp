@@ -8230,11 +8230,12 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
     instruction ins    = id->idIns();
     insFormat   insFmt = id->idInsFmt();
     insFormat   memFmt = getMemoryOperation(id);
-    unsigned    memAccessKind;
 
     insExecutionCharacteristics result;
     result.insThroughput = PERFSCORE_THROUGHPUT_ILLEGAL;
     result.insLatency    = PERFSCORE_LATENCY_ILLEGAL;
+
+    PerfScoreMemoryKind memAccessKind;
 
     // Model the memory latency
     switch (memFmt)
