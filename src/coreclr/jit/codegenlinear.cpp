@@ -257,6 +257,9 @@ void CodeGen::genCodeForBBlist()
     unsigned nextEnterScope = 0;
     unsigned nextExitScope  = 0;
 
+    Placeholder* firstPlaceholder = nullptr;
+    Placeholder* lastPlaceholder  = nullptr;
+
     for (BasicBlock* block = compiler->fgFirstBB; block != nullptr; block = block->bbNext)
     {
         JITDUMP("\n=============== Generating ");
@@ -322,7 +325,19 @@ void CodeGen::genCodeForBBlist()
 #ifdef FEATURE_EH_FUNCLETS
         if ((block->bbFlags & BBF_FUNCLET_BEG) != 0)
         {
-            GetEmitter()->ReserveFuncletProlog(block);
+            insGroup*    prolog = GetEmitter()->ReserveFuncletProlog(block);
+            Placeholder* ph     = new (compiler, CMK_Codegen) Placeholder(prolog);
+
+            if (lastPlaceholder == nullptr)
+            {
+                firstPlaceholder = ph;
+            }
+            else
+            {
+                lastPlaceholder->next = ph;
+            }
+
+            lastPlaceholder = ph;
         }
 #endif
 
@@ -606,7 +621,19 @@ void CodeGen::genCodeForBBlist()
 
         if (hasEpilog)
         {
-            GetEmitter()->ReserveEpilog(block);
+            insGroup*    epilog = GetEmitter()->ReserveEpilog(block);
+            Placeholder* ph     = new (compiler, CMK_Codegen) Placeholder(epilog);
+
+            if (lastPlaceholder == nullptr)
+            {
+                firstPlaceholder = ph;
+            }
+            else
+            {
+                lastPlaceholder->next = ph;
+            }
+
+            lastPlaceholder = ph;
         }
 
         if (BasicBlock* next = block->bbNext)
@@ -654,12 +681,81 @@ void CodeGen::genCodeForBBlist()
     }
 #endif
 
-    GetEmitter()->emitGeneratePrologEpilog();
+    GeneratePrologEpilog(firstPlaceholder);
     GetEmitter()->ShortenBranches();
 #if FEATURE_LOOP_ALIGN
     GetEmitter()->emitLoopAlignAdjustments();
 #endif
     GetEmitter()->emitComputeCodeSizes();
+}
+
+void CodeGen::GeneratePrologEpilog(Placeholder* firstPlaceholder)
+{
+#ifdef DEBUG
+    unsigned epilogCount = 0;
+#ifdef FEATURE_EH_FUNCLETS
+    unsigned funcletPrologCount = 0;
+    unsigned funcletEpilogCount = 0;
+#endif
+#endif
+
+    Emitter& emit = *GetEmitter();
+
+    for (Placeholder* ph = firstPlaceholder; ph != nullptr; ph = ph->next)
+    {
+        insGroup* ig = ph->ig;
+
+        liveness.BeginPrologEpilogCodeGen();
+
+#ifdef JIT32_GCENCODER
+        assert(ig->IsMainEpilog());
+        emit.BeginGCEpilog();
+#endif
+
+        BasicBlock* block = emit.BeginPrologEpilog(ig);
+
+#ifdef FEATURE_EH_FUNCLETS
+        if (ig->IsFuncletProlog())
+        {
+            INDEBUG(++funcletPrologCount);
+            genFuncletProlog(block);
+        }
+        else if (ig->IsFuncletEpilog())
+        {
+            INDEBUG(++funcletEpilogCount);
+            genFuncletEpilog();
+        }
+        else
+#endif
+        {
+            assert(ig->IsMainEpilog());
+            INDEBUG(++epilogCount);
+            genFnEpilog(block);
+        }
+
+        emit.EndPrologEpilog();
+#ifdef JIT32_GCENCODER
+        emit.EndGCEpilog(ig);
+#endif
+    }
+
+    emit.emitRecomputeIGoffsets();
+
+#ifdef DEBUG
+    if (compiler->verbose)
+    {
+        printf("\n1 prolog, %u epilog(s)", epilogCount);
+#ifdef FEATURE_EH_FUNCLETS
+        printf(", %u funclet prolog(s), %u funclet epilog(s)", funcletPrologCount, funcletEpilogCount);
+#endif
+        printf("\n");
+        emit.emitDispIGlist(false);
+    }
+#endif
+
+#ifdef FEATURE_EH_FUNCLETS
+    assert(funcletPrologCount == compiler->ehFuncletCount());
+#endif
 }
 
 void CodeGen::genExitCode(BasicBlock* block)

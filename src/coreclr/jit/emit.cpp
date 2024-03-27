@@ -765,7 +765,7 @@ void EmitterBase::EndMainProlog()
 static constexpr unsigned MAX_PLACEHOLDER_IG_SIZE = 256;
 
 #ifdef FEATURE_EH_FUNCLETS
-void EmitterBase::ReserveFuncletProlog(BasicBlock* block)
+insGroup* EmitterBase::ReserveFuncletProlog(BasicBlock* block)
 {
     assert(!IsMainProlog(emitCurIG));
     assert(codeGen->funGetFuncIdx(block) == codeGen->GetCurrentFuncletIndex());
@@ -800,19 +800,6 @@ void EmitterBase::ReserveFuncletProlog(BasicBlock* block)
     ig->igPhData = block;
     ig->igFlags |= IGF_PLACEHOLDER | IGF_PROLOG;
 
-    Placeholder* ph = new (emitComp, CMK_InstDesc) Placeholder(ig);
-
-    if (lastPlaceholder == nullptr)
-    {
-        firstPlaceholder = ph;
-    }
-    else
-    {
-        lastPlaceholder->next = ph;
-    }
-
-    lastPlaceholder = ph;
-
     // We don't know what code size the placeholder insGroup will have,
     // just use an estimate large enough to accommodate any placeholder.
     assert(emitCurIGsize == 0);
@@ -828,10 +815,12 @@ void EmitterBase::ReserveFuncletProlog(BasicBlock* block)
     // is also live inside prolog. So the group following the prolog is really an
     // extension, since GC liveness does not change.
     emitCurIG->igFlags |= IGF_EXTEND;
+
+    return ig;
 }
 #endif // FEATURE_EH_FUNCLETS
 
-void EmitterBase::ReserveEpilog(BasicBlock* block)
+insGroup* EmitterBase::ReserveEpilog(BasicBlock* block)
 {
     assert(!IsMainProlog(emitCurIG));
 
@@ -888,19 +877,6 @@ void EmitterBase::ReserveEpilog(BasicBlock* block)
     ig->igPhData = block;
     ig->igFlags |= IGF_PLACEHOLDER | IGF_EPILOG;
 
-    Placeholder* ph = new (emitComp, CMK_InstDesc) Placeholder(ig);
-
-    if (lastPlaceholder == nullptr)
-    {
-        firstPlaceholder = ph;
-    }
-    else
-    {
-        lastPlaceholder->next = ph;
-    }
-
-    lastPlaceholder = ph;
-
     // We don't know what code size the placeholder insGroup will have,
     // just use an estimate large enough to accommodate any placeholder.
     assert(emitCurIGsize == 0);
@@ -908,74 +884,8 @@ void EmitterBase::ReserveEpilog(BasicBlock* block)
     emitCurCodeOffset += MAX_PLACEHOLDER_IG_SIZE;
 
     emitCurIG = nullptr;
-}
 
-void EmitterBase::emitGeneratePrologEpilog()
-{
-#ifdef DEBUG
-    unsigned epilogCnt = 0;
-#ifdef FEATURE_EH_FUNCLETS
-    unsigned funcletPrologCnt = 0;
-    unsigned funcletEpilogCnt = 0;
-#endif
-#endif
-
-    for (Placeholder* ph = firstPlaceholder; ph != nullptr; ph = ph->next)
-    {
-        insGroup* ig = ph->ig;
-
-        codeGen->liveness.BeginPrologEpilogCodeGen();
-
-#ifdef JIT32_GCENCODER
-        assert(ig->IsMainEpilog());
-        BeginGCEpilog();
-#endif
-
-        BasicBlock* block = BeginPrologEpilog(ig);
-
-#ifdef FEATURE_EH_FUNCLETS
-        if (ig->IsFuncletProlog())
-        {
-            INDEBUG(++funcletPrologCnt);
-            codeGen->genFuncletProlog(block);
-        }
-        else if (ig->IsFuncletEpilog())
-        {
-            INDEBUG(++funcletEpilogCnt);
-            codeGen->genFuncletEpilog();
-        }
-        else
-#endif
-        {
-            assert(ig->IsMainEpilog());
-            INDEBUG(++epilogCnt);
-            codeGen->genFnEpilog(block);
-        }
-
-        EndPrologEpilog();
-#ifdef JIT32_GCENCODER
-        EndGCEpilog();
-#endif
-    }
-
-    emitRecomputeIGoffsets();
-    emitCurIG = nullptr;
-
-#ifdef DEBUG
-    if (emitComp->verbose)
-    {
-        printf("\n1 prolog, %u epilog(s)", epilogCnt);
-#ifdef FEATURE_EH_FUNCLETS
-        printf(", %u funclet prolog(s), %u funclet epilog(s)", funcletPrologCnt, funcletEpilogCnt);
-#endif
-        printf("\n");
-        emitDispIGlist(false);
-    }
-#endif
-
-#ifdef FEATURE_EH_FUNCLETS
-    assert(funcletPrologCnt == emitComp->ehFuncletCount());
-#endif
+    return ig;
 }
 
 BasicBlock* EmitterBase::BeginPrologEpilog(insGroup* ig)
@@ -1019,6 +929,8 @@ void EmitterBase::EndPrologEpilog()
     emitCurStackLvl   = 0;
     emitCntStackDepth = TARGET_POINTER_SIZE;
 #endif
+
+    emitCurIG = nullptr;
 }
 
 #ifdef JIT32_GCENCODER
@@ -1052,7 +964,7 @@ void EmitterBase::MarkGCEpilogExit()
     epilogExitLoc.CaptureLocation(this);
 }
 
-void EmitterBase::EndGCEpilog()
+void EmitterBase::EndGCEpilog(insGroup* ig)
 {
     assert(lastEpilog != nullptr);
 
@@ -1068,7 +980,7 @@ void EmitterBase::EndGCEpilog()
 
     uint32_t startOffset = lastEpilog->startLoc.GetCodeOffset();
     uint32_t exitOffset  = epilogExitLoc.GetCodeOffset();
-    uint32_t endOffset   = emitCurIG->GetCodeOffset(emitCurCodePos());
+    uint32_t endOffset   = ig->GetCodeOffset(emitCurCodePos());
 
     uint32_t newCommonSize = exitOffset - startOffset;
     // All epilogs must be identical, this the exception of the "exit" instruction.

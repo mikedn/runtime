@@ -169,6 +169,18 @@ private:
     void InitLclBlockLiveInRegs();
     void genCodeForBBlist();
 
+    struct Placeholder
+    {
+        Placeholder* next = nullptr;
+        insGroup*    ig;
+
+        Placeholder(insGroup* ig) : ig(ig)
+        {
+        }
+    };
+
+    void GeneratePrologEpilog(Placeholder* firstPlaceholder);
+
 public:
 #ifdef JIT32_GCENCODER
     void SetGCInfoSize(unsigned size)

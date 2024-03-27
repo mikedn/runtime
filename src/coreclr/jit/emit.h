@@ -311,7 +311,6 @@ public:
 #endif
 
 protected:
-    struct Placeholder;
     struct Epilog;
     struct DataSection;
 
@@ -337,8 +336,6 @@ protected:
     instrDescJmp* emitCurIGjmpList         = nullptr; // list of jumps   in current IG
     instrDescJmp* emitJumpList             = nullptr;
     instrDescJmp* emitJumpLast             = nullptr;
-    Placeholder*  firstPlaceholder         = nullptr;
-    Placeholder*  lastPlaceholder          = nullptr;
     uint8_t*      emitCurIGfreeBase        = nullptr; // first byte address
     uint8_t*      emitCurIGfreeNext        = nullptr; // next available byte in buffer
     uint8_t*      emitCurIGfreeEndp        = nullptr; // one byte past the last available byte in buffer
@@ -443,7 +440,6 @@ public:
     ConstData* CreateTempLabelTable(insGroup*** labels, unsigned count, bool relative);
 
     void     emitBegFN();
-    void     emitGeneratePrologEpilog();
     void     emitBegProlog();
     unsigned emitGetCurrentPrologCodeSize();
     void     emitComputeCodeSizes();
@@ -459,10 +455,13 @@ public:
     void DefineBlockLabel(insGroup* label);
     void SetLabelGCLiveness(insGroup* label);
     insGroup* DefineInlineTempLabel();
-    void ReserveEpilog(BasicBlock* block);
+    insGroup* ReserveEpilog(BasicBlock* block);
 #ifdef FEATURE_EH_FUNCLETS
-    void ReserveFuncletProlog(BasicBlock* block);
+    insGroup* ReserveFuncletProlog(BasicBlock* block);
 #endif
+    BasicBlock* BeginPrologEpilog(insGroup* ig);
+    void EndPrologEpilog();
+    void emitRecomputeIGoffsets();
 #ifdef TARGET_ARMARCH
     void emitUnwindNopPadding(const emitLocation& loc);
 #endif
@@ -482,6 +481,8 @@ public:
         }
     }
 #else
+    void BeginGCEpilog();
+    void EndGCEpilog(insGroup* ig);
     void MarkGCEpilogStart() const;
     void MarkGCEpilogExit();
 
@@ -587,9 +588,6 @@ protected:
         return ig == emitIGfirst;
     }
 
-    BasicBlock* BeginPrologEpilog(insGroup* ig);
-    void EndPrologEpilog();
-
     bool emitCurIGnonEmpty() const
     {
         return (emitCurIG != nullptr) && (emitCurIGfreeNext > emitCurIGfreeBase);
@@ -600,27 +598,12 @@ protected:
         return (emitLastIns != nullptr) && (emitLastInsLabel == emitCurLabel) ? emitLastIns : nullptr;
     }
 
-    void emitRecomputeIGoffsets();
-
-    struct Placeholder
-    {
-        Placeholder* next = nullptr;
-        insGroup*    ig;
-
-        Placeholder(insGroup* ig) : ig(ig)
-        {
-        }
-    };
-
 #ifdef JIT32_GCENCODER
     struct Epilog
     {
         Epilog*      next = nullptr;
         emitLocation startLoc;
     };
-
-    void BeginGCEpilog();
-    void EndGCEpilog();
 #endif // JIT32_GCENCODER
 
     static void EncodeCallGCRegs(regMaskTP regs, instrDesc* id);
