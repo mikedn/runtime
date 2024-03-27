@@ -850,7 +850,7 @@ void EmitterBase::ReserveEpilog(BasicBlock* block)
     const bool isFunclet = !block->KindIs(BBJ_RETURN);
 #else
     assert(block->KindIs(BBJ_RETURN));
-    const bool isFunclet = false;
+    const bool isFunclet   = false;
 #endif
 
     if (emitCurIGnonEmpty())
@@ -1548,7 +1548,7 @@ EmitterBase::instrDesc* ArchEmitter::emitNewInstrCall(CORINFO_METHOD_HANDLE meth
 #ifdef TARGET_X86
         id = emitNewInstrCns(argSlotCount);
 #else
-        id               = emitNewInstr();
+        id                 = emitNewInstr();
 #endif
         id->idOpSize(EA_SIZE(retRegAttr));
         id->idGCref(EA_GC_TYPE(retRegAttr));
@@ -2647,8 +2647,8 @@ void Encoder::emitEndCodeGen(ArchEmitter& emit)
     assert(((allocMemFlag & CORJIT_ALLOCMEM_FLG_32BYTE_ALIGN) == 0) ||
            ((reinterpret_cast<size_t>(hotCodeBlock) & 31) == 0));
 
-    emit.emitCodeBlock     = hotCodeBlock;
-    emit.emitColdCodeBlock = coldCodeBlock;
+    codeGen->hotCodeBlock  = hotCodeBlock;
+    codeGen->coldCodeBlock = coldCodeBlock;
 
 #ifdef DEBUG
     double   totalPerfScore = 0.0;

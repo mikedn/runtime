@@ -388,6 +388,9 @@ public:
     }
 #endif
 
+    uint8_t* hotCodeBlock  = nullptr;
+    uint8_t* coldCodeBlock = nullptr;
+
     StackAddrMode GetStackAddrMode(unsigned lclNum, int lclOffs);
     StackAddrMode GetStackAddrMode(LclVarDsc* lcl, int lclOffs);
     StackAddrMode GetStackAddrMode(GenTreeLclVarCommon* lclNode);

@@ -487,7 +487,7 @@ void CodeGen::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
     }
 #endif
 
-    *nativeCode     = GetEmitter()->GetHotCodeAddr();
+    *nativeCode     = hotCodeBlock;
     *nativeCodeSize = GetEmitter()->GetCodeSize();
 }
 

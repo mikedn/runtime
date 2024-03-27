@@ -354,8 +354,6 @@ protected:
     instrDesc*    emitLastIns              = nullptr;
     insGroup*     emitLastInsLabel         = nullptr;
     VARSET_TP     emitEmptyGCrefVars       = VarSetOps::UninitVal();
-    uint8_t*      emitCodeBlock            = nullptr;
-    uint8_t*      emitColdCodeBlock        = nullptr;
     RoData        roData;
 #if FEATURE_LOOP_ALIGN
     instrDescAlign* emitCurIGAlignList = nullptr; // list of align instructions in current IG
@@ -396,20 +394,10 @@ public:
         return emitIGfirst;
     }
 
-    uint8_t* GetHotCodeAddr() const
-    {
-        return emitCodeBlock;
-    }
-
     unsigned GetHotCodeSize() const
     {
         assert(emitTotalHotCodeSize != 0);
         return emitTotalHotCodeSize;
-    }
-
-    uint8_t* GetColdCodeAddr() const
-    {
-        return emitColdCodeBlock;
     }
 
     unsigned GetColdCodeSize() const
