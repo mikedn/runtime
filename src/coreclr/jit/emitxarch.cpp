@@ -3958,8 +3958,6 @@ AGAIN:
             JITDUMP(" to % 04X\n", ig->igOffs);
         }
 
-        emitTotalCodeSize -= totalSizeReduction;
-
         JITDUMP("Total size reduction %u, min distance overflow %u\n", totalSizeReduction, minDistanceOverflow);
 
         if (minDistanceOverflow <= totalSizeReduction)

@@ -695,9 +695,9 @@ void EmitterBase::emitCheckIGoffsets()
         currentOffset += tempIG->igSize;
     }
 
-    if (emitTotalCodeSize != 0 && emitTotalCodeSize != currentOffset)
+    if ((GetCodeSize() != 0) && (GetCodeSize() != currentOffset))
     {
-        printf("Total code size is %08X, expected %08X\n", emitTotalCodeSize, currentOffset);
+        printf("Total code size is %08X, expected %08X\n", GetCodeSize(), currentOffset);
 
         assert(!"bad total code size");
     }
@@ -1712,8 +1712,6 @@ void EmitterBase::emitRecomputeIGoffsets()
         offs += ig->igSize;
     }
 
-    emitTotalCodeSize = offs;
-
     INDEBUG(emitCheckIGoffsets());
 }
 
@@ -2146,7 +2144,6 @@ void EmitterBase::emitLoopAlignAdjustments()
         {
             alignIG->igSize -= diff;
             alignBytesRemoved += diff;
-            emitTotalCodeSize -= diff;
 
             // Update the flags
             alignIG->igFlags |= IGF_UPD_ISZ;
@@ -2441,23 +2438,6 @@ void EmitterBase::VerifyCatchRet(insGroup* tgtIG) const
 #endif // FEATURE_EH_FUNCLETS
 }
 #endif // DEBUG
-
-void EmitterBase::emitComputeCodeSizes()
-{
-    assert((emitComp->fgFirstColdBlock == nullptr) == (emitFirstColdIG == nullptr));
-    assert(emitTotalHotCodeSize == 0);
-
-    if (emitFirstColdIG != nullptr)
-    {
-        emitTotalHotCodeSize = emitFirstColdIG->igOffs;
-    }
-    else
-    {
-        emitTotalHotCodeSize = emitTotalCodeSize;
-    }
-
-    JITDUMP("\nHot code size = 0x%X bytes\nCold code size = 0x%X bytes\n", emitTotalHotCodeSize, GetColdCodeSize());
-}
 
 void Encoder::emitEndCodeGen(ArchEmitter& emit)
 {

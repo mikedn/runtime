@@ -686,7 +686,9 @@ void CodeGen::genCodeForBBlist()
 #if FEATURE_LOOP_ALIGN
     GetEmitter()->emitLoopAlignAdjustments();
 #endif
-    GetEmitter()->emitComputeCodeSizes();
+
+    JITDUMP("\nHot code size = 0x%X bytes\nCold code size = 0x%X bytes\n", GetEmitter()->GetHotCodeSize(),
+            GetEmitter()->GetColdCodeSize());
 }
 
 void CodeGen::GeneratePrologEpilog(Placeholder* firstPlaceholder)

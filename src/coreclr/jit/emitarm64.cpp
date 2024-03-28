@@ -7945,6 +7945,7 @@ void EmitterBase::ShortenBranches()
 AGAIN:
     INDEBUG(emitCheckIGoffsets());
 
+    uint32_t      totalCodeSize        = GetCodeSize();
     uint32_t      minDistanceOverflow  = UINT32_MAX;
     uint32_t      totalSizeReduction   = 0;
     uint32_t      instrIGSizeReduction = 0;
@@ -8002,9 +8003,8 @@ AGAIN:
             assert(dataOffs < roData.size);
 
             // Conservatively assume JIT data starts after the entire code size.
-            // TODO-ARM64: We might consider only hot code size which will be computed later in emitComputeCodeSizes().
-            assert(emitTotalCodeSize > 0);
-            dataOffs += emitTotalCodeSize;
+            assert(totalCodeSize > 0);
+            dataOffs += totalCodeSize;
 
             distanceOverflow = (dataOffs - instrOffs) - ((1 << 20) - 1);
 
@@ -8106,8 +8106,6 @@ AGAIN:
             ig->igOffs -= totalSizeReduction;
             JITDUMP(" to % 04X\n", ig->igOffs);
         }
-
-        emitTotalCodeSize -= totalSizeReduction;
 
         JITDUMP("Total size reduction %u, min distance overflow %u\n", totalSizeReduction, minDistanceOverflow);
 

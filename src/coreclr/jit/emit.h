@@ -140,6 +140,11 @@ struct insGroup
         return igOffs;
     }
 
+    uint32_t GetCodeSize() const
+    {
+        return igSize;
+    }
+
     uint32_t GetCodeOffset(CodePos codePos) const;
     uint32_t FindInsOffset(unsigned insNum) const;
 
@@ -344,8 +349,6 @@ protected:
     unsigned      emitCurIGinsCnt          = 0;     // # of collected instr's in buffer
     unsigned      emitCurIGsize            = 0;     // estimated code size of current group in bytes
     unsigned      emitCurCodeOffset        = 0;     // current code offset within group
-    unsigned      emitTotalCodeSize        = 0;     // bytes of code in entire method
-    unsigned      emitTotalHotCodeSize     = 0;
     CodePos       mainPrologNoGCEndCodePos = CodePos::First;
     insGroup*     emitFirstColdIG          = nullptr;
     instrDesc*    emitLastIns              = nullptr;
@@ -393,20 +396,17 @@ public:
 
     unsigned GetHotCodeSize() const
     {
-        assert(emitTotalHotCodeSize != 0);
-        return emitTotalHotCodeSize;
+        return emitFirstColdIG == nullptr ? GetCodeSize() : emitFirstColdIG->GetCodeOffset();
     }
 
     unsigned GetColdCodeSize() const
     {
-        assert(emitTotalCodeSize != 0);
-        return emitTotalCodeSize - emitTotalHotCodeSize;
+        return emitFirstColdIG == nullptr ? 0 : GetCodeSize() - emitFirstColdIG->GetCodeOffset();
     }
 
     unsigned GetCodeSize() const
     {
-        assert(emitTotalCodeSize != 0);
-        return emitTotalCodeSize;
+        return emitIGlast->GetCodeOffset() + emitIGlast->GetCodeSize();
     }
 
 #if DISPLAY_SIZES
@@ -442,7 +442,6 @@ public:
     void     emitBegFN();
     void     emitBegProlog();
     unsigned emitGetCurrentPrologCodeSize();
-    void     emitComputeCodeSizes();
     void     ShortenBranches();
     void emitEndCodeGen(GCInfo& gcInfo);
     void      MarkMainPrologNoGCEnd();
@@ -1566,8 +1565,8 @@ protected:
         , codeGen(emit.codeGen)
         , gcInfo(gcInfo)
         , roData(emit.roData)
-        , totalCodeSize(emit.emitTotalCodeSize)
-        , hotCodeSize(emit.emitTotalHotCodeSize)
+        , totalCodeSize(emit.GetCodeSize())
+        , hotCodeSize(emit.GetHotCodeSize())
         , firstIG(emit.emitIGfirst)
         , firstColdIG(emit.emitFirstColdIG)
         , emptyVarSet(emit.emitEmptyGCrefVars)
