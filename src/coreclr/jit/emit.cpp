@@ -2721,7 +2721,7 @@ void Encoder::emitEndCodeGen(ArchEmitter& emit)
 
     if (roData.size != 0)
     {
-        OutputRoData(roDataBlock + writeableOffset);
+        OutputRoData(roDataBlockRW);
     }
 
 #ifdef DEBUG
