@@ -10,9 +10,6 @@
 #include "codegen.h"
 #include "unwind.h"
 
-// This typedef defines the type that we use to hold encoded instructions.
-using code_t = uint32_t;
-
 static bool isModImmConst(int val32);
 static int insUnscaleImm(instruction ins, int imm);
 
@@ -554,10 +551,10 @@ public:
 
 private:
     static int encodeModImmConst(int imm);
-    code_t emitInsCode(instruction ins, insFormat fmt);
+    uint32_t emitInsCode(instruction ins, insFormat fmt);
 
 #ifdef FEATURE_ITINSTRUCTION
-    uint8_t* emitOutputIT(uint8_t* dst, instruction ins, insFormat fmt, code_t condcode);
+    uint8_t* emitOutputIT(uint8_t* dst, instruction ins, insFormat fmt, uint32_t condcode);
 #endif
     uint8_t* emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig);
     uint8_t* emitOutputRL(uint8_t* dst, instrDescJmp* id);
@@ -811,10 +808,10 @@ static bool emitInsIsLoadOrStore(instruction ins)
 #undef CMP
 
 // Returns the specific encoding of the given CPU instruction and format
-code_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
+uint32_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
 {
     // clang-format off
-    const static code_t insCodes1[]
+    const static uint32_t insCodes1[]
     {
         #define INST1(id, nm, fp, ldst, fmt, e1                                ) e1,
         #define INST2(id, nm, fp, ldst, fmt, e1, e2                            ) e1,
@@ -826,7 +823,7 @@ code_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e1,
         #include "instrsarm.h"
     };
-    const static code_t insCodes2[]
+    const static uint32_t insCodes2[]
     {
         #define INST1(id, nm, fp, ldst, fmt, e1                                )
         #define INST2(id, nm, fp, ldst, fmt, e1, e2                            ) e2,
@@ -838,7 +835,7 @@ code_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e2,
         #include "instrsarm.h"
     };
-    const static code_t insCodes3[]
+    const static uint32_t insCodes3[]
     {
         #define INST1(id, nm, fp, ldst, fmt, e1                                )
         #define INST2(id, nm, fp, ldst, fmt, e1, e2                            )
@@ -850,7 +847,7 @@ code_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e3,
         #include "instrsarm.h"
     };
-    const static code_t insCodes4[]
+    const static uint32_t insCodes4[]
     {
         #define INST1(id, nm, fp, ldst, fmt, e1                                )
         #define INST2(id, nm, fp, ldst, fmt, e1, e2                            )
@@ -862,7 +859,7 @@ code_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e4,
         #include "instrsarm.h"
     };
-    const static code_t insCodes5[]
+    const static uint32_t insCodes5[]
     {
         #define INST1(id, nm, fp, ldst, fmt, e1                                )
         #define INST2(id, nm, fp, ldst, fmt, e1, e2                            )
@@ -874,7 +871,7 @@ code_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e5,
         #include "instrsarm.h"
     };
-    const static code_t insCodes6[]
+    const static uint32_t insCodes6[]
     {
         #define INST1(id, nm, fp, ldst, fmt, e1                                )
         #define INST2(id, nm, fp, ldst, fmt, e1, e2                            )
@@ -886,7 +883,7 @@ code_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e6,
         #include "instrsarm.h"
     };
-    const static code_t insCodes7[]
+    const static uint32_t insCodes7[]
     {
         #define INST1(id, nm, fp, ldst, fmt, e1                                )
         #define INST2(id, nm, fp, ldst, fmt, e1, e2                            )
@@ -898,7 +895,7 @@ code_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e7,
         #include "instrsarm.h"
     };
-    const static code_t insCodes8[]
+    const static uint32_t insCodes8[]
     {
         #define INST1(id, nm, fp, ldst, fmt, e1                                )
         #define INST2(id, nm, fp, ldst, fmt, e1, e2                            )
@@ -910,7 +907,7 @@ code_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e8,
         #include "instrsarm.h"
     };
-    const static code_t insCodes9[]
+    const static uint32_t insCodes9[]
     {
         #define INST1(id, nm, fp, ldst, fmt, e1                                )
         #define INST2(id, nm, fp, ldst, fmt, e1, e2                            )
@@ -945,10 +942,10 @@ code_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
     const static insFormat formatEncode2G[2] { IF_T1_J3, IF_T2_M1 };
     // clang-format on
 
-    code_t  code   = BAD_CODE;
-    uint8_t insFmt = emitInsFormat(ins);
-    bool    found  = false;
-    int     index  = 0;
+    uint32_t code   = BAD_CODE;
+    uint8_t  insFmt = emitInsFormat(ins);
+    bool     found  = false;
+    int      index  = 0;
 
     switch (insFmt)
     {
@@ -4686,7 +4683,7 @@ uint8_t* ArmEncoder::emitOutputRL(uint8_t* dst, instrDescJmp* id)
         distance -= 4;
     }
 
-    code_t code = emitInsCode(ins, fmt);
+    uint32_t code = emitInsCode(ins, fmt);
 
     if (fmt == IF_T1_J3)
     {
@@ -4800,7 +4797,7 @@ uint8_t* ArmEncoder::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
         assert((distance & 1) == 0);
         assert((-1048576 <= distance) && (distance <= 1048574));
 
-        code_t code = emitInsCode(ins, fmt);
+        uint32_t code = emitInsCode(ins, fmt);
 
         if (distance < 0)
         {
@@ -4835,7 +4832,7 @@ uint8_t* ArmEncoder::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
     assert((distance & 1) == 0);
 
-    code_t code = emitInsCode(INS_b, IF_T2_J2);
+    uint32_t code = emitInsCode(INS_b, IF_T2_J2);
 
     // For relocs we can't compute the offset so we just leave it set to 0,
     // the runtime will patch the instruction later.
@@ -4879,7 +4876,7 @@ uint8_t* ArmEncoder::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 uint8_t* ArmEncoder::emitOutputShortBranch(
     uint8_t* dst, instruction ins, insFormat fmt, ssize_t distance, instrDesc* id)
 {
-    code_t code = emitInsCode(ins, fmt);
+    uint32_t code = emitInsCode(ins, fmt);
 
     if (fmt == IF_T1_K)
     {
@@ -4924,10 +4921,10 @@ uint8_t* ArmEncoder::emitOutputShortBranch(
 
 // The "IT" instruction is deprecated (with a very few exceptions). Don't generate it!
 // Don't delete this code, though, in case we ever want to bring it back.
-uint8_t* ArmEncoder::emitOutputIT(uint8_t* dst, instruction ins, insFormat fmt, code_t condcode)
+uint8_t* ArmEncoder::emitOutputIT(uint8_t* dst, instruction ins, insFormat fmt, uint32_t condcode)
 {
-    code_t imm0;
-    code_t code, mask, bit;
+    uint32_t imm0;
+    uint32_t code, mask, bit;
 
     code = emitInsCode(ins, fmt);
     code |= (condcode << 4);        // encode firstcond
@@ -5037,9 +5034,9 @@ size_t ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
     switch (fmt)
     {
-        code_t code;
-        int    imm;
-        void*  addr;
+        uint32_t code;
+        int      imm;
+        void*    addr;
 
         case IF_T1_I:  // ......i.iiiiiddd                       R1                  imm6
         case IF_T1_K:  // ....cccciiiiiiii                       Branch              imm8, cond4
@@ -5845,14 +5842,14 @@ private:
     void emitDispCond(int cond);
     void emitDispShiftOpts(insOpts opt);
     void emitDispRegmask(int imm, bool encodedPC_LR);
-    void emitDispRegRange(regNumber reg, int len, emitAttr attr);
-    void emitDispReg(regNumber reg, emitAttr attr, bool addComma);
+    void emitDispRegRange(RegNum reg, int len, emitAttr attr);
+    void emitDispReg(RegNum reg, emitAttr attr, bool addComma);
     void emitDispLabel(instrDescJmp* id);
-    void emitDispAddrR(regNumber reg, emitAttr attr);
-    void emitDispAddrRI(regNumber reg, int imm, emitAttr attr);
-    void emitDispAddrRR(regNumber reg1, regNumber reg2, emitAttr attr);
-    void emitDispAddrRRI(regNumber reg1, regNumber reg2, int imm, emitAttr attr);
-    void emitDispAddrPUW(regNumber reg, int imm, insOpts opt, emitAttr attr);
+    void emitDispAddrR(RegNum reg, emitAttr attr);
+    void emitDispAddrRI(RegNum reg, int imm, emitAttr attr);
+    void emitDispAddrRR(RegNum reg1, RegNum reg2, emitAttr attr);
+    void emitDispAddrRRI(RegNum reg1, RegNum reg2, int imm, emitAttr attr);
+    void emitDispAddrPUW(RegNum reg, int imm, insOpts opt, emitAttr attr);
     void emitDispGC(emitAttr attr);
 };
 

@@ -1032,23 +1032,23 @@ public:
             _idGCref = gctype;
         }
 
-        regNumber idReg1() const
+        RegNum idReg1() const
         {
             return _idReg1;
         }
 
-        void idReg1(regNumber reg)
+        void idReg1(RegNum reg)
         {
             _idReg1 = reg;
             assert(reg == _idReg1);
         }
 
-        regNumber idReg2() const
+        RegNum idReg2() const
         {
             return _idReg2;
         }
 
-        void idReg2(regNumber reg)
+        void idReg2(RegNum reg)
         {
             _idReg2 = reg;
             assert(reg == _idReg2);
@@ -1181,14 +1181,14 @@ public:
 
             struct
             {
-                regNumber _idReg3 : RegBits;
-                regNumber _idReg4 : RegBits;
+                RegNum _idReg3 : RegBits;
+                RegNum _idReg4 : RegBits;
             };
 #endif
 
 #ifdef TARGET_X86
             emitAddrMode iiaAddrMode;
-            regNumber    _idReg3 : RegBits;
+            RegNum    _idReg3 : RegBits;
 
             struct
             {
@@ -1200,7 +1200,7 @@ public:
 
 #ifdef TARGET_AMD64
             emitAddrMode iiaAddrMode;
-            regNumber    _idReg3 : RegBits;
+            RegNum    _idReg3 : RegBits;
 
             struct
             {
@@ -1214,8 +1214,8 @@ public:
 #ifdef TARGET_ARM64
             struct
             {
-                regNumber _idReg3 : RegBits;
-                regNumber _idReg4 : RegBits;
+                RegNum _idReg3 : RegBits;
+                RegNum _idReg4 : RegBits;
                 unsigned  _idReg3Scaled : 1;
                 GCtype    _idGCref2 : 2;
                 unsigned  isTrackedGCSlotStore : 1;
@@ -1291,43 +1291,43 @@ public:
             idAddr()->data = data;
         }
 
-        regNumber idReg3() const
+        RegNum idReg3() const
         {
             return idAddr()->_idReg3;
         }
 
-        void idReg3(regNumber reg)
+        void idReg3(RegNum reg)
         {
             idAddr()->_idReg3 = reg;
             assert(reg == idAddr()->_idReg3);
         }
 
-        regNumber idReg4() const
+        RegNum idReg4() const
         {
             assert(_idInsFmt == IF_RWR_RRD_ARD_RRD || _idInsFmt == IF_RWR_RRD_SRD_RRD ||
                    _idInsFmt == IF_RWR_RRD_MRD_RRD || _idInsFmt == IF_RWR_RRD_RRD_RRD);
-            return static_cast<regNumber>(REG_XMM0 + (_idSmallCns >> 4));
+            return static_cast<RegNum>(REG_XMM0 + (_idSmallCns >> 4));
         }
 #endif // TARGET_XARCH
 
 #ifdef TARGET_ARMARCH
-        regNumber idReg3() const
+        RegNum idReg3() const
         {
             return idAddr()->_idReg3;
         }
 
-        void idReg3(regNumber reg)
+        void idReg3(RegNum reg)
         {
             idAddr()->_idReg3 = reg;
             assert(reg == idAddr()->_idReg3);
         }
 
-        regNumber idReg4() const
+        RegNum idReg4() const
         {
             return idAddr()->_idReg4;
         }
 
-        void idReg4(regNumber reg)
+        void idReg4(RegNum reg)
         {
             idAddr()->_idReg4 = reg;
             assert(reg == idAddr()->_idReg4);
