@@ -5268,9 +5268,6 @@ void X86Encoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
 
     PrintInsAddr(code);
 
-    assert(((code >= hotCodeBlock) && (code < hotCodeBlock + hotCodeSize)) ||
-           ((code >= coldCodeBlock) && (code < coldCodeBlock + GetColdCodeSize())));
-
     if (!emitComp->opts.disDiffable)
     {
         PrintHexCode(code, sz);
@@ -7646,6 +7643,8 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
     emitAttr    size = id->idOpSize();
 
     assert((ins != INS_imul) || (size >= EA_4BYTE)); // Has no 'w' bit
+    assert(((dst >= hotCodeBlock) && (dst < hotCodeBlock + hotCodeSize)) ||
+           ((dst >= coldCodeBlock) && (dst < coldCodeBlock + GetColdCodeSize())));
 
     switch (id->idInsFmt())
     {
