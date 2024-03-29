@@ -2364,7 +2364,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         assert(callAddr != nullptr);
 
 #ifdef TARGET_ARM
-        if (!emitter::validImmForBL(reinterpret_cast<ssize_t>(callAddr), compiler))
+        if (!ArmImm::IsBlImm(reinterpret_cast<ssize_t>(callAddr), compiler))
         {
             emitCallType = emitter::EC_INDIR_R;
             callReg      = call->GetSingleTempReg();
@@ -2686,7 +2686,11 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
         switch (addrInfo.accessType)
         {
             case IAT_VALUE:
-                if (emitter::validImmForBL(reinterpret_cast<ssize_t>(addrInfo.addr), compiler))
+#ifdef TARGET_ARM64
+                if (Arm64Imm::IsBlImm(reinterpret_cast<ssize_t>(addrInfo.addr), compiler))
+#else
+                if (ArmImm::IsBlImm(reinterpret_cast<ssize_t>(addrInfo.addr), compiler))
+#endif
                 {
                     // Simple direct call
                     callType   = emitter::EC_FUNC_TOKEN;
@@ -3062,7 +3066,11 @@ void CodeGen::genLeaInstruction(GenTreeAddrMode* lea)
             // when calculating a EA_BYREF as we can't report a byref that points outside of the object
             bool useLargeOffsetSeq = GetInterruptible() && (attr == EA_BYREF);
 
-            if (!useLargeOffsetSeq && emitter::emitIns_valid_imm_for_add(offset))
+#ifdef TARGET_ARM64
+            if (!useLargeOffsetSeq && Arm64Imm::IsAddImm(offset, EA_8BYTE))
+#else
+            if (!useLargeOffsetSeq && ArmImm::IsAddImm(offset, INS_FLAGS_DONT_CARE))
+#endif
             {
                 genScaledAdd(attr, tmpReg, baseReg, indexReg, scale);
                 emit->emitIns_R_R_I(INS_add, attr, lea->GetRegNum(), tmpReg, offset);
@@ -3078,7 +3086,11 @@ void CodeGen::genLeaInstruction(GenTreeAddrMode* lea)
             }
         }
     }
-    else if (!emitter::emitIns_valid_imm_for_add(offset))
+#ifdef TARGET_ARM64
+    else if (!Arm64Imm::IsAddImm(offset, EA_8BYTE))
+#else
+    else if (!ArmImm::IsAddImm(offset, INS_FLAGS_DONT_CARE))
+#endif
     {
         regNumber tmpReg = lea->GetSingleTempReg();
         instGen_Set_Reg_To_Imm(EA_PTRSIZE, tmpReg, offset);

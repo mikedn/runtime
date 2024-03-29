@@ -14,8 +14,6 @@
 // This typedef defines the type that we use to hold encoded instructions.
 using code_t = uint32_t;
 
-using bitMaskImm = Emitter::bitMaskImm;
-
 static bool emitInsIsVectorRightShift(instruction ins);
 
 // The return value replaces REG_SP with REG_ZR, SP is encoded using ZR (R31)
@@ -2477,9 +2475,10 @@ static uint64_t Replicate_helper(uint64_t value, unsigned width, emitAttr size)
 }
 
 static bool canEncodeHalfwordImm(int64_t imm, emitAttr size, union halfwordImm* wbHWI = nullptr);
+static bool canEncodeBitMaskImm(int64_t imm, emitAttr size, union bitMaskImm* wbBMI = nullptr);
 
 // true if this 'imm' can be encoded as a input operand to a mov instruction
-bool Arm64Emitter::emitIns_valid_imm_for_mov(int64_t imm, emitAttr size)
+bool Arm64Imm::IsMovImm(int64_t imm, emitAttr size)
 {
     // Check for "MOV (wide immediate)".
     if (canEncodeHalfwordImm(imm, size))
@@ -2498,8 +2497,27 @@ bool Arm64Emitter::emitIns_valid_imm_for_mov(int64_t imm, emitAttr size)
     return false;
 }
 
+struct MoviImm
+{
+    instruction ins;
+    uint8_t     imm;
+    uint8_t     shift;
+    bool        msl;
+
+    MoviImm() : ins(INS_invalid), imm(0), shift(0), msl(0)
+    {
+    }
+
+    MoviImm(instruction ins, uint64_t imm, unsigned shift = 0, bool msl = false)
+        : ins(ins), imm(static_cast<uint8_t>(imm)), shift(static_cast<uint8_t>(shift)), msl(msl)
+    {
+        assert(imm <= UINT8_MAX);
+        assert(shift <= 24);
+    }
+};
+
 // true if this 'imm' can be encoded as a input operand to a vector movi instruction
-Arm64Emitter::MoviImm Arm64Emitter::EncodeMoviImm(uint64_t value, insOpts opt)
+MoviImm EncodeMoviImm(uint64_t value, insOpts opt)
 {
     auto msl   = [](uint64_t value, unsigned shift) { return ((value & 0xFF) << shift) | ~(UINT64_MAX << shift); };
     auto lsl   = [](uint64_t value, unsigned shift) { return (value & 0xFF) << shift; };
@@ -2601,15 +2619,15 @@ Arm64Emitter::MoviImm Arm64Emitter::EncodeMoviImm(uint64_t value, insOpts opt)
 static bool canEncodeFloatImm8(double immDbl, union floatImm8* wbFPI = nullptr);
 
 // true if this 'imm' can be encoded as a input operand to a fmov instruction
-bool Arm64Emitter::emitIns_valid_imm_for_fmov(double immDbl)
+bool Arm64Imm::IsFMovImm(double value)
 {
-    return canEncodeFloatImm8(immDbl);
+    return canEncodeFloatImm8(value);
 }
 
 static bool canEncodeWithShiftImmBy12(int64_t imm);
 
 // true if this 'imm' can be encoded as a input operand to an add instruction
-bool Arm64Emitter::emitIns_valid_imm_for_add(int64_t imm, emitAttr size)
+bool Arm64Imm::IsAddImm(int64_t imm, emitAttr size)
 {
     if (unsigned_abs(imm) <= 0x0fff)
         return true;
@@ -2619,20 +2637,8 @@ bool Arm64Emitter::emitIns_valid_imm_for_add(int64_t imm, emitAttr size)
     return false;
 }
 
-// true if this 'imm' can be encoded as a input operand to an non-add/sub alu instruction
-bool Arm64Emitter::emitIns_valid_imm_for_cmp(int64_t imm, emitAttr size)
-{
-    return emitIns_valid_imm_for_add(imm, size);
-}
-
-// true if this 'imm' can be encoded as a input operand to an non-add/sub alu instruction
-bool Arm64Emitter::emitIns_valid_imm_for_alu(int64_t imm, emitAttr size)
-{
-    return canEncodeBitMaskImm(imm, size);
-}
-
 // true if this 'imm' can be encoded as the offset in a ldr/str instruction
-bool Arm64Emitter::emitIns_valid_imm_for_ldst_offset(int64_t imm, emitAttr attr)
+bool Arm64Imm::IsLdStImm(int64_t imm, emitAttr attr)
 {
     if (imm == 0)
         return true; // Encodable using IF_LS_2A
@@ -2653,7 +2659,7 @@ bool Arm64Emitter::emitIns_valid_imm_for_ldst_offset(int64_t imm, emitAttr attr)
     return false; // not encodable
 }
 
-bool Arm64Emitter::validImmForBL(ssize_t addr, Compiler* compiler)
+bool Arm64Imm::IsBlImm(int64_t addr, Compiler* compiler)
 {
     // On arm64, we always assume a call target is in range and generate a 28-bit relative
     // 'bl' instruction. If this isn't sufficient range, the VM will generate a jump stub when
@@ -2662,9 +2668,21 @@ bool Arm64Emitter::validImmForBL(ssize_t addr, Compiler* compiler)
     return true;
 }
 
+// This union is used to to encode/decode the special ARM64 immediate values
+// that is listed as imm(N,r,s) and referred to as 'bitmask immediate'
+union bitMaskImm {
+    struct
+    {
+        unsigned immS : 6; // bits 0..5
+        unsigned immR : 6; // bits 6..11
+        unsigned immN : 1; // bits 12
+    };
+    unsigned immNRS; // concat N:R:S forming a 13-bit unsigned immediate
+};
+
 // Convert an imm(N,r,s) into a 64-bit immediate
 // inputs 'bmImm' a bitMaskImm struct, 'size' specifies the size of the result (64 or 32 bits)
-int64_t Arm64Emitter::emitDecodeBitMaskImm(const bitMaskImm bmImm, emitAttr size)
+static int64_t emitDecodeBitMaskImm(const bitMaskImm bmImm, emitAttr size)
 {
     assert(isValidGeneralDatasize(size)); // Only EA_4BYTE or EA_8BYTE forms
 
@@ -2767,7 +2785,7 @@ static int64_t normalizeImm64(int64_t imm, emitAttr size)
 // Returns true if 'imm' of 'size bits (32/64) can be encoded using the ARM64 'bitmask immediate' form.
 // When a non-null value is passed for 'wbBMI' then this method writes back the 'N','S' and 'R' values
 // use to encode this immediate
-bool Arm64Emitter::canEncodeBitMaskImm(int64_t imm, emitAttr size, Arm64Emitter::bitMaskImm* wbBMI)
+static bool canEncodeBitMaskImm(int64_t imm, emitAttr size, bitMaskImm* wbBMI)
 {
     assert(isValidGeneralDatasize(size)); // Only EA_4BYTE or EA_8BYTE forms
 
@@ -2958,18 +2976,6 @@ bool Arm64Emitter::canEncodeBitMaskImm(int64_t imm, emitAttr size, Arm64Emitter:
         }
     }
     return false;
-}
-
-// Convert a 64-bit immediate into its 'bitmask immediate' representation imm(N,r,s)
-Arm64Emitter::bitMaskImm Arm64Emitter::emitEncodeBitMaskImm(int64_t imm, emitAttr size)
-{
-    Arm64Emitter::bitMaskImm result;
-    result.immNRS = 0;
-
-    bool canEncode = canEncodeBitMaskImm(imm, size, &result);
-    assert(canEncode);
-
-    return result;
 }
 
 // This union is used to to encode/decode the special ARM64 immediate values
@@ -3249,51 +3255,26 @@ static bool canEncodeFloatImm8(double immDbl, floatImm8* wbFPI)
     return canEncode;
 }
 
-bool Arm64Imm::IsFMovImm(double value)
-{
-    return Arm64Emitter::emitIns_valid_imm_for_fmov(value);
-}
-
-bool Arm64Imm::IsMovImm(int64_t value, emitAttr size)
-{
-    return Arm64Emitter::emitIns_valid_imm_for_mov(value, size);
-}
-
 bool Arm64Imm::IsMoviImm(uint64_t value, insOpts opts)
 {
-    return Arm64Emitter::EncodeMoviImm(value, opts).ins != INS_invalid;
-}
-
-bool Arm64Imm::IsAddImm(int64_t value, emitAttr size)
-{
-    return Arm64Emitter::emitIns_valid_imm_for_add(value, size);
+    return EncodeMoviImm(value, opts).ins != INS_invalid;
 }
 
 bool Arm64Imm::IsCmpImm(int64_t value, emitAttr size)
 {
-    return Arm64Emitter::emitIns_valid_imm_for_cmp(value, size);
+    return IsAddImm(value, size);
 }
 
 bool Arm64Imm::IsAluImm(int64_t value, emitAttr size)
 {
-    return Arm64Emitter::emitIns_valid_imm_for_alu(value, size);
-}
-
-bool Arm64Imm::IsLdStImm(int64_t value, emitAttr size)
-{
-    return Arm64Emitter::emitIns_valid_imm_for_ldst_offset(value, size);
-}
-
-bool Arm64Imm::IsBlImm(int64_t value, Compiler* compiler)
-{
-    return Arm64Emitter::validImmForBL(value, compiler);
+    return canEncodeBitMaskImm(value, size);
 }
 
 bool Arm64Imm::IsBitMaskImm(int64_t value, emitAttr size, unsigned* imm)
 {
-    Arm64Emitter::bitMaskImm bimm;
+    bitMaskImm bimm;
 
-    bool encoded = Arm64Emitter::canEncodeBitMaskImm(value, size, &bimm);
+    bool encoded = canEncodeBitMaskImm(value, size, &bimm);
     *imm         = bimm.immNRS;
 
     return encoded;
@@ -3301,9 +3282,9 @@ bool Arm64Imm::IsBitMaskImm(int64_t value, emitAttr size, unsigned* imm)
 
 int64_t Arm64Imm::DecodeBitMaskImm(unsigned imm, emitAttr size)
 {
-    Arm64Emitter::bitMaskImm bimm;
+    bitMaskImm bimm;
     bimm.immNRS = imm;
-    return Arm64Emitter::emitDecodeBitMaskImm(bimm, size);
+    return emitDecodeBitMaskImm(bimm, size);
 }
 
 // For the given 'ins' returns the reverse instruction if one exists, otherwise returns INS_INVALID
@@ -5729,14 +5710,14 @@ void Arm64Emitter::emitIns_R_R_Imm(instruction ins, emitAttr attr, RegNum reg1, 
         case INS_adds:
         case INS_sub:
         case INS_subs:
-            immFits = Arm64Emitter::emitIns_valid_imm_for_add(imm, attr);
+            immFits = Arm64Imm::IsAddImm(imm, attr);
             break;
 
         case INS_ands:
         case INS_and:
         case INS_eor:
         case INS_orr:
-            immFits = Arm64Emitter::emitIns_valid_imm_for_alu(imm, attr);
+            immFits = Arm64Imm::IsAluImm(imm, attr);
             break;
 
         default:
@@ -11311,13 +11292,13 @@ void Arm64AsmPrinter::Print(instrDesc* id)
         case IF_DI_1C: // DI_1C   X........Nrrrrrr ssssssnnnnn.....         Rn    imm(N,r,s)
             emitDispReg(id->idReg1(), size, true);
             bmi.immNRS = (unsigned)id->emitGetInsSC();
-            emitDispImm(Emitter::emitDecodeBitMaskImm(bmi, size), false);
+            emitDispImm(emitDecodeBitMaskImm(bmi, size), false);
             break;
 
         case IF_DI_1D: // DI_1D   X........Nrrrrrr ssssss.....ddddd      Rd       imm(N,r,s)
             emitDispReg(encodingZRtoSP(id->idReg1()), size, true);
             bmi.immNRS = (unsigned)id->emitGetInsSC();
-            emitDispImm(Emitter::emitDecodeBitMaskImm(bmi, size), false);
+            emitDispImm(emitDecodeBitMaskImm(bmi, size), false);
             break;
 
         case IF_DI_2A: // DI_2A   X.......shiiiiii iiiiiinnnnnddddd      Rd Rn    imm(i12,sh)
@@ -11362,7 +11343,7 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             }
             emitDispReg(id->idReg2(), size, true);
             bmi.immNRS = (unsigned)id->emitGetInsSC();
-            emitDispImm(Emitter::emitDecodeBitMaskImm(bmi, size), false);
+            emitDispImm(emitDecodeBitMaskImm(bmi, size), false);
             break;
 
         case IF_DI_2D: // DI_2D   X........Nrrrrrr ssssssnnnnnddddd      Rd Rn    imr, ims   (N,r,s)

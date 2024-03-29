@@ -43,7 +43,7 @@ bool CodeGen::genInstrWithConstant(
                 imm = -imm;
                 ins = (ins == INS_add) ? INS_sub : INS_add;
             }
-            immFitsInIns = emitter::emitIns_valid_imm_for_add(imm, size);
+            immFitsInIns = Arm64Imm::IsAddImm(imm, size);
             break;
 
         case INS_strb:
@@ -51,16 +51,14 @@ bool CodeGen::genInstrWithConstant(
         case INS_str:
             // reg1 is a source register for store instructions
             assert(tmpReg != reg1); // regTmp can not match any source register
-            immFitsInIns = emitter::emitIns_valid_imm_for_ldst_offset(imm, size);
-            break;
-
+            FALLTHROUGH;
         case INS_ldrsb:
         case INS_ldrsh:
         case INS_ldrsw:
         case INS_ldrb:
         case INS_ldrh:
         case INS_ldr:
-            immFitsInIns = emitter::emitIns_valid_imm_for_ldst_offset(imm, size);
+            immFitsInIns = Arm64Imm::IsLdStImm(imm, size);
             break;
 
         default:
@@ -1481,7 +1479,7 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
         size = EA_SIZE(size);
     }
 
-    if ((imm == 0) || emitter::emitIns_valid_imm_for_mov(imm, size))
+    if ((imm == 0) || Arm64Imm::IsMovImm(imm, size))
     {
         GetEmitter()->emitIns_R_I(INS_mov, size, reg, imm);
 
@@ -1538,7 +1536,7 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
     }
 
     // We must emit a movn or movz or we have not done anything
-    // The cases which hit this assert should be (emitIns_valid_imm_for_mov() == true) and
+    // The cases which hit this assert should be (IsMovImm() == true) and
     // should not be in this else condition
     assert(ins == INS_movk);
 }
@@ -1569,7 +1567,7 @@ void CodeGen::GenDblCon(GenTreeDblCon* node)
     {
         GetEmitter()->emitIns_R_I(INS_movi, EA_16BYTE, node->GetRegNum(), 0x00, INS_OPTS_16B);
     }
-    else if (emitter::emitIns_valid_imm_for_fmov(node->GetValue()))
+    else if (Arm64Imm::IsFMovImm(node->GetValue()))
     {
         GetEmitter()->emitIns_R_F(INS_fmov, emitTypeSize(node->GetType()), node->GetRegNum(), node->GetValue());
     }
@@ -8474,7 +8472,7 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
 
     if (index == nullptr)
     {
-        if (emitter::emitIns_valid_imm_for_ldst_offset(offset, emitTypeSize(indir->GetType())))
+        if (Arm64Imm::IsLdStImm(offset, emitTypeSize(indir->GetType())))
         {
             emit->emitIns_R_R_I(ins, attr, valueReg, base->GetRegNum(), offset);
         }
@@ -8515,7 +8513,7 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
 
     noway_assert(emitter::emitInsIsLoad(ins) || (tmpReg != valueReg));
 
-    if (!emitter::emitIns_valid_imm_for_add(offset, EA_8BYTE))
+    if (!Arm64Imm::IsAddImm(offset, EA_8BYTE))
     {
         noway_assert(tmpReg != indexReg);
 
@@ -8687,7 +8685,6 @@ void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emi
     assert(ins != INS_tst);
 
     // TODO-Arm64-Bug: handle large constants!
-    // Probably need something like the ARM case above: if (validImmForInstr(ins, val)) ...
 
     GetEmitter()->emitIns_R_R_I(ins, size, reg, reg, val);
 }

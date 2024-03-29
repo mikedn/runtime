@@ -4092,7 +4092,7 @@ void CodeGen::PrologSetPSPSym(regNumber initReg, bool* pInitRegZeroed)
     int       callerSPOffs;
     regNumber regBase;
 
-    if (emitter::emitIns_valid_imm_for_add_sp(SPtoCallerSPdelta))
+    if (ArmImm::IsAddSpImm(SPtoCallerSPdelta))
     {
         // use the "add <reg>, sp, imm" form
 
@@ -4104,7 +4104,7 @@ void CodeGen::PrologSetPSPSym(regNumber initReg, bool* pInitRegZeroed)
         // use the "add <reg>, r11, imm" form
 
         int FPtoCallerSPdelta = -genCallerSPtoFPdelta();
-        noway_assert(emitter::emitIns_valid_imm_for_add(FPtoCallerSPdelta));
+        noway_assert(ArmImm::IsAddImm(FPtoCallerSPdelta, INS_FLAGS_DONT_CARE));
 
         callerSPOffs = FPtoCallerSPdelta;
         regBase      = REG_FPBASE;

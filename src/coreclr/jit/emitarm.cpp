@@ -1386,42 +1386,12 @@ static bool validDispForLdSt(int32_t disp, var_types type)
     return varTypeIsFloating(type) ? ((disp & 0x3FC) == disp) : ((disp >= -0x00ff) && (disp <= 0x0fff));
 }
 
-bool ArmImm::IsMovImm(int value)
-{
-    return ArmEmitter::emitIns_valid_imm_for_mov(value);
-}
-
 bool ArmImm::IsMvnImm(int value)
 {
-    return ArmEmitter::validImmForInstr(INS_mvn, value);
+    return IsAluImm(value) || IsAluImm(~value);
 }
 
-bool ArmImm::IsAddImm(int value, insFlags flags)
-{
-    return ArmEmitter::emitIns_valid_imm_for_add(value, flags);
-}
-
-bool ArmImm::IsAluImm(int value)
-{
-    return ArmEmitter::emitIns_valid_imm_for_alu(value);
-}
-
-bool ArmImm::IsLdStImm(int value, emitAttr size)
-{
-    return ArmEmitter::emitIns_valid_imm_for_ldst_offset(value, size);
-}
-
-bool ArmImm::IsVLdStImm(int value)
-{
-    return ArmEmitter::emitIns_valid_imm_for_vldst_offset(value);
-}
-
-bool ArmImm::IsBlImm(ssize_t value, Compiler* compiler)
-{
-    return ArmEmitter::validImmForBL(value, compiler);
-}
-
-bool ArmEmitter::validImmForInstr(instruction ins, int32_t imm, insFlags flags)
+bool ArmImm::IsImm(instruction ins, int32_t imm, insFlags flags)
 {
     if (emitInsIsLoadOrStore(ins) && !instIsFP(ins))
     {
@@ -1430,30 +1400,30 @@ bool ArmEmitter::validImmForInstr(instruction ins, int32_t imm, insFlags flags)
 
     switch (ins)
     {
-        case INS_cmp:
-        case INS_cmn:
-            return emitIns_valid_imm_for_alu(imm) || emitIns_valid_imm_for_alu(-imm);
-        case INS_and:
-        case INS_bic:
-        case INS_orr:
-        case INS_orn:
-        case INS_mvn:
-            return emitIns_valid_imm_for_alu(imm) || emitIns_valid_imm_for_alu(~imm);
-        case INS_mov:
-            return emitIns_valid_imm_for_mov(imm);
-        case INS_addw:
-        case INS_subw:
-            return (unsigned_abs(imm) <= 0x00000fff) && (flags != INS_FLAGS_SET); // 12-bit immediate
-        case INS_add:
-        case INS_sub:
-            return emitIns_valid_imm_for_add(imm, flags);
         case INS_tst:
         case INS_eor:
         case INS_teq:
         case INS_adc:
         case INS_sbc:
         case INS_rsb:
-            return emitIns_valid_imm_for_alu(imm);
+            return IsAluImm(imm);
+        case INS_cmp:
+        case INS_cmn:
+            return IsAluImm(imm) || IsAluImm(-imm);
+        case INS_and:
+        case INS_bic:
+        case INS_orr:
+        case INS_orn:
+        case INS_mvn:
+            return IsAluImm(imm) || IsAluImm(~imm);
+        case INS_mov:
+            return IsMovImm(imm);
+        case INS_addw:
+        case INS_subw:
+            return (unsigned_abs(imm) <= 0x00000fff) && (flags != INS_FLAGS_SET); // 12-bit immediate
+        case INS_add:
+        case INS_sub:
+            return IsAddImm(imm, flags);
         case INS_asr:
         case INS_lsl:
         case INS_lsr:
@@ -1467,7 +1437,7 @@ bool ArmEmitter::validImmForInstr(instruction ins, int32_t imm, insFlags flags)
     }
 }
 
-bool ArmEmitter::validImmForBL(ssize_t addr, Compiler* compiler)
+bool ArmImm::IsBlImm(ssize_t addr, Compiler* compiler)
 {
     if (!compiler->info.compMatchedVM)
     {
@@ -1480,13 +1450,13 @@ bool ArmEmitter::validImmForBL(ssize_t addr, Compiler* compiler)
 }
 
 // Returns true when the immediate 'imm' can be encoded using the 12-bit funky Arm immediate encoding.
-bool ArmEmitter::emitIns_valid_imm_for_alu(int imm)
+bool ArmImm::IsAluImm(int imm)
 {
     return isModImmConst(imm);
 }
 
 // Returns true when the immediate 'imm' can be encoded using a single mov or mvn instruction.
-bool ArmEmitter::emitIns_valid_imm_for_mov(int imm)
+bool ArmImm::IsMovImm(int imm)
 {
     if ((imm & 0x0000ffff) == imm) // 16-bit immediate
         return true;
@@ -1497,14 +1467,8 @@ bool ArmEmitter::emitIns_valid_imm_for_mov(int imm)
     return false;
 }
 
-// Returns true when the immediate 'imm' can be encoded using a single 2-byte mov instruction.
-bool ArmEmitter::emitIns_valid_imm_for_small_mov(RegNum reg, int imm, insFlags flags)
-{
-    return isLowRegister(reg) && insSetsFlags(flags) && ((imm & 0x00ff) == imm);
-}
-
 // Returns true when the immediate 'imm' can be encoded using a single add or sub instruction.
-bool ArmEmitter::emitIns_valid_imm_for_add(int imm, insFlags flags)
+bool ArmImm::IsAddImm(int imm, insFlags flags)
 {
     if ((unsigned_abs(imm) <= 0x00000fff) && (flags != INS_FLAGS_SET)) // 12-bit immediate via add/sub
         return true;
@@ -1516,7 +1480,7 @@ bool ArmEmitter::emitIns_valid_imm_for_add(int imm, insFlags flags)
 }
 
 // Returns true if this 'imm' can be encoded as a input operand to an cmp instruction.
-bool ArmEmitter::emitIns_valid_imm_for_cmp(int imm, insFlags flags)
+bool ArmImm::IsCmpImm(int imm, insFlags flags)
 {
     if (isModImmConst(imm)) // funky arm immediate
         return true;
@@ -1526,7 +1490,7 @@ bool ArmEmitter::emitIns_valid_imm_for_cmp(int imm, insFlags flags)
 }
 
 // Returns true when the immediate 'imm' can be encoded in "add Rd,SP,i10".
-bool ArmEmitter::emitIns_valid_imm_for_add_sp(int imm)
+bool ArmImm::IsAddSpImm(int imm)
 {
     if ((imm & 0x03fc) == imm)
         return true;
@@ -1534,7 +1498,7 @@ bool ArmEmitter::emitIns_valid_imm_for_add_sp(int imm)
 }
 
 // Returns true when the immediate 'imm' can be encoded as the offset in a ldr/str instruction.
-bool ArmEmitter::emitIns_valid_imm_for_ldst_offset(int imm, emitAttr size)
+bool ArmImm::IsLdStImm(int imm, emitAttr size)
 {
     if ((imm & 0x0fff) == imm)
         return true; // encodable using IF_T2_K1
@@ -1545,7 +1509,7 @@ bool ArmEmitter::emitIns_valid_imm_for_ldst_offset(int imm, emitAttr size)
 
 // Returns true when the immediate 'imm' can be encoded as the offset in a vldr/vstr instruction,
 // i.e. when it is a non-negative multiple of 4 that is less than 1024.
-bool ArmEmitter::emitIns_valid_imm_for_vldst_offset(int imm)
+bool ArmImm::IsVLdStImm(int imm)
 {
     if ((imm & 0x3fc) == imm)
         return true;
@@ -4125,7 +4089,7 @@ void ArmEmitter::emitIns_Call(EmitCallType          kind,
     {
         assert(kind == EC_FUNC_TOKEN);
         // if addr is nullptr then this call is treated as a recursive call.
-        assert((addr == nullptr) || validImmForBL(reinterpret_cast<ssize_t>(addr), emitComp));
+        assert((addr == nullptr) || ArmImm::IsBlImm(reinterpret_cast<ssize_t>(addr), emitComp));
 
         id->idIns(isJump ? INS_b : INS_bl);
         id->idInsFmt(IF_T2_J3);
