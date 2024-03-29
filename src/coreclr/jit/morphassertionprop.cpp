@@ -2,7 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
-#include "emit.h"
 
 #if LOCAL_ASSERTION_PROP
 
@@ -542,7 +541,7 @@ void Compiler::morphAssertionGenerateEqual(GenTreeLclVar* store, GenTree* val)
     {
         case GT_CNS_INT:
 #ifdef TARGET_ARM
-            if (!emitter::emitIns_valid_imm_for_mov(val->AsIntCon()->GetInt32Value()))
+            if (!ArmImm::IsMovImm(val->AsIntCon()->GetInt32Value()))
             {
                 return;
             }

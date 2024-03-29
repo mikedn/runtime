@@ -29,7 +29,11 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 bool Lowering::IsCallTargetInRange(void* addr)
 {
-    return emitter::validImmForBL(reinterpret_cast<ssize_t>(addr), comp);
+#ifdef TARGET_ARM
+    return ArmImm::IsBlImm(reinterpret_cast<ssize_t>(addr), comp);
+#else
+    return Arm64Imm::IsBlImm(reinterpret_cast<ssize_t>(addr), comp);
+#endif
 }
 
 //------------------------------------------------------------------------
@@ -67,11 +71,10 @@ bool Lowering::IsContainableImmed(GenTree* parentNode, GenTree* childNode) const
         case GT_XORR:
         case GT_XAND:
         case GT_XADD:
-            return comp->compOpportunisticallyDependsOn(InstructionSet_Atomics)
-                       ? false
-                       : emitter::emitIns_valid_imm_for_add(immVal, size);
+            return comp->compOpportunisticallyDependsOn(InstructionSet_Atomics) ? false
+                                                                                : Arm64Imm::IsAddImm(immVal, size);
 #elif defined(TARGET_ARM)
-            return emitter::emitIns_valid_imm_for_add(immVal, flags);
+            return ArmImm::IsAddImm(immVal, flags);
 #endif
             break;
 
@@ -83,13 +86,13 @@ bool Lowering::IsContainableImmed(GenTree* parentNode, GenTree* childNode) const
         case GT_GE:
         case GT_GT:
         case GT_BOUNDS_CHECK:
-            return emitter::emitIns_valid_imm_for_cmp(immVal, size);
+            return Arm64Imm::IsCmpImm(immVal, size);
         case GT_AND:
         case GT_OR:
         case GT_XOR:
         case GT_TEST_EQ:
         case GT_TEST_NE:
-            return emitter::emitIns_valid_imm_for_alu(immVal, size);
+            return Arm64Imm::IsAluImm(immVal, size);
         case GT_JCMP:
             assert(((parentNode->gtFlags & GTF_JCMP_TST) == 0) ? (immVal == 0) : isPow2(immVal));
             return true;
@@ -104,7 +107,7 @@ bool Lowering::IsContainableImmed(GenTree* parentNode, GenTree* childNode) const
         case GT_AND:
         case GT_OR:
         case GT_XOR:
-            return emitter::emitIns_valid_imm_for_alu(immVal);
+            return ArmImm::IsAluImm(immVal);
 #endif // TARGET_ARM
 
 #ifdef TARGET_ARM64
@@ -566,7 +569,7 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
             return false;
         }
 
-        if (emitter::EncodeMoviImm(icon->GetUInt64Value(), opt).ins != INS_invalid)
+        if (Arm64Imm::IsMoviImm(icon->GetUInt64Value(), opt))
         {
             if (castOp != nullptr)
             {
@@ -584,7 +587,7 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
         assert(varTypeIsFloating(node->GetSimdBaseType()));
         assert(castOp == nullptr);
 
-        return emitter::emitIns_valid_imm_for_fmov(dcon->GetValue());
+        return Arm64Imm::IsFMovImm(dcon->GetValue());
     }
 
     return false;
@@ -976,8 +979,7 @@ void Lowering::ContainCheckIndir(GenTreeIndir* indirNode)
         // ldr Rdst, [Rbase + Roffset] with offset in a register. The only supported
         // form is vldr Rdst, [Rbase + imm] with a more limited constraint on the imm.
         GenTreeAddrMode* lea = addr->AsAddrMode();
-        if (varTypeIsFloating(indirNode->GetType()) &&
-            (lea->HasIndex() || !emitter::emitIns_valid_imm_for_vldst_offset(lea->GetOffset())))
+        if (varTypeIsFloating(indirNode->GetType()) && (lea->HasIndex() || !ArmImm::IsVLdStImm(lea->GetOffset())))
         {
             makeContained = false;
         }
@@ -1238,7 +1240,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                     {
                         assert(varTypeIsFloating(node->GetSimdBaseType()));
 
-                        if (emitter::emitIns_valid_imm_for_fmov(value->AsDblCon()->GetValue()))
+                        if (Arm64Imm::IsFMovImm(value->AsDblCon()->GetValue()))
                         {
                             value->SetContained();
                         }

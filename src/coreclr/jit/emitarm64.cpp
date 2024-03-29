@@ -3249,6 +3249,63 @@ static bool canEncodeFloatImm8(double immDbl, floatImm8* wbFPI)
     return canEncode;
 }
 
+bool Arm64Imm::IsFMovImm(double value)
+{
+    return Arm64Emitter::emitIns_valid_imm_for_fmov(value);
+}
+
+bool Arm64Imm::IsMovImm(int64_t value, emitAttr size)
+{
+    return Arm64Emitter::emitIns_valid_imm_for_mov(value, size);
+}
+
+bool Arm64Imm::IsMoviImm(uint64_t value, insOpts opts)
+{
+    return Arm64Emitter::EncodeMoviImm(value, opts).ins != INS_invalid;
+}
+
+bool Arm64Imm::IsAddImm(int64_t value, emitAttr size)
+{
+    return Arm64Emitter::emitIns_valid_imm_for_add(value, size);
+}
+
+bool Arm64Imm::IsCmpImm(int64_t value, emitAttr size)
+{
+    return Arm64Emitter::emitIns_valid_imm_for_cmp(value, size);
+}
+
+bool Arm64Imm::IsAluImm(int64_t value, emitAttr size)
+{
+    return Arm64Emitter::emitIns_valid_imm_for_alu(value, size);
+}
+
+bool Arm64Imm::IsLdStImm(int64_t value, emitAttr size)
+{
+    return Arm64Emitter::emitIns_valid_imm_for_ldst_offset(value, size);
+}
+
+bool Arm64Imm::IsBlImm(int64_t value, Compiler* compiler)
+{
+    return Arm64Emitter::validImmForBL(value, compiler);
+}
+
+bool Arm64Imm::IsBitMaskImm(int64_t value, emitAttr size, unsigned* imm)
+{
+    Arm64Emitter::bitMaskImm bimm;
+
+    bool encoded = Arm64Emitter::canEncodeBitMaskImm(value, size, &bimm);
+    *imm         = bimm.immNRS;
+
+    return encoded;
+}
+
+int64_t Arm64Imm::DecodeBitMaskImm(unsigned imm, emitAttr size)
+{
+    Arm64Emitter::bitMaskImm bimm;
+    bimm.immNRS = imm;
+    return Arm64Emitter::emitDecodeBitMaskImm(bimm, size);
+}
+
 // For the given 'ins' returns the reverse instruction if one exists, otherwise returns INS_INVALID
 static instruction insReverse(instruction ins)
 {

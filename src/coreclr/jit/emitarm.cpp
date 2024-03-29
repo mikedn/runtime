@@ -1386,6 +1386,41 @@ static bool validDispForLdSt(int32_t disp, var_types type)
     return varTypeIsFloating(type) ? ((disp & 0x3FC) == disp) : ((disp >= -0x00ff) && (disp <= 0x0fff));
 }
 
+bool ArmImm::IsMovImm(int value)
+{
+    return ArmEmitter::emitIns_valid_imm_for_mov(value);
+}
+
+bool ArmImm::IsMvnImm(int value)
+{
+    return ArmEmitter::validImmForInstr(INS_mvn, value);
+}
+
+bool ArmImm::IsAddImm(int value, insFlags flags)
+{
+    return ArmEmitter::emitIns_valid_imm_for_add(value, flags);
+}
+
+bool ArmImm::IsAluImm(int value)
+{
+    return ArmEmitter::emitIns_valid_imm_for_alu(value);
+}
+
+bool ArmImm::IsLdStImm(int value, emitAttr size)
+{
+    return ArmEmitter::emitIns_valid_imm_for_ldst_offset(value, size);
+}
+
+bool ArmImm::IsVLdStImm(int value)
+{
+    return ArmEmitter::emitIns_valid_imm_for_vldst_offset(value);
+}
+
+bool ArmImm::IsBlImm(ssize_t value, Compiler* compiler)
+{
+    return ArmEmitter::validImmForBL(value, compiler);
+}
+
 bool ArmEmitter::validImmForInstr(instruction ins, int32_t imm, insFlags flags)
 {
     if (emitInsIsLoadOrStore(ins) && !instIsFP(ins))

@@ -5,7 +5,6 @@
 #include "dataflow.h"
 #include "ssabuilder.h"
 #include "valuenum.h"
-#include "emit.h"
 
 enum ApKind : uint8_t
 {
@@ -471,7 +470,7 @@ private:
         {
             case GT_CNS_INT:
 #ifdef TARGET_ARM
-                if (!emitter::emitIns_valid_imm_for_mov(op2->AsIntCon()->GetInt32Value()))
+                if (!ArmImm::IsMovImm(op2->AsIntCon()->GetInt32Value()))
                 {
                     return NO_ASSERTION_INDEX;
                 }

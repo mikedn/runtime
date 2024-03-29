@@ -6,7 +6,7 @@
 #ifdef TARGET_ARM64
 
 #include "lsra.h"
-#include "emit.h"
+#include "jitgcinfo.h"
 
 void LinearScan::BuildNode(GenTree* tree)
 {
@@ -48,7 +48,7 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_CNS_DBL:
-            if (!emitter::emitIns_valid_imm_for_fmov(tree->AsDblCon()->GetValue()))
+            if (!Arm64Imm::IsFMovImm(tree->AsDblCon()->GetValue()))
             {
                 // Reserve register to load constant from memory (IF_LARGELDC)
                 BuildInternalIntDef(tree);
@@ -358,8 +358,7 @@ void LinearScan::BuildAddrMode(GenTreeAddrMode* lea)
     // TODO-MIKE-Review: This does not check for a missing base like ARM version does.
     // But then there's little point in building such LEAs on ARM64...
 
-    if (((lea->GetIndex() != nullptr) && (lea->GetOffset() != 0)) ||
-        !emitter::emitIns_valid_imm_for_add(lea->GetOffset(), EA_8BYTE))
+    if (((lea->GetIndex() != nullptr) && (lea->GetOffset() != 0)) || !Arm64Imm::IsAddImm(lea->GetOffset(), EA_8BYTE))
     {
         BuildInternalIntDef(lea);
         BuildInternalUses();

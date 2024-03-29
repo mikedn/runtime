@@ -3,7 +3,6 @@
 
 #include "jitpch.h"
 #include "lower.h"
-#include "emit.h"
 
 #ifdef TARGET_ARM64 // This file is ONLY used for ARM64 architectures
 
@@ -158,22 +157,17 @@ void Lowering::CombineNot(GenTreeInstr* instr)
     }
 }
 
-bool CanEncodeBitmaskImm(ssize_t imm, emitAttr size, unsigned* bitmaskImm)
+static bool CanEncodeBitmaskImm(int64_t imm, emitAttr size, unsigned* bitmaskImm)
 {
-    emitter::bitMaskImm bimm;
-    bool                encoded = emitter::canEncodeBitMaskImm(imm, size, &bimm);
-    *bitmaskImm                 = bimm.immNRS;
-    return encoded;
+    return Arm64Imm::IsBitMaskImm(imm, size, bitmaskImm);
 }
 
-ssize_t DecodeBitmaskImm(unsigned encoded, emitAttr size)
+int64_t DecodeBitmaskImm(unsigned encoded, emitAttr size)
 {
-    emitter::bitMaskImm imm;
-    imm.immNRS = encoded;
-    return emitter::emitDecodeBitMaskImm(imm, size);
+    return Arm64Imm::DecodeBitMaskImm(encoded, size);
 }
 
-ssize_t DecodeBitmaskImm(GenTreeInstr* instr)
+static int64_t DecodeBitmaskImm(GenTreeInstr* instr)
 {
     return DecodeBitmaskImm(instr->GetImmediate(), instr->GetSize());
 }
@@ -901,9 +895,9 @@ instruction GetMultiplyAddInstruction(GenTree* node, instruction ins, emitAttr s
 
 bool CanEncodeArithmeticImm(ssize_t imm, emitAttr size, unsigned* encodedArithImm)
 {
-    bool encoded     = emitter::emitIns_valid_imm_for_add(imm, size);
+    bool encodable   = Arm64Imm::IsAddImm(imm, size);
     *encodedArithImm = static_cast<unsigned>(imm) & 0xFFFFFF;
-    return encoded;
+    return encodable;
 }
 
 void Lowering::LowerNegate(GenTreeUnOp* neg)

@@ -102,6 +102,17 @@ enum insOpts : unsigned
     INS_OPTS_ROR
 };
 
+struct ArmImm
+{
+    static bool IsMovImm(int32_t value);
+    static bool IsMvnImm(int32_t value);
+    static bool IsAddImm(int32_t value, insFlags flags);
+    static bool IsAluImm(int32_t value);
+    static bool IsLdStImm(int32_t value, emitAttr size);
+    static bool IsVLdStImm(int32_t value);
+    static bool IsBlImm(ssize_t value, Compiler* compiler);
+};
+
 INDEBUG(const char* insOptsName(insOpts opt);)
 
 #endif // TARGET_ARM
@@ -320,6 +331,24 @@ constexpr emitAttr emitVecTypeSize(unsigned size)
             unreached();
     }
 }
+#endif
+
+#ifdef TARGET_ARM64
+
+struct Arm64Imm
+{
+    static bool IsFMovImm(double value);
+    static bool IsMovImm(int64_t value, emitAttr size);
+    static bool IsMoviImm(uint64_t value, insOpts opts);
+    static bool IsAddImm(int64_t value, emitAttr size);
+    static bool IsCmpImm(int64_t value, emitAttr size);
+    static bool IsAluImm(int64_t value, emitAttr size);
+    static bool IsLdStImm(int64_t value, emitAttr size);
+    static bool IsBlImm(int64_t value, Compiler* compiler);
+    static bool IsBitMaskImm(int64_t value, emitAttr size, unsigned* imm);
+    static int64_t DecodeBitMaskImm(unsigned imm, emitAttr size);
+};
+
 #endif
 
 #endif // INSTR_H
