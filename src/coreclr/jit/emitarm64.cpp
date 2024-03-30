@@ -4161,6 +4161,8 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
     {
         assert(!"Please use emitIns_Mov() to correctly handle move elision");
         emitIns_Mov(ins, attr, reg1, reg2, /* canSkip */ false, opt);
+
+        return;
     }
 
     emitAttr  size     = EA_SIZE(attr);
