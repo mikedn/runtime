@@ -191,7 +191,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 #endif
 }
 
-bool IsValidGenericLoadStoreOffset(ssize_t offset, unsigned size ARM64_ARG(bool ldp))
+static bool IsValidGenericLoadStoreOffset(ssize_t offset, unsigned size ARM64_ARG(bool ldp))
 {
     assert(size < INT32_MAX);
 
@@ -947,7 +947,7 @@ void Lowering::ContainCheckIndir(GenTreeIndir* indirNode)
 void Lowering::ContainCheckBinary(GenTreeOp* node)
 {
     // Check and make op2 contained (if it is a containable immediate)
-    CheckImmedAndMakeContained(node, node->gtOp2);
+    ContainImmOperand(node, node->gtOp2);
 }
 
 void Lowering::ContainCheckMul(GenTreeOp* node)
@@ -1103,14 +1103,14 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
 
 void Lowering::ContainCheckCompare(GenTreeOp* cmp)
 {
-    CheckImmedAndMakeContained(cmp, cmp->GetOp(1));
+    ContainImmOperand(cmp, cmp->GetOp(1));
 }
 
 void Lowering::ContainCheckBoundsChk(GenTreeBoundsChk* node)
 {
-    if (!CheckImmedAndMakeContained(node, node->GetIndex()))
+    if (!ContainImmOperand(node, node->GetIndex()))
     {
-        CheckImmedAndMakeContained(node, node->GetLength());
+        ContainImmOperand(node, node->GetLength());
     }
 }
 

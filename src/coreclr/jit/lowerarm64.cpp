@@ -1476,7 +1476,7 @@ GenTree* Lowering::LowerRelop(GenTreeOp* cmp)
             }
         }
 
-        CheckImmedAndMakeContained(cmp, cmp->GetOp(1));
+        ContainImmOperand(cmp, cmp->GetOp(1));
     }
 
     // TODO-MIKE-CQ: Relop lowering doesn't take advantage of the shifted/extended reg forms of CMP/CMN.

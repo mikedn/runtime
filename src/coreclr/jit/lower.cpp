@@ -40,7 +40,7 @@ void Lowering::MakeSrcContained(GenTree* parentNode, GenTree* childNode) const
     assert(childNode->isContained());
 }
 
-bool Lowering::CheckImmedAndMakeContained(GenTree* instr, GenTree* operand)
+bool Lowering::ContainImmOperand(GenTree* instr, GenTree* operand) const
 {
     assert(!instr->OperIsLeaf());
 
@@ -89,19 +89,11 @@ GenTreeLclVar* Lowering::ReplaceWithLclVar(LIR::Use& use, LclVarDsc* tempLcl)
     return load;
 }
 
-//------------------------------------------------------------------------
-// LowerNode: this is the main entry point for Lowering.
-//
-// Arguments:
-//    node - the node we are lowering.
-//
-// Returns:
-//    next node in the transformed node sequence that needs to be lowered.
-//
 GenTree* Lowering::LowerNode(GenTree* node)
 {
     assert(node != nullptr);
-    switch (node->gtOper)
+
+    switch (node->GetOper())
     {
         case GT_NULLCHECK:
         case GT_IND:
@@ -158,6 +150,20 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_TEST_NE:
         case GT_CMP:
             return LowerRelop(node->AsOp());
+
+        case GT_BOUNDS_CHECK:
+            ContainCheckBoundsChk(node->AsBoundsChk());
+            break;
+
+        case GT_XORR:
+        case GT_XAND:
+        case GT_XADD:
+            ContainImmOperand(node, node->AsOp()->gtOp2);
+            break;
+
+        case GT_CMPXCHG:
+            ContainImmOperand(node, node->AsCmpXchg()->GetCompareValue());
+            break;
 #else // TARGET_ARM64
 
 #ifdef TARGET_XARCH
@@ -167,7 +173,19 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_FDIV:
             ContainCheckFloatBinary(node->AsOp());
             break;
-#endif
+
+        case GT_INTRINSIC:
+            ContainCheckIntrinsic(node->AsIntrinsic());
+            break;
+
+        case GT_BOUNDS_CHECK:
+            ContainCheckBoundsChk(node->AsBoundsChk());
+            break;
+
+        case GT_XADD:
+            ContainCheckXAdd(node->AsOp());
+            break;
+#endif // TARGET_XARCH
 
         case GT_ADD:
         {
@@ -261,12 +279,6 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_CAST:
             return LowerCast(node->AsCast());
 
-#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
-        case GT_BOUNDS_CHECK:
-            ContainCheckBoundsChk(node->AsBoundsChk());
-            break;
-#endif
-
         case GT_ARR_ELEM:
             return LowerArrElem(node);
 
@@ -284,7 +296,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_RSH_LO:
             ContainCheckShiftRotate(node->AsOp());
             break;
-#endif // !TARGET_64BIT
+#endif
 
         case GT_LSH:
         case GT_RSH:
@@ -303,12 +315,6 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_LCLHEAP:
             LowerLclHeap(node->AsUnOp());
             break;
-
-#ifdef TARGET_XARCH
-        case GT_INTRINSIC:
-            ContainCheckIntrinsic(node->AsIntrinsic());
-            break;
-#endif
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
@@ -331,34 +337,6 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_STORE_LCL_FLD:
             LowerStoreLclFld(node->AsLclFld());
             break;
-
-#if defined(TARGET_ARM64)
-        case GT_CMPXCHG:
-            CheckImmedAndMakeContained(node, node->AsCmpXchg()->GetCompareValue());
-            break;
-
-        case GT_XORR:
-        case GT_XAND:
-        case GT_XADD:
-            CheckImmedAndMakeContained(node, node->AsOp()->gtOp2);
-            break;
-#elif defined(TARGET_XARCH)
-        case GT_XORR:
-        case GT_XAND:
-        case GT_XADD:
-            if (node->IsUnusedValue())
-            {
-                node->ClearUnusedValue();
-                // Make sure the types are identical, since the node type is changed to VOID
-                // CodeGen relies on op2's type to determine the instruction size.
-                // Note that the node type cannot be a small int but the data operand can.
-                assert(genActualType(node->gtGetOp2()->TypeGet()) == node->TypeGet());
-                node->SetOper(GT_LOCKADD);
-                node->gtType = TYP_VOID;
-                CheckImmedAndMakeContained(node, node->gtGetOp2());
-            }
-            break;
-#endif
 
         case GT_KEEPALIVE:
             node->AsUnOp()->GetOp(0)->SetRegOptional();

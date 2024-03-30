@@ -3779,7 +3779,7 @@ void Lowering::ContainCheckCompare(GenTreeOp* cmp)
         return;
     }
 
-    if (CheckImmedAndMakeContained(cmp, op2))
+    if (ContainImmOperand(cmp, op2))
     {
         if (type1 == type2)
         {
@@ -4083,11 +4083,11 @@ void Lowering::ContainCheckBoundsChk(GenTreeBoundsChk* node)
     GenTree* length = node->GetLength();
     GenTree* other;
 
-    if (CheckImmedAndMakeContained(node, index))
+    if (ContainImmOperand(node, index))
     {
         other = length;
     }
-    else if (CheckImmedAndMakeContained(node, length))
+    else if (ContainImmOperand(node, length))
     {
         other = index;
     }
@@ -5149,6 +5149,23 @@ void Lowering::ContainCheckFloatBinary(GenTreeOp* node)
         isSafeToContainOp1 = isSafeToContainOp1 && IsSafeToContainMem(node, op1);
         isSafeToContainOp2 = isSafeToContainOp2 && IsSafeToContainMem(node, op2);
         SetRegOptionalForBinOp(node, isSafeToContainOp1, isSafeToContainOp2);
+    }
+}
+
+void Lowering::ContainCheckXAdd(GenTreeOp* node)
+{
+    if (node->IsUnusedValue())
+    {
+        // Make sure the types are identical, since the node type is changed to VOID
+        // CodeGen relies on op2's type to determine the instruction size.
+        // Note that the node type cannot be a small int but the data operand can.
+        assert(varActualType(node->GetOp(1)->GetType()) == node->GetType());
+
+        node->ClearUnusedValue();
+        node->SetOper(GT_LOCKADD);
+        node->SetType(TYP_VOID);
+
+        ContainImmOperand(node, node->GetOp(1));
     }
 }
 
