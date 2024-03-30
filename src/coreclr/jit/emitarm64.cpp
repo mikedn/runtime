@@ -1365,14 +1365,14 @@ bool Arm64Encoder::emitInsMayWriteToGCReg(instrDesc* id)
             }
             else
             {
-                assert(Emitter::emitInsIsLoad(ins));
+                assert(IsLoadIns(ins));
                 return true;
             }
 
         case IF_LS_3E: // LS_3E   .X.........mmmmm ......nnnnnttttt      Rm Rt Rn ARMv8.1 LSE Atomics
             // ARMv8.1 Atomics
             assert(emitInsIsStore(ins));
-            assert(Emitter::emitInsIsLoad(ins));
+            assert(IsLoadIns(ins));
             return true;
 
         default:
@@ -1623,7 +1623,7 @@ const uint8_t instInfo[]{
 #include "instrsarm64.h"
 };
 
-bool Arm64Emitter::emitInsIsLoad(instruction ins)
+bool IsLoadIns(instruction ins)
 {
     // We have pseudo ins like lea which are not included in emitInsLdStTab.
     return (ins < _countof(instInfo)) && ((instInfo[ins] & LD) != 0);
@@ -4006,7 +4006,7 @@ void Arm64Emitter::emitIns_R_F(instruction ins, emitAttr attr, RegNum reg, doubl
 
 void Arm64Emitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegNum srcReg, bool canSkip, insOpts opt)
 {
-    assert(IsMovInstruction(ins));
+    assert(IsMovIns(ins));
 
     emitAttr  size     = EA_SIZE(attr);
     emitAttr  elemsize = EA_UNKNOWN;
@@ -4157,7 +4157,7 @@ void Arm64Emitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, Re
 
 void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, insOpts opt)
 {
-    if (IsMovInstruction(ins))
+    if (IsMovIns(ins))
     {
         assert(!"Please use emitIns_Mov() to correctly handle move elision");
         emitIns_Mov(ins, attr, reg1, reg2, /* canSkip */ false, opt);
@@ -6587,7 +6587,7 @@ void Arm64Emitter::emitIns_R_R_R_I(
         }
 
         // Load/Store Pair reserved encodings:
-        if (emitInsIsLoad(ins))
+        if (IsLoadIns(ins))
         {
             assert(reg1 != reg2);
         }
@@ -11865,7 +11865,7 @@ void Encoder::getMemoryOperation(instrDesc* id, unsigned* pMemAccessKind, bool* 
 
     if (emitInsIsLoadOrStore(ins))
     {
-        if (Arm64Emitter::emitInsIsLoad(ins))
+        if (IsLoadIns(ins))
         {
             if (emitInsIsStore(ins))
             {
@@ -13606,7 +13606,7 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
 
 #endif // defined(DEBUG) || defined(LATE_DISASM)
 
-bool Arm64Emitter::IsMovInstruction(instruction ins)
+bool IsMovIns(instruction ins)
 {
     switch (ins)
     {

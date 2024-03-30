@@ -1969,7 +1969,7 @@ void X86Emitter::emitIns_C(instruction ins, emitAttr attr, ConstData* data)
 #endif
 }
 
-bool X86Emitter::IsMovInstruction(instruction ins)
+bool IsMovIns(instruction ins)
 {
     switch (ins)
     {
@@ -2015,7 +2015,7 @@ bool X86Emitter::IsMovInstruction(instruction ins)
 //
 bool X86Emitter::IsRedundantMov(instruction ins, emitAttr size, RegNum dst, RegNum src, bool canIgnoreSideEffects)
 {
-    assert(IsMovInstruction(ins));
+    assert(IsMovIns(ins));
 
     if (canIgnoreSideEffects && (dst == src))
     {
@@ -2130,7 +2130,7 @@ bool X86Emitter::IsRedundantMov(instruction ins, emitAttr size, RegNum dst, RegN
 
 void X86Emitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegNum srcReg, bool canSkip)
 {
-    assert(IsMovInstruction(ins));
+    assert(IsMovIns(ins));
 
     if (EA_IS_GCREF_OR_BYREF(attr) && (ins == INS_mov) && (dstReg == srcReg))
     {
@@ -2208,7 +2208,7 @@ void X86Emitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegN
 void X86Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2)
 {
     assert(!HasImplicitRegPairDest(ins) && (ins != INS_imuli));
-    assert(!IsMovInstruction(ins));
+    assert(!IsMovIns(ins));
 
     X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg1, reg2)));
 
@@ -3081,7 +3081,7 @@ void X86Emitter::emitIns_SIMD_R_R_R(instruction ins, emitAttr attr, RegNum reg1,
 
         emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
 
-        if (IsMovInstruction(ins))
+        if (IsMovIns(ins))
         {
             emitIns_Mov(ins, attr, reg1, reg3, /* canSkip */ false);
         }

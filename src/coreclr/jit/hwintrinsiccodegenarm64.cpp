@@ -551,7 +551,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                     else if (intrin.id == NI_AdvSimd_Arm64_DuplicateToVector64)
                     {
                         assert(intrin.baseType == TYP_DOUBLE);
-                        assert(emit.IsMovInstruction(ins));
+                        assert(IsMovIns(ins));
 
                         emit.emitIns_Mov(ins, emitSize, defReg, regs[0], /* canSkip */ false, opt);
                     }
@@ -569,7 +569,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                     break;
                 }
 
-                if (emit.IsMovInstruction(ins))
+                if (IsMovIns(ins))
                 {
                     emit.emitIns_Mov(ins, emitSize, defReg, regs[0], /* canSkip */ false, opt);
                     break;

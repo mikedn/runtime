@@ -14,9 +14,6 @@ public:
     {
     }
 
-    static bool emitInsIsLoad(instruction ins);
-    static bool IsMovInstruction(instruction ins);
-
     /************************************************************************/
     /*           The public entry points to output instructions             */
     /************************************************************************/

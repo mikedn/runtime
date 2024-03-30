@@ -791,7 +791,7 @@ static bool instIsFP(instruction ins)
     return (instInfo[ins] & INST_FP) != 0;
 }
 
-bool ArmEmitter::emitInsIsLoad(instruction ins)
+bool IsLoadIns(instruction ins)
 {
     // We have pseudo ins like lea which are not included in emitInsLdStTab.
     return (ins < _countof(instInfo)) && ((instInfo[ins] & LD) != 0);
@@ -1249,7 +1249,7 @@ static ArmEmitter::insSize emitInsSize(insFormat insFmt)
     return ArmEmitter::ISZ_NONE;
 }
 
-bool ArmEmitter::IsMovInstruction(instruction ins)
+bool IsMovIns(instruction ins)
 {
     switch (ins)
     {
@@ -2131,7 +2131,7 @@ void ArmEmitter::emitIns_MovRelocatableImmediate(instruction ins, RegNum reg, vo
 
 void ArmEmitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegNum srcReg, bool canSkip, insFlags flags)
 {
-    assert(IsMovInstruction(ins));
+    assert(IsMovIns(ins));
 
     emitAttr  size = EA_SIZE(attr);
     insFormat fmt  = IF_NONE;
@@ -2284,7 +2284,7 @@ void ArmEmitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegN
 
 void ArmEmitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, insFlags flags)
 {
-    if (IsMovInstruction(ins))
+    if (IsMovIns(ins))
     {
         assert(!"Please use emitIns_Mov() to correctly handle move elision");
         emitIns_Mov(ins, attr, reg1, reg2, /* canSkip */ false, flags);

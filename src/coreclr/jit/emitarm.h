@@ -14,9 +14,6 @@ public:
     {
     }
 
-    static bool emitInsIsLoad(instruction ins);
-    static bool IsMovInstruction(instruction ins);
-
     void Ins_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s);
 
     /************************************************************************/

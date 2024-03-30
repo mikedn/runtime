@@ -1644,7 +1644,7 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
     regNumber tmpReg  = indir->GetSingleTempReg();
     emitAttr  tmpAttr = varTypeIsGC(base->GetType()) ? EA_BYREF : EA_4BYTE;
 
-    noway_assert(emitter::emitInsIsLoad(ins) || (tmpReg != valueReg));
+    noway_assert(IsLoadIns(ins) || (tmpReg != valueReg));
 
     if (!ArmImm::IsAddImm(offset, INS_FLAGS_DONT_CARE))
     {

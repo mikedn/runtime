@@ -27,8 +27,6 @@ public:
     // its 3-byte VEX prefix.
     using code_t = uint64_t;
 
-    static bool IsMovInstruction(instruction ins);
-
     bool AreFlagsSetToZeroCmp(RegNum reg, emitAttr opSize, genTreeOps treeOps);
     bool AreUpper32BitsZero(RegNum reg);
 

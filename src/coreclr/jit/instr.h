@@ -70,6 +70,8 @@ enum instruction : unsigned
     INS_COUNT = INS_none
 };
 
+bool IsMovIns(instruction ins);
+
 INDEBUG(const char* insName(instruction ins);)
 
 enum emitJumpKind
@@ -117,6 +119,8 @@ struct ArmImm
 };
 
 INDEBUG(const char* insOptsName(insOpts opt);)
+
+bool IsLoadIns(instruction ins);
 
 #endif // TARGET_ARM
 #ifdef TARGET_ARM64
@@ -337,6 +341,8 @@ constexpr emitAttr emitVecTypeSize(unsigned size)
 #endif
 
 #ifdef TARGET_ARM64
+
+bool IsLoadIns(instruction ins);
 
 insOpts GetVecArrangementOpt(emitAttr vecSize, var_types elemType);
 emitAttr GetVecElemsize(insOpts arrangement);

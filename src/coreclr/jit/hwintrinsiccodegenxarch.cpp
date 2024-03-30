@@ -425,7 +425,7 @@ void CodeGen::genHWIntrinsic_R_RM(
 
     if (rmOp->isUsedFromReg())
     {
-        if (emit.IsMovInstruction(ins))
+        if (IsMovIns(ins))
         {
             emit.emitIns_Mov(ins, attr, reg, rmOp->GetRegNum(), /* canSkip */ false);
         }
