@@ -9,7 +9,7 @@
 #include "emit.h"
 #include "codegen.h"
 
-static bool emitInsIsVectorRightShift(instruction ins);
+static bool IsVectorRightShiftIns(instruction ins);
 
 // The return value replaces REG_SP with REG_ZR, SP is encoded using ZR (R31)
 static RegNum encodingSPtoZR(RegNum reg)
@@ -1841,7 +1841,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(insOptsNone(id->idInsOpt()));
             assert(isVectorRegister(id->idReg1()));
             assert(isVectorRegister(id->idReg2()));
-            assert(isValidVectorShiftAmount(id->emitGetInsSC(), datasize, emitInsIsVectorRightShift(ins)));
+            assert(isValidVectorShiftAmount(id->emitGetInsSC(), datasize, IsVectorRightShiftIns(ins)));
             break;
 
         case IF_DV_2O: // DV_2O   .Q.......iiiiiii ......nnnnnddddd      Vd Vn imm   (shift - vector)
@@ -1852,7 +1852,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isValidArrangement(datasize, id->idInsOpt()));
             assert(isVectorRegister(id->idReg1()));
             assert(isVectorRegister(id->idReg2()));
-            assert(isValidVectorShiftAmount(id->emitGetInsSC(), elemsize, emitInsIsVectorRightShift(ins)));
+            assert(isValidVectorShiftAmount(id->emitGetInsSC(), elemsize, IsVectorRightShiftIns(ins)));
             break;
 
         case IF_DV_2B: // DV_2B   .Q.........iiiii ......nnnnnddddd      Rd Vn[]  (umov/smov    - to general)
@@ -2162,7 +2162,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
 }
 #endif // DEBUG
 
-static bool emitInsIsStore(instruction ins);
+static bool IsStoreIns(instruction ins);
 
 class Arm64Encoder final : public Encoder
 {
@@ -2176,8 +2176,6 @@ public:
 private:
     // Emit the 32-bit Arm64 instruction 'code' into the 'dst'  buffer
     unsigned emitOutput_Instr(uint8_t* dst, uint32_t code);
-
-    uint32_t emitInsCode(instruction ins, insFormat fmt);
 
     uint8_t* emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig);
     uint8_t* emitOutputDL(uint8_t* dst, instrDescJmp* id);
@@ -2298,7 +2296,7 @@ bool Arm64Encoder::emitInsMayWriteToGCReg(instrDesc* id)
 
             // For the Store instructions the "target" register is actually a "source" value
 
-            if (emitInsIsStore(ins))
+            if (IsStoreIns(ins))
             {
                 return false;
             }
@@ -2310,7 +2308,7 @@ bool Arm64Encoder::emitInsMayWriteToGCReg(instrDesc* id)
 
         case IF_LS_3E: // LS_3E   .X.........mmmmm ......nnnnnttttt      Rm Rt Rn ARMv8.1 LSE Atomics
             // ARMv8.1 Atomics
-            assert(emitInsIsStore(ins));
+            assert(IsStoreIns(ins));
             assert(IsLoadIns(ins));
             return true;
 
@@ -2522,7 +2520,7 @@ enum
     IF_ENCOUNT
 };
 
-static uint8_t emitInsFormat(instruction ins)
+static uint8_t InsFormat(instruction ins)
 {
     static_assert_no_msg(IF_ENCOUNT <= UINT8_MAX);
 
@@ -2543,15 +2541,27 @@ static uint8_t emitInsFormat(instruction ins)
     return formats[ins];
 }
 
-#define LD 1
-#define ST 2
-#define CMP 4
-#define RSH 8
-#define WID 16
-#define LNG 32
-#define NRW 64
+enum InsInfo
+{
+    ISI_LD  = 1,
+    ISI_ST  = 2,
+    ISI_CMP = 4,
+    ISI_RSH = 8,
+    ISI_WID = 16,
+    ISI_LNG = 32,
+    ISI_NRW = 64
+};
 
-const uint8_t instInfo[]{
+static uint8_t GetInsInfo(instruction ins)
+{
+    static const uint8_t info[INS_COUNT + 1]{
+#define LD ISI_LD
+#define ST ISI_ST
+#define CMP ISI_CMP
+#define RSH ISI_RSH
+#define WID ISI_WID
+#define LNG ISI_LNG
+#define NRW ISI_NRW
 #define INST1(id, nm, info, ...) info,
 #define INST2(id, nm, info, ...) info,
 #define INST3(id, nm, info, ...) info,
@@ -2560,59 +2570,75 @@ const uint8_t instInfo[]{
 #define INST6(id, nm, info, ...) info,
 #define INST9(id, nm, info, ...) info,
 #include "instrsarm64.h"
-};
-
-bool IsLoadIns(instruction ins)
-{
-    // We have pseudo ins like lea which are not included in emitInsLdStTab.
-    return (ins < _countof(instInfo)) && ((instInfo[ins] & LD) != 0);
-}
-
-static bool emitInsIsStore(instruction ins)
-{
-    // We have pseudo ins like lea which are not included in emitInsLdStTab.
-    return (ins < _countof(instInfo)) && ((instInfo[ins] & ST) != 0);
-}
-
-static bool emitInsIsVectorRightShift(instruction ins)
-{
-    // We have pseudo ins like lea which are not included in emitInsLdStTab.
-    return (ins < _countof(instInfo)) && ((instInfo[ins] & RSH) != 0);
-}
-
-#ifdef DEBUG
-static bool emitInsIsLoadOrStore(instruction ins)
-{
-    // We have pseudo ins like lea which are not included in emitInsLdStTab.
-    return (ins < _countof(instInfo)) && ((instInfo[ins] & (LD | ST)) != 0);
-}
-
-static bool emitInsIsVectorLong(instruction ins)
-{
-    return (ins < _countof(instInfo)) && ((instInfo[ins] & LNG) != 0);
-}
-
-static bool emitInsIsVectorNarrow(instruction ins)
-{
-    return (ins < _countof(instInfo)) && ((instInfo[ins] & NRW) != 0);
-}
-
-static bool emitInsIsVectorWide(instruction ins)
-{
-    return (ins < _countof(instInfo)) && ((instInfo[ins] & WID) != 0);
-}
-#endif
-
 #undef LD
 #undef ST
 #undef CMP
-#undef RHS
+#undef RSH
 #undef WID
 #undef LNG
 #undef NRW
+    };
+
+    assert(ins < _countof(info));
+    return info[ins];
+}
+
+bool IsLoadIns(instruction ins)
+{
+    return (GetInsInfo(ins) & ISI_LD) != 0;
+}
+
+bool IsMovIns(instruction ins)
+{
+    switch (ins)
+    {
+        case INS_fmov:
+        case INS_mov:
+        case INS_sxtb:
+        case INS_sxth:
+        case INS_sxtw:
+        case INS_uxtb:
+        case INS_uxth:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static bool IsStoreIns(instruction ins)
+{
+    return (GetInsInfo(ins) & ISI_ST) != 0;
+}
+
+static bool IsVectorRightShiftIns(instruction ins)
+{
+    return (GetInsInfo(ins) & ISI_RSH) != 0;
+}
+
+#ifdef DEBUG
+static bool IsLoadOrStoreIns(instruction ins)
+{
+    return (GetInsInfo(ins) & (ISI_LD | ISI_ST)) != 0;
+}
+
+static bool IsVectorLongIns(instruction ins)
+{
+    return (GetInsInfo(ins) & ISI_LNG) != 0;
+}
+
+static bool IsVectorNarrowIns(instruction ins)
+{
+    return (GetInsInfo(ins) & ISI_NRW) != 0;
+}
+
+static bool IsVectorWideIns(instruction ins)
+{
+    return (GetInsInfo(ins) & ISI_WID) != 0;
+}
+#endif
 
 // Returns the specific encoding of the given CPU instruction and format
-uint32_t Arm64Encoder::emitInsCode(instruction ins, insFormat fmt)
+static uint32_t emitInsCode(instruction ins, insFormat fmt)
 {
     // clang-format off
     const static uint32_t insCodes1[]
@@ -2763,7 +2789,7 @@ uint32_t Arm64Encoder::emitInsCode(instruction ins, insFormat fmt)
     const static insFormat formatEncode2Q[2]{IF_DV_2S, IF_DV_3A};
 
     uint32_t code           = BAD_CODE;
-    uint8_t  insFmt         = emitInsFormat(ins);
+    uint8_t  insFmt         = InsFormat(ins);
     bool     encoding_found = false;
     int      index          = -1;
 
@@ -3752,7 +3778,7 @@ Arm64Emitter::instrDesc* Arm64Emitter::emitNewInstrGCReg(emitAttr attr, RegNum r
 
 void Arm64Emitter::emitIns(instruction ins)
 {
-    insFormat fmt = static_cast<insFormat>(emitInsFormat(ins));
+    insFormat fmt = static_cast<insFormat>(InsFormat(ins));
 
     assert((fmt == IF_SN_0A) || ((ins == INS_brk) && (fmt == IF_SI_0A)));
 
@@ -4991,7 +5017,7 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
         case INS_usra:
             assert(isVectorRegister(reg1));
             assert(isVectorRegister(reg2));
-            isRightShift = emitInsIsVectorRightShift(ins);
+            isRightShift = IsVectorRightShiftIns(ins);
 
             if (insOptsAnyArrangement(opt))
             {
@@ -5019,7 +5045,7 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
         case INS_sqshlu:
             assert(isVectorRegister(reg1));
             assert(isVectorRegister(reg2));
-            isRightShift = emitInsIsVectorRightShift(ins);
+            isRightShift = IsVectorRightShiftIns(ins);
 
             if (insOptsAnyArrangement(opt))
             {
@@ -5048,7 +5074,7 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
         case INS_uqshrn:
             assert(isVectorRegister(reg1));
             assert(isVectorRegister(reg2));
-            isRightShift = emitInsIsVectorRightShift(ins);
+            isRightShift = IsVectorRightShiftIns(ins);
 
             if (insOptsAnyArrangement(opt))
             {
@@ -5081,7 +5107,7 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
         case INS_ushll:
             assert(isVectorRegister(reg1));
             assert(isVectorRegister(reg2));
-            isRightShift = emitInsIsVectorRightShift(ins);
+            isRightShift = IsVectorRightShiftIns(ins);
             // Vector operation
             assert(size == EA_8BYTE);
             assert(isValidArrangement(size, opt));
@@ -5109,7 +5135,7 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
         case INS_ushll2:
             assert(isVectorRegister(reg1));
             assert(isVectorRegister(reg2));
-            isRightShift = emitInsIsVectorRightShift(ins);
+            isRightShift = IsVectorRightShiftIns(ins);
 
             // Vector operation
             assert(size == EA_16BYTE);
@@ -9823,9 +9849,9 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             imm      = id->emitGetInsSC();
             elemsize = id->idOpSize();
             code     = emitInsCode(ins, fmt);
-            code |= insEncodeVectorShift(elemsize, emitInsIsVectorRightShift(ins) ? -imm : imm); // iiiiiii
-            code |= insEncodeReg_Vd(id->idReg1());                                               // ddddd
-            code |= insEncodeReg_Vn(id->idReg2());                                               // nnnnn
+            code |= insEncodeVectorShift(elemsize, IsVectorRightShiftIns(ins) ? -imm : imm); // iiiiiii
+            code |= insEncodeReg_Vd(id->idReg1());                                           // ddddd
+            code |= insEncodeReg_Vn(id->idReg2());                                           // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -9833,10 +9859,10 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             imm      = id->emitGetInsSC();
             elemsize = optGetElemsize(id->idInsOpt());
             code     = emitInsCode(ins, fmt);
-            code |= insEncodeVectorsize(id->idOpSize());                                         // Q
-            code |= insEncodeVectorShift(elemsize, emitInsIsVectorRightShift(ins) ? -imm : imm); // iiiiiii
-            code |= insEncodeReg_Vd(id->idReg1());                                               // ddddd
-            code |= insEncodeReg_Vn(id->idReg2());                                               // nnnnn
+            code |= insEncodeVectorsize(id->idOpSize());                                     // Q
+            code |= insEncodeVectorShift(elemsize, IsVectorRightShiftIns(ins) ? -imm : imm); // iiiiiii
+            code |= insEncodeReg_Vd(id->idReg1());                                           // ddddd
+            code |= insEncodeReg_Vn(id->idReg2());                                           // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -11250,19 +11276,19 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             break;
 
         case IF_DV_2A: // DV_2A   .Q.......X...... ......nnnnnddddd      Vd Vn   (fabs, fcvt - vector)
-            if (emitInsIsVectorLong(ins))
+            if (IsVectorLongIns(ins))
             {
                 emitDispVectorReg(id->idReg1(), optWidenElemsizeArrangement(id->idInsOpt()), true);
                 emitDispVectorReg(id->idReg2(), id->idInsOpt(), false);
             }
-            else if (emitInsIsVectorNarrow(ins))
+            else if (IsVectorNarrowIns(ins))
             {
                 emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
                 emitDispVectorReg(id->idReg2(), optWidenElemsizeArrangement(id->idInsOpt()), false);
             }
             else
             {
-                assert(!emitInsIsVectorWide(ins));
+                assert(!IsVectorWideIns(ins));
                 emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
                 emitDispVectorReg(id->idReg2(), id->idInsOpt(), false);
             }
@@ -11274,14 +11300,14 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             break;
 
         case IF_DV_2M: // DV_2M   .Q......XX...... ......nnnnnddddd      Vd Vn   (abs, neg - vector)
-            if (emitInsIsVectorNarrow(ins))
+            if (IsVectorNarrowIns(ins))
             {
                 emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
                 emitDispVectorReg(id->idReg2(), optWidenElemsizeArrangement(id->idInsOpt()), false);
             }
             else
             {
-                assert(!emitInsIsVectorLong(ins) && !emitInsIsVectorWide(ins));
+                assert(!IsVectorLongIns(ins) && !IsVectorWideIns(ins));
                 emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
                 emitDispVectorReg(id->idReg2(), id->idInsOpt(), false);
             }
@@ -11289,19 +11315,19 @@ void Arm64AsmPrinter::Print(instrDesc* id)
 
         case IF_DV_2N: // DV_2N   .........iiiiiii ......nnnnnddddd      Vd Vn imm   (shift - scalar)
             elemsize = id->idOpSize();
-            if (emitInsIsVectorLong(ins))
+            if (IsVectorLongIns(ins))
             {
                 emitDispReg(id->idReg1(), widenDatasize(elemsize), true);
                 emitDispReg(id->idReg2(), elemsize, true);
             }
-            else if (emitInsIsVectorNarrow(ins))
+            else if (IsVectorNarrowIns(ins))
             {
                 emitDispReg(id->idReg1(), elemsize, true);
                 emitDispReg(id->idReg2(), widenDatasize(elemsize), true);
             }
             else
             {
-                assert(!emitInsIsVectorWide(ins));
+                assert(!IsVectorWideIns(ins));
                 emitDispReg(id->idReg1(), elemsize, true);
                 emitDispReg(id->idReg2(), elemsize, true);
             }
@@ -11312,25 +11338,25 @@ void Arm64AsmPrinter::Print(instrDesc* id)
         case IF_DV_2O: // DV_2O   .Q.......iiiiiii ......nnnnnddddd      Vd Vn imm   (shift - vector)
             if ((ins == INS_sxtl) || (ins == INS_sxtl2) || (ins == INS_uxtl) || (ins == INS_uxtl2))
             {
-                assert((emitInsIsVectorLong(ins)));
+                assert((IsVectorLongIns(ins)));
                 emitDispVectorReg(id->idReg1(), optWidenElemsizeArrangement(id->idInsOpt()), true);
                 emitDispVectorReg(id->idReg2(), id->idInsOpt(), false);
             }
             else
             {
-                if (emitInsIsVectorLong(ins))
+                if (IsVectorLongIns(ins))
                 {
                     emitDispVectorReg(id->idReg1(), optWidenElemsizeArrangement(id->idInsOpt()), true);
                     emitDispVectorReg(id->idReg2(), id->idInsOpt(), true);
                 }
-                else if (emitInsIsVectorNarrow(ins))
+                else if (IsVectorNarrowIns(ins))
                 {
                     emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
                     emitDispVectorReg(id->idReg2(), optWidenElemsizeArrangement(id->idInsOpt()), true);
                 }
                 else
                 {
-                    assert(!emitInsIsVectorWide(ins));
+                    assert(!IsVectorWideIns(ins));
                     emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
                     emitDispVectorReg(id->idReg2(), id->idInsOpt(), true);
                 }
@@ -11411,7 +11437,7 @@ void Arm64AsmPrinter::Print(instrDesc* id)
                 emitDispReg(id->idReg2(), size, true);
                 emitDispImm(0, false);
             }
-            else if (emitInsIsVectorNarrow(ins))
+            else if (IsVectorNarrowIns(ins))
             {
                 emitDispReg(id->idReg1(), size, true);
                 emitDispReg(id->idReg2(), widenDatasize(size), false);
@@ -11478,7 +11504,7 @@ void Arm64AsmPrinter::Print(instrDesc* id)
                 emitDispVectorReg(id->idReg2(), id->idInsOpt(), true);
                 emitDispVectorReg(id->idReg3(), id->idInsOpt(), false);
             }
-            else if (emitInsIsVectorNarrow(ins))
+            else if (IsVectorNarrowIns(ins))
             {
                 emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
                 emitDispVectorReg(id->idReg2(), optWidenElemsizeArrangement(id->idInsOpt()), true);
@@ -11486,12 +11512,12 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             }
             else
             {
-                if (emitInsIsVectorLong(ins))
+                if (IsVectorLongIns(ins))
                 {
                     emitDispVectorReg(id->idReg1(), optWidenElemsizeArrangement(id->idInsOpt()), true);
                     emitDispVectorReg(id->idReg2(), id->idInsOpt(), true);
                 }
-                else if (emitInsIsVectorWide(ins))
+                else if (IsVectorWideIns(ins))
                 {
                     emitDispVectorReg(id->idReg1(), optWidenElemsizeArrangement(id->idInsOpt()), true);
                     emitDispVectorReg(id->idReg2(), optWidenElemsizeArrangement(id->idInsOpt()), true);
@@ -11519,19 +11545,19 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             }
             else
             {
-                if (emitInsIsVectorLong(ins))
+                if (IsVectorLongIns(ins))
                 {
                     emitDispVectorReg(id->idReg1(), optWidenElemsizeArrangement(id->idInsOpt()), true);
                     emitDispVectorReg(id->idReg2(), id->idInsOpt(), true);
                 }
-                else if (emitInsIsVectorWide(ins))
+                else if (IsVectorWideIns(ins))
                 {
                     emitDispVectorReg(id->idReg1(), optWidenElemsizeArrangement(id->idInsOpt()), true);
                     emitDispVectorReg(id->idReg2(), optWidenElemsizeArrangement(id->idInsOpt()), true);
                 }
                 else
                 {
-                    assert(!emitInsIsVectorNarrow(ins));
+                    assert(!IsVectorNarrowIns(ins));
                     emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
                     emitDispVectorReg(id->idReg2(), id->idInsOpt(), true);
                 }
@@ -11586,13 +11612,13 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             break;
 
         case IF_DV_3E: // DV_3E   ........XX.mmmmm ......nnnnnddddd      Vd Vn Vm  (scalar)
-            if (emitInsIsVectorLong(ins))
+            if (IsVectorLongIns(ins))
             {
                 emitDispReg(id->idReg1(), widenDatasize(size), true);
             }
             else
             {
-                assert(!emitInsIsVectorNarrow(ins) && !emitInsIsVectorWide(ins));
+                assert(!IsVectorNarrowIns(ins) && !IsVectorWideIns(ins));
                 emitDispReg(id->idReg1(), size, true);
             }
 
@@ -11601,13 +11627,13 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             break;
 
         case IF_DV_3EI: // DV_3EI ........XXLMmmmm ....H.nnnnnddddd      Vd Vn Vm[] (scalar by element)
-            if (emitInsIsVectorLong(ins))
+            if (IsVectorLongIns(ins))
             {
                 emitDispReg(id->idReg1(), widenDatasize(size), true);
             }
             else
             {
-                assert(!emitInsIsVectorNarrow(ins) && !emitInsIsVectorWide(ins));
+                assert(!IsVectorNarrowIns(ins) && !IsVectorWideIns(ins));
                 emitDispReg(id->idReg1(), size, true);
             }
             emitDispReg(id->idReg2(), size, true);
@@ -11767,11 +11793,11 @@ void Encoder::getMemoryOperation(instrDesc* id, unsigned* pMemAccessKind, bool* 
     bool        isLocalAccess = false;
     instruction ins           = id->idIns();
 
-    if (emitInsIsLoadOrStore(ins))
+    if (IsLoadOrStoreIns(ins))
     {
         if (IsLoadIns(ins))
         {
-            if (emitInsIsStore(ins))
+            if (IsStoreIns(ins))
             {
                 memAccessKind = PERFSCORE_MEMORY_READ_WRITE;
             }
@@ -11782,7 +11808,7 @@ void Encoder::getMemoryOperation(instrDesc* id, unsigned* pMemAccessKind, bool* 
         }
         else
         {
-            assert(emitInsIsStore(ins));
+            assert(IsStoreIns(ins));
             memAccessKind = PERFSCORE_MEMORY_WRITE;
         }
 
@@ -12192,7 +12218,7 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
 
         case IF_LS_3D: // stxr, stxrb, stxrh, stlxr, stlxrb, srlxrh
             // Store exclusive register, returning status
-            assert(emitInsIsStore(ins));
+            assert(IsStoreIns(ins));
             // @ToDo - find out the actual latency
             result.insThroughput = PERFSCORE_THROUGHPUT_2C;
             result.insLatency    = max(PERFSCORE_LATENCY_4C, result.insLatency);
@@ -13509,23 +13535,6 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
 }
 
 #endif // defined(DEBUG) || defined(LATE_DISASM)
-
-bool IsMovIns(instruction ins)
-{
-    switch (ins)
-    {
-        case INS_fmov:
-        case INS_mov:
-        case INS_sxtb:
-        case INS_sxth:
-        case INS_sxtw:
-        case INS_uxtb:
-        case INS_uxth:
-            return true;
-        default:
-            return false;
-    }
-}
 
 // Check if the current `mov` instruction is redundant and can be omitted.
 // A `mov` is redundant in following 3 cases:
