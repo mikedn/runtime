@@ -10186,19 +10186,10 @@ private:
 
 void Arm64AsmPrinter::emitDispInst(instruction ins)
 {
-    const char* insstr = insName(ins);
-    size_t      len    = strlen(insstr);
+    static const char pad[8] = "       ";
+    const char*       name   = insName(ins);
 
-    printf("%s", insstr);
-
-    //
-    // Add at least one space after the instruction name
-    // and add spaces until we have reach the normal size of 8
-    do
-    {
-        printf(" ");
-        len++;
-    } while (len < 8);
+    printf("%s %s", name, pad + Min(sizeof(pad) - 1, strlen(name)));
 }
 
 void Arm64AsmPrinter::emitDispAddrLoadLabel(instrDescJmp* id)
@@ -10327,8 +10318,11 @@ void Arm64AsmPrinter::emitDispImm(ssize_t imm, bool addComma, bool alwaysHex)
     if (compiler->opts.disDiffable)
     {
         ssize_t top56bits = (imm >> 8);
+
         if ((top56bits != 0) && (top56bits != -1))
+        {
             imm = 0xD1FFAB1E;
+        }
     }
 
     if (!alwaysHex && (imm > -1000) && (imm < 1000))
@@ -10354,7 +10348,9 @@ void Arm64AsmPrinter::emitDispImm(ssize_t imm, bool addComma, bool alwaysHex)
     }
 
     if (addComma)
+    {
         printf(", ");
+    }
 }
 
 void Arm64AsmPrinter::emitDispFloatZero()
@@ -10468,7 +10464,9 @@ void Arm64AsmPrinter::emitDispReg(RegNum reg, emitAttr attr, bool addComma)
     printf(emitRegName(reg, size));
 
     if (addComma)
+    {
         printf(", ");
+    }
 }
 
 void Arm64AsmPrinter::emitDispVectorReg(RegNum reg, insOpts opt, bool addComma)
@@ -10478,7 +10476,9 @@ void Arm64AsmPrinter::emitDispVectorReg(RegNum reg, insOpts opt, bool addComma)
     emitDispArrangement(opt);
 
     if (addComma)
+    {
         printf(", ");
+    }
 }
 
 void Arm64AsmPrinter::emitDispVectorRegIndex(RegNum reg, emitAttr elemsize, ssize_t index, bool addComma)
@@ -10489,7 +10489,9 @@ void Arm64AsmPrinter::emitDispVectorRegIndex(RegNum reg, emitAttr elemsize, ssiz
     printf("[%d]", index);
 
     if (addComma)
+    {
         printf(", ");
+    }
 }
 
 void Arm64AsmPrinter::emitDispVectorRegList(RegNum firstReg, unsigned listSize, insOpts opt, bool addComma)
@@ -10543,7 +10545,7 @@ void Arm64AsmPrinter::emitDispVectorElemList(
 
 void Arm64AsmPrinter::emitDispArrangement(insOpts opt)
 {
-    const char* str = "???";
+    const char* str;
 
     switch (opt)
     {
@@ -10571,12 +10573,12 @@ void Arm64AsmPrinter::emitDispArrangement(insOpts opt)
         case INS_OPTS_2D:
             str = "2d";
             break;
-
         default:
-            assert(!"Invalid insOpt for vector register");
+            str = "???";
+            break;
     }
-    printf(".");
-    printf(str);
+
+    printf(".%s", str);
 }
 
 void Arm64AsmPrinter::emitDispElemsize(emitAttr elemsize)
