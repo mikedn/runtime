@@ -361,7 +361,6 @@ struct Arm64Imm
     static bool IsMovImm(int64_t value, emitAttr size);
     static bool IsMoviImm(uint64_t value, insOpts opts);
     static bool IsAddImm(int64_t value, emitAttr size);
-    static bool IsCmpImm(int64_t value, emitAttr size);
     static bool IsAluImm(int64_t value, emitAttr size);
     static bool IsLdStImm(int64_t value, emitAttr size);
     static bool IsBlImm(int64_t value, Compiler* compiler);

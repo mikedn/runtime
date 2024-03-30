@@ -86,7 +86,7 @@ bool Lowering::IsContainableImmed(GenTree* parentNode, GenTree* childNode) const
         case GT_GE:
         case GT_GT:
         case GT_BOUNDS_CHECK:
-            return Arm64Imm::IsCmpImm(immVal, size);
+            return Arm64Imm::IsAddImm(immVal, size);
         case GT_AND:
         case GT_OR:
         case GT_XOR:
