@@ -338,6 +338,9 @@ constexpr emitAttr emitVecTypeSize(unsigned size)
 
 #ifdef TARGET_ARM64
 
+insOpts GetVecArrangementOpt(emitAttr vecSize, var_types elemType);
+emitAttr GetVecElemsize(insOpts arrangement);
+
 struct Arm64Imm
 {
     static bool IsFMovImm(double value);
@@ -350,6 +353,10 @@ struct Arm64Imm
     static bool IsBlImm(int64_t value, Compiler* compiler);
     static bool IsBitMaskImm(int64_t value, emitAttr size, unsigned* imm);
     static int64_t DecodeBitMaskImm(unsigned imm, emitAttr size);
+
+#ifdef DEBUG
+    static bool IsVecIndex(int64_t index, emitAttr vecSize, emitAttr elemSize);
+#endif
 };
 
 #endif

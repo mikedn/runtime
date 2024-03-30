@@ -6,10 +6,6 @@
 #include "instr.h"
 #include "jitgcinfo.h"
 
-#ifdef TARGET_ARM64
-insOpts emitSimdArrangementOpt(emitAttr size, var_types elementType);
-#endif
-
 #define FMT_IG "IG%02u"
 
 class CodeGen;
@@ -1188,7 +1184,7 @@ public:
 
 #ifdef TARGET_X86
             emitAddrMode iiaAddrMode;
-            RegNum    _idReg3 : RegBits;
+            RegNum       _idReg3 : RegBits;
 
             struct
             {
@@ -1200,7 +1196,7 @@ public:
 
 #ifdef TARGET_AMD64
             emitAddrMode iiaAddrMode;
-            RegNum    _idReg3 : RegBits;
+            RegNum       _idReg3 : RegBits;
 
             struct
             {
@@ -1214,13 +1210,13 @@ public:
 #ifdef TARGET_ARM64
             struct
             {
-                RegNum _idReg3 : RegBits;
-                RegNum _idReg4 : RegBits;
-                unsigned  _idReg3Scaled : 1;
-                GCtype    _idGCref2 : 2;
-                unsigned  isTrackedGCSlotStore : 1;
-                unsigned  isGCArgStore : 1;
-                int       lclOffset;
+                RegNum   _idReg3 : RegBits;
+                RegNum   _idReg4 : RegBits;
+                unsigned _idReg3Scaled : 1;
+                GCtype   _idGCref2 : 2;
+                unsigned isTrackedGCSlotStore : 1;
+                unsigned isGCArgStore : 1;
+                int      lclOffset;
             };
 #endif
         } _idAddrUnion;

@@ -448,9 +448,9 @@ static emitAttr optGetSrcsize(insOpts conversion);
 static emitAttr optGetDstsize(insOpts conversion);
 static emitAttr optGetElemsize(insOpts arrangement);
 static bool isValidArrangement(emitAttr datasize, insOpts opt);
-static bool isValidVectorIndex(emitAttr datasize, emitAttr elemsize, ssize_t index);
 
 #ifdef DEBUG
+
 void EmitterBase::emitInsSanityCheck(instrDesc* id)
 {
     switch (id->idInsFmt())
@@ -920,7 +920,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             elemsize = id->idOpSize();
             index    = id->emitGetInsSC();
             assert(insOptsNone(id->idInsOpt()));
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, index));
+            assert(Arm64Imm::IsVecIndex(index, EA_16BYTE, elemsize));
             assert(isValidVectorElemsize(elemsize));
             assert(isGeneralRegister(id->idReg1()));
             assert(isVectorRegister(id->idReg2()));
@@ -951,7 +951,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isValidArrangement(datasize, id->idInsOpt()));
             elemsize = optGetElemsize(id->idInsOpt());
             index    = id->emitGetInsSC();
-            assert((ins == INS_dup) || isValidVectorIndex(datasize, elemsize, index));
+            assert((ins == INS_dup) || Arm64Imm::IsVecIndex(index, datasize, elemsize));
             assert(isVectorRegister(id->idReg1()));
             assert(isVectorRegister(id->idReg2()));
             break;
@@ -959,7 +959,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
         case IF_DV_2E: // DV_2E   ...........iiiii ......nnnnnddddd      Vd Vn[]  (dup - scalar)
             elemsize = id->idOpSize();
             index    = id->emitGetInsSC();
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, index));
+            assert(Arm64Imm::IsVecIndex(index, EA_16BYTE, elemsize));
             assert(isValidVectorElemsize(elemsize));
             assert(isVectorRegister(id->idReg1()));
             assert(isVectorRegister(id->idReg2()));
@@ -971,8 +971,8 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             index2   = imm & 0xf;
             elemsize = id->idOpSize();
             assert(isValidVectorElemsize(elemsize));
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, index));
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, index2));
+            assert(Arm64Imm::IsVecIndex(index, EA_16BYTE, elemsize));
+            assert(Arm64Imm::IsVecIndex(index2, EA_16BYTE, elemsize));
             assert(isVectorRegister(id->idReg1()));
             assert(isVectorRegister(id->idReg2()));
             break;
@@ -1092,7 +1092,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isVectorRegister(id->idReg2()));
             assert(isVectorRegister(id->idReg3()));
             elemsize = optGetElemsize(id->idInsOpt());
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, id->emitGetInsSC()));
+            assert(Arm64Imm::IsVecIndex(id->emitGetInsSC(), EA_16BYTE, elemsize));
             // Only has encodings for H or S elemsize
             assert((elemsize == EA_2BYTE) || (elemsize == EA_4BYTE));
             break;
@@ -1112,7 +1112,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isVectorRegister(id->idReg2()));
             assert(isVectorRegister(id->idReg3()));
             elemsize = optGetElemsize(id->idInsOpt());
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, id->emitGetInsSC()));
+            assert(Arm64Imm::IsVecIndex(id->emitGetInsSC(), EA_16BYTE, elemsize));
             break;
 
         case IF_DV_3C: // DV_3C   .Q.........mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
@@ -1154,7 +1154,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isVectorRegister(id->idReg2()));
             assert(isVectorRegister(id->idReg3()));
             elemsize = id->idOpSize();
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, id->emitGetInsSC()));
+            assert(Arm64Imm::IsVecIndex(id->emitGetInsSC(), EA_16BYTE, elemsize));
             break;
 
         case IF_DV_3E: // DV_3E   ........XX.mmmmm ......nnnnnddddd      Vd Vn Vm  (scalar)
@@ -1165,7 +1165,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isVectorRegister(id->idReg3()));
             elemsize = id->idOpSize();
             index    = id->emitGetInsSC();
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, index));
+            assert(Arm64Imm::IsVecIndex(index, EA_16BYTE, elemsize));
             break;
 
         case IF_DV_3EI: // DV_3EI ........XXLMmmmm ....H.nnnnnddddd      Vd Vn Vm[] (scalar by element)
@@ -1176,7 +1176,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isVectorRegister(id->idReg3()));
             elemsize = id->idOpSize();
             index    = id->emitGetInsSC();
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, index));
+            assert(Arm64Imm::IsVecIndex(index, EA_16BYTE, elemsize));
             break;
 
         case IF_DV_3F: // DV_3F   ...........mmmmm ......nnnnnddddd      Vd Vn Vm
@@ -1190,7 +1190,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
         case IF_DV_3G: // DV_3G   .Q.........mmmmm .iiii.nnnnnddddd      Vd Vn Vm imm (vector)
             assert(isValidVectorDatasize(id->idOpSize()));
             assert(isValidArrangement(id->idOpSize(), id->idInsOpt()));
-            assert(isValidVectorIndex(id->idOpSize(), EA_1BYTE, id->emitGetInsSC()));
+            assert(Arm64Imm::IsVecIndex(id->emitGetInsSC(), id->idOpSize(), EA_1BYTE));
             assert(isVectorRegister(id->idReg1()));
             assert(isVectorRegister(id->idReg2()));
             assert(isVectorRegister(id->idReg3()));
@@ -3427,9 +3427,7 @@ static unsigned insGetRegisterListSize(instruction ins)
     }
 }
 
-// For the given 'arrangement' returns the 'elemsize' specified by the vector register arrangement
-// asserts and returns EA_UNKNOWN if an invalid 'arrangement' value is passed
-emitAttr Arm64Emitter::optGetElemsize(insOpts arrangement)
+emitAttr GetVecElemsize(insOpts arrangement)
 {
     if ((arrangement == INS_OPTS_8B) || (arrangement == INS_OPTS_16B))
     {
@@ -3457,30 +3455,29 @@ emitAttr Arm64Emitter::optGetElemsize(insOpts arrangement)
 
 static emitAttr optGetElemsize(insOpts arrangement)
 {
-    return Emitter::optGetElemsize(arrangement);
+    return GetVecElemsize(arrangement);
 }
 
-insOpts emitSimdArrangementOpt(emitAttr size, var_types elementType)
+insOpts GetVecArrangementOpt(emitAttr vecSize, var_types elemType)
 {
-    assert((size == EA_16BYTE) || (size == EA_8BYTE));
+    assert((vecSize == EA_16BYTE) || (vecSize == EA_8BYTE));
 
-    switch (elementType)
+    switch (elemType)
     {
         case TYP_DOUBLE:
         case TYP_ULONG:
         case TYP_LONG:
-            return (size == EA_16BYTE) ? INS_OPTS_2D : INS_OPTS_1D;
+            return vecSize == EA_16BYTE ? INS_OPTS_2D : INS_OPTS_1D;
         case TYP_FLOAT:
         case TYP_UINT:
         case TYP_INT:
-            return (size == EA_16BYTE) ? INS_OPTS_4S : INS_OPTS_2S;
+            return vecSize == EA_16BYTE ? INS_OPTS_4S : INS_OPTS_2S;
         case TYP_USHORT:
         case TYP_SHORT:
-            return (size == EA_16BYTE) ? INS_OPTS_8H : INS_OPTS_4H;
+            return vecSize == EA_16BYTE ? INS_OPTS_8H : INS_OPTS_4H;
         case TYP_UBYTE:
         case TYP_BYTE:
-            return (size == EA_16BYTE) ? INS_OPTS_16B : INS_OPTS_8B;
-            break;
+            return vecSize == EA_16BYTE ? INS_OPTS_16B : INS_OPTS_8B;
         default:
             unreached();
     }
@@ -3611,69 +3608,29 @@ static emitAttr optGetSrcsize(insOpts conversion)
             return EA_UNKNOWN;
     }
 }
-#endif // DEBUG
 
-// For the given 'size' and 'index' returns true if it specifies a valid index for a vector register of 'size'
-bool Arm64Emitter::isValidVectorIndex(emitAttr datasize, emitAttr elemsize, ssize_t index)
+bool Arm64Imm::IsVecIndex(int64_t index, emitAttr vecSize, emitAttr elemSize)
 {
-    assert(isValidVectorDatasize(datasize));
-    assert(isValidVectorElemsize(elemsize));
+    assert(isValidVectorDatasize(vecSize));
+    assert(isValidVectorElemsize(elemSize));
 
-    bool result = false;
-    if (index >= 0)
+    if (index < 0)
     {
-        if (datasize == EA_8BYTE)
-        {
-            switch (elemsize)
-            {
-                case EA_1BYTE:
-                    result = (index < 8);
-                    break;
-                case EA_2BYTE:
-                    result = (index < 4);
-                    break;
-                case EA_4BYTE:
-                    result = (index < 2);
-                    break;
-                case EA_8BYTE:
-                    result = (index < 1);
-                    break;
-                default:
-                    unreached();
-                    break;
-            }
-        }
-        else if (datasize == EA_16BYTE)
-        {
-            switch (elemsize)
-            {
-                case EA_1BYTE:
-                    result = (index < 16);
-                    break;
-                case EA_2BYTE:
-                    result = (index < 8);
-                    break;
-                case EA_4BYTE:
-                    result = (index < 4);
-                    break;
-                case EA_8BYTE:
-                    result = (index < 2);
-                    break;
-                default:
-                    unreached();
-                    break;
-            }
-        }
+        return false;
     }
-    return result;
-}
 
-#ifdef DEBUG
-static bool isValidVectorIndex(emitAttr datasize, emitAttr elemsize, ssize_t index)
-{
-    return Emitter::isValidVectorIndex(datasize, elemsize, index);
+    switch (elemSize)
+    {
+        case EA_1BYTE:
+        case EA_2BYTE:
+        case EA_4BYTE:
+        case EA_8BYTE:
+            return index < EA_SIZE_IN_BYTES(vecSize) / EA_SIZE_IN_BYTES(elemSize);
+        default:
+            unreached();
+    }
 }
-#endif
+#endif // DEBUG
 
 template <typename T>
 T* Arm64Emitter::AllocInstr(bool updateLastIns)
@@ -4949,7 +4906,7 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
             assert(insOptsNone(opt));
             assert(isValidVectorElemsize(size));
             elemsize = size;
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, imm));
+            assert(Arm64Imm::IsVecIndex(imm, EA_16BYTE, elemsize));
 
             if (isVectorRegister(reg1))
             {
@@ -5258,7 +5215,7 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
                     assert(insOptsNone(opt));
                     elemsize = size;
                     assert(isValidVectorElemsize(elemsize));
-                    assert(isValidVectorIndex(EA_16BYTE, elemsize, imm));
+                    assert(Arm64Imm::IsVecIndex(imm, EA_16BYTE, elemsize));
                     fmt = IF_DV_2E;
                 }
 
@@ -5272,7 +5229,7 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
             assert(isVectorRegister(reg1));
             assert(isGeneralRegisterOrZR(reg2));
             elemsize = size;
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, imm));
+            assert(Arm64Imm::IsVecIndex(imm, EA_16BYTE, elemsize));
             fmt = IF_DV_2C;
             break;
 
@@ -5282,7 +5239,7 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
             assert(isGeneralRegister(reg1));
             assert(isVectorRegister(reg2));
             elemsize = size;
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, imm));
+            assert(Arm64Imm::IsVecIndex(imm, EA_16BYTE, elemsize));
             fmt = IF_DV_2B;
             break;
 
@@ -5293,7 +5250,7 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
             assert(isGeneralRegister(reg1));
             assert(isVectorRegister(reg2));
             elemsize = size;
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, imm));
+            assert(Arm64Imm::IsVecIndex(imm, EA_16BYTE, elemsize));
             fmt = IF_DV_2B;
             break;
 
@@ -5442,7 +5399,7 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
 
                 elemsize = size;
                 assert(isValidVectorElemsize(elemsize));
-                assert(isValidVectorIndex(EA_16BYTE, elemsize, imm));
+                assert(Arm64Imm::IsVecIndex(imm, EA_16BYTE, elemsize));
 
                 // Load/Store single structure  base register
                 fmt = IF_LS_2F;
@@ -6382,7 +6339,7 @@ void Arm64Emitter::emitIns_R_R_R_I(
                 assert(isValidArrangement(size, opt));
                 elemsize = optGetElemsize(opt);
                 assert(isValidVectorElemsizeFloat(elemsize));
-                assert(isValidVectorIndex(EA_16BYTE, elemsize, imm));
+                assert(Arm64Imm::IsVecIndex(imm, EA_16BYTE, elemsize));
                 assert(opt != INS_OPTS_1D); // Reserved encoding
                 fmt = IF_DV_3BI;
             }
@@ -6392,7 +6349,7 @@ void Arm64Emitter::emitIns_R_R_R_I(
                 assert(insOptsNone(opt));
                 assert(isValidScalarDatasize(size));
                 elemsize = size;
-                assert(isValidVectorIndex(EA_16BYTE, elemsize, imm));
+                assert(Arm64Imm::IsVecIndex(imm, EA_16BYTE, elemsize));
                 fmt = IF_DV_3DI;
             }
             break;
@@ -6408,7 +6365,7 @@ void Arm64Emitter::emitIns_R_R_R_I(
             assert(isValidVectorDatasize(size));
             assert(isValidArrangement(size, opt));
             elemsize = optGetElemsize(opt);
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, imm));
+            assert(Arm64Imm::IsVecIndex(imm, EA_16BYTE, elemsize));
             // Only has encodings for H or S elemsize
             assert((elemsize == EA_2BYTE) || (elemsize == EA_4BYTE));
             // Only has encodings for V0..V15
@@ -6470,7 +6427,7 @@ void Arm64Emitter::emitIns_R_R_R_I(
 
             elemsize = size;
             assert(isValidVectorElemsize(elemsize));
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, imm));
+            assert(Arm64Imm::IsVecIndex(imm, EA_16BYTE, elemsize));
 
             // Load/Store single structure  post-indexed by a register
             reg2 = encodingSPtoZR(reg2);
@@ -6484,7 +6441,7 @@ void Arm64Emitter::emitIns_R_R_R_I(
             assert(isValidVectorDatasize(size));
             assert(isValidArrangement(size, opt));
             assert((opt == INS_OPTS_8B) || (opt == INS_OPTS_16B));
-            assert(isValidVectorIndex(size, EA_1BYTE, imm));
+            assert(Arm64Imm::IsVecIndex(imm, size, EA_1BYTE));
             fmt = IF_DV_3G;
             break;
 
@@ -6505,7 +6462,7 @@ void Arm64Emitter::emitIns_R_R_R_I(
             {
                 assert(!"Invalid reg3");
             }
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, imm));
+            assert(Arm64Imm::IsVecIndex(imm, EA_16BYTE, elemsize));
             fmt = IF_DV_3AI;
             break;
 
@@ -6536,7 +6493,7 @@ void Arm64Emitter::emitIns_R_R_R_I(
             {
                 assert(!"Invalid reg3");
             }
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, imm));
+            assert(Arm64Imm::IsVecIndex(imm, EA_16BYTE, elemsize));
             break;
 
         case INS_sqdmulh:
@@ -6567,7 +6524,7 @@ void Arm64Emitter::emitIns_R_R_R_I(
             {
                 assert(!"Invalid reg3");
             }
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, imm));
+            assert(Arm64Imm::IsVecIndex(imm, EA_16BYTE, elemsize));
             break;
 
         case INS_smlal2:
@@ -6585,7 +6542,7 @@ void Arm64Emitter::emitIns_R_R_R_I(
             assert(size == EA_16BYTE);
             assert((opt == INS_OPTS_8H) || (opt == INS_OPTS_4S));
             elemsize = optGetElemsize(opt);
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, imm));
+            assert(Arm64Imm::IsVecIndex(imm, EA_16BYTE, elemsize));
             // Restricted to V0-V15 when element size is H
             if ((elemsize == EA_2BYTE) && ((genRegMask(reg3) & RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS) == 0))
             {
@@ -6600,7 +6557,7 @@ void Arm64Emitter::emitIns_R_R_R_I(
             assert(isVectorRegister(reg2));
             assert(isVectorRegister(reg3));
             assert(((size == EA_8BYTE) && (opt == INS_OPTS_2S)) || ((size == EA_16BYTE) && (opt == INS_OPTS_4S)));
-            assert(isValidVectorIndex(EA_16BYTE, EA_4BYTE, imm));
+            assert(Arm64Imm::IsVecIndex(imm, EA_16BYTE, EA_4BYTE));
             fmt = IF_DV_3AI;
             break;
 
@@ -6882,8 +6839,8 @@ void Arm64Emitter::emitIns_R_R_I_I(
             assert(isVectorRegister(reg2));
             elemsize = size;
             assert(isValidVectorElemsize(elemsize));
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, imm1));
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, imm2));
+            assert(Arm64Imm::IsVecIndex(imm1, EA_16BYTE, elemsize));
+            assert(Arm64Imm::IsVecIndex(imm2, EA_16BYTE, elemsize));
             assert(insOptsNone(opt));
             immOut = (imm1 << 4) + imm2;
             fmt    = IF_DV_2F;
@@ -6902,7 +6859,7 @@ void Arm64Emitter::emitIns_R_R_I_I(
 
             elemsize = size;
             assert(isValidVectorElemsize(elemsize));
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, imm1));
+            assert(Arm64Imm::IsVecIndex(imm1, EA_16BYTE, elemsize));
 
             registerListSize = insGetRegisterListSize(ins);
             assert((elemsize * registerListSize) == (unsigned)imm2);
@@ -9932,7 +9889,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code     = emitInsCode(ins, fmt);
             imm      = id->emitGetInsSC();
             elemsize = optGetElemsize(id->idInsOpt());
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, imm));
+            assert(Arm64Imm::IsVecIndex(imm, EA_16BYTE, elemsize));
             code |= insEncodeVectorsize(id->idOpSize());    // Q
             code |= insEncodeElemsize(elemsize);            // XX
             code |= insEncodeVectorIndexLMH(elemsize, imm); // LM H
@@ -9957,7 +9914,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code     = emitInsCode(ins, fmt);
             imm      = id->emitGetInsSC();
             elemsize = optGetElemsize(id->idInsOpt());
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, imm));
+            assert(Arm64Imm::IsVecIndex(imm, EA_16BYTE, elemsize));
             code |= insEncodeVectorsize(id->idOpSize()); // Q
             code |= insEncodeFloatElemsize(elemsize);    // X
             code |= insEncodeFloatIndex(elemsize, imm);  // L H
@@ -9989,7 +9946,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code     = emitInsCode(ins, fmt);
             imm      = id->emitGetInsSC();
             elemsize = id->idOpSize();
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, imm));
+            assert(Arm64Imm::IsVecIndex(imm, EA_16BYTE, elemsize));
             code |= insEncodeFloatElemsize(elemsize);   // X
             code |= insEncodeFloatIndex(elemsize, imm); // L H
             code |= insEncodeReg_Vd(id->idReg1());      // ddddd
@@ -10012,7 +9969,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code     = emitInsCode(ins, fmt);
             imm      = id->emitGetInsSC();
             elemsize = id->idOpSize();
-            assert(isValidVectorIndex(EA_16BYTE, elemsize, imm));
+            assert(Arm64Imm::IsVecIndex(imm, EA_16BYTE, elemsize));
             code |= insEncodeElemsize(elemsize);            // XX
             code |= insEncodeVectorIndexLMH(elemsize, imm); // LM H
             code |= insEncodeReg_Vd(id->idReg1());          // ddddd

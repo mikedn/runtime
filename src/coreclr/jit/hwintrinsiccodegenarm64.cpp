@@ -183,7 +183,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
     else
     {
         emitSize = emitVecTypeSize(node->GetSimdSize());
-        opt      = emitSimdArrangementOpt(emitSize, intrin.baseType);
+        opt      = GetVecArrangementOpt(emitSize, intrin.baseType);
     }
 
     const bool isRMW         = node->isRMWHWIntrinsic(compiler);
@@ -399,11 +399,11 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
             case NI_AdvSimd_Arm64_DuplicateSelectedScalarToVector128:
                 if (GenTreeIntCon* imm = intrin.op2->IsIntCon())
                 {
-                    assert(emit.isValidVectorIndex(emitSize, emit.optGetElemsize(opt), imm->GetValue()));
+                    assert(Arm64Imm::IsVecIndex(imm->GetValue(), emitSize, GetVecElemsize(opt)));
                 }
 
                 emitSize = emitActualTypeSize(node->GetType());
-                opt      = emitSimdArrangementOpt(emitSize, intrin.baseType);
+                opt      = GetVecArrangementOpt(emitSize, intrin.baseType);
                 assert(opt != INS_OPTS_NONE);
 
                 ExpandNonConstImm(this, intrin.op2, node,
@@ -564,7 +564,7 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
 
                 if (GenTreeIntCon* imm = intrin.op1->IsContainedIntCon())
                 {
-                    opt = emitSimdArrangementOpt(emitSize, intrin.baseType);
+                    opt = GetVecArrangementOpt(emitSize, intrin.baseType);
                     emit.emitIns_R_I(INS_movi, emitSize, defReg, imm->GetValue(), opt);
                     break;
                 }

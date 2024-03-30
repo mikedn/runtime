@@ -15,12 +15,6 @@ public:
     }
 
     static bool emitInsIsLoad(instruction ins);
-    // For the given 'arrangement' returns the 'elemsize' specified by the vector register arrangement
-    static emitAttr optGetElemsize(insOpts arrangement);
-    // For the given 'datasize', 'elemsize' and 'index' returns true, if it specifies a valid 'index'
-    // for an element of size 'elemsize' in a vector register of size 'datasize'
-    static bool isValidVectorIndex(emitAttr datasize, emitAttr elemsize, ssize_t index);
-
     static bool IsMovInstruction(instruction ins);
 
     /************************************************************************/
