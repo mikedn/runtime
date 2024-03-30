@@ -308,8 +308,6 @@ static bool isVectorRegister(RegNum reg)
     return IsVectorRegister(reg);
 }
 
-static constexpr bool strictArmAsm = true;
-
 insCond JumpKindToInsCond(emitJumpKind kind)
 {
     assert((EJ_eq <= kind) && (kind <= EJ_le));
@@ -10321,10 +10319,7 @@ void Arm64AsmPrinter::emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm
 
 void Arm64AsmPrinter::emitDispImm(ssize_t imm, bool addComma, bool alwaysHex)
 {
-    if (strictArmAsm)
-    {
-        printf("#");
-    }
+    printf("#");
 
     // Munge any pointers if we want diff-able disassembly.
     // Since some may be emitted as partial words, print as diffable anything that has
@@ -10364,36 +10359,25 @@ void Arm64AsmPrinter::emitDispImm(ssize_t imm, bool addComma, bool alwaysHex)
 
 void Arm64AsmPrinter::emitDispFloatZero()
 {
-    if (strictArmAsm)
-    {
-        printf("#");
-    }
-    printf("0.0");
+    printf("#0.0");
 }
 
 void Arm64AsmPrinter::emitDispFloatImm(ssize_t imm8)
 {
     assert((0 <= imm8) && (imm8 <= 0x0ff));
-    if (strictArmAsm)
-    {
-        printf("#");
-    }
 
     floatImm8 fpImm;
     fpImm.immFPIVal = (unsigned)imm8;
     double result   = emitDecodeFloatImm8(fpImm);
 
-    printf("%.4f", result);
+    printf("#%.4f", result);
 }
 
 void Arm64AsmPrinter::emitDispImmOptsLSL12(ssize_t imm, insOpts opt)
 {
-    if (!strictArmAsm && insOptsLSL12(opt))
-    {
-        imm <<= 12;
-    }
     emitDispImm(imm, false);
-    if (strictArmAsm && insOptsLSL12(opt))
+
+    if (insOptsLSL12(opt))
     {
         printf(", LSL #12");
     }
@@ -10632,10 +10616,7 @@ void Arm64AsmPrinter::emitDispShiftedReg(RegNum reg, insOpts opt, ssize_t imm, e
 
     if (imm > 0)
     {
-        if (strictArmAsm)
-        {
-            printf(",");
-        }
+        printf(",");
         emitDispShiftOpts(opt);
         emitDispImm(imm, false);
     }
@@ -10649,46 +10630,21 @@ void Arm64AsmPrinter::emitDispExtendReg(RegNum reg, insOpts opt, ssize_t imm)
     // size is based on the extend option, not the instr size.
     emitAttr size = insOpts32BitExtend(opt) ? EA_4BYTE : EA_8BYTE;
 
-    if (strictArmAsm)
+    if (insOptsNone(opt))
     {
-        if (insOptsNone(opt))
-        {
-            emitDispReg(reg, size, false);
-        }
-        else
-        {
-            emitDispReg(reg, size, true);
-            if (opt == INS_OPTS_LSL)
-                printf("LSL");
-            else
-                emitDispExtendOpts(opt);
-            if ((imm > 0) || (opt == INS_OPTS_LSL))
-            {
-                printf(" ");
-                emitDispImm(imm, false);
-            }
-        }
+        emitDispReg(reg, size, false);
     }
-    else // !strictArmAsm
+    else
     {
-        if (insOptsNone(opt))
-        {
-            emitDispReg(reg, size, false);
-        }
+        emitDispReg(reg, size, true);
+        if (opt == INS_OPTS_LSL)
+            printf("LSL");
         else
+            emitDispExtendOpts(opt);
+        if ((imm > 0) || (opt == INS_OPTS_LSL))
         {
-            if (opt != INS_OPTS_LSL)
-            {
-                emitDispExtendOpts(opt);
-                printf("(");
-                emitDispReg(reg, size, false);
-                printf(")");
-            }
-        }
-        if (imm > 0)
-        {
-            printf("*");
-            emitDispImm(ssize_t{1} << imm, false);
+            printf(" ");
+            emitDispImm(imm, false);
         }
     }
 }
@@ -10697,89 +10653,33 @@ void Arm64AsmPrinter::emitDispAddrRI(RegNum reg, insOpts opt, ssize_t imm)
 {
     reg = encodingZRtoSP(reg); // ZR (R31) encodes the SP register
 
-    if (strictArmAsm)
+    printf("[");
+
+    emitDispReg(reg, EA_8BYTE, false);
+
+    if (!insOptsPostIndex(opt) && (imm != 0))
     {
-        printf("[");
-
-        emitDispReg(reg, EA_8BYTE, false);
-
-        if (!insOptsPostIndex(opt) && (imm != 0))
-        {
-            printf(",");
-            emitDispImm(imm, false);
-        }
-        printf("]");
-
-        if (insOptsPreIndex(opt))
-        {
-            printf("!");
-        }
-        else if (insOptsPostIndex(opt))
-        {
-            printf(",");
-            emitDispImm(imm, false);
-        }
-    }
-    else // !strictArmAsm
-    {
-        printf("[");
-
-        const char* operStr = "++";
-        if (imm < 0)
-        {
-            operStr = "--";
-            imm     = -imm;
-        }
-
-        if (insOptsPreIndex(opt))
-        {
-            printf(operStr);
-        }
-
-        emitDispReg(reg, EA_8BYTE, false);
-
-        if (insOptsPostIndex(opt))
-        {
-            printf(operStr);
-        }
-
-        if (insOptsIndexed(opt))
-        {
-            printf(", ");
-        }
-        else
-        {
-            printf("%c", operStr[1]);
-        }
+        printf(",");
         emitDispImm(imm, false);
-        printf("]");
+    }
+    printf("]");
+
+    if (insOptsPreIndex(opt))
+    {
+        printf("!");
+    }
+    else if (insOptsPostIndex(opt))
+    {
+        printf(",");
+        emitDispImm(imm, false);
     }
 }
 
 void Arm64AsmPrinter::emitDispAddrRRExt(RegNum reg1, RegNum reg2, insOpts opt, bool isScaled, emitAttr size)
 {
-    reg1 = encodingZRtoSP(reg1); // ZR (R31) encodes the SP register
-
-    unsigned scale = 0;
-    if (isScaled)
-    {
-        scale = NaturalScale_helper(size);
-    }
-
     printf("[");
-
-    if (strictArmAsm)
-    {
-        emitDispReg(reg1, EA_8BYTE, true);
-        emitDispExtendReg(reg2, opt, scale);
-    }
-    else // !strictArmAsm
-    {
-        emitDispReg(reg1, EA_8BYTE, false);
-        printf("+");
-        emitDispExtendReg(reg2, opt, scale);
-    }
-
+    emitDispReg(encodingZRtoSP(reg1), EA_8BYTE, true);
+    emitDispExtendReg(reg2, opt, isScaled ? NaturalScale_helper(size) : 0);
     printf("]");
 }
 
