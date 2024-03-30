@@ -36,49 +36,36 @@ bool Lowering::IsCallTargetInRange(void* addr)
 #endif
 }
 
-//------------------------------------------------------------------------
-// IsContainableImmed: Is an immediate encodable in-place?
-//
-// Return Value:
-//    True if the immediate can be folded into an instruction,
-//    for example small enough and non-relocatable.
-//
-// TODO-CQ: we can contain a floating point 0.0 constant in a compare instruction
-// (vcmp on arm, fcmp on arm64).
-//
-bool Lowering::IsContainableImmed(GenTree* parentNode, GenTree* childNode) const
+bool Lowering::IsContainableImmed(GenTree* instr, GenTree* operand) const
 {
-    if (!childNode->IsIntCon() || childNode->AsIntCon()->ImmedValNeedsReloc(comp))
+    // TODO-CQ: We can contain a floating point 0.0 constant in
+    // a compare instruction (vcmp on arm, fcmp on arm64).
+
+    if (!operand->IsIntCon() || operand->AsIntCon()->ImmedValNeedsReloc(comp))
     {
         return false;
     }
 
-    // TODO-CrossBitness: we wouldn't need the cast below if GenTreeIntCon::gtIconVal had target_ssize_t type.
-    target_ssize_t immVal = (target_ssize_t)childNode->AsIntCon()->gtIconVal;
-    emitAttr       attr   = emitActualTypeSize(childNode->TypeGet());
-    emitAttr       size   = EA_SIZE(attr);
 #ifdef TARGET_ARM
-    insFlags flags = ((parentNode->gtFlags & GTF_SET_FLAGS) != 0) ? INS_FLAGS_SET : INS_FLAGS_DONT_CARE;
+    int32_t  value = operand->AsIntCon()->GetInt32Value();
+    insFlags flags = instr->HasImplicitFlagsDef() ? INS_FLAGS_SET : INS_FLAGS_DONT_CARE;
+#else
+    int64_t  value = operand->AsIntCon()->GetValue();
+    emitAttr size  = EA_SIZE(emitActualTypeSize(operand->GetType()));
 #endif
 
-    switch (parentNode->OperGet())
+    switch (instr->GetOper())
     {
-        case GT_ADD:
-        case GT_SUB:
 #ifdef TARGET_ARM64
         case GT_CMPXCHG:
-        case GT_LOCKADD:
-        case GT_XORR:
-        case GT_XAND:
         case GT_XADD:
-            return comp->compOpportunisticallyDependsOn(InstructionSet_Atomics) ? false
-                                                                                : Arm64Imm::IsAddImm(immVal, size);
-#elif defined(TARGET_ARM)
-            return ArmImm::IsAddImm(immVal, flags);
-#endif
-            break;
-
-#ifdef TARGET_ARM64
+            if (comp->compOpportunisticallyDependsOn(InstructionSet_Atomics))
+            {
+                return false;
+            }
+            FALLTHROUGH;
+        case GT_ADD:
+        case GT_SUB:
         case GT_EQ:
         case GT_NE:
         case GT_LT:
@@ -86,17 +73,25 @@ bool Lowering::IsContainableImmed(GenTree* parentNode, GenTree* childNode) const
         case GT_GE:
         case GT_GT:
         case GT_BOUNDS_CHECK:
-            return Arm64Imm::IsAddImm(immVal, size);
+            return Arm64Imm::IsAddImm(value, size);
         case GT_AND:
         case GT_OR:
         case GT_XOR:
         case GT_TEST_EQ:
         case GT_TEST_NE:
-            return Arm64Imm::IsAluImm(immVal, size);
+            return Arm64Imm::IsAluImm(value, size);
         case GT_JCMP:
-            assert(((parentNode->gtFlags & GTF_JCMP_TST) == 0) ? (immVal == 0) : isPow2(immVal));
+            assert(((instr->gtFlags & GTF_JCMP_TST) == 0) ? (value == 0) : isPow2(value));
             return true;
-#elif defined(TARGET_ARM)
+        case GT_STORE_LCL_FLD:
+        case GT_STORE_LCL_VAR:
+            return value == 0;
+#endif // TARGET_ARM64
+
+#ifdef TARGET_ARM
+        case GT_ADD:
+        case GT_SUB:
+            return ArmImm::IsAddImm(value, flags);
         case GT_EQ:
         case GT_NE:
         case GT_LT:
@@ -107,22 +102,12 @@ bool Lowering::IsContainableImmed(GenTree* parentNode, GenTree* childNode) const
         case GT_AND:
         case GT_OR:
         case GT_XOR:
-            return ArmImm::IsAluImm(immVal);
+            return ArmImm::IsAluImm(value);
 #endif // TARGET_ARM
 
-#ifdef TARGET_ARM64
-        case GT_STORE_LCL_FLD:
-        case GT_STORE_LCL_VAR:
-            if (immVal == 0)
-                return true;
-            break;
-#endif
-
         default:
-            break;
+            return false;
     }
-
-    return false;
 }
 
 void Lowering::LowerStoreLclVarArch(GenTreeLclVar* store)

@@ -2472,15 +2472,14 @@ void CodeGen::genLockedInstructions(GenTreeOp* treeNode)
         // The following instruction includes a acquire half barrier
         GetEmitter()->emitIns_R_R(INS_ldaxr, dataSize, loadReg, addrReg);
 
-        switch (treeNode->OperGet())
+        switch (treeNode->GetOper())
         {
             case GT_XADD:
-                if (data->isContainedIntOrIImmed())
+                if (GenTreeIntCon* imm = data->IsContainedIntCon())
                 {
                     // Even though INS_add is specified here, the encoder will choose either
                     // an INS_add or an INS_sub and encode the immediate as a positive value
-                    genInstrWithConstant(INS_add, dataSize, storeDataReg, loadReg, data->AsIntConCommon()->IconValue(),
-                                         REG_NA);
+                    genInstrWithConstant(INS_add, dataSize, storeDataReg, loadReg, imm->GetValue(), REG_NA);
                 }
                 else
                 {
