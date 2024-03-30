@@ -34,7 +34,7 @@ bool Lowering::IsCallTargetInRange(void* addr)
     return ArmImm::IsBlImm(reinterpret_cast<ssize_t>(addr), comp);
 }
 
-bool Lowering::IsContainableImmed(GenTree* instr, GenTree* operand) const
+bool Lowering::IsImmOperand(GenTree* operand, GenTree* instr) const
 {
     // TODO-CQ: We can contain a floating point 0.0 constant in VCMP.
 
@@ -1015,7 +1015,7 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
     // by zeroing a register and then storing it.
     var_types type = store->GetLcl()->GetRegisterType(store);
 
-    if (IsContainableImmed(store, src) && (!src->IsIntegralConst(0) || varTypeIsSmall(type)))
+    if (IsImmOperand(src, store) && (!src->IsIntegralConst(0) || varTypeIsSmall(type)))
     {
         src->SetContained();
     }

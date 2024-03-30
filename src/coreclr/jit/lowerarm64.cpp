@@ -1593,7 +1593,7 @@ bool Lowering::IsCallTargetInRange(void* addr)
     return Arm64Imm::IsBlImm(reinterpret_cast<ssize_t>(addr), comp);
 }
 
-bool Lowering::IsContainableImmed(GenTree* instr, GenTree* operand) const
+bool Lowering::IsImmOperand(GenTree* operand, GenTree* instr) const
 {
     // TODO-CQ: We can contain a floating point 0.0 constant in FCMP
 

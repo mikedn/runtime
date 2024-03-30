@@ -286,10 +286,7 @@ private:
 
     // Utility functions
 public:
-    // return true if 'childNode' is an immediate that can be contained
-    //  by the 'parentNode' (i.e. folded into an instruction)
-    //  for example small enough and non-relocatable
-    bool IsContainableImmed(GenTree* parentNode, GenTree* childNode) const;
+    bool IsImmOperand(GenTree* operand, GenTree* instr) const;
 
     static bool IsContainableMemoryOp(Compiler* comp, GenTree* node);
 

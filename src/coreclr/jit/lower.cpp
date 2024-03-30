@@ -44,7 +44,7 @@ bool Lowering::CheckImmedAndMakeContained(GenTree* instr, GenTree* operand)
 {
     assert(!instr->OperIsLeaf());
 
-    if (!IsContainableImmed(instr, operand))
+    if (!IsImmOperand(operand, instr))
     {
         return false;
     }
