@@ -1588,6 +1588,59 @@ void Lowering::LowerFloatArithmetic(GenTreeOp* arith)
     MakeInstr(arith, ins, size, op1, op2);
 }
 
+bool Lowering::IsCallTargetInRange(void* addr)
+{
+    return Arm64Imm::IsBlImm(reinterpret_cast<ssize_t>(addr), comp);
+}
+
+bool Lowering::IsContainableImmed(GenTree* instr, GenTree* operand) const
+{
+    // TODO-CQ: We can contain a floating point 0.0 constant in FCMP
+
+    if (!operand->IsIntCon() || operand->AsIntCon()->ImmedValNeedsReloc(comp))
+    {
+        return false;
+    }
+
+    int64_t  value = operand->AsIntCon()->GetValue();
+    emitAttr size  = EA_SIZE(emitActualTypeSize(operand->GetType()));
+
+    switch (instr->GetOper())
+    {
+        case GT_CMPXCHG:
+        case GT_XADD:
+            if (comp->compOpportunisticallyDependsOn(InstructionSet_Atomics))
+            {
+                return false;
+            }
+            FALLTHROUGH;
+        case GT_ADD:
+        case GT_SUB:
+        case GT_EQ:
+        case GT_NE:
+        case GT_LT:
+        case GT_LE:
+        case GT_GE:
+        case GT_GT:
+        case GT_BOUNDS_CHECK:
+            return Arm64Imm::IsAddImm(value, size);
+        case GT_AND:
+        case GT_OR:
+        case GT_XOR:
+        case GT_TEST_EQ:
+        case GT_TEST_NE:
+            return Arm64Imm::IsAluImm(value, size);
+        case GT_JCMP:
+            assert(((instr->gtFlags & GTF_JCMP_TST) == 0) ? (value == 0) : isPow2(value));
+            return true;
+        case GT_STORE_LCL_FLD:
+        case GT_STORE_LCL_VAR:
+            return value == 0;
+        default:
+            return false;
+    }
+}
+
 #ifdef DEBUG
 bool Lowering::IsLegalToMoveUseForward(GenTree* oldUser, GenTree* newUser, GenTree* def)
 {
