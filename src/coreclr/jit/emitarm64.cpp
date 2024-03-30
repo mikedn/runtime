@@ -59,60 +59,7 @@ static unsigned getBitWidth(emitAttr size)
     return EA_BIT_SIZE(size);
 }
 
-// This union is used to to encode/decode the cond, nzcv and imm5 values for
-// instructions that use them in the small constant immediate field
-union condFlagsImm {
-    struct
-    {
-        insCond   cond : 4;  // bits  0..3
-        insCflags flags : 4; // bits  4..7
-        unsigned  imm5 : 5;  // bits  8..12
-    };
-    unsigned immCFVal; // concat imm5:flags:cond forming an 13-bit unsigned immediate
-};
-
 #ifdef DEBUG
-// Returns true if 'imm' is valid Cond encoding
-static bool isValidImmCond(ssize_t imm)
-{
-    // range check the ssize_t value, to make sure it is a small unsigned value
-    // and that only the bits in the cfi.cond are set
-    if ((imm < 0) || (imm > 0xF))
-        return false;
-
-    condFlagsImm cfi;
-    cfi.immCFVal = (unsigned)imm;
-
-    return cfi.cond <= INS_COND_LE; // Don't allow 14 & 15 (AL & NV).
-}
-
-// Returns true if 'imm' is valid Cond/Flags encoding
-static bool isValidImmCondFlags(ssize_t imm)
-{
-    // range check the ssize_t value, to make sure it is a small unsigned value
-    // and that only the bits in the cfi.cond or cfi.flags are set
-    if ((imm < 0) || (imm > 0xFF))
-        return false;
-
-    condFlagsImm cfi;
-    cfi.immCFVal = (unsigned)imm;
-
-    return cfi.cond <= INS_COND_LE; // Don't allow 14 & 15 (AL & NV).
-}
-
-// Returns true if 'imm' is valid Cond/Flags/Imm5 encoding
-static bool isValidImmCondFlagsImm5(ssize_t imm)
-{
-    // range check the ssize_t value, to make sure it is a small unsigned value
-    // and that only the bits in the cfi.cond, cfi.flags or cfi.imm5 are set
-    if ((imm < 0) || (imm > 0x1FFF))
-        return false;
-
-    condFlagsImm cfi;
-    cfi.immCFVal = (unsigned)imm;
-
-    return cfi.cond <= INS_COND_LE; // Don't allow 14 & 15 (AL & NV).
-}
 
 // Returns true if 'reg' represents an integer register.
 static bool isIntegerRegister(RegNum reg)
@@ -447,8 +394,1002 @@ static emitAttr optGetDstsize(insOpts conversion);
 static emitAttr optGetElemsize(insOpts arrangement);
 static bool isValidArrangement(emitAttr datasize, insOpts opt);
 
-#ifdef DEBUG
+// This union is used to to encode/decode the cond, nzcv and imm5 values for
+// instructions that use them in the small constant immediate field
+union condFlagsImm {
+    struct
+    {
+        insCond   cond : 4;  // bits  0..3
+        insCflags flags : 4; // bits  4..7
+        unsigned  imm5 : 5;  // bits  8..12
+    };
+    unsigned immCFVal; // concat imm5:flags:cond forming an 13-bit unsigned immediate
+};
 
+#ifdef DEBUG
+// Returns true if 'imm' is valid Cond encoding
+static bool isValidImmCond(ssize_t imm)
+{
+    // range check the ssize_t value, to make sure it is a small unsigned value
+    // and that only the bits in the cfi.cond are set
+    if ((imm < 0) || (imm > 0xF))
+        return false;
+
+    condFlagsImm cfi;
+    cfi.immCFVal = (unsigned)imm;
+
+    return cfi.cond <= INS_COND_LE; // Don't allow 14 & 15 (AL & NV).
+}
+
+// Returns true if 'imm' is valid Cond/Flags encoding
+static bool isValidImmCondFlags(ssize_t imm)
+{
+    // range check the ssize_t value, to make sure it is a small unsigned value
+    // and that only the bits in the cfi.cond or cfi.flags are set
+    if ((imm < 0) || (imm > 0xFF))
+        return false;
+
+    condFlagsImm cfi;
+    cfi.immCFVal = (unsigned)imm;
+
+    return cfi.cond <= INS_COND_LE; // Don't allow 14 & 15 (AL & NV).
+}
+
+// Returns true if 'imm' is valid Cond/Flags/Imm5 encoding
+static bool isValidImmCondFlagsImm5(ssize_t imm)
+{
+    // range check the ssize_t value, to make sure it is a small unsigned value
+    // and that only the bits in the cfi.cond, cfi.flags or cfi.imm5 are set
+    if ((imm < 0) || (imm > 0x1FFF))
+        return false;
+
+    condFlagsImm cfi;
+    cfi.immCFVal = (unsigned)imm;
+
+    return cfi.cond <= INS_COND_LE; // Don't allow 14 & 15 (AL & NV).
+}
+#endif // DEBUG
+
+static unsigned EncodeCondImm(insCond cond)
+{
+    condFlagsImm cfi;
+    cfi.immCFVal = 0;
+    cfi.cond     = cond;
+    assert(isValidImmCond(cfi.immCFVal));
+    return cfi.immCFVal;
+}
+
+static unsigned EncodeCondImm(insCond cond, insCflags flags)
+{
+    condFlagsImm cfi;
+    cfi.immCFVal = 0;
+    cfi.flags    = flags;
+    cfi.cond     = cond;
+    assert(isValidImmCondFlags(cfi.immCFVal));
+    return cfi.immCFVal;
+}
+
+static unsigned EncodeCondImm(insCond cond, insCflags flags, int imm)
+{
+    assert((imm >= 0) && (imm <= 31));
+    condFlagsImm cfi;
+    cfi.immCFVal = 0;
+    cfi.imm5     = imm;
+    cfi.flags    = flags;
+    cfi.cond     = cond;
+    assert(isValidImmCondFlagsImm5(cfi.immCFVal));
+    return cfi.immCFVal;
+}
+
+// A helper method to return the natural scale for an EA 'size'
+static unsigned NaturalScale_helper(emitAttr size)
+{
+    assert(size == EA_1BYTE || size == EA_2BYTE || size == EA_4BYTE || size == EA_8BYTE || size == EA_16BYTE);
+
+    unsigned result = 0;
+    unsigned utemp  = (unsigned)size;
+
+    // Compute log base 2 of utemp (aka 'size')
+    while (utemp > 1)
+    {
+        result++;
+        utemp >>= 1;
+    }
+
+    return result;
+}
+
+// A helper method to perform a Rotate-Right shift operation
+// the source is 'value' and it is rotated right by 'sh' bits
+// 'value' is considered to be a fixed size 'width' set of bits.
+// Example: value is '00001111', sh is 2 and width is 8, result is '11000011'
+static uint64_t ROR_helper(uint64_t value, unsigned sh, unsigned width)
+{
+    assert(width <= 64);
+    // Check that 'value' fits in 'width' bits
+    assert((width == 64) || (value < (1ULL << width)));
+    // We don't support shifts >= width
+    assert(sh < width);
+
+    uint64_t result;
+
+    unsigned rsh = sh;
+    unsigned lsh = width - rsh;
+
+    result = (value >> rsh);
+    result |= (value << lsh);
+
+    if (width < 64)
+    {
+        // mask off any extra bits that we got from the left shift
+        result &= ((1ULL << width) - 1);
+    }
+    return result;
+}
+
+// A helper method to perform a 'NOT' bitwise complement operation.
+// 'value' is considered to be a fixed size 'width' set of bits.
+// Example: value is '01001011', and width is 8, result is '10110100'
+static uint64_t NOT_helper(uint64_t value, unsigned width)
+{
+    assert(width <= 64);
+
+    uint64_t result = ~value;
+
+    if (width < 64)
+    {
+        // Check that 'value' fits in 'width' bits. Don't consider "sign" bits above width.
+        uint64_t maxVal       = 1ULL << width;
+        uint64_t lowBitsMask  = maxVal - 1;
+        uint64_t signBitsMask = ~lowBitsMask | (1ULL << (width - 1)); // The high bits must be set, and the top bit
+        // (sign bit) must be set.
+        assert((value < maxVal) || ((value & signBitsMask) == signBitsMask));
+
+        // mask off any extra bits that we got from the complement operation
+        result &= lowBitsMask;
+    }
+
+    return result;
+}
+
+// A helper method to perform a bit Replicate operation
+// the source is 'value' with a fixed size 'width' set of bits.
+// value is replicated to fill out 32 or 64 bits as determined by 'size'.
+// Example: value is '11000011' (0xE3), width is 8 and size is EA_8BYTE,
+// result is '11000011 11000011 11000011 11000011 11000011 11000011 11000011 11000011' 0xE3E3E3E3E3E3E3E3
+static uint64_t Replicate_helper(uint64_t value, unsigned width, emitAttr size)
+{
+    assert(isValidGeneralDatasize(size));
+
+    unsigned immWidth = (size == EA_8BYTE) ? 64 : 32;
+    assert(width <= immWidth);
+
+    uint64_t result     = value;
+    unsigned filledBits = width;
+
+    while (filledBits < immWidth)
+    {
+        value <<= width;
+        result |= value;
+        filledBits += width;
+    }
+    return result;
+}
+
+static bool canEncodeHalfwordImm(int64_t imm, emitAttr size, union halfwordImm* wbHWI = nullptr);
+static bool canEncodeBitMaskImm(int64_t imm, emitAttr size, union bitMaskImm* wbBMI = nullptr);
+
+// true if this 'imm' can be encoded as a input operand to a mov instruction
+bool Arm64Imm::IsMovImm(int64_t imm, emitAttr size)
+{
+    // Check for "MOV (wide immediate)".
+    if (canEncodeHalfwordImm(imm, size))
+        return true;
+
+    // Next try the ones-complement form of 'halfword immediate' imm(i16,hw),
+    // namely "MOV (inverted wide immediate)".
+    ssize_t notOfImm = NOT_helper(imm, getBitWidth(size));
+    if (canEncodeHalfwordImm(notOfImm, size))
+        return true;
+
+    // Finally try "MOV (bitmask immediate)" imm(N,r,s)
+    if (canEncodeBitMaskImm(imm, size))
+        return true;
+
+    return false;
+}
+
+struct MoviImm
+{
+    instruction ins;
+    uint8_t     imm;
+    uint8_t     shift;
+    bool        msl;
+
+    MoviImm() : ins(INS_invalid), imm(0), shift(0), msl(0)
+    {
+    }
+
+    MoviImm(instruction ins, uint64_t imm, unsigned shift = 0, bool msl = false)
+        : ins(ins), imm(static_cast<uint8_t>(imm)), shift(static_cast<uint8_t>(shift)), msl(msl)
+    {
+        assert(imm <= UINT8_MAX);
+        assert(shift <= 24);
+    }
+};
+
+// true if this 'imm' can be encoded as a input operand to a vector movi instruction
+MoviImm EncodeMoviImm(uint64_t value, insOpts opt)
+{
+    auto msl   = [](uint64_t value, unsigned shift) { return ((value & 0xFF) << shift) | ~(UINT64_MAX << shift); };
+    auto lsl   = [](uint64_t value, unsigned shift) { return (value & 0xFF) << shift; };
+    auto not8  = [](uint64_t value) { return ~value & UINT8_MAX; };
+    auto not16 = [](uint64_t value) { return ~value & UINT16_MAX; };
+    auto not32 = [](uint64_t value) { return ~value & UINT32_MAX; };
+
+    switch (opt)
+    {
+        case INS_OPTS_1D:
+        case INS_OPTS_2D:
+        {
+            uint64_t imm = 0;
+
+            for (unsigned bit = 0; value != 0; value >>= 8, bit++)
+            {
+                if ((value & 0xFF) == 0)
+                {
+                    continue;
+                }
+
+                if ((value & 0xFF) == 0xFF)
+                {
+                    imm |= 1ULL << bit;
+                    continue;
+                }
+
+                return MoviImm();
+            }
+
+            return MoviImm(INS_movi, imm);
+        }
+
+        case INS_OPTS_2S:
+        case INS_OPTS_4S:
+            value &= UINT32_MAX;
+
+            for (unsigned shift = 0; shift <= 24; shift += 8)
+            {
+                uint64_t imm = (value >> shift) & 0xFF;
+
+                if (lsl(imm, shift) == value)
+                {
+                    return MoviImm(INS_movi, imm, shift);
+                }
+
+                if (((shift == 8) || (shift == 16)) && (msl(imm, shift) == value))
+                {
+                    return MoviImm(INS_movi, imm, shift, true);
+                }
+
+                imm = not8(imm);
+
+                if (not32(lsl(imm, shift)) == value)
+                {
+                    return MoviImm(INS_mvni, imm, shift);
+                }
+
+                if (((shift == 8) || (shift == 16)) && (not32(msl(imm, shift)) == value))
+                {
+                    return MoviImm(INS_mvni, imm, shift, true);
+                }
+            }
+
+            return MoviImm();
+
+        case INS_OPTS_4H:
+        case INS_OPTS_8H:
+            value &= UINT16_MAX;
+
+            for (unsigned shift = 0; shift <= 8; shift += 8)
+            {
+                uint64_t imm = (value >> shift) & 0xFF;
+
+                if (lsl(imm, shift) == value)
+                {
+                    return MoviImm(INS_movi, imm, shift);
+                }
+
+                imm = not8(imm);
+
+                if (not16(lsl(imm, shift)) == value)
+                {
+                    return MoviImm(INS_mvni, imm, shift);
+                }
+            }
+
+            return MoviImm();
+
+        case INS_OPTS_8B:
+        case INS_OPTS_16B:
+            return MoviImm(INS_movi, value & 0xFF);
+
+        default:
+            unreached();
+    }
+}
+
+static bool canEncodeFloatImm8(double immDbl, union floatImm8* wbFPI = nullptr);
+
+// true if this 'imm' can be encoded as a input operand to a fmov instruction
+bool Arm64Imm::IsFMovImm(double value)
+{
+    return canEncodeFloatImm8(value);
+}
+
+static bool canEncodeWithShiftImmBy12(int64_t imm);
+
+// true if this 'imm' can be encoded as a input operand to an add instruction
+bool Arm64Imm::IsAddImm(int64_t imm, emitAttr size)
+{
+    if (unsigned_abs(imm) <= 0x0fff)
+        return true;
+    else if (canEncodeWithShiftImmBy12(imm)) // Try the shifted by 12 encoding
+        return true;
+
+    return false;
+}
+
+// true if this 'imm' can be encoded as the offset in a ldr/str instruction
+bool Arm64Imm::IsLdStImm(int64_t imm, emitAttr attr)
+{
+    if (imm == 0)
+        return true; // Encodable using IF_LS_2A
+
+    if ((imm >= -256) && (imm <= 255))
+        return true; // Encodable using IF_LS_2C (or possibly IF_LS_2B)
+
+    if (imm < 0)
+        return false; // not encodable
+
+    emitAttr size  = EA_SIZE(attr);
+    unsigned scale = NaturalScale_helper(size);
+    ssize_t  mask  = size - 1; // the mask of low bits that must be zero to encode the immediate
+
+    if (((imm & mask) == 0) && ((imm >> scale) < 0x1000))
+        return true; // Encodable using IF_LS_2B
+
+    return false; // not encodable
+}
+
+bool Arm64Imm::IsBlImm(int64_t addr, Compiler* compiler)
+{
+    // On arm64, we always assume a call target is in range and generate a 28-bit relative
+    // 'bl' instruction. If this isn't sufficient range, the VM will generate a jump stub when
+    // we call recordRelocation(). See the IMAGE_REL_ARM64_BRANCH26 case in jitinterface.cpp
+    // (for JIT) or zapinfo.cpp (for NGEN). If we cannot allocate a jump stub, it is fatal.
+    return true;
+}
+
+// This union is used to to encode/decode the special ARM64 immediate values
+// that is listed as imm(N,r,s) and referred to as 'bitmask immediate'
+union bitMaskImm {
+    struct
+    {
+        unsigned immS : 6; // bits 0..5
+        unsigned immR : 6; // bits 6..11
+        unsigned immN : 1; // bits 12
+    };
+    unsigned immNRS; // concat N:R:S forming a 13-bit unsigned immediate
+};
+
+// Convert an imm(N,r,s) into a 64-bit immediate
+// inputs 'bmImm' a bitMaskImm struct, 'size' specifies the size of the result (64 or 32 bits)
+static int64_t emitDecodeBitMaskImm(const bitMaskImm bmImm, emitAttr size)
+{
+    assert(isValidGeneralDatasize(size)); // Only EA_4BYTE or EA_8BYTE forms
+
+    unsigned N = bmImm.immN; // read the N,R and S values from the 'bitMaskImm' encoding
+    unsigned R = bmImm.immR;
+    unsigned S = bmImm.immS;
+
+    unsigned elemWidth = 64; // used when N == 1
+
+    if (N == 0) // find the smaller elemWidth when N == 0
+    {
+        // Scan S for the highest bit not set
+        elemWidth = 32;
+        for (unsigned bitNum = 5; bitNum > 0; bitNum--)
+        {
+            unsigned oneBit = elemWidth;
+            if ((S & oneBit) == 0)
+                break;
+            elemWidth /= 2;
+        }
+    }
+    else
+    {
+        assert(size == EA_8BYTE);
+    }
+
+    unsigned maskSR = elemWidth - 1;
+
+    S &= maskSR;
+    R &= maskSR;
+
+    // encoding for S is one less than the number of consecutive one bits
+    S++; // Number of consecutive ones to generate in 'welem'
+
+    // At this point:
+    //
+    // 'elemWidth' is the number of bits that we will use for the ROR and Replicate operations
+    // 'S'         is the number of consecutive 1 bits for the immediate
+    // 'R'         is the number of bits that we will Rotate Right the immediate
+    // 'size'      selects the final size of the immedate that we return (64 or 32 bits)
+
+    assert(S < elemWidth); // 'elemWidth' consecutive one's is a reserved encoding
+
+    uint64_t welem;
+    uint64_t wmask;
+
+    welem = (1ULL << S) - 1;
+
+    wmask = ROR_helper(welem, R, elemWidth);
+    wmask = Replicate_helper(wmask, elemWidth, size);
+
+    return wmask;
+}
+
+// Check if an immediate can use the left shifted by 12 bits encoding
+static bool canEncodeWithShiftImmBy12(int64_t imm)
+{
+    if (imm < 0)
+    {
+        imm = -imm; // convert to unsigned
+    }
+
+    if (imm < 0)
+    {
+        return false; // Must be MIN_INT64
+    }
+
+    if ((imm & 0xfff) != 0) // Now the low 12 bits all have to be zero
+    {
+        return false;
+    }
+
+    imm >>= 12; // shift right by 12 bits
+
+    return (imm <= 0x0fff); // Does it fit in 12 bits
+}
+
+// Normalize the 'imm' so that the upper bits, as defined by 'size' are zero
+static int64_t normalizeImm64(int64_t imm, emitAttr size)
+{
+    unsigned immWidth = getBitWidth(size);
+    int64_t  result   = imm;
+
+    if (immWidth < 64)
+    {
+        // Check that 'imm' fits in 'immWidth' bits. Don't consider "sign" bits above width.
+        int64_t maxVal      = 1LL << immWidth;
+        int64_t lowBitsMask = maxVal - 1;
+        int64_t hiBitsMask  = ~lowBitsMask;
+        int64_t signBitsMask =
+            hiBitsMask | (1LL << (immWidth - 1)); // The high bits must be set, and the top bit (sign bit) must be set.
+        assert((imm < maxVal) || ((imm & signBitsMask) == signBitsMask));
+
+        // mask off the hiBits
+        result &= lowBitsMask;
+    }
+    return result;
+}
+
+// Returns true if 'imm' of 'size bits (32/64) can be encoded using the ARM64 'bitmask immediate' form.
+// When a non-null value is passed for 'wbBMI' then this method writes back the 'N','S' and 'R' values
+// use to encode this immediate
+static bool canEncodeBitMaskImm(int64_t imm, emitAttr size, bitMaskImm* wbBMI)
+{
+    assert(isValidGeneralDatasize(size)); // Only EA_4BYTE or EA_8BYTE forms
+
+    unsigned immWidth = (size == EA_8BYTE) ? 64 : 32;
+    unsigned maxLen   = (size == EA_8BYTE) ? 6 : 5;
+
+    imm = normalizeImm64(imm, size);
+
+    // Starting with len=1, elemWidth is 2 bits
+    //            len=2, elemWidth is 4 bits
+    //            len=3, elemWidth is 8 bits
+    //            len=4, elemWidth is 16 bits
+    //            len=5, elemWidth is 32 bits
+    // (optionally)  len=6, elemWidth is 64 bits
+    //
+    for (unsigned len = 1; (len <= maxLen); len++)
+    {
+        unsigned elemWidth = 1 << len;
+        uint64_t elemMask  = ((uint64_t)-1) >> (64 - elemWidth);
+        uint64_t tempImm   = (uint64_t)imm;      // A working copy of 'imm' that we can mutate
+        uint64_t elemVal   = tempImm & elemMask; // The low 'elemWidth' bits of 'imm'
+
+        // Check for all 1's or 0's as these can't be encoded
+        if ((elemVal == 0) || (elemVal == elemMask))
+            continue;
+
+        // 'checkedBits' is the count of bits that are known to match 'elemVal' when replicated
+        unsigned checkedBits = elemWidth; // by definition the first 'elemWidth' bits match
+
+        // Now check to see if each of the next bits match...
+        //
+        while (checkedBits < immWidth)
+        {
+            tempImm >>= elemWidth;
+
+            uint64_t nextElem = tempImm & elemMask;
+            if (nextElem != elemVal)
+            {
+                // Not matching, exit this loop and checkedBits will not be equal to immWidth
+                break;
+            }
+
+            // The 'nextElem' is matching, so increment 'checkedBits'
+            checkedBits += elemWidth;
+        }
+
+        // Did the full immediate contain bits that can be formed by repeating 'elemVal'?
+        if (checkedBits == immWidth)
+        {
+            // We are not quite done, since the only values that we can encode as a
+            // 'bitmask immediate' are those that can be formed by starting with a
+            // bit string of 0*1* that is rotated by some number of bits.
+            //
+            // We check to see if 'elemVal' can be formed using these restrictions.
+            //
+            // Observation:
+            // Rotating by one bit any value that passes these restrictions
+            // can be xor-ed with the original value and will result it a string
+            // of bits that have exactly two 1 bits: 'elemRorXor'
+            // Further the distance between the two one bits tells us the value
+            // of S and the location of the 1 bits tells us the value of R
+            //
+            // Some examples:   (immWidth is 8)
+            //
+            // S=4,R=0   S=5,R=3   S=3,R=6
+            // elemVal:        00001111  11100011  00011100
+            // elemRor:        10000111  11110001  00001110
+            // elemRorXor:     10001000  00010010  00010010
+            //   compute S  45678---  ---5678-  ---3210-
+            //   compute R  01234567  ---34567  ------67
+
+            uint64_t elemRor    = ROR_helper(elemVal, 1, elemWidth); // Rotate 'elemVal' Right by one bit
+            uint64_t elemRorXor = elemVal ^ elemRor;                 // Xor elemVal and elemRor
+
+            // If we only have a two-bit change in elemROR then we can form a mask for this value
+            unsigned bitCount = 0;
+            uint64_t oneBit   = 0x1;
+            unsigned R        = elemWidth; // R is shift count for ROR (rotate right shift)
+            unsigned S        = 0;         // S is number of consecutive one bits
+            int      incr     = -1;
+
+            // Loop over the 'elemWidth' bits in 'elemRorXor'
+            //
+            for (unsigned bitNum = 0; bitNum < elemWidth; bitNum++)
+            {
+                if (incr == -1)
+                {
+                    R--; // We decrement R by one whenever incr is -1
+                }
+                if (bitCount == 1)
+                {
+                    S += incr; // We incr/decr S, after we find the first one bit in 'elemRorXor'
+                }
+
+                // Is this bit position a 1 bit in 'elemRorXor'?
+                //
+                if (oneBit & elemRorXor)
+                {
+                    bitCount++;
+                    // Is this the first 1 bit that we found in 'elemRorXor'?
+                    if (bitCount == 1)
+                    {
+                        // Does this 1 bit represent a transition to zero bits?
+                        bool toZeros = ((oneBit & elemVal) != 0);
+                        if (toZeros)
+                        {
+                            // S :: Count down from elemWidth
+                            S    = elemWidth;
+                            incr = -1;
+                        }
+                        else // this 1 bit represent a transition to one bits.
+                        {
+                            // S :: Count up from zero
+                            S    = 0;
+                            incr = +1;
+                        }
+                    }
+                    else // bitCount > 1
+                    {
+                        // We found the second (or third...) 1 bit in 'elemRorXor'
+                        incr = 0; // stop decrementing 'R'
+
+                        if (bitCount > 2)
+                        {
+                            // More than 2 transitions from 0/1 in 'elemVal'
+                            // This means that 'elemVal' can't be encoded
+                            // using a 'bitmask immediate'.
+                            //
+                            // Furthermore, it will continue to fail
+                            // with any larger 'len' that we try.
+                            // so just return false.
+                            //
+                            return false;
+                        }
+                    }
+                }
+
+                // shift oneBit left by one bit to test the next position
+                oneBit <<= 1;
+            }
+
+            // We expect that bitCount will always be two at this point
+            // but just in case return false for any bad cases.
+            //
+            assert(bitCount == 2);
+            if (bitCount != 2)
+                return false;
+
+            // Perform some sanity checks on the values of 'S' and 'R'
+            assert(S > 0);
+            assert(S < elemWidth);
+            assert(R < elemWidth);
+
+            // Does the caller want us to return the N,R,S encoding values?
+            //
+            if (wbBMI != nullptr)
+            {
+
+                // The encoding used for S is one less than the
+                // number of consecutive one bits
+                S--;
+
+                if (len == 6)
+                {
+                    wbBMI->immN = 1;
+                }
+                else
+                {
+                    wbBMI->immN = 0;
+                    // The encoding used for 'S' here is a bit peculiar.
+                    //
+                    // The upper bits need to be complemented, followed by a zero bit
+                    // then the value of 'S-1'
+                    //
+                    unsigned upperBitsOfS = 64 - (1 << (len + 1));
+                    S |= upperBitsOfS;
+                }
+                wbBMI->immR = R;
+                wbBMI->immS = S;
+
+                // Verify that what we are returning is correct.
+                assert(imm == emitDecodeBitMaskImm(*wbBMI, size));
+            }
+            // Tell the caller that we can successfully encode this immediate
+            // using a 'bitmask immediate'.
+            //
+            return true;
+        }
+    }
+    return false;
+}
+
+// This union is used to to encode/decode the special ARM64 immediate values
+// that is listed as imm(i16,hw) and referred to as 'halfword immediate'
+union halfwordImm {
+    struct
+    {
+        unsigned immVal : 16; // bits  0..15
+        unsigned immHW : 2;   // bits 16..17
+    };
+    unsigned immHWVal; // concat HW:Val forming a 18-bit unsigned immediate
+};
+
+#ifdef DEBUG
+// Convert an imm(i16,hw) into a 32/64-bit immediate
+// inputs 'hwImm' a halfwordImm struct, 'size' specifies the size of the result (64 or 32 bits)
+static int64_t emitDecodeHalfwordImm(halfwordImm hwImm, emitAttr size)
+{
+    assert(isValidGeneralDatasize(size)); // Only EA_4BYTE or EA_8BYTE forms
+
+    unsigned hw  = hwImm.immHW;
+    int64_t  val = (int64_t)hwImm.immVal;
+
+    assert((hw <= 1) || (size == EA_8BYTE));
+
+    int64_t result = val << (16 * hw);
+    return result;
+}
+#endif
+
+// Returns true if 'imm' of 'size' bits (32/64) can be encoded using the ARM64 'halfword immediate' form.
+// When a non-null value is passed for 'wbHWI' then this method writes back the 'immHW' and 'immVal'
+// values use to encode this immediate
+static bool canEncodeHalfwordImm(int64_t imm, emitAttr size, halfwordImm* wbHWI)
+{
+    assert(isValidGeneralDatasize(size)); // Only EA_4BYTE or EA_8BYTE forms
+
+    unsigned immWidth = (size == EA_8BYTE) ? 64 : 32;
+    unsigned maxHW    = (size == EA_8BYTE) ? 4 : 2;
+
+    // setup immMask to a (EA_4BYTE) 0x00000000_FFFFFFFF or (EA_8BYTE) 0xFFFFFFFF_FFFFFFFF
+    const uint64_t immMask = ((uint64_t)-1) >> (64 - immWidth);
+    const int64_t  mask16  = (int64_t)0xFFFF;
+
+    imm = normalizeImm64(imm, size);
+
+    // Try each of the valid hw shift sizes
+    for (unsigned hw = 0; (hw < maxHW); hw++)
+    {
+        int64_t curMask   = mask16 << (hw * 16); // Represents the mask of the bits in the current halfword
+        int64_t checkBits = immMask & ~curMask;
+
+        // Excluding the current halfword (using ~curMask)
+        // does the immediate have zero bits in every other bit that we care about?
+        // note we care about all 64-bits for EA_8BYTE
+        // and we care about the lowest 32 bits for EA_4BYTE
+        //
+        if ((imm & checkBits) == 0)
+        {
+            // Does the caller want us to return the imm(i16,hw) encoding values?
+            //
+            if (wbHWI != nullptr)
+            {
+                int64_t val   = ((imm & curMask) >> (hw * 16)) & mask16;
+                wbHWI->immHW  = hw;
+                wbHWI->immVal = val;
+
+                // Verify that what we are returning is correct.
+                assert(imm == emitDecodeHalfwordImm(*wbHWI, size));
+            }
+            // Tell the caller that we can successfully encode this immediate
+            // using a 'halfword immediate'.
+            //
+            return true;
+        }
+    }
+    return false;
+}
+
+// This union is used to encode/decode the special ARM64 immediate values
+// that is listed as imm(i16,by) and referred to as 'byteShifted immediate'
+union byteShiftedImm {
+    struct
+    {
+        unsigned immVal : 8;  // bits  0..7
+        unsigned immBY : 2;   // bits  8..9
+        unsigned immOnes : 1; // bit   10
+    };
+    unsigned immBSVal; // concat Ones:BY:Val forming a 10-bit unsigned immediate
+};
+
+#ifdef DEBUG
+// Convert an imm(i8,sh) into a 16/32-bit immediate
+// inputs 'bsImm' a byteShiftedImm struct, 'size' specifies the size of the result (16 or 32 bits)
+static uint32_t emitDecodeByteShiftedImm(byteShiftedImm bsImm, emitAttr size)
+{
+    bool     onesShift = (bsImm.immOnes == 1);
+    unsigned bySh      = bsImm.immBY;            // Num Bytes to shift 0,1,2,3
+    uint32_t result    = (uint32_t)bsImm.immVal; // 8-bit immediate
+
+    if (bySh > 0)
+    {
+        assert((size == EA_2BYTE) || (size == EA_4BYTE)); // Only EA_2BYTE or EA_4BYTE forms
+        if (size == EA_2BYTE)
+        {
+            assert(bySh < 2);
+        }
+        else
+        {
+            assert(bySh < 4);
+        }
+
+        result <<= (8 * bySh);
+
+        if (onesShift)
+        {
+            result |= ((1 << (8 * bySh)) - 1);
+        }
+    }
+    return result;
+}
+#endif
+
+// Returns true if 'imm' of 'size' bits (16/32) can be encoded using the ARM64 'byteShifted immediate' form.
+// When a non-null value is passed for 'wbBSI' then this method writes back the 'immBY' and 'immVal' values
+// use to encode this immediate
+static bool canEncodeByteShiftedImm(int64_t imm, emitAttr size, byteShiftedImm* wbBSI)
+{
+    bool     canEncode = false;
+    bool     onesShift = false; // true if we use the shifting ones variant
+    unsigned bySh      = 0;     // number of bytes to shift: 0, 1, 2, 3
+    unsigned imm8      = 0;     // immediate to use in the encoding
+
+    imm = normalizeImm64(imm, size);
+
+    assert((size == EA_2BYTE) || (size == EA_4BYTE)); // Only EA_2BYTE or EA_4BYTE forms
+
+    unsigned immWidth = (size == EA_4BYTE) ? 32 : 16;
+    unsigned maxBY    = (size == EA_4BYTE) ? 4 : 2;
+
+    // setup immMask to a (EA_2BYTE) 0x0000FFFF or (EA_4BYTE) 0xFFFFFFFF
+    const uint32_t immMask = ((uint32_t)-1) >> (32 - immWidth);
+    const int32_t  mask8   = (int32_t)0xFF;
+
+    // Try each of the valid by shift sizes
+    for (bySh = 0; (bySh < maxBY); bySh++)
+    {
+        int32_t curMask   = mask8 << (bySh * 8); // Represents the mask of the bits in the current byteShifted
+        int32_t checkBits = immMask & ~curMask;
+        int32_t immCheck  = (imm & checkBits);
+
+        // Excluding the current byte (using ~curMask)
+        // does the immediate have zero bits in every other bit that we care about?
+        // or can be use the shifted one variant?
+        // note we care about all 32-bits for EA_4BYTE
+        // and we care about the lowest 16 bits for EA_2BYTE
+        //
+        if (immCheck == 0)
+        {
+            canEncode = true;
+        }
+
+        if (canEncode)
+        {
+            imm8 = (unsigned)(((imm & curMask) >> (bySh * 8)) & mask8);
+            break;
+        }
+    }
+
+    if (canEncode)
+    {
+        // Does the caller want us to return the imm(i8,bySh) encoding values?
+        //
+        if (wbBSI != nullptr)
+        {
+            wbBSI->immOnes = onesShift;
+            wbBSI->immBY   = bySh;
+            wbBSI->immVal  = imm8;
+
+            // Verify that what we are returning is correct.
+            assert(imm == emitDecodeByteShiftedImm(*wbBSI, size));
+        }
+        // Tell the caller that we can successfully encode this immediate
+        // using a 'byteShifted immediate'.
+        //
+        return true;
+    }
+    return false;
+}
+
+// This union is used to to encode/decode the special ARM64 immediate values
+// that are use for FMOV immediate and referred to as 'float 8-bit immediate'
+union floatImm8 {
+    struct
+    {
+        unsigned immMant : 4; // bits 0..3
+        unsigned immExp : 3;  // bits 4..6
+        unsigned immSign : 1; // bits 7
+    };
+    unsigned immFPIVal; // concat Sign:Exp:Mant forming an 8-bit unsigned immediate
+};
+
+#ifdef DEBUG
+// Convert a 'float 8-bit immediate' into a double.
+static double emitDecodeFloatImm8(floatImm8 fpImm)
+{
+    unsigned sign  = fpImm.immSign;
+    unsigned exp   = fpImm.immExp ^ 0x4;
+    unsigned mant  = fpImm.immMant + 16;
+    unsigned scale = 16 * 8;
+
+    while (exp > 0)
+    {
+        scale /= 2;
+        exp--;
+    }
+
+    double result = ((double)mant) / ((double)scale);
+    if (sign == 1)
+    {
+        result = -result;
+    }
+
+    return result;
+}
+#endif
+
+// Returns true if the 'immDbl' can be encoded using the 'float 8-bit immediate' form.
+// Also returns the encoding if wbFPI is non-null.
+static bool canEncodeFloatImm8(double immDbl, floatImm8* wbFPI)
+{
+    bool   canEncode = false;
+    double val       = immDbl;
+
+    int sign = 0;
+    if (val < 0.0)
+    {
+        val  = -val;
+        sign = 1;
+    }
+
+    int exp = 0;
+    while ((val < 1.0) && (exp >= -4))
+    {
+        val *= 2.0;
+        exp--;
+    }
+    while ((val >= 2.0) && (exp <= 5))
+    {
+        val *= 0.5;
+        exp++;
+    }
+    exp += 3;
+    val *= 16.0;
+    int ival = (int)val;
+
+    if ((exp >= 0) && (exp <= 7))
+    {
+        if (val == (double)ival)
+        {
+            canEncode = true;
+
+            if (wbFPI != nullptr)
+            {
+                ival -= 16;
+                assert((ival >= 0) && (ival <= 15));
+
+                wbFPI->immSign = sign;
+                wbFPI->immExp  = exp ^ 0x4;
+                wbFPI->immMant = ival;
+                unsigned imm8  = wbFPI->immFPIVal;
+                assert((imm8 >= 0) && (imm8 <= 0xff));
+            }
+        }
+    }
+
+    return canEncode;
+}
+
+bool Arm64Imm::IsMoviImm(uint64_t value, insOpts opts)
+{
+    return EncodeMoviImm(value, opts).ins != INS_invalid;
+}
+
+bool Arm64Imm::IsCmpImm(int64_t value, emitAttr size)
+{
+    return IsAddImm(value, size);
+}
+
+bool Arm64Imm::IsAluImm(int64_t value, emitAttr size)
+{
+    return canEncodeBitMaskImm(value, size);
+}
+
+bool Arm64Imm::IsBitMaskImm(int64_t value, emitAttr size, unsigned* imm)
+{
+    bitMaskImm bimm;
+
+    bool encoded = canEncodeBitMaskImm(value, size, &bimm);
+    *imm         = bimm.immNRS;
+
+    return encoded;
+}
+
+int64_t Arm64Imm::DecodeBitMaskImm(unsigned imm, emitAttr size)
+{
+    bitMaskImm bimm;
+    bimm.immNRS = imm;
+    return emitDecodeBitMaskImm(bimm, size);
+}
+
+#ifdef DEBUG
 void EmitterBase::emitInsSanityCheck(instrDesc* id)
 {
     switch (id->idInsFmt())
@@ -1508,7 +2449,6 @@ static emitAttr emitInsLoadStoreSize(Arm64Emitter::instrDesc* id)
             unreached();
     }
 }
-#endif // DEBUG
 
 const char* insName(instruction ins)
 {
@@ -1531,6 +2471,7 @@ const char* insName(instruction ins)
 
     return insNames[ins];
 }
+#endif // DEBUG
 
 enum
 {
@@ -2372,914 +3313,6 @@ uint32_t Arm64Encoder::emitInsCode(instruction ins, insFormat fmt)
     return code;
 }
 
-// A helper method to return the natural scale for an EA 'size'
-static unsigned NaturalScale_helper(emitAttr size)
-{
-    assert(size == EA_1BYTE || size == EA_2BYTE || size == EA_4BYTE || size == EA_8BYTE || size == EA_16BYTE);
-
-    unsigned result = 0;
-    unsigned utemp  = (unsigned)size;
-
-    // Compute log base 2 of utemp (aka 'size')
-    while (utemp > 1)
-    {
-        result++;
-        utemp >>= 1;
-    }
-
-    return result;
-}
-
-// A helper method to perform a Rotate-Right shift operation
-// the source is 'value' and it is rotated right by 'sh' bits
-// 'value' is considered to be a fixed size 'width' set of bits.
-// Example: value is '00001111', sh is 2 and width is 8, result is '11000011'
-static uint64_t ROR_helper(uint64_t value, unsigned sh, unsigned width)
-{
-    assert(width <= 64);
-    // Check that 'value' fits in 'width' bits
-    assert((width == 64) || (value < (1ULL << width)));
-    // We don't support shifts >= width
-    assert(sh < width);
-
-    uint64_t result;
-
-    unsigned rsh = sh;
-    unsigned lsh = width - rsh;
-
-    result = (value >> rsh);
-    result |= (value << lsh);
-
-    if (width < 64)
-    {
-        // mask off any extra bits that we got from the left shift
-        result &= ((1ULL << width) - 1);
-    }
-    return result;
-}
-
-// A helper method to perform a 'NOT' bitwise complement operation.
-// 'value' is considered to be a fixed size 'width' set of bits.
-// Example: value is '01001011', and width is 8, result is '10110100'
-static uint64_t NOT_helper(uint64_t value, unsigned width)
-{
-    assert(width <= 64);
-
-    uint64_t result = ~value;
-
-    if (width < 64)
-    {
-        // Check that 'value' fits in 'width' bits. Don't consider "sign" bits above width.
-        uint64_t maxVal       = 1ULL << width;
-        uint64_t lowBitsMask  = maxVal - 1;
-        uint64_t signBitsMask = ~lowBitsMask | (1ULL << (width - 1)); // The high bits must be set, and the top bit
-        // (sign bit) must be set.
-        assert((value < maxVal) || ((value & signBitsMask) == signBitsMask));
-
-        // mask off any extra bits that we got from the complement operation
-        result &= lowBitsMask;
-    }
-
-    return result;
-}
-
-// A helper method to perform a bit Replicate operation
-// the source is 'value' with a fixed size 'width' set of bits.
-// value is replicated to fill out 32 or 64 bits as determined by 'size'.
-// Example: value is '11000011' (0xE3), width is 8 and size is EA_8BYTE,
-// result is '11000011 11000011 11000011 11000011 11000011 11000011 11000011 11000011' 0xE3E3E3E3E3E3E3E3
-static uint64_t Replicate_helper(uint64_t value, unsigned width, emitAttr size)
-{
-    assert(isValidGeneralDatasize(size));
-
-    unsigned immWidth = (size == EA_8BYTE) ? 64 : 32;
-    assert(width <= immWidth);
-
-    uint64_t result     = value;
-    unsigned filledBits = width;
-
-    while (filledBits < immWidth)
-    {
-        value <<= width;
-        result |= value;
-        filledBits += width;
-    }
-    return result;
-}
-
-static bool canEncodeHalfwordImm(int64_t imm, emitAttr size, union halfwordImm* wbHWI = nullptr);
-static bool canEncodeBitMaskImm(int64_t imm, emitAttr size, union bitMaskImm* wbBMI = nullptr);
-
-// true if this 'imm' can be encoded as a input operand to a mov instruction
-bool Arm64Imm::IsMovImm(int64_t imm, emitAttr size)
-{
-    // Check for "MOV (wide immediate)".
-    if (canEncodeHalfwordImm(imm, size))
-        return true;
-
-    // Next try the ones-complement form of 'halfword immediate' imm(i16,hw),
-    // namely "MOV (inverted wide immediate)".
-    ssize_t notOfImm = NOT_helper(imm, getBitWidth(size));
-    if (canEncodeHalfwordImm(notOfImm, size))
-        return true;
-
-    // Finally try "MOV (bitmask immediate)" imm(N,r,s)
-    if (canEncodeBitMaskImm(imm, size))
-        return true;
-
-    return false;
-}
-
-struct MoviImm
-{
-    instruction ins;
-    uint8_t     imm;
-    uint8_t     shift;
-    bool        msl;
-
-    MoviImm() : ins(INS_invalid), imm(0), shift(0), msl(0)
-    {
-    }
-
-    MoviImm(instruction ins, uint64_t imm, unsigned shift = 0, bool msl = false)
-        : ins(ins), imm(static_cast<uint8_t>(imm)), shift(static_cast<uint8_t>(shift)), msl(msl)
-    {
-        assert(imm <= UINT8_MAX);
-        assert(shift <= 24);
-    }
-};
-
-// true if this 'imm' can be encoded as a input operand to a vector movi instruction
-MoviImm EncodeMoviImm(uint64_t value, insOpts opt)
-{
-    auto msl   = [](uint64_t value, unsigned shift) { return ((value & 0xFF) << shift) | ~(UINT64_MAX << shift); };
-    auto lsl   = [](uint64_t value, unsigned shift) { return (value & 0xFF) << shift; };
-    auto not8  = [](uint64_t value) { return ~value & UINT8_MAX; };
-    auto not16 = [](uint64_t value) { return ~value & UINT16_MAX; };
-    auto not32 = [](uint64_t value) { return ~value & UINT32_MAX; };
-
-    switch (opt)
-    {
-        case INS_OPTS_1D:
-        case INS_OPTS_2D:
-        {
-            uint64_t imm = 0;
-
-            for (unsigned bit = 0; value != 0; value >>= 8, bit++)
-            {
-                if ((value & 0xFF) == 0)
-                {
-                    continue;
-                }
-
-                if ((value & 0xFF) == 0xFF)
-                {
-                    imm |= 1ULL << bit;
-                    continue;
-                }
-
-                return MoviImm();
-            }
-
-            return MoviImm(INS_movi, imm);
-        }
-
-        case INS_OPTS_2S:
-        case INS_OPTS_4S:
-            value &= UINT32_MAX;
-
-            for (unsigned shift = 0; shift <= 24; shift += 8)
-            {
-                uint64_t imm = (value >> shift) & 0xFF;
-
-                if (lsl(imm, shift) == value)
-                {
-                    return MoviImm(INS_movi, imm, shift);
-                }
-
-                if (((shift == 8) || (shift == 16)) && (msl(imm, shift) == value))
-                {
-                    return MoviImm(INS_movi, imm, shift, true);
-                }
-
-                imm = not8(imm);
-
-                if (not32(lsl(imm, shift)) == value)
-                {
-                    return MoviImm(INS_mvni, imm, shift);
-                }
-
-                if (((shift == 8) || (shift == 16)) && (not32(msl(imm, shift)) == value))
-                {
-                    return MoviImm(INS_mvni, imm, shift, true);
-                }
-            }
-
-            return MoviImm();
-
-        case INS_OPTS_4H:
-        case INS_OPTS_8H:
-            value &= UINT16_MAX;
-
-            for (unsigned shift = 0; shift <= 8; shift += 8)
-            {
-                uint64_t imm = (value >> shift) & 0xFF;
-
-                if (lsl(imm, shift) == value)
-                {
-                    return MoviImm(INS_movi, imm, shift);
-                }
-
-                imm = not8(imm);
-
-                if (not16(lsl(imm, shift)) == value)
-                {
-                    return MoviImm(INS_mvni, imm, shift);
-                }
-            }
-
-            return MoviImm();
-
-        case INS_OPTS_8B:
-        case INS_OPTS_16B:
-            return MoviImm(INS_movi, value & 0xFF);
-
-        default:
-            unreached();
-    }
-}
-
-static bool canEncodeFloatImm8(double immDbl, union floatImm8* wbFPI = nullptr);
-
-// true if this 'imm' can be encoded as a input operand to a fmov instruction
-bool Arm64Imm::IsFMovImm(double value)
-{
-    return canEncodeFloatImm8(value);
-}
-
-static bool canEncodeWithShiftImmBy12(int64_t imm);
-
-// true if this 'imm' can be encoded as a input operand to an add instruction
-bool Arm64Imm::IsAddImm(int64_t imm, emitAttr size)
-{
-    if (unsigned_abs(imm) <= 0x0fff)
-        return true;
-    else if (canEncodeWithShiftImmBy12(imm)) // Try the shifted by 12 encoding
-        return true;
-
-    return false;
-}
-
-// true if this 'imm' can be encoded as the offset in a ldr/str instruction
-bool Arm64Imm::IsLdStImm(int64_t imm, emitAttr attr)
-{
-    if (imm == 0)
-        return true; // Encodable using IF_LS_2A
-
-    if ((imm >= -256) && (imm <= 255))
-        return true; // Encodable using IF_LS_2C (or possibly IF_LS_2B)
-
-    if (imm < 0)
-        return false; // not encodable
-
-    emitAttr size  = EA_SIZE(attr);
-    unsigned scale = NaturalScale_helper(size);
-    ssize_t  mask  = size - 1; // the mask of low bits that must be zero to encode the immediate
-
-    if (((imm & mask) == 0) && ((imm >> scale) < 0x1000))
-        return true; // Encodable using IF_LS_2B
-
-    return false; // not encodable
-}
-
-bool Arm64Imm::IsBlImm(int64_t addr, Compiler* compiler)
-{
-    // On arm64, we always assume a call target is in range and generate a 28-bit relative
-    // 'bl' instruction. If this isn't sufficient range, the VM will generate a jump stub when
-    // we call recordRelocation(). See the IMAGE_REL_ARM64_BRANCH26 case in jitinterface.cpp
-    // (for JIT) or zapinfo.cpp (for NGEN). If we cannot allocate a jump stub, it is fatal.
-    return true;
-}
-
-// This union is used to to encode/decode the special ARM64 immediate values
-// that is listed as imm(N,r,s) and referred to as 'bitmask immediate'
-union bitMaskImm {
-    struct
-    {
-        unsigned immS : 6; // bits 0..5
-        unsigned immR : 6; // bits 6..11
-        unsigned immN : 1; // bits 12
-    };
-    unsigned immNRS; // concat N:R:S forming a 13-bit unsigned immediate
-};
-
-// Convert an imm(N,r,s) into a 64-bit immediate
-// inputs 'bmImm' a bitMaskImm struct, 'size' specifies the size of the result (64 or 32 bits)
-static int64_t emitDecodeBitMaskImm(const bitMaskImm bmImm, emitAttr size)
-{
-    assert(isValidGeneralDatasize(size)); // Only EA_4BYTE or EA_8BYTE forms
-
-    unsigned N = bmImm.immN; // read the N,R and S values from the 'bitMaskImm' encoding
-    unsigned R = bmImm.immR;
-    unsigned S = bmImm.immS;
-
-    unsigned elemWidth = 64; // used when N == 1
-
-    if (N == 0) // find the smaller elemWidth when N == 0
-    {
-        // Scan S for the highest bit not set
-        elemWidth = 32;
-        for (unsigned bitNum = 5; bitNum > 0; bitNum--)
-        {
-            unsigned oneBit = elemWidth;
-            if ((S & oneBit) == 0)
-                break;
-            elemWidth /= 2;
-        }
-    }
-    else
-    {
-        assert(size == EA_8BYTE);
-    }
-
-    unsigned maskSR = elemWidth - 1;
-
-    S &= maskSR;
-    R &= maskSR;
-
-    // encoding for S is one less than the number of consecutive one bits
-    S++; // Number of consecutive ones to generate in 'welem'
-
-    // At this point:
-    //
-    // 'elemWidth' is the number of bits that we will use for the ROR and Replicate operations
-    // 'S'         is the number of consecutive 1 bits for the immediate
-    // 'R'         is the number of bits that we will Rotate Right the immediate
-    // 'size'      selects the final size of the immedate that we return (64 or 32 bits)
-
-    assert(S < elemWidth); // 'elemWidth' consecutive one's is a reserved encoding
-
-    uint64_t welem;
-    uint64_t wmask;
-
-    welem = (1ULL << S) - 1;
-
-    wmask = ROR_helper(welem, R, elemWidth);
-    wmask = Replicate_helper(wmask, elemWidth, size);
-
-    return wmask;
-}
-
-// Check if an immediate can use the left shifted by 12 bits encoding
-static bool canEncodeWithShiftImmBy12(int64_t imm)
-{
-    if (imm < 0)
-    {
-        imm = -imm; // convert to unsigned
-    }
-
-    if (imm < 0)
-    {
-        return false; // Must be MIN_INT64
-    }
-
-    if ((imm & 0xfff) != 0) // Now the low 12 bits all have to be zero
-    {
-        return false;
-    }
-
-    imm >>= 12; // shift right by 12 bits
-
-    return (imm <= 0x0fff); // Does it fit in 12 bits
-}
-
-// Normalize the 'imm' so that the upper bits, as defined by 'size' are zero
-static int64_t normalizeImm64(int64_t imm, emitAttr size)
-{
-    unsigned immWidth = getBitWidth(size);
-    int64_t  result   = imm;
-
-    if (immWidth < 64)
-    {
-        // Check that 'imm' fits in 'immWidth' bits. Don't consider "sign" bits above width.
-        int64_t maxVal      = 1LL << immWidth;
-        int64_t lowBitsMask = maxVal - 1;
-        int64_t hiBitsMask  = ~lowBitsMask;
-        int64_t signBitsMask =
-            hiBitsMask | (1LL << (immWidth - 1)); // The high bits must be set, and the top bit (sign bit) must be set.
-        assert((imm < maxVal) || ((imm & signBitsMask) == signBitsMask));
-
-        // mask off the hiBits
-        result &= lowBitsMask;
-    }
-    return result;
-}
-
-// Returns true if 'imm' of 'size bits (32/64) can be encoded using the ARM64 'bitmask immediate' form.
-// When a non-null value is passed for 'wbBMI' then this method writes back the 'N','S' and 'R' values
-// use to encode this immediate
-static bool canEncodeBitMaskImm(int64_t imm, emitAttr size, bitMaskImm* wbBMI)
-{
-    assert(isValidGeneralDatasize(size)); // Only EA_4BYTE or EA_8BYTE forms
-
-    unsigned immWidth = (size == EA_8BYTE) ? 64 : 32;
-    unsigned maxLen   = (size == EA_8BYTE) ? 6 : 5;
-
-    imm = normalizeImm64(imm, size);
-
-    // Starting with len=1, elemWidth is 2 bits
-    //            len=2, elemWidth is 4 bits
-    //            len=3, elemWidth is 8 bits
-    //            len=4, elemWidth is 16 bits
-    //            len=5, elemWidth is 32 bits
-    // (optionally)  len=6, elemWidth is 64 bits
-    //
-    for (unsigned len = 1; (len <= maxLen); len++)
-    {
-        unsigned elemWidth = 1 << len;
-        uint64_t elemMask  = ((uint64_t)-1) >> (64 - elemWidth);
-        uint64_t tempImm   = (uint64_t)imm;      // A working copy of 'imm' that we can mutate
-        uint64_t elemVal   = tempImm & elemMask; // The low 'elemWidth' bits of 'imm'
-
-        // Check for all 1's or 0's as these can't be encoded
-        if ((elemVal == 0) || (elemVal == elemMask))
-            continue;
-
-        // 'checkedBits' is the count of bits that are known to match 'elemVal' when replicated
-        unsigned checkedBits = elemWidth; // by definition the first 'elemWidth' bits match
-
-        // Now check to see if each of the next bits match...
-        //
-        while (checkedBits < immWidth)
-        {
-            tempImm >>= elemWidth;
-
-            uint64_t nextElem = tempImm & elemMask;
-            if (nextElem != elemVal)
-            {
-                // Not matching, exit this loop and checkedBits will not be equal to immWidth
-                break;
-            }
-
-            // The 'nextElem' is matching, so increment 'checkedBits'
-            checkedBits += elemWidth;
-        }
-
-        // Did the full immediate contain bits that can be formed by repeating 'elemVal'?
-        if (checkedBits == immWidth)
-        {
-            // We are not quite done, since the only values that we can encode as a
-            // 'bitmask immediate' are those that can be formed by starting with a
-            // bit string of 0*1* that is rotated by some number of bits.
-            //
-            // We check to see if 'elemVal' can be formed using these restrictions.
-            //
-            // Observation:
-            // Rotating by one bit any value that passes these restrictions
-            // can be xor-ed with the original value and will result it a string
-            // of bits that have exactly two 1 bits: 'elemRorXor'
-            // Further the distance between the two one bits tells us the value
-            // of S and the location of the 1 bits tells us the value of R
-            //
-            // Some examples:   (immWidth is 8)
-            //
-            // S=4,R=0   S=5,R=3   S=3,R=6
-            // elemVal:        00001111  11100011  00011100
-            // elemRor:        10000111  11110001  00001110
-            // elemRorXor:     10001000  00010010  00010010
-            //   compute S  45678---  ---5678-  ---3210-
-            //   compute R  01234567  ---34567  ------67
-
-            uint64_t elemRor    = ROR_helper(elemVal, 1, elemWidth); // Rotate 'elemVal' Right by one bit
-            uint64_t elemRorXor = elemVal ^ elemRor;                 // Xor elemVal and elemRor
-
-            // If we only have a two-bit change in elemROR then we can form a mask for this value
-            unsigned bitCount = 0;
-            uint64_t oneBit   = 0x1;
-            unsigned R        = elemWidth; // R is shift count for ROR (rotate right shift)
-            unsigned S        = 0;         // S is number of consecutive one bits
-            int      incr     = -1;
-
-            // Loop over the 'elemWidth' bits in 'elemRorXor'
-            //
-            for (unsigned bitNum = 0; bitNum < elemWidth; bitNum++)
-            {
-                if (incr == -1)
-                {
-                    R--; // We decrement R by one whenever incr is -1
-                }
-                if (bitCount == 1)
-                {
-                    S += incr; // We incr/decr S, after we find the first one bit in 'elemRorXor'
-                }
-
-                // Is this bit position a 1 bit in 'elemRorXor'?
-                //
-                if (oneBit & elemRorXor)
-                {
-                    bitCount++;
-                    // Is this the first 1 bit that we found in 'elemRorXor'?
-                    if (bitCount == 1)
-                    {
-                        // Does this 1 bit represent a transition to zero bits?
-                        bool toZeros = ((oneBit & elemVal) != 0);
-                        if (toZeros)
-                        {
-                            // S :: Count down from elemWidth
-                            S    = elemWidth;
-                            incr = -1;
-                        }
-                        else // this 1 bit represent a transition to one bits.
-                        {
-                            // S :: Count up from zero
-                            S    = 0;
-                            incr = +1;
-                        }
-                    }
-                    else // bitCount > 1
-                    {
-                        // We found the second (or third...) 1 bit in 'elemRorXor'
-                        incr = 0; // stop decrementing 'R'
-
-                        if (bitCount > 2)
-                        {
-                            // More than 2 transitions from 0/1 in 'elemVal'
-                            // This means that 'elemVal' can't be encoded
-                            // using a 'bitmask immediate'.
-                            //
-                            // Furthermore, it will continue to fail
-                            // with any larger 'len' that we try.
-                            // so just return false.
-                            //
-                            return false;
-                        }
-                    }
-                }
-
-                // shift oneBit left by one bit to test the next position
-                oneBit <<= 1;
-            }
-
-            // We expect that bitCount will always be two at this point
-            // but just in case return false for any bad cases.
-            //
-            assert(bitCount == 2);
-            if (bitCount != 2)
-                return false;
-
-            // Perform some sanity checks on the values of 'S' and 'R'
-            assert(S > 0);
-            assert(S < elemWidth);
-            assert(R < elemWidth);
-
-            // Does the caller want us to return the N,R,S encoding values?
-            //
-            if (wbBMI != nullptr)
-            {
-
-                // The encoding used for S is one less than the
-                // number of consecutive one bits
-                S--;
-
-                if (len == 6)
-                {
-                    wbBMI->immN = 1;
-                }
-                else
-                {
-                    wbBMI->immN = 0;
-                    // The encoding used for 'S' here is a bit peculiar.
-                    //
-                    // The upper bits need to be complemented, followed by a zero bit
-                    // then the value of 'S-1'
-                    //
-                    unsigned upperBitsOfS = 64 - (1 << (len + 1));
-                    S |= upperBitsOfS;
-                }
-                wbBMI->immR = R;
-                wbBMI->immS = S;
-
-                // Verify that what we are returning is correct.
-                assert(imm == emitDecodeBitMaskImm(*wbBMI, size));
-            }
-            // Tell the caller that we can successfully encode this immediate
-            // using a 'bitmask immediate'.
-            //
-            return true;
-        }
-    }
-    return false;
-}
-
-// This union is used to to encode/decode the special ARM64 immediate values
-// that is listed as imm(i16,hw) and referred to as 'halfword immediate'
-union halfwordImm {
-    struct
-    {
-        unsigned immVal : 16; // bits  0..15
-        unsigned immHW : 2;   // bits 16..17
-    };
-    unsigned immHWVal; // concat HW:Val forming a 18-bit unsigned immediate
-};
-
-#ifdef DEBUG
-// Convert an imm(i16,hw) into a 32/64-bit immediate
-// inputs 'hwImm' a halfwordImm struct, 'size' specifies the size of the result (64 or 32 bits)
-static int64_t emitDecodeHalfwordImm(halfwordImm hwImm, emitAttr size)
-{
-    assert(isValidGeneralDatasize(size)); // Only EA_4BYTE or EA_8BYTE forms
-
-    unsigned hw  = hwImm.immHW;
-    int64_t  val = (int64_t)hwImm.immVal;
-
-    assert((hw <= 1) || (size == EA_8BYTE));
-
-    int64_t result = val << (16 * hw);
-    return result;
-}
-#endif
-
-// Returns true if 'imm' of 'size' bits (32/64) can be encoded using the ARM64 'halfword immediate' form.
-// When a non-null value is passed for 'wbHWI' then this method writes back the 'immHW' and 'immVal'
-// values use to encode this immediate
-static bool canEncodeHalfwordImm(int64_t imm, emitAttr size, halfwordImm* wbHWI)
-{
-    assert(isValidGeneralDatasize(size)); // Only EA_4BYTE or EA_8BYTE forms
-
-    unsigned immWidth = (size == EA_8BYTE) ? 64 : 32;
-    unsigned maxHW    = (size == EA_8BYTE) ? 4 : 2;
-
-    // setup immMask to a (EA_4BYTE) 0x00000000_FFFFFFFF or (EA_8BYTE) 0xFFFFFFFF_FFFFFFFF
-    const uint64_t immMask = ((uint64_t)-1) >> (64 - immWidth);
-    const int64_t  mask16  = (int64_t)0xFFFF;
-
-    imm = normalizeImm64(imm, size);
-
-    // Try each of the valid hw shift sizes
-    for (unsigned hw = 0; (hw < maxHW); hw++)
-    {
-        int64_t curMask   = mask16 << (hw * 16); // Represents the mask of the bits in the current halfword
-        int64_t checkBits = immMask & ~curMask;
-
-        // Excluding the current halfword (using ~curMask)
-        // does the immediate have zero bits in every other bit that we care about?
-        // note we care about all 64-bits for EA_8BYTE
-        // and we care about the lowest 32 bits for EA_4BYTE
-        //
-        if ((imm & checkBits) == 0)
-        {
-            // Does the caller want us to return the imm(i16,hw) encoding values?
-            //
-            if (wbHWI != nullptr)
-            {
-                int64_t val   = ((imm & curMask) >> (hw * 16)) & mask16;
-                wbHWI->immHW  = hw;
-                wbHWI->immVal = val;
-
-                // Verify that what we are returning is correct.
-                assert(imm == emitDecodeHalfwordImm(*wbHWI, size));
-            }
-            // Tell the caller that we can successfully encode this immediate
-            // using a 'halfword immediate'.
-            //
-            return true;
-        }
-    }
-    return false;
-}
-
-// This union is used to encode/decode the special ARM64 immediate values
-// that is listed as imm(i16,by) and referred to as 'byteShifted immediate'
-union byteShiftedImm {
-    struct
-    {
-        unsigned immVal : 8;  // bits  0..7
-        unsigned immBY : 2;   // bits  8..9
-        unsigned immOnes : 1; // bit   10
-    };
-    unsigned immBSVal; // concat Ones:BY:Val forming a 10-bit unsigned immediate
-};
-
-#ifdef DEBUG
-// Convert an imm(i8,sh) into a 16/32-bit immediate
-// inputs 'bsImm' a byteShiftedImm struct, 'size' specifies the size of the result (16 or 32 bits)
-static uint32_t emitDecodeByteShiftedImm(byteShiftedImm bsImm, emitAttr size)
-{
-    bool     onesShift = (bsImm.immOnes == 1);
-    unsigned bySh      = bsImm.immBY;            // Num Bytes to shift 0,1,2,3
-    uint32_t result    = (uint32_t)bsImm.immVal; // 8-bit immediate
-
-    if (bySh > 0)
-    {
-        assert((size == EA_2BYTE) || (size == EA_4BYTE)); // Only EA_2BYTE or EA_4BYTE forms
-        if (size == EA_2BYTE)
-        {
-            assert(bySh < 2);
-        }
-        else
-        {
-            assert(bySh < 4);
-        }
-
-        result <<= (8 * bySh);
-
-        if (onesShift)
-        {
-            result |= ((1 << (8 * bySh)) - 1);
-        }
-    }
-    return result;
-}
-#endif
-
-// Returns true if 'imm' of 'size' bits (16/32) can be encoded using the ARM64 'byteShifted immediate' form.
-// When a non-null value is passed for 'wbBSI' then this method writes back the 'immBY' and 'immVal' values
-// use to encode this immediate
-static bool canEncodeByteShiftedImm(int64_t imm, emitAttr size, byteShiftedImm* wbBSI)
-{
-    bool     canEncode = false;
-    bool     onesShift = false; // true if we use the shifting ones variant
-    unsigned bySh      = 0;     // number of bytes to shift: 0, 1, 2, 3
-    unsigned imm8      = 0;     // immediate to use in the encoding
-
-    imm = normalizeImm64(imm, size);
-
-    assert((size == EA_2BYTE) || (size == EA_4BYTE)); // Only EA_2BYTE or EA_4BYTE forms
-
-    unsigned immWidth = (size == EA_4BYTE) ? 32 : 16;
-    unsigned maxBY    = (size == EA_4BYTE) ? 4 : 2;
-
-    // setup immMask to a (EA_2BYTE) 0x0000FFFF or (EA_4BYTE) 0xFFFFFFFF
-    const uint32_t immMask = ((uint32_t)-1) >> (32 - immWidth);
-    const int32_t  mask8   = (int32_t)0xFF;
-
-    // Try each of the valid by shift sizes
-    for (bySh = 0; (bySh < maxBY); bySh++)
-    {
-        int32_t curMask   = mask8 << (bySh * 8); // Represents the mask of the bits in the current byteShifted
-        int32_t checkBits = immMask & ~curMask;
-        int32_t immCheck  = (imm & checkBits);
-
-        // Excluding the current byte (using ~curMask)
-        // does the immediate have zero bits in every other bit that we care about?
-        // or can be use the shifted one variant?
-        // note we care about all 32-bits for EA_4BYTE
-        // and we care about the lowest 16 bits for EA_2BYTE
-        //
-        if (immCheck == 0)
-        {
-            canEncode = true;
-        }
-
-        if (canEncode)
-        {
-            imm8 = (unsigned)(((imm & curMask) >> (bySh * 8)) & mask8);
-            break;
-        }
-    }
-
-    if (canEncode)
-    {
-        // Does the caller want us to return the imm(i8,bySh) encoding values?
-        //
-        if (wbBSI != nullptr)
-        {
-            wbBSI->immOnes = onesShift;
-            wbBSI->immBY   = bySh;
-            wbBSI->immVal  = imm8;
-
-            // Verify that what we are returning is correct.
-            assert(imm == emitDecodeByteShiftedImm(*wbBSI, size));
-        }
-        // Tell the caller that we can successfully encode this immediate
-        // using a 'byteShifted immediate'.
-        //
-        return true;
-    }
-    return false;
-}
-
-// This union is used to to encode/decode the special ARM64 immediate values
-// that are use for FMOV immediate and referred to as 'float 8-bit immediate'
-union floatImm8 {
-    struct
-    {
-        unsigned immMant : 4; // bits 0..3
-        unsigned immExp : 3;  // bits 4..6
-        unsigned immSign : 1; // bits 7
-    };
-    unsigned immFPIVal; // concat Sign:Exp:Mant forming an 8-bit unsigned immediate
-};
-
-#ifdef DEBUG
-// Convert a 'float 8-bit immediate' into a double.
-static double emitDecodeFloatImm8(floatImm8 fpImm)
-{
-    unsigned sign  = fpImm.immSign;
-    unsigned exp   = fpImm.immExp ^ 0x4;
-    unsigned mant  = fpImm.immMant + 16;
-    unsigned scale = 16 * 8;
-
-    while (exp > 0)
-    {
-        scale /= 2;
-        exp--;
-    }
-
-    double result = ((double)mant) / ((double)scale);
-    if (sign == 1)
-    {
-        result = -result;
-    }
-
-    return result;
-}
-#endif
-
-// Returns true if the 'immDbl' can be encoded using the 'float 8-bit immediate' form.
-// Also returns the encoding if wbFPI is non-null.
-static bool canEncodeFloatImm8(double immDbl, floatImm8* wbFPI)
-{
-    bool   canEncode = false;
-    double val       = immDbl;
-
-    int sign = 0;
-    if (val < 0.0)
-    {
-        val  = -val;
-        sign = 1;
-    }
-
-    int exp = 0;
-    while ((val < 1.0) && (exp >= -4))
-    {
-        val *= 2.0;
-        exp--;
-    }
-    while ((val >= 2.0) && (exp <= 5))
-    {
-        val *= 0.5;
-        exp++;
-    }
-    exp += 3;
-    val *= 16.0;
-    int ival = (int)val;
-
-    if ((exp >= 0) && (exp <= 7))
-    {
-        if (val == (double)ival)
-        {
-            canEncode = true;
-
-            if (wbFPI != nullptr)
-            {
-                ival -= 16;
-                assert((ival >= 0) && (ival <= 15));
-
-                wbFPI->immSign = sign;
-                wbFPI->immExp  = exp ^ 0x4;
-                wbFPI->immMant = ival;
-                unsigned imm8  = wbFPI->immFPIVal;
-                assert((imm8 >= 0) && (imm8 <= 0xff));
-            }
-        }
-    }
-
-    return canEncode;
-}
-
-bool Arm64Imm::IsMoviImm(uint64_t value, insOpts opts)
-{
-    return EncodeMoviImm(value, opts).ins != INS_invalid;
-}
-
-bool Arm64Imm::IsCmpImm(int64_t value, emitAttr size)
-{
-    return IsAddImm(value, size);
-}
-
-bool Arm64Imm::IsAluImm(int64_t value, emitAttr size)
-{
-    return canEncodeBitMaskImm(value, size);
-}
-
-bool Arm64Imm::IsBitMaskImm(int64_t value, emitAttr size, unsigned* imm)
-{
-    bitMaskImm bimm;
-
-    bool encoded = canEncodeBitMaskImm(value, size, &bimm);
-    *imm         = bimm.immNRS;
-
-    return encoded;
-}
-
-int64_t Arm64Imm::DecodeBitMaskImm(unsigned imm, emitAttr size)
-{
-    bitMaskImm bimm;
-    bimm.immNRS = imm;
-    return emitDecodeBitMaskImm(bimm, size);
-}
-
 // For the given 'ins' returns the reverse instruction if one exists, otherwise returns INS_INVALID
 static instruction insReverse(instruction ins)
 {
@@ -3307,6 +3340,47 @@ static instruction insReverse(instruction ins)
 
         default:
             return INS_invalid;
+    }
+}
+
+// For a given instruction 'ins' which contains a register lists returns a
+// number of consecutive SIMD registers the instruction loads to/store from.
+static unsigned insGetRegisterListSize(instruction ins)
+{
+    switch (ins)
+    {
+        case INS_ld1:
+        case INS_ld1r:
+        case INS_st1:
+        case INS_tbl:
+        case INS_tbx:
+            return 1;
+        case INS_ld1_2regs:
+        case INS_ld2:
+        case INS_ld2r:
+        case INS_st1_2regs:
+        case INS_st2:
+        case INS_tbl_2regs:
+        case INS_tbx_2regs:
+            return 2;
+        case INS_ld1_3regs:
+        case INS_ld3:
+        case INS_ld3r:
+        case INS_st1_3regs:
+        case INS_st3:
+        case INS_tbl_3regs:
+        case INS_tbx_3regs:
+            return 3;
+        case INS_ld1_4regs:
+        case INS_ld4:
+        case INS_ld4r:
+        case INS_st1_4regs:
+        case INS_st4:
+        case INS_tbl_4regs:
+        case INS_tbx_4regs:
+            return 4;
+        default:
+            unreached();
     }
 }
 
@@ -3360,69 +3434,6 @@ static insOpts optMakeArrangement(emitAttr datasize, emitAttr elemsize)
         }
     }
     return result;
-}
-
-#ifdef DEBUG
-// For the given 'datasize' and arrangement 'opts' returns true is the pair spcifies a valid arrangement
-static bool isValidArrangement(emitAttr datasize, insOpts opt)
-{
-    if (datasize == EA_8BYTE)
-    {
-        if ((opt == INS_OPTS_8B) || (opt == INS_OPTS_4H) || (opt == INS_OPTS_2S) || (opt == INS_OPTS_1D))
-        {
-            return true;
-        }
-    }
-    else if (datasize == EA_16BYTE)
-    {
-        if ((opt == INS_OPTS_16B) || (opt == INS_OPTS_8H) || (opt == INS_OPTS_4S) || (opt == INS_OPTS_2D))
-        {
-            return true;
-        }
-    }
-    return false;
-}
-#endif
-
-// For a given instruction 'ins' which contains a register lists returns a
-// number of consecutive SIMD registers the instruction loads to/store from.
-static unsigned insGetRegisterListSize(instruction ins)
-{
-    switch (ins)
-    {
-        case INS_ld1:
-        case INS_ld1r:
-        case INS_st1:
-        case INS_tbl:
-        case INS_tbx:
-            return 1;
-        case INS_ld1_2regs:
-        case INS_ld2:
-        case INS_ld2r:
-        case INS_st1_2regs:
-        case INS_st2:
-        case INS_tbl_2regs:
-        case INS_tbx_2regs:
-            return 2;
-        case INS_ld1_3regs:
-        case INS_ld3:
-        case INS_ld3r:
-        case INS_st1_3regs:
-        case INS_st3:
-        case INS_tbl_3regs:
-        case INS_tbx_3regs:
-            return 3;
-        case INS_ld1_4regs:
-        case INS_ld4:
-        case INS_ld4r:
-        case INS_st1_4regs:
-        case INS_st4:
-        case INS_tbl_4regs:
-        case INS_tbx_4regs:
-            return 4;
-        default:
-            unreached();
-    }
 }
 
 emitAttr GetVecElemsize(insOpts arrangement)
@@ -3482,6 +3493,26 @@ insOpts GetVecArrangementOpt(emitAttr vecSize, var_types elemType)
 }
 
 #ifdef DEBUG
+// For the given 'datasize' and arrangement 'opts' returns true is the pair spcifies a valid arrangement
+static bool isValidArrangement(emitAttr datasize, insOpts opt)
+{
+    if (datasize == EA_8BYTE)
+    {
+        if ((opt == INS_OPTS_8B) || (opt == INS_OPTS_4H) || (opt == INS_OPTS_2S) || (opt == INS_OPTS_1D))
+        {
+            return true;
+        }
+    }
+    else if (datasize == EA_16BYTE)
+    {
+        if ((opt == INS_OPTS_16B) || (opt == INS_OPTS_8H) || (opt == INS_OPTS_4S) || (opt == INS_OPTS_2D))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 // For the given 'arrangement' returns the one with the element width that is double that of the 'arrangement' element.
 static insOpts optWidenElemsizeArrangement(insOpts arrangement)
 {
@@ -6950,12 +6981,7 @@ void Arm64Emitter::emitIns_R_COND(instruction ins, emitAttr attr, RegNum reg, in
     assert((ins == INS_cset) || (ins == INS_csetm));
     assert(isGeneralRegister(reg));
 
-    condFlagsImm cfi;
-    cfi.immCFVal = 0;
-    cfi.cond     = cond;
-    assert(isValidImmCond(cfi.immCFVal));
-
-    instrDesc* id = emitNewInstrSC(cfi.immCFVal);
+    instrDesc* id = emitNewInstrSC(EncodeCondImm(cond));
     id->idIns(ins);
     id->idInsFmt(IF_DR_1D);
     id->idGCref(EA_GC_TYPE(attr));
@@ -6972,12 +6998,7 @@ void Arm64Emitter::emitIns_R_R_COND(instruction ins, emitAttr attr, RegNum reg1,
     assert(isGeneralRegister(reg1));
     assert(isGeneralRegister(reg2));
 
-    condFlagsImm cfi;
-    cfi.immCFVal = 0;
-    cfi.cond     = cond;
-    assert(isValidImmCond(cfi.immCFVal));
-
-    instrDesc* id = emitNewInstrSC(cfi.immCFVal);
+    instrDesc* id = emitNewInstrSC(EncodeCondImm(cond));
     id->idIns(ins);
     id->idInsFmt(IF_DR_2D);
     id->idGCref(EA_GC_TYPE(attr));
@@ -6997,11 +7018,6 @@ void Arm64Emitter::emitIns_R_R_R_COND(
     assert(isGeneralRegister(reg2));
     assert(isGeneralRegister(reg3));
 
-    condFlagsImm cfi;
-    cfi.immCFVal = 0;
-    cfi.cond     = cond;
-    assert(isValidImmCond(cfi.immCFVal));
-
     instrDesc* id = emitNewInstr();
     id->idIns(ins);
     id->idInsFmt(IF_DR_3D);
@@ -7010,7 +7026,7 @@ void Arm64Emitter::emitIns_R_R_R_COND(
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idReg3(reg3);
-    id->idSmallCns(cfi.immCFVal);
+    id->idSmallCns(EncodeCondImm(cond));
 
     dispIns(id);
     appendToCurIG(id);
@@ -7023,13 +7039,7 @@ void Arm64Emitter::emitIns_R_R_FLAGS_COND(
     assert(isGeneralRegister(reg1));
     assert(isGeneralRegister(reg2));
 
-    condFlagsImm cfi;
-    cfi.immCFVal = 0;
-    cfi.flags    = flags;
-    cfi.cond     = cond;
-    assert(isValidImmCondFlags(cfi.immCFVal));
-
-    instrDesc* id = emitNewInstrSC(cfi.immCFVal);
+    instrDesc* id = emitNewInstrSC(EncodeCondImm(cond, flags));
     id->idIns(ins);
     id->idInsFmt(IF_DR_2I);
     id->idGCref(EA_GC_TYPE(attr));
@@ -7053,17 +7063,7 @@ void Arm64Emitter::emitIns_R_I_FLAGS_COND(
         imm = -imm;
     }
 
-    assert((imm >= 0) && (imm <= 31));
-
-    condFlagsImm cfi;
-    cfi.immCFVal = 0;
-    cfi.imm5     = imm;
-    cfi.flags    = flags;
-    cfi.cond     = cond;
-
-    assert(isValidImmCondFlagsImm5(cfi.immCFVal));
-
-    instrDesc* id = emitNewInstrSC(cfi.immCFVal);
+    instrDesc* id = emitNewInstrSC(EncodeCondImm(cond, flags, imm));
     id->idIns(ins);
     id->idInsFmt(IF_DI_1F);
     id->idGCref(EA_GC_TYPE(attr));
@@ -9292,7 +9292,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code         = emitInsCode(ins, fmt);
                 code |= insEncodeDatasize(id->idOpSize()); // X
                 code |= insEncodeReg_Rn(id->idReg1());     // nnnnn
-                code |= ((uint32_t)cfi.imm5 << 16);        // iiiii
+                code |= cfi.imm5 << 16;                    // iiiii
                 code |= insEncodeFlags(cfi.flags);         // nzcv
                 code |= insEncodeCond(cfi.cond);           // cccc
                 dst += emitOutput_Instr(dst, code);
