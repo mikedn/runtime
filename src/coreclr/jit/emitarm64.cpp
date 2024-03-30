@@ -310,7 +310,7 @@ static bool isVectorRegister(RegNum reg)
 
 static constexpr bool strictArmAsm = true;
 
-insCond Arm64Emitter::emitJumpKindToCond(emitJumpKind kind)
+insCond JumpKindToInsCond(emitJumpKind kind)
 {
     assert((EJ_eq <= kind) && (kind <= EJ_le));
 
@@ -324,7 +324,7 @@ insCond Arm64Emitter::emitJumpKindToCond(emitJumpKind kind)
     return static_cast<insCond>(map[kind]);
 }
 
-instruction Arm64Emitter::emitJumpKindToBranch(emitJumpKind kind)
+instruction JumpKindToJcc(emitJumpKind kind)
 {
     static const instruction map[]{
         INS_nop, INS_b,
@@ -336,7 +336,7 @@ instruction Arm64Emitter::emitJumpKindToBranch(emitJumpKind kind)
     return map[kind];
 }
 
-emitJumpKind EmitterBase::emitReverseJumpKind(emitJumpKind kind)
+emitJumpKind ReverseJumpKind(emitJumpKind kind)
 {
     static const uint8_t map[]{
         EJ_NONE, EJ_jmp,
@@ -348,7 +348,7 @@ emitJumpKind EmitterBase::emitReverseJumpKind(emitJumpKind kind)
     return static_cast<emitJumpKind>(map[kind]);
 }
 
-static emitJumpKind BranchToJumpKind(instruction ins)
+static emitJumpKind JccToJumpKind(instruction ins)
 {
     if (ins == INS_b)
     {
@@ -8814,7 +8814,7 @@ uint8_t* Arm64Encoder::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig
                 reverseFmt = IF_BI_1B;
                 break;
             default:
-                reverseIns = Emitter::emitJumpKindToBranch(Emitter::emitReverseJumpKind(BranchToJumpKind(ins)));
+                reverseIns = JumpKindToJcc(ReverseJumpKind(JccToJumpKind(ins)));
                 reverseFmt = IF_BI_0B;
                 break;
         }

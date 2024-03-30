@@ -48,7 +48,7 @@ static bool insOptsRRX(insOpts opt)
     return opt == INS_OPTS_RRX;
 }
 
-instruction ArmEmitter::emitJumpKindToBranch(emitJumpKind kind)
+instruction JumpKindToJcc(emitJumpKind kind)
 {
     static const instruction map[]{
         INS_nop, INS_b,
@@ -60,7 +60,7 @@ instruction ArmEmitter::emitJumpKindToBranch(emitJumpKind kind)
     return map[kind];
 }
 
-emitJumpKind EmitterBase::emitReverseJumpKind(emitJumpKind kind)
+emitJumpKind ReverseJumpKind(emitJumpKind kind)
 {
     static const emitJumpKind map[]{
         EJ_NONE, EJ_jmp,
@@ -72,7 +72,7 @@ emitJumpKind EmitterBase::emitReverseJumpKind(emitJumpKind kind)
     return map[kind];
 }
 
-static emitJumpKind BranchToJumpKind(instruction ins)
+static emitJumpKind JccToJumpKind(instruction ins)
 {
     assert((INS_b <= ins) && (ins <= INS_ble));
 #define CC_DEF(cc, rev, ...) static_assert_no_msg(INS_b##cc - INS_b == EJ_##cc - EJ_jmp);
@@ -4820,7 +4820,7 @@ uint8_t* ArmEncoder::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
         // to get a greater branch target range than we can get by using a straightforward conditional
         // branch. It is encoded as a short conditional branch that branches around a long unconditional
         // branch.
-        instruction reverse = Emitter::emitJumpKindToBranch(Emitter::emitReverseJumpKind(BranchToJumpKind(ins)));
+        instruction reverse = JumpKindToJcc(ReverseJumpKind(JccToJumpKind(ins)));
         dst                 = emitOutputShortBranch(dst, reverse, IF_T1_K, 2, nullptr);
 
         // The distance was computed based on the beginning of the pseudo-instruction.
@@ -6658,7 +6658,7 @@ void ArmEncoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
         instrDescJmp* ij = static_cast<instrDescJmp*>(id);
         instrDescJmp  idJmp;
         memset(&idJmp, 0, sizeof(idJmp));
-        idJmp.idIns(Emitter::emitJumpKindToBranch(Emitter::emitReverseJumpKind(BranchToJumpKind(id->idIns()))));
+        idJmp.idIns(JumpKindToJcc(ReverseJumpKind(JccToJumpKind(id->idIns()))));
         idJmp.idInsFmt(IF_T1_K);
         idJmp.idInsSize(Emitter::ISZ_16BIT);
         idJmp.SetInstrCount(1);

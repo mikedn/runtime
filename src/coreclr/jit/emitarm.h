@@ -16,12 +16,6 @@ public:
 
     void Ins_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s);
 
-    /************************************************************************/
-    /*           The public entry points to output instructions             */
-    /************************************************************************/
-
-    static instruction emitJumpKindToBranch(emitJumpKind jumpKind);
-
     void emitIns(instruction ins);
     void emitIns_J(instruction ins, int instrCount);
     void emitIns_J(instruction ins, insGroup* label);
@@ -83,9 +77,6 @@ public:
                       RegNum   reg    = REG_NA,
                       bool     isJump = false);
 
-    /************************************************************************/
-    /*                   Interface for generating unwind information        */
-    /************************************************************************/
     unsigned emitGetInstructionSize(const emitLocation& emit);
 
 private:

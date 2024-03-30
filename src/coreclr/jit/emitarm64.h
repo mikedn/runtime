@@ -14,13 +14,6 @@ public:
     {
     }
 
-    /************************************************************************/
-    /*           The public entry points to output instructions             */
-    /************************************************************************/
-
-    static insCond emitJumpKindToCond(emitJumpKind jumpKind);
-    static instruction emitJumpKindToBranch(emitJumpKind jumpKind);
-
     void emitIns(instruction ins);
     void emitIns_J(instruction ins, int instrCount);
     void emitIns_J(instruction ins, insGroup* label);

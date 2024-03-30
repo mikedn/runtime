@@ -427,7 +427,6 @@ public:
     bool IsCurrentLocation(const emitLocation& loc) const;
     bool IsPreviousLocation(const emitLocation& loc) const;
 
-    static emitJumpKind emitReverseJumpKind(emitJumpKind jumpKind);
     static unsigned emitFindInsNum(const insGroup* ig, const instrDesc* instr);
 
     ConstData* GetFloatConst(double value, var_types type);

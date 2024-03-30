@@ -43,9 +43,6 @@ public:
     void emitMarkStackLvl(unsigned stackLevel);
 #endif
 
-    static instruction emitJumpKindToSetcc(emitJumpKind jumpKind);
-    static instruction emitJumpKindToBranch(emitJumpKind jumpKind);
-
     /************************************************************************/
     /*           The public entry points to output instructions             */
     /************************************************************************/

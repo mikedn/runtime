@@ -21,7 +21,7 @@ static bool IsJmpInstruction(instruction ins)
 }
 #endif
 
-instruction X86Emitter::emitJumpKindToSetcc(emitJumpKind kind)
+instruction JumpKindToSetcc(emitJumpKind kind)
 {
     assert((EJ_o <= kind) && (kind <= EJ_g));
 
@@ -35,7 +35,7 @@ instruction X86Emitter::emitJumpKindToSetcc(emitJumpKind kind)
     return map[kind];
 }
 
-instruction X86Emitter::emitJumpKindToBranch(emitJumpKind kind)
+instruction JumpKindToJcc(emitJumpKind kind)
 {
     static const instruction map[]{
         INS_nop, INS_jmp,
@@ -47,7 +47,7 @@ instruction X86Emitter::emitJumpKindToBranch(emitJumpKind kind)
     return map[kind];
 }
 
-emitJumpKind EmitterBase::emitReverseJumpKind(emitJumpKind kind)
+emitJumpKind ReverseJumpKind(emitJumpKind kind)
 {
     static const uint8_t map[]{
         EJ_NONE, EJ_jmp,

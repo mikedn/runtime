@@ -82,6 +82,12 @@ enum emitJumpKind
 #include "emitjmps.h"
 };
 
+instruction JumpKindToJcc(emitJumpKind jumpKind);
+#ifdef TARGET_XARCH
+instruction JumpKindToSetcc(emitJumpKind jumpKind);
+#endif
+emitJumpKind ReverseJumpKind(emitJumpKind jumpKind);
+
 #ifdef TARGET_ARM
 
 enum insFlags : unsigned
@@ -203,6 +209,8 @@ enum insCond : unsigned
     INS_COND_GT,
     INS_COND_LE,
 };
+
+insCond JumpKindToInsCond(emitJumpKind jumpKind);
 
 enum insCflags : unsigned
 {

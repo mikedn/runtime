@@ -1182,19 +1182,19 @@ void CodeGen::inst_JCC(GenCondition condition, insGroup* label)
 
     if (desc.oper == GT_NONE)
     {
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), label);
+        emit.emitIns_J(JumpKindToJcc(desc.jumpKind1), label);
     }
     else if (desc.oper == GT_OR)
     {
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), label);
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), label);
+        emit.emitIns_J(JumpKindToJcc(desc.jumpKind1), label);
+        emit.emitIns_J(JumpKindToJcc(desc.jumpKind2), label);
     }
     else
     {
         assert(desc.oper == GT_AND);
         insGroup* labelNext = emit.CreateTempLabel();
-        emit.emitIns_J(emitter::emitJumpKindToBranch(emitter::emitReverseJumpKind(desc.jumpKind1)), labelNext);
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), label);
+        emit.emitIns_J(JumpKindToJcc(ReverseJumpKind(desc.jumpKind1)), labelNext);
+        emit.emitIns_J(JumpKindToJcc(desc.jumpKind2), label);
         emit.DefineTempLabel(labelNext);
     }
 }
@@ -1207,15 +1207,15 @@ void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstRe
     const GenConditionDesc& desc = GenConditionDesc::Get(condition);
     Emitter&                emit = *GetEmitter();
 
-    emit.emitIns_R(emitter::emitJumpKindToSetcc(desc.jumpKind1), EA_1BYTE, dstReg);
+    emit.emitIns_R(JumpKindToSetcc(desc.jumpKind1), EA_1BYTE, dstReg);
 
     if (desc.oper != GT_NONE)
     {
-        emitJumpKind jcc = (desc.oper == GT_OR) ? desc.jumpKind1 : emitter::emitReverseJumpKind(desc.jumpKind1);
+        emitJumpKind jcc = (desc.oper == GT_OR) ? desc.jumpKind1 : ReverseJumpKind(desc.jumpKind1);
 
         insGroup* labelNext = emit.CreateTempLabel();
-        emit.emitIns_J(emitter::emitJumpKindToBranch(jcc), labelNext);
-        emit.emitIns_R(emitter::emitJumpKindToSetcc(desc.jumpKind2), EA_1BYTE, dstReg);
+        emit.emitIns_J(JumpKindToJcc(jcc), labelNext);
+        emit.emitIns_R(JumpKindToSetcc(desc.jumpKind2), EA_1BYTE, dstReg);
         emit.DefineTempLabel(labelNext);
     }
 
@@ -9247,12 +9247,12 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throw
         }
 #endif
 
-        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(condition), throwBlock->emitLabel);
+        GetEmitter()->emitIns_J(JumpKindToJcc(condition), throwBlock->emitLabel);
     }
     else
     {
         insGroup* label = GetEmitter()->CreateTempLabel();
-        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(emitter::emitReverseJumpKind(condition)), label);
+        GetEmitter()->emitIns_J(JumpKindToJcc(ReverseJumpKind(condition)), label);
         genEmitHelperCall(Compiler::GetThrowHelperCall(throwKind));
         GetEmitter()->DefineTempLabel(label);
     }
