@@ -112,9 +112,9 @@ private:
 
     void genRangeCheck(GenTreeBoundsChk* bndsChk);
 
-    void genLockedInstructions(GenTreeOp* node);
+    void GenInterlocked(GenTreeOp* node);
 #ifdef TARGET_XARCH
-    void genCodeForLockAdd(GenTreeOp* node);
+    void GenLockAdd(GenTreeOp* node);
 #endif
 
 #ifdef TARGET_ARMARCH
@@ -797,7 +797,7 @@ protected:
 #endif
     void genCodeForPhysReg(GenTreePhysReg* tree);
     void genCodeForNullCheck(GenTreeIndir* tree);
-    void genCodeForCmpXchg(GenTreeCmpXchg* tree);
+    void GenCmpXchg(GenTreeCmpXchg* tree);
     void GenMemoryBarrier(GenTree* barrier);
     void genCodeForInstr(GenTreeInstr* instr);
 

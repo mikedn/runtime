@@ -278,11 +278,11 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
         case GT_XORR:
         case GT_XAND:
         case GT_XADD:
-            genLockedInstructions(treeNode->AsOp());
+            GenInterlocked(treeNode->AsOp());
             break;
 
         case GT_CMPXCHG:
-            genCodeForCmpXchg(treeNode->AsCmpXchg());
+            GenCmpXchg(treeNode->AsCmpXchg());
             break;
 #endif
 

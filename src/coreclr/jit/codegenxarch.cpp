@@ -1502,12 +1502,12 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_LOCKADD:
-            genCodeForLockAdd(treeNode->AsOp());
+            GenLockAdd(treeNode->AsOp());
             break;
 
         case GT_XCHG:
         case GT_XADD:
-            genLockedInstructions(treeNode->AsOp());
+            GenInterlocked(treeNode->AsOp());
             break;
 
         case GT_XORR:
@@ -1520,7 +1520,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_CMPXCHG:
-            genCodeForCmpXchg(treeNode->AsCmpXchg());
+            GenCmpXchg(treeNode->AsCmpXchg());
             break;
 
         case GT_NOP:
@@ -3134,15 +3134,13 @@ void CodeGen::GenSwitchTable(GenTreeOp* node)
 #endif
 }
 
-void CodeGen::genCodeForLockAdd(GenTreeOp* node)
+void CodeGen::GenLockAdd(GenTreeOp* node)
 {
     assert(node->OperIs(GT_LOCKADD));
 
     GenTree* addr  = node->GetOp(0);
     GenTree* value = node->GetOp(1);
     emitAttr size  = emitActualTypeSize(value->GetType());
-
-    assert((size == EA_4BYTE) || (size == EA_PTRSIZE));
 
     regNumber addrReg  = UseReg(addr);
     regNumber valueReg = value->isUsedFromReg() ? UseReg(value) : REG_NA;
@@ -3159,26 +3157,23 @@ void CodeGen::genCodeForLockAdd(GenTreeOp* node)
     }
 }
 
-void CodeGen::genLockedInstructions(GenTreeOp* node)
+void CodeGen::GenInterlocked(GenTreeOp* node)
 {
     assert(node->OperIs(GT_XADD, GT_XCHG));
 
-    GenTree* addr = node->gtGetOp1();
-    GenTree* data = node->gtGetOp2();
-    emitAttr size = emitTypeSize(node->TypeGet());
-
+    emitAttr size = emitTypeSize(node->GetType());
     assert((size == EA_4BYTE) || (size == EA_PTRSIZE));
 
-    regNumber addrReg = UseReg(addr);
-    regNumber dataReg = UseReg(data);
-    regNumber dstReg  = node->GetRegNum();
+    GenTree* addr  = node->GetOp(0);
+    GenTree* value = node->GetOp(1);
 
-    // If the destination register is different from the shift register then we need
-    // to first move the shift to the target register. Make sure we don't overwrite
-    // the address, the register allocator should have taken care of this.
-    assert((dstReg != addrReg) || (dstReg == dataReg));
+    RegNum addrReg  = UseReg(addr);
+    RegNum valueReg = UseReg(value);
+    RegNum destReg  = node->GetRegNum();
 
-    GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, dataReg, /* canSkip */ true);
+    assert((destReg != addrReg) || (destReg == valueReg));
+
+    GetEmitter()->emitIns_Mov(INS_mov, size, destReg, valueReg, /* canSkip */ true);
 
     instruction ins = node->OperIs(GT_XADD) ? INS_xadd : INS_xchg;
 
@@ -3188,40 +3183,32 @@ void CodeGen::genLockedInstructions(GenTreeOp* node)
         GetEmitter()->emitIns_Lock();
     }
 
-    GetEmitter()->emitIns_AR_R(ins, size, dstReg, addrReg, 0);
-    genProduceReg(node);
+    GetEmitter()->emitIns_AR_R(ins, size, destReg, addrReg, 0);
+    DefReg(node);
 }
 
-void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* tree)
+void CodeGen::GenCmpXchg(GenTreeCmpXchg* node)
 {
-    assert(tree->OperIs(GT_CMPXCHG));
+    emitAttr size = emitActualTypeSize(node->GetType());
 
-    var_types targetType = tree->TypeGet();
-    regNumber targetReg  = tree->GetRegNum();
+    GenTree* addr      = node->GetAddr();
+    GenTree* value     = node->GetValue();
+    GenTree* comparand = node->GetCompareValue();
 
-    GenTree* location  = tree->GetAddr();
-    GenTree* value     = tree->GetValue();
-    GenTree* comparand = tree->GetCompareValue();
+    RegNum addrReg      = UseReg(addr);
+    RegNum valueReg     = UseReg(value);
+    RegNum comparandReg = UseReg(comparand);
+    RegNum destReg      = node->GetRegNum();
 
-    assert(location->GetRegNum() != REG_NA && location->GetRegNum() != REG_RAX);
-    assert(value->GetRegNum() != REG_NA && value->GetRegNum() != REG_RAX);
+    assert(addrReg != REG_RAX);
+    assert(valueReg != REG_RAX);
 
-    genConsumeReg(location);
-    genConsumeReg(value);
-    genConsumeReg(comparand);
-
-    // comparand goes to RAX;
-    // Note that we must issue this move after the genConsumeRegs(), in case any of the above
-    // have a GT_COPY from RAX.
-    inst_Mov(comparand->TypeGet(), REG_RAX, comparand->GetRegNum(), /* canSkip */ true);
-
+    GetEmitter()->emitIns_Mov(INS_mov, size, REG_RAX, comparandReg, /* canSkip */ true);
     GetEmitter()->emitIns_Lock();
-    GetEmitter()->emitIns_AR_R(INS_cmpxchg, emitTypeSize(targetType), value->GetRegNum(), location->GetRegNum(), 0);
+    GetEmitter()->emitIns_AR_R(INS_cmpxchg, size, valueReg, addrReg, 0);
+    GetEmitter()->emitIns_Mov(INS_mov, size, destReg, REG_RAX, /* canSkip */ true);
 
-    // Result is in RAX
-    inst_Mov(targetType, targetReg, REG_RAX, /* canSkip */ true);
-
-    genProduceReg(tree);
+    DefReg(node);
 }
 
 void CodeGen::GenMemoryBarrier(GenTree* barrier)
