@@ -18,19 +18,19 @@ static RegNum encodingSPtoZR(RegNum reg)
 }
 
 // Returns true if 'value' is a legal signed immediate 26 bit encoding (such as for B or BL).
-static bool isValidSimm26(ssize_t value)
+static bool isValidSimm26(int64_t value)
 {
     return (-0x2000000LL <= value) && (value <= 0x1FFFFFFLL);
 }
 
 // Returns true if 'value' is a legal signed immediate 19 bit encoding (such as for B.cond, CBNZ, CBZ).
-static bool isValidSimm19(ssize_t value)
+static bool isValidSimm19(int64_t value)
 {
     return (-0x40000LL <= value) && (value <= 0x3FFFFLL);
 }
 
 // Returns true if 'value' is a legal signed immediate 14 bit encoding (such as for TBNZ, TBZ).
-static bool isValidSimm14(ssize_t value)
+static bool isValidSimm14(int64_t value)
 {
     return (-0x2000LL <= value) && (value <= 0x1FFFLL);
 }
@@ -80,19 +80,19 @@ static RegNum encodingZRtoSP(RegNum reg)
 }
 
 // Returns true if 'value' is a legal unsigned immediate 8 bit encoding (such as for fMOV).
-static bool isValidUimm8(ssize_t value)
+static bool isValidUimm8(int64_t value)
 {
     return (0 <= value) && (value <= 0xFFLL);
 }
 
 // Returns true if 'value' is a legal unsigned immediate 12 bit encoding (such as for CMP, CMN).
-static bool isValidUimm12(ssize_t value)
+static bool isValidUimm12(int64_t value)
 {
     return (0 <= value) && (value <= 0xFFFLL);
 }
 
 // Returns true if 'value' is a legal unsigned immediate 16 bit encoding (such as for MOVZ, MOVN, MOVK).
-static bool isValidUimm16(ssize_t value)
+static bool isValidUimm16(int64_t value)
 {
     return (0 <= value) && (value <= 0xFFFFLL);
 }
@@ -116,13 +116,13 @@ static bool isValidImmBSVal(size_t value, emitAttr size)
 }
 
 // Returns true if the imm represents a valid bit shift or bit position for the given 'size' [0..31] or [0..63]
-static unsigned isValidImmShift(ssize_t imm, emitAttr size)
+static unsigned isValidImmShift(int64_t imm, emitAttr size)
 {
     return (imm >= 0) && (imm < getBitWidth(size));
 }
 
 // Returns true if the 'shiftAmount' represents a valid shift for the given 'size'.
-static unsigned isValidVectorShiftAmount(ssize_t shiftAmount, emitAttr size, bool rightShift)
+static unsigned isValidVectorShiftAmount(int64_t shiftAmount, emitAttr size, bool rightShift)
 {
     return (rightShift && (shiftAmount >= 1) && (shiftAmount <= getBitWidth(size))) ||
            ((shiftAmount >= 0) && (shiftAmount < getBitWidth(size)));
@@ -407,10 +407,8 @@ union CondImm {
 };
 
 #ifdef DEBUG
-static bool IsValidCondImm(ssize_t imm)
+static bool IsValidCondImm(int64_t imm)
 {
-    // range check the ssize_t value, to make sure it is a small unsigned value
-    // and that only the bits in the cfi.cond are set
     if ((imm < 0) || (imm > 0xF))
         return false;
 
@@ -420,10 +418,8 @@ static bool IsValidCondImm(ssize_t imm)
     return cfi.cond <= INS_COND_LE; // Don't allow 14 & 15 (AL & NV).
 }
 
-static bool IsValidCondFlagsImm(ssize_t imm)
+static bool IsValidCondFlagsImm(int64_t imm)
 {
-    // range check the ssize_t value, to make sure it is a small unsigned value
-    // and that only the bits in the cfi.cond or cfi.flags are set
     if ((imm < 0) || (imm > 0xFF))
         return false;
 
@@ -433,10 +429,8 @@ static bool IsValidCondFlagsImm(ssize_t imm)
     return cfi.cond <= INS_COND_LE; // Don't allow 14 & 15 (AL & NV).
 }
 
-static bool IsValidCondFlagsImm5Imm(ssize_t imm)
+static bool IsValidCondFlagsImm5Imm(int64_t imm)
 {
-    // range check the ssize_t value, to make sure it is a small unsigned value
-    // and that only the bits in the cfi.cond, cfi.flags or cfi.imm5 are set
     if ((imm < 0) || (imm > 0x1FFF))
         return false;
 
@@ -627,7 +621,7 @@ static int64_t DecodeHalfwordImm(HalfwordImm hwImm, emitAttr size)
 // Returns true if 'imm' of 'size' bits (32/64) can be encoded using the ARM64 'halfword immediate' form.
 // When a non-null value is passed for 'wbHWI' then this method writes back the 'immHW' and 'immVal'
 // values use to encode this immediate
-static bool EncodeHalfwordImm(int64_t imm, emitAttr size, HalfwordImm* wbHWI = nullptr)
+static bool EncodeHalfwordImm(int64_t imm, emitAttr size, unsigned* wbHWI = nullptr)
 {
     assert(isValidGeneralDatasize(size)); // Only EA_4BYTE or EA_8BYTE forms
 
@@ -657,12 +651,14 @@ static bool EncodeHalfwordImm(int64_t imm, emitAttr size, HalfwordImm* wbHWI = n
             //
             if (wbHWI != nullptr)
             {
-                int64_t val   = ((imm & curMask) >> (hw * 16)) & mask16;
-                wbHWI->immHW  = hw;
-                wbHWI->immVal = val;
+                int64_t     val = ((imm & curMask) >> (hw * 16)) & mask16;
+                HalfwordImm himm;
+                himm.immHWVal = 0;
+                himm.immHW    = hw;
+                himm.immVal   = val;
 
-                // Verify that what we are returning is correct.
-                assert(imm == DecodeHalfwordImm(*wbHWI, size));
+                assert(imm == DecodeHalfwordImm(himm, size));
+                *wbHWI = himm.immHWVal;
             }
             // Tell the caller that we can successfully encode this immediate
             // using a 'halfword immediate'.
@@ -684,6 +680,16 @@ union BitMaskImm {
     };
     unsigned immNRS; // concat N:R:S forming a 13-bit unsigned immediate
 };
+
+static unsigned PackBitMaskImm(int s, int r, emitAttr size)
+{
+    BitMaskImm bmi;
+    bmi.immNRS = 0;
+    bmi.immS   = s;
+    bmi.immR   = r;
+    bmi.immN   = size == EA_8BYTE;
+    return bmi.immNRS;
+}
 
 // Convert an imm(N,r,s) into a 64-bit immediate
 // inputs 'bmImm' a BitMaskImm struct, 'size' specifies the size of the result (64 or 32 bits)
@@ -745,7 +751,7 @@ static int64_t DecodeBitMaskImm(BitMaskImm bmImm, emitAttr size)
 // Returns true if 'imm' of 'size bits (32/64) can be encoded using the ARM64 'bitmask immediate' form.
 // When a non-null value is passed for 'wbBMI' then this method writes back the 'N','S' and 'R' values
 // use to encode this immediate
-static bool EncodeBitMaskImm(int64_t imm, emitAttr size, BitMaskImm* wbBMI = nullptr)
+static bool EncodeBitMaskImm(int64_t imm, emitAttr size, unsigned* wbBMI = nullptr)
 {
     assert(isValidGeneralDatasize(size)); // Only EA_4BYTE or EA_8BYTE forms
 
@@ -903,18 +909,20 @@ static bool EncodeBitMaskImm(int64_t imm, emitAttr size, BitMaskImm* wbBMI = nul
             //
             if (wbBMI != nullptr)
             {
-
                 // The encoding used for S is one less than the
                 // number of consecutive one bits
                 S--;
 
+                BitMaskImm bimm;
+                bimm.immNRS = 0;
+
                 if (len == 6)
                 {
-                    wbBMI->immN = 1;
+                    bimm.immN = 1;
                 }
                 else
                 {
-                    wbBMI->immN = 0;
+                    bimm.immN = 0;
                     // The encoding used for 'S' here is a bit peculiar.
                     //
                     // The upper bits need to be complemented, followed by a zero bit
@@ -923,11 +931,11 @@ static bool EncodeBitMaskImm(int64_t imm, emitAttr size, BitMaskImm* wbBMI = nul
                     unsigned upperBitsOfS = 64 - (1 << (len + 1));
                     S |= upperBitsOfS;
                 }
-                wbBMI->immR = R;
-                wbBMI->immS = S;
+                bimm.immR = R;
+                bimm.immS = S;
 
-                // Verify that what we are returning is correct.
-                assert(imm == DecodeBitMaskImm(*wbBMI, size));
+                assert(imm == DecodeBitMaskImm(bimm, size));
+                *wbBMI = bimm.immNRS;
             }
             // Tell the caller that we can successfully encode this immediate
             // using a 'bitmask immediate'.
@@ -940,12 +948,7 @@ static bool EncodeBitMaskImm(int64_t imm, emitAttr size, BitMaskImm* wbBMI = nul
 
 bool Arm64Imm::IsBitMaskImm(int64_t value, emitAttr size, unsigned* imm)
 {
-    BitMaskImm bimm;
-
-    bool encoded = EncodeBitMaskImm(value, size, &bimm);
-    *imm         = bimm.immNRS;
-
-    return encoded;
+    return EncodeBitMaskImm(value, size, imm);
 }
 
 bool Arm64Imm::IsAluImm(int64_t value, emitAttr size)
@@ -1136,7 +1139,7 @@ static uint32_t DecodeByteShiftedImm(ByteShiftedImm bsImm, emitAttr size)
 // Returns true if 'imm' of 'size' bits (16/32) can be encoded using the ARM64 'byteShifted immediate' form.
 // When a non-null value is passed for 'wbBSI' then this method writes back the 'immBY' and 'immVal' values
 // use to encode this immediate
-static bool EncodeByteShiftedImm(int64_t imm, emitAttr size, ByteShiftedImm* wbBSI)
+static bool EncodeByteShiftedImm(int64_t imm, emitAttr size, unsigned* wbBSI)
 {
     bool     canEncode = false;
     bool     onesShift = false; // true if we use the shifting ones variant
@@ -1185,12 +1188,14 @@ static bool EncodeByteShiftedImm(int64_t imm, emitAttr size, ByteShiftedImm* wbB
         //
         if (wbBSI != nullptr)
         {
-            wbBSI->immOnes = onesShift;
-            wbBSI->immBY   = bySh;
-            wbBSI->immVal  = imm8;
+            ByteShiftedImm bsimm;
+            bsimm.immBSVal = 0;
+            bsimm.immOnes  = onesShift;
+            bsimm.immBY    = bySh;
+            bsimm.immVal   = imm8;
 
-            // Verify that what we are returning is correct.
-            assert(imm == DecodeByteShiftedImm(*wbBSI, size));
+            assert(imm == DecodeByteShiftedImm(bsimm, size));
+            *wbBSI = bsimm.immBSVal;
         }
         // Tell the caller that we can successfully encode this immediate
         // using a 'byteShifted immediate'.
@@ -1241,7 +1246,7 @@ bool Arm64Imm::IsLdStImm(int64_t imm, emitAttr attr)
 
     emitAttr size  = EA_SIZE(attr);
     unsigned scale = NaturalScale(size);
-    ssize_t  mask  = size - 1; // the mask of low bits that must be zero to encode the immediate
+    int64_t  mask  = size - 1; // the mask of low bits that must be zero to encode the immediate
 
     if (((imm & mask) == 0) && ((imm >> scale) < 0x1000))
         return true; // Encodable using IF_LS_2B
@@ -1336,6 +1341,17 @@ static bool IsFMovImm(double value, FMovImm* imm)
     return canEncode;
 }
 
+static unsigned EncodeFMovImm(double value)
+{
+    FMovImm fpi;
+    fpi.immFPIVal = 0;
+    bool canEncode;
+    canEncode = IsFMovImm(value, &fpi);
+    assert(canEncode);
+    assert((fpi.immFPIVal >= 0) && (fpi.immFPIVal <= 0xff));
+    return fpi.immFPIVal;
+}
+
 bool Arm64Imm::IsFMovImm(double value)
 {
     return ::IsFMovImm(value, nullptr);
@@ -1360,10 +1376,10 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
         emitAttr    datasize;
         emitAttr    dstsize;
         emitAttr    srcsize;
-        ssize_t     imm;
+        int64_t     imm;
         unsigned    immShift;
-        ssize_t     index;
-        ssize_t     index2;
+        int64_t     index;
+        int64_t     index2;
 
         case IF_BI_0A: // BI_0A   ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
             break;
@@ -2141,10 +2157,10 @@ private:
     uint8_t* emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig);
     uint8_t* emitOutputDL(uint8_t* dst, instrDescJmp* id);
     uint8_t* emitOutputLoadLabel(uint8_t* dst, uint8_t* srcAddr, uint8_t* dstAddr, instrDescJmp* id);
-    uint8_t* emitOutputShortBranch(uint8_t* dst, instruction ins, insFormat fmt, ssize_t distVal, instrDescJmp* id);
-    uint8_t* emitOutputShortAddress(uint8_t* dst, instruction ins, ssize_t distance, RegNum reg);
+    uint8_t* emitOutputShortBranch(uint8_t* dst, instruction ins, insFormat fmt, int64_t distVal, instrDescJmp* id);
+    uint8_t* emitOutputShortAddress(uint8_t* dst, instruction ins, int64_t distance, RegNum reg);
     uint8_t* emitOutputShortConstant(
-        uint8_t* dst, instruction ins, insFormat fmt, ssize_t distVal, RegNum reg, emitAttr opSize);
+        uint8_t* dst, instruction ins, insFormat fmt, int64_t distVal, RegNum reg, emitAttr opSize);
 
     // Returns true if instruction "id->idIns()" writes to a register that might be used to contain a GC
     // pointer. This exempts the SP and PC registers, and floating point registers. Memory access
@@ -3376,77 +3392,63 @@ static unsigned insGetRegisterListSize(instruction ins)
 // if one does not exist returns INS_OPTS_NONE
 static insOpts optMakeArrangement(emitAttr datasize, emitAttr elemsize)
 {
-    insOpts result = INS_OPTS_NONE;
-
     if (datasize == EA_8BYTE)
     {
         switch (elemsize)
         {
             case EA_1BYTE:
-                result = INS_OPTS_8B;
-                break;
+                return INS_OPTS_8B;
             case EA_2BYTE:
-                result = INS_OPTS_4H;
-                break;
+                return INS_OPTS_4H;
             case EA_4BYTE:
-                result = INS_OPTS_2S;
-                break;
+                return INS_OPTS_2S;
             case EA_8BYTE:
-                result = INS_OPTS_1D;
-                break;
+                return INS_OPTS_1D;
             default:
                 unreached();
-                break;
         }
     }
-    else if (datasize == EA_16BYTE)
+
+    if (datasize == EA_16BYTE)
     {
         switch (elemsize)
         {
             case EA_1BYTE:
-                result = INS_OPTS_16B;
-                break;
+                return INS_OPTS_16B;
             case EA_2BYTE:
-                result = INS_OPTS_8H;
-                break;
+                return INS_OPTS_8H;
             case EA_4BYTE:
-                result = INS_OPTS_4S;
-                break;
+                return INS_OPTS_4S;
             case EA_8BYTE:
-                result = INS_OPTS_2D;
-                break;
+                return INS_OPTS_2D;
             default:
                 unreached();
-                break;
         }
     }
-    return result;
+
+    return INS_OPTS_NONE;
 }
 
 emitAttr GetVecElemsize(insOpts arrangement)
 {
-    if ((arrangement == INS_OPTS_8B) || (arrangement == INS_OPTS_16B))
+    switch (arrangement)
     {
-        return EA_1BYTE;
+        case INS_OPTS_8B:
+        case INS_OPTS_16B:
+            return EA_1BYTE;
+        case INS_OPTS_4H:
+        case INS_OPTS_8H:
+            return EA_2BYTE;
+        case INS_OPTS_2S:
+        case INS_OPTS_4S:
+            return EA_4BYTE;
+        case INS_OPTS_1D:
+        case INS_OPTS_2D:
+            return EA_8BYTE;
+        default:
+            assert(!" invalid 'arrangement' value");
+            return EA_UNKNOWN;
     }
-
-    if ((arrangement == INS_OPTS_4H) || (arrangement == INS_OPTS_8H))
-    {
-        return EA_2BYTE;
-    }
-
-    if ((arrangement == INS_OPTS_2S) || (arrangement == INS_OPTS_4S))
-    {
-        return EA_4BYTE;
-    }
-
-    if ((arrangement == INS_OPTS_1D) || (arrangement == INS_OPTS_2D))
-    {
-        return EA_8BYTE;
-    }
-
-    assert(!" invalid 'arrangement' value");
-    return EA_UNKNOWN;
 }
 
 static emitAttr optGetElemsize(insOpts arrangement)
@@ -3485,63 +3487,52 @@ static bool isValidArrangement(emitAttr datasize, insOpts opt)
 {
     if (datasize == EA_8BYTE)
     {
-        if ((opt == INS_OPTS_8B) || (opt == INS_OPTS_4H) || (opt == INS_OPTS_2S) || (opt == INS_OPTS_1D))
-        {
-            return true;
-        }
+        return (opt == INS_OPTS_8B) || (opt == INS_OPTS_4H) || (opt == INS_OPTS_2S) || (opt == INS_OPTS_1D);
     }
-    else if (datasize == EA_16BYTE)
+
+    if (datasize == EA_16BYTE)
     {
-        if ((opt == INS_OPTS_16B) || (opt == INS_OPTS_8H) || (opt == INS_OPTS_4S) || (opt == INS_OPTS_2D))
-        {
-            return true;
-        }
+        return (opt == INS_OPTS_16B) || (opt == INS_OPTS_8H) || (opt == INS_OPTS_4S) || (opt == INS_OPTS_2D);
     }
+
     return false;
 }
 
 // For the given 'arrangement' returns the one with the element width that is double that of the 'arrangement' element.
 static insOpts optWidenElemsizeArrangement(insOpts arrangement)
 {
-    if ((arrangement == INS_OPTS_8B) || (arrangement == INS_OPTS_16B))
+    switch (arrangement)
     {
-        return INS_OPTS_8H;
+        case INS_OPTS_8B:
+        case INS_OPTS_16B:
+            return INS_OPTS_8H;
+        case INS_OPTS_4H:
+        case INS_OPTS_8H:
+            return INS_OPTS_4S;
+        case INS_OPTS_2S:
+        case INS_OPTS_4S:
+            return INS_OPTS_2D;
+        default:
+            assert(!" invalid 'arrangement' value");
+            return INS_OPTS_NONE;
     }
-
-    if ((arrangement == INS_OPTS_4H) || (arrangement == INS_OPTS_8H))
-    {
-        return INS_OPTS_4S;
-    }
-
-    if ((arrangement == INS_OPTS_2S) || (arrangement == INS_OPTS_4S))
-    {
-        return INS_OPTS_2D;
-    }
-
-    assert(!" invalid 'arrangement' value");
-    return INS_OPTS_NONE;
 }
 
 // For the given 'datasize' returns the one that is double that of the 'datasize'.
 static emitAttr widenDatasize(emitAttr datasize)
 {
-    if (datasize == EA_1BYTE)
+    switch (datasize)
     {
-        return EA_2BYTE;
+        case EA_1BYTE:
+            return EA_2BYTE;
+        case EA_2BYTE:
+            return EA_4BYTE;
+        case EA_4BYTE:
+            return EA_8BYTE;
+        default:
+            assert(!" invalid 'datasize' value");
+            return EA_UNKNOWN;
     }
-
-    if (datasize == EA_2BYTE)
-    {
-        return EA_4BYTE;
-    }
-
-    if (datasize == EA_4BYTE)
-    {
-        return EA_8BYTE;
-    }
-
-    assert(!" invalid 'datasize' value");
-    return EA_UNKNOWN;
 }
 
 // For the given 'srcArrangement' returns the "widen" 'dstArrangement' specifying
@@ -3793,28 +3784,24 @@ void Arm64Emitter::emitIns_R(instruction ins, emitAttr attr, RegNum reg)
     appendToCurIG(id);
 }
 
-void Arm64Emitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, ssize_t imm, insOpts opt)
+void Arm64Emitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, int64_t imm, insOpts opt)
 {
-    emitAttr  size     = EA_SIZE(attr);
-    emitAttr  elemsize = EA_UNKNOWN;
+    emitAttr  size = EA_SIZE(attr);
     insFormat fmt;
     MoviImm   mimm;
 
     switch (ins)
     {
-        BitMaskImm     bmi;
-        HalfwordImm    hwi;
-        ByteShiftedImm bsi;
-        ssize_t        notOfImm;
-        bool           canEncode;
+        unsigned encodedImm;
+        bool     canEncode;
+        emitAttr elemsize;
 
         case INS_tst:
             assert(insOptsNone(opt));
             assert(isGeneralRegister(reg));
-            bmi.immNRS = 0;
-            canEncode  = EncodeBitMaskImm(imm, size, &bmi);
+            canEncode = EncodeBitMaskImm(imm, size, &encodedImm);
             assert(canEncode);
-            imm = bmi.immNRS;
+            imm = encodedImm;
             assert(isValidImmNRS(imm, size));
             fmt = IF_DI_1C;
             break;
@@ -3826,14 +3813,7 @@ void Arm64Emitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, ssize
             assert(insOptsNone(opt)); // No LSL here (you must use emitIns_R_I_I if a shift is needed)
             assert(isGeneralRegister(reg));
             assert(isValidUimm16(imm));
-
-            hwi.immHW  = 0;
-            hwi.immVal = imm;
-            assert(imm == DecodeHalfwordImm(hwi, size));
-
-            imm       = hwi.immHWVal;
-            canEncode = true;
-            fmt       = IF_DI_1B;
+            fmt = IF_DI_1B;
             break;
 
         case INS_mov:
@@ -3841,37 +3821,30 @@ void Arm64Emitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, ssize
             assert(insOptsNone(opt)); // No explicit LSL here
             // We will automatically determine the shift based upon the imm
 
-            // First try the standard 'halfword immediate' imm(i16,hw)
-            hwi.immHWVal = 0;
-            if (EncodeHalfwordImm(imm, size, &hwi))
+            if (EncodeHalfwordImm(imm, size, &encodedImm))
             {
-                // uses a movz encoding
                 assert(isGeneralRegister(reg));
-                imm = hwi.immHWVal;
+                imm = encodedImm;
                 assert(isValidImmHWVal(imm, size));
                 fmt = IF_DI_1B;
                 break;
             }
 
-            // Next try the ones-complement form of 'halfword immediate' imm(i16,hw)
-            notOfImm = ImmNot(imm, getBitWidth(size));
-            if (EncodeHalfwordImm(notOfImm, size, &hwi))
+            if (EncodeHalfwordImm(ImmNot(imm, getBitWidth(size)), size, &encodedImm))
             {
                 assert(isGeneralRegister(reg));
-                imm = hwi.immHWVal;
-                ins = INS_movn; // uses a movn encoding
+                imm = encodedImm;
+                ins = INS_movn;
                 assert(isValidImmHWVal(imm, size));
                 fmt = IF_DI_1B;
                 break;
             }
 
-            // Finally try the 'bitmask immediate' imm(N,r,s)
-            bmi.immNRS = 0;
-            if (EncodeBitMaskImm(imm, size, &bmi))
+            if (EncodeBitMaskImm(imm, size, &encodedImm))
             {
                 assert(isGeneralRegisterOrSP(reg));
                 reg = encodingSPtoZR(reg);
-                imm = bmi.immNRS;
+                imm = encodedImm;
                 assert(isValidImmNRS(imm, size));
                 fmt = IF_DI_1D;
                 break;
@@ -3881,7 +3854,6 @@ void Arm64Emitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, ssize
         case INS_movi:
             assert(isVectorRegister(reg));
             assert(isValidArrangement(size, opt));
-
             mimm = EncodeMoviImm(static_cast<uint64_t>(imm), opt);
             assert(mimm.ins != INS_invalid);
             ins = mimm.ins;
@@ -3895,11 +3867,9 @@ void Arm64Emitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, ssize
             assert(isValidArrangement(size, opt));
             elemsize = optGetElemsize(opt);
             assert((elemsize == EA_2BYTE) || (elemsize == EA_4BYTE));
-
-            bsi.immBSVal = 0;
-            canEncode    = EncodeByteShiftedImm(imm, elemsize, &bsi);
+            canEncode = EncodeByteShiftedImm(imm, elemsize, &encodedImm);
             assert(canEncode);
-            imm = bsi.immBSVal;
+            imm = encodedImm;
             assert(isValidImmBSVal(imm, size));
             fmt = IF_DV_1B;
             break;
@@ -3922,24 +3892,22 @@ void Arm64Emitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, ssize
                 break;
             }
 
-            if (IsShiftBy12Imm(imm))
+            noway_assert(IsShiftBy12Imm(imm));
+
+            opt = INS_OPTS_LSL12;
+
+            if (imm < 0)
             {
-                opt = INS_OPTS_LSL12;
-
-                if (imm < 0)
-                {
-                    ins = insReverse(ins);
-                    imm = -imm;
-                }
-
-                assert((imm & 0xfff) == 0);
-                imm >>= 12;
-                assert(isValidUimm12(imm));
-                fmt = IF_DI_1A;
-                break;
+                ins = insReverse(ins);
+                imm = -imm;
             }
 
-            FALLTHROUGH;
+            assert((imm & 0xfff) == 0);
+            imm >>= 12;
+            assert(isValidUimm12(imm));
+            fmt = IF_DI_1A;
+            break;
+
         default:
             unreached();
     }
@@ -3960,61 +3928,47 @@ void Arm64Emitter::emitIns_R_F(instruction ins, emitAttr attr, RegNum reg, doubl
 {
     assert(isVectorRegister(reg));
 
-    emitAttr  size     = EA_SIZE(attr);
-    emitAttr  elemsize = EA_UNKNOWN;
     insFormat fmt;
-    ssize_t   imm;
+    unsigned  imm;
 
     switch (ins)
     {
         case INS_fcmp:
         case INS_fcmpe:
             assert(insOptsNone(opt));
-            assert(isValidVectorElemsizeFloat(size));
+            assert(isValidVectorElemsizeFloat(attr));
             assert(immDbl == 0.0);
-
             imm = 0;
             fmt = IF_DV_1C;
             break;
 
         case INS_fmov:
-            FMovImm fpi;
-            fpi.immFPIVal = 0;
-            bool canEncode;
-            canEncode = IsFMovImm(immDbl, &fpi);
-            assert(canEncode);
-            imm = fpi.immFPIVal;
-            assert((imm >= 0) && (imm <= 0xff));
+            imm = EncodeFMovImm(immDbl);
 
             if (insOptsAnyArrangement(opt))
             {
-                assert(isValidVectorDatasize(size));
-                assert(isValidArrangement(size, opt));
-                elemsize = optGetElemsize(opt);
-                assert(isValidVectorElemsizeFloat(elemsize));
+                assert(isValidVectorDatasize(attr));
+                assert(isValidArrangement(attr, opt));
+                assert(isValidVectorElemsizeFloat(optGetElemsize(opt)));
                 assert(opt != INS_OPTS_1D); // Reserved encoding
-
                 fmt = IF_DV_1B;
             }
             else
             {
                 assert(insOptsNone(opt));
-                assert(isValidVectorElemsizeFloat(size));
-
+                assert(isValidVectorElemsizeFloat(attr));
                 fmt = IF_DV_1A;
             }
             break;
 
         default:
             unreached();
-            break;
     }
 
     instrDesc* id = emitNewInstrSC(imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idInsOpt(opt);
-    id->idGCref(EA_GC_TYPE(attr));
     id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg);
 
@@ -4183,14 +4137,14 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
         return;
     }
 
-    emitAttr  size     = EA_SIZE(attr);
-    emitAttr  elemsize = EA_UNKNOWN;
-    insFormat fmt      = IF_NONE;
+    emitAttr  size = EA_SIZE(attr);
+    insFormat fmt;
 
     switch (ins)
     {
+        emitAttr elemsize;
+
         case INS_dup:
-            // Vector operation
             assert(insOptsAnyArrangement(opt));
             assert(isVectorRegister(reg1));
             assert(isGeneralRegisterOrZR(reg2));
@@ -4204,21 +4158,21 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
         case INS_not:
             assert(isVectorRegister(reg1));
             assert(isVectorRegister(reg2));
+
             if (ins == INS_not)
             {
                 assert(isValidVectorDatasize(size));
                 // Bitwise behavior is independent of element size, but is always encoded as 1 Byte
                 opt = optMakeArrangement(size, EA_1BYTE);
             }
+
             if (insOptsNone(opt))
             {
-                // Scalar operation
                 assert(size == EA_8BYTE); // Only type D is supported
                 fmt = IF_DV_2L;
             }
             else
             {
-                // Vector operation
                 assert(insOptsAnyArrangement(opt));
                 assert(isValidVectorDatasize(size));
                 assert(isValidArrangement(size, opt));
@@ -4240,13 +4194,11 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
                 }
                 if (insOptsNone(opt))
                 {
-                    // Scalar operation
                     assert(size == EA_8BYTE); // Only type D is supported
                     fmt = IF_DV_2L;
                 }
                 else
                 {
-                    // Vector operation
                     assert(isValidVectorDatasize(size));
                     assert(isValidArrangement(size, opt));
                     elemsize = optGetElemsize(opt);
@@ -4296,14 +4248,9 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
                 fmt = IF_DV_2M;
                 break;
             }
-            if (ins == INS_cnt)
-            {
-                // Doesn't have general register version(s)
-                break;
-            }
 
+            assert(ins != INS_cnt); // Doesn't have general register version(s)
             FALLTHROUGH;
-
         case INS_rev:
             assert(insOptsNone(opt));
             assert(isGeneralRegister(reg1));
@@ -4349,7 +4296,6 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
         case INS_uqxtn:
             if (insOptsNone(opt))
             {
-                // Scalar operation
                 assert(isVectorRegister(reg1));
                 assert(isVectorRegister(reg2));
                 assert(isValidVectorElemsize(size));
@@ -4358,9 +4304,7 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
                 break;
             }
             FALLTHROUGH;
-
         case INS_xtn:
-            // Vector operation
             assert(isVectorRegister(reg1));
             assert(isVectorRegister(reg2));
             assert(size == EA_8BYTE);
@@ -4386,9 +4330,7 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
         case INS_ldxr:
         case INS_stlr:
             assert(isValidGeneralDatasize(size));
-
             FALLTHROUGH;
-
         case INS_ldarb:
         case INS_ldaxrb:
         case INS_ldxrb:
@@ -4401,10 +4343,8 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
             assert(isGeneralRegisterOrZR(reg1));
             assert(isGeneralRegisterOrSP(reg2));
             assert(insOptsNone(opt));
-
             reg2 = encodingSPtoZR(reg2);
-
-            fmt = IF_LS_2A;
+            fmt  = IF_LS_2A;
             break;
 
         case INS_ldr:
@@ -4416,7 +4356,6 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
         case INS_str:
         case INS_strb:
         case INS_strh:
-
         case INS_cmp:
         case INS_cmn:
         case INS_tst:
@@ -4464,7 +4403,6 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
         case INS_fcvtzu:
             if (insOptsAnyArrangement(opt))
             {
-                // Vector operation
                 assert(isVectorRegister(reg1));
                 assert(isVectorRegister(reg2));
                 assert(isValidVectorDatasize(size));
@@ -4476,8 +4414,8 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
             }
             else
             {
-                // Scalar operation
                 assert(isVectorRegister(reg2));
+
                 if (isVectorRegister(reg1))
                 {
                     assert(insOptsNone(opt));
@@ -4518,14 +4456,12 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
 
             if (insOptsAnyArrangement(opt))
             {
-                // Vector operation
                 assert(size == EA_8BYTE);
                 assert(opt == INS_OPTS_2S);
                 fmt = IF_DV_2A;
             }
             else
             {
-                // Scalar operation
                 assert(insOptsNone(opt));
                 assert(size == EA_4BYTE);
                 fmt = IF_DV_2G;
@@ -4544,7 +4480,6 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
         case INS_ucvtf:
             if (insOptsAnyArrangement(opt))
             {
-                // Vector operation
                 assert(isVectorRegister(reg1));
                 assert(isVectorRegister(reg2));
                 assert(isValidVectorDatasize(size));
@@ -4556,7 +4491,6 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
             }
             else
             {
-                // Scalar operation
                 assert(isVectorRegister(reg1));
                 if (isVectorRegister(reg2))
                 {
@@ -4586,7 +4520,6 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
         case INS_frintz:
             if (insOptsAnyArrangement(opt))
             {
-                // Vector operation
                 assert(isVectorRegister(reg1));
                 assert(isVectorRegister(reg2));
                 assert(isValidVectorDatasize(size));
@@ -4598,7 +4531,6 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
             }
             else
             {
-                // Scalar operation
                 assert(insOptsNone(opt));
                 assert(isValidVectorElemsizeFloat(size));
                 assert(isVectorRegister(reg1));
@@ -4612,7 +4544,6 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
         case INS_fmaxp:
         case INS_fminnmp:
         case INS_fminp:
-            // Scalar operation
             assert(((size == EA_8BYTE) && (opt == INS_OPTS_2S)) || ((size == EA_16BYTE) && (opt == INS_OPTS_2D)));
             assert(isVectorRegister(reg1));
             assert(isVectorRegister(reg2));
@@ -4656,7 +4587,6 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
 
             if (isValidVectorDatasize(size))
             {
-                // Vector operation
                 assert(insOptsAnyArrangement(opt));
                 assert(isValidArrangement(size, opt));
                 elemsize = optGetElemsize(opt);
@@ -4665,7 +4595,6 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
             else
             {
                 NYI("Untested");
-                // Scalar operation
                 assert(size == EA_8BYTE); // Only Double supported
                 fmt = IF_DV_2L;
             }
@@ -4683,7 +4612,6 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
 
             if (insOptsAnyArrangement(opt))
             {
-                // Vector operation
                 assert(isValidVectorDatasize(size));
                 assert(isValidArrangement(size, opt));
                 elemsize = optGetElemsize(opt);
@@ -4693,7 +4621,6 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
             }
             else
             {
-                // Scalar operation
                 assert(isValidScalarDatasize(size)); // Only Double/Float supported
                 assert(insOptsNone(opt));
                 fmt = IF_DV_2G;
@@ -4800,14 +4727,12 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
 
             if (insOptsAnyArrangement(opt))
             {
-                // Vector operation
                 assert(isValidArrangement(size, opt));
                 assert(opt != INS_OPTS_1D); // The encoding size = 11, Q = 0 is reserved
                 fmt = IF_DV_2M;
             }
             else
             {
-                // Scalar operation
                 assert(insOptsNone(opt));
                 assert(isValidVectorElemsize(size));
                 fmt = IF_DV_2L;
@@ -4816,7 +4741,6 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
 
         default:
             unreached();
-            break;
     }
 
     instrDesc* id = emitNewInstrSmall();
@@ -4832,66 +4756,21 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
     appendToCurIG(id);
 }
 
-void Arm64Emitter::emitIns_R_I_I(instruction ins, emitAttr attr, RegNum reg, ssize_t imm1, ssize_t imm2, insOpts opt)
+void Arm64Emitter::emitIns_R_I_I(instruction ins, emitAttr attr, RegNum reg, int64_t imm1, int64_t imm2, insOpts opt)
 {
-    emitAttr size   = EA_SIZE(attr);
-    size_t   immOut = 0;
+    assert((ins == INS_mov) || (ins == INS_movk) || (ins == INS_movn) || (ins == INS_movz));
+    assert(isValidGeneralDatasize(EA_SIZE(attr)));
+    assert(isGeneralRegister(reg));
+    assert(isValidUimm16(imm1));
+    assert((imm2 == 0) || (imm2 == 16) || ((EA_SIZE(attr) == EA_8BYTE) && ((imm2 == 32) || (imm2 == 48))));
+    assert(insOptsLSL(opt));
 
-    switch (ins)
+    if (ins == INS_mov)
     {
-        case INS_mov:
-            ins = INS_movz; // INS_mov with LSL is an alias for INS_movz LSL
-            FALLTHROUGH;
-        case INS_movk:
-        case INS_movn:
-        case INS_movz:
-            assert(isValidGeneralDatasize(size));
-            assert(isGeneralRegister(reg));
-            assert(isValidUimm16(imm1));
-            assert(insOptsLSL(opt)); // Must be INS_OPTS_LSL
-
-            if (size == EA_8BYTE)
-            {
-                assert((imm2 == 0) || (imm2 == 16) || // shift amount: 0, 16, 32 or 48
-                       (imm2 == 32) || (imm2 == 48));
-            }
-            else // EA_4BYTE
-            {
-                assert((imm2 == 0) || (imm2 == 16)); // shift amount: 0 or 16
-            }
-
-            HalfwordImm hwi;
-            hwi.immHWVal = 0;
-
-            switch (imm2)
-            {
-                case 0:
-                    hwi.immHW = 0;
-                    break;
-                case 16:
-                    hwi.immHW = 1;
-                    break;
-                case 32:
-                    hwi.immHW = 2;
-                    break;
-                case 48:
-                    hwi.immHW = 3;
-                    break;
-                default:
-                    unreached();
-            }
-
-            hwi.immVal = imm1;
-            immOut     = hwi.immHWVal;
-            assert(isValidImmHWVal(immOut, size));
-            break;
-
-        default:
-            unreached();
-            break;
+        ins = INS_movz; // INS_mov with LSL is an alias for INS_movz LSL
     }
 
-    instrDesc* id = emitNewInstrSC(immOut);
+    instrDesc* id = emitNewInstrSC(imm1 | ((imm2 >> 4) << 16));
     id->idIns(ins);
     id->idInsFmt(IF_DI_1B);
     id->idGCref(EA_GC_TYPE(attr));
@@ -4902,7 +4781,7 @@ void Arm64Emitter::emitIns_R_I_I(instruction ins, emitAttr attr, RegNum reg, ssi
     appendToCurIG(id);
 }
 
-void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, ssize_t imm, insOpts opt)
+void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, int64_t imm, insOpts opt)
 {
     emitAttr  size       = EA_SIZE(attr);
     emitAttr  elemsize   = EA_UNKNOWN;
@@ -4916,10 +4795,8 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
 
     switch (ins)
     {
-        bool       canEncode;
-        BitMaskImm bmi;
-        unsigned   registerListSize;
-        bool       isRightShift;
+        unsigned bmi;
+        bool     canEncode;
 
         case INS_mov:
             // Check for the 'mov' aliases for the vector registers
@@ -4980,25 +4857,22 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
         case INS_usra:
             assert(isVectorRegister(reg1));
             assert(isVectorRegister(reg2));
-            isRightShift = IsVectorRightShiftIns(ins);
 
             if (insOptsAnyArrangement(opt))
             {
-                // Vector operation
                 assert(isValidVectorDatasize(size));
                 assert(isValidArrangement(size, opt));
                 elemsize = optGetElemsize(opt);
                 assert(isValidVectorElemsize(elemsize));
-                assert(isValidVectorShiftAmount(imm, elemsize, isRightShift));
+                assert(isValidVectorShiftAmount(imm, elemsize, IsVectorRightShiftIns(ins)));
                 assert(opt != INS_OPTS_1D); // Reserved encoding
                 fmt = IF_DV_2O;
             }
             else
             {
-                // Scalar operation
                 assert(insOptsNone(opt));
                 assert(size == EA_8BYTE); // only supported size
-                assert(isValidVectorShiftAmount(imm, size, isRightShift));
+                assert(isValidVectorShiftAmount(imm, size, IsVectorRightShiftIns(ins)));
                 fmt = IF_DV_2N;
             }
             break;
@@ -5008,23 +4882,20 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
         case INS_sqshlu:
             assert(isVectorRegister(reg1));
             assert(isVectorRegister(reg2));
-            isRightShift = IsVectorRightShiftIns(ins);
 
             if (insOptsAnyArrangement(opt))
             {
-                // Vector operation
                 assert(isValidArrangement(size, opt));
                 assert(opt != INS_OPTS_1D); // The encoding immh = 1xxx, Q = 0 is reserved
                 elemsize = optGetElemsize(opt);
-                assert(isValidVectorShiftAmount(imm, elemsize, isRightShift));
+                assert(isValidVectorShiftAmount(imm, elemsize, IsVectorRightShiftIns(ins)));
                 fmt = IF_DV_2O;
             }
             else
             {
-                // Scalar operation
                 assert(insOptsNone(opt));
                 assert(isValidVectorElemsize(size));
-                assert(isValidVectorShiftAmount(imm, size, isRightShift));
+                assert(isValidVectorShiftAmount(imm, size, IsVectorRightShiftIns(ins)));
                 fmt = IF_DV_2N;
             }
             break;
@@ -5037,24 +4908,21 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
         case INS_uqshrn:
             assert(isVectorRegister(reg1));
             assert(isVectorRegister(reg2));
-            isRightShift = IsVectorRightShiftIns(ins);
 
             if (insOptsAnyArrangement(opt))
             {
-                // Vector operation
                 assert(isValidArrangement(size, opt));
                 assert((opt != INS_OPTS_1D) && (opt != INS_OPTS_2D)); // The encoding immh = 1xxx, Q = x is reserved
                 elemsize = optGetElemsize(opt);
-                assert(isValidVectorShiftAmount(imm, elemsize, isRightShift));
+                assert(isValidVectorShiftAmount(imm, elemsize, IsVectorRightShiftIns(ins)));
                 fmt = IF_DV_2O;
             }
             else
             {
-                // Scalar operation
                 assert(insOptsNone(opt));
                 assert(isValidVectorElemsize(size));
                 assert(size != EA_8BYTE); // The encoding immh = 1xxx is reserved
-                assert(isValidVectorShiftAmount(imm, size, isRightShift));
+                assert(isValidVectorShiftAmount(imm, size, IsVectorRightShiftIns(ins)));
                 fmt = IF_DV_2N;
             }
             break;
@@ -5070,14 +4938,12 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
         case INS_ushll:
             assert(isVectorRegister(reg1));
             assert(isVectorRegister(reg2));
-            isRightShift = IsVectorRightShiftIns(ins);
-            // Vector operation
             assert(size == EA_8BYTE);
             assert(isValidArrangement(size, opt));
             elemsize = optGetElemsize(opt);
             assert(elemsize != EA_8BYTE); // Reserved encodings
             assert(isValidVectorElemsize(elemsize));
-            assert(isValidVectorShiftAmount(imm, elemsize, isRightShift));
+            assert(isValidVectorShiftAmount(imm, elemsize, IsVectorRightShiftIns(ins)));
             fmt = IF_DV_2O;
             break;
 
@@ -5098,15 +4964,12 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
         case INS_ushll2:
             assert(isVectorRegister(reg1));
             assert(isVectorRegister(reg2));
-            isRightShift = IsVectorRightShiftIns(ins);
-
-            // Vector operation
             assert(size == EA_16BYTE);
             assert(isValidArrangement(size, opt));
             elemsize = optGetElemsize(opt);
             assert(elemsize != EA_8BYTE); // The encoding immh = 1xxx, Q = x is reserved
             assert(isValidVectorElemsize(elemsize));
-            assert(isValidVectorShiftAmount(imm, elemsize, isRightShift));
+            assert(isValidVectorShiftAmount(imm, elemsize, IsVectorRightShiftIns(ins)));
             fmt = IF_DV_2O;
             break;
 
@@ -5200,10 +5063,9 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
                 reg1 = encodingSPtoZR(reg1);
             }
 
-            bmi.immNRS = 0;
-            canEncode  = EncodeBitMaskImm(imm, size, &bmi);
+            canEncode = EncodeBitMaskImm(imm, size, &bmi);
             assert(canEncode);
-            imm = bmi.immNRS;
+            imm = bmi;
             assert(isValidImmNRS(imm, size));
             fmt = IF_DI_2C;
             break;
@@ -5221,7 +5083,6 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
                     // assert the index is valid here and instead do it in
                     // codegen.
 
-                    // Vector operation
                     assert(isValidVectorDatasize(size));
                     assert(isValidArrangement(size, opt));
                     elemsize = optGetElemsize(opt);
@@ -5231,7 +5092,6 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
                 }
                 else
                 {
-                    // Scalar operation
                     assert(insOptsNone(opt));
                     elemsize = size;
                     assert(isValidVectorElemsize(elemsize));
@@ -5387,7 +5247,6 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
         case INS_st4:
             assert(opt != INS_OPTS_1D); // .1D format only permitted with LD1 & ST1
             FALLTHROUGH;
-
         case INS_ld1:
         case INS_ld1_2regs:
         case INS_ld1_3regs:
@@ -5403,12 +5262,9 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
 
             if (insOptsAnyArrangement(opt))
             {
-                registerListSize = insGetRegisterListSize(ins);
                 assert(isValidVectorDatasize(size));
                 assert(isValidArrangement(size, opt));
-                assert((size * registerListSize) == imm);
-
-                // Load/Store multiple structures  post-indexed by an immediate
+                assert(size * insGetRegisterListSize(ins) == imm);
                 fmt = IF_LS_2E;
             }
             else
@@ -5420,8 +5276,6 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
                 elemsize = size;
                 assert(isValidVectorElemsize(elemsize));
                 assert(Arm64Imm::IsVecIndex(imm, EA_16BYTE, elemsize));
-
-                // Load/Store single structure  base register
                 fmt = IF_LS_2F;
             }
             break;
@@ -5432,22 +5286,16 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
         case INS_ld4r:
             assert(isVectorRegister(reg1));
             assert(isGeneralRegisterOrSP(reg2));
-
             assert(isValidVectorDatasize(size));
             assert(isValidArrangement(size, opt));
-
-            elemsize         = optGetElemsize(opt);
-            registerListSize = insGetRegisterListSize(ins);
-            assert((elemsize * registerListSize) == imm);
-
-            // Load single structure and replicate  post-indexed by an immediate
+            elemsize = optGetElemsize(opt);
+            assert(elemsize * insGetRegisterListSize(ins) == imm);
             reg2 = encodingSPtoZR(reg2);
             fmt  = IF_LS_2E;
             break;
 
         default:
             unreached();
-            break;
     }
 
     if (isLdSt)
@@ -5477,7 +5325,7 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
 
         reg2 = encodingSPtoZR(reg2);
 
-        ssize_t mask = (1 << scale) - 1; // the mask of low bits that must be zero to encode the immediate
+        int64_t mask = (1 << scale) - 1; // the mask of low bits that must be zero to encode the immediate
         if (imm == 0)
         {
             assert(insOptsNone(opt)); // PRE/POST Index doesn't make sense with an immediate of zero
@@ -5589,7 +5437,7 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
     appendToCurIG(id);
 }
 
-void Arm64Emitter::emitIns_R_R_Imm(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, ssize_t imm)
+void Arm64Emitter::emitIns_R_R_Imm(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, int64_t imm)
 {
     assert(isGeneralRegister(reg1));
     assert(reg1 != reg2);
@@ -5627,18 +5475,18 @@ void Arm64Emitter::emitIns_R_R_Imm(instruction ins, emitAttr attr, RegNum reg1, 
 
 void Arm64Emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, insOpts opt)
 {
-    emitAttr  size     = EA_SIZE(attr);
-    emitAttr  elemsize = EA_UNKNOWN;
-    insFormat fmt      = IF_NONE;
+    emitAttr  size = EA_SIZE(attr);
+    insFormat fmt  = IF_NONE;
 
     switch (ins)
     {
+        emitAttr elemsize;
+
         case INS_mul:
         case INS_smull:
         case INS_umull:
             if (insOptsAnyArrangement(opt))
             {
-                // ASIMD instruction
                 assert(isVectorRegister(reg1));
                 assert(isVectorRegister(reg2));
                 assert(isVectorRegister(reg3));
@@ -5647,9 +5495,7 @@ void Arm64Emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, Re
                 fmt = IF_DV_3A;
                 break;
             }
-            // Base instruction
             FALLTHROUGH;
-
         case INS_lsl:
         case INS_lsr:
         case INS_asr:
@@ -5689,13 +5535,11 @@ void Arm64Emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, Re
         case INS_sub:
             if (isVectorRegister(reg1))
             {
-                // ASIMD instruction
                 assert(isVectorRegister(reg2));
                 assert(isVectorRegister(reg3));
 
                 if (insOptsAnyArrangement(opt))
                 {
-                    // Vector operation
                     assert(opt != INS_OPTS_1D); // Reserved encoding
                     assert(isValidVectorDatasize(size));
                     assert(isValidArrangement(size, opt));
@@ -5703,16 +5547,13 @@ void Arm64Emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, Re
                 }
                 else
                 {
-                    // Scalar operation
                     assert(insOptsNone(opt));
                     assert(size == EA_8BYTE);
                     fmt = IF_DV_3E;
                 }
                 break;
             }
-            // Base instruction
             FALLTHROUGH;
-
         case INS_adds:
         case INS_subs:
             emitIns_R_R_R_I(ins, attr, reg1, reg2, reg3, 0, INS_OPTS_NONE);
@@ -5734,14 +5575,12 @@ void Arm64Emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, Re
 
             if (insOptsAnyArrangement(opt))
             {
-                // Vector operation
                 assert(isValidArrangement(size, opt));
                 assert(opt != INS_OPTS_1D); // The encoding size = 11, Q = 0 is reserved
                 fmt = IF_DV_3A;
             }
             else
             {
-                // Scalar operation
                 assert(insOptsNone(opt));
                 assert(size == EA_8BYTE); // Only Int64/UInt64 supported
                 fmt = IF_DV_3E;
@@ -5762,14 +5601,12 @@ void Arm64Emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, Re
 
             if (insOptsAnyArrangement(opt))
             {
-                // Vector operation
                 assert(isValidArrangement(size, opt));
                 assert(opt != INS_OPTS_1D); // The encoding size = 11, Q = 0 is reserved
                 fmt = IF_DV_3A;
             }
             else
             {
-                // Scalar operation
                 assert(insOptsNone(opt));
                 assert(isValidVectorElemsize(size));
                 fmt = IF_DV_3E;
@@ -5787,7 +5624,6 @@ void Arm64Emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, Re
 
             if (insOptsAnyArrangement(opt))
             {
-                // Vector operation
                 assert(isValidVectorDatasize(size));
                 assert(isValidArrangement(size, opt));
                 elemsize = optGetElemsize(opt);
@@ -5797,7 +5633,6 @@ void Arm64Emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, Re
             }
             else
             {
-                // Scalar operation
                 assert(insOptsNone(opt));
                 assert((size == EA_8BYTE) || (size == EA_4BYTE)); // Only Double/Float supported
                 fmt = IF_DV_3D;
@@ -5930,7 +5765,6 @@ void Arm64Emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, Re
             assert(isVectorRegister(reg3));
             if (insOptsAnyArrangement(opt))
             {
-                // Vector operation
                 assert(isValidVectorDatasize(size));
                 assert(isValidArrangement(size, opt));
                 elemsize = optGetElemsize(opt);
@@ -5940,7 +5774,6 @@ void Arm64Emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, Re
             }
             else
             {
-                // Scalar operation
                 assert(insOptsNone(opt));
                 assert(isValidScalarDatasize(size));
                 fmt = IF_DV_3D;
@@ -5948,7 +5781,6 @@ void Arm64Emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, Re
             break;
 
         case INS_fnmul:
-            // Scalar operation
             assert(insOptsNone(opt));
             assert(isVectorRegister(reg1));
             assert(isVectorRegister(reg2));
@@ -5969,8 +5801,6 @@ void Arm64Emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, Re
             assert(isVectorRegister(reg2));
             assert(isVectorRegister(reg3));
             assert(insOptsAnyArrangement(opt)); // no scalar encoding, use 4-operand 'fmadd' or 'fmsub'
-
-            // Vector operation
             assert(isValidVectorDatasize(size));
             assert(isValidArrangement(size, opt));
             elemsize = optGetElemsize(opt);
@@ -6191,14 +6021,12 @@ void Arm64Emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, Re
             assert(isVectorRegister(reg3));
             if (insOptsAnyArrangement(opt))
             {
-                // Vector operation
                 assert(size == EA_8BYTE);
                 assert((opt == INS_OPTS_4H) || (opt == INS_OPTS_2S));
                 fmt = IF_DV_3A;
             }
             else
             {
-                // Scalar operation
                 assert(insOptsNone(opt));
                 assert((size == EA_2BYTE) || (size == EA_4BYTE));
                 fmt = IF_DV_3E;
@@ -6214,7 +6042,6 @@ void Arm64Emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, Re
             assert(isVectorRegister(reg3));
             if (insOptsAnyArrangement(opt))
             {
-                // Vector operation
                 assert(isValidVectorDatasize(size));
                 elemsize = optGetElemsize(opt);
                 assert((elemsize == EA_2BYTE) || (elemsize == EA_4BYTE));
@@ -6222,7 +6049,6 @@ void Arm64Emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, Re
             }
             else
             {
-                // Scalar operation
                 assert(insOptsNone(opt));
                 assert((size == EA_2BYTE) || (size == EA_4BYTE));
                 fmt = IF_DV_3E;
@@ -6278,7 +6104,6 @@ void Arm64Emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, Re
 
         default:
             unreached();
-            break;
     }
 
     instrDesc* id = emitNewInstr();
@@ -6299,7 +6124,6 @@ void Arm64Emitter::emitIns_R_R_R_I(
     instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, int32_t imm, insOpts opt, emitAttr attrReg2)
 {
     emitAttr  size     = EA_SIZE(attr);
-    emitAttr  elemsize = EA_UNKNOWN;
     insFormat fmt      = IF_NONE;
     bool      isLdSt   = false;
     bool      isVector = false;
@@ -6309,6 +6133,8 @@ void Arm64Emitter::emitIns_R_R_R_I(
 
     switch (ins)
     {
+        emitAttr elemsize;
+
         case INS_extr:
             assert(insOptsNone(opt));
             assert(isValidGeneralDatasize(size));
@@ -6353,7 +6179,6 @@ void Arm64Emitter::emitIns_R_R_R_I(
             assert(isVectorRegister(reg3));
             if (insOptsAnyArrangement(opt))
             {
-                // Vector operation
                 assert(isValidVectorDatasize(size));
                 assert(isValidArrangement(size, opt));
                 elemsize = optGetElemsize(opt);
@@ -6364,7 +6189,6 @@ void Arm64Emitter::emitIns_R_R_R_I(
             }
             else
             {
-                // Scalar operation
                 assert(insOptsNone(opt));
                 assert(isValidScalarDatasize(size));
                 elemsize = size;
@@ -6379,7 +6203,6 @@ void Arm64Emitter::emitIns_R_R_R_I(
             assert(isVectorRegister(reg1));
             assert(isVectorRegister(reg2));
             assert(isVectorRegister(reg3));
-            // Vector operation
             assert(insOptsAnyArrangement(opt));
             assert(isValidVectorDatasize(size));
             assert(isValidArrangement(size, opt));
@@ -6493,7 +6316,6 @@ void Arm64Emitter::emitIns_R_R_R_I(
             assert(isVectorRegister(reg3));
             if (insOptsAnyArrangement(opt))
             {
-                // Vector operation
                 assert(size == EA_8BYTE);
                 assert((opt == INS_OPTS_4H) || (opt == INS_OPTS_2S));
                 elemsize = optGetElemsize(opt);
@@ -6501,7 +6323,6 @@ void Arm64Emitter::emitIns_R_R_R_I(
             }
             else
             {
-                // Scalar operation
                 assert(insOptsNone(opt));
                 assert((size == EA_2BYTE) || (size == EA_4BYTE));
                 elemsize = size;
@@ -6524,7 +6345,6 @@ void Arm64Emitter::emitIns_R_R_R_I(
             assert(isVectorRegister(reg3));
             if (insOptsAnyArrangement(opt))
             {
-                // Vector operation
                 assert(isValidVectorDatasize(size));
                 elemsize = optGetElemsize(opt);
                 assert((elemsize == EA_2BYTE) || (elemsize == EA_4BYTE));
@@ -6532,17 +6352,18 @@ void Arm64Emitter::emitIns_R_R_R_I(
             }
             else
             {
-                // Scalar operation
                 assert(insOptsNone(opt));
                 assert((size == EA_2BYTE) || (size == EA_4BYTE));
                 elemsize = size;
                 fmt      = IF_DV_3EI;
             }
+
             // Restricted to V0-V15 when element size is H.
             if ((elemsize == EA_2BYTE) && ((genRegMask(reg3) & RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS) == 0))
             {
                 assert(!"Invalid reg3");
             }
+
             assert(Arm64Imm::IsVecIndex(imm, EA_16BYTE, elemsize));
             break;
 
@@ -6619,7 +6440,7 @@ void Arm64Emitter::emitIns_R_R_R_I(
 
         reg3 = encodingSPtoZR(reg3);
 
-        ssize_t mask = (1ll << scale) - 1; // the mask of low bits that must be zero to encode the immediate
+        int64_t mask = (1ll << scale) - 1; // the mask of low bits that must be zero to encode the immediate
 
         if (imm == 0)
         {
@@ -6718,8 +6539,7 @@ void Arm64Emitter::emitIns_R_R_R_Ext(
     assert(insOptsLSExtend(opt));
     assert(!insOptsIndexed(opt) || (reg1 != reg2));
 
-    emitAttr size     = EA_SIZE(attr);
-    bool     isVector = false;
+    emitAttr size = EA_SIZE(attr);
     int      scale;
 
     switch (ins)
@@ -6727,14 +6547,20 @@ void Arm64Emitter::emitIns_R_R_R_Ext(
         case INS_ldrb:
         case INS_ldrsb:
         case INS_strb:
+            assert(isValidGeneralLSDatasize(size));
+            assert(isGeneralRegisterOrZR(reg1));
             scale = 0;
             break;
         case INS_ldrh:
         case INS_ldrsh:
         case INS_strh:
+            assert(isValidGeneralLSDatasize(size));
+            assert(isGeneralRegisterOrZR(reg1));
             scale = 1;
             break;
         case INS_ldrsw:
+            assert(isValidGeneralLSDatasize(size));
+            assert(isGeneralRegisterOrZR(reg1));
             scale = 2;
             break;
         case INS_ldr:
@@ -6742,25 +6568,18 @@ void Arm64Emitter::emitIns_R_R_R_Ext(
             if (isVectorRegister(reg1))
             {
                 assert(isValidVectorLSDatasize(size));
-                scale    = NaturalScale(size);
-                isVector = true;
-                assert(isValidVectorLSDatasize(size));
                 assert(isVectorRegister(reg1));
+                scale = NaturalScale(size);
             }
             else
             {
                 assert(isValidGeneralDatasize(size));
+                assert(isGeneralRegisterOrZR(reg1));
                 scale = size == EA_8BYTE ? 3 : 2;
             }
             break;
         default:
             unreached();
-    }
-
-    if (!isVector)
-    {
-        assert(isValidGeneralLSDatasize(size));
-        assert(isGeneralRegisterOrZR(reg1));
     }
 
     if (shiftAmount == -1)
@@ -6788,32 +6607,25 @@ void Arm64Emitter::emitIns_R_R_R_Ext(
 void Arm64Emitter::emitIns_R_R_I_I(
     instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, int imm1, int imm2, insOpts opt)
 {
-    emitAttr  size     = EA_SIZE(attr);
-    emitAttr  elemsize = EA_UNKNOWN;
-    insFormat fmt      = IF_NONE;
-    size_t    immOut   = 0; // composed from imm1 and imm2 and stored in the instrDesc
+    emitAttr  size = EA_SIZE(attr);
+    insFormat fmt;
+    ssize_t   imm;
 
     switch (ins)
     {
-        int        lsb;
-        int        width;
-        BitMaskImm bmi;
-        unsigned   registerListSize;
+        int lsb;
+        int width;
 
         case INS_bfm:
         case INS_sbfm:
         case INS_ubfm:
             assert(isGeneralRegister(reg1));
-            assert((ins == INS_bfm) ? isGeneralRegisterOrZR(reg2) : isGeneralRegister(reg2));
+            assert(ins == INS_bfm ? isGeneralRegisterOrZR(reg2) : isGeneralRegister(reg2));
             assert(isValidImmShift(imm1, size));
             assert(isValidImmShift(imm2, size));
             assert(insOptsNone(opt));
-            bmi.immNRS = 0;
-            bmi.immN   = (size == EA_8BYTE);
-            bmi.immR   = imm1;
-            bmi.immS   = imm2;
-            immOut     = bmi.immNRS;
-            fmt        = IF_DI_2D;
+            imm = PackBitMaskImm(imm2, imm1, size);
+            fmt = IF_DI_2D;
             break;
 
         case INS_bfi:
@@ -6826,12 +6638,8 @@ void Arm64Emitter::emitIns_R_R_I_I(
             assert(isValidImmShift(lsb, size));
             assert(isValidImmShift(width, size));
             assert(insOptsNone(opt));
-            bmi.immNRS = 0;
-            bmi.immN   = (size == EA_8BYTE);
-            bmi.immR   = lsb;
-            bmi.immS   = width;
-            immOut     = bmi.immNRS;
-            fmt        = IF_DI_2D;
+            imm = PackBitMaskImm(width, lsb, size);
+            fmt = IF_DI_2D;
             break;
 
         case INS_bfxil:
@@ -6844,25 +6652,20 @@ void Arm64Emitter::emitIns_R_R_I_I(
             assert(isValidImmShift(lsb, size));
             assert(isValidImmShift(width, size));
             assert(insOptsNone(opt));
-            bmi.immNRS = 0;
-            bmi.immN   = (size == EA_8BYTE);
-            bmi.immR   = imm1;
-            bmi.immS   = imm2 + imm1 - 1;
-            immOut     = bmi.immNRS;
-            fmt        = IF_DI_2D;
+            imm = PackBitMaskImm(width, lsb, size);
+            fmt = IF_DI_2D;
             break;
 
         case INS_mov:
         case INS_ins:
             assert(isVectorRegister(reg1));
             assert(isVectorRegister(reg2));
-            elemsize = size;
-            assert(isValidVectorElemsize(elemsize));
-            assert(Arm64Imm::IsVecIndex(imm1, EA_16BYTE, elemsize));
-            assert(Arm64Imm::IsVecIndex(imm2, EA_16BYTE, elemsize));
+            assert(isValidVectorElemsize(size));
+            assert(Arm64Imm::IsVecIndex(imm1, EA_16BYTE, size));
+            assert(Arm64Imm::IsVecIndex(imm2, EA_16BYTE, size));
             assert(insOptsNone(opt));
-            immOut = (imm1 << 4) + imm2;
-            fmt    = IF_DV_2F;
+            imm = (imm1 << 4) + imm2;
+            fmt = IF_DV_2F;
             break;
 
         case INS_ld1:
@@ -6875,26 +6678,20 @@ void Arm64Emitter::emitIns_R_R_I_I(
         case INS_st4:
             assert(isVectorRegister(reg1));
             assert(isGeneralRegisterOrSP(reg2));
-
-            elemsize = size;
-            assert(isValidVectorElemsize(elemsize));
-            assert(Arm64Imm::IsVecIndex(imm1, EA_16BYTE, elemsize));
-
-            registerListSize = insGetRegisterListSize(ins);
-            assert((elemsize * registerListSize) == (unsigned)imm2);
+            assert(isValidVectorElemsize(size));
+            assert(Arm64Imm::IsVecIndex(imm1, EA_16BYTE, size));
+            assert(size * insGetRegisterListSize(ins) == static_cast<unsigned>(imm2));
             assert(insOptsPostIndex(opt));
-
-            // Load/Store single structure  post-indexed by an immediate
-            reg2   = encodingSPtoZR(reg2);
-            immOut = imm1;
-            fmt    = IF_LS_2G;
+            reg2 = encodingSPtoZR(reg2);
+            imm  = imm1;
+            fmt  = IF_LS_2G;
             break;
 
         default:
             unreached();
     }
 
-    instrDesc* id = emitNewInstrSC(immOut);
+    instrDesc* id = emitNewInstrSC(imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idInsOpt(opt);
@@ -6909,8 +6706,7 @@ void Arm64Emitter::emitIns_R_R_I_I(
 
 void Arm64Emitter::emitIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, RegNum reg4)
 {
-    emitAttr  size = EA_SIZE(attr);
-    insFormat fmt  = IF_NONE;
+    insFormat fmt;
 
     switch (ins)
     {
@@ -6920,7 +6716,7 @@ void Arm64Emitter::emitIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, 
         case INS_smsubl:
         case INS_umaddl:
         case INS_umsubl:
-            assert(isValidGeneralDatasize(size));
+            assert(isValidGeneralDatasize(EA_SIZE(attr)));
             assert(isGeneralRegister(reg1));
             assert(isGeneralRegister(reg2));
             assert(isGeneralRegister(reg3));
@@ -6932,8 +6728,7 @@ void Arm64Emitter::emitIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, 
         case INS_fmsub:
         case INS_fnmadd:
         case INS_fnmsub:
-            // Scalar operation
-            assert(isValidScalarDatasize(size));
+            assert(isValidScalarDatasize(EA_SIZE(attr)));
             assert(isVectorRegister(reg1));
             assert(isVectorRegister(reg2));
             assert(isVectorRegister(reg3));
@@ -6941,13 +6736,8 @@ void Arm64Emitter::emitIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, 
             fmt = IF_DV_4A;
             break;
 
-        case INS_invalid:
-            fmt = IF_NONE;
-            break;
-
         default:
             unreached();
-            break;
     }
 
     instrDesc* id = emitNewInstr();
@@ -7775,7 +7565,7 @@ AGAIN:
 
             uint32_t dataOffs = instr->GetConstData()->offset;
 
-            ssize_t imm = instr->emitGetInsSC();
+            int64_t imm = instr->emitGetInsSC();
             assert((imm >= 0) && (imm < 0x1000)); // 0x1000 is arbitrary, currently 'imm' is always 0
 
             dataOffs += static_cast<uint32_t>(imm);
@@ -8020,7 +7810,7 @@ static uint32_t insEncodeFlags(insCflags flags)
 }
 
 // Returns the encoding for the Shift Count bits to be used for Arm64 encodings
-static uint32_t insEncodeShiftCount(ssize_t imm, emitAttr size)
+static uint32_t insEncodeShiftCount(int64_t imm, emitAttr size)
 {
     assert((imm & 0x003F) == imm);
     assert(((imm & 0x0020) == 0) || (size == EA_8BYTE));
@@ -8191,7 +7981,7 @@ static uint32_t insEncodeVectorsize(emitAttr size)
 }
 
 // Returns the encoding to select 'index' for an Arm64 vector elem instruction
-static uint32_t insEncodeVectorIndex(emitAttr elemsize, ssize_t index)
+static uint32_t insEncodeVectorIndex(emitAttr elemsize, int64_t index)
 {
     uint32_t bits = (uint32_t)index;
     if (elemsize == EA_1BYTE)
@@ -8221,7 +8011,7 @@ static uint32_t insEncodeVectorIndex(emitAttr elemsize, ssize_t index)
 }
 
 // Returns the encoding to select 'index2' for an Arm64 'ins' elem instruction
-static uint32_t insEncodeVectorIndex2(emitAttr elemsize, ssize_t index2)
+static uint32_t insEncodeVectorIndex2(emitAttr elemsize, int64_t index2)
 {
     uint32_t bits = (uint32_t)index2;
     if (elemsize == EA_1BYTE)
@@ -8247,7 +8037,7 @@ static uint32_t insEncodeVectorIndex2(emitAttr elemsize, ssize_t index2)
 }
 
 // Returns the encoding to select the 'index' for an Arm64 'mul' by element instruction
-static uint32_t insEncodeVectorIndexLMH(emitAttr elemsize, ssize_t index)
+static uint32_t insEncodeVectorIndexLMH(emitAttr elemsize, int64_t index)
 {
     uint32_t bits = 0;
 
@@ -8289,7 +8079,7 @@ static uint32_t insEncodeVectorIndexLMH(emitAttr elemsize, ssize_t index)
 
 // Returns the encoding for the SIMD shift (immediate) instructions, the "immh:immb"
 // field of the instruction that contains encoded shift amount.
-static uint32_t insEncodeVectorShift(emitAttr size, ssize_t shiftAmount)
+static uint32_t insEncodeVectorShift(emitAttr size, int64_t shiftAmount)
 {
     if (shiftAmount < 0)
     {
@@ -8340,7 +8130,7 @@ static uint32_t insEncodeFloatElemsize(emitAttr size)
 }
 
 // Returns the encoding to select the index for an Arm64 float vector by element instruction
-static uint32_t insEncodeFloatIndex(emitAttr elemsize, ssize_t index)
+static uint32_t insEncodeFloatIndex(emitAttr elemsize, int64_t index)
 {
     uint32_t result = 0x00000000;
     if (elemsize == EA_8BYTE)
@@ -8395,7 +8185,7 @@ static uint32_t insEncodeVLSElemsize(emitAttr size)
 }
 
 // Returns the encoding to select the index for an Arm64 ld/st# vector by element instruction
-static uint32_t insEncodeVLSIndex(emitAttr size, ssize_t index)
+static uint32_t insEncodeVLSIndex(emitAttr size, int64_t index)
 {
     uint32_t result = 0x00000000;
 
@@ -8594,7 +8384,7 @@ static uint32_t insEncodeExtend(insOpts opt)
 }
 
 // Returns the encoding to scale the Rm register by {0,1,2,3,4} when using an extend operation
-static uint32_t insEncodeExtendScale(ssize_t imm)
+static uint32_t insEncodeExtendScale(int64_t imm)
 {
     assert((imm >= 0) && (imm <= 4));
 
@@ -8607,9 +8397,9 @@ static uint32_t insEncodeReg3Scale(bool isScaled)
     return isScaled ? 0x00001000 : 0; // set the bit at location 12
 }
 
-static ssize_t ComputeRelPageAddr(void* dstAddr, void* srcAddr)
+static int64_t ComputeRelPageAddr(void* dstAddr, void* srcAddr)
 {
-    return (reinterpret_cast<ssize_t>(dstAddr) >> 12) - (reinterpret_cast<ssize_t>(srcAddr) >> 12);
+    return (reinterpret_cast<int64_t>(dstAddr) >> 12) - (reinterpret_cast<int64_t>(srcAddr) >> 12);
 }
 
 uint8_t* Arm64Encoder::emitOutputLoadLabel(uint8_t* dst, uint8_t* instrAddr, uint8_t* labelAddr, instrDescJmp* id)
@@ -8628,7 +8418,7 @@ uint8_t* Arm64Encoder::emitOutputLoadLabel(uint8_t* dst, uint8_t* instrAddr, uin
     assert(ins == INS_adrp);
     assert(fmt == IF_LARGEADR);
 
-    ssize_t relPageAddr = ComputeRelPageAddr(labelAddr, instrAddr);
+    int64_t relPageAddr = ComputeRelPageAddr(labelAddr, instrAddr);
 
     dst = emitOutputShortAddress(dst, INS_adrp, relPageAddr, dstReg);
 
@@ -8746,7 +8536,7 @@ uint8_t* Arm64Encoder::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig
     uint32_t instrOffs = emitCurCodeOffs(dst);
     uint8_t* instrAddr = emitOffsetToPtr(instrOffs);
     uint8_t* labelAddr = emitOffsetToPtr(labelOffs);
-    ssize_t  distance  = labelAddr - instrAddr;
+    int64_t  distance  = labelAddr - instrAddr;
 
     instruction ins = id->idIns();
     insFormat   fmt = id->idInsFmt();
@@ -8821,7 +8611,7 @@ uint8_t* Arm64Encoder::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig
 }
 
 uint8_t* Arm64Encoder::emitOutputShortBranch(
-    uint8_t* dst, instruction ins, insFormat fmt, ssize_t distance, instrDescJmp* id)
+    uint8_t* dst, instruction ins, insFormat fmt, int64_t distance, instrDescJmp* id)
 {
     noway_assert((distance & 3) == 0);
     distance >>= 2;
@@ -8858,7 +8648,7 @@ uint8_t* Arm64Encoder::emitOutputShortBranch(
         assert(fmt == IF_BI_1B); // B.......bbbbbiii iiiiiiiiiiittttt      Rt imm6, simm14:00
         assert(id != nullptr);
 
-        ssize_t imm = id->emitGetInsSC();
+        int64_t imm = id->emitGetInsSC();
         assert(isValidImmShift(imm, id->idOpSize()));
         noway_assert(isValidSimm14(distance));
 
@@ -8875,14 +8665,14 @@ uint8_t* Arm64Encoder::emitOutputShortBranch(
     return dst + emitOutput_Instr(dst, code);
 }
 
-uint8_t* Arm64Encoder::emitOutputShortAddress(uint8_t* dst, instruction ins, ssize_t distance, RegNum reg)
+uint8_t* Arm64Encoder::emitOutputShortAddress(uint8_t* dst, instruction ins, int64_t distance, RegNum reg)
 {
     assert((ins == INS_adr) || (ins == INS_adrp));
     assert(IsGeneralRegister(reg));
 
     uint32_t code = emitInsCode(ins, IF_DI_1E);
     code |= insEncodeReg_Rd(reg);
-    ssize_t loBits = (distance & 3);
+    int64_t loBits = (distance & 3);
     distance >>= 2;
     noway_assert(isValidSimm19(distance));
     code |= (distance & 0x7FFFFLL) << 5;
@@ -8892,16 +8682,16 @@ uint8_t* Arm64Encoder::emitOutputShortAddress(uint8_t* dst, instruction ins, ssi
 }
 
 uint8_t* Arm64Encoder::emitOutputShortConstant(
-    uint8_t* dst, instruction ins, insFormat fmt, ssize_t imm, RegNum reg, emitAttr opSize)
+    uint8_t* dst, instruction ins, insFormat fmt, int64_t imm, RegNum reg, emitAttr opSize)
 {
     assert(ins == INS_ldr);
     assert(fmt == IF_LS_1A);
 
     uint32_t code = emitInsCode(INS_ldr, IF_LS_1A);
 
-    ssize_t loBits = (imm & 3);
+    int64_t loBits = (imm & 3);
     noway_assert(loBits == 0);
-    ssize_t distance = imm >>= 2;
+    int64_t distance = imm >>= 2;
 
     noway_assert(isValidSimm19(distance));
 
@@ -8962,9 +8752,9 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
     switch (fmt)
     {
-        ssize_t  imm;
-        ssize_t  index;
-        ssize_t  index2;
+        int64_t  imm;
+        int64_t  index;
+        int64_t  index2;
         unsigned cmode;
         unsigned immShift;
         emitAttr elemsize;
@@ -9613,7 +9403,6 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                     break;
                 default:
                     unreached();
-                    break;
             }
 
             code = emitInsCode(ins, fmt);
@@ -10145,14 +9934,14 @@ private:
     }
 
     void emitDispInst(instruction ins);
-    void emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm);
+    void emitDispLargeImm(instrDesc* id, insFormat fmt, int64_t imm);
     void emitDispAddrLoadLabel(instrDescJmp* id);
     void emitDispJumpLabel(instrDescJmp* id);
-    void emitDispImm(ssize_t imm, bool addComma, bool alwaysHex = false);
+    void emitDispImm(int64_t imm, bool addComma, bool alwaysHex = false);
     void emitDispFrameRef(instrDesc* id);
     void emitDispFloatZero();
-    void emitDispFloatImm(ssize_t imm8);
-    void emitDispImmOptsLSL12(ssize_t imm, insOpts opt);
+    void emitDispFloatImm(int64_t imm8);
+    void emitDispImmOptsLSL12(int64_t imm, insOpts opt);
     void emitDispCond(insCond cond);
     void emitDispFlags(insCflags flags);
     void emitDispBarrier(insBarrier barrier);
@@ -10161,14 +9950,14 @@ private:
     void emitDispLSExtendOpts(insOpts opt);
     void emitDispReg(RegNum reg, emitAttr attr, bool addComma);
     void emitDispVectorReg(RegNum reg, insOpts opt, bool addComma);
-    void emitDispVectorRegIndex(RegNum reg, emitAttr elemsize, ssize_t index, bool addComma);
+    void emitDispVectorRegIndex(RegNum reg, emitAttr elemsize, int64_t index, bool addComma);
     void emitDispVectorRegList(RegNum firstReg, unsigned listSize, insOpts opt, bool addComma);
     void emitDispVectorElemList(RegNum firstReg, unsigned listSize, emitAttr elemsize, unsigned index, bool addComma);
     void emitDispArrangement(insOpts opt);
     void emitDispElemsize(emitAttr elemsize);
-    void emitDispShiftedReg(RegNum reg, insOpts opt, ssize_t imm, emitAttr attr);
-    void emitDispExtendReg(RegNum reg, insOpts opt, ssize_t imm);
-    void emitDispAddrRI(RegNum reg, insOpts opt, ssize_t imm);
+    void emitDispShiftedReg(RegNum reg, insOpts opt, int64_t imm, emitAttr attr);
+    void emitDispExtendReg(RegNum reg, insOpts opt, int64_t imm);
+    void emitDispAddrRI(RegNum reg, insOpts opt, int64_t imm);
     void emitDispAddrRRExt(RegNum reg1, RegNum reg2, insOpts opt, bool isScaled, emitAttr size);
 };
 
@@ -10211,7 +10000,7 @@ void Arm64AsmPrinter::emitDispAddrLoadLabel(instrDescJmp* id)
         PrintLabel(id->GetLabel());
     }
 
-    if (ssize_t imm = id->emitGetInsSC())
+    if (int64_t imm = id->emitGetInsSC())
     {
         printf("%+Id", imm);
     }
@@ -10259,14 +10048,14 @@ void Arm64AsmPrinter::emitDispJumpLabel(instrDescJmp* id)
     }
 }
 
-void Arm64AsmPrinter::emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm)
+void Arm64AsmPrinter::emitDispLargeImm(instrDesc* id, insFormat fmt, int64_t imm)
 {
     assert(imm == 0);
     assert(fmt == IF_DI_1E);
 
     printf("[HIGH RELOC ");
 
-    emitDispImm(reinterpret_cast<ssize_t>(id->GetAddr()), false);
+    emitDispImm(reinterpret_cast<int64_t>(id->GetAddr()), false);
 
     size_t      targetHandle = reinterpret_cast<size_t>(id->idDebugOnlyInfo()->idHandle);
     const char* targetName   = nullptr;
@@ -10296,7 +10085,7 @@ void Arm64AsmPrinter::emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm
     }
 }
 
-void Arm64AsmPrinter::emitDispImm(ssize_t imm, bool addComma, bool alwaysHex)
+void Arm64AsmPrinter::emitDispImm(int64_t imm, bool addComma, bool alwaysHex)
 {
     printf("#");
 
@@ -10305,7 +10094,7 @@ void Arm64AsmPrinter::emitDispImm(ssize_t imm, bool addComma, bool alwaysHex)
     // significant bits beyond the lowest 8-bits.
     if (compiler->opts.disDiffable)
     {
-        ssize_t top56bits = (imm >> 8);
+        int64_t top56bits = (imm >> 8);
 
         if ((top56bits != 0) && (top56bits != -1))
         {
@@ -10346,7 +10135,7 @@ void Arm64AsmPrinter::emitDispFloatZero()
     printf("#0.0");
 }
 
-void Arm64AsmPrinter::emitDispFloatImm(ssize_t imm8)
+void Arm64AsmPrinter::emitDispFloatImm(int64_t imm8)
 {
     assert((0 <= imm8) && (imm8 <= 0x0ff));
 
@@ -10356,7 +10145,7 @@ void Arm64AsmPrinter::emitDispFloatImm(ssize_t imm8)
     printf("#%.4f", DecodeFMovImm(fpImm));
 }
 
-void Arm64AsmPrinter::emitDispImmOptsLSL12(ssize_t imm, insOpts opt)
+void Arm64AsmPrinter::emitDispImmOptsLSL12(int64_t imm, insOpts opt)
 {
     emitDispImm(imm, false);
 
@@ -10468,7 +10257,7 @@ void Arm64AsmPrinter::emitDispVectorReg(RegNum reg, insOpts opt, bool addComma)
     }
 }
 
-void Arm64AsmPrinter::emitDispVectorRegIndex(RegNum reg, emitAttr elemsize, ssize_t index, bool addComma)
+void Arm64AsmPrinter::emitDispVectorRegIndex(RegNum reg, emitAttr elemsize, int64_t index, bool addComma)
 {
     assert(isVectorRegister(reg));
     printf(emitVectorRegName(reg));
@@ -10595,7 +10384,7 @@ void Arm64AsmPrinter::emitDispElemsize(emitAttr elemsize)
     printf(str);
 }
 
-void Arm64AsmPrinter::emitDispShiftedReg(RegNum reg, insOpts opt, ssize_t imm, emitAttr attr)
+void Arm64AsmPrinter::emitDispShiftedReg(RegNum reg, insOpts opt, int64_t imm, emitAttr attr)
 {
     emitAttr size = EA_SIZE(attr);
     assert((imm & 0x003F) == imm);
@@ -10611,7 +10400,7 @@ void Arm64AsmPrinter::emitDispShiftedReg(RegNum reg, insOpts opt, ssize_t imm, e
     }
 }
 
-void Arm64AsmPrinter::emitDispExtendReg(RegNum reg, insOpts opt, ssize_t imm)
+void Arm64AsmPrinter::emitDispExtendReg(RegNum reg, insOpts opt, int64_t imm)
 {
     assert((imm >= 0) && (imm <= 4));
     assert(insOptsNone(opt) || insOptsAnyExtend(opt) || (opt == INS_OPTS_LSL));
@@ -10638,7 +10427,7 @@ void Arm64AsmPrinter::emitDispExtendReg(RegNum reg, insOpts opt, ssize_t imm)
     }
 }
 
-void Arm64AsmPrinter::emitDispAddrRI(RegNum reg, insOpts opt, ssize_t imm)
+void Arm64AsmPrinter::emitDispAddrRI(RegNum reg, insOpts opt, int64_t imm)
 {
     reg = encodingZRtoSP(reg); // ZR (R31) encodes the SP register
 
@@ -10722,7 +10511,7 @@ void Arm64AsmPrinter::Print(instrDesc* id)
 
     switch (fmt)
     {
-        ssize_t     imm;
+        int64_t     imm;
         BitMaskImm  bmi;
         HalfwordImm hwi;
         CondImm     cfi;
@@ -10733,8 +10522,8 @@ void Arm64AsmPrinter::Print(instrDesc* id)
         emitAttr    datasize;
         emitAttr    srcsize;
         emitAttr    dstsize;
-        ssize_t     index;
-        ssize_t     index2;
+        int64_t     index;
+        int64_t     index2;
         unsigned    registerListSize;
 
         case IF_BI_0A: // BI_0A   ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
@@ -10950,7 +10739,7 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             {
                 assert(ins == INS_add);
                 printf("[LOW RELOC ");
-                emitDispImm(reinterpret_cast<ssize_t>(id->GetAddr()), false);
+                emitDispImm(reinterpret_cast<int64_t>(id->GetAddr()), false);
                 printf("]");
             }
             else
@@ -11205,11 +10994,11 @@ void Arm64AsmPrinter::Print(instrDesc* id)
                 if (elemsize == EA_8BYTE)
                 {
                     assert(ins == INS_movi);
-                    ssize_t       imm64 = 0;
-                    const ssize_t mask8 = 0xFF;
+                    int64_t       imm64 = 0;
+                    const int64_t mask8 = 0xFF;
                     for (unsigned b = 0; b < 8; b++)
                     {
-                        if (imm & (ssize_t{1} << b))
+                        if (imm & (int64_t{1} << b))
                         {
                             imm64 |= (mask8 << (b * 8));
                         }
@@ -13635,7 +13424,7 @@ bool Arm64Emitter::IsRedundantMov(instruction ins, emitAttr size, RegNum dst, Re
 // true if previous instruction already has desired value in register/memory location.
 
 bool Arm64Emitter::IsRedundantLdStr(
-    instruction ins, RegNum reg1, RegNum reg2, ssize_t imm, emitAttr size, insFormat fmt)
+    instruction ins, RegNum reg1, RegNum reg2, int64_t imm, emitAttr size, insFormat fmt)
 {
     instrDesc* lastIns = GetLastInsInCurrentBlock();
 
@@ -13648,7 +13437,7 @@ bool Arm64Emitter::IsRedundantLdStr(
     RegNum    prevReg2   = lastIns->idReg2();
     insFormat lastInsfmt = lastIns->idInsFmt();
     emitAttr  prevSize   = lastIns->idOpSize();
-    ssize_t prevImm = lastIns->idIsLargeCns() ? static_cast<instrDescCns*>(lastIns)->idcCnsVal : lastIns->idSmallCns();
+    int64_t prevImm = lastIns->idIsLargeCns() ? static_cast<instrDescCns*>(lastIns)->idcCnsVal : lastIns->idSmallCns();
 
     // Only optimize if:
     // 1. "base" or "base plus immediate offset" addressing modes.

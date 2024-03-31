@@ -20,16 +20,16 @@ public:
     void emitIns_CallFinally(insGroup* label);
     void emitIns_BRK(uint16_t imm);
     void emitIns_R(instruction ins, emitAttr attr, RegNum reg);
-    void emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, ssize_t imm, insOpts opt = INS_OPTS_NONE);
+    void emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, int64_t imm, insOpts opt = INS_OPTS_NONE);
     void emitIns_R_F(instruction ins, emitAttr attr, RegNum reg, double immDbl, insOpts opt = INS_OPTS_NONE);
     void emitIns_Mov(
         instruction ins, emitAttr attr, RegNum dstReg, RegNum srcReg, bool canSkip, insOpts opt = INS_OPTS_NONE);
     void emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, insOpts opt = INS_OPTS_NONE);
     void emitIns_R_I_I(
-        instruction ins, emitAttr attr, RegNum reg1, ssize_t imm1, ssize_t imm2, insOpts opt = INS_OPTS_NONE);
+        instruction ins, emitAttr attr, RegNum reg1, int64_t imm1, int64_t imm2, insOpts opt = INS_OPTS_NONE);
     void emitIns_R_R_I(
-        instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, ssize_t imm, insOpts opt = INS_OPTS_NONE);
-    void emitIns_R_R_Imm(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, ssize_t imm);
+        instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, int64_t imm, insOpts opt = INS_OPTS_NONE);
+    void emitIns_R_R_Imm(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, int64_t imm);
     void emitIns_R_R_R(
         instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, insOpts opt = INS_OPTS_NONE);
     void emitIns_R_R_R_I(instruction ins,
@@ -101,7 +101,7 @@ private:
     // Method to do check if mov is redundant with respect to the last instruction.
     // If yes, the caller of this method can choose to omit current mov instruction.
     bool IsRedundantMov(instruction ins, emitAttr size, RegNum dst, RegNum src, bool canSkip);
-    bool IsRedundantLdStr(instruction ins, RegNum reg1, RegNum reg2, ssize_t imm, emitAttr size, insFormat fmt);
+    bool IsRedundantLdStr(instruction ins, RegNum reg1, RegNum reg2, int64_t imm, emitAttr size, insFormat fmt);
 
 #ifdef DEBUG
     void PrintIns(instrDesc* id);
