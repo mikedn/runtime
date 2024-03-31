@@ -590,82 +590,33 @@ static int64_t ImmNormalize(int64_t imm, emitAttr size)
     return result;
 }
 
-// This union is used to to encode/decode the special ARM64 immediate values
-// that is listed as imm(i16,hw) and referred to as 'halfword immediate'
-union HalfwordImm {
-    struct
-    {
-        unsigned immVal : 16; // bits  0..15
-        unsigned immHW : 2;   // bits 16..17
-    };
-    unsigned immHWVal; // concat HW:Val forming a 18-bit unsigned immediate
-};
-
 #ifdef DEBUG
-// Convert an imm(i16,hw) into a 32/64-bit immediate
-// inputs 'hwImm' a HalfwordImm struct, 'size' specifies the size of the result (64 or 32 bits)
-static int64_t DecodeHalfwordImm(HalfwordImm hwImm, emitAttr size)
+static int64_t DecodeHalfwordImm(int64_t imm)
 {
-    assert(isValidGeneralDatasize(size)); // Only EA_4BYTE or EA_8BYTE forms
-
-    unsigned hw  = hwImm.immHW;
-    int64_t  val = (int64_t)hwImm.immVal;
-
-    assert((hw <= 1) || (size == EA_8BYTE));
-
-    int64_t result = val << (16 * hw);
-    return result;
+    return (imm & 0xFFFF) << ((imm >> 16) << 4);
 }
 #endif
 
-// Returns true if 'imm' of 'size' bits (32/64) can be encoded using the ARM64 'halfword immediate' form.
-// When a non-null value is passed for 'wbHWI' then this method writes back the 'immHW' and 'immVal'
-// values use to encode this immediate
-static bool EncodeHalfwordImm(int64_t imm, emitAttr size, unsigned* wbHWI = nullptr)
+static bool EncodeHalfwordImm(int64_t imm, emitAttr size, unsigned* encodedImm = nullptr)
 {
-    assert(isValidGeneralDatasize(size)); // Only EA_4BYTE or EA_8BYTE forms
+    assert(isValidGeneralDatasize(size));
 
-    unsigned immWidth = (size == EA_8BYTE) ? 64 : 32;
-    unsigned maxHW    = (size == EA_8BYTE) ? 4 : 2;
+    imm = ImmNormalize(imm, size) & (size == EA_8BYTE ? UINT64_MAX : UINT32_MAX);
 
-    // setup immMask to a (EA_4BYTE) 0x00000000_FFFFFFFF or (EA_8BYTE) 0xFFFFFFFF_FFFFFFFF
-    const uint64_t immMask = ((uint64_t)-1) >> (64 - immWidth);
-    const int64_t  mask16  = (int64_t)0xFFFF;
-
-    imm = ImmNormalize(imm, size);
-
-    // Try each of the valid hw shift sizes
-    for (unsigned hw = 0; (hw < maxHW); hw++)
+    for (int shift = 0, bitSize = size == EA_8BYTE ? 64 : 32; shift < bitSize; shift += 16)
     {
-        int64_t curMask   = mask16 << (hw * 16); // Represents the mask of the bits in the current halfword
-        int64_t checkBits = immMask & ~curMask;
-
-        // Excluding the current halfword (using ~curMask)
-        // does the immediate have zero bits in every other bit that we care about?
-        // note we care about all 64-bits for EA_8BYTE
-        // and we care about the lowest 32 bits for EA_4BYTE
-        //
-        if ((imm & checkBits) == 0)
+        if ((imm & jitstd::rotl<uint64_t>(~0xFFFFull, shift)) == 0)
         {
-            // Does the caller want us to return the imm(i16,hw) encoding values?
-            //
-            if (wbHWI != nullptr)
+            if (encodedImm != nullptr)
             {
-                int64_t     val = ((imm & curMask) >> (hw * 16)) & mask16;
-                HalfwordImm himm;
-                himm.immHWVal = 0;
-                himm.immHW    = hw;
-                himm.immVal   = val;
-
-                assert(imm == DecodeHalfwordImm(himm, size));
-                *wbHWI = himm.immHWVal;
+                *encodedImm = static_cast<unsigned>((imm >> shift) & 0xFFFFu) | ((shift >> 4) << 16);
+                assert(DecodeHalfwordImm(*encodedImm) == imm);
             }
-            // Tell the caller that we can successfully encode this immediate
-            // using a 'halfword immediate'.
-            //
+
             return true;
         }
     }
+
     return false;
 }
 
@@ -10511,20 +10462,19 @@ void Arm64AsmPrinter::Print(instrDesc* id)
 
     switch (fmt)
     {
-        int64_t     imm;
-        BitMaskImm  bmi;
-        HalfwordImm hwi;
-        CondImm     cfi;
-        unsigned    scale;
-        unsigned    immShift;
-        bool        hasShift;
-        emitAttr    elemsize;
-        emitAttr    datasize;
-        emitAttr    srcsize;
-        emitAttr    dstsize;
-        int64_t     index;
-        int64_t     index2;
-        unsigned    registerListSize;
+        int64_t    imm;
+        BitMaskImm bmi;
+        CondImm    cfi;
+        unsigned   scale;
+        unsigned   immShift;
+        bool       hasShift;
+        emitAttr   elemsize;
+        emitAttr   datasize;
+        emitAttr   srcsize;
+        emitAttr   dstsize;
+        int64_t    index;
+        int64_t    index2;
+        unsigned   registerListSize;
 
         case IF_BI_0A: // BI_0A   ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
         case IF_BI_0B: // BI_0B   ......iiiiiiiiii iiiiiiiiiii.....               simm19:00
@@ -10695,18 +10645,19 @@ void Arm64AsmPrinter::Print(instrDesc* id)
 
         case IF_DI_1B: // DI_1B   X........hwiiiii iiiiiiiiiiiddddd      Rd       imm(i16,hw)
             emitDispReg(id->idReg1(), size, true);
-            hwi.immHWVal = (unsigned)id->emitGetInsSC();
             if (ins == INS_mov)
             {
-                emitDispImm(DecodeHalfwordImm(hwi, size), false);
+                emitDispImm(DecodeHalfwordImm(id->emitGetInsSC()), false);
             }
             else // movz, movn, movk
             {
-                emitDispImm(hwi.immVal, false);
-                if (hwi.immHW != 0)
+                int64_t imm = id->emitGetInsSC();
+                emitDispImm(imm & UINT16_MAX, false);
+
+                if ((imm >> 16) != 0)
                 {
                     emitDispShiftOpts(INS_OPTS_LSL);
-                    emitDispImm(hwi.immHW * 16, false);
+                    emitDispImm((imm >> 16) << 4, false);
                 }
             }
             break;
