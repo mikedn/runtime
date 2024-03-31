@@ -620,94 +620,62 @@ static bool EncodeHalfwordImm(int64_t imm, emitAttr size, unsigned* encodedImm =
     return false;
 }
 
-// This union is used to to encode/decode the special ARM64 immediate values
-// that is listed as imm(N,r,s) and referred to as 'bitmask immediate'
-union BitMaskImm {
-    struct
-    {
-        unsigned immS : 6; // bits 0..5
-        unsigned immR : 6; // bits 6..11
-        unsigned immN : 1; // bits 12
-    };
-    unsigned immNRS; // concat N:R:S forming a 13-bit unsigned immediate
-};
-
 static unsigned PackBitMaskImm(int s, int r, emitAttr size)
 {
-    BitMaskImm bmi;
-    bmi.immNRS = 0;
-    bmi.immS   = s;
-    bmi.immR   = r;
-    bmi.immN   = size == EA_8BYTE;
-    return bmi.immNRS;
+    return (s & 63) | ((r & 63) << 6) | ((size == EA_8BYTE) << 12);
 }
 
-// Convert an imm(N,r,s) into a 64-bit immediate
-// inputs 'bmImm' a BitMaskImm struct, 'size' specifies the size of the result (64 or 32 bits)
-static int64_t DecodeBitMaskImm(BitMaskImm bmImm, emitAttr size)
+#ifdef DEBUG
+static void UnpackBitMaskImm(int64_t imm, int* s, int* r, int* n)
 {
-    assert(isValidGeneralDatasize(size)); // Only EA_4BYTE or EA_8BYTE forms
+    *s = imm & 63;
+    *r = (imm >> 6) & 63;
+    *n = (imm >> 12) & 1;
+}
+#endif
 
-    unsigned N = bmImm.immN; // read the N,R and S values from the 'BitMaskImm' encoding
-    unsigned R = bmImm.immR;
-    unsigned S = bmImm.immS;
+static int64_t DecodeBitMaskImm(int64_t imm, emitAttr size)
+{
+    assert(isValidGeneralDatasize(size));
 
-    unsigned elemWidth = 64; // used when N == 1
+    unsigned N = (imm >> 12) & 1;
+    unsigned R = (imm >> 6) & 63;
+    unsigned S = imm & 63;
 
-    if (N == 0) // find the smaller elemWidth when N == 0
+    unsigned elemWidth;
+
+    if (N == 0)
     {
-        // Scan S for the highest bit not set
         elemWidth = 32;
-        for (unsigned bitNum = 5; bitNum > 0; bitNum--)
+
+        while ((elemWidth > 1) && ((S & elemWidth) != 0))
         {
-            unsigned oneBit = elemWidth;
-            if ((S & oneBit) == 0)
-                break;
             elemWidth /= 2;
         }
     }
     else
     {
         assert(size == EA_8BYTE);
+
+        elemWidth = 64;
     }
 
     unsigned maskSR = elemWidth - 1;
 
     S &= maskSR;
     R &= maskSR;
+    S++;
+    assert(S < elemWidth);
 
-    // encoding for S is one less than the number of consecutive one bits
-    S++; // Number of consecutive ones to generate in 'welem'
-
-    // At this point:
-    //
-    // 'elemWidth' is the number of bits that we will use for the ROR and Replicate operations
-    // 'S'         is the number of consecutive 1 bits for the immediate
-    // 'R'         is the number of bits that we will Rotate Right the immediate
-    // 'size'      selects the final size of the immedate that we return (64 or 32 bits)
-
-    assert(S < elemWidth); // 'elemWidth' consecutive one's is a reserved encoding
-
-    uint64_t welem;
-    uint64_t wmask;
-
-    welem = (1ULL << S) - 1;
-
-    wmask = ImmRor(welem, R, elemWidth);
-    wmask = ImmReplicate(wmask, elemWidth, size);
-
-    return wmask;
+    return ImmReplicate(ImmRor((1ull << S) - 1, R, elemWidth), elemWidth, size);
 }
 
-// Returns true if 'imm' of 'size bits (32/64) can be encoded using the ARM64 'bitmask immediate' form.
-// When a non-null value is passed for 'wbBMI' then this method writes back the 'N','S' and 'R' values
-// use to encode this immediate
-static bool EncodeBitMaskImm(int64_t imm, emitAttr size, unsigned* wbBMI = nullptr)
+static bool EncodeBitMaskImm(int64_t imm, emitAttr size, unsigned* encodedImm = nullptr)
 {
-    assert(isValidGeneralDatasize(size)); // Only EA_4BYTE or EA_8BYTE forms
+    assert(isValidGeneralDatasize(size));
 
-    unsigned immWidth = (size == EA_8BYTE) ? 64 : 32;
-    unsigned maxLen   = (size == EA_8BYTE) ? 6 : 5;
+    unsigned immWidth = size == EA_8BYTE ? 64 : 32;
+    unsigned maxLen   = size == EA_8BYTE ? 6 : 5;
 
     imm = ImmNormalize(imm, size);
 
@@ -717,8 +685,8 @@ static bool EncodeBitMaskImm(int64_t imm, emitAttr size, unsigned* wbBMI = nullp
     //            len=4, elemWidth is 16 bits
     //            len=5, elemWidth is 32 bits
     // (optionally)  len=6, elemWidth is 64 bits
-    //
-    for (unsigned len = 1; (len <= maxLen); len++)
+
+    for (unsigned len = 1; len <= maxLen; len++)
     {
         unsigned elemWidth = 1 << len;
         uint64_t elemMask  = ((uint64_t)-1) >> (64 - elemWidth);
@@ -785,7 +753,6 @@ static bool EncodeBitMaskImm(int64_t imm, emitAttr size, unsigned* wbBMI = nullp
             int      incr     = -1;
 
             // Loop over the 'elemWidth' bits in 'elemRorXor'
-            //
             for (unsigned bitNum = 0; bitNum < elemWidth; bitNum++)
             {
                 if (incr == -1)
@@ -846,54 +813,38 @@ static bool EncodeBitMaskImm(int64_t imm, emitAttr size, unsigned* wbBMI = nullp
 
             // We expect that bitCount will always be two at this point
             // but just in case return false for any bad cases.
-            //
             assert(bitCount == 2);
+
             if (bitCount != 2)
+            {
                 return false;
+            }
 
             // Perform some sanity checks on the values of 'S' and 'R'
             assert(S > 0);
             assert(S < elemWidth);
             assert(R < elemWidth);
 
-            // Does the caller want us to return the N,R,S encoding values?
-            //
-            if (wbBMI != nullptr)
+            if (encodedImm != nullptr)
             {
-                // The encoding used for S is one less than the
-                // number of consecutive one bits
                 S--;
 
-                BitMaskImm bimm;
-                bimm.immNRS = 0;
-
-                if (len == 6)
+                if (len != 6)
                 {
-                    bimm.immN = 1;
-                }
-                else
-                {
-                    bimm.immN = 0;
                     // The encoding used for 'S' here is a bit peculiar.
-                    //
                     // The upper bits need to be complemented, followed by a zero bit
                     // then the value of 'S-1'
-                    //
-                    unsigned upperBitsOfS = 64 - (1 << (len + 1));
-                    S |= upperBitsOfS;
+                    S |= 64 - (1 << (len + 1));
                 }
-                bimm.immR = R;
-                bimm.immS = S;
 
-                assert(imm == DecodeBitMaskImm(bimm, size));
-                *wbBMI = bimm.immNRS;
+                *encodedImm = PackBitMaskImm(S, R, len == 6 ? EA_8BYTE : EA_4BYTE);
+                assert(imm == DecodeBitMaskImm(*encodedImm, size));
             }
-            // Tell the caller that we can successfully encode this immediate
-            // using a 'bitmask immediate'.
-            //
+
             return true;
         }
     }
+
     return false;
 }
 
@@ -909,9 +860,7 @@ bool Arm64Imm::IsAluImm(int64_t value, emitAttr size)
 
 int64_t Arm64Imm::DecodeBitMaskImm(unsigned imm, emitAttr size)
 {
-    BitMaskImm bimm;
-    bimm.immNRS = imm;
-    return ::DecodeBitMaskImm(bimm, size);
+    return ::DecodeBitMaskImm(imm, size);
 }
 
 bool Arm64Imm::IsMovImm(int64_t imm, emitAttr size)
@@ -939,7 +888,7 @@ struct MoviImm
     }
 };
 
-MoviImm EncodeMoviImm(uint64_t value, insOpts opt)
+static MoviImm EncodeMoviImm(uint64_t value, insOpts opt)
 {
     auto msl   = [](uint64_t value, unsigned shift) { return ((value & 0xFF) << shift) | ~(UINT64_MAX << shift); };
     auto lsl   = [](uint64_t value, unsigned shift) { return (value & 0xFF) << shift; };
@@ -9077,36 +9026,28 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 imm = id->emitGetInsSC();
                 assert(isValidImmShift(imm, id->idOpSize()));
 
-                // Shift immediates are aliases of the SBFM/UBFM instructions
+                // Shift instructions are aliases of the SBFM/UBFM instructions
                 // that actually take 2 registers and 2 constants,
-                // Since we stored the shift immediate value
-                // we need to calculate the N,R and S values here.
 
-                BitMaskImm bmi;
-                bmi.immNRS = 0;
+                int R = static_cast<int>(imm);
+                int S = size == EA_8BYTE ? 0x3f : 0x1f;
 
-                bmi.immN = (size == EA_8BYTE) ? 1 : 0;
-                bmi.immR = imm;
-                bmi.immS = (size == EA_8BYTE) ? 0x3f : 0x1f;
-
-                // immR and immS are now set correctly for INS_asr and INS_lsr
-                // but for INS_lsl we have to adjust the values for immR and immS
-                //
+                // R and S are now set correctly for asr and lsr but
+                // for lsl we have to adjust the values of R and S.
                 if (ins == INS_lsl)
                 {
-                    bmi.immR = -imm & bmi.immS;
-                    bmi.immS = bmi.immS - imm;
+                    R = -static_cast<int>(imm) & S;
+                    S -= static_cast<int>(imm);
                 }
 
-                // setup imm with the proper 13 bit value N:R:S
-                //
-                imm = bmi.immNRS;
+                imm = PackBitMaskImm(S, R, size);
             }
             else
             {
                 // The other instructions have already have encoded N,R and S values
                 imm = id->emitGetInsSC();
             }
+
             assert(isValidImmNRS(imm, id->idOpSize()));
 
             code = emitInsCode(ins, fmt);
@@ -10462,19 +10403,18 @@ void Arm64AsmPrinter::Print(instrDesc* id)
 
     switch (fmt)
     {
-        int64_t    imm;
-        BitMaskImm bmi;
-        CondImm    cfi;
-        unsigned   scale;
-        unsigned   immShift;
-        bool       hasShift;
-        emitAttr   elemsize;
-        emitAttr   datasize;
-        emitAttr   srcsize;
-        emitAttr   dstsize;
-        int64_t    index;
-        int64_t    index2;
-        unsigned   registerListSize;
+        int64_t  imm;
+        CondImm  cfi;
+        unsigned scale;
+        unsigned immShift;
+        bool     hasShift;
+        emitAttr elemsize;
+        emitAttr datasize;
+        emitAttr srcsize;
+        emitAttr dstsize;
+        int64_t  index;
+        int64_t  index2;
+        unsigned registerListSize;
 
         case IF_BI_0A: // BI_0A   ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
         case IF_BI_0B: // BI_0B   ......iiiiiiiiii iiiiiiiiiii.....               simm19:00
@@ -10664,14 +10604,12 @@ void Arm64AsmPrinter::Print(instrDesc* id)
 
         case IF_DI_1C: // DI_1C   X........Nrrrrrr ssssssnnnnn.....         Rn    imm(N,r,s)
             emitDispReg(id->idReg1(), size, true);
-            bmi.immNRS = (unsigned)id->emitGetInsSC();
-            emitDispImm(DecodeBitMaskImm(bmi, size), false);
+            emitDispImm(DecodeBitMaskImm(id->emitGetInsSC(), size), false);
             break;
 
         case IF_DI_1D: // DI_1D   X........Nrrrrrr ssssss.....ddddd      Rd       imm(N,r,s)
             emitDispReg(encodingZRtoSP(id->idReg1()), size, true);
-            bmi.immNRS = (unsigned)id->emitGetInsSC();
-            emitDispImm(DecodeBitMaskImm(bmi, size), false);
+            emitDispImm(DecodeBitMaskImm(id->emitGetInsSC(), size), false);
             break;
 
         case IF_DI_2A: // DI_2A   X.......shiiiiii iiiiiinnnnnddddd      Rd Rn    imm(i12,sh)
@@ -10715,44 +10653,45 @@ void Arm64AsmPrinter::Print(instrDesc* id)
                 emitDispReg(encodingZRtoSP(id->idReg1()), size, true);
             }
             emitDispReg(id->idReg2(), size, true);
-            bmi.immNRS = (unsigned)id->emitGetInsSC();
-            emitDispImm(DecodeBitMaskImm(bmi, size), false);
+            emitDispImm(DecodeBitMaskImm(id->emitGetInsSC(), size), false);
             break;
 
         case IF_DI_2D: // DI_2D   X........Nrrrrrr ssssssnnnnnddddd      Rd Rn    imr, ims   (N,r,s)
             emitDispReg(id->idReg1(), size, true);
             emitDispReg(id->idReg2(), size, true);
 
-            imm        = id->emitGetInsSC();
-            bmi.immNRS = (unsigned)imm;
-
             switch (ins)
             {
+                int S, R, N;
+
                 case INS_bfm:
                 case INS_sbfm:
                 case INS_ubfm:
-                    emitDispImm(bmi.immR, true);
-                    emitDispImm(bmi.immS, false);
+                    UnpackBitMaskImm(id->emitGetInsSC(), &S, &R, &N);
+                    emitDispImm(R, true);
+                    emitDispImm(S, false);
                     break;
 
                 case INS_bfi:
                 case INS_sbfiz:
                 case INS_ubfiz:
-                    emitDispImm(getBitWidth(size) - bmi.immR, true);
-                    emitDispImm(bmi.immS + 1, false);
+                    UnpackBitMaskImm(id->emitGetInsSC(), &S, &R, &N);
+                    emitDispImm(getBitWidth(size) - R, true);
+                    emitDispImm(S + 1, false);
                     break;
 
                 case INS_bfxil:
                 case INS_sbfx:
                 case INS_ubfx:
-                    emitDispImm(bmi.immR, true);
-                    emitDispImm(bmi.immS - bmi.immR + 1, false);
+                    UnpackBitMaskImm(id->emitGetInsSC(), &S, &R, &N);
+                    emitDispImm(R, true);
+                    emitDispImm(S - R + 1, false);
                     break;
 
                 case INS_asr:
                 case INS_lsr:
                 case INS_lsl:
-                    emitDispImm(imm, false);
+                    emitDispImm(id->emitGetInsSC(), false);
                     break;
 
                 default:
