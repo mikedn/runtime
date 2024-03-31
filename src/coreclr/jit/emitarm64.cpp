@@ -1098,24 +1098,14 @@ bool Arm64Imm::IsLdStImm(int64_t imm, emitAttr attr)
     return false; // not encodable
 }
 
-// This union is used to to encode/decode the special ARM64 immediate values
-// that are use for FMOV immediate and referred to as 'float 8-bit immediate'
-union FMovImm {
-    struct
-    {
-        unsigned immMant : 4; // bits 0..3
-        unsigned immExp : 3;  // bits 4..6
-        unsigned immSign : 1; // bits 7
-    };
-    unsigned immFPIVal; // concat Sign:Exp:Mant forming an 8-bit unsigned immediate
-};
-
 #ifdef DEBUG
-static double DecodeFMovImm(FMovImm imm)
+static double DecodeFMovImm(int64_t imm8)
 {
-    unsigned sign  = imm.immSign;
-    unsigned exp   = imm.immExp ^ 0x4;
-    unsigned mant  = imm.immMant + 16;
+    assert((0 <= imm8) && (imm8 <= 0x0ff));
+
+    unsigned sign  = (imm8 >> 7) & 1;
+    unsigned exp   = ((imm8 >> 4) & 7) ^ 0x4;
+    unsigned mant  = (imm8 & 15) + 16;
     unsigned scale = 16 * 8;
 
     while (exp > 0)
@@ -1126,74 +1116,65 @@ static double DecodeFMovImm(FMovImm imm)
 
     double result = static_cast<double>(mant) / static_cast<double>(scale);
 
-    if (sign == 1)
-    {
-        result = -result;
-    }
-
-    return result;
+    return sign != 0 ? -result : result;
 }
 #endif
 
-static bool IsFMovImm(double value, FMovImm* imm)
+static bool IsFMovImm(double value, unsigned* encodedImm)
 {
-    bool   canEncode = false;
-    double val       = value;
-
     int sign = 0;
-    if (val < 0.0)
+
+    if (value < 0.0)
     {
-        val  = -val;
-        sign = 1;
+        value = -value;
+        sign  = 1;
     }
 
     int exp = 0;
-    while ((val < 1.0) && (exp >= -4))
+
+    while ((value < 1.0) && (exp >= -4))
     {
-        val *= 2.0;
+        value *= 2.0;
         exp--;
     }
-    while ((val >= 2.0) && (exp <= 5))
+
+    while ((value >= 2.0) && (exp <= 5))
     {
-        val *= 0.5;
+        value *= 0.5;
         exp++;
     }
+
     exp += 3;
-    val *= 16.0;
-    int ival = (int)val;
+    value *= 16.0;
 
-    if ((exp >= 0) && (exp <= 7))
+    if ((exp < 0) || (exp > 7))
     {
-        if (val == (double)ival)
-        {
-            canEncode = true;
-
-            if (imm != nullptr)
-            {
-                ival -= 16;
-                assert((ival >= 0) && (ival <= 15));
-
-                imm->immSign  = sign;
-                imm->immExp   = exp ^ 0x4;
-                imm->immMant  = ival;
-                unsigned imm8 = imm->immFPIVal;
-                assert((imm8 >= 0) && (imm8 <= 0xff));
-            }
-        }
+        return false;
     }
 
-    return canEncode;
+    int ival = static_cast<int>(value);
+
+    if (value != static_cast<double>(ival))
+    {
+        return false;
+    }
+
+    if (encodedImm != nullptr)
+    {
+        ival -= 16;
+        assert((ival >= 0) && (ival <= 15));
+        *encodedImm = (ival & 15) | (((exp ^ 4) & 7) << 4) | ((sign & 1) << 7);
+    }
+
+    return true;
 }
 
 static unsigned EncodeFMovImm(double value)
 {
-    FMovImm fpi;
-    fpi.immFPIVal = 0;
-    bool canEncode;
-    canEncode = IsFMovImm(value, &fpi);
+    unsigned imm;
+    bool     canEncode = IsFMovImm(value, &imm);
     assert(canEncode);
-    assert((fpi.immFPIVal >= 0) && (fpi.immFPIVal <= 0xff));
-    return fpi.immFPIVal;
+    return imm;
 }
 
 bool Arm64Imm::IsFMovImm(double value)
@@ -9971,14 +9952,9 @@ void Arm64AsmPrinter::emitDispFloatZero()
     printf("#0.0");
 }
 
-void Arm64AsmPrinter::emitDispFloatImm(int64_t imm8)
+void Arm64AsmPrinter::emitDispFloatImm(int64_t imm)
 {
-    assert((0 <= imm8) && (imm8 <= 0x0ff));
-
-    FMovImm fpImm;
-    fpImm.immFPIVal = (unsigned)imm8;
-
-    printf("#%.4f", DecodeFMovImm(fpImm));
+    printf("#%.4f", DecodeFMovImm(imm));
 }
 
 void Arm64AsmPrinter::emitDispImmOptsLSL12(int64_t imm, insOpts opt)
