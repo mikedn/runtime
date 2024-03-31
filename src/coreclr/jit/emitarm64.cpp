@@ -992,116 +992,60 @@ bool Arm64Imm::IsMoviImm(uint64_t value, insOpts opts)
     return EncodeMoviImm(value, opts).ins != INS_invalid;
 }
 
-// This union is used to encode/decode the special ARM64 immediate values
-// that is listed as imm(i16,by) and referred to as 'byteShifted immediate'
-union ByteShiftedImm {
-    struct
-    {
-        unsigned immVal : 8;  // bits  0..7
-        unsigned immBY : 2;   // bits  8..9
-        unsigned immOnes : 1; // bit   10
-    };
-    unsigned immBSVal; // concat Ones:BY:Val forming a 10-bit unsigned immediate
-};
-
 #ifdef DEBUG
-// Convert an imm(i8,sh) into a 16/32-bit immediate
-// inputs 'bsImm' a ByteShiftedImm struct, 'size' specifies the size of the result (16 or 32 bits)
-static uint32_t DecodeByteShiftedImm(ByteShiftedImm bsImm, emitAttr size)
+static unsigned DecodeByteShiftedImm(unsigned imm, emitAttr size)
 {
-    bool     onesShift = (bsImm.immOnes == 1);
-    unsigned bySh      = bsImm.immBY;            // Num Bytes to shift 0,1,2,3
-    uint32_t result    = (uint32_t)bsImm.immVal; // 8-bit immediate
+    unsigned value = imm & 255;
+    unsigned shift = (imm >> 8) & 3;
 
-    if (bySh > 0)
+    if (shift == 0)
     {
-        assert((size == EA_2BYTE) || (size == EA_4BYTE)); // Only EA_2BYTE or EA_4BYTE forms
-        if (size == EA_2BYTE)
-        {
-            assert(bySh < 2);
-        }
-        else
-        {
-            assert(bySh < 4);
-        }
-
-        result <<= (8 * bySh);
-
-        if (onesShift)
-        {
-            result |= ((1 << (8 * bySh)) - 1);
-        }
+        return value;
     }
-    return result;
+
+    assert((size == EA_2BYTE) || (size == EA_4BYTE));
+    assert(shift < (size == EA_2BYTE ? 2u : 4u));
+
+    value <<= shift * 8;
+
+    if ((imm >> 10) & 1)
+    {
+        value |= (1 << (shift * 8)) - 1;
+    }
+
+    return value;
 }
 #endif
 
-// Returns true if 'imm' of 'size' bits (16/32) can be encoded using the ARM64 'byteShifted immediate' form.
-// When a non-null value is passed for 'wbBSI' then this method writes back the 'immBY' and 'immVal' values
-// use to encode this immediate
-static bool EncodeByteShiftedImm(int64_t imm, emitAttr size, unsigned* wbBSI)
+static bool EncodeByteShiftedImm(int64_t imm, emitAttr size, unsigned* encodedImm)
 {
-    bool     canEncode = false;
-    bool     onesShift = false; // true if we use the shifting ones variant
-    unsigned bySh      = 0;     // number of bytes to shift: 0, 1, 2, 3
-    unsigned imm8      = 0;     // immediate to use in the encoding
+    assert((size == EA_2BYTE) || (size == EA_4BYTE));
 
-    imm = ImmNormalize(imm, size);
+    imm = ImmNormalize(imm, size) & (size == EA_4BYTE ? UINT32_MAX : UINT16_MAX);
 
-    assert((size == EA_2BYTE) || (size == EA_4BYTE)); // Only EA_2BYTE or EA_4BYTE forms
+    const unsigned bitSize   = size == EA_4BYTE ? 32 : 16;
+    bool           onesShift = false;
 
-    unsigned immWidth = (size == EA_4BYTE) ? 32 : 16;
-    unsigned maxBY    = (size == EA_4BYTE) ? 4 : 2;
-
-    // setup immMask to a (EA_2BYTE) 0x0000FFFF or (EA_4BYTE) 0xFFFFFFFF
-    const uint32_t immMask = ((uint32_t)-1) >> (32 - immWidth);
-    const int32_t  mask8   = (int32_t)0xFF;
-
-    // Try each of the valid by shift sizes
-    for (bySh = 0; (bySh < maxBY); bySh++)
+    for (unsigned shift = 0; shift < bitSize; shift += 8)
     {
-        int32_t curMask   = mask8 << (bySh * 8); // Represents the mask of the bits in the current byteShifted
-        int32_t checkBits = immMask & ~curMask;
-        int32_t immCheck  = (imm & checkBits);
+        int mask = 255 << shift;
 
-        // Excluding the current byte (using ~curMask)
-        // does the immediate have zero bits in every other bit that we care about?
-        // or can be use the shifted one variant?
-        // note we care about all 32-bits for EA_4BYTE
-        // and we care about the lowest 16 bits for EA_2BYTE
-        //
-        if (immCheck == 0)
+        if ((imm & ~mask) == 0)
         {
-            canEncode = true;
-        }
+            if (encodedImm != nullptr)
+            {
+                unsigned imm8 = static_cast<unsigned>((imm & mask) >> shift);
+                // TODO-MIKE-Review: onesShift is always false. In general, this
+                // things look incomplete and likely not tested, lowering doesn't
+                // contain constant vector operands for BIC/ORR.
+                *encodedImm = (imm8 & 255) | (((shift >> 3) & 3) << 8) | (onesShift << 10);
+                assert(imm == DecodeByteShiftedImm(*encodedImm, size));
+            }
 
-        if (canEncode)
-        {
-            imm8 = (unsigned)(((imm & curMask) >> (bySh * 8)) & mask8);
-            break;
+            return true;
         }
     }
 
-    if (canEncode)
-    {
-        // Does the caller want us to return the imm(i8,bySh) encoding values?
-        //
-        if (wbBSI != nullptr)
-        {
-            ByteShiftedImm bsimm;
-            bsimm.immBSVal = 0;
-            bsimm.immOnes  = onesShift;
-            bsimm.immBY    = bySh;
-            bsimm.immVal   = imm8;
-
-            assert(imm == DecodeByteShiftedImm(bsimm, size));
-            *wbBSI = bsimm.immBSVal;
-        }
-        // Tell the caller that we can successfully encode this immediate
-        // using a 'byteShifted immediate'.
-        //
-        return true;
-    }
     return false;
 }
 
