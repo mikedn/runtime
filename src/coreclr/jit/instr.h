@@ -189,7 +189,7 @@ enum insOpts : unsigned
 
 INDEBUG(const char* insOptsName(insOpts opt);)
 
-enum insCond : unsigned
+enum insCond : uint8_t
 {
     INS_COND_EQ,
     INS_COND_NE,
@@ -212,7 +212,7 @@ enum insCond : unsigned
 
 insCond JumpKindToInsCond(emitJumpKind jumpKind);
 
-enum insCflags : unsigned
+enum insCflags : uint8_t
 {
     INS_FLAGS_NONE,
     INS_FLAGS_V,

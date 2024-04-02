@@ -394,82 +394,56 @@ static emitAttr optGetDstsize(insOpts conversion);
 static emitAttr optGetElemsize(insOpts arrangement);
 static bool isValidArrangement(emitAttr datasize, insOpts opt);
 
-// This union is used to to encode/decode the cond, nzcv and imm5 values for
-// instructions that use them in the small constant immediate field
-union CondImm {
-    struct
-    {
-        insCond   cond : 4;  // bits  0..3
-        insCflags flags : 4; // bits  4..7
-        unsigned  imm5 : 5;  // bits  8..12
-    };
-    unsigned immCFVal; // concat imm5:flags:cond forming an 13-bit unsigned immediate
+struct CondImm
+{
+    insCond   cond;
+    insCflags flags;
+    uint8_t   imm5;
+    uint8_t   pad;
 };
+
+static unsigned PackCondImm(insCond cond, insCflags flags = INS_FLAGS_NONE, int imm = 0)
+{
+    assert(cond <= INS_COND_LE);
+    assert(flags <= INS_FLAGS_NZCV);
+    assert((imm >= 0) && (imm <= 31));
+    return static_cast<unsigned>(cond) | (static_cast<unsigned>(flags) << 4) | (static_cast<unsigned>(imm) << 8);
+}
 
 #ifdef DEBUG
 static bool IsValidCondImm(int64_t imm)
 {
-    if ((imm < 0) || (imm > 0xF))
-        return false;
-
-    CondImm cfi;
-    cfi.immCFVal = (unsigned)imm;
-
-    return cfi.cond <= INS_COND_LE; // Don't allow 14 & 15 (AL & NV).
+    return (INS_COND_EQ <= imm) && (imm <= INS_COND_LE);
 }
 
 static bool IsValidCondFlagsImm(int64_t imm)
 {
-    if ((imm < 0) || (imm > 0xFF))
-        return false;
-
-    CondImm cfi;
-    cfi.immCFVal = (unsigned)imm;
-
-    return cfi.cond <= INS_COND_LE; // Don't allow 14 & 15 (AL & NV).
+    return IsValidCondImm(imm & ~0xF0ll);
 }
 
 static bool IsValidCondFlagsImm5Imm(int64_t imm)
 {
-    if ((imm < 0) || (imm > 0x1FFF))
-        return false;
-
-    CondImm cfi;
-    cfi.immCFVal = (unsigned)imm;
-
-    return cfi.cond <= INS_COND_LE; // Don't allow 14 & 15 (AL & NV).
+    return IsValidCondImm(imm & ~0x1FF0ll);
 }
 #endif // DEBUG
 
-static unsigned EncodeCondImm(insCond cond)
+static CondImm UnpackCondImm(int64_t imm)
 {
-    CondImm cfi;
-    cfi.immCFVal = 0;
-    cfi.cond     = cond;
-    assert(IsValidCondImm(cfi.immCFVal));
-    return cfi.immCFVal;
+    assert(IsValidCondImm(imm));
+    return {static_cast<insCond>(imm & 15)};
 }
 
-static unsigned EncodeCondImm(insCond cond, insCflags flags)
+static CondImm UnpackCondFlagsImm(int64_t imm)
 {
-    CondImm cfi;
-    cfi.immCFVal = 0;
-    cfi.flags    = flags;
-    cfi.cond     = cond;
-    assert(IsValidCondFlagsImm(cfi.immCFVal));
-    return cfi.immCFVal;
+    assert(IsValidCondFlagsImm(imm));
+    return {static_cast<insCond>(imm & 15), static_cast<insCflags>((imm >> 4) & 15)};
 }
 
-static unsigned EncodeCondImm(insCond cond, insCflags flags, int imm)
+static CondImm UnpackCondFlagsImm5Imm(int64_t imm)
 {
-    assert((imm >= 0) && (imm <= 31));
-    CondImm cfi;
-    cfi.immCFVal = 0;
-    cfi.imm5     = imm;
-    cfi.flags    = flags;
-    cfi.cond     = cond;
-    assert(IsValidCondFlagsImm5Imm(cfi.immCFVal));
-    return cfi.immCFVal;
+    assert(IsValidCondFlagsImm5Imm(imm));
+    return {static_cast<insCond>(imm & 15), static_cast<insCflags>((imm >> 4) & 15),
+            static_cast<uint8_t>((imm >> 8) & 31)};
 }
 
 // A helper method to return the natural scale for an EA 'size'
@@ -3171,6 +3145,7 @@ static instruction insReverse(instruction ins)
     }
 }
 
+#ifdef DEBUG
 // For a given instruction 'ins' which contains a register lists returns a
 // number of consecutive SIMD registers the instruction loads to/store from.
 static unsigned insGetRegisterListSize(instruction ins)
@@ -3211,6 +3186,7 @@ static unsigned insGetRegisterListSize(instruction ins)
             unreached();
     }
 }
+#endif // DEBUG
 
 // For the given 'datasize' and 'elemsize', make the proper arrangement option
 // returns the insOpts that specifies the vector register arrangement
@@ -6584,7 +6560,7 @@ void Arm64Emitter::emitIns_R_COND(instruction ins, emitAttr attr, RegNum reg, in
     assert((ins == INS_cset) || (ins == INS_csetm));
     assert(isGeneralRegister(reg));
 
-    instrDesc* id = emitNewInstrSC(EncodeCondImm(cond));
+    instrDesc* id = emitNewInstrSC(PackCondImm(cond));
     id->idIns(ins);
     id->idInsFmt(IF_DR_1D);
     id->idGCref(EA_GC_TYPE(attr));
@@ -6601,7 +6577,7 @@ void Arm64Emitter::emitIns_R_R_COND(instruction ins, emitAttr attr, RegNum reg1,
     assert(isGeneralRegister(reg1));
     assert(isGeneralRegister(reg2));
 
-    instrDesc* id = emitNewInstrSC(EncodeCondImm(cond));
+    instrDesc* id = emitNewInstrSC(PackCondImm(cond));
     id->idIns(ins);
     id->idInsFmt(IF_DR_2D);
     id->idGCref(EA_GC_TYPE(attr));
@@ -6629,7 +6605,7 @@ void Arm64Emitter::emitIns_R_R_R_COND(
     id->idReg1(reg1);
     id->idReg2(reg2);
     id->idReg3(reg3);
-    id->idSmallCns(EncodeCondImm(cond));
+    id->idSmallCns(PackCondImm(cond));
 
     dispIns(id);
     appendToCurIG(id);
@@ -6642,7 +6618,7 @@ void Arm64Emitter::emitIns_R_R_FLAGS_COND(
     assert(isGeneralRegister(reg1));
     assert(isGeneralRegister(reg2));
 
-    instrDesc* id = emitNewInstrSC(EncodeCondImm(cond, flags));
+    instrDesc* id = emitNewInstrSC(PackCondImm(cond, flags));
     id->idIns(ins);
     id->idInsFmt(IF_DR_2I);
     id->idGCref(EA_GC_TYPE(attr));
@@ -6666,7 +6642,7 @@ void Arm64Emitter::emitIns_R_I_FLAGS_COND(
         imm = -imm;
     }
 
-    instrDesc* id = emitNewInstrSC(EncodeCondImm(cond, flags, imm));
+    instrDesc* id = emitNewInstrSC(PackCondImm(cond, flags, imm));
     id->idIns(ins);
     id->idInsFmt(IF_DI_1F);
     id->idGCref(EA_GC_TYPE(attr));
@@ -8584,6 +8560,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         unsigned immShift;
         emitAttr elemsize;
         emitAttr datasize;
+        CondImm  cimm;
 
         case IF_LS_1A: // LS_1A   XX...V..iiiiiiii iiiiiiiiiiittttt      Rt    PC imm(1MB)
         case IF_SMALLADR:
@@ -8887,19 +8864,14 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             break;
 
         case IF_DI_1F: // DI_1F   X..........iiiii cccc..nnnnn.nzcv      Rn imm5  nzcv cond
-            imm = id->emitGetInsSC();
-            assert(IsValidCondFlagsImm5Imm(imm));
-            {
-                CondImm cfi;
-                cfi.immCFVal = (unsigned)imm;
-                code         = emitInsCode(ins, fmt);
-                code |= insEncodeDatasize(id->idOpSize()); // X
-                code |= insEncodeReg_Rn(id->idReg1());     // nnnnn
-                code |= cfi.imm5 << 16;                    // iiiii
-                code |= insEncodeFlags(cfi.flags);         // nzcv
-                code |= insEncodeCond(cfi.cond);           // cccc
-                dst += emitOutput_Instr(dst, code);
-            }
+            cimm = UnpackCondFlagsImm5Imm(id->emitGetInsSC());
+            code = emitInsCode(ins, fmt);
+            code |= insEncodeDatasize(id->idOpSize()); // X
+            code |= insEncodeReg_Rn(id->idReg1());     // nnnnn
+            code |= cimm.imm5 << 16;                   // iiiii
+            code |= insEncodeFlags(cimm.flags);        // nzcv
+            code |= insEncodeCond(cimm.cond);          // cccc
+            dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DI_2A: // DI_2A   X.......shiiiiii iiiiiinnnnnddddd      Rd Rn    imm(i12,sh)
@@ -8984,17 +8956,12 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             break;
 
         case IF_DR_1D: // DR_1D   X............... cccc.......ddddd      Rd       cond
-            imm = id->emitGetInsSC();
-            assert(IsValidCondImm(imm));
-            {
-                CondImm cfi;
-                cfi.immCFVal = (unsigned)imm;
-                code         = emitInsCode(ins, fmt);
-                code |= insEncodeDatasize(id->idOpSize()); // X
-                code |= insEncodeReg_Rd(id->idReg1());     // ddddd
-                code |= insEncodeInvertedCond(cfi.cond);   // cccc
-                dst += emitOutput_Instr(dst, code);
-            }
+            cimm = UnpackCondImm(id->emitGetInsSC());
+            code = emitInsCode(ins, fmt);
+            code |= insEncodeDatasize(id->idOpSize()); // X
+            code |= insEncodeReg_Rd(id->idReg1());     // ddddd
+            code |= insEncodeInvertedCond(cimm.cond);  // cccc
+            dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DR_2A: // DR_2A   X..........mmmmm ......nnnnn.....         Rn Rm
@@ -9031,19 +8998,14 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             break;
 
         case IF_DR_2D: // DR_2D   X..........nnnnn cccc..nnnnnddddd      Rd Rn    cond
-            imm = id->emitGetInsSC();
-            assert(IsValidCondImm(imm));
-            {
-                CondImm cfi;
-                cfi.immCFVal = (unsigned)imm;
-                code         = emitInsCode(ins, fmt);
-                code |= insEncodeDatasize(id->idOpSize()); // X
-                code |= insEncodeReg_Rd(id->idReg1());     // ddddd
-                code |= insEncodeReg_Rn(id->idReg2());     // nnnnn
-                code |= insEncodeReg_Rm(id->idReg2());     // mmmmm
-                code |= insEncodeInvertedCond(cfi.cond);   // cccc
-                dst += emitOutput_Instr(dst, code);
-            }
+            cimm = UnpackCondImm(id->emitGetInsSC());
+            code = emitInsCode(ins, fmt);
+            code |= insEncodeDatasize(id->idOpSize()); // X
+            code |= insEncodeReg_Rd(id->idReg1());     // ddddd
+            code |= insEncodeReg_Rn(id->idReg2());     // nnnnn
+            code |= insEncodeReg_Rm(id->idReg2());     // mmmmm
+            code |= insEncodeInvertedCond(cimm.cond);  // cccc
+            dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DR_2E: // DR_2E   X..........mmmmm ...........ddddd      Rd    Rm
@@ -9090,19 +9052,14 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             break;
 
         case IF_DR_2I: // DR_2I   X..........mmmmm cccc..nnnnn.nzcv      Rn Rm    nzcv cond
-            imm = id->emitGetInsSC();
-            assert(IsValidCondFlagsImm(imm));
-            {
-                CondImm cfi;
-                cfi.immCFVal = (unsigned)imm;
-                code         = emitInsCode(ins, fmt);
-                code |= insEncodeDatasize(id->idOpSize()); // X
-                code |= insEncodeReg_Rn(id->idReg1());     // nnnnn
-                code |= insEncodeReg_Rm(id->idReg2());     // mmmmm
-                code |= insEncodeFlags(cfi.flags);         // nzcv
-                code |= insEncodeCond(cfi.cond);           // cccc
-                dst += emitOutput_Instr(dst, code);
-            }
+            cimm = UnpackCondFlagsImm(id->emitGetInsSC());
+            code = emitInsCode(ins, fmt);
+            code |= insEncodeDatasize(id->idOpSize()); // X
+            code |= insEncodeReg_Rn(id->idReg1());     // nnnnn
+            code |= insEncodeReg_Rm(id->idReg2());     // mmmmm
+            code |= insEncodeFlags(cimm.flags);        // nzcv
+            code |= insEncodeCond(cimm.cond);          // cccc
+            dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DR_3A: // DR_3A   X..........mmmmm ......nnnnnmmmmm      Rd Rn Rm
@@ -9141,19 +9098,14 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             break;
 
         case IF_DR_3D: // DR_3D   X..........mmmmm cccc..nnnnnddddd      Rd Rn Rm cond
-            imm = id->emitGetInsSC();
-            assert(IsValidCondImm(imm));
-            {
-                CondImm cfi;
-                cfi.immCFVal = (unsigned)imm;
-                code         = emitInsCode(ins, fmt);
-                code |= insEncodeDatasize(id->idOpSize()); // X
-                code |= insEncodeReg_Rd(id->idReg1());     // ddddd
-                code |= insEncodeReg_Rn(id->idReg2());     // nnnnn
-                code |= insEncodeReg_Rm(id->idReg3());     // mmmmm
-                code |= insEncodeCond(cfi.cond);           // cccc
-                dst += emitOutput_Instr(dst, code);
-            }
+            cimm = UnpackCondImm(id->emitGetInsSC());
+            code = emitInsCode(ins, fmt);
+            code |= insEncodeDatasize(id->idOpSize()); // X
+            code |= insEncodeReg_Rd(id->idReg1());     // ddddd
+            code |= insEncodeReg_Rn(id->idReg2());     // nnnnn
+            code |= insEncodeReg_Rm(id->idReg3());     // mmmmm
+            code |= insEncodeCond(cimm.cond);          // cccc
+            dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DR_3E: // DR_3E   X........X.mmmmm ssssssnnnnnddddd      Rd Rn Rm imm(0-63)
@@ -10324,7 +10276,7 @@ void Arm64AsmPrinter::Print(instrDesc* id)
     switch (fmt)
     {
         int64_t  imm;
-        CondImm  cfi;
+        CondImm  cimm;
         unsigned scale;
         unsigned immShift;
         bool     hasShift;
@@ -10622,17 +10574,16 @@ void Arm64AsmPrinter::Print(instrDesc* id)
 
         case IF_DI_1F: // DI_1F   X..........iiiii cccc..nnnnn.nzcv      Rn imm5  nzcv cond
             emitDispReg(id->idReg1(), size, true);
-            cfi.immCFVal = (unsigned)id->emitGetInsSC();
-            emitDispImm(cfi.imm5, true);
-            emitDispFlags(cfi.flags);
+            cimm = UnpackCondFlagsImm5Imm(id->emitGetInsSC());
+            emitDispImm(cimm.imm5, true);
+            emitDispFlags(cimm.flags);
             printf(",");
-            emitDispCond(cfi.cond);
+            emitDispCond(cimm.cond);
             break;
 
         case IF_DR_1D: // DR_1D   X............... cccc.......mmmmm      Rd       cond
             emitDispReg(id->idReg1(), size, true);
-            cfi.immCFVal = (unsigned)id->emitGetInsSC();
-            emitDispCond(cfi.cond);
+            emitDispCond(UnpackCondImm(id->emitGetInsSC()).cond);
             break;
 
         case IF_DR_2A: // DR_2A   X..........mmmmm ......nnnnn.....         Rn Rm
@@ -10654,8 +10605,7 @@ void Arm64AsmPrinter::Print(instrDesc* id)
         case IF_DR_2D: // DR_2D   X..........nnnnn cccc..nnnnnddddd      Rd Rn    cond
             emitDispReg(id->idReg1(), size, true);
             emitDispReg(id->idReg2(), size, true);
-            cfi.immCFVal = (unsigned)id->emitGetInsSC();
-            emitDispCond(cfi.cond);
+            emitDispCond(UnpackCondImm(id->emitGetInsSC()).cond);
             break;
 
         case IF_DR_2E: // DR_2E   X..........mmmmm ...........ddddd      Rd    Rm
@@ -10693,10 +10643,10 @@ void Arm64AsmPrinter::Print(instrDesc* id)
         case IF_DR_2I: // DR_2I   X..........mmmmm cccc..nnnnn.nzcv      Rn Rm    nzcv cond
             emitDispReg(id->idReg1(), size, true);
             emitDispReg(id->idReg2(), size, true);
-            cfi.immCFVal = (unsigned)id->emitGetInsSC();
-            emitDispFlags(cfi.flags);
+            cimm = UnpackCondFlagsImm(id->emitGetInsSC());
+            emitDispFlags(cimm.flags);
             printf(",");
-            emitDispCond(cfi.cond);
+            emitDispCond(cimm.cond);
             break;
 
         case IF_DR_3A: // DR_3A   X..........mmmmm ......nnnnnmmmmm      Rd Rn Rm
@@ -10745,8 +10695,7 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             emitDispReg(id->idReg1(), size, true);
             emitDispReg(id->idReg2(), size, true);
             emitDispReg(id->idReg3(), size, true);
-            cfi.immCFVal = (unsigned)id->emitGetInsSC();
-            emitDispCond(cfi.cond);
+            emitDispCond(UnpackCondImm(id->emitGetInsSC()).cond);
             break;
 
         case IF_DR_3E: // DR_3E   X........X.mmmmm ssssssnnnnnddddd      Rd Rn Rm imm(0-63)
