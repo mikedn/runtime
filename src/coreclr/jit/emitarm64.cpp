@@ -1154,10 +1154,8 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
         int64_t     index;
         int64_t     index2;
 
-        case IF_BI_0A: // BI_0A   ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
-            break;
-
-        case IF_BI_0B: // BI_0B   ......iiiiiiiiii iiiiiiiiiiii....               simm19:00
+        case IF_BI_0A: // ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
+        case IF_BI_0B: // ......iiiiiiiiii iiiiiiiiiiii....               simm19:00
             break;
 
         case IF_NOP_JMP:
@@ -1171,29 +1169,29 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isGeneralRegister(id->idReg1()));
             break;
 
-        case IF_BI_0C: // BI_0C   ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
+        case IF_BI_0C: // ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
             break;
 
-        case IF_BI_1A: // BI_1A   ......iiiiiiiiii iiiiiiiiiiittttt      Rt       simm19:00
+        case IF_BI_1A: // ......iiiiiiiiii iiiiiiiiiiittttt      Rt       simm19:00
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isGeneralRegister(id->idReg1()));
             break;
 
-        case IF_BI_1B: // BI_1B   B.......bbbbbiii iiiiiiiiiiittttt      Rt imm6, simm14:00
+        case IF_BI_1B: // B.......bbbbbiii iiiiiiiiiiittttt      Rt imm6, simm14:00
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isGeneralRegister(id->idReg1()));
             assert(isValidImmShift(id->emitGetInsSC(), id->idOpSize()));
             break;
 
-        case IF_BR_1A: // BR_1A   ................ ......nnnnn.....         Rn
+        case IF_BR_1A: // ................ ......nnnnn.....         Rn
             assert(isGeneralRegister(id->idReg1()));
             break;
 
-        case IF_BR_1B: // BR_1B   ................ ......nnnnn.....         Rn
+        case IF_BR_1B: // ................ ......nnnnn.....         Rn
             assert(isGeneralRegister(id->idReg3()));
             break;
 
-        case IF_LS_1A: // LS_1A   .X......iiiiiiii iiiiiiiiiiittttt      Rt    PC imm(1MB)
+        case IF_LS_1A: // .X......iiiiiiii iiiiiiiiiiittttt      Rt    PC imm(1MB)
             assert(isGeneralRegister(id->idReg1()) || isVectorRegister(id->idReg1()));
             assert(insOptsNone(id->idInsOpt()));
             break;
@@ -1206,7 +1204,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(insOptsNone(id->idInsOpt()));
             break;
 
-        case IF_LS_2B: // LS_2B   .X.......Xiiiiii iiiiiinnnnnttttt      Rt Rn    imm(0-4095)
+        case IF_LS_2B:                                // .X.......Xiiiiii iiiiiinnnnnttttt      Rt Rn    imm(0-4095)
             assert(isIntegerRegister(id->idReg1()) || // ZR
                    isVectorRegister(id->idReg1()));
             assert(isIntegerRegister(id->idReg2())); // SP
@@ -1214,7 +1212,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(insOptsNone(id->idInsOpt()));
             break;
 
-        case IF_LS_2C: // LS_2C   .X.......X.iiiii iiiiPPnnnnnttttt      Rt Rn    imm(-256..+255) no/pre/post inc
+        case IF_LS_2C: // .X.......X.iiiii iiiiPPnnnnnttttt      Rt Rn    imm(-256..+255) no/pre/post inc
             assert(isIntegerRegister(id->idReg1()) || // ZR
                    isVectorRegister(id->idReg1()));
             assert(isIntegerRegister(id->idReg2())); // SP
@@ -1223,10 +1221,10 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(insOptsNone(id->idInsOpt()) || insOptsIndexed(id->idInsOpt()));
             break;
 
-        case IF_LS_2D: // LS_2D   .Q.............. ....ssnnnnnttttt      Vt Rn
-        case IF_LS_2E: // LS_2E   .Q.............. ....ssnnnnnttttt      Vt Rn
-        case IF_LS_2F: // LS_2F   .Q.............. xx.Sssnnnnnttttt      Vt[] Rn
-        case IF_LS_2G: // LS_2G   .Q.............. xx.Sssnnnnnttttt      Vt[] Rn
+        case IF_LS_2D: // .Q.............. ....ssnnnnnttttt      Vt Rn
+        case IF_LS_2E: // .Q.............. ....ssnnnnnttttt      Vt Rn
+        case IF_LS_2F: // .Q.............. xx.Sssnnnnnttttt      Vt[] Rn
+        case IF_LS_2G: // .Q.............. xx.Sssnnnnnttttt      Vt[] Rn
             assert(isVectorRegister(id->idReg1()));
             assert(isIntegerRegister(id->idReg2())); // SP
             if (insOptsAnyArrangement(id->idInsOpt()))
@@ -1244,7 +1242,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(!id->idIsLclVar());
             break;
 
-        case IF_LS_3A: // LS_3A   .X.......X.mmmmm oooS..nnnnnttttt      Rt Rn Rm ext(Rm) LSL {}
+        case IF_LS_3A:                                // .X.......X.mmmmm oooS..nnnnnttttt      Rt Rn Rm ext(Rm) LSL {}
             assert(isIntegerRegister(id->idReg1()) || // ZR
                    isVectorRegister(id->idReg1()));
             assert(isIntegerRegister(id->idReg2())); // SP
@@ -1252,7 +1250,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(insOptsLSExtend(id->idInsOpt()));
             break;
 
-        case IF_LS_3B: // LS_3B   X............... .aaaaannnnnttttt      Rt Ra Rn
+        case IF_LS_3B: // X............... .aaaaannnnnttttt      Rt Ra Rn
             assert((isValidGeneralDatasize(id->idOpSize()) && isIntegerRegister(id->idReg1())) ||
                    (isValidVectorLSPDatasize(id->idOpSize()) && isVectorRegister(id->idReg1())));
             assert(isIntegerRegister(id->idReg1()) || // ZR
@@ -1264,7 +1262,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(insOptsNone(id->idInsOpt()));
             break;
 
-        case IF_LS_3C: // LS_3C   X.........iiiiii iaaaaannnnnttttt      Rt Ra Rn imm(im7,sh)
+        case IF_LS_3C: // X.........iiiiii iaaaaannnnnttttt      Rt Ra Rn imm(im7,sh)
             assert((isValidGeneralDatasize(id->idOpSize()) && isIntegerRegister(id->idReg1())) ||
                    (isValidVectorLSPDatasize(id->idOpSize()) && isVectorRegister(id->idReg1())));
             assert(isIntegerRegister(id->idReg1()) || // ZR
@@ -1277,7 +1275,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(insOptsNone(id->idInsOpt()) || insOptsIndexed(id->idInsOpt()));
             break;
 
-        case IF_LS_3D: // LS_3D   .X.......X.mmmmm ......nnnnnttttt      Wm Rt Rn
+        case IF_LS_3D: // .X.......X.mmmmm ......nnnnnttttt      Wm Rt Rn
             assert(isIntegerRegister(id->idReg1()));
             assert(isIntegerRegister(id->idReg2()));
             assert(isIntegerRegister(id->idReg3()));
@@ -1286,7 +1284,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(insOptsNone(id->idInsOpt()));
             break;
 
-        case IF_LS_3E: // LS_3E   .X.........mmmmm ......nnnnnttttt      Rm Rt Rn ARMv8.1 LSE Atomics
+        case IF_LS_3E: // .X.........mmmmm ......nnnnnttttt      Rm Rt Rn ARMv8.1 LSE Atomics
             assert(isIntegerRegister(id->idReg1()));
             assert(isIntegerRegister(id->idReg2()));
             assert(isIntegerRegister(id->idReg3()));
@@ -1295,8 +1293,8 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(insOptsNone(id->idInsOpt()));
             break;
 
-        case IF_LS_3F: // LS_3F   .Q.........mmmmm ....ssnnnnnttttt      Vt Rn Rm
-        case IF_LS_3G: // LS_3G   .Q.........mmmmm ...Sssnnnnnttttt      Vt[] Rn Rm
+        case IF_LS_3F: // .Q.........mmmmm ....ssnnnnnttttt      Vt Rn Rm
+        case IF_LS_3G: // .Q.........mmmmm ...Sssnnnnnttttt      Vt[] Rn Rm
             assert(isVectorRegister(id->idReg1()));
             assert(isIntegerRegister(id->idReg2())); // SP
             assert(isGeneralRegister(id->idReg3()));
@@ -1315,42 +1313,42 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(!id->idIsLclVar());
             break;
 
-        case IF_DI_1A: // DI_1A   X.......shiiiiii iiiiiinnnnn.....         Rn    imm(i12,sh)
+        case IF_DI_1A: // X.......shiiiiii iiiiiinnnnn.....         Rn    imm(i12,sh)
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isGeneralRegister(id->idReg1()));
             assert(isValidUimm12(id->emitGetInsSC()));
             assert(insOptsNone(id->idInsOpt()) || insOptsLSL12(id->idInsOpt()));
             break;
 
-        case IF_DI_1B: // DI_1B   X........hwiiiii iiiiiiiiiiiddddd      Rd       imm(i16,hw)
+        case IF_DI_1B: // X........hwiiiii iiiiiiiiiiiddddd      Rd       imm(i16,hw)
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isGeneralRegister(id->idReg1()));
             assert(isValidImmHWVal(id->emitGetInsSC(), id->idOpSize()));
             break;
 
-        case IF_DI_1C: // DI_1C   X........Nrrrrrr ssssssnnnnn.....         Rn    imm(N,r,s)
+        case IF_DI_1C: // X........Nrrrrrr ssssssnnnnn.....         Rn    imm(N,r,s)
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isGeneralRegister(id->idReg1()));
             assert(isValidImmNRS(id->emitGetInsSC(), id->idOpSize()));
             break;
 
-        case IF_DI_1D: // DI_1D   X........Nrrrrrr ssssss.....ddddd      Rd       imm(N,r,s)
+        case IF_DI_1D: // X........Nrrrrrr ssssss.....ddddd      Rd       imm(N,r,s)
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isIntegerRegister(id->idReg1())); // SP
             assert(isValidImmNRS(id->emitGetInsSC(), id->idOpSize()));
             break;
 
-        case IF_DI_1E: // DI_1E   .ii.....iiiiiiii iiiiiiiiiiiddddd      Rd       simm21
+        case IF_DI_1E: // .ii.....iiiiiiii iiiiiiiiiiiddddd      Rd       simm21
             assert(isGeneralRegister(id->idReg1()));
             break;
 
-        case IF_DI_1F: // DI_1F   X..........iiiii cccc..nnnnn.nzcv      Rn imm5  nzcv cond
+        case IF_DI_1F: // X..........iiiii cccc..nnnnn.nzcv      Rn imm5  nzcv cond
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isGeneralRegister(id->idReg1()));
             assert(IsValidCondFlagsImm5Imm(id->emitGetInsSC()));
             break;
 
-        case IF_DI_2A: // DI_2A   X.......shiiiiii iiiiiinnnnnddddd      Rd Rn    imm(i12,sh)
+        case IF_DI_2A: // X.......shiiiiii iiiiiinnnnnddddd      Rd Rn    imm(i12,sh)
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isIntegerRegister(id->idReg1())); // SP
             assert(isIntegerRegister(id->idReg2())); // SP
@@ -1358,40 +1356,40 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(insOptsNone(id->idInsOpt()) || insOptsLSL12(id->idInsOpt()));
             break;
 
-        case IF_DI_2B: // DI_2B   X.........Xnnnnn ssssssnnnnnddddd      Rd Rn    imm(0-63)
+        case IF_DI_2B: // X.........Xnnnnn ssssssnnnnnddddd      Rd Rn    imm(0-63)
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
             assert(isValidImmShift(id->emitGetInsSC(), id->idOpSize()));
             break;
 
-        case IF_DI_2C: // DI_2C   X........Nrrrrrr ssssssnnnnnddddd      Rd Rn    imm(N,r,s)
+        case IF_DI_2C: // X........Nrrrrrr ssssssnnnnnddddd      Rd Rn    imm(N,r,s)
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isIntegerRegister(id->idReg1())); // SP
             assert(isGeneralRegister(id->idReg2()));
             assert(isValidImmNRS(id->emitGetInsSC(), id->idOpSize()));
             break;
 
-        case IF_DI_2D: // DI_2D   X........Nrrrrrr ssssssnnnnnddddd      Rd Rn    imr, imms   (N,r,s)
+        case IF_DI_2D: // X........Nrrrrrr ssssssnnnnnddddd      Rd Rn    imr, imms   (N,r,s)
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegisterOrZR(id->idReg2()));
             assert(isValidImmNRS(id->emitGetInsSC(), id->idOpSize()));
             break;
 
-        case IF_DR_1D: // DR_1D   X............... cccc.......ddddd      Rd       cond
+        case IF_DR_1D: // X............... cccc.......ddddd      Rd       cond
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isGeneralRegister(id->idReg1()));
             assert(IsValidCondImm(id->emitGetInsSC()));
             break;
 
-        case IF_DR_2A: // DR_2A   X..........mmmmm ......nnnnn.....         Rn Rm
+        case IF_DR_2A: // X..........mmmmm ......nnnnn.....         Rn Rm
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
             break;
 
-        case IF_DR_2B: // DR_2B   X.......sh.mmmmm ssssssnnnnn.....         Rn Rm {LSL,LSR,ASR,ROR} imm(0-63)
+        case IF_DR_2B: // X.......sh.mmmmm ssssssnnnnn.....         Rn Rm {LSL,LSR,ASR,ROR} imm(0-63)
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isIntegerRegister(id->idReg1())); // ZR
             assert(isGeneralRegister(id->idReg2()));
@@ -1410,7 +1408,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(insOptsNone(id->idInsOpt()) || (id->emitGetInsSC() > 0));
             break;
 
-        case IF_DR_2C: // DR_2C   X..........mmmmm ooosssnnnnn.....         Rn Rm ext(Rm) LSL imm(0-4)
+        case IF_DR_2C: // X..........mmmmm ooosssnnnnn.....         Rn Rm ext(Rm) LSL imm(0-4)
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isIntegerRegister(id->idReg1())); // SP
             assert(isGeneralRegister(id->idReg2()));
@@ -1423,20 +1421,20 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             }
             break;
 
-        case IF_DR_2D: // DR_2D   X..........nnnnn cccc..nnnnnmmmmm      Rd Rn    cond
+        case IF_DR_2D: // X..........nnnnn cccc..nnnnnmmmmm      Rd Rn    cond
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
             assert(IsValidCondImm(id->emitGetInsSC()));
             break;
 
-        case IF_DR_2E: // DR_2E   X..........mmmmm ...........ddddd      Rd    Rm
+        case IF_DR_2E: // X..........mmmmm ...........ddddd      Rd    Rm
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isGeneralRegister(id->idReg1()));
             assert(isIntegerRegister(id->idReg2())); // ZR
             break;
 
-        case IF_DR_2F: // DR_2F   X.......sh.mmmmm ssssss.....ddddd      Rd    Rm {LSL,LSR,ASR} imm(0-63)
+        case IF_DR_2F: // X.......sh.mmmmm ssssss.....ddddd      Rd    Rm {LSL,LSR,ASR} imm(0-63)
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
@@ -1445,26 +1443,26 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(insOptsNone(id->idInsOpt()) || (id->emitGetInsSC() > 0));
             break;
 
-        case IF_DR_2G: // DR_2G   X............... ......nnnnnddddd      Rd    Rm
+        case IF_DR_2G: // X............... ......nnnnnddddd      Rd    Rm
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isIntegerRegister(id->idReg1())); // SP
             assert(isIntegerRegister(id->idReg2())); // SP
             break;
 
-        case IF_DR_2H: // DR_2H   X........X...... ......nnnnnddddd      Rd Rn
+        case IF_DR_2H: // X........X...... ......nnnnnddddd      Rd Rn
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
             break;
 
-        case IF_DR_2I: // DR_2I   X..........mmmmm cccc..nnnnn.nzcv      Rn Rm    nzcv cond
+        case IF_DR_2I: // X..........mmmmm cccc..nnnnn.nzcv      Rn Rm    nzcv cond
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
             assert(IsValidCondFlagsImm(id->emitGetInsSC()));
             break;
 
-        case IF_DR_3A: // DR_3A   X..........mmmmm ......nnnnnmmmmm      Rd Rn Rm
+        case IF_DR_3A: // X..........mmmmm ......nnnnnmmmmm      Rd Rn Rm
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isIntegerRegister(id->idReg1())); // SP
             assert(isIntegerRegister(id->idReg2())); // SP
@@ -1472,7 +1470,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(insOptsNone(id->idInsOpt()));
             break;
 
-        case IF_DR_3B: // DR_3B   X.......sh.mmmmm ssssssnnnnnddddd      Rd Rn Rm {LSL,LSR,ASR,ROR} imm(0-63)
+        case IF_DR_3B: // X.......sh.mmmmm ssssssnnnnnddddd      Rd Rn Rm {LSL,LSR,ASR,ROR} imm(0-63)
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
@@ -1482,7 +1480,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(insOptsNone(id->idInsOpt()) || (id->emitGetInsSC() > 0));
             break;
 
-        case IF_DR_3C: // DR_3C   X..........mmmmm ooosssnnnnnddddd      Rd Rn Rm ext(Rm) LSL imm(0-4)
+        case IF_DR_3C: // X..........mmmmm ooosssnnnnnddddd      Rd Rn Rm ext(Rm) LSL imm(0-4)
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isIntegerRegister(id->idReg1())); // SP
             assert(isIntegerRegister(id->idReg2())); // SP
@@ -1497,7 +1495,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             }
             break;
 
-        case IF_DR_3D: // DR_3D   X..........mmmmm cccc..nnnnnmmmmm      Rd Rn Rm cond
+        case IF_DR_3D: // X..........mmmmm cccc..nnnnnmmmmm      Rd Rn Rm cond
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
@@ -1505,7 +1503,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(IsValidCondImm(id->emitGetInsSC()));
             break;
 
-        case IF_DR_3E: // DR_3E   X........X.mmmmm ssssssnnnnnddddd      Rd Rn Rm imm(0-63)
+        case IF_DR_3E: // X........X.mmmmm ssssssnnnnnddddd      Rd Rn Rm imm(0-63)
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
@@ -1514,7 +1512,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(insOptsNone(id->idInsOpt()));
             break;
 
-        case IF_DR_4A: // DR_4A   X..........mmmmm .aaaaannnnnddddd      Rd Rn Rm Ra
+        case IF_DR_4A: // X..........mmmmm .aaaaannnnnddddd      Rd Rn Rm Ra
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
@@ -1522,7 +1520,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isGeneralRegister(id->idReg4()));
             break;
 
-        case IF_DV_1A: // DV_1A   .........X.iiiii iii........ddddd      Vd imm8    (fmov - immediate scalar)
+        case IF_DV_1A: // .........X.iiiii iii........ddddd      Vd imm8    (fmov - immediate scalar)
             assert(insOptsNone(id->idInsOpt()));
             elemsize = id->idOpSize();
             assert(isValidVectorElemsizeFloat(elemsize));
@@ -1530,7 +1528,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isValidUimm8(id->emitGetInsSC()));
             break;
 
-        case IF_DV_1B: // DV_1B   .QX..........iii cmod..iiiiiddddd      Vd imm8    (immediate vector)
+        case IF_DV_1B: // .QX..........iii cmod..iiiiiddddd      Vd imm8    (immediate vector)
             ins      = id->idIns();
             imm      = id->emitGetInsSC() & 0x0ff;
             immShift = (id->emitGetInsSC() & 0x700) >> 8;
@@ -1569,23 +1567,23 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isValidUimm8(imm));
             break;
 
-        case IF_DV_1C: // DV_1C   .........X...... ......nnnnn.....      Vn #0.0    (fcmp - with zero)
+        case IF_DV_1C: // .........X...... ......nnnnn.....      Vn #0.0    (fcmp - with zero)
             assert(insOptsNone(id->idInsOpt()));
             elemsize = id->idOpSize();
             assert(isValidVectorElemsizeFloat(elemsize));
             assert(isVectorRegister(id->idReg1()));
             break;
 
-        case IF_DV_2A: // DV_2A   .Q.......X...... ......nnnnnddddd      Vd Vn      (fabs, fcvt - vector)
-        case IF_DV_2M: // DV_2M   .Q......XX...... ......nnnnnddddd      Vd Vn      (abs, neg   - vector)
-        case IF_DV_2P: // DV_2P   ................ ......nnnnnddddd      Vd Vn      (aes*, sha1su1)
+        case IF_DV_2A: // .Q.......X...... ......nnnnnddddd      Vd Vn      (fabs, fcvt - vector)
+        case IF_DV_2M: // .Q......XX...... ......nnnnnddddd      Vd Vn      (abs, neg   - vector)
+        case IF_DV_2P: // ................ ......nnnnnddddd      Vd Vn      (aes*, sha1su1)
             assert(isValidVectorDatasize(id->idOpSize()));
             assert(isValidArrangement(id->idOpSize(), id->idInsOpt()));
             assert(isVectorRegister(id->idReg1()));
             assert(isVectorRegister(id->idReg2()));
             break;
 
-        case IF_DV_2N: // DV_2N   .........iiiiiii ......nnnnnddddd      Vd Vn imm   (shift - scalar)
+        case IF_DV_2N: // .........iiiiiii ......nnnnnddddd      Vd Vn imm   (shift - scalar)
             ins      = id->idIns();
             datasize = id->idOpSize();
             assert(insOptsNone(id->idInsOpt()));
@@ -1594,7 +1592,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isValidVectorShiftAmount(id->emitGetInsSC(), datasize, IsVectorRightShiftIns(ins)));
             break;
 
-        case IF_DV_2O: // DV_2O   .Q.......iiiiiii ......nnnnnddddd      Vd Vn imm   (shift - vector)
+        case IF_DV_2O: // .Q.......iiiiiii ......nnnnnddddd      Vd Vn imm   (shift - vector)
             ins      = id->idIns();
             datasize = id->idOpSize();
             elemsize = optGetElemsize(id->idInsOpt());
@@ -1605,7 +1603,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isValidVectorShiftAmount(id->emitGetInsSC(), elemsize, IsVectorRightShiftIns(ins)));
             break;
 
-        case IF_DV_2B: // DV_2B   .Q.........iiiii ......nnnnnddddd      Rd Vn[]  (umov/smov    - to general)
+        case IF_DV_2B: // .Q.........iiiii ......nnnnnddddd      Rd Vn[]  (umov/smov    - to general)
             elemsize = id->idOpSize();
             index    = id->emitGetInsSC();
             assert(insOptsNone(id->idInsOpt()));
@@ -1615,7 +1613,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isVectorRegister(id->idReg2()));
             break;
 
-        case IF_DV_2C: // DV_2C   .Q.........iiiii ......nnnnnddddd      Vd Rn    (dup/ins - vector from general)
+        case IF_DV_2C: // .Q.........iiiii ......nnnnnddddd      Vd Rn    (dup/ins - vector from general)
             if (id->idIns() == INS_dup)
             {
                 datasize = id->idOpSize();
@@ -1633,7 +1631,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isGeneralRegisterOrZR(id->idReg2()));
             break;
 
-        case IF_DV_2D: // DV_2D   .Q.........iiiii ......nnnnnddddd      Vd Vn[]  (dup - vector)
+        case IF_DV_2D: // .Q.........iiiii ......nnnnnddddd      Vd Vn[]  (dup - vector)
             ins      = id->idIns();
             datasize = id->idOpSize();
             assert(isValidVectorDatasize(datasize));
@@ -1645,7 +1643,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isVectorRegister(id->idReg2()));
             break;
 
-        case IF_DV_2E: // DV_2E   ...........iiiii ......nnnnnddddd      Vd Vn[]  (dup - scalar)
+        case IF_DV_2E: // ...........iiiii ......nnnnnddddd      Vd Vn[]  (dup - scalar)
             elemsize = id->idOpSize();
             index    = id->emitGetInsSC();
             assert(Arm64Imm::IsVecIndex(index, EA_16BYTE, elemsize));
@@ -1654,7 +1652,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isVectorRegister(id->idReg2()));
             break;
 
-        case IF_DV_2F: // DV_2F   ...........iiiii .jjjj.nnnnnddddd      Vd[] Vn[] (ins - element)
+        case IF_DV_2F: // ...........iiiii .jjjj.nnnnnddddd      Vd[] Vn[] (ins - element)
             imm      = id->emitGetInsSC();
             index    = (imm >> 4) & 0xf;
             index2   = imm & 0xf;
@@ -1666,22 +1664,22 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isVectorRegister(id->idReg2()));
             break;
 
-        case IF_DV_2L: // DV_2L   ........XX...... ......nnnnnddddd      Vd Vn      (abs, neg - scalar)
+        case IF_DV_2L: // ........XX...... ......nnnnnddddd      Vd Vn      (abs, neg - scalar)
             assert(insOptsNone(id->idInsOpt()));
             assert(isValidVectorElemsize(id->idOpSize()));
             assert(isVectorRegister(id->idReg1()));
             assert(isVectorRegister(id->idReg2()));
             break;
 
-        case IF_DV_2G: // DV_2G   .........X...... ......nnnnnddddd      Vd Vn      (fmov, fcvtXX - register)
-        case IF_DV_2K: // DV_2K   .........X.mmmmm ......nnnnn.....      Vn Vm      (fcmp)
+        case IF_DV_2G: // .........X...... ......nnnnnddddd      Vd Vn      (fmov, fcvtXX - register)
+        case IF_DV_2K: // .........X.mmmmm ......nnnnn.....      Vn Vm      (fcmp)
             assert(insOptsNone(id->idInsOpt()));
             assert(isValidVectorElemsizeFloat(id->idOpSize()));
             assert(isVectorRegister(id->idReg1()));
             assert(isVectorRegister(id->idReg2()));
             break;
 
-        case IF_DV_2H: // DV_2H   X........X...... ......nnnnnddddd      Rd Vn      (fmov/fcvtXX - to general)
+        case IF_DV_2H: // X........X...... ......nnnnnddddd      Rd Vn      (fmov/fcvtXX - to general)
             assert(insOptsConvertFloatToInt(id->idInsOpt()));
             dstsize = optGetDstsize(id->idInsOpt());
             srcsize = optGetSrcsize(id->idInsOpt());
@@ -1692,7 +1690,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isVectorRegister(id->idReg2()));
             break;
 
-        case IF_DV_2I: // DV_2I   X........X...... ......nnnnnddddd      Vd Rn      (fmov/Xcvtf - from general)
+        case IF_DV_2I: // X........X...... ......nnnnnddddd      Vd Rn      (fmov/Xcvtf - from general)
             assert(insOptsConvertIntToFloat(id->idInsOpt()));
             dstsize = optGetDstsize(id->idInsOpt());
             srcsize = optGetSrcsize(id->idInsOpt());
@@ -1703,7 +1701,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isGeneralRegister(id->idReg2()));
             break;
 
-        case IF_DV_2J: // DV_2J   ........SS.....D D.....nnnnnddddd      Vd Vn      (fcvt)
+        case IF_DV_2J: // ........SS.....D D.....nnnnnddddd      Vd Vn      (fcvt)
             assert(insOptsConvertFloatToFloat(id->idInsOpt()));
             dstsize = optGetDstsize(id->idInsOpt());
             srcsize = optGetSrcsize(id->idInsOpt());
@@ -1714,7 +1712,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isVectorRegister(id->idReg2()));
             break;
 
-        case IF_DV_2Q: // DV_2Q   .........X...... ......nnnnnddddd      Sd Vn      (faddp, fmaxnmp, fmaxp, fminnmp,
+        case IF_DV_2Q: // .........X...... ......nnnnnddddd      Sd Vn      (faddp, fmaxnmp, fmaxp, fminnmp,
                        // fminp - scalar)
             if (id->idOpSize() == EA_16BYTE)
             {
@@ -1729,34 +1727,34 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isVectorRegister(id->idReg2()));
             break;
 
-        case IF_DV_2R: // DV_2R   .Q.......X...... ......nnnnnddddd      Sd Vn      (fmaxnmv, fmaxv, fminnmv, fminv)
+        case IF_DV_2R: // .Q.......X...... ......nnnnnddddd      Sd Vn      (fmaxnmv, fmaxv, fminnmv, fminv)
             assert(id->idOpSize() == EA_16BYTE);
             assert(id->idInsOpt() == INS_OPTS_4S);
             assert(isVectorRegister(id->idReg1()));
             assert(isVectorRegister(id->idReg2()));
             break;
 
-        case IF_DV_2S: // DV_2S   ........XX...... ......nnnnnddddd      Sd Vn      (addp - scalar)
+        case IF_DV_2S: // ........XX...... ......nnnnnddddd      Sd Vn      (addp - scalar)
             assert(id->idOpSize() == EA_16BYTE);
             assert(id->idInsOpt() == INS_OPTS_2D);
             assert(isVectorRegister(id->idReg1()));
             assert(isVectorRegister(id->idReg2()));
             break;
 
-        case IF_DV_2T: // DV_2T   .Q......XX...... ......nnnnnddddd      Sd Vn      (addv, saddlv, smaxv, sminv, uaddlv,
+        case IF_DV_2T: // .Q......XX...... ......nnnnnddddd      Sd Vn      (addv, saddlv, smaxv, sminv, uaddlv,
                        // umaxv, uminv)
             assert(isValidVectorDatasize(id->idOpSize()));
             assert(isVectorRegister(id->idReg1()));
             assert(isVectorRegister(id->idReg2()));
             break;
 
-        case IF_DV_2U: // DV_2U   ................ ......nnnnnddddd      Sd Sn    (sha1h)
+        case IF_DV_2U: // ................ ......nnnnnddddd      Sd Sn    (sha1h)
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isVectorRegister(id->idReg1()));
             assert(isVectorRegister(id->idReg2()));
             break;
 
-        case IF_DV_3A: // DV_3A   .Q......XX.mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
+        case IF_DV_3A: // .Q......XX.mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
             assert(isValidVectorDatasize(id->idOpSize()));
             assert(isValidArrangement(id->idOpSize(), id->idInsOpt()));
             assert(isVectorRegister(id->idReg1()));
@@ -1774,7 +1772,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             }
             break;
 
-        case IF_DV_3AI: // DV_3AI  .Q......XXLMmmmm ....H.nnnnnddddd      Vd Vn Vm[] (vector by element)
+        case IF_DV_3AI: // .Q......XXLMmmmm ....H.nnnnnddddd      Vd Vn Vm[] (vector by element)
             assert(isValidVectorDatasize(id->idOpSize()));
             assert(isValidArrangement(id->idOpSize(), id->idInsOpt()));
             assert(isVectorRegister(id->idReg1()));
@@ -1782,11 +1780,10 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isVectorRegister(id->idReg3()));
             elemsize = optGetElemsize(id->idInsOpt());
             assert(Arm64Imm::IsVecIndex(id->emitGetInsSC(), EA_16BYTE, elemsize));
-            // Only has encodings for H or S elemsize
             assert((elemsize == EA_2BYTE) || (elemsize == EA_4BYTE));
             break;
 
-        case IF_DV_3B: // DV_3B   .Q.......X.mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
+        case IF_DV_3B: // .Q.......X.mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
             assert(isValidVectorDatasize(id->idOpSize()));
             assert(isValidArrangement(id->idOpSize(), id->idInsOpt()));
             assert(isVectorRegister(id->idReg1()));
@@ -1794,7 +1791,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isVectorRegister(id->idReg3()));
             break;
 
-        case IF_DV_3BI: // DV_3BI  .Q.......XLmmmmm ....H.nnnnnddddd      Vd Vn Vm[] (vector by element)
+        case IF_DV_3BI: // .Q.......XLmmmmm ....H.nnnnnddddd      Vd Vn Vm[] (vector by element)
             assert(isValidVectorDatasize(id->idOpSize()));
             assert(isValidArrangement(id->idOpSize(), id->idInsOpt()));
             assert(isVectorRegister(id->idReg1()));
@@ -1804,7 +1801,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(Arm64Imm::IsVecIndex(id->emitGetInsSC(), EA_16BYTE, elemsize));
             break;
 
-        case IF_DV_3C: // DV_3C   .Q.........mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
+        case IF_DV_3C: // .Q.........mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
             switch (id->idIns())
             {
                 case INS_tbl:
@@ -1828,7 +1825,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isVectorRegister(id->idReg3()));
             break;
 
-        case IF_DV_3D: // DV_3D   .........X.mmmmm ......nnnnnddddd      Vd Vn Vm   (scalar)
+        case IF_DV_3D: // .........X.mmmmm ......nnnnnddddd      Vd Vn Vm   (scalar)
             assert(isValidScalarDatasize(id->idOpSize()));
             assert(insOptsNone(id->idInsOpt()));
             assert(isVectorRegister(id->idReg1()));
@@ -1836,7 +1833,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isVectorRegister(id->idReg3()));
             break;
 
-        case IF_DV_3DI: // DV_3DI .........XLmmmmm ....H.nnnnnddddd      Vd Vn Vm[] (scalar by element)
+        case IF_DV_3DI: // .........XLmmmmm ....H.nnnnnddddd      Vd Vn Vm[] (scalar by element)
             assert(isValidScalarDatasize(id->idOpSize()));
             assert(insOptsNone(id->idInsOpt()));
             assert(isVectorRegister(id->idReg1()));
@@ -1846,7 +1843,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(Arm64Imm::IsVecIndex(id->emitGetInsSC(), EA_16BYTE, elemsize));
             break;
 
-        case IF_DV_3E: // DV_3E   ........XX.mmmmm ......nnnnnddddd      Vd Vn Vm  (scalar)
+        case IF_DV_3E: // ........XX.mmmmm ......nnnnnddddd      Vd Vn Vm  (scalar)
             assert(isValidVectorElemsize(id->idOpSize()));
             assert(insOptsNone(id->idInsOpt()));
             assert(isVectorRegister(id->idReg1()));
@@ -1857,7 +1854,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(Arm64Imm::IsVecIndex(index, EA_16BYTE, elemsize));
             break;
 
-        case IF_DV_3EI: // DV_3EI ........XXLMmmmm ....H.nnnnnddddd      Vd Vn Vm[] (scalar by element)
+        case IF_DV_3EI: // ........XXLMmmmm ....H.nnnnnddddd      Vd Vn Vm[] (scalar by element)
             assert(isValidVectorElemsize(id->idOpSize()));
             assert(insOptsNone(id->idInsOpt()));
             assert(isVectorRegister(id->idReg1()));
@@ -1868,7 +1865,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(Arm64Imm::IsVecIndex(index, EA_16BYTE, elemsize));
             break;
 
-        case IF_DV_3F: // DV_3F   ...........mmmmm ......nnnnnddddd      Vd Vn Vm
+        case IF_DV_3F: // ...........mmmmm ......nnnnnddddd      Vd Vn Vm
             assert(isValidVectorDatasize(id->idOpSize()));
             assert(isValidArrangement(id->idOpSize(), id->idInsOpt()));
             assert(isVectorRegister(id->idReg1()));
@@ -1876,7 +1873,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isVectorRegister(id->idReg3()));
             break;
 
-        case IF_DV_3G: // DV_3G   .Q.........mmmmm .iiii.nnnnnddddd      Vd Vn Vm imm (vector)
+        case IF_DV_3G: // .Q.........mmmmm .iiii.nnnnnddddd      Vd Vn Vm imm (vector)
             assert(isValidVectorDatasize(id->idOpSize()));
             assert(isValidArrangement(id->idOpSize(), id->idInsOpt()));
             assert(Arm64Imm::IsVecIndex(id->emitGetInsSC(), id->idOpSize(), EA_1BYTE));
@@ -1885,7 +1882,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isVectorRegister(id->idReg3()));
             break;
 
-        case IF_DV_4A: // DR_4A   .........X.mmmmm .aaaaannnnnddddd      Rd Rn Rm Ra (scalar)
+        case IF_DV_4A: // .........X.mmmmm .aaaaannnnnddddd      Rd Rn Rm Ra (scalar)
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isVectorRegister(id->idReg1()));
             assert(isVectorRegister(id->idReg2()));
@@ -1893,12 +1890,12 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(isVectorRegister(id->idReg4()));
             break;
 
-        case IF_SN_0A: // SN_0A   ................ ................
-        case IF_SI_0A: // SI_0A   ...........iiiii iiiiiiiiiii.....               imm16
-        case IF_SI_0B: // SI_0B   ................ ....bbbb........               imm4 - barrier
+        case IF_SN_0A: // ................ ................
+        case IF_SI_0A: // ...........iiiii iiiiiiiiiii.....               imm16
+        case IF_SI_0B: // ................ ....bbbb........               imm4 - barrier
             break;
 
-        case IF_SR_1A: // SR_1A   ................ ...........ttttt      Rt       (dc zva)
+        case IF_SR_1A: // ................ ...........ttttt      Rt       (dc zva)
             datasize = id->idOpSize();
             assert(isGeneralRegister(id->idReg1()));
             assert(datasize == EA_8BYTE);
@@ -1942,7 +1939,7 @@ private:
     // status of that register, since it must be a byref before and remains one after.
     //
     // This may return false positives.
-    bool emitInsMayWriteToGCReg(instrDesc* id);
+    bool emitInsMayWriteToGCReg(instrDesc* id) const;
 
     // Returns true if the instruction may write to more than one register.
     bool emitInsMayWriteMultipleRegs(instrDesc* id);
@@ -1952,7 +1949,7 @@ private:
 #endif
 };
 
-bool Arm64Encoder::emitInsMayWriteToGCReg(instrDesc* id)
+bool Arm64Encoder::emitInsMayWriteToGCReg(instrDesc* id) const
 {
     instruction ins = id->idIns();
     insFormat   fmt = id->idInsFmt();
@@ -1964,85 +1961,78 @@ bool Arm64Encoder::emitInsMayWriteToGCReg(instrDesc* id)
         // TODO-MIKE-Review: Is this missing IF_LARGEADR/IF_LARGELDC?
         case IF_SMALLADR:
 
-        case IF_DI_1B: // DI_1B   X........hwiiiii iiiiiiiiiiiddddd      Rd       imm(i16,hw)
-        case IF_DI_1D: // DI_1D   X........Nrrrrrr ssssss.....ddddd      Rd       imm(N,r,s)
-        case IF_DI_1E: // DI_1E   .ii.....iiiiiiii iiiiiiiiiiiddddd      Rd       simm21
-
-        case IF_DI_2A: // DI_2A   X.......shiiiiii iiiiiinnnnnddddd      Rd Rn    imm(i12,sh)
-        case IF_DI_2B: // DI_2B   X.........Xnnnnn ssssssnnnnnddddd      Rd Rn    imm(0-63)
-        case IF_DI_2C: // DI_2C   X........Nrrrrrr ssssssnnnnnddddd      Rd Rn    imm(N,r,s)
-        case IF_DI_2D: // DI_2D   X........Nrrrrrr ssssssnnnnnddddd      Rd Rn    imr, imms   (N,r,s)
-
-        case IF_DR_1D: // DR_1D   X............... cccc.......ddddd      Rd       cond
-
-        case IF_DR_2D: // DR_2D   X..........nnnnn cccc..nnnnnddddd      Rd Rn    cond
-        case IF_DR_2E: // DR_2E   X..........mmmmm ...........ddddd      Rd    Rm
-        case IF_DR_2F: // DR_2F   X.......sh.mmmmm ssssss.....ddddd      Rd    Rm {LSL,LSR,ASR} imm(0-63)
-        case IF_DR_2G: // DR_2G   X............... ......nnnnnddddd      Rd Rn
-        case IF_DR_2H: // DR_2H   X........X...... ......nnnnnddddd      Rd Rn
-
-        case IF_DR_3A: // DR_3A   X..........mmmmm ......nnnnnddddd      Rd Rn Rm
-        case IF_DR_3B: // DR_3B   X.......sh.mmmmm ssssssnnnnnddddd      Rd Rn Rm {LSL,LSR,ASR} imm(0-63)
-        case IF_DR_3C: // DR_3C   X..........mmmmm xxxsssnnnnnddddd      Rd Rn Rm ext(Rm) LSL imm(0-4)
-        case IF_DR_3D: // DR_3D   X..........mmmmm cccc..nnnnnddddd      Rd Rn Rm cond
-        case IF_DR_3E: // DR_3E   X........X.mmmmm ssssssnnnnnddddd      Rd Rn Rm imm(0-63)
-
-        case IF_DR_4A: // DR_4A   X..........mmmmm .aaaaannnnnddddd      Rd Rn Rm Ra
-
-        case IF_DV_2B: // DV_2B   .Q.........iiiii ......nnnnnddddd      Rd Vn[]    (umov - to general)
-        case IF_DV_2H: // DV_2H   X........X...... ......nnnnnddddd      Rd Vn      (fmov - to general)
-
+        case IF_DI_1B: // X........hwiiiii iiiiiiiiiiiddddd      Rd       imm(i16,hw)
+        case IF_DI_1D: // X........Nrrrrrr ssssss.....ddddd      Rd       imm(N,r,s)
+        case IF_DI_1E: // .ii.....iiiiiiii iiiiiiiiiiiddddd      Rd       simm21
+        case IF_DI_2A: // X.......shiiiiii iiiiiinnnnnddddd      Rd Rn    imm(i12,sh)
+        case IF_DI_2B: // X.........Xnnnnn ssssssnnnnnddddd      Rd Rn    imm(0-63)
+        case IF_DI_2C: // X........Nrrrrrr ssssssnnnnnddddd      Rd Rn    imm(N,r,s)
+        case IF_DI_2D: // X........Nrrrrrr ssssssnnnnnddddd      Rd Rn    imr, imms   (N,r,s)
+        case IF_DR_1D: // X............... cccc.......ddddd      Rd       cond
+        case IF_DR_2D: // X..........nnnnn cccc..nnnnnddddd      Rd Rn    cond
+        case IF_DR_2E: // X..........mmmmm ...........ddddd      Rd    Rm
+        case IF_DR_2F: // X.......sh.mmmmm ssssss.....ddddd      Rd    Rm {LSL,LSR,ASR} imm(0-63)
+        case IF_DR_2G: // X............... ......nnnnnddddd      Rd Rn
+        case IF_DR_2H: // X........X...... ......nnnnnddddd      Rd Rn
+        case IF_DR_3A: // X..........mmmmm ......nnnnnddddd      Rd Rn Rm
+        case IF_DR_3B: // X.......sh.mmmmm ssssssnnnnnddddd      Rd Rn Rm {LSL,LSR,ASR} imm(0-63)
+        case IF_DR_3C: // X..........mmmmm xxxsssnnnnnddddd      Rd Rn Rm ext(Rm) LSL imm(0-4)
+        case IF_DR_3D: // X..........mmmmm cccc..nnnnnddddd      Rd Rn Rm cond
+        case IF_DR_3E: // X........X.mmmmm ssssssnnnnnddddd      Rd Rn Rm imm(0-63)
+        case IF_DR_4A: // X..........mmmmm .aaaaannnnnddddd      Rd Rn Rm Ra
+        case IF_DV_2B: // .Q.........iiiii ......nnnnnddddd      Rd Vn[]    (umov - to general)
+        case IF_DV_2H: // X........X...... ......nnnnnddddd      Rd Vn      (fmov - to general)
             return true;
 
-        case IF_DV_2C: // DV_2C   .Q.........iiiii ......nnnnnddddd      Vd Rn      (dup/ins - vector from general)
-        case IF_DV_2D: // DV_2D   .Q.........iiiii ......nnnnnddddd      Vd Vn[]    (dup - vector)
-        case IF_DV_2E: // DV_2E   ...........iiiii ......nnnnnddddd      Vd Vn[]    (dup - scalar)
-        case IF_DV_2F: // DV_2F   ...........iiiii .jjjj.nnnnnddddd      Vd[] Vn[]  (ins - element)
-        case IF_DV_2G: // DV_2G   .........X...... ......nnnnnddddd      Vd Vn      (fmov, fcvtXX - register)
-        case IF_DV_2I: // DV_2I   X........X...... ......nnnnnddddd      Vd Rn      (fmov - from general)
-        case IF_DV_2J: // DV_2J   ........SS.....D D.....nnnnnddddd      Vd Vn      (fcvt)
-        case IF_DV_2K: // DV_2K   .........X.mmmmm ......nnnnn.....      Vn Vm      (fcmp)
-        case IF_DV_2L: // DV_2L   ........XX...... ......nnnnnddddd      Vd Vn      (abs, neg - scalar)
-        case IF_DV_2M: // DV_2M   .Q......XX...... ......nnnnnddddd      Vd Vn      (abs, neg - vector)
-        case IF_DV_2P: // DV_2P   ................ ......nnnnnddddd      Vd Vn      (aes*, sha1su1) - Vd both source and
+        case IF_DV_2C: // .Q.........iiiii ......nnnnnddddd      Vd Rn      (dup/ins - vector from general)
+        case IF_DV_2D: // .Q.........iiiii ......nnnnnddddd      Vd Vn[]    (dup - vector)
+        case IF_DV_2E: // ...........iiiii ......nnnnnddddd      Vd Vn[]    (dup - scalar)
+        case IF_DV_2F: // ...........iiiii .jjjj.nnnnnddddd      Vd[] Vn[]  (ins - element)
+        case IF_DV_2G: // .........X...... ......nnnnnddddd      Vd Vn      (fmov, fcvtXX - register)
+        case IF_DV_2I: // X........X...... ......nnnnnddddd      Vd Rn      (fmov - from general)
+        case IF_DV_2J: // ........SS.....D D.....nnnnnddddd      Vd Vn      (fcvt)
+        case IF_DV_2K: // .........X.mmmmm ......nnnnn.....      Vn Vm      (fcmp)
+        case IF_DV_2L: // ........XX...... ......nnnnnddddd      Vd Vn      (abs, neg - scalar)
+        case IF_DV_2M: // .Q......XX...... ......nnnnnddddd      Vd Vn      (abs, neg - vector)
+        case IF_DV_2P: // ................ ......nnnnnddddd      Vd Vn      (aes*, sha1su1) - Vd both source and
                        // destination
 
-        case IF_DV_2Q: // DV_2Q   .........X...... ......nnnnnddddd      Sd Vn      (faddp, fmaxnmp, fmaxp, fminnmp,
+        case IF_DV_2Q: // .........X...... ......nnnnnddddd      Sd Vn      (faddp, fmaxnmp, fmaxp, fminnmp,
                        // fminp - scalar)
-        case IF_DV_2R: // DV_2R   .Q.......X...... ......nnnnnddddd      Sd Vn      (fmaxnmv, fmaxv, fminnmv, fminv)
-        case IF_DV_2S: // DV_2S   ........XX...... ......nnnnnddddd      Sd Vn      (addp - scalar)
+        case IF_DV_2R: // .Q.......X...... ......nnnnnddddd      Sd Vn      (fmaxnmv, fmaxv, fminnmv, fminv)
+        case IF_DV_2S: // ........XX...... ......nnnnnddddd      Sd Vn      (addp - scalar)
 
-        case IF_DV_3A:  // DV_3A   .Q......XX.mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
-        case IF_DV_3AI: // DV_3AI  .Q......XXLMmmmm ....H.nnnnnddddd      Vd Vn Vm[] (vector)
-        case IF_DV_3B:  // DV_3B   .Q.......X.mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
-        case IF_DV_3BI: // DV_3BI  .Q.......XLmmmmm ....H.nnnnnddddd      Vd Vn Vm[] (vector by element)
-        case IF_DV_3C:  // DV_3C   .Q.........mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
-        case IF_DV_3D:  // DV_3D   .........X.mmmmm ......nnnnnddddd      Vd Vn Vm   (scalar)
-        case IF_DV_3DI: // DV_3DI  .........XLmmmmm ....H.nnnnnddddd      Vd Vn Vm[] (scalar by element)
-        case IF_DV_3E:  // DV_3E   ........XX.mmmmm ......nnnnnddddd      Vd Vn Vm   (scalar)
-        case IF_DV_3EI: // DV_3EI  ........XXLMmmmm ....H.nnnnnddddd      Vd Vn Vm[] (scalar by element)
-        case IF_DV_3F:  // DV_3F   .Q......XX.mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
-        case IF_DV_3G:  // DV_3G   .Q.........mmmmm .iiii.nnnnnddddd      Vd Vn Vm imm (vector)
-        case IF_DV_4A:  // DV_4A   .........X.mmmmm .aaaaannnnnddddd      Vd Va Vn Vm (scalar)
+        case IF_DV_3A:  // .Q......XX.mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
+        case IF_DV_3AI: // .Q......XXLMmmmm ....H.nnnnnddddd      Vd Vn Vm[] (vector)
+        case IF_DV_3B:  // .Q.......X.mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
+        case IF_DV_3BI: // .Q.......XLmmmmm ....H.nnnnnddddd      Vd Vn Vm[] (vector by element)
+        case IF_DV_3C:  // .Q.........mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
+        case IF_DV_3D:  // .........X.mmmmm ......nnnnnddddd      Vd Vn Vm   (scalar)
+        case IF_DV_3DI: // .........XLmmmmm ....H.nnnnnddddd      Vd Vn Vm[] (scalar by element)
+        case IF_DV_3E:  // ........XX.mmmmm ......nnnnnddddd      Vd Vn Vm   (scalar)
+        case IF_DV_3EI: // ........XXLMmmmm ....H.nnnnnddddd      Vd Vn Vm[] (scalar by element)
+        case IF_DV_3F:  // .Q......XX.mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
+        case IF_DV_3G:  // .Q.........mmmmm .iiii.nnnnnddddd      Vd Vn Vm imm (vector)
+        case IF_DV_4A:  // .........X.mmmmm .aaaaannnnnddddd      Vd Va Vn Vm (scalar)
             // Tracked GC pointers cannot be placed into the SIMD registers.
             return false;
 
         // These are the load/store formats with "target" registers:
 
-        case IF_LS_1A: // LS_1A   XX...V..iiiiiiii iiiiiiiiiiittttt      Rt    PC imm(1MB)
-        case IF_LS_2A: // LS_2A   .X.......X...... ......nnnnnttttt      Rt Rn
-        case IF_LS_2B: // LS_2B   .X.......Xiiiiii iiiiiinnnnnttttt      Rt Rn    imm(0-4095)
-        case IF_LS_2C: // LS_2C   .X.......X.iiiii iiiiP.nnnnnttttt      Rt Rn    imm(-256..+255) pre/post inc
-        case IF_LS_2D: // LS_2D   .Q.............. ....ssnnnnnttttt      Vt Rn
-        case IF_LS_2E: // LS_2E   .Q.............. ....ssnnnnnttttt      Vt Rn
-        case IF_LS_2F: // LS_2F   .Q.............. xx.Sssnnnnnttttt      Vt[] Rn
-        case IF_LS_2G: // LS_2G   .Q.............. xx.Sssnnnnnttttt      Vt[] Rn
-        case IF_LS_3A: // LS_3A   .X.......X.mmmmm xxxS..nnnnnttttt      Rt Rn Rm ext(Rm) LSL {}
-        case IF_LS_3B: // LS_3B   X............... .aaaaannnnnttttt      Rt Ra Rn
-        case IF_LS_3C: // LS_3C   X.........iiiiii iaaaaannnnnttttt      Rt Ra Rn imm(im7,sh)
-        case IF_LS_3D: // LS_3D   .X.......X.mmmmm ......nnnnnttttt      Wm Rt Rn
-        case IF_LS_3F: // LS_3F   .Q.........mmmmm ....ssnnnnnttttt      Vt Rn Rm
-        case IF_LS_3G: // LS_3G   .Q.........mmmmm ...Sssnnnnnttttt      Vt[] Rn Rm
+        case IF_LS_1A: // XX...V..iiiiiiii iiiiiiiiiiittttt      Rt    PC imm(1MB)
+        case IF_LS_2A: // .X.......X...... ......nnnnnttttt      Rt Rn
+        case IF_LS_2B: // .X.......Xiiiiii iiiiiinnnnnttttt      Rt Rn    imm(0-4095)
+        case IF_LS_2C: // .X.......X.iiiii iiiiP.nnnnnttttt      Rt Rn    imm(-256..+255) pre/post inc
+        case IF_LS_2D: // .Q.............. ....ssnnnnnttttt      Vt Rn
+        case IF_LS_2E: // .Q.............. ....ssnnnnnttttt      Vt Rn
+        case IF_LS_2F: // .Q.............. xx.Sssnnnnnttttt      Vt[] Rn
+        case IF_LS_2G: // .Q.............. xx.Sssnnnnnttttt      Vt[] Rn
+        case IF_LS_3A: // .X.......X.mmmmm xxxS..nnnnnttttt      Rt Rn Rm ext(Rm) LSL {}
+        case IF_LS_3B: // X............... .aaaaannnnnttttt      Rt Ra Rn
+        case IF_LS_3C: // X.........iiiiii iaaaaannnnnttttt      Rt Ra Rn imm(im7,sh)
+        case IF_LS_3D: // .X.......X.mmmmm ......nnnnnttttt      Wm Rt Rn
+        case IF_LS_3F: // .Q.........mmmmm ....ssnnnnnttttt      Vt Rn Rm
+        case IF_LS_3G: // .Q.........mmmmm ...Sssnnnnnttttt      Vt[] Rn Rm
 
             // For the Store instructions the "target" register is actually a "source" value
 
@@ -8090,33 +8080,20 @@ static uint32_t insEncodeIndexedOpt(insOpts opt)
 // Returns the encoding for a ldp/stp instruction to have the Rn register be updated Pre/Post indexed or not updated
 static uint32_t insEncodePairIndexedOpt(instruction ins, insOpts opt)
 {
-    assert(insOptsNone(opt) || insOptsIndexed(opt));
-
     if ((ins == INS_ldnp) || (ins == INS_stnp))
     {
         assert(insOptsNone(opt));
-        return 0; // bits 23 and 24 are zero
+
+        return 0;
     }
-    else
+
+    if (insOptsIndexed(opt))
     {
-        if (insOptsIndexed(opt))
-        {
-            if (insOptsPostIndex(opt))
-            {
-                return 0x00800000; // set the bit at location 23
-            }
-            else
-            {
-                assert(insOptsPreIndex(opt));
-                return 0x01800000; // set the bit at location 24 and 23
-            }
-        }
-        else
-        {
-            assert(insOptsNone(opt));
-            return 0x01000000; // set the bit at location 24
-        }
+        return insOptsPostIndex(opt) ? 0x00800000 : 0x01800000;
     }
+
+    assert(insOptsNone(opt));
+    return 0x01000000;
 }
 
 // Returns the encoding to apply a Shift Type on the Rm register
@@ -8127,12 +8104,13 @@ static uint32_t insEncodeShiftType(insOpts opt)
         // None implies the we encode LSL (with a zero immediate)
         opt = INS_OPTS_LSL;
     }
+
     assert(insOptsAnyShift(opt));
 
-    uint32_t option = (uint32_t)opt - (uint32_t)INS_OPTS_LSL;
+    uint32_t option = static_cast<uint32_t>(opt) - static_cast<uint32_t>(INS_OPTS_LSL);
     assert(option <= 3);
 
-    return option << 22; // bits 23, 22
+    return option << 22;
 }
 
 // Returns the encoding to apply a 12 bit left shift to the immediate
@@ -8149,9 +8127,10 @@ static uint32_t insEncodeExtend(insOpts opt)
         // None or LSL implies the we encode UXTX
         opt = INS_OPTS_UXTX;
     }
+
     assert(insOptsAnyExtend(opt));
 
-    uint32_t option = (uint32_t)opt - (uint32_t)INS_OPTS_UXTB;
+    uint32_t option = static_cast<uint32_t>(opt) - static_cast<uint32_t>(INS_OPTS_UXTB);
     assert(option <= 7);
 
     return option << 13; // bits 15,14,13
@@ -8162,7 +8141,7 @@ static uint32_t insEncodeExtendScale(int64_t imm)
 {
     assert((imm >= 0) && (imm <= 4));
 
-    return (uint32_t)imm << 10; // bits 12,11,10
+    return static_cast<uint32_t>(imm) << 10; // bits 12,11,10
 }
 
 // Returns the encoding to have the Rm register be auto scaled by the ld/st size
@@ -8535,7 +8514,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         emitAttr datasize;
         CondImm  cimm;
 
-        case IF_LS_1A: // LS_1A   XX...V..iiiiiiii iiiiiiiiiiittttt      Rt    PC imm(1MB)
+        case IF_LS_1A: // XX...V..iiiiiiii iiiiiiiiiiittttt      Rt    PC imm(1MB)
         case IF_SMALLADR:
         case IF_LARGEADR:
         case IF_LARGELDC:
@@ -8546,10 +8525,10 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 break;
             }
             FALLTHROUGH;
-        case IF_BI_0A: // BI_0A   ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
-        case IF_BI_0B: // BI_0B   ......iiiiiiiiii iiiiiiiiiii.....               simm19:00
-        case IF_BI_1A: // BI_1A   ......iiiiiiiiii iiiiiiiiiiittttt      Rt       simm19:00
-        case IF_BI_1B: // BI_1B   B.......bbbbbiii iiiiiiiiiiittttt      Rt imm6, simm14:00
+        case IF_BI_0A: // ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
+        case IF_BI_0B: // ......iiiiiiiiii iiiiiiiiiii.....               simm19:00
+        case IF_BI_1A: // ......iiiiiiiiii iiiiiiiiiiittttt      Rt       simm19:00
+        case IF_BI_1B: // B.......bbbbbiii iiiiiiiiiiittttt      Rt imm6, simm14:00
         case IF_LARGEJMP:
             dst = emitOutputLJ(dst, static_cast<instrDescJmp*>(id), ig);
             FALLTHROUGH;
@@ -8557,9 +8536,8 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             sz = sizeof(instrDescJmp);
             break;
 
-        case IF_DI_1E: // DI_1E   .ii.....iiiiiiii iiiiiiiiiiiddddd      Rd       simm21
+        case IF_DI_1E: // .ii.....iiiiiiii iiiiiiiiiiiddddd      Rd       simm21
             assert(id->idIsCnsReloc());
-
             code = emitInsCode(ins, fmt);
             code |= insEncodeReg_Rd(id->idReg1()); // ddddd
             dst += emitOutput_Instr(dst, code);
@@ -8567,7 +8545,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             sz = sizeof(instrDesc);
             break;
 
-        case IF_BI_0C: // BI_0C   ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
+        case IF_BI_0C: // ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
             sz   = emitRecordGCCall(id, dst, dst + 4);
             code = emitInsCode(ins, fmt);
             dst += emitOutput_Instr(dst, code);
@@ -8575,16 +8553,15 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             emitRecordRelocation(odst, id->GetAddr(), IMAGE_REL_ARM64_BRANCH26);
             break;
 
-        case IF_BR_1A: // BR_1A   ................ ......nnnnn.....         Rn
+        case IF_BR_1A: // ................ ......nnnnn.....         Rn
             assert(insOptsNone(id->idInsOpt()));
             assert((ins == INS_ret) || (ins == INS_br));
             code = emitInsCode(ins, fmt);
             code |= insEncodeReg_Rn(id->idReg1()); // nnnnn
-
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_BR_1B: // BR_1B   ................ ......nnnnn.....         Rn
+        case IF_BR_1B: // ................ ......nnnnn.....         Rn
             assert(insOptsNone(id->idInsOpt()));
             assert((ins == INS_br_tail) || (ins == INS_blr));
             sz   = emitRecordGCCall(id, dst, dst + 4);
@@ -8593,12 +8570,12 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_LS_2A: // LS_2A   .X.......X...... ......nnnnnttttt      Rt Rn
+        case IF_LS_2A: // .X.......X...... ......nnnnnttttt      Rt Rn
             assert(insOptsNone(id->idInsOpt()));
             code = emitInsCode(ins, fmt);
             if (isVectorRegister(id->idReg1()))
             {
-                code &= 0x3FFFFFFF;                                 // clear the size bits
+                code &= 0x3FFFFFFF;
                 code |= insEncodeDatasizeVLS(code, id->idOpSize()); // XX
                 code |= insEncodeReg_Vt(id->idReg1());              // ttttt
             }
@@ -8611,14 +8588,14 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_LS_2B: // LS_2B   .X.......Xiiiiii iiiiiinnnnnttttt      Rt Rn    imm(0-4095)
+        case IF_LS_2B: // .X.......Xiiiiii iiiiiinnnnnttttt      Rt Rn    imm(0-4095)
             assert(insOptsNone(id->idInsOpt()));
             imm = id->emitGetInsSC();
             assert(isValidUimm12(imm));
             code = emitInsCode(ins, fmt);
             if (isVectorRegister(id->idReg1()))
             {
-                code &= 0x3FFFFFFF;                                 // clear the size bits
+                code &= 0x3FFFFFFF;
                 code |= insEncodeDatasizeVLS(code, id->idOpSize()); // XX
                 code |= insEncodeReg_Vt(id->idReg1());              // ttttt
             }
@@ -8627,16 +8604,15 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code |= insEncodeDatasizeLS(code, id->idOpSize()); // .X.......X
                 code |= insEncodeReg_Rt(id->idReg1());             // ttttt
             }
-            code |= ((uint32_t)imm << 10);         // iiiiiiiiiiii
-            code |= insEncodeReg_Rn(id->idReg2()); // nnnnn
+            code |= static_cast<uint32_t>(imm) << 10; // iiiiiiiiiiii
+            code |= insEncodeReg_Rn(id->idReg2());    // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_LS_2C: // LS_2C   .X.......X.iiiii iiiiPPnnnnnttttt      Rt Rn    imm(-256..+255) no/pre/post inc
+        case IF_LS_2C: // .X.......X.iiiii iiiiPPnnnnnttttt      Rt Rn    imm(-256..+255) no/pre/post inc
             assert(insOptsNone(id->idInsOpt()) || insOptsIndexed(id->idInsOpt()));
             imm = id->emitGetInsSC();
-            assert((imm >= -256) && (imm <= 255)); // signed 9 bits
-            imm &= 0x1ff;                          // force into unsigned 9 bit representation
+            assert((imm >= -256) && (imm <= 255));
             code = emitInsCode(ins, fmt);
             if (isVectorRegister(id->idReg1()))
             {
@@ -8649,39 +8625,35 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code |= insEncodeDatasizeLS(code, id->idOpSize()); // .X.......X
                 code |= insEncodeReg_Rt(id->idReg1());             // ttttt
             }
-            code |= insEncodeIndexedOpt(id->idInsOpt()); // PP
-            code |= ((uint32_t)imm << 12);               // iiiiiiiii
-            code |= insEncodeReg_Rn(id->idReg2());       // nnnnn
+            code |= insEncodeIndexedOpt(id->idInsOpt());      // PP
+            code |= static_cast<uint32_t>(imm & 0x1ff) << 12; // iiiiiiiii
+            code |= insEncodeReg_Rn(id->idReg2());            // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_LS_2D: // LS_2D   .Q.............. ....ssnnnnnttttt      Vt Rn
-        case IF_LS_2E: // LS_2E   .Q.............. ....ssnnnnnttttt      Vt Rn
+        case IF_LS_2D: // .Q.............. ....ssnnnnnttttt      Vt Rn
+        case IF_LS_2E: // .Q.............. ....ssnnnnnttttt      Vt Rn
             elemsize = optGetElemsize(id->idInsOpt());
             code     = emitInsCode(ins, fmt);
-
             code |= insEncodeVectorsize(id->idOpSize()); // Q
             code |= insEncodeVLSElemsize(elemsize);      // ss
             code |= insEncodeReg_Rn(id->idReg2());       // nnnnn
             code |= insEncodeReg_Vt(id->idReg1());       // ttttt
-
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_LS_2F: // LS_2F   .Q.............. xx.Sssnnnnnttttt      Vt[] Rn
-        case IF_LS_2G: // LS_2G   .Q.............. xx.Sssnnnnnttttt      Vt[] Rn
+        case IF_LS_2F: // .Q.............. xx.Sssnnnnnttttt      Vt[] Rn
+        case IF_LS_2G: // .Q.............. xx.Sssnnnnnttttt      Vt[] Rn
             elemsize = id->idOpSize();
             index    = id->idSmallCns();
             code     = emitInsCode(ins, fmt);
-
             code |= insEncodeVLSIndex(elemsize, index); // Q xx S ss
             code |= insEncodeReg_Rn(id->idReg2());      // nnnnn
             code |= insEncodeReg_Vt(id->idReg1());      // ttttt
-
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_LS_3A: // LS_3A   .X.......X.mmmmm oooS..nnnnnttttt      Rt Rn Rm ext(Rm) LSL {}
+        case IF_LS_3A: // .X.......X.mmmmm oooS..nnnnnttttt      Rt Rn Rm ext(Rm) LSL {}
             assert(insOptsLSExtend(id->idInsOpt()));
             code = emitInsCode(ins, fmt);
             if (isVectorRegister(id->idReg1()))
@@ -8702,7 +8674,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_LS_3B: // LS_3B   X............... .aaaaannnnnddddd      Rd Ra Rn
+        case IF_LS_3B: // X............... .aaaaannnnnddddd      Rd Ra Rn
             assert(insOptsNone(id->idInsOpt()));
             code = emitInsCode(ins, fmt);
             if (isVectorRegister(id->idReg1()))
@@ -8722,11 +8694,10 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_LS_3C: // LS_3C   X......PP.iiiiii iaaaaannnnnddddd      Rd Ra Rn imm(im7,sh)
+        case IF_LS_3C: // X......PP.iiiiii iaaaaannnnnddddd      Rd Ra Rn imm(im7,sh)
             assert(insOptsNone(id->idInsOpt()) || insOptsIndexed(id->idInsOpt()));
             imm = id->emitGetInsSC();
-            assert((imm >= -64) && (imm <= 63)); // signed 7 bits
-            imm &= 0x7f;                         // force into unsigned 7 bit representation
+            assert((imm >= -64) && (imm <= 63));
             code = emitInsCode(ins, fmt);
             if (isVectorRegister(id->idReg1()))
             {
@@ -8742,12 +8713,12 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code |= insEncodeReg_Ra(id->idReg2());     // aaaaa
             }
             code |= insEncodePairIndexedOpt(ins, id->idInsOpt()); // PP
-            code |= ((uint32_t)imm << 15);                        // iiiiiiiii
+            code |= static_cast<uint32_t>(imm & 0x7f) << 15;      // iiiiiiiii
             code |= insEncodeReg_Rn(id->idReg3());                // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_LS_3D: // LS_3D   .X.......X.mmmmm ......nnnnnttttt      Wm Rt Rn
+        case IF_LS_3D: // .X.......X.mmmmm ......nnnnnttttt      Wm Rt Rn
             code = emitInsCode(ins, fmt);
             // Arm64 store exclusive unpredictable cases
             assert(id->idReg1() != id->idReg2());
@@ -8759,7 +8730,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_LS_3E: // LS_3E   .X.........mmmmm ......nnnnnttttt      Rm Rt Rn ARMv8.1 LSE Atomics
+        case IF_LS_3E: // .X.........mmmmm ......nnnnnttttt      Rm Rt Rn ARMv8.1 LSE Atomics
             code = emitInsCode(ins, fmt);
             code |= insEncodeDatasizeLS(code, id->idOpSize()); // X
             code |= insEncodeReg_Rm(id->idReg1());             // mmmmm
@@ -8768,75 +8739,71 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_LS_3F: // LS_3F   .Q.........mmmmm ....ssnnnnnttttt      Vt Rn Rm
+        case IF_LS_3F: // .Q.........mmmmm ....ssnnnnnttttt      Vt Rn Rm
             elemsize = optGetElemsize(id->idInsOpt());
             code     = emitInsCode(ins, fmt);
-
             code |= insEncodeVectorsize(id->idOpSize()); // Q
             code |= insEncodeReg_Rm(id->idReg3());       // mmmmm
             code |= insEncodeVLSElemsize(elemsize);      // ss
             code |= insEncodeReg_Rn(id->idReg2());       // nnnnn
             code |= insEncodeReg_Vt(id->idReg1());       // ttttt
-
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_LS_3G: // LS_3G   .Q.........mmmmm ...Sssnnnnnttttt      Vt[] Rn Rm
+        case IF_LS_3G: // .Q.........mmmmm ...Sssnnnnnttttt      Vt[] Rn Rm
             elemsize = id->idOpSize();
             index    = id->idSmallCns();
             code     = emitInsCode(ins, fmt);
-
             code |= insEncodeVLSIndex(elemsize, index); // Q xx S ss
             code |= insEncodeReg_Rm(id->idReg3());      // mmmmm
             code |= insEncodeReg_Rn(id->idReg2());      // nnnnn
             code |= insEncodeReg_Vt(id->idReg1());      // ttttt
-
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DI_1A: // DI_1A   X.......shiiiiii iiiiiinnnnn.....         Rn    imm(i12,sh)
+        case IF_DI_1A: // X.......shiiiiii iiiiiinnnnn.....         Rn    imm(i12,sh)
             assert(insOptsNone(id->idInsOpt()) || insOptsLSL12(id->idInsOpt()));
             imm = id->emitGetInsSC();
             assert(isValidUimm12(imm));
             code = emitInsCode(ins, fmt);
             code |= insEncodeDatasize(id->idOpSize());   // X
             code |= insEncodeShiftImm12(id->idInsOpt()); // sh
-            code |= ((uint32_t)imm << 10);               // iiiiiiiiiiii
+            code |= static_cast<uint32_t>(imm) << 10;    // iiiiiiiiiiii
             code |= insEncodeReg_Rn(id->idReg1());       // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DI_1B: // DI_1B   X........hwiiiii iiiiiiiiiiiddddd      Rd       imm(i16,hw)
+        case IF_DI_1B: // X........hwiiiii iiiiiiiiiiiddddd      Rd       imm(i16,hw)
             imm = id->emitGetInsSC();
             assert(isValidImmHWVal(imm, id->idOpSize()));
             code = emitInsCode(ins, fmt);
             code |= insEncodeDatasize(id->idOpSize()); // X
-            code |= ((uint32_t)imm << 5);              // hwiiiii iiiiiiiiiii
+            code |= static_cast<uint32_t>(imm) << 5;   // hwiiiii iiiiiiiiiii
             code |= insEncodeReg_Rd(id->idReg1());     // ddddd
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DI_1C: // DI_1C   X........Nrrrrrr ssssssnnnnn.....         Rn    imm(N,r,s)
+        case IF_DI_1C: // X........Nrrrrrr ssssssnnnnn.....         Rn    imm(N,r,s)
             imm = id->emitGetInsSC();
             assert(isValidImmNRS(imm, id->idOpSize()));
             code = emitInsCode(ins, fmt);
-            code |= ((uint32_t)imm << 10);             // Nrrrrrrssssss
+            code |= static_cast<uint32_t>(imm) << 10;  // Nrrrrrrssssss
             code |= insEncodeDatasize(id->idOpSize()); // X
             code |= insEncodeReg_Rn(id->idReg1());     // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DI_1D: // DI_1D   X........Nrrrrrr ssssss.....ddddd      Rd       imm(N,r,s)
+        case IF_DI_1D: // X........Nrrrrrr ssssss.....ddddd      Rd       imm(N,r,s)
             imm = id->emitGetInsSC();
             assert(isValidImmNRS(imm, id->idOpSize()));
             code = emitInsCode(ins, fmt);
-            code |= ((uint32_t)imm << 10);             // Nrrrrrrssssss
+            code |= static_cast<uint32_t>(imm) << 10;  // Nrrrrrrssssss
             code |= insEncodeDatasize(id->idOpSize()); // X
             code |= insEncodeReg_Rd(id->idReg1());     // ddddd
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DI_1F: // DI_1F   X..........iiiii cccc..nnnnn.nzcv      Rn imm5  nzcv cond
+        case IF_DI_1F: // X..........iiiii cccc..nnnnn.nzcv      Rn imm5  nzcv cond
             cimm = UnpackCondFlagsImm5Imm(id->emitGetInsSC());
             code = emitInsCode(ins, fmt);
             code |= insEncodeDatasize(id->idOpSize()); // X
@@ -8847,14 +8814,14 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DI_2A: // DI_2A   X.......shiiiiii iiiiiinnnnnddddd      Rd Rn    imm(i12,sh)
+        case IF_DI_2A: // X.......shiiiiii iiiiiinnnnnddddd      Rd Rn    imm(i12,sh)
             assert(insOptsNone(id->idInsOpt()) || insOptsLSL12(id->idInsOpt()));
             imm = id->emitGetInsSC();
             assert(isValidUimm12(imm));
             code = emitInsCode(ins, fmt);
             code |= insEncodeDatasize(id->idOpSize());   // X
             code |= insEncodeShiftImm12(id->idInsOpt()); // sh
-            code |= ((uint32_t)imm << 10);               // iiiiiiiiiiii
+            code |= static_cast<uint32_t>(imm) << 10;    // iiiiiiiiiiii
             code |= insEncodeReg_Rd(id->idReg1());       // ddddd
             code |= insEncodeReg_Rn(id->idReg2());       // nnnnn
             dst += emitOutput_Instr(dst, code);
@@ -8867,7 +8834,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             }
             break;
 
-        case IF_DI_2B: // DI_2B   X.........Xnnnnn ssssssnnnnnddddd      Rd Rn    imm(0-63)
+        case IF_DI_2B: // X.........Xnnnnn ssssssnnnnnddddd      Rd Rn    imm(0-63)
             code = emitInsCode(ins, fmt);
             imm  = id->emitGetInsSC();
             assert(isValidImmShift(imm, id->idOpSize()));
@@ -8879,18 +8846,18 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DI_2C: // DI_2C   X........Nrrrrrr ssssssnnnnnddddd      Rd Rn    imm(N,r,s)
+        case IF_DI_2C: // X........Nrrrrrr ssssssnnnnnddddd      Rd Rn    imm(N,r,s)
             imm = id->emitGetInsSC();
             assert(isValidImmNRS(imm, id->idOpSize()));
             code = emitInsCode(ins, fmt);
-            code |= ((uint32_t)imm << 10);             // Nrrrrrrssssss
+            code |= static_cast<uint32_t>(imm) << 10;  // Nrrrrrrssssss
             code |= insEncodeDatasize(id->idOpSize()); // X
             code |= insEncodeReg_Rd(id->idReg1());     // ddddd
             code |= insEncodeReg_Rn(id->idReg2());     // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DI_2D: // DI_2D   X........Nrrrrrr ssssssnnnnnddddd      Rd Rn    imr, imms   (N,r,s)
+        case IF_DI_2D: // X........Nrrrrrr ssssssnnnnnddddd      Rd Rn    imr, imms   (N,r,s)
             if (ins == INS_asr || ins == INS_lsl || ins == INS_lsr)
             {
                 imm = id->emitGetInsSC();
@@ -8921,14 +8888,14 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(isValidImmNRS(imm, id->idOpSize()));
 
             code = emitInsCode(ins, fmt);
-            code |= ((uint32_t)imm << 10);             // Nrrrrrrssssss
+            code |= static_cast<uint32_t>(imm) << 10;  // Nrrrrrrssssss
             code |= insEncodeDatasize(id->idOpSize()); // X
             code |= insEncodeReg_Rd(id->idReg1());     // ddddd
             code |= insEncodeReg_Rn(id->idReg2());     // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DR_1D: // DR_1D   X............... cccc.......ddddd      Rd       cond
+        case IF_DR_1D: // X............... cccc.......ddddd      Rd       cond
             cimm = UnpackCondImm(id->emitGetInsSC());
             code = emitInsCode(ins, fmt);
             code |= insEncodeDatasize(id->idOpSize()); // X
@@ -8937,7 +8904,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DR_2A: // DR_2A   X..........mmmmm ......nnnnn.....         Rn Rm
+        case IF_DR_2A: // X..........mmmmm ......nnnnn.....         Rn Rm
             assert(insOptsNone(id->idInsOpt()));
             code = emitInsCode(ins, fmt);
             code |= insEncodeDatasize(id->idOpSize()); // X
@@ -8946,7 +8913,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DR_2B: // DR_2B   X.......sh.mmmmm ssssssnnnnn.....         Rn Rm {LSL,LSR,ASR,ROR} imm(0-63)
+        case IF_DR_2B: // X.......sh.mmmmm ssssssnnnnn.....         Rn Rm {LSL,LSR,ASR,ROR} imm(0-63)
             code = emitInsCode(ins, fmt);
             imm  = id->emitGetInsSC();
             assert(isValidImmShift(imm, id->idOpSize()));
@@ -8958,10 +8925,10 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DR_2C: // DR_2C   X..........mmmmm ooosssnnnnn.....         Rn Rm ext(Rm) LSL imm(0-4)
+        case IF_DR_2C: // X..........mmmmm ooosssnnnnn.....         Rn Rm ext(Rm) LSL imm(0-4)
             code = emitInsCode(ins, fmt);
             imm  = id->emitGetInsSC();
-            assert((imm >= 0) && (imm <= 4));          // imm [0..4]
+            assert((imm >= 0) && (imm <= 4));
             code |= insEncodeDatasize(id->idOpSize()); // X
             code |= insEncodeExtend(id->idInsOpt());   // ooo
             code |= insEncodeExtendScale(imm);         // sss
@@ -8970,7 +8937,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DR_2D: // DR_2D   X..........nnnnn cccc..nnnnnddddd      Rd Rn    cond
+        case IF_DR_2D: // X..........nnnnn cccc..nnnnnddddd      Rd Rn    cond
             cimm = UnpackCondImm(id->emitGetInsSC());
             code = emitInsCode(ins, fmt);
             code |= insEncodeDatasize(id->idOpSize()); // X
@@ -8981,7 +8948,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DR_2E: // DR_2E   X..........mmmmm ...........ddddd      Rd    Rm
+        case IF_DR_2E: // X..........mmmmm ...........ddddd      Rd    Rm
             code = emitInsCode(ins, fmt);
             code |= insEncodeDatasize(id->idOpSize()); // X
             code |= insEncodeReg_Rd(id->idReg1());     // ddddd
@@ -8989,7 +8956,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DR_2F: // DR_2F   X.......sh.mmmmm ssssss.....ddddd      Rd    Rm {LSL,LSR,ASR} imm(0-63)
+        case IF_DR_2F: // X.......sh.mmmmm ssssss.....ddddd      Rd    Rm {LSL,LSR,ASR} imm(0-63)
             code = emitInsCode(ins, fmt);
             imm  = id->emitGetInsSC();
             assert(isValidImmShift(imm, id->idOpSize()));
@@ -9001,22 +8968,19 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DR_2G: // DR_2G   X............... .....xnnnnnddddd      Rd Rn
+        case IF_DR_2G: // X............... .....xnnnnnddddd      Rd Rn
             code = emitInsCode(ins, fmt);
             code |= insEncodeDatasize(id->idOpSize()); // X
-            if (ins == INS_rev)
+            if ((ins == INS_rev) && (size == EA_8BYTE))
             {
-                if (size == EA_8BYTE)
-                {
-                    code |= 0x00000400; // x - bit at location 10
-                }
+                code |= 0x00000400;
             }
             code |= insEncodeReg_Rd(id->idReg1()); // ddddd
             code |= insEncodeReg_Rn(id->idReg2()); // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DR_2H: // DR_2H   X........X...... ......nnnnnddddd      Rd Rn
+        case IF_DR_2H: // X........X...... ......nnnnnddddd      Rd Rn
             code = emitInsCode(ins, fmt);
             code |= insEncodeDatasizeBF(code, id->idOpSize()); // X........X
             code |= insEncodeReg_Rd(id->idReg1());             // ddddd
@@ -9024,7 +8988,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DR_2I: // DR_2I   X..........mmmmm cccc..nnnnn.nzcv      Rn Rm    nzcv cond
+        case IF_DR_2I: // X..........mmmmm cccc..nnnnn.nzcv      Rn Rm    nzcv cond
             cimm = UnpackCondFlagsImm(id->emitGetInsSC());
             code = emitInsCode(ins, fmt);
             code |= insEncodeDatasize(id->idOpSize()); // X
@@ -9035,7 +8999,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DR_3A: // DR_3A   X..........mmmmm ......nnnnnmmmmm      Rd Rn Rm
+        case IF_DR_3A: // X..........mmmmm ......nnnnnmmmmm      Rd Rn Rm
             code = emitInsCode(ins, fmt);
             code |= insEncodeDatasize(id->idOpSize()); // X
             code |= insEncodeReg_Rd(id->idReg1());     // ddddd
@@ -9044,7 +9008,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DR_3B: // DR_3B   X.......sh.mmmmm ssssssnnnnnddddd      Rd Rn Rm {LSL,LSR,ASR} imm(0-63)
+        case IF_DR_3B: // X.......sh.mmmmm ssssssnnnnnddddd      Rd Rn Rm {LSL,LSR,ASR} imm(0-63)
             code = emitInsCode(ins, fmt);
             imm  = id->emitGetInsSC();
             assert(isValidImmShift(imm, id->idOpSize()));
@@ -9057,10 +9021,10 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DR_3C: // DR_3C   X..........mmmmm ooosssnnnnnddddd      Rd Rn Rm ext(Rm) LSL imm(0-4)
+        case IF_DR_3C: // X..........mmmmm ooosssnnnnnddddd      Rd Rn Rm ext(Rm) LSL imm(0-4)
             code = emitInsCode(ins, fmt);
             imm  = id->emitGetInsSC();
-            assert((imm >= 0) && (imm <= 4));          // imm [0..4]
+            assert((imm >= 0) && (imm <= 4));
             code |= insEncodeDatasize(id->idOpSize()); // X
             code |= insEncodeExtend(id->idInsOpt());   // ooo
             code |= insEncodeExtendScale(imm);         // sss
@@ -9070,7 +9034,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DR_3D: // DR_3D   X..........mmmmm cccc..nnnnnddddd      Rd Rn Rm cond
+        case IF_DR_3D: // X..........mmmmm cccc..nnnnnddddd      Rd Rn Rm cond
             cimm = UnpackCondImm(id->emitGetInsSC());
             code = emitInsCode(ins, fmt);
             code |= insEncodeDatasize(id->idOpSize()); // X
@@ -9081,7 +9045,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DR_3E: // DR_3E   X........X.mmmmm ssssssnnnnnddddd      Rd Rn Rm imm(0-63)
+        case IF_DR_3E: // X........X.mmmmm ssssssnnnnnddddd      Rd Rn Rm imm(0-63)
             code = emitInsCode(ins, fmt);
             imm  = id->emitGetInsSC();
             assert(isValidImmShift(imm, id->idOpSize()));
@@ -9093,7 +9057,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DR_4A: // DR_4A   X..........mmmmm .aaaaannnnnmmmmm      Rd Rn Rm Ra
+        case IF_DR_4A: // X..........mmmmm .aaaaannnnnmmmmm      Rd Rn Rm Ra
             code = emitInsCode(ins, fmt);
             code |= insEncodeDatasize(id->idOpSize()); // X
             code |= insEncodeReg_Rd(id->idReg1());     // ddddd
@@ -9103,7 +9067,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_1A: // DV_1A   .........X.iiiii iii........ddddd      Vd imm8    (fmov - immediate scalar)
+        case IF_DV_1A: // .........X.iiiii iii........ddddd      Vd imm8    (fmov - immediate scalar)
             imm      = id->emitGetInsSC();
             elemsize = id->idOpSize();
             code     = emitInsCode(ins, fmt);
@@ -9113,48 +9077,43 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_1B: // DV_1B   .QX..........iii cmod..iiiiiddddd      Vd imm8    (immediate vector)
+        case IF_DV_1B: // .QX..........iii cmod..iiiiiddddd      Vd imm8    (immediate vector)
             imm      = id->emitGetInsSC() & 0x0ff;
             immShift = (id->emitGetInsSC() & 0x700) >> 8;
             elemsize = optGetElemsize(id->idInsOpt());
             cmode    = 0;
             switch (elemsize)
-            { // cmode
+            {
                 case EA_1BYTE:
-                    cmode = 0xE; // 1110
+                    cmode = 0xE;
                     break;
                 case EA_2BYTE:
                     cmode = 0x8;
-                    cmode |= (immShift << 1); // 10x0
+                    cmode |= (immShift << 1);
                     break;
                 case EA_4BYTE:
                     if (immShift < 4)
                     {
                         cmode = 0x0;
-                        cmode |= (immShift << 1); // 0xx0
+                        cmode |= (immShift << 1);
                     }
                     else // MSL
                     {
-                        cmode = 0xC;
-                        if (immShift & 2)
-                            cmode |= 1; // 110x
+                        cmode = 0x0C + ((immShift & 2) != 0);
                     }
                     break;
                 case EA_8BYTE:
-                    cmode = 0xE; // 1110
+                    cmode = 0xE;
                     break;
                 default:
                     unreached();
             }
 
             code = emitInsCode(ins, fmt);
-            code |= insEncodeVectorsize(id->idOpSize()); // Q
-            if ((ins == INS_fmov) || (ins == INS_movi))
+            code |= insEncodeVectorsize(id->idOpSize());
+            if (((ins == INS_fmov) || (ins == INS_movi)) && (elemsize == EA_8BYTE))
             {
-                if (elemsize == EA_8BYTE)
-                {
-                    code |= 0x20000000; // X
-                }
+                code |= 0x20000000;
             }
             if (ins != INS_fmov)
             {
@@ -9167,7 +9126,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_1C: // DV_1C   .........X...... ......nnnnn.....      Vn #0.0    (fcmp - with zero)
+        case IF_DV_1C: // .........X...... ......nnnnn.....      Vn #0.0    (fcmp - with zero)
             elemsize = id->idOpSize();
             code     = emitInsCode(ins, fmt);
             code |= insEncodeFloatElemsize(elemsize); // X
@@ -9175,8 +9134,8 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_2A: // DV_2A   .Q.......X...... ......nnnnnddddd      Vd Vn      (fabs, fcvt - vector)
-        case IF_DV_2R: // DV_2R   .Q.......X...... ......nnnnnddddd      Sd Vn      (fmaxnmv, fmaxv, fminnmv, fminv)
+        case IF_DV_2A: // .Q.......X...... ......nnnnnddddd      Vd Vn      (fabs, fcvt - vector)
+        case IF_DV_2R: // .Q.......X...... ......nnnnnddddd      Sd Vn      (fmaxnmv, fmaxv, fminnmv, fminv)
             elemsize = optGetElemsize(id->idInsOpt());
             code     = emitInsCode(ins, fmt);
             code |= insEncodeVectorsize(id->idOpSize()); // Q
@@ -9202,7 +9161,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_2B: // DV_2B   .Q.........iiiii ......nnnnnddddd      Rd Vn[] (umov/smov    - to general)
+        case IF_DV_2B: // .Q.........iiiii ......nnnnnddddd      Rd Vn[] (umov/smov    - to general)
             elemsize = id->idOpSize();
             index    = id->emitGetInsSC();
             datasize = (elemsize == EA_8BYTE) ? EA_16BYTE : EA_8BYTE;
@@ -9218,7 +9177,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_2C: // DV_2C   .Q.........iiiii ......nnnnnddddd      Vd Rn   (dup/ins - vector from general)
+        case IF_DV_2C: // .Q.........iiiii ......nnnnnddddd      Vd Rn   (dup/ins - vector from general)
             if (ins == INS_dup)
             {
                 datasize = id->idOpSize();
@@ -9239,7 +9198,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_2D: // DV_2D   .Q.........iiiii ......nnnnnddddd      Vd Vn[]   (dup - vector)
+        case IF_DV_2D: // .Q.........iiiii ......nnnnnddddd      Vd Vn[]   (dup - vector)
             index    = id->emitGetInsSC();
             elemsize = optGetElemsize(id->idInsOpt());
             code     = emitInsCode(ins, fmt);
@@ -9250,7 +9209,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_2E: // DV_2E   ...........iiiii ......nnnnnddddd      Vd Vn[]   (dup - scalar)
+        case IF_DV_2E: // ...........iiiii ......nnnnnddddd      Vd Vn[]   (dup - scalar)
             index    = id->emitGetInsSC();
             elemsize = id->idOpSize();
             code     = emitInsCode(ins, fmt);
@@ -9260,7 +9219,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_2F: // DV_2F   ...........iiiii .jjjj.nnnnnddddd      Vd[] Vn[] (ins - element)
+        case IF_DV_2F: // ...........iiiii .jjjj.nnnnnddddd      Vd[] Vn[] (ins - element)
             elemsize = id->idOpSize();
             imm      = id->emitGetInsSC();
             index    = (imm >> 4) & 0xf;
@@ -9273,7 +9232,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_2G: // DV_2G   .........X...... ......nnnnnddddd      Vd Vn      (fmov, fcvtXX - register)
+        case IF_DV_2G: // .........X...... ......nnnnnddddd      Vd Vn      (fmov, fcvtXX - register)
             elemsize = id->idOpSize();
             code     = emitInsCode(ins, fmt);
             code |= insEncodeFloatElemsize(elemsize); // X
@@ -9282,7 +9241,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_2H: // DV_2H   X........X...... ......nnnnnddddd      Rd Vn      (fmov - to general)
+        case IF_DV_2H: // X........X...... ......nnnnnddddd      Rd Vn      (fmov - to general)
             elemsize = id->idOpSize();
             code     = emitInsCode(ins, fmt);
             code |= insEncodeConvertOpt(fmt, id->idInsOpt()); // X   X
@@ -9291,7 +9250,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_2I: // DV_2I   X........X...... ......nnnnnddddd      Vd Rn      (fmov - from general)
+        case IF_DV_2I: // X........X...... ......nnnnnddddd      Vd Rn      (fmov - from general)
             elemsize = id->idOpSize();
             code     = emitInsCode(ins, fmt);
             code |= insEncodeConvertOpt(fmt, id->idInsOpt()); // X   X
@@ -9300,7 +9259,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_2J: // DV_2J   ........SS.....D D.....nnnnnddddd      Vd Vn      (fcvt)
+        case IF_DV_2J: // ........SS.....D D.....nnnnnddddd      Vd Vn      (fcvt)
             code = emitInsCode(ins, fmt);
             code |= insEncodeConvertOpt(fmt, id->idInsOpt()); // SS DD
             code |= insEncodeReg_Vd(id->idReg1());            // ddddd
@@ -9308,7 +9267,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_2K: // DV_2K   .........X.mmmmm ......nnnnn.....      Vn Vm      (fcmp)
+        case IF_DV_2K: // .........X.mmmmm ......nnnnn.....      Vn Vm      (fcmp)
             elemsize = id->idOpSize();
             code     = emitInsCode(ins, fmt);
             code |= insEncodeFloatElemsize(elemsize); // X
@@ -9317,7 +9276,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_2L: // DV_2L   ........XX...... ......nnnnnddddd      Vd Vn      (abs, neg - scalar)
+        case IF_DV_2L: // ........XX...... ......nnnnnddddd      Vd Vn      (abs, neg - scalar)
             elemsize = id->idOpSize();
             code     = emitInsCode(ins, fmt);
             code |= insEncodeElemsize(elemsize);   // XX
@@ -9326,9 +9285,8 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_2M: // DV_2M   .Q......XX...... ......nnnnnddddd      Vd Vn      (abs, neg   - vector)
-        case IF_DV_2T: // DV_2T   .Q......XX...... ......nnnnnddddd      Sd Vn      (addv, saddlv, smaxv, sminv, uaddlv,
-                       // umaxv, uminv)
+        case IF_DV_2M: // .Q......XX...... ......nnnnnddddd   Vd Vn  (abs, neg   - vector)
+        case IF_DV_2T: // .Q......XX...... ......nnnnnddddd   Sd Vn  (addv, saddlv, smaxv, sminv, uaddlv, umaxv, uminv)
             elemsize = optGetElemsize(id->idInsOpt());
             code     = emitInsCode(ins, fmt);
             code |= insEncodeVectorsize(id->idOpSize()); // Q
@@ -9338,7 +9296,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_2N: // DV_2N   .........iiiiiii ......nnnnnddddd      Vd Vn imm   (shift - scalar)
+        case IF_DV_2N: // .........iiiiiii ......nnnnnddddd      Vd Vn imm   (shift - scalar)
             imm      = id->emitGetInsSC();
             elemsize = id->idOpSize();
             code     = emitInsCode(ins, fmt);
@@ -9348,7 +9306,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_2O: // DV_2O   .Q.......iiiiiii ......nnnnnddddd      Vd Vn imm   (shift - vector)
+        case IF_DV_2O: // .Q.......iiiiiii ......nnnnnddddd      Vd Vn imm   (shift - vector)
             imm      = id->emitGetInsSC();
             elemsize = optGetElemsize(id->idInsOpt());
             code     = emitInsCode(ins, fmt);
@@ -9359,7 +9317,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_2P: // DV_2P   ............... ......nnnnnddddd      Vd Vn      (aes*, sha1su1)
+        case IF_DV_2P: // ............... ......nnnnnddddd      Vd Vn      (aes*, sha1su1)
             elemsize = optGetElemsize(id->idInsOpt());
             code     = emitInsCode(ins, fmt);
             code |= insEncodeReg_Vd(id->idReg1()); // ddddd
@@ -9367,7 +9325,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_2Q: // DV_2Q   .........X...... ......nnnnnddddd      Vd Vn      (faddp, fmaxnmp, fmaxp, fminnmp,
+        case IF_DV_2Q: // .........X...... ......nnnnnddddd      Vd Vn      (faddp, fmaxnmp, fmaxp, fminnmp,
                        // fminp - scalar)
             elemsize = optGetElemsize(id->idInsOpt());
             code     = emitInsCode(ins, fmt);
@@ -9377,7 +9335,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_2S: // DV_2S   ........XX...... ......nnnnnddddd      Sd Vn      (addp - scalar)
+        case IF_DV_2S: // ........XX...... ......nnnnnddddd      Sd Vn      (addp - scalar)
             elemsize = optGetElemsize(id->idInsOpt());
             code     = emitInsCode(ins, fmt);
             code |= insEncodeElemsize(elemsize);   // XX
@@ -9386,14 +9344,14 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_2U: // DV_2U   ................ ......nnnnnddddd      Sd Sn   (sha1h)
+        case IF_DV_2U: // ................ ......nnnnnddddd      Sd Sn   (sha1h)
             code = emitInsCode(ins, fmt);
             code |= insEncodeReg_Vd(id->idReg1()); // ddddd
             code |= insEncodeReg_Vn(id->idReg2()); // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_3A: // DV_3A   .Q......XX.mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
+        case IF_DV_3A: // .Q......XX.mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
             code     = emitInsCode(ins, fmt);
             elemsize = optGetElemsize(id->idInsOpt());
             code |= insEncodeVectorsize(id->idOpSize()); // Q
@@ -9404,7 +9362,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_3AI: // DV_3AI  .Q......XXLMmmmm ....H.nnnnnddddd      Vd Vn Vm[] (vector)
+        case IF_DV_3AI: // .Q......XXLMmmmm ....H.nnnnnddddd      Vd Vn Vm[] (vector)
             code     = emitInsCode(ins, fmt);
             imm      = id->emitGetInsSC();
             elemsize = optGetElemsize(id->idInsOpt());
@@ -9418,7 +9376,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_3B: // DV_3B   .Q.......X.mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
+        case IF_DV_3B: // .Q.......X.mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
             code     = emitInsCode(ins, fmt);
             elemsize = optGetElemsize(id->idInsOpt());
             code |= insEncodeVectorsize(id->idOpSize()); // Q
@@ -9429,7 +9387,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_3BI: // DV_3BI  .Q.......XLmmmmm ....H.nnnnnddddd      Vd Vn Vm[] (vector by element)
+        case IF_DV_3BI: // .Q.......XLmmmmm ....H.nnnnnddddd      Vd Vn Vm[] (vector by element)
             code     = emitInsCode(ins, fmt);
             imm      = id->emitGetInsSC();
             elemsize = optGetElemsize(id->idInsOpt());
@@ -9443,7 +9401,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_3C: // DV_3C   .Q.........mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
+        case IF_DV_3C: // .Q.........mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
             code = emitInsCode(ins, fmt);
             code |= insEncodeVectorsize(id->idOpSize()); // Q
             code |= insEncodeReg_Vd(id->idReg1());       // ddddd
@@ -9452,7 +9410,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_3D: // DV_3D   .........X.mmmmm ......nnnnnddddd      Vd Vn Vm   (scalar)
+        case IF_DV_3D: // .........X.mmmmm ......nnnnnddddd      Vd Vn Vm   (scalar)
             code = emitInsCode(ins, fmt);
             code |= insEncodeFloatElemsize(id->idOpSize()); // X
             code |= insEncodeReg_Vd(id->idReg1());          // ddddd
@@ -9461,7 +9419,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_3DI: // DV_3DI  .........XLmmmmm ....H.nnnnnddddd      Vd Vn Vm[] (scalar by element)
+        case IF_DV_3DI: // .........XLmmmmm ....H.nnnnnddddd      Vd Vn Vm[] (scalar by element)
             code     = emitInsCode(ins, fmt);
             imm      = id->emitGetInsSC();
             elemsize = id->idOpSize();
@@ -9484,7 +9442,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_3EI: // DV_3EI ........XXLMmmmm ....H.nnnnnddddd      Vd Vn Vm[] (scalar by element)
+        case IF_DV_3EI: // ........XXLMmmmm ....H.nnnnnddddd      Vd Vn Vm[] (scalar by element)
             code     = emitInsCode(ins, fmt);
             imm      = id->emitGetInsSC();
             elemsize = id->idOpSize();
@@ -9497,7 +9455,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_3F: // DV_3F   ...........mmmmm ......nnnnnddddd      Vd Vn Vm   (vector) - source dest regs overlap
+        case IF_DV_3F: // ...........mmmmm ......nnnnnddddd      Vd Vn Vm   (vector) - source dest regs overlap
             code = emitInsCode(ins, fmt);
             code |= insEncodeReg_Vd(id->idReg1()); // ddddd
             code |= insEncodeReg_Vn(id->idReg2()); // nnnnn
@@ -9505,7 +9463,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_3G: // DV_3G   .Q.........mmmmm .iiii.nnnnnddddd      Vd Vn Vm imm (vector)
+        case IF_DV_3G: // .Q.........mmmmm .iiii.nnnnnddddd      Vd Vn Vm imm (vector)
             imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             code |= insEncodeVectorsize(id->idOpSize()); // Q
@@ -9516,7 +9474,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_4A: // DV_4A   .........X.mmmmm .aaaaannnnnddddd      Vd Va Vn Vm (scalar)
+        case IF_DV_4A: // .........X.mmmmm .aaaaannnnnddddd      Vd Va Vn Vm (scalar)
             code     = emitInsCode(ins, fmt);
             elemsize = id->idOpSize();
             code |= insEncodeFloatElemsize(elemsize); // X
@@ -9527,12 +9485,12 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_SN_0A: // SN_0A   ................ ................
+        case IF_SN_0A: // ................ ................
             code = emitInsCode(ins, fmt);
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_SI_0A: // SI_0A   ...........iiiii iiiiiiiiiii.....               imm16
+        case IF_SI_0A: // ...........iiiii iiiiiiiiiii.....               imm16
             imm = id->emitGetInsSC();
             assert(isValidUimm16(imm));
             code = emitInsCode(ins, fmt);
@@ -9540,7 +9498,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_SI_0B: // SI_0B   ................ ....bbbb........               imm4 - barrier
+        case IF_SI_0B: // ................ ....bbbb........               imm4 - barrier
             imm = id->emitGetInsSC();
             assert((imm >= 0) && (imm <= 15));
             code = emitInsCode(ins, fmt);
@@ -9548,7 +9506,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_SR_1A: // SR_1A   ................ ...........ttttt      Rt       (dc zva)
+        case IF_SR_1A: // ................ ...........ttttt      Rt       (dc zva)
             assert(insOptsNone(id->idInsOpt()));
             code = emitInsCode(ins, fmt);
             code |= insEncodeReg_Rt(id->idReg1()); // ttttt
@@ -9556,8 +9514,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             break;
 
         default:
-            assert(!"Unexpected format");
-            break;
+            unreached();
     }
 
     // Determine if any registers now hold GC refs, or whether a register that was overwritten held a GC ref.
@@ -10261,15 +10218,15 @@ void Arm64AsmPrinter::Print(instrDesc* id)
         int64_t  index2;
         unsigned registerListSize;
 
-        case IF_BI_0A: // BI_0A   ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
-        case IF_BI_0B: // BI_0B   ......iiiiiiiiii iiiiiiiiiii.....               simm19:00
-        case IF_BI_1A: // BI_1A   ......iiiiiiiiii iiiiiiiiiiittttt      Rt       simm19:00
-        case IF_BI_1B: // BI_1B   B.......bbbbbiii iiiiiiiiiiittttt      Rt imm6, simm14:00
+        case IF_BI_0A: // ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
+        case IF_BI_0B: // ......iiiiiiiiii iiiiiiiiiii.....               simm19:00
+        case IF_BI_1A: // ......iiiiiiiiii iiiiiiiiiiittttt      Rt       simm19:00
+        case IF_BI_1B: // B.......bbbbbiii iiiiiiiiiiittttt      Rt imm6, simm14:00
         case IF_LARGEJMP:
             emitDispJumpLabel(static_cast<instrDescJmp*>(id));
             break;
 
-        case IF_LS_1A: // LS_1A   XX...V..iiiiiiii iiiiiiiiiiittttt      Rt    PC imm(1MB)
+        case IF_LS_1A: // XX...V..iiiiiiii iiiiiiiiiiittttt      Rt    PC imm(1MB)
         case IF_LARGELDC:
         case IF_LARGEADR:
         case IF_SMALLADR:
@@ -10279,36 +10236,35 @@ void Arm64AsmPrinter::Print(instrDesc* id)
         case IF_NOP_JMP:
             break;
 
-        case IF_BI_0C: // BI_0C   ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
+        case IF_BI_0C: // ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
             printf("%s",
                    compiler->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle)));
             break;
 
-        case IF_BR_1A: // BR_1A   ................ ......nnnnn.....         Rn
+        case IF_BR_1A: // ................ ......nnnnn.....         Rn
             assert(insOptsNone(id->idInsOpt()));
             emitDispReg(id->idReg1(), size, false);
             break;
 
-        case IF_BR_1B: // BR_1B   ................ ......nnnnn.....         Rn
-            // The size of a branch target is always EA_PTRSIZE
+        case IF_BR_1B: // ................ ......nnnnn.....         Rn
             assert(insOptsNone(id->idInsOpt()));
             emitDispReg(id->idReg3(), EA_PTRSIZE, false);
             break;
 
-        case IF_DI_1E: // DI_1E   .ii.....iiiiiiii iiiiiiiiiiiddddd      Rd       simm21
+        case IF_DI_1E: // .ii.....iiiiiiii iiiiiiiiiiiddddd      Rd       simm21
             assert(insOptsNone(id->idInsOpt()));
             emitDispReg(id->idReg1(), size, true);
             emitDispLargeImm(id, fmt, id->emitGetInsSC());
             break;
 
-        case IF_LS_2A: // LS_2A   .X.......X...... ......nnnnnttttt      Rt Rn
+        case IF_LS_2A: // .X.......X...... ......nnnnnttttt      Rt Rn
             assert(insOptsNone(id->idInsOpt()));
             assert(id->emitGetInsSC() == 0);
             emitDispReg(id->idReg1(), emitInsTargetRegSize(id), true);
             emitDispAddrRI(id->idReg2(), id->idInsOpt(), 0);
             break;
 
-        case IF_LS_2B: // LS_2B   .X.......Xiiiiii iiiiiinnnnnttttt      Rt Rn    imm(0-4095)
+        case IF_LS_2B: // .X.......Xiiiiii iiiiiinnnnnttttt      Rt Rn    imm(0-4095)
             assert(insOptsNone(id->idInsOpt()));
             imm   = id->emitGetInsSC();
             scale = NaturalScale(emitInsLoadStoreSize(id));
@@ -10317,15 +10273,15 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             emitDispAddrRI(id->idReg2(), id->idInsOpt(), imm);
             break;
 
-        case IF_LS_2C: // LS_2C   .X.......X.iiiii iiiiPPnnnnnttttt      Rt Rn    imm(-256..+255) no/pre/post inc
+        case IF_LS_2C: // .X.......X.iiiii iiiiPPnnnnnttttt      Rt Rn    imm(-256..+255) no/pre/post inc
             assert(insOptsNone(id->idInsOpt()) || insOptsIndexed(id->idInsOpt()));
             imm = id->emitGetInsSC();
             emitDispReg(id->idReg1(), emitInsTargetRegSize(id), true);
             emitDispAddrRI(id->idReg2(), id->idInsOpt(), imm);
             break;
 
-        case IF_LS_2D: // LS_2D   .Q.............. ....ssnnnnnttttt      Vt Rn
-        case IF_LS_2E: // LS_2E   .Q.............. ....ssnnnnnttttt      Vt Rn
+        case IF_LS_2D: // .Q.............. ....ssnnnnnttttt      Vt Rn
+        case IF_LS_2E: // .Q.............. ....ssnnnnnttttt      Vt Rn
             registerListSize = insGetRegisterListSize(id->idIns());
             emitDispVectorRegList(id->idReg1(), registerListSize, id->idInsOpt(), true);
 
@@ -10343,8 +10299,8 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             }
             break;
 
-        case IF_LS_2F: // LS_2F   .Q.............. xx.Sssnnnnnttttt      Vt[] Rn
-        case IF_LS_2G: // LS_2G   .Q.............. xx.Sssnnnnnttttt      Vt[] Rn
+        case IF_LS_2F: // .Q.............. xx.Sssnnnnnttttt      Vt[] Rn
+        case IF_LS_2G: // .Q.............. xx.Sssnnnnnttttt      Vt[] Rn
             registerListSize = insGetRegisterListSize(id->idIns());
             elemsize         = id->idOpSize();
             emitDispVectorElemList(id->idReg1(), registerListSize, elemsize, id->idSmallCns(), true);
@@ -10361,13 +10317,13 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             }
             break;
 
-        case IF_LS_3A: // LS_3A   .X.......X.mmmmm oooS..nnnnnttttt      Rt Rn Rm ext(Rm) LSL {}
+        case IF_LS_3A: // .X.......X.mmmmm oooS..nnnnnttttt      Rt Rn Rm ext(Rm) LSL {}
             assert(insOptsLSExtend(id->idInsOpt()));
             emitDispReg(id->idReg1(), emitInsTargetRegSize(id), true);
             emitDispAddrRRExt(id->idReg2(), id->idReg3(), id->idInsOpt(), id->idReg3Scaled(), size);
             break;
 
-        case IF_LS_3B: // LS_3B   X............... .aaaaannnnnddddd      Rt Ra Rn
+        case IF_LS_3B: // X............... .aaaaannnnnddddd      Rt Ra Rn
             assert(insOptsNone(id->idInsOpt()));
             assert(id->emitGetInsSC() == 0);
             emitDispReg(id->idReg1(), emitInsTargetRegSize(id), true);
@@ -10375,7 +10331,7 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             emitDispAddrRI(id->idReg3(), id->idInsOpt(), 0);
             break;
 
-        case IF_LS_3C: // LS_3C   X.........iiiiii iaaaaannnnnddddd      Rt Ra Rn imm(im7,sh)
+        case IF_LS_3C: // X.........iiiiii iaaaaannnnnddddd      Rt Ra Rn imm(im7,sh)
             assert(insOptsNone(id->idInsOpt()) || insOptsIndexed(id->idInsOpt()));
             imm   = id->emitGetInsSC();
             scale = NaturalScale(emitInsLoadStoreSize(id));
@@ -10385,14 +10341,14 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             emitDispAddrRI(id->idReg3(), id->idInsOpt(), imm);
             break;
 
-        case IF_LS_3D: // LS_3D   .X.......X.mmmmm ......nnnnnttttt      Wm Rt Rn
+        case IF_LS_3D: // .X.......X.mmmmm ......nnnnnttttt      Wm Rt Rn
             assert(insOptsNone(id->idInsOpt()));
             emitDispReg(id->idReg1(), EA_4BYTE, true);
             emitDispReg(id->idReg2(), emitInsTargetRegSize(id), true);
             emitDispAddrRI(id->idReg3(), id->idInsOpt(), 0);
             break;
 
-        case IF_LS_3E: // LS_3E   .X.........mmmmm ......nnnnnttttt      Rm Rt Rn ARMv8.1 LSE Atomics
+        case IF_LS_3E: // .X.........mmmmm ......nnnnnttttt      Rm Rt Rn ARMv8.1 LSE Atomics
             assert(insOptsNone(id->idInsOpt()));
             assert((EA_SIZE(size) == 4) || (EA_SIZE(size) == 8));
             emitDispReg(id->idReg1(), size, true);
@@ -10400,19 +10356,16 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             emitDispAddrRI(id->idReg3(), id->idInsOpt(), 0);
             break;
 
-        case IF_LS_3F: // LS_3F   .Q.........mmmmm ....ssnnnnnttttt      Vt Rn Rm
-        case IF_LS_3G: // LS_3G   .Q.........mmmmm ...Sssnnnnnttttt      Vt[] Rn Rm
+        case IF_LS_3F: // .Q.........mmmmm ....ssnnnnnttttt      Vt Rn Rm
+        case IF_LS_3G: // .Q.........mmmmm ...Sssnnnnnttttt      Vt[] Rn Rm
             registerListSize = insGetRegisterListSize(id->idIns());
 
             if (fmt == IF_LS_3F)
             {
-                // Load/Store multiple structures       post-indexed by a register
-                // Load single structure and replicate  post-indexed by a register
                 emitDispVectorRegList(id->idReg1(), registerListSize, id->idInsOpt(), true);
             }
             else
             {
-                // Load/Store single structure          post-indexed by a register
                 elemsize = id->idOpSize();
                 emitDispVectorElemList(id->idReg1(), registerListSize, elemsize, id->idSmallCns(), true);
             }
@@ -10423,12 +10376,12 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             emitDispReg(id->idReg3(), EA_8BYTE, false);
             break;
 
-        case IF_DI_1A: // DI_1A   X.......shiiiiii iiiiiinnnnn.....      Rn       imm(i12,sh)
+        case IF_DI_1A: // X.......shiiiiii iiiiiinnnnn.....      Rn       imm(i12,sh)
             emitDispReg(id->idReg1(), size, true);
             emitDispImmOptsLSL12(id->emitGetInsSC(), id->idInsOpt());
             break;
 
-        case IF_DI_1B: // DI_1B   X........hwiiiii iiiiiiiiiiiddddd      Rd       imm(i16,hw)
+        case IF_DI_1B: // X........hwiiiii iiiiiiiiiiiddddd      Rd       imm(i16,hw)
             emitDispReg(id->idReg1(), size, true);
             if (ins == INS_mov)
             {
@@ -10447,17 +10400,17 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             }
             break;
 
-        case IF_DI_1C: // DI_1C   X........Nrrrrrr ssssssnnnnn.....         Rn    imm(N,r,s)
+        case IF_DI_1C: // X........Nrrrrrr ssssssnnnnn.....         Rn    imm(N,r,s)
             emitDispReg(id->idReg1(), size, true);
             emitDispImm(DecodeBitMaskImm(id->emitGetInsSC(), size), false);
             break;
 
-        case IF_DI_1D: // DI_1D   X........Nrrrrrr ssssss.....ddddd      Rd       imm(N,r,s)
+        case IF_DI_1D: // X........Nrrrrrr ssssss.....ddddd      Rd       imm(N,r,s)
             emitDispReg(encodingZRtoSP(id->idReg1()), size, true);
             emitDispImm(DecodeBitMaskImm(id->emitGetInsSC(), size), false);
             break;
 
-        case IF_DI_2A: // DI_2A   X.......shiiiiii iiiiiinnnnnddddd      Rd Rn    imm(i12,sh)
+        case IF_DI_2A: // X.......shiiiiii iiiiiinnnnnddddd      Rd Rn    imm(i12,sh)
             if ((ins == INS_add) || (ins == INS_sub))
             {
                 emitDispReg(encodingZRtoSP(id->idReg1()), size, true);
@@ -10482,13 +10435,13 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             }
             break;
 
-        case IF_DI_2B: // DI_2B   X........X.nnnnn ssssssnnnnnddddd      Rd Rn    imm(0-63)
+        case IF_DI_2B: // X........X.nnnnn ssssssnnnnnddddd      Rd Rn    imm(0-63)
             emitDispReg(id->idReg1(), size, true);
             emitDispReg(id->idReg2(), size, true);
             emitDispImm(id->emitGetInsSC(), false);
             break;
 
-        case IF_DI_2C: // DI_2C   X........Nrrrrrr ssssssnnnnnddddd      Rd Rn    imm(N,r,s)
+        case IF_DI_2C: // X........Nrrrrrr ssssssnnnnnddddd      Rd Rn    imm(N,r,s)
             if (ins == INS_ands)
             {
                 emitDispReg(id->idReg1(), size, true);
@@ -10501,7 +10454,7 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             emitDispImm(DecodeBitMaskImm(id->emitGetInsSC(), size), false);
             break;
 
-        case IF_DI_2D: // DI_2D   X........Nrrrrrr ssssssnnnnnddddd      Rd Rn    imr, ims   (N,r,s)
+        case IF_DI_2D: // X........Nrrrrrr ssssssnnnnnddddd      Rd Rn    imr, ims   (N,r,s)
             emitDispReg(id->idReg1(), size, true);
             emitDispReg(id->idReg2(), size, true);
 
@@ -10545,7 +10498,7 @@ void Arm64AsmPrinter::Print(instrDesc* id)
 
             break;
 
-        case IF_DI_1F: // DI_1F   X..........iiiii cccc..nnnnn.nzcv      Rn imm5  nzcv cond
+        case IF_DI_1F: // X..........iiiii cccc..nnnnn.nzcv      Rn imm5  nzcv cond
             emitDispReg(id->idReg1(), size, true);
             cimm = UnpackCondFlagsImm5Imm(id->emitGetInsSC());
             emitDispImm(cimm.imm5, true);
@@ -10554,50 +10507,50 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             emitDispCond(cimm.cond);
             break;
 
-        case IF_DR_1D: // DR_1D   X............... cccc.......mmmmm      Rd       cond
+        case IF_DR_1D: // X............... cccc.......mmmmm      Rd       cond
             emitDispReg(id->idReg1(), size, true);
             emitDispCond(UnpackCondImm(id->emitGetInsSC()).cond);
             break;
 
-        case IF_DR_2A: // DR_2A   X..........mmmmm ......nnnnn.....         Rn Rm
+        case IF_DR_2A: // X..........mmmmm ......nnnnn.....         Rn Rm
             emitDispReg(id->idReg1(), size, true);
             emitDispReg(id->idReg2(), size, false);
             break;
 
-        case IF_DR_2B: // DR_2B   X.......sh.mmmmm ssssssnnnnn.....         Rn Rm {LSL,LSR,ASR,ROR} imm(0-63)
+        case IF_DR_2B: // X.......sh.mmmmm ssssssnnnnn.....         Rn Rm {LSL,LSR,ASR,ROR} imm(0-63)
             emitDispReg(id->idReg1(), size, true);
             emitDispShiftedReg(id->idReg2(), id->idInsOpt(), id->emitGetInsSC(), size);
             break;
 
-        case IF_DR_2C: // DR_2C   X..........mmmmm ooosssnnnnn.....         Rn Rm ext(Rm) LSL imm(0-4)
+        case IF_DR_2C: // X..........mmmmm ooosssnnnnn.....         Rn Rm ext(Rm) LSL imm(0-4)
             emitDispReg(encodingZRtoSP(id->idReg1()), size, true);
             imm = id->emitGetInsSC();
             emitDispExtendReg(id->idReg2(), id->idInsOpt(), imm);
             break;
 
-        case IF_DR_2D: // DR_2D   X..........nnnnn cccc..nnnnnddddd      Rd Rn    cond
+        case IF_DR_2D: // X..........nnnnn cccc..nnnnnddddd      Rd Rn    cond
             emitDispReg(id->idReg1(), size, true);
             emitDispReg(id->idReg2(), size, true);
             emitDispCond(UnpackCondImm(id->emitGetInsSC()).cond);
             break;
 
-        case IF_DR_2E: // DR_2E   X..........mmmmm ...........ddddd      Rd    Rm
-        case IF_DV_2U: // DV_2U   ................ ......nnnnnddddd      Sd    Sn
+        case IF_DR_2E: // X..........mmmmm ...........ddddd      Rd    Rm
+        case IF_DV_2U: // ................ ......nnnnnddddd      Sd    Sn
             emitDispReg(id->idReg1(), size, true);
             emitDispReg(id->idReg2(), size, false);
             break;
 
-        case IF_DR_2F: // DR_2F   X.......sh.mmmmm ssssss.....ddddd      Rd    Rm {LSL,LSR,ASR} imm(0-63)
+        case IF_DR_2F: // X.......sh.mmmmm ssssss.....ddddd      Rd    Rm {LSL,LSR,ASR} imm(0-63)
             emitDispReg(id->idReg1(), size, true);
             emitDispShiftedReg(id->idReg2(), id->idInsOpt(), id->emitGetInsSC(), size);
             break;
 
-        case IF_DR_2G: // DR_2G   X............... ......nnnnnddddd      Rd Rn
+        case IF_DR_2G: // X............... ......nnnnnddddd      Rd Rn
             emitDispReg(encodingZRtoSP(id->idReg1()), size, true);
             emitDispReg(encodingZRtoSP(id->idReg2()), size, false);
             break;
 
-        case IF_DR_2H: // DR_2H   X........X...... ......nnnnnddddd      Rd Rn
+        case IF_DR_2H: // X........X...... ......nnnnnddddd      Rd Rn
             if ((ins == INS_uxtb) || (ins == INS_uxth))
             {
                 // There is no 64-bit variant of uxtb and uxth
@@ -10613,7 +10566,7 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             }
             break;
 
-        case IF_DR_2I: // DR_2I   X..........mmmmm cccc..nnnnn.nzcv      Rn Rm    nzcv cond
+        case IF_DR_2I: // X..........mmmmm cccc..nnnnn.nzcv      Rn Rm    nzcv cond
             emitDispReg(id->idReg1(), size, true);
             emitDispReg(id->idReg2(), size, true);
             cimm = UnpackCondFlagsImm(id->emitGetInsSC());
@@ -10622,7 +10575,7 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             emitDispCond(cimm.cond);
             break;
 
-        case IF_DR_3A: // DR_3A   X..........mmmmm ......nnnnnmmmmm      Rd Rn Rm
+        case IF_DR_3A: // X..........mmmmm ......nnnnnmmmmm      Rd Rn Rm
             if ((ins == INS_add) || (ins == INS_sub))
             {
                 emitDispReg(encodingZRtoSP(id->idReg1()), size, true);
@@ -10651,34 +10604,34 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             emitDispReg(id->idReg3(), size, false);
             break;
 
-        case IF_DR_3B: // DR_3B   X.......sh.mmmmm ssssssnnnnnddddd      Rd Rn Rm {LSL,LSR,ASR} imm(0-63)
+        case IF_DR_3B: // X.......sh.mmmmm ssssssnnnnnddddd      Rd Rn Rm {LSL,LSR,ASR} imm(0-63)
             emitDispReg(id->idReg1(), size, true);
             emitDispReg(id->idReg2(), size, true);
             emitDispShiftedReg(id->idReg3(), id->idInsOpt(), id->emitGetInsSC(), size);
             break;
 
-        case IF_DR_3C: // DR_3C   X..........mmmmm ooosssnnnnnddddd      Rd Rn Rm ext(Rm) LSL imm(0-4)
+        case IF_DR_3C: // X..........mmmmm ooosssnnnnnddddd      Rd Rn Rm ext(Rm) LSL imm(0-4)
             emitDispReg(encodingZRtoSP(id->idReg1()), size, true);
             emitDispReg(encodingZRtoSP(id->idReg2()), size, true);
             imm = id->emitGetInsSC();
             emitDispExtendReg(id->idReg3(), id->idInsOpt(), imm);
             break;
 
-        case IF_DR_3D: // DR_3D   X..........mmmmm cccc..nnnnnmmmmm      Rd Rn Rm cond
+        case IF_DR_3D: // X..........mmmmm cccc..nnnnnmmmmm      Rd Rn Rm cond
             emitDispReg(id->idReg1(), size, true);
             emitDispReg(id->idReg2(), size, true);
             emitDispReg(id->idReg3(), size, true);
             emitDispCond(UnpackCondImm(id->emitGetInsSC()).cond);
             break;
 
-        case IF_DR_3E: // DR_3E   X........X.mmmmm ssssssnnnnnddddd      Rd Rn Rm imm(0-63)
+        case IF_DR_3E: // X........X.mmmmm ssssssnnnnnddddd      Rd Rn Rm imm(0-63)
             emitDispReg(id->idReg1(), size, true);
             emitDispReg(id->idReg2(), size, true);
             emitDispReg(id->idReg3(), size, true);
             emitDispImm(id->emitGetInsSC(), false);
             break;
 
-        case IF_DR_4A: // DR_4A   X..........mmmmm .aaaaannnnnmmmmm      Rd Rn Rm Ra
+        case IF_DR_4A: // X..........mmmmm .aaaaannnnnmmmmm      Rd Rn Rm Ra
             if ((ins == INS_smaddl) || (ins == INS_smsubl) || (ins == INS_umaddl) || (ins == INS_umsubl))
             {
                 // smaddl Xd, Wn, Wm, Xa
@@ -10696,13 +10649,13 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             }
             break;
 
-        case IF_DV_1A: // DV_1A   .........X.iiiii iii........ddddd      Vd imm8 (fmov - immediate scalar)
+        case IF_DV_1A: // .........X.iiiii iii........ddddd      Vd imm8 (fmov - immediate scalar)
             elemsize = id->idOpSize();
             emitDispReg(id->idReg1(), elemsize, true);
             emitDispFloatImm(id->emitGetInsSC());
             break;
 
-        case IF_DV_1B: // DV_1B   .QX..........iii cmod..iiiiiddddd      Vd imm8 (immediate vector)
+        case IF_DV_1B: // .QX..........iii cmod..iiiiiddddd      Vd imm8 (immediate vector)
             imm      = id->emitGetInsSC() & 0x0ff;
             immShift = (id->emitGetInsSC() & 0x700) >> 8;
             hasShift = (immShift != 0);
@@ -10751,13 +10704,13 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             }
             break;
 
-        case IF_DV_1C: // DV_1C   .........X...... ......nnnnn.....      Vn #0.0 (fcmp - with zero)
+        case IF_DV_1C: // .........X...... ......nnnnn.....      Vn #0.0 (fcmp - with zero)
             elemsize = id->idOpSize();
             emitDispReg(id->idReg1(), elemsize, true);
             emitDispFloatZero();
             break;
 
-        case IF_DV_2A: // DV_2A   .Q.......X...... ......nnnnnddddd      Vd Vn   (fabs, fcvt - vector)
+        case IF_DV_2A: // .Q.......X...... ......nnnnnddddd      Vd Vn   (fabs, fcvt - vector)
             if (IsVectorLongIns(ins))
             {
                 emitDispVectorReg(id->idReg1(), optWidenElemsizeArrangement(id->idInsOpt()), true);
@@ -10776,12 +10729,12 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             }
             break;
 
-        case IF_DV_2P: // DV_2P   ................ ......nnnnnddddd      Vd Vn   (aes*, sha1su1)
+        case IF_DV_2P: // ................ ......nnnnnddddd      Vd Vn   (aes*, sha1su1)
             emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
             emitDispVectorReg(id->idReg2(), id->idInsOpt(), false);
             break;
 
-        case IF_DV_2M: // DV_2M   .Q......XX...... ......nnnnnddddd      Vd Vn   (abs, neg - vector)
+        case IF_DV_2M: // .Q......XX...... ......nnnnnddddd      Vd Vn   (abs, neg - vector)
             if (IsVectorNarrowIns(ins))
             {
                 emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
@@ -10795,7 +10748,7 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             }
             break;
 
-        case IF_DV_2N: // DV_2N   .........iiiiiii ......nnnnnddddd      Vd Vn imm   (shift - scalar)
+        case IF_DV_2N: // .........iiiiiii ......nnnnnddddd      Vd Vn imm   (shift - scalar)
             elemsize = id->idOpSize();
             if (IsVectorLongIns(ins))
             {
@@ -10817,7 +10770,7 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             emitDispImm(imm, false);
             break;
 
-        case IF_DV_2O: // DV_2O   .Q.......iiiiiii ......nnnnnddddd      Vd Vn imm   (shift - vector)
+        case IF_DV_2O: // .Q.......iiiiiii ......nnnnnddddd      Vd Vn imm   (shift - vector)
             if ((ins == INS_sxtl) || (ins == INS_sxtl2) || (ins == INS_uxtl) || (ins == INS_uxtl2))
             {
                 assert((IsVectorLongIns(ins)));
@@ -10848,7 +10801,7 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             }
             break;
 
-        case IF_DV_2B: // DV_2B   .Q.........iiiii ......nnnnnddddd      Rd Vn[] (umov/smov    - to general)
+        case IF_DV_2B: // .Q.........iiiii ......nnnnnddddd      Rd Vn[] (umov/smov    - to general)
             srcsize = id->idOpSize();
             index   = id->emitGetInsSC();
             if (ins == INS_smov)
@@ -10863,7 +10816,7 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             emitDispVectorRegIndex(id->idReg2(), srcsize, index, false);
             break;
 
-        case IF_DV_2C: // DV_2C   .Q.........iiiii ......nnnnnddddd      Vd Rn   (dup/ins - vector from general)
+        case IF_DV_2C: // .Q.........iiiii ......nnnnnddddd      Vd Rn   (dup/ins - vector from general)
             if (ins == INS_dup)
             {
                 datasize = id->idOpSize();
@@ -10882,7 +10835,7 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             emitDispReg(id->idReg2(), (elemsize == EA_8BYTE) ? EA_8BYTE : EA_4BYTE, false);
             break;
 
-        case IF_DV_2D: // DV_2D   .Q.........iiiii ......nnnnnddddd      Vd Vn[]   (dup - vector)
+        case IF_DV_2D: // .Q.........iiiii ......nnnnnddddd      Vd Vn[]   (dup - vector)
             datasize = id->idOpSize();
             assert(isValidVectorDatasize(datasize));
             assert(isValidArrangement(datasize, id->idInsOpt()));
@@ -10892,14 +10845,14 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             emitDispVectorRegIndex(id->idReg2(), elemsize, index, false);
             break;
 
-        case IF_DV_2E: // DV_2E   ...........iiiii ......nnnnnddddd      Vd Vn[]   (dup - scalar)
+        case IF_DV_2E: // ...........iiiii ......nnnnnddddd      Vd Vn[]   (dup - scalar)
             elemsize = id->idOpSize();
             index    = id->emitGetInsSC();
             emitDispReg(id->idReg1(), elemsize, true);
             emitDispVectorRegIndex(id->idReg2(), elemsize, index, false);
             break;
 
-        case IF_DV_2F: // DV_2F   ...........iiiii .jjjj.nnnnnddddd      Vd[] Vn[] (ins - element)
+        case IF_DV_2F: // ...........iiiii .jjjj.nnnnnddddd      Vd[] Vn[] (ins - element)
             imm      = id->emitGetInsSC();
             index    = (imm >> 4) & 0xf;
             index2   = imm & 0xf;
@@ -10908,9 +10861,9 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             emitDispVectorRegIndex(id->idReg2(), elemsize, index2, false);
             break;
 
-        case IF_DV_2G: // DV_2G   .........X...... ......nnnnnddddd      Vd Vn      (fmov, fcvtXX - register)
-        case IF_DV_2K: // DV_2K   .........X.mmmmm ......nnnnn.....      Vn Vm      (fcmp)
-        case IF_DV_2L: // DV_2L   ........XX...... ......nnnnnddddd      Vd Vn      (abs, neg - scalar)
+        case IF_DV_2G: // .........X...... ......nnnnnddddd      Vd Vn      (fmov, fcvtXX - register)
+        case IF_DV_2K: // .........X.mmmmm ......nnnnn.....      Vn Vm      (fcmp)
+        case IF_DV_2L: // ........XX...... ......nnnnnddddd      Vd Vn      (abs, neg - scalar)
             size = id->idOpSize();
             if ((ins == INS_fcmeq) || (ins == INS_fcmge) || (ins == INS_fcmgt) || (ins == INS_fcmle) ||
                 (ins == INS_fcmlt))
@@ -10931,9 +10884,9 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             }
             break;
 
-        case IF_DV_2H: // DV_2H   X........X...... ......nnnnnddddd      Rd Vn      (fmov, fcvtXX - to general)
-        case IF_DV_2I: // DV_2I   X........X...... ......nnnnnddddd      Vd Rn      (fmov, Xcvtf - from general)
-        case IF_DV_2J: // DV_2J   ........SS.....D D.....nnnnnddddd      Vd Vn      (fcvt)
+        case IF_DV_2H: // X........X...... ......nnnnnddddd      Rd Vn      (fmov, fcvtXX - to general)
+        case IF_DV_2I: // X........X...... ......nnnnnddddd      Vd Rn      (fmov, Xcvtf - from general)
+        case IF_DV_2J: // ........SS.....D D.....nnnnnddddd      Vd Vn      (fcvt)
             dstsize = optGetDstsize(id->idInsOpt());
             srcsize = optGetSrcsize(id->idInsOpt());
 
@@ -10941,11 +10894,11 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             emitDispReg(id->idReg2(), srcsize, false);
             break;
 
-        case IF_DV_2Q: // DV_2Q   .........X...... ......nnnnnddddd      Sd Vn      (faddp, fmaxnmp, fmaxp, fminnmp,
+        case IF_DV_2Q: // .........X...... ......nnnnnddddd      Sd Vn      (faddp, fmaxnmp, fmaxp, fminnmp,
                        // fminp - scalar)
-        case IF_DV_2R: // DV_2R   .Q.......X...... ......nnnnnddddd      Sd Vn      (fmaxnmv, fmaxv, fminnmv, fminv)
-        case IF_DV_2S: // DV_2S   ........XX...... ......nnnnnddddd      Sd Vn      (addp - scalar)
-        case IF_DV_2T: // DV_2T   .Q......XX...... ......nnnnnddddd      Sd Vn      (addv, saddlv, smaxv, sminv, uaddlv,
+        case IF_DV_2R: // .Q.......X...... ......nnnnnddddd      Sd Vn      (fmaxnmv, fmaxv, fminnmv, fminv)
+        case IF_DV_2S: // ........XX...... ......nnnnnddddd      Sd Vn      (addp - scalar)
+        case IF_DV_2T: // .Q......XX...... ......nnnnnddddd      Sd Vn      (addv, saddlv, smaxv, sminv, uaddlv,
                        // umaxv, uminv)
             if ((ins == INS_sadalp) || (ins == INS_saddlp) || (ins == INS_uadalp) || (ins == INS_uaddlp))
             {
@@ -10967,7 +10920,7 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             }
             break;
 
-        case IF_DV_3A: // DV_3A   .Q......XX.mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
+        case IF_DV_3A: // .Q......XX.mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
             if ((ins == INS_sdot) || (ins == INS_udot))
             {
                 // sdot/udot Vd.2s, Vn.8b, Vm.8b
@@ -11014,7 +10967,7 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             }
             break;
 
-        case IF_DV_3AI: // DV_3AI  .Q......XXLMmmmm ....H.nnnnnddddd      Vd Vn Vm[] (vector by element)
+        case IF_DV_3AI: // .Q......XXLMmmmm ....H.nnnnnddddd      Vd Vn Vm[] (vector by element)
             if ((ins == INS_sdot) || (ins == INS_udot))
             {
                 // sdot/udot Vd.2s, Vn.8b, Vm.4b[index]
@@ -11050,13 +11003,13 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             }
             break;
 
-        case IF_DV_3B: // DV_3B   .Q.........mmmmm ......nnnnnddddd      Vd Vn Vm  (vector)
+        case IF_DV_3B: // .Q.........mmmmm ......nnnnnddddd      Vd Vn Vm  (vector)
             emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
             emitDispVectorReg(id->idReg2(), id->idInsOpt(), true);
             emitDispVectorReg(id->idReg3(), id->idInsOpt(), false);
             break;
 
-        case IF_DV_3C: // DV_3C   .Q.........mmmmm ......nnnnnddddd      Vd Vn Vm  (vector)
+        case IF_DV_3C: //  .Q.........mmmmm ......nnnnnddddd      Vd Vn Vm  (vector)
             emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
             switch (ins)
             {
@@ -11080,20 +11033,20 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             emitDispVectorReg(id->idReg3(), id->idInsOpt(), false);
             break;
 
-        case IF_DV_3BI: // DV_3BI  .Q........Lmmmmm ....H.nnnnnddddd      Vd Vn Vm[] (vector by element)
+        case IF_DV_3BI: // .Q........Lmmmmm ....H.nnnnnddddd      Vd Vn Vm[] (vector by element)
             emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
             emitDispVectorReg(id->idReg2(), id->idInsOpt(), true);
             elemsize = optGetElemsize(id->idInsOpt());
             emitDispVectorRegIndex(id->idReg3(), elemsize, id->emitGetInsSC(), false);
             break;
 
-        case IF_DV_3D: // DV_3D   .........X.mmmmm ......nnnnnddddd      Vd Vn Vm  (scalar)
+        case IF_DV_3D: // .........X.mmmmm ......nnnnnddddd      Vd Vn Vm  (scalar)
             emitDispReg(id->idReg1(), size, true);
             emitDispReg(id->idReg2(), size, true);
             emitDispReg(id->idReg3(), size, false);
             break;
 
-        case IF_DV_3E: // DV_3E   ........XX.mmmmm ......nnnnnddddd      Vd Vn Vm  (scalar)
+        case IF_DV_3E: //  ........XX.mmmmm ......nnnnnddddd      Vd Vn Vm  (scalar)
             if (IsVectorLongIns(ins))
             {
                 emitDispReg(id->idReg1(), widenDatasize(size), true);
@@ -11108,7 +11061,7 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             emitDispReg(id->idReg3(), size, false);
             break;
 
-        case IF_DV_3EI: // DV_3EI ........XXLMmmmm ....H.nnnnnddddd      Vd Vn Vm[] (scalar by element)
+        case IF_DV_3EI: // ........XXLMmmmm ....H.nnnnnddddd      Vd Vn Vm[] (scalar by element)
             if (IsVectorLongIns(ins))
             {
                 emitDispReg(id->idReg1(), widenDatasize(size), true);
@@ -11124,7 +11077,7 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             emitDispVectorRegIndex(id->idReg3(), elemsize, index, false);
             break;
 
-        case IF_DV_3F: // DV_3F   ..........mmmmm ......nnnnnddddd       Vd Vn Vm (vector)
+        case IF_DV_3F: // ..........mmmmm ......nnnnnddddd       Vd Vn Vm (vector)
             if ((ins == INS_sha1c) || (ins == INS_sha1m) || (ins == INS_sha1p))
             {
                 // Qd, Sn, Vm (vector)
@@ -11148,45 +11101,44 @@ void Arm64AsmPrinter::Print(instrDesc* id)
             }
             break;
 
-        case IF_DV_3DI: // DV_3DI  .........XLmmmmm ....H.nnnnnddddd      Vd Vn Vm[] (scalar by element)
+        case IF_DV_3DI: // .........XLmmmmm ....H.nnnnnddddd      Vd Vn Vm[] (scalar by element)
             emitDispReg(id->idReg1(), size, true);
             emitDispReg(id->idReg2(), size, true);
             elemsize = size;
             emitDispVectorRegIndex(id->idReg3(), elemsize, id->emitGetInsSC(), false);
             break;
 
-        case IF_DV_3G: // DV_3G   .Q.........mmmmm .iiii.nnnnnddddd      Vd Vn Vm imm (vector)
+        case IF_DV_3G: // .Q.........mmmmm .iiii.nnnnnddddd      Vd Vn Vm imm (vector)
             emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
             emitDispVectorReg(id->idReg2(), id->idInsOpt(), true);
             emitDispVectorReg(id->idReg3(), id->idInsOpt(), true);
             emitDispImm(id->emitGetInsSC(), false);
             break;
 
-        case IF_DV_4A: // DV_4A   .........X.mmmmm .aaaaannnnnddddd      Vd Va Vn Vm (scalar)
+        case IF_DV_4A: // .........X.mmmmm .aaaaannnnnddddd      Vd Va Vn Vm (scalar)
             emitDispReg(id->idReg1(), size, true);
             emitDispReg(id->idReg2(), size, true);
             emitDispReg(id->idReg3(), size, true);
             emitDispReg(id->idReg4(), size, false);
             break;
 
-        case IF_SN_0A: // SN_0A   ................ ................
+        case IF_SN_0A: // ................ ................
             break;
 
-        case IF_SI_0A: // SI_0A   ...........iiiii iiiiiiiiiii.....               imm16
+        case IF_SI_0A: // ...........iiiii iiiiiiiiiii.....               imm16
             emitDispImm(id->emitGetInsSC(), false);
             break;
 
-        case IF_SI_0B: // SI_0B   ................ ....bbbb........               imm4 - barrier
+        case IF_SI_0B: // ................ ....bbbb........               imm4 - barrier
             emitDispBarrier((insBarrier)id->emitGetInsSC());
             break;
 
-        case IF_SR_1A: // SR_1A   ................ ...........ttttt      Rt       (dc zva)
+        case IF_SR_1A: // ................ ...........ttttt      Rt       (dc zva)
             emitDispReg(id->idReg1(), size, false);
             break;
 
         default:
             printf("unexpected format %s", EmitterBase::emitIfName(id->idInsFmt()));
-            assert(!"unexpectedFormat");
             break;
     }
 
