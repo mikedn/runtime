@@ -309,11 +309,9 @@ static emitJumpKind JccToJumpKind(instruction ins)
 
 enum ID_OPS : uint8_t
 {
-    ID_OP_NONE, // no additional arguments
-    ID_OP_SCNS, // small const  operand (21-bits or less, no reloc)
-    ID_OP_JMP,  // local jump
-    ID_OP_CALL, // method call
-    ID_OP_SPEC, // special handling required
+    ID_OP_NONE,
+    ID_OP_JMP,
+    ID_OP_CALL
 };
 
 static ID_OPS GetFormatOp(insFormat format)
@@ -335,38 +333,19 @@ size_t Arm64Emitter::instrDescSmall::GetDescSize() const
         return sizeof(instrDescSmall);
     }
 
-    ID_OPS idOp = GetFormatOp(_idInsFmt);
+    auto op = GetFormatOp(_idInsFmt);
 
-    bool isCallIns    = (_idIns == INS_bl) || (_idIns == INS_blr) || (_idIns == INS_b_tail) || (_idIns == INS_br_tail);
-    bool maybeCallIns = (_idIns == INS_b) || (_idIns == INS_br);
-
-    switch (idOp)
+    switch (op)
     {
-        case ID_OP_NONE:
-            break;
-
+        case ID_OP_CALL:
+            assert(!_idLargeCns);
+            return _idLargeCall ? sizeof(instrDescCGCA) : sizeof(instrDesc);
         case ID_OP_JMP:
             return sizeof(instrDescJmp);
-
-        case ID_OP_CALL:
-            assert(isCallIns || maybeCallIns);
-            if (_idLargeCall)
-            {
-                return sizeof(instrDescCGCA);
-            }
-            else
-            {
-                assert(!_idLargeCns);
-                return sizeof(instrDesc);
-            }
-            break;
-
         default:
-            NO_WAY("unexpected instruction descriptor format");
-            break;
+            assert(op == ID_OP_NONE);
+            return _idLargeCns ? sizeof(instrDescCns) : sizeof(instrDesc);
     }
-
-    return _idLargeCns ? sizeof(instrDescCns) : sizeof(instrDesc);
 }
 
 size_t Arm64Emitter::instrDesc::emitGetInstrDescSize() const
@@ -376,12 +355,7 @@ size_t Arm64Emitter::instrDesc::emitGetInstrDescSize() const
         return sizeof(instrDescSmall);
     }
 
-    if (_idLargeCns)
-    {
-        return sizeof(instrDescCns);
-    }
-
-    return sizeof(instrDesc);
+    return _idLargeCns ? sizeof(instrDescCns) : sizeof(instrDesc);
 }
 
 int64_t Arm64Emitter::instrDesc::emitGetInsSC() const
@@ -8086,7 +8060,6 @@ static uint32_t insEncodeConvertOpt(insFormat fmt, insOpts conversion)
         default:
             assert(!"Invalid 'conversion' value");
             return 0;
-            ;
     }
 }
 
