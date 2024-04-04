@@ -87,15 +87,6 @@ static_assert_no_msg(static_cast<regNumber>(static_cast<regNumberSmall>(REG_COUN
 
 /*****************************************************************************/
 
-#ifdef DEBUG
-#define DSP_SRC_OPER_LEFT 0
-#define DSP_SRC_OPER_RIGHT 1
-#define DSP_DST_OPER_LEFT 1
-#define DSP_DST_OPER_RIGHT 0
-#endif
-
-/*****************************************************************************/
-
 // The pseudorandom nop insertion is not necessary for current scenarios
 // #define PSEUDORANDOM_NOP_INSERTION
 
