@@ -1860,7 +1860,7 @@ void EmitterBase::emitLoopAlignment()
     }
     else
     {
-        paddingBytes = MAX_ENCODED_SIZE;
+        paddingBytes = instrDesc::MAX_ENCODED_SIZE;
         static_cast<X86Emitter*>(this)->emitLoopAlign(paddingBytes);
     }
 
@@ -2139,7 +2139,7 @@ void EmitterBase::emitLoopAlignAdjustments()
 
         assert(estimatedPaddingNeeded >= actualPaddingNeeded);
 
-        unsigned short diff = (unsigned short)(estimatedPaddingNeeded - actualPaddingNeeded);
+        uint16_t diff = static_cast<uint16_t>(estimatedPaddingNeeded - actualPaddingNeeded);
 
         if (diff != 0)
         {
@@ -2155,29 +2155,27 @@ void EmitterBase::emitLoopAlignAdjustments()
 
             if (emitComp->opts.compJitAlignLoopAdaptive)
             {
-                assert(actualPaddingNeeded < MAX_ENCODED_SIZE);
+                assert(actualPaddingNeeded < instrDesc::MAX_ENCODED_SIZE);
                 alignInstr->idCodeSize(actualPaddingNeeded);
             }
             else
             {
                 unsigned paddingToAdj = actualPaddingNeeded;
 
-#ifdef DEBUG
-                int instrAdjusted =
-                    (emitComp->opts.compJitAlignLoopBoundary + (MAX_ENCODED_SIZE - 1)) / MAX_ENCODED_SIZE;
-#endif
+                INDEBUG(int instrAdjusted =
+                            (emitComp->opts.compJitAlignLoopBoundary + (instrDesc::MAX_ENCODED_SIZE - 1)) /
+                            instrDesc::MAX_ENCODED_SIZE);
+
                 // Adjust the padding amount in all align instructions in this IG
                 instrDescAlign *alignInstrToAdj = alignInstr, *prevAlignInstr = nullptr;
                 for (; alignInstrToAdj != nullptr && alignInstrToAdj->idaIG == alignInstr->idaIG;
                      alignInstrToAdj = alignInstrToAdj->idaNext)
                 {
-                    unsigned newPadding = min(paddingToAdj, MAX_ENCODED_SIZE);
+                    unsigned newPadding = Min(paddingToAdj, instrDesc::MAX_ENCODED_SIZE);
                     alignInstrToAdj->idCodeSize(newPadding);
                     paddingToAdj -= newPadding;
                     prevAlignInstr = alignInstrToAdj;
-#ifdef DEBUG
-                    instrAdjusted--;
-#endif
+                    INDEBUG(instrAdjusted--);
                 }
                 assert(paddingToAdj == 0);
                 assert(instrAdjusted == 0);

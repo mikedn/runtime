@@ -1356,8 +1356,8 @@ instrDesc* X86Emitter::emitNewInstrGCReg(emitAttr attr, RegNum reg)
 
 void X86Emitter::emitLoopAlign(uint16_t paddingBytes)
 {
-    assert(paddingBytes <= MAX_ENCODED_SIZE);
-    paddingBytes = min(paddingBytes, MAX_ENCODED_SIZE); // We may need to skip up to 15 bytes of code
+    assert(paddingBytes <= instrDesc::MAX_ENCODED_SIZE);
+    paddingBytes = min(paddingBytes, instrDesc::MAX_ENCODED_SIZE);
 
     instrDescAlign* id = AllocInstr<instrDescAlign>();
     id->idIns(INS_align);
@@ -1371,11 +1371,11 @@ void X86Emitter::emitLoopAlign(uint16_t paddingBytes)
 
 void X86Emitter::emitLongLoopAlign(uint16_t alignmentBoundary)
 {
-    unsigned short nPaddingBytes    = alignmentBoundary - 1;
-    unsigned short nAlignInstr      = (nPaddingBytes + (MAX_ENCODED_SIZE - 1)) / MAX_ENCODED_SIZE;
-    unsigned short instrDescSize    = nAlignInstr * sizeof(instrDescAlign);
-    unsigned short insAlignCount    = nPaddingBytes / MAX_ENCODED_SIZE;
-    unsigned short lastInsAlignSize = nPaddingBytes % MAX_ENCODED_SIZE;
+    uint16_t nPaddingBytes    = alignmentBoundary - 1;
+    uint16_t nAlignInstr      = (nPaddingBytes + (instrDesc::MAX_ENCODED_SIZE - 1)) / instrDesc::MAX_ENCODED_SIZE;
+    uint16_t instrDescSize    = nAlignInstr * sizeof(instrDescAlign);
+    uint16_t insAlignCount    = nPaddingBytes / instrDesc::MAX_ENCODED_SIZE;
+    uint16_t lastInsAlignSize = nPaddingBytes % instrDesc::MAX_ENCODED_SIZE;
 
     // Ensure that all align instructions fall in same IG.
     if (emitCurIGfreeNext + instrDescSize >= emitCurIGfreeEndp)
@@ -1385,15 +1385,16 @@ void X86Emitter::emitLongLoopAlign(uint16_t alignmentBoundary)
 
     while (insAlignCount)
     {
-        emitLoopAlign(MAX_ENCODED_SIZE);
+        emitLoopAlign(instrDesc::MAX_ENCODED_SIZE);
         insAlignCount--;
     }
+
     emitLoopAlign(lastInsAlignSize);
 }
 
 void X86Emitter::emitIns_Nop(unsigned size)
 {
-    assert(size <= MAX_ENCODED_SIZE);
+    assert(size <= instrDesc::MAX_ENCODED_SIZE);
 
     instrDesc* id = emitNewInstr();
     id->idIns(INS_nop);
@@ -5463,7 +5464,7 @@ size_t X86Encoder::emitOutputImm(uint8_t* dst, instrDesc* id, size_t size, ssize
 
 static uint8_t* emitOutputNOP(uint8_t* dstRW, size_t nBytes)
 {
-    assert(nBytes <= MAX_ENCODED_SIZE);
+    assert(nBytes <= instrDesc::MAX_ENCODED_SIZE);
 
 #ifdef TARGET_X86
     // TODO-X86-CQ: when VIA C3 CPU's are out of circulation, switch to the

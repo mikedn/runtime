@@ -307,10 +307,6 @@ enum insSize : unsigned
 };
 #endif
 
-#ifdef TARGET_XARCH
-#define MAX_ENCODED_SIZE 15
-#endif
-
 #ifdef DEBUG
 struct instrDescDebugInfo
 {
@@ -518,6 +514,8 @@ public:
     }
 
 #ifdef TARGET_XARCH
+    static constexpr unsigned MAX_ENCODED_SIZE = 15;
+
     unsigned idCodeSize() const
     {
         return _idCodeSize;
