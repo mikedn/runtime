@@ -110,20 +110,6 @@ enum insOpts : unsigned
     INS_OPTS_ROR
 };
 
-struct ArmImm
-{
-    static bool IsMovImm(int32_t value);
-    static bool IsMvnImm(int32_t value);
-    static bool IsAddImm(int32_t value, insFlags flags);
-    static bool IsAddSpImm(int32_t value);
-    static bool IsCmpImm(int32_t value, insFlags flags);
-    static bool IsAluImm(int32_t value);
-    static bool IsLdStImm(int32_t value, emitAttr size);
-    static bool IsVLdStImm(int32_t value);
-    static bool IsBlImm(ssize_t value, Compiler* compiler);
-    static bool IsImm(instruction ins, int32_t imm, insFlags flags);
-};
-
 INDEBUG(const char* insOptsName(insOpts opt);)
 
 bool IsLoadIns(instruction ins);
@@ -346,6 +332,24 @@ constexpr emitAttr emitVecTypeSize(unsigned size)
             unreached();
     }
 }
+#endif
+
+#ifdef TARGET_ARM
+
+struct ArmImm
+{
+    static bool IsMovImm(int32_t value);
+    static bool IsMvnImm(int32_t value);
+    static bool IsAddImm(int32_t value, insFlags flags);
+    static bool IsAddSpImm(int32_t value);
+    static bool IsCmpImm(int32_t value, insFlags flags);
+    static bool IsAluImm(int32_t value);
+    static bool IsLdStImm(int32_t value, emitAttr size);
+    static bool IsVLdStImm(int32_t value);
+    static bool IsBlImm(ssize_t value, Compiler* compiler);
+    static bool IsImm(instruction ins, int32_t imm, insFlags flags);
+};
+
 #endif
 
 #ifdef TARGET_ARM64
