@@ -283,6 +283,865 @@ struct StackAddrMode
     int varOffs;
 };
 
+enum opSize : unsigned
+{
+    OPSZ1  = 0,
+    OPSZ2  = 1,
+    OPSZ4  = 2,
+    OPSZ8  = 3,
+    OPSZ16 = 4,
+    OPSZ32 = 5
+};
+
+#ifdef TARGET_ARM
+enum insSize : unsigned
+{
+    ISZ_NONE,
+    ISZ_16BIT,
+    ISZ_32BIT,
+    ISZ_48BIT // pseudo-instruction for conditional branch with imm24 range,
+              // encoded as IT of condition followed by an unconditional branch
+};
+#endif
+
+#ifdef TARGET_XARCH
+#define MAX_ENCODED_SIZE 15
+#endif
+
+#ifdef DEBUG
+struct instrDescDebugInfo
+{
+    unsigned idNum;
+    uint16_t idSize; // size of the instruction descriptor
+    int      varNum  = INT_MIN;
+    int      varOffs = 0;
+#ifdef TARGET_XARCH
+    HandleKind dispHandleKind = HandleKind::None;
+#endif
+    HandleKind        idHandleKind = HandleKind::None;
+    void*             idHandle     = nullptr;
+    CORINFO_SIG_INFO* idCallSig    = nullptr; // Used to report native call site signatures to the EE
+
+    instrDescDebugInfo(unsigned num, unsigned size) : idNum(num), idSize(static_cast<uint16_t>(size))
+    {
+        assert(size <= UINT16_MAX);
+    }
+};
+#endif // DEBUG
+
+#ifdef TARGET_XARCH
+struct emitAddrMode
+{
+#ifdef TARGET_AMD64
+    // x64 has 32 registers currently but APX has 64.
+    // We need to be able to store REG_NA too so we'll need an extra bit.
+    static_assert_no_msg(REG_NA <= 127);
+    static constexpr unsigned RegBits  = 7;
+    static constexpr unsigned DispBits = 16;
+    static constexpr unsigned DispMin  = -32767;
+    static constexpr unsigned DispMax  = 32767;
+    INDEBUG(static constexpr int32_t LargeDispMarker = -32768;)
+#else
+    static_assert_no_msg(REG_NA <= 31);
+    static constexpr unsigned RegBits  = 5;
+    static constexpr unsigned DispBits = 16;
+    static constexpr unsigned DispMin  = -32767;
+    static constexpr unsigned DispMax  = 32767;
+    INDEBUG(static constexpr int32_t LargeDispMarker = -32768;)
+#endif
+
+    RegNum   base : RegBits;
+    RegNum   index : RegBits;
+    uint32_t scale : 2;
+#ifdef TARGET_X86
+    unsigned spare : 4; // Give these to disp? Though 16 bits should be enough for everybody...
+#endif
+    int32_t disp : DispBits;
+
+    static bool IsLargeDisp(ssize_t disp)
+    {
+        return (disp < DispMin) || (DispMax < disp);
+    }
+};
+#endif // TARGET_XARCH
+
+struct instrDescSmall
+{
+    friend struct instrDesc;
+
+#ifdef TARGET_AMD64
+    static_assert_no_msg(INS_COUNT <= 1024);
+    static_assert_no_msg(IF_COUNT <= 128);
+    static_assert_no_msg(ACTUAL_REG_COUNT <= 64); // 32 currently but APX has 64
+    static constexpr unsigned RegBits      = 6;
+    static constexpr unsigned SmallImmBits = 16;
+
+private:
+    instruction _idIns : 10;       // Instruction opcode
+    insFormat   _idInsFmt : 7;     // Instruction format
+    unsigned    _idOpSize : 3;     // Operation size (log 2)
+    GCtype      _idGCref : 2;      // GC type of the first destination register
+    unsigned    _idCnsReloc : 1;   // Immediate is relocatable
+    unsigned    _idDspReloc : 1;   // Address mode displacement is relocatable
+    unsigned    _idSmallDsc : 1;   // this is instrDescSmall
+    unsigned    _idLargeCall : 1;  // this is instrDescCGCA
+    unsigned    _idLargeCns : 1;   // this is instrDescCns/instrDescCnsAmd
+    unsigned    _idLargeDsp : 1;   // this is instrDescAmd
+    unsigned    _idCodeSize : 4;   // Encoded instruction size
+    RegNum      _idReg1 : RegBits; // First register, also holds the GC ref reg mask for calls
+    RegNum      _idReg2 : RegBits; // Second register, also holds the GC byref reg mask for calls
+    unsigned    _idNoGC : 1;       // Helper call that does not need GC information
+    unsigned    _idSpare : 3;      // Reserved for EVEX stuff?
+    unsigned    _idSmallCns : SmallImmBits;
+#endif // TARGET_XARCH
+
+#ifdef TARGET_X86
+    static_assert_no_msg(INS_COUNT <= 1024);
+    static_assert_no_msg(IF_COUNT <= 128);
+    static_assert_no_msg(ACTUAL_REG_COUNT == 16);
+    static constexpr unsigned RegBits      = 4;
+    static constexpr unsigned SmallImmBits = 16;
+
+private:
+    instruction _idIns : 10;       // Instruction opcode
+    insFormat   _idInsFmt : 7;     // Instruction format
+    unsigned    _idOpSize : 3;     // Operation size (log 2)
+    GCtype      _idGCref : 2;      // GC type of the first destination register
+    unsigned    _idCnsReloc : 1;   // Immediate is relocatable
+    unsigned    _idDspReloc : 1;   // Address mode displacement is relocatable
+    unsigned    _idSmallDsc : 1;   // this is instrDescSmall
+    unsigned    _idLargeCall : 1;  // this is instrDescCGCA
+    unsigned    _idLargeCns : 1;   // this is instrDescCns/instrDescCnsAmd
+    unsigned    _idLargeDsp : 1;   // this is instrDescAmd
+    unsigned    _idCodeSize : 4;   // Encoded instruction size
+    RegNum      _idReg1 : RegBits; // First register, also holds the GC ref reg mask for calls
+    RegNum      _idReg2 : RegBits; // Second register, also holds the GC byref reg mask for calls
+    unsigned    _idNoGC : 1;       // Helper call that does not need GC information
+    unsigned    _idFSPrefix : 1;   // FS segment prefix
+    unsigned    _idSpare : 6;      // EVEX stuff?
+    unsigned    _idSmallCns : SmallImmBits;
+#endif // TARGET_XARCH
+
+#ifdef TARGET_ARM64
+    static_assert_no_msg(INS_COUNT <= 512);
+    static_assert_no_msg(IF_COUNT <= 128);
+    // REG_SP is included the in actual reg count but we don't need that here.
+    static_assert_no_msg(ACTUAL_REG_COUNT - 1 <= 64);
+    static constexpr unsigned RegBits      = 6;
+    static constexpr unsigned SmallImmBits = 16;
+
+private:
+    instruction _idIns : 9;        // Instruction opcode
+    insFormat   _idInsFmt : 7;     // Instruction format
+    insOpts     _idInsOpt : 6;     // Instruction options
+    unsigned    _idOpSize : 3;     // Operation size (log 2)
+    GCtype      _idGCref : 2;      // GC type of the first destination register
+    unsigned    _idSmallDsc : 1;   // this is instrDescSmall
+    unsigned    _idLargeCall : 1;  // this is instrDescCGCA
+    unsigned    _idLargeCns : 1;   // this is instrDescCns
+    unsigned    _idCnsReloc : 1;   // Immediate is relocatable
+    unsigned    _idLclVar : 1;     // Local load/store
+    RegNum      _idReg1 : RegBits; // First register, also holds the GC ref reg mask for calls
+    RegNum      _idReg2 : RegBits; // Second register, also holds the GC byref reg mask for calls
+    unsigned    _idNoGC : 1;       // Helper call that does not need GC information
+    unsigned    _idSpare : 3;      // Give these to small imm?
+    unsigned    _idSmallCns : SmallImmBits;
+#endif // TARGET_ARM64
+
+#ifdef TARGET_ARM
+    static_assert_no_msg(INS_COUNT <= 256);
+    static_assert_no_msg(IF_COUNT <= 128);
+    static_assert_no_msg(ACTUAL_REG_COUNT <= 64);
+    static constexpr unsigned RegBits      = 6;
+    static constexpr unsigned SmallImmBits = 16;
+
+private:
+    instruction _idIns : 8;        // Instruction opcode
+    insFormat   _idInsFmt : 7;     // Instruction format
+    insOpts     _idInsOpt : 3;     // Instruction options
+    insFlags    _idInsFlags : 1;   // Instruction sets flags
+    unsigned    _idOpSize : 2;     // Operation size (log 2)
+    GCtype      _idGCref : 2;      // GC type of the first destination register
+    unsigned    _idSmallDsc : 1;   // this is instrDescSmall
+    unsigned    _idLargeCall : 1;  // this is instrDescCGCA
+    unsigned    _idLargeCns : 1;   // this is instrDescCns
+    unsigned    _idSpare1 : 1;     // Give this to small imm?
+    unsigned    _idNoGC : 1;       // Helper call that does not need GC information
+    insSize     _idInsSize : 2;    // Encoded instruction size: 16, 32 or 48 bits
+    unsigned    _idLclVar : 1;     // Local load/store
+    unsigned    _idCnsReloc : 1;   // Immediate is relocatable
+    RegNum      _idReg1 : RegBits; // First register, also holds the GC ref reg mask for calls
+    RegNum      _idReg2 : RegBits; // Second register, also holds the GC byref reg mask for calls
+    unsigned    _idSpare : 4;      // Give these to small imm?
+    unsigned    _idSmallCns : SmallImmBits;
+#endif // TARGET_ARM
+
+    INDEBUG(instrDescDebugInfo* _idDebugOnlyInfo;)
+
+public:
+    instruction idIns() const
+    {
+        return _idIns;
+    }
+
+    void idIns(instruction ins)
+    {
+        assert((ins != INS_invalid) && (ins < INS_COUNT));
+        _idIns = ins;
+    }
+
+    insFormat idInsFmt() const
+    {
+        return _idInsFmt;
+    }
+
+    void idInsFmt(insFormat insFmt)
+    {
+#ifdef TARGET_ARM64
+        noway_assert(insFmt != IF_NONE); // Only the x86 emitter uses IF_NONE, it is invalid for ARM64 (and ARM32)
+#endif
+        assert(insFmt < IF_COUNT);
+        _idInsFmt = insFmt;
+    }
+
+    bool idIsSmallDsc() const
+    {
+        return _idSmallDsc;
+    }
+
+    void idSetIsSmallDsc()
+    {
+        _idSmallDsc = true;
+    }
+
+#ifdef TARGET_XARCH
+    unsigned idCodeSize() const
+    {
+        return _idCodeSize;
+    }
+
+    void idCodeSize(unsigned sz)
+    {
+        assert(sz <= 15); // Intel decoder limit.
+        _idCodeSize = sz;
+        assert(sz == _idCodeSize);
+    }
+
+    bool idIsDspReloc() const
+    {
+        return _idDspReloc;
+    }
+
+    void idSetIsDspReloc(bool val = true)
+    {
+        _idDspReloc = val;
+    }
+
+    bool idIsReloc()
+    {
+        return idIsDspReloc() || idIsCnsReloc();
+    }
+
+    bool idIsLargeDsp() const
+    {
+        return _idLargeDsp;
+    }
+
+    void idSetIsLargeDsp()
+    {
+        _idLargeDsp = true;
+    }
+
+    void idSetIsSmallDsp()
+    {
+        _idLargeDsp = false;
+    }
+
+#ifdef WINDOWS_X86_ABI
+    void SetHasFSPrefix()
+    {
+        _idFSPrefix = true;
+    }
+#endif
+
+    bool HasFSPrefix() const
+    {
+#ifdef WINDOWS_X86_ABI
+        return _idFSPrefix;
+#else
+        return false;
+#endif
+    }
+#endif // TARGET_XARCH
+
+#ifdef TARGET_ARM64
+    unsigned idCodeSize() const
+    {
+        switch (_idInsFmt)
+        {
+            case IF_LARGEADR: // adrp + add
+            case IF_LARGELDC: // adrp + ldr
+            case IF_LARGEJMP: // b<cond> + b<uncond>
+                return 8;
+            case IF_GC_REG:
+            case IF_NOP_JMP:
+                return 0;
+            default:
+                return 4;
+        }
+    }
+#endif // TARGET_ARM64
+
+#ifdef TARGET_ARM
+    unsigned idCodeSize() const
+    {
+        switch (_idInsSize)
+        {
+            case ISZ_NONE:
+                return 0;
+            case ISZ_16BIT:
+                return 2;
+            case ISZ_32BIT:
+                return 4;
+            default:
+                assert(_idInsSize == ISZ_48BIT);
+                return 6;
+        }
+    }
+
+    insSize idInsSize() const
+    {
+        return _idInsSize;
+    }
+
+    void idInsSize(insSize isz)
+    {
+        _idInsSize = isz;
+        assert(isz == _idInsSize);
+    }
+
+    insFlags idInsFlags() const
+    {
+        return _idInsFlags;
+    }
+
+    void idInsFlags(insFlags sf)
+    {
+        _idInsFlags = sf;
+        assert(sf == _idInsFlags);
+    }
+#endif // TARGET_ARM
+
+#ifdef TARGET_ARMARCH
+    insOpts idInsOpt() const
+    {
+        return static_cast<insOpts>(_idInsOpt);
+    }
+
+    void idInsOpt(insOpts opt)
+    {
+        _idInsOpt = opt;
+        assert(opt == _idInsOpt);
+    }
+
+    bool idIsLclVar() const
+    {
+        return _idLclVar;
+    }
+#endif // TARGET_ARMARCH
+
+    emitAttr idOpSize() const
+    {
+        return static_cast<emitAttr>(1 << _idOpSize);
+    }
+
+    void idOpSize(emitAttr size)
+    {
+        assert(size == 1 || size == 2 || size == 4 || size == 8 || size == 16 || size == 32);
+        _idOpSize = BitPosition(size);
+    }
+
+    GCtype idGCref() const
+    {
+        return _idGCref;
+    }
+
+    void idGCref(GCtype gctype)
+    {
+        _idGCref = gctype;
+    }
+
+    RegNum idReg1() const
+    {
+        return _idReg1;
+    }
+
+    void idReg1(RegNum reg)
+    {
+        _idReg1 = reg;
+        assert(reg == _idReg1);
+    }
+
+    RegNum idReg2() const
+    {
+        return _idReg2;
+    }
+
+    void idReg2(RegNum reg)
+    {
+        _idReg2 = reg;
+        assert(reg == _idReg2);
+    }
+
+    static bool fitsInSmallCns(ssize_t val)
+    {
+        return (val >= 0) && (val < (static_cast<ssize_t>(1) << SmallImmBits));
+    }
+
+    bool idIsLargeCns() const
+    {
+        return _idLargeCns;
+    }
+
+    void idSetIsLargeCns()
+    {
+        _idLargeCns = true;
+    }
+
+    bool idIsLargeCall() const
+    {
+        return _idLargeCall;
+    }
+
+    void idSetIsLargeCall()
+    {
+        _idLargeCall = true;
+    }
+
+    // Only call instructions that call helper functions may be marked as "IsNoGC", indicating
+    // that a thread executing such a call cannot be stopped for GC. Thus, in partially-interruptible
+    // code, it is not necessary to generate GC info for a call so labeled.
+    bool idIsNoGC() const
+    {
+        return _idNoGC;
+    }
+
+    void idSetIsNoGC(bool val)
+    {
+        _idNoGC = val;
+    }
+
+    bool idIsCnsReloc() const
+    {
+        return _idCnsReloc;
+    }
+
+    void idSetIsCnsReloc(bool val = true)
+    {
+        _idCnsReloc = val;
+    }
+
+    size_t GetDescSize() const;
+
+    unsigned idSmallCns() const
+    {
+        return _idSmallCns;
+    }
+
+    void idSmallCns(size_t value)
+    {
+        assert(fitsInSmallCns(value));
+        _idSmallCns = value;
+    }
+
+    void SetVarAddr(INDEBUG(StackAddrMode s))
+    {
+#ifdef TARGET_ARMARCH
+        _idLclVar = true;
+#endif
+#ifdef DEBUG
+        _idDebugOnlyInfo->varNum  = s.varNum;
+        _idDebugOnlyInfo->varOffs = s.varOffs;
+#endif
+    }
+
+#ifdef DEBUG
+    bool InstrHasNoCode() const
+    {
+        return (_idInsFmt == IF_GC_REG)
+#ifdef TARGET_XARCH
+               || (_idIns == INS_align) || (_idCodeSize == 0)
+#endif
+#ifdef TARGET_ARM
+               || (_idInsSize == ISZ_NONE)
+#endif
+#ifdef TARGET_ARM64
+               || (_idInsFmt == IF_NOP_JMP)
+#endif
+            ;
+    }
+
+    instrDescDebugInfo* idDebugOnlyInfo() const
+    {
+        return _idDebugOnlyInfo;
+    }
+
+    void idDebugOnlyInfo(instrDescDebugInfo* info)
+    {
+        _idDebugOnlyInfo = info;
+    }
+#endif // DEBUG
+};
+
+static_assert(sizeof(instrDescSmall) == 8 INDEBUG(+sizeof(void*)), "Bad instrDescSmall size");
+
+struct instrDesc : public instrDescSmall
+{
+    friend struct instrDescJmp;
+
+private:
+    union idAddrUnion {
+        // TODO-Cleanup: We should really add a DEBUG-only tag to this union so we can add asserts
+        // about reading what we think is here, to avoid unexpected corruption issues.
+
+        uintptr_t label;
+        uintptr_t addr;
+#ifdef TARGET_XARCH
+        ConstData* data;
+#endif
+
+#ifdef TARGET_ARM
+        struct
+        {
+            unsigned isTrackedGCSlotStore : 1;
+            unsigned isGCArgStore : 1;
+            int      lclOffset : 30;
+        };
+
+        struct
+        {
+            RegNum _idReg3 : RegBits;
+            RegNum _idReg4 : RegBits;
+        };
+#endif
+
+#ifdef TARGET_X86
+        emitAddrMode iiaAddrMode;
+        RegNum       _idReg3 : RegBits;
+
+        struct
+        {
+            unsigned isTrackedGCSlotStore : 1;
+            unsigned isEbpBased : 1;
+            int      lclOffset : 30;
+        };
+#endif
+
+#ifdef TARGET_AMD64
+        emitAddrMode iiaAddrMode;
+        RegNum       _idReg3 : RegBits;
+
+        struct
+        {
+            unsigned isTrackedGCSlotStore : 1;
+            unsigned isGCArgStore : 1;
+            unsigned isEbpBased : 1;
+            int      lclOffset;
+        };
+#endif
+
+#ifdef TARGET_ARM64
+        struct
+        {
+            RegNum   _idReg3 : RegBits;
+            RegNum   _idReg4 : RegBits;
+            unsigned _idReg3Scaled : 1;
+            GCtype   _idGCref2 : 2;
+            unsigned isTrackedGCSlotStore : 1;
+            unsigned isGCArgStore : 1;
+            int      lclOffset;
+        };
+#endif
+    } _idAddrUnion;
+
+    static_assert_no_msg(sizeof(idAddrUnion) == sizeof(void*));
+
+#ifdef DEBUG
+    bool HasAddr() const
+    {
+#ifdef TARGET_ARM
+        return ((_idInsFmt == IF_T2_N3) && ((_idIns == INS_movt) || (_idIns == INS_movw))) ||
+               ((_idInsFmt == IF_T2_J3) && ((_idIns == INS_b) || (_idIns == INS_bl)));
+#endif
+#ifdef TARGET_ARM64
+        return ((_idInsFmt == IF_BI_0C) && ((_idIns == INS_bl) || (_idIns == INS_b_tail))) ||
+               ((_idInsFmt == IF_DI_1E) && (_idIns == INS_adrp)) || ((_idInsFmt == IF_DI_2A) && (_idIns == INS_add));
+#endif
+#ifdef TARGET_XARCH
+        return (_idInsFmt == IF_METHOD) || (_idInsFmt == IF_METHPTR);
+#endif
+    }
+#endif // DEBUG
+
+public:
+    void* GetAddr() const
+    {
+        assert(HasAddr());
+        return reinterpret_cast<void*>(idAddr()->addr);
+    }
+
+    void SetAddr(void* addr)
+    {
+#ifndef TARGET_ARM
+        assert(addr != nullptr);
+#endif
+        assert(HasAddr());
+        idAddr()->addr = reinterpret_cast<uintptr_t>(addr);
+    }
+
+    const idAddrUnion* idAddr() const
+    {
+        assert(!idIsSmallDsc());
+        return &_idAddrUnion;
+    }
+
+    idAddrUnion* idAddr()
+    {
+        assert(!idIsSmallDsc());
+        return &_idAddrUnion;
+    }
+
+#ifdef TARGET_XARCH
+    ssize_t GetImm() const;
+    ssize_t GetMemDisp() const;
+    ssize_t GetAmDisp() const;
+    ssize_t GetCallDisp() const;
+
+    ConstData* GetConstData() const
+    {
+        assert((IF_MRD <= _idInsFmt) && (_idInsFmt <= IF_MWR_RRD_CNS));
+        return idAddr()->data;
+    }
+
+    void SetConstData(ConstData* data)
+    {
+        assert((IF_MRD <= _idInsFmt) && (_idInsFmt <= IF_MWR_RRD_CNS));
+        idAddr()->data = data;
+    }
+
+    RegNum idReg3() const
+    {
+        return idAddr()->_idReg3;
+    }
+
+    void idReg3(RegNum reg)
+    {
+        idAddr()->_idReg3 = reg;
+        assert(reg == idAddr()->_idReg3);
+    }
+
+    RegNum idReg4() const
+    {
+        assert(_idInsFmt == IF_RWR_RRD_ARD_RRD || _idInsFmt == IF_RWR_RRD_SRD_RRD || _idInsFmt == IF_RWR_RRD_MRD_RRD ||
+               _idInsFmt == IF_RWR_RRD_RRD_RRD);
+        return static_cast<RegNum>(REG_XMM0 + (_idSmallCns >> 4));
+    }
+#endif // TARGET_XARCH
+
+#ifdef TARGET_ARMARCH
+    RegNum idReg3() const
+    {
+        return idAddr()->_idReg3;
+    }
+
+    void idReg3(RegNum reg)
+    {
+        idAddr()->_idReg3 = reg;
+        assert(reg == idAddr()->_idReg3);
+    }
+
+    RegNum idReg4() const
+    {
+        return idAddr()->_idReg4;
+    }
+
+    void idReg4(RegNum reg)
+    {
+        idAddr()->_idReg4 = reg;
+        assert(reg == idAddr()->_idReg4);
+    }
+#endif // TARGET_ARMARCH
+
+#ifdef TARGET_ARM
+    size_t  emitGetInstrDescSize() const;
+    size_t  emitGetInstrDescSizeSC() const;
+    int32_t emitGetInsSC() const;
+#endif
+
+#ifdef TARGET_ARM64
+    GCtype idGCrefReg2() const
+    {
+        return static_cast<GCtype>(idAddr()->_idGCref2);
+    }
+
+    void idGCrefReg2(GCtype gctype)
+    {
+        idAddr()->_idGCref2 = gctype;
+    }
+
+    bool idReg3Scaled() const
+    {
+        return idAddr()->_idReg3Scaled;
+    }
+
+    void idReg3Scaled(bool val)
+    {
+        idAddr()->_idReg3Scaled = val;
+    }
+
+    int64_t emitGetInsSC() const;
+    size_t  emitGetInstrDescSize() const;
+#endif // TARGET_ARM64
+};
+
+#ifdef TARGET_ARM
+struct instrDescCns : instrDesc
+{
+    int32_t idcCnsVal;
+};
+#endif
+
+#ifdef TARGET_ARM64
+struct instrDescCns : instrDesc
+{
+    int64_t idcCnsVal;
+};
+#endif
+
+#ifdef TARGET_XARCH
+struct instrDescCns : instrDesc
+{
+    // Normally immediate values should be target_ssize_t but for relocatable immediates
+    // we need to store a host pointer here, that will get converted to the actual 32 bit
+    // immediate during/after encoding.
+    ssize_t idcCnsVal;
+};
+
+struct instrDescAmd : instrDesc
+{
+    ssize_t idaAmdVal;
+};
+
+struct instrDescCnsAmd : instrDescCns
+{
+    ssize_t idacAmdVal;
+};
+#endif // TARGET_XARCH
+
+#if FEATURE_LOOP_ALIGN
+struct instrDescAlign : instrDesc
+{
+    instrDescAlign* idaNext; // next align in the group/method
+    insGroup*       idaIG;   // containing group
+};
+#endif
+
+struct instrDescJmp : instrDesc
+{
+private:
+    enum : uintptr_t
+    {
+        LabelTag = 0,
+#if defined(TARGET_ARM64) || defined(TARGET_X86)
+        ConstDataTag = 1,
+#endif
+        InstrCountTag = 2,
+        TagMask       = 3,
+        TagSize       = 2
+    };
+
+public:
+    instrDescJmp* idjNext; // next jump in the group/method
+    insGroup*     idjIG;   // containing group
+    unsigned      idjOffs; // The byte offset within IG of the jump instruction.
+
+    const idAddrUnion* idAddr() const = delete;
+    idAddrUnion*       idAddr()       = delete;
+
+    bool HasLabel() const
+    {
+        return (_idAddrUnion.label & TagMask) == LabelTag;
+    }
+
+    insGroup* GetLabel() const
+    {
+        assert(HasLabel());
+        return reinterpret_cast<insGroup*>(_idAddrUnion.label);
+    }
+
+    void SetLabel(insGroup* label)
+    {
+        _idAddrUnion.label = reinterpret_cast<uintptr_t>(label);
+    }
+
+#if defined(TARGET_ARM64) || defined(TARGET_X86)
+    bool HasConstData() const
+    {
+        return (_idAddrUnion.label & TagMask) == ConstDataTag;
+    }
+
+    ConstData* GetConstData() const
+    {
+        assert(HasConstData());
+        return reinterpret_cast<ConstData*>(_idAddrUnion.label & ~TagMask);
+    }
+
+    void SetConstData(ConstData* data)
+    {
+        _idAddrUnion.label = reinterpret_cast<uintptr_t>(data) | ConstDataTag;
+    }
+#endif
+
+    bool HasInstrCount() const
+    {
+        return (_idAddrUnion.label & TagMask) == InstrCountTag;
+    }
+
+    int GetInstrCount() const
+    {
+        assert(HasInstrCount());
+        return static_cast<int>(static_cast<intptr_t>(_idAddrUnion.label) >> TagSize);
+    }
+
+    void SetInstrCount(int count)
+    {
+        assert(abs(count) < 10);
+        _idAddrUnion.label = (static_cast<intptr_t>(count) << TagSize) | InstrCountTag;
+    }
+
+#ifdef TARGET_ARM
+    void SetShortJump();
+    void SetMediumJump();
+#endif
+
+#ifdef TARGET_ARM64
+    void SetShortJump();
+#endif
+};
+
+struct instrDescCGCA : instrDesc
+{
+    VARSET_TP idcGCvars;
+#ifdef TARGET_XARCH
+    int32_t idcDisp;
+#endif
+    regMaskTP idcGcrefRegs;
+    regMaskTP idcByrefRegs;
+#ifdef TARGET_X86
+    int idcArgCnt;
+#endif
+};
+
 #if defined(TARGET_XARCH)
 class X86Encoder;
 #elif defined(TARGET_ARM)
@@ -302,14 +1161,6 @@ class EmitterBase
     friend class AsmPrinter;
     friend class Encoder;
     friend struct insGroup;
-
-public:
-    struct instrDescSmall;
-    struct instrDesc;
-    struct instrDescJmp;
-#if FEATURE_LOOP_ALIGN
-    struct instrDescAlign;
-#endif
 
 protected:
     struct Epilog;
@@ -608,26 +1459,7 @@ protected:
     void VerifyCatchRet(insGroup* label) const;
     void emitCheckIGoffsets();
     void emitInsSanityCheck(instrDesc* id);
-
-    struct instrDescDebugInfo
-    {
-        unsigned idNum;
-        uint16_t idSize; // size of the instruction descriptor
-        int      varNum  = INT_MIN;
-        int      varOffs = 0;
-#ifdef TARGET_XARCH
-        HandleKind dispHandleKind = HandleKind::None;
 #endif
-        HandleKind        idHandleKind = HandleKind::None;
-        void*             idHandle     = nullptr;
-        CORINFO_SIG_INFO* idCallSig    = nullptr; // Used to report native call site signatures to the EE
-
-        instrDescDebugInfo(unsigned num, unsigned size) : idNum(num), idSize(static_cast<uint16_t>(size))
-        {
-            assert(size <= UINT16_MAX);
-        }
-    };
-#endif // DEBUG
 #if defined(DEBUG) || defined(LATE_DISASM)
     BasicBlock::weight_t getCurrentBlockWeight();
 #endif
@@ -658,846 +1490,6 @@ protected:
     int emitNextRandomNop();
 
     instrDescSmall* emitAllocAnyInstr(unsigned sz, bool updateLastIns);
-
-#ifdef TARGET_XARCH
-    struct emitAddrMode
-    {
-#ifdef TARGET_AMD64
-        // x64 has 32 registers currently but APX has 64.
-        // We need to be able to store REG_NA too so we'll need an extra bit.
-        static_assert_no_msg(REG_NA <= 127);
-        static constexpr unsigned RegBits  = 7;
-        static constexpr unsigned DispBits = 16;
-        static constexpr unsigned DispMin  = -32767;
-        static constexpr unsigned DispMax  = 32767;
-        INDEBUG(static constexpr int32_t LargeDispMarker = -32768;)
-#else
-        static_assert_no_msg(REG_NA <= 31);
-        static constexpr unsigned RegBits  = 5;
-        static constexpr unsigned DispBits = 16;
-        static constexpr unsigned DispMin  = -32767;
-        static constexpr unsigned DispMax  = 32767;
-        INDEBUG(static constexpr int32_t LargeDispMarker = -32768;)
-#endif
-
-        RegNum   base : RegBits;
-        RegNum   index : RegBits;
-        uint32_t scale : 2;
-#ifdef TARGET_X86
-        unsigned spare : 4; // Give these to disp? Though 16 bits should be enough for everybody...
-#endif
-        int32_t disp : DispBits;
-
-        static bool IsLargeDisp(ssize_t disp)
-        {
-            return (disp < DispMin) || (DispMax < disp);
-        }
-    };
-#endif // TARGET_XARCH
-
-public:
-    enum opSize : unsigned
-    {
-        OPSZ1  = 0,
-        OPSZ2  = 1,
-        OPSZ4  = 2,
-        OPSZ8  = 3,
-        OPSZ16 = 4,
-        OPSZ32 = 5
-    };
-
-#ifdef TARGET_ARM
-    enum insSize : unsigned
-    {
-        ISZ_NONE,
-        ISZ_16BIT,
-        ISZ_32BIT,
-        ISZ_48BIT // pseudo-instruction for conditional branch with imm24 range,
-                  // encoded as IT of condition followed by an unconditional branch
-    };
-#endif
-
-#ifdef TARGET_XARCH
-#define MAX_ENCODED_SIZE 15
-#endif
-
-    struct instrDescSmall
-    {
-        friend struct instrDesc;
-
-#ifdef TARGET_AMD64
-        static_assert_no_msg(INS_COUNT <= 1024);
-        static_assert_no_msg(IF_COUNT <= 128);
-        static_assert_no_msg(ACTUAL_REG_COUNT <= 64); // 32 currently but APX has 64
-        static constexpr unsigned RegBits      = 6;
-        static constexpr unsigned SmallImmBits = 16;
-
-    private:
-        instruction _idIns : 10;       // Instruction opcode
-        insFormat   _idInsFmt : 7;     // Instruction format
-        unsigned    _idOpSize : 3;     // Operation size (log 2)
-        GCtype      _idGCref : 2;      // GC type of the first destination register
-        unsigned    _idCnsReloc : 1;   // Immediate is relocatable
-        unsigned    _idDspReloc : 1;   // Address mode displacement is relocatable
-        unsigned    _idSmallDsc : 1;   // this is instrDescSmall
-        unsigned    _idLargeCall : 1;  // this is instrDescCGCA
-        unsigned    _idLargeCns : 1;   // this is instrDescCns/instrDescCnsAmd
-        unsigned    _idLargeDsp : 1;   // this is instrDescAmd
-        unsigned    _idCodeSize : 4;   // Encoded instruction size
-        RegNum      _idReg1 : RegBits; // First register, also holds the GC ref reg mask for calls
-        RegNum      _idReg2 : RegBits; // Second register, also holds the GC byref reg mask for calls
-        unsigned    _idNoGC : 1;       // Helper call that does not need GC information
-        unsigned    _idSpare : 3;      // Reserved for EVEX stuff?
-        unsigned    _idSmallCns : SmallImmBits;
-#endif // TARGET_XARCH
-
-#ifdef TARGET_X86
-        static_assert_no_msg(INS_COUNT <= 1024);
-        static_assert_no_msg(IF_COUNT <= 128);
-        static_assert_no_msg(ACTUAL_REG_COUNT == 16);
-        static constexpr unsigned RegBits      = 4;
-        static constexpr unsigned SmallImmBits = 16;
-
-    private:
-        instruction _idIns : 10;       // Instruction opcode
-        insFormat   _idInsFmt : 7;     // Instruction format
-        unsigned    _idOpSize : 3;     // Operation size (log 2)
-        GCtype      _idGCref : 2;      // GC type of the first destination register
-        unsigned    _idCnsReloc : 1;   // Immediate is relocatable
-        unsigned    _idDspReloc : 1;   // Address mode displacement is relocatable
-        unsigned    _idSmallDsc : 1;   // this is instrDescSmall
-        unsigned    _idLargeCall : 1;  // this is instrDescCGCA
-        unsigned    _idLargeCns : 1;   // this is instrDescCns/instrDescCnsAmd
-        unsigned    _idLargeDsp : 1;   // this is instrDescAmd
-        unsigned    _idCodeSize : 4;   // Encoded instruction size
-        RegNum      _idReg1 : RegBits; // First register, also holds the GC ref reg mask for calls
-        RegNum      _idReg2 : RegBits; // Second register, also holds the GC byref reg mask for calls
-        unsigned    _idNoGC : 1;       // Helper call that does not need GC information
-        unsigned    _idFSPrefix : 1;   // FS segment prefix
-        unsigned    _idSpare : 6;      // EVEX stuff?
-        unsigned    _idSmallCns : SmallImmBits;
-#endif // TARGET_XARCH
-
-#ifdef TARGET_ARM64
-        static_assert_no_msg(INS_COUNT <= 512);
-        static_assert_no_msg(IF_COUNT <= 128);
-        // REG_SP is included the in actual reg count but we don't need that here.
-        static_assert_no_msg(ACTUAL_REG_COUNT - 1 <= 64);
-        static constexpr unsigned RegBits      = 6;
-        static constexpr unsigned SmallImmBits = 16;
-
-    private:
-        instruction _idIns : 9;        // Instruction opcode
-        insFormat   _idInsFmt : 7;     // Instruction format
-        insOpts     _idInsOpt : 6;     // Instruction options
-        unsigned    _idOpSize : 3;     // Operation size (log 2)
-        GCtype      _idGCref : 2;      // GC type of the first destination register
-        unsigned    _idSmallDsc : 1;   // this is instrDescSmall
-        unsigned    _idLargeCall : 1;  // this is instrDescCGCA
-        unsigned    _idLargeCns : 1;   // this is instrDescCns
-        unsigned    _idCnsReloc : 1;   // Immediate is relocatable
-        unsigned    _idLclVar : 1;     // Local load/store
-        RegNum      _idReg1 : RegBits; // First register, also holds the GC ref reg mask for calls
-        RegNum      _idReg2 : RegBits; // Second register, also holds the GC byref reg mask for calls
-        unsigned    _idNoGC : 1;       // Helper call that does not need GC information
-        unsigned    _idSpare : 3;      // Give these to small imm?
-        unsigned    _idSmallCns : SmallImmBits;
-#endif // TARGET_ARM64
-
-#ifdef TARGET_ARM
-        static_assert_no_msg(INS_COUNT <= 256);
-        static_assert_no_msg(IF_COUNT <= 128);
-        static_assert_no_msg(ACTUAL_REG_COUNT <= 64);
-        static constexpr unsigned RegBits      = 6;
-        static constexpr unsigned SmallImmBits = 16;
-
-    private:
-        instruction _idIns : 8;        // Instruction opcode
-        insFormat   _idInsFmt : 7;     // Instruction format
-        insOpts     _idInsOpt : 3;     // Instruction options
-        insFlags    _idInsFlags : 1;   // Instruction sets flags
-        unsigned    _idOpSize : 2;     // Operation size (log 2)
-        GCtype      _idGCref : 2;      // GC type of the first destination register
-        unsigned    _idSmallDsc : 1;   // this is instrDescSmall
-        unsigned    _idLargeCall : 1;  // this is instrDescCGCA
-        unsigned    _idLargeCns : 1;   // this is instrDescCns
-        unsigned    _idSpare1 : 1;     // Give this to small imm?
-        unsigned    _idNoGC : 1;       // Helper call that does not need GC information
-        insSize     _idInsSize : 2;    // Encoded instruction size: 16, 32 or 48 bits
-        unsigned    _idLclVar : 1;     // Local load/store
-        unsigned    _idCnsReloc : 1;   // Immediate is relocatable
-        RegNum      _idReg1 : RegBits; // First register, also holds the GC ref reg mask for calls
-        RegNum      _idReg2 : RegBits; // Second register, also holds the GC byref reg mask for calls
-        unsigned    _idSpare : 4;      // Give these to small imm?
-        unsigned    _idSmallCns : SmallImmBits;
-#endif // TARGET_ARM
-
-        INDEBUG(instrDescDebugInfo* _idDebugOnlyInfo;)
-
-    public:
-        instruction idIns() const
-        {
-            return _idIns;
-        }
-
-        void idIns(instruction ins)
-        {
-            assert((ins != INS_invalid) && (ins < INS_COUNT));
-            _idIns = ins;
-        }
-
-        insFormat idInsFmt() const
-        {
-            return _idInsFmt;
-        }
-
-        void idInsFmt(insFormat insFmt)
-        {
-#ifdef TARGET_ARM64
-            noway_assert(insFmt != IF_NONE); // Only the x86 emitter uses IF_NONE, it is invalid for ARM64 (and ARM32)
-#endif
-            assert(insFmt < IF_COUNT);
-            _idInsFmt = insFmt;
-        }
-
-        bool idIsSmallDsc() const
-        {
-            return _idSmallDsc;
-        }
-
-        void idSetIsSmallDsc()
-        {
-            _idSmallDsc = true;
-        }
-
-#ifdef TARGET_XARCH
-        unsigned idCodeSize() const
-        {
-            return _idCodeSize;
-        }
-
-        void idCodeSize(unsigned sz)
-        {
-            assert(sz <= 15); // Intel decoder limit.
-            _idCodeSize = sz;
-            assert(sz == _idCodeSize);
-        }
-
-        bool idIsDspReloc() const
-        {
-            return _idDspReloc;
-        }
-
-        void idSetIsDspReloc(bool val = true)
-        {
-            _idDspReloc = val;
-        }
-
-        bool idIsReloc()
-        {
-            return idIsDspReloc() || idIsCnsReloc();
-        }
-
-        bool idIsLargeDsp() const
-        {
-            return _idLargeDsp;
-        }
-
-        void idSetIsLargeDsp()
-        {
-            _idLargeDsp = true;
-        }
-
-        void idSetIsSmallDsp()
-        {
-            _idLargeDsp = false;
-        }
-
-#ifdef WINDOWS_X86_ABI
-        void SetHasFSPrefix()
-        {
-            _idFSPrefix = true;
-        }
-#endif
-
-        bool HasFSPrefix() const
-        {
-#ifdef WINDOWS_X86_ABI
-            return _idFSPrefix;
-#else
-            return false;
-#endif
-        }
-#endif // TARGET_XARCH
-
-#ifdef TARGET_ARM64
-        unsigned idCodeSize() const
-        {
-            switch (_idInsFmt)
-            {
-                case IF_LARGEADR: // adrp + add
-                case IF_LARGELDC: // adrp + ldr
-                case IF_LARGEJMP: // b<cond> + b<uncond>
-                    return 8;
-                case IF_GC_REG:
-                case IF_NOP_JMP:
-                    return 0;
-                default:
-                    return 4;
-            }
-        }
-#endif // TARGET_ARM64
-
-#ifdef TARGET_ARM
-        unsigned idCodeSize() const
-        {
-            switch (_idInsSize)
-            {
-                case ISZ_NONE:
-                    return 0;
-                case ISZ_16BIT:
-                    return 2;
-                case ISZ_32BIT:
-                    return 4;
-                default:
-                    assert(_idInsSize == ISZ_48BIT);
-                    return 6;
-            }
-        }
-
-        insSize idInsSize() const
-        {
-            return _idInsSize;
-        }
-
-        void idInsSize(insSize isz)
-        {
-            _idInsSize = isz;
-            assert(isz == _idInsSize);
-        }
-
-        insFlags idInsFlags() const
-        {
-            return _idInsFlags;
-        }
-
-        void idInsFlags(insFlags sf)
-        {
-            _idInsFlags = sf;
-            assert(sf == _idInsFlags);
-        }
-#endif // TARGET_ARM
-
-#ifdef TARGET_ARMARCH
-        insOpts idInsOpt() const
-        {
-            return static_cast<insOpts>(_idInsOpt);
-        }
-
-        void idInsOpt(insOpts opt)
-        {
-            _idInsOpt = opt;
-            assert(opt == _idInsOpt);
-        }
-
-        bool idIsLclVar() const
-        {
-            return _idLclVar;
-        }
-#endif // TARGET_ARMARCH
-
-        emitAttr idOpSize() const
-        {
-            return static_cast<emitAttr>(1 << _idOpSize);
-        }
-
-        void idOpSize(emitAttr size)
-        {
-            assert(size == 1 || size == 2 || size == 4 || size == 8 || size == 16 || size == 32);
-            _idOpSize = BitPosition(size);
-        }
-
-        GCtype idGCref() const
-        {
-            return _idGCref;
-        }
-
-        void idGCref(GCtype gctype)
-        {
-            _idGCref = gctype;
-        }
-
-        RegNum idReg1() const
-        {
-            return _idReg1;
-        }
-
-        void idReg1(RegNum reg)
-        {
-            _idReg1 = reg;
-            assert(reg == _idReg1);
-        }
-
-        RegNum idReg2() const
-        {
-            return _idReg2;
-        }
-
-        void idReg2(RegNum reg)
-        {
-            _idReg2 = reg;
-            assert(reg == _idReg2);
-        }
-
-        static bool fitsInSmallCns(ssize_t val)
-        {
-            return (val >= 0) && (val < (static_cast<ssize_t>(1) << SmallImmBits));
-        }
-
-        bool idIsLargeCns() const
-        {
-            return _idLargeCns;
-        }
-
-        void idSetIsLargeCns()
-        {
-            _idLargeCns = true;
-        }
-
-        bool idIsLargeCall() const
-        {
-            return _idLargeCall;
-        }
-
-        void idSetIsLargeCall()
-        {
-            _idLargeCall = true;
-        }
-
-        // Only call instructions that call helper functions may be marked as "IsNoGC", indicating
-        // that a thread executing such a call cannot be stopped for GC. Thus, in partially-interruptible
-        // code, it is not necessary to generate GC info for a call so labeled.
-        bool idIsNoGC() const
-        {
-            return _idNoGC;
-        }
-
-        void idSetIsNoGC(bool val)
-        {
-            _idNoGC = val;
-        }
-
-        bool idIsCnsReloc() const
-        {
-            return _idCnsReloc;
-        }
-
-        void idSetIsCnsReloc(bool val = true)
-        {
-            _idCnsReloc = val;
-        }
-
-        size_t GetDescSize() const;
-
-        unsigned idSmallCns() const
-        {
-            return _idSmallCns;
-        }
-
-        void idSmallCns(size_t value)
-        {
-            assert(fitsInSmallCns(value));
-            _idSmallCns = value;
-        }
-
-        void SetVarAddr(INDEBUG(StackAddrMode s))
-        {
-#ifdef TARGET_ARMARCH
-            _idLclVar = true;
-#endif
-#ifdef DEBUG
-            _idDebugOnlyInfo->varNum  = s.varNum;
-            _idDebugOnlyInfo->varOffs = s.varOffs;
-#endif
-        }
-
-#ifdef DEBUG
-        bool InstrHasNoCode() const
-        {
-            return (_idInsFmt == IF_GC_REG)
-#ifdef TARGET_XARCH
-                   || (_idIns == INS_align) || (_idCodeSize == 0)
-#endif
-#ifdef TARGET_ARM
-                   || (_idInsSize == ISZ_NONE)
-#endif
-#ifdef TARGET_ARM64
-                   || (_idInsFmt == IF_NOP_JMP)
-#endif
-                ;
-        }
-
-        instrDescDebugInfo* idDebugOnlyInfo() const
-        {
-            return _idDebugOnlyInfo;
-        }
-
-        void idDebugOnlyInfo(instrDescDebugInfo* info)
-        {
-            _idDebugOnlyInfo = info;
-        }
-#endif // DEBUG
-    };
-
-    static_assert(sizeof(instrDescSmall) == 8 INDEBUG(+sizeof(void*)), "Bad instrDescSmall size");
-
-    struct instrDesc : public instrDescSmall
-    {
-        friend struct instrDescJmp;
-
-    private:
-        union idAddrUnion {
-            // TODO-Cleanup: We should really add a DEBUG-only tag to this union so we can add asserts
-            // about reading what we think is here, to avoid unexpected corruption issues.
-
-            uintptr_t label;
-            uintptr_t addr;
-#ifdef TARGET_XARCH
-            ConstData* data;
-#endif
-
-#ifdef TARGET_ARM
-            struct
-            {
-                unsigned isTrackedGCSlotStore : 1;
-                unsigned isGCArgStore : 1;
-                int      lclOffset : 30;
-            };
-
-            struct
-            {
-                RegNum _idReg3 : RegBits;
-                RegNum _idReg4 : RegBits;
-            };
-#endif
-
-#ifdef TARGET_X86
-            emitAddrMode iiaAddrMode;
-            RegNum       _idReg3 : RegBits;
-
-            struct
-            {
-                unsigned isTrackedGCSlotStore : 1;
-                unsigned isEbpBased : 1;
-                int      lclOffset : 30;
-            };
-#endif
-
-#ifdef TARGET_AMD64
-            emitAddrMode iiaAddrMode;
-            RegNum       _idReg3 : RegBits;
-
-            struct
-            {
-                unsigned isTrackedGCSlotStore : 1;
-                unsigned isGCArgStore : 1;
-                unsigned isEbpBased : 1;
-                int      lclOffset;
-            };
-#endif
-
-#ifdef TARGET_ARM64
-            struct
-            {
-                RegNum   _idReg3 : RegBits;
-                RegNum   _idReg4 : RegBits;
-                unsigned _idReg3Scaled : 1;
-                GCtype   _idGCref2 : 2;
-                unsigned isTrackedGCSlotStore : 1;
-                unsigned isGCArgStore : 1;
-                int      lclOffset;
-            };
-#endif
-        } _idAddrUnion;
-
-        static_assert_no_msg(sizeof(idAddrUnion) == sizeof(void*));
-
-#ifdef DEBUG
-        bool HasAddr() const
-        {
-#ifdef TARGET_ARM
-            return ((_idInsFmt == IF_T2_N3) && ((_idIns == INS_movt) || (_idIns == INS_movw))) ||
-                   ((_idInsFmt == IF_T2_J3) && ((_idIns == INS_b) || (_idIns == INS_bl)));
-#endif
-#ifdef TARGET_ARM64
-            return ((_idInsFmt == IF_BI_0C) && ((_idIns == INS_bl) || (_idIns == INS_b_tail))) ||
-                   ((_idInsFmt == IF_DI_1E) && (_idIns == INS_adrp)) ||
-                   ((_idInsFmt == IF_DI_2A) && (_idIns == INS_add));
-#endif
-#ifdef TARGET_XARCH
-            return (_idInsFmt == IF_METHOD) || (_idInsFmt == IF_METHPTR);
-#endif
-        }
-#endif // DEBUG
-
-    public:
-        void* GetAddr() const
-        {
-            assert(HasAddr());
-            return reinterpret_cast<void*>(idAddr()->addr);
-        }
-
-        void SetAddr(void* addr)
-        {
-#ifndef TARGET_ARM
-            assert(addr != nullptr);
-#endif
-            assert(HasAddr());
-            idAddr()->addr = reinterpret_cast<uintptr_t>(addr);
-        }
-
-        const idAddrUnion* idAddr() const
-        {
-            assert(!idIsSmallDsc());
-            return &_idAddrUnion;
-        }
-
-        idAddrUnion* idAddr()
-        {
-            assert(!idIsSmallDsc());
-            return &_idAddrUnion;
-        }
-
-#ifdef TARGET_XARCH
-        ssize_t GetImm() const;
-        ssize_t GetMemDisp() const;
-        ssize_t GetAmDisp() const;
-        ssize_t GetCallDisp() const;
-
-        ConstData* GetConstData() const
-        {
-            assert((IF_MRD <= _idInsFmt) && (_idInsFmt <= IF_MWR_RRD_CNS));
-            return idAddr()->data;
-        }
-
-        void SetConstData(ConstData* data)
-        {
-            assert((IF_MRD <= _idInsFmt) && (_idInsFmt <= IF_MWR_RRD_CNS));
-            idAddr()->data = data;
-        }
-
-        RegNum idReg3() const
-        {
-            return idAddr()->_idReg3;
-        }
-
-        void idReg3(RegNum reg)
-        {
-            idAddr()->_idReg3 = reg;
-            assert(reg == idAddr()->_idReg3);
-        }
-
-        RegNum idReg4() const
-        {
-            assert(_idInsFmt == IF_RWR_RRD_ARD_RRD || _idInsFmt == IF_RWR_RRD_SRD_RRD ||
-                   _idInsFmt == IF_RWR_RRD_MRD_RRD || _idInsFmt == IF_RWR_RRD_RRD_RRD);
-            return static_cast<RegNum>(REG_XMM0 + (_idSmallCns >> 4));
-        }
-#endif // TARGET_XARCH
-
-#ifdef TARGET_ARMARCH
-        RegNum idReg3() const
-        {
-            return idAddr()->_idReg3;
-        }
-
-        void idReg3(RegNum reg)
-        {
-            idAddr()->_idReg3 = reg;
-            assert(reg == idAddr()->_idReg3);
-        }
-
-        RegNum idReg4() const
-        {
-            return idAddr()->_idReg4;
-        }
-
-        void idReg4(RegNum reg)
-        {
-            idAddr()->_idReg4 = reg;
-            assert(reg == idAddr()->_idReg4);
-        }
-#endif // TARGET_ARMARCH
-
-#ifdef TARGET_ARM
-        size_t  emitGetInstrDescSize() const;
-        size_t  emitGetInstrDescSizeSC() const;
-        int32_t emitGetInsSC() const;
-#endif
-
-#ifdef TARGET_ARM64
-        GCtype idGCrefReg2() const
-        {
-            return static_cast<GCtype>(idAddr()->_idGCref2);
-        }
-
-        void idGCrefReg2(GCtype gctype)
-        {
-            idAddr()->_idGCref2 = gctype;
-        }
-
-        bool idReg3Scaled() const
-        {
-            return idAddr()->_idReg3Scaled;
-        }
-
-        void idReg3Scaled(bool val)
-        {
-            idAddr()->_idReg3Scaled = val;
-        }
-
-        int64_t emitGetInsSC() const;
-        size_t  emitGetInstrDescSize() const;
-#endif // TARGET_ARM64
-    };
-
-#ifdef TARGET_ARM
-    struct instrDescCns : instrDesc
-    {
-        int32_t idcCnsVal;
-    };
-#endif
-
-#ifdef TARGET_ARM64
-    struct instrDescCns : instrDesc
-    {
-        int64_t idcCnsVal;
-    };
-#endif
-
-#ifdef TARGET_XARCH
-    struct instrDescCns : instrDesc
-    {
-        // Normally immediate values should be target_ssize_t but for relocatable immediates
-        // we need to store a host pointer here, that will get converted to the actual 32 bit
-        // immediate during/after encoding.
-        ssize_t idcCnsVal;
-    };
-
-    struct instrDescAmd : instrDesc
-    {
-        ssize_t idaAmdVal;
-    };
-
-    struct instrDescCnsAmd : instrDescCns
-    {
-        ssize_t idacAmdVal;
-    };
-#endif // TARGET_XARCH
-
-#if FEATURE_LOOP_ALIGN
-    struct instrDescAlign : instrDesc
-    {
-        instrDescAlign* idaNext; // next align in the group/method
-        insGroup*       idaIG;   // containing group
-    };
-#endif
-
-    struct instrDescJmp : instrDesc
-    {
-    private:
-        enum : uintptr_t
-        {
-            LabelTag = 0,
-#if defined(TARGET_ARM64) || defined(TARGET_X86)
-            ConstDataTag = 1,
-#endif
-            InstrCountTag = 2,
-            TagMask       = 3,
-            TagSize       = 2
-        };
-
-    public:
-        instrDescJmp* idjNext; // next jump in the group/method
-        insGroup*     idjIG;   // containing group
-        unsigned      idjOffs; // The byte offset within IG of the jump instruction.
-
-        const idAddrUnion* idAddr() const = delete;
-        idAddrUnion*       idAddr()       = delete;
-
-        bool HasLabel() const
-        {
-            return (_idAddrUnion.label & TagMask) == LabelTag;
-        }
-
-        insGroup* GetLabel() const
-        {
-            assert(HasLabel());
-            return reinterpret_cast<insGroup*>(_idAddrUnion.label);
-        }
-
-        void SetLabel(insGroup* label)
-        {
-            _idAddrUnion.label = reinterpret_cast<uintptr_t>(label);
-        }
-
-#if defined(TARGET_ARM64) || defined(TARGET_X86)
-        bool HasConstData() const
-        {
-            return (_idAddrUnion.label & TagMask) == ConstDataTag;
-        }
-
-        ConstData* GetConstData() const
-        {
-            assert(HasConstData());
-            return reinterpret_cast<ConstData*>(_idAddrUnion.label & ~TagMask);
-        }
-
-        void SetConstData(ConstData* data)
-        {
-            _idAddrUnion.label = reinterpret_cast<uintptr_t>(data) | ConstDataTag;
-        }
-#endif
-
-        bool HasInstrCount() const
-        {
-            return (_idAddrUnion.label & TagMask) == InstrCountTag;
-        }
-
-        int GetInstrCount() const
-        {
-            assert(HasInstrCount());
-            return static_cast<int>(static_cast<intptr_t>(_idAddrUnion.label) >> TagSize);
-        }
-
-        void SetInstrCount(int count)
-        {
-            assert(abs(count) < 10);
-            _idAddrUnion.label = (static_cast<intptr_t>(count) << TagSize) | InstrCountTag;
-        }
-
-#ifdef TARGET_ARM
-        void SetShortJump();
-        void SetMediumJump();
-#endif
-
-#ifdef TARGET_ARM64
-        void SetShortJump();
-#endif
-    };
-
-    struct instrDescCGCA : instrDesc
-    {
-        VARSET_TP idcGCvars;
-#ifdef TARGET_XARCH
-        int32_t idcDisp;
-#endif
-        regMaskTP idcGcrefRegs;
-        regMaskTP idcByrefRegs;
-#ifdef TARGET_X86
-        int idcArgCnt;
-#endif
-    };
 };
 
 #if defined(TARGET_XARCH)
@@ -1516,16 +1508,6 @@ using emitter = ArchEmitter;
 class Encoder
 {
 protected:
-    using instrDescSmall = Emitter::instrDescSmall;
-    using instrDesc      = Emitter::instrDesc;
-    using instrDescJmp   = Emitter::instrDescJmp;
-    using instrDescCGCA  = Emitter::instrDescCGCA;
-#ifdef TARGET_ARMARCH
-    using instrDescCns = Emitter::instrDescCns;
-#endif
-#if FEATURE_LOOP_ALIGN
-    using instrDescAlign = Emitter::instrDescAlign;
-#endif
     using RoData      = EmitterBase::RoData;
     using DataSection = EmitterBase::DataSection;
 
@@ -1757,17 +1739,6 @@ protected:
 class AsmPrinter
 {
 protected:
-    using instrDescSmall = Emitter::instrDescSmall;
-    using instrDesc      = Emitter::instrDesc;
-    using instrDescJmp   = Emitter::instrDescJmp;
-    using instrDescCGCA  = Emitter::instrDescCGCA;
-#ifdef TARGET_ARMARCH
-    using instrDescCns = Emitter::instrDescCns;
-#endif
-#if FEATURE_LOOP_ALIGN
-    using instrDescAlign = Emitter::instrDescAlign;
-#endif
-
     Compiler* compiler;
     CodeGen*  codeGen;
 

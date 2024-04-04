@@ -326,7 +326,7 @@ static ID_OPS GetFormatOp(insFormat format)
 }
 
 // Return the allocated size (in bytes) of the given instruction descriptor.
-size_t Arm64Emitter::instrDescSmall::GetDescSize() const
+size_t instrDescSmall::GetDescSize() const
 {
     if (_idSmallDsc)
     {
@@ -348,7 +348,7 @@ size_t Arm64Emitter::instrDescSmall::GetDescSize() const
     }
 }
 
-size_t Arm64Emitter::instrDesc::emitGetInstrDescSize() const
+size_t instrDesc::emitGetInstrDescSize() const
 {
     if (_idSmallDsc)
     {
@@ -358,7 +358,7 @@ size_t Arm64Emitter::instrDesc::emitGetInstrDescSize() const
     return _idLargeCns ? sizeof(instrDescCns) : sizeof(instrDesc);
 }
 
-int64_t Arm64Emitter::instrDesc::emitGetInsSC() const
+int64_t instrDesc::emitGetInsSC() const
 {
     return _idLargeCns ? static_cast<const instrDescCns*>(this)->idcCnsVal : _idSmallCns;
 }
@@ -2083,7 +2083,7 @@ bool Arm64Encoder::emitInsMayWriteMultipleRegs(instrDesc* id)
 // By convention the small unsigned load instructions are considered to write
 // a 4 byte sized target register, though since these also zero the upper 4 bytes
 // they could equally be considered to write the unsigned value to full 8 byte register.
-static emitAttr emitInsTargetRegSize(Arm64Emitter::instrDesc* id)
+static emitAttr emitInsTargetRegSize(instrDesc* id)
 {
     // This is used to determine the size of the target registers for a load/store instruction
 
@@ -2143,7 +2143,7 @@ static emitAttr emitInsTargetRegSize(Arm64Emitter::instrDesc* id)
 
 // Takes an instrDesc and uses the instruction to determine the 'size' of the
 // data that is loaded from memory.
-static emitAttr emitInsLoadStoreSize(Arm64Emitter::instrDesc* id)
+static emitAttr emitInsLoadStoreSize(instrDesc* id)
 {
     // The 'result' returned is the 'size' of the data that is loaded from memory.
 
@@ -3414,19 +3414,19 @@ T* Arm64Emitter::AllocInstr(bool updateLastIns)
     return static_cast<T*>(id);
 }
 
-Arm64Emitter::instrDesc* Arm64Emitter::emitNewInstr()
+instrDesc* Arm64Emitter::emitNewInstr()
 {
     return AllocInstr<instrDesc>();
 }
 
-Arm64Emitter::instrDesc* Arm64Emitter::emitNewInstrSmall()
+instrDesc* Arm64Emitter::emitNewInstrSmall()
 {
     instrDescSmall* id = AllocInstr<instrDescSmall>();
     id->idSetIsSmallDsc();
     return static_cast<instrDesc*>(id);
 }
 
-Arm64Emitter::instrDesc* Arm64Emitter::emitNewInstrSC(int64_t cns)
+instrDesc* Arm64Emitter::emitNewInstrSC(int64_t cns)
 {
     if (!instrDesc::fitsInSmallCns(cns))
     {
@@ -3441,7 +3441,7 @@ Arm64Emitter::instrDesc* Arm64Emitter::emitNewInstrSC(int64_t cns)
     return id;
 }
 
-Arm64Emitter::instrDesc* Arm64Emitter::emitNewInstrCns(int32_t cns)
+instrDesc* Arm64Emitter::emitNewInstrCns(int32_t cns)
 {
     if (!instrDesc::fitsInSmallCns(cns))
     {
@@ -3456,7 +3456,7 @@ Arm64Emitter::instrDesc* Arm64Emitter::emitNewInstrCns(int32_t cns)
     return id;
 }
 
-Arm64Emitter::instrDescJmp* Arm64Emitter::emitNewInstrJmp()
+instrDescJmp* Arm64Emitter::emitNewInstrJmp()
 {
     instrDescJmp* id = AllocInstr<instrDescJmp>();
     id->idjIG        = emitCurIG;
@@ -3466,12 +3466,12 @@ Arm64Emitter::instrDescJmp* Arm64Emitter::emitNewInstrJmp()
     return id;
 }
 
-Arm64Emitter::instrDescCGCA* Arm64Emitter::emitAllocInstrCGCA()
+instrDescCGCA* Arm64Emitter::emitAllocInstrCGCA()
 {
     return AllocInstr<instrDescCGCA>();
 }
 
-Arm64Emitter::instrDesc* Arm64Emitter::emitNewInstrGCReg(emitAttr attr, RegNum reg)
+instrDesc* Arm64Emitter::emitNewInstrGCReg(emitAttr attr, RegNum reg)
 {
     assert(EA_IS_GCREF_OR_BYREF(attr));
     assert(IsGeneralRegister(reg));
@@ -6965,7 +6965,7 @@ void Arm64Emitter::emitIns_R_AH(RegNum reg, void* addr DEBUGARG(void* handle) DE
     appendToCurIG(id);
 }
 
-void Arm64Emitter::instrDescJmp::SetShortJump()
+void instrDescJmp::SetShortJump()
 {
     assert(!idIsCnsReloc());
 

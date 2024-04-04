@@ -100,7 +100,7 @@ static ID_OPS GetFormatOp(insFormat format)
 }
 
 // Return the allocated size (in bytes) of the given instruction descriptor.
-size_t ArmEmitter::instrDescSmall::GetDescSize() const
+size_t instrDescSmall::GetDescSize() const
 {
     if (_idSmallDsc)
     {
@@ -122,7 +122,7 @@ size_t ArmEmitter::instrDescSmall::GetDescSize() const
     }
 }
 
-size_t ArmEmitter::instrDesc::emitGetInstrDescSize() const
+size_t instrDesc::emitGetInstrDescSize() const
 {
     if (_idSmallDsc)
     {
@@ -132,7 +132,7 @@ size_t ArmEmitter::instrDesc::emitGetInstrDescSize() const
     return _idLargeCns ? sizeof(instrDescCns) : sizeof(instrDesc);
 }
 
-int32_t ArmEmitter::instrDesc::emitGetInsSC() const
+int32_t instrDesc::emitGetInsSC() const
 {
     return _idLargeCns ? static_cast<const instrDescCns*>(this)->idcCnsVal : _idSmallCns;
 }
@@ -1187,28 +1187,28 @@ uint32_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
     return code;
 }
 
-static ArmEmitter::insSize emitInsSize(insFormat insFmt)
+static insSize emitInsSize(insFormat insFmt)
 {
     assert(insFmt < IF_COUNT);
 
     if (insFmt >= IF_T2_A)
     {
-        return ArmEmitter::ISZ_32BIT;
+        return ISZ_32BIT;
     }
 
     if (insFmt >= IF_T1_A)
     {
-        return ArmEmitter::ISZ_16BIT;
+        return ISZ_16BIT;
     }
 
     if (insFmt == IF_LARGEJMP)
     {
-        return ArmEmitter::ISZ_48BIT;
+        return ISZ_48BIT;
     }
 
     assert(insFmt == IF_GC_REG);
 
-    return ArmEmitter::ISZ_NONE;
+    return ISZ_NONE;
 }
 
 bool IsMovIns(instruction ins)
@@ -1485,19 +1485,19 @@ T* ArmEmitter::AllocInstr(bool updateLastIns)
     return static_cast<T*>(id);
 }
 
-ArmEmitter::instrDesc* ArmEmitter::emitNewInstr()
+instrDesc* ArmEmitter::emitNewInstr()
 {
     return AllocInstr<instrDesc>();
 }
 
-ArmEmitter::instrDesc* ArmEmitter::emitNewInstrSmall()
+instrDesc* ArmEmitter::emitNewInstrSmall()
 {
     instrDescSmall* id = AllocInstr<instrDescSmall>();
     id->idSetIsSmallDsc();
     return static_cast<instrDesc*>(id);
 }
 
-ArmEmitter::instrDesc* ArmEmitter::emitNewInstrSC(int32_t cns)
+instrDesc* ArmEmitter::emitNewInstrSC(int32_t cns)
 {
     if (!instrDesc::fitsInSmallCns(cns))
     {
@@ -1512,7 +1512,7 @@ ArmEmitter::instrDesc* ArmEmitter::emitNewInstrSC(int32_t cns)
     return id;
 }
 
-ArmEmitter::instrDesc* ArmEmitter::emitNewInstrCns(int32_t cns)
+instrDesc* ArmEmitter::emitNewInstrCns(int32_t cns)
 {
     if (!instrDesc::fitsInSmallCns(cns))
     {
@@ -1527,7 +1527,7 @@ ArmEmitter::instrDesc* ArmEmitter::emitNewInstrCns(int32_t cns)
     return id;
 }
 
-ArmEmitter::instrDescJmp* ArmEmitter::emitNewInstrJmp()
+instrDescJmp* ArmEmitter::emitNewInstrJmp()
 {
     instrDescJmp* id = AllocInstr<instrDescJmp>();
     id->idjIG        = emitCurIG;
@@ -1537,12 +1537,12 @@ ArmEmitter::instrDescJmp* ArmEmitter::emitNewInstrJmp()
     return id;
 }
 
-ArmEmitter::instrDescCGCA* ArmEmitter::emitAllocInstrCGCA()
+instrDescCGCA* ArmEmitter::emitAllocInstrCGCA()
 {
     return AllocInstr<instrDescCGCA>();
 }
 
-ArmEmitter::instrDesc* ArmEmitter::emitNewInstrGCReg(emitAttr attr, RegNum reg)
+instrDesc* ArmEmitter::emitNewInstrGCReg(emitAttr attr, RegNum reg)
 {
     assert(EA_IS_GCREF_OR_BYREF(attr));
     assert(IsGeneralRegister(reg));
@@ -3798,7 +3798,7 @@ int ArmEmitter::OptimizeFrameAddress(int fpOffset, bool isFloatLoadStore, RegNum
     }
 }
 
-void ArmEmitter::instrDescJmp::SetShortJump()
+void instrDescJmp::SetShortJump()
 {
     assert((idInsFmt() == IF_T2_J1) || (idInsFmt() == IF_T2_J2) || (idInsFmt() == IF_LARGEJMP));
     assert(!idIsCnsReloc());
@@ -3807,7 +3807,7 @@ void ArmEmitter::instrDescJmp::SetShortJump()
     idInsSize(ISZ_16BIT);
 }
 
-void ArmEmitter::instrDescJmp::SetMediumJump()
+void instrDescJmp::SetMediumJump()
 {
     assert((idInsFmt() == IF_T2_J1) || (idInsFmt() == IF_LARGEJMP));
     assert(!idIsCnsReloc());
@@ -4724,7 +4724,7 @@ uint8_t* ArmEncoder::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     }
 #endif
 
-    if (id->idInsSize() == Emitter::ISZ_16BIT)
+    if (id->idInsSize() == ISZ_16BIT)
     {
         assert(!id->idIsCnsReloc());
         assert(!emitJumpCrossHotColdBoundary(instrOffs, labelOffs));
@@ -4893,7 +4893,7 @@ uint8_t* ArmEncoder::emitOutputIT(uint8_t* dst, instruction ins, insFormat fmt, 
 
 #endif // FEATURE_ITINSTRUCTION
 
-size_t ArmEmitter::instrDesc::emitGetInstrDescSizeSC() const
+size_t instrDesc::emitGetInstrDescSizeSC() const
 {
     if (idIsSmallDsc())
     {
@@ -6599,7 +6599,7 @@ void ArmEncoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
         memset(&idJmp, 0, sizeof(idJmp));
         idJmp.idIns(JumpKindToJcc(ReverseJumpKind(JccToJumpKind(id->idIns()))));
         idJmp.idInsFmt(IF_T1_K);
-        idJmp.idInsSize(Emitter::ISZ_16BIT);
+        idJmp.idInsSize(ISZ_16BIT);
         idJmp.SetInstrCount(1);
         idJmp.idDebugOnlyInfo(id->idDebugOnlyInfo()); // share the idDebugOnlyInfo() field
         Print(&idJmp, code, 2);
@@ -6607,7 +6607,7 @@ void ArmEncoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
         memset(&idJmp, 0, sizeof(idJmp));
         idJmp.idIns(INS_b);
         idJmp.idInsFmt(IF_T2_J2);
-        idJmp.idInsSize(Emitter::ISZ_32BIT);
+        idJmp.idInsSize(ISZ_32BIT);
         idJmp.SetLabel(ij->GetLabel());
         idJmp.idDebugOnlyInfo(id->idDebugOnlyInfo()); // share the idDebugOnlyInfo() field
         Print(&idJmp, code, 4);

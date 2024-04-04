@@ -455,9 +455,9 @@ void EmitterBase::emitBegFN()
     // arguments, and must store them all to the frame on entry. If the frame is very large,
     // we generate ugly code like "movw r10, 0x488; add r10, sp; vstr s0, [r10]" for each
     // store, which eats up our insGroup buffer.
-    constexpr size_t IG_BUFFER_SIZE = 100 * sizeof(EmitterBase::instrDesc) + 14 * sizeof(instrDescSmall);
+    constexpr size_t IG_BUFFER_SIZE = 100 * sizeof(instrDesc) + 14 * sizeof(instrDescSmall);
 #else
-    constexpr size_t IG_BUFFER_SIZE = 50 * sizeof(EmitterBase::instrDesc) + 14 * sizeof(instrDescSmall);
+    constexpr size_t IG_BUFFER_SIZE = 50 * sizeof(instrDesc) + 14 * sizeof(instrDescSmall);
 #endif
     emitCurIGfreeBase = static_cast<uint8_t*>(emitGetMem(IG_BUFFER_SIZE));
     emitCurIGfreeEndp = emitCurIGfreeBase + IG_BUFFER_SIZE;
@@ -587,7 +587,7 @@ void Encoder::PrintInsAddr(const uint8_t* code) const
 
 #endif // DEBUG
 
-EmitterBase::instrDescSmall* EmitterBase::emitAllocAnyInstr(unsigned sz, bool updateLastIns)
+instrDescSmall* EmitterBase::emitAllocAnyInstr(unsigned sz, bool updateLastIns)
 {
     assert(sz >= sizeof(instrDescSmall));
 
@@ -1354,21 +1354,21 @@ void EmitterBase::emitUnwindNopPadding(const emitLocation& fromLoc)
 
 #endif // TARGET_ARMARCH
 
-EmitterBase::instrDesc* ArchEmitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
-                                                      emitAttr              retRegAttr
+instrDesc* ArchEmitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
+                                         emitAttr              retRegAttr
 #if MULTIREG_HAS_SECOND_GC_RET
-                                                      ,
-                                                      emitAttr retReg2Attr
+                                         ,
+                                         emitAttr retReg2Attr
 #endif
 #ifdef TARGET_X86
-                                                      ,
-                                                      int argSlotCount
+                                         ,
+                                         int argSlotCount
 #endif
 #ifdef TARGET_XARCH
-                                                      ,
-                                                      int32_t disp
+                                         ,
+                                         int32_t disp
 #endif
-                                                      )
+                                         )
 {
     CorInfoHelpFunc helper       = Compiler::eeGetHelperNum(methodHandle);
     bool            isNoGCHelper = (helper != CORINFO_HELP_UNDEF) && GCInfo::IsNoGCHelper(helper);
@@ -2783,7 +2783,7 @@ uint32_t insGroup::FindInsOffset(unsigned insNum) const
 
     for (unsigned i = 0; i < insNum; i++)
     {
-        EmitterBase::instrDesc* id = reinterpret_cast<EmitterBase::instrDesc*>(insData);
+        instrDesc* id = reinterpret_cast<instrDesc*>(insData);
         insOffs += id->idCodeSize();
         insData += id->GetDescSize();
     }

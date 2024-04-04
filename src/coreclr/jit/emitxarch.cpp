@@ -1211,12 +1211,12 @@ T* X86Emitter::AllocInstr(bool updateLastIns)
     return static_cast<T*>(id);
 }
 
-X86Emitter::instrDesc* X86Emitter::emitNewInstr()
+instrDesc* X86Emitter::emitNewInstr()
 {
     return AllocInstr<instrDesc>();
 }
 
-X86Emitter::instrDescJmp* X86Emitter::emitNewInstrJmp()
+instrDescJmp* X86Emitter::emitNewInstrJmp()
 {
     instrDescJmp* jmp = AllocInstr<instrDescJmp>();
     jmp->idjIG        = emitCurIG;
@@ -1226,19 +1226,19 @@ X86Emitter::instrDescJmp* X86Emitter::emitNewInstrJmp()
     return jmp;
 }
 
-X86Emitter::instrDescCGCA* X86Emitter::emitAllocInstrCGCA()
+instrDescCGCA* X86Emitter::emitAllocInstrCGCA()
 {
     return AllocInstr<instrDescCGCA>();
 }
 
-X86Emitter::instrDesc* X86Emitter::emitNewInstrSmall()
+instrDesc* X86Emitter::emitNewInstrSmall()
 {
     instrDescSmall* id = AllocInstr<instrDescSmall>();
     id->idSetIsSmallDsc();
     return static_cast<instrDesc*>(id);
 }
 
-X86Emitter::instrDesc* X86Emitter::emitNewInstrSC(ssize_t cns)
+instrDesc* X86Emitter::emitNewInstrSC(ssize_t cns)
 {
     if (!instrDesc::fitsInSmallCns(cns))
     {
@@ -1253,7 +1253,7 @@ X86Emitter::instrDesc* X86Emitter::emitNewInstrSC(ssize_t cns)
     return id;
 }
 
-X86Emitter::instrDesc* X86Emitter::emitNewInstrCns(int32_t cns)
+instrDesc* X86Emitter::emitNewInstrCns(int32_t cns)
 {
     if (!instrDesc::fitsInSmallCns(cns))
     {
@@ -1269,7 +1269,7 @@ X86Emitter::instrDesc* X86Emitter::emitNewInstrCns(int32_t cns)
 }
 
 #ifdef TARGET_X86
-X86Emitter::instrDesc* X86Emitter::emitNewInstrDsp(int32_t disp)
+instrDesc* X86Emitter::emitNewInstrDsp(int32_t disp)
 {
     if (disp == 0)
     {
@@ -1283,7 +1283,7 @@ X86Emitter::instrDesc* X86Emitter::emitNewInstrDsp(int32_t disp)
 }
 #endif // TARGET_X86
 
-X86Emitter::instrDesc* X86Emitter::emitNewInstrAmd(ssize_t disp)
+instrDesc* X86Emitter::emitNewInstrAmd(ssize_t disp)
 {
     if (emitAddrMode::IsLargeDisp(disp))
     {
@@ -1301,7 +1301,7 @@ X86Emitter::instrDesc* X86Emitter::emitNewInstrAmd(ssize_t disp)
     return id;
 }
 
-X86Emitter::instrDesc* X86Emitter::emitNewInstrAmdCns(ssize_t disp, int32_t imm)
+instrDesc* X86Emitter::emitNewInstrAmdCns(ssize_t disp, int32_t imm)
 {
     if (!emitAddrMode::IsLargeDisp(disp))
     {
@@ -1333,7 +1333,7 @@ X86Emitter::instrDesc* X86Emitter::emitNewInstrAmdCns(ssize_t disp, int32_t imm)
     return id;
 }
 
-X86Emitter::instrDesc* X86Emitter::emitNewInstrGCReg(emitAttr attr, RegNum reg)
+instrDesc* X86Emitter::emitNewInstrGCReg(emitAttr attr, RegNum reg)
 {
     assert(EA_IS_GCREF_OR_BYREF(attr));
     assert(IsGeneralRegister(reg));
@@ -3455,12 +3455,12 @@ void X86Emitter::emitIns_J(instruction ins, insGroup* label)
     emitCurIGsize += sz;
 }
 
-ssize_t X86Emitter::instrDesc::GetImm() const
+ssize_t instrDesc::GetImm() const
 {
     return _idLargeCns ? static_cast<const instrDescCns*>(this)->idcCnsVal : _idSmallCns;
 }
 
-ssize_t X86Emitter::instrDesc::GetMemDisp() const
+ssize_t instrDesc::GetMemDisp() const
 {
     if (!_idLargeDsp)
     {
@@ -3476,7 +3476,7 @@ ssize_t X86Emitter::instrDesc::GetMemDisp() const
     }
 }
 
-ssize_t X86Emitter::instrDesc::GetAmDisp() const
+ssize_t instrDesc::GetAmDisp() const
 {
     if (!_idLargeDsp)
     {
@@ -3492,7 +3492,7 @@ ssize_t X86Emitter::instrDesc::GetAmDisp() const
     }
 }
 
-ssize_t X86Emitter::instrDesc::GetCallDisp() const
+ssize_t instrDesc::GetCallDisp() const
 {
     if (_idLargeCall)
     {
@@ -4007,7 +4007,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
 }
 #endif
 
-size_t X86Emitter::instrDescSmall::GetDescSize() const
+size_t instrDescSmall::GetDescSize() const
 {
     if (_idSmallDsc)
     {
