@@ -562,6 +562,7 @@ void EmitterBase::dispIns(instrDesc* id)
 
 void EmitterBase::appendToCurIG(instrDesc* id)
 {
+    dispIns(id);
     emitCurIGsize += id->idCodeSize();
 }
 

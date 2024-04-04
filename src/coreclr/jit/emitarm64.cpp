@@ -3504,7 +3504,6 @@ void Arm64Emitter::emitIns(instruction ins)
     id->idInsFmt(fmt);
     id->idOpSize(EA_8BYTE);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -3515,7 +3514,6 @@ void Arm64Emitter::emitIns_BRK(uint16_t imm)
     id->idInsFmt(IF_SI_0A);
     id->idOpSize(EA_8BYTE);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -3545,7 +3543,6 @@ void Arm64Emitter::emitIns_R(instruction ins, emitAttr attr, RegNum reg)
     id->idOpSize(EA_8BYTE);
     id->idReg1(reg);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -3685,7 +3682,6 @@ void Arm64Emitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, int64
     id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -3737,7 +3733,6 @@ void Arm64Emitter::emitIns_R_F(instruction ins, emitAttr attr, RegNum reg, doubl
     id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -3888,7 +3883,6 @@ void Arm64Emitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, Re
     id->idReg1(dstReg);
     id->idReg2(srcReg);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -4517,7 +4511,6 @@ void Arm64Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
     id->idReg1(reg1);
     id->idReg2(reg2);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -4542,7 +4535,6 @@ void Arm64Emitter::emitIns_R_I_I(instruction ins, emitAttr attr, RegNum reg, int
     id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -5198,7 +5190,6 @@ void Arm64Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
     id->idReg1(reg1);
     id->idReg2(reg2);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -5881,7 +5872,6 @@ void Arm64Emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, Re
     id->idReg2(reg2);
     id->idReg3(reg3);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -6292,7 +6282,6 @@ void Arm64Emitter::emitIns_R_R_R_I(
     assert((attrReg2 == EA_UNKNOWN) || (fmt == IF_LS_3B) || (fmt == IF_LS_3C));
     id->idGCrefReg2(EA_GC_TYPE(attrReg2));
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -6365,7 +6354,6 @@ void Arm64Emitter::emitIns_R_R_R_Ext(
     id->idReg3(reg3);
     id->idReg3Scaled(shiftAmount == scale);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -6465,7 +6453,6 @@ void Arm64Emitter::emitIns_R_R_I_I(
     id->idReg1(reg1);
     id->idReg2(reg2);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -6515,7 +6502,6 @@ void Arm64Emitter::emitIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, 
     id->idReg3(reg3);
     id->idReg4(reg4);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -6531,7 +6517,6 @@ void Arm64Emitter::emitIns_R_COND(instruction ins, emitAttr attr, RegNum reg, in
     id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -6549,7 +6534,6 @@ void Arm64Emitter::emitIns_R_R_COND(instruction ins, emitAttr attr, RegNum reg1,
     id->idReg1(reg1);
     id->idReg2(reg2);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -6571,7 +6555,6 @@ void Arm64Emitter::emitIns_R_R_R_COND(
     id->idReg3(reg3);
     id->idSmallCns(PackCondImm(cond));
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -6590,7 +6573,6 @@ void Arm64Emitter::emitIns_R_R_FLAGS_COND(
     id->idReg1(reg1);
     id->idReg2(reg2);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -6613,7 +6595,6 @@ void Arm64Emitter::emitIns_R_I_FLAGS_COND(
     id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -6626,7 +6607,6 @@ void Arm64Emitter::emitIns_BARR(instruction ins, insBarrier barrier)
     id->idInsFmt(IF_SI_0B);
     id->idOpSize(EA_8BYTE);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -6837,7 +6817,6 @@ void Arm64Emitter::Ins_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddr
         }
     }
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -6901,7 +6880,6 @@ void Arm64Emitter::Ins_R_R_S(instruction ins, emitAttr attr1, emitAttr attr2, Re
         }
     }
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -6953,7 +6931,6 @@ void Arm64Emitter::emitIns_R_C(instruction ins, emitAttr attr, RegNum reg, RegNu
         id->idReg2(addrReg);
     }
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -6974,7 +6951,6 @@ void Arm64Emitter::emitIns_R_AH(RegNum reg, void* addr DEBUGARG(void* handle) DE
     ij->idDebugOnlyInfo()->idHandleKind = handleKind;
 #endif
 
-    dispIns(ij);
     appendToCurIG(ij);
 
     instrDesc* id = emitNewInstr();
@@ -6986,7 +6962,6 @@ void Arm64Emitter::emitIns_R_AH(RegNum reg, void* addr DEBUGARG(void* handle) DE
     id->idReg2(reg);
     id->SetAddr(addr);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -7038,7 +7013,6 @@ void Arm64Emitter::emitIns_R_L(RegNum reg, insGroup* label)
     id->idReg1(reg);
     id->SetLabel(label);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -7055,7 +7029,6 @@ void Arm64Emitter::emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, 
     id->idReg1(reg);
     id->SetLabel(label);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -7075,7 +7048,6 @@ void Arm64Emitter::emitIns_J_R_I(instruction ins, emitAttr attr, insGroup* label
     id->idSmallCns(imm);
     id->SetLabel(label);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -7102,7 +7074,6 @@ void Arm64Emitter::emitIns_J(instruction ins, int instrCount)
     id->idInsFmt(ins == INS_b ? IF_BI_0A : IF_BI_0B);
     id->SetInstrCount(instrCount);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -7117,7 +7088,6 @@ void Arm64Emitter::emitIns_J(instruction ins, insGroup* label)
     id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label));
     id->SetLabel(label);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -7131,7 +7101,6 @@ void Arm64Emitter::emitIns_CallFinally(insGroup* label)
     id->idInsFmt(IF_BI_0A);
     id->SetLabel(label);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -7185,7 +7154,6 @@ void Arm64Emitter::emitIns_Call(EmitCallType          kind,
     }
 #endif
 
-    dispIns(id);
     appendToCurIG(id);
 }
 

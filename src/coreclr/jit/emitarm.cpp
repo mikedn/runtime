@@ -1576,7 +1576,6 @@ void ArmEmitter::emitIns(instruction ins)
     id->idOpSize(EA_4BYTE);
     id->idInsSize(emitInsSize(fmt));
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -1719,7 +1718,6 @@ void ArmEmitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
     id->idOpSize(EA_SIZE(attr));
     id->idInsSize(emitInsSize(fmt));
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -1766,7 +1764,6 @@ void ArmEmitter::emitIns_R(instruction ins, emitAttr attr, RegNum reg)
     id->idInsSize(emitInsSize(fmt));
     id->idReg1(reg);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -2069,7 +2066,6 @@ void ArmEmitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, int32_t
     id->idInsFlags(sf);
     id->idReg1(reg);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -2087,7 +2083,6 @@ void ArmEmitter::emitIns_MovRelocatableImmediate(instruction ins, RegNum reg, vo
     id->idSetIsCnsReloc(emitComp->opts.compReloc);
     id->SetAddr(addr);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -2240,7 +2235,6 @@ void ArmEmitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegN
     id->idReg1(dstReg);
     id->idReg2(srcReg);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -2505,7 +2499,6 @@ void ArmEmitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum
     id->idReg1(reg1);
     id->idReg2(reg2);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -2536,7 +2529,6 @@ void ArmEmitter::emitIns_R_I_I(instruction ins, emitAttr attr, RegNum reg, int i
     id->idInsFlags(INS_FLAGS_NOT_SET);
     id->idReg1(reg);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -3066,7 +3058,6 @@ void ArmEmitter::emitIns_R_R_I(
     id->idReg1(reg1);
     id->idReg2(reg2);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -3305,7 +3296,6 @@ void ArmEmitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
     id->idReg2(reg2);
     id->idReg3(reg3);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -3366,7 +3356,6 @@ void ArmEmitter::emitIns_R_R_I_I(
     id->idReg1(reg1);
     id->idReg2(reg2);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -3530,7 +3519,6 @@ void ArmEmitter::emitIns_R_R_R_I(
     id->idReg2(reg2);
     id->idReg3(reg3);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -3575,7 +3563,6 @@ void ArmEmitter::emitIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, Re
     id->idReg3(reg3);
     id->idReg4(reg4);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -3591,7 +3578,6 @@ void ArmEmitter::MovRegStackOffset(RegNum reg, int32_t imm, StackAddrMode s)
         // TODO-MIKE-Cleanup: Only disassembly uses this...
         id->SetVarAddr(INDEBUG(s));
 
-        dispIns(id);
         appendToCurIG(id);
     };
 
@@ -3785,7 +3771,6 @@ void ArmEmitter::Ins_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrMo
         }
     }
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -3873,7 +3858,6 @@ void ArmEmitter::emitIns_J(instruction ins, int instrCount)
     id->idInsSize(ISZ_16BIT);
     id->SetInstrCount(instrCount);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -3921,7 +3905,6 @@ void ArmEmitter::emitIns_J(instruction ins, insGroup* label)
         }
     }
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -3943,7 +3926,6 @@ void ArmEmitter::emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, Re
     id->idReg1(reg);
     id->SetLabel(label);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -3974,7 +3956,6 @@ void ArmEmitter::emitIns_CallFinally(insGroup* label)
         }
     }
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -3999,7 +3980,6 @@ void ArmEmitter::emitIns_R_L(instruction ins, RegNum reg, insGroup* label)
     id->SetLabel(label);
     id->idSetIsCnsReloc(emitComp->opts.compReloc);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -4015,7 +3995,6 @@ void ArmEmitter::emitIns_R_D(instruction ins, RegNum reg, ConstData* data)
     id->idInsSize(ISZ_32BIT);
     id->idSetIsCnsReloc(emitComp->opts.compReloc);
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
@@ -4071,7 +4050,6 @@ void ArmEmitter::emitIns_Call(EmitCallType          kind,
     }
 #endif
 
-    dispIns(id);
     appendToCurIG(id);
 }
 
