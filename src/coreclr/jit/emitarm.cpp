@@ -4695,7 +4695,7 @@ uint8_t* ArmEncoder::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
         assert(ig != nullptr);
 
         int      instrCount   = id->GetInstrCount();
-        unsigned jumpInstrNum = EmitterBase::emitFindInsNum(ig, id);
+        unsigned jumpInstrNum = ig->FindInsNum(id);
 
         assert((instrCount >= 0) || (jumpInstrNum + 1 >= static_cast<unsigned>(-instrCount)));
 

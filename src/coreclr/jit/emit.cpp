@@ -2752,11 +2752,11 @@ void EmitterBase::Disassemble()
 }
 #endif
 
-unsigned EmitterBase::emitFindInsNum(const insGroup* ig, const instrDesc* instr)
+unsigned insGroup::FindInsNum(const instrDesc* instr) const
 {
-    uint8_t* insData = ig->igData;
+    uint8_t* insData = igData;
 
-    for (unsigned i = 0, count = ig->igInsCnt; i < count; i++)
+    for (unsigned i = 0, count = igInsCnt; i < count; i++)
     {
         instrDesc* id = reinterpret_cast<instrDesc*>(insData);
 

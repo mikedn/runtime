@@ -71,6 +71,8 @@ public:
     INDEBUG(void Print(const char* suffix = nullptr) const;)
 };
 
+struct instrDesc;
+
 #define IGF_BASIC_BLOCK 0x0001
 #define IGF_PROLOG 0x0002        // this group belongs to a prolog
 #define IGF_EPILOG 0x0004        // this group belongs to a epilog
@@ -143,6 +145,7 @@ struct insGroup
 
     uint32_t GetCodeOffset(CodePos codePos) const;
     uint32_t FindInsOffset(unsigned insNum) const;
+    unsigned FindInsNum(const instrDesc* instr) const;
 
     bool IsDefined() const
     {
@@ -1277,8 +1280,6 @@ public:
 
     bool IsCurrentLocation(const emitLocation& loc) const;
     bool IsPreviousLocation(const emitLocation& loc) const;
-
-    static unsigned emitFindInsNum(const insGroup* ig, const instrDesc* instr);
 
     ConstData* GetFloatConst(double value, var_types type);
     ConstData* GetConst(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
