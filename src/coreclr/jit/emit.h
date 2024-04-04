@@ -280,6 +280,22 @@ struct ConstData
     }
 };
 
+struct DataSection
+{
+    DataSection* next;
+    ConstData    data;
+};
+
+struct RoData
+{
+    DataSection* first = nullptr;
+    DataSection* last  = nullptr;
+    uint32_t     size  = 0;
+    uint32_t     align = ConstData::MinAlign;
+
+    DataSection* Find(const void* data, uint32_t size, uint32_t align) const;
+};
+
 struct StackAddrMode
 {
     int varNum;
@@ -1165,17 +1181,6 @@ class EmitterBase
 
 protected:
     struct Epilog;
-    struct DataSection;
-
-    struct RoData
-    {
-        DataSection* first = nullptr;
-        DataSection* last  = nullptr;
-        uint32_t     size  = 0;
-        uint32_t     align = ConstData::MinAlign;
-
-        DataSection* Find(const void* data, uint32_t size, uint32_t align) const;
-    };
 
     Compiler* emitComp;
     CodeGen*  codeGen;
@@ -1416,12 +1421,6 @@ protected:
     unsigned emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offset DEBUG_ARG(bool isAlignAdjusted));
 #endif
 
-    struct DataSection
-    {
-        DataSection* next;
-        ConstData    data;
-    };
-
     DataSection* CreateLabelTable(unsigned count, bool relative);
     DataSection* CreateConst(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
     DataSection* CreateConstSection(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type));
@@ -1507,9 +1506,6 @@ using emitter = ArchEmitter;
 class Encoder
 {
 protected:
-    using RoData      = EmitterBase::RoData;
-    using DataSection = EmitterBase::DataSection;
-
     Compiler*    emitComp;
     ICorJitInfo* jitInfo;
     CodeGen*     codeGen;

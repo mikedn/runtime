@@ -2896,7 +2896,7 @@ ConstData* EmitterBase::CreateTempLabelTable(insGroup*** labels, unsigned count,
     return &section->data;
 }
 
-EmitterBase::DataSection* EmitterBase::CreateLabelTable(unsigned count, bool relative)
+DataSection* EmitterBase::CreateLabelTable(unsigned count, bool relative)
 {
     DataSection* section = static_cast<DataSection*>(emitGetMem(sizeof(DataSection) + count * sizeof(insGroup*)));
 
@@ -2972,16 +2972,12 @@ ConstData* EmitterBase::GetConst(const void* data, unsigned size, unsigned align
     return &CreateConst(data, size, align DEBUGARG(type))->data;
 }
 
-EmitterBase::DataSection* EmitterBase::CreateConst(const void* data,
-                                                   uint32_t    size,
-                                                   uint32_t align DEBUGARG(var_types type))
+DataSection* EmitterBase::CreateConst(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type))
 {
     return CreateConstSection(data, size, align DEBUGARG(type));
 }
 
-EmitterBase::DataSection* EmitterBase::CreateConstSection(const void* data,
-                                                          uint32_t    size,
-                                                          uint32_t align DEBUGARG(var_types type))
+DataSection* EmitterBase::CreateConstSection(const void* data, uint32_t size, uint32_t align DEBUGARG(var_types type))
 {
     assert((size != 0) && (size % ConstData::MinAlign == 0));
     assert(isPow2(align) && (align <= ConstData::MaxAlign));
@@ -3022,7 +3018,7 @@ EmitterBase::DataSection* EmitterBase::CreateConstSection(const void* data,
     return section;
 }
 
-EmitterBase::DataSection* EmitterBase::RoData::Find(const void* data, uint32_t size, uint32_t align) const
+DataSection* RoData::Find(const void* data, uint32_t size, uint32_t align) const
 {
     // We're doing a linear search, limit it to avoid poor throughput.
     const unsigned MaxCount = 64;
