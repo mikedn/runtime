@@ -83,11 +83,9 @@ static emitJumpKind JccToJumpKind(instruction ins)
 
 enum ID_OPS : uint8_t
 {
-    ID_OP_NONE, // no additional arguments
-    ID_OP_SCNS, // small const  operand (21-bits or less, no reloc)
-    ID_OP_JMP,  // local jump
-    ID_OP_CALL, // direct method call
-    ID_OP_SPEC, // special handling required
+    ID_OP_NONE,
+    ID_OP_JMP,
+    ID_OP_CALL
 };
 
 static ID_OPS GetFormatOp(insFormat format)
@@ -109,50 +107,19 @@ size_t ArmEmitter::instrDescSmall::GetDescSize() const
         return sizeof(instrDescSmall);
     }
 
-    ID_OPS idOp = GetFormatOp(_idInsFmt);
+    ID_OPS op = GetFormatOp(_idInsFmt);
 
-    bool isCallIns    = (_idIns == INS_bl) || (_idIns == INS_blx);
-    bool maybeCallIns = (_idIns == INS_b) || (_idIns == INS_bx);
-
-    // An INS_call instruction may use a "fat" direct/indirect call descriptor
-    // except for a local call to a label (i.e. call to a finally).
-    // Only ID_OP_CALL and ID_OP_SPEC check for this, so we enforce that the
-    // INS_call instruction always uses one of these idOps.
-
-    assert(!isCallIns ||         // either not a call or
-           idOp == ID_OP_CALL || // is a direct call
-           idOp == ID_OP_SPEC || // is an indirect call
-           idOp == ID_OP_JMP);   // is a local call to finally clause
-
-    switch (idOp)
+    switch (op)
     {
-        case ID_OP_NONE:
-            break;
-
+        case ID_OP_CALL:
+            assert(!_idLargeCns);
+            return _idLargeCall ? sizeof(instrDescCGCA) : sizeof(instrDesc);
         case ID_OP_JMP:
             return sizeof(instrDescJmp);
-
-        case ID_OP_CALL:
-        case ID_OP_SPEC:
-            assert(isCallIns || maybeCallIns);
-            if (_idLargeCall)
-            {
-                // Must be a "fat" indirect call descriptor
-                return sizeof(instrDescCGCA);
-            }
-            else
-            {
-                assert(!_idLargeCns);
-                return sizeof(instrDesc);
-            }
-            break;
-
         default:
-            NO_WAY("unexpected instruction descriptor format");
-            break;
+            assert(op == ID_OP_NONE);
+            return _idLargeCns ? sizeof(instrDescCns) : sizeof(instrDesc);
     }
-
-    return _idLargeCns ? sizeof(instrDescCns) : sizeof(instrDesc);
 }
 
 size_t ArmEmitter::instrDesc::emitGetInstrDescSize() const
@@ -162,12 +129,7 @@ size_t ArmEmitter::instrDesc::emitGetInstrDescSize() const
         return sizeof(instrDescSmall);
     }
 
-    if (_idLargeCns)
-    {
-        return sizeof(instrDescCns);
-    }
-
-    return sizeof(instrDesc);
+    return _idLargeCns ? sizeof(instrDescCns) : sizeof(instrDesc);
 }
 
 int32_t ArmEmitter::instrDesc::emitGetInsSC() const
@@ -5660,7 +5622,6 @@ size_t ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             break;
 
         case IF_T1_D1: // T1_D1   .........mmmm...                       R1*
-
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT1_M4(id->idReg1());
             dst += emitOutput_Thumb1Instr(dst, code);

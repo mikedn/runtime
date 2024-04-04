@@ -23,8 +23,8 @@ IF_DEF(T1_A,     IS_NONE, NONE) // ................
 IF_DEF(T1_B,     IS_NONE, NONE) // ........cccc....               cond
 IF_DEF(T1_C,     IS_NONE, NONE) // .....iiiiimmmddd   R1  R2      imm5
 IF_DEF(T1_D0,    IS_NONE, NONE) // ........Dmmmmddd   R1* R2*
-IF_DEF(T1_D1,    IS_NONE, SPEC) // .........mmmm...   R1*
-IF_DEF(T1_D2,    IS_NONE, SPEC) // .........mmmm...           R3*
+IF_DEF(T1_D1,    IS_NONE, NONE) // .........mmmm...   R1*
+IF_DEF(T1_D2,    IS_NONE, CALL) // .........mmmm...           R3*
 IF_DEF(T1_E,     IS_NONE, NONE) // ..........mmmddd   R1  R2
 IF_DEF(T1_F,     IS_NONE, NONE) // .........iiiiiii   SP          imm7
 IF_DEF(T1_G,     IS_NONE, NONE) // .......iiinnnddd   R1  R2      imm3

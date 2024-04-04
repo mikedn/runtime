@@ -333,7 +333,7 @@ size_t Arm64Emitter::instrDescSmall::GetDescSize() const
         return sizeof(instrDescSmall);
     }
 
-    auto op = GetFormatOp(_idInsFmt);
+    ID_OPS op = GetFormatOp(_idInsFmt);
 
     switch (op)
     {
