@@ -142,7 +142,7 @@ void* EmitterBase::emitGetMem(size_t sz)
 }
 
 #ifdef DEBUG
-bool EmitterBase::IsCodeAligned(unsigned offset)
+static bool IsCodeAligned(unsigned offset)
 {
     return ((offset & (CODE_ALIGN - 1)) == 0);
 }
@@ -2598,7 +2598,7 @@ void Encoder::emitEndCodeGen(ArchEmitter& emit)
 
         const uint32_t codeOffs = ig->igOffs;
         noway_assert(codeOffs == emitCurCodeOffs(code));
-        assert(EmitterBase::IsCodeAligned(codeOffs));
+        assert(IsCodeAligned(codeOffs));
 
 #if !FEATURE_FIXED_OUT_ARGS
         if (ig->igStkLvl != stackLevel)

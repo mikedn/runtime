@@ -539,7 +539,7 @@ public:
 
     void idCodeSize(unsigned sz)
     {
-        assert(sz <= 15); // Intel decoder limit.
+        assert(sz <= MAX_ENCODED_SIZE);
         _idCodeSize = sz;
         assert(sz == _idCodeSize);
     }
@@ -1390,7 +1390,6 @@ public:
     static const char* emitIfName(insFormat f);
     void emitDispIGInstrs(insGroup* ig);
     void emitDispIGlist(bool dispInstr);
-    static bool IsCodeAligned(unsigned offset);
     const char* emitOffsetToLabel(unsigned offs);
 
     unsigned GetInstrCount() const

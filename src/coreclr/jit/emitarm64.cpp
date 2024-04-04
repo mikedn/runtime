@@ -1932,24 +1932,18 @@ private:
     uint8_t* emitOutputShortConstant(
         uint8_t* dst, instruction ins, insFormat fmt, int64_t distVal, RegNum reg, emitAttr opSize);
 
-    // Returns true if instruction "id->idIns()" writes to a register that might be used to contain a GC
-    // pointer. This exempts the SP and PC registers, and floating point registers. Memory access
-    // instructions that pre- or post-increment their memory address registers are *not* considered to write
-    // to GC registers, even if that memory address is a by-ref: such an instruction cannot change the GC
-    // status of that register, since it must be a byref before and remains one after.
-    //
-    // This may return false positives.
-    bool emitInsMayWriteToGCReg(instrDesc* id) const;
-
-    // Returns true if the instruction may write to more than one register.
-    bool emitInsMayWriteMultipleRegs(instrDesc* id);
-
 #ifdef DEBUG
     void PrintIns(instrDesc* id, uint8_t* code, size_t sz);
 #endif
 };
 
-bool Arm64Encoder::emitInsMayWriteToGCReg(instrDesc* id) const
+// Returns true if instruction "id->idIns()" writes to a register that might be used to contain a GC
+// pointer. This exempts the SP and PC registers, and floating point registers. Memory access
+// instructions that pre- or post-increment their memory address registers are *not* considered to write
+// to GC registers, even if that memory address is a by-ref: such an instruction cannot change the GC
+// status of that register, since it must be a byref before and remains one after.
+// This may return false positives.
+static bool emitInsMayWriteToGCReg(instrDesc* id)
 {
     instruction ins = id->idIns();
     insFormat   fmt = id->idInsFmt();
@@ -2058,7 +2052,7 @@ bool Arm64Encoder::emitInsMayWriteToGCReg(instrDesc* id) const
     }
 }
 
-bool Arm64Encoder::emitInsMayWriteMultipleRegs(instrDesc* id)
+static bool emitInsMayWriteMultipleRegs(instrDesc* id)
 {
     switch (id->idIns())
     {
