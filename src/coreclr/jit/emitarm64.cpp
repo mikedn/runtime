@@ -8456,8 +8456,6 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
     const insFormat   fmt  = id->idInsFmt();
     const emitAttr    size = id->idOpSize();
 
-    assert(REG_NA == (int)REG_NA);
-
     switch (fmt)
     {
         int64_t  imm;

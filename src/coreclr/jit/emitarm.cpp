@@ -4944,8 +4944,6 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
     insFormat   fmt  = id->idInsFmt();
     emitAttr    size = id->idOpSize();
 
-    assert(REG_NA == (int)REG_NA);
-
     switch (fmt)
     {
         uint32_t code;
