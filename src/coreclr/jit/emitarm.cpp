@@ -166,138 +166,148 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
 {
     switch (id->idInsFmt())
     {
-        case IF_T1_A: // T1_A    ................
-        case IF_T2_A: // T2_A    ................ ................
+        case IF_T1_A: // ................
+        case IF_T2_A: // ................ ................
             break;
 
-        case IF_T1_B: // T1_B    ........cccc....                                           cond
-        case IF_T2_B: // T2_B    ................ ............iiii                          imm4
+        case IF_T1_K:  // ....cccciiiiiiii                        Branch             imm8, cond4
+        case IF_T1_M:  // .....iiiiiiiiiii                        Branch             imm11
+        case IF_T2_J1: // .....Scccciiiiii ..j.jiiiiiiiiiii       Branch             imm20, cond4
+        case IF_T2_J2: // .....Siiiiiiiiii ..j.jiiiiiiiiii.       Branch             imm24
+        case IF_T2_N1: // .....i......iiii .iiiddddiiiiiiii       R1                 imm16
+        case IF_T2_J3: // .....Siiiiiiiiii ..j.jiiiiiiiiii.       Call               imm24
+        case IF_LARGEJMP:
+            break;
+
+        case IF_T1_B: // ........cccc....                                           cond
+        case IF_T2_B: // ................ ............iiii                          imm4
             assert(id->emitGetInsSC() < 0x10);
             break;
 
-        case IF_T1_C: // T1_C    .....iiiiinnnddd                       R1  R2              imm5
+        case IF_T1_C: // .....iiiiinnnddd                       R1  R2              imm5
             assert(isLowRegister(id->idReg1()));
             assert(isLowRegister(id->idReg2()));
             assert(insUnscaleImm(id->idIns(), id->emitGetInsSC()) < 0x20);
             break;
 
-        case IF_T1_D0: // T1_D0   ........Dmmmmddd                       R1* R2*
+        case IF_T1_D0: // ........Dmmmmddd                       R1* R2*
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
             break;
 
-        case IF_T1_D1: // T1_D1   .........mmmm...                       R1*
+        case IF_T1_D1: // .........mmmm...                       R1*
             assert(isGeneralRegister(id->idReg1()));
             break;
 
-        case IF_T1_D2: // T1_D2   .........mmmm...                               R3*
+        case IF_T1_D2: // .........mmmm...                               R3*
             assert(isGeneralRegister(id->idReg3()));
             break;
 
-        case IF_T1_E: // T1_E    ..........nnnddd                       R1  R2
+        case IF_T1_E: // ..........nnnddd                       R1  R2
             assert(isLowRegister(id->idReg1()));
             assert(isLowRegister(id->idReg2()));
             assert(id->idSmallCns() < 0x20);
             break;
 
-        case IF_T1_F: // T1_F    .........iiiiiii                       SP                  imm7
+        case IF_T1_F: // .........iiiiiii                       SP                  imm7
             assert(id->idReg1() == REG_SP);
             assert(id->idOpSize() == EA_4BYTE);
             assert((id->emitGetInsSC() & ~0x1FC) == 0);
             break;
 
-        case IF_T1_G: // T1_G    .......iiinnnddd                       R1  R2              imm3
+        case IF_T1_G: // .......iiinnnddd                       R1  R2              imm3
             assert(isLowRegister(id->idReg1()));
             assert(isLowRegister(id->idReg2()));
             assert(id->idSmallCns() < 0x8);
             break;
 
-        case IF_T1_H: // T1_H    .......mmmnnnddd                       R1  R2  R3
+        case IF_T1_H: // .......mmmnnnddd                       R1  R2  R3
             assert(isLowRegister(id->idReg1()));
             assert(isLowRegister(id->idReg2()));
             assert(isLowRegister(id->idReg3()));
             break;
 
-        case IF_T1_I: // T1_I    ......i.iiiiiddd                       R1                  imm6
+        case IF_T1_I: // ......i.iiiiiddd                       R1                  imm6
             assert(isLowRegister(id->idReg1()));
             break;
 
-        case IF_T1_J0: // T1_J0   .....dddiiiiiiii                       R1                  imm8
-            assert(isLowRegister(id->idReg1()));
-            assert(id->emitGetInsSC() < 0x100);
-            break;
-
-        case IF_T1_J1: // T1_J1   .....dddiiiiiiii                       R1                  <regmask8>
+        case IF_T1_J0: // .....dddiiiiiiii                       R1                  imm8
             assert(isLowRegister(id->idReg1()));
             assert(id->emitGetInsSC() < 0x100);
             break;
 
-        case IF_T1_J2: // T1_J2   .....dddiiiiiiii                       R1  SP              imm8
+        case IF_T1_J1: // .....dddiiiiiiii                       R1                  <regmask8>
+            assert(isLowRegister(id->idReg1()));
+            assert(id->emitGetInsSC() < 0x100);
+            break;
+
+        case IF_T1_J2: // .....dddiiiiiiii                       R1  SP              imm8
             assert(isLowRegister(id->idReg1()));
             assert(id->idReg2() == REG_SP);
             assert(id->idOpSize() == EA_4BYTE);
             assert((id->emitGetInsSC() & ~0x3FC) == 0);
             break;
 
-        case IF_T1_L0: // T1_L0   ........iiiiiiii                                           imm8
+        case IF_T1_L0: // ........iiiiiiii                                           imm8
             assert(id->emitGetInsSC() < 0x100);
             break;
 
-        case IF_T1_L1: // T1_L1   .......Rrrrrrrrr                                           <regmask8+2>
+        case IF_T1_L1: // .......Rrrrrrrrr                                           <regmask8+2>
             assert(id->emitGetInsSC() < 0x400);
             break;
 
-        case IF_T2_C0: // T2_C0   ...........Snnnn .iiiddddiishmmmm       R1  R2  R3      S, imm5, sh
+        case IF_T2_C0: // ...........Snnnn .iiiddddiishmmmm       R1  R2  R3      S, imm5, sh
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
             assert(isGeneralRegister(id->idReg3()));
             assert(id->emitGetInsSC() < 0x20);
             break;
 
-        case IF_T2_C4: // T2_C4   ...........Snnnn ....dddd....mmmm       R1  R2  R3      S
-        case IF_T2_C5: // T2_C5   ............nnnn ....dddd....mmmm       R1  R2  R3
-        case IF_T2_G1: // T2_G1   ............nnnn ttttTTTT........       R1  R2  R3
+        case IF_T2_C4: // ...........Snnnn ....dddd....mmmm       R1  R2  R3      S
+        case IF_T2_C5: // ............nnnn ....dddd....mmmm       R1  R2  R3
+        case IF_T2_G1: // ............nnnn ttttTTTT........       R1  R2  R3
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
             assert(isGeneralRegister(id->idReg3()));
             break;
 
-        case IF_T2_C1: // T2_C1   ...........S.... .iiiddddiishmmmm       R1  R2          S, imm5, sh
-        case IF_T2_C2: // T2_C2   ...........S.... .iiiddddii..mmmm       R1  R2          S, imm5
-        case IF_T2_C8: // T2_C8   ............nnnn .iii....iishmmmm       R1  R2             imm5, sh
+        case IF_T2_C1: // ...........S.... .iiiddddiishmmmm       R1  R2          S, imm5, sh
+        case IF_T2_C2: // ...........S.... .iiiddddii..mmmm       R1  R2          S, imm5
+        case IF_T2_C8: // ............nnnn .iii....iishmmmm       R1  R2             imm5, sh
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
             assert(id->emitGetInsSC() < 0x20);
             break;
 
-        case IF_T2_C6: // T2_C6   ................ ....dddd..iimmmm       R1  R2                   imm2
-        case IF_T2_C7: // T2_C7   ............nnnn ..........shmmmm       R1  R2                   imm2
+        case IF_T2_C6: // ................ ....dddd..iimmmm       R1  R2                   imm2
+        case IF_T2_C7: // ............nnnn ..........shmmmm       R1  R2                   imm2
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
             assert(id->emitGetInsSC() < 0x4);
             break;
 
-        case IF_T2_C3:  // T2_C3   ...........S.... ....dddd....mmmm       R1  R2          S
-        case IF_T2_C9:  // T2_C9   ............nnnn ............mmmm       R1  R2
-        case IF_T2_C10: // T2_C10  ............mmmm ....dddd....mmmm       R1  R2
+        case IF_T2_C3:  // ...........S.... ....dddd....mmmm       R1  R2          S
+        case IF_T2_C9:  // ............nnnn ............mmmm       R1  R2
+        case IF_T2_C10: // ............mmmm ....dddd....mmmm       R1  R2
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
             break;
 
-        case IF_T2_D0: // T2_D0   ............nnnn .iiiddddii.wwwww       R1  R2             imm5, imm5
+        case IF_T2_D0: // ............nnnn .iiiddddii.wwwww       R1  R2             imm5, imm5
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
             assert(id->emitGetInsSC() < 0x400);
             break;
 
-        case IF_T2_D1: // T2_D1   ................ .iiiddddii.wwwww       R1                 imm5, imm5
+        case IF_T2_D1: // ................ .iiiddddii.wwwww       R1                 imm5, imm5
             assert(isGeneralRegister(id->idReg1()));
             assert(id->emitGetInsSC() < 0x400);
             break;
 
-        case IF_T2_E0: // T2_E0   ............nnnn tttt......shmmmm       R1  R2  R3               imm2
+        case IF_T2_E0: // ............nnnn tttt......shmmmm       R1  R2  R3               imm2
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
+
             if (id->idIsLclVar())
             {
                 assert(isGeneralRegister(codeGen->rsGetRsvdReg()));
@@ -309,120 +319,111 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             }
             break;
 
-        case IF_T2_E1: // T2_E1   ............nnnn tttt............       R1  R2
+        case IF_T2_E1: // ............nnnn tttt............       R1  R2
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
             break;
 
-        case IF_T2_E2: // T2_E2   ................ tttt............       R1
+        case IF_T2_E2: // ................ tttt............       R1
             assert(isGeneralRegister(id->idReg1()));
             break;
 
-        case IF_T2_F1: // T2_F1    ............nnnn ttttdddd....mmmm       R1  R2  R3  R4
-        case IF_T2_F2: // T2_F2    ............nnnn aaaadddd....mmmm       R1  R2  R3  R4
+        case IF_T2_F1: // ............nnnn ttttdddd....mmmm       R1  R2  R3  R4
+        case IF_T2_F2: // ............nnnn aaaadddd....mmmm       R1  R2  R3  R4
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
             assert(isGeneralRegister(id->idReg3()));
             assert(isGeneralRegister(id->idReg4()));
             break;
 
-        case IF_T2_G0: // T2_G0   .......PU.W.nnnn ttttTTTTiiiiiiii       R1  R2  R3         imm8, PUW
+        case IF_T2_G0: // .......PU.W.nnnn ttttTTTTiiiiiiii       R1  R2  R3         imm8, PUW
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
             assert(isGeneralRegister(id->idReg3()));
             assert(unsigned_abs(id->emitGetInsSC()) < 0x100);
             break;
 
-        case IF_T2_H0: // T2_H0   ............nnnn tttt.PUWiiiiiiii       R1  R2             imm8, PUW
+        case IF_T2_H0: // ............nnnn tttt.PUWiiiiiiii       R1  R2             imm8, PUW
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
             assert(unsigned_abs(id->emitGetInsSC()) < 0x100);
             break;
 
-        case IF_T2_H1: // T2_H1   ............nnnn tttt....iiiiiiii       R1  R2             imm8
+        case IF_T2_H1: // ............nnnn tttt....iiiiiiii       R1  R2             imm8
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
             assert(id->emitGetInsSC() < 0x100);
             break;
 
-        case IF_T2_H2: // T2_H2   ............nnnn ........iiiiiiii       R1                 imm8
+        case IF_T2_H2: // ............nnnn ........iiiiiiii       R1                 imm8
             assert(isGeneralRegister(id->idReg1()));
             assert(id->emitGetInsSC() < 0x100);
             break;
 
-        case IF_T2_I0: // T2_I0   ..........W.nnnn rrrrrrrrrrrrrrrr       R1              W, imm16
+        case IF_T2_I0: // ..........W.nnnn rrrrrrrrrrrrrrrr       R1              W, imm16
             assert(isGeneralRegister(id->idReg1()));
             assert(id->emitGetInsSC() < 0x10000);
             break;
 
-        case IF_T2_N: // T2_N    .....i......iiii .iiiddddiiiiiiii       R1                 imm16
+        case IF_T2_N: // .....i......iiii .iiiddddiiiiiiii       R1                 imm16
             assert(isGeneralRegister(id->idReg1()));
             assert(!id->idIsCnsReloc());
             break;
 
-        case IF_T2_N2: // T2_N2   .....i......iiii .iiiddddiiiiiiii       R1                 imm16
+        case IF_T2_N2: // .....i......iiii .iiiddddiiiiiiii       R1                 imm16
             assert(isGeneralRegister(id->idReg1()));
             assert((size_t)id->emitGetInsSC() < roData.size);
             break;
 
-        case IF_T2_N3: // T2_N3   .....i......iiii .iiiddddiiiiiiii       R1                 imm16
+        case IF_T2_N3: // .....i......iiii .iiiddddiiiiiiii       R1                 imm16
             assert(isGeneralRegister(id->idReg1()));
             assert(id->idIsCnsReloc());
             break;
 
-        case IF_T2_I1: // T2_I1   ................ rrrrrrrrrrrrrrrr                          imm16
+        case IF_T2_I1: // ................ rrrrrrrrrrrrrrrr                          imm16
             assert(id->emitGetInsSC() < 0x10000);
             break;
 
-        case IF_T2_K1: // T2_K1   ............nnnn ttttiiiiiiiiiiii       R1  R2             imm12
-        case IF_T2_M0: // T2_M0   .....i......nnnn .iiiddddiiiiiiii       R1  R2             imm12
+        case IF_T2_K1: // ............nnnn ttttiiiiiiiiiiii       R1  R2             imm12
+        case IF_T2_M0: // .....i......nnnn .iiiddddiiiiiiii       R1  R2             imm12
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
             assert(id->emitGetInsSC() < 0x1000);
             break;
 
-        case IF_T2_L0: // T2_L0   .....i.....Snnnn .iiiddddiiiiiiii       R1  R2          S, imm8<<imm4
+        case IF_T2_L0: // .....i.....Snnnn .iiiddddiiiiiiii       R1  R2          S, imm8<<imm4
             assert(isGeneralRegister(id->idReg1()));
             assert(isGeneralRegister(id->idReg2()));
             assert(isModImmConst(id->emitGetInsSC()));
             break;
 
-        case IF_T2_K4: // T2_K4   ........U....... ttttiiiiiiiiiiii       R1  PC          U, imm12
-        case IF_T2_M1: // T2_M1   .....i.......... .iiiddddiiiiiiii       R1  PC             imm12
+        case IF_T2_K4: // ........U....... ttttiiiiiiiiiiii       R1  PC          U, imm12
+        case IF_T2_M1: // .....i.......... .iiiddddiiiiiiii       R1  PC             imm12
             assert(isGeneralRegister(id->idReg1()));
             assert(id->idReg2() == REG_PC);
             assert(id->emitGetInsSC() < 0x1000);
             break;
 
-        case IF_T2_K3: // T2_K3   ........U....... ....iiiiiiiiiiii       PC              U, imm12
+        case IF_T2_K3: // ........U....... ....iiiiiiiiiiii       PC              U, imm12
             assert(id->idReg1() == REG_PC);
             assert(id->emitGetInsSC() < 0x1000);
             break;
 
-        case IF_T2_K2: // T2_K2   ............nnnn ....iiiiiiiiiiii       R1                 imm12
+        case IF_T2_K2: // ............nnnn ....iiiiiiiiiiii       R1                 imm12
             assert(isGeneralRegister(id->idReg1()));
             assert(id->emitGetInsSC() < 0x1000);
             break;
 
-        case IF_T2_L1: // T2_L1   .....i.....S.... .iiiddddiiiiiiii       R1              S, imm8<<imm4
-        case IF_T2_L2: // T2_L2   .....i......nnnn .iii....iiiiiiii       R1                 imm8<<imm4
+        case IF_T2_L1: // .....i.....S.... .iiiddddiiiiiiii       R1              S, imm8<<imm4
+        case IF_T2_L2: // .....i......nnnn .iii....iiiiiiii       R1                 imm8<<imm4
             assert(isGeneralRegister(id->idReg1()));
             assert(isModImmConst(id->emitGetInsSC()));
             break;
 
-        case IF_T1_J3: // T1_J3   .....dddiiiiiiii                        R1  PC             imm8
+        case IF_T1_J3: // .....dddiiiiiiii                        R1  PC             imm8
             assert(isGeneralRegister(id->idReg1()));
             assert(id->idReg2() == REG_PC);
             assert(id->emitGetInsSC() < 0x100);
-            break;
-
-        case IF_T1_K:  // T1_K    ....cccciiiiiiii                        Branch             imm8, cond4
-        case IF_T1_M:  // T1_M    .....iiiiiiiiiii                        Branch             imm11
-        case IF_T2_J1: // T2_J1   .....Scccciiiiii ..j.jiiiiiiiiiii       Branch             imm20, cond4
-        case IF_T2_J2: // T2_J2   .....Siiiiiiiiii ..j.jiiiiiiiiii.       Branch             imm24
-        case IF_T2_N1: // T2_N    .....i......iiii .iiiddddiiiiiiii       R1                 imm16
-        case IF_T2_J3: // T2_J3   .....Siiiiiiiiii ..j.jiiiiiiiiii.       Call               imm24
-        case IF_LARGEJMP:
             break;
 
         case IF_T2_VFP3:
@@ -457,6 +458,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
 
         case IF_T2_VMOVD:
             assert(id->idOpSize() == EA_8BYTE);
+
             if (id->idIns() == INS_vmov_d2i)
             {
                 assert(isGeneralRegister(id->idReg1()));
@@ -474,6 +476,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
 
         case IF_T2_VMOVS:
             assert(id->idOpSize() == EA_4BYTE);
+
             if (id->idIns() == INS_vmov_i2f)
             {
                 assert(isFloatReg(id->idReg1()));
@@ -5692,24 +5695,6 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
 #ifdef DEBUG
 
-static bool insAlwaysSetFlags(instruction ins)
-{
-    bool result = false;
-    switch (ins)
-    {
-        case INS_cmp:
-        case INS_cmn:
-        case INS_teq:
-        case INS_tst:
-            result = true;
-            break;
-
-        default:
-            break;
-    }
-    return result;
-}
-
 class ArmAsmPrinter final : public AsmPrinter
 {
 public:
@@ -5743,45 +5728,54 @@ private:
     void emitDispGC(emitAttr attr);
 };
 
+static bool insAlwaysSetFlags(instruction ins)
+{
+    switch (ins)
+    {
+        case INS_cmp:
+        case INS_cmn:
+        case INS_teq:
+        case INS_tst:
+            return true;
+        default:
+            return false;
+    }
+}
+
 // Display the instruction name, optionally the instruction can add the "s" suffix if it must set the flags.
 void ArmAsmPrinter::emitDispInst(instruction ins, insFlags flags)
 {
-    const char* insstr = insName(ins);
-    size_t      len    = strlen(insstr);
+    static const char pad[8]           = "       ";
+    const char*       name             = insName(ins);
+    const bool        printFlagsSuffix = insSetsFlags(flags) && !insAlwaysSetFlags(ins);
 
-    printf("%s", insstr);
-
-    if (insSetsFlags(flags) && !insAlwaysSetFlags(ins))
-    {
-        printf("s");
-        len++;
-    }
-
-    //
-    // Add at least one space after the instruction name
-    // and add spaces until we have reach the normal size of 8
-    do
-    {
-        printf(" ");
-        len++;
-    } while (len < 8);
+    printf("%s%s %s", name, printFlagsSuffix ? "s" : "", pad + Min(sizeof(pad) - 1, strlen(name) + printFlagsSuffix));
 }
 
+// TODO-MIKE-Cleanup: Get rid of this.
 #define STRICT_ARM_ASM 0
 
 void ArmAsmPrinter::emitDispImm(int imm, bool addComma, bool alwaysHex)
 {
     if (!alwaysHex && (imm > -1000) && (imm < 1000))
+    {
         printf("%d", imm);
+    }
     else if ((imm > 0) ||
              (imm == -imm) || // -0x80000000 == 0x80000000. So we don't want to add an extra "-" at the beginning.
              (compiler->opts.disDiffable && (imm == 0xD1FFAB1E))) // Don't display this as negative
+    {
         printf("0x%02x", imm);
-    else // val <= -1000
+    }
+    else
+    {
         printf("-0x%02x", -imm);
+    }
 
     if (addComma)
+    {
         printf(", ");
+    }
 }
 
 void ArmAsmPrinter::emitDispReloc(void* addr)
@@ -5793,19 +5787,22 @@ void ArmAsmPrinter::emitDispCond(int cond)
 {
     const static char* armCond[16]{"eq", "ne", "hs", "lo", "mi", "pl", "vs", "vc",
                                    "hi", "ls", "ge", "lt", "gt", "le", "AL", "NV"}; // The last two are invalid
-    assert(0 <= cond && (unsigned)cond < _countof(armCond));
+    assert((0 <= cond) && (cond < _countof(armCond)));
     printf(armCond[cond]);
 }
 
 void ArmAsmPrinter::emitDispRegRange(RegNum reg, int len, emitAttr attr)
 {
     printf("{");
+
     emitDispReg(reg, attr, false);
+
     if (len > 1)
     {
         printf("-");
-        emitDispReg((RegNum)(reg + len - 1), attr, false);
+        emitDispReg(static_cast<RegNum>(reg + len - 1), attr, false);
     }
+
     printf("}");
 }
 
@@ -5832,13 +5829,12 @@ void ArmAsmPrinter::emitDispRegmask(int imm, bool encodedPC_LR)
     unsigned bit = 1;
 
     printf("{");
+
     while (imm != 0)
     {
         if (bit & imm)
         {
-            if (printedOne)
-                printf(",");
-            printf("%s", emitRegName(reg));
+            printf("%s%s", printedOne ? "," : "", emitRegName(reg));
             printedOne = true;
             imm -= bit;
         }
@@ -5849,19 +5845,16 @@ void ArmAsmPrinter::emitDispRegmask(int imm, bool encodedPC_LR)
 
     if (hasLR)
     {
-        if (printedOne)
-            printf(",");
-        printf("%s", emitRegName(REG_LR));
+        printf("%s%s", printedOne ? "," : "", emitRegName(REG_LR));
         printedOne = true;
     }
 
     if (hasPC)
     {
-        if (printedOne)
-            printf(",");
-        printf("%s", emitRegName(REG_PC));
+        printf("%s%s", printedOne ? "," : "", emitRegName(REG_PC));
         printedOne = true;
     }
+
     printf("}");
 }
 
@@ -5904,7 +5897,9 @@ void ArmAsmPrinter::emitDispReg(RegNum reg, emitAttr attr, bool addComma)
     }
 
     if (addComma)
+    {
         printf(", ");
+    }
 }
 
 void ArmAsmPrinter::emitDispLabel(instrDescJmp* id)
@@ -5965,6 +5960,7 @@ void ArmAsmPrinter::emitDispAddrRI(RegNum reg, int imm, emitAttr attr)
 
     printf("[");
     emitDispReg(reg, attr, false);
+
     if (imm != 0)
     {
         if (imm >= 0)
@@ -5975,8 +5971,10 @@ void ArmAsmPrinter::emitDispAddrRI(RegNum reg, int imm, emitAttr attr)
             printf("+");
 #endif
         }
+
         emitDispImm(imm, false, regIsSPorFP);
     }
+
     printf("]");
     emitDispGC(attr);
 }
@@ -5999,9 +5997,11 @@ void ArmAsmPrinter::emitDispAddrRRI(RegNum reg1, RegNum reg2, int imm, emitAttr 
 {
     printf("[");
     emitDispReg(reg1, attr, false);
+
 #if STRICT_ARM_ASM
     printf(", ");
     emitDispReg(reg2, attr, false);
+
     if (imm > 0)
     {
         printf(" LSL ");
@@ -6009,13 +6009,16 @@ void ArmAsmPrinter::emitDispAddrRRI(RegNum reg1, RegNum reg2, int imm, emitAttr 
     }
 #else
     printf("+");
+
     if (imm > 0)
     {
         emitDispImm(1 << imm, false);
         printf("*");
     }
+
     emitDispReg(reg2, attr, false);
 #endif
+
     printf("]");
     emitDispGC(attr);
 }
@@ -6026,8 +6029,11 @@ void ArmAsmPrinter::emitDispAddrPUW(RegNum reg, int imm, insOpts opt, emitAttr a
 
     printf("[");
     emitDispReg(reg, attr, false);
+
     if (insOptAnyInc(opt))
+    {
         printf("!");
+    }
 
     if (imm != 0)
     {
@@ -6039,10 +6045,11 @@ void ArmAsmPrinter::emitDispAddrPUW(RegNum reg, int imm, insOpts opt, emitAttr a
             printf("+");
 #endif
         }
+
         emitDispImm(imm, false, regIsSPorFP);
     }
-    printf("]");
 
+    printf("]");
     emitDispGC(attr);
 }
 
@@ -6105,28 +6112,27 @@ void ArmAsmPrinter::Print(instrDesc* id)
 
     switch (fmt)
     {
-        int         imm;
-        const char* methodName;
+        int imm, imm1, imm2;
 
-        case IF_T1_A: // None
+        case IF_T1_A:
         case IF_T2_A:
             break;
 
-        case IF_T1_L0: // Imm
+        case IF_T1_L0:
         case IF_T2_B:
             emitDispImm(id->emitGetInsSC(), false);
             break;
 
-        case IF_T1_B: // <cond>
+        case IF_T1_B:
             emitDispCond(id->emitGetInsSC());
             break;
 
-        case IF_T1_L1: // <regmask8>
-        case IF_T2_I1: // <regmask16>
+        case IF_T1_L1:
+        case IF_T2_I1:
             emitDispRegmask(id->emitGetInsSC(), true);
             break;
 
-        case IF_T2_E2: // Reg
+        case IF_T2_E2:
             if (id->idIns() == INS_vmrs)
             {
                 if (id->idReg1() != REG_R15)
@@ -6151,19 +6157,19 @@ void ArmAsmPrinter::Print(instrDesc* id)
 
         case IF_T1_D2:
             emitDispReg(id->idReg3(), attr, false);
+
             if (CORINFO_METHOD_HANDLE handle = static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle))
             {
-                methodName = compiler->eeGetMethodFullName(handle);
-                printf("\t\t// %s", methodName);
+                printf("\t\t// %s", compiler->eeGetMethodFullName(handle));
             }
             break;
 
-        case IF_T1_F: // SP, Imm
+        case IF_T1_F:
             emitDispReg(REG_SP, attr, true);
             emitDispImm(id->emitGetInsSC(), false);
             break;
 
-        case IF_T1_J0: // Reg, Imm
+        case IF_T1_J0:
         case IF_T2_L1:
         case IF_T2_L2:
             emitDispReg(id->idReg1(), attr, true);
@@ -6179,63 +6185,60 @@ void ArmAsmPrinter::Print(instrDesc* id)
 
         case IF_T2_N3:
             emitDispReg(id->idReg1(), attr, true);
-            printf("%s RELOC ", (id->idIns() == INS_movw) ? "LOW" : "HIGH");
+            printf("%s RELOC ", ins == INS_movw ? "LOW" : "HIGH");
             emitDispReloc(id->GetAddr());
             break;
 
         case IF_T2_N2:
             emitDispReg(id->idReg1(), attr, true);
-            printf("%s RWD%02u", id->idIns() == INS_movw ? "LOW" : "HIGH", id->emitGetInsSC());
+            printf("%s RWD%02u", ins == INS_movw ? "LOW" : "HIGH", id->emitGetInsSC());
             break;
 
-        case IF_T2_H2: // [Reg+imm]
+        case IF_T2_H2:
         case IF_T2_K2:
             emitDispAddrRI(id->idReg1(), id->emitGetInsSC(), attr);
             break;
 
-        case IF_T2_K3: // [PC+imm]
+        case IF_T2_K3:
             emitDispAddrRI(REG_PC, id->emitGetInsSC(), attr);
             break;
 
-        case IF_T1_J1: // reg, <regmask8>
-        case IF_T2_I0: // reg, <regmask16>
+        case IF_T1_J1:
+        case IF_T2_I0:
             emitDispReg(id->idReg1(), attr, false);
             printf("!, ");
             emitDispRegmask(id->emitGetInsSC(), false);
             break;
 
-        case IF_T1_D0: // Reg, Reg
+        case IF_T1_D0:
         case IF_T1_E:
         case IF_T2_C3:
         case IF_T2_C9:
         case IF_T2_C10:
             emitDispReg(id->idReg1(), attr, true);
             emitDispReg(id->idReg2(), attr, false);
-            if (fmt == IF_T1_E && id->idIns() == INS_rsb)
+
+            if ((fmt == IF_T1_E) && (id->idIns() == INS_rsb))
             {
                 printf(", 0");
             }
             break;
 
-        case IF_T2_E1: // Reg, [Reg]
+        case IF_T2_E1:
             emitDispReg(id->idReg1(), attr, true);
             emitDispAddrR(id->idReg2(), attr);
             break;
 
-        case IF_T2_D1: // Reg, Imm, Imm
+        case IF_T2_D1:
             emitDispReg(id->idReg1(), attr, true);
-            imm = id->emitGetInsSC();
-            {
-                int lsb  = (imm >> 5) & 0x1f;
-                int msb  = imm & 0x1f;
-                int imm1 = lsb;
-                int imm2 = msb + 1 - lsb;
-                emitDispImm(imm1, true);
-                emitDispImm(imm2, false);
-            }
+            imm  = id->emitGetInsSC();
+            imm1 = (imm >> 5) & 0x1f;
+            imm2 = (imm & 0x1f) + 1 - imm1;
+            emitDispImm(imm1, true);
+            emitDispImm(imm2, false);
             break;
 
-        case IF_T1_C: // Reg, Reg, Imm
+        case IF_T1_C:
         case IF_T1_G:
         case IF_T2_C2:
         case IF_T2_H1:
@@ -6244,6 +6247,7 @@ void ArmAsmPrinter::Print(instrDesc* id)
         case IF_T2_M0:
             emitDispReg(id->idReg1(), attr, true);
             imm = id->emitGetInsSC();
+
             if (emitInsIsLoadOrStore(ins))
             {
                 emitDispAddrRI(id->idReg2(), imm, attr);
@@ -6258,6 +6262,7 @@ void ArmAsmPrinter::Print(instrDesc* id)
         case IF_T1_J2:
             emitDispReg(id->idReg1(), attr, true);
             imm = id->emitGetInsSC();
+
             if (emitInsIsLoadOrStore(ins))
             {
                 emitDispAddrRI(REG_SP, imm, attr);
@@ -6279,6 +6284,7 @@ void ArmAsmPrinter::Print(instrDesc* id)
             emitDispReg(id->idReg1(), attr, true);
             emitDispReg(id->idReg2(), attr, false);
             imm = id->emitGetInsSC();
+
             if (id->idInsOpt() == INS_OPTS_RRX)
             {
                 emitDispShiftOpts(id->idInsOpt());
@@ -6295,6 +6301,7 @@ void ArmAsmPrinter::Print(instrDesc* id)
             imm = id->emitGetInsSC();
             emitDispReg(id->idReg1(), attr, true);
             emitDispReg(id->idReg2(), attr, (imm != 0));
+
             if (imm != 0)
             {
                 emitDispImm(imm, false);
@@ -6310,8 +6317,9 @@ void ArmAsmPrinter::Print(instrDesc* id)
             emitDispAddrPUW(id->idReg2(), id->emitGetInsSC(), id->idInsOpt(), attr);
             break;
 
-        case IF_T1_H: // Reg, Reg, Reg
+        case IF_T1_H:
             emitDispReg(id->idReg1(), attr, true);
+
             if (emitInsIsLoadOrStore(ins))
             {
                 emitDispAddrRR(id->idReg2(), id->idReg3(), attr);
@@ -6345,17 +6353,15 @@ void ArmAsmPrinter::Print(instrDesc* id)
                     emitDispReg(id->idReg1(), EA_4BYTE, true);
                     emitDispReg(id->idReg2(), EA_8BYTE, false);
                     break;
-
                 case INS_vcvt_i2d:
                 case INS_vcvt_u2d:
                 case INS_vcvt_f2d:
                     emitDispReg(id->idReg1(), EA_8BYTE, true);
                     emitDispReg(id->idReg2(), EA_4BYTE, false);
                     break;
-
-                // we just use the type on the instruction
-                // unless it is an asymmetrical one like the converts
                 default:
+                    // We just use the type on the instruction unless
+                    // it is an asymmetrical one like the converts.
                     emitDispReg(id->idReg1(), attr, true);
                     emitDispReg(id->idReg2(), attr, false);
                     break;
@@ -6364,6 +6370,7 @@ void ArmAsmPrinter::Print(instrDesc* id)
 
         case IF_T2_VLDST:
             imm = id->emitGetInsSC();
+
             switch (id->idIns())
             {
                 case INS_vldr:
@@ -6371,41 +6378,35 @@ void ArmAsmPrinter::Print(instrDesc* id)
                     emitDispReg(id->idReg1(), attr, true);
                     emitDispAddrPUW(id->idReg2(), imm, id->idInsOpt(), attr);
                     break;
-
                 case INS_vldm:
                 case INS_vstm:
                     emitDispReg(id->idReg2(), attr, false);
+
                     if (insOptAnyInc(id->idInsOpt()))
+                    {
                         printf("!");
+                    }
+
                     printf(", ");
-                    emitDispRegRange(id->idReg1(), abs(imm) >> 2, attr);
-                    break;
-
-                case INS_vpush:
-                case INS_vpop:
-                    emitDispRegRange(id->idReg1(), abs(imm) >> 2, attr);
-                    break;
-
+                    FALLTHROUGH;
                 default:
-                    unreached();
+                    emitDispRegRange(id->idReg1(), abs(imm) >> 2, attr);
+                    break;
             }
             break;
 
         case IF_T2_VMOVD:
-            switch (id->idIns())
+            if (ins == INS_vmov_i2d)
             {
-                case INS_vmov_i2d:
-                    emitDispReg(id->idReg1(), attr, true); // EA_8BYTE
-                    emitDispReg(id->idReg2(), EA_4BYTE, true);
-                    emitDispReg(id->idReg3(), EA_4BYTE, false);
-                    break;
-                case INS_vmov_d2i:
-                    emitDispReg(id->idReg1(), EA_4BYTE, true);
-                    emitDispReg(id->idReg2(), EA_4BYTE, true);
-                    emitDispReg(id->idReg3(), attr, false); // EA_8BYTE
-                    break;
-                default:
-                    unreached();
+                emitDispReg(id->idReg1(), attr, true);
+                emitDispReg(id->idReg2(), EA_4BYTE, true);
+                emitDispReg(id->idReg3(), EA_4BYTE, false);
+            }
+            else
+            {
+                emitDispReg(id->idReg1(), EA_4BYTE, true);
+                emitDispReg(id->idReg2(), EA_4BYTE, true);
+                emitDispReg(id->idReg3(), attr, false);
             }
             break;
 
@@ -6419,35 +6420,22 @@ void ArmAsmPrinter::Print(instrDesc* id)
             emitDispAddrRR(id->idReg2(), id->idReg3(), attr);
             break;
 
-        case IF_T2_D0: // Reg, Reg, Imm, Imm
+        case IF_T2_D0:
             emitDispReg(id->idReg1(), attr, true);
             emitDispReg(id->idReg2(), attr, true);
-            imm = id->emitGetInsSC();
-            if (ins == INS_bfi)
-            {
-                int lsb  = (imm >> 5) & 0x1f;
-                int msb  = imm & 0x1f;
-                int imm1 = lsb;
-                int imm2 = msb + 1 - lsb;
-                emitDispImm(imm1, true);
-                emitDispImm(imm2, false);
-            }
-            else
-            {
-                int lsb     = (imm >> 5) & 0x1f;
-                int widthm1 = imm & 0x1f;
-                int imm1    = lsb;
-                int imm2    = widthm1 + 1;
-                emitDispImm(imm1, true);
-                emitDispImm(imm2, false);
-            }
+            imm  = id->emitGetInsSC();
+            imm1 = (imm >> 5) & 0x1f;
+            imm2 = (imm & 0x1f) + 1 - (ins == INS_bfi ? imm1 : 0);
+            emitDispImm(imm1, true);
+            emitDispImm(imm2, false);
             break;
 
-        case IF_T2_C0: // Reg, Reg, Reg, Imm
+        case IF_T2_C0:
             emitDispReg(id->idReg1(), attr, true);
             emitDispReg(id->idReg2(), attr, true);
             emitDispReg(id->idReg3(), attr, false);
             imm = id->emitGetInsSC();
+
             if (id->idInsOpt() == INS_OPTS_RRX)
             {
                 emitDispShiftOpts(id->idInsOpt());
@@ -6462,6 +6450,7 @@ void ArmAsmPrinter::Print(instrDesc* id)
 
         case IF_T2_E0:
             emitDispReg(id->idReg1(), attr, true);
+
             if (id->idIsLclVar())
             {
                 emitDispAddrRRI(id->idReg2(), codeGen->rsGetRsvdReg(), 0, attr);
@@ -6478,7 +6467,7 @@ void ArmAsmPrinter::Print(instrDesc* id)
             emitDispAddrPUW(id->idReg3(), id->emitGetInsSC(), id->idInsOpt(), attr);
             break;
 
-        case IF_T2_F1: // Reg, Reg, Reg, Reg
+        case IF_T2_F1:
         case IF_T2_F2:
             emitDispReg(id->idReg1(), attr, true);
             emitDispReg(id->idReg2(), attr, true);
@@ -6504,7 +6493,7 @@ void ArmAsmPrinter::Print(instrDesc* id)
             break;
 
         default:
-            printf("unexpected format %s", EmitterBase::emitIfName(id->idInsFmt()));
+            printf("unexpected format %s", EmitterBase::emitIfName(fmt));
             assert(!"unexpectedFormat");
             break;
     }

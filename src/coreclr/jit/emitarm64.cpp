@@ -8779,7 +8779,6 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             if (id->idIsCnsReloc())
             {
-                assert(sz == sizeof(instrDesc));
                 assert(id->GetAddr() != nullptr);
                 emitRecordRelocation(odst, id->GetAddr(), IMAGE_REL_ARM64_PAGEOFFSET_12A);
             }
