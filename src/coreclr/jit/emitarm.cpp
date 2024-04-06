@@ -4893,22 +4893,6 @@ uint8_t* ArmEncoder::emitOutputIT(uint8_t* dst, instruction ins, insFormat fmt, 
 
 #endif // FEATURE_ITINSTRUCTION
 
-size_t instrDesc::emitGetInstrDescSizeSC() const
-{
-    if (idIsSmallDsc())
-    {
-        return sizeof(instrDescSmall);
-    }
-    else if (idIsLargeCns())
-    {
-        return sizeof(instrDescCns);
-    }
-    else
-    {
-        return sizeof(instrDesc);
-    }
-}
-
 // A helper for handling a Thumb-Mov32 of position-independent (PC-relative) value
 //
 // This routine either records relocation for the location with the EE,
@@ -5286,7 +5270,7 @@ size_t ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code |= insEncodeRegT2_N(id->idReg3());
             if (fmt == IF_T2_G0)
             {
-                sz  = id->emitGetInstrDescSizeSC();
+                sz  = id->emitGetInstrDescSize();
                 imm = id->emitGetInsSC();
                 assert(unsigned_abs(imm) <= 0x00ff);
                 code |= abs(imm);
@@ -5302,7 +5286,7 @@ size_t ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_T2_H0: // T2_H0   ............nnnn tttt.PUWiiiiiiii       R1  R2             imm8, PUW
         case IF_T2_H1: // T2_H1   ............nnnn tttt....iiiiiiii       R1  R2             imm8
         case IF_T2_H2: // T2_H2   ............nnnn ........iiiiiiii       R1                 imm8
-            sz   = id->emitGetInstrDescSizeSC();
+            sz   = id->emitGetInstrDescSize();
             imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_T(id->idReg1());
@@ -5326,7 +5310,7 @@ size_t ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
         case IF_T2_I0: // T2_I0   ..........W.nnnn rrrrrrrrrrrrrrrr       R1              W, imm16
         case IF_T2_I1: // T2_I1   ................ rrrrrrrrrrrrrrrr                          imm16
-            sz   = id->emitGetInstrDescSizeSC();
+            sz   = id->emitGetInstrDescSize();
             code = emitInsCode(ins, fmt);
             if (fmt == IF_T2_I0)
             {
@@ -5372,7 +5356,7 @@ size_t ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             break;
 
         case IF_T2_K2: // T2_K2   ............nnnn ....iiiiiiiiiiii       R1                 imm12
-            sz   = id->emitGetInstrDescSizeSC();
+            sz   = id->emitGetInstrDescSize();
             imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_N(id->idReg1());
@@ -5407,7 +5391,7 @@ size_t ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             break;
 
         case IF_T2_M0: // T2_M0   .....i......nnnn .iiiddddiiiiiiii       R1  R2             imm12
-            sz   = id->emitGetInstrDescSizeSC();
+            sz   = id->emitGetInstrDescSize();
             imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
@@ -5423,7 +5407,7 @@ size_t ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
         case IF_T2_N: // T2_N    .....i......iiii .iiiddddiiiiiiii       R1                 imm16
             assert(!id->idIsCnsReloc());
-            sz   = id->emitGetInstrDescSizeSC();
+            sz   = id->emitGetInstrDescSize();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
             code |= insEncodeImmT2_Mov(id->emitGetInsSC());
@@ -5431,7 +5415,7 @@ size_t ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             break;
 
         case IF_T2_N2: // T2_N2   .....i......iiii .iiiddddiiiiiiii       R1                 imm16
-            sz   = id->emitGetInstrDescSizeSC();
+            sz   = id->emitGetInstrDescSize();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
             imm  = id->emitGetInsSC();
@@ -5539,7 +5523,7 @@ size_t ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         }
 
         case IF_T2_VLDST:
-            sz   = id->emitGetInstrDescSizeSC();
+            sz   = id->emitGetInstrDescSize();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_N(id->idReg2());
             code |= insEncodeRegT2_VectorD(id->idReg1(), size, true);

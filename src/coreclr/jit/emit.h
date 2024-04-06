@@ -991,7 +991,6 @@ public:
 
 #ifdef TARGET_ARM
     size_t  emitGetInstrDescSize() const;
-    size_t  emitGetInstrDescSizeSC() const;
     int32_t emitGetInsSC() const;
 #endif
 
@@ -1413,7 +1412,6 @@ protected:
     void* emitGetMem(size_t sz);
     void dispIns(instrDesc* id);
     void appendToCurIG(instrDesc* id);
-    static size_t emitGetInstrDescSizeSC(const instrDesc* id);
 #if FEATURE_LOOP_ALIGN
     unsigned getLoopSize(insGroup* igLoopHeader,
                          unsigned maxLoopSize DEBUG_ARG(bool isAlignAdjusted)); // Get the smallest loop size
