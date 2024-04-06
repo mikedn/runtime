@@ -333,29 +333,22 @@ size_t instrDescSmall::GetDescSize() const
         return sizeof(instrDescSmall);
     }
 
-    ID_OPS op = GetFormatOp(_idInsFmt);
-
-    switch (op)
+    if (_idLargeCns)
     {
-        case ID_OP_CALL:
-            assert(!_idLargeCns);
-            return _idLargeCall ? sizeof(instrDescCGCA) : sizeof(instrDesc);
-        case ID_OP_JMP:
-            return sizeof(instrDescJmp);
-        default:
-            assert(op == ID_OP_NONE);
-            return _idLargeCns ? sizeof(instrDescCns) : sizeof(instrDesc);
-    }
-}
-
-size_t instrDesc::emitGetInstrDescSize() const
-{
-    if (_idSmallDsc)
-    {
-        return sizeof(instrDescSmall);
+        return sizeof(instrDescCns);
     }
 
-    return _idLargeCns ? sizeof(instrDescCns) : sizeof(instrDesc);
+    if (_idLargeCall)
+    {
+        return sizeof(instrDescCGCA);
+    }
+
+    if (GetFormatOp(_idInsFmt) == ID_OP_JMP)
+    {
+        return sizeof(instrDescJmp);
+    }
+
+    return sizeof(instrDesc);
 }
 
 int64_t instrDesc::emitGetInsSC() const
@@ -1918,7 +1911,7 @@ public:
     {
     }
 
-    size_t EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp);
+    void EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp);
 
 private:
     // Emit the 32-bit Arm64 instruction 'code' into the 'dst'  buffer
@@ -8450,10 +8443,11 @@ void EmitterBase::emitEndCodeGen(GCInfo& gcInfo)
 
 size_t Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 {
-    return static_cast<Arm64Encoder*>(this)->EncodeInstr(ig, id, dp);
+    static_cast<Arm64Encoder*>(this)->EncodeInstr(ig, id, dp);
+    return id->GetDescSize();
 }
 
-size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
+void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 {
     uint8_t*          dst  = *dp;
     uint8_t*          odst = dst;
@@ -8461,7 +8455,6 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
     const instruction ins  = id->idIns();
     const insFormat   fmt  = id->idInsFmt();
     const emitAttr    size = id->idOpSize();
-    size_t            sz   = id->emitGetInstrDescSize(); // TODO-ARM64-Cleanup: on ARM, this is set in each case. why?
 
     assert(REG_NA == (int)REG_NA);
 
@@ -8483,7 +8476,6 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             if (static_cast<instrDescJmp*>(id)->HasConstData())
             {
                 dst = emitOutputDL(dst, static_cast<instrDescJmp*>(id));
-                sz  = sizeof(instrDescJmp);
                 break;
             }
             FALLTHROUGH;
@@ -8493,9 +8485,9 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_BI_1B: // B.......bbbbbiii iiiiiiiiiiittttt      Rt imm6, simm14:00
         case IF_LARGEJMP:
             dst = emitOutputLJ(dst, static_cast<instrDescJmp*>(id), ig);
-            FALLTHROUGH;
+            break;
+
         case IF_NOP_JMP:
-            sz = sizeof(instrDescJmp);
             break;
 
         case IF_DI_1E: // .ii.....iiiiiiii iiiiiiiiiiiddddd      Rd       simm21
@@ -8504,11 +8496,10 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code |= insEncodeReg_Rd(id->idReg1()); // ddddd
             dst += emitOutput_Instr(dst, code);
             emitRecordRelocation(odst, id->GetAddr(), IMAGE_REL_ARM64_PAGEBASE_REL21);
-            sz = sizeof(instrDesc);
             break;
 
         case IF_BI_0C: // ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
-            sz   = emitRecordGCCall(id, dst, dst + 4);
+            emitRecordGCCall(id, dst, dst + 4);
             code = emitInsCode(ins, fmt);
             dst += emitOutput_Instr(dst, code);
             // Always call RecordRelocation so that we wire in a JumpStub when we don't reach
@@ -8526,7 +8517,7 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_BR_1B: // ................ ......nnnnn.....         Rn
             assert(insOptsNone(id->idInsOpt()));
             assert((ins == INS_br_tail) || (ins == INS_blr));
-            sz   = emitRecordGCCall(id, dst, dst + 4);
+            emitRecordGCCall(id, dst, dst + 4);
             code = emitInsCode(ins, fmt);
             code |= insEncodeReg_Rn(id->idReg3()); // nnnnn
             dst += emitOutput_Instr(dst, code);
@@ -9561,8 +9552,6 @@ size_t Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 #endif
 
     *dp = dst;
-
-    return sz;
 }
 
 #ifdef DEBUG

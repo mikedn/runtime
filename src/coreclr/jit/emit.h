@@ -990,7 +990,6 @@ public:
 #endif // TARGET_ARMARCH
 
 #ifdef TARGET_ARM
-    size_t  emitGetInstrDescSize() const;
     int32_t emitGetInsSC() const;
 #endif
 
@@ -1016,7 +1015,6 @@ public:
     }
 
     int64_t emitGetInsSC() const;
-    size_t  emitGetInstrDescSize() const;
 #endif // TARGET_ARM64
 };
 
