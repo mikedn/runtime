@@ -1410,62 +1410,38 @@ bool ArmImm::IsAluImm(int imm)
 // Returns true when the immediate 'imm' can be encoded using a single mov or mvn instruction.
 bool ArmImm::IsMovImm(int imm)
 {
-    if ((imm & 0x0000ffff) == imm) // 16-bit immediate
-        return true;
-    if (isModImmConst(imm)) // funky arm immediate
-        return true;
-    if (isModImmConst(~imm)) // funky arm immediate via mvn
-        return true;
-    return false;
+    return ((imm & 0x0000ffff) == imm) || isModImmConst(imm) || isModImmConst(~imm);
 }
 
 // Returns true when the immediate 'imm' can be encoded using a single add or sub instruction.
 bool ArmImm::IsAddImm(int imm, insFlags flags)
 {
-    if ((unsigned_abs(imm) <= 0x00000fff) && (flags != INS_FLAGS_SET)) // 12-bit immediate via add/sub
-        return true;
-    if (isModImmConst(imm)) // funky arm immediate
-        return true;
-    if (isModImmConst(-imm)) // funky arm immediate via sub
-        return true;
-    return false;
+    return ((unsigned_abs(imm) <= 0x00000fff) && (flags != INS_FLAGS_SET)) || isModImmConst(imm) || isModImmConst(-imm);
 }
 
 // Returns true if this 'imm' can be encoded as a input operand to an cmp instruction.
 bool ArmImm::IsCmpImm(int imm, insFlags flags)
 {
-    if (isModImmConst(imm)) // funky arm immediate
-        return true;
-    if (isModImmConst(-imm)) // funky arm immediate via sub
-        return true;
-    return false;
+    return isModImmConst(imm) || isModImmConst(-imm);
 }
 
 // Returns true when the immediate 'imm' can be encoded in "add Rd,SP,i10".
 bool ArmImm::IsAddSpImm(int imm)
 {
-    if ((imm & 0x03fc) == imm)
-        return true;
-    return false;
+    return (imm & 0x03fc) == imm;
 }
 
 // Returns true when the immediate 'imm' can be encoded as the offset in a ldr/str instruction.
 bool ArmImm::IsLdStImm(int imm, emitAttr size)
 {
-    if ((imm & 0x0fff) == imm)
-        return true; // encodable using IF_T2_K1
-    if (unsigned_abs(imm) <= 0x0ff)
-        return true; // encodable using IF_T2_H0
-    return false;
+    return ((imm & 0x0fff) == imm) || (unsigned_abs(imm) <= 0x0ff);
 }
 
 // Returns true when the immediate 'imm' can be encoded as the offset in a vldr/vstr instruction,
 // i.e. when it is a non-negative multiple of 4 that is less than 1024.
 bool ArmImm::IsVLdStImm(int imm)
 {
-    if ((imm & 0x3fc) == imm)
-        return true;
-    return false;
+    return (imm & 0x3fc) == imm;
 }
 
 template <typename T>
@@ -4939,7 +4915,6 @@ size_t Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 {
     uint8_t*    dst  = *dp;
-    uint8_t*    odst = dst;
     instruction ins  = id->idIns();
     insFormat   fmt  = id->idInsFmt();
     emitAttr    size = id->idOpSize();
@@ -4965,22 +4940,19 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst = emitOutputRL(dst, static_cast<instrDescJmp*>(id));
             break;
 
-        case IF_T1_A: // T1_A    ................
+        case IF_T1_A: // ................
             code = emitInsCode(ins, fmt);
             dst += emitOutput_Thumb1Instr(dst, code);
             break;
 
 #ifdef FEATURE_ITINSTRUCTION
-        case IF_T1_B: // T1_B    ........cccc....                                           cond
-        {
+        case IF_T1_B: // ........cccc....                                           cond
             assert(id->idGCref() == GCT_NONE);
-            int32_t condcode = id->emitGetInsSC();
-            dst              = emitOutputIT(dst, ins, fmt, condcode);
-        }
-        break;
-#endif // FEATURE_ITINSTRUCTION
+            dst = emitOutputIT(dst, ins, fmt, id->emitGetInsSC());
+            break;
+#endif
 
-        case IF_T1_C: // T1_C    .....iiiiinnnddd                       R1  R2              imm5
+        case IF_T1_C: // .....iiiiinnnddd                       R1  R2              imm5
             imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT1_D3(id->idReg1());
@@ -4991,21 +4963,21 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Thumb1Instr(dst, code);
             break;
 
-        case IF_T1_D0: // T1_D0   ........Dmmmmddd                       R1* R2*
+        case IF_T1_D0: // ........Dmmmmddd                       R1* R2*
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT1_D4(id->idReg1());
             code |= insEncodeRegT1_M4(id->idReg2());
             dst += emitOutput_Thumb1Instr(dst, code);
             break;
 
-        case IF_T1_E: // T1_E    ..........nnnddd                       R1  R2
+        case IF_T1_E: // ..........nnnddd                       R1  R2
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT1_D3(id->idReg1());
             code |= insEncodeRegT1_N3(id->idReg2());
             dst += emitOutput_Thumb1Instr(dst, code);
             break;
 
-        case IF_T1_F: // T1_F    .........iiiiiii                       SP                  imm7
+        case IF_T1_F: // .........iiiiiii                       SP                  imm7
             imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             assert((ins == INS_add) || (ins == INS_sub));
@@ -5016,7 +4988,7 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Thumb1Instr(dst, code);
             break;
 
-        case IF_T1_G: // T1_G    .......iiinnnddd                       R1  R2              imm3
+        case IF_T1_G: // .......iiinnnddd                       R1  R2              imm3
             imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT1_D3(id->idReg1());
@@ -5026,7 +4998,7 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Thumb1Instr(dst, code);
             break;
 
-        case IF_T1_H: // T1_H    .......mmmnnnddd                       R1  R2  R3
+        case IF_T1_H: // .......mmmnnnddd                       R1  R2  R3
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT1_D3(id->idReg1());
             code |= insEncodeRegT1_N3(id->idReg2());
@@ -5034,45 +5006,51 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Thumb1Instr(dst, code);
             break;
 
-        case IF_T1_J0: // T1_J0   .....dddiiiiiiii                       R1                  imm8
-        case IF_T1_J1: // T1_J1   .....dddiiiiiiii                       R1                  <regmask8>
-        case IF_T1_J2: // T1_J2   .....dddiiiiiiii                       R1  SP              imm8
+        case IF_T1_J0: // .....dddiiiiiiii                       R1                  imm8
+        case IF_T1_J1: // .....dddiiiiiiii                       R1                  <regmask8>
+        case IF_T1_J2: // .....dddiiiiiiii                       R1  SP              imm8
             imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT1_DI(id->idReg1());
+
             if (fmt == IF_T1_J2)
             {
                 assert((ins == INS_add) || (ins == INS_ldr) || (ins == INS_str));
                 assert((imm & 0x0003) == 0);
                 imm >>= 2;
             }
+
             assert((imm & 0x00ff) == imm);
             code |= imm;
             dst += emitOutput_Thumb1Instr(dst, code);
             break;
 
-        case IF_T1_L0: // T1_L0   ........iiiiiiii                                           imm8
-        case IF_T1_L1: // T1_L1   .......Rrrrrrrrr                                           <regmask8>
+        case IF_T1_L0: // ........iiiiiiii                                           imm8
+        case IF_T1_L1: // .......Rrrrrrrrr                                           <regmask8>
             imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
+
             if (fmt == IF_T1_L1)
             {
                 assert((imm & 0x3) != 0x3);
                 if (imm & 0x3)
+                {
                     code |= 0x0100; //  R bit
+                }
                 imm >>= 2;
             }
+
             assert((imm & 0x00ff) == imm);
             code |= imm;
             dst += emitOutput_Thumb1Instr(dst, code);
             break;
 
-        case IF_T2_A: // T2_A    ................ ................
+        case IF_T2_A: // ................ ................
             code = emitInsCode(ins, fmt);
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
-        case IF_T2_B: // T2_B    ................ ............iiii                          imm4
+        case IF_T2_B: // ................ ............iiii                          imm4
             imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             assert((imm & 0x000F) == imm);
@@ -5080,31 +5058,37 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
-        case IF_T2_C0: // T2_C0   ...........Snnnn .iiiddddiishmmmm       R1  R2  R3      S, imm5, sh
-        case IF_T2_C4: // T2_C4   ...........Snnnn ....dddd....mmmm       R1  R2  R3      S
-        case IF_T2_C5: // T2_C5   ............nnnn ....dddd....mmmm       R1  R2  R3
+        case IF_T2_C0: // ...........Snnnn .iiiddddiishmmmm       R1  R2  R3      S, imm5, sh
+        case IF_T2_C4: // ...........Snnnn ....dddd....mmmm       R1  R2  R3      S
+        case IF_T2_C5: // ............nnnn ....dddd....mmmm       R1  R2  R3
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
             code |= insEncodeRegT2_N(id->idReg2());
             code |= insEncodeRegT2_M(id->idReg3());
+
             if (fmt != IF_T2_C5)
+            {
                 code |= insEncodeSetFlags(id->idInsFlags());
+            }
+
             if (fmt == IF_T2_C0)
             {
                 imm = id->emitGetInsSC();
                 code |= insEncodeShiftCount(imm);
                 code |= insEncodeShiftOpts(id->idInsOpt());
             }
+
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
-        case IF_T2_C1: // T2_C1   ...........S.... .iiiddddiishmmmm       R1  R2          S, imm5, sh
-        case IF_T2_C2: // T2_C2   ...........S.... .iiiddddii..mmmm       R1  R2          S, imm5
-        case IF_T2_C6: // T2_C6   ................ ....dddd..iimmmm       R1  R2                   imm2
+        case IF_T2_C1: // ...........S.... .iiiddddiishmmmm       R1  R2          S, imm5, sh
+        case IF_T2_C2: // ...........S.... .iiiddddii..mmmm       R1  R2          S, imm5
+        case IF_T2_C6: // ................ ....dddd..iimmmm       R1  R2                   imm2
             imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
             code |= insEncodeRegT2_M(id->idReg2());
+
             if (fmt == IF_T2_C6)
             {
                 assert((imm & 0x0018) == imm);
@@ -5114,13 +5098,17 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             {
                 code |= insEncodeSetFlags(id->idInsFlags());
                 code |= insEncodeShiftCount(imm);
+
                 if (fmt == IF_T2_C1)
+                {
                     code |= insEncodeShiftOpts(id->idInsOpt());
+                }
             }
+
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
-        case IF_T2_C3: // T2_C3   ...........S.... ....dddd....mmmm       R1  R2          S
+        case IF_T2_C3: // ...........S.... ....dddd....mmmm       R1  R2          S
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
             code |= insEncodeRegT2_M(id->idReg2());
@@ -5134,27 +5122,29 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_N(id->idReg1());
             code |= insEncodeRegT2_M(id->idReg2());
+
             if (fmt == IF_T2_C7)
             {
                 assert((imm & 0x0003) == imm);
                 code |= (imm << 4);
             }
-            else if (fmt == IF_T2_C8)
+            else
             {
                 code |= insEncodeShiftCount(imm);
                 code |= insEncodeShiftOpts(id->idInsOpt());
             }
+
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
-        case IF_T2_C9: // T2_C9   ............nnnn ............mmmm       R1  R2
+        case IF_T2_C9: // ............nnnn ............mmmm       R1  R2
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_N(id->idReg1());
             code |= insEncodeRegT2_M(id->idReg2());
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
-        case IF_T2_C10: // T2_C10  ............mmmm ....dddd....mmmm       R1  R2
+        case IF_T2_C10: // ............mmmm ....dddd....mmmm       R1  R2
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
             code |= insEncodeRegT2_M(id->idReg2());
@@ -5162,22 +5152,27 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
-        case IF_T2_D0: // T2_D0   ............nnnn .iiiddddii.wwwww       R1  R2             imm5, imm5
-        case IF_T2_D1: // T2_D1   ................ .iiiddddii.wwwww       R1                 imm5, imm5
+        case IF_T2_D0: // ............nnnn .iiiddddii.wwwww       R1  R2             imm5, imm5
+        case IF_T2_D1: // ................ .iiiddddii.wwwww       R1                 imm5, imm5
             imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
+
             if (fmt == IF_T2_D0)
+            {
                 code |= insEncodeRegT2_N(id->idReg2());
+            }
+
             code |= insEncodeBitFieldImm(imm);
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
-        case IF_T2_E0: // T2_E0   ............nnnn tttt......shmmmm       R1  R2  R3               imm2
-        case IF_T2_E1: // T2_E1   ............nnnn tttt............       R1  R2
-        case IF_T2_E2: // T2_E2   ................ tttt............       R1
+        case IF_T2_E0: // ............nnnn tttt......shmmmm       R1  R2  R3               imm2
+        case IF_T2_E1: // ............nnnn tttt............       R1  R2
+        case IF_T2_E2: // ................ tttt............       R1
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_T(id->idReg1());
+
             if (fmt == IF_T2_E0)
             {
                 code |= insEncodeRegT2_N(id->idReg2());
@@ -5194,17 +5189,15 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                     code |= (imm << 4);
                 }
             }
-            else
+            else if (fmt == IF_T2_E1)
             {
-                if (fmt != IF_T2_E2)
-                {
-                    code |= insEncodeRegT2_N(id->idReg2());
-                }
+                code |= insEncodeRegT2_N(id->idReg2());
             }
+
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
-        case IF_T2_F1: // T2_F1    ............nnnn ttttdddd....mmmm       R1  R2  R3  R4
+        case IF_T2_F1: // ............nnnn ttttdddd....mmmm       R1  R2  R3  R4
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_T(id->idReg1());
             code |= insEncodeRegT2_D(id->idReg2());
@@ -5213,7 +5206,7 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
-        case IF_T2_F2: // T2_F2    ............nnnn aaaadddd....mmmm       R1  R2  R3  R4
+        case IF_T2_F2: // ............nnnn aaaadddd....mmmm       R1  R2  R3  R4
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
             code |= insEncodeRegT2_N(id->idReg2());
@@ -5222,12 +5215,13 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
-        case IF_T2_G0: // T2_G0   .......PU.W.nnnn ttttTTTTiiiiiiii       R1  R2  R3         imm8, PUW
-        case IF_T2_G1: // T2_G1   ............nnnn ttttTTTT........       R1  R2  R3
+        case IF_T2_G0: // .......PU.W.nnnn ttttTTTTiiiiiiii       R1  R2  R3         imm8, PUW
+        case IF_T2_G1: // ............nnnn ttttTTTT........       R1  R2  R3
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_T(id->idReg1());
             code |= insEncodeRegT2_D(id->idReg2());
             code |= insEncodeRegT2_N(id->idReg3());
+
             if (fmt == IF_T2_G0)
             {
                 imm = id->emitGetInsSC();
@@ -5235,18 +5229,21 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code |= abs(imm);
                 code |= insEncodePUW_G0(id->idInsOpt(), imm);
             }
+
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
-        case IF_T2_H0: // T2_H0   ............nnnn tttt.PUWiiiiiiii       R1  R2             imm8, PUW
-        case IF_T2_H1: // T2_H1   ............nnnn tttt....iiiiiiii       R1  R2             imm8
-        case IF_T2_H2: // T2_H2   ............nnnn ........iiiiiiii       R1                 imm8
+        case IF_T2_H0: // ............nnnn tttt.PUWiiiiiiii       R1  R2             imm8, PUW
+        case IF_T2_H1: // ............nnnn tttt....iiiiiiii       R1  R2             imm8
+        case IF_T2_H2: // ............nnnn ........iiiiiiii       R1                 imm8
             imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_T(id->idReg1());
 
             if (fmt != IF_T2_H2)
+            {
                 code |= insEncodeRegT2_N(id->idReg2());
+            }
 
             if (fmt == IF_T2_H0)
             {
@@ -5259,38 +5256,50 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 assert((imm & 0x00ff) == imm);
                 code |= imm;
             }
+
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
-        case IF_T2_I0: // T2_I0   ..........W.nnnn rrrrrrrrrrrrrrrr       R1              W, imm16
-        case IF_T2_I1: // T2_I1   ................ rrrrrrrrrrrrrrrr                          imm16
+        case IF_T2_I0: // ..........W.nnnn rrrrrrrrrrrrrrrr       R1              W, imm16
+        case IF_T2_I1: // ................ rrrrrrrrrrrrrrrr                          imm16
             code = emitInsCode(ins, fmt);
+
             if (fmt == IF_T2_I0)
             {
                 code |= insEncodeRegT2_N(id->idReg1());
                 code |= (1 << 21); //  W bit
             }
+
             imm = id->emitGetInsSC();
             assert((imm & 0x3) != 0x3);
+
             if (imm & 0x2)
+            {
                 code |= 0x8000; //  PC bit
+            }
+
             if (imm & 0x1)
+            {
                 code |= 0x4000; //  LR bit
+            }
+
             imm >>= 2;
             assert(imm <= 0x1fff); //  13 bits
             code |= imm;
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
-        case IF_T2_K1: // T2_K1   ............nnnn ttttiiiiiiiiiiii       R1  R2             imm12
-        case IF_T2_K4: // T2_K4   ........U....... ttttiiiiiiiiiiii       R1  PC          U, imm12
-        case IF_T2_K3: // T2_K3   ........U....... ....iiiiiiiiiiii       PC              U, imm12
+        case IF_T2_K1: // ............nnnn ttttiiiiiiiiiiii       R1  R2             imm12
+        case IF_T2_K4: // ........U....... ttttiiiiiiiiiiii       R1  PC          U, imm12
+        case IF_T2_K3: // ........U....... ....iiiiiiiiiiii       PC              U, imm12
             imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
+
             if (fmt != IF_T2_K3)
             {
                 code |= insEncodeRegT2_T(id->idReg1());
             }
+
             if (fmt == IF_T2_K1)
             {
                 code |= insEncodeRegT2_N(id->idReg2());
@@ -5302,12 +5311,14 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 assert(unsigned_abs(imm) <= 0xfff); //  12 bits (signed)
                 code |= abs(imm);
                 if (imm >= 0)
+                {
                     code |= (1 << 23); //  U bit
+                }
             }
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
-        case IF_T2_K2: // T2_K2   ............nnnn ....iiiiiiiiiiii       R1                 imm12
+        case IF_T2_K2: // ............nnnn ....iiiiiiiiiiii       R1                 imm12
             imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_N(id->idReg1());
@@ -5316,21 +5327,26 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
-        case IF_T2_L0: // T2_L0   .....i.....Snnnn .iiiddddiiiiiiii       R1  R2          S, imm8<<imm4
-        case IF_T2_L1: // T2_L1   .....i.....S.... .iiiddddiiiiiiii       R1              S, imm8<<imm4
-        case IF_T2_L2: // T2_L2   .....i......nnnn .iii....iiiiiiii       R1                 imm8<<imm4
+        case IF_T2_L0: // .....i.....Snnnn .iiiddddiiiiiiii       R1  R2          S, imm8<<imm4
+        case IF_T2_L1: // .....i.....S.... .iiiddddiiiiiiii       R1              S, imm8<<imm4
+        case IF_T2_L2: // .....i......nnnn .iii....iiiiiiii       R1                 imm8<<imm4
             imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
 
             if (fmt == IF_T2_L2)
+            {
                 code |= insEncodeRegT2_N(id->idReg1());
+            }
             else
             {
                 code |= insEncodeSetFlags(id->idInsFlags());
                 code |= insEncodeRegT2_D(id->idReg1());
                 if (fmt == IF_T2_L0)
+                {
                     code |= insEncodeRegT2_N(id->idReg2());
+                }
             }
+
             assert(isModImmConst(imm)); // Funky ARM imm encoding
             imm = encodeModImmConst(imm);
             assert(imm <= 0xfff); //  12 bits
@@ -5340,12 +5356,11 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
-        case IF_T2_M0: // T2_M0   .....i......nnnn .iiiddddiiiiiiii       R1  R2             imm12
+        case IF_T2_M0: // .....i......nnnn .iiiddddiiiiiiii       R1  R2             imm12
             imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
-            if (fmt == IF_T2_M0)
-                code |= insEncodeRegT2_N(id->idReg2());
+            code |= insEncodeRegT2_N(id->idReg2());
             imm = id->emitGetInsSC();
             assert(imm <= 0xfff); //  12 bits
             code |= (imm & 0x00ff);
@@ -5354,7 +5369,7 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
-        case IF_T2_N: // T2_N    .....i......iiii .iiiddddiiiiiiii       R1                 imm16
+        case IF_T2_N: // .....i......iiii .iiiddddiiiiiiii       R1                 imm16
             assert(!id->idIsCnsReloc());
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
@@ -5362,7 +5377,7 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
-        case IF_T2_N2: // T2_N2   .....i......iiii .iiiddddiiiiiiii       R1                 imm16
+        case IF_T2_N2: // .....i......iiii .iiiddddiiiiiiii       R1                 imm16
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
             imm  = id->emitGetInsSC();
@@ -5394,7 +5409,7 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             }
             break;
 
-        case IF_T2_N3: // T2_N3   .....i......iiii .iiiddddiiiiiiii       R1                 imm16
+        case IF_T2_N3: // .....i......iiii .iiiddddiiiiiiii       R1                 imm16
             assert((ins == INS_movt) || (ins == INS_movw));
             assert(id->idIsCnsReloc());
 
@@ -5416,7 +5431,9 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code |= insEncodeRegT2_VectorM(id->idReg3(), size, true);
             code |= insEncodeRegT2_VectorD(id->idReg1(), size, true);
             if (size == EA_8BYTE)
+            {
                 code |= 1 << 8;
+            }
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
@@ -5424,7 +5441,7 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         {
             emitAttr srcSize;
             emitAttr dstSize;
-            size_t   szCode = 0;
+            uint32_t szCode = 0;
 
             switch (ins)
             {
@@ -5434,23 +5451,22 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                     srcSize = EA_4BYTE;
                     dstSize = EA_8BYTE;
                     break;
-
                 case INS_vcvt_d2i:
                 case INS_vcvt_d2u:
                 case INS_vcvt_d2f:
                     srcSize = EA_8BYTE;
                     dstSize = EA_4BYTE;
                     break;
-
                 case INS_vmov:
                 case INS_vabs:
                 case INS_vsqrt:
                 case INS_vcmp:
                 case INS_vneg:
                     if (id->idOpSize() == EA_8BYTE)
-                        szCode |= (1 << 8);
+                    {
+                        szCode |= 1 << 8;
+                    }
                     FALLTHROUGH;
-
                 default:
                     srcSize = dstSize = id->idOpSize();
                     break;
@@ -5469,12 +5485,16 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_N(id->idReg2());
             code |= insEncodeRegT2_VectorD(id->idReg1(), size, true);
-
             imm = id->emitGetInsSC();
+
             if (imm < 0)
+            {
                 imm = -imm; // bit 23 at 0 means negate
+            }
             else
+            {
                 code |= 1 << 23; // set the positive bit
+            }
 
             // offset is +/- 1020
             assert(!(imm % 4));
@@ -5482,7 +5502,9 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code |= imm >> 2;
             // bit 8 is set for doubles
             if (id->idOpSize() == EA_8BYTE)
+            {
                 code |= (1 << 8);
+            }
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
@@ -5523,20 +5545,20 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
-        case IF_T1_D1: // T1_D1   .........mmmm...                       R1*
+        case IF_T1_D1: // .........mmmm...                       R1*
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT1_M4(id->idReg1());
             dst += emitOutput_Thumb1Instr(dst, code);
             break;
 
-        case IF_T1_D2: // T1_D2   .........mmmm...                                R3*
+        case IF_T1_D2: // .........mmmm...                                R3*
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT1_M4(id->idReg3());
             dst += emitOutput_Thumb1Instr(dst, code);
             emitRecordGCCall(id, *dp, dst);
             break;
 
-        case IF_T2_J3:                    // T2_J3   .....Siiiiiiiiii ..j.jiiiiiiiiii.      Call                imm24
+        case IF_T2_J3:                    // .....Siiiiiiiiii ..j.jiiiiiiiiii.      Call                imm24
             if (id->GetAddr() == nullptr) // a recursive call
             {
                 addr = hotCodeBlock;
@@ -5545,6 +5567,7 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             {
                 addr = id->GetAddr();
             }
+
             code = emitInsCode(ins, fmt);
 
             if (id->idIsCnsReloc())
@@ -5554,20 +5577,29 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             }
             else
             {
-                addr = (uint8_t*)((size_t)addr & ~1); // Clear the lowest bit from target address
+                // Clear the lowest bit from target address
+                addr = reinterpret_cast<uint8_t*>(reinterpret_cast<size_t>(addr) & ~1);
 
                 // Calculate PC relative displacement
                 ptrdiff_t disp = static_cast<uint8_t*>(addr) - (dst + 4);
-                bool      S    = (disp < 0);
-                bool      I1   = ((disp & 0x00800000) == 0);
-                bool      I2   = ((disp & 0x00400000) == 0);
+                bool      S    = disp < 0;
+                bool      I1   = (disp & 0x00800000) == 0;
+                bool      I2   = (disp & 0x00400000) == 0;
 
                 if (S)
+                {
                     code |= (1 << 26); // S bit
+                }
+
                 if (S ^ I1)
+                {
                     code |= (1 << 13); // J1 bit
+                }
+
                 if (S ^ I2)
+                {
                     code |= (1 << 11); // J2 bit
+                }
 
                 int immLo = (disp & 0x00000ffe) >> 1;
                 int immHi = (disp & 0x003ff000) >> 12;
@@ -5583,10 +5615,6 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             emitRecordGCCall(id, *dp, dst);
             break;
-
-        /********************************************************************/
-        /*                            oops                                  */
-        /********************************************************************/
 
         default:
             unreached();
