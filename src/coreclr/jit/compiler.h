@@ -5607,7 +5607,7 @@ public:
 #pragma warning(push)
 #pragma warning(disable : 4312)
     template <typename T>
-    T dspPtr(T p)
+    T dspPtr(T p) const
     {
         if (p && opts.disDiffable)
         {
@@ -5618,7 +5618,7 @@ public:
     }
 
     template <typename T>
-    T dspOffset(T o)
+    T dspOffset(T o) const
     {
         if (o && opts.dspDiffable)
         {

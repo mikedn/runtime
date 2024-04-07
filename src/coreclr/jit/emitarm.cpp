@@ -84,12 +84,17 @@ static bool insOptAnyInc(insOpts opt)
     return (opt == INS_OPTS_LDST_PRE_DEC) || (opt == INS_OPTS_LDST_POST_INC);
 }
 
+static unsigned unsigned_abs(int x)
+{
+    return static_cast<unsigned>(x < 0 ? -x : x);
+}
+
+#ifdef DEBUG
 static bool insOptsPostInc(insOpts opt)
 {
     return opt == INS_OPTS_LDST_POST_INC;
 }
 
-#ifdef DEBUG
 const char* insOptsName(insOpts opt)
 {
     switch (opt)
@@ -109,11 +114,6 @@ const char* insOptsName(insOpts opt)
         default:
             return "???";
     }
-}
-
-static unsigned unsigned_abs(int x)
-{
-    return static_cast<unsigned>(x < 0 ? -x : x);
 }
 
 static bool offsetFitsInVectorMem(int disp)
@@ -5489,30 +5489,25 @@ public:
     {
     }
 
-    void Print(instrDesc* id);
+    void Print(instrDesc* id) const;
 
 private:
-    static const char* emitRegName(RegNum reg, emitAttr attr = EA_4BYTE)
-    {
-        return getRegName(reg);
-    }
-
-    void emitDispInst(instruction ins, insFlags flags);
-    void emitDispImm(int imm, bool addComma, bool alwaysHex = false);
-    void emitDispReloc(void* addr);
-    void emitDispFrameRef(instrDesc* id);
-    void emitDispCond(int cond);
-    void emitDispShiftOpts(insOpts opt);
-    void emitDispRegmask(int imm, bool encodedPC_LR);
-    void emitDispRegRange(RegNum reg, int len, emitAttr attr);
-    void emitDispReg(RegNum reg, emitAttr attr, bool addComma);
-    void emitDispLabel(instrDescJmp* id);
-    void emitDispAddrR(RegNum reg, emitAttr attr);
-    void emitDispAddrRI(RegNum reg, int imm, emitAttr attr);
-    void emitDispAddrRR(RegNum reg1, RegNum reg2, emitAttr attr);
-    void emitDispAddrRRI(RegNum reg1, RegNum reg2, int imm, emitAttr attr);
-    void emitDispAddrPUW(RegNum reg, int imm, insOpts opt, emitAttr attr);
-    void emitDispGC(emitAttr attr);
+    void PrintInsName(instruction ins, insFlags flags) const;
+    void PrintImm(int imm, bool addComma, bool alwaysHex = false) const;
+    void PrintReloc(void* addr) const;
+    void PrintFrameRef(instrDesc* id) const;
+    void PrintCondition(int cond) const;
+    void PrintShiftOpts(insOpts opt) const;
+    void PrintRegSet(int imm, bool encodedPC_LR) const;
+    void PrintRegRange(RegNum reg, int len, emitAttr attr) const;
+    void PrintReg(RegNum reg, emitAttr attr, bool addComma) const;
+    void PrintBranchLabel(instrDescJmp* id) const;
+    void PrintAddrMode(RegNum reg, emitAttr attr) const;
+    void PrintAddrMode(RegNum reg, int imm, emitAttr attr) const;
+    void PrintAddrMode(RegNum reg1, RegNum reg2, emitAttr attr) const;
+    void PrintAddrMode(RegNum reg1, RegNum reg2, int imm, emitAttr attr) const;
+    void PrintAddrMode(RegNum reg, int imm, insOpts opt, emitAttr attr) const;
+    void PrintGCType(emitAttr attr) const;
 };
 
 static bool insAlwaysSetFlags(instruction ins)
@@ -5529,8 +5524,7 @@ static bool insAlwaysSetFlags(instruction ins)
     }
 }
 
-// Display the instruction name, optionally the instruction can add the "s" suffix if it must set the flags.
-void ArmAsmPrinter::emitDispInst(instruction ins, insFlags flags)
+void ArmAsmPrinter::PrintInsName(instruction ins, insFlags flags) const
 {
     static const char pad[8]           = "       ";
     const char*       name             = insName(ins);
@@ -5542,7 +5536,7 @@ void ArmAsmPrinter::emitDispInst(instruction ins, insFlags flags)
 // TODO-MIKE-Cleanup: Get rid of this.
 #define STRICT_ARM_ASM 0
 
-void ArmAsmPrinter::emitDispImm(int imm, bool addComma, bool alwaysHex)
+void ArmAsmPrinter::PrintImm(int imm, bool addComma, bool alwaysHex) const
 {
     if (!alwaysHex && (imm > -1000) && (imm < 1000))
     {
@@ -5565,12 +5559,12 @@ void ArmAsmPrinter::emitDispImm(int imm, bool addComma, bool alwaysHex)
     }
 }
 
-void ArmAsmPrinter::emitDispReloc(void* addr)
+void ArmAsmPrinter::PrintReloc(void* addr) const
 {
     printf("0x%p", dspPtr(addr));
 }
 
-void ArmAsmPrinter::emitDispCond(int cond)
+void ArmAsmPrinter::PrintCondition(int cond) const
 {
     const static char* armCond[16]{"eq", "ne", "hs", "lo", "mi", "pl", "vs", "vc",
                                    "hi", "ls", "ge", "lt", "gt", "le", "AL", "NV"}; // The last two are invalid
@@ -5578,22 +5572,22 @@ void ArmAsmPrinter::emitDispCond(int cond)
     printf(armCond[cond]);
 }
 
-void ArmAsmPrinter::emitDispRegRange(RegNum reg, int len, emitAttr attr)
+void ArmAsmPrinter::PrintRegRange(RegNum reg, int len, emitAttr attr) const
 {
     printf("{");
 
-    emitDispReg(reg, attr, false);
+    PrintReg(reg, attr, false);
 
     if (len > 1)
     {
         printf("-");
-        emitDispReg(static_cast<RegNum>(reg + len - 1), attr, false);
+        PrintReg(static_cast<RegNum>(reg + len - 1), attr, false);
     }
 
     printf("}");
 }
 
-void ArmAsmPrinter::emitDispRegmask(int imm, bool encodedPC_LR)
+void ArmAsmPrinter::PrintRegSet(int imm, bool encodedPC_LR) const
 {
     bool printedOne = false;
     bool hasPC;
@@ -5621,7 +5615,7 @@ void ArmAsmPrinter::emitDispRegmask(int imm, bool encodedPC_LR)
     {
         if (bit & imm)
         {
-            printf("%s%s", printedOne ? "," : "", emitRegName(reg));
+            printf("%s%s", printedOne ? "," : "", RegName(reg, EA_4BYTE));
             printedOne = true;
             imm -= bit;
         }
@@ -5632,34 +5626,33 @@ void ArmAsmPrinter::emitDispRegmask(int imm, bool encodedPC_LR)
 
     if (hasLR)
     {
-        printf("%s%s", printedOne ? "," : "", emitRegName(REG_LR));
+        printf("%s%s", printedOne ? "," : "", RegName(REG_LR, EA_4BYTE));
         printedOne = true;
     }
 
     if (hasPC)
     {
-        printf("%s%s", printedOne ? "," : "", emitRegName(REG_PC));
+        printf("%s%s", printedOne ? "," : "", RegName(REG_PC, EA_4BYTE));
         printedOne = true;
     }
 
     printf("}");
 }
 
-void ArmAsmPrinter::emitDispShiftOpts(insOpts opt)
+void ArmAsmPrinter::PrintShiftOpts(insOpts opt) const
 {
     printf(" %s ", insOptsName(opt));
 }
 
-void ArmAsmPrinter::emitDispReg(RegNum reg, emitAttr attr, bool addComma)
+void ArmAsmPrinter::PrintReg(RegNum reg, emitAttr attr, bool addComma) const
 {
     if (IsFloatReg(reg))
     {
-        const char* size = attr == EA_8BYTE ? "d" : "s";
-        printf("%s%s", size, emitRegName(reg, attr) + 1);
+        printf("%s%s", attr == EA_8BYTE ? "d" : "s", RegName(reg, attr) + 1);
     }
     else
     {
-        printf("%s", emitRegName(reg, attr));
+        printf("%s", RegName(reg, EA_4BYTE));
     }
 
     if (addComma)
@@ -5668,17 +5661,17 @@ void ArmAsmPrinter::emitDispReg(RegNum reg, emitAttr attr, bool addComma)
     }
 }
 
-void ArmAsmPrinter::emitDispLabel(instrDescJmp* id)
+void ArmAsmPrinter::PrintBranchLabel(instrDescJmp* id) const
 {
     insFormat fmt = id->idInsFmt();
 
     if ((fmt == IF_T1_I) || (fmt == IF_T1_J3) || (fmt == IF_T2_M1))
     {
-        emitDispReg(id->idReg1(), EA_4BYTE, true);
+        PrintReg(id->idReg1(), EA_4BYTE, true);
     }
     else if (fmt == IF_T2_N1)
     {
-        emitDispReg(id->idReg1(), EA_4BYTE, true);
+        PrintReg(id->idReg1(), EA_4BYTE, true);
         printf("%s ADDRESS ", id->idIns() == INS_movw ? "LOW" : "HIGH");
     }
     else if ((fmt == IF_T1_K) || (fmt == IF_T1_M))
@@ -5712,20 +5705,20 @@ void ArmAsmPrinter::emitDispLabel(instrDescJmp* id)
     }
 }
 
-void ArmAsmPrinter::emitDispAddrR(RegNum reg, emitAttr attr)
+void ArmAsmPrinter::PrintAddrMode(RegNum reg, emitAttr attr) const
 {
     printf("[");
-    emitDispReg(reg, attr, false);
+    PrintReg(reg, attr, false);
     printf("]");
-    emitDispGC(attr);
+    PrintGCType(attr);
 }
 
-void ArmAsmPrinter::emitDispAddrRI(RegNum reg, int imm, emitAttr attr)
+void ArmAsmPrinter::PrintAddrMode(RegNum reg, int imm, emitAttr attr) const
 {
     bool regIsSPorFP = (reg == REG_SP) || (reg == REG_FP);
 
     printf("[");
-    emitDispReg(reg, attr, false);
+    PrintReg(reg, attr, false);
 
     if (imm != 0)
     {
@@ -5738,63 +5731,63 @@ void ArmAsmPrinter::emitDispAddrRI(RegNum reg, int imm, emitAttr attr)
 #endif
         }
 
-        emitDispImm(imm, false, regIsSPorFP);
+        PrintImm(imm, false, regIsSPorFP);
     }
 
     printf("]");
-    emitDispGC(attr);
+    PrintGCType(attr);
 }
 
-void ArmAsmPrinter::emitDispAddrRR(RegNum reg1, RegNum reg2, emitAttr attr)
+void ArmAsmPrinter::PrintAddrMode(RegNum reg1, RegNum reg2, emitAttr attr) const
 {
     printf("[");
-    emitDispReg(reg1, attr, false);
+    PrintReg(reg1, attr, false);
 #if STRICT_ARM_ASM
     printf(", ");
 #else
     printf("+");
 #endif
-    emitDispReg(reg2, attr, false);
+    PrintReg(reg2, attr, false);
     printf("]");
-    emitDispGC(attr);
+    PrintGCType(attr);
 }
 
-void ArmAsmPrinter::emitDispAddrRRI(RegNum reg1, RegNum reg2, int imm, emitAttr attr)
+void ArmAsmPrinter::PrintAddrMode(RegNum reg1, RegNum reg2, int imm, emitAttr attr) const
 {
     printf("[");
-    emitDispReg(reg1, attr, false);
+    PrintReg(reg1, attr, false);
 
 #if STRICT_ARM_ASM
     printf(", ");
-    emitDispReg(reg2, attr, false);
+    PrintReg(reg2, attr, false);
 
     if (imm > 0)
     {
         printf(" LSL ");
-        emitDispImm(1 << imm, false);
+        PrintImm(1 << imm, false);
     }
 #else
     printf("+");
 
     if (imm > 0)
     {
-        emitDispImm(1 << imm, false);
+        PrintImm(1 << imm, false);
         printf("*");
     }
 
-    emitDispReg(reg2, attr, false);
+    PrintReg(reg2, attr, false);
 #endif
 
     printf("]");
-    emitDispGC(attr);
+    PrintGCType(attr);
 }
 
-void ArmAsmPrinter::emitDispAddrPUW(RegNum reg, int imm, insOpts opt, emitAttr attr)
+void ArmAsmPrinter::PrintAddrMode(RegNum reg, int imm, insOpts opt, emitAttr attr) const
 {
     bool regIsSPorFP = (reg == REG_SP) || (reg == REG_FP);
 
     printf("[");
-    emitDispReg(reg, attr, false);
+    PrintReg(reg, attr, false);
 
     if (insOptAnyInc(opt))
     {
@@ -5812,14 +5805,14 @@ void ArmAsmPrinter::emitDispAddrPUW(RegNum reg, int imm, insOpts opt, emitAttr a
 #endif
         }
 
-        emitDispImm(imm, false, regIsSPorFP);
+        PrintImm(imm, false, regIsSPorFP);
     }
 
     printf("]");
-    emitDispGC(attr);
+    PrintGCType(attr);
 }
 
-void ArmAsmPrinter::emitDispGC(emitAttr attr)
+void ArmAsmPrinter::PrintGCType(emitAttr attr) const
 {
 #if 0
     // TODO-ARM-Cleanup: Fix or delete.
@@ -5830,23 +5823,7 @@ void ArmAsmPrinter::emitDispGC(emitAttr attr)
 #endif
 }
 
-static void PrintHexCode(uint8_t* code, size_t sz)
-{
-    if (sz == 2)
-    {
-        printf("  %04X     ", reinterpret_cast<uint16_t*>(code)[0]);
-    }
-    else if (sz == 4)
-    {
-        printf("  %04X %04X", reinterpret_cast<uint16_t*>(code)[0], reinterpret_cast<uint16_t*>(code)[1]);
-    }
-    else
-    {
-        printf("           ");
-    }
-}
-
-void ArmAsmPrinter::Print(instrDesc* id)
+void ArmAsmPrinter::Print(instrDesc* id) const
 {
     printf("      ");
 
@@ -5859,7 +5836,7 @@ void ArmAsmPrinter::Print(instrDesc* id)
         return;
     }
 
-    emitDispInst(ins, id->idInsFlags());
+    PrintInsName(ins, id->idInsFlags());
 
     emitAttr attr;
 
@@ -5886,16 +5863,16 @@ void ArmAsmPrinter::Print(instrDesc* id)
 
         case IF_T1_L0:
         case IF_T2_B:
-            emitDispImm(id->emitGetInsSC(), false);
+            PrintImm(id->emitGetInsSC(), false);
             break;
 
         case IF_T1_B:
-            emitDispCond(id->emitGetInsSC());
+            PrintCondition(id->emitGetInsSC());
             break;
 
         case IF_T1_L1:
         case IF_T2_I1:
-            emitDispRegmask(id->emitGetInsSC(), true);
+            PrintRegSet(id->emitGetInsSC(), true);
             break;
 
         case IF_T2_E2:
@@ -5903,7 +5880,7 @@ void ArmAsmPrinter::Print(instrDesc* id)
             {
                 if (id->idReg1() != REG_R15)
                 {
-                    emitDispReg(id->idReg1(), attr, true);
+                    PrintReg(id->idReg1(), attr, true);
                     printf("FPSCR");
                 }
                 else
@@ -5913,16 +5890,16 @@ void ArmAsmPrinter::Print(instrDesc* id)
             }
             else
             {
-                emitDispReg(id->idReg1(), attr, false);
+                PrintReg(id->idReg1(), attr, false);
             }
             break;
 
         case IF_T1_D1:
-            emitDispReg(id->idReg1(), attr, false);
+            PrintReg(id->idReg1(), attr, false);
             break;
 
         case IF_T1_D2:
-            emitDispReg(id->idReg3(), attr, false);
+            PrintReg(id->idReg3(), attr, false);
 
             if (CORINFO_METHOD_HANDLE handle = static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle))
             {
@@ -5931,49 +5908,49 @@ void ArmAsmPrinter::Print(instrDesc* id)
             break;
 
         case IF_T1_F:
-            emitDispReg(REG_SP, attr, true);
-            emitDispImm(id->emitGetInsSC(), false);
+            PrintReg(REG_SP, attr, true);
+            PrintImm(id->emitGetInsSC(), false);
             break;
 
         case IF_T1_J0:
         case IF_T2_L1:
         case IF_T2_L2:
-            emitDispReg(id->idReg1(), attr, true);
+            PrintReg(id->idReg1(), attr, true);
             imm = id->emitGetInsSC();
-            emitDispImm(imm, false, false);
+            PrintImm(imm, false, false);
             break;
 
         case IF_T2_N:
-            emitDispReg(id->idReg1(), attr, true);
+            PrintReg(id->idReg1(), attr, true);
             imm = compiler->opts.disDiffable ? 0xD1FF : id->emitGetInsSC();
-            emitDispImm(imm, false, true);
+            PrintImm(imm, false, true);
             break;
 
         case IF_T2_N3:
-            emitDispReg(id->idReg1(), attr, true);
+            PrintReg(id->idReg1(), attr, true);
             printf("%s RELOC ", ins == INS_movw ? "LOW" : "HIGH");
-            emitDispReloc(id->GetAddr());
+            PrintReloc(id->GetAddr());
             break;
 
         case IF_T2_N2:
-            emitDispReg(id->idReg1(), attr, true);
+            PrintReg(id->idReg1(), attr, true);
             printf("%s RWD%02u", ins == INS_movw ? "LOW" : "HIGH", id->emitGetInsSC());
             break;
 
         case IF_T2_H2:
         case IF_T2_K2:
-            emitDispAddrRI(id->idReg1(), id->emitGetInsSC(), attr);
+            PrintAddrMode(id->idReg1(), id->emitGetInsSC(), attr);
             break;
 
         case IF_T2_K3:
-            emitDispAddrRI(REG_PC, id->emitGetInsSC(), attr);
+            PrintAddrMode(REG_PC, id->emitGetInsSC(), attr);
             break;
 
         case IF_T1_J1:
         case IF_T2_I0:
-            emitDispReg(id->idReg1(), attr, false);
+            PrintReg(id->idReg1(), attr, false);
             printf("!, ");
-            emitDispRegmask(id->emitGetInsSC(), false);
+            PrintRegSet(id->emitGetInsSC(), false);
             break;
 
         case IF_T1_D0:
@@ -5981,8 +5958,8 @@ void ArmAsmPrinter::Print(instrDesc* id)
         case IF_T2_C3:
         case IF_T2_C9:
         case IF_T2_C10:
-            emitDispReg(id->idReg1(), attr, true);
-            emitDispReg(id->idReg2(), attr, false);
+            PrintReg(id->idReg1(), attr, true);
+            PrintReg(id->idReg2(), attr, false);
 
             if ((fmt == IF_T1_E) && (id->idIns() == INS_rsb))
             {
@@ -5991,17 +5968,17 @@ void ArmAsmPrinter::Print(instrDesc* id)
             break;
 
         case IF_T2_E1:
-            emitDispReg(id->idReg1(), attr, true);
-            emitDispAddrR(id->idReg2(), attr);
+            PrintReg(id->idReg1(), attr, true);
+            PrintAddrMode(id->idReg2(), attr);
             break;
 
         case IF_T2_D1:
-            emitDispReg(id->idReg1(), attr, true);
+            PrintReg(id->idReg1(), attr, true);
             imm  = id->emitGetInsSC();
             imm1 = (imm >> 5) & 0x1f;
             imm2 = (imm & 0x1f) + 1 - imm1;
-            emitDispImm(imm1, true);
-            emitDispImm(imm2, false);
+            PrintImm(imm1, true);
+            PrintImm(imm2, false);
             break;
 
         case IF_T1_C:
@@ -6011,103 +5988,103 @@ void ArmAsmPrinter::Print(instrDesc* id)
         case IF_T2_K1:
         case IF_T2_L0:
         case IF_T2_M0:
-            emitDispReg(id->idReg1(), attr, true);
+            PrintReg(id->idReg1(), attr, true);
             imm = id->emitGetInsSC();
 
             if (IsLoadStoreIns(ins))
             {
-                emitDispAddrRI(id->idReg2(), imm, attr);
+                PrintAddrMode(id->idReg2(), imm, attr);
             }
             else
             {
-                emitDispReg(id->idReg2(), attr, true);
-                emitDispImm(imm, false);
+                PrintReg(id->idReg2(), attr, true);
+                PrintImm(imm, false);
             }
             break;
 
         case IF_T1_J2:
-            emitDispReg(id->idReg1(), attr, true);
+            PrintReg(id->idReg1(), attr, true);
             imm = id->emitGetInsSC();
 
             if (IsLoadStoreIns(ins))
             {
-                emitDispAddrRI(REG_SP, imm, attr);
+                PrintAddrMode(REG_SP, imm, attr);
             }
             else
             {
-                emitDispReg(REG_SP, attr, true);
-                emitDispImm(imm, false);
+                PrintReg(REG_SP, attr, true);
+                PrintImm(imm, false);
             }
             break;
 
         case IF_T2_K4:
-            emitDispReg(id->idReg1(), attr, true);
-            emitDispAddrRI(REG_PC, id->emitGetInsSC(), attr);
+            PrintReg(id->idReg1(), attr, true);
+            PrintAddrMode(REG_PC, id->emitGetInsSC(), attr);
             break;
 
         case IF_T2_C1:
         case IF_T2_C8:
-            emitDispReg(id->idReg1(), attr, true);
-            emitDispReg(id->idReg2(), attr, false);
+            PrintReg(id->idReg1(), attr, true);
+            PrintReg(id->idReg2(), attr, false);
             imm = id->emitGetInsSC();
 
             if (id->idInsOpt() == INS_OPTS_RRX)
             {
-                emitDispShiftOpts(id->idInsOpt());
+                PrintShiftOpts(id->idInsOpt());
                 assert(imm == 1);
             }
             else if (imm > 0)
             {
-                emitDispShiftOpts(id->idInsOpt());
-                emitDispImm(imm, false);
+                PrintShiftOpts(id->idInsOpt());
+                PrintImm(imm, false);
             }
             break;
 
         case IF_T2_C6:
             imm = id->emitGetInsSC();
-            emitDispReg(id->idReg1(), attr, true);
-            emitDispReg(id->idReg2(), attr, (imm != 0));
+            PrintReg(id->idReg1(), attr, true);
+            PrintReg(id->idReg2(), attr, (imm != 0));
 
             if (imm != 0)
             {
-                emitDispImm(imm, false);
+                PrintImm(imm, false);
             }
             break;
 
         case IF_T2_C7:
-            emitDispAddrRRI(id->idReg1(), id->idReg2(), id->emitGetInsSC(), attr);
+            PrintAddrMode(id->idReg1(), id->idReg2(), id->emitGetInsSC(), attr);
             break;
 
         case IF_T2_H0:
-            emitDispReg(id->idReg1(), attr, true);
-            emitDispAddrPUW(id->idReg2(), id->emitGetInsSC(), id->idInsOpt(), attr);
+            PrintReg(id->idReg1(), attr, true);
+            PrintAddrMode(id->idReg2(), id->emitGetInsSC(), id->idInsOpt(), attr);
             break;
 
         case IF_T1_H:
-            emitDispReg(id->idReg1(), attr, true);
+            PrintReg(id->idReg1(), attr, true);
 
             if (IsLoadStoreIns(ins))
             {
-                emitDispAddrRR(id->idReg2(), id->idReg3(), attr);
+                PrintAddrMode(id->idReg2(), id->idReg3(), attr);
             }
             else
             {
-                emitDispReg(id->idReg2(), attr, true);
-                emitDispReg(id->idReg3(), attr, false);
+                PrintReg(id->idReg2(), attr, true);
+                PrintReg(id->idReg3(), attr, false);
             }
             break;
 
         case IF_T2_C4:
         case IF_T2_C5:
-            emitDispReg(id->idReg1(), attr, true);
-            emitDispReg(id->idReg2(), attr, true);
-            emitDispReg(id->idReg3(), attr, false);
+            PrintReg(id->idReg1(), attr, true);
+            PrintReg(id->idReg2(), attr, true);
+            PrintReg(id->idReg3(), attr, false);
             break;
 
         case IF_T2_VFP3:
-            emitDispReg(id->idReg1(), attr, true);
-            emitDispReg(id->idReg2(), attr, true);
-            emitDispReg(id->idReg3(), attr, false);
+            PrintReg(id->idReg1(), attr, true);
+            PrintReg(id->idReg2(), attr, true);
+            PrintReg(id->idReg3(), attr, false);
             break;
 
         case IF_T2_VFP2:
@@ -6116,20 +6093,20 @@ void ArmAsmPrinter::Print(instrDesc* id)
                 case INS_vcvt_d2i:
                 case INS_vcvt_d2u:
                 case INS_vcvt_d2f:
-                    emitDispReg(id->idReg1(), EA_4BYTE, true);
-                    emitDispReg(id->idReg2(), EA_8BYTE, false);
+                    PrintReg(id->idReg1(), EA_4BYTE, true);
+                    PrintReg(id->idReg2(), EA_8BYTE, false);
                     break;
                 case INS_vcvt_i2d:
                 case INS_vcvt_u2d:
                 case INS_vcvt_f2d:
-                    emitDispReg(id->idReg1(), EA_8BYTE, true);
-                    emitDispReg(id->idReg2(), EA_4BYTE, false);
+                    PrintReg(id->idReg1(), EA_8BYTE, true);
+                    PrintReg(id->idReg2(), EA_4BYTE, false);
                     break;
                 default:
                     // We just use the type on the instruction unless
                     // it is an asymmetrical one like the converts.
-                    emitDispReg(id->idReg1(), attr, true);
-                    emitDispReg(id->idReg2(), attr, false);
+                    PrintReg(id->idReg1(), attr, true);
+                    PrintReg(id->idReg2(), attr, false);
                     break;
             }
             break;
@@ -6141,12 +6118,12 @@ void ArmAsmPrinter::Print(instrDesc* id)
             {
                 case INS_vldr:
                 case INS_vstr:
-                    emitDispReg(id->idReg1(), attr, true);
-                    emitDispAddrPUW(id->idReg2(), imm, id->idInsOpt(), attr);
+                    PrintReg(id->idReg1(), attr, true);
+                    PrintAddrMode(id->idReg2(), imm, id->idInsOpt(), attr);
                     break;
                 case INS_vldm:
                 case INS_vstm:
-                    emitDispReg(id->idReg2(), attr, false);
+                    PrintReg(id->idReg2(), attr, false);
 
                     if (insOptAnyInc(id->idInsOpt()))
                     {
@@ -6156,7 +6133,7 @@ void ArmAsmPrinter::Print(instrDesc* id)
                     printf(", ");
                     FALLTHROUGH;
                 default:
-                    emitDispRegRange(id->idReg1(), abs(imm) >> 2, attr);
+                    PrintRegRange(id->idReg1(), abs(imm) >> 2, attr);
                     break;
             }
             break;
@@ -6164,81 +6141,81 @@ void ArmAsmPrinter::Print(instrDesc* id)
         case IF_T2_VMOVD:
             if (ins == INS_vmov_i2d)
             {
-                emitDispReg(id->idReg1(), attr, true);
-                emitDispReg(id->idReg2(), EA_4BYTE, true);
-                emitDispReg(id->idReg3(), EA_4BYTE, false);
+                PrintReg(id->idReg1(), attr, true);
+                PrintReg(id->idReg2(), EA_4BYTE, true);
+                PrintReg(id->idReg3(), EA_4BYTE, false);
             }
             else
             {
-                emitDispReg(id->idReg1(), EA_4BYTE, true);
-                emitDispReg(id->idReg2(), EA_4BYTE, true);
-                emitDispReg(id->idReg3(), attr, false);
+                PrintReg(id->idReg1(), EA_4BYTE, true);
+                PrintReg(id->idReg2(), EA_4BYTE, true);
+                PrintReg(id->idReg3(), attr, false);
             }
             break;
 
         case IF_T2_VMOVS:
-            emitDispReg(id->idReg1(), attr, true);
-            emitDispReg(id->idReg2(), attr, false);
+            PrintReg(id->idReg1(), attr, true);
+            PrintReg(id->idReg2(), attr, false);
             break;
 
         case IF_T2_G1:
-            emitDispReg(id->idReg1(), attr, true);
-            emitDispAddrRR(id->idReg2(), id->idReg3(), attr);
+            PrintReg(id->idReg1(), attr, true);
+            PrintAddrMode(id->idReg2(), id->idReg3(), attr);
             break;
 
         case IF_T2_D0:
-            emitDispReg(id->idReg1(), attr, true);
-            emitDispReg(id->idReg2(), attr, true);
+            PrintReg(id->idReg1(), attr, true);
+            PrintReg(id->idReg2(), attr, true);
             imm  = id->emitGetInsSC();
             imm1 = (imm >> 5) & 0x1f;
             imm2 = (imm & 0x1f) + 1 - (ins == INS_bfi ? imm1 : 0);
-            emitDispImm(imm1, true);
-            emitDispImm(imm2, false);
+            PrintImm(imm1, true);
+            PrintImm(imm2, false);
             break;
 
         case IF_T2_C0:
-            emitDispReg(id->idReg1(), attr, true);
-            emitDispReg(id->idReg2(), attr, true);
-            emitDispReg(id->idReg3(), attr, false);
+            PrintReg(id->idReg1(), attr, true);
+            PrintReg(id->idReg2(), attr, true);
+            PrintReg(id->idReg3(), attr, false);
             imm = id->emitGetInsSC();
 
             if (id->idInsOpt() == INS_OPTS_RRX)
             {
-                emitDispShiftOpts(id->idInsOpt());
+                PrintShiftOpts(id->idInsOpt());
                 assert(imm == 1);
             }
             else if (imm > 0)
             {
-                emitDispShiftOpts(id->idInsOpt());
-                emitDispImm(imm, false);
+                PrintShiftOpts(id->idInsOpt());
+                PrintImm(imm, false);
             }
             break;
 
         case IF_T2_E0:
-            emitDispReg(id->idReg1(), attr, true);
+            PrintReg(id->idReg1(), attr, true);
 
             if (id->idIsLclVar())
             {
-                emitDispAddrRRI(id->idReg2(), codeGen->rsGetRsvdReg(), 0, attr);
+                PrintAddrMode(id->idReg2(), codeGen->rsGetRsvdReg(), 0, attr);
             }
             else
             {
-                emitDispAddrRRI(id->idReg2(), id->idReg3(), id->emitGetInsSC(), attr);
+                PrintAddrMode(id->idReg2(), id->idReg3(), id->emitGetInsSC(), attr);
             }
             break;
 
         case IF_T2_G0:
-            emitDispReg(id->idReg1(), attr, true);
-            emitDispReg(id->idReg2(), attr, true);
-            emitDispAddrPUW(id->idReg3(), id->emitGetInsSC(), id->idInsOpt(), attr);
+            PrintReg(id->idReg1(), attr, true);
+            PrintReg(id->idReg2(), attr, true);
+            PrintAddrMode(id->idReg3(), id->emitGetInsSC(), id->idInsOpt(), attr);
             break;
 
         case IF_T2_F1:
         case IF_T2_F2:
-            emitDispReg(id->idReg1(), attr, true);
-            emitDispReg(id->idReg2(), attr, true);
-            emitDispReg(id->idReg3(), attr, true);
-            emitDispReg(id->idReg4(), attr, false);
+            PrintReg(id->idReg1(), attr, true);
+            PrintReg(id->idReg2(), attr, true);
+            PrintReg(id->idReg3(), attr, true);
+            PrintReg(id->idReg4(), attr, false);
             break;
 
         case IF_T1_I:
@@ -6250,7 +6227,7 @@ void ArmAsmPrinter::Print(instrDesc* id)
         case IF_T1_J3:
         case IF_T2_M1:
         case IF_LARGEJMP:
-            emitDispLabel(static_cast<instrDescJmp*>(id));
+            PrintBranchLabel(static_cast<instrDescJmp*>(id));
             break;
 
         case IF_T2_J3:
@@ -6266,7 +6243,7 @@ void ArmAsmPrinter::Print(instrDesc* id)
 
     if (id->idIsLclVar())
     {
-        emitDispFrameRef(id);
+        PrintFrameRef(id);
     }
 
     printf("\n");
@@ -6276,6 +6253,22 @@ void ArmEmitter::PrintIns(instrDesc* id)
 {
     ArmAsmPrinter printer(emitComp, codeGen);
     printer.Print(id);
+}
+
+static void PrintHexCode(uint8_t* code, size_t sz)
+{
+    if (sz == 2)
+    {
+        printf("  %04X     ", reinterpret_cast<uint16_t*>(code)[0]);
+    }
+    else if (sz == 4)
+    {
+        printf("  %04X %04X", reinterpret_cast<uint16_t*>(code)[0], reinterpret_cast<uint16_t*>(code)[1]);
+    }
+    else
+    {
+        printf("           ");
+    }
 }
 
 void ArmEncoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
@@ -6322,30 +6315,7 @@ void ArmEncoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
     }
 }
 
-void Encoder::PrintAlignmentBoundary(size_t instrAddr, size_t instrEndAddr, const instrDesc* instr, const instrDesc*)
-{
-    const size_t alignment    = emitComp->opts.compJitAlignLoopBoundary;
-    const size_t boundaryAddr = instrEndAddr & ~(alignment - 1);
-
-    if (instrAddr < boundaryAddr)
-    {
-        // Indicate if instruction is at the alignment boundary or is split
-        const size_t bytesCrossedBoundary = instrEndAddr & (alignment - 1);
-
-        if (bytesCrossedBoundary != 0)
-        {
-            printf("; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (%s: %d)", insName(instr->idIns()), bytesCrossedBoundary);
-        }
-        else
-        {
-            printf("; ...............................");
-        }
-
-        printf(" %dB boundary ...............................\n", alignment);
-    }
-}
-
-void ArmAsmPrinter::emitDispFrameRef(instrDesc* id)
+void ArmAsmPrinter::PrintFrameRef(instrDesc* id) const
 {
     int varNum  = id->idDebugOnlyInfo()->varNum;
     int varOffs = id->idDebugOnlyInfo()->varOffs;
@@ -6367,6 +6337,29 @@ void ArmAsmPrinter::emitDispFrameRef(instrDesc* id)
     }
 
     printf("]");
+}
+
+void Encoder::PrintAlignmentBoundary(size_t instrAddr, size_t instrEndAddr, const instrDesc* instr, const instrDesc*)
+{
+    const size_t alignment    = emitComp->opts.compJitAlignLoopBoundary;
+    const size_t boundaryAddr = instrEndAddr & ~(alignment - 1);
+
+    if (instrAddr < boundaryAddr)
+    {
+        // Indicate if instruction is at the alignment boundary or is split
+        const size_t bytesCrossedBoundary = instrEndAddr & (alignment - 1);
+
+        if (bytesCrossedBoundary != 0)
+        {
+            printf("; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (%s: %d)", insName(instr->idIns()), bytesCrossedBoundary);
+        }
+        else
+        {
+            printf("; ...............................");
+        }
+
+        printf(" %dB boundary ...............................\n", alignment);
+    }
 }
 
 #endif // DEBUG

@@ -1158,7 +1158,7 @@ void EmitterBase::DefineInlineTempLabel(insGroup* label)
 
 #ifdef DEBUG
 
-void AsmPrinter::PrintLabel(insGroup* ig)
+void AsmPrinter::PrintLabel(insGroup* ig) const
 {
     printf("G_M%03u_IG%02u", compiler->compMethodID, ig->GetId());
 }
@@ -1717,7 +1717,7 @@ void EmitterBase::emitRecomputeIGoffsets()
 }
 
 #ifdef DEBUG
-void AsmPrinter::PrintHandleComment(void* handle, HandleKind kind)
+void AsmPrinter::PrintHandleComment(void* handle, HandleKind kind) const
 {
     if (handle == nullptr)
     {

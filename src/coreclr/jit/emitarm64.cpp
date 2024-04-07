@@ -198,6 +198,43 @@ static bool insOptsConvertIntToFloat(insOpts opt)
 {
     return (opt >= INS_OPTS_4BYTE_TO_S) && (opt <= INS_OPTS_8BYTE_TO_D);
 }
+
+const char* insOptsName(insOpts opt)
+{
+    switch (opt)
+    {
+        case INS_OPTS_NONE:
+            return "";
+        case INS_OPTS_LSL:
+            return "LSL";
+        case INS_OPTS_LSR:
+            return "LSR";
+        case INS_OPTS_ASR:
+            return "ASR";
+        case INS_OPTS_ROR:
+            return "ROR";
+        case INS_OPTS_MSL:
+            return "MSL";
+        case INS_OPTS_UXTB:
+            return "UXTB";
+        case INS_OPTS_UXTH:
+            return "UXTH";
+        case INS_OPTS_UXTW:
+            return "UXTW";
+        case INS_OPTS_UXTX:
+            return "UXTX";
+        case INS_OPTS_SXTB:
+            return "SXTB";
+        case INS_OPTS_SXTH:
+            return "SXTH";
+        case INS_OPTS_SXTW:
+            return "SXTW";
+        case INS_OPTS_SXTX:
+            return "SXTX";
+        default:
+            return "???";
+    }
+}
 #endif // DEBUG
 
 static bool insOptsNone(insOpts opt)
@@ -1012,14 +1049,9 @@ static bool IsShiftBy12Imm(int64_t imm)
     return imm <= 0x0fff;
 }
 
-static unsigned unsigned_abs(int x)
+static uint64_t unsigned_abs(int64_t x)
 {
-    return static_cast<unsigned>(x < 0 ? -x : x);
-}
-
-static size_t unsigned_abs(ssize_t x)
-{
-    return ((size_t)abs(x));
+    return static_cast<uint64_t>(x < 0 ? -x : x);
 }
 
 bool Arm64Imm::IsAddImm(int64_t imm, emitAttr size)
@@ -9564,15 +9596,10 @@ public:
     {
     }
 
-    void Print(instrDesc* id);
+    void Print(instrDesc* id) const;
 
 private:
-    static const char* emitRegName(RegNum reg, emitAttr attr)
-    {
-        return RegName(reg, attr);
-    }
-
-    static const char* emitVectorRegName(RegNum reg)
+    static const char* VectorRegName(RegNum reg)
     {
         static const char* const vRegNames[]{"v0",  "v1",  "v2",  "v3",  "v4",  "v5",  "v6",  "v7",
                                              "v8",  "v9",  "v10", "v11", "v12", "v13", "v14", "v15",
@@ -9584,35 +9611,36 @@ private:
         return vRegNames[reg - REG_V0];
     }
 
-    void emitDispInst(instruction ins);
-    void emitDispLargeImm(instrDesc* id, insFormat fmt, int64_t imm);
-    void emitDispAddrLoadLabel(instrDescJmp* id);
-    void emitDispJumpLabel(instrDescJmp* id);
-    void emitDispImm(int64_t imm, bool addComma, bool alwaysHex = false);
-    void emitDispFrameRef(instrDesc* id);
-    void emitDispFloatZero();
-    void emitDispFloatImm(int64_t imm8);
-    void emitDispImmOptsLSL12(int64_t imm, insOpts opt);
-    void emitDispCond(insCond cond);
-    void emitDispFlags(insCflags flags);
-    void emitDispBarrier(insBarrier barrier);
-    void emitDispShiftOpts(insOpts opt);
-    void emitDispExtendOpts(insOpts opt);
-    void emitDispLSExtendOpts(insOpts opt);
-    void emitDispReg(RegNum reg, emitAttr attr, bool addComma);
-    void emitDispVectorReg(RegNum reg, insOpts opt, bool addComma);
-    void emitDispVectorRegIndex(RegNum reg, emitAttr elemsize, int64_t index, bool addComma);
-    void emitDispVectorRegList(RegNum firstReg, unsigned listSize, insOpts opt, bool addComma);
-    void emitDispVectorElemList(RegNum firstReg, unsigned listSize, emitAttr elemsize, unsigned index, bool addComma);
-    void emitDispArrangement(insOpts opt);
-    void emitDispElemsize(emitAttr elemsize);
-    void emitDispShiftedReg(RegNum reg, insOpts opt, int64_t imm, emitAttr attr);
-    void emitDispExtendReg(RegNum reg, insOpts opt, int64_t imm);
-    void emitDispAddrRI(RegNum reg, insOpts opt, int64_t imm);
-    void emitDispAddrRRExt(RegNum reg1, RegNum reg2, insOpts opt, bool isScaled, emitAttr size);
+    void PrintInsName(instruction ins) const;
+    void PrintLargeImm(instrDesc* id, insFormat fmt, int64_t imm) const;
+    void PrintDataLabel(instrDescJmp* id) const;
+    void PrintBranchLabel(instrDescJmp* id) const;
+    void PrintImm(int64_t imm, bool addComma, bool alwaysHex = false) const;
+    void PrintFrameRef(instrDesc* id) const;
+    void PrintFloatZero() const;
+    void PrintFloatImm(int64_t imm8) const;
+    void PrintImmOptsLSL12(int64_t imm, insOpts opt) const;
+    void PrintCondition(insCond cond) const;
+    void PrintFlags(insCflags flags) const;
+    void PrintBarrier(insBarrier barrier) const;
+    void PrintShiftOpts(insOpts opt) const;
+    void PrintExtendOpts(insOpts opt) const;
+    void PrintLSExtendOpts(insOpts opt) const;
+    void PrintReg(RegNum reg, emitAttr attr, bool addComma) const;
+    void PrintVectorReg(RegNum reg, insOpts opt, bool addComma) const;
+    void PrintVectorRegIndex(RegNum reg, emitAttr elemsize, int64_t index, bool addComma) const;
+    void PrintVectorRegList(RegNum firstReg, unsigned listSize, insOpts opt, bool addComma) const;
+    void PrintVectorElemList(
+        RegNum firstReg, unsigned listSize, emitAttr elemsize, unsigned index, bool addComma) const;
+    void PrintVectorArrangement(insOpts opt) const;
+    void PrintVectorElemSize(emitAttr elemsize) const;
+    void PrintShiftedReg(RegNum reg, insOpts opt, int64_t imm, emitAttr attr) const;
+    void PrintExtendReg(RegNum reg, insOpts opt, int64_t imm) const;
+    void PrintAddrMode(RegNum reg, insOpts opt, int64_t imm) const;
+    void PrintAddrMode(RegNum reg1, RegNum reg2, insOpts opt, bool isScaled, emitAttr size) const;
 };
 
-void Arm64AsmPrinter::emitDispInst(instruction ins)
+void Arm64AsmPrinter::PrintInsName(instruction ins) const
 {
     static const char pad[8] = "       ";
     const char*       name   = insName(ins);
@@ -9620,13 +9648,13 @@ void Arm64AsmPrinter::emitDispInst(instruction ins)
     printf("%s %s", name, pad + Min(sizeof(pad) - 1, strlen(name)));
 }
 
-void Arm64AsmPrinter::emitDispAddrLoadLabel(instrDescJmp* id)
+void Arm64AsmPrinter::PrintDataLabel(instrDescJmp* id) const
 {
     assert(insOptsNone(id->idInsOpt()));
 
     insFormat fmt = id->idInsFmt();
 
-    emitDispReg(id->idReg1(), id->idOpSize(), true);
+    PrintReg(id->idReg1(), id->idOpSize(), true);
 
     if (fmt == IF_LARGEADR)
     {
@@ -9662,7 +9690,7 @@ void Arm64AsmPrinter::emitDispAddrLoadLabel(instrDescJmp* id)
     }
 }
 
-void Arm64AsmPrinter::emitDispJumpLabel(instrDescJmp* id)
+void Arm64AsmPrinter::PrintBranchLabel(instrDescJmp* id) const
 {
     assert(insOptsNone(id->idInsOpt()));
 
@@ -9675,12 +9703,12 @@ void Arm64AsmPrinter::emitDispJumpLabel(instrDescJmp* id)
 
     if (fmt == IF_BI_1A)
     {
-        emitDispReg(id->idReg1(), id->idOpSize(), true);
+        PrintReg(id->idReg1(), id->idOpSize(), true);
     }
     else if (fmt == IF_BI_1B)
     {
-        emitDispReg(id->idReg1(), id->idOpSize(), true);
-        emitDispImm(id->emitGetInsSC(), true);
+        PrintReg(id->idReg1(), id->idOpSize(), true);
+        PrintImm(id->emitGetInsSC(), true);
     }
 
     if (id->HasInstrCount())
@@ -9699,36 +9727,34 @@ void Arm64AsmPrinter::emitDispJumpLabel(instrDescJmp* id)
     }
 }
 
-void Arm64AsmPrinter::emitDispLargeImm(instrDesc* id, insFormat fmt, int64_t imm)
+void Arm64AsmPrinter::PrintLargeImm(instrDesc* id, insFormat fmt, int64_t imm) const
 {
     assert(imm == 0);
     assert(fmt == IF_DI_1E);
 
     printf("[HIGH RELOC ");
-
-    emitDispImm(reinterpret_cast<int64_t>(id->GetAddr()), false);
-
-    size_t      targetHandle = reinterpret_cast<size_t>(id->idDebugOnlyInfo()->idHandle);
-    const char* targetName   = nullptr;
-
-    if (targetHandle == THT_IntializeArrayIntrinsics)
-    {
-        targetName = "IntializeArrayIntrinsics";
-    }
-    else if (targetHandle == THT_GSCookieCheck)
-    {
-        targetName = "GlobalSecurityCookieCheck";
-    }
-    else if (targetHandle == THT_SetGSCookie)
-    {
-        targetName = "SetGlobalSecurityCookie";
-    }
-
+    PrintImm(reinterpret_cast<int64_t>(id->GetAddr()), false);
     printf("]");
 
-    if (targetName != nullptr)
+    size_t      handle = reinterpret_cast<size_t>(id->idDebugOnlyInfo()->idHandle);
+    const char* name   = nullptr;
+
+    if (handle == THT_IntializeArrayIntrinsics)
     {
-        printf("      // [%s]", targetName);
+        name = "IntializeArrayIntrinsics";
+    }
+    else if (handle == THT_GSCookieCheck)
+    {
+        name = "GlobalSecurityCookieCheck";
+    }
+    else if (handle == THT_SetGSCookie)
+    {
+        name = "SetGlobalSecurityCookie";
+    }
+
+    if (name != nullptr)
+    {
+        printf("      // [%s]", name);
     }
     else
     {
@@ -9736,7 +9762,7 @@ void Arm64AsmPrinter::emitDispLargeImm(instrDesc* id, insFormat fmt, int64_t imm
     }
 }
 
-void Arm64AsmPrinter::emitDispImm(int64_t imm, bool addComma, bool alwaysHex)
+void Arm64AsmPrinter::PrintImm(int64_t imm, bool addComma, bool alwaysHex) const
 {
     printf("#");
 
@@ -9781,19 +9807,19 @@ void Arm64AsmPrinter::emitDispImm(int64_t imm, bool addComma, bool alwaysHex)
     }
 }
 
-void Arm64AsmPrinter::emitDispFloatZero()
+void Arm64AsmPrinter::PrintFloatZero() const
 {
     printf("#0.0");
 }
 
-void Arm64AsmPrinter::emitDispFloatImm(int64_t imm)
+void Arm64AsmPrinter::PrintFloatImm(int64_t imm) const
 {
     printf("#%.4f", DecodeFMovImm(imm));
 }
 
-void Arm64AsmPrinter::emitDispImmOptsLSL12(int64_t imm, insOpts opt)
+void Arm64AsmPrinter::PrintImmOptsLSL12(int64_t imm, insOpts opt) const
 {
-    emitDispImm(imm, false);
+    PrintImm(imm, false);
 
     if (insOptsLSL12(opt))
     {
@@ -9801,89 +9827,45 @@ void Arm64AsmPrinter::emitDispImmOptsLSL12(int64_t imm, insOpts opt)
     }
 }
 
-void Arm64AsmPrinter::emitDispCond(insCond cond)
+void Arm64AsmPrinter::PrintCondition(insCond cond) const
 {
-    const static char* armCond[16]{"eq", "ne", "hs", "lo", "mi", "pl", "vs", "vc",
-                                   "hi", "ls", "ge", "lt", "gt", "le", "AL", "NV"}; // The last two are invalid
-    unsigned imm = (unsigned)cond;
-    assert((0 <= imm) && (imm < _countof(armCond)));
-    printf(armCond[imm]);
+    const static char* armCond[]{"eq", "ne", "hs", "lo", "mi", "pl", "vs", "vc", "hi", "ls", "ge", "lt", "gt", "le"};
+    printf((0 <= cond) && (cond < _countof(armCond)) ? armCond[cond] : "???");
 }
 
-void Arm64AsmPrinter::emitDispFlags(insCflags flags)
+void Arm64AsmPrinter::PrintFlags(insCflags flags) const
 {
-    const static char* armFlags[16]{"0", "v",  "c",  "cv",  "z",  "zv",  "zc",  "zcv",
-                                    "n", "nv", "nc", "ncv", "nz", "nzv", "nzc", "nzcv"};
-    unsigned imm = (unsigned)flags;
-    assert((0 <= imm) && (imm < _countof(armFlags)));
-    printf(armFlags[imm]);
+    const static char* armFlags[]{"0", "v",  "c",  "cv",  "z",  "zv",  "zc",  "zcv",
+                                  "n", "nv", "nc", "ncv", "nz", "nzv", "nzc", "nzcv"};
+    printf((0 <= flags) && (flags < _countof(armFlags)) ? armFlags[flags] : "???");
 }
 
-void Arm64AsmPrinter::emitDispBarrier(insBarrier barrier)
+void Arm64AsmPrinter::PrintBarrier(insBarrier barrier) const
 {
-    const static char* armBarriers[16]{"#0", "oshld", "oshst", "osh", "#4",  "nshld", "nshst", "nsh",
-                                       "#8", "ishld", "ishst", "ish", "#12", "ld",    "st",    "sy"};
-    unsigned imm = (unsigned)barrier;
-    assert((0 <= imm) && (imm < _countof(armBarriers)));
-    printf(armBarriers[imm]);
+    const static char* armBarriers[]{"#0", "oshld", "oshst", "osh", "#4",  "nshld", "nshst", "nsh",
+                                     "#8", "ishld", "ishst", "ish", "#12", "ld",    "st",    "sy"};
+    printf((0 <= barrier) && (barrier < _countof(armBarriers)) ? armBarriers[barrier] : "???");
 }
 
-const char* insOptsName(insOpts opt)
-{
-    switch (opt)
-    {
-        case INS_OPTS_NONE:
-            return "";
-        case INS_OPTS_LSL:
-            return "LSL";
-        case INS_OPTS_LSR:
-            return "LSR";
-        case INS_OPTS_ASR:
-            return "ASR";
-        case INS_OPTS_ROR:
-            return "ROR";
-        case INS_OPTS_MSL:
-            return "MSL";
-        case INS_OPTS_UXTB:
-            return "UXTB";
-        case INS_OPTS_UXTH:
-            return "UXTH";
-        case INS_OPTS_UXTW:
-            return "UXTW";
-        case INS_OPTS_UXTX:
-            return "UXTX";
-        case INS_OPTS_SXTB:
-            return "SXTB";
-        case INS_OPTS_SXTH:
-            return "SXTH";
-        case INS_OPTS_SXTW:
-            return "SXTW";
-        case INS_OPTS_SXTX:
-            return "SXTX";
-        default:
-            return "???";
-    }
-}
-
-void Arm64AsmPrinter::emitDispShiftOpts(insOpts opt)
+void Arm64AsmPrinter::PrintShiftOpts(insOpts opt) const
 {
     printf(" %s ", insOptsName(opt));
 }
 
-void Arm64AsmPrinter::emitDispExtendOpts(insOpts opt)
+void Arm64AsmPrinter::PrintExtendOpts(insOpts opt) const
 {
     printf("%s", insOptsName(opt));
 }
 
-void Arm64AsmPrinter::emitDispLSExtendOpts(insOpts opt)
+void Arm64AsmPrinter::PrintLSExtendOpts(insOpts opt) const
 {
     printf("%s", insOptsName(opt));
 }
 
-void Arm64AsmPrinter::emitDispReg(RegNum reg, emitAttr attr, bool addComma)
+void Arm64AsmPrinter::PrintReg(RegNum reg, emitAttr attr, bool addComma) const
 {
     emitAttr size = EA_SIZE(attr);
-    printf(emitRegName(reg, size));
+    printf(RegName(reg, size));
 
     if (addComma)
     {
@@ -9891,11 +9873,10 @@ void Arm64AsmPrinter::emitDispReg(RegNum reg, emitAttr attr, bool addComma)
     }
 }
 
-void Arm64AsmPrinter::emitDispVectorReg(RegNum reg, insOpts opt, bool addComma)
+void Arm64AsmPrinter::PrintVectorReg(RegNum reg, insOpts opt, bool addComma) const
 {
-    assert(isVectorRegister(reg));
-    printf(emitVectorRegName(reg));
-    emitDispArrangement(opt);
+    printf(VectorRegName(reg));
+    PrintVectorArrangement(opt);
 
     if (addComma)
     {
@@ -9903,11 +9884,10 @@ void Arm64AsmPrinter::emitDispVectorReg(RegNum reg, insOpts opt, bool addComma)
     }
 }
 
-void Arm64AsmPrinter::emitDispVectorRegIndex(RegNum reg, emitAttr elemsize, int64_t index, bool addComma)
+void Arm64AsmPrinter::PrintVectorRegIndex(RegNum reg, emitAttr elemsize, int64_t index, bool addComma) const
 {
-    assert(isVectorRegister(reg));
-    printf(emitVectorRegName(reg));
-    emitDispElemsize(elemsize);
+    printf(VectorRegName(reg));
+    PrintVectorElemSize(elemsize);
     printf("[%d]", index);
 
     if (addComma)
@@ -9916,19 +9896,18 @@ void Arm64AsmPrinter::emitDispVectorRegIndex(RegNum reg, emitAttr elemsize, int6
     }
 }
 
-void Arm64AsmPrinter::emitDispVectorRegList(RegNum firstReg, unsigned listSize, insOpts opt, bool addComma)
+void Arm64AsmPrinter::PrintVectorRegList(RegNum firstReg, unsigned listSize, insOpts opt, bool addComma) const
 {
-    assert(isVectorRegister(firstReg));
-
-    RegNum currReg = firstReg;
+    RegNum reg = firstReg;
 
     printf("{");
+
     for (unsigned i = 0; i < listSize; i++)
     {
-        const bool notLastRegister = (i != listSize - 1);
-        emitDispVectorReg(currReg, opt, notLastRegister);
-        currReg = (currReg == REG_V31) ? REG_V0 : REG_NEXT(currReg);
+        PrintVectorReg(reg, opt, i != listSize - 1);
+        reg = reg == REG_V31 ? REG_V0 : REG_NEXT(reg);
     }
+
     printf("}");
 
     if (addComma)
@@ -9937,25 +9916,25 @@ void Arm64AsmPrinter::emitDispVectorRegList(RegNum firstReg, unsigned listSize, 
     }
 }
 
-void Arm64AsmPrinter::emitDispVectorElemList(
-    RegNum firstReg, unsigned listSize, emitAttr elemsize, unsigned index, bool addComma)
+void Arm64AsmPrinter::PrintVectorElemList(
+    RegNum firstReg, unsigned listSize, emitAttr elemsize, unsigned index, bool addComma) const
 {
-    assert(isVectorRegister(firstReg));
-
-    RegNum currReg = firstReg;
+    RegNum reg = firstReg;
 
     printf("{");
+
     for (unsigned i = 0; i < listSize; i++)
     {
-        printf(emitVectorRegName(currReg));
-        emitDispElemsize(elemsize);
-        const bool notLastRegister = (i != listSize - 1);
-        if (notLastRegister)
+        printf("%s", VectorRegName(reg));
+        PrintVectorElemSize(elemsize);
+        reg = reg == REG_V31 ? REG_V0 : REG_NEXT(reg);
+
+        if (i != listSize - 1)
         {
             printf(", ");
         }
-        currReg = (currReg == REG_V31) ? REG_V0 : REG_NEXT(currReg);
     }
+
     printf("}");
     printf("[%d]", index);
 
@@ -9965,7 +9944,7 @@ void Arm64AsmPrinter::emitDispVectorElemList(
     }
 }
 
-void Arm64AsmPrinter::emitDispArrangement(insOpts opt)
+void Arm64AsmPrinter::PrintVectorArrangement(insOpts opt) const
 {
     const char* str;
 
@@ -10003,9 +9982,9 @@ void Arm64AsmPrinter::emitDispArrangement(insOpts opt)
     printf(".%s", str);
 }
 
-void Arm64AsmPrinter::emitDispElemsize(emitAttr elemsize)
+void Arm64AsmPrinter::PrintVectorElemSize(emitAttr elemsize) const
 {
-    const char* str = "???";
+    const char* str;
 
     switch (elemsize)
     {
@@ -10021,32 +10000,31 @@ void Arm64AsmPrinter::emitDispElemsize(emitAttr elemsize)
         case EA_8BYTE:
             str = ".d";
             break;
-
         default:
-            assert(!"invalid elemsize");
+            str = "???";
             break;
     }
 
     printf(str);
 }
 
-void Arm64AsmPrinter::emitDispShiftedReg(RegNum reg, insOpts opt, int64_t imm, emitAttr attr)
+void Arm64AsmPrinter::PrintShiftedReg(RegNum reg, insOpts opt, int64_t imm, emitAttr attr) const
 {
     emitAttr size = EA_SIZE(attr);
     assert((imm & 0x003F) == imm);
     assert(((imm & 0x0020) == 0) || (size == EA_8BYTE));
 
-    printf(emitRegName(reg, size));
+    printf(RegName(reg, size));
 
     if (imm > 0)
     {
         printf(",");
-        emitDispShiftOpts(opt);
-        emitDispImm(imm, false);
+        PrintShiftOpts(opt);
+        PrintImm(imm, false);
     }
 }
 
-void Arm64AsmPrinter::emitDispExtendReg(RegNum reg, insOpts opt, int64_t imm)
+void Arm64AsmPrinter::PrintExtendReg(RegNum reg, insOpts opt, int64_t imm) const
 {
     assert((imm >= 0) && (imm <= 4));
     assert(insOptsNone(opt) || insOptsAnyExtend(opt) || (opt == INS_OPTS_LSL));
@@ -10056,36 +10034,35 @@ void Arm64AsmPrinter::emitDispExtendReg(RegNum reg, insOpts opt, int64_t imm)
 
     if (insOptsNone(opt))
     {
-        emitDispReg(reg, size, false);
+        PrintReg(reg, size, false);
     }
     else
     {
-        emitDispReg(reg, size, true);
-        if (opt == INS_OPTS_LSL)
-            printf("LSL");
-        else
-            emitDispExtendOpts(opt);
+        PrintReg(reg, size, true);
+        printf("%s", insOptsName(opt));
+
         if ((imm > 0) || (opt == INS_OPTS_LSL))
         {
             printf(" ");
-            emitDispImm(imm, false);
+            PrintImm(imm, false);
         }
     }
 }
 
-void Arm64AsmPrinter::emitDispAddrRI(RegNum reg, insOpts opt, int64_t imm)
+void Arm64AsmPrinter::PrintAddrMode(RegNum reg, insOpts opt, int64_t imm) const
 {
     reg = encodingZRtoSP(reg); // ZR (R31) encodes the SP register
 
     printf("[");
 
-    emitDispReg(reg, EA_8BYTE, false);
+    PrintReg(reg, EA_8BYTE, false);
 
     if (!insOptsPostIndex(opt) && (imm != 0))
     {
         printf(",");
-        emitDispImm(imm, false);
+        PrintImm(imm, false);
     }
+
     printf("]");
 
     if (insOptsPreIndex(opt))
@@ -10095,42 +10072,43 @@ void Arm64AsmPrinter::emitDispAddrRI(RegNum reg, insOpts opt, int64_t imm)
     else if (insOptsPostIndex(opt))
     {
         printf(",");
-        emitDispImm(imm, false);
+        PrintImm(imm, false);
     }
 }
 
-void Arm64AsmPrinter::emitDispAddrRRExt(RegNum reg1, RegNum reg2, insOpts opt, bool isScaled, emitAttr size)
+void Arm64AsmPrinter::PrintAddrMode(RegNum reg1, RegNum reg2, insOpts opt, bool isScaled, emitAttr size) const
 {
     printf("[");
-    emitDispReg(encodingZRtoSP(reg1), EA_8BYTE, true);
-    emitDispExtendReg(reg2, opt, isScaled ? NaturalScale(size) : 0);
+    PrintReg(encodingZRtoSP(reg1), EA_8BYTE, true);
+    PrintExtendReg(reg2, opt, isScaled ? NaturalScale(size) : 0);
     printf("]");
 }
 
-static void PrintHexCode(uint8_t* code, size_t sz)
+void Arm64AsmPrinter::PrintFrameRef(instrDesc* id) const
 {
-    if (sz == 0)
+    int varNum  = id->idDebugOnlyInfo()->varNum;
+    int varOffs = id->idDebugOnlyInfo()->varOffs;
+
+    printf("\t// [");
+
+    if (varNum < 0)
     {
-        printf("                    ");
-    }
-    else if (sz == 4)
-    {
-        printf("  %08X          ", reinterpret_cast<uint32_t*>(code)[0]);
+        printf("T%02d", -varNum);
     }
     else
     {
-        assert(sz == 8);
-        printf("  %08X %08X ", reinterpret_cast<uint32_t*>(code)[0], reinterpret_cast<uint32_t*>(code)[1]);
+        compiler->gtDispLclVar(static_cast<unsigned>(varNum), false);
     }
+
+    if (varOffs != 0)
+    {
+        printf("%c0x%02x", varOffs < 0 ? '-' : '+', abs(varOffs));
+    }
+
+    printf("]");
 }
 
-void Arm64Emitter::PrintIns(instrDesc* id)
-{
-    Arm64AsmPrinter printer(emitComp, codeGen);
-    printer.Print(id);
-}
-
-void Arm64AsmPrinter::Print(instrDesc* id)
+void Arm64AsmPrinter::Print(instrDesc* id) const
 {
     instruction ins = id->idIns();
     insFormat   fmt = id->idInsFmt();
@@ -10141,7 +10119,7 @@ void Arm64AsmPrinter::Print(instrDesc* id)
         return;
     }
 
-    emitDispInst(ins);
+    PrintInsName(ins);
 
     emitAttr size = id->idOpSize();
     emitAttr attr = size;
@@ -10159,256 +10137,227 @@ void Arm64AsmPrinter::Print(instrDesc* id)
     {
         int64_t  imm;
         CondImm  cimm;
-        unsigned scale;
         unsigned immShift;
         bool     hasShift;
         emitAttr elemsize;
         emitAttr datasize;
         emitAttr srcsize;
         emitAttr dstsize;
-        int64_t  index;
-        int64_t  index2;
         unsigned registerListSize;
 
-        case IF_BI_0A: // ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
-        case IF_BI_0B: // ......iiiiiiiiii iiiiiiiiiii.....               simm19:00
-        case IF_BI_1A: // ......iiiiiiiiii iiiiiiiiiiittttt      Rt       simm19:00
-        case IF_BI_1B: // B.......bbbbbiii iiiiiiiiiiittttt      Rt imm6, simm14:00
+        case IF_BI_0A:
+        case IF_BI_0B:
+        case IF_BI_1A:
+        case IF_BI_1B:
         case IF_LARGEJMP:
-            emitDispJumpLabel(static_cast<instrDescJmp*>(id));
+            PrintBranchLabel(static_cast<instrDescJmp*>(id));
             break;
 
-        case IF_LS_1A: // XX...V..iiiiiiii iiiiiiiiiiittttt      Rt    PC imm(1MB)
+        case IF_LS_1A:
         case IF_LARGELDC:
         case IF_LARGEADR:
         case IF_SMALLADR:
-            emitDispAddrLoadLabel(static_cast<instrDescJmp*>(id));
+            PrintDataLabel(static_cast<instrDescJmp*>(id));
             break;
 
         case IF_NOP_JMP:
             break;
 
-        case IF_BI_0C: // ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
+        case IF_BI_0C:
             printf("%s",
                    compiler->eeGetMethodFullName(static_cast<CORINFO_METHOD_HANDLE>(id->idDebugOnlyInfo()->idHandle)));
             break;
 
-        case IF_BR_1A: // ................ ......nnnnn.....         Rn
-            assert(insOptsNone(id->idInsOpt()));
-            emitDispReg(id->idReg1(), size, false);
+        case IF_BR_1A:
+            PrintReg(id->idReg1(), size, false);
             break;
 
-        case IF_BR_1B: // ................ ......nnnnn.....         Rn
-            assert(insOptsNone(id->idInsOpt()));
-            emitDispReg(id->idReg3(), EA_PTRSIZE, false);
+        case IF_BR_1B:
+            PrintReg(id->idReg3(), EA_PTRSIZE, false);
             break;
 
-        case IF_DI_1E: // .ii.....iiiiiiii iiiiiiiiiiiddddd      Rd       simm21
-            assert(insOptsNone(id->idInsOpt()));
-            emitDispReg(id->idReg1(), size, true);
-            emitDispLargeImm(id, fmt, id->emitGetInsSC());
+        case IF_DI_1E:
+            PrintReg(id->idReg1(), size, true);
+            PrintLargeImm(id, fmt, id->emitGetInsSC());
             break;
 
-        case IF_LS_2A: // .X.......X...... ......nnnnnttttt      Rt Rn
-            assert(insOptsNone(id->idInsOpt()));
-            assert(id->emitGetInsSC() == 0);
-            emitDispReg(id->idReg1(), emitInsTargetRegSize(id), true);
-            emitDispAddrRI(id->idReg2(), id->idInsOpt(), 0);
+        case IF_LS_2A:
+            PrintReg(id->idReg1(), emitInsTargetRegSize(id), true);
+            PrintAddrMode(id->idReg2(), id->idInsOpt(), 0);
             break;
 
-        case IF_LS_2B: // .X.......Xiiiiii iiiiiinnnnnttttt      Rt Rn    imm(0-4095)
-            assert(insOptsNone(id->idInsOpt()));
-            imm   = id->emitGetInsSC();
-            scale = NaturalScale(emitInsLoadStoreSize(id));
-            imm <<= scale; // The immediate is scaled by the size of the ld/st
-            emitDispReg(id->idReg1(), emitInsTargetRegSize(id), true);
-            emitDispAddrRI(id->idReg2(), id->idInsOpt(), imm);
+        case IF_LS_2B:
+            PrintReg(id->idReg1(), emitInsTargetRegSize(id), true);
+            PrintAddrMode(id->idReg2(), id->idInsOpt(), id->emitGetInsSC() << NaturalScale(emitInsLoadStoreSize(id)));
             break;
 
-        case IF_LS_2C: // .X.......X.iiiii iiiiPPnnnnnttttt      Rt Rn    imm(-256..+255) no/pre/post inc
-            assert(insOptsNone(id->idInsOpt()) || insOptsIndexed(id->idInsOpt()));
-            imm = id->emitGetInsSC();
-            emitDispReg(id->idReg1(), emitInsTargetRegSize(id), true);
-            emitDispAddrRI(id->idReg2(), id->idInsOpt(), imm);
+        case IF_LS_2C:
+            PrintReg(id->idReg1(), emitInsTargetRegSize(id), true);
+            PrintAddrMode(id->idReg2(), id->idInsOpt(), id->emitGetInsSC());
             break;
 
-        case IF_LS_2D: // .Q.............. ....ssnnnnnttttt      Vt Rn
-        case IF_LS_2E: // .Q.............. ....ssnnnnnttttt      Vt Rn
-            registerListSize = insGetRegisterListSize(id->idIns());
-            emitDispVectorRegList(id->idReg1(), registerListSize, id->idInsOpt(), true);
+        case IF_LS_2D:
+        case IF_LS_2E:
+            PrintVectorRegList(id->idReg1(), insGetRegisterListSize(id->idIns()), id->idInsOpt(), true);
 
             if (fmt == IF_LS_2D)
             {
-                // Load/Store multiple structures       base register
-                // Load single structure and replicate  base register
-                emitDispAddrRI(id->idReg2(), INS_OPTS_NONE, 0);
+                PrintAddrMode(id->idReg2(), INS_OPTS_NONE, 0);
             }
             else
             {
-                // Load/Store multiple structures       post-indexed by an immediate
-                // Load single structure and replicate  post-indexed by an immediate
-                emitDispAddrRI(id->idReg2(), INS_OPTS_POST_INDEX, id->idSmallCns());
+                PrintAddrMode(id->idReg2(), INS_OPTS_POST_INDEX, id->idSmallCns());
             }
             break;
 
-        case IF_LS_2F: // .Q.............. xx.Sssnnnnnttttt      Vt[] Rn
-        case IF_LS_2G: // .Q.............. xx.Sssnnnnnttttt      Vt[] Rn
+        case IF_LS_2F:
+        case IF_LS_2G:
             registerListSize = insGetRegisterListSize(id->idIns());
             elemsize         = id->idOpSize();
-            emitDispVectorElemList(id->idReg1(), registerListSize, elemsize, id->idSmallCns(), true);
+            PrintVectorElemList(id->idReg1(), registerListSize, elemsize, id->idSmallCns(), true);
 
             if (fmt == IF_LS_2F)
             {
-                // Load/Store single structure  base register
-                emitDispAddrRI(id->idReg2(), INS_OPTS_NONE, 0);
+                PrintAddrMode(id->idReg2(), INS_OPTS_NONE, 0);
             }
             else
             {
-                // Load/Store single structure  post-indexed by an immediate
-                emitDispAddrRI(id->idReg2(), INS_OPTS_POST_INDEX, (registerListSize * elemsize));
+                PrintAddrMode(id->idReg2(), INS_OPTS_POST_INDEX, registerListSize * elemsize);
             }
             break;
 
-        case IF_LS_3A: // .X.......X.mmmmm oooS..nnnnnttttt      Rt Rn Rm ext(Rm) LSL {}
-            assert(insOptsLSExtend(id->idInsOpt()));
-            emitDispReg(id->idReg1(), emitInsTargetRegSize(id), true);
-            emitDispAddrRRExt(id->idReg2(), id->idReg3(), id->idInsOpt(), id->idReg3Scaled(), size);
+        case IF_LS_3A:
+            PrintReg(id->idReg1(), emitInsTargetRegSize(id), true);
+            PrintAddrMode(id->idReg2(), id->idReg3(), id->idInsOpt(), id->idReg3Scaled(), size);
             break;
 
-        case IF_LS_3B: // X............... .aaaaannnnnddddd      Rt Ra Rn
-            assert(insOptsNone(id->idInsOpt()));
-            assert(id->emitGetInsSC() == 0);
-            emitDispReg(id->idReg1(), emitInsTargetRegSize(id), true);
-            emitDispReg(id->idReg2(), emitInsTargetRegSize(id), true);
-            emitDispAddrRI(id->idReg3(), id->idInsOpt(), 0);
+        case IF_LS_3B:
+            PrintReg(id->idReg1(), emitInsTargetRegSize(id), true);
+            PrintReg(id->idReg2(), emitInsTargetRegSize(id), true);
+            PrintAddrMode(id->idReg3(), id->idInsOpt(), 0);
             break;
 
-        case IF_LS_3C: // X.........iiiiii iaaaaannnnnddddd      Rt Ra Rn imm(im7,sh)
-            assert(insOptsNone(id->idInsOpt()) || insOptsIndexed(id->idInsOpt()));
-            imm   = id->emitGetInsSC();
-            scale = NaturalScale(emitInsLoadStoreSize(id));
-            imm <<= scale;
-            emitDispReg(id->idReg1(), emitInsTargetRegSize(id), true);
-            emitDispReg(id->idReg2(), emitInsTargetRegSize(id), true);
-            emitDispAddrRI(id->idReg3(), id->idInsOpt(), imm);
+        case IF_LS_3C:
+            PrintReg(id->idReg1(), emitInsTargetRegSize(id), true);
+            PrintReg(id->idReg2(), emitInsTargetRegSize(id), true);
+            PrintAddrMode(id->idReg3(), id->idInsOpt(), id->emitGetInsSC() << NaturalScale(emitInsLoadStoreSize(id)));
             break;
 
-        case IF_LS_3D: // .X.......X.mmmmm ......nnnnnttttt      Wm Rt Rn
-            assert(insOptsNone(id->idInsOpt()));
-            emitDispReg(id->idReg1(), EA_4BYTE, true);
-            emitDispReg(id->idReg2(), emitInsTargetRegSize(id), true);
-            emitDispAddrRI(id->idReg3(), id->idInsOpt(), 0);
+        case IF_LS_3D:
+            PrintReg(id->idReg1(), EA_4BYTE, true);
+            PrintReg(id->idReg2(), emitInsTargetRegSize(id), true);
+            PrintAddrMode(id->idReg3(), id->idInsOpt(), 0);
             break;
 
-        case IF_LS_3E: // .X.........mmmmm ......nnnnnttttt      Rm Rt Rn ARMv8.1 LSE Atomics
-            assert(insOptsNone(id->idInsOpt()));
+        case IF_LS_3E:
             assert((EA_SIZE(size) == 4) || (EA_SIZE(size) == 8));
-            emitDispReg(id->idReg1(), size, true);
-            emitDispReg(id->idReg2(), size, true);
-            emitDispAddrRI(id->idReg3(), id->idInsOpt(), 0);
+            PrintReg(id->idReg1(), size, true);
+            PrintReg(id->idReg2(), size, true);
+            PrintAddrMode(id->idReg3(), id->idInsOpt(), 0);
             break;
 
-        case IF_LS_3F: // .Q.........mmmmm ....ssnnnnnttttt      Vt Rn Rm
-        case IF_LS_3G: // .Q.........mmmmm ...Sssnnnnnttttt      Vt[] Rn Rm
+        case IF_LS_3F:
+        case IF_LS_3G:
             registerListSize = insGetRegisterListSize(id->idIns());
 
             if (fmt == IF_LS_3F)
             {
-                emitDispVectorRegList(id->idReg1(), registerListSize, id->idInsOpt(), true);
+                PrintVectorRegList(id->idReg1(), registerListSize, id->idInsOpt(), true);
             }
             else
             {
-                elemsize = id->idOpSize();
-                emitDispVectorElemList(id->idReg1(), registerListSize, elemsize, id->idSmallCns(), true);
+                PrintVectorElemList(id->idReg1(), registerListSize, id->idOpSize(), id->idSmallCns(), true);
             }
 
             printf("[");
-            emitDispReg(encodingZRtoSP(id->idReg2()), EA_8BYTE, false);
+            PrintReg(encodingZRtoSP(id->idReg2()), EA_8BYTE, false);
             printf("], ");
-            emitDispReg(id->idReg3(), EA_8BYTE, false);
+            PrintReg(id->idReg3(), EA_8BYTE, false);
             break;
 
-        case IF_DI_1A: // X.......shiiiiii iiiiiinnnnn.....      Rn       imm(i12,sh)
-            emitDispReg(id->idReg1(), size, true);
-            emitDispImmOptsLSL12(id->emitGetInsSC(), id->idInsOpt());
+        case IF_DI_1A:
+            PrintReg(id->idReg1(), size, true);
+            PrintImmOptsLSL12(id->emitGetInsSC(), id->idInsOpt());
             break;
 
-        case IF_DI_1B: // X........hwiiiii iiiiiiiiiiiddddd      Rd       imm(i16,hw)
-            emitDispReg(id->idReg1(), size, true);
+        case IF_DI_1B:
+            PrintReg(id->idReg1(), size, true);
+
             if (ins == INS_mov)
             {
-                emitDispImm(DecodeHalfwordImm(id->emitGetInsSC()), false);
+                PrintImm(DecodeHalfwordImm(id->emitGetInsSC()), false);
             }
-            else // movz, movn, movk
+            else
             {
                 int64_t imm = id->emitGetInsSC();
-                emitDispImm(imm & UINT16_MAX, false);
+                PrintImm(imm & UINT16_MAX, false);
 
                 if ((imm >> 16) != 0)
                 {
-                    emitDispShiftOpts(INS_OPTS_LSL);
-                    emitDispImm((imm >> 16) << 4, false);
+                    PrintShiftOpts(INS_OPTS_LSL);
+                    PrintImm((imm >> 16) << 4, false);
                 }
             }
             break;
 
-        case IF_DI_1C: // X........Nrrrrrr ssssssnnnnn.....         Rn    imm(N,r,s)
-            emitDispReg(id->idReg1(), size, true);
-            emitDispImm(DecodeBitMaskImm(id->emitGetInsSC(), size), false);
+        case IF_DI_1C:
+            PrintReg(id->idReg1(), size, true);
+            PrintImm(DecodeBitMaskImm(id->emitGetInsSC(), size), false);
             break;
 
-        case IF_DI_1D: // X........Nrrrrrr ssssss.....ddddd      Rd       imm(N,r,s)
-            emitDispReg(encodingZRtoSP(id->idReg1()), size, true);
-            emitDispImm(DecodeBitMaskImm(id->emitGetInsSC(), size), false);
+        case IF_DI_1D:
+            PrintReg(encodingZRtoSP(id->idReg1()), size, true);
+            PrintImm(DecodeBitMaskImm(id->emitGetInsSC(), size), false);
             break;
 
-        case IF_DI_2A: // X.......shiiiiii iiiiiinnnnnddddd      Rd Rn    imm(i12,sh)
+        case IF_DI_2A:
             if ((ins == INS_add) || (ins == INS_sub))
             {
-                emitDispReg(encodingZRtoSP(id->idReg1()), size, true);
-                emitDispReg(encodingZRtoSP(id->idReg2()), size, true);
+                PrintReg(encodingZRtoSP(id->idReg1()), size, true);
+                PrintReg(encodingZRtoSP(id->idReg2()), size, true);
             }
             else
             {
-                emitDispReg(id->idReg1(), size, true);
-                emitDispReg(id->idReg2(), size, true);
+                PrintReg(id->idReg1(), size, true);
+                PrintReg(id->idReg2(), size, true);
             }
 
             if (id->idIsCnsReloc())
             {
                 assert(ins == INS_add);
                 printf("[LOW RELOC ");
-                emitDispImm(reinterpret_cast<int64_t>(id->GetAddr()), false);
+                PrintImm(reinterpret_cast<int64_t>(id->GetAddr()), false);
                 printf("]");
             }
             else
             {
-                emitDispImmOptsLSL12(id->emitGetInsSC(), id->idInsOpt());
+                PrintImmOptsLSL12(id->emitGetInsSC(), id->idInsOpt());
             }
             break;
 
-        case IF_DI_2B: // X........X.nnnnn ssssssnnnnnddddd      Rd Rn    imm(0-63)
-            emitDispReg(id->idReg1(), size, true);
-            emitDispReg(id->idReg2(), size, true);
-            emitDispImm(id->emitGetInsSC(), false);
+        case IF_DI_2B:
+            PrintReg(id->idReg1(), size, true);
+            PrintReg(id->idReg2(), size, true);
+            PrintImm(id->emitGetInsSC(), false);
             break;
 
-        case IF_DI_2C: // X........Nrrrrrr ssssssnnnnnddddd      Rd Rn    imm(N,r,s)
+        case IF_DI_2C:
             if (ins == INS_ands)
             {
-                emitDispReg(id->idReg1(), size, true);
+                PrintReg(id->idReg1(), size, true);
             }
             else
             {
-                emitDispReg(encodingZRtoSP(id->idReg1()), size, true);
+                PrintReg(encodingZRtoSP(id->idReg1()), size, true);
             }
-            emitDispReg(id->idReg2(), size, true);
-            emitDispImm(DecodeBitMaskImm(id->emitGetInsSC(), size), false);
+
+            PrintReg(id->idReg2(), size, true);
+            PrintImm(DecodeBitMaskImm(id->emitGetInsSC(), size), false);
             break;
 
-        case IF_DI_2D: // X........Nrrrrrr ssssssnnnnnddddd      Rd Rn    imr, ims   (N,r,s)
-            emitDispReg(id->idReg1(), size, true);
-            emitDispReg(id->idReg2(), size, true);
+        case IF_DI_2D:
+            PrintReg(id->idReg1(), size, true);
+            PrintReg(id->idReg2(), size, true);
 
             switch (ins)
             {
@@ -10418,212 +10367,194 @@ void Arm64AsmPrinter::Print(instrDesc* id)
                 case INS_sbfm:
                 case INS_ubfm:
                     UnpackBitMaskImm(id->emitGetInsSC(), &S, &R, &N);
-                    emitDispImm(R, true);
-                    emitDispImm(S, false);
+                    PrintImm(R, true);
+                    PrintImm(S, false);
                     break;
-
                 case INS_bfi:
                 case INS_sbfiz:
                 case INS_ubfiz:
                     UnpackBitMaskImm(id->emitGetInsSC(), &S, &R, &N);
-                    emitDispImm(getBitWidth(size) - R, true);
-                    emitDispImm(S + 1, false);
+                    PrintImm(getBitWidth(size) - R, true);
+                    PrintImm(S + 1, false);
                     break;
-
                 case INS_bfxil:
                 case INS_sbfx:
                 case INS_ubfx:
                     UnpackBitMaskImm(id->emitGetInsSC(), &S, &R, &N);
-                    emitDispImm(R, true);
-                    emitDispImm(S - R + 1, false);
+                    PrintImm(R, true);
+                    PrintImm(S - R + 1, false);
                     break;
-
                 case INS_asr:
                 case INS_lsr:
                 case INS_lsl:
-                    emitDispImm(id->emitGetInsSC(), false);
+                    PrintImm(id->emitGetInsSC(), false);
                     break;
-
                 default:
-                    assert(!"Unexpected instruction in IF_DI_2D");
+                    printf("???");
+                    break;
             }
 
             break;
 
-        case IF_DI_1F: // X..........iiiii cccc..nnnnn.nzcv      Rn imm5  nzcv cond
-            emitDispReg(id->idReg1(), size, true);
+        case IF_DI_1F:
+            PrintReg(id->idReg1(), size, true);
             cimm = UnpackCondFlagsImm5Imm(id->emitGetInsSC());
-            emitDispImm(cimm.imm5, true);
-            emitDispFlags(cimm.flags);
+            PrintImm(cimm.imm5, true);
+            PrintFlags(cimm.flags);
             printf(",");
-            emitDispCond(cimm.cond);
+            PrintCondition(cimm.cond);
             break;
 
-        case IF_DR_1D: // X............... cccc.......mmmmm      Rd       cond
-            emitDispReg(id->idReg1(), size, true);
-            emitDispCond(UnpackCondImm(id->emitGetInsSC()).cond);
+        case IF_DR_1D:
+            PrintReg(id->idReg1(), size, true);
+            PrintCondition(UnpackCondImm(id->emitGetInsSC()).cond);
             break;
 
-        case IF_DR_2A: // X..........mmmmm ......nnnnn.....         Rn Rm
-            emitDispReg(id->idReg1(), size, true);
-            emitDispReg(id->idReg2(), size, false);
+        case IF_DR_2A:
+            PrintReg(id->idReg1(), size, true);
+            PrintReg(id->idReg2(), size, false);
             break;
 
-        case IF_DR_2B: // X.......sh.mmmmm ssssssnnnnn.....         Rn Rm {LSL,LSR,ASR,ROR} imm(0-63)
-            emitDispReg(id->idReg1(), size, true);
-            emitDispShiftedReg(id->idReg2(), id->idInsOpt(), id->emitGetInsSC(), size);
+        case IF_DR_2B:
+            PrintReg(id->idReg1(), size, true);
+            PrintShiftedReg(id->idReg2(), id->idInsOpt(), id->emitGetInsSC(), size);
             break;
 
-        case IF_DR_2C: // X..........mmmmm ooosssnnnnn.....         Rn Rm ext(Rm) LSL imm(0-4)
-            emitDispReg(encodingZRtoSP(id->idReg1()), size, true);
-            imm = id->emitGetInsSC();
-            emitDispExtendReg(id->idReg2(), id->idInsOpt(), imm);
+        case IF_DR_2C:
+            PrintReg(encodingZRtoSP(id->idReg1()), size, true);
+            PrintExtendReg(id->idReg2(), id->idInsOpt(), id->emitGetInsSC());
             break;
 
-        case IF_DR_2D: // X..........nnnnn cccc..nnnnnddddd      Rd Rn    cond
-            emitDispReg(id->idReg1(), size, true);
-            emitDispReg(id->idReg2(), size, true);
-            emitDispCond(UnpackCondImm(id->emitGetInsSC()).cond);
+        case IF_DR_2D:
+            PrintReg(id->idReg1(), size, true);
+            PrintReg(id->idReg2(), size, true);
+            PrintCondition(UnpackCondImm(id->emitGetInsSC()).cond);
             break;
 
-        case IF_DR_2E: // X..........mmmmm ...........ddddd      Rd    Rm
-        case IF_DV_2U: // ................ ......nnnnnddddd      Sd    Sn
-            emitDispReg(id->idReg1(), size, true);
-            emitDispReg(id->idReg2(), size, false);
+        case IF_DR_2E:
+        case IF_DV_2U:
+            PrintReg(id->idReg1(), size, true);
+            PrintReg(id->idReg2(), size, false);
             break;
 
-        case IF_DR_2F: // X.......sh.mmmmm ssssss.....ddddd      Rd    Rm {LSL,LSR,ASR} imm(0-63)
-            emitDispReg(id->idReg1(), size, true);
-            emitDispShiftedReg(id->idReg2(), id->idInsOpt(), id->emitGetInsSC(), size);
+        case IF_DR_2F:
+            PrintReg(id->idReg1(), size, true);
+            PrintShiftedReg(id->idReg2(), id->idInsOpt(), id->emitGetInsSC(), size);
             break;
 
-        case IF_DR_2G: // X............... ......nnnnnddddd      Rd Rn
-            emitDispReg(encodingZRtoSP(id->idReg1()), size, true);
-            emitDispReg(encodingZRtoSP(id->idReg2()), size, false);
+        case IF_DR_2G:
+            PrintReg(encodingZRtoSP(id->idReg1()), size, true);
+            PrintReg(encodingZRtoSP(id->idReg2()), size, false);
             break;
 
-        case IF_DR_2H: // X........X...... ......nnnnnddddd      Rd Rn
-            if ((ins == INS_uxtb) || (ins == INS_uxth))
-            {
-                // There is no 64-bit variant of uxtb and uxth
-                // However, we allow idOpSize() to have EA_8BYTE value for these instruction
-                emitDispReg(id->idReg1(), EA_4BYTE, true);
-                emitDispReg(id->idReg2(), EA_4BYTE, false);
-            }
-            else
-            {
-                emitDispReg(id->idReg1(), size, true);
-                // sxtb, sxth and sxtb always operate on 32-bit source register
-                emitDispReg(id->idReg2(), EA_4BYTE, false);
-            }
+        case IF_DR_2H:
+            PrintReg(id->idReg1(), (ins == INS_uxtb) || (ins == INS_uxth) ? EA_4BYTE : size, true);
+            PrintReg(id->idReg2(), EA_4BYTE, false);
             break;
 
-        case IF_DR_2I: // X..........mmmmm cccc..nnnnn.nzcv      Rn Rm    nzcv cond
-            emitDispReg(id->idReg1(), size, true);
-            emitDispReg(id->idReg2(), size, true);
+        case IF_DR_2I:
+            PrintReg(id->idReg1(), size, true);
+            PrintReg(id->idReg2(), size, true);
             cimm = UnpackCondFlagsImm(id->emitGetInsSC());
-            emitDispFlags(cimm.flags);
+            PrintFlags(cimm.flags);
             printf(",");
-            emitDispCond(cimm.cond);
+            PrintCondition(cimm.cond);
             break;
 
-        case IF_DR_3A: // X..........mmmmm ......nnnnnmmmmm      Rd Rn Rm
+        case IF_DR_3A:
             if ((ins == INS_add) || (ins == INS_sub))
             {
-                emitDispReg(encodingZRtoSP(id->idReg1()), size, true);
-                emitDispReg(encodingZRtoSP(id->idReg2()), size, true);
+                PrintReg(encodingZRtoSP(id->idReg1()), size, true);
+                PrintReg(encodingZRtoSP(id->idReg2()), size, true);
             }
             else if ((ins == INS_smulh) || (ins == INS_umulh))
             {
                 size = EA_8BYTE;
-                // smulh Xd, Xn, Xm
-                emitDispReg(id->idReg1(), size, true);
-                emitDispReg(id->idReg2(), size, true);
+                PrintReg(id->idReg1(), size, true);
+                PrintReg(id->idReg2(), size, true);
             }
             else if ((ins == INS_smull) || (ins == INS_umull) || (ins == INS_smnegl) || (ins == INS_umnegl))
             {
-                // smull Xd, Wn, Wm
-                emitDispReg(id->idReg1(), EA_8BYTE, true);
+                PrintReg(id->idReg1(), EA_8BYTE, true);
                 size = EA_4BYTE;
-                emitDispReg(id->idReg2(), size, true);
+                PrintReg(id->idReg2(), size, true);
             }
             else
             {
-                emitDispReg(id->idReg1(), size, true);
-                emitDispReg(id->idReg2(), size, true);
+                PrintReg(id->idReg1(), size, true);
+                PrintReg(id->idReg2(), size, true);
             }
 
-            emitDispReg(id->idReg3(), size, false);
+            PrintReg(id->idReg3(), size, false);
             break;
 
-        case IF_DR_3B: // X.......sh.mmmmm ssssssnnnnnddddd      Rd Rn Rm {LSL,LSR,ASR} imm(0-63)
-            emitDispReg(id->idReg1(), size, true);
-            emitDispReg(id->idReg2(), size, true);
-            emitDispShiftedReg(id->idReg3(), id->idInsOpt(), id->emitGetInsSC(), size);
+        case IF_DR_3B:
+            PrintReg(id->idReg1(), size, true);
+            PrintReg(id->idReg2(), size, true);
+            PrintShiftedReg(id->idReg3(), id->idInsOpt(), id->emitGetInsSC(), size);
             break;
 
-        case IF_DR_3C: // X..........mmmmm ooosssnnnnnddddd      Rd Rn Rm ext(Rm) LSL imm(0-4)
-            emitDispReg(encodingZRtoSP(id->idReg1()), size, true);
-            emitDispReg(encodingZRtoSP(id->idReg2()), size, true);
-            imm = id->emitGetInsSC();
-            emitDispExtendReg(id->idReg3(), id->idInsOpt(), imm);
+        case IF_DR_3C:
+            PrintReg(encodingZRtoSP(id->idReg1()), size, true);
+            PrintReg(encodingZRtoSP(id->idReg2()), size, true);
+            PrintExtendReg(id->idReg3(), id->idInsOpt(), id->emitGetInsSC());
             break;
 
-        case IF_DR_3D: // X..........mmmmm cccc..nnnnnmmmmm      Rd Rn Rm cond
-            emitDispReg(id->idReg1(), size, true);
-            emitDispReg(id->idReg2(), size, true);
-            emitDispReg(id->idReg3(), size, true);
-            emitDispCond(UnpackCondImm(id->emitGetInsSC()).cond);
+        case IF_DR_3D:
+            PrintReg(id->idReg1(), size, true);
+            PrintReg(id->idReg2(), size, true);
+            PrintReg(id->idReg3(), size, true);
+            PrintCondition(UnpackCondImm(id->emitGetInsSC()).cond);
             break;
 
-        case IF_DR_3E: // X........X.mmmmm ssssssnnnnnddddd      Rd Rn Rm imm(0-63)
-            emitDispReg(id->idReg1(), size, true);
-            emitDispReg(id->idReg2(), size, true);
-            emitDispReg(id->idReg3(), size, true);
-            emitDispImm(id->emitGetInsSC(), false);
+        case IF_DR_3E:
+            PrintReg(id->idReg1(), size, true);
+            PrintReg(id->idReg2(), size, true);
+            PrintReg(id->idReg3(), size, true);
+            PrintImm(id->emitGetInsSC(), false);
             break;
 
-        case IF_DR_4A: // X..........mmmmm .aaaaannnnnmmmmm      Rd Rn Rm Ra
+        case IF_DR_4A:
             if ((ins == INS_smaddl) || (ins == INS_smsubl) || (ins == INS_umaddl) || (ins == INS_umsubl))
             {
-                // smaddl Xd, Wn, Wm, Xa
-                emitDispReg(id->idReg1(), EA_8BYTE, true);
-                emitDispReg(id->idReg2(), EA_4BYTE, true);
-                emitDispReg(id->idReg3(), EA_4BYTE, true);
-                emitDispReg(id->idReg4(), EA_8BYTE, false);
+                PrintReg(id->idReg1(), EA_8BYTE, true);
+                PrintReg(id->idReg2(), EA_4BYTE, true);
+                PrintReg(id->idReg3(), EA_4BYTE, true);
+                PrintReg(id->idReg4(), EA_8BYTE, false);
             }
             else
             {
-                emitDispReg(id->idReg1(), size, true);
-                emitDispReg(id->idReg2(), size, true);
-                emitDispReg(id->idReg3(), size, true);
-                emitDispReg(id->idReg4(), size, false);
+                PrintReg(id->idReg1(), size, true);
+                PrintReg(id->idReg2(), size, true);
+                PrintReg(id->idReg3(), size, true);
+                PrintReg(id->idReg4(), size, false);
             }
             break;
 
-        case IF_DV_1A: // .........X.iiiii iii........ddddd      Vd imm8 (fmov - immediate scalar)
-            elemsize = id->idOpSize();
-            emitDispReg(id->idReg1(), elemsize, true);
-            emitDispFloatImm(id->emitGetInsSC());
+        case IF_DV_1A:
+            PrintReg(id->idReg1(), id->idOpSize(), true);
+            PrintFloatImm(id->emitGetInsSC());
             break;
 
-        case IF_DV_1B: // .QX..........iii cmod..iiiiiddddd      Vd imm8 (immediate vector)
+        case IF_DV_1B:
             imm      = id->emitGetInsSC() & 0x0ff;
             immShift = (id->emitGetInsSC() & 0x700) >> 8;
             hasShift = (immShift != 0);
             elemsize = optGetElemsize(id->idInsOpt());
+
             if (id->idInsOpt() == INS_OPTS_1D)
             {
                 assert(elemsize == size);
-                emitDispReg(id->idReg1(), size, true);
+                PrintReg(id->idReg1(), size, true);
             }
             else
             {
-                emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
+                PrintVectorReg(id->idReg1(), id->idInsOpt(), true);
             }
+
             if (ins == INS_fmov)
             {
-                emitDispFloatImm(imm);
+                PrintFloatImm(imm);
                 assert(hasShift == false);
             }
             else
@@ -10633,6 +10564,7 @@ void Arm64AsmPrinter::Print(instrDesc* id)
                     assert(ins == INS_movi);
                     int64_t       imm64 = 0;
                     const int64_t mask8 = 0xFF;
+
                     for (unsigned b = 0; b < 8; b++)
                     {
                         if (imm & (int64_t{1} << b))
@@ -10640,222 +10572,212 @@ void Arm64AsmPrinter::Print(instrDesc* id)
                             imm64 |= (mask8 << (b * 8));
                         }
                     }
-                    emitDispImm(imm64, hasShift, true);
+
+                    PrintImm(imm64, hasShift, true);
                 }
                 else
                 {
-                    emitDispImm(imm, hasShift, true);
+                    PrintImm(imm, hasShift, true);
                 }
+
                 if (hasShift)
                 {
-                    insOpts  opt   = (immShift & 0x4) ? INS_OPTS_MSL : INS_OPTS_LSL;
-                    unsigned shift = (immShift & 0x3) * 8;
-                    emitDispShiftOpts(opt);
-                    emitDispImm(shift, false);
+                    PrintShiftOpts((immShift & 0x4) ? INS_OPTS_MSL : INS_OPTS_LSL);
+                    PrintImm((immShift & 0x3) * 8, false);
                 }
             }
             break;
 
-        case IF_DV_1C: // .........X...... ......nnnnn.....      Vn #0.0 (fcmp - with zero)
-            elemsize = id->idOpSize();
-            emitDispReg(id->idReg1(), elemsize, true);
-            emitDispFloatZero();
+        case IF_DV_1C:
+            PrintReg(id->idReg1(), id->idOpSize(), true);
+            PrintFloatZero();
             break;
 
-        case IF_DV_2A: // .Q.......X...... ......nnnnnddddd      Vd Vn   (fabs, fcvt - vector)
+        case IF_DV_2A:
             if (IsVectorLongIns(ins))
             {
-                emitDispVectorReg(id->idReg1(), optWidenElemsizeArrangement(id->idInsOpt()), true);
-                emitDispVectorReg(id->idReg2(), id->idInsOpt(), false);
+                PrintVectorReg(id->idReg1(), optWidenElemsizeArrangement(id->idInsOpt()), true);
+                PrintVectorReg(id->idReg2(), id->idInsOpt(), false);
             }
             else if (IsVectorNarrowIns(ins))
             {
-                emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
-                emitDispVectorReg(id->idReg2(), optWidenElemsizeArrangement(id->idInsOpt()), false);
+                PrintVectorReg(id->idReg1(), id->idInsOpt(), true);
+                PrintVectorReg(id->idReg2(), optWidenElemsizeArrangement(id->idInsOpt()), false);
             }
             else
             {
                 assert(!IsVectorWideIns(ins));
-                emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
-                emitDispVectorReg(id->idReg2(), id->idInsOpt(), false);
+                PrintVectorReg(id->idReg1(), id->idInsOpt(), true);
+                PrintVectorReg(id->idReg2(), id->idInsOpt(), false);
             }
             break;
 
-        case IF_DV_2P: // ................ ......nnnnnddddd      Vd Vn   (aes*, sha1su1)
-            emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
-            emitDispVectorReg(id->idReg2(), id->idInsOpt(), false);
+        case IF_DV_2P:
+            PrintVectorReg(id->idReg1(), id->idInsOpt(), true);
+            PrintVectorReg(id->idReg2(), id->idInsOpt(), false);
             break;
 
-        case IF_DV_2M: // .Q......XX...... ......nnnnnddddd      Vd Vn   (abs, neg - vector)
+        case IF_DV_2M:
             if (IsVectorNarrowIns(ins))
             {
-                emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
-                emitDispVectorReg(id->idReg2(), optWidenElemsizeArrangement(id->idInsOpt()), false);
+                PrintVectorReg(id->idReg1(), id->idInsOpt(), true);
+                PrintVectorReg(id->idReg2(), optWidenElemsizeArrangement(id->idInsOpt()), false);
             }
             else
             {
                 assert(!IsVectorLongIns(ins) && !IsVectorWideIns(ins));
-                emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
-                emitDispVectorReg(id->idReg2(), id->idInsOpt(), false);
+                PrintVectorReg(id->idReg1(), id->idInsOpt(), true);
+                PrintVectorReg(id->idReg2(), id->idInsOpt(), false);
             }
             break;
 
-        case IF_DV_2N: // .........iiiiiii ......nnnnnddddd      Vd Vn imm   (shift - scalar)
+        case IF_DV_2N:
             elemsize = id->idOpSize();
             if (IsVectorLongIns(ins))
             {
-                emitDispReg(id->idReg1(), widenDatasize(elemsize), true);
-                emitDispReg(id->idReg2(), elemsize, true);
+                PrintReg(id->idReg1(), widenDatasize(elemsize), true);
+                PrintReg(id->idReg2(), elemsize, true);
             }
             else if (IsVectorNarrowIns(ins))
             {
-                emitDispReg(id->idReg1(), elemsize, true);
-                emitDispReg(id->idReg2(), widenDatasize(elemsize), true);
+                PrintReg(id->idReg1(), elemsize, true);
+                PrintReg(id->idReg2(), widenDatasize(elemsize), true);
             }
             else
             {
                 assert(!IsVectorWideIns(ins));
-                emitDispReg(id->idReg1(), elemsize, true);
-                emitDispReg(id->idReg2(), elemsize, true);
+                PrintReg(id->idReg1(), elemsize, true);
+                PrintReg(id->idReg2(), elemsize, true);
             }
-            imm = id->emitGetInsSC();
-            emitDispImm(imm, false);
+
+            PrintImm(id->emitGetInsSC(), false);
             break;
 
-        case IF_DV_2O: // .Q.......iiiiiii ......nnnnnddddd      Vd Vn imm   (shift - vector)
+        case IF_DV_2O:
             if ((ins == INS_sxtl) || (ins == INS_sxtl2) || (ins == INS_uxtl) || (ins == INS_uxtl2))
             {
                 assert((IsVectorLongIns(ins)));
-                emitDispVectorReg(id->idReg1(), optWidenElemsizeArrangement(id->idInsOpt()), true);
-                emitDispVectorReg(id->idReg2(), id->idInsOpt(), false);
+                PrintVectorReg(id->idReg1(), optWidenElemsizeArrangement(id->idInsOpt()), true);
+                PrintVectorReg(id->idReg2(), id->idInsOpt(), false);
             }
             else
             {
                 if (IsVectorLongIns(ins))
                 {
-                    emitDispVectorReg(id->idReg1(), optWidenElemsizeArrangement(id->idInsOpt()), true);
-                    emitDispVectorReg(id->idReg2(), id->idInsOpt(), true);
+                    PrintVectorReg(id->idReg1(), optWidenElemsizeArrangement(id->idInsOpt()), true);
+                    PrintVectorReg(id->idReg2(), id->idInsOpt(), true);
                 }
                 else if (IsVectorNarrowIns(ins))
                 {
-                    emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
-                    emitDispVectorReg(id->idReg2(), optWidenElemsizeArrangement(id->idInsOpt()), true);
+                    PrintVectorReg(id->idReg1(), id->idInsOpt(), true);
+                    PrintVectorReg(id->idReg2(), optWidenElemsizeArrangement(id->idInsOpt()), true);
                 }
                 else
                 {
                     assert(!IsVectorWideIns(ins));
-                    emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
-                    emitDispVectorReg(id->idReg2(), id->idInsOpt(), true);
+                    PrintVectorReg(id->idReg1(), id->idInsOpt(), true);
+                    PrintVectorReg(id->idReg2(), id->idInsOpt(), true);
                 }
 
-                imm = id->emitGetInsSC();
-                emitDispImm(imm, false);
+                PrintImm(id->emitGetInsSC(), false);
             }
             break;
 
-        case IF_DV_2B: // .Q.........iiiii ......nnnnnddddd      Rd Vn[] (umov/smov    - to general)
+        case IF_DV_2B:
             srcsize = id->idOpSize();
-            index   = id->emitGetInsSC();
+
             if (ins == INS_smov)
             {
                 dstsize = EA_8BYTE;
             }
-            else // INS_umov or INS_mov
+            else
             {
-                dstsize = (srcsize == EA_8BYTE) ? EA_8BYTE : EA_4BYTE;
+                dstsize = srcsize == EA_8BYTE ? EA_8BYTE : EA_4BYTE;
             }
-            emitDispReg(id->idReg1(), dstsize, true);
-            emitDispVectorRegIndex(id->idReg2(), srcsize, index, false);
+
+            PrintReg(id->idReg1(), dstsize, true);
+            PrintVectorRegIndex(id->idReg2(), srcsize, id->emitGetInsSC(), false);
             break;
 
-        case IF_DV_2C: // .Q.........iiiii ......nnnnnddddd      Vd Rn   (dup/ins - vector from general)
+        case IF_DV_2C:
             if (ins == INS_dup)
             {
                 datasize = id->idOpSize();
                 assert(isValidVectorDatasize(datasize));
                 assert(isValidArrangement(datasize, id->idInsOpt()));
                 elemsize = optGetElemsize(id->idInsOpt());
-                emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
+                PrintVectorReg(id->idReg1(), id->idInsOpt(), true);
             }
             else // INS_ins
             {
                 elemsize = id->idOpSize();
-                index    = id->emitGetInsSC();
-                assert(isValidVectorElemsize(elemsize));
-                emitDispVectorRegIndex(id->idReg1(), elemsize, index, true);
+                PrintVectorRegIndex(id->idReg1(), elemsize, id->emitGetInsSC(), true);
             }
-            emitDispReg(id->idReg2(), (elemsize == EA_8BYTE) ? EA_8BYTE : EA_4BYTE, false);
+
+            PrintReg(id->idReg2(), elemsize == EA_8BYTE ? EA_8BYTE : EA_4BYTE, false);
             break;
 
-        case IF_DV_2D: // .Q.........iiiii ......nnnnnddddd      Vd Vn[]   (dup - vector)
+        case IF_DV_2D:
             datasize = id->idOpSize();
             assert(isValidVectorDatasize(datasize));
             assert(isValidArrangement(datasize, id->idInsOpt()));
             elemsize = optGetElemsize(id->idInsOpt());
-            index    = id->emitGetInsSC();
-            emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
-            emitDispVectorRegIndex(id->idReg2(), elemsize, index, false);
+            PrintVectorReg(id->idReg1(), id->idInsOpt(), true);
+            PrintVectorRegIndex(id->idReg2(), elemsize, id->emitGetInsSC(), false);
             break;
 
-        case IF_DV_2E: // ...........iiiii ......nnnnnddddd      Vd Vn[]   (dup - scalar)
+        case IF_DV_2E:
             elemsize = id->idOpSize();
-            index    = id->emitGetInsSC();
-            emitDispReg(id->idReg1(), elemsize, true);
-            emitDispVectorRegIndex(id->idReg2(), elemsize, index, false);
+            PrintReg(id->idReg1(), elemsize, true);
+            PrintVectorRegIndex(id->idReg2(), elemsize, id->emitGetInsSC(), false);
             break;
 
-        case IF_DV_2F: // ...........iiiii .jjjj.nnnnnddddd      Vd[] Vn[] (ins - element)
+        case IF_DV_2F:
             imm      = id->emitGetInsSC();
-            index    = (imm >> 4) & 0xf;
-            index2   = imm & 0xf;
             elemsize = id->idOpSize();
-            emitDispVectorRegIndex(id->idReg1(), elemsize, index, true);
-            emitDispVectorRegIndex(id->idReg2(), elemsize, index2, false);
+            PrintVectorRegIndex(id->idReg1(), elemsize, (imm >> 4) & 0xf, true);
+            PrintVectorRegIndex(id->idReg2(), elemsize, imm & 0xf, false);
             break;
 
-        case IF_DV_2G: // .........X...... ......nnnnnddddd      Vd Vn      (fmov, fcvtXX - register)
-        case IF_DV_2K: // .........X.mmmmm ......nnnnn.....      Vn Vm      (fcmp)
-        case IF_DV_2L: // ........XX...... ......nnnnnddddd      Vd Vn      (abs, neg - scalar)
+        case IF_DV_2G:
+        case IF_DV_2K:
+        case IF_DV_2L:
             size = id->idOpSize();
+
             if ((ins == INS_fcmeq) || (ins == INS_fcmge) || (ins == INS_fcmgt) || (ins == INS_fcmle) ||
                 (ins == INS_fcmlt))
             {
-                emitDispReg(id->idReg1(), size, true);
-                emitDispReg(id->idReg2(), size, true);
-                emitDispImm(0, false);
+                PrintReg(id->idReg1(), size, true);
+                PrintReg(id->idReg2(), size, true);
+                PrintImm(0, false);
             }
             else if (IsVectorNarrowIns(ins))
             {
-                emitDispReg(id->idReg1(), size, true);
-                emitDispReg(id->idReg2(), widenDatasize(size), false);
+                PrintReg(id->idReg1(), size, true);
+                PrintReg(id->idReg2(), widenDatasize(size), false);
             }
             else
             {
-                emitDispReg(id->idReg1(), size, true);
-                emitDispReg(id->idReg2(), size, false);
+                PrintReg(id->idReg1(), size, true);
+                PrintReg(id->idReg2(), size, false);
             }
             break;
 
-        case IF_DV_2H: // X........X...... ......nnnnnddddd      Rd Vn      (fmov, fcvtXX - to general)
-        case IF_DV_2I: // X........X...... ......nnnnnddddd      Vd Rn      (fmov, Xcvtf - from general)
-        case IF_DV_2J: // ........SS.....D D.....nnnnnddddd      Vd Vn      (fcvt)
-            dstsize = optGetDstsize(id->idInsOpt());
-            srcsize = optGetSrcsize(id->idInsOpt());
-
-            emitDispReg(id->idReg1(), dstsize, true);
-            emitDispReg(id->idReg2(), srcsize, false);
+        case IF_DV_2H:
+        case IF_DV_2I:
+        case IF_DV_2J:
+            PrintReg(id->idReg1(), optGetDstsize(id->idInsOpt()), true);
+            PrintReg(id->idReg2(), optGetSrcsize(id->idInsOpt()), false);
             break;
 
-        case IF_DV_2Q: // .........X...... ......nnnnnddddd      Sd Vn      (faddp, fmaxnmp, fmaxp, fminnmp,
-                       // fminp - scalar)
-        case IF_DV_2R: // .Q.......X...... ......nnnnnddddd      Sd Vn      (fmaxnmv, fmaxv, fminnmv, fminv)
-        case IF_DV_2S: // ........XX...... ......nnnnnddddd      Sd Vn      (addp - scalar)
-        case IF_DV_2T: // .Q......XX...... ......nnnnnddddd      Sd Vn      (addv, saddlv, smaxv, sminv, uaddlv,
-                       // umaxv, uminv)
+        case IF_DV_2Q:
+        case IF_DV_2R:
+        case IF_DV_2S:
+        case IF_DV_2T:
             if ((ins == INS_sadalp) || (ins == INS_saddlp) || (ins == INS_uadalp) || (ins == INS_uaddlp))
             {
-                emitDispVectorReg(id->idReg1(), optWidenDstArrangement(id->idInsOpt()), true);
-                emitDispVectorReg(id->idReg2(), id->idInsOpt(), false);
+                PrintVectorReg(id->idReg1(), optWidenDstArrangement(id->idInsOpt()), true);
+                PrintVectorReg(id->idReg2(), id->idInsOpt(), false);
             }
             else
             {
@@ -10867,102 +10789,95 @@ void Arm64AsmPrinter::Print(instrDesc* id)
                 {
                     elemsize = optGetElemsize(id->idInsOpt());
                 }
-                emitDispReg(id->idReg1(), elemsize, true);
-                emitDispVectorReg(id->idReg2(), id->idInsOpt(), false);
+
+                PrintReg(id->idReg1(), elemsize, true);
+                PrintVectorReg(id->idReg2(), id->idInsOpt(), false);
             }
             break;
 
-        case IF_DV_3A: // .Q......XX.mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
+        case IF_DV_3A:
             if ((ins == INS_sdot) || (ins == INS_udot))
             {
-                // sdot/udot Vd.2s, Vn.8b, Vm.8b
-                // sdot/udot Vd.4s, Vn.16b, Vm.16b
-                emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
+                PrintVectorReg(id->idReg1(), id->idInsOpt(), true);
                 size = id->idOpSize();
-                emitDispVectorReg(id->idReg2(), (size == EA_8BYTE) ? INS_OPTS_8B : INS_OPTS_16B, true);
-                emitDispVectorReg(id->idReg3(), (size == EA_8BYTE) ? INS_OPTS_8B : INS_OPTS_16B, false);
+                PrintVectorReg(id->idReg2(), (size == EA_8BYTE) ? INS_OPTS_8B : INS_OPTS_16B, true);
+                PrintVectorReg(id->idReg3(), (size == EA_8BYTE) ? INS_OPTS_8B : INS_OPTS_16B, false);
             }
             else if (((ins == INS_pmull) && (id->idInsOpt() == INS_OPTS_1D)) ||
                      ((ins == INS_pmull2) && (id->idInsOpt() == INS_OPTS_2D)))
             {
-                // pmull Vd.1q, Vn.1d, Vm.1d
-                // pmull2 Vd.1q, Vn.2d, Vm.2d
-                printf("%s.1q, ", emitVectorRegName(id->idReg1()));
-                emitDispVectorReg(id->idReg2(), id->idInsOpt(), true);
-                emitDispVectorReg(id->idReg3(), id->idInsOpt(), false);
+                printf("%s.1q, ", VectorRegName(id->idReg1()));
+                PrintVectorReg(id->idReg2(), id->idInsOpt(), true);
+                PrintVectorReg(id->idReg3(), id->idInsOpt(), false);
             }
             else if (IsVectorNarrowIns(ins))
             {
-                emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
-                emitDispVectorReg(id->idReg2(), optWidenElemsizeArrangement(id->idInsOpt()), true);
-                emitDispVectorReg(id->idReg3(), optWidenElemsizeArrangement(id->idInsOpt()), false);
+                PrintVectorReg(id->idReg1(), id->idInsOpt(), true);
+                PrintVectorReg(id->idReg2(), optWidenElemsizeArrangement(id->idInsOpt()), true);
+                PrintVectorReg(id->idReg3(), optWidenElemsizeArrangement(id->idInsOpt()), false);
             }
             else
             {
                 if (IsVectorLongIns(ins))
                 {
-                    emitDispVectorReg(id->idReg1(), optWidenElemsizeArrangement(id->idInsOpt()), true);
-                    emitDispVectorReg(id->idReg2(), id->idInsOpt(), true);
+                    PrintVectorReg(id->idReg1(), optWidenElemsizeArrangement(id->idInsOpt()), true);
+                    PrintVectorReg(id->idReg2(), id->idInsOpt(), true);
                 }
                 else if (IsVectorWideIns(ins))
                 {
-                    emitDispVectorReg(id->idReg1(), optWidenElemsizeArrangement(id->idInsOpt()), true);
-                    emitDispVectorReg(id->idReg2(), optWidenElemsizeArrangement(id->idInsOpt()), true);
+                    PrintVectorReg(id->idReg1(), optWidenElemsizeArrangement(id->idInsOpt()), true);
+                    PrintVectorReg(id->idReg2(), optWidenElemsizeArrangement(id->idInsOpt()), true);
                 }
                 else
                 {
-                    emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
-                    emitDispVectorReg(id->idReg2(), id->idInsOpt(), true);
+                    PrintVectorReg(id->idReg1(), id->idInsOpt(), true);
+                    PrintVectorReg(id->idReg2(), id->idInsOpt(), true);
                 }
 
-                emitDispVectorReg(id->idReg3(), id->idInsOpt(), false);
+                PrintVectorReg(id->idReg3(), id->idInsOpt(), false);
             }
             break;
 
-        case IF_DV_3AI: // .Q......XXLMmmmm ....H.nnnnnddddd      Vd Vn Vm[] (vector by element)
+        case IF_DV_3AI:
             if ((ins == INS_sdot) || (ins == INS_udot))
             {
-                // sdot/udot Vd.2s, Vn.8b, Vm.4b[index]
-                // sdot/udot Vd.4s, Vn.16b, Vm.4b[index]
-                emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
+                PrintVectorReg(id->idReg1(), id->idInsOpt(), true);
                 size = id->idOpSize();
-                emitDispVectorReg(id->idReg2(), (size == EA_8BYTE) ? INS_OPTS_8B : INS_OPTS_16B, true);
-                index = id->emitGetInsSC();
-                printf("%s.4b[%d]", emitVectorRegName(id->idReg3()), index);
+                PrintVectorReg(id->idReg2(), size == EA_8BYTE ? INS_OPTS_8B : INS_OPTS_16B, true);
+                printf("%s.4b[%d]", VectorRegName(id->idReg3()), id->emitGetInsSC());
             }
             else
             {
                 if (IsVectorLongIns(ins))
                 {
-                    emitDispVectorReg(id->idReg1(), optWidenElemsizeArrangement(id->idInsOpt()), true);
-                    emitDispVectorReg(id->idReg2(), id->idInsOpt(), true);
+                    PrintVectorReg(id->idReg1(), optWidenElemsizeArrangement(id->idInsOpt()), true);
+                    PrintVectorReg(id->idReg2(), id->idInsOpt(), true);
                 }
                 else if (IsVectorWideIns(ins))
                 {
-                    emitDispVectorReg(id->idReg1(), optWidenElemsizeArrangement(id->idInsOpt()), true);
-                    emitDispVectorReg(id->idReg2(), optWidenElemsizeArrangement(id->idInsOpt()), true);
+                    PrintVectorReg(id->idReg1(), optWidenElemsizeArrangement(id->idInsOpt()), true);
+                    PrintVectorReg(id->idReg2(), optWidenElemsizeArrangement(id->idInsOpt()), true);
                 }
                 else
                 {
                     assert(!IsVectorNarrowIns(ins));
-                    emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
-                    emitDispVectorReg(id->idReg2(), id->idInsOpt(), true);
+                    PrintVectorReg(id->idReg1(), id->idInsOpt(), true);
+                    PrintVectorReg(id->idReg2(), id->idInsOpt(), true);
                 }
 
-                elemsize = optGetElemsize(id->idInsOpt());
-                index    = id->emitGetInsSC();
-                emitDispVectorRegIndex(id->idReg3(), elemsize, index, false);
+                PrintVectorRegIndex(id->idReg3(), optGetElemsize(id->idInsOpt()), id->emitGetInsSC(), false);
             }
             break;
 
-        case IF_DV_3B: // .Q.........mmmmm ......nnnnnddddd      Vd Vn Vm  (vector)
-            emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
-            emitDispVectorReg(id->idReg2(), id->idInsOpt(), true);
-            emitDispVectorReg(id->idReg3(), id->idInsOpt(), false);
+        case IF_DV_3B:
+            PrintVectorReg(id->idReg1(), id->idInsOpt(), true);
+            PrintVectorReg(id->idReg2(), id->idInsOpt(), true);
+            PrintVectorReg(id->idReg3(), id->idInsOpt(), false);
             break;
 
-        case IF_DV_3C: //  .Q.........mmmmm ......nnnnnddddd      Vd Vn Vm  (vector)
-            emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
+        case IF_DV_3C:
+            PrintVectorReg(id->idReg1(), id->idInsOpt(), true);
+
             switch (ins)
             {
                 case INS_tbl:
@@ -10973,120 +10888,114 @@ void Arm64AsmPrinter::Print(instrDesc* id)
                 case INS_tbx_2regs:
                 case INS_tbx_3regs:
                 case INS_tbx_4regs:
-                    registerListSize = insGetRegisterListSize(ins);
-                    emitDispVectorRegList(id->idReg2(), registerListSize, INS_OPTS_16B, true);
+                    PrintVectorRegList(id->idReg2(), insGetRegisterListSize(ins), INS_OPTS_16B, true);
                     break;
                 case INS_mov:
                     break;
                 default:
-                    emitDispVectorReg(id->idReg2(), id->idInsOpt(), true);
+                    PrintVectorReg(id->idReg2(), id->idInsOpt(), true);
                     break;
             }
-            emitDispVectorReg(id->idReg3(), id->idInsOpt(), false);
+
+            PrintVectorReg(id->idReg3(), id->idInsOpt(), false);
             break;
 
-        case IF_DV_3BI: // .Q........Lmmmmm ....H.nnnnnddddd      Vd Vn Vm[] (vector by element)
-            emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
-            emitDispVectorReg(id->idReg2(), id->idInsOpt(), true);
-            elemsize = optGetElemsize(id->idInsOpt());
-            emitDispVectorRegIndex(id->idReg3(), elemsize, id->emitGetInsSC(), false);
+        case IF_DV_3BI:
+            PrintVectorReg(id->idReg1(), id->idInsOpt(), true);
+            PrintVectorReg(id->idReg2(), id->idInsOpt(), true);
+            PrintVectorRegIndex(id->idReg3(), optGetElemsize(id->idInsOpt()), id->emitGetInsSC(), false);
             break;
 
-        case IF_DV_3D: // .........X.mmmmm ......nnnnnddddd      Vd Vn Vm  (scalar)
-            emitDispReg(id->idReg1(), size, true);
-            emitDispReg(id->idReg2(), size, true);
-            emitDispReg(id->idReg3(), size, false);
+        case IF_DV_3D:
+            PrintReg(id->idReg1(), size, true);
+            PrintReg(id->idReg2(), size, true);
+            PrintReg(id->idReg3(), size, false);
             break;
 
-        case IF_DV_3E: //  ........XX.mmmmm ......nnnnnddddd      Vd Vn Vm  (scalar)
+        case IF_DV_3E:
             if (IsVectorLongIns(ins))
             {
-                emitDispReg(id->idReg1(), widenDatasize(size), true);
+                PrintReg(id->idReg1(), widenDatasize(size), true);
             }
             else
             {
                 assert(!IsVectorNarrowIns(ins) && !IsVectorWideIns(ins));
-                emitDispReg(id->idReg1(), size, true);
+                PrintReg(id->idReg1(), size, true);
             }
 
-            emitDispReg(id->idReg2(), size, true);
-            emitDispReg(id->idReg3(), size, false);
+            PrintReg(id->idReg2(), size, true);
+            PrintReg(id->idReg3(), size, false);
             break;
 
-        case IF_DV_3EI: // ........XXLMmmmm ....H.nnnnnddddd      Vd Vn Vm[] (scalar by element)
+        case IF_DV_3EI:
             if (IsVectorLongIns(ins))
             {
-                emitDispReg(id->idReg1(), widenDatasize(size), true);
+                PrintReg(id->idReg1(), widenDatasize(size), true);
             }
             else
             {
                 assert(!IsVectorNarrowIns(ins) && !IsVectorWideIns(ins));
-                emitDispReg(id->idReg1(), size, true);
+                PrintReg(id->idReg1(), size, true);
             }
-            emitDispReg(id->idReg2(), size, true);
-            elemsize = id->idOpSize();
-            index    = id->emitGetInsSC();
-            emitDispVectorRegIndex(id->idReg3(), elemsize, index, false);
+
+            PrintReg(id->idReg2(), size, true);
+            PrintVectorRegIndex(id->idReg3(), id->idOpSize(), id->emitGetInsSC(), false);
             break;
 
-        case IF_DV_3F: // ..........mmmmm ......nnnnnddddd       Vd Vn Vm (vector)
+        case IF_DV_3F:
             if ((ins == INS_sha1c) || (ins == INS_sha1m) || (ins == INS_sha1p))
             {
-                // Qd, Sn, Vm (vector)
-                emitDispReg(id->idReg1(), size, true);
-                emitDispReg(id->idReg2(), EA_4BYTE, true);
-                emitDispVectorReg(id->idReg3(), id->idInsOpt(), false);
+                PrintReg(id->idReg1(), size, true);
+                PrintReg(id->idReg2(), EA_4BYTE, true);
+                PrintVectorReg(id->idReg3(), id->idInsOpt(), false);
             }
             else if ((ins == INS_sha256h) || (ins == INS_sha256h2))
             {
-                // Qd Qn Vm (vector)
-                emitDispReg(id->idReg1(), size, true);
-                emitDispReg(id->idReg2(), size, true);
-                emitDispVectorReg(id->idReg3(), id->idInsOpt(), false);
+                PrintReg(id->idReg1(), size, true);
+                PrintReg(id->idReg2(), size, true);
+                PrintVectorReg(id->idReg3(), id->idInsOpt(), false);
             }
             else // INS_sha1su0, INS_sha256su1
             {
-                // Vd, Vn, Vm   (vector)
-                emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
-                emitDispVectorReg(id->idReg2(), id->idInsOpt(), true);
-                emitDispVectorReg(id->idReg3(), id->idInsOpt(), false);
+                PrintVectorReg(id->idReg1(), id->idInsOpt(), true);
+                PrintVectorReg(id->idReg2(), id->idInsOpt(), true);
+                PrintVectorReg(id->idReg3(), id->idInsOpt(), false);
             }
             break;
 
-        case IF_DV_3DI: // .........XLmmmmm ....H.nnnnnddddd      Vd Vn Vm[] (scalar by element)
-            emitDispReg(id->idReg1(), size, true);
-            emitDispReg(id->idReg2(), size, true);
-            elemsize = size;
-            emitDispVectorRegIndex(id->idReg3(), elemsize, id->emitGetInsSC(), false);
+        case IF_DV_3DI:
+            PrintReg(id->idReg1(), size, true);
+            PrintReg(id->idReg2(), size, true);
+            PrintVectorRegIndex(id->idReg3(), size, id->emitGetInsSC(), false);
             break;
 
-        case IF_DV_3G: // .Q.........mmmmm .iiii.nnnnnddddd      Vd Vn Vm imm (vector)
-            emitDispVectorReg(id->idReg1(), id->idInsOpt(), true);
-            emitDispVectorReg(id->idReg2(), id->idInsOpt(), true);
-            emitDispVectorReg(id->idReg3(), id->idInsOpt(), true);
-            emitDispImm(id->emitGetInsSC(), false);
+        case IF_DV_3G:
+            PrintVectorReg(id->idReg1(), id->idInsOpt(), true);
+            PrintVectorReg(id->idReg2(), id->idInsOpt(), true);
+            PrintVectorReg(id->idReg3(), id->idInsOpt(), true);
+            PrintImm(id->emitGetInsSC(), false);
             break;
 
-        case IF_DV_4A: // .........X.mmmmm .aaaaannnnnddddd      Vd Va Vn Vm (scalar)
-            emitDispReg(id->idReg1(), size, true);
-            emitDispReg(id->idReg2(), size, true);
-            emitDispReg(id->idReg3(), size, true);
-            emitDispReg(id->idReg4(), size, false);
+        case IF_DV_4A:
+            PrintReg(id->idReg1(), size, true);
+            PrintReg(id->idReg2(), size, true);
+            PrintReg(id->idReg3(), size, true);
+            PrintReg(id->idReg4(), size, false);
             break;
 
-        case IF_SN_0A: // ................ ................
+        case IF_SN_0A:
             break;
 
-        case IF_SI_0A: // ...........iiiii iiiiiiiiiii.....               imm16
-            emitDispImm(id->emitGetInsSC(), false);
+        case IF_SI_0A:
+            PrintImm(id->emitGetInsSC(), false);
             break;
 
-        case IF_SI_0B: // ................ ....bbbb........               imm4 - barrier
-            emitDispBarrier((insBarrier)id->emitGetInsSC());
+        case IF_SI_0B:
+            PrintBarrier(static_cast<insBarrier>(id->emitGetInsSC()));
             break;
 
-        case IF_SR_1A: // ................ ...........ttttt      Rt       (dc zva)
-            emitDispReg(id->idReg1(), size, false);
+        case IF_SR_1A:
+            PrintReg(id->idReg1(), size, false);
             break;
 
         default:
@@ -11096,10 +11005,16 @@ void Arm64AsmPrinter::Print(instrDesc* id)
 
     if (id->idIsLclVar())
     {
-        emitDispFrameRef(id);
+        PrintFrameRef(id);
     }
 
     printf("\n");
+}
+
+void Arm64Emitter::PrintIns(instrDesc* id)
+{
+    Arm64AsmPrinter printer(emitComp, codeGen);
+    printer.Print(id);
 }
 
 void Encoder::PrintAlignmentBoundary(size_t instrAddr, size_t instrEndAddr, const instrDesc* instr, const instrDesc*)
@@ -11125,28 +11040,21 @@ void Encoder::PrintAlignmentBoundary(size_t instrAddr, size_t instrEndAddr, cons
     }
 }
 
-void Arm64AsmPrinter::emitDispFrameRef(instrDesc* id)
+static void PrintHexCode(uint8_t* code, size_t sz)
 {
-    int varNum  = id->idDebugOnlyInfo()->varNum;
-    int varOffs = id->idDebugOnlyInfo()->varOffs;
-
-    printf("\t// [");
-
-    if (varNum < 0)
+    if (sz == 0)
     {
-        printf("T%02d", -varNum);
+        printf("                    ");
+    }
+    else if (sz == 4)
+    {
+        printf("  %08X          ", reinterpret_cast<uint32_t*>(code)[0]);
     }
     else
     {
-        compiler->gtDispLclVar(static_cast<unsigned>(varNum), false);
+        assert(sz == 8);
+        printf("  %08X %08X ", reinterpret_cast<uint32_t*>(code)[0], reinterpret_cast<uint32_t*>(code)[1]);
     }
-
-    if (varOffs != 0)
-    {
-        printf("%c0x%02x", varOffs < 0 ? '-' : '+', abs(varOffs));
-    }
-
-    printf("]");
 }
 
 void Arm64Encoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
@@ -11442,7 +11350,6 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case IF_DI_1F: // ccmp, ccmn
         case IF_DI_2A: // add, adds, suv, subs
         case IF_DI_2C: // and, ands, eor, orr
-
             result.insThroughput = PERFSCORE_THROUGHPUT_2X;
             result.insLatency    = PERFSCORE_LATENCY_1C;
             break;
@@ -11450,14 +11357,12 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case IF_DR_2D: // cinc, cinv, cneg
         case IF_DR_2E: // mov, neg, mvn, negs
         case IF_DI_1B: // mov, movk, movn, movz
-
             result.insThroughput = PERFSCORE_THROUGHPUT_2X;
             result.insLatency    = PERFSCORE_LATENCY_1C;
             break;
 
         case IF_LARGEADR: // adrp + add
         case IF_LARGELDC: // adrp + ldr
-
             result.insThroughput = PERFSCORE_THROUGHPUT_1C;
             result.insLatency    = PERFSCORE_LATENCY_2C;
             break;
@@ -11487,14 +11392,11 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         // ALU, Conditional select
         case IF_DR_1D: // cset, csetm
         case IF_DR_3D: // csel, csinc, csinv, csneg
-
             result.insThroughput = PERFSCORE_THROUGHPUT_2X;
             result.insLatency    = PERFSCORE_LATENCY_1C;
             break;
-
         // ALU, Conditional compare
         case IF_DR_2I: // ccmp , ccmn
-
             result.insThroughput = PERFSCORE_THROUGHPUT_2X;
             result.insLatency    = PERFSCORE_LATENCY_1C;
             break;

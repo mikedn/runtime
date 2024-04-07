@@ -1736,8 +1736,8 @@ protected:
     {
     }
 
-    void PrintLabel(insGroup* ig);
-    void PrintHandleComment(void* handle, HandleKind kind);
+    void PrintLabel(insGroup* ig) const;
+    void PrintHandleComment(void* handle, HandleKind kind) const;
 };
 
 #if defined(TARGET_XARCH)

@@ -4100,7 +4100,7 @@ public:
     {
     }
 
-    void Print(instrDesc* id)
+    void Print(instrDesc* id) const
     {
         PrintIns(id);
     }
@@ -4140,7 +4140,7 @@ private:
         }
     }
 
-    void PrintConstDataLabel(instrDesc* id, emitAttr size)
+    void PrintConstDataLabel(instrDesc* id, emitAttr size) const
     {
         ConstData* data = id->GetConstData();
 
@@ -4154,7 +4154,7 @@ private:
         printf("]");
     }
 
-    void PrintFrameRef(instrDesc* id, emitAttr size)
+    void PrintFrameRef(instrDesc* id, emitAttr size) const
     {
         int varNum  = id->idDebugOnlyInfo()->varNum;
         int varOffs = id->idDebugOnlyInfo()->varOffs;
@@ -4203,7 +4203,7 @@ private:
         printf("]");
     }
 
-    void PrintImm(instrDesc* id)
+    void PrintImm(instrDesc* id) const
     {
         if (id->idIsCnsReloc())
         {
@@ -4242,12 +4242,12 @@ private:
         }
     }
 
-    void PrintReloc(ssize_t value, const char* prefix = "")
+    void PrintReloc(ssize_t value, const char* prefix = "") const
     {
         printf("%s%s0x%IX", prefix, compiler->opts.compReloc ? "reloc " : "", compiler->dspPtr(value));
     }
 
-    void PrintAddrMode(instrDesc* id, emitAttr size)
+    void PrintAddrMode(instrDesc* id, emitAttr size) const
     {
         auto        am        = id->idAddr()->iiaAddrMode;
         ssize_t     disp      = id->idIns() == INS_call ? id->GetCallDisp() : id->GetAmDisp();
@@ -4352,7 +4352,7 @@ private:
         }
     }
 
-    void PrintShiftCL(instruction ins)
+    void PrintShiftCL(instruction ins) const
     {
         if (IsShiftCL(ins))
         {
@@ -4360,7 +4360,7 @@ private:
         }
     }
 
-    void PrintLabel(instrDescJmp* id)
+    void PrintLabel(instrDescJmp* id) const
     {
         if (id->idCodeSize() == JMP_JCC_SIZE_SMALL)
         {
@@ -4383,7 +4383,7 @@ private:
         }
     }
 
-    void PrintMethod(instrDesc* id)
+    void PrintMethod(instrDesc* id) const
     {
         if (id->idInsFmt() == IF_METHPTR)
         {
@@ -4399,7 +4399,7 @@ private:
         }
     }
 
-    const char* GetInsName(instrDesc* id)
+    const char* GetInsName(instrDesc* id) const
     {
         instruction ins  = id->idIns();
         const char* name = insName(ins);
@@ -4427,7 +4427,7 @@ private:
         return name;
     }
 
-    void PrintIns(instrDesc* id)
+    void PrintIns(instrDesc* id) const
     {
         if (id->idInsFmt() == IF_GC_REG)
         {
