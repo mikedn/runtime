@@ -1,59 +1,26 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*****************************************************************************
- *  Arm64 instructions for JIT compiler
- *
- *          id      -- the enum name for the instruction
- *          nm      -- textual name (for assembly dipslay)
- *          info    -- miscellaneous instruction info (load/store/compare/ASIMD right shift)
- *          fmt     -- encoding format used by this instruction
- *          e1      -- encoding 1
- *          e2      -- encoding 2
- *          e3      -- encoding 3
- *          e4      -- encoding 4
- *          e5      -- encoding 5
- *          e6      -- encoding 6
- *          e7      -- encoding 7
- *          e8      -- encoding 8
- *          e9      -- encoding 9
- *
-******************************************************************************/
-
-#if !defined(TARGET_ARM64)
-#error Unexpected target type
-#endif
-
-#ifndef INST1
-#error INST1 must be defined before including this file.
-#endif
-#ifndef INST2
-#error INST2 must be defined before including this file.
-#endif
-#ifndef INST3
-#error INST3 must be defined before including this file.
-#endif
-#ifndef INST4
-#error INST4 must be defined before including this file.
-#endif
-#ifndef INST5
-#error INST5 must be defined before including this file.
-#endif
-#ifndef INST6
-#error INST6 must be defined before including this file.
-#endif
-#ifndef INST9
-#error INST9 must be defined before including this file.
-#endif
-
-/*****************************************************************************/
-/*               The following is ARM64-specific                             */
-/*****************************************************************************/
+#ifdef TARGET_ARM64
 
 // If you're adding a new instruction:
 // You need not only to fill in one of these macros describing the instruction, but also:
 //   * If the instruction writes to more than one destination register, update the function
 //     emitInsMayWriteMultipleRegs in emitArm64.cpp.
+//
+// id   - the enum name for the instruction
+// nm   - assembly name
+// info - miscellaneous instruction info (load/store/compare/ASIMD right shift)
+// fmt  - encoding format used by this instruction
+// e1   - encoding 1
+// e2   - encoding 2
+// e3   - encoding 3
+// e4   - encoding 4
+// e5   - encoding 5
+// e6   - encoding 6
+// e7   - encoding 7
+// e8   - encoding 8
+// e9   - encoding 9
 
 // clang-format off
 INST9(invalid,     "INVALID",      0,      IF_NONE,   BAD_CODE,    BAD_CODE,    BAD_CODE,    BAD_CODE,    BAD_CODE,    BAD_CODE,    BAD_CODE,    BAD_CODE,    BAD_CODE)
@@ -1973,7 +1940,6 @@ INST1(tbx_4regs,   "tbx",          0,      IF_DV_3C,  0x0E007000)
 
 // clang-format on
 
-/*****************************************************************************/
 #undef INST1
 #undef INST2
 #undef INST3
@@ -1981,4 +1947,5 @@ INST1(tbx_4regs,   "tbx",          0,      IF_DV_3C,  0x0E007000)
 #undef INST5
 #undef INST6
 #undef INST9
-/*****************************************************************************/
+
+#endif // TARGET_ARM64

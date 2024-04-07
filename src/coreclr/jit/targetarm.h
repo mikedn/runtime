@@ -286,7 +286,7 @@ constexpr bool IsGeneralRegister(regNumber reg)
     return reg <= REG_R15;
 }
 
-constexpr bool isLowRegister(RegNum reg)
+constexpr bool IsLowRegister(RegNum reg)
 {
     return reg <= REG_R7;
 }

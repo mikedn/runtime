@@ -1012,6 +1012,16 @@ static bool IsShiftBy12Imm(int64_t imm)
     return imm <= 0x0fff;
 }
 
+static unsigned unsigned_abs(int x)
+{
+    return static_cast<unsigned>(x < 0 ? -x : x);
+}
+
+static size_t unsigned_abs(ssize_t x)
+{
+    return ((size_t)abs(x));
+}
+
 bool Arm64Imm::IsAddImm(int64_t imm, emitAttr size)
 {
     return (unsigned_abs(imm) <= 0x0fff) || IsShiftBy12Imm(imm);
@@ -2177,24 +2187,18 @@ static emitAttr emitInsLoadStoreSize(instrDesc* id)
 
 const char* insName(instruction ins)
 {
-    // clang-format off
-    static const char* const insNames[]
-    {
-#define INST1(id, nm, ldst, fmt, e1                                 ) nm,
-#define INST2(id, nm, ldst, fmt, e1, e2                             ) nm,
-#define INST3(id, nm, ldst, fmt, e1, e2, e3                         ) nm,
-#define INST4(id, nm, ldst, fmt, e1, e2, e3, e4                     ) nm,
-#define INST5(id, nm, ldst, fmt, e1, e2, e3, e4, e5                 ) nm,
-#define INST6(id, nm, ldst, fmt, e1, e2, e3, e4, e5, e6             ) nm,
-#define INST9(id, nm, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9 ) nm,
+    static const char* const insNames[]{
+#define INST1(id, nm, ...) nm,
+#define INST2(id, nm, ...) nm,
+#define INST3(id, nm, ...) nm,
+#define INST4(id, nm, ...) nm,
+#define INST5(id, nm, ...) nm,
+#define INST6(id, nm, ...) nm,
+#define INST9(id, nm, ...) nm,
 #include "instrsarm64.h"
     };
-    // clang-format on
 
-    assert(ins < _countof(insNames));
-    assert(insNames[ins] != nullptr);
-
-    return insNames[ins];
+    return ins < _countof(insNames) ? insNames[ins] : "???";
 }
 #endif // DEBUG
 

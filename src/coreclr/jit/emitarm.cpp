@@ -10,77 +10,6 @@
 #include "codegen.h"
 #include "unwind.h"
 
-static bool isModImmConst(int val32);
-static int insUnscaleImm(instruction ins, int imm);
-
-static bool insSetsFlags(insFlags flags)
-{
-    return flags != INS_FLAGS_NOT_SET;
-}
-
-static bool insDoesNotSetFlags(insFlags flags)
-{
-    return flags != INS_FLAGS_SET;
-}
-
-static insFlags insMustSetFlags(insFlags flags)
-{
-    return (flags == INS_FLAGS_SET) ? INS_FLAGS_SET : INS_FLAGS_NOT_SET;
-}
-
-static bool insOptsNone(insOpts opt)
-{
-    return opt == INS_OPTS_NONE;
-}
-
-static bool insOptAnyInc(insOpts opt)
-{
-    return (opt == INS_OPTS_LDST_PRE_DEC) || (opt == INS_OPTS_LDST_POST_INC);
-}
-
-static bool insOptsPostInc(insOpts opt)
-{
-    return opt == INS_OPTS_LDST_POST_INC;
-}
-
-static bool insOptsRRX(insOpts opt)
-{
-    return opt == INS_OPTS_RRX;
-}
-
-instruction JumpKindToJcc(emitJumpKind kind)
-{
-    static const instruction map[]{
-        INS_nop, INS_b,
-#define CC_DEF(cc, rev, ...) INS_b##cc,
-#include "emitjmps.h"
-    };
-
-    assert(kind < _countof(map));
-    return map[kind];
-}
-
-emitJumpKind ReverseJumpKind(emitJumpKind kind)
-{
-    static const emitJumpKind map[]{
-        EJ_NONE, EJ_jmp,
-#define CC_DEF(cc, rev, ...) EJ_##rev,
-#include "emitjmps.h"
-    };
-
-    assert(kind < _countof(map));
-    return map[kind];
-}
-
-static emitJumpKind JccToJumpKind(instruction ins)
-{
-    assert((INS_b <= ins) && (ins <= INS_ble));
-#define CC_DEF(cc, rev, ...) static_assert_no_msg(INS_b##cc - INS_b == EJ_##cc - EJ_jmp);
-#include "emitjmps.h"
-
-    return static_cast<emitJumpKind>(EJ_jmp + (ins - INS_b));
-}
-
 enum ID_OPS : uint8_t
 {
     ID_OP_NONE,
@@ -130,37 +59,81 @@ int32_t instrDesc::emitGetInsSC() const
     return _idLargeCns ? static_cast<const instrDescCns*>(this)->idcCnsVal : _idSmallCns;
 }
 
+static bool insSetsFlags(insFlags flags)
+{
+    return flags != INS_FLAGS_NOT_SET;
+}
+
+static bool insDoesNotSetFlags(insFlags flags)
+{
+    return flags != INS_FLAGS_SET;
+}
+
+static insFlags insMustSetFlags(insFlags flags)
+{
+    return flags == INS_FLAGS_SET ? INS_FLAGS_SET : INS_FLAGS_NOT_SET;
+}
+
+static bool insOptsNone(insOpts opt)
+{
+    return opt == INS_OPTS_NONE;
+}
+
+static bool insOptAnyInc(insOpts opt)
+{
+    return (opt == INS_OPTS_LDST_PRE_DEC) || (opt == INS_OPTS_LDST_POST_INC);
+}
+
+static bool insOptsPostInc(insOpts opt)
+{
+    return opt == INS_OPTS_LDST_POST_INC;
+}
+
 #ifdef DEBUG
+const char* insOptsName(insOpts opt)
+{
+    switch (opt)
+    {
+        case INS_OPTS_NONE:
+            return "";
+        case INS_OPTS_RRX:
+            return "RRX";
+        case INS_OPTS_LSL:
+            return "LSL";
+        case INS_OPTS_LSR:
+            return "LSR";
+        case INS_OPTS_ASR:
+            return "ASR";
+        case INS_OPTS_ROR:
+            return "ROR";
+        default:
+            return "???";
+    }
+}
+
+static unsigned unsigned_abs(int x)
+{
+    return static_cast<unsigned>(x < 0 ? -x : x);
+}
+
 static bool offsetFitsInVectorMem(int disp)
 {
     unsigned imm = unsigned_abs(disp);
     return ((imm & 0x03fc) == imm);
 }
 
-static bool isGeneralRegister(RegNum reg)
+static bool IsDoubleReg(RegNum reg)
 {
-    return IsGeneralRegister(reg);
-}
-
-static bool isFloatReg(RegNum reg)
-{
-    return IsFloatReg(reg);
-}
-
-static bool isDoubleReg(RegNum reg)
-{
-    return isFloatReg(reg) && ((reg % 2) == 0);
-}
-
-static bool insOptsLSL(insOpts opt)
-{
-    return opt == INS_OPTS_LSL;
+    return IsFloatReg(reg) && ((reg % 2) == 0);
 }
 
 static bool insOptAnyShift(insOpts opt)
 {
     return (opt >= INS_OPTS_RRX) && (opt <= INS_OPTS_ROR);
 }
+
+static bool isModImmConst(int val32);
+static int insUnscaleImm(instruction ins, int imm);
 
 void EmitterBase::emitInsSanityCheck(instrDesc* id)
 {
@@ -185,27 +158,27 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             break;
 
         case IF_T1_C: // .....iiiiinnnddd                       R1  R2              imm5
-            assert(isLowRegister(id->idReg1()));
-            assert(isLowRegister(id->idReg2()));
+            assert(IsLowRegister(id->idReg1()));
+            assert(IsLowRegister(id->idReg2()));
             assert(insUnscaleImm(id->idIns(), id->emitGetInsSC()) < 0x20);
             break;
 
         case IF_T1_D0: // ........Dmmmmddd                       R1* R2*
-            assert(isGeneralRegister(id->idReg1()));
-            assert(isGeneralRegister(id->idReg2()));
+            assert(IsGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg2()));
             break;
 
         case IF_T1_D1: // .........mmmm...                       R1*
-            assert(isGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg1()));
             break;
 
         case IF_T1_D2: // .........mmmm...                               R3*
-            assert(isGeneralRegister(id->idReg3()));
+            assert(IsGeneralRegister(id->idReg3()));
             break;
 
         case IF_T1_E: // ..........nnnddd                       R1  R2
-            assert(isLowRegister(id->idReg1()));
-            assert(isLowRegister(id->idReg2()));
+            assert(IsLowRegister(id->idReg1()));
+            assert(IsLowRegister(id->idReg2()));
             assert(id->idSmallCns() < 0x20);
             break;
 
@@ -216,33 +189,33 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             break;
 
         case IF_T1_G: // .......iiinnnddd                       R1  R2              imm3
-            assert(isLowRegister(id->idReg1()));
-            assert(isLowRegister(id->idReg2()));
+            assert(IsLowRegister(id->idReg1()));
+            assert(IsLowRegister(id->idReg2()));
             assert(id->idSmallCns() < 0x8);
             break;
 
         case IF_T1_H: // .......mmmnnnddd                       R1  R2  R3
-            assert(isLowRegister(id->idReg1()));
-            assert(isLowRegister(id->idReg2()));
-            assert(isLowRegister(id->idReg3()));
+            assert(IsLowRegister(id->idReg1()));
+            assert(IsLowRegister(id->idReg2()));
+            assert(IsLowRegister(id->idReg3()));
             break;
 
         case IF_T1_I: // ......i.iiiiiddd                       R1                  imm6
-            assert(isLowRegister(id->idReg1()));
+            assert(IsLowRegister(id->idReg1()));
             break;
 
         case IF_T1_J0: // .....dddiiiiiiii                       R1                  imm8
-            assert(isLowRegister(id->idReg1()));
+            assert(IsLowRegister(id->idReg1()));
             assert(id->emitGetInsSC() < 0x100);
             break;
 
         case IF_T1_J1: // .....dddiiiiiiii                       R1                  <regmask8>
-            assert(isLowRegister(id->idReg1()));
+            assert(IsLowRegister(id->idReg1()));
             assert(id->emitGetInsSC() < 0x100);
             break;
 
         case IF_T1_J2: // .....dddiiiiiiii                       R1  SP              imm8
-            assert(isLowRegister(id->idReg1()));
+            assert(IsLowRegister(id->idReg1()));
             assert(id->idReg2() == REG_SP);
             assert(id->idOpSize() == EA_4BYTE);
             assert((id->emitGetInsSC() & ~0x3FC) == 0);
@@ -257,126 +230,126 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             break;
 
         case IF_T2_C0: // ...........Snnnn .iiiddddiishmmmm       R1  R2  R3      S, imm5, sh
-            assert(isGeneralRegister(id->idReg1()));
-            assert(isGeneralRegister(id->idReg2()));
-            assert(isGeneralRegister(id->idReg3()));
+            assert(IsGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg2()));
+            assert(IsGeneralRegister(id->idReg3()));
             assert(id->emitGetInsSC() < 0x20);
             break;
 
         case IF_T2_C4: // ...........Snnnn ....dddd....mmmm       R1  R2  R3      S
         case IF_T2_C5: // ............nnnn ....dddd....mmmm       R1  R2  R3
         case IF_T2_G1: // ............nnnn ttttTTTT........       R1  R2  R3
-            assert(isGeneralRegister(id->idReg1()));
-            assert(isGeneralRegister(id->idReg2()));
-            assert(isGeneralRegister(id->idReg3()));
+            assert(IsGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg2()));
+            assert(IsGeneralRegister(id->idReg3()));
             break;
 
         case IF_T2_C1: // ...........S.... .iiiddddiishmmmm       R1  R2          S, imm5, sh
         case IF_T2_C2: // ...........S.... .iiiddddii..mmmm       R1  R2          S, imm5
         case IF_T2_C8: // ............nnnn .iii....iishmmmm       R1  R2             imm5, sh
-            assert(isGeneralRegister(id->idReg1()));
-            assert(isGeneralRegister(id->idReg2()));
+            assert(IsGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg2()));
             assert(id->emitGetInsSC() < 0x20);
             break;
 
         case IF_T2_C6: // ................ ....dddd..iimmmm       R1  R2                   imm2
         case IF_T2_C7: // ............nnnn ..........shmmmm       R1  R2                   imm2
-            assert(isGeneralRegister(id->idReg1()));
-            assert(isGeneralRegister(id->idReg2()));
+            assert(IsGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg2()));
             assert(id->emitGetInsSC() < 0x4);
             break;
 
         case IF_T2_C3:  // ...........S.... ....dddd....mmmm       R1  R2          S
         case IF_T2_C9:  // ............nnnn ............mmmm       R1  R2
         case IF_T2_C10: // ............mmmm ....dddd....mmmm       R1  R2
-            assert(isGeneralRegister(id->idReg1()));
-            assert(isGeneralRegister(id->idReg2()));
+            assert(IsGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg2()));
             break;
 
         case IF_T2_D0: // ............nnnn .iiiddddii.wwwww       R1  R2             imm5, imm5
-            assert(isGeneralRegister(id->idReg1()));
-            assert(isGeneralRegister(id->idReg2()));
+            assert(IsGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg2()));
             assert(id->emitGetInsSC() < 0x400);
             break;
 
         case IF_T2_D1: // ................ .iiiddddii.wwwww       R1                 imm5, imm5
-            assert(isGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg1()));
             assert(id->emitGetInsSC() < 0x400);
             break;
 
         case IF_T2_E0: // ............nnnn tttt......shmmmm       R1  R2  R3               imm2
-            assert(isGeneralRegister(id->idReg1()));
-            assert(isGeneralRegister(id->idReg2()));
+            assert(IsGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg2()));
 
             if (id->idIsLclVar())
             {
-                assert(isGeneralRegister(codeGen->rsGetRsvdReg()));
+                assert(IsGeneralRegister(codeGen->rsGetRsvdReg()));
             }
             else
             {
-                assert(isGeneralRegister(id->idReg3()));
+                assert(IsGeneralRegister(id->idReg3()));
                 assert(id->emitGetInsSC() < 0x4);
             }
             break;
 
         case IF_T2_E1: // ............nnnn tttt............       R1  R2
-            assert(isGeneralRegister(id->idReg1()));
-            assert(isGeneralRegister(id->idReg2()));
+            assert(IsGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg2()));
             break;
 
         case IF_T2_E2: // ................ tttt............       R1
-            assert(isGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg1()));
             break;
 
         case IF_T2_F1: // ............nnnn ttttdddd....mmmm       R1  R2  R3  R4
         case IF_T2_F2: // ............nnnn aaaadddd....mmmm       R1  R2  R3  R4
-            assert(isGeneralRegister(id->idReg1()));
-            assert(isGeneralRegister(id->idReg2()));
-            assert(isGeneralRegister(id->idReg3()));
-            assert(isGeneralRegister(id->idReg4()));
+            assert(IsGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg2()));
+            assert(IsGeneralRegister(id->idReg3()));
+            assert(IsGeneralRegister(id->idReg4()));
             break;
 
         case IF_T2_G0: // .......PU.W.nnnn ttttTTTTiiiiiiii       R1  R2  R3         imm8, PUW
-            assert(isGeneralRegister(id->idReg1()));
-            assert(isGeneralRegister(id->idReg2()));
-            assert(isGeneralRegister(id->idReg3()));
+            assert(IsGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg2()));
+            assert(IsGeneralRegister(id->idReg3()));
             assert(unsigned_abs(id->emitGetInsSC()) < 0x100);
             break;
 
         case IF_T2_H0: // ............nnnn tttt.PUWiiiiiiii       R1  R2             imm8, PUW
-            assert(isGeneralRegister(id->idReg1()));
-            assert(isGeneralRegister(id->idReg2()));
+            assert(IsGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg2()));
             assert(unsigned_abs(id->emitGetInsSC()) < 0x100);
             break;
 
         case IF_T2_H1: // ............nnnn tttt....iiiiiiii       R1  R2             imm8
-            assert(isGeneralRegister(id->idReg1()));
-            assert(isGeneralRegister(id->idReg2()));
+            assert(IsGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg2()));
             assert(id->emitGetInsSC() < 0x100);
             break;
 
         case IF_T2_H2: // ............nnnn ........iiiiiiii       R1                 imm8
-            assert(isGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg1()));
             assert(id->emitGetInsSC() < 0x100);
             break;
 
         case IF_T2_I0: // ..........W.nnnn rrrrrrrrrrrrrrrr       R1              W, imm16
-            assert(isGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg1()));
             assert(id->emitGetInsSC() < 0x10000);
             break;
 
         case IF_T2_N: // .....i......iiii .iiiddddiiiiiiii       R1                 imm16
-            assert(isGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg1()));
             assert(!id->idIsCnsReloc());
             break;
 
         case IF_T2_N2: // .....i......iiii .iiiddddiiiiiiii       R1                 imm16
-            assert(isGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg1()));
             assert((size_t)id->emitGetInsSC() < roData.size);
             break;
 
         case IF_T2_N3: // .....i......iiii .iiiddddiiiiiiii       R1                 imm16
-            assert(isGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg1()));
             assert(id->idIsCnsReloc());
             break;
 
@@ -386,20 +359,20 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
 
         case IF_T2_K1: // ............nnnn ttttiiiiiiiiiiii       R1  R2             imm12
         case IF_T2_M0: // .....i......nnnn .iiiddddiiiiiiii       R1  R2             imm12
-            assert(isGeneralRegister(id->idReg1()));
-            assert(isGeneralRegister(id->idReg2()));
+            assert(IsGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg2()));
             assert(id->emitGetInsSC() < 0x1000);
             break;
 
         case IF_T2_L0: // .....i.....Snnnn .iiiddddiiiiiiii       R1  R2          S, imm8<<imm4
-            assert(isGeneralRegister(id->idReg1()));
-            assert(isGeneralRegister(id->idReg2()));
+            assert(IsGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg2()));
             assert(isModImmConst(id->emitGetInsSC()));
             break;
 
         case IF_T2_K4: // ........U....... ttttiiiiiiiiiiii       R1  PC          U, imm12
         case IF_T2_M1: // .....i.......... .iiiddddiiiiiiii       R1  PC             imm12
-            assert(isGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg1()));
             assert(id->idReg2() == REG_PC);
             assert(id->emitGetInsSC() < 0x1000);
             break;
@@ -410,18 +383,18 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             break;
 
         case IF_T2_K2: // ............nnnn ....iiiiiiiiiiii       R1                 imm12
-            assert(isGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg1()));
             assert(id->emitGetInsSC() < 0x1000);
             break;
 
         case IF_T2_L1: // .....i.....S.... .iiiddddiiiiiiii       R1              S, imm8<<imm4
         case IF_T2_L2: // .....i......nnnn .iii....iiiiiiii       R1                 imm8<<imm4
-            assert(isGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg1()));
             assert(isModImmConst(id->emitGetInsSC()));
             break;
 
         case IF_T1_J3: // .....dddiiiiiiii                        R1  PC             imm8
-            assert(isGeneralRegister(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg1()));
             assert(id->idReg2() == REG_PC);
             assert(id->emitGetInsSC() < 0x100);
             break;
@@ -429,30 +402,30 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
         case IF_T2_VFP3:
             if (id->idOpSize() == EA_8BYTE)
             {
-                assert(isDoubleReg(id->idReg1()));
-                assert(isDoubleReg(id->idReg2()));
-                assert(isDoubleReg(id->idReg3()));
+                assert(IsDoubleReg(id->idReg1()));
+                assert(IsDoubleReg(id->idReg2()));
+                assert(IsDoubleReg(id->idReg3()));
             }
             else
             {
                 assert(id->idOpSize() == EA_4BYTE);
-                assert(isFloatReg(id->idReg1()));
-                assert(isFloatReg(id->idReg2()));
-                assert(isFloatReg(id->idReg3()));
+                assert(IsFloatReg(id->idReg1()));
+                assert(IsFloatReg(id->idReg2()));
+                assert(IsFloatReg(id->idReg3()));
             }
             break;
 
         case IF_T2_VFP2:
-            assert(isFloatReg(id->idReg1()));
-            assert(isFloatReg(id->idReg2()));
+            assert(IsFloatReg(id->idReg1()));
+            assert(IsFloatReg(id->idReg2()));
             break;
 
         case IF_T2_VLDST:
             if (id->idOpSize() == EA_8BYTE)
-                assert(isDoubleReg(id->idReg1()));
+                assert(IsDoubleReg(id->idReg1()));
             else
-                assert(isFloatReg(id->idReg1()));
-            assert(isGeneralRegister(id->idReg2()));
+                assert(IsFloatReg(id->idReg1()));
+            assert(IsGeneralRegister(id->idReg2()));
             assert(offsetFitsInVectorMem(id->emitGetInsSC()));
             break;
 
@@ -461,16 +434,16 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
 
             if (id->idIns() == INS_vmov_d2i)
             {
-                assert(isGeneralRegister(id->idReg1()));
-                assert(isGeneralRegister(id->idReg2()));
-                assert(isDoubleReg(id->idReg3()));
+                assert(IsGeneralRegister(id->idReg1()));
+                assert(IsGeneralRegister(id->idReg2()));
+                assert(IsDoubleReg(id->idReg3()));
             }
             else
             {
                 assert(id->idIns() == INS_vmov_i2d);
-                assert(isDoubleReg(id->idReg1()));
-                assert(isGeneralRegister(id->idReg2()));
-                assert(isGeneralRegister(id->idReg3()));
+                assert(IsDoubleReg(id->idReg1()));
+                assert(IsGeneralRegister(id->idReg2()));
+                assert(IsGeneralRegister(id->idReg3()));
             }
             break;
 
@@ -479,21 +452,19 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
 
             if (id->idIns() == INS_vmov_i2f)
             {
-                assert(isFloatReg(id->idReg1()));
-                assert(isGeneralRegister(id->idReg2()));
+                assert(IsFloatReg(id->idReg1()));
+                assert(IsGeneralRegister(id->idReg2()));
             }
             else
             {
                 assert(id->idIns() == INS_vmov_f2i);
-                assert(isGeneralRegister(id->idReg1()));
-                assert(isFloatReg(id->idReg2()));
+                assert(IsGeneralRegister(id->idReg1()));
+                assert(IsFloatReg(id->idReg2()));
             }
             break;
 
         default:
-            printf("unexpected format %s\n", emitIfName(id->idInsFmt()));
-            assert(!"Unexpected format");
-            break;
+            unreached();
     }
 }
 #endif // DEBUG
@@ -657,25 +628,19 @@ bool ArmEncoder::emitInsMayWriteMultipleRegs(instrDesc* id)
 
 const char* insName(instruction ins)
 {
-    // clang-format off
-    static const char* const insNames[]
-    {
-#define INST1(id, nm, fp, ldst, fmt, e1                                 ) nm,
-#define INST2(id, nm, fp, ldst, fmt, e1, e2                             ) nm,
-#define INST3(id, nm, fp, ldst, fmt, e1, e2, e3                         ) nm,
-#define INST4(id, nm, fp, ldst, fmt, e1, e2, e3, e4                     ) nm,
-#define INST5(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5                 ) nm,
-#define INST6(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6             ) nm,
-#define INST8(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8     ) nm,
-#define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9 ) nm,
+    static const char* const insNames[]{
+#define INST1(id, nm, ...) nm,
+#define INST2(id, nm, ...) nm,
+#define INST3(id, nm, ...) nm,
+#define INST4(id, nm, ...) nm,
+#define INST5(id, nm, ...) nm,
+#define INST6(id, nm, ...) nm,
+#define INST8(id, nm, ...) nm,
+#define INST9(id, nm, ...) nm,
 #include "instrsarm.h"
     };
-    // clang-format on
 
-    assert(ins < _countof(insNames));
-    assert(insNames[ins] != nullptr);
-
-    return insNames[ins];
+    return ins < _countof(insNames) ? insNames[ins] : "???";
 }
 
 enum
@@ -726,44 +691,67 @@ static uint8_t emitInsFormat(instruction ins)
     return formats[ins];
 }
 
-#define INST_FP 1
-#define LD 2
-#define ST 4
-#define CMP 8
-
-const uint8_t instInfo[]{
-#define INST1(id, nm, fp, ldst, ...) ldst | INST_FP *fp,
-#define INST2(id, nm, fp, ldst, ...) ldst | INST_FP *fp,
-#define INST3(id, nm, fp, ldst, ...) ldst | INST_FP *fp,
-#define INST4(id, nm, fp, ldst, ...) ldst | INST_FP *fp,
-#define INST5(id, nm, fp, ldst, ...) ldst | INST_FP *fp,
-#define INST6(id, nm, fp, ldst, ...) ldst | INST_FP *fp,
-#define INST8(id, nm, fp, ldst, ...) ldst | INST_FP *fp,
-#define INST9(id, nm, fp, ldst, ...) ldst | INST_FP *fp,
-#include "instrsarm.h"
+enum InsKind : uint8_t
+{
+    IK_FP = 1,
+    IK_LD = 2,
+    IK_ST = 4
 };
 
-static bool instIsFP(instruction ins)
+static uint8_t insInfo(instruction ins)
 {
-    assert(ins < _countof(instInfo));
-    return (instInfo[ins] & INST_FP) != 0;
+#define LD IK_LD
+#define ST IK_ST
+    static const uint8_t info[]{
+#define INST1(id, nm, fp, ldst, ...) ldst | IK_FP *fp,
+#define INST2(id, nm, fp, ldst, ...) ldst | IK_FP *fp,
+#define INST3(id, nm, fp, ldst, ...) ldst | IK_FP *fp,
+#define INST4(id, nm, fp, ldst, ...) ldst | IK_FP *fp,
+#define INST5(id, nm, fp, ldst, ...) ldst | IK_FP *fp,
+#define INST6(id, nm, fp, ldst, ...) ldst | IK_FP *fp,
+#define INST8(id, nm, fp, ldst, ...) ldst | IK_FP *fp,
+#define INST9(id, nm, fp, ldst, ...) ldst | IK_FP *fp,
+#include "instrsarm.h"
+    };
+#undef LD
+#undef ST
+
+    // We have pseudo ins like lea which are not included in emitInsLdStTab.
+    return ins < _countof(info) ? info[ins] : 0;
+}
+
+static bool IsFloatIns(instruction ins)
+{
+    return (insInfo(ins) & IK_FP) != 0;
 }
 
 bool IsLoadIns(instruction ins)
 {
-    // We have pseudo ins like lea which are not included in emitInsLdStTab.
-    return (ins < _countof(instInfo)) && ((instInfo[ins] & LD) != 0);
+    return (insInfo(ins) & IK_LD) != 0;
 }
 
-static bool emitInsIsLoadOrStore(instruction ins)
+static bool IsLoadStoreIns(instruction ins)
 {
-    // We have pseudo ins like lea which are not included in emitInsLdStTab.
-    return (ins < _countof(instInfo)) && ((instInfo[ins] & (LD | ST)) != 0);
+    return (insInfo(ins) & (IK_LD | IK_ST)) != 0;
 }
 
-#undef LD
-#undef ST
-#undef CMP
+bool IsMovIns(instruction ins)
+{
+    switch (ins)
+    {
+        case INS_mov:
+        case INS_sxtb:
+        case INS_sxth:
+        case INS_uxtb:
+        case INS_uxth:
+        case INS_vmov:
+        case INS_vmov_i2f:
+        case INS_vmov_f2i:
+            return true;
+        default:
+            return false;
+    }
+}
 
 // Returns the specific encoding of the given CPU instruction and format
 uint32_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
@@ -877,6 +865,7 @@ uint32_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
         #define INST9(id, nm, fp, ldst, fmt, e1, e2, e3, e4, e5, e6, e7, e8, e9) e9,
         #include "instrsarm.h"
     };
+
     const static insFormat formatEncode9[9]  { IF_T1_D0, IF_T1_H,  IF_T1_J0, IF_T1_G,  IF_T2_L0, IF_T2_C0, IF_T1_F,  IF_T1_J2, IF_T1_J3 };
     const static insFormat formatEncode8[8]  { IF_T1_H,  IF_T1_C,  IF_T2_E0, IF_T2_H0, IF_T2_K1, IF_T2_K4, IF_T1_J2, IF_T1_J3 };
     const static insFormat formatEncode6A[6] { IF_T1_H,  IF_T1_C,  IF_T2_E0, IF_T2_H0, IF_T2_K1, IF_T2_K4};
@@ -917,7 +906,6 @@ uint32_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
                 }
             }
             break;
-
         case IF_EN8:
             for (index = 0; index < 8; index++)
             {
@@ -928,7 +916,6 @@ uint32_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
                 }
             }
             break;
-
         case IF_EN6A:
             for (index = 0; index < 6; index++)
             {
@@ -939,7 +926,6 @@ uint32_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
                 }
             }
             break;
-
         case IF_EN6B:
             for (index = 0; index < 6; index++)
             {
@@ -950,7 +936,6 @@ uint32_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
                 }
             }
             break;
-
         case IF_EN5A:
             for (index = 0; index < 5; index++)
             {
@@ -961,7 +946,6 @@ uint32_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
                 }
             }
             break;
-
         case IF_EN5B:
             for (index = 0; index < 5; index++)
             {
@@ -972,7 +956,6 @@ uint32_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
                 }
             }
             break;
-
         case IF_EN4A:
             for (index = 0; index < 4; index++)
             {
@@ -983,7 +966,6 @@ uint32_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
                 }
             }
             break;
-
         case IF_EN4B:
             for (index = 0; index < 4; index++)
             {
@@ -994,7 +976,6 @@ uint32_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
                 }
             }
             break;
-
         case IF_EN4C:
             for (index = 0; index < 4; index++)
             {
@@ -1005,7 +986,6 @@ uint32_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
                 }
             }
             break;
-
         case IF_EN3A:
             for (index = 0; index < 3; index++)
             {
@@ -1016,7 +996,6 @@ uint32_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
                 }
             }
             break;
-
         case IF_EN3B:
             for (index = 0; index < 3; index++)
             {
@@ -1057,7 +1036,6 @@ uint32_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
                 }
             }
             break;
-
         case IF_EN2A:
             for (index = 0; index < 2; index++)
             {
@@ -1118,7 +1096,6 @@ uint32_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
                 }
             }
             break;
-
         case IF_EN2G:
             for (index = 0; index < 2; index++)
             {
@@ -1129,7 +1106,6 @@ uint32_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
                 }
             }
             break;
-
         default:
             index = 0;
             found = true;
@@ -1178,7 +1154,7 @@ uint32_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
             break;
     }
 
-    assert((code != BAD_CODE));
+    assert(code != BAD_CODE);
 
     return code;
 }
@@ -1205,24 +1181,6 @@ static insSize emitInsSize(insFormat insFmt)
     assert(insFmt == IF_GC_REG);
 
     return ISZ_NONE;
-}
-
-bool IsMovIns(instruction ins)
-{
-    switch (ins)
-    {
-        case INS_mov:
-        case INS_sxtb:
-        case INS_sxth:
-        case INS_uxtb:
-        case INS_uxth:
-        case INS_vmov:
-        case INS_vmov_i2f:
-        case INS_vmov_f2i:
-            return true;
-        default:
-            return false;
-    }
 }
 
 // Returns true when immediate 'val32' can be encoded using the special modified immediate constant available in Thumb
@@ -1348,7 +1306,7 @@ bool ArmImm::IsMvnImm(int value)
 
 bool ArmImm::IsImm(instruction ins, int32_t imm, insFlags flags)
 {
-    if (emitInsIsLoadOrStore(ins) && !instIsFP(ins))
+    if (IsLoadStoreIns(ins) && !IsFloatIns(ins))
     {
         return validDispForLdSt(imm, TYP_INT);
     }
@@ -1553,7 +1511,7 @@ void ArmEmitter::emitIns(instruction ins)
 
 void ArmEmitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
 {
-    insFormat fmt         = IF_NONE;
+    insFormat fmt;
     bool      hasLR       = false;
     bool      hasPC       = false;
     bool      useT2       = false;
@@ -1587,7 +1545,9 @@ void ArmEmitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
             assert((imm & 0xA000) == 0); // Cannot push PC or SP
 
             if (imm & 0x4000) // Is the LR being pushed?
+            {
                 hasLR = true;
+            }
 
             goto COMMON_PUSH_POP;
 
@@ -1596,7 +1556,10 @@ void ArmEmitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
             assert((imm & 0xC000) != 0xC000); // Cannot pop both PC and LR
 
             if (imm & 0x8000) // Is the PC being popped?
+            {
                 hasPC = true;
+            }
+
             if (imm & 0x4000) // Is the LR being popped?
             {
                 hasLR = true;
@@ -1604,7 +1567,6 @@ void ArmEmitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
             }
 
         COMMON_PUSH_POP:
-
             if (((imm - 1) & imm) == 0) // Is only one or zero bits set in imm?
             {
                 if (imm != 0)
@@ -1632,49 +1594,40 @@ void ArmEmitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
                 {
                     imm |= 0x4000;
                 }
-                RegNum reg = genRegNumFromMask(imm);
-                emitIns_R(ins, attr, reg);
+
+                emitIns_R(ins, attr, genRegNumFromMask(imm));
                 return;
             }
 
-            //
             // Encode the PC and LR bits as the lowest two bits
-            //
             imm <<= 2;
+
             if (hasPC)
+            {
                 imm |= 2;
+            }
+
             if (hasLR)
+            {
                 imm |= 1;
+            }
 
             assert(imm != 0);
-
             break;
 
 #if 0
-    // TODO-ARM-Cleanup: Enable or delete.
-    case INS_bkpt:   // Windows uses a different encoding
-        if ((imm & 0x0000ffff) == imm)
-        {
+        // TODO-ARM-Cleanup: Enable or delete.
+        case INS_bkpt:   // Windows uses a different encoding
+            assert((imm & 0x0000ffff) == imm);
             fmt = IF_T1_L0;
-        }
-        else
-        {
-            assert(!"Instruction cannot be encoded");
-        }
-        break;
+            break;
 #endif
 
         case INS_dmb:
         case INS_ism:
-            if ((imm & 0x000f) == imm)
-            {
-                fmt  = IF_T2_B;
-                attr = EA_4BYTE;
-            }
-            else
-            {
-                assert(!"Instruction cannot be encoded");
-            }
+            assert((imm & 0x000f) == imm);
+            fmt  = IF_T2_B;
+            attr = EA_4BYTE;
             break;
 
         default:
@@ -1703,7 +1656,7 @@ void ArmEmitter::emitIns_R(instruction ins, emitAttr attr, RegNum reg)
         case INS_push:
             assert(EA_SIZE(attr) == EA_PTRSIZE);
 
-            if (isLowRegister(reg))
+            if (IsLowRegister(reg))
             {
                 emitIns_I(ins, attr, 1 << static_cast<int>(reg));
                 return;
@@ -1741,36 +1694,34 @@ void ArmEmitter::emitIns_R(instruction ins, emitAttr attr, RegNum reg)
 
 void ArmEmitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, int32_t imm, insFlags flags)
 {
-    insFormat fmt = IF_NONE;
-    insFlags  sf  = INS_FLAGS_DONT_CARE;
+    insFormat fmt;
+    insFlags  sf;
 
     switch (ins)
     {
         case INS_add:
         case INS_sub:
             assert(reg != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
+
             if ((reg == REG_SP) && insDoesNotSetFlags(flags) && ((imm & 0x01fc) == imm))
             {
                 fmt = IF_T1_F;
                 sf  = INS_FLAGS_NOT_SET;
             }
-            else if (isLowRegister(reg) && insSetsFlags(flags) && (unsigned_abs(imm) <= 0x00ff))
+            else if (IsLowRegister(reg) && insSetsFlags(flags) && (unsigned_abs(imm) <= 0x00ff))
             {
                 if (imm < 0)
                 {
                     assert((ins == INS_add) || (ins == INS_sub));
-                    if (ins == INS_add)
-                        ins = INS_sub;
-                    else // ins == INS_sub
-                        ins = INS_add;
-                    imm     = -imm;
+                    ins = ins == INS_add ? INS_sub : INS_add;
+                    imm = -imm;
                 }
+
                 fmt = IF_T1_J0;
                 sf  = INS_FLAGS_SET;
             }
             else
             {
-                // otherwise we have to use a Thumb-2 encoding
                 emitIns_R_R_I(ins, attr, reg, reg, imm, flags);
                 return;
             }
@@ -1784,24 +1735,23 @@ void ArmEmitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, int32_t
         case INS_vpush:
         case INS_vpop:
             assert(imm > 0);
+
             if (attr == EA_8BYTE)
             {
-                assert(isDoubleReg(reg));
+                assert(IsDoubleReg(reg));
                 assert(imm <= 16);
                 imm *= 2;
             }
             else
             {
                 assert(attr == EA_4BYTE);
-                assert(isFloatReg(reg));
+                assert(IsFloatReg(reg));
                 assert(imm <= 16);
             }
+
             assert(((reg - REG_F0) + imm) <= 32);
             imm *= 4;
-
-            if (ins == INS_vpush)
-                imm = -imm;
-
+            imm = ins == INS_vpush ? -imm : imm;
             sf  = INS_FLAGS_NOT_SET;
             fmt = IF_T2_VLDST;
             break;
@@ -1820,7 +1770,9 @@ void ArmEmitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, int32_t
             assert((imm & 0xFFFF0000) == 0);  // Can only contain lower 16 bits
 
             if (imm & 0x8000) // Is the PC being popped?
+            {
                 hasPC = true;
+            }
 
             if (imm & 0x4000) // Is the LR being pushed?
             {
@@ -1828,8 +1780,10 @@ void ArmEmitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, int32_t
                 useT2 = true;
             }
 
-            if (!isLowRegister(reg))
+            if (!IsLowRegister(reg))
+            {
                 useT2 = true;
+            }
 
             if (((imm - 1) & imm) == 0) // Is only one or zero bits set in imm?
             {
@@ -1846,30 +1800,28 @@ void ArmEmitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, int32_t
             {
                 fmt = IF_T1_J1;
             }
-            else if (!onlyT1)
-            {
-                fmt = IF_T2_I0;
-            }
             else
             {
-                assert(!"Instruction cannot be encoded");
-                // We have to use the Thumb-2 str single register encoding
-                // reg = genRegNumFromMask(imm);
-                // emitIns_R(ins, attr, reg);
-                return;
+                assert(!onlyT1);
+                fmt = IF_T2_I0;
             }
 
-            //
             // Encode the PC and LR bits as the lowest two bits
-            //
             if (fmt == IF_T2_I0)
             {
                 imm <<= 2;
+
                 if (hasPC)
+                {
                     imm |= 2;
+                }
+
                 if (hasLR)
+                {
                     imm |= 1;
+                }
             }
+
             assert(imm != 0);
         }
         break;
@@ -1881,18 +1833,16 @@ void ArmEmitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, int32_t
         case INS_orn:
         case INS_rsb:
         case INS_sbc:
-
         case INS_ror:
         case INS_asr:
         case INS_lsl:
         case INS_lsr:
-            // use the Reg, Reg, Imm encoding
             assert(reg != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
             emitIns_R_R_I(ins, attr, reg, reg, imm, flags);
             return;
 
         case INS_mov:
-            if (isLowRegister(reg) && insSetsFlags(flags) && ((imm & 0x00ff) == imm))
+            if (IsLowRegister(reg) && insSetsFlags(flags) && ((imm & 0x00ff) == imm))
             {
                 fmt = IF_T1_J0;
                 sf  = INS_FLAGS_SET;
@@ -1909,51 +1859,35 @@ void ArmEmitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, int32_t
                 fmt = IF_T2_L1;
                 sf  = insMustSetFlags(flags);
             }
-            else if (insDoesNotSetFlags(flags) && ((imm & 0x0000ffff) == imm))
+            else
             {
-                // mov => movw instruction
+                assert(insDoesNotSetFlags(flags) && ((imm & 0x0000ffff) == imm));
                 ins = INS_movw;
                 fmt = IF_T2_N;
                 sf  = INS_FLAGS_NOT_SET;
-            }
-            else
-            {
-                assert(!"Instruction cannot be encoded");
             }
             break;
 
         case INS_movw:
         case INS_movt:
             assert(insDoesNotSetFlags(flags));
-
-            if ((imm & 0x0000ffff) == imm)
-            {
-                fmt = IF_T2_N;
-                sf  = INS_FLAGS_NOT_SET;
-            }
-            else
-            {
-                assert(!"Instruction cannot be encoded");
-            }
+            assert((imm & 0x0000ffff) == imm);
+            fmt = IF_T2_N;
+            sf  = INS_FLAGS_NOT_SET;
             break;
 
         case INS_mvn:
-            if (isModImmConst(imm))
-            {
-                fmt = IF_T2_L1;
-                sf  = insMustSetFlags(flags);
-            }
-            else
-            {
-                assert(!"Instruction cannot be encoded");
-            }
+            assert(isModImmConst(imm));
+            fmt = IF_T2_L1;
+            sf  = insMustSetFlags(flags);
             break;
 
         case INS_cmp:
             assert(reg != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
             assert(insSetsFlags(flags));
             sf = INS_FLAGS_SET;
-            if (isLowRegister(reg) && ((imm & 0x0ff) == imm))
+
+            if (IsLowRegister(reg) && ((imm & 0x0ff) == imm))
             {
                 fmt = IF_T1_J0;
             }
@@ -1961,16 +1895,12 @@ void ArmEmitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, int32_t
             {
                 fmt = IF_T2_L2;
             }
-            else if (isModImmConst(-imm))
+            else
             {
+                assert(isModImmConst(-imm));
                 ins = INS_cmn;
                 fmt = IF_T2_L2;
                 imm = -imm;
-            }
-            else
-            {
-                assert(!"emitIns_R_I: immediate doesn't fit into the instruction");
-                return;
             }
             break;
 
@@ -1979,15 +1909,9 @@ void ArmEmitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, int32_t
         case INS_teq:
             assert(reg != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
             assert(insSetsFlags(flags));
-            sf = INS_FLAGS_SET;
-            if (isModImmConst(imm))
-            {
-                fmt = IF_T2_L2;
-            }
-            else
-            {
-                assert(!"Instruction cannot be encoded");
-            }
+            assert(isModImmConst(imm));
+            sf  = INS_FLAGS_SET;
+            fmt = IF_T2_L2;
             break;
 
 #ifdef FEATURE_PLI_INSTRUCTION
@@ -1999,8 +1923,7 @@ void ArmEmitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, int32_t
                 sf  = INS_FLAGS_NOT_SET;
             }
             FALLTHROUGH;
-#endif // FEATURE_PLI_INSTRUCTION
-
+#endif
         case INS_pld:
         case INS_pldw:
             assert(insDoesNotSetFlags(flags));
@@ -2009,20 +1932,18 @@ void ArmEmitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, int32_t
             {
                 fmt = IF_T2_K2;
             }
-            else if ((imm < 0) && (-imm <= 0x00ff))
-            {
-                imm = -imm;
-                fmt = IF_T2_H2;
-            }
             else
             {
-                assert(!"Instruction cannot be encoded");
+                assert((imm < 0) && (-imm <= 0x00ff));
+                imm = -imm;
+                fmt = IF_T2_H2;
             }
             break;
 
         default:
             unreached();
     }
+
     assert((fmt == IF_T1_F) || (fmt == IF_T1_J0) || (fmt == IF_T1_J1) || (fmt == IF_T2_H2) || (fmt == IF_T2_I0) ||
            (fmt == IF_T2_K2) || (fmt == IF_T2_K3) || (fmt == IF_T2_L1) || (fmt == IF_T2_L2) || (fmt == IF_T2_M1) ||
            (fmt == IF_T2_N) || (fmt == IF_T2_VLDST));
@@ -2063,13 +1984,12 @@ void ArmEmitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegN
     assert(IsMovIns(ins));
 
     emitAttr  size = EA_SIZE(attr);
-    insFormat fmt  = IF_NONE;
-    insFlags  sf   = INS_FLAGS_DONT_CARE;
+    insFormat fmt;
+    insFlags  sf;
 
     switch (ins)
     {
         case INS_mov:
-        {
             if (insDoesNotSetFlags(flags))
             {
                 if (EA_IS_GCREF_OR_BYREF(attr) && (dstReg == srcReg))
@@ -2083,26 +2003,19 @@ void ArmEmitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegN
                     // These instructions have no side effect and can be skipped
                     return;
                 }
+
                 fmt = IF_T1_D0;
                 sf  = INS_FLAGS_NOT_SET;
             }
-            else // insSetsFlags(flags)
+            else
             {
-                sf = INS_FLAGS_SET;
-                if (isLowRegister(dstReg) && isLowRegister(srcReg))
-                {
-                    fmt = IF_T1_E;
-                }
-                else
-                {
-                    fmt = IF_T2_C3;
-                }
+                assert(insSetsFlags(flags));
+                sf  = INS_FLAGS_SET;
+                fmt = IsLowRegister(dstReg) && IsLowRegister(srcReg) ? IF_T1_E : IF_T2_C3;
             }
             break;
-        }
 
         case INS_vmov:
-        {
             // VM debugging single stepper doesn't support PC register with this instruction.
             assert(dstReg != REG_PC);
             assert(srcReg != REG_PC);
@@ -2113,58 +2026,38 @@ void ArmEmitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegN
                 return;
             }
 
-            if (size == EA_8BYTE)
-            {
-                assert(isDoubleReg(dstReg));
-                assert(isDoubleReg(srcReg));
-            }
-            else
-            {
-                assert(isFloatReg(dstReg));
-                assert(isFloatReg(srcReg));
-            }
+            assert(size == EA_8BYTE ? IsDoubleReg(dstReg) : IsFloatReg(dstReg));
+            assert(size == EA_8BYTE ? IsDoubleReg(srcReg) : IsFloatReg(srcReg));
 
             fmt = IF_T2_VFP2;
             sf  = INS_FLAGS_NOT_SET;
             break;
-        }
 
         case INS_vmov_i2f:
-        {
             // VM debugging single stepper doesn't support PC register with this instruction.
             assert(srcReg != REG_PC);
-            assert(isFloatReg(dstReg));
-            assert(isGeneralRegister(srcReg));
-
+            assert(IsFloatReg(dstReg));
+            assert(IsGeneralRegister(srcReg));
             fmt = IF_T2_VMOVS;
             sf  = INS_FLAGS_NOT_SET;
             break;
-        }
 
         case INS_vmov_f2i:
-        {
             // VM debugging single stepper doesn't support PC register with this instruction.
             assert(dstReg != REG_PC);
-            assert(isGeneralRegister(dstReg));
-            assert(isFloatReg(srcReg));
-
+            assert(IsGeneralRegister(dstReg));
+            assert(IsFloatReg(srcReg));
             fmt = IF_T2_VMOVS;
             sf  = INS_FLAGS_NOT_SET;
             break;
-        }
 
         case INS_sxtb:
         case INS_uxtb:
-        {
             assert(size == EA_4BYTE);
             goto EXTEND_COMMON;
-        }
-
         case INS_sxth:
         case INS_uxth:
-        {
             assert(size == EA_4BYTE);
-
         EXTEND_COMMON:
             if (canSkip && (dstReg == srcReg))
             {
@@ -2177,19 +2070,15 @@ void ArmEmitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegN
             assert(srcReg != REG_PC);
             assert(insDoesNotSetFlags(flags));
 
-            if (isLowRegister(dstReg) && isLowRegister(srcReg))
+            if (!IsLowRegister(dstReg) || !IsLowRegister(srcReg))
             {
-                fmt = IF_T1_E;
-                sf  = INS_FLAGS_NOT_SET;
-            }
-            else
-            {
-                // Use the Thumb-2 reg,reg with rotation encoding
                 emitIns_R_R_I(ins, attr, dstReg, srcReg, 0, INS_FLAGS_NOT_SET);
                 return;
             }
+
+            fmt = IF_T1_E;
+            sf  = INS_FLAGS_NOT_SET;
             break;
-        }
 
         default:
             unreached();
@@ -2221,8 +2110,8 @@ void ArmEmitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum
     }
 
     emitAttr  size = EA_SIZE(attr);
-    insFormat fmt  = IF_NONE;
-    insFlags  sf   = INS_FLAGS_DONT_CARE;
+    insFormat fmt;
+    insFlags  sf;
 
     switch (ins)
     {
@@ -2230,6 +2119,7 @@ void ArmEmitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum
             // VM debugging single stepper doesn't support PC register with this instruction.
             // (but reg2 might be PC for ADD Rn, PC instruction)
             assert(reg1 != REG_PC);
+
             if (insDoesNotSetFlags(flags))
             {
                 fmt = IF_T1_D0;
@@ -2237,11 +2127,9 @@ void ArmEmitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum
                 break;
             }
             FALLTHROUGH;
-
         case INS_sub:
             assert(reg1 != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
             assert(reg2 != REG_PC);
-            // Use the Thumb-1 reg,reg,reg encoding
             emitIns_R_R_R(ins, attr, reg1, reg1, reg2, flags);
             return;
 
@@ -2249,55 +2137,36 @@ void ArmEmitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum
             assert(reg1 != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
             assert(reg2 != REG_PC);
             assert(insSetsFlags(flags));
-            sf = INS_FLAGS_SET;
-            if (isLowRegister(reg1) && isLowRegister(reg2))
-            {
-                fmt = IF_T1_E; // both are low registers
-            }
-            else
-            {
-                fmt = IF_T1_D0; // one or both are high registers
-            }
+            sf  = INS_FLAGS_SET;
+            fmt = IsLowRegister(reg1) && IsLowRegister(reg2) ? IF_T1_E : IF_T1_D0;
             break;
 
         case INS_vcvt_d2i:
         case INS_vcvt_d2u:
         case INS_vcvt_d2f:
-            assert(isFloatReg(reg1));
-            assert(isDoubleReg(reg2));
+            assert(IsFloatReg(reg1));
+            assert(IsDoubleReg(reg2));
             goto VCVT_COMMON;
-
         case INS_vcvt_f2d:
         case INS_vcvt_u2d:
         case INS_vcvt_i2d:
-            assert(isDoubleReg(reg1));
-            assert(isFloatReg(reg2));
+            assert(IsDoubleReg(reg1));
+            assert(IsFloatReg(reg2));
             goto VCVT_COMMON;
-
         case INS_vcvt_u2f:
         case INS_vcvt_i2f:
         case INS_vcvt_f2i:
         case INS_vcvt_f2u:
             assert(size == EA_4BYTE);
-            assert(isFloatReg(reg1));
-            assert(isFloatReg(reg2));
+            assert(IsFloatReg(reg1));
+            assert(IsFloatReg(reg2));
             goto VCVT_COMMON;
-
         case INS_vabs:
         case INS_vsqrt:
         case INS_vcmp:
         case INS_vneg:
-            if (size == EA_8BYTE)
-            {
-                assert(isDoubleReg(reg1));
-                assert(isDoubleReg(reg2));
-            }
-            else
-            {
-                assert(isFloatReg(reg1));
-                assert(isFloatReg(reg2));
-            }
-
+            assert(size == EA_8BYTE ? IsDoubleReg(reg1) : IsFloatReg(reg1));
+            assert(size == EA_8BYTE ? IsDoubleReg(reg2) : IsFloatReg(reg2));
         VCVT_COMMON:
             fmt = IF_T2_VFP2;
             sf  = INS_FLAGS_NOT_SET;
@@ -2307,8 +2176,8 @@ void ArmEmitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum
         case INS_vmul:
         case INS_vsub:
         case INS_vdiv:
-            assert(reg1 != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
-            assert(reg2 != REG_PC);
+            assert(size == EA_8BYTE ? IsDoubleReg(reg1) : IsFloatReg(reg1));
+            assert(size == EA_8BYTE ? IsDoubleReg(reg2) : IsFloatReg(reg2));
             emitIns_R_R_R(ins, attr, reg1, reg1, reg2);
             return;
 
@@ -2319,7 +2188,6 @@ void ArmEmitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum
         case INS_ldrsb:
         case INS_ldrh:
         case INS_ldrsh:
-
         case INS_str:
         case INS_strb:
         case INS_strh:
@@ -2334,22 +2202,17 @@ void ArmEmitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum
         case INS_sbc:
             assert(reg1 != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
             assert(reg2 != REG_PC);
-            if (insSetsFlags(flags) && isLowRegister(reg1) && isLowRegister(reg2))
+
+            if (insSetsFlags(flags) && IsLowRegister(reg1) && IsLowRegister(reg2))
             {
                 fmt = IF_T1_E;
                 sf  = INS_FLAGS_SET;
                 break;
             }
             FALLTHROUGH;
-
         case INS_orn:
-            // assert below fired for bug 281892 where the two operands of an OR were
-            // the same static field load which got cse'd.
-            // there's no reason why this assert would be true in general
-            // assert(reg1 != reg2);
             assert(reg1 != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
             assert(reg2 != REG_PC);
-            // Use the Thumb-2 three register encoding
             emitIns_R_R_R_I(ins, attr, reg1, reg1, reg2, 0, flags);
             return;
 
@@ -2357,23 +2220,17 @@ void ArmEmitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum
         case INS_lsl:
         case INS_lsr:
         case INS_ror:
-            // assert below fired for bug 296394 where the two operands of an
-            // arithmetic right shift were the same local variable
-            // there's no reason why this assert would be true in general
-            // assert(reg1 != reg2);
             assert(reg1 != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
             assert(reg2 != REG_PC);
-            if (insSetsFlags(flags) && isLowRegister(reg1) && isLowRegister(reg2))
+
+            if (!insSetsFlags(flags) || !IsLowRegister(reg1) || !IsLowRegister(reg2))
             {
-                fmt = IF_T1_E;
-                sf  = INS_FLAGS_SET;
-            }
-            else
-            {
-                // Use the Thumb-2 three register encoding
                 emitIns_R_R_R(ins, attr, reg1, reg1, reg2, flags);
                 return;
             }
+
+            fmt = IF_T1_E;
+            sf  = INS_FLAGS_SET;
             break;
 
         case INS_mul:
@@ -2381,17 +2238,15 @@ void ArmEmitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum
             // The thumb-1 instruction executes much slower as it must always set the flags
             assert(reg1 != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
             assert(reg2 != REG_PC);
-            if (insMustSetFlags(flags) && isLowRegister(reg1) && isLowRegister(reg2))
+
+            if (!insMustSetFlags(flags) || !IsLowRegister(reg1) || !IsLowRegister(reg2))
             {
-                fmt = IF_T1_E;
-                sf  = INS_FLAGS_SET;
-            }
-            else
-            {
-                // Use the Thumb-2 three register encoding
                 emitIns_R_R_R(ins, attr, reg1, reg2, reg1, flags);
                 return;
             }
+
+            fmt = IF_T1_E;
+            sf  = INS_FLAGS_SET;
             break;
 
         case INS_mvn:
@@ -2399,17 +2254,15 @@ void ArmEmitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum
         case INS_tst:
             assert(reg1 != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
             assert(reg2 != REG_PC);
-            if (insSetsFlags(flags) && isLowRegister(reg1) && isLowRegister(reg2))
+
+            if (!insSetsFlags(flags) || !IsLowRegister(reg1) || !IsLowRegister(reg2))
             {
-                fmt = IF_T1_E;
-                sf  = INS_FLAGS_SET;
-            }
-            else
-            {
-                // Use the Thumb-2 register with shift encoding
                 emitIns_R_R_I(ins, attr, reg1, reg2, 0, flags);
                 return;
             }
+
+            fmt = IF_T1_E;
+            sf  = INS_FLAGS_SET;
             break;
 
         case INS_tbb:
@@ -2449,17 +2302,13 @@ void ArmEmitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum
             fmt = IF_T2_E1;
             sf  = INS_FLAGS_NOT_SET;
             break;
+
         default:
-#ifdef DEBUG
-            printf("did not expect instruction %s\n", insName(ins));
-#endif
             unreached();
     }
 
     assert((fmt == IF_T1_D0) || (fmt == IF_T1_E) || (fmt == IF_T2_C3) || (fmt == IF_T2_C9) || (fmt == IF_T2_C10) ||
            (fmt == IF_T2_VFP2) || (fmt == IF_T2_VMOVD) || (fmt == IF_T2_VMOVS) || (fmt == IF_T2_E1));
-
-    assert(sf != INS_FLAGS_DONT_CARE);
 
     instrDesc* id = emitNewInstrSmall();
     id->idIns(ins);
@@ -2476,23 +2325,18 @@ void ArmEmitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum
 
 void ArmEmitter::emitIns_R_I_I(instruction ins, emitAttr attr, RegNum reg, int imm1, int imm2, insFlags flags)
 {
-    int imm = 0; // combined immediates
-
     assert(ins == INS_bfc);
     assert(reg != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
+    assert(insDoesNotSetFlags(flags));
 
     int lsb = imm1;
     int msb = lsb + imm2 - 1;
 
-    assert((lsb >= 0) && (lsb <= 31)); // required for encoding of INS_bfc
-    assert((msb >= 0) && (msb <= 31)); // required for encoding of INS_bfc
-    assert(msb >= lsb);                // required for encoding of INS_bfc
+    assert((lsb >= 0) && (lsb <= 31));
+    assert((msb >= 0) && (msb <= 31));
+    assert(msb >= lsb);
 
-    imm = (lsb << 5) | msb;
-
-    assert(insDoesNotSetFlags(flags));
-
-    instrDesc* id = emitNewInstrSC(imm);
+    instrDesc* id = emitNewInstrSC((lsb << 5) | msb);
     id->idIns(ins);
     id->idInsFmt(IF_T2_D1);
     id->idGCref(EA_GC_TYPE(attr));
@@ -2528,11 +2372,11 @@ void ArmEmitter::emitIns_R_R_I(
             {
                 if ((reg1 == REG_SP) && ((imm & 0x01fc) == imm))
                 {
-                    // Use Thumb-1 encoding
                     emitIns_R_I(ins, attr, reg1, imm, flags);
                     return;
                 }
-                else if (isLowRegister(reg1))
+
+                if (IsLowRegister(reg1))
                 {
                     fmt = IF_T1_J2;
                     sf  = INS_FLAGS_NOT_SET;
@@ -2546,41 +2390,34 @@ void ArmEmitter::emitIns_R_R_I(
             assert(reg2 != REG_PC);
             assert(insOptsNone(opt));
 
-            // Is it just a mov?
             if ((imm == 0) && insDoesNotSetFlags(flags))
             {
-                // Is the mov even necessary?
-                // Fix 383915 ARM ILGEN
                 emitIns_Mov(INS_mov, attr, reg1, reg2, /* canSkip */ true, flags);
                 return;
             }
+
             // Can we encode the immediate 'imm' using a Thumb-1 encoding?
-            else if (isLowRegister(reg1) && isLowRegister(reg2) && insSetsFlags(flags) && (unsigned_abs(imm) <= 0x0007))
+            if (IsLowRegister(reg1) && IsLowRegister(reg2) && insSetsFlags(flags) && (unsigned_abs(imm) <= 0x0007))
             {
                 if (imm < 0)
                 {
                     assert((ins == INS_add) || (ins == INS_sub));
-                    if (ins == INS_add)
-                        ins = INS_sub;
-                    else
-                        ins = INS_add;
-                    imm     = -imm;
+                    ins = ins == INS_add ? INS_sub : INS_add;
+                    imm = -imm;
                 }
+
                 fmt = IF_T1_G;
                 sf  = INS_FLAGS_SET;
             }
-            else if ((reg1 == reg2) && isLowRegister(reg1) && insSetsFlags(flags) && (unsigned_abs(imm) <= 0x00ff))
+            else if ((reg1 == reg2) && IsLowRegister(reg1) && insSetsFlags(flags) && (unsigned_abs(imm) <= 0x00ff))
             {
                 if (imm < 0)
                 {
                     assert((ins == INS_add) || (ins == INS_sub));
-                    if (ins == INS_add)
-                        ins = INS_sub;
-                    else
-                        ins = INS_add;
-                    imm     = -imm;
+                    ins = ins == INS_add ? INS_sub : INS_add;
+                    imm = -imm;
                 }
-                // Use Thumb-1 encoding
+
                 emitIns_R_I(ins, attr, reg1, imm, flags);
                 return;
             }
@@ -2592,7 +2429,7 @@ void ArmEmitter::emitIns_R_R_I(
             else if (isModImmConst(-imm))
             {
                 assert((ins == INS_add) || (ins == INS_sub));
-                ins = (ins == INS_add) ? INS_sub : INS_add;
+                ins = ins == INS_add ? INS_sub : INS_add;
                 imm = -imm;
                 fmt = IF_T2_L0;
                 sf  = insMustSetFlags(flags);
@@ -2602,28 +2439,24 @@ void ArmEmitter::emitIns_R_R_I(
                 if (imm < 0)
                 {
                     assert((ins == INS_add) || (ins == INS_sub));
-                    ins = (ins == INS_add) ? INS_sub : INS_add;
+                    ins = ins == INS_add ? INS_sub : INS_add;
                     imm = -imm;
                 }
+
                 // add/sub => addw/subw instruction
                 // Note that even when using the w prefix the immediate is still only 12 bits?
-                ins = (ins == INS_add) ? INS_addw : INS_subw;
+                ins = ins == INS_add ? INS_addw : INS_subw;
                 fmt = IF_T2_M0;
                 sf  = INS_FLAGS_NOT_SET;
             }
-            else if (insDoesNotSetFlags(flags) && (reg1 != REG_SP) && (reg1 != REG_PC))
+            else
             {
-                // movw,movt reg1, imm
+                assert(insDoesNotSetFlags(flags) && (reg1 != REG_SP) && (reg1 != REG_PC));
+                // movw/movt reg1, imm
                 codeGen->instGen_Set_Reg_To_Imm(attr, reg1, (ins == INS_sub ? -1 : 1) * imm);
-
-                // ins reg1, reg2
                 emitIns_R_R(INS_add, attr, reg1, reg2);
 
                 return;
-            }
-            else
-            {
-                assert(!"Instruction cannot be encoded");
             }
             break;
 
@@ -2634,31 +2467,36 @@ void ArmEmitter::emitIns_R_R_I(
             assert(reg1 != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
             assert(reg2 != REG_PC);
             assert(insOptsNone(opt));
+
             if (isModImmConst(imm))
             {
                 fmt = IF_T2_L0;
                 sf  = insMustSetFlags(flags);
             }
-            else if (isModImmConst(~imm))
+            else
             {
+                assert(isModImmConst(~imm));
+
                 fmt = IF_T2_L0;
                 sf  = insMustSetFlags(flags);
                 imm = ~imm;
 
-                if (ins == INS_and)
-                    ins = INS_bic;
-                else if (ins == INS_bic)
-                    ins = INS_and;
-                else if (ins == INS_orr)
-                    ins = INS_orn;
-                else if (ins == INS_orn)
-                    ins = INS_orr;
-                else
-                    assert(!"Instruction cannot be encoded");
-            }
-            else
-            {
-                assert(!"Instruction cannot be encoded");
+                switch (ins)
+                {
+                    case INS_and:
+                        ins = INS_bic;
+                        break;
+                    case INS_bic:
+                        ins = INS_and;
+                        break;
+                    case INS_orr:
+                        ins = INS_orn;
+                        break;
+                    default:
+                        assert(ins == INS_orn);
+                        ins = INS_orr;
+                        break;
+                }
             }
             break;
 
@@ -2666,29 +2504,23 @@ void ArmEmitter::emitIns_R_R_I(
             assert(reg1 != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
             assert(reg2 != REG_PC);
             assert(insOptsNone(opt));
-            if (imm == 0 && isLowRegister(reg1) && isLowRegister(reg2) && insSetsFlags(flags))
+
+            if ((imm == 0) && IsLowRegister(reg1) && IsLowRegister(reg2) && insSetsFlags(flags))
             {
                 fmt = IF_T1_E;
                 sf  = INS_FLAGS_SET;
                 break;
             }
             FALLTHROUGH;
-
         case INS_adc:
         case INS_eor:
         case INS_sbc:
             assert(reg1 != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
             assert(reg2 != REG_PC);
             assert(insOptsNone(opt));
-            if (isModImmConst(imm))
-            {
-                fmt = IF_T2_L0;
-                sf  = insMustSetFlags(flags);
-            }
-            else
-            {
-                assert(!"Instruction cannot be encoded");
-            }
+            assert(isModImmConst(imm));
+            fmt = IF_T2_L0;
+            sf  = insMustSetFlags(flags);
             break;
 
         case INS_adr:
@@ -2701,17 +2533,14 @@ void ArmEmitter::emitIns_R_R_I(
             assert(reg2 == REG_PC);
             sf = INS_FLAGS_NOT_SET;
 
-            if (isLowRegister(reg1) && ((imm & 0x00ff) == imm))
+            if (IsLowRegister(reg1) && ((imm & 0x00ff) == imm))
             {
                 fmt = IF_T1_J3;
             }
-            else if ((imm & 0x0fff) == imm)
-            {
-                fmt = IF_T2_M1;
-            }
             else
             {
-                assert(!"Instruction cannot be encoded");
+                assert((imm & 0x0fff) == imm);
+                fmt = IF_T2_M1;
             }
             break;
 
@@ -2720,20 +2549,22 @@ void ArmEmitter::emitIns_R_R_I(
             assert(reg2 != REG_PC);
             assert((imm >= 0) && (imm <= 31)); // required for encoding
             assert(!insOptAnyInc(opt));
+
             if (imm == 0)
             {
                 assert(insOptsNone(opt));
-                if (isLowRegister(reg1) && isLowRegister(reg2) && insSetsFlags(flags))
+
+                if (IsLowRegister(reg1) && IsLowRegister(reg2) && insSetsFlags(flags))
                 {
-                    // Use the Thumb-1 reg,reg encoding
                     emitIns_R_R(ins, attr, reg1, reg2, flags);
                     return;
                 }
             }
-            else // imm > 0  &&  imm <= 31
+            else
             {
                 assert(insOptAnyShift(opt));
             }
+
             fmt = IF_T2_C1;
             sf  = insMustSetFlags(flags);
             break;
@@ -2745,29 +2576,29 @@ void ArmEmitter::emitIns_R_R_I(
             assert(reg1 != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
             assert(reg2 != REG_PC);
             assert(insSetsFlags(flags));
-            assert((imm >= 0) && (imm <= 31)); // required for encoding
+            assert((imm >= 0) && (imm <= 31));
             assert(!insOptAnyInc(opt));
+
             if (imm == 0)
             {
                 assert(insOptsNone(opt));
+
                 if (ins == INS_cmp)
                 {
-                    // Use the Thumb-1 reg,reg encoding
                     emitIns_R_R(ins, attr, reg1, reg2, flags);
                     return;
                 }
-                if (((ins == INS_cmn) || (ins == INS_tst)) && isLowRegister(reg1) && isLowRegister(reg2))
+
+                if (((ins == INS_cmn) || (ins == INS_tst)) && IsLowRegister(reg1) && IsLowRegister(reg2))
                 {
-                    // Use the Thumb-1 reg,reg encoding
                     emitIns_R_R(ins, attr, reg1, reg2, flags);
                     return;
                 }
             }
-            else // imm > 0  &&  imm <= 31)
+            else
             {
                 assert(insOptAnyShift(opt));
-                if (insOptsRRX(opt))
-                    assert(imm == 1);
+                assert((opt != INS_OPTS_RRX) || (imm == 1));
             }
 
             fmt = IF_T2_C8;
@@ -2792,12 +2623,11 @@ void ArmEmitter::emitIns_R_R_I(
 
             if (imm == 0)
             {
-                // Additional Fix 383915 ARM ILGEN
                 emitIns_Mov(INS_mov, attr, reg1, reg2, /* canSkip */ !insMustSetFlags(flags), flags);
                 return;
             }
 
-            if (insSetsFlags(flags) && (ins != INS_ror) && isLowRegister(reg1) && isLowRegister(reg2))
+            if (insSetsFlags(flags) && (ins != INS_ror) && IsLowRegister(reg1) && IsLowRegister(reg2))
             {
                 fmt = IF_T1_C;
                 sf  = INS_FLAGS_SET;
@@ -2813,7 +2643,6 @@ void ArmEmitter::emitIns_R_R_I(
         case INS_uxtb:
             assert(size == EA_4BYTE);
             goto EXTEND_COMMON;
-
         case INS_sxth:
         case INS_uxth:
             assert(size == EA_4BYTE);
@@ -2824,9 +2653,8 @@ void ArmEmitter::emitIns_R_R_I(
             assert(insDoesNotSetFlags(flags));
             assert((imm & 0x018) == imm); // required for encoding
 
-            if ((imm == 0) && isLowRegister(reg1) && isLowRegister(reg2))
+            if ((imm == 0) && IsLowRegister(reg1) && IsLowRegister(reg2))
             {
-                // Use Thumb-1 encoding
                 emitIns_R_R(ins, attr, reg1, reg2, INS_FLAGS_NOT_SET);
                 return;
             }
@@ -2839,7 +2667,7 @@ void ArmEmitter::emitIns_R_R_I(
         case INS_pldw:
 #ifdef FEATURE_PLI_INSTRUCTION
         case INS_pli:
-#endif // FEATURE_PLI_INSTRUCTION
+#endif
             assert(insOptsNone(opt));
             assert(insDoesNotSetFlags(flags));
             assert((imm & 0x003) == imm); // required for encoding
@@ -2853,35 +2681,31 @@ void ArmEmitter::emitIns_R_R_I(
             assert(size == EA_4BYTE);
             assert(insDoesNotSetFlags(flags));
 
-            if (isLowRegister(reg1) && isLowRegister(reg2) && insOptsNone(opt) && ((imm & 0x001f) == imm))
+            if (IsLowRegister(reg1) && IsLowRegister(reg2) && insOptsNone(opt) && ((imm & 0x001f) == imm))
             {
                 fmt = IF_T1_C;
                 sf  = INS_FLAGS_NOT_SET;
                 break;
             }
             goto COMMON_THUMB2_LDST;
-
         case INS_ldrsb:
             assert(size == EA_4BYTE);
             goto COMMON_THUMB2_LDST;
-
         case INS_ldrh:
         case INS_strh:
             assert(size == EA_4BYTE);
             assert(insDoesNotSetFlags(flags));
 
-            if (isLowRegister(reg1) && isLowRegister(reg2) && insOptsNone(opt) && ((imm & 0x003e) == imm))
+            if (IsLowRegister(reg1) && IsLowRegister(reg2) && insOptsNone(opt) && ((imm & 0x003e) == imm))
             {
                 fmt = IF_T1_C;
                 sf  = INS_FLAGS_NOT_SET;
                 break;
             }
             goto COMMON_THUMB2_LDST;
-
         case INS_ldrsh:
             assert(size == EA_4BYTE);
             goto COMMON_THUMB2_LDST;
-
         case INS_vldr:
         case INS_vstr:
         case INS_vldm:
@@ -2891,14 +2715,7 @@ void ArmEmitter::emitIns_R_R_I(
             assert(offsetFitsInVectorMem(imm)); // required for encoding
             if (insOptAnyInc(opt))
             {
-                if (insOptsPostInc(opt))
-                {
-                    assert(imm > 0);
-                }
-                else // insOptsPreDec(opt)
-                {
-                    assert(imm < 0);
-                }
+                assert(insOptsPostInc(opt) ? (imm > 0) : (imm < 0));
             }
             else
             {
@@ -2915,7 +2732,7 @@ void ArmEmitter::emitIns_R_R_I(
             assert(insDoesNotSetFlags(flags));
 
             // Can we possibly encode the immediate 'imm' using a Thumb-1 encoding?
-            if (isLowRegister(reg1) && insOptsNone(opt) && ((imm & 0x03fc) == imm))
+            if (IsLowRegister(reg1) && insOptsNone(opt) && ((imm & 0x03fc) == imm))
             {
                 if (reg2 == REG_SP)
                 {
@@ -2923,7 +2740,8 @@ void ArmEmitter::emitIns_R_R_I(
                     sf  = INS_FLAGS_NOT_SET;
                     break;
                 }
-                else if (reg2 == REG_PC)
+
+                if (reg2 == REG_PC)
                 {
                     if (ins == INS_ldr)
                     {
@@ -2932,7 +2750,7 @@ void ArmEmitter::emitIns_R_R_I(
                         break;
                     }
                 }
-                else if (isLowRegister(reg2))
+                else if (IsLowRegister(reg2))
                 {
                     // Only the smaller range 'imm' can be encoded
                     if ((imm & 0x07c) == imm)
@@ -2943,9 +2761,6 @@ void ArmEmitter::emitIns_R_R_I(
                     }
                 }
             }
-        //
-        // If we did not find a thumb-1 encoding above
-        //
 
         COMMON_THUMB2_LDST:
             assert(fmt == IF_NONE);
@@ -2954,23 +2769,15 @@ void ArmEmitter::emitIns_R_R_I(
 
             if (insOptAnyInc(opt))
             {
-                if (insOptsPostInc(opt))
-                    assert(imm > 0);
-                else // insOptsPreDec(opt)
-                    assert(imm < 0);
+                assert(insOptsPostInc(opt) ? (imm > 0) : (imm < 0));
+                assert(unsigned_abs(imm) <= 0x00ff);
 
-                if (unsigned_abs(imm) <= 0x00ff)
-                {
-                    fmt = IF_T2_H0;
-                }
-                else
-                {
-                    assert(!"Instruction cannot be encoded");
-                }
+                fmt = IF_T2_H0;
             }
             else
             {
                 assert(insOptsNone(opt));
+
                 if ((reg2 == REG_PC) && (unsigned_abs(imm) <= 0x0fff))
                 {
                     fmt = IF_T2_K4;
@@ -2985,7 +2792,6 @@ void ArmEmitter::emitIns_R_R_I(
                 }
                 else
                 {
-                    // Load imm into a register
                     RegNum rsvdReg = codeGen->rsGetRsvdReg();
                     codeGen->instGen_Set_Reg_To_Imm(EA_4BYTE, rsvdReg, (ssize_t)imm);
                     emitIns_R_R_R(ins, attr, reg1, reg2, rsvdReg);
@@ -2998,25 +2804,20 @@ void ArmEmitter::emitIns_R_R_I(
         case INS_strex:
             assert(insOptsNone(opt));
             assert(insDoesNotSetFlags(flags));
-            sf = INS_FLAGS_NOT_SET;
-
-            if ((imm & 0x03fc) == imm)
-            {
-                fmt = IF_T2_H0;
-            }
-            else
-            {
-                assert(!"Instruction cannot be encoded");
-            }
+            assert((imm & 0x03fc) == imm);
+            sf  = INS_FLAGS_NOT_SET;
+            fmt = IF_T2_H0;
             break;
 
         default:
             assert(!"Unexpected instruction");
     }
+
     assert((fmt == IF_T1_C) || (fmt == IF_T1_E) || (fmt == IF_T1_G) || (fmt == IF_T1_J2) || (fmt == IF_T1_J3) ||
            (fmt == IF_T2_C1) || (fmt == IF_T2_C2) || (fmt == IF_T2_C6) || (fmt == IF_T2_C7) || (fmt == IF_T2_C8) ||
            (fmt == IF_T2_H0) || (fmt == IF_T2_H1) || (fmt == IF_T2_K1) || (fmt == IF_T2_K4) || (fmt == IF_T2_L0) ||
            (fmt == IF_T2_M0) || (fmt == IF_T2_VLDST) || (fmt == IF_T2_M1));
+
     assert(sf != INS_FLAGS_DONT_CARE);
 
     instrDesc* id = emitNewInstrSC(imm);
@@ -3036,8 +2837,8 @@ void ArmEmitter::emitIns_R_R_I(
 void ArmEmitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, insFlags flags)
 {
     emitAttr  size = EA_SIZE(attr);
-    insFormat fmt  = IF_NONE;
-    insFlags  sf   = INS_FLAGS_DONT_CARE;
+    insFormat fmt;
+    insFlags  sf;
 
     switch (ins)
     {
@@ -3050,39 +2851,36 @@ void ArmEmitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
                 reg2 = REG_SP;
             }
             FALLTHROUGH;
-
         case INS_sub:
             assert(reg3 != REG_SP);
             assert(reg1 != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
             assert(reg2 != REG_PC);
-            assert(reg3 != REG_PC || ins == INS_add); // allow ADD Rn, PC instruction in T2 encoding
+            assert((reg3 != REG_PC) || (ins == INS_add)); // allow ADD Rn, PC instruction in T2 encoding
 
-            if (isLowRegister(reg1) && isLowRegister(reg2) && isLowRegister(reg3) && insSetsFlags(flags))
+            if (!IsLowRegister(reg1) || !IsLowRegister(reg2) || !IsLowRegister(reg3) || !insSetsFlags(flags))
             {
-                fmt = IF_T1_H;
-                sf  = INS_FLAGS_SET;
-                break;
+                if ((ins == INS_add) && insDoesNotSetFlags(flags))
+                {
+                    if (reg1 == reg2)
+                    {
+                        emitIns_R_R(ins, attr, reg1, reg3, flags);
+                        return;
+                    }
+
+                    if (reg1 == reg3)
+                    {
+                        emitIns_R_R(ins, attr, reg1, reg2, flags);
+                        return;
+                    }
+                }
+
+                emitIns_R_R_R_I(ins, attr, reg1, reg2, reg3, 0, flags);
+                return;
             }
 
-            if ((ins == INS_add) && insDoesNotSetFlags(flags))
-            {
-                if (reg1 == reg2)
-                {
-                    // Use the Thumb-1 regdest,reg encoding
-                    emitIns_R_R(ins, attr, reg1, reg3, flags);
-                    return;
-                }
-                if (reg1 == reg3)
-                {
-                    // Use the Thumb-1 regdest,reg encoding
-                    emitIns_R_R(ins, attr, reg1, reg2, flags);
-                    return;
-                }
-            }
-
-            // Use the Thumb-2 reg,reg,reg with shift encoding
-            emitIns_R_R_R_I(ins, attr, reg1, reg2, reg3, 0, flags);
-            return;
+            fmt = IF_T1_H;
+            sf  = INS_FLAGS_SET;
+            break;
 
         case INS_adc:
         case INS_and:
@@ -3093,19 +2891,17 @@ void ArmEmitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
             assert(reg1 != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
             assert(reg2 != REG_PC);
             assert(reg3 != REG_PC);
+
             if (reg1 == reg2)
             {
-                // Try to encode as a Thumb-1 instruction
                 emitIns_R_R(ins, attr, reg1, reg3, flags);
                 return;
             }
             FALLTHROUGH;
-
         case INS_orn:
             assert(reg1 != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
             assert(reg2 != REG_PC);
             assert(reg3 != REG_PC);
-            // Use the Thumb-2 three register encoding, with imm=0
             emitIns_R_R_R_I(ins, attr, reg1, reg2, reg3, 0, flags);
             return;
 
@@ -3115,14 +2911,12 @@ void ArmEmitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
             assert(reg1 != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
             assert(reg2 != REG_PC);
             assert(reg3 != REG_PC);
-            if (reg1 == reg2 && insSetsFlags(flags) && isLowRegister(reg1) && isLowRegister(reg3))
+            if ((reg1 == reg2) && insSetsFlags(flags) && IsLowRegister(reg1) && IsLowRegister(reg3))
             {
-                // Use the Thumb-1 regdest,reg encoding
                 emitIns_R_R(ins, attr, reg1, reg3, flags);
                 return;
             }
             FALLTHROUGH;
-
         case INS_ror:
             assert(reg1 != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
             assert(reg2 != REG_PC);
@@ -3134,35 +2928,28 @@ void ArmEmitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
         case INS_mul:
             if (insMustSetFlags(flags))
             {
-                assert(reg1 !=
-                       REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
+                // VM debugging single stepper doesn't support PC register with this instruction.
+                assert(reg1 != REG_PC);
                 assert(reg2 != REG_PC);
                 assert(reg3 != REG_PC);
 
-                if ((reg1 == reg2) && isLowRegister(reg1))
+                if ((reg1 == reg2) && IsLowRegister(reg1))
                 {
-                    // Use the Thumb-1 regdest,reg encoding
                     emitIns_R_R(ins, attr, reg1, reg3, flags);
-                    return;
-                }
-                if ((reg1 == reg3) && isLowRegister(reg1))
-                {
-                    // Use the Thumb-1 regdest,reg encoding
-                    emitIns_R_R(ins, attr, reg1, reg2, flags);
-                    return;
                 }
                 else
                 {
-                    assert(!"Instruction cannot be encoded");
+                    assert((reg1 == reg3) && IsLowRegister(reg1));
+                    emitIns_R_R(ins, attr, reg1, reg2, flags);
                 }
-            }
 
-#if !defined(USE_HELPERS_FOR_INT_DIV)
+                return;
+            }
+#ifndef USE_HELPERS_FOR_INT_DIV
             FALLTHROUGH;
         case INS_sdiv:
         case INS_udiv:
-#endif // !USE_HELPERS_FOR_INT_DIV
-
+#endif
             assert(reg1 != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
             assert(reg2 != REG_PC);
             assert(reg3 != REG_PC);
@@ -3190,35 +2977,23 @@ void ArmEmitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
         COMMON_THUMB1_LDST:
             assert(insDoesNotSetFlags(flags));
 
-            if (isLowRegister(reg1) && isLowRegister(reg2) && isLowRegister(reg3))
+            if (!IsLowRegister(reg1) || !IsLowRegister(reg2) || !IsLowRegister(reg3))
             {
-                fmt = IF_T1_H;
-                sf  = INS_FLAGS_NOT_SET;
-            }
-            else
-            {
-                // Use the Thumb-2 reg,reg,reg with shift encoding
                 emitIns_R_R_R_I(ins, attr, reg1, reg2, reg3, 0, flags);
                 return;
             }
+
+            fmt = IF_T1_H;
+            sf  = INS_FLAGS_NOT_SET;
             break;
 
         case INS_vadd:
         case INS_vmul:
         case INS_vsub:
         case INS_vdiv:
-            if (size == EA_8BYTE)
-            {
-                assert(isDoubleReg(reg1));
-                assert(isDoubleReg(reg2));
-                assert(isDoubleReg(reg3));
-            }
-            else
-            {
-                assert(isFloatReg(reg1));
-                assert(isFloatReg(reg2));
-                assert(isFloatReg(reg3));
-            }
+            assert(size == EA_8BYTE ? IsDoubleReg(reg1) : IsFloatReg(reg1));
+            assert(size == EA_8BYTE ? IsDoubleReg(reg2) : IsFloatReg(reg2));
+            assert(size == EA_8BYTE ? IsDoubleReg(reg3) : IsFloatReg(reg3));
             fmt = IF_T2_VFP3;
             sf  = INS_FLAGS_NOT_SET;
             break;
@@ -3226,9 +3001,9 @@ void ArmEmitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
         case INS_vmov_i2d:
             assert(reg2 != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
             assert(reg3 != REG_PC);
-            assert(isDoubleReg(reg1));
-            assert(isGeneralRegister(reg2));
-            assert(isGeneralRegister(reg3));
+            assert(IsDoubleReg(reg1));
+            assert(IsGeneralRegister(reg2));
+            assert(IsGeneralRegister(reg3));
             fmt = IF_T2_VMOVD;
             sf  = INS_FLAGS_NOT_SET;
             break;
@@ -3236,9 +3011,9 @@ void ArmEmitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
         case INS_vmov_d2i:
             assert(reg1 != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
             assert(reg2 != REG_PC);
-            assert(isGeneralRegister(reg1));
-            assert(isGeneralRegister(reg2));
-            assert(isDoubleReg(reg3));
+            assert(IsGeneralRegister(reg1));
+            assert(IsGeneralRegister(reg2));
+            assert(IsDoubleReg(reg3));
             fmt = IF_T2_VMOVD;
             sf  = INS_FLAGS_NOT_SET;
             break;
@@ -3253,6 +3028,7 @@ void ArmEmitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
         default:
             unreached();
     }
+
     assert((fmt == IF_T1_H) || (fmt == IF_T2_C4) || (fmt == IF_T2_C5) || (fmt == IF_T2_VFP3) || (fmt == IF_T2_VMOVD) ||
            (fmt == IF_T2_G1));
     assert(sf != INS_FLAGS_DONT_CARE);
@@ -3274,49 +3050,41 @@ void ArmEmitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
 void ArmEmitter::emitIns_R_R_I_I(
     instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, int imm1, int imm2, insFlags flags)
 {
-    insFormat fmt = IF_NONE;
-    insFlags  sf  = INS_FLAGS_DONT_CARE;
-
     int lsb   = imm1;
     int width = imm2;
     int msb   = lsb + width - 1;
-    int imm   = 0; // combined immediate
 
-    assert((lsb >= 0) && (lsb <= 31));    // required for encodings
-    assert((width > 0) && (width <= 32)); // required for encodings
-    assert((msb >= 0) && (msb <= 31));    // required for encodings
-    assert(msb >= lsb);                   // required for encodings
+    assert((lsb >= 0) && (lsb <= 31));
+    assert((width > 0) && (width <= 32));
+    assert((msb >= 0) && (msb <= 31));
+    assert(msb >= lsb);
+
+    insFormat fmt;
+    insFlags  sf;
+    int       imm;
 
     switch (ins)
     {
         case INS_bfi:
             assert(reg1 != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
             assert(reg2 != REG_PC);
-
             assert(insDoesNotSetFlags(flags));
             imm = (lsb << 5) | msb;
-
             fmt = IF_T2_D0;
             sf  = INS_FLAGS_NOT_SET;
             break;
-
         case INS_sbfx:
         case INS_ubfx:
             assert(reg1 != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
             assert(reg2 != REG_PC);
-
             assert(insDoesNotSetFlags(flags));
             imm = (lsb << 5) | (width - 1);
-
             fmt = IF_T2_D0;
             sf  = INS_FLAGS_NOT_SET;
             break;
-
         default:
             unreached();
     }
-    assert((fmt == IF_T2_D0));
-    assert(sf != INS_FLAGS_DONT_CARE);
 
     instrDesc* id = emitNewInstrSC(imm);
     id->idIns(ins);
@@ -3335,40 +3103,37 @@ void ArmEmitter::emitIns_R_R_R_I(
     instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, int32_t imm, insFlags flags, insOpts opt)
 {
     emitAttr  size = EA_SIZE(attr);
-    insFormat fmt  = IF_NONE;
-    insFlags  sf   = INS_FLAGS_DONT_CARE;
+    insFormat fmt;
+    insFlags  sf;
 
     switch (ins)
     {
-
         case INS_add:
         case INS_sub:
             if (imm == 0)
             {
-                if (isLowRegister(reg1) && isLowRegister(reg2) && isLowRegister(reg3) && insSetsFlags(flags))
+                if (IsLowRegister(reg1) && IsLowRegister(reg2) && IsLowRegister(reg3) && insSetsFlags(flags))
                 {
-                    // Use the Thumb-1 reg,reg,reg encoding
                     emitIns_R_R_R(ins, attr, reg1, reg2, reg3, flags);
                     return;
                 }
+
                 if ((ins == INS_add) && insDoesNotSetFlags(flags))
                 {
                     if (reg1 == reg2)
                     {
-                        // Use the Thumb-1 regdest,reg encoding
                         emitIns_R_R(ins, attr, reg1, reg3, flags);
                         return;
                     }
+
                     if (reg1 == reg3)
                     {
-                        // Use the Thumb-1 regdest,reg encoding
                         emitIns_R_R(ins, attr, reg1, reg2, flags);
                         return;
                     }
                 }
             }
             FALLTHROUGH;
-
         case INS_adc:
         case INS_and:
         case INS_bic:
@@ -3379,36 +3144,39 @@ void ArmEmitter::emitIns_R_R_R_I(
             assert(reg1 != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
             assert(reg2 != REG_PC);
             assert(reg3 != REG_PC);
-            assert((imm >= 0) && (imm <= 31)); // required for encoding
+            assert((imm >= 0) && (imm <= 31));
             assert(!insOptAnyInc(opt));
+
             if (imm == 0)
             {
-                if (opt == INS_OPTS_LSL) // left shift of zero
-                    opt = INS_OPTS_NONE; //           is a nop
+                if (opt == INS_OPTS_LSL)
+                {
+                    opt = INS_OPTS_NONE;
+                }
 
                 assert(insOptsNone(opt));
-                if (isLowRegister(reg1) && isLowRegister(reg2) && isLowRegister(reg3) && insSetsFlags(flags))
+
+                if (IsLowRegister(reg1) && IsLowRegister(reg2) && IsLowRegister(reg3) && insSetsFlags(flags))
                 {
                     if (reg1 == reg2)
                     {
-                        // Use the Thumb-1 regdest,reg encoding
                         emitIns_R_R(ins, attr, reg1, reg3, flags);
                         return;
                     }
+
                     if ((reg1 == reg3) && (ins != INS_bic) && (ins != INS_orn) && (ins != INS_sbc))
                     {
-                        // Use the Thumb-1 regdest,reg encoding
                         emitIns_R_R(ins, attr, reg1, reg2, flags);
                         return;
                     }
                 }
             }
-            else // imm > 0  &&  imm <= 31)
+            else
             {
                 assert(insOptAnyShift(opt));
-                if (insOptsRRX(opt))
-                    assert(imm == 1);
+                assert((opt != INS_OPTS_RRX) || (imm == 1));
             }
+
             fmt = IF_T2_C0;
             sf  = insMustSetFlags(flags);
             break;
@@ -3418,28 +3186,25 @@ void ArmEmitter::emitIns_R_R_R_I(
         case INS_strb:
             assert(size == EA_4BYTE);
             goto COMMON_THUMB2_LDST;
-
         case INS_ldrh:
         case INS_ldrsh:
         case INS_strh:
             assert(size == EA_4BYTE);
             goto COMMON_THUMB2_LDST;
-
         case INS_ldr:
         case INS_str:
             assert(size == EA_4BYTE);
-
         COMMON_THUMB2_LDST:
             assert(insDoesNotSetFlags(flags));
-            assert((imm & 0x0003) == imm); // required for encoding
+            assert((imm & 0x0003) == imm);
 
-            if ((imm == 0) && insOptsNone(opt) && isLowRegister(reg1) && isLowRegister(reg2) && isLowRegister(reg3))
+            if ((imm == 0) && insOptsNone(opt) && IsLowRegister(reg1) && IsLowRegister(reg2) && IsLowRegister(reg3))
             {
-                // Use the Thumb-1 reg,reg,reg encoding
                 emitIns_R_R_R(ins, attr, reg1, reg2, reg3, flags);
                 return;
             }
-            assert(insOptsNone(opt) || insOptsLSL(opt));
+
+            assert(insOptsNone(opt) || (opt == INS_OPTS_LSL));
             fmt = IF_T2_E0;
             sf  = INS_FLAGS_NOT_SET;
             break;
@@ -3452,30 +3217,22 @@ void ArmEmitter::emitIns_R_R_R_I(
 
             if (insOptAnyInc(opt))
             {
-                if (insOptsPostInc(opt))
-                    assert(imm > 0);
-                else // insOptsPreDec(opt)
-                    assert(imm < 0);
+                assert(insOptsPostInc(opt) ? (imm > 0) : (imm < 0));
             }
             else
             {
                 assert(insOptsNone(opt));
             }
 
-            if (unsigned_abs(imm) <= 0x03fc)
-            {
-                imm >>= 2;
-                fmt = IF_T2_G0;
-            }
-            else
-            {
-                assert(!"Instruction cannot be encoded");
-            }
+            assert(unsigned_abs(imm) <= 0x03fc);
+            imm >>= 2;
+            fmt = IF_T2_G0;
             break;
 
         default:
             unreached();
     }
+
     assert((fmt == IF_T2_C0) || (fmt == IF_T2_E0) || (fmt == IF_T2_G0));
     assert(sf != INS_FLAGS_DONT_CARE);
 
@@ -3496,17 +3253,20 @@ void ArmEmitter::emitIns_R_R_R_I(
 
 void ArmEmitter::emitIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, RegNum reg4)
 {
-    insFormat fmt = IF_NONE;
-    insFlags  sf  = INS_FLAGS_NOT_SET;
+    assert(reg1 != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
+    assert(reg2 != REG_PC);
+    assert(reg3 != REG_PC);
+    assert(reg4 != REG_PC);
+
+    insFormat fmt;
 
     switch (ins)
     {
-
         case INS_smull:
         case INS_umull:
         case INS_smlal:
         case INS_umlal:
-            assert(reg1 != reg2); // Illegal encoding
+            assert(reg1 != reg2);
             fmt = IF_T2_F1;
             break;
         case INS_mla:
@@ -3516,18 +3276,12 @@ void ArmEmitter::emitIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, Re
         default:
             unreached();
     }
-    assert((fmt == IF_T2_F1) || (fmt == IF_T2_F2));
-
-    assert(reg1 != REG_PC); // VM debugging single stepper doesn't support PC register with this instruction.
-    assert(reg2 != REG_PC);
-    assert(reg3 != REG_PC);
-    assert(reg4 != REG_PC);
 
     instrDesc* id = emitNewInstr();
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idInsSize(emitInsSize(fmt));
-    id->idInsFlags(sf);
+    id->idInsFlags(INS_FLAGS_NOT_SET);
     id->idGCref(EA_GC_TYPE(attr));
     id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg1);
@@ -3561,22 +3315,22 @@ void ArmEmitter::MovRegStackOffset(RegNum reg, int32_t imm, StackAddrMode s)
     }
 }
 
-static constexpr bool IsUnsignedImm8(int imm, unsigned shift = 0)
+static bool IsUnsignedImm8(int imm, unsigned shift = 0)
 {
     return (imm & ~(255 << shift)) == 0;
 }
 
-static constexpr bool IsSignedImm8(int imm, unsigned shift = 0)
+static bool IsSignedImm8(int imm, unsigned shift = 0)
 {
     return (unsigned_abs(imm) & ~(255 << shift)) == 0;
 }
 
-static constexpr bool IsUnsignedImm12(int imm)
+static bool IsUnsignedImm12(int imm)
 {
     return (imm & ~4095) == 0;
 }
 
-static constexpr bool IsSignedImm12(int imm)
+static bool IsSignedImm12(int imm)
 {
     return (unsigned_abs(imm) & ~4095) == 0;
 }
@@ -3652,7 +3406,7 @@ void ArmEmitter::Ins_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrMo
 
     if (ins == INS_lea)
     {
-        if (isLowRegister(reg) && (baseReg == REG_SP) && IsUnsignedImm8(imm, 2))
+        if (IsLowRegister(reg) && (baseReg == REG_SP) && IsUnsignedImm8(imm, 2))
         {
             ins = INS_add;
             fmt = IF_T1_J2;
@@ -3694,7 +3448,7 @@ void ArmEmitter::Ins_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrMo
 
         fmt = IF_T2_VLDST;
     }
-    else if (((ins == INS_ldr) || (ins == INS_str)) && isLowRegister(reg) && (baseReg == REG_SP) &&
+    else if (((ins == INS_ldr) || (ins == INS_str)) && IsLowRegister(reg) && (baseReg == REG_SP) &&
              IsUnsignedImm8(imm, 2))
     {
         fmt = IF_T1_J2;
@@ -3818,6 +3572,39 @@ static bool IsBranch(instruction ins)
     return (ins == INS_b) || IsConditionalBranch(ins);
 }
 
+instruction JumpKindToJcc(emitJumpKind kind)
+{
+    static const instruction map[]{
+        INS_nop, INS_b,
+#define CC_DEF(cc, rev, ...) INS_b##cc,
+#include "emitjmps.h"
+    };
+
+    assert(kind < _countof(map));
+    return map[kind];
+}
+
+emitJumpKind ReverseJumpKind(emitJumpKind kind)
+{
+    static const emitJumpKind map[]{
+        EJ_NONE, EJ_jmp,
+#define CC_DEF(cc, rev, ...) EJ_##rev,
+#include "emitjmps.h"
+    };
+
+    assert(kind < _countof(map));
+    return map[kind];
+}
+
+static emitJumpKind JccToJumpKind(instruction ins)
+{
+    assert((INS_b <= ins) && (ins <= INS_ble));
+#define CC_DEF(cc, rev, ...) static_assert_no_msg(INS_b##cc - INS_b == EJ_##cc - EJ_jmp);
+#include "emitjmps.h"
+
+    return static_cast<emitJumpKind>(EJ_jmp + (ins - INS_b));
+}
+
 void ArmEmitter::emitIns_J(instruction ins, int instrCount)
 {
     assert(IsMainProlog(emitCurIG));
@@ -3887,7 +3674,7 @@ void ArmEmitter::emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, Re
     // and end up with an extra unconditional branch.
     assert((ins == INS_cbz) || (ins == INS_cbnz));
     assert(emitCurIG->GetFuncletIndex() == label->GetFuncletIndex());
-    assert(isLowRegister(reg));
+    assert(IsLowRegister(reg));
     assert(!emitComp->opts.compReloc || !InDifferentRegions(emitCurIG, label));
 
     instrDescJmp* id = emitNewInstrJmp();
@@ -4338,9 +4125,9 @@ static unsigned floatRegIndex(RegNum reg, int size)
     assert(size == EA_8BYTE || size == EA_4BYTE);
 
     if (size == EA_8BYTE)
-        assert(isDoubleReg(reg));
+        assert(IsDoubleReg(reg));
     else
-        assert(isFloatReg(reg));
+        assert(IsFloatReg(reg));
 
     unsigned result = reg - REG_F0;
 
@@ -5858,27 +5645,6 @@ void ArmAsmPrinter::emitDispRegmask(int imm, bool encodedPC_LR)
     printf("}");
 }
 
-const char* insOptsName(insOpts opt)
-{
-    switch (opt)
-    {
-        case INS_OPTS_NONE:
-            return "";
-        case INS_OPTS_RRX:
-            return "RRX";
-        case INS_OPTS_LSL:
-            return "LSL";
-        case INS_OPTS_LSR:
-            return "LSR";
-        case INS_OPTS_ASR:
-            return "ASR";
-        case INS_OPTS_ROR:
-            return "ROR";
-        default:
-            return "???";
-    }
-}
-
 void ArmAsmPrinter::emitDispShiftOpts(insOpts opt)
 {
     printf(" %s ", insOptsName(opt));
@@ -5886,7 +5652,7 @@ void ArmAsmPrinter::emitDispShiftOpts(insOpts opt)
 
 void ArmAsmPrinter::emitDispReg(RegNum reg, emitAttr attr, bool addComma)
 {
-    if (isFloatReg(reg))
+    if (IsFloatReg(reg))
     {
         const char* size = attr == EA_8BYTE ? "d" : "s";
         printf("%s%s", size, emitRegName(reg, attr) + 1);
@@ -6248,7 +6014,7 @@ void ArmAsmPrinter::Print(instrDesc* id)
             emitDispReg(id->idReg1(), attr, true);
             imm = id->emitGetInsSC();
 
-            if (emitInsIsLoadOrStore(ins))
+            if (IsLoadStoreIns(ins))
             {
                 emitDispAddrRI(id->idReg2(), imm, attr);
             }
@@ -6263,7 +6029,7 @@ void ArmAsmPrinter::Print(instrDesc* id)
             emitDispReg(id->idReg1(), attr, true);
             imm = id->emitGetInsSC();
 
-            if (emitInsIsLoadOrStore(ins))
+            if (IsLoadStoreIns(ins))
             {
                 emitDispAddrRI(REG_SP, imm, attr);
             }
@@ -6320,7 +6086,7 @@ void ArmAsmPrinter::Print(instrDesc* id)
         case IF_T1_H:
             emitDispReg(id->idReg1(), attr, true);
 
-            if (emitInsIsLoadOrStore(ins))
+            if (IsLoadStoreIns(ins))
             {
                 emitDispAddrRR(id->idReg2(), id->idReg3(), attr);
             }

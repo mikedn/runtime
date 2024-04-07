@@ -597,10 +597,7 @@ const char* insName(instruction ins)
 #include "instrsxarch.h"
     };
 
-    assert(ins < _countof(insNames));
-    assert(insNames[ins] != nullptr);
-
-    return insNames[ins];
+    return ins < _countof(insNames) ? insNames[ins] : "???";
 }
 
 enum insUpdateModes
