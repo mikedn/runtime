@@ -1956,7 +1956,6 @@ public:
     void EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp);
 
 private:
-    // Emit the 32-bit Arm64 instruction 'code' into the 'dst'  buffer
     unsigned emitOutput_Instr(uint8_t* dst, uint32_t code);
 
     uint8_t* emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig);
@@ -2379,6 +2378,17 @@ static bool IsVectorRightShiftIns(instruction ins)
 }
 
 #ifdef DEBUG
+static bool IsLoad(instruction ins)
+{
+    return (ins == INS_ldrb) || (ins == INS_ldrsb) || (ins == INS_ldrh) || (ins == INS_ldrsh) || (ins == INS_ldrsw) ||
+           (ins == INS_ldr);
+}
+
+static bool IsStore(instruction ins)
+{
+    return (ins == INS_strb) || (ins == INS_strh) || (ins == INS_str);
+}
+
 static bool IsLoadOrStoreIns(instruction ins)
 {
     return (GetInsInfo(ins) & (ISI_LD | ISI_ST)) != 0;
@@ -6633,19 +6643,6 @@ void Arm64Emitter::emitIns_BARR(instruction ins, insBarrier barrier)
     appendToCurIG(id);
 }
 
-#ifdef DEBUG
-static bool IsLoad(instruction ins)
-{
-    return (ins == INS_ldrb) || (ins == INS_ldrsb) || (ins == INS_ldrh) || (ins == INS_ldrsh) || (ins == INS_ldrsw) ||
-           (ins == INS_ldr);
-}
-
-static bool IsStore(instruction ins)
-{
-    return (ins == INS_strb) || (ins == INS_strh) || (ins == INS_str);
-}
-#endif
-
 void Arm64Emitter::emitIns_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s)
 {
     assert(IsLoad(ins) || (ins == INS_lea));
@@ -7453,8 +7450,7 @@ AGAIN:
 #endif
 }
 
-// Returns an encoding for the specified register used in the 'Rd' position
-static uint32_t insEncodeReg_Rd(RegNum reg)
+static uint32_t EncodeRegRd(RegNum reg)
 {
     assert(isIntegerRegister(reg));
     uint32_t ureg = (uint32_t)reg;
@@ -7462,8 +7458,7 @@ static uint32_t insEncodeReg_Rd(RegNum reg)
     return ureg;
 }
 
-// Returns an encoding for the specified register used in the 'Rt' position
-static uint32_t insEncodeReg_Rt(RegNum reg)
+static uint32_t EncodeRegRt(RegNum reg)
 {
     assert(isIntegerRegister(reg));
     uint32_t ureg = (uint32_t)reg;
@@ -7471,8 +7466,7 @@ static uint32_t insEncodeReg_Rt(RegNum reg)
     return ureg;
 }
 
-// Returns an encoding for the specified register used in the 'Rn' position
-static uint32_t insEncodeReg_Rn(RegNum reg)
+static uint32_t EncodeRegRn(RegNum reg)
 {
     assert(isIntegerRegister(reg));
     uint32_t ureg = (uint32_t)reg;
@@ -7480,8 +7474,7 @@ static uint32_t insEncodeReg_Rn(RegNum reg)
     return ureg << 5;
 }
 
-// Returns an encoding for the specified register used in the 'Rm' position
-static uint32_t insEncodeReg_Rm(RegNum reg)
+static uint32_t EncodeRegRm(RegNum reg)
 {
     assert(isIntegerRegister(reg));
     uint32_t ureg = (uint32_t)reg;
@@ -7489,8 +7482,7 @@ static uint32_t insEncodeReg_Rm(RegNum reg)
     return ureg << 16;
 }
 
-// Returns an encoding for the specified register used in the 'Ra' position
-static uint32_t insEncodeReg_Ra(RegNum reg)
+static uint32_t EncodeRegRa(RegNum reg)
 {
     assert(isIntegerRegister(reg));
     uint32_t ureg = (uint32_t)reg;
@@ -7498,8 +7490,7 @@ static uint32_t insEncodeReg_Ra(RegNum reg)
     return ureg << 10;
 }
 
-// Returns an encoding for the specified register used in the 'Vd' position
-static uint32_t insEncodeReg_Vd(RegNum reg)
+static uint32_t EncodeRegVd(RegNum reg)
 {
     assert(isVectorRegister(reg));
     uint32_t ureg = (uint32_t)reg - (uint32_t)REG_V0;
@@ -7507,8 +7498,7 @@ static uint32_t insEncodeReg_Vd(RegNum reg)
     return ureg;
 }
 
-// Returns an encoding for the specified register used in the 'Vt' position
-static uint32_t insEncodeReg_Vt(RegNum reg)
+static uint32_t EncodeRegVt(RegNum reg)
 {
     assert(isVectorRegister(reg));
     uint32_t ureg = (uint32_t)reg - (uint32_t)REG_V0;
@@ -7516,8 +7506,7 @@ static uint32_t insEncodeReg_Vt(RegNum reg)
     return ureg;
 }
 
-// Returns an encoding for the specified register used in the 'Vn' position
-static uint32_t insEncodeReg_Vn(RegNum reg)
+static uint32_t EncodeRegVn(RegNum reg)
 {
     assert(isVectorRegister(reg));
     uint32_t ureg = (uint32_t)reg - (uint32_t)REG_V0;
@@ -7525,8 +7514,7 @@ static uint32_t insEncodeReg_Vn(RegNum reg)
     return ureg << 5;
 }
 
-// Returns an encoding for the specified register used in the 'Vm' position
-static uint32_t insEncodeReg_Vm(RegNum reg)
+static uint32_t EncodeRegVm(RegNum reg)
 {
     assert(isVectorRegister(reg));
     uint32_t ureg = (uint32_t)reg - (uint32_t)REG_V0;
@@ -7534,8 +7522,7 @@ static uint32_t insEncodeReg_Vm(RegNum reg)
     return ureg << 16;
 }
 
-// Returns an encoding for the specified register used in the 'Va' position
-static uint32_t insEncodeReg_Va(RegNum reg)
+static uint32_t EncodeRegVa(RegNum reg)
 {
     assert(isVectorRegister(reg));
     uint32_t ureg = (uint32_t)reg - (uint32_t)REG_V0;
@@ -7543,53 +7530,37 @@ static uint32_t insEncodeReg_Va(RegNum reg)
     return ureg << 10;
 }
 
-// Returns an encoding for the specified condition code.
-static uint32_t insEncodeCond(insCond cond)
+static uint32_t EncodeCond(insCond cond)
 {
-    uint32_t uimm = (uint32_t)cond;
-    return uimm << 12;
+    return static_cast<uint32_t>(cond) << 12;
 }
 
-// Returns an encoding for the condition code with the lowest bit inverted (marked by invert(<cond>) in the
-// architecture manual).
-static uint32_t insEncodeInvertedCond(insCond cond)
+static uint32_t EncodeInvertedCond(insCond cond)
 {
-    uint32_t uimm = (uint32_t)cond;
-    uimm ^= 1; // invert the lowest bit
-    return uimm << 12;
+    return (static_cast<uint32_t>(cond) ^ 1) << 12;
 }
 
-// Returns an encoding for the specified flags.
-static uint32_t insEncodeFlags(insCflags flags)
+static uint32_t EncodeFlags(insCflags flags)
 {
-    return (uint32_t)flags;
+    return static_cast<uint32_t>(flags);
 }
 
-// Returns the encoding for the Shift Count bits to be used for Arm64 encodings
-static uint32_t insEncodeShiftCount(int64_t imm, emitAttr size)
+static uint32_t EncodeShiftCount(int64_t imm, emitAttr size)
 {
     assert((imm & 0x003F) == imm);
     assert(((imm & 0x0020) == 0) || (size == EA_8BYTE));
 
-    return (uint32_t)imm << 10;
+    return static_cast<uint32_t>(imm) << 10;
 }
 
-// Returns the encoding to select a 64-bit datasize for an Arm64 instruction
-static uint32_t insEncodeDatasize(emitAttr size)
+static uint32_t EncodeDataSize(emitAttr size)
 {
-    if (size == EA_8BYTE)
-    {
-        return 0x80000000; // set the bit at location 31
-    }
-    else
-    {
-        assert(size == EA_4BYTE);
-        return 0;
-    }
+    assert((size == EA_4BYTE) || (size == EA_8BYTE));
+    return size == EA_8BYTE ? 0x80000000 : 0;
 }
 
-// Returns the encoding to select the datasize for the general load/store Arm64 instructions
-static uint32_t insEncodeDatasizeLS(uint32_t code, emitAttr size)
+// Returns the encoding to select the datasize for the general load/store instructions
+static uint32_t EncodeDatasizeLS(uint32_t code, emitAttr size)
 {
     bool exclusive = ((code & 0x35000000) == 0);
     bool atomic    = ((code & 0x31200C00) == 0x30200000);
@@ -7598,24 +7569,25 @@ static uint32_t insEncodeDatasizeLS(uint32_t code, emitAttr size)
     {
         if ((code & 0x80000000) == 0) // Is it a ldrsh or ldrsb and not ldrsw ?
         {
-            if (EA_SIZE(size) != EA_8BYTE) // Do we need to encode the 32-bit Rt size bit?
+            if (EA_SIZE(size) != EA_8BYTE)
             {
-                return 0x00400000; // set the bit at location 22
+                return 0x00400000;
             }
         }
     }
     else if (code & 0x80000000) // Is this a ldr/str/ldur/stur opcode?
     {
-        if (EA_SIZE(size) == EA_8BYTE) // Do we need to encode the 64-bit size bit?
+        if (EA_SIZE(size) == EA_8BYTE)
         {
-            return 0x40000000; // set the bit at location 30
+            return 0x40000000;
         }
     }
+
     return 0;
 }
 
-// Returns the encoding to select the datasize for the vector load/store Arm64 instructions
-static uint32_t insEncodeDatasizeVLS(uint32_t code, emitAttr size)
+// Returns the encoding to select the datasize for the vector load/store instructions
+static uint32_t EncodeDataSizeVLS(uint32_t code, emitAttr size)
 {
     uint32_t result = 0;
 
@@ -7653,24 +7625,20 @@ static uint32_t insEncodeDatasizeVLS(uint32_t code, emitAttr size)
         }
         else if (size == EA_8BYTE)
         {
-            // set the operation size in bits 31 and 30
             result = 0xC0000000;
         }
         else if (size == EA_4BYTE)
         {
-            // set the operation size in bit 31
             result = 0x80000000;
         }
         else if (size == EA_2BYTE)
         {
-            // set the operation size in bit 30
             result = 0x40000000;
         }
         else
         {
             assert(size == EA_1BYTE);
-            // The operation size in bits 31 and 30 are zero
-            result = 0x00000000;
+            result = 0;
         }
     }
 
@@ -7680,8 +7648,8 @@ static uint32_t insEncodeDatasizeVLS(uint32_t code, emitAttr size)
     return result;
 }
 
-// Returns the encoding to select the datasize for the vector load/store Arm64 instructions
-static uint32_t insEncodeDatasizeVPLS(uint32_t code, emitAttr size)
+// Returns the encoding to select the datasize for the vector load/store instructions
+static uint32_t EncodeDataSizeVPLS(uint32_t code, emitAttr size)
 {
     uint32_t result = 0;
 
@@ -7709,37 +7677,22 @@ static uint32_t insEncodeDatasizeVPLS(uint32_t code, emitAttr size)
 }
 
 // Returns the encoding to set the size bit and the N bits for a 'bitfield' instruction
-static uint32_t insEncodeDatasizeBF(uint32_t code, emitAttr size)
+static uint32_t EncodeDataSizeBF(uint32_t code, emitAttr size)
 {
-    // is bit 30 equal to 0?
-    if ((code & 0x40000000) == 0) // is the opcode one of extr, sxtb, sxth or sxtw
-    {
-        if (size == EA_8BYTE) // Do we need to set the sf and N bits?
-        {
-            return 0x80400000; // set the sf-bit at location 31 and the N-bit at location 22
-        }
-    }
-    return 0; // don't set any bits
+    // set the sf-bit at location 31 and the N-bit at location 22
+    return ((code & 0x40000000) == 0) && (size == EA_8BYTE) ? 0x80400000 : 0;
 }
 
-// Returns the encoding to select the 64/128-bit datasize for an Arm64 vector instruction
-static uint32_t insEncodeVectorsize(emitAttr size)
+static uint32_t EncodeVectorSize(emitAttr size)
 {
-    if (size == EA_16BYTE)
-    {
-        return 0x40000000; // set the bit at location 30
-    }
-    else
-    {
-        assert(size == EA_8BYTE);
-        return 0;
-    }
+    assert((size == EA_16BYTE) || (size == EA_8BYTE));
+    return size == EA_16BYTE ? 0x40000000 : 0;
 }
 
-// Returns the encoding to select 'index' for an Arm64 vector elem instruction
-static uint32_t insEncodeVectorIndex(emitAttr elemsize, int64_t index)
+static uint32_t EncodeVectorIndex(emitAttr elemsize, int64_t index)
 {
-    uint32_t bits = (uint32_t)index;
+    uint32_t bits = static_cast<uint32_t>(index);
+
     if (elemsize == EA_1BYTE)
     {
         bits <<= 1;
@@ -7758,18 +7711,20 @@ static uint32_t insEncodeVectorIndex(emitAttr elemsize, int64_t index)
     else
     {
         assert(elemsize == EA_8BYTE);
+
         bits <<= 4;
         bits |= 8;
     }
+
     assert((bits >= 1) && (bits <= 0x1f));
 
-    return (bits << 16); // bits at locations [20,19,18,17,16]
+    return bits << 16;
 }
 
-// Returns the encoding to select 'index2' for an Arm64 'ins' elem instruction
-static uint32_t insEncodeVectorIndex2(emitAttr elemsize, int64_t index2)
+static uint32_t EncodeVectorIndex2(emitAttr elemsize, int64_t index2)
 {
-    uint32_t bits = (uint32_t)index2;
+    uint32_t bits = static_cast<uint32_t>(index2);
+
     if (elemsize == EA_1BYTE)
     {
         // bits are correct
@@ -7787,47 +7742,50 @@ static uint32_t insEncodeVectorIndex2(emitAttr elemsize, int64_t index2)
         assert(elemsize == EA_8BYTE);
         bits <<= 3;
     }
+
     assert((bits >= 0) && (bits <= 0xf));
 
-    return (bits << 11); // bits at locations [14,13,12,11]
+    return bits << 11;
 }
 
-// Returns the encoding to select the 'index' for an Arm64 'mul' by element instruction
-static uint32_t insEncodeVectorIndexLMH(emitAttr elemsize, int64_t index)
+// Returns the encoding to select the index for an mul by element instruction
+static uint32_t EncodeVectorIndexLMH(emitAttr elemsize, int64_t index)
 {
     uint32_t bits = 0;
 
     if (elemsize == EA_2BYTE)
     {
         assert((index >= 0) && (index <= 7));
+
         if (index & 0x4)
         {
-            bits |= (1 << 11); // set bit 11 'H'
+            bits |= 1 << 11;
         }
+
         if (index & 0x2)
         {
-            bits |= (1 << 21); // set bit 21 'L'
+            bits |= 1 << 21;
         }
+
         if (index & 0x1)
         {
-            bits |= (1 << 20); // set bit 20 'M'
-        }
-    }
-    else if (elemsize == EA_4BYTE)
-    {
-        assert((index >= 0) && (index <= 3));
-        if (index & 0x2)
-        {
-            bits |= (1 << 11); // set bit 11 'H'
-        }
-        if (index & 0x1)
-        {
-            bits |= (1 << 21); // set bit 21 'L'
+            bits |= 1 << 20;
         }
     }
     else
     {
-        assert(!"Invalid 'elemsize' value");
+        assert(elemsize == EA_4BYTE);
+        assert((index >= 0) && (index <= 3));
+
+        if (index & 0x2)
+        {
+            bits |= 1 << 11;
+        }
+
+        if (index & 0x1)
+        {
+            bits |= 1 << 21;
+        }
     }
 
     return bits;
@@ -7835,113 +7793,108 @@ static uint32_t insEncodeVectorIndexLMH(emitAttr elemsize, int64_t index)
 
 // Returns the encoding for the SIMD shift (immediate) instructions, the "immh:immb"
 // field of the instruction that contains encoded shift amount.
-static uint32_t insEncodeVectorShift(emitAttr size, int64_t shiftAmount)
+static uint32_t EncodeVectorShift(emitAttr size, int64_t shiftAmount)
 {
+    uint32_t imm;
+
     if (shiftAmount < 0)
     {
         shiftAmount = -shiftAmount;
         // The right shift amount must be in the range 1 to the destination element width in bits.
         assert((shiftAmount > 0) && (shiftAmount <= getBitWidth(size)));
-
-        uint32_t imm = (uint32_t)(2 * getBitWidth(size) - shiftAmount);
-        return imm << 16;
+        imm = 2u * getBitWidth(size) - static_cast<uint32_t>(shiftAmount);
     }
     else
     {
         // The left shift amount must in the range 0 to the element width in bits minus 1.
         assert(shiftAmount < getBitWidth(size));
-        uint32_t imm = (uint32_t)(getBitWidth(size) + shiftAmount);
-        return imm << 16;
+        imm = getBitWidth(size) + static_cast<uint32_t>(shiftAmount);
     }
+
+    return imm << 16;
 }
 
-// Returns the encoding to select the 1/2/4/8 byte elemsize for an Arm64 vector instruction
-static uint32_t insEncodeElemsize(emitAttr size)
+static uint32_t EncodeElemSize(emitAttr size)
 {
     if (size == EA_8BYTE)
     {
-        return 0x00C00000; // set the bit at location 23 and 22
+        return 0x00C00000;
     }
-    else if (size == EA_4BYTE)
+
+    if (size == EA_4BYTE)
     {
-        return 0x00800000; // set the bit at location 23
+        return 0x00800000;
     }
-    else if (size == EA_2BYTE)
+
+    if (size == EA_2BYTE)
     {
-        return 0x00400000; // set the bit at location 22
+        return 0x00400000;
     }
+
     assert(size == EA_1BYTE);
     return 0x00000000;
 }
 
-// Returns the encoding to select the 4/8 byte elemsize for an Arm64 float vector instruction
-static uint32_t insEncodeFloatElemsize(emitAttr size)
+static uint32_t EncodeFloatElemSize(emitAttr size)
 {
-    if (size == EA_8BYTE)
-    {
-        return 0x00400000; // set the bit at location 22
-    }
-    assert(size == EA_4BYTE);
-    return 0x00000000;
+    assert((size == EA_4BYTE) || (size == EA_8BYTE));
+    return size == EA_8BYTE ? 0x00400000 : 0;
 }
 
-// Returns the encoding to select the index for an Arm64 float vector by element instruction
-static uint32_t insEncodeFloatIndex(emitAttr elemsize, int64_t index)
+static uint32_t EncodeFloatIndex(emitAttr elemsize, int64_t index)
 {
-    uint32_t result = 0x00000000;
+    uint32_t result = 0;
+
     if (elemsize == EA_8BYTE)
     {
         assert((index >= 0) && (index <= 1));
+
         if (index == 1)
         {
-            result |= 0x00000800; // 'H' - set the bit at location 11
+            result |= 0x00000800;
         }
     }
     else
     {
         assert(elemsize == EA_4BYTE);
         assert((index >= 0) && (index <= 3));
+
         if (index & 2)
         {
-            result |= 0x00000800; // 'H' - set the bit at location 11
+            result |= 0x00000800;
         }
+
         if (index & 1)
         {
-            result |= 0x00200000; // 'L' - set the bit at location 21
+            result |= 0x00200000;
         }
     }
+
     return result;
 }
 
-// Returns the encoding to select the vector elemsize for an Arm64 ld/st# vector instruction
-static uint32_t insEncodeVLSElemsize(emitAttr size)
+// Returns the encoding to select the vector elemsize for an ld/st# vector instruction
+static uint32_t EncodeVLSElemSize(emitAttr size)
 {
-    uint32_t result = 0x00000000;
-
     switch (size)
     {
-        case EA_1BYTE:
-            result |= 0x0000; // clear bits 10 and 11
-            break;
         case EA_2BYTE:
-            result |= 0x0400; // set bit at location 10, clear bit at location 11
+            return 0x0400;
             break;
         case EA_4BYTE:
-            result |= 0x0800; // clear bit at location 10, set bit at location 11
+            return 0x0800;
             break;
         case EA_8BYTE:
-            result |= 0x0C00; // set bits at location 10 and 11
+            return 0x0C00;
             break;
         default:
-            assert(!"Invalid element size");
-            break;
+            assert(size == EA_1BYTE);
+            return 0;
     }
-
-    return result;
 }
 
-// Returns the encoding to select the index for an Arm64 ld/st# vector by element instruction
-static uint32_t insEncodeVLSIndex(emitAttr size, int64_t index)
+// Returns the encoding to select the index for an ld/st# vector by element instruction
+static uint32_t EncodeVLSIndex(emitAttr size, int64_t index)
 {
     uint32_t result = 0x00000000;
 
@@ -7991,8 +7944,8 @@ static uint32_t insEncodeVLSIndex(emitAttr size, int64_t index)
     return result;
 }
 
-// Returns the encoding to select the fcvt operation for Arm64 instructions
-static uint32_t insEncodeConvertOpt(insFormat fmt, insOpts conversion)
+// Returns the encoding to select the fcvt operation for instructions
+static uint32_t EncodeConvertOpt(insFormat fmt, insOpts conversion)
 {
     switch (conversion)
     {
@@ -8045,31 +7998,20 @@ static uint32_t insEncodeConvertOpt(insFormat fmt, insOpts conversion)
 }
 
 // Returns the encoding to have the Rn register be updated Pre/Post indexed or not updated
-static uint32_t insEncodeIndexedOpt(insOpts opt)
+static uint32_t EncodeIndexedOpt(insOpts opt)
 {
     assert(insOptsNone(opt) || insOptsIndexed(opt));
 
     if (insOptsIndexed(opt))
     {
-        if (insOptsPostIndex(opt))
-        {
-            return 0x00000400; // set the bit at location 10
-        }
-        else
-        {
-            assert(insOptsPreIndex(opt));
-            return 0x00000C00; // set the bit at location 10 and 11
-        }
+        return insOptsPostIndex(opt) ? 0x00000400 : 0x00000C00;
     }
-    else
-    {
-        assert(insOptsNone(opt));
-        return 0; // bits 10 and 11 are zero
-    }
+
+    return 0;
 }
 
 // Returns the encoding for a ldp/stp instruction to have the Rn register be updated Pre/Post indexed or not updated
-static uint32_t insEncodePairIndexedOpt(instruction ins, insOpts opt)
+static uint32_t EncodePairIndexedOpt(instruction ins, insOpts opt)
 {
     if ((ins == INS_ldnp) || (ins == INS_stnp))
     {
@@ -8087,8 +8029,7 @@ static uint32_t insEncodePairIndexedOpt(instruction ins, insOpts opt)
     return 0x01000000;
 }
 
-// Returns the encoding to apply a Shift Type on the Rm register
-static uint32_t insEncodeShiftType(insOpts opt)
+static uint32_t EncodeShiftType(insOpts opt)
 {
     if (insOptsNone(opt))
     {
@@ -8104,14 +8045,12 @@ static uint32_t insEncodeShiftType(insOpts opt)
     return option << 22;
 }
 
-// Returns the encoding to apply a 12 bit left shift to the immediate
-static uint32_t insEncodeShiftImm12(insOpts opt)
+static uint32_t EncodeShiftImm12(insOpts opt)
 {
     return insOptsLSL12(opt) ? 0x00400000 : 0;
 }
 
-// Returns the encoding to have the Rm register use an extend operation
-static uint32_t insEncodeExtend(insOpts opt)
+static uint32_t EncodeExtend(insOpts opt)
 {
     if (insOptsNone(opt) || (opt == INS_OPTS_LSL))
     {
@@ -8127,8 +8066,7 @@ static uint32_t insEncodeExtend(insOpts opt)
     return option << 13; // bits 15,14,13
 }
 
-// Returns the encoding to scale the Rm register by {0,1,2,3,4} when using an extend operation
-static uint32_t insEncodeExtendScale(int64_t imm)
+static uint32_t EncodeExtendScale(int64_t imm)
 {
     assert((imm >= 0) && (imm <= 4));
 
@@ -8136,7 +8074,7 @@ static uint32_t insEncodeExtendScale(int64_t imm)
 }
 
 // Returns the encoding to have the Rm register be auto scaled by the ld/st size
-static uint32_t insEncodeReg3Scale(bool isScaled)
+static uint32_t EncodeReg3Scale(bool isScaled)
 {
     return isScaled ? 0x00001000 : 0; // set the bit at location 12
 }
@@ -8169,10 +8107,10 @@ uint8_t* Arm64Encoder::emitOutputLoadLabel(uint8_t* dst, uint8_t* instrAddr, uin
     uint32_t imm12 = static_cast<uint32_t>(reinterpret_cast<uint64_t>(labelAddr) & 0xFFF);
 
     uint32_t code = emitInsCode(INS_add, IF_DI_2A);
-    code |= insEncodeDatasize(EA_8BYTE);
+    code |= EncodeDataSize(EA_8BYTE);
     code |= imm12 << 10;
-    code |= insEncodeReg_Rd(dstReg);
-    code |= insEncodeReg_Rn(dstReg);
+    code |= EncodeRegRd(dstReg);
+    code |= EncodeRegRn(dstReg);
 
     return dst + emitOutput_Instr(dst, code);
 }
@@ -8233,17 +8171,17 @@ uint8_t* Arm64Encoder::emitOutputDL(uint8_t* dst, instrDescJmp* id)
     if (isVectorRegister(dstReg))
     {
         code &= 0x3FFFFFFF;
-        code |= insEncodeDatasizeVLS(code, opSize);
-        code |= insEncodeReg_Vt(dstReg);
+        code |= EncodeDataSizeVLS(code, opSize);
+        code |= EncodeRegVt(dstReg);
     }
     else
     {
-        code |= insEncodeDatasizeLS(code, opSize);
-        code |= insEncodeReg_Rt(dstReg);
+        code |= EncodeDatasizeLS(code, opSize);
+        code |= EncodeRegRt(dstReg);
     }
 
     code |= imm12 << 10;
-    code |= insEncodeReg_Rn(addrReg);
+    code |= EncodeRegRn(addrReg);
 
     return dst + emitOutput_Instr(dst, code);
 }
@@ -8382,8 +8320,8 @@ uint8_t* Arm64Encoder::emitOutputShortBranch(
         assert(id != nullptr);
         noway_assert(isValidSimm19(distance));
 
-        code |= insEncodeDatasize(id->idOpSize());
-        code |= insEncodeReg_Rt(id->idReg1());
+        code |= EncodeDataSize(id->idOpSize());
+        code |= EncodeRegRt(id->idReg1());
         code |= (distance & 0x7FFFF) << 5;
     }
     else
@@ -8401,8 +8339,8 @@ uint8_t* Arm64Encoder::emitOutputShortBranch(
             code |= 0x80000000; // B
         }
 
-        code |= ((imm & 0x1F) << 19);          // bbbbb
-        code |= insEncodeReg_Rt(id->idReg1()); // ttttt
+        code |= ((imm & 0x1F) << 19);      // bbbbb
+        code |= EncodeRegRt(id->idReg1()); // ttttt
         code |= (distance & 0x3FFF) << 5;
     }
 
@@ -8415,7 +8353,7 @@ uint8_t* Arm64Encoder::emitOutputShortAddress(uint8_t* dst, instruction ins, int
     assert(IsGeneralRegister(reg));
 
     uint32_t code = emitInsCode(ins, IF_DI_1E);
-    code |= insEncodeReg_Rd(reg);
+    code |= EncodeRegRd(reg);
     int64_t loBits = (distance & 3);
     distance >>= 2;
     noway_assert(isValidSimm19(distance));
@@ -8441,8 +8379,8 @@ uint8_t* Arm64Encoder::emitOutputShortConstant(
 
     if (isVectorRegister(reg))
     {
-        code |= insEncodeDatasizeVLS(code, opSize);
-        code |= insEncodeReg_Vt(reg);
+        code |= EncodeDataSizeVLS(code, opSize);
+        code |= EncodeRegVt(reg);
     }
     else
     {
@@ -8453,7 +8391,7 @@ uint8_t* Arm64Encoder::emitOutputShortConstant(
             code |= 0x40000000;
         }
 
-        code |= insEncodeReg_Rt(reg);
+        code |= EncodeRegRt(reg);
     }
 
     distance &= 0x7FFFFLL;
@@ -8464,8 +8402,6 @@ uint8_t* Arm64Encoder::emitOutputShortConstant(
 
 unsigned Arm64Encoder::emitOutput_Instr(uint8_t* dst, uint32_t code)
 {
-    static_assert_no_msg(sizeof(uint32_t) == 4);
-
     *reinterpret_cast<uint32_t*>(dst + writeableOffset) = code;
     return 4;
 }
@@ -8487,7 +8423,6 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 {
     uint8_t*          dst  = *dp;
     uint8_t*          odst = dst;
-    uint32_t          code = 0;
     const instruction ins  = id->idIns();
     const insFormat   fmt  = id->idInsFmt();
     const emitAttr    size = id->idOpSize();
@@ -8502,6 +8437,7 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         emitAttr elemsize;
         emitAttr datasize;
         CondImm  cimm;
+        uint32_t code;
 
         case IF_LS_1A: // XX...V..iiiiiiii iiiiiiiiiiittttt      Rt    PC imm(1MB)
         case IF_SMALLADR:
@@ -8527,7 +8463,7 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_DI_1E: // .ii.....iiiiiiii iiiiiiiiiiiddddd      Rd       simm21
             assert(id->idIsCnsReloc());
             code = emitInsCode(ins, fmt);
-            code |= insEncodeReg_Rd(id->idReg1()); // ddddd
+            code |= EncodeRegRd(id->idReg1()); // ddddd
             dst += emitOutput_Instr(dst, code);
             emitRecordRelocation(odst, id->GetAddr(), IMAGE_REL_ARM64_PAGEBASE_REL21);
             break;
@@ -8544,7 +8480,7 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(insOptsNone(id->idInsOpt()));
             assert((ins == INS_ret) || (ins == INS_br));
             code = emitInsCode(ins, fmt);
-            code |= insEncodeReg_Rn(id->idReg1()); // nnnnn
+            code |= EncodeRegRn(id->idReg1()); // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -8553,25 +8489,27 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert((ins == INS_br_tail) || (ins == INS_blr));
             emitRecordGCCall(id, dst, dst + 4);
             code = emitInsCode(ins, fmt);
-            code |= insEncodeReg_Rn(id->idReg3()); // nnnnn
+            code |= EncodeRegRn(id->idReg3()); // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_LS_2A: // .X.......X...... ......nnnnnttttt      Rt Rn
             assert(insOptsNone(id->idInsOpt()));
             code = emitInsCode(ins, fmt);
+
             if (isVectorRegister(id->idReg1()))
             {
                 code &= 0x3FFFFFFF;
-                code |= insEncodeDatasizeVLS(code, id->idOpSize()); // XX
-                code |= insEncodeReg_Vt(id->idReg1());              // ttttt
+                code |= EncodeDataSizeVLS(code, id->idOpSize()); // XX
+                code |= EncodeRegVt(id->idReg1());               // ttttt
             }
             else
             {
-                code |= insEncodeDatasizeLS(code, id->idOpSize()); // .X.......X
-                code |= insEncodeReg_Rt(id->idReg1());             // ttttt
+                code |= EncodeDatasizeLS(code, id->idOpSize()); // .X.......X
+                code |= EncodeRegRt(id->idReg1());              // ttttt
             }
-            code |= insEncodeReg_Rn(id->idReg2()); // nnnnn
+
+            code |= EncodeRegRn(id->idReg2()); // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -8580,19 +8518,21 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             imm = id->emitGetInsSC();
             assert(isValidUimm12(imm));
             code = emitInsCode(ins, fmt);
+
             if (isVectorRegister(id->idReg1()))
             {
                 code &= 0x3FFFFFFF;
-                code |= insEncodeDatasizeVLS(code, id->idOpSize()); // XX
-                code |= insEncodeReg_Vt(id->idReg1());              // ttttt
+                code |= EncodeDataSizeVLS(code, id->idOpSize()); // XX
+                code |= EncodeRegVt(id->idReg1());               // ttttt
             }
             else
             {
-                code |= insEncodeDatasizeLS(code, id->idOpSize()); // .X.......X
-                code |= insEncodeReg_Rt(id->idReg1());             // ttttt
+                code |= EncodeDatasizeLS(code, id->idOpSize()); // .X.......X
+                code |= EncodeRegRt(id->idReg1());              // ttttt
             }
+
             code |= static_cast<uint32_t>(imm) << 10; // iiiiiiiiiiii
-            code |= insEncodeReg_Rn(id->idReg2());    // nnnnn
+            code |= EncodeRegRn(id->idReg2());        // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -8601,20 +8541,21 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             imm = id->emitGetInsSC();
             assert((imm >= -256) && (imm <= 255));
             code = emitInsCode(ins, fmt);
+
             if (isVectorRegister(id->idReg1()))
             {
-                code &= 0x3FFFFFFF;                                 // clear the size bits
-                code |= insEncodeDatasizeVLS(code, id->idOpSize()); // XX
-                code |= insEncodeReg_Vt(id->idReg1());              // ttttt
+                code &= 0x3FFFFFFF;                              // clear the size bits
+                code |= EncodeDataSizeVLS(code, id->idOpSize()); // XX
+                code |= EncodeRegVt(id->idReg1());               // ttttt
             }
             else
             {
-                code |= insEncodeDatasizeLS(code, id->idOpSize()); // .X.......X
-                code |= insEncodeReg_Rt(id->idReg1());             // ttttt
+                code |= EncodeDatasizeLS(code, id->idOpSize()); // .X.......X
+                code |= EncodeRegRt(id->idReg1());              // ttttt
             }
-            code |= insEncodeIndexedOpt(id->idInsOpt());      // PP
+            code |= EncodeIndexedOpt(id->idInsOpt());      // PP
             code |= static_cast<uint32_t>(imm & 0x1ff) << 12; // iiiiiiiii
-            code |= insEncodeReg_Rn(id->idReg2());            // nnnnn
+            code |= EncodeRegRn(id->idReg2());                // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -8622,10 +8563,10 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_LS_2E: // .Q.............. ....ssnnnnnttttt      Vt Rn
             elemsize = optGetElemsize(id->idInsOpt());
             code     = emitInsCode(ins, fmt);
-            code |= insEncodeVectorsize(id->idOpSize()); // Q
-            code |= insEncodeVLSElemsize(elemsize);      // ss
-            code |= insEncodeReg_Rn(id->idReg2());       // nnnnn
-            code |= insEncodeReg_Vt(id->idReg1());       // ttttt
+            code |= EncodeVectorSize(id->idOpSize()); // Q
+            code |= EncodeVLSElemSize(elemsize);      // ss
+            code |= EncodeRegRn(id->idReg2());        // nnnnn
+            code |= EncodeRegVt(id->idReg1());        // ttttt
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -8634,50 +8575,54 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             elemsize = id->idOpSize();
             index    = id->idSmallCns();
             code     = emitInsCode(ins, fmt);
-            code |= insEncodeVLSIndex(elemsize, index); // Q xx S ss
-            code |= insEncodeReg_Rn(id->idReg2());      // nnnnn
-            code |= insEncodeReg_Vt(id->idReg1());      // ttttt
+            code |= EncodeVLSIndex(elemsize, index); // Q xx S ss
+            code |= EncodeRegRn(id->idReg2());       // nnnnn
+            code |= EncodeRegVt(id->idReg1());       // ttttt
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_LS_3A: // .X.......X.mmmmm oooS..nnnnnttttt      Rt Rn Rm ext(Rm) LSL {}
             assert(insOptsLSExtend(id->idInsOpt()));
             code = emitInsCode(ins, fmt);
+
             if (isVectorRegister(id->idReg1()))
             {
-                code &= 0x3FFFFFFF;                                 // clear the size bits
-                code |= insEncodeDatasizeVLS(code, id->idOpSize()); // XX
-                code |= insEncodeReg_Vt(id->idReg1());              // ttttt
+                code &= 0x3FFFFFFF;                              // clear the size bits
+                code |= EncodeDataSizeVLS(code, id->idOpSize()); // XX
+                code |= EncodeRegVt(id->idReg1());               // ttttt
             }
             else
             {
-                code |= insEncodeDatasizeLS(code, id->idOpSize()); // .X.......X
-                code |= insEncodeReg_Rt(id->idReg1());             // ttttt
+                code |= EncodeDatasizeLS(code, id->idOpSize()); // .X.......X
+                code |= EncodeRegRt(id->idReg1());              // ttttt
             }
-            code |= insEncodeExtend(id->idInsOpt());        // ooo
-            code |= insEncodeReg_Rn(id->idReg2());          // nnnnn
-            code |= insEncodeReg3Scale(id->idReg3Scaled()); // S
-            code |= insEncodeReg_Rm(id->idReg3());          // mmmmm
+
+            code |= EncodeExtend(id->idInsOpt());        // ooo
+            code |= EncodeRegRn(id->idReg2());           // nnnnn
+            code |= EncodeReg3Scale(id->idReg3Scaled()); // S
+            code |= EncodeRegRm(id->idReg3());           // mmmmm
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_LS_3B: // X............... .aaaaannnnnddddd      Rd Ra Rn
             assert(insOptsNone(id->idInsOpt()));
             code = emitInsCode(ins, fmt);
+
             if (isVectorRegister(id->idReg1()))
             {
-                code &= 0x3FFFFFFF;                                  // clear the size bits
-                code |= insEncodeDatasizeVPLS(code, id->idOpSize()); // XX
-                code |= insEncodeReg_Vt(id->idReg1());               // ttttt
-                code |= insEncodeReg_Va(id->idReg2());               // aaaaa
+                code &= 0x3FFFFFFF;                               // clear the size bits
+                code |= EncodeDataSizeVPLS(code, id->idOpSize()); // XX
+                code |= EncodeRegVt(id->idReg1());                // ttttt
+                code |= EncodeRegVa(id->idReg2());                // aaaaa
             }
             else
             {
-                code |= insEncodeDatasize(id->idOpSize()); // X
-                code |= insEncodeReg_Rt(id->idReg1());     // ttttt
-                code |= insEncodeReg_Ra(id->idReg2());     // aaaaa
+                code |= EncodeDataSize(id->idOpSize()); // X
+                code |= EncodeRegRt(id->idReg1());      // ttttt
+                code |= EncodeRegRa(id->idReg2());      // aaaaa
             }
-            code |= insEncodeReg_Rn(id->idReg3()); // nnnnn
+
+            code |= EncodeRegRn(id->idReg3()); // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -8686,54 +8631,56 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             imm = id->emitGetInsSC();
             assert((imm >= -64) && (imm <= 63));
             code = emitInsCode(ins, fmt);
+
             if (isVectorRegister(id->idReg1()))
             {
-                code &= 0x3FFFFFFF;                                  // clear the size bits
-                code |= insEncodeDatasizeVPLS(code, id->idOpSize()); // XX
-                code |= insEncodeReg_Vt(id->idReg1());               // ttttt
-                code |= insEncodeReg_Va(id->idReg2());               // aaaaa
+                code &= 0x3FFFFFFF;                               // clear the size bits
+                code |= EncodeDataSizeVPLS(code, id->idOpSize()); // XX
+                code |= EncodeRegVt(id->idReg1());                // ttttt
+                code |= EncodeRegVa(id->idReg2());                // aaaaa
             }
             else
             {
-                code |= insEncodeDatasize(id->idOpSize()); // X
-                code |= insEncodeReg_Rt(id->idReg1());     // ttttt
-                code |= insEncodeReg_Ra(id->idReg2());     // aaaaa
+                code |= EncodeDataSize(id->idOpSize()); // X
+                code |= EncodeRegRt(id->idReg1());      // ttttt
+                code |= EncodeRegRa(id->idReg2());      // aaaaa
             }
-            code |= insEncodePairIndexedOpt(ins, id->idInsOpt()); // PP
-            code |= static_cast<uint32_t>(imm & 0x7f) << 15;      // iiiiiiiii
-            code |= insEncodeReg_Rn(id->idReg3());                // nnnnn
+
+            code |= EncodePairIndexedOpt(ins, id->idInsOpt()); // PP
+            code |= static_cast<uint32_t>(imm & 0x7f) << 15;   // iiiiiiiii
+            code |= EncodeRegRn(id->idReg3());                 // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_LS_3D: // .X.......X.mmmmm ......nnnnnttttt      Wm Rt Rn
             code = emitInsCode(ins, fmt);
-            // Arm64 store exclusive unpredictable cases
+            // store exclusive unpredictable cases
             assert(id->idReg1() != id->idReg2());
             assert(id->idReg1() != id->idReg3());
-            code |= insEncodeDatasizeLS(code, id->idOpSize()); // X
-            code |= insEncodeReg_Rm(id->idReg1());             // mmmmm
-            code |= insEncodeReg_Rt(id->idReg2());             // ttttt
-            code |= insEncodeReg_Rn(id->idReg3());             // nnnnn
+            code |= EncodeDatasizeLS(code, id->idOpSize()); // X
+            code |= EncodeRegRm(id->idReg1());              // mmmmm
+            code |= EncodeRegRt(id->idReg2());              // ttttt
+            code |= EncodeRegRn(id->idReg3());              // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_LS_3E: // .X.........mmmmm ......nnnnnttttt      Rm Rt Rn ARMv8.1 LSE Atomics
             code = emitInsCode(ins, fmt);
-            code |= insEncodeDatasizeLS(code, id->idOpSize()); // X
-            code |= insEncodeReg_Rm(id->idReg1());             // mmmmm
-            code |= insEncodeReg_Rt(id->idReg2());             // ttttt
-            code |= insEncodeReg_Rn(id->idReg3());             // nnnnn
+            code |= EncodeDatasizeLS(code, id->idOpSize()); // X
+            code |= EncodeRegRm(id->idReg1());              // mmmmm
+            code |= EncodeRegRt(id->idReg2());              // ttttt
+            code |= EncodeRegRn(id->idReg3());              // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_LS_3F: // .Q.........mmmmm ....ssnnnnnttttt      Vt Rn Rm
             elemsize = optGetElemsize(id->idInsOpt());
             code     = emitInsCode(ins, fmt);
-            code |= insEncodeVectorsize(id->idOpSize()); // Q
-            code |= insEncodeReg_Rm(id->idReg3());       // mmmmm
-            code |= insEncodeVLSElemsize(elemsize);      // ss
-            code |= insEncodeReg_Rn(id->idReg2());       // nnnnn
-            code |= insEncodeReg_Vt(id->idReg1());       // ttttt
+            code |= EncodeVectorSize(id->idOpSize()); // Q
+            code |= EncodeRegRm(id->idReg3());        // mmmmm
+            code |= EncodeVLSElemSize(elemsize);      // ss
+            code |= EncodeRegRn(id->idReg2());        // nnnnn
+            code |= EncodeRegVt(id->idReg1());        // ttttt
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -8741,10 +8688,10 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             elemsize = id->idOpSize();
             index    = id->idSmallCns();
             code     = emitInsCode(ins, fmt);
-            code |= insEncodeVLSIndex(elemsize, index); // Q xx S ss
-            code |= insEncodeReg_Rm(id->idReg3());      // mmmmm
-            code |= insEncodeReg_Rn(id->idReg2());      // nnnnn
-            code |= insEncodeReg_Vt(id->idReg1());      // ttttt
+            code |= EncodeVLSIndex(elemsize, index); // Q xx S ss
+            code |= EncodeRegRm(id->idReg3());       // mmmmm
+            code |= EncodeRegRn(id->idReg2());       // nnnnn
+            code |= EncodeRegVt(id->idReg1());       // ttttt
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -8753,10 +8700,10 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             imm = id->emitGetInsSC();
             assert(isValidUimm12(imm));
             code = emitInsCode(ins, fmt);
-            code |= insEncodeDatasize(id->idOpSize());   // X
-            code |= insEncodeShiftImm12(id->idInsOpt()); // sh
-            code |= static_cast<uint32_t>(imm) << 10;    // iiiiiiiiiiii
-            code |= insEncodeReg_Rn(id->idReg1());       // nnnnn
+            code |= EncodeDataSize(id->idOpSize());   // X
+            code |= EncodeShiftImm12(id->idInsOpt()); // sh
+            code |= static_cast<uint32_t>(imm) << 10; // iiiiiiiiiiii
+            code |= EncodeRegRn(id->idReg1());        // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -8764,9 +8711,9 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             imm = id->emitGetInsSC();
             assert(isValidImmHWVal(imm, id->idOpSize()));
             code = emitInsCode(ins, fmt);
-            code |= insEncodeDatasize(id->idOpSize()); // X
-            code |= static_cast<uint32_t>(imm) << 5;   // hwiiiii iiiiiiiiiii
-            code |= insEncodeReg_Rd(id->idReg1());     // ddddd
+            code |= EncodeDataSize(id->idOpSize());  // X
+            code |= static_cast<uint32_t>(imm) << 5; // hwiiiii iiiiiiiiiii
+            code |= EncodeRegRd(id->idReg1());       // ddddd
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -8774,9 +8721,9 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             imm = id->emitGetInsSC();
             assert(isValidImmNRS(imm, id->idOpSize()));
             code = emitInsCode(ins, fmt);
-            code |= static_cast<uint32_t>(imm) << 10;  // Nrrrrrrssssss
-            code |= insEncodeDatasize(id->idOpSize()); // X
-            code |= insEncodeReg_Rn(id->idReg1());     // nnnnn
+            code |= static_cast<uint32_t>(imm) << 10; // Nrrrrrrssssss
+            code |= EncodeDataSize(id->idOpSize());   // X
+            code |= EncodeRegRn(id->idReg1());        // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -8784,20 +8731,20 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             imm = id->emitGetInsSC();
             assert(isValidImmNRS(imm, id->idOpSize()));
             code = emitInsCode(ins, fmt);
-            code |= static_cast<uint32_t>(imm) << 10;  // Nrrrrrrssssss
-            code |= insEncodeDatasize(id->idOpSize()); // X
-            code |= insEncodeReg_Rd(id->idReg1());     // ddddd
+            code |= static_cast<uint32_t>(imm) << 10; // Nrrrrrrssssss
+            code |= EncodeDataSize(id->idOpSize());   // X
+            code |= EncodeRegRd(id->idReg1());        // ddddd
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DI_1F: // X..........iiiii cccc..nnnnn.nzcv      Rn imm5  nzcv cond
             cimm = UnpackCondFlagsImm5Imm(id->emitGetInsSC());
             code = emitInsCode(ins, fmt);
-            code |= insEncodeDatasize(id->idOpSize()); // X
-            code |= insEncodeReg_Rn(id->idReg1());     // nnnnn
-            code |= cimm.imm5 << 16;                   // iiiii
-            code |= insEncodeFlags(cimm.flags);        // nzcv
-            code |= insEncodeCond(cimm.cond);          // cccc
+            code |= EncodeDataSize(id->idOpSize()); // X
+            code |= EncodeRegRn(id->idReg1());      // nnnnn
+            code |= cimm.imm5 << 16;                // iiiii
+            code |= EncodeFlags(cimm.flags);        // nzcv
+            code |= EncodeCond(cimm.cond);          // cccc
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -8806,11 +8753,11 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             imm = id->emitGetInsSC();
             assert(isValidUimm12(imm));
             code = emitInsCode(ins, fmt);
-            code |= insEncodeDatasize(id->idOpSize());   // X
-            code |= insEncodeShiftImm12(id->idInsOpt()); // sh
-            code |= static_cast<uint32_t>(imm) << 10;    // iiiiiiiiiiii
-            code |= insEncodeReg_Rd(id->idReg1());       // ddddd
-            code |= insEncodeReg_Rn(id->idReg2());       // nnnnn
+            code |= EncodeDataSize(id->idOpSize());   // X
+            code |= EncodeShiftImm12(id->idInsOpt()); // sh
+            code |= static_cast<uint32_t>(imm) << 10; // iiiiiiiiiiii
+            code |= EncodeRegRd(id->idReg1());        // ddddd
+            code |= EncodeRegRn(id->idReg2());        // nnnnn
             dst += emitOutput_Instr(dst, code);
 
             if (id->idIsCnsReloc())
@@ -8824,11 +8771,11 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = emitInsCode(ins, fmt);
             imm  = id->emitGetInsSC();
             assert(isValidImmShift(imm, id->idOpSize()));
-            code |= insEncodeDatasizeBF(code, id->idOpSize()); // X........X
-            code |= insEncodeReg_Rd(id->idReg1());             // ddddd
-            code |= insEncodeReg_Rn(id->idReg2());             // nnnnn
-            code |= insEncodeReg_Rm(id->idReg2());             // Reg2 also in mmmmm
-            code |= insEncodeShiftCount(imm, id->idOpSize());  // ssssss
+            code |= EncodeDataSizeBF(code, id->idOpSize()); // X........X
+            code |= EncodeRegRd(id->idReg1());              // ddddd
+            code |= EncodeRegRn(id->idReg2());              // nnnnn
+            code |= EncodeRegRm(id->idReg2());              // Reg2 also in mmmmm
+            code |= EncodeShiftCount(imm, id->idOpSize());  // ssssss
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -8836,10 +8783,10 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             imm = id->emitGetInsSC();
             assert(isValidImmNRS(imm, id->idOpSize()));
             code = emitInsCode(ins, fmt);
-            code |= static_cast<uint32_t>(imm) << 10;  // Nrrrrrrssssss
-            code |= insEncodeDatasize(id->idOpSize()); // X
-            code |= insEncodeReg_Rd(id->idReg1());     // ddddd
-            code |= insEncodeReg_Rn(id->idReg2());     // nnnnn
+            code |= static_cast<uint32_t>(imm) << 10; // Nrrrrrrssssss
+            code |= EncodeDataSize(id->idOpSize());   // X
+            code |= EncodeRegRd(id->idReg1());        // ddddd
+            code |= EncodeRegRn(id->idReg2());        // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -8874,28 +8821,28 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(isValidImmNRS(imm, id->idOpSize()));
 
             code = emitInsCode(ins, fmt);
-            code |= static_cast<uint32_t>(imm) << 10;  // Nrrrrrrssssss
-            code |= insEncodeDatasize(id->idOpSize()); // X
-            code |= insEncodeReg_Rd(id->idReg1());     // ddddd
-            code |= insEncodeReg_Rn(id->idReg2());     // nnnnn
+            code |= static_cast<uint32_t>(imm) << 10; // Nrrrrrrssssss
+            code |= EncodeDataSize(id->idOpSize());   // X
+            code |= EncodeRegRd(id->idReg1());        // ddddd
+            code |= EncodeRegRn(id->idReg2());        // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DR_1D: // X............... cccc.......ddddd      Rd       cond
             cimm = UnpackCondImm(id->emitGetInsSC());
             code = emitInsCode(ins, fmt);
-            code |= insEncodeDatasize(id->idOpSize()); // X
-            code |= insEncodeReg_Rd(id->idReg1());     // ddddd
-            code |= insEncodeInvertedCond(cimm.cond);  // cccc
+            code |= EncodeDataSize(id->idOpSize()); // X
+            code |= EncodeRegRd(id->idReg1());      // ddddd
+            code |= EncodeInvertedCond(cimm.cond);  // cccc
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DR_2A: // X..........mmmmm ......nnnnn.....         Rn Rm
             assert(insOptsNone(id->idInsOpt()));
             code = emitInsCode(ins, fmt);
-            code |= insEncodeDatasize(id->idOpSize()); // X
-            code |= insEncodeReg_Rn(id->idReg1());     // nnnnn
-            code |= insEncodeReg_Rm(id->idReg2());     // mmmmm
+            code |= EncodeDataSize(id->idOpSize()); // X
+            code |= EncodeRegRn(id->idReg1());      // nnnnn
+            code |= EncodeRegRm(id->idReg2());      // mmmmm
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -8903,11 +8850,11 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = emitInsCode(ins, fmt);
             imm  = id->emitGetInsSC();
             assert(isValidImmShift(imm, id->idOpSize()));
-            code |= insEncodeDatasize(id->idOpSize());        // X
-            code |= insEncodeShiftType(id->idInsOpt());       // sh
-            code |= insEncodeShiftCount(imm, id->idOpSize()); // ssssss
-            code |= insEncodeReg_Rn(id->idReg1());            // nnnnn
-            code |= insEncodeReg_Rm(id->idReg2());            // mmmmm
+            code |= EncodeDataSize(id->idOpSize());        // X
+            code |= EncodeShiftType(id->idInsOpt());       // sh
+            code |= EncodeShiftCount(imm, id->idOpSize()); // ssssss
+            code |= EncodeRegRn(id->idReg1());             // nnnnn
+            code |= EncodeRegRm(id->idReg2());             // mmmmm
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -8915,30 +8862,30 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = emitInsCode(ins, fmt);
             imm  = id->emitGetInsSC();
             assert((imm >= 0) && (imm <= 4));
-            code |= insEncodeDatasize(id->idOpSize()); // X
-            code |= insEncodeExtend(id->idInsOpt());   // ooo
-            code |= insEncodeExtendScale(imm);         // sss
-            code |= insEncodeReg_Rn(id->idReg1());     // nnnnn
-            code |= insEncodeReg_Rm(id->idReg2());     // mmmmm
+            code |= EncodeDataSize(id->idOpSize()); // X
+            code |= EncodeExtend(id->idInsOpt());   // ooo
+            code |= EncodeExtendScale(imm);         // sss
+            code |= EncodeRegRn(id->idReg1());      // nnnnn
+            code |= EncodeRegRm(id->idReg2());      // mmmmm
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DR_2D: // X..........nnnnn cccc..nnnnnddddd      Rd Rn    cond
             cimm = UnpackCondImm(id->emitGetInsSC());
             code = emitInsCode(ins, fmt);
-            code |= insEncodeDatasize(id->idOpSize()); // X
-            code |= insEncodeReg_Rd(id->idReg1());     // ddddd
-            code |= insEncodeReg_Rn(id->idReg2());     // nnnnn
-            code |= insEncodeReg_Rm(id->idReg2());     // mmmmm
-            code |= insEncodeInvertedCond(cimm.cond);  // cccc
+            code |= EncodeDataSize(id->idOpSize()); // X
+            code |= EncodeRegRd(id->idReg1());      // ddddd
+            code |= EncodeRegRn(id->idReg2());      // nnnnn
+            code |= EncodeRegRm(id->idReg2());      // mmmmm
+            code |= EncodeInvertedCond(cimm.cond);  // cccc
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DR_2E: // X..........mmmmm ...........ddddd      Rd    Rm
             code = emitInsCode(ins, fmt);
-            code |= insEncodeDatasize(id->idOpSize()); // X
-            code |= insEncodeReg_Rd(id->idReg1());     // ddddd
-            code |= insEncodeReg_Rm(id->idReg2());     // mmmmm
+            code |= EncodeDataSize(id->idOpSize()); // X
+            code |= EncodeRegRd(id->idReg1());      // ddddd
+            code |= EncodeRegRm(id->idReg2());      // mmmmm
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -8946,51 +8893,53 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = emitInsCode(ins, fmt);
             imm  = id->emitGetInsSC();
             assert(isValidImmShift(imm, id->idOpSize()));
-            code |= insEncodeDatasize(id->idOpSize());        // X
-            code |= insEncodeShiftType(id->idInsOpt());       // sh
-            code |= insEncodeShiftCount(imm, id->idOpSize()); // ssssss
-            code |= insEncodeReg_Rd(id->idReg1());            // ddddd
-            code |= insEncodeReg_Rm(id->idReg2());            // mmmmm
+            code |= EncodeDataSize(id->idOpSize());        // X
+            code |= EncodeShiftType(id->idInsOpt());       // sh
+            code |= EncodeShiftCount(imm, id->idOpSize()); // ssssss
+            code |= EncodeRegRd(id->idReg1());             // ddddd
+            code |= EncodeRegRm(id->idReg2());             // mmmmm
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DR_2G: // X............... .....xnnnnnddddd      Rd Rn
             code = emitInsCode(ins, fmt);
-            code |= insEncodeDatasize(id->idOpSize()); // X
+            code |= EncodeDataSize(id->idOpSize()); // X
+
             if ((ins == INS_rev) && (size == EA_8BYTE))
             {
                 code |= 0x00000400;
             }
-            code |= insEncodeReg_Rd(id->idReg1()); // ddddd
-            code |= insEncodeReg_Rn(id->idReg2()); // nnnnn
+
+            code |= EncodeRegRd(id->idReg1()); // ddddd
+            code |= EncodeRegRn(id->idReg2()); // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DR_2H: // X........X...... ......nnnnnddddd      Rd Rn
             code = emitInsCode(ins, fmt);
-            code |= insEncodeDatasizeBF(code, id->idOpSize()); // X........X
-            code |= insEncodeReg_Rd(id->idReg1());             // ddddd
-            code |= insEncodeReg_Rn(id->idReg2());             // nnnnn
+            code |= EncodeDataSizeBF(code, id->idOpSize()); // X........X
+            code |= EncodeRegRd(id->idReg1());              // ddddd
+            code |= EncodeRegRn(id->idReg2());              // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DR_2I: // X..........mmmmm cccc..nnnnn.nzcv      Rn Rm    nzcv cond
             cimm = UnpackCondFlagsImm(id->emitGetInsSC());
             code = emitInsCode(ins, fmt);
-            code |= insEncodeDatasize(id->idOpSize()); // X
-            code |= insEncodeReg_Rn(id->idReg1());     // nnnnn
-            code |= insEncodeReg_Rm(id->idReg2());     // mmmmm
-            code |= insEncodeFlags(cimm.flags);        // nzcv
-            code |= insEncodeCond(cimm.cond);          // cccc
+            code |= EncodeDataSize(id->idOpSize()); // X
+            code |= EncodeRegRn(id->idReg1());      // nnnnn
+            code |= EncodeRegRm(id->idReg2());      // mmmmm
+            code |= EncodeFlags(cimm.flags);        // nzcv
+            code |= EncodeCond(cimm.cond);          // cccc
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DR_3A: // X..........mmmmm ......nnnnnmmmmm      Rd Rn Rm
             code = emitInsCode(ins, fmt);
-            code |= insEncodeDatasize(id->idOpSize()); // X
-            code |= insEncodeReg_Rd(id->idReg1());     // ddddd
-            code |= insEncodeReg_Rn(id->idReg2());     // nnnnn
-            code |= insEncodeReg_Rm(id->idReg3());     // mmmmm
+            code |= EncodeDataSize(id->idOpSize()); // X
+            code |= EncodeRegRd(id->idReg1());      // ddddd
+            code |= EncodeRegRn(id->idReg2());      // nnnnn
+            code |= EncodeRegRm(id->idReg3());      // mmmmm
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -8998,12 +8947,12 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = emitInsCode(ins, fmt);
             imm  = id->emitGetInsSC();
             assert(isValidImmShift(imm, id->idOpSize()));
-            code |= insEncodeDatasize(id->idOpSize());        // X
-            code |= insEncodeReg_Rd(id->idReg1());            // ddddd
-            code |= insEncodeReg_Rn(id->idReg2());            // nnnnn
-            code |= insEncodeReg_Rm(id->idReg3());            // mmmmm
-            code |= insEncodeShiftType(id->idInsOpt());       // sh
-            code |= insEncodeShiftCount(imm, id->idOpSize()); // ssssss
+            code |= EncodeDataSize(id->idOpSize());        // X
+            code |= EncodeRegRd(id->idReg1());             // ddddd
+            code |= EncodeRegRn(id->idReg2());             // nnnnn
+            code |= EncodeRegRm(id->idReg3());             // mmmmm
+            code |= EncodeShiftType(id->idInsOpt());       // sh
+            code |= EncodeShiftCount(imm, id->idOpSize()); // ssssss
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -9011,23 +8960,23 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = emitInsCode(ins, fmt);
             imm  = id->emitGetInsSC();
             assert((imm >= 0) && (imm <= 4));
-            code |= insEncodeDatasize(id->idOpSize()); // X
-            code |= insEncodeExtend(id->idInsOpt());   // ooo
-            code |= insEncodeExtendScale(imm);         // sss
-            code |= insEncodeReg_Rd(id->idReg1());     // ddddd
-            code |= insEncodeReg_Rn(id->idReg2());     // nnnnn
-            code |= insEncodeReg_Rm(id->idReg3());     // mmmmm
+            code |= EncodeDataSize(id->idOpSize()); // X
+            code |= EncodeExtend(id->idInsOpt());   // ooo
+            code |= EncodeExtendScale(imm);         // sss
+            code |= EncodeRegRd(id->idReg1());      // ddddd
+            code |= EncodeRegRn(id->idReg2());      // nnnnn
+            code |= EncodeRegRm(id->idReg3());      // mmmmm
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DR_3D: // X..........mmmmm cccc..nnnnnddddd      Rd Rn Rm cond
             cimm = UnpackCondImm(id->emitGetInsSC());
             code = emitInsCode(ins, fmt);
-            code |= insEncodeDatasize(id->idOpSize()); // X
-            code |= insEncodeReg_Rd(id->idReg1());     // ddddd
-            code |= insEncodeReg_Rn(id->idReg2());     // nnnnn
-            code |= insEncodeReg_Rm(id->idReg3());     // mmmmm
-            code |= insEncodeCond(cimm.cond);          // cccc
+            code |= EncodeDataSize(id->idOpSize()); // X
+            code |= EncodeRegRd(id->idReg1());      // ddddd
+            code |= EncodeRegRn(id->idReg2());      // nnnnn
+            code |= EncodeRegRm(id->idReg3());      // mmmmm
+            code |= EncodeCond(cimm.cond);          // cccc
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -9035,21 +8984,21 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code = emitInsCode(ins, fmt);
             imm  = id->emitGetInsSC();
             assert(isValidImmShift(imm, id->idOpSize()));
-            code |= insEncodeDatasizeBF(code, id->idOpSize()); // X........X
-            code |= insEncodeReg_Rd(id->idReg1());             // ddddd
-            code |= insEncodeReg_Rn(id->idReg2());             // nnnnn
-            code |= insEncodeReg_Rm(id->idReg3());             // mmmmm
-            code |= insEncodeShiftCount(imm, id->idOpSize());  // ssssss
+            code |= EncodeDataSizeBF(code, id->idOpSize()); // X........X
+            code |= EncodeRegRd(id->idReg1());              // ddddd
+            code |= EncodeRegRn(id->idReg2());              // nnnnn
+            code |= EncodeRegRm(id->idReg3());              // mmmmm
+            code |= EncodeShiftCount(imm, id->idOpSize());  // ssssss
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DR_4A: // X..........mmmmm .aaaaannnnnmmmmm      Rd Rn Rm Ra
             code = emitInsCode(ins, fmt);
-            code |= insEncodeDatasize(id->idOpSize()); // X
-            code |= insEncodeReg_Rd(id->idReg1());     // ddddd
-            code |= insEncodeReg_Rn(id->idReg2());     // nnnnn
-            code |= insEncodeReg_Rm(id->idReg3());     // mmmmm
-            code |= insEncodeReg_Ra(id->idReg4());     // aaaaa
+            code |= EncodeDataSize(id->idOpSize()); // X
+            code |= EncodeRegRd(id->idReg1());      // ddddd
+            code |= EncodeRegRn(id->idReg2());      // nnnnn
+            code |= EncodeRegRm(id->idReg3());      // mmmmm
+            code |= EncodeRegRa(id->idReg4());      // aaaaa
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -9057,9 +9006,9 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             imm      = id->emitGetInsSC();
             elemsize = id->idOpSize();
             code     = emitInsCode(ins, fmt);
-            code |= insEncodeFloatElemsize(elemsize); // X
-            code |= ((uint32_t)imm << 13);            // iiiii iii
-            code |= insEncodeReg_Vd(id->idReg1());    // ddddd
+            code |= EncodeFloatElemSize(elemsize);    // X
+            code |= static_cast<uint32_t>(imm) << 13; // iiiii iii
+            code |= EncodeRegVd(id->idReg1());        // ddddd
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -9068,6 +9017,7 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             immShift = (id->emitGetInsSC() & 0x700) >> 8;
             elemsize = optGetElemsize(id->idInsOpt());
             cmode    = 0;
+
             switch (elemsize)
             {
                 case EA_1BYTE:
@@ -9096,27 +9046,30 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             }
 
             code = emitInsCode(ins, fmt);
-            code |= insEncodeVectorsize(id->idOpSize());
+            code |= EncodeVectorSize(id->idOpSize());
+
             if (((ins == INS_fmov) || (ins == INS_movi)) && (elemsize == EA_8BYTE))
             {
                 code |= 0x20000000;
             }
+
             if (ins != INS_fmov)
             {
                 assert((cmode >= 0) && (cmode <= 0xF));
                 code |= (cmode << 12); // cmod
             }
+
             code |= (((uint32_t)imm >> 5) << 16);  // iii
             code |= (((uint32_t)imm & 0x1f) << 5); // iiiii
-            code |= insEncodeReg_Vd(id->idReg1()); // ddddd
+            code |= EncodeRegVd(id->idReg1());     // ddddd
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DV_1C: // .........X...... ......nnnnn.....      Vn #0.0    (fcmp - with zero)
             elemsize = id->idOpSize();
             code     = emitInsCode(ins, fmt);
-            code |= insEncodeFloatElemsize(elemsize); // X
-            code |= insEncodeReg_Vn(id->idReg1());    // nnnnn
+            code |= EncodeFloatElemSize(elemsize); // X
+            code |= EncodeRegVn(id->idReg1());     // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -9124,11 +9077,11 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_DV_2R: // .Q.......X...... ......nnnnnddddd      Sd Vn      (fmaxnmv, fmaxv, fminnmv, fminv)
             elemsize = optGetElemsize(id->idInsOpt());
             code     = emitInsCode(ins, fmt);
-            code |= insEncodeVectorsize(id->idOpSize()); // Q
+            code |= EncodeVectorSize(id->idOpSize()); // Q
+
             if ((ins == INS_fcvtl) || (ins == INS_fcvtl2) || (ins == INS_fcvtn) || (ins == INS_fcvtn2))
             {
-                // fcvtl{2} and fcvtn{2} encode the element size as
-                // esize = 16 << UInt(sz)
+                // fcvtl{2} and fcvtn{2} encode the element size as "esize = 16 << UInt(sz)"
                 if (elemsize == EA_4BYTE)
                 {
                     code |= 0x00400000; // X
@@ -9140,10 +9093,11 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             }
             else
             {
-                code |= insEncodeFloatElemsize(elemsize); // X
+                code |= EncodeFloatElemSize(elemsize); // X
             }
-            code |= insEncodeReg_Vd(id->idReg1()); // ddddd
-            code |= insEncodeReg_Vn(id->idReg2()); // nnnnn
+
+            code |= EncodeRegVd(id->idReg1()); // ddddd
+            code |= EncodeRegVn(id->idReg2()); // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -9151,15 +9105,17 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             elemsize = id->idOpSize();
             index    = id->emitGetInsSC();
             datasize = (elemsize == EA_8BYTE) ? EA_16BYTE : EA_8BYTE;
+
             if (ins == INS_smov)
             {
                 datasize = EA_16BYTE;
             }
+
             code = emitInsCode(ins, fmt);
-            code |= insEncodeVectorsize(datasize);         // Q
-            code |= insEncodeVectorIndex(elemsize, index); // iiiii
-            code |= insEncodeReg_Rd(id->idReg1());         // ddddd
-            code |= insEncodeReg_Vn(id->idReg2());         // nnnnn
+            code |= EncodeVectorSize(datasize);         // Q
+            code |= EncodeVectorIndex(elemsize, index); // iiiii
+            code |= EncodeRegRd(id->idReg1());          // ddddd
+            code |= EncodeRegVn(id->idReg2());          // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -9176,11 +9132,12 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 elemsize = id->idOpSize();
                 index    = id->emitGetInsSC();
             }
+
             code = emitInsCode(ins, fmt);
-            code |= insEncodeVectorsize(datasize);         // Q
-            code |= insEncodeVectorIndex(elemsize, index); // iiiii
-            code |= insEncodeReg_Vd(id->idReg1());         // ddddd
-            code |= insEncodeReg_Rn(id->idReg2());         // nnnnn
+            code |= EncodeVectorSize(datasize);         // Q
+            code |= EncodeVectorIndex(elemsize, index); // iiiii
+            code |= EncodeRegVd(id->idReg1());          // ddddd
+            code |= EncodeRegRn(id->idReg2());          // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -9188,10 +9145,10 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             index    = id->emitGetInsSC();
             elemsize = optGetElemsize(id->idInsOpt());
             code     = emitInsCode(ins, fmt);
-            code |= insEncodeVectorsize(id->idOpSize());   // Q
-            code |= insEncodeVectorIndex(elemsize, index); // iiiii
-            code |= insEncodeReg_Vd(id->idReg1());         // ddddd
-            code |= insEncodeReg_Vn(id->idReg2());         // nnnnn
+            code |= EncodeVectorSize(id->idOpSize());   // Q
+            code |= EncodeVectorIndex(elemsize, index); // iiiii
+            code |= EncodeRegVd(id->idReg1());          // ddddd
+            code |= EncodeRegVn(id->idReg2());          // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -9199,9 +9156,9 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             index    = id->emitGetInsSC();
             elemsize = id->idOpSize();
             code     = emitInsCode(ins, fmt);
-            code |= insEncodeVectorIndex(elemsize, index); // iiiii
-            code |= insEncodeReg_Vd(id->idReg1());         // ddddd
-            code |= insEncodeReg_Vn(id->idReg2());         // nnnnn
+            code |= EncodeVectorIndex(elemsize, index); // iiiii
+            code |= EncodeRegVd(id->idReg1());          // ddddd
+            code |= EncodeRegVn(id->idReg2());          // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -9211,63 +9168,63 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             index    = (imm >> 4) & 0xf;
             index2   = imm & 0xf;
             code     = emitInsCode(ins, fmt);
-            code |= insEncodeVectorIndex(elemsize, index);   // iiiii
-            code |= insEncodeVectorIndex2(elemsize, index2); // jjjj
-            code |= insEncodeReg_Vd(id->idReg1());           // ddddd
-            code |= insEncodeReg_Vn(id->idReg2());           // nnnnn
+            code |= EncodeVectorIndex(elemsize, index);   // iiiii
+            code |= EncodeVectorIndex2(elemsize, index2); // jjjj
+            code |= EncodeRegVd(id->idReg1());            // ddddd
+            code |= EncodeRegVn(id->idReg2());            // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DV_2G: // .........X...... ......nnnnnddddd      Vd Vn      (fmov, fcvtXX - register)
             elemsize = id->idOpSize();
             code     = emitInsCode(ins, fmt);
-            code |= insEncodeFloatElemsize(elemsize); // X
-            code |= insEncodeReg_Vd(id->idReg1());    // ddddd
-            code |= insEncodeReg_Vn(id->idReg2());    // nnnnn
+            code |= EncodeFloatElemSize(elemsize); // X
+            code |= EncodeRegVd(id->idReg1());     // ddddd
+            code |= EncodeRegVn(id->idReg2());     // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DV_2H: // X........X...... ......nnnnnddddd      Rd Vn      (fmov - to general)
             elemsize = id->idOpSize();
             code     = emitInsCode(ins, fmt);
-            code |= insEncodeConvertOpt(fmt, id->idInsOpt()); // X   X
-            code |= insEncodeReg_Rd(id->idReg1());            // ddddd
-            code |= insEncodeReg_Vn(id->idReg2());            // nnnnn
+            code |= EncodeConvertOpt(fmt, id->idInsOpt()); // X   X
+            code |= EncodeRegRd(id->idReg1());             // ddddd
+            code |= EncodeRegVn(id->idReg2());             // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DV_2I: // X........X...... ......nnnnnddddd      Vd Rn      (fmov - from general)
             elemsize = id->idOpSize();
             code     = emitInsCode(ins, fmt);
-            code |= insEncodeConvertOpt(fmt, id->idInsOpt()); // X   X
-            code |= insEncodeReg_Vd(id->idReg1());            // ddddd
-            code |= insEncodeReg_Rn(id->idReg2());            // nnnnn
+            code |= EncodeConvertOpt(fmt, id->idInsOpt()); // X   X
+            code |= EncodeRegVd(id->idReg1());             // ddddd
+            code |= EncodeRegRn(id->idReg2());             // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DV_2J: // ........SS.....D D.....nnnnnddddd      Vd Vn      (fcvt)
             code = emitInsCode(ins, fmt);
-            code |= insEncodeConvertOpt(fmt, id->idInsOpt()); // SS DD
-            code |= insEncodeReg_Vd(id->idReg1());            // ddddd
-            code |= insEncodeReg_Vn(id->idReg2());            // nnnnn
+            code |= EncodeConvertOpt(fmt, id->idInsOpt()); // SS DD
+            code |= EncodeRegVd(id->idReg1());             // ddddd
+            code |= EncodeRegVn(id->idReg2());             // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DV_2K: // .........X.mmmmm ......nnnnn.....      Vn Vm      (fcmp)
             elemsize = id->idOpSize();
             code     = emitInsCode(ins, fmt);
-            code |= insEncodeFloatElemsize(elemsize); // X
-            code |= insEncodeReg_Vn(id->idReg1());    // nnnnn
-            code |= insEncodeReg_Vm(id->idReg2());    // mmmmm
+            code |= EncodeFloatElemSize(elemsize); // X
+            code |= EncodeRegVn(id->idReg1());     // nnnnn
+            code |= EncodeRegVm(id->idReg2());     // mmmmm
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DV_2L: // ........XX...... ......nnnnnddddd      Vd Vn      (abs, neg - scalar)
             elemsize = id->idOpSize();
             code     = emitInsCode(ins, fmt);
-            code |= insEncodeElemsize(elemsize);   // XX
-            code |= insEncodeReg_Vd(id->idReg1()); // ddddd
-            code |= insEncodeReg_Vn(id->idReg2()); // nnnnn
+            code |= EncodeElemSize(elemsize);  // XX
+            code |= EncodeRegVd(id->idReg1()); // ddddd
+            code |= EncodeRegVn(id->idReg2()); // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -9275,10 +9232,10 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_DV_2T: // .Q......XX...... ......nnnnnddddd   Sd Vn  (addv, saddlv, smaxv, sminv, uaddlv, umaxv, uminv)
             elemsize = optGetElemsize(id->idInsOpt());
             code     = emitInsCode(ins, fmt);
-            code |= insEncodeVectorsize(id->idOpSize()); // Q
-            code |= insEncodeElemsize(elemsize);         // XX
-            code |= insEncodeReg_Vd(id->idReg1());       // ddddd
-            code |= insEncodeReg_Vn(id->idReg2());       // nnnnn
+            code |= EncodeVectorSize(id->idOpSize()); // Q
+            code |= EncodeElemSize(elemsize);         // XX
+            code |= EncodeRegVd(id->idReg1());        // ddddd
+            code |= EncodeRegVn(id->idReg2());        // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -9286,9 +9243,9 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             imm      = id->emitGetInsSC();
             elemsize = id->idOpSize();
             code     = emitInsCode(ins, fmt);
-            code |= insEncodeVectorShift(elemsize, IsVectorRightShiftIns(ins) ? -imm : imm); // iiiiiii
-            code |= insEncodeReg_Vd(id->idReg1());                                           // ddddd
-            code |= insEncodeReg_Vn(id->idReg2());                                           // nnnnn
+            code |= EncodeVectorShift(elemsize, IsVectorRightShiftIns(ins) ? -imm : imm); // iiiiiii
+            code |= EncodeRegVd(id->idReg1());                                            // ddddd
+            code |= EncodeRegVn(id->idReg2());                                            // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -9296,55 +9253,54 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             imm      = id->emitGetInsSC();
             elemsize = optGetElemsize(id->idInsOpt());
             code     = emitInsCode(ins, fmt);
-            code |= insEncodeVectorsize(id->idOpSize());                                     // Q
-            code |= insEncodeVectorShift(elemsize, IsVectorRightShiftIns(ins) ? -imm : imm); // iiiiiii
-            code |= insEncodeReg_Vd(id->idReg1());                                           // ddddd
-            code |= insEncodeReg_Vn(id->idReg2());                                           // nnnnn
+            code |= EncodeVectorSize(id->idOpSize());                                     // Q
+            code |= EncodeVectorShift(elemsize, IsVectorRightShiftIns(ins) ? -imm : imm); // iiiiiii
+            code |= EncodeRegVd(id->idReg1());                                            // ddddd
+            code |= EncodeRegVn(id->idReg2());                                            // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DV_2P: // ............... ......nnnnnddddd      Vd Vn      (aes*, sha1su1)
             elemsize = optGetElemsize(id->idInsOpt());
             code     = emitInsCode(ins, fmt);
-            code |= insEncodeReg_Vd(id->idReg1()); // ddddd
-            code |= insEncodeReg_Vn(id->idReg2()); // nnnnn
+            code |= EncodeRegVd(id->idReg1()); // ddddd
+            code |= EncodeRegVn(id->idReg2()); // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
-        case IF_DV_2Q: // .........X...... ......nnnnnddddd      Vd Vn      (faddp, fmaxnmp, fmaxp, fminnmp,
-                       // fminp - scalar)
+        case IF_DV_2Q: // .........X...... ......nnnnnddddd  Vd Vn (faddp, fmaxnmp, fmaxp, fminnmp, fminp - scalar)
             elemsize = optGetElemsize(id->idInsOpt());
             code     = emitInsCode(ins, fmt);
-            code |= insEncodeFloatElemsize(elemsize); // X
-            code |= insEncodeReg_Vd(id->idReg1());    // ddddd
-            code |= insEncodeReg_Vn(id->idReg2());    // nnnnn
+            code |= EncodeFloatElemSize(elemsize); // X
+            code |= EncodeRegVd(id->idReg1());     // ddddd
+            code |= EncodeRegVn(id->idReg2());     // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DV_2S: // ........XX...... ......nnnnnddddd      Sd Vn      (addp - scalar)
             elemsize = optGetElemsize(id->idInsOpt());
             code     = emitInsCode(ins, fmt);
-            code |= insEncodeElemsize(elemsize);   // XX
-            code |= insEncodeReg_Vd(id->idReg1()); // ddddd
-            code |= insEncodeReg_Vn(id->idReg2()); // nnnnn
+            code |= EncodeElemSize(elemsize);  // XX
+            code |= EncodeRegVd(id->idReg1()); // ddddd
+            code |= EncodeRegVn(id->idReg2()); // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DV_2U: // ................ ......nnnnnddddd      Sd Sn   (sha1h)
             code = emitInsCode(ins, fmt);
-            code |= insEncodeReg_Vd(id->idReg1()); // ddddd
-            code |= insEncodeReg_Vn(id->idReg2()); // nnnnn
+            code |= EncodeRegVd(id->idReg1()); // ddddd
+            code |= EncodeRegVn(id->idReg2()); // nnnnn
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DV_3A: // .Q......XX.mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
             code     = emitInsCode(ins, fmt);
             elemsize = optGetElemsize(id->idInsOpt());
-            code |= insEncodeVectorsize(id->idOpSize()); // Q
-            code |= insEncodeElemsize(elemsize);         // XX
-            code |= insEncodeReg_Vd(id->idReg1());       // ddddd
-            code |= insEncodeReg_Vn(id->idReg2());       // nnnnn
-            code |= insEncodeReg_Vm(id->idReg3());       // mmmmm
+            code |= EncodeVectorSize(id->idOpSize()); // Q
+            code |= EncodeElemSize(elemsize);         // XX
+            code |= EncodeRegVd(id->idReg1());        // ddddd
+            code |= EncodeRegVn(id->idReg2());        // nnnnn
+            code |= EncodeRegVm(id->idReg3());        // mmmmm
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -9353,23 +9309,23 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             imm      = id->emitGetInsSC();
             elemsize = optGetElemsize(id->idInsOpt());
             assert(Arm64Imm::IsVecIndex(imm, EA_16BYTE, elemsize));
-            code |= insEncodeVectorsize(id->idOpSize());    // Q
-            code |= insEncodeElemsize(elemsize);            // XX
-            code |= insEncodeVectorIndexLMH(elemsize, imm); // LM H
-            code |= insEncodeReg_Vd(id->idReg1());          // ddddd
-            code |= insEncodeReg_Vn(id->idReg2());          // nnnnn
-            code |= insEncodeReg_Vm(id->idReg3());          // mmmmm
+            code |= EncodeVectorSize(id->idOpSize());    // Q
+            code |= EncodeElemSize(elemsize);            // XX
+            code |= EncodeVectorIndexLMH(elemsize, imm); // LM H
+            code |= EncodeRegVd(id->idReg1());           // ddddd
+            code |= EncodeRegVn(id->idReg2());           // nnnnn
+            code |= EncodeRegVm(id->idReg3());           // mmmmm
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DV_3B: // .Q.......X.mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
             code     = emitInsCode(ins, fmt);
             elemsize = optGetElemsize(id->idInsOpt());
-            code |= insEncodeVectorsize(id->idOpSize()); // Q
-            code |= insEncodeFloatElemsize(elemsize);    // X
-            code |= insEncodeReg_Vd(id->idReg1());       // ddddd
-            code |= insEncodeReg_Vn(id->idReg2());       // nnnnn
-            code |= insEncodeReg_Vm(id->idReg3());       // mmmmm
+            code |= EncodeVectorSize(id->idOpSize()); // Q
+            code |= EncodeFloatElemSize(elemsize);    // X
+            code |= EncodeRegVd(id->idReg1());        // ddddd
+            code |= EncodeRegVn(id->idReg2());        // nnnnn
+            code |= EncodeRegVm(id->idReg3());        // mmmmm
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -9378,30 +9334,30 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             imm      = id->emitGetInsSC();
             elemsize = optGetElemsize(id->idInsOpt());
             assert(Arm64Imm::IsVecIndex(imm, EA_16BYTE, elemsize));
-            code |= insEncodeVectorsize(id->idOpSize()); // Q
-            code |= insEncodeFloatElemsize(elemsize);    // X
-            code |= insEncodeFloatIndex(elemsize, imm);  // L H
-            code |= insEncodeReg_Vd(id->idReg1());       // ddddd
-            code |= insEncodeReg_Vn(id->idReg2());       // nnnnn
-            code |= insEncodeReg_Vm(id->idReg3());       // mmmmm
+            code |= EncodeVectorSize(id->idOpSize()); // Q
+            code |= EncodeFloatElemSize(elemsize);    // X
+            code |= EncodeFloatIndex(elemsize, imm);  // L H
+            code |= EncodeRegVd(id->idReg1());        // ddddd
+            code |= EncodeRegVn(id->idReg2());        // nnnnn
+            code |= EncodeRegVm(id->idReg3());        // mmmmm
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DV_3C: // .Q.........mmmmm ......nnnnnddddd      Vd Vn Vm   (vector)
             code = emitInsCode(ins, fmt);
-            code |= insEncodeVectorsize(id->idOpSize()); // Q
-            code |= insEncodeReg_Vd(id->idReg1());       // ddddd
-            code |= insEncodeReg_Vn(id->idReg2());       // nnnnn
-            code |= insEncodeReg_Vm(id->idReg3());       // mmmmm
+            code |= EncodeVectorSize(id->idOpSize()); // Q
+            code |= EncodeRegVd(id->idReg1());        // ddddd
+            code |= EncodeRegVn(id->idReg2());        // nnnnn
+            code |= EncodeRegVm(id->idReg3());        // mmmmm
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DV_3D: // .........X.mmmmm ......nnnnnddddd      Vd Vn Vm   (scalar)
             code = emitInsCode(ins, fmt);
-            code |= insEncodeFloatElemsize(id->idOpSize()); // X
-            code |= insEncodeReg_Vd(id->idReg1());          // ddddd
-            code |= insEncodeReg_Vn(id->idReg2());          // nnnnn
-            code |= insEncodeReg_Vm(id->idReg3());          // mmmmm
+            code |= EncodeFloatElemSize(id->idOpSize()); // X
+            code |= EncodeRegVd(id->idReg1());           // ddddd
+            code |= EncodeRegVn(id->idReg2());           // nnnnn
+            code |= EncodeRegVm(id->idReg3());           // mmmmm
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -9410,21 +9366,21 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             imm      = id->emitGetInsSC();
             elemsize = id->idOpSize();
             assert(Arm64Imm::IsVecIndex(imm, EA_16BYTE, elemsize));
-            code |= insEncodeFloatElemsize(elemsize);   // X
-            code |= insEncodeFloatIndex(elemsize, imm); // L H
-            code |= insEncodeReg_Vd(id->idReg1());      // ddddd
-            code |= insEncodeReg_Vn(id->idReg2());      // nnnnn
-            code |= insEncodeReg_Vm(id->idReg3());      // mmmmm
+            code |= EncodeFloatElemSize(elemsize);   // X
+            code |= EncodeFloatIndex(elemsize, imm); // L H
+            code |= EncodeRegVd(id->idReg1());       // ddddd
+            code |= EncodeRegVn(id->idReg2());       // nnnnn
+            code |= EncodeRegVm(id->idReg3());       // mmmmm
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DV_3E: // DV_3E   ........XX.mmmmm ......nnnnnddddd      Vd Vn Vm   (scalar)
             code     = emitInsCode(ins, fmt);
             elemsize = id->idOpSize();
-            code |= insEncodeElemsize(elemsize);   // XX
-            code |= insEncodeReg_Vd(id->idReg1()); // ddddd
-            code |= insEncodeReg_Vn(id->idReg2()); // nnnnn
-            code |= insEncodeReg_Vm(id->idReg3()); // mmmmm
+            code |= EncodeElemSize(elemsize);  // XX
+            code |= EncodeRegVd(id->idReg1()); // ddddd
+            code |= EncodeRegVn(id->idReg2()); // nnnnn
+            code |= EncodeRegVm(id->idReg3()); // mmmmm
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -9433,41 +9389,41 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             imm      = id->emitGetInsSC();
             elemsize = id->idOpSize();
             assert(Arm64Imm::IsVecIndex(imm, EA_16BYTE, elemsize));
-            code |= insEncodeElemsize(elemsize);            // XX
-            code |= insEncodeVectorIndexLMH(elemsize, imm); // LM H
-            code |= insEncodeReg_Vd(id->idReg1());          // ddddd
-            code |= insEncodeReg_Vn(id->idReg2());          // nnnnn
-            code |= insEncodeReg_Vm(id->idReg3());          // mmmmm
+            code |= EncodeElemSize(elemsize);            // XX
+            code |= EncodeVectorIndexLMH(elemsize, imm); // LM H
+            code |= EncodeRegVd(id->idReg1());           // ddddd
+            code |= EncodeRegVn(id->idReg2());           // nnnnn
+            code |= EncodeRegVm(id->idReg3());           // mmmmm
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DV_3F: // ...........mmmmm ......nnnnnddddd      Vd Vn Vm   (vector) - source dest regs overlap
             code = emitInsCode(ins, fmt);
-            code |= insEncodeReg_Vd(id->idReg1()); // ddddd
-            code |= insEncodeReg_Vn(id->idReg2()); // nnnnn
-            code |= insEncodeReg_Vm(id->idReg3()); // mmmmm
+            code |= EncodeRegVd(id->idReg1()); // ddddd
+            code |= EncodeRegVn(id->idReg2()); // nnnnn
+            code |= EncodeRegVm(id->idReg3()); // mmmmm
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DV_3G: // .Q.........mmmmm .iiii.nnnnnddddd      Vd Vn Vm imm (vector)
             imm  = id->emitGetInsSC();
             code = emitInsCode(ins, fmt);
-            code |= insEncodeVectorsize(id->idOpSize()); // Q
-            code |= insEncodeReg_Vm(id->idReg3());       // mmmmm
-            code |= ((uint32_t)imm << 11);               // iiii
-            code |= insEncodeReg_Vn(id->idReg2());       // nnnnn
-            code |= insEncodeReg_Vd(id->idReg1());       // ddddd
+            code |= EncodeVectorSize(id->idOpSize()); // Q
+            code |= EncodeRegVm(id->idReg3());        // mmmmm
+            code |= static_cast<uint32_t>(imm) << 11; // iiii
+            code |= EncodeRegVn(id->idReg2());        // nnnnn
+            code |= EncodeRegVd(id->idReg1());        // ddddd
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_DV_4A: // .........X.mmmmm .aaaaannnnnddddd      Vd Va Vn Vm (scalar)
             code     = emitInsCode(ins, fmt);
             elemsize = id->idOpSize();
-            code |= insEncodeFloatElemsize(elemsize); // X
-            code |= insEncodeReg_Vd(id->idReg1());    // ddddd
-            code |= insEncodeReg_Vn(id->idReg2());    // nnnnn
-            code |= insEncodeReg_Vm(id->idReg3());    // mmmmm
-            code |= insEncodeReg_Va(id->idReg4());    // aaaaa
+            code |= EncodeFloatElemSize(elemsize); // X
+            code |= EncodeRegVd(id->idReg1());     // ddddd
+            code |= EncodeRegVn(id->idReg2());     // nnnnn
+            code |= EncodeRegVm(id->idReg3());     // mmmmm
+            code |= EncodeRegVa(id->idReg4());     // aaaaa
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -9480,7 +9436,7 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             imm = id->emitGetInsSC();
             assert(isValidUimm16(imm));
             code = emitInsCode(ins, fmt);
-            code |= ((uint32_t)imm << 5); // iiiii iiiiiiiiiii
+            code |= static_cast<uint32_t>(imm) << 5; // iiiii iiiiiiiiiii
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -9488,14 +9444,14 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             imm = id->emitGetInsSC();
             assert((imm >= 0) && (imm <= 15));
             code = emitInsCode(ins, fmt);
-            code |= ((uint32_t)imm << 8); // bbbb
+            code |= static_cast<uint32_t>(imm) << 8; // bbbb
             dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_SR_1A: // ................ ...........ttttt      Rt       (dc zva)
             assert(insOptsNone(id->idInsOpt()));
             code = emitInsCode(ins, fmt);
-            code |= insEncodeReg_Rt(id->idReg1()); // ttttt
+            code |= EncodeRegRt(id->idReg1()); // ttttt
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -9507,9 +9463,8 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
     // We assume here that "id->idGCref()" is not GC_NONE only if the instruction described by "id" writes a
     // GC ref to register "id->idReg1()".  (It may, apparently, also not be GC_NONE in other cases, such as
     // for stores, but we ignore those cases here.)
-    if (emitInsMayWriteToGCReg(id)) // True if "id->idIns()" writes to a register than can hold GC ref.
+    if (emitInsMayWriteToGCReg(id))
     {
-        // We assume that "idReg1" is the primary destination register for all instructions
         if (id->idGCref() != GCT_NONE)
         {
             emitGCregLiveUpd(id->idGCref(), id->idReg1(), dst);
@@ -9521,8 +9476,6 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
         if (emitInsMayWriteMultipleRegs(id))
         {
-            // INS_ldp etc...
-            // "idReg2" is the secondary destination register
             if (id->idGCrefReg2() != GCT_NONE)
             {
                 emitGCregLiveUpd(id->idGCrefReg2(), id->idReg2(), dst);
@@ -9534,8 +9487,8 @@ void Arm64Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         }
     }
 
-    // Now we determine if the instruction has written to a (local variable) stack location, and either written a GC
-    // ref or overwritten one.
+    // Now we determine if the instruction has written to a (local variable) stack location,
+    // and either written a GC ref or overwritten one.
     if (id->idIsLclVar() && (id->idAddr()->isTrackedGCSlotStore || id->idAddr()->isGCArgStore))
     {
         bool isArg = id->idAddr()->isGCArgStore;
