@@ -1354,7 +1354,7 @@ const char* DisAssembler::disGetMethodFullName(size_t addr)
  *      methHnd - The method handle associated with 'addr'.
  */
 
-void DisAssembler::disSetMethod(size_t addr, CORINFO_METHOD_HANDLE methHnd)
+void DisAssembler::AddDisasmMethodAddr(size_t addr, CORINFO_METHOD_HANDLE methHnd)
 {
     if (!disComp->opts.doLateDisasm)
     {

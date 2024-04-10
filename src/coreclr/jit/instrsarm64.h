@@ -6,7 +6,7 @@
 // If you're adding a new instruction:
 // You need not only to fill in one of these macros describing the instruction, but also:
 //   * If the instruction writes to more than one destination register, update the function
-//     emitInsMayWriteMultipleRegs in emitArm64.cpp.
+//     InstrMayWriteMultipleRegs in emitArm64.cpp.
 //
 // id   - the enum name for the instruction
 // nm   - assembly name

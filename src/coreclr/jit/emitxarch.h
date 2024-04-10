@@ -33,14 +33,14 @@ public:
 #ifdef TARGET_AMD64
     bool IsLastInsCall() const
     {
-        return (emitLastIns != nullptr) && (emitLastIns->idIns() == INS_call);
+        return (lastInstr != nullptr) && (lastInstr->idIns() == INS_call);
     }
 #endif
 
     void PrologSpillParamRegsToShadowSlots();
 
 #ifdef TARGET_X86
-    void emitMarkStackLvl(unsigned stackLevel);
+    void SetStackLevel(unsigned stackLevel);
 #endif
 
     /************************************************************************/
@@ -170,15 +170,15 @@ public:
 private:
     bool UseVEXEncoding() const;
 
-    unsigned emitGetAdjustedSize(instruction ins, emitAttr attr, code_t code, bool isRR = false);
-    unsigned emitInsSizeR(instruction ins, emitAttr size, RegNum reg);
-    unsigned emitInsSizeRI(instruction ins, emitAttr size, RegNum reg, ssize_t imm);
-    unsigned emitInsSizeRR(instruction ins, emitAttr size, RegNum reg1, RegNum reg2);
-    unsigned emitInsSizeRRI(instruction ins, emitAttr size, RegNum reg1, RegNum reg2);
-    unsigned emitInsSizeRRR(instruction ins, emitAttr size, RegNum reg3);
-    unsigned emitInsSizeSV(instrDesc* id, code_t code);
-    unsigned emitInsSizeAM(instrDesc* id, code_t code);
-    unsigned emitInsSizeCV(instrDesc* id, code_t code);
+    unsigned EncodingSize(instruction ins, emitAttr attr, code_t code, bool isRR = false);
+    unsigned EncodingSizeR(instruction ins, emitAttr size, RegNum reg);
+    unsigned EncodingSizeRI(instruction ins, emitAttr size, RegNum reg, ssize_t imm);
+    unsigned EncodingSizeRR(instruction ins, emitAttr size, RegNum reg1, RegNum reg2);
+    unsigned EncodingSizeRRI(instruction ins, emitAttr size, RegNum reg1, RegNum reg2);
+    unsigned EncodingSizeRRR(instruction ins, emitAttr size, RegNum reg3);
+    unsigned EncodingSizeSV(instrDesc* id, code_t code);
+    unsigned EncodingSizeAM(instrDesc* id, code_t code);
+    unsigned EncodingSizeCV(instrDesc* id, code_t code);
 
     bool IsRedundantMov(instruction ins, emitAttr size, RegNum dst, RegNum src, bool canIgnoreSideEffects);
 
@@ -203,38 +203,38 @@ private:
     template <typename T>
     T* AllocInstr(bool updateLastIns = true);
 
-    instrDesc*     emitNewInstr();
-    instrDesc*     emitNewInstrSmall();
-    instrDescJmp*  emitNewInstrJmp();
-    instrDescCGCA* emitAllocInstrCGCA();
-    instrDesc* emitNewInstrSC(ssize_t imm);
-    instrDesc* emitNewInstrCns(int32_t imm);
+    instrDesc*     NewInstr();
+    instrDesc*     NewInstrSmall();
+    instrDescJmp*  NewInstrJmp();
+    instrDescCGCA* AllocInstrCGCA();
+    instrDesc* NewInstrSmall(ssize_t imm);
+    instrDesc* NewInstrCns(int32_t imm);
 #ifdef TARGET_X86
-    instrDesc* emitNewInstrDsp(int32_t disp);
+    instrDesc* NewInstrDsp(int32_t disp);
 #endif
-    instrDesc* emitNewInstrAmd(ssize_t disp);
-    instrDesc* emitNewInstrAmdCns(ssize_t disp, int32_t imm);
-    instrDesc* emitNewInstrGCReg(emitAttr attr, RegNum reg);
-    instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
-                                emitAttr              retRegAttr,
+    instrDesc* NewInstrAMDisp(ssize_t disp);
+    instrDesc* NewInstrAMDispImm(ssize_t disp, int32_t imm);
+    instrDesc* NewInstrGCReg(emitAttr attr, RegNum reg);
+    instrDesc* NewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
+                            emitAttr              retRegAttr,
 #ifdef UNIX_AMD64_ABI
-                                emitAttr retReg2Attr,
+                            emitAttr retReg2Attr,
 #endif
 #ifdef TARGET_X86
-                                int argSlotCount,
+                            int argSlotCount,
 #endif
-                                int32_t disp);
+                            int32_t disp);
 
 #if !FEATURE_FIXED_OUT_ARGS
-    void emitAdjustStackDepthPushPop(instruction ins);
-    void emitAdjustStackDepth(instruction ins, ssize_t val);
+    void UpdateStackLevel(instruction ins);
+    void UpdateStackLevel(instruction ins, ssize_t val);
 #endif
 
     void emitLoopAlign(uint16_t paddingBytes);
     void emitLongLoopAlign(uint16_t alignmentBoundary);
 
 #ifdef DEBUG
-    void PrintIns(instrDesc* id);
+    void PrintInstr(instrDesc* id);
 #endif
 };
 

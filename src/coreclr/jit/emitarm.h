@@ -77,26 +77,26 @@ public:
                       RegNum   reg    = REG_NA,
                       bool     isJump = false);
 
-    unsigned emitGetInstructionSize(const emitLocation& emit);
+    unsigned GetInstructionSize(const emitLocation& loc);
 
 private:
     template <typename T>
     T* AllocInstr(bool updateLastIns = true);
 
-    instrDesc* emitNewInstr();
-    instrDesc* emitNewInstrSmall();
-    instrDesc* emitNewInstrSC(int32_t cns);
-    instrDesc* emitNewInstrCns(int32_t cns);
-    instrDesc* emitNewInstrGCReg(emitAttr attr, RegNum reg);
-    instrDescJmp* emitNewInstrJmp();
-    instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle, emitAttr retSize);
-    instrDescCGCA* emitAllocInstrCGCA();
+    instrDesc* NewInstr();
+    instrDesc* NewInstrSmall();
+    instrDesc* NewInstrSmall(int32_t cns);
+    instrDesc* NewInstrCns(int32_t cns);
+    instrDesc* NewInstrGCReg(emitAttr attr, RegNum reg);
+    instrDescJmp* NewInstrJmp();
+    instrDesc* NewInstrCall(CORINFO_METHOD_HANDLE methodHandle, emitAttr retSize);
+    instrDescCGCA* AllocInstrCGCA();
 
     void MovRegStackOffset(RegNum reg, int32_t imm, StackAddrMode s);
     int OptimizeFrameAddress(int fpOffset, bool isFloatLoadStore, RegNum* baseReg);
 
 #ifdef DEBUG
-    void PrintIns(instrDesc* id);
+    void PrintInstr(instrDesc* id);
 #endif
 };
 

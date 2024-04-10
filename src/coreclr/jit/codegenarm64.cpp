@@ -1409,7 +1409,7 @@ void CodeGen::GenCallFinally(BasicBlock* block)
         // Because of the way the flowgraph is connected, the liveness info for this one instruction
         // after the call is not (can not be) correct in cases where a variable has a last use in the
         // handler.  So turn off GC reporting for this single instruction.
-        GetEmitter()->emitDisableGC();
+        GetEmitter()->DisableGC();
 
         // Now go to where the finally funclet needs to return to.
         if (block->bbNext->bbJumpDest == block->bbNext->bbNext)
@@ -1425,7 +1425,7 @@ void CodeGen::GenCallFinally(BasicBlock* block)
             GetEmitter()->emitIns_J(INS_b, block->bbNext->bbJumpDest->emitLabel);
         }
 
-        GetEmitter()->emitEnableGC();
+        GetEmitter()->EnableGC();
     }
 }
 

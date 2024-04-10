@@ -19,7 +19,7 @@ struct CodeRange
     uint32_t end;
 };
 
-// emitCurCodePos returns a cookie that identifies the current position in the instruction
+// GetCurrentCodePos returns a cookie that identifies the current position in the instruction
 // group. Due to things like branch shortening, the final size of some instructions is not
 // known until instruction encoding, so we return a value containing both the instruction
 // index and its estimated offset within the instruction group, allowing us to skip
@@ -990,7 +990,7 @@ public:
 #endif // TARGET_ARMARCH
 
 #ifdef TARGET_ARM
-    int32_t emitGetInsSC() const;
+    int32_t GetImm() const;
 #endif
 
 #ifdef TARGET_ARM64
@@ -1014,7 +1014,7 @@ public:
         idAddr()->_idReg3Scaled = val;
     }
 
-    int64_t emitGetInsSC() const;
+    int64_t GetImm() const;
 #endif // TARGET_ARM64
 };
 
@@ -1179,57 +1179,57 @@ class EmitterBase
 protected:
     struct Epilog;
 
-    Compiler* emitComp;
+    Compiler* compiler;
     CodeGen*  codeGen;
 #ifdef LATE_DISASM
     class DisAssembler* disasm;
 #endif
-    insGroup*     emitIGfirst              = nullptr;
-    insGroup*     emitIGlast               = nullptr;
-    insGroup*     emitCurIG                = nullptr;
-    insGroup*     emitCurLabel             = nullptr;
-    instrDescJmp* emitCurIGjmpList         = nullptr; // list of jumps   in current IG
-    instrDescJmp* emitJumpList             = nullptr;
-    instrDescJmp* emitJumpLast             = nullptr;
-    uint8_t*      emitCurIGfreeBase        = nullptr; // first byte address
-    uint8_t*      emitCurIGfreeNext        = nullptr; // next available byte in buffer
-    uint8_t*      emitCurIGfreeEndp        = nullptr; // one byte past the last available byte in buffer
-    bool          emitNoGCIG               = false;   // Are we generating IGF_NOGCINTERRUPT insGroups
-    bool          emitForceNewIG           = false; // Force creation of a new instruction group at the next instruction
-    unsigned      emitCurIGinsCnt          = 0;     // # of collected instr's in buffer
-    unsigned      emitCurIGsize            = 0;     // estimated code size of current group in bytes
-    unsigned      emitCurCodeOffset        = 0;     // current code offset within group
+    insGroup*     firstIG                  = nullptr;
+    insGroup*     lastIG                   = nullptr;
+    insGroup*     currentIG                = nullptr;
+    insGroup*     currentLabel             = nullptr;
+    instrDescJmp* currentIGJumps           = nullptr;
+    instrDescJmp* firstJump                = nullptr;
+    instrDescJmp* lastJump                 = nullptr;
+    uint8_t*      instrBufferBase          = nullptr;
+    uint8_t*      instrBufferFree          = nullptr;
+    uint8_t*      instrBufferEnd           = nullptr;
+    bool          isNoGCIG                 = false;
+    bool          forceNewIG               = false;
+    unsigned      currentIGInstrCount      = 0;
+    unsigned      currentIGCodeSize        = 0;
+    unsigned      currentCodeOffset        = 0;
     CodePos       mainPrologNoGCEndCodePos = CodePos::First;
-    insGroup*     emitFirstColdIG          = nullptr;
-    instrDesc*    emitLastIns              = nullptr;
-    insGroup*     emitLastInsLabel         = nullptr;
-    VARSET_TP     emitEmptyGCrefVars       = VarSetOps::UninitVal();
+    insGroup*     firstColdIG              = nullptr;
+    instrDesc*    lastInstr                = nullptr;
+    insGroup*     lastInstrLabel           = nullptr;
+    VARSET_TP     emptyVarSet              = VarSetOps::UninitVal();
     RoData        roData;
 #if FEATURE_LOOP_ALIGN
-    instrDescAlign* emitCurIGAlignList = nullptr; // list of align instructions in current IG
-    instrDescAlign* emitAlignList      = nullptr; // list of local align instructions in method
-    instrDescAlign* emitAlignLast      = nullptr; // last align instruction in method
-    unsigned        emitLastLoopStart  = 0;       // Start IG of last inner loop
-    unsigned        emitLastLoopEnd    = 0;       // End IG of last inner loop
+    instrDescAlign* currentIGAligns    = nullptr;
+    instrDescAlign* firstAlign         = nullptr;
+    instrDescAlign* lastAlign          = nullptr;
+    unsigned        lastLoopStartIGNum = 0;
+    unsigned        lastLoopEndIGNum   = 0;
 #endif
 #ifdef JIT32_GCENCODER
     emitLocation epilogExitLoc;
-    Epilog*      firstEpilog       = nullptr;
-    Epilog*      lastEpilog        = nullptr;
-    unsigned     epilogCount       = 0;
-    unsigned     epilogCommonSize  = 0;
-    unsigned     epilogExitSize    = 0;
-    unsigned     emitCntStackDepth = 0; // 0 in prolog/epilog, One DWORD elsewhere
-    unsigned     emitMaxStackDepth = 0; // actual computed max. stack depth
-    unsigned     emitCurStackLvl   = 0; // amount of bytes pushed on stack
+    Epilog*      firstEpilog      = nullptr;
+    Epilog*      lastEpilog       = nullptr;
+    unsigned     epilogCount      = 0;
+    unsigned     epilogCommonSize = 0;
+    unsigned     epilogExitSize   = 0;
+    unsigned     stackSlotSize    = 0; // 0 in prolog/epilog, One DWORD elsewhere
+    unsigned     maxStackDepth    = 0;
+    unsigned     stackLevel       = 0; // amount of bytes pushed on stack
 #endif
 #ifdef PSEUDORANDOM_NOP_INSERTION
-    bool     emitInInstrumentation = false;
-    bool     emitRandomNops        = false;
-    unsigned emitNextNop           = 0;
+    bool     isInsertingRandomNop = false;
+    bool     enableRandomNops     = false;
+    unsigned nextRandomNop        = 0;
 #endif
 #ifdef DEBUG
-    unsigned emitInsCount = 0;
+    unsigned nextInstrNum = 0;
     unsigned instrCount   = 0;
 #endif
 #if defined(DEBUG) || defined(LATE_DISASM)
@@ -1241,22 +1241,22 @@ public:
 
     insGroup* GetProlog() const
     {
-        return emitIGfirst;
+        return firstIG;
     }
 
     unsigned GetHotCodeSize() const
     {
-        return emitFirstColdIG == nullptr ? GetCodeSize() : emitFirstColdIG->GetCodeOffset();
+        return firstColdIG == nullptr ? GetCodeSize() : firstColdIG->GetCodeOffset();
     }
 
     unsigned GetColdCodeSize() const
     {
-        return emitFirstColdIG == nullptr ? 0 : GetCodeSize() - emitFirstColdIG->GetCodeOffset();
+        return firstColdIG == nullptr ? 0 : GetCodeSize() - firstColdIG->GetCodeOffset();
     }
 
     unsigned GetCodeSize() const
     {
-        return emitIGlast->GetCodeOffset() + emitIGlast->GetCodeSize();
+        return lastIG->GetCodeOffset() + lastIG->GetCodeSize();
     }
 
 #if DISPLAY_SIZES
@@ -1273,10 +1273,10 @@ public:
 
     insGroup* GetCurrentInsGroup() const
     {
-        return emitCurIG;
+        return currentIG;
     }
 
-    CodePos emitCurCodePos() const;
+    CodePos GetCurrentCodePos() const;
 
     bool IsCurrentLocation(const emitLocation& loc) const;
     bool IsPreviousLocation(const emitLocation& loc) const;
@@ -1286,13 +1286,15 @@ public:
     ConstData* CreateBlockLabelTable(BasicBlock** blocks, unsigned count, bool relative);
     ConstData* CreateTempLabelTable(insGroup*** labels, unsigned count, bool relative);
 
-    void     emitBegFN();
-    void     emitBegProlog();
-    unsigned emitGetCurrentPrologCodeSize();
-    void     ShortenBranches();
-    void emitEndCodeGen(GCInfo& gcInfo);
-    void      MarkMainPrologNoGCEnd();
-    void      EndMainProlog();
+    void     Begin();
+    void     BeginMainProlog();
+    void     MarkMainPrologNoGCEnd();
+    unsigned GetCurrentPrologCodeSize() const;
+    void     EndMainProlog();
+
+    void ShortenBranches();
+    void Encode(GCInfo& gcInfo);
+
     insGroup* CreateBlockLabel(BasicBlock* block, unsigned funcletIndex);
     insGroup* CreateTempLabel();
     insGroup* DefineTempLabel();
@@ -1307,18 +1309,18 @@ public:
 #endif
     BasicBlock* BeginPrologEpilog(insGroup* ig);
     void EndPrologEpilog();
-    void emitRecomputeIGoffsets();
+    void RecomputeIGOffsets();
 #ifdef TARGET_ARMARCH
-    void emitUnwindNopPadding(const emitLocation& loc);
+    void GenerateUnwindNopPadding(const emitLocation& loc);
 #endif
 #ifndef JIT32_GCENCODER
-    void emitDisableGC();
-    void emitEnableGC();
+    void DisableGC();
+    void EnableGC();
 
     template <typename Callback>
     void EnumerateNoGCInsGroups(Callback callback) const
     {
-        for (insGroup* ig = emitIGfirst; ig != nullptr; ig = ig->igNext)
+        for (insGroup* ig = firstIG; ig != nullptr; ig = ig->igNext)
         {
             if (ig->IsNoGC())
             {
@@ -1336,7 +1338,7 @@ public:
 
     unsigned GetMaxStackDepth() const
     {
-        return emitMaxStackDepth;
+        return maxStackDepth;
     }
 
     unsigned GetEpilogSize() const
@@ -1365,29 +1367,29 @@ public:
 #endif // JIT32_GCENCODER
 
 #if FEATURE_LOOP_ALIGN
-    void emitLoopAlignment();
-    bool emitEndsWithAlignInstr(); // Validate if newLabel is appropriate
-    void emitSetLoopBackEdge(insGroup* dstIG);
-    void emitLoopAlignAdjustments(); // Predict if loop alignment is needed and make appropriate adjustments
+    void AlignLoop();
+    bool EndsWithAlignInstr(); // Validate if newLabel is appropriate
+    void SetLoopBackEdge(insGroup* dstIG);
+    void LoopAlignAdjustments(); // Predict if loop alignment is needed and make appropriate adjustments
 #endif
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
-    void emitEnableRandomNops()
+    void EnableRandomNops()
     {
-        emitRandomNops = true;
+        enableRandomNops = true;
     }
 
-    void emitDisableRandomNops()
+    void DisableRandomNops()
     {
-        emitRandomNops = false;
+        enableRandomNops = false;
     }
 #endif
 #ifdef DEBUG
-    const char*        emitGetFrameReg();
-    static const char* emitIfName(insFormat f);
-    void emitDispIGInstrs(insGroup* ig);
-    void emitDispIGlist(bool dispInstr);
-    const char* emitOffsetToLabel(unsigned offs);
+    const char*        GetFrameRegName() const;
+    static const char* GetFormatName(insFormat f);
+    void PrintIGInstrs(insGroup* ig);
+    void PrintIGList(bool dispInstr);
+    const char* GetOffsetToLabelString(unsigned offs);
 
     unsigned GetInstrCount() const
     {
@@ -1407,13 +1409,13 @@ public:
 protected:
     static bool InDifferentRegions(insGroup* ig1, insGroup* ig2);
 
-    void* emitGetMem(size_t sz);
-    void dispIns(instrDesc* id);
-    void appendToCurIG(instrDesc* id);
+    void* AllocMem(size_t sz);
+    void PrintInstr(instrDesc* id);
+    void AppendInstr(instrDesc* id);
 #if FEATURE_LOOP_ALIGN
-    unsigned getLoopSize(insGroup* igLoopHeader,
-                         unsigned maxLoopSize DEBUG_ARG(bool isAlignAdjusted)); // Get the smallest loop size
-    unsigned emitCalculatePaddingForLoopAlignment(insGroup* ig, size_t offset DEBUG_ARG(bool isAlignAdjusted));
+    // Get the smallest loop size
+    unsigned GetLoopSize(insGroup* igLoopHeader, unsigned maxLoopSize DEBUG_ARG(bool isAlignAdjusted));
+    unsigned CalculatePaddingForLoopAlignment(insGroup* ig, size_t offset DEBUG_ARG(bool isAlignAdjusted));
 #endif
 
     DataSection* CreateLabelTable(unsigned count, bool relative);
@@ -1423,17 +1425,17 @@ protected:
     bool IsMainProlog(const insGroup* ig) const
     {
         // Currently, we only allow one IG for the prolog
-        return ig == emitIGfirst;
+        return ig == firstIG;
     }
 
-    bool emitCurIGnonEmpty() const
+    bool CurrentIGHasInstrs() const
     {
-        return (emitCurIG != nullptr) && (emitCurIGfreeNext > emitCurIGfreeBase);
+        return (currentIG != nullptr) && (instrBufferFree > instrBufferBase);
     }
 
     instrDesc* GetLastInsInCurrentBlock() const
     {
-        return (emitLastIns != nullptr) && (emitLastInsLabel == emitCurLabel) ? emitLastIns : nullptr;
+        return (lastInstr != nullptr) && (lastInstrLabel == currentLabel) ? lastInstr : nullptr;
     }
 
 #ifdef JIT32_GCENCODER
@@ -1450,39 +1452,39 @@ protected:
 #ifdef DEBUG // This information is used in DEBUG builds to display the method name for call instructions
     void VerifyCallFinally(insGroup* label) const;
     void VerifyCatchRet(insGroup* label) const;
-    void emitCheckIGoffsets();
-    void emitInsSanityCheck(instrDesc* id);
+    void VerifyIGOffsets();
+    void VerifyInstr(instrDesc* id);
 #endif
 #if defined(DEBUG) || defined(LATE_DISASM)
-    BasicBlock::weight_t getCurrentBlockWeight();
+    BasicBlock::weight_t GetCurrentBlockWeight();
 #endif
 #ifdef LATE_DISASM
-    void disSetMethod(size_t addr, CORINFO_METHOD_HANDLE methHnd);
+    void AddDisasmMethodAddr(size_t addr, CORINFO_METHOD_HANDLE methHnd);
 #endif
 
-    insGroup* emitAllocIG(unsigned num);
+    insGroup* AllocIG(unsigned num);
 
-    void emitNewIG();
-    void emitAppendIG(insGroup* ig);
-    void emitGenIG(insGroup* ig);
-    void emitExtendIG();
-    void emitFinishIG(bool extend = false);
+    void NewIG();
+    void AppendIG(insGroup* ig);
+    void SetCurrentIG(insGroup* ig);
+    void ExtendIG();
+    void FinishIG(bool extend = false);
     void MoveJumpInstrList(insGroup* ig);
 #if FEATURE_LOOP_ALIGN
     void MoveAlignInstrList(insGroup* ig);
 #endif
 
 #ifdef TARGET_ARMARCH
-    void emitGetInstrDescs(insGroup* ig, instrDesc** id, int* insCnt);
-    bool emitGetLocationInfo(const emitLocation& emitLoc, insGroup** pig, instrDesc** pid, int* pinsRemaining = NULL);
-    bool GetNextInstr(insGroup*& ig, instrDesc*& id, int& insRemaining);
+    void GetInstrs(insGroup* ig, instrDesc** id, int* count);
+    bool GetLocationInfo(const emitLocation& loc, insGroup** ig, instrDesc** id, int* pinsRemaining = nullptr);
+    bool GetNextInstr(insGroup*& ig, instrDesc*& id, int& remaining);
     typedef void (*WalkInstrCallback)(instrDesc* id, void* context);
-    void WalkInstr(const emitLocation& locFrom, WalkInstrCallback callback, void* context);
+    void WalkInstr(const emitLocation& loc, WalkInstrCallback callback, void* context);
 #endif
 
-    int emitNextRandomNop();
+    int GetNextRandomNop();
 
-    instrDescSmall* emitAllocAnyInstr(unsigned sz, bool updateLastIns);
+    instrDescSmall* AllocAnyInstr(unsigned sz, bool updateLastIns);
 };
 
 #if defined(TARGET_XARCH)
@@ -1501,7 +1503,7 @@ using emitter = ArchEmitter;
 class Encoder
 {
 protected:
-    Compiler*    emitComp;
+    Compiler*    compiler;
     ICorJitInfo* jitInfo;
     CodeGen*     codeGen;
     GCInfo&      gcInfo;
@@ -1527,16 +1529,16 @@ protected:
 #endif
 
     Encoder(ArchEmitter& emit, GCInfo& gcInfo)
-        : emitComp(emit.emitComp)
-        , jitInfo(emit.emitComp->info.compCompHnd)
+        : compiler(emit.compiler)
+        , jitInfo(emit.compiler->info.compCompHnd)
         , codeGen(emit.codeGen)
         , gcInfo(gcInfo)
         , roData(emit.roData)
         , totalCodeSize(emit.GetCodeSize())
         , hotCodeSize(emit.GetHotCodeSize())
-        , firstIG(emit.emitIGfirst)
-        , firstColdIG(emit.emitFirstColdIG)
-        , emptyVarSet(emit.emitEmptyGCrefVars)
+        , firstIG(emit.firstIG)
+        , firstColdIG(emit.firstColdIG)
+        , emptyVarSet(emit.emptyVarSet)
 #ifdef DEBUG
         , emit(emit)
 #endif
@@ -1547,7 +1549,7 @@ protected:
     }
 
 public:
-    void emitEndCodeGen(ArchEmitter& emit);
+    void Encode(ArchEmitter& emit);
 
 protected:
     unsigned GetColdCodeSize() const
@@ -1555,40 +1557,40 @@ protected:
         return totalCodeSize - hotCodeSize;
     }
 
-    size_t emitIssue1Instr(insGroup* ig, instrDesc* id, uint8_t** dp);
-    size_t emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp);
+    size_t EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp);
+    size_t ArchEncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp);
     void OutputRoData(uint8_t* dst);
 
-    void emitGCregLiveUpd(GCtype gcType, RegNum reg, uint8_t* addr);
-    void emitGCregDeadUpd(RegNum reg, uint8_t* addr);
+    void AddGCLiveReg(GCtype gcType, RegNum reg, uint8_t* addr);
+    void RemoveGCLiveReg(RegNum reg, uint8_t* addr);
 #ifdef FEATURE_EH_FUNCLETS
-    void emitGCregDeadAll(uint8_t* addr);
+    void RemoveAllGCLiveRegs(uint8_t* addr);
 #endif
-    void emitGCvarLiveUpd(int slotOffs, GCtype gcType, uint8_t* addr DEBUGARG(int varNum));
+    void AddGCLiveSlot(int slotOffs, GCtype gcType, uint8_t* addr DEBUGARG(int varNum));
 #if FEATURE_FIXED_OUT_ARGS
-    void emitGCargLiveUpd(int offs, GCtype gcType, uint8_t* addr DEBUGARG(int varNum));
+    void AddGCLiveCallArg(int offs, GCtype gcType, uint8_t* addr DEBUGARG(int varNum));
 #endif
-    size_t emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* callEndAddr);
-    void emitRecordCallSite(unsigned instrOffset, CORINFO_SIG_INFO* callSig, CORINFO_METHOD_HANDLE methodHandle);
-    void emitRecordRelocation(void* location, void* target, uint16_t relocType, int32_t addlDelta = 0);
+    size_t RecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* callEndAddr);
+    void RecordCallSite(unsigned instrOffset, CORINFO_SIG_INFO* callSig, CORINFO_METHOD_HANDLE methodHandle);
+    void RecordRelocation(void* location, void* target, uint16_t relocType, int32_t addlDelta = 0);
 
-    unsigned emitCurCodeOffs(const uint8_t* dst) const;
-    uint8_t* emitOffsetToPtr(unsigned offset) const;
-    uint8_t* emitDataOffsetToPtr(unsigned offset) const;
+    unsigned GetCodeOffset(const uint8_t* addr) const;
+    uint8_t* GetCodeAddr(unsigned offset) const;
+    uint8_t* GetDataAddr(unsigned offset) const;
 
 #ifdef JIT32_GCENCODER
-    void emitStackPush(unsigned codeOffs, GCtype type);
-    void emitStackPushN(unsigned codeOffs, unsigned count);
-    void emitStackPop(unsigned codeOffs, unsigned count);
-    void emitStackPopArgs(unsigned codeOffs, unsigned count);
-    void emitStackKillArgs(unsigned codeOffs, unsigned count);
+    void StackPush(unsigned codeOffs, GCtype type);
+    void StackPushN(unsigned codeOffs, unsigned count);
+    void StackPop(unsigned codeOffs, unsigned count);
+    void StackPopArgs(unsigned codeOffs, unsigned count);
+    void StackKillArgs(unsigned codeOffs, unsigned count);
 #endif
 
 #ifdef DEBUG
     void PrintInsAddr(const uint8_t* code) const;
     void PrintRoData() const;
     void GetGCDeltaDumpHeader(char* buffer, size_t count);
-    bool emitJumpCrossHotColdBoundary(size_t srcOffset, size_t dstOffset) const;
+    bool IsHotColdJump(size_t srcOffset, size_t dstOffset) const;
     void PrintAlignmentBoundary(size_t           instrAddr,
                                 size_t           instrEndAddr,
                                 const instrDesc* instr,
@@ -1707,21 +1709,21 @@ protected:
         PERFSCORE_MEMORY_READ_WRITE
     };
 
-    struct insExecutionCharacteristics
+    struct InstrPerfScore
     {
-        float               insThroughput;
-        float               insLatency;
-        PerfScoreMemoryKind insMemoryAccessKind;
+        float               throughput;
+        float               latency;
+        PerfScoreMemoryKind memoryAccessKind;
     };
 
 #if defined(TARGET_XARCH)
-    static insFormat getMemoryOperation(instrDesc* id);
+    static insFormat GetPerfScoreMemoryOperation(instrDesc* id);
 #elif defined(TARGET_ARM64)
-    void getMemoryOperation(instrDesc* id, unsigned* pMemAccessKind, bool* pIsLocalAccess);
+    void GetPerfScoreMemoryOperation(instrDesc* id, unsigned* kind, bool* isLocalAccess);
 #endif
-    float insEvaluateExecutionCost(instrDesc* id);
-    insExecutionCharacteristics getInsExecutionCharacteristics(instrDesc* id);
-    void perfScoreUnhandledInstruction(instrDesc* id, insExecutionCharacteristics* result);
+    float EvaluateInstrExecutionCost(instrDesc* id);
+    InstrPerfScore GetInstrPerfScore(instrDesc* id);
+    void PerfScoreUnhandledInstr(instrDesc* id, InstrPerfScore* result);
 #endif
 };
 

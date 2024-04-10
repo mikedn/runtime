@@ -8,7 +8,7 @@
 #if defined(TARGET_AMD64) || defined(TARGET_UNIX)
 uint32_t CodeGen::unwindGetCurrentOffset()
 {
-    return GetEmitter()->emitGetCurrentPrologCodeSize();
+    return GetEmitter()->GetCurrentPrologCodeSize();
 }
 #endif
 

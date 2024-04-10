@@ -367,7 +367,7 @@ unsigned GCEncoder::GetUntrackedStackSlotCount()
             if (compiler->verbose)
             {
                 printf("GCINFO: untracked %s slot at [%s", varTypeName(lcl->GetType()),
-                       codeGen->GetEmitter()->emitGetFrameReg());
+                       codeGen->GetEmitter()->GetFrameRegName());
 
                 if (lcl->GetStackOffset() != 0)
                 {
@@ -399,7 +399,7 @@ unsigned GCEncoder::GetUntrackedStackSlotCount()
             if (compiler->verbose)
             {
                 printf("GCINFO: untracked %s slot at [%s", varTypeName(temp.GetType()),
-                       codeGen->GetEmitter()->emitGetFrameReg());
+                       codeGen->GetEmitter()->GetFrameRegName());
 
                 if (temp.GetOffset() != 0)
                 {

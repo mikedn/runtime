@@ -89,14 +89,14 @@ private:
     template <typename T>
     T* AllocInstr(bool updateLastIns = true);
 
-    instrDesc* emitNewInstr();
-    instrDesc* emitNewInstrSmall();
-    instrDesc* emitNewInstrSC(int64_t imm);
-    instrDesc* emitNewInstrCns(int32_t imm);
-    instrDesc* emitNewInstrGCReg(emitAttr attr, RegNum reg);
-    instrDescJmp* emitNewInstrJmp();
-    instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle, emitAttr retSize, emitAttr secondRetSize);
-    instrDescCGCA* emitAllocInstrCGCA();
+    instrDesc* NewInstr();
+    instrDesc* NewInstrSmall();
+    instrDesc* NewInstrSmall(int64_t imm);
+    instrDesc* NewInstrCns(int32_t imm);
+    instrDesc* NewInstrGCReg(emitAttr attr, RegNum reg);
+    instrDescJmp* NewInstrJmp();
+    instrDesc* NewInstrCall(CORINFO_METHOD_HANDLE methodHandle, emitAttr retSize, emitAttr secondRetSize);
+    instrDescCGCA* AllocInstrCGCA();
 
     // Method to do check if mov is redundant with respect to the last instruction.
     // If yes, the caller of this method can choose to omit current mov instruction.
@@ -104,7 +104,7 @@ private:
     bool IsRedundantLdStr(instruction ins, RegNum reg1, RegNum reg2, int64_t imm, emitAttr size, insFormat fmt);
 
 #ifdef DEBUG
-    void PrintIns(instrDesc* id);
+    void PrintInstr(instrDesc* id);
 #endif
 };
 

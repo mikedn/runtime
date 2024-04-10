@@ -50,7 +50,7 @@ void CodeGen::unwindBegEpilog()
 
 unsigned CodeGen::unwindGetInstructionSize() const
 {
-    return GetEmitter()->emitGetInstructionSize(unwindLoc);
+    return GetEmitter()->GetInstructionSize(unwindLoc);
 }
 
 void CodeGen::unwindPushPopMaskInt(regMaskTP maskInt, bool useOpsize16)
@@ -392,7 +392,7 @@ void CodeGen::unwindPadding()
     }
 #endif
 
-    GetEmitter()->emitUnwindNopPadding(unwindLoc);
+    GetEmitter()->GenerateUnwindNopPadding(unwindLoc);
 }
 
 void CodeGen::unwindReserve()

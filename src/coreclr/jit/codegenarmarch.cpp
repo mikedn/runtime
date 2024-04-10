@@ -14,7 +14,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
     switch (treeNode->GetOper())
     {
         case GT_START_NONGC:
-            GetEmitter()->emitDisableGC();
+            GetEmitter()->DisableGC();
             break;
 
         case GT_START_PREEMPTGC:
@@ -337,7 +337,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
             // the runtime side requires the codegen here to be consistent
-            GetEmitter()->emitDisableRandomNops();
+            GetEmitter()->DisableRandomNops();
 #endif
             break;
 
@@ -1546,7 +1546,7 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
 
     if (layout->HasGCPtr())
     {
-        GetEmitter()->emitDisableGC();
+        GetEmitter()->DisableGC();
     }
 
     LclVarDsc* dstLcl         = nullptr;
@@ -1733,7 +1733,7 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
 
     if (layout->HasGCPtr())
     {
-        GetEmitter()->emitEnableGC();
+        GetEmitter()->EnableGC();
     }
 }
 
@@ -2634,7 +2634,7 @@ void CodeGen::GenJmp(GenTree* jmp)
 #endif
 
     // We have no way of knowing if args contain GC references.
-    GetEmitter()->emitDisableGC();
+    GetEmitter()->DisableGC();
 
     for (int i = 0; i < MAX_REG_ARG; ++i)
     {
@@ -2647,7 +2647,7 @@ void CodeGen::GenJmp(GenTree* jmp)
     }
 
     // The epilog, which is not interruptible, should follow right after this code.
-    GetEmitter()->emitEnableGC();
+    GetEmitter()->EnableGC();
 }
 
 void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, const CORINFO_CONST_LOOKUP& addrInfo)

@@ -205,7 +205,7 @@ void CodeGen::SetThrowHelperBlockStackLevel(BasicBlock* block)
 
         if (genStackLevel != 0)
         {
-            GetEmitter()->emitMarkStackLvl(genStackLevel);
+            GetEmitter()->SetStackLevel(genStackLevel);
             GetEmitter()->emitIns_R_I(INS_add, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(genStackLevel));
             SetStackLevel(0);
         }
@@ -303,7 +303,7 @@ void CodeGen::GenCallFinally(BasicBlock* block)
         // Because of the way the flowgraph is connected, the liveness info for this one instruction
         // after the call is not (can not be) correct in cases where a variable has a last use in the
         // handler.  So turn off GC reporting for this single instruction.
-        GetEmitter()->emitDisableGC();
+        GetEmitter()->DisableGC();
 #endif
 
         // Now go to where the finally funclet needs to return to.
@@ -321,7 +321,7 @@ void CodeGen::GenCallFinally(BasicBlock* block)
         }
 
 #ifndef JIT32_GCENCODER
-        GetEmitter()->emitEnableGC();
+        GetEmitter()->EnableGC();
 #endif
     }
 
@@ -1249,7 +1249,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
     {
 #ifndef JIT32_GCENCODER
         case GT_START_NONGC:
-            GetEmitter()->emitDisableGC();
+            GetEmitter()->DisableGC();
             break;
 #endif
 
@@ -1566,7 +1566,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             noway_assert((liveness.GetGCRegs() & ~fullIntArgRegMask()) == 0);
 #ifdef PSEUDORANDOM_NOP_INSERTION
             // the runtime side requires the codegen here to be consistent
-            GetEmitter()->emitDisableRandomNops();
+            GetEmitter()->DisableRandomNops();
 #endif
             break;
 
@@ -2562,7 +2562,7 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
     if (layout->HasGCPtr())
     {
 #ifndef JIT32_GCENCODER
-        GetEmitter()->emitDisableGC();
+        GetEmitter()->DisableGC();
 #else
         unreached();
 #endif
@@ -2735,7 +2735,7 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
     if (layout->HasGCPtr())
     {
 #ifndef JIT32_GCENCODER
-        GetEmitter()->emitEnableGC();
+        GetEmitter()->EnableGC();
 #else
         unreached();
 #endif
@@ -5077,7 +5077,7 @@ void CodeGen::GenJmp(GenTree* jmp)
     assert(compiler->lvaGetDesc(0u)->GetParamReg() == REG_RCX);
 
     // We have no way of knowing if args contain GC references.
-    GetEmitter()->emitDisableGC();
+    GetEmitter()->DisableGC();
 
     for (unsigned i = 0; i < MAX_REG_ARG; ++i)
     {
@@ -5091,7 +5091,7 @@ void CodeGen::GenJmp(GenTree* jmp)
     }
 
     // The epilog, which is not interruptible, should follow right after this code.
-    GetEmitter()->emitEnableGC();
+    GetEmitter()->EnableGC();
 #endif // WINDOWS_AMD64_ABI
 }
 

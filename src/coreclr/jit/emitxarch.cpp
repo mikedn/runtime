@@ -516,7 +516,7 @@ static bool IsMap0F(code_t code)
     return ((code >> MmmBitOffset) & MmmBitMask) == 1;
 }
 
-static bool hasVexPrefix(code_t code)
+static bool HasVexPrefix(code_t code)
 {
     return ((code >> HasVexBitOffset) & 1) != 0;
 }
@@ -600,14 +600,14 @@ const char* insName(instruction ins)
     return ins < _countof(insNames) ? insNames[ins] : "???";
 }
 
-enum insUpdateModes
+enum InsUpdateMode
 {
     IUM_RD,
     IUM_WR,
     IUM_RW,
 };
 
-static insUpdateModes emitInsUpdateMode(instruction ins)
+static InsUpdateMode GetUpdateMode(instruction ins)
 {
     static const uint8_t emitInsModeFmtTab[]{
 #define INST0(id, nm, um, ...) um,
@@ -621,16 +621,16 @@ static insUpdateModes emitInsUpdateMode(instruction ins)
 
     assert(ins < _countof(emitInsModeFmtTab));
 
-    return static_cast<insUpdateModes>(emitInsModeFmtTab[ins]);
+    return static_cast<InsUpdateMode>(emitInsModeFmtTab[ins]);
 }
 
-static insFormat emitInsModeFormat(instruction ins, insFormat base)
+static insFormat MapFormat(instruction ins, insFormat base)
 {
     assert(IF_RRD + IUM_RD == IF_RRD);
     assert(IF_RRD + IUM_WR == IF_RWR);
     assert(IF_RRD + IUM_RW == IF_RRW);
 
-    return static_cast<insFormat>(base + emitInsUpdateMode(ins));
+    return static_cast<insFormat>(base + GetUpdateMode(ins));
 }
 
 const static uint32_t insCodesRM[]{
@@ -644,7 +644,7 @@ const static uint32_t insCodesRM[]{
 };
 
 // Returns the "REG, RM" encoding of the given instruction.
-static size_t insCodeRM(instruction ins)
+static size_t GetCodeRM(instruction ins)
 {
     assert(ins < _countof(insCodesRM));
     assert(insCodesRM[ins] != BAD_CODE);
@@ -663,14 +663,14 @@ const static uint32_t insCodesMI[]{
 };
 
 // Returns true iff the give instruction has an "RM, IMM" encoding.
-static bool hasCodeMI(instruction ins)
+static bool HasCodeMI(instruction ins)
 {
     assert(ins < _countof(insCodesMI));
 
     return insCodesMI[ins] != BAD_CODE;
 }
 
-static size_t insCodeMI(instruction ins)
+static size_t GetCodeMI(instruction ins)
 {
     assert(ins < _countof(insCodesMI));
     assert(insCodesMI[ins] != BAD_CODE);
@@ -688,7 +688,7 @@ const static uint32_t insCodesMR[]{
 #include "instrsxarch.h"
 };
 
-static bool hasCodeMR(instruction ins)
+static bool HasCodeMR(instruction ins)
 {
     assert(ins < _countof(insCodesMR));
 
@@ -696,7 +696,7 @@ static bool hasCodeMR(instruction ins)
 }
 
 // Returns the "RM, REG" or "RM" encoding of the given instruction.
-static size_t insCodeMR(instruction ins)
+static size_t GetCodeMR(instruction ins)
 {
     assert(ins < _countof(insCodesMR));
     assert(insCodesMR[ins] != BAD_CODE);
@@ -744,7 +744,7 @@ static bool BaseRegRequiresDisp(RegNum base)
 #ifdef TARGET_X86
 // When encoding instructions that operate on byte registers on x86
 // we have to ensure that we use a low register (EAX, EBX, ECX or EDX).
-static bool emitVerifyEncodable(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2 = REG_NA)
+static bool VerifyEncodable(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2 = REG_NA)
 {
     if (attr != EA_1BYTE)
     {
@@ -766,7 +766,7 @@ static bool emitVerifyEncodable(instruction ins, emitAttr attr, RegNum reg1, Reg
 
 static unsigned emitInsSize(code_t code)
 {
-    assert(!hasVexPrefix(code));
+    assert(!HasVexPrefix(code));
 
     unsigned size = 2;
 
@@ -788,11 +788,11 @@ static unsigned emitInsSize(code_t code)
     return size;
 }
 
-unsigned X86Emitter::emitGetAdjustedSize(instruction ins, emitAttr size, code_t code, bool isRR)
+unsigned X86Emitter::EncodingSize(instruction ins, emitAttr size, code_t code, bool isRR)
 {
     assert(ins != INS_invalid);
     assert(!TakesVexPrefix(ins));
-    assert(!hasVexPrefix(code));
+    assert(!HasVexPrefix(code));
 
     if (ins == INS_crc32)
     {
@@ -817,7 +817,7 @@ unsigned X86Emitter::emitGetAdjustedSize(instruction ins, emitAttr size, code_t 
     return sz;
 }
 
-unsigned X86Emitter::emitInsSizeR(instruction ins, emitAttr size, RegNum reg)
+unsigned X86Emitter::EncodingSizeR(instruction ins, emitAttr size, RegNum reg)
 {
     if ((ins == INS_push) || (ins == INS_push_hide) || (ins == INS_pop) || (ins == INS_pop_hide))
     {
@@ -842,7 +842,7 @@ unsigned X86Emitter::emitInsSizeR(instruction ins, emitAttr size, RegNum reg)
     }
 #endif
 
-    code_t code = insCodeMR(ins);
+    code_t code = GetCodeMR(ins);
 
     assert(!TakesVexPrefix(ins));
     assert((ins != INS_movsx) && (ins != INS_movzx));
@@ -851,7 +851,7 @@ unsigned X86Emitter::emitInsSizeR(instruction ins, emitAttr size, RegNum reg)
     return (size == EA_2BYTE) + (hasRexPrefix(code) || IsExtendedReg(reg, size) || TakesRexWPrefix(ins, size)) + 2;
 }
 
-unsigned X86Emitter::emitInsSizeRI(instruction ins, emitAttr size, RegNum reg, ssize_t imm)
+unsigned X86Emitter::EncodingSizeRI(instruction ins, emitAttr size, RegNum reg, ssize_t imm)
 {
     if (IsShiftImm(ins))
     {
@@ -873,7 +873,7 @@ unsigned X86Emitter::emitInsSizeRI(instruction ins, emitAttr size, RegNum reg, s
         return (size == EA_2BYTE) + AMD64_ONLY(IsExtendedReg(reg, size) +) 1 + 4;
     }
 
-    code_t code = insCodeMI(ins);
+    code_t code = GetCodeMI(ins);
 
     if (IsSSEOrAVXOrBMIInstruction(ins))
     {
@@ -911,7 +911,7 @@ unsigned X86Emitter::emitInsSizeRI(instruction ins, emitAttr size, RegNum reg, s
     return sz;
 }
 
-unsigned X86Emitter::emitInsSizeRR(instruction ins, emitAttr size, RegNum reg1, RegNum reg2)
+unsigned X86Emitter::EncodingSizeRR(instruction ins, emitAttr size, RegNum reg1, RegNum reg2)
 {
     if (TakesVexPrefix(ins))
     {
@@ -922,12 +922,12 @@ unsigned X86Emitter::emitInsSizeRR(instruction ins, emitAttr size, RegNum reg1, 
 
         if ((ins == INS_movd) && IsFloatReg(reg2))
         {
-            code = insCodeMR(ins);
+            code = GetCodeMR(ins);
             bReg = reg1;
         }
         else
         {
-            code = insCodeRM(ins);
+            code = GetCodeRM(ins);
             bReg = reg2;
         }
 
@@ -936,35 +936,35 @@ unsigned X86Emitter::emitInsSizeRR(instruction ins, emitAttr size, RegNum reg1, 
 
     // TODO-MIKE-Cleanup: This doesn't use the correct code for movd, it
     // just happens to work because because both codes have the same length.
-    code_t   code = insCodeRM(ins);
-    unsigned sz   = emitGetAdjustedSize(ins, size, code, true);
+    code_t   code = GetCodeRM(ins);
+    unsigned sz   = EncodingSize(ins, size, code, true);
     sz += hasRexPrefix(code) || IsExtendedReg(reg1, size) || IsExtendedReg(reg2, size) ||
           (TakesRexWPrefix(ins, size) && ((ins != INS_xor) || (reg1 != reg2)));
     return sz;
 }
 
-unsigned X86Emitter::emitInsSizeRRI(instruction ins, emitAttr size, RegNum reg1, RegNum reg2)
+unsigned X86Emitter::EncodingSizeRRI(instruction ins, emitAttr size, RegNum reg1, RegNum reg2)
 {
     if (TakesVexPrefix(ins))
     {
         RegNum bReg;
         code_t code;
 
-        if (hasCodeMR(ins))
+        if (HasCodeMR(ins))
         {
-            code = insCodeMR(ins);
+            code = GetCodeMR(ins);
             bReg = reg1;
         }
-        else if (hasCodeMI(ins))
+        else if (HasCodeMI(ins))
         {
             assert((INS_psrldq <= ins) && (ins <= INS_psrad));
 
-            code = insCodeMI(ins);
+            code = GetCodeMI(ins);
             bReg = reg2;
         }
         else
         {
-            code = insCodeRM(ins);
+            code = GetCodeRM(ins);
             bReg = reg2;
         }
 
@@ -984,32 +984,32 @@ unsigned X86Emitter::emitInsSizeRRI(instruction ins, emitAttr size, RegNum reg1,
         case INS_vextracti128:
         case INS_shld:
         case INS_shrd:
-            code = insCodeMR(ins);
+            code = GetCodeMR(ins);
             break;
         case INS_psrldq:
         case INS_pslldq:
-            code = insCodeMI(ins);
+            code = GetCodeMI(ins);
             break;
         default:
-            code = insCodeRM(ins);
+            code = GetCodeRM(ins);
             break;
     }
 
-    unsigned sz = emitGetAdjustedSize(ins, size, code);
+    unsigned sz = EncodingSize(ins, size, code);
     sz += hasRexPrefix(code) || IsExtendedReg(reg1, size) || IsExtendedReg(reg2, size) || TakesRexWPrefix(ins, size);
     return sz;
 }
 
-unsigned X86Emitter::emitInsSizeRRR(instruction ins, emitAttr size, RegNum reg3)
+unsigned X86Emitter::EncodingSizeRRR(instruction ins, emitAttr size, RegNum reg3)
 {
     assert(TakesVexPrefix(ins));
 
-    code_t code = insCodeRM(ins);
+    code_t code = GetCodeRM(ins);
 
     return 2 + (HasRexW(code) || !IsMap0F(code) || TakesRexWPrefix(ins, size) || IsExtendedReg(reg3)) + 1 + 1;
 }
 
-unsigned X86Emitter::emitInsSizeSV(instrDesc* id, code_t code)
+unsigned X86Emitter::EncodingSizeSV(instrDesc* id, code_t code)
 {
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
@@ -1022,7 +1022,7 @@ unsigned X86Emitter::emitInsSizeSV(instrDesc* id, code_t code)
     }
     else
     {
-        sz = emitGetAdjustedSize(ins, size, code);
+        sz = EncodingSize(ins, size, code);
         sz += hasRexPrefix(code) || IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size) ||
               TakesRexWPrefix(ins, size);
     }
@@ -1033,7 +1033,7 @@ unsigned X86Emitter::emitInsSizeSV(instrDesc* id, code_t code)
     if (!ebpBased)
     {
 #if !FEATURE_FIXED_OUT_ARGS
-        disp += emitCurStackLvl;
+        disp += stackLevel;
 #endif
         assert(disp >= 0);
 
@@ -1050,7 +1050,7 @@ unsigned X86Emitter::emitInsSizeSV(instrDesc* id, code_t code)
     return sz;
 }
 
-unsigned X86Emitter::emitInsSizeAM(instrDesc* id, code_t code)
+unsigned X86Emitter::EncodingSizeAM(instrDesc* id, code_t code)
 {
     instruction ins      = id->idIns();
     emitAttr    size     = id->idOpSize();
@@ -1084,7 +1084,7 @@ unsigned X86Emitter::emitInsSizeAM(instrDesc* id, code_t code)
     }
     else
     {
-        sz = emitGetAdjustedSize(ins, size, code);
+        sz = EncodingSize(ins, size, code);
         sz += hasRexPrefix(code) || IsExtendedReg(baseReg) || IsExtendedReg(indexReg) ||
               ((ins != INS_call) && (IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size))) ||
               TakesRexWPrefix(ins, size);
@@ -1156,7 +1156,7 @@ unsigned X86Emitter::emitInsSizeAM(instrDesc* id, code_t code)
     return sz;
 }
 
-unsigned X86Emitter::emitInsSizeCV(instrDesc* id, code_t code)
+unsigned X86Emitter::EncodingSizeCV(instrDesc* id, code_t code)
 {
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
@@ -1169,7 +1169,7 @@ unsigned X86Emitter::emitInsSizeCV(instrDesc* id, code_t code)
     }
     else
     {
-        sz = emitGetAdjustedSize(ins, size, code);
+        sz = EncodingSize(ins, size, code);
         sz += hasRexPrefix(code) || IsExtendedReg(id->idReg1(), size) || IsExtendedReg(id->idReg2(), size) ||
               TakesRexWPrefix(ins, size);
     }
@@ -1177,7 +1177,7 @@ unsigned X86Emitter::emitInsSizeCV(instrDesc* id, code_t code)
     return sz + 4;
 }
 
-static unsigned emitInsSizeImm(instruction ins, emitAttr attr, int32_t imm)
+static unsigned ImmEncodingSize(instruction ins, emitAttr attr, int32_t imm)
 {
     if (IsShiftImm(ins))
     {
@@ -1201,41 +1201,41 @@ static unsigned emitInsSizeImm(instruction ins, emitAttr attr, int32_t imm)
 template <typename T>
 T* X86Emitter::AllocInstr(bool updateLastIns)
 {
-    instrDescSmall* id = emitAllocAnyInstr(sizeof(T), updateLastIns);
+    instrDescSmall* id = AllocAnyInstr(sizeof(T), updateLastIns);
     memset(id, 0, sizeof(T));
-    INDEBUG(id->idDebugOnlyInfo(new (emitComp, CMK_DebugOnly) instrDescDebugInfo(++emitInsCount, sizeof(T))));
+    INDEBUG(id->idDebugOnlyInfo(new (compiler, CMK_DebugOnly) instrDescDebugInfo(++nextInstrNum, sizeof(T))));
 
     return static_cast<T*>(id);
 }
 
-instrDesc* X86Emitter::emitNewInstr()
+instrDesc* X86Emitter::NewInstr()
 {
     return AllocInstr<instrDesc>();
 }
 
-instrDescJmp* X86Emitter::emitNewInstrJmp()
+instrDescJmp* X86Emitter::NewInstrJmp()
 {
     instrDescJmp* jmp = AllocInstr<instrDescJmp>();
-    jmp->idjIG        = emitCurIG;
-    jmp->idjOffs      = emitCurIGsize;
-    jmp->idjNext      = emitCurIGjmpList;
-    emitCurIGjmpList  = jmp;
+    jmp->idjIG        = currentIG;
+    jmp->idjOffs      = currentIGCodeSize;
+    jmp->idjNext      = currentIGJumps;
+    currentIGJumps    = jmp;
     return jmp;
 }
 
-instrDescCGCA* X86Emitter::emitAllocInstrCGCA()
+instrDescCGCA* X86Emitter::AllocInstrCGCA()
 {
     return AllocInstr<instrDescCGCA>();
 }
 
-instrDesc* X86Emitter::emitNewInstrSmall()
+instrDesc* X86Emitter::NewInstrSmall()
 {
     instrDescSmall* id = AllocInstr<instrDescSmall>();
     id->idSetIsSmallDsc();
     return static_cast<instrDesc*>(id);
 }
 
-instrDesc* X86Emitter::emitNewInstrSC(ssize_t cns)
+instrDesc* X86Emitter::NewInstrSmall(ssize_t cns)
 {
     if (!instrDesc::fitsInSmallCns(cns))
     {
@@ -1245,12 +1245,12 @@ instrDesc* X86Emitter::emitNewInstrSC(ssize_t cns)
         return id;
     }
 
-    instrDesc* id = emitNewInstrSmall();
+    instrDesc* id = NewInstrSmall();
     id->idSmallCns(cns);
     return id;
 }
 
-instrDesc* X86Emitter::emitNewInstrCns(int32_t cns)
+instrDesc* X86Emitter::NewInstrCns(int32_t cns)
 {
     if (!instrDesc::fitsInSmallCns(cns))
     {
@@ -1260,17 +1260,17 @@ instrDesc* X86Emitter::emitNewInstrCns(int32_t cns)
         return id;
     }
 
-    instrDesc* id = emitNewInstr();
+    instrDesc* id = NewInstr();
     id->idSmallCns(cns);
     return id;
 }
 
 #ifdef TARGET_X86
-instrDesc* X86Emitter::emitNewInstrDsp(int32_t disp)
+instrDesc* X86Emitter::NewInstrDsp(int32_t disp)
 {
     if (disp == 0)
     {
-        return emitNewInstr();
+        return NewInstr();
     }
 
     instrDescAmd* id = AllocInstr<instrDescAmd>();
@@ -1280,7 +1280,7 @@ instrDesc* X86Emitter::emitNewInstrDsp(int32_t disp)
 }
 #endif // TARGET_X86
 
-instrDesc* X86Emitter::emitNewInstrAmd(ssize_t disp)
+instrDesc* X86Emitter::NewInstrAMDisp(ssize_t disp)
 {
     if (emitAddrMode::IsLargeDisp(disp))
     {
@@ -1292,17 +1292,17 @@ instrDesc* X86Emitter::emitNewInstrAmd(ssize_t disp)
         return id;
     }
 
-    instrDesc* id                  = emitNewInstr();
+    instrDesc* id                  = NewInstr();
     id->idAddr()->iiaAddrMode.disp = disp;
     assert(id->idAddr()->iiaAddrMode.disp == disp); // make sure the value fit
     return id;
 }
 
-instrDesc* X86Emitter::emitNewInstrAmdCns(ssize_t disp, int32_t imm)
+instrDesc* X86Emitter::NewInstrAMDispImm(ssize_t disp, int32_t imm)
 {
     if (!emitAddrMode::IsLargeDisp(disp))
     {
-        instrDesc* id                  = emitNewInstrCns(imm);
+        instrDesc* id                  = NewInstrCns(imm);
         id->idAddr()->iiaAddrMode.disp = disp;
         assert(id->idAddr()->iiaAddrMode.disp == disp); // make sure the value fit
 
@@ -1330,7 +1330,7 @@ instrDesc* X86Emitter::emitNewInstrAmdCns(ssize_t disp, int32_t imm)
     return id;
 }
 
-instrDesc* X86Emitter::emitNewInstrGCReg(emitAttr attr, RegNum reg)
+instrDesc* X86Emitter::NewInstrGCReg(emitAttr attr, RegNum reg)
 {
     assert(EA_IS_GCREF_OR_BYREF(attr));
     assert(IsGeneralRegister(reg));
@@ -1359,11 +1359,11 @@ void X86Emitter::emitLoopAlign(uint16_t paddingBytes)
     instrDescAlign* id = AllocInstr<instrDescAlign>();
     id->idIns(INS_align);
     id->idCodeSize(paddingBytes);
-    id->idaIG   = emitCurIG;
-    id->idaNext = emitCurIGAlignList;
+    id->idaIG   = currentIG;
+    id->idaNext = currentIGAligns;
 
-    emitCurIGsize += paddingBytes;
-    emitCurIGAlignList = id;
+    currentIGCodeSize += paddingBytes;
+    currentIGAligns = id;
 }
 
 void X86Emitter::emitLongLoopAlign(uint16_t alignmentBoundary)
@@ -1375,9 +1375,9 @@ void X86Emitter::emitLongLoopAlign(uint16_t alignmentBoundary)
     uint16_t lastInsAlignSize = nPaddingBytes % instrDesc::MAX_ENCODED_SIZE;
 
     // Ensure that all align instructions fall in same IG.
-    if (emitCurIGfreeNext + instrDescSize >= emitCurIGfreeEndp)
+    if (instrBufferFree + instrDescSize >= instrBufferEnd)
     {
-        emitForceNewIG = true;
+        forceNewIG = true;
     }
 
     while (insAlignCount)
@@ -1393,29 +1393,29 @@ void X86Emitter::emitIns_Nop(unsigned size)
 {
     assert(size <= instrDesc::MAX_ENCODED_SIZE);
 
-    instrDesc* id = emitNewInstr();
+    instrDesc* id = NewInstr();
     id->idIns(INS_nop);
     id->idInsFmt(IF_NONE);
 
     id->idCodeSize(size);
-    dispIns(id);
-    emitCurIGsize += size;
+    PrintInstr(id);
+    currentIGCodeSize += size;
 }
 
 void X86Emitter::emitIns_Lock()
 {
-    instrDesc* id = emitNewInstr();
+    instrDesc* id = NewInstr();
     id->idIns(INS_lock);
     id->idInsFmt(IF_NONE);
 
     id->idCodeSize(1);
-    dispIns(id);
-    emitCurIGsize++;
+    PrintInstr(id);
+    currentIGCodeSize++;
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
-    if (emitNextNop == 0)
+    if (nextRandomNop == 0)
     {
-        emitNextNop = 1;
+        nextRandomNop = 1;
     }
 #endif
 }
@@ -1425,11 +1425,11 @@ void X86Emitter::emitIns(instruction ins)
     assert((ins == INS_int3) || (ins == INS_leave) || (ins == INS_nop) || (ins == INS_ret) || (ins == INS_vzeroupper) ||
            (ins == INS_lfence) || (ins == INS_mfence) || (ins == INS_sfence));
 
-    instrDesc* id = emitNewInstr();
+    instrDesc* id = NewInstr();
     id->idIns(ins);
     id->idInsFmt(IF_NONE);
 
-    code_t code = insCodeMR(ins);
+    code_t code = GetCodeMR(ins);
     assert((code >> 24) == 0);
 
     unsigned sz;
@@ -1448,8 +1448,8 @@ void X86Emitter::emitIns(instruction ins)
     assert((ins != INS_vzeroupper) || (sz == 3));
 
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns(instruction ins, emitAttr attr)
@@ -1458,18 +1458,18 @@ void X86Emitter::emitIns(instruction ins, emitAttr attr)
            (ins == INS_rep_stos));
     assert((attr == EA_1BYTE) || (attr == EA_4BYTE)AMD64_ONLY(|| (attr == EA_8BYTE)));
 
-    instrDesc* id = emitNewInstr();
+    instrDesc* id = NewInstr();
     id->idIns(ins);
     id->idOpSize(attr);
     id->idInsFmt(IF_NONE);
 
-    size_t code = insCodeMR(ins);
+    size_t code = GetCodeMR(ins);
     assert((code >> PrefixesBitOffset) == 0);
 
     unsigned sz = 1 + ((code & 0xFF00) != 0)AMD64_ONLY(+(attr == EA_8BYTE));
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::SetInstrLclAddrMode(instrDesc* id, StackAddrMode s)
@@ -1477,7 +1477,7 @@ void X86Emitter::SetInstrLclAddrMode(instrDesc* id, StackAddrMode s)
     id->SetVarAddr(INDEBUG(s));
 
     bool ebpBased;
-    int  offset = emitComp->lvaFrameAddress(s.varNum, &ebpBased) + s.varOffs;
+    int  offset = compiler->lvaFrameAddress(s.varNum, &ebpBased) + s.varOffs;
 
     id->idAddr()->lclOffset  = offset;
     id->idAddr()->isEbpBased = ebpBased;
@@ -1490,12 +1490,12 @@ void X86Emitter::SetInstrLclAddrMode(instrDesc* id, StackAddrMode s)
             id->idAddr()->isTrackedGCSlotStore = codeGen->spillTemps.TrackGCSpillTemps();
         }
 #if FEATURE_FIXED_OUT_ARGS
-        else if (static_cast<unsigned>(s.varNum) == emitComp->lvaOutgoingArgSpaceVar)
+        else if (static_cast<unsigned>(s.varNum) == compiler->lvaOutgoingArgSpaceVar)
         {
             id->idAddr()->isGCArgStore = true;
         }
 #endif
-        else if ((s.varOffs == 0) && (emitComp->lvaGetDesc(static_cast<unsigned>(s.varNum))->HasGCSlotLiveness()))
+        else if ((s.varOffs == 0) && (compiler->lvaGetDesc(static_cast<unsigned>(s.varNum))->HasGCSlotLiveness()))
         {
             id->idAddr()->isTrackedGCSlotStore = true;
         }
@@ -1505,7 +1505,7 @@ void X86Emitter::SetInstrLclAddrMode(instrDesc* id, StackAddrMode s)
 bool X86Emitter::IntConNeedsReloc(GenTreeIntCon* con)
 {
 #ifdef TARGET_AMD64
-    if (emitComp->opts.compReloc)
+    if (compiler->opts.compReloc)
     {
         // Only handles need relocations and can be RIP relative in crossgen mode.
         return con->IsIconHandle();
@@ -1515,9 +1515,9 @@ bool X86Emitter::IntConNeedsReloc(GenTreeIntCon* con)
     // if a lot of code is generated. For the runtime to detect such failures we need
     // to call recordRelocation (which may also perform relocation for code addresses
     // by means of jump stubs).
-    return emitComp->eeIsRIPRelativeAddress(reinterpret_cast<void*>(con->GetValue()));
+    return compiler->eeIsRIPRelativeAddress(reinterpret_cast<void*>(con->GetValue()));
 #else
-    return con->ImmedValNeedsReloc(emitComp);
+    return con->ImmedValNeedsReloc(compiler);
 #endif
 }
 
@@ -1551,7 +1551,7 @@ void X86Emitter::SetInstrAddrMode(instrDesc* id, GenTree* addr)
     if (GenTreeIntCon* intConAddr = addr->IsIntCon())
     {
         // Absolute addresses marked as contained should fit within the base of addr mode.
-        AMD64_ONLY(assert(emitComp->IsRIPRelativeAddress(intConAddr)));
+        AMD64_ONLY(assert(compiler->IsRIPRelativeAddress(intConAddr)));
 
         id->idSetIsDspReloc(IntConNeedsReloc(intConAddr));
         id->idAddr()->iiaAddrMode.base  = REG_NA;
@@ -1609,7 +1609,7 @@ void X86Emitter::PrologSpillParamRegsToShadowSlots()
         // (right before the caller return address)
         int offset = (argNum + 1) * EA_PTRSIZE;
 
-        instrDesc* id = emitNewInstrAmd(offset);
+        instrDesc* id = NewInstrAMDisp(offset);
         id->idIns(INS_mov);
         id->idOpSize(EA_PTRSIZE);
         id->idInsFmt(IF_AWR_RRD);
@@ -1618,9 +1618,9 @@ void X86Emitter::PrologSpillParamRegsToShadowSlots()
         id->idAddr()->iiaAddrMode.scale = 0;
         id->idReg1(argReg);
 
-        unsigned sz = emitInsSizeAM(id, insCodeMR(INS_mov));
+        unsigned sz = EncodingSizeAM(id, GetCodeMR(INS_mov));
         id->idCodeSize(sz);
-        emitCurIGsize += sz;
+        currentIGCodeSize += sz;
     }
 }
 
@@ -1642,20 +1642,20 @@ void X86Emitter::emitIns_A(instruction ins, emitAttr attr, GenTree* addr)
         return;
     }
 
-    instrDesc* id = emitNewInstrAmd(GetAddrModeDisp(addr));
+    instrDesc* id = NewInstrAMDisp(GetAddrModeDisp(addr));
     id->idIns(ins);
-    id->idInsFmt(emitInsModeFormat(ins, IF_ARD));
+    id->idInsFmt(MapFormat(ins, IF_ARD));
     id->idOpSize(EA_SIZE(attr));
     id->idGCref(EA_GC_TYPE(attr));
     SetInstrAddrMode(id, addr);
 
-    unsigned sz = emitInsSizeAM(id, insCodeMR(ins));
+    unsigned sz = EncodingSizeAM(id, GetCodeMR(ins));
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 
 #if !FEATURE_FIXED_OUT_ARGS
-    emitAdjustStackDepthPushPop(ins);
+    UpdateStackLevel(ins);
 #endif
 }
 
@@ -1677,18 +1677,18 @@ void X86Emitter::emitIns_A_I(instruction ins, emitAttr attr, GenTree* addr, int3
         return;
     }
 
-    instrDesc* id = emitNewInstrAmdCns(GetAddrModeDisp(addr), imm);
+    instrDesc* id = NewInstrAMDispImm(GetAddrModeDisp(addr), imm);
     id->idIns(ins);
-    id->idInsFmt(emitInsModeFormat(ins, IF_ARD_CNS));
+    id->idInsFmt(MapFormat(ins, IF_ARD_CNS));
     id->idOpSize(EA_SIZE(attr));
     INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
-    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
+    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && compiler->opts.compReloc));
     SetInstrAddrMode(id, addr);
 
-    unsigned sz = emitInsSizeAM(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
+    unsigned sz = EncodingSizeAM(id, GetCodeMI(ins)) + ImmEncodingSize(ins, attr, imm);
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_A_R(instruction ins, emitAttr attr, GenTree* addr, RegNum reg)
@@ -1709,55 +1709,55 @@ void X86Emitter::emitIns_A_R(instruction ins, emitAttr attr, GenTree* addr, RegN
         return;
     }
 
-    instrDesc* id = emitNewInstrAmd(GetAddrModeDisp(addr));
+    instrDesc* id = NewInstrAMDisp(GetAddrModeDisp(addr));
     id->idIns(ins);
-    id->idInsFmt(emitInsModeFormat(ins, IF_ARD_RRD));
+    id->idInsFmt(MapFormat(ins, IF_ARD_RRD));
     id->idOpSize(EA_SIZE(attr));
     INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
     id->idReg1(reg);
     SetInstrAddrMode(id, addr);
 
-    unsigned sz = emitInsSizeAM(id, insCodeMR(ins));
+    unsigned sz = EncodingSizeAM(id, GetCodeMR(ins));
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitInsRMW_A(instruction ins, emitAttr attr, GenTree* addr)
 {
-    instrDesc* id = emitNewInstrAmd(GetAddrModeDisp(addr));
+    instrDesc* id = NewInstrAMDisp(GetAddrModeDisp(addr));
     id->idIns(ins);
     id->idInsFmt(IF_ARW);
     id->idOpSize(EA_SIZE(attr));
     INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
     SetInstrAddrMode(id, addr);
 
-    unsigned sz = emitInsSizeAM(id, insCodeMR(ins));
+    unsigned sz = EncodingSizeAM(id, GetCodeMR(ins));
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitInsRMW_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t imm)
 {
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
-    instrDesc* id = emitNewInstrAmdCns(GetAddrModeDisp(addr), imm);
+    instrDesc* id = NewInstrAMDispImm(GetAddrModeDisp(addr), imm);
     id->idIns(ins);
     id->idInsFmt(IF_ARW_CNS);
     id->idOpSize(EA_SIZE(attr));
     INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
     SetInstrAddrMode(id, addr);
 
-    unsigned sz = emitInsSizeAM(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
+    unsigned sz = EncodingSizeAM(id, GetCodeMI(ins)) + ImmEncodingSize(ins, attr, imm);
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitInsRMW_A_R(instruction ins, emitAttr attr, GenTree* addr, RegNum reg)
 {
-    instrDesc* id = emitNewInstrAmd(GetAddrModeDisp(addr));
+    instrDesc* id = NewInstrAMDisp(GetAddrModeDisp(addr));
     id->idIns(ins);
     id->idInsFmt(IF_ARW_RRD);
     id->idOpSize(EA_SIZE(attr));
@@ -1765,33 +1765,33 @@ void X86Emitter::emitInsRMW_A_R(instruction ins, emitAttr attr, GenTree* addr, R
     id->idReg1(reg);
     SetInstrAddrMode(id, addr);
 
-    unsigned sz = emitInsSizeAM(id, insCodeMR(ins));
+    unsigned sz = EncodingSizeAM(id, GetCodeMR(ins));
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_R(instruction ins, emitAttr attr, RegNum reg)
 {
-    X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg)));
+    X86_ONLY(noway_assert(VerifyEncodable(ins, attr, reg)));
 
     emitAttr size = EA_SIZE(attr);
     assert(size <= EA_PTRSIZE);
 
-    instrDesc* id = emitNewInstrSmall();
+    instrDesc* id = NewInstrSmall();
     id->idIns(ins);
     id->idOpSize(size);
-    id->idInsFmt(emitInsModeFormat(ins, IF_RRD));
+    id->idInsFmt(MapFormat(ins, IF_RRD));
     id->idGCref(EA_GC_TYPE(attr));
     id->idReg1(reg);
 
-    unsigned sz = emitInsSizeR(ins, size, reg);
+    unsigned sz = EncodingSizeR(ins, size, reg);
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 
 #if !FEATURE_FIXED_OUT_ARGS
-    emitAdjustStackDepthPushPop(ins);
+    UpdateStackLevel(ins);
 #endif
 }
 
@@ -1800,11 +1800,11 @@ void X86Emitter::emitIns_R_H(instruction ins, RegNum reg, void* addr DEBUGARG(Ha
     assert(ins == INS_mov);
     assert(genIsValidIntReg(reg) && (reg != REG_RSP));
 
-    instrDesc* id = emitNewInstrSC(reinterpret_cast<ssize_t>(addr));
+    instrDesc* id = NewInstrSmall(reinterpret_cast<ssize_t>(addr));
     id->idIns(ins);
     id->idOpSize(EA_PTRSIZE);
     id->idInsFmt(IF_RWR_CNS);
-    id->idSetIsCnsReloc(emitComp->opts.compReloc);
+    id->idSetIsCnsReloc(compiler->opts.compReloc);
     id->idReg1(reg);
     INDEBUG(id->idDebugOnlyInfo()->idHandleKind = handleKind);
 
@@ -1816,8 +1816,8 @@ void X86Emitter::emitIns_R_H(instruction ins, RegNum reg, void* addr DEBUGARG(Ha
     unsigned size = 5;
 #endif
     id->idCodeSize(size);
-    dispIns(id);
-    emitCurIGsize += size;
+    PrintInstr(id);
+    currentIGCodeSize += size;
 }
 
 void X86Emitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, ssize_t imm DEBUGARG(HandleKind handleKind))
@@ -1826,7 +1826,7 @@ void X86Emitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, ssize_t
     // (it is always encoded in a byte). Let's not complicate things until this is needed.
     assert(ins != INS_bt);
     assert(!EA_IS_RELOC(attr));
-    X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg)));
+    X86_ONLY(noway_assert(VerifyEncodable(ins, attr, reg)));
 
     emitAttr size = EA_SIZE(attr);
     // Allow emitting SSE2/AVX SIMD instructions of R_I form that can specify EA_16BYTE or EA_32BYTE
@@ -1847,23 +1847,23 @@ void X86Emitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, ssize_t
     }
 #endif
 
-    instrDesc* id = emitNewInstrSC(imm);
+    instrDesc* id = NewInstrSmall(imm);
     id->idIns(ins);
     id->idOpSize(size);
-    id->idInsFmt(emitInsModeFormat(ins, IF_RRD_CNS));
+    id->idInsFmt(MapFormat(ins, IF_RRD_CNS));
     id->idGCref(EA_GC_TYPE(attr));
     id->idReg1(reg);
     INDEBUG(id->idDebugOnlyInfo()->idHandleKind = handleKind);
 
-    unsigned sz = emitInsSizeRI(ins, size, reg, imm);
+    unsigned sz = EncodingSizeRI(ins, size, reg, imm);
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 
 #if !FEATURE_FIXED_OUT_ARGS
     if (reg == REG_ESP)
     {
-        emitAdjustStackDepth(ins, imm);
+        UpdateStackLevel(ins, imm);
     }
 #endif
 }
@@ -1873,18 +1873,18 @@ void X86Emitter::emitIns_H(instruction ins, void* addr)
 {
     assert((ins == INS_push) || (ins == INS_push_hide));
 
-    instrDesc* id = emitNewInstrSC(reinterpret_cast<ssize_t>(addr));
+    instrDesc* id = NewInstrSmall(reinterpret_cast<ssize_t>(addr));
     id->idIns(ins);
     id->idOpSize(EA_PTRSIZE);
     id->idInsFmt(IF_CNS);
-    id->idSetIsCnsReloc(emitComp->opts.compReloc);
+    id->idSetIsCnsReloc(compiler->opts.compReloc);
 
     id->idCodeSize(5);
-    dispIns(id);
-    emitCurIGsize += 5;
+    PrintInstr(id);
+    currentIGCodeSize += 5;
 
 #if !FEATURE_FIXED_OUT_ARGS
-    emitAdjustStackDepthPushPop(ins);
+    UpdateStackLevel(ins);
 #endif
 }
 #endif
@@ -1894,10 +1894,10 @@ void X86Emitter::emitInsMov_R_FS(RegNum reg, int32_t disp)
 {
     assert(genIsValidIntReg(reg));
 
-    instrDesc* id = emitNewInstrAmd(disp);
+    instrDesc* id = NewInstrAMDisp(disp);
     id->idIns(INS_mov);
     id->idOpSize(EA_4BYTE);
-    id->idInsFmt(emitInsModeFormat(INS_mov, IF_RRD_ARD));
+    id->idInsFmt(MapFormat(INS_mov, IF_RRD_ARD));
     id->SetHasFSPrefix();
     id->idReg1(reg);
     id->idAddr()->iiaAddrMode.base  = REG_NA;
@@ -1905,18 +1905,18 @@ void X86Emitter::emitInsMov_R_FS(RegNum reg, int32_t disp)
 
     unsigned sz = 1 + (reg == REG_EAX ? 1 : 2) + 4;
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 #endif // WINDOWS_X86_ABI
 
 void X86Emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
 {
-    instrDesc* id = emitNewInstrSC(imm);
+    instrDesc* id = NewInstrSmall(imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_CNS);
-    id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc);
+    id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && compiler->opts.compReloc);
 
     unsigned sz;
 
@@ -1939,31 +1939,31 @@ void X86Emitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
 #endif
 
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 
 #if !FEATURE_FIXED_OUT_ARGS
-    emitAdjustStackDepthPushPop(ins);
+    UpdateStackLevel(ins);
 #endif
 }
 
 void X86Emitter::emitIns_C(instruction ins, emitAttr attr, ConstData* data)
 {
-    instrDesc* id = emitNewInstr();
+    instrDesc* id = NewInstr();
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
-    id->idInsFmt(emitInsModeFormat(ins, IF_MRD));
+    id->idInsFmt(MapFormat(ins, IF_MRD));
     INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
     id->idSetIsDspReloc();
     id->SetConstData(data);
 
-    unsigned sz = emitInsSizeCV(id, insCodeMR(ins));
+    unsigned sz = EncodingSizeCV(id, GetCodeMR(ins));
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 
 #if !FEATURE_FIXED_OUT_ARGS
-    emitAdjustStackDepthPushPop(ins);
+    UpdateStackLevel(ins);
 #endif
 }
 
@@ -2030,7 +2030,7 @@ bool X86Emitter::IsRedundantMov(instruction ins, emitAttr size, RegNum dst, RegN
         return true;
     }
 
-    if (!emitComp->opts.OptimizationEnabled())
+    if (!compiler->opts.OptimizationEnabled())
     {
         // The remaining move elisions should only happen if optimizations are enabled
         return false;
@@ -2132,7 +2132,7 @@ void X86Emitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegN
 
     if (EA_IS_GCREF_OR_BYREF(attr) && (ins == INS_mov) && (dstReg == srcReg))
     {
-        emitNewInstrGCReg(attr, dstReg);
+        NewInstrGCReg(attr, dstReg);
 
         return;
     }
@@ -2177,19 +2177,19 @@ void X86Emitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegN
     }
 #endif
 
-    X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, dstReg, srcReg)));
+    X86_ONLY(noway_assert(VerifyEncodable(ins, attr, dstReg, srcReg)));
     // TODO-MIKE-Review: movss/movsd are actually IF_RRW_RRD, but the table says
     // they're IF_RWR_RRD. And they actually are, in their memory load form. But
     // it doesn't really matter, we only care about WR vs. RW when updating GC
     // liveness and that doesn't apply to movss/movsd.
-    assert(emitInsModeFormat(ins, IF_RRD_RRD) == IF_RWR_RRD);
+    assert(MapFormat(ins, IF_RRD_RRD) == IF_RWR_RRD);
 
     if (IsRedundantMov(ins, attr, dstReg, srcReg, canSkip))
     {
         return;
     }
 
-    instrDesc* id = emitNewInstrSmall();
+    instrDesc* id = NewInstrSmall();
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_RWR_RRD);
@@ -2197,10 +2197,10 @@ void X86Emitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegN
     id->idReg1(dstReg);
     id->idReg2(srcReg);
 
-    unsigned sz = emitInsSizeRR(ins, EA_SIZE(attr), dstReg, srcReg);
+    unsigned sz = EncodingSizeRR(ins, EA_SIZE(attr), dstReg, srcReg);
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2)
@@ -2208,62 +2208,62 @@ void X86Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum
     assert(!HasImplicitRegPairDest(ins) && (ins != INS_imuli));
     assert(!IsMovIns(ins));
 
-    X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg1, reg2)));
+    X86_ONLY(noway_assert(VerifyEncodable(ins, attr, reg1, reg2)));
 
-    instrDesc* id = emitNewInstrSmall();
+    instrDesc* id = NewInstrSmall();
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
-    id->idInsFmt((ins == INS_xchg) ? IF_RRW_RRW : emitInsModeFormat(ins, IF_RRD_RRD));
+    id->idInsFmt((ins == INS_xchg) ? IF_RRW_RRW : MapFormat(ins, IF_RRD_RRD));
     id->idGCref(EA_GC_TYPE(attr));
     id->idReg1(reg1);
     id->idReg2(reg2);
 
-    unsigned sz = emitInsSizeRR(ins, EA_SIZE(attr), reg1, reg2);
+    unsigned sz = EncodingSizeRR(ins, EA_SIZE(attr), reg1, reg2);
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, int32_t imm)
 {
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
-    instrDesc* id = emitNewInstrSC(imm);
+    instrDesc* id = NewInstrSmall(imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_RRW_RRD_CNS);
     id->idGCref(EA_GC_TYPE(attr));
-    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
+    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && compiler->opts.compReloc));
     id->idReg1(reg1);
     id->idReg2(reg2);
 
-    unsigned sz = emitInsSizeRRI(ins, EA_SIZE(attr), reg1, reg2) + emitInsSizeImm(ins, attr, imm);
+    unsigned sz = EncodingSizeRRI(ins, EA_SIZE(attr), reg1, reg2) + ImmEncodingSize(ins, attr, imm);
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_AR(instruction ins, emitAttr attr, RegNum base, int32_t disp)
 {
     assert(IsPrefetch(ins) && (attr == EA_1BYTE));
 
-    instrDesc* id = emitNewInstrAmd(disp);
+    instrDesc* id = NewInstrAMDisp(disp);
     id->idIns(ins);
     id->idInsFmt(IF_ARD);
     id->idAddr()->iiaAddrMode.base  = base;
     id->idAddr()->iiaAddrMode.index = REG_NA;
 
-    unsigned sz = emitInsSizeAM(id, insCodeMR(ins));
+    unsigned sz = EncodingSizeAM(id, GetCodeMR(ins));
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_AR_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum base, int32_t disp)
 {
     assert(IsVexTernary(ins) && !EA_IS_GCREF_OR_BYREF(attr));
 
-    instrDesc* id = emitNewInstrAmd(disp);
+    instrDesc* id = NewInstrAMDisp(disp);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
@@ -2273,10 +2273,10 @@ void X86Emitter::emitIns_AR_R_R(instruction ins, emitAttr attr, RegNum reg1, Reg
     id->idAddr()->iiaAddrMode.base  = base;
     id->idAddr()->iiaAddrMode.index = REG_NA;
 
-    unsigned sz = emitInsSizeAM(id, insCodeMR(ins));
+    unsigned sz = EncodingSizeAM(id, GetCodeMR(ins));
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_R_A(instruction ins, emitAttr attr, RegNum reg, GenTree* addr)
@@ -2297,18 +2297,18 @@ void X86Emitter::emitIns_R_A(instruction ins, emitAttr attr, RegNum reg, GenTree
         return;
     }
 
-    instrDesc* id = emitNewInstrAmd(GetAddrModeDisp(addr));
+    instrDesc* id = NewInstrAMDisp(GetAddrModeDisp(addr));
     id->idIns(ins);
-    id->idInsFmt(emitInsModeFormat(ins, IF_RRD_ARD));
+    id->idInsFmt(MapFormat(ins, IF_RRD_ARD));
     id->idOpSize(EA_SIZE(attr));
     id->idGCref(EA_GC_TYPE(attr));
     id->idReg1(reg);
     SetInstrAddrMode(id, addr);
 
-    unsigned sz = emitInsSizeAM(id, insCodeRM(ins));
+    unsigned sz = EncodingSizeAM(id, GetCodeRM(ins));
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_R_A_I(instruction ins, emitAttr attr, RegNum reg1, GenTree* addr, int32_t imm)
@@ -2323,21 +2323,21 @@ void X86Emitter::emitIns_R_A_I(instruction ins, emitAttr attr, RegNum reg1, GenT
         return;
     }
 
-    X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg1)));
+    X86_ONLY(noway_assert(VerifyEncodable(ins, attr, reg1)));
 
-    instrDesc* id = emitNewInstrAmdCns(GetAddrModeDisp(addr), imm);
+    instrDesc* id = NewInstrAMDispImm(GetAddrModeDisp(addr), imm);
     id->idIns(ins);
     id->idInsFmt(IF_RRW_ARD_CNS);
     id->idOpSize(EA_SIZE(attr));
     id->idGCref(EA_GC_TYPE(attr));
-    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
+    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && compiler->opts.compReloc));
     id->idReg1(reg1);
     SetInstrAddrMode(id, addr);
 
-    unsigned sz = emitInsSizeAM(id, insCodeRM(ins)) + emitInsSizeImm(ins, attr, imm);
+    unsigned sz = EncodingSizeAM(id, GetCodeRM(ins)) + ImmEncodingSize(ins, attr, imm);
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_R_C_I(instruction ins, emitAttr attr, RegNum reg1, ConstData* data, int32_t imm)
@@ -2345,21 +2345,21 @@ void X86Emitter::emitIns_R_C_I(instruction ins, emitAttr attr, RegNum reg1, Cons
     assert(IsSSEOrAVXOrBMIInstruction(ins) || (ins == INS_imuli));
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
     assert(!EA_IS_GCREF_OR_BYREF(attr));
-    X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg1)));
+    X86_ONLY(noway_assert(VerifyEncodable(ins, attr, reg1)));
 
-    instrDesc* id = emitNewInstrCns(imm);
+    instrDesc* id = NewInstrCns(imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
-    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
+    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && compiler->opts.compReloc));
     id->idInsFmt(IF_RRW_MRD_CNS);
     id->idReg1(reg1);
     id->idSetIsDspReloc();
     id->SetConstData(data);
 
-    unsigned sz = emitInsSizeCV(id, insCodeRM(ins)) + emitInsSizeImm(ins, attr, imm);
+    unsigned sz = EncodingSizeCV(id, GetCodeRM(ins)) + ImmEncodingSize(ins, attr, imm);
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_R_S_I(instruction ins, emitAttr attr, RegNum reg1, StackAddrMode s, int32_t imm)
@@ -2368,20 +2368,20 @@ void X86Emitter::emitIns_R_S_I(instruction ins, emitAttr attr, RegNum reg1, Stac
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
     assert(!EA_IS_GCREF_OR_BYREF(attr));
 
-    X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg1)));
+    X86_ONLY(noway_assert(VerifyEncodable(ins, attr, reg1)));
 
-    instrDesc* id = emitNewInstrCns(imm);
+    instrDesc* id = NewInstrCns(imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
-    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
+    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && compiler->opts.compReloc));
     id->idInsFmt(IF_RRW_SRD_CNS);
     id->idReg1(reg1);
     SetInstrLclAddrMode(id, s);
 
-    unsigned sz = emitInsSizeSV(id, insCodeRM(ins)) + emitInsSizeImm(ins, attr, imm);
+    unsigned sz = EncodingSizeSV(id, GetCodeRM(ins)) + ImmEncodingSize(ins, attr, imm);
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_R_R_A(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, GenTree* addr)
@@ -2394,7 +2394,7 @@ void X86Emitter::emitIns_R_R_A(instruction ins, emitAttr attr, RegNum reg1, RegN
 
     assert(IsVexTernary(ins) && !EA_IS_GCREF_OR_BYREF(attr));
 
-    instrDesc* id = emitNewInstrAmd(GetAddrModeDisp(addr));
+    instrDesc* id = NewInstrAMDisp(GetAddrModeDisp(addr));
     id->idIns(ins);
     id->idInsFmt(IF_RWR_RRD_ARD);
     id->idOpSize(EA_SIZE(attr));
@@ -2402,10 +2402,10 @@ void X86Emitter::emitIns_R_R_A(instruction ins, emitAttr attr, RegNum reg1, RegN
     id->idReg2(reg2);
     SetInstrAddrMode(id, addr);
 
-    unsigned sz = emitInsSizeAM(id, insCodeRM(ins));
+    unsigned sz = EncodingSizeAM(id, GetCodeRM(ins));
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 #ifdef DEBUG
@@ -2420,7 +2420,7 @@ void X86Emitter::emitIns_R_AR_R(
 {
     assert(IsAVX2GatherInstruction(ins) && !EA_IS_GCREF_OR_BYREF(attr));
 
-    instrDesc* id = emitNewInstrAmd(disp);
+    instrDesc* id = NewInstrAMDisp(disp);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg1);
@@ -2430,17 +2430,17 @@ void X86Emitter::emitIns_R_AR_R(
     id->idAddr()->iiaAddrMode.index = index;
     id->idAddr()->iiaAddrMode.scale = ScaleEncoding(scale);
 
-    unsigned sz = emitInsSizeAM(id, insCodeRM(ins));
+    unsigned sz = EncodingSizeAM(id, GetCodeRM(ins));
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_R_R_C(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, ConstData* data)
 {
     assert(IsVexTernary(ins) && !EA_IS_GCREF_OR_BYREF(attr));
 
-    instrDesc* id = emitNewInstr();
+    instrDesc* id = NewInstr();
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_RWR_RRD_MRD);
@@ -2449,17 +2449,17 @@ void X86Emitter::emitIns_R_R_C(instruction ins, emitAttr attr, RegNum reg1, RegN
     id->idSetIsDspReloc();
     id->SetConstData(data);
 
-    unsigned sz = emitInsSizeCV(id, insCodeRM(ins));
+    unsigned sz = EncodingSizeCV(id, GetCodeRM(ins));
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3)
 {
     assert(IsVexTernary(ins) && !EA_IS_GCREF_OR_BYREF(attr));
 
-    instrDesc* id = emitNewInstr();
+    instrDesc* id = NewInstr();
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_RWR_RRD_RRD);
@@ -2467,17 +2467,17 @@ void X86Emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
     id->idReg2(reg2);
     id->idReg3(reg3);
 
-    unsigned sz = emitInsSizeRRR(ins, EA_SIZE(attr), reg3);
+    unsigned sz = EncodingSizeRRR(ins, EA_SIZE(attr), reg3);
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_R_R_S(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, StackAddrMode s)
 {
     assert(IsVexTernary(ins) && !EA_IS_GCREF_OR_BYREF(attr));
 
-    instrDesc* id = emitNewInstr();
+    instrDesc* id = NewInstr();
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_RWR_RRD_SRD);
@@ -2485,10 +2485,10 @@ void X86Emitter::emitIns_R_R_S(instruction ins, emitAttr attr, RegNum reg1, RegN
     id->idReg2(reg2);
     SetInstrLclAddrMode(id, s);
 
-    unsigned sz = emitInsSizeSV(id, insCodeRM(ins));
+    unsigned sz = EncodingSizeSV(id, GetCodeRM(ins));
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_R_R_A_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, GenTree* addr, int32_t imm)
@@ -2503,7 +2503,7 @@ void X86Emitter::emitIns_R_R_A_I(instruction ins, emitAttr attr, RegNum reg1, Re
     assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
     assert(IsImm8(imm));
 
-    instrDesc* id = emitNewInstrAmdCns(GetAddrModeDisp(addr), imm);
+    instrDesc* id = NewInstrAMDispImm(GetAddrModeDisp(addr), imm);
     id->idIns(ins);
     id->idInsFmt(IF_RWR_RRD_ARD_CNS);
     id->idOpSize(EA_SIZE(attr));
@@ -2511,10 +2511,10 @@ void X86Emitter::emitIns_R_R_A_I(instruction ins, emitAttr attr, RegNum reg1, Re
     id->idReg2(reg2);
     SetInstrAddrMode(id, addr);
 
-    unsigned sz = emitInsSizeAM(id, insCodeRM(ins)) + 1;
+    unsigned sz = EncodingSizeAM(id, GetCodeRM(ins)) + 1;
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_R_R_C_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, ConstData* data, int32_t imm)
@@ -2523,7 +2523,7 @@ void X86Emitter::emitIns_R_R_C_I(instruction ins, emitAttr attr, RegNum reg1, Re
     assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
     assert(IsImm8(imm));
 
-    instrDesc* id = emitNewInstrCns(imm);
+    instrDesc* id = NewInstrCns(imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_RWR_RRD_MRD_CNS);
@@ -2532,10 +2532,10 @@ void X86Emitter::emitIns_R_R_C_I(instruction ins, emitAttr attr, RegNum reg1, Re
     id->idSetIsDspReloc();
     id->SetConstData(data);
 
-    unsigned sz = emitInsSizeCV(id, insCodeRM(ins)) + 1;
+    unsigned sz = EncodingSizeCV(id, GetCodeRM(ins)) + 1;
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_R_R_R_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, int32_t imm)
@@ -2544,7 +2544,7 @@ void X86Emitter::emitIns_R_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
     assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
     assert(IsImm8(imm));
 
-    instrDesc* id = emitNewInstrCns(imm);
+    instrDesc* id = NewInstrCns(imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_RWR_RRD_RRD_CNS);
@@ -2552,10 +2552,10 @@ void X86Emitter::emitIns_R_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Re
     id->idReg2(reg2);
     id->idReg3(reg3);
 
-    unsigned sz = emitInsSizeRRR(ins, EA_SIZE(attr), reg3) + 1;
+    unsigned sz = EncodingSizeRRR(ins, EA_SIZE(attr), reg3) + 1;
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_R_R_S_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, StackAddrMode s, int32_t imm)
@@ -2564,7 +2564,7 @@ void X86Emitter::emitIns_R_R_S_I(instruction ins, emitAttr attr, RegNum reg1, Re
     assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
     assert(IsImm8(imm));
 
-    instrDesc* id = emitNewInstrCns(imm);
+    instrDesc* id = NewInstrCns(imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_RWR_RRD_SRD_CNS);
@@ -2572,10 +2572,10 @@ void X86Emitter::emitIns_R_R_S_I(instruction ins, emitAttr attr, RegNum reg1, Re
     id->idReg2(reg2);
     SetInstrLclAddrMode(id, s);
 
-    unsigned sz = emitInsSizeSV(id, insCodeRM(ins)) + 1;
+    unsigned sz = EncodingSizeSV(id, GetCodeRM(ins)) + 1;
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 // Encodes a XMM register into imm[7:4] for use by a SIMD instruction.
@@ -2602,7 +2602,7 @@ void X86Emitter::emitIns_R_R_A_R(instruction ins, emitAttr attr, RegNum reg1, Re
         return;
     }
 
-    instrDesc* id = emitNewInstrAmdCns(GetAddrModeDisp(addr), EncodeXmmRegAsImm(reg3));
+    instrDesc* id = NewInstrAMDispImm(GetAddrModeDisp(addr), EncodeXmmRegAsImm(reg3));
     id->idIns(ins);
     id->idInsFmt(IF_RWR_RRD_ARD_RRD);
     id->idOpSize(EA_SIZE(attr));
@@ -2610,10 +2610,10 @@ void X86Emitter::emitIns_R_R_A_R(instruction ins, emitAttr attr, RegNum reg1, Re
     id->idReg2(reg2);
     SetInstrAddrMode(id, addr);
 
-    unsigned sz = emitInsSizeAM(id, insCodeRM(ins)) + 1;
+    unsigned sz = EncodingSizeAM(id, GetCodeRM(ins)) + 1;
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_R_R_C_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, ConstData* data)
@@ -2622,7 +2622,7 @@ void X86Emitter::emitIns_R_R_C_R(instruction ins, emitAttr attr, RegNum reg1, Re
     assert(IsAvxBlendv(ins));
     assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
 
-    instrDesc* id = emitNewInstrCns(EncodeXmmRegAsImm(reg3));
+    instrDesc* id = NewInstrCns(EncodeXmmRegAsImm(reg3));
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg1);
@@ -2631,10 +2631,10 @@ void X86Emitter::emitIns_R_R_C_R(instruction ins, emitAttr attr, RegNum reg1, Re
     id->idSetIsDspReloc();
     id->SetConstData(data);
 
-    unsigned sz = emitInsSizeCV(id, insCodeRM(ins)) + 1;
+    unsigned sz = EncodingSizeCV(id, GetCodeRM(ins)) + 1;
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_R_R_S_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, StackAddrMode s)
@@ -2643,7 +2643,7 @@ void X86Emitter::emitIns_R_R_S_R(instruction ins, emitAttr attr, RegNum reg1, Re
     assert(IsAvxBlendv(ins));
     assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
 
-    instrDesc* id = emitNewInstrCns(EncodeXmmRegAsImm(reg3));
+    instrDesc* id = NewInstrCns(EncodeXmmRegAsImm(reg3));
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idReg1(reg1);
@@ -2651,10 +2651,10 @@ void X86Emitter::emitIns_R_R_S_R(instruction ins, emitAttr attr, RegNum reg1, Re
     id->idInsFmt(IF_RWR_RRD_SRD_RRD);
     SetInstrLclAddrMode(id, s);
 
-    unsigned sz = emitInsSizeSV(id, insCodeRM(ins)) + 1;
+    unsigned sz = EncodingSizeSV(id, GetCodeRM(ins)) + 1;
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, RegNum reg4)
@@ -2663,7 +2663,7 @@ void X86Emitter::emitIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, Re
     assert(UseVEXEncoding());
     assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
 
-    instrDesc* id = emitNewInstrCns(EncodeXmmRegAsImm(reg4));
+    instrDesc* id = NewInstrCns(EncodeXmmRegAsImm(reg4));
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idInsFmt(IF_RWR_RRD_RRD_RRD);
@@ -2671,21 +2671,21 @@ void X86Emitter::emitIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, Re
     id->idReg2(reg2);
     id->idReg3(reg3);
 
-    unsigned sz = emitInsSizeRRR(ins, EA_SIZE(attr), reg3) + 1;
+    unsigned sz = EncodingSizeRRR(ins, EA_SIZE(attr), reg3) + 1;
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_R_C(instruction ins, emitAttr attr, RegNum reg, ConstData* data)
 {
     assert(!HasImplicitRegPairDest(ins) && (ins != INS_imuli));
-    X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg)));
+    X86_ONLY(noway_assert(VerifyEncodable(ins, attr, reg)));
 
-    instrDesc* id = emitNewInstr();
+    instrDesc* id = NewInstr();
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
-    id->idInsFmt(emitInsModeFormat(ins, IF_RRD_MRD));
+    id->idInsFmt(MapFormat(ins, IF_RRD_MRD));
     id->idGCref(EA_GC_TYPE(attr));
     id->idReg1(reg);
     id->idSetIsDspReloc();
@@ -2705,17 +2705,17 @@ void X86Emitter::emitIns_R_C(instruction ins, emitAttr attr, RegNum reg, ConstDa
     else
 #endif
     {
-        sz = emitInsSizeCV(id, insCodeRM(ins));
+        sz = EncodingSizeCV(id, GetCodeRM(ins));
     }
 
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_C_R(instruction ins, emitAttr attr, ConstData* data, RegNum reg)
 {
-    X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg)));
+    X86_ONLY(noway_assert(VerifyEncodable(ins, attr, reg)));
 
     emitAttr size = EA_SIZE(attr);
 
@@ -2726,10 +2726,10 @@ void X86Emitter::emitIns_C_R(instruction ins, emitAttr attr, ConstData* data, Re
     assert(size <= EA_PTRSIZE);
 #endif
 
-    instrDesc* id = emitNewInstr();
+    instrDesc* id = NewInstr();
     id->idIns(ins);
     id->idOpSize(size);
-    id->idInsFmt(emitInsModeFormat(ins, IF_MRD_RRD));
+    id->idInsFmt(MapFormat(ins, IF_MRD_RRD));
     id->idReg1(reg);
     id->idSetIsDspReloc();
     id->SetConstData(data);
@@ -2748,31 +2748,31 @@ void X86Emitter::emitIns_C_R(instruction ins, emitAttr attr, ConstData* data, Re
     else
 #endif // TARGET_X86
     {
-        sz = emitInsSizeCV(id, insCodeMR(ins));
+        sz = EncodingSizeCV(id, GetCodeMR(ins));
     }
 
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_C_I(instruction ins, emitAttr attr, ConstData* data, int32_t imm)
 {
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
-    instrDesc* id = emitNewInstrCns(imm);
+    instrDesc* id = NewInstrCns(imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
-    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
-    id->idInsFmt(emitInsModeFormat(ins, IF_MRD_CNS));
+    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && compiler->opts.compReloc));
+    id->idInsFmt(MapFormat(ins, IF_MRD_CNS));
     id->idSetIsDspReloc();
     id->SetConstData(data);
 
-    unsigned sz = emitInsSizeCV(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
+    unsigned sz = EncodingSizeCV(id, GetCodeMI(ins)) + ImmEncodingSize(ins, attr, imm);
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_R_L(RegNum reg, insGroup* label)
@@ -2784,7 +2784,7 @@ void X86Emitter::emitIns_R_L(RegNum reg, insGroup* label)
     }
 #endif
 
-    instrDescJmp* id = emitNewInstrJmp();
+    instrDescJmp* id = NewInstrJmp();
 #ifdef TARGET_X86
     id->idIns(INS_mov);
 #else
@@ -2794,7 +2794,7 @@ void X86Emitter::emitIns_R_L(RegNum reg, insGroup* label)
     id->idInsFmt(IF_RWR_LABEL);
     id->idReg1(reg);
     id->SetLabel(label);
-    id->idSetIsCnsReloc(emitComp->opts.compReloc AMD64_ONLY(&&InDifferentRegions(emitCurIG, label)));
+    id->idSetIsCnsReloc(compiler->opts.compReloc AMD64_ONLY(&&InDifferentRegions(currentIG, label)));
 
 #ifdef TARGET_X86
     unsigned sz = 1 + 4; // 0xB8 IMM32
@@ -2802,25 +2802,25 @@ void X86Emitter::emitIns_R_L(RegNum reg, insGroup* label)
     unsigned sz = 1 + 1 + 1 + 4; // REX 0x8D RM DISP32
 #endif
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 #ifdef TARGET_X86
 void X86Emitter::emitIns_R_L(RegNum reg, ConstData* data)
 {
-    instrDescJmp* id = emitNewInstrJmp();
+    instrDescJmp* id = NewInstrJmp();
     id->idIns(INS_mov);
     id->idOpSize(EA_PTRSIZE);
     id->idInsFmt(IF_RWR_LABEL);
     id->idReg1(reg);
     id->SetConstData(data);
-    id->idSetIsCnsReloc(emitComp->opts.compReloc);
+    id->idSetIsCnsReloc(compiler->opts.compReloc);
 
     unsigned sz = 1 + 4; // 0xB8 IMM32
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 #endif // TARGET_X86
 
@@ -2833,7 +2833,7 @@ void X86Emitter::emitIns_R_AH(instruction ins, RegNum reg, void* addr)
 #endif
     assert(genIsValidIntReg(reg));
 
-    instrDesc* id = emitNewInstrAmd(reinterpret_cast<ssize_t>(addr));
+    instrDesc* id = NewInstrAMDisp(reinterpret_cast<ssize_t>(addr));
     id->idIns(ins);
     id->idOpSize(EA_PTRSIZE);
     id->idInsFmt(IF_RWR_ARD);
@@ -2842,12 +2842,12 @@ void X86Emitter::emitIns_R_AH(instruction ins, RegNum reg, void* addr)
     id->idAddr()->iiaAddrMode.index = REG_NA;
     // On x64 RIP relative addressing is always used and that needs relocs.
     // TODO-MIKE-Review: Erm, normally RIP-relative does NOT need relocs...
-    id->idSetIsDspReloc(X86_ONLY(emitComp->opts.compReloc));
+    id->idSetIsDspReloc(X86_ONLY(compiler->opts.compReloc));
 
-    unsigned sz = emitInsSizeAM(id, insCodeRM(ins));
+    unsigned sz = EncodingSizeAM(id, GetCodeRM(ins));
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_S_R_I(instruction ins, emitAttr attr, StackAddrMode s, RegNum reg, int32_t imm)
@@ -2857,17 +2857,17 @@ void X86Emitter::emitIns_S_R_I(instruction ins, emitAttr attr, StackAddrMode s, 
     assert(reg != REG_NA);
     assert((imm == 0) || (imm == 1));
 
-    instrDesc* id = emitNewInstrCns(imm);
+    instrDesc* id = NewInstrCns(imm);
     id->idIns(ins);
     id->idOpSize(EA_32BYTE);
     id->idInsFmt(IF_SWR_RRD_CNS);
     id->idReg1(reg);
     SetInstrLclAddrMode(id, s);
 
-    unsigned sz = emitInsSizeSV(id, insCodeMR(ins)) + 1;
+    unsigned sz = EncodingSizeSV(id, GetCodeMR(ins)) + 1;
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_A_R_I(instruction ins, emitAttr attr, GenTree* addr, RegNum reg, int32_t imm)
@@ -2883,17 +2883,17 @@ void X86Emitter::emitIns_A_R_I(instruction ins, emitAttr attr, GenTree* addr, Re
     assert(reg != REG_NA);
     assert((imm == 0) || (imm == 1));
 
-    instrDesc* id = emitNewInstrAmdCns(GetAddrModeDisp(addr), imm);
+    instrDesc* id = NewInstrAMDispImm(GetAddrModeDisp(addr), imm);
     id->idIns(ins);
     id->idInsFmt(IF_AWR_RRD_CNS);
     id->idOpSize(EA_32BYTE);
     id->idReg1(reg);
     SetInstrAddrMode(id, addr);
 
-    unsigned size = emitInsSizeAM(id, insCodeMR(ins)) + 1;
+    unsigned size = EncodingSizeAM(id, GetCodeMR(ins)) + 1;
     id->idCodeSize(size);
-    dispIns(id);
-    emitCurIGsize += size;
+    PrintInstr(id);
+    currentIGCodeSize += size;
 }
 
 void X86Emitter::emitIns_C_R_I(instruction ins, emitAttr attr, ConstData* data, RegNum reg, int32_t imm)
@@ -2903,7 +2903,7 @@ void X86Emitter::emitIns_C_R_I(instruction ins, emitAttr attr, ConstData* data, 
     assert(reg != REG_NA);
     assert((imm == 0) || (imm == 1));
 
-    instrDesc* id = emitNewInstrCns(imm);
+    instrDesc* id = NewInstrCns(imm);
     id->idIns(ins);
     id->idOpSize(EA_32BYTE);
     id->idInsFmt(IF_MWR_RRD_CNS);
@@ -2911,10 +2911,10 @@ void X86Emitter::emitIns_C_R_I(instruction ins, emitAttr attr, ConstData* data, 
     id->idSetIsDspReloc();
     id->SetConstData(data);
 
-    unsigned size = emitInsSizeCV(id, insCodeMR(ins)) + 1;
+    unsigned size = EncodingSizeCV(id, GetCodeMR(ins)) + 1;
     id->idCodeSize(size);
-    dispIns(id);
-    emitCurIGsize += size;
+    PrintInstr(id);
+    currentIGCodeSize += size;
 }
 
 void X86Emitter::emitIns_ARX_I(
@@ -2923,19 +2923,19 @@ void X86Emitter::emitIns_ARX_I(
     assert(!IsX87LdSt(ins) && (EA_SIZE(attr) <= EA_8BYTE));
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
-    instrDesc* id = emitNewInstrAmdCns(disp, imm);
+    instrDesc* id = NewInstrAMDispImm(disp, imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
-    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
-    id->idInsFmt(emitInsModeFormat(ins, IF_ARD_CNS));
+    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && compiler->opts.compReloc));
+    id->idInsFmt(MapFormat(ins, IF_ARD_CNS));
     id->idAddr()->iiaAddrMode.base  = base;
     id->idAddr()->iiaAddrMode.index = index;
     id->idAddr()->iiaAddrMode.scale = ScaleEncoding(scale);
 
-    unsigned sz = emitInsSizeAM(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
+    unsigned sz = EncodingSizeAM(id, GetCodeMI(ins)) + ImmEncodingSize(ins, attr, imm);
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_R_AR(instruction ins, emitAttr attr, RegNum reg, RegNum base, int32_t disp)
@@ -2947,7 +2947,7 @@ void X86Emitter::emitIns_R_ARX(
     instruction ins, emitAttr attr, RegNum reg, RegNum base, RegNum index, unsigned scale, int32_t disp)
 {
     assert(!IsX87LdSt(ins) && (EA_SIZE(attr) <= EA_32BYTE) && (reg != REG_NA));
-    X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg)));
+    X86_ONLY(noway_assert(VerifyEncodable(ins, attr, reg)));
 
     if ((ins == INS_lea) && (reg == base) && (index == REG_NA) && (disp == 0))
     {
@@ -2957,20 +2957,20 @@ void X86Emitter::emitIns_R_ARX(
         return;
     }
 
-    instrDesc* id = emitNewInstrAmd(disp);
+    instrDesc* id = NewInstrAMDisp(disp);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
-    id->idInsFmt(emitInsModeFormat(ins, IF_RRD_ARD));
+    id->idInsFmt(MapFormat(ins, IF_RRD_ARD));
     id->idGCref(EA_GC_TYPE(attr));
     id->idReg1(reg);
     id->idAddr()->iiaAddrMode.base  = base;
     id->idAddr()->iiaAddrMode.index = index;
     id->idAddr()->iiaAddrMode.scale = ScaleEncoding(scale);
 
-    unsigned sz = emitInsSizeAM(id, insCodeRM(ins));
+    unsigned sz = EncodingSizeAM(id, GetCodeRM(ins));
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_ARX(instruction ins, emitAttr attr, RegNum base, RegNum index, unsigned scale, int32_t disp)
@@ -2988,18 +2988,18 @@ void X86Emitter::emitIns_ARX_R(
 {
     assert(!IsReallyVexTernary(ins));
 
-    instrDesc* id = emitNewInstrAmd(disp);
+    instrDesc* id = NewInstrAMDisp(disp);
     insFormat  fmt;
 
     if (reg == REG_NA)
     {
-        fmt = emitInsModeFormat(ins, IF_ARD);
+        fmt = MapFormat(ins, IF_ARD);
     }
     else
     {
-        fmt = emitInsModeFormat(ins, IF_ARD_RRD);
+        fmt = MapFormat(ins, IF_ARD_RRD);
 
-        X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg)));
+        X86_ONLY(noway_assert(VerifyEncodable(ins, attr, reg)));
         assert(!IsX87LdSt(ins) && (EA_SIZE(attr) <= EA_32BYTE));
 
         id->idReg1(reg);
@@ -3013,13 +3013,13 @@ void X86Emitter::emitIns_ARX_R(
     id->idAddr()->iiaAddrMode.index = index;
     id->idAddr()->iiaAddrMode.scale = ScaleEncoding(scale);
 
-    unsigned sz = emitInsSizeAM(id, insCodeMR(ins));
+    unsigned sz = EncodingSizeAM(id, GetCodeMR(ins));
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 
 #if !FEATURE_FIXED_OUT_ARGS
-    emitAdjustStackDepthPushPop(ins);
+    UpdateStackLevel(ins);
 #endif
 }
 
@@ -3287,20 +3287,20 @@ void X86Emitter::emitIns_SIMD_R_R_S_R(
 
 void X86Emitter::emitIns_S(instruction ins, emitAttr attr, StackAddrMode s)
 {
-    instrDesc* id = emitNewInstr();
+    instrDesc* id = NewInstr();
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     id->idGCref(EA_GC_TYPE(attr));
-    id->idInsFmt(emitInsModeFormat(ins, IF_SRD));
+    id->idInsFmt(MapFormat(ins, IF_SRD));
     SetInstrLclAddrMode(id, s);
 
-    unsigned sz = emitInsSizeSV(id, insCodeMR(ins));
+    unsigned sz = EncodingSizeSV(id, GetCodeMR(ins));
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 
 #if !FEATURE_FIXED_OUT_ARGS
-    emitAdjustStackDepthPushPop(ins);
+    UpdateStackLevel(ins);
 #endif
 }
 
@@ -3309,55 +3309,55 @@ void X86Emitter::emitIns_S_R(instruction ins, emitAttr attr, RegNum reg, StackAd
     assert(!IsReallyVexTernary(ins));
     X86_ONLY(assert((attr != EA_1BYTE) || isByteReg(reg)));
 
-    instrDesc* id = emitNewInstr();
+    instrDesc* id = NewInstr();
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
-    id->idInsFmt(emitInsModeFormat(ins, IF_SRD_RRD));
+    id->idInsFmt(MapFormat(ins, IF_SRD_RRD));
     INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
     id->idReg1(reg);
     SetInstrLclAddrMode(id, s);
 
-    unsigned sz = emitInsSizeSV(id, insCodeMR(ins));
+    unsigned sz = EncodingSizeSV(id, GetCodeMR(ins));
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s)
 {
     assert(!HasImplicitRegPairDest(ins) && (ins != INS_imuli));
-    X86_ONLY(noway_assert(emitVerifyEncodable(ins, attr, reg)));
+    X86_ONLY(noway_assert(VerifyEncodable(ins, attr, reg)));
 
-    instrDesc* id = emitNewInstr();
+    instrDesc* id = NewInstr();
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
-    id->idInsFmt(emitInsModeFormat(ins, IF_RRD_SRD));
+    id->idInsFmt(MapFormat(ins, IF_RRD_SRD));
     id->idGCref(EA_GC_TYPE(attr));
     id->idReg1(reg);
     SetInstrLclAddrMode(id, s);
 
-    unsigned sz = emitInsSizeSV(id, insCodeRM(ins));
+    unsigned sz = EncodingSizeSV(id, GetCodeRM(ins));
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 void X86Emitter::emitIns_S_I(instruction ins, emitAttr attr, StackAddrMode s, int32_t imm)
 {
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
-    instrDesc* id = emitNewInstrCns(imm);
+    instrDesc* id = NewInstrCns(imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
-    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && emitComp->opts.compReloc));
-    id->idInsFmt(emitInsModeFormat(ins, IF_SRD_CNS));
+    X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && compiler->opts.compReloc));
+    id->idInsFmt(MapFormat(ins, IF_SRD_CNS));
     INDEBUG(id->idGCref(EA_GC_TYPE(attr)));
     SetInstrLclAddrMode(id, s);
 
-    unsigned sz = emitInsSizeSV(id, insCodeMI(ins)) + emitInsSizeImm(ins, attr, imm);
+    unsigned sz = EncodingSizeSV(id, GetCodeMI(ins)) + ImmEncodingSize(ins, attr, imm);
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 #define JMP_JCC_SIZE_SMALL (2)
@@ -3372,16 +3372,16 @@ void X86Emitter::emitIns_L(instruction ins, insGroup* label)
     assert(ins == INS_push_hide);
     assert(label != nullptr);
 
-    instrDescJmp* id = emitNewInstrJmp();
+    instrDescJmp* id = NewInstrJmp();
     id->idIns(ins);
     id->idOpSize(EA_4BYTE);
     id->idInsFmt(IF_LABEL);
-    id->idSetIsCnsReloc(emitComp->opts.compReloc);
+    id->idSetIsCnsReloc(compiler->opts.compReloc);
     id->SetLabel(label);
 
     id->idCodeSize(PUSH_INST_SIZE);
-    dispIns(id);
-    emitCurIGsize += PUSH_INST_SIZE;
+    PrintInstr(id);
+    currentIGCodeSize += PUSH_INST_SIZE;
 }
 #endif // TARGET_X86
 
@@ -3391,44 +3391,44 @@ void X86Emitter::emitIns_CallFinally(insGroup* label)
     assert(codeGen->GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY);
     INDEBUG(VerifyCallFinally(label));
 
-    instrDescJmp* id = emitNewInstrJmp();
-    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label));
+    instrDescJmp* id = NewInstrJmp();
+    id->idSetIsCnsReloc(compiler->opts.compReloc && InDifferentRegions(currentIG, label));
     id->idIns(INS_call);
     id->idInsFmt(IF_LABEL);
     id->SetLabel(label);
 
     id->idCodeSize(CALL_INST_SIZE);
-    dispIns(id);
-    emitCurIGsize += CALL_INST_SIZE;
+    PrintInstr(id);
+    currentIGCodeSize += CALL_INST_SIZE;
 }
 #endif // TARGET_AMD64
 
 void X86Emitter::emitIns_J(instruction ins, int instrCount)
 {
-    assert(IsMainProlog(emitCurIG));
+    assert(IsMainProlog(currentIG));
     assert(IsJccInstruction(ins));
     assert(instrCount < 0);
 
-    instrDescJmp* id = emitNewInstrJmp();
+    instrDescJmp* id = NewInstrJmp();
     id->idIns(ins);
     id->idInsFmt(IF_LABEL);
     id->SetInstrCount(instrCount);
 
     id->idCodeSize(JMP_JCC_SIZE_SMALL);
-    dispIns(id);
-    emitCurIGsize += JMP_JCC_SIZE_SMALL;
+    PrintInstr(id);
+    currentIGCodeSize += JMP_JCC_SIZE_SMALL;
 }
 
 void X86Emitter::emitIns_J(instruction ins, insGroup* label)
 {
     assert((ins == INS_jmp) || IsJccInstruction(ins));
-    assert(emitCurIG->GetFuncletIndex() == label->GetFuncletIndex());
+    assert(currentIG->GetFuncletIndex() == label->GetFuncletIndex());
 
-    instrDescJmp* id = emitNewInstrJmp();
+    instrDescJmp* id = NewInstrJmp();
     id->idIns(ins);
     id->idInsFmt(IF_LABEL);
     id->SetLabel(label);
-    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label));
+    id->idSetIsCnsReloc(compiler->opts.compReloc && InDifferentRegions(currentIG, label));
 
     unsigned sz = ins == INS_jmp ? JMP_SIZE_LARGE : JCC_SIZE_LARGE;
 
@@ -3436,7 +3436,7 @@ void X86Emitter::emitIns_J(instruction ins, insGroup* label)
     {
         // This is a backward jump, we can determine now if it's going to be short.
 
-        uint32_t jumpOffs = emitCurCodeOffset + emitCurIGsize + JMP_JCC_SIZE_SMALL;
+        uint32_t jumpOffs = currentCodeOffset + currentIGCodeSize + JMP_JCC_SIZE_SMALL;
         int32_t  distance = jumpOffs - label->igOffs;
         int32_t  overflow = distance + -128;
 
@@ -3449,8 +3449,8 @@ void X86Emitter::emitIns_J(instruction ins, insGroup* label)
     }
 
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 }
 
 ssize_t instrDesc::GetImm() const
@@ -3506,69 +3506,69 @@ ssize_t instrDesc::GetCallDisp() const
 }
 
 #if !FEATURE_FIXED_OUT_ARGS
-void X86Emitter::emitMarkStackLvl(unsigned stackLevel)
+void X86Emitter::SetStackLevel(unsigned level)
 {
-    assert((stackLevel != 0) && (stackLevel < INT32_MAX) && (stackLevel % REGSIZE_BYTES == 0));
-    assert(emitCurStackLvl == 0);
-    assert(emitCurIG->igStkLvl == 0);
-    assert(emitCurIGfreeNext == emitCurIGfreeBase);
+    assert((level != 0) && (level < INT32_MAX) && (level % REGSIZE_BYTES == 0));
+    assert(stackLevel == 0);
+    assert(currentIG->igStkLvl == 0);
+    assert(instrBufferFree == instrBufferBase);
 
-    emitCurStackLvl = emitCurIG->igStkLvl = stackLevel;
+    stackLevel = currentIG->igStkLvl = level;
 
-    if (emitMaxStackDepth < emitCurStackLvl)
+    if (maxStackDepth < stackLevel)
     {
-        emitMaxStackDepth = emitCurStackLvl;
-        JITDUMP("Max stack depth: %u\n", emitMaxStackDepth);
+        maxStackDepth = stackLevel;
+        JITDUMP("Max stack depth: %u\n", maxStackDepth);
     }
 }
 
-void X86Emitter::emitAdjustStackDepthPushPop(instruction ins)
+void X86Emitter::UpdateStackLevel(instruction ins)
 {
     if (ins == INS_push)
     {
-        emitCurStackLvl += emitCntStackDepth;
+        stackLevel += stackSlotSize;
 
-        if (emitMaxStackDepth < emitCurStackLvl)
+        if (maxStackDepth < stackLevel)
         {
-            emitMaxStackDepth = emitCurStackLvl;
-            JITDUMP("Max stack depth: %u\n", emitMaxStackDepth);
+            maxStackDepth = stackLevel;
+            JITDUMP("Max stack depth: %u\n", maxStackDepth);
         }
     }
     else if (ins == INS_pop)
     {
-        emitCurStackLvl -= emitCntStackDepth;
-        assert(emitCurStackLvl < INT32_MAX);
+        stackLevel -= stackSlotSize;
+        assert(stackLevel < INT32_MAX);
     }
 }
 
-void X86Emitter::emitAdjustStackDepth(instruction ins, ssize_t val)
+void X86Emitter::UpdateStackLevel(instruction ins, ssize_t val)
 {
     // If we're in the prolog or epilog, or otherwise not tracking the stack depth, just return.
-    if (emitCntStackDepth == 0)
+    if (stackSlotSize == 0)
     {
         return;
     }
 
     if (ins == INS_sub)
     {
-        S_UINT32 newStackLvl(emitCurStackLvl);
+        S_UINT32 newStackLvl(stackLevel);
         newStackLvl += S_UINT32(val);
         noway_assert(!newStackLvl.IsOverflow());
 
-        emitCurStackLvl = newStackLvl.Value();
+        stackLevel = newStackLvl.Value();
 
-        if (emitMaxStackDepth < emitCurStackLvl)
+        if (maxStackDepth < stackLevel)
         {
-            emitMaxStackDepth = emitCurStackLvl;
-            JITDUMP("Max stack depth: %u\n", emitMaxStackDepth);
+            maxStackDepth = stackLevel;
+            JITDUMP("Max stack depth: %u\n", maxStackDepth);
         }
     }
     else if (ins == INS_add)
     {
-        S_UINT32 newStackLvl = S_UINT32(emitCurStackLvl) - S_UINT32(val);
+        S_UINT32 newStackLvl = S_UINT32(stackLevel) - S_UINT32(val);
         noway_assert(!newStackLvl.IsOverflow());
 
-        emitCurStackLvl = newStackLvl.Value();
+        stackLevel = newStackLvl.Value();
     }
 }
 
@@ -3615,14 +3615,14 @@ void X86Emitter::emitIns_Call(EmitCallType          kind,
     int32_t argSlotCount = argSize / REGSIZE_BYTES;
 #endif
 
-    instrDesc* id = emitNewInstrCall(methodHandle, retRegAttr,
+    instrDesc* id = NewInstrCall(methodHandle, retRegAttr,
 #ifdef UNIX_AMD64_ABI
-                                     retReg2Attr,
+                                 retReg2Attr,
 #endif
 #ifdef TARGET_X86
-                                     argSlotCount,
+                                 argSlotCount,
 #endif
-                                     (kind == EC_INDIR_ARD) ? amDisp : 0);
+                                 (kind == EC_INDIR_ARD) ? amDisp : 0);
 
     if (!isJump)
     {
@@ -3660,7 +3660,7 @@ void X86Emitter::emitIns_Call(EmitCallType          kind,
         id->idAddr()->iiaAddrMode.index = amIndex;
         id->idAddr()->iiaAddrMode.scale = ScaleEncoding(amScale);
 
-        sz = emitInsSizeAM(id, insCodeMR(INS_call));
+        sz = EncodingSizeAM(id, GetCodeMR(INS_call));
     }
     else if (kind == EC_FUNC_TOKEN_INDIR)
     {
@@ -3674,7 +3674,7 @@ void X86Emitter::emitIns_Call(EmitCallType          kind,
         // Since this is an indirect call through a pointer and we don't
         // currently pass in emitAttr into this function, we query codegen
         // whether addr needs a reloc.
-        if (emitComp->opts.compReloc AMD64_ONLY(|| !IsImm32(reinterpret_cast<intptr_t>(addr))))
+        if (compiler->opts.compReloc AMD64_ONLY(|| !IsImm32(reinterpret_cast<intptr_t>(addr))))
         {
             id->idSetIsDspReloc();
         }
@@ -3695,7 +3695,7 @@ void X86Emitter::emitIns_Call(EmitCallType          kind,
         // Direct call to a method and no addr indirection is needed.
         // On x64 all direct code addresses go through relocation so that VM will
         // setup a jump stub if addr cannot be encoded as RIP relative offset.
-        X86_ONLY(if (emitComp->opts.compReloc))
+        X86_ONLY(if (compiler->opts.compReloc))
         {
             id->idSetIsDspReloc();
         }
@@ -3709,23 +3709,23 @@ void X86Emitter::emitIns_Call(EmitCallType          kind,
 #endif
 
     id->idCodeSize(sz);
-    dispIns(id);
-    emitCurIGsize += sz;
+    PrintInstr(id);
+    currentIGCodeSize += sz;
 
 #ifdef LATE_DISASM
     if (addr != nullptr)
     {
-        disSetMethod(reinterpret_cast<size_t>(addr), methodHandle);
+        AddDisasmMethodAddr(reinterpret_cast<size_t>(addr), methodHandle);
     }
 #endif
 
 #if !FEATURE_FIXED_OUT_ARGS
-    if (emitCntStackDepth && (argSize > 0))
+    if (stackSlotSize && (argSize > 0))
     {
-        noway_assert(argSize <= static_cast<int32_t>(emitCurStackLvl));
+        noway_assert(argSize <= static_cast<int32_t>(stackLevel));
 
-        emitCurStackLvl -= argSize;
-        assert(emitCurStackLvl <= INT_MAX);
+        stackLevel -= argSize;
+        assert(stackLevel <= INT_MAX);
     }
 #endif
 }
@@ -3808,29 +3808,29 @@ unsigned EmitterBase::DecodeCallGCRegs(instrDesc* id)
 
 void EmitterBase::ShortenBranches()
 {
-    if (emitJumpList == nullptr)
+    if (firstJump == nullptr)
     {
         return;
     }
 
 #ifdef DEBUG
-    if (emitComp->verbose)
+    if (compiler->verbose)
     {
         printf("\nInstruction groups before jump shortening:\n\n");
-        emitDispIGlist(true);
+        PrintIGList(true);
     }
 #endif
 
 AGAIN:
-    INDEBUG(emitCheckIGoffsets());
+    INDEBUG(VerifyIGOffsets());
 
     uint32_t      minDistanceOverflow  = UINT32_MAX;
     uint32_t      totalSizeReduction   = 0;
     uint32_t      instrIGSizeReduction = 0;
     instrDescJmp* previousInstr        = nullptr;
-    insGroup*     previousInstrIG      = emitJumpList->idjIG;
+    insGroup*     previousInstrIG      = firstJump->idjIG;
 
-    for (instrDescJmp *instr = emitJumpList; instr != nullptr; previousInstr = instr, instr = instr->idjNext)
+    for (instrDescJmp *instr = firstJump; instr != nullptr; previousInstr = instr, instr = instr->idjNext)
     {
         insGroup* instrIG = instr->idjIG;
 
@@ -3949,14 +3949,14 @@ AGAIN:
             goto AGAIN;
         }
 
-        INDEBUG(emitCheckIGoffsets());
+        INDEBUG(VerifyIGOffsets());
     }
 
 #ifdef DEBUG
-    if (emitComp->verbose)
+    if (compiler->verbose)
     {
         printf("\nLabels list after the jump shortening:\n\n");
-        emitDispIGlist(false);
+        PrintIGList(false);
     }
 #endif
 }
@@ -3985,7 +3985,7 @@ static ID_OPS GetFormatOp(insFormat format)
 }
 
 #ifdef DEBUG
-void EmitterBase::emitInsSanityCheck(instrDesc* id)
+void EmitterBase::VerifyInstr(instrDesc* id)
 {
     // make certain you only try to put relocs on things that can have them.
 
@@ -4102,7 +4102,7 @@ public:
 
     void Print(instrDesc* id) const
     {
-        PrintIns(id);
+        PrintInstr(id);
     }
 
 #if !FEATURE_FIXED_OUT_ARGS
@@ -4427,7 +4427,7 @@ private:
         return name;
     }
 
-    void PrintIns(instrDesc* id) const
+    void PrintInstr(instrDesc* id) const
     {
         if (id->idInsFmt() == IF_GC_REG)
         {
@@ -4862,14 +4862,17 @@ private:
     }
 };
 
-void X86Emitter::PrintIns(instrDesc* id)
+void X86Emitter::PrintInstr(instrDesc* id)
 {
-    X86AsmPrinter printer(emitComp, codeGen, false, UseVEXEncoding());
+    if (compiler->verbose)
+    {
+        X86AsmPrinter printer(compiler, codeGen, false, UseVEXEncoding());
 #if !FEATURE_FIXED_OUT_ARGS
-    printer.SetStackLevel(emitCurStackLvl);
+        printer.SetStackLevel(stackLevel);
 #endif
-    printer.Print(id);
-    printf("\n");
+        printer.Print(id);
+        printf("\n");
+    }
 }
 
 void Encoder::PrintAlignmentBoundary(size_t           instrAddr,
@@ -4918,7 +4921,7 @@ void Encoder::PrintAlignmentBoundary(size_t           instrAddr,
         }
     }
 
-    const size_t alignment    = emitComp->opts.compJitAlignLoopBoundary;
+    const size_t alignment    = compiler->opts.compJitAlignLoopBoundary;
     const size_t boundaryAddr = instrEndAddr & ~(alignment - 1);
 
     if (instrAddr < boundaryAddr)
@@ -4941,7 +4944,7 @@ void Encoder::PrintAlignmentBoundary(size_t           instrAddr,
 #endif // DEBUG
 
 // Returns the base encoding of the given CPU instruction.
-static size_t insCodeJ(instruction ins)
+static size_t GetCodeJ(instruction ins)
 {
     const static uint32_t codes[]{
 #define INST0(id, nm, um, mr, ...) mr,
@@ -4960,7 +4963,7 @@ static size_t insCodeJ(instruction ins)
 }
 
 // Returns the "AL/AX/EAX, IMM" accumulator encoding of the given instruction.
-static size_t insCodeACC(instruction ins)
+static size_t GetCodeA(instruction ins)
 {
     const static uint32_t codes[]{
 #define INST0(...)
@@ -4979,7 +4982,7 @@ static size_t insCodeACC(instruction ins)
 }
 
 // Returns the "REG, REG" or "REG" encoding of the given instruction.
-static size_t insCodeRR(instruction ins)
+static size_t GetCodeRR(instruction ins)
 {
     const static uint32_t codes[]{
 #define INST0(...)
@@ -5022,7 +5025,7 @@ static code_t AddRexBPrefix(code_t code)
 // Adds REX prefix (0x40) without W, R, X or B bits set
 static code_t AddRexPrefix(code_t code)
 {
-    assert(!hasVexPrefix(code));
+    assert(!HasVexPrefix(code));
 
     return code | (0x40ull << RexBitOffset);
 }
@@ -5031,7 +5034,7 @@ static code_t AddRexPrefix(code_t code)
 
 static code_t AddVexPrefix(instruction ins, code_t code, emitAttr attr)
 {
-    assert(!hasVexPrefix(code));
+    assert(!HasVexPrefix(code));
 
     code |= 1ull << HasVexBitOffset;
 
@@ -5064,7 +5067,7 @@ static unsigned RegVvvvEncoding(RegNum reg)
 }
 
 // Returns an encoding for the specified register to be used in the bits 0-2 of an opcode.
-static unsigned insEncodeReg012(instruction ins, RegNum reg, emitAttr size, code_t* code)
+static unsigned EncodeReg012(instruction ins, RegNum reg, emitAttr size, code_t* code)
 {
 #ifdef TARGET_AMD64
     if (IsExtendedReg(reg))
@@ -5083,7 +5086,7 @@ static unsigned insEncodeReg012(instruction ins, RegNum reg, emitAttr size, code
 }
 
 // Returns an encoding for the specified register to be used in the bits 3-5 of an opcode.
-static unsigned insEncodeReg345(instruction ins, RegNum reg, emitAttr size, code_t* code)
+static unsigned EncodeReg345(instruction ins, RegNum reg, emitAttr size, code_t* code)
 {
 #ifdef TARGET_AMD64
     if (IsExtendedReg(reg))
@@ -5109,13 +5112,13 @@ static bool IsBMIRegExtInstruction(instruction ins)
 static code_t SetRMReg(instruction ins, RegNum reg, emitAttr size, code_t code)
 {
     assert(!IsBMIRegExtInstruction(ins));
-    code |= insEncodeReg345(ins, reg, size, &code) << 8;
+    code |= EncodeReg345(ins, reg, size, &code) << 8;
     return code;
 }
 
 static code_t SetVexVvvv(RegNum reg, emitAttr size, code_t code)
 {
-    assert(hasVexPrefix(code));
+    assert(HasVexPrefix(code));
 
     code_t regBits = RegVvvvEncoding(reg);
     assert(regBits <= 0xF);
@@ -5123,11 +5126,11 @@ static code_t SetVexVvvv(RegNum reg, emitAttr size, code_t code)
 }
 
 // Returns the "byte ptr [r/m]" opcode with the mod/RM field set to the given register.
-static code_t insEncodeRMreg(instruction ins, RegNum reg, emitAttr size, code_t code)
+static code_t EncodeRMReg(instruction ins, RegNum reg, emitAttr size, code_t code)
 {
     assert((code & 0xC000) == 0);
     code |= 0xC000;
-    code |= insEncodeReg012(ins, reg, size, &code) << 8;
+    code |= EncodeReg012(ins, reg, size, &code) << 8;
     return code;
 }
 
@@ -5157,54 +5160,53 @@ public:
     size_t EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp);
 
 private:
-    size_t emitOutputByte(uint8_t* dst, ssize_t val);
-    size_t emitOutputWord(uint8_t* dst, ssize_t val);
-    size_t emitOutputLong(uint8_t* dst, ssize_t val);
-
+    size_t Write8(uint8_t* dst, ssize_t val);
+    size_t Write16(uint8_t* dst, ssize_t val);
+    size_t Write32(uint8_t* dst, ssize_t val);
 #ifdef TARGET_AMD64
-    size_t emitOutputI64(uint8_t* dst, int64_t val);
+    size_t Write64(uint8_t* dst, int64_t val);
 #endif
 
 #if defined(TARGET_X86) && !defined(HOST_64BIT)
-    size_t emitOutputByte(uint8_t* dst, uint32_t val);
-    size_t emitOutputWord(uint8_t* dst, uint32_t val);
-    size_t emitOutputLong(uint8_t* dst, uint32_t val);
+    size_t Write8(uint8_t* dst, uint32_t val);
+    size_t Write16(uint8_t* dst, uint32_t val);
+    size_t Write32(uint8_t* dst, uint32_t val);
 
-    size_t emitOutputByte(uint8_t* dst, uint64_t val);
-    size_t emitOutputWord(uint8_t* dst, uint64_t val);
-    size_t emitOutputLong(uint8_t* dst, uint64_t val);
+    size_t Write8(uint8_t* dst, uint64_t val);
+    size_t Write16(uint8_t* dst, uint64_t val);
+    size_t Write32(uint8_t* dst, uint64_t val);
 #endif
 
-    size_t emitOutputImm(uint8_t* dst, instrDesc* id, size_t size, ssize_t imm);
+    size_t EncodeImm(uint8_t* dst, instrDesc* id, size_t size, ssize_t imm);
 
-    uint8_t* emitOutputAlign(insGroup* ig, instrDesc* id, uint8_t* dst);
+    uint8_t* EncodeAlign(insGroup* ig, instrDesc* id, uint8_t* dst);
 
-    uint8_t* emitOutputOpcode(uint8_t* dst, instrDesc* id, code_t& code);
-    uint8_t* emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm = nullptr);
-    uint8_t* emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm = nullptr);
-    uint8_t* emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm = nullptr);
+    uint8_t* EncodeOpcode(uint8_t* dst, instrDesc* id, code_t& code);
+    uint8_t* EncodeAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm = nullptr);
+    uint8_t* EncodeSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm = nullptr);
+    uint8_t* EncodeCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm = nullptr);
 
-    uint8_t* emitOutputR(uint8_t* dst, instrDesc* id);
-    uint8_t* emitOutputRI(uint8_t* dst, instrDesc* id);
-    uint8_t* emitOutputRR(uint8_t* dst, instrDesc* id);
-    uint8_t* emitOutputIV(uint8_t* dst, instrDesc* id);
-    uint8_t* emitOutputRRR(uint8_t* dst, instrDesc* id);
-    uint8_t* emitOutputRRI(uint8_t* dst, instrDesc* id);
-    uint8_t* emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig);
+    uint8_t* EncodeR(uint8_t* dst, instrDesc* id);
+    uint8_t* EncodeRI(uint8_t* dst, instrDesc* id);
+    uint8_t* EncodeRR(uint8_t* dst, instrDesc* id);
+    uint8_t* EncodeI(uint8_t* dst, instrDesc* id);
+    uint8_t* EncodeRRR(uint8_t* dst, instrDesc* id);
+    uint8_t* EncodeRRI(uint8_t* dst, instrDesc* id);
+    uint8_t* EncodeRoDataAddr(uint8_t* dst, instrDescJmp* id, insGroup* ig);
 #ifdef TARGET_X86
-    uint8_t* emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig);
+    uint8_t* EncodePushLabel(uint8_t* dst, instrDescJmp* id, insGroup* ig);
 #endif
-    uint8_t* emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig);
-    uint8_t* emitOutputCall(uint8_t* dst, instrDesc* id);
-    uint8_t* emitOutputNoOperands(uint8_t* dst, instrDesc* id);
+    uint8_t* EncodeJump(uint8_t* dst, instrDescJmp* id, insGroup* ig);
+    uint8_t* EncodeCall(uint8_t* dst, instrDesc* id);
+    uint8_t* EncodeNoOperands(uint8_t* dst, instrDesc* id);
 
-    size_t emitOutputVexPrefix(uint8_t* dst, code_t code DEBUGARG(instruction ins));
+    size_t EncodeVexPrefix(uint8_t* dst, code_t code DEBUGARG(instruction ins));
 #ifdef TARGET_AMD64
-    size_t emitOutputRexPrefix(uint8_t* dst, code_t code);
+    size_t EncodeRexPrefix(uint8_t* dst, code_t code);
 #endif
-    size_t emitOutputRexPrefixIfNeeded(uint8_t* dst, code_t code);
-    size_t emitOutputRexOrVexPrefixIfNeeded(uint8_t* dst, code_t code DEBUGARG(instruction ins));
-    size_t emitOutputPrefixesIfNeeded(uint8_t* dst, code_t code);
+    size_t EncodeRexPrefixIfNeeded(uint8_t* dst, code_t code);
+    size_t EncodeRexOrVexPrefixIfNeeded(uint8_t* dst, code_t code DEBUGARG(instruction ins));
+    size_t EncodePrefixesIfNeeded(uint8_t* dst, code_t code);
 
     code_t AddVexPrefixIfNeeded(instruction ins, code_t code, emitAttr size);
 
@@ -5239,23 +5241,23 @@ private:
         return ::IsReallyVexTernary(ins, useVEXEncodings);
     }
 
-    void PrintIns(instrDesc* id, uint8_t* code, size_t sz);
+    void PrintInstr(instrDesc* id, uint8_t* code, size_t sz);
 #endif
 };
 
 #ifdef DEBUG
-void X86Encoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
+void X86Encoder::PrintInstr(instrDesc* id, uint8_t* code, size_t sz)
 {
     JITDUMP("IN%04X: ", id->idDebugOnlyInfo()->idNum);
 
     PrintInsAddr(code);
 
-    if (!emitComp->opts.disDiffable)
+    if (!compiler->opts.disDiffable)
     {
         PrintHexCode(code, sz);
     }
 
-    X86AsmPrinter printer(emitComp, codeGen, true, UseVEXEncoding());
+    X86AsmPrinter printer(compiler, codeGen, true, UseVEXEncoding());
 #if !FEATURE_FIXED_OUT_ARGS
     printer.SetStackLevel(stackLevel);
 #endif
@@ -5271,26 +5273,26 @@ void X86Encoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
 
 #endif // DEBUG
 
-size_t X86Encoder::emitOutputByte(uint8_t* dst, ssize_t val)
+size_t X86Encoder::Write8(uint8_t* dst, ssize_t val)
 {
     *(dst + writeableOffset) = static_cast<uint8_t>(val);
     return 1;
 }
 
-size_t X86Encoder::emitOutputWord(uint8_t* dst, ssize_t val)
+size_t X86Encoder::Write16(uint8_t* dst, ssize_t val)
 {
     *reinterpret_cast<int16_t*>(dst + writeableOffset) = static_cast<int16_t>(val);
     return 2;
 }
 
-size_t X86Encoder::emitOutputLong(uint8_t* dst, ssize_t val)
+size_t X86Encoder::Write32(uint8_t* dst, ssize_t val)
 {
     *reinterpret_cast<int32_t*>(dst + writeableOffset) = static_cast<int32_t>(val);
     return 4;
 }
 
 #ifdef TARGET_AMD64
-size_t X86Encoder::emitOutputI64(uint8_t* dst, int64_t val)
+size_t X86Encoder::Write64(uint8_t* dst, int64_t val)
 {
     *reinterpret_cast<int64_t*>(dst + writeableOffset) = val;
     return 8;
@@ -5298,40 +5300,40 @@ size_t X86Encoder::emitOutputI64(uint8_t* dst, int64_t val)
 #endif
 
 #if defined(TARGET_X86) && !defined(HOST_64BIT)
-size_t X86Encoder::emitOutputByte(uint8_t* dst, uint32_t val)
+size_t X86Encoder::Write8(uint8_t* dst, uint32_t val)
 {
-    return emitOutputByte(dst, static_cast<int32_t>(val));
+    return Write8(dst, static_cast<int32_t>(val));
 }
 
-size_t X86Encoder::emitOutputWord(uint8_t* dst, uint32_t val)
+size_t X86Encoder::Write16(uint8_t* dst, uint32_t val)
 {
-    return emitOutputWord(dst, static_cast<int32_t>(val));
+    return Write16(dst, static_cast<int32_t>(val));
 }
 
-size_t X86Encoder::emitOutputLong(uint8_t* dst, uint32_t val)
+size_t X86Encoder::Write32(uint8_t* dst, uint32_t val)
 {
-    return emitOutputLong(dst, static_cast<int32_t>(val));
+    return Write32(dst, static_cast<int32_t>(val));
 }
 
-size_t X86Encoder::emitOutputByte(uint8_t* dst, uint64_t val)
+size_t X86Encoder::Write8(uint8_t* dst, uint64_t val)
 {
-    return emitOutputByte(dst, static_cast<int32_t>(val));
+    return Write8(dst, static_cast<int32_t>(val));
 }
 
-size_t X86Encoder::emitOutputWord(uint8_t* dst, uint64_t val)
+size_t X86Encoder::Write16(uint8_t* dst, uint64_t val)
 {
-    return emitOutputWord(dst, static_cast<int32_t>(val));
+    return Write16(dst, static_cast<int32_t>(val));
 }
 
-size_t X86Encoder::emitOutputLong(uint8_t* dst, uint64_t val)
+size_t X86Encoder::Write32(uint8_t* dst, uint64_t val)
 {
-    return emitOutputLong(dst, static_cast<int32_t>(val));
+    return Write32(dst, static_cast<int32_t>(val));
 }
 #endif // defined(TARGET_X86) && !defined(HOST_64BIT)
 
-size_t X86Encoder::emitOutputVexPrefix(uint8_t* dst, code_t code DEBUGARG(instruction ins))
+size_t X86Encoder::EncodeVexPrefix(uint8_t* dst, code_t code DEBUGARG(instruction ins))
 {
-    assert(TakesVexPrefix(ins) && hasVexPrefix(code));
+    assert(TakesVexPrefix(ins) && HasVexPrefix(code));
     // There should be some prefixes (opcdoe map 0 doesn't use VEX).
     assert(((code >> PrefixesBitOffset) & 0xFF) != 0);
 
@@ -5345,59 +5347,59 @@ size_t X86Encoder::emitOutputVexPrefix(uint8_t* dst, code_t code DEBUGARG(instru
     if ((code & ((0x0Bull << RexBitOffset) | (7ull << MmmBitOffset))) == (1ull << MmmBitOffset))
     {
         uint32_t vex21 = (((code >> RexRDelta) & 0x80) | vvvvl | ((code >> PpBitOffset) & 3)) ^ (0x1F << 3);
-        emitOutputWord(dst, 0xC5 | (vex21 << 8));
+        Write16(dst, 0xC5 | (vex21 << 8));
 
         return 2;
     }
 
     uint32_t vex31 = (((code >> RexRDelta) & 0xE0) | ((code >> MmmBitOffset) & 7)) ^ (0x07 << 5);
-    emitOutputWord(dst, 0xC4 | (vex31 << 8));
+    Write16(dst, 0xC4 | (vex31 << 8));
     uint32_t vex32 = (((code >> RexWDelta) & 0x80) | vvvvl | ((code >> PpBitOffset) & 3)) ^ (0x0F << 3);
-    emitOutputByte(dst + 2, vex32);
+    Write8(dst + 2, vex32);
 
     return 3;
 }
 
 #ifdef TARGET_AMD64
-size_t X86Encoder::emitOutputRexPrefix(uint8_t* dst, code_t code)
+size_t X86Encoder::EncodeRexPrefix(uint8_t* dst, code_t code)
 {
-    assert(!hasVexPrefix(code));
+    assert(!HasVexPrefix(code));
     uint32_t rex = (code >> RexBitOffset) & 0xFF;
     assert(((code >> PpBitOffset) & 3) == 0); // Can't emit REX prefix before other prefixes.
-    return emitOutputByte(dst, rex | 0x40);
+    return Write8(dst, rex | 0x40);
 }
 #endif // TARGET_AMD64
 
-size_t X86Encoder::emitOutputRexPrefixIfNeeded(uint8_t* dst, code_t code)
+size_t X86Encoder::EncodeRexPrefixIfNeeded(uint8_t* dst, code_t code)
 {
-    assert(!hasVexPrefix(code));
+    assert(!HasVexPrefix(code));
 
 #ifdef TARGET_AMD64
     if (((code >> RexBitOffset) & 0xFF) != 0)
     {
-        return emitOutputRexPrefix(dst, code);
+        return EncodeRexPrefix(dst, code);
     }
 #endif
 
     return 0;
 }
 
-size_t X86Encoder::emitOutputRexOrVexPrefixIfNeeded(uint8_t* dst, code_t code DEBUGARG(instruction ins))
+size_t X86Encoder::EncodeRexOrVexPrefixIfNeeded(uint8_t* dst, code_t code DEBUGARG(instruction ins))
 {
-    if (hasVexPrefix(code))
+    if (HasVexPrefix(code))
     {
-        return emitOutputVexPrefix(dst, code DEBUGARG(ins));
+        return EncodeVexPrefix(dst, code DEBUGARG(ins));
     }
 
     if ((code >> PrefixesBitOffset) != 0)
     {
-        return emitOutputPrefixesIfNeeded(dst, code);
+        return EncodePrefixesIfNeeded(dst, code);
     }
 
     return 0;
 }
 
-size_t X86Encoder::emitOutputPrefixesIfNeeded(uint8_t* dst, code_t code)
+size_t X86Encoder::EncodePrefixesIfNeeded(uint8_t* dst, code_t code)
 {
     uint8_t* start = dst;
 
@@ -5405,14 +5407,14 @@ size_t X86Encoder::emitOutputPrefixesIfNeeded(uint8_t* dst, code_t code)
     {
         static const uint8_t prefixMap[]{0, 0x66, 0xF3, 0xF2};
 
-        dst += emitOutputByte(dst, prefixMap[pp]);
+        dst += Write8(dst, prefixMap[pp]);
     }
 
 #ifdef TARGET_AMD64
     if (uint32_t rex = (code >> RexBitOffset) & 0xFF)
     {
         code &= UINT_MAX;
-        dst += emitOutputByte(dst, rex | 0x40);
+        dst += Write8(dst, rex | 0x40);
     }
 #endif
 
@@ -5420,46 +5422,46 @@ size_t X86Encoder::emitOutputPrefixesIfNeeded(uint8_t* dst, code_t code)
     {
         if (map == 1)
         {
-            dst += emitOutputByte(dst, 0x0F);
+            dst += Write8(dst, 0x0F);
         }
         else
         {
             assert((map == 2) || (map == 3));
 
-            dst += emitOutputWord(dst, map == 2 ? 0x380F : 0x3A0F);
+            dst += Write16(dst, map == 2 ? 0x380F : 0x3A0F);
         }
     }
 
     return dst - start;
 }
 
-size_t X86Encoder::emitOutputImm(uint8_t* dst, instrDesc* id, size_t size, ssize_t imm)
+size_t X86Encoder::EncodeImm(uint8_t* dst, instrDesc* id, size_t size, ssize_t imm)
 {
     switch (size)
     {
         case 1:
-            return emitOutputByte(dst, imm);
+            return Write8(dst, imm);
         case 2:
-            return emitOutputWord(dst, imm);
+            return Write16(dst, imm);
 #ifdef TARGET_AMD64
         case 8:
             noway_assert(IsImm32(imm) && !id->idIsCnsReloc());
-            return emitOutputLong(dst, imm);
+            return Write32(dst, imm);
 #endif
         default:
             assert(size == 4);
-            emitOutputLong(dst, imm);
+            Write32(dst, imm);
 
             if (id->idIsCnsReloc())
             {
-                emitRecordRelocation(dst, reinterpret_cast<void*>(imm), IMAGE_REL_BASED_HIGHLOW);
+                RecordRelocation(dst, reinterpret_cast<void*>(imm), IMAGE_REL_BASED_HIGHLOW);
             }
 
             return 4;
     }
 }
 
-static uint8_t* emitOutputNOP(uint8_t* dstRW, size_t nBytes)
+static uint8_t* EncodeNop(uint8_t* dstRW, size_t nBytes)
 {
     assert(nBytes <= instrDesc::MAX_ENCODED_SIZE);
 
@@ -5514,19 +5516,19 @@ static uint8_t* emitOutputNOP(uint8_t* dstRW, size_t nBytes)
             break;
         case 15:
             // More than 3 prefixes is slower than just 2 NOPs
-            dstRW = emitOutputNOP(emitOutputNOP(dstRW, 7), 8);
+            dstRW = EncodeNop(EncodeNop(dstRW, 7), 8);
             break;
         case 14:
             // More than 3 prefixes is slower than just 2 NOPs
-            dstRW = emitOutputNOP(emitOutputNOP(dstRW, 7), 7);
+            dstRW = EncodeNop(EncodeNop(dstRW, 7), 7);
             break;
         case 13:
             // More than 3 prefixes is slower than just 2 NOPs
-            dstRW = emitOutputNOP(emitOutputNOP(dstRW, 5), 8);
+            dstRW = EncodeNop(EncodeNop(dstRW, 5), 8);
             break;
         case 12:
             // More than 3 prefixes is slower than just 2 NOPs
-            dstRW = emitOutputNOP(emitOutputNOP(dstRW, 4), 8);
+            dstRW = EncodeNop(EncodeNop(dstRW, 4), 8);
             break;
         case 11:
             *dstRW++ = 0x66;
@@ -5553,9 +5555,9 @@ static uint8_t* emitOutputNOP(uint8_t* dstRW, size_t nBytes)
     return dstRW;
 }
 
-uint8_t* X86Encoder::emitOutputAlign(insGroup* ig, instrDesc* id, uint8_t* dst)
+uint8_t* X86Encoder::EncodeAlign(insGroup* ig, instrDesc* id, uint8_t* dst)
 {
-    assert(emitComp->opts.alignLoops);
+    assert(compiler->opts.alignLoops);
 
     // IG can be marked as not needing alignment after emitting align instruction
     // In such case, skip outputting alignment.
@@ -5571,27 +5573,27 @@ uint8_t* X86Encoder::emitOutputAlign(insGroup* ig, instrDesc* id, uint8_t* dst)
     unsigned paddingToAdd = id->idCodeSize();
 
     // Either things are already aligned or align them here.
-    assert((paddingToAdd == 0) || (((size_t)dst & (emitComp->opts.compJitAlignLoopBoundary - 1)) != 0));
+    assert((paddingToAdd == 0) || (((size_t)dst & (compiler->opts.compJitAlignLoopBoundary - 1)) != 0));
 
     // Padding amount should not exceed the alignment boundary
-    assert(0 <= paddingToAdd && paddingToAdd < emitComp->opts.compJitAlignLoopBoundary);
+    assert(0 <= paddingToAdd && paddingToAdd < compiler->opts.compJitAlignLoopBoundary);
 
 #ifdef DEBUG
-    unsigned paddingNeeded = emit.emitCalculatePaddingForLoopAlignment(ig, (size_t)dst, true);
+    unsigned paddingNeeded = emit.CalculatePaddingForLoopAlignment(ig, (size_t)dst, true);
 
     // For non-adaptive, padding size is spread in multiple instructions, so don't bother checking
-    if (emitComp->opts.compJitAlignLoopAdaptive)
+    if (compiler->opts.compJitAlignLoopAdaptive)
     {
         assert(paddingToAdd == paddingNeeded);
     }
 
-    emitComp->loopsAligned++;
+    compiler->loopsAligned++;
 #endif
 
-    return emitOutputNOP(dst + writeableOffset, paddingToAdd) - writeableOffset;
+    return EncodeNop(dst + writeableOffset, paddingToAdd) - writeableOffset;
 }
 
-uint8_t* X86Encoder::emitOutputOpcode(uint8_t* dst, instrDesc* id, code_t& code)
+uint8_t* X86Encoder::EncodeOpcode(uint8_t* dst, instrDesc* id, code_t& code)
 {
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
@@ -5612,7 +5614,7 @@ uint8_t* X86Encoder::emitOutputOpcode(uint8_t* dst, instrDesc* id, code_t& code)
 
             // We need to emit 0x66 now, instead of adding it to code's prefixes,
             // crc32 already has a mandatory prefix and can also have a size prefix.
-            dst += emitOutputByte(dst, 0x66);
+            dst += Write8(dst, 0x66);
         }
     }
 #ifdef TARGET_X86
@@ -5640,12 +5642,12 @@ uint8_t* X86Encoder::emitOutputOpcode(uint8_t* dst, instrDesc* id, code_t& code)
         assert((size == EA_4BYTE) || IsSSEOrAVXOrBMIInstruction(ins));
     }
 
-    dst += emitOutputRexOrVexPrefixIfNeeded(dst, code DEBUGARG(ins));
+    dst += EncodeRexOrVexPrefixIfNeeded(dst, code DEBUGARG(ins));
 
     return dst;
 }
 
-uint8_t* X86Encoder::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm)
+uint8_t* X86Encoder::EncodeAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm)
 {
     instruction ins      = id->idIns();
     RegNum      baseReg  = id->idAddr()->iiaAddrMode.base;
@@ -5654,11 +5656,11 @@ uint8_t* X86Encoder::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssiz
     // BT/CMOV support 16 bit operands and this code doesn't add the necessary 66 prefix.
     // BT with memory operands is practically useless and CMOV is not currently generated.
     assert((ins != INS_bt) && !IsCmov(ins));
-    assert(TakesVexPrefix(ins) == hasVexPrefix(code));
+    assert(TakesVexPrefix(ins) == HasVexPrefix(code));
 
     if (id->HasFSPrefix())
     {
-        dst += emitOutputByte(dst, 0x64);
+        dst += Write8(dst, 0x64);
     }
 
 #ifdef TARGET_X86
@@ -5670,28 +5672,28 @@ uint8_t* X86Encoder::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssiz
 
         if (id->idOpSize() == EA_2BYTE)
         {
-            dst += emitOutputByte(dst, 0x66);
+            dst += Write8(dst, 0x66);
         }
 
-        dst += emitOutputByte(dst, 0xA0 | ((id->idInsFmt() == IF_AWR_RRD) << 1) | (id->idOpSize() != EA_1BYTE));
+        dst += Write8(dst, 0xA0 | ((id->idInsFmt() == IF_AWR_RRD) << 1) | (id->idOpSize() != EA_1BYTE));
 
         ssize_t disp = id->GetAmDisp();
-        dst += emitOutputLong(dst, disp);
+        dst += Write32(dst, disp);
 
         if (id->idIsDspReloc())
         {
-            emitRecordRelocation(dst - 4, reinterpret_cast<void*>(disp), IMAGE_REL_BASED_HIGHLOW, 0);
+            RecordRelocation(dst - 4, reinterpret_cast<void*>(disp), IMAGE_REL_BASED_HIGHLOW, 0);
         }
 
         if (id->idInsFmt() == IF_RWR_ARD)
         {
             if (id->idGCref() != GCT_NONE)
             {
-                emitGCregLiveUpd(id->idGCref(), id->idReg1(), dst);
+                AddGCLiveReg(id->idGCref(), id->idReg1(), dst);
             }
             else
             {
-                emitGCregDeadUpd(id->idReg1(), dst);
+                RemoveGCLiveReg(id->idReg1(), dst);
             }
         }
 
@@ -5716,7 +5718,7 @@ uint8_t* X86Encoder::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssiz
 
     if (ins == INS_call)
     {
-        dst += emitOutputRexPrefixIfNeeded(dst, code);
+        dst += EncodeRexPrefixIfNeeded(dst, code);
 
         // The displacement field is in an unusual place for calls
         disp = id->GetCallDisp();
@@ -5741,7 +5743,7 @@ uint8_t* X86Encoder::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssiz
             }
         }
 
-        dst = emitOutputOpcode(dst, id, code);
+        dst = EncodeOpcode(dst, id, code);
 
         disp = id->GetAmDisp();
     }
@@ -5751,21 +5753,21 @@ uint8_t* X86Encoder::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssiz
         if (!id->idIsDspReloc())
         {
 #ifdef TARGET_AMD64
-            noway_assert(!emitComp->opts.compReloc);
-            noway_assert(!emitComp->eeIsRIPRelativeAddress(reinterpret_cast<void*>(disp)));
+            noway_assert(!compiler->opts.compReloc);
+            noway_assert(!compiler->eeIsRIPRelativeAddress(reinterpret_cast<void*>(disp)));
             noway_assert(IsDisp32(disp));
 
-            dst += emitOutputWord(dst, code | 0x0400);
-            dst += emitOutputByte(dst, 0x25);
+            dst += Write16(dst, code | 0x0400);
+            dst += Write8(dst, 0x25);
 #else
-            dst += emitOutputWord(dst, code | 0x0500);
+            dst += Write16(dst, code | 0x0500);
 #endif
 
-            dst += emitOutputLong(dst, disp);
+            dst += Write32(dst, disp);
         }
         else
         {
-            dst += emitOutputWord(dst, code | 0x0500);
+            dst += Write16(dst, code | 0x0500);
 
             // For emitting relocation, we also need to take into account
             // the additional bytes of code emitted for imm.
@@ -5783,12 +5785,12 @@ uint8_t* X86Encoder::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssiz
             }
 
 #ifdef TARGET_AMD64
-            // We emit zero on x64, to avoid the assert in emitOutputLong
-            dst += emitOutputLong(dst, 0);
-            emitRecordRelocation(dst - 4, reinterpret_cast<void*>(disp), IMAGE_REL_BASED_REL32, immRelocDelta);
+            // We emit zero on x64, to avoid the assert in Write32
+            dst += Write32(dst, 0);
+            RecordRelocation(dst - 4, reinterpret_cast<void*>(disp), IMAGE_REL_BASED_REL32, immRelocDelta);
 #else
-            dst += emitOutputLong(dst, disp);
-            emitRecordRelocation(dst - 4, reinterpret_cast<void*>(disp), IMAGE_REL_BASED_HIGHLOW, immRelocDelta);
+            dst += Write32(dst, disp);
+            RecordRelocation(dst - 4, reinterpret_cast<void*>(disp), IMAGE_REL_BASED_HIGHLOW, immRelocDelta);
 #endif
         }
     }
@@ -5806,11 +5808,11 @@ uint8_t* X86Encoder::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssiz
                 code |= hasDisp8 ? 0x4000 : 0x8000;
             }
 
-            dst += emitOutputWord(dst, code);
+            dst += Write16(dst, code);
 
             if (BaseRegRequiresSIB(baseReg))
             {
-                dst += emitOutputByte(dst, 0x24);
+                dst += Write8(dst, 0x24);
             }
         }
         else
@@ -5830,19 +5832,19 @@ uint8_t* X86Encoder::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssiz
                 code |= hasDisp8 ? 0x4000 : 0x8000;
             }
 
-            dst += emitOutputWord(dst, code);
-            dst += emitOutputByte(dst, RegEncoding(baseReg) | (RegEncoding(indexReg) << 3) | (scale << 6));
+            dst += Write16(dst, code);
+            dst += Write8(dst, RegEncoding(baseReg) | (RegEncoding(indexReg) << 3) | (scale << 6));
         }
 
         if (hasDisp)
         {
             if (hasDisp8)
             {
-                dst += emitOutputByte(dst, disp);
+                dst += Write8(dst, disp);
             }
             else
             {
-                dst += emitOutputLong(dst, disp);
+                dst += Write32(dst, disp);
 
                 if (id->idIsDspReloc())
                 {
@@ -5850,7 +5852,7 @@ uint8_t* X86Encoder::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssiz
                     // so this code doesn't attempt to account for the imm reloc delta.
                     assert(imm == nullptr);
 
-                    emitRecordRelocation(dst - 4, reinterpret_cast<void*>(disp), IMAGE_REL_BASED_HIGHLOW);
+                    RecordRelocation(dst - 4, reinterpret_cast<void*>(disp), IMAGE_REL_BASED_HIGHLOW);
                 }
             }
         }
@@ -5858,7 +5860,7 @@ uint8_t* X86Encoder::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssiz
 
     if (imm != nullptr)
     {
-        dst += emitOutputImm(dst, id, immSize, *imm);
+        dst += EncodeImm(dst, id, immSize, *imm);
     }
 
     if (id->idGCref())
@@ -5866,11 +5868,11 @@ uint8_t* X86Encoder::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssiz
         switch (id->idInsFmt())
         {
             case IF_RWR_ARD:
-                emitGCregLiveUpd(id->idGCref(), id->idReg1(), dst);
+                AddGCLiveReg(id->idGCref(), id->idReg1(), dst);
                 break;
             case IF_RRW_ARD:
                 assert(id->idGCref() == GCT_BYREF && (ins == INS_add || ins == INS_sub));
-                emitGCregLiveUpd(GCT_BYREF, id->idReg1(), dst);
+                AddGCLiveReg(GCT_BYREF, id->idReg1(), dst);
                 break;
             case IF_ARW_RRD:
             case IF_ARW_CNS:
@@ -5887,7 +5889,7 @@ uint8_t* X86Encoder::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssiz
             case IF_RRD_ARD:
                 break;
             default:
-                INDEBUG(printf("%s", EmitterBase::emitIfName(id->idInsFmt())));
+                INDEBUG(printf("%s", EmitterBase::GetFormatName(id->idInsFmt())));
                 assert(!"unexpected GC ref instruction format");
         }
 
@@ -5908,14 +5910,14 @@ uint8_t* X86Encoder::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssiz
             case IF_RWR_RRD_ARD_RRD:
                 if (IsGeneralRegister(id->idReg1()))
                 {
-                    emitGCregDeadUpd(id->idReg1(), dst);
+                    RemoveGCLiveReg(id->idReg1(), dst);
                 }
                 break;
             case IF_ARD:
                 if ((ins == INS_mulEAX) || (ins == INS_imulEAX))
                 {
-                    emitGCregDeadUpd(REG_EAX, dst);
-                    emitGCregDeadUpd(REG_EDX, dst);
+                    RemoveGCLiveReg(REG_EAX, dst);
+                    RemoveGCLiveReg(REG_EDX, dst);
                 }
                 break;
             default:
@@ -5927,7 +5929,7 @@ uint8_t* X86Encoder::emitOutputAM(uint8_t* dst, instrDesc* id, code_t code, ssiz
     return dst;
 }
 
-uint8_t* X86Encoder::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm)
+uint8_t* X86Encoder::EncodeSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm)
 {
     instruction ins = id->idIns();
 
@@ -5935,7 +5937,7 @@ uint8_t* X86Encoder::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssiz
     // BT/CMOV support 16 bit operands and this code doesn't add the necessary 66 prefix.
     // BT with memory operands is practically useless and CMOV is not currently generated.
     assert((ins != INS_bt) && !IsCmov(ins));
-    assert(TakesVexPrefix(ins) == hasVexPrefix(code));
+    assert(TakesVexPrefix(ins) == HasVexPrefix(code));
     assert(!id->HasFSPrefix());
 
     unsigned immSize = 0;
@@ -5958,7 +5960,7 @@ uint8_t* X86Encoder::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssiz
         }
     }
 
-    dst = emitOutputOpcode(dst, id, code);
+    dst = EncodeOpcode(dst, id, code);
 
     assert(!id->idIsDspReloc());
 
@@ -5987,28 +5989,28 @@ uint8_t* X86Encoder::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssiz
         code |= hasDisp8 ? 0x4000 : 0x8000;
     }
 
-    dst += emitOutputWord(dst, code);
+    dst += Write16(dst, code);
 
     if (!ebpBased)
     {
-        dst += emitOutputByte(dst, 0x24);
+        dst += Write8(dst, 0x24);
     }
 
     if ((disp != 0) || ebpBased)
     {
         if (hasDisp8)
         {
-            dst += emitOutputByte(dst, disp);
+            dst += Write8(dst, disp);
         }
         else
         {
-            dst += emitOutputLong(dst, disp);
+            dst += Write32(dst, disp);
         }
     }
 
     if (imm != nullptr)
     {
-        dst += emitOutputImm(dst, id, immSize, *imm);
+        dst += EncodeImm(dst, id, immSize, *imm);
     }
 
     if (id->idAddr()->isTrackedGCSlotStore
@@ -6024,12 +6026,12 @@ uint8_t* X86Encoder::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssiz
 #if FEATURE_FIXED_OUT_ARGS
         if (id->idAddr()->isGCArgStore)
         {
-            emitGCargLiveUpd(lclOffset, id->idGCref(), dst DEBUGARG(varNum));
+            AddGCLiveCallArg(lclOffset, id->idGCref(), dst DEBUGARG(varNum));
         }
         else
 #endif
         {
-            emitGCvarLiveUpd(lclOffset, id->idGCref(), dst DEBUGARG(varNum));
+            AddGCLiveSlot(lclOffset, id->idGCref(), dst DEBUGARG(varNum));
         }
 
         return dst;
@@ -6043,7 +6045,7 @@ uint8_t* X86Encoder::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssiz
                 assert((id->idGCref() == GCT_BYREF) && ((ins == INS_add) || (ins == INS_sub)));
                 FALLTHROUGH;
             case IF_RWR_SRD:
-                emitGCregLiveUpd(id->idGCref(), id->idReg1(), dst);
+                AddGCLiveReg(id->idGCref(), id->idReg1(), dst);
                 break;
 
             case IF_SRD:
@@ -6061,7 +6063,7 @@ uint8_t* X86Encoder::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssiz
             case IF_SWR_RRD:
                 break;
             default:
-                INDEBUG(printf("%s", EmitterBase::emitIfName(id->idInsFmt())));
+                INDEBUG(printf("%s", EmitterBase::GetFormatName(id->idInsFmt())));
                 assert(!"unexpected GC ref instruction format");
         }
     }
@@ -6078,14 +6080,14 @@ uint8_t* X86Encoder::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssiz
             case IF_RWR_RRD_SRD_RRD:
                 if (IsGeneralRegister(id->idReg1()))
                 {
-                    emitGCregDeadUpd(id->idReg1(), dst);
+                    RemoveGCLiveReg(id->idReg1(), dst);
                 }
                 break;
             case IF_SRD:
                 if ((ins == INS_mulEAX) || (ins == INS_imulEAX))
                 {
-                    emitGCregDeadUpd(REG_EAX, dst);
-                    emitGCregDeadUpd(REG_EDX, dst);
+                    RemoveGCLiveReg(REG_EAX, dst);
+                    RemoveGCLiveReg(REG_EDX, dst);
                 }
                 break;
             default:
@@ -6097,7 +6099,7 @@ uint8_t* X86Encoder::emitOutputSV(uint8_t* dst, instrDesc* id, code_t code, ssiz
     return dst;
 }
 
-uint8_t* X86Encoder::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm)
+uint8_t* X86Encoder::EncodeCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t* imm)
 {
     instruction ins  = id->idIns();
     ConstData*  data = id->GetConstData();
@@ -6106,7 +6108,7 @@ uint8_t* X86Encoder::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssiz
     // BT/CMOV support 16 bit operands and this code doesn't add the necessary 66 prefix.
     // BT with memory operands is practically useless and CMOV is not currently generated.
     assert((ins != INS_bt) && !IsCmov(ins));
-    assert(TakesVexPrefix(ins) == hasVexPrefix(code));
+    assert(TakesVexPrefix(ins) == HasVexPrefix(code));
     assert(!id->HasFSPrefix());
 
     size_t addr = reinterpret_cast<size_t>(roDataBlock) + data->offset;
@@ -6143,8 +6145,8 @@ uint8_t* X86Encoder::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssiz
     // When SMALL_CODE is set, we only expect 4-byte alignment, otherwise
     // we expect the same alignment as the size of the constant.
     // TODO-MIKE-Review: Figure out why this check is disabled in crossgen.
-    assert(((addr & (align - 1)) == 0) || ((emitComp->compCodeOpt() == SMALL_CODE) && ((addr & 3) == 0)) ||
-           emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT));
+    assert(((addr & (align - 1)) == 0) || ((compiler->compCodeOpt() == SMALL_CODE) && ((addr & 3) == 0)) ||
+           compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT));
 #endif // DEBUG
 
     disp += addr;
@@ -6160,10 +6162,10 @@ uint8_t* X86Encoder::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssiz
 
         if (id->idOpSize() == EA_2BYTE)
         {
-            dst += emitOutputByte(dst, 0x66);
+            dst += Write8(dst, 0x66);
         }
 
-        dst += emitOutputByte(dst, 0xA0 | ((id->idInsFmt() == IF_MWR_RRD) << 1) | (id->idOpSize() != EA_1BYTE));
+        dst += Write8(dst, 0xA0 | ((id->idInsFmt() == IF_MWR_RRD) << 1) | (id->idOpSize() != EA_1BYTE));
     }
     else
 #endif // TARGET_X86
@@ -6186,8 +6188,8 @@ uint8_t* X86Encoder::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssiz
             }
         }
 
-        dst = emitOutputOpcode(dst, id, code);
-        dst += emitOutputWord(dst, code | 0x0500);
+        dst = EncodeOpcode(dst, id, code);
+        dst += Write16(dst, code | 0x0500);
     }
 
     if (!id->idIsDspReloc())
@@ -6196,7 +6198,7 @@ uint8_t* X86Encoder::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssiz
         // All static field and data section constant accesses should be marked as relocatable
         unreached();
 #else
-        dst += emitOutputLong(dst, disp);
+        dst += Write32(dst, disp);
 #endif
     }
     else
@@ -6217,18 +6219,18 @@ uint8_t* X86Encoder::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssiz
         }
 
 #ifdef TARGET_AMD64
-        // We emit zero on x64, to avoid the assert in emitOutputLong
-        dst += emitOutputLong(dst, 0);
-        emitRecordRelocation(dst - 4, reinterpret_cast<void*>(disp), IMAGE_REL_BASED_REL32, immRelocDelta);
+        // We emit zero on x64, to avoid the assert in Write32
+        dst += Write32(dst, 0);
+        RecordRelocation(dst - 4, reinterpret_cast<void*>(disp), IMAGE_REL_BASED_REL32, immRelocDelta);
 #else
-        dst += emitOutputLong(dst, disp);
-        emitRecordRelocation(dst - 4, reinterpret_cast<void*>(disp), IMAGE_REL_BASED_HIGHLOW, immRelocDelta);
+        dst += Write32(dst, disp);
+        RecordRelocation(dst - 4, reinterpret_cast<void*>(disp), IMAGE_REL_BASED_HIGHLOW, immRelocDelta);
 #endif
     }
 
     if (imm != nullptr)
     {
-        dst += emitOutputImm(dst, id, immSize, *imm);
+        dst += EncodeImm(dst, id, immSize, *imm);
     }
 
     if (id->idGCref())
@@ -6236,12 +6238,12 @@ uint8_t* X86Encoder::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssiz
         switch (id->idInsFmt())
         {
             case IF_RWR_MRD:
-                emitGCregLiveUpd(id->idGCref(), id->idReg1(), dst);
+                AddGCLiveReg(id->idGCref(), id->idReg1(), dst);
                 break;
             case IF_RRW_MRD:
                 assert(id->idGCref() == GCT_BYREF);
                 assert((ins == INS_add) || (ins == INS_sub));
-                emitGCregLiveUpd(GCT_BYREF, id->idReg1(), dst);
+                AddGCLiveReg(GCT_BYREF, id->idReg1(), dst);
                 break;
             case IF_MRD:
             case IF_MRW:
@@ -6255,7 +6257,7 @@ uint8_t* X86Encoder::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssiz
             case IF_MRW_CNS:
                 break;
             default:
-                INDEBUG(printf("%s", EmitterBase::emitIfName(id->idInsFmt())));
+                INDEBUG(printf("%s", EmitterBase::GetFormatName(id->idInsFmt())));
                 assert(!"unexpected GC ref instruction format");
         }
     }
@@ -6272,14 +6274,14 @@ uint8_t* X86Encoder::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssiz
             case IF_RWR_RRD_MRD_RRD:
                 if (IsGeneralRegister(id->idReg1()))
                 {
-                    emitGCregDeadUpd(id->idReg1(), dst);
+                    RemoveGCLiveReg(id->idReg1(), dst);
                 }
                 break;
             case IF_MRD:
                 if ((ins == INS_mulEAX) || (ins == INS_imulEAX))
                 {
-                    emitGCregDeadUpd(REG_EAX, dst);
-                    emitGCregDeadUpd(REG_EDX, dst);
+                    RemoveGCLiveReg(REG_EAX, dst);
+                    RemoveGCLiveReg(REG_EDX, dst);
                 }
                 break;
             default:
@@ -6291,7 +6293,7 @@ uint8_t* X86Encoder::emitOutputCV(uint8_t* dst, instrDesc* id, code_t code, ssiz
     return dst;
 }
 
-uint8_t* X86Encoder::emitOutputR(uint8_t* dst, instrDesc* id)
+uint8_t* X86Encoder::EncodeR(uint8_t* dst, instrDesc* id)
 {
     assert(!id->HasFSPrefix());
 
@@ -6304,9 +6306,9 @@ uint8_t* X86Encoder::emitOutputR(uint8_t* dst, instrDesc* id)
         code_t code;
 
         case INS_call:
-            code = insEncodeRMreg(INS_call, reg, EA_PTRSIZE, insCodeMR(INS_call));
-            dst += emitOutputRexPrefixIfNeeded(dst, code);
-            dst += emitOutputWord(dst, code);
+            code = EncodeRMReg(INS_call, reg, EA_PTRSIZE, GetCodeMR(INS_call));
+            dst += EncodeRexPrefixIfNeeded(dst, code);
+            dst += Write16(dst, code);
             // Calls use a different mechanism to update GC info so we can skip the normal handling.
             return dst;
 
@@ -6314,21 +6316,21 @@ uint8_t* X86Encoder::emitOutputR(uint8_t* dst, instrDesc* id)
         case INS_dec:
             if (size == EA_2BYTE)
             {
-                dst += emitOutputByte(dst, 0x66);
+                dst += Write8(dst, 0x66);
             }
 
 #ifdef TARGET_X86
             if (size != EA_1BYTE)
             {
-                code = insCodeRR(ins == INS_inc ? INS_inc_s : INS_dec_s);
+                code = GetCodeRR(ins == INS_inc ? INS_inc_s : INS_dec_s);
                 code |= RegEncoding(reg);
-                dst += emitOutputByte(dst, code);
+                dst += Write8(dst, code);
 
                 break;
             }
 #endif
 
-            code = insCodeMR(ins);
+            code = GetCodeMR(ins);
 
             if (size == EA_1BYTE)
             {
@@ -6342,9 +6344,9 @@ uint8_t* X86Encoder::emitOutputR(uint8_t* dst, instrDesc* id)
             }
 #endif
 
-            code |= (0xC0ull | insEncodeReg012(ins, reg, size, &code)) << 8;
-            dst += emitOutputRexPrefixIfNeeded(dst, code);
-            dst += emitOutputWord(dst, code);
+            code |= (0xC0ull | EncodeReg012(ins, reg, size, &code)) << 8;
+            dst += EncodeRexPrefixIfNeeded(dst, code);
+            dst += Write16(dst, code);
             break;
 
         case INS_pop:
@@ -6355,16 +6357,16 @@ uint8_t* X86Encoder::emitOutputR(uint8_t* dst, instrDesc* id)
             assert(!TakesVexPrefix(ins));
             AMD64_ONLY(assert(!TakesRexWPrefix(ins)));
 
-            code = insCodeRR(ins);
-            code |= insEncodeReg012(ins, reg, size, &code);
-            dst += emitOutputRexPrefixIfNeeded(dst, code);
-            dst += emitOutputByte(dst, code);
+            code = GetCodeRR(ins);
+            code |= EncodeReg012(ins, reg, size, &code);
+            dst += EncodeRexPrefixIfNeeded(dst, code);
+            dst += Write8(dst, code);
             break;
 
         case INS_bswap:
             assert(size >= EA_4BYTE && size <= EA_PTRSIZE); // 16-bit BSWAP is undefined
 
-            code = insCodeRR(ins);
+            code = GetCodeRR(ins);
 
 #ifdef TARGET_AMD64
             if (size == EA_8BYTE)
@@ -6376,10 +6378,10 @@ uint8_t* X86Encoder::emitOutputR(uint8_t* dst, instrDesc* id)
             // The Intel instruction set reference for BSWAP states that extended registers
             // should be enabled via REX.R, but per Vol. 2A, Sec. 2.2.1.2 (see also Figure 2-7),
             // REX.B should instead be used if the register is encoded in the opcode byte itself.
-            // Therefore the default logic of insEncodeReg012 is correct for this case.
-            code |= insEncodeReg012(ins, reg, size, &code) << 8;
-            dst += emitOutputRexPrefixIfNeeded(dst, code);
-            dst += emitOutputWord(dst, code);
+            // Therefore the default logic of EncodeReg012 is correct for this case.
+            code |= EncodeReg012(ins, reg, size, &code) << 8;
+            dst += EncodeRexPrefixIfNeeded(dst, code);
+            dst += Write16(dst, code);
             break;
 
         case INS_seto:
@@ -6401,23 +6403,23 @@ uint8_t* X86Encoder::emitOutputR(uint8_t* dst, instrDesc* id)
             assert(id->idGCref() == GCT_NONE);
             assert(size == EA_1BYTE);
 
-            code = insEncodeRMreg(ins, reg, EA_1BYTE, insCodeMR(ins));
-            dst += emitOutputRexPrefixIfNeeded(dst, code);
-            dst += emitOutputByte(dst, 0x0F);
-            dst += emitOutputWord(dst, code & 0x0000FFFF);
+            code = EncodeRMReg(ins, reg, EA_1BYTE, GetCodeMR(ins));
+            dst += EncodeRexPrefixIfNeeded(dst, code);
+            dst += Write8(dst, 0x0F);
+            dst += Write16(dst, code & 0x0000FFFF);
             break;
 
         case INS_mulEAX:
         case INS_imulEAX:
-            emitGCregDeadUpd(REG_EAX, dst);
-            emitGCregDeadUpd(REG_EDX, dst);
+            RemoveGCLiveReg(REG_EAX, dst);
+            RemoveGCLiveReg(REG_EDX, dst);
             FALLTHROUGH;
         default:
             assert(!IsSSEOrAVXOrBMIInstruction(ins));
             assert(!TakesVexPrefix(ins));
             assert(id->idGCref() == GCT_NONE);
 
-            code = insEncodeRMreg(ins, reg, size, insCodeMR(ins));
+            code = EncodeRMReg(ins, reg, size, GetCodeMR(ins));
 
             if (size == EA_1BYTE)
             {
@@ -6426,7 +6428,7 @@ uint8_t* X86Encoder::emitOutputR(uint8_t* dst, instrDesc* id)
             }
             else if (size == EA_2BYTE)
             {
-                dst += emitOutputByte(dst, 0x66);
+                dst += Write8(dst, 0x66);
             }
 #ifdef TARGET_AMD64
             else if ((size == EA_8BYTE) && TakesRexWPrefix(ins))
@@ -6435,8 +6437,8 @@ uint8_t* X86Encoder::emitOutputR(uint8_t* dst, instrDesc* id)
             }
 #endif
 
-            dst += emitOutputRexPrefixIfNeeded(dst, code);
-            dst += emitOutputWord(dst, code);
+            dst += EncodeRexPrefixIfNeeded(dst, code);
+            dst += Write16(dst, code);
             break;
     }
 
@@ -6445,11 +6447,11 @@ uint8_t* X86Encoder::emitOutputR(uint8_t* dst, instrDesc* id)
         case IF_RWR:
             if (id->idGCref())
             {
-                emitGCregLiveUpd(id->idGCref(), id->idReg1(), dst);
+                AddGCLiveReg(id->idGCref(), id->idReg1(), dst);
             }
             else
             {
-                emitGCregDeadUpd(id->idReg1(), dst);
+                RemoveGCLiveReg(id->idReg1(), dst);
             }
             break;
 
@@ -6466,7 +6468,7 @@ uint8_t* X86Encoder::emitOutputR(uint8_t* dst, instrDesc* id)
 
                 assert(id->idGCref() == GCT_BYREF);
 
-                emitGCregLiveUpd(GCT_BYREF, id->idReg1(), dst);
+                AddGCLiveReg(GCT_BYREF, id->idReg1(), dst);
             }
             else
             {
@@ -6477,7 +6479,7 @@ uint8_t* X86Encoder::emitOutputR(uint8_t* dst, instrDesc* id)
         case IF_RRD:
             break;
         default:
-            INDEBUG(printf("%s", EmitterBase::emitIfName(id->idInsFmt())));
+            INDEBUG(printf("%s", EmitterBase::GetFormatName(id->idInsFmt())));
             assert(!"unexpected instruction format");
             break;
     }
@@ -6495,7 +6497,7 @@ X86Emitter::code_t X86Encoder::AddVexPrefixIfNeeded(instruction ins, code_t code
     return code;
 }
 
-uint8_t* X86Encoder::emitOutputRR(uint8_t* dst, instrDesc* id)
+uint8_t* X86Encoder::EncodeRR(uint8_t* dst, instrDesc* id)
 {
     assert(!id->HasFSPrefix());
 
@@ -6513,11 +6515,11 @@ uint8_t* X86Encoder::emitOutputRR(uint8_t* dst, instrDesc* id)
 
         if ((ins != INS_movd) || IsFloatReg(reg1))
         {
-            code = insCodeRM(ins);
+            code = GetCodeRM(ins);
         }
         else
         {
-            code = insCodeMR(ins);
+            code = GetCodeMR(ins);
         }
 
         code = AddVexPrefixIfNeeded(ins, code, size);
@@ -6571,10 +6573,10 @@ uint8_t* X86Encoder::emitOutputRR(uint8_t* dst, instrDesc* id)
     }
     else if ((ins == INS_movsx) || (ins == INS_movzx))
     {
-        assert(!hasCodeMI(ins) && !hasCodeMR(ins));
+        assert(!HasCodeMI(ins) && !HasCodeMR(ins));
         assert(size < EA_4BYTE);
 
-        code = insCodeRM(ins);
+        code = GetCodeRM(ins);
 
         if (size == EA_1BYTE)
         {
@@ -6587,9 +6589,9 @@ uint8_t* X86Encoder::emitOutputRR(uint8_t* dst, instrDesc* id)
 #ifdef TARGET_AMD64
     else if (ins == INS_movsxd)
     {
-        assert(!hasCodeMI(ins) && !hasCodeMR(ins));
+        assert(!HasCodeMI(ins) && !HasCodeMR(ins));
 
-        code = insCodeRM(ins);
+        code = GetCodeRM(ins);
         assert(((code >> (RexBitOffset + 3)) & 1) != 0);
     }
 #endif
@@ -6598,7 +6600,7 @@ uint8_t* X86Encoder::emitOutputRR(uint8_t* dst, instrDesc* id)
         assert(!TakesVexPrefix(ins));
         assert(size != EA_1BYTE);
 
-        code = insCodeRM(ins);
+        code = GetCodeRM(ins);
 
         // TODO-MIKE-Cleanup: There should be no need to generate a 16 bit imul.
         if (size == EA_2BYTE)
@@ -6618,7 +6620,7 @@ uint8_t* X86Encoder::emitOutputRR(uint8_t* dst, instrDesc* id)
         assert(!TakesVexPrefix(ins));
         assert(size != EA_1BYTE);
 
-        code = insCodeMR(ins);
+        code = GetCodeMR(ins);
 
         // TODO-MIKE-Cleanup: There should be no need to generate a 16 bit bt.
         if (size == EA_2BYTE)
@@ -6638,9 +6640,9 @@ uint8_t* X86Encoder::emitOutputRR(uint8_t* dst, instrDesc* id)
     else if ((ins == INS_bsf) || (ins == INS_bsr) || (ins == INS_crc32) || (ins == INS_lzcnt) || (ins == INS_popcnt) ||
              (ins == INS_tzcnt) || IsCmov(ins))
     {
-        assert(!hasCodeMI(ins) && !hasCodeMR(ins) && !TakesVexPrefix(ins));
+        assert(!HasCodeMI(ins) && !HasCodeMR(ins) && !TakesVexPrefix(ins));
 
-        code = insCodeRM(ins);
+        code = GetCodeRM(ins);
 
         if (size == EA_1BYTE)
         {
@@ -6651,7 +6653,7 @@ uint8_t* X86Encoder::emitOutputRR(uint8_t* dst, instrDesc* id)
         {
             // We need to emit 0x66 now, instead of adding it to code's prefixes,
             // crc32 already has a mandatory prefix and can also have a size prefix.
-            dst += emitOutputByte(dst, 0x66);
+            dst += Write8(dst, 0x66);
         }
 #ifdef TARGET_AMD64
         else if (size == EA_8BYTE)
@@ -6664,7 +6666,7 @@ uint8_t* X86Encoder::emitOutputRR(uint8_t* dst, instrDesc* id)
     {
         assert(!TakesVexPrefix(ins));
 
-        code = insCodeMR(ins);
+        code = GetCodeMR(ins);
 
         if (ins != INS_test)
         {
@@ -6710,16 +6712,16 @@ uint8_t* X86Encoder::emitOutputRR(uint8_t* dst, instrDesc* id)
 
     assert((code & 0xFF00) == 0);
 
-    code |= (0xC0 | insEncodeReg345(ins, rReg, size, &code) | insEncodeReg012(ins, bReg, size, &code)) << 8;
-    dst += emitOutputRexOrVexPrefixIfNeeded(dst, code DEBUGARG(ins));
-    dst += emitOutputWord(dst, code);
+    code |= (0xC0 | EncodeReg345(ins, rReg, size, &code) | EncodeReg012(ins, bReg, size, &code)) << 8;
+    dst += EncodeRexOrVexPrefixIfNeeded(dst, code DEBUGARG(ins));
+    dst += Write16(dst, code);
 
     if (id->idGCref())
     {
         switch (id->idInsFmt())
         {
             case IF_RWR_RRD:
-                emitGCregLiveUpd(id->idGCref(), reg1, dst);
+                AddGCLiveReg(id->idGCref(), reg1, dst);
                 break;
 
             case IF_RRW_RRD:
@@ -6737,11 +6739,11 @@ uint8_t* X86Encoder::emitOutputRR(uint8_t* dst, instrDesc* id)
 
                     case INS_xor:
                         assert(reg1 == reg2);
-                        emitGCregLiveUpd(id->idGCref(), reg1, dst);
+                        AddGCLiveReg(id->idGCref(), reg1, dst);
                         break;
                     case INS_or:
                     case INS_and:
-                        emitGCregDeadUpd(reg1, dst);
+                        RemoveGCLiveReg(reg1, dst);
                         break;
                     case INS_add:
                     case INS_sub:
@@ -6767,11 +6769,11 @@ uint8_t* X86Encoder::emitOutputRR(uint8_t* dst, instrDesc* id)
                         assert((((regMask & gcInfo.GetLiveRegs(GCT_GCREF) != RBM_NONE) && (ins == INS_add)) ||
                                (((regMask & gcInfo.GetLiveRegs(GCT_BYREF) != RBM_NONE) && (ins == INS_add || ins == INS_sub)));
 #endif // 0
-                        emitGCregLiveUpd(GCT_BYREF, reg1, dst);
+                        AddGCLiveReg(GCT_BYREF, reg1, dst);
                         break;
 
                     default:
-                        INDEBUG(printf("%s", EmitterBase::emitIfName(id->idInsFmt())));
+                        INDEBUG(printf("%s", EmitterBase::GetFormatName(id->idInsFmt())));
                         assert(!"unexpected GC base update instruction");
                 }
                 break;
@@ -6788,22 +6790,22 @@ uint8_t* X86Encoder::emitOutputRR(uint8_t* dst, instrDesc* id)
                 {
                     if (gc1 != GCT_NONE)
                     {
-                        emitGCregDeadUpd(reg1, dst);
+                        RemoveGCLiveReg(reg1, dst);
                     }
 
                     if (gc2 != GCT_NONE)
                     {
-                        emitGCregDeadUpd(reg2, dst);
+                        RemoveGCLiveReg(reg2, dst);
                     }
 
                     if (gc1 != GCT_NONE)
                     {
-                        emitGCregLiveUpd(gc1, reg2, dst);
+                        AddGCLiveReg(gc1, reg2, dst);
                     }
 
                     if (gc2 != GCT_NONE)
                     {
-                        emitGCregLiveUpd(gc2, reg1, dst);
+                        AddGCLiveReg(gc2, reg1, dst);
                     }
                 }
                 break;
@@ -6812,7 +6814,7 @@ uint8_t* X86Encoder::emitOutputRR(uint8_t* dst, instrDesc* id)
                 break;
 
             default:
-                INDEBUG(printf("%s", EmitterBase::emitIfName(id->idInsFmt())));
+                INDEBUG(printf("%s", EmitterBase::GetFormatName(id->idInsFmt())));
                 assert(!"unexpected GC ref instruction format");
         }
     }
@@ -6825,7 +6827,7 @@ uint8_t* X86Encoder::emitOutputRR(uint8_t* dst, instrDesc* id)
             case IF_RWR_RRD:
                 if (IsGeneralRegister(reg1))
                 {
-                    emitGCregDeadUpd(reg1, dst);
+                    RemoveGCLiveReg(reg1, dst);
                 }
                 break;
             default:
@@ -6837,7 +6839,7 @@ uint8_t* X86Encoder::emitOutputRR(uint8_t* dst, instrDesc* id)
     return dst;
 }
 
-uint8_t* X86Encoder::emitOutputRRR(uint8_t* dst, instrDesc* id)
+uint8_t* X86Encoder::EncodeRRR(uint8_t* dst, instrDesc* id)
 {
     assert(IsVexTernary(id->idIns()));
     assert((id->idInsFmt() == IF_RWR_RRD_RRD) || (id->idInsFmt() == IF_RWR_RRD_RRD_CNS) ||
@@ -6850,7 +6852,7 @@ uint8_t* X86Encoder::emitOutputRRR(uint8_t* dst, instrDesc* id)
     RegNum      reg3 = id->idReg3();
     emitAttr    size = id->idOpSize();
 
-    code_t code = insCodeRM(ins);
+    code_t code = GetCodeRM(ins);
     assert((code & 0xFF00) == 0);
     code = AddVexPrefix(ins, code, size);
 
@@ -6861,21 +6863,21 @@ uint8_t* X86Encoder::emitOutputRRR(uint8_t* dst, instrDesc* id)
     }
 #endif
 
-    code |= (0xC0 | insEncodeReg345(ins, reg1, size, &code) | insEncodeReg012(ins, reg3, size, &code)) << 8;
+    code |= (0xC0 | EncodeReg345(ins, reg1, size, &code) | EncodeReg012(ins, reg3, size, &code)) << 8;
     code = SetVexVvvv(reg2, size, code);
-    dst += emitOutputVexPrefix(dst, code DEBUGARG(ins));
-    dst += emitOutputWord(dst, code);
+    dst += EncodeVexPrefix(dst, code DEBUGARG(ins));
+    dst += Write16(dst, code);
 
     if (IsGeneralRegister(id->idReg1()))
     {
         noway_assert(!id->idGCref());
-        emitGCregDeadUpd(id->idReg1(), dst);
+        RemoveGCLiveReg(id->idReg1(), dst);
     }
 
     return dst;
 }
 
-uint8_t* X86Encoder::emitOutputRRI(uint8_t* dst, instrDesc* id)
+uint8_t* X86Encoder::EncodeRRI(uint8_t* dst, instrDesc* id)
 {
     assert(!id->HasFSPrefix());
 
@@ -6886,19 +6888,19 @@ uint8_t* X86Encoder::emitOutputRRI(uint8_t* dst, instrDesc* id)
     RegNum rReg;
     code_t code;
 
-    if (hasCodeMR(ins))
+    if (HasCodeMR(ins))
     {
-        code = insCodeMR(ins);
+        code = GetCodeMR(ins);
         code = AddVexPrefixIfNeeded(ins, code, size);
 
         bReg = id->idReg1();
         rReg = id->idReg2();
     }
-    else if (hasCodeMI(ins))
+    else if (HasCodeMI(ins))
     {
         assert((INS_psrldq <= ins) && (ins <= INS_psrad) && UseVEXEncoding());
 
-        code = insCodeMI(ins);
+        code = GetCodeMI(ins);
         code = AddVexPrefixIfNeeded(ins, code, size);
 
         bReg = id->idReg2();
@@ -6906,7 +6908,7 @@ uint8_t* X86Encoder::emitOutputRRI(uint8_t* dst, instrDesc* id)
     }
     else
     {
-        code = insCodeRM(ins);
+        code = GetCodeRM(ins);
         code = AddVexPrefixIfNeeded(ins, code, size);
 
         bReg = id->idReg2();
@@ -6955,30 +6957,30 @@ uint8_t* X86Encoder::emitOutputRRI(uint8_t* dst, instrDesc* id)
 
     assert(((code & 0xFF00) == 0) || ((INS_psrldq <= ins) && (ins <= INS_psrad)));
 
-    code |= (0xC0 | insEncodeReg345(ins, rReg, size, &code) | insEncodeReg012(ins, bReg, size, &code)) << 8;
-    dst += emitOutputRexOrVexPrefixIfNeeded(dst, code DEBUGARG(ins));
-    dst += emitOutputWord(dst, code);
+    code |= (0xC0 | EncodeReg345(ins, rReg, size, &code) | EncodeReg012(ins, bReg, size, &code)) << 8;
+    dst += EncodeRexOrVexPrefixIfNeeded(dst, code DEBUGARG(ins));
+    dst += Write16(dst, code);
 
     if ((ins == INS_imuli) && ((code & 0x02) == 0))
     {
-        dst += emitOutputLong(dst, id->GetImm());
+        dst += Write32(dst, id->GetImm());
     }
     else
     {
-        dst += emitOutputByte(dst, id->GetImm());
+        dst += Write8(dst, id->GetImm());
     }
 
     assert(id->idGCref() == GCT_NONE);
 
     if (IsGeneralRegister(id->idReg1()))
     {
-        emitGCregDeadUpd(id->idReg1(), dst);
+        RemoveGCLiveReg(id->idReg1(), dst);
     }
 
     return dst;
 }
 
-uint8_t* X86Encoder::emitOutputRI(uint8_t* dst, instrDesc* id)
+uint8_t* X86Encoder::EncodeRI(uint8_t* dst, instrDesc* id)
 {
     assert(!id->HasFSPrefix());
 
@@ -6997,25 +6999,25 @@ uint8_t* X86Encoder::emitOutputRI(uint8_t* dst, instrDesc* id)
         assert(id->idGCref() == GCT_NONE);
         assert(IsImm8(imm));
 
-        code_t code = insCodeMI(ins);
+        code_t code = GetCodeMI(ins);
         assert((code & 0x00FF0000) != 0);
 
         code = AddVexPrefixIfNeeded(ins, code, size);
-        code = insEncodeRMreg(ins, reg, size, code);
+        code = EncodeRMReg(ins, reg, size, code);
 
         if (TakesVexPrefix(ins))
         {
             code = SetVexVvvv(reg, size, code);
         }
 
-        dst += emitOutputRexOrVexPrefixIfNeeded(dst, code DEBUGARG(ins));
-        dst += emitOutputWord(dst, code);
-        dst += emitOutputByte(dst, imm);
+        dst += EncodeRexOrVexPrefixIfNeeded(dst, code DEBUGARG(ins));
+        dst += Write16(dst, code);
+        dst += Write8(dst, imm);
 
         return dst;
     }
 
-    X86_ONLY(noway_assert(emitVerifyEncodable(ins, size, reg)));
+    X86_ONLY(noway_assert(VerifyEncodable(ins, size, reg)));
 
     if (ins == INS_mov)
     {
@@ -7025,7 +7027,7 @@ uint8_t* X86Encoder::emitOutputRI(uint8_t* dst, instrDesc* id)
         // is little point in doing that since we need to special case this anyway.
         // Or perhaps there's a way to avoid this special casing?
         code_t code = 0xB8;
-        code |= insEncodeReg012(ins, reg, size, &code);
+        code |= EncodeReg012(ins, reg, size, &code);
 
         assert(!TakesVexPrefix(ins));
 
@@ -7036,47 +7038,47 @@ uint8_t* X86Encoder::emitOutputRI(uint8_t* dst, instrDesc* id)
         }
 #endif
 
-        dst += emitOutputRexPrefixIfNeeded(dst, code);
-        dst += emitOutputByte(dst, code);
+        dst += EncodeRexPrefixIfNeeded(dst, code);
+        dst += Write8(dst, code);
 
 #ifdef TARGET_X86
         assert(size == EA_4BYTE);
-        dst += emitOutputLong(dst, imm);
+        dst += Write32(dst, imm);
 
         if (id->idIsCnsReloc())
         {
-            emitRecordRelocation(dst - 4, reinterpret_cast<void*>(imm), IMAGE_REL_BASED_HIGHLOW);
+            RecordRelocation(dst - 4, reinterpret_cast<void*>(imm), IMAGE_REL_BASED_HIGHLOW);
         }
 #else
         if (size == EA_4BYTE)
         {
-            dst += emitOutputLong(dst, imm);
+            dst += Write32(dst, imm);
             assert(!id->idIsCnsReloc());
         }
         else
         {
             assert(size == EA_8BYTE);
-            dst += emitOutputI64(dst, imm);
+            dst += Write64(dst, imm);
 
             if (id->idIsCnsReloc())
             {
-                emitRecordRelocation(dst - 8, reinterpret_cast<void*>(imm), IMAGE_REL_BASED_DIR64);
+                RecordRelocation(dst - 8, reinterpret_cast<void*>(imm), IMAGE_REL_BASED_DIR64);
             }
         }
 #endif
 
         // TODO-MIKE-Cleanup: A constant can't be a GC ref so we should not need to check idGCref.
         // But of course, it's messed up so constants are sometimes byrefs. Probably we could simply
-        // ignore that and just call emitGCregDeadUpd, but we may get asserts later on because the
+        // ignore that and just call RemoveGCLiveReg, but we may get asserts later on because the
         // GC info is out of sync.
 
         if (id->idGCref())
         {
-            emitGCregLiveUpd(id->idGCref(), reg, dst);
+            AddGCLiveReg(id->idGCref(), reg, dst);
         }
         else
         {
-            emitGCregDeadUpd(reg, dst);
+            RemoveGCLiveReg(reg, dst);
         }
 
         return dst;
@@ -7086,7 +7088,7 @@ uint8_t* X86Encoder::emitOutputRI(uint8_t* dst, instrDesc* id)
     {
         assert(!TakesVexPrefix(ins));
 
-        code_t code = insEncodeRMreg(ins, id->idReg1(), size, insCodeMI(ins));
+        code_t code = EncodeRMReg(ins, id->idReg1(), size, GetCodeMI(ins));
 
         if (size == EA_1BYTE)
         {
@@ -7095,7 +7097,7 @@ uint8_t* X86Encoder::emitOutputRI(uint8_t* dst, instrDesc* id)
         }
         else if (size == EA_2BYTE)
         {
-            dst += emitOutputByte(dst, 0x66);
+            dst += Write8(dst, 0x66);
         }
 #ifdef TARGET_AMD64
         else if (size == EA_8BYTE)
@@ -7104,18 +7106,18 @@ uint8_t* X86Encoder::emitOutputRI(uint8_t* dst, instrDesc* id)
         }
 #endif
 
-        dst += emitOutputRexPrefixIfNeeded(dst, code);
-        dst += emitOutputWord(dst, code);
-        dst += emitOutputByte(dst, id->GetImm());
+        dst += EncodeRexPrefixIfNeeded(dst, code);
+        dst += Write16(dst, code);
+        dst += Write8(dst, id->GetImm());
 
         assert(!id->idGCref());
-        emitGCregDeadUpd(id->idReg1(), dst);
+        RemoveGCLiveReg(id->idReg1(), dst);
 
         return dst;
     }
 
     // This has to be one of the instructions that have the special EAX,imm encodings.
-    assert(insCodeACC(ins) != BAD_CODE);
+    assert(GetCodeA(ins) != BAD_CODE);
 
     size_t immSize = EA_SIZE_IN_BYTES(size);
     bool   useImm8 = IsImm8(imm) && !id->idIsCnsReloc() && (size != EA_1BYTE) && (ins != INS_test);
@@ -7124,12 +7126,12 @@ uint8_t* X86Encoder::emitOutputRI(uint8_t* dst, instrDesc* id)
 
     if (useACC)
     {
-        code = insCodeACC(ins);
+        code = GetCodeA(ins);
     }
     else
     {
-        code = insCodeMI(ins);
-        code = insEncodeRMreg(ins, reg, size, code);
+        code = GetCodeMI(ins);
+        code = EncodeRMReg(ins, reg, size, code);
 
         if (useImm8)
         {
@@ -7145,7 +7147,7 @@ uint8_t* X86Encoder::emitOutputRI(uint8_t* dst, instrDesc* id)
     }
     else if (size == EA_2BYTE)
     {
-        dst += emitOutputByte(dst, 0x66);
+        dst += Write8(dst, 0x66);
     }
 #ifdef TARGET_AMD64
     else if (size == EA_8BYTE)
@@ -7154,18 +7156,18 @@ uint8_t* X86Encoder::emitOutputRI(uint8_t* dst, instrDesc* id)
     }
 #endif
 
-    dst += emitOutputRexPrefixIfNeeded(dst, code);
+    dst += EncodeRexPrefixIfNeeded(dst, code);
 
     if (useACC)
     {
-        dst += emitOutputByte(dst, code);
+        dst += Write8(dst, code);
     }
     else
     {
-        dst += emitOutputWord(dst, code);
+        dst += Write16(dst, code);
     }
 
-    dst += emitOutputImm(dst, id, immSize, imm);
+    dst += EncodeImm(dst, id, immSize, imm);
 
     if (id->idGCref())
     {
@@ -7174,7 +7176,7 @@ uint8_t* X86Encoder::emitOutputRI(uint8_t* dst, instrDesc* id)
         switch (id->idInsFmt())
         {
             case IF_RWR_CNS:
-                emitGCregLiveUpd(id->idGCref(), id->idReg1(), dst);
+                AddGCLiveReg(id->idGCref(), id->idReg1(), dst);
                 break;
 
             case IF_RRW_CNS:
@@ -7196,13 +7198,13 @@ uint8_t* X86Encoder::emitOutputRI(uint8_t* dst, instrDesc* id)
                     assert(ins == INS_add || ins == INS_sub);
                 }
 #endif
-                emitGCregLiveUpd(GCT_BYREF, id->idReg1(), dst);
+                AddGCLiveReg(GCT_BYREF, id->idReg1(), dst);
                 break;
 
             case IF_RRD_CNS:
                 break;
             default:
-                INDEBUG(printf("%s", EmitterBase::emitIfName(id->idInsFmt())));
+                INDEBUG(printf("%s", EmitterBase::GetFormatName(id->idInsFmt())));
                 assert(!"unexpected GC ref instruction format");
         }
     }
@@ -7213,13 +7215,13 @@ uint8_t* X86Encoder::emitOutputRI(uint8_t* dst, instrDesc* id)
             case IF_RRW_CNS:
             case IF_RWR_CNS:
                 assert(ins != INS_imuli);
-                emitGCregDeadUpd(id->idReg1(), dst);
+                RemoveGCLiveReg(id->idReg1(), dst);
                 break;
             case IF_RRD_CNS:
                 assert(ins != INS_mulEAX && ins != INS_imulEAX && ins != INS_imuli);
                 break;
             default:
-                INDEBUG(printf("%s", EmitterBase::emitIfName(id->idInsFmt())));
+                INDEBUG(printf("%s", EmitterBase::GetFormatName(id->idInsFmt())));
                 assert(!"unexpected GC ref instruction format");
         }
     }
@@ -7227,7 +7229,7 @@ uint8_t* X86Encoder::emitOutputRI(uint8_t* dst, instrDesc* id)
     return dst;
 }
 
-uint8_t* X86Encoder::emitOutputIV(uint8_t* dst, instrDesc* id)
+uint8_t* X86Encoder::EncodeI(uint8_t* dst, instrDesc* id)
 {
     assert(!id->HasFSPrefix());
 
@@ -7237,34 +7239,34 @@ uint8_t* X86Encoder::emitOutputIV(uint8_t* dst, instrDesc* id)
 
 #ifdef TARGET_AMD64
     assert((ins == INS_push_hide) && (size == EA_8BYTE) && (val == 0) && !id->idIsCnsReloc());
-    dst += emitOutputWord(dst, 0x006A);
+    dst += Write16(dst, 0x006A);
 #else
     if (ins == INS_ret)
     {
         assert((val != 0) && !id->idIsCnsReloc());
 
-        dst += emitOutputByte(dst, insCodeMI(ins));
-        dst += emitOutputWord(dst, val);
+        dst += Write8(dst, GetCodeMI(ins));
+        dst += Write16(dst, val);
     }
     else
     {
         assert((ins == INS_push) || (ins == INS_push_hide));
 
-        code_t code = insCodeMI(ins);
+        code_t code = GetCodeMI(ins);
 
         if (IsImm8(val) && !id->idIsCnsReloc())
         {
-            dst += emitOutputByte(dst, code | 2);
-            dst += emitOutputByte(dst, val);
+            dst += Write8(dst, code | 2);
+            dst += Write8(dst, val);
         }
         else
         {
-            dst += emitOutputByte(dst, code);
-            dst += emitOutputLong(dst, val);
+            dst += Write8(dst, code);
+            dst += Write32(dst, val);
 
             if (id->idIsCnsReloc())
             {
-                emitRecordRelocation(dst - 4, reinterpret_cast<void*>(val), IMAGE_REL_BASED_HIGHLOW);
+                RecordRelocation(dst - 4, reinterpret_cast<void*>(val), IMAGE_REL_BASED_HIGHLOW);
             }
         }
     }
@@ -7273,7 +7275,7 @@ uint8_t* X86Encoder::emitOutputIV(uint8_t* dst, instrDesc* id)
     return dst;
 }
 
-uint8_t* X86Encoder::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
+uint8_t* X86Encoder::EncodeRoDataAddr(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 {
     assert(id->idInsFmt() == IF_RWR_LABEL);
     assert(id->idOpSize() == EA_PTRSIZE);
@@ -7291,61 +7293,61 @@ uint8_t* X86Encoder::emitOutputRL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     }
     else
     {
-        unsigned instrOffs = emitCurCodeOffs(dst);
-        uint8_t* instrAddr = emitOffsetToPtr(instrOffs);
+        unsigned instrOffs = GetCodeOffset(dst);
+        uint8_t* instrAddr = GetCodeAddr(instrOffs);
         unsigned labelOffs = id->GetLabel()->igOffs;
 
-        labelAddr = emitOffsetToPtr(labelOffs);
+        labelAddr = GetCodeAddr(labelOffs);
     }
 
     assert((0 <= id->idReg1()) && id->idReg1() <= 7);
 
-    dst += emitOutputByte(dst, 0xB8 + id->idReg1());
+    dst += Write8(dst, 0xB8 + id->idReg1());
 
     if (id->idIsCnsReloc())
     {
-        dst += emitOutputLong(dst, 0);
-        emitRecordRelocation(dst - 4, labelAddr, IMAGE_REL_BASED_HIGHLOW);
+        dst += Write32(dst, 0);
+        RecordRelocation(dst - 4, labelAddr, IMAGE_REL_BASED_HIGHLOW);
     }
     else
     {
-        dst += emitOutputLong(dst, reinterpret_cast<size_t>(labelAddr));
+        dst += Write32(dst, reinterpret_cast<size_t>(labelAddr));
     }
 #else
     assert(id->idIns() == INS_lea);
 
-    unsigned instrOffs = emitCurCodeOffs(dst);
-    uint8_t* instrAddr = emitOffsetToPtr(instrOffs);
+    unsigned instrOffs = GetCodeOffset(dst);
+    uint8_t* instrAddr = GetCodeAddr(instrOffs);
     unsigned labelOffs = id->GetLabel()->igOffs;
-    uint8_t* labelAddr = emitOffsetToPtr(labelOffs);
+    uint8_t* labelAddr = GetCodeAddr(labelOffs);
 
     code_t code = 0x8D;
-    assert(insCodeRM(INS_lea) == code);
+    assert(GetCodeRM(INS_lea) == code);
     code = AddRexWPrefix(code);
     code = SetRMReg(INS_lea, id->idReg1(), EA_PTRSIZE, code);
-    dst += emitOutputRexPrefix(dst, code);
-    dst += emitOutputWord(dst, code | 0x0500);
+    dst += EncodeRexPrefix(dst, code);
+    dst += Write16(dst, code | 0x0500);
 
     if (id->idIsCnsReloc())
     {
-        dst += emitOutputLong(dst, 0);
-        emitRecordRelocation(dst - 4, labelAddr, IMAGE_REL_BASED_REL32);
+        dst += Write32(dst, 0);
+        RecordRelocation(dst - 4, labelAddr, IMAGE_REL_BASED_REL32);
     }
     else
     {
         ssize_t distance = labelAddr - instrAddr - id->idCodeSize();
         assert(IsImm32(distance));
-        dst += emitOutputLong(dst, distance);
+        dst += Write32(dst, distance);
     }
 #endif
 
-    emitGCregDeadUpd(id->idReg1(), dst);
+    RemoveGCLiveReg(id->idReg1(), dst);
 
     return dst;
 }
 
 #ifdef TARGET_X86
-uint8_t* X86Encoder::emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
+uint8_t* X86Encoder::EncodePushLabel(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 {
     assert(id->idIns() == INS_push_hide);
     assert(id->idInsFmt() == IF_LABEL);
@@ -7354,26 +7356,26 @@ uint8_t* X86Encoder::emitOutputL(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     assert(!id->HasFSPrefix());
 
     unsigned labelOffs = id->GetLabel()->igOffs;
-    uint8_t* labelAddr = emitOffsetToPtr(labelOffs);
+    uint8_t* labelAddr = GetCodeAddr(labelOffs);
 
-    assert(insCodeMI(INS_push) == 0x68);
-    dst += emitOutputByte(dst, 0x68);
+    assert(GetCodeMI(INS_push) == 0x68);
+    dst += Write8(dst, 0x68);
 
     if (id->idIsCnsReloc())
     {
-        dst += emitOutputLong(dst, 0);
-        emitRecordRelocation(dst - 4, labelAddr, IMAGE_REL_BASED_HIGHLOW);
+        dst += Write32(dst, 0);
+        RecordRelocation(dst - 4, labelAddr, IMAGE_REL_BASED_HIGHLOW);
     }
     else
     {
-        dst += emitOutputLong(dst, reinterpret_cast<ssize_t>(labelAddr));
+        dst += Write32(dst, reinterpret_cast<ssize_t>(labelAddr));
     }
 
     return dst;
 }
 #endif // TARGET_X86
 
-uint8_t* X86Encoder::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
+uint8_t* X86Encoder::EncodeJump(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 {
     assert(id->idInsFmt() == IF_LABEL);
     assert(id->idGCref() == GCT_NONE);
@@ -7397,21 +7399,21 @@ uint8_t* X86Encoder::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
         labelOffs = id->GetLabel()->igOffs;
     }
 
-    uint8_t*    labelAddr = emitOffsetToPtr(labelOffs);
-    unsigned    instrOffs = emitCurCodeOffs(dst);
-    uint8_t*    instrAddr = emitOffsetToPtr(instrOffs);
+    uint8_t*    labelAddr = GetCodeAddr(labelOffs);
+    unsigned    instrOffs = GetCodeOffset(dst);
+    uint8_t*    instrAddr = GetCodeAddr(instrOffs);
     ssize_t     distance  = labelAddr - instrAddr - id->idCodeSize();
     instruction ins       = id->idIns();
 
     if (id->idCodeSize() == JMP_JCC_SIZE_SMALL)
     {
         assert(!id->idIsCnsReloc());
-        assert(!emitJumpCrossHotColdBoundary(instrOffs, labelOffs));
+        assert(!IsHotColdJump(instrOffs, labelOffs));
         assert(ins != INS_call);
         assert(IsImm8(distance));
 
-        dst += emitOutputByte(dst, insCodeJ(ins));
-        dst += emitOutputByte(dst, distance);
+        dst += Write8(dst, GetCodeJ(ins));
+        dst += Write8(dst, distance);
     }
     else if (id->idCodeSize() == 0)
     {
@@ -7423,29 +7425,29 @@ uint8_t* X86Encoder::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
         if (ins == INS_jmp)
         {
-            dst += emitOutputByte(dst, 0xE9);
+            dst += Write8(dst, 0xE9);
         }
 #ifdef FEATURE_EH_FUNCLETS
         else if (ins == INS_call)
         {
-            dst += emitOutputByte(dst, 0xE8);
+            dst += Write8(dst, 0xE8);
         }
 #endif
         else
         {
-            code_t code = insCodeJ(ins);
+            code_t code = GetCodeJ(ins);
             assert((0x70 <= code) && (code <= 0x7F));
-            dst += emitOutputWord(dst, 0x0F | ((code + 0x10) << 8));
+            dst += Write16(dst, 0x0F | ((code + 0x10) << 8));
         }
 
-        dst += emitOutputLong(dst, distance);
+        dst += Write32(dst, distance);
 
         if (id->idIsCnsReloc())
         {
 #ifdef TARGET_AMD64
-            emitRecordRelocation(dst - 4, dst + distance, IMAGE_REL_BASED_REL32);
+            RecordRelocation(dst - 4, dst + distance, IMAGE_REL_BASED_REL32);
 #else
-            emitRecordRelocation(dst - 4, dst + distance, IMAGE_REL_BASED_HIGHLOW);
+            RecordRelocation(dst - 4, dst + distance, IMAGE_REL_BASED_HIGHLOW);
 #endif
         }
 
@@ -7459,12 +7461,12 @@ uint8_t* X86Encoder::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
         // could possibly be live after the call are callee saved registers, and these
         // are practically dead before the call.
         // But the weirdest thing is that ARM64 doesn't appear to be doing this.
-        // It certainly doesn't call emitGCregDeadAll but perhaps it achieves the same
+        // It certainly doesn't call RemoveAllGCLiveRegs but perhaps it achieves the same
         // effect by other means?
         // Anyway, even if this code is useless removing it results in GC info diffs.
         if ((ins == INS_call) && (gcInfo.GetAllLiveRegs() != RBM_NONE))
         {
-            emitGCregDeadAll(dst);
+            RemoveAllGCLiveRegs(dst);
         }
 #else
         assert(ins != INS_call);
@@ -7474,7 +7476,7 @@ uint8_t* X86Encoder::emitOutputJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     return dst;
 }
 
-uint8_t* X86Encoder::emitOutputCall(uint8_t* dst, instrDesc* id)
+uint8_t* X86Encoder::EncodeCall(uint8_t* dst, instrDesc* id)
 {
     assert(!id->HasFSPrefix());
 
@@ -7484,41 +7486,41 @@ uint8_t* X86Encoder::emitOutputCall(uint8_t* dst, instrDesc* id)
 
     if (id->idInsFmt() == IF_METHPTR)
     {
-        code_t code = insCodeMR(ins);
+        code_t code = GetCodeMR(ins);
 
         if (id->idIsDspReloc())
         {
-            dst += emitOutputWord(dst, code | 0x0500);
+            dst += Write16(dst, code | 0x0500);
 
 #ifdef TARGET_AMD64
-            dst += emitOutputLong(dst, 0);
-            emitRecordRelocation(dst - 4, addr, IMAGE_REL_BASED_REL32);
+            dst += Write32(dst, 0);
+            RecordRelocation(dst - 4, addr, IMAGE_REL_BASED_REL32);
 #else
-            dst += emitOutputLong(dst, reinterpret_cast<ssize_t>(addr));
-            emitRecordRelocation(dst - 4, addr, IMAGE_REL_BASED_HIGHLOW);
+            dst += Write32(dst, reinterpret_cast<ssize_t>(addr));
+            RecordRelocation(dst - 4, addr, IMAGE_REL_BASED_HIGHLOW);
 #endif
         }
         else
         {
 #ifdef TARGET_X86
-            dst += emitOutputWord(dst, code | 0x0500);
+            dst += Write16(dst, code | 0x0500);
 #else
-            noway_assert(!emitComp->opts.compReloc);
-            noway_assert(!emitComp->eeIsRIPRelativeAddress(addr));
+            noway_assert(!compiler->opts.compReloc);
+            noway_assert(!compiler->eeIsRIPRelativeAddress(addr));
             noway_assert(IsDisp32(reinterpret_cast<intptr_t>(addr)));
 
-            dst += emitOutputWord(dst, code | 0x0400);
-            dst += emitOutputByte(dst, 0x25);
+            dst += Write16(dst, code | 0x0400);
+            dst += Write8(dst, 0x25);
 #endif
 
-            dst += emitOutputLong(dst, reinterpret_cast<intptr_t>(addr));
+            dst += Write32(dst, reinterpret_cast<intptr_t>(addr));
         }
     }
     else
     {
         assert(id->idInsFmt() == IF_METHOD);
 
-        dst += emitOutputByte(dst, ins == INS_l_jmp ? insCodeJ(ins) : insCodeMI(ins));
+        dst += Write8(dst, ins == INS_l_jmp ? GetCodeJ(ins) : GetCodeMI(ins));
 
 #ifdef TARGET_AMD64
         // For x64 we always go through recordRelocation since we may need jump stubs,
@@ -7529,18 +7531,18 @@ uint8_t* X86Encoder::emitOutputCall(uint8_t* dst, instrDesc* id)
 #else
         const ssize_t offset = reinterpret_cast<uint8_t*>(addr) - dst - 4;
 #endif
-        dst += emitOutputLong(dst, offset);
+        dst += Write32(dst, offset);
 
         if (id->idIsDspReloc())
         {
-            emitRecordRelocation(dst - 4, addr, IMAGE_REL_BASED_REL32);
+            RecordRelocation(dst - 4, addr, IMAGE_REL_BASED_REL32);
         }
     }
 
     return dst;
 }
 
-uint8_t* X86Encoder::emitOutputNoOperands(uint8_t* dst, instrDesc* id)
+uint8_t* X86Encoder::EncodeNoOperands(uint8_t* dst, instrDesc* id)
 {
     assert(!id->HasFSPrefix());
 
@@ -7548,26 +7550,26 @@ uint8_t* X86Encoder::emitOutputNoOperands(uint8_t* dst, instrDesc* id)
 
     if (ins == INS_nop)
     {
-        return emitOutputNOP(dst + writeableOffset, id->idCodeSize()) - writeableOffset;
+        return EncodeNop(dst + writeableOffset, id->idCodeSize()) - writeableOffset;
     }
 
     assert(!TakesVexPrefix(ins));
     assert(id->idOpSize() != EA_2BYTE);
     assert(id->idGCref() == GCT_NONE);
 
-    code_t code = insCodeMR(ins);
+    code_t code = GetCodeMR(ins);
     assert((code >> 24) == 0);
 
     if ((ins == INS_rep_stos) || (ins == INS_rep_movs))
     {
-        dst += emitOutputByte(dst, code);
+        dst += Write8(dst, code);
         code >>= 8;
         ins = ins == INS_rep_stos ? INS_stos : INS_movs;
     }
 
     if (ins == INS_cdq)
     {
-        emitGCregDeadUpd(REG_EDX, dst);
+        RemoveGCLiveReg(REG_EDX, dst);
     }
     else if ((id->idOpSize() == EA_1BYTE) && ((ins == INS_stos) || (ins == INS_movs)))
     {
@@ -7581,38 +7583,38 @@ uint8_t* X86Encoder::emitOutputNoOperands(uint8_t* dst, instrDesc* id)
         assert((ins == INS_cdq) || (ins == INS_stos) || (ins == INS_movs));
 
         code = AddRexWPrefix(code);
-        dst += emitOutputRexPrefix(dst, code);
+        dst += EncodeRexPrefix(dst, code);
         INDEBUG(code &= ~(0xFFull << RexBitOffset));
     }
 #endif
 
     if ((code >> MmmBitOffset) == 1)
     {
-        dst += emitOutputByte(dst, 0x0F);
-        dst += emitOutputWord(dst, code);
+        dst += Write8(dst, 0x0F);
+        dst += Write16(dst, code);
     }
     else if ((code >> 16) == 0xC5)
     {
-        dst += emitOutputByte(dst, 0xC5);
-        dst += emitOutputWord(dst, code);
+        dst += Write8(dst, 0xC5);
+        dst += Write16(dst, code);
     }
     else
     {
         assert((code & 0xFFFFFF00) == 0);
-        dst += emitOutputByte(dst, code);
+        dst += Write8(dst, code);
     }
 
     return dst;
 }
 
-void EmitterBase::emitEndCodeGen(GCInfo& gcInfo)
+void EmitterBase::Encode(GCInfo& gcInfo)
 {
     X86Emitter& emit = *static_cast<X86Emitter*>(this);
     X86Encoder  encoder(emit, gcInfo);
-    encoder.emitEndCodeGen(emit);
+    encoder.Encode(emit);
 }
 
-size_t Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
+size_t Encoder::ArchEncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 {
     return static_cast<X86Encoder*>(this)->EncodeInstr(ig, id, dp);
 }
@@ -7639,12 +7641,12 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_NONE:
             if (ins == INS_align)
             {
-                dst = emitOutputAlign(ig, id, dst);
+                dst = EncodeAlign(ig, id, dst);
                 sz  = sizeof(instrDescAlign);
                 break;
             }
 
-            dst = emitOutputNoOperands(dst, id);
+            dst = EncodeNoOperands(dst, id);
             break;
 
         /********************************************************************/
@@ -7652,12 +7654,12 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         /********************************************************************/
 
         case IF_CNS:
-            dst = emitOutputIV(dst, id);
+            dst = EncodeI(dst, id);
             sz  = id->GetDescSize();
             break;
 
         case IF_RWR_LABEL:
-            dst = emitOutputRL(dst, static_cast<instrDescJmp*>(id), ig);
+            dst = EncodeRoDataAddr(dst, static_cast<instrDescJmp*>(id), ig);
             sz  = sizeof(instrDescJmp);
             break;
 
@@ -7665,20 +7667,20 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 #ifdef TARGET_X86
             if (id->idIns() == INS_push_hide)
             {
-                dst = emitOutputL(dst, static_cast<instrDescJmp*>(id), ig);
+                dst = EncodePushLabel(dst, static_cast<instrDescJmp*>(id), ig);
             }
             else
 #endif
             {
-                dst = emitOutputJ(dst, static_cast<instrDescJmp*>(id), ig);
+                dst = EncodeJump(dst, static_cast<instrDescJmp*>(id), ig);
             }
             sz = sizeof(instrDescJmp);
             break;
 
         case IF_METHOD:
         case IF_METHPTR:
-            dst = emitOutputCall(dst, id);
-            sz  = emitRecordGCCall(id, *dp, dst);
+            dst = EncodeCall(dst, id);
+            sz  = RecordGCCall(id, *dp, dst);
             break;
 
         /********************************************************************/
@@ -7688,11 +7690,11 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_RRD:
         case IF_RWR:
         case IF_RRW:
-            dst = emitOutputR(dst, id);
+            dst = EncodeR(dst, id);
 
             if (ins == INS_call)
             {
-                sz = emitRecordGCCall(id, *dp, dst);
+                sz = RecordGCCall(id, *dp, dst);
             }
             else
             {
@@ -7708,30 +7710,30 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_RWR_RRD:
         case IF_RRW_RRD:
         case IF_RRW_RRW:
-            dst = emitOutputRR(dst, id);
+            dst = EncodeRR(dst, id);
             sz  = sizeof(instrDescSmall);
             break;
 
         case IF_RRD_CNS:
         case IF_RWR_CNS:
         case IF_RRW_CNS:
-            dst = emitOutputRI(dst, id);
+            dst = EncodeRI(dst, id);
             sz  = id->GetDescSize();
             break;
 
         case IF_RWR_RRD_RRD:
-            dst = emitOutputRRR(dst, id);
+            dst = EncodeRRR(dst, id);
             sz  = id->GetDescSize();
             break;
         case IF_RWR_RRD_RRD_CNS:
         case IF_RWR_RRD_RRD_RRD:
-            dst = emitOutputRRR(dst, id);
-            dst += emitOutputByte(dst, id->GetImm());
+            dst = EncodeRRR(dst, id);
+            dst += Write8(dst, id->GetImm());
             sz = id->GetDescSize();
             break;
 
         case IF_RRW_RRD_CNS:
-            dst = emitOutputRRI(dst, id);
+            dst = EncodeRRI(dst, id);
             sz  = id->GetDescSize();
             break;
 
@@ -7744,11 +7746,11 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_ARW:
             assert(!TakesVexPrefix(ins));
 
-            dst = emitOutputAM(dst, id, insCodeMR(ins));
+            dst = EncodeAM(dst, id, GetCodeMR(ins));
 
             if (ins == INS_call)
             {
-                sz = emitRecordGCCall(id, *dp, dst);
+                sz = RecordGCCall(id, *dp, dst);
             }
             else
             {
@@ -7762,7 +7764,7 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(!TakesVexPrefix(ins));
 
             cnsVal = id->GetImm();
-            dst    = emitOutputAM(dst, id, insCodeMI(ins), &cnsVal);
+            dst    = EncodeAM(dst, id, GetCodeMI(ins), &cnsVal);
             sz     = id->GetDescSize();
             break;
 
@@ -7771,17 +7773,17 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_ARW_RRD:
             assert(!IsReallyVexTernary(ins));
 
-            code = insCodeMR(ins);
+            code = GetCodeMR(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
             code = SetRMReg(ins, id->idReg1(), size, code);
-            dst  = emitOutputAM(dst, id, code);
+            dst  = EncodeAM(dst, id, code);
             sz   = id->GetDescSize();
             break;
 
         case IF_RRD_ARD:
         case IF_RWR_ARD:
         case IF_RRW_ARD:
-            code = insCodeRM(ins);
+            code = GetCodeRM(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
 
             if (IsVexDstDstSrc(ins))
@@ -7794,7 +7796,7 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
-            dst = emitOutputAM(dst, id, code);
+            dst = EncodeAM(dst, id, code);
             sz  = id->GetDescSize();
             break;
 
@@ -7802,7 +7804,7 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_RWR_ARD_CNS:
             assert(IsSSEOrAVXOrBMIInstruction(ins) || (ins == INS_imuli));
 
-            code = insCodeRM(ins);
+            code = GetCodeRM(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
 
             if (IsVexDstDstSrc(ins))
@@ -7812,7 +7814,7 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
-            dst    = emitOutputAM(dst, id, code, &cnsVal);
+            dst    = EncodeAM(dst, id, code, &cnsVal);
             sz     = id->GetDescSize();
             break;
 
@@ -7821,22 +7823,22 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(UseVEXEncoding());
             assert(!IsVexTernary(ins));
 
-            code   = insCodeMR(ins);
+            code   = GetCodeMR(ins);
             code   = AddVexPrefix(ins, code, size);
             code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
-            dst    = emitOutputAM(dst, id, code, &cnsVal);
+            dst    = EncodeAM(dst, id, code, &cnsVal);
             sz     = id->GetDescSize();
             break;
 
         case IF_AWR_RRD_RRD:
             assert(IsVexDstDstSrc(ins));
 
-            code = insCodeMR(ins);
+            code = GetCodeMR(ins);
             code = AddVexPrefix(ins, code, size);
             code = SetVexVvvv(id->idReg1(), size, code);
             code = SetRMReg(ins, id->idReg2(), size, code);
-            dst  = emitOutputAM(dst, id, code);
+            dst  = EncodeAM(dst, id, code);
             sz   = id->GetDescSize();
             break;
 
@@ -7844,11 +7846,11 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_RWR_RRD_ARD:
             assert(IsVexTernary(ins));
 
-            code = insCodeRM(ins);
+            code = GetCodeRM(ins);
             code = AddVexPrefix(ins, code, size);
             code = SetVexVvvv(id->idReg2(), size, code);
             code = SetRMReg(ins, id->idReg1(), size, code);
-            dst  = emitOutputAM(dst, id, code);
+            dst  = EncodeAM(dst, id, code);
             sz   = id->GetDescSize();
             break;
 
@@ -7856,12 +7858,12 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_RWR_RRD_ARD_RRD:
             assert(IsVexTernary(ins));
 
-            code   = insCodeRM(ins);
+            code   = GetCodeRM(ins);
             code   = AddVexPrefix(ins, code, size);
             code   = SetVexVvvv(id->idReg2(), size, code);
             code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
-            dst    = emitOutputAM(dst, id, code, &cnsVal);
+            dst    = EncodeAM(dst, id, code, &cnsVal);
             sz     = id->GetDescSize();
             break;
 
@@ -7875,10 +7877,10 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(!TakesVexPrefix(ins));
             assert(ins != INS_pop_hide);
 
-            dst = emitOutputSV(dst, id, insCodeMR(ins));
+            dst = EncodeSV(dst, id, GetCodeMR(ins));
             if (ins == INS_call)
             {
-                sz = emitRecordGCCall(id, *dp, dst);
+                sz = RecordGCCall(id, *dp, dst);
             }
             break;
 
@@ -7888,7 +7890,7 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(!TakesVexPrefix(ins));
 
             cnsVal = id->GetImm();
-            dst    = emitOutputSV(dst, id, insCodeMI(ins), &cnsVal);
+            dst    = EncodeSV(dst, id, GetCodeMI(ins), &cnsVal);
             sz     = id->GetDescSize();
             break;
 
@@ -7897,17 +7899,17 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_SRW_RRD:
             assert(!IsReallyVexTernary(ins));
 
-            code = insCodeMR(ins);
+            code = GetCodeMR(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
             code = SetRMReg(ins, id->idReg1(), size, code);
-            dst  = emitOutputSV(dst, id, code);
+            dst  = EncodeSV(dst, id, code);
             sz   = id->GetDescSize();
             break;
 
         case IF_RRD_SRD:
         case IF_RWR_SRD:
         case IF_RRW_SRD:
-            code = insCodeRM(ins);
+            code = GetCodeRM(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
 
             if (IsVexDstDstSrc(ins))
@@ -7920,7 +7922,7 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
-            dst = emitOutputSV(dst, id, code);
+            dst = EncodeSV(dst, id, code);
             sz  = id->GetDescSize();
             break;
 
@@ -7928,7 +7930,7 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_RWR_SRD_CNS:
             assert(IsSSEOrAVXOrBMIInstruction(ins) || (ins == INS_imuli));
 
-            code = insCodeRM(ins);
+            code = GetCodeRM(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
 
             if (IsVexDstDstSrc(ins))
@@ -7938,7 +7940,7 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
-            dst    = emitOutputSV(dst, id, code, &cnsVal);
+            dst    = EncodeSV(dst, id, code, &cnsVal);
             sz     = id->GetDescSize();
             break;
 
@@ -7947,11 +7949,11 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(UseVEXEncoding());
             assert(!IsVexTernary(ins));
 
-            code   = insCodeMR(ins);
+            code   = GetCodeMR(ins);
             code   = AddVexPrefix(ins, code, size);
             code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
-            dst    = emitOutputSV(dst, id, code, &cnsVal);
+            dst    = EncodeSV(dst, id, code, &cnsVal);
             sz     = id->GetDescSize();
             break;
 
@@ -7970,11 +7972,11 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_RWR_RRD_SRD:
             assert(IsVexTernary(ins));
 
-            code = insCodeRM(ins);
+            code = GetCodeRM(ins);
             code = AddVexPrefix(ins, code, size);
             code = SetVexVvvv(id->idReg2(), size, code);
             code = SetRMReg(ins, id->idReg1(), size, code);
-            dst  = emitOutputSV(dst, id, code);
+            dst  = EncodeSV(dst, id, code);
             sz   = id->GetDescSize();
             break;
 
@@ -7982,12 +7984,12 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_RWR_RRD_SRD_RRD:
             assert(IsVexTernary(ins));
 
-            code   = insCodeRM(ins);
+            code   = GetCodeRM(ins);
             code   = AddVexPrefix(ins, code, size);
             code   = SetVexVvvv(id->idReg2(), size, code);
             code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
-            dst    = emitOutputSV(dst, id, code, &cnsVal);
+            dst    = EncodeSV(dst, id, code, &cnsVal);
             sz     = id->GetDescSize();
             break;
 
@@ -8001,7 +8003,7 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(!TakesVexPrefix(ins));
             noway_assert(ins != INS_call);
 
-            dst = emitOutputCV(dst, id, insCodeMR(ins));
+            dst = EncodeCV(dst, id, GetCodeMR(ins));
             sz  = id->GetDescSize();
             break;
 
@@ -8011,7 +8013,7 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(!TakesVexPrefix(ins));
 
             cnsVal = id->GetImm();
-            dst    = emitOutputCV(dst, id, insCodeMI(ins), &cnsVal);
+            dst    = EncodeCV(dst, id, GetCodeMI(ins), &cnsVal);
             sz     = id->GetDescSize();
             break;
 
@@ -8020,17 +8022,17 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_MRW_RRD:
             assert(!IsReallyVexTernary(ins));
 
-            code = insCodeMR(ins);
+            code = GetCodeMR(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
             code = SetRMReg(ins, id->idReg1(), size, code);
-            dst  = emitOutputCV(dst, id, code);
+            dst  = EncodeCV(dst, id, code);
             sz   = id->GetDescSize();
             break;
 
         case IF_RRD_MRD:
         case IF_RWR_MRD:
         case IF_RRW_MRD:
-            code = insCodeRM(ins);
+            code = GetCodeRM(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
 
             if (IsVexDstDstSrc(ins))
@@ -8043,7 +8045,7 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code = SetRMReg(ins, id->idReg1(), size, code);
             }
 
-            dst = emitOutputCV(dst, id, code);
+            dst = EncodeCV(dst, id, code);
             sz  = id->GetDescSize();
             break;
 
@@ -8051,7 +8053,7 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_RWR_MRD_CNS:
             assert(IsSSEOrAVXOrBMIInstruction(ins) || (ins == INS_imuli));
 
-            code = insCodeRM(ins);
+            code = GetCodeRM(ins);
             code = AddVexPrefixIfNeeded(ins, code, size);
 
             if (IsVexDstDstSrc(ins))
@@ -8061,7 +8063,7 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
-            dst    = emitOutputCV(dst, id, code, &cnsVal);
+            dst    = EncodeCV(dst, id, code, &cnsVal);
             sz     = id->GetDescSize();
             break;
 
@@ -8070,11 +8072,11 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert(UseVEXEncoding());
             assert(!IsVexTernary(ins));
 
-            code   = insCodeMR(ins);
+            code   = GetCodeMR(ins);
             code   = AddVexPrefix(ins, code, size);
             code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
-            dst    = emitOutputCV(dst, id, code, &cnsVal);
+            dst    = EncodeCV(dst, id, code, &cnsVal);
             sz     = id->GetDescSize();
             break;
 
@@ -8093,11 +8095,11 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_RWR_RRD_MRD:
             assert(IsVexTernary(ins));
 
-            code = insCodeRM(ins);
+            code = GetCodeRM(ins);
             code = AddVexPrefix(ins, code, size);
             code = SetVexVvvv(id->idReg2(), size, code);
             code = SetRMReg(ins, id->idReg1(), size, code);
-            dst  = emitOutputCV(dst, id, code);
+            dst  = EncodeCV(dst, id, code);
             sz   = id->GetDescSize();
             break;
 
@@ -8105,12 +8107,12 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_RWR_RRD_MRD_RRD:
             assert(IsVexTernary(ins));
 
-            code   = insCodeRM(ins);
+            code   = GetCodeRM(ins);
             code   = AddVexPrefix(ins, code, size);
             code   = SetVexVvvv(id->idReg2(), size, code);
             code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
-            dst    = emitOutputCV(dst, id, code, &cnsVal);
+            dst    = EncodeCV(dst, id, code, &cnsVal);
             sz     = id->GetDescSize();
             break;
 
@@ -8127,10 +8129,10 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             case INS_pop_hide:
                 break;
             case INS_push:
-                emitStackPush(emitCurCodeOffs(dst), id->idGCref());
+                StackPush(GetCodeOffset(dst), id->idGCref());
                 break;
             case INS_pop:
-                emitStackPop(emitCurCodeOffs(dst), 1);
+                StackPop(GetCodeOffset(dst), 1);
                 break;
             case INS_add:
             case INS_sub:
@@ -8139,15 +8141,15 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                     size_t imm = static_cast<size_t>(id->GetImm());
                     assert(imm < UINT_MAX);
                     unsigned count    = static_cast<unsigned>(imm) / TARGET_POINTER_SIZE;
-                    unsigned codeOffs = emitCurCodeOffs(dst);
+                    unsigned codeOffs = GetCodeOffset(dst);
 
                     if (ins == INS_add)
                     {
-                        emitStackPop(codeOffs, count);
+                        StackPop(codeOffs, count);
                     }
                     else
                     {
-                        emitStackPushN(codeOffs, count);
+                        StackPushN(codeOffs, count);
                     }
                 }
                 break;
@@ -8170,9 +8172,9 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
     }
 
 #ifdef DEBUG
-    if ((emitComp->opts.disAsm || emitComp->verbose) && (*dp != dst))
+    if ((compiler->opts.disAsm || compiler->verbose) && (*dp != dst))
     {
-        PrintIns(id, *dp, dst - *dp);
+        PrintInstr(id, *dp, dst - *dp);
     }
 #endif
 
@@ -8183,7 +8185,7 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
 #if defined(DEBUG) || defined(LATE_DISASM)
 
-insFormat Encoder::getMemoryOperation(instrDesc* id)
+insFormat Encoder::GetPerfScoreMemoryOperation(instrDesc* id)
 {
     if (id->idIns() == INS_lea)
     {
@@ -8204,15 +8206,15 @@ insFormat Encoder::getMemoryOperation(instrDesc* id)
 //   1. Agner.org - https://www.agner.org/optimize/instruction_tables.pdf
 //   2. uops.info - https://uops.info/table.html
 //
-Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(instrDesc* id)
+Encoder::InstrPerfScore Encoder::GetInstrPerfScore(instrDesc* id)
 {
     instruction ins    = id->idIns();
     insFormat   insFmt = id->idInsFmt();
-    insFormat   memFmt = getMemoryOperation(id);
+    insFormat   memFmt = GetPerfScoreMemoryOperation(id);
 
-    insExecutionCharacteristics result;
-    result.insThroughput = PERFSCORE_THROUGHPUT_ILLEGAL;
-    result.insLatency    = PERFSCORE_LATENCY_ILLEGAL;
+    InstrPerfScore result;
+    result.throughput = PERFSCORE_THROUGHPUT_ILLEGAL;
+    result.latency    = PERFSCORE_LATENCY_ILLEGAL;
 
     PerfScoreMemoryKind memAccessKind;
 
@@ -8221,64 +8223,64 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
     {
         // Model a read from stack location, possible def to use latency from L0 cache
         case IF_SRD:
-            result.insLatency = PERFSCORE_LATENCY_RD_STACK;
-            memAccessKind     = PERFSCORE_MEMORY_READ;
+            result.latency = PERFSCORE_LATENCY_RD_STACK;
+            memAccessKind  = PERFSCORE_MEMORY_READ;
             break;
 
         case IF_SWR:
-            result.insLatency = PERFSCORE_LATENCY_WR_STACK;
-            memAccessKind     = PERFSCORE_MEMORY_WRITE;
+            result.latency = PERFSCORE_LATENCY_WR_STACK;
+            memAccessKind  = PERFSCORE_MEMORY_WRITE;
             break;
 
         case IF_SRW:
-            result.insLatency = PERFSCORE_LATENCY_RD_WR_STACK;
-            memAccessKind     = PERFSCORE_MEMORY_READ_WRITE;
+            result.latency = PERFSCORE_LATENCY_RD_WR_STACK;
+            memAccessKind  = PERFSCORE_MEMORY_READ_WRITE;
             break;
 
         // Model a read from a constant location, possible def to use latency from L0 cache
         case IF_MRD:
-            result.insLatency = PERFSCORE_LATENCY_RD_CONST_ADDR;
-            memAccessKind     = PERFSCORE_MEMORY_READ;
+            result.latency = PERFSCORE_LATENCY_RD_CONST_ADDR;
+            memAccessKind  = PERFSCORE_MEMORY_READ;
             break;
 
         case IF_MWR:
-            result.insLatency = PERFSCORE_LATENCY_WR_CONST_ADDR;
-            memAccessKind     = PERFSCORE_MEMORY_WRITE;
+            result.latency = PERFSCORE_LATENCY_WR_CONST_ADDR;
+            memAccessKind  = PERFSCORE_MEMORY_WRITE;
             break;
 
         case IF_MRW:
-            result.insLatency = PERFSCORE_LATENCY_RD_WR_CONST_ADDR;
-            memAccessKind     = PERFSCORE_MEMORY_READ_WRITE;
+            result.latency = PERFSCORE_LATENCY_RD_WR_CONST_ADDR;
+            memAccessKind  = PERFSCORE_MEMORY_READ_WRITE;
             break;
 
         // Model a read from memory location, possible def to use latency from L0 or L1 cache
         case IF_ARD:
-            result.insLatency = PERFSCORE_LATENCY_RD_GENERAL;
-            memAccessKind     = PERFSCORE_MEMORY_READ;
+            result.latency = PERFSCORE_LATENCY_RD_GENERAL;
+            memAccessKind  = PERFSCORE_MEMORY_READ;
             break;
 
         case IF_AWR:
-            result.insLatency = PERFSCORE_LATENCY_WR_GENERAL;
-            memAccessKind     = PERFSCORE_MEMORY_WRITE;
+            result.latency = PERFSCORE_LATENCY_WR_GENERAL;
+            memAccessKind  = PERFSCORE_MEMORY_WRITE;
             break;
 
         case IF_ARW:
-            result.insLatency = PERFSCORE_LATENCY_RD_WR_GENERAL;
-            memAccessKind     = PERFSCORE_MEMORY_READ_WRITE;
+            result.latency = PERFSCORE_LATENCY_RD_WR_GENERAL;
+            memAccessKind  = PERFSCORE_MEMORY_READ_WRITE;
             break;
 
         case IF_NONE:
-            result.insLatency = PERFSCORE_LATENCY_ZERO;
-            memAccessKind     = PERFSCORE_MEMORY_NONE;
+            result.latency = PERFSCORE_LATENCY_ZERO;
+            memAccessKind  = PERFSCORE_MEMORY_NONE;
             break;
 
         default:
             assert(!"Unhandled insFmt for switch (memFmt)");
-            result.insLatency = PERFSCORE_LATENCY_ZERO;
-            memAccessKind     = PERFSCORE_MEMORY_NONE;
+            result.latency = PERFSCORE_LATENCY_ZERO;
+            memAccessKind  = PERFSCORE_MEMORY_NONE;
             break;
     }
-    result.insMemoryAccessKind = memAccessKind;
+    result.memoryAccessKind = memAccessKind;
 
     switch (ins)
     {
@@ -8286,25 +8288,25 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
             if (id->idCodeSize() == 0)
             {
                 // We're not going to generate any instruction, so it doesn't count for PerfScore.
-                result.insThroughput = PERFSCORE_THROUGHPUT_ZERO;
-                result.insLatency    = PERFSCORE_LATENCY_ZERO;
+                result.throughput = PERFSCORE_THROUGHPUT_ZERO;
+                result.latency    = PERFSCORE_LATENCY_ZERO;
                 break;
             }
             FALLTHROUGH;
         case INS_nop:
         case INS_int3:
             assert(memFmt == IF_NONE);
-            result.insThroughput = PERFSCORE_THROUGHPUT_4X;
-            result.insLatency    = PERFSCORE_LATENCY_ZERO;
+            result.throughput = PERFSCORE_THROUGHPUT_4X;
+            result.latency    = PERFSCORE_LATENCY_ZERO;
             break;
 
         case INS_push:
         case INS_push_hide:
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
             if (insFmt == IF_RRD) // push  reg
             {
                 // For pushes (stack writes) we assume that the full latency will be covered
-                result.insLatency = PERFSCORE_LATENCY_ZERO;
+                result.latency = PERFSCORE_LATENCY_ZERO;
             }
             break;
 
@@ -8312,13 +8314,13 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_pop_hide:
             if (insFmt == IF_RWR) // pop   reg
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_2X;
+                result.throughput = PERFSCORE_THROUGHPUT_2X;
                 // For pops (stack reads) we assume that the full latency will be covered
-                result.insLatency = PERFSCORE_LATENCY_ZERO;
+                result.latency = PERFSCORE_LATENCY_ZERO;
             }
             else
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_1C;
+                result.throughput = PERFSCORE_THROUGHPUT_1C;
             }
             break;
 
@@ -8329,13 +8331,13 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
             if (memFmt == IF_NONE)
             {
                 // ins   reg
-                result.insThroughput = PERFSCORE_THROUGHPUT_4X;
-                result.insLatency    = PERFSCORE_LATENCY_1C;
+                result.throughput = PERFSCORE_THROUGHPUT_4X;
+                result.latency    = PERFSCORE_LATENCY_1C;
             }
             else
             {
                 // ins   mem
-                result.insThroughput = PERFSCORE_THROUGHPUT_1C;
+                result.throughput = PERFSCORE_THROUGHPUT_1C;
             }
             break;
 
@@ -8349,16 +8351,16 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_test:
             if (memFmt == IF_NONE)
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_4X;
+                result.throughput = PERFSCORE_THROUGHPUT_4X;
             }
             else if (memAccessKind == PERFSCORE_MEMORY_READ)
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_2X;
+                result.throughput = PERFSCORE_THROUGHPUT_2X;
             }
             else // writes
             {
                 assert(memAccessKind == PERFSCORE_MEMORY_WRITE);
-                result.insThroughput = PERFSCORE_THROUGHPUT_1C;
+                result.throughput = PERFSCORE_THROUGHPUT_1C;
             }
             break;
 
@@ -8369,25 +8371,25 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_and:
         case INS_or:
         case INS_xor:
-            result.insLatency = max(PERFSCORE_LATENCY_1C, result.insLatency);
+            result.latency = max(PERFSCORE_LATENCY_1C, result.latency);
             if (memFmt == IF_NONE)
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_4X;
+                result.throughput = PERFSCORE_THROUGHPUT_4X;
             }
             else if (memAccessKind == PERFSCORE_MEMORY_READ_WRITE)
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_1C;
+                result.throughput = PERFSCORE_THROUGHPUT_1C;
             }
             else
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_2X;
+                result.throughput = PERFSCORE_THROUGHPUT_2X;
             }
             break;
 
         case INS_lea:
             // uops.info
-            result.insThroughput = PERFSCORE_THROUGHPUT_2X; // one or two components
-            result.insLatency    = PERFSCORE_LATENCY_1C;
+            result.throughput = PERFSCORE_THROUGHPUT_2X; // one or two components
+            result.latency    = PERFSCORE_LATENCY_1C;
 
             if (insFmt == IF_RWR_LABEL)
             {
@@ -8395,7 +8397,7 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
                 //
                 // - throughput is only 1 per cycle
                 //
-                result.insThroughput = PERFSCORE_THROUGHPUT_1C;
+                result.throughput = PERFSCORE_THROUGHPUT_1C;
             }
             else if (insFmt == IF_RWR_ARD)
             {
@@ -8412,14 +8414,14 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
                             //
                             // - throughput is only 1 per cycle
                             //
-                            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
+                            result.throughput = PERFSCORE_THROUGHPUT_1C;
 
                             if (BaseRegRequiresDisp(baseReg) || id->idIsDspReloc())
                             {
                                 // Increased Latency for these cases
                                 //  - see https://reviews.llvm.org/D32277
                                 //
-                                result.insLatency = PERFSCORE_LATENCY_3C;
+                                result.latency = PERFSCORE_LATENCY_3C;
                             }
                         }
                     }
@@ -8430,30 +8432,30 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
 
         case INS_imul:
         case INS_imuli:
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-            result.insLatency += PERFSCORE_LATENCY_3C;
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
+            result.latency += PERFSCORE_LATENCY_3C;
             break;
 
         case INS_mulEAX:
         case INS_imulEAX:
             // uops.info: mul/imul rdx:rax,reg latency is 3 only if the low half of the result is needed, but in that
             // case codegen uses imul reg,reg instruction form (except for unsigned overflow checks, which are rare)
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-            result.insLatency += PERFSCORE_LATENCY_4C;
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
+            result.latency += PERFSCORE_LATENCY_4C;
             break;
 
         case INS_div:
             // The integer divide instructions have long latencies
             if ((id->idOpSize() == EA_8BYTE))
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_52C;
-                result.insLatency    = PERFSCORE_LATENCY_62C;
+                result.throughput = PERFSCORE_THROUGHPUT_52C;
+                result.latency    = PERFSCORE_LATENCY_62C;
             }
             else
             {
                 assert(id->idOpSize() == EA_4BYTE);
-                result.insThroughput = PERFSCORE_THROUGHPUT_6C;
-                result.insLatency    = PERFSCORE_LATENCY_26C;
+                result.throughput = PERFSCORE_THROUGHPUT_6C;
+                result.latency    = PERFSCORE_LATENCY_26C;
             }
             break;
 
@@ -8461,20 +8463,20 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
             // The integer divide instructions have long latenies
             if ((id->idOpSize() == EA_8BYTE))
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_57C;
-                result.insLatency    = PERFSCORE_LATENCY_69C;
+                result.throughput = PERFSCORE_THROUGHPUT_57C;
+                result.latency    = PERFSCORE_LATENCY_69C;
             }
             else
             {
                 assert(id->idOpSize() == EA_4BYTE);
-                result.insThroughput = PERFSCORE_THROUGHPUT_6C;
-                result.insLatency    = PERFSCORE_LATENCY_26C;
+                result.throughput = PERFSCORE_THROUGHPUT_6C;
+                result.latency    = PERFSCORE_LATENCY_26C;
             }
             break;
 
         case INS_cdq:
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-            result.insLatency    = PERFSCORE_LATENCY_1C;
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
+            result.latency    = PERFSCORE_LATENCY_1C;
             break;
 
         case INS_shl:
@@ -8486,35 +8488,35 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
             {
                 case IF_RRW_CNS:
                     // ins   reg, cns
-                    result.insThroughput = PERFSCORE_THROUGHPUT_2X;
-                    result.insLatency    = PERFSCORE_LATENCY_1C;
+                    result.throughput = PERFSCORE_THROUGHPUT_2X;
+                    result.latency    = PERFSCORE_LATENCY_1C;
                     break;
 
                 case IF_MRW_CNS:
                 case IF_SRW_CNS:
                 case IF_ARW_CNS:
                     // ins   [mem], cns
-                    result.insThroughput = PERFSCORE_THROUGHPUT_2C;
-                    result.insLatency += PERFSCORE_LATENCY_1C;
+                    result.throughput = PERFSCORE_THROUGHPUT_2C;
+                    result.latency += PERFSCORE_LATENCY_1C;
                     break;
 
                 case IF_RRW:
                     // ins   reg, cl
-                    result.insThroughput = PERFSCORE_THROUGHPUT_2C;
-                    result.insLatency    = PERFSCORE_LATENCY_2C;
+                    result.throughput = PERFSCORE_THROUGHPUT_2C;
+                    result.latency    = PERFSCORE_LATENCY_2C;
                     break;
 
                 case IF_MRW:
                 case IF_SRW:
                 case IF_ARW:
                     // ins   [mem], cl
-                    result.insThroughput = PERFSCORE_THROUGHPUT_4C;
-                    result.insLatency += PERFSCORE_LATENCY_2C;
+                    result.throughput = PERFSCORE_THROUGHPUT_4C;
+                    result.latency += PERFSCORE_LATENCY_2C;
                     break;
 
                 default:
                     // unhandled instruction insFmt combination
-                    perfScoreUnhandledInstruction(id, &result);
+                    PerfScoreUnhandledInstr(id, &result);
                     break;
             }
             break;
@@ -8522,32 +8524,32 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_shl_1:
         case INS_shr_1:
         case INS_sar_1:
-            result.insLatency += PERFSCORE_LATENCY_1C;
+            result.latency += PERFSCORE_LATENCY_1C;
             switch (insFmt)
             {
                 case IF_RRW:
                     // ins   reg, 1
-                    result.insThroughput = PERFSCORE_THROUGHPUT_2X;
+                    result.throughput = PERFSCORE_THROUGHPUT_2X;
                     break;
 
                 case IF_MRW:
                 case IF_SRW:
                 case IF_ARW:
                     // ins   [mem], 1
-                    result.insThroughput = PERFSCORE_THROUGHPUT_2C;
+                    result.throughput = PERFSCORE_THROUGHPUT_2C;
                     break;
 
                 default:
                     // unhandled instruction insFmt combination
-                    perfScoreUnhandledInstruction(id, &result);
+                    PerfScoreUnhandledInstr(id, &result);
                     break;
             }
             break;
 
         case INS_ror_1:
         case INS_rol_1:
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-            result.insLatency += PERFSCORE_LATENCY_1C;
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
+            result.latency += PERFSCORE_LATENCY_1C;
             break;
 
         case INS_shl_N:
@@ -8555,39 +8557,39 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_sar_N:
         case INS_ror_N:
         case INS_rol_N:
-            result.insLatency += PERFSCORE_LATENCY_1C;
+            result.latency += PERFSCORE_LATENCY_1C;
             switch (insFmt)
             {
                 case IF_RRW_CNS:
                     // ins   reg, cns
-                    result.insThroughput = PERFSCORE_THROUGHPUT_2X;
+                    result.throughput = PERFSCORE_THROUGHPUT_2X;
                     break;
 
                 case IF_MRW_CNS:
                 case IF_SRW_CNS:
                 case IF_ARW_CNS:
                     // ins   [mem], cns
-                    result.insThroughput = PERFSCORE_THROUGHPUT_2C;
+                    result.throughput = PERFSCORE_THROUGHPUT_2C;
                     break;
 
                 default:
                     // unhandled instruction insFmt combination
-                    perfScoreUnhandledInstruction(id, &result);
+                    PerfScoreUnhandledInstr(id, &result);
                     break;
             }
             break;
 
         case INS_rcr:
         case INS_rcl:
-            result.insThroughput = PERFSCORE_THROUGHPUT_6C;
-            result.insLatency += PERFSCORE_LATENCY_6C;
+            result.throughput = PERFSCORE_THROUGHPUT_6C;
+            result.latency += PERFSCORE_LATENCY_6C;
             break;
 
         case INS_rcr_1:
         case INS_rcl_1:
             // uops.info
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-            result.insLatency += PERFSCORE_LATENCY_2C;
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
+            result.latency += PERFSCORE_LATENCY_2C;
             break;
 
         case INS_shld:
@@ -8595,25 +8597,25 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
             if (insFmt == IF_RRW_RRD_CNS)
             {
                 // ins   reg, reg, cns
-                result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-                result.insLatency    = PERFSCORE_LATENCY_3C;
+                result.throughput = PERFSCORE_THROUGHPUT_1C;
+                result.latency    = PERFSCORE_LATENCY_3C;
             }
             else
             {
                 assert(memAccessKind == PERFSCORE_MEMORY_WRITE); // _SHF form never emitted
-                result.insThroughput = PERFSCORE_THROUGHPUT_2C;
+                result.throughput = PERFSCORE_THROUGHPUT_2C;
             }
             break;
 
         case INS_bt:
             if ((insFmt == IF_RRD_RRD) || (insFmt == IF_RRD_CNS))
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_2X;
-                result.insLatency    = PERFSCORE_LATENCY_1C;
+                result.throughput = PERFSCORE_THROUGHPUT_2X;
+                result.latency    = PERFSCORE_LATENCY_1C;
             }
             else
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_1C;
+                result.throughput = PERFSCORE_THROUGHPUT_1C;
             }
             break;
 
@@ -8633,14 +8635,14 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_setge:
         case INS_setle:
         case INS_setg:
-            result.insLatency = PERFSCORE_LATENCY_1C;
+            result.latency = PERFSCORE_LATENCY_1C;
             if (insFmt == IF_RRD)
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_2X;
+                result.throughput = PERFSCORE_THROUGHPUT_2X;
             }
             else
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_1C;
+                result.throughput = PERFSCORE_THROUGHPUT_1C;
             }
             break;
 
@@ -8661,15 +8663,15 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_jle:
         case INS_jg:
             // conditional branch
-            result.insThroughput = PERFSCORE_THROUGHPUT_2X;
-            result.insLatency    = PERFSCORE_LATENCY_BRANCH_COND;
+            result.throughput = PERFSCORE_THROUGHPUT_2X;
+            result.latency    = PERFSCORE_LATENCY_BRANCH_COND;
             break;
 
         case INS_jmp:
         case INS_l_jmp:
             // branch to a constant address
-            result.insThroughput = PERFSCORE_THROUGHPUT_2C;
-            result.insLatency    = PERFSCORE_LATENCY_BRANCH_DIRECT;
+            result.throughput = PERFSCORE_THROUGHPUT_2C;
+            result.latency    = PERFSCORE_LATENCY_BRANCH_DIRECT;
             break;
 
 #ifdef TARGET_AMD64
@@ -8677,39 +8679,39 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
 #endif // TARGET_AMD64
         case INS_i_jmp:
             // branch to register
-            result.insThroughput = PERFSCORE_THROUGHPUT_2C;
-            result.insLatency    = PERFSCORE_LATENCY_BRANCH_INDIRECT;
+            result.throughput = PERFSCORE_THROUGHPUT_2C;
+            result.latency    = PERFSCORE_LATENCY_BRANCH_INDIRECT;
             break;
 
         case INS_call:
             // uops.info
-            result.insLatency = PERFSCORE_LATENCY_ZERO;
+            result.latency = PERFSCORE_LATENCY_ZERO;
             switch (insFmt)
             {
                 case IF_LABEL:
-                    result.insThroughput = PERFSCORE_THROUGHPUT_1C;
+                    result.throughput = PERFSCORE_THROUGHPUT_1C;
                     break;
 
                 case IF_METHOD:
-                    result.insThroughput = PERFSCORE_THROUGHPUT_1C;
+                    result.throughput = PERFSCORE_THROUGHPUT_1C;
                     break;
 
                 case IF_METHPTR:
-                    result.insThroughput = PERFSCORE_THROUGHPUT_3C;
+                    result.throughput = PERFSCORE_THROUGHPUT_3C;
                     break;
 
                 case IF_SRD:
-                    result.insThroughput = PERFSCORE_THROUGHPUT_3C;
+                    result.throughput = PERFSCORE_THROUGHPUT_3C;
                     break;
 
                 case IF_ARD:
                 case IF_RRD:
-                    result.insThroughput = PERFSCORE_THROUGHPUT_3C;
+                    result.throughput = PERFSCORE_THROUGHPUT_3C;
                     break;
 
                 default:
                     // unhandled instruction, insFmt combination
-                    perfScoreUnhandledInstruction(id, &result);
+                    PerfScoreUnhandledInstr(id, &result);
                     break;
             }
             break;
@@ -8717,48 +8719,48 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_ret:
             if (insFmt == IF_CNS)
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_2C;
+                result.throughput = PERFSCORE_THROUGHPUT_2C;
             }
             else
             {
                 assert(insFmt == IF_NONE);
-                result.insThroughput = PERFSCORE_THROUGHPUT_1C;
+                result.throughput = PERFSCORE_THROUGHPUT_1C;
             }
             break;
 
         case INS_lock:
-            result.insThroughput = PERFSCORE_THROUGHPUT_13C;
+            result.throughput = PERFSCORE_THROUGHPUT_13C;
             break;
 
         case INS_xadd:
             // uops.info
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
             break;
 
         case INS_cmpxchg:
-            result.insThroughput = PERFSCORE_THROUGHPUT_5C;
+            result.throughput = PERFSCORE_THROUGHPUT_5C;
             break;
 
         case INS_xchg:
             // uops.info
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
             if (memFmt == IF_NONE)
             {
-                result.insLatency = PERFSCORE_LATENCY_1C;
+                result.latency = PERFSCORE_LATENCY_1C;
             }
             else
             {
-                result.insLatency = PERFSCORE_LATENCY_23C;
+                result.latency = PERFSCORE_LATENCY_23C;
             }
             break;
 
 #ifdef TARGET_X86
         case INS_fld:
         case INS_fstp:
-            result.insThroughput = PERFSCORE_THROUGHPUT_2X;
+            result.throughput = PERFSCORE_THROUGHPUT_2X;
             if (memAccessKind == PERFSCORE_MEMORY_NONE)
             {
-                result.insLatency = PERFSCORE_LATENCY_1C;
+                result.latency = PERFSCORE_LATENCY_1C;
             }
             break;
 #endif // TARGET_X86
@@ -8766,35 +8768,35 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_movs:
         case INS_stos:
             // uops.info
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
             break;
 
         case INS_rep_movs:
         case INS_rep_stos:
             // Actually variable sized: rep stosd, used to zero frame slots
             // uops.info
-            result.insThroughput = PERFSCORE_THROUGHPUT_25C;
+            result.throughput = PERFSCORE_THROUGHPUT_25C;
             break;
 
         case INS_movd:
             if (memAccessKind == PERFSCORE_MEMORY_NONE)
             {
                 // movd   r32, xmm   or  xmm, r32
-                result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-                result.insLatency    = PERFSCORE_LATENCY_3C;
+                result.throughput = PERFSCORE_THROUGHPUT_1C;
+                result.latency    = PERFSCORE_LATENCY_3C;
             }
             else if (memAccessKind == PERFSCORE_MEMORY_READ)
             {
                 // movd   xmm, m32
-                result.insThroughput = PERFSCORE_THROUGHPUT_2X;
-                // insLatency is set above (see -  Model the memory latency)
+                result.throughput = PERFSCORE_THROUGHPUT_2X;
+                // latency is set above (see -  Model the memory latency)
             }
             else
             {
                 // movd   m32, xmm
                 assert(memAccessKind == PERFSCORE_MEMORY_WRITE);
-                result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-                // insLatency is set above (see -  Model the memory latency)
+                result.throughput = PERFSCORE_THROUGHPUT_1C;
+                // latency is set above (see -  Model the memory latency)
             }
             break;
 
@@ -8802,21 +8804,21 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
             if (memAccessKind == PERFSCORE_MEMORY_NONE)
             {
                 // movq   reg, reg
-                result.insThroughput = PERFSCORE_THROUGHPUT_3X;
-                result.insLatency    = PERFSCORE_LATENCY_1C;
+                result.throughput = PERFSCORE_THROUGHPUT_3X;
+                result.latency    = PERFSCORE_LATENCY_1C;
             }
             else if (memAccessKind == PERFSCORE_MEMORY_READ)
             {
                 // movq   reg, mem
-                result.insThroughput = PERFSCORE_THROUGHPUT_2X;
-                // insLatency is set above (see -  Model the memory latency)
+                result.throughput = PERFSCORE_THROUGHPUT_2X;
+                // latency is set above (see -  Model the memory latency)
             }
             else
             {
                 // movq   mem, reg
                 assert(memAccessKind == PERFSCORE_MEMORY_WRITE);
-                result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-                // insLatency is set above (see -  Model the memory latency)
+                result.throughput = PERFSCORE_THROUGHPUT_1C;
+                // latency is set above (see -  Model the memory latency)
             }
             break;
 
@@ -8825,21 +8827,21 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
             if (memAccessKind == PERFSCORE_MEMORY_NONE)
             {
                 // ins   reg, reg
-                result.insThroughput = PERFSCORE_THROUGHPUT_4X;
-                result.insLatency    = PERFSCORE_LATENCY_ZERO;
+                result.throughput = PERFSCORE_THROUGHPUT_4X;
+                result.latency    = PERFSCORE_LATENCY_ZERO;
             }
             else if (memAccessKind == PERFSCORE_MEMORY_READ)
             {
                 // ins   reg, mem
-                result.insThroughput = PERFSCORE_THROUGHPUT_2X;
-                // insLatency is set above (see -  Model the memory latency)
+                result.throughput = PERFSCORE_THROUGHPUT_2X;
+                // latency is set above (see -  Model the memory latency)
             }
             else
             {
                 // ins   mem, reg
                 assert(memAccessKind == PERFSCORE_MEMORY_WRITE);
-                result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-                // insLatency is set above (see -  Model the memory latency)
+                result.throughput = PERFSCORE_THROUGHPUT_1C;
+                // latency is set above (see -  Model the memory latency)
             }
             break;
 
@@ -8847,22 +8849,22 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_movhpd:
         case INS_movlps:
         case INS_movlpd:
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
             if (memAccessKind == PERFSCORE_MEMORY_READ)
             {
-                result.insLatency = max(PERFSCORE_LATENCY_4C, result.insLatency);
+                result.latency = max(PERFSCORE_LATENCY_4C, result.latency);
             }
             else
             {
                 assert(memAccessKind == PERFSCORE_MEMORY_WRITE);
-                result.insLatency = max(PERFSCORE_LATENCY_3C, result.insLatency);
+                result.latency = max(PERFSCORE_LATENCY_3C, result.latency);
             }
             break;
 
         case INS_movhlps:
         case INS_movlhps:
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-            result.insLatency    = PERFSCORE_LATENCY_1C;
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
+            result.latency    = PERFSCORE_LATENCY_1C;
             break;
 
         case INS_movntdq:
@@ -8870,24 +8872,24 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_movntps:
         case INS_movntpd:
             assert(memAccessKind == PERFSCORE_MEMORY_WRITE);
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-            result.insLatency    = PERFSCORE_LATENCY_400C; // Intel microcode issue with these instuctions
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
+            result.latency    = PERFSCORE_LATENCY_400C; // Intel microcode issue with these instuctions
             break;
 
         case INS_maskmovdqu:
-            result.insThroughput = PERFSCORE_THROUGHPUT_6C;
-            result.insLatency    = PERFSCORE_LATENCY_400C; // Intel microcode issue with these instuctions
+            result.throughput = PERFSCORE_THROUGHPUT_6C;
+            result.latency    = PERFSCORE_LATENCY_400C; // Intel microcode issue with these instuctions
             break;
 
         case INS_movntdqa:
             assert(memAccessKind == PERFSCORE_MEMORY_READ);
-            result.insThroughput = PERFSCORE_THROUGHPUT_2X;
-            result.insLatency    = PERFSCORE_LATENCY_3C;
+            result.throughput = PERFSCORE_THROUGHPUT_2X;
+            result.latency    = PERFSCORE_LATENCY_3C;
             break;
 
         case INS_vzeroupper:
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-            // insLatency is zero and is set when we Model the memory latency
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
+            // latency is zero and is set when we Model the memory latency
             break;
 
         case INS_movss:
@@ -8895,27 +8897,27 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_movddup:
             if (memAccessKind == PERFSCORE_MEMORY_NONE)
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-                result.insLatency    = PERFSCORE_LATENCY_1C;
+                result.throughput = PERFSCORE_THROUGHPUT_1C;
+                result.latency    = PERFSCORE_LATENCY_1C;
             }
             else
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_2X;
-                result.insLatency    = max(PERFSCORE_LATENCY_3C, result.insLatency);
+                result.throughput = PERFSCORE_THROUGHPUT_2X;
+                result.latency    = max(PERFSCORE_LATENCY_3C, result.latency);
             }
             break;
 
         case INS_lddqu:
-            result.insThroughput = PERFSCORE_THROUGHPUT_2X;
-            result.insLatency    = max(PERFSCORE_LATENCY_3C, result.insLatency);
+            result.throughput = PERFSCORE_THROUGHPUT_2X;
+            result.latency    = max(PERFSCORE_LATENCY_3C, result.latency);
             break;
 
         case INS_comiss:
         case INS_comisd:
         case INS_ucomiss:
         case INS_ucomisd:
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-            result.insLatency    = max(PERFSCORE_LATENCY_2C, result.insLatency);
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
+            result.latency    = max(PERFSCORE_LATENCY_2C, result.latency);
             break;
 
         case INS_addsd:
@@ -8929,81 +8931,81 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_cvttps2dq:
         case INS_cvtps2dq:
         case INS_cvtdq2ps:
-            result.insThroughput = PERFSCORE_THROUGHPUT_2X;
-            result.insLatency += PERFSCORE_LATENCY_4C;
+            result.throughput = PERFSCORE_THROUGHPUT_2X;
+            result.latency += PERFSCORE_LATENCY_4C;
             break;
 
         case INS_haddps:
         case INS_haddpd:
-            result.insThroughput = PERFSCORE_THROUGHPUT_2C;
-            result.insLatency += PERFSCORE_LATENCY_6C;
+            result.throughput = PERFSCORE_THROUGHPUT_2C;
+            result.latency += PERFSCORE_LATENCY_6C;
             break;
 
         case INS_mulss:
         case INS_mulsd:
         case INS_mulps:
         case INS_mulpd:
-            result.insThroughput = PERFSCORE_THROUGHPUT_2X;
-            result.insLatency += PERFSCORE_LATENCY_4C;
+            result.throughput = PERFSCORE_THROUGHPUT_2X;
+            result.latency += PERFSCORE_LATENCY_4C;
             break;
 
         case INS_divss:
         case INS_divps:
-            result.insThroughput = PERFSCORE_THROUGHPUT_3C;
-            result.insLatency += PERFSCORE_LATENCY_11C;
+            result.throughput = PERFSCORE_THROUGHPUT_3C;
+            result.latency += PERFSCORE_LATENCY_11C;
             break;
 
         case INS_divsd:
         case INS_divpd:
-            result.insThroughput = PERFSCORE_THROUGHPUT_4C;
-            result.insLatency += PERFSCORE_LATENCY_13C;
+            result.throughput = PERFSCORE_THROUGHPUT_4C;
+            result.latency += PERFSCORE_LATENCY_13C;
             break;
 
         case INS_sqrtss:
         case INS_sqrtps:
-            result.insThroughput = PERFSCORE_THROUGHPUT_3C;
-            result.insLatency += PERFSCORE_LATENCY_12C;
+            result.throughput = PERFSCORE_THROUGHPUT_3C;
+            result.latency += PERFSCORE_LATENCY_12C;
             break;
 
         case INS_sqrtsd:
         case INS_sqrtpd:
-            result.insThroughput = PERFSCORE_THROUGHPUT_4C;
-            result.insLatency += PERFSCORE_LATENCY_13C;
+            result.throughput = PERFSCORE_THROUGHPUT_4C;
+            result.latency += PERFSCORE_LATENCY_13C;
             break;
 
         case INS_rcpps:
         case INS_rcpss:
         case INS_rsqrtss:
         case INS_rsqrtps:
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-            result.insLatency += PERFSCORE_LATENCY_4C;
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
+            result.latency += PERFSCORE_LATENCY_4C;
             break;
 
         case INS_roundpd:
         case INS_roundps:
         case INS_roundsd:
         case INS_roundss:
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-            result.insLatency += PERFSCORE_LATENCY_8C;
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
+            result.latency += PERFSCORE_LATENCY_8C;
             break;
 
         case INS_cvttsd2si:
         case INS_cvtsd2si:
         case INS_cvttss2si:
         case INS_cvtss2si:
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-            result.insLatency += PERFSCORE_LATENCY_6C;
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
+            result.latency += PERFSCORE_LATENCY_6C;
             break;
 
         case INS_cvtsi2sd:
         case INS_cvtsi2ss:
-            result.insThroughput = PERFSCORE_THROUGHPUT_2C;
-            result.insLatency += PERFSCORE_LATENCY_6C;
+            result.throughput = PERFSCORE_THROUGHPUT_2C;
+            result.latency += PERFSCORE_LATENCY_6C;
             break;
 
         case INS_cvtss2sd:
-            result.insThroughput = PERFSCORE_THROUGHPUT_2C;
-            result.insLatency += PERFSCORE_LATENCY_5C;
+            result.throughput = PERFSCORE_THROUGHPUT_2C;
+            result.latency += PERFSCORE_LATENCY_5C;
             break;
 
         case INS_movaps:
@@ -9012,19 +9014,19 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_movupd:
             if (memAccessKind == PERFSCORE_MEMORY_NONE)
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_4X;
-                result.insLatency    = PERFSCORE_LATENCY_1C;
+                result.throughput = PERFSCORE_THROUGHPUT_4X;
+                result.latency    = PERFSCORE_LATENCY_1C;
             }
             else if (memAccessKind == PERFSCORE_MEMORY_READ)
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_2X;
-                result.insLatency += PERFSCORE_LATENCY_2C;
+                result.throughput = PERFSCORE_THROUGHPUT_2X;
+                result.latency += PERFSCORE_LATENCY_2C;
             }
             else
             {
                 assert(memAccessKind == PERFSCORE_MEMORY_WRITE);
-                result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-                result.insLatency += PERFSCORE_LATENCY_3C;
+                result.throughput = PERFSCORE_THROUGHPUT_1C;
+                result.latency += PERFSCORE_LATENCY_3C;
             }
             break;
 
@@ -9059,14 +9061,14 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_blendps:
         case INS_blendpd:
         case INS_vpblendd:
-            result.insLatency += PERFSCORE_LATENCY_1C;
+            result.latency += PERFSCORE_LATENCY_1C;
             if (memAccessKind == PERFSCORE_MEMORY_NONE)
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_3X;
+                result.throughput = PERFSCORE_THROUGHPUT_3X;
             }
             else
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_2X;
+                result.throughput = PERFSCORE_THROUGHPUT_2X;
             }
             break;
 
@@ -9106,8 +9108,8 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_vpsllvq:
         case INS_vpsrlvd:
         case INS_vpsrlvq:
-            result.insThroughput = PERFSCORE_THROUGHPUT_2X;
-            result.insLatency += PERFSCORE_LATENCY_1C;
+            result.throughput = PERFSCORE_THROUGHPUT_2X;
+            result.latency += PERFSCORE_LATENCY_1C;
             break;
 
         case INS_pslldq:
@@ -9120,14 +9122,14 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_psrldq:
         case INS_psrad:
         case INS_psraw:
-            result.insLatency += PERFSCORE_LATENCY_1C;
+            result.latency += PERFSCORE_LATENCY_1C;
             if (memAccessKind == PERFSCORE_MEMORY_NONE)
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_1C;
+                result.throughput = PERFSCORE_THROUGHPUT_1C;
             }
             else
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_2X;
+                result.throughput = PERFSCORE_THROUGHPUT_2X;
             }
             break;
 
@@ -9136,14 +9138,14 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_blsr:
         case INS_bextr:
         case INS_bzhi:
-            result.insLatency += PERFSCORE_LATENCY_2C;
+            result.latency += PERFSCORE_LATENCY_2C;
             if (memAccessKind == PERFSCORE_MEMORY_NONE)
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_2X;
+                result.throughput = PERFSCORE_THROUGHPUT_2X;
             }
             else
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_1C;
+                result.throughput = PERFSCORE_THROUGHPUT_1C;
             }
             break;
 
@@ -9178,39 +9180,39 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_vpermilpd:
         case INS_vpermilpsvar:
         case INS_vpermilpdvar:
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-            result.insLatency += PERFSCORE_LATENCY_1C;
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
+            result.latency += PERFSCORE_LATENCY_1C;
             break;
 
         case INS_vblendvps:
         case INS_vblendvpd:
         case INS_vpblendvb:
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
             if (memAccessKind == PERFSCORE_MEMORY_NONE)
             {
-                result.insLatency = PERFSCORE_LATENCY_2C;
+                result.latency = PERFSCORE_LATENCY_2C;
             }
             break;
 
         case INS_bswap:
             if ((id->idOpSize() == EA_8BYTE))
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-                result.insLatency    = PERFSCORE_LATENCY_2C;
+                result.throughput = PERFSCORE_THROUGHPUT_1C;
+                result.latency    = PERFSCORE_LATENCY_2C;
             }
             else
             {
                 assert(id->idOpSize() == EA_4BYTE);
-                result.insThroughput = PERFSCORE_THROUGHPUT_2X;
-                result.insLatency    = PERFSCORE_LATENCY_1C;
+                result.throughput = PERFSCORE_THROUGHPUT_2X;
+                result.latency    = PERFSCORE_LATENCY_1C;
             }
             break;
 
         case INS_pmovmskb:
         case INS_movmskpd:
         case INS_movmskps:
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-            result.insLatency += PERFSCORE_LATENCY_2C;
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
+            result.latency += PERFSCORE_LATENCY_2C;
             break;
 
         case INS_bsf:
@@ -9249,8 +9251,8 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_pmovzxwd:
         case INS_pmovzxwq:
         case INS_pmovzxdq:
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-            result.insLatency += PERFSCORE_LATENCY_3C;
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
+            result.latency += PERFSCORE_LATENCY_3C;
             break;
 
         case INS_phaddw:
@@ -9259,16 +9261,16 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_phsubw:
         case INS_phsubsw:
         case INS_phsubd:
-            result.insThroughput = PERFSCORE_THROUGHPUT_2C;
-            result.insLatency += PERFSCORE_LATENCY_3C;
+            result.throughput = PERFSCORE_THROUGHPUT_2C;
+            result.latency += PERFSCORE_LATENCY_3C;
             break;
 
         case INS_cmpps:
         case INS_cmppd:
         case INS_cmpss:
         case INS_cmpsd:
-            result.insThroughput = PERFSCORE_THROUGHPUT_2X;
-            result.insLatency    = PERFSCORE_LATENCY_4C;
+            result.throughput = PERFSCORE_THROUGHPUT_2X;
+            result.latency    = PERFSCORE_LATENCY_4C;
             break;
 
         case INS_mulx:
@@ -9287,13 +9289,13 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_vextracti128:
         case INS_vinsertf128:
         case INS_vinserti128:
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-            result.insLatency += PERFSCORE_LATENCY_4C;
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
+            result.latency += PERFSCORE_LATENCY_4C;
             break;
 
         case INS_mpsadbw:
-            result.insThroughput = PERFSCORE_THROUGHPUT_2C;
-            result.insLatency += PERFSCORE_LATENCY_4C;
+            result.throughput = PERFSCORE_THROUGHPUT_2C;
+            result.latency += PERFSCORE_LATENCY_4C;
             break;
 
         case INS_pmullw:
@@ -9304,8 +9306,8 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_pmuludq:
         case INS_pmaddwd:
         case INS_pmaddubsw:
-            result.insThroughput = PERFSCORE_THROUGHPUT_2X;
-            result.insLatency += PERFSCORE_LATENCY_5C;
+            result.throughput = PERFSCORE_THROUGHPUT_2X;
+            result.latency += PERFSCORE_LATENCY_5C;
             break;
 
         case INS_cvtsd2ss:
@@ -9316,37 +9318,37 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_cvttpd2dq:
         case INS_vtestps:
         case INS_vtestpd:
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-            result.insLatency += PERFSCORE_LATENCY_5C;
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
+            result.latency += PERFSCORE_LATENCY_5C;
             break;
 
         case INS_hsubps:
         case INS_hsubpd:
-            result.insThroughput = PERFSCORE_THROUGHPUT_2C;
-            result.insLatency += PERFSCORE_LATENCY_6C;
+            result.throughput = PERFSCORE_THROUGHPUT_2C;
+            result.latency += PERFSCORE_LATENCY_6C;
             break;
 
         case INS_pclmulqdq:
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-            result.insLatency += PERFSCORE_LATENCY_7C;
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
+            result.latency += PERFSCORE_LATENCY_7C;
             break;
 
         case INS_pmulld:
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-            result.insLatency += PERFSCORE_LATENCY_10C;
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
+            result.latency += PERFSCORE_LATENCY_10C;
             break;
 
         case INS_vpbroadcastb:
         case INS_vpbroadcastw:
             if (memAccessKind == PERFSCORE_MEMORY_NONE)
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-                result.insLatency    = PERFSCORE_LATENCY_1C;
+                result.throughput = PERFSCORE_THROUGHPUT_1C;
+                result.latency    = PERFSCORE_LATENCY_1C;
             }
             else
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-                result.insLatency    = max(PERFSCORE_LATENCY_3C, result.insLatency);
+                result.throughput = PERFSCORE_THROUGHPUT_1C;
+                result.latency    = max(PERFSCORE_LATENCY_3C, result.latency);
             }
             break;
 
@@ -9356,14 +9358,14 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_vbroadcastf128:
         case INS_vbroadcastss:
         case INS_vbroadcastsd:
-            result.insLatency += PERFSCORE_LATENCY_3C;
+            result.latency += PERFSCORE_LATENCY_3C;
             if (memAccessKind == PERFSCORE_MEMORY_NONE)
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_1C;
+                result.throughput = PERFSCORE_THROUGHPUT_1C;
             }
             else
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_2X;
+                result.throughput = PERFSCORE_THROUGHPUT_2X;
             }
             break;
 
@@ -9373,23 +9375,23 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_pinsrq:
             if (memAccessKind == PERFSCORE_MEMORY_NONE)
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_2C;
-                result.insLatency    = PERFSCORE_LATENCY_3C;
+                result.throughput = PERFSCORE_THROUGHPUT_2C;
+                result.latency    = PERFSCORE_LATENCY_3C;
             }
             else
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_1C;
+                result.throughput = PERFSCORE_THROUGHPUT_1C;
             }
             break;
 
         case INS_dppd:
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-            result.insLatency    = PERFSCORE_LATENCY_9C;
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
+            result.latency    = PERFSCORE_LATENCY_9C;
             break;
 
         case INS_dpps:
-            result.insThroughput = PERFSCORE_THROUGHPUT_2C;
-            result.insLatency    = PERFSCORE_LATENCY_13C;
+            result.throughput = PERFSCORE_THROUGHPUT_2C;
+            result.latency    = PERFSCORE_LATENCY_13C;
             break;
 
         case INS_vfmadd132pd:
@@ -9457,8 +9459,8 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_vpdpbusds: // will be populated when the HW becomes publicly available
         case INS_vpdpwssds: // will be populated when the HW becomes publicly available
             // uops.info
-            result.insThroughput = PERFSCORE_THROUGHPUT_2X;
-            result.insLatency += PERFSCORE_LATENCY_4C;
+            result.throughput = PERFSCORE_THROUGHPUT_2X;
+            result.latency += PERFSCORE_LATENCY_4C;
             break;
 
         case INS_vmaskmovpd:
@@ -9466,21 +9468,21 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
 
             if (memAccessKind == PERFSCORE_MEMORY_READ)
             {
-                result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-                result.insLatency += PERFSCORE_LATENCY_1C;
+                result.throughput = PERFSCORE_THROUGHPUT_1C;
+                result.latency += PERFSCORE_LATENCY_1C;
             }
             else
             {
                 assert(memAccessKind == PERFSCORE_MEMORY_WRITE);
-                result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-                result.insLatency    = max(PERFSCORE_LATENCY_10C, result.insLatency);
+                result.throughput = PERFSCORE_THROUGHPUT_1C;
+                result.latency    = max(PERFSCORE_LATENCY_10C, result.latency);
             }
             break;
 
         case INS_vpmaskmovd:
         case INS_vpmaskmovq:
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-            result.insLatency    = max(PERFSCORE_LATENCY_4C, result.insLatency);
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
+            result.latency    = max(PERFSCORE_LATENCY_4C, result.latency);
             break;
 
         case INS_vpgatherdd:
@@ -9491,52 +9493,52 @@ Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(ins
         case INS_vgatherdpd:
         case INS_vgatherqps:
         case INS_vgatherqpd:
-            result.insThroughput = PERFSCORE_THROUGHPUT_4C;
-            result.insLatency    = max(PERFSCORE_LATENCY_4C, result.insLatency);
+            result.throughput = PERFSCORE_THROUGHPUT_4C;
+            result.latency    = max(PERFSCORE_LATENCY_4C, result.latency);
             break;
 
         case INS_aesdec:
         case INS_aesdeclast:
         case INS_aesenc:
         case INS_aesenclast:
-            result.insThroughput = PERFSCORE_THROUGHPUT_1C;
+            result.throughput = PERFSCORE_THROUGHPUT_1C;
             if (memAccessKind == PERFSCORE_MEMORY_NONE)
             {
-                result.insLatency = PERFSCORE_LATENCY_4C;
+                result.latency = PERFSCORE_LATENCY_4C;
             }
             break;
 
         case INS_aesimc:
-            result.insThroughput = PERFSCORE_THROUGHPUT_2C;
-            result.insLatency += PERFSCORE_LATENCY_8C;
+            result.throughput = PERFSCORE_THROUGHPUT_2C;
+            result.latency += PERFSCORE_LATENCY_8C;
             break;
 
         case INS_aeskeygenassist:
-            result.insThroughput = PERFSCORE_THROUGHPUT_13C;
-            result.insLatency += PERFSCORE_LATENCY_7C;
+            result.throughput = PERFSCORE_THROUGHPUT_13C;
+            result.latency += PERFSCORE_LATENCY_7C;
             break;
 
         case INS_lfence:
-            result.insThroughput = PERFSCORE_THROUGHPUT_4C;
+            result.throughput = PERFSCORE_THROUGHPUT_4C;
             break;
 
         case INS_sfence:
-            result.insThroughput = PERFSCORE_THROUGHPUT_6C;
+            result.throughput = PERFSCORE_THROUGHPUT_6C;
             break;
 
         case INS_mfence:
-            result.insThroughput = PERFSCORE_THROUGHPUT_33C;
+            result.throughput = PERFSCORE_THROUGHPUT_33C;
             break;
 
         case INS_prefetcht0:
         case INS_prefetcht1:
         case INS_prefetcht2:
         case INS_prefetchnta:
-            result.insThroughput = PERFSCORE_THROUGHPUT_2X;
+            result.throughput = PERFSCORE_THROUGHPUT_2X;
             break;
 
         default:
-            perfScoreUnhandledInstruction(id, &result);
+            PerfScoreUnhandledInstr(id, &result);
             break;
     }
 

@@ -54,7 +54,7 @@ size_t instrDescSmall::GetDescSize() const
     return sizeof(instrDesc);
 }
 
-int32_t instrDesc::emitGetInsSC() const
+int32_t instrDesc::GetImm() const
 {
     return _idLargeCns ? static_cast<const instrDescCns*>(this)->idcCnsVal : _idSmallCns;
 }
@@ -135,7 +135,7 @@ static bool insOptAnyShift(insOpts opt)
 static bool isModImmConst(int val32);
 static int insUnscaleImm(instruction ins, int imm);
 
-void EmitterBase::emitInsSanityCheck(instrDesc* id)
+void EmitterBase::VerifyInstr(instrDesc* id)
 {
     switch (id->idInsFmt())
     {
@@ -154,13 +154,13 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
 
         case IF_T1_B: // ........cccc....                                           cond
         case IF_T2_B: // ................ ............iiii                          imm4
-            assert(id->emitGetInsSC() < 0x10);
+            assert(id->GetImm() < 0x10);
             break;
 
         case IF_T1_C: // .....iiiiinnnddd                       R1  R2              imm5
             assert(IsLowRegister(id->idReg1()));
             assert(IsLowRegister(id->idReg2()));
-            assert(insUnscaleImm(id->idIns(), id->emitGetInsSC()) < 0x20);
+            assert(insUnscaleImm(id->idIns(), id->GetImm()) < 0x20);
             break;
 
         case IF_T1_D0: // ........Dmmmmddd                       R1* R2*
@@ -185,7 +185,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
         case IF_T1_F: // .........iiiiiii                       SP                  imm7
             assert(id->idReg1() == REG_SP);
             assert(id->idOpSize() == EA_4BYTE);
-            assert((id->emitGetInsSC() & ~0x1FC) == 0);
+            assert((id->GetImm() & ~0x1FC) == 0);
             break;
 
         case IF_T1_G: // .......iiinnnddd                       R1  R2              imm3
@@ -206,34 +206,34 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
 
         case IF_T1_J0: // .....dddiiiiiiii                       R1                  imm8
             assert(IsLowRegister(id->idReg1()));
-            assert(id->emitGetInsSC() < 0x100);
+            assert(id->GetImm() < 0x100);
             break;
 
         case IF_T1_J1: // .....dddiiiiiiii                       R1                  <regmask8>
             assert(IsLowRegister(id->idReg1()));
-            assert(id->emitGetInsSC() < 0x100);
+            assert(id->GetImm() < 0x100);
             break;
 
         case IF_T1_J2: // .....dddiiiiiiii                       R1  SP              imm8
             assert(IsLowRegister(id->idReg1()));
             assert(id->idReg2() == REG_SP);
             assert(id->idOpSize() == EA_4BYTE);
-            assert((id->emitGetInsSC() & ~0x3FC) == 0);
+            assert((id->GetImm() & ~0x3FC) == 0);
             break;
 
         case IF_T1_L0: // ........iiiiiiii                                           imm8
-            assert(id->emitGetInsSC() < 0x100);
+            assert(id->GetImm() < 0x100);
             break;
 
         case IF_T1_L1: // .......Rrrrrrrrr                                           <regmask8+2>
-            assert(id->emitGetInsSC() < 0x400);
+            assert(id->GetImm() < 0x400);
             break;
 
         case IF_T2_C0: // ...........Snnnn .iiiddddiishmmmm       R1  R2  R3      S, imm5, sh
             assert(IsGeneralRegister(id->idReg1()));
             assert(IsGeneralRegister(id->idReg2()));
             assert(IsGeneralRegister(id->idReg3()));
-            assert(id->emitGetInsSC() < 0x20);
+            assert(id->GetImm() < 0x20);
             break;
 
         case IF_T2_C4: // ...........Snnnn ....dddd....mmmm       R1  R2  R3      S
@@ -249,14 +249,14 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
         case IF_T2_C8: // ............nnnn .iii....iishmmmm       R1  R2             imm5, sh
             assert(IsGeneralRegister(id->idReg1()));
             assert(IsGeneralRegister(id->idReg2()));
-            assert(id->emitGetInsSC() < 0x20);
+            assert(id->GetImm() < 0x20);
             break;
 
         case IF_T2_C6: // ................ ....dddd..iimmmm       R1  R2                   imm2
         case IF_T2_C7: // ............nnnn ..........shmmmm       R1  R2                   imm2
             assert(IsGeneralRegister(id->idReg1()));
             assert(IsGeneralRegister(id->idReg2()));
-            assert(id->emitGetInsSC() < 0x4);
+            assert(id->GetImm() < 0x4);
             break;
 
         case IF_T2_C3:  // ...........S.... ....dddd....mmmm       R1  R2          S
@@ -269,12 +269,12 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
         case IF_T2_D0: // ............nnnn .iiiddddii.wwwww       R1  R2             imm5, imm5
             assert(IsGeneralRegister(id->idReg1()));
             assert(IsGeneralRegister(id->idReg2()));
-            assert(id->emitGetInsSC() < 0x400);
+            assert(id->GetImm() < 0x400);
             break;
 
         case IF_T2_D1: // ................ .iiiddddii.wwwww       R1                 imm5, imm5
             assert(IsGeneralRegister(id->idReg1()));
-            assert(id->emitGetInsSC() < 0x400);
+            assert(id->GetImm() < 0x400);
             break;
 
         case IF_T2_E0: // ............nnnn tttt......shmmmm       R1  R2  R3               imm2
@@ -288,7 +288,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             else
             {
                 assert(IsGeneralRegister(id->idReg3()));
-                assert(id->emitGetInsSC() < 0x4);
+                assert(id->GetImm() < 0x4);
             }
             break;
 
@@ -313,29 +313,29 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             assert(IsGeneralRegister(id->idReg1()));
             assert(IsGeneralRegister(id->idReg2()));
             assert(IsGeneralRegister(id->idReg3()));
-            assert(unsigned_abs(id->emitGetInsSC()) < 0x100);
+            assert(unsigned_abs(id->GetImm()) < 0x100);
             break;
 
         case IF_T2_H0: // ............nnnn tttt.PUWiiiiiiii       R1  R2             imm8, PUW
             assert(IsGeneralRegister(id->idReg1()));
             assert(IsGeneralRegister(id->idReg2()));
-            assert(unsigned_abs(id->emitGetInsSC()) < 0x100);
+            assert(unsigned_abs(id->GetImm()) < 0x100);
             break;
 
         case IF_T2_H1: // ............nnnn tttt....iiiiiiii       R1  R2             imm8
             assert(IsGeneralRegister(id->idReg1()));
             assert(IsGeneralRegister(id->idReg2()));
-            assert(id->emitGetInsSC() < 0x100);
+            assert(id->GetImm() < 0x100);
             break;
 
         case IF_T2_H2: // ............nnnn ........iiiiiiii       R1                 imm8
             assert(IsGeneralRegister(id->idReg1()));
-            assert(id->emitGetInsSC() < 0x100);
+            assert(id->GetImm() < 0x100);
             break;
 
         case IF_T2_I0: // ..........W.nnnn rrrrrrrrrrrrrrrr       R1              W, imm16
             assert(IsGeneralRegister(id->idReg1()));
-            assert(id->emitGetInsSC() < 0x10000);
+            assert(id->GetImm() < 0x10000);
             break;
 
         case IF_T2_N: // .....i......iiii .iiiddddiiiiiiii       R1                 imm16
@@ -345,7 +345,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
 
         case IF_T2_N2: // .....i......iiii .iiiddddiiiiiiii       R1                 imm16
             assert(IsGeneralRegister(id->idReg1()));
-            assert((size_t)id->emitGetInsSC() < roData.size);
+            assert((size_t)id->GetImm() < roData.size);
             break;
 
         case IF_T2_N3: // .....i......iiii .iiiddddiiiiiiii       R1                 imm16
@@ -354,49 +354,49 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             break;
 
         case IF_T2_I1: // ................ rrrrrrrrrrrrrrrr                          imm16
-            assert(id->emitGetInsSC() < 0x10000);
+            assert(id->GetImm() < 0x10000);
             break;
 
         case IF_T2_K1: // ............nnnn ttttiiiiiiiiiiii       R1  R2             imm12
         case IF_T2_M0: // .....i......nnnn .iiiddddiiiiiiii       R1  R2             imm12
             assert(IsGeneralRegister(id->idReg1()));
             assert(IsGeneralRegister(id->idReg2()));
-            assert(id->emitGetInsSC() < 0x1000);
+            assert(id->GetImm() < 0x1000);
             break;
 
         case IF_T2_L0: // .....i.....Snnnn .iiiddddiiiiiiii       R1  R2          S, imm8<<imm4
             assert(IsGeneralRegister(id->idReg1()));
             assert(IsGeneralRegister(id->idReg2()));
-            assert(isModImmConst(id->emitGetInsSC()));
+            assert(isModImmConst(id->GetImm()));
             break;
 
         case IF_T2_K4: // ........U....... ttttiiiiiiiiiiii       R1  PC          U, imm12
         case IF_T2_M1: // .....i.......... .iiiddddiiiiiiii       R1  PC             imm12
             assert(IsGeneralRegister(id->idReg1()));
             assert(id->idReg2() == REG_PC);
-            assert(id->emitGetInsSC() < 0x1000);
+            assert(id->GetImm() < 0x1000);
             break;
 
         case IF_T2_K3: // ........U....... ....iiiiiiiiiiii       PC              U, imm12
             assert(id->idReg1() == REG_PC);
-            assert(id->emitGetInsSC() < 0x1000);
+            assert(id->GetImm() < 0x1000);
             break;
 
         case IF_T2_K2: // ............nnnn ....iiiiiiiiiiii       R1                 imm12
             assert(IsGeneralRegister(id->idReg1()));
-            assert(id->emitGetInsSC() < 0x1000);
+            assert(id->GetImm() < 0x1000);
             break;
 
         case IF_T2_L1: // .....i.....S.... .iiiddddiiiiiiii       R1              S, imm8<<imm4
         case IF_T2_L2: // .....i......nnnn .iii....iiiiiiii       R1                 imm8<<imm4
             assert(IsGeneralRegister(id->idReg1()));
-            assert(isModImmConst(id->emitGetInsSC()));
+            assert(isModImmConst(id->GetImm()));
             break;
 
         case IF_T1_J3: // .....dddiiiiiiii                        R1  PC             imm8
             assert(IsGeneralRegister(id->idReg1()));
             assert(id->idReg2() == REG_PC);
-            assert(id->emitGetInsSC() < 0x100);
+            assert(id->GetImm() < 0x100);
             break;
 
         case IF_T2_VFP3:
@@ -426,7 +426,7 @@ void EmitterBase::emitInsSanityCheck(instrDesc* id)
             else
                 assert(IsFloatReg(id->idReg1()));
             assert(IsGeneralRegister(id->idReg2()));
-            assert(offsetFitsInVectorMem(id->emitGetInsSC()));
+            assert(offsetFitsInVectorMem(id->GetImm()));
             break;
 
         case IF_T2_VMOVD:
@@ -480,38 +480,33 @@ public:
 
 private:
     static int EncodeModImmConst(int imm);
-    uint32_t emitInsCode(instruction ins, insFormat fmt);
+    uint32_t GetInstrCode(instruction ins, insFormat fmt);
 
 #ifdef FEATURE_ITINSTRUCTION
-    uint8_t* emitOutputIT(uint8_t* dst, instruction ins, insFormat fmt, uint32_t condcode);
+    uint8_t* EncodeIT(uint8_t* dst, instruction ins, insFormat fmt, uint32_t condcode);
 #endif
-    uint8_t* emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig);
-    uint8_t* emitOutputRL(uint8_t* dst, instrDescJmp* id);
-    uint8_t* emitOutputShortBranch(uint8_t* dst, instruction ins, insFormat fmt, ssize_t distVal, instrDesc* id);
+    uint8_t* EncodeBranch(uint8_t* dst, instrDescJmp* id, insGroup* ig);
+    uint8_t* EncodeRoDataAddr(uint8_t* dst, instrDescJmp* id);
+    uint8_t* EncodeShortBranch(uint8_t* dst, instruction ins, insFormat fmt, ssize_t distVal, instrDesc* id);
 
-    unsigned emitOutput_Thumb1Instr(uint8_t* dst, uint32_t code);
-    unsigned emitOutput_Thumb2Instr(uint8_t* dst, uint32_t code);
+    unsigned WriteThumb1Instr(uint8_t* dst, uint32_t code);
+    unsigned WriteThumb2Instr(uint8_t* dst, uint32_t code);
 
-    void emitHandlePCRelativeMov32(void* location, void* target);
-
-    // Returns true if the instruction may write to more than one register.
-    bool emitInsMayWriteMultipleRegs(instrDesc* id);
-
-    // Returns true if instruction "id->idIns()" writes to a register that might be used to contain a GC
-    // pointer. This exempts the SP and PC registers, and floating point registers. Memory access
-    // instructions that pre- or post-increment their memory address registers are *not* considered to write
-    // to GC registers, even if that memory address is a by-ref: such an instruction cannot change the GC
-    // status of that register, since it must be a byref before and remains one after.
-    //
-    // This may return false positives.
-    bool emitInsMayWriteToGCReg(instrDesc* id);
+    void RecordPCRelativeMov32Relocation(void* location, void* target);
 
 #ifdef DEBUG
-    void PrintIns(instrDesc* id, uint8_t* code, size_t sz);
+    void PrintInstr(instrDesc* id, uint8_t* code, size_t sz);
 #endif
 };
 
-bool ArmEncoder::emitInsMayWriteToGCReg(instrDesc* id)
+// Returns true if instruction "id->idIns()" writes to a register that might be used to contain a GC
+// pointer. This exempts the SP and PC registers, and floating point registers. Memory access
+// instructions that pre- or post-increment their memory address registers are *not* considered to write
+// to GC registers, even if that memory address is a by-ref: such an instruction cannot change the GC
+// status of that register, since it must be a byref before and remains one after.
+//
+// This may return false positives.
+static bool InstrMayWriteToGCReg(instrDesc* id)
 {
     instruction ins = id->idIns();
     insFormat   fmt = id->idInsFmt();
@@ -603,12 +598,10 @@ bool ArmEncoder::emitInsMayWriteToGCReg(instrDesc* id)
     }
 }
 
-bool ArmEncoder::emitInsMayWriteMultipleRegs(instrDesc* id)
+// Returns true if the instruction may write to more than one register.
+static bool InstrMayWriteMultipleRegs(instrDesc* id)
 {
-    instruction ins = id->idIns();
-    insFormat   fmt = id->idInsFmt();
-
-    switch (ins)
+    switch (id->idIns())
     {
         case INS_ldm:
         case INS_ldmdb:
@@ -620,7 +613,7 @@ bool ArmEncoder::emitInsMayWriteMultipleRegs(instrDesc* id)
             return true;
         case INS_pop:
             // T2_E2 is pop single register encoding
-            return fmt != IF_T2_E2;
+            return id->idInsFmt() != IF_T2_E2;
         default:
             return false;
     }
@@ -754,7 +747,7 @@ bool IsMovIns(instruction ins)
 }
 
 // Returns the specific encoding of the given CPU instruction and format
-uint32_t ArmEncoder::emitInsCode(instruction ins, insFormat fmt)
+uint32_t ArmEncoder::GetInstrCode(instruction ins, insFormat fmt)
 {
     // clang-format off
     const static uint32_t insCodes1[]
@@ -1408,26 +1401,26 @@ bool ArmImm::IsVLdStImm(int imm)
 template <typename T>
 T* ArmEmitter::AllocInstr(bool updateLastIns)
 {
-    instrDescSmall* id = emitAllocAnyInstr(sizeof(T), updateLastIns);
+    instrDescSmall* id = AllocAnyInstr(sizeof(T), updateLastIns);
     memset(id, 0, sizeof(T));
-    INDEBUG(id->idDebugOnlyInfo(new (emitComp, CMK_DebugOnly) instrDescDebugInfo(++emitInsCount, sizeof(T))));
+    INDEBUG(id->idDebugOnlyInfo(new (compiler, CMK_DebugOnly) instrDescDebugInfo(++nextInstrNum, sizeof(T))));
 
     return static_cast<T*>(id);
 }
 
-instrDesc* ArmEmitter::emitNewInstr()
+instrDesc* ArmEmitter::NewInstr()
 {
     return AllocInstr<instrDesc>();
 }
 
-instrDesc* ArmEmitter::emitNewInstrSmall()
+instrDesc* ArmEmitter::NewInstrSmall()
 {
     instrDescSmall* id = AllocInstr<instrDescSmall>();
     id->idSetIsSmallDsc();
     return static_cast<instrDesc*>(id);
 }
 
-instrDesc* ArmEmitter::emitNewInstrSC(int32_t cns)
+instrDesc* ArmEmitter::NewInstrSmall(int32_t cns)
 {
     if (!instrDesc::fitsInSmallCns(cns))
     {
@@ -1437,12 +1430,12 @@ instrDesc* ArmEmitter::emitNewInstrSC(int32_t cns)
         return id;
     }
 
-    instrDesc* id = emitNewInstrSmall();
+    instrDesc* id = NewInstrSmall();
     id->idSmallCns(cns);
     return id;
 }
 
-instrDesc* ArmEmitter::emitNewInstrCns(int32_t cns)
+instrDesc* ArmEmitter::NewInstrCns(int32_t cns)
 {
     if (!instrDesc::fitsInSmallCns(cns))
     {
@@ -1452,27 +1445,27 @@ instrDesc* ArmEmitter::emitNewInstrCns(int32_t cns)
         return id;
     }
 
-    instrDesc* id = emitNewInstr();
+    instrDesc* id = NewInstr();
     id->idSmallCns(cns);
     return id;
 }
 
-instrDescJmp* ArmEmitter::emitNewInstrJmp()
+instrDescJmp* ArmEmitter::NewInstrJmp()
 {
     instrDescJmp* id = AllocInstr<instrDescJmp>();
-    id->idjIG        = emitCurIG;
-    id->idjOffs      = emitCurIGsize;
-    id->idjNext      = emitCurIGjmpList;
-    emitCurIGjmpList = id;
+    id->idjIG        = currentIG;
+    id->idjOffs      = currentIGCodeSize;
+    id->idjNext      = currentIGJumps;
+    currentIGJumps   = id;
     return id;
 }
 
-instrDescCGCA* ArmEmitter::emitAllocInstrCGCA()
+instrDescCGCA* ArmEmitter::AllocInstrCGCA()
 {
     return AllocInstr<instrDescCGCA>();
 }
 
-instrDesc* ArmEmitter::emitNewInstrGCReg(emitAttr attr, RegNum reg)
+instrDesc* ArmEmitter::NewInstrGCReg(emitAttr attr, RegNum reg)
 {
     assert(EA_IS_GCREF_OR_BYREF(attr));
     assert(IsGeneralRegister(reg));
@@ -1500,13 +1493,13 @@ void ArmEmitter::emitIns(instruction ins)
 
     assert((fmt == IF_T1_A) || (fmt == IF_T2_A));
 
-    instrDesc* id = emitNewInstrSmall();
+    instrDesc* id = NewInstrSmall();
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idOpSize(EA_4BYTE);
     id->idInsSize(emitInsSize(fmt));
 
-    appendToCurIG(id);
+    AppendInstr(id);
 }
 
 void ArmEmitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
@@ -1636,14 +1629,14 @@ void ArmEmitter::emitIns_I(instruction ins, emitAttr attr, int32_t imm)
 
     assert((fmt == IF_T1_B) || (fmt == IF_T1_L0) || (fmt == IF_T1_L1) || (fmt == IF_T2_I1) || (fmt == IF_T2_B));
 
-    instrDesc* id = emitNewInstrSC(imm);
+    instrDesc* id = NewInstrSmall(imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idGCref(EA_GC_TYPE(attr));
     id->idOpSize(EA_SIZE(attr));
     id->idInsSize(emitInsSize(fmt));
 
-    appendToCurIG(id);
+    AppendInstr(id);
 }
 
 void ArmEmitter::emitIns_R(instruction ins, emitAttr attr, RegNum reg)
@@ -1681,7 +1674,7 @@ void ArmEmitter::emitIns_R(instruction ins, emitAttr attr, RegNum reg)
 
     assert((fmt == IF_T1_D1) || (fmt == IF_T2_E2));
 
-    instrDesc* id = emitNewInstrSmall();
+    instrDesc* id = NewInstrSmall();
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idGCref(EA_GC_TYPE(attr));
@@ -1689,7 +1682,7 @@ void ArmEmitter::emitIns_R(instruction ins, emitAttr attr, RegNum reg)
     id->idInsSize(emitInsSize(fmt));
     id->idReg1(reg);
 
-    appendToCurIG(id);
+    AppendInstr(id);
 }
 
 void ArmEmitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, int32_t imm, insFlags flags)
@@ -1950,7 +1943,7 @@ void ArmEmitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, int32_t
 
     assert(sf != INS_FLAGS_DONT_CARE);
 
-    instrDesc* id = emitNewInstrSC(imm);
+    instrDesc* id = NewInstrSmall(imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idGCref(EA_GC_TYPE(attr));
@@ -1959,24 +1952,24 @@ void ArmEmitter::emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, int32_t
     id->idInsFlags(sf);
     id->idReg1(reg);
 
-    appendToCurIG(id);
+    AppendInstr(id);
 }
 
 void ArmEmitter::emitIns_MovRelocatableImmediate(instruction ins, RegNum reg, void* addr)
 {
     assert((ins == INS_movw) || (ins == INS_movt));
 
-    instrDesc* id = emitNewInstr();
+    instrDesc* id = NewInstr();
     id->idIns(ins);
     id->idInsFmt(IF_T2_N3);
     id->idInsSize(ISZ_32BIT);
     id->idInsFlags(INS_FLAGS_NOT_SET);
     id->idOpSize(EA_4BYTE);
     id->idReg1(reg);
-    id->idSetIsCnsReloc(emitComp->opts.compReloc);
+    id->idSetIsCnsReloc(compiler->opts.compReloc);
     id->SetAddr(addr);
 
-    appendToCurIG(id);
+    AppendInstr(id);
 }
 
 void ArmEmitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegNum srcReg, bool canSkip, insFlags flags)
@@ -1994,7 +1987,7 @@ void ArmEmitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegN
             {
                 if (EA_IS_GCREF_OR_BYREF(attr) && (dstReg == srcReg))
                 {
-                    emitNewInstrGCReg(attr, dstReg);
+                    NewInstrGCReg(attr, dstReg);
                     return;
                 }
 
@@ -2086,7 +2079,7 @@ void ArmEmitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegN
 
     assert(sf != INS_FLAGS_DONT_CARE);
 
-    instrDesc* id = emitNewInstrSmall();
+    instrDesc* id = NewInstrSmall();
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idGCref(EA_GC_TYPE(attr));
@@ -2096,7 +2089,7 @@ void ArmEmitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegN
     id->idReg1(dstReg);
     id->idReg2(srcReg);
 
-    appendToCurIG(id);
+    AppendInstr(id);
 }
 
 void ArmEmitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, insFlags flags)
@@ -2310,7 +2303,7 @@ void ArmEmitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum
     assert((fmt == IF_T1_D0) || (fmt == IF_T1_E) || (fmt == IF_T2_C3) || (fmt == IF_T2_C9) || (fmt == IF_T2_C10) ||
            (fmt == IF_T2_VFP2) || (fmt == IF_T2_VMOVD) || (fmt == IF_T2_VMOVS) || (fmt == IF_T2_E1));
 
-    instrDesc* id = emitNewInstrSmall();
+    instrDesc* id = NewInstrSmall();
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idGCref(EA_GC_TYPE(attr));
@@ -2320,7 +2313,7 @@ void ArmEmitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum
     id->idReg1(reg1);
     id->idReg2(reg2);
 
-    appendToCurIG(id);
+    AppendInstr(id);
 }
 
 void ArmEmitter::emitIns_R_I_I(instruction ins, emitAttr attr, RegNum reg, int imm1, int imm2, insFlags flags)
@@ -2336,7 +2329,7 @@ void ArmEmitter::emitIns_R_I_I(instruction ins, emitAttr attr, RegNum reg, int i
     assert((msb >= 0) && (msb <= 31));
     assert(msb >= lsb);
 
-    instrDesc* id = emitNewInstrSC((lsb << 5) | msb);
+    instrDesc* id = NewInstrSmall((lsb << 5) | msb);
     id->idIns(ins);
     id->idInsFmt(IF_T2_D1);
     id->idGCref(EA_GC_TYPE(attr));
@@ -2345,7 +2338,7 @@ void ArmEmitter::emitIns_R_I_I(instruction ins, emitAttr attr, RegNum reg, int i
     id->idInsFlags(INS_FLAGS_NOT_SET);
     id->idReg1(reg);
 
-    appendToCurIG(id);
+    AppendInstr(id);
 }
 
 void ArmEmitter::emitIns_R_R_I(
@@ -2820,7 +2813,7 @@ void ArmEmitter::emitIns_R_R_I(
 
     assert(sf != INS_FLAGS_DONT_CARE);
 
-    instrDesc* id = emitNewInstrSC(imm);
+    instrDesc* id = NewInstrSmall(imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idGCref(EA_GC_TYPE(attr));
@@ -2831,7 +2824,7 @@ void ArmEmitter::emitIns_R_R_I(
     id->idReg1(reg1);
     id->idReg2(reg2);
 
-    appendToCurIG(id);
+    AppendInstr(id);
 }
 
 void ArmEmitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, insFlags flags)
@@ -3033,7 +3026,7 @@ void ArmEmitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
            (fmt == IF_T2_G1));
     assert(sf != INS_FLAGS_DONT_CARE);
 
-    instrDesc* id = emitNewInstr();
+    instrDesc* id = NewInstr();
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idInsSize(emitInsSize(fmt));
@@ -3044,7 +3037,7 @@ void ArmEmitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegN
     id->idReg2(reg2);
     id->idReg3(reg3);
 
-    appendToCurIG(id);
+    AppendInstr(id);
 }
 
 void ArmEmitter::emitIns_R_R_I_I(
@@ -3086,7 +3079,7 @@ void ArmEmitter::emitIns_R_R_I_I(
             unreached();
     }
 
-    instrDesc* id = emitNewInstrSC(imm);
+    instrDesc* id = NewInstrSmall(imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idGCref(EA_GC_TYPE(attr));
@@ -3096,7 +3089,7 @@ void ArmEmitter::emitIns_R_R_I_I(
     id->idReg1(reg1);
     id->idReg2(reg2);
 
-    appendToCurIG(id);
+    AppendInstr(id);
 }
 
 void ArmEmitter::emitIns_R_R_R_I(
@@ -3236,7 +3229,7 @@ void ArmEmitter::emitIns_R_R_R_I(
     assert((fmt == IF_T2_C0) || (fmt == IF_T2_E0) || (fmt == IF_T2_G0));
     assert(sf != INS_FLAGS_DONT_CARE);
 
-    instrDesc* id = emitNewInstrCns(imm);
+    instrDesc* id = NewInstrCns(imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idGCref(EA_GC_TYPE(attr));
@@ -3248,7 +3241,7 @@ void ArmEmitter::emitIns_R_R_R_I(
     id->idReg2(reg2);
     id->idReg3(reg3);
 
-    appendToCurIG(id);
+    AppendInstr(id);
 }
 
 void ArmEmitter::emitIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, RegNum reg4)
@@ -3277,7 +3270,7 @@ void ArmEmitter::emitIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, Re
             unreached();
     }
 
-    instrDesc* id = emitNewInstr();
+    instrDesc* id = NewInstr();
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idInsSize(emitInsSize(fmt));
@@ -3289,13 +3282,13 @@ void ArmEmitter::emitIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, Re
     id->idReg3(reg3);
     id->idReg4(reg4);
 
-    appendToCurIG(id);
+    AppendInstr(id);
 }
 
 void ArmEmitter::MovRegStackOffset(RegNum reg, int32_t imm, StackAddrMode s)
 {
     auto mov = [&](instruction ins, int32_t imm) {
-        instrDesc* id = emitNewInstrCns(imm);
+        instrDesc* id = NewInstrCns(imm);
         id->idIns(ins);
         id->idInsFmt(IF_T2_N);
         id->idOpSize(EA_4BYTE);
@@ -3304,7 +3297,7 @@ void ArmEmitter::MovRegStackOffset(RegNum reg, int32_t imm, StackAddrMode s)
         // TODO-MIKE-Cleanup: Only disassembly uses this...
         id->SetVarAddr(INDEBUG(s));
 
-        appendToCurIG(id);
+        AppendInstr(id);
     };
 
     mov(INS_movw, imm & 0xFFFF);
@@ -3385,7 +3378,7 @@ void ArmEmitter::Ins_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrMo
 
     bool    isFloatLoadStore = (ins == INS_vldr) || (ins == INS_vstr);
     bool    fpBased;
-    int     baseOffset = emitComp->lvaFrameAddress(s.varNum, &fpBased) + s.varOffs;
+    int     baseOffset = compiler->lvaFrameAddress(s.varNum, &fpBased) + s.varOffs;
     int32_t imm        = baseOffset;
     RegNum  baseReg;
 
@@ -3468,7 +3461,7 @@ void ArmEmitter::Ins_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrMo
         fmt = IF_T2_E0;
     }
 
-    instrDesc* id = emitNewInstrCns(imm);
+    instrDesc* id = NewInstrCns(imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idGCref(EA_GC_TYPE(attr));
@@ -3487,17 +3480,17 @@ void ArmEmitter::Ins_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrMo
             assert(s.varOffs == 0);
             id->idAddr()->isTrackedGCSlotStore = codeGen->spillTemps.TrackGCSpillTemps();
         }
-        else if (static_cast<unsigned>(s.varNum) == emitComp->lvaOutgoingArgSpaceVar)
+        else if (static_cast<unsigned>(s.varNum) == compiler->lvaOutgoingArgSpaceVar)
         {
             id->idAddr()->isGCArgStore = true;
         }
-        else if ((s.varOffs == 0) && (emitComp->lvaGetDesc(static_cast<unsigned>(s.varNum))->HasGCSlotLiveness()))
+        else if ((s.varOffs == 0) && (compiler->lvaGetDesc(static_cast<unsigned>(s.varNum))->HasGCSlotLiveness()))
         {
             id->idAddr()->isTrackedGCSlotStore = true;
         }
     }
 
-    appendToCurIG(id);
+    AppendInstr(id);
 }
 
 // Change frame pointer based addressing to SP-based addressing when possible because it has smaller encoding.
@@ -3511,10 +3504,10 @@ int ArmEmitter::OptimizeFrameAddress(int fpOffset, bool isFloatLoadStore, RegNum
     // TODO-MIKE-Review: It's not clear what's the minopts check for.
     // Maybe it was supposed to be !MinOpts()?
 
-    if (emitComp->opts.MinOpts() || (spOffset <= encodingLimitUpper) || (fpOffset < encodingLimitLower) ||
+    if (compiler->opts.MinOpts() || (spOffset <= encodingLimitUpper) || (fpOffset < encodingLimitLower) ||
         (fpOffset > encodingLimitUpper))
     {
-        *baseReg = emitComp->compLocallocUsed ? REG_SAVED_LOCALLOC_SP : REG_SP;
+        *baseReg = compiler->compLocallocUsed ? REG_SAVED_LOCALLOC_SP : REG_SP;
         return spOffset;
     }
     else
@@ -3607,36 +3600,36 @@ static emitJumpKind JccToJumpKind(instruction ins)
 
 void ArmEmitter::emitIns_J(instruction ins, int instrCount)
 {
-    assert(IsMainProlog(emitCurIG));
+    assert(IsMainProlog(currentIG));
     assert(IsBranch(ins));
     assert(instrCount < 0);
 
-    instrDescJmp* id = emitNewInstrJmp();
+    instrDescJmp* id = NewInstrJmp();
     id->idIns(ins);
     id->idInsFmt(ins == INS_b ? IF_T1_M : IF_T1_K);
     id->idInsSize(ISZ_16BIT);
     id->SetInstrCount(instrCount);
 
-    appendToCurIG(id);
+    AppendInstr(id);
 }
 
 void ArmEmitter::emitIns_J(instruction ins, insGroup* label)
 {
     assert(IsBranch(ins));
-    assert(emitCurIG->GetFuncletIndex() == label->GetFuncletIndex());
+    assert(currentIG->GetFuncletIndex() == label->GetFuncletIndex());
 
-    instrDescJmp* id = emitNewInstrJmp();
+    instrDescJmp* id = NewInstrJmp();
     id->idIns(ins);
     id->idInsFmt(ins == INS_b ? IF_T2_J2 : IF_LARGEJMP);
     id->idInsSize(emitInsSize(id->idInsFmt()));
-    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label));
+    id->idSetIsCnsReloc(compiler->opts.compReloc && InDifferentRegions(currentIG, label));
     id->SetLabel(label);
 
     if (label->IsDefined() && !id->idIsCnsReloc())
     {
         // This is a backward jump, we can determine now if it's going to be short/medium/large.
 
-        uint32_t instrOffs = emitCurCodeOffset + emitCurIGsize;
+        uint32_t instrOffs = currentCodeOffset + currentIGCodeSize;
         int32_t  distance  = instrOffs - label->igOffs;
         assert(distance >= 0);
         distance += 4;
@@ -3664,7 +3657,7 @@ void ArmEmitter::emitIns_J(instruction ins, insGroup* label)
         }
     }
 
-    appendToCurIG(id);
+    AppendInstr(id);
 }
 
 void ArmEmitter::emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, RegNum reg)
@@ -3673,11 +3666,11 @@ void ArmEmitter::emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, Re
     // Their limited range might make using them problematic, we might save a cheap 0 compare
     // and end up with an extra unconditional branch.
     assert((ins == INS_cbz) || (ins == INS_cbnz));
-    assert(emitCurIG->GetFuncletIndex() == label->GetFuncletIndex());
+    assert(currentIG->GetFuncletIndex() == label->GetFuncletIndex());
     assert(IsLowRegister(reg));
-    assert(!emitComp->opts.compReloc || !InDifferentRegions(emitCurIG, label));
+    assert(!compiler->opts.compReloc || !InDifferentRegions(currentIG, label));
 
-    instrDescJmp* id = emitNewInstrJmp();
+    instrDescJmp* id = NewInstrJmp();
     id->idIns(ins);
     id->idInsFmt(IF_T1_I);
     id->idInsSize(ISZ_16BIT);
@@ -3685,25 +3678,25 @@ void ArmEmitter::emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, Re
     id->idReg1(reg);
     id->SetLabel(label);
 
-    appendToCurIG(id);
+    AppendInstr(id);
 }
 
 void ArmEmitter::emitIns_CallFinally(insGroup* label)
 {
     INDEBUG(VerifyCallFinally(label));
 
-    instrDescJmp* id = emitNewInstrJmp();
+    instrDescJmp* id = NewInstrJmp();
     id->idIns(INS_b);
     id->idInsFmt(IF_T2_J2);
     id->idInsSize(ISZ_32BIT);
-    id->idSetIsCnsReloc(emitComp->opts.compReloc && InDifferentRegions(emitCurIG, label));
+    id->idSetIsCnsReloc(compiler->opts.compReloc && InDifferentRegions(currentIG, label));
     id->SetLabel(label);
 
     if (label->IsDefined() && !id->idIsCnsReloc())
     {
         // This is a backward jump, we can determine now if it's going to be short/medium/large.
 
-        uint32_t instrOffs = emitCurCodeOffset + emitCurIGsize;
+        uint32_t instrOffs = currentCodeOffset + currentIGCodeSize;
         int32_t  distance  = instrOffs - label->igOffs;
         assert(distance >= 0);
         distance += 4;
@@ -3715,7 +3708,7 @@ void ArmEmitter::emitIns_CallFinally(insGroup* label)
         }
     }
 
-    appendToCurIG(id);
+    AppendInstr(id);
 }
 
 void ArmEmitter::emitIns_R_L(instruction ins, RegNum reg, insGroup* label)
@@ -3730,31 +3723,31 @@ void ArmEmitter::emitIns_R_L(instruction ins, RegNum reg, insGroup* label)
     }
 #endif
 
-    instrDescJmp* id = emitNewInstrJmp();
+    instrDescJmp* id = NewInstrJmp();
     id->idIns(ins);
     id->idInsFmt(IF_T2_N1);
     id->idInsSize(ISZ_32BIT);
     id->idOpSize(EA_4BYTE);
     id->idReg1(reg);
     id->SetLabel(label);
-    id->idSetIsCnsReloc(emitComp->opts.compReloc);
+    id->idSetIsCnsReloc(compiler->opts.compReloc);
 
-    appendToCurIG(id);
+    AppendInstr(id);
 }
 
 void ArmEmitter::emitIns_R_D(instruction ins, RegNum reg, ConstData* data)
 {
     assert((ins == INS_movw) || (ins == INS_movt));
 
-    instrDesc* id = emitNewInstrSC(data->offset);
+    instrDesc* id = NewInstrSmall(data->offset);
     id->idIns(ins);
     id->idReg1(reg);
     id->idInsFmt(IF_T2_N2);
     id->idOpSize(EA_4BYTE);
     id->idInsSize(ISZ_32BIT);
-    id->idSetIsCnsReloc(emitComp->opts.compReloc);
+    id->idSetIsCnsReloc(compiler->opts.compReloc);
 
-    appendToCurIG(id);
+    AppendInstr(id);
 }
 
 // Add a call instruction (direct or indirect).
@@ -3775,7 +3768,7 @@ void ArmEmitter::emitIns_Call(EmitCallType          kind,
     assert((kind != EC_INDIR_R) || (addr == nullptr));
     assert((kind != EC_INDIR_R) || (reg != REG_NA));
 
-    instrDesc* id = emitNewInstrCall(methodHandle, retSize);
+    instrDesc* id = NewInstrCall(methodHandle, retSize);
 
     if (kind == EC_INDIR_R)
     {
@@ -3788,12 +3781,12 @@ void ArmEmitter::emitIns_Call(EmitCallType          kind,
     {
         assert(kind == EC_FUNC_TOKEN);
         // if addr is nullptr then this call is treated as a recursive call.
-        assert((addr == nullptr) || ArmImm::IsBlImm(reinterpret_cast<ssize_t>(addr), emitComp));
+        assert((addr == nullptr) || ArmImm::IsBlImm(reinterpret_cast<ssize_t>(addr), compiler));
 
         id->idIns(isJump ? INS_b : INS_bl);
         id->idInsFmt(IF_T2_J3);
         id->idInsSize(ISZ_32BIT);
-        id->idSetIsCnsReloc(emitComp->opts.compReloc);
+        id->idSetIsCnsReloc(compiler->opts.compReloc);
         id->SetAddr(addr);
     }
 
@@ -3805,11 +3798,11 @@ void ArmEmitter::emitIns_Call(EmitCallType          kind,
 #ifdef LATE_DISASM
     if (addr != nullptr)
     {
-        disSetMethod(reinterpret_cast<size_t>(addr), methodHandle);
+        AddDisasmMethodAddr(reinterpret_cast<size_t>(addr), methodHandle);
     }
 #endif
 
-    appendToCurIG(id);
+    AppendInstr(id);
 }
 
 void EmitterBase::EncodeCallGCRegs(regMaskTP regs, instrDesc* id)
@@ -3872,29 +3865,29 @@ unsigned EmitterBase::DecodeCallGCRegs(instrDesc* id)
 
 void EmitterBase::ShortenBranches()
 {
-    if (emitJumpList == nullptr)
+    if (firstJump == nullptr)
     {
         return;
     }
 
 #ifdef DEBUG
-    if (emitComp->verbose)
+    if (compiler->verbose)
     {
         printf("\nInstruction groups before jump shortening:\n\n");
-        emitDispIGlist(true);
+        PrintIGList(true);
     }
 #endif
 
 AGAIN:
-    INDEBUG(emitCheckIGoffsets());
+    INDEBUG(VerifyIGOffsets());
 
     uint32_t      minDistanceOverflow  = UINT32_MAX;
     uint32_t      totalSizeReduction   = 0;
     uint32_t      instrIGSizeReduction = 0;
     instrDescJmp* previousInstr        = nullptr;
-    insGroup*     previousInstrIG      = emitJumpList->idjIG;
+    insGroup*     previousInstrIG      = firstJump->idjIG;
 
-    for (instrDescJmp *instr = emitJumpList; instr != nullptr; previousInstr = instr, instr = instr->idjNext)
+    for (instrDescJmp *instr = firstJump; instr != nullptr; previousInstr = instr, instr = instr->idjNext)
     {
         assert((instr->idInsFmt() == IF_T2_J1) || (instr->idInsFmt() == IF_T2_J2) || (instr->idInsFmt() == IF_T1_I) ||
                (instr->idInsFmt() == IF_T1_K) || (instr->idInsFmt() == IF_T1_M) || (instr->idInsFmt() == IF_T2_M1) ||
@@ -4051,14 +4044,14 @@ AGAIN:
             goto AGAIN;
         }
 
-        INDEBUG(emitCheckIGoffsets());
+        INDEBUG(VerifyIGOffsets());
     }
 
 #ifdef DEBUG
-    if (emitComp->verbose)
+    if (compiler->verbose)
     {
         printf("\nLabels list after the jump shortening:\n\n");
-        emitDispIGlist(false);
+        PrintIGList(false);
     }
 #endif
 }
@@ -4301,7 +4294,7 @@ static int insUnscaleImm(instruction ins, int imm)
     }
 }
 
-unsigned ArmEncoder::emitOutput_Thumb1Instr(uint8_t* dst, uint32_t code)
+unsigned ArmEncoder::WriteThumb1Instr(uint8_t* dst, uint32_t code)
 {
     assert((code & 0xFFFF0000) == 0);
     assert((code >> (16 - 5)) < 29);
@@ -4310,7 +4303,7 @@ unsigned ArmEncoder::emitOutput_Thumb1Instr(uint8_t* dst, uint32_t code)
     return 2;
 }
 
-unsigned ArmEncoder::emitOutput_Thumb2Instr(uint8_t* dst, uint32_t code)
+unsigned ArmEncoder::WriteThumb2Instr(uint8_t* dst, uint32_t code)
 {
     assert((code >> (32 - 5)) >= 29);
 
@@ -4320,7 +4313,7 @@ unsigned ArmEncoder::emitOutput_Thumb2Instr(uint8_t* dst, uint32_t code)
     return 4;
 }
 
-uint8_t* ArmEncoder::emitOutputRL(uint8_t* dst, instrDescJmp* id)
+uint8_t* ArmEncoder::EncodeRoDataAddr(uint8_t* dst, instrDescJmp* id)
 {
     assert(id->idGCref() == GCT_NONE);
 
@@ -4330,21 +4323,21 @@ uint8_t* ArmEncoder::emitOutputRL(uint8_t* dst, instrDescJmp* id)
     assert((ins == INS_adr) || (ins == INS_movw) || (ins == INS_movt));
     assert((fmt == IF_T1_J3) || (fmt == IF_T2_M1) || (fmt == IF_T2_N1));
 
-    uint32_t srcOffs = emitCurCodeOffs(dst);
+    uint32_t srcOffs = GetCodeOffset(dst);
     uint32_t dstOffs = id->GetLabel()->igOffs;
     ssize_t  distance;
 
     if (ins == INS_adr)
     {
         // For adr, the distance is calculated from 4-byte aligned srcOffs.
-        distance = emitOffsetToPtr(dstOffs) -
-                   reinterpret_cast<uint8_t*>(reinterpret_cast<size_t>(emitOffsetToPtr(srcOffs)) & ~3) + 1;
+        distance =
+            GetCodeAddr(dstOffs) - reinterpret_cast<uint8_t*>(reinterpret_cast<size_t>(GetCodeAddr(srcOffs)) & ~3) + 1;
     }
     else
     {
         assert((ins == INS_movw) || (ins == INS_movt));
 
-        distance = reinterpret_cast<ssize_t>(emitOffsetToPtr(dstOffs)) + 1; // Or in thumb bit
+        distance = reinterpret_cast<ssize_t>(GetCodeAddr(dstOffs)) + 1; // Or in thumb bit
     }
 
     // Adjust the offset to emit relative to the end of the instruction.
@@ -4353,7 +4346,7 @@ uint8_t* ArmEncoder::emitOutputRL(uint8_t* dst, instrDescJmp* id)
         distance -= 4;
     }
 
-    uint32_t code = emitInsCode(ins, fmt);
+    uint32_t code = GetInstrCode(ins, fmt);
 
     if (fmt == IF_T1_J3)
     {
@@ -4362,7 +4355,7 @@ uint8_t* ArmEncoder::emitOutputRL(uint8_t* dst, instrDescJmp* id)
 
         code |= (distance >> 2) & 0xff;
 
-        return dst + emitOutput_Thumb1Instr(dst, code);
+        return dst + WriteThumb1Instr(dst, code);
     }
 
     if (fmt == IF_T2_M1)
@@ -4382,7 +4375,7 @@ uint8_t* ArmEncoder::emitOutputRL(uint8_t* dst, instrDescJmp* id)
         code |= (distance & 0x0800) << 15;
         code |= id->idReg1() << 8;
 
-        return dst + emitOutput_Thumb2Instr(dst, code);
+        return dst + WriteThumb2Instr(dst, code);
     }
 
     assert(fmt == IF_T2_N1);
@@ -4392,11 +4385,11 @@ uint8_t* ArmEncoder::emitOutputRL(uint8_t* dst, instrDescJmp* id)
 
     if (id->idIsCnsReloc())
     {
-        dst += emitOutput_Thumb2Instr(dst, code);
+        dst += WriteThumb2Instr(dst, code);
 
-        if ((ins == INS_movt) && emitComp->info.compMatchedVM)
+        if ((ins == INS_movt) && compiler->info.compMatchedVM)
         {
-            emitHandlePCRelativeMov32(dst - 8, reinterpret_cast<void*>(distance));
+            RecordPCRelativeMov32Relocation(dst - 8, reinterpret_cast<void*>(distance));
         }
 
         return dst;
@@ -4404,10 +4397,10 @@ uint8_t* ArmEncoder::emitOutputRL(uint8_t* dst, instrDescJmp* id)
 
     code |= EncodeT2MovImmT((ins == INS_movw ? distance : (distance >> 16)) & 0xffff);
 
-    return dst + emitOutput_Thumb2Instr(dst, code);
+    return dst + WriteThumb2Instr(dst, code);
 }
 
-uint8_t* ArmEncoder::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
+uint8_t* ArmEncoder::EncodeBranch(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 {
     assert(id->idGCref() == GCT_NONE);
 
@@ -4434,8 +4427,8 @@ uint8_t* ArmEncoder::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
         labelOffs = id->GetLabel()->igOffs;
     }
 
-    uint32_t    instrOffs = emitCurCodeOffs(dst);
-    ssize_t     distance  = emitOffsetToPtr(labelOffs) - emitOffsetToPtr(instrOffs);
+    uint32_t    instrOffs = GetCodeOffset(dst);
+    ssize_t     distance  = GetCodeAddr(labelOffs) - GetCodeAddr(instrOffs);
     instruction ins       = id->idIns();
     insFormat   fmt       = id->idInsFmt();
 
@@ -4455,19 +4448,19 @@ uint8_t* ArmEncoder::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
     if (id->idInsSize() == ISZ_16BIT)
     {
         assert(!id->idIsCnsReloc());
-        assert(!emitJumpCrossHotColdBoundary(instrOffs, labelOffs));
+        assert(!IsHotColdJump(instrOffs, labelOffs));
 
-        return emitOutputShortBranch(dst, ins, fmt, distance, id);
+        return EncodeShortBranch(dst, ins, fmt, distance, id);
     }
 
     if (fmt == IF_T2_J1)
     {
         assert(!id->idIsCnsReloc());
-        assert(!emitJumpCrossHotColdBoundary(instrOffs, labelOffs));
+        assert(!IsHotColdJump(instrOffs, labelOffs));
         assert((distance & 1) == 0);
         assert((-1048576 <= distance) && (distance <= 1048574));
 
-        uint32_t code = emitInsCode(ins, fmt);
+        uint32_t code = GetInstrCode(ins, fmt);
 
         if (distance < 0)
         {
@@ -4479,7 +4472,7 @@ uint8_t* ArmEncoder::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
         code |= ((distance >> 1) & 0x020000) >> 4;
         code |= ((distance >> 1) & 0x040000) >> 7;
 
-        return dst + emitOutput_Thumb2Instr(dst, code);
+        return dst + WriteThumb2Instr(dst, code);
     }
 
     if (fmt == IF_LARGEJMP)
@@ -4489,7 +4482,7 @@ uint8_t* ArmEncoder::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
         // branch. It is encoded as a short conditional branch that branches around a long unconditional
         // branch.
         instruction reverse = JumpKindToJcc(ReverseJumpKind(JccToJumpKind(ins)));
-        dst                 = emitOutputShortBranch(dst, reverse, IF_T1_K, 2, nullptr);
+        dst                 = EncodeShortBranch(dst, reverse, IF_T1_K, 2, nullptr);
 
         // The distance was computed based on the beginning of the pseudo-instruction.
         distance -= 2;
@@ -4502,7 +4495,7 @@ uint8_t* ArmEncoder::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
 
     assert((distance & 1) == 0);
 
-    uint32_t code = emitInsCode(INS_b, IF_T2_J2);
+    uint32_t code = GetInstrCode(INS_b, IF_T2_J2);
 
     // For relocs we can't compute the offset so we just leave it set to 0,
     // the runtime will patch the instruction later.
@@ -4533,20 +4526,19 @@ uint8_t* ArmEncoder::emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig)
         }
     }
 
-    emitOutput_Thumb2Instr(dst, code);
+    WriteThumb2Instr(dst, code);
 
     if (id->idIsCnsReloc())
     {
-        emitRecordRelocation(dst, emitOffsetToPtr(labelOffs), IMAGE_REL_BASED_THUMB_BRANCH24);
+        RecordRelocation(dst, GetCodeAddr(labelOffs), IMAGE_REL_BASED_THUMB_BRANCH24);
     }
 
     return dst + 4;
 }
 
-uint8_t* ArmEncoder::emitOutputShortBranch(
-    uint8_t* dst, instruction ins, insFormat fmt, ssize_t distance, instrDesc* id)
+uint8_t* ArmEncoder::EncodeShortBranch(uint8_t* dst, instruction ins, insFormat fmt, ssize_t distance, instrDesc* id)
 {
-    uint32_t code = emitInsCode(ins, fmt);
+    uint32_t code = GetInstrCode(ins, fmt);
 
     if (fmt == IF_T1_K)
     {
@@ -4584,19 +4576,19 @@ uint8_t* ArmEncoder::emitOutputShortBranch(
         code |= id->idReg1() & 0x0007;
     }
 
-    return dst + emitOutput_Thumb1Instr(dst, code);
+    return dst + WriteThumb1Instr(dst, code);
 }
 
 #ifdef FEATURE_ITINSTRUCTION
 
 // The "IT" instruction is deprecated (with a very few exceptions). Don't generate it!
 // Don't delete this code, though, in case we ever want to bring it back.
-uint8_t* ArmEncoder::emitOutputIT(uint8_t* dst, instruction ins, insFormat fmt, uint32_t condcode)
+uint8_t* ArmEncoder::EncodeIT(uint8_t* dst, instruction ins, insFormat fmt, uint32_t condcode)
 {
     uint32_t imm0;
     uint32_t code, mask, bit;
 
-    code = emitInsCode(ins, fmt);
+    code = GetInstrCode(ins, fmt);
     code |= (condcode << 4);        // encode firstcond
     imm0 = condcode & 1;            // this is firstcond[0]
     mask = code & 0x0f;             // initialize mask encoded in opcode
@@ -4614,7 +4606,7 @@ uint8_t* ArmEncoder::emitOutputIT(uint8_t* dst, instruction ins, insFormat fmt, 
         }
         bit >>= 1;
     }
-    dst += emitOutput_Thumb1Instr(dst, code);
+    dst += WriteThumb1Instr(dst, code);
 
     return dst;
 }
@@ -4627,15 +4619,15 @@ uint8_t* ArmEncoder::emitOutputIT(uint8_t* dst, instruction ins, insFormat fmt, 
 // or creates a virtual relocation entry to perform offset fixup during
 // compilation without recording it with EE - depending on which of
 // absolute/relocative relocations mode are used for code section.
-void ArmEncoder::emitHandlePCRelativeMov32(void* location, void* target)
+void ArmEncoder::RecordPCRelativeMov32Relocation(void* location, void* target)
 {
-    if (emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_RELATIVE_CODE_RELOCS))
+    if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_RELATIVE_CODE_RELOCS))
     {
-        emitRecordRelocation(location, target, IMAGE_REL_BASED_REL_THUMB_MOV32_PCREL);
+        RecordRelocation(location, target, IMAGE_REL_BASED_REL_THUMB_MOV32_PCREL);
     }
     else
     {
-        emitRecordRelocation(location, target, IMAGE_REL_BASED_THUMB_MOV32);
+        RecordRelocation(location, target, IMAGE_REL_BASED_THUMB_MOV32);
     }
 }
 
@@ -4645,12 +4637,12 @@ void ArmEncoder::emitHandlePCRelativeMov32(void* location, void* target)
 // the unwind codes have a one-to-one relationship with instructions, and the
 // unwind codes have an implicit instruction size that must match the instruction size.)
 // An instruction must exist at the specified location.
-unsigned ArmEmitter::emitGetInstructionSize(const emitLocation& emitLoc)
+unsigned ArmEmitter::GetInstructionSize(const emitLocation& loc)
 {
     insGroup*  ig;
     instrDesc* id;
 
-    bool anyInstrs = emitGetLocationInfo(emitLoc, &ig, &id);
+    bool anyInstrs = GetLocationInfo(loc, &ig, &id);
     // There better be an instruction at this location (otherwise,
     // we're at the end of the instruction list)
     assert(anyInstrs);
@@ -4658,14 +4650,14 @@ unsigned ArmEmitter::emitGetInstructionSize(const emitLocation& emitLoc)
     return id->idCodeSize();
 }
 
-void EmitterBase::emitEndCodeGen(GCInfo& gcInfo)
+void EmitterBase::Encode(GCInfo& gcInfo)
 {
     ArmEmitter& emit = *static_cast<ArmEmitter*>(this);
     ArmEncoder  encoder(emit, gcInfo);
-    encoder.emitEndCodeGen(emit);
+    encoder.Encode(emit);
 }
 
-size_t Encoder::emitOutputInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
+size_t Encoder::ArchEncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 {
     static_cast<ArmEncoder*>(this)->EncodeInstr(ig, id, dp);
     return id->GetDescSize();
@@ -4690,86 +4682,86 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         case IF_T2_J1: // .....Scccciiiiii ..j.jiiiiiiiiiii      Branch              imm20, cond4
         case IF_T2_J2: // .....Siiiiiiiiii ..j.jiiiiiiiiii.      Branch              imm24
         case IF_LARGEJMP:
-            dst = emitOutputLJ(dst, static_cast<instrDescJmp*>(id), ig);
+            dst = EncodeBranch(dst, static_cast<instrDescJmp*>(id), ig);
             break;
 
         case IF_T1_J3: // .....dddiiiiiiii                        R1  PC             imm8
         case IF_T2_M1: // .....i.......... .iiiddddiiiiiiii       R1  PC             imm12
         case IF_T2_N1: // .....i......iiii .iiiddddiiiiiiii       R1                 imm16
-            dst = emitOutputRL(dst, static_cast<instrDescJmp*>(id));
+            dst = EncodeRoDataAddr(dst, static_cast<instrDescJmp*>(id));
             break;
 
         case IF_T1_A: // ................
-            code = emitInsCode(ins, fmt);
-            dst += emitOutput_Thumb1Instr(dst, code);
+            code = GetInstrCode(ins, fmt);
+            dst += WriteThumb1Instr(dst, code);
             break;
 
 #ifdef FEATURE_ITINSTRUCTION
         case IF_T1_B: // ........cccc....                                           cond
             assert(id->idGCref() == GCT_NONE);
-            dst = emitOutputIT(dst, ins, fmt, id->emitGetInsSC());
+            dst = EncodeIT(dst, ins, fmt, id->GetImm());
             break;
 #endif
 
         case IF_T1_C: // .....iiiiinnnddd                       R1  R2              imm5
-            imm  = id->emitGetInsSC();
-            code = emitInsCode(ins, fmt);
+            imm  = id->GetImm();
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT1RegD3(id->idReg1());
             code |= EncodeT1RegN3(id->idReg2());
             imm = insUnscaleImm(ins, imm);
             assert((imm & 0x001f) == imm);
             code |= (imm << 6);
-            dst += emitOutput_Thumb1Instr(dst, code);
+            dst += WriteThumb1Instr(dst, code);
             break;
 
         case IF_T1_D0: // ........Dmmmmddd                       R1* R2*
-            code = emitInsCode(ins, fmt);
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT1RegD4(id->idReg1());
             code |= EncodeT1RegM4(id->idReg2());
-            dst += emitOutput_Thumb1Instr(dst, code);
+            dst += WriteThumb1Instr(dst, code);
             break;
 
         case IF_T1_E: // ..........nnnddd                       R1  R2
-            code = emitInsCode(ins, fmt);
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT1RegD3(id->idReg1());
             code |= EncodeT1RegN3(id->idReg2());
-            dst += emitOutput_Thumb1Instr(dst, code);
+            dst += WriteThumb1Instr(dst, code);
             break;
 
         case IF_T1_F: // .........iiiiiii                       SP                  imm7
-            imm  = id->emitGetInsSC();
-            code = emitInsCode(ins, fmt);
+            imm  = id->GetImm();
+            code = GetInstrCode(ins, fmt);
             assert((ins == INS_add) || (ins == INS_sub));
             assert((imm & 0x0003) == 0);
             imm >>= 2;
             assert((imm & 0x007F) == imm);
             code |= imm;
-            dst += emitOutput_Thumb1Instr(dst, code);
+            dst += WriteThumb1Instr(dst, code);
             break;
 
         case IF_T1_G: // .......iiinnnddd                       R1  R2              imm3
-            imm  = id->emitGetInsSC();
-            code = emitInsCode(ins, fmt);
+            imm  = id->GetImm();
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT1RegD3(id->idReg1());
             code |= EncodeT1RegN3(id->idReg2());
             assert((imm & 0x0007) == imm);
             code |= (imm << 6);
-            dst += emitOutput_Thumb1Instr(dst, code);
+            dst += WriteThumb1Instr(dst, code);
             break;
 
         case IF_T1_H: // .......mmmnnnddd                       R1  R2  R3
-            code = emitInsCode(ins, fmt);
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT1RegD3(id->idReg1());
             code |= EncodeT1RegN3(id->idReg2());
             code |= EncodeT1RegM3(id->idReg3());
-            dst += emitOutput_Thumb1Instr(dst, code);
+            dst += WriteThumb1Instr(dst, code);
             break;
 
         case IF_T1_J0: // .....dddiiiiiiii                       R1                  imm8
         case IF_T1_J1: // .....dddiiiiiiii                       R1                  <regmask8>
         case IF_T1_J2: // .....dddiiiiiiii                       R1  SP              imm8
-            imm  = id->emitGetInsSC();
-            code = emitInsCode(ins, fmt);
+            imm  = id->GetImm();
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT1RegDI(id->idReg1());
 
             if (fmt == IF_T1_J2)
@@ -4781,13 +4773,13 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             assert((imm & 0x00ff) == imm);
             code |= imm;
-            dst += emitOutput_Thumb1Instr(dst, code);
+            dst += WriteThumb1Instr(dst, code);
             break;
 
         case IF_T1_L0: // ........iiiiiiii                                           imm8
         case IF_T1_L1: // .......Rrrrrrrrr                                           <regmask8>
-            imm  = id->emitGetInsSC();
-            code = emitInsCode(ins, fmt);
+            imm  = id->GetImm();
+            code = GetInstrCode(ins, fmt);
 
             if (fmt == IF_T1_L1)
             {
@@ -4803,26 +4795,26 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             assert((imm & 0x00ff) == imm);
             code |= imm;
-            dst += emitOutput_Thumb1Instr(dst, code);
+            dst += WriteThumb1Instr(dst, code);
             break;
 
         case IF_T2_A: // ................ ................
-            code = emitInsCode(ins, fmt);
-            dst += emitOutput_Thumb2Instr(dst, code);
+            code = GetInstrCode(ins, fmt);
+            dst += WriteThumb2Instr(dst, code);
             break;
 
         case IF_T2_B: // ................ ............iiii                          imm4
-            imm  = id->emitGetInsSC();
-            code = emitInsCode(ins, fmt);
+            imm  = id->GetImm();
+            code = GetInstrCode(ins, fmt);
             assert((imm & 0x000F) == imm);
             code |= imm;
-            dst += emitOutput_Thumb2Instr(dst, code);
+            dst += WriteThumb2Instr(dst, code);
             break;
 
         case IF_T2_C0: // ...........Snnnn .iiiddddiishmmmm       R1  R2  R3      S, imm5, sh
         case IF_T2_C4: // ...........Snnnn ....dddd....mmmm       R1  R2  R3      S
         case IF_T2_C5: // ............nnnn ....dddd....mmmm       R1  R2  R3
-            code = emitInsCode(ins, fmt);
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT2RegD(id->idReg1());
             code |= EncodeT2RegN(id->idReg2());
             code |= EncodeT2RegM(id->idReg3());
@@ -4834,19 +4826,19 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
             if (fmt == IF_T2_C0)
             {
-                imm = id->emitGetInsSC();
+                imm = id->GetImm();
                 code |= EncodeShiftCount(imm);
                 code |= EncodeShiftOpts(id->idInsOpt());
             }
 
-            dst += emitOutput_Thumb2Instr(dst, code);
+            dst += WriteThumb2Instr(dst, code);
             break;
 
         case IF_T2_C1: // ...........S.... .iiiddddiishmmmm       R1  R2          S, imm5, sh
         case IF_T2_C2: // ...........S.... .iiiddddii..mmmm       R1  R2          S, imm5
         case IF_T2_C6: // ................ ....dddd..iimmmm       R1  R2                   imm2
-            imm  = id->emitGetInsSC();
-            code = emitInsCode(ins, fmt);
+            imm  = id->GetImm();
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT2RegD(id->idReg1());
             code |= EncodeT2RegM(id->idReg2());
 
@@ -4866,21 +4858,21 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 }
             }
 
-            dst += emitOutput_Thumb2Instr(dst, code);
+            dst += WriteThumb2Instr(dst, code);
             break;
 
         case IF_T2_C3: // ...........S.... ....dddd....mmmm       R1  R2          S
-            code = emitInsCode(ins, fmt);
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT2RegD(id->idReg1());
             code |= EncodeT2RegM(id->idReg2());
             code |= EncodeSetFlags(id->idInsFlags());
-            dst += emitOutput_Thumb2Instr(dst, code);
+            dst += WriteThumb2Instr(dst, code);
             break;
 
         case IF_T2_C7: // T2_C7   ............nnnn ..........shmmmm       R1  R2                   imm2
         case IF_T2_C8: // T2_C8   ............nnnn .iii....iishmmmm       R1  R2             imm5, sh
-            imm  = id->emitGetInsSC();
-            code = emitInsCode(ins, fmt);
+            imm  = id->GetImm();
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT2RegN(id->idReg1());
             code |= EncodeT2RegM(id->idReg2());
 
@@ -4895,28 +4887,28 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code |= EncodeShiftOpts(id->idInsOpt());
             }
 
-            dst += emitOutput_Thumb2Instr(dst, code);
+            dst += WriteThumb2Instr(dst, code);
             break;
 
         case IF_T2_C9: // ............nnnn ............mmmm       R1  R2
-            code = emitInsCode(ins, fmt);
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT2RegN(id->idReg1());
             code |= EncodeT2RegM(id->idReg2());
-            dst += emitOutput_Thumb2Instr(dst, code);
+            dst += WriteThumb2Instr(dst, code);
             break;
 
         case IF_T2_C10: // ............mmmm ....dddd....mmmm       R1  R2
-            code = emitInsCode(ins, fmt);
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT2RegD(id->idReg1());
             code |= EncodeT2RegM(id->idReg2());
             code |= EncodeT2RegN(id->idReg2());
-            dst += emitOutput_Thumb2Instr(dst, code);
+            dst += WriteThumb2Instr(dst, code);
             break;
 
         case IF_T2_D0: // ............nnnn .iiiddddii.wwwww       R1  R2             imm5, imm5
         case IF_T2_D1: // ................ .iiiddddii.wwwww       R1                 imm5, imm5
-            imm  = id->emitGetInsSC();
-            code = emitInsCode(ins, fmt);
+            imm  = id->GetImm();
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT2RegD(id->idReg1());
 
             if (fmt == IF_T2_D0)
@@ -4925,13 +4917,13 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             }
 
             code |= EncodeBitFieldImm(imm);
-            dst += emitOutput_Thumb2Instr(dst, code);
+            dst += WriteThumb2Instr(dst, code);
             break;
 
         case IF_T2_E0: // ............nnnn tttt......shmmmm       R1  R2  R3               imm2
         case IF_T2_E1: // ............nnnn tttt............       R1  R2
         case IF_T2_E2: // ................ tttt............       R1
-            code = emitInsCode(ins, fmt);
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT2RegT(id->idReg1());
 
             if (fmt == IF_T2_E0)
@@ -4946,7 +4938,7 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 else
                 {
                     code |= EncodeT2RegM(id->idReg3());
-                    imm = id->emitGetInsSC();
+                    imm = id->GetImm();
                     assert((imm & 0x0003) == imm);
                     code |= imm << 4;
                 }
@@ -4956,50 +4948,50 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code |= EncodeT2RegN(id->idReg2());
             }
 
-            dst += emitOutput_Thumb2Instr(dst, code);
+            dst += WriteThumb2Instr(dst, code);
             break;
 
         case IF_T2_F1: // ............nnnn ttttdddd....mmmm       R1  R2  R3  R4
-            code = emitInsCode(ins, fmt);
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT2RegT(id->idReg1());
             code |= EncodeT2RegD(id->idReg2());
             code |= EncodeT2RegN(id->idReg3());
             code |= EncodeT2RegM(id->idReg4());
-            dst += emitOutput_Thumb2Instr(dst, code);
+            dst += WriteThumb2Instr(dst, code);
             break;
 
         case IF_T2_F2: // ............nnnn aaaadddd....mmmm       R1  R2  R3  R4
-            code = emitInsCode(ins, fmt);
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT2RegD(id->idReg1());
             code |= EncodeT2RegN(id->idReg2());
             code |= EncodeT2RegM(id->idReg3());
             code |= EncodeT2RegT(id->idReg4());
-            dst += emitOutput_Thumb2Instr(dst, code);
+            dst += WriteThumb2Instr(dst, code);
             break;
 
         case IF_T2_G0: // .......PU.W.nnnn ttttTTTTiiiiiiii       R1  R2  R3         imm8, PUW
         case IF_T2_G1: // ............nnnn ttttTTTT........       R1  R2  R3
-            code = emitInsCode(ins, fmt);
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT2RegT(id->idReg1());
             code |= EncodeT2RegD(id->idReg2());
             code |= EncodeT2RegN(id->idReg3());
 
             if (fmt == IF_T2_G0)
             {
-                imm = id->emitGetInsSC();
+                imm = id->GetImm();
                 assert(unsigned_abs(imm) <= 0x00ff);
                 code |= abs(imm);
                 code |= EncodePUW_G0(id->idInsOpt(), imm);
             }
 
-            dst += emitOutput_Thumb2Instr(dst, code);
+            dst += WriteThumb2Instr(dst, code);
             break;
 
         case IF_T2_H0: // ............nnnn tttt.PUWiiiiiiii       R1  R2             imm8, PUW
         case IF_T2_H1: // ............nnnn tttt....iiiiiiii       R1  R2             imm8
         case IF_T2_H2: // ............nnnn ........iiiiiiii       R1                 imm8
-            imm  = id->emitGetInsSC();
-            code = emitInsCode(ins, fmt);
+            imm  = id->GetImm();
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT2RegT(id->idReg1());
 
             if (fmt != IF_T2_H2)
@@ -5019,12 +5011,12 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code |= imm;
             }
 
-            dst += emitOutput_Thumb2Instr(dst, code);
+            dst += WriteThumb2Instr(dst, code);
             break;
 
         case IF_T2_I0: // ..........W.nnnn rrrrrrrrrrrrrrrr       R1              W, imm16
         case IF_T2_I1: // ................ rrrrrrrrrrrrrrrr                          imm16
-            code = emitInsCode(ins, fmt);
+            code = GetInstrCode(ins, fmt);
 
             if (fmt == IF_T2_I0)
             {
@@ -5032,7 +5024,7 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code |= (1 << 21); //  W bit
             }
 
-            imm = id->emitGetInsSC();
+            imm = id->GetImm();
             assert((imm & 0x3) != 0x3);
 
             if (imm & 0x2)
@@ -5048,14 +5040,14 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             imm >>= 2;
             assert(imm <= 0x1fff); //  13 bits
             code |= imm;
-            dst += emitOutput_Thumb2Instr(dst, code);
+            dst += WriteThumb2Instr(dst, code);
             break;
 
         case IF_T2_K1: // ............nnnn ttttiiiiiiiiiiii       R1  R2             imm12
         case IF_T2_K4: // ........U....... ttttiiiiiiiiiiii       R1  PC          U, imm12
         case IF_T2_K3: // ........U....... ....iiiiiiiiiiii       PC              U, imm12
-            imm  = id->emitGetInsSC();
-            code = emitInsCode(ins, fmt);
+            imm  = id->GetImm();
+            code = GetInstrCode(ins, fmt);
 
             if (fmt != IF_T2_K3)
             {
@@ -5079,23 +5071,23 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 }
             }
 
-            dst += emitOutput_Thumb2Instr(dst, code);
+            dst += WriteThumb2Instr(dst, code);
             break;
 
         case IF_T2_K2: // ............nnnn ....iiiiiiiiiiii       R1                 imm12
-            imm  = id->emitGetInsSC();
-            code = emitInsCode(ins, fmt);
+            imm  = id->GetImm();
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT2RegN(id->idReg1());
             assert(imm <= 0xfff); //  12 bits
             code |= imm;
-            dst += emitOutput_Thumb2Instr(dst, code);
+            dst += WriteThumb2Instr(dst, code);
             break;
 
         case IF_T2_L0: // .....i.....Snnnn .iiiddddiiiiiiii       R1  R2          S, imm8<<imm4
         case IF_T2_L1: // .....i.....S.... .iiiddddiiiiiiii       R1              S, imm8<<imm4
         case IF_T2_L2: // .....i......nnnn .iii....iiiiiiii       R1                 imm8<<imm4
-            imm  = id->emitGetInsSC();
-            code = emitInsCode(ins, fmt);
+            imm  = id->GetImm();
+            code = GetInstrCode(ins, fmt);
 
             if (fmt == IF_T2_L2)
             {
@@ -5118,34 +5110,34 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             code |= (imm & 0x00ff);
             code |= (imm & 0x0700) << 4;
             code |= (imm & 0x0800) << 15;
-            dst += emitOutput_Thumb2Instr(dst, code);
+            dst += WriteThumb2Instr(dst, code);
             break;
 
         case IF_T2_M0: // .....i......nnnn .iiiddddiiiiiiii       R1  R2             imm12
-            imm  = id->emitGetInsSC();
-            code = emitInsCode(ins, fmt);
+            imm  = id->GetImm();
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT2RegD(id->idReg1());
             code |= EncodeT2RegN(id->idReg2());
-            imm = id->emitGetInsSC();
+            imm = id->GetImm();
             assert(imm <= 0xfff); //  12 bits
             code |= (imm & 0x00ff);
             code |= (imm & 0x0700) << 4;
             code |= (imm & 0x0800) << 15;
-            dst += emitOutput_Thumb2Instr(dst, code);
+            dst += WriteThumb2Instr(dst, code);
             break;
 
         case IF_T2_N: // .....i......iiii .iiiddddiiiiiiii       R1                 imm16
             assert(!id->idIsCnsReloc());
-            code = emitInsCode(ins, fmt);
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT2RegD(id->idReg1());
-            code |= EncodeT2MovImmT(id->emitGetInsSC());
-            dst += emitOutput_Thumb2Instr(dst, code);
+            code |= EncodeT2MovImmT(id->GetImm());
+            dst += WriteThumb2Instr(dst, code);
             break;
 
         case IF_T2_N2: // .....i......iiii .iiiddddiiiiiiii       R1                 imm16
-            code = emitInsCode(ins, fmt);
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT2RegD(id->idReg1());
-            imm  = id->emitGetInsSC();
+            imm  = id->GetImm();
             addr = roDataBlock + imm;
 
             if (!id->idIsCnsReloc())
@@ -5163,16 +5155,16 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 }
 
                 code |= EncodeT2MovImmT(imm);
-                dst += emitOutput_Thumb2Instr(dst, code);
+                dst += WriteThumb2Instr(dst, code);
             }
             else
             {
                 assert((ins == INS_movt) || (ins == INS_movw));
-                dst += emitOutput_Thumb2Instr(dst, code);
+                dst += WriteThumb2Instr(dst, code);
 
-                if ((ins == INS_movt) && emitComp->info.compMatchedVM)
+                if ((ins == INS_movt) && compiler->info.compMatchedVM)
                 {
-                    emitHandlePCRelativeMov32((void*)(dst - 8), addr);
+                    RecordPCRelativeMov32Relocation((void*)(dst - 8), addr);
                 }
             }
             break;
@@ -5181,18 +5173,18 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             assert((ins == INS_movt) || (ins == INS_movw));
             assert(id->idIsCnsReloc());
 
-            code = emitInsCode(ins, fmt);
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT2RegD(id->idReg1());
-            dst += emitOutput_Thumb2Instr(dst, code);
+            dst += WriteThumb2Instr(dst, code);
 
-            if ((ins == INS_movt) && emitComp->info.compMatchedVM)
+            if ((ins == INS_movt) && compiler->info.compMatchedVM)
             {
-                emitHandlePCRelativeMov32(dst - 8, id->GetAddr());
+                RecordPCRelativeMov32Relocation(dst - 8, id->GetAddr());
             }
             break;
 
         case IF_T2_VFP3:
-            code = emitInsCode(ins, fmt);
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT2VectorRegN(id->idReg2(), size, true);
             code |= EncodeT2VectorRegM(id->idReg3(), size, true);
             code |= EncodeT2VectorRegD(id->idReg1(), size, true);
@@ -5202,7 +5194,7 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code |= 1 << 8;
             }
 
-            dst += emitOutput_Thumb2Instr(dst, code);
+            dst += WriteThumb2Instr(dst, code);
             break;
 
         case IF_T2_VFP2:
@@ -5241,19 +5233,19 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                     break;
             }
 
-            code = emitInsCode(ins, fmt);
+            code = GetInstrCode(ins, fmt);
             code |= szCode;
             code |= EncodeT2VectorRegD(id->idReg1(), dstSize, true);
             code |= EncodeT2VectorRegM(id->idReg2(), srcSize, true);
-            dst += emitOutput_Thumb2Instr(dst, code);
+            dst += WriteThumb2Instr(dst, code);
             break;
         }
 
         case IF_T2_VLDST:
-            code = emitInsCode(ins, fmt);
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT2RegN(id->idReg2());
             code |= EncodeT2VectorRegD(id->idReg1(), size, true);
-            imm = id->emitGetInsSC();
+            imm = id->GetImm();
 
             if (imm < 0)
             {
@@ -5274,11 +5266,11 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code |= 1 << 8;
             }
 
-            dst += emitOutput_Thumb2Instr(dst, code);
+            dst += WriteThumb2Instr(dst, code);
             break;
 
         case IF_T2_VMOVD:
-            code = emitInsCode(ins, fmt);
+            code = GetInstrCode(ins, fmt);
 
             if (ins == INS_vmov_i2d)
             {
@@ -5294,11 +5286,11 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code |= EncodeT2VectorRegM(id->idReg3(), size, true);
             }
 
-            dst += emitOutput_Thumb2Instr(dst, code);
+            dst += WriteThumb2Instr(dst, code);
             break;
 
         case IF_T2_VMOVS:
-            code = emitInsCode(ins, fmt);
+            code = GetInstrCode(ins, fmt);
 
             if (ins == INS_vmov_f2i)
             {
@@ -5312,20 +5304,20 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 code |= id->idReg2() << 12;
             }
 
-            dst += emitOutput_Thumb2Instr(dst, code);
+            dst += WriteThumb2Instr(dst, code);
             break;
 
         case IF_T1_D1: // .........mmmm...                       R1*
-            code = emitInsCode(ins, fmt);
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT1RegM4(id->idReg1());
-            dst += emitOutput_Thumb1Instr(dst, code);
+            dst += WriteThumb1Instr(dst, code);
             break;
 
         case IF_T1_D2: // .........mmmm...                                R3*
-            code = emitInsCode(ins, fmt);
+            code = GetInstrCode(ins, fmt);
             code |= EncodeT1RegM4(id->idReg3());
-            dst += emitOutput_Thumb1Instr(dst, code);
-            emitRecordGCCall(id, *dp, dst);
+            dst += WriteThumb1Instr(dst, code);
+            RecordGCCall(id, *dp, dst);
             break;
 
         case IF_T2_J3:                    // .....Siiiiiiiiii ..j.jiiiiiiiiii.      Call                imm24
@@ -5338,12 +5330,12 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 addr = id->GetAddr();
             }
 
-            code = emitInsCode(ins, fmt);
+            code = GetInstrCode(ins, fmt);
 
             if (id->idIsCnsReloc())
             {
-                dst += emitOutput_Thumb2Instr(dst, code);
-                emitRecordRelocation((void*)(dst - 4), addr, IMAGE_REL_BASED_THUMB_BRANCH24);
+                dst += WriteThumb2Instr(dst, code);
+                RecordRelocation((void*)(dst - 4), addr, IMAGE_REL_BASED_THUMB_BRANCH24);
             }
             else
             {
@@ -5380,10 +5372,10 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 disp = abs(disp);
                 assert((disp & 0x00fffffe) == disp);
 
-                dst += emitOutput_Thumb2Instr(dst, code);
+                dst += WriteThumb2Instr(dst, code);
             }
 
-            emitRecordGCCall(id, *dp, dst);
+            RecordGCCall(id, *dp, dst);
             break;
 
         default:
@@ -5394,12 +5386,12 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
     // We assume here that "id->idGCref()" is not GC_NONE only if the instruction described by "id" writes a
     // GC ref to register "id->idReg1()".  (It may, apparently, also not be GC_NONE in other cases, such as
     // for stores, but we ignore those cases here.)
-    if (emitInsMayWriteToGCReg(id)) // True if "id->idIns()" writes to a register than can hold GC ref.
+    if (InstrMayWriteToGCReg(id)) // True if "id->idIns()" writes to a register than can hold GC ref.
     {
         // If we ever generate instructions that write to multiple registers (LDM, or POP),
         // then we'd need to more work here to ensure that changes in the status of GC refs are
         // tracked properly.
-        if (emitInsMayWriteMultipleRegs(id))
+        if (InstrMayWriteMultipleRegs(id))
         {
             // We explicitly list the multiple-destination-target instruction that we expect to
             // be emitted outside of the prolog and epilog here.
@@ -5411,8 +5403,8 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
                 case INS_umlal:
                 case INS_vmov_d2i:
                     // For each of these, idReg1() and idReg2() are the destination registers.
-                    emitGCregDeadUpd(id->idReg1(), dst);
-                    emitGCregDeadUpd(id->idReg2(), dst);
+                    RemoveGCLiveReg(id->idReg1(), dst);
+                    RemoveGCLiveReg(id->idReg2(), dst);
                     break;
                 default:
                     assert(false); // We need to recognize this multi-target instruction...
@@ -5422,12 +5414,12 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         {
             if (id->idGCref() != GCT_NONE)
             {
-                emitGCregLiveUpd(id->idGCref(), id->idReg1(), dst);
+                AddGCLiveReg(id->idGCref(), id->idReg1(), dst);
             }
             else
             {
                 // I also assume that "idReg1" is the destination register of all instructions that write to registers.
-                emitGCregDeadUpd(id->idReg1(), dst);
+                RemoveGCLiveReg(id->idReg1(), dst);
             }
         }
     }
@@ -5442,18 +5434,18 @@ void ArmEncoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
         if (isArg)
         {
-            emitGCargLiveUpd(adr, id->idGCref(), dst DEBUGARG(varNum));
+            AddGCLiveCallArg(adr, id->idGCref(), dst DEBUGARG(varNum));
         }
         else
         {
-            emitGCvarLiveUpd(adr, id->idGCref(), dst DEBUGARG(varNum));
+            AddGCLiveSlot(adr, id->idGCref(), dst DEBUGARG(varNum));
         }
     }
 
 #ifdef DEBUG
-    if ((emitComp->opts.disAsm || emitComp->verbose) && (*dp != dst))
+    if ((compiler->opts.disAsm || compiler->verbose) && (*dp != dst))
     {
-        PrintIns(id, *dp, dst - *dp);
+        PrintInstr(id, *dp, dst - *dp);
     }
 #endif
 
@@ -5665,7 +5657,7 @@ void ArmAsmPrinter::PrintBranchLabel(instrDescJmp* id) const
 
         if (id->idjIG == nullptr)
         {
-            // This is the instruction synthesized by encoder's PrintIns, we can't
+            // This is the instruction synthesized by encoder's PrintInstr, we can't
             // get its number because it's not part of an actual instruction group.
             printf("pc%s%d instructions", instrCount >= 0 ? "+" : "", instrCount);
         }
@@ -5843,16 +5835,16 @@ void ArmAsmPrinter::Print(instrDesc* id) const
 
         case IF_T1_L0:
         case IF_T2_B:
-            PrintImm(id->emitGetInsSC(), false);
+            PrintImm(id->GetImm(), false);
             break;
 
         case IF_T1_B:
-            PrintCondition(id->emitGetInsSC());
+            PrintCondition(id->GetImm());
             break;
 
         case IF_T1_L1:
         case IF_T2_I1:
-            PrintRegSet(id->emitGetInsSC(), true);
+            PrintRegSet(id->GetImm(), true);
             break;
 
         case IF_T2_E2:
@@ -5889,20 +5881,20 @@ void ArmAsmPrinter::Print(instrDesc* id) const
 
         case IF_T1_F:
             PrintReg(REG_SP, attr, true);
-            PrintImm(id->emitGetInsSC(), false);
+            PrintImm(id->GetImm(), false);
             break;
 
         case IF_T1_J0:
         case IF_T2_L1:
         case IF_T2_L2:
             PrintReg(id->idReg1(), attr, true);
-            imm = id->emitGetInsSC();
+            imm = id->GetImm();
             PrintImm(imm, false, false);
             break;
 
         case IF_T2_N:
             PrintReg(id->idReg1(), attr, true);
-            imm = compiler->opts.disDiffable ? 0xD1FF : id->emitGetInsSC();
+            imm = compiler->opts.disDiffable ? 0xD1FF : id->GetImm();
             PrintImm(imm, false, true);
             break;
 
@@ -5914,23 +5906,23 @@ void ArmAsmPrinter::Print(instrDesc* id) const
 
         case IF_T2_N2:
             PrintReg(id->idReg1(), attr, true);
-            printf("%s RWD%02u", ins == INS_movw ? "LOW" : "HIGH", id->emitGetInsSC());
+            printf("%s RWD%02u", ins == INS_movw ? "LOW" : "HIGH", id->GetImm());
             break;
 
         case IF_T2_H2:
         case IF_T2_K2:
-            PrintAddrMode(id->idReg1(), id->emitGetInsSC(), attr);
+            PrintAddrMode(id->idReg1(), id->GetImm(), attr);
             break;
 
         case IF_T2_K3:
-            PrintAddrMode(REG_PC, id->emitGetInsSC(), attr);
+            PrintAddrMode(REG_PC, id->GetImm(), attr);
             break;
 
         case IF_T1_J1:
         case IF_T2_I0:
             PrintReg(id->idReg1(), attr, false);
             printf("!, ");
-            PrintRegSet(id->emitGetInsSC(), false);
+            PrintRegSet(id->GetImm(), false);
             break;
 
         case IF_T1_D0:
@@ -5954,7 +5946,7 @@ void ArmAsmPrinter::Print(instrDesc* id) const
 
         case IF_T2_D1:
             PrintReg(id->idReg1(), attr, true);
-            imm  = id->emitGetInsSC();
+            imm  = id->GetImm();
             imm1 = (imm >> 5) & 0x1f;
             imm2 = (imm & 0x1f) + 1 - imm1;
             PrintImm(imm1, true);
@@ -5969,7 +5961,7 @@ void ArmAsmPrinter::Print(instrDesc* id) const
         case IF_T2_L0:
         case IF_T2_M0:
             PrintReg(id->idReg1(), attr, true);
-            imm = id->emitGetInsSC();
+            imm = id->GetImm();
 
             if (IsLoadStoreIns(ins))
             {
@@ -5984,7 +5976,7 @@ void ArmAsmPrinter::Print(instrDesc* id) const
 
         case IF_T1_J2:
             PrintReg(id->idReg1(), attr, true);
-            imm = id->emitGetInsSC();
+            imm = id->GetImm();
 
             if (IsLoadStoreIns(ins))
             {
@@ -5999,14 +5991,14 @@ void ArmAsmPrinter::Print(instrDesc* id) const
 
         case IF_T2_K4:
             PrintReg(id->idReg1(), attr, true);
-            PrintAddrMode(REG_PC, id->emitGetInsSC(), attr);
+            PrintAddrMode(REG_PC, id->GetImm(), attr);
             break;
 
         case IF_T2_C1:
         case IF_T2_C8:
             PrintReg(id->idReg1(), attr, true);
             PrintReg(id->idReg2(), attr, false);
-            imm = id->emitGetInsSC();
+            imm = id->GetImm();
 
             if (id->idInsOpt() == INS_OPTS_RRX)
             {
@@ -6021,7 +6013,7 @@ void ArmAsmPrinter::Print(instrDesc* id) const
             break;
 
         case IF_T2_C6:
-            imm = id->emitGetInsSC();
+            imm = id->GetImm();
             PrintReg(id->idReg1(), attr, true);
             PrintReg(id->idReg2(), attr, (imm != 0));
 
@@ -6032,12 +6024,12 @@ void ArmAsmPrinter::Print(instrDesc* id) const
             break;
 
         case IF_T2_C7:
-            PrintAddrMode(id->idReg1(), id->idReg2(), id->emitGetInsSC(), attr);
+            PrintAddrMode(id->idReg1(), id->idReg2(), id->GetImm(), attr);
             break;
 
         case IF_T2_H0:
             PrintReg(id->idReg1(), attr, true);
-            PrintAddrMode(id->idReg2(), id->emitGetInsSC(), id->idInsOpt(), attr);
+            PrintAddrMode(id->idReg2(), id->GetImm(), id->idInsOpt(), attr);
             break;
 
         case IF_T1_H:
@@ -6092,7 +6084,7 @@ void ArmAsmPrinter::Print(instrDesc* id) const
             break;
 
         case IF_T2_VLDST:
-            imm = id->emitGetInsSC();
+            imm = id->GetImm();
 
             switch (id->idIns())
             {
@@ -6146,7 +6138,7 @@ void ArmAsmPrinter::Print(instrDesc* id) const
         case IF_T2_D0:
             PrintReg(id->idReg1(), attr, true);
             PrintReg(id->idReg2(), attr, true);
-            imm  = id->emitGetInsSC();
+            imm  = id->GetImm();
             imm1 = (imm >> 5) & 0x1f;
             imm2 = (imm & 0x1f) + 1 - (ins == INS_bfi ? imm1 : 0);
             PrintImm(imm1, true);
@@ -6157,7 +6149,7 @@ void ArmAsmPrinter::Print(instrDesc* id) const
             PrintReg(id->idReg1(), attr, true);
             PrintReg(id->idReg2(), attr, true);
             PrintReg(id->idReg3(), attr, false);
-            imm = id->emitGetInsSC();
+            imm = id->GetImm();
 
             if (id->idInsOpt() == INS_OPTS_RRX)
             {
@@ -6180,14 +6172,14 @@ void ArmAsmPrinter::Print(instrDesc* id) const
             }
             else
             {
-                PrintAddrMode(id->idReg2(), id->idReg3(), id->emitGetInsSC(), attr);
+                PrintAddrMode(id->idReg2(), id->idReg3(), id->GetImm(), attr);
             }
             break;
 
         case IF_T2_G0:
             PrintReg(id->idReg1(), attr, true);
             PrintReg(id->idReg2(), attr, true);
-            PrintAddrMode(id->idReg3(), id->emitGetInsSC(), id->idInsOpt(), attr);
+            PrintAddrMode(id->idReg3(), id->GetImm(), id->idInsOpt(), attr);
             break;
 
         case IF_T2_F1:
@@ -6216,7 +6208,7 @@ void ArmAsmPrinter::Print(instrDesc* id) const
             break;
 
         default:
-            printf("unexpected format %s", EmitterBase::emitIfName(fmt));
+            printf("unexpected format %s", EmitterBase::GetFormatName(fmt));
             assert(!"unexpectedFormat");
             break;
     }
@@ -6229,9 +6221,9 @@ void ArmAsmPrinter::Print(instrDesc* id) const
     printf("\n");
 }
 
-void ArmEmitter::PrintIns(instrDesc* id)
+void ArmEmitter::PrintInstr(instrDesc* id)
 {
-    ArmAsmPrinter printer(emitComp, codeGen);
+    ArmAsmPrinter printer(compiler, codeGen);
     printer.Print(id);
 }
 
@@ -6251,7 +6243,7 @@ static void PrintHexCode(uint8_t* code, size_t sz)
     }
 }
 
-void ArmEncoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
+void ArmEncoder::PrintInstr(instrDesc* id, uint8_t* code, size_t sz)
 {
     insFormat fmt = id->idInsFmt();
 
@@ -6260,12 +6252,12 @@ void ArmEncoder::PrintIns(instrDesc* id, uint8_t* code, size_t sz)
 
         PrintInsAddr(code);
 
-        if (!emitComp->opts.disDiffable)
+        if (!compiler->opts.disDiffable)
         {
             PrintHexCode(code, sz);
         }
 
-        ArmAsmPrinter printer(emitComp, codeGen);
+        ArmAsmPrinter printer(compiler, codeGen);
         printer.Print(id);
     };
 
@@ -6321,7 +6313,7 @@ void ArmAsmPrinter::PrintFrameRef(instrDesc* id) const
 
 void Encoder::PrintAlignmentBoundary(size_t instrAddr, size_t instrEndAddr, const instrDesc* instr, const instrDesc*)
 {
-    const size_t alignment    = emitComp->opts.compJitAlignLoopBoundary;
+    const size_t alignment    = compiler->opts.compJitAlignLoopBoundary;
     const size_t boundaryAddr = instrEndAddr & ~(alignment - 1);
 
     if (instrAddr < boundaryAddr)
@@ -6346,12 +6338,12 @@ void Encoder::PrintAlignmentBoundary(size_t instrAddr, size_t instrEndAddr, cons
 
 #if defined(DEBUG) || defined(LATE_DISASM)
 
-Encoder::insExecutionCharacteristics Encoder::getInsExecutionCharacteristics(instrDesc* id)
+Encoder::InstrPerfScore Encoder::GetInstrPerfScore(instrDesc* id)
 {
     // ToDo: Calculate actual throughput and latency values
-    insExecutionCharacteristics result;
-    result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-    result.insLatency    = PERFSCORE_LATENCY_1C;
+    InstrPerfScore result;
+    result.throughput = PERFSCORE_THROUGHPUT_1C;
+    result.latency    = PERFSCORE_LATENCY_1C;
     return result;
 }
 

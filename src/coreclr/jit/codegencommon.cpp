@@ -790,7 +790,7 @@ void CodeGen::genEmitMachineCode()
     gcInfo.Begin(emit.GetMaxStackDepth());
 #endif
 
-    emit.emitEndCodeGen(gcInfo);
+    emit.Encode(gcInfo);
 
 #ifdef DEBUG
     if (compiler->opts.disAsm || compiler->verbose)
@@ -1250,9 +1250,10 @@ void CodeGen::dispOutgoingEHClause(unsigned num, const CORINFO_EH_CLAUSE& clause
 {
     if (compiler->opts.dspDiffable)
     {
-        printf("EH#%u: try [%s..%s) handled by [%s..%s) ", num, GetEmitter()->emitOffsetToLabel(clause.TryOffset),
-               GetEmitter()->emitOffsetToLabel(clause.TryLength), GetEmitter()->emitOffsetToLabel(clause.HandlerOffset),
-               GetEmitter()->emitOffsetToLabel(clause.HandlerLength));
+        printf("EH#%u: try [%s..%s) handled by [%s..%s) ", num, GetEmitter()->GetOffsetToLabelString(clause.TryOffset),
+               GetEmitter()->GetOffsetToLabelString(clause.TryLength),
+               GetEmitter()->GetOffsetToLabelString(clause.HandlerOffset),
+               GetEmitter()->GetOffsetToLabelString(clause.HandlerLength));
     }
     else
     {
@@ -1274,8 +1275,8 @@ void CodeGen::dispOutgoingEHClause(unsigned num, const CORINFO_EH_CLAUSE& clause
         case CORINFO_EH_CLAUSE_FILTER:
             if (compiler->opts.dspDiffable)
             {
-                printf("filter at [%s..%s)", GetEmitter()->emitOffsetToLabel(clause.ClassToken),
-                       GetEmitter()->emitOffsetToLabel(clause.HandlerOffset));
+                printf("filter at [%s..%s)", GetEmitter()->GetOffsetToLabelString(clause.ClassToken),
+                       GetEmitter()->GetOffsetToLabelString(clause.HandlerOffset));
             }
             else
             {
@@ -2981,11 +2982,11 @@ void CodeGen::MarkGCTrackedSlots(int&       minBlockInitOffset,
     {
         JITDUMP("%u tracked GC refs in frame range ", (maxGCTrackedOffset - minGCTrackedOffset) / REGSIZE_BYTES + 1);
 #ifdef TARGET_ARMARCH
-        JITDUMP("[%s,#%d] - [%s,#%d]\n", GetEmitter()->emitGetFrameReg(), minGCTrackedOffset,
-                GetEmitter()->emitGetFrameReg(), maxGCTrackedOffset);
+        JITDUMP("[%s,#%d] - [%s,#%d]\n", GetEmitter()->GetFrameRegName(), minGCTrackedOffset,
+                GetEmitter()->GetFrameRegName(), maxGCTrackedOffset);
 #else
-        JITDUMP("[%s%c%02XH] - [%s%c%02XH]\n", GetEmitter()->emitGetFrameReg(), minGCTrackedOffset < 0 ? '-' : '+',
-                abs(minGCTrackedOffset), GetEmitter()->emitGetFrameReg(), maxGCTrackedOffset < 0 ? '-' : '+',
+        JITDUMP("[%s%c%02XH] - [%s%c%02XH]\n", GetEmitter()->GetFrameRegName(), minGCTrackedOffset < 0 ? '-' : '+',
+                abs(minGCTrackedOffset), GetEmitter()->GetFrameRegName(), maxGCTrackedOffset < 0 ? '-' : '+',
                 abs(maxGCTrackedOffset));
 #endif
     }
@@ -3731,7 +3732,7 @@ void CodeGen::genFnProlog()
 
     ScopedSetVariable<bool> _setGeneratingProlog(&generatingProlog, true);
     funSetCurrentFunc(0);
-    GetEmitter()->emitBegProlog();
+    GetEmitter()->BeginMainProlog();
     unwindBegProlog();
     liveness.BeginPrologEpilogCodeGen();
 
