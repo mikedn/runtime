@@ -205,7 +205,7 @@ void CodeGen::SetThrowHelperBlockStackLevel(BasicBlock* block)
 
         if (genStackLevel != 0)
         {
-            GetEmitter()->emitMarkStackLvl(genStackLevel);
+            GetEmitter()->SetStackLevel(genStackLevel);
             GetEmitter()->emitIns_R_I(INS_add, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(genStackLevel));
             SetStackLevel(0);
         }
@@ -303,7 +303,7 @@ void CodeGen::GenCallFinally(BasicBlock* block)
         // Because of the way the flowgraph is connected, the liveness info for this one instruction
         // after the call is not (can not be) correct in cases where a variable has a last use in the
         // handler.  So turn off GC reporting for this single instruction.
-        GetEmitter()->emitDisableGC();
+        GetEmitter()->DisableGC();
 #endif
 
         // Now go to where the finally funclet needs to return to.
@@ -321,7 +321,7 @@ void CodeGen::GenCallFinally(BasicBlock* block)
         }
 
 #ifndef JIT32_GCENCODER
-        GetEmitter()->emitEnableGC();
+        GetEmitter()->EnableGC();
 #endif
     }
 
@@ -1182,19 +1182,19 @@ void CodeGen::inst_JCC(GenCondition condition, insGroup* label)
 
     if (desc.oper == GT_NONE)
     {
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), label);
+        emit.emitIns_J(JumpKindToJcc(desc.jumpKind1), label);
     }
     else if (desc.oper == GT_OR)
     {
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), label);
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), label);
+        emit.emitIns_J(JumpKindToJcc(desc.jumpKind1), label);
+        emit.emitIns_J(JumpKindToJcc(desc.jumpKind2), label);
     }
     else
     {
         assert(desc.oper == GT_AND);
         insGroup* labelNext = emit.CreateTempLabel();
-        emit.emitIns_J(emitter::emitJumpKindToBranch(emitter::emitReverseJumpKind(desc.jumpKind1)), labelNext);
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), label);
+        emit.emitIns_J(JumpKindToJcc(ReverseJumpKind(desc.jumpKind1)), labelNext);
+        emit.emitIns_J(JumpKindToJcc(desc.jumpKind2), label);
         emit.DefineTempLabel(labelNext);
     }
 }
@@ -1207,15 +1207,15 @@ void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstRe
     const GenConditionDesc& desc = GenConditionDesc::Get(condition);
     Emitter&                emit = *GetEmitter();
 
-    emit.emitIns_R(emitter::emitJumpKindToSetcc(desc.jumpKind1), EA_1BYTE, dstReg);
+    emit.emitIns_R(JumpKindToSetcc(desc.jumpKind1), EA_1BYTE, dstReg);
 
     if (desc.oper != GT_NONE)
     {
-        emitJumpKind jcc = (desc.oper == GT_OR) ? desc.jumpKind1 : emitter::emitReverseJumpKind(desc.jumpKind1);
+        emitJumpKind jcc = (desc.oper == GT_OR) ? desc.jumpKind1 : ReverseJumpKind(desc.jumpKind1);
 
         insGroup* labelNext = emit.CreateTempLabel();
-        emit.emitIns_J(emitter::emitJumpKindToBranch(jcc), labelNext);
-        emit.emitIns_R(emitter::emitJumpKindToSetcc(desc.jumpKind2), EA_1BYTE, dstReg);
+        emit.emitIns_J(JumpKindToJcc(jcc), labelNext);
+        emit.emitIns_R(JumpKindToSetcc(desc.jumpKind2), EA_1BYTE, dstReg);
         emit.DefineTempLabel(labelNext);
     }
 
@@ -1249,7 +1249,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
     {
 #ifndef JIT32_GCENCODER
         case GT_START_NONGC:
-            GetEmitter()->emitDisableGC();
+            GetEmitter()->DisableGC();
             break;
 #endif
 
@@ -1502,12 +1502,12 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_LOCKADD:
-            genCodeForLockAdd(treeNode->AsOp());
+            GenLockAdd(treeNode->AsOp());
             break;
 
         case GT_XCHG:
         case GT_XADD:
-            genLockedInstructions(treeNode->AsOp());
+            GenInterlocked(treeNode->AsOp());
             break;
 
         case GT_XORR:
@@ -1520,7 +1520,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 
         case GT_CMPXCHG:
-            genCodeForCmpXchg(treeNode->AsCmpXchg());
+            GenCmpXchg(treeNode->AsCmpXchg());
             break;
 
         case GT_NOP:
@@ -1566,7 +1566,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             noway_assert((liveness.GetGCRegs() & ~fullIntArgRegMask()) == 0);
 #ifdef PSEUDORANDOM_NOP_INSERTION
             // the runtime side requires the codegen here to be consistent
-            GetEmitter()->emitDisableRandomNops();
+            GetEmitter()->DisableRandomNops();
 #endif
             break;
 
@@ -2562,7 +2562,7 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
     if (layout->HasGCPtr())
     {
 #ifndef JIT32_GCENCODER
-        GetEmitter()->emitDisableGC();
+        GetEmitter()->DisableGC();
 #else
         unreached();
 #endif
@@ -2735,7 +2735,7 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
     if (layout->HasGCPtr())
     {
 #ifndef JIT32_GCENCODER
-        GetEmitter()->emitEnableGC();
+        GetEmitter()->EnableGC();
 #else
         unreached();
 #endif
@@ -3134,15 +3134,13 @@ void CodeGen::GenSwitchTable(GenTreeOp* node)
 #endif
 }
 
-void CodeGen::genCodeForLockAdd(GenTreeOp* node)
+void CodeGen::GenLockAdd(GenTreeOp* node)
 {
     assert(node->OperIs(GT_LOCKADD));
 
     GenTree* addr  = node->GetOp(0);
     GenTree* value = node->GetOp(1);
     emitAttr size  = emitActualTypeSize(value->GetType());
-
-    assert((size == EA_4BYTE) || (size == EA_PTRSIZE));
 
     regNumber addrReg  = UseReg(addr);
     regNumber valueReg = value->isUsedFromReg() ? UseReg(value) : REG_NA;
@@ -3159,26 +3157,23 @@ void CodeGen::genCodeForLockAdd(GenTreeOp* node)
     }
 }
 
-void CodeGen::genLockedInstructions(GenTreeOp* node)
+void CodeGen::GenInterlocked(GenTreeOp* node)
 {
     assert(node->OperIs(GT_XADD, GT_XCHG));
 
-    GenTree* addr = node->gtGetOp1();
-    GenTree* data = node->gtGetOp2();
-    emitAttr size = emitTypeSize(node->TypeGet());
-
+    emitAttr size = emitTypeSize(node->GetType());
     assert((size == EA_4BYTE) || (size == EA_PTRSIZE));
 
-    regNumber addrReg = UseReg(addr);
-    regNumber dataReg = UseReg(data);
-    regNumber dstReg  = node->GetRegNum();
+    GenTree* addr  = node->GetOp(0);
+    GenTree* value = node->GetOp(1);
 
-    // If the destination register is different from the shift register then we need
-    // to first move the shift to the target register. Make sure we don't overwrite
-    // the address, the register allocator should have taken care of this.
-    assert((dstReg != addrReg) || (dstReg == dataReg));
+    RegNum addrReg  = UseReg(addr);
+    RegNum valueReg = UseReg(value);
+    RegNum destReg  = node->GetRegNum();
 
-    GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, dataReg, /* canSkip */ true);
+    assert((destReg != addrReg) || (destReg == valueReg));
+
+    GetEmitter()->emitIns_Mov(INS_mov, size, destReg, valueReg, /* canSkip */ true);
 
     instruction ins = node->OperIs(GT_XADD) ? INS_xadd : INS_xchg;
 
@@ -3188,40 +3183,32 @@ void CodeGen::genLockedInstructions(GenTreeOp* node)
         GetEmitter()->emitIns_Lock();
     }
 
-    GetEmitter()->emitIns_AR_R(ins, size, dstReg, addrReg, 0);
-    genProduceReg(node);
+    GetEmitter()->emitIns_AR_R(ins, size, destReg, addrReg, 0);
+    DefReg(node);
 }
 
-void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* tree)
+void CodeGen::GenCmpXchg(GenTreeCmpXchg* node)
 {
-    assert(tree->OperIs(GT_CMPXCHG));
+    emitAttr size = emitActualTypeSize(node->GetType());
 
-    var_types targetType = tree->TypeGet();
-    regNumber targetReg  = tree->GetRegNum();
+    GenTree* addr      = node->GetAddr();
+    GenTree* value     = node->GetValue();
+    GenTree* comparand = node->GetCompareValue();
 
-    GenTree* location  = tree->GetAddr();
-    GenTree* value     = tree->GetValue();
-    GenTree* comparand = tree->GetCompareValue();
+    RegNum addrReg      = UseReg(addr);
+    RegNum valueReg     = UseReg(value);
+    RegNum comparandReg = UseReg(comparand);
+    RegNum destReg      = node->GetRegNum();
 
-    assert(location->GetRegNum() != REG_NA && location->GetRegNum() != REG_RAX);
-    assert(value->GetRegNum() != REG_NA && value->GetRegNum() != REG_RAX);
+    assert(addrReg != REG_RAX);
+    assert(valueReg != REG_RAX);
 
-    genConsumeReg(location);
-    genConsumeReg(value);
-    genConsumeReg(comparand);
-
-    // comparand goes to RAX;
-    // Note that we must issue this move after the genConsumeRegs(), in case any of the above
-    // have a GT_COPY from RAX.
-    inst_Mov(comparand->TypeGet(), REG_RAX, comparand->GetRegNum(), /* canSkip */ true);
-
+    GetEmitter()->emitIns_Mov(INS_mov, size, REG_RAX, comparandReg, /* canSkip */ true);
     GetEmitter()->emitIns_Lock();
-    GetEmitter()->emitIns_AR_R(INS_cmpxchg, emitTypeSize(targetType), value->GetRegNum(), location->GetRegNum(), 0);
+    GetEmitter()->emitIns_AR_R(INS_cmpxchg, size, valueReg, addrReg, 0);
+    GetEmitter()->emitIns_Mov(INS_mov, size, destReg, REG_RAX, /* canSkip */ true);
 
-    // Result is in RAX
-    inst_Mov(targetType, targetReg, REG_RAX, /* canSkip */ true);
-
-    genProduceReg(tree);
+    DefReg(node);
 }
 
 void CodeGen::GenMemoryBarrier(GenTree* barrier)
@@ -5090,7 +5077,7 @@ void CodeGen::GenJmp(GenTree* jmp)
     assert(compiler->lvaGetDesc(0u)->GetParamReg() == REG_RCX);
 
     // We have no way of knowing if args contain GC references.
-    GetEmitter()->emitDisableGC();
+    GetEmitter()->DisableGC();
 
     for (unsigned i = 0; i < MAX_REG_ARG; ++i)
     {
@@ -5104,7 +5091,7 @@ void CodeGen::GenJmp(GenTree* jmp)
     }
 
     // The epilog, which is not interruptible, should follow right after this code.
-    GetEmitter()->emitEnableGC();
+    GetEmitter()->EnableGC();
 #endif // WINDOWS_AMD64_ABI
 }
 
@@ -9247,12 +9234,12 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throw
         }
 #endif
 
-        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(condition), throwBlock->emitLabel);
+        GetEmitter()->emitIns_J(JumpKindToJcc(condition), throwBlock->emitLabel);
     }
     else
     {
         insGroup* label = GetEmitter()->CreateTempLabel();
-        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(emitter::emitReverseJumpKind(condition)), label);
+        GetEmitter()->emitIns_J(JumpKindToJcc(ReverseJumpKind(condition)), label);
         genEmitHelperCall(Compiler::GetThrowHelperCall(throwKind));
         GetEmitter()->DefineTempLabel(label);
     }

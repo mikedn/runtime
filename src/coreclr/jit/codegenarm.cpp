@@ -28,7 +28,7 @@ void CodeGen::genInstrWithConstant(instruction ins, regNumber reg1, regNumber re
 {
     assert((ins == INS_add) || (ins == INS_sub));
 
-    if (emitter::validImmForInstr(ins, imm))
+    if (ArmImm::IsAddImm(imm, INS_FLAGS_DONT_CARE))
     {
         GetEmitter()->emitIns_R_R_I(ins, EA_4BYTE, reg1, reg2, imm);
     }
@@ -160,7 +160,7 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
     // TODO-MIKE-Review: Why the crap does ARM use ssize_t for imm?!?
     const int32_t val32 = static_cast<int32_t>(imm);
 
-    if (emitter::emitIns_valid_imm_for_mov(val32))
+    if (ArmImm::IsMovImm(val32))
     {
         GetEmitter()->emitIns_R_I(INS_mov, size, reg, val32);
 
@@ -170,7 +170,7 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
     const int imm_lo16 = val32 & 0xffff;
     const int imm_hi16 = (val32 >> 16) & 0xffff;
 
-    assert(emitter::emitIns_valid_imm_for_mov(imm_lo16));
+    assert(ArmImm::IsMovImm(imm_lo16));
     assert(imm_hi16 != 0);
 
     GetEmitter()->emitIns_R_I(INS_movw, size, reg, imm_lo16);
@@ -180,7 +180,7 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
     // halfword and save two bytes of encoding. This can happen for
     // small magnitude negative numbers 'n' for -32768 <= n <= -1.
 
-    if (GetEmitter()->isLowRegister(reg) && (imm_hi16 == 0xffff) && ((imm_lo16 & 0x8000) == 0x8000))
+    if (IsLowRegister(reg) && (imm_hi16 == 0xffff) && ((imm_lo16 & 0x8000) == 0x8000))
     {
         GetEmitter()->emitIns_Mov(INS_sxth, EA_4BYTE, reg, reg, /* canSkip */ false);
     }
@@ -1190,7 +1190,7 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
     emitter::EmitCallType callKind;
     void*                 callAddr;
 
-    if ((addr == nullptr) || !emitter::validImmForBL(reinterpret_cast<ssize_t>(addr), compiler))
+    if ((addr == nullptr) || !ArmImm::IsBlImm(reinterpret_cast<ssize_t>(addr), compiler))
     {
         if (callTargetReg == REG_NA)
         {
@@ -1414,7 +1414,7 @@ void CodeGen::PrologAllocMainLclFrame(RegNum initReg, bool* initRegZeroed)
         int SPtoFPdelta          = (calleeRegsPushed - 2) * REGSIZE_BYTES;
         afterLclFrameSPtoFPdelta = SPtoFPdelta + lclFrameSize;
 
-        if (!emitter::emitIns_valid_imm_for_add_sp(afterLclFrameSPtoFPdelta))
+        if (!ArmImm::IsAddSpImm(afterLclFrameSPtoFPdelta))
         {
             PrologEstablishFramePointer(SPtoFPdelta, /*reportUnwindData*/ true);
             needToEstablishFP = false;
@@ -1492,7 +1492,7 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
 
 void CodeGen::PrologEstablishFramePointer(int delta, bool reportUnwindData)
 {
-    assert(emitter::emitIns_valid_imm_for_add_sp(delta));
+    assert(ArmImm::IsAddSpImm(delta));
 
     GetEmitter()->emitIns_R_R_I(INS_add, EA_4BYTE, REG_FP, REG_SP, delta);
 
@@ -1578,7 +1578,7 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
     {
         if (offset != 0)
         {
-            assert(emitter::emitIns_valid_imm_for_add(offset, INS_FLAGS_DONT_CARE));
+            assert(ArmImm::IsAddImm(offset, INS_FLAGS_DONT_CARE));
 
             emit->emitIns_R_R_I(ins, attr, valueReg, addr->GetRegNum(), offset);
         }
@@ -1605,7 +1605,7 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
 
     if (index == nullptr)
     {
-        if (emitter::emitIns_valid_imm_for_ldst_offset(offset, attr))
+        if (ArmImm::IsLdStImm(offset, attr))
         {
             emit->emitIns_R_R_I(ins, attr, valueReg, base->GetRegNum(), offset);
         }
@@ -1644,9 +1644,9 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
     regNumber tmpReg  = indir->GetSingleTempReg();
     emitAttr  tmpAttr = varTypeIsGC(base->GetType()) ? EA_BYREF : EA_4BYTE;
 
-    noway_assert(emitter::emitInsIsLoad(ins) || (tmpReg != valueReg));
+    noway_assert(IsLoadIns(ins) || (tmpReg != valueReg));
 
-    if (!emitter::emitIns_valid_imm_for_add(offset, INS_FLAGS_DONT_CARE))
+    if (!ArmImm::IsAddImm(offset, INS_FLAGS_DONT_CARE))
     {
         noway_assert(tmpReg != indexReg);
 
@@ -1852,20 +1852,20 @@ void CodeGen::inst_JCC(GenCondition condition, insGroup* label)
 
     if (desc.oper == GT_NONE)
     {
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), label);
+        emit.emitIns_J(JumpKindToJcc(desc.jumpKind1), label);
     }
     else if (desc.oper == GT_OR)
     {
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), label);
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), label);
+        emit.emitIns_J(JumpKindToJcc(desc.jumpKind1), label);
+        emit.emitIns_J(JumpKindToJcc(desc.jumpKind2), label);
     }
     else
     {
         assert(desc.oper == GT_AND);
 
         insGroup* labelNext = emit.CreateTempLabel();
-        emit.emitIns_J(emitter::emitJumpKindToBranch(emitter::emitReverseJumpKind(desc.jumpKind1)), labelNext);
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), label);
+        emit.emitIns_J(JumpKindToJcc(ReverseJumpKind(desc.jumpKind1)), labelNext);
+        emit.emitIns_J(JumpKindToJcc(desc.jumpKind2), label);
         emit.DefineTempLabel(labelNext);
     }
 }
@@ -1882,20 +1882,20 @@ void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstRe
 
     if (desc.oper == GT_NONE)
     {
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), labelTrue);
+        emit.emitIns_J(JumpKindToJcc(desc.jumpKind1), labelTrue);
     }
     else if (desc.oper == GT_OR)
     {
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), labelTrue);
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), labelTrue);
+        emit.emitIns_J(JumpKindToJcc(desc.jumpKind1), labelTrue);
+        emit.emitIns_J(JumpKindToJcc(desc.jumpKind2), labelTrue);
     }
     else
     {
         assert(desc.oper == GT_AND);
 
         insGroup* labelNext = emit.CreateTempLabel();
-        emit.emitIns_J(emitter::emitJumpKindToBranch(emitter::emitReverseJumpKind(desc.jumpKind1)), labelNext);
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), labelTrue);
+        emit.emitIns_J(JumpKindToJcc(ReverseJumpKind(desc.jumpKind1)), labelNext);
+        emit.emitIns_J(JumpKindToJcc(desc.jumpKind2), labelTrue);
         emit.DefineTempLabel(labelNext);
     }
 
@@ -1911,7 +1911,7 @@ void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emi
 {
     assert(ins != INS_mov);
     assert(size != EA_8BYTE);
-    noway_assert(emitter::validImmForInstr(ins, val, INS_FLAGS_DONT_CARE));
+    noway_assert(ArmImm::IsImm(ins, val, INS_FLAGS_DONT_CARE));
 
     GetEmitter()->emitIns_R_I(ins, size, reg, val, INS_FLAGS_DONT_CARE);
 }
@@ -2105,7 +2105,7 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
     // rAddr is not a live incoming argument reg
     assert((genRegMask(rAddr) & paramRegState.intRegLiveIn) == RBM_NONE);
 
-    if (emitter::emitIns_valid_imm_for_add(untrLclLo))
+    if (ArmImm::IsAddImm(untrLclLo, INS_FLAGS_DONT_CARE))
     {
         GetEmitter()->emitIns_R_R_I(INS_add, EA_4BYTE, rAddr, genFramePointerReg(), untrLclLo);
     }
@@ -2262,7 +2262,7 @@ void CodeGen::genFreeLclFrame(unsigned frameSize, /* IN OUT */ bool* pUnwindStar
     // need an unwind code. We don't want to generate a "NOP" code for this
     // temp register load; we want the unwind codes to start after that.
 
-    if (emitter::validImmForInstr(INS_add, frameSize))
+    if (ArmImm::IsImm(INS_add, frameSize, INS_FLAGS_DONT_CARE))
     {
         if (!*pUnwindStarted)
         {
@@ -2887,12 +2887,12 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throw
             assert(throwBlock != nullptr);
         }
 
-        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(condition), throwBlock->emitLabel);
+        GetEmitter()->emitIns_J(JumpKindToJcc(condition), throwBlock->emitLabel);
     }
     else
     {
         insGroup* label = GetEmitter()->CreateTempLabel();
-        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(emitter::emitReverseJumpKind(condition)), label);
+        GetEmitter()->emitIns_J(JumpKindToJcc(ReverseJumpKind(condition)), label);
         genEmitHelperCall(Compiler::GetThrowHelperCall(throwKind));
         GetEmitter()->DefineTempLabel(label);
     }

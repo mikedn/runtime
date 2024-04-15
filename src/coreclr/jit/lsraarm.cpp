@@ -6,7 +6,7 @@
 #ifdef TARGET_ARM
 
 #include "lsra.h"
-#include "emit.h"
+#include "jitgcinfo.h"
 
 void LinearScan::BuildNode(GenTree* tree)
 {
@@ -358,7 +358,7 @@ void LinearScan::BuildAddrMode(GenTreeAddrMode* lea)
     if (lea->GetBase() != nullptr)
     {
         if (((lea->GetIndex() != nullptr) && (lea->GetOffset() != 0)) ||
-            !emitter::emitIns_valid_imm_for_add(lea->GetOffset(), INS_FLAGS_DONT_CARE))
+            !ArmImm::IsAddImm(lea->GetOffset(), INS_FLAGS_DONT_CARE))
         {
             BuildInternalIntDef(lea);
             BuildInternalUses();

@@ -60,7 +60,10 @@ void GCInfo::Begin()
 #endif
     }
 
-    if (ReportCallSites() && (maxStackDepth <= ArgsBitStackMaxDepth))
+    assert(maxStackDepth % REGSIZE_BYTES == 0);
+    unsigned maxStackSlots = maxStackDepth / REGSIZE_BYTES;
+
+    if (ReportCallSites() && (maxStackSlots <= ArgsBitStackMaxDepth))
     {
         useArgsBitStack = true;
 
@@ -70,15 +73,15 @@ void GCInfo::Begin()
     else
     {
         argsStack.reportCount = 0;
-        argsStack.maxCount    = maxStackDepth;
+        argsStack.maxCount    = maxStackSlots;
 
-        if (maxStackDepth <= _countof(argsStack.inlineStorage))
+        if (maxStackSlots <= _countof(argsStack.inlineStorage))
         {
             argsStack.types = argsStack.inlineStorage;
         }
         else
         {
-            argsStack.types = compiler->getAllocator(CMK_GC).allocate<uint8_t>(maxStackDepth);
+            argsStack.types = compiler->getAllocator(CMK_GC).allocate<uint8_t>(maxStackSlots);
         }
     }
 #endif // JIT32_GCENCODER

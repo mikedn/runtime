@@ -8,7 +8,7 @@
 #if defined(TARGET_AMD64) || defined(TARGET_UNIX)
 uint32_t CodeGen::unwindGetCurrentOffset()
 {
-    return GetEmitter()->emitGetCurrentPrologCodeSize();
+    return GetEmitter()->GetCurrentPrologCodeSize();
 }
 #endif
 
@@ -220,7 +220,7 @@ void CodeGen::unwindEmitFuncCFI(FuncInfoDsc* func)
 
     eeAllocUnwindInfo(func->kind, true, unwindGetFuncHotRange(func), codeCount * sizeof(CFI_CODE), codes);
 
-    if (GetEmitter()->GetColdCodeAddr() != nullptr)
+    if (coldCodeBlock != nullptr)
     {
         eeAllocUnwindInfo(func->kind, false, unwindGetFuncColdRange(func), 0, nullptr);
     }
@@ -316,10 +316,9 @@ void CodeGen::eeAllocUnwindInfo(FuncKind kind, bool isHotCode, CodeRange range, 
     }
 #endif
 
-    Emitter& emit         = *GetEmitter();
-    uint8_t* hotCodeAddr  = emit.GetHotCodeAddr();
-    uint32_t hotCodeSize  = emit.GetHotCodeSize();
-    uint8_t* coldCodeAddr = emit.GetColdCodeAddr();
+    uint8_t* hotCodeAddr  = hotCodeBlock;
+    uint32_t hotCodeSize  = GetEmitter()->GetHotCodeSize();
+    uint8_t* coldCodeAddr = coldCodeBlock;
 
     if (isHotCode)
     {

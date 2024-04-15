@@ -41,7 +41,7 @@ IF_DEF(METHPTR,         IS_NONE,                             CALL, MRD)  // indi
 IF_DEF(CNS,             IS_NONE,                             CNS,  NONE)
 
 //----------------------------------------------------------------------------
-// NOTE: The order of the "RD/WR/RW" varieties must match that of the "insUpdateModes" enum.
+// NOTE: The order of the "RD/WR/RW" varieties must match that of the "InsUpdateMode" enum.
 //----------------------------------------------------------------------------
 
 IF_DEF(RRD,             IS_R1_RD,                            NONE, NONE)

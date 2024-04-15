@@ -8,7 +8,6 @@
 #include "sideeffects.h"
 #include "lower.h"
 #include "lsra.h"
-#include "emit.h"
 
 void LinearScan::BuildIndir(GenTreeIndir* indir)
 {
@@ -33,7 +32,12 @@ void LinearScan::BuildIndir(GenTreeIndir* indir)
         if (GenTreeAddrMode* lea = addr->IsAddrMode())
         {
             if (((lea->GetIndex() != nullptr) && (lea->GetOffset() != 0)) ||
-                !emitter::emitIns_valid_imm_for_ldst_offset(lea->GetOffset(), emitTypeSize(indir->GetType())))
+#ifdef TARGET_ARM
+                !ArmImm::IsLdStImm(lea->GetOffset(), emitTypeSize(indir->GetType()))
+#else
+                !Arm64Imm::IsLdStImm(lea->GetOffset(), emitTypeSize(indir->GetType()))
+#endif
+                    )
             {
                 BuildInternalIntDef(indir);
             }

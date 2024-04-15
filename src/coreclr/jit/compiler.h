@@ -44,7 +44,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 struct InfoHdr;
 struct escapeMapping_t;
-class emitter;
+class EmitterBase;
 struct ShadowParamVarInfo;
 struct ParamAllocInfo;
 class FgStack;
@@ -2430,7 +2430,7 @@ struct ThrowHelperBlock
 
 class Compiler
 {
-    friend class emitter;
+    friend class EmitterBase;
     friend class JitTimer;
     friend class LinearScan;
     friend class CallInfo;
@@ -4395,7 +4395,6 @@ protected:
 #endif
     }
 
-    bool fgHaveProfileData();
     bool fgGetProfileWeightForBasicBlock(IL_OFFSET offset, BasicBlock::weight_t* weight);
 
     Instrumentor* fgCountInstrumentor = nullptr;
@@ -4414,6 +4413,8 @@ protected:
                                                CLRRandom*                             random);
 
 public:
+    bool fgHaveProfileData();
+
     const char*                            fgPgoFailReason              = nullptr;
     ICorJitInfo::PgoInstrumentationSchema* fgPgoSchema                  = nullptr;
     BYTE*                                  fgPgoData                    = nullptr;
@@ -5606,7 +5607,7 @@ public:
 #pragma warning(push)
 #pragma warning(disable : 4312)
     template <typename T>
-    T dspPtr(T p)
+    T dspPtr(T p) const
     {
         if (p && opts.disDiffable)
         {
@@ -5617,7 +5618,7 @@ public:
     }
 
     template <typename T>
-    T dspOffset(T o)
+    T dspOffset(T o) const
     {
         if (o && opts.dspDiffable)
         {

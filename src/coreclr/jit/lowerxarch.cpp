@@ -523,11 +523,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
     //      xor rdx, rdx
     //      push rdx
 
-    if (IsContainableImmed(putArgStk, src)
-#if defined(TARGET_AMD64)
-        && !src->IsIntegralConst(0)
-#endif // TARGET_AMD64
-            )
+    if (IsImmOperand(src, putArgStk) AMD64_ONLY(&&!src->IsIntegralConst(0)))
     {
         src->SetContained();
     }
@@ -3186,10 +3182,9 @@ bool Lowering::IsCallTargetInRange(void* addr)
     return true;
 }
 
-// return true if the immediate can be folded into an instruction, for example small enough and non-relocatable
-bool Lowering::IsContainableImmed(GenTree* parentNode, GenTree* childNode) const
+bool Lowering::IsImmOperand(GenTree* operand, GenTree* instr) const
 {
-    return childNode->IsIntConFitsInInt32() && !childNode->AsIntCon()->ImmedValNeedsReloc(comp);
+    return operand->IsIntConFitsInInt32() && !operand->AsIntCon()->ImmedValNeedsReloc(comp);
 }
 
 //-----------------------------------------------------------------------
@@ -3389,7 +3384,7 @@ void Lowering::ContainCheckStoreIndir(GenTreeStoreInd* store)
     // and INT or LONG store of zero to memory, because we can generate smaller
     // code by zeroing a register and then storing it.
 
-    if (IsContainableImmed(store, value) && (!value->IsIntegralConst(0) || varTypeIsSmall(store->GetType())))
+    if (IsImmOperand(value, store) && (!value->IsIntegralConst(0) || varTypeIsSmall(store->GetType())))
     {
         value->SetContained();
     }
@@ -3426,7 +3421,7 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
     {
         hasImplicitOperand = true;
     }
-    else if (IsContainableImmed(node, op2))
+    else if (IsImmOperand(op2, node))
     {
         immOp = op2->AsIntCon();
         other = op1;
@@ -3551,20 +3546,22 @@ void Lowering::ContainCheckDivOrMod(GenTreeOp* node)
 void Lowering::ContainCheckShiftRotate(GenTreeOp* node)
 {
     assert(node->OperIsShiftOrRotate());
+
 #ifdef TARGET_X86
-    GenTree* source = node->gtOp1;
     if (node->OperIsShiftLong())
     {
-        assert(source->OperGet() == GT_LONG);
-        MakeSrcContained(node, source);
+        GenTree* value = node->GetOp(0);
+        assert(value->OperIs(GT_LONG));
+        value->SetContained();
     }
-#endif // !TARGET_X86
+#endif
 
-    GenTree* shiftBy = node->gtOp2;
-    if (IsContainableImmed(node, shiftBy) && (shiftBy->AsIntConCommon()->IconValue() <= 255) &&
-        (shiftBy->AsIntConCommon()->IconValue() >= 0))
+    GenTree* shiftBy = node->GetOp(1);
+
+    if (IsImmOperand(shiftBy, node) && (shiftBy->AsIntCon()->GetValue() <= 255) &&
+        (shiftBy->AsIntCon()->GetValue() >= 0))
     {
-        MakeSrcContained(node, shiftBy);
+        shiftBy->SetContained();
     }
 }
 
@@ -3621,7 +3618,7 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
 
     var_types type = store->GetLcl()->GetRegisterType(store);
 
-    if (IsContainableImmed(store, src) && (!src->IsIntegralConst(0) || varTypeIsSmall(type)))
+    if (IsImmOperand(src, store) && (!src->IsIntegralConst(0) || varTypeIsSmall(type)))
     {
         src->SetContained();
         return;
@@ -3782,7 +3779,7 @@ void Lowering::ContainCheckCompare(GenTreeOp* cmp)
         return;
     }
 
-    if (CheckImmedAndMakeContained(cmp, op2))
+    if (ContainImmOperand(cmp, op2))
     {
         if (type1 == type2)
         {
@@ -3976,7 +3973,7 @@ void Lowering::ContainCheckBinary(GenTreeOp* node)
     GenTree* op1 = node->GetOp(0);
     GenTree* op2 = node->GetOp(1);
 
-    if (IsContainableImmed(node, op2))
+    if (IsImmOperand(op2, node))
     {
         op2->SetContained();
         return;
@@ -4086,11 +4083,11 @@ void Lowering::ContainCheckBoundsChk(GenTreeBoundsChk* node)
     GenTree* length = node->GetLength();
     GenTree* other;
 
-    if (CheckImmedAndMakeContained(node, index))
+    if (ContainImmOperand(node, index))
     {
         other = length;
     }
-    else if (CheckImmedAndMakeContained(node, length))
+    else if (ContainImmOperand(node, length))
     {
         other = index;
     }
@@ -5152,6 +5149,23 @@ void Lowering::ContainCheckFloatBinary(GenTreeOp* node)
         isSafeToContainOp1 = isSafeToContainOp1 && IsSafeToContainMem(node, op1);
         isSafeToContainOp2 = isSafeToContainOp2 && IsSafeToContainMem(node, op2);
         SetRegOptionalForBinOp(node, isSafeToContainOp1, isSafeToContainOp2);
+    }
+}
+
+void Lowering::ContainCheckXAdd(GenTreeOp* node)
+{
+    if (node->IsUnusedValue())
+    {
+        // Make sure the types are identical, since the node type is changed to VOID
+        // CodeGen relies on op2's type to determine the instruction size.
+        // Note that the node type cannot be a small int but the data operand can.
+        assert(varActualType(node->GetOp(1)->GetType()) == node->GetType());
+
+        node->ClearUnusedValue();
+        node->SetOper(GT_LOCKADD);
+        node->SetType(TYP_VOID);
+
+        ContainImmOperand(node, node->GetOp(1));
     }
 }
 

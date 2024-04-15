@@ -7,7 +7,7 @@
 #include "instr.h"
 
 class LclVarDsc;
-class emitter;
+class EmitterBase;
 
 struct ParamRegState
 {
@@ -19,7 +19,7 @@ struct ParamRegState
 
 class CodeGenInterface
 {
-    friend class emitter;
+    friend class EmitterBase;
 
 public:
     Compiler*     compiler;

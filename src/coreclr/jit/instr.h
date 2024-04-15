@@ -70,6 +70,8 @@ enum instruction : unsigned
     INS_COUNT = INS_none
 };
 
+bool IsMovIns(instruction ins);
+
 INDEBUG(const char* insName(instruction ins);)
 
 enum emitJumpKind
@@ -79,6 +81,12 @@ enum emitJumpKind
 #define CC_DEF(en, ...) EJ_##en,
 #include "emitjmps.h"
 };
+
+instruction JumpKindToJcc(emitJumpKind jumpKind);
+#ifdef TARGET_XARCH
+instruction JumpKindToSetcc(emitJumpKind jumpKind);
+#endif
+emitJumpKind ReverseJumpKind(emitJumpKind jumpKind);
 
 #ifdef TARGET_ARM
 
@@ -103,6 +111,8 @@ enum insOpts : unsigned
 };
 
 INDEBUG(const char* insOptsName(insOpts opt);)
+
+bool IsLoadIns(instruction ins);
 
 #endif // TARGET_ARM
 #ifdef TARGET_ARM64
@@ -165,7 +175,7 @@ enum insOpts : unsigned
 
 INDEBUG(const char* insOptsName(insOpts opt);)
 
-enum insCond : unsigned
+enum insCond : uint8_t
 {
     INS_COND_EQ,
     INS_COND_NE,
@@ -186,7 +196,9 @@ enum insCond : unsigned
     INS_COND_LE,
 };
 
-enum insCflags : unsigned
+insCond JumpKindToInsCond(emitJumpKind jumpKind);
+
+enum insCflags : uint8_t
 {
     INS_FLAGS_NONE,
     INS_FLAGS_V,
@@ -274,6 +286,7 @@ enum emitAttr : unsigned
 #define EA_ATTR(x) static_cast<emitAttr>(x)
 #define EA_SIZE(x) static_cast<emitAttr>((x)&EA_SIZE_MASK)
 #define EA_SIZE_IN_BYTES(x) ((x)&EA_SIZE_MASK)
+#define EA_BIT_SIZE(x) (EA_SIZE_IN_BYTES(x) * 8)
 #define EA_GC_TYPE(x) static_cast<GCtype>(((x) >> 7) & 3)
 #define EA_IS_GCREF_OR_BYREF(x) (EA_GC_TYPE(x) != GCT_NONE)
 #define EA_IS_GCREF(x) (EA_GC_TYPE(x) == GCT_GCREF)
@@ -319,6 +332,50 @@ constexpr emitAttr emitVecTypeSize(unsigned size)
             unreached();
     }
 }
+#endif
+
+#ifdef TARGET_ARM
+
+struct ArmImm
+{
+    static bool IsMovImm(int32_t value);
+    static bool IsMvnImm(int32_t value);
+    static bool IsAddImm(int32_t value, insFlags flags);
+    static bool IsAddSpImm(int32_t value);
+    static bool IsCmpImm(int32_t value, insFlags flags);
+    static bool IsAluImm(int32_t value);
+    static bool IsLdStImm(int32_t value, emitAttr size);
+    static bool IsVLdStImm(int32_t value);
+    static bool IsBlImm(ssize_t value, Compiler* compiler);
+    static bool IsImm(instruction ins, int32_t imm, insFlags flags);
+};
+
+#endif
+
+#ifdef TARGET_ARM64
+
+bool IsLoadIns(instruction ins);
+
+insOpts GetVecArrangementOpt(emitAttr vecSize, var_types elemType);
+emitAttr GetVecElemsize(insOpts arrangement);
+
+struct Arm64Imm
+{
+    static bool IsFMovImm(double value);
+    static bool IsMovImm(int64_t value, emitAttr size);
+    static bool IsMoviImm(uint64_t value, insOpts opts);
+    static bool IsAddImm(int64_t value, emitAttr size);
+    static bool IsAluImm(int64_t value, emitAttr size);
+    static bool IsLdStImm(int64_t value, emitAttr size);
+    static bool IsBlImm(int64_t value, Compiler* compiler);
+    static bool IsBitMaskImm(int64_t value, emitAttr size, unsigned* imm);
+    static int64_t DecodeBitMaskImm(unsigned imm, emitAttr size);
+
+#ifdef DEBUG
+    static bool IsVecIndex(int64_t index, emitAttr vecSize, emitAttr elemSize);
+#endif
+};
+
 #endif
 
 #endif // INSTR_H

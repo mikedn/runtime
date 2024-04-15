@@ -68,7 +68,7 @@ void CodeGen::genMarkLabelsForCodegen()
                     // In the emitter, we need to calculate the loop size from `block->bbJumpDest` through
                     // `block` (inclusive). Thus, we need to ensure there is a label on the lexical fall-through
                     // block, even if one is not otherwise needed, to be able to calculate the size of this
-                    // loop (loop size is calculated by walking the instruction groups; see emitter::getLoopSize()).
+                    // loop (loop size is calculated by walking the instruction groups; see emitter::GetLoopSize()).
 
                     JITDUMP("  " FMT_BB ": alignment end-of-loop\n", block->bbNext->bbNum);
                     block->bbNext->bbFlags |= BBF_HAS_LABEL;
@@ -251,11 +251,14 @@ void CodeGen::genCodeForBBlist()
 #endif
 
     genMarkLabelsForCodegen();
-    GetEmitter()->emitBegFN();
+    GetEmitter()->Begin();
     liveness.Begin();
 
     unsigned nextEnterScope = 0;
     unsigned nextExitScope  = 0;
+
+    Placeholder* firstPlaceholder = nullptr;
+    Placeholder* lastPlaceholder  = nullptr;
 
     for (BasicBlock* block = compiler->fgFirstBB; block != nullptr; block = block->bbNext)
     {
@@ -284,7 +287,7 @@ void CodeGen::genCodeForBBlist()
 #if FEATURE_LOOP_ALIGN
         else
         {
-            assert(!GetEmitter()->emitEndsWithAlignInstr());
+            assert(!GetEmitter()->EndsWithAlignInstr());
         }
 #endif
 
@@ -322,7 +325,19 @@ void CodeGen::genCodeForBBlist()
 #ifdef FEATURE_EH_FUNCLETS
         if ((block->bbFlags & BBF_FUNCLET_BEG) != 0)
         {
-            GetEmitter()->ReserveFuncletProlog(block);
+            insGroup*    prolog = GetEmitter()->ReserveFuncletProlog(block);
+            Placeholder* ph     = new (compiler, CMK_Codegen) Placeholder(prolog);
+
+            if (lastPlaceholder == nullptr)
+            {
+                firstPlaceholder = ph;
+            }
+            else
+            {
+                lastPlaceholder->next = ph;
+            }
+
+            lastPlaceholder = ph;
         }
 #endif
 
@@ -595,7 +610,7 @@ void CodeGen::genCodeForBBlist()
 
                 if (block->bbJumpDest->isLoopAlign() && block->bbJumpDest->emitLabel->IsDefined())
                 {
-                    GetEmitter()->emitSetLoopBackEdge(block->bbJumpDest->emitLabel);
+                    GetEmitter()->SetLoopBackEdge(block->bbJumpDest->emitLabel);
                 }
 #endif // FEATURE_LOOP_ALIGN
                 break;
@@ -606,7 +621,19 @@ void CodeGen::genCodeForBBlist()
 
         if (hasEpilog)
         {
-            GetEmitter()->ReserveEpilog(block);
+            insGroup*    epilog = GetEmitter()->ReserveEpilog(block);
+            Placeholder* ph     = new (compiler, CMK_Codegen) Placeholder(epilog);
+
+            if (lastPlaceholder == nullptr)
+            {
+                firstPlaceholder = ph;
+            }
+            else
+            {
+                lastPlaceholder->next = ph;
+            }
+
+            lastPlaceholder = ph;
         }
 
         if (BasicBlock* next = block->bbNext)
@@ -623,7 +650,7 @@ void CodeGen::genCodeForBBlist()
 
             if (next->isLoopAlign())
             {
-                GetEmitter()->emitLoopAlignment();
+                GetEmitter()->AlignLoop();
             }
 #endif
 
@@ -634,7 +661,7 @@ void CodeGen::genCodeForBBlist()
                 // just require it to have a label too) and the label will be defined when
                 // we visit that block. But this code is kind of messed up and does that
                 // after calling liveness.BeginBlockCodeGen, which needs the current IG to
-                // generate debug info, so emitCurIG needs to be valid.
+                // generate debug info, so currentIG needs to be valid.
                 // Note that doing this here can result in the label having the wrong funclet
                 // index, but we'll call this again when the block is visited, which fixes it.
                 GetEmitter()->DefineBlockLabel(next->emitLabel);
@@ -654,12 +681,83 @@ void CodeGen::genCodeForBBlist()
     }
 #endif
 
-    GetEmitter()->emitGeneratePrologEpilog();
+    GeneratePrologEpilog(firstPlaceholder);
     GetEmitter()->ShortenBranches();
 #if FEATURE_LOOP_ALIGN
-    GetEmitter()->emitLoopAlignAdjustments();
+    GetEmitter()->LoopAlignAdjustments();
 #endif
-    GetEmitter()->emitComputeCodeSizes();
+
+    JITDUMP("\nHot code size = 0x%X bytes\nCold code size = 0x%X bytes\n", GetEmitter()->GetHotCodeSize(),
+            GetEmitter()->GetColdCodeSize());
+}
+
+void CodeGen::GeneratePrologEpilog(Placeholder* firstPlaceholder)
+{
+#ifdef DEBUG
+    unsigned epilogCount = 0;
+#ifdef FEATURE_EH_FUNCLETS
+    unsigned funcletPrologCount = 0;
+    unsigned funcletEpilogCount = 0;
+#endif
+#endif
+
+    Emitter& emit = *GetEmitter();
+
+    for (Placeholder* ph = firstPlaceholder; ph != nullptr; ph = ph->next)
+    {
+        insGroup* ig = ph->ig;
+
+        liveness.BeginPrologEpilogCodeGen();
+
+#ifdef JIT32_GCENCODER
+        assert(ig->IsMainEpilog());
+        emit.BeginGCEpilog();
+#endif
+
+        BasicBlock* block = emit.BeginPrologEpilog(ig);
+
+#ifdef FEATURE_EH_FUNCLETS
+        if (ig->IsFuncletProlog())
+        {
+            INDEBUG(++funcletPrologCount);
+            genFuncletProlog(block);
+        }
+        else if (ig->IsFuncletEpilog())
+        {
+            INDEBUG(++funcletEpilogCount);
+            genFuncletEpilog();
+        }
+        else
+#endif
+        {
+            assert(ig->IsMainEpilog());
+            INDEBUG(++epilogCount);
+            genFnEpilog(block);
+        }
+
+        emit.EndPrologEpilog();
+#ifdef JIT32_GCENCODER
+        emit.EndGCEpilog(ig);
+#endif
+    }
+
+    emit.RecomputeIGOffsets();
+
+#ifdef DEBUG
+    if (compiler->verbose)
+    {
+        printf("\n1 prolog, %u epilog(s)", epilogCount);
+#ifdef FEATURE_EH_FUNCLETS
+        printf(", %u funclet prolog(s), %u funclet epilog(s)", funcletPrologCount, funcletEpilogCount);
+#endif
+        printf("\n");
+        emit.PrintIGList(false);
+    }
+#endif
+
+#ifdef FEATURE_EH_FUNCLETS
+    assert(funcletPrologCount == compiler->ehFuncletCount());
+#endif
 }
 
 void CodeGen::genExitCode(BasicBlock* block)

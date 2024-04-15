@@ -70,6 +70,7 @@ private:
 #ifdef TARGET_XARCH
     void ContainCheckFloatBinary(GenTreeOp* node);
     void ContainCheckIntrinsic(GenTreeIntrinsic* node);
+    void ContainCheckXAdd(GenTreeOp* node);
 #endif
 #ifdef FEATURE_SIMD
     bool ContainSIMD12MemToMemCopy(GenTree* store, GenTree* value);
@@ -286,10 +287,7 @@ private:
 
     // Utility functions
 public:
-    // return true if 'childNode' is an immediate that can be contained
-    //  by the 'parentNode' (i.e. folded into an instruction)
-    //  for example small enough and non-relocatable
-    bool IsContainableImmed(GenTree* parentNode, GenTree* childNode) const;
+    bool IsImmOperand(GenTree* operand, GenTree* instr) const;
 
     static bool IsContainableMemoryOp(Compiler* comp, GenTree* node);
 
@@ -315,11 +313,8 @@ public:
 private:
     bool AreSourcesPossiblyModifiedLocals(GenTree* addr, GenTree* base, GenTree* index);
 
-    // Makes 'childNode' contained in the 'parentNode'
-    void MakeSrcContained(GenTree* parentNode, GenTree* childNode) const;
-
-    // Checks and makes 'childNode' contained in the 'parentNode'
-    bool CheckImmedAndMakeContained(GenTree* parentNode, GenTree* childNode);
+    void MakeSrcContained(GenTree* instr, GenTree* operand) const;
+    bool ContainImmOperand(GenTree* instr, GenTree* operand) const;
 
     // Checks for memory conflicts in the instructions between childNode and parentNode, and returns true if childNode
     // can be contained.

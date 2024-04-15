@@ -105,7 +105,6 @@ CompPhaseNameMacro(PHASE_LINEAR_SCAN_ALLOC,      "LSRA allocate",               
 CompPhaseNameMacro(PHASE_LINEAR_SCAN_RESOLVE,    "LSRA resolve",                   "LSRA-RES", false, PHASE_LINEAR_SCAN, false)
 CompPhaseNameMacro(PHASE_GENERATE_CODE,          "Generate code",                  "CODEGEN",  false, -1, false)
 CompPhaseNameMacro(PHASE_EMIT_CODE,              "Emit code",                      "EMIT",     false, -1, false)
-CompPhaseNameMacro(PHASE_EMIT_GCEH,              "Emit GC+EH tables",              "EMT-GCEH", false, -1, false)
 CompPhaseNameMacro(PHASE_POST_EMIT,              "Post-Emit",                      "POST-EMIT", false, -1, false)
 
 #if MEASURE_CLRAPI_CALLS

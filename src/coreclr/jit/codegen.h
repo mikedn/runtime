@@ -19,10 +19,21 @@ struct VarResultInfo;
 
 class CodeGen final : public CodeGenInterface
 {
-    friend class emitter;
+    friend class EmitterBase;
     friend class DisAssembler;
     friend class CodeGenLivenessUpdater;
     friend class CodeGenInterface;
+#ifdef TARGET_ARM
+    friend class ArmEncoder;
+    friend class ArmAsmPrinter;
+    friend class ArmEmitter;
+#endif
+#ifdef TARGET_ARM64
+    friend class Arm64Emitter;
+#endif
+#ifdef TARGET_XARCH
+    friend class X86Emitter;
+#endif
 
     class LinearScan* m_lsra = nullptr;
     emitter*          m_cgEmitter;
@@ -66,7 +77,6 @@ public:
     void genAllocateRegisters();
     void genGenerateMachineCode();
     void genEmitMachineCode();
-    void genEmitUnwindDebugGCandEH();
 
 private:
 #ifdef TARGET_XARCH
@@ -102,9 +112,9 @@ private:
 
     void genRangeCheck(GenTreeBoundsChk* bndsChk);
 
-    void genLockedInstructions(GenTreeOp* node);
+    void GenInterlocked(GenTreeOp* node);
 #ifdef TARGET_XARCH
-    void genCodeForLockAdd(GenTreeOp* node);
+    void GenLockAdd(GenTreeOp* node);
 #endif
 
 #ifdef TARGET_ARMARCH
@@ -127,6 +137,9 @@ private:
 
     bool     genUseBlockInit;  // true if we plan to block-initialize the local stack frame
     unsigned genInitStkLclCnt; // The count of local variables that we need to zero init
+
+    int minGCTrackedOffset = INT_MAX;
+    int maxGCTrackedOffset = INT_MIN;
 
 #if !FEATURE_FIXED_OUT_ARGS
     void SubtractStackLevel(unsigned adjustment);
@@ -155,6 +168,18 @@ private:
 
     void InitLclBlockLiveInRegs();
     void genCodeForBBlist();
+
+    struct Placeholder
+    {
+        Placeholder* next = nullptr;
+        insGroup*    ig;
+
+        Placeholder(insGroup* ig) : ig(ig)
+        {
+        }
+    };
+
+    void GeneratePrologEpilog(Placeholder* firstPlaceholder);
 
 public:
 #ifdef JIT32_GCENCODER
@@ -374,6 +399,9 @@ public:
         assert(index == 0);
     }
 #endif
+
+    uint8_t* hotCodeBlock  = nullptr;
+    uint8_t* coldCodeBlock = nullptr;
 
     StackAddrMode GetStackAddrMode(unsigned lclNum, int lclOffs);
     StackAddrMode GetStackAddrMode(LclVarDsc* lcl, int lclOffs);
@@ -769,7 +797,7 @@ protected:
 #endif
     void genCodeForPhysReg(GenTreePhysReg* tree);
     void genCodeForNullCheck(GenTreeIndir* tree);
-    void genCodeForCmpXchg(GenTreeCmpXchg* tree);
+    void GenCmpXchg(GenTreeCmpXchg* tree);
     void GenMemoryBarrier(GenTree* barrier);
     void genCodeForInstr(GenTreeInstr* instr);
 

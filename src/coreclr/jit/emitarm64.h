@@ -3,749 +3,111 @@
 
 #ifdef TARGET_ARM64
 
+class Arm64Emitter final : public EmitterBase
+{
+    friend class Arm64Encoder;
+    friend class Arm64AsmPrinter;
+    friend class EmitterBase;
+
+public:
+    Arm64Emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo) : EmitterBase(compiler, codeGen, jitInfo)
+    {
+    }
+
+    void emitIns(instruction ins);
+    void emitIns_J(instruction ins, int instrCount);
+    void emitIns_J(instruction ins, insGroup* label);
+    void emitIns_CallFinally(insGroup* label);
+    void emitIns_BRK(uint16_t imm);
+    void emitIns_R(instruction ins, emitAttr attr, RegNum reg);
+    void emitIns_R_I(instruction ins, emitAttr attr, RegNum reg, int64_t imm, insOpts opt = INS_OPTS_NONE);
+    void emitIns_R_F(instruction ins, emitAttr attr, RegNum reg, double immDbl, insOpts opt = INS_OPTS_NONE);
+    void emitIns_Mov(
+        instruction ins, emitAttr attr, RegNum dstReg, RegNum srcReg, bool canSkip, insOpts opt = INS_OPTS_NONE);
+    void emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, insOpts opt = INS_OPTS_NONE);
+    void emitIns_R_I_I(
+        instruction ins, emitAttr attr, RegNum reg1, int64_t imm1, int64_t imm2, insOpts opt = INS_OPTS_NONE);
+    void emitIns_R_R_I(
+        instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, int64_t imm, insOpts opt = INS_OPTS_NONE);
+    void emitIns_R_R_Imm(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, int64_t imm);
+    void emitIns_R_R_R(
+        instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, insOpts opt = INS_OPTS_NONE);
+    void emitIns_R_R_R_I(instruction ins,
+                         emitAttr    attr,
+                         RegNum      reg1,
+                         RegNum      reg2,
+                         RegNum      reg3,
+                         int32_t     imm,
+                         insOpts     opt      = INS_OPTS_NONE,
+                         emitAttr    attrReg2 = EA_UNKNOWN);
+    void emitIns_R_R_R_Ext(instruction ins,
+                           emitAttr    attr,
+                           RegNum      reg1,
+                           RegNum      reg2,
+                           RegNum      reg3,
+                           insOpts     opt         = INS_OPTS_NONE,
+                           int         shiftAmount = -1);
+    void emitIns_R_R_I_I(
+        instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, int imm1, int imm2, insOpts opt = INS_OPTS_NONE);
+    void emitIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, RegNum reg4);
+    void emitIns_R_COND(instruction ins, emitAttr attr, RegNum reg, insCond cond);
+    void emitIns_R_R_COND(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, insCond cond);
+    void emitIns_R_R_R_COND(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, insCond cond);
+    void emitIns_R_R_FLAGS_COND(
+        instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, insCflags flags, insCond cond);
+    void emitIns_R_I_FLAGS_COND(instruction ins, emitAttr attr, RegNum reg1, int imm, insCflags flags, insCond cond);
+    void emitIns_BARR(instruction ins, insBarrier barrier);
+    void emitIns_S_R(instruction ins, emitAttr attr, RegNum ireg, StackAddrMode s);
+    void emitIns_S_S_R_R(instruction ins, emitAttr attr, emitAttr attr2, RegNum ireg, RegNum ireg2, StackAddrMode s);
+    void emitIns_R_S(instruction ins, emitAttr attr, RegNum ireg, StackAddrMode s);
+    void emitIns_R_R_S_S(instruction ins, emitAttr attr, emitAttr attr2, RegNum ireg, RegNum ireg2, StackAddrMode s);
+    void Ins_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s);
+    void Ins_R_R_S(instruction ins, emitAttr attr1, emitAttr attr2, RegNum reg1, RegNum reg2, StackAddrMode s);
+    void emitIns_S_I(instruction ins, emitAttr attr, StackAddrMode s, int val);
+    void emitIns_R_C(instruction ins, emitAttr attr, RegNum reg, RegNum tmpReg, ConstData* data);
+    void emitIns_R_L(RegNum reg, insGroup* label);
+    void emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, RegNum reg);
+    void emitIns_J_R_I(instruction ins, emitAttr attr, insGroup* label, RegNum reg, int imm);
+    void emitIns_R_AH(RegNum reg,
+                      void* addr DEBUGARG(void* handle = nullptr) DEBUGARG(HandleKind handleKind = HandleKind::None));
+
+    enum EmitCallType
+    {
+        EC_FUNC_TOKEN, // Direct call to a helper/static/nonvirtual/global method
+        EC_INDIR_R     // Indirect call via register
+    };
+
+    void emitIns_Call(EmitCallType          kind,
+                      CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo),
+                      void*    addr,
+                      emitAttr retRegAttr,
+                      emitAttr retReg2Attr,
+                      RegNum   reg    = REG_NA,
+                      bool     isJump = false);
+
 private:
-// The ARM64 instructions are all 32 bits in size.
-// we use an unsigned int to hold the encoded instructions.
-// This typedef defines the type that we use to hold encoded instructions.
-//
-typedef unsigned int code_t;
+    template <typename T>
+    T* AllocInstr(bool updateLastIns = true);
 
-static bool strictArmAsm;
+    instrDesc* NewInstr();
+    instrDesc* NewInstrSmall();
+    instrDesc* NewInstrSmall(int64_t imm);
+    instrDesc* NewInstrCns(int32_t imm);
+    instrDesc* NewInstrGCReg(emitAttr attr, RegNum reg);
+    instrDescJmp* NewInstrJmp();
+    instrDesc* NewInstrCall(CORINFO_METHOD_HANDLE methodHandle, emitAttr retSize, emitAttr secondRetSize);
+    instrDescCGCA* AllocInstrCGCA();
 
-/************************************************************************/
-/*         Routines that compute the size of / encode instructions      */
-/************************************************************************/
-
-size_t emitGetInstrDescSize(const instrDesc* id);
+    // Method to do check if mov is redundant with respect to the last instruction.
+    // If yes, the caller of this method can choose to omit current mov instruction.
+    bool IsRedundantMov(instruction ins, emitAttr size, RegNum dst, RegNum src, bool canSkip);
+    bool IsRedundantLdStr(instruction ins, RegNum reg1, RegNum reg2, int64_t imm, emitAttr size, insFormat fmt);
 
 #ifdef DEBUG
-
-/************************************************************************/
-/*             Debug-only routines to display instructions              */
-/************************************************************************/
-
-const char* emitVectorRegName(regNumber reg);
-
-void emitDispInsHex(instrDesc* id, BYTE* code, size_t sz);
-void emitDispInst(instruction ins);
-void emitDispLargeImm(instrDesc* id, insFormat fmt, ssize_t imm);
-void emitDispAddrLoadLabel(instrDescJmp* id);
-void emitDispJumpLabel(instrDescJmp* id);
-void emitDispImm(ssize_t imm, bool addComma, bool alwaysHex = false);
-void emitDispFrameRef(instrDesc* id);
-void emitDispFloatZero();
-void emitDispFloatImm(ssize_t imm8);
-void emitDispImmOptsLSL12(ssize_t imm, insOpts opt);
-void emitDispCond(insCond cond);
-void emitDispFlags(insCflags flags);
-void emitDispBarrier(insBarrier barrier);
-void emitDispShiftOpts(insOpts opt);
-void emitDispExtendOpts(insOpts opt);
-void emitDispLSExtendOpts(insOpts opt);
-void emitDispReg(regNumber reg, emitAttr attr, bool addComma);
-void emitDispVectorReg(regNumber reg, insOpts opt, bool addComma);
-void emitDispVectorRegIndex(regNumber reg, emitAttr elemsize, ssize_t index, bool addComma);
-void emitDispVectorRegList(regNumber firstReg, unsigned listSize, insOpts opt, bool addComma);
-void emitDispVectorElemList(regNumber firstReg, unsigned listSize, emitAttr elemsize, unsigned index, bool addComma);
-void emitDispArrangement(insOpts opt);
-void emitDispElemsize(emitAttr elemsize);
-void emitDispShiftedReg(regNumber reg, insOpts opt, ssize_t imm, emitAttr attr);
-void emitDispExtendReg(regNumber reg, insOpts opt, ssize_t imm);
-void emitDispAddrRI(regNumber reg, insOpts opt, ssize_t imm);
-void emitDispAddrRRExt(regNumber reg1, regNumber reg2, insOpts opt, bool isScaled, emitAttr size);
-
-void emitDispIns(instrDesc* id,
-                 bool       isNew = false,
-                 bool       doffs = false,
-                 bool       asmfm = false,
-                 unsigned   offs  = 0,
-                 uint8_t*   code  = 0,
-                 size_t     sz    = 0);
-#endif // DEBUG
-
-/************************************************************************/
-/*  Private members that deal with target-dependent instr. descriptors  */
-/************************************************************************/
-
-private:
-instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle, emitAttr retSize, emitAttr secondRetSize);
-
-/************************************************************************/
-/*               Private helpers for instruction output                 */
-/************************************************************************/
-
-private:
-static bool emitInsIsCompare(instruction ins);
-static bool emitInsIsLoadOrStore(instruction ins);
-static bool emitInsIsVectorRightShift(instruction ins);
-static bool emitInsIsVectorLong(instruction ins);
-static bool emitInsIsVectorNarrow(instruction ins);
-static bool emitInsIsVectorWide(instruction ins);
-emitAttr emitInsTargetRegSize(instrDesc* id);
-emitAttr emitInsLoadStoreSize(instrDesc* id);
-
-code_t emitInsCode(instruction ins, insFormat fmt);
-
-//  Emit the 32-bit Arm64 instruction 'code' into the 'dst'  buffer
-unsigned emitOutput_Instr(BYTE* dst, code_t code);
-
-// A helper method to return the natural scale for an EA 'size'
-static unsigned NaturalScale_helper(emitAttr size);
-
-// A helper method to perform a Rotate-Right shift operation
-static UINT64 ROR_helper(UINT64 value, unsigned sh, unsigned width);
-
-// A helper method to perform a 'NOT' bitwise complement operation
-static UINT64 NOT_helper(UINT64 value, unsigned width);
-
-// A helper method to perform a bit Replicate operation
-static UINT64 Replicate_helper(UINT64 value, unsigned width, emitAttr size);
-
-// Method to do check if mov is redundant with respect to the last instruction.
-// If yes, the caller of this method can choose to omit current mov instruction.
-bool IsRedundantMov(instruction ins, emitAttr size, regNumber dst, regNumber src, bool canSkip);
-bool IsRedundantLdStr(instruction ins, regNumber reg1, regNumber reg2, ssize_t imm, emitAttr size, insFormat fmt);
-
-/************************************************************************
-*
-* This union is used to to encode/decode the special ARM64 immediate values
-* that is listed as imm(N,r,s) and referred to as 'bitmask immediate'
-*/
-
-public:
-static bool emitInsIsLoad(instruction ins);
-static bool emitInsIsStore(instruction ins);
-//  For the given 'arrangement' returns the 'elemsize' specified by the vector register arrangement
-static emitAttr optGetElemsize(insOpts arrangement);
-//    For the given 'datasize', 'elemsize' and 'index' returns true, if it specifies a valid 'index'
-//    for an element of size 'elemsize' in a vector register of size 'datasize'
-static bool isValidVectorIndex(emitAttr datasize, emitAttr elemsize, ssize_t index);
-
-static bool IsMovInstruction(instruction ins);
-
-union bitMaskImm {
-    struct
-    {
-        unsigned immS : 6; // bits 0..5
-        unsigned immR : 6; // bits 6..11
-        unsigned immN : 1; // bits 12
-    };
-    unsigned immNRS; // concat N:R:S forming a 13-bit unsigned immediate
+    void PrintInstr(instrDesc* id);
+#endif
 };
 
-/************************************************************************
-*
-*  Convert between a 64-bit immediate and its 'bitmask immediate'
-*   representation imm(i16,hw)
-*/
-
-static bitMaskImm emitEncodeBitMaskImm(int64_t imm, emitAttr size);
-static int64_t emitDecodeBitMaskImm(const bitMaskImm bmImm, emitAttr size);
-
-private:
-/************************************************************************
-*
-* This union is used to to encode/decode the special ARM64 immediate values
-* that is listed as imm(i16,hw) and referred to as 'halfword immediate'
-*/
-
-union halfwordImm {
-    struct
-    {
-        unsigned immVal : 16; // bits  0..15
-        unsigned immHW : 2;   // bits 16..17
-    };
-    unsigned immHWVal; // concat HW:Val forming a 18-bit unsigned immediate
-};
-
-/************************************************************************
-*
-*  Convert between a 64-bit immediate and its 'halfword immediate'
-*   representation imm(i16,hw)
-*/
-
-static halfwordImm emitEncodeHalfwordImm(int64_t imm, emitAttr size);
-static int64_t emitDecodeHalfwordImm(const halfwordImm hwImm, emitAttr size);
-
-/************************************************************************
-*
-* This union is used to encode/decode the special ARM64 immediate values
-* that is listed as imm(i16,by) and referred to as 'byteShifted immediate'
-*/
-
-union byteShiftedImm {
-    struct
-    {
-        unsigned immVal : 8;  // bits  0..7
-        unsigned immBY : 2;   // bits  8..9
-        unsigned immOnes : 1; // bit   10
-    };
-    unsigned immBSVal; // concat Ones:BY:Val forming a 10-bit unsigned immediate
-};
-
-static uint32_t emitDecodeByteShiftedImm(const byteShiftedImm bsImm, emitAttr size);
-
-/************************************************************************
-*
-* This union is used to to encode/decode the special ARM64 immediate values
-* that are use for FMOV immediate and referred to as 'float 8-bit immediate'
-*/
-
-union floatImm8 {
-    struct
-    {
-        unsigned immMant : 4; // bits 0..3
-        unsigned immExp : 3;  // bits 4..6
-        unsigned immSign : 1; // bits 7
-    };
-    unsigned immFPIVal; // concat Sign:Exp:Mant forming an 8-bit unsigned immediate
-};
-
-/************************************************************************
-*
-*  Convert between a double and its 'float 8-bit immediate' representation
-*/
-
-static floatImm8 emitEncodeFloatImm8(double immDbl);
-static double emitDecodeFloatImm8(const floatImm8 fpImm);
-
-/************************************************************************
-*
-*  This union is used to to encode/decode the cond, nzcv and imm5 values for
-*   instructions that use them in the small constant immediate field
-*/
-
-union condFlagsImm {
-    struct
-    {
-        insCond   cond : 4;  // bits  0..3
-        insCflags flags : 4; // bits  4..7
-        unsigned  imm5 : 5;  // bits  8..12
-    };
-    unsigned immCFVal; // concat imm5:flags:cond forming an 13-bit unsigned immediate
-};
-
-// Returns an encoding for the specified register used in the 'Rd' position
-static code_t insEncodeReg_Rd(regNumber reg);
-
-// Returns an encoding for the specified register used in the 'Rt' position
-static code_t insEncodeReg_Rt(regNumber reg);
-
-// Returns an encoding for the specified register used in the 'Rn' position
-static code_t insEncodeReg_Rn(regNumber reg);
-
-// Returns an encoding for the specified register used in the 'Rm' position
-static code_t insEncodeReg_Rm(regNumber reg);
-
-// Returns an encoding for the specified register used in the 'Ra' position
-static code_t insEncodeReg_Ra(regNumber reg);
-
-// Returns an encoding for the specified register used in the 'Vd' position
-static code_t insEncodeReg_Vd(regNumber reg);
-
-// Returns an encoding for the specified register used in the 'Vt' position
-static code_t insEncodeReg_Vt(regNumber reg);
-
-// Returns an encoding for the specified register used in the 'Vn' position
-static code_t insEncodeReg_Vn(regNumber reg);
-
-// Returns an encoding for the specified register used in the 'Vm' position
-static code_t insEncodeReg_Vm(regNumber reg);
-
-// Returns an encoding for the specified register used in the 'Va' position
-static code_t insEncodeReg_Va(regNumber reg);
-
-// Returns an encoding for the imm which represents the condition code.
-static code_t insEncodeCond(insCond cond);
-
-// Returns an encoding for the imm whioch represents the 'condition code'
-//  with the lowest bit inverted (marked by invert(<cond>) in the architecture manual.
-static code_t insEncodeInvertedCond(insCond cond);
-
-// Returns an encoding for the imm which represents the flags.
-static code_t insEncodeFlags(insCflags flags);
-
-// Returns the encoding for the Shift Count bits to be used for Arm64 encodings
-static code_t insEncodeShiftCount(ssize_t imm, emitAttr size);
-
-// Returns the encoding to select the datasize for most Arm64 instructions
-static code_t insEncodeDatasize(emitAttr size);
-
-// Returns the encoding to select the datasize for the general load/store Arm64 instructions
-static code_t insEncodeDatasizeLS(code_t code, emitAttr size);
-
-// Returns the encoding to select the datasize for the vector load/store Arm64 instructions
-static code_t insEncodeDatasizeVLS(code_t code, emitAttr size);
-
-// Returns the encoding to select the datasize for the vector load/store pair Arm64 instructions
-static code_t insEncodeDatasizeVPLS(code_t code, emitAttr size);
-
-// Returns the encoding to select the datasize for bitfield Arm64 instructions
-static code_t insEncodeDatasizeBF(code_t code, emitAttr size);
-
-// Returns the encoding to select the vectorsize for SIMD Arm64 instructions
-static code_t insEncodeVectorsize(emitAttr size);
-
-// Returns the encoding to select 'index' for an Arm64 vector elem instruction
-static code_t insEncodeVectorIndex(emitAttr elemsize, ssize_t index);
-
-// Returns the encoding to select 'index2' for an Arm64 'ins' elem instruction
-static code_t insEncodeVectorIndex2(emitAttr elemsize, ssize_t index2);
-
-// Returns the encoding to select 'index' for an Arm64 'mul' elem instruction
-static code_t insEncodeVectorIndexLMH(emitAttr elemsize, ssize_t index);
-
-// Returns the encoding for ASIMD Shift instruction.
-static code_t insEncodeVectorShift(emitAttr size, ssize_t shiftAmount);
-
-// Returns the encoding to select the 1/2/4/8 byte elemsize for an Arm64 vector instruction
-static code_t insEncodeElemsize(emitAttr size);
-
-// Returns the encoding to select the 4/8 byte elemsize for an Arm64 float vector instruction
-static code_t insEncodeFloatElemsize(emitAttr size);
-
-// Returns the encoding to select the index for an Arm64 float vector by element instruction
-static code_t insEncodeFloatIndex(emitAttr elemsize, ssize_t index);
-
-// Returns the encoding to select the vector elemsize for an Arm64 ld/st# vector instruction
-static code_t insEncodeVLSElemsize(emitAttr size);
-
-// Returns the encoding to select the index for an Arm64 ld/st# vector by element instruction
-static code_t insEncodeVLSIndex(emitAttr elemsize, ssize_t index);
-
-// Returns the encoding to select the 'conversion' operation for a type 'fmt' Arm64 instruction
-static code_t insEncodeConvertOpt(insFormat fmt, insOpts conversion);
-
-// Returns the encoding to have the Rn register of a ld/st reg be Pre/Post/Not indexed updated
-static code_t insEncodeIndexedOpt(insOpts opt);
-
-// Returns the encoding to have the Rn register of a ld/st pair be Pre/Post/Not indexed updated
-static code_t insEncodePairIndexedOpt(instruction ins, insOpts opt);
-
-// Returns the encoding to apply a Shift Type on the Rm register
-static code_t insEncodeShiftType(insOpts opt);
-
-// Returns the encoding to apply a 12 bit left shift to the immediate
-static code_t insEncodeShiftImm12(insOpts opt);
-
-// Returns the encoding to have the Rm register use an extend operation
-static code_t insEncodeExtend(insOpts opt);
-
-// Returns the encoding to scale the Rm register by {0,1,2,3,4} in an extend operation
-static code_t insEncodeExtendScale(ssize_t imm);
-
-// Returns the encoding to have the Rm register be auto scaled by the ld/st size
-static code_t insEncodeReg3Scale(bool isScaled);
-
-// Returns true if 'reg' represents an integer register.
-static bool isIntegerRegister(regNumber reg)
-{
-    return (reg >= REG_INT_FIRST) && (reg <= REG_INT_LAST);
-}
-
-//  Returns true if reg encodes for REG_SP or REG_FP
-static bool isStackRegister(regNumber reg)
-{
-    return (reg == REG_ZR) || (reg == REG_FP);
-} // ZR (R31) encodes the SP register
-
-// Returns true if 'value' is a legal unsigned immediate 8 bit encoding (such as for fMOV).
-static bool isValidUimm8(ssize_t value)
-{
-    return (0 <= value) && (value <= 0xFFLL);
-};
-
-// Returns true if 'value' is a legal unsigned immediate 12 bit encoding (such as for CMP, CMN).
-static bool isValidUimm12(ssize_t value)
-{
-    return (0 <= value) && (value <= 0xFFFLL);
-};
-
-// Returns true if 'value' is a legal unsigned immediate 16 bit encoding (such as for MOVZ, MOVN, MOVK).
-static bool isValidUimm16(ssize_t value)
-{
-    return (0 <= value) && (value <= 0xFFFFLL);
-};
-
-// Returns true if 'value' is a legal signed immediate 26 bit encoding (such as for B or BL).
-static bool isValidSimm26(ssize_t value)
-{
-    return (-0x2000000LL <= value) && (value <= 0x1FFFFFFLL);
-};
-
-// Returns true if 'value' is a legal signed immediate 19 bit encoding (such as for B.cond, CBNZ, CBZ).
-static bool isValidSimm19(ssize_t value)
-{
-    return (-0x40000LL <= value) && (value <= 0x3FFFFLL);
-};
-
-// Returns true if 'value' is a legal signed immediate 14 bit encoding (such as for TBNZ, TBZ).
-static bool isValidSimm14(ssize_t value)
-{
-    return (-0x2000LL <= value) && (value <= 0x1FFFLL);
-};
-
-// Returns true if 'value' represents a valid 'bitmask immediate' encoding.
-static bool isValidImmNRS(size_t value, emitAttr size)
-{
-    return (value >= 0) && (value < 0x2000);
-} // any unsigned 13-bit immediate
-
-// Returns true if 'value' represents a valid 'halfword immediate' encoding.
-static bool isValidImmHWVal(size_t value, emitAttr size)
-{
-    return (value >= 0) && (value < 0x40000);
-} // any unsigned 18-bit immediate
-
-// Returns true if 'value' represents a valid 'byteShifted immediate' encoding.
-static bool isValidImmBSVal(size_t value, emitAttr size)
-{
-    return (value >= 0) && (value < 0x800);
-} // any unsigned 11-bit immediate
-
-//  The return value replaces REG_ZR with REG_SP
-static regNumber encodingZRtoSP(regNumber reg)
-{
-    return (reg == REG_ZR) ? REG_SP : reg;
-} // ZR (R31) encodes the SP register
-
-//  The return value replaces REG_SP with REG_ZR
-static regNumber encodingSPtoZR(regNumber reg)
-{
-    return (reg == REG_SP) ? REG_ZR : reg;
-} // SP is encoded using ZR (R31)
-
-//  For the given 'ins' returns the reverse instruction, if one exists, otherwise returns INS_INVALID
-static instruction insReverse(instruction ins);
-
-//  For the given 'datasize' and 'elemsize' returns the insOpts that specifies the vector register arrangement
-static insOpts optMakeArrangement(emitAttr datasize, emitAttr elemsize);
-
-//    For the given 'datasize' and 'opt' returns true if it specifies a valid vector register arrangement
-static bool isValidArrangement(emitAttr datasize, insOpts opt);
-
-//  For the given 'arrangement' returns the 'datasize' specified by the vector register arrangement
-static emitAttr optGetDatasize(insOpts arrangement);
-
-//  For the given 'arrangement' returns the one with the element width that is double that of the 'arrangement' element.
-static insOpts optWidenElemsizeArrangement(insOpts arrangement);
-
-//  For the given 'datasize' returns the one that is double that of the 'datasize'.
-static emitAttr widenDatasize(emitAttr datasize);
-
-//  For the given 'srcArrangement' returns the "widen" 'dstArrangement' specifying the destination vector register
-//  arrangement
-//  of Long Pairwise instructions. Note that destination vector elements twice as long as the source vector elements.
-static insOpts optWidenDstArrangement(insOpts srcArrangement);
-
-//  For the given 'conversion' returns the 'dstsize' specified by the conversion option
-static emitAttr optGetDstsize(insOpts conversion);
-
-//  For the given 'conversion' returns the 'srcsize' specified by the conversion option
-static emitAttr optGetSrcsize(insOpts conversion);
-
-// For a given instruction 'ins' which contains a register lists returns a
-// number of consecutive SIMD registers the instruction loads to/store from.
-static unsigned insGetRegisterListSize(instruction ins);
-
-/************************************************************************/
-/*           Public inline informational methods                        */
-/************************************************************************/
-
-public:
-// true if this 'imm' can be encoded as a input operand to a mov instruction
-static bool emitIns_valid_imm_for_mov(INT64 imm, emitAttr size);
-
-struct MoviImm
-{
-    instruction ins;
-    uint8_t     imm;
-    uint8_t     shift;
-    bool        msl;
-
-    MoviImm() : ins(INS_invalid), imm(0), shift(0), msl(0)
-    {
-    }
-
-    MoviImm(instruction ins, uint64_t imm, unsigned shift = 0, bool msl = false)
-        : ins(ins), imm(static_cast<uint8_t>(imm)), shift(static_cast<uint8_t>(shift)), msl(msl)
-    {
-        assert(imm <= UINT8_MAX);
-        assert(shift <= 24);
-    }
-};
-
-// true if this 'imm' can be encoded as a input operand to a vector movi instruction
-static MoviImm EncodeMoviImm(uint64_t value, insOpts opt);
-
-// true if this 'immDbl' can be encoded as a input operand to a fmov instruction
-static bool emitIns_valid_imm_for_fmov(double immDbl);
-
-// true if this 'imm' can be encoded as a input operand to an add instruction
-static bool emitIns_valid_imm_for_add(INT64 imm, emitAttr size = EA_8BYTE);
-
-// true if this 'imm' can be encoded as a input operand to a cmp instruction
-static bool emitIns_valid_imm_for_cmp(INT64 imm, emitAttr size);
-
-// true if this 'imm' can be encoded as a input operand to an alu instruction
-static bool emitIns_valid_imm_for_alu(INT64 imm, emitAttr size);
-
-// true if this 'imm' can be encoded as the offset in a ldr/str instruction
-static bool emitIns_valid_imm_for_ldst_offset(INT64 imm, emitAttr size);
-
-static bool validImmForBL(ssize_t addr, Compiler* compiler);
-
-// true if 'imm' can use the left shifted by 12 bits encoding
-static bool canEncodeWithShiftImmBy12(INT64 imm);
-
-// Normalize the 'imm' so that the upper bits, as defined by 'size' are zero
-static INT64 normalizeImm64(INT64 imm, emitAttr size);
-
-// Normalize the 'imm' so that the upper bits, as defined by 'size' are zero
-static INT32 normalizeImm32(INT32 imm, emitAttr size);
-
-// true if 'imm' can be encoded using a 'bitmask immediate', also returns the encoding if wbBMI is non-null
-static bool canEncodeBitMaskImm(int64_t imm, emitAttr size, bitMaskImm* wbBMI = nullptr);
-
-// true if 'imm' can be encoded using a 'halfword immediate', also returns the encoding if wbHWI is non-null
-static bool canEncodeHalfwordImm(int64_t imm, emitAttr size, halfwordImm* wbHWI = nullptr);
-
-// true if 'imm' can be encoded using a 'byteShifted immediate', also returns the encoding if wbBSI is non-null
-static bool canEncodeByteShiftedImm(int64_t imm, emitAttr size, byteShiftedImm* wbBSI = nullptr);
-
-// true if 'immDbl' can be encoded using a 'float immediate', also returns the encoding if wbFPI is non-null
-static bool canEncodeFloatImm8(double immDbl, floatImm8* wbFPI = nullptr);
-
-// Returns the number of bits used by the given 'size'.
-inline static unsigned getBitWidth(emitAttr size)
-{
-    assert(size <= EA_8BYTE);
-    return (unsigned)size * BITS_PER_BYTE;
-}
-
-// Returns true if the imm represents a valid bit shift or bit position for the given 'size' [0..31] or [0..63]
-static unsigned isValidImmShift(ssize_t imm, emitAttr size)
-{
-    return (imm >= 0) && (imm < getBitWidth(size));
-}
-
-// Returns true if the 'shiftAmount' represents a valid shift for the given 'size'.
-static unsigned isValidVectorShiftAmount(ssize_t shiftAmount, emitAttr size, bool rightShift)
-{
-    return (rightShift && (shiftAmount >= 1) && (shiftAmount <= getBitWidth(size))) ||
-           ((shiftAmount >= 0) && (shiftAmount < getBitWidth(size)));
-}
-
-static bool isValidImmCond(ssize_t imm);
-static bool isValidImmCondFlags(ssize_t imm);
-static bool isValidImmCondFlagsImm5(ssize_t imm);
-
-/************************************************************************/
-/*           The public entry points to output instructions             */
-/************************************************************************/
-
-public:
-static insCond emitJumpKindToCond(emitJumpKind jumpKind);
-static instruction emitJumpKindToBranch(emitJumpKind jumpKind);
-
-void emitIns(instruction ins);
-
-void emitIns_J(instruction ins, int instrCount);
-void emitIns_J(instruction ins, insGroup* label);
-void emitIns_CallFinally(insGroup* label);
-
-void emitIns_BRK(uint16_t imm);
-
-void emitIns_R(instruction ins, emitAttr attr, regNumber reg);
-
-void emitIns_R_I(instruction ins, emitAttr attr, regNumber reg, ssize_t imm, insOpts opt = INS_OPTS_NONE);
-
-void emitIns_R_F(instruction ins, emitAttr attr, regNumber reg, double immDbl, insOpts opt = INS_OPTS_NONE);
-
-void emitIns_Mov(
-    instruction ins, emitAttr attr, regNumber dstReg, regNumber srcReg, bool canSkip, insOpts opt = INS_OPTS_NONE);
-
-void emitIns_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, insOpts opt = INS_OPTS_NONE);
-
-void emitIns_R_I_I(
-    instruction ins, emitAttr attr, regNumber reg1, ssize_t imm1, ssize_t imm2, insOpts opt = INS_OPTS_NONE);
-
-void emitIns_R_R_I(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ssize_t imm, insOpts opt = INS_OPTS_NONE);
-
-// Checks for a large immediate that needs a second instruction
-void emitIns_R_R_Imm(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ssize_t imm);
-
-void emitIns_R_R_R(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, insOpts opt = INS_OPTS_NONE);
-
-void emitIns_R_R_R_I(instruction ins,
-                     emitAttr    attr,
-                     regNumber   reg1,
-                     regNumber   reg2,
-                     regNumber   reg3,
-                     int32_t     imm,
-                     insOpts     opt      = INS_OPTS_NONE,
-                     emitAttr    attrReg2 = EA_UNKNOWN);
-
-void emitIns_R_R_R_Ext(instruction ins,
-                       emitAttr    attr,
-                       regNumber   reg1,
-                       regNumber   reg2,
-                       regNumber   reg3,
-                       insOpts     opt         = INS_OPTS_NONE,
-                       int         shiftAmount = -1);
-
-void emitIns_R_R_I_I(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, int imm1, int imm2, insOpts opt = INS_OPTS_NONE);
-
-void emitIns_R_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, regNumber reg4);
-
-void emitIns_R_COND(instruction ins, emitAttr attr, regNumber reg, insCond cond);
-
-void emitIns_R_R_COND(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, insCond cond);
-
-void emitIns_R_R_R_COND(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, insCond cond);
-
-void emitIns_R_R_FLAGS_COND(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, insCflags flags, insCond cond);
-
-void emitIns_R_I_FLAGS_COND(instruction ins, emitAttr attr, regNumber reg1, int imm, insCflags flags, insCond cond);
-
-void emitIns_BARR(instruction ins, insBarrier barrier);
-
-void emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, StackAddrMode s);
-
-void emitIns_S_S_R_R(instruction ins, emitAttr attr, emitAttr attr2, regNumber ireg, regNumber ireg2, StackAddrMode s);
-
-void emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, StackAddrMode s);
-
-void emitIns_R_R_S_S(instruction ins, emitAttr attr, emitAttr attr2, regNumber ireg, regNumber ireg2, StackAddrMode s);
-
-void Ins_R_S(instruction ins, emitAttr attr, regNumber reg, StackAddrMode s);
-void Ins_R_R_S(instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, StackAddrMode s);
-
-void emitIns_S_I(instruction ins, emitAttr attr, StackAddrMode s, int val);
-
-void emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumber tmpReg, ConstData* data);
-
-void emitIns_R_L(RegNum reg, insGroup* label);
-
-void emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, regNumber reg);
-
-void emitIns_J_R_I(instruction ins, emitAttr attr, insGroup* label, regNumber reg, int imm);
-
-void emitIns_R_AH(RegNum reg,
-                  void* addr DEBUGARG(void* handle = nullptr) DEBUGARG(HandleKind handleKind = HandleKind::None));
-
-enum EmitCallType
-{
-    EC_FUNC_TOKEN, // Direct call to a helper/static/nonvirtual/global method
-    EC_INDIR_R     // Indirect call via register
-};
-
-void emitIns_Call(EmitCallType          kind,
-                  CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo),
-                  void*     addr,
-                  emitAttr  retRegAttr,
-                  emitAttr  retReg2Attr,
-                  regNumber reg    = REG_NA,
-                  bool      isJump = false);
-
-private:
-void emitSetShortJump(instrDescJmp* id);
-
-uint8_t* emitOutputLJ(uint8_t* dst, instrDescJmp* id, insGroup* ig);
-uint8_t* emitOutputDL(uint8_t* dst, instrDescJmp* id);
-uint8_t* emitOutputLoadLabel(uint8_t* dst, uint8_t* srcAddr, uint8_t* dstAddr, instrDescJmp* id);
-uint8_t* emitOutputShortBranch(uint8_t* dst, instruction ins, insFormat fmt, ssize_t distVal, instrDescJmp* id);
-uint8_t* emitOutputShortAddress(uint8_t* dst, instruction ins, ssize_t distance, RegNum reg);
-uint8_t* emitOutputShortConstant(
-    uint8_t* dst, instruction ins, insFormat fmt, ssize_t distVal, regNumber reg, emitAttr opSize);
-
-/*****************************************************************************
- *
- *  Given an instrDesc, return true if it's a conditional jump.
- */
-
-static bool emitIsCondJump(instrDesc* jmp)
-{
-    return ((jmp->idInsFmt() == IF_BI_0B) || (jmp->idInsFmt() == IF_BI_1A) || (jmp->idInsFmt() == IF_BI_1B) ||
-            (jmp->idInsFmt() == IF_LARGEJMP));
-}
-
-/*****************************************************************************
- *
- *  Given a instrDesc, return true if it's an unconditional jump.
- */
-
-static bool emitIsUncondJump(instrDesc* jmp)
-{
-    return (jmp->idInsFmt() == IF_BI_0A);
-}
-
-/*****************************************************************************
- *
- *  Given a instrDesc, return true if it's a direct call.
- */
-
-static bool emitIsDirectCall(instrDesc* call)
-{
-    return (call->idInsFmt() == IF_BI_0C);
-}
-
-/*****************************************************************************
- *
- *  Given a instrDesc, return true if it's a load label instruction.
- */
-
-static bool emitIsLoadLabel(instrDesc* jmp)
-{
-    return ((jmp->idInsFmt() == IF_DI_1E) || // adr or arp
-            (jmp->idInsFmt() == IF_LARGEADR));
-}
-
-/*****************************************************************************
-*
-*  Given a instrDesc, return true if it's a load constant instruction.
-*/
-
-static bool emitIsLoadConstant(instrDesc* jmp)
-{
-    return ((jmp->idInsFmt() == IF_LS_1A) || // ldr
-            (jmp->idInsFmt() == IF_LARGELDC));
-}
-
-/************************************************************************/
-/*                   Interface for generating unwind information        */
-/************************************************************************/
-public:
-void emitUnwindNopPadding(const emitLocation& loc);
-
-private:
-// Returns true if instruction "id->idIns()" writes to a register that might be used to contain a GC
-// pointer. This exempts the SP and PC registers, and floating point registers. Memory access
-// instructions that pre- or post-increment their memory address registers are *not* considered to write
-// to GC registers, even if that memory address is a by-ref: such an instruction cannot change the GC
-// status of that register, since it must be a byref before and remains one after.
-//
-// This may return false positives.
-bool emitInsMayWriteToGCReg(instrDesc* id);
-
-// Returns true if the instruction may write to more than one register.
-bool emitInsMayWriteMultipleRegs(instrDesc* id);
-
-template <typename T>
-T* AllocInstr(bool updateLastIns = true);
-
-instrDesc* emitNewInstr();
-instrDesc* emitNewInstrSmall();
-instrDesc* emitNewInstrSC(int64_t imm);
-instrDesc* emitNewInstrCns(int32_t imm);
-instrDesc* emitNewInstrGCReg(emitAttr attr, regNumber reg);
-instrDescJmp*  emitNewInstrJmp();
-instrDescCGCA* emitAllocInstrCGCA();
-
-int64_t emitGetInsSC(instrDesc* id);
+using ArchEmitter = Arm64Emitter;
 
 #endif // TARGET_ARM64

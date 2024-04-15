@@ -3,7 +3,6 @@
 
 #include "jitpch.h"
 #include "lower.h"
-#include "emit.h"
 
 #ifdef TARGET_ARM64 // This file is ONLY used for ARM64 architectures
 
@@ -158,22 +157,17 @@ void Lowering::CombineNot(GenTreeInstr* instr)
     }
 }
 
-bool CanEncodeBitmaskImm(ssize_t imm, emitAttr size, unsigned* bitmaskImm)
+static bool CanEncodeBitmaskImm(int64_t imm, emitAttr size, unsigned* bitmaskImm)
 {
-    emitter::bitMaskImm bimm;
-    bool                encoded = emitter::canEncodeBitMaskImm(imm, size, &bimm);
-    *bitmaskImm                 = bimm.immNRS;
-    return encoded;
+    return Arm64Imm::IsBitMaskImm(imm, size, bitmaskImm);
 }
 
-ssize_t DecodeBitmaskImm(unsigned encoded, emitAttr size)
+int64_t DecodeBitmaskImm(unsigned encoded, emitAttr size)
 {
-    emitter::bitMaskImm imm;
-    imm.immNRS = encoded;
-    return emitter::emitDecodeBitMaskImm(imm, size);
+    return Arm64Imm::DecodeBitMaskImm(encoded, size);
 }
 
-ssize_t DecodeBitmaskImm(GenTreeInstr* instr)
+static int64_t DecodeBitmaskImm(GenTreeInstr* instr)
 {
     return DecodeBitmaskImm(instr->GetImmediate(), instr->GetSize());
 }
@@ -901,9 +895,9 @@ instruction GetMultiplyAddInstruction(GenTree* node, instruction ins, emitAttr s
 
 bool CanEncodeArithmeticImm(ssize_t imm, emitAttr size, unsigned* encodedArithImm)
 {
-    bool encoded     = emitter::emitIns_valid_imm_for_add(imm, size);
+    bool encodable   = Arm64Imm::IsAddImm(imm, size);
     *encodedArithImm = static_cast<unsigned>(imm) & 0xFFFFFF;
-    return encoded;
+    return encodable;
 }
 
 void Lowering::LowerNegate(GenTreeUnOp* neg)
@@ -1482,7 +1476,7 @@ GenTree* Lowering::LowerRelop(GenTreeOp* cmp)
             }
         }
 
-        CheckImmedAndMakeContained(cmp, cmp->GetOp(1));
+        ContainImmOperand(cmp, cmp->GetOp(1));
     }
 
     // TODO-MIKE-CQ: Relop lowering doesn't take advantage of the shifted/extended reg forms of CMP/CMN.
@@ -1592,6 +1586,59 @@ void Lowering::LowerFloatArithmetic(GenTreeOp* arith)
     instruction ins  = insMap[arith->GetOper() - GT_FADD];
 
     MakeInstr(arith, ins, size, op1, op2);
+}
+
+bool Lowering::IsCallTargetInRange(void* addr)
+{
+    return Arm64Imm::IsBlImm(reinterpret_cast<ssize_t>(addr), comp);
+}
+
+bool Lowering::IsImmOperand(GenTree* operand, GenTree* instr) const
+{
+    // TODO-CQ: We can contain a floating point 0.0 constant in FCMP
+
+    if (!operand->IsIntCon() || operand->AsIntCon()->ImmedValNeedsReloc(comp))
+    {
+        return false;
+    }
+
+    int64_t  value = operand->AsIntCon()->GetValue();
+    emitAttr size  = EA_SIZE(emitActualTypeSize(operand->GetType()));
+
+    switch (instr->GetOper())
+    {
+        case GT_CMPXCHG:
+        case GT_XADD:
+            if (comp->compOpportunisticallyDependsOn(InstructionSet_Atomics))
+            {
+                return false;
+            }
+            FALLTHROUGH;
+        case GT_ADD:
+        case GT_SUB:
+        case GT_EQ:
+        case GT_NE:
+        case GT_LT:
+        case GT_LE:
+        case GT_GE:
+        case GT_GT:
+        case GT_BOUNDS_CHECK:
+            return Arm64Imm::IsAddImm(value, size);
+        case GT_AND:
+        case GT_OR:
+        case GT_XOR:
+        case GT_TEST_EQ:
+        case GT_TEST_NE:
+            return Arm64Imm::IsAluImm(value, size);
+        case GT_JCMP:
+            assert(((instr->gtFlags & GTF_JCMP_TST) == 0) ? (value == 0) : isPow2(value));
+            return true;
+        case GT_STORE_LCL_FLD:
+        case GT_STORE_LCL_VAR:
+            return value == 0;
+        default:
+            return false;
+    }
 }
 
 #ifdef DEBUG

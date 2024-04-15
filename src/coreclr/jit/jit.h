@@ -475,21 +475,7 @@ inline unsigned int roundUp(unsigned size, unsigned mult)
 {
     return (unsigned int)roundUp((size_t)size, (size_t)mult);
 }
-#endif // HOST_64BIT
-
-constexpr unsigned unsigned_abs(int x)
-{
-    return static_cast<unsigned>(x < 0 ? -x : x);
-}
-
-#ifdef TARGET_64BIT
-inline size_t unsigned_abs(ssize_t x)
-{
-    return ((size_t)abs(x));
-}
-#endif // TARGET_64BIT
-
-/*****************************************************************************/
+#endif
 
 #if COUNT_BASIC_BLOCKS || COUNT_LOOPS || MEASURE_NODE_SIZE || MEASURE_MEM_ALLOC
 

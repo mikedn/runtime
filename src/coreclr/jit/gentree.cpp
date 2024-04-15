@@ -13,7 +13,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "jitpch.h"
 #include "hwintrinsic.h"
 #include "valuenum.h"
-#include "emit.h"
 
 #ifdef DEBUG
 
@@ -2682,7 +2681,7 @@ void Compiler::gtSetCosts(GenTree* tree)
                     assert(varTypeSize(tree->GetType()) <= 4);
                     int32_t value = tree->AsIntCon()->GetInt32Value();
 
-                    if (emitter::validImmForInstr(INS_add, value))
+                    if (ArmImm::IsAddImm(value, INS_FLAGS_DONT_CARE))
                     {
                         // Typically included with parent oper
                         costSz = 2;
@@ -2690,7 +2689,7 @@ void Compiler::gtSetCosts(GenTree* tree)
                         break;
                     }
 
-                    if (emitter::validImmForInstr(INS_mov, value) || emitter::validImmForInstr(INS_mvn, value))
+                    if (ArmImm::IsMovImm(value) || ArmImm::IsMvnImm(value))
                     {
                         // Uses mov or mvn
                         costSz = 4;
@@ -2724,16 +2723,14 @@ void Compiler::gtSetCosts(GenTree* tree)
                 costSz = 4 + 4;
                 costEx = 1 + 1;
 
-                if (!emitter::validImmForInstr(INS_mov, static_cast<target_ssize_t>(hiVal)) &&
-                    !emitter::validImmForInstr(INS_mvn, static_cast<target_ssize_t>(hiVal)))
+                if (!ArmImm::IsMovImm(hiVal) && !ArmImm::IsMvnImm(hiVal))
                 {
                     // Needs extra instruction: movw/movt
                     costSz += 4;
                     costEx += 1;
                 }
 
-                if (!emitter::validImmForInstr(INS_mov, static_cast<target_ssize_t>(loVal)) &&
-                    !emitter::validImmForInstr(INS_mvn, static_cast<target_ssize_t>(loVal)))
+                if (!ArmImm::IsMovImm(loVal) && !ArmImm::IsMvnImm(loVal))
                 {
                     // Needs extra instruction: movw/movt
                     costSz += 4;
@@ -2763,14 +2760,14 @@ void Compiler::gtSetCosts(GenTree* tree)
                     ssize_t  value = tree->AsIntCon()->GetValue();
                     emitAttr size  = EA_SIZE(emitActualTypeSize(tree->GetType()));
 
-                    if (emitter::emitIns_valid_imm_for_add(value, size))
+                    if (Arm64Imm::IsAddImm(value, size))
                     {
                         costSz = 2;
                         costEx = 1;
                         break;
                     }
 
-                    if (emitter::emitIns_valid_imm_for_mov(value, size))
+                    if (Arm64Imm::IsMovImm(value, size))
                     {
                         costSz = 4;
                         costEx = 1;
@@ -2813,8 +2810,7 @@ void Compiler::gtSetCosts(GenTree* tree)
                 break;
 
             case GT_CNS_DBL:
-                if ((tree->AsDblCon()->GetBits() == 0) ||
-                    emitter::emitIns_valid_imm_for_fmov(tree->AsDblCon()->GetValue()))
+                if ((tree->AsDblCon()->GetBits() == 0) || Arm64Imm::IsFMovImm(tree->AsDblCon()->GetValue()))
                 {
                     costEx = 1;
                     costSz = 1;

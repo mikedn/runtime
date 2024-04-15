@@ -43,7 +43,7 @@ bool CodeGen::genInstrWithConstant(
                 imm = -imm;
                 ins = (ins == INS_add) ? INS_sub : INS_add;
             }
-            immFitsInIns = emitter::emitIns_valid_imm_for_add(imm, size);
+            immFitsInIns = Arm64Imm::IsAddImm(imm, size);
             break;
 
         case INS_strb:
@@ -51,16 +51,14 @@ bool CodeGen::genInstrWithConstant(
         case INS_str:
             // reg1 is a source register for store instructions
             assert(tmpReg != reg1); // regTmp can not match any source register
-            immFitsInIns = emitter::emitIns_valid_imm_for_ldst_offset(imm, size);
-            break;
-
+            FALLTHROUGH;
         case INS_ldrsb:
         case INS_ldrsh:
         case INS_ldrsw:
         case INS_ldrb:
         case INS_ldrh:
         case INS_ldr:
-            immFitsInIns = emitter::emitIns_valid_imm_for_ldst_offset(imm, size);
+            immFitsInIns = Arm64Imm::IsLdStImm(imm, size);
             break;
 
         default:
@@ -1411,7 +1409,7 @@ void CodeGen::GenCallFinally(BasicBlock* block)
         // Because of the way the flowgraph is connected, the liveness info for this one instruction
         // after the call is not (can not be) correct in cases where a variable has a last use in the
         // handler.  So turn off GC reporting for this single instruction.
-        GetEmitter()->emitDisableGC();
+        GetEmitter()->DisableGC();
 
         // Now go to where the finally funclet needs to return to.
         if (block->bbNext->bbJumpDest == block->bbNext->bbNext)
@@ -1427,7 +1425,7 @@ void CodeGen::GenCallFinally(BasicBlock* block)
             GetEmitter()->emitIns_J(INS_b, block->bbNext->bbJumpDest->emitLabel);
         }
 
-        GetEmitter()->emitEnableGC();
+        GetEmitter()->EnableGC();
     }
 }
 
@@ -1481,7 +1479,7 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
         size = EA_SIZE(size);
     }
 
-    if ((imm == 0) || emitter::emitIns_valid_imm_for_mov(imm, size))
+    if ((imm == 0) || Arm64Imm::IsMovImm(imm, size))
     {
         GetEmitter()->emitIns_R_I(INS_mov, size, reg, imm);
 
@@ -1538,7 +1536,7 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
     }
 
     // We must emit a movn or movz or we have not done anything
-    // The cases which hit this assert should be (emitIns_valid_imm_for_mov() == true) and
+    // The cases which hit this assert should be (IsMovImm() == true) and
     // should not be in this else condition
     assert(ins == INS_movk);
 }
@@ -1569,7 +1567,7 @@ void CodeGen::GenDblCon(GenTreeDblCon* node)
     {
         GetEmitter()->emitIns_R_I(INS_movi, EA_16BYTE, node->GetRegNum(), 0x00, INS_OPTS_16B);
     }
-    else if (emitter::emitIns_valid_imm_for_fmov(node->GetValue()))
+    else if (Arm64Imm::IsFMovImm(node->GetValue()))
     {
         GetEmitter()->emitIns_R_F(INS_fmov, emitTypeSize(node->GetType()), node->GetRegNum(), node->GetValue());
     }
@@ -2379,253 +2377,226 @@ void CodeGen::GenSwitchTable(GenTreeOp* node)
     emit.emitIns_R(INS_br, EA_8BYTE, baseReg);
 }
 
-void CodeGen::genLockedInstructions(GenTreeOp* treeNode)
+void CodeGen::GenInterlocked(GenTreeOp* node)
 {
-    GenTree* addr = treeNode->GetOp(0);
-    GenTree* data = treeNode->GetOp(1);
-
-    regNumber addrReg   = UseReg(addr);
-    regNumber dataReg   = data->isUsedFromReg() ? UseReg(data) : REG_NA;
-    regNumber targetReg = treeNode->GetRegNum();
-
-    emitAttr dataSize = emitActualTypeSize(data->GetType());
+    GenTree* addr    = node->GetOp(0);
+    GenTree* value   = node->GetOp(1);
+    RegNum   destReg = node->GetRegNum();
+    emitAttr size    = emitTypeSize(value->GetType());
+    // We don't expect small int types to be used, otherwise we'd need
+    // to use ldaxrb/stlxrb/ldaxrh/stlxrh instead of ldaxr/stlxr.
+    noway_assert((EA_SIZE(size) == EA_4BYTE) || (EA_SIZE(size) == EA_8BYTE));
 
     if (compiler->compOpportunisticallyDependsOn(InstructionSet_Atomics))
     {
-        assert(!data->isContainedIntOrIImmed());
+        RegNum      addrReg  = UseReg(addr);
+        RegNum      valueReg = UseReg(value);
+        RegNum      reg1     = valueReg;
+        RegNum      reg2     = destReg == REG_NA ? REG_ZR : destReg;
+        instruction ins;
 
-        switch (treeNode->gtOper)
+        switch (node->GetOper())
         {
             case GT_XORR:
-                GetEmitter()->emitIns_R_R_R(INS_ldsetal, dataSize, dataReg, (targetReg == REG_NA) ? REG_ZR : targetReg,
-                                            addrReg);
+                ins = INS_ldsetal;
                 break;
             case GT_XAND:
-            {
-                // Grab a temp reg to perform `MVN` for dataReg first.
-                regNumber tempReg = treeNode->GetSingleTempReg();
-                GetEmitter()->emitIns_R_R(INS_mvn, dataSize, tempReg, dataReg);
-                GetEmitter()->emitIns_R_R_R(INS_ldclral, dataSize, tempReg, (targetReg == REG_NA) ? REG_ZR : targetReg,
-                                            addrReg);
-                break;
-            }
-            case GT_XCHG:
-                GetEmitter()->emitIns_R_R_R(INS_swpal, dataSize, dataReg, targetReg, addrReg);
-                break;
-            case GT_XADD:
-                GetEmitter()->emitIns_R_R_R(INS_ldaddal, dataSize, dataReg, (targetReg == REG_NA) ? REG_ZR : targetReg,
-                                            addrReg);
-                break;
-            default:
-                assert(!"Unexpected treeNode->gtOper");
-        }
-    }
-    else
-    {
-        // These are imported normally if Atomics aren't supported.
-        assert(!treeNode->OperIs(GT_XORR, GT_XAND));
-
-        regNumber exResultReg  = treeNode->ExtractTempReg(RBM_ALLINT);
-        regNumber storeDataReg = (treeNode->OperGet() == GT_XCHG) ? dataReg : treeNode->ExtractTempReg(RBM_ALLINT);
-        regNumber loadReg      = (targetReg != REG_NA) ? targetReg : storeDataReg;
-
-        // Check allocator assumptions
-        //
-        // The register allocator should have extended the lifetimes of all input and internal registers so that
-        // none interfere with the target.
-        noway_assert(addrReg != targetReg);
-
-        noway_assert(addrReg != loadReg);
-        noway_assert(dataReg != loadReg);
-
-        noway_assert(addrReg != storeDataReg);
-        noway_assert((treeNode->OperGet() == GT_XCHG) || (addrReg != dataReg));
-
-        assert(addr->isUsedFromReg());
-        noway_assert(exResultReg != REG_NA);
-        noway_assert(exResultReg != targetReg);
-        noway_assert((targetReg != REG_NA) || (treeNode->OperGet() != GT_XCHG));
-
-        // Store exclusive unpredictable cases must be avoided
-        noway_assert(exResultReg != storeDataReg);
-        noway_assert(exResultReg != addrReg);
-
-        // TODO-MIKE-Review: This is dubious, GC liveness doesn't really matter until we reach a call...
-
-        // NOTE: `genConsumeAddress` marks the consumed register as not a GC pointer, as it assumes that the input
-        // registers
-        // die at the first instruction generated by the node. This is not the case for these atomics as the  input
-        // registers are multiply-used. As such, we need to mark the addr register as containing a GC pointer until
-        // we are finished generating the code for this node.
-
-        liveness.SetGCRegType(addrReg, addr->GetType());
-
-        // Emit code like this:
-        //   retry:
-        //     ldxr loadReg, [addrReg]
-        //     add storeDataReg, loadReg, dataReg         # Only for GT_XADD
-        //                                                # GT_XCHG storeDataReg === dataReg
-        //     stxr exResult, storeDataReg, [addrReg]
-        //     cbnz exResult, retry
-        //     dmb ish
-
-        insGroup* labelRetry = GetEmitter()->DefineTempLabel();
-
-        // The following instruction includes a acquire half barrier
-        GetEmitter()->emitIns_R_R(INS_ldaxr, dataSize, loadReg, addrReg);
-
-        switch (treeNode->OperGet())
-        {
-            case GT_XADD:
-                if (data->isContainedIntOrIImmed())
-                {
-                    // Even though INS_add is specified here, the encoder will choose either
-                    // an INS_add or an INS_sub and encode the immediate as a positive value
-                    genInstrWithConstant(INS_add, dataSize, storeDataReg, loadReg, data->AsIntConCommon()->IconValue(),
-                                         REG_NA);
-                }
-                else
-                {
-                    GetEmitter()->emitIns_R_R_R(INS_add, dataSize, storeDataReg, loadReg, dataReg);
-                }
+                reg1 = node->GetSingleTempReg();
+                GetEmitter()->emitIns_R_R(INS_mvn, size, reg1, valueReg);
+                ins = INS_ldclral;
                 break;
             case GT_XCHG:
-                assert(!data->isContained());
-                storeDataReg = dataReg;
+                reg2 = destReg;
+                ins  = INS_swpal;
+                break;
+            case GT_XADD:
+                ins = INS_ldaddal;
                 break;
             default:
                 unreached();
         }
 
-        // The following instruction includes a release half barrier
-        GetEmitter()->emitIns_R_R_R(INS_stlxr, dataSize, exResultReg, storeDataReg, addrReg);
+        GetEmitter()->emitIns_R_R_R(ins, size, reg1, reg2, addrReg);
 
-        GetEmitter()->emitIns_J_R(INS_cbnz, EA_4BYTE, labelRetry, exResultReg);
-
-        instGen_MemoryBarrier();
-
-        liveness.RemoveGCRegs(genRegMask(addrReg));
-    }
-
-    if (treeNode->GetRegNum() != REG_NA)
-    {
-        genProduceReg(treeNode);
-    }
-}
-
-void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* treeNode)
-{
-    assert(treeNode->OperIs(GT_CMPXCHG));
-
-    GenTree* addr      = treeNode->GetAddr();
-    GenTree* data      = treeNode->GetValue();
-    GenTree* comparand = treeNode->GetCompareValue();
-
-    regNumber addrReg      = UseReg(addr);
-    regNumber dataReg      = UseReg(data);
-    regNumber comparandReg = comparand->isUsedFromReg() ? UseReg(comparand) : REG_NA;
-    regNumber targetReg    = treeNode->GetRegNum();
-
-    Emitter& emit = *GetEmitter();
-
-    if (compiler->compOpportunisticallyDependsOn(InstructionSet_Atomics))
-    {
-        emitAttr dataSize = emitActualTypeSize(data->GetType());
-
-        // casal use the comparand as the target reg
-        emit.emitIns_Mov(INS_mov, dataSize, targetReg, comparandReg, /* canSkip */ true);
-
-        // Catch case we destroyed data or address before use
-        noway_assert((addrReg != targetReg) || (targetReg == comparandReg));
-        noway_assert((dataReg != targetReg) || (targetReg == comparandReg));
-
-        emit.emitIns_R_R_R(INS_casal, dataSize, targetReg, dataReg, addrReg);
-    }
-    else
-    {
-        regNumber exResultReg = treeNode->ExtractTempReg(RBM_ALLINT);
-
-        // Check allocator assumptions
-        //
-        // The register allocator should have extended the lifetimes of all input and internal registers so that
-        // none interfere with the target.
-        noway_assert(addrReg != targetReg);
-        noway_assert(dataReg != targetReg);
-        noway_assert(comparandReg != targetReg);
-        noway_assert(addrReg != dataReg);
-        noway_assert(targetReg != REG_NA);
-        noway_assert(exResultReg != REG_NA);
-        noway_assert(exResultReg != targetReg);
-
-        // Store exclusive unpredictable cases must be avoided
-        noway_assert(exResultReg != dataReg);
-        noway_assert(exResultReg != addrReg);
-
-        // TODO-MIKE-Review: This is dubious, GC liveness stuff doesn't really matter until we reach a call...
-
-        // NOTE: `genConsumeAddress` marks the consumed register as not a GC pointer, as it assumes that the input
-        // registers
-        // die at the first instruction generated by the node. This is not the case for these atomics as the  input
-        // registers are multiply-used. As such, we need to mark the addr register as containing a GC pointer until
-        // we are finished generating the code for this node.
-
-        liveness.SetGCRegType(addrReg, addr->TypeGet());
-
-        // TODO-ARM64-CQ Use ARMv8.1 atomics if available
-        // https://github.com/dotnet/runtime/issues/8225
-
-        // Emit code like this:
-        //   retry:
-        //     ldxr targetReg, [addrReg]
-        //     cmp targetReg, comparandReg
-        //     bne compareFail
-        //     stxr exResult, dataReg, [addrReg]
-        //     cbnz exResult, retry
-        //   compareFail:
-        //     dmb ish
-
-        insGroup* labelRetry = GetEmitter()->DefineTempLabel();
-
-        // TODO-MIKE-Cleanup: emitTypeSize is likely bogus here, ldaxr and stlxr
-        // do not have 8/16 bit versions, you'd need ldaxrb & co. Or maybe they
-        // hacked the emitter to automatically generate to ldaxrb?
-        emitAttr size       = emitTypeSize(treeNode->GetType());
-        emitAttr actualSize = emitActualTypeSize(treeNode->GetType());
-
-        // The following instruction includes a acquire half barrier
-        emit.emitIns_R_R(INS_ldaxr, size, targetReg, addrReg);
-
-        insGroup* labelCompareFail = emit.CreateTempLabel();
-
-        if (GenTreeIntCon* con = comparand->IsContainedIntCon())
+        if (node->GetRegNum() != REG_NA)
         {
-            if (con->GetValue() == 0)
-            {
-                emit.emitIns_J_R(INS_cbnz, actualSize, labelCompareFail, targetReg);
-            }
-            else
-            {
-                emit.emitIns_R_I(INS_cmp, actualSize, targetReg, con->GetValue());
-                emit.emitIns_J(INS_bne, labelCompareFail);
-            }
+            DefReg(node);
+        }
+
+        return;
+    }
+
+    assert(node->OperIs(GT_XADD, GT_XCHG));
+
+    RegNum    addrReg  = UseReg(addr);
+    RegNum    valueReg = node->OperIs(GT_XCHG) || value->isUsedFromReg() ? UseReg(value) : REG_NA;
+    regNumber tempReg  = node->ExtractTempReg(RBM_ALLINT);
+    regNumber storeReg = node->OperIs(GT_XCHG) ? valueReg : node->ExtractTempReg(RBM_ALLINT);
+    regNumber loadReg  = destReg != REG_NA ? destReg : storeReg;
+
+    // The register allocator should have extended the lifetimes of all input
+    // and internal registers so that none interfere with the target.
+    noway_assert(addrReg != destReg);
+    noway_assert(addrReg != loadReg);
+    noway_assert(valueReg != loadReg);
+    noway_assert(addrReg != storeReg);
+    noway_assert(node->OperIs(GT_XCHG) || (addrReg != valueReg));
+    noway_assert(tempReg != REG_NA);
+    noway_assert(tempReg != destReg);
+    noway_assert((destReg != REG_NA) || !node->OperIs(GT_XCHG));
+    // Store exclusive unpredictable cases must be avoided
+    noway_assert(tempReg != storeReg);
+    noway_assert(tempReg != addrReg);
+
+    // TODO-MIKE-Review: This is dubious, GC liveness doesn't really matter until we reach a call...
+
+    // NOTE: UseReg marks the consumed register as not a GC pointer, as it assumes that the input
+    // registers die at the first instruction generated by the node. This is not the case for these
+    // atomics as the input registers are multiply-used. As such, we need to mark the addr register
+    // as containing a GC pointer until we are finished generating the code for this node.
+
+    liveness.SetGCRegType(addrReg, addr->GetType());
+
+    // Emit code like this:
+    // retry:
+    //   ldxr loadReg, [addrReg]
+    //   add storeReg, loadReg, valueReg # Only for XADD, for XCHG storeReg = valueReg
+    //   stxr tempReg, storeReg, [addrReg]
+    //   cbnz tempReg, retry
+    //   dmb ish
+
+    insGroup* labelRetry = GetEmitter()->DefineTempLabel();
+
+    GetEmitter()->emitIns_R_R(INS_ldaxr, size, loadReg, addrReg);
+
+    if (node->OperIs(GT_XADD))
+    {
+        if (GenTreeIntCon* imm = value->IsContainedIntCon())
+        {
+            genInstrWithConstant(INS_add, size, storeReg, loadReg, imm->GetValue(), REG_NA);
         }
         else
         {
-            emit.emitIns_R_R(INS_cmp, actualSize, targetReg, comparandReg);
-            emit.emitIns_J(INS_bne, labelCompareFail);
+            GetEmitter()->emitIns_R_R_R(INS_add, size, storeReg, loadReg, valueReg);
         }
-
-        // The following instruction includes a release half barrier
-        emit.emitIns_R_R_R(INS_stlxr, size, exResultReg, dataReg, addrReg);
-        emit.emitIns_J_R(INS_cbnz, EA_4BYTE, labelRetry, exResultReg);
-        emit.DefineTempLabel(labelCompareFail);
-
-        instGen_MemoryBarrier();
-
-        liveness.RemoveGCRegs(genRegMask(addrReg));
     }
 
-    genProduceReg(treeNode);
+    GetEmitter()->emitIns_R_R_R(INS_stlxr, size, tempReg, storeReg, addrReg);
+    GetEmitter()->emitIns_J_R(INS_cbnz, EA_4BYTE, labelRetry, tempReg);
+    instGen_MemoryBarrier();
+
+    liveness.RemoveGCRegs(genRegMask(addrReg));
+
+    if (node->GetRegNum() != REG_NA)
+    {
+        DefReg(node);
+    }
+}
+
+void CodeGen::GenCmpXchg(GenTreeCmpXchg* node)
+{
+    GenTree* addr      = node->GetAddr();
+    GenTree* value     = node->GetValue();
+    GenTree* comparand = node->GetCompareValue();
+    RegNum   destReg   = node->GetRegNum();
+    Emitter& emit      = *GetEmitter();
+
+    if (compiler->compOpportunisticallyDependsOn(InstructionSet_Atomics))
+    {
+        RegNum addrReg      = UseReg(addr);
+        RegNum valueReg     = UseReg(value);
+        RegNum comparandReg = UseReg(comparand);
+
+        emitAttr size = emitActualTypeSize(value->GetType());
+
+        // casal uses the comparand as the target reg
+        emit.emitIns_Mov(INS_mov, size, destReg, comparandReg, /* canSkip */ true);
+
+        // Catch case we destroyed data or address before use
+        noway_assert((addrReg != destReg) || (destReg == comparandReg));
+        noway_assert((valueReg != destReg) || (destReg == comparandReg));
+
+        emit.emitIns_R_R_R(INS_casal, size, destReg, valueReg, addrReg);
+
+        DefReg(node);
+
+        return;
+    }
+
+    RegNum addrReg      = UseReg(addr);
+    RegNum valueReg     = UseReg(value);
+    RegNum comparandReg = comparand->isUsedFromReg() ? UseReg(comparand) : REG_NA;
+    RegNum tempReg      = node->ExtractTempReg(RBM_ALLINT);
+
+    // The register allocator should have extended the lifetimes of all input
+    // and internal registers so that none interfere with the destination.
+    noway_assert(addrReg != destReg);
+    noway_assert(valueReg != destReg);
+    noway_assert(comparandReg != destReg);
+    noway_assert(addrReg != valueReg);
+    noway_assert(destReg != REG_NA);
+    noway_assert(tempReg != REG_NA);
+    noway_assert(tempReg != destReg);
+    // Store exclusive unpredictable cases must be avoided
+    noway_assert(tempReg != valueReg);
+    noway_assert(tempReg != addrReg);
+
+    // TODO-MIKE-Review: This is dubious, GC liveness stuff doesn't really matter until we reach a call...
+
+    // NOTE: UseReg marks the consumed register as not a GC pointer, as it assumes that the input
+    // registers die at the first instruction generated by the node. This is not the case for these
+    // atomics as the input registers are multiply-used. As such, we need to mark the addr register
+    // as containing a GC pointer until we are finished generating the code for this node.
+
+    liveness.SetGCRegType(addrReg, addr->TypeGet());
+
+    emitAttr size = emitTypeSize(node->GetType());
+    // We don't expect small int types to be used, otherwise we'd need
+    // to use ldaxrb/stlxrb/ldaxrh/stlxrh instead of ldaxr/stlxr.
+    noway_assert((EA_SIZE(size) == EA_4BYTE) || (EA_SIZE(size) == EA_8BYTE));
+
+    // Emit code like this:
+    // retry:
+    //   ldxr destReg, [addrReg]
+    //   cmp destReg, comparandReg
+    //   bne compareFail
+    //   stxr tempReg, dataReg, [addrReg]
+    //   cbnz tempReg, retry
+    // compareFail:
+    //   dmb ish
+
+    insGroup* labelRetry = emit.DefineTempLabel();
+
+    emit.emitIns_R_R(INS_ldaxr, size, destReg, addrReg);
+
+    insGroup* labelCompareFail = emit.CreateTempLabel();
+
+    if (GenTreeIntCon* imm = comparand->IsContainedIntCon())
+    {
+        if (imm->GetValue() == 0)
+        {
+            emit.emitIns_J_R(INS_cbnz, size, labelCompareFail, destReg);
+        }
+        else
+        {
+            emit.emitIns_R_I(INS_cmp, size, destReg, imm->GetValue());
+            emit.emitIns_J(INS_bne, labelCompareFail);
+        }
+    }
+    else
+    {
+        emit.emitIns_R_R(INS_cmp, size, destReg, comparandReg);
+        emit.emitIns_J(INS_bne, labelCompareFail);
+    }
+
+    emit.emitIns_R_R_R(INS_stlxr, size, tempReg, valueReg, addrReg);
+    emit.emitIns_J_R(INS_cbnz, EA_4BYTE, labelRetry, tempReg);
+    emit.DefineTempLabel(labelCompareFail);
+    instGen_MemoryBarrier();
+
+    liveness.RemoveGCRegs(genRegMask(addrReg));
+
+    DefReg(node);
 }
 
 instruction CodeGen::genGetInsForOper(genTreeOps oper)
@@ -3021,19 +2992,19 @@ void CodeGen::inst_JCC(GenCondition condition, insGroup* label)
 
     if (desc.oper == GT_NONE)
     {
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), label);
+        emit.emitIns_J(JumpKindToJcc(desc.jumpKind1), label);
     }
     else if (desc.oper == GT_OR)
     {
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind1), label);
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), label);
+        emit.emitIns_J(JumpKindToJcc(desc.jumpKind1), label);
+        emit.emitIns_J(JumpKindToJcc(desc.jumpKind2), label);
     }
     else
     {
         assert(desc.oper == GT_AND);
         insGroup* labelNext = emit.CreateTempLabel();
-        emit.emitIns_J(emitter::emitJumpKindToBranch(emitter::emitReverseJumpKind(desc.jumpKind1)), labelNext);
-        emit.emitIns_J(emitter::emitJumpKindToBranch(desc.jumpKind2), label);
+        emit.emitIns_J(JumpKindToJcc(ReverseJumpKind(desc.jumpKind1)), labelNext);
+        emit.emitIns_J(JumpKindToJcc(desc.jumpKind2), label);
         emit.DefineTempLabel(labelNext);
     }
 }
@@ -3046,15 +3017,15 @@ void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstRe
     const GenConditionDesc& desc = GenConditionDesc::Get(condition);
     Emitter&                emit = *GetEmitter();
 
-    emit.emitIns_R_COND(INS_cset, EA_8BYTE, dstReg, emitter::emitJumpKindToCond(desc.jumpKind1));
+    emit.emitIns_R_COND(INS_cset, EA_8BYTE, dstReg, JumpKindToInsCond(desc.jumpKind1));
 
     if (desc.oper != GT_NONE)
     {
-        emitJumpKind jcc = (desc.oper == GT_OR) ? desc.jumpKind1 : emitter::emitReverseJumpKind(desc.jumpKind1);
+        emitJumpKind jcc = (desc.oper == GT_OR) ? desc.jumpKind1 : ReverseJumpKind(desc.jumpKind1);
 
         insGroup* labelNext = emit.CreateTempLabel();
-        emit.emitIns_J(emitter::emitJumpKindToBranch(jcc), labelNext);
-        emit.emitIns_R_COND(INS_cset, EA_8BYTE, dstReg, emitter::emitJumpKindToCond(desc.jumpKind2));
+        emit.emitIns_J(JumpKindToJcc(jcc), labelNext);
+        emit.emitIns_R_COND(INS_cset, EA_8BYTE, dstReg, JumpKindToInsCond(desc.jumpKind2));
         emit.DefineTempLabel(labelNext);
     }
 }
@@ -8474,7 +8445,7 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
 
     if (index == nullptr)
     {
-        if (emitter::emitIns_valid_imm_for_ldst_offset(offset, emitTypeSize(indir->GetType())))
+        if (Arm64Imm::IsLdStImm(offset, emitTypeSize(indir->GetType())))
         {
             emit->emitIns_R_R_I(ins, attr, valueReg, base->GetRegNum(), offset);
         }
@@ -8513,9 +8484,9 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
     regNumber tmpReg  = indir->GetSingleTempReg();
     emitAttr  tmpAttr = varTypeIsGC(base->GetType()) ? EA_BYREF : EA_8BYTE;
 
-    noway_assert(emitter::emitInsIsLoad(ins) || (tmpReg != valueReg));
+    noway_assert(IsLoadIns(ins) || (tmpReg != valueReg));
 
-    if (!emitter::emitIns_valid_imm_for_add(offset, EA_8BYTE))
+    if (!Arm64Imm::IsAddImm(offset, EA_8BYTE))
     {
         noway_assert(tmpReg != indexReg);
 
@@ -8687,7 +8658,6 @@ void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emi
     assert(ins != INS_tst);
 
     // TODO-Arm64-Bug: handle large constants!
-    // Probably need something like the ARM case above: if (validImmForInstr(ins, val)) ...
 
     GetEmitter()->emitIns_R_R_I(ins, size, reg, reg, val);
 }
@@ -9757,7 +9727,7 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throw
             assert(throwBlock != nullptr);
         }
 
-        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(condition), throwBlock->emitLabel);
+        GetEmitter()->emitIns_J(JumpKindToJcc(condition), throwBlock->emitLabel);
     }
     else if (condition == EJ_jmp)
     {
@@ -9766,7 +9736,7 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throw
     else
     {
         insGroup* label = GetEmitter()->CreateTempLabel();
-        GetEmitter()->emitIns_J(emitter::emitJumpKindToBranch(emitter::emitReverseJumpKind(condition)), label);
+        GetEmitter()->emitIns_J(JumpKindToJcc(ReverseJumpKind(condition)), label);
         genEmitHelperCall(Compiler::GetThrowHelperCall(throwKind));
         GetEmitter()->DefineTempLabel(label);
     }

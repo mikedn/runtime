@@ -1,67 +1,27 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*****************************************************************************
- *  Arm Thumb1/Thumb2 instructions for JIT compiler
- *
- *          id      -- the enum name for the instruction
- *          nm      -- textual name (for assembly dipslay)
- *          fp      -- floating point instruction
- *          ld/st/cmp   -- load/store/compare instruction
- *          fmt     -- encoding format used by this instruction
- *          e1      -- encoding 1
- *          e2      -- encoding 2
- *          e3      -- encoding 3
- *          e4      -- encoding 4
- *          e5      -- encoding 5
- *          e6      -- encoding 6
- *          e7      -- encoding 7
- *          e8      -- encoding 8
- *          e9      -- encoding 9
- *
-******************************************************************************/
-
-#if !defined(TARGET_ARM)
-#error Unexpected target type
-#endif
-
-#ifndef INST1
-#error INST1 must be defined before including this file.
-#endif
-#ifndef INST2
-#error INST2 must be defined before including this file.
-#endif
-#ifndef INST3
-#error INST3 must be defined before including this file.
-#endif
-#ifndef INST4
-#error INST4 must be defined before including this file.
-#endif
-#ifndef INST5
-#error INST5 must be defined before including this file.
-#endif
-#ifndef INST6
-#error INST6 must be defined before including this file.
-#endif
-// No INST7
-// #ifndef INST7
-// #error  INST7 must be defined before including this file.
-// #endif
-#ifndef INST8
-#error INST8 must be defined before including this file.
-#endif
-#ifndef INST9
-#error INST9 must be defined before including this file.
-#endif
-
-/*****************************************************************************/
-/*               The following is ARM-specific                               */
-/*****************************************************************************/
+#ifdef TARGET_ARM
 
 // If you're adding a new instruction:
 // You need not only to fill in one of these macros describing the instruction, but also:
 //   * If the instruction writes to more than one destination register, update the function
-//     emitInsMayWriteMultipleRegs in emitArm.cpp.
+//     InstrMayWriteMultipleRegs in emitArm.cpp.
+//
+// id    - the enum name for the instruction
+// nm    - assembly name
+// fp    - floating point instruction
+// ld/st - load/store instruction
+// fmt   - encoding format used by this instruction
+// e1    - encoding 1
+// e2    - encoding 2
+// e3    - encoding 3
+// e4    - encoding 4
+// e5    - encoding 5
+// e6    - encoding 6
+// e7    - encoding 7
+// e8    - encoding 8
+// e9    - encoding 9
 
 // clang-format off
 INST9(invalid, "INVALID", 0, 0, IF_NONE,   BAD_CODE,  BAD_CODE,    BAD_CODE,     BAD_CODE,   BAD_CODE,     BAD_CODE,      BAD_CODE, BAD_CODE,   BAD_CODE)
@@ -154,7 +114,7 @@ INST5(mov,     "mov",    0, 0, IF_EN5A,   0x0000,    0x4600,      0x2000,      0
                                    //  movs    Rd,i8             T1_J0     00100dddiiiiiiii                    2000        low     imm(0-255)
                                    //  mov{s}  Rd,+i8<<i4        T2_L1     11110i00010S1111 0iiiddddiiiiiiii   F04F 0000           imm(i8<<i4)
                                    //  mov{s}  Rd,Rm             T2_C3     1110101001011111 0000dddd0000mmmm   EA5F 0000
-INST5(cmp,     "cmp",    0,CMP,IF_EN5B,   0x4280,    0x4500,      0x2800,      0xF1B00F00,  0xEBB00F00)
+INST5(cmp,     "cmp",    0, 0, IF_EN5B,   0x4280,    0x4500,      0x2800,      0xF1B00F00,  0xEBB00F00)
                                    //  cmp     Rn,Rm             T1_E      0100001010mmmnnn                    4280        low
                                    //  cmp     Rn,Rm             T1_D0     01000101Nmmmmnnn                    4500        high
                                    //  cmp     Rn,i8             T1_J0     00101nnniiiiiiii                    2800        low     imm(0-255)
@@ -253,14 +213,14 @@ INST3(rsb,     "rsb",    0, 0, IF_EN3A,   0x4240,    0xEBC00000,   0xF1C00000)
 
 //    enum     name      FP LD/ST          Rn,Rm     Rn,Rm,sh      Rn,i12
 //                                          T1_E       T2_C8        T2_L2
-INST3(tst,     "tst",    0,CMP,IF_EN3B,   0x4200,    0xEA100F00,   0xF0100F00)
+INST3(tst,     "tst",    0, 0, IF_EN3B,   0x4200,    0xEA100F00,   0xF0100F00)
                                    //  tst     Rn,Rm             T1_E      0100001000mmmnnn                    4200        low
                                    //  tst     Rn,Rm{,sh}        T2_C8     111010100001nnnn 0iii1111iishmmmm   EA10 0F00
                                    //  tst     Rn,+i8<<i4        T2_L2     11110i000001nnnn 0iii1111iiiiiiii   F010 0F00           imm(i8<<i4)
-INST3(teq,     "teq",    0,CMP,IF_EN3B,   BAD_CODE,  0xEA900F00,   0xF0900F00)
+INST3(teq,     "teq",    0, 0, IF_EN3B,   BAD_CODE,  0xEA900F00,   0xF0900F00)
                                    //  teq     Rn,Rm{,sh}        T2_C8     111010101001nnnn 0iii1111iishmmmm   EA90 0F00
                                    //  teq     Rn,+i8<<i4        T2_L2     11110i001001nnnn 0iii1111iiiiiiii   F090 0F00           imm(i8<<i4)
-INST3(cmn,     "cmn",    0,CMP,IF_EN3B,   0x42C0,    0xEB100F00,   0xF1100F00)
+INST3(cmn,     "cmn",    0, 0, IF_EN3B,   0x42C0,    0xEB100F00,   0xF1100F00)
                                    //  cmn     Rn,Rn             T1_E      0100001011mmmnnn                    42C0        low
                                    //  cmn     Rn,Rm{,sh}        T2_C8     111010110001nnnn 0iii1111iishmmmm   EB10 0F00
                                    //  cmn     Rn,+i8<<i4        T2_L2     11110i010001nnnn 0iii1111iiiiiiii   F110 0F00           imm(i8<<i4)
@@ -493,10 +453,8 @@ INST1(iteee,   "iteee",  0, 0, IF_T1_B,   0xBF01)
                                            //  cond              T1_B      10111111cond1111                    BF0F                cond
 #endif // FEATURE_ITINSTRUCTION
 
-
-/*****************************************************************************/
-/*             Floating Point Instructions                                   */
-/*****************************************************************************/
+// Floating Point Instructions
+//
 //    enum      name          FP LD/ST
                                            //  Dd,[Rn+imm8]      T2_VLDST  11101101UD0Lnnnn  dddd101Ziiiiiiii   ED00 0A00           imm(+-1020)
 INST1(vstr,     "vstr",        1,ST,   IF_T2_VLDST, 0xED000A00)
@@ -520,8 +478,8 @@ INST1(vmov,     "vmov",        1, 0,   IF_T2_VFP2,  0xEEB00A40)               //
 INST1(vabs,     "vabs",        1, 0,   IF_T2_VFP2,  0xEEB00AC0)               // opc2 = '000',  zp = 01
 INST1(vsqrt,    "vsqrt",       1, 0,   IF_T2_VFP2,  0xEEB10AC0)               // opc2 = '001',  zp = 01
 INST1(vneg,     "vneg",        1, 0,   IF_T2_VFP2,  0xEEB10A40)               // opc2 = '001',  zp = 00
-INST1(vcmp,     "vcmp",        1, CMP, IF_T2_VFP2,  0xEEB40A40)               // opc2 = '100',  zp = 00
-INST1(vcmp0,    "vcmp.0",      1, CMP, IF_T2_VFP2,  0xEEB50A40)               // opc2 = '101',  zp = 00
+INST1(vcmp,     "vcmp",        1, 0,   IF_T2_VFP2,  0xEEB40A40)               // opc2 = '100',  zp = 00
+INST1(vcmp0,    "vcmp.0",      1, 0,   IF_T2_VFP2,  0xEEB50A40)               // opc2 = '101',  zp = 00
 
                                            //  Dd,Dm             T2_VFP2   111011101D111---  dddd101zp1M0mmmm   EEB8 0A40
 INST1(vcvt_d2i,  "vcvt.d2i",   1, 0,   IF_T2_VFP2,  0xEEBD0BC0)               // opc2 = '101',  zp = 11
@@ -545,7 +503,6 @@ INST1(vmov_i2f,  "vmov.i2f",   1, 0,   IF_T2_VMOVS, 0xEE000A10) // A8.6.330 VMOV
 INST1(vmov_f2i,  "vmov.f2i",   1, 0,   IF_T2_VMOVS, 0xEE100A10) // A8.6.330 VMOV (between ARM core register and single-precision register)
 // clang-format on
 
-/*****************************************************************************/
 #undef INST1
 #undef INST2
 #undef INST3
@@ -555,4 +512,5 @@ INST1(vmov_f2i,  "vmov.f2i",   1, 0,   IF_T2_VMOVS, 0xEE100A10) // A8.6.330 VMOV
 #undef INST7
 #undef INST8
 #undef INST9
-/*****************************************************************************/
+
+#endif // TARGET_ARM

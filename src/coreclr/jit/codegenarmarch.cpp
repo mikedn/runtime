@@ -14,7 +14,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
     switch (treeNode->GetOper())
     {
         case GT_START_NONGC:
-            GetEmitter()->emitDisableGC();
+            GetEmitter()->DisableGC();
             break;
 
         case GT_START_PREEMPTGC:
@@ -278,11 +278,11 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
         case GT_XORR:
         case GT_XAND:
         case GT_XADD:
-            genLockedInstructions(treeNode->AsOp());
+            GenInterlocked(treeNode->AsOp());
             break;
 
         case GT_CMPXCHG:
-            genCodeForCmpXchg(treeNode->AsCmpXchg());
+            GenCmpXchg(treeNode->AsCmpXchg());
             break;
 #endif
 
@@ -337,7 +337,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
             // the runtime side requires the codegen here to be consistent
-            GetEmitter()->emitDisableRandomNops();
+            GetEmitter()->DisableRandomNops();
 #endif
             break;
 
@@ -1211,8 +1211,12 @@ void CodeGen::genCodeForShift(GenTreeOp* tree)
     }
     else
     {
-        unsigned immWidth   = emitter::getBitWidth(size); // For ARM64, immWidth will be set to 32 or 64
-        unsigned shiftByImm = (unsigned)shiftBy->AsIntCon()->gtIconVal & (immWidth - 1);
+#ifdef TARGET_ARM
+        unsigned immWidth = 32;
+#else
+        unsigned immWidth = EA_BIT_SIZE(size);
+#endif
+        unsigned shiftByImm = shiftBy->AsIntCon()->GetUInt32Value() & (immWidth - 1);
 
         GetEmitter()->emitIns_R_R_I(ins, size, dstReg, valueReg, shiftByImm);
     }
@@ -1542,7 +1546,7 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
 
     if (layout->HasGCPtr())
     {
-        GetEmitter()->emitDisableGC();
+        GetEmitter()->DisableGC();
     }
 
     LclVarDsc* dstLcl         = nullptr;
@@ -1729,7 +1733,7 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
 
     if (layout->HasGCPtr())
     {
-        GetEmitter()->emitEnableGC();
+        GetEmitter()->EnableGC();
     }
 }
 
@@ -2360,7 +2364,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         assert(callAddr != nullptr);
 
 #ifdef TARGET_ARM
-        if (!emitter::validImmForBL(reinterpret_cast<ssize_t>(callAddr), compiler))
+        if (!ArmImm::IsBlImm(reinterpret_cast<ssize_t>(callAddr), compiler))
         {
             emitCallType = emitter::EC_INDIR_R;
             callReg      = call->GetSingleTempReg();
@@ -2630,7 +2634,7 @@ void CodeGen::GenJmp(GenTree* jmp)
 #endif
 
     // We have no way of knowing if args contain GC references.
-    GetEmitter()->emitDisableGC();
+    GetEmitter()->DisableGC();
 
     for (int i = 0; i < MAX_REG_ARG; ++i)
     {
@@ -2643,7 +2647,7 @@ void CodeGen::GenJmp(GenTree* jmp)
     }
 
     // The epilog, which is not interruptible, should follow right after this code.
-    GetEmitter()->emitEnableGC();
+    GetEmitter()->EnableGC();
 }
 
 void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, const CORINFO_CONST_LOOKUP& addrInfo)
@@ -2682,7 +2686,11 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
         switch (addrInfo.accessType)
         {
             case IAT_VALUE:
-                if (emitter::validImmForBL(reinterpret_cast<ssize_t>(addrInfo.addr), compiler))
+#ifdef TARGET_ARM64
+                if (Arm64Imm::IsBlImm(reinterpret_cast<ssize_t>(addrInfo.addr), compiler))
+#else
+                if (ArmImm::IsBlImm(reinterpret_cast<ssize_t>(addrInfo.addr), compiler))
+#endif
                 {
                     // Simple direct call
                     callType   = emitter::EC_FUNC_TOKEN;
@@ -3058,7 +3066,11 @@ void CodeGen::genLeaInstruction(GenTreeAddrMode* lea)
             // when calculating a EA_BYREF as we can't report a byref that points outside of the object
             bool useLargeOffsetSeq = GetInterruptible() && (attr == EA_BYREF);
 
-            if (!useLargeOffsetSeq && emitter::emitIns_valid_imm_for_add(offset))
+#ifdef TARGET_ARM64
+            if (!useLargeOffsetSeq && Arm64Imm::IsAddImm(offset, EA_8BYTE))
+#else
+            if (!useLargeOffsetSeq && ArmImm::IsAddImm(offset, INS_FLAGS_DONT_CARE))
+#endif
             {
                 genScaledAdd(attr, tmpReg, baseReg, indexReg, scale);
                 emit->emitIns_R_R_I(INS_add, attr, lea->GetRegNum(), tmpReg, offset);
@@ -3074,7 +3086,11 @@ void CodeGen::genLeaInstruction(GenTreeAddrMode* lea)
             }
         }
     }
-    else if (!emitter::emitIns_valid_imm_for_add(offset))
+#ifdef TARGET_ARM64
+    else if (!Arm64Imm::IsAddImm(offset, EA_8BYTE))
+#else
+    else if (!ArmImm::IsAddImm(offset, INS_FLAGS_DONT_CARE))
+#endif
     {
         regNumber tmpReg = lea->GetSingleTempReg();
         instGen_Set_Reg_To_Imm(EA_PTRSIZE, tmpReg, offset);

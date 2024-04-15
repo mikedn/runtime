@@ -469,7 +469,6 @@ void CodeGen::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
     DoPhase(this, PHASE_LINEAR_SCAN, &CodeGen::genAllocateRegisters);
     DoPhase(this, PHASE_GENERATE_CODE, &CodeGen::genGenerateMachineCode);
     DoPhase(this, PHASE_EMIT_CODE, &CodeGen::genEmitMachineCode);
-    DoPhase(this, PHASE_EMIT_GCEH, &CodeGen::genEmitUnwindDebugGCandEH);
 
 #ifdef LATE_DISASM
     GetEmitter()->Disassemble();
@@ -488,7 +487,7 @@ void CodeGen::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
     }
 #endif
 
-    *nativeCode     = GetEmitter()->GetHotCodeAddr();
+    *nativeCode     = hotCodeBlock;
     *nativeCodeSize = GetEmitter()->GetCodeSize();
 }
 
@@ -753,19 +752,51 @@ void CodeGen::genEmitMachineCode()
         }
     }
 #endif // DEBUG
+#ifdef DEBUG_ARG_SLOTS
+    {
+        // Check our max stack level. Needed for fgGetThrowHelperBlock.
+        // We need to relax the assert as our estimation won't include code-gen
+        // stack changes (which we know don't affect fgGetThrowHelperBlock).
+
+        unsigned maxAllowedStackDepth =
+            4 * compiler->fgGetPtrArgCntMax() +     // Max number of pointer-sized stack arguments.
+            4 * compiler->compHndBBtabCount +       // Return address for locally-called finallys
+            8 +                                     // longs/doubles may be transferred via stack, etc
+            (compiler->compTailCallUsed ? 16 : 0)); // CORINFO_HELP_TAILCALL args
+
+#ifdef UNIX_X86_ABI
+        maxAllowedStackDepth += maxNestedAlignment;
+#endif
+
+        assert(GetEmitter()->GetMaxStackDepth() <= maxAllowedStackDepth);
+    }
+#endif // DEBUG_ARG_SLOTS
 
 #ifdef FEATURE_EH_FUNCLETS
     unwindReserve();
 #endif
 
     Emitter& emit = *GetEmitter();
-    emit.emitEndCodeGen();
+    GCInfo   gcInfo(compiler);
+
+    if (maxGCTrackedOffset != INT_MIN)
+    {
+        gcInfo.SetTrackedStackSlotRange(minGCTrackedOffset, maxGCTrackedOffset + REGSIZE_BYTES);
+    }
+
+#ifndef JIT32_GCENCODER
+    gcInfo.Begin();
+#else
+    gcInfo.Begin(emit.GetMaxStackDepth());
+#endif
+
+    emit.Encode(gcInfo);
 
 #ifdef DEBUG
     if (compiler->opts.disAsm || compiler->verbose)
     {
-        printf("\n; Total bytes of code %d, prolog size %d, PerfScore %.2f, instruction count %d, allocated bytes for "
-               "code %d",
+        printf("\n; Total bytes of code %u, prolog size %u, PerfScore %.2f, instruction count %u, allocated bytes for "
+               "code %u",
                emit.GetCodeSize(), emit.GetMainPrologNoGCSize(), emit.GetPerfScore(), emit.GetInstrCount(),
                emit.GetHotCodeSize() + emit.GetColdCodeSize());
 
@@ -781,36 +812,6 @@ void CodeGen::genEmitMachineCode()
     }
 #endif
 
-#ifdef DEBUG_ARG_SLOTS
-    // Check our max stack level. Needed for fgGetThrowHelperBlock.
-    // We need to relax the assert as our estimation won't include code-gen
-    // stack changes (which we know don't affect fgGetThrowHelperBlock).
-    // NOTE: after emitEndCodeGen (including here), emitMaxStackDepth is a
-    // count of DWORD-sized arguments, NOT argument size in bytes.
-    {
-        unsigned maxAllowedStackDepth = compiler->fgGetPtrArgCntMax() + // Max number of pointer-sized stack arguments.
-                                        compiler->compHndBBtabCount +   // Return address for locally-called finallys
-                                        2 + // longs/doubles may be transferred via stack, etc
-                                        (compiler->compTailCallUsed ? 4 : 0); // CORINFO_HELP_TAILCALL args
-#ifdef UNIX_X86_ABI
-        // Convert maxNestedAlignment to DWORD count before adding to maxAllowedStackDepth.
-        assert(maxNestedAlignment % 4 == 0);
-        maxAllowedStackDepth += maxNestedAlignment / 4;
-#endif
-
-        assert(GetEmitter()->emitMaxStackDepth <= maxAllowedStackDepth);
-    }
-#endif // DEBUG_ARG_SLOTS
-
-    // Make sure that the x86 alignment and cache prefetch optimization rules were
-    // obeyed - don't start a method in the last 7 bytes of a 16-byte alignment area
-    // unless we are generating SMALL_CODE.
-    // TODO-MIKE-Review: What's up with this?
-    // noway_assert((reinterpret_cast<size_t>(codePtr) % 16 <= 8) || (compiler->compCodeOpt() == SMALL_CODE));
-}
-
-void CodeGen::genEmitUnwindDebugGCandEH()
-{
 #ifdef FEATURE_EH_FUNCLETS
     unwindEmit();
 #endif
@@ -821,17 +822,17 @@ void CodeGen::genEmitUnwindDebugGCandEH()
         genSetScopeInfo();
     }
 
-    genReportEH();
-    GetEmitter()->GetGCInfo().CreateAndStoreGCInfo(this);
+    if (compiler->compHndBBtabCount != 0)
+    {
+        genReportEH();
+    }
+
+    gcInfo.CreateAndStoreGCInfo(this);
 }
 
 void CodeGen::genReportEH()
 {
-    if (compiler->compHndBBtabCount == 0)
-    {
-        return;
-    }
-
+    assert(compiler->compHndBBtabCount != 0);
     DBEXEC(compiler->opts.dspEHTable, printf("*************** EH table for %s\n", compiler->info.compFullName));
 
     bool     isCoreRTABI = compiler->IsTargetAbi(CORINFO_CORERT_ABI);
@@ -1249,9 +1250,10 @@ void CodeGen::dispOutgoingEHClause(unsigned num, const CORINFO_EH_CLAUSE& clause
 {
     if (compiler->opts.dspDiffable)
     {
-        printf("EH#%u: try [%s..%s) handled by [%s..%s) ", num, GetEmitter()->emitOffsetToLabel(clause.TryOffset),
-               GetEmitter()->emitOffsetToLabel(clause.TryLength), GetEmitter()->emitOffsetToLabel(clause.HandlerOffset),
-               GetEmitter()->emitOffsetToLabel(clause.HandlerLength));
+        printf("EH#%u: try [%s..%s) handled by [%s..%s) ", num, GetEmitter()->GetOffsetToLabelString(clause.TryOffset),
+               GetEmitter()->GetOffsetToLabelString(clause.TryLength),
+               GetEmitter()->GetOffsetToLabelString(clause.HandlerOffset),
+               GetEmitter()->GetOffsetToLabelString(clause.HandlerLength));
     }
     else
     {
@@ -1273,8 +1275,8 @@ void CodeGen::dispOutgoingEHClause(unsigned num, const CORINFO_EH_CLAUSE& clause
         case CORINFO_EH_CLAUSE_FILTER:
             if (compiler->opts.dspDiffable)
             {
-                printf("filter at [%s..%s)", GetEmitter()->emitOffsetToLabel(clause.ClassToken),
-                       GetEmitter()->emitOffsetToLabel(clause.HandlerOffset));
+                printf("filter at [%s..%s)", GetEmitter()->GetOffsetToLabelString(clause.ClassToken),
+                       GetEmitter()->GetOffsetToLabelString(clause.HandlerOffset));
             }
             else
             {
@@ -2866,8 +2868,8 @@ void CodeGen::MarkGCTrackedSlots(int&       minBlockInitOffset,
     initRegs           = RBM_NONE;
     ARM_ONLY(initDblRegs = RBM_NONE);
 
-    int minGCTrackedOffset = INT_MAX;
-    int maxGCTrackedOffset = INT_MIN;
+    minGCTrackedOffset = INT_MAX;
+    maxGCTrackedOffset = INT_MIN;
 
     for (LclVarDsc* lcl : compiler->Locals())
     {
@@ -2980,15 +2982,13 @@ void CodeGen::MarkGCTrackedSlots(int&       minBlockInitOffset,
     {
         JITDUMP("%u tracked GC refs in frame range ", (maxGCTrackedOffset - minGCTrackedOffset) / REGSIZE_BYTES + 1);
 #ifdef TARGET_ARMARCH
-        JITDUMP("[%s,#%d] - [%s,#%d]\n", GetEmitter()->emitGetFrameReg(), minGCTrackedOffset,
-                GetEmitter()->emitGetFrameReg(), maxGCTrackedOffset);
+        JITDUMP("[%s,#%d] - [%s,#%d]\n", GetEmitter()->GetFrameRegName(), minGCTrackedOffset,
+                GetEmitter()->GetFrameRegName(), maxGCTrackedOffset);
 #else
-        JITDUMP("[%s%c%02XH] - [%s%c%02XH]\n", GetEmitter()->emitGetFrameReg(), minGCTrackedOffset < 0 ? '-' : '+',
-                abs(minGCTrackedOffset), GetEmitter()->emitGetFrameReg(), maxGCTrackedOffset < 0 ? '-' : '+',
+        JITDUMP("[%s%c%02XH] - [%s%c%02XH]\n", GetEmitter()->GetFrameRegName(), minGCTrackedOffset < 0 ? '-' : '+',
+                abs(minGCTrackedOffset), GetEmitter()->GetFrameRegName(), maxGCTrackedOffset < 0 ? '-' : '+',
                 abs(maxGCTrackedOffset));
 #endif
-
-        GetEmitter()->GetGCInfo().SetTrackedStackSlotRange(minGCTrackedOffset, maxGCTrackedOffset + REGSIZE_BYTES);
     }
     else
     {
@@ -3732,7 +3732,7 @@ void CodeGen::genFnProlog()
 
     ScopedSetVariable<bool> _setGeneratingProlog(&generatingProlog, true);
     funSetCurrentFunc(0);
-    GetEmitter()->emitBegProlog();
+    GetEmitter()->BeginMainProlog();
     unwindBegProlog();
     liveness.BeginPrologEpilogCodeGen();
 
@@ -4093,7 +4093,7 @@ void CodeGen::PrologSetPSPSym(regNumber initReg, bool* pInitRegZeroed)
     int       callerSPOffs;
     regNumber regBase;
 
-    if (emitter::emitIns_valid_imm_for_add_sp(SPtoCallerSPdelta))
+    if (ArmImm::IsAddSpImm(SPtoCallerSPdelta))
     {
         // use the "add <reg>, sp, imm" form
 
@@ -4105,7 +4105,7 @@ void CodeGen::PrologSetPSPSym(regNumber initReg, bool* pInitRegZeroed)
         // use the "add <reg>, r11, imm" form
 
         int FPtoCallerSPdelta = -genCallerSPtoFPdelta();
-        noway_assert(emitter::emitIns_valid_imm_for_add(FPtoCallerSPdelta));
+        noway_assert(ArmImm::IsAddImm(FPtoCallerSPdelta, INS_FLAGS_DONT_CARE));
 
         callerSPOffs = FPtoCallerSPdelta;
         regBase      = REG_FPBASE;

@@ -75,6 +75,7 @@ class GCEncoder
     unsigned const           codeSize;
     unsigned const           prologSize;
     unsigned const           epilogSize;
+    unsigned const           maxStackDepth;
     ReturnKind const         returnKind;
     StackSlotLifetime* const firstStackSlotLifetime;
     RegArgChange* const      firstRegArgChange;
@@ -83,7 +84,7 @@ class GCEncoder
     bool const               isFullyInterruptible;
     unsigned                 untrackedStackSlotCount;
     unsigned                 trackedStackSlotLifetimeCount;
-    regNumber                syncThisReg;
+    RegNum                   syncThisReg;
 
 public:
     GCEncoder(CodeGen*           codeGen,
@@ -95,12 +96,13 @@ public:
               RegArgChange*      firstRegArgChange,
               CallSite*          firstCallSite,
               bool               isFullyInterruptible,
-              regNumber          syncThisReg)
+              RegNum             syncThisReg)
         : codeGen(codeGen)
         , compiler(codeGen->GetCompiler())
         , codeSize(codeSize)
         , prologSize(prologSize)
         , epilogSize(epilogSize)
+        , maxStackDepth(codeGen->GetEmitter()->GetMaxStackDepth())
         , returnKind(returnKind)
         , firstStackSlotLifetime(firstStackSlotLifetime)
         , firstRegArgChange(firstRegArgChange)
@@ -365,7 +367,7 @@ unsigned GCEncoder::GetUntrackedStackSlotCount()
             if (compiler->verbose)
             {
                 printf("GCINFO: untracked %s slot at [%s", varTypeName(lcl->GetType()),
-                       codeGen->GetEmitter()->emitGetFrameReg());
+                       codeGen->GetEmitter()->GetFrameRegName());
 
                 if (lcl->GetStackOffset() != 0)
                 {
@@ -397,7 +399,7 @@ unsigned GCEncoder::GetUntrackedStackSlotCount()
             if (compiler->verbose)
             {
                 printf("GCINFO: untracked %s slot at [%s", varTypeName(temp.GetType()),
-                       codeGen->GetEmitter()->emitGetFrameReg());
+                       codeGen->GetEmitter()->GetFrameRegName());
 
                 if (temp.GetOffset() != 0)
                 {
@@ -3077,7 +3079,7 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
     }
 
     unsigned         lastOffset = 0;
-    PendingArgsStack pasStk(codeGen->GetEmitter()->GetMaxStackDepth(), compiler);
+    PendingArgsStack pasStk(maxStackDepth / REGSIZE_BYTES, compiler);
 
     for (RegArgChange* change = firstRegArgChange; change != nullptr; change = change->next)
     {
