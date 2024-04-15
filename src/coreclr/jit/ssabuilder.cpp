@@ -1279,8 +1279,6 @@ void SsaRenameDomTreeVisitor::BlockRenameVariables(BasicBlock* block)
     {
         for (GenTree* const node : stmt->Nodes())
         {
-            assert(!node->OperIs(GT_ASG));
-
             if (node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
             {
                 RenameLclStore(node->AsLclVarCommon(), block);

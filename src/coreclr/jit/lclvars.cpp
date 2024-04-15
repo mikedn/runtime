@@ -2593,7 +2593,6 @@ void Compiler::lvaComputeRefCountsHIR()
                     break;
 
                 default:
-                    assert(!node->OperIs(GT_ASG));
                     break;
             }
 

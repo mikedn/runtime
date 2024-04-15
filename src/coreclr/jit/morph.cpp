@@ -13407,8 +13407,6 @@ void Compiler::fgMorphTreeDone(GenTree* tree,
     }
 #endif
 
-    assert(!tree->OperIs(GT_ASG));
-
     if (!fgGlobalMorph)
     {
         return;

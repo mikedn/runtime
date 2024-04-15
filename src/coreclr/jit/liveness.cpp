@@ -318,7 +318,7 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
             break;
 
         default:
-            assert(!tree->OperIs(GT_ASG, GT_QMARK));
+            assert(!tree->OperIs(GT_QMARK));
             break;
     }
 }

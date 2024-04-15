@@ -2658,7 +2658,6 @@ void Compiler::gtSetCosts(GenTree* tree)
                 }
 
             default:
-                assert(!tree->OperIs(GT_ASG));
                 break;
         }
 
@@ -3357,10 +3356,7 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
 #endif
                 FALLTHROUGH;
             default:
-                assert(!tree->OperIs(GT_ASG));
-
-                // TODO-MIKE-Review: Shouldn't we simply force a swap if op1
-                // is const and ignore costs?
+                // TODO-MIKE-Review: Shouldn't we simply force a swap if op1 is const and ignore costs?
                 if (((level1 + level2) == 0) && op1->OperIsConst() && tree->OperIsCommutative())
                 {
                     level2++;

@@ -92,8 +92,6 @@ void AliasLclSet::Clear()
 // itself a local access (e.g. a GT_LCL_VAR, GT_STORE_LCL_VAR, etc.).
 AliasSet::NodeInfo::NodeInfo(GenTree* node) : m_node(node)
 {
-    assert(!node->OperIs(GT_ASG));
-
     if (node->IsCall())
     {
         m_flags = node->AsCall()->IsPure() ? ALIAS_NONE
