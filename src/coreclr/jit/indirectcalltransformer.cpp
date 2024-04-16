@@ -113,19 +113,19 @@ private:
             {
                 if (call->IsFatPointerCandidate())
                 {
-                    FatPointerCallTransformer transformer(compiler, block, stmt);
+                    FatPointerCallTransformer transformer(compiler, block, stmt, call);
                     transformer.Run();
                     count++;
                 }
                 else if (call->IsGuardedDevirtualizationCandidate())
                 {
-                    GuardedDevirtualizationTransformer transformer(compiler, block, stmt);
+                    GuardedDevirtualizationTransformer transformer(compiler, block, stmt, call);
                     transformer.Run();
                     count++;
                 }
                 else if (call->IsExpRuntimeLookup())
                 {
-                    ExpRuntimeLookupTransformer transformer(compiler, block, stmt);
+                    ExpRuntimeLookupTransformer transformer(compiler, block, stmt, call);
                     transformer.Run();
                     count++;
                 }
@@ -138,14 +138,13 @@ private:
     class Transformer
     {
     public:
-        Transformer(Compiler* compiler, BasicBlock* block, Statement* stmt)
-            : compiler(compiler), currBlock(block), stmt(stmt)
+        Transformer(Compiler* compiler, BasicBlock* block, Statement* stmt, GenTreeCall* call)
+            : compiler(compiler), currBlock(block), stmt(stmt), origCall(call)
         {
             remainderBlock = nullptr;
             checkBlock     = nullptr;
             thenBlock      = nullptr;
             elseBlock      = nullptr;
-            origCall       = nullptr;
             likelihood     = HIGH_PROBABILITY;
         }
 
@@ -172,10 +171,9 @@ private:
         }
 
     protected:
-        virtual const char*  Name()                       = 0;
-        virtual void         ClearFlag()                  = 0;
-        virtual GenTreeCall* GetCall(Statement* callStmt) = 0;
-        virtual void FixupRetExpr()                       = 0;
+        virtual const char* Name()         = 0;
+        virtual void        ClearFlag()    = 0;
+        virtual void        FixupRetExpr() = 0;
 
         //------------------------------------------------------------------------
         // CreateRemainder: split current block at the call stmt and
@@ -254,43 +252,18 @@ private:
     class FatPointerCallTransformer final : public Transformer
     {
     public:
-        FatPointerCallTransformer(Compiler* compiler, BasicBlock* block, Statement* stmt)
-            : Transformer(compiler, block, stmt)
+        FatPointerCallTransformer(Compiler* compiler, BasicBlock* block, Statement* stmt, GenTreeCall* call)
+            : Transformer(compiler, block, stmt, call)
         {
             doesReturnValue = stmt->GetRootNode()->OperIs(GT_ASG);
-            origCall        = GetCall(stmt);
             fptrAddress     = origCall->gtCallAddr;
             pointerType     = fptrAddress->TypeGet();
         }
 
-    protected:
+    private:
         virtual const char* Name()
         {
             return "FatPointerCall";
-        }
-
-        //------------------------------------------------------------------------
-        // GetCall: find a call in a statement.
-        //
-        // Arguments:
-        //    callStmt - the statement with the call inside.
-        //
-        // Return Value:
-        //    call tree node pointer.
-        virtual GenTreeCall* GetCall(Statement* callStmt)
-        {
-            GenTree*     tree = callStmt->GetRootNode();
-            GenTreeCall* call = nullptr;
-            if (doesReturnValue)
-            {
-                assert(tree->OperIs(GT_ASG));
-                call = tree->gtGetOp2()->AsCall();
-            }
-            else
-            {
-                call = tree->AsCall(); // call with void return type.
-            }
-            return call;
         }
 
         //------------------------------------------------------------------------
@@ -396,6 +369,21 @@ private:
             return fatStmt;
         }
 
+        GenTreeCall* GetCall(Statement* callStmt) const
+        {
+            GenTree* tree = callStmt->GetRootNode();
+
+            if (doesReturnValue)
+            {
+                assert(tree->OperIs(GT_ASG));
+                return tree->AsOp()->GetOp(1)->AsCall();
+            }
+            else
+            {
+                return tree->AsCall();
+            }
+        }
+
         //------------------------------------------------------------------------
         // AddHiddenArgument: add hidden argument to the call argument list.
         //
@@ -458,8 +446,8 @@ private:
         Statement* lastStmt;
 
     public:
-        GuardedDevirtualizationTransformer(Compiler* compiler, BasicBlock* block, Statement* stmt)
-            : Transformer(compiler, block, stmt)
+        GuardedDevirtualizationTransformer(Compiler* compiler, BasicBlock* block, Statement* stmt, GenTreeCall* call)
+            : Transformer(compiler, block, stmt, call)
         {
         }
 
@@ -468,8 +456,6 @@ private:
         //
         virtual void Run()
         {
-            origCall = GetCall(stmt);
-
             JITDUMP("\n----------------\n\n*** %s contemplating [%06u] in " FMT_BB " \n", Name(),
                     compiler->dspTreeID(origCall), currBlock->bbNum);
 
@@ -505,26 +491,10 @@ private:
             ScoutForChainedGdv();
         }
 
-    protected:
+    private:
         virtual const char* Name()
         {
             return "GuardedDevirtualization";
-        }
-
-        //------------------------------------------------------------------------
-        // GetCall: find a call in a statement.
-        //
-        // Arguments:
-        //    callStmt - the statement with the call inside.
-        //
-        // Return Value:
-        //    call tree node pointer.
-        virtual GenTreeCall* GetCall(Statement* callStmt)
-        {
-            GenTree* tree = callStmt->GetRootNode();
-            assert(tree->IsCall());
-            GenTreeCall* call = tree->AsCall();
-            return call;
         }
 
         //------------------------------------------------------------------------
@@ -1081,34 +1051,17 @@ private:
         LclVarDsc*  resultLcl;
 
     public:
-        ExpRuntimeLookupTransformer(Compiler* compiler, BasicBlock* block, Statement* stmt)
-            : Transformer(compiler, block, stmt), resultLcl(stmt->GetRootNode()->AsOp()->GetOp(0)->AsLclVar()->GetLcl())
+        ExpRuntimeLookupTransformer(Compiler* compiler, BasicBlock* block, Statement* stmt, GenTreeCall* call)
+            : Transformer(compiler, block, stmt, call)
+            , resultLcl(stmt->GetRootNode()->AsOp()->GetOp(0)->AsLclVar()->GetLcl())
         {
             assert(resultLcl->TypeIs(TYP_I_IMPL));
-
-            origCall = GetCall(stmt);
         }
 
-    protected:
+    private:
         virtual const char* Name() override
         {
             return "ExpRuntimeLookup";
-        }
-
-        //------------------------------------------------------------------------
-        // GetCall: find a call in a statement.
-        //
-        // Arguments:
-        //    callStmt - the statement with the call inside.
-        //
-        // Return Value:
-        //    call tree node pointer.
-        virtual GenTreeCall* GetCall(Statement* callStmt) override
-        {
-            GenTree* tree = callStmt->GetRootNode();
-            assert(tree->OperIs(GT_ASG));
-            GenTreeCall* call = tree->gtGetOp2()->AsCall();
-            return call;
         }
 
         //------------------------------------------------------------------------
