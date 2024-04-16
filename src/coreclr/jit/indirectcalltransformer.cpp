@@ -102,78 +102,37 @@ private:
 
         for (Statement* const stmt : block->Statements())
         {
-            if (compiler->doesMethodHaveFatPointer() && ContainsFatCalli(stmt))
+            GenTree* node = stmt->GetRootNode();
+
+            if (node->OperIs(GT_ASG))
             {
-                FatPointerCallTransformer transformer(compiler, block, stmt);
-                transformer.Run();
-                count++;
+                node = node->AsOp()->GetOp(1);
             }
-            else if (compiler->doesMethodHaveGuardedDevirtualization() &&
-                     ContainsGuardedDevirtualizationCandidate(stmt))
+
+            if (GenTreeCall* call = node->IsCall())
             {
-                GuardedDevirtualizationTransformer transformer(compiler, block, stmt);
-                transformer.Run();
-                count++;
-            }
-            else if (compiler->doesMethodHaveExpRuntimeLookup() && ContainsExpRuntimeLookup(stmt))
-            {
-                ExpRuntimeLookupTransformer transformer(compiler, block, stmt);
-                transformer.Run();
-                count++;
+                if (call->IsFatPointerCandidate())
+                {
+                    FatPointerCallTransformer transformer(compiler, block, stmt);
+                    transformer.Run();
+                    count++;
+                }
+                else if (call->IsGuardedDevirtualizationCandidate())
+                {
+                    GuardedDevirtualizationTransformer transformer(compiler, block, stmt);
+                    transformer.Run();
+                    count++;
+                }
+                else if (call->IsExpRuntimeLookup())
+                {
+                    ExpRuntimeLookupTransformer transformer(compiler, block, stmt);
+                    transformer.Run();
+                    count++;
+                }
             }
         }
 
         return count;
-    }
-
-    //------------------------------------------------------------------------
-    // ContainsFatCalli: check does this statement contain fat pointer call.
-    //
-    // Checks fatPointerCandidate in form of call() or lclVar = call().
-    //
-    // Return Value:
-    //    true if contains, false otherwise.
-    //
-    bool ContainsFatCalli(Statement* stmt)
-    {
-        GenTree* fatPointerCandidate = stmt->GetRootNode();
-        if (fatPointerCandidate->OperIs(GT_ASG))
-        {
-            fatPointerCandidate = fatPointerCandidate->gtGetOp2();
-        }
-        return fatPointerCandidate->IsCall() && fatPointerCandidate->AsCall()->IsFatPointerCandidate();
-    }
-
-    //------------------------------------------------------------------------
-    // ContainsGuardedDevirtualizationCandidate: check does this statement contain a virtual
-    // call that we'd like to guardedly devirtualize?
-    //
-    // Return Value:
-    //    true if contains, false otherwise.
-    //
-    // Notes:
-    //    calls are hoisted to top level ... (we hope)
-    bool ContainsGuardedDevirtualizationCandidate(Statement* stmt)
-    {
-        GenTree* candidate = stmt->GetRootNode();
-        return candidate->IsCall() && candidate->AsCall()->IsGuardedDevirtualizationCandidate();
-    }
-
-    //------------------------------------------------------------------------
-    // ContainsExpRuntimeLookup: check if this statement contains a dictionary
-    // with dynamic dictionary expansion that we want to transform in CFG.
-    //
-    // Return Value:
-    //    true if contains, false otherwise.
-    //
-    bool ContainsExpRuntimeLookup(Statement* stmt)
-    {
-        GenTree* candidate = stmt->GetRootNode();
-        if (candidate->OperIs(GT_ASG))
-        {
-            candidate = candidate->AsOp()->GetOp(1);
-        }
-        return candidate->IsCall() && candidate->AsCall()->IsExpRuntimeLookup();
     }
 
     class Transformer
@@ -518,7 +477,7 @@ private:
             //
             if (!origCall->IsInlineCandidate())
             {
-                JITDUMP("*** %s Bailing on [%06u] -- not an inline candidate\n", Name(), compiler->dspTreeID(origCall));
+                JITDUMP("*** %s Bailing on [%06u] -- not an inline node\n", Name(), compiler->dspTreeID(origCall));
                 ClearFlag();
                 return;
             }
@@ -861,7 +820,7 @@ private:
             // null out the candidate info field.
             if (call->IsVirtualStub())
             {
-                JITDUMP("Restoring stub addr %p from candidate info\n", call->gtInlineCandidateInfo->stubAddr);
+                JITDUMP("Restoring stub addr %p from node info\n", call->gtInlineCandidateInfo->stubAddr);
                 call->gtStubCallStubAddr = call->gtInlineCandidateInfo->stubAddr;
             }
             else
