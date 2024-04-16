@@ -651,86 +651,55 @@ unsigned ObjectAllocator::MorphAllocObjNodeIntoStackAlloc(GenTreeAllocObj* alloc
     return lcl->GetLclNum();
 }
 
-//------------------------------------------------------------------------
-// CanLclVarEscapeViaParentStack: Check if the local variable escapes via the given parent stack.
-//                                Update the connection graph as necessary.
-//
-// Arguments:
-//    parentStack     - Parent stack of the current visit
-//    lclNum          - Local variable number
-//
-// Return Value:
-//    true if the local can escape via the parent stack; false otherwise
-//
-// Notes:
-//    The method currently treats all locals assigned to a field as escaping.
-//    The can potentially be tracked by special field edges in the connection graph.
-
-bool ObjectAllocator::CanLclVarEscapeViaParentStack(ArrayStack<GenTree*>* parentStack, unsigned int lclNum)
+// Check if the local variable escapes via the given parent stack.
+// Update the connection graph as necessary.
+// Returns true if the local can escape via the parent stack; false otherwise.
+// The method currently treats all locals assigned to a field as escaping.
+// The can potentially be tracked by special field edges in the connection graph.
+bool ObjectAllocator::CanLclVarEscapeViaParentStack(ArrayStack<GenTree*>* userStack, unsigned lclNum)
 {
-    assert(parentStack != nullptr);
-    unsigned parentIndex = 1;
-
-    bool keepChecking                  = true;
-    bool canLclVarEscapeViaParentStack = true;
+    unsigned userIndex                     = 1;
+    bool     keepChecking                  = true;
+    bool     canLclVarEscapeViaParentStack = true;
 
     while (keepChecking)
     {
-        if (parentStack->Size() <= parentIndex)
+        if (userIndex >= userStack->Size())
         {
             canLclVarEscapeViaParentStack = false;
             break;
         }
 
-        canLclVarEscapeViaParentStack = true;
-        GenTree* tree                 = parentStack->Top(parentIndex - 1);
-        GenTree* parent               = parentStack->Top(parentIndex);
         keepChecking                  = false;
+        canLclVarEscapeViaParentStack = true;
 
-        switch (parent->OperGet())
+        GenTree* value = userStack->Top(userIndex - 1);
+        GenTree* user  = userStack->Top(userIndex);
+
+        switch (user->GetOper())
         {
             case GT_ASG:
-            {
-                // Use the following conservative behavior for GT_ASG parent node:
-                //   Consider local variable to be escaping if
-                //   1. lclVar appears on the rhs of a GT_ASG node
-                //                      AND
-                //   2. The lhs of the GT_ASG is not another lclVar
-
-                GenTree* op1 = parent->AsOp()->gtGetOp1();
-
-                if (op1 == tree)
+                if (user->AsOp()->GetOp(0) == value)
                 {
-                    // Assigning to a local doesn't make it escaping.
-                    // If there is another local variable on the rhs,
-                    // we will update the connection graph when we visit it.
+                    // Assigning to the local doesn't make it escaping.
                     canLclVarEscapeViaParentStack = false;
                 }
                 else
                 {
-                    // lclVar is on the rhs of GT_ASG node
-                    assert(parent->AsOp()->gtGetOp2() == tree);
+                    // The local is the source of an assignment.
+                    assert(user->AsOp()->GetOp(1) == value);
 
                     // Update the connection graph if we are assigning to a local.
                     // For all other assignments we mark the rhs local as escaping.
                     // TODO-ObjectStackAllocation: track assignments to fields.
-                    if (op1->OperGet() == GT_LCL_VAR)
+
+                    if (user->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR))
                     {
-                        // We expect the following tree at this point
-                        //   /--*  GT_LCL_VAR    ref    rhsLclVar
-                        // --*  =         ref
-                        //   \--*  GT_LCL_VAR    ref    lhsLclVar
-
-                        // Add an edge to the connection graph.
-                        const unsigned int lhsLclNum = op1->AsLclVar()->GetLcl()->GetLclNum();
-                        const unsigned int rhsLclNum = lclNum;
-
-                        AddConnGraphEdge(lhsLclNum, rhsLclNum);
+                        AddConnGraphEdge(user->AsOp()->GetOp(0)->AsLclVar()->GetLcl()->GetLclNum(), lclNum);
                         canLclVarEscapeViaParentStack = false;
                     }
                 }
                 break;
-            }
 
             case GT_EQ:
             case GT_NE:
@@ -738,7 +707,7 @@ bool ObjectAllocator::CanLclVarEscapeViaParentStack(ArrayStack<GenTree*>* parent
                 break;
 
             case GT_COMMA:
-                if (parent->AsOp()->gtGetOp1() == parentStack->Top(parentIndex - 1))
+                if (user->AsOp()->gtGetOp1() == userStack->Top(userIndex - 1))
                 {
                     // Left child of GT_COMMA, it will be discarded
                     canLclVarEscapeViaParentStack = false;
@@ -749,7 +718,7 @@ bool ObjectAllocator::CanLclVarEscapeViaParentStack(ArrayStack<GenTree*>* parent
             case GT_ADD:
             case GT_FIELD_ADDR:
                 // Check whether the local escapes via its grandparent.
-                ++parentIndex;
+                ++userIndex;
                 keepChecking = true;
                 break;
 
@@ -759,7 +728,7 @@ bool ObjectAllocator::CanLclVarEscapeViaParentStack(ArrayStack<GenTree*>* parent
 
             case GT_CALL:
             {
-                GenTreeCall* asCall = parent->AsCall();
+                GenTreeCall* asCall = user->AsCall();
 
                 if (asCall->gtCallType == CT_HELPER)
                 {
@@ -781,55 +750,41 @@ bool ObjectAllocator::CanLclVarEscapeViaParentStack(ArrayStack<GenTree*>* parent
     return canLclVarEscapeViaParentStack;
 }
 
-//------------------------------------------------------------------------
-// UpdateAncestorTypes: Update types of some ancestor nodes of a possibly-stack-pointing
-//                      tree from TYP_REF to TYP_BYREF or TYP_I_IMPL.
-//
-// Arguments:
-//    tree            - Possibly-stack-pointing tree
-//    parentStack     - Parent stack of the possibly-stack-pointing tree
-//    newType         - New type of the possibly-stack-pointing tree
-//
-// Notes:
-//                      If newType is TYP_I_IMPL, the tree is definitely pointing to the stack (or is null);
-//                      if newType is TYP_BYREF, the tree may point to the stack.
-//                      In addition to updating types this method may set GTF_IND_TGT_NOT_HEAP
-//                      or on ancestor indirections to help codegen with write barrier selection.
-
-void ObjectAllocator::UpdateAncestorTypes(GenTree* tree, ArrayStack<GenTree*>* parentStack, var_types newType)
+// Update types of some ancestor nodes of a possibly-stack-pointing
+// tree from REF to BYREF or I_IMPL.
+// If newType is I_IMPL, the tree is definitely pointing to the stack (or is null);
+// if newType is BYREF, the tree may point to the stack.
+// In addition to updating types this method may set GTF_IND_TGT_NOT_HEAP
+// or on ancestor indirections to help codegen with write barrier selection.
+void ObjectAllocator::UpdateAncestorTypes(GenTree* node, ArrayStack<GenTree*>* userStack, var_types newType)
 {
     assert(newType == TYP_BYREF || newType == TYP_I_IMPL);
-    assert(parentStack != nullptr);
-    unsigned parentIndex = 1;
+    assert(userStack != nullptr);
 
-    bool keepChecking = true;
+    unsigned userIndex    = 1;
+    bool     keepChecking = true;
 
-    while (keepChecking && (parentStack->Size() > parentIndex))
+    while (keepChecking && (userIndex < userStack->Size()))
     {
-        GenTree* parent = parentStack->Top(parentIndex);
-        keepChecking    = false;
+        keepChecking  = false;
+        GenTree* user = userStack->Top(userIndex);
 
-        switch (parent->OperGet())
+        switch (user->GetOper())
         {
             case GT_ASG:
-            {
-                GenTree* op2 = parent->AsOp()->gtGetOp2();
-
-                if ((op2 == tree) && (parent->TypeGet() == TYP_REF))
+                if ((node == user->AsOp()->GetOp(1)) && user->TypeIs(TYP_REF))
                 {
-                    assert(parent->AsOp()->gtGetOp1()->OperGet() == GT_LCL_VAR);
-                    parent->ChangeType(newType);
+                    assert(user->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR));
+                    user->SetType(newType);
                 }
-
                 break;
-            }
 
             case GT_EQ:
             case GT_NE:
                 break;
 
             case GT_COMMA:
-                if (parent->AsOp()->gtGetOp1() == parentStack->Top(parentIndex - 1))
+                if (user->AsOp()->GetOp(0) == userStack->Top(userIndex - 1))
                 {
                     // Left child of GT_COMMA, it will be discarded
                     break;
@@ -838,11 +793,11 @@ void ObjectAllocator::UpdateAncestorTypes(GenTree* tree, ArrayStack<GenTree*>* p
             case GT_QMARK:
             case GT_ADD:
             case GT_FIELD_ADDR:
-                if (parent->TypeGet() == TYP_REF)
+                if (user->TypeIs(TYP_REF))
                 {
-                    parent->ChangeType(newType);
+                    user->ChangeType(newType);
                 }
-                ++parentIndex;
+                ++userIndex;
                 keepChecking = true;
                 break;
 
@@ -852,7 +807,7 @@ void ObjectAllocator::UpdateAncestorTypes(GenTree* tree, ArrayStack<GenTree*>* p
                     // This indicates that a write barrier is not needed when writing
                     // to this field/indirection since the address is not pointing to the heap.
                     // It's either null or points to inside a stack-allocated object.
-                    parent->gtFlags |= GTF_IND_TGT_NOT_HEAP;
+                    user->gtFlags |= GTF_IND_TGT_NOT_HEAP;
                 }
                 break;
 
@@ -862,7 +817,7 @@ void ObjectAllocator::UpdateAncestorTypes(GenTree* tree, ArrayStack<GenTree*>* p
 
         if (keepChecking)
         {
-            tree = parentStack->Top(parentIndex - 1);
+            node = userStack->Top(userIndex - 1);
         }
     }
 
