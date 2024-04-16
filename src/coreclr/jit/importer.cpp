@@ -8629,7 +8629,7 @@ GenTree* Importer::impOptimizeCastClassOrIsInst(GenTree* op1, CORINFO_RESOLVED_T
                 if (GenTreeBox* box = op1->IsBox())
                 {
                     JITDUMP("Also removing upstream box\n");
-                    comp->gtTryRemoveBoxUpstreamEffects(box);
+                    comp->gtTryRemoveBoxUpstreamEffects(box, Compiler::BR_REMOVE_AND_NARROW);
                 }
 
                 return result;

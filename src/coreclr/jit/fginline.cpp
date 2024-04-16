@@ -2482,7 +2482,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
         {
             // BOX doesn't have side effects and can be removed and there's
             // more code associated with it that could be removed as well.
-            gtTryRemoveBoxUpstreamEffects(box);
+            gtTryRemoveBoxUpstreamEffects(box, BR_REMOVE_AND_NARROW);
 
             continue;
         }

@@ -9028,7 +9028,7 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
                     assert(!gtTreeHasSideEffects(op->AsBox()->GetOp(0), GTF_SIDE_EFFECT));
 
                     // See if we can optimize away the box and related statements.
-                    GenTree* boxSourceTree = gtTryRemoveBoxUpstreamEffects(op->AsBox());
+                    GenTree* boxSourceTree = gtTryRemoveBoxUpstreamEffects(op->AsBox(), BR_REMOVE_AND_NARROW);
                     bool     didOptimize   = (boxSourceTree != nullptr);
 
                     // If optimization succeeded, remove the box.
@@ -9342,7 +9342,7 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
 //    side effects that can be removed if the box result is not used.
 //
 //    By default (options == BR_REMOVE_AND_NARROW) this method will
-//    try and remove unnecessary trees and will try and reduce remaning
+//    try and remove unnecessary trees and will try and reduce remaining
 //    operations to the minimal set, possibly narrowing the width of
 //    loads from the box source if it is a struct.
 //
@@ -9367,56 +9367,54 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
 
 GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOptions options)
 {
-    Statement* asgStmt  = box->gtAsgStmtWhenInlinedBoxValue;
-    Statement* copyStmt = box->gtCopyStmtWhenInlinedBoxValue;
+    Statement* allocStmt = box->gtAsgStmtWhenInlinedBoxValue;
+    Statement* storeStmt = box->gtCopyStmtWhenInlinedBoxValue;
 
     JITDUMP("gtTryRemoveBoxUpstreamEffects: %s to %s of BOX (valuetype)"
             " [%06u] (newobj " FMT_STMT " copy " FMT_STMT "\n",
-            (options == BR_DONT_REMOVE) ? "checking if it is possible" : "attempting",
-            (options == BR_MAKE_LOCAL_COPY) ? "make local unboxed version" : "remove side effects", box->GetID(),
-            asgStmt->GetID(), copyStmt->GetID());
+            options == BR_DONT_REMOVE ? "checking if it is possible" : "attempting",
+            options == BR_MAKE_LOCAL_COPY ? "make local unboxed version" : "remove side effects", box->GetID(),
+            allocStmt->GetID(), storeStmt->GetID());
 
-    DISPSTMT(asgStmt);
-    DISPSTMT(copyStmt);
+    DISPSTMT(allocStmt);
+    DISPSTMT(storeStmt);
 
-    // If we don't recognize the form of the assign, bail.
-    GenTree* asg = asgStmt->GetRootNode();
-    if (!asg->OperIs(GT_ASG, GT_STORE_LCL_VAR))
+    GenTree* allocStore = allocStmt->GetRootNode();
+
+    if (!allocStore->OperIs(GT_ASG, GT_STORE_LCL_VAR))
     {
-        JITDUMP(" bailing; unexpected assignment op %s\n", GenTree::OpName(asg->gtOper));
+        JITDUMPTREE(allocStore, " bailing; unexpected alloc store\n");
+
         return nullptr;
     }
 
-    // If we're eventually going to return the type handle, remember it now.
     GenTree* boxTypeHandle = nullptr;
+
     if ((options == BR_REMOVE_AND_NARROW_WANT_TYPE_HANDLE) || (options == BR_DONT_REMOVE_WANT_TYPE_HANDLE))
     {
-        GenTree*   asgSrc     = asg->OperIs(GT_ASG) ? asg->AsOp()->gtOp2 : asg->AsLclVar()->GetOp(0);
-        genTreeOps asgSrcOper = asgSrc->OperGet();
+        GenTree* alloc = allocStore->OperIs(GT_ASG) ? allocStore->AsOp()->GetOp(1) : allocStore->AsLclVar()->GetOp(0);
 
-        // Allocation may be via AllocObj or via helper call, depending
-        // on when this is invoked and whether the jit is using AllocObj
-        // for R2R allocations.
-        if (asgSrcOper == GT_ALLOCOBJ)
+        // Allocation may be via AllocObj or via helper call, depending on when this
+        // is invoked and whether the JIT is using ALLOCOBJ for R2R allocations.
+        if (GenTreeAllocObj* allocObj = alloc->IsAllocObj())
         {
-            GenTreeAllocObj* allocObj = asgSrc->AsAllocObj();
-            boxTypeHandle             = allocObj->AsOp()->gtOp1;
+            boxTypeHandle = allocObj->GetOp(0);
         }
-        else if (asgSrcOper == GT_CALL)
+        else if (GenTreeCall* allocCall = alloc->IsCall())
         {
-            GenTreeCall*      newobjCall = asgSrc->AsCall();
-            GenTreeCall::Use* newobjArgs = newobjCall->gtCallArgs;
+            GenTreeCall::Use* args = allocCall->gtCallArgs;
 
             // In R2R expansions the handle may not be an explicit operand to the helper,
             // so we can't remove the box.
-            if (newobjArgs == nullptr)
+            if (args == nullptr)
             {
-                assert(newobjCall->IsHelperCall(this, CORINFO_HELP_READYTORUN_NEW));
+                assert(allocCall->IsHelperCall(this, CORINFO_HELP_READYTORUN_NEW));
                 JITDUMP(" bailing; newobj via R2R helper\n");
+
                 return nullptr;
             }
 
-            boxTypeHandle = newobjArgs->GetNode();
+            boxTypeHandle = args->GetNode();
         }
         else
         {
@@ -9427,161 +9425,151 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
     }
 
     // If we don't recognize the form of the copy, bail.
-    GenTree* copy = copyStmt->GetRootNode();
-    if (!copy->OperIs(GT_ASG, GT_STOREIND, GT_STORE_OBJ))
+    GenTree* store = storeStmt->GetRootNode();
+
+    if (!store->OperIs(GT_ASG, GT_STOREIND, GT_STORE_OBJ))
     {
-        // GT_RET_EXPR is a tolerable temporary failure.
-        // The jit will revisit this optimization after
-        // inlining is done.
-        if (copy->gtOper == GT_RET_EXPR)
+        // RET_EXPR is a tolerable temporary failure.
+        // The JIT will revisit this optimization after inlining is done.
+
+        if (GenTreeRetExpr* retExpr = store->IsRetExpr())
         {
-            JITDUMP(" bailing; must wait for replacement of copy %s\n", GenTree::OpName(copy->gtOper));
+            JITDUMP(" bailing; must wait for inlining of [%06u]\n", retExpr->GetCall()->GetID());
         }
         else
         {
-            // Anything else is a missed case we should
-            // figure out how to handle.  One known case
-            // is GT_COMMAs enclosing the GT_ASG we are
-            // looking for.
-            JITDUMP(" bailing; unexpected copy op %s\n", GenTree::OpName(copy->gtOper));
+            // Anything else is a missed case we should figure out how to handle.
+            // One known case is COMMA enclosing the store we are looking for.
+            JITDUMPTREE(store, " bailing; unexpected store\n");
         }
+
         return nullptr;
     }
 
-    // Handle case where we are optimizing the box into a local copy
     if (options == BR_MAKE_LOCAL_COPY)
     {
         // Drill into the box to get at the box temp local and the box type
         GenTreeLclVar* boxTemp = box->GetOp(0)->AsLclVar();
         assert(boxTemp->OperIs(GT_LCL_VAR));
-        LclVarDsc* boxTempLclDsc = boxTemp->GetLcl();
-        assert(boxTempLclDsc->TypeIs(TYP_REF));
-        assert(boxTempLclDsc->lvClassHnd != nullptr);
 
-        GenTree*  copyDstAddr;
+        LclVarDsc* boxTempLcl = boxTemp->GetLcl();
+        assert(boxTempLcl->TypeIs(TYP_REF));
+        assert(boxTempLcl->lvClassHnd != nullptr);
+
+        // Verify that the storeDst has the expected shape: STORE_OBJ|IND(ADD(boxTempLclNum, ptr-size), x).
+        // The shape here is constrained to the patterns we produce over in impImportAndPushBox for the
+        // inlined box case.
+
+        GenTree*  storeAddr;
         var_types storeType;
 
-        if (copy->OperIs(GT_ASG))
+        if (store->OperIs(GT_ASG))
         {
-            // Verify that the copyDst has the expected shape
-            // (obj|ind (add (boxTempLclNum, ptr-size)))
-            //
-            // The shape here is constrained to the patterns we produce
-            // over in impImportAndPushBox for the inlined box case.
-            GenTree* copyDst = copy->AsOp()->gtOp1;
-            if (!copyDst->OperIs(GT_IND, GT_OBJ))
+            GenTree* storeDst = store->AsOp()->GetOp(0);
+
+            if (!storeDst->OperIs(GT_IND, GT_OBJ))
             {
-                JITDUMP("Unexpected copy dest operator %s\n", GenTree::OpName(copyDst->gtOper));
+                JITDUMPTREE(store, " bailing; unexpected store destination\n");
+
                 return nullptr;
             }
 
-            copyDstAddr = copyDst->AsIndir()->GetAddr();
-            storeType   = copyDst->GetType();
+            storeAddr = storeDst->AsIndir()->GetAddr();
+            storeType = storeDst->GetType();
         }
         else
         {
-            copyDstAddr = copy->AsIndir()->GetAddr();
-            storeType   = copy->GetType();
+            storeAddr = store->AsIndir()->GetAddr();
+            storeType = store->GetType();
         }
 
-        if (copyDstAddr->OperGet() != GT_ADD)
+        if (!storeAddr->OperIs(GT_ADD))
         {
-            JITDUMP("Unexpected copy dest address tree\n");
+            JITDUMPTREE(store, " bailing; unexpected store address\n");
+
             return nullptr;
         }
 
-        GenTree* copyDstAddrOp1 = copyDstAddr->AsOp()->gtOp1;
-        if ((copyDstAddrOp1->OperGet() != GT_LCL_VAR) || (copyDstAddrOp1->AsLclVar()->GetLcl() != boxTempLclDsc))
+        GenTree* storeBaseAddr = storeAddr->AsOp()->GetOp(0);
+
+        if (!storeBaseAddr->OperIs(GT_LCL_VAR) || (storeBaseAddr->AsLclVar()->GetLcl() != boxTempLcl))
         {
-            JITDUMP("Unexpected copy dest address 1st addend\n");
+            JITDUMPTREE(store, " bailing; unexpected store base address\n");
+
             return nullptr;
         }
 
-        GenTree* copyDstAddrOp2 = copyDstAddr->AsOp()->gtOp2;
-        if (!copyDstAddrOp2->IsIntegralConst(TARGET_POINTER_SIZE))
+        GenTree* storeOffset = storeAddr->AsOp()->GetOp(1);
+
+        if (!storeOffset->IsIntegralConst(TARGET_POINTER_SIZE))
         {
-            JITDUMP("Unexpected copy dest address 2nd addend\n");
+            JITDUMPTREE(store, " bailing; unexpected store offset\n");
+
             return nullptr;
         }
 
         // Screening checks have all passed. Do the transformation.
-        //
 
-        // Remove the newobj and assigment to box temp
-        JITDUMP("Bashing NEWOBJ [%06u] to NOP\n", dspTreeID(asg));
-        asg->ChangeToNothingNode();
+        JITDUMP("Removing alloc tree [%06u]\n", allocStore->GetID());
+        allocStore->ChangeToNothingNode();
 
         if (varTypeIsStruct(storeType))
         {
-            JITDUMP("Retyping box temp V%02u to struct %s\n", boxTempLclDsc->GetLclNum(),
-                    eeGetClassName(boxTempLclDsc->lvClassHnd));
-            lvaSetStruct(boxTempLclDsc, typGetObjLayout(boxTempLclDsc->lvClassHnd), /* checkUnsafeBuffer */ false);
+            JITDUMP("Retyping box temp V%02u to struct %s\n", boxTempLcl->GetLclNum(),
+                    eeGetClassName(boxTempLcl->lvClassHnd));
+
+            lvaSetStruct(boxTempLcl, typGetObjLayout(boxTempLcl->lvClassHnd), /* checkUnsafeBuffer */ false);
         }
         else
         {
-            assert(storeType == JITtype2varType(info.compCompHnd->asCorInfoType(boxTempLclDsc->lvClassHnd)));
-            JITDUMP("Retyping box temp V%02u to primitive %s\n", boxTempLclDsc->GetLclNum(), varTypeName(storeType));
-            boxTempLclDsc->SetType(storeType);
+            assert(storeType == JITtype2varType(info.compCompHnd->asCorInfoType(boxTempLcl->lvClassHnd)));
+            JITDUMP("Retyping box temp V%02u to primitive %s\n", boxTempLcl->GetLclNum(), varTypeName(storeType));
+            boxTempLcl->SetType(storeType);
         }
 
-        if (copy->OperIs(GT_ASG))
+        if (store->OperIs(GT_ASG))
         {
-            GenTree* copyDst = copy->AsOp()->GetOp(0);
-            copyDst->ChangeOper(GT_LCL_VAR);
-            copyDst->gtFlags &= ~GTF_ALL_EFFECT;
-            copyDst->AsLclVar()->SetLcl(boxTempLclDsc);
+            GenTree* dest = store->AsOp()->GetOp(0);
+            dest->ChangeOper(GT_LCL_VAR);
+            dest->RemoveSideEffects(GTF_ALL_EFFECT);
+            dest->AsLclVar()->SetLcl(boxTempLcl);
         }
         else
         {
-            GenTree* value = copy->AsIndir()->GetValue();
-            copy->ChangeOper(GT_STORE_LCL_VAR);
-            copy->AsLclVar()->SetOp(0, value);
-            copy->AsLclVar()->SetLcl(boxTempLclDsc);
-            copy->SetSideEffects(value->GetSideEffects() | GTF_GLOB_REF);
+            GenTree* value = store->AsIndir()->GetValue();
+            store->ChangeOper(GT_STORE_LCL_VAR);
+            store->AsLclVar()->SetOp(0, value);
+            store->AsLclVar()->SetLcl(boxTempLcl);
+            store->SetSideEffects(value->GetSideEffects() | GTF_GLOB_REF);
         }
 
-        DISPSTMT(copyStmt);
+        DISPSTMT(storeStmt);
 
-        // Return the address of the now-struct typed box temp
-        return gtNewLclVarAddrNode(boxTempLclDsc, TYP_BYREF);
+        return gtNewLclVarAddrNode(boxTempLcl, TYP_BYREF);
     }
 
-    // If the copy is a struct copy, make sure we know how to isolate
-    // any source side effects.
-    GenTree* copySrc = copy->OperIs(GT_ASG) ? copy->AsOp()->gtOp2 : copy->AsIndir()->GetValue();
+    GenTree* boxedValue = store->OperIs(GT_ASG) ? store->AsOp()->GetOp(1) : store->AsIndir()->GetValue();
 
-    // If the copy source is from a pending inline, wait for it to resolve.
-    if (copySrc->gtOper == GT_RET_EXPR)
+    if (GenTreeRetExpr* retExpr = boxedValue->IsRetExpr())
     {
-        JITDUMP(" bailing; must wait for replacement of copy source %s\n", GenTree::OpName(copySrc->gtOper));
+        JITDUMP(" bailing; must wait for inlining of [%06u]\n", retExpr->GetCall()->GetID());
+
         return nullptr;
     }
 
-    bool hasSrcSideEffect = false;
-    bool isStructCopy     = false;
+    bool hasSrcSideEffect = gtTreeHasSideEffects(boxedValue, GTF_SIDE_EFFECT);
+    bool isStructStore    = hasSrcSideEffect && varTypeIsStruct(boxedValue->GetType());
 
-    if (gtTreeHasSideEffects(copySrc, GTF_SIDE_EFFECT))
+    if (isStructStore && !boxedValue->OperIs(GT_OBJ, GT_IND))
     {
-        hasSrcSideEffect = true;
+        JITDUMPTREE(store, " bailing; unexpected store struct value\n");
 
-        if (varTypeIsStruct(copySrc->gtType))
-        {
-            isStructCopy = true;
-
-            if (!copySrc->OperIs(GT_OBJ, GT_IND))
-            {
-                // We don't know how to handle other cases, yet.
-                JITDUMP(" bailing; unexpected copy source struct op with side effect %s\n",
-                        GenTree::OpName(copySrc->gtOper));
-                return nullptr;
-            }
-        }
+        return nullptr;
     }
 
-    // If this was a trial removal, we're done.
     if (options == BR_DONT_REMOVE)
     {
-        return copySrc;
+        return boxedValue;
     }
 
     if (options == BR_DONT_REMOVE_WANT_TYPE_HANDLE)
@@ -9590,44 +9578,35 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
     }
 
     // Otherwise, proceed with the optimization.
-    //
-    // Change the assignment expression to a NOP.
-    JITDUMP("\nBashing NEWOBJ [%06u] to NOP\n", dspTreeID(asg));
-    asg->ChangeToNothingNode();
 
-    // Change the copy expression so it preserves key
-    // source side effects.
-    JITDUMP("\nBashing COPY [%06u]", dspTreeID(copy));
+    JITDUMP("\nRemoving alloc tree [%06u]\n", allocStore->GetID());
+    allocStore->ChangeToNothingNode();
+
+    JITDUMP("\nChanging store [%06u]", store->GetID());
 
     if (!hasSrcSideEffect)
     {
-        // If there were no copy source side effects just bash
-        // the copy to a NOP.
-        copy->ChangeToNothingNode();
         JITDUMP(" to NOP; no source side effects.\n");
+        store->ChangeToNothingNode();
     }
-    else if (!isStructCopy)
+    else if (!isStructStore)
     {
-        // For scalar types, go ahead and produce the
-        // value as the copy is fairly cheap and likely
-        // the optimizer can trim things down to just the
-        // minimal side effect parts.
-        copyStmt->SetRootNode(copySrc);
-        JITDUMP(" to scalar read via [%06u]\n", dspTreeID(copySrc));
+        JITDUMP(" to scalar read via [%06u]\n", boxedValue->GetID());
+        storeStmt->SetRootNode(boxedValue);
     }
     else
     {
-        // For struct types read the first byte of the
-        // source struct; there's no need to read the
-        // entire thing, and no place to put it.
-        assert(copySrc->OperIs(GT_OBJ, GT_IND));
-        copyStmt->SetRootNode(copySrc);
+        // For struct types read the first byte of the source struct; there's no need to read
+        // the entire thing, and no place to put it.
+        assert(boxedValue->OperIs(GT_OBJ, GT_IND));
 
-        if (options == BR_REMOVE_AND_NARROW || options == BR_REMOVE_AND_NARROW_WANT_TYPE_HANDLE)
+        storeStmt->SetRootNode(boxedValue);
+
+        if ((options == BR_REMOVE_AND_NARROW) || (options == BR_REMOVE_AND_NARROW_WANT_TYPE_HANDLE))
         {
-            JITDUMP(" to read first byte of struct via modified [%06u]\n", dspTreeID(copySrc));
+            JITDUMP(" to read first byte of struct via modified [%06u]\n", boxedValue->GetID());
 
-            GenTree* addr = copySrc->AsIndir()->GetAddr();
+            GenTree* addr = boxedValue->AsIndir()->GetAddr();
 
             if (GenTreeFieldAddr* field = addr->IsFieldAddr())
             {
@@ -9636,34 +9615,25 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
                     field = nextField;
                 }
 
-                copySrc = field;
+                boxedValue = field;
             }
 
-            gtChangeOperToNullCheck(copySrc);
-            copyStmt->SetRootNode(copySrc);
+            gtChangeOperToNullCheck(boxedValue);
+            storeStmt->SetRootNode(boxedValue);
         }
         else
         {
-            JITDUMP(" to read entire struct via modified [%06u]\n", dspTreeID(copySrc));
+            JITDUMP(" to read entire struct via modified [%06u]\n", boxedValue->GetID());
         }
     }
 
     if (fgStmtListThreaded)
     {
-        gtSetStmtSeq(asgStmt);
-        gtSetStmtSeq(copyStmt);
+        gtSetStmtSeq(allocStmt);
+        gtSetStmtSeq(storeStmt);
     }
 
-    // Box effects were successfully optimized.
-
-    if (options == BR_REMOVE_AND_NARROW_WANT_TYPE_HANDLE)
-    {
-        return boxTypeHandle;
-    }
-    else
-    {
-        return copySrc;
-    }
+    return options == BR_REMOVE_AND_NARROW_WANT_TYPE_HANDLE ? boxTypeHandle : boxedValue;
 }
 
 //------------------------------------------------------------------------
