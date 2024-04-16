@@ -54,11 +54,12 @@ private:
     void MarkLclVarAsEscaping(unsigned int lclNum);
     void MarkEscapingVarsAndBuildConnGraph();
     void AddConnGraphEdge(unsigned int sourceLclNum, unsigned int targetLclNum);
-    void     ComputeEscapingNodes();
-    void     ComputeStackObjectPointers();
-    bool     MorphAllocObjNodes();
-    void     RewriteUses();
-    GenTree* MorphAllocObjNodeIntoHelperCall(GenTreeAllocObj* allocObj);
+    void ComputeEscapingNodes();
+    void ComputeStackObjectPointers();
+    bool MorphAllocObjNodes();
+    void RewriteUses();
+
+    GenTreeCall* MorphAllocObjNodeIntoHelperCall(GenTreeAllocObj* allocObj);
     unsigned MorphAllocObjNodeIntoStackAlloc(GenTreeAllocObj* allocObj, BasicBlock* block, Statement* stmt);
     struct BuildConnGraphVisitorCallbackData;
     bool CanLclVarEscapeViaParentStack(ArrayStack<GenTree*>* parentStack, unsigned int lclNum);
@@ -492,52 +493,42 @@ bool ObjectAllocator::MorphAllocObjNodes()
 
         for (Statement* const stmt : block->Statements())
         {
-            GenTree* stmtExpr = stmt->GetRootNode();
-            GenTree* op2      = nullptr;
+            GenTree*         stmtExpr = stmt->GetRootNode();
+            GenTreeAllocObj* alloc    = nullptr;
 
             bool canonicalAllocObjFound = false;
 
-            if (stmtExpr->OperGet() == GT_ASG && stmtExpr->TypeGet() == TYP_REF)
+            if (stmtExpr->OperIs(GT_ASG) && stmtExpr->TypeIs(TYP_REF))
             {
-                op2 = stmtExpr->gtGetOp2();
-
-                if (op2->OperGet() == GT_ALLOCOBJ)
-                {
-                    canonicalAllocObjFound = true;
-                }
+                alloc = stmtExpr->AsOp()->GetOp(1)->IsAllocObj();
             }
 
-            if (canonicalAllocObjFound)
+            if (alloc == nullptr)
             {
-                assert(basicBlockHasNewObj);
-                //------------------------------------------------------------------------
-                // We expect the following expression tree at this point
-                //  STMTx (IL 0x... ???)
-                //    * ASG       ref
-                //    +--*  LCL_VAR   ref
-                //    \--*  ALLOCOBJ  ref
-                //       \--*  CNS_INT(h) long
-                //------------------------------------------------------------------------
+                // We assume that ALLOCOBJ nodes are always present in the canonical form.
+                INDEBUG(comp->fgWalkTreePre(stmt->GetRootNodePointer(), AssertWhenAllocObjFoundVisitor));
 
-                GenTree* op1 = stmtExpr->gtGetOp1();
+                continue;
+            }
 
-                assert(op1->OperGet() == GT_LCL_VAR);
-                assert(op1->TypeGet() == TYP_REF);
-                assert(op2 != nullptr);
-                assert(op2->OperGet() == GT_ALLOCOBJ);
+            assert(basicBlockHasNewObj);
 
-                GenTreeAllocObj*     asAllocObj = op2->AsAllocObj();
-                LclVarDsc*           lcl        = op1->AsLclVar()->GetLcl();
-                unsigned             lclNum     = lcl->GetLclNum();
-                CORINFO_CLASS_HANDLE clsHnd     = op2->AsAllocObj()->gtAllocObjClsHnd;
+            GenTree* op1 = stmtExpr->AsOp()->GetOp(0);
+
+            assert(op1->OperIs(GT_LCL_VAR));
+            assert(op1->TypeIs(TYP_REF));
+
+            if (m_IsObjectStackAllocationEnabled)
+            {
+                LclVarDsc* lcl    = op1->AsLclVar()->GetLcl();
+                unsigned   lclNum = lcl->GetLclNum();
 
                 // Don't attempt to do stack allocations inside basic blocks that may be in a loop.
-                if (IsObjectStackAllocationEnabled() && !basicBlockHasBackwardJump &&
-                    CanAllocateLclVarOnStack(lclNum, clsHnd))
+                if (!basicBlockHasBackwardJump && CanAllocateLclVarOnStack(lclNum, alloc->gtAllocObjClsHnd))
                 {
-                    JITDUMP("Allocating local variable V%02u on the stack\n", lclNum);
+                    JITDUMP("Allocating local variable V%02u on the stack\n", lcl->GetLclNum());
 
-                    const unsigned stackLclNum = MorphAllocObjNodeIntoStackAlloc(asAllocObj, block, stmt);
+                    const unsigned stackLclNum = MorphAllocObjNodeIntoStackAlloc(alloc, block, stmt);
                     m_HeapLocalToStackLocalMap.AddOrUpdate(lclNum, stackLclNum);
                     // We keep the set of possibly-stack-pointing pointers as a superset of the set of
                     // definitely-stack-pointing pointers. All definitely-stack-pointing pointers are in both sets.
@@ -546,30 +537,16 @@ bool ObjectAllocator::MorphAllocObjNodes()
                     stmt->GetRootNode()->ChangeToNothingNode();
                     comp->optMethodFlags |= OMF_HAS_OBJSTACKALLOC;
                     didStackAllocate = true;
-                }
-                else
-                {
-                    if (IsObjectStackAllocationEnabled())
-                    {
-                        JITDUMP("Allocating local variable V%02u on the heap\n", lclNum);
-                    }
 
-                    op2 = MorphAllocObjNodeIntoHelperCall(asAllocObj);
+                    continue;
                 }
 
-                // Propagate flags of op2 to its parent.
-                stmtExpr->AsOp()->gtOp2 = op2;
-                stmtExpr->gtFlags |= op2->gtFlags & GTF_ALL_EFFECT;
+                JITDUMP("Allocating local variable V%02u on the heap\n", lcl->GetLclNum());
             }
 
-#ifdef DEBUG
-            else
-            {
-                // We assume that GT_ALLOCOBJ nodes are always present in the
-                // canonical form.
-                comp->fgWalkTreePre(stmt->GetRootNodePointer(), AssertWhenAllocObjFoundVisitor);
-            }
-#endif // DEBUG
+            GenTree* allocCall = MorphAllocObjNodeIntoHelperCall(alloc);
+            stmtExpr->AsOp()->SetOp(1, allocCall);
+            stmtExpr->AddSideEffects(allocCall->GetSideEffects());
         }
     }
 
@@ -589,7 +566,7 @@ bool ObjectAllocator::MorphAllocObjNodes()
 // Notes:
 //    Must update parents flags after this.
 
-GenTree* ObjectAllocator::MorphAllocObjNodeIntoHelperCall(GenTreeAllocObj* allocObj)
+GenTreeCall* ObjectAllocator::MorphAllocObjNodeIntoHelperCall(GenTreeAllocObj* allocObj)
 {
     assert(allocObj != nullptr);
 
@@ -610,18 +587,18 @@ GenTree* ObjectAllocator::MorphAllocObjNodeIntoHelperCall(GenTreeAllocObj* alloc
         args = comp->gtNewCallArgs(op1);
     }
 
-    const bool morphArgs  = false;
-    GenTree*   helperCall = comp->fgMorphIntoHelperCall(allocObj, allocObj->gtNewHelper, args, morphArgs);
+    const bool   morphArgs  = false;
+    GenTreeCall* helperCall = comp->fgMorphIntoHelperCall(allocObj, allocObj->gtNewHelper, args, morphArgs);
     if (helperHasSideEffects)
     {
-        helperCall->AsCall()->gtCallMoreFlags |= GTF_CALL_M_ALLOC_SIDE_EFFECTS;
+        helperCall->gtCallMoreFlags |= GTF_CALL_M_ALLOC_SIDE_EFFECTS;
     }
 
 #ifdef FEATURE_READYTORUN_COMPILER
     if (entryPoint.addr != nullptr)
     {
         assert(comp->opts.IsReadyToRun());
-        helperCall->AsCall()->setEntryPoint(entryPoint);
+        helperCall->setEntryPoint(entryPoint);
     }
 #endif
 
