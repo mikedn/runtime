@@ -853,7 +853,8 @@ void Compiler::fgAddSyncMethodEnterExit()
     LclVarDsc* acquiredLcl = lvaNewTemp(TYP_INT, true DEBUGARG("monitor 'acquired' temp"));
     lvaMonAcquired         = acquiredLcl->GetLclNum();
 
-    GenTreeOp* init = gtNewAssignNode(gtNewLclvNode(acquiredLcl, TYP_INT), gtNewIconNode(0));
+    GenTreeLclVar* init = gtNewLclStore(acquiredLcl, TYP_INT, gtNewIconNode(0));
+    init->AddSideEffects(GTF_GLOB_REF);
     fgNewStmtAtEnd(fgFirstBB, init);
     JITDUMPTREE(init, "\nSynchronized method - Add 'acquired' initialization in first block " FMT_BB "\n",
                 fgFirstBB->bbNum);
@@ -868,7 +869,7 @@ void Compiler::fgAddSyncMethodEnterExit()
 
         thisArgLcl  = lvaGetDesc(info.GetThisParamLclNum());
         thisCopyLcl = lvaNewTemp(TYP_REF, true DEBUGARG("monitor EH exit 'this' copy"));
-        init        = gtNewAssignNode(gtNewLclvNode(thisCopyLcl, TYP_REF), gtNewLclvNode(thisArgLcl, TYP_REF));
+        init        = gtNewLclStore(thisCopyLcl, TYP_REF, gtNewLclLoad(thisArgLcl, TYP_REF));
 
         fgNewStmtAtEnd(tryBegBB, init);
     }
@@ -934,9 +935,9 @@ void Compiler::fgInsertMonitorCall(BasicBlock*     block,
                 retTempLcl->SetType(retNode->GetType());
             }
 
-            GenTreeOp* retTempInit = gtNewAssignNode(gtNewLclvNode(retTempLcl, retTempLcl->GetType()), retExpr);
+            GenTreeLclVar* retTempInit = gtNewLclStore(retTempLcl, retTempLcl->GetType(), retExpr);
             fgInsertStmtBefore(block, retStmt, gtNewStmt(retTempInit));
-            retNode->AsUnOp()->SetOp(0, gtNewLclvNode(retTempLcl, retTempLcl->GetType()));
+            retNode->AsUnOp()->SetOp(0, gtNewLclLoad(retTempLcl, retTempLcl->GetType()));
         }
     }
 
@@ -1626,7 +1627,12 @@ void Compiler::fgAddInternal()
         noway_assert(thisLcl->IsAddressExposed() || thisLcl->lvHasILStoreOp || genericsContextIsThis);
 
         var_types type = thisParam->GetType();
-        GenTree*  tree = gtNewAssignNode(gtNewLclvNode(thisLcl, type), gtNewLclvNode(thisParam, type));
+        GenTree*  tree = gtNewLclStore(thisLcl, type, gtNewLclLoad(thisParam, type));
+
+        if (thisLcl->IsAddressExposed())
+        {
+            tree->AddSideEffects(GTF_GLOB_REF);
+        }
 
         fgEnsureFirstBBisScratch();
         fgNewStmtAtEnd(fgFirstBB, tree);
