@@ -483,18 +483,15 @@ void Compiler::gsParamsToShadows()
             continue;
         }
 
+        fgEnsureFirstBBisScratch();
+
         LclVarDsc* shadowLcl = lvaGetDesc(shadowLclNum);
 
-        GenTree* src = gtNewLclvNode(lcl, lcl->GetType());
-        GenTree* dst = gtNewLclvNode(shadowLcl, shadowLcl->GetType());
-
+        GenTree* src = gtNewLclLoad(lcl, lcl->GetType());
         src->gtFlags |= GTF_DONT_CSE;
-        dst->gtFlags |= GTF_DONT_CSE;
-
-        fgEnsureFirstBBisScratch();
-        // TODO-MIKE-Review: Do we need to morph? This is a trivial assignment between
-        // 2 local variables. The destination is not promoted, could the source be?
-        fgNewStmtAtBeg(fgFirstBB, gtMorphTree(gtNewAssignNode(dst, src)));
+        // TODO-MIKE-Review: Do we need to morph? This is a trivial local store.
+        // The destination is not promoted, could the source be?
+        fgNewStmtAtBeg(fgFirstBB, gtMorphTree(gtNewLclStore(shadowLcl, shadowLcl->GetType(), src)));
     }
 
     // If the method has "Jmp CalleeMethod", then we need to copy shadow params back to original
@@ -521,13 +518,9 @@ void Compiler::gsParamsToShadows()
 
                 LclVarDsc* shadowLcl = lvaGetDesc(shadowLclNum);
 
-                GenTree* src = gtNewLclvNode(shadowLcl, shadowLcl->GetType());
-                GenTree* dst = gtNewLclvNode(lcl, lcl->GetType());
-
+                GenTree* src = gtNewLclLoad(shadowLcl, shadowLcl->GetType());
                 src->gtFlags |= GTF_DONT_CSE;
-                dst->gtFlags |= GTF_DONT_CSE;
-
-                fgNewStmtNearEnd(block, gtMorphTree(gtNewAssignNode(dst, src)));
+                fgNewStmtNearEnd(block, gtMorphTree(gtNewLclStore(shadowLcl, shadowLcl->GetType(), src)));
             }
         }
     }
