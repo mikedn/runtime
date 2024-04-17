@@ -11011,73 +11011,59 @@ DONE_MORPHING_CHILDREN:
                     return relop;
                 }
 
-                if (op1->gtOper == GT_COMMA)
+                if (op1->OperIs(GT_COMMA))
                 {
-                    // Here we look for the following tree
-                    // and when the LCL_VAR is a temp we can fold the tree:
-                    //
-                    //                        EQ/NE                  EQ/NE
-                    //                        /  \                   /  \.
-                    //                     COMMA  CNS 0/1  ->     RELOP CNS 0/1
-                    //                     /   \                   / \.
-                    //                   ASG  LCL_VAR
-                    //                  /  \.
-                    //           LCL_VAR   RELOP
-                    //                      / \.
-                    //
+                    // EQ|NE(COMMA(ASG(x, relop), x), 0|1) => EQ|NE(relop, 0|1), if x is a temp local
+                    // 
+                    // TODO-MIKE-Review: Comment below indicates that this assumes that lvIsTemp locals
+                    // are single def. But they also need to be single use for this to safely remove
+                    // the ASG(x, relop).
+                    // This code might be useless, removing it results in no corelib PMI diffs.
 
-                    GenTree* asg = op1->AsOp()->gtOp1;
-                    GenTree* lcl = op1->AsOp()->gtOp2;
+                    GenTree* commaOp1 = op1->AsOp()->GetOp(0);
+                    GenTree* commaOp2 = op1->AsOp()->GetOp(1);
 
-                    /* Make sure that the left side of the comma is the assignment of the LCL_VAR */
-                    if (asg->gtOper != GT_ASG)
+                    if (!commaOp1->OperIs(GT_ASG))
                     {
                         goto SKIP;
                     }
 
-                    // The right side of the comma must be a LCL_VAR temp
-                    if (!lcl->OperIs(GT_LCL_VAR))
+                    if (!commaOp2->OperIs(GT_LCL_VAR))
                     {
                         goto SKIP;
                     }
 
-                    LclVarDsc* lclVar = lcl->AsLclVar()->GetLcl();
+                    GenTreeOp*     asg     = commaOp1->AsOp();
+                    GenTreeLclVar* lclLoad = commaOp2->AsLclVar();
 
-                    // If the LCL_VAR is not a temp then bail, a temp has a single def
-                    if (!lclVar->lvIsTemp)
+                    LclVarDsc* lcl = lclLoad->GetLcl();
+
+                    // If the local is not a temp then bail, a temp has a single def.
+                    // If the local is a CSE temp then bail, it could have multiple defs/uses.
+                    if (!lcl->lvIsTemp || lcl->lvIsCSE)
                     {
                         goto SKIP;
                     }
 
-                    // If the LCL_VAR is a CSE temp then bail, it could have multiple defs/uses
-                    if (lclVar->lvIsCSE)
+                    if (!asg->GetOp(0)->OperIs(GT_LCL_VAR))
                     {
                         goto SKIP;
                     }
 
-                    // We also must be assigning the result of a RELOP
-                    if (asg->AsOp()->gtOp1->gtOper != GT_LCL_VAR)
+                    if (asg->GetOp(0)->AsLclVar()->GetLcl() != lcl)
                     {
                         goto SKIP;
                     }
 
-                    // Both of the LCL_VAR must match
-                    if (asg->AsOp()->gtOp1->AsLclVar()->GetLcl() != lcl->AsLclVar()->GetLcl())
+                    if (!asg->GetOp(1)->OperIsCompare())
                     {
                         goto SKIP;
                     }
 
-                    // If right side of asg is not a RELOP then skip
-                    if (!asg->AsOp()->gtOp2->OperIsCompare())
-                    {
-                        goto SKIP;
-                    }
+                    op1 = asg->GetOp(1);
 
-                    // Set op1 to the right side of asg, (i.e. the RELOP)
-                    op1 = asg->AsOp()->gtOp2;
-
-                    DEBUG_DESTROY_NODE(asg->AsOp()->gtOp1);
-                    DEBUG_DESTROY_NODE(lcl);
+                    DEBUG_DESTROY_NODE(asg->GetOp(0));
+                    DEBUG_DESTROY_NODE(lclLoad);
                 }
 
                 if (op1->OperIsCompare())
