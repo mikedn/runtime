@@ -954,20 +954,20 @@ private:
             // The first argument is the real first argument for the call now.
             origCall->gtCallArgs = origCall->gtCallArgs->GetNext();
 
-            AssignResult(thenBlock, resultHandle);
+            StoreResult(thenBlock, resultHandle);
         }
 
         void CreateElse() override
         {
             elseBlock = CreateBasicBlock(BBJ_NONE, thenBlock);
 
-            AssignResult(elseBlock, origCall);
+            StoreResult(elseBlock, origCall);
         }
 
-        void AssignResult(BasicBlock* block, GenTree* result)
+        void StoreResult(BasicBlock* block, GenTree* result)
         {
-            GenTree* asg = compiler->gtNewAssignNode(compiler->gtNewLclvNode(resultLcl, TYP_I_IMPL), result);
-            compiler->fgInsertStmtAtEnd(block, compiler->gtNewStmt(asg, stmt->GetILOffsetX()));
+            GenTree* store = compiler->gtNewLclStore(resultLcl, TYP_I_IMPL, result);
+            compiler->fgInsertStmtAtEnd(block, compiler->gtNewStmt(store, stmt->GetILOffsetX()));
         }
 
         void SetWeights() override
