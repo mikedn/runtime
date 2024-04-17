@@ -173,10 +173,10 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         // With this we avoid the gc problem and we allow casts to bytes, longs,  etc...
         LclVarDsc* lcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("Cast away GC"));
         src->SetType(TYP_I_IMPL);
-        GenTree* asg = gtNewAssignNode(gtNewLclvNode(lcl, TYP_I_IMPL), src);
+        GenTree* store = gtNewLclStore(lcl, TYP_I_IMPL, src);
         src->SetType(srcType);
-        src = gtNewLclvNode(lcl, TYP_I_IMPL);
-        src = gtNewCommaNode(asg, src);
+        src = gtNewLclLoad(lcl, TYP_I_IMPL);
+        src = gtNewCommaNode(store, src);
         cast->SetOp(0, src);
         srcType = TYP_I_IMPL;
     }
