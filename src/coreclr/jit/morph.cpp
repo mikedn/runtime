@@ -6693,38 +6693,36 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
     //    GT_COMMA(GT_CALL(..), GT_NOP) or GT_COMMA(GT_CAST(GT_CALL(..)), GT_NOP)
     // In the above,
     //    GT_CASTS may be nested.
-    genTreeOps stmtOper = stmtExpr->gtOper;
-    if (stmtOper == GT_CALL)
+    if (stmtExpr->IsCall())
     {
         assert(stmtExpr == call);
     }
     else
     {
-        assert(stmtOper == GT_RETURN || stmtOper == GT_ASG || stmtOper == GT_COMMA);
-        GenTree* treeWithCall;
-        if (stmtOper == GT_RETURN)
+        GenTree* value;
+
+        if (stmtExpr->OperIs(GT_RETURN))
         {
-            treeWithCall = stmtExpr->gtGetOp1();
+            value = stmtExpr->AsUnOp()->GetOp(0);
         }
-        else if (stmtOper == GT_COMMA)
+        else if (stmtExpr->OperIs(GT_COMMA))
         {
-            // Second operation must be nop.
-            assert(stmtExpr->gtGetOp2()->IsNothingNode());
-            treeWithCall = stmtExpr->gtGetOp1();
+            value = stmtExpr->AsOp()->GetOp(0);
+            assert(stmtExpr->AsOp()->GetOp(1)->IsNothingNode());
         }
         else
         {
-            treeWithCall = stmtExpr->gtGetOp2();
+            assert(stmtExpr->OperIs(GT_ASG));
+            value = stmtExpr->AsOp()->GetOp(1);
         }
 
-        // Peel off casts
-        while (treeWithCall->gtOper == GT_CAST)
+        while (GenTreeCast* cast = value->IsCast())
         {
-            assert(!treeWithCall->gtOverflow());
-            treeWithCall = treeWithCall->gtGetOp1();
+            assert(!cast->gtOverflow());
+            value = cast->GetOp(0);
         }
 
-        assert(treeWithCall == call);
+        assert(value == call);
     }
 #endif
 
