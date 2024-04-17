@@ -8176,28 +8176,28 @@ GenTree* Compiler::fgExpandVirtualVtableCallTarget(GenTreeCall* call)
             //
             LclVarDsc* varNum1 = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("var1 - vtab"));
             LclVarDsc* varNum2 = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("var2 - relative"));
-            GenTree*   asgVar1 = gtNewAssignNode(gtNewLclvNode(varNum1, TYP_I_IMPL), vtab);
+            GenTree*   asgVar1 = gtNewLclStore(varNum1, TYP_I_IMPL, vtab);
 
             // [tmp + vtabOffsOfIndirection]
-            GenTree* tmpTree1 = gtNewOperNode(GT_ADD, TYP_I_IMPL, gtNewLclvNode(varNum1, TYP_I_IMPL),
+            GenTree* tmpTree1 = gtNewOperNode(GT_ADD, TYP_I_IMPL, gtNewLclLoad(varNum1, TYP_I_IMPL),
                                               gtNewIconNode(vtabOffsOfIndirection, TYP_I_IMPL));
             tmpTree1 = gtNewIndir(TYP_I_IMPL, tmpTree1);
             tmpTree1->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
 
             // var1 + vtabOffsOfIndirection + vtabOffsAfterIndirection
             GenTree* tmpTree2 =
-                gtNewOperNode(GT_ADD, TYP_I_IMPL, gtNewLclvNode(varNum1, TYP_I_IMPL),
+                gtNewOperNode(GT_ADD, TYP_I_IMPL, gtNewLclLoad(varNum1, TYP_I_IMPL),
                               gtNewIconNode(vtabOffsOfIndirection + vtabOffsAfterIndirection, TYP_I_IMPL));
 
             // var1 + vtabOffsOfIndirection + vtabOffsAfterIndirection + [var1 + vtabOffsOfIndirection]
             tmpTree2         = gtNewOperNode(GT_ADD, TYP_I_IMPL, tmpTree2, tmpTree1);
-            GenTree* asgVar2 = gtNewAssignNode(gtNewLclvNode(varNum2, TYP_I_IMPL), tmpTree2);
+            GenTree* asgVar2 = gtNewLclStore(varNum2, TYP_I_IMPL, tmpTree2);
 
-            result = gtNewIndir(TYP_I_IMPL, gtNewLclvNode(varNum2, TYP_I_IMPL)); // [var2]
+            result = gtNewIndir(TYP_I_IMPL, gtNewLclLoad(varNum2, TYP_I_IMPL)); // [var2]
             // This last indirection is not invariant.
             result->gtFlags |= GTF_IND_NONFAULTING;
 
-            result = gtNewOperNode(GT_ADD, TYP_I_IMPL, result, gtNewLclvNode(varNum2, TYP_I_IMPL)); // [var2] + var2
+            result = gtNewOperNode(GT_ADD, TYP_I_IMPL, result, gtNewLclLoad(varNum2, TYP_I_IMPL)); // [var2] + var2
             result = gtNewCommaNode(asgVar1, gtNewCommaNode(asgVar2, result));
         }
         else
