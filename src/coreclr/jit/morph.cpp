@@ -6599,45 +6599,42 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
 
             // If nextBlock is not a BBJ_RETURN, it should have a unique successor that
             // is a BBJ_RETURN, as we allow a little bit of flow after a tail call.
-            //
             if (nextBlock->bbJumpKind != BBJ_RETURN)
             {
                 BasicBlock* nextNextBlock = nextBlock->GetUniqueSucc();
 
-                // Check if we have a sequence of GT_ASG blocks where the same variable is assigned
-                // to temp locals over and over.
-                //
-                // Also allow casts on the RHSs of the assignments, and blocks with GT_NOPs.
-                //
+                // Check if we have a sequence of stores where the same variable is assigned to
+                // temp locals over and over. Also allow casts sequences, and blocks with NOPs.
                 if (nextNextBlock->bbJumpKind != BBJ_RETURN)
                 {
-                    // Make sure the block has a single statement
-                    assert(nextBlock->firstStmt() == nextBlock->lastStmt());
-                    // And the root node is "ASG(LCL_VAR, LCL_VAR)"
-                    GenTree* asgNode = nextBlock->firstStmt()->GetRootNode();
-                    assert(asgNode->OperIs(GT_ASG));
+                    // Make sure the block has a single statement and the root node is ASG(LCL_VAR, LCL_VAR)
 
-                    LclVarDsc* lcl = asgNode->gtGetOp1()->AsLclVarCommon()->GetLcl();
+                    assert(nextBlock->GetFirstStatement() == nextBlock->GetLastStatement());
+                    GenTree* store = nextBlock->GetFirstStatement()->GetRootNode();
+                    assert(store->OperIs(GT_ASG));
+                    LclVarDsc* lcl = store->AsOp()->GetOp(0)->AsLclVar()->GetLcl();
 
-                    while (nextNextBlock->bbJumpKind != BBJ_RETURN)
+                    for (; nextNextBlock->bbJumpKind != BBJ_RETURN; nextNextBlock = nextNextBlock->GetUniqueSucc())
                     {
-                        assert(nextNextBlock->firstStmt() == nextNextBlock->lastStmt());
-                        asgNode = nextNextBlock->firstStmt()->GetRootNode();
-                        if (!asgNode->OperIs(GT_NOP))
-                        {
-                            assert(asgNode->OperIs(GT_ASG));
+                        assert(nextNextBlock->GetFirstStatement() == nextNextBlock->GetLastStatement());
 
-                            GenTree* rhs = asgNode->gtGetOp2();
-                            while (rhs->OperIs(GT_CAST))
+                        store = nextNextBlock->GetFirstStatement()->GetRootNode();
+
+                        if (!store->OperIs(GT_NOP))
+                        {
+                            assert(store->OperIs(GT_ASG));
+
+                            GenTree* value = store->AsOp()->GetOp(1);
+
+                            while (GenTreeCast* cast = value->IsCast())
                             {
-                                assert(!rhs->gtOverflow());
-                                rhs = rhs->gtGetOp1();
+                                assert(!cast->gtOverflow());
+                                value = cast->GetOp(0);
                             }
 
-                            assert(lcl == rhs->AsLclVarCommon()->GetLcl());
-                            lcl = rhs->AsLclVarCommon()->GetLcl();
+                            assert(value->AsLclVar()->GetLcl() == lcl);
+                            lcl = value->AsLclVar()->GetLcl();
                         }
-                        nextNextBlock = nextNextBlock->GetUniqueSucc();
                     }
                 }
 
