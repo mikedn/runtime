@@ -4154,6 +4154,11 @@ GenTreeLclVar* Compiler::gtNewStoreLclVar(LclVarDsc* lcl, var_types type, GenTre
     return new (this, GT_STORE_LCL_VAR) GenTreeLclVar(type, lcl, value);
 }
 
+GenTreeLclFld* Compiler::gtNewLclFldStore(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* value)
+{
+    return gtNewStoreLclFld(type, lcl, lclOffs, value);
+}
+
 GenTreeLclFld* Compiler::gtNewStoreLclFld(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* value)
 {
     return new (this, GT_STORE_LCL_FLD) GenTreeLclFld(type, lcl, lclOffs, value);

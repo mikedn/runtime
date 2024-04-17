@@ -2893,6 +2893,7 @@ public:
 
     GenTreeLclVar* gtNewLclStore(LclVarDsc* lcl, var_types type, GenTree* value);
     GenTreeLclVar* gtNewStoreLclVar(LclVarDsc* lcl, var_types type, GenTree* value);
+    GenTreeLclFld* gtNewLclFldStore(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* value);
     GenTreeLclFld* gtNewStoreLclFld(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* value);
 
     GenTreeUnOp* gtNewBitCastNode(var_types type, GenTree* arg);

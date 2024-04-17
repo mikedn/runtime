@@ -630,11 +630,12 @@ unsigned ObjectAllocator::MorphAllocObjNodeIntoStackAlloc(GenTreeAllocObj* alloc
     // Initialize the object memory if necessary.
     bool bbInALoop  = (block->bbFlags & BBF_BACKWARD_JUMP) != 0;
     bool bbIsReturn = block->bbJumpKind == BBJ_RETURN;
+
     if (comp->fgVarNeedsExplicitZeroInit(lcl, bbInALoop, bbIsReturn))
     {
-        GenTree*   init    = comp->gtNewAssignNode(comp->gtNewLclvNode(lcl, TYP_STRUCT), comp->gtNewIconNode(0));
-        Statement* newStmt = comp->gtNewStmt(init);
-        comp->fgInsertStmtBefore(block, stmt, newStmt);
+        GenTree* init = comp->gtNewLclStore(lcl, TYP_STRUCT, comp->gtNewIconNode(0));
+        init->AddSideEffects(GTF_GLOB_REF);
+        comp->fgInsertStmtBefore(block, stmt, comp->gtNewStmt(init));
     }
     else
     {
@@ -643,10 +644,9 @@ unsigned ObjectAllocator::MorphAllocObjNodeIntoStackAlloc(GenTreeAllocObj* alloc
         comp->compSuppressedZeroInit = true;
     }
 
-    GenTreeOp* methodTableAssignment =
-        comp->gtNewAssignNode(comp->gtNewLclFldNode(lcl, TYP_I_IMPL, 0), allocObj->GetOp(0));
-
-    comp->fgInsertStmtBefore(block, stmt, comp->gtNewStmt(methodTableAssignment));
+    GenTreeLclFld* methodTableStore = comp->gtNewLclFldStore(TYP_I_IMPL, lcl, 0, allocObj->GetOp(0));
+    methodTableStore->AddSideEffects(GTF_GLOB_REF);
+    comp->fgInsertStmtBefore(block, stmt, comp->gtNewStmt(methodTableStore));
 
     return lcl->GetLclNum();
 }
