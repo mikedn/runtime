@@ -2863,6 +2863,8 @@ public:
     GenTree* gtNewJmpTableNode();
 
     GenTreeIndir* gtNewIndOfIconHandleNode(var_types type, size_t addr, HandleKind handleKind, bool invariant);
+    GenTreeIndir* gtNewIndLoad(var_types type, size_t addr, HandleKind handleKind, bool invariant);
+    GenTreeStoreInd* gtNewIndStore(var_types type, size_t addr, HandleKind handleKind, GenTree* value);
     GenTreeIntCon* gtNewIconHandleNode(void* value, HandleKind kind, FieldSeqNode* fieldSeq = nullptr);
     GenTreeIntCon* gtNewIconHandleNode(size_t value, HandleKind kind, FieldSeqNode* fieldSeq = nullptr);
     GenTree* gtNewConstLookupTree(void*      value,
@@ -2889,6 +2891,7 @@ public:
 
     GenTree* gtNewOneConNode(var_types type);
 
+    GenTreeLclVar* gtNewLclStore(LclVarDsc* lcl, var_types type, GenTree* value);
     GenTreeLclVar* gtNewStoreLclVar(LclVarDsc* lcl, var_types type, GenTree* value);
     GenTreeLclFld* gtNewStoreLclFld(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* value);
 
@@ -2925,6 +2928,7 @@ public:
                                                   GenTree*                ctxTree,
                                                   void*                   compileTimeHandle);
 
+    GenTreeLclVar* gtNewLclLoad(LclVarDsc* lcl, var_types type);
     GenTreeLclVar* gtNewLclvNode(LclVarDsc* lcl, var_types type);
     GenTreeLclVar* gtNewLclVarLargeNode(LclVarDsc* lcl, var_types type);
 
@@ -2999,6 +3003,7 @@ public:
     GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call);
 
     GenTreeIndir* gtNewIndir(var_types type, GenTree* addr);
+    GenTreeStoreInd* gtNewIndStore(var_types type, GenTree* addr, GenTree* value);
     GenTreeFlags gtGetIndirExceptionFlags(GenTree* addr);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset);

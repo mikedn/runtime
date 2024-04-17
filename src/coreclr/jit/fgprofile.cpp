@@ -415,6 +415,16 @@ void BlockCountInstrumentor::BuildSchemaElements(BasicBlock* block, Schema& sche
     }
 }
 
+static var_types GetBasicBlockCountType(const ICorJitInfo::PgoInstrumentationSchema& schema)
+{
+    return schema.InstrumentationKind == ICorJitInfo::PgoInstrumentationKind::BasicBlockIntCount ? TYP_INT : TYP_LONG;
+}
+
+static var_types GetEdgeCountType(const ICorJitInfo::PgoInstrumentationSchema& schema)
+{
+    return schema.InstrumentationKind == ICorJitInfo::PgoInstrumentationKind::EdgeIntCount ? TYP_INT : TYP_LONG;
+}
+
 //------------------------------------------------------------------------
 // BlockCountInstrumentor::Instrument: add counter probe to block
 //
@@ -423,30 +433,22 @@ void BlockCountInstrumentor::BuildSchemaElements(BasicBlock* block, Schema& sche
 //   schema -- instrumentation schema
 //   profileMemory -- profile data slab
 //
-void BlockCountInstrumentor::Instrument(BasicBlock* block, Schema& schema, BYTE* profileMemory)
+void BlockCountInstrumentor::Instrument(BasicBlock* block, Schema& schema, uint8_t* profileMemory)
 {
     const ICorJitInfo::PgoInstrumentationSchema& entry = schema[block->bbCountSchemaIndex];
 
     assert(block->bbCodeOffs == (IL_OFFSET)entry.ILOffset);
     assert((entry.InstrumentationKind == ICorJitInfo::PgoInstrumentationKind::BasicBlockIntCount) ||
            (entry.InstrumentationKind == ICorJitInfo::PgoInstrumentationKind::BasicBlockLongCount));
-    size_t addrOfCurrentExecutionCount = (size_t)(entry.Offset + profileMemory);
 
-    var_types typ =
-        entry.InstrumentationKind == ICorJitInfo::PgoInstrumentationKind::BasicBlockIntCount ? TYP_INT : TYP_LONG;
-    // Read Basic-Block count value
-    GenTree* valueNode =
-        m_comp->gtNewIndOfIconHandleNode(typ, addrOfCurrentExecutionCount, HandleKind::BlockCount, false);
+    size_t    countAddr = reinterpret_cast<size_t>(entry.Offset + profileMemory);
+    var_types type      = GetBasicBlockCountType(entry);
 
-    // Increment value by 1
-    GenTree* rhsNode = m_comp->gtNewOperNode(GT_ADD, typ, valueNode, m_comp->gtNewIconNode(1, typ));
+    GenTree* load  = m_comp->gtNewIndLoad(type, countAddr, HandleKind::BlockCount, false);
+    GenTree* value = m_comp->gtNewOperNode(GT_ADD, type, load, m_comp->gtNewIconNode(1, type));
+    GenTree* store = m_comp->gtNewIndStore(type, countAddr, HandleKind::BlockCount, value);
 
-    // Write new Basic-Block count value
-    GenTree* lhsNode =
-        m_comp->gtNewIndOfIconHandleNode(typ, addrOfCurrentExecutionCount, HandleKind::BlockCount, false);
-    GenTree* asgNode = m_comp->gtNewAssignNode(lhsNode, rhsNode);
-
-    m_comp->fgNewStmtAtBeg(block, asgNode);
+    m_comp->fgNewStmtAtBeg(block, store);
 
     m_instrCount++;
 }
@@ -1203,21 +1205,13 @@ void EfficientEdgeCountInstrumentor::Instrument(BasicBlock* block, Schema& schem
 
         // Place the probe
 
-        var_types typ =
-            entry.InstrumentationKind == ICorJitInfo::PgoInstrumentationKind::EdgeIntCount ? TYP_INT : TYP_LONG;
-        // Read Basic-Block count value
-        GenTree* valueNode =
-            m_comp->gtNewIndOfIconHandleNode(typ, addrOfCurrentExecutionCount, HandleKind::BlockCount, false);
+        var_types type = GetEdgeCountType(entry);
 
-        // Increment value by 1
-        GenTree* rhsNode = m_comp->gtNewOperNode(GT_ADD, typ, valueNode, m_comp->gtNewIconNode(1, typ));
+        GenTree* load  = m_comp->gtNewIndLoad(type, addrOfCurrentExecutionCount, HandleKind::BlockCount, false);
+        GenTree* value = m_comp->gtNewOperNode(GT_ADD, type, load, m_comp->gtNewIconNode(1, type));
+        GenTree* store = m_comp->gtNewIndStore(type, addrOfCurrentExecutionCount, HandleKind::BlockCount, value);
 
-        // Write new Basic-Block count value
-        GenTree* lhsNode =
-            m_comp->gtNewIndOfIconHandleNode(typ, addrOfCurrentExecutionCount, HandleKind::BlockCount, false);
-        GenTree* asgNode = m_comp->gtNewAssignNode(lhsNode, rhsNode);
-
-        m_comp->fgNewStmtAtBeg(instrumentedBlock, asgNode);
+        m_comp->fgNewStmtAtBeg(instrumentedBlock, store);
 
         m_instrCount++;
     }
@@ -1360,21 +1354,19 @@ public:
 
         // Generate the IR...
         //
-        GenTree* const          classProfileNode = compiler->gtNewIconNode((ssize_t)classProfile, TYP_I_IMPL);
-        GenTree* const          tmpNode          = compiler->gtNewLclvNode(tmpLcl, TYP_REF);
-        GenTreeCall::Use* const args             = compiler->gtNewCallArgs(tmpNode, classProfileNode);
-        GenTree* const          helperCallNode =
-            compiler->gtNewHelperCallNode(is32 ? CORINFO_HELP_CLASSPROFILE32 : CORINFO_HELP_CLASSPROFILE64, TYP_VOID,
-                                          args);
-        GenTree* const tmpNode2      = compiler->gtNewLclvNode(tmpLcl, TYP_REF);
-        GenTree* const callCommaNode = compiler->gtNewCommaNode(helperCallNode, tmpNode2);
-        GenTree* const tmpNode3      = compiler->gtNewLclvNode(tmpLcl, TYP_REF);
-        GenTree* const asgNode       = compiler->gtNewAssignNode(tmpNode3, call->gtCallThisArg->GetNode());
-        GenTree* const asgCommaNode  = compiler->gtNewCommaNode(asgNode, callCommaNode);
+        CorInfoHelpFunc   helper           = is32 ? CORINFO_HELP_CLASSPROFILE32 : CORINFO_HELP_CLASSPROFILE64;
+        GenTree*          classProfileAddr = compiler->gtNewIconNode((ssize_t)classProfile, TYP_I_IMPL);
+        GenTree*          tmpLoad1         = compiler->gtNewLclLoad(tmpLcl, TYP_REF);
+        GenTreeCall::Use* args             = compiler->gtNewCallArgs(tmpLoad1, classProfileAddr);
+        GenTree*          helperCall       = compiler->gtNewHelperCallNode(helper, TYP_VOID, args);
+        GenTree*          tmpLoad2         = compiler->gtNewLclLoad(tmpLcl, TYP_REF);
+        GenTree*          callComma        = compiler->gtNewCommaNode(helperCall, tmpLoad2);
+        GenTree*          store            = compiler->gtNewLclStore(tmpLcl, TYP_REF, call->gtCallThisArg->GetNode());
+        GenTree*          storeComma       = compiler->gtNewCommaNode(store, callComma);
 
         // Update the call
         //
-        call->gtCallThisArg->SetNode(asgCommaNode);
+        call->gtCallThisArg->SetNode(storeComma);
 
         JITDUMP("Modified call is now\n");
         DISPTREE(call);

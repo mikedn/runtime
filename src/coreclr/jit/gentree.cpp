@@ -3931,6 +3931,11 @@ GenTree* Compiler::gtNewJmpTableNode()
     return new (this, GT_JMPTABLE) GenTree(GT_JMPTABLE, TYP_I_IMPL);
 }
 
+GenTreeIndir* Compiler::gtNewIndLoad(var_types type, size_t addr, HandleKind handleKind, bool invariant)
+{
+    return gtNewIndOfIconHandleNode(type, addr, handleKind, invariant);
+}
+
 GenTreeIndir* Compiler::gtNewIndOfIconHandleNode(var_types type, size_t addr, HandleKind handleKind, bool invariant)
 {
     assert((handleKind != HandleKind::Static) && (handleKind != HandleKind::String));
@@ -3947,6 +3952,15 @@ GenTreeIndir* Compiler::gtNewIndOfIconHandleNode(var_types type, size_t addr, Ha
     }
 
     return load;
+}
+
+GenTreeStoreInd* Compiler::gtNewIndStore(var_types type, size_t addr, HandleKind handleKind, GenTree* value)
+{
+    assert((handleKind != HandleKind::Static) && (handleKind != HandleKind::String));
+
+    GenTreeStoreInd* store = gtNewIndStore(type, gtNewIconHandleNode(addr, handleKind), value);
+    store->gtFlags |= GTF_IND_NONFAULTING;
+    return store;
 }
 
 GenTree* Compiler::gtNewConstLookupTree(void*      value,
@@ -4130,9 +4144,14 @@ GenTree* Compiler::gtNewOneConNode(var_types type)
     }
 }
 
-GenTreeLclVar* Compiler::gtNewStoreLclVar(LclVarDsc* lcl, var_types type, GenTree* src)
+GenTreeLclVar* Compiler::gtNewLclStore(LclVarDsc* lcl, var_types type, GenTree* value)
 {
-    return new (this, GT_STORE_LCL_VAR) GenTreeLclVar(type, lcl, src);
+    return gtNewStoreLclVar(lcl, type, value);
+}
+
+GenTreeLclVar* Compiler::gtNewStoreLclVar(LclVarDsc* lcl, var_types type, GenTree* value)
+{
+    return new (this, GT_STORE_LCL_VAR) GenTreeLclVar(type, lcl, value);
 }
 
 GenTreeLclFld* Compiler::gtNewStoreLclFld(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* value)
@@ -4242,6 +4261,11 @@ GenTreeCall* Compiler::gtNewCallNode(
 #endif
 
     return node;
+}
+
+GenTreeLclVar* Compiler::gtNewLclLoad(LclVarDsc* lcl, var_types type)
+{
+    return gtNewLclvNode(lcl, type);
 }
 
 GenTreeLclVar* Compiler::gtNewLclvNode(LclVarDsc* lcl, var_types type)
