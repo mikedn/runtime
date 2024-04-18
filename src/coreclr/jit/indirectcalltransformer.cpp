@@ -413,11 +413,9 @@ private:
             {
                 thisLcl = compiler->lvaNewTemp(TYP_REF, true DEBUGARG("guarded devirt this temp"));
 
-                GenTree*   asgTree = compiler->gtNewAssignNode(compiler->gtNewLclvNode(thisLcl, TYP_REF), thisTree);
-                Statement* asgStmt = compiler->gtNewStmt(asgTree, stmt->GetILOffsetX());
-                compiler->fgInsertStmtAtEnd(checkBlock, asgStmt);
-
-                origCall->gtCallThisArg->SetNode(compiler->gtNewLclvNode(thisLcl, TYP_REF));
+                GenTree* thisStore = compiler->gtNewLclStore(thisLcl, TYP_REF, thisTree);
+                compiler->fgInsertStmtAtEnd(checkBlock, compiler->gtNewStmt(thisStore, stmt->GetILOffsetX()));
+                origCall->gtCallThisArg->SetNode(compiler->gtNewLclLoad(thisLcl, TYP_REF));
             }
 
             thisTree = compiler->gtNewLclvNode(thisLcl, TYP_REF);
@@ -425,7 +423,7 @@ private:
             // Remember the current last statement. If we're doing a chained GDV, we'll clone/copy
             // all the code in the check block up to and including this statement.
             //
-            // Note it's important that we clone/copy the temp assign above, if we created one,
+            // Note it's important that we clone/copy the temp store above, if we created one,
             // because flow along the "cold path" is going to bypass the check block.
             lastStmt = checkBlock->lastStmt();
 
@@ -551,13 +549,13 @@ private:
             // copy 'this' to temp with exact type.
             LclVarDsc* thisTempLcl = compiler->lvaNewTemp(TYP_REF, false DEBUGARG("guarded devirt this exact temp"));
             GenTree*   clonedObj   = compiler->gtCloneExpr(origCall->gtCallThisArg->GetNode());
-            GenTree*   assign = compiler->gtNewAssignNode(compiler->gtNewLclvNode(thisTempLcl, TYP_REF), clonedObj);
+            GenTree*   clonedStore = compiler->gtNewLclStore(thisTempLcl, TYP_REF, clonedObj);
             compiler->lvaSetClass(thisTempLcl, clsHnd, true);
-            compiler->fgNewStmtAtEnd(thenBlock, assign);
+            compiler->fgNewStmtAtEnd(thenBlock, clonedStore);
 
             // Clone call. Note we must use the special candidate helper.
             GenTreeCall* call   = compiler->gtCloneCandidateCall(origCall);
-            call->gtCallThisArg = compiler->gtNewCallArgs(compiler->gtNewLclvNode(thisTempLcl, TYP_REF));
+            call->gtCallThisArg = compiler->gtNewCallArgs(compiler->gtNewLclLoad(thisTempLcl, TYP_REF));
             call->SetIsGuarded();
 
             JITDUMP("Direct call [%06u] in block " FMT_BB "\n", call->GetID(), thenBlock->bbNum);
