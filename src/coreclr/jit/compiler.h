@@ -1673,8 +1673,8 @@ struct Importer
     INDEBUG(void AppendStmtCheck(GenTree* tree, unsigned chkLevel);)
     void SpillStack(GenTree* tree, unsigned chkLevel);
     Statement* impAppendTree(GenTree* tree, unsigned chkLevel);
-    void impSpillAllAppendTree(GenTree* tree);
-    void impSpillNoneAppendTree(GenTree* tree);
+    Statement* impSpillAllAppendTree(GenTree* tree);
+    Statement* impSpillNoneAppendTree(GenTree* tree);
     void impAppendTempAssign(LclVarDsc* lcl, GenTree* val, unsigned curLevel);
     void impAppendTempAssign(LclVarDsc* lcl, GenTree* val, ClassLayout* layout, unsigned curLevel);
     void impAppendTempAssign(LclVarDsc* lcl, GenTree* val, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);

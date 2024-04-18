@@ -1113,7 +1113,7 @@ bool Compiler::inlImportReturn(Importer&            importer,
             asg = gtNewAssignNode(dest, retExpr);
         }
 
-        importer.impAppendTree(asg, Importer::CHECK_SPILL_NONE);
+        importer.impSpillNoneAppendTree(asg);
 
         if (inlineInfo->retExpr == nullptr)
         {
