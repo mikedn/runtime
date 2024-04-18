@@ -1,26 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                           Importer                                        XX
-XX                                                                           XX
-XX   Imports the given method and converts it to semantic trees              XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
-/*****************************************************************************
- *
- *  Pushes the given tree on the stack.
- */
 
 void Importer::impPushOnStack(GenTree* tree, typeInfo ti)
 {
@@ -152,11 +133,6 @@ void Compiler::impResolveToken(const BYTE* addr, CORINFO_RESOLVED_TOKEN* resolve
     info.compCompHnd->resolveToken(resolvedToken);
 }
 
-/*****************************************************************************
- *
- *  Pop one tree from the stack.
- */
-
 Importer::StackEntry Importer::impPopStack()
 {
     if (verCurrentState.esStackDepth == 0)
@@ -238,11 +214,6 @@ GenTree* Importer::impSIMDPopStack(var_types type)
 }
 
 #endif // FEATURE_SIMD
-
-/*****************************************************************************
- *
- *  Peep at n'th (0-based) tree on the top of the stack.
- */
 
 Importer::StackEntry& Importer::impStackTop(unsigned n)
 {
@@ -512,12 +483,8 @@ Statement* Importer::impSpillNoneAppendTree(GenTree* op1)
     return impAppendTree(op1, CHECK_SPILL_NONE);
 }
 
-/*****************************************************************************
- *
- *  Append an assignment of the given value to a temp to the current tree list.
- *  curLevel is the stack level for which the spill to the temp is being done.
- */
-
+// Append an assignment of the given value to a temp to the current tree list.
+// curLevel is the stack level for which the spill to the temp is being done.
 void Importer::impAppendTempAssign(LclVarDsc* lcl, GenTree* val, unsigned curLevel)
 {
     assert(lcl->GetType() == TYP_UNDEF);
@@ -1035,7 +1002,6 @@ GenTree* Importer::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
     }
 }
 
-/******************************************************************************/
 // Given a type token, generate code that will evaluate to the correct
 // handle representation of that token (type handle, field handle, or method handle)
 //
@@ -1141,24 +1107,21 @@ GenTree* Importer::impMethodPointer(CORINFO_RESOLVED_TOKEN& resolvedToken, CORIN
     return impLookupToTree(&resolvedToken, &callInfo.codePointerLookup, HandleKind::MethodAddr, callInfo.hMethod);
 }
 
-/*****************************************************************************/
-/* Import a dictionary lookup to access a handle in code shared between
-   generic instantiations.
-   The lookup depends on the typeContext which is only available at
-   runtime, and not at compile-time.
-   pLookup->token1 and pLookup->token2 specify the handle that is needed.
-   The cases are:
-
-   1. pLookup->indirections == CORINFO_USEHELPER : Call a helper passing it the
-      instantiation-specific handle, and the tokens to lookup the handle.
-   2. pLookup->indirections != CORINFO_USEHELPER :
-      2a. pLookup->testForNull == false : Dereference the instantiation-specific handle
-          to get the handle.
-      2b. pLookup->testForNull == true : Dereference the instantiation-specific handle.
-          If it is non-NULL, it is the handle required. Else, call a helper
-          to lookup the handle.
- */
-
+// Import a dictionary lookup to access a handle in code shared between
+// generic instantiations.
+// The lookup depends on the typeContext which is only available at
+// runtime, and not at compile-time.
+// pLookup->token1 and pLookup->token2 specify the handle that is needed.
+// The cases are:
+//
+// 1. pLookup->indirections == CORINFO_USEHELPER : Call a helper passing it the
+//    instantiation-specific handle, and the tokens to lookup the handle.
+// 2. pLookup->indirections != CORINFO_USEHELPER :
+//    2a. pLookup->testForNull == false : Dereference the instantiation-specific handle
+//        to get the handle.
+//    2b. pLookup->testForNull == true : Dereference the instantiation-specific handle.
+//        If it is non-NULL, it is the handle required. Else, call a helper
+//        to lookup the handle.
 GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
                                           CORINFO_LOOKUP*         lookup,
                                           void*                   compileTimeHandle)
@@ -1553,15 +1516,10 @@ public:
     }
 };
 
-/*****************************************************************************
- *
- *  Push catch arg onto the stack.
- *  If there are jumps to the beginning of the handler, insert basic block
- *  and spill catch arg to a temp. Update the handler block if necessary.
- *
- *  Returns the basic block of the actual handler.
- */
-
+// Push catch arg onto the stack.
+// If there are jumps to the beginning of the handler, insert basic block
+// and spill catch arg to a temp. Update the handler block if necessary.
+// Returns the basic block of the actual handler.
 BasicBlock* Importer::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_HANDLE clsHnd, bool isSingleBlockFilter)
 {
     // Do not inject the basic block twice on reimport. This should be
@@ -1593,11 +1551,11 @@ BasicBlock* Importer::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
         // someone prepended something to our injected block, but that's unlikely.
     }
 
-#if defined(JIT32_GCENCODER)
+#ifdef JIT32_GCENCODER
     const bool forceInsertNewBlock = isSingleBlockFilter || comp->compStressCompile(Compiler::STRESS_CATCH_ARG, 5);
 #else
     const bool forceInsertNewBlock = comp->compStressCompile(Compiler::STRESS_CATCH_ARG, 5);
-#endif // defined(JIT32_GCENCODER)
+#endif
 
     // Spill GT_CATCH_ARG to a temp if there are jumps to the beginning of the handler
     if ((hndBlk->bbRefs <= 1) && !forceInsertNewBlock)
@@ -1611,14 +1569,14 @@ BasicBlock* Importer::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
             hndBlk->bbRefs++;
         }
 
-        /* Create extra basic block for the spill */
+        // Create extra basic block for the spill
         BasicBlock* newBlk = fgNewBBbefore(BBJ_NONE, hndBlk, /* extendRegion */ true);
         newBlk->bbFlags |= BBF_IMPORTED | BBF_DONT_REMOVE;
         newBlk->inheritWeight(hndBlk);
         newBlk->bbCodeOffs   = hndBlk->bbCodeOffs;
         newBlk->bbEntryState = new (comp, CMK_Importer) ImportSpillCliqueState(clsHnd);
 
-        /* Account for the new link we are about to create */
+        // Account for the new link we are about to create
         hndBlk->bbRefs++;
 
         // Spill into a temp.
@@ -1785,11 +1743,7 @@ NOINLINE unsigned Importer::AdvanceStmtOffset(unsigned nextStmtIndex, unsigned o
     return nextStmtIndex;
 }
 
-/*****************************************************************************
- * Remember the IL offset (including stack-empty info) for the trees we will
- * generate now.
- */
-
+// Remember the IL offset (including stack-empty info) for the trees we will generate now.
 void Importer::impCurStmtOffsSet(IL_OFFSET offs)
 {
     assert(!compIsForInlining());
@@ -1827,12 +1781,9 @@ bool Importer::impCanSpillNow(OPCODE prevOpcode)
     return (prevOpcode != CEE_LDTOKEN) && (prevOpcode != CEE_NEWARR) && (prevOpcode != CEE_NEWOBJ);
 }
 
-/*****************************************************************************
- * We don't create any GenTree (excluding spills) for a branch.
- * For debugging info, we need a placeholder so that we can note
- * the IL offset in gtStmt.gtStmtOffs. So append an empty statement.
- */
-
+// We don't create any GenTree (excluding spills) for a branch.
+// For debugging info, we need a placeholder so that we can note
+// the IL offset in gtStmt.gtStmtOffs. So append an empty statement.
 void Importer::impNoteBranchOffs()
 {
     if (opts.compDbgCode)
@@ -1918,8 +1869,6 @@ unsigned Importer::impInitBlockLineInfo(BasicBlock* block)
     return index;
 }
 
-/*****************************************************************************/
-
 bool Importer::impOpcodeIsCallOpcode(OPCODE opcode)
 {
     switch (opcode)
@@ -1933,8 +1882,6 @@ bool Importer::impOpcodeIsCallOpcode(OPCODE opcode)
             return false;
     }
 }
-
-/*****************************************************************************/
 
 static bool impOpcodeIsCallSiteBoundary(OPCODE opcode)
 {
@@ -1953,8 +1900,6 @@ static bool impOpcodeIsCallSiteBoundary(OPCODE opcode)
     }
 }
 
-/*****************************************************************************/
-
 // One might think it is worth caching these values, but results indicate
 // that it isn't.
 // In addition, caching them causes SuperPMI to be unable to completely
@@ -1969,19 +1914,18 @@ CORINFO_CLASS_HANDLE Compiler::impGetRefAnyClass()
 CORINFO_CLASS_HANDLE Compiler::impGetStringClass()
 {
     CORINFO_CLASS_HANDLE stringClass = info.compCompHnd->getBuiltinClass(CLASSID_STRING);
-    assert(stringClass != (CORINFO_CLASS_HANDLE) nullptr);
+    assert(stringClass != nullptr);
     return stringClass;
 }
 
 CORINFO_CLASS_HANDLE Compiler::impGetObjectClass()
 {
     CORINFO_CLASS_HANDLE objectClass = info.compCompHnd->getBuiltinClass(CLASSID_SYSTEM_OBJECT);
-    assert(objectClass != (CORINFO_CLASS_HANDLE) nullptr);
+    assert(objectClass != nullptr);
     return objectClass;
 }
 
-/* static */
-void Importer::impBashVarAddrsToI(GenTree* tree1, GenTree* tree2 /* = nullptr */)
+void Importer::impBashVarAddrsToI(GenTree* tree1, GenTree* tree2)
 {
     // "&local" can be used either as TYP_BYREF or TYP_I_IMPL, but we
     // set its type to TYP_BYREF when we create it. We know if it can
@@ -2751,16 +2695,10 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
                 }
             }
 
-#ifdef DEBUG
             if (retNode != nullptr)
             {
-                JITDUMP("Optimized field for call to GetType is\n");
-                if (verbose)
-                {
-                    gtDispTree(retNode);
-                }
+                JITDUMPTREE(retNode, "Optimized field for call to GetType is\n");
             }
-#endif
 
             // Else expand as an intrinsic, unless the call is constrained,
             // in which case we defer expansion to allow impImportCall do the
@@ -3394,7 +3332,7 @@ GenTree* Importer::impMathIntrinsic(CORINFO_METHOD_HANDLE method,
     GenTree* op1 = nullptr;
     GenTree* op2 = nullptr;
 
-#if !defined(TARGET_X86)
+#ifndef TARGET_X86
     // Intrinsics that are not implemented directly by target instructions will
     // be re-materialized as users calls in rationalizer. For prefixed tail calls,
     // don't do this optimization, because
@@ -3928,22 +3866,18 @@ GenTree* Importer::impUnsupportedNamedIntrinsic(CorInfoHelpFunc       helper,
     return gtNewLclvNode(tempLcl, TYP_STRUCT);
 }
 
-/*****************************************************************************/
-
 GenTree* Importer::impArrayAccessIntrinsic(
     CORINFO_CLASS_HANDLE clsHnd, CORINFO_SIG_INFO* sig, int memberRef, bool readonlyCall, NamedIntrinsic name)
 {
-    /* If we are generating SMALL_CODE, we don't want to use intrinsics for
-       the following, as it generates fatter code.
-    */
-
+    // If we are generating SMALL_CODE, we don't want to use intrinsics for
+    // the following, as it generates fatter code.
     if (compCodeOpt() == SMALL_CODE)
     {
         return nullptr;
     }
 
-    /* These intrinsics generate fatter (but faster) code and are only
-       done if we don't need SMALL_CODE */
+    // These intrinsics generate fatter (but faster) code and are only
+    // done if we don't need SMALL_CODE
 
     unsigned rank = (name == NI_CORINFO_INTRINSIC_Array_Set) ? (sig->numArgs - 1) : sig->numArgs;
 
@@ -4087,11 +4021,9 @@ bool Importer::verCheckTailCallConstraint(OPCODE                  opcode,
     // for calli, VerifyOrReturn that this is not a virtual method
     if (opcode == CEE_CALLI)
     {
-        /* Get the call sig */
         eeGetSig(pResolvedToken->token, pResolvedToken->tokenScope, pResolvedToken->tokenContext, &sig);
 
-        // We don't know the target method, so we have to infer the flags, or
-        // assume the worst-case.
+        // We don't know the target method, so we have to infer the flags, or assume the worst-case.
         mflags = (sig.callConv & CORINFO_CALLCONV_HASTHIS) ? 0 : CORINFO_FLG_STATIC;
     }
     else
@@ -5301,7 +5233,7 @@ GenTree* Importer::CreateClassInitTree(CORINFO_RESOLVED_TOKEN* resolvedToken)
 
 GenTree* Importer::impImportStaticReadOnlyField(void* addr, var_types type)
 {
-#if defined(DEBUG)
+#ifdef DEBUG
     // If we're replaying under SuperPMI, we're going to read the data stored by SuperPMI and use it
     // for optimization. Unfortunately, SuperPMI doesn't implement a guarantee on the alignment of
     // this data, so for some platforms which don't allow unaligned access (e.g., Linux arm32),
@@ -6156,10 +6088,8 @@ void Importer::impInsertHelperCall(const CORINFO_HELPER_DESC& helperInfo)
         args = gtPrependNewCallArg(currentArg, args);
     }
 
-    /* TODO-Review:
-     * Mark as CSE'able, and hoistable.  Consider marking hoistable unless you're in the inlinee.
-     * Also, consider sticking this in the first basic block.
-     */
+    // TODO-Review: Mark as CSE'able, and hoistable. Consider marking hoistable unless
+    // you're in the inlinee. Also, consider sticking this in the first basic block.
     GenTree* callout = gtNewHelperCallNode(helperInfo.helperNum, TYP_VOID, args);
     impSpillNoneAppendTree(callout);
 }
@@ -6334,10 +6264,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     GenTreeCall* call  = nullptr;
     GenTree*     value = nullptr;
 
-    /*-------------------------------------------------------------------------
-     * First create the call node
-     */
-
     if (opcode == CEE_CALLI)
     {
         call = impImportIndirectCall(&calliSig, ilOffset);
@@ -6351,23 +6277,21 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
         if (compIsForInlining())
         {
-            /* Does this call site have security boundary restrictions? */
-
+            // Does this call site have security boundary restrictions?
             if (impInlineInfo->inlineCandidateInfo->dwRestrictions & INLINE_RESPECT_BOUNDARY)
             {
                 compInlineResult->NoteFatal(InlineObservation::CALLSITE_CROSS_BOUNDARY_SECURITY);
                 return nullptr;
             }
 
-            /* Does the inlinee use StackCrawlMark */
-
+            // Does the inlinee use StackCrawlMark
             if (mflags & CORINFO_FLG_DONT_INLINE_CALLER)
             {
                 compInlineResult->NoteFatal(InlineObservation::CALLEE_STACK_CRAWL_MARK);
                 return nullptr;
             }
 
-            /* For now ignore varargs */
+            // For now ignore varargs
             if ((sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_NATIVEVARARG)
             {
                 compInlineResult->NoteFatal(InlineObservation::CALLEE_HAS_NATIVE_VARARGS);
@@ -6693,7 +6617,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
             assert(!(mflags & CORINFO_FLG_STATIC)); // can't call a static method
             assert(mflags & CORINFO_FLG_FINAL);
 
-            /* Set the delegate flag */
+            // Set the delegate flag
             call->gtCallMoreFlags |= GTF_CALL_M_DELEGATE_INV;
 
             if (callInfo->wrapperDelegateInvoke)
@@ -6705,7 +6629,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
             {
                 assert(mflags & CORINFO_FLG_FINAL);
 
-                /* It should have the GTF_CALL_NULLCHECK flag set. Reset it */
+                // It should have the GTF_CALL_NULLCHECK flag set. Reset it.
                 assert(call->gtFlags & GTF_CALL_NULLCHECK);
                 call->gtFlags &= ~GTF_CALL_NULLCHECK;
             }
@@ -6715,17 +6639,11 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     assert(sig != nullptr);
     assert((clsHnd != NO_CLASS_HANDLE) || (opcode == CEE_CALLI));
 
-    /* Some sanity checks */
-
     // CALL_VIRT and NEWOBJ must have a THIS pointer
     assert((opcode != CEE_CALLVIRT && opcode != CEE_NEWOBJ) || (sig->callConv & CORINFO_CALLCONV_HASTHIS));
     // static bit and hasThis are negations of one another
     assert(((mflags & CORINFO_FLG_STATIC) != 0) == ((sig->callConv & CORINFO_CALLCONV_HASTHIS) == 0));
     assert(call != nullptr);
-
-    /*-------------------------------------------------------------------------
-     * Check special-cases etc
-     */
 
     if ((sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_VARARG ||
         (sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_NATIVEVARARG)
@@ -6777,9 +6695,9 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
             sig = retTypeSig;
         }
 
-/* We will have "cookie" as the last argument but we cannot push
- * it on the operand stack because we may overflow, so we append it
- * to the arg list next after we pop them */
+// We will have "cookie" as the last argument but we cannot push
+// it on the operand stack because we may overflow, so we append it
+// to the arg list next after we pop them
 #endif // FEATURE_VARARG
     }
 
@@ -7512,20 +7430,17 @@ GenTree* Importer::impSpillPseudoReturnBufferCall(GenTreeCall* call)
     return gtNewLclvNode(tmpLcl, info.compRetType);
 }
 
-/*****************************************************************************
-   CEE_LEAVE may be jumping out of a protected block, viz, a catch or a
-   finally-protected try. We find the finally blocks protecting the current
-   offset (in order) by walking over the complete exception table and
-   finding enclosing clauses. This assumes that the table is sorted.
-   This will create a series of BBJ_CALLFINALLY -> BBJ_CALLFINALLY ... -> BBJ_ALWAYS.
-
-   If we are leaving a catch handler, we need to attach the
-   CPX_ENDCATCHes to the correct BBJ_CALLFINALLY blocks.
-
-   After this function, the BBJ_LEAVE block has been converted to a different type.
- */
-
-#if !defined(FEATURE_EH_FUNCLETS)
+// CEE_LEAVE may be jumping out of a protected block, viz, a catch or a
+// finally-protected try. We find the finally blocks protecting the current
+// offset (in order) by walking over the complete exception table and
+// finding enclosing clauses. This assumes that the table is sorted.
+// This will create a series of BBJ_CALLFINALLY -> BBJ_CALLFINALLY ... -> BBJ_ALWAYS.
+//
+// If we are leaving a catch handler, we need to attach the
+// CPX_ENDCATCHes to the correct BBJ_CALLFINALLY blocks.
+//
+// After this function, the BBJ_LEAVE block has been converted to a different type.
+#ifndef FEATURE_EH_FUNCLETS
 
 void Importer::impImportLeave(BasicBlock* block)
 {
@@ -7568,9 +7483,8 @@ void Importer::impImportLeave(BasicBlock* block)
         IL_OFFSET hndBeg = HBtab->ebdHndBegOffs();
         IL_OFFSET hndEnd = HBtab->ebdHndEndOffs();
 
-        /* Is this a catch-handler we are CEE_LEAVEing out of?
-         * If so, we need to call CORINFO_HELP_ENDCATCH.
-         */
+        // Is this a catch-handler we are CEE_LEAVEing out of?
+        // If so, we need to call CORINFO_HELP_ENDCATCH.
 
         if (jitIsBetween(blkAddr, hndBeg, hndEnd) && !jitIsBetween(jmpAddr, hndBeg, hndEnd))
         {
@@ -7591,25 +7505,20 @@ void Importer::impImportLeave(BasicBlock* block)
                 endCatches = endCatch;
             }
 
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("impImportLeave - " FMT_BB " jumping out of catch handler EH#%u, adding call to "
-                       "CORINFO_HELP_ENDCATCH\n",
-                       block->bbNum, XTnum);
-            }
-#endif
+            JITDUMP("impImportLeave - " FMT_BB " jumping out of catch handler EH#%u, adding call to "
+                    "CORINFO_HELP_ENDCATCH\n",
+                    block->bbNum, XTnum);
         }
         else if (HBtab->HasFinallyHandler() && jitIsBetween(blkAddr, tryBeg, tryEnd) &&
                  !jitIsBetween(jmpAddr, tryBeg, tryEnd))
         {
-            /* This is a finally-protected try we are jumping out of */
-
-            /* If there are any pending endCatches, and we have already
-               jumped out of a finally-protected try, then the endCatches
-               have to be put in a block in an outer try for async
-               exceptions to work correctly.
-               Else, just use append to the original block */
+            // This is a finally-protected try we are jumping out of
+            //
+            // If there are any pending endCatches, and we have already
+            // jumped out of a finally-protected try, then the endCatches
+            // have to be put in a block in an outer try for async
+            // exceptions to work correctly.
+            // Else, just use append to the original block
 
             BasicBlock* callBlock;
 
@@ -7635,14 +7544,14 @@ void Importer::impImportLeave(BasicBlock* block)
             {
                 assert(step != nullptr);
 
-                /* Calling the finally block */
+                // Calling the finally block
                 callBlock = fgNewBBinRegion(BBJ_CALLFINALLY, XTnum + 1, 0, step);
                 assert(step->bbJumpKind == BBJ_ALWAYS);
                 step->bbJumpDest = callBlock; // the previous call to a finally returns to this call (to the next
                                               // finally in the chain)
                 step->bbJumpDest->bbRefs++;
 
-                /* The new block will inherit this block's weight */
+                // The new block will inherit this block's weight
                 callBlock->inheritWeight(block);
 
                 JITDUMP("impImportLeave - jumping out of a finally-protected try, new BBJ_CALLFINALLY block %s\n",
@@ -7666,17 +7575,12 @@ void Importer::impImportLeave(BasicBlock* block)
             }
 
             step = fgNewBBafter(BBJ_ALWAYS, callBlock, true);
-            /* The new block will inherit this block's weight */
+            // The new block will inherit this block's weight
             step->inheritWeight(block);
             step->bbFlags |= BBF_IMPORTED | BBF_KEEP_BBJ_ALWAYS;
 
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("impImportLeave - jumping out of a finally-protected try, created step (BBJ_ALWAYS) block %s\n",
-                       step->dspToString());
-            }
-#endif
+            JITDUMP("impImportLeave - jumping out of a finally-protected try, created step (BBJ_ALWAYS) block %s\n",
+                    step->dspToString());
 
             unsigned finallyNesting = comp->compHndBBtab[XTnum].ebdHandlerNestingLevel;
             assert(finallyNesting <= comp->compHndBBtabCount);
@@ -7692,7 +7596,7 @@ void Importer::impImportLeave(BasicBlock* block)
         }
     }
 
-    /* Append any remaining endCatches, if any */
+    // Append any remaining endCatches, if any
 
     assert(!encFinallies == !endLFinStmt);
 
@@ -7724,16 +7628,11 @@ void Importer::impImportLeave(BasicBlock* block)
         finalStep->bbFlags |= BBF_KEEP_BBJ_ALWAYS;
         step->bbJumpDest = finalStep;
 
-        /* The new block will inherit this block's weight */
+        // The new block will inherit this block's weight
         finalStep->inheritWeight(block);
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("impImportLeave - finalStep block required (encFinallies(%d) > 0), new block %s\n", encFinallies,
-                   finalStep->dspToString());
-        }
-#endif
+        JITDUMP("impImportLeave - finalStep block required (encFinallies(%d) > 0), new block %s\n", encFinallies,
+                finalStep->dspToString());
 
         Statement* lastStmt;
 
@@ -7835,8 +7734,7 @@ void Importer::impImportLeave(BasicBlock* block)
         IL_OFFSET hndBeg = HBtab->ebdHndBegOffs();
         IL_OFFSET hndEnd = HBtab->ebdHndEndOffs();
 
-        /* Is this a catch-handler we are CEE_LEAVEing out of?
-         */
+        // Is this a catch-handler we are CEE_LEAVEing out of?
 
         if (jitIsBetween(blkAddr, hndBeg, hndEnd) && !jitIsBetween(jmpAddr, hndBeg, hndEnd))
         {
@@ -7846,7 +7744,7 @@ void Importer::impImportLeave(BasicBlock* block)
                 BADCODE("leave out of fault/finally block");
             }
 
-            /* We are jumping out of a catch */
+            // We are jumping out of a catch
 
             if (step == nullptr)
             {
@@ -7854,22 +7752,16 @@ void Importer::impImportLeave(BasicBlock* block)
                 step->bbJumpKind = BBJ_EHCATCHRET; // convert the BBJ_LEAVE to BBJ_EHCATCHRET
                 stepType         = ST_Catch;
 
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("impImportLeave - jumping out of a catch (EH#%u), convert block " FMT_BB
-                           " to BBJ_EHCATCHRET "
-                           "block\n",
-                           XTnum, step->bbNum);
-                }
-#endif
+                JITDUMP("impImportLeave - jumping out of a catch (EH#%u), convert block " FMT_BB " to BBJ_EHCATCHRET "
+                        "block\n",
+                        XTnum, step->bbNum);
             }
             else
             {
                 BasicBlock* exitBlock;
 
-                /* Create a new catch exit block in the catch region for the existing step block to jump to in this
-                 * scope */
+                // Create a new catch exit block in the catch region for the existing step block
+                // to jump to in this scope
                 exitBlock = fgNewBBinRegion(BBJ_EHCATCHRET, 0, XTnum + 1, step);
 
                 assert(step->bbJumpKind == BBJ_ALWAYS || step->bbJumpKind == BBJ_EHCATCHRET);
@@ -7877,45 +7769,39 @@ void Importer::impImportLeave(BasicBlock* block)
                                               // exit) returns to this block
                 step->bbJumpDest->bbRefs++;
 
-#if defined(TARGET_ARM)
+#ifdef TARGET_ARM
                 if (stepType == ST_FinallyReturn)
                 {
                     assert(step->bbJumpKind == BBJ_ALWAYS);
                     // Mark the target of a finally return
                     step->bbJumpDest->bbFlags |= BBF_FINALLY_TARGET;
                 }
-#endif // defined(TARGET_ARM)
+#endif
 
-                /* The new block will inherit this block's weight */
+                // The new block will inherit this block's weight
                 exitBlock->inheritWeight(block);
                 exitBlock->bbFlags |= BBF_IMPORTED;
 
-                /* This exit block is the new step */
+                // This exit block is the new step
                 step     = exitBlock;
                 stepType = ST_Catch;
 
                 invalidatePreds = true;
 
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("impImportLeave - jumping out of a catch (EH#%u), new BBJ_EHCATCHRET block " FMT_BB "\n",
-                           XTnum, exitBlock->bbNum);
-                }
-#endif
+                JITDUMP("impImportLeave - jumping out of a catch (EH#%u), new BBJ_EHCATCHRET block " FMT_BB "\n", XTnum,
+                        exitBlock->bbNum);
             }
         }
         else if (HBtab->HasFinallyHandler() && jitIsBetween(blkAddr, tryBeg, tryEnd) &&
                  !jitIsBetween(jmpAddr, tryBeg, tryEnd))
         {
-            /* We are jumping out of a finally-protected try */
+            // We are jumping out of a finally-protected try
 
             BasicBlock* callBlock;
 
             if (step == nullptr)
             {
 #if FEATURE_EH_CALLFINALLY_THUNKS
-
                 // Put the call to the finally in the enclosing region.
                 unsigned callFinallyTryIndex =
                     (HBtab->ebdEnclosingTryIndex == EHblkDsc::NO_ENCLOSING_INDEX) ? 0 : HBtab->ebdEnclosingTryIndex + 1;
@@ -7931,35 +7817,20 @@ void Importer::impImportLeave(BasicBlock* block)
                 block->bbJumpDest = callBlock;
                 block->bbJumpDest->bbRefs++;
 
-                /* The new block will inherit this block's weight */
+                // The new block will inherit this block's weight
                 callBlock->inheritWeight(block);
                 callBlock->bbFlags |= BBF_IMPORTED;
 
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("impImportLeave - jumping out of a finally-protected try (EH#%u), convert block " FMT_BB
-                           " to "
-                           "BBJ_ALWAYS, add BBJ_CALLFINALLY block " FMT_BB "\n",
-                           XTnum, block->bbNum, callBlock->bbNum);
-                }
-#endif
-
-#else // !FEATURE_EH_CALLFINALLY_THUNKS
-
+                JITDUMP("impImportLeave - jumping out of a finally-protected try (EH#%u), convert block " FMT_BB " to "
+                        "BBJ_ALWAYS, add BBJ_CALLFINALLY block " FMT_BB "\n",
+                        XTnum, block->bbNum, callBlock->bbNum);
+#else  // !FEATURE_EH_CALLFINALLY_THUNKS
                 callBlock             = block;
                 callBlock->bbJumpKind = BBJ_CALLFINALLY; // convert the BBJ_LEAVE to BBJ_CALLFINALLY
 
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("impImportLeave - jumping out of a finally-protected try (EH#%u), convert block " FMT_BB
-                           " to "
-                           "BBJ_CALLFINALLY block\n",
-                           XTnum, callBlock->bbNum);
-                }
-#endif
-
+                JITDUMP("impImportLeave - jumping out of a finally-protected try (EH#%u), convert block " FMT_BB " to "
+                        "BBJ_CALLFINALLY block\n",
+                        XTnum, callBlock->bbNum);
 #endif // !FEATURE_EH_CALLFINALLY_THUNKS
             }
             else
@@ -7993,14 +7864,9 @@ void Importer::impImportLeave(BasicBlock* block)
                     step2->inheritWeight(block);
                     step2->bbFlags |= (block->bbFlags & BBF_RUN_RARELY) | BBF_IMPORTED;
 
-#ifdef DEBUG
-                    if (verbose)
-                    {
-                        printf("impImportLeave - jumping out of a finally-protected try (EH#%u), step block is "
-                               "BBJ_EHCATCHRET (" FMT_BB "), new BBJ_ALWAYS step-step block " FMT_BB "\n",
-                               XTnum, step->bbNum, step2->bbNum);
-                    }
-#endif
+                    JITDUMP("impImportLeave - jumping out of a finally-protected try (EH#%u), step block is "
+                            "BBJ_EHCATCHRET (" FMT_BB "), new BBJ_ALWAYS step-step block " FMT_BB "\n",
+                            XTnum, step->bbNum, step2->bbNum);
 
                     step = step2;
                     assert(stepType == ST_Catch); // Leave it as catch type for now.
@@ -8012,54 +7878,44 @@ void Importer::impImportLeave(BasicBlock* block)
                     (HBtab->ebdEnclosingTryIndex == EHblkDsc::NO_ENCLOSING_INDEX) ? 0 : HBtab->ebdEnclosingTryIndex + 1;
                 unsigned callFinallyHndIndex =
                     (HBtab->ebdEnclosingHndIndex == EHblkDsc::NO_ENCLOSING_INDEX) ? 0 : HBtab->ebdEnclosingHndIndex + 1;
-#else  // !FEATURE_EH_CALLFINALLY_THUNKS
+#else
                 unsigned callFinallyTryIndex = XTnum + 1;
                 unsigned callFinallyHndIndex = 0; // don't care
-#endif // !FEATURE_EH_CALLFINALLY_THUNKS
+#endif
 
                 callBlock        = fgNewBBinRegion(BBJ_CALLFINALLY, callFinallyTryIndex, callFinallyHndIndex, step);
                 step->bbJumpDest = callBlock; // the previous call to a finally returns to this call (to the next
                                               // finally in the chain)
                 step->bbJumpDest->bbRefs++;
 
-#if defined(TARGET_ARM)
+#ifdef TARGET_ARM
                 if (stepType == ST_FinallyReturn)
                 {
                     assert(step->bbJumpKind == BBJ_ALWAYS);
                     // Mark the target of a finally return
                     step->bbJumpDest->bbFlags |= BBF_FINALLY_TARGET;
                 }
-#endif // defined(TARGET_ARM)
+#endif
 
-                /* The new block will inherit this block's weight */
+                // The new block will inherit this block's weight
                 callBlock->inheritWeight(block);
                 callBlock->bbFlags |= BBF_IMPORTED;
 
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("impImportLeave - jumping out of a finally-protected try (EH#%u), new BBJ_CALLFINALLY "
-                           "block " FMT_BB "\n",
-                           XTnum, callBlock->bbNum);
-                }
-#endif
+                JITDUMP("impImportLeave - jumping out of a finally-protected try (EH#%u), new BBJ_CALLFINALLY "
+                        "block " FMT_BB "\n",
+                        XTnum, callBlock->bbNum);
             }
 
             step     = fgNewBBafter(BBJ_ALWAYS, callBlock, true);
             stepType = ST_FinallyReturn;
 
-            /* The new block will inherit this block's weight */
+            // The new block will inherit this block's weight
             step->inheritWeight(block);
             step->bbFlags |= BBF_IMPORTED | BBF_KEEP_BBJ_ALWAYS;
 
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("impImportLeave - jumping out of a finally-protected try (EH#%u), created step (BBJ_ALWAYS) "
-                       "block " FMT_BB "\n",
-                       XTnum, step->bbNum);
-            }
-#endif
+            JITDUMP("impImportLeave - jumping out of a finally-protected try (EH#%u), created step (BBJ_ALWAYS) "
+                    "block " FMT_BB "\n",
+                    XTnum, step->bbNum);
 
             callBlock->bbJumpDest = HBtab->ebdHndBeg; // This callBlock will call the "finally" handler.
 
@@ -8122,20 +7978,20 @@ void Importer::impImportLeave(BasicBlock* block)
                     assert(step->bbJumpKind == BBJ_EHCATCHRET);
                 }
 
-                /* Create a new exit block in the try region for the existing step block to jump to in this scope */
+                // Create a new exit block in the try region for the existing step block to jump to in this scope
                 catchStep        = fgNewBBinRegion(BBJ_ALWAYS, XTnum + 1, 0, step);
                 step->bbJumpDest = catchStep;
                 step->bbJumpDest->bbRefs++;
 
-#if defined(TARGET_ARM)
+#ifdef TARGET_ARM
                 if (stepType == ST_FinallyReturn)
                 {
                     // Mark the target of a finally return
                     step->bbJumpDest->bbFlags |= BBF_FINALLY_TARGET;
                 }
-#endif // defined(TARGET_ARM)
+#endif
 
-                /* The new block will inherit this block's weight */
+                // The new block will inherit this block's weight
                 catchStep->inheritWeight(block);
                 catchStep->bbFlags |= BBF_IMPORTED;
 
@@ -8158,7 +8014,7 @@ void Importer::impImportLeave(BasicBlock* block)
                 }
 #endif // DEBUG
 
-                /* This block is the new step */
+                // This block is the new step
                 step     = catchStep;
                 stepType = ST_Try;
 
@@ -8171,34 +8027,24 @@ void Importer::impImportLeave(BasicBlock* block)
     {
         block->bbJumpKind = BBJ_ALWAYS; // convert the BBJ_LEAVE to a BBJ_ALWAYS
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("impImportLeave - no enclosing finally-protected try blocks or catch handlers; convert CEE_LEAVE "
-                   "block " FMT_BB " to BBJ_ALWAYS\n",
-                   block->bbNum);
-        }
-#endif
+        JITDUMP("impImportLeave - no enclosing finally-protected try blocks or catch handlers; convert CEE_LEAVE "
+                "block " FMT_BB " to BBJ_ALWAYS\n",
+                block->bbNum);
     }
     else
     {
         step->bbJumpDest = leaveTarget; // this is the ultimate destination of the LEAVE
 
-#if defined(TARGET_ARM)
+#ifdef TARGET_ARM
         if (stepType == ST_FinallyReturn)
         {
             assert(step->bbJumpKind == BBJ_ALWAYS);
             // Mark the target of a finally return
             step->bbJumpDest->bbFlags |= BBF_FINALLY_TARGET;
         }
-#endif // defined(TARGET_ARM)
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("impImportLeave - final destination of step blocks set to " FMT_BB "\n", leaveTarget->bbNum);
-        }
 #endif
+
+        JITDUMP("impImportLeave - final destination of step blocks set to " FMT_BB "\n", leaveTarget->bbNum);
 
         // Queue up the jump target for importing
 
@@ -8225,13 +8071,11 @@ void Importer::impImportLeave(BasicBlock* block)
 
 #endif // FEATURE_EH_FUNCLETS
 
-/*****************************************************************************/
 // This is called when reimporting a leave block. It resets the JumpKind,
 // JumpDest, and bbNext to the original values
-
 void Importer::impResetLeaveBlock(BasicBlock* block, IL_OFFSET leaveOffset)
 {
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     // With EH Funclets, while importing leave opcode we create another block ending with BBJ_ALWAYS (call it B1)
     // and the block containing leave (say B0) is marked as BBJ_CALLFINALLY.   Say for some reason we reimport B0,
     // it is reset (in this routine) by marking as ending with BBJ_LEAVE and further down when B0 is reimported, we
@@ -8276,12 +8120,7 @@ void Importer::impResetLeaveBlock(BasicBlock* block, IL_OFFSET leaveOffset)
         // will be next to each other.
         fgInsertBBafter(block, dupBlock);
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("New Basic Block " FMT_BB " duplicate of " FMT_BB " created.\n", dupBlock->bbNum, block->bbNum);
-        }
-#endif
+        JITDUMP("New Basic Block " FMT_BB " duplicate of " FMT_BB " created.\n", dupBlock->bbNum, block->bbNum);
     }
 #endif // FEATURE_EH_FUNCLETS
 
@@ -8296,10 +8135,8 @@ void Importer::impResetLeaveBlock(BasicBlock* block, IL_OFFSET leaveOffset)
     // added and the linked list length will be different than fgBBcount.
 }
 
-/*****************************************************************************/
 // Get the first non-prefix opcode. Used for verification of valid combinations
 // of prefixes and actual opcodes.
-
 OPCODE Importer::impGetNonPrefixOpcode(const BYTE* codeAddr, const BYTE* codeEndp)
 {
     while (codeAddr < codeEndp)
@@ -8335,9 +8172,7 @@ OPCODE Importer::impGetNonPrefixOpcode(const BYTE* codeAddr, const BYTE* codeEnd
     return CEE_ILLEGAL;
 }
 
-/*****************************************************************************/
 // Checks whether the opcode is a valid opcode for volatile. and unaligned. prefixes
-
 void Importer::impValidateMemoryAccessOpcode(OPCODE opcode, bool volatilePrefix)
 {
     if (!(
@@ -9621,7 +9456,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 // TODO-MIKE-Review: This should be BADCODE.
                 assert(op1->TypeIs(TYP_REF));
 
-                /* Check for null pointer - in the inliner case we simply abort */
+                // Check for null pointer - in the inliner case we simply abort
 
                 if (compIsForInlining())
                 {
@@ -9995,7 +9830,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 if (compIsForInlining() &&
                     ((opcode == CEE_BR_S ? getI1LittleEndian(codeAddr) : getI4LittleEndian(codeAddr)) == 0))
                 {
-                    break; /* NOP */
+                    break; // NOP
                 }
 
                 impNoteBranchOffs();
@@ -10051,17 +9886,17 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
             COND_JUMP:
 
-                /* Fold comparison if we can */
+                // Fold comparison if we can
 
                 op1 = gtFoldExpr(op1);
 
-                /* Try to fold the really simple cases like 'iconst *, ifne/ifeq'*/
-                /* Don't make any blocks unreachable in import only mode */
+                // Try to fold the really simple cases like 'iconst *, ifne/ifeq'
+                // Don't make any blocks unreachable in import only mode
 
                 if (op1->OperIs(GT_CNS_INT))
                 {
-                    /* gtFoldExpr() should prevent this as we don't want to make any blocks
-                       unreachable under compDbgCode */
+                    // gtFoldExpr() should prevent this as we don't want to make any blocks
+                    // unreachable under compDbgCode
                     assert(!opts.compDbgCode);
 
                     BBjumpKinds foldedJumpKind = (BBjumpKinds)(op1->AsIntCon()->gtIconVal ? BBJ_ALWAYS : BBJ_NONE);
@@ -10254,8 +10089,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 impSpillAllAppendTree(gtNewOperNode(GT_SWITCH, TYP_VOID, op1));
                 break;
 
-            /************************** Casting OPCODES ***************************/
-
             case CEE_CONV_OVF_I1:
                 lclTyp = TYP_BYTE;
                 goto CONV_OVF;
@@ -10427,15 +10260,15 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                         if (((ival & umask) == ival) || ((ival & mask) == ival && uns))
                         {
-                            /* Toss the cast, it's a waste of time */
+                            // Toss the cast, it's a waste of time
 
                             impPushOnStack(op1);
                             break;
                         }
                         else if (ival == mask)
                         {
-                            /* Toss the masking, it's a waste of time, since
-                               we sign-extend from the small value anyways */
+                            // Toss the masking, it's a waste of time, since
+                            // we sign-extend from the small value anyways
 
                             op1 = op1->AsOp()->gtOp1;
                         }
@@ -11285,8 +11118,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
                 break;
 
-            /******************************** NYI *******************************/
-
             case 0xCC:
                 OutputDebugStringA("CLR: Invalid x86 breakpoint in IL stream\n");
                 FALLTHROUGH;
@@ -11527,9 +11358,9 @@ void Importer::ImportLocAlloc(BasicBlock* block)
         // Ensure we have stack security for this method.
         setNeedsGSSecurityCookie();
 
-        /* The FP register may not be back to the original value at the end
-           of the method, even if the frame size is 0, as localloc may
-           have modified it. So we will HAVE to reset it */
+        // The FP register may not be back to the original value at the end
+        // of the method, even if the frame size is 0, as localloc may
+        // have modified it. So we will HAVE to reset it
         comp->compLocallocUsed = true;
     }
 
@@ -12003,8 +11834,7 @@ void Importer::ImportJmp(const BYTE* codeAddr, BasicBlock* block)
 
     if ((info.compFlags & CORINFO_FLG_SYNCH) || block->hasTryIndex() || block->hasHndIndex())
     {
-        /* CEE_JMP does not make sense in some "protected" regions. */
-
+        // CEE_JMP does not make sense in some "protected" regions.
         BADCODE("Jmp not allowed in protected region");
     }
 
@@ -12023,8 +11853,8 @@ void Importer::ImportJmp(const BYTE* codeAddr, BasicBlock* block)
 
     JITDUMP(" %08X", resolvedToken.token);
 
-    /* The signature of the target has to be identical to ours.
-       At least check that argCnt and returnType match */
+    // The signature of the target has to be identical to ours.
+    // At least check that argCnt and returnType match
 
     CORINFO_SIG_INFO sig;
     eeGetMethodSig(resolvedToken.hMethod, &sig);
@@ -12162,7 +11992,7 @@ void Importer::ImportNewArr(const BYTE* codeAddr, BasicBlock* block)
         info.compCompHnd->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
     impHandleAccessAllowed(accessAllowedResult, calloutHelper);
 
-    /* Form the arglist: array class handle, size */
+    // Form the arglist: array class handle, size
     op2 = impPopStack().val;
 
     // TODO-MIKE-Review: This should be BADCODE.
@@ -12217,7 +12047,7 @@ void Importer::ImportNewArr(const BYTE* codeAddr, BasicBlock* block)
     {
         GenTreeCall::Use* args = gtNewCallArgs(op1, op2);
 
-        /* Create a call to 'new' */
+        // Create a call to 'new'
 
         // Note that this only works for shared generic code because the same helper is used for all
         // reference array types
@@ -12226,7 +12056,7 @@ void Importer::ImportNewArr(const BYTE* codeAddr, BasicBlock* block)
 
     op1->AsCall()->compileTimeHelperArgumentHandle = (CORINFO_GENERIC_HANDLE)resolvedToken.hClass;
 
-    /* Remember that this basic block contains 'new' of an sd array */
+    // Remember that this basic block contains 'new' of an sd array
 
     block->bbFlags |= BBF_HAS_NEWARRAY;
     comp->optMethodFlags |= OMF_HAS_NEWARRAY;
@@ -13080,7 +12910,7 @@ void Importer::impImportBlock(BasicBlock* block)
 
     assert(currentBlock == block);
 
-    /* Save the tree list in the block */
+    // Save the tree list in the block
     impStmtListEnd(block);
 
     // impStmtListEnd sets BBF_IMPORTED on the block
@@ -13617,12 +13447,8 @@ bool Importer::impAddSpillCliquePredMember(BasicBlock* block)
     return true;
 }
 
-/*****************************************************************************
- *
- *  Convert the instrs ("import") into our internal format (trees). The
- *  basic flowgraph has already been constructed and is passed in.
- */
-
+// Convert the instrs ("import") into our internal format (trees).
+// The basic flowgraph has already been constructed and is passed in.
 void Importer::Import()
 {
     JITDUMP("*************** In impImport() for %s\n", info.compFullName);
@@ -14074,13 +13900,10 @@ void Compiler::impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, I
     inlineResult->NoteDouble(InlineObservation::CALLSITE_PROFILE_FREQUENCY, profileFreq);
 }
 
-/*****************************************************************************
- This method makes STATIC inlining decision based on the IL code.
- It should not make any inlining decision based on the context.
- If forceInline is true, then the inlining decision should not depend on
- performance heuristics (code size, etc.).
- */
-
+// This method makes STATIC inlining decision based on the IL code.
+// It should not make any inlining decision based on the context.
+// If forceInline is true, then the inlining decision should not depend on
+// performance heuristics (code size, etc.).
 void Compiler::impCanInlineIL(CORINFO_METHOD_HANDLE fncHandle,
                               CORINFO_METHOD_INFO*  methInfo,
                               bool                  forceInline,
@@ -14158,9 +13981,6 @@ void Compiler::impCanInlineIL(CORINFO_METHOD_HANDLE fncHandle,
     }
 }
 
-/*****************************************************************************
- */
-
 void Compiler::impCheckCanInline(GenTreeCall*           call,
                                  CORINFO_METHOD_HANDLE  fncHandle,
                                  unsigned               methAttr,
@@ -14207,7 +14027,7 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
             }
 #endif
 
-            /* Try to get the code address/size for the method */
+            // Try to get the code address/size for the method
 
             CORINFO_METHOD_INFO methInfo;
             if (!pParam->pThis->info.compCompHnd->getMethodInfo(pParam->fncHandle, &methInfo))
@@ -14278,7 +14098,7 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
                 }
             }
 
-            /* Get the method properties */
+            // Get the method properties
 
             CORINFO_CLASS_HANDLE clsHandle;
             clsHandle = pParam->pThis->info.compCompHnd->getMethodClass(pParam->fncHandle);
@@ -14499,12 +14319,10 @@ void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
 
     if (!opts.OptEnabled(CLFLG_INLINING))
     {
-        /* XXX Mon 8/18/2008
-         * This assert is misleading.  The caller does not ensure that we have CLFLG_INLINING set before
-         * calling impMarkInlineCandidate.  However, if this assert trips it means that we're an inlinee and
-         * CLFLG_MINOPT is set.  That doesn't make a lot of sense.  If you hit this assert, work back and
-         * figure out why we did not set MAXOPT for this compile.
-         */
+        // This assert is misleading. The caller does not ensure that we have CLFLG_INLINING set before
+        // calling impMarkInlineCandidate. However, if this assert trips it means that we're an inlinee
+        // and CLFLG_MINOPT is set. That doesn't make a lot of sense. If you hit this assert, work back
+        // and figure out why we did not set MAXOPT for this compile.
         assert(!compIsForInlining());
         return;
     }
@@ -14561,8 +14379,7 @@ void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
         }
     }
 
-    /* Ignore helper calls */
-
+    // Ignore helper calls
     if (call->gtCallType == CT_HELPER)
     {
         assert(!call->IsGuardedDevirtualizationCandidate());
@@ -14570,16 +14387,16 @@ void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
         return;
     }
 
-    /* Ignore indirect calls */
+    // Ignore indirect calls
     if (call->gtCallType == CT_INDIRECT)
     {
         inlineResult.NoteFatal(InlineObservation::CALLSITE_IS_NOT_DIRECT_MANAGED);
         return;
     }
 
-    /* I removed the check for BBJ_THROW.  BBJ_THROW is usually marked as rarely run.  This more or less
-     * restricts the inliner to non-expanding inlines.  I removed the check to allow for non-expanding
-     * inlining in throw blocks.  I should consider the same thing for catch and filter regions. */
+    // I removed the check for BBJ_THROW. BBJ_THROW is usually marked as rarely run. This more or less
+    // restricts the inliner to non-expanding inlines. I removed the check to allow for non-expanding
+    // inlining in throw blocks. I should consider the same thing for catch and filter regions.
 
     CORINFO_METHOD_HANDLE fncHandle;
     unsigned              methAttr;
@@ -14626,7 +14443,7 @@ void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
 
     if (!(methAttr & CORINFO_FLG_FORCEINLINE))
     {
-        /* Don't bother inline blocks that are in the filter region */
+        // Don't bother inline blocks that are in the filter region
         if (bbInCatchHandlerILRange(currentBlock))
         {
             JITDUMP("\nWill not inline blocks that are in the catch handler region\n");
@@ -14644,7 +14461,7 @@ void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
         }
     }
 
-    /* Check if we tried to inline this method before */
+    // Check if we tried to inline this method before
 
     if (methAttr & CORINFO_FLG_DONT_INLINE)
     {
@@ -14652,7 +14469,7 @@ void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
         return;
     }
 
-    /* Cannot inline synchronized methods */
+    // Cannot inline synchronized methods
 
     if (methAttr & CORINFO_FLG_SYNCH)
     {
@@ -14660,7 +14477,7 @@ void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
         return;
     }
 
-    /* Check legality of PInvoke callsite (for inlining of marshalling code) */
+    // Check legality of PInvoke callsite (for inlining of marshalling code)
 
     if (methAttr & CORINFO_FLG_PINVOKE)
     {
@@ -14711,10 +14528,7 @@ void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
     inlineResult.SetReported();
 }
 
-/******************************************************************************/
-// Returns true if the given intrinsic will be implemented by target-specific
-// instructions
-
+// Returns true if the given intrinsic will be implemented by target-specific instructions.
 bool Compiler::IsTargetIntrinsic(NamedIntrinsic intrinsicName)
 {
 #if defined(TARGET_XARCH)
@@ -14773,10 +14587,7 @@ bool Compiler::IsTargetIntrinsic(NamedIntrinsic intrinsicName)
 #endif
 }
 
-/******************************************************************************/
-// Returns true if the given intrinsic will be implemented by calling System.Math
-// methods.
-
+// Returns true if the given intrinsic will be implemented by calling System.Math methods.
 bool Compiler::IsIntrinsicImplementedByUserCall(NamedIntrinsic intrinsicName)
 {
     // Currently, if a math intrinsic is not implemented by target-specific
@@ -14940,7 +14751,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
         return;
     }
 
-#if defined(DEBUG)
+#ifdef DEBUG
     // Bail if devirt is disabled.
     if (JitConfig.JitEnableDevirtualization() == 0)
     {
@@ -14965,7 +14776,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     }
     else
     {
-#if defined(DEBUG)
+#ifdef DEBUG
         // Validate that callInfo has up to date method flags
         const DWORD freshBaseMethodAttribs = info.compCompHnd->getMethodAttribs(baseMethod);
 
@@ -15038,7 +14849,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     const DWORD objClassAttribs = info.compCompHnd->getClassAttribs(objClass);
     const bool  objClassIsFinal = (objClassAttribs & CORINFO_FLG_FINAL) != 0;
 
-#if defined(DEBUG)
+#ifdef DEBUG
     const char* callKind       = isInterface ? "interface" : "virtual";
     const char* objClassNote   = "[?]";
     const char* objClassName   = "?objClass";
@@ -15052,15 +14863,12 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
         baseClassName  = info.compCompHnd->getClassName(baseClass);
         baseMethodName = eeGetMethodName(baseMethod, nullptr);
 
-        if (verbose)
-        {
-            printf("\nimpDevirtualizeCall: Trying to devirtualize %s call:\n"
-                   "    class for 'this' is %s%s (attrib %08x)\n"
-                   "    base method is %s::%s\n",
-                   callKind, objClassName, objClassNote, objClassAttribs, baseClassName, baseMethodName);
-        }
+        JITDUMP("\nimpDevirtualizeCall: Trying to devirtualize %s call:\n"
+                "    class for 'this' is %s%s (attrib %08x)\n"
+                "    base method is %s::%s\n",
+                callKind, objClassName, objClassNote, objClassAttribs, baseClassName, baseMethodName);
     }
-#endif // defined(DEBUG)
+#endif // DEBUG
 
     // See if the jit's best type for `obj` is an interface.
     // See for instance System.ValueTuple`8::GetHashCode, where lcl 0 is System.IValueTupleInternal
@@ -15120,7 +14928,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     bool  derivedMethodIsFinal = false;
     bool  canDevirtualize      = false;
 
-#if defined(DEBUG)
+#ifdef DEBUG
     const char* derivedClassName  = "?derivedClass";
     const char* derivedMethodName = "?derivedMethod";
     const char* note              = "inexact or not final";
@@ -15141,7 +14949,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
         derivedMethodAttribs = info.compCompHnd->getMethodAttribs(derivedMethod);
         derivedMethodIsFinal = ((derivedMethodAttribs & CORINFO_FLG_FINAL) != 0);
 
-#if defined(DEBUG)
+#ifdef DEBUG
         if (isExact)
         {
             note = "exact";
@@ -15159,13 +14967,9 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
         {
             derivedMethodName = eeGetMethodName(derivedMethod, nullptr);
             derivedClassName  = eeGetClassName(derivedClass);
-            if (verbose)
-            {
-                printf("    devirt to %s::%s -- %s\n", derivedClassName, derivedMethodName, note);
-                gtDispTree(call);
-            }
+            JITDUMPTREE(call, "    devirt to %s::%s -- %s\n", derivedClassName, derivedMethodName, note);
         }
-#endif // defined(DEBUG)
+#endif // DEBUG
 
         canDevirtualize = isExact || objClassIsFinal || (!isInterface && derivedMethodIsFinal);
     }
@@ -15177,7 +14981,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     {
         JITDUMP("    Class not final or exact%s\n", isInterface ? "" : ", and method not final");
 
-#if defined(DEBUG)
+#ifdef DEBUG
         // If we know the object type exactly, we generally expect we can devirtualize.
         // (don't when doing late devirt as we won't have an owner type (yet))
         //
@@ -15231,12 +15035,8 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     // stubs)
     call->gtInlineCandidateInfo = nullptr;
 
-#if defined(DEBUG)
-    if (verbose)
-    {
-        printf("... after devirt...\n");
-        gtDispTree(call);
-    }
+#ifdef DEBUG
+    JITDUMPTREE(call, "... after devirt...\n");
 
     if (doPrint)
     {
@@ -15304,7 +15104,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
             }
         }
     }
-#endif // defined(DEBUG)
+#endif // DEBUG
 
     // If the 'this' object is a value class, see if we can rework the call to invoke the
     // unboxed entry. This effectively inlines the normally un-inlineable wrapper stub
@@ -15814,10 +15614,7 @@ void Importer::considerGuardedDevirtualization(
     CORINFO_CLASS_HANDLE    baseClass,
     CORINFO_CONTEXT_HANDLE* pContextHandle DEBUGARG(CORINFO_CLASS_HANDLE objClass) DEBUGARG(const char* objClassName))
 {
-#if defined(DEBUG)
-    const char* callKind = isInterface ? "interface" : "virtual";
-#endif
-
+    INDEBUG(const char* callKind = isInterface ? "interface" : "virtual");
     JITDUMP("Considering guarded devirtualization at IL offset %u (0x%x)\n", ilOffset, ilOffset);
 
     // We currently only get likely class guesses when there is PGO data
