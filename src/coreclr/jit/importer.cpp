@@ -4522,10 +4522,10 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
         currentBlock->bbFlags |= BBF_HAS_NEWOBJ;
         comp->optMethodFlags |= OMF_HAS_NEWOBJ;
 
-        GenTree*   allocStore = gtNewAssignNode(gtNewLclvNode(impBoxTempLcl, TYP_REF), alloc);
+        GenTree*   allocStore = comp->gtNewLclStore(impBoxTempLcl, TYP_REF, alloc);
         Statement* allocStmt  = impSpillNoneAppendTree(allocStore);
 
-        GenTree* addr = gtNewLclvNode(impBoxTempLcl, TYP_REF);
+        GenTree* addr = comp->gtNewLclLoad(impBoxTempLcl, TYP_REF);
         addr          = gtNewOperNode(GT_ADD, TYP_BYREF, addr, gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL));
 
         GenTree* store;
@@ -12278,9 +12278,9 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
         // the pattern "temp = alloc" is required by ObjectAllocator phase to be able
         // to determine ALLOCOBJ nodes without exhaustive walk over all expressions.
 
-        impSpillNoneAppendTree(gtNewAssignNode(gtNewLclvNode(lcl, TYP_REF), alloc));
+        impSpillNoneAppendTree(comp->gtNewLclStore(lcl, TYP_REF, alloc));
 
-        newObjThis = gtNewLclvNode(lcl, TYP_REF);
+        newObjThis = comp->gtNewLclLoad(lcl, TYP_REF);
     }
 
     if (compDonotInline())

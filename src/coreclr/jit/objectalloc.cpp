@@ -493,14 +493,12 @@ bool ObjectAllocator::MorphAllocObjNodes()
 
         for (Statement* const stmt : block->Statements())
         {
-            GenTree*         stmtExpr = stmt->GetRootNode();
-            GenTreeAllocObj* alloc    = nullptr;
+            GenTree*         allocExpr = stmt->GetRootNode();
+            GenTreeAllocObj* alloc     = nullptr;
 
-            bool canonicalAllocObjFound = false;
-
-            if (stmtExpr->OperIs(GT_ASG) && stmtExpr->TypeIs(TYP_REF))
+            if (allocExpr->OperIs(GT_STORE_LCL_VAR) && allocExpr->TypeIs(TYP_REF))
             {
-                alloc = stmtExpr->AsOp()->GetOp(1)->IsAllocObj();
+                alloc = allocExpr->AsLclVar()->GetOp(0)->IsAllocObj();
             }
 
             if (alloc == nullptr)
@@ -513,14 +511,9 @@ bool ObjectAllocator::MorphAllocObjNodes()
 
             assert(basicBlockHasNewObj);
 
-            GenTree* op1 = stmtExpr->AsOp()->GetOp(0);
-
-            assert(op1->OperIs(GT_LCL_VAR));
-            assert(op1->TypeIs(TYP_REF));
-
             if (m_IsObjectStackAllocationEnabled)
             {
-                LclVarDsc* lcl    = op1->AsLclVar()->GetLcl();
+                LclVarDsc* lcl    = allocExpr->AsLclVar()->GetLcl();
                 unsigned   lclNum = lcl->GetLclNum();
 
                 // Don't attempt to do stack allocations inside basic blocks that may be in a loop.
@@ -545,8 +538,8 @@ bool ObjectAllocator::MorphAllocObjNodes()
             }
 
             GenTree* allocCall = MorphAllocObjNodeIntoHelperCall(alloc);
-            stmtExpr->AsOp()->SetOp(1, allocCall);
-            stmtExpr->AddSideEffects(allocCall->GetSideEffects());
+            allocExpr->AsLclVar()->SetOp(0, allocCall);
+            allocExpr->AddSideEffects(allocCall->GetSideEffects());
         }
     }
 

@@ -9390,7 +9390,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
 
     GenTree* allocStore = allocStmt->GetRootNode();
 
-    if (!allocStore->OperIs(GT_ASG, GT_STORE_LCL_VAR))
+    if (!allocStore->OperIs(GT_STORE_LCL_VAR))
     {
         JITDUMPTREE(allocStore, " bailing; unexpected alloc store\n");
 
@@ -9401,7 +9401,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
 
     if ((options == BR_REMOVE_AND_NARROW_WANT_TYPE_HANDLE) || (options == BR_DONT_REMOVE_WANT_TYPE_HANDLE))
     {
-        GenTree* alloc = allocStore->OperIs(GT_ASG) ? allocStore->AsOp()->GetOp(1) : allocStore->AsLclVar()->GetOp(0);
+        GenTree* alloc = allocStore->AsLclVar()->GetOp(0);
 
         // Allocation may be via AllocObj or via helper call, depending on when this
         // is invoked and whether the JIT is using ALLOCOBJ for R2R allocations.
