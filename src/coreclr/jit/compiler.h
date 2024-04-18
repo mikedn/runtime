@@ -2269,8 +2269,6 @@ struct Importer
     GenTreeObj* gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr);
     GenTreeIntCon* gtNewStringLiteralLength(GenTreeStrCon* node);
     GenTree* gtNewStringLiteralNode(InfoAccessType iat, void* value);
-    GenTreeAllocObj* gtNewAllocObjNode(
-        unsigned helper, bool helperHasSideEffects, CORINFO_CLASS_HANDLE clsHnd, var_types type, GenTree* op1);
     GenTreeAllocObj* gtNewAllocObjNode(CORINFO_RESOLVED_TOKEN* resolvedToken, bool useParent);
     GenTreeIndir* gtNewMethodTableLookup(GenTree* obj);
     GenTreeOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2);
@@ -3030,9 +3028,6 @@ public:
     GenTree* gtUnusedValNode(GenTree* expr);
 
     GenTreeCast* gtNewCastNode(GenTree* op1, bool fromUnsigned, var_types toType);
-
-    GenTreeAllocObj* gtNewAllocObjNode(
-        unsigned int helper, bool helperHasSideEffects, CORINFO_CLASS_HANDLE clsHnd, var_types type, GenTree* op1);
 
     GenTree* gtNewRuntimeLookup(CORINFO_GENERIC_HANDLE hnd, CorInfoGenericHandleType hndTyp, GenTree* lookupTree);
 

@@ -4423,84 +4423,76 @@ bool Importer::impImportBoxPattern(BoxPattern              pattern,
     }
 }
 
-//------------------------------------------------------------------------
-// impImportAndPushBox: build and import a value-type box
+// Build and import a value-type box.
 //
-// Arguments:
-//   resolvedToken - resolved token from the box operation
+// The value to be boxed is popped from the stack, and a tree for
+// the boxed value is pushed. This method may create upstream
+// statements, spill side effecting trees, and create new temps.
 //
-// Return Value:
-//   None.
+// If importing an inlinee, we may also discover the inline must
+// fail. If so there is no new value pushed on the stack. Callers
+// should use CompDoNotInline after calling this method to see if
+// ongoing importation should be aborted.
 //
-// Side Effects:
-//   The value to be boxed is popped from the stack, and a tree for
-//   the boxed value is pushed. This method may create upstream
-//   statements, spill side effecting trees, and create new temps.
+// Boxing of ref classes results in the same value as the value on
+// the top of the stack, so is handled inline in impImportBlockCode
+// for the CEE_BOX case. Only value or primitive type boxes make it
+// here.
 //
-//   If importing an inlinee, we may also discover the inline must
-//   fail. If so there is no new value pushed on the stack. Callers
-//   should use CompDoNotInline after calling this method to see if
-//   ongoing importation should be aborted.
+// Boxing for nullable types is done via a helper call; boxing
+// of other value types is expanded inline or handled via helper
+// call, depending on the JIT's codegen mode.
 //
-// Notes:
-//   Boxing of ref classes results in the same value as the value on
-//   the top of the stack, so is handled inline in impImportBlockCode
-//   for the CEE_BOX case. Only value or primitive type boxes make it
-//   here.
-//
-//   Boxing for nullable types is done via a helper call; boxing
-//   of other value types is expanded inline or handled via helper
-//   call, depending on the jit's codegen mode.
-//
-//   When the jit is operating in size and time constrained modes,
-//   using a helper call here can save jit time and code size. But it
-//   also may inhibit cleanup optimizations that could have also had a
-//   even greater benefit effect on code size and jit time. An optimal
-//   strategy may need to peek ahead and see if it is easy to tell how
-//   the box is being used. For now, we defer.
+// When the jit is operating in size and time constrained modes,
+// using a helper call here can save jit time and code size. But it
+// also may inhibit cleanup optimizations that could have also had a
+// even greater benefit effect on code size and jit time. An optimal
+// strategy may need to peek ahead and see if it is easy to tell how
+// the box is being used. For now, we defer.
 
-void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
+void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
 {
-    // Get get the expression to box from the stack.
-    GenTree*             op1       = nullptr;
-    GenTree*             op2       = nullptr;
-    StackEntry           se        = impPopStack();
-    CORINFO_CLASS_HANDLE operCls   = se.seTypeInfo.GetClassHandle();
-    GenTree*             exprToBox = se.val;
-
-    // Look at what helper we should use.
-    CorInfoHelpFunc boxHelper = info.compCompHnd->getBoxHelper(pResolvedToken->hClass);
+    StackEntry           se         = impPopStack();
+    CORINFO_CLASS_HANDLE valueClass = se.seTypeInfo.GetClassHandle();
+    GenTree*             value      = se.val;
+    CorInfoHelpFunc      boxHelper  = info.compCompHnd->getBoxHelper(resolvedToken->hClass);
 
     // Determine what expansion to prefer.
     //
-    // In size/time/debuggable constrained modes, the helper call
-    // expansion for box is generally smaller and is preferred, unless
-    // the value to box is a struct that comes from a call. In that
-    // case the call can construct its return value directly into the
-    // box payload, saving possibly some up-front zeroing.
+    // In size/time/debuggable constrained modes, the helper call expansion for box
+    // is generally smaller and is preferred, unless the value to box is a struct
+    // that comes from a call. In that case the call can construct its return value
+    // directly into the box payload, saving possibly some up-front zeroing.
     //
-    // Currently primitive type boxes always get inline expanded. We may
-    // want to do the same for small structs if they don't come from
-    // calls and don't have GC pointers, since explicitly copying such
-    // structs is cheap.
-    JITDUMP("\nCompiler::impImportAndPushBox -- handling BOX(value class) via");
-    bool canExpandInline = (boxHelper == CORINFO_HELP_BOX);
-    bool optForSize      = !exprToBox->IsCall() && (operCls != nullptr) && opts.OptimizationDisabled();
+    // Currently primitive type boxes always get inline expanded. We may want to do
+    // the same for small structs if they don't come from calls and don't have GC
+    // pointers, since explicitly copying such structs is cheap.
+
+    bool canExpandInline = boxHelper == CORINFO_HELP_BOX;
+    bool optForSize      = !value->IsCall() && (valueClass != nullptr) && opts.OptimizationDisabled();
     bool expandInline    = canExpandInline && !optForSize;
+
+    JITDUMP("\nCompiler::impImportAndPushBox -- handling BOX(value class) via");
+
+    GenTree* boxed;
 
     if (expandInline)
     {
         JITDUMP(" inline allocate/copy sequence\n");
 
-        // We are doing 'normal' boxing.  This means that we can inline the box operation
+        // We are doing 'normal' boxing. This means that we can inline the box operation
         // by allocating an object on the heap and storing the value in it.
+        //
+        // For minopts/debug code, try and minimize the total number of box temps by
+        // reusing an existing temp when possible.
+        // In minopts we don't inline so there's no point in sharing the temp between
+        // inliner and inlinees.
+        //
+        // When optimizing, use a new temp for each box operation
+        // since we then know the exact class of the box temp.
 
         if (opts.OptimizationDisabled())
         {
-            // For minopts/debug code, try and minimize the total number
-            // of box temps by reusing an existing temp when possible.
-            // In minopts we don't inline so there's no point in sharing the temp
-            // between inliner and inlinees.
             if (impBoxTempInUse || (impBoxTempLcl == nullptr))
             {
                 impBoxTempLcl = lvaNewTemp(TYP_REF, true DEBUGARG("Reusable Box Helper"));
@@ -4508,43 +4500,41 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
         }
         else
         {
-            // When optimizing, use a new temp for each box operation
-            // since we then know the exact class of the box temp.
             LclVarDsc* boxTempLcl   = lvaNewTemp(TYP_REF, true DEBUGARG("Single-def Box Helper"));
-            boxTempLcl->lvSingleDef = 1;
-            JITDUMP("Marking V%02u as a single def local\n", boxTempLcl->GetLclNum());
-            comp->lvaSetClass(boxTempLcl, pResolvedToken->hClass, /* isExact */ true);
+            boxTempLcl->lvSingleDef = true;
+            JITDUMP("Marking " FMT_LCL " as a single def local\n", boxTempLcl->GetLclNum());
+            comp->lvaSetClass(boxTempLcl, resolvedToken->hClass, /* isExact */ true);
             impBoxTempLcl = boxTempLcl;
         }
 
-        // needs to stay in use until this box expression is appended
-        // some other node.  We approximate this by keeping it alive until
-        // the opcode stack becomes empty
+        // Needs to stay in use until this box expression is appended some other node.
+        // We approximate this by keeping it alive until the opcode stack becomes empty.
         impBoxTempInUse = true;
 
-        op1 = gtNewAllocObjNode(pResolvedToken, /* useParent */ false);
-        if (op1 == nullptr)
+        GenTree* alloc = gtNewAllocObjNode(resolvedToken, /* useParent */ false);
+
+        if (alloc == nullptr)
         {
             assert(compDonotInline());
             return;
         }
 
-        // Remember that this basic block contains 'new' of an object, and so does this method
         currentBlock->bbFlags |= BBF_HAS_NEWOBJ;
         comp->optMethodFlags |= OMF_HAS_NEWOBJ;
 
-        GenTree*   asg     = gtNewAssignNode(gtNewLclvNode(impBoxTempLcl, TYP_REF), op1);
-        Statement* asgStmt = impSpillNoneAppendTree(asg);
+        GenTree*   allocStore = gtNewAssignNode(gtNewLclvNode(impBoxTempLcl, TYP_REF), alloc);
+        Statement* allocStmt  = impSpillNoneAppendTree(allocStore);
 
-        op1 = gtNewLclvNode(impBoxTempLcl, TYP_REF);
-        op2 = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
-        op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1, op2);
+        GenTree* addr = gtNewLclvNode(impBoxTempLcl, TYP_REF);
+        addr          = gtNewOperNode(GT_ADD, TYP_BYREF, addr, gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL));
 
-        if (varTypeIsStruct(exprToBox))
+        GenTree* store;
+
+        if (varTypeIsStruct(value->GetType()))
         {
             // Workaround for GitHub issue 53549.
             //
-            // If the struct being boxed is returned via hidden buffer and comes from an inline/gdv candidate,
+            // If the struct being boxed is returned via hidden buffer and comes from an inline/GDV candidate,
             // the IR we produce after importation is out of order:
             //
             //    call (&(box-temp + 8), ....)
@@ -4556,98 +4546,94 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
             // the GDV expansion is such that the newobj follows the call as in the above.
             //
             // This is nontrivial to fix in GDV, so in these (rare) cases we simply disable GDV.
-            //
-            if (exprToBox->OperIs(GT_RET_EXPR))
+
+            if (GenTreeRetExpr* retExpr = value->IsRetExpr())
             {
-                GenTreeCall* const call = exprToBox->AsRetExpr()->GetCall();
+                GenTreeCall* call = retExpr->GetCall();
 
                 if (call->IsGuardedDevirtualizationCandidate() && call->HasRetBufArg())
                 {
-                    JITDUMP("Disabling GDV for [%06u] because of in-box struct return\n");
+                    JITDUMP("Disabling GDV for [%06u] because of in-box struct return\n", call->GetID());
+
                     call->ClearGuardedDevirtualizationCandidate();
+
                     if (call->IsVirtualStub())
                     {
                         JITDUMP("Restoring stub addr %p from guarded devirt candidate info\n",
                                 dspPtr(call->gtGuardedDevirtualizationCandidateInfo->stubAddr));
+
                         call->gtStubCallStubAddr = call->gtGuardedDevirtualizationCandidateInfo->stubAddr;
                     }
                 }
             }
 
-            ClassLayout* layout = typGetObjLayout(operCls);
-            assert(info.compCompHnd->getClassSize(pResolvedToken->hClass) == layout->GetSize());
-            op1 = gtNewObjNode(layout, op1);
-            op1 = impAssignStruct(op1, exprToBox, CHECK_SPILL_ALL);
+            store = gtNewObjNode(typGetObjLayout(valueClass), addr);
+            store = impAssignStruct(store, value, CHECK_SPILL_ALL);
         }
         else
         {
-            var_types lclTyp = exprToBox->TypeGet();
-            if (lclTyp == TYP_BYREF)
+            var_types type = value->GetType();
+
+            if (type == TYP_BYREF)
             {
-                lclTyp = TYP_I_IMPL;
+                type = TYP_I_IMPL;
             }
-            CorInfoType jitType = info.compCompHnd->asCorInfoType(pResolvedToken->hClass);
+
+            CorInfoType jitType = info.compCompHnd->asCorInfoType(resolvedToken->hClass);
+
             if (impIsPrimitive(jitType))
             {
-                lclTyp = JITtype2varType(jitType);
+                type = JITtype2varType(jitType);
             }
-            assert(genActualType(exprToBox->TypeGet()) == genActualType(lclTyp) ||
-                   varTypeIsFloating(lclTyp) == varTypeIsFloating(exprToBox->TypeGet()));
-            var_types srcTyp = exprToBox->TypeGet();
-            var_types dstTyp = lclTyp;
+
+            assert((varActualType(value->GetType()) == varActualType(type)) ||
+                   (varTypeIsFloating(type) == varTypeIsFloating(value->GetType())));
+
+            var_types srcTyp = value->GetType();
+            var_types dstTyp = type;
 
             if (srcTyp != dstTyp)
             {
                 assert((varTypeIsFloating(srcTyp) && varTypeIsFloating(dstTyp)) ||
                        (varTypeIsIntegral(srcTyp) && varTypeIsIntegral(dstTyp)));
 
-                exprToBox = gtNewCastNode(exprToBox, false, dstTyp);
+                value = gtNewCastNode(value, false, dstTyp);
             }
 
-            op1 = gtNewAssignNode(gtNewIndir(lclTyp, op1), exprToBox);
+            store = gtNewAssignNode(gtNewIndir(type, addr), value);
         }
 
-        // Spill eval stack to flush out any pending side effects.
         impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("impImportAndPushBox"));
 
-        // Set up this copy as a second assignment.
-        Statement* copyStmt = impSpillNoneAppendTree(op1);
+        Statement* storeStmt = impSpillNoneAppendTree(store);
 
-        op1 = gtNewLclvNode(impBoxTempLcl, TYP_REF);
-
+        boxed = gtNewLclvNode(impBoxTempLcl, TYP_REF);
         // Record that this is a "box" node and keep track of the matching parts.
-        op1 = new (comp, GT_BOX) GenTreeBox(TYP_REF, op1, asgStmt, copyStmt);
-
-        // If it is a value class, mark the "box" node.  We can use this information
-        // to optimise several cases:
+        // We can use this information to optimize several cases:
         //    "box(x) == null" --> false
         //    "(box(x)).CallAnInterfaceMethod(...)" --> "(&x).CallAValueTypeMethod"
         //    "(box(x)).CallAnObjectMethod(...)" --> "(&x).CallAValueTypeMethod"
-
-        assert(asg->gtOper == GT_ASG);
+        boxed = new (comp, GT_BOX) GenTreeBox(boxed, allocStmt, storeStmt);
     }
     else
     {
-        // Don't optimize, just call the helper and be done with it.
         JITDUMP(" helper call because: %s\n", canExpandInline ? "optimizing for size" : "nullable");
-        assert(operCls != nullptr);
+        assert(valueClass != nullptr);
 
-        // Ensure that the value class is restored
-        op2 = impTokenToHandle(pResolvedToken, /* mustRestoreHandle */ true);
-        if (op2 == nullptr)
+        GenTree* handle = impTokenToHandle(resolvedToken, /* mustRestoreHandle */ true);
+
+        if (handle == nullptr)
         {
-            // We must be backing out of an inline.
             assert(compDonotInline());
             return;
         }
 
-        GenTree* addr = impGetStructAddr(exprToBox, operCls, CHECK_SPILL_ALL, true);
+        GenTree* addr = impGetStructAddr(value, valueClass, CHECK_SPILL_ALL, true);
 
-        op1 = gtNewHelperCallNode(boxHelper, TYP_REF, gtNewCallArgs(op2, addr));
+        boxed = gtNewHelperCallNode(boxHelper, TYP_REF, gtNewCallArgs(handle, addr));
     }
 
-    // Push the result back on the stack, even if clsHnd is a value class we want the TI_REF
-    impPushOnStack(op1, typeInfo(TI_REF, info.compCompHnd->getTypeForBox(pResolvedToken->hClass)));
+    impPushOnStack(boxed, typeInfo(TI_REF, info.compCompHnd->getTypeForBox(resolvedToken->hClass)));
 }
 
 //------------------------------------------------------------------------
@@ -12253,8 +12239,6 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
     }
     else
     {
-        // If we're newing up a finalizable object, spill anything that can cause exceptions.
-
         bool            hasSideEffects = false;
         CorInfoHelpFunc newHelper = info.compCompHnd->getNewHelper(&resolvedToken, info.compMethodHnd, &hasSideEffects);
 
@@ -12272,29 +12256,29 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
             return;
         }
 
-        GenTree* allocObj = gtNewAllocObjNode(&resolvedToken, /* useParent */ true);
+        GenTree* alloc = gtNewAllocObjNode(&resolvedToken, /* useParent */ true);
 
-        if (allocObj == nullptr)
+        if (alloc == nullptr)
         {
+            assert(compDonotInline());
             return;
         }
 
         block->bbFlags |= BBF_HAS_NEWOBJ;
         comp->optMethodFlags |= OMF_HAS_NEWOBJ;
 
-        assert(lcl->lvSingleDef == 0);
-        lcl->lvSingleDef = 1;
-        JITDUMP("Marked V%02u as a single def local\n", lcl->GetLclNum());
+        assert(!lcl->lvSingleDef);
+        lcl->lvSingleDef = true;
+        JITDUMP("Marked " FMT_LCL " as a single def local\n", lcl->GetLclNum());
         comp->lvaSetClass(lcl, classHandle, /* isExact */ true);
 
         // Append the assignment to the temp/local. We don't need to spill the stack as
         // we are just calling a JIT helper which can only throw OutOfMemoryException.
-        //
         // We assign the newly allocated object (by a ALLOCOBJ node) to a temp. Note that
-        // the pattern "temp = allocObj" is required by ObjectAllocator phase to be able
+        // the pattern "temp = alloc" is required by ObjectAllocator phase to be able
         // to determine ALLOCOBJ nodes without exhaustive walk over all expressions.
 
-        impSpillNoneAppendTree(gtNewAssignNode(gtNewLclvNode(lcl, TYP_REF), allocObj));
+        impSpillNoneAppendTree(gtNewAssignNode(gtNewLclvNode(lcl, TYP_REF), alloc));
 
         newObjThis = gtNewLclvNode(lcl, TYP_REF);
     }
@@ -17270,12 +17254,6 @@ GenTree* Importer::gtNewStringLiteralNode(InfoAccessType iat, void* value)
 GenTreeIntCon* Importer::gtNewStringLiteralLength(GenTreeStrCon* node)
 {
     return comp->gtNewStringLiteralLength(node);
-}
-
-GenTreeAllocObj* Importer::gtNewAllocObjNode(
-    unsigned helper, bool helperHasSideEffects, CORINFO_CLASS_HANDLE clsHnd, var_types type, GenTree* op1)
-{
-    return comp->gtNewAllocObjNode(helper, helperHasSideEffects, clsHnd, type, op1);
 }
 
 GenTreeIndir* Importer::gtNewMethodTableLookup(GenTree* obj)

@@ -564,12 +564,6 @@ inline GenTreeCall* Compiler::gtNewRuntimeLookupHelperCallNode(CORINFO_RUNTIME_L
     return gtNewHelperCallNode(lookup->helper, TYP_I_IMPL, gtNewCallArgs(ctxTree, argNode));
 }
 
-inline GenTreeAllocObj* Compiler::gtNewAllocObjNode(
-    unsigned int helper, bool helperHasSideEffects, CORINFO_CLASS_HANDLE clsHnd, var_types type, GenTree* op1)
-{
-    return new (this, GT_ALLOCOBJ) GenTreeAllocObj(type, helper, helperHasSideEffects, clsHnd, op1);
-}
-
 inline GenTree* Compiler::gtNewRuntimeLookup(CORINFO_GENERIC_HANDLE hnd, CorInfoGenericHandleType hndTyp, GenTree* tree)
 {
     assert(tree != nullptr);

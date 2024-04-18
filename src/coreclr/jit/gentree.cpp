@@ -4760,51 +4760,42 @@ GenTreeUnOp* Compiler::gtNewBitCastNode(var_types type, GenTree* arg)
     return gtNewOperNode(GT_BITCAST, type, arg)->AsUnOp();
 }
 
-//------------------------------------------------------------------------
-// gtNewAllocObjNode: Helper to create an object allocation node.
+// Helper to create an object allocation node.
 //
 // Arguments:
-//    pResolvedToken   - Resolved token for the object being allocated
-//    useParent     -    true iff the token represents a child of the object's class
+//    resolvedToken - Resolved token for the object being allocated
+//    useParent     - true iff the token represents a child of the object's class
 //
-// Return Value:
-//    Returns GT_ALLOCOBJ node that will be later morphed into an
-//    allocation helper call or local variable allocation on the stack.
+// Returns ALLOCOBJ node that will be later morphed into an allocation
+// helper call or local variable allocation on the stack.
 
-GenTreeAllocObj* Importer::gtNewAllocObjNode(CORINFO_RESOLVED_TOKEN* pResolvedToken, bool useParent)
+GenTreeAllocObj* Importer::gtNewAllocObjNode(CORINFO_RESOLVED_TOKEN* resolvedToken, bool useParent)
 {
-    const bool      mustRestoreHandle     = true;
-    bool            usingReadyToRunHelper = false;
-    CorInfoHelpFunc helper                = CORINFO_HELP_UNDEF;
-    GenTree*        opHandle              = impTokenToHandle(pResolvedToken, mustRestoreHandle, useParent);
+    bool            isReadyToRunHelper = false;
+    CorInfoHelpFunc helper             = CORINFO_HELP_UNDEF;
+    GenTree*        handle             = impTokenToHandle(resolvedToken, true, useParent);
 
 #ifdef FEATURE_READYTORUN_COMPILER
-    CORINFO_CONST_LOOKUP lookup = {};
+    CORINFO_CONST_LOOKUP entryPoint{};
 
     if (opts.IsReadyToRun())
     {
-        helper                                        = CORINFO_HELP_READYTORUN_NEW;
-        CORINFO_LOOKUP_KIND* const pGenericLookupKind = nullptr;
-        usingReadyToRunHelper =
-            info.compCompHnd->getReadyToRunHelper(pResolvedToken, pGenericLookupKind, helper, &lookup);
+        helper             = CORINFO_HELP_READYTORUN_NEW;
+        isReadyToRunHelper = info.compCompHnd->getReadyToRunHelper(resolvedToken, nullptr, helper, &entryPoint);
     }
 #endif
 
-    if (!usingReadyToRunHelper)
+    if (!isReadyToRunHelper && (handle == nullptr))
     {
-        if (opHandle == nullptr)
-        {
-            // We must be backing out of an inline.
-            assert(compDonotInline());
-            return nullptr;
-        }
+        assert(compDonotInline());
+        return nullptr;
     }
 
     bool            helperHasSideEffects;
     CorInfoHelpFunc helperTemp =
-        info.compCompHnd->getNewHelper(pResolvedToken, info.compMethodHnd, &helperHasSideEffects);
+        info.compCompHnd->getNewHelper(resolvedToken, info.compMethodHnd, &helperHasSideEffects);
 
-    if (!usingReadyToRunHelper)
+    if (!isReadyToRunHelper)
     {
         helper = helperTemp;
     }
@@ -4817,12 +4808,12 @@ GenTreeAllocObj* Importer::gtNewAllocObjNode(CORINFO_RESOLVED_TOKEN* pResolvedTo
     // Reason: performance (today, we'll always use the slow helper for the R2R generics case)
 
     GenTreeAllocObj* allocObj =
-        gtNewAllocObjNode(helper, helperHasSideEffects, pResolvedToken->hClass, TYP_REF, opHandle);
+        new (comp, GT_ALLOCOBJ) GenTreeAllocObj(helper, helperHasSideEffects, resolvedToken->hClass, handle);
 
 #ifdef FEATURE_READYTORUN_COMPILER
-    if (usingReadyToRunHelper)
+    if (isReadyToRunHelper)
     {
-        allocObj->gtEntryPoint = lookup;
+        allocObj->gtEntryPoint = entryPoint;
     }
 #endif
 
@@ -5060,13 +5051,8 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
                 break;
 
             case GT_ALLOCOBJ:
-            {
-                GenTreeAllocObj* asAllocObj = tree->AsAllocObj();
-                copy                        = new (this, GT_ALLOCOBJ)
-                    GenTreeAllocObj(tree->TypeGet(), asAllocObj->gtNewHelper, asAllocObj->gtHelperHasSideEffects,
-                                    asAllocObj->gtAllocObjClsHnd, asAllocObj->gtOp1);
-            }
-            break;
+                copy = new (this, GT_ALLOCOBJ) GenTreeAllocObj(tree->AsAllocObj());
+                break;
 
             case GT_RUNTIMELOOKUP:
             {
@@ -5124,21 +5110,15 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
             case GT_STORE_BLK:
                 copy = new (this, GT_STORE_BLK) GenTreeBlk(tree->AsBlk());
                 break;
-
             case GT_BOX:
-                copy = new (this, GT_BOX)
-                    GenTreeBox(tree->TypeGet(), tree->AsOp()->gtOp1, tree->AsBox()->gtAsgStmtWhenInlinedBoxValue,
-                               tree->AsBox()->gtCopyStmtWhenInlinedBoxValue);
+                copy = new (this, GT_BOX) GenTreeBox(tree->AsBox());
                 break;
-
             case GT_INTRINSIC:
                 copy = new (this, GT_INTRINSIC) GenTreeIntrinsic(tree->AsIntrinsic());
                 break;
-
             case GT_LEA:
                 copy = new (this, GT_LEA) GenTreeAddrMode(tree->AsAddrMode());
                 break;
-
             case GT_COPY:
             case GT_RELOAD:
                 copy = new (this, oper) GenTreeCopyOrReload(oper, tree->GetType(), tree->AsUnOp()->GetOp(0));
@@ -9396,8 +9376,8 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
 
 GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOptions options)
 {
-    Statement* allocStmt = box->gtAsgStmtWhenInlinedBoxValue;
-    Statement* storeStmt = box->gtCopyStmtWhenInlinedBoxValue;
+    Statement* allocStmt = box->allocStmt;
+    Statement* storeStmt = box->storeStmt;
 
     JITDUMP("gtTryRemoveBoxUpstreamEffects: %s to %s of BOX (valuetype)"
             " [%06u] (newobj " FMT_STMT " copy " FMT_STMT "\n",
@@ -9798,7 +9778,7 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
     else
     {
         LclVarDsc* thisTmp     = lvaNewTemp(type, true DEBUGARG("Enum:HasFlag this temp"));
-        Statement* thisAsgStmt = thisOp->AsBox()->gtCopyStmtWhenInlinedBoxValue;
+        Statement* thisAsgStmt = thisOp->AsBox()->storeStmt;
         GenTree*   store;
 
         if (thisAsgStmt->GetRootNode()->OperIs(GT_ASG))
@@ -9824,7 +9804,7 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
     else
     {
         LclVarDsc* flagTmp     = lvaNewTemp(type, true DEBUGARG("Enum:HasFlag flag temp"));
-        Statement* flagAsgStmt = flagOp->AsBox()->gtCopyStmtWhenInlinedBoxValue;
+        Statement* flagAsgStmt = flagOp->AsBox()->storeStmt;
         GenTree*   store;
 
         if (flagAsgStmt->GetRootNode()->OperIs(GT_ASG))

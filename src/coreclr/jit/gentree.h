@@ -3780,30 +3780,23 @@ public:
 #endif
 };
 
-// GT_BOX nodes are place markers for boxed values.  The "real" tree
-// for most purposes is in gtBoxOp.
 struct GenTreeBox : public GenTreeUnOp
 {
-    // This is the statement that contains the assignment tree when the node is an inlined GT_BOX on a value
-    // type
-    Statement* gtAsgStmtWhenInlinedBoxValue;
-    // And this is the statement that copies from the value being boxed to the box payload
-    Statement* gtCopyStmtWhenInlinedBoxValue;
+    Statement* allocStmt;
+    Statement* storeStmt;
 
-    GenTreeBox(var_types  type,
-               GenTree*   boxOp,
-               Statement* asgStmtWhenInlinedBoxValue,
-               Statement* copyStmtWhenInlinedBoxValue)
-        : GenTreeUnOp(GT_BOX, type, boxOp)
-        , gtAsgStmtWhenInlinedBoxValue(asgStmtWhenInlinedBoxValue)
-        , gtCopyStmtWhenInlinedBoxValue(copyStmtWhenInlinedBoxValue)
+    GenTreeBox(GenTree* boxed, Statement* allocStmt, Statement* storeStmt)
+        : GenTreeUnOp(GT_BOX, TYP_REF, boxed), allocStmt(allocStmt), storeStmt(storeStmt)
+    {
+    }
+
+    GenTreeBox(const GenTreeBox* copyFrom)
+        : GenTreeUnOp(copyFrom), allocStmt(copyFrom->allocStmt), storeStmt(copyFrom->storeStmt)
     {
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeBox() : GenTreeUnOp()
-    {
-    }
+    GenTreeBox() = default;
 #endif
 };
 
@@ -7200,28 +7193,22 @@ struct GenTreeCopyOrReload : public GenTreeUnOp
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeCopyOrReload() : GenTreeUnOp()
-    {
-    }
+    GenTreeCopyOrReload() = default;
 #endif
 };
 
-// Represents GT_ALLOCOBJ node
-
 struct GenTreeAllocObj final : public GenTreeUnOp
 {
-    unsigned int         gtNewHelper; // Value returned by ICorJitInfo::getNewHelper
+    unsigned             gtNewHelper;
     bool                 gtHelperHasSideEffects;
     CORINFO_CLASS_HANDLE gtAllocObjClsHnd;
 #ifdef FEATURE_READYTORUN_COMPILER
     CORINFO_CONST_LOOKUP gtEntryPoint;
 #endif
 
-    GenTreeAllocObj(
-        var_types type, unsigned int helper, bool helperHasSideEffects, CORINFO_CLASS_HANDLE clsHnd, GenTree* op)
-        : GenTreeUnOp(GT_ALLOCOBJ, type, op DEBUGARG(/*largeNode*/ TRUE))
-        , // This node in most cases will be changed to a call node
-        gtNewHelper(helper)
+    GenTreeAllocObj(unsigned helper, bool helperHasSideEffects, CORINFO_CLASS_HANDLE clsHnd, GenTree* op)
+        : GenTreeUnOp(GT_ALLOCOBJ, TYP_REF, op DEBUGARG(/*largeNode*/ true))
+        , gtNewHelper(helper)
         , gtHelperHasSideEffects(helperHasSideEffects)
         , gtAllocObjClsHnd(clsHnd)
     {
@@ -7229,10 +7216,20 @@ struct GenTreeAllocObj final : public GenTreeUnOp
         gtEntryPoint.addr = nullptr;
 #endif
     }
-#if DEBUGGABLE_GENTREE
-    GenTreeAllocObj() : GenTreeUnOp()
+
+    GenTreeAllocObj(const GenTreeAllocObj* copyFrom)
+        : GenTreeUnOp(copyFrom)
+        , gtNewHelper(copyFrom->gtNewHelper)
+        , gtHelperHasSideEffects(copyFrom->gtHelperHasSideEffects)
+        , gtAllocObjClsHnd(copyFrom->gtAllocObjClsHnd)
+#ifdef FEATURE_READYTORUN_COMPILER
+        , gtEntryPoint(copyFrom->gtEntryPoint)
+#endif
     {
     }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeAllocObj() = default;
 #endif
 };
 
