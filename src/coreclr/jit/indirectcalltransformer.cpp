@@ -40,6 +40,10 @@ private:
             {
                 node = node->AsOp()->GetOp(1);
             }
+            else if (node->OperIs(GT_STORE_LCL_VAR))
+            {
+                node = node->AsUnOp()->GetOp(0);
+            }
 
             if (GenTreeCall* call = node->IsCall())
             {
@@ -903,7 +907,10 @@ private:
     public:
         ExpRuntimeLookupTransformer(Compiler* compiler, BasicBlock* block, Statement* stmt, GenTreeCall* call)
             : Transformer(compiler, block, stmt, call DEBUGARG("ExpRuntimeLookup"))
-            , resultLcl(stmt->GetRootNode()->AsOp()->GetOp(0)->AsLclVar()->GetLcl())
+            , resultLcl(
+                  (stmt->GetRootNode()->OperIs(GT_ASG) ? stmt->GetRootNode()->AsOp()->GetOp(0) : stmt->GetRootNode())
+                      ->AsLclVar()
+                      ->GetLcl())
         {
             assert(resultLcl->TypeIs(TYP_I_IMPL));
         }

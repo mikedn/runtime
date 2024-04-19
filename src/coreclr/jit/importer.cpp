@@ -1220,10 +1220,10 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
         impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("bubbling QMark0"));
 
         LclVarDsc* slotLcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("impRuntimeLookup test"));
-        GenTree*   asg     = gtNewAssignNode(gtNewLclvNode(slotLcl, TYP_I_IMPL), slotPtrTree);
-        impSpillAllAppendTree(asg);
+        GenTree*   asg     = comp->gtNewLclStore(slotLcl, TYP_I_IMPL, slotPtrTree);
+        impSpillNoneAppendTree(asg);
 
-        GenTree* slot = gtNewLclvNode(slotLcl, TYP_I_IMPL);
+        GenTree* slot = comp->gtNewLclLoad(slotLcl, TYP_I_IMPL);
 #ifdef TARGET_64BIT
         slot = gtNewCastNode(slot, false, TYP_INT);
 #endif
@@ -1232,17 +1232,17 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
         GenTree* relop = gtNewOperNode(GT_EQ, TYP_INT, test, gtNewIconNode(0));
 
         // slot = GT_IND(slot - 1)
-        slot           = gtNewLclvNode(slotLcl, TYP_I_IMPL);
+        slot           = comp->gtNewLclLoad(slotLcl, TYP_I_IMPL);
         GenTree* add   = gtNewOperNode(GT_ADD, TYP_I_IMPL, slot, gtNewIconNode(-1, TYP_I_IMPL));
         GenTree* indir = gtNewIndir(TYP_I_IMPL, add);
         indir->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
 
-        asg = gtNewAssignNode(gtNewLclvNode(slotLcl, TYP_I_IMPL), indir);
+        asg = comp->gtNewLclStore(slotLcl, TYP_I_IMPL, indir);
 
         GenTree* qmark = gtNewQmarkNode(TYP_VOID, relop, gtNewNothingNode(), asg);
         impSpillNoneAppendTree(qmark);
 
-        return gtNewLclvNode(slotLcl, TYP_I_IMPL);
+        return comp->gtNewLclLoad(slotLcl, TYP_I_IMPL);
     }
 
     assert(runtimeLookup.indirections != 0);
@@ -1300,9 +1300,9 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
     }
 
     LclVarDsc* tmpLcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("spilling Runtime Lookup tree"));
-    GenTree*   asg    = gtNewAssignNode(gtNewLclvNode(tmpLcl, TYP_I_IMPL), result);
+    GenTree*   asg    = comp->gtNewLclStore(tmpLcl, TYP_I_IMPL, result);
     impSpillNoneAppendTree(asg);
-    return gtNewLclvNode(tmpLcl, TYP_I_IMPL);
+    return comp->gtNewLclLoad(tmpLcl, TYP_I_IMPL);
 }
 
 void Importer::impImportDup()
@@ -2795,8 +2795,9 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             noway_assert(rawHandle->TypeIs(TYP_I_IMPL));
 
             LclVarDsc* rawHandleSlotLcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("rawHandle"));
-            GenTree*   asg              = gtNewAssignNode(gtNewLclvNode(rawHandleSlotLcl, TYP_I_IMPL), rawHandle);
-            impSpillNoneAppendTree(asg);
+            GenTree*   store            = comp->gtNewLclStore(rawHandleSlotLcl, TYP_I_IMPL, rawHandle);
+            store->AddSideEffects(GTF_GLOB_REF);
+            impSpillNoneAppendTree(store);
             GenTree* lclVarAddr = gtNewLclVarAddrNode(rawHandleSlotLcl, TYP_I_IMPL);
 
             retNode = gtNewIndir(CorTypeToVarType(sig->retType), lclVarAddr);
@@ -6415,9 +6416,9 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                     // it may cause registered args to be spilled. Simply spill it.
 
                     LclVarDsc* lcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("VirtualCall with runtime lookup"));
-                    GenTree*   asg = gtNewAssignNode(gtNewLclvNode(lcl, TYP_I_IMPL), stubAddr);
+                    GenTree*   asg = comp->gtNewLclStore(lcl, TYP_I_IMPL, stubAddr);
                     impSpillNoneAppendTree(asg);
-                    stubAddr = gtNewLclvNode(lcl, TYP_I_IMPL);
+                    stubAddr = comp->gtNewLclLoad(lcl, TYP_I_IMPL);
 
                     // Create the actual call node
 
@@ -6502,10 +6503,10 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
                 // Now make an indirect call through the function pointer
 
+                SpillStackCheck(fptr, CHECK_SPILL_ALL); // TODO-MIKE-Review: Can fptr really interfere with anything?
                 LclVarDsc* lcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("VirtualCall through function pointer"));
-                GenTree*   asg = gtNewAssignNode(gtNewLclvNode(lcl, TYP_I_IMPL), fptr);
-                impSpillAllAppendTree(asg);
-                fptr = gtNewLclvNode(lcl, TYP_I_IMPL);
+                impSpillNoneAppendTree(comp->gtNewLclStore(lcl, TYP_I_IMPL, fptr));
+                fptr = comp->gtNewLclLoad(lcl, TYP_I_IMPL);
 
                 // Create the actual call node
 
@@ -6578,10 +6579,10 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
                 assert(fptr->TypeIs(TYP_I_IMPL));
 
+                SpillStackCheck(fptr, CHECK_SPILL_ALL); // TODO-MIKE-Review: Can fptr really interfere with anything?
                 LclVarDsc* lcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("Indirect call through function pointer"));
-                GenTree*   asg = gtNewAssignNode(gtNewLclvNode(lcl, TYP_I_IMPL), fptr);
-                impSpillAllAppendTree(asg);
-                fptr = gtNewLclvNode(lcl, TYP_I_IMPL);
+                impSpillNoneAppendTree(comp->gtNewLclStore(lcl, TYP_I_IMPL, fptr));
+                fptr = comp->gtNewLclLoad(lcl, TYP_I_IMPL);
 
                 call = gtNewIndCallNode(fptr, callRetTyp, nullptr, ilOffset);
 

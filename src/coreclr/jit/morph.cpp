@@ -7295,9 +7295,9 @@ GenTree* Compiler::getRuntimeLookupTree(CORINFO_RUNTIME_LOOKUP_KIND kind,
 
         assert(varTypeIsI(tree->GetType()));
         LclVarDsc* tempLcl = lvaNewTemp(tree->GetType(), true DEBUGARG(reason));
-        stmts.Push(gtNewAssignNode(gtNewLclvNode(tempLcl, tree->GetType()), tree));
-        *use = gtNewLclvNode(tempLcl, tree->GetType());
-        return gtNewLclvNode(tempLcl, tree->GetType());
+        stmts.Push(gtNewLclStore(tempLcl, tree->GetType(), tree));
+        *use = gtNewLclLoad(tempLcl, tree->GetType());
+        return gtNewLclLoad(tempLcl, tree->GetType());
     };
 
     // Apply repeated indirections
