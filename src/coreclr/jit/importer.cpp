@@ -1436,7 +1436,16 @@ void Importer::SpillCatchArg()
     assert(verCurrentState.esStackDepth == 1);
     assert(impStackTop().val->OperIs(GT_CATCH_ARG));
 
-    impSpillStackEntry(0 DEBUGARG("catch arg spill temp"));
+    StackEntry& se = verCurrentState.esStack[0];
+
+    LclVarDsc* lcl   = lvaNewTemp(TYP_REF, true DEBUGARG("catch arg spill temp"));
+    lcl->lvSingleDef = true;
+    JITDUMP("Marked V%02u as a single def temp\n", lcl->GetLclNum());
+    comp->lvaSetClass(lcl, se.val, se.seTypeInfo.GetClassHandle());
+
+    GenTree* store = comp->gtNewLclStore(lcl, TYP_REF, se.val);
+    impSpillNoneAppendTree(store);
+    se.val = comp->gtNewLclLoad(lcl, TYP_REF);
 }
 
 // Spill all trees containing references to the specified local.
@@ -1581,13 +1590,13 @@ BasicBlock* Importer::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
 
         // Spill into a temp.
         LclVarDsc* tempLcl = lvaNewTemp(TYP_REF, false DEBUGARG("CATCH_ARG spill temp"));
-        GenTree*   argAsg  = gtNewAssignNode(gtNewLclvNode(tempLcl, TYP_REF), impNewCatchArg());
+        GenTree*   argAsg  = comp->gtNewLclStore(tempLcl, TYP_REF, impNewCatchArg());
         Statement* argStmt;
 
-        if (compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES)
+        if ((compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES) != 0)
         {
-            // Report the debug info. impImportBlockCode won't treat the actual handler as exception block and thus
-            // won't do it for us.
+            // Report the debug info. impImportBlockCode won't treat the actual handler
+            // as exception block and thus won't do it for us.
             impCurStmtOffs = newBlk->bbCodeOffs | IL_OFFSETX_STKBIT;
             argStmt        = gtNewStmt(argAsg, impCurStmtOffs);
         }
