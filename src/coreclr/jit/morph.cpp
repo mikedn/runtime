@@ -10094,6 +10094,14 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         // Some arithmetic operators need to use a helper call to the EE
         int helper;
 
+        case GT_STORE_LCL_VAR:
+            if (tree->AsLclVar()->GetLcl()->IsAddressExposed())
+            {
+                tree->AddSideEffects(GTF_GLOB_REF);
+                // TODO-MIKE-Fix: This needs "normalize on store"...
+            }
+            break;
+
         case GT_ASG:
             // TODO-MIKE-Review: This is probably useless now...
             op1->gtFlags |= GTF_DONT_CSE;

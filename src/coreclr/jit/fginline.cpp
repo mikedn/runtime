@@ -2721,11 +2721,10 @@ void Compiler::inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, Statement
             noway_assert(!impHasLclRef(inlineInfo->retExpr, lcl));
         }
 
-        GenTree*   zero = gtNewZeroConNode(lclInfo.lclType);
-        GenTree*   asg  = gtNewAssignNode(gtNewLclvNode(lcl, lclInfo.lclType), zero);
-        Statement* stmt = gtNewStmt(asg, inlineInfo->iciStmt->GetILOffsetX());
+        GenTree*   zero  = gtNewIconNode(0, lclInfo.lclType);
+        GenTree*   store = gtNewLclStore(lcl, lclInfo.lclType, zero);
+        Statement* stmt  = gtNewStmt(store, inlineInfo->iciStmt->GetILOffsetX());
         fgInsertStmtAfter(inlineInfo->iciBlock, stmtAfter, stmt);
-        stmtAfter = stmt;
 
         JITDUMP("Null out inlinee local %u\n", i);
         DBEXEC(verbose, gtDispStmt(stmt));
