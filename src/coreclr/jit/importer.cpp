@@ -13124,20 +13124,20 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
                 }
             }
 
-            GenTree* dst = gtNewLclvNode(spillTempLcl, spillTempLcl->GetType());
-            GenTree* asg;
+            GenTree* store;
 
             if (varTypeIsStruct(spillTempLcl->GetType()))
             {
-                asg = impAssignStruct(dst, tree, CHECK_SPILL_NONE);
-                assert(!asg->IsNothingNode());
+                GenTree* dst = gtNewLclvNode(spillTempLcl, spillTempLcl->GetType());
+                store        = impAssignStruct(dst, tree, CHECK_SPILL_NONE);
+                assert(!store->IsNothingNode());
             }
             else
             {
-                asg = gtNewAssignNode(dst, tree);
+                store = comp->gtNewLclStore(spillTempLcl, spillTempLcl->GetType(), tree);
             }
 
-            impSpillNoneAppendTree(asg);
+            impSpillNoneAppendTree(store);
         }
     }
 

@@ -6707,6 +6707,10 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
             value = stmtExpr->AsOp()->GetOp(0);
             assert(stmtExpr->AsOp()->GetOp(1)->IsNothingNode());
         }
+        else if (stmtExpr->OperIs(GT_STORE_LCL_VAR))
+        {
+            value = stmtExpr->AsLclVar()->GetOp(0);
+        }
         else
         {
             assert(stmtExpr->OperIs(GT_ASG));
