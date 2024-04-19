@@ -362,6 +362,14 @@ void Importer::AppendStmtCheck(GenTree* tree, unsigned chkLevel)
 
 #endif // DEBUG
 
+void Importer::SpillStackCheck(GenTree* tree, unsigned spillDepth)
+{
+    if ((spillDepth != 0) && (verCurrentState.esStackDepth != 0))
+    {
+        SpillStack(tree, spillDepth);
+    }
+}
+
 // Spill stack trees that interfere with stmtExpr.
 // [0..spillDepth) is the portion of the stack which we will check
 // for interference with stmt and spill if needed.
@@ -1672,13 +1680,14 @@ void Importer::impMakeMultiUse(GenTree*  tree,
         }
     }
 
+    SpillStackCheck(tree, spillCheckLevel);
     var_types  type = varActualType(tree->GetType());
     LclVarDsc* lcl  = lvaNewTemp(type, true DEBUGARG(reason));
-    impAppendTree(gtNewAssignNode(gtNewLclvNode(lcl, type), tree), spillCheckLevel);
+    impSpillNoneAppendTree(comp->gtNewLclStore(lcl, type, tree));
 
     for (unsigned i = 0; i < useCount; i++)
     {
-        uses[i] = gtNewLclvNode(lcl, type);
+        uses[i] = comp->gtNewLclLoad(lcl, type);
     }
 }
 
