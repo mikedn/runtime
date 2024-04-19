@@ -2180,12 +2180,7 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
         {
             static bool IsArgsFieldInit(GenTree* tree, unsigned index, LclVarDsc* argLcl)
             {
-                return tree->OperIs(GT_ASG) && IsArgsField(tree->AsOp()->GetOp(0), index, argLcl);
-            }
-
-            static bool IsArgsField(GenTree* tree, unsigned index, LclVarDsc* argLcl)
-            {
-                return tree->OperIs(GT_LCL_FLD) && (tree->AsLclFld()->GetLclOffs() == 4 * index) &&
+                return tree->OperIs(GT_STORE_LCL_FLD) && (tree->AsLclFld()->GetLclOffs() == 4 * index) &&
                        (tree->AsLclFld()->GetLcl() == argLcl);
             }
 
@@ -2209,18 +2204,16 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
         {
             if (lowerBoundsSpecified)
             {
-                //
                 // In general lower bounds can be ignored because they're not needed to
                 // calculate the total number of elements. But for single dimensional arrays
                 // we need to know if the lower bound is 0 because in this case the runtime
                 // creates a SDArray and this affects the way the array data offset is calculated.
-                //
 
                 if (rank == 1)
                 {
-                    GenTree* lowerBoundAssign = comma->gtGetOp1();
-                    assert(Match::IsArgsFieldInit(lowerBoundAssign, argIndex, newObjArrayArgsLcl));
-                    GenTree* lowerBoundNode = lowerBoundAssign->gtGetOp2();
+                    GenTree* lowerBoundStore = comma->AsOp()->GetOp(0);
+                    assert(Match::IsArgsFieldInit(lowerBoundStore, argIndex, newObjArrayArgsLcl));
+                    GenTree* lowerBoundNode = lowerBoundStore->AsLclFld()->GetOp(0);
 
                     if (lowerBoundNode->IsIntegralConst(0))
                     {
@@ -2228,20 +2221,20 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
                     }
                 }
 
-                comma = comma->gtGetOp2();
+                comma = comma->AsOp()->GetOp(1);
                 argIndex++;
             }
 
-            GenTree* lengthNodeAssign = comma->gtGetOp1();
-            assert(Match::IsArgsFieldInit(lengthNodeAssign, argIndex, newObjArrayArgsLcl));
-            GenTree* lengthNode = lengthNodeAssign->gtGetOp2();
+            GenTree* lengthNodeStore = comma->AsOp()->GetOp(0);
+            assert(Match::IsArgsFieldInit(lengthNodeStore, argIndex, newObjArrayArgsLcl));
+            GenTree* lengthNode = lengthNodeStore->AsLclFld()->GetOp(0);
 
-            if (!lengthNode->IsCnsIntOrI())
+            if (!lengthNode->IsIntCon())
             {
                 return nullptr;
             }
 
-            numElements *= S_SIZE_T(lengthNode->AsIntCon()->IconValue());
+            numElements *= S_SIZE_T(lengthNode->AsIntCon()->GetValue());
             argIndex++;
         }
 
@@ -2254,10 +2247,8 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
     }
     else
     {
-        //
-        // Make sure there are exactly two arguments:  the array class and
+        // Make sure there are exactly two arguments: the array class and
         // the number of elements.
-        //
 
         GenTree* arrayLengthNode;
 
@@ -4736,9 +4727,10 @@ void Importer::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
         // into lvaNewObjArrayArgs temp.
         for (int i = pCallInfo->sig.numArgs - 1; i >= 0; i--)
         {
-            GenTree* arg  = impImplicitIorI4Cast(impPopStack().val, TYP_INT);
-            GenTree* dest = gtNewLclFldNode(argsLcl, TYP_INT, 4 * i);
-            node          = gtNewCommaNode(gtNewAssignNode(dest, arg), node);
+            GenTree* arg   = impImplicitIorI4Cast(impPopStack().val, TYP_INT);
+            GenTree* store = comp->gtNewLclFldStore(TYP_INT, argsLcl, 4 * i, arg);
+            store->AddSideEffects(GTF_GLOB_REF);
+            node = gtNewCommaNode(store, node);
         }
 
         GenTreeCall::Use* args = gtNewCallArgs(node);
