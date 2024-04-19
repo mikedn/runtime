@@ -9777,21 +9777,10 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
     }
     else
     {
-        LclVarDsc* thisTmp     = lvaNewTemp(type, true DEBUGARG("Enum:HasFlag this temp"));
-        Statement* thisAsgStmt = thisOp->AsBox()->storeStmt;
-        GenTree*   store;
-
-        if (thisAsgStmt->GetRootNode()->OperIs(GT_ASG))
-        {
-            store = gtNewAssignNode(gtNewLclvNode(thisTmp, type), thisVal);
-        }
-        else
-        {
-            store = gtNewStoreLclVar(thisTmp, type, thisVal);
-        }
-
-        thisAsgStmt->SetRootNode(store);
-        thisValOpt = gtNewLclvNode(thisTmp, type);
+        LclVarDsc* thisTmp       = lvaNewTemp(type, true DEBUGARG("Enum:HasFlag this temp"));
+        Statement* thisStoreStmt = thisOp->AsBox()->storeStmt;
+        thisStoreStmt->SetRootNode(gtNewLclStore(thisTmp, type, thisVal));
+        thisValOpt = gtNewLclLoad(thisTmp, type);
     }
 
     if (flagVal->IsIntegralConst())
@@ -9803,22 +9792,11 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
     }
     else
     {
-        LclVarDsc* flagTmp     = lvaNewTemp(type, true DEBUGARG("Enum:HasFlag flag temp"));
-        Statement* flagAsgStmt = flagOp->AsBox()->storeStmt;
-        GenTree*   store;
-
-        if (flagAsgStmt->GetRootNode()->OperIs(GT_ASG))
-        {
-            store = gtNewAssignNode(gtNewLclvNode(flagTmp, type), flagVal);
-        }
-        else
-        {
-            store = gtNewStoreLclVar(flagTmp, type, flagVal);
-        }
-
-        flagAsgStmt->SetRootNode(store);
-        flagValOpt     = gtNewLclvNode(flagTmp, type);
-        flagValOptCopy = gtNewLclvNode(flagTmp, type);
+        LclVarDsc* flagTmp       = lvaNewTemp(type, true DEBUGARG("Enum:HasFlag flag temp"));
+        Statement* flagStoreStmt = flagOp->AsBox()->storeStmt;
+        flagStoreStmt->SetRootNode(gtNewLclStore(flagTmp, type, flagVal));
+        flagValOpt     = gtNewLclLoad(flagTmp, type);
+        flagValOptCopy = gtNewLclLoad(flagTmp, type);
     }
 
     // Turn the call into (thisValTmp & flagTmp) == flagTmp.
