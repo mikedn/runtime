@@ -4571,7 +4571,7 @@ private:
     GenTree* fgExpandVirtualVtableCallTarget(GenTreeCall* call);
     GenTree* fgMorphLeaf(GenTree* tree);
     GenTree* fgMorphInitStruct(GenTreeOp* asg);
-    GenTree* fgMorphPromoteLocalInitStruct(GenTreeOp* asg, LclVarDsc* destLclVar, GenTree* initVal);
+    GenTree* fgMorphPromoteLocalInitStruct(GenTree* store, LclVarDsc* destLclVar, GenTree* initVal);
     GenTree* fgMorphInitStructConstant(GenTreeIntCon* initVal,
                                        var_types      type,
                                        bool           extendToActualType,
@@ -4585,7 +4585,7 @@ private:
     GenTree* fgMorphDynBlk(GenTreeDynBlk* dynBlk);
     GenTree* fgMorphBlockAssignment(GenTreeOp* asg);
     GenTree* fgMorphCopyStruct(GenTreeOp* asg);
-    GenTree* fgMorphPromoteStore(GenTreeOp* store, GenTree* tempStore, GenTree** fieldStores, unsigned fieldCount);
+    GenTree* fgMorphPromoteStore(GenTree* store, GenTree* tempStore, GenTree** fieldStores, unsigned fieldCount);
     GenTree* fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac = nullptr);
     GenTree* fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
     GenTree* fgMorphModToSubMulDiv(GenTreeOp* tree);
@@ -5141,7 +5141,7 @@ public:
     void morphAssertionSetTable(const MorphAssertion* table, unsigned count);
     void morphAssertionMerge(unsigned              elseAssertionCount,
                              const MorphAssertion* elseAssertionTable DEBUGARG(GenTreeQmark* qmark));
-    void morphAssertionKill(LclVarDsc* lcl DEBUGARG(GenTreeOp* asg));
+    void morphAssertionKill(LclVarDsc* lcl DEBUGARG(GenTree* store));
 
 private:
     BitVec& morphAssertionGetDependent(unsigned lclNum);
@@ -5150,7 +5150,7 @@ private:
     void morphAssertionAdd(MorphAssertion& assertion);
     const MorphAssertion& morphAssertionGet(unsigned index);
     void morphAssertionRemove(unsigned index);
-    void morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeOp* asg));
+    void morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTree* store));
     const MorphAssertion* morphAssertionFindRange(unsigned lclNum);
 
     GenTree* morphAssertionPropagateLclVar(GenTreeLclVar* lclVar);

@@ -1437,7 +1437,7 @@ GenTree* Compiler::morphAssertionPropagate(GenTree* tree)
     return tree;
 }
 
-void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeOp* asg))
+void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTree* store))
 {
     BitVec& killed = morphAssertionGetDependent(lclNum);
 
@@ -1453,7 +1453,7 @@ void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeOp* asg)
         assert((assertion.lcl.lclNum == lclNum) ||
                ((assertion.valKind == ValueKind::LclVar) && (assertion.val.lcl.lclNum == lclNum)));
 
-        DBEXEC(verbose, morphAssertionTrace(assertion, asg, "killed"));
+        DBEXEC(verbose, morphAssertionTrace(assertion, store, "killed"));
 
         morphAssertionRemove(count - 1);
     }
@@ -1461,22 +1461,22 @@ void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeOp* asg)
     assert(DepBitVecOps::IsEmpty(this, killed));
 }
 
-void Compiler::morphAssertionKill(LclVarDsc* lcl DEBUGARG(GenTreeOp* asg))
+void Compiler::morphAssertionKill(LclVarDsc* lcl DEBUGARG(GenTree* store))
 {
     assert(fgGlobalMorph);
 
-    morphAssertionKillSingle(lcl->GetLclNum() DEBUGARG(asg));
+    morphAssertionKillSingle(lcl->GetLclNum() DEBUGARG(store));
 
     if (lcl->IsPromoted())
     {
         for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
         {
-            morphAssertionKillSingle(lcl->GetPromotedFieldLclNum(i) DEBUGARG(asg));
+            morphAssertionKillSingle(lcl->GetPromotedFieldLclNum(i) DEBUGARG(store));
         }
     }
     else if (lcl->IsPromotedField())
     {
-        morphAssertionKillSingle(lcl->GetPromotedFieldParentLclNum() DEBUGARG(asg));
+        morphAssertionKillSingle(lcl->GetPromotedFieldParentLclNum() DEBUGARG(store));
     }
 }
 

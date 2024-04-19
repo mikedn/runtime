@@ -8350,269 +8350,12 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
     assert(varTypeIsStruct(dest->GetType()));
     assert(src->OperIs(GT_INIT_VAL) || src->IsIntegralConst(0));
 
-    unsigned             destSize     = 0;
-    GenTreeLclVarCommon* destLclNode  = nullptr;
-    LclVarDsc*           destLcl      = nullptr;
-    unsigned             destLclOffs  = 0;
-    FieldSeqNode*        destFieldSeq = nullptr;
-
-    if (dest->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    if (dest->OperIs(GT_IND, GT_OBJ))
     {
-        destLclNode = dest->AsLclVarCommon();
-        destLcl     = destLclNode->GetLcl();
+        assert((dest->OperIs(GT_IND) && varTypeIsSIMD(dest->GetType())) || dest->OperIs(GT_OBJ));
 
-        if (dest->OperIs(GT_LCL_VAR))
-        {
-            if (destLclNode->TypeIs(TYP_STRUCT))
-            {
-                destSize = destLcl->GetLayout()->GetSize();
-            }
-            else
-            {
-                destSize = varTypeSize(destLcl->GetType());
-            }
-        }
-        else
-        {
-            destSize =
-                dest->TypeIs(TYP_STRUCT) ? dest->AsLclFld()->GetLayout(this)->GetSize() : varTypeSize(dest->GetType());
-            destLclOffs  = dest->AsLclFld()->GetLclOffs();
-            destFieldSeq = dest->AsLclFld()->GetFieldSeq();
-        }
-
-#if LOCAL_ASSERTION_PROP
-        if (morphAssertionCount != 0)
-        {
-            morphAssertionKill(destLcl DEBUGARG(asg));
-        }
-#endif
-    }
-    else if (dest->OperIs(GT_IND))
-    {
-        assert(varTypeIsSIMD(dest->GetType()));
-
-        destSize = varTypeSize(dest->GetType());
-    }
-    else
-    {
-        destSize = dest->AsObj()->GetLayout()->GetSize();
-    }
-
-    GenTree* initVal = src->OperIs(GT_INIT_VAL) ? src->AsUnOp()->GetOp(0) : src;
-
-    if ((destLcl != nullptr) && (destSize != 0) && (destLcl->GetType() != TYP_BLK))
-    {
-        unsigned destLclSize = destLcl->GetTypeSize();
-
-        if (destLcl->IsPromoted() && (destLclOffs == 0) && (destSize == destLclSize))
-        {
-            assert(varTypeIsStruct(destLcl->GetType()));
-
-            GenTree* promotedTree = fgMorphPromoteLocalInitStruct(asg, destLcl, initVal);
-
-            if (promotedTree != nullptr)
-            {
-                return promotedTree;
-            }
-        }
-
-        if (initVal->OperIs(GT_CNS_INT))
-        {
-            // TODO-MIKE-Cleanup/CQ Attempting to convert block init into scalar/SIMD init
-            // results in all sorts of diffs. One may expect that not blocking enregistration
-            // due to the use block init would be an improvement but it turns out that there
-            // are all sorts of issues in the backend that produce diffs and CQ issues:
-            //   - `byte_location = 0;` generates
-            //         mov byte ptr [rsi], 0
-            //     but block init produces
-            //         xor eax, eax
-            //         mov byte ptr [rsi], al
-            //     Block init is worse, unless a register happens to already contain 0,
-            //     then scalar init is worse due to the extra immediate.
-            //   - `float_location = 0;` generates
-            //         xorps xmm0, xmm0
-            //         movss [rsi], xmm0
-            //     but block init generates
-            //         xor eax, eax
-            //         mov [rsi], eax
-            //     which is smaller. Either version can be better depending on the availabily
-            //     of a zero in an integer or float register.
-            //   - Vector3 block init generates
-            //         xor eax, eax
-            //         mov [rsi], rax
-            //         mov [rsi+8], eax
-            //     but SIMD init generates
-            //         xorps xmm0, xmm0
-            //         movsd [rsi], xmm0
-            //         pshufd xmm1, xmm0, 2
-            //         movss [rsi], xmm1
-            //     Removing the extra suffle should be easy but then we hit again the float/int
-            //     constant issue - what's better depends on what kind of zero register happens
-            //     to be available.
-            //   - Integer 0 and REF/BYREF 0 aren't the same thing for LSRA and thus block init
-            //     of a GC pointer location tends to generate better code by reusing a 0 register.
-            //   - On 32 bit targets there are also differences between long scalar init and
-            //     block init. Scalar init usually produces better code but not always it seems.
-            //
-            //     So to sum it up - this is pretty much restricted to INT now to minimize diffs.
-
-            GenTreeFlags destFlags = GTF_EMPTY;
-
-            var_types initType     = TYP_UNDEF;
-            var_types initBaseType = TYP_UNDEF;
-
-            if ((destFieldSeq != nullptr) && destFieldSeq->GetTail()->IsField())
-            {
-                CORINFO_CLASS_HANDLE fieldClassHandle;
-                var_types            fieldBaseType = TYP_UNDEF;
-                var_types            fieldType     = JITtype2varType(
-                    info.compCompHnd->getFieldType(destFieldSeq->GetTail()->GetFieldHandle(), &fieldClassHandle));
-
-                assert(!varTypeIsSIMD(fieldType));
-
-                if (fieldType == TYP_STRUCT)
-                {
-                    fieldType = typGetStructType(fieldClassHandle, &fieldBaseType);
-                }
-
-                if ((destSize == genTypeSize(fieldType)) && !varTypeIsSmall(fieldType) && !varTypeIsSIMD(fieldType) &&
-                    !varTypeIsFloating(fieldType) && !varTypeIsGC(fieldType)
-#ifndef TARGET_64BIT
-                    && !varTypeIsLong(fieldType)
-#endif
-                        )
-                {
-                    initType     = fieldType;
-                    initBaseType = fieldBaseType;
-
-                    destLclNode->ChangeOper(GT_LCL_FLD);
-                    destLclNode->AsLclFld()->SetLclOffs(destLclOffs);
-                    destLclNode->AsLclFld()->SetFieldSeq(destFieldSeq);
-                }
-            }
-
-            if ((initType == TYP_UNDEF) && (initVal->IsIntegralConst(0) || (destLcl->GetType() != TYP_STRUCT)))
-            {
-                if ((destLclOffs == 0) && (destSize == destLclSize) && !varTypeIsFloating(destLcl->GetType())
-#ifndef TARGET_64BIT
-                    && !varTypeIsLong(destLcl->GetType())
-#endif
-                        )
-                {
-                    initType = destLcl->GetType();
-
-                    if (varTypeIsSIMD(initType))
-                    {
-                        initBaseType = destLcl->GetLayout()->GetElementType();
-                    }
-
-                    destLclNode->ChangeOper(GT_LCL_VAR);
-                }
-            }
-
-            if (initType == TYP_UNDEF)
-            {
-                // TODO-MIKE-Review: The backend was changed in master to no longer support zeroing SIMD
-                // typed locals by assigning a CNS_INT(0) so we have to change this to be a SIMD init.
-                // Still, zeroing a Vector2/3 in memory using GPRs produces smaller code so perhaps we
-                // need to do something else - if it's a LCL_FLD (or a LCL_VAR if the local is already
-                // DNER) we can change its type to TYP_STRUCT to get the normal block initialization.
-                // But then retyping can cause other issues (VN, CSE etc.) so perhaps we should actually
-                // convert it here to SIMD init and then deal with it in lowering/codegen.
-
-                if (!dest->OperIs(GT_BLK) && varTypeIsSIMD(dest->GetType()))
-                {
-                    initType     = dest->GetType();
-                    initBaseType = TYP_FLOAT;
-                }
-            }
-
-            if (initType != TYP_UNDEF)
-            {
-                destLclNode->SetType(initType);
-                destLclNode->AsLclVarCommon()->SetLcl(destLcl);
-
-                destFlags |= GTF_DONT_CSE | (destLcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_EMPTY);
-
-                if (destLclNode->OperIs(GT_LCL_FLD))
-                {
-                    lvaSetDoNotEnregister(destLcl DEBUGARG(DNER_LocalField));
-                }
-
-                destLclNode->gtFlags = destFlags;
-
-                if (initType == TYP_STRUCT)
-                {
-                    lvaSetDoNotEnregister(destLcl DEBUGARG(DNER_BlockOp));
-                }
-                else
-                {
-                    initVal =
-                        fgMorphInitStructConstant(initVal->AsIntCon(), initType,
-                                                  destLclNode->OperIs(GT_LCL_VAR) && destLcl->lvNormalizeOnStore(),
-                                                  initBaseType);
-                }
-
-                asg->SetType(initType);
-                asg->SetOp(0, destLclNode);
-                asg->SetOp(1, initVal);
-                asg->gtFlags &= ~GTF_ALL_EFFECT;
-                asg->gtFlags |= GTF_ASG | ((asg->GetOp(0)->gtFlags | asg->GetOp(1)->gtFlags) & GTF_ALL_EFFECT);
-
-                if (destLclNode->OperIs(GT_LCL_VAR))
-                {
-                    asg->ChangeOper(GT_STORE_LCL_VAR);
-                    asg->AsLclVar()->SetLcl(destLcl);
-                    asg->AsLclVar()->SetOp(0, initVal);
-                    asg->gtFlags |= destLclNode->gtFlags & GTF_SPECIFIC_MASK;
-                }
-                else
-                {
-                    asg->ChangeOper(GT_STORE_LCL_FLD);
-                    asg->AsLclVar()->SetLcl(destLcl);
-                    asg->AsLclFld()->SetLclOffs(destLclNode->AsLclFld()->GetLclOffs());
-                    asg->AsLclFld()->SetFieldSeq(destLclNode->AsLclFld()->GetFieldSeq());
-                    asg->AsLclFld()->SetLayoutNum(destLclNode->AsLclFld()->GetLayoutNum());
-                    asg->AsLclFld()->SetOp(0, initVal);
-                    asg->gtFlags |= destLclNode->gtFlags & GTF_SPECIFIC_MASK;
-                }
-
-                JITDUMPTREE(asg, "fgMorphInitStruct (after converting to scalar init):\n");
-
-                return asg;
-            }
-        }
-    }
-
-    asg->gtFlags &= ~GTF_ALL_EFFECT;
-    asg->gtFlags |= GTF_ASG | ((asg->GetOp(0)->gtFlags | asg->GetOp(1)->gtFlags) & GTF_ALL_EFFECT);
-
-    if (destLcl != nullptr)
-    {
-        lvaSetDoNotEnregister(destLcl DEBUGARG(DNER_BlockOp));
-    }
-
-    asg->SetType(dest->GetType());
-
-    if (dest->OperIs(GT_LCL_VAR))
-    {
-        asg->ChangeOper(GT_STORE_LCL_VAR);
-        asg->AsLclVar()->SetLcl(dest->AsLclVar()->GetLcl());
-        asg->AsLclVar()->SetOp(0, src);
-        asg->gtFlags |= dest->gtFlags & GTF_SPECIFIC_MASK;
-    }
-    else if (dest->OperIs(GT_LCL_FLD))
-    {
-        asg->ChangeOper(GT_STORE_LCL_FLD);
-        asg->AsLclFld()->SetLcl(dest->AsLclFld()->GetLcl());
-        asg->AsLclFld()->SetLclOffs(dest->AsLclFld()->GetLclOffs());
-        asg->AsLclFld()->SetFieldSeq(dest->AsLclFld()->GetFieldSeq());
-        asg->AsLclFld()->SetLayoutNum(dest->AsLclFld()->GetLayoutNum());
-        asg->AsLclFld()->SetOp(0, src);
-        asg->gtFlags |= dest->gtFlags & GTF_SPECIFIC_MASK;
-    }
-    else
-    {
+        asg->SetSideEffects(GTF_ASG | dest->GetSideEffects() | src->GetSideEffects());
+        asg->SetType(dest->GetType());
         asg->ChangeOper(dest->OperIs(GT_OBJ) ? GT_STORE_OBJ : GT_STOREIND);
         asg->AsIndir()->SetAddr(dest->AsIndir()->GetAddr());
         asg->AsIndir()->SetValue(src);
@@ -8622,11 +8365,220 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
         {
             asg->AsObj()->SetLayout(dest->AsObj()->GetLayout());
         }
+
+        JITDUMPTREE(asg, "fgMorphInitStruct (after):\n");
+
+        return asg;
     }
 
-    JITDUMPTREE(asg, "fgMorphInitStruct (after):\n");
+    LclVarDsc* lcl = dest->AsLclVarCommon()->GetLcl();
 
-    return asg;
+    if (dest->OperIs(GT_LCL_VAR))
+    {
+        asg->ChangeOper(GT_STORE_LCL_VAR);
+        asg->AsLclVar()->SetLcl(lcl);
+        asg->AsLclVar()->SetOp(0, src);
+    }
+    else
+    {
+        GenTreeLclFld* field = dest->AsLclFld();
+
+        asg->ChangeOper(GT_STORE_LCL_FLD);
+        asg->AsLclFld()->SetLcl(lcl);
+        asg->AsLclFld()->SetLclOffs(field->GetLclOffs());
+        asg->AsLclFld()->SetFieldSeq(field->GetFieldSeq());
+        asg->AsLclFld()->SetLayoutNum(field->GetLayoutNum());
+        asg->AsLclFld()->SetOp(0, src);
+
+        // Do not DNER here as we may promote this store if it overlaps the entire local.
+    }
+
+    asg->SetType(dest->GetType());
+    asg->gtFlags |= dest->gtFlags & GTF_SPECIFIC_MASK;
+    asg->SetSideEffects(GTF_ASG | src->GetSideEffects());
+
+    if (lcl->IsAddressExposed())
+    {
+        asg->AddSideEffects(GTF_GLOB_REF);
+    }
+
+    GenTreeLclVarCommon* store = asg->AsLclVarCommon();
+
+#if LOCAL_ASSERTION_PROP
+    if (morphAssertionCount != 0)
+    {
+        morphAssertionKill(lcl DEBUGARG(store));
+    }
+#endif
+
+    unsigned      size     = 0;
+    unsigned      lclOffs  = 0;
+    unsigned      lclSize  = lcl->GetTypeSize();
+    FieldSeqNode* fieldSeq = nullptr;
+
+    if (store->OperIs(GT_STORE_LCL_VAR))
+    {
+        size = store->TypeIs(TYP_STRUCT) ? lcl->GetLayout()->GetSize() : varTypeSize(lcl->GetType());
+    }
+    else
+    {
+        GenTreeLclFld* field = store->AsLclFld();
+
+        size     = field->TypeIs(TYP_STRUCT) ? field->GetLayout(this)->GetSize() : varTypeSize(dest->GetType());
+        lclOffs  = field->GetLclOffs();
+        fieldSeq = field->GetFieldSeq();
+    }
+
+    GenTree* initVal = src->OperIs(GT_INIT_VAL) ? src->AsUnOp()->GetOp(0) : src;
+
+    if (lcl->IsPromoted() && (lclOffs == 0) && (size == lclSize))
+    {
+        assert(varTypeIsStruct(lcl->GetType()));
+
+        if (GenTree* promotedTree = fgMorphPromoteLocalInitStruct(store, lcl, initVal))
+        {
+            return promotedTree;
+        }
+    }
+
+    if ((size != 0) && !lcl->TypeIs(TYP_BLK) && initVal->IsIntCon())
+    {
+        // TODO-MIKE-Cleanup/CQ Attempting to convert block init into scalar/SIMD init
+        // results in all sorts of diffs. One may expect that not blocking enregistration
+        // due to the use block init would be an improvement but it turns out that there
+        // are all sorts of issues in the backend that produce diffs and CQ issues:
+        //   - `byte_location = 0;` generates
+        //         mov byte ptr [rsi], 0
+        //     but block init produces
+        //         xor eax, eax
+        //         mov byte ptr [rsi], al
+        //     Block init is worse, unless a register happens to already contain 0,
+        //     then scalar init is worse due to the extra immediate.
+        //   - `float_location = 0;` generates
+        //         xorps xmm0, xmm0
+        //         movss [rsi], xmm0
+        //     but block init generates
+        //         xor eax, eax
+        //         mov [rsi], eax
+        //     which is smaller. Either version can be better depending on the availability
+        //     of a zero in an integer or float register.
+        //   - Vector3 block init generates
+        //         xor eax, eax
+        //         mov [rsi], rax
+        //         mov [rsi+8], eax
+        //     but SIMD init generates
+        //         xorps xmm0, xmm0
+        //         movsd [rsi], xmm0
+        //         pshufd xmm1, xmm0, 2
+        //         movss [rsi], xmm1
+        //     Removing the extra shuffle should be easy but then we hit again the float/int
+        //     constant issue - what's better depends on what kind of zero register happens
+        //     to be available.
+        //   - Integer 0 and REF/BYREF 0 aren't the same thing for LSRA and thus block init
+        //     of a GC pointer location tends to generate better code by reusing a 0 register.
+        //   - On 32 bit targets there are also differences between long scalar init and
+        //     block init. Scalar init usually produces better code but not always it seems.
+        //
+        //     So to sum it up - this is pretty much restricted to INT now to minimize diffs.
+
+        var_types initType     = TYP_UNDEF;
+        var_types initBaseType = TYP_UNDEF;
+
+        if ((fieldSeq != nullptr) && fieldSeq->GetTail()->IsField())
+        {
+            CORINFO_CLASS_HANDLE fieldClassHandle;
+            var_types            fieldBaseType = TYP_UNDEF;
+            var_types            fieldType     = CorTypeToVarType(
+                info.compCompHnd->getFieldType(fieldSeq->GetTail()->GetFieldHandle(), &fieldClassHandle));
+
+            assert(!varTypeIsSIMD(fieldType));
+
+            if (fieldType == TYP_STRUCT)
+            {
+                fieldType = typGetStructType(fieldClassHandle, &fieldBaseType);
+            }
+
+            if ((size == varTypeSize(fieldType)) && !varTypeIsSmall(fieldType) && !varTypeIsSIMD(fieldType) &&
+                !varTypeIsFloating(fieldType) && !varTypeIsGC(fieldType)
+#ifndef TARGET_64BIT
+                && !varTypeIsLong(fieldType)
+#endif
+                    )
+            {
+                initType     = fieldType;
+                initBaseType = fieldBaseType;
+            }
+        }
+
+        if ((initType == TYP_UNDEF) && (initVal->IsIntCon(0) || !lcl->TypeIs(TYP_STRUCT)))
+        {
+            if ((lclOffs == 0) && (size == lclSize) && !varTypeIsFloating(lcl->GetType())
+#ifndef TARGET_64BIT
+                && !varTypeIsLong(lcl->GetType())
+#endif
+                    )
+            {
+                initType = lcl->GetType();
+
+                if (varTypeIsSIMD(initType))
+                {
+                    initBaseType = lcl->GetLayout()->GetElementType();
+                }
+
+                store->ChangeOper(GT_STORE_LCL_VAR);
+            }
+        }
+
+        if (initType == TYP_UNDEF)
+        {
+            // TODO-MIKE-Review: The backend was changed in master to no longer support zeroing SIMD
+            // typed locals by assigning a CNS_INT(0) so we have to change this to be a SIMD init.
+            // Still, zeroing a Vector2/3 in memory using GPRs produces smaller code so perhaps we
+            // need to do something else - if it's a LCL_FLD (or a LCL_VAR if the local is already
+            // DNER) we can change its type to TYP_STRUCT to get the normal block initialization.
+            // But then retyping can cause other issues (VN, CSE etc.) so perhaps we should actually
+            // convert it here to SIMD init and then deal with it in lowering/codegen.
+
+            if (varTypeIsSIMD(dest->GetType()))
+            {
+                initType     = dest->GetType();
+                initBaseType = TYP_FLOAT;
+            }
+        }
+
+        if (initType != TYP_UNDEF)
+        {
+            if (initType == TYP_STRUCT)
+            {
+                lvaSetDoNotEnregister(lcl DEBUGARG(DNER_BlockOp));
+            }
+            else
+            {
+                initVal = fgMorphInitStructConstant(initVal->AsIntCon(), initType,
+                                                    store->OperIs(GT_STORE_LCL_VAR) && lcl->lvNormalizeOnStore(),
+                                                    initBaseType);
+            }
+
+            store->SetType(initType);
+
+            if (store->OperIs(GT_STORE_LCL_FLD))
+            {
+                lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LocalField));
+            }
+
+            store->SetOp(0, initVal);
+
+            JITDUMPTREE(store, "fgMorphInitStruct (after converting to scalar init):\n");
+
+            return store;
+        }
+    }
+
+    lvaSetDoNotEnregister(lcl DEBUGARG(DNER_BlockOp));
+
+    JITDUMPTREE(store, "fgMorphInitStruct (after):\n");
+
+    return store;
 }
 
 //------------------------------------------------------------------------
@@ -8747,8 +8699,9 @@ GenTree* Compiler::fgMorphInitStructConstant(GenTreeIntCon* initVal,
     return initVal;
 }
 
-GenTree* Compiler::fgMorphPromoteLocalInitStruct(GenTreeOp* asg, LclVarDsc* destLcl, GenTree* initVal)
+GenTree* Compiler::fgMorphPromoteLocalInitStruct(GenTree* store, LclVarDsc* destLcl, GenTree* initVal)
 {
+    assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
     assert(varTypeIsStruct(destLcl->GetType()));
     assert(destLcl->IsPromoted());
 
@@ -8804,7 +8757,7 @@ GenTree* Compiler::fgMorphPromoteLocalInitStruct(GenTreeOp* asg, LclVarDsc* dest
         GenTree* value = fgMorphInitStructConstant(gtNewIconNode(initVal->AsIntCon()->GetValue()), type,
                                                    destFieldLcl->lvNormalizeOnStore(), baseType);
 
-        fieldStores[i] = gtNewStoreLclVar(destFieldLcl, type, value);
+        fieldStores[i] = gtNewLclStore(destFieldLcl, type, value);
 
         if (destFieldLcl->IsAddressExposed())
         {
@@ -8812,7 +8765,7 @@ GenTree* Compiler::fgMorphPromoteLocalInitStruct(GenTreeOp* asg, LclVarDsc* dest
         }
     }
 
-    return fgMorphPromoteStore(asg, nullptr, fieldStores, destLcl->GetPromotedFieldCount());
+    return fgMorphPromoteStore(store, nullptr, fieldStores, destLcl->GetPromotedFieldCount());
 }
 
 GenTree* Compiler::fgMorphStructComma(GenTree* tree)
@@ -9756,8 +9709,10 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
     return fgMorphPromoteStore(asg, tempStore, fieldStores, fieldCount);
 }
 
-GenTree* Compiler::fgMorphPromoteStore(GenTreeOp* store, GenTree* tempStore, GenTree** fieldStores, unsigned fieldCount)
+GenTree* Compiler::fgMorphPromoteStore(GenTree* store, GenTree* tempStore, GenTree** fieldStores, unsigned fieldCount)
 {
+    assert(store->OperIs(GT_ASG, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+
     const bool isStmtRoot = (fgGlobalMorphStmt != nullptr) && (fgGlobalMorphStmt->GetRootNode() == store);
     GenTree*   tree       = tempStore;
 
