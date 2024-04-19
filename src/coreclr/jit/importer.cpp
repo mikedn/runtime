@@ -16528,9 +16528,9 @@ GenTree* Importer::impCheckForNullPointer(GenTree* addr)
     }
 
     LclVarDsc* lcl = lvaNewTemp(addr->GetType(), true DEBUGARG("CheckForNullPointer"));
-    GenTree*   asg = gtNewAssignNode(gtNewLclvNode(lcl, addr->GetType()), addr);
+    GenTree*   asg = comp->gtNewLclStore(lcl, addr->GetType(), addr);
     impSpillNoneAppendTree(asg);
-    return gtNewLclvNode(lcl, addr->GetType());
+    return comp->gtNewLclLoad(lcl, addr->GetType());
 }
 
 // Check for the special case where the object is the methods original 'this' pointer.
