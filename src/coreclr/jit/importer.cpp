@@ -8558,10 +8558,10 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
         LclVarDsc* lcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("castclass class handle temp"));
         lcl->lvIsCSE   = true;
 
-        GenTree* store = gtNewAssignNode(gtNewLclvNode(lcl, TYP_I_IMPL), op2);
+        GenTree* store = comp->gtNewLclStore(lcl, TYP_I_IMPL, op2);
 
-        op2    = gtNewCommaNode(store, gtNewLclvNode(lcl, TYP_I_IMPL), TYP_I_IMPL);
-        op2Use = gtNewLclvNode(lcl, TYP_I_IMPL);
+        op2    = gtNewCommaNode(store, comp->gtNewLclLoad(lcl, TYP_I_IMPL), TYP_I_IMPL);
+        op2Use = comp->gtNewLclLoad(lcl, TYP_I_IMPL);
     }
 
     GenTree* condMT    = gtNewOperNode(GT_NE, TYP_INT, gtNewMethodTableLookup(op1Uses[0]), op2);
@@ -8589,8 +8589,7 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
     qmarkNull->gtFlags |= GTF_QMARK_CAST_INSTOF;
 
     LclVarDsc* lcl = lvaNewTemp(TYP_REF, true DEBUGARG("castclass null qmark temp"));
-    GenTree*   asg = gtNewAssignNode(gtNewLclvNode(lcl, TYP_REF), qmarkNull);
-    impSpillNoneAppendTree(asg);
+    impSpillNoneAppendTree(comp->gtNewLclStore(lcl, TYP_REF, qmarkNull));
 
     // TODO-CQ: Is it possible op1 has a better type?
     // See also gtGetHelperCallClassHandle where we make the same
