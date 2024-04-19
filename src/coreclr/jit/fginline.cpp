@@ -29,7 +29,7 @@
 //   * the return value tree from the inlinee, if the inline succeeded
 //
 //   This replacement happens in preorder; on the postorder side of the same
-//   tree walk, we look for opportunties to devirtualize or optimize now that
+//   tree walk, we look for opportunities to devirtualize or optimize now that
 //   we know the context for the newly supplied return value tree.
 //
 //   Inline arguments may be directly substituted into the body of the inlinee
@@ -1101,19 +1101,19 @@ bool Compiler::inlImportReturn(Importer&            importer,
     if (LclVarDsc* lcl = inlineInfo->retSpillTempLcl)
     {
         var_types lclType = lcl->GetType();
-        GenTree*  dest    = gtNewLclvNode(lcl, lclType);
-        GenTree*  asg;
+        GenTree*  store;
 
         if (varTypeIsStruct(retExpr->GetType()))
         {
-            asg = importer.impAssignStruct(dest, retExpr, Importer::CHECK_SPILL_NONE);
+            GenTree* dest = gtNewLclvNode(lcl, lclType);
+            store         = importer.impAssignStruct(dest, retExpr, Importer::CHECK_SPILL_NONE);
         }
         else
         {
-            asg = gtNewAssignNode(dest, retExpr);
+            store = gtNewLclStore(lcl, lclType, retExpr);
         }
 
-        importer.impSpillNoneAppendTree(asg);
+        importer.impSpillNoneAppendTree(store);
 
         if (inlineInfo->retExpr == nullptr)
         {

@@ -14856,7 +14856,7 @@ void Compiler::AddZeroOffsetFieldSeq(GenTree* addr, FieldSeqNode* fieldSeq)
 //  For void calls, we would have created a CALL in the stmt list.
 //  For non-void calls, we would have created a RETURN(CAST(CALL)).
 //  For calls returning structs, we would have a void CALL, followed by a RETURN().
-//  For debuggable code, it would be an assignment of the call to a temp
+//  For debuggable code, it would be an store of the call to a temp
 //
 // We want to get rid of any of this extra trees, and just leave the call.
 bool Compiler::fgCheckStmtAfterTailCall(Statement* callStmt)
@@ -14870,7 +14870,7 @@ bool Compiler::fgCheckStmtAfterTailCall(Statement* callStmt)
 
     GenTree* callExpr = callStmt->GetRootNode();
 
-    if (!callExpr->OperIs(GT_ASG))
+    if (!callExpr->OperIs(GT_ASG, GT_STORE_LCL_VAR))
     {
         // The next stmt can be RETURN() or RETURN(local), where "local" was the return buffer in the call.
 
@@ -14881,9 +14881,18 @@ bool Compiler::fgCheckStmtAfterTailCall(Statement* callStmt)
         return nextStmt->GetNextStmt() == nullptr;
     }
 
-    noway_assert(callExpr->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR));
+    LclVarDsc* callResultLcl;
 
-    LclVarDsc* callResultLcl = callExpr->AsOp()->GetOp(0)->AsLclVar()->GetLcl();
+    if (callExpr->OperIs(GT_ASG))
+    {
+        noway_assert(callExpr->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR));
+
+        callResultLcl = callExpr->AsOp()->GetOp(0)->AsLclVar()->GetLcl();
+    }
+    else
+    {
+        callResultLcl = callExpr->AsLclVar()->GetLcl();
+    }
 
 #if FEATURE_TAILCALL_OPT_SHARED_RETURN
     // We can have a chain of assignments from the call result to various inline
@@ -14892,7 +14901,7 @@ bool Compiler::fgCheckStmtAfterTailCall(Statement* callStmt)
     // And if we're returning a small type we may see a cast on the source side.
     // TODO-MIKE-Review: This doesn't verify that the cast involves a small type.
 
-    for (; (nextStmt != nullptr) && (nextStmt->GetRootNode()->OperIs(GT_ASG, GT_NOP));
+    for (; (nextStmt != nullptr) && (nextStmt->GetRootNode()->OperIs(GT_ASG, GT_STORE_LCL_VAR, GT_NOP));
          nextStmt = nextStmt->GetNextStmt())
     {
         if (nextStmt->GetRootNode()->OperIs(GT_ASG))
@@ -14911,6 +14920,21 @@ bool Compiler::fgCheckStmtAfterTailCall(Statement* callStmt)
             noway_assert(copySrc->OperIs(GT_LCL_VAR) && (copySrc->AsLclVar()->GetLcl() == callResultLcl));
 
             callResultLcl = copyDest->AsLclVar()->GetLcl();
+        }
+        else if (nextStmt->GetRootNode()->OperIs(GT_STORE_LCL_VAR))
+        {
+            GenTreeLclVar* copyExpr = nextStmt->GetRootNode()->AsLclVar();
+            GenTree*       copySrc  = copyExpr->GetOp(0);
+
+            while (GenTreeCast* cast = copySrc->IsCast())
+            {
+                noway_assert(!cast->gtOverflow());
+                copySrc = cast->GetOp(0);
+            }
+
+            noway_assert(copySrc->OperIs(GT_LCL_VAR) && (copySrc->AsLclVar()->GetLcl() == callResultLcl));
+
+            callResultLcl = copyExpr->GetLcl();
         }
     }
 #endif // FEATURE_TAILCALL_OPT_SHARED_RETURN
