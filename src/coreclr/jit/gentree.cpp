@@ -4329,6 +4329,11 @@ GenTreeLclAddr* Compiler::gtNewLclFldAddrNode(LclVarDsc* lcl, unsigned lclOffs, 
     return node;
 }
 
+GenTreeLclFld* Compiler::gtNewLclFldLoad(var_types type, LclVarDsc* lcl, unsigned offset)
+{
+    return new (this, GT_LCL_FLD) GenTreeLclFld(type, lcl, offset);
+}
+
 GenTreeLclFld* Compiler::gtNewLclFldNode(LclVarDsc* lcl, var_types type, unsigned offset)
 {
     return new (this, GT_LCL_FLD) GenTreeLclFld(type, lcl, offset);

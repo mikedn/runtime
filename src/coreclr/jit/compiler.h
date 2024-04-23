@@ -2999,10 +2999,12 @@ public:
         var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1, GenTree* op2, GenTree* op3);
 #endif // FEATURE_HW_INTRINSICS
 
+    GenTreeLclFld* gtNewLclFldLoad(var_types type, LclVarDsc* lcl, unsigned offset);
     GenTreeLclFld* gtNewLclFldNode(LclVarDsc* lcl, var_types type, unsigned offset);
     GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call);
 
     GenTreeIndir* gtNewIndir(var_types type, GenTree* addr);
+    GenTreeIndir* gtNewIndLoad(var_types type, GenTree* addr);
     GenTreeStoreInd* gtNewIndStore(var_types type, GenTree* addr, GenTree* value);
     GenTreeFlags gtGetIndirExceptionFlags(GenTree* addr);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset);

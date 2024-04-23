@@ -587,6 +587,13 @@ inline GenTreeIndir* Compiler::gtNewIndir(var_types type, GenTree* addr)
     return new (this, GT_IND) GenTreeIndir(GT_IND, type, addr);
 }
 
+inline GenTreeIndir* Compiler::gtNewIndLoad(var_types type, GenTree* addr)
+{
+    assert(varTypeIsI(addr->GetType()));
+
+    return new (this, GT_IND) GenTreeIndir(GT_IND, type, addr);
+}
+
 inline GenTreeStoreInd* Compiler::gtNewIndStore(var_types type, GenTree* addr, GenTree* value)
 {
     assert(varTypeIsI(addr->GetType()));

@@ -6571,6 +6571,7 @@ struct GenTreeStoreInd : public GenTreeIndir
 {
     GenTreeStoreInd(var_types type, GenTree* addr, GenTree* value) : GenTreeIndir(GT_STOREIND, type, addr, value)
     {
+        gtFlags |= GTF_ASG;
     }
 
     GenTreeStoreInd(const GenTreeStoreInd* copyFrom) : GenTreeIndir(copyFrom)
