@@ -25,24 +25,20 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
         INDEBUG(mutable bool m_consumed = false;)
 
     public:
-        // Produce an unknown value associated with the specified node.
         Value(GenTree* node) : m_node(node)
         {
         }
 
-        // Get the node that produced this value.
         GenTree* Node() const
         {
             return m_node;
         }
 
-        // Does this value represent a location?
         bool IsLocation() const
         {
             return (m_lcl != nullptr) && !m_address;
         }
 
-        // Does this value represent the address of a location?
         bool IsAddress() const
         {
             assert((m_lcl != nullptr) || !m_address);
@@ -57,7 +53,6 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
             return m_lcl;
         }
 
-        // Get the location's byte offset.
         unsigned Offset() const
         {
             assert(IsLocation() || IsAddress());
@@ -65,21 +60,13 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
             return m_offset;
         }
 
-        // Get the location's field sequence.
         FieldSeqNode* FieldSeq() const
         {
             return m_fieldSeq;
         }
 
-        //------------------------------------------------------------------------
-        // Location: Produce a location value.
-        //
-        // Arguments:
-        //    lclVar - a GT_LCL_VAR node that defines the location
-        //
-        // Notes:
-        //   - (lclnum) => LOCATION(lclNum, 0)
-        //
+        // Produce a location value.
+        // (lclNum) => LOCATION(lclNum, 0)
         void Location(GenTreeLclVar* lclVar)
         {
             assert(lclVar->OperIs(GT_LCL_VAR));
@@ -149,15 +136,8 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
             return true;
         }
 
-        //------------------------------------------------------------------------
-        // Location: Produce a location value.
-        //
-        // Arguments:
-        //    lclFld - a GT_LCL_FLD node that defines the location
-        //
-        // Notes:
-        //   - (lclnum, lclOffs) => LOCATION(lclNum, offset)
-        //
+        // Produce a location value.
+        // (lclNum, lclOffs) => LOCATION(lclNum, offset)
         void Location(GenTreeLclFld* lclFld)
         {
             assert(lclFld->OperIs(GT_LCL_FLD));
@@ -177,15 +157,8 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
             m_fieldSeq = fieldSeq;
         }
 
-        //------------------------------------------------------------------------
-        // Address: Produce an address value from a LCL_ADDR node.
-        //
-        // Arguments:
-        //    lclAddr - a GT_LCL_ADDR node that defines the address
-        //
-        // Notes:
-        //   - (lclnum, lclOffs) => ADDRESS(lclNum, offset)
-        //
+        // Produce an address value from a LCL_ADDR node.
+        // (lclNum, lclOffs) => ADDRESS(lclNum, offset)
         void Address(GenTreeLclAddr* lclAddr)
         {
             assert(!IsLocation() && !IsAddress());
@@ -206,25 +179,16 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
             m_fieldSeq = fieldSeq;
         }
 
-        //------------------------------------------------------------------------
-        // FieldAddress: Produce a field address value from an address value.
+        // Produce a field address value from an address value.
         //
-        // Arguments:
-        //    val - the input value
-        //    field - the FIELD_ADDR node that uses the input address value
-        //    fieldSeqStore - the compiler's field sequence store
+        // Returns  true` if the value was consumed. `false` if the input value cannot
+        // be consumed because it is itself a location or because the offset overflowed.
+        // In this case the caller is expected to escape the input value.
         //
-        // Return Value:
-        //    `true` if the value was consumed. `false` if the input value
-        //    cannot be consumed because it is itsef a location or because
-        //    the offset overflowed. In this case the caller is expected
-        //    to escape the input value.
-        //
-        // Notes:
-        //   - LOCATION(lclNum, offset) => not representable, must escape
-        //   - ADDRESS(lclNum, offset) => LOCATION(lclNum, offset + field.Offset)
-        //     if the offset overflows then location is not representable, must escape
-        //   - UNKNOWN => UNKNOWN
+        // - LOCATION(lclNum, offset) => not representable, must escape
+        // - ADDRESS(lclNum, offset) => LOCATION(lclNum, offset + field.Offset)
+        //   if the offset overflows then location is not representable, must escape
+        // - UNKNOWN => UNKNOWN
         //
         bool FieldAddress(Value& val, GenTreeFieldAddr* field, FieldSeqStore* fieldSeqStore)
         {
@@ -263,21 +227,14 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
             return true;
         }
 
-        //------------------------------------------------------------------------
-        // Indir: Produce a location value from an address value.
+        // Produce a location value from an address value.
+        // Returns `true` if the value was consumed. `false` if the input value cannot be
+        // consumed because it is itself a location. In this case the caller is expected
+        // to escape the input value.
         //
-        // Arguments:
-        //    val - the input value
-        //
-        // Return Value:
-        //    `true` if the value was consumed. `false` if the input value
-        //    cannot be consumed because it is itsef a location. In this
-        //    case the caller is expected to escape the input value.
-        //
-        // Notes:
-        //   - LOCATION(lclNum, offset) => not representable, must escape
-        //   - ADDRESS(lclNum, offset) => LOCATION(lclNum, offset)
-        //   - UNKNOWN => UNKNOWN
+        // - LOCATION(lclNum, offset) => not representable, must escape
+        // - ADDRESS(lclNum, offset) => LOCATION(lclNum, offset)
+        // - UNKNOWN => UNKNOWN
         //
         bool Indir(Value& val)
         {
@@ -350,7 +307,7 @@ public:
 
         // We could have a statement like IND(ADDR(LCL_VAR)) that EscapeLocation would simplify
         // to LCL_VAR. But since it's unused (and currently can't have any side effects) we'll
-        // just change the statment to NOP. This way we avoid complications associated with
+        // just change the statement to NOP. This way we avoid complications associated with
         // passing a null user to EscapeLocation.
         // This doesn't seem to happen often, if ever. The importer tends to wrap such a tree
         // in a COMMA.
@@ -412,7 +369,7 @@ public:
     {
         GenTree* node = *use;
 
-        switch (node->OperGet())
+        switch (node->GetOper())
         {
             case GT_LCL_VAR:
                 assert(TopValue(0).Node() == node);
@@ -470,7 +427,7 @@ public:
                     const Value& v2 = TopValue(0);
 
                     // We could handle SUB(local addr, constant) but those don't seem to exist nor
-                    // they're likley to be useful. Instead, handle SUB(local addr1, local addr2),
+                    // they're likely to be useful. Instead, handle SUB(local addr1, local addr2),
                     // which also doesn't seem to exist but it could serve an useful purpose: to
                     // obtain the offset of a struct field as a cheap constant.
 
@@ -511,7 +468,7 @@ public:
             case GT_BLK:
             case GT_IND:
                 assert(TopValue(1).Node() == node);
-                assert(TopValue(0).Node() == node->gtGetOp1());
+                assert(TopValue(0).Node() == node->AsIndir()->GetAddr());
 
                 if (!TopValue(1).Indir(TopValue(0)))
                 {
@@ -527,16 +484,16 @@ public:
                 if (TopValue(0).Node() != node)
                 {
                     assert(TopValue(1).Node() == node);
-                    assert(TopValue(0).Node() == node->gtGetOp1());
+                    assert(TopValue(0).Node() == node->AsUnOp()->GetOp(0));
 
                     GenTreeUnOp* ret = node->AsUnOp();
 
                     if (ret->GetOp(0)->OperIs(GT_LCL_VAR))
                     {
-                        // TODO-1stClassStructs: this block is a temporary workaround to keep diffs small,
-                        // having `doNotEnreg` affect block init and copy transformations that affect many methods.
+                        // TODO-1stClassStructs: this block is a temporary workaround to keep diffs small, having
+                        // `doNotEnregister` affect block init and copy transformations that affect many methods.
                         // I have a change that introduces more precise and effective solution for that, but it would
-                        // be merged separatly.
+                        // be merged separately.
 
                         LclVarDsc* lcl = ret->GetOp(0)->AsLclVar()->GetLcl();
 
@@ -645,13 +602,6 @@ private:
         m_valueStack.Pop();
     }
 
-    //------------------------------------------------------------------------
-    // EscapeValue: Process an escaped value
-    //
-    // Arguments:
-    //    val - the escaped address value
-    //    user - the node that uses the escaped value
-    //
     void EscapeValue(const Value& val, GenTree* user)
     {
         if (val.IsLocation())
@@ -668,13 +618,6 @@ private:
         }
     }
 
-    //------------------------------------------------------------------------
-    // EscapeAddress: Process an escaped address value
-    //
-    // Arguments:
-    //    val - the escaped address value
-    //    user - the node that uses the address value
-    //
     void EscapeAddress(const Value& val, GenTree* user)
     {
         assert(val.IsAddress());
@@ -797,18 +740,9 @@ private:
         }
     }
 
-    //------------------------------------------------------------------------
-    // EscapeLocation: Process an escaped location value
-    //
-    // Arguments:
-    //    val - the escaped location value
-    //    user - the node that uses the location value
-    //
-    // Notes:
-    //    Unlike EscapeAddress, this does not necessarily mark the lclvar associated
-    //    with the value as address exposed. This is needed only if the indirection
-    //    is wider than the lclvar.
-    //
+    // Unlike EscapeAddress, this does not necessarily mark the local associated
+    // with the value as address exposed. This is needed only if the indirection
+    // is wider than the local.
     void EscapeLocation(const Value& val, GenTree* user)
     {
         assert(val.IsLocation());
@@ -855,18 +789,18 @@ private:
         }
 
         // Otherwise it must be accessed through some kind of indirection. Usually this is
-        // something like IND(ADDR(LCL_VAR)), global morph will change it to GT_LCL_VAR or
-        // GT_LCL_FLD so the lclvar does not need to be address exposed.
+        // something like IND(ADDR(LCL_VAR)) and most of the time we can change this to a
+        // LCL_VAR or LCL_FLD so the local does not need to be address exposed.
         //
-        // However, it is possible for the indirection to be wider than the lclvar
-        // (e.g. *(long*)&int32Var) or to have a field offset that pushes the indirection
-        // past the end of the lclvar memory location. In such cases morph doesn't do
-        // anything so the lclvar needs to be address exposed.
+        // However, it is possible for the indirection to be wider than the local (e.g.
+        // *(long*)&int32Var) or to have a field offset that pushes the indirection past
+        // the end of the local. Such cases are rare and the only reasonable solution is
+        // to keep the indirection and make the local address exposed.
         //
-        // More importantly, if the lclvar is a promoted struct field then the parent lclvar
-        // also needs to be address exposed so we get dependent struct promotion. Code like
+        // More importantly, if the local is a promoted struct field then the parent local
+        // also needs to be address exposed, so we get dependent struct promotion. Code like
         // *(long*)&int32Var has undefined behavior and it's practically useless but reading,
-        // say, 2 consecutive Int32 struct fields as Int64 has more practical value.
+        // say, 2 consecutive Int32 struct fields as a single Int64 has more practical value.
 
         unsigned indirSize = GetIndirSize(node, user);
         bool     isWide;
@@ -1079,19 +1013,8 @@ private:
         return true;
     }
 
-    //------------------------------------------------------------------------
-    // FindPromotedField: Find a promoted struct field that completely overlaps
-    //     a location of specified size at the specified offset.
-    //
-    // Arguments:
-    //    lcl - the promoted local variable
-    //    offset - the location offset
-    //    size - the location size
-    //
-    // Return Value:
-    //    The overlapping promoted struct field local number or BAD_VAR_NUM if
-    //    no overlapping field exists.
-    //
+    // Finds a promoted struct field that completely overlaps a location of specified
+    // size at the specified offset.
     LclVarDsc* FindPromotedField(LclVarDsc* lcl, unsigned offset, unsigned size) const
     {
         for (LclVarDsc* fieldLcl : m_compiler->PromotedFields(lcl))
@@ -1108,19 +1031,11 @@ private:
         return nullptr;
     }
 
-    //------------------------------------------------------------------------
-    // GetIndirSize: Return the size (in bytes) of an indirection node.
-    //
-    // Arguments:
-    //    indir - the indirection node
-    //    user - the node that uses the indirection
-    //
-    // Notes:
-    //    This returns 0 for indirection of unknown size, typically GT_DYN_BLK.
-    //    GT_IND nodes that have type TYP_STRUCT are expected to only appear
-    //    on the RHS of an assignment to DYN_BLK so they're also considered to
-    //    have unknown size.
-    //
+    // Return the size (in bytes) of an indirection node.
+    // This returns 0 for indirection of unknown size, typically DYN_BLK.
+    // IND nodes that have type STRUCT are expected to only appear on the
+    // RHS of an assignment to DYN_BLK so they're also considered to have
+    // unknown size.
     unsigned GetIndirSize(GenTree* indir, GenTree* user)
     {
         assert(indir->OperIs(GT_IND, GT_OBJ, GT_BLK));
@@ -1229,14 +1144,8 @@ private:
         INDEBUG(m_stmtModified = true;)
     }
 
-    //------------------------------------------------------------------------
-    // MorphLocalIndir: Change a tree that represents an indirect access to a struct
-    //    variable to a single LCL_VAR or LCL_FLD node.
-    //
-    // Arguments:
-    //    val - a value that represents the local indirection
-    //    user - the indirection's user node
-    //
+    // Change a tree that represents an indirect access to a struct
+    // variable to a single LCL_VAR or LCL_FLD node.
     void MorphLocalIndir(const Value& val, GenTree* user, unsigned indirSize)
     {
         assert(val.IsLocation());
@@ -1381,7 +1290,7 @@ private:
                     }
                     else
                     {
-                        // Like in the signedess mismatch case above, it's not common to have `*(int*)&intLocal`
+                        // Like in the signedness mismatch case above, it's not common to have `*(int*)&intLocal`
                         // but such cases may arise either from fancy generic code or, more likely, due to the
                         // inlining of primitive type methods. Turns out that having methods on primitive types,
                         // while elegant, can cause problems as any call to such a method requires taking the
@@ -1571,8 +1480,8 @@ private:
         // promote the local. The indir layout isn't really needed anymore, since call arg
         // morphing uses the one from the call signature.
 
-        // The only thing other than the ABI the layout influences is GCness of stores
-        // to the local but in that case it really does make more sense to ignore the
+        // The only thing other than the ABI the layout influences is the GCness of stores
+        // to the local, but in that case it really does make more sense to ignore the
         // indir layout and use the local variable layout as that is the "real" one when
         // it comes to GC. Reinterpreting a local variable in an attempt to avoid GC safe
         // copies doesn't make a lot of sense.
@@ -1604,8 +1513,8 @@ private:
                 indir->AsLclFld()->SetLayout(indirLayout, m_compiler);
             }
 
-            // Promoted struct vars aren't currently handled here so the created LCL_FLD can't be
-            // later transformed into a LCL_VAR and the variable cannot be enregistered.
+            // Promoted struct locals aren't currently handled here so the created LCL_FLD can
+            // not be later transformed into a LCL_VAR and the variable cannot be enregistered.
             m_compiler->lvaSetDoNotEnregister(varDsc DEBUGARG(Compiler::DNER_LocalField));
         }
 
@@ -2182,7 +2091,7 @@ private:
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     // Updates the ref count for implicit byref params.
-    // abiMakeImplicityByRefStructArgCopy checks the ref counts for implicit byref params when
+    // abiMakeImplicitlyByRefStructArgCopy checks the ref counts for implicit byref params when
     // it decides if it's legal to elide certain copies of them;
     // lvaRetypeImplicitByRefParams checks the ref counts when it decides to undo promotions.
     void UpdateImplicitByRefParamRefCounts(LclVarDsc* lcl)
@@ -2205,7 +2114,7 @@ private:
         //
         // It can be approximate, so the pattern match below need not be exhaustive.
         // But the pattern should at least subset the implicit byref cases that are
-        // handled in fgCanFastTailCall and abiMakeImplicityByRefStructArgCopy.
+        // handled in fgCanFastTailCall and abiMakeImplicitlyByRefStructArgCopy.
         //
         // CALL(OBJ(ADDR(LCL_VAR...)))
 
@@ -2471,7 +2380,7 @@ bool StructPromotionHelper::CanPromoteStructType(CORINFO_CLASS_HANDLE typeHandle
     {
         // Single field structs can only have holes due to explicit size/layout.
         // Don't bother promoting, they're rare and a potential source of bugs
-        // (especially considering that the most commun occurence of such structs
+        // (especially considering that the most commun occurrence of such structs
         // are "fixed buffer" structs created by the C# compiler and those must
         // not be promoted).
         return false;
@@ -2979,10 +2888,8 @@ void StructPromotionHelper::PromoteStructLocal(LclVarDsc* lcl)
     }
 }
 
-void Compiler::fgPromoteStructs()
+void Compiler::phPromoteStructs()
 {
-    JITDUMP("*************** In fgPromoteStructs()\n");
-
     if (!opts.OptEnabled(CLFLG_STRUCTPROMOTE))
     {
         JITDUMP("  promotion opt flag not enabled\n");
@@ -3004,7 +2911,7 @@ void Compiler::fgPromoteStructs()
 #ifdef DEBUG
     if (verbose)
     {
-        printf("\nlvaTable before fgPromoteStructs\n");
+        printf("\nlvaTable before phPromoteStructs\n");
         lvaTableDump();
     }
 #endif
@@ -3038,25 +2945,17 @@ void Compiler::fgPromoteStructs()
 #ifdef DEBUG
     if (verbose)
     {
-        printf("\nlvaTable after fgPromoteStructs\n");
+        printf("\nlvaTable after phPromoteStructs\n");
         lvaTableDump();
     }
 #endif
 }
 
-//------------------------------------------------------------------------
-// fgMarkAddressExposedLocals: Traverses the entire method and marks address
-//    exposed locals.
-//
-// Notes:
-//    Trees such as IND(ADDR(LCL_VAR)), that morph is expected to fold
-//    to just LCL_VAR, do not result in the involved local being marked
-//    address exposed.
-//
-void Compiler::fgMarkAddressExposedLocals()
+// Traverses the entire method and marks address exposed locals.
+// Trees such as IND(ADDR(LCL_VAR)) are transformed to just LCL_VAR and
+// do not result in the involved local being marked address exposed.
+void Compiler::phMarkAddressExposedLocals()
 {
-    JITDUMP("\n*************** In fgMarkAddressExposedLocals()\n");
-
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     lvaResetImplicitByRefParamsRefCount();
 #endif
@@ -3439,7 +3338,7 @@ void LclVarDsc::AddImplicitByRefParamAnyRef()
     m_refWeight++;
 }
 
-unsigned LclVarDsc::GetImplicitByRefParamAnyRefCount()
+unsigned LclVarDsc::GetImplicitByRefParamAnyRefCount() const
 {
     assert(JitTls::GetCompiler()->lvaRefCountState == RCS_MORPH);
 
@@ -3453,7 +3352,7 @@ void LclVarDsc::AddImplicitByRefParamCallRef()
     m_refCount = m_refCount == UINT16_MAX ? UINT16_MAX : (m_refCount + 1);
 }
 
-unsigned LclVarDsc::GetImplicitByRefParamCallRefCount()
+unsigned LclVarDsc::GetImplicitByRefParamCallRefCount() const
 {
     assert(JitTls::GetCompiler()->lvaRefCountState == RCS_MORPH);
 
@@ -3492,7 +3391,7 @@ void Compiler::lvaResetImplicitByRefParamsRefCount()
 
 // Change the type of implicit byref parameters from struct to byref.
 // Also choose (based on address-exposed analysis) which struct promotions
-// of implicit byrefs to keep or discard.
+// of implicit byref params to keep or discard.
 // For those which are kept, insert the appropriate initialization code.
 // For those which are to be discarded, annotate the promoted field locals
 // so that fgMorphIndirectParams will know to rewrite their appearances.
@@ -3648,11 +3547,11 @@ void Compiler::fgMorphIndirectParams(Statement* stmt)
 }
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-// Clear annotations for any implicit byrefs params that struct promotion
+// Clear annotations for any implicit byref params that struct promotion
 // asked to promote. Appearances of these have now been rewritten by
 // fgMorphIndirectParams using indirections from the pointer parameter
 // or references to the promoted fields, as appropriate.
-void Compiler::lvaDemoteImplicitByRefParams()
+void Compiler::lvaDemoteImplicitByRefParams() const
 {
     if (!lvaHasImplicitByRefParams)
     {

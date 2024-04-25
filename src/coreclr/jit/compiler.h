@@ -641,8 +641,8 @@ public:
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     void     AddImplicitByRefParamAnyRef();
     void     AddImplicitByRefParamCallRef();
-    unsigned GetImplicitByRefParamAnyRefCount();
-    unsigned GetImplicitByRefParamCallRefCount();
+    unsigned GetImplicitByRefParamAnyRefCount() const;
+    unsigned GetImplicitByRefParamCallRefCount() const;
 #endif
 
     unsigned GetRefCount() const;
@@ -4682,7 +4682,7 @@ public:
     INDEBUG(void inlDebugCheckInlineCandidates();)
 
 private:
-    void fgPromoteStructs();
+    void phPromoteStructs();
 
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
     // Reset the refCount for implicit byrefs.
@@ -4691,10 +4691,10 @@ private:
     // promoted, create new promoted struct temps.
     void lvaRetypeImplicitByRefParams();
     // Clear up annotations for any struct promotion temps created for implicit byrefs.
-    void lvaDemoteImplicitByRefParams();
+    void lvaDemoteImplicitByRefParams() const;
 #endif
 
-    void fgMarkAddressExposedLocals();
+    void phMarkAddressExposedLocals();
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64) || defined(TARGET_X86)
     // Rewrite appearances of implicit byrefs (manifest the implied additional level of indirection)

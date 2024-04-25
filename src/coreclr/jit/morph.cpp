@@ -4584,7 +4584,7 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
         lcl = abiAllocateStructArgTemp(argLayout);
 
         tempAssign = gtNewLclStore(lcl, lcl->GetType(), arg);
-        tempAssign = fgMorphStructStore(tempAssign);
+        tempAssign = fgMorphStructStore(tempAssign, arg);
 
         arg->SetLcl(lcl);
     }

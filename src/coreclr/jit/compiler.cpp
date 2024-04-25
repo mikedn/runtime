@@ -2528,8 +2528,8 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
         DoPhase(this, PHASE_EARLY_UPDATE_FLOW_GRAPH, &Compiler::phUpdateFlowGraph);
     }
 
-    DoPhase(this, PHASE_PROMOTE_STRUCTS, &Compiler::fgPromoteStructs);
-    DoPhase(this, PHASE_STR_ADRLCL, &Compiler::fgMarkAddressExposedLocals);
+    DoPhase(this, PHASE_PROMOTE_STRUCTS, &Compiler::phPromoteStructs);
+    DoPhase(this, PHASE_STR_ADRLCL, &Compiler::phMarkAddressExposedLocals);
     DoPhase(this, PHASE_MORPH_GLOBAL, &Compiler::phMorph);
 
     if (getNeedsGSSecurityCookie())
