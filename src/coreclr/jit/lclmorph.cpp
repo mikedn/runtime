@@ -3582,10 +3582,9 @@ void Compiler::lvaRetypeImplicitByRefParams()
                 unsigned structLclNum = structLcl->GetLclNum();
 
                 fgEnsureFirstBBisScratch();
-                GenTree* lhs  = gtNewLclvNode(structLcl, lcl->GetType());
-                GenTree* addr = gtNewLclvNode(lcl, TYP_BYREF);
-                GenTree* rhs  = gtNewObjNode(structLcl->GetType(), structLcl->GetLayout(), addr);
-                fgNewStmtAtBeg(fgFirstBB, gtNewAssignNode(lhs, rhs));
+                GenTree* addr = gtNewLclLoad(lcl, TYP_BYREF);
+                GenTree* load = gtNewObjNode(structLcl->GetType(), structLcl->GetLayout(), addr);
+                fgNewStmtAtBeg(fgFirstBB, gtNewLclStore(structLcl, lcl->GetType(), load));
 
                 // Update the locals corresponding to the promoted fields.
 
