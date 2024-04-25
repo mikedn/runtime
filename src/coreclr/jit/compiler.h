@@ -4572,7 +4572,8 @@ private:
     GenTree* fgRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* value);
     GenTree* fgExpandVirtualVtableCallTarget(GenTreeCall* call);
     GenTree* fgMorphLeaf(GenTree* tree);
-    GenTree* fgMorphInitStruct(GenTreeOp* asg);
+    GenTree* fgMorphInitStruct(GenTree* store, GenTree* value);
+    GenTree* fgMorphLclStoreStructInit(GenTreeLclVarCommon* store, GenTree* value);
     GenTree* fgMorphPromoteLocalInitStruct(GenTree* store, LclVarDsc* destLclVar, GenTree* initVal);
     GenTree* fgMorphInitStructConstant(GenTreeIntCon* initVal,
                                        var_types      type,
@@ -4580,13 +4581,14 @@ private:
                                        var_types      simdBaseType);
     GenTree* fgMorphStructComma(GenTree* tree);
     GenTree* fgMorphStructAssignment(GenTreeOp* asg);
+    GenTree* fgMorphStructStore(GenTree* store, GenTree* value);
 #ifdef FEATURE_SIMD
     GenTree* fgMorphPromoteVecLoad(GenTreeLclVar* store, LclVarDsc* srcLcl);
     GenTree* fgMorphPromoteVecStore(GenTreeLclVarCommon* store, LclVarDsc* destLcl);
 #endif
     GenTree* fgMorphDynBlk(GenTreeDynBlk* dynBlk);
     GenTree* fgMorphBlockAssignment(GenTreeOp* asg);
-    GenTree* fgMorphCopyStruct(GenTreeOp* asg);
+    GenTree* fgMorphCopyStruct(GenTree* store, GenTree* value);
     GenTree* fgMorphPromoteStore(GenTree* store, GenTree* tempStore, GenTree** fieldStores, unsigned fieldCount);
     GenTree* fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac = nullptr);
     GenTree* fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
