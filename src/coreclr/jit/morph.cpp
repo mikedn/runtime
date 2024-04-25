@@ -10013,11 +10013,12 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         int helper;
 
         case GT_STORE_LCL_VAR:
-            if (tree->AsLclVar()->GetLcl()->IsAddressExposed())
+        case GT_STORE_LCL_FLD:
+            if (tree->AsLclVarCommon()->GetLcl()->IsAddressExposed())
             {
                 tree->AddSideEffects(GTF_GLOB_REF);
-                // TODO-MIKE-Fix: This needs "normalize on store"...
             }
+            // TODO-MIKE-Fix: This needs "normalize on store"...
             break;
 
         case GT_ASG:
@@ -10703,6 +10704,14 @@ DONE_MORPHING_CHILDREN:
         GenTree* cns1;
         GenTree* cns2;
         size_t   ival1, ival2;
+
+        case GT_STORE_LCL_VAR:
+        case GT_STORE_LCL_FLD:
+            if (varTypeIsStruct(tree->GetType()))
+            {
+                return fgMorphStructStore(tree, op1);
+            }
+            break;
 
         case GT_ASG:
             if (op1->OperIs(GT_BLK))
