@@ -1885,8 +1885,8 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInf
                     tempLcl->lvType = arg->GetType();
                 }
 
-                setupArg = compiler->gtNewAssignNode(compiler->gtNewLclvNode(tempLcl, arg->GetType()), arg);
-                setupArg = compiler->fgMorphStructAssignment(setupArg->AsOp());
+                setupArg = compiler->gtNewLclStore(tempLcl, arg->GetType(), arg);
+                setupArg = compiler->fgMorphStructStore(setupArg, arg);
             }
 #ifndef TARGET_X86
             else if (arg->OperIs(GT_MKREFANY))
@@ -1903,11 +1903,11 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInf
             {
                 ClassLayout* layout = compiler->typGetStructLayout(arg);
                 compiler->lvaSetStruct(tempLcl, layout, /* checkUnsafeBuffer */ false);
-                setupArg = compiler->gtNewAssignNode(compiler->gtNewLclvNode(tempLcl, TYP_STRUCT), arg);
-                setupArg = compiler->fgMorphStructAssignment(setupArg->AsOp());
+                setupArg = compiler->gtNewLclStore(tempLcl, TYP_STRUCT, arg);
+                setupArg = compiler->fgMorphStructStore(setupArg, arg);
             }
 
-            lateArg = compiler->gtNewLclvNode(tempLcl, varActualType(tempLcl->GetType()));
+            lateArg = compiler->gtNewLclLoad(tempLcl, varActualType(tempLcl->GetType()));
         }
         else if ((argInfo->GetRegCount() != 0) || argInfo->IsPlaceholderNeeded())
         {
@@ -4583,8 +4583,8 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
     {
         lcl = abiAllocateStructArgTemp(argLayout);
 
-        tempAssign = gtNewAssignNode(gtNewLclvNode(lcl, lcl->GetType()), arg);
-        tempAssign = fgMorphStructAssignment(tempAssign->AsOp());
+        tempAssign = gtNewLclStore(lcl, lcl->GetType(), arg);
+        tempAssign = fgMorphStructStore(tempAssign);
 
         arg->SetLcl(lcl);
     }
@@ -5126,27 +5126,25 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
 
     // TODO-MIKE-CQ: SIMD12 stores should be widened to SIMD16 on 64 bit targets.
 
-    GenTree* dest;
+    GenTree* store;
 
     if (tempLcl->TypeIs(TYP_STRUCT) && varTypeIsSIMD(arg->GetType()))
     {
-        dest = gtNewLclFldNode(tempLcl, arg->GetType(), 0);
+        store = gtNewLclFldStore(arg->GetType(), tempLcl, 0, arg);
     }
     else
     {
-        dest = gtNewLclvNode(tempLcl, tempLcl->GetType());
+        store = gtNewLclStore(tempLcl, tempLcl->GetType(), arg);
     }
 
-    dest->gtFlags |= GTF_GLOB_REF;
+    store->gtFlags |= GTF_GLOB_REF;
 
-    GenTree* asg = gtNewAssignNode(dest, arg);
-
-    if (varTypeIsStruct(dest->GetType()))
+    if (varTypeIsStruct(store->GetType()))
     {
-        asg = fgMorphStructAssignment(asg->AsOp());
+        store = fgMorphStructStore(store, arg);
     }
 
-    argInfo->SetNode(asg);
+    argInfo->SetNode(store);
     argInfo->SetTempLclNum(tempLcl->GetLclNum());
 }
 
@@ -14143,28 +14141,30 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
         noway_assert(!value->OperIs(GT_MKREFANY));
 
         LclVarDsc* lcl = lvaGetDesc(genReturnLocal);
+        GenTree*   store;
 
         if (!varTypeIsStruct(lcl->GetType()))
         {
-            lastStmt->SetRootNode(gtNewStoreLclVar(lcl, lcl->GetType(), value));
+            store = gtNewLclStore(lcl, lcl->GetType(), value);
         }
         else if (lcl->IsPromoted() && !value->TypeIs(TYP_STRUCT))
         {
             assert(lcl->GetPromotedFieldCount() == 1);
 
-            lcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
-            lastStmt->SetRootNode(gtNewStoreLclVar(lcl, lcl->GetType(), value));
+            lcl   = lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
+            store = gtNewLclStore(lcl, lcl->GetType(), value);
         }
         else if (lcl->TypeIs(TYP_STRUCT) && !value->TypeIs(TYP_STRUCT))
         {
-            GenTreeLclFld* store = gtNewStoreLclFld(value->GetType(), lcl, 0, value);
-            lastStmt->SetRootNode(store);
+            store = gtNewLclFldStore(value->GetType(), lcl, 0, value);
         }
         else
         {
-            GenTreeOp* asg = gtNewAssignNode(gtNewLclvNode(lcl, lcl->GetType()), value);
-            lastStmt->SetRootNode(fgMorphStructAssignment(asg));
+            store = gtNewLclStore(lcl, lcl->GetType(), value);
+            store = fgMorphStructStore(store, value);
         }
+
+        lastStmt->SetRootNode(store);
     }
     else if ((ret != nullptr) && ret->OperIs(GT_RETURN))
     {
