@@ -8844,13 +8844,13 @@ GenTree* Compiler::fgMorphStructAssignment(GenTreeOp* asg)
 
 #ifdef FEATURE_SIMD
 
-GenTree* Compiler::fgMorphPromoteSimdAssignmentSrc(GenTreeOp* asg, LclVarDsc* srcLcl)
+GenTree* Compiler::fgMorphPromoteVecLoad(GenTreeLclVar* store, LclVarDsc* srcLcl)
 {
     assert(varTypeIsSIMD(srcLcl->GetType()));
     // Only Vector2/3/4 are promoted.
     assert(lvaGetDesc(srcLcl->GetPromotedFieldLclNum(0))->TypeIs(TYP_FLOAT));
 
-    var_types dstType = asg->GetOp(0)->GetType();
+    var_types dstType = store->GetType();
 #ifdef TARGET_XARCH
     NamedIntrinsic create = NI_Vector128_Create;
     unsigned       numOps = 4;
@@ -8868,7 +8868,7 @@ GenTree* Compiler::fgMorphPromoteSimdAssignmentSrc(GenTreeOp* asg, LclVarDsc* sr
     {
         if (i < srcFieldCount)
         {
-            ops[i] = gtNewLclvNode(lvaGetDesc(srcLcl->GetPromotedFieldLclNum(i)), TYP_FLOAT);
+            ops[i] = gtNewLclLoad(lvaGetDesc(srcLcl->GetPromotedFieldLclNum(i)), TYP_FLOAT);
         }
         else
         {
@@ -8876,45 +8876,20 @@ GenTree* Compiler::fgMorphPromoteSimdAssignmentSrc(GenTreeOp* asg, LclVarDsc* sr
         }
     }
 
-    GenTree* dst = asg->GetOp(0);
-    GenTree* src = gtNewSimdHWIntrinsicNode(dstType, create, TYP_FLOAT, numOps * 4, numOps, ops);
+    store->SetOp(0, gtNewSimdHWIntrinsicNode(dstType, create, TYP_FLOAT, numOps * 4, numOps, ops));
 
-    if (dst->OperIs(GT_LCL_VAR))
-    {
-        asg->ChangeOper(GT_STORE_LCL_VAR);
-        asg->AsLclVar()->SetOp(0, src);
-        asg->AsLclVar()->SetLcl(dst->AsLclVar()->GetLcl());
-    }
-    else if (dst->OperIs(GT_LCL_FLD))
-    {
-        asg->ChangeOper(GT_STORE_LCL_FLD);
-        asg->AsLclFld()->SetOp(0, src);
-        asg->AsLclFld()->SetLcl(dst->AsLclFld()->GetLcl());
-        asg->AsLclFld()->SetLclOffs(dst->AsLclFld()->GetLclOffs());
-        asg->AsLclFld()->SetFieldSeq(dst->AsLclFld()->GetFieldSeq());
-        asg->AsLclFld()->SetLayoutNum(dst->AsLclFld()->GetLayoutNum());
-    }
-    else
-    {
-        asg->ChangeOper(GT_STOREIND);
-        asg->AsIndir()->SetAddr(dst->AsIndir()->GetAddr());
-        asg->AsIndir()->SetValue(src);
-    }
+    JITDUMPTREE(store, "fgMorphCopyStruct (after SIMD source promotion):\n\n");
 
-    asg->gtFlags |= dst->gtFlags & GTF_SPECIFIC_MASK;
-
-    JITDUMPTREE(asg, "fgMorphCopyStruct (after SIMD source promotion):\n\n");
-
-    return asg;
+    return store;
 }
 
-GenTree* Compiler::fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, LclVarDsc* dstLcl)
+GenTree* Compiler::fgMorphPromoteVecStore(GenTreeLclVarCommon* store, LclVarDsc* dstLcl)
 {
     assert(varTypeIsSIMD(dstLcl->GetType()));
     // Only Vector2/3/4 are promoted.
     assert(lvaGetDesc(dstLcl->GetPromotedFieldLclNum(0))->TypeIs(TYP_FLOAT));
 
-    GenTree* src         = asg->GetOp(1);
+    GenTree* src         = store->GetOp(0);
     bool     srcIsZero   = false;
     bool     srcIsCreate = false;
 
@@ -9034,7 +9009,7 @@ GenTree* Compiler::fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, LclVarDsc* ds
         fieldStores[i] = gtNewStoreLclVar(fieldLcl, TYP_FLOAT, fieldSrc);
     }
 
-    return fgMorphPromoteStore(asg, tempStore, fieldStores, fieldCount);
+    return fgMorphPromoteStore(store, tempStore, fieldStores, fieldCount);
 }
 
 #endif // FEATURE_SIMD
@@ -9125,26 +9100,59 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
 
     assert(asg->OperIs(GT_ASG));
 
-    GenTree* dest = asg->GetOp(0);
-    GenTree* src  = asg->GetOp(1);
+    GenTree* store = nullptr;
+    GenTree* src   = asg->GetOp(1);
 
-    assert(varTypeIsStruct(dest->GetType()));
-    assert(dest->TypeIs(TYP_STRUCT) ? src->TypeIs(TYP_STRUCT) : varTypeIsSIMD(src->GetType()));
-    assert(!src->OperIs(GT_INIT_VAL, GT_CNS_INT));
+    {
+        GenTree* dest = asg->GetOp(0);
+
+        assert(varTypeIsStruct(dest->GetType()));
+        assert(dest->TypeIs(TYP_STRUCT) ? src->TypeIs(TYP_STRUCT) : varTypeIsSIMD(src->GetType()));
+        assert(!src->OperIs(GT_INIT_VAL, GT_CNS_INT));
+
+        asg->SetType(dest->GetType());
+
+        if (dest->OperIs(GT_LCL_VAR))
+        {
+            asg->ChangeOper(GT_STORE_LCL_VAR);
+            asg->AsLclVar()->SetLcl(dest->AsLclVar()->GetLcl());
+            asg->AsLclVar()->SetOp(0, src);
+            asg->gtFlags |= dest->gtFlags & GTF_SPECIFIC_MASK;
+        }
+        else if (dest->OperIs(GT_LCL_FLD))
+        {
+            asg->ChangeOper(GT_STORE_LCL_FLD);
+            asg->AsLclFld()->SetLcl(dest->AsLclFld()->GetLcl());
+            asg->AsLclFld()->SetLclOffs(dest->AsLclFld()->GetLclOffs());
+            asg->AsLclFld()->SetFieldSeq(dest->AsLclFld()->GetFieldSeq());
+            asg->AsLclFld()->SetLayoutNum(dest->AsLclFld()->GetLayoutNum());
+            asg->AsLclFld()->SetOp(0, src);
+            asg->gtFlags |= dest->gtFlags & GTF_SPECIFIC_MASK;
+        }
+        else
+        {
+            asg->ChangeOper(dest->OperIs(GT_OBJ) ? GT_STORE_OBJ : GT_STOREIND);
+            asg->AsIndir()->SetAddr(dest->AsIndir()->GetAddr());
+            asg->AsIndir()->SetValue(src);
+            asg->gtFlags |= dest->gtFlags & GTF_SPECIFIC_MASK;
+
+            if (dest->OperIs(GT_OBJ))
+            {
+                asg->AsObj()->SetLayout(dest->AsObj()->GetLayout());
+            }
+        }
+
+        store = asg;
+    }
 
     if (GenTreeCall* call = src->IsCall())
     {
 #if FEATURE_MULTIREG_RET
         if (call->HasMultiRegRetVal())
         {
-            if (dest->OperIs(GT_LCL_VAR))
+            if (store->OperIs(GT_LCL_VAR))
             {
-                asg->ChangeOper(GT_STORE_LCL_VAR);
-                asg->AsLclVar()->SetLcl(dest->AsLclVar()->GetLcl());
-                asg->AsLclVar()->SetOp(0, src);
-                asg->gtFlags |= dest->gtFlags & GTF_SPECIFIC_MASK;
-
-                LclVarDsc* lcl = dest->AsLclVar()->GetLcl();
+                LclVarDsc* lcl = store->AsLclVar()->GetLcl();
 
                 // TODO-MIKE-Cleanup: This isn't quite right, lvIsMultiRegRet should be set before promoting.
                 // The problem is that the importer doesn't set it if the local is indirectly accessed (via
@@ -9158,30 +9166,8 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
                     lcl->lvIsMultiRegRet = true;
                 }
             }
-            else if (dest->OperIs(GT_LCL_FLD))
-            {
-                asg->ChangeOper(GT_STORE_LCL_FLD);
-                asg->AsLclFld()->SetLcl(dest->AsLclFld()->GetLcl());
-                asg->AsLclFld()->SetLclOffs(dest->AsLclFld()->GetLclOffs());
-                asg->AsLclFld()->SetFieldSeq(dest->AsLclFld()->GetFieldSeq());
-                asg->AsLclFld()->SetLayoutNum(dest->AsLclFld()->GetLayoutNum());
-                asg->AsLclFld()->SetOp(0, src);
-                asg->gtFlags |= dest->gtFlags & GTF_SPECIFIC_MASK;
-            }
-            else
-            {
-                asg->ChangeOper(dest->OperIs(GT_OBJ) ? GT_STORE_OBJ : GT_STOREIND);
-                asg->AsIndir()->SetAddr(dest->AsIndir()->GetAddr());
-                asg->AsIndir()->SetValue(src);
-                asg->gtFlags |= dest->gtFlags & GTF_SPECIFIC_MASK;
 
-                if (dest->OperIs(GT_OBJ))
-                {
-                    asg->AsObj()->SetLayout(dest->AsObj()->GetLayout());
-                }
-            }
-
-            return asg;
+            return store;
         }
 #endif
 
@@ -9190,7 +9176,15 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         {
             src->SetType(TYP_LONG);
             src = gtNewBitCastNode(TYP_SIMD8, src);
-            asg->SetOp(1, src);
+
+            if (store->IsIndir())
+            {
+                store->AsIndir()->SetOp(1, src);
+            }
+            else
+            {
+                store->AsLclVarCommon()->SetOp(0, src);
+            }
         }
 #endif
     }
@@ -9198,30 +9192,38 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
     if (src->OperIs(GT_COMMA))
     {
         src = fgMorphStructComma(src);
-        asg->SetOp(1, src);
+
+        if (store->IsIndir())
+        {
+            store->AsIndir()->SetOp(1, src);
+        }
+        else
+        {
+            store->AsLclVarCommon()->SetOp(0, src);
+        }
     }
 
-    JITDUMPTREE(asg, "fgMorphCopyStruct: (after fgMorphStructComma)\n");
+    JITDUMPTREE(store, "fgMorphCopyStruct: (after fgMorphStructComma)\n");
 
     LclVarDsc* destLcl     = nullptr;
     unsigned   destLclOffs = 0;
     bool       destPromote = false;
 
-    if (dest->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
     {
-        destLclOffs = dest->AsLclVarCommon()->GetLclOffs();
-        destLcl     = dest->AsLclVarCommon()->GetLcl();
+        destLclOffs = store->AsLclVarCommon()->GetLclOffs();
+        destLcl     = store->AsLclVarCommon()->GetLcl();
 
 #if LOCAL_ASSERTION_PROP
         if (morphAssertionCount != 0)
         {
-            morphAssertionKill(destLcl DEBUGARG(asg));
+            morphAssertionKill(destLcl DEBUGARG(store->AsLclVarCommon()));
         }
 #endif
     }
     else
     {
-        assert(dest->OperIs(GT_OBJ) || (dest->OperIs(GT_IND) && varTypeIsSIMD(dest->GetType())));
+        assert(store->OperIs(GT_STORE_OBJ) || (store->OperIs(GT_STOREIND) && varTypeIsSIMD(store->GetType())));
     }
 
     LclVarDsc* srcLcl     = nullptr;
@@ -9267,21 +9269,21 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
 
     unsigned destSize;
 
-    if (!dest->TypeIs(TYP_STRUCT))
+    if (!store->TypeIs(TYP_STRUCT))
     {
-        destSize = varTypeSize(dest->GetType());
+        destSize = varTypeSize(store->GetType());
     }
-    else if (dest->OperIs(GT_LCL_VAR))
+    else if (store->OperIs(GT_STORE_LCL_VAR))
     {
         destSize = destLcl->GetLayout()->GetSize();
     }
-    else if (dest->OperIs(GT_LCL_FLD))
+    else if (store->OperIs(GT_STORE_LCL_FLD))
     {
-        destSize = dest->AsLclFld()->GetLayout(this)->GetSize();
+        destSize = store->AsLclFld()->GetLayout(this)->GetSize();
     }
     else
     {
-        destSize = dest->AsObj()->GetLayout()->GetSize();
+        destSize = store->AsObj()->GetLayout()->GetSize();
     }
 
     if ((destLcl != nullptr) && destLcl->IsPromoted() && (destLclOffs == 0) && (destLcl->GetTypeSize() == destSize) &&
@@ -9305,15 +9307,15 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
     }
 
 #ifdef FEATURE_SIMD
-    if (!destPromote && srcPromote && varTypeIsSIMD(srcLcl->GetType()) && dest->OperIs(GT_LCL_VAR))
+    if (!destPromote && srcPromote && varTypeIsSIMD(srcLcl->GetType()) && store->OperIs(GT_STORE_LCL_VAR))
     {
-        return fgMorphPromoteSimdAssignmentSrc(asg, srcLcl);
+        return fgMorphPromoteVecLoad(store->AsLclVar(), srcLcl);
     }
 
     if (destPromote && !srcPromote && varTypeIsSIMD(destLcl->GetType()) &&
         src->OperIs(GT_LCL_VAR, GT_BITCAST, GT_HWINTRINSIC))
     {
-        return fgMorphPromoteSimdAssignmentDst(asg, destLcl);
+        return fgMorphPromoteVecStore(store->AsLclVarCommon(), destLcl);
     }
 #endif // FEATURE_SIMD
 
@@ -9349,7 +9351,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         JITDUMP("src is unaligned\n");
         promote = false;
     }
-    else if (dest->IsIndir() && dest->AsIndir()->IsUnaligned())
+    else if (store->IsIndir() && store->AsIndir()->IsUnaligned())
     {
         JITDUMP("dest is unaligned\n");
         promote = false;
@@ -9390,7 +9392,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
 
     if (!promote)
     {
-        if (asg->TypeIs(TYP_STRUCT))
+        if (store->TypeIs(TYP_STRUCT))
         {
             if (srcLcl != nullptr)
             {
@@ -9404,54 +9406,22 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         }
         else
         {
-            assert(varTypeIsSIMD(asg->GetType()));
+            assert(varTypeIsSIMD(store->GetType()));
 
             if (src->OperIs(GT_OBJ))
             {
                 src->ChangeOper(GT_IND);
             }
 
-            if (dest->OperIs(GT_OBJ))
+            if (store->OperIs(GT_STORE_OBJ))
             {
-                dest->ChangeOper(GT_IND);
+                store->ChangeOper(GT_STOREIND);
             }
         }
 
-        asg->SetType(dest->GetType());
+        JITDUMPTREE(store, "fgMorphCopyStruct: (after)\n");
 
-        if (dest->OperIs(GT_LCL_VAR))
-        {
-            asg->ChangeOper(GT_STORE_LCL_VAR);
-            asg->AsLclVar()->SetLcl(dest->AsLclVar()->GetLcl());
-            asg->AsLclVar()->SetOp(0, src);
-            asg->gtFlags |= dest->gtFlags & GTF_SPECIFIC_MASK;
-        }
-        else if (dest->OperIs(GT_LCL_FLD))
-        {
-            asg->ChangeOper(GT_STORE_LCL_FLD);
-            asg->AsLclFld()->SetLcl(dest->AsLclFld()->GetLcl());
-            asg->AsLclFld()->SetLclOffs(dest->AsLclFld()->GetLclOffs());
-            asg->AsLclFld()->SetFieldSeq(dest->AsLclFld()->GetFieldSeq());
-            asg->AsLclFld()->SetLayoutNum(dest->AsLclFld()->GetLayoutNum());
-            asg->AsLclFld()->SetOp(0, src);
-            asg->gtFlags |= dest->gtFlags & GTF_SPECIFIC_MASK;
-        }
-        else
-        {
-            asg->ChangeOper(dest->OperIs(GT_OBJ) ? GT_STORE_OBJ : GT_STOREIND);
-            asg->AsIndir()->SetAddr(dest->AsIndir()->GetAddr());
-            asg->AsIndir()->SetValue(src);
-            asg->gtFlags |= dest->gtFlags & GTF_SPECIFIC_MASK;
-
-            if (dest->OperIs(GT_OBJ))
-            {
-                asg->AsObj()->SetLayout(dest->AsObj()->GetLayout());
-            }
-        }
-
-        JITDUMPTREE(asg, "fgMorphCopyStruct: (after)\n");
-
-        return asg;
+        return store;
     }
 
     assert(destPromote || srcPromote);
@@ -9530,7 +9500,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         // cases could be handled by querying the VM for destination fields and trying to find
         // ones that are suitable for the current offset and type but this should be a rare case.
 
-        if (store->OperIs(GT_STORE_LCL_VAR, GT_LCL_VAR))
+        if (store->OperIs(GT_STORE_LCL_VAR))
         {
             if (lcl->GetLayout() == promotedLcl->GetLayout())
             {
@@ -9734,20 +9704,20 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
     }
     else if (destLcl != nullptr)
     {
-        SplitLclStore(fieldStores, dest->AsLclVarCommon(), fieldLoads, srcLcl);
+        SplitLclStore(fieldStores, store->AsLclVarCommon(), fieldLoads, srcLcl);
     }
     else
     {
-        tempStore = SplitIndAddr(fieldStores, dest->AsIndir(), srcLcl);
-        SplitIndStore(fieldStores, dest->AsIndir(), fieldLoads, srcLcl);
+        tempStore = SplitIndAddr(fieldStores, store->AsIndir(), srcLcl);
+        SplitIndStore(fieldStores, store->AsIndir(), fieldLoads, srcLcl);
     }
 
-    return fgMorphPromoteStore(asg, tempStore, fieldStores, fieldCount);
+    return fgMorphPromoteStore(store, tempStore, fieldStores, fieldCount);
 }
 
 GenTree* Compiler::fgMorphPromoteStore(GenTree* store, GenTree* tempStore, GenTree** fieldStores, unsigned fieldCount)
 {
-    assert(store->OperIs(GT_ASG, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+    assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_STOREIND, GT_STORE_OBJ));
 
     const bool isStmtRoot = (fgGlobalMorphStmt != nullptr) && (fgGlobalMorphStmt->GetRootNode() == store);
     GenTree*   tree       = tempStore;
@@ -13452,7 +13422,7 @@ void Compiler::fgMorphTreeDone(GenTree* tree,
         {
             if (tree->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
             {
-                morphAssertionKill(tree->AsLclVarCommon()->GetLcl() DEBUGARG(tree->AsOp()));
+                morphAssertionKill(tree->AsLclVarCommon()->GetLcl() DEBUGARG(tree->AsLclVarCommon()));
             }
         }
 

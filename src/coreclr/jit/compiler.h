@@ -4581,8 +4581,8 @@ private:
     GenTree* fgMorphStructComma(GenTree* tree);
     GenTree* fgMorphStructAssignment(GenTreeOp* asg);
 #ifdef FEATURE_SIMD
-    GenTree* fgMorphPromoteSimdAssignmentSrc(GenTreeOp* asg, LclVarDsc* srcLcl);
-    GenTree* fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, LclVarDsc* destLcl);
+    GenTree* fgMorphPromoteVecLoad(GenTreeLclVar* store, LclVarDsc* srcLcl);
+    GenTree* fgMorphPromoteVecStore(GenTreeLclVarCommon* store, LclVarDsc* destLcl);
 #endif
     GenTree* fgMorphDynBlk(GenTreeDynBlk* dynBlk);
     GenTree* fgMorphBlockAssignment(GenTreeOp* asg);
@@ -5143,7 +5143,7 @@ public:
     void morphAssertionSetTable(const MorphAssertion* table, unsigned count);
     void morphAssertionMerge(unsigned              elseAssertionCount,
                              const MorphAssertion* elseAssertionTable DEBUGARG(GenTreeQmark* qmark));
-    void morphAssertionKill(LclVarDsc* lcl DEBUGARG(GenTree* store));
+    void morphAssertionKill(LclVarDsc* lcl DEBUGARG(GenTreeLclVarCommon* store));
 
 private:
     BitVec& morphAssertionGetDependent(unsigned lclNum);
@@ -5152,7 +5152,7 @@ private:
     void morphAssertionAdd(MorphAssertion& assertion);
     const MorphAssertion& morphAssertionGet(unsigned index);
     void morphAssertionRemove(unsigned index);
-    void morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTree* store));
+    void morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeLclVarCommon* store));
     const MorphAssertion* morphAssertionFindRange(unsigned lclNum);
 
     GenTree* morphAssertionPropagateLclVar(GenTreeLclVar* lclVar);
