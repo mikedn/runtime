@@ -2667,8 +2667,8 @@ Statement* Compiler::inlInitInlineeLocals(const InlineInfo* inlineInfo, Statemen
 
         var_types  lclType = lcl->GetType();
         GenTree*   zero    = varTypeIsStruct(lclType) ? gtNewIconNode(0) : gtNewZeroConNode(lclType);
-        GenTreeOp* asg     = gtNewAssignNode(gtNewLclvNode(lcl, lclType), zero);
-        Statement* stmt    = gtNewStmt(asg, inlineInfo->iciStmt->GetILOffsetX());
+        GenTree*   store   = gtNewLclStore(lcl, lclType, zero);
+        Statement* stmt    = gtNewStmt(store, inlineInfo->iciStmt->GetILOffsetX());
         fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
         afterStmt = stmt;
 
