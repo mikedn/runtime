@@ -2514,6 +2514,34 @@ GenTree* Compiler::inlAssignStruct(GenTreeLclVar* dest, GenTree* src)
 
             return call;
         }
+
+#if FEATURE_MULTIREG_RET
+#ifndef UNIX_AMD64_ABI
+        if (call->HasMultiRegRetVal())
+#endif
+        {
+            // If the struct is returned in multiple registers we need to set lvIsMultiRegRet
+            // on the destination local variable.
+
+            // TODO-1stClassStructs: Eliminate this pessimization when we can more generally
+            // handle multireg returns.
+
+            // TODO-MIKE-Cleanup: Why is lvIsMultiRegRet set unconditionally
+            // for UNIX_AMD64_ABI?!
+            // Well, because MultiRegRet doesn't really have much to do with
+            // multiple registers. The problem is that returning a struct in
+            // one or multiple registers results in dependent promotion if
+            // registers and promoted fields do not match. So it makes sense
+            // to block promotion if the struct is returned in a single reg
+            // but it has more than one field.
+            // At the same time, this shouldn't be needed if the struct is
+            // returned in a single register and has a single field.
+            // But what about ARMARCH?!
+            // Oh well, the usual mess.
+
+            dest->GetLcl()->lvIsMultiRegRet = true;
+        }
+#endif
     }
     else if (GenTreeRetExpr* retExpr = src->IsRetExpr())
     {
@@ -2531,38 +2559,6 @@ GenTree* Compiler::inlAssignStruct(GenTreeLclVar* dest, GenTree* src)
     }
 
     // In all other cases we create and return a struct assignment node.
-
-    LclVarDsc* lcl = dest->GetLcl();
-
-#if FEATURE_MULTIREG_RET
-#ifdef UNIX_AMD64_ABI
-    if (src->OperIs(GT_CALL))
-#else
-    if (src->OperIs(GT_CALL) && src->AsCall()->HasMultiRegRetVal())
-#endif
-    {
-        // If the struct is returned in multiple registers we need to set lvIsMultiRegRet
-        // on the destination local variable.
-
-        // TODO-1stClassStructs: Eliminate this pessimization when we can more generally
-        // handle multireg returns.
-
-        // TODO-MIKE-Cleanup: Why is lvIsMultiRegRet set unconditionally
-        // for UNIX_AMD64_ABI?!
-        // Well, because MultiRegRet doesn't really have much to do with
-        // multiple registers. The problem is that returning a struct in
-        // one or multiple registers results in dependent promotion if
-        // registers and promoted fields do not match. So it makes sense
-        // to block promotion if the struct is returned in a single reg
-        // but it has more than one field.
-        // At the same time, this shouldn't be needed if the struct is
-        // returned in a single register and has a single field.
-        // But what about ARMARCH?!
-        // Oh well, the usual mess.
-
-        lcl->lvIsMultiRegRet = true;
-    }
-#endif
 
     return gtNewAssignNode(dest, src);
 }
