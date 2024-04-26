@@ -2382,7 +2382,6 @@ struct Importer
     GenTree* gtClone(GenTree* tree, bool complexOK = false);
     GenTree* gtCloneExpr(GenTree* tree);
     bool gtCanSwapOrder(GenTree* op1, GenTree* op2);
-    void gtInitStructCopyAsg(GenTreeOp* asg);
     GenTree* gtFoldExpr(GenTree* tree);
     GenTree* gtFoldExprConst(GenTree* tree);
     void gtChangeOperToNullCheck(GenTree* tree);

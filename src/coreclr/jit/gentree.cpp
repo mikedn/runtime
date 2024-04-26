@@ -4657,12 +4657,6 @@ void GenTreeOp::CheckDivideByConstOptimized(Compiler* comp)
     }
 }
 
-//------------------------------------------------------------------------
-// gtInitStructCopyAsg: Initializes a struct copy assignment.
-//
-// Arguments:
-//    asg - an assignment node that is to be initialized.
-//
 void Compiler::gtInitStructCopyAsg(GenTreeOp* asg)
 {
     assert(asg->OperIs(GT_ASG));

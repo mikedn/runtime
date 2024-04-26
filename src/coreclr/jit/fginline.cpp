@@ -2295,6 +2295,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
         GenTree*          argNode = argInfo.argNode;
 
         // MKREFANY args currently fail inlining, RET_EXPR should have been replaced already.
+        // inlAssignStruct does not support MKREFANY.
         assert(!argNode->OperIs(GT_MKREFANY, GT_RET_EXPR));
 
         if ((argInfo.paramSingleUse != nullptr) && ((argInfo.paramSingleUse->gtFlags & GTF_VAR_CLONED) == 0))
@@ -2305,7 +2306,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
             // in the inlinee. This offers an opportunity to avoid a temp and just use the
             // original argument tree.
             //
-            // It's possible for additional uses of the agument to appear without inlUseArg
+            // It's possible for additional uses of the argument to appear without inlUseArg
             // being called (e.g. when handling isinst or dup) in which case this replacement
             // cannot be done. This relies on GTF_VAR_CLONED being set on LCL_VARs when they
             // are cloned to detect such cases, that means the importer is expected to not
@@ -2338,21 +2339,15 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
             if (argInfo.paramType != TYP_STRUCT)
             {
                 asg = gtNewAssignNode(dst, argNode);
-
-                if (varTypeIsSIMD(argInfo.paramType))
-                {
-                    gtInitStructCopyAsg(asg->AsOp());
-                }
             }
             else
             {
-                // The argument cannot be MKREFANY because TypedReference parameters block
-                // inlining. That's probably an unnecessary limitation but who cares about
-                // TypedReference? inlAssignStruct does not support MKREFANY.
-
-                assert(!argNode->OperIs(GT_MKREFANY));
-
                 asg = inlAssignStruct(dst, argNode);
+            }
+
+            if (varTypeIsStruct(argInfo.paramType))
+            {
+                gtInitStructCopyAsg(asg->AsOp());
             }
 
             Statement* stmt = gtNewStmt(asg, inlineInfo->iciStmt->GetILOffsetX());
@@ -2500,7 +2495,7 @@ GenTree* Compiler::inlAssignStruct(GenTreeLclVar* dest, GenTree* src)
     // TODO-MIKE-Cleanup: Share code with impAssignStruct, the main difference is that
     // impAssignStruct supports MKREFANY by appending a separate assignment statement
     // for one of refany's field. We could probably just generate a COMMA with the 2
-    // assignements instead.
+    // assignments instead.
     // On the other hand, can we get calls with return buffer here? If not, then there's
     // not much left in this function, only the lvIsMultiRegRet that may be also redundant.
 
@@ -2566,9 +2561,7 @@ GenTree* Compiler::inlAssignStruct(GenTreeLclVar* dest, GenTree* src)
     }
 #endif
 
-    GenTreeOp* asgNode = gtNewAssignNode(dest, src);
-    gtInitStructCopyAsg(asgNode);
-    return asgNode;
+    return gtNewAssignNode(dest, src);
 }
 
 bool Compiler::inlCanDiscardArgSideEffects(GenTree* argNode)

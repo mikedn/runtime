@@ -938,7 +938,7 @@ GenTree* Importer::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLeve
     }
 
     GenTreeOp* asgNode = gtNewAssignNode(dest, src);
-    gtInitStructCopyAsg(asgNode);
+    comp->gtInitStructCopyAsg(asgNode);
     return asgNode;
 }
 
@@ -16085,7 +16085,7 @@ void Importer::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* l
     src->gtFlags |= GTF_DONT_CSE;
 
     GenTreeOp* asg = gtNewAssignNode(dst, src);
-    gtInitStructCopyAsg(asg);
+    comp->gtInitStructCopyAsg(asg);
 
     // We have to spill GLOB_REFs even if the destination is a local,
     // we've got an address so the local is "address taken".
@@ -17546,11 +17546,6 @@ GenTree* Importer::gtCloneExpr(GenTree* tree)
 bool Importer::gtCanSwapOrder(GenTree* op1, GenTree* op2)
 {
     return comp->gtCanSwapOrder(op1, op2);
-}
-
-void Importer::gtInitStructCopyAsg(GenTreeOp* asg)
-{
-    comp->gtInitStructCopyAsg(asg);
 }
 
 GenTree* Importer::gtFoldExpr(GenTree* tree)
