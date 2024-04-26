@@ -1716,6 +1716,7 @@ struct Importer
 
     GenTree* impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigned curLevel);
     GenTree* impAssignStruct(GenTree* dest, GenTree* src, unsigned curLevel);
+    void gtInitStructCopyAsg(GenTreeOp* asg);
 
     GenTree* impGetStructAddr(GenTree* structVal, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel, bool willDeref);
 
@@ -2895,8 +2896,6 @@ public:
     GenTreeLclFld* gtNewStoreLclFld(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* value);
 
     GenTreeUnOp* gtNewBitCastNode(var_types type, GenTree* arg);
-
-    void gtInitStructCopyAsg(GenTreeOp* asg);
 
     GenTreeObj* gtNewObjNode(ClassLayout* layout, GenTree* addr);
     GenTreeObj* gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr);

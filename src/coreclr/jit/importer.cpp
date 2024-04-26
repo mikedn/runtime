@@ -938,8 +938,85 @@ GenTree* Importer::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLeve
     }
 
     GenTreeOp* asgNode = gtNewAssignNode(dest, src);
-    comp->gtInitStructCopyAsg(asgNode);
+    gtInitStructCopyAsg(asgNode);
     return asgNode;
+}
+
+void Importer::gtInitStructCopyAsg(GenTreeOp* asg)
+{
+    assert(asg->OperIs(GT_ASG));
+
+    GenTree* dst = asg->GetOp(0);
+    GenTree* src = asg->GetOp(1);
+
+    assert(varTypeIsStruct(dst->GetType()));
+
+    if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
+    {
+        return;
+    }
+
+    // In the case of a block copy, we want to avoid generating nodes where the source
+    // and destination are the same because of two reasons, first, is useless, second
+    // it introduces issues in liveness and also copying memory from an overlapping
+    // memory location is undefined both as per the ECMA standard and also the memcpy
+    // semantics specify that.
+    //
+    // NOTE: In this case we'll only detect the case for addr of a local and a local
+    // itself, any other complex expressions won't be caught.
+    //
+    // TODO-Cleanup: though having this logic is goodness (i.e. avoids self-assignment
+    // of struct vars very early), it was added because fgInterBlockLocalVarLiveness()
+    // isn't handling self-assignment of struct variables correctly. This issue may not
+    // surface if struct promotion is ON (which is the case on x86/arm). But still the
+    // fundamental issue exists that needs to be addressed.
+
+    LclVarDsc* srcLcl     = nullptr;
+    unsigned   srcLclOffs = 0;
+    LclVarDsc* dstLcl     = nullptr;
+    unsigned   dstLclOffs = 0;
+
+    if (dst->IsIndir() && dst->AsIndir()->GetAddr()->OperIs(GT_LCL_ADDR))
+    {
+        dstLcl     = dst->AsIndir()->GetAddr()->AsLclAddr()->GetLcl();
+        dstLclOffs = dst->AsIndir()->GetAddr()->AsLclAddr()->GetLclOffs();
+    }
+    else if (dst->OperIs(GT_LCL_VAR))
+    {
+        dstLcl = dst->AsLclVar()->GetLcl();
+    }
+
+    if (dstLcl == nullptr)
+    {
+        return;
+    }
+
+    if (src->IsIndir() && src->AsIndir()->GetAddr()->OperIs(GT_LCL_ADDR))
+    {
+        srcLcl     = src->AsIndir()->GetAddr()->AsLclAddr()->GetLcl();
+        srcLclOffs = src->AsIndir()->GetAddr()->AsLclAddr()->GetLclOffs();
+    }
+    else if (src->OperIs(GT_LCL_VAR))
+    {
+        srcLcl = src->AsLclVar()->GetLcl();
+    }
+
+    if ((srcLcl == dstLcl) && (srcLclOffs == dstLclOffs))
+    {
+        asg->ChangeToNothingNode();
+
+        return;
+    }
+
+#ifdef FEATURE_SIMD
+    if ((dstLclOffs == 0) && varTypeIsSIMD(dstLcl->GetType()))
+    {
+        if (GenTreeHWIntrinsic* hwi = src->IsHWIntrinsic())
+        {
+            lvaRecordSimdIntrinsicDef(dstLcl, hwi);
+        }
+    }
+#endif
 }
 
 GenTree* Importer::impGetStructAddr(GenTree*             value,
@@ -16085,7 +16162,7 @@ void Importer::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* l
     src->gtFlags |= GTF_DONT_CSE;
 
     GenTreeOp* asg = gtNewAssignNode(dst, src);
-    comp->gtInitStructCopyAsg(asg);
+    gtInitStructCopyAsg(asg);
 
     // We have to spill GLOB_REFs even if the destination is a local,
     // we've got an address so the local is "address taken".

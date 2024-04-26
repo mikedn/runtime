@@ -2345,15 +2345,18 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
                 asg = inlAssignStruct(dst, argNode);
             }
 
-            if (varTypeIsStruct(argInfo.paramType))
-            {
-                gtInitStructCopyAsg(asg->AsOp());
-            }
-
             Statement* stmt = gtNewStmt(asg, inlineInfo->iciStmt->GetILOffsetX());
             stmt->SetInlineContext(inlineInfo->iciStmt->GetInlineContext());
             fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
             afterStmt = stmt;
+
+            if (varTypeIsSIMD(argInfo.paramLcl->GetType()))
+            {
+                if (GenTreeHWIntrinsic* hwi = argNode->IsHWIntrinsic())
+                {
+                    lvaRecordSimdIntrinsicDef(argInfo.paramLcl, hwi);
+                }
+            }
 
             JITDUMP("Argument %u init\n", argNum);
             DBEXEC(verbose, gtDispStmt(stmt));
