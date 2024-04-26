@@ -588,9 +588,8 @@ private:
 
                 if (returnTemp != nullptr)
                 {
-                    GenTree* assign =
-                        compiler->gtNewAssignNode(compiler->gtNewLclvNode(returnTemp, call->GetType()), call);
-                    compiler->fgNewStmtAtEnd(thenBlock, assign);
+                    GenTree* store = compiler->gtNewLclStore(returnTemp, call->GetType(), call);
+                    compiler->fgNewStmtAtEnd(thenBlock, store);
                 }
                 else
                 {
@@ -622,8 +621,7 @@ private:
 
                     if (returnTemp != nullptr)
                     {
-                        retExpr =
-                            compiler->gtNewAssignNode(compiler->gtNewLclvNode(returnTemp, call->GetType()), retExpr);
+                        retExpr = compiler->gtNewLclStore(returnTemp, call->GetType(), retExpr);
                     }
                     else
                     {
@@ -650,8 +648,7 @@ private:
 
             if (returnTemp != nullptr)
             {
-                newStmt->SetRootNode(
-                    compiler->gtNewAssignNode(compiler->gtNewLclvNode(returnTemp, call->GetType()), call));
+                newStmt->SetRootNode(compiler->gtNewLclStore(returnTemp, call->GetType(), call));
             }
 
             // For stub calls, restore the stub address. For everything else,
