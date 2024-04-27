@@ -4295,6 +4295,7 @@ public:
     inline void fgConvertBBToThrowBB(BasicBlock* block);
 
     bool gtIsSmallIntCastNeeded(GenTree* tree, var_types toType);
+    GenTree* fgMorphNormalizeLclStore(GenTreeLclVar* store, GenTree* value);
     GenTree* fgMorphNormalizeLclVarStore(GenTreeOp* asg);
 
     void fgLoopCallTest(BasicBlock* srcBB, BasicBlock* dstBB);
@@ -4670,7 +4671,7 @@ public:
     Statement* inlInsertSingleBlockInlineeStatements(const InlineInfo* inlineInfo, Statement* stmtAfter);
     Statement* inlPrependStatements(InlineInfo* inlineInfo);
     Statement* inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement* afterStmt);
-    GenTree* inlStoreCallWithRetBuf(GenTreeLclVar* dest, GenTree* src);
+    GenTree* inlStoreCallWithRetBuf(LclVarDsc* dest, var_types type, GenTree* src);
     bool inlCanDiscardArgSideEffects(GenTree* argNode);
     Statement* inlInitInlineeLocals(const InlineInfo* inlineInfo, Statement* afterStmt);
     void inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, Statement* stmt);

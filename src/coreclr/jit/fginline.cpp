@@ -2333,28 +2333,27 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
         if (argInfo.paramHasLcl)
         {
-            GenTreeLclVar* dst   = gtNewLclvNode(argInfo.paramLcl, argInfo.paramType);
-            GenTree*       store = nullptr;
+            GenTree* store = nullptr;
 
             if (varTypeIsStruct(argInfo.paramType))
             {
                 // TODO-MIKE-Review: This looks like dead code. The importer always spills
                 // struct calls that require a return buffer. And it looks like this results
                 // in unnecessary struct copying.
-                store = inlStoreCallWithRetBuf(dst, argNode);
+                store = inlStoreCallWithRetBuf(argInfo.paramLcl, argInfo.paramType, argNode);
             }
 
             if (store == nullptr)
             {
-                store = gtNewAssignNode(dst, argNode);
-
-                if (varTypeIsSIMD(argInfo.paramLcl->GetType()))
+                if (varTypeIsSIMD(argInfo.paramType))
                 {
                     if (GenTreeHWIntrinsic* hwi = argNode->IsHWIntrinsic())
                     {
                         lvaRecordSimdIntrinsicDef(argInfo.paramLcl, hwi);
                     }
                 }
+
+                store = gtNewLclStore(argInfo.paramLcl, argInfo.paramType, argNode);
             }
 
             Statement* stmt = gtNewStmt(store, inlineInfo->iciStmt->GetILOffsetX());
@@ -2493,9 +2492,8 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
     return afterStmt;
 }
 
-GenTree* Compiler::inlStoreCallWithRetBuf(GenTreeLclVar* dest, GenTree* src)
+GenTree* Compiler::inlStoreCallWithRetBuf(LclVarDsc* dest, var_types type, GenTree* src)
 {
-    assert(dest->OperIs(GT_LCL_VAR));
     assert((src->TypeIs(TYP_STRUCT) && src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_OBJ, GT_CALL, GT_RET_EXPR)) ||
            varTypeIsSIMD(src->GetType()));
 
@@ -2514,7 +2512,7 @@ GenTree* Compiler::inlStoreCallWithRetBuf(GenTreeLclVar* dest, GenTree* src)
     {
         if (call->TreatAsHasRetBufArg())
         {
-            impAssignCallWithRetBuf(dest, call);
+            impAssignCallWithRetBuf(gtNewLclvNode(dest, type), call);
 
             return call;
         }
@@ -2543,7 +2541,7 @@ GenTree* Compiler::inlStoreCallWithRetBuf(GenTreeLclVar* dest, GenTree* src)
             // But what about ARMARCH?!
             // Oh well, the usual mess.
 
-            dest->GetLcl()->lvIsMultiRegRet = true;
+            dest->lvIsMultiRegRet = true;
         }
 #endif
     }
@@ -2555,7 +2553,7 @@ GenTree* Compiler::inlStoreCallWithRetBuf(GenTreeLclVar* dest, GenTree* src)
 
         if (call->TreatAsHasRetBufArg())
         {
-            impAssignCallWithRetBuf(dest, call);
+            impAssignCallWithRetBuf(gtNewLclvNode(dest, type), call);
             retExpr->SetType(TYP_VOID);
 
             return retExpr;

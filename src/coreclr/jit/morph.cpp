@@ -9806,6 +9806,30 @@ GenTree* Compiler::fgMorphAssociative(GenTreeOp* tree)
     return op1;
 }
 
+GenTree* Compiler::fgMorphNormalizeLclStore(GenTreeLclVar* store, GenTree* value)
+{
+    assert(store->OperIs(GT_STORE_LCL_VAR));
+    assert(fgGlobalMorph);
+
+    if (varActualTypeIsInt(store->GetType()))
+    {
+        LclVarDsc* lcl = store->GetLcl();
+
+        if (lcl->lvNormalizeOnStore())
+        {
+            store->SetType(TYP_INT);
+
+            if (gtIsSmallIntCastNeeded(value, lcl->GetType()))
+            {
+                value = gtNewCastNode(value, false, lcl->GetType());
+                store->SetOp(0, value);
+            }
+        }
+    }
+
+    return value;
+}
+
 GenTree* Compiler::fgMorphNormalizeLclVarStore(GenTreeOp* asg)
 {
     assert(asg->OperIs(GT_ASG));
@@ -10013,12 +10037,16 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         int helper;
 
         case GT_STORE_LCL_VAR:
+            if (fgGlobalMorph)
+            {
+                op1 = fgMorphNormalizeLclStore(tree->AsLclVar(), op1);
+            }
+            FALLTHROUGH;
         case GT_STORE_LCL_FLD:
             if (tree->AsLclVarCommon()->GetLcl()->IsAddressExposed())
             {
                 tree->AddSideEffects(GTF_GLOB_REF);
             }
-            // TODO-MIKE-Fix: This needs "normalize on store"...
             break;
 
         case GT_ASG:
@@ -10707,11 +10735,21 @@ DONE_MORPHING_CHILDREN:
 
         case GT_STORE_LCL_VAR:
         case GT_STORE_LCL_FLD:
-            if (varTypeIsStruct(tree->GetType()))
+            if (varTypeIsStruct(typ))
             {
-                return fgMorphStructStore(tree, op1);
+                tree = fgMorphStructStore(tree, op1);
             }
-            break;
+            else if (varTypeIsSmall(typ))
+            {
+                if ((tree->OperIs(GT_STORE_LCL_FLD) || (tree->AsLclVar()->GetLcl()->lvNormalizeOnLoad())) &&
+                    op1->IsCast() && varTypeIsIntegral(op1->AsCast()->GetOp(0)) && !op1->gtOverflow() &&
+                    varTypeIsSmall(op1->GetType()) && (varTypeSize(op1->GetType()) >= varTypeSize(typ)))
+                {
+                    op1 = op1->AsCast()->GetOp(0);
+                    tree->AsLclVarCommon()->SetOp(0, op1);
+                }
+            }
+            return tree;
 
         case GT_ASG:
             if (op1->OperIs(GT_BLK))

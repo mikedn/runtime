@@ -520,6 +520,19 @@ public:
                 }
                 break;
 
+            case GT_STORE_LCL_VAR:
+                assert(TopValue(1).Node() == node);
+                assert(TopValue(0).Node() == node->AsLclVar()->GetOp(0));
+
+                EscapeValue(TopValue(0), node);
+                PopValue();
+
+                if (node->TypeIs(TYP_STRUCT))
+                {
+                    PostOrderVisitStructLclStore(node->AsLclVar());
+                }
+                break;
+
             case GT_ASG:
                 if (node->TypeIs(TYP_STRUCT))
                 {
@@ -760,8 +773,9 @@ private:
             {
                 switch (user->GetOper())
                 {
+                    case GT_STORE_LCL_VAR:
                     case GT_ASG:
-                        PromoteSingleFieldStructLocalAssignment(lcl, node->AsLclVar(), user->AsOp());
+                        PromoteSingleFieldStructLocalAssignment(lcl, node->AsLclVar(), user);
                         break;
                     case GT_CALL:
                         PromoteSingleFieldStructLocalCallArg(lcl, node->AsLclVar());
@@ -885,11 +899,11 @@ private:
         MorphLocalIndir(val, user, indirSize);
     }
 
-    void PromoteSingleFieldStructLocalAssignment(LclVarDsc* lcl, GenTreeLclVar* lclVar, GenTreeOp* asg)
+    void PromoteSingleFieldStructLocalAssignment(LclVarDsc* lcl, GenTreeLclVar* lclVar, GenTree* store)
     {
         assert(lcl->TypeIs(TYP_STRUCT));
         assert(lcl->GetPromotedFieldCount() == 1);
-        assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
+        assert(store->OperIs(GT_ASG, GT_STORE_LCL_VAR) && store->TypeIs(TYP_STRUCT));
 
         LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
 
@@ -1211,6 +1225,7 @@ private:
 
             switch (user->GetOper())
             {
+                case GT_STORE_LCL_VAR:
                 case GT_ASG:
                     if (MorphLocalStructIndirAssignment(val, indir, indirLayout))
                     {
@@ -1696,6 +1711,114 @@ private:
         }
 
         return false;
+    }
+
+    void PostOrderVisitStructLclStore(GenTreeLclVar* store)
+    {
+        assert(store->OperIs(GT_STORE_LCL_VAR) && store->TypeIs(TYP_STRUCT));
+
+        LclVarDsc* destLcl = store->GetLcl();
+        GenTree*   value   = store->GetOp(0);
+
+        assert(!value->OperIs(GT_INIT_VAL));
+
+        if (destLcl->IsPromoted() && (destLcl->GetPromotedFieldCount() == 1))
+        {
+            LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(destLcl->GetPromotedFieldLclNum(0));
+            PromoteSingleFieldStructLclStore(store, value, fieldLcl);
+        }
+        else if (!value->TypeIs(TYP_STRUCT) && !value->IsIntCon(0))
+        {
+            RetypeStructLclStore(store, value->GetType());
+        }
+    }
+
+    void RetypeStructLclStore(GenTreeLclVar* store, var_types type)
+    {
+        assert(store->OperIs(GT_STORE_LCL_VAR) && store->TypeIs(TYP_STRUCT));
+        assert(type != TYP_STRUCT);
+
+        LclVarDsc*     lcl         = store->GetLcl();
+        ClassLayout*   fieldLayout = nullptr;
+        FieldSeqNode*  fieldSeq    = GetFieldSequence(lcl->GetLayout()->GetClassHandle(), type, &fieldLayout);
+        GenTreeLclFld* fieldStore  = store->ChangeToLclFld(type, lcl, 0, fieldSeq);
+
+        m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
+
+        if (varTypeIsSIMD(type) && (fieldLayout != nullptr) && (fieldLayout->GetSIMDType() == type))
+        {
+            fieldStore->SetLayout(fieldLayout, m_compiler);
+        }
+
+        INDEBUG(m_stmtModified = true;)
+    }
+
+    void PromoteSingleFieldStructLclStore(GenTreeLclVar* store, GenTree* value, LclVarDsc* fieldLcl)
+    {
+        assert(store->GetLcl()->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()));
+
+        store->SetLcl(fieldLcl);
+        store->SetType(fieldLcl->GetType());
+
+        if (value->IsIntegralConst(0))
+        {
+            value = RetypeStructZeroInit(value, store->GetType());
+        }
+        else if (!value->TypeIs(TYP_STRUCT))
+        {
+            value = RetypeScalarLclStoreValue(store, value);
+        }
+        else if (GenTreeCall* call = value->IsCall())
+        {
+            value = RetypeStructCall(call, store->GetType());
+        }
+        else if (value->OperIs(GT_LCL_FLD, GT_LCL_VAR))
+        {
+            value = RetypeStructLocal(value->AsLclVarCommon(), store->GetType());
+        }
+        else
+        {
+            value = RetypeStructIndir(value->AsObj(), store->GetType());
+        }
+
+        store->SetOp(0, value);
+
+        INDEBUG(m_stmtModified = true;)
+    }
+
+    GenTree* RetypeScalarLclStoreValue(GenTreeLclVar* store, GenTree* value)
+    {
+        assert(store->OperIs(GT_STORE_LCL_VAR) && !store->TypeIs(TYP_STRUCT));
+        assert(value->OperIs(GT_LCL_VAR) && !value->TypeIs(TYP_STRUCT));
+
+        // The store operand was changed to scalar, currently we only do this if the
+        // struct size matches the scalar type size and since the operand of a struct
+        // store is supposed to have the same struct type, the resulting scalar type
+        // should also have the same size. It may be possible to tolerate size mismatches
+        // for small int types but it's unlikely to be worth the trouble.
+        //
+        // TODO-MIKE-Review: The importer doesn't do proper IL validation and we may get
+        // here with different struct types. Probably it doesn't matter, unless it results
+        // in JIT crashes...
+        assert(varTypeSize(store->GetType()) == varTypeSize(value->GetType()));
+
+        // We don't allow type size changes but we don't otherwise care about the scalar
+        // types so we could end up with INT/FLOAT and DOUBLE/LONG/SIMD8 mismatches.
+        if ((varTypeUsesFloatReg(store->GetType()) != varTypeUsesFloatReg(value->GetType())) &&
+            (varTypeSize(store->GetType()) <= REGSIZE_BYTES))
+        {
+            return NewBitCastNode(varActualType(store->GetType()), value);
+        }
+
+        if (varActualType(store->GetType()) != varActualType(value->GetType()))
+        {
+            value->ChangeOper(GT_LCL_FLD);
+            value->SetType(store->GetType());
+
+            m_compiler->lvaSetDoNotEnregister(value->AsLclFld()->GetLcl() DEBUGARG(Compiler::DNER_LocalField));
+        }
+
+        return value;
     }
 
     void RetypeScalarAssignment(GenTreeOp* asg, GenTree* op1, GenTree* op2)
