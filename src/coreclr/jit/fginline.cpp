@@ -2295,7 +2295,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
         GenTree*          argNode = argInfo.argNode;
 
         // MKREFANY args currently fail inlining, RET_EXPR should have been replaced already.
-        // inlAssignStruct does not support MKREFANY.
+        // The code below does not handle the initialization of an inlinee param from MKREFANY.
         assert(!argNode->OperIs(GT_MKREFANY, GT_RET_EXPR));
 
         if ((argInfo.paramSingleUse != nullptr) && ((argInfo.paramSingleUse->gtFlags & GTF_VAR_CLONED) == 0))
@@ -2333,30 +2333,34 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
         if (argInfo.paramHasLcl)
         {
-            GenTreeLclVar* dst = gtNewLclvNode(argInfo.paramLcl, argInfo.paramType);
-            GenTree*       asg;
+            GenTreeLclVar* dst   = gtNewLclvNode(argInfo.paramLcl, argInfo.paramType);
+            GenTree*       store = nullptr;
 
-            if (argInfo.paramType != TYP_STRUCT)
+            if (varTypeIsStruct(argInfo.paramType))
             {
-                asg = gtNewAssignNode(dst, argNode);
-            }
-            else
-            {
-                asg = inlAssignStruct(dst, argNode);
+                // TODO-MIKE-Review: This looks like dead code. The importer always spills
+                // struct calls that require a return buffer. And it looks like this results
+                // in unnecessary struct copying.
+                store = inlStoreCallWithRetBuf(dst, argNode);
             }
 
-            Statement* stmt = gtNewStmt(asg, inlineInfo->iciStmt->GetILOffsetX());
+            if (store == nullptr)
+            {
+                store = gtNewAssignNode(dst, argNode);
+
+                if (varTypeIsSIMD(argInfo.paramLcl->GetType()))
+                {
+                    if (GenTreeHWIntrinsic* hwi = argNode->IsHWIntrinsic())
+                    {
+                        lvaRecordSimdIntrinsicDef(argInfo.paramLcl, hwi);
+                    }
+                }
+            }
+
+            Statement* stmt = gtNewStmt(store, inlineInfo->iciStmt->GetILOffsetX());
             stmt->SetInlineContext(inlineInfo->iciStmt->GetInlineContext());
             fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
             afterStmt = stmt;
-
-            if (varTypeIsSIMD(argInfo.paramLcl->GetType()))
-            {
-                if (GenTreeHWIntrinsic* hwi = argNode->IsHWIntrinsic())
-                {
-                    lvaRecordSimdIntrinsicDef(argInfo.paramLcl, hwi);
-                }
-            }
 
             JITDUMP("Argument %u init\n", argNum);
             DBEXEC(verbose, gtDispStmt(stmt));
@@ -2489,7 +2493,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
     return afterStmt;
 }
 
-GenTree* Compiler::inlAssignStruct(GenTreeLclVar* dest, GenTree* src)
+GenTree* Compiler::inlStoreCallWithRetBuf(GenTreeLclVar* dest, GenTree* src)
 {
     assert(dest->OperIs(GT_LCL_VAR));
     assert((src->TypeIs(TYP_STRUCT) && src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_OBJ, GT_CALL, GT_RET_EXPR)) ||
@@ -2558,9 +2562,7 @@ GenTree* Compiler::inlAssignStruct(GenTreeLclVar* dest, GenTree* src)
         }
     }
 
-    // In all other cases we create and return a struct assignment node.
-
-    return gtNewAssignNode(dest, src);
+    return nullptr;
 }
 
 bool Compiler::inlCanDiscardArgSideEffects(GenTree* argNode)

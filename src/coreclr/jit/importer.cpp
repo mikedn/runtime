@@ -1050,23 +1050,20 @@ GenTree* Importer::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
 {
     assert(arg->GetType() == typGetStructType(argLayout));
 
+    bool spillToTemp = false;
+
     switch (arg->GetOper())
     {
         case GT_CALL:
-        case GT_RET_EXPR:
             // TODO-MIKE-CQ: We should not need a temp for single reg return calls either.
-            if ((arg->IsCall() ? arg->AsCall() : arg->AsRetExpr()->GetCall())->GetRegCount() <= 1)
-            {
-                LclVarDsc* argLcl = lvaAllocTemp(true DEBUGARG("struct arg temp"));
-                impAppendTempAssign(argLcl, arg, argLayout, curLevel);
-                arg = gtNewLclvNode(argLcl, argLcl->GetType());
-            }
-            return arg;
-
+            spillToTemp = arg->AsCall()->GetRegCount() <= 1;
+            break;
+        case GT_RET_EXPR:
+            spillToTemp = arg->AsRetExpr()->GetCall()->GetRegCount() <= 1;
+            break;
         case GT_LCL_VAR:
             assert(arg->GetType() == arg->AsLclVar()->GetLcl()->GetType());
-            return arg;
-
+            break;
 #ifdef FEATURE_SIMD
         case GT_IND:
 #ifdef FEATURE_HW_INTRINSICS
@@ -1078,11 +1075,19 @@ GenTree* Importer::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
         case GT_MKREFANY:
         case GT_LCL_FLD:
         case GT_OBJ:
-            return arg;
-
+            break;
         default:
             unreached();
     }
+
+    if (spillToTemp)
+    {
+        LclVarDsc* argLcl = lvaAllocTemp(true DEBUGARG("struct arg temp"));
+        impAppendTempAssign(argLcl, arg, argLayout, curLevel);
+        arg = comp->gtNewLclLoad(argLcl, argLcl->GetType());
+    }
+
+    return arg;
 }
 
 // Given a type token, generate code that will evaluate to the correct
