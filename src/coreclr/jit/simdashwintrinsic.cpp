@@ -780,38 +780,37 @@ GenTree* Importer::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
     assert(src->OperIs(GT_IND, GT_HWINTRINSIC));
     assert(varTypeIsSIMD(src->GetType()));
 
-    GenTree* dest;
-
     if (destAddr->OperIs(GT_LCL_ADDR) && (destAddr->AsLclAddr()->GetLcl()->GetType() == src->GetType()))
     {
         LclVarDsc* lcl = destAddr->AsLclAddr()->GetLcl();
         // Currently the importer doesn't generate local field addresses.
         assert(destAddr->AsLclAddr()->GetLclOffs() == 0);
 
-        dest = destAddr;
-        dest->SetOper(GT_LCL_VAR);
-        dest->AsLclVar()->SetLcl(lcl);
-        dest->SetType(src->GetType());
+        GenTree* store = destAddr;
+        store->SetOper(GT_STORE_LCL_VAR);
+        store->SetType(lcl->GetType());
+        store->AddSideEffects(GTF_ASG | src->GetSideEffects());
+        store->AsLclVar()->SetLcl(lcl);
+        store->AsLclVar()->SetOp(0, src);
 
         if (GenTreeHWIntrinsic* hwi = src->IsHWIntrinsic())
         {
-            lvaRecordSimdIntrinsicDef(dest->AsLclVar(), hwi);
+            lvaRecordSimdIntrinsicDef(store->AsLclVar(), hwi);
         }
-    }
-    else
-    {
-        dest = comp->gtNewIndir(src->GetType(), destAddr);
-        dest->gtFlags |= GTF_GLOB_REF | comp->gtGetIndirExceptionFlags(destAddr);
+
+        return store;
     }
 
+    GenTreeIndir* dest = comp->gtNewIndir(src->GetType(), destAddr);
+    dest->gtFlags |= GTF_GLOB_REF | comp->gtGetIndirExceptionFlags(destAddr);
     return gtNewAssignNode(dest, src);
 }
 
-GenTree* Importer::impGetArrayElementsAsVector(ClassLayout*    layout,
-                                               GenTree*        array,
-                                               GenTree*        index,
-                                               ThrowHelperKind indexThrowKind,
-                                               ThrowHelperKind lastIndexThrowKind)
+GenTreeIndir* Importer::impGetArrayElementsAsVector(ClassLayout*    layout,
+                                                    GenTree*        array,
+                                                    GenTree*        index,
+                                                    ThrowHelperKind indexThrowKind,
+                                                    ThrowHelperKind lastIndexThrowKind)
 {
     assert(array->TypeIs(TYP_REF));
     assert((index == nullptr) || (varActualType(index->GetType()) == TYP_INT));
@@ -864,7 +863,7 @@ GenTree* Importer::impGetArrayElementsAsVector(ClassLayout*    layout,
     offset = gtNewOperNode(GT_ADD, TYP_BYREF, array, offset);
     offset->gtFlags |= GTF_DONT_CSE;
 
-    GenTree* indir = gtNewIndir(layout->GetSIMDType(), offset);
+    GenTreeIndir* indir = gtNewIndir(layout->GetSIMDType(), offset);
     indir->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
     return indir;
 }
@@ -902,9 +901,9 @@ GenTree* Importer::impVector234TCopyTo(const HWIntrinsicSignature& sig, ClassLay
     GenTree* array = impPopStackCoerceArg(TYP_REF);
     GenTree* value = impPopStackAddrAsVector(layout->GetSIMDType());
 
-    GenTree* indir = impGetArrayElementsAsVector(layout, array, index, ThrowHelperKind::ArgumentOutOfRange,
-                                                 ThrowHelperKind::Argument);
-    return gtNewAssignNode(indir, value);
+    GenTreeIndir* indir = impGetArrayElementsAsVector(layout, array, index, ThrowHelperKind::ArgumentOutOfRange,
+                                                      ThrowHelperKind::Argument);
+    return comp->gtNewAssignNode(indir, value);
 }
 
 GenTree* Importer::impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout)

@@ -934,6 +934,25 @@ inline GenTreeLclFld* GenTree::ChangeToLclFld(var_types type, LclVarDsc* lcl, un
     return lclFld;
 }
 
+inline GenTreeLclFld* GenTree::ChangeToLclFldStore(
+    var_types type, LclVarDsc* lcl, unsigned offset, FieldSeqNode* fieldSeq, GenTree* value)
+{
+    assert(offset <= UINT16_MAX);
+    assert((fieldSeq == nullptr) || (fieldSeq == FieldSeqNode::NotAField()) || fieldSeq->IsField());
+
+    SetOperResetFlags(GT_STORE_LCL_FLD);
+
+    GenTreeLclFld* lclFld = AsLclFld();
+    lclFld->SetType(type);
+    lclFld->SetLcl(lcl);
+    lclFld->SetLclOffs(offset);
+    lclFld->SetLayoutNum(0);
+    lclFld->SetFieldSeq(fieldSeq == nullptr ? FieldSeqNode::NotAField() : fieldSeq);
+    lclFld->SetOp(0, value);
+    lclFld->SetSideEffects(GTF_ASG | value->GetSideEffects() | (lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE));
+    return lclFld;
+}
+
 inline GenTreeLclAddr* GenTree::ChangeToLclAddr(var_types type, LclVarDsc* lcl)
 {
     // TODO-MIKE-Review: GTF_VAR_CLONED should not be needed on LCL_ADDR. Inlining

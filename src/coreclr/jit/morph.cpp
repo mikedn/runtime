@@ -10751,6 +10751,9 @@ DONE_MORPHING_CHILDREN:
             }
             return tree;
 
+        case GT_STORE_OBJ:
+            return fgMorphStructStore(tree, op2);
+
         case GT_ASG:
             if (op1->OperIs(GT_BLK))
             {

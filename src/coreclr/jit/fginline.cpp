@@ -283,6 +283,34 @@ public:
             }
 #endif
         }
+        else if (tree->OperIs(GT_STORE_LCL_VAR))
+        {
+            // If we're storing to a ref typed local that has one definition,
+            // we may be able to sharpen the type for the local.
+
+            if (tree->TypeIs(TYP_REF) && tree->AsLclVar()->GetLcl()->lvSingleDef)
+            {
+                bool                 isExact   = false;
+                bool                 isNonNull = false;
+                CORINFO_CLASS_HANDLE newClass =
+                    m_compiler->gtGetClassHandle(tree->AsLclVar()->GetOp(0), &isExact, &isNonNull);
+
+                if (newClass != NO_CLASS_HANDLE)
+                {
+                    m_compiler->lvaUpdateClass(tree->AsLclVar()->GetLcl(), newClass, isExact);
+                }
+            }
+
+            // If we created a self-copy (say because we are sharing return spill temps)
+            // we can remove it.
+            GenTree* src = tree->AsLclVar()->GetOp(0);
+
+            if (src->OperIs(GT_LCL_VAR) && (tree->AsLclVar()->GetLcl() == src->AsLclVar()->GetLcl()))
+            {
+                JITDUMPTREE(tree, "Removing self-assignment:");
+                tree->ChangeToNothingNode();
+            }
+        }
         else if (tree->OperIs(GT_ASG))
         {
             // If we're assigning to a ref typed local that has one definition,

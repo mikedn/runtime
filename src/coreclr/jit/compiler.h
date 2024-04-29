@@ -1717,6 +1717,7 @@ struct Importer
     GenTree* impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigned curLevel);
     GenTree* impAssignStruct(GenTree* dest, GenTree* src, unsigned curLevel);
     void gtInitStructCopyAsg(GenTreeOp* asg);
+    void gtInitStructLclStore(GenTreeLclVar* store, GenTree* value);
 
     GenTree* impGetStructAddr(GenTree* structVal, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel, bool willDeref);
 
@@ -1885,11 +1886,11 @@ struct Importer
     GenTree* impVector234CreateExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
     GenTree* impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
     GenTree* impAssignSIMDAddr(GenTree* destAddr, GenTree* src);
-    GenTree* impGetArrayElementsAsVector(ClassLayout*    layout,
-                                         GenTree*        array,
-                                         GenTree*        index,
-                                         ThrowHelperKind indexThrowKind,
-                                         ThrowHelperKind lastIndexThrowKind);
+    GenTreeIndir* impGetArrayElementsAsVector(ClassLayout*    layout,
+                                              GenTree*        array,
+                                              GenTree*        index,
+                                              ThrowHelperKind indexThrowKind,
+                                              ThrowHelperKind lastIndexThrowKind);
     GenTree* impVector234TCopyTo(const HWIntrinsicSignature& sig, ClassLayout* layout);
     GenTree* impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout);
     GenTree* impVectorTMultiply(const HWIntrinsicSignature& sig);
@@ -2276,7 +2277,7 @@ struct Importer
     GenTreeOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2);
     GenTreeOp* gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type = TYP_UNDEF);
     GenTreeQmark* gtNewQmarkNode(var_types type, GenTree* cond, GenTree* op1, GenTree* op2);
-    GenTreeOp* gtNewAssignNode(GenTree* dst, GenTree* src);
+    GenTreeOp* gtNewAssignNode(GenTreeIndir* dst, GenTree* src);
     GenTreeBoundsChk* gtNewBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind);
     GenTreeIndexAddr* gtNewArrayIndexAddr(GenTree* arr, GenTree* ind, var_types elemType);
     GenTreeIndexAddr* gtNewStringIndexAddr(GenTree* arr, GenTree* ind);
@@ -3022,7 +3023,7 @@ public:
 
     void gtChangeOperToNullCheck(GenTree* tree);
 
-    GenTreeOp* gtNewAssignNode(GenTree* dst, GenTree* src);
+    GenTreeOp* gtNewAssignNode(GenTreeIndir* dst, GenTree* src);
 
     GenTree* gtNewNothingNode();
 

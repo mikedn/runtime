@@ -4443,8 +4443,9 @@ CallArgInfo* GenTreeCall::GetArgInfoByLateArgUse(Use* use) const
     unreached();
 }
 
-GenTreeOp* Compiler::gtNewAssignNode(GenTree* dst, GenTree* src)
+GenTreeOp* Compiler::gtNewAssignNode(GenTreeIndir* dst, GenTree* src)
 {
+    assert(dst->OperIs(GT_IND, GT_OBJ, GT_BLK));
     assert(!src->TypeIs(TYP_VOID));
 
     // TODO-MIKE-Review: This is probably useless now...
