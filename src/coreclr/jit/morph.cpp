@@ -8098,17 +8098,23 @@ GenTree* Compiler::fgRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* valu
 
     if (arr->IsIntegralConst(0))
     {
-        result = gtNewIndir(TYP_I_IMPL, arr);
+        result = gtNewIndLoad(TYP_I_IMPL, arr);
     }
     else
     {
         GenTreeIndexAddr* addr         = gtNewArrayIndexAddr(arr, index, TYP_REF);
         GenTreeIndir*     arrIndexNode = gtNewIndexIndir(TYP_REF, addr);
+
         if (!fgGlobalMorph && !opts.MinOpts())
         {
             arrIndexNode->SetAddr(fgMorphIndexAddr(addr));
         }
-        result = gtNewAssignNode(arrIndexNode, value);
+
+        arrIndexNode->SetOper(GT_STOREIND);
+        arrIndexNode->SetValue(value);
+        arrIndexNode->AddSideEffects(GTF_ASG | value->GetSideEffects());
+
+        result = arrIndexNode;
     }
 
     result = fgMorphTree(result);
