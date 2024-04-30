@@ -584,7 +584,7 @@ GenTree* Importer::impVector234TCreateBroadcast(const HWIntrinsicSignature& sig,
 
     if (destAddr != nullptr)
     {
-        return impAssignSIMDAddr(destAddr, create);
+        return impVectorStore(destAddr, create);
     }
 
     return create;
@@ -666,7 +666,7 @@ GenTree* Importer::impVector234Create(const HWIntrinsicSignature& sig, ClassLayo
 
     if (destAddr != nullptr)
     {
-        return impAssignSIMDAddr(destAddr, create);
+        return impVectorStore(destAddr, create);
     }
 
     return create;
@@ -741,13 +741,13 @@ GenTree* Importer::impVector234CreateExtend(const HWIntrinsicSignature& sig, Cla
 
     if (destAddr != nullptr)
     {
-        return impAssignSIMDAddr(destAddr, create);
+        return impVectorStore(destAddr, create);
     }
 
     return create;
 }
 
-GenTree* Importer::impPopStackAddrAsVector(var_types type)
+GenTree* Importer::impVectorPop(var_types type)
 {
     assert(varTypeIsSIMD(type));
 
@@ -771,14 +771,16 @@ GenTree* Importer::impPopStackAddrAsVector(var_types type)
         return addr;
     }
 
-    return gtNewIndir(type, addr);
+    return comp->gtNewIndLoad(type, addr);
 }
 
-GenTree* Importer::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
+GenTree* Importer::impVectorStore(GenTree* destAddr, GenTree* src)
 {
     assert(destAddr->TypeIs(TYP_BYREF, TYP_I_IMPL));
     assert(src->OperIs(GT_IND, GT_HWINTRINSIC));
     assert(varTypeIsSIMD(src->GetType()));
+
+    GenTree* store;
 
     if (destAddr->OperIs(GT_LCL_ADDR) && (destAddr->AsLclAddr()->GetLcl()->GetType() == src->GetType()))
     {
@@ -786,7 +788,7 @@ GenTree* Importer::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
         // Currently the importer doesn't generate local field addresses.
         assert(destAddr->AsLclAddr()->GetLclOffs() == 0);
 
-        GenTree* store = destAddr;
+        store = destAddr;
         store->SetOper(GT_STORE_LCL_VAR);
         store->SetType(lcl->GetType());
         store->AddSideEffects(GTF_ASG | src->GetSideEffects());
@@ -797,20 +799,21 @@ GenTree* Importer::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
         {
             lvaRecordSimdIntrinsicDef(store->AsLclVar(), hwi);
         }
-
-        return store;
+    }
+    else
+    {
+        store = comp->gtNewIndStore(src->GetType(), destAddr, src);
+        store->gtFlags |= GTF_GLOB_REF | comp->gtGetIndirExceptionFlags(destAddr);
     }
 
-    GenTreeIndir* dest = comp->gtNewIndir(src->GetType(), destAddr);
-    dest->gtFlags |= GTF_GLOB_REF | comp->gtGetIndirExceptionFlags(destAddr);
-    return gtNewAssignNode(dest, src);
+    return store;
 }
 
-GenTreeIndir* Importer::impGetArrayElementsAsVector(ClassLayout*    layout,
-                                                    GenTree*        array,
-                                                    GenTree*        index,
-                                                    ThrowHelperKind indexThrowKind,
-                                                    ThrowHelperKind lastIndexThrowKind)
+GenTree* Importer::impGetArrayElementsAsVectorAddr(ClassLayout*    layout,
+                                                   GenTree*        array,
+                                                   GenTree*        index,
+                                                   ThrowHelperKind indexThrowKind,
+                                                   ThrowHelperKind lastIndexThrowKind)
 {
     assert(array->TypeIs(TYP_REF));
     assert((index == nullptr) || (varActualType(index->GetType()) == TYP_INT));
@@ -860,12 +863,10 @@ GenTreeIndir* Importer::impGetArrayElementsAsVector(ClassLayout*    layout,
         offset->gtFlags |= GTF_DONT_CSE;
     }
 
-    offset = gtNewOperNode(GT_ADD, TYP_BYREF, array, offset);
-    offset->gtFlags |= GTF_DONT_CSE;
+    GenTree* addr = gtNewOperNode(GT_ADD, TYP_BYREF, array, offset);
+    addr->gtFlags |= GTF_DONT_CSE;
 
-    GenTreeIndir* indir = gtNewIndir(layout->GetSIMDType(), offset);
-    indir->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
-    return indir;
+    return addr;
 }
 
 GenTree* Importer::impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj)
@@ -878,15 +879,13 @@ GenTree* Importer::impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLay
     GenTree* array    = impPopStackCoerceArg(TYP_REF);
     GenTree* destAddr = isNewObj ? nullptr : impPopStack().val;
 
-    GenTree* indir = impGetArrayElementsAsVector(layout, array, index, ThrowHelperKind::IndexOutOfRange,
-                                                 ThrowHelperKind::IndexOutOfRange);
+    GenTree* srcAddr = impGetArrayElementsAsVectorAddr(layout, array, index, ThrowHelperKind::IndexOutOfRange,
+                                                       ThrowHelperKind::IndexOutOfRange);
 
-    if (destAddr != nullptr)
-    {
-        return impAssignSIMDAddr(destAddr, indir);
-    }
+    GenTreeIndir* src = comp->gtNewIndLoad(layout->GetSIMDType(), srcAddr);
+    src->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
 
-    return indir;
+    return destAddr == nullptr ? src : impVectorStore(destAddr, src);
 }
 
 GenTree* Importer::impVector234TCopyTo(const HWIntrinsicSignature& sig, ClassLayout* layout)
@@ -899,11 +898,14 @@ GenTree* Importer::impVector234TCopyTo(const HWIntrinsicSignature& sig, ClassLay
 
     GenTree* index = sig.paramCount == 1 ? nullptr : impPopStackCoerceArg(TYP_INT);
     GenTree* array = impPopStackCoerceArg(TYP_REF);
-    GenTree* value = impPopStackAddrAsVector(layout->GetSIMDType());
+    GenTree* value = impVectorPop(layout->GetSIMDType());
 
-    GenTreeIndir* indir = impGetArrayElementsAsVector(layout, array, index, ThrowHelperKind::ArgumentOutOfRange,
-                                                      ThrowHelperKind::Argument);
-    return comp->gtNewAssignNode(indir, value);
+    GenTree* destAddr = impGetArrayElementsAsVectorAddr(layout, array, index, ThrowHelperKind::ArgumentOutOfRange,
+                                                        ThrowHelperKind::Argument);
+
+    GenTreeIndir* dest = comp->gtNewIndStore(layout->GetSIMDType(), destAddr, value);
+    dest->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
+    return dest;
 }
 
 GenTree* Importer::impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout)
@@ -912,7 +914,7 @@ GenTree* Importer::impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayou
     assert(sig.paramType[0] == TYP_INT);
 
     GenTree* index = impPopStackCoerceArg(TYP_INT);
-    GenTree* value = impPopStackAddrAsVector(layout->GetSIMDType());
+    GenTree* value = impVectorPop(layout->GetSIMDType());
 
     return impVectorGetElement(layout, value, index);
 }
@@ -923,7 +925,7 @@ GenTree* Importer::impVector234TInstanceEquals(const HWIntrinsicSignature& sig)
     assert(sig.hasThisParam && (sig.paramCount == 1));
 
     GenTree* op1 = impSIMDPopStack(sig.paramType[0]);
-    GenTree* op2 = impPopStackAddrAsVector(sig.paramType[0]);
+    GenTree* op2 = impVectorPop(sig.paramType[0]);
 
     return impVector234TEquals(sig, op1, op2);
 }
@@ -1156,8 +1158,8 @@ GenTree* Importer::impVectorT128Widen(const HWIntrinsicSignature& sig)
 
     GenTree* lo = gtNewSimdHWIntrinsicNode(TYP_SIMD16, lower, eltType, 8, uses[0]);
     GenTree* hi = gtNewSimdHWIntrinsicNode(TYP_SIMD16, upper, eltType, 16, uses[1]);
-    impSpillAllAppendTree(impAssignSIMDAddr(loAddr, lo));
-    return impAssignSIMDAddr(hiAddr, hi);
+    impSpillAllAppendTree(impVectorStore(loAddr, lo));
+    return impVectorStore(hiAddr, hi);
 }
 
 GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
@@ -2326,8 +2328,8 @@ GenTree* Importer::impVectorT128Widen(const HWIntrinsicSignature& sig)
         hi = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_UnpackHigh, eltType, 16, uses[1], sign[1]);
     }
 
-    impSpillAllAppendTree(impAssignSIMDAddr(loAddr, lo));
-    return impAssignSIMDAddr(hiAddr, hi);
+    impSpillAllAppendTree(impVectorStore(loAddr, lo));
+    return impVectorStore(hiAddr, hi);
 }
 
 GenTree* Importer::impVectorT256Widen(const HWIntrinsicSignature& sig)
@@ -2379,8 +2381,8 @@ GenTree* Importer::impVectorT256Widen(const HWIntrinsicSignature& sig)
     hi = gtNewSimdHWIntrinsicNode(TYP_SIMD32, extractIntrinsic, eltType, 32, uses[1], gtNewIconNode(1));
     hi = gtNewSimdHWIntrinsicNode(TYP_SIMD32, widenIntrinsic, eltType, 32, hi);
 
-    impSpillAllAppendTree(impAssignSIMDAddr(loAddr, lo));
-    return impAssignSIMDAddr(hiAddr, hi);
+    impSpillAllAppendTree(impVectorStore(loAddr, lo));
+    return impVectorStore(hiAddr, hi);
 }
 
 GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)

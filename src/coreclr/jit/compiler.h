@@ -1859,7 +1859,7 @@ struct Importer
 
 #ifdef FEATURE_HW_INTRINSICS
     GenTree* impSIMDPopStack(var_types type);
-    GenTree* impPopStackAddrAsVector(var_types type);
+    GenTree* impVectorPop(var_types type);
 
     GenTree* impHWIntrinsic(NamedIntrinsic        intrinsic,
                             CORINFO_CLASS_HANDLE  clsHnd,
@@ -1885,8 +1885,8 @@ struct Importer
     GenTree* impVector234Create(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
     GenTree* impVector234CreateExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
     GenTree* impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
-    GenTree* impAssignSIMDAddr(GenTree* destAddr, GenTree* src);
-    GenTreeIndir* impGetArrayElementsAsVector(ClassLayout*    layout,
+    GenTree* impVectorStore(GenTree* destAddr, GenTree* src);
+    GenTree* impGetArrayElementsAsVectorAddr(ClassLayout*    layout,
                                               GenTree*        array,
                                               GenTree*        index,
                                               ThrowHelperKind indexThrowKind,
