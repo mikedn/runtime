@@ -9069,37 +9069,6 @@ GenTree* Compiler::fgMorphDynBlk(GenTreeDynBlk* dynBlk)
     return dynBlk;
 }
 
-GenTree* Compiler::fgMorphBlockAssignment(GenTreeOp* asg)
-{
-    assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
-
-    GenTreeBlk* dst = asg->GetOp(0)->AsBlk();
-    GenTree*    src = asg->GetOp(1);
-
-    assert(dst->GetLayout()->IsBlockLayout());
-    assert(dst->GetLayout()->GetSize() != 0);
-
-    if (src->OperIs(GT_BLK))
-    {
-        assert(src->AsBlk()->GetLayout()->GetSize() == dst->GetLayout()->GetSize());
-    }
-    else
-    {
-        assert(src->OperIs(GT_INIT_VAL) || src->IsIntegralConst(0));
-    }
-
-    asg->ChangeOper(GT_STORE_BLK);
-
-    GenTreeBlk* store = asg->AsBlk();
-
-    store->SetAddr(dst->GetAddr());
-    store->SetValue(src);
-    store->SetLayout(dst->GetLayout());
-    store->gtFlags |= dst->gtFlags & GTF_SPECIFIC_MASK;
-
-    return store;
-}
-
 GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
 {
     JITDUMPTREE(store, "\nfgMorphCopyStruct: (before)\n");
@@ -10761,10 +10730,7 @@ DONE_MORPHING_CHILDREN:
             return fgMorphStructStore(tree, op2);
 
         case GT_ASG:
-            if (op1->OperIs(GT_BLK))
-            {
-                return fgMorphBlockAssignment(tree->AsOp());
-            }
+            assert(!op1->OperIs(GT_BLK));
 
             if (varTypeIsStruct(op1->GetType()))
             {

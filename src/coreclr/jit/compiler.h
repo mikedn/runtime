@@ -4587,7 +4587,6 @@ private:
     GenTree* fgMorphPromoteVecStore(GenTreeLclVarCommon* store, LclVarDsc* destLcl);
 #endif
     GenTree* fgMorphDynBlk(GenTreeDynBlk* dynBlk);
-    GenTree* fgMorphBlockAssignment(GenTreeOp* asg);
     GenTree* fgMorphCopyStruct(GenTree* store, GenTree* value);
     GenTree* fgMorphPromoteStore(GenTree* store, GenTree* tempStore, GenTree** fieldStores, unsigned fieldCount);
     GenTree* fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac = nullptr);

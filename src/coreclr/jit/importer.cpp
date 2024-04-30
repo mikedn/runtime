@@ -2519,19 +2519,19 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
         dataOffset = eeGetArrayDataOffset(elementType);
     }
 
-    GenTree*    dstAddr = gtNewOperNode(GT_ADD, TYP_BYREF, arrayLocalNode, gtNewIconNode(dataOffset, TYP_I_IMPL));
-    GenTreeBlk* dst     = new (comp, GT_BLK) GenTreeBlk(dstAddr, typGetBlkLayout(blkSize));
     GenTree*    srcAddr = gtNewIconHandleNode(initData, HandleKind::ConstData);
-    GenTreeBlk* src     = new (comp, GT_BLK) GenTreeBlk(srcAddr, dst->GetLayout());
+    GenTreeBlk* load    = new (comp, GT_BLK) GenTreeBlk(srcAddr, typGetBlkLayout(blkSize));
+    GenTree*    dstAddr = gtNewOperNode(GT_ADD, TYP_BYREF, arrayLocalNode, gtNewIconNode(dataOffset, TYP_I_IMPL));
+    GenTreeBlk* store   = new (comp, GT_STORE_BLK) GenTreeBlk(dstAddr, load, load->GetLayout());
 
-    dst->gtFlags &= ~GTF_EXCEPT;
-    dst->gtFlags |= GTF_IND_NONFAULTING;
-    src->gtFlags &= ~GTF_EXCEPT;
-    src->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
+    load->gtFlags &= ~GTF_EXCEPT;
+    load->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
+    store->gtFlags &= ~GTF_EXCEPT;
+    store->gtFlags |= GTF_IND_NONFAULTING;
 
     INDEBUG(srcAddr->AsIntCon()->SetDumpHandle(reinterpret_cast<void*>(THT_IntializeArrayIntrinsics)));
 
-    return gtNewAssignNode(dst, src);
+    return store;
 }
 
 //------------------------------------------------------------------------
@@ -16288,20 +16288,20 @@ void Importer::impImportInitBlk(unsigned prefixFlags)
     }
     else
     {
-        ClassLayout* layout = typGetBlkLayout(sizeIntCon->GetUInt32Value());
-        GenTreeBlk*  dst    = new (comp, GT_BLK) GenTreeBlk(dstAddr, layout);
-
-        if ((prefixFlags & PREFIX_VOLATILE) != 0)
-        {
-            dst->SetVolatile();
-        }
-
         if (!initValue->IsIntegralConst(0))
         {
             initValue = gtNewOperNode(GT_INIT_VAL, TYP_STRUCT, initValue);
         }
 
-        init = gtNewAssignNode(dst, initValue);
+        ClassLayout* layout = typGetBlkLayout(sizeIntCon->GetUInt32Value());
+        GenTreeBlk*  store  = new (comp, GT_STORE_BLK) GenTreeBlk(dstAddr, initValue, layout);
+
+        if ((prefixFlags & PREFIX_VOLATILE) != 0)
+        {
+            store->SetVolatile();
+        }
+
+        init = store;
     }
 
     impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("INITBLK stack spill temp"));
@@ -16331,16 +16331,16 @@ void Importer::impImportCpBlk(unsigned prefixFlags)
     else
     {
         ClassLayout* layout = typGetBlkLayout(sizeIntCon->GetUInt32Value());
-        GenTreeBlk*  dst    = new (comp, GT_BLK) GenTreeBlk(dstAddr, layout);
-        GenTreeBlk*  src    = new (comp, GT_BLK) GenTreeBlk(srcAddr, layout);
+        GenTreeBlk*  load   = new (comp, GT_BLK) GenTreeBlk(srcAddr, layout);
+        GenTreeBlk*  store  = new (comp, GT_STORE_BLK) GenTreeBlk(dstAddr, load, layout);
 
         if ((prefixFlags & PREFIX_VOLATILE) != 0)
         {
-            dst->SetVolatile();
-            src->SetVolatile();
+            store->SetVolatile();
+            load->SetVolatile();
         }
 
-        copy = gtNewAssignNode(dst, src);
+        copy = store;
     }
 
     impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("CPBLK stack spill temp"));
