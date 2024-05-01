@@ -1435,18 +1435,20 @@ class SIMDCoalescingBuffer
     LclVarDsc* m_lcl;
     unsigned   m_index;
 
-    LclVarDsc* IsSimdLocalField(GenTree* node, Compiler* compiler);
-    LclVarDsc* IsSimdLocalExtract(GenTree* node);
+    LclVarDsc* IsSimdLocalField(GenTree* node, Compiler* compiler) const;
+    LclVarDsc* IsSimdLocalExtract(GenTree* node) const;
 
-    bool Add(Compiler* compiler, Statement* stmt, GenTreeOp* asg, LclVarDsc* simdLcl);
+    bool AddStore(Compiler* compiler, Statement* stmt, GenTree* store, LclVarDsc* simdLcl);
 
 public:
     SIMDCoalescingBuffer() : m_index(0)
     {
     }
 
-    static bool AreContiguousMemoryLocations(GenTree* l1, GenTree* l2);
-    static void ChangeToSIMDMem(Compiler* compiler, GenTree* tree, var_types simdType);
+    static bool AreContiguousLoads(GenTree* l1, GenTree* l2);
+    static bool AreContiguousStores(GenTree* s1, GenTree* s2);
+    static void ChangeToSIMDLoad(Compiler* compiler, GenTree* tree, var_types simdType);
+    void ChangeToSIMDStore(Compiler* compiler, GenTree* store, var_types type, GenTree* value);
 
     void Mark(Compiler* compiler, Statement* stmt);
     bool Add(Compiler* compiler, Statement* stmt);
