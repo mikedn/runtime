@@ -4189,13 +4189,13 @@ GenTree* Importer::impArrayAccessIntrinsic(
 
     if (name == NI_CORINFO_INTRINSIC_Array_Set)
     {
-        assert(val != nullptr);
-        return gtNewAssignNode(elem, val);
+        // TODO-MIKE-Cleanup: It would be better to generate stores from the get go
+        elem->SetOper(elem->OperIs(GT_OBJ) ? GT_STORE_OBJ : GT_STOREIND);
+        elem->SetValue(val);
+        elem->AddSideEffects(GTF_ASG | GTF_GLOB_REF | val->GetSideEffects());
     }
-    else
-    {
-        return elem;
-    }
+
+    return elem;
 }
 
 #ifdef DEBUG
