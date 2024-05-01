@@ -4801,7 +4801,10 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
                 value = gtNewCastNode(value, false, dstTyp);
             }
 
-            store = gtNewAssignNode(gtNewIndir(type, addr), value);
+            store = comp->gtNewIndStore(type, addr, value);
+            // TODO-MIKE-Review: Does this need a GLOB_REF? On one hand boxes are immutable,
+            // so after this store the value cannot change again. But what would prevent a
+            // load of the boxed value to move before this store? Magic?
         }
 
         impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("impImportAndPushBox"));
