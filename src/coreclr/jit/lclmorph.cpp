@@ -480,6 +480,25 @@ public:
                 PopValue();
                 break;
 
+            case GT_STOREIND:
+                assert(TopValue(2).Node() == node);
+                assert(TopValue(1).Node() == node->AsIndir()->GetAddr());
+                assert(TopValue(0).Node() == node->AsIndir()->GetValue());
+
+                if (TopValue(1).IsAddress())
+                {
+                    MorphLocalIndStore(node->AsIndir(), TopValue(1));
+                }
+                else
+                {
+                    EscapeValue(TopValue(1), node);
+                }
+
+                EscapeValue(TopValue(0), node);
+                PopValue();
+                PopValue();
+                break;
+
             case GT_RETURN:
                 if (TopValue(0).Node() != node)
                 {
@@ -1089,6 +1108,178 @@ private:
         }
 
         return indir->AsBlk()->GetLayout()->GetSize();
+    }
+
+    void CanonicalizeLocalIndStore(GenTreeIndir* store, const Value& addrVal)
+    {
+        assert(addrVal.IsAddress());
+
+        m_compiler->lvaSetAddressExposed(addrVal.Lcl());
+
+        CanonicalizeLocalAddress(addrVal, store);
+
+        store->gtFlags &= GTF_IND_UNALIGNED | GTF_IND_VOLATILE;
+        store->gtFlags |= GTF_ASG | GTF_GLOB_REF | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP;
+
+        if (store->IsVolatile())
+        {
+            store->AddSideEffects(GTF_ORDER_SIDEEFF);
+        }
+
+        INDEBUG(m_stmtModified = true);
+    }
+
+    void MorphLocalIndStore(GenTreeIndir* store, const Value& addrVal)
+    {
+        assert(store->OperIs(GT_STOREIND) && (varTypeSize(store->GetType()) != 0));
+        assert(addrVal.IsAddress());
+        INDEBUG(addrVal.Consume());
+
+        LclVarDsc* lcl       = addrVal.Lcl();
+        var_types  storeType = store->GetType();
+        unsigned   lclOffs   = addrVal.Offset();
+
+        if ((lclOffs > UINT16_MAX) || (varTypeSize(storeType) > lcl->GetTypeSize()))
+        {
+            CanonicalizeLocalIndStore(store, addrVal);
+            return;
+        }
+
+        var_types     lclType  = lcl->GetType();
+        FieldSeqNode* fieldSeq = addrVal.FieldSeq();
+
+        if (lcl->IsPromoted() && !lcl->lvDoNotEnregister)
+        {
+            LclVarDsc* fieldLcl = FindPromotedField(lcl, lclOffs, varTypeSize(storeType));
+
+            if (fieldLcl != nullptr)
+            {
+                lcl     = fieldLcl;
+                lclType = fieldLcl->GetType();
+                lclOffs -= fieldLcl->GetPromotedFieldOffset();
+
+                if (lclOffs != 0)
+                {
+                    fieldSeq = FieldSeqNode::NotAField();
+                }
+                else if ((fieldSeq != nullptr) && fieldSeq->IsField())
+                {
+                    fieldSeq = fieldSeq->RemovePrefix(fieldLcl->GetPromotedFieldSeq());
+
+                    if (fieldSeq == addrVal.FieldSeq())
+                    {
+                        // There was no prefix, this means that the field access sequence doesn't
+                        // match the promoted field sequence, ignore the address field sequence.
+                        fieldSeq = FieldSeqNode::NotAField();
+                    }
+                }
+            }
+        }
+
+        if (store->IsVolatile())
+        {
+            // TODO-MIKE-Review: For now ignore volatile on promoted field stores,
+            // to avoid diffs due to old promotion code ignoring volatile as well.
+
+            if (!store->GetAddr()->OperIs(GT_FIELD_ADDR) || !lcl->IsPromotedField())
+            {
+                CanonicalizeLocalIndStore(store, addrVal);
+                return;
+            }
+        }
+
+        GenTree* value = store->GetValue();
+
+        if ((lclOffs == 0) && (varTypeSize(storeType) == varTypeSize(lclType)))
+        {
+            bool isAssignable = varTypeKind(storeType) == varTypeKind(lclType);
+
+            if (!isAssignable && CanBitCastTo(lclType))
+            {
+                value        = NewBitCastNode(lclType, value);
+                isAssignable = true;
+            }
+
+            if (isAssignable)
+            {
+                store->ChangeOper(GT_STORE_LCL_VAR);
+                store->SetType(lclType);
+                store->AsLclVar()->SetLcl(lcl);
+                store->AsLclVar()->SetOp(0, value);
+                store->gtFlags = GTF_ASG | (lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
+
+                INDEBUG(m_stmtModified = true);
+                return;
+            }
+        }
+
+#ifdef FEATURE_SIMD
+        if (varTypeIsSIMD(lclType) && lcl->lvIsUsedInSIMDIntrinsic() && store->TypeIs(TYP_FLOAT) &&
+            (lclOffs % 4 == 0) && !lcl->IsImplicitByRefParam() && !lcl->lvDoNotEnregister)
+        {
+            // Recognize fields X/Y/Z/W of Vector2/3/4. These fields have type FLOAT so this is the only type
+            // we recognize here but any other type supported by GetItem/SetItem would work. But other vector
+            // types don't have fields and the only way this would be useful is if someone uses unsafe code
+            // to access the vector elements. That's not very useful as the other vector types offer element
+            // access by other means - Vector's indexer and Vector64/128/256's GetElement.
+
+            // TODO-MIKE-CQ: Doing this here is a bit of a problem if the local variable ends up in memory,
+            // if it is DNER for whatever reasons (we haven't determined that exactly at this point) or if
+            // it is an implicit byref param. We could produce a LCL_FLD here, without DNERing the local and
+            // let morph convert it to GetItem/SetItem or leave it alone if the local was already DNERed for
+            // other reasons. But creating a LCL_FLD without DNERing the corresponding local seems somewhat
+            // risky at the moment.
+            //
+            // Implicit byref params are a bit more complicated. We could simply skip this transform if the
+            // local is an implicit byref param but that's not always a clear improvement because of CSE.
+            // If multiple vector elements are accessed then we can have a single SIMD load and multiple
+            // GetItem to extract the elements. Otherwise we need to do a separate FLOAT load for each.
+            // Having a single load may be faster but multiple loads can result in smaller code if loads
+            // end up as memory operands on other instructions (on x86/64).
+            //
+            // Ultimately the best option may be to keep doing this here and compensate for the memory case
+            // in lowering. This is already done for GetItem but doesn't work very well. And SetItem is a
+            // bit more cumbersome to handle, though perhaps it would fit into the existing RMW lowering.
+
+            // TODO-MIKE-CQ: The lvIsUsedInSIMDIntrinsic check is bogus. It's really intended to block
+            // struct promotion and this transform doesn't have anything to do with that. In fact using
+            // it here hurts promotion because SIMD typed promoted fields don't have it set so accessing
+            // their X/Y/Z/W fields will just result in DNER.
+
+            value = NewInsertElement(lcl->GetType(), lclOffs / 4, TYP_FLOAT,
+                                     m_compiler->gtNewLclLoad(lcl, lcl->GetType()), value);
+
+            store->ChangeOper(GT_STORE_LCL_VAR);
+            store->SetType(lclType);
+            store->AsLclVar()->SetLcl(lcl);
+            store->AsLclVar()->SetOp(0, value);
+            store->gtFlags = GTF_ASG | (lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
+
+            INDEBUG(m_stmtModified = true);
+            return;
+        }
+#endif // FEATURE_SIMD
+
+        if (varTypeIsSmall(lcl->GetType()))
+        {
+            // If STORE_LCL_FLD is used to store to a small type local then "normalize on store"
+            // isn't possible so the local has to be "normalize on load". The only way to do this
+            // is by making the local address exposed which is a big hammer. But such an indirect
+            // store is highly unusual so it's not worth the trouble to introduce another mechanism.
+            m_compiler->lvaSetAddressExposed(lcl);
+        }
+
+        store->ChangeOper(GT_STORE_LCL_FLD);
+        store->AsLclFld()->SetLcl(lcl);
+        store->AsLclFld()->SetLclOffs(lclOffs);
+        store->AsLclFld()->SetFieldSeq(fieldSeq == nullptr || !varTypeIsStruct(lclType) ? FieldSeqStore::NotAField()
+                                                                                        : fieldSeq);
+        store->AsLclFld()->SetOp(0, value);
+        store->gtFlags = GTF_ASG | (lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
+
+        m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
+
+        INDEBUG(m_stmtModified = true);
     }
 
     // Change a tree that represents a local variable address

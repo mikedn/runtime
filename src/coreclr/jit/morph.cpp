@@ -10573,7 +10573,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
         if (!op1->IsIndir())
         {
-            if (tree->OperIs(GT_IND, GT_OBJ, GT_BLK))
+            if (tree->IsIndir())
             {
                 if (op1Mac == nullptr)
                 {

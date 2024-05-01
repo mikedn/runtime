@@ -2933,10 +2933,9 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
 
             // Remove call to constructor and directly assign the byref passed
             // to the call to the first slot of the ByReference struct.
-            op1                                    = impPopStack().val;
-            CORINFO_FIELD_HANDLE fldHnd            = info.compCompHnd->getFieldInClass(clsHnd, 0);
-            GenTreeIndir*        field             = gtNewFieldIndir(TYP_BYREF, gtNewFieldAddr(newobjThis, fldHnd, 0));
-            GenTreeOp*           assign            = gtNewAssignNode(field, op1);
+            op1                         = impPopStack().val;
+            CORINFO_FIELD_HANDLE fldHnd = info.compCompHnd->getFieldInClass(clsHnd, 0);
+            GenTreeIndir*        store  = gtNewFieldIndStore(TYP_BYREF, gtNewFieldAddr(newobjThis, fldHnd, 0), op1);
             GenTree*             byReferenceStruct = gtCloneExpr(newobjThis);
             assert(byReferenceStruct != nullptr);
             byReferenceStruct->SetOper(GT_LCL_VAR);
@@ -2945,7 +2944,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             // ADDR(LCL_VAR) and returned only the LCL_VAR node, without clearing GTF_DONT_CSE.
             byReferenceStruct->SetDoNotCSE();
             impPushOnStack(byReferenceStruct, typeInfo(TI_STRUCT, clsHnd));
-            retNode = assign;
+            retNode = store;
             break;
         }
         // Implement ptr value getter for ByReference struct.
@@ -10596,7 +10595,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
             // For CPOBJ op2 always has type lclType so we can skip all the type
             // compatibility checks above.
             STIND_CPOBJ:
-                op1 = gtNewIndir(lclTyp, op1);
+                op1 = comp->gtNewIndStore(lclTyp, op1, op2);
 
                 if ((prefixFlags & PREFIX_VOLATILE) != 0)
                 {
@@ -10608,7 +10607,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     op1->AsIndir()->SetUnaligned();
                 }
 
-                op1 = gtNewAssignNode(op1->AsIndir(), op2);
                 op1->AddSideEffects(GTF_EXCEPT | GTF_GLOB_REF);
 
                 // Spill side-effects AND global-data-accesses
@@ -10940,7 +10938,13 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
                 else
                 {
-                    op1 = gtNewAssignNode(op1->AsIndir(), impConvertFieldStoreValue(op1->GetType(), op2));
+                    op2 = impConvertFieldStoreValue(op1->GetType(), op2);
+
+                    // TODO-MIKE-Cleanup: It would be better to generate stores from the get go
+                    op1->SetOper(op1->OperIs(GT_OBJ) ? GT_STORE_OBJ : GT_STOREIND);
+                    op1->AsIndir()->SetValue(op2);
+                    // We're expecting gtNewFieldIndir to add GLOB_REF as needed.
+                    op1->AddSideEffects(GTF_ASG | op2->GetSideEffects());
                 }
 
                 impSpillNoneAppendTree(op1);
