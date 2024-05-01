@@ -873,6 +873,7 @@ GenTree* Importer::impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigne
 
     if (dest->OperIs(GT_LCL_VAR))
     {
+        // TODO-MIKE-Cleanup: This should generate LCL_FLD stores...
         destAddr = dest->ChangeToLclAddr(TYP_I_IMPL, dest->AsLclVar()->GetLcl());
     }
     else
@@ -885,13 +886,13 @@ GenTree* Importer::impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigne
 
     GenTreeFieldAddr* valueAddr =
         gtNewFieldAddr(destAddrUses[0], GetRefanyValueField(), OFFSETOF__CORINFO_TypedReference__dataPtr);
-    GenTreeIndir* valueField = gtNewFieldIndir(TYP_BYREF, valueAddr);
-    impAppendTree(gtNewAssignNode(valueField, mkRefAny->GetOp(0)), curLevel);
-
+    GenTreeIndir*     valueStore = gtNewFieldIndStore(TYP_BYREF, valueAddr, mkRefAny->GetOp(0));
     GenTreeFieldAddr* typeAddr =
         gtNewFieldAddr(destAddrUses[1], GetRefanyTypeField(), OFFSETOF__CORINFO_TypedReference__type);
-    GenTreeIndir* typeField = gtNewFieldIndir(TYP_I_IMPL, typeAddr);
-    return gtNewAssignNode(typeField, mkRefAny->GetOp(1));
+    GenTreeIndir* typeStore = gtNewFieldIndStore(TYP_I_IMPL, typeAddr, mkRefAny->GetOp(1));
+
+    impAppendTree(valueStore, curLevel);
+    return typeStore;
 }
 
 GenTree* Importer::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLevel)
@@ -17417,6 +17418,15 @@ GenTreeIndir* Importer::gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldA
 GenTreeIndir* Importer::gtNewFieldIndir(var_types type, unsigned layoutNum, GenTreeFieldAddr* fieldAddr)
 {
     return comp->gtNewFieldIndir(type, layoutNum, fieldAddr);
+}
+
+GenTreeIndir* Importer::gtNewFieldIndStore(var_types type, GenTreeFieldAddr* fieldAddr, GenTree* value)
+{
+    GenTreeIndir* store = gtNewFieldIndir(type, fieldAddr);
+    store->SetOper(GT_STOREIND);
+    store->SetValue(value);
+    store->AddSideEffects(GTF_ASG | value->GetSideEffects());
+    return store;
 }
 
 GenTreeObj* Importer::gtNewObjNode(ClassLayout* layout, GenTree* addr)

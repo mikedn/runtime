@@ -1887,10 +1887,10 @@ struct Importer
     GenTree* impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
     GenTree* impVectorStore(GenTree* destAddr, GenTree* src);
     GenTree* impGetArrayElementsAsVectorAddr(ClassLayout*    layout,
-                                              GenTree*        array,
-                                              GenTree*        index,
-                                              ThrowHelperKind indexThrowKind,
-                                              ThrowHelperKind lastIndexThrowKind);
+                                             GenTree*        array,
+                                             GenTree*        index,
+                                             ThrowHelperKind indexThrowKind,
+                                             ThrowHelperKind lastIndexThrowKind);
     GenTree* impVector234TCopyTo(const HWIntrinsicSignature& sig, ClassLayout* layout);
     GenTree* impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout);
     GenTree* impVectorTMultiply(const HWIntrinsicSignature& sig);
@@ -2268,6 +2268,7 @@ struct Importer
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset);
     GenTreeIndir* gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr);
     GenTreeIndir* gtNewFieldIndir(var_types type, unsigned layoutNum, GenTreeFieldAddr* fieldAddr);
+    GenTreeIndir* gtNewFieldIndStore(var_types type, GenTreeFieldAddr* fieldAddr, GenTree* value);
     GenTreeObj* gtNewObjNode(ClassLayout* layout, GenTree* addr);
     GenTreeObj* gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr);
     GenTreeIntCon* gtNewStringLiteralLength(GenTreeStrCon* node);
