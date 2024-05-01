@@ -4443,19 +4443,6 @@ CallArgInfo* GenTreeCall::GetArgInfoByLateArgUse(Use* use) const
     unreached();
 }
 
-GenTreeOp* Compiler::gtNewAssignNode(GenTreeIndir* dst, GenTree* src)
-{
-    assert(dst->OperIs(GT_IND, GT_OBJ, GT_BLK));
-    assert(!src->TypeIs(TYP_VOID));
-
-    // TODO-MIKE-Review: This is probably useless now...
-    dst->gtFlags |= GTF_DONT_CSE;
-
-    GenTreeOp* asg = gtNewOperNode(GT_ASG, dst->GetType(), dst, src);
-    asg->gtFlags |= GTF_ASG;
-    return asg;
-}
-
 GenTreeObj* Compiler::gtNewObjNode(ClassLayout* layout, GenTree* addr)
 {
     return gtNewObjNode(typGetStructType(layout), layout, addr);

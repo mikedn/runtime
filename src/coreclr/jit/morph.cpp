@@ -10729,6 +10729,18 @@ DONE_MORPHING_CHILDREN:
         case GT_STORE_OBJ:
             return fgMorphStructStore(tree, op2);
 
+        case GT_STOREIND:
+            if (varTypeIsSmall(typ))
+            {
+                if (op2->IsCast() && varTypeIsIntegral(op2->AsCast()->GetOp(0)) && !op2->gtOverflow() &&
+                    varTypeIsSmall(op2->GetType()) && (varTypeSize(op2->GetType()) >= varTypeSize(typ)))
+                {
+                    op2 = op2->AsCast()->GetOp(0);
+                    tree->AsIndir()->SetValue(op2);
+                }
+            }
+            break;
+
         case GT_ASG:
             assert(!op1->OperIs(GT_BLK));
 

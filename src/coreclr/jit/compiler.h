@@ -2283,6 +2283,7 @@ struct Importer
     GenTreeIndexAddr* gtNewArrayIndexAddr(GenTree* arr, GenTree* ind, var_types elemType);
     GenTreeIndexAddr* gtNewStringIndexAddr(GenTree* arr, GenTree* ind);
     GenTreeIndir* gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexAddr);
+    GenTreeIndir* gtNewIndexIndStore(var_types type, GenTreeIndexAddr* indexAddr, GenTree* value);
     GenTreeCall::Use* gtNewCallArgs(GenTree* node);
     GenTreeCall::Use* gtNewCallArgs(GenTree* node1, GenTree* node2);
     GenTreeCall::Use* gtNewCallArgs(GenTree* node1, GenTree* node2, GenTree* node3);
@@ -3023,8 +3024,6 @@ public:
     GenTree* gtNewNullCheck(GenTree* addr);
 
     void gtChangeOperToNullCheck(GenTree* tree);
-
-    GenTreeOp* gtNewAssignNode(GenTreeIndir* dst, GenTree* src);
 
     GenTree* gtNewNothingNode();
 

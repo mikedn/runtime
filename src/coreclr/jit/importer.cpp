@@ -9793,8 +9793,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 {
                     op2 = impImplicitR4orR8Cast(op2, lclTyp);
                     op2 = impImplicitIorI4Cast(op2, lclTyp);
-                    op1 = gtNewIndexIndir(lclTyp, op1->AsIndexAddr());
-                    op1 = gtNewAssignNode(op1->AsIndir(), op2);
+                    op1 = gtNewIndexIndStore(lclTyp, op1->AsIndexAddr(), op2);
                 }
 
                 if (varTypeUsesFloatReg(op1->GetType()))
@@ -17471,7 +17470,15 @@ GenTreeQmark* Importer::gtNewQmarkNode(var_types type, GenTree* cond, GenTree* o
 
 GenTreeOp* Importer::gtNewAssignNode(GenTreeIndir* dst, GenTree* src)
 {
-    return comp->gtNewAssignNode(dst, src);
+    assert(dst->OperIs(GT_IND, GT_OBJ));
+    assert(!src->TypeIs(TYP_VOID));
+
+    // TODO-MIKE-Review: This is probably useless now...
+    dst->gtFlags |= GTF_DONT_CSE;
+
+    GenTreeOp* asg = comp->gtNewOperNode(GT_ASG, dst->GetType(), dst, src);
+    asg->gtFlags |= GTF_ASG;
+    return asg;
 }
 
 GenTreeBoundsChk* Importer::gtNewBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind)
@@ -17492,6 +17499,15 @@ GenTreeIndexAddr* Importer::gtNewStringIndexAddr(GenTree* arr, GenTree* ind)
 GenTreeIndir* Importer::gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexAddr)
 {
     return comp->gtNewIndexIndir(type, indexAddr);
+}
+
+GenTreeIndir* Importer::gtNewIndexIndStore(var_types type, GenTreeIndexAddr* indexAddr, GenTree* value)
+{
+    GenTreeIndir* store = gtNewIndexIndir(type, indexAddr);
+    store->SetOper(store->OperIs(GT_IND) ? GT_STOREIND : GT_STORE_OBJ);
+    store->SetValue(value);
+    store->AddSideEffects(GTF_ASG | GTF_GLOB_REF | value->GetSideEffects());
+    return store;
 }
 
 GenTreeCall::Use* Importer::gtNewCallArgs(GenTree* node)
