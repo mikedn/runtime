@@ -5954,7 +5954,12 @@ GenTree* Importer::impImportStSFld(GenTree*                  value,
     }
     else
     {
-        field = gtNewAssignNode(field->AsIndir(), impConvertFieldStoreValue(field->GetType(), value));
+        value = impConvertFieldStoreValue(field->GetType(), value);
+
+        // TODO-MIKE-Cleanup: It would be better to generate stores from the get go
+        field->SetOper(field->OperIs(GT_OBJ) ? GT_STORE_OBJ : GT_STOREIND);
+        field->AsIndir()->SetValue(value);
+        field->AddSideEffects(GTF_ASG | GTF_GLOB_REF | value->GetSideEffects());
 
         if (helperNode != nullptr)
         {
