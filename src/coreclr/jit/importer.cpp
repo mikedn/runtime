@@ -897,6 +897,7 @@ GenTree* Importer::impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigne
 
 GenTree* Importer::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLevel)
 {
+    assert(dest->OperIs(GT_LCL_VAR, GT_OBJ));
     assert(
         (src->TypeIs(TYP_STRUCT) && src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR)) ||
         varTypeIsSIMD(src->GetType()));
@@ -979,28 +980,27 @@ GenTree* Importer::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLeve
         return store;
     }
 
-    if (dest->OperIs(GT_OBJ) && varTypeIsSIMD(dest->GetType()))
+    if (varTypeIsSIMD(dest->GetType()))
     {
         // TODO-MIKE-Cleanup: There doesn't seem to be any good reason to do this here,
         // except for VN being weird and failing on SIMD OBJs and old code doing it here.
         dest->SetOper(GT_IND);
     }
 
-    GenTreeOp* asgNode = gtNewAssignNode(dest->AsIndir(), src);
-    gtInitStructCopyAsg(asgNode);
-    return asgNode;
+    gtInitStructIndStore(dest->AsIndir(), src);
+    return dest;
 }
 
-void Importer::gtInitStructCopyAsg(GenTreeOp* asg)
+void Importer::gtInitStructIndStore(GenTreeIndir* store, GenTree* value)
 {
-    assert(asg->OperIs(GT_ASG));
+    assert(store->OperIs(GT_IND, GT_OBJ) && varTypeIsStruct(store->GetType()));
+    assert(varTypeIsStruct(value->GetType()) || value->IsIntCon(0));
 
-    GenTree* dst = asg->GetOp(0);
-    GenTree* src = asg->GetOp(1);
+    store->SetOper(store->OperIs(GT_IND) ? GT_STOREIND : GT_STORE_OBJ);
+    store->SetValue(value);
+    store->AddSideEffects(GTF_ASG | value->GetSideEffects());
 
-    assert(varTypeIsStruct(dst->GetType()));
-
-    if (src->OperIs(GT_INIT_VAL, GT_CNS_INT))
+    if (value->OperIs(GT_INIT_VAL, GT_CNS_INT))
     {
         return;
     }
@@ -1025,14 +1025,10 @@ void Importer::gtInitStructCopyAsg(GenTreeOp* asg)
     LclVarDsc* dstLcl     = nullptr;
     unsigned   dstLclOffs = 0;
 
-    if (dst->IsIndir() && dst->AsIndir()->GetAddr()->OperIs(GT_LCL_ADDR))
+    if (store->GetAddr()->OperIs(GT_LCL_ADDR))
     {
-        dstLcl     = dst->AsIndir()->GetAddr()->AsLclAddr()->GetLcl();
-        dstLclOffs = dst->AsIndir()->GetAddr()->AsLclAddr()->GetLclOffs();
-    }
-    else if (dst->OperIs(GT_LCL_VAR))
-    {
-        dstLcl = dst->AsLclVar()->GetLcl();
+        dstLcl     = store->GetAddr()->AsLclAddr()->GetLcl();
+        dstLclOffs = store->GetAddr()->AsLclAddr()->GetLclOffs();
     }
 
     if (dstLcl == nullptr)
@@ -1040,19 +1036,19 @@ void Importer::gtInitStructCopyAsg(GenTreeOp* asg)
         return;
     }
 
-    if (src->IsIndir() && src->AsIndir()->GetAddr()->OperIs(GT_LCL_ADDR))
+    if (value->IsIndir() && value->AsIndir()->GetAddr()->OperIs(GT_LCL_ADDR))
     {
-        srcLcl     = src->AsIndir()->GetAddr()->AsLclAddr()->GetLcl();
-        srcLclOffs = src->AsIndir()->GetAddr()->AsLclAddr()->GetLclOffs();
+        srcLcl     = value->AsIndir()->GetAddr()->AsLclAddr()->GetLcl();
+        srcLclOffs = value->AsIndir()->GetAddr()->AsLclAddr()->GetLclOffs();
     }
-    else if (src->OperIs(GT_LCL_VAR))
+    else if (value->OperIs(GT_LCL_VAR))
     {
-        srcLcl = src->AsLclVar()->GetLcl();
+        srcLcl = value->AsLclVar()->GetLcl();
     }
 
     if ((srcLcl == dstLcl) && (srcLclOffs == dstLclOffs))
     {
-        asg->ChangeToNothingNode();
+        store->ChangeToNothingNode();
 
         return;
     }
@@ -1060,7 +1056,7 @@ void Importer::gtInitStructCopyAsg(GenTreeOp* asg)
 #ifdef FEATURE_SIMD
     if ((dstLclOffs == 0) && varTypeIsSIMD(dstLcl->GetType()))
     {
-        if (GenTreeHWIntrinsic* hwi = src->IsHWIntrinsic())
+        if (GenTreeHWIntrinsic* hwi = value->IsHWIntrinsic())
         {
             lvaRecordSimdIntrinsicDef(dstLcl, hwi);
         }
@@ -11189,16 +11185,13 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if ((prefixFlags & PREFIX_UNALIGNED) != 0)
                 {
-                    if (op1->OperIs(GT_ASG))
+                    if (op1->OperIs(GT_STORE_OBJ, GT_STOREIND))
                     {
                         // If the store value is MKREFANY impAssignStruct will append another indir,
                         // we don't set unaligned on that. It isn't necessary since the JIT doesn't
                         // do anything special with unaligned if the indir type is integral.
 
-                        if (GenTreeIndir* indir = op1->AsOp()->GetOp(0)->IsIndir())
-                        {
-                            indir->SetUnaligned();
-                        }
+                        op1->AsIndir()->SetUnaligned();
                     }
                     else
                     {
@@ -16223,7 +16216,9 @@ void Importer::impImportInitObj(GenTree* dstAddr, ClassLayout* layout)
         }
     }
 
-    impSpillNoneAppendTree(gtNewAssignNode(gtNewObjNode(layout, dstAddr), initValue));
+    GenTreeIndir* store = gtNewObjNode(layout, dstAddr);
+    gtInitStructIndStore(store, initValue);
+    impSpillNoneAppendTree(store);
 }
 
 void Importer::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* layout)
@@ -16273,9 +16268,9 @@ void Importer::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* l
     // probably blocks SIMD tree CSEing.
     src->gtFlags |= GTF_DONT_CSE;
 
-    GenTreeOp* asg = gtNewAssignNode(gtNewObjNode(layout, dstAddr), src);
-    gtInitStructCopyAsg(asg);
-    impSpillNoneAppendTree(asg);
+    GenTreeIndir* store = gtNewObjNode(layout, dstAddr);
+    gtInitStructIndStore(store, src);
+    impSpillNoneAppendTree(store);
 }
 
 void Importer::impImportInitBlk(unsigned prefixFlags)
@@ -17478,19 +17473,6 @@ GenTreeOp* Importer::gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type)
 GenTreeQmark* Importer::gtNewQmarkNode(var_types type, GenTree* cond, GenTree* op1, GenTree* op2)
 {
     return comp->gtNewQmarkNode(type, cond, op1, op2);
-}
-
-GenTreeOp* Importer::gtNewAssignNode(GenTreeIndir* dst, GenTree* src)
-{
-    assert(dst->OperIs(GT_IND, GT_OBJ));
-    assert(!src->TypeIs(TYP_VOID));
-
-    // TODO-MIKE-Review: This is probably useless now...
-    dst->gtFlags |= GTF_DONT_CSE;
-
-    GenTreeOp* asg = comp->gtNewOperNode(GT_ASG, dst->GetType(), dst, src);
-    asg->gtFlags |= GTF_ASG;
-    return asg;
 }
 
 GenTreeBoundsChk* Importer::gtNewBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind)

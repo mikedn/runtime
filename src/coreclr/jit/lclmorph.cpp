@@ -499,6 +499,18 @@ public:
                 PopValue();
                 break;
 
+            case GT_STORE_OBJ:
+                assert(TopValue(2).Node() == node);
+                assert(TopValue(1).Node() == node->AsIndir()->GetAddr());
+                assert(TopValue(0).Node() == node->AsIndir()->GetValue());
+
+                EscapeValue(TopValue(0), node);
+                MorphLocalIndStoreObj(node->AsObj(), TopValue(1));
+
+                PopValue();
+                PopValue();
+                break;
+
             case GT_RETURN:
                 if (TopValue(0).Node() != node)
                 {
@@ -793,6 +805,8 @@ private:
                 switch (user->GetOper())
                 {
                     case GT_STORE_LCL_VAR:
+                    case GT_STORE_LCL_FLD:
+                    case GT_STORE_OBJ:
                     case GT_ASG:
                         PromoteSingleFieldStructLocalAssignment(lcl, node->AsLclVar(), user);
                         break;
@@ -922,7 +936,7 @@ private:
     {
         assert(lcl->TypeIs(TYP_STRUCT));
         assert(lcl->GetPromotedFieldCount() == 1);
-        assert(store->OperIs(GT_ASG, GT_STORE_LCL_VAR) && store->TypeIs(TYP_STRUCT));
+        assert(store->OperIs(GT_ASG, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_STORE_OBJ) && store->TypeIs(TYP_STRUCT));
 
         LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
 
@@ -1148,7 +1162,7 @@ private:
         var_types     lclType  = lcl->GetType();
         FieldSeqNode* fieldSeq = addrVal.FieldSeq();
 
-        if (lcl->IsPromoted() && !lcl->lvDoNotEnregister)
+        if (lcl->IsPromoted())
         {
             LclVarDsc* fieldLcl = FindPromotedField(lcl, lclOffs, varTypeSize(storeType));
 
@@ -1275,6 +1289,138 @@ private:
         store->AsLclFld()->SetFieldSeq(fieldSeq == nullptr || !varTypeIsStruct(lclType) ? FieldSeqStore::NotAField()
                                                                                         : fieldSeq);
         store->AsLclFld()->SetOp(0, value);
+        store->gtFlags = GTF_ASG | (lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
+
+        m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
+
+        INDEBUG(m_stmtModified = true);
+    }
+
+    void MorphLocalIndStoreObj(GenTreeObj* store, const Value& addrVal)
+    {
+        assert(store->OperIs(GT_STORE_OBJ));
+
+        GenTree* value = store->GetValue();
+
+        if ((value->GetType() != store->GetType()) && !value->IsIntCon(0))
+        {
+            assert(store->GetLayout()->GetSize() == varTypeSize(value->GetType()));
+
+            store->SetOper(GT_STOREIND);
+            store->SetType(store->GetValue()->GetType());
+
+            if (TopValue(1).IsAddress())
+            {
+                MorphLocalIndStore(store, addrVal);
+            }
+            else
+            {
+                EscapeValue(TopValue(1), store);
+            }
+
+            return;
+        }
+
+        if (!TopValue(1).IsAddress())
+        {
+            EscapeValue(TopValue(1), store);
+
+            return;
+        }
+
+        INDEBUG(addrVal.Consume());
+
+        LclVarDsc*   lcl         = addrVal.Lcl();
+        ClassLayout* storeLayout = store->GetLayout();
+        unsigned     lclOffs     = addrVal.Offset();
+
+        if ((lclOffs > UINT16_MAX) || (storeLayout->GetSize() > lcl->GetTypeSize()))
+        {
+            CanonicalizeLocalIndStore(store, addrVal);
+            return;
+        }
+
+        var_types     lclType  = lcl->GetType();
+        FieldSeqNode* fieldSeq = addrVal.FieldSeq();
+
+        if (lcl->IsPromoted() && !lcl->lvDoNotEnregister)
+        {
+            LclVarDsc* fieldLcl = FindPromotedField(lcl, lclOffs, storeLayout->GetSize());
+
+            if (fieldLcl != nullptr)
+            {
+                lcl     = fieldLcl;
+                lclType = fieldLcl->GetType();
+                lclOffs -= fieldLcl->GetPromotedFieldOffset();
+
+                if (lclOffs != 0)
+                {
+                    fieldSeq = FieldSeqNode::NotAField();
+                }
+                else if ((fieldSeq != nullptr) && fieldSeq->IsField())
+                {
+                    fieldSeq = fieldSeq->RemovePrefix(fieldLcl->GetPromotedFieldSeq());
+
+                    if (fieldSeq == addrVal.FieldSeq())
+                    {
+                        // There was no prefix, this means that the field access sequence doesn't
+                        // match the promoted field sequence, ignore the address field sequence.
+                        fieldSeq = FieldSeqNode::NotAField();
+                    }
+                }
+            }
+        }
+
+        if (store->IsVolatile())
+        {
+            // TODO-MIKE-Review: For now ignore volatile on promoted field stores,
+            // to avoid diffs due to old promotion code ignoring volatile as well.
+
+            if (!store->GetAddr()->OperIs(GT_FIELD_ADDR) || !lcl->IsPromotedField())
+            {
+                CanonicalizeLocalIndStore(store, addrVal);
+                return;
+            }
+        }
+
+        if ((lclOffs == 0) && varTypeIsStruct(lcl->GetType()) &&
+            ((storeLayout == lcl->GetLayout()) ||
+             (lcl->IsIndependentPromoted() && (storeLayout->GetSize() == lcl->GetLayout()->GetSize()))))
+        {
+            store->ChangeOper(GT_STORE_LCL_VAR);
+            store->SetType(lclType);
+            store->AsLclVar()->SetLcl(lcl);
+            store->AsLclVar()->SetOp(0, value);
+            store->gtFlags = GTF_ASG | (lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
+
+            INDEBUG(m_stmtModified = true);
+            return;
+        }
+
+        if ((lclOffs == 0) && !lcl->lvDoNotEnregister && (varTypeSize(lcl->GetType()) == storeLayout->GetSize()))
+        {
+            store->SetOper(GT_STORE_LCL_VAR);
+            PromoteSingleFieldStructLclStore(store->AsLclVar(), value, lcl);
+
+            return;
+        }
+
+        if (varTypeIsSmall(lcl->GetType()))
+        {
+            // If STORE_LCL_FLD is used to store to a small type local then "normalize on store"
+            // isn't possible so the local has to be "normalize on load". The only way to do this
+            // is by making the local address exposed which is a big hammer. But such an indirect
+            // store is highly unusual so it's not worth the trouble to introduce another mechanism.
+            m_compiler->lvaSetAddressExposed(lcl);
+        }
+
+        store->ChangeOper(GT_STORE_LCL_FLD);
+        store->AsLclFld()->SetLcl(lcl);
+        store->AsLclFld()->SetLclOffs(lclOffs);
+        store->AsLclFld()->SetFieldSeq(fieldSeq == nullptr || !varTypeIsStruct(lclType) ? FieldSeqStore::NotAField()
+                                                                                        : fieldSeq);
+        store->AsLclFld()->SetOp(0, value);
+        store->AsLclFld()->SetLayout(storeLayout, m_compiler);
         store->gtFlags = GTF_ASG | (lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
 
         m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
@@ -1417,6 +1563,7 @@ private:
             switch (user->GetOper())
             {
                 case GT_STORE_LCL_VAR:
+                case GT_STORE_OBJ:
                 case GT_ASG:
                     if (MorphLocalStructIndirAssignment(val, indir, indirLayout))
                     {
@@ -1946,8 +2093,6 @@ private:
 
     void PromoteSingleFieldStructLclStore(GenTreeLclVar* store, GenTree* value, LclVarDsc* fieldLcl)
     {
-        assert(store->GetLcl()->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()));
-
         store->SetLcl(fieldLcl);
         store->SetType(fieldLcl->GetType());
 

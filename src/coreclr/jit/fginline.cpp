@@ -196,14 +196,9 @@ public:
             tree = *use = value;
 
 #if FEATURE_MULTIREG_RET
-            if (value->IsMultiRegCall() && varTypeIsStruct(value->GetType()) && user->OperIs(GT_ASG))
+            if (value->IsMultiRegCall() && varTypeIsStruct(value->GetType()) && user->OperIs(GT_STORE_LCL_VAR))
             {
-                GenTree* dst = user->AsOp()->GetOp(0);
-
-                if (dst->OperIs(GT_LCL_VAR))
-                {
-                    dst->AsLclVar()->GetLcl()->lvIsMultiRegRet = true;
-                }
+                user->AsLclVar()->GetLcl()->lvIsMultiRegRet = true;
             }
 #endif
         }
@@ -214,11 +209,11 @@ public:
         // do not check if there is a series of COMMAs. See above.
         // Importer and FlowGraph will not generate such a tree, so just
         // leaving an assert in here. This can be fixed by looking ahead
-        // when we visit GT_ASG similar to inlAttachStructInlineeToAsg.
+        // when we visit STORE_LCL_VAR, similar to inlAttachStructInlineeToAsg.
 
-        if (tree->OperIs(GT_ASG))
+        if (tree->OperIs(GT_STORE_LCL_VAR))
         {
-            GenTree* value = tree->AsOp()->GetOp(1);
+            GenTree* value = tree->AsLclVar()->GetOp(0);
 
             if (value->OperIs(GT_COMMA))
             {
@@ -1145,12 +1140,12 @@ bool Compiler::inlImportReturn(Importer&            importer,
 
         if (inlineInfo->retExpr == nullptr)
         {
-            retExpr = gtNewLclvNode(lcl, lclType);
+            retExpr = gtNewLclLoad(lcl, lclType);
         }
         else if (inlineInfo->iciCall->HasRetBufArg())
         {
-            assert(inlineInfo->retExpr->OperIs(GT_ASG));
-            assert(inlineInfo->retExpr->AsOp()->GetOp(1)->AsLclVar()->GetLcl() == lcl);
+            assert(inlineInfo->retExpr->OperIs(GT_STORE_OBJ, GT_STOREIND));
+            assert(inlineInfo->retExpr->AsIndir()->GetValue()->AsLclVar()->GetLcl() == lcl);
         }
         else
         {
@@ -2373,6 +2368,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
             if (store == nullptr)
             {
+#ifdef FEATURE_SIMD
                 if (varTypeIsSIMD(argInfo.paramType))
                 {
                     if (GenTreeHWIntrinsic* hwi = argNode->IsHWIntrinsic())
@@ -2380,6 +2376,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
                         lvaRecordSimdIntrinsicDef(argInfo.paramLcl, hwi);
                     }
                 }
+#endif
 
                 store = gtNewLclStore(argInfo.paramLcl, argInfo.paramType, argNode);
             }

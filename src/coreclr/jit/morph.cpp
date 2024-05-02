@@ -9082,7 +9082,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
 #if FEATURE_MULTIREG_RET
         if (call->HasMultiRegRetVal())
         {
-            if (store->OperIs(GT_LCL_VAR))
+            if (store->OperIs(GT_STORE_LCL_VAR))
             {
                 LclVarDsc* lcl = store->AsLclVar()->GetLcl();
 
@@ -10739,6 +10739,13 @@ DONE_MORPHING_CHILDREN:
                     tree->AsIndir()->SetValue(op2);
                 }
             }
+
+            if (varTypeIsSIMD(typ) && op2->OperIs(GT_OBJ))
+            {
+                assert(op2->GetType() == typ);
+                op2->SetOper(GT_IND);
+            }
+
             break;
 
         case GT_ASG:
