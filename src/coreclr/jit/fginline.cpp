@@ -238,8 +238,8 @@ public:
         if (tree == nullptr)
         {
             // In some (rare) cases the parent node of tree will be changed to NOP during
-            // the preorder by AttachStructInlineeToAsg because it's a self assignment of
-            // a local (e.g. JIT\Methodical\VT\callconv\_il_reljumper3 for x64 linux).
+            // the preorder by AttachStructInlineeToAsg because it's a self copy of a
+            // local (e.g. JIT\Methodical\VT\callconv\_il_reljumper3 for x64 linux).
 
             // TODO-MIKE-Cleanup: This is basically a hack. Can we return "skip subtrees"
             // from PreOrderVisit so we don't reach this case?
@@ -280,10 +280,11 @@ public:
         }
         else if (tree->OperIs(GT_STORE_LCL_VAR))
         {
+            LclVarDsc* lcl = tree->AsLclVar()->GetLcl();
             // If we're storing to a ref typed local that has one definition,
             // we may be able to sharpen the type for the local.
 
-            if (tree->TypeIs(TYP_REF) && tree->AsLclVar()->GetLcl()->lvSingleDef)
+            if (tree->TypeIs(TYP_REF) && lcl->lvSingleDef)
             {
                 bool                 isExact   = false;
                 bool                 isNonNull = false;
@@ -298,43 +299,11 @@ public:
 
             // If we created a self-copy (say because we are sharing return spill temps)
             // we can remove it.
-            GenTree* src = tree->AsLclVar()->GetOp(0);
+            GenTree* value = tree->AsLclVar()->GetOp(0);
 
-            if (src->OperIs(GT_LCL_VAR) && (tree->AsLclVar()->GetLcl() == src->AsLclVar()->GetLcl()))
+            if (value->OperIs(GT_LCL_VAR) && (lcl == value->AsLclVar()->GetLcl()))
             {
-                JITDUMPTREE(tree, "Removing self-assignment:");
-                tree->ChangeToNothingNode();
-            }
-        }
-        else if (tree->OperIs(GT_ASG))
-        {
-            // If we're assigning to a ref typed local that has one definition,
-            // we may be able to sharpen the type for the local.
-
-            GenTree* lhs = tree->AsOp()->GetOp(0)->gtEffectiveVal();
-
-            if (lhs->OperIs(GT_LCL_VAR) && lhs->TypeIs(TYP_REF) && lhs->AsLclVar()->GetLcl()->lvSingleDef)
-            {
-                bool                 isExact   = false;
-                bool                 isNonNull = false;
-                CORINFO_CLASS_HANDLE newClass =
-                    m_compiler->gtGetClassHandle(tree->AsOp()->GetOp(1), &isExact, &isNonNull);
-
-                if (newClass != NO_CLASS_HANDLE)
-                {
-                    m_compiler->lvaUpdateClass(lhs->AsLclVar()->GetLcl(), newClass, isExact);
-                }
-            }
-
-            // If we created a self-assignment (say because we are sharing return spill temps)
-            // we can remove it.
-            GenTree* dst = tree->AsOp()->GetOp(0);
-            GenTree* src = tree->AsOp()->GetOp(1);
-
-            if (dst->OperIs(GT_LCL_VAR) && src->OperIs(GT_LCL_VAR) &&
-                (dst->AsLclVar()->GetLcl() == src->AsLclVar()->GetLcl()))
-            {
-                JITDUMPTREE(tree, "Removing self-assignment:");
+                JITDUMPTREE(tree, "Removing self-copy:");
                 tree->ChangeToNothingNode();
             }
         }
@@ -2523,15 +2492,14 @@ GenTree* Compiler::inlStoreCallWithRetBuf(LclVarDsc* dest, var_types type, GenTr
            varTypeIsSIMD(src->GetType()));
 
     // TODO-MIKE-Cleanup: Share code with impAssignStruct, the main difference is that
-    // impAssignStruct supports MKREFANY by appending a separate assignment statement
-    // for one of refany's field. We could probably just generate a COMMA with the 2
-    // assignments instead.
+    // impAssignStruct supports MKREFANY by appending a separate store statement for
+    // one of refany's field. We could probably just generate a COMMA with the 2 stores
+    // instead.
     // On the other hand, can we get calls with return buffer here? If not, then there's
     // not much left in this function, only the lvIsMultiRegRet that may be also redundant.
 
-    // Handle calls that return structs by reference - the destination address
-    // is passed to the call as the return buffer address and no assignment is
-    // generated.
+    // Handle calls that return structs by reference - the destination address is
+    // passed to the call as the return buffer address and no store is generated.
 
     if (GenTreeCall* call = src->IsCall())
     {

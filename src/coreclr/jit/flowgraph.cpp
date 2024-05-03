@@ -2235,10 +2235,9 @@ void Compiler::phDetermineFirstColdBlock()
                 case BBJ_CALLFINALLY:
                     // A BBJ_CALLFINALLY that falls through is always followed
                     // by an empty BBJ_ALWAYS.
-                    //
                     assert(prevToFirstColdBlock->isBBCallAlwaysPair());
-                    firstColdBlock =
-                        firstColdBlock->bbNext; // Note that this assignment could make firstColdBlock == nullptr
+                    // Note that firstColdBlock could become null.
+                    firstColdBlock = firstColdBlock->bbNext;
                     break;
 
                 case BBJ_COND:
@@ -2248,9 +2247,9 @@ void Compiler::phDetermineFirstColdBlock()
                     //
                     if (firstColdBlock->isEmpty() && (firstColdBlock->bbJumpKind == BBJ_ALWAYS))
                     {
-                        // We can just use this block as the transitionBlock
+                        // We can just use this block as the transitionBlock.
+                        // Note that firstColdBlock could become null.
                         firstColdBlock = firstColdBlock->bbNext;
-                        // Note that this assignment could make firstColdBlock == NULL
                     }
                     else
                     {

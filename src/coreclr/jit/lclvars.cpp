@@ -1747,7 +1747,7 @@ void Compiler::lvaSetClass(LclVarDsc* lcl, GenTree* tree, CORINFO_CLASS_HANDLE s
 
 // Update class information for a local var.
 //
-// This method models the type update rule for an assignment.
+// This method models the type update rule for a store to a local.
 //
 // Updates currently should only happen for single-def user args or
 // locals, when we are processing the expression actually being

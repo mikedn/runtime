@@ -27,8 +27,8 @@
 //
 // We can eliminate a NULLCHECK only if there are no interfering side effects between
 // the NULLCHECK node and the indir. For example, we can't eliminate the NULLCHECK if
-// there is an assignment to a memory location between it and the indir. Because of
-// this NULLCHECKs are eliminated only when the indirections are in the same block,
+// there is a store to a memory location between it and the indir. Because of this,
+// NULLCHECKs are eliminated only when the indirections are in the same block,
 // to avoid potentially costly interference checks across blocks.
 
 class EarlyProp

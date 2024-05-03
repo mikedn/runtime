@@ -3003,6 +3003,7 @@ void LinearScan::spillGCRefs(RefPosition* killRefPosition)
         bool needsKill = varTypeIsGC(assignedInterval->registerType);
         if (!needsKill)
         {
+            // TODO-MIKE-Review: Check if the problem described here still happens, assignments are gone.
             // The importer will assign a GC type to the rhs of an assignment if the lhs type is a GC type,
             // even if the rhs is not. See the CEE_STLOC* case in impImportBlockCode(). As a result,
             // we can have a 'GT_LCL_VAR' node with a GC type, when the lclVar itself is an integer type.

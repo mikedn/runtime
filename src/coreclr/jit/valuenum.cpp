@@ -3520,7 +3520,7 @@ ValueNum ValueNumbering::CastStruct(ValueNumKind         vnk,
                                     CORINFO_CLASS_HANDLE fromClassHandle,
                                     CORINFO_CLASS_HANDLE toClassHandle)
 {
-    // IR allows assignment of structs with different layout. This is problematic for
+    // IR allows copying of structs with different layout. This is problematic for
     // value numbering because "maps" used to represent struct values are indexed by
     // field handles rather than field offsets. If the layout is different then field
     // handles may also be different and we end up with stores that are effectively

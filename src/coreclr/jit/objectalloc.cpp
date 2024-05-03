@@ -449,7 +449,7 @@ void ObjectAllocator::ComputeStackObjectPointers()
                         {
                             if (DoesLclVarPointToStack(e.Current()))
                             {
-                                // The only assignment to lclNum local is definitely-stack-pointing
+                                // The only store to lclNum local is definitely-stack-pointing
                                 // rhsLclNum local so lclNum local is also definitely-stack-pointing.
                                 MarkLclVarAsDefinitelyStackPointing(lclNum);
                             }
@@ -671,27 +671,20 @@ bool ObjectAllocator::CanLclVarEscapeViaParentStack(ArrayStack<GenTree*>* userSt
 
         switch (user->GetOper())
         {
-            case GT_ASG:
-                if (user->AsOp()->GetOp(0) == value)
-                {
-                    // Assigning to the local doesn't make it escaping.
-                    canLclVarEscapeViaParentStack = false;
-                }
-                else
-                {
-                    // The local is the source of an assignment.
-                    assert(user->AsOp()->GetOp(1) == value);
+            case GT_STORE_LCL_VAR:
+                // The local is the source of a store.
+                assert(user->AsLclVar()->GetOp(0) == value);
 
-                    // Update the connection graph if we are assigning to a local.
-                    // For all other assignments we mark the rhs local as escaping.
-                    // TODO-ObjectStackAllocation: track assignments to fields.
+                // Update the connection graph if we are assigning to a local.
+                // For all other assignments we mark the rhs local as escaping.
+                // TODO-ObjectStackAllocation: track assignments to fields.
 
-                    if (user->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR))
-                    {
-                        AddConnGraphEdge(user->AsOp()->GetOp(0)->AsLclVar()->GetLcl()->GetLclNum(), lclNum);
-                        canLclVarEscapeViaParentStack = false;
-                    }
-                }
+                AddConnGraphEdge(user->AsLclVar()->GetLcl()->GetLclNum(), lclNum);
+                canLclVarEscapeViaParentStack = false;
+                break;
+
+            case GT_STOREIND:
+                canLclVarEscapeViaParentStack = user->AsIndir()->GetValue() == value;
                 break;
 
             case GT_EQ:
@@ -764,10 +757,16 @@ void ObjectAllocator::UpdateAncestorTypes(GenTree* node, ArrayStack<GenTree*>* u
 
         switch (user->GetOper())
         {
-            case GT_ASG:
-                if ((node == user->AsOp()->GetOp(1)) && user->TypeIs(TYP_REF))
+            case GT_STORE_LCL_VAR:
+                if ((node == user->AsLclVar()->GetOp(0)) && user->TypeIs(TYP_REF))
                 {
-                    assert(user->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR));
+                    user->SetType(newType);
+                }
+                break;
+
+            case GT_STOREIND:
+                if ((node == user->AsIndir()->GetValue()) && user->TypeIs(TYP_REF))
+                {
                     user->SetType(newType);
                 }
                 break;

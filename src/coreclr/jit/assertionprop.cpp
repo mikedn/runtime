@@ -3062,17 +3062,17 @@ private:
             if (tree->TypeIs(TYP_STRUCT))
             {
                 // There are no STRUCT VN constants but ZeroMap can be treated as such,
-                // at least when the value is used by an assignment, where it's valid
-                // to assign a INT 0 value to a struct variable. Also, the tree must not
+                // at least when the value is used by a store, where it's valid to
+                // assign a INT 0 value to a struct variable. Also, the tree must not
                 // have side effects, so we don't have to introduce a COMMA between the
-                // assignment and the INT 0 node (the tree is likely to be a LCL_VAR
-                // this case anyway, it can't be an indir as that won't get ZeroMap as
-                // a conservative VN).
-                // Note that we intentionally ignore the GTF_DONT_CSE flag here, it is
-                // usually set for no reason on both STRUCT assignment operands even if
-                // only the destination needs it (well, the reason was probably that you
-                // can't use a 0 everywhere a STRUCT value may be used, but we're doing
-                // this transform only for assignments anyway).
+                // store and the INT 0 node (the tree is likely to be a LCL_VAR this
+                // case anyway, it can't be an indir as that won't get ZeroMap as a
+                // conservative VN).
+                // Note that we intentionally ignore the GTF_DONT_CSE flag here, it used
+                // to be set for no reason on both operands of a struct assignment, even
+                // if only the destination needed it (well, the reason was probably that
+                // you can't use a 0 everywhere a STRUCT value may be used, but we're doing
+                // this transform only for struct copies anyway).
 
                 // TODO-MIKE-CQ: Check what happens with struct args and returns, we
                 // probably can't use a constant INT node in all cases but perhaps it

@@ -2049,10 +2049,10 @@ bool Compiler::gtCanSwapOrder(GenTree* tree1, GenTree* tree2)
     // TODO-MIKE-Review: GTF_CALL appears to be overly conservative. If a call modifies
     // a local the second tree may depend on, then that local should be address exposed
     // and thus GTF_GLOB_REF, which is caught by the previous check.
-    // We do need to be conservative about GTF_ASG though, it may be an assignment to
-    // a non AX local and then the second tree would have no side effect even if it
-    // depends on that local. But then we do allow swapping if the first tree doesn't
-    // have any side effects?!? It could use a local that the second tree modifies...
+    // We do need to be conservative about GTF_ASG though, it may be an store to a non
+    // AX local and then the second tree would have no side effect even if it depends
+    // on that local. But then we do allow swapping if the first tree doesn't have any
+    // side effects?!? It could use a local that the second tree modifies...
     if (tree1->HasAnySideEffect(GTF_ASG | GTF_CALL) && !tree2->OperIsConst())
     {
         return false;
@@ -2197,7 +2197,7 @@ void Compiler::gtSetCosts(GenTree* tree)
                     if (gtIsLikelyRegVar(tree))
                     {
                         costEx = op1->GetCostEx();
-                        costSz = Max(3u, op1->GetCostSz()); // 3 is an estimate for a reg-reg assignment
+                        costSz = Max(3u, op1->GetCostSz()); // 3 is an estimate for a reg-reg copy
                         goto DONE;
                     }
 
@@ -3880,8 +3880,8 @@ GenTreeOp* Compiler::gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type)
     assert(op2 != nullptr);
 
     // TODO-MIKE-Review: Use GTK_NOVALUE?
-    bool isValue = !op2->OperIs(GT_ASG, GT_LCL_DEF, GT_NULLCHECK, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_STOREIND,
-                                GT_STORE_OBJ, GT_STORE_BLK);
+    bool isValue = !op2->OperIs(GT_LCL_DEF, GT_NULLCHECK, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_STOREIND, GT_STORE_OBJ,
+                                GT_STORE_BLK);
 
     if (type == TYP_UNDEF)
     {
@@ -5075,8 +5075,6 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
 
         if (tree->AsOp()->gtOp1 != nullptr)
         {
-            assert(!tree->OperIs(GT_ASG) || (constLcl == nullptr));
-
             copy->AsOp()->gtOp1 = gtCloneExpr(tree->AsOp()->gtOp1, addFlags, constLcl, constVal);
         }
 
@@ -5460,7 +5458,7 @@ bool GenTree::OperMayThrow(Compiler* comp) const
 
 bool GenTree::OperRequiresAsgFlag() const
 {
-    return OperIs(GT_ASG, GT_LCL_DEF, GT_MEMORYBARRIER) || OperIsStore()
+    return OperIs(GT_LCL_DEF, GT_MEMORYBARRIER) || OperIsStore()
 #ifdef FEATURE_HW_INTRINSICS
            || (OperIs(GT_HWINTRINSIC) && AsHWIntrinsic()->OperIsMemoryStore())
 #endif
@@ -9343,7 +9341,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
     // If we don't recognize the form of the copy, bail.
     GenTree* store = storeStmt->GetRootNode();
 
-    if (!store->OperIs(GT_ASG, GT_STOREIND, GT_STORE_OBJ))
+    if (!store->OperIs(GT_STOREIND, GT_STORE_OBJ))
     {
         // RET_EXPR is a tolerable temporary failure.
         // The JIT will revisit this optimization after inlining is done.
@@ -9376,28 +9374,8 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
         // The shape here is constrained to the patterns we produce over in impImportAndPushBox for the
         // inlined box case.
 
-        GenTree*  storeAddr;
-        var_types storeType;
-
-        if (store->OperIs(GT_ASG))
-        {
-            GenTree* storeDst = store->AsOp()->GetOp(0);
-
-            if (!storeDst->OperIs(GT_IND, GT_OBJ))
-            {
-                JITDUMPTREE(store, " bailing; unexpected store destination\n");
-
-                return nullptr;
-            }
-
-            storeAddr = storeDst->AsIndir()->GetAddr();
-            storeType = storeDst->GetType();
-        }
-        else
-        {
-            storeAddr = store->AsIndir()->GetAddr();
-            storeType = store->GetType();
-        }
+        GenTree*  storeAddr = store->AsIndir()->GetAddr();
+        var_types storeType = store->GetType();
 
         if (!storeAddr->OperIs(GT_ADD))
         {
@@ -9443,28 +9421,18 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
             boxTempLcl->SetType(storeType);
         }
 
-        if (store->OperIs(GT_ASG))
-        {
-            GenTree* dest = store->AsOp()->GetOp(0);
-            dest->ChangeOper(GT_LCL_VAR);
-            dest->RemoveSideEffects(GTF_ALL_EFFECT);
-            dest->AsLclVar()->SetLcl(boxTempLcl);
-        }
-        else
-        {
-            GenTree* value = store->AsIndir()->GetValue();
-            store->ChangeOper(GT_STORE_LCL_VAR);
-            store->AsLclVar()->SetOp(0, value);
-            store->AsLclVar()->SetLcl(boxTempLcl);
-            store->SetSideEffects(value->GetSideEffects() | GTF_GLOB_REF);
-        }
+        GenTree* value = store->AsIndir()->GetValue();
+        store->ChangeOper(GT_STORE_LCL_VAR);
+        store->AsLclVar()->SetOp(0, value);
+        store->AsLclVar()->SetLcl(boxTempLcl);
+        store->SetSideEffects(value->GetSideEffects() | GTF_GLOB_REF);
 
         DISPSTMT(storeStmt);
 
         return gtNewLclVarAddrNode(boxTempLcl, TYP_BYREF);
     }
 
-    GenTree* boxedValue = store->OperIs(GT_ASG) ? store->AsOp()->GetOp(1) : store->AsIndir()->GetValue();
+    GenTree* boxedValue = store->AsIndir()->GetValue();
 
     if (GenTreeRetExpr* retExpr = boxedValue->IsRetExpr())
     {
@@ -10653,13 +10621,13 @@ INTEGRAL_OVF:
 bool Compiler::gtNodeHasSideEffects(GenTree* node, GenTreeFlags flags, bool ignoreCctors)
 {
     // TODO-MIKE-Cleanup: This only checks certain opers but according to OperRequiresAsgFlag
-    // there are many more opers that are considered to have an assignment side effect.
+    // there are many more opers that are considered to have a store side effect.
     // Atomic ops have special handling in gtExtractSideEffList but the others will simply be
     // dropped if they are ever subject to an "extract side effects" operation.
     // It is possible that the reason no bugs have yet been observed in this area is that the
     // other nodes are likely to always be tree roots.
     if (((flags & GTF_ASG) != 0) &&
-        node->OperIs(GT_ASG, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_LCL_DEF, GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK))
+        node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_LCL_DEF, GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK))
     {
         return true;
     }
@@ -11964,8 +11932,8 @@ FieldSeqNode* FieldSeqStore::Append(FieldSeqNode* a, FieldSeqNode* b)
         // have a good way to know it was X.Y and not just X. In some case we may guess the field
         // sequence based on the type of an indir (if there's one at all) but it doesn't seem
         // very reliable. If we demote to X.Y instead of X we can later have issues when promoting
-        // struct copies - if there was an X = X assignment we need to make it X.Y = X.Y and now
-        // the field sequence coming from demotion is already X.Y and appending another Y is not
+        // struct copies - if there was an X = X copy we need to make it X.Y = X.Y and now the
+        // field sequence coming from demotion is already X.Y and appending another Y is not
         // correct.
         //
         // So for now tolerate appending field sequences with suffix/prefix overlapping:
@@ -12812,7 +12780,7 @@ bool Compiler::gtIsSmallIntCastNeeded(GenTree* tree, var_types toType)
         // for R2R), native ABIs expect the caller to widen the return value. impImportCall
         // should have already the necessary casts so we don't need to check again here but
         // this means that this function can only be used when we need to add new casts
-        // (e.g. fgMorphNormalizeLclVarStore) and not to remove existing casts.
+        // (e.g. fgMorphNormalizeLclStore) and not to remove existing casts.
 
         fromType = call->GetRetSigType();
     }

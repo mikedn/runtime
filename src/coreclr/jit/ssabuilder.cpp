@@ -177,8 +177,8 @@ bool SsaBuilder::IncludeInSsa(LclVarDsc* lcl)
         if (parentLcl->IsDependentPromoted() || parentLcl->lvIsMultiRegRet)
         {
             // SSA must exclude struct fields that are not independent:
-            // - we don't model the struct assignment properly when multiple fields
-            //   can be assigned by one struct assignment.
+            // - we don't model the struct copying properly when multiple fields
+            //   can be assigned by one struct store.
             // - SSA doesn't allow a single node to contain multiple SSA definitions.
             // - dependent promoted fields are never candidates for a register.
             return false;

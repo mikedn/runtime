@@ -1325,7 +1325,7 @@ public:
         // to
         //      (CALLVIRT
         //        (COMMA
-        //          (ASG tmp, obj)
+        //          (STORE_LCL_VAR tmp, obj)
         //          (COMMA
         //            (CALL probe_fn tmp, &probeEntry)
         //            tmp)))

@@ -204,7 +204,7 @@ GenTree* Importer::impSIMDPopStack(var_types type)
         ClassLayout* layout = tree->IsRetExpr() ? tree->AsRetExpr()->GetLayout() : tree->AsCall()->GetRetLayout();
 
         LclVarDsc* tmpLcl = lvaAllocTemp(true DEBUGARG("struct address for call/obj"));
-        impAppendTempAssign(tmpLcl, tree, layout, CHECK_SPILL_ALL);
+        impAppendTempStore(tmpLcl, tree, layout, CHECK_SPILL_ALL);
         tree = gtNewLclvNode(tmpLcl, tmpLcl->GetType());
     }
 
@@ -316,17 +316,21 @@ void Importer::AppendStmtCheck(GenTree* tree, unsigned chkLevel)
 
     // Calls can only be appended if there are no GTF_GLOB_EFFECT on the stack
 
-    if (tree->gtFlags & GTF_CALL)
+    if (tree->HasAnySideEffect(GTF_CALL))
     {
         for (unsigned level = 0; level < chkLevel; level++)
         {
             GenTree* tree = verCurrentState.esStack[level].val;
-            assert(((tree->gtFlags & GTF_GLOB_EFFECT) == 0) || impIsAddressInLocal(tree));
+            assert(!tree->HasAnySideEffect(GTF_GLOB_EFFECT) || impIsAddressInLocal(tree));
         }
     }
 
     if (tree->OperIs(GT_STORE_LCL_VAR))
     {
+        // For a store to a local variable, all references to that local have
+        // to be spilled. If the local is address taken, all calls and indirect
+        // accesses have to be spilled.
+
         LclVarDsc* lcl = tree->AsLclVar()->GetLcl();
 
         for (unsigned level = 0; level < chkLevel; level++)
@@ -340,40 +344,17 @@ void Importer::AppendStmtCheck(GenTree* tree, unsigned chkLevel)
 
             assert(!lcl->IsAddressExposed() || !val->HasAnySideEffect(GTF_SIDE_EFFECT));
         }
-
-        // TODO-MIKE-Review: What about the GTF_GLOB_REF case below?
     }
-    else if (tree->OperIs(GT_ASG))
+    else if (tree->OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK))
     {
-        // For an assignment to a local variable, all references of that
-        // variable have to be spilled. If it is aliased, all calls and
-        // indirect accesses have to be spilled.
+        // For indirect stores, all side effects have to be spilled.
+        // TODO-MIKE-Review: Comment says "all side effects" but code
+        // checks only for GLOB_REF. This should probably check for
+        // EXCEPT as well.
 
-        if (tree->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR))
+        for (unsigned level = 0; level < chkLevel; level++)
         {
-            LclVarDsc* lcl = tree->AsOp()->GetOp(0)->AsLclVar()->GetLcl();
-
-            for (unsigned level = 0; level < chkLevel; level++)
-            {
-                GenTree* val = verCurrentState.esStack[level].val;
-
-                assert(!impHasLclRef(val, lcl) || impIsAddressInLocal(val));
-
-                // TODO-MIKE-Cleanup: Checking IsAddressExposed here is nonsense,
-                // it's rarely set during import.
-
-                assert(!lcl->IsAddressExposed() || ((val->gtFlags & GTF_SIDE_EFFECT) == 0));
-            }
-        }
-
-        // If the access may be to global memory, all side effects have to be spilled.
-
-        else if (tree->AsOp()->GetOp(0)->HasAnySideEffect(GTF_GLOB_REF))
-        {
-            for (unsigned level = 0; level < chkLevel; level++)
-            {
-                assert((verCurrentState.esStack[level].val->gtFlags & GTF_GLOB_REF) == 0);
-            }
+            assert(!verCurrentState.esStack[level].val->HasAnySideEffect(GTF_GLOB_REF));
         }
     }
 }
@@ -416,14 +397,6 @@ void Importer::SpillStack(GenTree* stmtExpr, unsigned spillDepth)
         assert(stmtSideEffects == (srcSideEffects | GTF_ASG));
         stmtSideEffects = srcSideEffects;
     }
-    else if (stmtExpr->OperIs(GT_ASG) && stmtExpr->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR) &&
-             ((stmtExpr->AsOp()->GetOp(0)->GetSideEffects() & GTF_GLOB_REF) == 0) &&
-             !impHasAddressTakenLocals(stmtExpr->AsOp()->GetOp(1)))
-    {
-        GenTreeFlags srcSideEffects = stmtExpr->AsOp()->GetOp(1)->GetSideEffects();
-        assert(stmtSideEffects == (srcSideEffects | GTF_ASG));
-        stmtSideEffects = srcSideEffects;
-    }
 
     // TODO-MIKE-Review: It's not clear why GTF_ORDER_SIDEEFF keeps getting ignored.
     // If the statement we're appending contains volatile indirs then we should probably
@@ -445,40 +418,22 @@ void Importer::SpillStack(GenTree* stmtExpr, unsigned spillDepth)
     }
     else if (stmtExpr->OperIs(GT_STORE_LCL_VAR))
     {
-        GenTree* src = stmtExpr->AsLclVar()->GetOp(0);
-
-        if (src->HasAnySideEffect(GTF_ASG))
+        if (stmtExpr->AsLclVar()->GetOp(0)->HasAnySideEffect(GTF_ASG))
         {
-            // The value tree has a store side effect. Since we don't know
+            // The value has a store side effect. Since we don't know
             // where it stores to, we need to spill global refs.
             spillSideEffects |= GTF_GLOB_REF;
         }
 
         // TODO-MIKE-Review: Should this check for stores to an address taken local?
-        // The ASG versions checks for GTF_GLOB_REF on destination but GLOB_REF is
+        // The ASG version checked for GTF_GLOB_REF on destination but GLOB_REF is
         // usually not set on locals during import.
-    }
-    else if (stmtExpr->OperIs(GT_ASG))
-    {
-        GenTree* dst = stmtExpr->AsOp()->GetOp(0);
-        GenTree* src = stmtExpr->AsOp()->GetOp(1);
-
-        if (((src->gtFlags | dst->gtFlags) & GTF_ASG) != 0)
-        {
-            // Either side of the assignment node has an assignment side effect.
-            // Since we don't know what it assigns to, we need to spill global refs.
-            spillSideEffects |= GTF_GLOB_REF;
-        }
-        else if ((dst->gtFlags & GTF_GLOB_REF) != 0)
-        {
-            spillSideEffects |= GTF_GLOB_REF;
-        }
     }
     else if ((stmtSideEffects & GTF_ASG) != 0)
     {
-        // The expression is not an assignment node but it has an assignment side effect,
-        // it must be an atomic op, HW intrinsic or some other kind of node that stores to
-        // memory. Since we don't know what it assigns to, we need to spill global refs.
+        // The expression is not a store but it has a store side effect, it must be an
+        // atomic op, HW intrinsic or some other kind of node that stores to memory.
+        // Since we don't know where it stores to, we need to spill global refs.
         spillSideEffects |= GTF_GLOB_REF;
     }
 
@@ -530,9 +485,9 @@ Statement* Importer::impSpillNoneAppendTree(GenTree* op1)
     return impAppendTree(op1, CHECK_SPILL_NONE);
 }
 
-// Append an assignment of the given value to a temp to the current tree list.
+// Append a store of the given value to a temp to the current tree list.
 // curLevel is the stack level for which the spill to the temp is being done.
-void Importer::impAppendTempAssign(LclVarDsc* lcl, GenTree* val, unsigned curLevel)
+void Importer::impAppendTempStore(LclVarDsc* lcl, GenTree* val, unsigned curLevel)
 {
     assert(lcl->GetType() == TYP_UNDEF);
 
@@ -543,11 +498,11 @@ void Importer::impAppendTempAssign(LclVarDsc* lcl, GenTree* val, unsigned curLev
     impAppendTree(asg, curLevel);
 }
 
-void Importer::impAppendTempAssign(LclVarDsc* lcl, GenTree* val, ClassLayout* layout, unsigned curLevel)
+void Importer::impAppendTempStore(LclVarDsc* lcl, GenTree* val, ClassLayout* layout, unsigned curLevel)
 {
     if (!varTypeIsStruct(val->GetType()))
     {
-        impAppendTempAssign(lcl, val, curLevel);
+        impAppendTempStore(lcl, val, curLevel);
         return;
     }
 
@@ -561,15 +516,15 @@ void Importer::impAppendTempAssign(LclVarDsc* lcl, GenTree* val, ClassLayout* la
     impAppendTree(asg, curLevel);
 }
 
-void Importer::impAppendTempAssign(LclVarDsc* lcl, GenTree* val, CORINFO_CLASS_HANDLE structType, unsigned curLevel)
+void Importer::impAppendTempStore(LclVarDsc* lcl, GenTree* val, CORINFO_CLASS_HANDLE structType, unsigned curLevel)
 {
     if (!varTypeIsStruct(val->GetType()))
     {
-        impAppendTempAssign(lcl, val, curLevel);
+        impAppendTempStore(lcl, val, curLevel);
         return;
     }
 
-    impAppendTempAssign(lcl, val, typGetObjLayout(structType), curLevel);
+    impAppendTempStore(lcl, val, typGetObjLayout(structType), curLevel);
 }
 
 GenTreeCall::Use* Importer::PopCallArgs(CORINFO_SIG_INFO* sig, GenTree* extraArg)
@@ -882,7 +837,7 @@ GenTree* Importer::impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigne
     }
 
     GenTree* destAddrUses[2];
-    impMakeMultiUse(destAddr, 2, destAddrUses, curLevel DEBUGARG("MKREFANY assignment"));
+    impMakeMultiUse(destAddr, 2, destAddrUses, curLevel DEBUGARG("MKREFANY store"));
 
     GenTreeFieldAddr* valueAddr =
         gtNewFieldAddr(destAddrUses[0], GetRefanyValueField(), OFFSETOF__CORINFO_TypedReference__dataPtr);
@@ -902,8 +857,8 @@ GenTree* Importer::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLeve
         (src->TypeIs(TYP_STRUCT) && src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR)) ||
         varTypeIsSIMD(src->GetType()));
 
-    // Assigning a MKREFANY generates 2 assignments, one for each field of the struct.
-    // One assignment is appended and the other is returned to the caller.
+    // Storing a MKREFANY generates 2 stores, one for each field of the struct.
+    // One store is appended and the other is returned to the caller.
 
     if (src->OperIs(GT_MKREFANY))
     {
@@ -911,7 +866,7 @@ GenTree* Importer::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLeve
     }
 
     // Handle calls that return structs by reference - the destination address
-    // is passed to the call as the return buffer address and no assignment is
+    // is passed to the call as the return buffer address and no store is
     // generated.
 
     if (GenTreeCall* call = src->IsCall())
@@ -969,7 +924,7 @@ GenTree* Importer::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLeve
         }
     }
 
-    // In all other cases we create and return a struct assignment node.
+    // In all other cases we create and return a struct store node.
 
     if (dest->OperIs(GT_LCL_VAR))
     {
@@ -1014,9 +969,9 @@ void Importer::gtInitStructIndStore(GenTreeIndir* store, GenTree* value)
     // NOTE: In this case we'll only detect the case for addr of a local and a local
     // itself, any other complex expressions won't be caught.
     //
-    // TODO-Cleanup: though having this logic is goodness (i.e. avoids self-assignment
+    // TODO-Cleanup: though having this logic is goodness (i.e. avoids self-copying
     // of struct vars very early), it was added because fgInterBlockLocalVarLiveness()
-    // isn't handling self-assignment of struct variables correctly. This issue may not
+    // isn't handling self-copying of struct variables correctly. This issue may not
     // surface if struct promotion is ON (which is the case on x86/arm). But still the
     // fundamental issue exists that needs to be addressed.
 
@@ -1082,9 +1037,9 @@ void Importer::gtInitStructLclStore(GenTreeLclVar* store, GenTree* value)
     // NOTE: In this case we'll only detect the case for addr of a local and a local
     // itself, any other complex expressions won't be caught.
     //
-    // TODO-Cleanup: though having this logic is goodness (i.e. avoids self-assignment
+    // TODO-Cleanup: though having this logic is goodness (i.e. avoids self-copying
     // of struct vars very early), it was added because fgInterBlockLocalVarLiveness()
-    // isn't handling self-assignment of struct variables correctly. This issue may not
+    // isn't handling self-copying of struct variables correctly. This issue may not
     // surface if struct promotion is ON (which is the case on x86/arm). But still the
     // fundamental issue exists that needs to be addressed.
 
@@ -1146,7 +1101,7 @@ GenTree* Importer::impGetStructAddr(GenTree*             value,
     }
 
     LclVarDsc* tmpLcl = lvaAllocTemp(true DEBUGARG("struct address temp"));
-    impAppendTempAssign(tmpLcl, value, structHnd, curLevel);
+    impAppendTempStore(tmpLcl, value, structHnd, curLevel);
     return gtNewLclVarAddrNode(tmpLcl, TYP_BYREF);
 }
 
@@ -1187,7 +1142,7 @@ GenTree* Importer::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
     if (spillToTemp)
     {
         LclVarDsc* argLcl = lvaAllocTemp(true DEBUGARG("struct arg temp"));
-        impAppendTempAssign(argLcl, arg, argLayout, curLevel);
+        impAppendTempStore(argLcl, arg, argLayout, curLevel);
         arg = comp->gtNewLclLoad(argLcl, argLcl->GetType());
     }
 
@@ -1517,7 +1472,7 @@ void Importer::impImportDup()
         // impSpillStackEntry's special RET_EXPR handling hurts CQ...
 
         LclVarDsc* lcl = lvaAllocTemp(true DEBUGARG("dup spill"));
-        impAppendTempAssign(lcl, op1, se.seTypeInfo.GetClassHandle(), CHECK_SPILL_ALL);
+        impAppendTempStore(lcl, op1, se.seTypeInfo.GetClassHandle(), CHECK_SPILL_ALL);
 
         if (!opts.compDbgCode && lcl->TypeIs(TYP_REF))
         {
@@ -1542,7 +1497,7 @@ void Importer::impSpillStackEntry(unsigned level DEBUGARG(const char* reason))
     GenTree*    tree = se.val;
 
     LclVarDsc* lcl = lvaAllocTemp(true DEBUGARG(reason));
-    impAppendTempAssign(lcl, tree, se.seTypeInfo.GetClassHandle(), level);
+    impAppendTempStore(lcl, tree, se.seTypeInfo.GetClassHandle(), level);
 
     if (lcl->TypeIs(TYP_REF))
     {
@@ -1599,7 +1554,7 @@ void Importer::impSpillSideEffects(GenTreeFlags spillSideEffects, unsigned spill
 
         if (impIsAddressInLocal(tree))
         {
-            // Trees that represent local addresses may have spurios GLOB_REF
+            // Trees that represent local addresses may have spurious GLOB_REF
             // side effects but they never need to be spilled.
             continue;
         }
@@ -1737,10 +1692,9 @@ BasicBlock* Importer::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
             GenTree* tree = stmt->GetRootNode();
             assert(tree != nullptr);
 
-            if (tree->OperIs(GT_ASG) && tree->AsOp()->gtOp1->OperIs(GT_LCL_VAR) &&
-                tree->AsOp()->gtOp2->OperIs(GT_CATCH_ARG))
+            if (tree->OperIs(GT_STORE_LCL_VAR) && tree->AsLclVar()->GetOp(0)->OperIs(GT_CATCH_ARG))
             {
-                tree = gtNewLclvNode(tree->AsOp()->gtOp1->AsLclVar()->GetLcl(), TYP_REF);
+                tree = comp->gtNewLclLoad(tree->AsLclVar()->GetLcl(), TYP_REF);
 
                 assert(hndBlk->bbEntryState->HasCatchArg());
 
@@ -1900,7 +1854,7 @@ void Importer::impMakeMultiUse(GenTree*     tree,
     }
 
     LclVarDsc* lcl = lvaAllocTemp(true DEBUGARG(reason));
-    impAppendTempAssign(lcl, tree, layout, spillCheckLevel);
+    impAppendTempStore(lcl, tree, layout, spillCheckLevel);
 
     var_types type = varActualType(lcl->GetType());
 
@@ -2262,8 +2216,8 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
         return nullptr;
     }
 
-    // We start by looking at the last statement, making sure it's an assignment, and
-    // that the target of the assignment is the array passed to InitializeArray.
+    // We start by looking at the last statement, making sure it's a store, and
+    // that the target of the store is the array passed to InitializeArray.
     GenTree* arrayStore = impLastStmt->GetRootNode();
 
     if (!arrayStore->OperIs(GT_STORE_LCL_VAR) || !arrayLocalNode->OperIs(GT_LCL_VAR) ||
@@ -2498,8 +2452,8 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
     }
 
     // At this point we are ready to commit to implementing the InitializeArray
-    // intrinsic using a struct assignment.  Pop the arguments from the stack and
-    // return the struct assignment node.
+    // intrinsic using a struct store. Pop the arguments from the stack and
+    // return the struct store node.
 
     impPopStack();
     impPopStack();
@@ -2920,9 +2874,9 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             break;
         }
 
-        // Implement ByReference Ctor.  This wraps the assignment of the ref into a byref-like field
-        // in a value type.  The canonical example of this is Span<T>. In effect this is just a
-        // substitution.  The parameter byref will be assigned into the newly allocated object.
+        // Implement ByReference Ctor. This wraps the store of the ref into a byref-like field
+        // in a value type. The canonical example of this is Span<T>. In effect this is just
+        // a substitution. The parameter byref will be assigned into the newly allocated object.
         case NI_CORINFO_INTRINSIC_ByReference_Ctor:
         {
             assert(newobjThis->AsLclAddr()->GetLclOffs() == 0);
@@ -5827,7 +5781,7 @@ GenTree* Importer::impImportLdSFld(OPCODE                    opcode,
 
     // TODO-MIKE-Cleanup: SIMD COMMAs should not need this and previous implementation
     // actually preserved them in some cases (e.g. when the resulting tree was used
-    // by a SIMD/HWINTRINSIC node rather than an assignment or call). Doesn't seem to
+    // by a SIMD/HWINTRINSIC node rather than a store or call). Doesn't seem to
     // matter and anyway there are many other places that insist on transforming SIMD
     // COMMAs for no reason. Actually we could simply preserve all struct COMMAs but
     // there seems to be little advantage in doing that and requires a bit of work.
@@ -6185,7 +6139,7 @@ GenTree* Importer::impConvertFieldStoreValue(var_types storeType, GenTree* value
     }
 
 #ifndef TARGET_64BIT
-    // V4.0 allows assignment of i4 constant values to i8 type vars when IL verifier is bypassed (full
+    // V4.0 allows storing of i4 constant values to i8 type vars when IL verifier is bypassed (full
     // trust apps). The reason this works is that JIT stores an i4 constant in Gentree union during
     // importation and reads from the union as if it were a long during code generation. Though this
     // can potentially read garbage, one can get lucky to have this working correctly.
@@ -7104,7 +7058,7 @@ PUSH_CALL:
             // TODO-MIKE-Review: CHECK_SPILL_NONE followed by CHECK_SPILL_ALL below, this seems
             // bogus. We'll end up with something like tmp = CALL, other stack contents, tmp use
             // instead of other stack contents, tmp = CALL, tmp use.
-            impAppendTempAssign(calliTempLcl, call, call->GetRetLayout(), CHECK_SPILL_NONE);
+            impAppendTempStore(calliTempLcl, call, call->GetRetLayout(), CHECK_SPILL_NONE);
 
             value = gtNewLclvNode(calliTempLcl, varActualType(calliTempLcl->GetType()));
         }
@@ -7617,7 +7571,7 @@ GenTree* Importer::impSpillPseudoReturnBufferCall(GenTreeCall* call)
     // same structure/class/type.
 
     LclVarDsc* tmpLcl = lvaAllocTemp(true DEBUGARG("pseudo return buffer"));
-    impAppendTempAssign(tmpLcl, call, call->GetRetLayout(), CHECK_SPILL_ALL);
+    impAppendTempStore(tmpLcl, call, call->GetRetLayout(), CHECK_SPILL_ALL);
     return gtNewLclvNode(tmpLcl, info.compRetType);
 }
 
@@ -9316,7 +9270,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                // Create and append the assignment statement
+                // Create and append the store statement
 
                 if (varTypeIsStruct(lclTyp))
                 {
@@ -9719,7 +9673,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         goto STELEM_T;
                     }
 
-                    // Else call a helper function to do the assignment
+                    // Else call a helper function to do the store
                 }
 
                 {
@@ -9761,7 +9715,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 clsHnd = NO_CLASS_HANDLE;
             STELEM:
                 // We need to evaluate array, index, value and then perform a range check.
-                // However, the IR we build is ASG(IND(INDEX_ADDR(array, index)), value),
+                // However, the IR we build is STOREIND(INDEX_ADDR(array, index)), value),
                 // with INDEX_ADDR performing the range check, before value is evaluated.
                 // We don't have much of a choice but to spill the stack to ensure correct
                 // side effect ordering.
@@ -11395,7 +11349,7 @@ void Importer::ImportRefAnyType()
     if (!op1->OperIs(GT_LCL_VAR, GT_MKREFANY))
     {
         LclVarDsc* tmpLcl = lvaAllocTemp(true DEBUGARG("refanytype temp"));
-        impAppendTempAssign(tmpLcl, op1, impGetRefAnyClass(), CHECK_SPILL_ALL);
+        impAppendTempStore(tmpLcl, op1, impGetRefAnyClass(), CHECK_SPILL_ALL);
         op1 = gtNewLclvNode(tmpLcl, TYP_STRUCT);
     }
 
@@ -11447,7 +11401,7 @@ void Importer::ImportRefAnyVal(const BYTE* codeAddr)
     if (op1->OperIs(GT_CALL, GT_RET_EXPR))
     {
         LclVarDsc* tmpLcl = lvaAllocTemp(true DEBUGARG("refanyval temp"));
-        impAppendTempAssign(tmpLcl, op1, impGetRefAnyClass(), CHECK_SPILL_ALL);
+        impAppendTempStore(tmpLcl, op1, impGetRefAnyClass(), CHECK_SPILL_ALL);
         op1 = gtNewLclvNode(tmpLcl, TYP_STRUCT);
     }
 
@@ -12475,7 +12429,7 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
         JITDUMP("Marked " FMT_LCL " as a single def local\n", lcl->GetLclNum());
         comp->lvaSetClass(lcl, classHandle, /* isExact */ true);
 
-        // Append the assignment to the temp/local. We don't need to spill the stack as
+        // Append the store to the temp/local. We don't need to spill the stack as
         // we are just calling a JIT helper which can only throw OutOfMemoryException.
         // We assign the newly allocated object (by a ALLOCOBJ node) to a temp. Note that
         // the pattern "temp = alloc" is required by ObjectAllocator phase to be able
@@ -13174,7 +13128,7 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
 
             JITDUMPTREE(tree, "Stack entry %u:\n", level);
 
-            impAppendTempAssign(spillTempLcl, tree, stackType.GetClassHandle(), CHECK_SPILL_NONE);
+            impAppendTempStore(spillTempLcl, tree, stackType.GetClassHandle(), CHECK_SPILL_NONE);
 
             if (stackType.IsStruct())
             {
@@ -13293,14 +13247,14 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
                     if (impHasLclRef(relOp->GetOp(0), spillTempLcl))
                     {
                         LclVarDsc* tempLcl = lvaAllocTemp(true DEBUGARG("branch spill temp"));
-                        impAppendTempAssign(tempLcl, relOp->GetOp(0), level);
+                        impAppendTempStore(tempLcl, relOp->GetOp(0), level);
                         relOp->SetOp(0, gtNewLclvNode(tempLcl, tempLcl->GetType()));
                     }
 
                     if (impHasLclRef(relOp->GetOp(1), spillTempLcl))
                     {
                         LclVarDsc* tempLcl = lvaAllocTemp(true DEBUGARG("branch spill temp"));
-                        impAppendTempAssign(tempLcl, relOp->GetOp(1), level);
+                        impAppendTempStore(tempLcl, relOp->GetOp(1), level);
                         relOp->SetOp(1, gtNewLclvNode(tempLcl, tempLcl->GetType()));
                     }
                 }
@@ -13311,7 +13265,7 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
                     if (impHasLclRef(branch->GetOp(0), spillTempLcl))
                     {
                         LclVarDsc* tempLcl = lvaAllocTemp(true DEBUGARG("branch spill temp"));
-                        impAppendTempAssign(tempLcl, branch->GetOp(0), level);
+                        impAppendTempStore(tempLcl, branch->GetOp(0), level);
                         branch->SetOp(0, gtNewLclvNode(tempLcl, tempLcl->GetType()));
                     }
                 }
@@ -15738,7 +15692,7 @@ public:
 
         LclVarDsc* lcl = m_compiler->lvaAllocTemp(true DEBUGARG("RET_EXPR temp"));
         JITDUMP("Storing return expression [%06u] to a local var V%02u.\n", retExpr->GetID(), lcl->GetLclNum());
-        importer->impAppendTempAssign(lcl, retExpr, retExpr->GetLayout(), Importer::CHECK_SPILL_NONE);
+        importer->impAppendTempStore(lcl, retExpr, retExpr->GetLayout(), Importer::CHECK_SPILL_NONE);
         *use = m_compiler->gtNewLclvNode(lcl, retExpr->GetType());
 
         if (retExpr->TypeIs(TYP_REF))
@@ -16086,7 +16040,7 @@ bool Importer::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
     // We should only call this when optimizing.
     assert(opts.OptimizationEnabled());
 
-    // Check for assignment to same array, ie. arrLcl[i] = arrLcl[j]
+    // Check for storing to the same array, ie. arrLcl[i] = arrLcl[j]
     if (value->OperIs(GT_IND) && value->AsIndir()->GetAddr()->IsIndexAddr() && array->OperIs(GT_LCL_VAR))
     {
         GenTree* valueIndex = value->AsIndir()->GetAddr()->AsIndexAddr()->GetArray();
@@ -16110,7 +16064,7 @@ bool Importer::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
         }
     }
 
-    // Check for assignment of NULL.
+    // Check for storing of null.
     if (value->OperIs(GT_CNS_INT))
     {
         assert(value->TypeIs(TYP_REF));

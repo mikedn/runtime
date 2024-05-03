@@ -2899,7 +2899,7 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
 
                     if (GenTreeCall::Use* thisArg = node->AsCall()->gtCallThisArg)
                     {
-                        if (thisArg->GetNode()->OperIs(GT_ASG, GT_STORE_LCL_VAR, GT_LCL_DEF))
+                        if (thisArg->GetNode()->OperIs(GT_STORE_LCL_VAR, GT_LCL_DEF))
                         {
                             actualFlags |= GTF_ASG;
                         }

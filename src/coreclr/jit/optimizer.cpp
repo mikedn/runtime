@@ -5681,7 +5681,7 @@ void Compiler::optAddCopies()
             copyLcl->SetType(typ);
         }
 
-        JITDUMP("Finding the best place to insert the assignment V%02i = V%02i\n", copyLcl->GetLclNum(),
+        JITDUMP("Finding the best place to insert the store V%02i = V%02i\n", copyLcl->GetLclNum(),
                 varDsc->GetLclNum());
 
         Statement* stmt;
@@ -5690,15 +5690,15 @@ void Compiler::optAddCopies()
         {
             noway_assert((varDsc->lvDefStmt == nullptr) || varDsc->IsPromotedField());
 
-            // Create a new copy assignment tree
+            // Create a new copy store tree
             GenTree* copyAsgn = gtNewStoreLclVar(copyLcl, typ, gtNewLclvNode(varDsc, typ));
 
-            /* Find the best block to insert the new assignment     */
-            /* We will choose the lowest weighted block, and within */
-            /* those block, the highest numbered block which        */
-            /* dominates all the uses of the local variable         */
+            // Find the best block to insert the new store
+            // We will choose the lowest weighted block, and within
+            // those block, the highest numbered block which
+            // dominates all the uses of the local variable
 
-            /* Our default is to use the first block */
+            // Our default is to use the first block
             BasicBlock*          bestBlock  = fgFirstBB;
             BasicBlock::weight_t bestWeight = bestBlock->getBBWeight(this);
             BasicBlock*          block      = bestBlock;
@@ -5782,8 +5782,7 @@ void Compiler::optAddCopies()
                     continue;
                 }
 
-                // This block will be the new candidate for the insert point
-                // for the new assignment
+                // This block will be the new candidate for the insert point for the new store
                 CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef DEBUG
@@ -5797,9 +5796,8 @@ void Compiler::optAddCopies()
                 bestWeight = block->getBBWeight(this);
             }
 
-            // If there is a use of the variable in this block
-            // then we insert the assignment at the beginning
-            // otherwise we insert the statement at the end
+            // If there is a use of the variable in this block then we insert the store at
+            // the beginning otherwise we insert the statement at the end
             CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef DEBUG
@@ -5828,7 +5826,7 @@ void Compiler::optAddCopies()
         {
             noway_assert(varDsc->lvDefStmt != nullptr);
 
-            /* Locate the assignment to varDsc in the lvDefStmt */
+            // Locate the store to varDsc in the lvDefStmt
             stmt = varDsc->lvDefStmt;
 
             GenTreeOp* tree = nullptr;
@@ -5866,18 +5864,18 @@ void Compiler::optAddCopies()
 // Notes:
 //    This phase iterates over basic blocks starting with the first basic block until there is no unique
 //    basic block successor or until it detects a loop. It keeps track of local nodes it encounters.
-//    When it gets to an assignment to a local variable or a local field, it checks whether the assignment
-//    is the first reference to the local (or to the parent of the local field), and, if so,
-//    it may do one of two optimizations:
+//    When it gets to a store to a local variable or a local field, it checks whether the store is
+//    the first reference to the local (or to the parent of the local field), and, if so, it may do one
+//    of two optimizations:
 //      1. If the following conditions are true:
 //            the local is untracked,
-//            the rhs of the assignment is 0,
+//            the stored value is 0,
 //            the local is guaranteed to be fully initialized in the prolog,
 //         then the explicit zero initialization is removed.
 //      2. If the following conditions are true:
-//            the assignment is to a local (and not a field),
-//            the local is not lvLiveInOutOfHndlr or no exceptions can be thrown between the prolog and the assignment,
-//            either the local has no gc pointers or there are no gc-safe points between the prolog and the assignment,
+//            the store is to a local (and not a field),
+//            the local is not lvLiveInOutOfHndlr or no exceptions can be thrown between the prolog and the store,
+//            either the local has no gc pointers or there are no gc-safe points between the prolog and the store,
 //         then the local is marked with lvHasExplicitInit which tells the codegen not to insert zero initialization
 //         for this local in the prolog.
 //
@@ -5985,7 +5983,7 @@ void Compiler::phRemoveRedundantZeroInits()
                             }
                         }
 
-                        // The local hasn't been referenced before this assignment.
+                        // The local hasn't been referenced before this store.
                         bool removedExplicitZeroInit = false;
                         bool totalOverlap            = !lclNode->IsPartialLclFld(this);
 
@@ -6005,7 +6003,7 @@ void Compiler::phRemoveRedundantZeroInits()
                                 {
                                     // We are guaranteed to have a zero initialization in the prolog or a
                                     // dominating explicit zero initialization and the local hasn't been redefined
-                                    // between the prolog and this explicit zero initialization so the assignment
+                                    // between the prolog and this explicit zero initialization so the store
                                     // can be safely removed.
                                     if (lclNode == stmt->GetRootNode())
                                     {

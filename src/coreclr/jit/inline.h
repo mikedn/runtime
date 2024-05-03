@@ -320,7 +320,6 @@ protected:
     }
 
 private:
-    // No copying or assignment supported
     InlinePolicy(const InlinePolicy&) = delete;
     InlinePolicy& operator=(const InlinePolicy&) = delete;
 
@@ -534,7 +533,6 @@ public:
     }
 
 private:
-    // No copying or assignment allowed.
     InlineResult(const InlineResult&) = delete;
     InlineResult& operator=(const InlineResult&) = delete;
 

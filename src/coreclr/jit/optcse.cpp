@@ -687,7 +687,7 @@ public:
                     }
 
                     // Don't allow non-SIMD struct CSEs under a return; we don't fully
-                    // re-morph these if we introduce a CSE assignment, and so may create
+                    // re-morph these if we introduce a CSE store, and so may create
                     // IR that lower is not yet prepared to handle.
                     // TODO-MIKE-Cleanup: Remove this crap.
                     if (isReturnStmt && varTypeIsStruct(node->GetType()) && !varTypeIsSIMD(node->GetType()))
@@ -2127,9 +2127,8 @@ public:
 
         INDEBUG(compiler->cseCount++);
 
-        // Walk all references to this CSE, adding an assignment
-        // to the CSE temp to all defs and changing all refs to
-        // a simple use of the CSE temp.
+        // Walk all references to this CSE, adding a store to the CSE temp to
+        // all defs and changing all refs to a simple use of the CSE temp.
         // Later we will unmark any nested CSE's for the CSE uses.
 
         const Occurrence* singleDefOccurence = nullptr;

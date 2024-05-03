@@ -538,14 +538,14 @@ public:
                     EscapeValue(TopValue(0), node);
                     PopValue();
 
-                    if (ret->GetOp(0)->TypeIs(TYP_STRUCT) && IsMergedReturnAssignment(ret))
+                    if (ret->GetOp(0)->TypeIs(TYP_STRUCT) && IsMergedReturn(ret))
                     {
                         LclVarDsc* lcl = m_compiler->lvaGetDesc(m_compiler->genReturnLocal);
 
                         if (lcl->IsPromoted())
                         {
                             assert(lcl->GetPromotedFieldCount() == 1);
-                            RetypeMergedReturnStructAssignment(ret, lcl);
+                            RetypeMergedReturn(ret, lcl);
                         }
                     }
                 }
@@ -564,13 +564,6 @@ public:
                 }
                 break;
 
-            case GT_ASG:
-                if (node->TypeIs(TYP_STRUCT))
-                {
-                    PostOrderVisitStructAssignment(node->AsOp());
-                    break;
-                }
-                FALLTHROUGH;
             default:
                 while (TopValue(0).Node() != node)
                 {
@@ -582,51 +575,6 @@ public:
 
         assert(TopValue(0).Node() == node);
         return Compiler::WALK_CONTINUE;
-    }
-
-    void PostOrderVisitStructAssignment(GenTreeOp* asg)
-    {
-        assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
-        assert(TopValue(2).Node() == asg);
-        assert(TopValue(1).Node() == asg->GetOp(0));
-        assert(TopValue(0).Node() == asg->GetOp(1));
-
-        GenTree* op1 = asg->GetOp(0);
-        GenTree* op2 = asg->GetOp(1);
-
-        assert(op1->TypeIs(TYP_STRUCT));
-        assert(op2->TypeIs(TYP_STRUCT) || op2->IsIntegralConst(0) || op2->OperIs(GT_INIT_VAL));
-
-        EscapeValue(TopValue(0), asg);
-        EscapeValue(TopValue(1), asg);
-
-        op1 = asg->GetOp(0);
-        op2 = asg->GetOp(1);
-
-        if (op2->IsIntegralConst(0))
-        {
-            if (!op1->TypeIs(TYP_STRUCT))
-            {
-                asg->SetOp(1, RetypeStructZeroInit(op2, op1->GetType()));
-                asg->SetType(op1->GetType());
-            }
-        }
-        else if (op2->OperIs(GT_INIT_VAL))
-        {
-            // Currently MorphLocalIndir doesn't touch BLKs so we don't need to deal with INIT_VAL.
-            assert(op1->TypeIs(TYP_STRUCT));
-        }
-        else if (!op1->TypeIs(TYP_STRUCT) && !op2->TypeIs(TYP_STRUCT))
-        {
-            RetypeScalarAssignment(asg, op1, op2);
-        }
-        else if (op1->TypeIs(TYP_STRUCT) != op2->TypeIs(TYP_STRUCT))
-        {
-            RetypeStructAssignment(asg, op1, op2);
-        }
-
-        PopValue();
-        PopValue();
     }
 
 private:
@@ -807,8 +755,7 @@ private:
                     case GT_STORE_LCL_VAR:
                     case GT_STORE_LCL_FLD:
                     case GT_STORE_OBJ:
-                    case GT_ASG:
-                        PromoteSingleFieldStructLocalAssignment(lcl, node->AsLclVar(), user);
+                        PromoteSingleFieldStructLocalStoreValue(lcl, node->AsLclVar(), user);
                         break;
                     case GT_CALL:
                         PromoteSingleFieldStructLocalCallArg(lcl, node->AsLclVar());
@@ -932,11 +879,11 @@ private:
         MorphLocalIndir(val, user, indirSize);
     }
 
-    void PromoteSingleFieldStructLocalAssignment(LclVarDsc* lcl, GenTreeLclVar* lclVar, GenTree* store)
+    void PromoteSingleFieldStructLocalStoreValue(LclVarDsc* lcl, GenTreeLclVar* lclVar, GenTree* store)
     {
         assert(lcl->TypeIs(TYP_STRUCT));
         assert(lcl->GetPromotedFieldCount() == 1);
-        assert(store->OperIs(GT_ASG, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_STORE_OBJ) && store->TypeIs(TYP_STRUCT));
+        assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_STORE_OBJ) && store->TypeIs(TYP_STRUCT));
 
         LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
 
@@ -978,10 +925,10 @@ private:
 
         INDEBUG(m_stmtModified = true;)
 
-        if (IsMergedReturnAssignment(ret))
+        if (IsMergedReturn(ret))
         {
             // This is a merged return, it will be transformed into a struct
-            // assignment so leave it to fgMorphCopyStruct to promote it.
+            // copy so leave it to fgMorphCopyStruct to promote it.
             return;
         }
 
@@ -1078,11 +1025,6 @@ private:
         return nullptr;
     }
 
-    // Return the size (in bytes) of an indirection node.
-    // This returns 0 for indirection of unknown size, typically DYN_BLK.
-    // IND nodes that have type STRUCT are expected to only appear on the
-    // RHS of an assignment to DYN_BLK so they're also considered to have
-    // unknown size.
     unsigned GetIndirSize(GenTree* indir, GenTree* user)
     {
         assert(indir->OperIs(GT_IND, GT_OBJ, GT_BLK));
@@ -1093,33 +1035,6 @@ private:
         }
 
         assert(!indir->OperIs(GT_IND));
-
-        if (user->OperIs(GT_ASG) && (indir == user->AsOp()->GetOp(1)))
-        {
-            // A struct indir that is the RHS of an assignment should get its size from the LHS,
-            // in case the LHS and RHS have different types the LHS size is used in codegen.
-            // This shouldn't happen as it would mean the IL is invalid but the importer's too
-            // messed up to expect it to properly reject invalid IL.
-
-            indir = user->AsOp()->GetOp(0);
-
-            if (indir->GetType() != TYP_STRUCT)
-            {
-                return varTypeSize(indir->GetType());
-            }
-
-            // The LHS may be a LCL_VAR/LCL_FLD, these are not indirections so we need to handle them here.
-
-            switch (indir->GetOper())
-            {
-                case GT_LCL_VAR:
-                    return indir->AsLclVar()->GetLcl()->GetLayout()->GetSize();
-                case GT_LCL_FLD:
-                    return indir->AsLclFld()->GetLayout(m_compiler)->GetSize();
-                default:
-                    break;
-            }
-        }
 
         return indir->AsBlk()->GetLayout()->GetSize();
     }
@@ -1461,7 +1376,7 @@ private:
         // Local address nodes never have side effects (nor any other flags, at least at this point).
         addr->gtFlags = GTF_EMPTY;
 
-        if (!user->OperIs(GT_ASG, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_STOREIND))
+        if (!user->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_STOREIND))
         {
             addr->SetType(TYP_I_IMPL);
         }
@@ -1543,8 +1458,6 @@ private:
             return;
         }
 
-        const bool isDef = user->OperIs(GT_ASG) && (user->AsOp()->GetOp(0) == indir);
-
         var_types lclType   = varDsc->GetType();
         var_types indirType = indir->GetType();
 
@@ -1564,8 +1477,7 @@ private:
             {
                 case GT_STORE_LCL_VAR:
                 case GT_STORE_OBJ:
-                case GT_ASG:
-                    if (MorphLocalStructIndirAssignment(val, indir, indirLayout))
+                    if (MorphLocalStructIndirStore(val, indir, indirLayout))
                     {
                         return;
                     }
@@ -1594,30 +1506,7 @@ private:
             {
                 if (varTypeSize(indirType) == varTypeSize(lclType))
                 {
-                    if (isDef)
-                    {
-                        // Handle the "store" variant of the "indirect local load" cases below.
-                        // The only difference is that on store the signedness of small int types
-                        // is not relevant. If the destination local ends up being "normalize on
-                        // store" then global morph will later do the required widening.
-
-                        bool isAssignable = varTypeKind(indirType) == varTypeKind(lclType);
-
-                        if (!isAssignable && CanBitCastTo(lclType))
-                        {
-                            user->AsOp()->SetOp(1, NewBitCastNode(lclType, user->AsOp()->GetOp(1)));
-                            isAssignable = true;
-                        }
-
-                        if (isAssignable)
-                        {
-                            indir->ChangeOper(GT_LCL_VAR);
-                            indir->SetType(lclType);
-                            indir->AsLclVar()->SetLcl(varDsc);
-                            indir->gtFlags = GTF_DONT_CSE;
-                        }
-                    }
-                    else if (varTypeIsSmall(indirType) && (varTypeIsUnsigned(indirType) != varTypeIsUnsigned(lclType)))
+                    if (varTypeIsSmall(indirType) && (varTypeIsUnsigned(indirType) != varTypeIsUnsigned(lclType)))
                     {
                         // There's no reason to write something like `*(short*)&ushortLocal` instead of just
                         // `(short)ushortLocal`, except that generics code can't do such casts and sometimes
@@ -1663,16 +1552,16 @@ private:
                     assert(varTypeSize(indirType) < varTypeSize(lclType));
 
                     // Storing to a local via a smaller indirection is more difficult to handle, we need something
-                    // like ASG(lcl, OR(lcl, value)) in the integer case plus some BITCASTs or intrinsics in the
-                    // float case. CoreLib has a few cases in Vector128 & co. WithElement methods but these are
-                    // normally recognized as intrinsics so it's not worth the trouble to handle this case.
+                    // like STORE_LCL_VAR(lcl, OR(lcl, value)) in the integer case plus some BITCASTs or intrinsics
+                    // in the float case. CoreLib has a few cases in Vector128 & co. WithElement methods but these
+                    // are normally recognized as intrinsics so it's not worth the trouble to handle this case.
 
                     // Loading via a smaller indirection isn't common either but this case can be easily handled
                     // by using a CAST. There's no reason to write something like `*(short*)&intLocal` instead of
                     // just `(short)intLocal`, except that generics code can't do such casts and sometimes uses
                     // `Unsafe.As` as a substitute.
 
-                    if (!isDef && varTypeIsIntegral(indirType) && varTypeIsIntegral(lclType))
+                    if (varTypeIsIntegral(indirType) && varTypeIsIntegral(lclType))
                     {
                         indir->ChangeOper(GT_CAST);
                         indir->AsCast()->SetCastType(indirType);
@@ -1694,21 +1583,6 @@ private:
                 indir->AsLclFld()->SetLayoutNum(layout == nullptr ? 0 : m_compiler->typGetLayoutNum(layout));
                 indir->gtFlags = GTF_EMPTY;
 
-                if (isDef)
-                {
-                    indir->gtFlags |= GTF_DONT_CSE;
-
-                    if (varTypeIsSmall(varDsc->GetType()))
-                    {
-                        // If LCL_FLD is used to store to a small type local then "normalize on store"
-                        // isn't possible so the local has to be "normalize on load". The only way to
-                        // do this is by making the local address exposed which is a big hammer. But
-                        // such an indirect store is highly unusual so it's not worth the trouble to
-                        // introduce another mechanism.
-                        m_compiler->lvaSetAddressExposed(varDsc);
-                    }
-                }
-
                 m_compiler->lvaSetDoNotEnregister(varDsc DEBUGARG(Compiler::DNER_LocalField));
             }
 
@@ -1719,7 +1593,7 @@ private:
 
 #ifdef FEATURE_SIMD
         if (varTypeIsSIMD(lclType) && varDsc->lvIsUsedInSIMDIntrinsic() && indir->TypeIs(TYP_FLOAT) &&
-            (val.Offset() % 4 == 0) && (!isDef || !varDsc->IsImplicitByRefParam()) && !varDsc->lvDoNotEnregister)
+            (val.Offset() % 4 == 0) && !varDsc->lvDoNotEnregister)
         {
             // Recognize fields X/Y/Z/W of Vector2/3/4. These fields have type FLOAT so this is the only type
             // we recognize here but any other type supported by GetItem/SetItem would work. But other vector
@@ -1750,25 +1624,10 @@ private:
             // it here hurts promotion because SIMD typed promoted fields don't have it set so accessing
             // their X/Y/Z/W fields will just result in DNER.
 
-            if (isDef)
-            {
-                indir->ChangeOper(GT_LCL_VAR);
-                indir->SetType(varDsc->GetType());
-                indir->AsLclVar()->SetLcl(varDsc);
-                indir->gtFlags = GTF_DONT_CSE;
-
-                user->AsOp()->SetOp(1,
-                                    NewInsertElement(varDsc->GetType(), val.Offset() / 4, TYP_FLOAT,
-                                                     NewLclVarNode(varDsc->GetType(), varDsc), user->AsOp()->GetOp(1)));
-                user->SetType(varDsc->GetType());
-            }
-            else
-            {
-                indir->ChangeOper(GT_HWINTRINSIC);
-                indir->AsHWIntrinsic()->SetIntrinsic(NI_Vector128_GetElement, TYP_FLOAT, 16, 2);
-                indir->AsHWIntrinsic()->SetOp(0, NewLclVarNode(varDsc->GetType(), varDsc));
-                indir->AsHWIntrinsic()->SetOp(1, NewIntConNode(TYP_INT, val.Offset() / 4));
-            }
+            indir->ChangeOper(GT_HWINTRINSIC);
+            indir->AsHWIntrinsic()->SetIntrinsic(NI_Vector128_GetElement, TYP_FLOAT, 16, 2);
+            indir->AsHWIntrinsic()->SetOp(0, NewLclVarNode(varDsc->GetType(), varDsc));
+            indir->AsHWIntrinsic()->SetOp(1, NewIntConNode(TYP_INT, val.Offset() / 4));
 
             INDEBUG(m_stmtModified = true;)
 
@@ -1873,11 +1732,7 @@ private:
 
         GenTreeFlags flags = GTF_EMPTY;
 
-        if (user->OperIs(GT_ASG) && (user->AsOp()->GetOp(0) == indir))
-        {
-            flags |= GTF_DONT_CSE;
-        }
-        else if (indir->TypeIs(TYP_STRUCT) && user->IsCall())
+        if (indir->TypeIs(TYP_STRUCT) && user->IsCall())
         {
             flags |= GTF_DONT_CSE;
         }
@@ -1887,7 +1742,7 @@ private:
         INDEBUG(m_stmtModified = true;)
     }
 
-    bool MorphLocalStructIndirAssignment(const Value& val, GenTree* indir, ClassLayout* indirLayout)
+    bool MorphLocalStructIndirStore(const Value& val, GenTree* indir, ClassLayout* indirLayout)
     {
         assert(val.Offset() == 0);
         assert(indir->TypeIs(TYP_STRUCT));
@@ -1912,7 +1767,7 @@ private:
 
     bool MorphLocalStructIndirCallArg(const Value& val, GenTree* indir, ClassLayout* indirLayout)
     {
-        return MorphLocalStructIndirAssignment(val, indir, indirLayout);
+        return MorphLocalStructIndirStore(val, indir, indirLayout);
     }
 
     bool MorphLocalStructIndirReturn(const Value& val, GenTree* indir, ClassLayout* indirLayout, GenTreeUnOp* ret)
@@ -1930,10 +1785,10 @@ private:
         bool                  useLcl      = false;
         var_types             bitcastType = TYP_UNDEF;
 
-        if (IsMergedReturnAssignment(ret))
+        if (IsMergedReturn(ret))
         {
             // This is a merged return, it will be transformed into a struct
-            // assignment so leave it to fgMorphCopyStruct to handle it.
+            // copy so leave it to fgMorphCopyStruct to handle it.
 
             LclVarDsc* mergedLcl = m_compiler->lvaGetDesc(m_compiler->genReturnLocal);
             assert(mergedLcl->TypeIs(TYP_STRUCT));
@@ -2157,85 +2012,9 @@ private:
         return value;
     }
 
-    void RetypeScalarAssignment(GenTreeOp* asg, GenTree* op1, GenTree* op2)
+    void RetypeMergedReturn(GenTreeUnOp* ret, LclVarDsc* lcl)
     {
-        assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
-        assert(!op1->TypeIs(TYP_STRUCT) && !op2->TypeIs(TYP_STRUCT));
-
-        // Both struct operands were changed to scalars, currently we only do this if the
-        // struct size matches the scalar type size and since both operands of a struct
-        // assignment are supposed to have the same struct type the resulting scalar types
-        // should also have the same size. It may be possible to tolerate size mismatches
-        // for small int types but it's unlikely to be worth the trouble.
-        //
-        // TODO-MIKE-Review: The importer doesn't do proper IL validation and we may get
-        // here with different struct types. Probably it doesn't matter, unless it results
-        // in JIT crashes...
-        assert(varTypeSize(op1->GetType()) == varTypeSize(op2->GetType()));
-
-        // We only change a struct operand to a scalar if we access scalar locals as structs
-        // (either due to promotion or reinterpretation). Otherwise we'd simply generate
-        // struct LCL_FLDs.
-        assert(op1->OperIs(GT_LCL_VAR));
-        assert(op2->OperIs(GT_LCL_VAR));
-
-        // We don't allow type size changes but we don't otherwise care about the scalar
-        // types so we could end up with INT/FLOAT and DOUBLE/LONG/SIMD8 mismatches.
-        if ((varTypeUsesFloatReg(op1->GetType()) != varTypeUsesFloatReg(op2->GetType())) &&
-            (varTypeSize(op1->GetType()) <= REGSIZE_BYTES))
-        {
-            asg->SetOp(1, NewBitCastNode(varActualType(op1->GetType()), op2));
-        }
-        else if (varActualType(op1->GetType()) != varActualType(op2->GetType()))
-        {
-            op2->ChangeOper(GT_LCL_FLD);
-            op2->SetType(op1->GetType());
-
-            m_compiler->lvaSetDoNotEnregister(op2->AsLclFld()->GetLcl() DEBUGARG(Compiler::DNER_LocalField));
-        }
-
-        asg->SetType(op1->GetType());
-    }
-
-    void RetypeStructAssignment(GenTreeOp* asg, GenTree* op1, GenTree* op2)
-    {
-        assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
-        assert(op1->TypeIs(TYP_STRUCT) != op2->TypeIs(TYP_STRUCT));
-
-        bool     isStructDef = op1->TypeIs(TYP_STRUCT);
-        GenTree* structOp    = isStructDef ? op1 : op2;
-        GenTree* scalarOp    = isStructDef ? op2 : op1;
-
-        // We only change a struct operand to a scalar if we access scalar locals as structs
-        // (either due to promotion or reinterpretation). Otherwise we'd simply generate
-        // struct LCL_FLDs.
-        assert(scalarOp->OperIs(GT_LCL_VAR));
-
-        var_types type = scalarOp->GetType();
-
-        if (GenTreeCall* call = structOp->IsCall())
-        {
-            structOp = RetypeStructCall(call, type);
-        }
-        else if (structOp->OperIs(GT_LCL_FLD, GT_LCL_VAR))
-        {
-            structOp = RetypeStructLocal(structOp->AsLclVarCommon(), type);
-        }
-        else
-        {
-            structOp = RetypeStructIndir(structOp->AsObj(), type);
-        }
-
-        asg->SetOp(isStructDef ? 0 : 1, structOp);
-        asg->SetType(type);
-        asg->SetSideEffects(structOp->GetSideEffects() | scalarOp->GetSideEffects());
-
-        INDEBUG(m_stmtModified = true;)
-    }
-
-    void RetypeMergedReturnStructAssignment(GenTreeUnOp* ret, LclVarDsc* lcl)
-    {
-        assert(ret->OperIs(GT_RETURN) && ret->TypeIs(TYP_STRUCT) && IsMergedReturnAssignment(ret));
+        assert(ret->OperIs(GT_RETURN) && ret->TypeIs(TYP_STRUCT) && IsMergedReturn(ret));
         assert(lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 1));
 
         GenTree*  val  = ret->GetOp(0);
@@ -2443,7 +2222,7 @@ private:
         return structIndir;
     }
 
-    bool IsMergedReturnAssignment(GenTreeUnOp* ret)
+    bool IsMergedReturn(GenTreeUnOp* ret)
     {
         assert(ret->OperIs(GT_RETURN));
 
@@ -3039,8 +2818,8 @@ bool StructPromotionHelper::ShouldPromoteStructLocal(LclVarDsc* lcl)
 
     // TODO: Ideally we would want to consider the impact of whether the struct is
     // passed as a parameter or assigned the return value of a call. Because once promoted,
-    // struct copying is done by field by field assignment instead of a more efficient
-    // rep.stos or xmm reg based copy.
+    // struct copying is done by field by field copy instead of a more efficient rep.stos
+    // or xmm reg based copy.
 
     // TODO: If the lvRefCnt is zero and we have a struct promoted parameter we can end up
     // with an extra store of the the incoming register into the stack frame slot.

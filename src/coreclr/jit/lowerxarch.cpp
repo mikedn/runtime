@@ -3238,10 +3238,7 @@ GenTree* Lowering::PreferredRegOptionalOperand(GenTreeOp* tree)
     // interval (if required) and that could be even op1.  For this reason
     // it is beneficial to mark op1 as reg optional.
     //
-    // TODO: It is not always mandatory for a def position of an untracked
-    // local to be allocated a register if it is on rhs of an assignment
-    // and its use position is reg-optional and has not been assigned a
-    // register.  Reg optional def positions is currently not yet supported.
+    // TODO: Reg optional def positions is currently not yet supported.
     //
     // c) op1 = untracked local and op2 = tracked local: marking op1 as
     // reg optional is beneficial, since its use position is less likely

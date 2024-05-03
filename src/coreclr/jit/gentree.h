@@ -373,7 +373,7 @@ enum GenTreeFlags : unsigned
     // Side effects (of tree in HIR, of node in LIR)
 
     GTF_NONE                  = 0,
-    GTF_ASG                   = 0x00000001, // Tree contains an assignment, store or intrinsic with similar effect
+    GTF_ASG                   = 0x00000001, // Tree contains a store or intrinsic with similar effect
     GTF_CALL                  = 0x00000002, // Tree contains a call
     GTF_EXCEPT                = 0x00000004, // Tree might throw an exception (OverflowException, NullReferenceException etc.)
     GTF_GLOB_REF              = 0x00000008, // Tree loads/stores from/to aliased memory (GC heap, address exposed locals etc.)
@@ -1829,10 +1829,6 @@ public:
 
     bool IsPhiDef() const;
 
-    // Because of the fact that we hid the assignment operator of "BitSet" (in DEBUG),
-    // we can't synthesize an assignment operator.
-    // TODO-Cleanup: Could change this w/o liveset on tree nodes
-    // (This is also necessary for the VTable trick.)
     GenTree()
     {
     }

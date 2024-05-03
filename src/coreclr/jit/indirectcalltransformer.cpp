@@ -36,11 +36,7 @@ private:
         {
             GenTree* node = stmt->GetRootNode();
 
-            if (node->OperIs(GT_ASG))
-            {
-                node = node->AsOp()->GetOp(1);
-            }
-            else if (node->OperIs(GT_STORE_LCL_VAR))
+            if (node->OperIs(GT_STORE_LCL_VAR))
             {
                 node = node->AsUnOp()->GetOp(0);
             }
@@ -300,8 +296,8 @@ private:
         GenTreeCall* GetCall(Statement* callStmt) const
         {
             GenTree* tree = callStmt->GetRootNode();
-
-            return tree->OperIs(GT_ASG) ? tree->AsOp()->GetOp(1)->AsCall() : tree->AsCall();
+            assert(tree->OperIs(GT_STORE_LCL_VAR));
+            return tree->AsLclVar()->GetOp(0)->AsCall();
         }
 
         void AddHiddenArgument(GenTreeCall* fatCall, GenTree* hiddenArgument) const
@@ -865,7 +861,7 @@ private:
     //     previous statements
     //     transforming statement
     //     {
-    //       ASG lclVar, call with GTF_CALL_M_EXP_RUNTIME_LOOKUP flag set and additional arguments.
+    //       STORE_LCL_VAR call with GTF_CALL_M_EXP_RUNTIME_LOOKUP flag set and additional arguments.
     //     }
     //     subsequent statements
     //   }
@@ -904,10 +900,7 @@ private:
     public:
         ExpRuntimeLookupTransformer(Compiler* compiler, BasicBlock* block, Statement* stmt, GenTreeCall* call)
             : Transformer(compiler, block, stmt, call DEBUGARG("ExpRuntimeLookup"))
-            , resultLcl(
-                  (stmt->GetRootNode()->OperIs(GT_ASG) ? stmt->GetRootNode()->AsOp()->GetOp(0) : stmt->GetRootNode())
-                      ->AsLclVar()
-                      ->GetLcl())
+            , resultLcl(stmt->GetRootNode()->AsLclVar()->GetLcl())
         {
             assert(resultLcl->TypeIs(TYP_I_IMPL));
         }

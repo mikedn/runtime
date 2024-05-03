@@ -2808,13 +2808,12 @@ bool Compiler::fgBlockEndFavorsTailDuplication(BasicBlock* block, LclVarDsc* lcl
         return false;
     }
 
-    // Tail duplication tends to pay off when the last statement
-    // is an assignment of a constant, arraylength, or a relop.
-    // This is because these statements produce information about values
-    // that would otherwise be lost at the upcoming merge point.
-    //
+    // Tail duplication tends to pay off when the last statement is a store of a constant,
+    // arraylength, or a relop.
+    // This is because these statements produce information about values that would otherwise
+    // be lost at the upcoming merge point.
+
     // Check up to N statements...
-    //
     const int  limit = 2;
     int        count = 0;
     Statement* stmt  = lastStmt;
@@ -2826,8 +2825,8 @@ bool Compiler::fgBlockEndFavorsTailDuplication(BasicBlock* block, LclVarDsc* lcl
         if (tree->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) && !varTypeIsStruct(tree->GetType()))
         {
             // TODO-MIKE-Review: Old code used the stupid IsLocal and might have allowed
-            // LCL_FLD by accident. We're probably really looking for an assignment to
-            // the variable that's used in the condition but if we allow LCL_FLD we don't
+            // LCL_FLD by accident. We're probably really looking for a store to the
+            // variable that's used in the condition but if we allow LCL_FLD we don't
             // know which field is assigned to and which field is used in the condition.
             // This does not appear to be a correctness issue though.
             LclVarDsc* op1Lcl = tree->AsLclVarCommon()->GetLcl();
@@ -2928,10 +2927,10 @@ bool Compiler::fgBlockIsGoodTailDuplicationCandidate(BasicBlock* target, LclVarD
     }
 
     // TODO-MIKE-Review: Old code used the stupid IsLocal and might have allowed
-    // LCL_FLD by accident. We'll later look for an assignment to the variable
-    // that's used in the condition but if we allow LCL_FLD we don't know which
-    // field is assigned to and which field is used in the condition. This does
-    // not appear to be a correctness issue though.
+    // LCL_FLD by accident. We'll later look for a store to the variable that's
+    // used in the condition but if we allow LCL_FLD we don't know which field
+    // is assigned to and which field is used in the condition. This does not
+    // appear to be a correctness issue though.
 
     if (!op1->OperIs(GT_LCL_VAR, GT_LCL_FLD) && !op1->OperIsConst())
     {

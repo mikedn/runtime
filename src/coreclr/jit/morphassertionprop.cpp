@@ -963,7 +963,7 @@ GenTree* Compiler::morphAssertionPropagateLclVarCopy(const MorphAssertion& asser
     // as the field. If the field ends up being P-DEP then we risk reading bits from adjacent fields.
     // TODO-MIKE-Cleanup: It's not clear what the problem is here. Such a promoted field is supposed
     // to be widened on load so any garbage bits would be discarded. This might be related to struct
-    // assignment promotion where widening casts are not inserted.
+    // copy promotion where widening casts are not inserted.
     if (lclCopy->IsPromotedField() && varTypeIsSmall(lclCopy->GetType()) && (lclCopy->GetType() != lclVar->GetType()))
     {
         return nullptr;

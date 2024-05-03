@@ -1553,10 +1553,10 @@ void LoopCloneVisitorInfo::SummarizeLocalStoresVisitor(GenTreeLclVarCommon* stor
     // a LCL_FLD could modify only some of the fields. But that's rare, most of the time
     // LCL_FLDs are used only to load from promoted locals (mostly for ABI related stuff).
     //
-    // Note that the opposite can also be true - we may have an assignment to a promoted
-    // field, which implies that the parent struct is modified as well. But we only care
-    // about scalar locals in loop cloning (INT indices and REF arrays) so we can ignore
-    // this case.
+    // Note that the opposite can also be true - we may have a store to a promoted field,
+    // which implies that the parent struct is modified as well. But we only care about
+    // scalar locals in loop cloning (INT indices and REF arrays) so we can ignore this
+    // case.
 
     if (lcl->IsPromoted())
     {

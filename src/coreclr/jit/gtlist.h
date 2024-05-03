@@ -120,8 +120,6 @@ GTNODE(ROR              , GenTreeOp           , GTK_BINOP|GTK_VN)
 // results of the high register, and we drop the low results.
 GTNODE(MULHI            , GenTreeOp           , GTK_BINOP|GTK_COMMUTE) 
 
-GTNODE(ASG              , GenTreeOp           , GTK_BINOP|GTK_NOTLIR)
-
 GTNODE(EQ               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN|GTK_VN)
 GTNODE(NE               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN|GTK_VN)
 GTNODE(LT               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN|GTK_VN)

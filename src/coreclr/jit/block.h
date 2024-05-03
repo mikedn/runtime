@@ -1028,7 +1028,7 @@ struct BasicBlock : private LIR::Range
     // that leaves memory in an unknown state. (E.g.,
     // unanalyzed call, store through unknown pointer...)
 
-    VARSET_TP bbVarUse; // variables used     by block (before an assignment)
+    VARSET_TP bbVarUse; // variables used     by block (before a def)
     VARSET_TP bbVarDef; // variables assigned by block (before a use)
 
     VARSET_TP bbLiveIn;  // variables live on entry
@@ -1161,8 +1161,7 @@ struct BasicBlock : private LIR::Range
     GenTreeCall* EndsWithTailCallConvertibleToLoop(Compiler* comp) const;
     GenTreeCall* EndsWithTailCall(Compiler* comp, bool fastTailCallsOnly, bool tailCallsConvertibleToLoopOnly) const;
 
-    // Returns the first statement in the statement list of "this" that is
-    // not an SSA definition (a lcl = phi(...) assignment).
+    // Returns the first statement in the statement list of "this" that is not a SSA PHI.
     Statement* FirstNonPhiDef() const;
     Statement* FirstNonPhiDefOrCatchArgAsg() const;
 

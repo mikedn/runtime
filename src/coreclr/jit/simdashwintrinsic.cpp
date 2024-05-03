@@ -1363,7 +1363,7 @@ GenTree* Importer::impVectorTAndNot(const HWIntrinsicSignature& sig, GenTree* op
         // TODO-MIKE-Review: Can we simply set GTF_REVERSE_OPS to avoid creating a temp?
 
         LclVarDsc* tempLcl = lvaAllocTemp(true DEBUGARG("Vector<T>.AndNot temp"));
-        impAppendTempAssign(tempLcl, op1, sig.paramLayout[0], CHECK_SPILL_ALL);
+        impAppendTempStore(tempLcl, op1, sig.paramLayout[0], CHECK_SPILL_ALL);
         op1 = gtNewLclvNode(tempLcl, sig.paramType[0]);
     }
 
@@ -3302,7 +3302,7 @@ LclVarDsc* SIMDCoalescingBuffer::IsSimdLocalExtract(GenTree* node) const
     return nullptr;
 };
 
-// Try to add an assignment statement to the coalescing buffer (common code for Add and Mark).
+// Try to add a store statement to the coalescing buffer (common code for Add and Mark).
 // Return true if the statement is added and the number of statements in the buffer equals the number of SIMD elements.
 bool SIMDCoalescingBuffer::AddStore(Compiler* compiler, Statement* stmt, GenTree* store, LclVarDsc* simdLcl)
 {
@@ -3400,9 +3400,8 @@ void SIMDCoalescingBuffer::Mark(Compiler* compiler, Statement* stmt)
     Clear();
 }
 
-// Try to add an assignment statement to the coalescing buffer.
+// Try to add a store statement to the coalescing buffer.
 // Return true if the statement is added and the number of statements in the buffer equals the number of SIMD elements.
-//
 bool SIMDCoalescingBuffer::Add(Compiler* compiler, Statement* stmt)
 {
     GenTree* store = stmt->GetRootNode();
@@ -3419,9 +3418,8 @@ bool SIMDCoalescingBuffer::Add(Compiler* compiler, Statement* stmt)
     return AddStore(compiler, stmt, store, simdLcl);
 }
 
-// Transform the first assignment in the buffer into a SIMD assignment
+// Transform the first store in the buffer into a SIMD store
 // and remove the rest of the statements from the block.
-//
 void SIMDCoalescingBuffer::Coalesce(Compiler* compiler, BasicBlock* block)
 {
     var_types type;
@@ -3462,7 +3460,7 @@ void SIMDCoalescingBuffer::Coalesce(Compiler* compiler, BasicBlock* block)
 #ifdef DEBUG
     if (compiler->verbose)
     {
-        printf("Changed to a single %s assignment:\n", varTypeName(type));
+        printf("Changed to a single %s store:\n", varTypeName(type));
         compiler->gtDispStmt(m_firstStmt);
         printf("\n");
     }

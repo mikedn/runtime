@@ -760,14 +760,14 @@ public:
     bool lvNormalizeOnLoad() const
     {
         return varTypeIsSmall(lvType) &&
-               // lvIsStructField is treated the same as the aliased local, see fgMorphNormalizeLclVarStore.
+               // lvIsStructField is treated the same as the aliased local, see fgMorphNormalizeLclStore.
                (lvIsParam || lvAddrExposed || lvIsStructField || lvWasStructField);
     }
 
     bool lvNormalizeOnStore() const
     {
         return varTypeIsSmall(lvType) &&
-               // lvIsStructField is treated the same as the aliased local, see fgMorphNormalizeLclVarStore.
+               // lvIsStructField is treated the same as the aliased local, see fgMorphNormalizeLclStore.
                !(lvIsParam || lvAddrExposed || lvIsStructField || lvWasStructField);
     }
 
@@ -1678,9 +1678,9 @@ struct Importer
     Statement* impAppendTree(GenTree* tree, unsigned chkLevel);
     Statement* impSpillAllAppendTree(GenTree* tree);
     Statement* impSpillNoneAppendTree(GenTree* tree);
-    void impAppendTempAssign(LclVarDsc* lcl, GenTree* val, unsigned curLevel);
-    void impAppendTempAssign(LclVarDsc* lcl, GenTree* val, ClassLayout* layout, unsigned curLevel);
-    void impAppendTempAssign(LclVarDsc* lcl, GenTree* val, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
+    void impAppendTempStore(LclVarDsc* lcl, GenTree* val, unsigned curLevel);
+    void impAppendTempStore(LclVarDsc* lcl, GenTree* val, ClassLayout* layout, unsigned curLevel);
+    void impAppendTempStore(LclVarDsc* lcl, GenTree* val, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
 
     GenTree* impCloneExpr(GenTree* tree, GenTree** clone, unsigned spillCheckLevel DEBUGARG(const char* reason));
     GenTree* impCloneExpr(GenTree*     tree,
@@ -3987,7 +3987,7 @@ public:
 
     struct LivenessState
     {
-        VARSET_TP fgCurUseSet; // vars used by block (before an assignment)
+        VARSET_TP fgCurUseSet; // vars used by block (before a def)
         VARSET_TP fgCurDefSet; // vars assigned by block (before a use)
 
         bool fgCurMemoryUse : 1;   // True iff the current basic block uses memory.
@@ -4298,7 +4298,6 @@ public:
 
     bool gtIsSmallIntCastNeeded(GenTree* tree, var_types toType);
     GenTree* fgMorphNormalizeLclStore(GenTreeLclVar* store, GenTree* value);
-    GenTree* fgMorphNormalizeLclVarStore(GenTreeOp* asg);
 
     void fgLoopCallTest(BasicBlock* srcBB, BasicBlock* dstBB);
     bool fgReachWithoutCall(BasicBlock* srcBB, BasicBlock* dstBB);
@@ -4581,7 +4580,6 @@ private:
                                        bool           extendToActualType,
                                        var_types      simdBaseType);
     GenTree* fgMorphStructComma(GenTree* tree);
-    GenTree* fgMorphStructAssignment(GenTreeOp* asg);
     GenTree* fgMorphStructStore(GenTree* store, GenTree* value);
 #ifdef FEATURE_SIMD
     GenTree* fgMorphPromoteVecLoad(GenTreeLclVar* store, LclVarDsc* srcLcl);

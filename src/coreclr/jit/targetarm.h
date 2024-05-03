@@ -128,8 +128,8 @@
   // ARM write barrier ABI (see vm\arm\asmhelpers.asm, vm\arm\asmhelpers.S):
   // CORINFO_HELP_ASSIGN_REF (JIT_WriteBarrier), CORINFO_HELP_CHECKED_ASSIGN_REF (JIT_CheckedWriteBarrier):
   //     On entry:
-  //       r0: the destination address (LHS of the assignment)
-  //       r1: the object reference (RHS of the assignment)
+  //       r0: the destination address
+  //       r1: the object reference
   //     On exit:
   //       r0: trashed
   //       r3: trashed

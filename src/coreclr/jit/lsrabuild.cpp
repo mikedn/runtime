@@ -2980,30 +2980,21 @@ void LinearScan::BuildGCWriteBarrier(GenTreeStoreInd* store)
     GenTree* addr = store->GetAddr();
     GenTree* src  = store->GetValue();
 
-    // In the case where we are doing a helper assignment, even if the dst
-    // is an indir through an lea, we need to actually instantiate the
-    // lea in a register
     assert(!addr->isContained() && !src->isContained());
 
     regMaskTP addrCandidates = RBM_ARG_0;
     regMaskTP srcCandidates  = RBM_ARG_1;
 
 #if defined(TARGET_ARM64)
-    // the 'addr' goes into x14 (REG_WRITE_BARRIER_DST)
-    // the 'src'  goes into x15 (REG_WRITE_BARRIER_SRC)
-    //
     addrCandidates = RBM_WRITE_BARRIER_DST;
     srcCandidates  = RBM_WRITE_BARRIER_SRC;
 #elif defined(TARGET_X86) && NOGC_WRITE_BARRIERS
     if (GCInfo::UseOptimizedWriteBarriers())
     {
-        // Special write barrier:
-        // op1 (addr) goes into REG_WRITE_BARRIER (rdx) and
-        // op2 (src) goes into any int register.
         addrCandidates = RBM_WRITE_BARRIER;
         srcCandidates  = RBM_WRITE_BARRIER_SRC;
     }
-#endif // defined(TARGET_X86) && NOGC_WRITE_BARRIERS
+#endif
 
     BuildUse(addr, addrCandidates);
     BuildUse(src, srcCandidates);
