@@ -10617,6 +10617,11 @@ DONE_MORPHING_CHILDREN:
             return fgMorphStructStore(tree, op2);
 
         case GT_STOREIND:
+            if (varTypeIsSIMD(typ))
+            {
+                return fgMorphStructStore(tree, op2);
+            }
+
             if (varTypeIsSmall(typ))
             {
                 if (op2->IsCast() && varTypeIsIntegral(op2->AsCast()->GetOp(0)) && !op2->gtOverflow() &&
@@ -10626,13 +10631,6 @@ DONE_MORPHING_CHILDREN:
                     tree->AsIndir()->SetValue(op2);
                 }
             }
-
-            if (varTypeIsSIMD(typ) && op2->OperIs(GT_OBJ))
-            {
-                assert(op2->GetType() == typ);
-                op2->SetOper(GT_IND);
-            }
-
             break;
 
         case GT_INIT_VAL:
