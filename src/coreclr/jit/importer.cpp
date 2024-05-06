@@ -4881,7 +4881,7 @@ void Importer::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
         for (int i = pCallInfo->sig.numArgs - 1; i >= 0; i--)
         {
             GenTree* arg   = impImplicitIorI4Cast(impPopStack().val, TYP_INT);
-            GenTree* store = comp->gtNewLclFldStore(TYP_INT, argsLcl, 4 * i, arg);
+            GenTree* store = comp->gtNewLclStoreFld(TYP_INT, argsLcl, 4 * i, arg);
             store->AddSideEffects(GTF_GLOB_REF);
             node = gtNewCommaNode(store, node);
         }
@@ -11346,16 +11346,16 @@ void Importer::ImportRefAnyType()
 
     GenTree* op1 = impPopStack().val;
 
-    if (!op1->OperIs(GT_LCL_VAR, GT_MKREFANY))
+    if (!op1->OperIs(GT_LCL_LOAD, GT_MKREFANY))
     {
         LclVarDsc* tmpLcl = lvaAllocTemp(true DEBUGARG("refanytype temp"));
         impAppendTempStore(tmpLcl, op1, impGetRefAnyClass(), CHECK_SPILL_ALL);
         op1 = gtNewLclvNode(tmpLcl, TYP_STRUCT);
     }
 
-    if (op1->OperIs(GT_LCL_VAR))
+    if (GenTreeLclLoad* load = op1->IsLclLoad())
     {
-        op1 = gtNewLclFldNode(op1->AsLclVar()->GetLcl(), TYP_I_IMPL, OFFSETOF__CORINFO_TypedReference__type);
+        op1 = comp->gtNewLclLoadFld(TYP_I_IMPL, load->GetLcl(), OFFSETOF__CORINFO_TypedReference__type);
         op1->AsLclFld()->SetFieldSeq(GetRefanyTypeField());
     }
     else
@@ -17243,11 +17243,6 @@ GenTreeLclVar* Importer::gtNewLclvNode(LclVarDsc* lcl, var_types type)
 GenTreeLclAddr* Importer::gtNewLclVarAddrNode(LclVarDsc* lcl, var_types type)
 {
     return comp->gtNewLclVarAddrNode(lcl, type);
-}
-
-GenTreeLclFld* Importer::gtNewLclFldNode(LclVarDsc* lcl, var_types type, unsigned offset)
-{
-    return comp->gtNewLclFldNode(lcl, type, offset);
 }
 
 GenTreeIntCon* Importer::gtNewIconNode(ssize_t value, var_types type)

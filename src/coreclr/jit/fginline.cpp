@@ -1965,14 +1965,14 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
     if (varTypeIsStruct(argInfo.paramType) || argInfo.argHasSideEff || argInfo.argHasGlobRef ||
         argInfo.paramIsAddressTaken || argInfo.paramHasStores)
     {
-        argNode = gtNewLclvNode(tmpLcl, varActualType(argInfo.paramType));
+        argNode = gtNewLclLoad(tmpLcl, varActualType(argInfo.paramType));
     }
     else
     {
         // Allocate a large LCL_VAR node so we can replace it with any
         // other node if it turns out to be single use.
 
-        argNode = gtNewLclVarLargeNode(tmpLcl, varActualType(argInfo.paramType));
+        argNode = gtNewLclLoadLarge(tmpLcl, varActualType(argInfo.paramType));
 
         // Record argNode as the very first use of this argument.
         // If there are no further uses of the arg, we may be

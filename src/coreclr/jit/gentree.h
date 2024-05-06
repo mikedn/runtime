@@ -52,6 +52,17 @@ enum genTreeOps : uint8_t
     // In the future when we retarget the JIT for x86 we should consider eliminating GT_CNS_LNG
     GT_CNS_NATIVELONG = GT_CNS_LNG,
 #endif
+
+    GT_IND           = GT_IND_LOAD,
+    GT_STOREIND      = GT_IND_STORE,
+    GT_OBJ           = GT_IND_LOAD_OBJ,
+    GT_STORE_OBJ     = GT_IND_STORE_OBJ,
+    GT_BLK           = GT_IND_LOAD_BLK,
+    GT_STORE_BLK     = GT_IND_STORE_BLK,
+    GT_LCL_VAR       = GT_LCL_LOAD,
+    GT_STORE_LCL_VAR = GT_LCL_STORE,
+    GT_LCL_FLD       = GT_LCL_LOAD_FLD,
+    GT_STORE_LCL_FLD = GT_LCL_STORE_FLD
 };
 
 enum GenTreeKinds
@@ -3084,30 +3095,14 @@ public:
 // GenTreeLclVar - load/store of local variable
 struct GenTreeLclVar : public GenTreeLclVarCommon
 {
-    bool IsMultiReg() const
-    {
-        return ((gtFlags & GTF_VAR_MULTIREG) != 0);
-    }
-    void ClearMultiReg()
-    {
-        gtFlags &= ~GTF_VAR_MULTIREG;
-    }
-    void SetMultiReg()
-    {
-        assert(OperIs(GT_STORE_LCL_VAR));
-        gtFlags |= GTF_VAR_MULTIREG;
-    }
-
-    unsigned GetMultiRegCount(Compiler* compiler) const;
-    var_types GetMultiRegType(Compiler* compiler, unsigned regIndex);
-
+protected:
     GenTreeLclVar(var_types type, LclVarDsc* lcl DEBUGARG(bool largeNode = false))
-        : GenTreeLclVarCommon(GT_LCL_VAR, type, lcl DEBUGARG(largeNode))
+        : GenTreeLclVarCommon(GT_LCL_LOAD, type, lcl DEBUGARG(largeNode))
     {
     }
 
     GenTreeLclVar(var_types type, LclVarDsc* lcl, GenTree* value DEBUGARG(bool largeNode = false))
-        : GenTreeLclVarCommon(GT_STORE_LCL_VAR, type, lcl DEBUGARG(largeNode))
+        : GenTreeLclVarCommon(GT_LCL_STORE, type, lcl DEBUGARG(largeNode))
     {
         gtFlags |= GTF_ASG | value->GetSideEffects();
         SetOp(0, value);
@@ -3117,8 +3112,72 @@ struct GenTreeLclVar : public GenTreeLclVarCommon
     {
     }
 
+public:
+    bool IsMultiReg() const
+    {
+        return ((gtFlags & GTF_VAR_MULTIREG) != 0);
+    }
+
+    void ClearMultiReg()
+    {
+        gtFlags &= ~GTF_VAR_MULTIREG;
+    }
+
+    void SetMultiReg()
+    {
+        assert(OperIs(GT_STORE_LCL_VAR));
+        gtFlags |= GTF_VAR_MULTIREG;
+    }
+
+    unsigned GetMultiRegCount(Compiler* compiler) const;
+    var_types GetMultiRegType(Compiler* compiler, unsigned regIndex);
+
 #if DEBUGGABLE_GENTREE
     GenTreeLclVar() = default;
+#endif
+};
+
+struct GenTreeLclLoad : GenTreeLclVar
+{
+    GenTreeLclLoad(var_types type, LclVarDsc* lcl DEBUGARG(bool largeNode = false))
+        : GenTreeLclVar(type, lcl DEBUGARG(largeNode))
+    {
+    }
+
+    GenTreeLclLoad(GenTreeLclLoad* copyFrom) : GenTreeLclVar(copyFrom)
+    {
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeLclLoad() = default;
+#endif
+};
+
+struct GenTreeLclStore : GenTreeLclVar
+{
+    GenTreeLclStore(var_types type, LclVarDsc* lcl, GenTree* value DEBUGARG(bool largeNode = false))
+        : GenTreeLclVar(type, lcl, value DEBUGARG(largeNode))
+    {
+    }
+
+    GenTreeLclStore(GenTreeLclStore* copyFrom) : GenTreeLclVar(copyFrom)
+    {
+    }
+
+    GenTree* GetValue() const
+    {
+        assert(gtOp1 != nullptr);
+        return gtOp1;
+    }
+
+    void SetValue(GenTree* value)
+    {
+        assert(value != nullptr);
+        gtOp1 = value;
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeLclStore() = default;
 #endif
 };
 
@@ -3130,7 +3189,7 @@ private:
     uint16_t      m_layoutNum; // the class layout number for struct typed nodes
     FieldSeqNode* m_fieldSeq;  // This LclFld node represents some sequences of accesses.
 
-public:
+protected:
     GenTreeLclFld(var_types type, LclVarDsc* lcl, unsigned lclOffs)
         : GenTreeLclVarCommon(GT_LCL_FLD, type, lcl)
         , m_lclOffs(static_cast<uint16_t>(lclOffs))
@@ -3160,6 +3219,7 @@ public:
     {
     }
 
+public:
     uint16_t GetLclOffs() const
     {
         return m_lclOffs;
@@ -3215,6 +3275,49 @@ public:
 
 #if DEBUGGABLE_GENTREE
     GenTreeLclFld() = default;
+#endif
+};
+
+struct GenTreeLclLoadFld : public GenTreeLclFld
+{
+    GenTreeLclLoadFld(var_types type, LclVarDsc* lcl, unsigned lclOffs) : GenTreeLclFld(type, lcl, lclOffs)
+    {
+    }
+
+    GenTreeLclLoadFld(const GenTreeLclLoadFld* copyFrom) : GenTreeLclFld(copyFrom)
+    {
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeLclLoadFld() = default;
+#endif
+};
+
+struct GenTreeLclStoreFld : public GenTreeLclFld
+{
+    GenTreeLclStoreFld(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* value)
+        : GenTreeLclFld(type, lcl, lclOffs, value)
+    {
+    }
+
+    GenTreeLclStoreFld(const GenTreeLclStoreFld* copyFrom) : GenTreeLclFld(copyFrom)
+    {
+    }
+
+    GenTree* GetValue() const
+    {
+        assert(gtOp1 != nullptr);
+        return gtOp1;
+    }
+
+    void SetValue(GenTree* value)
+    {
+        assert(value != nullptr);
+        gtOp1 = value;
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeLclStoreFld() = default;
 #endif
 };
 

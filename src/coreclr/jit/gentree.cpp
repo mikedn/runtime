@@ -4144,26 +4144,6 @@ GenTree* Compiler::gtNewOneConNode(var_types type)
     }
 }
 
-GenTreeLclVar* Compiler::gtNewLclStore(LclVarDsc* lcl, var_types type, GenTree* value)
-{
-    return gtNewStoreLclVar(lcl, type, value);
-}
-
-GenTreeLclVar* Compiler::gtNewStoreLclVar(LclVarDsc* lcl, var_types type, GenTree* value)
-{
-    return new (this, GT_STORE_LCL_VAR) GenTreeLclVar(type, lcl, value);
-}
-
-GenTreeLclFld* Compiler::gtNewLclFldStore(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* value)
-{
-    return gtNewStoreLclFld(type, lcl, lclOffs, value);
-}
-
-GenTreeLclFld* Compiler::gtNewStoreLclFld(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* value)
-{
-    return new (this, GT_STORE_LCL_FLD) GenTreeLclFld(type, lcl, lclOffs, value);
-}
-
 GenTreeCall* Compiler::gtNewHelperCallNode(CorInfoHelpFunc helper, var_types type, GenTreeCall::Use* args)
 {
     GenTreeCall* call = gtNewCallNode(CT_HELPER, eeFindHelper(helper), type, args);
@@ -4268,12 +4248,7 @@ GenTreeCall* Compiler::gtNewCallNode(
     return node;
 }
 
-GenTreeLclVar* Compiler::gtNewLclLoad(LclVarDsc* lcl, var_types type)
-{
-    return gtNewLclvNode(lcl, type);
-}
-
-GenTreeLclVar* Compiler::gtNewLclvNode(LclVarDsc* lcl, var_types type)
+GenTreeLclLoad* Compiler::gtNewLclLoad(LclVarDsc* lcl, var_types type)
 {
 #ifdef DEBUG
     // We need to ensure that all struct values are normalized.
@@ -4293,10 +4268,10 @@ GenTreeLclVar* Compiler::gtNewLclvNode(LclVarDsc* lcl, var_types type)
     }
 #endif
 
-    return new (this, GT_LCL_VAR) GenTreeLclVar(type, lcl);
+    return new (this, GT_LCL_LOAD) GenTreeLclLoad(type, lcl);
 }
 
-GenTreeLclVar* Compiler::gtNewLclVarLargeNode(LclVarDsc* lcl, var_types type)
+GenTreeLclLoad* Compiler::gtNewLclLoadLarge(LclVarDsc* lcl, var_types type)
 {
 #ifdef DEBUG
     // We need to ensure that all struct values are normalized.
@@ -4314,29 +4289,34 @@ GenTreeLclVar* Compiler::gtNewLclVarLargeNode(LclVarDsc* lcl, var_types type)
     // This local variable node may later get transformed into a large node
     assert(GenTree::s_gtNodeSizes[LargeOpOpcode()] > GenTree::s_gtNodeSizes[GT_LCL_VAR]);
 
-    return new (this, LargeOpOpcode()) GenTreeLclVar(type, lcl DEBUGARG(/*largeNode*/ true));
+    return new (this, LargeOpOpcode()) GenTreeLclLoad(type, lcl DEBUGARG(/*largeNode*/ true));
 }
 
-GenTreeLclAddr* Compiler::gtNewLclVarAddrNode(LclVarDsc* lcl, var_types type)
+GenTreeLclLoadFld* Compiler::gtNewLclLoadFld(var_types type, LclVarDsc* lcl, unsigned offset)
+{
+    return new (this, GT_LCL_LOAD_FLD) GenTreeLclLoadFld(type, lcl, offset);
+}
+
+GenTreeLclStore* Compiler::gtNewLclStore(LclVarDsc* lcl, var_types type, GenTree* value)
+{
+    return new (this, GT_LCL_STORE) GenTreeLclStore(type, lcl, value);
+}
+
+GenTreeLclStoreFld* Compiler::gtNewLclStoreFld(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* value)
+{
+    return new (this, GT_LCL_STORE_FLD) GenTreeLclStoreFld(type, lcl, lclOffs, value);
+}
+
+GenTreeLclAddr* Compiler::gtNewLclAddr(LclVarDsc* lcl, var_types type)
 {
     return new (this, GT_LCL_ADDR) GenTreeLclAddr(type, lcl, 0);
 }
 
-GenTreeLclAddr* Compiler::gtNewLclFldAddrNode(LclVarDsc* lcl, unsigned lclOffs, FieldSeqNode* fieldSeq, var_types type)
+GenTreeLclAddr* Compiler::gtNewLclAddr(LclVarDsc* lcl, unsigned lclOffs, FieldSeqNode* fieldSeq, var_types type)
 {
     GenTreeLclAddr* node = new (this, GT_LCL_ADDR) GenTreeLclAddr(type, lcl, lclOffs);
     node->SetFieldSeq(fieldSeq == nullptr ? FieldSeqStore::NotAField() : fieldSeq);
     return node;
-}
-
-GenTreeLclFld* Compiler::gtNewLclFldLoad(var_types type, LclVarDsc* lcl, unsigned offset)
-{
-    return new (this, GT_LCL_FLD) GenTreeLclFld(type, lcl, offset);
-}
-
-GenTreeLclFld* Compiler::gtNewLclFldNode(LclVarDsc* lcl, var_types type, unsigned offset)
-{
-    return new (this, GT_LCL_FLD) GenTreeLclFld(type, lcl, offset);
 }
 
 GenTreeRetExpr* Compiler::gtNewRetExpr(GenTreeCall* call)
@@ -4753,13 +4733,13 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
             copy = new (this, GT_CNS_LNG) GenTreeLngCon(tree->AsLngCon()->GetValue());
             break;
 #endif
-        case GT_LCL_VAR:
+        case GT_LCL_LOAD:
             tree->gtFlags |= GTF_VAR_CLONED;
-            copy = new (this, GT_LCL_VAR) GenTreeLclVar(tree->AsLclVar());
+            copy = new (this, GT_LCL_LOAD) GenTreeLclLoad(tree->AsLclLoad());
             break;
-        case GT_LCL_FLD:
+        case GT_LCL_LOAD_FLD:
             tree->gtFlags |= GTF_VAR_CLONED;
-            copy = new (this, GT_LCL_FLD) GenTreeLclFld(tree->AsLclFld());
+            copy = new (this, GT_LCL_LOAD_FLD) GenTreeLclLoadFld(tree->AsLclLoadFld());
             break;
         case GT_LCL_ADDR:
             tree->gtFlags |= GTF_VAR_CLONED;
@@ -4873,27 +4853,27 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
                 copy = new (this, GT_CNS_STR) GenTreeStrCon(tree->AsStrCon());
                 goto DONE;
 
-            case GT_LCL_VAR:
-                if (tree->AsLclVar()->GetLcl() == constLcl)
+            case GT_LCL_LOAD:
+                if (tree->AsLclLoad()->GetLcl() == constLcl)
                 {
                     copy = gtNewIconNode(constVal, tree->GetType());
                 }
                 else
                 {
                     tree->gtFlags |= GTF_VAR_CLONED;
-                    copy = new (this, GT_LCL_VAR) GenTreeLclVar(tree->AsLclVar());
+                    copy = new (this, GT_LCL_LOAD) GenTreeLclLoad(tree->AsLclLoad());
                 }
                 copy->gtFlags = tree->gtFlags;
                 goto DONE;
 
-            case GT_LCL_FLD:
-                if (tree->AsLclFld()->GetLcl() == constLcl)
+            case GT_LCL_LOAD_FLD:
+                if (tree->AsLclLoadFld()->GetLcl() == constLcl)
                 {
                     IMPL_LIMITATION("replacing GT_LCL_FLD with a constant");
                 }
                 else
                 {
-                    copy = new (this, GT_LCL_FLD) GenTreeLclFld(tree->AsLclFld());
+                    copy = new (this, GT_LCL_LOAD_FLD) GenTreeLclLoadFld(tree->AsLclLoadFld());
                 }
                 goto DONE;
 
@@ -4983,11 +4963,11 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
                                     tree->AsArrIndex()->gtArrElemType);
                 break;
 
-            case GT_STORE_LCL_VAR:
-                copy = new (this, GT_STORE_LCL_VAR) GenTreeLclVar(tree->AsLclVar());
+            case GT_LCL_STORE:
+                copy = new (this, GT_LCL_STORE) GenTreeLclStore(tree->AsLclStore());
                 break;
-            case GT_STORE_LCL_FLD:
-                copy = new (this, GT_STORE_LCL_FLD) GenTreeLclFld(tree->AsLclFld());
+            case GT_LCL_STORE_FLD:
+                copy = new (this, GT_LCL_STORE_FLD) GenTreeLclStoreFld(tree->AsLclStoreFld());
                 break;
             case GT_LCL_DEF:
                 copy = new (this, GT_LCL_DEF) GenTreeLclDef(tree->AsLclDef());

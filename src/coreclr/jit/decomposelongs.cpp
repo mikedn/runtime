@@ -398,7 +398,7 @@ GenTree* DecomposeLongs::DecomposeLclFld(LIR::Use& use)
     GenTreeLclFld* loResult = tree->AsLclFld();
     loResult->gtType        = TYP_INT;
 
-    GenTree* hiResult = m_compiler->gtNewLclFldNode(loResult->GetLcl(), TYP_INT, loResult->GetLclOffs() + 4);
+    GenTree* hiResult = m_compiler->gtNewLclLoadFld(TYP_INT, loResult->GetLcl(), loResult->GetLclOffs() + 4);
     Range().InsertAfter(loResult, hiResult);
 
     return FinalizeDecomposition(use, loResult, hiResult, hiResult);
@@ -498,25 +498,22 @@ GenTree* DecomposeLongs::DecomposeStoreLclVar(LIR::Use& use)
 GenTree* DecomposeLongs::DecomposeStoreLclFld(LIR::Use& use)
 {
     assert(use.IsInitialized());
-    assert(use.Def()->OperGet() == GT_STORE_LCL_FLD);
 
-    GenTreeLclFld* store = use.Def()->AsLclFld();
+    GenTreeLclStoreFld* store = use.Def()->AsLclStoreFld();
 
-    GenTreeOp* value = store->gtOp1->AsOp();
-    assert(value->OperGet() == GT_LONG);
+    GenTreeOp* value = store->GetValue()->AsOp();
+    assert(value->OperIs(GT_LONG));
     Range().Remove(value);
 
     // The original store node will be repurposed to store the low half of the GT_LONG.
-    GenTreeLclFld* loStore = store;
-    loStore->gtOp1         = value->gtOp1;
-    loStore->gtType        = TYP_INT;
+    store->SetValue(value->GetOp(0));
+    store->SetType(TYP_INT);
 
     // Create the store for the upper half of the GT_LONG and insert it after the low store.
-    GenTreeLclFld* hiStore = m_compiler->gtNewLclFldNode(loStore->GetLcl(), TYP_INT, loStore->GetLclOffs() + 4);
-    hiStore->SetOper(GT_STORE_LCL_FLD);
-    hiStore->gtOp1 = value->gtOp2;
+    GenTreeLclFld* hiStore =
+        m_compiler->gtNewLclStoreFld(TYP_INT, store->GetLcl(), store->GetLclOffs() + 4, value->GetOp(1));
 
-    Range().InsertAfter(loStore, hiStore);
+    Range().InsertAfter(store, hiStore);
 
     return hiStore->gtNext;
 }

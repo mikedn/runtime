@@ -637,7 +637,7 @@ unsigned ObjectAllocator::MorphAllocObjNodeIntoStackAlloc(GenTreeAllocObj* alloc
         comp->compSuppressedZeroInit = true;
     }
 
-    GenTreeLclFld* methodTableStore = comp->gtNewLclFldStore(TYP_I_IMPL, lcl, 0, allocObj->GetOp(0));
+    GenTree* methodTableStore = comp->gtNewLclStoreFld(TYP_I_IMPL, lcl, 0, allocObj->GetOp(0));
     methodTableStore->AddSideEffects(GTF_GLOB_REF);
     comp->fgInsertStmtBefore(block, stmt, comp->gtNewStmt(methodTableStore));
 

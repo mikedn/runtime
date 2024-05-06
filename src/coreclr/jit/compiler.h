@@ -2243,7 +2243,6 @@ struct Importer
 
     GenTreeLclVar* gtNewLclvNode(LclVarDsc* lcl, var_types type);
     GenTreeLclAddr* gtNewLclVarAddrNode(LclVarDsc* lcl, var_types type = TYP_I_IMPL);
-    GenTreeLclFld* gtNewLclFldNode(LclVarDsc* lcl, var_types type, unsigned offset);
     GenTreeIntCon* gtNewIconNode(ssize_t value, var_types type = TYP_INT);
     GenTreeIntCon* gtNewIconNode(unsigned fieldOffset, FieldSeqNode* fieldSeq);
     GenTree* gtNewLconNode(int64_t value);
@@ -2894,10 +2893,33 @@ public:
 
     GenTree* gtNewOneConNode(var_types type);
 
-    GenTreeLclVar* gtNewLclStore(LclVarDsc* lcl, var_types type, GenTree* value);
-    GenTreeLclVar* gtNewStoreLclVar(LclVarDsc* lcl, var_types type, GenTree* value);
-    GenTreeLclFld* gtNewLclFldStore(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* value);
-    GenTreeLclFld* gtNewStoreLclFld(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* value);
+    GenTreeLclLoad* gtNewLclLoad(LclVarDsc* lcl, var_types type);
+    GenTreeLclLoad* gtNewLclLoadLarge(LclVarDsc* lcl, var_types type);
+    GenTreeLclLoadFld* gtNewLclLoadFld(var_types type, LclVarDsc* lcl, unsigned offset);
+
+    GenTreeLclStore* gtNewLclStore(LclVarDsc* lcl, var_types type, GenTree* value);
+    GenTreeLclStoreFld* gtNewLclStoreFld(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* value);
+
+    GenTreeLclAddr* gtNewLclAddr(LclVarDsc* lcl, var_types type = TYP_I_IMPL);
+    GenTreeLclAddr* gtNewLclAddr(LclVarDsc* lcl, unsigned lclOffs, FieldSeqNode* fieldSeq, var_types type = TYP_I_IMPL);
+
+    // [[deprecated]]
+    GenTreeLclLoad* gtNewLclvNode(LclVarDsc* lcl, var_types type)
+    {
+        return gtNewLclLoad(lcl, type);
+    }
+
+    // [[deprecated]]
+    GenTreeLclStore* gtNewStoreLclVar(LclVarDsc* lcl, var_types type, GenTree* value)
+    {
+        return gtNewLclStore(lcl, type, value);
+    }
+
+    // [[deprecated]]
+    GenTreeLclAddr* gtNewLclVarAddrNode(LclVarDsc* lcl, var_types type = TYP_I_IMPL)
+    {
+        return gtNewLclAddr(lcl, type);
+    }
 
     GenTreeUnOp* gtNewBitCastNode(var_types type, GenTree* arg);
 
@@ -2929,16 +2951,6 @@ public:
     GenTreeCall* gtNewRuntimeLookupHelperCallNode(CORINFO_RUNTIME_LOOKUP* pRuntimeLookup,
                                                   GenTree*                ctxTree,
                                                   void*                   compileTimeHandle);
-
-    GenTreeLclVar* gtNewLclLoad(LclVarDsc* lcl, var_types type);
-    GenTreeLclVar* gtNewLclvNode(LclVarDsc* lcl, var_types type);
-    GenTreeLclVar* gtNewLclVarLargeNode(LclVarDsc* lcl, var_types type);
-
-    GenTreeLclAddr* gtNewLclVarAddrNode(LclVarDsc* lcl, var_types type = TYP_I_IMPL);
-    GenTreeLclAddr* gtNewLclFldAddrNode(LclVarDsc*    lcl,
-                                        unsigned      lclOffs,
-                                        FieldSeqNode* fieldSeq,
-                                        var_types     type = TYP_I_IMPL);
 
 #ifdef FEATURE_HW_INTRINSICS
     GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(ClassLayout* layout);
@@ -3001,8 +3013,6 @@ public:
         var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1, GenTree* op2, GenTree* op3);
 #endif // FEATURE_HW_INTRINSICS
 
-    GenTreeLclFld* gtNewLclFldLoad(var_types type, LclVarDsc* lcl, unsigned offset);
-    GenTreeLclFld* gtNewLclFldNode(LclVarDsc* lcl, var_types type, unsigned offset);
     GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call);
 
     GenTreeIndir* gtNewIndir(var_types type, GenTree* addr);

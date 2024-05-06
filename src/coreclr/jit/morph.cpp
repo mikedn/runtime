@@ -3832,11 +3832,11 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
 
 GenTree* Compiler::abiMorphMkRefAnyToStore(LclVarDsc* tempLcl, GenTreeOp* mkrefany)
 {
-    GenTreeLclFld* storePtrField =
-        gtNewStoreLclFld(TYP_BYREF, tempLcl, OFFSETOF__CORINFO_TypedReference__dataPtr, mkrefany->GetOp(0));
+    GenTreeLclStoreFld* storePtrField =
+        gtNewLclStoreFld(TYP_BYREF, tempLcl, OFFSETOF__CORINFO_TypedReference__dataPtr, mkrefany->GetOp(0));
     storePtrField->SetFieldSeq(GetRefanyValueField());
-    GenTreeLclFld* storeTypeField =
-        gtNewStoreLclFld(TYP_I_IMPL, tempLcl, OFFSETOF__CORINFO_TypedReference__type, mkrefany->GetOp(1));
+    GenTreeLclStoreFld* storeTypeField =
+        gtNewLclStoreFld(TYP_I_IMPL, tempLcl, OFFSETOF__CORINFO_TypedReference__type, mkrefany->GetOp(1));
     storeTypeField->SetFieldSeq(GetRefanyTypeField());
 
 #ifdef WINDOWS_AMD64_ABI
@@ -4644,7 +4644,7 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
             assert(varTypeIsFloating(regType) || (regType == TYP_I_IMPL));
 
             GenTree* elementIndex = gtNewIconNode(lclOffset / regSize);
-            GenTree* simdValue    = gtNewLclvNode(lcl, lcl->GetType());
+            GenTree* simdValue    = gtNewLclLoad(lcl, lcl->GetType());
 
             if (lcl->IsAddressExposed())
             {
@@ -4658,7 +4658,7 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
         {
             lvaSetDoNotEnregister(lcl DEBUG_ARG(DNER_LocalField));
 
-            regValue = gtNewLclFldNode(lcl, regType, lclOffset);
+            regValue = gtNewLclLoadFld(regType, lcl, lclOffset);
 
             if (lcl->IsAddressExposed())
             {
@@ -5129,7 +5129,7 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
 
     if (tempLcl->TypeIs(TYP_STRUCT) && varTypeIsSIMD(arg->GetType()))
     {
-        store = gtNewLclFldStore(arg->GetType(), tempLcl, 0, arg);
+        store = gtNewLclStoreFld(arg->GetType(), tempLcl, 0, arg);
     }
     else
     {
@@ -7191,11 +7191,11 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
         {
             // Use a LCL_FLD to widen small int return, the local is already address exposed
             // so it's not worth adding an extra cast by relying on "normalize on load".
-            retVal = gtNewLclFldNode(newRetLcl, origCall->GetRetSigType(), 0);
+            retVal = gtNewLclLoadFld(origCall->GetRetSigType(), newRetLcl, 0);
         }
         else
         {
-            retVal = gtNewLclvNode(newRetLcl, newRetLcl->GetType());
+            retVal = gtNewLclLoad(newRetLcl, newRetLcl->GetType());
         }
 
         if (varTypeIsStruct(origCall->GetType()) && (info.retDesc.GetRegCount() > 1))
@@ -9357,7 +9357,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
             unsigned      loadFieldOffs = lclOffs + promotedFieldLcl->GetPromotedFieldOffset();
             FieldSeqNode* loadFieldSeq  = fieldSeqStore->Append(baseFieldSeq, promotedFieldLcl->GetPromotedFieldSeq());
 
-            GenTreeLclFld* fieldLoad = gtNewLclFldLoad(promotedFieldLcl->GetType(), lcl, loadFieldOffs);
+            GenTreeLclLoadFld* fieldLoad = gtNewLclLoadFld(promotedFieldLcl->GetType(), lcl, loadFieldOffs);
             fieldLoad->SetFieldSeq(loadFieldSeq);
             fieldLoad->gtFlags |= lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_EMPTY;
             *loads++ = fieldLoad;
@@ -9398,7 +9398,8 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
             unsigned      storeFieldOffs = lclOffs + promotedFieldLcl->GetPromotedFieldOffset();
             FieldSeqNode* storeFieldSeq  = fieldSeqStore->Append(baseFieldSeq, promotedFieldLcl->GetPromotedFieldSeq());
 
-            GenTreeLclFld* fieldStore = gtNewLclFldStore(promotedFieldLcl->GetType(), lcl, storeFieldOffs, *loads++);
+            GenTreeLclStoreFld* fieldStore =
+                gtNewLclStoreFld(promotedFieldLcl->GetType(), lcl, storeFieldOffs, *loads++);
             fieldStore->SetFieldSeq(storeFieldSeq);
             fieldStore->gtFlags |= lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_EMPTY;
             *stores++ = fieldStore;
@@ -14018,7 +14019,7 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
         }
         else if (lcl->TypeIs(TYP_STRUCT) && !value->TypeIs(TYP_STRUCT))
         {
-            store = gtNewLclFldStore(value->GetType(), lcl, 0, value);
+            store = gtNewLclStoreFld(value->GetType(), lcl, 0, value);
         }
         else
         {

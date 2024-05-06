@@ -2188,11 +2188,11 @@ void Lowering::LowerStructReturn(GenTreeUnOp* ret)
             LclVarDsc* tempLcl = comp->lvaNewTemp(retLayout, true DEBUGARG("indir ret temp"));
             comp->lvaSetDoNotEnregister(tempLcl DEBUGARG(Compiler::DNER_LocalField));
 
-            GenTree* retRegValue = comp->gtNewLclFldNode(tempLcl, retRegType, 0);
+            GenTreeLclLoadFld* retRegValue = comp->gtNewLclLoadFld(retRegType, tempLcl, 0);
             ret->SetOp(0, retRegValue);
             BlockRange().InsertBefore(ret, retRegValue);
 
-            GenTreeLclVar* tempStore = comp->gtNewStoreLclVar(tempLcl, src->GetType(), src);
+            GenTreeLclStore* tempStore = comp->gtNewLclStore(tempLcl, src->GetType(), src);
             BlockRange().InsertAfter(src, tempStore);
 
             src->ChangeOper(GT_OBJ);
@@ -2608,14 +2608,14 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* ins
 
     GenTree* thisUse;
 
-    if (thisPtr->OperIs(GT_LCL_VAR))
+    if (thisPtr->OperIs(GT_LCL_LOAD))
     {
-        thisUse = comp->gtNewLclvNode(thisPtr->AsLclVar()->GetLcl(), thisPtr->GetType());
+        thisUse = comp->gtNewLclLoad(thisPtr->AsLclVar()->GetLcl(), thisPtr->GetType());
     }
-    else if (thisPtr->OperIs(GT_LCL_FLD))
+    else if (thisPtr->OperIs(GT_LCL_LOAD_FLD))
     {
         thisUse =
-            comp->gtNewLclFldNode(thisPtr->AsLclFld()->GetLcl(), thisPtr->GetType(), thisPtr->AsLclFld()->GetLclOffs());
+            comp->gtNewLclLoadFld(thisPtr->GetType(), thisPtr->AsLclFld()->GetLcl(), thisPtr->AsLclFld()->GetLclOffs());
     }
     else
     {
@@ -2844,13 +2844,13 @@ void Lowering::InsertFrameLinkUpdate(LIR::Range& block, GenTree* before, FrameLi
     LclVarDsc* pInvokeFrameLcl     = comp->lvaGetDesc(comp->lvaInlinedPInvokeFrameVar);
     LclVarDsc* pInvokeFrameListLcl = comp->lvaGetDesc(comp->lvaPInvokeFrameListVar);
 
-    GenTree* tcb  = comp->gtNewLclvNode(pInvokeFrameListLcl, TYP_I_IMPL);
+    GenTree* tcb  = comp->gtNewLclLoad(pInvokeFrameListLcl, TYP_I_IMPL);
     GenTree* addr = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, tcb, nullptr, 1, info.offsetOfThreadFrame);
     GenTree* data = nullptr;
 
     if (action == PushFrame)
     {
-        data = comp->gtNewLclFldAddrNode(pInvokeFrameLcl, info.inlinedCallFrameInfo.offsetOfFrameVptr,
+        data = comp->gtNewLclAddr(pInvokeFrameLcl, info.inlinedCallFrameInfo.offsetOfFrameVptr,
                                          FieldSeqStore::NotAField());
         comp->lvaSetAddressExposed(pInvokeFrameLcl);
     }
@@ -2858,7 +2858,7 @@ void Lowering::InsertFrameLinkUpdate(LIR::Range& block, GenTree* before, FrameLi
     {
         assert(action == PopFrame);
 
-        data = comp->gtNewLclFldNode(pInvokeFrameLcl, TYP_BYREF, info.inlinedCallFrameInfo.offsetOfFrameLink);
+        data = comp->gtNewLclLoadFld(TYP_BYREF, pInvokeFrameLcl, info.inlinedCallFrameInfo.offsetOfFrameLink);
     }
 
     GenTreeStoreInd* store = new (comp, GT_STOREIND) GenTreeStoreInd(TYP_I_IMPL, addr, data);
@@ -2932,7 +2932,7 @@ void Lowering::InsertPInvokeMethodProlog()
 
     // First arg:  &compiler->lvaInlinedPInvokeFrameVar + callFrameInfo.offsetOfFrameVptr
 
-    GenTree* frameAddr = comp->gtNewLclFldAddrNode(pInvokeFrameLcl, callFrameInfo.offsetOfFrameVptr, nullptr);
+    GenTree* frameAddr = comp->gtNewLclAddr(pInvokeFrameLcl, callFrameInfo.offsetOfFrameVptr, nullptr);
     comp->lvaSetAddressExposed(pInvokeFrameLcl);
 
     // Call runtime helper to fill in our InlinedCallFrame and push it on the Frame list:
@@ -2966,7 +2966,7 @@ void Lowering::InsertPInvokeMethodProlog()
     // InlinedCallFrame.m_pCallSiteSP = @RSP;
 
     GenTreePhysReg* sp      = comp->gtNewPhysRegNode(REG_SPBASE, TYP_I_IMPL);
-    GenTreeLclFld*  storeSP = comp->gtNewStoreLclFld(TYP_I_IMPL, pInvokeFrameLcl, callFrameInfo.offsetOfCallSiteSP, sp);
+    GenTree*        storeSP = comp->gtNewLclStoreFld(TYP_I_IMPL, pInvokeFrameLcl, callFrameInfo.offsetOfCallSiteSP, sp);
     comp->lvaSetDoNotEnregister(pInvokeFrameLcl DEBUGARG(Compiler::DNER_LocalField));
     firstBlockRange.InsertBefore(insertionPoint, sp, storeSP);
     DISPTREERANGE(firstBlockRange, storeSP);
@@ -2980,8 +2980,7 @@ void Lowering::InsertPInvokeMethodProlog()
     // InlinedCallFrame.m_pCalleeSavedEBP = @RBP;
 
     GenTreePhysReg* fp = comp->gtNewPhysRegNode(REG_FPBASE, TYP_I_IMPL);
-    GenTreeLclFld*  storeFP =
-        comp->gtNewStoreLclFld(TYP_I_IMPL, pInvokeFrameLcl, callFrameInfo.offsetOfCalleeSavedFP, fp);
+    GenTree* storeFP   = comp->gtNewLclStoreFld(TYP_I_IMPL, pInvokeFrameLcl, callFrameInfo.offsetOfCalleeSavedFP, fp);
     firstBlockRange.InsertBefore(insertionPoint, fp, storeFP);
     DISPTREERANGE(firstBlockRange, storeFP);
 #endif // !defined(TARGET_ARM)
@@ -3164,8 +3163,8 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
     if (src != nullptr)
     {
         // Store into InlinedCallFrame.m_Datum, the offset of which is given by offsetOfCallTarget.
-        GenTreeLclFld* store =
-            comp->gtNewStoreLclFld(TYP_I_IMPL, pInvokeFrameLcl, callFrameInfo.offsetOfCallTarget, src);
+        GenTreeLclStoreFld* store =
+            comp->gtNewLclStoreFld(TYP_I_IMPL, pInvokeFrameLcl, callFrameInfo.offsetOfCallTarget, src);
         BlockRange().InsertBefore(insertBefore, src, store);
         ContainCheckStoreLcl(store);
     }
@@ -3176,16 +3175,16 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
 
     GenTreePhysReg* callSiteSP = comp->gtNewPhysRegNode(REG_SPBASE, TYP_I_IMPL);
     GenTreeLclFld*  storeCallSiteSP =
-        comp->gtNewStoreLclFld(TYP_I_IMPL, pInvokeFrameLcl, callFrameInfo.offsetOfCallSiteSP, callSiteSP);
+        comp->gtNewLclStoreFld(TYP_I_IMPL, pInvokeFrameLcl, callFrameInfo.offsetOfCallSiteSP, callSiteSP);
     BlockRange().InsertBefore(insertBefore, callSiteSP, storeCallSiteSP);
 #endif
 
     // ----------------------------------------------------------------------------------
     // InlinedCallFrame.m_pCallerReturnAddress = &label (the address of the instruction immediately following the call)
 
-    GenTree*       returnLabel = new (comp, GT_LABEL) GenTree(GT_LABEL, TYP_I_IMPL);
-    GenTreeLclFld* storeReturnLabel =
-        comp->gtNewStoreLclFld(TYP_I_IMPL, pInvokeFrameLcl, callFrameInfo.offsetOfReturnAddress, returnLabel);
+    GenTree* returnLabel = new (comp, GT_LABEL) GenTree(GT_LABEL, TYP_I_IMPL);
+    GenTree* storeReturnLabel =
+        comp->gtNewLclStoreFld(TYP_I_IMPL, pInvokeFrameLcl, callFrameInfo.offsetOfReturnAddress, returnLabel);
     BlockRange().InsertBefore(insertBefore, returnLabel, storeReturnLabel);
 
     // Push the PInvoke frame if necessary. On 32-bit targets this only happens in the method prolog if a method
@@ -3265,7 +3264,7 @@ void Lowering::InsertPInvokeCallEpilog(GenTreeCall* call)
 
     GenTreeIntCon* zero = comp->gtNewIconNode(0, TYP_I_IMPL);
     GenTreeLclFld* storeCallSiteTracker =
-        comp->gtNewStoreLclFld(TYP_I_IMPL, pInvokeFrameLcl, callFrameInfo.offsetOfReturnAddress, zero);
+        comp->gtNewLclStoreFld(TYP_I_IMPL, pInvokeFrameLcl, callFrameInfo.offsetOfReturnAddress, zero);
     BlockRange().InsertBefore(insertionPoint, zero, storeCallSiteTracker);
     ContainCheckStoreLcl(storeCallSiteTracker);
 #endif // TARGET_64BIT
