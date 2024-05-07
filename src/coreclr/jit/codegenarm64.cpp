@@ -2708,21 +2708,20 @@ void CodeGen::GenIndLoad(GenTreeIndir* load)
     DefReg(load);
 }
 
-void CodeGen::GenIndStore(GenTreeStoreInd* tree)
+void CodeGen::GenIndStore(GenTreeIndStore* store)
 {
-    if (tree->TypeIs(TYP_SIMD12))
+    if (store->TypeIs(TYP_SIMD12))
     {
-        genStoreSIMD12(tree, tree->GetValue());
+        genStoreSIMD12(store, store->GetValue());
         return;
     }
 
-    GenTree* addr  = tree->GetAddr();
-    GenTree* value = tree->GetValue();
+    GenTree* addr  = store->GetAddr();
+    GenTree* value = store->GetValue();
 
-    assert(IsValidSourceType(tree->GetType(), value->GetType()));
+    assert(IsValidSourceType(store->GetType(), value->GetType()));
 
-    GCInfo::WriteBarrierForm writeBarrierForm = GCInfo::GetWriteBarrierForm(tree);
-    if (writeBarrierForm != GCInfo::WBF_NoBarrier)
+    if (GCInfo::WriteBarrierForm writeBarrierForm = GCInfo::GetWriteBarrierForm(store))
     {
         regNumber addrReg  = UseReg(addr);
         regNumber valueReg = UseReg(value);
@@ -2734,7 +2733,7 @@ void CodeGen::GenIndStore(GenTreeStoreInd* tree)
 
         inst_Mov(addr->GetType(), REG_WRITE_BARRIER_DST, addrReg, /* canSkip */ true);
         inst_Mov(value->GetType(), REG_WRITE_BARRIER_SRC, valueReg, /* canSkip */ true);
-        genGCWriteBarrier(tree, writeBarrierForm);
+        genGCWriteBarrier(store, writeBarrierForm);
 
         return;
     }
@@ -2742,7 +2741,7 @@ void CodeGen::GenIndStore(GenTreeStoreInd* tree)
     // We must consume the operands in the proper execution order,
     // so that liveness is updated appropriately.
     genConsumeAddress(addr);
-    var_types type = tree->GetType();
+    var_types type = store->GetType();
     regNumber valueReg;
 
     if (value->isContained())
@@ -2759,10 +2758,10 @@ void CodeGen::GenIndStore(GenTreeStoreInd* tree)
 
     instruction ins = ins_Store(type);
 
-    if (tree->IsVolatile())
+    if (store->IsVolatile())
     {
         bool addrIsInReg   = addr->isUsedFromReg();
-        bool addrIsAligned = !tree->IsUnaligned();
+        bool addrIsAligned = !store->IsUnaligned();
 
         if ((ins == INS_strb) && addrIsInReg)
         {
@@ -2783,7 +2782,7 @@ void CodeGen::GenIndStore(GenTreeStoreInd* tree)
         }
     }
 
-    emitInsStore(ins, emitActualTypeSize(type), valueReg, tree);
+    emitInsStore(ins, emitActualTypeSize(type), valueReg, store);
 }
 
 void CodeGen::genIntToFloatCast(GenTreeCast* cast)
@@ -8404,10 +8403,8 @@ void CodeGen::emitInsLoad(instruction ins, emitAttr attr, regNumber dataReg, Gen
     emitInsIndir(ins, attr, dataReg, load);
 }
 
-void CodeGen::emitInsStore(instruction ins, emitAttr attr, regNumber dataReg, GenTreeStoreInd* store)
+void CodeGen::emitInsStore(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndStore* store)
 {
-    assert(store->OperIs(GT_STOREIND));
-
     emitInsIndir(ins, attr, dataReg, store);
 }
 

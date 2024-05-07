@@ -1233,14 +1233,14 @@ private:
                 assertionInfo = GenerateBoundsChkAssertion(node->AsBoundsChk());
                 break;
 
-            case GT_STORE_BLK:
-            case GT_STORE_OBJ:
-            case GT_BLK:
-            case GT_OBJ:
+            case GT_IND_STORE_BLK:
+            case GT_IND_STORE_OBJ:
+            case GT_IND_LOAD_BLK:
+            case GT_IND_LOAD_OBJ:
                 assert(node->AsBlk()->GetLayout()->GetSize() != 0);
                 FALLTHROUGH;
-            case GT_STOREIND:
-            case GT_IND:
+            case GT_IND_STORE:
+            case GT_IND_LOAD:
             case GT_NULLCHECK:
                 assertionInfo = CreateNotNullAssertion(node->AsIndir()->GetAddr());
                 break;
@@ -2347,12 +2347,12 @@ private:
                     return nullptr;
                 }
                 return PropagateLclUse(assertions, node->AsLclUse(), stmt);
-            case GT_STOREIND:
-            case GT_STORE_OBJ:
-            case GT_STORE_BLK:
-            case GT_OBJ:
-            case GT_BLK:
-            case GT_IND:
+            case GT_IND_STORE:
+            case GT_IND_STORE_OBJ:
+            case GT_IND_STORE_BLK:
+            case GT_IND_LOAD_OBJ:
+            case GT_IND_LOAD_BLK:
+            case GT_IND_LOAD:
             case GT_NULLCHECK:
                 return PropagateIndir(assertions, node->AsIndir(), stmt);
             case GT_BOUNDS_CHECK:
@@ -3139,13 +3139,13 @@ private:
                     // would that be.
 
                     if ((user != nullptr) && ((tree->gtFlags & GTF_SIDE_EFFECT) == 0) &&
-                        user->OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_LCL_FLD) && user->TypeIs(TYP_SIMD12))
+                        user->OperIs(GT_IND_STORE, GT_IND_STORE_OBJ, GT_LCL_STORE_FLD) && user->TypeIs(TYP_SIMD12))
                     {
                         GenTree* zero = m_compiler->gtNewZeroSimdHWIntrinsicNode(TYP_SIMD12, TYP_FLOAT);
 
-                        if (user->OperIs(GT_STORE_LCL_FLD))
+                        if (user->OperIs(GT_LCL_STORE_FLD))
                         {
-                            user->AsLclVarCommon()->SetOp(0, zero);
+                            user->AsLclStoreFld()->SetValue(zero);
                         }
                         else
                         {

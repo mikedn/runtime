@@ -7162,7 +7162,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
         GenTree* src     = gtNewLclvNode(tmpRetBufLcl, tmpRetBufType);
 
         copyToRetBufNode         = dst;
-        copyToRetBufNode->gtOper = copyToRetBufNode->TypeIs(TYP_STRUCT) ? GT_STORE_OBJ : GT_STOREIND;
+        copyToRetBufNode->gtOper = copyToRetBufNode->TypeIs(TYP_STRUCT) ? GT_IND_STORE_OBJ : GT_IND_STORE;
         copyToRetBufNode->AsIndir()->SetValue(src);
 
         if (origCall->gtType != TYP_VOID)
@@ -8103,7 +8103,7 @@ GenTree* Compiler::fgRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* valu
             arrIndexNode->SetAddr(fgMorphIndexAddr(addr));
         }
 
-        arrIndexNode->SetOper(GT_STOREIND);
+        arrIndexNode->SetOper(GT_IND_STORE);
         arrIndexNode->SetValue(value);
         arrIndexNode->AddSideEffects(GTF_ASG | value->GetSideEffects());
 
@@ -8339,7 +8339,7 @@ GenTree* Compiler::fgMorphInitStruct(GenTree* store, GenTree* value)
 {
     JITDUMPTREE(store, "\nfgMorphInitStruct (before):\n");
 
-    assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_STORE_OBJ, GT_STOREIND));
+    assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE_OBJ, GT_IND_STORE));
     assert(varTypeIsStruct(store->GetType()));
     assert(value->OperIs(GT_INIT_VAL) || value->IsIntegralConst(0));
 
@@ -8990,7 +8990,7 @@ GenTree* Compiler::fgMorphDynBlk(GenTreeDynBlk* dynBlk)
 
     if (dynBlk->OperIs(GT_COPY_BLK))
     {
-        src = new (this, GT_BLK) GenTreeBlk(src, layout);
+        src = new (this, GT_IND_LOAD_BLK) GenTreeIndLoadBlk(src, layout);
         src->AddSideEffects(GTF_GLOB_REF | GTF_EXCEPT);
 
         if (dynBlk->IsVolatile())
@@ -9003,9 +9003,9 @@ GenTree* Compiler::fgMorphDynBlk(GenTreeDynBlk* dynBlk)
         src = gtNewOperNode(GT_INIT_VAL, TYP_INT, src);
     }
 
-    dynBlk->ChangeOper(GT_STORE_BLK);
+    dynBlk->ChangeOper(GT_IND_STORE_BLK);
 
-    GenTreeBlk* store = dynBlk->AsBlk();
+    GenTreeIndStoreBlk* store = dynBlk->AsIndStoreBlk();
     store->SetType(TYP_STRUCT);
     store->SetLayout(layout);
     store->SetKind(StructStoreKind::Invalid);
@@ -9019,7 +9019,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
 {
     JITDUMPTREE(store, "\nfgMorphCopyStruct: (before)\n");
 
-    assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_STORE_OBJ, GT_STOREIND));
+    assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE_OBJ, GT_IND_STORE));
     assert(store->TypeIs(TYP_STRUCT) ? src->TypeIs(TYP_STRUCT) : varTypeIsSIMD(src->GetType()));
     assert(!src->OperIs(GT_INIT_VAL, GT_CNS_INT));
 
@@ -9101,7 +9101,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
     }
     else
     {
-        assert(store->OperIs(GT_STORE_OBJ) || (store->OperIs(GT_STOREIND) && varTypeIsSIMD(store->GetType())));
+        assert(store->OperIs(GT_IND_STORE_OBJ) || (store->OperIs(GT_IND_STORE) && varTypeIsSIMD(store->GetType())));
     }
 
     LclVarDsc* srcLcl     = nullptr;
@@ -9286,14 +9286,14 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
         {
             assert(varTypeIsSIMD(store->GetType()));
 
-            if (src->OperIs(GT_OBJ))
+            if (src->OperIs(GT_IND_LOAD_OBJ))
             {
-                src->ChangeOper(GT_IND);
+                src->ChangeOper(GT_IND_LOAD);
             }
 
-            if (store->OperIs(GT_STORE_OBJ))
+            if (store->OperIs(GT_IND_STORE_OBJ))
             {
-                store->ChangeOper(GT_STOREIND);
+                store->ChangeOper(GT_IND_STORE);
             }
         }
 
@@ -9409,7 +9409,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
     };
 
     auto SplitIndAddr = [this](GenTree* addresses[], GenTreeIndir* indir, LclVarDsc* promotedLcl) -> GenTree* {
-        assert(indir->OperIs(GT_IND, GT_OBJ, GT_STOREIND, GT_STORE_OBJ));
+        assert(indir->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ, GT_IND_STORE, GT_IND_STORE_OBJ));
 
         GenTree*      addr         = indir->GetAddr();
         LclVarDsc*    addrSpillLcl = nullptr;
@@ -9596,7 +9596,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
 
 GenTree* Compiler::fgMorphPromoteStore(GenTree* store, GenTree* tempStore, GenTree** fieldStores, unsigned fieldCount)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_STOREIND, GT_STORE_OBJ));
+    assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE, GT_IND_STORE_OBJ));
 
     const bool isStmtRoot = (fgGlobalMorphStmt != nullptr) && (fgGlobalMorphStmt->GetRootNode() == store);
     GenTree*   tree       = tempStore;
@@ -9611,7 +9611,7 @@ GenTree* Compiler::fgMorphPromoteStore(GenTree* store, GenTree* tempStore, GenTr
     for (unsigned i = 0; i < fieldCount; i++)
     {
         GenTree* fieldStore = fieldStores[i];
-        assert(fieldStore->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_STOREIND));
+        assert(fieldStore->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE));
 
         if (isStmtRoot)
         {
@@ -9964,8 +9964,8 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             }
             break;
 
-        case GT_STOREIND:
-        case GT_STORE_OBJ:
+        case GT_IND_STORE:
+        case GT_IND_STORE_OBJ:
             if (op1->OperIs(GT_LCL_ADDR) && !tree->AsIndir()->IsVolatile())
             {
                 ClassLayout* layout = tree->IsObj() ? tree->AsObj()->GetLayout() : nullptr;
@@ -10614,10 +10614,10 @@ DONE_MORPHING_CHILDREN:
             }
             return tree;
 
-        case GT_STORE_OBJ:
+        case GT_IND_STORE_OBJ:
             return fgMorphStructStore(tree, op2);
 
-        case GT_STOREIND:
+        case GT_IND_STORE:
             if (varTypeIsSIMD(typ))
             {
                 return fgMorphStructStore(tree, op2);

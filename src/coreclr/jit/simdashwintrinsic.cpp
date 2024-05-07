@@ -2952,8 +2952,8 @@ bool SIMDCoalescingBuffer::AreContiguousLoads(GenTree* l1, GenTree* l2)
 
 bool SIMDCoalescingBuffer::AreContiguousStores(GenTree* s1, GenTree* s2)
 {
-    assert(s1->OperIs(GT_STOREIND, GT_STORE_LCL_FLD) && s1->TypeIs(TYP_FLOAT));
-    assert(s2->OperIs(GT_STOREIND, GT_STORE_LCL_FLD) && s2->TypeIs(TYP_FLOAT));
+    assert(s1->OperIs(GT_IND_STORE, GT_LCL_STORE_FLD) && s1->TypeIs(TYP_FLOAT));
+    assert(s2->OperIs(GT_IND_STORE, GT_LCL_STORE_FLD) && s2->TypeIs(TYP_FLOAT));
 
     if (s1->GetOper() != s2->GetOper())
     {
@@ -3035,9 +3035,9 @@ bool SIMDCoalescingBuffer::AreContiguousStores(GenTree* s1, GenTree* s2)
 
     switch (s1->GetOper())
     {
-        case GT_STOREIND:
+        case GT_IND_STORE:
             return AreContiguosIndirs(s1->AsIndir(), s2->AsIndir());
-        case GT_STORE_LCL_FLD:
+        case GT_LCL_STORE_FLD:
             return AreContiguosLocalFields(s1->AsLclFld(), s2->AsLclFld());
         default:
             return false;
@@ -3149,7 +3149,7 @@ void SIMDCoalescingBuffer::ChangeToSIMDStore(Compiler* compiler, GenTree* store,
         return;
     }
 
-    assert(store->OperIs(GT_STOREIND));
+    assert(store->OperIs(GT_IND_STORE));
 
     GenTreeIndir* indir  = store->IsIndir();
     GenTree*      addr   = indir->GetAddr();
@@ -3306,7 +3306,7 @@ LclVarDsc* SIMDCoalescingBuffer::IsSimdLocalExtract(GenTree* node) const
 // Return true if the statement is added and the number of statements in the buffer equals the number of SIMD elements.
 bool SIMDCoalescingBuffer::AddStore(Compiler* compiler, Statement* stmt, GenTree* store, LclVarDsc* simdLcl)
 {
-    assert(store->OperIs(GT_STORE_LCL_FLD, GT_STOREIND) && store->TypeIs(TYP_FLOAT));
+    assert(store->OperIs(GT_LCL_STORE_FLD, GT_IND_STORE) && store->TypeIs(TYP_FLOAT));
 
     if (simdLcl == nullptr)
     {
@@ -3368,13 +3368,13 @@ void SIMDCoalescingBuffer::Mark(Compiler* compiler, Statement* stmt)
 {
     GenTree* store = stmt->GetRootNode();
 
-    if (!store->TypeIs(TYP_FLOAT) || !store->OperIs(GT_STOREIND, GT_STORE_LCL_FLD))
+    if (!store->TypeIs(TYP_FLOAT) || !store->OperIs(GT_IND_STORE, GT_LCL_STORE_FLD))
     {
         Clear();
         return;
     }
 
-    GenTree*   value   = store->OperIs(GT_STOREIND) ? store->AsIndir()->GetValue() : store->AsLclFld()->GetOp(0);
+    GenTree*   value   = store->OperIs(GT_IND_STORE) ? store->AsIndir()->GetValue() : store->AsLclFld()->GetOp(0);
     LclVarDsc* simdLcl = IsSimdLocalField(value, compiler);
 
     if (!AddStore(compiler, stmt, store, simdLcl))
@@ -3406,13 +3406,13 @@ bool SIMDCoalescingBuffer::Add(Compiler* compiler, Statement* stmt)
 {
     GenTree* store = stmt->GetRootNode();
 
-    if (!store->TypeIs(TYP_FLOAT) || !store->OperIs(GT_STOREIND, GT_STORE_LCL_FLD))
+    if (!store->TypeIs(TYP_FLOAT) || !store->OperIs(GT_IND_STORE, GT_LCL_STORE_FLD))
     {
         Clear();
         return false;
     }
 
-    GenTree*   value   = store->OperIs(GT_STOREIND) ? store->AsIndir()->GetValue() : store->AsLclFld()->GetOp(0);
+    GenTree*   value   = store->OperIs(GT_IND_STORE) ? store->AsIndir()->GetValue() : store->AsLclFld()->GetOp(0);
     LclVarDsc* simdLcl = IsSimdLocalExtract(value);
 
     return AddStore(compiler, stmt, store, simdLcl);

@@ -220,7 +220,7 @@ static_assert_no_msg(sizeof(GenTreeBoundsChk)    <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeArrIndex)     <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeArrOffs)      <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeIndir)        <= TREE_NODE_SZ_SMALL);
-static_assert_no_msg(sizeof(GenTreeStoreInd)     <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeIndStore)     <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeAddrMode)     <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeObj)          <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeBlk)          <= TREE_NODE_SZ_SMALL);
@@ -2561,8 +2561,8 @@ void Compiler::gtSetCosts(GenTree* tree)
                 costSz += 2 * 2;
                 break;
 
-            case GT_STORE_BLK:
-            case GT_STOREIND:
+            case GT_IND_STORE_BLK:
+            case GT_IND_STORE:
                 costEx = IND_COST_EX + 1;
                 costSz = 3;
 
@@ -3252,9 +3252,9 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
                 allowSwap = false;
                 break;
 
-            case GT_STOREIND:
-            case GT_STORE_OBJ:
-            case GT_STORE_BLK:
+            case GT_IND_STORE:
+            case GT_IND_STORE_OBJ:
+            case GT_IND_STORE_BLK:
                 // TODO-MIKE-Cleanup: This stuff is a complete mess...
                 if (!csePhase || cseCanSwapOrder(op1, op2))
                 {
@@ -3813,28 +3813,6 @@ GenTree::VtablePtr GenTree::GetVtableForOper(genTreeOps oper)
 
         // clang-format on
 
-        // Handle the special cases.
-        // The following opers are in GTSTRUCT_N but no other place (namely, no subtypes).
-
-        case GT_STORE_BLK:
-        case GT_BLK:
-        {
-            GenTreeBlk gt;
-            res = *reinterpret_cast<VtablePtr*>(&gt);
-        }
-        break;
-
-        case GT_IND:
-        case GT_NULLCHECK:
-        {
-            GenTreeIndir gt;
-            res = *reinterpret_cast<VtablePtr*>(&gt);
-        }
-        break;
-
-        // We don't need to handle GTSTRUCT_N for LclVarCommon, since all those allowed opers are specified
-        // in their proper subtype. Similarly for GenTreeIndir.
-
         default:
         {
             // Should be unary or binary op.
@@ -3880,8 +3858,8 @@ GenTreeOp* Compiler::gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type)
     assert(op2 != nullptr);
 
     // TODO-MIKE-Review: Use GTK_NOVALUE?
-    bool isValue = !op2->OperIs(GT_LCL_DEF, GT_NULLCHECK, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_STOREIND, GT_STORE_OBJ,
-                                GT_STORE_BLK);
+    bool isValue = !op2->OperIs(GT_LCL_DEF, GT_NULLCHECK, GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE,
+                                GT_IND_STORE_OBJ, GT_IND_STORE_BLK);
 
     if (type == TYP_UNDEF)
     {
@@ -3954,11 +3932,11 @@ GenTreeIndir* Compiler::gtNewIndOfIconHandleNode(var_types type, size_t addr, Ha
     return load;
 }
 
-GenTreeStoreInd* Compiler::gtNewIndStore(var_types type, size_t addr, HandleKind handleKind, GenTree* value)
+GenTreeIndStore* Compiler::gtNewIndStore(var_types type, size_t addr, HandleKind handleKind, GenTree* value)
 {
     assert((handleKind != HandleKind::Static) && (handleKind != HandleKind::String));
 
-    GenTreeStoreInd* store = gtNewIndStore(type, gtNewIconHandleNode(addr, handleKind), value);
+    GenTreeIndStore* store = gtNewIndStore(type, gtNewIconHandleNode(addr, handleKind), value);
     store->gtFlags |= GTF_IND_NONFAULTING;
     return store;
 }
@@ -4432,7 +4410,7 @@ GenTreeObj* Compiler::gtNewObjNode(var_types type, ClassLayout* layout, GenTree*
 {
     assert(varTypeIsStruct(type));
 
-    GenTreeObj* objNode = new (this, GT_OBJ) GenTreeObj(type, addr, layout);
+    GenTreeIndLoadObj* objNode = new (this, GT_IND_LOAD_OBJ) GenTreeIndLoadObj(type, addr, layout);
 
     if (GenTreeLclAddr* lclNode = addr->IsLocalAddrExpr())
     {
@@ -4979,23 +4957,26 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
                 copy = new (this, GT_INSERT) GenTreeInsert(tree->AsInsert());
                 break;
 
-            case GT_IND:
-                copy = new (this, GT_IND) GenTreeIndir(tree->AsIndir());
+            case GT_NULLCHECK:
+                copy = new (this, GT_NULLCHECK) GenTreeNullCheck(tree->AsNullCheck());
                 break;
-            case GT_STOREIND:
-                copy = new (this, GT_STOREIND) GenTreeStoreInd(tree->AsStoreInd());
+            case GT_IND_LOAD:
+                copy = new (this, GT_IND_LOAD) GenTreeIndLoad(tree->AsIndLoad());
                 break;
-            case GT_OBJ:
-                copy = new (this, GT_OBJ) GenTreeObj(tree->AsObj());
+            case GT_IND_STORE:
+                copy = new (this, GT_IND_STORE) GenTreeIndStore(tree->AsIndStore());
                 break;
-            case GT_STORE_OBJ:
-                copy = new (this, GT_STORE_OBJ) GenTreeObj(tree->AsObj());
+            case GT_IND_LOAD_OBJ:
+                copy = new (this, GT_IND_LOAD_OBJ) GenTreeIndLoadObj(tree->AsIndLoadObj());
                 break;
-            case GT_BLK:
-                copy = new (this, GT_BLK) GenTreeBlk(tree->AsBlk());
+            case GT_IND_STORE_OBJ:
+                copy = new (this, GT_IND_STORE_OBJ) GenTreeIndStoreObj(tree->AsIndStoreObj());
                 break;
-            case GT_STORE_BLK:
-                copy = new (this, GT_STORE_BLK) GenTreeBlk(tree->AsBlk());
+            case GT_IND_LOAD_BLK:
+                copy = new (this, GT_IND_LOAD_BLK) GenTreeIndLoadBlk(tree->AsIndLoadBlk());
+                break;
+            case GT_IND_STORE_BLK:
+                copy = new (this, GT_IND_STORE_BLK) GenTreeIndStoreBlk(tree->AsIndStoreBlk());
                 break;
             case GT_BOX:
                 copy = new (this, GT_BOX) GenTreeBox(tree->AsBox());
@@ -5349,8 +5330,8 @@ bool GenTree::IndirMayThrow(Compiler* comp) const
                 return false;
             }
             FALLTHROUGH;
-        case GT_IND:
-        case GT_STOREIND:
+        case GT_IND_LOAD:
+        case GT_IND_STORE:
         case GT_NULLCHECK:
             return ((gtFlags & GTF_IND_NONFAULTING) == 0) && comp->fgAddrCouldBeNull(AsIndir()->GetAddr());
 
@@ -5379,12 +5360,12 @@ bool GenTree::OperMayThrow(Compiler* comp) const
     switch (gtOper)
     {
         case GT_NULLCHECK:
-        case GT_IND:
-        case GT_STOREIND:
-        case GT_BLK:
-        case GT_STORE_BLK:
-        case GT_OBJ:
-        case GT_STORE_OBJ:
+        case GT_IND_LOAD:
+        case GT_IND_STORE:
+        case GT_IND_LOAD_BLK:
+        case GT_IND_STORE_BLK:
+        case GT_IND_LOAD_OBJ:
+        case GT_IND_STORE_OBJ:
         case GT_ARR_LENGTH:
             return IndirMayThrow(comp);
 
@@ -6276,12 +6257,12 @@ int Compiler::dmpNodeFlags(GenTree* tree)
 
     switch (tree->GetOper())
     {
-        case GT_IND:
-        case GT_BLK:
-        case GT_OBJ:
-        case GT_STOREIND:
-        case GT_STORE_BLK:
-        case GT_STORE_OBJ:
+        case GT_IND_LOAD:
+        case GT_IND_LOAD_BLK:
+        case GT_IND_LOAD_OBJ:
+        case GT_IND_STORE:
+        case GT_IND_STORE_BLK:
+        case GT_IND_STORE_OBJ:
             if (flags & GTF_IND_VOLATILE)
             {
                 operFlag = 'V';
@@ -9321,7 +9302,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
     // If we don't recognize the form of the copy, bail.
     GenTree* store = storeStmt->GetRootNode();
 
-    if (!store->OperIs(GT_STOREIND, GT_STORE_OBJ))
+    if (!store->OperIs(GT_IND_STORE, GT_IND_STORE_OBJ))
     {
         // RET_EXPR is a tolerable temporary failure.
         // The JIT will revisit this optimization after inlining is done.
@@ -9676,7 +9657,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
         return tree;
     }
 
-    if (tree->OperIs(GT_NOP, GT_ALLOCOBJ, GT_RUNTIMELOOKUP, GT_BOUNDS_CHECK, GT_STOREIND, GT_STORE_BLK, GT_STORE_OBJ,
+    if (tree->OperIs(GT_NOP, GT_ALLOCOBJ, GT_RUNTIMELOOKUP, GT_BOUNDS_CHECK, GT_IND_STORE, GT_IND_STORE_BLK, GT_IND_STORE_OBJ,
                      GT_MKREFANY, GT_RETURN))
     {
         return tree;
@@ -10607,7 +10588,7 @@ bool Compiler::gtNodeHasSideEffects(GenTree* node, GenTreeFlags flags, bool igno
     // It is possible that the reason no bugs have yet been observed in this area is that the
     // other nodes are likely to always be tree roots.
     if (((flags & GTF_ASG) != 0) &&
-        node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_LCL_DEF, GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK))
+        node->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_LCL_DEF, GT_IND_STORE, GT_IND_STORE_OBJ, GT_IND_STORE_BLK))
     {
         return true;
     }

@@ -1084,7 +1084,7 @@ void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclVarCommon* store, BasicBl
 
 void SsaRenameDomTreeVisitor::RenameMemoryStore(GenTreeIndir* store, BasicBlock* block)
 {
-    assert(store->OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK));
+    assert(store->OperIs(GT_IND_STORE, GT_IND_STORE_OBJ, GT_IND_STORE_BLK));
 
     // Figure out if "asgNode" may make a new GC heap state (if we care for this block).
     // TODO-MIKE-Review: Looks like this misses HWINTRINSIC memory stores...
@@ -1283,7 +1283,7 @@ void SsaRenameDomTreeVisitor::BlockRenameVariables(BasicBlock* block)
             {
                 RenameLclStore(node->AsLclVarCommon(), block);
             }
-            else if (node->OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK))
+            else if (node->OperIs(GT_IND_STORE, GT_IND_STORE_OBJ, GT_IND_STORE_BLK))
             {
                 RenameMemoryStore(node->AsIndir(), block);
             }

@@ -735,8 +735,8 @@ void Compiler::morphAssertionGenerate(GenTree* tree)
         case GT_STORE_BLK:
             assert(tree->AsBlk()->GetLayout()->GetSize() != 0);
             FALLTHROUGH;
-        case GT_IND:
-        case GT_STOREIND:
+        case GT_IND_LOAD:
+        case GT_IND_STORE:
         case GT_NULLCHECK:
             morphAssertionGenerateNotNull(tree->AsIndir()->GetAddr());
             break;
@@ -1409,12 +1409,12 @@ GenTree* Compiler::morphAssertionPropagate(GenTree* tree)
             case GT_LCL_FLD:
                 newTree = morphAssertionPropagateLclFld(tree->AsLclFld());
                 break;
-            case GT_OBJ:
-            case GT_STORE_OBJ:
-            case GT_BLK:
-            case GT_STORE_BLK:
-            case GT_IND:
-            case GT_STOREIND:
+            case GT_IND_LOAD_OBJ:
+            case GT_IND_STORE_OBJ:
+            case GT_IND_LOAD_BLK:
+            case GT_IND_STORE_BLK:
+            case GT_IND_LOAD:
+            case GT_IND_STORE:
             case GT_NULLCHECK:
                 newTree = morphAssertionPropagateIndir(tree->AsIndir());
                 break;

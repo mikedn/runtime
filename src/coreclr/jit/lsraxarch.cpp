@@ -307,23 +307,23 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildAddrMode(tree->AsAddrMode());
             break;
 
-        case GT_STOREIND:
-            if (GCInfo::GetWriteBarrierForm(tree->AsStoreInd()) != GCInfo::WBF_NoBarrier)
+        case GT_IND_STORE:
+            if (GCInfo::GetWriteBarrierForm(tree->AsIndStore()) != GCInfo::WBF_NoBarrier)
             {
-                BuildGCWriteBarrier(tree->AsStoreInd());
+                BuildGCWriteBarrier(tree->AsIndStore());
             }
             else
             {
-                BuildStoreInd(tree->AsStoreInd());
+                BuildIndStore(tree->AsIndStore());
             }
             break;
 
         case GT_NULLCHECK:
-            BuildUse(tree->AsUnOp()->GetOp(0));
+            BuildUse(tree->AsNullCheck()->GetAddr());
             break;
 
-        case GT_IND:
-            BuildLoadInd(tree->AsIndir());
+        case GT_IND_LOAD:
+            BuildLoadInd(tree->AsIndLoad());
             break;
 
         case GT_CATCH_ARG:
@@ -1906,9 +1906,9 @@ void LinearScan::BuildLoadInd(GenTreeIndir* load)
     BuildDef(load);
 }
 
-void LinearScan::BuildStoreInd(GenTreeIndir* store)
+void LinearScan::BuildIndStore(GenTreeIndir* store)
 {
-    assert(store->OperIs(GT_STOREIND) && !store->TypeIs(TYP_STRUCT));
+    assert(store->OperIs(GT_IND_STORE) && !store->TypeIs(TYP_STRUCT));
 
 #ifdef FEATURE_SIMD
     if (varTypeIsSIMD(store->GetType()))

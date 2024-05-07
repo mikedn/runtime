@@ -59,7 +59,7 @@ private:
     void ContainCheckJTrue(GenTreeUnOp* node);
     void ContainCheckCallOperands(GenTreeCall* call);
     void ContainCheckIndir(GenTreeIndir* indirNode);
-    void ContainCheckStoreIndir(GenTreeStoreInd* store);
+    void ContainCheckIndStore(GenTreeIndStore* store);
     void ContainCheckMul(GenTreeOp* node);
     void ContainCheckShiftRotate(GenTreeOp* node);
     void ContainCheckStoreLcl(GenTreeLclVarCommon* store);
@@ -167,8 +167,8 @@ private:
 #endif
 
     void LowerIndir(GenTreeIndir* ind);
-    void LowerStoreIndir(GenTreeStoreInd* store);
-    void LowerStoreIndirArch(GenTreeStoreInd* store);
+    void LowerIndStore(GenTreeIndStore* store);
+    void LowerIndStoreArch(GenTreeIndStore* store);
     GenTree* LowerAdd(GenTreeOp* node);
     bool LowerUnsignedDivOrMod(GenTreeOp* divMod);
     GenTree* LowerConstIntDivOrMod(GenTree* node);
@@ -215,9 +215,9 @@ private:
     GenTree* LowerCast(GenTreeCast* cast);
 
 #ifdef TARGET_XARCH
-    bool IsLoadIndRMWCandidate(GenTreeStoreInd* store, GenTreeIndir* load, GenTree* src);
-    GenTreeIndir* IsStoreIndRMW(GenTreeStoreInd* store);
-    void LowerStoreIndRMW(GenTreeStoreInd* store);
+    bool IsIndLoadRMWCandidate(GenTreeIndStore* store, GenTreeIndir* load, GenTree* src);
+    GenTreeIndir* IsStoreIndRMW(GenTreeIndStore* store);
+    void LowerStoreIndRMW(GenTreeIndStore* store);
     static bool IndirsAreRMWEquivalent(GenTreeIndir* indir1, GenTreeIndir* indir2);
     static bool LeavesAreRMWEquivalent(GenTree* node1, GenTree* node2);
 

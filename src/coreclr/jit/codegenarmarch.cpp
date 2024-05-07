@@ -233,8 +233,8 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             genCodeForReturnTrap(treeNode->AsOp());
             break;
 
-        case GT_STOREIND:
-            GenIndStore(treeNode->AsStoreInd());
+        case GT_IND_STORE:
+            GenIndStore(treeNode->AsIndStore());
             break;
 
         case GT_RELOAD:

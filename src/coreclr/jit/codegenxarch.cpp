@@ -1467,8 +1467,8 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             genCodeForReturnTrap(treeNode->AsOp());
             break;
 
-        case GT_STOREIND:
-            GenIndStore(treeNode->AsStoreInd());
+        case GT_IND_STORE:
+            GenIndStore(treeNode->AsIndStore());
             break;
 
         case GT_RELOAD:
@@ -4163,10 +4163,8 @@ void CodeGen::GenIndLoad(GenTreeIndir* load)
     DefReg(load);
 }
 
-void CodeGen::GenIndStore(GenTreeStoreInd* store)
+void CodeGen::GenIndStore(GenTreeIndStore* store)
 {
-    assert(store->OperIs(GT_STOREIND));
-
 #ifdef FEATURE_SIMD
     if (store->TypeIs(TYP_SIMD12))
     {
@@ -4181,8 +4179,7 @@ void CodeGen::GenIndStore(GenTreeStoreInd* store)
 
     assert(IsValidSourceType(type, value->GetType()));
 
-    GCInfo::WriteBarrierForm writeBarrierForm = GCInfo::GetWriteBarrierForm(store);
-    if (writeBarrierForm != GCInfo::WBF_NoBarrier)
+    if (GCInfo::WriteBarrierForm writeBarrierForm = GCInfo::GetWriteBarrierForm(store))
     {
         regNumber addrReg  = UseReg(addr);
         regNumber valueReg = UseReg(value);

@@ -575,31 +575,29 @@ inline GenTree* Compiler::gtNewNullCheck(GenTree* addr)
     assert(varTypeIsI(addr->GetType()));
     assert(fgAddrCouldBeNull(addr));
 
-    GenTreeIndir* nullCheck = new (this, GT_NULLCHECK) GenTreeIndir(GT_NULLCHECK, TYP_BYTE, addr);
-    nullCheck->gtFlags |= GTF_EXCEPT;
-    return nullCheck;
+    return new (this, GT_NULLCHECK) GenTreeNullCheck(addr);
 }
 
 inline GenTreeIndir* Compiler::gtNewIndir(var_types type, GenTree* addr)
 {
     assert(varTypeIsI(addr->GetType()));
 
-    return new (this, GT_IND) GenTreeIndir(GT_IND, type, addr);
+    return new (this, GT_IND_LOAD) GenTreeIndLoad(type, addr);
 }
 
 inline GenTreeIndir* Compiler::gtNewIndLoad(var_types type, GenTree* addr)
 {
     assert(varTypeIsI(addr->GetType()));
 
-    return new (this, GT_IND) GenTreeIndir(GT_IND, type, addr);
+    return new (this, GT_IND_LOAD) GenTreeIndLoad(type, addr);
 }
 
-inline GenTreeStoreInd* Compiler::gtNewIndStore(var_types type, GenTree* addr, GenTree* value)
+inline GenTreeIndStore* Compiler::gtNewIndStore(var_types type, GenTree* addr, GenTree* value)
 {
     assert(varTypeIsI(addr->GetType()));
     assert(varTypeSize(value->GetType()) != 0);
 
-    return new (this, GT_STOREIND) GenTreeStoreInd(type, addr, value);
+    return new (this, GT_IND_STORE) GenTreeIndStore(type, addr, value);
 }
 
 inline GenTreeFieldAddr* Compiler::gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset)

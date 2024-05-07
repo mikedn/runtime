@@ -213,9 +213,9 @@ static Compiler::fgWalkResult MarkPtrsAndAssignGroups(GenTree** use, Compiler::f
 
             return Compiler::WALK_SKIP_SUBTREES;
         }
-        case GT_STOREIND:
-        case GT_STORE_BLK:
-        case GT_STORE_OBJ:
+        case GT_IND_STORE:
+        case GT_IND_STORE_BLK:
+        case GT_IND_STORE_OBJ:
         {
             GenTreeIndir* store = tree->AsIndir();
             GenTree*      addr  = store->GetAddr();

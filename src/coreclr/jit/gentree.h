@@ -54,7 +54,6 @@ enum genTreeOps : uint8_t
 #endif
 
     GT_IND           = GT_IND_LOAD,
-    GT_STOREIND      = GT_IND_STORE,
     GT_OBJ           = GT_IND_LOAD_OBJ,
     GT_STORE_OBJ     = GT_IND_STORE_OBJ,
     GT_BLK           = GT_IND_LOAD_BLK,
@@ -1454,7 +1453,7 @@ public:
 
     static bool OperIsIndirOrArrLength(genTreeOps gtOper)
     {
-        return (gtOper == GT_NULLCHECK) || (gtOper == GT_IND) || (gtOper == GT_STOREIND) || (gtOper == GT_BLK) ||
+        return (gtOper == GT_NULLCHECK) || (gtOper == GT_IND) || (gtOper == GT_IND_STORE) || (gtOper == GT_BLK) ||
                (gtOper == GT_OBJ) || (gtOper == GT_STORE_BLK) || (gtOper == GT_STORE_OBJ) || (gtOper == GT_ARR_LENGTH);
     }
 
@@ -1483,11 +1482,11 @@ public:
     {
         switch (gtOper)
         {
-            case GT_STORE_LCL_VAR:
-            case GT_STORE_LCL_FLD:
-            case GT_STOREIND:
-            case GT_STORE_BLK:
-            case GT_STORE_OBJ:
+            case GT_LCL_STORE:
+            case GT_LCL_STORE_FLD:
+            case GT_IND_STORE:
+            case GT_IND_STORE_BLK:
+            case GT_IND_STORE_OBJ:
             case GT_INIT_BLK:
             case GT_COPY_BLK:
                 return true;
@@ -6384,14 +6383,13 @@ public:
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeAddrMode() : GenTreeOp()
-    {
-    }
+    GenTreeAddrMode() = default;
 #endif
 };
 
 struct GenTreeIndir : public GenTreeOp
 {
+protected:
     GenTreeIndir(genTreeOps oper, var_types type, GenTree* addr, GenTree* value = nullptr)
         : GenTreeOp(oper, type, addr, value)
     {
@@ -6401,6 +6399,7 @@ struct GenTreeIndir : public GenTreeOp
     {
     }
 
+public:
     void SetExceptionFlags(Compiler* comp);
 
     GenTree* GetAddr() const
@@ -6423,7 +6422,7 @@ struct GenTreeIndir : public GenTreeOp
 
     void SetValue(GenTree* value)
     {
-        assert(OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK));
+        assert(OperIs(GT_IND_STORE, GT_IND_STORE_OBJ, GT_IND_STORE_BLK));
         assert(value != nullptr);
         gtOp2 = value;
     }
@@ -6457,6 +6456,18 @@ struct GenTreeIndir : public GenTreeOp
 
 #if DEBUGGABLE_GENTREE
     GenTreeIndir() = default;
+#endif
+};
+
+struct GenTreeNullCheck : public GenTreeIndir
+{
+    GenTreeNullCheck(GenTree* addr) : GenTreeIndir(GT_NULLCHECK, TYP_BYTE, addr)
+    {
+        gtFlags |= GTF_EXCEPT;
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeNullCheck() = default;
 #endif
 };
 
@@ -6517,7 +6528,6 @@ protected:
         assert(layout != nullptr);
     }
 
-public:
     GenTreeBlk(GenTree* addr, ClassLayout* layout)
         : GenTreeIndir(GT_BLK, TYP_STRUCT, addr, nullptr), m_layout(layout), m_kind(StructStoreKind::Invalid)
     {
@@ -6534,11 +6544,12 @@ public:
         gtFlags |= GTF_ASG | GTF_GLOB_REF | GTF_EXCEPT;
     }
 
-    GenTreeBlk(GenTreeBlk* copyFrom)
+    GenTreeBlk(const GenTreeBlk* copyFrom)
         : GenTreeIndir(copyFrom), m_layout(copyFrom->m_layout), m_kind(StructStoreKind::Invalid)
     {
     }
 
+public:
     ClassLayout* GetLayout() const
     {
         return m_layout;
@@ -6567,6 +6578,7 @@ public:
 
 struct GenTreeObj : public GenTreeBlk
 {
+protected:
     GenTreeObj(var_types type, GenTree* addr, ClassLayout* layout) : GenTreeBlk(GT_OBJ, type, addr, layout)
     {
         assert(varTypeIsI(addr->GetType()));
@@ -6585,11 +6597,12 @@ struct GenTreeObj : public GenTreeBlk
         gtFlags |= GTF_ASG | GTF_GLOB_REF;
     }
 
-    GenTreeObj(GenTreeObj* copyFrom) : GenTreeBlk(copyFrom)
+    GenTreeObj(const GenTreeObj* copyFrom) : GenTreeBlk(copyFrom)
     {
     }
 
 #if DEBUGGABLE_GENTREE
+public:
     GenTreeObj() = default;
 #endif
 };
@@ -6676,19 +6689,95 @@ struct GenTreeDynBlk : public GenTreeTernaryOp
 #endif
 };
 
-struct GenTreeStoreInd : public GenTreeIndir
+struct GenTreeIndLoad : public GenTreeIndir
 {
-    GenTreeStoreInd(var_types type, GenTree* addr, GenTree* value) : GenTreeIndir(GT_STOREIND, type, addr, value)
+    GenTreeIndLoad(var_types type, GenTree* addr) : GenTreeIndir(GT_IND_LOAD, type, addr)
     {
-        gtFlags |= GTF_ASG;
     }
 
-    GenTreeStoreInd(const GenTreeStoreInd* copyFrom) : GenTreeIndir(copyFrom)
+    GenTreeIndLoad(const GenTreeIndLoad* copyFrom) : GenTreeIndir(copyFrom)
     {
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeStoreInd() = default;
+    GenTreeIndLoad() = default;
+#endif
+};
+
+struct GenTreeIndLoadBlk : public GenTreeBlk
+{
+    GenTreeIndLoadBlk(GenTree* addr, ClassLayout* layout) : GenTreeBlk(addr, layout)
+    {
+    }
+
+    GenTreeIndLoadBlk(const GenTreeIndLoadBlk* copyFrom) : GenTreeBlk(copyFrom)
+    {
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeIndLoadBlk() = default;
+#endif
+};
+
+struct GenTreeIndLoadObj : public GenTreeObj
+{
+    GenTreeIndLoadObj(var_types type, GenTree* addr, ClassLayout* layout) : GenTreeObj(type, addr, layout)
+    {
+    }
+
+    GenTreeIndLoadObj(const GenTreeIndLoadObj* copyFrom) : GenTreeObj(copyFrom)
+    {
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeIndLoadObj() = default;
+#endif
+};
+
+struct GenTreeIndStore : public GenTreeIndir
+{
+    GenTreeIndStore(var_types type, GenTree* addr, GenTree* value) : GenTreeIndir(GT_IND_STORE, type, addr, value)
+    {
+        gtFlags |= GTF_ASG;
+    }
+
+    GenTreeIndStore(const GenTreeIndStore* copyFrom) : GenTreeIndir(copyFrom)
+    {
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeIndStore() = default;
+#endif
+};
+
+struct GenTreeIndStoreBlk : public GenTreeBlk
+{
+    GenTreeIndStoreBlk(GenTree* addr, GenTree* value, ClassLayout* layout) : GenTreeBlk(addr, value, layout)
+    {
+    }
+
+    GenTreeIndStoreBlk(const GenTreeIndStoreBlk* copyFrom) : GenTreeBlk(copyFrom)
+    {
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeIndStoreBlk() = default;
+#endif
+};
+
+struct GenTreeIndStoreObj : public GenTreeObj
+{
+    GenTreeIndStoreObj(var_types type, GenTree* addr, GenTree* value, ClassLayout* layout)
+        : GenTreeObj(type, addr, value, layout)
+    {
+    }
+
+    GenTreeIndStoreObj(const GenTreeIndStoreObj* copyFrom) : GenTreeObj(copyFrom)
+    {
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeIndStoreObj() = default;
 #endif
 };
 

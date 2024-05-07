@@ -2866,7 +2866,7 @@ public:
 
     GenTreeIndir* gtNewIndOfIconHandleNode(var_types type, size_t addr, HandleKind handleKind, bool invariant);
     GenTreeIndir* gtNewIndLoad(var_types type, size_t addr, HandleKind handleKind, bool invariant);
-    GenTreeStoreInd* gtNewIndStore(var_types type, size_t addr, HandleKind handleKind, GenTree* value);
+    GenTreeIndStore* gtNewIndStore(var_types type, size_t addr, HandleKind handleKind, GenTree* value);
     GenTreeIntCon* gtNewIconHandleNode(void* value, HandleKind kind, FieldSeqNode* fieldSeq = nullptr);
     GenTreeIntCon* gtNewIconHandleNode(size_t value, HandleKind kind, FieldSeqNode* fieldSeq = nullptr);
     GenTree* gtNewConstLookupTree(void*      value,
@@ -3017,7 +3017,7 @@ public:
 
     GenTreeIndir* gtNewIndir(var_types type, GenTree* addr);
     GenTreeIndir* gtNewIndLoad(var_types type, GenTree* addr);
-    GenTreeStoreInd* gtNewIndStore(var_types type, GenTree* addr, GenTree* value);
+    GenTreeIndStore* gtNewIndStore(var_types type, GenTree* addr, GenTree* value);
     GenTreeFlags gtGetIndirExceptionFlags(GenTree* addr);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset);

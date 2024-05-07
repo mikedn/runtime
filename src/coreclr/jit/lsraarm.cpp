@@ -261,8 +261,8 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildCall(tree->AsCall());
             break;
 
-        case GT_STORE_BLK:
-        case GT_STORE_OBJ:
+        case GT_IND_STORE_BLK:
+        case GT_IND_STORE_OBJ:
             BuildStructStore(tree->AsBlk(), tree->AsBlk()->GetKind(), tree->AsBlk()->GetLayout());
             break;
 
@@ -275,20 +275,20 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildLclHeap(tree->AsUnOp());
             break;
 
-        case GT_STOREIND:
-            if (GCInfo::GetWriteBarrierForm(tree->AsStoreInd()) != GCInfo::WBF_NoBarrier)
+        case GT_IND_STORE:
+            if (GCInfo::GetWriteBarrierForm(tree->AsIndStore()) != GCInfo::WBF_NoBarrier)
             {
-                BuildGCWriteBarrier(tree->AsStoreInd());
+                BuildGCWriteBarrier(tree->AsIndStore());
             }
             else
             {
-                BuildIndir(tree->AsStoreInd());
-                BuildUse(tree->AsStoreInd()->GetValue());
+                BuildIndir(tree->AsIndStore());
+                BuildUse(tree->AsIndStore()->GetValue());
             }
             break;
 
-        case GT_IND:
-            BuildIndir(tree->AsIndir());
+        case GT_IND_LOAD:
+            BuildIndir(tree->AsIndLoad());
             break;
 
         case GT_CATCH_ARG:

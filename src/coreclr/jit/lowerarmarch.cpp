@@ -118,9 +118,9 @@ void Lowering::LowerStoreLclVarArch(GenTreeLclVar* store)
     ContainCheckStoreLcl(store);
 }
 
-void Lowering::LowerStoreIndirArch(GenTreeStoreInd* store)
+void Lowering::LowerIndStoreArch(GenTreeIndStore* store)
 {
-    ContainCheckStoreIndir(store);
+    ContainCheckIndStore(store);
 }
 
 void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
@@ -862,7 +862,7 @@ void Lowering::ContainCheckCallOperands(GenTreeCall* call)
     // There are no contained operands for arm.
 }
 
-void Lowering::ContainCheckStoreIndir(GenTreeStoreInd* store)
+void Lowering::ContainCheckIndStore(GenTreeIndStore* store)
 {
     ContainCheckIndir(store);
 

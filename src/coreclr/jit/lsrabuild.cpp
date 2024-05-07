@@ -517,11 +517,11 @@ void LinearScan::addRefsForPhysRegMask(regMaskTP mask, LsraLocation currentLoc, 
     }
 }
 
-// Determine the liveness kill set for a GT_STOREIND node.
-// If the GT_STOREIND will generate a write barrier, determine the specific kill
+// Determine the liveness kill set for a IND_STORE node.
+// If the IND_STORE will generate a write barrier, determine the specific kill
 // set required by the case-specific, platform-specific write barrier. If no
 // write barrier is required, the kill set will be RBM_NONE.
-regMaskTP LinearScan::getKillSetForStoreInd(GenTreeStoreInd* tree)
+regMaskTP LinearScan::getKillSetForStoreInd(GenTreeIndStore* tree)
 {
     regMaskTP killMask = RBM_NONE;
 
@@ -778,8 +778,8 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* tree)
             killMask = getKillSetForCall(tree->AsCall());
 
             break;
-        case GT_STOREIND:
-            killMask = getKillSetForStoreInd(tree->AsStoreInd());
+        case GT_IND_STORE:
+            killMask = getKillSetForStoreInd(tree->AsIndStore());
             break;
 
 #if defined(PROFILING_SUPPORTED)
@@ -2975,7 +2975,7 @@ void LinearScan::BuildPutArgReg(GenTreeUnOp* putArg)
     }
 }
 
-void LinearScan::BuildGCWriteBarrier(GenTreeStoreInd* store)
+void LinearScan::BuildGCWriteBarrier(GenTreeIndStore* store)
 {
     GenTree* addr = store->GetAddr();
     GenTree* src  = store->GetValue();

@@ -193,8 +193,8 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
 #endif
             break;
 
-        case GT_STOREIND:
-            nextNode = DecomposeStoreInd(use);
+        case GT_IND_STORE:
+            nextNode = DecomposeIndStore(use);
             break;
 
         case GT_STORE_LCL_FLD:
@@ -202,7 +202,7 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
             break;
 
         case GT_IND:
-            nextNode = DecomposeInd(use);
+            nextNode = DecomposeIndLoad(use);
             break;
 
         case GT_NOT:
@@ -724,35 +724,26 @@ GenTree* DecomposeLongs::DecomposeCall(LIR::Use& use)
     return StoreMultiRegNodeToLcl(use);
 }
 
-//------------------------------------------------------------------------
-// DecomposeStoreInd: Decompose GT_STOREIND.
-//
-// Arguments:
-//    use - the LIR::Use object for the def that needs to be decomposed.
-//
-// Return Value:
-//    The next node to process.
-//
-GenTree* DecomposeLongs::DecomposeStoreInd(LIR::Use& use)
+GenTree* DecomposeLongs::DecomposeIndStore(LIR::Use& use)
 {
     assert(use.IsInitialized());
 
-    GenTreeStoreInd* tree   = use.Def()->AsStoreInd();
-    GenTreeOp*       gtLong = tree->GetValue()->AsOp();
+    GenTreeIndStore* store  = use.Def()->AsIndStore();
+    GenTreeOp*       gtLong = store->GetValue()->AsOp();
 
     assert(gtLong->OperIs(GT_LONG));
 
     // Save address to a temp. It is used in storeIndLow and storeIndHigh trees.
-    LIR::Use address(Range(), &tree->gtOp1, tree);
+    LIR::Use address(Range(), &store->gtOp1, store);
     address.ReplaceWithLclVar(m_compiler);
-    JITDUMP("[DecomposeStoreInd]: Saving address tree to a temp var:\n");
+    JITDUMP("[DecomposeIndStore]: Saving address tree to a temp var:\n");
     DISPTREERANGE(Range(), address.Def());
 
     if (!gtLong->gtOp1->OperIsLeaf())
     {
         LIR::Use op1(Range(), &gtLong->gtOp1, gtLong);
         op1.ReplaceWithLclVar(m_compiler);
-        JITDUMP("[DecomposeStoreInd]: Saving low data tree to a temp var:\n");
+        JITDUMP("[DecomposeIndStore]: Saving low data tree to a temp var:\n");
         DISPTREERANGE(Range(), op1.Def());
     }
 
@@ -760,14 +751,14 @@ GenTree* DecomposeLongs::DecomposeStoreInd(LIR::Use& use)
     {
         LIR::Use op2(Range(), &gtLong->gtOp2, gtLong);
         op2.ReplaceWithLclVar(m_compiler);
-        JITDUMP("[DecomposeStoreInd]: Saving high data tree to a temp var:\n");
+        JITDUMP("[DecomposeIndStore]: Saving high data tree to a temp var:\n");
         DISPTREERANGE(Range(), op2.Def());
     }
 
-    GenTreeLclVar*   addrBase    = tree->GetAddr()->AsLclVar();
+    GenTreeLclVar*   addrBase    = store->GetAddr()->AsLclVar();
     GenTree*         dataLow     = gtLong->GetOp(0);
     GenTree*         dataHigh    = gtLong->GetOp(1);
-    GenTreeStoreInd* storeIndLow = tree;
+    GenTreeIndStore* storeIndLow = store;
 
     Range().Remove(gtLong);
     Range().Remove(dataHigh);
@@ -775,9 +766,9 @@ GenTree* DecomposeLongs::DecomposeStoreInd(LIR::Use& use)
     storeIndLow->gtType = TYP_INT;
 
     assert(addrBase->TypeIs(TYP_BYREF, TYP_I_IMPL));
-    GenTree* addrBaseHigh = m_compiler->gtNewLclvNode(addrBase->GetLcl(), addrBase->GetType());
+    GenTree* addrBaseHigh = m_compiler->gtNewLclLoad(addrBase->GetLcl(), addrBase->GetType());
     GenTree* addrHigh     = new (m_compiler, GT_LEA) GenTreeAddrMode(addrBase->GetType(), addrBaseHigh, nullptr, 0, 4);
-    GenTree* storeIndHigh = new (m_compiler, GT_STOREIND) GenTreeStoreInd(TYP_INT, addrHigh, dataHigh);
+    GenTree* storeIndHigh = m_compiler->gtNewIndStore(TYP_INT, addrHigh, dataHigh);
     storeIndHigh->gtFlags = (storeIndLow->gtFlags & (GTF_ALL_EFFECT | GTF_SPECIFIC_MASK));
 
     Range().InsertAfter(storeIndLow, dataHigh, addrBaseHigh, addrHigh, storeIndHigh);
@@ -785,22 +776,13 @@ GenTree* DecomposeLongs::DecomposeStoreInd(LIR::Use& use)
     return storeIndHigh;
 }
 
-//------------------------------------------------------------------------
-// DecomposeInd: Decompose GT_IND.
-//
-// Arguments:
-//    use - the LIR::Use object for the def that needs to be decomposed.
-//
-// Return Value:
-//    The next node to process.
-//
-GenTree* DecomposeLongs::DecomposeInd(LIR::Use& use)
+GenTree* DecomposeLongs::DecomposeIndLoad(LIR::Use& use)
 {
-    GenTreeIndir* indLow = use.Def()->AsIndir();
+    GenTreeIndLoad* indLow = use.Def()->AsIndLoad();
 
     LIR::Use address(Range(), &indLow->gtOp1, indLow);
     address.ReplaceWithLclVar(m_compiler);
-    JITDUMP("[DecomposeInd]: Saving addr tree to a temp var:\n");
+    JITDUMP("[DecomposeIndLoad]: Saving addr tree to a temp var:\n");
     DISPTREERANGE(Range(), address.Def());
 
     // Change the type of lower ind.
@@ -810,9 +792,9 @@ GenTree* DecomposeLongs::DecomposeInd(LIR::Use& use)
     GenTreeLclVar* addrBase = indLow->GetAddr()->AsLclVar();
     assert(addrBase->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
-    GenTree* addrBaseHigh = m_compiler->gtNewLclvNode(addrBase->GetLcl(), addrBase->GetType());
+    GenTree* addrBaseHigh = m_compiler->gtNewLclLoad(addrBase->GetLcl(), addrBase->GetType());
     GenTree* addrHigh     = new (m_compiler, GT_LEA) GenTreeAddrMode(addrBase->GetType(), addrBaseHigh, nullptr, 0, 4);
-    GenTree* indHigh      = new (m_compiler, GT_IND) GenTreeIndir(GT_IND, TYP_INT, addrHigh, nullptr);
+    GenTree* indHigh      = m_compiler->gtNewIndLoad(TYP_INT, addrHigh);
     indHigh->gtFlags |= (indLow->gtFlags & (GTF_GLOB_REF | GTF_EXCEPT | GTF_SPECIFIC_MASK));
 
     Range().InsertAfter(indLow, addrBaseHigh, addrHigh, indHigh);

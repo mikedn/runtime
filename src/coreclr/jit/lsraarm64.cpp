@@ -299,14 +299,14 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildAddrMode(tree->AsAddrMode());
             break;
 
-        case GT_STOREIND:
-            if (GCInfo::GetWriteBarrierForm(tree->AsStoreInd()) != GCInfo::WBF_NoBarrier)
+        case GT_IND_STORE:
+            if (GCInfo::GetWriteBarrierForm(tree->AsIndStore()) != GCInfo::WBF_NoBarrier)
             {
-                BuildGCWriteBarrier(tree->AsStoreInd());
+                BuildGCWriteBarrier(tree->AsIndStore());
             }
             else
             {
-                GenTreeStoreInd* store = tree->AsStoreInd();
+                GenTreeIndStore* store = tree->AsIndStore();
 
                 BuildIndir(store);
 
@@ -318,7 +318,7 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_NULLCHECK:
-        case GT_IND:
+        case GT_IND_LOAD:
             BuildIndir(tree->AsIndir());
             break;
 

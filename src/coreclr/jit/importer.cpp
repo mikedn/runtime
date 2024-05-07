@@ -345,7 +345,7 @@ void Importer::AppendStmtCheck(GenTree* tree, unsigned chkLevel)
             assert(!lcl->IsAddressExposed() || !val->HasAnySideEffect(GTF_SIDE_EFFECT));
         }
     }
-    else if (tree->OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK))
+    else if (tree->OperIs(GT_IND_STORE, GT_IND_STORE_OBJ, GT_IND_STORE_BLK))
     {
         // For indirect stores, all side effects have to be spilled.
         // TODO-MIKE-Review: Comment says "all side effects" but code
@@ -948,10 +948,10 @@ GenTree* Importer::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLeve
 
 void Importer::gtInitStructIndStore(GenTreeIndir* store, GenTree* value)
 {
-    assert(store->OperIs(GT_IND, GT_OBJ) && varTypeIsStruct(store->GetType()));
+    assert(store->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ) && varTypeIsStruct(store->GetType()));
     assert(varTypeIsStruct(value->GetType()) || value->IsIntCon(0));
 
-    store->SetOper(store->OperIs(GT_IND) ? GT_STOREIND : GT_STORE_OBJ);
+    store->SetOper(store->OperIs(GT_IND_LOAD) ? GT_IND_STORE : GT_IND_STORE_OBJ);
     store->SetValue(value);
     store->AddSideEffects(GTF_ASG | value->GetSideEffects());
 
@@ -2471,9 +2471,9 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
     }
 
     GenTree*    srcAddr = gtNewIconHandleNode(initData, HandleKind::ConstData);
-    GenTreeBlk* load    = new (comp, GT_BLK) GenTreeBlk(srcAddr, typGetBlkLayout(blkSize));
+    GenTreeBlk* load    = new (comp, GT_IND_LOAD_BLK) GenTreeIndLoadBlk(srcAddr, typGetBlkLayout(blkSize));
     GenTree*    dstAddr = gtNewOperNode(GT_ADD, TYP_BYREF, arrayLocalNode, gtNewIconNode(dataOffset, TYP_I_IMPL));
-    GenTreeBlk* store   = new (comp, GT_STORE_BLK) GenTreeBlk(dstAddr, load, load->GetLayout());
+    GenTreeBlk* store   = new (comp, GT_IND_STORE_BLK) GenTreeIndStoreBlk(dstAddr, load, load->GetLayout());
 
     load->gtFlags &= ~GTF_EXCEPT;
     load->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
@@ -4139,7 +4139,7 @@ GenTree* Importer::impArrayAccessIntrinsic(
     if (name == NI_CORINFO_INTRINSIC_Array_Set)
     {
         // TODO-MIKE-Cleanup: It would be better to generate stores from the get go
-        elem->SetOper(elem->OperIs(GT_OBJ) ? GT_STORE_OBJ : GT_STOREIND);
+        elem->SetOper(elem->OperIs(GT_IND_LOAD_OBJ) ? GT_IND_STORE_OBJ : GT_IND_STORE);
         elem->SetValue(val);
         elem->AddSideEffects(GTF_ASG | GTF_GLOB_REF | val->GetSideEffects());
     }
@@ -5909,7 +5909,7 @@ GenTree* Importer::impImportStSFld(GenTree*                  value,
         value = impConvertFieldStoreValue(field->GetType(), value);
 
         // TODO-MIKE-Cleanup: It would be better to generate stores from the get go
-        field->SetOper(field->OperIs(GT_OBJ) ? GT_STORE_OBJ : GT_STOREIND);
+        field->SetOper(field->OperIs(GT_IND_LOAD_OBJ) ? GT_IND_STORE_OBJ : GT_IND_STORE);
         field->AsIndir()->SetValue(value);
         field->AddSideEffects(GTF_ASG | GTF_GLOB_REF | value->GetSideEffects());
 
@@ -10891,7 +10891,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     op2 = impConvertFieldStoreValue(op1->GetType(), op2);
 
                     // TODO-MIKE-Cleanup: It would be better to generate stores from the get go
-                    op1->SetOper(op1->OperIs(GT_OBJ) ? GT_STORE_OBJ : GT_STOREIND);
+                    op1->SetOper(op1->OperIs(GT_OBJ) ? GT_IND_STORE_OBJ : GT_IND_STORE);
                     op1->AsIndir()->SetValue(op2);
                     // We're expecting gtNewFieldIndir to add GLOB_REF as needed.
                     op1->AddSideEffects(GTF_ASG | op2->GetSideEffects());
@@ -11139,7 +11139,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if ((prefixFlags & PREFIX_UNALIGNED) != 0)
                 {
-                    if (op1->OperIs(GT_STORE_OBJ, GT_STOREIND))
+                    if (op1->OperIs(GT_IND_STORE_OBJ, GT_IND_STORE))
                     {
                         // If the store value is MKREFANY impAssignStruct will append another indir,
                         // we don't set unaligned on that. It isn't necessary since the JIT doesn't
@@ -16255,7 +16255,7 @@ void Importer::impImportInitBlk(unsigned prefixFlags)
         }
 
         ClassLayout* layout = typGetBlkLayout(sizeIntCon->GetUInt32Value());
-        GenTreeBlk*  store  = new (comp, GT_STORE_BLK) GenTreeBlk(dstAddr, initValue, layout);
+        GenTreeBlk*  store  = new (comp, GT_IND_STORE_BLK) GenTreeIndStoreBlk(dstAddr, initValue, layout);
 
         if ((prefixFlags & PREFIX_VOLATILE) != 0)
         {
@@ -16292,8 +16292,8 @@ void Importer::impImportCpBlk(unsigned prefixFlags)
     else
     {
         ClassLayout* layout = typGetBlkLayout(sizeIntCon->GetUInt32Value());
-        GenTreeBlk*  load   = new (comp, GT_BLK) GenTreeBlk(srcAddr, layout);
-        GenTreeBlk*  store  = new (comp, GT_STORE_BLK) GenTreeBlk(dstAddr, load, layout);
+        GenTreeBlk*  load   = new (comp, GT_IND_LOAD_BLK) GenTreeIndLoadBlk(srcAddr, layout);
+        GenTreeBlk*  store  = new (comp, GT_IND_STORE_BLK) GenTreeIndStoreBlk(dstAddr, load, layout);
 
         if ((prefixFlags & PREFIX_VOLATILE) != 0)
         {
@@ -17378,7 +17378,7 @@ GenTreeIndir* Importer::gtNewFieldIndir(var_types type, unsigned layoutNum, GenT
 GenTreeIndir* Importer::gtNewFieldIndStore(var_types type, GenTreeFieldAddr* fieldAddr, GenTree* value)
 {
     GenTreeIndir* store = gtNewFieldIndir(type, fieldAddr);
-    store->SetOper(GT_STOREIND);
+    store->SetOper(GT_IND_STORE);
     store->SetValue(value);
     store->AddSideEffects(GTF_ASG | value->GetSideEffects());
     return store;
@@ -17447,7 +17447,7 @@ GenTreeIndir* Importer::gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexA
 GenTreeIndir* Importer::gtNewIndexIndStore(var_types type, GenTreeIndexAddr* indexAddr, GenTree* value)
 {
     GenTreeIndir* store = gtNewIndexIndir(type, indexAddr);
-    store->SetOper(store->OperIs(GT_IND) ? GT_STOREIND : GT_STORE_OBJ);
+    store->SetOper(store->OperIs(GT_IND) ? GT_IND_STORE : GT_IND_STORE_OBJ);
     store->SetValue(value);
     store->AddSideEffects(GTF_ASG | GTF_GLOB_REF | value->GetSideEffects());
     return store;

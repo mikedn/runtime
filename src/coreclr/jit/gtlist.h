@@ -67,13 +67,13 @@ GTNODE(LCLHEAP          , GenTreeOp           , GTK_UNOP|GTK_NOCONTAIN) // alloc
 GTNODE(JMP              , GenTreeJmp          , GTK_LEAF|GTK_NOVALUE)   // Jump to another function
 
 GTNODE(ARR_LENGTH       , GenTreeArrLen       , GTK_UNOP|GTK_EXOP|GTK_VN) // array-length
-GTNODE(NULLCHECK        , GenTreeIndir        , GTK_UNOP|GTK_NOVALUE)     // null checks the source
-GTNODE(IND_LOAD         , GenTreeIndir        , GTK_UNOP)                 // Indirect load
-GTNODE(IND_STORE        , GenTreeStoreInd     , GTK_BINOP|GTK_NOVALUE)    // Indirect store
-GTNODE(IND_LOAD_OBJ     , GenTreeObj          , GTK_UNOP|GTK_EXOP)              // Indirect load with struct layout
-GTNODE(IND_STORE_OBJ    , GenTreeObj          , GTK_BINOP|GTK_EXOP|GTK_NOVALUE) // Indirect store with struct layout
-GTNODE(IND_LOAD_BLK     , GenTreeBlk          , GTK_UNOP|GTK_EXOP)              // Indirect load with block layout
-GTNODE(IND_STORE_BLK    , GenTreeBlk          , GTK_BINOP|GTK_EXOP|GTK_NOVALUE) // Indirect store with block layout
+GTNODE(NULLCHECK        , GenTreeNullCheck    , GTK_UNOP|GTK_NOVALUE)     // null checks the source
+GTNODE(IND_LOAD         , GenTreeIndLoad      , GTK_UNOP)                 // Indirect load
+GTNODE(IND_STORE        , GenTreeIndStore     , GTK_BINOP|GTK_NOVALUE)    // Indirect store
+GTNODE(IND_LOAD_OBJ     , GenTreeIndLoadObj   , GTK_UNOP|GTK_EXOP)              // Indirect load with struct layout
+GTNODE(IND_STORE_OBJ    , GenTreeIndStoreObj  , GTK_BINOP|GTK_EXOP|GTK_NOVALUE) // Indirect store with struct layout
+GTNODE(IND_LOAD_BLK     , GenTreeIndLoadBlk   , GTK_UNOP|GTK_EXOP)              // Indirect load with block layout
+GTNODE(IND_STORE_BLK    , GenTreeIndStoreBlk  , GTK_BINOP|GTK_EXOP|GTK_NOVALUE) // Indirect store with block layout
 
 GTNODE(COPY_BLK         , GenTreeDynBlk       , GTK_SPECIAL|GTK_NOVALUE) // Dynamically sized block copy
 GTNODE(INIT_BLK         , GenTreeDynBlk       , GTK_SPECIAL|GTK_NOVALUE) // Dynamically sized block init

@@ -4996,12 +4996,12 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 }
                 break;
 
-            case GT_IND:
-            case GT_STOREIND:
-            case GT_OBJ:
-            case GT_STORE_OBJ:
-            case GT_BLK:
-            case GT_STORE_BLK:
+            case GT_IND_LOAD:
+            case GT_IND_STORE:
+            case GT_IND_LOAD_OBJ:
+            case GT_IND_STORE_OBJ:
+            case GT_IND_LOAD_BLK:
+            case GT_IND_STORE_BLK:
                 if (tree->AsIndir()->IsVolatile())
                 {
                     chars += printf("[IND_VOLATILE]");

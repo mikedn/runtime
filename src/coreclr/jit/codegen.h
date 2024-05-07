@@ -202,7 +202,7 @@ public:
     void genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize = EA_UNKNOWN, regNumber callTarget = REG_NA);
 #endif
 
-    void genGCWriteBarrier(GenTreeStoreInd* store, GCInfo::WriteBarrierForm wbf);
+    void genGCWriteBarrier(GenTreeIndStore* store, GCInfo::WriteBarrierForm wbf);
 
 #if !FEATURE_FIXED_OUT_ARGS
     void SetThrowHelperBlockStackLevel(BasicBlock* block);
@@ -791,7 +791,7 @@ protected:
     void GenStoreLclVarMultiRegSIMDReg(GenTreeLclVar* store);
     void genCodeForReturnTrap(GenTreeOp* tree);
     void GenSetCC(GenTreeCC* setcc);
-    void GenIndStore(GenTreeStoreInd* tree);
+    void GenIndStore(GenTreeIndStore* store);
 #ifdef TARGET_XARCH
     void genCodeForSwap(GenTreeOp* tree);
 #endif
@@ -971,7 +971,7 @@ public:
 #ifdef TARGET_ARM
     void inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size);
     void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTreeIndir* load);
-    void emitInsStore(instruction ins, emitAttr attr, regNumber reg, GenTreeStoreInd* store);
+    void emitInsStore(instruction ins, emitAttr attr, regNumber reg, GenTreeIndStore* store);
     void emitInsIndir(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir, int offset);
     regNumber emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src1, GenTree* src2);
 #endif
@@ -979,7 +979,7 @@ public:
 #ifdef TARGET_ARM64
     void inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size);
     void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTreeIndir* load);
-    void emitInsStore(instruction ins, emitAttr attr, regNumber reg, GenTreeStoreInd* store);
+    void emitInsStore(instruction ins, emitAttr attr, regNumber reg, GenTreeIndStore* store);
     void emitInsIndir(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir);
     regNumber emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src1, GenTree* src2);
 #endif

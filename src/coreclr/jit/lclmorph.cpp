@@ -371,7 +371,7 @@ public:
 
         switch (node->GetOper())
         {
-            case GT_LCL_VAR:
+            case GT_LCL_LOAD:
                 assert(TopValue(0).Node() == node);
 
                 TopValue(0).Location(node->AsLclVar());
@@ -383,7 +383,7 @@ public:
                 TopValue(0).Address(node->AsLclAddr());
                 break;
 
-            case GT_LCL_FLD:
+            case GT_LCL_LOAD_FLD:
                 assert(TopValue(0).Node() == node);
 
                 TopValue(0).Location(node->AsLclFld());
@@ -464,9 +464,9 @@ public:
                 PopValue();
                 break;
 
-            case GT_OBJ:
-            case GT_BLK:
-            case GT_IND:
+            case GT_IND_LOAD_OBJ:
+            case GT_IND_LOAD_BLK:
+            case GT_IND_LOAD:
                 assert(TopValue(1).Node() == node);
                 assert(TopValue(0).Node() == node->AsIndir()->GetAddr());
 
@@ -480,7 +480,7 @@ public:
                 PopValue();
                 break;
 
-            case GT_STOREIND:
+            case GT_IND_STORE:
                 assert(TopValue(2).Node() == node);
                 assert(TopValue(1).Node() == node->AsIndir()->GetAddr());
                 assert(TopValue(0).Node() == node->AsIndir()->GetValue());
@@ -499,7 +499,7 @@ public:
                 PopValue();
                 break;
 
-            case GT_STORE_OBJ:
+            case GT_IND_STORE_OBJ:
                 assert(TopValue(2).Node() == node);
                 assert(TopValue(1).Node() == node->AsIndir()->GetAddr());
                 assert(TopValue(0).Node() == node->AsIndir()->GetValue());
@@ -551,7 +551,7 @@ public:
                 }
                 break;
 
-            case GT_STORE_LCL_VAR:
+            case GT_LCL_STORE:
                 assert(TopValue(1).Node() == node);
                 assert(TopValue(0).Node() == node->AsLclVar()->GetOp(0));
 
@@ -1060,7 +1060,7 @@ private:
 
     void MorphLocalIndStore(GenTreeIndir* store, const Value& addrVal)
     {
-        assert(store->OperIs(GT_STOREIND) && (varTypeSize(store->GetType()) != 0));
+        assert(store->OperIs(GT_IND_STORE) && (varTypeSize(store->GetType()) != 0));
         assert(addrVal.IsAddress());
         INDEBUG(addrVal.Consume());
 
@@ -1221,7 +1221,7 @@ private:
         {
             assert(store->GetLayout()->GetSize() == varTypeSize(value->GetType()));
 
-            store->SetOper(GT_STOREIND);
+            store->SetOper(GT_IND_STORE);
             store->SetType(store->GetValue()->GetType());
 
             if (TopValue(1).IsAddress())
@@ -1376,7 +1376,7 @@ private:
         // Local address nodes never have side effects (nor any other flags, at least at this point).
         addr->gtFlags = GTF_EMPTY;
 
-        if (!user->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_STOREIND))
+        if (!user->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE))
         {
             addr->SetType(TYP_I_IMPL);
         }
@@ -3440,7 +3440,7 @@ public:
                 }
                 else
                 {
-                    tree->ChangeOper(value == nullptr ? GT_IND : GT_STOREIND);
+                    tree->ChangeOper(value == nullptr ? GT_IND_LOAD : GT_IND_STORE);
                 }
 
                 tree->AsIndir()->SetAddr(addr);
@@ -3506,7 +3506,7 @@ public:
             }
             else
             {
-                tree->ChangeOper(value == nullptr ? GT_IND : GT_STOREIND);
+                tree->ChangeOper(value == nullptr ? GT_IND_LOAD : GT_IND_STORE);
             }
 
             // TODO-MIKE-Review: Are implicit by ref params really BYREF? They should
@@ -3578,7 +3578,7 @@ public:
         }
         else
         {
-            indir->ChangeOper(value == nullptr ? GT_IND : GT_STOREIND);
+            indir->ChangeOper(value == nullptr ? GT_IND_LOAD : GT_IND_STORE);
         }
 
         indir->AsIndir()->SetAddr(addr);

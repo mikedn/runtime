@@ -96,12 +96,12 @@ GenTree* Lowering::LowerNode(GenTree* node)
     switch (node->GetOper())
     {
         case GT_NULLCHECK:
-        case GT_IND:
+        case GT_IND_LOAD:
             LowerIndir(node->AsIndir());
             break;
 
-        case GT_STOREIND:
-            LowerStoreIndir(node->AsStoreInd());
+        case GT_IND_STORE:
+            LowerIndStore(node->AsIndStore());
             break;
 
 #ifdef TARGET_ARM64
@@ -2315,7 +2315,7 @@ void Lowering::LowerStructCall(GenTreeCall* call)
                 assert(user->TypeIs(call->GetType()) || varTypeIsSIMD(user->GetType()));
                 break;
 
-            case GT_STOREIND:
+            case GT_IND_STORE:
                 call->SetType(varActualType(regType));
 #ifdef FEATURE_SIMD
                 if (varTypeIsSIMD(user->GetType()))
@@ -2815,14 +2815,14 @@ void Lowering::InsertSetGCState(GenTree* before, int state)
 
     LclVarDsc* pInvokeFrameListLcl = comp->lvaGetDesc(comp->lvaPInvokeFrameListVar);
 
-    GenTreeLclVar*   base      = comp->gtNewLclvNode(pInvokeFrameListLcl, TYP_I_IMPL);
+    GenTreeLclVar*   base      = comp->gtNewLclLoad(pInvokeFrameListLcl, TYP_I_IMPL);
     GenTreeAddrMode* addr      = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, base, nullptr, 1, info.offsetOfGCState);
     GenTreeIntCon*   stateNode = comp->gtNewIconNode(state);
-    GenTreeStoreInd* store     = new (comp, GT_STOREIND) GenTreeStoreInd(TYP_BYTE, addr, stateNode);
+    GenTreeIndStore* store     = comp->gtNewIndStore(TYP_BYTE, addr, stateNode);
 
     BlockRange().InsertBefore(before, base, addr, stateNode, store);
 
-    ContainCheckStoreIndir(store);
+    ContainCheckIndStore(store);
 }
 
 //------------------------------------------------------------------------
@@ -2851,7 +2851,7 @@ void Lowering::InsertFrameLinkUpdate(LIR::Range& block, GenTree* before, FrameLi
     if (action == PushFrame)
     {
         data = comp->gtNewLclAddr(pInvokeFrameLcl, info.inlinedCallFrameInfo.offsetOfFrameVptr,
-                                         FieldSeqStore::NotAField());
+                                  FieldSeqStore::NotAField());
         comp->lvaSetAddressExposed(pInvokeFrameLcl);
     }
     else
@@ -2861,10 +2861,10 @@ void Lowering::InsertFrameLinkUpdate(LIR::Range& block, GenTree* before, FrameLi
         data = comp->gtNewLclLoadFld(TYP_BYREF, pInvokeFrameLcl, info.inlinedCallFrameInfo.offsetOfFrameLink);
     }
 
-    GenTreeStoreInd* store = new (comp, GT_STOREIND) GenTreeStoreInd(TYP_I_IMPL, addr, data);
+    GenTreeIndStore* store = comp->gtNewIndStore(TYP_I_IMPL, addr, data);
 
     block.InsertBefore(before, tcb, addr, data, store);
-    ContainCheckStoreIndir(store);
+    ContainCheckIndStore(store);
 }
 
 //------------------------------------------------------------------------
@@ -5166,7 +5166,7 @@ void Lowering::TransformUnusedIndirection(GenTreeIndir* ind)
     }
 }
 
-void Lowering::LowerStoreIndir(GenTreeStoreInd* store)
+void Lowering::LowerIndStore(GenTreeIndStore* store)
 {
     assert(!store->TypeIs(TYP_STRUCT));
 
@@ -5194,7 +5194,7 @@ void Lowering::LowerStoreIndir(GenTreeStoreInd* store)
 
     if (GCInfo::GetWriteBarrierForm(store) == GCInfo::WBF_NoBarrier)
     {
-        LowerStoreIndirArch(store);
+        LowerIndStoreArch(store);
     }
 }
 
@@ -5211,9 +5211,9 @@ void Lowering::LowerStoreObj(GenTreeObj* store)
         {
             call->SetType(call->GetRegType(0));
 
-            store->SetOper(GT_STOREIND);
+            store->SetOper(GT_IND_STORE);
             store->SetType(call->GetType());
-            LowerStoreIndir(store->AsStoreInd());
+            LowerIndStore(store->AsIndStore());
 
             return;
         }
@@ -5489,7 +5489,7 @@ bool Lowering::TryTransformStoreObjToStoreInd(GenTreeObj* store)
     }
 
     JITDUMP("Replacing STORE_OBJ with STOREIND for [06%u]", store->gtTreeID);
-    store->ChangeOper(GT_STOREIND);
+    store->ChangeOper(GT_IND_STORE);
     store->ChangeType(regType);
 
     if (varTypeIsStruct(src->GetType()))
@@ -5739,7 +5739,7 @@ bool Lowering::VectorConstant::Broadcast(GenTreeHWIntrinsic* create)
 
 bool Lowering::IsContainableMemoryOp(Compiler* comp, GenTree* node)
 {
-    if (node->OperIs(GT_IND, GT_STOREIND, GT_LCL_FLD, GT_STORE_LCL_FLD))
+    if (node->OperIs(GT_IND_LOAD, GT_IND_STORE, GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD))
     {
         return true;
     }

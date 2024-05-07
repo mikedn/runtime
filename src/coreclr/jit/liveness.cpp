@@ -306,9 +306,9 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
             fgMarkUseDef(state, tree->AsLclVarCommon());
             break;
 
-        case GT_STOREIND:
-        case GT_STORE_OBJ:
-        case GT_STORE_BLK:
+        case GT_IND_STORE:
+        case GT_IND_STORE_OBJ:
+        case GT_IND_STORE_BLK:
             if (GenTreeLclAddr* lclNode = tree->AsIndir()->GetAddr()->SkipComma()->IsLocalAddrExpr())
             {
                 assert(lclNode->GetLcl()->IsAddressExposed());
@@ -1127,9 +1127,9 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
             case GT_XCHG:
             case GT_CMPXCHG:
             case GT_MEMORYBARRIER:
-            case GT_STOREIND:
-            case GT_STORE_OBJ:
-            case GT_STORE_BLK:
+            case GT_IND_STORE:
+            case GT_IND_STORE_OBJ:
+            case GT_IND_STORE_BLK:
             case GT_COPY_BLK:
             case GT_INIT_BLK:
             case GT_JMP:

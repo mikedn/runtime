@@ -80,7 +80,7 @@ void Lowering::LowerStoreLclVarArch(GenTreeLclVar* store)
     ContainCheckStoreLcl(store);
 }
 
-void Lowering::LowerStoreIndirArch(GenTreeStoreInd* store)
+void Lowering::LowerIndStoreArch(GenTreeIndStore* store)
 {
     GenTree* value = store->GetValue();
 
@@ -122,7 +122,7 @@ void Lowering::LowerStoreIndirArch(GenTreeStoreInd* store)
         }
     }
 
-    ContainCheckStoreIndir(store);
+    ContainCheckIndStore(store);
 
     if (varTypeIsIntegralOrI(store->GetType()) && value->OperIsRMWMemOp() && !value->gtOverflowEx())
     {
@@ -2942,7 +2942,7 @@ void Lowering::LowerHWIntrinsicSum256(GenTreeHWIntrinsic* node)
 
 #endif // FEATURE_HW_INTRINSICS
 
-bool Lowering::IsLoadIndRMWCandidate(GenTreeStoreInd* store, GenTreeIndir* load, GenTree* src)
+bool Lowering::IsIndLoadRMWCandidate(GenTreeIndStore* store, GenTreeIndir* load, GenTree* src)
 {
     GenTree* loadAddr  = load->GetAddr();
     GenTree* storeAddr = store->GetAddr();
@@ -3060,8 +3060,8 @@ bool Lowering::IsLoadIndRMWCandidate(GenTreeStoreInd* store, GenTreeIndir* load,
 
 bool Lowering::IndirsAreRMWEquivalent(GenTreeIndir* indir1, GenTreeIndir* indir2)
 {
-    assert(indir1->OperIs(GT_IND));
-    assert(indir2->OperIs(GT_STOREIND));
+    assert(indir1->OperIs(GT_IND_LOAD));
+    assert(indir2->OperIs(GT_IND_STORE));
 
     if (varTypeSize(indir1->GetType()) != varTypeSize(indir2->GetType()))
     {
@@ -3120,7 +3120,7 @@ bool Lowering::LeavesAreRMWEquivalent(GenTree* node1, GenTree* node2)
     }
 }
 
-GenTreeIndir* Lowering::IsStoreIndRMW(GenTreeStoreInd* store)
+GenTreeIndir* Lowering::IsStoreIndRMW(GenTreeIndStore* store)
 {
     assert(varTypeIsIntegralOrI(store->GetType()));
 
@@ -3134,7 +3134,7 @@ GenTreeIndir* Lowering::IsStoreIndRMW(GenTreeStoreInd* store)
     if (storeAddr->IsAddrMode() && !storeAddr->isContained())
     {
         // Give up if the address is an uncontained LEA (likely due to base/index interference).
-        // This is rare and ignoring it simplifies IsLoadIndRMWCandidate interference checking.
+        // This is rare and ignoring it simplifies IsIndLoadRMWCandidate interference checking.
         return nullptr;
     }
 
@@ -3151,12 +3151,12 @@ GenTreeIndir* Lowering::IsStoreIndRMW(GenTreeStoreInd* store)
         GenTree* op1 = op->AsOp()->GetOp(0);
         GenTree* op2 = op->AsOp()->GetOp(1);
 
-        if (op->OperIsCommutative() && op2->OperIs(GT_IND) && IsLoadIndRMWCandidate(store, op2->AsIndir(), op1))
+        if (op->OperIsCommutative() && op2->OperIs(GT_IND) && IsIndLoadRMWCandidate(store, op2->AsIndir(), op1))
         {
             return op2->AsIndir();
         }
 
-        if (op1->OperIs(GT_IND) && IsLoadIndRMWCandidate(store, op1->AsIndir(), op2))
+        if (op1->OperIs(GT_IND) && IsIndLoadRMWCandidate(store, op1->AsIndir(), op2))
         {
             return op1->AsIndir();
         }
@@ -3167,7 +3167,7 @@ GenTreeIndir* Lowering::IsStoreIndRMW(GenTreeStoreInd* store)
 
         GenTree* op1 = op->AsUnOp()->GetOp(0);
 
-        if (op1->OperIs(GT_IND) && IsLoadIndRMWCandidate(store, op1->AsIndir(), nullptr))
+        if (op1->OperIs(GT_IND) && IsIndLoadRMWCandidate(store, op1->AsIndir(), nullptr))
         {
             return op1->AsIndir();
         }
@@ -3363,7 +3363,7 @@ void Lowering::ContainCheckIndir(GenTreeIndir* node)
     }
 }
 
-void Lowering::ContainCheckStoreIndir(GenTreeStoreInd* store)
+void Lowering::ContainCheckIndStore(GenTreeIndStore* store)
 {
     ContainCheckIndir(store);
 
@@ -3843,9 +3843,9 @@ void Lowering::ContainCheckCompare(GenTreeOp* cmp)
     }
 }
 
-void Lowering::LowerStoreIndRMW(GenTreeStoreInd* store)
+void Lowering::LowerStoreIndRMW(GenTreeIndStore* store)
 {
-    assert(store->OperIs(GT_STOREIND) && varTypeIsIntegralOrI(store->GetType()));
+    assert(store->OperIs(GT_IND_STORE) && varTypeIsIntegralOrI(store->GetType()));
 
     GenTreeIndir* load = IsStoreIndRMW(store);
 

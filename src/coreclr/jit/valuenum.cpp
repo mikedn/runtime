@@ -89,13 +89,13 @@ private:
     void NumberLclUse(GenTreeLclUse* use);
     void NumberInsert(GenTreeInsert* insert);
     void NumberExtract(GenTreeExtract* extract);
-    void NumberLclStore(GenTreeLclVar* store);
-    void NumberLclLoad(GenTreeLclVar* load);
-    void NumberLclFldStore(GenTreeLclFld* store);
-    void NumberLclFldLoad(GenTreeLclFld* load);
-    void NumberIndirStore(GenTreeIndir* store);
-    void NumberIndirLoad(GenTreeIndir* load);
-    void NumberNullCheck(GenTreeIndir* node);
+    void NumberLclStore(GenTreeLclStore* store);
+    void NumberLclLoad(GenTreeLclLoad* load);
+    void NumberLclStoreFld(GenTreeLclStoreFld* store);
+    void NumberLclLoadFld(GenTreeLclLoadFld* load);
+    void NumberIndStore(GenTreeIndir* store);
+    void NumberIndLoad(GenTreeIndir* load);
+    void NumberNullCheck(GenTreeNullCheck* node);
     void NumberArrLen(GenTreeArrLen* node);
     void NumberCmpXchg(GenTreeCmpXchg* node);
     void NumberInterlocked(GenTreeOp* node);
@@ -3503,7 +3503,7 @@ void ValueNumbering::NumberComma(GenTreeOp* comma)
     ValueNumPair exset2 = ValueNumStore::EmptyExsetVNP();
     ValueNumPair vnp;
 
-    if (op2->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK))
+    if (op2->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE, GT_IND_STORE_OBJ, GT_IND_STORE_BLK))
     {
         vnp = ValueNumStore::VoidVNP();
     }
@@ -3944,9 +3944,8 @@ void ValueNumbering::SummarizeLoopLocalDefs(GenTreeLclDef* def, VNLoopMemorySumm
     }
 }
 
-void ValueNumbering::NumberLclStore(GenTreeLclVar* store)
+void ValueNumbering::NumberLclStore(GenTreeLclStore* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR));
     assert(!store->GetLcl()->IsSsa());
 
     if (!store->GetLcl()->IsAddressExposed())
@@ -3960,7 +3959,7 @@ void ValueNumbering::NumberLclStore(GenTreeLclVar* store)
                                             vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr));
     INDEBUG(vnStore->Trace(lclAddrVN));
 
-    ValueNum memVN = StoreAddressExposedLocal(store, lclAddrVN, store->GetOp(0));
+    ValueNum memVN = StoreAddressExposedLocal(store, lclAddrVN, store->GetValue());
     UpdateMemory(store, memVN DEBUGARG("address-exposed local store"));
 }
 
@@ -4049,9 +4048,8 @@ void ValueNumbering::NumberLclDef(GenTreeLclDef* def)
     INDEBUG(TraceLocal(def->GetLcl(), valueVNP));
 }
 
-void ValueNumbering::NumberLclLoad(GenTreeLclVar* load)
+void ValueNumbering::NumberLclLoad(GenTreeLclLoad* load)
 {
-    assert(load->OperIs(GT_LCL_VAR));
     assert(!load->GetLcl()->IsSsa());
 
     if (!load->GetLcl()->IsAddressExposed())
@@ -4066,7 +4064,7 @@ void ValueNumbering::NumberLclLoad(GenTreeLclVar* load)
 
     // TODO-MIKE-Review: Setting the conservative VN to a non unique VN is suspect.
     // Well, the chance that an address-exposed local is modified by another thread
-    // is slim so perhaps this is fine as it is but then NumberIndirStore should do the
+    // is slim so perhaps this is fine as it is but then NumberIndStore should do the
     // same for local addresses.
     load->SetVNP(ValueNumPair{LoadMemory(load->GetType(), addrVN)});
 }
@@ -4116,9 +4114,8 @@ void ValueNumbering::NumberLclUse(GenTreeLclUse* use)
     use->SetVNP(vnp);
 }
 
-void ValueNumbering::NumberLclFldStore(GenTreeLclFld* store)
+void ValueNumbering::NumberLclStoreFld(GenTreeLclStoreFld* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_FLD));
     assert(!store->GetLcl()->IsSsa());
 
     if (!store->GetLcl()->IsAddressExposed())
@@ -4184,9 +4181,8 @@ void ValueNumbering::NumberInsert(GenTreeInsert* insert)
     insert->SetVNP(valueVNP);
 }
 
-void ValueNumbering::NumberLclFldLoad(GenTreeLclFld* load)
+void ValueNumbering::NumberLclLoadFld(GenTreeLclLoadFld* load)
 {
-    assert(load->OperIs(GT_LCL_FLD));
     assert(!load->GetLcl()->IsSsa());
 
     if (!load->GetLcl()->IsAddressExposed())
@@ -4228,7 +4224,7 @@ void ValueNumbering::NumberExtract(GenTreeExtract* extract)
 
 void ValueNumbering::SummarizeLoopIndirMemoryStores(GenTreeIndir* store, VNLoopMemorySummary& summary)
 {
-    assert(store->OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK));
+    assert(store->OperIs(GT_IND_STORE, GT_IND_STORE_OBJ, GT_IND_STORE_BLK));
 
     if (store->IsVolatile())
     {
@@ -4283,9 +4279,9 @@ void ValueNumbering::SummarizeLoopIndirMemoryStores(GenTreeIndir* store, VNLoopM
     summary.AddMemoryHavoc();
 }
 
-void ValueNumbering::NumberIndirStore(GenTreeIndir* store)
+void ValueNumbering::NumberIndStore(GenTreeIndir* store)
 {
-    assert(store->OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK));
+    assert(store->OperIs(GT_IND_STORE, GT_IND_STORE_OBJ, GT_IND_STORE_BLK));
 
     // TODO-MIKE-Fix: This is missing operand exceptions...
     store->SetVNP(ValueNumStore::VoidVNP());
@@ -4350,7 +4346,7 @@ void ValueNumbering::NumberIndirStore(GenTreeIndir* store)
     ClearMemory(store DEBUGARG("indirect store"));
 }
 
-void ValueNumbering::NumberIndirLoad(GenTreeIndir* load)
+void ValueNumbering::NumberIndLoad(GenTreeIndir* load)
 {
     assert(load->OperIs(GT_IND, GT_OBJ, GT_BLK));
 
@@ -4795,10 +4791,8 @@ ValueNum ValueNumbering::StoreAddressExposedLocal(GenTree* store, ValueNum lclAd
     return vnStore->VNForMapStore(TYP_STRUCT, memVN, lclAddrVN, valueVN);
 }
 
-void ValueNumbering::NumberNullCheck(GenTreeIndir* node)
+void ValueNumbering::NumberNullCheck(GenTreeNullCheck* node)
 {
-    assert(node->OperIs(GT_NULLCHECK));
-
     ValueNumPair exset = AddNullRefExset(node->GetAddr()->GetVNP());
     node->SetVNP(vnStore->PackExset(ValueNumStore::VoidVNP(), exset));
 }
@@ -7088,9 +7082,9 @@ void ValueNumbering::SummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySu
 {
     switch (node->GetOper())
     {
-        case GT_STOREIND:
-        case GT_STORE_OBJ:
-        case GT_STORE_BLK:
+        case GT_IND_STORE:
+        case GT_IND_STORE_OBJ:
+        case GT_IND_STORE_BLK:
             SummarizeLoopIndirMemoryStores(node->AsIndir(), summary);
             break;
 
@@ -7223,12 +7217,12 @@ void ValueNumbering::NumberNode(GenTree* node)
                                                          vnStore->VNForFieldSeq(node->AsClsVar()->GetFieldSeq()))});
             break;
 
-        case GT_LCL_VAR:
-            NumberLclLoad(node->AsLclVar());
+        case GT_LCL_LOAD:
+            NumberLclLoad(node->AsLclLoad());
             break;
 
-        case GT_LCL_FLD:
-            NumberLclFldLoad(node->AsLclFld());
+        case GT_LCL_LOAD_FLD:
+            NumberLclLoadFld(node->AsLclLoadFld());
             break;
 
         case GT_LCL_DEF:
@@ -7269,22 +7263,22 @@ void ValueNumbering::NumberNode(GenTree* node)
             node->SetVNP(ValueNumStore::VoidVNP());
             break;
 
-        case GT_STOREIND:
-        case GT_STORE_OBJ:
-        case GT_STORE_BLK:
-            NumberIndirStore(node->AsIndir());
+        case GT_IND_STORE:
+        case GT_IND_STORE_OBJ:
+        case GT_IND_STORE_BLK:
+            NumberIndStore(node->AsIndir());
             break;
-        case GT_STORE_LCL_VAR:
-            NumberLclStore(node->AsLclVar());
+        case GT_LCL_STORE:
+            NumberLclStore(node->AsLclStore());
             break;
-        case GT_STORE_LCL_FLD:
-            NumberLclFldStore(node->AsLclFld());
+        case GT_LCL_STORE_FLD:
+            NumberLclStoreFld(node->AsLclStoreFld());
             break;
 
         case GT_IND:
         case GT_OBJ:
         case GT_BLK:
-            NumberIndirLoad(node->AsIndir());
+            NumberIndLoad(node->AsIndir());
             break;
 
         case GT_CAST:
@@ -7304,7 +7298,7 @@ void ValueNumbering::NumberNode(GenTree* node)
             break;
 
         case GT_NULLCHECK:
-            NumberNullCheck(node->AsIndir());
+            NumberNullCheck(node->AsNullCheck());
             break;
 
         case GT_ARR_LENGTH:

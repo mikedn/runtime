@@ -683,7 +683,7 @@ bool ObjectAllocator::CanLclVarEscapeViaParentStack(ArrayStack<GenTree*>* userSt
                 canLclVarEscapeViaParentStack = false;
                 break;
 
-            case GT_STOREIND:
+            case GT_IND_STORE:
                 canLclVarEscapeViaParentStack = user->AsIndir()->GetValue() == value;
                 break;
 
@@ -764,7 +764,7 @@ void ObjectAllocator::UpdateAncestorTypes(GenTree* node, ArrayStack<GenTree*>* u
                 }
                 break;
 
-            case GT_STOREIND:
+            case GT_IND_STORE:
                 if ((node == user->AsIndir()->GetValue()) && user->TypeIs(TYP_REF))
                 {
                     user->SetType(newType);

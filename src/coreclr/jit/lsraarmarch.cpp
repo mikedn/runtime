@@ -55,7 +55,7 @@ void LinearScan::BuildIndir(GenTreeIndir* indir)
     {
         BuildInternalIntDef(indir);
 
-        if (GenTreeStoreInd* store = indir->IsStoreInd())
+        if (GenTreeIndStore* store = indir->IsIndStore())
         {
             GenTree* value = store->GetValue();
 
@@ -79,7 +79,7 @@ void LinearScan::BuildIndir(GenTreeIndir* indir)
     BuildAddrUses(indir->GetAddr());
     BuildInternalUses();
 
-    if (!indir->OperIs(GT_STOREIND, GT_NULLCHECK))
+    if (!indir->OperIs(GT_IND_STORE, GT_NULLCHECK))
     {
         BuildDef(indir);
     }

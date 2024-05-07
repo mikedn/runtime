@@ -992,16 +992,15 @@ void CodeGen::GenIndLoad(GenTreeIndir* load)
     DefReg(load);
 }
 
-void CodeGen::GenIndStore(GenTreeStoreInd* tree)
+void CodeGen::GenIndStore(GenTreeIndStore* store)
 {
-    GenTree*  addr  = tree->GetAddr();
-    GenTree*  value = tree->GetValue();
-    var_types type  = tree->GetType();
+    GenTree*  addr  = store->GetAddr();
+    GenTree*  value = store->GetValue();
+    var_types type  = store->GetType();
 
     assert(IsValidSourceType(type, value->GetType()));
 
-    GCInfo::WriteBarrierForm writeBarrierForm = GCInfo::GetWriteBarrierForm(tree);
-    if (writeBarrierForm != GCInfo::WBF_NoBarrier)
+    if (GCInfo::WriteBarrierForm writeBarrierForm = GCInfo::GetWriteBarrierForm(store))
     {
         regNumber addrReg = UseReg(addr);
         regNumber dataReg = UseReg(value);
@@ -1013,7 +1012,7 @@ void CodeGen::GenIndStore(GenTreeStoreInd* tree)
 
         inst_Mov(addr->GetType(), REG_ARG_0, addrReg, /* canSkip */ true);
         inst_Mov(value->GetType(), REG_ARG_1, dataReg, /* canSkip */ true);
-        genGCWriteBarrier(tree, writeBarrierForm);
+        genGCWriteBarrier(store, writeBarrierForm);
 
         return;
     }
@@ -1023,12 +1022,12 @@ void CodeGen::GenIndStore(GenTreeStoreInd* tree)
     genConsumeAddress(addr);
     regNumber dataReg = UseReg(value);
 
-    if (tree->IsVolatile())
+    if (store->IsVolatile())
     {
         instGen_MemoryBarrier();
     }
 
-    emitInsStore(ins_Store(type), emitActualTypeSize(type), dataReg, tree);
+    emitInsStore(ins_Store(type), emitActualTypeSize(type), dataReg, store);
 }
 
 void CodeGen::genLongToIntCast(GenTreeCast* cast)
@@ -1538,10 +1537,8 @@ void CodeGen::emitInsLoad(instruction ins, emitAttr attr, regNumber dataReg, Gen
     emitInsIndir(ins, attr, dataReg, load, 0);
 }
 
-void CodeGen::emitInsStore(instruction ins, emitAttr attr, regNumber dataReg, GenTreeStoreInd* store)
+void CodeGen::emitInsStore(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndStore* store)
 {
-    assert(store->OperIs(GT_STOREIND));
-
     if (store->IsUnaligned() && varTypeIsFloating(store->GetType()))
     {
         emitter* emit = GetEmitter();

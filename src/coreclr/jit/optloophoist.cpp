@@ -105,7 +105,7 @@ void LoopHoist::HoistExpr(GenTree* expr, unsigned loopNum)
                 expr->GetID(), loopNum, loopTable[loopNum].lpFirst->bbNum, loopTable[loopNum].lpBottom->bbNum);
     JITDUMP("\n");
 
-    assert(!expr->OperIs(GT_LCL_DEF, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK));
+    assert(!expr->OperIs(GT_LCL_DEF, GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE, GT_IND_STORE_OBJ, GT_IND_STORE_BLK));
 
     // Create a copy of the expression and mark it for CSE's.
     GenTree* hoistExpr = compiler->gtCloneExpr(expr, GTF_MAKE_CSE);
@@ -844,7 +844,7 @@ public:
                     }
                 }
             }
-            else if (tree->OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_BLK))
+            else if (tree->OperIs(GT_IND_STORE, GT_IND_STORE_OBJ, GT_IND_STORE_BLK))
             {
                 m_beforeSideEffect = false;
             }
