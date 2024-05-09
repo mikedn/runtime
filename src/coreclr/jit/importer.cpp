@@ -1120,11 +1120,11 @@ GenTree* Importer::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
         case GT_RET_EXPR:
             spillToTemp = arg->AsRetExpr()->GetCall()->GetRegCount() <= 1;
             break;
-        case GT_LCL_VAR:
+        case GT_LCL_LOAD:
             assert(arg->GetType() == arg->AsLclVar()->GetLcl()->GetType());
             break;
 #ifdef FEATURE_SIMD
-        case GT_IND:
+        case GT_IND_LOAD:
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
 #endif
@@ -1132,8 +1132,8 @@ GenTree* Importer::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
             FALLTHROUGH;
 #endif
         case GT_MKREFANY:
-        case GT_LCL_FLD:
-        case GT_OBJ:
+        case GT_LCL_LOAD_FLD:
+        case GT_IND_LOAD_OBJ:
             break;
         default:
             unreached();

@@ -6560,8 +6560,8 @@ void GenTree::VisitOperands(TVisitor visitor)
     {
         // Leaf nodes
         case GT_LCL_USE:
-        case GT_LCL_VAR:
-        case GT_LCL_FLD:
+        case GT_LCL_LOAD:
+        case GT_LCL_LOAD_FLD:
         case GT_LCL_ADDR:
         case GT_CATCH_ARG:
         case GT_LABEL:
@@ -6607,8 +6607,8 @@ void GenTree::VisitOperands(TVisitor visitor)
 
         // Standard unary operators
         case GT_LCL_DEF:
-        case GT_STORE_LCL_VAR:
-        case GT_STORE_LCL_FLD:
+        case GT_LCL_STORE:
+        case GT_LCL_STORE_FLD:
         case GT_NOT:
         case GT_NEG:
         case GT_FNEG:
@@ -6623,9 +6623,9 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_CKFINITE:
         case GT_LCLHEAP:
         case GT_FIELD_ADDR:
-        case GT_IND:
-        case GT_OBJ:
-        case GT_BLK:
+        case GT_IND_LOAD:
+        case GT_IND_LOAD_OBJ:
+        case GT_IND_LOAD_BLK:
         case GT_BOX:
         case GT_ALLOCOBJ:
         case GT_RUNTIMELOOKUP:
@@ -6925,9 +6925,8 @@ public:
 
         switch (node->OperGet())
         {
-            // Leaf lclVars
-            case GT_LCL_VAR:
-            case GT_LCL_FLD:
+            case GT_LCL_LOAD:
+            case GT_LCL_LOAD_FLD:
             case GT_LCL_ADDR:
                 if (TVisitor::DoLclVarsOnly)
                 {
@@ -6939,7 +6938,6 @@ public:
                 }
                 FALLTHROUGH;
 
-            // Leaf nodes
             case GT_LCL_USE:
             case GT_CATCH_ARG:
             case GT_LABEL:
@@ -6973,8 +6971,8 @@ public:
             case GT_IL_OFFSET:
                 break;
 
-            case GT_STORE_LCL_VAR:
-            case GT_STORE_LCL_FLD:
+            case GT_LCL_STORE:
+            case GT_LCL_STORE_FLD:
                 if (TVisitor::DoLclVarsOnly)
                 {
                     result = reinterpret_cast<TVisitor*>(this)->PreOrderVisit(use, user);
@@ -7014,9 +7012,9 @@ public:
             case GT_CKFINITE:
             case GT_LCLHEAP:
             case GT_FIELD_ADDR:
-            case GT_IND:
-            case GT_OBJ:
-            case GT_BLK:
+            case GT_IND_LOAD:
+            case GT_IND_LOAD_OBJ:
+            case GT_IND_LOAD_BLK:
             case GT_BOX:
             case GT_ALLOCOBJ:
             case GT_INIT_VAL:

@@ -600,20 +600,20 @@ ClassLayout* Compiler::typGetStructLayout(GenTree* node)
 
     switch (node->GetOper())
     {
-        case GT_OBJ:
-            return node->AsObj()->GetLayout();
+        case GT_IND_LOAD_OBJ:
+            return node->AsIndLoadObj()->GetLayout();
         case GT_CALL:
             return node->AsCall()->GetRetLayout();
         case GT_LCL_USE:
             return node->AsLclUse()->GetDef()->GetLcl()->GetLayout();
-        case GT_LCL_VAR:
-            return node->AsLclVar()->GetLcl()->GetLayout();
-        case GT_LCL_FLD:
-            return node->AsLclFld()->GetLayout(this);
+        case GT_LCL_LOAD:
+            return node->AsLclLoad()->GetLcl()->GetLayout();
+        case GT_LCL_LOAD_FLD:
+            return node->AsLclLoadFld()->GetLayout(this);
         case GT_EXTRACT:
             return node->AsExtract()->GetLayout(this);
         case GT_BITCAST:
-        case GT_IND:
+        case GT_IND_LOAD:
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
 #endif
@@ -632,26 +632,26 @@ ClassLayout* Compiler::typGetVectorLayout(GenTree* node)
 
     switch (node->GetOper())
     {
-        case GT_OBJ:
-            return node->AsObj()->GetLayout();
+        case GT_IND_LOAD_OBJ:
+            return node->AsIndLoadObj()->GetLayout();
         case GT_CALL:
             return node->AsCall()->GetRetLayout();
-        case GT_LCL_VAR:
-            return node->AsLclVar()->GetLcl()->GetLayout();
+        case GT_LCL_LOAD:
+            return node->AsLclLoad()->GetLcl()->GetLayout();
         case GT_EXTRACT:
             if (ClassLayout* layout = node->AsExtract()->GetLayout(this))
             {
                 return layout;
             }
             goto DEFAULT_VECTOR_LAYOUT;
-        case GT_LCL_FLD:
-            if (ClassLayout* layout = node->AsLclFld()->GetLayout(this))
+        case GT_LCL_LOAD_FLD:
+            if (ClassLayout* layout = node->AsLclLoadFld()->GetLayout(this))
             {
                 return layout;
             }
             FALLTHROUGH;
         case GT_BITCAST:
-        case GT_IND:
+        case GT_IND_LOAD:
         DEFAULT_VECTOR_LAYOUT:
             return typGetVectorLayout(node->GetType(), TYP_UNDEF);
 #ifdef FEATURE_HW_INTRINSICS

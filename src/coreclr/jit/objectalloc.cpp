@@ -671,18 +671,21 @@ bool ObjectAllocator::CanLclVarEscapeViaParentStack(ArrayStack<GenTree*>* userSt
 
         switch (user->GetOper())
         {
-            case GT_STORE_LCL_VAR:
+            case GT_LCL_STORE:
                 // The local is the source of a store.
-                assert(user->AsLclVar()->GetOp(0) == value);
+                assert(user->AsLclStore()->GetValue() == value);
 
                 // Update the connection graph if we are assigning to a local.
                 // For all other assignments we mark the rhs local as escaping.
                 // TODO-ObjectStackAllocation: track assignments to fields.
 
-                AddConnGraphEdge(user->AsLclVar()->GetLcl()->GetLclNum(), lclNum);
+                AddConnGraphEdge(user->AsLclStore()->GetLcl()->GetLclNum(), lclNum);
                 canLclVarEscapeViaParentStack = false;
                 break;
 
+            case GT_IND_LOAD:
+                canLclVarEscapeViaParentStack = false;
+                break;
             case GT_IND_STORE:
                 canLclVarEscapeViaParentStack = user->AsIndir()->GetValue() == value;
                 break;
@@ -706,10 +709,6 @@ bool ObjectAllocator::CanLclVarEscapeViaParentStack(ArrayStack<GenTree*>* userSt
                 // Check whether the local escapes via its grandparent.
                 ++userIndex;
                 keepChecking = true;
-                break;
-
-            case GT_IND:
-                canLclVarEscapeViaParentStack = false;
                 break;
 
             case GT_CALL:
@@ -757,15 +756,25 @@ void ObjectAllocator::UpdateAncestorTypes(GenTree* node, ArrayStack<GenTree*>* u
 
         switch (user->GetOper())
         {
-            case GT_STORE_LCL_VAR:
-                if ((node == user->AsLclVar()->GetOp(0)) && user->TypeIs(TYP_REF))
+            case GT_LCL_STORE:
+                if ((node == user->AsLclStore()->GetValue()) && user->TypeIs(TYP_REF))
                 {
                     user->SetType(newType);
                 }
                 break;
 
+            case GT_IND_LOAD:
+                if (newType != TYP_BYREF)
+                {
+                    // This indicates that a write barrier is not needed when writing
+                    // to this field/indirection since the address is not pointing to the heap.
+                    // It's either null or points to inside a stack-allocated object.
+                    user->gtFlags |= GTF_IND_TGT_NOT_HEAP;
+                }
+                break;
+
             case GT_IND_STORE:
-                if ((node == user->AsIndir()->GetValue()) && user->TypeIs(TYP_REF))
+                if ((node == user->AsIndStore()->GetValue()) && user->TypeIs(TYP_REF))
                 {
                     user->SetType(newType);
                 }
@@ -791,16 +800,6 @@ void ObjectAllocator::UpdateAncestorTypes(GenTree* node, ArrayStack<GenTree*>* u
                 }
                 ++userIndex;
                 keepChecking = true;
-                break;
-
-            case GT_IND:
-                if (newType != TYP_BYREF)
-                {
-                    // This indicates that a write barrier is not needed when writing
-                    // to this field/indirection since the address is not pointing to the heap.
-                    // It's either null or points to inside a stack-allocated object.
-                    user->gtFlags |= GTF_IND_TGT_NOT_HEAP;
-                }
                 break;
 
             default:

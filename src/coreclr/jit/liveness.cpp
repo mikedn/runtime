@@ -198,8 +198,8 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
 {
     switch (tree->GetOper())
     {
-        case GT_LCL_VAR:
-        case GT_LCL_FLD:
+        case GT_LCL_LOAD:
+        case GT_LCL_LOAD_FLD:
             if (tree->AsLclVarCommon()->GetLcl()->IsAddressExposed())
             {
                 state.fgCurMemoryUse = true;
@@ -213,9 +213,9 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
             assert(tree->AsLclAddr()->GetLcl()->IsAddressExposed());
             break;
 
-        case GT_IND:
-        case GT_OBJ:
-        case GT_BLK:
+        case GT_IND_LOAD:
+        case GT_IND_LOAD_OBJ:
+        case GT_IND_LOAD_BLK:
             // For Volatile indirection, first mutate GcHeap/ByrefExposed
             // see comments in ValueNum.cpp (under case GT_IND)
             // This models Volatile reads as def-then-use of memory.
@@ -249,7 +249,7 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
             break;
 
         case GT_MEMORYBARRIER:
-            // Simliar to any Volatile indirection, we must handle this as a definition of GcHeap/ByrefExposed
+            // Similar to any volatile indirection, we must handle this as a definition of GcHeap/ByrefExposed
             state.fgCurMemoryDef = true;
             break;
 
@@ -295,8 +295,8 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
             break;
         }
 
-        case GT_STORE_LCL_VAR:
-        case GT_STORE_LCL_FLD:
+        case GT_LCL_STORE:
+        case GT_LCL_STORE_FLD:
             if (tree->AsLclVarCommon()->GetLcl()->IsAddressExposed())
             {
                 state.fgCurMemoryDef = true;
@@ -1102,8 +1102,8 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
                 break;
             }
 
-            case GT_BLK:
-            case GT_OBJ:
+            case GT_IND_LOAD_BLK:
+            case GT_IND_LOAD_OBJ:
                 if (node->IsUnusedValue())
                 {
                     if (node->IndirMayThrow(this))

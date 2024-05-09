@@ -624,7 +624,7 @@ void Compiler::morphAssertionGenerateEqual(GenTreeLclStore* store, GenTree* val)
             break;
 
         case GT_LCL_LOAD_FLD:
-        case GT_IND:
+        case GT_IND_LOAD:
             if (varTypeIsSmall(val->GetType()))
             {
                 assertion.val.range = GetSmallTypeRange(val->GetType());

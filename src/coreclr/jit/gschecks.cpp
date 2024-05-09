@@ -91,9 +91,9 @@ static Compiler::fgWalkResult MarkPtrsAndAssignGroups(GenTree** use, Compiler::f
 
     switch (tree->GetOper())
     {
-        case GT_IND:
-        case GT_BLK:
-        case GT_OBJ:
+        case GT_IND_LOAD:
+        case GT_IND_LOAD_BLK:
+        case GT_IND_LOAD_OBJ:
         {
             bool wasUnderIndir  = state->isUnderIndir;
             state->isUnderIndir = true;
@@ -102,20 +102,25 @@ static Compiler::fgWalkResult MarkPtrsAndAssignGroups(GenTree** use, Compiler::f
 
             return Compiler::WALK_SKIP_SUBTREES;
         }
-        case GT_ARR_ELEM:
+        case GT_IND_STORE:
+        case GT_IND_STORE_BLK:
+        case GT_IND_STORE_OBJ:
         {
+            GenTreeIndir* store = tree->AsIndir();
+            GenTree*      addr  = store->GetAddr();
+            GenTree*      value = store->GetValue();
+
             bool wasUnderIndir  = state->isUnderIndir;
             state->isUnderIndir = true;
-            for (unsigned i = 0; i < tree->AsArrElem()->GetNumOps(); i++)
-            {
-                comp->fgWalkTreePre(tree->AsArrElem()->GetUse(i), MarkPtrsAndAssignGroups, state);
-            }
+            comp->fgWalkTreePre(&addr, MarkPtrsAndAssignGroups, state);
+            state->isUnderIndir = false;
+            comp->fgWalkTreePre(&value, MarkPtrsAndAssignGroups, state);
             state->isUnderIndir = wasUnderIndir;
 
             return Compiler::WALK_SKIP_SUBTREES;
         }
-        case GT_LCL_VAR:
-        case GT_LCL_FLD:
+        case GT_LCL_LOAD:
+        case GT_LCL_LOAD_FLD:
         {
             LclVarDsc* loadLcl = tree->AsLclVarCommon()->GetLcl();
 
@@ -158,6 +163,31 @@ static Compiler::fgWalkResult MarkPtrsAndAssignGroups(GenTree** use, Compiler::f
                     loadLcl->gs.assignSet  = set;
                 }
             }
+
+            return Compiler::WALK_SKIP_SUBTREES;
+        }
+        case GT_LCL_STORE:
+        case GT_LCL_STORE_FLD:
+        {
+            GenTreeLclVarCommon* store = tree->AsLclVarCommon();
+            GenTree*             value = store->GetOp(0);
+
+            LclVarDsc* prevStoreLcl = state->storeLcl;
+            state->storeLcl         = store->GetLcl();
+            comp->fgWalkTreePre(&value, MarkPtrsAndAssignGroups, state);
+            state->storeLcl = prevStoreLcl;
+
+            return Compiler::WALK_SKIP_SUBTREES;
+        }
+        case GT_ARR_ELEM:
+        {
+            bool wasUnderIndir  = state->isUnderIndir;
+            state->isUnderIndir = true;
+            for (unsigned i = 0; i < tree->AsArrElem()->GetNumOps(); i++)
+            {
+                comp->fgWalkTreePre(tree->AsArrElem()->GetUse(i), MarkPtrsAndAssignGroups, state);
+            }
+            state->isUnderIndir = wasUnderIndir;
 
             return Compiler::WALK_SKIP_SUBTREES;
         }
@@ -210,36 +240,6 @@ static Compiler::fgWalkResult MarkPtrsAndAssignGroups(GenTree** use, Compiler::f
 
             state->storeLcl     = prevStoreLcl;
             state->isUnderIndir = wasUnderIndir;
-
-            return Compiler::WALK_SKIP_SUBTREES;
-        }
-        case GT_IND_STORE:
-        case GT_IND_STORE_BLK:
-        case GT_IND_STORE_OBJ:
-        {
-            GenTreeIndir* store = tree->AsIndir();
-            GenTree*      addr  = store->GetAddr();
-            GenTree*      value = store->GetValue();
-
-            bool wasUnderIndir  = state->isUnderIndir;
-            state->isUnderIndir = true;
-            comp->fgWalkTreePre(&addr, MarkPtrsAndAssignGroups, state);
-            state->isUnderIndir = false;
-            comp->fgWalkTreePre(&value, MarkPtrsAndAssignGroups, state);
-            state->isUnderIndir = wasUnderIndir;
-
-            return Compiler::WALK_SKIP_SUBTREES;
-        }
-        case GT_STORE_LCL_VAR:
-        case GT_STORE_LCL_FLD:
-        {
-            GenTreeLclVarCommon* store = tree->AsLclVarCommon();
-            GenTree*             value = store->GetOp(0);
-
-            LclVarDsc* prevStoreLcl = state->storeLcl;
-            state->storeLcl         = store->GetLcl();
-            comp->fgWalkTreePre(&value, MarkPtrsAndAssignGroups, state);
-            state->storeLcl = prevStoreLcl;
 
             return Compiler::WALK_SKIP_SUBTREES;
         }

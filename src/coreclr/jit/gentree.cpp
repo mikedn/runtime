@@ -1078,8 +1078,8 @@ AGAIN:
                         return false;
                     }
                     break;
-                case GT_BLK:
-                case GT_OBJ:
+                case GT_IND_LOAD_BLK:
+                case GT_IND_LOAD_OBJ:
                     if (op1->AsBlk()->GetLayout() != op2->AsBlk()->GetLayout())
                     {
                         return false;
@@ -1388,8 +1388,8 @@ AGAIN:
                     hash = genTreeHashAdd(hash, static_cast<unsigned>(
                                                     reinterpret_cast<uintptr_t>(tree->AsRuntimeLookup()->gtHnd)));
                     break;
-                case GT_BLK:
-                case GT_OBJ:
+                case GT_IND_LOAD_BLK:
+                case GT_IND_LOAD_OBJ:
                     hash =
                         genTreeHashAdd(hash,
                                        static_cast<unsigned>(reinterpret_cast<uintptr_t>(tree->AsBlk()->GetLayout())));
@@ -2192,7 +2192,7 @@ void Compiler::gtSetCosts(GenTree* tree)
                     costSz = 5;
                     break;
 
-                case GT_STORE_LCL_VAR:
+                case GT_LCL_STORE:
                 case GT_LCL_DEF:
                     if (gtIsLikelyRegVar(tree))
                     {
@@ -2202,7 +2202,7 @@ void Compiler::gtSetCosts(GenTree* tree)
                     }
 
                     FALLTHROUGH;
-                case GT_STORE_LCL_FLD:
+                case GT_LCL_STORE_FLD:
 #ifndef TARGET_64BIT
                     if (varTypeIsLong(tree->GetType()))
                     {
@@ -2310,7 +2310,7 @@ void Compiler::gtSetCosts(GenTree* tree)
 
                 case GT_MKREFANY:
                 case GT_BOX:
-                case GT_OBJ:
+                case GT_IND_LOAD_OBJ:
                     // TODO-MIKE-Cleanup: OBJ cost is obviously bogus - it should depend
                     // on the object size and it should mark address modes for unrolled
                     // copies.
@@ -2318,11 +2318,11 @@ void Compiler::gtSetCosts(GenTree* tree)
                     costSz = 2 * 2;
                     break;
 
-                case GT_BLK:
+                case GT_IND_LOAD_BLK:
                 // TODO-MIKE-Cleanup: BLK cost is obviously bogus - it should depend
                 // on the object size for unrolled copies and it should NOT mark
                 // address modes for helper copies.
-                case GT_IND:
+                case GT_IND_LOAD:
                     costEx = IND_COST_EX;
                     costSz = 2;
 
@@ -2556,7 +2556,7 @@ void Compiler::gtSetCosts(GenTree* tree)
                 costSz = 7;
                 break;
 
-            case GT_STORE_OBJ:
+            case GT_IND_STORE_OBJ:
                 costEx += 2 * IND_COST_EX;
                 costSz += 2 * 2;
                 break;
@@ -2887,7 +2887,7 @@ void Compiler::gtSetCosts(GenTree* tree)
 #endif
 
             case GT_LCL_USE:
-            case GT_LCL_VAR:
+            case GT_LCL_LOAD:
                 if (LclVarDsc* lcl = gtIsLikelyRegVar(tree))
                 {
                     if (lcl->lvNormalizeOnLoad())
@@ -2932,7 +2932,7 @@ void Compiler::gtSetCosts(GenTree* tree)
                 costSz = 2;
                 break;
 
-            case GT_LCL_FLD:
+            case GT_LCL_LOAD_FLD:
                 if (varTypeIsSmall(tree->GetType()))
                 {
                     costEx = IND_COST_EX + 1;
@@ -3222,10 +3222,10 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
                     break;
 
                 case GT_MKREFANY:
-                case GT_OBJ:
                 case GT_BOX:
-                case GT_BLK:
-                case GT_IND:
+                case GT_IND_LOAD:
+                case GT_IND_LOAD_OBJ:
+                case GT_IND_LOAD_BLK:
                     level1 = Max(1u, level1);
                     break;
 
@@ -3715,13 +3715,13 @@ bool Compiler::fgAddrCouldBeNull(GenTree* addr)
         return false;
     }
 
-    if (addr->OperIs(GT_LCL_VAR))
+    if (addr->OperIs(GT_LCL_LOAD))
     {
-        // TODO-MIKE-CQ: The return buffer addres is supposed to be non null too.
+        // TODO-MIKE-CQ: The return buffer address is supposed to be non null too.
         // But surprise, the JIT ABI is broken and the address may be null.
         // Oh well, given how the address is used it probably doesn't matter.
 
-        return !addr->AsLclVar()->GetLcl()->IsImplicitByRefParam();
+        return !addr->AsLclLoad()->GetLcl()->IsImplicitByRefParam();
     }
 
     return true;
@@ -3761,9 +3761,9 @@ GenTree::VtablePtr GenTree::GetVtableForOper(genTreeOps oper)
     }
 
     // Otherwise, look up the correct vtable entry. Note that we want the most derived GenTree subtype
-    // for an oper. E.g., GT_LCL_VAR is defined in GTSTRUCT_3 as GenTreeLclVar and in GTSTRUCT_N as
-    // GenTreeLclVarCommon. We want the GenTreeLclVar vtable, since nothing should actually be
-    // instantiated as a GenTreeLclVarCommon.
+    // for an oper. E.g., GT_LCL_LOAD is defined in GTSTRUCT_N as GenTreeLclVar and in GTSTRUCT_1 as
+    // GenTreeLclLoad. We want the GenTreeLclLoad vtable, since nothing should actually be instantiated
+    // as a GenTreeLclVar.
 
     VtablePtr res = nullptr;
     switch (oper)
@@ -3771,7 +3771,7 @@ GenTree::VtablePtr GenTree::GetVtableForOper(genTreeOps oper)
 
 // clang-format off
 
-#define GTSTRUCT_0(nm, tag)                             /*handle explicitly*/
+#define GTSTRUCT_0(nm, tag)                             // handle explicitly
 #define GTSTRUCT_1(nm, tag)                             \
         case tag:                                       \
         {                                               \
@@ -4259,13 +4259,12 @@ GenTreeLclLoad* Compiler::gtNewLclLoadLarge(LclVarDsc* lcl, var_types type)
         // Make an exception for implicit by-ref parameters during global morph, since
         // their lvType has been updated to byref but their appearances have not yet all
         // been rewritten and so may have struct type still.
-        assert((type == lcl->GetType()) ||
-               (lcl->IsImplicitByRefParam() && fgGlobalMorph && (lcl->GetType() == TYP_BYREF)));
+        assert((type == lcl->GetType()) || (lcl->IsImplicitByRefParam() && fgGlobalMorph && lcl->TypeIs(TYP_BYREF)));
     }
 #endif
 
     // This local variable node may later get transformed into a large node
-    assert(GenTree::s_gtNodeSizes[LargeOpOpcode()] > GenTree::s_gtNodeSizes[GT_LCL_VAR]);
+    assert(GenTree::s_gtNodeSizes[LargeOpOpcode()] > GenTree::s_gtNodeSizes[GT_LCL_LOAD]);
 
     return new (this, LargeOpOpcode()) GenTreeLclLoad(type, lcl DEBUGARG(/*largeNode*/ true));
 }
@@ -5321,10 +5320,10 @@ bool GenTree::IndirMayThrow(Compiler* comp) const
 {
     switch (gtOper)
     {
-        case GT_BLK:
-        case GT_STORE_BLK:
-        case GT_OBJ:
-        case GT_STORE_OBJ:
+        case GT_IND_LOAD_BLK:
+        case GT_IND_STORE_BLK:
+        case GT_IND_LOAD_OBJ:
+        case GT_IND_STORE_OBJ:
             if (AsBlk()->GetLayout()->GetSize() == 0)
             {
                 return false;
@@ -5578,8 +5577,8 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
     {
         // Leaf nodes
         case GT_LCL_USE:
-        case GT_LCL_VAR:
-        case GT_LCL_FLD:
+        case GT_LCL_LOAD:
+        case GT_LCL_LOAD_FLD:
         case GT_LCL_ADDR:
         case GT_CATCH_ARG:
         case GT_LABEL:
@@ -5616,8 +5615,8 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
 
         // Standard unary operators
         case GT_LCL_DEF:
-        case GT_STORE_LCL_VAR:
-        case GT_STORE_LCL_FLD:
+        case GT_LCL_STORE:
+        case GT_LCL_STORE_FLD:
         case GT_NOT:
         case GT_NEG:
         case GT_FNEG:
@@ -5630,9 +5629,9 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_CKFINITE:
         case GT_LCLHEAP:
         case GT_FIELD_ADDR:
-        case GT_IND:
-        case GT_OBJ:
-        case GT_BLK:
+        case GT_IND_LOAD:
+        case GT_IND_LOAD_OBJ:
+        case GT_IND_LOAD_BLK:
         case GT_BOX:
         case GT_ALLOCOBJ:
         case GT_RUNTIMELOOKUP:
@@ -8209,11 +8208,12 @@ GenTree* Compiler::gtFoldExpr(GenTree* tree)
     /* Filter out non-foldable trees that can have constant children */
 
     assert(kind & (GTK_UNOP | GTK_BINOP));
-    switch (tree->gtOper)
+
+    switch (tree->GetOper())
     {
         case GT_RETFILT:
         case GT_RETURN:
-        case GT_IND:
+        case GT_IND_LOAD:
         case GT_LCL_DEF:
         // TODO-MIKE-Cleanup: INSERT(0, 0) => 0, EXTRACT(0) => 0
         case GT_INSERT:
@@ -9657,8 +9657,8 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
         return tree;
     }
 
-    if (tree->OperIs(GT_NOP, GT_ALLOCOBJ, GT_RUNTIMELOOKUP, GT_BOUNDS_CHECK, GT_IND_STORE, GT_IND_STORE_BLK, GT_IND_STORE_OBJ,
-                     GT_MKREFANY, GT_RETURN))
+    if (tree->OperIs(GT_NOP, GT_ALLOCOBJ, GT_RUNTIMELOOKUP, GT_BOUNDS_CHECK, GT_IND_STORE, GT_IND_STORE_BLK,
+                     GT_IND_STORE_OBJ, GT_MKREFANY, GT_RETURN))
     {
         return tree;
     }
@@ -11226,9 +11226,9 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
 
     switch (obj->GetOper())
     {
-        case GT_LCL_VAR:
+        case GT_LCL_LOAD:
         {
-            LclVarDsc* lcl = obj->AsLclVar()->GetLcl();
+            LclVarDsc* lcl = obj->AsLclLoad()->GetLcl();
 
             objClass  = lcl->lvClassHnd;
             *pIsExact = lcl->lvClassIsExact;
@@ -11358,9 +11358,9 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
             break;
         }
 
-        case GT_IND:
+        case GT_IND_LOAD:
         {
-            GenTree* addr = obj->AsIndir()->GetAddr();
+            GenTree* addr = obj->AsIndLoad()->GetAddr();
 
             if (GenTreeLclAddr* lclAddr = addr->IsLocalAddrExpr())
             {

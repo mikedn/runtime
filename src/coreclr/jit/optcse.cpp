@@ -69,7 +69,7 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
                        Compiler::eeGetHelperNum(node->AsCall()->GetMethodHandle())) &&
                    !compiler->gtTreeHasSideEffects(node, GTF_PERSISTENT_SIDE_EFFECTS, true);
 
-        case GT_IND:
+        case GT_IND_LOAD:
             // TODO-MIKE-Review: This comment doesn't make a lot of sense, it should
             // be possible to CSE both IND and ARR_ELEM...
 
@@ -90,9 +90,9 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
         case GT_MUL:
             return (node->gtFlags & GTF_ADDRMODE_NO_CSE) == 0;
 
-        case GT_LCL_VAR:
-            // TODO-MIKE-Review: Huh? What volatile LCL_VAR?!?
-            // In general it doesn't make sense to CSE a LCL_VAR. Though CSEing
+        case GT_LCL_LOAD:
+            // TODO-MIKE-Review: Huh? What volatile LCL_LOAD?!?
+            // In general it doesn't make sense to CSE a LCL_LOAD. Though CSEing
             // a DNER local may be useful...
             // P.S. Probably this was referring to the lvVolatileHint crap...
             return false; // Can't CSE a volatile LCL_VAR
@@ -104,7 +104,7 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
         case GT_FDIV:
         case GT_ARR_ELEM:
         case GT_ARR_LENGTH:
-        case GT_LCL_FLD:
+        case GT_LCL_LOAD_FLD:
         case GT_EXTRACT:
         case GT_NEG:
         case GT_NOT:
@@ -131,7 +131,7 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
         case GT_GE:
         case GT_GT:
         case GT_INTRINSIC:
-        case GT_OBJ:
+        case GT_IND_LOAD_OBJ:
         case GT_CNS_INT:
         case GT_CNS_DBL:
             // TODO-MIKE-CQ: Might want to add CLS_VAR_ADDR to this, especially on ARM.

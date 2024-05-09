@@ -853,7 +853,7 @@ bool Compiler::fgMorphNarrowTree(
 #endif
             return true;
         }
-        case GT_LCL_VAR:
+        case GT_LCL_LOAD:
         {
             // Allow implicit narrowing to INT of LONG locals.
             if (!varTypeIsInt(dstt))
@@ -871,8 +871,8 @@ bool Compiler::fgMorphNarrowTree(
 
             return true;
         }
-        case GT_LCL_FLD:
-        case GT_IND:
+        case GT_LCL_LOAD_FLD:
+        case GT_IND_LOAD:
         {
             if ((dstSize > varTypeSize(tree->GetType())) &&
                 (varTypeIsUnsigned(dstt) && !varTypeIsUnsigned(tree->GetType())))
@@ -9931,13 +9931,13 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         // Some arithmetic operators need to use a helper call to the EE
         int helper;
 
-        case GT_STORE_LCL_VAR:
+        case GT_LCL_STORE:
             if (fgGlobalMorph)
             {
                 op1 = fgMorphNormalizeLclStore(tree->AsLclVar(), op1);
             }
             FALLTHROUGH;
-        case GT_STORE_LCL_FLD:
+        case GT_LCL_STORE_FLD:
             if (tree->AsLclVarCommon()->GetLcl()->IsAddressExposed())
             {
                 tree->AddSideEffects(GTF_GLOB_REF);
@@ -9994,8 +9994,8 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             }
             break;
 
-        case GT_IND:
-        case GT_OBJ:
+        case GT_IND_LOAD:
+        case GT_IND_LOAD_OBJ:
             if (op1->OperIs(GT_LCL_ADDR) && !tree->AsIndir()->IsVolatile())
             {
                 ClassLayout* layout = tree->IsObj() ? tree->AsObj()->GetLayout() : nullptr;
@@ -11695,7 +11695,7 @@ DONE_MORPHING_CHILDREN:
             break;
 
 #ifdef TARGET_ARM
-        case GT_IND:
+        case GT_IND_LOAD:
             // Check for a misalignment floating point indirection.
             // TODO-MIKE-Cleanup: This should be moved to lowering
             // (or perhaps decomposition to deal with DOUBLE).

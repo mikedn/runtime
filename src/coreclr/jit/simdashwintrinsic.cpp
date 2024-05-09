@@ -2884,17 +2884,17 @@ bool SIMDCoalescingBuffer::AreContiguousLoads(GenTree* l1, GenTree* l2)
                 return false;
             }
 
-            if (v1->OperIs(GT_IND) && !v1->AsIndir()->IsVolatile() && !v2->AsIndir()->IsVolatile())
+            if (v1->OperIs(GT_IND_LOAD) && !v1->AsIndLoad()->IsVolatile() && !v2->AsIndLoad()->IsVolatile())
             {
-                v1 = v1->AsIndir()->GetAddr();
-                v2 = v2->AsIndir()->GetAddr();
+                v1 = v1->AsIndLoad()->GetAddr();
+                v2 = v2->AsIndLoad()->GetAddr();
 
                 continue;
             }
 
-            if (v1->OperIs(GT_LCL_VAR))
+            if (v1->OperIs(GT_LCL_LOAD))
             {
-                return v1->AsLclVar()->GetLcl() == v2->AsLclVar()->GetLcl();
+                return v1->AsLclLoad()->GetLcl() == v2->AsLclLoad()->GetLcl();
             }
 
             if (v1->OperIs(GT_LCL_ADDR))
@@ -2941,9 +2941,9 @@ bool SIMDCoalescingBuffer::AreContiguousLoads(GenTree* l1, GenTree* l2)
 
     switch (l1->GetOper())
     {
-        case GT_IND:
+        case GT_IND_LOAD:
             return AreContiguosIndirs(l1->AsIndir(), l2->AsIndir());
-        case GT_LCL_FLD:
+        case GT_LCL_LOAD_FLD:
             return AreContiguosLocalFields(l1->AsLclFld(), l2->AsLclFld());
         default:
             return false;
@@ -2978,17 +2978,17 @@ bool SIMDCoalescingBuffer::AreContiguousStores(GenTree* s1, GenTree* s2)
                 return false;
             }
 
-            if (v1->OperIs(GT_IND) && !v1->AsIndir()->IsVolatile() && !v2->AsIndir()->IsVolatile())
+            if (v1->OperIs(GT_IND_LOAD) && !v1->AsIndLoad()->IsVolatile() && !v2->AsIndLoad()->IsVolatile())
             {
-                v1 = v1->AsIndir()->GetAddr();
-                v2 = v2->AsIndir()->GetAddr();
+                v1 = v1->AsIndLoad()->GetAddr();
+                v2 = v2->AsIndLoad()->GetAddr();
 
                 continue;
             }
 
-            if (v1->OperIs(GT_LCL_VAR))
+            if (v1->OperIs(GT_LCL_LOAD))
             {
-                return v1->AsLclVar()->GetLcl() == v2->AsLclVar()->GetLcl();
+                return v1->AsLclLoad()->GetLcl() == v2->AsLclLoad()->GetLcl();
             }
 
             if (v1->OperIs(GT_LCL_ADDR))

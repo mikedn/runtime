@@ -386,18 +386,18 @@ void Compiler::fgDumpTree(FILE* fgxFile, GenTree* const tree)
     {
         fprintf(fgxFile, "%g", dblCon->GetValue());
     }
-    else if (tree->OperIs(GT_LCL_VAR))
+    else if (GenTreeLclLoad* lclLoad = tree->IsLclLoad())
     {
-        fprintf(fgxFile, FMT_LCL, tree->AsLclVar()->GetLcl()->GetLclNum());
+        fprintf(fgxFile, FMT_LCL, lclLoad->GetLcl()->GetLclNum());
     }
-    else if (tree->OperIs(GT_ARR_LENGTH))
+    else if (GenTreeArrLen* arrLen = tree->IsArrLen())
     {
-        fgDumpTree(fgxFile, tree->AsArrLen()->GetArray());
+        fgDumpTree(fgxFile, arrLen->GetArray());
         fprintf(fgxFile, ".Length");
     }
     else
     {
-        fprintf(fgxFile, "[%s]", GenTree::OpName(tree->OperGet()));
+        fprintf(fgxFile, "[%s]", GenTree::OpName(tree->GetOper()));
     }
 }
 
@@ -2858,8 +2858,8 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                     expectedFlags |= GTF_ORDER_SIDEEFF;
                     break;
 
-                case GT_IND:
-                    if (GenTreeIntCon* addr = node->AsIndir()->GetAddr()->IsIntCon())
+                case GT_IND_LOAD:
+                    if (GenTreeIntCon* addr = node->AsIndLoad()->GetAddr()->IsIntCon())
                     {
                         HandleKind handleKind = addr->GetHandleKind();
 
