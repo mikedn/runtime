@@ -4220,7 +4220,7 @@ void Lowering::LowerShift(GenTreeOp* shift)
                 src = cast->GetOp(0);
                 src->ClearContained();
 
-#if !defined(TARGET_64BIT)
+#ifndef TARGET_64BIT
                 if (src->OperIs(GT_LONG))
                 {
                     // We're run into a long to int cast on a 32 bit target. The LONG node
@@ -4234,11 +4234,11 @@ void Lowering::LowerShift(GenTreeOp* shift)
 #endif
             }
 
-#if defined(TARGET_XARCH)
+#ifdef TARGET_XARCH
             // If the source is a small signed int memory operand then we can make it unsigned
             // if the sign bits aren't consumed, movzx has smaller encoding than movsx.
 
-            if (src->OperIs(GT_LCL_FLD, GT_IND) && varTypeIsSmall(src->GetType()) &&
+            if (src->OperIs(GT_LCL_LOAD_FLD, GT_IND_LOAD) && varTypeIsSmall(src->GetType()) &&
                 (consumedBits <= varTypeBitSize(src->GetType())))
             {
                 src->SetType(varTypeToUnsigned(src->GetType()));
@@ -4884,7 +4884,7 @@ void Lowering::MakeMultiRegStoreLclVar(GenTreeLclVar* store, GenTree* value)
 void Lowering::ContainCheckReturnTrap(GenTreeOp* node)
 {
     assert(node->OperIs(GT_RETURNTRAP));
-    assert(node->GetOp(0)->OperIs(GT_IND));
+    assert(node->GetOp(0)->OperIs(GT_IND_LOAD));
 
 #ifdef TARGET_XARCH
     node->GetOp(0)->SetContained();
@@ -4978,20 +4978,20 @@ GenTree* Lowering::LowerBitCast(GenTreeUnOp* bitcast)
     GenTree* src    = bitcast->GetOp(0);
     bool     remove = false;
 
-    if ((src->OperIs(GT_IND) && CanRetypeIndir(src->AsIndir(), bitcast->GetType())) ||
-        (src->OperIs(GT_LCL_FLD) && CanRetypeLclFld(src->AsLclFld(), bitcast->GetType())))
+    if ((src->OperIs(GT_IND_LOAD) && CanRetypeIndir(src->AsIndLoad(), bitcast->GetType())) ||
+        (src->OperIs(GT_LCL_LOAD_FLD) && CanRetypeLclFld(src->AsLclLoadFld(), bitcast->GetType())))
     {
         src->SetType(bitcast->GetType());
         remove = true;
     }
-    else if (src->OperIs(GT_LCL_VAR))
+    else if (src->OperIs(GT_LCL_LOAD))
     {
-        LclVarDsc* srcLcl = src->AsLclVar()->GetLcl();
+        LclVarDsc* srcLcl = src->AsLclLoad()->GetLcl();
 
         if (srcLcl->lvDoNotEnregister)
         {
             // If it's not a register candidate then we can turn it into a LCL_FLD and retype it.
-            src->ChangeOper(GT_LCL_FLD);
+            src->ChangeOper(GT_LCL_LOAD_FLD);
             src->SetType(bitcast->GetType());
             comp->lvaSetDoNotEnregister(srcLcl DEBUGARG(Compiler::DNER_LocalField));
             remove = true;
@@ -5090,14 +5090,14 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
 
 void Lowering::LowerIndir(GenTreeIndir* ind)
 {
-    assert(ind->OperIs(GT_IND, GT_NULLCHECK));
+    assert(ind->OperIs(GT_IND_LOAD, GT_NULLCHECK));
 
     // Process struct typed indirs separately unless they are unused;
     // they only appear as the source of a block copy operation or a return node.
     if (!ind->TypeIs(TYP_STRUCT) || ind->IsUnusedValue())
     {
         // TODO-Cleanup: We're passing isContainable = true but ContainCheckIndir rejects
-        // address containment in some cases so we end up creating trivial (reg + offfset)
+        // address containment in some cases so we end up creating trivial (reg + offset)
         // or (reg + reg) LEAs that are not necessary.
         TryCreateAddrMode(ind->GetAddr(), true);
         ContainCheckIndir(ind);
@@ -5117,16 +5117,16 @@ void Lowering::TransformUnusedIndirection(GenTreeIndir* ind)
     // is not contained.
     // On ARM64 we can generate a load to REG_ZR in all cases.
     // However, on ARM we must always generate a load to a register.
-    // In the case where we require a target register, it is better to use GT_IND, since
-    // GT_NULLCHECK is a non-value node and would therefore require an internal register
-    // to use as the target. That is non-optimal because it will be modeled as conflicting
+    // In the case where we require a target register, it is better to use IND_LOAD, since
+    // NULLCHECK is a non-value node and would therefore require an internal register to
+    // use as the target. That is non-optimal because it will be modeled as conflicting
     // with the source register(s).
     // So, to summarize:
-    // - On ARM64, always use GT_NULLCHECK for a dead indirection.
-    // - On ARM, always use GT_IND.
-    // - On XARCH, use GT_IND if we have a contained address, and GT_NULLCHECK otherwise.
+    // - On ARM64, always use NULLCHECK for a dead indirection.
+    // - On ARM, always use IND_LOAD.
+    // - On XARCH, use IND_LOAD if we have a contained address, and NULLCHECK otherwise.
     // In all cases, change the type to TYP_INT.
-    //
+
     assert(ind->OperIs(GT_NULLCHECK, GT_IND_LOAD, GT_IND_LOAD_BLK, GT_IND_LOAD_OBJ));
 
     ind->SetType(TYP_INT);
@@ -5513,9 +5513,9 @@ bool Lowering::ContainSIMD12MemToMemCopy(GenTree* store, GenTree* value)
 
     value->SetContained();
 
-    if (value->OperIs(GT_IND))
+    if (value->OperIs(GT_IND_LOAD))
     {
-        GenTree* addr = value->AsIndir()->GetAddr();
+        GenTree* addr = value->AsIndLoad()->GetAddr();
 
         if (addr->isContained() && (!addr->IsAddrMode() || !IsSafeToContainMem(store, addr)))
         {

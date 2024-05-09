@@ -4656,10 +4656,9 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             // sure that the call target address is computed into EAX in this case.
 
             assert(compiler->info.virtualStubParamRegNum == REG_VIRTUAL_STUB_TARGET);
+            assert(target->isContained());
 
-            assert(target->OperIs(GT_IND) && target->isContained());
-
-            GenTree* addr = target->AsIndir()->GetAddr();
+            GenTree* addr = target->AsIndLoad()->GetAddr();
             assert(addr->isUsedFromReg());
 
             genConsumeReg(addr);
@@ -6696,9 +6695,9 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
         {
             emit.emitIns_S(INS_push, attr, s);
         }
-        else if (src->OperIs(GT_IND))
+        else if (src->OperIs(GT_IND_LOAD))
         {
-            emit.emitIns_A(INS_push, attr, src->AsIndir()->GetAddr());
+            emit.emitIns_A(INS_push, attr, src->AsIndLoad()->GetAddr());
         }
         else if (src->IsIconHandle())
         {

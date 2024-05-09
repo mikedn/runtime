@@ -25,7 +25,7 @@ static bool IsContainableHWIntrinsicOp(Compiler* compiler, GenTreeHWIntrinsic* n
 
     bool supportsRegOptional = false;
     bool isContainable       = Lowering::IsContainableHWIntrinsicOp(compiler, node, op, &supportsRegOptional);
-    return isContainable || supportsRegOptional || op->OperIs(GT_IND);
+    return isContainable || supportsRegOptional || op->OperIs(GT_IND_LOAD);
 }
 #endif // DEBUG
 
@@ -381,9 +381,9 @@ bool CodeGen::IsMemoryOperand(GenTree* op, StackAddrMode* s, GenTree** addr, Con
 
     GenTree* loadAddr;
 
-    if (op->OperIs(GT_IND))
+    if (op->OperIs(GT_IND_LOAD))
     {
-        loadAddr = op->AsIndir()->GetAddr();
+        loadAddr = op->AsIndLoad()->GetAddr();
     }
 #ifdef FEATURE_HW_INTRINSICS
     else if (GenTreeHWIntrinsic* intrin = op->IsHWIntrinsic())

@@ -717,7 +717,7 @@ void LinearScan::BuildHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
             tgtPrefUse = use;
         }
     }
-    else if (!vec->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    else if (!vec->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
     {
         BuildAddrUses(vec->AsIndir()->GetAddr());
     }

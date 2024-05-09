@@ -53,7 +53,6 @@ enum genTreeOps : uint8_t
     GT_CNS_NATIVELONG = GT_CNS_LNG,
 #endif
 
-    GT_IND           = GT_IND_LOAD,
     GT_LCL_VAR       = GT_LCL_LOAD,
     GT_STORE_LCL_VAR = GT_LCL_STORE,
     GT_LCL_FLD       = GT_LCL_LOAD_FLD,
@@ -898,7 +897,8 @@ public:
 
     bool isUsedFromMemory() const
     {
-        return isUsedFromSpillTemp() || (isContained() && OperIs(GT_IND, GT_LCL_FLD, GT_LCL_VAR, GT_CNS_DBL));
+        return isUsedFromSpillTemp() ||
+               (isContained() && OperIs(GT_IND_LOAD, GT_LCL_LOAD_FLD, GT_LCL_LOAD, GT_CNS_DBL));
     }
 
     bool isUsedFromReg() const

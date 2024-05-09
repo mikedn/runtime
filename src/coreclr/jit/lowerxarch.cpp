@@ -2341,8 +2341,8 @@ void Lowering::LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* node, const Vecto
     BlockRange().InsertBefore(node, addr);
 
     GenTree* indir = node;
-    indir->ChangeOper(GT_IND);
-    indir->AsIndir()->SetAddr(addr);
+    indir->ChangeOper(GT_IND_LOAD);
+    indir->AsIndLoad()->SetAddr(addr);
 }
 
 void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
@@ -2740,21 +2740,21 @@ void Lowering::LowerHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node)
                 case NI_SSE_LoadAlignedVector128:
                     GenTree* addr;
                     addr = vecElt->GetOp(0);
-                    elt->ChangeOper(GT_IND);
+                    elt->ChangeOper(GT_IND_LOAD);
                     elt->SetType(TYP_FLOAT);
-                    elt->AsIndir()->SetAddr(addr);
+                    elt->AsIndLoad()->SetAddr(addr);
                     break;
                 default:
                     break;
             }
         }
-        else if (elt->OperIs(GT_IND, GT_LCL_FLD))
+        else if (elt->OperIs(GT_IND_LOAD, GT_LCL_LOAD_FLD))
         {
             elt->SetType(TYP_FLOAT);
         }
-        else if (elt->OperIs(GT_LCL_VAR) && elt->AsLclVar()->GetLcl()->lvDoNotEnregister)
+        else if (elt->OperIs(GT_LCL_LOAD) && elt->AsLclLoad()->GetLcl()->lvDoNotEnregister)
         {
-            elt->ChangeOper(GT_LCL_FLD);
+            elt->ChangeOper(GT_LCL_LOAD_FLD);
             elt->SetType(TYP_FLOAT);
         }
     }
@@ -3151,14 +3151,14 @@ GenTreeIndir* Lowering::IsStoreIndRMW(GenTreeIndStore* store)
         GenTree* op1 = op->AsOp()->GetOp(0);
         GenTree* op2 = op->AsOp()->GetOp(1);
 
-        if (op->OperIsCommutative() && op2->OperIs(GT_IND) && IsIndLoadRMWCandidate(store, op2->AsIndir(), op1))
+        if (op->OperIsCommutative() && op2->OperIs(GT_IND_LOAD) && IsIndLoadRMWCandidate(store, op2->AsIndLoad(), op1))
         {
-            return op2->AsIndir();
+            return op2->AsIndLoad();
         }
 
-        if (op1->OperIs(GT_IND) && IsIndLoadRMWCandidate(store, op1->AsIndir(), op2))
+        if (op1->OperIs(GT_IND_LOAD) && IsIndLoadRMWCandidate(store, op1->AsIndLoad(), op2))
         {
-            return op1->AsIndir();
+            return op1->AsIndLoad();
         }
     }
     else
@@ -3167,9 +3167,9 @@ GenTreeIndir* Lowering::IsStoreIndRMW(GenTreeIndStore* store)
 
         GenTree* op1 = op->AsUnOp()->GetOp(0);
 
-        if (op1->OperIs(GT_IND) && IsIndLoadRMWCandidate(store, op1->AsIndir(), nullptr))
+        if (op1->OperIs(GT_IND_LOAD) && IsIndLoadRMWCandidate(store, op1->AsIndLoad(), nullptr))
         {
-            return op1->AsIndir();
+            return op1->AsIndLoad();
         }
     }
 
@@ -3316,12 +3316,12 @@ void Lowering::ContainCheckCallOperands(GenTreeCall* call)
             // sure that the call target address is computed into EAX in this case.
             if (call->IsVirtualStub() && call->IsIndirectCall())
             {
-                assert(ctrlExpr->OperIs(GT_IND));
+                assert(ctrlExpr->OperIs(GT_IND_LOAD));
                 MakeSrcContained(call, ctrlExpr);
             }
             else
 #endif // TARGET_X86
-                if (ctrlExpr->OperIs(GT_IND))
+                if (ctrlExpr->OperIs(GT_IND_LOAD))
             {
                 // We may have cases where we have set a register target on the ctrlExpr, but if it
                 // contained we must clear it.
@@ -4516,9 +4516,9 @@ void Lowering::ContainHWIntrinsicOperand(GenTreeHWIntrinsic* node, GenTree* op)
 
     if (intrinsicLoadType != TYP_UNDEF)
     {
-        op->ChangeOper(GT_IND);
+        op->ChangeOper(GT_IND_LOAD);
         op->SetType(intrinsicLoadType);
-        op->AsIndir()->SetAddr(intrinsicLoadAddr);
+        op->AsIndLoad()->SetAddr(intrinsicLoadAddr);
     }
 
     op->SetContained();

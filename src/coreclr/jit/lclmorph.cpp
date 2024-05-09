@@ -1665,7 +1665,7 @@ private:
             }
 #endif
         }
-        else if (indir->OperIs(GT_IND))
+        else if (indir->OperIs(GT_IND_LOAD))
         {
             // Can't have STRUCT typed IND nodes here, they're only generated as BLK sources
             // and we have been rejected BLKs earlier.
@@ -2214,7 +2214,7 @@ private:
             }
         }
 
-        structIndir->SetOper(GT_IND);
+        structIndir->SetOper(GT_IND_LOAD);
         structIndir->SetType(type);
 
         return structIndir;

@@ -8386,7 +8386,7 @@ void CodeGen::inst_AM_R(instruction ins, emitAttr attr, regNumber reg, const Gen
 
 void CodeGen::emitInsLoad(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* load)
 {
-    assert(load->OperIs(GT_IND, GT_NULLCHECK));
+    assert(load->OperIs(GT_IND_LOAD, GT_NULLCHECK));
 
     emitInsIndir(ins, attr, dataReg, load);
 }

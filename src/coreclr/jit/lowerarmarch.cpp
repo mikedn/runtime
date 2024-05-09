@@ -759,8 +759,8 @@ void Lowering::LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* node, const Vecto
     BlockRange().InsertBefore(node, addr);
 
     GenTree* indir = node;
-    indir->ChangeOper(GT_IND);
-    indir->AsIndir()->SetAddr(addr);
+    indir->ChangeOper(GT_IND_LOAD);
+    indir->AsIndLoad()->SetAddr(addr);
 }
 
 void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
@@ -1038,11 +1038,11 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
 
     bool isContainable = IsContainableMemoryOp(src);
 
-    if (src->OperIs(GT_IND))
+    if (src->OperIs(GT_IND_LOAD))
     {
-        GenTree* addr = src->AsIndir()->GetAddr();
+        GenTree* addr = src->AsIndLoad()->GetAddr();
 
-        if (src->AsIndir()->IsVolatile())
+        if (src->AsIndLoad()->IsVolatile())
         {
             isContainable = false;
         }

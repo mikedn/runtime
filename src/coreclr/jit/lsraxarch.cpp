@@ -410,9 +410,9 @@ void LinearScan::BuildOperandUses(GenTree* node X86_ARG(regMaskTP candidates))
     {
         BuildUse(node X86_ARG(candidates));
     }
-    else if (node->OperIs(GT_IND))
+    else if (node->OperIs(GT_IND_LOAD))
     {
-        BuildAddrUses(node->AsIndir()->GetAddr());
+        BuildAddrUses(node->AsIndLoad()->GetAddr());
     }
 }
 
@@ -478,7 +478,7 @@ void LinearScan::BuildRMWUses(GenTreeOp* node)
     // is commutative, codegen cannot reverse them.
     // TODO-XArch-CQ: This is not actually the case for all RMW binary operators, but there's
     // more work to be done to correctly reverse the operands if they involve memory
-    // operands. Also, we may need to handle more cases than GT_IND (e.g. spill temps).
+    // operands. Also, we may need to handle more cases than IND_LOAD (e.g. spill temps).
     GenTree* delayUseOperand = op2;
 
     if (node->OperIsCommutative())
@@ -717,7 +717,7 @@ void LinearScan::BuildCall(GenTreeCall* call)
             //
             // Where EAX is also used as an argument to the stub dispatch helper. Make
             // sure that the call target address is computed into EAX in this case.
-            assert(ctrlExpr->OperIs(GT_IND) && ctrlExpr->isContained());
+            assert(ctrlExpr->OperIs(GT_IND_LOAD) && ctrlExpr->isContained());
             ctrlExprCandidates = RBM_VIRTUAL_STUB_TARGET;
         }
 #endif // TARGET_X86
@@ -1302,9 +1302,9 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
         BuildUse(src);
     }
 #ifdef TARGET_X86
-    else if (src->OperIs(GT_IND))
+    else if (src->OperIs(GT_IND_LOAD))
     {
-        BuildAddrUses(src->AsIndir()->GetAddr());
+        BuildAddrUses(src->AsIndLoad()->GetAddr());
     }
 #endif
 }
@@ -1431,9 +1431,9 @@ void LinearScan::BuildIntrinsic(GenTreeIntrinsic* tree)
     {
         tgtPrefUse = BuildUse(op1);
     }
-    else if (op1->OperIs(GT_IND))
+    else if (op1->OperIs(GT_IND_LOAD))
     {
-        BuildAddrUses(op1->AsIndir()->GetAddr());
+        BuildAddrUses(op1->AsIndLoad()->GetAddr());
     }
 
     BuildDef(tree);
@@ -1484,9 +1484,9 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
             {
                 BuildUse(node);
             }
-            else if (node->OperIs(GT_IND))
+            else if (node->OperIs(GT_IND_LOAD))
             {
-                BuildAddrUses(node->AsIndir()->GetAddr());
+                BuildAddrUses(node->AsIndLoad()->GetAddr());
             }
             else if (node->OperIs(GT_LEA))
             {
@@ -1862,9 +1862,9 @@ void LinearScan::BuildCast(GenTreeCast* cast)
     {
         BuildUse(src X86_ARG(candidates));
     }
-    else if (src->OperIs(GT_IND))
+    else if (src->OperIs(GT_IND_LOAD))
     {
-        BuildAddrUses(src->AsIndir()->GetAddr());
+        BuildAddrUses(src->AsIndLoad()->GetAddr());
     }
 #ifdef TARGET_X86
     else if (src->OperIs(GT_LONG))
@@ -1875,7 +1875,7 @@ void LinearScan::BuildCast(GenTreeCast* cast)
 #endif
     else
     {
-        assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+        assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
     }
 
     BuildInternalUses();
@@ -1884,7 +1884,7 @@ void LinearScan::BuildCast(GenTreeCast* cast)
 
 void LinearScan::BuildLoadInd(GenTreeIndir* load)
 {
-    assert(load->OperIs(GT_IND) && !load->TypeIs(TYP_STRUCT));
+    assert(load->OperIs(GT_IND_LOAD) && !load->TypeIs(TYP_STRUCT));
 
 #ifdef FEATURE_SIMD
     if (varTypeIsSIMD(load->GetType()))
@@ -1928,9 +1928,9 @@ void LinearScan::BuildIndStore(GenTreeIndir* store)
 #endif
                 BuildAddrUses(store->GetAddr());
 
-                if (value->OperIs(GT_IND))
+                if (value->OperIs(GT_IND_LOAD))
                 {
-                    BuildAddrUses(value->AsIndir()->GetAddr());
+                    BuildAddrUses(value->AsIndLoad()->GetAddr());
                 }
 
                 BuildInternalUses();

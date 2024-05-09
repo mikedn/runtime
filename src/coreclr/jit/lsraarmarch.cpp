@@ -63,9 +63,9 @@ void LinearScan::BuildIndir(GenTreeIndir* indir)
             {
                 BuildAddrUses(store->GetAddr());
 
-                if (value->OperIs(GT_IND))
+                if (value->OperIs(GT_IND_LOAD))
                 {
-                    BuildAddrUses(value->AsIndir()->GetAddr());
+                    BuildAddrUses(value->AsIndLoad()->GetAddr());
                 }
 
                 BuildInternalUses();
@@ -574,9 +574,9 @@ void LinearScan::BuildCast(GenTreeCast* cast)
     {
         BuildUse(src);
     }
-    else if (src->OperIs(GT_IND))
+    else if (src->OperIs(GT_IND_LOAD))
     {
-        BuildAddrUses(src->AsIndir()->GetAddr());
+        BuildAddrUses(src->AsIndLoad()->GetAddr());
     }
 #ifdef TARGET_ARM
     else if (src->OperIs(GT_LONG))

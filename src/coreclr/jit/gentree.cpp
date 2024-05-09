@@ -8757,14 +8757,14 @@ CORINFO_CLASS_HANDLE Compiler::gtGetHelperArgClassHandle(GenTree* tree)
         return tree->AsRuntimeLookup()->GetClassHandle();
     }
 
-    if (tree->OperIs(GT_IND))
+    if (tree->OperIs(GT_IND_LOAD))
     {
         // The handle indirs we are looking for will be marked as non-faulting.
         // Certain others (eg from refanytype) may not be.
 
         if ((tree->gtFlags & GTF_IND_NONFAULTING) != 0)
         {
-            GenTree* handle = tree->AsIndir()->GetAddr();
+            GenTree* handle = tree->AsIndLoad()->GetAddr();
 
             if (handle->OperIs(GT_CNS_INT) && handle->TypeIs(TYP_I_IMPL))
             {

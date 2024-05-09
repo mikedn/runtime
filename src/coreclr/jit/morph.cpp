@@ -525,7 +525,7 @@ GenTree* Compiler::fgMorphCastPost(GenTreeCast* cast)
                 // For small type casts, when necessary we force
                 // the src operand to the dstType and allow the
                 // implied load from memory to perform the casting
-                if (src->OperIs(GT_IND, GT_LCL_FLD))
+                if (src->OperIs(GT_IND_LOAD, GT_LCL_LOAD_FLD))
                 {
                     src->SetType(dstType);
                     // We're changing the type here so we need to update the VN;
@@ -1564,7 +1564,7 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
     //       args have interfering side effects.
     //     - Old comments gave a different justification to the introduction of temps on
     //       x86 - "we previously recorded a stack depth of zero when morphing the register
-    //       arguments of any GT_IND with a GTF_IND_RNGCHK flag". The flag no longer exists
+    //       arguments of any IND_LOAD with a GTF_IND_RNGCHK flag". The flag no longer exists
     //       and the "recorded stack depth" likely refers to work that's now done post lowering
     //       by StackLevelSetter.
     //   * And on top of it all it's not clear why this need to be done in a loop separate
@@ -1881,7 +1881,7 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInf
 
                     // TODO-MIKE-Cleanup: So why bother at all?
 
-                    assert(arg->OperIsHWIntrinsic() || arg->OperIs(GT_IND));
+                    assert(arg->OperIsHWIntrinsic() || arg->OperIs(GT_IND_LOAD));
                     tempLcl->lvType = arg->GetType();
                 }
 
@@ -3518,7 +3518,7 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
         }
 #endif // !defined(TARGET_AMD64) || defined(UNIX_AMD64_ABI)
 
-        arg->ChangeOper(GT_IND);
+        arg->ChangeOper(GT_IND_LOAD);
         arg->SetType(argRegType);
 
         return;

@@ -2953,7 +2953,7 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
 
         void DumpFlags(GenTree* node, GenTreeFlags flags)
         {
-            if (node->OperIs(GT_IND))
+            if (node->OperIs(GT_IND_LOAD))
             {
                 printf("%c", (flags & GTF_IND_INVARIANT) ? '#' : '-');
                 printf("%c", (flags & GTF_IND_NONFAULTING) ? 'n' : '-');

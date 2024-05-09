@@ -182,11 +182,11 @@ public:
 
             m_block->bbFlags |= retExpr->GetRetBlockIRSummary();
 
-            if (tree->TypeIs(TYP_BYREF) && !value->TypeIs(TYP_BYREF) && value->OperIs(GT_IND))
+            if (tree->TypeIs(TYP_BYREF) && !value->TypeIs(TYP_BYREF) && value->OperIs(GT_IND_LOAD))
             {
                 // An RVA static may have been reinterpreted as byref.
                 assert(value->TypeIs(TYP_I_IMPL));
-                JITDUMP("Updating type of the return GT_IND expression to TYP_BYREF\n");
+                JITDUMP("Updating type of the return IND_LOAD expression to TYP_BYREF\n");
 
                 value->SetType(TYP_BYREF);
             }
@@ -2572,7 +2572,7 @@ bool Compiler::inlCanDiscardArgSideEffects(GenTree* argNode)
         GenTree* op2 = argNode->AsOp()->GetOp(1);
 
         if (op1->IsCall() && ((op1->AsCall()->gtCallMoreFlags & GTF_CALL_M_HELPER_SPECIAL_DCE) != 0) &&
-            (op2->OperIs(GT_IND) && op2->AsIndir()->GetAddr()->OperIs(GT_CLS_VAR_ADDR, GT_CNS_INT)))
+            (op2->OperIs(GT_IND_LOAD) && op2->AsIndLoad()->GetAddr()->OperIs(GT_CLS_VAR_ADDR, GT_CNS_INT)))
         {
             JITDUMP("\nPerforming special DCE on unused arg [%06u]: helper call [%06u]\n", argNode->GetID(),
                     op1->GetID());
@@ -2580,11 +2580,11 @@ bool Compiler::inlCanDiscardArgSideEffects(GenTree* argNode)
             return true;
         }
     }
-    else if (argNode->OperIs(GT_IND))
+    else if (argNode->OperIs(GT_IND_LOAD))
     {
         // Look for IND(FIELD_ADDR(CALL special DCE helper)) (prejit case)
 
-        GenTree* addr = argNode->AsIndir()->GetAddr();
+        GenTree* addr = argNode->AsIndLoad()->GetAddr();
 
         if (GenTreeFieldAddr* fieldAddr = addr->IsFieldAddr())
         {

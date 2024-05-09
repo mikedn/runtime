@@ -1674,7 +1674,7 @@ public:
     bool isSpilled : 1;
     // indicates an interval representing the internal requirements for
     // generating code for a node (temp registers internal to the node)
-    // Note that this interval may live beyond a node in the GT_ARR_LENREF/GT_IND
+    // Note that this interval may live beyond a node in the ARR_LENREF/IND_LOAD
     // case (though never lives beyond a stmt)
     bool isInternal : 1;
     // true if this is a LocalVar for a struct field

@@ -926,9 +926,9 @@ GenTree* Importer::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLeve
 
     // In all other cases we create and return a struct store node.
 
-    if (dest->OperIs(GT_LCL_VAR))
+    if (dest->OperIs(GT_LCL_LOAD))
     {
-        GenTreeLclVar* store = comp->gtNewLclStore(dest->AsLclVar()->GetLcl(), dest->GetType(), src);
+        GenTreeLclVar* store = comp->gtNewLclStore(dest->AsLclLoad()->GetLcl(), dest->GetType(), src);
         store->AddSideEffects(dest->GetSideEffects());
         gtInitStructLclStore(store, src);
 
@@ -939,7 +939,7 @@ GenTree* Importer::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLeve
     {
         // TODO-MIKE-Cleanup: There doesn't seem to be any good reason to do this here,
         // except for VN being weird and failing on SIMD OBJs and old code doing it here.
-        dest->SetOper(GT_IND);
+        dest->SetOper(GT_IND_LOAD);
     }
 
     gtInitStructIndStore(dest->AsIndir(), src);
@@ -1370,7 +1370,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
         GenTree* test  = gtNewOperNode(GT_AND, TYP_INT, slot, gtNewIconNode(1));
         GenTree* relop = gtNewOperNode(GT_EQ, TYP_INT, test, gtNewIconNode(0));
 
-        // slot = GT_IND(slot - 1)
+        // slot = IND_LOAD(slot - 1)
         slot           = comp->gtNewLclLoad(slotLcl, TYP_I_IMPL);
         GenTree* add   = gtNewOperNode(GT_ADD, TYP_I_IMPL, slot, gtNewIconNode(-1, TYP_I_IMPL));
         GenTree* indir = gtNewIndir(TYP_I_IMPL, add);
@@ -2190,9 +2190,9 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
 
     GenTree* fieldTokenNode = fieldTokenCall->gtCallArgs->GetNode();
 
-    if (fieldTokenNode->OperIs(GT_IND))
+    if (fieldTokenNode->OperIs(GT_IND_LOAD))
     {
-        fieldTokenNode = fieldTokenNode->AsIndir()->GetAddr();
+        fieldTokenNode = fieldTokenNode->AsIndLoad()->GetAddr();
     }
 
     if (!fieldTokenNode->IsIntCon(HandleKind::Field))
@@ -7131,9 +7131,9 @@ GenTree* Importer::CreateCallICookie(GenTreeCall* call, CORINFO_SIG_INFO* sig)
     GenTree* cookie = gtNewConstLookupTree(value, valueAddr, HandleKind::ConstData, nullptr);
     cookie->SetDoNotCSE();
 
-    if (cookie->OperIs(GT_IND))
+    if (cookie->OperIs(GT_IND_LOAD))
     {
-        cookie->AsIndir()->GetAddr()->AsIntCon()->SetDoNotCSE();
+        cookie->AsIndLoad()->GetAddr()->AsIntCon()->SetDoNotCSE();
     }
     else
     {
@@ -16041,13 +16041,14 @@ bool Importer::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
     assert(opts.OptimizationEnabled());
 
     // Check for storing to the same array, ie. arrLcl[i] = arrLcl[j]
-    if (value->OperIs(GT_IND) && value->AsIndir()->GetAddr()->IsIndexAddr() && array->OperIs(GT_LCL_VAR))
+    if (value->OperIs(GT_IND_LOAD) && value->AsIndLoad()->GetAddr()->IsIndexAddr() && array->OperIs(GT_LCL_LOAD))
     {
-        GenTree* valueIndex = value->AsIndir()->GetAddr()->AsIndexAddr()->GetArray();
-        if (valueIndex->OperIs(GT_LCL_VAR))
+        GenTree* valueIndex = value->AsIndLoad()->GetAddr()->AsIndexAddr()->GetArray();
+
+        if (valueIndex->OperIs(GT_LCL_LOAD))
         {
-            LclVarDsc* valueLcl = valueIndex->AsLclVar()->GetLcl();
-            LclVarDsc* arrayLcl = array->AsLclVar()->GetLcl();
+            LclVarDsc* valueLcl = valueIndex->AsLclLoad()->GetLcl();
+            LclVarDsc* arrayLcl = array->AsLclLoad()->GetLcl();
 
             // TODO-MIKE-Cleanup: Checking IsAddressExposed here is nonsense, it's rarely set
             // during import. Besides, the check is probably overly conservative, there's a
@@ -16555,7 +16556,7 @@ bool Compiler::impHasLclRef(GenTree* tree, LclVarDsc* lcl)
 
             // PInvoke-calli cookie is a constant, or constant address indirection.
             assert((cookie == nullptr) || cookie->IsIntCon() ||
-                   (cookie->OperIs(GT_IND) && cookie->AsIndir()->GetAddr()->IsIntCon()));
+                   (cookie->OperIs(GT_IND_LOAD) && cookie->AsIndLoad()->GetAddr()->IsIntCon()));
 
             return impHasLclRef(call->gtCallAddr, lcl);
         }
@@ -17447,7 +17448,7 @@ GenTreeIndir* Importer::gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexA
 GenTreeIndir* Importer::gtNewIndexIndStore(var_types type, GenTreeIndexAddr* indexAddr, GenTree* value)
 {
     GenTreeIndir* store = gtNewIndexIndir(type, indexAddr);
-    store->SetOper(store->OperIs(GT_IND) ? GT_IND_STORE : GT_IND_STORE_OBJ);
+    store->SetOper(store->OperIs(GT_IND_LOAD) ? GT_IND_STORE : GT_IND_STORE_OBJ);
     store->SetValue(value);
     store->AddSideEffects(GTF_ASG | GTF_GLOB_REF | value->GetSideEffects());
     return store;

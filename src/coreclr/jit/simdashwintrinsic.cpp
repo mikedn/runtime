@@ -777,7 +777,7 @@ GenTree* Importer::impVectorPop(var_types type)
 GenTree* Importer::impVectorStore(GenTree* destAddr, GenTree* src)
 {
     assert(destAddr->TypeIs(TYP_BYREF, TYP_I_IMPL));
-    assert(src->OperIs(GT_IND, GT_HWINTRINSIC));
+    assert(src->OperIs(GT_IND_LOAD, GT_HWINTRINSIC));
     assert(varTypeIsSIMD(src->GetType()));
 
     GenTree* store;
@@ -3131,9 +3131,9 @@ void SIMDCoalescingBuffer::ChangeToSIMDLoad(Compiler* compiler, GenTree* load, v
         addr = compiler->gtNewOperNode(GT_ADD, TYP_BYREF, addr, compiler->gtNewIconNode(offset, TYP_I_IMPL));
     }
 
-    load->ChangeOper(GT_IND);
+    load->ChangeOper(GT_IND_LOAD);
     load->SetType(simdType);
-    load->AsIndir()->SetAddr(addr);
+    load->AsIndLoad()->SetAddr(addr);
 }
 
 void SIMDCoalescingBuffer::ChangeToSIMDStore(Compiler* compiler, GenTree* store, var_types simdType, GenTree* value)
@@ -3229,7 +3229,7 @@ LclVarDsc* SIMDCoalescingBuffer::IsSimdLocalField(GenTree* node, Compiler* compi
     // We only care about Vector2/3/4 so the element type is always FLOAT.
     assert(node->TypeIs(TYP_FLOAT));
 
-    if (!node->OperIs(GT_IND))
+    if (!node->OperIs(GT_IND_LOAD))
     {
         return nullptr;
     }
