@@ -4682,7 +4682,7 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
     return fieldList;
 }
 
-GenTree* Compiler::abiMorphMultiRegObjArg(CallArgInfo* argInfo, GenTreeObj* arg)
+GenTree* Compiler::abiMorphMultiRegObjArg(CallArgInfo* argInfo, GenTreeIndLoadObj* arg)
 {
 #ifdef TARGET_ARM
     // If an argument is passed in registers we'd like to build a FIELD_LIST with

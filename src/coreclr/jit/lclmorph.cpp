@@ -2156,7 +2156,7 @@ private:
 
         ClassLayout* fieldLayout = nullptr;
 
-        if (GenTreeLclFld* lclFld = structLcl->IsLclFld())
+        if (GenTreeLclLoadFld* lclFld = structLcl->IsLclLoadFld())
         {
             lclFld->SetType(type);
             lclFld->SetFieldSeq(ExtendFieldSequence(lclFld->GetFieldSeq(), type, &fieldLayout));
@@ -2164,7 +2164,7 @@ private:
         }
         else
         {
-            assert(structLcl->OperIs(GT_LCL_VAR));
+            assert(structLcl->OperIs(GT_LCL_LOAD));
 
             LclVarDsc*    lcl      = structLcl->GetLcl();
             FieldSeqNode* fieldSeq = GetFieldSequence(lcl->GetLayout()->GetClassHandle(), type, &fieldLayout);
@@ -2182,9 +2182,9 @@ private:
         return structLcl;
     }
 
-    GenTreeIndir* RetypeStructIndir(GenTreeObj* structIndir, var_types type)
+    GenTreeIndir* RetypeStructIndir(GenTreeIndLoadObj* structIndir, var_types type)
     {
-        assert(structIndir->OperIs(GT_IND_LOAD_OBJ) && structIndir->TypeIs(TYP_STRUCT));
+        assert(structIndir->TypeIs(TYP_STRUCT));
         assert(type != TYP_STRUCT);
 
         GenTree*     addr       = structIndir->GetAddr();

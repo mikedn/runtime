@@ -6573,37 +6573,6 @@ public:
 #endif
 };
 
-struct GenTreeObj : public GenTreeBlk
-{
-protected:
-    GenTreeObj(var_types type, GenTree* addr, ClassLayout* layout) : GenTreeBlk(GT_IND_LOAD_OBJ, type, addr, layout)
-    {
-        assert(varTypeIsI(addr->GetType()));
-        assert(!layout->IsBlockLayout());
-
-        // By default, indirs are assumed to access aliased memory.
-        gtFlags |= GTF_GLOB_REF;
-    }
-
-    GenTreeObj(var_types type, GenTree* addr, GenTree* value, ClassLayout* layout)
-        : GenTreeBlk(GT_IND_STORE_OBJ, type, addr, value, layout)
-    {
-        assert(!layout->IsBlockLayout());
-
-        // By default, indirs are assumed to access aliased memory.
-        gtFlags |= GTF_ASG | GTF_GLOB_REF;
-    }
-
-    GenTreeObj(const GenTreeObj* copyFrom) : GenTreeBlk(copyFrom)
-    {
-    }
-
-#if DEBUGGABLE_GENTREE
-public:
-    GenTreeObj() = default;
-#endif
-};
-
 // This node is used for block values that have a dynamic size.
 // Note that such a value can never have GC pointers.
 
@@ -6716,13 +6685,19 @@ struct GenTreeIndLoadBlk : public GenTreeBlk
 #endif
 };
 
-struct GenTreeIndLoadObj : public GenTreeObj
+struct GenTreeIndLoadObj : public GenTreeBlk
 {
-    GenTreeIndLoadObj(var_types type, GenTree* addr, ClassLayout* layout) : GenTreeObj(type, addr, layout)
+    GenTreeIndLoadObj(var_types type, GenTree* addr, ClassLayout* layout)
+        : GenTreeBlk(GT_IND_LOAD_OBJ, type, addr, layout)
     {
+        assert(varTypeIsI(addr->GetType()));
+        assert(!layout->IsBlockLayout());
+
+        // By default, indirs are assumed to access aliased memory.
+        gtFlags |= GTF_GLOB_REF;
     }
 
-    GenTreeIndLoadObj(const GenTreeIndLoadObj* copyFrom) : GenTreeObj(copyFrom)
+    GenTreeIndLoadObj(const GenTreeIndLoadObj* copyFrom) : GenTreeBlk(copyFrom)
     {
     }
 
@@ -6762,14 +6737,18 @@ struct GenTreeIndStoreBlk : public GenTreeBlk
 #endif
 };
 
-struct GenTreeIndStoreObj : public GenTreeObj
+struct GenTreeIndStoreObj : public GenTreeBlk
 {
     GenTreeIndStoreObj(var_types type, GenTree* addr, GenTree* value, ClassLayout* layout)
-        : GenTreeObj(type, addr, value, layout)
+        : GenTreeBlk(GT_IND_STORE_OBJ, type, addr, value, layout)
     {
+        assert(!layout->IsBlockLayout());
+
+        // By default, indirs are assumed to access aliased memory.
+        gtFlags |= GTF_ASG | GTF_GLOB_REF;
     }
 
-    GenTreeIndStoreObj(const GenTreeIndStoreObj* copyFrom) : GenTreeObj(copyFrom)
+    GenTreeIndStoreObj(const GenTreeIndStoreObj* copyFrom) : GenTreeBlk(copyFrom)
     {
     }
 

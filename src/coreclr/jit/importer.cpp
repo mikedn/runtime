@@ -17384,12 +17384,12 @@ GenTreeIndir* Importer::gtNewFieldIndStore(var_types type, GenTreeFieldAddr* fie
     return store;
 }
 
-GenTreeObj* Importer::gtNewObjNode(ClassLayout* layout, GenTree* addr)
+GenTreeIndLoadObj* Importer::gtNewObjNode(ClassLayout* layout, GenTree* addr)
 {
     return comp->gtNewObjNode(layout, addr);
 }
 
-GenTreeObj* Importer::gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr)
+GenTreeIndLoadObj* Importer::gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr)
 {
     return comp->gtNewObjNode(type, layout, addr);
 }

@@ -222,7 +222,8 @@ static_assert_no_msg(sizeof(GenTreeArrOffs)      <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeIndir)        <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeIndStore)     <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeAddrMode)     <= TREE_NODE_SZ_SMALL);
-static_assert_no_msg(sizeof(GenTreeObj)          <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeIndLoadObj)   <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeIndStoreObj)  <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeBlk)          <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeDynBlk)       <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeRetExpr)      <= TREE_NODE_SZ_SMALL);
@@ -4400,25 +4401,25 @@ CallArgInfo* GenTreeCall::GetArgInfoByLateArgUse(Use* use) const
     unreached();
 }
 
-GenTreeObj* Compiler::gtNewObjNode(ClassLayout* layout, GenTree* addr)
+GenTreeIndLoadObj* Compiler::gtNewObjNode(ClassLayout* layout, GenTree* addr)
 {
     return gtNewObjNode(typGetStructType(layout), layout, addr);
 }
 
-GenTreeObj* Compiler::gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr)
+GenTreeIndLoadObj* Compiler::gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr)
 {
     assert(varTypeIsStruct(type));
 
-    GenTreeIndLoadObj* objNode = new (this, GT_IND_LOAD_OBJ) GenTreeIndLoadObj(type, addr, layout);
+    GenTreeIndLoadObj* load = new (this, GT_IND_LOAD_OBJ) GenTreeIndLoadObj(type, addr, layout);
 
     if (GenTreeLclAddr* lclNode = addr->IsLocalAddrExpr())
     {
-        objNode->gtFlags |= GTF_IND_NONFAULTING;
+        load->gtFlags |= GTF_IND_NONFAULTING;
 
         // An Obj is not a global reference, if it is known to be a local struct.
         if (((addr->gtFlags & GTF_GLOB_REF) == 0) && !lclNode->GetLcl()->IsImplicitByRefParam())
         {
-            objNode->gtFlags &= ~GTF_GLOB_REF;
+            load->gtFlags &= ~GTF_GLOB_REF;
         }
     }
     else if (GenTreeFieldAddr* fieldAddr = addr->IsFieldAddr())
@@ -4428,11 +4429,11 @@ GenTreeObj* Compiler::gtNewObjNode(var_types type, ClassLayout* layout, GenTree*
         if (fieldSeq->IsBoxedValueField() ||
             (fieldSeq->IsField() && info.compCompHnd->isFieldStatic(fieldSeq->GetFieldHandle())))
         {
-            objNode->gtFlags |= GTF_IND_NONFAULTING;
+            load->gtFlags |= GTF_IND_NONFAULTING;
         }
     }
 
-    return objNode;
+    return load;
 }
 
 //----------------------------------------------------------------------------

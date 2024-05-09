@@ -216,7 +216,7 @@ static bool IsValidGenericLoadStoreOffset(ssize_t offset, unsigned size ARM64_AR
 
 void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree* addr)
 {
-    assert(store->OperIsPutArgStkOrSplit() || (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD)) ||
+    assert(store->OperIsPutArgStkOrSplit() || store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD) ||
            (store->OperIs(GT_IND_STORE_BLK, GT_IND_STORE_OBJ) &&
             ((store->AsBlk()->GetKind() == StructStoreKind::UnrollCopy) ||
              (store->AsBlk()->GetKind() == StructStoreKind::UnrollInit ||

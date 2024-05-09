@@ -2270,8 +2270,8 @@ struct Importer
     GenTreeIndir* gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr);
     GenTreeIndir* gtNewFieldIndir(var_types type, unsigned layoutNum, GenTreeFieldAddr* fieldAddr);
     GenTreeIndir* gtNewFieldIndStore(var_types type, GenTreeFieldAddr* fieldAddr, GenTree* value);
-    GenTreeObj* gtNewObjNode(ClassLayout* layout, GenTree* addr);
-    GenTreeObj* gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr);
+    GenTreeIndLoadObj* gtNewObjNode(ClassLayout* layout, GenTree* addr);
+    GenTreeIndLoadObj* gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr);
     GenTreeIntCon* gtNewStringLiteralLength(GenTreeStrCon* node);
     GenTree* gtNewStringLiteralNode(InfoAccessType iat, void* value);
     GenTreeAllocObj* gtNewAllocObjNode(CORINFO_RESOLVED_TOKEN* resolvedToken, bool useParent);
@@ -2923,8 +2923,8 @@ public:
 
     GenTreeUnOp* gtNewBitCastNode(var_types type, GenTree* arg);
 
-    GenTreeObj* gtNewObjNode(ClassLayout* layout, GenTree* addr);
-    GenTreeObj* gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr);
+    GenTreeIndLoadObj* gtNewObjNode(ClassLayout* layout, GenTree* addr);
+    GenTreeIndLoadObj* gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr);
 
     GenTreeCall::Use* gtNewCallArgs(GenTree* node);
     GenTreeCall::Use* gtNewCallArgs(GenTree* node1, GenTree* node2);
@@ -6156,7 +6156,7 @@ public:
     GenTree* abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg);
 #endif
     GenTree* abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCommon* arg);
-    GenTree* abiMorphMultiRegObjArg(CallArgInfo* argInfo, GenTreeObj* arg);
+    GenTree* abiMorphMultiRegObjArg(CallArgInfo* argInfo, GenTreeIndLoadObj* arg);
     GenTree* abiMakeIndirAddrMultiUse(GenTree** addrInOut, ssize_t* addrOffsetOut, unsigned indirSize);
     GenTree* abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsigned indirSize);
     GenTree* abiMorphMultiRegCallArg(CallArgInfo* argInfo, GenTreeCall* arg);
