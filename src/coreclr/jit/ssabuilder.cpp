@@ -95,7 +95,7 @@ void SsaOptimizer::Reset()
             {
                 node->SetVNP({});
 
-                if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+                if (node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
                 {
                     node->gtFlags &= ~GTF_VAR_FIELD_DEATH_MASK;
                 }
@@ -974,7 +974,7 @@ void SsaRenameDomTreeVisitor::AddPhiArg(BasicBlock*    pred,
 
 void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclVarCommon* store, BasicBlock* block)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+    assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
 
     GenTree*   value = store->GetOp(0);
     LclVarDsc* lcl   = store->GetLcl();
@@ -1106,7 +1106,7 @@ void SsaRenameDomTreeVisitor::RenamePhiDef(GenTreeLclDef* def, BasicBlock* block
 
 void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclVarCommon* lclNode, Statement* stmt, BasicBlock* block)
 {
-    assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+    assert(lclNode->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
 
     LclVarDsc* lcl = lclNode->GetLcl();
 
@@ -1120,7 +1120,7 @@ void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclVarCommon* lclNode, Stateme
 
     GenTreeLclDef* def = renameStack.TopLclDef(lcl);
 
-    if (GenTreeLclFld* lclFld = lclNode->IsLclFld())
+    if (GenTreeLclFld* lclFld = lclNode->IsLclLoadFld())
     {
         GenTreeLclUse* use = new (m_compiler, GT_LCL_USE) GenTreeLclUse(def, block);
         use->SetCosts(0, 0);
@@ -1279,7 +1279,7 @@ void SsaRenameDomTreeVisitor::BlockRenameVariables(BasicBlock* block)
     {
         for (GenTree* const node : stmt->Nodes())
         {
-            if (node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+            if (node->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
             {
                 RenameLclStore(node->AsLclVarCommon(), block);
             }
@@ -1291,7 +1291,7 @@ void SsaRenameDomTreeVisitor::BlockRenameVariables(BasicBlock* block)
             {
                 RenamePhiDef(node->AsLclDef(), block);
             }
-            else if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+            else if (node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
             {
                 RenameLclUse(node->AsLclVarCommon(), stmt, block);
             }
@@ -1657,7 +1657,7 @@ static void DestroySsaUses(GenTreeLclDef* def)
             GenTreeLclUse* nextUse = use->GetNextUse();
 
             GenTree* load = use;
-            load->SetOper(GT_LCL_VAR);
+            load->SetOper(GT_LCL_LOAD);
             load->AsLclVar()->SetLcl(lcl);
 
             use = nextUse;
@@ -1682,9 +1682,9 @@ static void DestroySsaDef(Compiler* compiler, GenTreeLclDef* def, Statement* stm
         {
             assert(use->GetDef()->GetLcl() == lcl);
         }
-        else if (structValue->OperIs(GT_LCL_VAR))
+        else if (structValue->OperIs(GT_LCL_LOAD))
         {
-            assert(structValue->AsLclVar()->GetLcl() == lcl);
+            assert(structValue->AsLclLoad()->GetLcl() == lcl);
         }
         else
         {
@@ -1697,13 +1697,13 @@ static void DestroySsaDef(Compiler* compiler, GenTreeLclDef* def, Statement* stm
         // TODO-MIKE-SSA: Similar to the EXTRACT case, we may need
         // to handle more cases here once optimizations are enabled.
 
-        store->SetOper(GT_STORE_LCL_FLD);
+        store->SetOper(GT_LCL_STORE_FLD);
         store->SetType(field.GetType());
-        store->AsLclFld()->SetOp(0, insert->GetFieldValue());
-        store->AsLclFld()->SetLayoutNum(field.GetLayoutNum());
-        store->AsLclFld()->SetLclOffs(field.GetOffset());
-        store->AsLclFld()->SetFieldSeq(field.GetFieldSeq());
-        store->AsLclFld()->SetLcl(lcl);
+        store->AsLclStoreFld()->SetValue(insert->GetFieldValue());
+        store->AsLclStoreFld()->SetLayoutNum(field.GetLayoutNum());
+        store->AsLclStoreFld()->SetLclOffs(field.GetOffset());
+        store->AsLclStoreFld()->SetFieldSeq(field.GetFieldSeq());
+        store->AsLclStoreFld()->SetLcl(lcl);
 
         structValue->gtNext->gtPrev = structValue->gtPrev;
 
@@ -1722,7 +1722,7 @@ static void DestroySsaDef(Compiler* compiler, GenTreeLclDef* def, Statement* stm
     }
     else
     {
-        store->SetOper(GT_STORE_LCL_VAR);
+        store->SetOper(GT_LCL_STORE);
         store->AsLclVar()->SetLcl(lcl);
     }
 }
@@ -1752,11 +1752,11 @@ static void DestroyExtract(Statement* stmt, GenTreeExtract* extract)
     FieldInfo field  = extract->GetField();
     GenTree*  lclFld = extract;
 
-    lclFld->SetOper(GT_LCL_FLD);
-    lclFld->AsLclFld()->SetLcl(lcl);
-    lclFld->AsLclFld()->SetLclOffs(field.GetOffset());
-    lclFld->AsLclFld()->SetLayoutNum(field.GetLayoutNum());
-    lclFld->AsLclFld()->SetFieldSeq(field.GetFieldSeq());
+    lclFld->SetOper(GT_LCL_LOAD_FLD);
+    lclFld->AsLclLoadFld()->SetLcl(lcl);
+    lclFld->AsLclLoadFld()->SetLclOffs(field.GetOffset());
+    lclFld->AsLclLoadFld()->SetLayoutNum(field.GetLayoutNum());
+    lclFld->AsLclLoadFld()->SetFieldSeq(field.GetFieldSeq());
 
     src->gtNext->gtPrev = src->gtPrev;
 

@@ -54,16 +54,16 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
             // Don't mark calls to allocation helpers as CSE candidates.
             // Marking them as CSE candidates usually blocks CSEs rather than enables them.
             // A typical case is:
-            // [1] GT_IND(x) = GT_CALL ALLOC_HELPER
+            // [1] IND_LOAD(x) = CALL ALLOC_HELPER
             // ...
-            // [2] y = GT_IND(x)
+            // [2] y = IND_LOAD(x)
             // ...
-            // [3] z = GT_IND(x)
+            // [3] z = IND_LOAD(x)
             // If we mark CALL ALLOC_HELPER as a CSE candidate, we later discover
             // that it can't be a CSE def because GT_INDs in [2] and [3] can cause
             // more exceptions (NullRef) so we abandon this CSE.
             // If we don't mark CALL ALLOC_HELPER as a CSE candidate, we are able
-            // to use GT_IND(x) in [2] as a CSE def.
+            // to use IND_LOAD(x) in [2] as a CSE def.
             return node->IsHelperCall() &&
                    !Compiler::s_helperCallProperties.IsAllocator(
                        Compiler::eeGetHelperNum(node->AsCall()->GetMethodHandle())) &&
@@ -71,11 +71,11 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
 
         case GT_IND_LOAD:
             // TODO-MIKE-Review: This comment doesn't make a lot of sense, it should
-            // be possible to CSE both IND and ARR_ELEM...
+            // be possible to CSE both IND_LOAD and ARR_ELEM...
 
-            // We try to CSE GT_ARR_ELEM nodes instead of GT_IND(GT_ARR_ELEM).
+            // We try to CSE GT_ARR_ELEM nodes instead of IND_LOAD(ARR_ELEM).
             // Doing the first allows CSE to also kick in for code like
-            // "GT_IND(GT_ARR_ELEM) = GT_IND(GT_ARR_ELEM) + xyz", whereas doing
+            // "IND_LOAD(ARR_ELEM) = IND_LOAD(ARR_ELEM) + xyz", whereas doing
             // the second would not allow it
             return !node->AsIndir()->GetAddr()->OperIs(GT_ARR_ELEM);
 
@@ -2381,9 +2381,9 @@ public:
                 // them. See the related gtNodeHasSideEffects comment as well.
                 if (m_compiler->gtNodeHasSideEffects(node, GTF_PERSISTENT_SIDE_EFFECTS, true) || node->OperIsAtomicOp())
                 {
-                    if (node->OperIs(GT_OBJ, GT_BLK))
+                    if (node->OperIs(GT_IND_LOAD_OBJ, GT_IND_LOAD_BLK))
                     {
-                        JITDUMP("Replace an unused OBJ/BLK node [%06d] with a NULLCHECK\n", node->GetID());
+                        JITDUMP("Replace an unused IND_LOAD_OBJ/BLK node [%06u] with a NULLCHECK\n", node->GetID());
                         m_compiler->gtChangeOperToNullCheck(node);
                     }
 

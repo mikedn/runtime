@@ -387,10 +387,10 @@ private:
             GenTree* nullCheckAddr = nullCheck->GetAddr();
             GenTree* addBase       = add->GetOp(0);
 
-            if (nullCheckAddr->OperIs(GT_LCL_VAR))
+            if (nullCheckAddr->OperIs(GT_LCL_LOAD))
             {
-                if (!addBase->OperIs(GT_LCL_VAR) ||
-                    (addBase->AsLclVar()->GetLcl() != nullCheckAddr->AsLclVar()->GetLcl()))
+                if (!addBase->OperIs(GT_LCL_LOAD) ||
+                    (addBase->AsLclLoad()->GetLcl() != nullCheckAddr->AsLclLoad()->GetLcl()))
                 {
                     return nullptr;
                 }
@@ -509,7 +509,7 @@ private:
 
         if ((node->gtFlags & GTF_ASG) != 0)
         {
-            if (node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+            if (node->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
             {
                 return CanMoveNullCheckPastLclStore(node->AsLclVarCommon(), isInsideTry);
             }
@@ -534,7 +534,7 @@ private:
 
         assert((node->gtFlags & GTF_ASG) != 0);
 
-        if (node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+        if (node->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
         {
             if ((node->AsLclVarCommon()->GetOp(0)->gtFlags & GTF_ASG) != 0)
             {
@@ -559,7 +559,7 @@ private:
 
     bool CanMoveNullCheckPastLclStore(GenTreeLclVarCommon* store, bool isInsideTry)
     {
-        assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+        assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
         LclVarDsc* lcl = store->GetLcl();
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)

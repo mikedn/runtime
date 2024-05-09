@@ -3492,7 +3492,7 @@ void ValueNumbering::NumberComma(GenTreeOp* comma)
     GenTree* op1 = comma->GetOp(0);
     GenTree* op2 = comma->GetOp(1);
 
-    if (op1->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    if (op1->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
         op1 = op1->AsLclVarCommon()->GetOp(0);
     }
