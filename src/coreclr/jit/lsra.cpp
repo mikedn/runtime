@@ -9358,17 +9358,15 @@ bool LinearScan::IsResolutionMove(GenTree* node)
         return false;
     }
 
-    switch (node->OperGet())
+    switch (node->GetOper())
     {
-        case GT_LCL_VAR:
+        case GT_LCL_LOAD:
         case GT_COPY:
             return node->IsUnusedValue();
-
 #ifdef TARGET_XARCH
         case GT_SWAP:
             return true;
 #endif
-
         default:
             return false;
     }

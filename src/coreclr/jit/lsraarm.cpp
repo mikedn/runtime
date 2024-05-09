@@ -14,11 +14,11 @@ void LinearScan::BuildNode(GenTree* tree)
 
     switch (tree->GetOper())
     {
-        case GT_LCL_VAR:
-        case GT_LCL_FLD:
+        case GT_LCL_LOAD:
+        case GT_LCL_LOAD_FLD:
             assert(!tree->AsLclVarCommon()->GetLcl()->IsRegCandidate());
 
-            if (tree->OperIs(GT_LCL_FLD) && tree->AsLclFld()->IsOffsetMisaligned())
+            if (tree->OperIs(GT_LCL_LOAD_FLD) && tree->AsLclLoadFld()->IsOffsetMisaligned())
             {
                 BuildInternalIntDef(tree);
 
@@ -33,12 +33,12 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildDef(tree);
             break;
 
-        case GT_STORE_LCL_VAR:
-            BuildStoreLclVar(tree->AsLclVar());
+        case GT_LCL_STORE:
+            BuildStoreLclVar(tree->AsLclStore());
             break;
 
-        case GT_STORE_LCL_FLD:
-            BuildStoreLclFld(tree->AsLclFld());
+        case GT_LCL_STORE_FLD:
+            BuildStoreLclFld(tree->AsLclStoreFld());
             break;
 
         case GT_KEEPALIVE:

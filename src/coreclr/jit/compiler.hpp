@@ -812,8 +812,8 @@ inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
             AsFieldList()->SetContained();
             break;
 
-        case GT_LCL_FLD:
-        case GT_STORE_LCL_FLD:
+        case GT_LCL_LOAD_FLD:
+        case GT_LCL_STORE_FLD:
             AsLclFld()->SetLayoutNum(0);
             AsLclFld()->SetLclOffs(0);
             AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());

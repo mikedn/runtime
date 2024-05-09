@@ -14,8 +14,8 @@ void LinearScan::BuildNode(GenTree* tree)
 
     switch (tree->GetOper())
     {
-        case GT_LCL_VAR:
-        case GT_LCL_FLD:
+        case GT_LCL_LOAD:
+        case GT_LCL_LOAD_FLD:
             assert(!tree->AsLclVarCommon()->GetLcl()->IsRegCandidate());
 
             // Need an additional register to read upper 4 bytes of Vector3.
@@ -31,12 +31,12 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildDef(tree);
             break;
 
-        case GT_STORE_LCL_VAR:
-            BuildStoreLclVar(tree->AsLclVar());
+        case GT_LCL_STORE:
+            BuildStoreLclVar(tree->AsLclStore());
             break;
 
-        case GT_STORE_LCL_FLD:
-            BuildStoreLclFld(tree->AsLclFld());
+        case GT_LCL_STORE_FLD:
+            BuildStoreLclFld(tree->AsLclStoreFld());
             break;
 
         case GT_PROF_HOOK:

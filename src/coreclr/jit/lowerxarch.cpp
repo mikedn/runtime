@@ -3078,7 +3078,7 @@ bool Lowering::IndirsAreRMWEquivalent(GenTreeIndir* indir1, GenTreeIndir* indir2
 
     switch (addr1->GetOper())
     {
-        case GT_LCL_VAR:
+        case GT_LCL_LOAD:
         case GT_CNS_INT:
             return LeavesAreRMWEquivalent(addr1, addr2);
 
@@ -3113,8 +3113,8 @@ bool Lowering::LeavesAreRMWEquivalent(GenTree* node1, GenTree* node2)
         case GT_CNS_INT:
             return (node1->AsIntCon()->GetValue() == node2->AsIntCon()->GetValue()) &&
                    (node1->IsIconHandle() == node2->IsIconHandle());
-        case GT_LCL_VAR:
-            return node1->AsLclVar()->GetLcl() == node2->AsLclVar()->GetLcl();
+        case GT_LCL_LOAD:
+            return node1->AsLclLoad()->GetLcl() == node2->AsLclLoad()->GetLcl();
         default:
             return false;
     }

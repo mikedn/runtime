@@ -955,8 +955,8 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
 
         switch (node->OperGet())
         {
-            case GT_LCL_VAR:
-            case GT_LCL_FLD:
+            case GT_LCL_LOAD:
+            case GT_LCL_LOAD_FLD:
             {
                 GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
                 LclVarDsc*           lcl     = lclNode->GetLcl();
@@ -984,8 +984,8 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
                 break;
             }
 
-            case GT_STORE_LCL_VAR:
-            case GT_STORE_LCL_FLD:
+            case GT_LCL_STORE:
+            case GT_LCL_STORE_FLD:
             {
                 GenTreeLclVarCommon* lclNode     = node->AsLclVarCommon();
                 LclVarDsc*           lcl         = lclNode->GetLcl();

@@ -4967,10 +4967,10 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
         genTreeOps op = tree->OperGet();
         switch (op)
         {
-            case GT_LCL_VAR:
-            case GT_LCL_FLD:
-            case GT_STORE_LCL_FLD:
-            case GT_STORE_LCL_VAR:
+            case GT_LCL_LOAD:
+            case GT_LCL_STORE:
+            case GT_LCL_LOAD_FLD:
+            case GT_LCL_STORE_FLD:
                 if (tree->gtFlags & GTF_VAR_DEATH)
                 {
                     chars += printf("[VAR_DEATH]");

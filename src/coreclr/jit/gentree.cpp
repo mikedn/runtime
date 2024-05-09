@@ -1044,9 +1044,9 @@ AGAIN:
     {
         switch (oper)
         {
-            case GT_LCL_VAR:
-                return op1->AsLclVar()->GetLcl() == op2->AsLclVar()->GetLcl();
-            case GT_LCL_FLD:
+            case GT_LCL_LOAD:
+                return op1->AsLclLoad()->GetLcl() == op2->AsLclLoad()->GetLcl();
+            case GT_LCL_LOAD_FLD:
                 return GenTreeLclFld::Equals(op1->AsLclFld(), op2->AsLclFld());
             case GT_LCL_ADDR:
                 return GenTreeLclAddr::Equals(op1->AsLclAddr(), op2->AsLclAddr());
@@ -1303,13 +1303,13 @@ AGAIN:
         {
             uint64_t bits;
 
-            case GT_LCL_VAR:
-                add = tree->AsLclVar()->GetLcl()->GetLclNum();
+            case GT_LCL_LOAD:
+                add = tree->AsLclLoad()->GetLcl()->GetLclNum();
                 break;
-            case GT_LCL_FLD:
-                hash = genTreeHashAdd(hash, tree->AsLclFld()->GetLcl()->GetLclNum());
-                hash = genTreeHashAdd(hash, tree->AsLclFld()->GetLayoutNum());
-                add  = tree->AsLclFld()->GetLclOffs();
+            case GT_LCL_LOAD_FLD:
+                hash = genTreeHashAdd(hash, tree->AsLclLoadFld()->GetLcl()->GetLclNum());
+                hash = genTreeHashAdd(hash, tree->AsLclLoadFld()->GetLayoutNum());
+                add  = tree->AsLclLoadFld()->GetLclOffs();
                 break;
             case GT_CNS_INT:
                 add = tree->AsIntCon()->GetValue();
@@ -6340,20 +6340,21 @@ int Compiler::dmpNodeFlags(GenTree* tree)
             }
             break;
 
-        case GT_STORE_LCL_VAR:
-            if (tree->AsLclVar()->IsMultiReg())
+        case GT_LCL_STORE:
+            if (tree->AsLclStore()->IsMultiReg())
             {
                 operFlag = 'M';
                 break;
             }
             FALLTHROUGH;
-        case GT_LCL_VAR:
-        case GT_LCL_FLD:
-        case GT_STORE_LCL_FLD:
+        case GT_LCL_LOAD:
             if (flags & GTF_VAR_CONTEXT)
             {
                 operFlag = '!';
             }
+            FALLTHROUGH;
+        case GT_LCL_LOAD_FLD:
+        case GT_LCL_STORE_FLD:
             break;
 
         case GT_EQ:
@@ -7024,8 +7025,8 @@ void Compiler::gtDispLeaf(GenTree* tree)
         const char* methodName;
         const char* className;
 
-        case GT_LCL_FLD:
-        case GT_LCL_VAR:
+        case GT_LCL_LOAD_FLD:
+        case GT_LCL_LOAD:
         case GT_LCL_ADDR:
             dmpLclVarCommon(tree->AsLclVarCommon());
             break;
@@ -7414,8 +7415,8 @@ void Compiler::gtDispTreeRec(
 
     switch (tree->GetOper())
     {
-        case GT_STORE_LCL_VAR:
-        case GT_STORE_LCL_FLD:
+        case GT_LCL_STORE:
+        case GT_LCL_STORE_FLD:
             dmpLclVarCommon(tree->AsLclVarCommon());
             break;
         case GT_LCL_DEF:

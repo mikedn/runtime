@@ -8,7 +8,7 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
 {
     // During tree traversal every GenTree node produces a "value" that represents:
     //   - the memory location associated with a local variable, including an offset
-    //     accumulated from GT_LCL_FLD and GT_FIELD nodes.
+    //     accumulated from LCL_LOAD_FLD and FIELD_ADDR nodes.
     //   - the address of local variable memory location, including an offset as well.
     //   - an unknown value - the result of a node we don't know how to process. This
     //     also includes the result of TYP_VOID nodes (or any other nodes that don't
@@ -752,9 +752,9 @@ private:
             {
                 switch (user->GetOper())
                 {
-                    case GT_STORE_LCL_VAR:
-                    case GT_STORE_LCL_FLD:
-                    case GT_STORE_OBJ:
+                    case GT_LCL_STORE:
+                    case GT_LCL_STORE_FLD:
+                    case GT_IND_STORE_OBJ:
                         PromoteSingleFieldStructLocalStoreValue(lcl, node->AsLclVar(), user);
                         break;
                     case GT_CALL:
@@ -772,9 +772,9 @@ private:
             return;
         }
 
-        if (node->OperIs(GT_LCL_FLD))
+        if (node->OperIs(GT_LCL_LOAD_FLD))
         {
-            if (!lcl->IsPromoted() || !PromoteLclFld(node->AsLclFld(), lcl))
+            if (!lcl->IsPromoted() || !PromoteLclFld(node->AsLclLoadFld(), lcl))
             {
                 m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
             }
@@ -1475,8 +1475,8 @@ private:
 
             switch (user->GetOper())
             {
-                case GT_STORE_LCL_VAR:
-                case GT_STORE_OBJ:
+                case GT_LCL_STORE:
+                case GT_IND_STORE_OBJ:
                     if (MorphLocalStructIndirStore(val, indir, indirLayout))
                     {
                         return;
@@ -3277,10 +3277,10 @@ public:
                 MorphVarargsStackParamAddr(node->AsLclAddr());
 #endif
                 return Compiler::WALK_SKIP_SUBTREES;
-            case GT_STORE_LCL_VAR:
-            case GT_STORE_LCL_FLD:
-            case GT_LCL_VAR:
-            case GT_LCL_FLD:
+            case GT_LCL_STORE:
+            case GT_LCL_STORE_FLD:
+            case GT_LCL_LOAD:
+            case GT_LCL_LOAD_FLD:
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
                 MorphImplicitByRefParam(node);
 #else

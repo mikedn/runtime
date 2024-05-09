@@ -5919,14 +5919,14 @@ void Compiler::phRemoveRedundantZeroInits()
                 switch (node->GetOper())
                 {
                     case GT_LCL_ADDR:
-                    case GT_LCL_VAR:
-                    case GT_LCL_FLD:
+                    case GT_LCL_LOAD:
+                    case GT_LCL_LOAD_FLD:
                         BitVecOps::AddElemD(bitVecTraits, referencedLocals,
                                             node->AsLclVarCommon()->GetLcl()->GetLclNum());
                         break;
 
-                    case GT_STORE_LCL_VAR:
-                    case GT_STORE_LCL_FLD:
+                    case GT_LCL_STORE:
+                    case GT_LCL_STORE_FLD:
                     {
                         GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
                         LclVarDsc*           lcl     = lclNode->GetLcl();

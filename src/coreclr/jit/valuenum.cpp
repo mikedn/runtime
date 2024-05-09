@@ -7088,8 +7088,8 @@ void ValueNumbering::SummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySu
             SummarizeLoopIndirMemoryStores(node->AsIndir(), summary);
             break;
 
-        case GT_STORE_LCL_VAR:
-        case GT_STORE_LCL_FLD:
+        case GT_LCL_STORE:
+        case GT_LCL_STORE_FLD:
             SummarizeLoopLocalMemoryStores(node->AsLclVarCommon(), summary);
             break;
 

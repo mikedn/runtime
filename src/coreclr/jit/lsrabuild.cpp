@@ -749,19 +749,19 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* tree)
             killMask = getKillSetForModDiv(tree->AsOp());
             break;
 
-        case GT_STORE_LCL_VAR:
-        case GT_STORE_LCL_FLD:
+        case GT_LCL_STORE:
+        case GT_LCL_STORE_FLD:
             if (tree->TypeIs(TYP_STRUCT) && !tree->AsLclVarCommon()->GetOp(0)->IsCall())
             {
-                ClassLayout* layout = tree->OperIs(GT_STORE_LCL_VAR) ? tree->AsLclVar()->GetLcl()->GetLayout()
-                                                                     : tree->AsLclFld()->GetLayout(compiler);
+                ClassLayout* layout = tree->OperIs(GT_LCL_STORE) ? tree->AsLclStore()->GetLcl()->GetLayout()
+                                                                 : tree->AsLclStoreFld()->GetLayout(compiler);
                 StructStoreKind kind = GetStructStoreKind(true, layout, tree->AsLclVarCommon()->GetOp(0));
                 killMask             = getKillSetForStructStore(kind);
             }
             break;
 
-        case GT_STORE_OBJ:
-        case GT_STORE_BLK:
+        case GT_IND_STORE_OBJ:
+        case GT_IND_STORE_BLK:
             killMask = getKillSetForStructStore(tree->AsBlk()->GetKind());
             break;
 

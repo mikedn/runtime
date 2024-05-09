@@ -10596,15 +10596,15 @@ DONE_MORPHING_CHILDREN:
         GenTree* cns2;
         size_t   ival1, ival2;
 
-        case GT_STORE_LCL_VAR:
-        case GT_STORE_LCL_FLD:
+        case GT_LCL_STORE:
+        case GT_LCL_STORE_FLD:
             if (varTypeIsStruct(typ))
             {
                 tree = fgMorphStructStore(tree, op1);
             }
             else if (varTypeIsSmall(typ))
             {
-                if ((tree->OperIs(GT_STORE_LCL_FLD) || (tree->AsLclVar()->GetLcl()->lvNormalizeOnLoad())) &&
+                if ((tree->OperIs(GT_LCL_STORE_FLD) || (tree->AsLclStore()->GetLcl()->lvNormalizeOnLoad())) &&
                     op1->IsCast() && varTypeIsIntegral(op1->AsCast()->GetOp(0)) && !op1->gtOverflow() &&
                     varTypeIsSmall(op1->GetType()) && (varTypeSize(op1->GetType()) >= varTypeSize(typ)))
                 {

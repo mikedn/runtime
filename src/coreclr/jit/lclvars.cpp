@@ -2559,20 +2559,22 @@ void Compiler::lvaComputeRefCountsHIR()
 
             switch (node->GetOper())
             {
-                case GT_STORE_LCL_VAR:
+                case GT_LCL_STORE:
 #if OPT_BOOL_OPS
                 {
-                    GenTree* value = node->AsLclVar()->GetOp(0);
+                    GenTree* value = node->AsLclStore()->GetOp(0);
 
                     if (!value->TypeIs(TYP_BOOL) && !value->OperIsCompare() && !value->IsIntegralConst(0) &&
                         !value->IsIntegralConst(1))
                     {
-                        node->AsLclVar()->GetLcl()->lvIsBoolean = false;
+                        node->AsLclStore()->GetLcl()->lvIsBoolean = false;
                     }
                 }
                     FALLTHROUGH;
 #endif
-                case GT_STORE_LCL_FLD:
+                case GT_LCL_STORE_FLD:
+                case GT_LCL_LOAD:
+                case GT_LCL_LOAD_FLD:
                     MarkLclRefs(node->AsLclVarCommon(), user);
                     break;
 
@@ -2587,11 +2589,6 @@ void Compiler::lvaComputeRefCountsHIR()
                 }
                 break;
 
-                case GT_LCL_VAR:
-                case GT_LCL_FLD:
-                    MarkLclRefs(node->AsLclVarCommon(), user);
-                    break;
-
                 default:
                     break;
             }
@@ -2605,7 +2602,7 @@ void Compiler::lvaComputeRefCountsHIR()
 
             m_compiler->lvaAddRef(lcl, m_weight);
 
-            if (lcl->IsAddressExposed() || node->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD))
+            if (lcl->IsAddressExposed() || node->OperIs(GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD))
             {
                 lcl->lvIsBoolean = false;
 #if ASSERTION_PROP
@@ -2766,19 +2763,19 @@ void Compiler::lvaComputeRefCountsLIR()
                     lcl       = node->AsLclAddr()->GetLcl();
                     break;
 
-                case GT_LCL_VAR:
-                case GT_LCL_FLD:
+                case GT_LCL_LOAD:
+                case GT_LCL_LOAD_FLD:
                     if ((node->gtFlags & GTF_VAR_CONTEXT) != 0)
                     {
-                        assert(node->OperIs(GT_LCL_VAR));
+                        assert(node->OperIs(GT_LCL_LOAD));
                         lvaGenericsContextInUse = true;
                     }
 
                     lcl = node->AsLclVarCommon()->GetLcl();
                     break;
 
-                case GT_STORE_LCL_VAR:
-                case GT_STORE_LCL_FLD:
+                case GT_LCL_STORE:
+                case GT_LCL_STORE_FLD:
                     assert((node->gtFlags & GTF_VAR_CONTEXT) == 0);
                     lcl = node->AsLclVarCommon()->GetLcl();
 

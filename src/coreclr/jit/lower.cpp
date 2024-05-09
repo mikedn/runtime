@@ -322,28 +322,24 @@ GenTree* Lowering::LowerNode(GenTree* node)
             break;
 #endif
 
-        case GT_LCL_FLD:
-            LowerLclFld(node->AsLclFld());
-            break;
-
-        case GT_LCL_VAR:
+        case GT_LCL_LOAD:
             LowerLclVar(node->AsLclVar());
             break;
-
-        case GT_STORE_LCL_VAR:
+        case GT_LCL_STORE:
             LowerStoreLclVar(node->AsLclVar());
             break;
-
-        case GT_STORE_LCL_FLD:
+        case GT_LCL_LOAD_FLD:
+            LowerLclFld(node->AsLclFld());
+            break;
+        case GT_LCL_STORE_FLD:
             LowerStoreLclFld(node->AsLclFld());
+            break;
+        case GT_LCL_ADDR:
+            assert(node->AsLclAddr()->GetLcl()->IsAddressExposed());
             break;
 
         case GT_KEEPALIVE:
             node->AsUnOp()->GetOp(0)->SetRegOptional();
-            break;
-
-        case GT_LCL_ADDR:
-            assert(node->AsLclAddr()->GetLcl()->IsAddressExposed());
             break;
 
         default:
@@ -2216,12 +2212,12 @@ void Lowering::LowerStructReturn(GenTreeUnOp* ret)
             assert(src->TypeIs(retRegType)); // Type should be changed during call processing.
             break;
 
-        case GT_LCL_VAR:
+        case GT_LCL_LOAD:
             LowerRetSingleRegStructLclVar(ret);
             break;
 
-        case GT_LCL_FLD:
-            assert(src->AsLclFld()->GetLcl()->lvDoNotEnregister);
+        case GT_LCL_LOAD_FLD:
+            assert(src->AsLclLoadFld()->GetLcl()->lvDoNotEnregister);
             src->SetType(retRegType);
             break;
 
@@ -2308,9 +2304,9 @@ void Lowering::LowerStructCall(GenTreeCall* call)
                 call->SetType(varActualType(regType));
                 break;
 
-            case GT_STORE_LCL_VAR:
-            case GT_STORE_LCL_FLD:
-            case GT_STORE_OBJ:
+            case GT_LCL_STORE:
+            case GT_LCL_STORE_FLD:
+            case GT_IND_STORE_OBJ:
                 // Leave as is, the user will handle it.
                 assert(user->TypeIs(call->GetType()) || varTypeIsSIMD(user->GetType()));
                 break;
@@ -4783,8 +4779,8 @@ void Lowering::CheckNode(GenTree* node)
             break;
 #endif
 
-        case GT_LCL_VAR:
-        case GT_STORE_LCL_VAR:
+        case GT_LCL_LOAD:
+        case GT_LCL_STORE:
         {
             LclVarDsc* lcl = node->AsLclVar()->GetLcl();
 #ifdef FEATURE_SIMD
@@ -4806,8 +4802,8 @@ void Lowering::CheckNode(GenTree* node)
             assert(!"Should not see SSA nodes in lowering");
             break;
 
-        case GT_LCL_FLD:
-        case GT_STORE_LCL_FLD:
+        case GT_LCL_LOAD_FLD:
+        case GT_LCL_STORE_FLD:
             assert(node->AsLclFld()->GetLcl()->lvDoNotEnregister);
             break;
 
