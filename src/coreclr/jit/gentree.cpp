@@ -1431,8 +1431,8 @@ AGAIN:
                         static_cast<unsigned>(tree->AsAddrMode()->GetOffset() << 3) + tree->AsAddrMode()->GetScale();
                     break;
 
-                case GT_STORE_BLK:
-                case GT_STORE_OBJ:
+                case GT_IND_STORE_BLK:
+                case GT_IND_STORE_OBJ:
                     hash ^= PtrToUlong(tree->AsBlk()->GetLayout());
                     break;
 
@@ -7862,8 +7862,8 @@ void Compiler::gtDispTreeRec(
             printf(")");
             break;
 
-        case GT_STORE_OBJ:
-        case GT_STORE_BLK:
+        case GT_IND_STORE_OBJ:
+        case GT_IND_STORE_BLK:
             if (tree->AsBlk()->GetKind() != StructStoreKind::Invalid)
             {
                 printf(" (%s)", StructStoreKindName(tree->AsBlk()->GetKind()));

@@ -70,21 +70,21 @@ bool Lowering::IsSafeToMoveForward(GenTree* move, GenTree* before)
     return true;
 }
 
-GenTreeLclVar* Lowering::ReplaceWithLclVar(LIR::Use& use, LclVarDsc* tempLcl)
+GenTreeLclLoad* Lowering::ReplaceWithLclVar(LIR::Use& use, LclVarDsc* tempLcl)
 {
     GenTree* def = use.Def();
 
-    if (def->OperIs(GT_LCL_VAR) && (tempLcl == nullptr))
+    if (def->OperIs(GT_LCL_LOAD) && (tempLcl == nullptr))
     {
-        return def->AsLclVar();
+        return def->AsLclLoad();
     }
 
-    GenTreeLclVar* store;
+    GenTreeLclStore* store;
     use.ReplaceWithLclVar(comp, tempLcl, &store);
-    GenTreeLclVar* load = use.Def()->AsLclVar();
+    GenTreeLclLoad* load = use.Def()->AsLclLoad();
 
-    LowerStoreLclVar(store);
-    LowerLclVar(load);
+    LowerLclStore(store);
+    LowerLclLoad(load);
 
     return load;
 }
@@ -95,13 +95,33 @@ GenTree* Lowering::LowerNode(GenTree* node)
 
     switch (node->GetOper())
     {
+        case GT_LCL_ADDR:
+            assert(node->AsLclAddr()->GetLcl()->IsAddressExposed());
+            break;
+        case GT_LCL_LOAD:
+            LowerLclLoad(node->AsLclLoad());
+            break;
+        case GT_LCL_STORE:
+            LowerLclStore(node->AsLclStore());
+            break;
+        case GT_LCL_LOAD_FLD:
+            LowerLclLoadFld(node->AsLclLoadFld());
+            break;
+        case GT_LCL_STORE_FLD:
+            LowerLclStoreFld(node->AsLclStoreFld());
+            break;
         case GT_NULLCHECK:
         case GT_IND_LOAD:
             LowerIndir(node->AsIndir());
             break;
-
         case GT_IND_STORE:
             LowerIndStore(node->AsIndStore());
+            break;
+        case GT_IND_STORE_OBJ:
+            LowerIndStoreObj(node->AsIndStoreObj());
+            break;
+        case GT_IND_STORE_BLK:
+            LowerIndStoreBlk(node->AsIndStoreBlk());
             break;
 
 #ifdef TARGET_ARM64
@@ -304,14 +324,6 @@ GenTree* Lowering::LowerNode(GenTree* node)
             LowerShift(node->AsOp());
             break;
 
-        case GT_STORE_OBJ:
-            LowerStoreObj(node->AsObj());
-            break;
-
-        case GT_STORE_BLK:
-            LowerStoreBlk(node->AsBlk());
-            break;
-
         case GT_LCLHEAP:
             LowerLclHeap(node->AsUnOp());
             break;
@@ -321,22 +333,6 @@ GenTree* Lowering::LowerNode(GenTree* node)
             LowerHWIntrinsic(node->AsHWIntrinsic());
             break;
 #endif
-
-        case GT_LCL_LOAD:
-            LowerLclVar(node->AsLclVar());
-            break;
-        case GT_LCL_STORE:
-            LowerStoreLclVar(node->AsLclVar());
-            break;
-        case GT_LCL_LOAD_FLD:
-            LowerLclFld(node->AsLclFld());
-            break;
-        case GT_LCL_STORE_FLD:
-            LowerStoreLclFld(node->AsLclFld());
-            break;
-        case GT_LCL_ADDR:
-            assert(node->AsLclAddr()->GetLcl()->IsAddressExposed());
-            break;
 
         case GT_KEEPALIVE:
             node->AsUnOp()->GetOp(0)->SetRegOptional();
@@ -1938,9 +1934,8 @@ void Lowering::LowerReturn(GenTreeUnOp* ret)
     }
 }
 
-void Lowering::LowerLclVar(GenTreeLclVar* lclVar)
+void Lowering::LowerLclLoad(GenTreeLclLoad* lclVar)
 {
-    assert(lclVar->OperIs(GT_LCL_VAR));
     assert(!lclVar->IsMultiReg());
     assert(!lclVar->GetLcl()->IsIndependentPromoted());
 
@@ -1952,10 +1947,8 @@ void Lowering::LowerLclVar(GenTreeLclVar* lclVar)
 #endif
 }
 
-void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
+void Lowering::LowerLclStore(GenTreeLclStore* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR));
-
 #ifdef FEATURE_SIMD
     if (store->TypeIs(TYP_SIMD12))
     {
@@ -1963,7 +1956,7 @@ void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
     }
 #endif
 
-    GenTree*   src = store->GetOp(0);
+    GenTree*   src = store->GetValue();
     LclVarDsc* lcl = store->GetLcl();
 
 #if FEATURE_MULTIREG_RET
@@ -2014,20 +2007,16 @@ void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
     LowerStoreLclVarArch(store);
 }
 
-void Lowering::LowerLclFld(GenTreeLclFld* lclFld)
+void Lowering::LowerLclLoadFld(GenTreeLclLoadFld* load)
 {
-    assert(lclFld->OperIs(GT_LCL_FLD));
-
-    comp->lvaSetDoNotEnregister(lclFld->GetLcl() DEBUG_ARG(Compiler::DNER_LocalField));
+    comp->lvaSetDoNotEnregister(load->GetLcl() DEBUG_ARG(Compiler::DNER_LocalField));
 }
 
-void Lowering::LowerStoreLclFld(GenTreeLclFld* store)
+void Lowering::LowerLclStoreFld(GenTreeLclStoreFld* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_FLD));
-
     comp->lvaSetDoNotEnregister(store->GetLcl() DEBUG_ARG(Compiler::DNER_LocalField));
 
-    GenTree* value = store->GetOp(0);
+    GenTree* value = store->GetValue();
 
     if (varTypeIsStruct(store->GetType()))
     {
@@ -2194,7 +2183,7 @@ void Lowering::LowerStructReturn(GenTreeUnOp* ret)
             src->ChangeOper(GT_OBJ);
             src->AsObj()->SetLayout(retLayout);
 
-            LowerStoreLclVar(tempStore);
+            LowerLclStore(tempStore);
 #endif
         }
 
@@ -5175,11 +5164,11 @@ void Lowering::LowerIndStore(GenTreeIndStore* store)
 
             call->SetType(TYP_STRUCT);
 
-            store->SetOper(GT_STORE_OBJ);
+            store->SetOper(GT_IND_STORE_OBJ);
             store->SetType(TYP_STRUCT);
             store->AsObj()->SetLayout(call->GetRetLayout());
 
-            LowerStoreObj(store->AsObj());
+            LowerIndStoreObj(store->AsIndStoreObj());
 
             return;
         }
@@ -5194,9 +5183,9 @@ void Lowering::LowerIndStore(GenTreeIndStore* store)
     }
 }
 
-void Lowering::LowerStoreObj(GenTreeObj* store)
+void Lowering::LowerIndStoreObj(GenTreeIndStoreObj* store)
 {
-    assert(store->OperIs(GT_STORE_OBJ) && store->TypeIs(TYP_STRUCT));
+    assert(store->TypeIs(TYP_STRUCT));
 
     GenTree*     value  = store->GetValue();
     ClassLayout* layout = store->GetLayout();
@@ -5251,20 +5240,20 @@ void Lowering::LowerStoreObj(GenTreeObj* store)
 
 void Lowering::LowerStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout)
 {
-    assert(store->OperIs(GT_STORE_OBJ, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) && store->TypeIs(TYP_STRUCT));
+    assert(store->OperIs(GT_IND_STORE_OBJ, GT_LCL_STORE, GT_LCL_STORE_FLD) && store->TypeIs(TYP_STRUCT));
     assert(!layout->IsBlockLayout());
 
     GenTree* dstAddr = nullptr;
     GenTree* src;
 
-    if (!store->OperIs(GT_STORE_OBJ))
+    if (!store->OperIs(GT_IND_STORE_OBJ))
     {
         src = store->AsLclVarCommon()->GetOp(0);
     }
     else
     {
-        dstAddr = store->AsObj()->GetAddr();
-        src     = store->AsObj()->GetValue();
+        dstAddr = store->AsIndStoreObj()->GetAddr();
+        src     = store->AsIndStoreObj()->GetValue();
 
         assert(dstAddr->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
@@ -5278,8 +5267,8 @@ void Lowering::LowerStructStore(GenTree* store, StructStoreKind kind, ClassLayou
         }
     }
 
-    assert((src->OperIs(GT_OBJ, GT_LCL_VAR, GT_LCL_FLD) && src->TypeIs(TYP_STRUCT)) || src->IsIntegralConst(0));
-    assert(!src->OperIs(GT_OBJ) || !src->AsObj()->GetAddr()->isContained());
+    assert((src->OperIs(GT_IND_LOAD_OBJ, GT_LCL_LOAD, GT_LCL_LOAD_FLD) && src->TypeIs(TYP_STRUCT)) || src->IsIntCon(0));
+    assert(!src->OperIs(GT_IND_LOAD_OBJ) || !src->AsObj()->GetAddr()->isContained());
 
     if (src->TypeIs(TYP_STRUCT))
     {
@@ -5311,7 +5300,7 @@ void Lowering::LowerStructStore(GenTree* store, StructStoreKind kind, ClassLayou
         src->SetContained();
 #endif
     }
-    else if (src->OperIs(GT_OBJ))
+    else if (src->OperIs(GT_IND_LOAD_OBJ))
     {
         if (kind == StructStoreKind::UnrollCopy)
         {
@@ -5326,9 +5315,9 @@ void Lowering::LowerStructStore(GenTree* store, StructStoreKind kind, ClassLayou
     }
 }
 
-void Lowering::LowerStoreBlk(GenTreeBlk* store)
+void Lowering::LowerIndStoreBlk(GenTreeIndStoreBlk* store)
 {
-    assert(store->OperIs(GT_STORE_BLK) && store->TypeIs(TYP_STRUCT));
+    assert(store->TypeIs(TYP_STRUCT));
 
     GenTree* dstAddr = store->GetAddr();
     GenTree* src     = store->GetValue();
@@ -5340,9 +5329,9 @@ void Lowering::LowerStoreBlk(GenTreeBlk* store)
     TryCreateAddrMode(dstAddr, false);
 #endif
 
-    if (!src->OperIs(GT_BLK))
+    if (!src->OperIs(GT_IND_LOAD_BLK))
     {
-        assert(src->OperIs(GT_INIT_VAL) || src->IsIntegralConst(0));
+        assert(src->OperIs(GT_INIT_VAL) || src->IsIntCon(0));
 
         if (src->OperIs(GT_INIT_VAL))
         {
@@ -5414,7 +5403,7 @@ void Lowering::LowerStoreBlk(GenTreeBlk* store)
     }
     else
     {
-        assert(src->OperIs(GT_BLK) && src->TypeIs(TYP_STRUCT));
+        assert(src->OperIs(GT_IND_LOAD_BLK) && src->TypeIs(TYP_STRUCT));
         assert(!src->AsBlk()->GetAddr()->isContained());
 
         src->SetContained();
@@ -5424,7 +5413,7 @@ void Lowering::LowerStoreBlk(GenTreeBlk* store)
             store->SetKind(StructStoreKind::LargeCopy);
 
 #ifdef TARGET_XARCH
-            if (src->OperIs(GT_BLK))
+            if (src->OperIs(GT_IND_LOAD_BLK))
             {
                 TryCreateAddrMode(src->AsBlk()->GetAddr(), false);
             }
@@ -5434,7 +5423,7 @@ void Lowering::LowerStoreBlk(GenTreeBlk* store)
         {
             store->SetKind(StructStoreKind::UnrollCopy);
 
-            if (src->OperIs(GT_BLK))
+            if (src->OperIs(GT_IND_LOAD_BLK))
             {
                 ContainStructStoreAddress(store, size, src->AsBlk()->GetAddr());
             }
@@ -5444,10 +5433,8 @@ void Lowering::LowerStoreBlk(GenTreeBlk* store)
     }
 }
 
-bool Lowering::TryTransformStoreObjToStoreInd(GenTreeObj* store)
+bool Lowering::TryTransformStoreObjToStoreInd(GenTreeIndStoreObj* store)
 {
-    assert(store->OperIs(GT_STORE_OBJ));
-
 #if 0
     if (!comp->opts.OptimizationEnabled())
     {

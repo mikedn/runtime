@@ -34,11 +34,11 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_LCL_STORE:
-            BuildStoreLclVar(tree->AsLclStore());
+            BuildLclStore(tree->AsLclStore());
             break;
 
         case GT_LCL_STORE_FLD:
-            BuildStoreLclFld(tree->AsLclStoreFld());
+            BuildLclStoreFld(tree->AsLclStoreFld());
             break;
 
         case GT_START_PREEMPTGC:
@@ -262,8 +262,8 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildPutArgStk(tree->AsPutArgStk());
             break;
 
-        case GT_STORE_BLK:
-        case GT_STORE_OBJ:
+        case GT_IND_STORE_BLK:
+        case GT_IND_STORE_OBJ:
             BuildStructStore(tree->AsBlk(), tree->AsBlk()->GetKind(), tree->AsBlk()->GetLayout());
             break;
 

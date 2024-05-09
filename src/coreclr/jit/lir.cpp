@@ -235,7 +235,7 @@ void LIR::Use::ReplaceWith(Compiler* compiler, GenTree* replacement)
 //          /--*  t18 int
 //          *  jmpTrue   void
 //
-LclVarDsc* LIR::Use::ReplaceWithLclVar(Compiler* compiler, LclVarDsc* lcl, GenTreeLclVar** newStore)
+LclVarDsc* LIR::Use::ReplaceWithLclVar(Compiler* compiler, LclVarDsc* lcl, GenTreeLclStore** newStore)
 {
     assert(IsInitialized());
     assert(m_range->Contains(m_user));
@@ -282,8 +282,8 @@ LclVarDsc* LIR::Use::ReplaceWithLclVar(Compiler* compiler, LclVarDsc* lcl, GenTr
         }
     }
 
-    GenTreeLclVar* store = compiler->gtNewStoreLclVar(lcl, type, def);
-    GenTreeLclVar* load  = compiler->gtNewLclvNode(lcl, type);
+    GenTreeLclStore* store = compiler->gtNewLclStore(lcl, type, def);
+    GenTreeLclLoad*  load  = compiler->gtNewLclLoad(lcl, type);
     m_range->InsertAfter(def, store, load);
 
     ReplaceWith(compiler, load);

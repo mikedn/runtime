@@ -2602,10 +2602,8 @@ void LinearScan::BuildStoreLclVarMultiReg(GenTreeLclVar* store)
     }
 }
 
-void LinearScan::BuildStoreLclVar(GenTreeLclVar* store)
+void LinearScan::BuildLclStore(GenTreeLclStore* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR));
-
     if (IsCandidateLclVarMultiReg(store))
     {
         BuildStoreLclVarMultiReg(store);
@@ -2614,7 +2612,7 @@ void LinearScan::BuildStoreLclVar(GenTreeLclVar* store)
     }
 
     LclVarDsc* lcl = store->GetLcl();
-    GenTree*   src = store->GetOp(0);
+    GenTree*   src = store->GetValue();
 
     if (store->TypeIs(TYP_STRUCT) && !src->IsCall())
     {
@@ -2625,41 +2623,39 @@ void LinearScan::BuildStoreLclVar(GenTreeLclVar* store)
         return;
     }
 
-    BuildStoreLcl(store);
+    BuildLclStoreCommon(store);
 }
 
-void LinearScan::BuildStoreLclFld(GenTreeLclFld* store)
+void LinearScan::BuildLclStoreFld(GenTreeLclStoreFld* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_FLD));
-
     if (store->TypeIs(TYP_STRUCT))
     {
         ClassLayout*    layout = store->AsLclFld()->GetLayout(compiler);
-        StructStoreKind kind   = GetStructStoreKind(true, layout, store->GetOp(0));
+        StructStoreKind kind   = GetStructStoreKind(true, layout, store->GetValue());
         BuildStructStore(store, kind, layout);
 
         return;
     }
 
-    BuildStoreLcl(store);
+    BuildLclStoreCommon(store);
 }
 
-void LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
+void LinearScan::BuildLclStoreCommon(GenTreeLclVarCommon* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+    assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
 
     GenTree* src = store->GetOp(0);
 
 #ifdef FEATURE_SIMD
     if (store->TypeIs(TYP_SIMD12))
     {
-        if (src->isContained() && src->OperIs(GT_IND, GT_LCL_FLD, GT_LCL_VAR))
+        if (src->isContained() && src->OperIs(GT_IND_LOAD, GT_LCL_LOAD_FLD, GT_LCL_LOAD))
         {
             BuildInternalIntDef(store);
 
-            if (src->OperIs(GT_IND))
+            if (src->OperIs(GT_IND_LOAD))
             {
-                BuildAddrUses(src->AsIndir()->GetAddr());
+                BuildAddrUses(src->AsIndLoad()->GetAddr());
             }
 
             BuildInternalUses();
@@ -2755,7 +2751,7 @@ void LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
     }
 
 #ifdef TARGET_ARM
-    if (store->OperIs(GT_STORE_LCL_FLD) && store->AsLclFld()->IsOffsetMisaligned())
+    if (store->OperIs(GT_LCL_STORE_FLD) && store->AsLclStoreFld()->IsOffsetMisaligned())
     {
         BuildInternalIntDef(store);
 

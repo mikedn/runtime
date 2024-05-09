@@ -1554,9 +1554,9 @@ private:
     void BuildStoreDynBlk(GenTreeDynBlk* store);
     void BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPosition* singleUseRef, unsigned index);
     void BuildStoreLclVarMultiReg(GenTreeLclVar* store);
-    void BuildStoreLclVar(GenTreeLclVar* store);
-    void BuildStoreLclFld(GenTreeLclFld* store);
-    void BuildStoreLcl(GenTreeLclVarCommon* store);
+    void BuildLclStore(GenTreeLclStore* store);
+    void BuildLclStoreFld(GenTreeLclStoreFld* store);
+    void BuildLclStoreCommon(GenTreeLclVarCommon* store);
     void BuildGCWriteBarrier(GenTreeIndStore* store);
 #ifdef TARGET_XARCH
     void BuildLoadInd(GenTreeIndir* load);

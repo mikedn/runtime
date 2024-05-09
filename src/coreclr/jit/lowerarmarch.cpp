@@ -69,11 +69,9 @@ bool Lowering::IsImmOperand(GenTree* operand, GenTree* instr) const
 
 #endif // TARGET_ARM
 
-void Lowering::LowerStoreLclVarArch(GenTreeLclVar* store)
+void Lowering::LowerStoreLclVarArch(GenTreeLclStore* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR));
-
-    GenTree* src = store->GetOp(0);
+    GenTree* src = store->GetValue();
 
     if (GenTreeIntCon* con = src->IsIntCon())
     {

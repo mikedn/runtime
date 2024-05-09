@@ -34,11 +34,11 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_LCL_STORE:
-            BuildStoreLclVar(tree->AsLclStore());
+            BuildLclStore(tree->AsLclStore());
             break;
 
         case GT_LCL_STORE_FLD:
-            BuildStoreLclFld(tree->AsLclStoreFld());
+            BuildLclStoreFld(tree->AsLclStoreFld());
             break;
 
         case GT_KEEPALIVE:

@@ -107,11 +107,11 @@ private:
 #endif
     void LowerJmpMethod(GenTree* jmp);
     void LowerReturn(GenTreeUnOp* ret);
-    void LowerLclVar(GenTreeLclVar* lclVar);
-    void LowerStoreLclVar(GenTreeLclVar* store);
-    void LowerStoreLclVarArch(GenTreeLclVar* store);
-    void LowerLclFld(GenTreeLclFld* lclFld);
-    void LowerStoreLclFld(GenTreeLclFld* store);
+    void LowerLclLoad(GenTreeLclLoad* load);
+    void LowerLclStore(GenTreeLclStore* store);
+    void LowerStoreLclVarArch(GenTreeLclStore* store);
+    void LowerLclLoadFld(GenTreeLclLoadFld* load);
+    void LowerLclStoreFld(GenTreeLclStoreFld* store);
     void LowerStructReturn(GenTreeUnOp* ret);
     void LowerRetSingleRegStructLclVar(GenTreeUnOp* ret);
     void LowerStructCall(GenTreeCall* call);
@@ -156,7 +156,7 @@ private:
 
     // Replace the definition of the given use with a lclVar, allocating a new temp
     // if 'tempNum' is BAD_VAR_NUM. Returns the LclVar node.
-    GenTreeLclVar* ReplaceWithLclVar(LIR::Use& use, LclVarDsc* tempLcl = nullptr);
+    GenTreeLclLoad* ReplaceWithLclVar(LIR::Use& use, LclVarDsc* tempLcl = nullptr);
 
     // return true if this call target is within range of a pc-rel call on the machine
     bool IsCallTargetInRange(void* addr);
@@ -174,8 +174,8 @@ private:
     GenTree* LowerConstIntDivOrMod(GenTree* node);
     GenTree* LowerSignedDivOrMod(GenTree* node);
     void LowerStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);
-    void LowerStoreObj(GenTreeObj* store);
-    void LowerStoreBlk(GenTreeBlk* store);
+    void LowerIndStoreObj(GenTreeIndStoreObj* store);
+    void LowerIndStoreBlk(GenTreeIndStoreBlk* store);
     void ContainStructStoreAddress(GenTree* store, unsigned size, GenTree* addr);
     void ContainStructStoreAddressUnrollRegsWB(GenTree* addr);
     void LowerPutArgStk(GenTreePutArgStk* tree);
@@ -205,7 +205,7 @@ private:
 
     bool TryCreateAddrMode(GenTree* addr, bool isContainable);
 
-    bool TryTransformStoreObjToStoreInd(GenTreeObj* store);
+    bool TryTransformStoreObjToStoreInd(GenTreeIndStoreObj* store);
 
     GenTree* LowerSwitch(GenTreeUnOp* node);
     bool TryLowerSwitchToBitTest(
