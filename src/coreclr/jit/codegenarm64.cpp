@@ -1688,10 +1688,8 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
     DefReg(treeNode);
 }
 
-void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
+void CodeGen::GenLclLoad(GenTreeLclLoad* load)
 {
-    assert(load->OperIs(GT_LCL_VAR));
-
     LclVarDsc* lcl = load->GetLcl();
 
     assert(!lcl->IsIndependentPromoted());
@@ -1711,10 +1709,8 @@ void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
     DefLclVarReg(load);
 }
 
-void CodeGen::GenLoadLclFld(GenTreeLclFld* load)
+void CodeGen::GenLclLoadFld(GenTreeLclLoadFld* load)
 {
-    assert(load->OperIs(GT_LCL_FLD));
-
     // TODO-MIKE-Review: ARM64 uses 16 byte loads to load Vector3 locals while
     // XARCH uses 12 byte loads. Could XARCH also use 16 byte loads? The problem
     // with ARM64's approach is that the last vector element isn't zeroed. It's
@@ -1732,12 +1728,10 @@ void CodeGen::GenLoadLclFld(GenTreeLclFld* load)
     DefReg(load);
 }
 
-void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
+void CodeGen::GenLclStoreFld(GenTreeLclStoreFld* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_FLD));
-
     var_types type = store->GetType();
-    GenTree*  src  = store->GetOp(0);
+    GenTree*  src  = store->GetValue();
 
     if (type == TYP_STRUCT)
     {
@@ -1783,10 +1777,8 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
     liveness.UpdateLife(this, store);
 }
 
-void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
+void CodeGen::GenLclStore(GenTreeLclStore* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR));
-
     LclVarDsc* lcl = store->GetLcl();
 
     if (lcl->IsIndependentPromoted())
@@ -1795,7 +1787,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         return;
     }
 
-    GenTree* src = store->GetOp(0);
+    GenTree* src = store->GetValue();
 
     if (store->TypeIs(TYP_STRUCT))
     {
@@ -2649,18 +2641,14 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
     GetEmitter()->DefineTempLabel(skipLabel);
 }
 
-void CodeGen::genCodeForNullCheck(GenTreeIndir* tree)
+void CodeGen::GenNullCheck(GenTreeNullCheck* check)
 {
-    assert(tree->OperIs(GT_NULLCHECK));
-
-    genConsumeAddress(tree->GetAddr());
-    emitInsLoad(INS_ldr, EA_4BYTE, REG_ZR, tree);
+    genConsumeAddress(check->GetAddr());
+    emitInsLoad(INS_ldr, EA_4BYTE, REG_ZR, check);
 }
 
-void CodeGen::GenIndLoad(GenTreeIndir* load)
+void CodeGen::GenIndLoad(GenTreeIndLoad* load)
 {
-    assert(load->OperIs(GT_IND));
-
     if (load->TypeIs(TYP_SIMD12))
     {
         LoadSIMD12(load);

@@ -7220,30 +7220,36 @@ void ValueNumbering::NumberNode(GenTree* node)
         case GT_LCL_LOAD:
             NumberLclLoad(node->AsLclLoad());
             break;
-
         case GT_LCL_LOAD_FLD:
             NumberLclLoadFld(node->AsLclLoadFld());
             break;
-
+        case GT_LCL_STORE:
+            NumberLclStore(node->AsLclStore());
+            break;
+        case GT_LCL_STORE_FLD:
+            NumberLclStoreFld(node->AsLclStoreFld());
+            break;
         case GT_LCL_DEF:
             NumberLclDef(node->AsLclDef());
             break;
-
         case GT_LCL_USE:
             NumberLclUse(node->AsLclUse());
             break;
-
         case GT_INSERT:
             NumberInsert(node->AsInsert());
             break;
-
         case GT_EXTRACT:
             NumberExtract(node->AsExtract());
             break;
-
-        case GT_CATCH_ARG:
-            // We know nothing about the value of a caught expression.
-            node->SetVNP(ValueNumPair{vnStore->VNForExpr(node->GetType())});
+        case GT_IND_LOAD:
+        case GT_IND_LOAD_OBJ:
+        case GT_IND_LOAD_BLK:
+            NumberIndLoad(node->AsIndir());
+            break;
+        case GT_IND_STORE:
+        case GT_IND_STORE_OBJ:
+        case GT_IND_STORE_BLK:
+            NumberIndStore(node->AsIndir());
             break;
 
         case GT_MEMORYBARRIER:
@@ -7263,22 +7269,9 @@ void ValueNumbering::NumberNode(GenTree* node)
             node->SetVNP(ValueNumStore::VoidVNP());
             break;
 
-        case GT_IND_STORE:
-        case GT_IND_STORE_OBJ:
-        case GT_IND_STORE_BLK:
-            NumberIndStore(node->AsIndir());
-            break;
-        case GT_LCL_STORE:
-            NumberLclStore(node->AsLclStore());
-            break;
-        case GT_LCL_STORE_FLD:
-            NumberLclStoreFld(node->AsLclStoreFld());
-            break;
-
-        case GT_IND:
-        case GT_OBJ:
-        case GT_BLK:
-            NumberIndLoad(node->AsIndir());
+        case GT_CATCH_ARG:
+            // We know nothing about the value of a caught expression.
+            node->SetVNP(ValueNumPair{vnStore->VNForExpr(node->GetType())});
             break;
 
         case GT_CAST:

@@ -159,18 +159,26 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
     }
 
     GenTree* nextNode = nullptr;
-    switch (tree->OperGet())
+
+    switch (tree->GetOper())
     {
-        case GT_LCL_VAR:
-            nextNode = DecomposeLclVar(use);
+        case GT_LCL_LOAD:
+            nextNode = DecomposeLclLoad(use);
             break;
-
-        case GT_LCL_FLD:
-            nextNode = DecomposeLclFld(use);
+        case GT_LCL_STORE:
+            nextNode = DecomposeLclStore(use);
             break;
-
-        case GT_STORE_LCL_VAR:
-            nextNode = DecomposeStoreLclVar(use);
+        case GT_LCL_LOAD_FLD:
+            nextNode = DecomposeLclLoadFld(use);
+            break;
+        case GT_LCL_STORE_FLD:
+            nextNode = DecomposeLclStoreFld(use);
+            break;
+        case GT_IND_LOAD:
+            nextNode = DecomposeIndLoad(use);
+            break;
+        case GT_IND_STORE:
+            nextNode = DecomposeIndStore(use);
             break;
 
         case GT_CAST:
@@ -191,18 +199,6 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
 #else
             assert(tree->AsUnOp()->GetOp(0)->OperIs(GT_LONG));
 #endif
-            break;
-
-        case GT_IND_STORE:
-            nextNode = DecomposeIndStore(use);
-            break;
-
-        case GT_STORE_LCL_FLD:
-            nextNode = DecomposeStoreLclFld(use);
-            break;
-
-        case GT_IND:
-            nextNode = DecomposeIndLoad(use);
             break;
 
         case GT_NOT:
@@ -337,26 +333,16 @@ GenTree* DecomposeLongs::FinalizeDecomposition(LIR::Use& use,
     return gtLong->gtNext;
 }
 
-//------------------------------------------------------------------------
-// DecomposeLclVar: Decompose GT_LCL_VAR.
-//
-// Arguments:
-//    use - the LIR::Use object for the def that needs to be decomposed.
-//
-// Return Value:
-//    The next node to process.
-//
-GenTree* DecomposeLongs::DecomposeLclVar(LIR::Use& use)
+GenTree* DecomposeLongs::DecomposeLclLoad(LIR::Use& use)
 {
     assert(use.IsInitialized());
-    assert(use.Def()->OperIs(GT_LCL_VAR));
 
     GenTree*   tree     = use.Def();
-    LclVarDsc* varDsc   = tree->AsLclVar()->GetLcl();
+    LclVarDsc* varDsc   = tree->AsLclLoad()->GetLcl();
     GenTree*   loResult = tree;
     loResult->gtType    = TYP_INT;
 
-    GenTree* hiResult = m_compiler->gtNewLclvNode(varDsc, TYP_INT);
+    GenTree* hiResult = m_compiler->gtNewLclLoad(varDsc, TYP_INT);
     Range().InsertAfter(loResult, hiResult);
 
     if (varDsc->IsPromoted())
@@ -368,34 +354,24 @@ GenTree* DecomposeLongs::DecomposeLclVar(LIR::Use& use)
     else
     {
         m_compiler->lvaSetDoNotEnregister(varDsc DEBUGARG(Compiler::DNER_LocalField));
-        loResult->SetOper(GT_LCL_FLD);
-        loResult->AsLclFld()->SetLclOffs(0);
-        loResult->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
+        loResult->SetOper(GT_LCL_LOAD_FLD);
+        loResult->AsLclLoadFld()->SetLclOffs(0);
+        loResult->AsLclLoadFld()->SetFieldSeq(FieldSeqStore::NotAField());
 
-        hiResult->SetOper(GT_LCL_FLD);
-        hiResult->AsLclFld()->SetLclOffs(4);
-        hiResult->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
+        hiResult->SetOper(GT_LCL_LOAD_FLD);
+        hiResult->AsLclLoadFld()->SetLclOffs(4);
+        hiResult->AsLclLoadFld()->SetFieldSeq(FieldSeqStore::NotAField());
     }
 
     return FinalizeDecomposition(use, loResult, hiResult, hiResult);
 }
 
-//------------------------------------------------------------------------
-// DecomposeLclFld: Decompose GT_LCL_FLD.
-//
-// Arguments:
-//    use - the LIR::Use object for the def that needs to be decomposed.
-//
-// Return Value:
-//    The next node to process.
-//
-GenTree* DecomposeLongs::DecomposeLclFld(LIR::Use& use)
+GenTree* DecomposeLongs::DecomposeLclLoadFld(LIR::Use& use)
 {
     assert(use.IsInitialized());
-    assert(use.Def()->OperGet() == GT_LCL_FLD);
 
     GenTree*       tree     = use.Def();
-    GenTreeLclFld* loResult = tree->AsLclFld();
+    GenTreeLclFld* loResult = tree->AsLclLoadFld();
     loResult->gtType        = TYP_INT;
 
     GenTree* hiResult = m_compiler->gtNewLclLoadFld(TYP_INT, loResult->GetLcl(), loResult->GetLclOffs() + 4);
@@ -404,22 +380,12 @@ GenTree* DecomposeLongs::DecomposeLclFld(LIR::Use& use)
     return FinalizeDecomposition(use, loResult, hiResult, hiResult);
 }
 
-//------------------------------------------------------------------------
-// DecomposeStoreLclVar: Decompose GT_STORE_LCL_VAR.
-//
-// Arguments:
-//    use - the LIR::Use object for the def that needs to be decomposed.
-//
-// Return Value:
-//    The next node to process.
-//
-GenTree* DecomposeLongs::DecomposeStoreLclVar(LIR::Use& use)
+GenTree* DecomposeLongs::DecomposeLclStore(LIR::Use& use)
 {
     assert(use.IsInitialized());
-    assert(use.Def()->OperIs(GT_STORE_LCL_VAR));
 
-    GenTreeLclVar* tree = use.Def()->AsLclVar();
-    GenTree*       rhs  = tree->GetOp(0);
+    GenTreeLclStore* tree = use.Def()->AsLclStore();
+    GenTree*         rhs  = tree->GetValue();
 
     if (rhs->OperIs(GT_CALL, GT_MUL_LONG))
     {
@@ -474,28 +440,19 @@ GenTree* DecomposeLongs::DecomposeStoreLclVar(LIR::Use& use)
     GenTreeOp* value = rhs->AsOp();
     Range().Remove(value);
 
-    GenTreeLclVar* loStore = tree->AsLclVar();
+    GenTreeLclStore* loStore = tree;
     loStore->SetType(TYP_INT);
     loStore->SetLcl(m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0)));
     loStore->SetOp(0, value->GetOp(0));
-    GenTreeLclVar* hiStore =
-        m_compiler->gtNewStoreLclVar(m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(1)), TYP_INT, value->GetOp(1));
+    GenTreeLclStore* hiStore =
+        m_compiler->gtNewLclStore(m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(1)), TYP_INT, value->GetOp(1));
 
     Range().InsertAfter(loStore, hiStore);
 
     return hiStore->gtNext;
 }
 
-//------------------------------------------------------------------------
-// DecomposeStoreLclFld: Decompose GT_STORE_LCL_FLD.
-//
-// Arguments:
-//    use - the LIR::Use object for the def that needs to be decomposed.
-//
-// Return Value:
-//    The next node to process.
-//
-GenTree* DecomposeLongs::DecomposeStoreLclFld(LIR::Use& use)
+GenTree* DecomposeLongs::DecomposeLclStoreFld(LIR::Use& use)
 {
     assert(use.IsInitialized());
 
@@ -1833,9 +1790,9 @@ GenTree* DecomposeLongs::StoreMultiRegNodeToLcl(LIR::Use& use)
         return use.Def()->gtNext;
     }
 
-    if (use.User()->OperIs(GT_STORE_LCL_VAR))
+    if (use.User()->OperIs(GT_LCL_STORE))
     {
-        LclVarDsc* lcl = use.User()->AsLclVar()->GetLcl();
+        LclVarDsc* lcl = use.User()->AsLclStore()->GetLcl();
 
         if (lcl->IsIndependentPromoted())
         {
@@ -1849,7 +1806,7 @@ GenTree* DecomposeLongs::StoreMultiRegNodeToLcl(LIR::Use& use)
     {
         use.ReplaceWithLclVar(m_compiler);
 
-        return DecomposeLclVar(use);
+        return DecomposeLclLoad(use);
     }
 
     LclVarDsc* lcl = m_compiler->lvaNewTemp(TYP_LONG, true DEBUGARG("multireg LONG temp"));
@@ -1863,9 +1820,9 @@ GenTree* DecomposeLongs::StoreMultiRegNodeToLcl(LIR::Use& use)
     lcl->SetPromotedFields(fieldLclLo->GetLclNum(), 2);
     lcl->lvIsMultiRegRet = true;
 
-    GenTreeLclVar* store  = m_compiler->gtNewStoreLclVar(lcl, TYP_LONG, use.Def());
-    GenTreeLclVar* loadLo = m_compiler->gtNewLclvNode(fieldLclLo, TYP_INT);
-    GenTreeLclVar* loadHi = m_compiler->gtNewLclvNode(fieldLclHi, TYP_INT);
+    GenTreeLclStore* store  = m_compiler->gtNewLclStore(lcl, TYP_LONG, use.Def());
+    GenTreeLclLoad*  loadLo = m_compiler->gtNewLclLoad(fieldLclLo, TYP_INT);
+    GenTreeLclLoad*  loadHi = m_compiler->gtNewLclLoad(fieldLclHi, TYP_INT);
 
     Range().InsertAfter(use.Def(), store, loadLo, loadHi);
 

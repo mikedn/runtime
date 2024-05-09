@@ -40,10 +40,10 @@ private:
     GenTree* DecomposeNode(GenTree* tree);
 
     // Per-node type decompose cases
-    GenTree* DecomposeLclVar(LIR::Use& use);
-    GenTree* DecomposeLclFld(LIR::Use& use);
-    GenTree* DecomposeStoreLclVar(LIR::Use& use);
-    GenTree* DecomposeStoreLclFld(LIR::Use& use);
+    GenTree* DecomposeLclLoad(LIR::Use& use);
+    GenTree* DecomposeLclLoadFld(LIR::Use& use);
+    GenTree* DecomposeLclStore(LIR::Use& use);
+    GenTree* DecomposeLclStoreFld(LIR::Use& use);
     GenTree* DecomposeCast(LIR::Use& use);
     GenTree* DecomposeCnsLng(LIR::Use& use);
     GenTree* DecomposeFieldList(GenTreeFieldList* fieldList, GenTreeOp* longNode);

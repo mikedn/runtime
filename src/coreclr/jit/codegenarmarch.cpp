@@ -117,21 +117,34 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
         case GT_LCL_ADDR:
             GenLclAddr(treeNode->AsLclAddr());
             break;
-
-        case GT_LCL_FLD:
-            GenLoadLclFld(treeNode->AsLclFld());
+        case GT_LCL_LOAD:
+            GenLclLoad(treeNode->AsLclLoad());
             break;
-
-        case GT_LCL_VAR:
-            GenLoadLclVar(treeNode->AsLclVar());
+        case GT_LCL_STORE:
+            GenLclStore(treeNode->AsLclStore());
             break;
-
-        case GT_STORE_LCL_FLD:
-            GenStoreLclFld(treeNode->AsLclFld());
+        case GT_LCL_LOAD_FLD:
+            GenLclLoadFld(treeNode->AsLclLoadFld());
             break;
-
-        case GT_STORE_LCL_VAR:
-            GenStoreLclVar(treeNode->AsLclVar());
+        case GT_LCL_STORE_FLD:
+            GenLclStoreFld(treeNode->AsLclStoreFld());
+            break;
+        case GT_NULLCHECK:
+            GenNullCheck(treeNode->AsNullCheck());
+            break;
+        case GT_IND_LOAD:
+            GenIndLoad(treeNode->AsIndLoad());
+            break;
+        case GT_IND_STORE:
+            GenIndStore(treeNode->AsIndStore());
+            break;
+        case GT_IND_STORE_OBJ:
+        case GT_IND_STORE_BLK:
+            GenStructStore(treeNode->AsBlk(), treeNode->AsBlk()->GetKind(), treeNode->AsBlk()->GetLayout());
+            break;
+        case GT_COPY_BLK:
+        case GT_INIT_BLK:
+            GenDynBlk(treeNode->AsDynBlk());
             break;
 
         case GT_RETFILT:
@@ -148,10 +161,6 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 
         case GT_INDEX_ADDR:
             genCodeForIndexAddr(treeNode->AsIndexAddr());
-            break;
-
-        case GT_IND:
-            GenIndLoad(treeNode->AsIndir());
             break;
 
 #ifdef TARGET_ARM
@@ -231,10 +240,6 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 
         case GT_RETURNTRAP:
             genCodeForReturnTrap(treeNode->AsOp());
-            break;
-
-        case GT_IND_STORE:
-            GenIndStore(treeNode->AsIndStore());
             break;
 
         case GT_RELOAD:
@@ -319,10 +324,6 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             genCodeForPhysReg(treeNode->AsPhysReg());
             break;
 
-        case GT_NULLCHECK:
-            genCodeForNullCheck(treeNode->AsIndir());
-            break;
-
         case GT_CATCH_ARG:
             noway_assert(handlerGetsXcptnObj(block->bbCatchTyp));
             // Catch arguments get passed in a register. genCodeForBBlist()
@@ -348,16 +349,6 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 #else
             GetEmitter()->emitIns_R_L(treeNode->GetRegNum(), genPendingCallLabel);
 #endif
-            break;
-
-        case GT_STORE_OBJ:
-        case GT_STORE_BLK:
-            GenStructStore(treeNode->AsBlk(), treeNode->AsBlk()->GetKind(), treeNode->AsBlk()->GetLayout());
-            break;
-
-        case GT_COPY_BLK:
-        case GT_INIT_BLK:
-            GenDynBlk(treeNode->AsDynBlk());
             break;
 
         case GT_JMPTABLE:
@@ -1348,7 +1339,7 @@ StructStoreKind GetStructStoreKind(bool isLocalStore, ClassLayout* layout, GenTr
 
 void CodeGen::GenStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout)
 {
-    assert(store->OperIs(GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+    assert(store->OperIs(GT_IND_STORE_OBJ, GT_IND_STORE_BLK, GT_LCL_STORE, GT_LCL_STORE_FLD));
 
     switch (kind)
     {
@@ -1413,14 +1404,14 @@ void CodeGen::GenStructStoreMemCpy(GenTree* store, ClassLayout* layout)
 
 void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
 {
-    assert(store->OperIs(GT_STORE_BLK, GT_STORE_OBJ, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+    assert(store->OperIs(GT_IND_STORE_BLK, GT_IND_STORE_OBJ, GT_LCL_STORE, GT_LCL_STORE_FLD));
 
     LclVarDsc* dstLcl         = nullptr;
     regNumber  dstAddrBaseReg = REG_NA;
     int        dstOffset      = 0;
     GenTree*   src;
 
-    if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
         dstLcl    = store->AsLclVarCommon()->GetLcl();
         dstOffset = store->AsLclVarCommon()->GetLclOffs();
@@ -2916,9 +2907,9 @@ void CodeGen::genIntToIntCast(GenTreeCast* cast)
         {
             GetEmitter()->Ins_R_S(ins, EA_ATTR(insSize), dstReg, s);
         }
-        else if (src->OperIs(GT_IND))
+        else if (src->OperIs(GT_IND_LOAD))
         {
-            emitInsLoad(ins, EA_ATTR(insSize), dstReg, src->AsIndir());
+            emitInsLoad(ins, EA_ATTR(insSize), dstReg, src->AsIndLoad());
         }
         else
         {

@@ -775,13 +775,15 @@ protected:
     void GenCast(GenTreeCast* cast);
     void GenLclAddr(GenTreeLclAddr* addr);
     void genCodeForIndexAddr(GenTreeIndexAddr* tree);
-    void GenIndLoad(GenTreeIndir* load);
     void genCodeForNegNot(GenTreeUnOp* tree);
     void genCodeForBswap(GenTree* tree);
-    void GenLoadLclVar(GenTreeLclVar* load);
-    void GenLoadLclFld(GenTreeLclFld* load);
-    void GenStoreLclFld(GenTreeLclFld* store);
-    void GenStoreLclVar(GenTreeLclVar* store);
+
+    void GenIndLoad(GenTreeIndLoad* load);
+    void GenIndStore(GenTreeIndStore* store);
+    void GenLclLoad(GenTreeLclLoad* load);
+    void GenLclStore(GenTreeLclStore* store);
+    void GenLclLoadFld(GenTreeLclLoadFld* load);
+    void GenLclStoreFld(GenTreeLclStoreFld* store);
     void GenStoreLclRMW(var_types type, StackAddrMode s, GenTree* src);
 #ifndef TARGET_64BIT
     void GenStoreLclVarLong(GenTreeLclVar* store);
@@ -791,12 +793,11 @@ protected:
     void GenStoreLclVarMultiRegSIMDReg(GenTreeLclVar* store);
     void genCodeForReturnTrap(GenTreeOp* tree);
     void GenSetCC(GenTreeCC* setcc);
-    void GenIndStore(GenTreeIndStore* store);
 #ifdef TARGET_XARCH
     void genCodeForSwap(GenTreeOp* tree);
 #endif
     void genCodeForPhysReg(GenTreePhysReg* tree);
-    void genCodeForNullCheck(GenTreeIndir* tree);
+    void GenNullCheck(GenTreeNullCheck* check);
     void GenCmpXchg(GenTreeCmpXchg* tree);
     void GenMemoryBarrier(GenTree* barrier);
     void genCodeForInstr(GenTreeInstr* instr);
@@ -970,7 +971,7 @@ public:
 
 #ifdef TARGET_ARM
     void inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size);
-    void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTreeIndir* load);
+    void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTreeIndLoad* load);
     void emitInsStore(instruction ins, emitAttr attr, regNumber reg, GenTreeIndStore* store);
     void emitInsIndir(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir, int offset);
     regNumber emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src1, GenTree* src2);

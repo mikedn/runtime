@@ -721,10 +721,8 @@ void CodeGen::genCodeForShiftLong(GenTree* tree)
     DefReg(tree);
 }
 
-void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
+void CodeGen::GenLclLoad(GenTreeLclLoad* load)
 {
-    assert(load->OperIs(GT_LCL_VAR));
-
     LclVarDsc* lcl = load->GetLcl();
 
     assert(!lcl->IsIndependentPromoted());
@@ -742,10 +740,8 @@ void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
     DefLclVarReg(load);
 }
 
-void CodeGen::GenLoadLclFld(GenTreeLclFld* load)
+void CodeGen::GenLclLoadFld(GenTreeLclLoadFld* load)
 {
-    assert(load->OperIs(GT_LCL_FLD));
-
     var_types     type = load->GetType();
     StackAddrMode s    = GetStackAddrMode(load);
     Emitter&      emit = *GetEmitter();
@@ -778,12 +774,10 @@ void CodeGen::GenLoadLclFld(GenTreeLclFld* load)
     DefReg(load);
 }
 
-void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
+void CodeGen::GenLclStoreFld(GenTreeLclStoreFld* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_FLD));
-
     var_types type = store->GetType();
-    GenTree*  src  = store->GetOp(0);
+    GenTree*  src  = store->GetValue();
 
     if (type == TYP_STRUCT)
     {
@@ -829,10 +823,8 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
     liveness.UpdateLife(this, store);
 }
 
-void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
+void CodeGen::GenLclStore(GenTreeLclStore* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR));
-
     LclVarDsc* lcl = store->GetLcl();
 
     if (lcl->IsIndependentPromoted())
@@ -847,7 +839,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         return;
     }
 
-    GenTree* src = store->GetOp(0);
+    GenTree* src = store->GetValue();
 
     if (store->TypeIs(TYP_STRUCT))
     {
@@ -971,16 +963,13 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
     GetEmitter()->DefineTempLabel(skipLabel);
 }
 
-void CodeGen::genCodeForNullCheck(GenTreeIndir* tree)
+void CodeGen::GenNullCheck(GenTreeNullCheck* check)
 {
-    assert(tree->OperIs(GT_NULLCHECK));
-    assert(!"GT_NULLCHECK isn't supported for Arm32; use GT_IND.");
+    assert(!"NULLCHECK isn't supported for Arm32; use IND_LOAD.");
 }
 
-void CodeGen::GenIndLoad(GenTreeIndir* load)
+void CodeGen::GenIndLoad(GenTreeIndLoad* load)
 {
-    assert(load->OperIs(GT_IND));
-
     genConsumeAddress(load->GetAddr());
     emitInsLoad(ins_Load(load->GetType()), emitActualTypeSize(load->GetType()), load->GetRegNum(), load);
 
@@ -1506,10 +1495,8 @@ void CodeGen::genCodeForInstr(GenTreeInstr* instr)
     unreached();
 }
 
-void CodeGen::emitInsLoad(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* load)
+void CodeGen::emitInsLoad(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndLoad* load)
 {
-    assert(load->OperIs(GT_IND));
-
     if (load->IsUnaligned() && varTypeIsFloating(load->GetType()))
     {
         emitter* emit = GetEmitter();
