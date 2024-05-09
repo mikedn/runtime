@@ -5421,7 +5421,7 @@ bool Compiler::lvaIsOSRLocal(LclVarDsc* lcl)
 //
 void Compiler::gtChangeOperToNullCheck(GenTree* tree)
 {
-    assert(tree->OperIs(GT_FIELD_ADDR, GT_IND, GT_OBJ, GT_BLK));
+    assert(tree->OperIs(GT_FIELD_ADDR, GT_IND_LOAD, GT_IND_LOAD_OBJ, GT_IND_LOAD_BLK));
 
     // TODO-MIKE-Cleanup: There are multiple places that have special handling for FIELD_ADDR.
     // All that could probably done here instead. See impImportPop, inlInitInlineeArgs and

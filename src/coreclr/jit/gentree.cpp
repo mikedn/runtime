@@ -6446,11 +6446,11 @@ void Compiler::gtDispNode(GenTree* tree)
         ClassLayout* layout = nullptr;
         LclVarDsc*   lcl    = nullptr;
 
-        if (tree->OperIs(GT_BLK, GT_OBJ, GT_STORE_BLK, GT_STORE_OBJ))
+        if (tree->OperIs(GT_IND_LOAD_BLK, GT_IND_LOAD_OBJ, GT_IND_STORE_BLK, GT_IND_STORE_OBJ))
         {
             layout = tree->AsBlk()->GetLayout();
         }
-        else if (tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
+        else if (tree->OperIs(GT_LCL_LOAD, GT_LCL_STORE))
         {
             lcl = tree->AsLclVar()->GetLcl();
         }
@@ -9406,7 +9406,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
     bool hasSrcSideEffect = gtTreeHasSideEffects(boxedValue, GTF_SIDE_EFFECT);
     bool isStructStore    = hasSrcSideEffect && varTypeIsStruct(boxedValue->GetType());
 
-    if (isStructStore && !boxedValue->OperIs(GT_OBJ, GT_IND))
+    if (isStructStore && !boxedValue->OperIs(GT_IND_LOAD_OBJ, GT_IND_LOAD))
     {
         JITDUMPTREE(store, " bailing; unexpected store struct value\n");
 
@@ -9444,7 +9444,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
     {
         // For struct types read the first byte of the source struct; there's no need to read
         // the entire thing, and no place to put it.
-        assert(boxedValue->OperIs(GT_OBJ, GT_IND));
+        assert(boxedValue->OperIs(GT_IND_LOAD_OBJ, GT_IND_LOAD));
 
         storeStmt->SetRootNode(boxedValue);
 
@@ -10744,9 +10744,9 @@ GenTree* Compiler::gtExtractSideEffList(GenTree* expr, GenTreeFlags flags, bool 
             // gtNodeHasSideEffects and make this check unconditionally.
             if (m_compiler->gtNodeHasSideEffects(node, m_flags) || node->OperIsAtomicOp())
             {
-                if (node->OperIs(GT_OBJ, GT_BLK))
+                if (node->OperIs(GT_IND_LOAD_OBJ, GT_IND_LOAD_BLK))
                 {
-                    JITDUMP("Replace an unused OBJ/BLK node [%06u] with a NULLCHECK\n", node->GetID());
+                    JITDUMP("Replace an unused IND_LOAD_OBJ/BLK node [%06u] with a NULLCHECK\n", node->GetID());
                     m_compiler->gtChangeOperToNullCheck(node);
                 }
 
@@ -11078,7 +11078,7 @@ GenTreeLclAddr* GenTree::IsLocalAddrExpr()
 GenTreeLclVar* GenTree::IsImplicitByrefIndir(Compiler* compiler)
 {
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64)
-    if (OperIs(GT_OBJ, GT_IND) && AsIndir()->GetAddr()->OperIs(GT_LCL_VAR))
+    if (OperIs(GT_IND_LOAD_OBJ, GT_IND_LOAD) && AsIndir()->GetAddr()->OperIs(GT_LCL_LOAD))
     {
         // TODO-MIKE-CQ: This does not recognize access to fields of an
         // implicit byref param so abiMorphImplicitByRefStructArg will

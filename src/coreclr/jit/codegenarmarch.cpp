@@ -1040,7 +1040,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
                 assert(dstReg != tempReg);
 
                 emitAttr srcAddrAttr =
-                    src->OperIs(GT_OBJ) ? emitTypeSize(src->AsObj()->GetAddr()->GetType()) : EA_PTRSIZE;
+                    src->OperIs(GT_IND_LOAD_OBJ) ? emitTypeSize(src->AsIndLoadObj()->GetAddr()->GetType()) : EA_PTRSIZE;
                 GetEmitter()->emitIns_Mov(INS_mov, srcAddrAttr, tempReg, srcAddrBaseReg, /* canSkip */ false);
                 srcAddrBaseReg = tempReg;
             }
@@ -1533,7 +1533,7 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
 
 void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
 {
-    assert(store->OperIs(GT_STORE_BLK, GT_STORE_OBJ, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+    assert(store->OperIs(GT_IND_STORE_BLK, GT_IND_STORE_OBJ, GT_LCL_STORE, GT_LCL_STORE_FLD));
 
     if (layout->HasGCPtr())
     {
@@ -1545,7 +1545,7 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
     int        dstOffset      = 0;
     GenTree*   src;
 
-    if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
         dstLcl    = store->AsLclVarCommon()->GetLcl();
         dstOffset = store->AsLclVarCommon()->GetLclOffs();
@@ -1591,14 +1591,14 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
 
     assert(src->isContained());
 
-    if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    if (src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
     {
         srcLcl    = src->AsLclVarCommon()->GetLcl();
         srcOffset = src->AsLclVarCommon()->GetLclOffs();
     }
     else
     {
-        assert(src->OperIs(GT_IND, GT_OBJ, GT_BLK));
+        assert(src->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ, GT_IND_LOAD_BLK));
 
         GenTree* srcAddr = src->AsIndir()->GetAddr();
 
@@ -1933,7 +1933,7 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
     GenTree*  src;
     var_types srcAddrType;
 
-    if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
         src = store->AsLclVarCommon()->GetOp(0);
 
@@ -1950,13 +1950,13 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
         src = store->AsIndir()->GetValue();
     }
 
-    if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    if (src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
     {
         srcAddrType = TYP_I_IMPL;
     }
     else
     {
-        assert(src->OperIs(GT_IND, GT_OBJ, GT_BLK));
+        assert(src->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ, GT_IND_LOAD_BLK));
 
         srcAddrType = src->AsIndir()->GetAddr()->GetType();
     }

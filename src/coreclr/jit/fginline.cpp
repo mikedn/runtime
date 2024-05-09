@@ -2432,9 +2432,9 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
             GenTree* sideEffects = nullptr;
 
-            if (argNode->OperIs(GT_OBJ))
+            if (argNode->OperIs(GT_IND_LOAD_OBJ))
             {
-                GenTree* addr = argNode->AsObj()->GetAddr();
+                GenTree* addr = argNode->AsIndLoadObj()->GetAddr();
 
                 if (fgAddrCouldBeNull(addr))
                 {
@@ -2488,8 +2488,9 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
 GenTree* Compiler::inlStoreCallWithRetBuf(LclVarDsc* dest, var_types type, GenTree* src)
 {
-    assert((src->TypeIs(TYP_STRUCT) && src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_OBJ, GT_CALL, GT_RET_EXPR)) ||
-           varTypeIsSIMD(src->GetType()));
+    assert(
+        (src->TypeIs(TYP_STRUCT) && src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_IND_LOAD_OBJ, GT_CALL, GT_RET_EXPR)) ||
+        varTypeIsSIMD(src->GetType()));
 
     // TODO-MIKE-Cleanup: Share code with impAssignStruct, the main difference is that
     // impAssignStruct supports MKREFANY by appending a separate store statement for

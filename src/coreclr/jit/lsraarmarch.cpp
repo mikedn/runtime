@@ -369,7 +369,7 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
     GenTree* dstAddr = nullptr;
     GenTree* src;
 
-    if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
         src = store->AsLclVarCommon()->GetOp(0);
     }
@@ -395,14 +395,14 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
 
         srcAddrOrFill = src;
     }
-    else if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
+    else if (src->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ, GT_IND_LOAD_BLK))
     {
         assert(src->isContained());
         srcAddrOrFill = src->AsIndir()->GetAddr();
     }
     else
     {
-        assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+        assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
         assert(src->isContained());
     }
 

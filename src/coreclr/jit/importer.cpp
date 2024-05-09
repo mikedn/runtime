@@ -733,14 +733,14 @@ GenTreeCall::Use* Importer::ReverseCallArgs(GenTreeCall::Use* args, bool skipFir
 
 void Compiler::impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call)
 {
-    assert(varTypeIsStruct(dest->GetType()) && dest->OperIs(GT_LCL_VAR, GT_OBJ, GT_IND));
+    assert(varTypeIsStruct(dest->GetType()) && dest->OperIs(GT_LCL_LOAD, GT_IND_LOAD_OBJ, GT_IND_LOAD));
     assert(call->TreatAsHasRetBufArg());
 
     GenTree* retBufAddr;
 
-    if (dest->OperIs(GT_LCL_VAR))
+    if (dest->OperIs(GT_LCL_LOAD))
     {
-        retBufAddr = dest->ChangeToLclAddr(TYP_I_IMPL, dest->AsLclVar()->GetLcl());
+        retBufAddr = dest->ChangeToLclAddr(TYP_I_IMPL, dest->AsLclLoad()->GetLcl());
     }
     else
     {
@@ -821,15 +821,15 @@ void Compiler::impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call)
 
 GenTree* Importer::impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigned curLevel)
 {
-    assert(dest->TypeIs(TYP_STRUCT) && dest->OperIs(GT_LCL_VAR, GT_OBJ));
+    assert(dest->TypeIs(TYP_STRUCT) && dest->OperIs(GT_LCL_LOAD, GT_IND_LOAD_OBJ));
     assert(mkRefAny->OperIs(GT_MKREFANY));
 
     GenTree* destAddr;
 
-    if (dest->OperIs(GT_LCL_VAR))
+    if (dest->OperIs(GT_LCL_LOAD))
     {
         // TODO-MIKE-Cleanup: This should generate LCL_FLD stores...
-        destAddr = dest->ChangeToLclAddr(TYP_I_IMPL, dest->AsLclVar()->GetLcl());
+        destAddr = dest->ChangeToLclAddr(TYP_I_IMPL, dest->AsLclLoad()->GetLcl());
     }
     else
     {
@@ -852,10 +852,10 @@ GenTree* Importer::impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigne
 
 GenTree* Importer::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLevel)
 {
-    assert(dest->OperIs(GT_LCL_VAR, GT_OBJ));
-    assert(
-        (src->TypeIs(TYP_STRUCT) && src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR)) ||
-        varTypeIsSIMD(src->GetType()));
+    assert(dest->OperIs(GT_LCL_LOAD, GT_IND_LOAD_OBJ));
+    assert((src->TypeIs(TYP_STRUCT) &&
+            src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_IND_LOAD_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR)) ||
+           varTypeIsSIMD(src->GetType()));
 
     // Storing a MKREFANY generates 2 stores, one for each field of the struct.
     // One store is appended and the other is returned to the caller.
@@ -1083,18 +1083,18 @@ GenTree* Importer::impGetStructAddr(GenTree*             value,
 {
     assert(varTypeIsStruct(value->GetType()) || info.compCompHnd->isValueClass(structHnd));
 
-    if (value->OperIs(GT_LCL_VAR))
+    if (value->OperIs(GT_LCL_LOAD))
     {
         return value->ChangeToLclAddr(TYP_BYREF, value->AsLclVar()->GetLcl());
     }
 
-    if (value->OperIs(GT_LCL_FLD))
+    if (value->OperIs(GT_LCL_LOAD_FLD))
     {
         return value->ChangeToLclAddr(TYP_BYREF, value->AsLclFld()->GetLcl(), value->AsLclFld()->GetLclOffs(),
                                       value->AsLclFld()->GetFieldSeq());
     }
 
-    if (value->OperIs(GT_OBJ) && willDereference)
+    if (value->OperIs(GT_IND_LOAD_OBJ) && willDereference)
     {
         assert(value->AsObj()->GetLayout()->GetClassHandle() == structHnd);
         return value->AsObj()->GetAddr();

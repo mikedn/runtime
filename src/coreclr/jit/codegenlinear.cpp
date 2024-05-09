@@ -1364,7 +1364,7 @@ void CodeGen::genConsumeRegs(GenTree* tree)
 void CodeGen::ConsumeStructStore(
     GenTree* store, ClassLayout* layout, regNumber dstReg, regNumber srcReg, regNumber sizeReg)
 {
-    assert(store->OperIs(GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+    assert(store->OperIs(GT_IND_STORE_OBJ, GT_IND_STORE_BLK, GT_LCL_STORE, GT_LCL_STORE_FLD));
 
     // We have to consume the registers, and perform any copies, in the actual execution order: dst, src, size.
     //
@@ -1377,7 +1377,7 @@ void CodeGen::ConsumeStructStore(
     GenTree* dstAddr = nullptr;
     GenTree* src;
 
-    if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
         src = store->AsLclVarCommon()->GetOp(0);
     }
@@ -1395,13 +1395,13 @@ void CodeGen::ConsumeStructStore(
 
         src = src->AsUnOp()->GetOp(0);
     }
-    else if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
+    else if (src->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ, GT_IND_LOAD_BLK))
     {
         assert(src->isContained());
 
         src = src->AsIndir()->GetAddr();
     }
-    else if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    else if (src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
     {
         assert(src->isContained());
     }
@@ -1429,14 +1429,14 @@ void CodeGen::ConsumeStructStore(
 
     if (dstAddr == nullptr)
     {
-        assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+        assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
 
         GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, dstReg, GetStackAddrMode(store->AsLclVarCommon()));
     }
 
     if (src->isContained())
     {
-        assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+        assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
 
         GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, srcReg, GetStackAddrMode(src->AsLclVarCommon()));
     }
@@ -1549,7 +1549,7 @@ void CodeGen::genProduceReg(GenTree* node)
 
 void CodeGen::DefReg(GenTree* node)
 {
-    assert(!node->OperIs(GT_STORE_LCL_FLD, GT_STORE_LCL_VAR, GT_LCL_VAR, GT_CALL));
+    assert(!node->OperIs(GT_LCL_STORE_FLD, GT_LCL_STORE, GT_LCL_LOAD, GT_CALL));
 #if FEATURE_ARG_SPLIT
     assert(!node->IsPutArgSplit());
 #endif
@@ -1574,7 +1574,7 @@ void CodeGen::DefReg(GenTree* node)
 
 void CodeGen::DefLclVarReg(GenTreeLclVar* lclVar)
 {
-    assert(lclVar->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && !lclVar->IsMultiReg());
+    assert(lclVar->OperIs(GT_LCL_LOAD, GT_LCL_STORE) && !lclVar->IsMultiReg());
     assert((lclVar->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
     INDEBUG(lclVar->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;)
 

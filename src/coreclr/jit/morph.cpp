@@ -11811,8 +11811,8 @@ DONE_MORPHING_CHILDREN:
     // fgRemoveRestOfBlock and have fgMorphTree callers deal with it?
     // TODO-MIKE-Cleanup: IND/OBJ/BLK were not removed as they could have been assignment
     // destinations. Can they be removed now?
-    if ((oper != GT_LCL_DEF) && (oper != GT_STORE_LCL_VAR) && (oper != GT_IND) && (oper != GT_OBJ) &&
-        (oper != GT_BLK) && (oper != GT_INIT_VAL))
+    if ((oper != GT_LCL_DEF) && (oper != GT_LCL_STORE) && (oper != GT_IND_LOAD) && (oper != GT_IND_LOAD_OBJ) &&
+        (oper != GT_IND_LOAD_BLK) && (oper != GT_INIT_VAL))
     {
         if ((op1 != nullptr) && fgIsCommaThrow(op1 DEBUGARG(true)))
         {

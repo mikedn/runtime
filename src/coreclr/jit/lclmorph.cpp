@@ -505,7 +505,7 @@ public:
                 assert(TopValue(0).Node() == node->AsIndir()->GetValue());
 
                 EscapeValue(TopValue(0), node);
-                MorphLocalIndStoreObj(node->AsObj(), TopValue(1));
+                MorphLocalIndStoreObj(node->AsIndStoreObj(), TopValue(1));
 
                 PopValue();
                 PopValue();
@@ -883,7 +883,7 @@ private:
     {
         assert(lcl->TypeIs(TYP_STRUCT));
         assert(lcl->GetPromotedFieldCount() == 1);
-        assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_STORE_OBJ) && store->TypeIs(TYP_STRUCT));
+        assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE_OBJ) && store->TypeIs(TYP_STRUCT));
 
         LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
 
@@ -1027,14 +1027,14 @@ private:
 
     unsigned GetIndirSize(GenTree* indir, GenTree* user)
     {
-        assert(indir->OperIs(GT_IND, GT_OBJ, GT_BLK));
+        assert(indir->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ, GT_IND_LOAD_BLK));
 
         if (indir->GetType() != TYP_STRUCT)
         {
             return varTypeSize(indir->GetType());
         }
 
-        assert(!indir->OperIs(GT_IND));
+        assert(!indir->OperIs(GT_IND_LOAD));
 
         return indir->AsBlk()->GetLayout()->GetSize();
     }
@@ -1211,10 +1211,8 @@ private:
         INDEBUG(m_stmtModified = true);
     }
 
-    void MorphLocalIndStoreObj(GenTreeObj* store, const Value& addrVal)
+    void MorphLocalIndStoreObj(GenTreeIndStoreObj* store, const Value& addrVal)
     {
-        assert(store->OperIs(GT_STORE_OBJ));
-
         GenTree* value = store->GetValue();
 
         if ((value->GetType() != store->GetType()) && !value->IsIntCon(0))
@@ -1417,8 +1415,8 @@ private:
         assert(val.IsLocation());
 
         GenTree* indir = val.Node();
-        assert(indir->OperIs(GT_IND, GT_OBJ, GT_BLK));
-        assert(!indir->OperIs(GT_IND) || !indir->TypeIs(TYP_STRUCT));
+        assert(indir->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ, GT_IND_LOAD_BLK));
+        assert(!indir->OperIs(GT_IND_LOAD) || !indir->TypeIs(TYP_STRUCT));
 
         if (val.Offset() > UINT16_MAX)
         {
@@ -1440,7 +1438,7 @@ private:
             }
         }
 
-        if (indir->OperIs(GT_BLK))
+        if (indir->OperIs(GT_IND_LOAD_BLK))
         {
             // Keep BLKs and mark any involved locals address exposed for now.
             //
@@ -3366,16 +3364,16 @@ public:
 
     void MorphImplicitByRefParam(GenTree* tree)
     {
-        assert(tree->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+        assert(tree->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD));
 
         GenTreeLclVarCommon* lclNode = tree->AsLclVarCommon();
         LclVarDsc*           lcl     = lclNode->GetLcl();
 
         if (lcl->IsImplicitByRefParam())
         {
-            // lvaRetypeImplicitByRefParams creates LCL_VAR nodes that reference
+            // lvaRetypeImplicitByRefParams creates LCL_LOAD nodes that reference
             // implicit byref params and are already TYP_BYREF, ignore them.
-            if (lclNode->OperIs(GT_LCL_VAR) && lclNode->TypeIs(TYP_BYREF))
+            if (lclNode->OperIs(GT_LCL_LOAD) && lclNode->TypeIs(TYP_BYREF))
             {
                 return;
             }
@@ -3418,7 +3416,7 @@ public:
                     addr = m_compiler->gtNewOperNode(GT_ADD, TYP_BYREF, addr, offset);
                 }
 
-                if (lclNode->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+                if (lclNode->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
                 {
                     value = lclNode->GetOp(0);
                 }
@@ -3427,13 +3425,13 @@ public:
 
                 if (varTypeIsStruct(lclNode->GetType()))
                 {
-                    layout = lclNode->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) ? lcl->GetImplicitByRefParamLayout()
-                                                                           : lclNode->AsLclFld()->GetLayout(m_compiler);
+                    layout = lclNode->OperIs(GT_LCL_LOAD, GT_LCL_STORE) ? lcl->GetImplicitByRefParamLayout()
+                                                                        : lclNode->AsLclFld()->GetLayout(m_compiler);
                 }
 
                 if (layout != nullptr)
                 {
-                    tree->ChangeOper(value == nullptr ? GT_OBJ : GT_STORE_OBJ);
+                    tree->ChangeOper(value == nullptr ? GT_IND_LOAD_OBJ : GT_IND_STORE_OBJ);
                     tree->AsObj()->SetLayout(layout);
                     tree->AsObj()->SetAddr(addr);
                     tree->AsObj()->SetKind(StructStoreKind::Invalid);
@@ -3471,7 +3469,7 @@ public:
 
             lcl = m_compiler->lvaGetDesc(lclNum);
 
-            if (lclNode->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD))
+            if (lclNode->OperIs(GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD))
             {
                 lclOffs += lclNode->AsLclFld()->GetLclOffs();
                 fieldSeq = m_compiler->GetFieldSeqStore()->Append(fieldSeq, lclNode->AsLclFld()->GetFieldSeq());
@@ -3483,7 +3481,7 @@ public:
 
             GenTree* value = nullptr;
 
-            if (lclNode->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+            if (lclNode->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
             {
                 value = lclNode->GetOp(0);
             }
@@ -3492,7 +3490,7 @@ public:
             {
                 ClassLayout* layout = nullptr;
 
-                if (lclNode->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD))
+                if (lclNode->OperIs(GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD))
                 {
                     layout = lclNode->AsLclFld()->GetLayout(m_compiler);
                 }
@@ -3501,7 +3499,7 @@ public:
                     layout = lcl->GetImplicitByRefParamLayout();
                 }
 
-                tree->ChangeOper(value == nullptr ? GT_OBJ : GT_STORE_OBJ);
+                tree->ChangeOper(value == nullptr ? GT_IND_LOAD_OBJ : GT_IND_STORE_OBJ);
                 tree->AsObj()->SetLayout(layout);
             }
             else
@@ -3550,7 +3548,7 @@ public:
 
     void MorphVarargsStackParam(GenTreeLclVarCommon* lclNode)
     {
-        assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+        assert(lclNode->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD));
 
         if (!IsVarargsStackParam(lclNode->GetLcl()))
         {
@@ -3563,17 +3561,17 @@ public:
         GenTree* value  = nullptr;
         GenTree* indir  = lclNode;
 
-        if (lclNode->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+        if (lclNode->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
         {
             value = lclNode->GetOp(0);
         }
 
         if (varTypeIsStruct(lclNode->GetType()))
         {
-            ClassLayout* layout = lclNode->OperIs(GT_LCL_VAR) ? lclNode->GetLcl()->GetLayout()
-                                                              : lclNode->AsLclFld()->GetLayout(m_compiler);
+            ClassLayout* layout = lclNode->OperIs(GT_LCL_LOAD) ? lclNode->GetLcl()->GetLayout()
+                                                               : lclNode->AsLclFld()->GetLayout(m_compiler);
 
-            indir->ChangeOper(value == nullptr ? GT_OBJ : GT_STORE_OBJ);
+            indir->ChangeOper(value == nullptr ? GT_IND_LOAD_OBJ : GT_IND_STORE_OBJ);
             indir->AsObj()->SetLayout(layout);
         }
         else

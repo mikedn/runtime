@@ -1647,7 +1647,7 @@ void Lowering::RehomeParamForFastTailCall(LclVarDsc* paramLcl,
 
             if (type == TYP_STRUCT)
             {
-                // TODO-MIKE-CQ: This code was previously using GT_STORE_BLK with a block layout.
+                // TODO-MIKE-CQ: This code was previously using IND_STORE_BLK with a block layout.
                 //
                 // It's best to avoid using block layout when the struct layout is available (and
                 // BLK/STORE_BLK) but doing so has a somewhat unfortunate side-effect: this copy
@@ -5127,7 +5127,7 @@ void Lowering::TransformUnusedIndirection(GenTreeIndir* ind)
     // - On XARCH, use GT_IND if we have a contained address, and GT_NULLCHECK otherwise.
     // In all cases, change the type to TYP_INT.
     //
-    assert(ind->OperIs(GT_NULLCHECK, GT_IND, GT_BLK, GT_OBJ));
+    assert(ind->OperIs(GT_NULLCHECK, GT_IND_LOAD, GT_IND_LOAD_BLK, GT_IND_LOAD_OBJ));
 
     ind->SetType(TYP_INT);
 
@@ -5144,9 +5144,9 @@ void Lowering::TransformUnusedIndirection(GenTreeIndir* ind)
         ind->ChangeOper(GT_NULLCHECK);
         ind->ClearUnusedValue();
     }
-    else if (!useNullCheck && !ind->OperIs(GT_IND))
+    else if (!useNullCheck && !ind->OperIs(GT_IND_LOAD))
     {
-        ind->ChangeOper(GT_IND);
+        ind->ChangeOper(GT_IND_LOAD);
         ind->SetUnusedValue();
     }
 }

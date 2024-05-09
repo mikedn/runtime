@@ -55,9 +55,6 @@ enum genTreeOps : uint8_t
 
     GT_IND           = GT_IND_LOAD,
     GT_OBJ           = GT_IND_LOAD_OBJ,
-    GT_STORE_OBJ     = GT_IND_STORE_OBJ,
-    GT_BLK           = GT_IND_LOAD_BLK,
-    GT_STORE_BLK     = GT_IND_STORE_BLK,
     GT_LCL_VAR       = GT_LCL_LOAD,
     GT_STORE_LCL_VAR = GT_LCL_STORE,
     GT_LCL_FLD       = GT_LCL_LOAD_FLD,
@@ -1453,8 +1450,9 @@ public:
 
     static bool OperIsIndirOrArrLength(genTreeOps gtOper)
     {
-        return (gtOper == GT_NULLCHECK) || (gtOper == GT_IND) || (gtOper == GT_IND_STORE) || (gtOper == GT_BLK) ||
-               (gtOper == GT_OBJ) || (gtOper == GT_STORE_BLK) || (gtOper == GT_STORE_OBJ) || (gtOper == GT_ARR_LENGTH);
+        return (gtOper == GT_NULLCHECK) || (gtOper == GT_IND_LOAD) || (gtOper == GT_IND_STORE) ||
+               (gtOper == GT_IND_LOAD_BLK) || (gtOper == GT_IND_LOAD_OBJ) || (gtOper == GT_IND_STORE_BLK) ||
+               (gtOper == GT_IND_STORE_OBJ) || (gtOper == GT_ARR_LENGTH);
     }
 
     bool OperIsIndirOrArrLength() const
@@ -6517,19 +6515,19 @@ protected:
     GenTreeBlk(genTreeOps oper, var_types type, GenTree* addr, ClassLayout* layout)
         : GenTreeIndir(oper, type, addr, nullptr), m_layout(layout), m_kind(StructStoreKind::Invalid)
     {
-        assert((oper == GT_OBJ) || (oper == GT_BLK));
+        assert((oper == GT_IND_LOAD_OBJ) || (oper == GT_IND_LOAD_BLK));
         assert(layout != nullptr);
     }
 
     GenTreeBlk(genTreeOps oper, var_types type, GenTree* addr, GenTree* value, ClassLayout* layout)
         : GenTreeIndir(oper, type, addr, value), m_layout(layout), m_kind(StructStoreKind::Invalid)
     {
-        assert((oper == GT_STORE_OBJ) || (oper == GT_STORE_BLK));
+        assert((oper == GT_IND_STORE_OBJ) || (oper == GT_IND_STORE_BLK));
         assert(layout != nullptr);
     }
 
     GenTreeBlk(GenTree* addr, ClassLayout* layout)
-        : GenTreeIndir(GT_BLK, TYP_STRUCT, addr, nullptr), m_layout(layout), m_kind(StructStoreKind::Invalid)
+        : GenTreeIndir(GT_IND_LOAD_BLK, TYP_STRUCT, addr, nullptr), m_layout(layout), m_kind(StructStoreKind::Invalid)
     {
         assert(layout->IsBlockLayout());
 
@@ -6537,7 +6535,7 @@ protected:
     }
 
     GenTreeBlk(GenTree* addr, GenTree* value, ClassLayout* layout)
-        : GenTreeIndir(GT_STORE_BLK, TYP_STRUCT, addr, value), m_layout(layout), m_kind(StructStoreKind::Invalid)
+        : GenTreeIndir(GT_IND_STORE_BLK, TYP_STRUCT, addr, value), m_layout(layout), m_kind(StructStoreKind::Invalid)
     {
         assert(layout->IsBlockLayout());
 
@@ -6579,7 +6577,7 @@ public:
 struct GenTreeObj : public GenTreeBlk
 {
 protected:
-    GenTreeObj(var_types type, GenTree* addr, ClassLayout* layout) : GenTreeBlk(GT_OBJ, type, addr, layout)
+    GenTreeObj(var_types type, GenTree* addr, ClassLayout* layout) : GenTreeBlk(GT_IND_LOAD_OBJ, type, addr, layout)
     {
         assert(varTypeIsI(addr->GetType()));
         assert(!layout->IsBlockLayout());
@@ -6589,7 +6587,7 @@ protected:
     }
 
     GenTreeObj(var_types type, GenTree* addr, GenTree* value, ClassLayout* layout)
-        : GenTreeBlk(GT_STORE_OBJ, type, addr, value, layout)
+        : GenTreeBlk(GT_IND_STORE_OBJ, type, addr, value, layout)
     {
         assert(!layout->IsBlockLayout());
 

@@ -131,14 +131,16 @@ void Lowering::LowerIndStoreArch(GenTreeIndStore* store)
 void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree* addr)
 {
 #if FEATURE_MULTIREG_RET
-    assert(store->OperIs(GT_PUTARG_STK) || store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) ||
-           (store->OperIs(GT_STORE_BLK, GT_STORE_OBJ) && ((store->AsBlk()->GetKind() == StructStoreKind::UnrollInit) ||
-                                                          (store->AsBlk()->GetKind() == StructStoreKind::UnrollCopy) ||
-                                                          (store->AsBlk()->GetKind() == StructStoreKind::UnrollRegs))));
+    assert(store->OperIs(GT_PUTARG_STK) || store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD) ||
+           (store->OperIs(GT_IND_STORE_BLK, GT_IND_STORE_OBJ) &&
+            ((store->AsBlk()->GetKind() == StructStoreKind::UnrollInit) ||
+             (store->AsBlk()->GetKind() == StructStoreKind::UnrollCopy) ||
+             (store->AsBlk()->GetKind() == StructStoreKind::UnrollRegs))));
 #else
-    assert(store->OperIs(GT_PUTARG_STK) || store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) ||
-           (store->OperIs(GT_STORE_BLK, GT_STORE_OBJ) && ((store->AsBlk()->GetKind() == StructStoreKind::UnrollInit) ||
-                                                          (store->AsBlk()->GetKind() == StructStoreKind::UnrollCopy))));
+    assert(store->OperIs(GT_PUTARG_STK) || store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD) ||
+           (store->OperIs(GT_IND_STORE_BLK, GT_IND_STORE_OBJ) &&
+            ((store->AsBlk()->GetKind() == StructStoreKind::UnrollInit) ||
+             (store->AsBlk()->GetKind() == StructStoreKind::UnrollCopy))));
 #endif
 
     assert(size < INT32_MAX);

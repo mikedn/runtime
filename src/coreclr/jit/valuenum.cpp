@@ -4348,7 +4348,7 @@ void ValueNumbering::NumberIndStore(GenTreeIndir* store)
 
 void ValueNumbering::NumberIndLoad(GenTreeIndir* load)
 {
-    assert(load->OperIs(GT_IND, GT_OBJ, GT_BLK));
+    assert(load->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ, GT_IND_LOAD_BLK));
 
     GenTree*     addr = load->GetAddr();
     ValueNumPair addrExset;
@@ -4364,7 +4364,7 @@ void ValueNumbering::NumberIndLoad(GenTreeIndir* load)
 
     if (addr->TypeIs(TYP_REF) && load->TypeIs(TYP_I_IMPL))
     {
-        assert(load->OperIs(GT_IND) && !load->IsVolatile());
+        assert(load->OperIs(GT_IND_LOAD) && !load->IsVolatile());
 
         if (addrVNP.BothEqual() && (vnStore->GetVNFunc(addrVNP.GetLiberal(), &funcApp) == VNF_JitNew))
         {
