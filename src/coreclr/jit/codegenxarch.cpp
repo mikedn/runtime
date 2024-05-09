@@ -2332,7 +2332,7 @@ void CodeGen::GenStructStore(GenTree* store, StructStoreKind kind, ClassLayout* 
             break;
 #ifdef UNIX_AMD64_ABI
         case StructStoreKind::UnrollRegsWB:
-            GenStructStoreUnrollRegsWB(store->AsObj());
+            GenStructStoreUnrollRegsWB(store->AsIndStoreObj());
             break;
 #endif
         default:
@@ -2468,7 +2468,7 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
 
     if ((size >= XMM_REGSIZE_BYTES)
 #ifdef TARGET_AMD64
-        && (!store->IsObj() || !layout->HasGCPtr())
+        && (!store->IsIndStoreObj() || !layout->HasGCPtr())
 #endif
             )
     {
@@ -2497,7 +2497,7 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
 #ifdef TARGET_X86
         minSize = 8;
 
-        if (store->IsObj() && layout->HasGCPtr())
+        if (store->IsIndStoreObj() && layout->HasGCPtr())
         {
             xmmMov  = INS_movq;
             regSize = 8;
@@ -2743,7 +2743,7 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
     int        dstOffset         = 0;
     GenTree*   src;
 
-    if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
         dstLcl    = store->AsLclVarCommon()->GetLcl();
         dstOffset = store->AsLclVarCommon()->GetLclOffs();
@@ -2752,22 +2752,22 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
     }
     else
     {
-        GenTree* dstAddr = store->AsIndir()->GetAddr();
+        GenTree* dstAddr = store->AsIndStoreObj()->GetAddr();
 
         if (!dstAddr->isContained())
         {
-            dstAddrBaseReg = genConsumeReg(dstAddr);
+            dstAddrBaseReg = UseReg(dstAddr);
         }
         else if (GenTreeAddrMode* addrMode = dstAddr->IsAddrMode())
         {
             if (addrMode->HasBase())
             {
-                dstAddrBaseReg = genConsumeReg(addrMode->GetBase());
+                dstAddrBaseReg = UseReg(addrMode->GetBase());
             }
 
             if (addrMode->HasIndex())
             {
-                dstAddrIndexReg   = genConsumeReg(addrMode->GetIndex());
+                dstAddrIndexReg   = UseReg(addrMode->GetIndex());
                 dstAddrIndexScale = addrMode->GetScale();
             }
 
@@ -2779,7 +2779,7 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
             dstOffset = dstAddr->AsLclAddr()->GetLclOffs();
         }
 
-        src = store->AsObj()->GetValue();
+        src = store->AsIndStoreObj()->GetValue();
     }
 
     unsigned size = layout->GetSize();
@@ -2980,7 +2980,7 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
 }
 
 #ifdef UNIX_AMD64_ABI
-void CodeGen::GenStructStoreUnrollRegsWB(GenTreeObj* store)
+void CodeGen::GenStructStoreUnrollRegsWB(GenTreeIndStoreObj* store)
 {
     ClassLayout* layout = store->GetLayout();
 
@@ -6777,24 +6777,24 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
     emitAttr     srcAddrAttr       = EA_PTRSIZE;
     int          srcOffset         = 0;
 
-    if (src->OperIs(GT_LCL_VAR))
+    if (src->OperIs(GT_LCL_LOAD))
     {
-        srcLcl    = src->AsLclVar()->GetLcl();
+        srcLcl    = src->AsLclLoad()->GetLcl();
         srcLayout = srcLcl->GetLayout();
     }
-    else if (src->OperIs(GT_LCL_FLD))
+    else if (src->OperIs(GT_LCL_LOAD_FLD))
     {
-        srcLcl    = src->AsLclFld()->GetLcl();
-        srcOffset = src->AsLclFld()->GetLclOffs();
-        srcLayout = src->AsLclFld()->GetLayout(compiler);
+        srcLcl    = src->AsLclLoadFld()->GetLcl();
+        srcOffset = src->AsLclLoadFld()->GetLclOffs();
+        srcLayout = src->AsLclLoadFld()->GetLayout(compiler);
     }
     else
     {
-        GenTree* srcAddr = src->AsObj()->GetAddr();
+        GenTree* srcAddr = src->AsIndLoadObj()->GetAddr();
 
         if (!srcAddr->isContained())
         {
-            srcAddrBaseReg = genConsumeReg(srcAddr);
+            srcAddrBaseReg = UseReg(srcAddr);
         }
         else
         {
@@ -6802,19 +6802,19 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
 
             if (addrMode->HasBase())
             {
-                srcAddrBaseReg = genConsumeReg(addrMode->GetBase());
+                srcAddrBaseReg = UseReg(addrMode->GetBase());
             }
 
             if (addrMode->HasIndex())
             {
-                srcAddrIndexReg   = genConsumeReg(addrMode->GetIndex());
+                srcAddrIndexReg   = UseReg(addrMode->GetIndex());
                 srcAddrIndexScale = addrMode->GetScale();
             }
 
             srcOffset = addrMode->GetOffset();
         }
 
-        srcLayout   = src->AsObj()->GetLayout();
+        srcLayout   = src->AsIndLoadObj()->GetLayout();
         srcAddrAttr = emitTypeSize(srcAddr->GetType());
     }
 

@@ -874,7 +874,7 @@ protected:
     void GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout);
     void GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout);
 #if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
-    void GenStructStoreUnrollRegsWB(GenTreeObj* store);
+    void GenStructStoreUnrollRegsWB(GenTreeIndStoreObj* store);
 #endif
     void GenJmpTable(GenTree* node, const BBswtDesc& switchDesc);
     void GenSwitchTable(GenTreeOp* node);

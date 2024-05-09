@@ -1550,7 +1550,7 @@ private:
     void BuildKeepAlive(GenTreeUnOp* node);
     void BuildInstr(GenTreeInstr* instr);
     void BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);
-    void BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* layout);
+    void BuildStructStoreUnrollRegsWB(GenTreeIndStoreObj* store, ClassLayout* layout);
     void BuildStoreDynBlk(GenTreeDynBlk* store);
     void BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPosition* singleUseRef, unsigned index);
     void BuildStoreLclVarMultiReg(GenTreeLclVar* store);

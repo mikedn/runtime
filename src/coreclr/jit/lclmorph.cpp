@@ -1469,7 +1469,7 @@ private:
 
         if ((val.Offset() == 0) && (indirType == TYP_STRUCT) && (lclType != TYP_STRUCT) && (lclType != TYP_BLK))
         {
-            ClassLayout* indirLayout = indir->AsObj()->GetLayout();
+            ClassLayout* indirLayout = indir->AsIndLoadObj()->GetLayout();
 
             switch (user->GetOper())
             {
@@ -1674,7 +1674,7 @@ private:
         }
         else
         {
-            indirLayout = indir->AsObj()->GetLayout();
+            indirLayout = indir->AsIndLoadObj()->GetLayout();
 
             assert(!indirLayout->IsBlockLayout());
 
@@ -1872,11 +1872,11 @@ private:
         {
             assert(varTypeSize(bitcastType) <= REGSIZE_BYTES);
 
-            GenTree* addr = indir->AsObj()->GetAddr();
+            GenTree* addr = indir->AsIndLoadObj()->GetAddr();
 
-            addr->ChangeOper(GT_LCL_VAR);
+            addr->ChangeOper(GT_LCL_LOAD);
             addr->SetType(lclType);
-            addr->AsLclVar()->SetLcl(lcl);
+            addr->AsLclLoad()->SetLcl(lcl);
             addr->gtFlags = GTF_EMPTY;
 
             indir->ChangeOper(GT_BITCAST);
@@ -1891,9 +1891,9 @@ private:
 
         if (useLcl)
         {
-            indir->ChangeOper(GT_LCL_VAR);
+            indir->ChangeOper(GT_LCL_LOAD);
             indir->SetType(lclType);
-            indir->AsLclVar()->SetLcl(lcl);
+            indir->AsLclLoad()->SetLcl(lcl);
             indir->gtFlags = GTF_EMPTY;
 
             INDEBUG(m_stmtModified = true;)
@@ -1949,7 +1949,7 @@ private:
         store->SetLcl(fieldLcl);
         store->SetType(fieldLcl->GetType());
 
-        if (value->IsIntegralConst(0))
+        if (value->IsIntCon(0))
         {
             value = RetypeStructZeroInit(value, store->GetType());
         }
@@ -1961,13 +1961,13 @@ private:
         {
             value = RetypeStructCall(call, store->GetType());
         }
-        else if (value->OperIs(GT_LCL_FLD, GT_LCL_VAR))
+        else if (value->OperIs(GT_LCL_LOAD_FLD, GT_LCL_LOAD))
         {
             value = RetypeStructLocal(value->AsLclVarCommon(), store->GetType());
         }
         else
         {
-            value = RetypeStructIndir(value->AsObj(), store->GetType());
+            value = RetypeStructIndir(value->AsIndLoadObj(), store->GetType());
         }
 
         store->SetOp(0, value);
@@ -2022,17 +2022,17 @@ private:
         {
             val = RetypeStructCall(call, type);
         }
-        else if (val->IsIntegralConst(0))
+        else if (val->IsIntCon(0))
         {
             val = RetypeStructZeroInit(val, type);
         }
-        else if (val->OperIs(GT_LCL_FLD, GT_LCL_VAR))
+        else if (val->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
         {
             val = RetypeStructLocal(val->AsLclVarCommon(), type);
         }
         else
         {
-            val = RetypeStructIndir(val->AsObj(), type);
+            val = RetypeStructIndir(val->AsIndLoadObj(), type);
         }
 
         ret->SetOp(0, val);
@@ -3432,9 +3432,9 @@ public:
                 if (layout != nullptr)
                 {
                     tree->ChangeOper(value == nullptr ? GT_IND_LOAD_OBJ : GT_IND_STORE_OBJ);
-                    tree->AsObj()->SetLayout(layout);
-                    tree->AsObj()->SetAddr(addr);
-                    tree->AsObj()->SetKind(StructStoreKind::Invalid);
+                    tree->AsBlk()->SetLayout(layout);
+                    tree->AsBlk()->SetAddr(addr);
+                    tree->AsBlk()->SetKind(StructStoreKind::Invalid);
                 }
                 else
                 {
@@ -3500,7 +3500,7 @@ public:
                 }
 
                 tree->ChangeOper(value == nullptr ? GT_IND_LOAD_OBJ : GT_IND_STORE_OBJ);
-                tree->AsObj()->SetLayout(layout);
+                tree->AsBlk()->SetLayout(layout);
             }
             else
             {
@@ -3572,7 +3572,7 @@ public:
                                                                : lclNode->AsLclFld()->GetLayout(m_compiler);
 
             indir->ChangeOper(value == nullptr ? GT_IND_LOAD_OBJ : GT_IND_STORE_OBJ);
-            indir->AsObj()->SetLayout(layout);
+            indir->AsBlk()->SetLayout(layout);
         }
         else
         {

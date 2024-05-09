@@ -3502,7 +3502,7 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 #endif
             assert(arg->TypeIs(TYP_STRUCT));
 
-            GenTree* addr           = arg->AsObj()->GetAddr();
+            GenTree* addr           = arg->AsIndLoadObj()->GetAddr();
             ssize_t  addrOffset     = 0;
             GenTree* addrTempAssign = abiMakeIndirAddrMultiUse(&addr, &addrOffset, argSize);
 
@@ -4332,7 +4332,7 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 
     if (arg->OperIs(GT_IND_LOAD_OBJ))
     {
-        return abiMorphMultiRegObjArg(argInfo, arg->AsObj());
+        return abiMorphMultiRegObjArg(argInfo, arg->AsIndLoadObj());
     }
 
     if (arg->OperIs(GT_CALL) && arg->TypeIs(TYP_STRUCT))
@@ -8768,13 +8768,13 @@ GenTree* Compiler::fgMorphStructComma(GenTree* tree)
 
     GenTree* indir;
 
-    if (effectiveVal->OperIs(GT_IND))
+    if (effectiveVal->OperIs(GT_IND_LOAD))
     {
         indir = gtNewIndir(effectiveVal->GetType(), tree);
     }
     else
     {
-        indir = gtNewObjNode(effectiveVal->AsObj()->GetLayout(), tree);
+        indir = gtNewObjNode(effectiveVal->AsIndLoadObj()->GetLayout(), tree);
     }
 
     indir->SetSideEffects(sideEffects);
@@ -9151,17 +9151,17 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
     {
         destSize = varTypeSize(store->GetType());
     }
-    else if (store->OperIs(GT_STORE_LCL_VAR))
+    else if (store->OperIs(GT_LCL_STORE))
     {
         destSize = destLcl->GetLayout()->GetSize();
     }
-    else if (store->OperIs(GT_STORE_LCL_FLD))
+    else if (store->OperIs(GT_LCL_STORE_FLD))
     {
-        destSize = store->AsLclFld()->GetLayout(this)->GetSize();
+        destSize = store->AsLclStoreFld()->GetLayout(this)->GetSize();
     }
     else
     {
-        destSize = store->AsObj()->GetLayout()->GetSize();
+        destSize = store->AsIndStoreObj()->GetLayout()->GetSize();
     }
 
     if ((destLcl != nullptr) && destLcl->IsPromoted() && (destLclOffs == 0) && (destLcl->GetTypeSize() == destSize) &&
@@ -9447,7 +9447,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
                         // The original load must have the same layout as the promoted local, otherwise
                         // we can't generate correct field sequences and we need to use NotAField.
 
-                        if (!indir->IsObj() || (indir->AsObj()->GetLayout() != promotedLcl->GetLayout()))
+                        if (!indir->IsBlk() || (indir->AsBlk()->GetLayout() != promotedLcl->GetLayout()))
                         {
                             baseFieldSeq = FieldSeqNode::NotAField();
                         }
@@ -9455,9 +9455,9 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
                 }
             }
 
-            if (addr->OperIs(GT_LCL_VAR))
+            if (addr->OperIs(GT_LCL_LOAD))
             {
-                LclVarDsc* addrLcl = addr->AsLclVar()->GetLcl();
+                LclVarDsc* addrLcl = addr->AsLclLoad()->GetLcl();
 
                 bool isMemoryLoadOrAliased = addrLcl->lvDoNotEnregister || addrLcl->IsAddressExposed();
                 // If we're splitting the address of an indirect load then it means we're going to
@@ -9969,22 +9969,22 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         case GT_IND_STORE_OBJ:
             if (op1->OperIs(GT_LCL_ADDR) && !tree->AsIndir()->IsVolatile())
             {
-                ClassLayout* layout = tree->IsObj() ? tree->AsObj()->GetLayout() : nullptr;
+                ClassLayout* layout = tree->IsIndStoreObj() ? tree->AsIndStoreObj()->GetLayout() : nullptr;
 
-                // Just change it to a LCL_FLD. Since these locals are already address exposed
-                // it's not worth the complication to figure out if the types match and change
-                // to a LCL_VAR instead. Also don't bother with field sequences for the same
-                // reason, VN doesn't do anything interesting for address exposed locals.
+                // Just change it to a LCL_STORE_FLD. Since these locals are already address exposed
+                // it's not worth the complication to figure out if the types match and change to a
+                // LCL_STORE instead. Also don't bother with field sequences for the same reason, VN
+                // doesn't do anything interesting for address exposed locals.
 
-                tree->ChangeOper(GT_STORE_LCL_FLD);
-                tree->AsLclFld()->SetLcl(op1->AsLclAddr()->GetLcl());
-                tree->AsLclFld()->SetLclOffs(op1->AsLclAddr()->GetLclOffs());
-                tree->AsLclFld()->SetLayout(layout, this);
-                tree->AsLclFld()->SetOp(0, op2);
+                tree->ChangeOper(GT_LCL_STORE_FLD);
+                tree->AsLclStoreFld()->SetLcl(op1->AsLclAddr()->GetLcl());
+                tree->AsLclStoreFld()->SetLclOffs(op1->AsLclAddr()->GetLclOffs());
+                tree->AsLclStoreFld()->SetLayout(layout, this);
+                tree->AsLclStoreFld()->SetValue(op2);
                 tree->SetSideEffects(GTF_ASG | GTF_GLOB_REF | op2->GetSideEffects());
                 tree->gtFlags &= ~GTF_REVERSE_OPS;
 
-                oper = GT_STORE_LCL_FLD;
+                oper = GT_LCL_STORE_FLD;
                 op1  = op2;
                 op2  = nullptr;
             }
@@ -9999,18 +9999,18 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         case GT_IND_LOAD_OBJ:
             if (op1->OperIs(GT_LCL_ADDR) && !tree->AsIndir()->IsVolatile())
             {
-                ClassLayout* layout = tree->IsObj() ? tree->AsObj()->GetLayout() : nullptr;
+                ClassLayout* layout = tree->IsIndLoadObj() ? tree->AsIndLoadObj()->GetLayout() : nullptr;
 
-                // Just change it to a LCL_FLD. Since these locals are already address exposed
-                // it's not worth the complication to figure out if the types match and change
-                // to a LCL_VAR instead. Also don't bother with field sequences for the same
-                // reason, VN doesn't do anything interesting for address exposed locals.
+                // Just change it to a LCL_LOAD_FLD. Since these locals are already address exposed
+                // it's not worth the complication to figure out if the types match and change to a
+                // LCL_LOAD instead. Also don't bother with field sequences for the same reason, VN
+                // doesn't do anything interesting for address exposed locals.
 
-                tree->ChangeOper(GT_LCL_FLD);
+                tree->ChangeOper(GT_LCL_LOAD_FLD);
                 tree->SetSideEffects(GTF_GLOB_REF);
-                tree->AsLclFld()->SetLcl(op1->AsLclAddr()->GetLcl());
-                tree->AsLclFld()->SetLclOffs(op1->AsLclAddr()->GetLclOffs());
-                tree->AsLclFld()->SetLayout(layout, this);
+                tree->AsLclLoadFld()->SetLcl(op1->AsLclAddr()->GetLcl());
+                tree->AsLclLoadFld()->SetLclOffs(op1->AsLclAddr()->GetLclOffs());
+                tree->AsLclLoadFld()->SetLayout(layout, this);
 
                 return tree;
             }

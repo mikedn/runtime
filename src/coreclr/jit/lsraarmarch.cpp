@@ -360,7 +360,7 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
 #ifdef TARGET_ARM64
     if (kind == StructStoreKind::UnrollRegsWB)
     {
-        BuildStructStoreUnrollRegsWB(store->AsObj(), layout);
+        BuildStructStoreUnrollRegsWB(store->AsIndStoreObj(), layout);
 
         return;
     }
@@ -509,7 +509,7 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
     BuildKills(store, getKillSetForStructStore(kind));
 }
 
-void LinearScan::BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* layout)
+void LinearScan::BuildStructStoreUnrollRegsWB(GenTreeIndStoreObj* store, ClassLayout* layout)
 {
 #ifndef TARGET_ARM64
     unreached();

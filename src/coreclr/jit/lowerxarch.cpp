@@ -344,19 +344,19 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
         ClassLayout* layout;
         unsigned     size;
 
-        if (src->OperIs(GT_LCL_VAR))
+        if (src->OperIs(GT_LCL_LOAD))
         {
-            layout = src->AsLclVar()->GetLcl()->GetLayout();
+            layout = src->AsLclLoad()->GetLcl()->GetLayout();
             size   = roundUp(layout->GetSize(), REGSIZE_BYTES);
         }
-        else if (src->OperIs(GT_LCL_FLD))
+        else if (src->OperIs(GT_LCL_LOAD_FLD))
         {
-            layout = src->AsLclFld()->GetLayout(comp);
+            layout = src->AsLclLoadFld()->GetLayout(comp);
             size   = roundUp(layout->GetSize(), REGSIZE_BYTES);
         }
         else
         {
-            layout = src->AsObj()->GetLayout();
+            layout = src->AsIndLoadObj()->GetLayout();
             size   = layout->GetSize();
         }
 

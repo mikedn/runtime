@@ -620,20 +620,20 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk,
     regNumber    srcAddrBaseReg = REG_NA;
     int          srcOffset      = 0;
 
-    if (src->OperIs(GT_LCL_VAR))
+    if (src->OperIs(GT_LCL_LOAD))
     {
-        srcLcl    = src->AsLclVar()->GetLcl();
+        srcLcl    = src->AsLclLoad()->GetLcl();
         srcLayout = srcLcl->GetLayout();
     }
-    else if (src->OperIs(GT_LCL_FLD))
+    else if (src->OperIs(GT_LCL_LOAD_FLD))
     {
-        srcLcl    = src->AsLclFld()->GetLcl();
-        srcOffset = src->AsLclFld()->GetLclOffs();
-        srcLayout = src->AsLclFld()->GetLayout(compiler);
+        srcLcl    = src->AsLclLoadFld()->GetLcl();
+        srcOffset = src->AsLclLoadFld()->GetLclOffs();
+        srcLayout = src->AsLclLoadFld()->GetLayout(compiler);
     }
     else
     {
-        GenTree* srcAddr = src->AsObj()->GetAddr();
+        GenTree* srcAddr = src->AsIndLoadObj()->GetAddr();
 
         if (!srcAddr->isContained())
         {
@@ -646,7 +646,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk,
             srcOffset = srcAddr->AsAddrMode()->GetOffset();
         }
 
-        srcLayout = src->AsObj()->GetLayout();
+        srcLayout = src->AsIndLoadObj()->GetLayout();
     }
 
     emitter* emit   = GetEmitter();
@@ -922,20 +922,20 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
     regNumber    srcAddrBaseReg = REG_NA;
     int          srcOffset      = 0;
 
-    if (src->OperIs(GT_LCL_VAR))
+    if (src->OperIs(GT_LCL_LOAD))
     {
-        srcLcl    = src->AsLclVar()->GetLcl();
+        srcLcl    = src->AsLclLoad()->GetLcl();
         srcLayout = srcLcl->GetLayout();
     }
-    else if (src->OperIs(GT_LCL_FLD))
+    else if (src->OperIs(GT_LCL_LOAD_FLD))
     {
-        srcLcl    = src->AsLclFld()->GetLcl();
-        srcOffset = src->AsLclFld()->GetLclOffs();
-        srcLayout = src->AsLclFld()->GetLayout(compiler);
+        srcLcl    = src->AsLclLoadFld()->GetLcl();
+        srcOffset = src->AsLclLoadFld()->GetLclOffs();
+        srcLayout = src->AsLclLoadFld()->GetLayout(compiler);
     }
     else
     {
-        GenTree* srcAddr = src->AsObj()->GetAddr();
+        GenTree* srcAddr = src->AsIndLoadObj()->GetAddr();
 
         if (!srcAddr->isContained())
         {
@@ -948,7 +948,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
             srcOffset = srcAddr->AsAddrMode()->GetOffset();
         }
 
-        srcLayout = src->AsObj()->GetLayout();
+        srcLayout = src->AsIndLoadObj()->GetLayout();
     }
 
     unsigned offset    = 0;
@@ -1363,7 +1363,7 @@ void CodeGen::GenStructStore(GenTree* store, StructStoreKind kind, ClassLayout* 
             break;
 #ifdef TARGET_ARM64
         case StructStoreKind::UnrollRegsWB:
-            GenStructStoreUnrollRegsWB(store->AsObj());
+            GenStructStoreUnrollRegsWB(store->AsIndStoreObj());
             break;
 #endif
         default:
@@ -1735,7 +1735,7 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
     int        dstOffset      = 0;
     GenTree*   src;
 
-    if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
         dstLcl    = store->AsLclVarCommon()->GetLcl();
         dstOffset = store->AsLclVarCommon()->GetLclOffs();
@@ -1744,17 +1744,17 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
     }
     else
     {
-        GenTree* dstAddr = store->AsObj()->GetAddr();
+        GenTree* dstAddr = store->AsIndStoreObj()->GetAddr();
 
         if (!dstAddr->isContained())
         {
-            dstAddrBaseReg = genConsumeReg(dstAddr);
+            dstAddrBaseReg = UseReg(dstAddr);
         }
         else if (GenTreeAddrMode* addrMode = dstAddr->IsAddrMode())
         {
             assert(addrMode->GetIndex() == nullptr);
 
-            dstAddrBaseReg = genConsumeReg(addrMode->GetBase());
+            dstAddrBaseReg = UseReg(addrMode->GetBase());
             dstOffset      = dstAddr->AsAddrMode()->GetOffset();
         }
         else
@@ -1763,7 +1763,7 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
             dstOffset = dstAddr->AsLclAddr()->GetLclOffs();
         }
 
-        src = store->AsObj()->GetValue();
+        src = store->AsIndStoreObj()->GetValue();
     }
 
     unsigned size = layout->GetSize();
@@ -2076,7 +2076,7 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
 }
 
 #ifdef TARGET_ARM64
-void CodeGen::GenStructStoreUnrollRegsWB(GenTreeObj* store)
+void CodeGen::GenStructStoreUnrollRegsWB(GenTreeIndStoreObj* store)
 {
     ClassLayout* layout = store->GetLayout();
 

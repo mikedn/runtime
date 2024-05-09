@@ -1022,21 +1022,21 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
                 }
             }
         }
-        else if (!arg->IsIntegralConst(0))
+        else if (!arg->IsIntCon(0))
         {
             ClassLayout* layout;
 
-            if (arg->OperIs(GT_LCL_VAR))
+            if (arg->OperIs(GT_LCL_LOAD))
             {
-                layout = arg->AsLclVar()->GetLcl()->GetLayout();
+                layout = arg->AsLclLoad()->GetLcl()->GetLayout();
             }
-            else if (arg->OperIs(GT_LCL_FLD))
+            else if (arg->OperIs(GT_LCL_LOAD_FLD))
             {
-                layout = arg->AsLclFld()->GetLayout(comp);
+                layout = arg->AsLclLoadFld()->GetLayout(comp);
             }
             else
             {
-                layout = arg->AsObj()->GetLayout();
+                layout = arg->AsIndLoadObj()->GetLayout();
             }
 
             if (layout->HasGCPtr())
@@ -5166,7 +5166,7 @@ void Lowering::LowerIndStore(GenTreeIndStore* store)
 
             store->SetOper(GT_IND_STORE_OBJ);
             store->SetType(TYP_STRUCT);
-            store->AsObj()->SetLayout(call->GetRetLayout());
+            store->AsIndStoreObj()->SetLayout(call->GetRetLayout());
 
             LowerIndStoreObj(store->AsIndStoreObj());
 
@@ -5268,7 +5268,7 @@ void Lowering::LowerStructStore(GenTree* store, StructStoreKind kind, ClassLayou
     }
 
     assert((src->OperIs(GT_IND_LOAD_OBJ, GT_LCL_LOAD, GT_LCL_LOAD_FLD) && src->TypeIs(TYP_STRUCT)) || src->IsIntCon(0));
-    assert(!src->OperIs(GT_IND_LOAD_OBJ) || !src->AsObj()->GetAddr()->isContained());
+    assert(!src->OperIs(GT_IND_LOAD_OBJ) || !src->AsIndLoadObj()->GetAddr()->isContained());
 
     if (src->TypeIs(TYP_STRUCT))
     {
@@ -5287,7 +5287,7 @@ void Lowering::LowerStructStore(GenTree* store, StructStoreKind kind, ClassLayou
         else if (size >= XMM_REGSIZE_BYTES)
         {
 #ifdef TARGET_AMD64
-            if ((size % 16 == 0) && (!store->IsObj() || !layout->HasGCPtr()))
+            if ((size % 16 == 0) && (!store->IsIndStoreObj() || !layout->HasGCPtr()))
 #else
             if (size % 8 == 0)
 #endif
@@ -5304,12 +5304,12 @@ void Lowering::LowerStructStore(GenTree* store, StructStoreKind kind, ClassLayou
     {
         if (kind == StructStoreKind::UnrollCopy)
         {
-            ContainStructStoreAddress(store, layout->GetSize(), src->AsObj()->GetAddr());
+            ContainStructStoreAddress(store, layout->GetSize(), src->AsIndLoadObj()->GetAddr());
         }
 #ifdef TARGET_XARCH
         else
         {
-            TryCreateAddrMode(src->AsObj()->GetAddr(), false);
+            TryCreateAddrMode(src->AsIndLoadObj()->GetAddr(), false);
         }
 #endif
     }

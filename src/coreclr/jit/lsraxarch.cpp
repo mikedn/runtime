@@ -800,7 +800,7 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
 #ifdef UNIX_AMD64_ABI
     if (kind == StructStoreKind::UnrollRegsWB)
     {
-        BuildStructStoreUnrollRegsWB(store->AsObj(), layout);
+        BuildStructStoreUnrollRegsWB(store->AsIndStoreObj(), layout);
 
         return;
     }
@@ -868,7 +868,7 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
         case StructStoreKind::UnrollInit:
             if ((size >= XMM_REGSIZE_BYTES)
 #ifdef TARGET_AMD64
-                && (!store->IsObj() || !layout->HasGCPtr())
+                && (!store->IsIndStoreObj() || !layout->HasGCPtr())
 #endif
                     )
             {
@@ -1027,7 +1027,7 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
     BuildKills(store, getKillSetForStructStore(kind));
 }
 
-void LinearScan::BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* layout)
+void LinearScan::BuildStructStoreUnrollRegsWB(GenTreeIndStoreObj* store, ClassLayout* layout)
 {
 #ifndef UNIX_AMD64_ABI
     unreached();
@@ -1182,24 +1182,24 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
                 ClassLayout* layout;
                 unsigned     size;
 
-                if (src->OperIs(GT_LCL_VAR))
+                if (src->OperIs(GT_LCL_LOAD))
                 {
-                    layout = src->AsLclVar()->GetLcl()->GetLayout();
+                    layout = src->AsLclLoad()->GetLcl()->GetLayout();
                     size   = roundUp(layout->GetSize(), REGSIZE_BYTES);
                 }
-                else if (src->OperIs(GT_LCL_FLD))
+                else if (src->OperIs(GT_LCL_LOAD_FLD))
                 {
-                    layout = src->AsLclFld()->GetLayout(compiler);
+                    layout = src->AsLclLoadFld()->GetLayout(compiler);
                     size   = roundUp(layout->GetSize(), REGSIZE_BYTES);
                 }
-                else if (src->IsIntegralConst(0))
+                else if (src->IsIntCon(0))
                 {
                     layout = nullptr;
                     size   = putArgStk->GetSlotCount() * REGSIZE_BYTES;
                 }
                 else
                 {
-                    layout = src->AsObj()->GetLayout();
+                    layout = src->AsIndLoadObj()->GetLayout();
                     size   = layout->GetSize();
                 }
 

@@ -833,7 +833,7 @@ GenTree* Importer::impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigne
     }
     else
     {
-        destAddr = dest->AsObj()->GetAddr();
+        destAddr = dest->AsIndLoadObj()->GetAddr();
     }
 
     GenTree* destAddrUses[2];
@@ -1096,8 +1096,8 @@ GenTree* Importer::impGetStructAddr(GenTree*             value,
 
     if (value->OperIs(GT_IND_LOAD_OBJ) && willDereference)
     {
-        assert(value->AsObj()->GetLayout()->GetClassHandle() == structHnd);
-        return value->AsObj()->GetAddr();
+        assert(value->AsIndLoadObj()->GetLayout()->GetClassHandle() == structHnd);
+        return value->AsIndLoadObj()->GetAddr();
     }
 
     LclVarDsc* tmpLcl = lvaAllocTemp(true DEBUGARG("struct address temp"));
