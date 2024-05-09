@@ -5145,7 +5145,7 @@ public:
     void morphAssertionDone();
     void morphAssertionGenerate(GenTree* tree);
     GenTree* morphAssertionPropagate(GenTree* tree);
-    bool morphAssertionIsNotNull(GenTreeLclVar* lclVar);
+    bool morphAssertionIsNotNull(GenTreeLclLoad* load);
     bool morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_types type);
     void morphAssertionSetCount(unsigned count);
     unsigned morphAssertionTableSize(unsigned count);
@@ -5158,21 +5158,21 @@ public:
 private:
     BitVec& morphAssertionGetDependent(unsigned lclNum);
     void morphAssertionGenerateNotNull(GenTree* op1);
-    void morphAssertionGenerateEqual(GenTreeLclVar* store, GenTree* value);
+    void morphAssertionGenerateEqual(GenTreeLclStore* store, GenTree* value);
     void morphAssertionAdd(MorphAssertion& assertion);
     const MorphAssertion& morphAssertionGet(unsigned index);
     void morphAssertionRemove(unsigned index);
     void morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeLclVarCommon* store));
     const MorphAssertion* morphAssertionFindRange(unsigned lclNum);
 
-    GenTree* morphAssertionPropagateLclVar(GenTreeLclVar* lclVar);
-    GenTree* morphAssertionPropagateLclFld(GenTreeLclFld* lclFld);
+    GenTree* morphAssertionPropagateLclLoad(GenTreeLclLoad* load);
+    GenTree* morphAssertionPropagateLclLoadFld(GenTreeLclLoadFld* load);
     GenTree* morphAssertionPropagateIndir(GenTreeIndir* indir);
     GenTree* morphAssertionPropagateCast(GenTreeCast* cast);
     GenTree* morphAssertionPropagateCall(GenTreeCall* call);
     GenTree* morphAssertionPropagateRelOp(GenTreeOp* relop);
-    GenTree* morphAssertionPropagateLclVarConst(const MorphAssertion& assertion, GenTreeLclVar* lclVar);
-    GenTree* morphAssertionPropagateLclVarCopy(const MorphAssertion& assertion, GenTreeLclVar* lclVar);
+    GenTree* morphAssertionPropagateLclLoadConst(const MorphAssertion& assertion, GenTreeLclLoad* load);
+    GenTree* morphAssertionPropagateLclLoadCopy(const MorphAssertion& assertion, GenTreeLclLoad* load);
 
 #ifdef DEBUG
     unsigned morphAssertionId;

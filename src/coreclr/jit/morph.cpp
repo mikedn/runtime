@@ -5634,34 +5634,34 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
         }
     }
 
-    var_types      addrType      = addr->GetType();
-    GenTree*       nullCheck     = nullptr;
-    GenTreeLclVar* nullCheckAddr = nullptr;
+    var_types       addrType      = addr->GetType();
+    GenTree*        nullCheck     = nullptr;
+    GenTreeLclLoad* nullCheckAddr = nullptr;
 
     if (explicitNullCheckRequired)
     {
-        GenTreeLclVar* store = nullptr;
-        LclVarDsc*     lcl;
+        GenTreeLclStore* store = nullptr;
+        LclVarDsc*       lcl;
 
-        if (addr->OperIs(GT_LCL_VAR))
+        if (addr->OperIs(GT_LCL_LOAD))
         {
-            nullCheckAddr = addr->AsLclVar();
+            nullCheckAddr = addr->AsLclLoad();
             lcl           = nullCheckAddr->GetLcl();
         }
         else
         {
             lcl   = lvaGetDesc(fgGetLargeFieldOffsetNullCheckTemp(addrType));
-            store = gtNewStoreLclVar(lcl, addrType, addr);
+            store = gtNewLclStore(lcl, addrType, addr);
         }
 
-        nullCheck = gtNewNullCheck(gtNewLclvNode(lcl, addrType));
+        nullCheck = gtNewNullCheck(gtNewLclLoad(lcl, addrType));
 
         if (store != nullptr)
         {
             nullCheck = gtNewCommaNode(store, nullCheck);
         }
 
-        addr = gtNewLclvNode(lcl, addrType);
+        addr = gtNewLclLoad(lcl, addrType);
     }
 
 #ifdef FEATURE_READYTORUN_COMPILER
