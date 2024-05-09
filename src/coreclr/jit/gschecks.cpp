@@ -209,12 +209,12 @@ static Compiler::fgWalkResult MarkPtrsAndAssignGroups(GenTree** use, Compiler::f
 
             for (GenTreeCall::Use& use : call->Args())
             {
-                // Skip STRUCT typed LCL_VAR|FLD call args, previously these were wrapped in OBJs,
+                // Skip STRUCT typed LCL_LOAD|FLD call args, previously these were wrapped in OBJs,
                 // which this code ignored. Which is probably a bug since a struct can contain
                 // pointers. Needless to say that fixing this will result in regressions due to
                 // extra copying of current method's parameters.
 
-                if (!use.GetNode()->OperIs(GT_LCL_VAR, GT_LCL_FLD) || !use.GetNode()->TypeIs(TYP_STRUCT))
+                if (!use.GetNode()->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) || !use.GetNode()->TypeIs(TYP_STRUCT))
                 {
                     comp->fgWalkTreePre(&use.NodeRef(), MarkPtrsAndAssignGroups, state);
                 }
@@ -222,7 +222,7 @@ static Compiler::fgWalkResult MarkPtrsAndAssignGroups(GenTree** use, Compiler::f
 
             for (GenTreeCall::Use& use : call->LateArgs())
             {
-                if (!use.GetNode()->OperIs(GT_LCL_VAR, GT_LCL_FLD) || !use.GetNode()->TypeIs(TYP_STRUCT))
+                if (!use.GetNode()->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) || !use.GetNode()->TypeIs(TYP_STRUCT))
                 {
                     comp->fgWalkTreePre(&use.NodeRef(), MarkPtrsAndAssignGroups, state);
                 }
@@ -429,7 +429,7 @@ void Compiler::gsParamsToShadows()
 
     class ReplaceShadowParamsVisitor final : public GenTreeVisitor<ReplaceShadowParamsVisitor>
     {
-        // Walk the locals of the method (i.e. GT_LCL_FLD and GT_LCL_VAR nodes) and replace the ones that correspond to
+        // Walk the locals of the method (i.e. LCL_LOAD_FLD and LCL_LOAD nodes) and replace the ones that correspond to
         // "vulnerable" parameters with their shadow copies. If an original local variable has small type then replace
         // the GT_LCL_VAR node type with TYP_INT.
     public:

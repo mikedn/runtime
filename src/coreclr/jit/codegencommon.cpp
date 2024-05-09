@@ -5329,18 +5329,18 @@ bool CodeGen::IsLocalMemoryOperand(GenTree* op, StackAddrMode* am)
 
     assert(op->isContained());
 
-    if (op->OperIs(GT_LCL_FLD))
+    if (op->OperIs(GT_LCL_LOAD_FLD))
     {
-        *am = GetStackAddrMode(op->AsLclFld());
+        *am = GetStackAddrMode(op->AsLclLoadFld());
 
         return true;
     }
 
-    if (op->OperIs(GT_LCL_VAR))
+    if (op->OperIs(GT_LCL_LOAD))
     {
-        assert(op->IsRegOptional() || !op->AsLclVar()->GetLcl()->IsRegCandidate());
+        assert(op->IsRegOptional() || !op->AsLclLoad()->GetLcl()->IsRegCandidate());
 
-        *am = GetStackAddrMode(op->AsLclVar()->GetLcl(), 0);
+        *am = GetStackAddrMode(op->AsLclLoad()->GetLcl(), 0);
 
         return true;
     }

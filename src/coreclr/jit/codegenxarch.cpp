@@ -2566,7 +2566,7 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
     int        dstOffset         = 0;
     GenTree*   src;
 
-    if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
         dstLcl    = store->AsLclVarCommon()->GetLcl();
         dstOffset = store->AsLclVarCommon()->GetLclOffs();
@@ -2579,18 +2579,18 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
 
         if (!dstAddr->isContained())
         {
-            dstAddrBaseReg = genConsumeReg(dstAddr);
+            dstAddrBaseReg = UseReg(dstAddr);
         }
         else if (GenTreeAddrMode* addrMode = dstAddr->IsAddrMode())
         {
             if (addrMode->HasBase())
             {
-                dstAddrBaseReg = genConsumeReg(addrMode->GetBase());
+                dstAddrBaseReg = UseReg(addrMode->GetBase());
             }
 
             if (addrMode->HasIndex())
             {
-                dstAddrIndexReg   = genConsumeReg(addrMode->GetIndex());
+                dstAddrIndexReg   = UseReg(addrMode->GetIndex());
                 dstAddrIndexScale = addrMode->GetScale();
             }
 
@@ -7783,7 +7783,7 @@ CodeGen::GenAddrMode::GenAddrMode(GenTree* tree, CodeGen* codeGen)
     {
         m_lcl = tree->AsLclVarCommon()->GetLcl();
 
-        if (tree->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD))
+        if (tree->OperIs(GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD))
         {
             m_disp = tree->AsLclFld()->GetLclOffs();
         }
@@ -9066,7 +9066,8 @@ void CodeGen::emitInsCmp(instruction ins, emitAttr attr, GenTree* op1, GenTree* 
     GenTree* immOp = nullptr;
     GenTree* regOp = nullptr;
 
-    if (op1->isContained() || (op1->OperIs(GT_LCL_FLD) && (op1->GetRegNum() == REG_NA)) || op1->isUsedFromSpillTemp())
+    if (op1->isContained() || (op1->OperIs(GT_LCL_LOAD_FLD) && (op1->GetRegNum() == REG_NA)) ||
+        op1->isUsedFromSpillTemp())
     {
         assert(op1->isUsedFromMemory() || (op1->GetRegNum() == REG_NA));
 

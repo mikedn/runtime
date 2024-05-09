@@ -899,7 +899,7 @@ regNumber CodeGen::UseReg(GenTree* node)
         UnspillRegIfNeeded(node);
     }
 
-    if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    if (node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
     {
         liveness.UpdateLife(this, node->AsLclVarCommon());
     }
@@ -1327,7 +1327,7 @@ void CodeGen::genConsumeRegs(GenTree* tree)
         return;
     }
 
-    if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    if (tree->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
     {
         assert(IsValidContainedLcl(tree->AsLclVarCommon()));
         liveness.UpdateLife(this, tree->AsLclVarCommon());

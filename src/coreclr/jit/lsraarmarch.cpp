@@ -587,7 +587,7 @@ void LinearScan::BuildCast(GenTreeCast* cast)
 #endif
     else
     {
-        assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+        assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
     }
 
     BuildInternalUses();

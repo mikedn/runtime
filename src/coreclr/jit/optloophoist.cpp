@@ -624,7 +624,7 @@ public:
     {
         GenTree* tree = *use;
 
-        if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        if (tree->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
         {
             return fgWalkResult::WALK_CONTINUE;
         }
@@ -848,7 +848,7 @@ public:
             {
                 m_beforeSideEffect = false;
             }
-            else if (tree->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+            else if (tree->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
             {
                 LclVarDsc* lcl = tree->AsLclVarCommon()->GetLcl();
 

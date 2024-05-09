@@ -54,9 +54,7 @@ enum genTreeOps : uint8_t
 #endif
 
     GT_LCL_VAR       = GT_LCL_LOAD,
-    GT_STORE_LCL_VAR = GT_LCL_STORE,
-    GT_LCL_FLD       = GT_LCL_LOAD_FLD,
-    GT_STORE_LCL_FLD = GT_LCL_STORE_FLD
+    GT_STORE_LCL_VAR = GT_LCL_STORE
 };
 
 enum GenTreeKinds
@@ -1640,8 +1638,8 @@ public:
     var_types GetMultiRegType(Compiler* compiler, unsigned regIndex);
 
     // Last-use information for either GenTreeLclVar or GenTreeCopyOrReload nodes.
-    bool IsLastUse(unsigned regIndex);
-    bool HasLastUse();
+    bool IsLastUse(unsigned regIndex) const;
+    bool HasLastUse() const;
     void SetLastUse(unsigned regIndex, bool lastUse);
 
     // Returns true if it is a GT_COPY or GT_RELOAD of a multi-reg call node
@@ -3187,7 +3185,7 @@ private:
 
 protected:
     GenTreeLclFld(var_types type, LclVarDsc* lcl, unsigned lclOffs)
-        : GenTreeLclVarCommon(GT_LCL_FLD, type, lcl)
+        : GenTreeLclVarCommon(GT_LCL_LOAD_FLD, type, lcl)
         , m_lclOffs(static_cast<uint16_t>(lclOffs))
         , m_layoutNum(0)
         , m_fieldSeq(FieldSeqStore::NotAField())
@@ -3196,7 +3194,7 @@ protected:
     }
 
     GenTreeLclFld(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* value)
-        : GenTreeLclVarCommon(GT_STORE_LCL_FLD, type, lcl)
+        : GenTreeLclVarCommon(GT_LCL_STORE_FLD, type, lcl)
         , m_lclOffs(static_cast<uint16_t>(lclOffs))
         , m_layoutNum(0)
         , m_fieldSeq(FieldSeqStore::NotAField())
@@ -7983,7 +7981,7 @@ inline var_types GenTree::GetMultiRegType(Compiler* compiler, unsigned regIndex)
     }
 #endif
 
-    if (OperIs(GT_STORE_LCL_VAR))
+    if (OperIs(GT_LCL_STORE))
     {
         if (TypeIs(TYP_LONG))
         {
@@ -8005,23 +8003,23 @@ constexpr GenTreeFlags GetLastUseFlag(unsigned regIndex)
     return static_cast<GenTreeFlags>(GTF_VAR_FIELD_DEATH0 << regIndex);
 }
 
-inline bool GenTree::IsLastUse(unsigned regIndex)
+inline bool GenTree::IsLastUse(unsigned regIndex) const
 {
-    assert(OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_FLD, GT_COPY, GT_RELOAD));
+    assert(OperIs(GT_LCL_LOAD, GT_LCL_STORE, GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD, GT_COPY, GT_RELOAD));
 
     return (gtFlags & GetLastUseFlag(regIndex)) != 0;
 }
 
-inline bool GenTree::HasLastUse()
+inline bool GenTree::HasLastUse() const
 {
-    assert(OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_FLD, GT_COPY, GT_RELOAD));
+    assert(OperIs(GT_LCL_LOAD, GT_LCL_STORE, GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD, GT_COPY, GT_RELOAD));
 
     return (gtFlags & GTF_VAR_FIELD_DEATH_MASK) != 0;
 }
 
 inline void GenTree::SetLastUse(unsigned regIndex, bool lastUse)
 {
-    assert(OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_FLD, GT_COPY, GT_RELOAD));
+    assert(OperIs(GT_LCL_LOAD, GT_LCL_STORE, GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD, GT_COPY, GT_RELOAD));
 
     if (lastUse)
     {

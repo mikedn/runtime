@@ -1524,7 +1524,7 @@ void LoopCloneVisitorInfo::SummarizeLocalStores(unsigned lclNum)
                                                     static_cast<LoopCloneVisitorInfo*>(data->pCallbackData);
                                                 GenTree* node = *use;
 
-                                                if (node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+                                                if (node->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
                                                 {
                                                     info->SummarizeLocalStoresVisitor(node->AsLclVarCommon());
                                                 }
@@ -1538,7 +1538,7 @@ void LoopCloneVisitorInfo::SummarizeLocalStores(unsigned lclNum)
 
 void LoopCloneVisitorInfo::SummarizeLocalStoresVisitor(GenTreeLclVarCommon* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+    assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
 
     LclVarDsc* lcl = store->AsLclVarCommon()->GetLcl();
 

@@ -8353,7 +8353,7 @@ CodeGen::GenAddrMode::GenAddrMode(GenTree* tree, CodeGen* codeGen)
     {
         m_lcl = tree->AsLclVarCommon()->GetLcl();
 
-        if (tree->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD))
+        if (tree->OperIs(GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD))
         {
             m_disp = tree->AsLclFld()->GetLclOffs();
         }

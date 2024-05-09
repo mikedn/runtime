@@ -138,9 +138,8 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
 
         // Produce a location value.
         // (lclNum, lclOffs) => LOCATION(lclNum, offset)
-        void Location(GenTreeLclFld* lclFld)
+        void Location(GenTreeLclLoadFld* lclFld)
         {
-            assert(lclFld->OperIs(GT_LCL_FLD));
             assert(!IsLocation() && !IsAddress());
 
             m_lcl      = lclFld->GetLcl();
@@ -346,7 +345,7 @@ public:
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
         if (m_compiler->lvaRefCountState == RCS_MORPH)
         {
-            if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+            if (node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD))
             {
                 UpdateImplicitByRefParamRefCounts(node->AsLclVarCommon()->GetLcl());
             }
@@ -386,7 +385,7 @@ public:
             case GT_LCL_LOAD_FLD:
                 assert(TopValue(0).Node() == node);
 
-                TopValue(0).Location(node->AsLclFld());
+                TopValue(0).Location(node->AsLclLoadFld());
                 break;
 
             case GT_CAST:
@@ -977,10 +976,10 @@ private:
         assert(varTypeIsSIMD(fieldLcl->GetType()));
     }
 
-    bool PromoteLclFld(GenTreeLclFld* node, LclVarDsc* lcl)
+    bool PromoteLclFld(GenTreeLclLoadFld* node, LclVarDsc* lcl)
     {
         // The importer does not currently produce STRUCT LCL_FLDs.
-        assert(node->OperIs(GT_LCL_FLD) && !node->TypeIs(TYP_STRUCT));
+        assert(!node->TypeIs(TYP_STRUCT));
 
         LclVarDsc* fieldLcl = FindPromotedField(lcl, node->GetLclOffs(), varTypeSize(node->GetType()));
 
@@ -999,8 +998,8 @@ private:
             return false;
         }
 
-        node->ChangeOper(GT_LCL_VAR);
-        node->AsLclVar()->SetLcl(fieldLcl);
+        node->ChangeOper(GT_LCL_LOAD);
+        node->AsLclLoad()->SetLcl(fieldLcl);
 
         INDEBUG(m_stmtModified = true;)
 
@@ -1198,12 +1197,12 @@ private:
             m_compiler->lvaSetAddressExposed(lcl);
         }
 
-        store->ChangeOper(GT_STORE_LCL_FLD);
-        store->AsLclFld()->SetLcl(lcl);
-        store->AsLclFld()->SetLclOffs(lclOffs);
-        store->AsLclFld()->SetFieldSeq(fieldSeq == nullptr || !varTypeIsStruct(lclType) ? FieldSeqStore::NotAField()
-                                                                                        : fieldSeq);
-        store->AsLclFld()->SetOp(0, value);
+        store->ChangeOper(GT_LCL_STORE_FLD);
+        store->AsLclStoreFld()->SetLcl(lcl);
+        store->AsLclStoreFld()->SetLclOffs(lclOffs);
+        store->AsLclStoreFld()->SetFieldSeq(
+            fieldSeq == nullptr || !varTypeIsStruct(lclType) ? FieldSeqStore::NotAField() : fieldSeq);
+        store->AsLclStoreFld()->SetValue(value);
         store->gtFlags = GTF_ASG | (lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
 
         m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
@@ -1327,13 +1326,13 @@ private:
             m_compiler->lvaSetAddressExposed(lcl);
         }
 
-        store->ChangeOper(GT_STORE_LCL_FLD);
-        store->AsLclFld()->SetLcl(lcl);
-        store->AsLclFld()->SetLclOffs(lclOffs);
-        store->AsLclFld()->SetFieldSeq(fieldSeq == nullptr || !varTypeIsStruct(lclType) ? FieldSeqStore::NotAField()
-                                                                                        : fieldSeq);
-        store->AsLclFld()->SetOp(0, value);
-        store->AsLclFld()->SetLayout(storeLayout, m_compiler);
+        store->ChangeOper(GT_LCL_STORE_FLD);
+        store->AsLclStoreFld()->SetLcl(lcl);
+        store->AsLclStoreFld()->SetLclOffs(lclOffs);
+        store->AsLclStoreFld()->SetFieldSeq(
+            fieldSeq == nullptr || !varTypeIsStruct(lclType) ? FieldSeqStore::NotAField() : fieldSeq);
+        store->AsLclStoreFld()->SetValue(value);
+        store->AsLclStoreFld()->SetLayout(storeLayout, m_compiler);
         store->gtFlags = GTF_ASG | (lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
 
         m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
@@ -1713,14 +1712,14 @@ private:
         }
         else
         {
-            indir->ChangeOper(GT_LCL_FLD);
-            indir->AsLclFld()->SetLcl(varDsc);
-            indir->AsLclFld()->SetLclOffs(val.Offset());
-            indir->AsLclFld()->SetFieldSeq(fieldSeq == nullptr ? FieldSeqStore::NotAField() : fieldSeq);
+            indir->ChangeOper(GT_LCL_LOAD_FLD);
+            indir->AsLclLoadFld()->SetLcl(varDsc);
+            indir->AsLclLoadFld()->SetLclOffs(val.Offset());
+            indir->AsLclLoadFld()->SetFieldSeq(fieldSeq == nullptr ? FieldSeqStore::NotAField() : fieldSeq);
 
             if (indirLayout != nullptr)
             {
-                indir->AsLclFld()->SetLayout(indirLayout, m_compiler);
+                indir->AsLclLoadFld()->SetLayout(indirLayout, m_compiler);
             }
 
             // Promoted struct locals aren't currently handled here so the created LCL_FLD can
@@ -2001,10 +2000,10 @@ private:
 
         if (varActualType(store->GetType()) != varActualType(value->GetType()))
         {
-            value->ChangeOper(GT_LCL_FLD);
+            value->ChangeOper(GT_LCL_LOAD_FLD);
             value->SetType(store->GetType());
 
-            m_compiler->lvaSetDoNotEnregister(value->AsLclFld()->GetLcl() DEBUGARG(Compiler::DNER_LocalField));
+            m_compiler->lvaSetDoNotEnregister(value->AsLclLoadFld()->GetLcl() DEBUGARG(Compiler::DNER_LocalField));
         }
 
         return value;
@@ -2151,7 +2150,7 @@ private:
 
     GenTree* RetypeStructLocal(GenTreeLclVarCommon* structLcl, var_types type)
     {
-        assert(structLcl->OperIs(GT_LCL_VAR, GT_LCL_FLD) && structLcl->TypeIs(TYP_STRUCT));
+        assert(structLcl->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) && structLcl->TypeIs(TYP_STRUCT));
         assert(type != TYP_STRUCT);
 
         ClassLayout* fieldLayout = nullptr;
@@ -3378,7 +3377,7 @@ public:
                 return;
             }
 
-            assert(varTypeIsStruct(lclNode->GetType()) || lclNode->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD));
+            assert(varTypeIsStruct(lclNode->GetType()) || lclNode->OperIs(GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD));
 
             if ((lcl->lvFieldLclStart != 0) && (lcl->lvFieldCnt == 0))
             {
@@ -3388,7 +3387,7 @@ public:
 
                 LclVarDsc* promotedLcl = m_compiler->lvaGetDesc(lcl->lvFieldLclStart);
 
-                assert(lclNode->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
+                assert(lclNode->OperIs(GT_LCL_LOAD, GT_LCL_STORE));
                 assert(varTypeIsStruct(promotedLcl->GetType()));
 
                 lclNode->SetLcl(promotedLcl);
@@ -3397,7 +3396,7 @@ public:
             {
                 GenTreeIntCon* offset = nullptr;
 
-                if (lclNode->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD))
+                if (lclNode->OperIs(GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD))
                 {
                     unsigned      lclOffs  = lclNode->AsLclFld()->GetLclOffs();
                     FieldSeqNode* fieldSeq = lclNode->AsLclFld()->GetFieldSeq();

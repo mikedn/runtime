@@ -921,9 +921,9 @@ inline GenTreeLclFld* GenTree::ChangeToLclFld(var_types type, LclVarDsc* lcl, un
     assert(offset <= UINT16_MAX);
     assert((fieldSeq == nullptr) || (fieldSeq == FieldSeqNode::NotAField()) || fieldSeq->IsField());
 
-    SetOperResetFlags(GT_LCL_FLD);
+    SetOperResetFlags(GT_LCL_LOAD_FLD);
 
-    GenTreeLclFld* lclFld = AsLclFld();
+    GenTreeLclLoadFld* lclFld = AsLclLoadFld();
     lclFld->SetType(type);
     lclFld->SetLcl(lcl);
     lclFld->SetLclOffs(offset);
@@ -938,15 +938,15 @@ inline GenTreeLclFld* GenTree::ChangeToLclFldStore(
     assert(offset <= UINT16_MAX);
     assert((fieldSeq == nullptr) || (fieldSeq == FieldSeqNode::NotAField()) || fieldSeq->IsField());
 
-    SetOperResetFlags(GT_STORE_LCL_FLD);
+    SetOperResetFlags(GT_LCL_STORE_FLD);
 
-    GenTreeLclFld* lclFld = AsLclFld();
+    GenTreeLclStoreFld* lclFld = AsLclStoreFld();
     lclFld->SetType(type);
     lclFld->SetLcl(lcl);
     lclFld->SetLclOffs(offset);
     lclFld->SetLayoutNum(0);
     lclFld->SetFieldSeq(fieldSeq == nullptr ? FieldSeqNode::NotAField() : fieldSeq);
-    lclFld->SetOp(0, value);
+    lclFld->SetValue(value);
     lclFld->SetSideEffects(GTF_ASG | value->GetSideEffects() | (lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE));
     return lclFld;
 }

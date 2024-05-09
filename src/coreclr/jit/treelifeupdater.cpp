@@ -192,7 +192,8 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
 
 void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* lclNode)
 {
-    assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) && !lclNode->IsMultiRegLclVar());
+    assert(lclNode->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD) &&
+           !lclNode->IsMultiRegLclVar());
 
     LclVarDsc* lcl = lclNode->GetLcl();
 
@@ -207,7 +208,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
     }
 
     bool isBorn =
-        lclNode->OperIs(GT_STORE_LCL_VAR) || (lclNode->OperIs(GT_STORE_LCL_FLD) && !lclNode->IsPartialLclFld(compiler));
+        lclNode->OperIs(GT_LCL_STORE) || (lclNode->OperIs(GT_LCL_STORE_FLD) && !lclNode->IsPartialLclFld(compiler));
     bool isDying = (lclNode->gtFlags & GTF_VAR_DEATH) != 0;
     bool spill   = lclNode->IsAnyRegSpill();
 
@@ -349,7 +350,7 @@ void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarC
 {
     assert(!lclNode->IsMultiRegLclVar() && !lclNode->IsAnyRegSpill());
 
-    bool isBorn  = lclNode->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD);
+    bool isBorn  = lclNode->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD);
     bool isDying = lclNode->HasLastUse();
 
     if (!isBorn && !isDying)

@@ -5448,8 +5448,8 @@ void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned m
         if ((regType == TYP_STRUCT) && !tree->IsMultiRegNode())
         {
             assert(compiler->compEnregStructLocals());
-            // TODO-MIKE-Review: This probably doesn't need LCL_FLD.
-            assert(tree->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+            // TODO-MIKE-Review: This probably doesn't need LCL_LOAD_FLD.
+            assert(tree->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
             const GenTreeLclVarCommon* lcl    = tree->AsLclVarCommon();
             const LclVarDsc*           varDsc = lcl->GetLcl();
             // We create struct copies with a primitive type so we don't bother copy node with parsing structHndl.

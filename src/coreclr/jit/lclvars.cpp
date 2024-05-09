@@ -2614,13 +2614,13 @@ void Compiler::lvaComputeRefCountsHIR()
             {
                 // TODO-MIKE-Review: Old code ignored LCL_FLDs, that's probably bogus. lvHasEHRefs
                 // is used only for AddCopies and CopyProp heuristics so it probably doesn't matter.
-                if (node->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
+                if (node->OperIs(GT_LCL_LOAD, GT_LCL_STORE))
                 {
                     lcl->lvHasEHRefs = true;
                 }
 
-                if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD) ||
-                    (node->OperIs(GT_STORE_LCL_FLD) && node->IsPartialLclFld(m_compiler)))
+                if (node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) ||
+                    (node->OperIs(GT_LCL_STORE_FLD) && node->IsPartialLclFld(m_compiler)))
                 {
                     lcl->lvHasEHUses = true;
 
@@ -2638,7 +2638,7 @@ void Compiler::lvaComputeRefCountsHIR()
                 }
             }
 
-            if (node->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD))
+            if (node->OperIs(GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD))
             {
                 assert((node->gtFlags & GTF_VAR_CONTEXT) == 0);
 

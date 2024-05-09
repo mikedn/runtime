@@ -299,9 +299,9 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             {
                 GenTree* src = treeNode->AsUnOp()->GetOp(0);
 
-                // TODO-MIKE-Review: This can't be a LCL_FLD, it's marked as reg optional
-                // in lowering and only a reg optional LCL_VAR can become contained.
-                if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+                // TODO-MIKE-Review: This can't be a LCL_LOAD_FLD, it's marked as reg optional
+                // in lowering and only a reg optional LCL_LOAD can become contained.
+                if (src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
                 {
                     liveness.UpdateLife(this, src->AsLclVarCommon());
                 }

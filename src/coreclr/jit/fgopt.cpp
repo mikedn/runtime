@@ -2822,7 +2822,8 @@ bool Compiler::fgBlockEndFavorsTailDuplication(BasicBlock* block, LclVarDsc* lcl
     {
         count++;
         GenTree* const tree = stmt->GetRootNode();
-        if (tree->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) && !varTypeIsStruct(tree->GetType()))
+
+        if (tree->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD) && !varTypeIsStruct(tree->GetType()))
         {
             // TODO-MIKE-Review: Old code used the stupid IsLocal and might have allowed
             // LCL_FLD by accident. We're probably really looking for a store to the
@@ -2932,7 +2933,7 @@ bool Compiler::fgBlockIsGoodTailDuplicationCandidate(BasicBlock* target, LclVarD
     // is assigned to and which field is used in the condition. This does not
     // appear to be a correctness issue though.
 
-    if (!op1->OperIs(GT_LCL_VAR, GT_LCL_FLD) && !op1->OperIsConst())
+    if (!op1->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) && !op1->OperIsConst())
     {
         return false;
     }
@@ -2944,7 +2945,7 @@ bool Compiler::fgBlockIsGoodTailDuplicationCandidate(BasicBlock* target, LclVarD
         op2 = op2->AsOp()->gtOp1;
     }
 
-    if (!op2->OperIs(GT_LCL_VAR, GT_LCL_FLD) && !op2->OperIsConst())
+    if (!op2->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) && !op2->OperIsConst())
     {
         return false;
     }
@@ -2954,12 +2955,12 @@ bool Compiler::fgBlockIsGoodTailDuplicationCandidate(BasicBlock* target, LclVarD
     LclVarDsc* lcl1 = nullptr;
     LclVarDsc* lcl2 = nullptr;
 
-    if (op1->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    if (op1->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
     {
         lcl1 = op1->AsLclVarCommon()->GetLcl();
     }
 
-    if (op2->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    if (op2->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
     {
         lcl2 = op2->AsLclVarCommon()->GetLcl();
     }

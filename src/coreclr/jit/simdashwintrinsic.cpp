@@ -3050,10 +3050,10 @@ void SIMDCoalescingBuffer::ChangeToSIMDLoad(Compiler* compiler, GenTree* load, v
 {
     assert(load->TypeIs(TYP_FLOAT));
 
-    if (load->OperIs(GT_LCL_FLD))
+    if (load->OperIs(GT_LCL_LOAD_FLD))
     {
         load->SetType(simdType);
-        load->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
+        load->AsLclLoadFld()->SetFieldSeq(FieldSeqStore::NotAField());
 
         return;
     }
@@ -3140,11 +3140,11 @@ void SIMDCoalescingBuffer::ChangeToSIMDStore(Compiler* compiler, GenTree* store,
 {
     assert(store->TypeIs(TYP_FLOAT));
 
-    if (store->OperIs(GT_STORE_LCL_FLD))
+    if (store->OperIs(GT_LCL_STORE_FLD))
     {
         store->SetType(simdType);
-        store->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
-        store->AsLclFld()->SetOp(0, value);
+        store->AsLclStoreFld()->SetFieldSeq(FieldSeqStore::NotAField());
+        store->AsLclStoreFld()->SetOp(0, value);
 
         return;
     }

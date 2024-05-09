@@ -1324,7 +1324,7 @@ void Lowering::LowerCall(GenTreeCall* call)
         // in LIR so its gtNext/gtPrev pointers are always null and it has no other distinct
         // properties. Well, it does have the type set to the original arg type but that's
         // pointless since nothing actually looks at these nodes.
-        if (use.GetNode()->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+        if (use.GetNode()->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
         {
             use.SetNode(new (comp, GT_ARGPLACE) GenTree(GT_ARGPLACE, use.GetNode()->GetType()));
         }
@@ -1617,7 +1617,7 @@ void Lowering::RehomeParamForFastTailCall(LclVarDsc* paramLcl,
 
     for (GenTree* node = rangeStart; node != rangeEnd; node = node->gtNext)
     {
-        if (!node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_LCL_ADDR))
+        if (!node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD, GT_LCL_ADDR))
         {
             continue;
         }
@@ -1828,7 +1828,7 @@ GenTree* Lowering::DecomposeLongCompare(GenTreeOp* cmp)
 
             // Very conservative dead code removal... but it helps.
 
-            if (loSrc1->OperIs(GT_CNS_INT, GT_LCL_VAR, GT_LCL_FLD))
+            if (loSrc1->OperIs(GT_CNS_INT, GT_LCL_LOAD, GT_LCL_LOAD_FLD))
             {
                 BlockRange().Remove(loSrc1);
             }
@@ -1855,7 +1855,7 @@ GenTree* Lowering::DecomposeLongCompare(GenTreeOp* cmp)
             // move constants (except 0 which generates XOR reg, reg) but it's extremely rare
             // to have a constant as the first operand.
 
-            if (hiSrc1->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+            if (hiSrc1->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
             {
                 BlockRange().Remove(hiSrc1);
                 BlockRange().InsertBefore(hiCmp, hiSrc1);
@@ -2253,7 +2253,7 @@ void Lowering::LowerRetSingleRegStructLclVar(GenTreeUnOp* ret)
 
     if (lcl->lvDoNotEnregister)
     {
-        lclVar->ChangeOper(GT_LCL_FLD);
+        lclVar->ChangeOper(GT_LCL_LOAD_FLD);
         lclVar->SetType(ret->GetType());
     }
     else
@@ -3345,7 +3345,7 @@ bool Lowering::AreSourcesPossiblyModifiedLocals(GenTree* addr, GenTree* base, Ge
     SideEffectSet baseSideEffects;
     if (base != nullptr)
     {
-        if (base->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        if (base->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
         {
             baseSideEffects.AddNode(comp, base);
         }
@@ -3358,7 +3358,7 @@ bool Lowering::AreSourcesPossiblyModifiedLocals(GenTree* addr, GenTree* base, Ge
     SideEffectSet indexSideEffects;
     if (index != nullptr)
     {
-        if (index->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        if (index->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
         {
             indexSideEffects.AddNode(comp, index);
         }
@@ -4441,16 +4441,16 @@ GenTree* Lowering::LowerArrElem(GenTree* node)
     assert(arrElem->gtArrObj->TypeGet() == TYP_REF);
 
     // We need to have the array object in a lclVar.
-    // TODO-MIKE-Review: Allowing LCL_FLD (or DNER LCL_VAR) results in poor CQ,
+    // TODO-MIKE-Review: Allowing LCL_LOAD_FLD (or DNER LCL_LOAD) results in poor CQ,
     // we really should have the array reference in a register.
-    if (!arrElem->gtArrObj->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    if (!arrElem->gtArrObj->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
     {
         LIR::Use arrObjUse(BlockRange(), &arrElem->gtArrObj, arrElem);
         ReplaceWithLclVar(arrObjUse);
     }
 
     GenTree* arrObjNode = arrElem->gtArrObj;
-    assert(arrObjNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+    assert(arrObjNode->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
 
     GenTree* insertionPoint = arrElem;
 

@@ -4847,7 +4847,7 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
             case GT_LCL_LOAD_FLD:
                 if (tree->AsLclLoadFld()->GetLcl() == constLcl)
                 {
-                    IMPL_LIMITATION("replacing GT_LCL_FLD with a constant");
+                    IMPL_LIMITATION("replacing LCL_LOAD_FLD with a constant");
                 }
                 else
                 {
@@ -7115,7 +7115,7 @@ void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node)
 
     printf(" V%02u", lcl->GetLclNum());
 
-    if (node->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD))
+    if (node->OperIs(GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD))
     {
         printf("@%u", node->GetLclOffs());
     }
@@ -7178,7 +7178,7 @@ void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node)
         prefix = ", ";
     }
 
-    if (fgLocalVarLivenessDone && node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) &&
+    if (fgLocalVarLivenessDone && node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD) &&
         node->HasLastUse())
     {
         printf("%slast-use", prefix);
@@ -11026,7 +11026,7 @@ bool GenTree::IsPhiDef() const
 
 bool GenTree::IsPartialLclFld(Compiler* comp)
 {
-    if ((gtOper != GT_LCL_FLD) && (gtOper != GT_STORE_LCL_FLD))
+    if ((gtOper != GT_LCL_LOAD_FLD) && (gtOper != GT_LCL_STORE_FLD))
     {
         return false;
     }

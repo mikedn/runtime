@@ -1458,7 +1458,7 @@ void Importer::impImportDup()
         // Always clone local addresses, otherwise the local will end up being address exposed.
         op2 = gtCloneExpr(op1);
     }
-    else if (op1->IsIntegralConst(0) || op1->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    else if (op1->IsIntegralConst(0) || op1->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
     {
         if ((op1->gtFlags & GTF_GLOB_EFFECT) == 0)
         {
@@ -2326,8 +2326,8 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
         {
             static bool IsArgsFieldInit(GenTree* tree, unsigned index, LclVarDsc* argLcl)
             {
-                return tree->OperIs(GT_STORE_LCL_FLD) && (tree->AsLclFld()->GetLclOffs() == 4 * index) &&
-                       (tree->AsLclFld()->GetLcl() == argLcl);
+                return tree->OperIs(GT_LCL_STORE_FLD) && (tree->AsLclStoreFld()->GetLclOffs() == 4 * index) &&
+                       (tree->AsLclStoreFld()->GetLcl() == argLcl);
             }
 
             static bool IsArgsAddr(GenTree* tree, LclVarDsc* argLcl)
@@ -16497,7 +16497,8 @@ bool Compiler::impHasLclRef(GenTree* tree, LclVarDsc* lcl)
             return tree->AsLclAddr()->GetLcl() == lcl;
         }
 
-        if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        // TODO-MIKE-Review: Does this need to check for local stores?
+        if (tree->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
         {
             return tree->AsLclVarCommon()->GetLcl() == lcl;
         }
@@ -16623,7 +16624,8 @@ bool Compiler::impHasAddressTakenLocals(GenTree* tree)
                 return WALK_ABORT;
             }
         }
-        else if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        // TODO-MIKE-Review: Does this need to check for local stores?
+        else if (node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
         {
             LclVarDsc* lcl = node->AsLclVarCommon()->GetLcl();
 

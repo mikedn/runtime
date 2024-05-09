@@ -945,7 +945,7 @@ void CodeGen::genVectorGetElement(GenTreeHWIntrinsic* node)
         unsigned  scale;
         int       offset;
 
-        if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        if (src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
         {
             LclVarDsc* lcl = src->AsLclVarCommon()->GetLcl();
 
