@@ -148,11 +148,11 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 
     if (src->TypeIs(TYP_STRUCT))
     {
-        if (src->OperIs(GT_OBJ))
+        if (src->OperIs(GT_IND_LOAD_OBJ))
         {
-            unsigned size = src->AsObj()->GetLayout()->GetSize();
+            unsigned size = src->AsIndLoadObj()->GetLayout()->GetSize();
 
-            ContainStructStoreAddress(putArgStk, size, src->AsObj()->GetAddr());
+            ContainStructStoreAddress(putArgStk, size, src->AsIndLoadObj()->GetAddr());
         }
 
         return;

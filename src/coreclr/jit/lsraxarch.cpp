@@ -1257,9 +1257,9 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
                 unreached();
         }
 
-        if (src->OperIs(GT_OBJ))
+        if (src->OperIs(GT_IND_LOAD_OBJ))
         {
-            BuildAddrUses(src->AsObj()->GetAddr());
+            BuildAddrUses(src->AsIndLoadObj()->GetAddr());
         }
 
         BuildInternalUses();

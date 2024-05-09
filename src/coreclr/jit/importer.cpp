@@ -5731,7 +5731,7 @@ GenTree* Importer::impImportLdSFld(OPCODE                    opcode,
 
     if (opcode == CEE_LDSFLD)
     {
-        assert(fieldType == TYP_STRUCT ? field->OperIs(GT_OBJ) : field->OperIs(GT_IND));
+        assert(field->OperIs(fieldType == TYP_STRUCT ? GT_IND_LOAD_OBJ : GT_IND_LOAD));
 
         if ((prefixFlags & PREFIX_VOLATILE) != 0)
         {
@@ -5860,7 +5860,7 @@ GenTree* Importer::impImportStSFld(GenTree*                  value,
 
     var_types fieldType = CorTypeToVarType(fieldInfo.fieldType);
 
-    assert((fieldType == TYP_STRUCT) ? field->OperIs(GT_OBJ) : field->OperIs(GT_IND));
+    assert(field->OperIs(fieldType == TYP_STRUCT ? GT_IND_LOAD_OBJ : GT_IND_LOAD));
 
     if ((prefixFlags & PREFIX_VOLATILE) != 0)
     {
@@ -10770,7 +10770,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (opcode == CEE_LDFLD)
                 {
-                    assert(lclTyp == TYP_STRUCT ? op1->OperIs(GT_OBJ) : op1->OperIs(GT_IND));
+                    assert(op1->OperIs(lclTyp == TYP_STRUCT ? GT_IND_LOAD_OBJ : GT_IND_LOAD));
 
                     if ((prefixFlags & PREFIX_VOLATILE) != 0)
                     {
@@ -10870,7 +10870,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 // a local field implies "address taken". So we spill GLOB_REFs for all locals too.
                 impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("STFLD stack spill temp"));
 
-                assert((lclTyp == TYP_STRUCT) ? op1->OperIs(GT_OBJ) : op1->OperIs(GT_IND));
+                assert(op1->OperIs(lclTyp == TYP_STRUCT ? GT_IND_LOAD_OBJ : GT_IND_LOAD));
 
                 if ((prefixFlags & PREFIX_VOLATILE) != 0)
                 {
@@ -10891,7 +10891,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     op2 = impConvertFieldStoreValue(op1->GetType(), op2);
 
                     // TODO-MIKE-Cleanup: It would be better to generate stores from the get go
-                    op1->SetOper(op1->OperIs(GT_OBJ) ? GT_IND_STORE_OBJ : GT_IND_STORE);
+                    op1->SetOper(op1->OperIs(GT_IND_LOAD_OBJ) ? GT_IND_STORE_OBJ : GT_IND_STORE);
                     op1->AsIndir()->SetValue(op2);
                     // We're expecting gtNewFieldIndir to add GLOB_REF as needed.
                     op1->AddSideEffects(GTF_ASG | op2->GetSideEffects());
@@ -16326,7 +16326,7 @@ GenTree* Importer::impImportPop(BasicBlock* block)
         // If the value being produced comes from loading
         // via an underlying address, just null check the address.
 
-        if (op1->OperIs(GT_IND, GT_OBJ) && !op1->AsIndir()->IsVolatile())
+        if (op1->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ) && !op1->AsIndir()->IsVolatile())
         {
             GenTree* addr = op1->AsIndir()->GetAddr();
 

@@ -1212,7 +1212,7 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
     }
 #endif // !defined(TARGET_64BIT)
 
-    assert(!arg->OperIs(GT_OBJ) || arg->TypeIs(TYP_STRUCT));
+    assert(!arg->OperIs(GT_IND_LOAD_OBJ) || arg->TypeIs(TYP_STRUCT));
 
     if (arg->TypeIs(TYP_STRUCT) && !arg->IsCall())
     {
@@ -2146,7 +2146,7 @@ void Lowering::LowerStructReturn(GenTreeUnOp* ret)
     }
 #endif // DEBUG
 
-    if (src->OperIs(GT_IND, GT_OBJ))
+    if (src->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ))
     {
         var_types    retRegType = comp->info.retDesc.GetRegType(0);
         ClassLayout* retLayout  = comp->info.GetRetLayout();
@@ -2158,10 +2158,10 @@ void Lowering::LowerStructReturn(GenTreeUnOp* ret)
                 retRegType = varTypeToUnsigned(retRegType);
             }
 
-            src->ChangeOper(GT_IND);
+            src->ChangeOper(GT_IND_LOAD);
             src->SetType(retRegType);
 
-            LowerIndir(src->AsIndir());
+            LowerIndir(src->AsIndLoad());
         }
         else
         {
@@ -2180,8 +2180,8 @@ void Lowering::LowerStructReturn(GenTreeUnOp* ret)
             GenTreeLclStore* tempStore = comp->gtNewLclStore(tempLcl, src->GetType(), src);
             BlockRange().InsertAfter(src, tempStore);
 
-            src->ChangeOper(GT_OBJ);
-            src->AsObj()->SetLayout(retLayout);
+            src->ChangeOper(GT_IND_LOAD_OBJ);
+            src->AsIndLoadObj()->SetLayout(retLayout);
 
             LowerLclStore(tempStore);
 #endif
@@ -5477,9 +5477,9 @@ bool Lowering::TryTransformStoreObjToStoreInd(GenTreeIndStoreObj* store)
 
     if (varTypeIsStruct(src->GetType()))
     {
-        if (src->OperIs(GT_OBJ))
+        if (src->OperIs(GT_IND_LOAD_OBJ))
         {
-            src->ChangeOper(GT_IND);
+            src->ChangeOper(GT_IND_LOAD);
         }
 
         src->SetType(regType);

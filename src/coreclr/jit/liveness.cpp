@@ -1108,8 +1108,8 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
                 {
                     if (node->IndirMayThrow(this))
                     {
-                        // IR doesn't expect dummy uses of `GT_OBJ/BLK`.
-                        JITDUMP("Transform an unused OBJ/BLK node [%06u]\n", node->GetID());
+                        // IR doesn't expect dummy uses of IND_LOAD_OBJ/BLK.
+                        JITDUMP("Transform an unused IND_LOAD_OBJ/BLK node [%06u]\n", node->GetID());
                         Lowering::TransformUnusedIndirection(node->AsIndir());
                     }
                     else

@@ -3281,7 +3281,7 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
 
     if (arg->TypeIs(TYP_STRUCT) && (argInfo->GetArgType() != TYP_STRUCT))
     {
-        // While not required for corectness, we can change the type of a struct arg to
+        // While not required for correctness, we can change the type of a struct arg to
         // be a primitive type of suitable size (e.g. a 2 byte struct can be treated as
         // USHORT. Currently CSE does not handle STRUCT OBJs but it can CSE an IND, even
         // if this is a form a reinterpretation that has other limitations in VN/CSE.
@@ -3295,30 +3295,30 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
         var_types argType   = argInfo->GetArgType();
         bool      canRetype = false;
 
-        if (arg->OperIs(GT_OBJ))
+        if (arg->OperIs(GT_IND_LOAD_OBJ))
         {
-            canRetype = varTypeSize(argType) <= arg->AsObj()->GetLayout()->GetSize();
+            canRetype = varTypeSize(argType) <= arg->AsIndLoadObj()->GetLayout()->GetSize();
 
             if (canRetype)
             {
-                arg->ChangeOper(GT_IND);
+                arg->ChangeOper(GT_IND_LOAD);
             }
         }
-        else if (arg->OperIs(GT_LCL_FLD))
+        else if (arg->OperIs(GT_LCL_LOAD_FLD))
         {
-            canRetype =
-                arg->AsLclFld()->GetLclOffs() + varTypeSize(argType) <= arg->AsLclFld()->GetLcl()->GetTypeSize();
+            canRetype = arg->AsLclLoadFld()->GetLclOffs() + varTypeSize(argType) <=
+                        arg->AsLclLoadFld()->GetLcl()->GetTypeSize();
 
             if (canRetype)
             {
-                arg->AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
+                arg->AsLclLoadFld()->SetFieldSeq(FieldSeqStore::NotAField());
             }
         }
-        else if (arg->OperIs(GT_LCL_VAR))
+        else if (arg->OperIs(GT_LCL_LOAD))
         {
             canRetype = true;
-            lvaSetDoNotEnregister(arg->AsLclVar()->GetLcl() DEBUGARG(DNER_LocalField));
-            arg->ChangeOper(GT_LCL_FLD);
+            lvaSetDoNotEnregister(arg->AsLclLoad()->GetLcl() DEBUGARG(DNER_LocalField));
+            arg->ChangeOper(GT_LCL_LOAD_FLD);
         }
 
         if (canRetype)
@@ -3478,9 +3478,9 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
         return;
     }
 
-    if (arg->OperIs(GT_OBJ))
+    if (arg->OperIs(GT_IND_LOAD_OBJ))
     {
-        argSize = arg->AsObj()->GetLayout()->GetSize();
+        argSize = arg->AsIndLoadObj()->GetLayout()->GetSize();
 
         assert(argSize <= argRegType);
 
@@ -4330,7 +4330,7 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
         return abiMorphMultiRegLclArg(argInfo, arg->AsLclVarCommon());
     }
 
-    if (arg->OperIs(GT_OBJ))
+    if (arg->OperIs(GT_IND_LOAD_OBJ))
     {
         return abiMorphMultiRegObjArg(argInfo, arg->AsObj());
     }
@@ -4353,7 +4353,7 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
 {
     assert(varTypeIsSIMD(arg->GetType()));
-    assert(!arg->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_OBJ));
+    assert(!arg->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_IND_LOAD_OBJ));
 
     unsigned regCount = argInfo->GetRegCount();
 #if FEATURE_ARG_SPLIT
@@ -9129,7 +9129,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
         assert(src->SkipComma()->IsLclUse() || !src->SkipComma()->AsLclVar()->GetLcl()->IsPromoted());
         assert((destLcl == nullptr) || !destLcl->IsIndependentPromoted());
     }
-    else if (!src->OperIs(GT_OBJ))
+    else if (!src->OperIs(GT_IND_LOAD_OBJ))
     {
         // For SIMD copies the source can be any SIMD typed tree or a CALL.
         assert(src->OperIs(GT_CALL) || varTypeIsSIMD(src->GetType()));
@@ -9463,7 +9463,8 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
                 // If we're splitting the address of an indirect load then it means we're going to
                 // promote a local store, so we must copy the address to a temp if addrLcl happens
                 // to be one of the promoted fields.
-                bool isStoredPromotedField = indir->OperIs(GT_IND, GT_OBJ) && addrLcl->IsPromotedField() &&
+                bool isStoredPromotedField = indir->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ) &&
+                                             addrLcl->IsPromotedField() &&
                                              (addrLcl->GetPromotedFieldParentLclNum() == promotedLcl->GetLclNum());
 
                 if (!isMemoryLoadOrAliased && !isStoredPromotedField)

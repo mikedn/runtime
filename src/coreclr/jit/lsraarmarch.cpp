@@ -268,9 +268,9 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
         BuildInternalIntDef(putArg);
 #endif
 
-        if (src->OperIs(GT_OBJ))
+        if (src->OperIs(GT_IND_LOAD_OBJ))
         {
-            BuildAddrUses(src->AsObj()->GetAddr());
+            BuildAddrUses(src->AsIndLoadObj()->GetAddr());
         }
 
         BuildInternalUses();
@@ -339,9 +339,9 @@ void LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
         {
             BuildInternalIntDef(putArg, allRegs(TYP_INT) & ~argRegMask);
 
-            if (src->OperIs(GT_OBJ))
+            if (src->OperIs(GT_IND_LOAD_OBJ))
             {
-                BuildAddrUses(src->AsObj()->GetAddr());
+                BuildAddrUses(src->AsIndLoadObj()->GetAddr());
             }
 
             BuildInternalUses();

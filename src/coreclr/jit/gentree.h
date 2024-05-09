@@ -54,7 +54,6 @@ enum genTreeOps : uint8_t
 #endif
 
     GT_IND           = GT_IND_LOAD,
-    GT_OBJ           = GT_IND_LOAD_OBJ,
     GT_LCL_VAR       = GT_LCL_LOAD,
     GT_STORE_LCL_VAR = GT_LCL_STORE,
     GT_LCL_FLD       = GT_LCL_LOAD_FLD,

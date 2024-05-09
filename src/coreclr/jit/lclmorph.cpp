@@ -1571,20 +1571,20 @@ private:
 
             // If we haven't been able to get rid of the indir until now then just use a LCL_FLD.
 
-            if (indir->OperIs(GT_IND, GT_OBJ))
+            if (indir->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ))
             {
-                ClassLayout* layout = indir->IsObj() ? indir->AsObj()->GetLayout() : nullptr;
+                ClassLayout* layout = indir->IsIndLoadObj() ? indir->AsIndLoadObj()->GetLayout() : nullptr;
 
-                indir->ChangeOper(GT_LCL_FLD);
-                indir->AsLclFld()->SetLcl(varDsc);
-                indir->AsLclFld()->SetLclOffs(val.Offset());
-                indir->AsLclFld()->SetLayoutNum(layout == nullptr ? 0 : m_compiler->typGetLayoutNum(layout));
+                indir->ChangeOper(GT_LCL_LOAD_FLD);
+                indir->AsLclLoadFld()->SetLcl(varDsc);
+                indir->AsLclLoadFld()->SetLclOffs(val.Offset());
+                indir->AsLclLoadFld()->SetLayoutNum(layout == nullptr ? 0 : m_compiler->typGetLayoutNum(layout));
                 indir->gtFlags = GTF_EMPTY;
 
                 m_compiler->lvaSetDoNotEnregister(varDsc DEBUGARG(Compiler::DNER_LocalField));
             }
 
-            INDEBUG(m_stmtModified |= !indir->OperIs(GT_IND, GT_OBJ);)
+            INDEBUG(m_stmtModified |= !indir->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ);)
 
             return;
         }
@@ -1771,7 +1771,7 @@ private:
     bool MorphLocalStructIndirReturn(const Value& val, GenTree* indir, ClassLayout* indirLayout, GenTreeUnOp* ret)
     {
         assert(val.Offset() == 0);
-        assert(indir->OperIs(GT_OBJ) && indir->TypeIs(TYP_STRUCT));
+        assert(indir->OperIs(GT_IND_LOAD_OBJ) && indir->TypeIs(TYP_STRUCT));
         assert(ret->OperIs(GT_RETURN) && ret->TypeIs(TYP_STRUCT));
         assert(m_compiler->info.GetRetLayout()->GetSize() == indirLayout->GetSize());
 
@@ -2184,7 +2184,7 @@ private:
 
     GenTreeIndir* RetypeStructIndir(GenTreeObj* structIndir, var_types type)
     {
-        assert(structIndir->OperIs(GT_OBJ) && structIndir->TypeIs(TYP_STRUCT));
+        assert(structIndir->OperIs(GT_IND_LOAD_OBJ) && structIndir->TypeIs(TYP_STRUCT));
         assert(type != TYP_STRUCT);
 
         GenTree*     addr       = structIndir->GetAddr();
@@ -2358,8 +2358,8 @@ private:
         // longer wraps struct args in OBJs.
 
         if (((m_ancestors.Size() >= 3) && m_ancestors.Top(0)->OperIs(GT_LCL_ADDR) &&
-             m_ancestors.Top(1)->OperIs(GT_OBJ) && m_ancestors.Top(2)->OperIs(GT_CALL)) ||
-            ((m_ancestors.Size() >= 2) && m_ancestors.Top(0)->OperIs(GT_LCL_VAR) &&
+             m_ancestors.Top(1)->OperIs(GT_IND_LOAD_OBJ) && m_ancestors.Top(2)->OperIs(GT_CALL)) ||
+            ((m_ancestors.Size() >= 2) && m_ancestors.Top(0)->OperIs(GT_LCL_LOAD) &&
              m_ancestors.Top(0)->TypeIs(TYP_STRUCT) && m_ancestors.Top(1)->OperIs(GT_CALL)))
         {
             JITDUMP("Adding V%02u implicit-by-ref param call ref\n", lcl->GetLclNum());
@@ -2406,7 +2406,7 @@ private:
 // Mark locals used by SIMD intrinsics to prevent struct promotion.
 void Compiler::lvaRecordSimdIntrinsicUse(GenTree* op)
 {
-    if (op->OperIs(GT_OBJ, GT_IND))
+    if (op->OperIs(GT_IND_LOAD_OBJ, GT_IND_LOAD))
     {
         // TODO-MIKE-Review: See if this indir check is still necessary,
         // such indirs should no longer be generated or should be very rare.
@@ -2420,9 +2420,9 @@ void Compiler::lvaRecordSimdIntrinsicUse(GenTree* op)
             lvaRecordSimdIntrinsicUse(addr->AsLclAddr()->GetLcl());
         }
     }
-    else if (op->OperIs(GT_LCL_VAR))
+    else if (op->OperIs(GT_LCL_LOAD))
     {
-        lvaRecordSimdIntrinsicUse(op->AsLclVar()->GetLcl());
+        lvaRecordSimdIntrinsicUse(op->AsLclLoad()->GetLcl());
     }
 }
 
