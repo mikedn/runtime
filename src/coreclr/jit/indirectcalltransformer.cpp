@@ -400,14 +400,14 @@ private:
             GenTree*   thisTree = origCall->gtCallThisArg->GetNode();
             LclVarDsc* thisLcl;
 
-            if (thisTree->OperIs(GT_LCL_VAR))
+            if (thisTree->OperIs(GT_LCL_LOAD))
             {
                 // TODO-MIKE-Review: Is it safe to use an existing LCL_VAR if it ends up being address
                 // exposed? An address exposed local could be modified by a different thread. That's
                 // extremely unusual but if it happens then type safety is compromised. And anyway,
                 // using a DNER local will result in poor codegen.
 
-                thisLcl = thisTree->AsLclVar()->GetLcl();
+                thisLcl = thisTree->AsLclLoad()->GetLcl();
             }
             else
             {

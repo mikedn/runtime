@@ -52,8 +52,6 @@ enum genTreeOps : uint8_t
     // In the future when we retarget the JIT for x86 we should consider eliminating GT_CNS_LNG
     GT_CNS_NATIVELONG = GT_CNS_LNG,
 #endif
-
-    GT_LCL_VAR = GT_LCL_LOAD,
 };
 
 enum GenTreeKinds

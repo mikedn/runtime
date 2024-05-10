@@ -6379,7 +6379,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
 
                 // TODO-MIKE-Review: Doesn't this need to handle spill temps?
 
-                if (fieldNode->OperIs(GT_LCL_VAR))
+                if (fieldNode->OperIs(GT_LCL_LOAD))
                 {
                     emit->emitIns_R_S(INS_mov, emitTypeSize(fieldNode->GetType()), intTmpReg,
                                       GetStackAddrMode(fieldNode->AsLclVar()->GetLcl(), 0));
@@ -7893,9 +7893,9 @@ void CodeGen::genStoreSIMD12ToStack(regNumber valueReg, regNumber tmpReg)
 void CodeGen::genSIMDUpperSpill(GenTreeUnOp* node)
 {
     GenTree* op1 = node->GetOp(0);
-    assert(op1->OperIs(GT_LCL_VAR) && op1->TypeIs(TYP_SIMD32));
+    assert(op1->IsLclLoad() && op1->TypeIs(TYP_SIMD32));
 
-    regNumber srcReg = genConsumeReg(op1);
+    regNumber srcReg = UseReg(op1);
     assert(srcReg != REG_NA);
     regNumber dstReg = node->GetRegNum();
 
@@ -7906,7 +7906,7 @@ void CodeGen::genSIMDUpperSpill(GenTreeUnOp* node)
     }
     else
     {
-        LclVarDsc* lcl = op1->AsLclVar()->GetLcl();
+        LclVarDsc* lcl = op1->AsLclLoad()->GetLcl();
         assert(lcl->lvOnFrame);
 
         GetEmitter()->emitIns_S_R_I(INS_vextractf128, EA_32BYTE, GetStackAddrMode(lcl, 16), srcReg, 1);
@@ -7920,10 +7920,10 @@ void CodeGen::genSIMDUpperSpill(GenTreeUnOp* node)
 void CodeGen::genSIMDUpperUnspill(GenTreeUnOp* node)
 {
     GenTree* op1 = node->GetOp(0);
-    assert(op1->OperIs(GT_LCL_VAR) && op1->TypeIs(TYP_SIMD32));
+    assert(op1->IsLclLoad() && op1->TypeIs(TYP_SIMD32));
 
     regNumber srcReg = node->GetRegNum();
-    regNumber dstReg = genConsumeReg(op1);
+    regNumber dstReg = UseReg(op1);
     assert(dstReg != REG_NA);
 
     if (srcReg != REG_NA)
@@ -7932,7 +7932,7 @@ void CodeGen::genSIMDUpperUnspill(GenTreeUnOp* node)
     }
     else
     {
-        LclVarDsc* lcl = op1->AsLclVar()->GetLcl();
+        LclVarDsc* lcl = op1->AsLclLoad()->GetLcl();
         assert(lcl->lvOnFrame);
 
         GetEmitter()->emitIns_R_R_S_I(INS_vinsertf128, EA_32BYTE, dstReg, dstReg, GetStackAddrMode(lcl, 16), 1);

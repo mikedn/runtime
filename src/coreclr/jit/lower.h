@@ -208,8 +208,11 @@ private:
     bool TryTransformStoreObjToStoreInd(GenTreeIndStoreObj* store);
 
     GenTree* LowerSwitch(GenTreeUnOp* node);
-    bool TryLowerSwitchToBitTest(
-        BasicBlock* jumpTable[], unsigned jumpCount, unsigned targetCount, BasicBlock* bbSwitch, GenTree* switchValue);
+    bool TryLowerSwitchToBitTest(BasicBlock*     jumpTable[],
+                                 unsigned        jumpCount,
+                                 unsigned        targetCount,
+                                 BasicBlock*     bbSwitch,
+                                 GenTreeLclLoad* switchValue);
 
     GenTree* LowerBitCast(GenTreeUnOp* bitcast);
     GenTree* LowerCast(GenTreeCast* cast);

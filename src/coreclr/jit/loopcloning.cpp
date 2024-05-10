@@ -728,7 +728,7 @@ bool LoopCloneContext::DeriveLoopCloningConditions(unsigned loopNum)
 
         GenTree* array = loop.lpLimit()->AsArrLen()->GetArray();
 
-        if (!array->OperIs(GT_LCL_VAR))
+        if (!array->OperIs(GT_LCL_LOAD))
         {
             JITDUMP("> ArrLen not matching");
             return false;
@@ -1591,13 +1591,13 @@ bool LoopCloneVisitorInfo::ExtractArrayIndex(GenTreeOp* comma, ArrIndex* result)
         return false;
     }
 
-    if (!index->OperIs(GT_LCL_VAR) || !length->GetArray()->OperIs(GT_LCL_VAR))
+    if (!index->OperIs(GT_LCL_LOAD) || !length->GetArray()->OperIs(GT_LCL_LOAD))
     {
         return false;
     }
 
-    result->arrayLclNum = length->GetArray()->AsLclVar()->GetLcl()->GetLclNum();
-    result->indexLclNum = index->AsLclVar()->GetLcl()->GetLclNum();
+    result->arrayLclNum = length->GetArray()->AsLclLoad()->GetLcl()->GetLclNum();
+    result->indexLclNum = index->AsLclLoad()->GetLcl()->GetLclNum();
     result->boundsCheck = comma;
 
     return true;

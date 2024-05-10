@@ -5294,7 +5294,7 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
         }
         if (tree->gtFlags & GTF_REVERSE_OPS)
         {
-            if (op != GT_LCL_VAR)
+            if (op != GT_LCL_LOAD)
             {
                 chars += printf("[REVERSE_OPS]");
             }

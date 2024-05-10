@@ -1312,8 +1312,8 @@ inline genTreeOps Compiler::LoopDsc::lpIterOper() const
 inline bool Compiler::LoopDsc::lpIsReversed() const
 {
     INDEBUG(VerifyIterator());
-    return lpTestTree->GetOp(1)->OperIs(GT_LCL_VAR) &&
-           (lpTestTree->GetOp(1)->AsLclVar()->GetLcl() == lpIterTree->GetLcl());
+    return lpTestTree->GetOp(1)->OperIs(GT_LCL_LOAD) &&
+           (lpTestTree->GetOp(1)->AsLclLoad()->GetLcl() == lpIterTree->GetLcl());
 }
 
 inline genTreeOps Compiler::LoopDsc::lpTestOper() const
@@ -1338,19 +1338,14 @@ inline int Compiler::LoopDsc::lpConstLimit() const
 {
     INDEBUG(VerifyIterator());
     assert(lpFlags & LPFLG_CONST_LIMIT);
-
-    GenTree* limit = lpLimit();
-    return limit->AsIntCon()->GetInt32Value();
+    return lpLimit()->AsIntCon()->GetInt32Value();
 }
 
 inline LclVarDsc* Compiler::LoopDsc::lpVarLimit() const
 {
     INDEBUG(VerifyIterator());
     assert(lpFlags & LPFLG_VAR_LIMIT);
-
-    GenTree* limit = lpLimit();
-    assert(limit->OperIs(GT_LCL_VAR));
-    return limit->AsLclVar()->GetLcl();
+    return lpLimit()->AsLclLoad()->GetLcl();
 }
 
 /*

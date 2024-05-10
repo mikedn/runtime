@@ -325,9 +325,9 @@ void ObjectAllocator::MarkEscapingVarsAndBuildConnGraph()
             LclVarDsc* lcl     = nullptr;
             bool       escapes = false;
 
-            if (tree->OperIs(GT_LCL_VAR))
+            if (tree->OperIs(GT_LCL_LOAD))
             {
-                lcl     = tree->AsLclVar()->GetLcl();
+                lcl     = tree->AsLclLoad()->GetLcl();
                 escapes = tree->TypeIs(TYP_REF, TYP_BYREF, TYP_I_IMPL) &&
                           m_allocator->CanLclVarEscapeViaParentStack(&m_ancestors, lcl->GetLclNum());
             }

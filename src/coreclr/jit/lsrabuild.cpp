@@ -957,7 +957,7 @@ bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclStore* store)
     return isMultiReg;
 }
 
-// Check whether a GT_LCL_VAR node is a candidate or contained.
+// Check whether a LCL_LOAD node is a candidate or contained.
 // We handle candidate variables differently from non-candidate ones.
 // If it is a candidate, we will simply add a use of it at its parent/consumer.
 // Otherwise, for a use we need to actually add the appropriate references for loading
@@ -972,18 +972,18 @@ bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclStore* store)
 // candidates.
 // If there is a lclVar that is estimated during Lowering to be register candidate but turns
 // out not to be, if a use was marked regOptional it should now be marked contained instead.
-bool LinearScan::checkContainedOrCandidateLclVar(GenTreeLclVar* lclNode)
+bool LinearScan::checkContainedOrCandidateLclVar(GenTreeLclLoad* load)
 {
-    assert(lclNode->OperIs(GT_LCL_VAR) && !lclNode->IsMultiReg());
+    assert(!load->IsMultiReg());
     // We shouldn't be calling this if this node was already contained.
-    assert(!lclNode->isContained());
+    assert(!load->isContained());
 
-    bool isCandidate = lclNode->GetLcl()->IsRegCandidate();
+    bool isCandidate = load->GetLcl()->IsRegCandidate();
 
-    if (!isCandidate && lclNode->IsRegOptional())
+    if (!isCandidate && load->IsRegOptional())
     {
-        lclNode->ClearRegOptional();
-        lclNode->SetContained();
+        load->ClearRegOptional();
+        load->SetContained();
 
         return true;
     }
@@ -1101,11 +1101,11 @@ void LinearScan::buildUpperVectorSaveRefPositions(GenTree* tree, LsraLocation cu
 
         if (regType == TYP_STRUCT)
         {
-            assert(defNode->OperIs(GT_LCL_VAR, GT_CALL));
+            assert(defNode->OperIs(GT_LCL_LOAD, GT_CALL));
 
-            if (defNode->OperIs(GT_LCL_VAR))
+            if (defNode->OperIs(GT_LCL_LOAD))
             {
-                regType = defNode->AsLclVar()->GetLcl()->GetRegisterType();
+                regType = defNode->AsLclLoad()->GetLcl()->GetRegisterType();
             }
             else
             {
@@ -1235,9 +1235,9 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
 #ifdef TARGET_XARCH
         // On XArch we can have contained candidate lclVars if they are part of a RMW
         // address computation. In this case we need to check whether it is a last use.
-        if (tree->OperIs(GT_LCL_VAR) && ((tree->gtFlags & GTF_VAR_DEATH) != 0))
+        if (tree->OperIs(GT_LCL_LOAD) && ((tree->gtFlags & GTF_VAR_DEATH) != 0))
         {
-            LclVarDsc* lcl = tree->AsLclVar()->GetLcl();
+            LclVarDsc* lcl = tree->AsLclLoad()->GetLcl();
 
             if (lcl->IsRegCandidate())
             {
@@ -3016,8 +3016,8 @@ void LinearScan::BuildKeepAlive(GenTreeUnOp* node)
     if (op->isContained())
     {
         // Lowering marks the operand as reg optional so we can end up
-        // with a contained LCL_VAR here, but nothing else (no indirs).
-        assert(op->OperIs(GT_LCL_VAR));
+        // with a contained LCL_LOAD here, but nothing else (no indirs).
+        assert(op->IsLclLoad());
     }
     else
     {

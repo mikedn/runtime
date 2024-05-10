@@ -471,9 +471,9 @@ GenTree* Compiler::fgMorphCastPost(GenTreeCast* cast)
 
     if (varTypeIsIntegral(srcType) && varTypeIsIntegral(dstType))
     {
-        if (src->OperIs(GT_LCL_VAR) && varTypeIsSmall(dstType))
+        if (src->OperIs(GT_LCL_LOAD) && varTypeIsSmall(dstType))
         {
-            LclVarDsc* lcl = src->AsLclVar()->GetLcl();
+            LclVarDsc* lcl = src->AsLclLoad()->GetLcl();
 
             if ((lcl->GetType() == dstType) && lcl->lvNormalizeOnStore())
             {
@@ -1456,8 +1456,8 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
                 // to the importer replaces it with a normal local.
 
                 if (!node->OperIsConst() && !node->OperIs(GT_LCL_ADDR) &&
-                    !(node->OperIs(GT_LCL_VAR) &&
-                      (node->AsLclVar()->GetLcl()->GetLclNum() == compiler->info.GetThisParamLclNum())))
+                    !(node->OperIs(GT_LCL_LOAD) &&
+                      (node->AsLclLoad()->GetLcl()->GetLclNum() == compiler->info.GetThisParamLclNum())))
                 {
                     prevArgInfo->SetTempNeeded();
                     needsTemps = true;
@@ -1953,7 +1953,7 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInf
 //              evaluates ppTree to a temp and returns the result
 //
 // Return Value:
-//    A fresh GT_LCL_VAR node referencing the temp which has not been used
+//    A fresh LCL_LOAD node referencing the temp which has not been used
 
 GenTree* Compiler::fgMakeMultiUse(GenTree** pOp)
 {
@@ -3228,10 +3228,10 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
 #endif
     }
 
-    if (arg->OperIs(GT_LCL_VAR) && varTypeIsStruct(arg->GetType()) &&
-        arg->AsLclVar()->GetLcl()->IsIndependentPromoted())
+    if (arg->OperIs(GT_LCL_LOAD) && varTypeIsStruct(arg->GetType()) &&
+        arg->AsLclLoad()->GetLcl()->IsIndependentPromoted())
     {
-        LclVarDsc* lcl = arg->AsLclVar()->GetLcl();
+        LclVarDsc* lcl = arg->AsLclLoad()->GetLcl();
 
         if (lcl->GetPromotedFieldCount() > 1)
         {
@@ -3243,7 +3243,7 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
             CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef TARGET_X86
-            abiMorphStackLclArgPromoted(argInfo, arg->AsLclVar());
+            abiMorphStackLclArgPromoted(argInfo, arg->AsLclLoad());
             return false;
 #else
             return true;
@@ -3255,7 +3255,7 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
 
         assert(roundUp(varTypeSize(fieldType), REGSIZE_BYTES) <= argInfo->GetSlotCount() * REGSIZE_BYTES);
 
-        arg->AsLclVar()->SetLcl(lvaGetDesc(lcl->GetPromotedFieldLclNum(0)));
+        arg->AsLclLoad()->SetLcl(lvaGetDesc(lcl->GetPromotedFieldLclNum(0)));
         arg->SetType(fieldType);
         arg->gtFlags = GTF_EMPTY;
 
@@ -3404,7 +3404,7 @@ void Compiler::abiMorphArgs2ndPass(GenTreeCall* call)
         {
             arg = arg->SkipComma();
 
-            if (arg->OperIs(GT_LCL_VAR))
+            if (arg->OperIs(GT_LCL_LOAD))
             {
                 abiMorphStackLclArgPromoted(argInfo, arg->AsLclVar());
             }
@@ -3524,12 +3524,12 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
         return;
     }
 
-    if (arg->OperIs(GT_LCL_VAR))
+    if (arg->OperIs(GT_LCL_LOAD))
     {
         // Independent promoted locals require special handling. This includes promoted SIMD locals,
         // such as a promoted SIMD8 local being passed in a LONG register on win-x64.
 
-        LclVarDsc* varDsc = arg->AsLclVar()->GetLcl();
+        LclVarDsc* varDsc = arg->AsLclLoad()->GetLcl();
 
         if (varDsc->IsPromoted())
         {
@@ -3538,7 +3538,7 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
                 argSize = varDsc->GetLayout()->GetSize();
             }
 
-            GenTree* newArg = abiMorphSingleRegLclArgPromoted(arg->AsLclVar(), argRegType, argSize);
+            GenTree* newArg = abiMorphSingleRegLclArgPromoted(arg->AsLclLoad(), argRegType, argSize);
 
             if (newArg != arg)
             {
@@ -4424,12 +4424,12 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
 
         assert(arg->TypeIs(TYP_FLOAT));
 
-        if (!arg->IsDblCon() && !arg->OperIs(GT_LCL_VAR))
+        if (!arg->IsDblCon() && !arg->OperIs(GT_LCL_LOAD))
         {
             tempLcl    = lvaNewTemp(TYP_FLOAT, true DEBUGARG("multi-reg SIMD arg temp"));
-            tempAssign = gtNewStoreLclVar(tempLcl, TYP_FLOAT, arg);
+            tempAssign = gtNewLclStore(tempLcl, TYP_FLOAT, arg);
 
-            arg = gtNewLclvNode(tempLcl, TYP_FLOAT);
+            arg = gtNewLclLoad(tempLcl, TYP_FLOAT);
         }
 
 #ifdef UNIX_AMD64_ABI
@@ -4447,7 +4447,7 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
         arg = gtNewSimdGetElementNode(TYP_SIMD16, TYP_DOUBLE, arg, gtNewIconNode(0));
 
         LclVarDsc* dblTempLcl    = lvaNewTemp(TYP_DOUBLE, true DEBUGARG("multi-reg SIMD arg temp"));
-        GenTree*   dblTempAssign = gtNewStoreLclVar(dblTempLcl, TYP_DOUBLE, arg);
+        GenTree*   dblTempAssign = gtNewLclStore(dblTempLcl, TYP_DOUBLE, arg);
 
         if (tempAssign != nullptr)
         {
@@ -4529,7 +4529,7 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
 GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCommon* arg)
 {
     LclVarDsc*   lcl       = arg->GetLcl();
-    ClassLayout* argLayout = arg->OperIs(GT_LCL_VAR) ? lcl->GetLayout() : arg->AsLclFld()->GetLayout(this);
+    ClassLayout* argLayout = arg->OperIs(GT_LCL_LOAD) ? lcl->GetLayout() : arg->AsLclLoadFld()->GetLayout(this);
 
 #ifdef TARGET_ARM
     // If an argument is passed in registers we'd like to build a FIELD_LIST with
@@ -4547,7 +4547,7 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
 
     if (argInfo->IsSplit() && (argInfo->GetSlotCount() + argInfo->GetRegCount() > MAX_ARG_REG_COUNT))
     {
-        if (arg->OperIs(GT_LCL_VAR))
+        if (arg->OperIs(GT_LCL_LOAD))
         {
             lvaSetDoNotEnregister(lcl DEBUGARG(DNER_IsStructArg));
         }
@@ -4578,7 +4578,7 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
 
     GenTree* tempAssign = nullptr;
 
-    if (arg->OperIs(GT_LCL_VAR) && lcl->IsIndependentPromoted())
+    if (arg->OperIs(GT_LCL_LOAD) && lcl->IsIndependentPromoted())
     {
         lcl = abiAllocateStructArgTemp(argLayout);
 
@@ -6149,13 +6149,13 @@ bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
                 continue;
             }
 
-            if (argNode2->OperIs(GT_LCL_VAR) && (argNode2->AsLclVar()->GetLcl() == lclNode->GetLcl()))
+            if (argNode2->OperIs(GT_LCL_LOAD) && (argNode2->AsLclLoad()->GetLcl() == lclNode->GetLcl()))
             {
                 JITDUMP("Implicit byref param V%02u address is also passed in an arg\n");
                 return true;
             }
 
-            if (argNode2->OperIs(GT_LCL_VAR) && argNode2->AsLclVar()->GetLcl()->IsParam())
+            if (argNode2->OperIs(GT_LCL_LOAD) && argNode2->AsLclLoad()->GetLcl()->IsParam())
             {
                 // Other params can't alias implicit byref params.
 
@@ -6277,7 +6277,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
     {
         noway_assert(call->TypeGet() == TYP_VOID);
         GenTree* retValBuf = call->gtCallArgs->GetNode();
-        if (!retValBuf->OperIs(GT_LCL_VAR) || (retValBuf->AsLclVar()->GetLcl()->GetLclNum() != info.compRetBuffArg))
+        if (!retValBuf->OperIs(GT_LCL_LOAD) || (retValBuf->AsLclLoad()->GetLcl()->GetLclNum() != info.compRetBuffArg))
         {
             failTailCall("Need to copy return buffer");
             return nullptr;
@@ -7406,15 +7406,15 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
 
         // TODO-MIKE-Review: Not adding a temp if `this` is LCL_VAR is dubious, what if some
         // other argument expression modifies it?
-        if ((call->IsDelegateInvoke() || call->IsVirtualVtable()) && !thisArg->OperIs(GT_LCL_VAR))
+        if ((call->IsDelegateInvoke() || call->IsVirtualVtable()) && !thisArg->OperIs(GT_LCL_LOAD))
         {
             LclVarDsc* lcl = lvaNewTemp(thisArg->GetType(), true DEBUGARG("tail call target this temp"));
 
             // TODO-MIKE-Review: fgMorphArgs freaks out when it sees side effects and adds
             // another temp for this argument...
             // What we probably want is to have fgMorphArgs deal with this.
-            GenTree* asg = gtNewStoreLclVar(lcl, thisArg->GetType(), thisArg);
-            newThisArg   = gtNewCommaNode(asg, gtNewLclvNode(lcl, thisArg->GetType()));
+            GenTree* asg = gtNewLclStore(lcl, thisArg->GetType(), thisArg);
+            newThisArg   = gtNewCommaNode(asg, gtNewLclLoad(lcl, thisArg->GetType()));
 
             thisArg = newThisArg;
         }
@@ -7830,9 +7830,9 @@ Statement* Compiler::fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,
         // The argument is already stored to a temp or is a const.
         argInTemp = arg;
     }
-    else if (arg->OperIs(GT_LCL_VAR))
+    else if (arg->OperIs(GT_LCL_LOAD))
     {
-        LclVarDsc* lcl = arg->AsLclVar()->GetLcl();
+        LclVarDsc* lcl = arg->AsLclLoad()->GetLcl();
 
         if (!lcl->IsParam())
         {
@@ -8867,9 +8867,9 @@ GenTree* Compiler::fgMorphPromoteVecStore(GenTreeLclVarCommon* store, LclVarDsc*
                 {
                     GenTree* op = hwi->GetOp(i);
 
-                    if (op->OperIs(GT_LCL_VAR))
+                    if (op->OperIs(GT_LCL_LOAD))
                     {
-                        LclVarDsc* lcl = op->AsLclVar()->GetLcl();
+                        LclVarDsc* lcl = op->AsLclLoad()->GetLcl();
 
                         if (lcl->IsPromotedField() && (lcl->GetPromotedFieldParentLclNum() == dstLcl->GetLclNum()))
                         {
@@ -8915,7 +8915,7 @@ GenTree* Compiler::fgMorphPromoteVecStore(GenTreeLclVarCommon* store, LclVarDsc*
 
     GenTree* tempStore = nullptr;
 
-    if (!srcIsZero && !srcIsCreate && !src->OperIs(GT_LCL_VAR))
+    if (!srcIsZero && !srcIsCreate && !src->OperIs(GT_LCL_LOAD))
     {
         LclVarDsc* tmpLcl = lvaNewTemp(src, true DEBUGARG("promoted SIMD copy temp"));
 
@@ -9186,7 +9186,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
     }
 
     if (destPromote && !srcPromote && varTypeIsSIMD(destLcl->GetType()) &&
-        src->OperIs(GT_LCL_VAR, GT_BITCAST, GT_HWINTRINSIC))
+        src->OperIs(GT_LCL_LOAD, GT_BITCAST, GT_HWINTRINSIC))
     {
         return fgMorphPromoteVecStore(store->AsLclVarCommon(), destLcl);
     }
@@ -9332,7 +9332,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
         // cases could be handled by querying the VM for destination fields and trying to find
         // ones that are suitable for the current offset and type but this should be a rare case.
 
-        if (load->OperIs(GT_LCL_VAR))
+        if (load->OperIs(GT_LCL_LOAD))
         {
             if (lcl->GetLayout() == promotedLcl->GetLayout())
             {
@@ -12096,10 +12096,9 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
         return;
     }
 
-    if (val->OperIs(GT_LCL_VAR))
+    if (val->OperIs(GT_LCL_LOAD))
     {
-        GenTreeLclVar* lclVar = val->AsLclVar();
-        LclVarDsc*     lcl    = lclVar->GetLcl();
+        LclVarDsc* lcl = val->AsLclLoad()->GetLcl();
 
 #ifdef TARGET_AMD64
         if (varTypeIsSIMD(lcl->GetType()) && lcl->IsPromoted())
@@ -14711,7 +14710,7 @@ bool Compiler::fgCheckStmtAfterTailCall(Statement* callStmt)
             retValue = cast->GetOp(0);
         }
 
-        noway_assert(retValue->OperIs(GT_LCL_VAR) && (retValue->AsLclVar()->GetLcl() == callResultLcl));
+        noway_assert(retValue->OperIs(GT_LCL_LOAD) && (retValue->AsLclLoad()->GetLcl() == callResultLcl));
     }
 
     return nextStmt == nullptr;

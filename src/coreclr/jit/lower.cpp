@@ -493,9 +493,8 @@ GenTree* Lowering::LowerSwitch(GenTreeUnOp* node)
     //   2. and a statement with GT_SWITCH(temp)
 
     assert(node->OperIs(GT_SWITCH));
-    GenTree* temp = node->AsOp()->gtOp1;
-    assert(temp->OperIs(GT_LCL_VAR));
-    LclVarDsc* tempLcl     = temp->AsLclVar()->GetLcl();
+    GenTree*   temp        = node->AsOp()->gtOp1;
+    LclVarDsc* tempLcl     = temp->AsLclLoad()->GetLcl();
     var_types  tempLclType = temp->GetType();
 
     BasicBlock* defaultBB   = jumpTab[jumpCnt - 1];
@@ -728,13 +727,13 @@ GenTree* Lowering::LowerSwitch(GenTreeUnOp* node)
         // At this point the default case has already been handled and we need to generate a jump
         // table based switch or a bit test based switch at the end of afterDefaultCondBlock. Both
         // switch variants need the switch value so create the necessary LclVar node here.
-        GenTree*    switchValue      = comp->gtNewLclvNode(tempLcl, tempLclType);
+        GenTree*    switchValue      = comp->gtNewLclLoad(tempLcl, tempLclType);
         LIR::Range& switchBlockRange = LIR::AsRange(afterDefaultCondBlock);
         switchBlockRange.InsertAtEnd(switchValue);
 
         // Try generating a bit test based switch first,
         // if that's not possible a jump table based switch will be generated.
-        if (!TryLowerSwitchToBitTest(jumpTab, jumpCnt, targetCnt, afterDefaultCondBlock, switchValue))
+        if (!TryLowerSwitchToBitTest(jumpTab, jumpCnt, targetCnt, afterDefaultCondBlock, switchValue->AsLclLoad()))
         {
             JITDUMP("Lowering switch " FMT_BB ": using jump table expansion\n", originalSwitchBB->bbNum);
 
@@ -797,8 +796,11 @@ GenTree* Lowering::LowerSwitch(GenTreeUnOp* node)
 //    than the traditional jump table base code. And of course, it also avoids the need
 //    to emit the jump table itself that can reach up to 256 bytes (for 64 entries).
 //
-bool Lowering::TryLowerSwitchToBitTest(
-    BasicBlock* jumpTable[], unsigned jumpCount, unsigned targetCount, BasicBlock* bbSwitch, GenTree* switchValue)
+bool Lowering::TryLowerSwitchToBitTest(BasicBlock*     jumpTable[],
+                                       unsigned        jumpCount,
+                                       unsigned        targetCount,
+                                       BasicBlock*     bbSwitch,
+                                       GenTreeLclLoad* switchValue)
 {
 #ifndef TARGET_XARCH
     // Other architectures may use this if they substitute GT_BT with equivalent code.
@@ -807,7 +809,6 @@ bool Lowering::TryLowerSwitchToBitTest(
     assert(jumpCount >= 2);
     assert(targetCount >= 2);
     assert(bbSwitch->bbJumpKind == BBJ_SWITCH);
-    assert(switchValue->OperIs(GT_LCL_VAR));
 
     //
     // Quick check to see if it's worth going through the jump table. The bit test switch supports
@@ -2533,13 +2534,13 @@ GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call X86_ARG(GenTree* insert
     LclVarDsc* lcl;
 
 #ifdef TARGET_X86
-    if (call->IsTailCallViaJitHelper() && delegateThis->OperIs(GT_LCL_VAR))
+    if (call->IsTailCallViaJitHelper() && delegateThis->OperIs(GT_LCL_LOAD))
     {
         // For ordering purposes for the special tailcall arguments on x86, we forced the
         // 'this' pointer to a local in fgMorphTailCallViaJitHelper.
 
-        // TODO-MIKE-Review: Should the LCL_VAR be an assert instead? Old
-        // code had an assert but also checked for IsLocal, go figure...
+        // TODO-MIKE-Review: Should the LCL_LOAD be an assert instead?
+        // OLD code had an assert but also checked for IsLocal, go figure...
         lcl = delegateThis->AsLclVar()->GetLcl();
     }
     else
@@ -5032,7 +5033,7 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
         bool      remove  = false;
 
 #ifdef TARGET_64BIT
-        if ((srcType == TYP_LONG) && src->OperIs(GT_LCL_VAR) && varActualTypeIsInt(dstType))
+        if ((srcType == TYP_LONG) && src->OperIs(GT_LCL_LOAD) && varActualTypeIsInt(dstType))
         {
             src->SetType(TYP_INT);
             remove = dstType == TYP_INT;

@@ -431,7 +431,7 @@ void Compiler::gsParamsToShadows()
     {
         // Walk the locals of the method (i.e. LCL_LOAD_FLD and LCL_LOAD nodes) and replace the ones that correspond to
         // "vulnerable" parameters with their shadow copies. If an original local variable has small type then replace
-        // the GT_LCL_VAR node type with TYP_INT.
+        // the LCL_LOAD node type with TYP_INT.
     public:
         enum
         {

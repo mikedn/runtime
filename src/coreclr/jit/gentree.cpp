@@ -2099,7 +2099,7 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, var_types indirType, unsigned* indi
 #elif defined(TARGET_ARM)
     // TODO-MIKE-Review: It's not clear what this is trying to do. Removing
     // it improves code size a bit by reducing loop condition cloning.
-    if (am.base->OperIs(GT_LCL_VAR))
+    if (am.base->OperIs(GT_LCL_LOAD))
     {
         *indirCostSz -= 1;
     }
@@ -9326,8 +9326,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
     if (options == BR_MAKE_LOCAL_COPY)
     {
         // Drill into the box to get at the box temp local and the box type
-        GenTreeLclVar* boxTemp = box->GetOp(0)->AsLclVar();
-        assert(boxTemp->OperIs(GT_LCL_VAR));
+        GenTreeLclLoad* boxTemp = box->GetOp(0)->AsLclLoad();
 
         LclVarDsc* boxTempLcl = boxTemp->GetLcl();
         assert(boxTempLcl->TypeIs(TYP_REF));
@@ -9349,7 +9348,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
 
         GenTree* storeBaseAddr = storeAddr->AsOp()->GetOp(0);
 
-        if (!storeBaseAddr->OperIs(GT_LCL_VAR) || (storeBaseAddr->AsLclVar()->GetLcl() != boxTempLcl))
+        if (!storeBaseAddr->OperIs(GT_LCL_LOAD) || (storeBaseAddr->AsLclLoad()->GetLcl() != boxTempLcl))
         {
             JITDUMPTREE(store, " bailing; unexpected store base address\n");
 
@@ -12747,12 +12746,12 @@ bool Compiler::gtIsSmallIntCastNeeded(GenTree* tree, var_types toType)
 
         fromType = call->GetRetSigType();
     }
-    else if ((fromType == TYP_INT) && tree->OperIs(GT_LCL_VAR))
+    else if ((fromType == TYP_INT) && tree->OperIs(GT_LCL_LOAD))
     {
         // LCL_VARs associated with small int locals may have type INT,
         // we need to check the type of the local variable.
 
-        fromType = tree->AsLclVar()->GetLcl()->GetType();
+        fromType = tree->AsLclLoad()->GetLcl()->GetType();
     }
 
     if (toType == fromType)

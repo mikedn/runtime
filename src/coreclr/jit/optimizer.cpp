@@ -618,10 +618,10 @@ bool Compiler::optPopulateInitInfo(unsigned loopInd, GenTree* init, unsigned ite
         return true;
     }
 
-    if (value->OperIs(GT_LCL_VAR))
+    if (value->OperIs(GT_LCL_LOAD))
     {
         optLoopTable[loopInd].lpFlags |= LPFLG_VAR_INIT;
-        optLoopTable[loopInd].lpVarInit = value->AsLclVar()->GetLcl()->GetLclNum();
+        optLoopTable[loopInd].lpVarInit = value->AsLclLoad()->GetLcl()->GetLclNum();
 
         return true;
     }
@@ -737,7 +737,7 @@ unsigned Compiler::optIsLoopIncrTree(GenTree* incr)
     GenTree* step = value->AsOp()->GetOp(1);
     value         = value->AsOp()->GetOp(0);
 
-    if (!value->OperIs(GT_LCL_VAR) || (value->AsLclVar()->GetLcl() != lcl))
+    if (!value->OperIs(GT_LCL_LOAD) || (value->AsLclLoad()->GetLcl() != lcl))
     {
         return BAD_VAR_NUM;
     }
@@ -1250,7 +1250,7 @@ void Compiler::LoopDsc::VerifyIterator() const
     }
     else if (lpFlags & LPFLG_VAR_LIMIT)
     {
-        assert(limit->OperIs(GT_LCL_VAR));
+        assert(limit->OperIs(GT_LCL_LOAD));
     }
     else if (lpFlags & LPFLG_ARRLEN_LIMIT)
     {
@@ -5249,9 +5249,9 @@ GenTree* OptBoolsDsc::optIsBoolComp(OptTestInfo* pOptTest)
     {
         pOptTest->isBool = true;
     }
-    else if (opr1->OperIs(GT_LCL_VAR))
+    else if (opr1->OperIs(GT_LCL_LOAD))
     {
-        if (opr1->AsLclVar()->GetLcl()->lvIsBoolean)
+        if (opr1->AsLclLoad()->GetLcl()->lvIsBoolean)
         {
             pOptTest->isBool = true;
         }

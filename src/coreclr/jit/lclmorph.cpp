@@ -67,9 +67,8 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
 
         // Produce a location value.
         // (lclNum) => LOCATION(lclNum, 0)
-        void Location(GenTreeLclVar* lclVar)
+        void Location(GenTreeLclLoad* lclVar)
         {
-            assert(lclVar->OperIs(GT_LCL_VAR));
             assert(!IsLocation() && !IsAddress());
 
             m_lcl = lclVar->GetLcl();
@@ -373,7 +372,7 @@ public:
             case GT_LCL_LOAD:
                 assert(TopValue(0).Node() == node);
 
-                TopValue(0).Location(node->AsLclVar());
+                TopValue(0).Location(node->AsLclLoad());
                 break;
 
             case GT_LCL_ADDR:
@@ -518,14 +517,14 @@ public:
 
                     GenTreeUnOp* ret = node->AsUnOp();
 
-                    if (ret->GetOp(0)->OperIs(GT_LCL_VAR))
+                    if (ret->GetOp(0)->OperIs(GT_LCL_LOAD))
                     {
                         // TODO-1stClassStructs: this block is a temporary workaround to keep diffs small, having
                         // `doNotEnregister` affect block init and copy transformations that affect many methods.
                         // I have a change that introduces more precise and effective solution for that, but it would
                         // be merged separately.
 
-                        LclVarDsc* lcl = ret->GetOp(0)->AsLclVar()->GetLcl();
+                        LclVarDsc* lcl = ret->GetOp(0)->AsLclLoad()->GetLcl();
 
                         if ((m_compiler->info.retDesc.GetRegCount() == 1) && !lcl->IsImplicitByRefParam() &&
                             lcl->IsPromoted() && (lcl->GetPromotedFieldCount() > 1) && !varTypeIsSIMD(lcl->GetType()))
@@ -743,9 +742,9 @@ private:
         LclVarDsc* lcl  = val.Lcl();
         GenTree*   node = val.Node();
 
-        if (node->OperIs(GT_LCL_VAR))
+        if (node->OperIs(GT_LCL_LOAD))
         {
-            assert(node->AsLclVar()->GetLcl() == lcl);
+            assert(node->AsLclLoad()->GetLcl() == lcl);
 
             if (lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 1))
             {
@@ -754,13 +753,13 @@ private:
                     case GT_LCL_STORE:
                     case GT_LCL_STORE_FLD:
                     case GT_IND_STORE_OBJ:
-                        PromoteSingleFieldStructLocalStoreValue(lcl, node->AsLclVar(), user);
+                        PromoteSingleFieldStructLocalStoreValue(lcl, node->AsLclLoad(), user);
                         break;
                     case GT_CALL:
-                        PromoteSingleFieldStructLocalCallArg(lcl, node->AsLclVar());
+                        PromoteSingleFieldStructLocalCallArg(lcl, node->AsLclLoad());
                         break;
                     case GT_RETURN:
-                        PromoteSingleFieldStructLocalReturn(lcl, node->AsLclVar(), user->AsUnOp());
+                        PromoteSingleFieldStructLocalReturn(lcl, node->AsLclLoad(), user->AsUnOp());
                         break;
                     default:
                         // Let's hope the importer doesn't produce STRUCT COMMAs again.
@@ -878,7 +877,7 @@ private:
         MorphLocalIndir(val, user, indirSize);
     }
 
-    void PromoteSingleFieldStructLocalStoreValue(LclVarDsc* lcl, GenTreeLclVar* lclVar, GenTree* store)
+    void PromoteSingleFieldStructLocalStoreValue(LclVarDsc* lcl, GenTreeLclLoad* load, GenTree* store)
     {
         assert(lcl->TypeIs(TYP_STRUCT));
         assert(lcl->GetPromotedFieldCount() == 1);
@@ -888,13 +887,13 @@ private:
 
         assert(lcl->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()));
 
-        lclVar->SetLcl(fieldLcl);
-        lclVar->SetType(fieldLcl->GetType());
+        load->SetLcl(fieldLcl);
+        load->SetType(fieldLcl->GetType());
 
         INDEBUG(m_stmtModified = true;)
     }
 
-    void PromoteSingleFieldStructLocalCallArg(LclVarDsc* lcl, GenTreeLclVar* lclVar)
+    void PromoteSingleFieldStructLocalCallArg(LclVarDsc* lcl, GenTreeLclLoad* load)
     {
         assert(lcl->TypeIs(TYP_STRUCT));
         assert(lcl->GetPromotedFieldCount() == 1);
@@ -903,13 +902,13 @@ private:
 
         assert(lcl->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()));
 
-        lclVar->SetLcl(fieldLcl);
-        lclVar->SetType(fieldLcl->GetType());
+        load->SetLcl(fieldLcl);
+        load->SetType(fieldLcl->GetType());
 
         INDEBUG(m_stmtModified = true;)
     }
 
-    void PromoteSingleFieldStructLocalReturn(LclVarDsc* lcl, GenTreeLclVar* lclVar, GenTreeUnOp* ret)
+    void PromoteSingleFieldStructLocalReturn(LclVarDsc* lcl, GenTreeLclLoad* load, GenTreeUnOp* ret)
     {
         assert(lcl->TypeIs(TYP_STRUCT));
         assert(lcl->GetPromotedFieldCount() == 1);
@@ -919,8 +918,8 @@ private:
 
         assert(lcl->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()));
 
-        lclVar->SetLcl(fieldLcl);
-        lclVar->SetType(fieldLcl->GetType());
+        load->SetLcl(fieldLcl);
+        load->SetType(fieldLcl->GetType());
 
         INDEBUG(m_stmtModified = true;)
 
@@ -940,7 +939,7 @@ private:
 
             if (varTypeUsesFloatReg(retRegType) != varTypeUsesFloatReg(fieldLcl->GetType()))
             {
-                ret->SetOp(0, NewBitCastNode(retRegType, lclVar));
+                ret->SetOp(0, NewBitCastNode(retRegType, load));
             }
 
             return;
@@ -957,7 +956,7 @@ private:
             {
                 // TODO-MIKE-CQ: This generates rather poor code. Vector2 should be handled
                 // like DOUBLE, in codegen.
-                ret->SetOp(0, NewExtractElement(TYP_LONG, lclVar, TYP_SIMD16, 0));
+                ret->SetOp(0, NewExtractElement(TYP_LONG, load, TYP_SIMD16, 0));
             }
             else
             {
@@ -1538,8 +1537,8 @@ private:
                         assert((indirType == lclType) || ((indirType == TYP_BOOL) && (lclType == TYP_UBYTE)) ||
                                ((indirType == TYP_UBYTE) && (lclType == TYP_BOOL)));
 
-                        indir->ChangeOper(GT_LCL_VAR);
-                        indir->AsLclVar()->SetLcl(varDsc);
+                        indir->ChangeOper(GT_LCL_LOAD);
+                        indir->AsLclLoad()->SetLcl(varDsc);
                         indir->gtFlags = GTF_EMPTY;
                     }
                 }
@@ -1707,8 +1706,8 @@ private:
             ((indirType != TYP_STRUCT) || (indirLayout == varDsc->GetLayout()) ||
              (varDsc->IsPromoted() && indirLayout->GetSize() == varDsc->GetLayout()->GetSize())))
         {
-            indir->ChangeOper(GT_LCL_VAR);
-            indir->AsLclVar()->SetLcl(varDsc);
+            indir->ChangeOper(GT_LCL_LOAD);
+            indir->AsLclLoad()->SetLcl(varDsc);
         }
         else
         {
@@ -1749,9 +1748,9 @@ private:
 
         if (indirLayout->GetSize() == varTypeSize(lcl->GetType()))
         {
-            indir->ChangeOper(GT_LCL_VAR);
+            indir->ChangeOper(GT_LCL_LOAD);
             indir->SetType(lcl->GetType());
-            indir->AsLclVar()->SetLcl(lcl);
+            indir->AsLclLoad()->SetLcl(lcl);
             indir->gtFlags = GTF_EMPTY;
 
             INDEBUG(m_stmtModified = true;)
@@ -3301,7 +3300,7 @@ public:
             // assert(lclVarDsc->lvAddrExposed);
             // assert(lclVarDsc->lvDoNotEnregister);
 
-            // Locals referenced by GT_LCL_VAR|FLD_ADDR cannot be enregistered and currently
+            // Locals referenced by LCL_LOAD_FLD|_ADDR cannot be enregistered and currently
             // lvaRetypeImplicitByRefParams undoes promotion of such arguments. In this case
             // lvFieldCnt remains set to the number of promoted fields.
             assert((lcl->lvFieldLclStart == 0) || (lcl->lvFieldCnt != 0));
@@ -3323,9 +3322,9 @@ public:
             }
             else
             {
-                addr->ChangeOper(GT_LCL_VAR);
+                addr->ChangeOper(GT_LCL_LOAD);
                 addr->SetType(TYP_BYREF);
-                addr->AsLclVar()->SetLcl(lcl);
+                addr->AsLclLoad()->SetLcl(lcl);
                 addr->gtFlags = GTF_EMPTY;
             }
 

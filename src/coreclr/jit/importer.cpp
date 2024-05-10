@@ -879,7 +879,7 @@ GenTree* Importer::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLeve
         }
 
 #if FEATURE_MULTIREG_RET
-        if (dest->OperIs(GT_LCL_VAR))
+        if (dest->OperIs(GT_LCL_LOAD))
         {
 #ifndef UNIX_AMD64_ABI
             if (call->HasMultiRegRetVal())
@@ -904,7 +904,7 @@ GenTree* Importer::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLeve
                 // But what about ARMARCH?!
                 // Oh well, the usual mess.
 
-                dest->AsLclVar()->GetLcl()->lvIsMultiRegRet = true;
+                dest->AsLclLoad()->GetLcl()->lvIsMultiRegRet = true;
             }
         }
 #endif
@@ -996,9 +996,9 @@ void Importer::gtInitStructIndStore(GenTreeIndir* store, GenTree* value)
         srcLcl     = value->AsIndir()->GetAddr()->AsLclAddr()->GetLcl();
         srcLclOffs = value->AsIndir()->GetAddr()->AsLclAddr()->GetLclOffs();
     }
-    else if (value->OperIs(GT_LCL_VAR))
+    else if (value->OperIs(GT_LCL_LOAD))
     {
-        srcLcl = value->AsLclVar()->GetLcl();
+        srcLcl = value->AsLclLoad()->GetLcl();
     }
 
     if ((srcLcl == dstLcl) && (srcLclOffs == dstLclOffs))
@@ -1053,9 +1053,9 @@ void Importer::gtInitStructLclStore(GenTreeLclStore* store, GenTree* value)
         srcLcl     = value->AsIndir()->GetAddr()->AsLclAddr()->GetLcl();
         srcLclOffs = value->AsIndir()->GetAddr()->AsLclAddr()->GetLclOffs();
     }
-    else if (value->OperIs(GT_LCL_VAR))
+    else if (value->OperIs(GT_LCL_LOAD))
     {
-        srcLcl = value->AsLclVar()->GetLcl();
+        srcLcl = value->AsLclLoad()->GetLcl();
     }
 
     if ((srcLcl == dstLcl) && (srcLclOffs == dstLclOffs))
@@ -1532,7 +1532,7 @@ void Importer::EnsureStackSpilled(bool ignoreLeaves DEBUGARG(const char* reason)
         }
 
         // Temps introduced by the importer itself don't need to be spilled.
-        if (tree->OperIs(GT_LCL_VAR) && (tree->AsLclVar()->GetLcl()->GetLclNum() >= info.compLocalsCount))
+        if (tree->OperIs(GT_LCL_LOAD) && (tree->AsLclLoad()->GetLcl()->GetLclNum() >= info.compLocalsCount))
         {
             continue;
         }
@@ -2888,7 +2888,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             GenTreeIndir*        store  = gtNewFieldIndStore(TYP_BYREF, gtNewFieldAddr(newobjThis, fldHnd, 0), op1);
             GenTree*             byReferenceStruct = gtCloneExpr(newobjThis);
             assert(byReferenceStruct != nullptr);
-            byReferenceStruct->SetOper(GT_LCL_VAR);
+            byReferenceStruct->SetOper(GT_LCL_LOAD);
             byReferenceStruct->SetType(TYP_STRUCT);
             // TODO-MIKE-Cleanup: This isn't needed, it's here only because previously we had
             // ADDR(LCL_VAR) and returned only the LCL_VAR node, without clearing GTF_DONT_CSE.
@@ -5249,7 +5249,7 @@ GenTreeCall* Importer::impImportIndirectCall(CORINFO_SIG_INFO* sig, IL_OFFSETX i
     // it may cause registered args to be spilled. Simply spill it.
 
     // Ignore this trivial case.
-    if (!impStackTop().val->OperIs(GT_LCL_VAR))
+    if (!impStackTop().val->OperIs(GT_LCL_LOAD))
     {
         impSpillStackEntry(verCurrentState.esStackDepth - 1 DEBUGARG("impImportIndirectCall"));
     }
@@ -7529,9 +7529,9 @@ GenTree* Importer::impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CL
 
     LclVarDsc* lcl = nullptr;
 
-    if (value->OperIs(GT_LCL_VAR))
+    if (value->OperIs(GT_LCL_LOAD))
     {
-        lcl = value->AsLclVar()->GetLcl();
+        lcl = value->AsLclLoad()->GetLcl();
 
         if (lcl->IsImplicitByRefParam())
         {
@@ -9123,8 +9123,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     }
 
                     op1 = inlUseArg(impInlineInfo, ilArgNum);
-                    noway_assert(op1->OperIs(GT_LCL_VAR));
-                    lcl = op1->AsLclVar()->GetLcl();
+                    noway_assert(op1->OperIs(GT_LCL_LOAD));
+                    lcl = op1->AsLclLoad()->GetLcl();
                 }
                 else
                 {
@@ -9199,7 +9199,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
 
                 // Filter out simple assignments to itself
-                if (op1->OperIs(GT_LCL_VAR) && (op1->AsLclVar()->GetLcl() == lcl))
+                if (op1->OperIs(GT_LCL_LOAD) && (op1->AsLclLoad()->GetLcl() == lcl))
                 {
                     if (opts.compDbgCode)
                     {
@@ -9390,9 +9390,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     }
 
                     // TODO-MIKE-Cleanup: It would make more sense to have inlUseParamAddr
-                    // instead of getting a LCL_VAR and changing it to LCL_ADDR.
+                    // instead of getting a LCL_LOAD and changing it to LCL_ADDR.
                     op1 = inlUseArg(impInlineInfo, ilArgNum);
-                    noway_assert(op1->OperIs(GT_LCL_VAR));
+                    noway_assert(op1->OperIs(GT_LCL_LOAD));
                     op1 = op1->ChangeToLclAddr(TYP_BYREF, op1->AsLclVar()->GetLcl());
 
                     goto PUSH_ADRVAR;
@@ -13157,7 +13157,7 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
 
             JITDUMPTREE(tree, "Stack entry %u:\n", level);
 
-            if (tree->OperIs(GT_LCL_VAR) && (tree->AsLclVar()->GetLcl() == spillTempLcl))
+            if (tree->OperIs(GT_LCL_LOAD) && (tree->AsLclLoad()->GetLcl() == spillTempLcl))
             {
                 assert(tree->GetType() == spillTempLcl->GetType());
                 continue;
@@ -16192,8 +16192,8 @@ void Importer::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* l
         LclVarDsc* lcl = srcAddr->AsLclAddr()->GetLcl();
 
         src = srcAddr;
-        src->SetOper(GT_LCL_VAR);
-        src->AsLclVar()->SetLcl(lcl);
+        src->SetOper(GT_LCL_LOAD);
+        src->AsLclLoad()->SetLcl(lcl);
         src->SetType(lcl->GetType());
     }
     else
@@ -16685,8 +16685,8 @@ GenTree* Importer::impCheckForNullPointer(GenTree* addr)
 // even if we might have created the copy of 'this' pointer in lvaThisLclNum.
 bool Compiler::impIsThis(GenTree* obj)
 {
-    return (obj != nullptr) && obj->OperIs(GT_LCL_VAR) &&
-           impInlineRoot()->lvaIsOriginalThisParam(obj->AsLclVar()->GetLcl()->GetLclNum());
+    return (obj != nullptr) && obj->OperIs(GT_LCL_LOAD) &&
+           impInlineRoot()->lvaIsOriginalThisParam(obj->AsLclLoad()->GetLcl()->GetLclNum());
 }
 
 bool Importer::impIsPrimitive(CorInfoType jitType)

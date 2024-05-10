@@ -284,9 +284,10 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
             // registers to be consumed atomically by the call.
             if (varTypeIsIntegralOrI(fieldNode))
             {
-                if (fieldNode->OperIs(GT_LCL_VAR))
+                if (fieldNode->OperIs(GT_LCL_LOAD))
                 {
-                    LclVarDsc* varDsc = fieldNode->AsLclVar()->GetLcl();
+                    LclVarDsc* varDsc = fieldNode->AsLclLoad()->GetLcl();
+
                     if (!varDsc->lvDoNotEnregister)
                     {
                         fieldNode->SetRegOptional();
@@ -558,7 +559,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
         {
             src->SetContained();
         }
-        else if (src->OperIs(GT_LCL_VAR) ? (srcSize == REGSIZE_BYTES) : (srcSize <= REGSIZE_BYTES))
+        else if (src->OperIs(GT_LCL_LOAD) ? (srcSize == REGSIZE_BYTES) : (srcSize <= REGSIZE_BYTES))
         {
             src->SetRegOptional();
         }
@@ -826,7 +827,7 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
         // situations. In particular this include CALL, sometimes the JIT unnecessarily widens
         // the result of bool returning calls.
 
-        if (castOp->OperIs(GT_CALL, GT_LCL_VAR, GT_AND, GT_OR, GT_XOR) || IsContainableMemoryOp(castOp))
+        if (castOp->OperIs(GT_CALL, GT_LCL_LOAD, GT_AND, GT_OR, GT_XOR) || IsContainableMemoryOp(castOp))
         {
             assert(!castOp->gtOverflowEx());
 
@@ -2796,7 +2797,7 @@ void Lowering::ContainHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node)
     // trade-off - only make elt reg optional if it is a LCL_VAR, otherwise it means that it's
     // more likely to already be in a register so reg optional isn't useful.
 
-    if (vec->IsHWIntrinsicZero() && !elt->OperIs(GT_LCL_VAR) && comp->canUseVexEncoding())
+    if (vec->IsHWIntrinsicZero() && !elt->OperIs(GT_LCL_LOAD) && comp->canUseVexEncoding())
     {
         vec->SetContained();
     }
@@ -2997,7 +2998,7 @@ bool Lowering::IsIndLoadRMWCandidate(GenTreeIndStore* store, GenTreeIndir* load,
 
         if (GenTree* base = am->GetBase())
         {
-            if (base->OperIs(GT_LCL_VAR))
+            if (base->OperIs(GT_LCL_LOAD))
             {
                 m_scratchSideEffects.AddNode(comp, base);
                 base->SetLIRMark();
@@ -3007,7 +3008,7 @@ bool Lowering::IsIndLoadRMWCandidate(GenTreeIndStore* store, GenTreeIndir* load,
 
         if (GenTree* index = am->GetIndex())
         {
-            if (index->OperIs(GT_LCL_VAR))
+            if (index->OperIs(GT_LCL_LOAD))
             {
                 m_scratchSideEffects.AddNode(comp, index);
                 index->SetLIRMark();
@@ -3015,14 +3016,14 @@ bool Lowering::IsIndLoadRMWCandidate(GenTreeIndStore* store, GenTreeIndir* load,
             }
         }
     }
-    else if (loadAddr->OperIs(GT_LCL_VAR))
+    else if (loadAddr->OperIs(GT_LCL_LOAD))
     {
         // AddNode(load) already added this but we still need to mark it.
         loadAddr->SetLIRMark();
         markCount++;
     }
 
-    if ((src != nullptr) && src->OperIs(GT_LCL_VAR))
+    if ((src != nullptr) && src->OperIs(GT_LCL_LOAD))
     {
         m_scratchSideEffects.AddNode(comp, src);
         src->SetLIRMark();
@@ -3033,7 +3034,7 @@ bool Lowering::IsIndLoadRMWCandidate(GenTreeIndStore* store, GenTreeIndir* load,
     {
         assert(storeAddr->isContained());
     }
-    else if (storeAddr->OperIs(GT_LCL_VAR))
+    else if (storeAddr->OperIs(GT_LCL_LOAD))
     {
         m_scratchSideEffects.AddNode(comp, storeAddr);
         storeAddr->SetLIRMark();
@@ -3126,7 +3127,7 @@ GenTreeIndir* Lowering::IsStoreIndRMW(GenTreeIndStore* store)
 
     GenTree* storeAddr = store->GetAddr();
 
-    if (!storeAddr->OperIs(GT_LEA, GT_LCL_VAR, GT_CNS_INT))
+    if (!storeAddr->OperIs(GT_LEA, GT_LCL_LOAD, GT_CNS_INT))
     {
         return nullptr;
     }
@@ -3261,10 +3262,10 @@ GenTree* Lowering::PreferredRegOptionalOperand(GenTreeOp* tree)
     // We default to op1, as op2 is likely to have the shorter lifetime.
     GenTree* preferredOp = op1;
 
-    if (op1->OperIs(GT_LCL_VAR) && op2->OperIs(GT_LCL_VAR))
+    if (op1->OperIs(GT_LCL_LOAD) && op2->OperIs(GT_LCL_LOAD))
     {
-        LclVarDsc* lcl1 = op1->AsLclVar()->GetLcl();
-        LclVarDsc* lcl2 = op2->AsLclVar()->GetLcl();
+        LclVarDsc* lcl1 = op1->AsLclLoad()->GetLcl();
+        LclVarDsc* lcl2 = op2->AsLclLoad()->GetLcl();
 
         if (!lcl1->lvDoNotEnregister && !lcl2->lvDoNotEnregister)
         {
@@ -3280,7 +3281,7 @@ GenTree* Lowering::PreferredRegOptionalOperand(GenTreeOp* tree)
             }
         }
     }
-    else if (!op1->OperIs(GT_LCL_VAR) && op2->OperIs(GT_LCL_VAR))
+    else if (!op1->OperIs(GT_LCL_LOAD) && op2->OperIs(GT_LCL_LOAD))
     {
         preferredOp = op2;
     }
@@ -3889,7 +3890,7 @@ void Lowering::LowerStoreIndRMW(GenTreeIndStore* store)
 
         if (GenTree* base = addrMode->GetBase())
         {
-            if (base->OperIs(GT_LCL_VAR))
+            if (base->OperIs(GT_LCL_LOAD))
             {
                 insertBefore = BlockRange().MoveBefore(insertBefore, base);
             }
@@ -3897,7 +3898,7 @@ void Lowering::LowerStoreIndRMW(GenTreeIndStore* store)
 
         if (GenTree* index = addrMode->GetIndex())
         {
-            if (index->OperIs(GT_LCL_VAR))
+            if (index->OperIs(GT_LCL_LOAD))
             {
                 insertBefore = BlockRange().MoveBefore(insertBefore, index);
             }
@@ -3928,7 +3929,7 @@ void Lowering::LowerStoreIndRMW(GenTreeIndStore* store)
 
         assert(!src->IsRegOptional());
 
-        if (src->OperIs(GT_LCL_VAR, GT_CNS_INT))
+        if (src->OperIs(GT_LCL_LOAD, GT_CNS_INT))
         {
             insertBefore = BlockRange().MoveBefore(insertBefore, src);
         }

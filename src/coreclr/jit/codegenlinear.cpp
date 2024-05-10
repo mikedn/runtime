@@ -1009,7 +1009,7 @@ void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
 // A GT_RELOAD never has a reg candidate lclVar or multi-reg lclVar as its child.
 // This is because register candidates locals always have distinct tree nodes
 // for uses and definitions. (This is unlike non-register candidate locals which
-// may be "defined" by a GT_LCL_VAR node that loads it into a register. It may
+// may be "defined" by a LCL_LOAD node that loads it into a register. It may
 // then have a GT_RELOAD inserted if it needs a different register, though this
 // is unlikely to happen except in stress modes.)
 //
@@ -1138,7 +1138,7 @@ regNumber CodeGen::CopyReg(GenTreeCopyOrReload* copy, unsigned regIndex)
 
 // Reload a MultiReg source value into a register, if needed
 //
-// It must *not* be a GT_LCL_VAR (those are handled separately).
+// It must *not* be a LCL_LOAD (those are handled separately).
 // In the normal case, the value will be reloaded into the register it
 // was originally computed into. However, if that register is not available,
 // the register allocator will have allocated a different register, and
@@ -1176,7 +1176,7 @@ void CodeGen::UseRegs(GenTree* node)
         return;
     }
 
-    assert(!node->gtSkipReloadOrCopy()->OperIs(GT_LCL_VAR));
+    assert(!node->gtSkipReloadOrCopy()->OperIs(GT_LCL_LOAD));
 
     if (node->OperIs(GT_COPY))
     {
@@ -1617,7 +1617,7 @@ void CodeGen::SpillLclVarReg(LclVarDsc* lcl, GenTreeLclVar* lclVar)
     // spilled, i.e. write-thru. Likewise, single-def vars that are spilled at its definitions).
     // An EH or single-def var use is always valid on the stack (so we don't need to actually spill it),
     // but the SPILL flag records the fact that the register value is going dead.
-    if (lclVar->OperIs(GT_LCL_VAR) && lcl->IsAlwaysAliveInMemory())
+    if (lclVar->OperIs(GT_LCL_LOAD) && lcl->IsAlwaysAliveInMemory())
     {
         return;
     }

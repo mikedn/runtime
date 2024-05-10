@@ -764,8 +764,8 @@ GenTree* Importer::impVectorPop(var_types type)
         // Currently the importer doesn't generate local field addresses.
         assert(addr->AsLclAddr()->GetLclOffs() == 0);
 
-        addr->SetOper(GT_LCL_VAR);
-        addr->AsLclVar()->SetLcl(lcl);
+        addr->SetOper(GT_LCL_LOAD);
+        addr->AsLclLoad()->SetLcl(lcl);
         addr->SetType(type);
 
         return addr;
@@ -3280,7 +3280,7 @@ LclVarDsc* SIMDCoalescingBuffer::IsSimdLocalExtract(GenTree* node) const
 
     if (GenTreeHWIntrinsic* extract = node->IsHWIntrinsic())
     {
-        if ((extract->GetIntrinsic() != NI_Vector128_GetElement) || !extract->GetOp(0)->OperIs(GT_LCL_VAR) ||
+        if ((extract->GetIntrinsic() != NI_Vector128_GetElement) || !extract->GetOp(0)->OperIs(GT_LCL_LOAD) ||
             !extract->GetOp(1)->IsIntegralConst(m_index))
         {
             return nullptr;

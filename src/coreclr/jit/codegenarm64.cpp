@@ -3222,7 +3222,7 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
 void CodeGen::genSIMDUpperSpill(GenTreeUnOp* node)
 {
     GenTree* op1 = node->GetOp(0);
-    assert(op1->OperIs(GT_LCL_VAR) && op1->TypeIs(TYP_SIMD12, TYP_SIMD16));
+    assert(op1->IsLclLoad() && op1->TypeIs(TYP_SIMD12, TYP_SIMD16));
 
     regNumber srcReg = genConsumeReg(op1);
     assert(srcReg != REG_NA);
@@ -3233,7 +3233,7 @@ void CodeGen::genSIMDUpperSpill(GenTreeUnOp* node)
 
     if (node->IsRegSpill(0))
     {
-        LclVarDsc* lcl = op1->AsLclVar()->GetLcl();
+        LclVarDsc* lcl = op1->AsLclLoad()->GetLcl();
         assert(lcl->lvOnFrame);
 
         GetEmitter()->Ins_R_S(INS_str, EA_8BYTE, dstReg, GetStackAddrMode(lcl, 8));
@@ -3253,7 +3253,7 @@ void CodeGen::genSIMDUpperSpill(GenTreeUnOp* node)
 void CodeGen::genSIMDUpperUnspill(GenTreeUnOp* node)
 {
     GenTree* op1 = node->GetOp(0);
-    assert(op1->OperIs(GT_LCL_VAR) && op1->TypeIs(TYP_SIMD12, TYP_SIMD16));
+    assert(op1->IsLclLoad() && op1->TypeIs(TYP_SIMD12, TYP_SIMD16));
 
     regNumber srcReg = node->GetRegNum();
     assert(srcReg != REG_NA);
@@ -3262,7 +3262,7 @@ void CodeGen::genSIMDUpperUnspill(GenTreeUnOp* node)
 
     if (node->IsRegSpilled(0))
     {
-        LclVarDsc* lcl = op1->AsLclVar()->GetLcl();
+        LclVarDsc* lcl = op1->AsLclLoad()->GetLcl();
         assert(lcl->lvOnFrame);
 
         GetEmitter()->Ins_R_S(INS_ldr, EA_8BYTE, srcReg, GetStackAddrMode(lcl, 8));

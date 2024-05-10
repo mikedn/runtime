@@ -121,9 +121,10 @@ void DecomposeLongs::DecomposeRangeHelper()
 GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
 {
     // Handle the case where we are implicitly using the lower half of a long lclVar.
-    if (tree->TypeIs(TYP_INT) && tree->OperIs(GT_LCL_VAR))
+    if (tree->TypeIs(TYP_INT) && tree->OperIs(GT_LCL_LOAD))
     {
-        LclVarDsc* varDsc = tree->AsLclVar()->GetLcl();
+        LclVarDsc* varDsc = tree->AsLclLoad()->GetLcl();
+
         if (varTypeIsLong(varDsc->GetType()) && varDsc->IsPromoted())
         {
 #ifdef DEBUG
@@ -1840,16 +1841,16 @@ GenTree* DecomposeLongs::StoreMultiRegNodeToLcl(LIR::Use& use)
 // Return Value:
 //    op represented as local var
 //
-GenTreeLclVar* DecomposeLongs::RepresentOpAsLocalVar(GenTree* op, GenTree* user, GenTree** edge)
+GenTreeLclLoad* DecomposeLongs::RepresentOpAsLocalVar(GenTree* op, GenTree* user, GenTree** edge)
 {
-    if (op->OperIs(GT_LCL_VAR))
+    if (op->OperIs(GT_LCL_LOAD))
     {
-        return op->AsLclVar();
+        return op->AsLclLoad();
     }
 
     LIR::Use opUse(Range(), edge, user);
     opUse.ReplaceWithLclVar(m_compiler);
-    return (*edge)->AsLclVar();
+    return (*edge)->AsLclLoad();
 }
 
 //------------------------------------------------------------------------

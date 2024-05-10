@@ -3006,7 +3006,7 @@ void LinearScan::spillGCRefs(RefPosition* killRefPosition)
             // TODO-MIKE-Review: Check if the problem described here still happens, assignments are gone.
             // The importer will assign a GC type to the rhs of an assignment if the lhs type is a GC type,
             // even if the rhs is not. See the CEE_STLOC* case in impImportBlockCode(). As a result,
-            // we can have a 'GT_LCL_VAR' node with a GC type, when the lclVar itself is an integer type.
+            // we can have a LCL_LOAD node with a GC type, when the lclVar itself is an integer type.
             // The emitter will mark this register as holding a GC type. Therfore we must spill this value.
             // This was exposed on Arm32 with EH write-thru.
             if ((assignedInterval->recentRefPosition != nullptr) &&
@@ -6374,8 +6374,8 @@ void LinearScan::insertMove(
     // It is up to the code generator to ensure that any necessary normalization is done when loading or storing the
     // lclVar's value.
     //
-    // In the third case, we generate GT_COPY(GT_LCL_VAR) and type each node with the normalized type of the lclVar.
-    // This is safe because a lclVar is always normalized once it is in a register.
+    // In the third case, we generate COPY(LCL_LOAD) and type each node with the normalized type of the local.
+    // This is safe because a local is always normalized once it is in a register.
 
     GenTree* dst = src;
     if (fromReg == REG_STK)
@@ -6812,9 +6812,9 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block, VARSET_TP outRes
             {
                 consumedRegs |= genRegMask(op1->gtGetOp1()->GetRegNum());
             }
-            else if (op1->OperIs(GT_LCL_VAR))
+            else if (op1->OperIs(GT_LCL_LOAD))
             {
-                jcmpLocalVarDsc = op1->AsLclVar()->GetLcl();
+                jcmpLocalVarDsc = op1->AsLclLoad()->GetLcl();
 
                 if (!jcmpLocalVarDsc->IsRegCandidate())
                 {
@@ -9390,7 +9390,7 @@ bool LinearScan::IsResolutionNode(LIR::Range& containingRange, GenTree* node)
             return true;
         }
 
-        if (!IsLsraAdded(node) || (node->OperGet() != GT_LCL_VAR))
+        if (!IsLsraAdded(node) || (node->OperGet() != GT_LCL_LOAD))
         {
             return false;
         }

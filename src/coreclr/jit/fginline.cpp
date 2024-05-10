@@ -783,12 +783,12 @@ void Compiler::inlPostInlineFailureCleanup(const InlineInfo* inlineInfo)
 
         if (argInfo.argIsUnaliasedLclVar && !argInfo.paramIsAddressTaken && !argInfo.paramHasStores)
         {
-            if (!argInfo.argNode->OperIs(GT_LCL_VAR))
+            if (!argInfo.argNode->OperIs(GT_LCL_LOAD))
             {
                 assert(argInfo.argNode->AsLclAddr()->GetLcl() == argInfo.paramLcl);
 
-                argInfo.argNode->SetOper(GT_LCL_VAR);
-                argInfo.argNode->AsLclVar()->SetLcl(argInfo.paramLcl);
+                argInfo.argNode->SetOper(GT_LCL_LOAD);
+                argInfo.argNode->AsLclLoad()->SetLcl(argInfo.paramLcl);
                 argInfo.argNode->SetType(argInfo.argType);
             }
         }
@@ -1472,9 +1472,9 @@ bool Compiler::inlAnalyzeInlineeArg(InlineInfo* inlineInfo, unsigned argNum)
 
         JITDUMP("is constant");
     }
-    else if (argInfo.argNode->OperIs(GT_LCL_VAR))
+    else if (argInfo.argNode->OperIs(GT_LCL_LOAD))
     {
-        LclVarDsc* lcl = argInfo.argNode->AsLclVar()->GetLcl();
+        LclVarDsc* lcl = argInfo.argNode->AsLclLoad()->GetLcl();
 
         if (!lcl->lvHasLdAddrOp)
         {
@@ -1581,7 +1581,7 @@ typeInfo InlineInfo::GetParamTypeInfo(unsigned ilArgNum) const
 
 bool InlineInfo::IsThisParam(GenTree* tree) const
 {
-    return tree->OperIs(GT_LCL_VAR) && (ilArgCount > 0) && (tree->AsLclVar()->GetLcl() == ilArgInfo[0].paramLcl) &&
+    return tree->OperIs(GT_LCL_LOAD) && (ilArgCount > 0) && (tree->AsLclLoad()->GetLcl() == ilArgInfo[0].paramLcl) &&
            ilArgInfo[0].paramIsThis;
 }
 
@@ -1845,9 +1845,9 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
 
         LclVarDsc* lcl;
 
-        if (argNode->OperIs(GT_LCL_VAR))
+        if (argNode->OperIs(GT_LCL_LOAD))
         {
-            lcl = argNode->AsLclVar()->GetLcl();
+            lcl = argNode->AsLclLoad()->GetLcl();
 
             // The arg node shouldn't have any flags. The importer may change it to LCL_ADDR
             // and remove all flags. If inlining is aborted then we won't be able to restore
@@ -2365,7 +2365,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
         {
             JITDUMP("Argument %u is invariant/unaliased local\n", argNum);
 
-            assert(argNode->OperIsConst() || argNode->OperIs(GT_LCL_VAR) || impIsAddressInLocal(argNode));
+            assert(argNode->OperIsConst() || argNode->OperIs(GT_LCL_LOAD) || impIsAddressInLocal(argNode));
             assert(!argInfo.paramIsAddressTaken && !argInfo.paramHasStores && !argInfo.argHasGlobRef);
 
             continue;
