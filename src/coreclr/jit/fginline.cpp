@@ -196,9 +196,9 @@ public:
             tree = *use = value;
 
 #if FEATURE_MULTIREG_RET
-            if (value->IsMultiRegCall() && varTypeIsStruct(value->GetType()) && user->OperIs(GT_STORE_LCL_VAR))
+            if (value->IsMultiRegCall() && varTypeIsStruct(value->GetType()) && user->OperIs(GT_LCL_STORE))
             {
-                user->AsLclVar()->GetLcl()->lvIsMultiRegRet = true;
+                user->AsLclStore()->GetLcl()->lvIsMultiRegRet = true;
             }
 #endif
         }
@@ -209,11 +209,11 @@ public:
         // do not check if there is a series of COMMAs. See above.
         // Importer and FlowGraph will not generate such a tree, so just
         // leaving an assert in here. This can be fixed by looking ahead
-        // when we visit STORE_LCL_VAR, similar to inlAttachStructInlineeToAsg.
+        // when we visit LCL_STORE, similar to inlAttachStructInlineeToAsg.
 
-        if (tree->OperIs(GT_STORE_LCL_VAR))
+        if (tree->OperIs(GT_LCL_STORE))
         {
-            GenTree* value = tree->AsLclVar()->GetOp(0);
+            GenTree* value = tree->AsLclStore()->GetValue();
 
             if (value->OperIs(GT_COMMA))
             {
@@ -278,9 +278,11 @@ public:
             }
 #endif
         }
-        else if (tree->OperIs(GT_STORE_LCL_VAR))
+        else if (tree->OperIs(GT_LCL_STORE))
         {
-            LclVarDsc* lcl = tree->AsLclVar()->GetLcl();
+            LclVarDsc* lcl   = tree->AsLclStore()->GetLcl();
+            GenTree*   value = tree->AsLclStore()->GetValue();
+
             // If we're storing to a ref typed local that has one definition,
             // we may be able to sharpen the type for the local.
 
@@ -288,20 +290,18 @@ public:
             {
                 bool                 isExact   = false;
                 bool                 isNonNull = false;
-                CORINFO_CLASS_HANDLE newClass =
-                    m_compiler->gtGetClassHandle(tree->AsLclVar()->GetOp(0), &isExact, &isNonNull);
+                CORINFO_CLASS_HANDLE newClass  = m_compiler->gtGetClassHandle(value, &isExact, &isNonNull);
 
                 if (newClass != NO_CLASS_HANDLE)
                 {
-                    m_compiler->lvaUpdateClass(tree->AsLclVar()->GetLcl(), newClass, isExact);
+                    m_compiler->lvaUpdateClass(lcl, newClass, isExact);
                 }
             }
 
             // If we created a self-copy (say because we are sharing return spill temps)
             // we can remove it.
-            GenTree* value = tree->AsLclVar()->GetOp(0);
 
-            if (value->OperIs(GT_LCL_VAR) && (lcl == value->AsLclVar()->GetLcl()))
+            if (value->OperIs(GT_LCL_LOAD) && (lcl == value->AsLclLoad()->GetLcl()))
             {
                 JITDUMPTREE(tree, "Removing self-copy:");
                 tree->ChangeToNothingNode();

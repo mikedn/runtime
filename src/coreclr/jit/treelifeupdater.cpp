@@ -302,14 +302,12 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
     }
 }
 
-void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar* lclNode)
+void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclStore* store)
 {
-    assert(lclNode->OperIs(GT_STORE_LCL_VAR));
-
     DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, currentLife);)
     DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet2, liveGCLcl);)
 
-    LclVarDsc* lcl = lclNode->GetLcl();
+    LclVarDsc* lcl = store->GetLcl();
 
     assert(lcl->IsIndependentPromoted());
 
@@ -318,7 +316,7 @@ void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar*
         LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
         bool isInReg      = fieldLcl->lvIsInReg();
-        bool isFieldDying = lclNode->IsLastUse(i);
+        bool isFieldDying = store->IsLastUse(i);
 
         if (isInReg)
         {
@@ -423,9 +421,8 @@ void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarC
     DBEXEC(compiler->verbose, DumpDiff(codeGen);)
 }
 
-void CodeGenLivenessUpdater::MoveReg(CodeGen* codeGen, LclVarDsc* lcl, GenTreeLclVar* src, GenTreeCopyOrReload* dst)
+void CodeGenLivenessUpdater::MoveReg(CodeGen* codeGen, LclVarDsc* lcl, GenTreeLclLoad* src, GenTreeCopyOrReload* dst)
 {
-    assert(src->OperIs(GT_LCL_VAR));
     assert(lcl->GetRegNum() != REG_STK);
 
     RegNum srcReg = src->GetRegNum();
@@ -441,7 +438,7 @@ void CodeGenLivenessUpdater::MoveReg(CodeGen* codeGen, LclVarDsc* lcl, GenTreeLc
 
 void CodeGenLivenessUpdater::Spill(LclVarDsc* lcl, GenTreeLclVar* lclNode)
 {
-    assert(lclNode->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
+    assert(lclNode->OperIs(GT_LCL_LOAD, GT_LCL_STORE));
 
     UpdateLiveLclRegs(lcl, /* isDying */ true);
     RemoveGCRegs(GetLclRegs(lcl));

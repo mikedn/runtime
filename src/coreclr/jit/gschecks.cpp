@@ -454,7 +454,7 @@ void Compiler::gsParamsToShadows()
             {
                 tree->AsLclVarCommon()->SetLcl(m_compiler->lvaGetDesc(shadowLclNum));
 
-                if (varTypeIsSmall(lcl->GetType()) && tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
+                if (varTypeIsSmall(lcl->GetType()) && tree->OperIs(GT_LCL_LOAD, GT_LCL_STORE))
                 {
                     tree->SetType(TYP_INT);
                 }

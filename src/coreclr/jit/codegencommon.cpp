@@ -5184,12 +5184,12 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
 
 #ifndef TARGET_64BIT
 
-void CodeGen::GenStoreLclVarLong(GenTreeLclVar* store)
+void CodeGen::GenStoreLclVarLong(GenTreeLclStore* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR) && store->TypeIs(TYP_LONG));
+    assert(store->TypeIs(TYP_LONG));
     assert(store->GetLcl()->TypeIs(TYP_LONG) && !store->GetLcl()->IsIndependentPromoted());
 
-    GenTree*  src = store->GetOp(0);
+    GenTree*  src = store->GetValue();
     regNumber srcRegs[2];
 
     if (src->OperIs(GT_LONG))
@@ -5214,13 +5214,13 @@ void CodeGen::GenStoreLclVarLong(GenTreeLclVar* store)
 
 #endif
 
-void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
+void CodeGen::GenStoreLclVarMultiReg(GenTreeLclStore* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR) && store->IsMultiReg());
+    assert(store->IsMultiReg());
     // Store spilling is achieved by not assigning a register to the node.
     assert(!store->IsAnyRegSpill());
 
-    GenTree* src = store->GetOp(0);
+    GenTree* src = store->GetValue();
     assert(src->IsMultiRegNode());
 
     LclVarDsc* lcl = store->GetLcl();

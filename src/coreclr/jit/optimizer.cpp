@@ -602,12 +602,12 @@ void Compiler::optPrintLoopInfo(unsigned lnum) const
 //
 bool Compiler::optPopulateInitInfo(unsigned loopInd, GenTree* init, unsigned iterVar)
 {
-    if (!init->OperIs(GT_STORE_LCL_VAR) || (init->AsLclVar()->GetLcl()->GetLclNum() != iterVar))
+    if (!init->OperIs(GT_LCL_STORE) || (init->AsLclStore()->GetLcl()->GetLclNum() != iterVar))
     {
         return false;
     }
 
-    GenTree* value = init->AsLclVar()->GetOp(0);
+    GenTree* value = init->AsLclStore()->GetValue();
 
     // TODO-CQ: CLONE: Add arr length for descending loops.
     if (value->OperIs(GT_CNS_INT) && value->TypeIs(TYP_INT))
@@ -656,8 +656,8 @@ GenTreeOp* Compiler::optGetLoopTest(unsigned loopInd, GenTree* test, BasicBlock*
     }
     else
     {
-        assert(test->OperIs(GT_STORE_LCL_VAR));
-        relop = test->AsLclVar()->GetOp(0)->AsOp();
+        assert(test->OperIs(GT_LCL_STORE));
+        relop = test->AsLclStore()->GetValue()->AsOp();
     }
 
     noway_assert(relop->OperIsCompare());
@@ -669,12 +669,12 @@ GenTreeOp* Compiler::optGetLoopTest(unsigned loopInd, GenTree* test, BasicBlock*
     GenTree* limitOp;
 
     // Make sure op1 or op2 is the iterVar.
-    if (opr1->OperIs(GT_LCL_VAR) && (opr1->AsLclVar()->GetLcl()->GetLclNum() == iterVar))
+    if (opr1->OperIs(GT_LCL_LOAD) && (opr1->AsLclLoad()->GetLcl()->GetLclNum() == iterVar))
     {
         iterOp  = opr1;
         limitOp = opr2;
     }
-    else if (opr2->OperIs(GT_LCL_VAR) && (opr2->AsLclVar()->GetLcl()->GetLclNum() == iterVar))
+    else if (opr2->OperIs(GT_LCL_LOAD) && (opr2->AsLclLoad()->GetLcl()->GetLclNum() == iterVar))
     {
         iterOp  = opr2;
         limitOp = opr1;
@@ -698,7 +698,7 @@ GenTreeOp* Compiler::optGetLoopTest(unsigned loopInd, GenTree* test, BasicBlock*
             optLoopTable[loopInd].lpFlags |= LPFLG_SIMD_LIMIT;
         }
     }
-    else if (limitOp->OperIs(GT_LCL_VAR) && !optIsVarAssigned(from, to, nullptr, limitOp->AsLclVar()->GetLcl()))
+    else if (limitOp->OperIs(GT_LCL_LOAD) && !optIsVarAssigned(from, to, nullptr, limitOp->AsLclLoad()->GetLcl()))
     {
         optLoopTable[loopInd].lpFlags |= LPFLG_VAR_LIMIT;
     }
@@ -716,12 +716,13 @@ GenTreeOp* Compiler::optGetLoopTest(unsigned loopInd, GenTree* test, BasicBlock*
 
 unsigned Compiler::optIsLoopIncrTree(GenTree* incr)
 {
-    if (!incr->OperIs(GT_STORE_LCL_VAR) || !incr->TypeIs(TYP_INT))
+    if (!incr->OperIs(GT_LCL_STORE) || !incr->TypeIs(TYP_INT))
     {
         return BAD_VAR_NUM;
     }
 
-    GenTree* value = incr->AsLclVar()->GetOp(0);
+    LclVarDsc* lcl   = incr->AsLclStore()->GetLcl();
+    GenTree*   value = incr->AsLclStore()->GetValue();
 
     // TODO-MIKE-Cleanup: It might be good to check if the locals have type INT.
     // Normally morph inserts "normalization" casts for small int typed locals but such casts
@@ -736,7 +737,7 @@ unsigned Compiler::optIsLoopIncrTree(GenTree* incr)
     GenTree* step = value->AsOp()->GetOp(1);
     value         = value->AsOp()->GetOp(0);
 
-    if (!value->OperIs(GT_LCL_VAR) || (value->AsLclVar()->GetLcl() != incr->AsLclVar()->GetLcl()))
+    if (!value->OperIs(GT_LCL_VAR) || (value->AsLclVar()->GetLcl() != lcl))
     {
         return BAD_VAR_NUM;
     }
@@ -746,7 +747,7 @@ unsigned Compiler::optIsLoopIncrTree(GenTree* incr)
         return BAD_VAR_NUM;
     }
 
-    return incr->AsLclVar()->GetLcl()->GetLclNum();
+    return lcl->GetLclNum();
 }
 
 //----------------------------------------------------------------------------------
@@ -786,7 +787,7 @@ bool Compiler::optIsLoopTestEvalIntoTemp(Statement* testStmt, Statement** newTes
     GenTree* opr2 = relop->GetOp(1);
 
     // Make sure we have jtrue (vtmp != 0)
-    if (relop->OperIs(GT_NE) && opr1->OperIs(GT_LCL_VAR) && opr2->OperIs(GT_CNS_INT) && opr2->IsIntegralConst(0))
+    if (relop->OperIs(GT_NE) && opr1->OperIs(GT_LCL_LOAD) && opr2->OperIs(GT_CNS_INT) && opr2->IsIntCon(0))
     {
         // Get the previous statement to get the def (rhs) of Vtmp to see
         // if the "test" is evaluated into Vtmp.
@@ -798,11 +799,11 @@ bool Compiler::optIsLoopTestEvalIntoTemp(Statement* testStmt, Statement** newTes
 
         GenTree* tree = prevStmt->GetRootNode();
 
-        if (tree->OperIs(GT_STORE_LCL_VAR))
+        if (tree->OperIs(GT_LCL_STORE))
         {
-            GenTree* value = tree->AsLclVar()->GetOp(0);
+            GenTree* value = tree->AsLclStore()->GetValue();
 
-            if ((tree->AsLclVar()->GetLcl() == opr1->AsLclVar()->GetLcl()))
+            if ((tree->AsLclStore()->GetLcl() == opr1->AsLclVar()->GetLcl()))
             {
                 if (value->OperIsCompare())
                 {
@@ -851,7 +852,7 @@ bool Compiler::optIsLoopTestEvalIntoTemp(Statement* testStmt, Statement** newTes
 //      This method just retrieves what it thinks is the "test" node,
 //      the callers are expected to verify that "iterVar" is used in the test.
 //
-GenTreeLclVar* Compiler::optExtractInitTestIncr(
+GenTreeLclStore* Compiler::optExtractInitTestIncr(
     BasicBlock* head, BasicBlock* bottom, BasicBlock* top, GenTree** ppInit, GenTree** ppTest)
 {
     assert(ppInit != nullptr);
@@ -904,6 +905,7 @@ GenTreeLclVar* Compiler::optExtractInitTestIncr(
     if (initStmt->IsCompilerAdded())
     {
         bool doGetPrev = true;
+
 #ifdef DEBUG
         if (opts.optRepeat)
         {
@@ -914,19 +916,22 @@ GenTreeLclVar* Compiler::optExtractInitTestIncr(
         else
         {
             // Must be a duplicated loop condition.
-            noway_assert(initStmt->GetRootNode()->gtOper == GT_JTRUE);
+            noway_assert(initStmt->GetRootNode()->OperIs(GT_JTRUE));
         }
 #endif // DEBUG
+
         if (doGetPrev)
         {
             initStmt = initStmt->GetPrevStmt();
         }
+
         noway_assert(initStmt != nullptr);
     }
 
     *ppInit = initStmt->GetRootNode();
     *ppTest = testStmt->GetRootNode();
-    return incrStmt->GetRootNode()->AsLclVar();
+
+    return incrStmt->GetRootNode()->AsLclStore();
 }
 
 /*****************************************************************************
@@ -1040,9 +1045,9 @@ bool Compiler::optRecordLoop(BasicBlock* head,
     //
     if (bottom->bbJumpKind == BBJ_COND)
     {
-        GenTree*       init;
-        GenTree*       test;
-        GenTreeLclVar* incr = optExtractInitTestIncr(head, bottom, top, &init, &test);
+        GenTree*         init;
+        GenTree*         test;
+        GenTreeLclStore* incr = optExtractInitTestIncr(head, bottom, top, &init, &test);
 
         if (incr == nullptr)
         {
@@ -1052,7 +1057,7 @@ bool Compiler::optRecordLoop(BasicBlock* head,
         LclVarDsc* iterLcl = incr->GetLcl();
         unsigned   iterVar = iterLcl->GetLclNum();
         assert(optIsLoopIncrTree(incr) == iterVar);
-        assert(incr->GetOp(0)->OperIs(GT_ADD, GT_SUB));
+        assert(incr->GetValue()->OperIs(GT_ADD, GT_SUB));
 
         // TODO-MIKE-Cleanup: optIsVarAssigned should check AX.
         if (iterLcl->IsAddressExposed() || optIsVarAssigned(head->bbNext, bottom, incr, iterLcl))
@@ -1218,26 +1223,25 @@ void Compiler::optCheckPreds()
 
 void Compiler::LoopDsc::VerifyIterator() const
 {
-    assert((lpIterTree != nullptr) && lpIterTree->OperIs(GT_STORE_LCL_VAR));
+    assert((lpIterTree != nullptr) && lpIterTree->IsLclStore());
     assert((lpTestTree != nullptr) && lpTestTree->OperIsCompare());
 
-    GenTreeOp* value = lpIterTree->GetOp(0)->AsOp();
+    GenTreeOp* value = lpIterTree->GetValue()->AsOp();
 
     assert(value->OperIs(GT_ADD, GT_SUB));
-    assert(value->GetOp(0)->OperIs(GT_LCL_VAR));
-    assert(value->GetOp(0)->AsLclVar()->GetLcl() == lpIterTree->GetLcl());
+    assert(value->GetOp(0)->AsLclLoad()->GetLcl() == lpIterTree->GetLcl());
     assert(value->GetOp(1)->IsIntCon());
 
     GenTree* iterator = lpTestTree->GetOp(0);
     GenTree* limit    = lpTestTree->GetOp(1);
 
-    if (limit->OperIs(GT_LCL_VAR) && (limit->AsLclVar()->GetLcl() == lpIterTree->GetLcl()))
+    if (limit->OperIs(GT_LCL_LOAD) && (limit->AsLclLoad()->GetLcl() == lpIterTree->GetLcl()))
     {
         std::swap(iterator, limit);
     }
     else
     {
-        assert(iterator->OperIs(GT_LCL_VAR) && (iterator->AsLclVar()->GetLcl() == lpIterTree->GetLcl()));
+        assert(iterator->OperIs(GT_LCL_LOAD) && (iterator->AsLclLoad()->GetLcl() == lpIterTree->GetLcl()));
     }
 
     if (lpFlags & LPFLG_CONST_LIMIT)
@@ -3394,7 +3398,7 @@ PhaseStatus Compiler::phUnrollLoops()
 
         GenTree* incr = incrStmt->GetRootNode();
 
-        if (!incr->OperIs(GT_STORE_LCL_VAR))
+        if (!incr->OperIs(GT_LCL_STORE))
         {
             continue;
         }
@@ -3404,11 +3408,11 @@ PhaseStatus Compiler::phUnrollLoops()
         GenTree* init = initStmt->GetRootNode();
 
         // clang-format off
-        if (!init->OperIs(GT_STORE_LCL_VAR) || (init->AsLclVar()->GetLcl() != llvar) ||
-            !init->AsLclVar()->GetOp(0)->IsIntCon() || (init->AsLclVar()->GetOp(0)->AsIntCon()->GetValue() != lbeg) ||
+        if (!init->OperIs(GT_LCL_STORE) || (init->AsLclStore()->GetLcl() != llvar) ||
+            !init->AsLclStore()->GetValue()->IsIntCon() || (init->AsLclStore()->GetValue()->AsIntCon()->GetValue() != lbeg) ||
             !incr->OperIs(GT_ADD, GT_SUB) ||
-            !incr->AsOp()->GetOp(0)->OperIs(GT_LCL_VAR) ||
-            (incr->AsOp()->GetOp(0)->AsLclVar()->GetLcl() != llvar) ||
+            !incr->AsOp()->GetOp(0)->OperIs(GT_LCL_LOAD) ||
+            (incr->AsOp()->GetOp(0)->AsLclLoad()->GetLcl() != llvar) ||
             !incr->AsOp()->GetOp(1)->IsIntCon() ||
             (incr->AsOp()->GetOp(1)->AsIntCon()->GetValue() != iterInc) ||
             !testStmt->GetRootNode()->OperIs(GT_JTRUE))
@@ -4393,10 +4397,10 @@ bool Compiler::optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip,
                                   GenTree*  tree = *use;
                                   WalkData* desc = static_cast<WalkData*>(data->pCallbackData);
 
-                                  // TODO-MIKE-Cleanup: Why the crap are STORE_LCL_FLDs ignored?
+                                  // TODO-MIKE-Cleanup: Why the crap are LCL_STORE_FLDs ignored?
                                   // This is likely used only for INT locals but then you can actually
                                   // modify an INT local with a LCL_FLD...
-                                  return tree->OperIs(GT_STORE_LCL_VAR) && (tree->AsLclVar()->GetLcl() == desc->lcl) &&
+                                  return tree->OperIs(GT_LCL_STORE) && (tree->AsLclStore()->GetLcl() == desc->lcl) &&
                                                  (tree != desc->skip)
                                              ? Compiler::WALK_ABORT
                                              : Compiler::WALK_CONTINUE;
@@ -5833,7 +5837,7 @@ void Compiler::optAddCopies()
 
             for (GenTree* node = stmt->GetRootNode(); node != nullptr; node = node->gtPrev)
             {
-                if (!node->OperIs(GT_STORE_LCL_VAR) || (node->AsLclVar()->GetLcl() != varDsc))
+                if (!node->OperIs(GT_LCL_STORE) || (node->AsLclStore()->GetLcl() != varDsc))
                 {
                     continue;
                 }
@@ -5844,8 +5848,8 @@ void Compiler::optAddCopies()
 
             noway_assert(tree != nullptr);
 
-            GenTree* newAsg  = gtNewStoreLclVar(copyLcl, typ, tree->GetOp(0));
-            GenTree* copyAsg = gtNewStoreLclVar(varDsc, typ, gtNewLclvNode(copyLcl, typ));
+            GenTree* newAsg  = gtNewLclStore(copyLcl, typ, tree->GetOp(0));
+            GenTree* copyAsg = gtNewLclStore(varDsc, typ, gtNewLclLoad(copyLcl, typ));
 
             tree->ChangeOper(GT_COMMA);
             tree->SetOp(0, newAsg);
@@ -5940,7 +5944,7 @@ void Compiler::phRemoveRedundantZeroInits()
                             (*defsInBlock.Emplace(lclNum, 0))++;
                         }
                         else if (lcl->IsPromoted() &&
-                                 (lclNode->OperIs(GT_STORE_LCL_VAR) || !lclNode->IsPartialLclFld(this)))
+                                 (lclNode->OperIs(GT_LCL_STORE) || !lclNode->IsPartialLclFld(this)))
                         {
                             for (LclVarDsc* fieldLcl : PromotedFields(lcl))
                             {

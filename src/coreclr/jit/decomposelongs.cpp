@@ -389,9 +389,9 @@ GenTree* DecomposeLongs::DecomposeLclStore(LIR::Use& use)
 
     if (rhs->OperIs(GT_CALL, GT_MUL_LONG))
     {
-        // GT_CALLs are not decomposed, so will not be converted to GT_LONG
-        // GT_STORE_LCL_VAR = GT_CALL are handled in genMultiRegCallStoreToLocal
-        // GT_MUL_LONG is not decomposed, so will not be converted to GT_LONG
+        // CALLs are not decomposed, so will not be converted to LONG
+        // LCL_STORE = CALL are handled in genMultiRegCallStoreToLocal
+        // MUL_LONG is not decomposed, so will not be converted to LONG
         return tree->gtNext;
     }
 

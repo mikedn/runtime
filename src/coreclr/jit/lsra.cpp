@@ -6045,7 +6045,7 @@ void LinearScan::resolveRegisters()
             {
                 writeRegisters(currentRefPosition, treeNode);
 
-                if (treeNode->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && currentRefPosition->getInterval()->isLocalVar)
+                if (treeNode->OperIs(GT_LCL_LOAD, GT_LCL_STORE) && currentRefPosition->getInterval()->isLocalVar)
                 {
                     resolveLocalRef(block, treeNode->AsLclVar(), currentRefPosition);
                 }
@@ -8362,7 +8362,7 @@ void LinearScan::lsraGetOperandString(GenTree*          tree,
                                       unsigned          operandStringLength)
 {
     const char* lastUseChar = "";
-    if (tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && ((tree->gtFlags & GTF_VAR_DEATH) != 0))
+    if (tree->OperIs(GT_LCL_LOAD, GT_LCL_STORE) && ((tree->gtFlags & GTF_VAR_DEATH) != 0))
     {
         lastUseChar = "*";
     }
@@ -8440,7 +8440,7 @@ void LinearScan::lsraDispNode(GenTree* tree, LsraTupleDumpMode mode, bool hasDes
     printf("%c N%04u. ", spillChar, tree->gtSeqNum);
 
     LclVarDsc* varDsc = nullptr;
-    if (tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
+    if (tree->OperIs(GT_LCL_LOAD, GT_LCL_STORE))
     {
         varDsc = tree->AsLclVar()->GetLcl();
         if (varDsc->IsRegCandidate())

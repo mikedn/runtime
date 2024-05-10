@@ -325,13 +325,13 @@ void Importer::AppendStmtCheck(GenTree* tree, unsigned chkLevel)
         }
     }
 
-    if (tree->OperIs(GT_STORE_LCL_VAR))
+    if (tree->OperIs(GT_LCL_STORE))
     {
         // For a store to a local variable, all references to that local have
         // to be spilled. If the local is address taken, all calls and indirect
         // accesses have to be spilled.
 
-        LclVarDsc* lcl = tree->AsLclVar()->GetLcl();
+        LclVarDsc* lcl = tree->AsLclStore()->GetLcl();
 
         for (unsigned level = 0; level < chkLevel; level++)
         {
@@ -391,9 +391,9 @@ void Importer::SpillStack(GenTree* stmtExpr, unsigned spillDepth)
     // do here is to check for address taken locals.
     // Oddly enough, impSpillSideEffects does that already.
 
-    if (stmtExpr->OperIs(GT_STORE_LCL_VAR) && !impHasAddressTakenLocals(stmtExpr->AsLclVar()->GetOp(0)))
+    if (stmtExpr->OperIs(GT_LCL_STORE) && !impHasAddressTakenLocals(stmtExpr->AsLclStore()->GetValue()))
     {
-        GenTreeFlags srcSideEffects = stmtExpr->AsLclVar()->GetOp(0)->GetSideEffects();
+        GenTreeFlags srcSideEffects = stmtExpr->AsLclStore()->GetValue()->GetSideEffects();
         assert(stmtSideEffects == (srcSideEffects | GTF_ASG));
         stmtSideEffects = srcSideEffects;
     }
@@ -416,9 +416,9 @@ void Importer::SpillStack(GenTree* stmtExpr, unsigned spillDepth)
         // If there is a call, we have to spill global refs
         spillSideEffects |= GTF_GLOB_REF;
     }
-    else if (stmtExpr->OperIs(GT_STORE_LCL_VAR))
+    else if (stmtExpr->OperIs(GT_LCL_STORE))
     {
-        if (stmtExpr->AsLclVar()->GetOp(0)->HasAnySideEffect(GTF_ASG))
+        if (stmtExpr->AsLclStore()->GetValue()->HasAnySideEffect(GTF_ASG))
         {
             // The value has a store side effect. Since we don't know
             // where it stores to, we need to spill global refs.
@@ -928,7 +928,7 @@ GenTree* Importer::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLeve
 
     if (dest->OperIs(GT_LCL_LOAD))
     {
-        GenTreeLclVar* store = comp->gtNewLclStore(dest->AsLclLoad()->GetLcl(), dest->GetType(), src);
+        GenTreeLclStore* store = comp->gtNewLclStore(dest->AsLclLoad()->GetLcl(), dest->GetType(), src);
         store->AddSideEffects(dest->GetSideEffects());
         gtInitStructLclStore(store, src);
 
@@ -1019,9 +1019,9 @@ void Importer::gtInitStructIndStore(GenTreeIndir* store, GenTree* value)
 #endif
 }
 
-void Importer::gtInitStructLclStore(GenTreeLclVar* store, GenTree* value)
+void Importer::gtInitStructLclStore(GenTreeLclStore* store, GenTree* value)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR) && varTypeIsStruct(store->GetType()));
+    assert(varTypeIsStruct(store->GetType()));
 
     if (value->OperIs(GT_INIT_VAL, GT_CNS_INT))
     {
@@ -1692,9 +1692,9 @@ BasicBlock* Importer::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
             GenTree* tree = stmt->GetRootNode();
             assert(tree != nullptr);
 
-            if (tree->OperIs(GT_STORE_LCL_VAR) && tree->AsLclVar()->GetOp(0)->OperIs(GT_CATCH_ARG))
+            if (tree->OperIs(GT_LCL_STORE) && tree->AsLclStore()->GetValue()->OperIs(GT_CATCH_ARG))
             {
-                tree = comp->gtNewLclLoad(tree->AsLclVar()->GetLcl(), TYP_REF);
+                tree = comp->gtNewLclLoad(tree->AsLclStore()->GetLcl(), TYP_REF);
 
                 assert(hndBlk->bbEntryState->HasCatchArg());
 
@@ -2220,15 +2220,15 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
     // that the target of the store is the array passed to InitializeArray.
     GenTree* arrayStore = impLastStmt->GetRootNode();
 
-    if (!arrayStore->OperIs(GT_STORE_LCL_VAR) || !arrayLocalNode->OperIs(GT_LCL_VAR) ||
-        (arrayStore->AsLclVar()->GetLcl() != arrayLocalNode->AsLclVar()->GetLcl()))
+    if (!arrayStore->OperIs(GT_LCL_STORE) || !arrayLocalNode->OperIs(GT_LCL_LOAD) ||
+        (arrayStore->AsLclStore()->GetLcl() != arrayLocalNode->AsLclLoad()->GetLcl()))
     {
         return nullptr;
     }
 
     // Make sure that the object being assigned is a helper call.
 
-    GenTreeCall* newArrayCall = arrayStore->AsLclVar()->GetOp(0)->IsCall();
+    GenTreeCall* newArrayCall = arrayStore->AsLclStore()->GetValue()->IsCall();
 
     if ((newArrayCall == nullptr) || !newArrayCall->IsHelperCall())
     {

@@ -36,9 +36,9 @@ private:
         {
             GenTree* node = stmt->GetRootNode();
 
-            if (node->OperIs(GT_STORE_LCL_VAR))
+            if (node->OperIs(GT_LCL_STORE))
             {
-                node = node->AsUnOp()->GetOp(0);
+                node = node->AsLclStore()->GetValue();
             }
 
             if (GenTreeCall* call = node->IsCall())
@@ -296,7 +296,7 @@ private:
         GenTreeCall* GetCall(Statement* callStmt) const
         {
             GenTree* tree = callStmt->GetRootNode();
-            assert(tree->OperIs(GT_STORE_LCL_VAR));
+            assert(tree->OperIs(GT_LCL_STORE));
             return tree->AsLclVar()->GetOp(0)->AsCall();
         }
 

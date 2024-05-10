@@ -786,11 +786,11 @@ protected:
     void GenLclStoreFld(GenTreeLclStoreFld* store);
     void GenStoreLclRMW(var_types type, StackAddrMode s, GenTree* src);
 #ifndef TARGET_64BIT
-    void GenStoreLclVarLong(GenTreeLclVar* store);
+    void GenStoreLclVarLong(GenTreeLclStore* store);
 #endif
-    void GenStoreLclVarMultiReg(GenTreeLclVar* store);
-    void GenStoreLclVarMultiRegSIMDMem(GenTreeLclVar* store);
-    void GenStoreLclVarMultiRegSIMDReg(GenTreeLclVar* store);
+    void GenStoreLclVarMultiReg(GenTreeLclStore* store);
+    void GenStoreLclVarMultiRegSIMDMem(GenTreeLclStore* store);
+    void GenStoreLclVarMultiRegSIMDReg(GenTreeLclStore* store);
     void genCodeForReturnTrap(GenTreeOp* tree);
     void GenSetCC(GenTreeCC* setcc);
 #ifdef TARGET_XARCH
@@ -938,7 +938,7 @@ protected:
 
     GenTreeLclVar* IsRegCandidateLclVar(GenTree* node)
     {
-        return node->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && node->AsLclVar()->GetLcl()->IsRegCandidate()
+        return node->OperIs(GT_LCL_LOAD, GT_LCL_STORE) && node->AsLclVar()->GetLcl()->IsRegCandidate()
                    ? node->AsLclVar()
                    : nullptr;
     }

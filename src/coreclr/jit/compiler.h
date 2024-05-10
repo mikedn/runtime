@@ -1719,7 +1719,7 @@ struct Importer
     GenTree* impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigned curLevel);
     GenTree* impAssignStruct(GenTree* dest, GenTree* src, unsigned curLevel);
     void gtInitStructIndStore(GenTreeIndir* store, GenTree* value);
-    void gtInitStructLclStore(GenTreeLclVar* store, GenTree* value);
+    void gtInitStructLclStore(GenTreeLclStore* store, GenTree* value);
 
     GenTree* impGetStructAddr(GenTree* structVal, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel, bool willDeref);
 
@@ -4307,7 +4307,7 @@ public:
     inline void fgConvertBBToThrowBB(BasicBlock* block);
 
     bool gtIsSmallIntCastNeeded(GenTree* tree, var_types toType);
-    GenTree* fgMorphNormalizeLclStore(GenTreeLclVar* store, GenTree* value);
+    GenTree* fgMorphNormalizeLclStore(GenTreeLclStore* store, GenTree* value);
 
     void fgLoopCallTest(BasicBlock* srcBB, BasicBlock* dstBB);
     bool fgReachWithoutCall(BasicBlock* srcBB, BasicBlock* dstBB);
@@ -4797,8 +4797,8 @@ public:
                                 // : Valid if LPFLG_VAR_INIT
         };
 
-        GenTreeLclVar* lpIterTree; // The "i = i <op> const" tree
-        GenTreeOp*     lpTestTree; // pointer to the node containing the loop test
+        GenTreeLclStore* lpIterTree; // The "i = i <op> const" tree
+        GenTreeOp*       lpTestTree; // pointer to the node containing the loop test
 
         LclVarDsc* lpIterVar() const;   // iterator variable
         int        lpIterConst() const; // the constant with which the iterator is incremented
@@ -4936,7 +4936,7 @@ public:
     unsigned optIsLoopIncrTree(GenTree* incr);
     GenTreeOp* optGetLoopTest(unsigned loopInd, GenTree* test, BasicBlock* from, BasicBlock* to, unsigned iterVar);
     bool optPopulateInitInfo(unsigned loopInd, GenTree* init, unsigned iterVar);
-    GenTreeLclVar* optExtractInitTestIncr(
+    GenTreeLclStore* optExtractInitTestIncr(
         BasicBlock* head, BasicBlock* bottom, BasicBlock* exit, GenTree** init, GenTree** test);
 
     void optFindNaturalLoops();

@@ -380,7 +380,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
  *    the default case of the switch in case the conditional is evaluated to true).
  *
  *     ----- original block, transformed
- *     GT_STORE_LCL_VAR tempLocal (a new temporary local variable used to store the switch index)
+ *     LCL_STORE tempLocal (a new temporary local variable used to store the switch index)
  *        |_____ expr      (the index expression)
  *
  *     GT_JTRUE
@@ -1181,7 +1181,7 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
     GenTree* arg = argInfo->GetNode();
 
     assert(!arg->OperIsPutArg());
-    assert(!arg->OperIs(GT_STORE_LCL_VAR, GT_ARGPLACE, GT_NOP));
+    assert(!arg->OperIs(GT_LCL_STORE, GT_ARGPLACE, GT_NOP));
 
 #if !defined(TARGET_64BIT)
     if (arg->TypeIs(TYP_LONG))
@@ -1651,21 +1651,21 @@ void Lowering::RehomeParamForFastTailCall(LclVarDsc* paramLcl,
                 //
                 // It's best to avoid using block layout when the struct layout is available (and
                 // BLK/STORE_BLK) but doing so has a somewhat unfortunate side-effect: this copy
-                // is done in a no-GC region but GT_STORE_LCL_VAR doesn't know that and it will do
-                // it's normal GC copy thing. For unrolled copies it doesn't really matter, as
-                // the same code is being generated in both cases, the only difference is that
-                // for large copies we get "rep movsq" instead of a helper call.
+                // is done in a no-GC region but LCL_STORE doesn't know that and it will do its
+                // normal GC copy thing. For unrolled copies it doesn't really matter, as the same
+                // code is being generated in both cases, the only difference is that for large
+                // copies we get "rep movsq" instead of a helper call.
                 //
-                // Perhaps there should be a way to tell GT_STORE_LCL_VAR to ignore GC info in such
+                // Perhaps there should be a way to tell LCL_STORE to ignore GC info in such
                 // cases. But then there's no real need to put this copy in the no-GC region so
-                // maybe it's best to leave GT_STORE_LCL_VAR as is and insert the copy before the
-                // no-GC region.
+                // maybe it's best to leave LCL_STORE as is and insert the copy before the no-GC
+                // region.
             }
             else
             {
                 // TODO-MIKE-Review: This code came from gtNewTempAssign and it's not clear if it's
-                // needed and if it's corect. Load "normalization" is done with casts, not by having
-                // the LCL_VAR node type set to the small int type of the local. If a cast already
+                // needed and if it's correct. Load "normalization" is done with casts, not by having
+                // the LCL_LOAD node type set to the small int type of the local. If a cast already
                 // exists doing this is pointless. If a cast does not exist then it means that morph
                 // decided that it's not needed and changing the type here is also pointless.
                 // Removing this results in one byte diff in corelib PMI diff due to a movzx being
@@ -4712,7 +4712,7 @@ void Lowering::CheckCallArg(GenTree* arg)
 {
     if (!arg->IsValue() && !arg->OperIsPutArgStk())
     {
-        assert(arg->OperIs(GT_STORE_LCL_VAR, GT_ARGPLACE) || arg->IsNothingNode());
+        assert(arg->OperIs(GT_LCL_STORE, GT_ARGPLACE) || arg->IsNothingNode());
         return;
     }
 
@@ -4839,9 +4839,8 @@ void Lowering::LowerBlock(BasicBlock* block)
 
 #if FEATURE_MULTIREG_RET
 
-void Lowering::MakeMultiRegStoreLclVar(GenTreeLclVar* store, GenTree* value)
+void Lowering::MakeMultiRegStoreLclVar(GenTreeLclStore* store, GenTree* value)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR));
     assert(value->IsMultiRegNode());
 
     LclVarDsc* lcl = store->GetLcl();
@@ -5727,7 +5726,7 @@ bool Lowering::IsContainableMemoryOp(Compiler* comp, GenTree* node)
         return true;
     }
 
-    if (node->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
+    if (node->OperIs(GT_LCL_LOAD, GT_LCL_STORE))
     {
         return node->AsLclVar()->GetLcl()->lvDoNotEnregister;
     }

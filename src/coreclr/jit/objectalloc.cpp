@@ -496,9 +496,9 @@ bool ObjectAllocator::MorphAllocObjNodes()
             GenTree*         allocExpr = stmt->GetRootNode();
             GenTreeAllocObj* alloc     = nullptr;
 
-            if (allocExpr->OperIs(GT_STORE_LCL_VAR) && allocExpr->TypeIs(TYP_REF))
+            if (allocExpr->OperIs(GT_LCL_STORE) && allocExpr->TypeIs(TYP_REF))
             {
-                alloc = allocExpr->AsLclVar()->GetOp(0)->IsAllocObj();
+                alloc = allocExpr->AsLclStore()->GetValue()->IsAllocObj();
             }
 
             if (alloc == nullptr)

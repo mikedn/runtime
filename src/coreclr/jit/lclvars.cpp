@@ -2409,7 +2409,7 @@ var_types LclVarDsc::GetRegisterType(const GenTreeLclVarCommon* tree) const
     }
 
 #ifdef DEBUG
-    if ((targetType != TYP_UNDEF) && tree->OperIs(GT_STORE_LCL_VAR) && lvNormalizeOnStore())
+    if ((targetType != TYP_UNDEF) && tree->OperIs(GT_LCL_STORE) && lvNormalizeOnStore())
     {
         assert(targetType == varActualType(lclVarType));
     }
@@ -2656,12 +2656,12 @@ void Compiler::lvaComputeRefCountsHIR()
                          (node->TypeIs(TYP_UBYTE) && lcl->TypeIs(TYP_BOOL)) ||
                          (node->TypeIs(TYP_BYREF) && lcl->TypeIs(TYP_I_IMPL)) ||
                          (node->TypeIs(TYP_I_IMPL) && lcl->TypeIs(TYP_BYREF)) ||
-                         (node->TypeIs(TYP_INT) && lcl->TypeIs(TYP_LONG) && node->OperIs(GT_LCL_VAR)));
+                         (node->TypeIs(TYP_INT) && lcl->TypeIs(TYP_LONG) && node->OperIs(GT_LCL_LOAD)));
 
 #if ASSERTION_PROP
             if (!lcl->lvDisqualifyAddCopy)
             {
-                if (node->OperIs(GT_STORE_LCL_VAR))
+                if (node->OperIs(GT_LCL_STORE))
                 {
                     // TODO-MIKE-Consider: "single def" doesn't apply to address exposed locals.
                     // There's a pretty good chance that a local that's not AX will be in SSA,
@@ -2691,7 +2691,7 @@ void Compiler::lvaComputeRefCountsHIR()
             }
 #endif // ASSERTION_PROP
 
-            if (!lcl->lvDisqualifySingleDefRegCandidate && node->OperIs(GT_STORE_LCL_VAR))
+            if (!lcl->lvDisqualifySingleDefRegCandidate && node->OperIs(GT_LCL_STORE))
             {
                 bool bbInALoop  = (m_block->bbFlags & BBF_BACKWARD_JUMP) != 0;
                 bool bbIsReturn = m_block->bbJumpKind == BBJ_RETURN;
@@ -2719,7 +2719,7 @@ void Compiler::lvaComputeRefCountsHIR()
                 {
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
                     // TODO-CQ: If the varType needs partial callee save, conservatively do not enregister
-                    // such variable. In future, need to enable enregisteration for such variables.
+                    // such variable. In future, need to enable enregistration for such variables.
                     if (!varTypeNeedsPartialCalleeSave(lcl->GetRegisterType()))
 #endif
                     {

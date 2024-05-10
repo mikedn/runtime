@@ -552,14 +552,14 @@ public:
 
             case GT_LCL_STORE:
                 assert(TopValue(1).Node() == node);
-                assert(TopValue(0).Node() == node->AsLclVar()->GetOp(0));
+                assert(TopValue(0).Node() == node->AsLclStore()->GetValue());
 
                 EscapeValue(TopValue(0), node);
                 PopValue();
 
                 if (node->TypeIs(TYP_STRUCT))
                 {
-                    PostOrderVisitStructLclStore(node->AsLclVar());
+                    PostOrderVisitStructLclStore(node->AsLclStore());
                 }
                 break;
 
@@ -1130,10 +1130,10 @@ private:
 
             if (isAssignable)
             {
-                store->ChangeOper(GT_STORE_LCL_VAR);
+                store->ChangeOper(GT_LCL_STORE);
                 store->SetType(lclType);
-                store->AsLclVar()->SetLcl(lcl);
-                store->AsLclVar()->SetOp(0, value);
+                store->AsLclStore()->SetLcl(lcl);
+                store->AsLclStore()->SetValue(value);
                 store->gtFlags = GTF_ASG | (lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
 
                 INDEBUG(m_stmtModified = true);
@@ -1177,10 +1177,10 @@ private:
             value = NewInsertElement(lcl->GetType(), lclOffs / 4, TYP_FLOAT,
                                      m_compiler->gtNewLclLoad(lcl, lcl->GetType()), value);
 
-            store->ChangeOper(GT_STORE_LCL_VAR);
+            store->ChangeOper(GT_LCL_STORE);
             store->SetType(lclType);
-            store->AsLclVar()->SetLcl(lcl);
-            store->AsLclVar()->SetOp(0, value);
+            store->AsLclStore()->SetLcl(lcl);
+            store->AsLclStore()->SetValue(value);
             store->gtFlags = GTF_ASG | (lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
 
             INDEBUG(m_stmtModified = true);
@@ -1299,10 +1299,10 @@ private:
             ((storeLayout == lcl->GetLayout()) ||
              (lcl->IsIndependentPromoted() && (storeLayout->GetSize() == lcl->GetLayout()->GetSize()))))
         {
-            store->ChangeOper(GT_STORE_LCL_VAR);
+            store->ChangeOper(GT_LCL_STORE);
             store->SetType(lclType);
-            store->AsLclVar()->SetLcl(lcl);
-            store->AsLclVar()->SetOp(0, value);
+            store->AsLclStore()->SetLcl(lcl);
+            store->AsLclStore()->SetValue(value);
             store->gtFlags = GTF_ASG | (lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
 
             INDEBUG(m_stmtModified = true);
@@ -1311,8 +1311,8 @@ private:
 
         if ((lclOffs == 0) && !lcl->lvDoNotEnregister && (varTypeSize(lcl->GetType()) == storeLayout->GetSize()))
         {
-            store->SetOper(GT_STORE_LCL_VAR);
-            PromoteSingleFieldStructLclStore(store->AsLclVar(), value, lcl);
+            store->SetOper(GT_LCL_STORE);
+            PromoteSingleFieldStructLclStore(store->AsLclStore(), value, lcl);
 
             return;
         }
@@ -1903,12 +1903,12 @@ private:
         return false;
     }
 
-    void PostOrderVisitStructLclStore(GenTreeLclVar* store)
+    void PostOrderVisitStructLclStore(GenTreeLclStore* store)
     {
-        assert(store->OperIs(GT_STORE_LCL_VAR) && store->TypeIs(TYP_STRUCT));
+        assert(store->TypeIs(TYP_STRUCT));
 
         LclVarDsc* destLcl = store->GetLcl();
-        GenTree*   value   = store->GetOp(0);
+        GenTree*   value   = store->GetValue();
 
         assert(!value->OperIs(GT_INIT_VAL));
 
@@ -1923,15 +1923,15 @@ private:
         }
     }
 
-    void RetypeStructLclStore(GenTreeLclVar* store, var_types type)
+    void RetypeStructLclStore(GenTreeLclStore* store, var_types type)
     {
-        assert(store->OperIs(GT_STORE_LCL_VAR) && store->TypeIs(TYP_STRUCT));
+        assert(store->TypeIs(TYP_STRUCT));
         assert(type != TYP_STRUCT);
 
         LclVarDsc*     lcl         = store->GetLcl();
         ClassLayout*   fieldLayout = nullptr;
         FieldSeqNode*  fieldSeq    = GetFieldSequence(lcl->GetLayout()->GetClassHandle(), type, &fieldLayout);
-        GenTreeLclFld* fieldStore  = store->ChangeToLclFldStore(type, lcl, 0, fieldSeq, store->GetOp(0));
+        GenTreeLclFld* fieldStore  = store->ChangeToLclFldStore(type, lcl, 0, fieldSeq, store->GetValue());
 
         m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
 
@@ -1943,7 +1943,7 @@ private:
         INDEBUG(m_stmtModified = true;)
     }
 
-    void PromoteSingleFieldStructLclStore(GenTreeLclVar* store, GenTree* value, LclVarDsc* fieldLcl)
+    void PromoteSingleFieldStructLclStore(GenTreeLclStore* store, GenTree* value, LclVarDsc* fieldLcl)
     {
         store->SetLcl(fieldLcl);
         store->SetType(fieldLcl->GetType());
@@ -1974,10 +1974,10 @@ private:
         INDEBUG(m_stmtModified = true;)
     }
 
-    GenTree* RetypeScalarLclStoreValue(GenTreeLclVar* store, GenTree* value)
+    GenTree* RetypeScalarLclStoreValue(GenTreeLclStore* store, GenTree* value)
     {
-        assert(store->OperIs(GT_STORE_LCL_VAR) && !store->TypeIs(TYP_STRUCT));
-        assert(value->OperIs(GT_LCL_VAR) && !value->TypeIs(TYP_STRUCT));
+        assert(!store->TypeIs(TYP_STRUCT));
+        assert(value->OperIs(GT_LCL_LOAD) && !value->TypeIs(TYP_STRUCT));
 
         // The store operand was changed to scalar, currently we only do this if the
         // struct size matches the scalar type size and since the operand of a struct

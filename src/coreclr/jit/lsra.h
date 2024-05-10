@@ -711,7 +711,7 @@ private:
 
     inline bool isCandidateLclVar(GenTree* tree)
     {
-        return tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && tree->AsLclVar()->GetLcl()->IsRegCandidate();
+        return tree->OperIs(GT_LCL_LOAD, GT_LCL_STORE) && tree->AsLclVar()->GetLcl()->IsRegCandidate();
     }
 
     // Helpers for getKillSetForNode().
@@ -752,10 +752,10 @@ private:
         var_types type = tree->TypeGet();
         if (type == TYP_STRUCT)
         {
-            assert(tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
+            assert(tree->OperIs(GT_LCL_LOAD, GT_LCL_STORE));
             GenTreeLclVar* lclVar = tree->AsLclVar();
-            LclVarDsc*     varDsc = lclVar->GetLcl();
-            type                  = varDsc->GetRegisterType(lclVar);
+
+            type = lclVar->GetLcl()->GetRegisterType(lclVar);
         }
         assert(type != TYP_UNDEF && type != TYP_STRUCT);
         return type;
@@ -1514,7 +1514,7 @@ private:
 #endif
     }
 
-    bool IsCandidateLclVarMultiReg(GenTreeLclVar* lclNode);
+    bool IsCandidateLclVarMultiReg(GenTreeLclStore* store);
     bool checkContainedOrCandidateLclVar(GenTreeLclVar* lclNode);
 
     RefPosition* BuildDef(GenTree* node, regMaskTP regCandidates = RBM_NONE);
@@ -1552,8 +1552,8 @@ private:
     void BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);
     void BuildStructStoreUnrollRegsWB(GenTreeIndStoreObj* store, ClassLayout* layout);
     void BuildStoreDynBlk(GenTreeDynBlk* store);
-    void BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPosition* singleUseRef, unsigned index);
-    void BuildStoreLclVarMultiReg(GenTreeLclVar* store);
+    void BuildStoreLclVarDef(GenTreeLclStore* store, LclVarDsc* lcl, RefPosition* singleUseRef, unsigned index);
+    void BuildStoreLclVarMultiReg(GenTreeLclStore* store);
     void BuildLclStore(GenTreeLclStore* store);
     void BuildLclStoreFld(GenTreeLclStoreFld* store);
     void BuildLclStoreCommon(GenTreeLclVarCommon* store);

@@ -3837,7 +3837,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
         // code can be more easily shared with ARM and ARM64 and other places that may
         // need this (basically all reg-to-reg copies).
         //
-        // Alternative: never generate STORE_LCL_VAR with mismatched source GC type.
+        // Alternative: never generate LCL_STORE with mismatched source GC type.
         // Use BITCAST when this happens (rarely anyway) and let it deal with it.
 
         if ((dstReg != srcReg) || (lclRegType != varActualType(src->GetType())) || varTypeIsSmall(lclRegType))
@@ -3859,11 +3859,11 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
 
 #if defined(UNIX_AMD64_ABI) || defined(TARGET_X86)
 
-void CodeGen::GenStoreLclVarMultiRegSIMDReg(GenTreeLclVar* store)
+void CodeGen::GenStoreLclVarMultiRegSIMDReg(GenTreeLclStore* store)
 {
     assert(varTypeIsSIMD(store->GetType()));
 
-    GenTree* src = store->GetOp(0);
+    GenTree* src = store->GetValue();
 
     UseRegs(src);
 
@@ -3917,11 +3917,11 @@ void CodeGen::GenStoreLclVarMultiRegSIMDReg(GenTreeLclVar* store)
     DefLclVarReg(store);
 }
 
-void CodeGen::GenStoreLclVarMultiRegSIMDMem(GenTreeLclVar* store)
+void CodeGen::GenStoreLclVarMultiRegSIMDMem(GenTreeLclStore* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR) && varTypeIsSIMD(store->GetType()) && !store->IsMultiReg());
+    assert(varTypeIsSIMD(store->GetType()) && !store->IsMultiReg());
 
-    GenTree*     src  = store->GetOp(0);
+    GenTree*     src  = store->GetValue();
     GenTreeCall* call = src->gtSkipReloadOrCopy()->AsCall();
     LclVarDsc*   lcl  = store->GetLcl();
 

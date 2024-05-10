@@ -1173,7 +1173,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
 
             case GT_NOP:
                 // NOTE: we need to keep some NOPs around because they are referenced by calls.
-                // See the dead store removal code above (case GT_STORE_LCL_VAR) for more explanation.
+                // See the dead store removal code above (case LCL_STORE) for more explanation.
                 //
                 // TODO-MIKE-Review: Well, there's no explanation above...
                 if ((node->gtFlags & GTF_ORDER_SIDEEFF) != 0)

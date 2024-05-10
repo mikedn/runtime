@@ -832,11 +832,11 @@ bool CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
     LclVarDsc* lcl = lclVar->GetLcl();
 
     assert(lcl->IsRegCandidate());
-    assert(lclVar->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
+    assert(lclVar->OperIs(GT_LCL_LOAD, GT_LCL_STORE));
     assert(lclVar->IsRegSpill(0));
 
     // We don't actually need to spill if it is already living in memory
-    bool needsSpill = lclVar->OperIs(GT_LCL_VAR) && (lcl->GetRegNum() != REG_STK);
+    bool needsSpill = lclVar->OperIs(GT_LCL_LOAD) && (lcl->GetRegNum() != REG_STK);
 
     if (needsSpill)
     {
@@ -875,7 +875,7 @@ bool CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
     {
         // We only have SPILL and SPILLED on a def of a write-thru lclVar
         // or a single-def var that is to be spilled at its definition.
-        assert(lcl->IsAlwaysAliveInMemory() && lclVar->OperIs(GT_STORE_LCL_VAR));
+        assert(lcl->IsAlwaysAliveInMemory() && lclVar->OperIs(GT_LCL_STORE));
     }
 
     return needsSpill;
@@ -984,13 +984,13 @@ void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
     //   and UseReg will reset it.
     // - Otherwise, we need to update register info for the lclVar.
 
-    if (src->OperIs(GT_LCL_VAR) && !src->IsLastUse(0) && !copy->IsLastUse(0))
+    if (src->OperIs(GT_LCL_LOAD) && !src->IsLastUse(0) && !copy->IsLastUse(0))
     {
-        LclVarDsc* lcl = src->AsLclVar()->GetLcl();
+        LclVarDsc* lcl = src->AsLclLoad()->GetLcl();
 
         if (lcl->GetRegNum() != REG_STK)
         {
-            liveness.MoveReg(this, lcl, src->AsLclVar(), copy);
+            liveness.MoveReg(this, lcl, src->AsLclLoad(), copy);
             return;
         }
     }
@@ -1595,7 +1595,7 @@ void CodeGen::DefLclVarReg(GenTreeLclVar* lclVar)
         SpillLclVarReg(lcl, lclVar);
     }
 
-    if (lclVar->OperIs(GT_STORE_LCL_VAR))
+    if (lclVar->OperIs(GT_LCL_STORE))
     {
         liveness.UpdateLife(this, lclVar);
     }
@@ -1608,7 +1608,7 @@ void CodeGen::DefLclVarReg(GenTreeLclVar* lclVar)
 
 void CodeGen::SpillLclVarReg(LclVarDsc* lcl, GenTreeLclVar* lclVar)
 {
-    assert(lclVar->OperIs(GT_STORE_LCL_VAR, GT_LCL_VAR));
+    assert(lclVar->OperIs(GT_LCL_STORE, GT_LCL_LOAD));
 
     // We have a register candidate local that is marked with SPILL.
     // This flag generally means that we need to spill this local.

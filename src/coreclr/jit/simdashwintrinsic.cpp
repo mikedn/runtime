@@ -789,11 +789,11 @@ GenTree* Importer::impVectorStore(GenTree* destAddr, GenTree* src)
         assert(destAddr->AsLclAddr()->GetLclOffs() == 0);
 
         store = destAddr;
-        store->SetOper(GT_STORE_LCL_VAR);
+        store->SetOper(GT_LCL_STORE);
         store->SetType(lcl->GetType());
         store->AddSideEffects(GTF_ASG | src->GetSideEffects());
-        store->AsLclVar()->SetLcl(lcl);
-        store->AsLclVar()->SetOp(0, src);
+        store->AsLclStore()->SetLcl(lcl);
+        store->AsLclStore()->SetValue(src);
 
         if (GenTreeHWIntrinsic* hwi = src->IsHWIntrinsic())
         {

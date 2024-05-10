@@ -53,8 +53,7 @@ enum genTreeOps : uint8_t
     GT_CNS_NATIVELONG = GT_CNS_LNG,
 #endif
 
-    GT_LCL_VAR       = GT_LCL_LOAD,
-    GT_STORE_LCL_VAR = GT_LCL_STORE
+    GT_LCL_VAR = GT_LCL_LOAD,
 };
 
 enum GenTreeKinds
@@ -3119,7 +3118,7 @@ public:
 
     void SetMultiReg()
     {
-        assert(OperIs(GT_STORE_LCL_VAR));
+        assert(OperIs(GT_LCL_STORE));
         gtFlags |= GTF_VAR_MULTIREG;
     }
 
@@ -7880,7 +7879,7 @@ inline bool GenTree::IsMultiRegCall() const
 
 inline bool GenTree::IsMultiRegLclVar() const
 {
-    return OperIs(GT_STORE_LCL_VAR) && AsLclVar()->IsMultiReg();
+    return OperIs(GT_LCL_STORE) && AsLclStore()->IsMultiReg();
 }
 
 inline bool GenTree::IsMultiRegNode() const
@@ -7913,9 +7912,9 @@ inline bool GenTree::IsMultiRegNode() const
     }
 #endif
 
-    if (OperIs(GT_STORE_LCL_VAR))
+    if (OperIs(GT_LCL_STORE))
     {
-        return AsLclVar()->IsMultiReg();
+        return AsLclStore()->IsMultiReg();
     }
 
     return false;
@@ -7949,9 +7948,9 @@ inline unsigned GenTree::GetMultiRegCount(Compiler* compiler) const
     }
 #endif
 
-    if (OperIs(GT_STORE_LCL_VAR))
+    if (OperIs(GT_LCL_STORE))
     {
-        return AsLclVar()->GetMultiRegCount(compiler);
+        return AsLclStore()->GetMultiRegCount(compiler);
     }
 
     assert(!"GetMultiRegCount called with non-multireg node");

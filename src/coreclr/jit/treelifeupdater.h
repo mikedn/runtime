@@ -246,9 +246,9 @@ public:
     void BeginPrologEpilogCodeGen();
 
     void UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
-    void UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar* lclNode);
+    void UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclStore* store);
 
-    void MoveReg(CodeGen* codeGen, LclVarDsc* lcl, GenTreeLclVar* src, GenTreeCopyOrReload* dst);
+    void MoveReg(CodeGen* codeGen, LclVarDsc* lcl, GenTreeLclLoad* src, GenTreeCopyOrReload* dst);
     void Spill(LclVarDsc* lcl, GenTreeLclVar* lclNode);
     void Unspill(CodeGen* codeGen, LclVarDsc* lcl, GenTreeLclVar* src, RegNum dstReg, var_types dstType);
 

@@ -456,7 +456,7 @@ GenTree* LIR::Range::FirstNonCatchArgNode() const
         {
             continue;
         }
-        else if ((node->OperIs(GT_STORE_LCL_VAR)) && (node->gtGetOp1()->OperIs(GT_CATCH_ARG)))
+        else if ((node->OperIs(GT_LCL_STORE)) && (node->AsLclStore()->GetValue()->OperIs(GT_CATCH_ARG)))
         {
             continue;
         }

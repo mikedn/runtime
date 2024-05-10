@@ -89,7 +89,7 @@ void AliasLclSet::Clear()
 
 // Computes the alias info for a given node. Note that this does not
 // include the set of local accesses for a node unless the node is
-// itself a local access (e.g. a GT_LCL_VAR, GT_STORE_LCL_VAR, etc.).
+// itself a local access (e.g. a LCL_LOAD, LCL_STORE, etc.).
 AliasSet::NodeInfo::NodeInfo(GenTree* node) : m_node(node)
 {
     if (node->IsCall())

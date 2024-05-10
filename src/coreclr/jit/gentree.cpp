@@ -1959,7 +1959,7 @@ LclVarDsc* Compiler::gtIsLikelyRegVar(GenTree* tree)
 {
     LclVarDsc* lcl;
 
-    if (tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
+    if (tree->OperIs(GT_LCL_LOAD, GT_LCL_STORE))
     {
         lcl = tree->AsLclVar()->GetLcl();
     }
@@ -1979,7 +1979,7 @@ LclVarDsc* Compiler::gtIsLikelyRegVar(GenTree* tree)
 
     // If this is an EH-live var, return false if it is a def,
     // as it will have to go to memory.
-    if (lcl->lvLiveInOutOfHndlr && tree->OperIs(GT_STORE_LCL_VAR))
+    if (lcl->lvLiveInOutOfHndlr && tree->OperIs(GT_LCL_STORE))
     {
         return nullptr;
     }
@@ -9258,7 +9258,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
 
     GenTree* allocStore = allocStmt->GetRootNode();
 
-    if (!allocStore->OperIs(GT_STORE_LCL_VAR))
+    if (!allocStore->OperIs(GT_LCL_STORE))
     {
         JITDUMPTREE(allocStore, " bailing; unexpected alloc store\n");
 
@@ -9269,7 +9269,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
 
     if ((options == BR_REMOVE_AND_NARROW_WANT_TYPE_HANDLE) || (options == BR_DONT_REMOVE_WANT_TYPE_HANDLE))
     {
-        GenTree* alloc = allocStore->AsLclVar()->GetOp(0);
+        GenTree* alloc = allocStore->AsLclStore()->GetValue();
 
         // Allocation may be via AllocObj or via helper call, depending on when this
         // is invoked and whether the JIT is using ALLOCOBJ for R2R allocations.
@@ -9385,9 +9385,9 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
         }
 
         GenTree* value = store->AsIndir()->GetValue();
-        store->ChangeOper(GT_STORE_LCL_VAR);
-        store->AsLclVar()->SetOp(0, value);
-        store->AsLclVar()->SetLcl(boxTempLcl);
+        store->ChangeOper(GT_LCL_STORE);
+        store->AsLclStore()->SetValue(value);
+        store->AsLclStore()->SetLcl(boxTempLcl);
         store->SetSideEffects(value->GetSideEffects() | GTF_GLOB_REF);
 
         DISPSTMT(storeStmt);

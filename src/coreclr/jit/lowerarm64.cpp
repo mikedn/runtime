@@ -1644,8 +1644,8 @@ bool Lowering::IsImmOperand(GenTree* operand, GenTree* instr) const
 #ifdef DEBUG
 bool Lowering::IsLegalToMoveUseForward(GenTree* oldUser, GenTree* newUser, GenTree* def)
 {
-    // Moving forward the use of a LCL_VAR that may be a register candidate requires precautions.
-    // The LCL_VAR node doesn't act like a reg definition, there's only a reg use at the user's
+    // Moving forward the use of a LCL_LOAD that may be a register candidate requires precautions.
+    // The LCL_LOAD node doesn't act like a reg definition, there's only a reg use at the user's
     // location. If the use is moved forward across another definition of the local then that
     // definition's value will be used instead of the previous one.
     //
@@ -1660,12 +1660,12 @@ bool Lowering::IsLegalToMoveUseForward(GenTree* oldUser, GenTree* newUser, GenTr
     // So keep this as a debug check for now since it's not clear if the expense of running such
     // checks any time a node is removed from LIR is worthwhile.
 
-    if (!def->OperIs(GT_LCL_VAR))
+    if (!def->OperIs(GT_LCL_LOAD))
     {
         return true;
     }
 
-    LclVarDsc* lcl = def->AsLclVar()->GetLcl();
+    LclVarDsc* lcl = def->AsLclLoad()->GetLcl();
 
     if (lcl->lvDoNotEnregister)
     {
@@ -1674,7 +1674,7 @@ bool Lowering::IsLegalToMoveUseForward(GenTree* oldUser, GenTree* newUser, GenTr
 
     for (GenTree* node = oldUser->gtNext; node != nullptr && node != newUser; node = node->gtNext)
     {
-        if (node->OperIs(GT_STORE_LCL_VAR) && (node->AsLclVar()->GetLcl() == def->AsLclVar()->GetLcl()))
+        if (node->OperIs(GT_LCL_STORE) && (node->AsLclStore()->GetLcl() == lcl))
         {
             return false;
         }

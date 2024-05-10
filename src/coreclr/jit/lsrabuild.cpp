@@ -930,10 +930,8 @@ bool LinearScan::buildKillPositionsForNode(GenTree* tree, LsraLocation currentLo
 // as such, we've already completed Lowering, so during the build phase of
 // LSRA we have to reset the GTF_VAR_MULTIREG flag if necessary as we visit
 // each node.
-bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclVar* store)
+bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclStore* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR));
-
     if (!store->IsMultiReg())
     {
         return false;
@@ -1271,11 +1269,11 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
     // if produce is as expected. See https://github.com/dotnet/runtime/issues/8678
     // int oldDefListCount = defList.Count();
 
-    // We make a final determination about whether a GT_LCL_VAR is a candidate or contained
+    // We make a final determination about whether a LCL_LOAD is a candidate or contained
     // after liveness. In either case we don't build any uses or defs. Otherwise, this is a
     // load of a stack-based local into a register and we'll fall through to the general
     // local case below.
-    if (!tree->OperIs(GT_LCL_VAR) || !checkContainedOrCandidateLclVar(tree->AsLclVar()))
+    if (!tree->OperIs(GT_LCL_LOAD) || !checkContainedOrCandidateLclVar(tree->AsLclLoad()))
     {
         BuildNode(tree);
     }
@@ -1287,9 +1285,9 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
         // RegOptional LCL_VARs may become contained.
         ((nodeDefCount == 0) && tree->isContained()) ||
         // A reg candidate store is not a value so GetRegisterDstCount returns 0, but it does define a register.
-        ((nodeDefCount == 1) && tree->OperIs(GT_STORE_LCL_VAR) && tree->AsLclVar()->GetLcl()->IsRegCandidate()) ||
+        ((nodeDefCount == 1) && tree->OperIs(GT_LCL_STORE) && tree->AsLclStore()->GetLcl()->IsRegCandidate()) ||
         // A reg candidate load is a value so GetRegisterDstCount returns 1, but it does not define a new register.
-        ((nodeDefCount == 0) && tree->OperIs(GT_LCL_VAR) && tree->AsLclVar()->GetLcl()->IsRegCandidate()) ||
+        ((nodeDefCount == 0) && tree->OperIs(GT_LCL_LOAD) && tree->AsLclLoad()->GetLcl()->IsRegCandidate()) ||
         (nodeDefCount == tree->GetRegisterDstCount(compiler)));
 
     assert((nodeUseCount == 0) || (ComputeAvailableSrcCount(tree) == nodeUseCount));
@@ -2501,9 +2499,8 @@ void LinearScan::setDelayFree(RefPosition* use)
     pendingDelayFree  = true;
 }
 
-void LinearScan::BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPosition* singleUseRef, unsigned index)
+void LinearScan::BuildStoreLclVarDef(GenTreeLclStore* store, LclVarDsc* lcl, RefPosition* singleUseRef, unsigned index)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR));
     assert(lcl->lvTracked);
 
     Interval* varDefInterval = getIntervalForLocalVar(lcl->lvVarIndex);
@@ -2563,9 +2560,9 @@ void LinearScan::BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPo
 #endif
 }
 
-void LinearScan::BuildStoreLclVarMultiReg(GenTreeLclVar* store)
+void LinearScan::BuildStoreLclVarMultiReg(GenTreeLclStore* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR) && store->IsMultiReg());
+    assert(store->IsMultiReg());
 
     LclVarDsc* lcl = store->GetLcl();
     assert(lcl->IsIndependentPromoted());
@@ -2767,7 +2764,7 @@ void LinearScan::BuildLclStoreCommon(GenTreeLclVarCommon* store)
 
     if (lcl->IsRegCandidate())
     {
-        BuildStoreLclVarDef(store->AsLclVar(), lcl, singleUseRef, 0);
+        BuildStoreLclVarDef(store->AsLclStore(), lcl, singleUseRef, 0);
     }
 }
 
