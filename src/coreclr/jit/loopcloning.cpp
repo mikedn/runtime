@@ -373,7 +373,7 @@ GenTree* LcArray::ToGenTree(Compiler* comp) const
 
     LclVarDsc* lcl = comp->lvaGetDesc(lclNum);
     assert(lcl->TypeIs(TYP_REF));
-    GenTree* array = comp->gtNewLclvNode(lcl, TYP_REF);
+    GenTree* array = comp->gtNewLclLoad(lcl, TYP_REF);
 
     if (oper == ArrLen)
     {
@@ -405,7 +405,7 @@ GenTree* LcIdent::ToGenTree(Compiler* comp) const
             assert(constant <= INT32_MAX);
             return comp->gtNewIconNode(constant);
         case Lcl:
-            return comp->gtNewLclvNode(comp->lvaGetDesc(constant), comp->lvaGetDesc(constant)->GetType());
+            return comp->gtNewLclLoad(comp->lvaGetDesc(constant), comp->lvaGetDesc(constant)->GetType());
         case ArrLen:
             return arrLen.ToGenTree(comp);
         case Null:

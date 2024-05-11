@@ -2376,7 +2376,7 @@ private:
     {
         assert((type == lcl->GetType()) || (varActualType(type) == varActualType(lcl->GetType())));
 
-        return m_compiler->gtNewLclvNode(lcl, type);
+        return m_compiler->gtNewLclLoad(lcl, type);
     }
 
     GenTreeIntCon* NewIntConNode(var_types type, ssize_t value)
@@ -3314,7 +3314,7 @@ public:
                 GenTree* add = addr;
                 add->ChangeOper(GT_ADD);
                 add->SetType(TYP_BYREF);
-                add->AsOp()->SetOp(0, m_compiler->gtNewLclvNode(lcl, TYP_BYREF));
+                add->AsOp()->SetOp(0, m_compiler->gtNewLclLoad(lcl, TYP_BYREF));
                 add->AsOp()->SetOp(1, m_compiler->gtNewIconNode(lclOffs, fieldSeq));
                 add->gtFlags = GTF_EMPTY;
             }
@@ -3346,11 +3346,11 @@ public:
                 fieldSeq = m_compiler->GetFieldSeqStore()->Append(fieldSeq, addr->GetFieldSeq());
             }
 
-            // Change LCL_VAR|FLD_ADDR(paramPromotedField) into ADD(LCL_VAR<BYREF>(param), offset)
+            // Change LCL_LOAD|FLD_ADDR(paramPromotedField) into ADD(LCL_LOAD<BYREF>(param), offset)
             GenTree* add = addr;
             add->ChangeOper(GT_ADD);
             add->SetType(TYP_BYREF);
-            add->AsOp()->SetOp(0, m_compiler->gtNewLclvNode(paramLcl, TYP_BYREF));
+            add->AsOp()->SetOp(0, m_compiler->gtNewLclLoad(paramLcl, TYP_BYREF));
             add->AsOp()->SetOp(1, m_compiler->gtNewIconNode(lclOffs, fieldSeq));
             add->gtFlags = GTF_EMPTY;
 
@@ -3523,14 +3523,12 @@ public:
 #elif defined(TARGET_X86)
     void MorphVarargsStackParamAddr(GenTreeLclAddr* lclAddr)
     {
-        assert(lclAddr->OperIs(GT_LCL_ADDR));
-
         if (!IsVarargsStackParam(lclAddr->GetLcl()))
         {
             return;
         }
 
-        GenTree* base   = m_compiler->gtNewLclvNode(m_compiler->lvaVarargsBaseOfStkLcl, TYP_I_IMPL);
+        GenTree* base   = m_compiler->gtNewLclLoad(m_compiler->lvaVarargsBaseOfStkLcl, TYP_I_IMPL);
         GenTree* offset = GetVarargsStackParamOffset(lclAddr->GetLcl(), lclAddr->GetLclOffs());
         GenTree* addr   = lclAddr;
 

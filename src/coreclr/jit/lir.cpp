@@ -195,7 +195,7 @@ void LIR::Use::ReplaceWith(Compiler* compiler, GenTree* replacement)
 }
 
 //------------------------------------------------------------------------
-// LIR::Use::ReplaceWithLclVar: Assigns the def for this use to a local
+// LIR::Use::ReplaceWithLclLoad: Assigns the def for this use to a local
 //                              var and points the use to a use of that
 //                              local var. If no local number is provided,
 //                              creates a new local var.
@@ -235,7 +235,7 @@ void LIR::Use::ReplaceWith(Compiler* compiler, GenTree* replacement)
 //          /--*  t18 int
 //          *  jmpTrue   void
 //
-LclVarDsc* LIR::Use::ReplaceWithLclVar(Compiler* compiler, LclVarDsc* lcl, GenTreeLclStore** newStore)
+LclVarDsc* LIR::Use::ReplaceWithLclLoad(Compiler* compiler, LclVarDsc* lcl, GenTreeLclStore** newStore)
 {
     assert(IsInitialized());
     assert(m_range->Contains(m_user));
@@ -288,7 +288,7 @@ LclVarDsc* LIR::Use::ReplaceWithLclVar(Compiler* compiler, LclVarDsc* lcl, GenTr
 
     ReplaceWith(compiler, load);
 
-    JITDUMP("ReplaceWithLclVar created store :\n");
+    JITDUMP("ReplaceWithLclLoad created store :\n");
     DISPNODE(store);
 
     if (newStore != nullptr)

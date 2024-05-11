@@ -2241,7 +2241,6 @@ struct Importer
 
     Statement* gtNewStmt(GenTree* expr = nullptr, IL_OFFSETX offset = BAD_IL_OFFSET);
 
-    GenTreeLclVar* gtNewLclvNode(LclVarDsc* lcl, var_types type);
     GenTreeIntCon* gtNewIconNode(ssize_t value, var_types type = TYP_INT);
     GenTreeIntCon* gtNewIconNode(unsigned fieldOffset, FieldSeqNode* fieldSeq);
     GenTree* gtNewLconNode(int64_t value);
@@ -2901,12 +2900,6 @@ public:
 
     GenTreeLclAddr* gtNewLclAddr(LclVarDsc* lcl, var_types type = TYP_I_IMPL);
     GenTreeLclAddr* gtNewLclAddr(LclVarDsc* lcl, unsigned lclOffs, FieldSeqNode* fieldSeq, var_types type = TYP_I_IMPL);
-
-    // [[deprecated]]
-    GenTreeLclLoad* gtNewLclvNode(LclVarDsc* lcl, var_types type)
-    {
-        return gtNewLclLoad(lcl, type);
-    }
 
     GenTreeUnOp* gtNewBitCastNode(var_types type, GenTree* arg);
 

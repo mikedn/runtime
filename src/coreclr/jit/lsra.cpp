@@ -5526,7 +5526,7 @@ void LinearScan::insertUpperVectorSave(GenTree*     tree,
 
     // Insert the save before the call.
 
-    GenTree* saveLcl = compiler->gtNewLclvNode(lcl, lcl->GetType());
+    GenTree* saveLcl = compiler->gtNewLclLoad(lcl, lcl->GetType());
     saveLcl->SetRegNum(lclVarReg);
     saveLcl->ClearRegSpillSet();
     SetLsraAdded(saveLcl);
@@ -5582,7 +5582,7 @@ void LinearScan::insertUpperVectorRestore(GenTree*     tree,
     LclVarDsc* lcl = lclVarInterval->getLocalVar(compiler);
     assert(Compiler::varTypeNeedsPartialCalleeSave(lcl->GetRegisterType()));
 
-    GenTree* restoreLcl = compiler->gtNewLclvNode(lcl, lcl->GetType());
+    GenTree* restoreLcl = compiler->gtNewLclLoad(lcl, lcl->GetType());
     restoreLcl->SetRegNum(lclVarReg);
     restoreLcl->ClearRegSpillSet();
     SetLsraAdded(restoreLcl);
@@ -6361,7 +6361,7 @@ void LinearScan::insertMove(
     // This var can't be marked lvRegister now
     varDsc->SetRegNum(REG_STK);
 
-    GenTree* src = compiler->gtNewLclvNode(varDsc, varDsc->GetType());
+    GenTree* src = compiler->gtNewLclLoad(varDsc, varDsc->GetType());
     src->ClearRegSpillSet();
     SetLsraAdded(src);
 
@@ -6452,12 +6452,12 @@ void LinearScan::insertSwap(
 
     assert(reg1 != REG_STK && reg1 != REG_NA && reg2 != REG_STK && reg2 != REG_NA);
 
-    GenTree* lcl1 = compiler->gtNewLclvNode(varDsc1, varDsc1->GetType());
+    GenTree* lcl1 = compiler->gtNewLclLoad(varDsc1, varDsc1->GetType());
     lcl1->SetRegNum(reg1);
     lcl1->ClearRegSpillSet();
     SetLsraAdded(lcl1);
 
-    GenTree* lcl2 = compiler->gtNewLclvNode(varDsc2, varDsc2->GetType());
+    GenTree* lcl2 = compiler->gtNewLclLoad(varDsc2, varDsc2->GetType());
     lcl2->SetRegNum(reg2);
     lcl2->ClearRegSpillSet();
     SetLsraAdded(lcl2);

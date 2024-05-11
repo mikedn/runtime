@@ -3356,7 +3356,7 @@ void Compiler::abiMorphStackLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* 
     {
         var_types      fieldType   = fieldLcl->GetType();
         unsigned       fieldOffset = fieldLcl->GetPromotedFieldOffset();
-        GenTreeLclVar* fieldLclVar = gtNewLclvNode(fieldLcl, fieldType);
+        GenTreeLclVar* fieldLclVar = gtNewLclLoad(fieldLcl, fieldType);
 
         assert(fieldOffset + varTypeSize(fieldType) <= argInfo->GetSlotCount() * REGSIZE_BYTES);
 
@@ -3902,7 +3902,7 @@ GenTree* Compiler::abiMorphMultiRegHfaLclArgPromoted(CallArgInfo* argInfo, GenTr
         unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
         var_types  fieldType   = fieldLcl->GetType();
 
-        GenTree* fieldNode = gtNewLclvNode(fieldLcl, fieldType);
+        GenTree* fieldNode = gtNewLclLoad(fieldLcl, fieldType);
 
         if (fieldLcl->IsAddressExposed())
         {
@@ -4458,7 +4458,7 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
             tempAssign = dblTempAssign;
         }
 
-        arg = gtNewLclvNode(dblTempLcl, TYP_DOUBLE);
+        arg = gtNewLclLoad(dblTempLcl, TYP_DOUBLE);
 #endif // UNIX_AMD64_ABI
     }
     else if (!argIsZero && !argIsCreate)
@@ -4508,7 +4508,7 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
         }
         else
         {
-            regValue = gtNewLclvNode(tempLcl, arg->GetType());
+            regValue = gtNewLclLoad(tempLcl, arg->GetType());
             regValue = gtNewSimdGetElementNode(arg->GetType(), regType, regValue, gtNewIconNode(regOffset / regSize));
         }
 
@@ -4893,7 +4893,7 @@ GenTree* Compiler::abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsig
 GenTree* Compiler::abiMorphMultiRegCallArg(CallArgInfo* argInfo, GenTreeCall* arg)
 {
     LclVarDsc*        lcl = lvaNewTemp(arg->GetRetLayout(), true DEBUGARG("multireg call arg temp"));
-    GenTreeLclVar*    src = gtNewLclvNode(lcl, lcl->GetType());
+    GenTreeLclLoad*   src = gtNewLclLoad(lcl, lcl->GetType());
     GenTreeFieldList* fieldList;
 
     StructPromotionHelper structPromotion(this);
@@ -5355,8 +5355,8 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
 
             arrayTmpStore = gtNewLclStore(arrayTmpLcl, array->GetType(), array);
 
-            array  = gtNewLclvNode(arrayTmpLcl, array->GetType());
-            array2 = gtNewLclvNode(arrayTmpLcl, array->GetType());
+            array  = gtNewLclLoad(arrayTmpLcl, array->GetType());
+            array2 = gtNewLclLoad(arrayTmpLcl, array->GetType());
         }
         else
         {
@@ -5386,8 +5386,8 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
 
             indexTmpStore = gtNewLclStore(indexTmpLcl, indexTmpType, index);
 
-            index  = gtNewLclvNode(indexTmpLcl, indexTmpType);
-            index2 = gtNewLclvNode(indexTmpLcl, indexTmpType);
+            index  = gtNewLclLoad(indexTmpLcl, indexTmpType);
+            index2 = gtNewLclLoad(indexTmpLcl, indexTmpType);
         }
         else
         {
@@ -7444,8 +7444,8 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
                 // instead of happening after, right before the call.
                 GenTreeLclStore* store = gtNewLclStore(lcl, thisArg->GetType(), thisArg);
 
-                newThisArg = gtNewCommaNode(store, gtNewNullCheck(gtNewLclvNode(lcl, thisArg->GetType())));
-                newThisArg = gtNewCommaNode(newThisArg, gtNewLclvNode(lcl, thisArg->GetType()));
+                newThisArg = gtNewCommaNode(store, gtNewNullCheck(gtNewLclLoad(lcl, thisArg->GetType())));
+                newThisArg = gtNewCommaNode(newThisArg, gtNewLclLoad(lcl, thisArg->GetType()));
             }
             else
             {
@@ -12111,8 +12111,8 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
             // reinterpretation?
 
             val = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16,
-                                           gtNewLclvNode(lvaGetDesc(lcl->GetPromotedFieldLclNum(0)), TYP_FLOAT),
-                                           gtNewLclvNode(lvaGetDesc(lcl->GetPromotedFieldLclNum(1)), TYP_FLOAT));
+                                           gtNewLclLoad(lvaGetDesc(lcl->GetPromotedFieldLclNum(0)), TYP_FLOAT),
+                                           gtNewLclLoad(lvaGetDesc(lcl->GetPromotedFieldLclNum(1)), TYP_FLOAT));
 
             var_types regType = varActualType(info.retDesc.GetRegType(0));
             assert((regType == TYP_LONG) || (regType == TYP_DOUBLE));

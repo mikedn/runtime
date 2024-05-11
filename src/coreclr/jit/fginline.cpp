@@ -1097,8 +1097,7 @@ bool Compiler::inlImportReturn(Importer&            importer,
 
         if (varTypeIsStruct(retExpr->GetType()))
         {
-            GenTree* dest = gtNewLclvNode(lcl, lclType);
-            store         = importer.impAssignStruct(dest, retExpr, Importer::CHECK_SPILL_NONE);
+            store = importer.impAssignStruct(gtNewLclLoad(lcl, lclType), retExpr, Importer::CHECK_SPILL_NONE);
         }
         else
         {
@@ -1879,7 +1878,7 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
                 paramType = varActualType(paramType);
             }
 
-            argNode = gtNewLclvNode(lcl, paramType);
+            argNode = gtNewLclLoad(lcl, paramType);
         }
 
         argInfo.paramLcl = lcl;
@@ -1891,7 +1890,7 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
     {
         // We already allocated a temp for this argument, use it.
 
-        argNode = gtNewLclvNode(argInfo.paramLcl, varActualType(argInfo.paramType));
+        argNode = gtNewLclLoad(argInfo.paramLcl, varActualType(argInfo.paramType));
 
         // This is the second or later use of the this argument,
         // so we have to use the temp (instead of the actual arg).
@@ -2302,7 +2301,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
             // being called (e.g. when handling isinst or dup) in which case this replacement
             // cannot be done. This relies on GTF_VAR_CLONED being set on LCL_VARs when they
             // are cloned to detect such cases, that means the importer is expected to not
-            // "manually" clone LCL_VARs by doing gtNewLclvNode(existingLcl->GetLclNum()...).
+            // "manually" clone LCL_VARs by doing gtNewLclLoad(existingLcl->GetLclNum()...).
 
             assert(!varTypeIsStruct(argNode->GetType()) && !argInfo.argHasGlobRef && !argInfo.argHasSideEff &&
                    !argInfo.paramIsAddressTaken && !argInfo.paramHasStores);
@@ -2506,7 +2505,7 @@ GenTree* Compiler::inlStoreCallWithRetBuf(LclVarDsc* dest, var_types type, GenTr
     {
         if (call->TreatAsHasRetBufArg())
         {
-            impAssignCallWithRetBuf(gtNewLclvNode(dest, type), call);
+            impAssignCallWithRetBuf(gtNewLclLoad(dest, type), call);
 
             return call;
         }
@@ -2547,7 +2546,7 @@ GenTree* Compiler::inlStoreCallWithRetBuf(LclVarDsc* dest, var_types type, GenTr
 
         if (call->TreatAsHasRetBufArg())
         {
-            impAssignCallWithRetBuf(gtNewLclvNode(dest, type), call);
+            impAssignCallWithRetBuf(gtNewLclLoad(dest, type), call);
             retExpr->SetType(TYP_VOID);
 
             return retExpr;

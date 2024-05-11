@@ -870,7 +870,7 @@ public:
                 // basic block so they're invisible to anything except SSA code, which can treat
                 // them specially (by basically ignoring them).
 
-                GenTreeLclVar* arg = compiler->gtNewLclvNode(lcl, lcl->GetType());
+                GenTreeLclVar* arg = compiler->gtNewLclLoad(lcl, lcl->GetType());
                 GenTreeLclDef* def = new (compiler, GT_LCL_DEF) GenTreeLclDef(arg, firstBlock, lcl);
 
                 renameStack.PushLclDef(firstBlock, lcl, def);

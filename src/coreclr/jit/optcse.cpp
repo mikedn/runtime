@@ -2233,7 +2233,7 @@ public:
             }
             else
             {
-                newExpr = compiler->gtNewLclvNode(lcl, lclType);
+                newExpr = compiler->gtNewLclLoad(lcl, lclType);
             }
 
             if (isSharedConst)

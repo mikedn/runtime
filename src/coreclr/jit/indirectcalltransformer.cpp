@@ -416,7 +416,7 @@ private:
                 origCall->gtCallThisArg->SetNode(compiler->gtNewLclLoad(thisLcl, TYP_REF));
             }
 
-            thisTree = compiler->gtNewLclvNode(thisLcl, TYP_REF);
+            thisTree = compiler->gtNewLclLoad(thisLcl, TYP_REF);
 
             // Remember the current last statement. If we're doing a chained GDV, we'll clone/copy
             // all the code in the check block up to and including this statement.
@@ -511,7 +511,7 @@ private:
                     returnTempLcl->SetType(origCall->GetType());
                 }
 
-                GenTree* tempTree = compiler->gtNewLclvNode(returnTemp, origCall->GetType());
+                GenTreeLclLoad* tempTree = compiler->gtNewLclLoad(returnTemp, origCall->GetType());
 
                 JITDUMP("Bashing GT_RET_EXPR [%06u] to refer to temp V%02u\n", retExpr->GetID(),
                         returnTemp->GetLclNum());

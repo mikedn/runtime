@@ -842,7 +842,7 @@ void Lowering::LowerHWIntrinsicSum(GenTreeHWIntrinsic* node)
 
     node->SetOp(0, vec);
     LIR::Use vecUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
-    vec = ReplaceWithLclVar(vecUse);
+    vec = ReplaceWithLclLoad(vecUse);
 
     GenTree* mul2 = comp->gtNewLclLoad(vec->AsLclLoad()->GetLcl(), TYP_SIMD16);
     GenTree* addp = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AdvSimd_Arm64_AddPairwise, TYP_FLOAT, 16, vec, mul2);

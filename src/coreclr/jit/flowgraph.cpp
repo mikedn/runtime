@@ -1014,7 +1014,7 @@ void Compiler::fgAddReversePInvokeEnterExit()
             // If we have a secret param for a Reverse P/Invoke, that means that we are in an IL stub.
             // In this case, the method handle we pass down to the Reverse P/Invoke helper should be
             // the target method, which is passed in the secret parameter.
-            stubArgument = gtNewLclvNode(lvaGetDesc(lvaStubArgumentVar), TYP_I_IMPL);
+            stubArgument = gtNewLclLoad(lvaGetDesc(lvaStubArgumentVar), TYP_I_IMPL);
         }
         else
         {
@@ -1282,7 +1282,7 @@ private:
         {
             assert(comp->info.retDesc.GetRegCount() == 1);
 
-            GenTree* retBuffAddr = comp->gtNewLclvNode(comp->lvaGetDesc(comp->info.compRetBuffArg), TYP_BYREF);
+            GenTree* retBuffAddr = comp->gtNewLclLoad(comp->lvaGetDesc(comp->info.compRetBuffArg), TYP_BYREF);
             retBuffAddr->gtFlags |= GTF_DONT_CSE;
             returnExpr = comp->gtNewOperNode(GT_RETURN, TYP_BYREF, retBuffAddr);
 
@@ -1305,7 +1305,7 @@ private:
                 comp->compFloatingPointUsed |= varTypeIsFloating(comp->info.compRetType);
             }
 
-            GenTree* retTemp = comp->gtNewLclvNode(lcl, lcl->GetType());
+            GenTree* retTemp = comp->gtNewLclLoad(lcl, lcl->GetType());
             // make sure copy prop ignores this node (make sure it always does a reload from the temp).
             retTemp->gtFlags |= GTF_DONT_CSE;
             returnExpr = comp->gtNewOperNode(GT_RETURN, lcl->GetType(), retTemp);
@@ -1576,7 +1576,7 @@ void Compiler::fgAddInternal()
                 continue;
             }
 
-            GenTree* op   = gtNewLclvNode(lcl, TYP_REF);
+            GenTree* op   = gtNewLclLoad(lcl, TYP_REF);
             GenTree* call = gtNewHelperCallNode(CORINFO_HELP_CHECK_OBJ, TYP_VOID, gtNewCallArgs(op));
 
             fgEnsureFirstBBisScratch();
@@ -1770,7 +1770,7 @@ void Compiler::fgAddInternal()
 
             noway_assert(thisParam->TypeIs(TYP_REF));
 
-            tree = gtNewLclvNode(thisParam, TYP_REF);
+            tree = gtNewLclLoad(thisParam, TYP_REF);
             tree = gtNewHelperCallNode(CORINFO_HELP_MON_ENTER, TYP_VOID, gtNewCallArgs(tree));
         }
 
@@ -1807,7 +1807,7 @@ void Compiler::fgAddInternal()
 
             noway_assert(thisParam->TypeIs(TYP_REF));
 
-            tree = gtNewLclvNode(thisParam, TYP_REF);
+            tree = gtNewLclLoad(thisParam, TYP_REF);
             tree = gtNewHelperCallNode(CORINFO_HELP_MON_EXIT, TYP_VOID, gtNewCallArgs(tree));
         }
 

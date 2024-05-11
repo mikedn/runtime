@@ -559,7 +559,7 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
                 // This INT to LONG cast is used by a MUL that will be transformed by DecomposeMul into
                 // a LONG_MUL and as a result the high operand produced by the cast will become dead.
                 // Skip cast decomposition so DecomposeMul doesn't need to bother with dead code removal,
-                // especially in the case of sign extending casts that also introduce new lclvars.
+                // especially in the case of sign extending casts that also introduce new locals.
 
                 skipDecomposition = true;
             }
@@ -574,11 +574,11 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
             else
             {
                 LIR::Use   src(Range(), &(cast->AsOp()->gtOp1), cast);
-                LclVarDsc* lcl = src.ReplaceWithLclVar(m_compiler);
+                LclVarDsc* lcl = src.ReplaceWithLclLoad(m_compiler);
 
                 loResult = src.Def();
 
-                GenTree* loCopy  = m_compiler->gtNewLclvNode(lcl, TYP_INT);
+                GenTree* loCopy  = m_compiler->gtNewLclLoad(lcl, TYP_INT);
                 GenTree* shiftBy = m_compiler->gtNewIconNode(31, TYP_INT);
                 hiResult         = m_compiler->gtNewOperNode(GT_RSH, TYP_INT, loCopy, shiftBy);
 
@@ -694,14 +694,14 @@ GenTree* DecomposeLongs::DecomposeIndStore(LIR::Use& use)
 
     // Save address to a temp. It is used in storeIndLow and storeIndHigh trees.
     LIR::Use address(Range(), &store->gtOp1, store);
-    address.ReplaceWithLclVar(m_compiler);
+    address.ReplaceWithLclLoad(m_compiler);
     JITDUMP("[DecomposeIndStore]: Saving address tree to a temp var:\n");
     DISPTREERANGE(Range(), address.Def());
 
     if (!gtLong->gtOp1->OperIsLeaf())
     {
         LIR::Use op1(Range(), &gtLong->gtOp1, gtLong);
-        op1.ReplaceWithLclVar(m_compiler);
+        op1.ReplaceWithLclLoad(m_compiler);
         JITDUMP("[DecomposeIndStore]: Saving low data tree to a temp var:\n");
         DISPTREERANGE(Range(), op1.Def());
     }
@@ -709,7 +709,7 @@ GenTree* DecomposeLongs::DecomposeIndStore(LIR::Use& use)
     if (!gtLong->gtOp2->OperIsLeaf())
     {
         LIR::Use op2(Range(), &gtLong->gtOp2, gtLong);
-        op2.ReplaceWithLclVar(m_compiler);
+        op2.ReplaceWithLclLoad(m_compiler);
         JITDUMP("[DecomposeIndStore]: Saving high data tree to a temp var:\n");
         DISPTREERANGE(Range(), op2.Def());
     }
@@ -740,7 +740,7 @@ GenTree* DecomposeLongs::DecomposeIndLoad(LIR::Use& use)
     GenTreeIndLoad* indLow = use.Def()->AsIndLoad();
 
     LIR::Use address(Range(), &indLow->gtOp1, indLow);
-    address.ReplaceWithLclVar(m_compiler);
+    address.ReplaceWithLclLoad(m_compiler);
     JITDUMP("[DecomposeIndLoad]: Saving addr tree to a temp var:\n");
     DISPTREERANGE(Range(), address.Def());
 
@@ -1004,7 +1004,7 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
 
                     Range().Remove(gtLong);
 
-                    loOp1               = RepresentOpAsLocalVar(loOp1, gtLong, &gtLong->AsOp()->gtOp1);
+                    loOp1               = RepresentOpAsLclLoad(loOp1, gtLong, &gtLong->AsOp()->gtOp1);
                     LclVarDsc* loOp1Lcl = loOp1->AsLclLoad()->GetLcl();
                     Range().Remove(loOp1);
 
@@ -1015,7 +1015,7 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
 
                     // Create a GT_LONG that contains loCopy and hiOp1. This will be used in codegen to
                     // generate the shld instruction
-                    GenTree* loCopy = m_compiler->gtNewLclvNode(loOp1Lcl, TYP_INT);
+                    GenTree* loCopy = m_compiler->gtNewLclLoad(loOp1Lcl, TYP_INT);
                     GenTree* hiOp   = new (m_compiler, GT_LONG) GenTreeOp(GT_LONG, TYP_LONG, loCopy, hiOp1);
                     hiResult        = m_compiler->gtNewOperNode(GT_LSH_HI, TYP_INT, hiOp, shiftByHi);
 
@@ -1050,7 +1050,7 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
                         // x = x << 32
 
                         LIR::Use loOp1Use(Range(), &gtLong->AsOp()->gtOp1, gtLong);
-                        loOp1Use.ReplaceWithLclVar(m_compiler);
+                        loOp1Use.ReplaceWithLclLoad(m_compiler);
 
                         hiResult = loOp1Use.Def();
                         Range().Remove(gtLong);
@@ -1087,7 +1087,7 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
                     // shrd lo, reg1, shift
                     // shr hi, shift
 
-                    hiOp1               = RepresentOpAsLocalVar(hiOp1, gtLong, &gtLong->AsOp()->gtOp2);
+                    hiOp1               = RepresentOpAsLclLoad(hiOp1, gtLong, &gtLong->AsOp()->gtOp2);
                     LclVarDsc* hiOp1Lcl = hiOp1->AsLclLoad()->GetLcl();
                     GenTree*   hiCopy   = m_compiler->gtNewLclLoad(hiOp1Lcl, TYP_INT);
 
@@ -1150,7 +1150,7 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
             {
                 Range().Remove(gtLong);
 
-                hiOp1               = RepresentOpAsLocalVar(hiOp1, gtLong, &gtLong->AsOp()->gtOp2);
+                hiOp1               = RepresentOpAsLclLoad(hiOp1, gtLong, &gtLong->AsOp()->gtOp2);
                 LclVarDsc* hiOp1Lcl = hiOp1->AsLclLoad()->GetLcl();
                 GenTree*   hiCopy   = m_compiler->gtNewLclLoad(hiOp1Lcl, TYP_INT);
                 Range().Remove(hiOp1);
@@ -1232,9 +1232,9 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
     {
         // Because calls must be created as HIR and lowered to LIR, we need to dump
         // any LIR temps into lclVars before using them as arguments.
-        shiftByOp = RepresentOpAsLocalVar(shiftByOp, shift, &shift->AsOp()->gtOp2);
-        loOp1     = RepresentOpAsLocalVar(loOp1, gtLong, &gtLong->AsOp()->gtOp1);
-        hiOp1     = RepresentOpAsLocalVar(hiOp1, gtLong, &gtLong->AsOp()->gtOp2);
+        shiftByOp = RepresentOpAsLclLoad(shiftByOp, shift, &shift->AsOp()->gtOp2);
+        loOp1     = RepresentOpAsLclLoad(loOp1, gtLong, &gtLong->AsOp()->gtOp1);
+        hiOp1     = RepresentOpAsLclLoad(hiOp1, gtLong, &gtLong->AsOp()->gtOp2);
 
         Range().Remove(shiftByOp);
         Range().Remove(gtLong);
@@ -1321,10 +1321,10 @@ GenTree* DecomposeLongs::DecomposeRotate(LIR::Use& use)
     {
         // If the rotate amount is 32, then swap hi and lo
         LIR::Use loOp1Use(Range(), &gtLong->AsOp()->gtOp1, gtLong);
-        loOp1Use.ReplaceWithLclVar(m_compiler);
+        loOp1Use.ReplaceWithLclLoad(m_compiler);
 
         LIR::Use hiOp1Use(Range(), &gtLong->AsOp()->gtOp2, gtLong);
-        hiOp1Use.ReplaceWithLclVar(m_compiler);
+        hiOp1Use.ReplaceWithLclLoad(m_compiler);
 
         hiResult              = loOp1Use.Def();
         loResult              = hiOp1Use.Def();
@@ -1354,8 +1354,8 @@ GenTree* DecomposeLongs::DecomposeRotate(LIR::Use& use)
             loOp1 = gtLong->gtGetOp2();
 
             Range().Remove(gtLong);
-            loOp1 = RepresentOpAsLocalVar(loOp1, gtLong, &gtLong->AsOp()->gtOp2);
-            hiOp1 = RepresentOpAsLocalVar(hiOp1, gtLong, &gtLong->AsOp()->gtOp1);
+            loOp1 = RepresentOpAsLclLoad(loOp1, gtLong, &gtLong->AsOp()->gtOp2);
+            hiOp1 = RepresentOpAsLclLoad(hiOp1, gtLong, &gtLong->AsOp()->gtOp1);
 
             count -= 32;
         }
@@ -1365,8 +1365,8 @@ GenTree* DecomposeLongs::DecomposeRotate(LIR::Use& use)
             hiOp1 = gtLong->gtGetOp2();
 
             Range().Remove(gtLong);
-            loOp1 = RepresentOpAsLocalVar(loOp1, gtLong, &gtLong->AsOp()->gtOp1);
-            hiOp1 = RepresentOpAsLocalVar(hiOp1, gtLong, &gtLong->AsOp()->gtOp2);
+            loOp1 = RepresentOpAsLclLoad(loOp1, gtLong, &gtLong->AsOp()->gtOp1);
+            hiOp1 = RepresentOpAsLclLoad(hiOp1, gtLong, &gtLong->AsOp()->gtOp2);
         }
 
         LclVarDsc* loOp1Lcl = loOp1->AsLclLoad()->GetLcl();
@@ -1599,7 +1599,7 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
         index = op2->AsIntCon()->gtIconVal;
     }
 
-    GenTree*   simdTmpVar = RepresentOpAsLocalVar(op1, node, &node->GetUse(0).NodeRef());
+    GenTree*   simdTmpVar = RepresentOpAsLclLoad(op1, node, &node->GetUse(0).NodeRef());
     LclVarDsc* simdTmpLcl = simdTmpVar->AsLclLoad()->GetLcl();
     JITDUMP("[DecomposeHWIntrinsicGetElement]: Saving op1 tree to a temp var:\n");
     DISPTREERANGE(Range(), simdTmpVar);
@@ -1611,7 +1611,7 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
 
     if (!indexIsConst)
     {
-        indexTmpVar = RepresentOpAsLocalVar(op2, node, &node->GetUse(1).NodeRef());
+        indexTmpVar = RepresentOpAsLclLoad(op2, node, &node->GetUse(1).NodeRef());
         indexTmpLcl = indexTmpVar->AsLclLoad()->GetLcl();
         JITDUMP("[DecomposeHWIntrinsicGetElement]: Saving op2 tree to a temp var:\n");
         DISPTREERANGE(Range(), indexTmpVar);
@@ -1649,7 +1649,7 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
     // Create:
     //      hiResult = GT_HWINTRINSIC{GetElement}[int](tmp_simd_var, index * 2 + 1)
 
-    GenTree* simdTmpVar2 = m_compiler->gtNewLclvNode(simdTmpLcl, op1->TypeGet());
+    GenTree* simdTmpVar2 = m_compiler->gtNewLclLoad(simdTmpLcl, op1->GetType());
     GenTree* indexTimesTwoPlusOne;
 
     if (indexIsConst)
@@ -1659,7 +1659,7 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
     }
     else
     {
-        GenTree* indexTmpVar2   = m_compiler->gtNewLclvNode(indexTmpLcl, TYP_INT);
+        GenTree* indexTmpVar2   = m_compiler->gtNewLclLoad(indexTmpLcl, TYP_INT);
         GenTree* two2           = m_compiler->gtNewIconNode(2, TYP_INT);
         GenTree* indexTimesTwo2 = m_compiler->gtNewOperNode(GT_MUL, TYP_INT, indexTmpVar2, two2);
         GenTree* one            = m_compiler->gtNewIconNode(1, TYP_INT);
@@ -1806,7 +1806,7 @@ GenTree* DecomposeLongs::StoreMultiRegNodeToLcl(LIR::Use& use)
 
     if (!m_compiler->compEnregLocals() || m_compiler->lvaHaveManyLocals())
     {
-        use.ReplaceWithLclVar(m_compiler);
+        use.ReplaceWithLclLoad(m_compiler);
 
         return DecomposeLclLoad(use);
     }
@@ -1842,7 +1842,7 @@ GenTree* DecomposeLongs::StoreMultiRegNodeToLcl(LIR::Use& use)
 // Return Value:
 //    op represented as local var
 //
-GenTreeLclLoad* DecomposeLongs::RepresentOpAsLocalVar(GenTree* op, GenTree* user, GenTree** edge)
+GenTreeLclLoad* DecomposeLongs::RepresentOpAsLclLoad(GenTree* op, GenTree* user, GenTree** edge)
 {
     if (op->OperIs(GT_LCL_LOAD))
     {
@@ -1850,7 +1850,7 @@ GenTreeLclLoad* DecomposeLongs::RepresentOpAsLocalVar(GenTree* op, GenTree* user
     }
 
     LIR::Use opUse(Range(), edge, user);
-    opUse.ReplaceWithLclVar(m_compiler);
+    opUse.ReplaceWithLclLoad(m_compiler);
     return (*edge)->AsLclLoad();
 }
 

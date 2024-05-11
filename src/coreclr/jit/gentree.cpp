@@ -12808,7 +12808,7 @@ GenTreeCall* Compiler::gtNewInitThisClassHelperCall()
 #endif
 
     // Collectible types requires that for shared generic code, if we use the generic
-    // context paramter that we report it. This is a conservative approach, we could
+    // context parameter that we report it. This is a conservative approach, we could
     // detect some cases particularly when the context parameter is this that we do
     // not need the eager reporting logic.
     lvaGenericsContextInUse = true;
@@ -12822,7 +12822,7 @@ GenTreeCall* Compiler::gtNewInitThisClassHelperCall()
 
         case CORINFO_LOOKUP_THISOBJ:
             helper  = CORINFO_HELP_INITINSTCLASS;
-            context = gtNewLclvNode(lvaGetDesc(info.GetThisParamLclNum()), TYP_REF);
+            context = gtNewLclLoad(lvaGetDesc(info.GetThisParamLclNum()), TYP_REF);
             context->gtFlags |= GTF_VAR_CONTEXT;
             context = gtNewMethodTableLookup(context);
             // This code takes a this pointer; but we need to pass the static
@@ -12831,13 +12831,13 @@ GenTreeCall* Compiler::gtNewInitThisClassHelperCall()
             break;
         case CORINFO_LOOKUP_CLASSPARAM:
             helper  = CORINFO_HELP_INITCLASS;
-            context = gtNewLclvNode(lvaGetDesc(info.compTypeCtxtArg), TYP_I_IMPL);
+            context = gtNewLclLoad(lvaGetDesc(info.compTypeCtxtArg), TYP_I_IMPL);
             context->gtFlags |= GTF_VAR_CONTEXT;
             args = gtNewCallArgs(context);
             break;
         case CORINFO_LOOKUP_METHODPARAM:
             helper  = CORINFO_HELP_INITINSTCLASS;
-            context = gtNewLclvNode(lvaGetDesc(info.compTypeCtxtArg), TYP_I_IMPL);
+            context = gtNewLclLoad(lvaGetDesc(info.compTypeCtxtArg), TYP_I_IMPL);
             context->gtFlags |= GTF_VAR_CONTEXT;
             args = gtNewCallArgs(gtNewIconNode(0), context);
             break;
@@ -12984,7 +12984,7 @@ GenTree* Compiler::gtNewRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind)
 
     if (kind == CORINFO_LOOKUP_THISOBJ)
     {
-        GenTree* ctxTree = gtNewLclvNode(lvaGetDesc(root->info.GetThisParamLclNum()), TYP_REF);
+        GenTree* ctxTree = gtNewLclLoad(lvaGetDesc(root->info.GetThisParamLclNum()), TYP_REF);
         ctxTree->gtFlags |= GTF_VAR_CONTEXT;
 
         // The context is the method table pointer of the this object.
@@ -12994,7 +12994,7 @@ GenTree* Compiler::gtNewRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind)
     assert((kind == CORINFO_LOOKUP_METHODPARAM) || (kind == CORINFO_LOOKUP_CLASSPARAM));
 
     // Exact method descriptor as passed in.
-    GenTree* ctxTree = gtNewLclvNode(lvaGetDesc(root->info.compTypeCtxtArg), TYP_I_IMPL);
+    GenTree* ctxTree = gtNewLclLoad(lvaGetDesc(root->info.compTypeCtxtArg), TYP_I_IMPL);
     ctxTree->gtFlags |= GTF_VAR_CONTEXT;
     return ctxTree;
 }
@@ -13019,7 +13019,7 @@ GenTree* Compiler::gtNewStaticMethodMonitorAddr()
     // the context parameter is this that we don't need the eager reporting logic.)
     lvaGenericsContextInUse = true;
 
-    GenTree* context = gtNewLclvNode(lvaGetDesc(info.compTypeCtxtArg), TYP_I_IMPL);
+    GenTree* context = gtNewLclLoad(lvaGetDesc(info.compTypeCtxtArg), TYP_I_IMPL);
     context->gtFlags |= GTF_VAR_CONTEXT;
     GenTree* classHandle = nullptr;
 

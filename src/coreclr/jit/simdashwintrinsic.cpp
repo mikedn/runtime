@@ -1364,7 +1364,7 @@ GenTree* Importer::impVectorTAndNot(const HWIntrinsicSignature& sig, GenTree* op
 
         LclVarDsc* tempLcl = lvaAllocTemp(true DEBUGARG("Vector<T>.AndNot temp"));
         impAppendTempStore(tempLcl, op1, sig.paramLayout[0], CHECK_SPILL_ALL);
-        op1 = gtNewLclvNode(tempLcl, sig.paramType[0]);
+        op1 = comp->gtNewLclLoad(tempLcl, sig.paramType[0]);
     }
 
     var_types type    = sig.retLayout->GetSIMDType();

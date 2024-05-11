@@ -156,7 +156,7 @@ private:
 
     // Replace the definition of the given use with a lclVar, allocating a new temp
     // if 'tempNum' is BAD_VAR_NUM. Returns the LclVar node.
-    GenTreeLclLoad* ReplaceWithLclVar(LIR::Use& use, LclVarDsc* tempLcl = nullptr);
+    GenTreeLclLoad* ReplaceWithLclLoad(LIR::Use& use, LclVarDsc* tempLcl = nullptr);
 
     // return true if this call target is within range of a pc-rel call on the machine
     bool IsCallTargetInRange(void* addr);
