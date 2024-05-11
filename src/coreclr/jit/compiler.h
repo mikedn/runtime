@@ -2262,14 +2262,11 @@ struct Importer
     GenTreeUnOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1);
     GenTree* gtNewNullCheck(GenTree* addr);
     GenTreeCast* gtNewCastNode(GenTree* op1, bool fromUnsigned, var_types castType);
-    GenTreeIndir* gtNewIndir(var_types type, GenTree* addr);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset);
     GenTreeIndir* gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr);
     GenTreeIndir* gtNewFieldIndir(var_types type, unsigned layoutNum, GenTreeFieldAddr* fieldAddr);
     GenTreeIndir* gtNewFieldIndStore(var_types type, GenTreeFieldAddr* fieldAddr, GenTree* value);
-    GenTreeIndLoadObj* gtNewObjNode(ClassLayout* layout, GenTree* addr);
-    GenTreeIndLoadObj* gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr);
     GenTreeIntCon* gtNewStringLiteralLength(GenTreeStrCon* node);
     GenTree* gtNewStringLiteralNode(InfoAccessType iat, void* value);
     GenTreeAllocObj* gtNewAllocObjNode(CORINFO_RESOLVED_TOKEN* resolvedToken, bool useParent);
@@ -2903,8 +2900,8 @@ public:
 
     GenTreeUnOp* gtNewBitCastNode(var_types type, GenTree* arg);
 
-    GenTreeIndLoadObj* gtNewObjNode(ClassLayout* layout, GenTree* addr);
-    GenTreeIndLoadObj* gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr);
+    GenTreeIndLoadObj* gtNewIndLoadObj(ClassLayout* layout, GenTree* addr);
+    GenTreeIndLoadObj* gtNewIndLoadObj(var_types type, ClassLayout* layout, GenTree* addr);
 
     GenTreeCall::Use* gtNewCallArgs(GenTree* node);
     GenTreeCall::Use* gtNewCallArgs(GenTree* node1, GenTree* node2);

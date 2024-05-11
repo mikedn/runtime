@@ -1315,7 +1315,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
 
         if (i != 0)
         {
-            slotPtrTree = gtNewIndir(TYP_I_IMPL, slotPtrTree);
+            slotPtrTree = comp->gtNewIndLoad(TYP_I_IMPL, slotPtrTree);
             slotPtrTree->gtFlags |= GTF_IND_NONFAULTING;
 
             if (!isLastIndirectionWithSizeCheck)
@@ -1344,7 +1344,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
 
     if (!runtimeLookup.testForNull)
     {
-        slotPtrTree = gtNewIndir(TYP_I_IMPL, slotPtrTree);
+        slotPtrTree = comp->gtNewIndLoad(TYP_I_IMPL, slotPtrTree);
         slotPtrTree->gtFlags |= GTF_IND_NONFAULTING;
 
         if (!runtimeLookup.testForFixup)
@@ -1355,8 +1355,8 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
         impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("bubbling QMark0"));
 
         LclVarDsc* slotLcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("impRuntimeLookup test"));
-        GenTree*   asg     = comp->gtNewLclStore(slotLcl, TYP_I_IMPL, slotPtrTree);
-        impSpillNoneAppendTree(asg);
+        GenTree*   store   = comp->gtNewLclStore(slotLcl, TYP_I_IMPL, slotPtrTree);
+        impSpillNoneAppendTree(store);
 
         GenTree* slot = comp->gtNewLclLoad(slotLcl, TYP_I_IMPL);
 #ifdef TARGET_64BIT
@@ -1367,14 +1367,14 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
         GenTree* relop = gtNewOperNode(GT_EQ, TYP_INT, test, gtNewIconNode(0));
 
         // slot = IND_LOAD(slot - 1)
-        slot           = comp->gtNewLclLoad(slotLcl, TYP_I_IMPL);
-        GenTree* add   = gtNewOperNode(GT_ADD, TYP_I_IMPL, slot, gtNewIconNode(-1, TYP_I_IMPL));
-        GenTree* indir = gtNewIndir(TYP_I_IMPL, add);
-        indir->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
+        slot          = comp->gtNewLclLoad(slotLcl, TYP_I_IMPL);
+        GenTree* add  = gtNewOperNode(GT_ADD, TYP_I_IMPL, slot, gtNewIconNode(-1, TYP_I_IMPL));
+        GenTree* load = comp->gtNewIndLoad(TYP_I_IMPL, add);
+        load->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
 
-        asg = comp->gtNewLclStore(slotLcl, TYP_I_IMPL, indir);
+        store = comp->gtNewLclStore(slotLcl, TYP_I_IMPL, load);
 
-        GenTree* qmark = gtNewQmarkNode(TYP_VOID, relop, gtNewNothingNode(), asg);
+        GenTree* qmark = gtNewQmarkNode(TYP_VOID, relop, gtNewNothingNode(), store);
         impSpillNoneAppendTree(qmark);
 
         return comp->gtNewLclLoad(slotLcl, TYP_I_IMPL);
@@ -1385,7 +1385,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
     impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("bubbling QMark1"));
 
     // Extract the handle
-    GenTree* handleForNullCheck = gtNewIndir(TYP_I_IMPL, slotPtrTree);
+    GenTree* handleForNullCheck = comp->gtNewIndLoad(TYP_I_IMPL, slotPtrTree);
     handleForNullCheck->gtFlags |= GTF_IND_NONFAULTING;
 
     // Call the helper
@@ -1411,7 +1411,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
         // sizeValue = dictionary[pRuntimeLookup->sizeOffset]
         GenTreeIntCon* sizeOffset      = gtNewIconNode(runtimeLookup.sizeOffset, TYP_I_IMPL);
         GenTree*       sizeValueOffset = gtNewOperNode(GT_ADD, TYP_I_IMPL, lastIndOfTree, sizeOffset);
-        GenTree*       sizeValue       = gtNewIndir(TYP_I_IMPL, sizeValueOffset);
+        GenTree*       sizeValue       = comp->gtNewIndLoad(TYP_I_IMPL, sizeValueOffset);
         sizeValue->gtFlags |= GTF_IND_NONFAULTING;
 
         // sizeCheck fails if sizeValue < pRuntimeLookup->offsets[i]
@@ -2931,7 +2931,8 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             store->AddSideEffects(GTF_GLOB_REF);
             impSpillNoneAppendTree(store);
 
-            retNode = gtNewIndir(CorTypeToVarType(sig->retType), comp->gtNewLclAddr(rawHandleSlotLcl, TYP_I_IMPL));
+            retNode =
+                comp->gtNewIndLoad(CorTypeToVarType(sig->retType), comp->gtNewLclAddr(rawHandleSlotLcl, TYP_I_IMPL));
 
             break;
         }
@@ -2968,7 +2969,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             {
                 op2 = gtNewIconNode(OFFSETOF__CORINFO_String__stringLen, TYP_I_IMPL);
                 op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1, op2);
-                op1 = gtNewIndir(TYP_INT, op1);
+                op1 = comp->gtNewIndLoad(TYP_INT, op1);
                 op1->gtFlags |= GTF_EXCEPT;
             }
 
@@ -4124,11 +4125,11 @@ GenTree* Importer::impArrayAccessIntrinsic(
 
     if (varTypeIsStruct(elemType))
     {
-        elem = gtNewObjNode(typGetObjLayout(sig->retTypeClass), elemAddr);
+        elem = comp->gtNewIndLoadObj(typGetObjLayout(sig->retTypeClass), elemAddr);
     }
     else
     {
-        elem = gtNewIndir(elemType, elemAddr);
+        elem = comp->gtNewIndLoad(elemType, elemAddr);
     }
 
     if (name == NI_CORINFO_INTRINSIC_Array_Set)
@@ -4712,7 +4713,7 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
                 }
             }
 
-            store = gtNewObjNode(typGetObjLayout(valueClass), addr);
+            store = comp->gtNewIndLoadObj(typGetObjLayout(valueClass), addr);
             store = impAssignStruct(store, value, CHECK_SPILL_ALL);
         }
         else
@@ -4939,7 +4940,7 @@ GenTree* Importer::impTransformThis(GenTree*                thisPtr,
     {
         var_types type = CorTypeToVarType(info.compCompHnd->asCorInfoType(constrainedResolvedToken->hClass));
         impBashVarAddrsToI(thisPtr);
-        GenTree* load = gtNewIndir(type, thisPtr);
+        GenTree* load = comp->gtNewIndLoad(type, thisPtr);
         load->AddSideEffects(GTF_EXCEPT | GTF_GLOB_REF);
 
         return load;
@@ -4958,11 +4959,11 @@ GenTree* Importer::impTransformThis(GenTree*                thisPtr,
 
         if (type == TYP_STRUCT)
         {
-            indir = gtNewObjNode(typGetObjLayout(constrainedResolvedToken->hClass), thisPtr);
+            indir = comp->gtNewIndLoadObj(typGetObjLayout(constrainedResolvedToken->hClass), thisPtr);
         }
         else
         {
-            indir = gtNewIndir(type, thisPtr);
+            indir = comp->gtNewIndLoad(type, thisPtr);
         }
 
         indir->gtFlags |= GTF_EXCEPT;
@@ -5500,11 +5501,11 @@ GenTree* Importer::impImportFieldInstanceAddrHelper(OPCODE                    op
 
     if (varTypeIsStruct(type))
     {
-        indir = gtNewObjNode(typGetObjLayout(structType), addr);
+        indir = comp->gtNewIndLoadObj(typGetObjLayout(structType), addr);
     }
     else
     {
-        indir = gtNewIndir(type, addr);
+        indir = comp->gtNewIndLoad(type, addr);
     }
 
     // The helper checks for null so the indir cannot fault.
@@ -5615,7 +5616,7 @@ GenTree* Importer::impImportStaticFieldAddressHelper(OPCODE                    o
 
     if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
     {
-        addr = gtNewIndir(TYP_REF, addr);
+        addr = comp->gtNewIndLoad(TYP_REF, addr);
         addr->gtFlags |= GTF_IND_NONFAULTING;
         fieldSeq = GetFieldSeqStore()->GetBoxedValuePseudoField();
         addr     = new (comp, GT_FIELD_ADDR) GenTreeFieldAddr(addr, fieldSeq, TARGET_POINTER_SIZE);
@@ -5941,11 +5942,11 @@ GenTree* Importer::CreateStaticFieldHelperAccess(OPCODE                    opcod
 
     if (type == TYP_STRUCT)
     {
-        indir = gtNewObjNode(layout, addr);
+        indir = comp->gtNewIndLoadObj(layout, addr);
     }
     else
     {
-        indir = gtNewIndir(type, addr);
+        indir = comp->gtNewIndLoad(type, addr);
     }
 
     indir->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
@@ -6043,7 +6044,7 @@ GenTree* Importer::CreateStaticFieldAddressAccess(OPCODE                    opco
     {
         if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
         {
-            addr = gtNewIndir(TYP_REF, addr);
+            addr = comp->gtNewIndLoad(TYP_REF, addr);
             addr->gtFlags |= GTF_IND_NONFAULTING;
 
 #ifdef TARGET_64BIT
@@ -6077,14 +6078,14 @@ GenTree* Importer::CreateStaticFieldAddressAccess(OPCODE                    opco
             addr->gtFlags |= GTF_CLS_VAR_INITCLASS;
         }
 
-        indir = gtNewIndir(type, addr);
+        indir = comp->gtNewIndLoad(type, addr);
 
         // TODO-MIKE-CQ: Should GTF_IND_INVARIANT be set here? CLS_VAR did not have such a thing.
     }
     else
 #endif // TARGET_ARM64
     {
-        indir = gtNewIndir(type, addr);
+        indir = comp->gtNewIndLoad(type, addr);
 
 #ifdef TARGET_64BIT
         if (isStaticReadOnlyInited)
@@ -6111,11 +6112,11 @@ GenTree* Importer::CreateStaticFieldAddressAccess(OPCODE                    opco
 
         if (type == TYP_STRUCT)
         {
-            indir = gtNewObjNode(layout, addr);
+            indir = comp->gtNewIndLoadObj(layout, addr);
         }
         else
         {
-            indir = gtNewIndir(type, addr);
+            indir = comp->gtNewIndLoad(type, addr);
         }
 
         indir->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
@@ -10607,18 +10608,18 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 // TODO-MIKE-Review: This should be BADCODE. Might need to tolerate REF too.
                 assert(op1->TypeIs(TYP_I_IMPL, TYP_BYREF));
 
-                op1 = gtNewIndir(lclTyp, op1);
+                op1 = comp->gtNewIndLoad(lclTyp, op1);
 
                 op1->gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
 
                 if ((prefixFlags & PREFIX_VOLATILE) != 0)
                 {
-                    op1->AsIndir()->SetVolatile();
+                    op1->AsIndLoad()->SetVolatile();
                 }
 
                 if ((prefixFlags & PREFIX_UNALIGNED) && !varTypeIsByte(lclTyp))
                 {
-                    op1->AsIndir()->SetUnaligned();
+                    op1->AsIndLoad()->SetUnaligned();
                 }
 
                 impPushOnStack(op1);
@@ -10741,7 +10742,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         }
                         else
                         {
-                            op1 = gtNewIndir(lclTyp, obj);
+                            op1 = comp->gtNewIndLoad(lclTyp, obj);
                         }
 
                         fieldInfo.structType = NO_CLASS_HANDLE;
@@ -11094,7 +11095,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (lclTyp != TYP_STRUCT)
                 {
-                    op2 = gtNewIndir(lclTyp, op2);
+                    op2 = comp->gtNewIndLoad(lclTyp, op2);
                     op2->gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
 
                     goto STIND_CPOBJ;
@@ -11127,7 +11128,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 // TODO-MIKE-Review: This should be BADCODE.
                 assert(varTypeIsStruct(op2->GetType()));
 
-                op1 = gtNewObjNode(typGetObjLayout(resolvedToken.hClass), op1);
+                op1 = comp->gtNewIndLoadObj(typGetObjLayout(resolvedToken.hClass), op1);
                 op1 = impAssignStruct(op1, op2, CHECK_SPILL_ALL);
 
                 if ((prefixFlags & PREFIX_UNALIGNED) != 0)
@@ -11188,13 +11189,13 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (lclTyp == TYP_STRUCT)
                 {
-                    op1 = gtNewObjNode(typGetObjLayout(resolvedToken.hClass), op1);
+                    op1 = comp->gtNewIndLoadObj(typGetObjLayout(resolvedToken.hClass), op1);
                 }
                 else
                 {
                     assert(varTypeIsArithmetic(lclTyp));
 
-                    op1 = gtNewIndir(lclTyp, op1);
+                    op1 = comp->gtNewIndLoad(lclTyp, op1);
                     op1->gtFlags |= GTF_GLOB_REF;
                 }
 
@@ -11236,7 +11237,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 {
                     op2 = gtNewIconNode(OFFSETOF__CORINFO_Array__length, TYP_I_IMPL);
                     op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1, op2);
-                    op1 = gtNewIndir(TYP_INT, op1);
+                    op1 = comp->gtNewIndLoad(TYP_INT, op1);
                     op1->gtFlags |= GTF_EXCEPT;
                 }
 
@@ -11866,13 +11867,13 @@ LOAD_VALUE:
 
     if (lclTyp == TYP_STRUCT)
     {
-        op1 = gtNewObjNode(typGetObjLayout(resolvedToken.hClass), op1);
+        op1 = comp->gtNewIndLoadObj(typGetObjLayout(resolvedToken.hClass), op1);
     }
     else
     {
         assert(varTypeIsArithmetic(lclTyp));
 
-        op1 = gtNewIndir(lclTyp, op1);
+        op1 = comp->gtNewIndLoad(lclTyp, op1);
         op1->gtFlags |= GTF_GLOB_REF;
     }
 
@@ -12833,7 +12834,7 @@ void Importer::impReturnInstruction(INDEBUG(bool isTailcall))
         {
             LclVarDsc* retBuffLcl   = comp->lvaGetDesc(info.compRetBuffArg);
             GenTree*   retBuffAddr  = comp->gtNewLclLoad(retBuffLcl, TYP_BYREF);
-            GenTree*   retBuffIndir = gtNewObjNode(info.GetRetLayout(), retBuffAddr);
+            GenTree*   retBuffIndir = comp->gtNewIndLoadObj(info.GetRetLayout(), retBuffAddr);
             value                   = impAssignStruct(retBuffIndir, value, CHECK_SPILL_ALL);
 
             impSpillNoneAppendTree(value);
@@ -16164,7 +16165,7 @@ void Importer::impImportInitObj(GenTree* dstAddr, ClassLayout* layout)
         }
     }
 
-    GenTreeIndir* store = gtNewObjNode(layout, dstAddr);
+    GenTreeIndir* store = comp->gtNewIndLoadObj(layout, dstAddr);
     gtInitStructIndStore(store, initValue);
     impSpillNoneAppendTree(store);
 }
@@ -16191,7 +16192,7 @@ void Importer::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* l
     }
     else
     {
-        src = gtNewObjNode(layout, srcAddr);
+        src = comp->gtNewIndLoadObj(layout, srcAddr);
     }
 
     GenTree* dst = nullptr;
@@ -16216,7 +16217,7 @@ void Importer::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* l
     // probably blocks SIMD tree CSEing.
     src->gtFlags |= GTF_DONT_CSE;
 
-    GenTreeIndir* store = gtNewObjNode(layout, dstAddr);
+    GenTreeIndir* store = comp->gtNewIndLoadObj(layout, dstAddr);
     gtInitStructIndStore(store, src);
     impSpillNoneAppendTree(store);
 }
@@ -16422,7 +16423,7 @@ GenTree* Importer::CreateStaticFieldTlsAccess(OPCODE                    opcode,
         addr->gtFlags |= GTF_ICON_INITCLASS;
     }
 
-    addr = gtNewIndir(TYP_I_IMPL, addr);
+    addr = comp->gtNewIndLoad(TYP_I_IMPL, addr);
     addr->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
 
     if (dllRef != nullptr)
@@ -16430,7 +16431,7 @@ GenTree* Importer::CreateStaticFieldTlsAccess(OPCODE                    opcode,
         addr = gtNewOperNode(GT_ADD, TYP_I_IMPL, addr, dllRef);
     }
 
-    addr = gtNewIndir(TYP_I_IMPL, addr);
+    addr = comp->gtNewIndLoad(TYP_I_IMPL, addr);
 
     if (fieldInfo.offset != 0)
     {
@@ -16450,11 +16451,11 @@ GenTree* Importer::CreateStaticFieldTlsAccess(OPCODE                    opcode,
 
     if (varTypeIsStruct(type))
     {
-        indir = gtNewObjNode(typGetObjLayout(fieldInfo.structType), addr);
+        indir = comp->gtNewIndLoadObj(typGetObjLayout(fieldInfo.structType), addr);
     }
     else
     {
-        indir = gtNewIndir(type, addr);
+        indir = comp->gtNewIndLoad(type, addr);
     }
 
     indir->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
@@ -17336,11 +17337,6 @@ GenTreeCast* Importer::gtNewCastNode(GenTree* op1, bool fromUnsigned, var_types 
     return comp->gtNewCastNode(op1, fromUnsigned, toType);
 }
 
-GenTreeIndir* Importer::gtNewIndir(var_types type, GenTree* addr)
-{
-    return comp->gtNewIndir(type, addr);
-}
-
 GenTreeFieldAddr* Importer::gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset)
 {
     return comp->gtNewFieldAddr(addr, handle, offset);
@@ -17368,16 +17364,6 @@ GenTreeIndir* Importer::gtNewFieldIndStore(var_types type, GenTreeFieldAddr* fie
     store->SetValue(value);
     store->AddSideEffects(GTF_ASG | value->GetSideEffects());
     return store;
-}
-
-GenTreeIndLoadObj* Importer::gtNewObjNode(ClassLayout* layout, GenTree* addr)
-{
-    return comp->gtNewObjNode(layout, addr);
-}
-
-GenTreeIndLoadObj* Importer::gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr)
-{
-    return comp->gtNewObjNode(type, layout, addr);
 }
 
 GenTree* Importer::gtNewStringLiteralNode(InfoAccessType iat, void* value)

@@ -1131,7 +1131,7 @@ bool Compiler::inlImportReturn(Importer&            importer,
             // Also, what happens if the return address arg has side effects?
 
             GenTree* retBufAddr  = gtCloneExpr(inlineInfo->iciCall->gtCallArgs->GetNode());
-            GenTree* retBufIndir = gtNewObjNode(typGetObjLayout(retExprClass), retBufAddr);
+            GenTree* retBufIndir = gtNewIndLoadObj(typGetObjLayout(retExprClass), retBufAddr);
 
             retExpr = importer.impAssignStruct(retBufIndir, retExpr, Importer::CHECK_SPILL_ALL);
         }

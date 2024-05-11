@@ -631,9 +631,9 @@ inline GenTreeIndir* Compiler::gtNewFieldIndir(var_types type, unsigned layoutNu
 
     if (type == TYP_STRUCT)
     {
-        indir = gtNewObjNode(typGetLayoutByNum(layoutNum), fieldAddr);
-        // gtNewObjNode has other rules for adding GTF_GLOB_REF, remove it
-        // and add it back below according to the old field rules.
+        indir = gtNewIndLoadObj(typGetLayoutByNum(layoutNum), fieldAddr);
+        // gtNewIndLoadObj has other rules for adding GTF_GLOB_REF, remove
+        // it and add it back below according to the old field rules.
         indir->gtFlags &= ~GTF_GLOB_REF;
     }
     else
@@ -664,11 +664,11 @@ inline GenTreeIndir* Compiler::gtNewIndexIndir(var_types type, GenTreeIndexAddr*
 
     if (type != TYP_STRUCT)
     {
-        indir = gtNewIndir(type, indexAddr);
+        indir = gtNewIndLoad(type, indexAddr);
     }
     else
     {
-        indir = gtNewObjNode(indexAddr->GetLayout(this), indexAddr);
+        indir = gtNewIndLoadObj(indexAddr->GetLayout(this), indexAddr);
     }
 
     indir->gtFlags |= GTF_GLOB_REF;

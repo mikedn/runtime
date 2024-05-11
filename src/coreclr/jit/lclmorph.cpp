@@ -3752,7 +3752,7 @@ void Compiler::lvaRetypeImplicitByRefParams()
 
                 fgEnsureFirstBBisScratch();
                 GenTree* addr = gtNewLclLoad(lcl, TYP_BYREF);
-                GenTree* load = gtNewObjNode(structLcl->GetType(), structLcl->GetLayout(), addr);
+                GenTree* load = gtNewIndLoadObj(structLcl->GetType(), structLcl->GetLayout(), addr);
                 fgNewStmtAtBeg(fgFirstBB, gtNewLclStore(structLcl, lcl->GetType(), load));
 
                 // Update the locals corresponding to the promoted fields.

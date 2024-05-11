@@ -7153,7 +7153,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
         var_types  callerRetBufType = retBuffLcl->GetType();
 
         GenTree* dstAddr = gtNewLclLoad(retBuffLcl, callerRetBufType);
-        GenTree* dst     = gtNewObjNode(origCall->GetRetLayout(), dstAddr);
+        GenTree* dst     = gtNewIndLoadObj(origCall->GetRetLayout(), dstAddr);
         GenTree* src     = gtNewLclLoad(tmpRetBufLcl, tmpRetBufType);
 
         copyToRetBufNode         = dst;
@@ -8766,11 +8766,11 @@ GenTree* Compiler::fgMorphStructComma(GenTree* tree)
 
     if (effectiveVal->OperIs(GT_IND_LOAD))
     {
-        indir = gtNewIndir(effectiveVal->GetType(), tree);
+        indir = gtNewIndLoad(effectiveVal->GetType(), tree);
     }
     else
     {
-        indir = gtNewObjNode(effectiveVal->AsIndLoadObj()->GetLayout(), tree);
+        indir = gtNewIndLoadObj(effectiveVal->AsIndLoadObj()->GetLayout(), tree);
     }
 
     indir->SetSideEffects(sideEffects);

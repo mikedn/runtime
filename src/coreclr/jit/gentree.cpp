@@ -4401,12 +4401,12 @@ CallArgInfo* GenTreeCall::GetArgInfoByLateArgUse(Use* use) const
     unreached();
 }
 
-GenTreeIndLoadObj* Compiler::gtNewObjNode(ClassLayout* layout, GenTree* addr)
+GenTreeIndLoadObj* Compiler::gtNewIndLoadObj(ClassLayout* layout, GenTree* addr)
 {
-    return gtNewObjNode(typGetStructType(layout), layout, addr);
+    return gtNewIndLoadObj(typGetStructType(layout), layout, addr);
 }
 
-GenTreeIndLoadObj* Compiler::gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr)
+GenTreeIndLoadObj* Compiler::gtNewIndLoadObj(var_types type, ClassLayout* layout, GenTree* addr)
 {
     assert(varTypeIsStruct(type));
 
