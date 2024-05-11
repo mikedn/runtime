@@ -1102,7 +1102,7 @@ GenTree* Importer::impGetStructAddr(GenTree*             value,
 
     LclVarDsc* tmpLcl = lvaAllocTemp(true DEBUGARG("struct address temp"));
     impAppendTempStore(tmpLcl, value, structHnd, curLevel);
-    return gtNewLclVarAddrNode(tmpLcl, TYP_BYREF);
+    return comp->gtNewLclAddr(tmpLcl, TYP_BYREF);
 }
 
 GenTree* Importer::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLayout, unsigned curLevel)
@@ -2573,7 +2573,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             case CORINFO_INTRINSIC_StubHelpers_GetStubContextAddr:
                 noway_assert(comp->lvaStubArgumentVar != BAD_VAR_NUM);
                 lvaSetAddressExposed(comp->lvaGetDesc(comp->lvaStubArgumentVar));
-                return gtNewLclVarAddrNode(comp->lvaGetDesc(comp->lvaStubArgumentVar), TYP_I_IMPL);
+                return comp->gtNewLclAddr(comp->lvaGetDesc(comp->lvaStubArgumentVar), TYP_I_IMPL);
 #endif
             default:
                 assert(intrinsicId != CORINFO_INTRINSIC_StubHelpers_GetStubContextAddr);
@@ -2934,9 +2934,8 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             GenTree*   store            = comp->gtNewLclStore(rawHandleSlotLcl, TYP_I_IMPL, rawHandle);
             store->AddSideEffects(GTF_GLOB_REF);
             impSpillNoneAppendTree(store);
-            GenTree* lclVarAddr = gtNewLclVarAddrNode(rawHandleSlotLcl, TYP_I_IMPL);
 
-            retNode = gtNewIndir(CorTypeToVarType(sig->retType), lclVarAddr);
+            retNode = gtNewIndir(CorTypeToVarType(sig->retType), comp->gtNewLclAddr(rawHandleSlotLcl, TYP_I_IMPL));
 
             break;
         }
@@ -4867,14 +4866,12 @@ void Importer::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
         // to one allocation at a time.
         impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("impImportNewObjArray"));
 
-        //
         // The arguments of the CORINFO_HELP_NEW_MDARR_NONVARARG helper are:
         //  - Array class handle
         //  - Number of dimension arguments
         //  - Pointer to block of int32 dimensions - address  of lvaNewObjArrayArgs temp.
-        //
 
-        node = gtNewLclVarAddrNode(argsLcl, TYP_I_IMPL);
+        node = comp->gtNewLclAddr(argsLcl, TYP_I_IMPL);
 
         // Pop dimension arguments from the stack one at a time and store it
         // into lvaNewObjArrayArgs temp.
@@ -9361,7 +9358,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                     LclVarDsc* lcl = inlGetInlineeLocal(impInlineInfo, ilLocNum);
 
-                    op1 = gtNewLclVarAddrNode(lcl, TYP_BYREF);
+                    op1 = comp->gtNewLclAddr(lcl, TYP_BYREF);
                     goto PUSH_ADRVAR;
                 }
 
@@ -9415,7 +9412,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
 
             ADRVAR:
-                op1 = gtNewLclVarAddrNode(lcl, TYP_BYREF);
+                op1 = comp->gtNewLclAddr(lcl, TYP_BYREF);
 
             PUSH_ADRVAR:
                 assert(op1->AsLclAddr()->GetLclOffs() == 0);
@@ -11298,7 +11295,7 @@ void Importer::ImportArgList()
     LclVarDsc* varargsHandleParam = comp->lvaGetDesc(comp->info.compVarargsHandleArg);
     assert(varargsHandleParam->IsAddressExposed());
 
-    impPushOnStack(gtNewLclVarAddrNode(varargsHandleParam, TYP_I_IMPL));
+    impPushOnStack(comp->gtNewLclAddr(varargsHandleParam, TYP_I_IMPL));
 }
 
 void Importer::ImportMkRefAny(const BYTE* codeAddr)
@@ -11467,7 +11464,7 @@ void Importer::ImportLocAlloc(BasicBlock* block)
 
                 JITDUMP("Converting stackalloc of %zd bytes to new local V%02u\n", allocSize, lcl->GetLclNum());
 
-                op1 = gtNewLclVarAddrNode(lcl, TYP_I_IMPL);
+                op1 = comp->gtNewLclAddr(lcl, TYP_I_IMPL);
 
                 if (!opts.compDbgEnC)
                 {
@@ -11807,9 +11804,9 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
             LclVarDsc* lcl = lvaAllocTemp(true DEBUGARG("unbox nullable temp"));
             comp->lvaSetStruct(lcl, typGetObjLayout(resolvedToken.hClass), /* checkUnsafeBuffer */ true);
 
-            op2 = gtNewLclvNode(lcl, TYP_STRUCT);
+            op2 = comp->gtNewLclLoad(lcl, TYP_STRUCT);
             op1 = impAssignStruct(op2, op1, CHECK_SPILL_ALL);
-            op2 = gtNewLclVarAddrNode(lcl, TYP_BYREF);
+            op2 = comp->gtNewLclAddr(lcl, TYP_BYREF);
             op1 = gtNewCommaNode(op1, op2);
         }
 
@@ -11854,9 +11851,9 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
             tmpLcl->lvIsMultiRegArg = true;
             comp->lvaSetStruct(tmpLcl, layout, /* checkUnsafeBuffer */ true);
 
-            op2 = gtNewLclvNode(tmpLcl, TYP_STRUCT);
+            op2 = comp->gtNewLclLoad(tmpLcl, TYP_STRUCT);
             op1 = impAssignStruct(op2, op1, CHECK_SPILL_ALL);
-            op2 = gtNewLclVarAddrNode(tmpLcl, TYP_BYREF);
+            op2 = comp->gtNewLclAddr(tmpLcl, TYP_BYREF);
             op1 = gtNewCommaNode(op1, op2);
         }
         else
@@ -12392,7 +12389,7 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
             comp->compSuppressedZeroInit = true;
         }
 
-        newObjThis = gtNewLclVarAddrNode(lcl, TYP_BYREF);
+        newObjThis = comp->gtNewLclAddr(lcl, TYP_BYREF);
     }
     else
     {
@@ -17241,11 +17238,6 @@ Statement* Importer::gtNewStmt(GenTree* expr, IL_OFFSETX offset)
 GenTreeLclVar* Importer::gtNewLclvNode(LclVarDsc* lcl, var_types type)
 {
     return comp->gtNewLclvNode(lcl, type);
-}
-
-GenTreeLclAddr* Importer::gtNewLclVarAddrNode(LclVarDsc* lcl, var_types type)
-{
-    return comp->gtNewLclVarAddrNode(lcl, type);
 }
 
 GenTreeIntCon* Importer::gtNewIconNode(ssize_t value, var_types type)

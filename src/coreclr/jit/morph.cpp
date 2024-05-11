@@ -1811,7 +1811,7 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInf
 
             LclVarDsc* tempLcl = compiler->lvaGetDesc(argInfo->GetTempLclNum());
             compiler->lvaSetAddressExposed(tempLcl);
-            lateArg = compiler->gtNewLclVarAddrNode(tempLcl);
+            lateArg = compiler->gtNewLclAddr(tempLcl);
 #else
             unreached();
 #endif
@@ -1834,7 +1834,7 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInf
             {
                 var_types type = varActualType(arg->GetType());
                 tempLcl->SetType(type);
-                setupArg = compiler->gtNewStoreLclVar(tempLcl, type, arg);
+                setupArg = compiler->gtNewLclStore(tempLcl, type, arg);
             }
             else if (arg->IsCall() && (arg->AsCall()->GetRegCount() > 1))
             {
@@ -1865,7 +1865,7 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInf
                     }
                 }
 
-                setupArg = compiler->gtNewStoreLclVar(dstLcl, dstLclType, arg);
+                setupArg = compiler->gtNewLclStore(dstLcl, dstLclType, arg);
             }
             else if (varTypeIsSIMD(arg->GetType()))
             {
@@ -1973,17 +1973,17 @@ GenTree* Compiler::fgMakeMultiUse(GenTree** pOp)
     }
 }
 
-GenTreeLclVar* Compiler::fgInsertCommaFormTemp(GenTree** use)
+GenTreeLclLoad* Compiler::fgInsertCommaFormTemp(GenTree** use)
 {
     GenTree* tree = *use;
     assert(!varTypeIsStruct(tree->GetType()));
 
-    var_types  type  = varActualType(tree->GetType());
-    LclVarDsc* lcl   = lvaNewTemp(type, true DEBUGARG("fgInsertCommaFormTemp temp"));
-    GenTree*   store = gtNewStoreLclVar(lcl, type, tree);
-    GenTree*   load  = gtNewLclvNode(lcl, type);
-    *use             = gtNewCommaNode(store, load, type);
-    return gtNewLclvNode(lcl, type);
+    var_types        type  = varActualType(tree->GetType());
+    LclVarDsc*       lcl   = lvaNewTemp(type, true DEBUGARG("fgInsertCommaFormTemp temp"));
+    GenTreeLclStore* store = gtNewLclStore(lcl, type, tree);
+    GenTreeLclLoad*  load  = gtNewLclLoad(lcl, type);
+    *use                   = gtNewCommaNode(store, load, type);
+    return gtNewLclLoad(lcl, type);
 }
 
 //------------------------------------------------------------------------
@@ -2151,7 +2151,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         }
         else
         {
-            GenTree* tmp = fgInsertCommaFormTemp(&arg);
+            GenTreeLclLoad* tmp = fgInsertCommaFormTemp(&arg);
             call->gtCallThisArg->SetNode(arg);
             call->gtFlags |= GTF_ASG;
             arg = tmp;
@@ -4466,7 +4466,7 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
         ClassLayout* argLayout = typGetLayoutByNum(argInfo->GetSigTypeNum());
 
         tempLcl    = lvaNewTemp(argLayout, true DEBUGARG("multi-reg SIMD arg temp"));
-        tempAssign = gtNewStoreLclVar(tempLcl, arg->GetType(), arg);
+        tempAssign = gtNewLclStore(tempLcl, arg->GetType(), arg);
     }
 
     GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
@@ -4818,8 +4818,8 @@ GenTree* Compiler::abiMakeIndirAddrMultiUse(GenTree** addrInOut, ssize_t* addrOf
     {
         LclVarDsc* addrLcl = lvaNewTemp(addr->GetType(), true DEBUGARG("call arg addr temp"));
 
-        addrAsg = gtNewStoreLclVar(addrLcl, addr->GetType(), addr);
-        addr    = gtNewLclvNode(addrLcl, addr->GetType());
+        addrAsg = gtNewLclStore(addrLcl, addr->GetType(), addr);
+        addr    = gtNewLclLoad(addrLcl, addr->GetType());
     }
 
     *addrInOut     = addr;
@@ -4954,7 +4954,7 @@ GenTree* Compiler::abiMorphMultiRegCallArg(CallArgInfo* argInfo, GenTreeCall* ar
         }
     }
 
-    GenTree* store = gtNewStoreLclVar(storeLcl, storeType, arg);
+    GenTreeLclStore* store = gtNewLclStore(storeLcl, storeType, arg);
 
     GenTreeFieldList::Use* firstUse = fieldList->Uses().GetHead();
     firstUse->SetNode(gtNewCommaNode(store, firstUse->GetNode()));
@@ -5353,7 +5353,7 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
         {
             LclVarDsc* arrayTmpLcl = lvaNewTemp(array->GetType(), true DEBUGARG("arr expr"));
 
-            arrayTmpStore = gtNewStoreLclVar(arrayTmpLcl, array->GetType(), array);
+            arrayTmpStore = gtNewLclStore(arrayTmpLcl, array->GetType(), array);
 
             array  = gtNewLclvNode(arrayTmpLcl, array->GetType());
             array2 = gtNewLclvNode(arrayTmpLcl, array->GetType());
@@ -5384,7 +5384,7 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
             var_types  indexTmpType = varActualType(index->GetType());
             LclVarDsc* indexTmpLcl  = lvaNewTemp(indexTmpType, true DEBUGARG("index expr"));
 
-            indexTmpStore = gtNewStoreLclVar(indexTmpLcl, indexTmpType, index);
+            indexTmpStore = gtNewLclStore(indexTmpLcl, indexTmpType, index);
 
             index  = gtNewLclvNode(indexTmpLcl, indexTmpType);
             index2 = gtNewLclvNode(indexTmpLcl, indexTmpType);
@@ -6960,21 +6960,21 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
                 LclVarDsc* lcl = lvaNewTemp(objp->GetType(), true DEBUGARG("tail call thisptr"));
 
                 // tmp = "this"
-                doBeforeStoreArgsStub = gtNewStoreLclVar(lcl, objp->GetType(), objp);
+                doBeforeStoreArgsStub = gtNewLclStore(lcl, objp->GetType(), objp);
 
                 if (callNeedsNullCheck)
                 {
                     // COMMA(tmp = "this", deref(tmp))
-                    GenTree* tmp          = gtNewLclvNode(lcl, objp->TypeGet());
+                    GenTree* tmp          = gtNewLclLoad(lcl, objp->GetType());
                     GenTree* nullcheck    = gtNewNullCheck(tmp);
                     doBeforeStoreArgsStub = gtNewCommaNode(doBeforeStoreArgsStub, nullcheck);
                 }
 
-                thisPtr = gtNewLclvNode(lcl, objp->TypeGet());
+                thisPtr = gtNewLclLoad(lcl, objp->GetType());
 
                 if (stubNeedsThisPtr)
                 {
-                    thisPtrStubArg = gtNewLclvNode(lcl, objp->TypeGet());
+                    thisPtrStubArg = gtNewLclLoad(lcl, objp->GetType());
                 }
             }
             else
@@ -7147,7 +7147,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
 
         var_types tmpRetBufType = tmpRetBufLcl->TypeGet();
 
-        retValArg = gtNewLclVarAddrNode(tmpRetBufLcl);
+        retValArg = gtNewLclAddr(tmpRetBufLcl);
 
         LclVarDsc* retBuffLcl       = lvaGetDesc(info.compRetBuffArg);
         var_types  callerRetBufType = retBuffLcl->GetType();
@@ -7198,7 +7198,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
             retVal->gtFlags |= GTF_DONT_CSE;
         }
 
-        retValArg = gtNewLclVarAddrNode(newRetLcl);
+        retValArg = gtNewLclAddr(newRetLcl);
     }
     else
     {
@@ -7221,7 +7221,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
         lvaRetAddrVar = lcl->GetLclNum();
     }
 
-    GenTree* retAddrSlot           = gtNewLclVarAddrNode(lvaGetDesc(lvaRetAddrVar));
+    GenTree* retAddrSlot           = gtNewLclAddr(lvaGetDesc(lvaRetAddrVar));
     callDispatcherNode->gtCallArgs = gtPrependNewCallArg(retAddrSlot, callDispatcherNode->gtCallArgs);
 
     GenTree* finalTree = callDispatcherNode;
@@ -7413,10 +7413,10 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
             // TODO-MIKE-Review: fgMorphArgs freaks out when it sees side effects and adds
             // another temp for this argument...
             // What we probably want is to have fgMorphArgs deal with this.
-            GenTree* asg = gtNewLclStore(lcl, thisArg->GetType(), thisArg);
-            newThisArg   = gtNewCommaNode(asg, gtNewLclLoad(lcl, thisArg->GetType()));
+            GenTree* store = gtNewLclStore(lcl, thisArg->GetType(), thisArg);
 
-            thisArg = newThisArg;
+            newThisArg = gtNewCommaNode(store, gtNewLclLoad(lcl, thisArg->GetType()));
+            thisArg    = newThisArg;
         }
 
         // The runtime requires that we perform a null check on the `this` argument before tail
@@ -7442,9 +7442,10 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
                 // TODO-MIKE-Review: The NULLCHECK gets added in the wrong place, in the first
                 // argument tree. This means it happens before other arguments are evaluated,
                 // instead of happening after, right before the call.
-                GenTree* asg = gtNewStoreLclVar(lcl, thisArg->GetType(), thisArg);
-                newThisArg   = gtNewCommaNode(asg, gtNewNullCheck(gtNewLclvNode(lcl, thisArg->GetType())));
-                newThisArg   = gtNewCommaNode(newThisArg, gtNewLclvNode(lcl, thisArg->GetType()));
+                GenTreeLclStore* store = gtNewLclStore(lcl, thisArg->GetType(), thisArg);
+
+                newThisArg = gtNewCommaNode(store, gtNewNullCheck(gtNewLclvNode(lcl, thisArg->GetType())));
+                newThisArg = gtNewCommaNode(newThisArg, gtNewLclvNode(lcl, thisArg->GetType()));
             }
             else
             {
@@ -7695,8 +7696,8 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
     if (!info.compIsStatic && (lvaThisLclNum != info.GetThisParamLclNum()))
     {
         LclVarDsc* thisParamLcl = lvaGetDesc(info.GetThisParamLclNum());
-        GenTree*   value        = gtNewLclvNode(thisParamLcl, thisParamLcl->GetType());
-        GenTree*   store        = gtNewStoreLclVar(lvaGetDesc(lvaThisLclNum), thisParamLcl->GetType(), value);
+        GenTree*   value        = gtNewLclLoad(thisParamLcl, thisParamLcl->GetType());
+        GenTree*   store        = gtNewLclStore(lvaGetDesc(lvaThisLclNum), thisParamLcl->GetType(), value);
         fgInsertStmtBefore(block, paramAssignmentInsertionPoint, gtNewStmt(store, callILOffset));
     }
 
@@ -7785,7 +7786,7 @@ void Compiler::fgMorphCreateLclInit(LclVarDsc* lcl, BasicBlock* block, Statement
         init = gtNewIconNode(0);
     }
 
-    init = gtNewStoreLclVar(lcl, lclType, init);
+    init = gtNewLclStore(lcl, lclType, init);
 
     if (lcl->IsAddressExposed())
     {
@@ -7861,16 +7862,16 @@ Statement* Compiler::fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,
             // doesn't involve any caller parameters.
             LclVarDsc* tmpLcl = lvaNewTemp(arg->GetType(), true DEBUGARG("arg temp"));
 
-            GenTree*   tmpStore     = gtNewStoreLclVar(tmpLcl, arg->GetType(), arg);
-            Statement* tmpStoreStmt = gtNewStmt(tmpStore, callILOffset);
+            GenTreeLclStore* tmpStore     = gtNewLclStore(tmpLcl, arg->GetType(), arg);
+            Statement*       tmpStoreStmt = gtNewStmt(tmpStore, callILOffset);
             fgInsertStmtBefore(block, tmpStoreInsertionPoint, tmpStoreStmt);
-            argInTemp = gtNewLclvNode(tmpLcl, arg->GetType());
+            argInTemp = gtNewLclLoad(tmpLcl, arg->GetType());
         }
 
         // Now store the temp to the parameter.
         assert(originalArgLcl->IsParam());
-        GenTree* paramStore = gtNewStoreLclVar(originalArgLcl, originalArgLcl->GetType(), argInTemp);
-        paramStoreStmt      = gtNewStmt(paramStore, callILOffset);
+        GenTreeLclStore* paramStore = gtNewLclStore(originalArgLcl, originalArgLcl->GetType(), argInTemp);
+        paramStoreStmt              = gtNewStmt(paramStore, callILOffset);
 
         fgInsertStmtBefore(block, paramStoreInsertionPoint, paramStoreStmt);
     }
@@ -8953,7 +8954,7 @@ GenTree* Compiler::fgMorphPromoteVecStore(GenTreeLclVarCommon* store, LclVarDsc*
             fieldSrc = gtNewSimdGetElementNode(src->GetType(), TYP_FLOAT, src, gtNewIconNode(fieldIndex));
         }
 
-        fieldStores[i] = gtNewStoreLclVar(fieldLcl, TYP_FLOAT, fieldSrc);
+        fieldStores[i] = gtNewLclStore(fieldLcl, TYP_FLOAT, fieldSrc);
     }
 
     return fgMorphPromoteStore(store, tempStore, fieldStores, fieldCount);
@@ -9473,8 +9474,8 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
             if (addrSpillLcl == nullptr)
             {
                 addrSpillLcl = lvaNewTemp(addr->GetType(), true DEBUGARG("promoted struct address"));
-                addrStore    = gtNewStoreLclVar(addrSpillLcl, addr->GetType(), addr);
-                addr         = gtNewLclvNode(addrSpillLcl, addr->GetType());
+                addrStore    = gtNewLclStore(addrSpillLcl, addr->GetType(), addr);
+                addr         = gtNewLclLoad(addrSpillLcl, addr->GetType());
             }
         }
 
@@ -14267,7 +14268,7 @@ void Compiler::fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
 
     assert(varTypeIsI(dstType));
 
-    trueExpr = gtNewStoreLclVar(dstLcl, dstType, trueExpr);
+    trueExpr = gtNewLclStore(dstLcl, dstType, trueExpr);
     fgInsertStmtAtEnd(asgBlock, gtNewStmt(trueExpr, stmt->GetILOffsetX()));
 
     // Since we are adding helper in the JTRUE false path, reverse the cond2 and add the helper.
@@ -14279,7 +14280,7 @@ void Compiler::fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
     }
     else
     {
-        true2Expr = gtNewStoreLclVar(dstLcl, dstType, true2Expr);
+        true2Expr = gtNewLclStore(dstLcl, dstType, true2Expr);
     }
 
     fgInsertStmtAtEnd(helperBlock, gtNewStmt(true2Expr, stmt->GetILOffsetX()));
@@ -14495,12 +14496,12 @@ void Compiler::fgExpandQmarkStmt(BasicBlock* block, Statement* stmt)
 
         if (hasTrueExpr)
         {
-            trueExpr = gtNewStoreLclVar(lcl, lclType, trueExpr);
+            trueExpr = gtNewLclStore(lcl, lclType, trueExpr);
         }
 
         if (hasFalseExpr)
         {
-            falseExpr = gtNewStoreLclVar(lcl, lclType, falseExpr);
+            falseExpr = gtNewLclStore(lcl, lclType, falseExpr);
         }
     }
 

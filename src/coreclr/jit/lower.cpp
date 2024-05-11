@@ -474,7 +474,7 @@ GenTree* Lowering::LowerSwitch(GenTreeUnOp* node)
         GenTree*   value = node->GetOp(0);
         var_types  type  = varActualType(value->GetType());
         LclVarDsc* lcl   = comp->lvaNewTemp(type, true DEBUGARG("unused switch value temp"));
-        GenTree*   store = comp->gtNewStoreLclVar(lcl, type, value);
+        GenTree*   store = comp->gtNewLclStore(lcl, type, value);
 
         switchBBRange.InsertAfter(node, store);
         switchBBRange.Remove(node);
@@ -1678,7 +1678,7 @@ void Lowering::RehomeParamForFastTailCall(LclVarDsc* paramLcl,
                 }
             }
 
-            GenTree* store = comp->gtNewStoreLclVar(tmpLcl, type, value);
+            GenTreeLclStore* store = comp->gtNewLclStore(tmpLcl, type, value);
             BlockRange().InsertBefore(insertTempBefore, value, store);
 
             if (type == TYP_STRUCT)
@@ -2328,11 +2328,13 @@ void Lowering::LowerStructCall(GenTreeCall* call)
 // HFAs that somehow got truncated etc.
 GenTree* Lowering::SpillStructCall(GenTreeCall* call, GenTree* user)
 {
-    LclVarDsc* lcl   = comp->lvaNewTemp(call->GetRetLayout(), true DEBUGARG("odd struct call return temp"));
-    GenTree*   store = comp->gtNewStoreLclVar(lcl, lcl->GetType(), call);
-    GenTree*   load  = comp->gtNewLclvNode(lcl, lcl->GetType());
+    LclVarDsc* lcl = comp->lvaNewTemp(call->GetRetLayout(), true DEBUGARG("odd struct call return temp"));
+
+    GenTreeLclStore* store = comp->gtNewLclStore(lcl, lcl->GetType(), call);
+    GenTreeLclLoad*  load  = comp->gtNewLclLoad(lcl, lcl->GetType());
     BlockRange().InsertAfter(call, store);
     BlockRange().InsertBefore(user, load);
+
     return load;
 }
 
@@ -2351,7 +2353,7 @@ void Lowering::LowerIndirectVirtualStubCall(GenTreeCall* call)
     // fgMorphArgs will have created trees to pass the address in VirtualStubParam.reg.
     // All we have to do here is add an indirection to generate the actual call target.
 
-    GenTree* ind = comp->gtNewIndir(TYP_I_IMPL, call->gtCallAddr);
+    GenTreeIndLoad* ind = comp->gtNewIndLoad(TYP_I_IMPL, call->gtCallAddr);
     BlockRange().InsertAfter(call->gtCallAddr, ind);
     call->gtCallAddr = ind;
 }
@@ -2631,8 +2633,8 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* ins
     {
         assert(vtabOffsOfIndirection != CORINFO_VIRTUALCALL_NO_CHUNK);
 
-        LclVarDsc* mtTempLcl   = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("vtbl call MT"));
-        GenTree*   mtTempStore = comp->gtNewStoreLclVar(mtTempLcl, TYP_I_IMPL, mt);
+        LclVarDsc*       mtTempLcl   = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("vtbl call MT"));
+        GenTreeLclStore* mtTempStore = comp->gtNewLclStore(mtTempLcl, TYP_I_IMPL, mt);
         BlockRange().InsertBefore(insertBefore, mtTempStore);
 
         GenTree* mtTempUse1    = comp->gtNewLclvNode(mtTempLcl, TYP_I_IMPL);
@@ -2647,8 +2649,8 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* ins
         GenTree* slotAddr      = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, chunkBaseAddr, chunkOffs, 1, 0);
         BlockRange().InsertBefore(insertBefore, mtTempUse2, offs, chunkBaseAddr, slotAddr);
 
-        LclVarDsc* slotAddrTempLcl   = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("vtbl call slot addr"));
-        GenTree*   slotAddrTempStore = comp->gtNewStoreLclVar(slotAddrTempLcl, TYP_I_IMPL, slotAddr);
+        LclVarDsc*       slotAddrTempLcl   = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("vtbl call slot addr"));
+        GenTreeLclStore* slotAddrTempStore = comp->gtNewLclStore(slotAddrTempLcl, TYP_I_IMPL, slotAddr);
         BlockRange().InsertBefore(insertBefore, slotAddrTempStore);
 
         GenTree* slotAddrTempUse1 = comp->gtNewLclvNode(slotAddrTempLcl, TYP_I_IMPL);
@@ -2941,7 +2943,7 @@ void Lowering::InsertPInvokeMethodProlog()
 
     GenTreeCall* pInvokeInitFrame = comp->gtNewHelperCallNode(CORINFO_HELP_INIT_PINVOKE_FRAME, TYP_I_IMPL, argList);
     LIR::InsertHelperCallBefore(comp, firstBlockRange, insertionPoint, pInvokeInitFrame);
-    GenTree* store = comp->gtNewStoreLclVar(pInvokeFrameListLcl, TYP_I_IMPL, pInvokeInitFrame);
+    GenTreeLclStore* store = comp->gtNewLclStore(pInvokeFrameListLcl, TYP_I_IMPL, pInvokeInitFrame);
     firstBlockRange.InsertBefore(insertionPoint, store);
 
 #if !defined(TARGET_X86) && !defined(TARGET_ARM)
@@ -3074,7 +3076,7 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
     if (comp->opts.ShouldUsePInvokeHelpers())
     {
         // First argument is the address of the frame variable.
-        GenTree* frameAddr = comp->gtNewLclVarAddrNode(pInvokeFrameLcl);
+        GenTree* frameAddr = comp->gtNewLclAddr(pInvokeFrameLcl);
         comp->lvaSetAddressExposed(pInvokeFrameLcl);
 
 #if defined(TARGET_X86) && !defined(UNIX_X86_ABI)
@@ -3220,7 +3222,7 @@ void Lowering::InsertPInvokeCallEpilog(GenTreeCall* call)
 
     if (comp->opts.ShouldUsePInvokeHelpers())
     {
-        GenTreeCall::Use* args = comp->gtNewCallArgs(comp->gtNewLclVarAddrNode(pInvokeFrameLcl));
+        GenTreeCall::Use* args = comp->gtNewCallArgs(comp->gtNewLclAddr(pInvokeFrameLcl));
         comp->lvaSetAddressExposed(pInvokeFrameLcl);
         GenTreeCall* pInvokeEnd = comp->gtNewHelperCallNode(CORINFO_HELP_JIT_PINVOKE_END, TYP_VOID, args);
         LIR::InsertHelperCallBefore(comp, BlockRange(), call->gtNext, pInvokeEnd);

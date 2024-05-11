@@ -2242,7 +2242,6 @@ struct Importer
     Statement* gtNewStmt(GenTree* expr = nullptr, IL_OFFSETX offset = BAD_IL_OFFSET);
 
     GenTreeLclVar* gtNewLclvNode(LclVarDsc* lcl, var_types type);
-    GenTreeLclAddr* gtNewLclVarAddrNode(LclVarDsc* lcl, var_types type = TYP_I_IMPL);
     GenTreeIntCon* gtNewIconNode(ssize_t value, var_types type = TYP_INT);
     GenTreeIntCon* gtNewIconNode(unsigned fieldOffset, FieldSeqNode* fieldSeq);
     GenTree* gtNewLconNode(int64_t value);
@@ -2909,18 +2908,6 @@ public:
         return gtNewLclLoad(lcl, type);
     }
 
-    // [[deprecated]]
-    GenTreeLclStore* gtNewStoreLclVar(LclVarDsc* lcl, var_types type, GenTree* value)
-    {
-        return gtNewLclStore(lcl, type, value);
-    }
-
-    // [[deprecated]]
-    GenTreeLclAddr* gtNewLclVarAddrNode(LclVarDsc* lcl, var_types type = TYP_I_IMPL)
-    {
-        return gtNewLclAddr(lcl, type);
-    }
-
     GenTreeUnOp* gtNewBitCastNode(var_types type, GenTree* arg);
 
     GenTreeIndLoadObj* gtNewObjNode(ClassLayout* layout, GenTree* addr);
@@ -3016,7 +3003,7 @@ public:
     GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call);
 
     GenTreeIndir* gtNewIndir(var_types type, GenTree* addr);
-    GenTreeIndir* gtNewIndLoad(var_types type, GenTree* addr);
+    GenTreeIndLoad* gtNewIndLoad(var_types type, GenTree* addr);
     GenTreeIndStore* gtNewIndStore(var_types type, GenTree* addr, GenTree* value);
     GenTreeFlags gtGetIndirExceptionFlags(GenTree* addr);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset);
@@ -4484,7 +4471,7 @@ public:
 private:
     Statement* fgInsertStmtListAfter(BasicBlock* block, Statement* stmtAfter, Statement* stmtList);
 
-    GenTreeLclVar* fgInsertCommaFormTemp(GenTree** use);
+    GenTreeLclLoad* fgInsertCommaFormTemp(GenTree** use);
     GenTree* fgMakeMultiUse(GenTree** ppTree);
 
 private:

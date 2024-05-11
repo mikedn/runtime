@@ -5695,7 +5695,7 @@ void Compiler::optAddCopies()
             noway_assert((varDsc->lvDefStmt == nullptr) || varDsc->IsPromotedField());
 
             // Create a new copy store tree
-            GenTree* copyAsgn = gtNewStoreLclVar(copyLcl, typ, gtNewLclvNode(varDsc, typ));
+            GenTreeLclStore* copyAsgn = gtNewLclStore(copyLcl, typ, gtNewLclLoad(varDsc, typ));
 
             // Find the best block to insert the new store
             // We will choose the lowest weighted block, and within

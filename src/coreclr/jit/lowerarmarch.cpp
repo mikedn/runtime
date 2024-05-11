@@ -781,11 +781,11 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     {
         if (!vec->isContained())
         {
-            LclVarDsc* tempLcl = GetSimdMemoryTemp(vec->GetType());
-            GenTree*   store   = comp->gtNewStoreLclVar(tempLcl, vec->GetType(), vec);
+            LclVarDsc*       tempLcl = GetSimdMemoryTemp(vec->GetType());
+            GenTreeLclStore* store   = comp->gtNewLclStore(tempLcl, vec->GetType(), vec);
             BlockRange().InsertAfter(vec, store);
 
-            vec = comp->gtNewLclvNode(tempLcl, vec->GetType());
+            vec = comp->gtNewLclLoad(tempLcl, vec->GetType());
             BlockRange().InsertBefore(node, vec);
             node->SetOp(0, vec);
             vec->SetContained();

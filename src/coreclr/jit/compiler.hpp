@@ -585,7 +585,7 @@ inline GenTreeIndir* Compiler::gtNewIndir(var_types type, GenTree* addr)
     return new (this, GT_IND_LOAD) GenTreeIndLoad(type, addr);
 }
 
-inline GenTreeIndir* Compiler::gtNewIndLoad(var_types type, GenTree* addr)
+inline GenTreeIndLoad* Compiler::gtNewIndLoad(var_types type, GenTree* addr)
 {
     assert(varTypeIsI(addr->GetType()));
 

@@ -1357,7 +1357,7 @@ private:
             // The offset is too large to store in a LCL_FLD_ADDR node,
             // use ADD(LCL_VAR_ADDR, offset) instead.
             addr->ChangeOper(GT_ADD);
-            addr->AsOp()->SetOp(0, m_compiler->gtNewLclVarAddrNode(varDsc));
+            addr->AsOp()->SetOp(0, m_compiler->gtNewLclAddr(varDsc));
             addr->AsOp()->SetOp(1, m_compiler->gtNewIconNode(val.Offset(), val.FieldSeq()));
         }
         else if ((val.Offset() != 0) || ((val.FieldSeq() != nullptr) && (val.FieldSeq() != FieldSeqStore::NotAField())))

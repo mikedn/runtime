@@ -9391,7 +9391,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
 
         DISPSTMT(storeStmt);
 
-        return gtNewLclVarAddrNode(boxTempLcl, TYP_BYREF);
+        return gtNewLclAddr(boxTempLcl, TYP_BYREF);
     }
 
     GenTree* boxedValue = store->AsIndir()->GetValue();

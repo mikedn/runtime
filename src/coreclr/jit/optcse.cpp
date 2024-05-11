@@ -2291,7 +2291,7 @@ public:
                 }
                 else
                 {
-                    GenTreeLclVar* store = compiler->gtNewStoreLclVar(lcl, lclType, defExpr);
+                    GenTreeLclStore* store = compiler->gtNewLclStore(lcl, lclType, defExpr);
                     store->AddSideEffects(defExpr->GetSideEffects());
                     store->SetVNP(defExpr->GetVNP());
 

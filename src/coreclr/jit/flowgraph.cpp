@@ -897,8 +897,8 @@ void Compiler::fgInsertMonitorCall(BasicBlock*     block,
     assert((block->bbJumpKind == BBJ_NONE) || (block->bbJumpKind == BBJ_RETURN) ||
            (block->bbJumpKind == BBJ_EHFINALLYRET));
 
-    GenTree* monitor  = thisLcl == nullptr ? gtNewStaticMethodMonitorAddr() : gtNewLclvNode(thisLcl, TYP_REF);
-    GenTree* acquired = gtNewLclVarAddrNode(acquiredLcl);
+    GenTree* monitor  = thisLcl == nullptr ? gtNewStaticMethodMonitorAddr() : gtNewLclLoad(thisLcl, TYP_REF);
+    GenTree* acquired = gtNewLclAddr(acquiredLcl);
     GenTree* call     = gtNewHelperCallNode(helper, TYP_VOID, gtNewCallArgs(monitor, acquired));
 
     JITDUMPTREE(call, "\nSynchronized method - Add monitor call to block " FMT_BB "\n", block->bbNum);
@@ -999,7 +999,7 @@ void Compiler::fgAddReversePInvokeEnterExit()
 
     // Add enter pinvoke exit callout at the start of prolog
 
-    GenTree*        pInvokeFrameVar = gtNewLclVarAddrNode(frameLcl);
+    GenTreeLclAddr* pInvokeFrameVar = gtNewLclAddr(frameLcl);
     CorInfoHelpFunc reversePInvokeEnterHelper;
 
     GenTreeCall::Use* args;
@@ -1047,7 +1047,7 @@ void Compiler::fgAddReversePInvokeEnterExit()
 
     // Add reverse pinvoke exit callout at the end of epilog
 
-    tree = gtNewLclVarAddrNode(frameLcl);
+    tree = gtNewLclAddr(frameLcl);
 
     CorInfoHelpFunc reversePInvokeExitHelper = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TRACK_TRANSITIONS)
                                                    ? CORINFO_HELP_JIT_REVERSE_PINVOKE_EXIT_TRACK_TRANSITIONS

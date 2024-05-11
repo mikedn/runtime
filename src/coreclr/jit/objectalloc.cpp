@@ -877,7 +877,7 @@ void ObjectAllocator::RewriteUses()
                 if (m_allocator->m_HeapLocalToStackLocalMap.TryGetValue(lclNum, &newLclNum))
                 {
                     newType = TYP_I_IMPL;
-                    tree    = m_compiler->gtNewLclVarAddrNode(m_compiler->lvaGetDesc(newLclNum), newType);
+                    tree    = m_compiler->gtNewLclAddr(m_compiler->lvaGetDesc(newLclNum), newType);
                     *use    = tree;
                 }
                 else
