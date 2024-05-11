@@ -3919,7 +3919,7 @@ GenTreeIndir* Compiler::gtNewIndOfIconHandleNode(var_types type, size_t addr, Ha
 {
     assert((handleKind != HandleKind::Static) && (handleKind != HandleKind::String));
 
-    GenTreeIndir* load = gtNewIndir(type, gtNewIconHandleNode(addr, handleKind));
+    GenTreeIndir* load = gtNewIndLoad(type, gtNewIconHandleNode(addr, handleKind));
     load->gtFlags |= GTF_IND_NONFAULTING;
 
     if (invariant)
@@ -3962,7 +3962,7 @@ GenTree* Compiler::gtNewConstLookupTree(void*      value,
         assert(valueAddr != nullptr);
 
         addrNode  = gtNewIconHandleNode(valueAddr, handleKind);
-        valueNode = gtNewIndir(TYP_I_IMPL, addrNode);
+        valueNode = gtNewIndLoad(TYP_I_IMPL, addrNode);
         valueNode->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
     }
 
@@ -4015,7 +4015,7 @@ GenTree* Compiler::gtNewStringLiteralNode(InfoAccessType iat, void* addr)
         case IAT_PVALUE:
             str = gtNewIconHandleNode(addr, HandleKind::String);
             str->AsIntCon()->SetDumpHandle(addr);
-            str = gtNewIndir(TYP_REF, str);
+            str = gtNewIndLoad(TYP_REF, str);
             // TODO-MIKE-Review: GTF_GLOB_REF is dubious here (and below). The reference stored
             // in memory may change, if the string is moved by the GC, but it's the same string.
             // Hilariously, GTF_IND_INVARIANT is set too and having both set is nonsense.
@@ -4026,8 +4026,8 @@ GenTree* Compiler::gtNewStringLiteralNode(InfoAccessType iat, void* addr)
 
         case IAT_PPVALUE:
             str = gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(addr), HandleKind::ConstData, true);
-            str->AsIndir()->GetAddr()->AsIntCon()->SetDumpHandle(addr);
-            str = gtNewIndir(TYP_REF, str);
+            str->AsIndLoad()->GetAddr()->AsIntCon()->SetDumpHandle(addr);
+            str = gtNewIndLoad(TYP_REF, str);
             str->gtFlags |= GTF_IND_NONFAULTING | GTF_GLOB_REF;
             break;
 
@@ -11815,9 +11815,9 @@ bool Compiler::gtIsStaticGCBaseHelperCall(GenTree* tree)
 
 GenTreeFlags Compiler::gtGetIndirExceptionFlags(GenTree* addr)
 {
-    // TODO-MIKE-Cleanup: This should probably be merged with gtNewIndir, but
-    // there are a gazillion calls to gtNewIndir that do their own thing (or
-    // don't do it all?!?)
+    // TODO-MIKE-Cleanup: This should probably be merged with gtNewIndLoad,
+    // but there are a gazillion calls to gtNewIndLoad that do their own thing
+    // (or don't do it all?!?)
 
     return fgAddrCouldBeNull(addr) ? GTF_EXCEPT : GTF_IND_NONFAULTING;
 }

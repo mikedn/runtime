@@ -2477,9 +2477,9 @@ GenTree* Lowering::ExpandConstLookupCallTarget(const CORINFO_CONST_LOOKUP& entry
         return addr;
     }
 
-    GenTree* load = comp->gtNewIndir(TYP_I_IMPL, addr);
+    GenTree* load = comp->gtNewIndLoad(TYP_I_IMPL, addr);
     BlockRange().InsertBefore(insertBefore, load);
-    ContainCheckIndir(load->AsIndir());
+    ContainCheckIndir(load->AsIndLoad());
 
     if (entryPoint.accessType == IAT_PVALUE)
     {
@@ -2489,9 +2489,9 @@ GenTree* Lowering::ExpandConstLookupCallTarget(const CORINFO_CONST_LOOKUP& entry
     if (entryPoint.accessType == IAT_PPVALUE)
     {
         // TODO-CQ: Expanding earlier would allow CSEing of the first load which is invariant.
-        load = comp->gtNewIndir(TYP_I_IMPL, load);
+        load = comp->gtNewIndLoad(TYP_I_IMPL, load);
         BlockRange().InsertBefore(insertBefore, load);
-        ContainCheckIndir(load->AsIndir());
+        ContainCheckIndir(load->AsIndLoad());
 
         return load;
     }
@@ -2624,9 +2624,9 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* ins
 #endif
 
     GenTree* mtAddr = new (comp, GT_LEA) GenTreeAddrMode(thisUse, VPTR_OFFS);
-    GenTree* mt     = comp->gtNewIndir(TYP_I_IMPL, mtAddr);
+    GenTree* mt     = comp->gtNewIndLoad(TYP_I_IMPL, mtAddr);
     BlockRange().InsertBefore(insertBefore, thisUse, mtAddr, mt);
-    ContainCheckIndir(mt->AsIndir());
+    ContainCheckIndir(mt->AsIndLoad());
 
     // TODO-MIKE-Cleanup: This is dead code.
     if (isRelative)
@@ -2639,7 +2639,7 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* ins
 
         GenTree* mtTempUse1    = comp->gtNewLclLoad(mtTempLcl, TYP_I_IMPL);
         GenTree* chunkOffsAddr = new (comp, GT_LEA) GenTreeAddrMode(mtTempUse1, vtabOffsOfIndirection);
-        GenTree* chunkOffs     = comp->gtNewIndir(TYP_I_IMPL, chunkOffsAddr);
+        GenTree* chunkOffs     = comp->gtNewIndLoad(TYP_I_IMPL, chunkOffsAddr);
         BlockRange().InsertBefore(insertBefore, mtTempUse1, chunkOffsAddr, chunkOffs);
         ContainCheckIndir(chunkOffs->AsIndir());
 
@@ -2658,7 +2658,7 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* ins
         GenTree* slotAddrTempUse2 = comp->gtNewLclLoad(slotAddrTempLcl, TYP_I_IMPL);
         GenTree* target           = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, codeOffs, slotAddrTempUse2);
         BlockRange().InsertBefore(insertBefore, slotAddrTempUse1, codeOffs, slotAddrTempUse2, target);
-        ContainCheckIndir(codeOffs->AsIndir());
+        ContainCheckIndir(codeOffs->AsIndLoad());
 
         return target;
     }
@@ -2672,15 +2672,15 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* ins
     else
     {
         GenTree* chunkAddrAddr = new (comp, GT_LEA) GenTreeAddrMode(mt, vtabOffsOfIndirection);
-        chunkAddr              = comp->gtNewIndir(TYP_I_IMPL, chunkAddrAddr);
+        chunkAddr              = comp->gtNewIndLoad(TYP_I_IMPL, chunkAddrAddr);
         BlockRange().InsertBefore(insertBefore, chunkAddrAddr, chunkAddr);
-        ContainCheckIndir(chunkAddr->AsIndir());
+        ContainCheckIndir(chunkAddr->AsIndLoad());
     }
 
-    GenTree* slotAddr = new (comp, GT_LEA) GenTreeAddrMode(chunkAddr, vtabOffsAfterIndirection);
-    GenTree* target   = comp->gtNewIndir(TYP_I_IMPL, slotAddr);
+    GenTree*        slotAddr = new (comp, GT_LEA) GenTreeAddrMode(chunkAddr, vtabOffsAfterIndirection);
+    GenTreeIndLoad* target   = comp->gtNewIndLoad(TYP_I_IMPL, slotAddr);
     BlockRange().InsertBefore(insertBefore, slotAddr, target);
-    ContainCheckIndir(target->AsIndir());
+    ContainCheckIndir(target);
 
     return target;
 }
@@ -2727,10 +2727,10 @@ GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call X86_ARG(GenTree* inser
     insertBefore               = insertBefore == nullptr ? call : insertBefore;
 #endif
 
-    GenTreeIntCon* addr   = comp->gtNewIconHandleNode(call->gtStubCallStubAddr, HandleKind::MethodAddr);
-    GenTree*       target = comp->gtNewIndir(TYP_I_IMPL, addr);
+    GenTreeIntCon*  addr   = comp->gtNewIconHandleNode(call->gtStubCallStubAddr, HandleKind::MethodAddr);
+    GenTreeIndLoad* target = comp->gtNewIndLoad(TYP_I_IMPL, addr);
     BlockRange().InsertBefore(insertBefore, addr, target);
-    ContainCheckIndir(target->AsIndir());
+    ContainCheckIndir(target);
 
     return target;
 }
@@ -2772,10 +2772,10 @@ void Lowering::InsertReturnTrap(GenTree* before)
     {
         GenTree* trapAddrAddr = comp->gtNewIconHandleNode(pAddrOfCaptureThreadGlobal, HandleKind::MethodAddr);
         BlockRange().InsertBefore(before, trapAddrAddr);
-        trapAddr = comp->gtNewIndir(TYP_I_IMPL, trapAddrAddr);
+        trapAddr = comp->gtNewIndLoad(TYP_I_IMPL, trapAddrAddr);
     }
 
-    GenTree* trapValue = comp->gtNewIndir(TYP_INT, trapAddr);
+    GenTree* trapValue = comp->gtNewIndLoad(TYP_INT, trapAddr);
     GenTree* trap      = comp->gtNewOperNode(GT_RETURNTRAP, TYP_INT, trapValue);
 
     BlockRange().InsertBefore(before, trapAddr, trapValue, trap);
@@ -3144,7 +3144,7 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
         {
             GenTree* srcAddr = comp->gtNewIconHandleNode(pEmbedMethodHandle, HandleKind::MethodAddr);
             BlockRange().InsertBefore(src, srcAddr);
-            src = comp->gtNewIndir(TYP_I_IMPL, srcAddr);
+            src = comp->gtNewIndLoad(TYP_I_IMPL, srcAddr);
         }
     }
 

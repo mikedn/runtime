@@ -4751,7 +4751,7 @@ GenTree* Compiler::abiMorphMultiRegObjArg(CallArgInfo* argInfo, GenTreeIndLoadOb
                 regAddr->gtFlags |= GTF_DONT_CSE;
             }
 
-            regIndir = gtNewIndir(regType, regAddr);
+            regIndir = gtNewIndLoad(regType, regAddr);
             regIndir->gtFlags |= GTF_GLOB_REF | gtGetIndirExceptionFlags(regAddr);
         }
         else
@@ -4835,7 +4835,7 @@ GenTree* Compiler::abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsig
             addr = gtNewOperNode(GT_ADD, varTypeAddrAdd(addr->GetType()), addr, gtNewIconNode(offset, TYP_I_IMPL));
             addr->gtFlags |= GTF_DONT_CSE;
         }
-        GenTreeIndir* indir = gtNewIndir(type, addr);
+        GenTreeIndir* indir = gtNewIndLoad(type, addr);
         indir->gtFlags |= GTF_GLOB_REF | gtGetIndirExceptionFlags(addr);
         return indir;
     };
@@ -7303,7 +7303,7 @@ GenTree* Compiler::getRuntimeLookupTree(CORINFO_RUNTIME_LOOKUP_KIND kind,
 
         if (i != 0)
         {
-            result = gtNewIndir(TYP_I_IMPL, result);
+            result = gtNewIndLoad(TYP_I_IMPL, result);
             result->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
         }
 
@@ -7324,7 +7324,7 @@ GenTree* Compiler::getRuntimeLookupTree(CORINFO_RUNTIME_LOOKUP_KIND kind,
     {
         assert(!lookup.testForFixup);
 
-        result = gtNewIndir(TYP_I_IMPL, result);
+        result = gtNewIndLoad(TYP_I_IMPL, result);
         result->gtFlags |= GTF_IND_NONFAULTING;
     }
 
@@ -8141,7 +8141,7 @@ GenTree* Compiler::fgExpandVirtualVtableCallTarget(GenTreeCall* call)
 
     // Dereference the this pointer to obtain the method table, it is called vtab below
     static_assert_no_msg(VPTR_OFFS == 0);
-    GenTree* vtab = gtNewIndir(TYP_I_IMPL, thisPtr);
+    GenTree* vtab = gtNewIndLoad(TYP_I_IMPL, thisPtr);
     vtab->gtFlags |= GTF_IND_INVARIANT;
 
     GenTree* result;
@@ -8178,7 +8178,7 @@ GenTree* Compiler::fgExpandVirtualVtableCallTarget(GenTreeCall* call)
             // [tmp + vtabOffsOfIndirection]
             GenTree* tmpTree1 = gtNewOperNode(GT_ADD, TYP_I_IMPL, gtNewLclLoad(varNum1, TYP_I_IMPL),
                                               gtNewIconNode(vtabOffsOfIndirection, TYP_I_IMPL));
-            tmpTree1 = gtNewIndir(TYP_I_IMPL, tmpTree1);
+            tmpTree1 = gtNewIndLoad(TYP_I_IMPL, tmpTree1);
             tmpTree1->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
 
             // var1 + vtabOffsOfIndirection + vtabOffsAfterIndirection
@@ -8190,7 +8190,7 @@ GenTree* Compiler::fgExpandVirtualVtableCallTarget(GenTreeCall* call)
             tmpTree2         = gtNewOperNode(GT_ADD, TYP_I_IMPL, tmpTree2, tmpTree1);
             GenTree* asgVar2 = gtNewLclStore(varNum2, TYP_I_IMPL, tmpTree2);
 
-            result = gtNewIndir(TYP_I_IMPL, gtNewLclLoad(varNum2, TYP_I_IMPL)); // [var2]
+            result = gtNewIndLoad(TYP_I_IMPL, gtNewLclLoad(varNum2, TYP_I_IMPL)); // [var2]
             // This last indirection is not invariant.
             result->gtFlags |= GTF_IND_NONFAULTING;
 
@@ -8201,7 +8201,7 @@ GenTree* Compiler::fgExpandVirtualVtableCallTarget(GenTreeCall* call)
         {
             // result = [vtab + vtabOffsOfIndirection]
             result = gtNewOperNode(GT_ADD, TYP_I_IMPL, vtab, gtNewIconNode(vtabOffsOfIndirection, TYP_I_IMPL));
-            result = gtNewIndir(TYP_I_IMPL, result);
+            result = gtNewIndLoad(TYP_I_IMPL, result);
             result->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
         }
     }
@@ -8216,7 +8216,7 @@ GenTree* Compiler::fgExpandVirtualVtableCallTarget(GenTreeCall* call)
         // Load the function address
         // result = [result + vtabOffsAfterIndirection]
         result = gtNewOperNode(GT_ADD, TYP_I_IMPL, result, gtNewIconNode(vtabOffsAfterIndirection, TYP_INT));
-        result = gtNewIndir(TYP_I_IMPL, result);
+        result = gtNewIndLoad(TYP_I_IMPL, result);
         // This last indirection is not invariant.
         result->gtFlags |= GTF_IND_NONFAULTING;
     }
@@ -8311,7 +8311,7 @@ GenTree* Compiler::fgMorphLeaf(GenTree* tree)
                 DEBUG_DESTROY_NODE(tree);
                 tree = gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(entry.addr), HandleKind::ConstData,
                                                 true);
-                tree = gtNewIndir(TYP_I_IMPL, tree);
+                tree = gtNewIndLoad(TYP_I_IMPL, tree);
                 tree->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
                 return fgMorphTree(tree);
             case IAT_PVALUE:

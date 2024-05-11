@@ -2989,7 +2989,6 @@ public:
 
     GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call);
 
-    GenTreeIndir* gtNewIndir(var_types type, GenTree* addr);
     GenTreeIndLoad* gtNewIndLoad(var_types type, GenTree* addr);
     GenTreeIndStore* gtNewIndStore(var_types type, GenTree* addr, GenTree* value);
     GenTreeFlags gtGetIndirExceptionFlags(GenTree* addr);

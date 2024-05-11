@@ -262,7 +262,7 @@ private:
             elseBlock = CreateBasicBlock(BBJ_NONE, thenBlock);
 
             GenTree* fixedFptrAddress  = GetFixedFptrAddress();
-            GenTree* actualCallAddress = compiler->gtNewIndir(pointerType, fixedFptrAddress);
+            GenTree* actualCallAddress = compiler->gtNewIndLoad(pointerType, fixedFptrAddress);
             GenTree* hiddenArgument    = GetHiddenArgument(compiler->gtCloneExpr(fixedFptrAddress));
 
             Statement* fatStmt = CreateFatCallStmt(actualCallAddress, hiddenArgument);
@@ -280,8 +280,8 @@ private:
         {
             GenTree* wordSize             = compiler->gtNewIconNode(varTypeSize(TYP_I_IMPL), TYP_I_IMPL);
             GenTree* hiddenArgumentPtrPtr = compiler->gtNewOperNode(GT_ADD, pointerType, fixedFptrAddress, wordSize);
-            GenTree* hiddenArgumentPtr    = compiler->gtNewIndir(pointerType, hiddenArgumentPtrPtr);
-            return compiler->gtNewIndir(fixedFptrAddress->GetType(), hiddenArgumentPtr);
+            GenTree* hiddenArgumentPtr    = compiler->gtNewIndLoad(pointerType, hiddenArgumentPtrPtr);
+            return compiler->gtNewIndLoad(fixedFptrAddress->GetType(), hiddenArgumentPtr);
         }
 
         Statement* CreateFatCallStmt(GenTree* actualCallAddress, GenTree* hiddenArgument) const

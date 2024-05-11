@@ -305,7 +305,7 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
     // and the location is formally unknown, so the load should not be optimized thus
     // no special flags are needed.
 
-    GenTreeIndir* indir = gtNewIndir(TYP_INT, addr);
+    GenTreeIndir* indir = gtNewIndLoad(TYP_INT, addr);
     indir->gtFlags |= GTF_IND_NONFAULTING | GTF_GLOB_REF;
     GenTree* trapEq = gtNewOperNode(GT_EQ, TYP_INT, indir, gtNewIconNode(0, TYP_INT));
     trapEq->gtFlags |= GTF_RELOP_JMP_USED | GTF_DONT_CSE;
@@ -1740,7 +1740,7 @@ void Compiler::fgAddInternal()
         if ((jmcFlag != nullptr) || (jmcFlagAddr != nullptr))
         {
             GenTree* embNode        = gtNewConstLookupTree(jmcFlag, jmcFlagAddr, HandleKind::MutableData, nullptr);
-            GenTree* guardCheckVal  = gtNewIndir(TYP_INT, embNode);
+            GenTree* guardCheckVal  = gtNewIndLoad(TYP_INT, embNode);
             GenTree* guardCheckCond = gtNewOperNode(GT_EQ, TYP_INT, guardCheckVal, gtNewIconNode(0));
             GenTree* callback       = gtNewHelperCallNode(CORINFO_HELP_DBG_IS_JUST_MY_CODE, TYP_VOID);
 

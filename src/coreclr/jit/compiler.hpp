@@ -578,13 +578,6 @@ inline GenTree* Compiler::gtNewNullCheck(GenTree* addr)
     return new (this, GT_NULLCHECK) GenTreeNullCheck(addr);
 }
 
-inline GenTreeIndir* Compiler::gtNewIndir(var_types type, GenTree* addr)
-{
-    assert(varTypeIsI(addr->GetType()));
-
-    return new (this, GT_IND_LOAD) GenTreeIndLoad(type, addr);
-}
-
 inline GenTreeIndLoad* Compiler::gtNewIndLoad(var_types type, GenTree* addr)
 {
     assert(varTypeIsI(addr->GetType()));
@@ -673,7 +666,7 @@ inline GenTreeCast* Compiler::gtNewCastNode(GenTree* op1, bool fromUnsigned, var
 
 inline GenTreeIndir* Compiler::gtNewMethodTableLookup(GenTree* object)
 {
-    GenTreeIndir* result = gtNewIndir(TYP_I_IMPL, object);
+    GenTreeIndir* result = gtNewIndLoad(TYP_I_IMPL, object);
     // TODO-MIKE-Review: In theory we could avoid setting GTF_EXCEPT when
     // the object is a string literal or a boxed struct used for static
     // struct fields. fgAddrCouldBeNull checks for those but it's overkill
