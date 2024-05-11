@@ -2386,9 +2386,9 @@ RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int re
     Interval* interval;
     bool      regOptional = operand->IsRegOptional();
 
-    if (isCandidateLclVar(operand))
+    if (IsRegCandidateLclLoad(operand))
     {
-        interval = getIntervalForLocalVarNode(operand->AsLclVar());
+        interval = getIntervalForLocalVarNode(operand->AsLclLoad());
 
         // We have only approximate last-use information at this point.  This is because the
         // execution order doesn't actually reflect the true order in which the localVars
@@ -2411,12 +2411,12 @@ RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int re
     }
     else if (operand->IsMultiRegLclVar())
     {
-        LclVarDsc* lcl      = operand->AsLclVar()->GetLcl();
+        LclVarDsc* lcl      = operand->AsLclLoad()->GetLcl();
         LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(regIndex));
 
         interval = getIntervalForLocalVar(fieldLcl->GetLivenessBitIndex());
 
-        if (operand->AsLclVar()->IsLastUse(regIndex))
+        if (operand->AsLclLoad()->IsLastUse(regIndex))
         {
             VarSetOps::RemoveElemD(compiler, currentLiveVars, fieldLcl->GetLivenessBitIndex());
         }
@@ -2479,11 +2479,13 @@ void LinearScan::BuildDelayFreeUse(GenTree* op, GenTree* rmwNode, regMaskTP cand
     Interval* rmwInterval  = nullptr;
     bool      rmwIsLastUse = false;
 
-    if ((rmwNode != nullptr) && isCandidateLclVar(rmwNode))
+    if ((rmwNode != nullptr) && IsRegCandidateLclLoad(rmwNode))
     {
-        rmwInterval = getIntervalForLocalVarNode(rmwNode->AsLclVar());
-        assert(!rmwNode->AsLclVar()->IsMultiReg());
-        rmwIsLastUse = rmwNode->AsLclVar()->IsLastUse(0);
+        GenTreeLclLoad* load = rmwNode->AsLclLoad();
+
+        rmwInterval = getIntervalForLocalVarNode(load);
+        assert(!load->IsMultiReg());
+        rmwIsLastUse = load->IsLastUse(0);
     }
 
     if ((use->getInterval() != rmwInterval) || (!rmwIsLastUse && !use->lastUse))
@@ -2627,7 +2629,7 @@ void LinearScan::BuildLclStoreFld(GenTreeLclStoreFld* store)
 {
     if (store->TypeIs(TYP_STRUCT))
     {
-        ClassLayout*    layout = store->AsLclFld()->GetLayout(compiler);
+        ClassLayout*    layout = store->GetLayout(compiler);
         StructStoreKind kind   = GetStructStoreKind(true, layout, store->GetValue());
         BuildStructStore(store, kind, layout);
 
@@ -2930,7 +2932,7 @@ void LinearScan::BuildPutArgReg(GenTreeUnOp* putArg)
 
     bool isSpecialPutArg = false;
 
-    if (supportsSpecialPutArg() && isCandidateLclVar(src) && ((src->gtFlags & GTF_VAR_DEATH) == 0))
+    if (supportsSpecialPutArg() && IsRegCandidateLclLoad(src) && ((src->gtFlags & GTF_VAR_DEATH) == 0))
     {
         // This is the case for a "pass-through" copy of a lclVar.  In the case where it is a non-last-use,
         // we don't want the def of the copy to kill the lclVar register, if it is assigned the same register

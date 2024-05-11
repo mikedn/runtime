@@ -2242,8 +2242,8 @@ void Lowering::LowerRetSingleRegStructLclVar(GenTreeUnOp* ret)
     assert(ret->OperIs(GT_RETURN));
     assert(comp->info.retDesc.GetRegCount() == 1);
 
-    GenTreeLclVar* lclVar = ret->GetOp(0)->AsLclVar();
-    LclVarDsc*     lcl    = lclVar->GetLcl();
+    GenTreeLclLoad* lclVar = ret->GetOp(0)->AsLclLoad();
+    LclVarDsc*      lcl    = lclVar->GetLcl();
 
     if (lcl->TypeIs(TYP_STRUCT))
     {
@@ -2541,7 +2541,7 @@ GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call X86_ARG(GenTree* insert
 
         // TODO-MIKE-Review: Should the LCL_LOAD be an assert instead?
         // OLD code had an assert but also checked for IsLocal, go figure...
-        lcl = delegateThis->AsLclVar()->GetLcl();
+        lcl = delegateThis->AsLclLoad()->GetLcl();
     }
     else
 #endif
@@ -2596,12 +2596,12 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* ins
 
     if (thisPtr->OperIs(GT_LCL_LOAD))
     {
-        thisUse = comp->gtNewLclLoad(thisPtr->AsLclVar()->GetLcl(), thisPtr->GetType());
+        thisUse = comp->gtNewLclLoad(thisPtr->AsLclLoad()->GetLcl(), thisPtr->GetType());
     }
     else if (thisPtr->OperIs(GT_LCL_LOAD_FLD))
     {
-        thisUse =
-            comp->gtNewLclLoadFld(thisPtr->GetType(), thisPtr->AsLclFld()->GetLcl(), thisPtr->AsLclFld()->GetLclOffs());
+        thisUse = comp->gtNewLclLoadFld(thisPtr->GetType(), thisPtr->AsLclLoadFld()->GetLcl(),
+                                        thisPtr->AsLclLoadFld()->GetLclOffs());
     }
     else
     {
@@ -3821,11 +3821,11 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
                 // divisor UMOD dividend = dividend SUB (div MUL divisor)
                 GenTree* divisor = comp->gtNewIconNode(divisorValue, type);
                 GenTree* mul     = comp->gtNewOperNode(GT_MUL, type, mulhi, divisor);
-                dividend         = comp->gtNewLclvNode(dividend->AsLclVar()->GetLcl(), dividend->TypeGet());
+                dividend         = comp->gtNewLclLoad(dividend->AsLclLoad()->GetLcl(), dividend->GetType());
 
                 divMod->SetOper(GT_SUB);
-                divMod->gtOp1 = dividend;
-                divMod->gtOp2 = mul;
+                divMod->SetOp(0, dividend);
+                divMod->SetOp(1, mul);
 
                 BlockRange().InsertBefore(divMod, divisor, mul, dividend);
                 ContainCheckMul(mul->AsOp());
@@ -3982,7 +3982,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
 
         if (requiresAddSubAdjust)
         {
-            dividend = comp->gtNewLclvNode(dividend->AsLclVar()->GetLcl(), dividend->TypeGet());
+            dividend = comp->gtNewLclLoad(dividend->AsLclLoad()->GetLcl(), dividend->GetType());
             adjusted = comp->gtNewOperNode(divisorValue > 0 ? GT_ADD : GT_SUB, type, mulhi, dividend);
             BlockRange().InsertBefore(divMod, dividend, adjusted);
         }
@@ -3997,7 +3997,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
 
         LIR::Use adjustedUse(BlockRange(), &signBit->AsOp()->gtOp1, signBit);
         adjusted = ReplaceWithLclVar(adjustedUse);
-        adjusted = comp->gtNewLclvNode(adjusted->AsLclVar()->GetLcl(), adjusted->TypeGet());
+        adjusted = comp->gtNewLclvNode(adjusted->AsLclLoad()->GetLcl(), adjusted->GetType());
         BlockRange().InsertBefore(divMod, adjusted);
 
         if (requiresShiftAdjust)
@@ -4010,14 +4010,14 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
         if (isDiv)
         {
             divMod->SetOperRaw(GT_ADD);
-            divMod->AsOp()->gtOp1 = adjusted;
-            divMod->AsOp()->gtOp2 = signBit;
+            divMod->AsOp()->SetOp(0, adjusted);
+            divMod->AsOp()->SetOp(1, signBit);
         }
         else
         {
             GenTree* div = comp->gtNewOperNode(GT_ADD, type, adjusted, signBit);
 
-            dividend = comp->gtNewLclvNode(dividend->AsLclVar()->GetLcl(), dividend->TypeGet());
+            dividend = comp->gtNewLclvNode(dividend->AsLclLoad()->GetLcl(), dividend->GetType());
 
             // divisor % dividend = dividend - divisor x div
             GenTree* divisor = comp->gtNewIconNode(divisorValue, type);
@@ -4025,8 +4025,8 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
             BlockRange().InsertBefore(divMod, dividend, div, divisor, mul);
 
             divMod->SetOperRaw(GT_SUB);
-            divMod->AsOp()->gtOp1 = dividend;
-            divMod->AsOp()->gtOp2 = mul;
+            divMod->AsOp()->SetOp(0, dividend);
+            divMod->AsOp()->SetOp(1, mul);
         }
 
         return mulhi;
@@ -4074,7 +4074,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
         adjustment = mask;
     }
 
-    dividend                    = comp->gtNewLclvNode(dividend->AsLclVar()->GetLcl(), dividend->GetType());
+    dividend                    = comp->gtNewLclLoad(dividend->AsLclLoad()->GetLcl(), dividend->GetType());
     GenTreeOp* adjustedDividend = comp->gtNewOperNode(GT_ADD, type, adjustment, dividend);
     BlockRange().InsertAfter(adjustment, dividend, adjustedDividend);
     ContainCheckBinary(adjustedDividend);
@@ -4104,10 +4104,10 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
         // divisor % dividend = dividend - divisor x (dividend / divisor)
         // divisor x (dividend / divisor) translates to (dividend >> log2(divisor)) << log2(divisor)
         // which simply discards the low log2(divisor) bits, that's just dividend & ~(divisor - 1)
-        divisor->AsIntCon()->SetIconValue(~(absDivisorValue - 1));
+        divisor->AsIntCon()->SetValue(~(absDivisorValue - 1));
 
         GenTreeOp* mask = comp->gtNewOperNode(GT_AND, type, adjustedDividend, divisor);
-        dividend        = comp->gtNewLclvNode(dividend->AsLclVar()->GetLcl(), dividend->GetType());
+        dividend        = comp->gtNewLclLoad(dividend->AsLclLoad()->GetLcl(), dividend->GetType());
         newDivMod       = comp->gtNewOperNode(GT_SUB, type, dividend, mask);
 
         BlockRange().InsertAfter(adjustedDividend, divisor, mask, dividend, newDivMod);

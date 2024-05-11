@@ -3406,7 +3406,7 @@ void Compiler::abiMorphArgs2ndPass(GenTreeCall* call)
 
             if (arg->OperIs(GT_LCL_LOAD))
             {
-                abiMorphStackLclArgPromoted(argInfo, arg->AsLclVar());
+                abiMorphStackLclArgPromoted(argInfo, arg->AsLclLoad());
             }
             continue;
         }
@@ -3605,7 +3605,7 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 
         arg->SetType(argRegType);
 
-        lvaSetDoNotEnregister(arg->AsLclFld()->GetLcl() DEBUGARG(DNER_LocalField));
+        lvaSetDoNotEnregister(arg->AsLclLoadFld()->GetLcl() DEBUGARG(DNER_LocalField));
     }
 }
 
@@ -3723,7 +3723,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
             var_types newArgType      = TYP_INT;
 #endif
 
-            GenTree* field = gtNewLclvNode(fieldLcl, fieldLcl->GetType());
+            GenTree* field = gtNewLclLoad(fieldLcl, fieldLcl->GetType());
 
             if (varTypeIsSmall(fieldLcl->GetType()))
             {
@@ -3756,7 +3756,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
                     var_types type = varTypeToUnsigned(field->GetType());
 
 #if LOCAL_ASSERTION_PROP
-                    if ((morphAssertionCount == 0) || !morphAssertionIsTypeRange(field->AsLclVar(), type))
+                    if ((morphAssertionCount == 0) || !morphAssertionIsTypeRange(field->AsLclLoad(), type))
 #endif
                     {
                         field->SetType(TYP_INT);
@@ -4112,7 +4112,7 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, const Ab
             continue;
         }
 
-        GenTree*  fieldValue  = gtNewLclvNode(lvaGetDesc(map.fields[i].lclNum), map.fields[i].type);
+        GenTree*  fieldValue  = gtNewLclLoad(lvaGetDesc(map.fields[i].lclNum), map.fields[i].type);
         var_types fieldType   = map.fields[i].type;
         unsigned  fieldOffset = map.fields[i].offset;
 
@@ -4177,7 +4177,7 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, const Ab
                 assert(extractOffset % 4 == 0);
 
                 regValue   = NewExtractVectorElement(fieldType, TYP_FLOAT, fieldValue, extractOffset / 4);
-                fieldValue = gtNewLclvNode(fieldValue->AsLclVar()->GetLcl(), fieldType);
+                fieldValue = gtNewLclLoad(fieldValue->AsLclLoad()->GetLcl(), fieldType);
                 fieldValue = NewExtractVectorElement(fieldType, TYP_FLOAT, fieldValue, extractOffset / 4 + 1);
 
                 fieldOffset = regOffset + 4;
@@ -7135,7 +7135,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
 
         assert(info.compRetBuffArg != BAD_VAR_NUM);
 
-        assert(retBufArg->AsLclVar()->GetLcl()->GetLclNum() == info.compRetBuffArg);
+        assert(retBufArg->AsLclLoad()->GetLcl()->GetLclNum() == info.compRetBuffArg);
 
         // Caller return buffer argument retBufArg can point to GC heap while the dispatcher expects
         // the return value argument retValArg to point to the stack.
@@ -7152,9 +7152,9 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
         LclVarDsc* retBuffLcl       = lvaGetDesc(info.compRetBuffArg);
         var_types  callerRetBufType = retBuffLcl->GetType();
 
-        GenTree* dstAddr = gtNewLclvNode(retBuffLcl, callerRetBufType);
+        GenTree* dstAddr = gtNewLclLoad(retBuffLcl, callerRetBufType);
         GenTree* dst     = gtNewObjNode(origCall->GetRetLayout(), dstAddr);
-        GenTree* src     = gtNewLclvNode(tmpRetBufLcl, tmpRetBufType);
+        GenTree* src     = gtNewLclLoad(tmpRetBufLcl, tmpRetBufType);
 
         copyToRetBufNode         = dst;
         copyToRetBufNode->gtOper = copyToRetBufNode->TypeIs(TYP_STRUCT) ? GT_IND_STORE_OBJ : GT_IND_STORE;
@@ -8944,12 +8944,12 @@ GenTree* Compiler::fgMorphPromoteVecStore(GenTreeLclVarCommon* store, LclVarDsc*
         }
         else
         {
-            src = gtNewLclLoad(src->AsLclVar()->GetLcl(), src->GetType());
+            src = gtNewLclLoad(src->AsLclLoad()->GetLcl(), src->GetType());
             // TODO-MIKE-Cleanup: If the source is DNER we should create a LCL_FLD instead.
             // Or maybe copy it to a temp to avoid generating multiple loads, that would
             // work well when we have extractps, but if we don't know how the value was
             // stored to memory in the first place we risk blocking store forwarding.
-            src->AddSideEffects(src->AsLclVar()->GetLcl()->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
+            src->AddSideEffects(src->AsLclLoad()->GetLcl()->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
             fieldSrc = gtNewSimdGetElementNode(src->GetType(), TYP_FLOAT, src, gtNewIconNode(fieldIndex));
         }
 
@@ -9121,7 +9121,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
         // During CSE we may see COMMA(..., LCL_VAR) but neither the CSE temp
         // nor the store destination are expected to be promoted so we don't
         // need to do anything, we'll just keep the struct copy as is.
-        assert(src->SkipComma()->IsLclUse() || !src->SkipComma()->AsLclVar()->GetLcl()->IsPromoted());
+        assert(src->SkipComma()->IsLclUse() || !src->SkipComma()->AsLclLoad()->GetLcl()->IsPromoted());
         assert((destLcl == nullptr) || !destLcl->IsIndependentPromoted());
     }
     else if (!src->OperIs(GT_IND_LOAD_OBJ))
@@ -9339,9 +9339,9 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
                 baseFieldSeq = nullptr;
             }
         }
-        else if (FieldSeqNode* fieldSeq = load->AsLclFld()->GetFieldSeq())
+        else if (FieldSeqNode* fieldSeq = load->AsLclLoadFld()->GetFieldSeq())
         {
-            if (fieldSeq->IsField() && (load->AsLclFld()->GetLayout(this) == promotedLcl->GetLayout()))
+            if (fieldSeq->IsField() && (load->AsLclLoadFld()->GetLayout(this) == promotedLcl->GetLayout()))
             {
                 baseFieldSeq = fieldSeq;
             }
@@ -9466,7 +9466,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
                 {
                     assert(addr->GetSideEffects() == GTF_NONE);
 
-                    addrSpillLcl = addr->AsLclVar()->GetLcl();
+                    addrSpillLcl = addr->AsLclLoad()->GetLcl();
                 }
             }
 

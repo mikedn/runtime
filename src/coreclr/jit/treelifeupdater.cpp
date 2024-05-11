@@ -364,7 +364,7 @@ void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarC
     unsigned lclOffset    = 0;
     unsigned lclEndOffset = lcl->TypeIs(TYP_STRUCT) ? lcl->GetLayout()->GetSize() : varTypeSize(lcl->GetType());
 
-    if (GenTreeLclFld* lclFld = lclNode->IsLclFld())
+    if (GenTreeLclFld* lclFld = lclNode->IsLclStoreFld())
     {
         lclOffset    = lclFld->GetLclOffs();
         lclEndOffset = lclOffset + (lclFld->TypeIs(TYP_STRUCT) ? lclFld->GetLayout(compiler)->GetSize()

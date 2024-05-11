@@ -7988,7 +7988,7 @@ inline var_types GenTree::GetMultiRegType(Compiler* compiler, unsigned regIndex)
         // TODO-MIKE-Review: Hmm, what about Vector2/3/4?
         assert(TypeIs(TYP_STRUCT));
 
-        return AsLclVar()->GetMultiRegType(compiler, regIndex);
+        return AsLclStore()->GetMultiRegType(compiler, regIndex);
     }
 
     unreached();

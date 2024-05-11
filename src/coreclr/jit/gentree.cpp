@@ -1048,7 +1048,7 @@ AGAIN:
             case GT_LCL_LOAD:
                 return op1->AsLclLoad()->GetLcl() == op2->AsLclLoad()->GetLcl();
             case GT_LCL_LOAD_FLD:
-                return GenTreeLclFld::Equals(op1->AsLclFld(), op2->AsLclFld());
+                return GenTreeLclLoadFld::Equals(op1->AsLclLoadFld(), op2->AsLclLoadFld());
             case GT_LCL_ADDR:
                 return GenTreeLclAddr::Equals(op1->AsLclAddr(), op2->AsLclAddr());
             case GT_CLS_VAR_ADDR:
@@ -6447,13 +6447,13 @@ void Compiler::gtDispNode(GenTree* tree)
         ClassLayout* layout = nullptr;
         LclVarDsc*   lcl    = nullptr;
 
-        if (tree->OperIs(GT_IND_LOAD_BLK, GT_IND_LOAD_OBJ, GT_IND_STORE_BLK, GT_IND_STORE_OBJ))
+        if (GenTreeBlk* blk = tree->IsBlk())
         {
             layout = tree->AsBlk()->GetLayout();
         }
-        else if (tree->OperIs(GT_LCL_LOAD, GT_LCL_STORE))
+        else if (GenTreeLclVar* lclVar = tree->IsLclVar())
         {
-            lcl = tree->AsLclVar()->GetLcl();
+            lcl = lclVar->GetLcl();
         }
         else if (GenTreeLclDef* def = tree->IsLclDef())
         {
@@ -6465,7 +6465,7 @@ void Compiler::gtDispNode(GenTree* tree)
         }
         else if (GenTreeLclFld* lclFld = tree->IsLclFld())
         {
-            layout = tree->AsLclFld()->GetLayout(this);
+            layout = lclFld->GetLayout(this);
         }
         else if (GenTreeCall* call = tree->IsCall())
         {
@@ -11086,7 +11086,7 @@ GenTreeLclVar* GenTree::IsImplicitByrefIndir(Compiler* compiler)
         // will block fast tail calls for calls like "CALL(param.b)" when
         // "b" is also a struct passed by implicit reference.
 
-        GenTreeLclVar* lclVar = AsIndir()->GetAddr()->AsLclVar();
+        GenTreeLclLoad* lclVar = AsIndir()->GetAddr()->AsLclLoad();
 
         if (lclVar->GetLcl()->IsImplicitByRefParam())
         {

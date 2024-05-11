@@ -1658,7 +1658,7 @@ static void DestroySsaUses(GenTreeLclDef* def)
 
             GenTree* load = use;
             load->SetOper(GT_LCL_LOAD);
-            load->AsLclVar()->SetLcl(lcl);
+            load->AsLclLoad()->SetLcl(lcl);
 
             use = nextUse;
         } while (use != uses);
@@ -1723,7 +1723,7 @@ static void DestroySsaDef(Compiler* compiler, GenTreeLclDef* def, Statement* stm
     else
     {
         store->SetOper(GT_LCL_STORE);
-        store->AsLclVar()->SetLcl(lcl);
+        store->AsLclStore()->SetLcl(lcl);
     }
 }
 
@@ -1746,7 +1746,7 @@ static void DestroyExtract(Statement* stmt, GenTreeExtract* extract)
     }
     else
     {
-        lcl = src->AsLclVar()->GetLcl();
+        lcl = src->AsLclLoad()->GetLcl();
     }
 
     FieldInfo field  = extract->GetField();

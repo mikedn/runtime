@@ -735,9 +735,9 @@ bool LoopCloneContext::DeriveLoopCloningConditions(unsigned loopNum)
         }
 
         // TODO-MIKE-Review: Why do we check for null "a" in a "a.Length" limit if GTF_RELOP_ZTT is required?
-        derefs.Emplace(array->AsLclVar()->GetLcl()->GetLclNum());
+        derefs.Emplace(array->AsLclLoad()->GetLcl()->GetLclNum());
 
-        limit = LcIdent(LcArray(LcArray::SZArray, array->AsLclVar()->GetLcl()->GetLclNum(), LcArray::ArrLen));
+        limit = LcIdent(LcArray(LcArray::SZArray, array->AsLclLoad()->GetLcl()->GetLclNum(), LcArray::ArrLen));
     }
 
     for (LcOptInfo* optInfo : *GetLoopOptInfo(loopNum))

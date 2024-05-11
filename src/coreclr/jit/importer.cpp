@@ -1085,13 +1085,13 @@ GenTree* Importer::impGetStructAddr(GenTree*             value,
 
     if (value->OperIs(GT_LCL_LOAD))
     {
-        return value->ChangeToLclAddr(TYP_BYREF, value->AsLclVar()->GetLcl());
+        return value->ChangeToLclAddr(TYP_BYREF, value->AsLclLoad()->GetLcl());
     }
 
     if (value->OperIs(GT_LCL_LOAD_FLD))
     {
-        return value->ChangeToLclAddr(TYP_BYREF, value->AsLclFld()->GetLcl(), value->AsLclFld()->GetLclOffs(),
-                                      value->AsLclFld()->GetFieldSeq());
+        return value->ChangeToLclAddr(TYP_BYREF, value->AsLclLoadFld()->GetLcl(), value->AsLclLoadFld()->GetLclOffs(),
+                                      value->AsLclLoadFld()->GetFieldSeq());
     }
 
     if (value->OperIs(GT_IND_LOAD_OBJ) && willDereference)
@@ -1121,7 +1121,7 @@ GenTree* Importer::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
             spillToTemp = arg->AsRetExpr()->GetCall()->GetRegCount() <= 1;
             break;
         case GT_LCL_LOAD:
-            assert(arg->GetType() == arg->AsLclVar()->GetLcl()->GetType());
+            assert(arg->GetType() == arg->AsLclLoad()->GetLcl()->GetType());
             break;
 #ifdef FEATURE_SIMD
         case GT_IND_LOAD:
@@ -2359,7 +2359,7 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
                 {
                     GenTree* lowerBoundStore = comma->AsOp()->GetOp(0);
                     assert(Match::IsArgsFieldInit(lowerBoundStore, argIndex, newObjArrayArgsLcl));
-                    GenTree* lowerBoundNode = lowerBoundStore->AsLclFld()->GetOp(0);
+                    GenTree* lowerBoundNode = lowerBoundStore->AsLclStoreFld()->GetValue();
 
                     if (lowerBoundNode->IsIntegralConst(0))
                     {
@@ -2373,7 +2373,7 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
 
             GenTree* lengthNodeStore = comma->AsOp()->GetOp(0);
             assert(Match::IsArgsFieldInit(lengthNodeStore, argIndex, newObjArrayArgsLcl));
-            GenTree* lengthNode = lengthNodeStore->AsLclFld()->GetOp(0);
+            GenTree* lengthNode = lengthNodeStore->AsLclStoreFld()->GetValue();
 
             if (!lengthNode->IsIntCon())
             {
@@ -9393,7 +9393,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     // instead of getting a LCL_LOAD and changing it to LCL_ADDR.
                     op1 = inlUseArg(impInlineInfo, ilArgNum);
                     noway_assert(op1->OperIs(GT_LCL_LOAD));
-                    op1 = op1->ChangeToLclAddr(TYP_BYREF, op1->AsLclVar()->GetLcl());
+                    op1 = op1->ChangeToLclAddr(TYP_BYREF, op1->AsLclLoad()->GetLcl());
 
                     goto PUSH_ADRVAR;
                 }
@@ -11356,7 +11356,7 @@ void Importer::ImportRefAnyType()
     if (GenTreeLclLoad* load = op1->IsLclLoad())
     {
         op1 = comp->gtNewLclLoadFld(TYP_I_IMPL, load->GetLcl(), OFFSETOF__CORINFO_TypedReference__type);
-        op1->AsLclFld()->SetFieldSeq(GetRefanyTypeField());
+        op1->AsLclLoadFld()->SetFieldSeq(GetRefanyTypeField());
     }
     else
     {

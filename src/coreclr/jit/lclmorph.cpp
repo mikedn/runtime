@@ -2162,8 +2162,6 @@ private:
         }
         else
         {
-            assert(structLcl->OperIs(GT_LCL_LOAD));
-
             LclVarDsc*    lcl      = structLcl->GetLcl();
             FieldSeqNode* fieldSeq = GetFieldSequence(lcl->GetLayout()->GetClassHandle(), type, &fieldLayout);
 
@@ -2174,7 +2172,7 @@ private:
 
         if (varTypeIsSIMD(type) && (fieldLayout != nullptr) && (fieldLayout->GetSIMDType() == type))
         {
-            structLcl->AsLclFld()->SetLayout(fieldLayout, m_compiler);
+            structLcl->AsLclLoadFld()->SetLayout(fieldLayout, m_compiler);
         }
 
         return structLcl;
@@ -3566,8 +3564,9 @@ public:
 
         if (varTypeIsStruct(lclNode->GetType()))
         {
-            ClassLayout* layout = lclNode->OperIs(GT_LCL_LOAD) ? lclNode->GetLcl()->GetLayout()
-                                                               : lclNode->AsLclFld()->GetLayout(m_compiler);
+            ClassLayout* layout = lclNode->OperIs(GT_LCL_LOAD, GT_LCL_STORE)
+                                      ? lclNode->GetLcl()->GetLayout()
+                                      : lclNode->AsLclFld()->GetLayout(m_compiler);
 
             indir->ChangeOper(value == nullptr ? GT_IND_LOAD_OBJ : GT_IND_STORE_OBJ);
             indir->AsBlk()->SetLayout(layout);

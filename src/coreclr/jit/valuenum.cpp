@@ -3640,7 +3640,7 @@ ValueNum ValueNumbering::CoerceStoreValue(
     {
         ClassLayout* storeLayout;
 
-        if (GenTreeLclFld* lclFld = store->IsLclFld())
+        if (GenTreeLclFld* lclFld = store->IsLclStoreFld())
         {
             storeLayout = lclFld->GetLayout(compiler);
         }
@@ -3769,7 +3769,7 @@ ValueNum ValueNumbering::CoerceLoadValue(GenTree* load, ValueNum valueVN, var_ty
     {
         ClassLayout* loadLayout;
 
-        if (GenTreeLclFld* lclFld = load->IsLclFld())
+        if (GenTreeLclFld* lclFld = load->IsLclLoadFld())
         {
             loadLayout = lclFld->GetLayout(compiler);
         }

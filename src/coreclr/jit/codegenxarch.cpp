@@ -1060,9 +1060,9 @@ void CodeGen::genFloatReturn(GenTree* src)
     // Spill the return shift register from an XMM register to the stack, then load it on the x87 stack.
     // If it already has a home location, use that. Otherwise, we need a temp.
 
-    if (IsRegCandidateLclVar(src) && src->AsLclVar()->GetLcl()->lvOnFrame)
+    if (IsRegCandidateLclVar(src) && src->AsLclLoad()->GetLcl()->lvOnFrame)
     {
-        LclVarDsc*    srcLcl = src->AsLclVar()->GetLcl();
+        LclVarDsc*    srcLcl = src->AsLclLoad()->GetLcl();
         StackAddrMode s      = GetStackAddrMode(srcLcl, 0);
 
         if (srcLcl->GetRegNum() != REG_STK)
@@ -3706,7 +3706,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
 
         if (srcRegType == TYP_STRUCT)
         {
-            GenTreeLclVar* srcLclVar = src->AsLclVar();
+            GenTreeLclLoad* srcLclVar = src->AsLclLoad();
 
             srcRegType = srcLclVar->GetLcl()->GetRegisterType(srcLclVar);
         }
@@ -4307,12 +4307,12 @@ void CodeGen::genCodeForSwap(GenTreeOp* tree)
     // However, the gc-ness may change.
     assert(IsRegCandidateLclVar(tree->gtOp1) && IsRegCandidateLclVar(tree->gtOp2));
 
-    GenTreeLclVar* lcl1    = tree->gtOp1->AsLclVar();
-    LclVarDsc*     varDsc1 = lcl1->GetLcl();
-    var_types      type1   = varDsc1->TypeGet();
-    GenTreeLclVar* lcl2    = tree->gtOp2->AsLclVar();
-    LclVarDsc*     varDsc2 = lcl2->GetLcl();
-    var_types      type2   = varDsc2->TypeGet();
+    GenTreeLclLoad* lcl1    = tree->GetOp(0)->AsLclLoad();
+    LclVarDsc*      varDsc1 = lcl1->GetLcl();
+    var_types       type1   = varDsc1->GetType();
+    GenTreeLclLoad* lcl2    = tree->GetOp(1)->AsLclLoad();
+    LclVarDsc*      varDsc2 = lcl2->GetLcl();
+    var_types       type2   = varDsc2->GetType();
 
     // We must have both int or both fp regs
     assert(!varTypeUsesFloatReg(type1) || varTypeUsesFloatReg(type2));
@@ -6131,7 +6131,7 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
 
     if (src->isContained())
     {
-        LclVarDsc*  lcl = src->AsLclVar()->GetLcl();
+        LclVarDsc*  lcl = src->AsLclLoad()->GetLcl();
         instruction ins = ins_Load(dstType, IsSimdLocalAligned(lcl));
         GetEmitter()->emitIns_R_S(ins, emitTypeSize(dstType), dstReg, GetStackAddrMode(lcl, 0));
     }
@@ -6382,7 +6382,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
                 if (fieldNode->OperIs(GT_LCL_LOAD))
                 {
                     emit->emitIns_R_S(INS_mov, emitTypeSize(fieldNode->GetType()), intTmpReg,
-                                      GetStackAddrMode(fieldNode->AsLclVar()->GetLcl(), 0));
+                                      GetStackAddrMode(fieldNode->AsLclLoad()->GetLcl(), 0));
                 }
                 else
                 {

@@ -1114,11 +1114,11 @@ bool Compiler::inlImportReturn(Importer&            importer,
         else if (inlineInfo->iciCall->HasRetBufArg())
         {
             assert(inlineInfo->retExpr->OperIs(GT_IND_STORE_OBJ, GT_IND_STORE));
-            assert(inlineInfo->retExpr->AsIndir()->GetValue()->AsLclVar()->GetLcl() == lcl);
+            assert(inlineInfo->retExpr->AsIndir()->GetValue()->AsLclLoad()->GetLcl() == lcl);
         }
         else
         {
-            assert(inlineInfo->retExpr->AsLclVar()->GetLcl() == lcl);
+            assert(inlineInfo->retExpr->AsLclLoad()->GetLcl() == lcl);
         }
     }
 

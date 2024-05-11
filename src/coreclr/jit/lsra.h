@@ -709,9 +709,14 @@ private:
 
     void AddLiveParamRegs(LclVarDsc* lcl);
 
-    inline bool isCandidateLclVar(GenTree* tree)
+    bool isCandidateLclVar(GenTree* tree) const
     {
         return tree->OperIs(GT_LCL_LOAD, GT_LCL_STORE) && tree->AsLclVar()->GetLcl()->IsRegCandidate();
+    }
+
+    bool IsRegCandidateLclLoad(GenTree* tree) const
+    {
+        return tree->OperIs(GT_LCL_LOAD) && tree->AsLclLoad()->GetLcl()->IsRegCandidate();
     }
 
     // Helpers for getKillSetForNode().
@@ -747,17 +752,19 @@ private:
     void freeRegisters(regMaskTP regsToFree);
 
     // Get the type that this tree defines.
-    var_types getDefType(GenTree* tree)
+    var_types getDefType(GenTree* tree) const
     {
-        var_types type = tree->TypeGet();
+        var_types type = tree->GetType();
+
         if (type == TYP_STRUCT)
         {
-            assert(tree->OperIs(GT_LCL_LOAD, GT_LCL_STORE));
             GenTreeLclVar* lclVar = tree->AsLclVar();
 
             type = lclVar->GetLcl()->GetRegisterType(lclVar);
         }
-        assert(type != TYP_UNDEF && type != TYP_STRUCT);
+
+        assert((type != TYP_UNDEF) && (type != TYP_STRUCT));
+
         return type;
     }
 

@@ -295,9 +295,7 @@ private:
 
         GenTreeCall* GetCall(Statement* callStmt) const
         {
-            GenTree* tree = callStmt->GetRootNode();
-            assert(tree->OperIs(GT_LCL_STORE));
-            return tree->AsLclVar()->GetOp(0)->AsCall();
+            return callStmt->GetRootNode()->AsLclStore()->GetOp(0)->AsCall();
         }
 
         void AddHiddenArgument(GenTreeCall* fatCall, GenTree* hiddenArgument) const
@@ -900,7 +898,7 @@ private:
     public:
         ExpRuntimeLookupTransformer(Compiler* compiler, BasicBlock* block, Statement* stmt, GenTreeCall* call)
             : Transformer(compiler, block, stmt, call DEBUGARG("ExpRuntimeLookup"))
-            , resultLcl(stmt->GetRootNode()->AsLclVar()->GetLcl())
+            , resultLcl(stmt->GetRootNode()->AsLclStore()->GetLcl())
         {
             assert(resultLcl->TypeIs(TYP_I_IMPL));
         }

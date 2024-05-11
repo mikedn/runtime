@@ -796,9 +796,9 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
 
     if (src->isContained())
     {
-        assert(IsValidContainedLcl(src->AsLclVar()));
-        liveness.UpdateLife(this, src->AsLclVar());
-        StackAddrMode s      = GetStackAddrMode(src->AsLclVar()->GetLcl(), 0);
+        assert(IsValidContainedLcl(src->AsLclLoad()));
+        liveness.UpdateLife(this, src->AsLclLoad());
+        StackAddrMode s      = GetStackAddrMode(src->AsLclLoad()->GetLcl(), 0);
         regNumber     dstReg = bitcast->GetRegNum();
 
         GetEmitter()->Ins_R_S(ins_Load(dstType), emitTypeSize(dstType), dstReg, s);

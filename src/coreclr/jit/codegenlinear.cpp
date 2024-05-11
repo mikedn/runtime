@@ -929,7 +929,7 @@ regNumber CodeGen::UseRegCandidateLclVar(GenTreeLclVar* node)
     // because if it's on the stack it will always get reloaded into tree->GetRegNum()).
     if (lcl->GetRegNum() != REG_STK)
     {
-        var_types dstType = lcl->GetRegisterType(node->AsLclVar());
+        var_types dstType = lcl->GetRegisterType(node);
         inst_Mov(dstType, node->GetRegNum(), lcl->GetRegNum(), /* canSkip */ true);
     }
 

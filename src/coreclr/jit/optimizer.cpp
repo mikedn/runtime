@@ -786,8 +786,8 @@ bool Compiler::optIsLoopTestEvalIntoTemp(Statement* testStmt, Statement** newTes
     GenTree* opr1 = relop->GetOp(0);
     GenTree* opr2 = relop->GetOp(1);
 
-    // Make sure we have jtrue (vtmp != 0)
-    if (relop->OperIs(GT_NE) && opr1->OperIs(GT_LCL_LOAD) && opr2->OperIs(GT_CNS_INT) && opr2->IsIntCon(0))
+    // Make sure we have JTRUE (vtmp != 0)
+    if (relop->OperIs(GT_NE) && opr1->OperIs(GT_LCL_LOAD) && opr2->IsIntCon(0))
     {
         // Get the previous statement to get the def (rhs) of Vtmp to see
         // if the "test" is evaluated into Vtmp.
@@ -803,7 +803,7 @@ bool Compiler::optIsLoopTestEvalIntoTemp(Statement* testStmt, Statement** newTes
         {
             GenTree* value = tree->AsLclStore()->GetValue();
 
-            if ((tree->AsLclStore()->GetLcl() == opr1->AsLclVar()->GetLcl()))
+            if ((tree->AsLclStore()->GetLcl() == opr1->AsLclLoad()->GetLcl()))
             {
                 if (value->OperIsCompare())
                 {
@@ -3403,7 +3403,7 @@ PhaseStatus Compiler::phUnrollLoops()
             continue;
         }
 
-        incr = incr->AsLclVar()->GetOp(0);
+        incr = incr->AsLclStore()->GetValue();
 
         GenTree* init = initStmt->GetRootNode();
 

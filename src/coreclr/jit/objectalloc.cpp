@@ -513,7 +513,7 @@ bool ObjectAllocator::MorphAllocObjNodes()
 
             if (m_IsObjectStackAllocationEnabled)
             {
-                LclVarDsc* lcl    = allocExpr->AsLclVar()->GetLcl();
+                LclVarDsc* lcl    = allocExpr->AsLclStore()->GetLcl();
                 unsigned   lclNum = lcl->GetLclNum();
 
                 // Don't attempt to do stack allocations inside basic blocks that may be in a loop.
@@ -538,7 +538,7 @@ bool ObjectAllocator::MorphAllocObjNodes()
             }
 
             GenTree* allocCall = MorphAllocObjNodeIntoHelperCall(alloc);
-            allocExpr->AsLclVar()->SetOp(0, allocCall);
+            allocExpr->AsLclStore()->SetValue(allocCall);
             allocExpr->AddSideEffects(allocCall->GetSideEffects());
         }
     }
