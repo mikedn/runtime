@@ -1968,7 +1968,7 @@ private:
             value = RetypeStructIndir(value->AsIndLoadObj(), store->GetType());
         }
 
-        store->SetOp(0, value);
+        store->SetValue(value);
 
         INDEBUG(m_stmtModified = true;)
     }

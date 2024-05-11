@@ -295,7 +295,7 @@ private:
 
         GenTreeCall* GetCall(Statement* callStmt) const
         {
-            return callStmt->GetRootNode()->AsLclStore()->GetOp(0)->AsCall();
+            return callStmt->GetRootNode()->AsLclStore()->GetValue()->AsCall();
         }
 
         void AddHiddenArgument(GenTreeCall* fatCall, GenTree* hiddenArgument) const

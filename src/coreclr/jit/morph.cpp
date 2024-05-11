@@ -9050,7 +9050,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
 
             if (store->IsIndir())
             {
-                store->AsIndir()->SetOp(1, src);
+                store->AsIndir()->SetValue(src);
             }
             else
             {
@@ -9066,7 +9066,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
 
         if (store->IsIndir())
         {
-            store->AsIndir()->SetOp(1, src);
+            store->AsIndir()->SetValue(src);
         }
         else
         {
@@ -9737,7 +9737,7 @@ GenTree* Compiler::fgMorphNormalizeLclStore(GenTreeLclStore* store, GenTree* val
             if (gtIsSmallIntCastNeeded(value, lcl->GetType()))
             {
                 value = gtNewCastNode(value, false, lcl->GetType());
-                store->SetOp(0, value);
+                store->SetValue(value);
             }
         }
     }

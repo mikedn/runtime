@@ -1236,13 +1236,13 @@ inline LclVarDsc* Compiler::LoopDsc::lpIterVar() const
 inline int Compiler::LoopDsc::lpIterConst() const
 {
     INDEBUG(VerifyIterator());
-    return lpIterTree->GetOp(0)->AsOp()->GetOp(1)->AsIntCon()->GetInt32Value();
+    return lpIterTree->GetValue()->AsOp()->GetOp(1)->AsIntCon()->GetInt32Value();
 }
 
 inline genTreeOps Compiler::LoopDsc::lpIterOper() const
 {
     INDEBUG(VerifyIterator());
-    return lpIterTree->GetOp(0)->GetOper();
+    return lpIterTree->GetValue()->GetOper();
 }
 
 inline bool Compiler::LoopDsc::lpIsReversed() const

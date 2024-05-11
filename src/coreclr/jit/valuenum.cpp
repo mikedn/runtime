@@ -4130,7 +4130,7 @@ void ValueNumbering::NumberLclStoreFld(GenTreeLclStoreFld* store)
                                             vnStore->VNForFieldSeq(store->GetFieldSeq()));
     INDEBUG(vnStore->Trace(lclAddrVN));
 
-    ValueNum memVN = StoreAddressExposedLocal(store, lclAddrVN, store->GetOp(0));
+    ValueNum memVN = StoreAddressExposedLocal(store, lclAddrVN, store->GetValue());
     UpdateMemory(store, memVN DEBUGARG("address-exposed local store"));
 }
 

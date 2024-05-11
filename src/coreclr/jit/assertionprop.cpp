@@ -972,7 +972,7 @@ private:
         {
             if (op1->AsLclStore()->GetLcl() == op2->AsLclLoad()->GetLcl())
             {
-                return op1->AsLclStore()->GetOp(0);
+                return op1->AsLclStore()->GetValue();
             }
         }
         else if (op1->OperIs(GT_LCL_DEF) && op2->OperIs(GT_LCL_USE))

@@ -2562,7 +2562,7 @@ void Compiler::lvaComputeRefCountsHIR()
                 case GT_LCL_STORE:
 #if OPT_BOOL_OPS
                 {
-                    GenTree* value = node->AsLclStore()->GetOp(0);
+                    GenTree* value = node->AsLclStore()->GetValue();
 
                     if (!value->TypeIs(TYP_BOOL) && !value->OperIsCompare() && !value->IsIntegralConst(0) &&
                         !value->IsIntegralConst(1))

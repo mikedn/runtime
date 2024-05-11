@@ -3173,6 +3173,12 @@ struct GenTreeLclStore : GenTreeLclVar
         gtOp1 = value;
     }
 
+    GenTree* GetOp(unsigned index) const = delete;
+    void SetOp(unsigned index, GenTree* op) = delete;
+    GenTree* gtGetOp1() const          = delete;
+    GenTree* gtGetOp2() const          = delete;
+    GenTree* gtGetOp2IfPresent() const = delete;
+
 #if DEBUGGABLE_GENTREE
     GenTreeLclStore() = default;
 #endif
@@ -3309,6 +3315,12 @@ struct GenTreeLclStoreFld : public GenTreeLclFld
         assert(value != nullptr);
         gtOp1 = value;
     }
+
+    GenTree* GetOp(unsigned index) const = delete;
+    void SetOp(unsigned index, GenTree* op) = delete;
+    GenTree* gtGetOp1() const          = delete;
+    GenTree* gtGetOp2() const          = delete;
+    GenTree* gtGetOp2IfPresent() const = delete;
 
 #if DEBUGGABLE_GENTREE
     GenTreeLclStoreFld() = default;
@@ -6396,6 +6408,12 @@ protected:
 
 public:
     void SetExceptionFlags(Compiler* comp);
+
+    GenTree* GetOp(unsigned index) const = delete;
+    void SetOp(unsigned index, GenTree* op) = delete;
+    GenTree* gtGetOp1() const          = delete;
+    GenTree* gtGetOp2() const          = delete;
+    GenTree* gtGetOp2IfPresent() const = delete;
 
     GenTree* GetAddr() const
     {

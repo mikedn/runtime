@@ -445,7 +445,7 @@ GenTree* DecomposeLongs::DecomposeLclStore(LIR::Use& use)
     GenTreeLclStore* loStore = tree;
     loStore->SetType(TYP_INT);
     loStore->SetLcl(m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0)));
-    loStore->SetOp(0, value->GetOp(0));
+    loStore->SetValue(value->GetOp(0));
     GenTreeLclStore* hiStore =
         m_compiler->gtNewLclStore(m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(1)), TYP_INT, value->GetOp(1));
 

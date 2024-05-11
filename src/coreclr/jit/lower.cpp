@@ -1980,7 +1980,7 @@ void Lowering::LowerLclStore(GenTreeLclStore* store)
         else
         {
             GenTreeUnOp* bitcast = comp->gtNewBitCastNode(store->GetType(), src);
-            store->SetOp(0, bitcast);
+            store->SetValue(bitcast);
             BlockRange().InsertBefore(store, bitcast);
             LowerBitCast(bitcast);
             src = bitcast;
@@ -1995,7 +1995,7 @@ void Lowering::LowerLclStore(GenTreeLclStore* store)
         {
             if (layout->GetSize() < call->GetRetLayout()->GetSize())
             {
-                store->SetOp(0, SpillStructCall(call, store));
+                store->SetValue(SpillStructCall(call, store));
             }
 
             return;
@@ -2059,7 +2059,7 @@ void Lowering::LowerLclStoreFld(GenTreeLclStoreFld* store)
 
             if (size < call->GetRetLayout()->GetSize())
             {
-                store->SetOp(0, SpillStructCall(call, store));
+                store->SetValue(SpillStructCall(call, store));
             }
 
             return;

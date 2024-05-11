@@ -2570,7 +2570,7 @@ void LinearScan::BuildStoreLclVarMultiReg(GenTreeLclStore* store)
     assert(lcl->IsIndependentPromoted());
     unsigned regCount = lcl->GetPromotedFieldCount();
 
-    GenTree* src = store->GetOp(0);
+    GenTree* src = store->GetValue();
     assert(src->IsMultiRegNode());
     assert(regCount == src->GetMultiRegCount(compiler));
 

@@ -3144,7 +3144,7 @@ void SIMDCoalescingBuffer::ChangeToSIMDStore(Compiler* compiler, GenTree* store,
     {
         store->SetType(simdType);
         store->AsLclStoreFld()->SetFieldSeq(FieldSeqStore::NotAField());
-        store->AsLclStoreFld()->SetOp(0, value);
+        store->AsLclStoreFld()->SetValue(value);
 
         return;
     }
