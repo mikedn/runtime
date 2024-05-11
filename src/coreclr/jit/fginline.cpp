@@ -778,7 +778,7 @@ void Compiler::inlPostInlineFailureCleanup(const InlineInfo* inlineInfo)
         const InlArgInfo& argInfo = inlineInfo->ilArgInfo[i];
 
         // In some cases we use existing call arg nodes inside the inlinee body.
-        // The inlinee compiler may change these from LCL_VAR to LCL_ADDR,
+        // The inlinee compiler may change these from LCL_LOAD to LCL_ADDR,
         // we need to revert this change if inlining failed.
 
         if (argInfo.argIsUnaliasedLclVar && !argInfo.paramIsAddressTaken && !argInfo.paramHasStores)
@@ -787,9 +787,7 @@ void Compiler::inlPostInlineFailureCleanup(const InlineInfo* inlineInfo)
             {
                 assert(argInfo.argNode->AsLclAddr()->GetLcl() == argInfo.paramLcl);
 
-                argInfo.argNode->SetOper(GT_LCL_LOAD);
-                argInfo.argNode->AsLclLoad()->SetLcl(argInfo.paramLcl);
-                argInfo.argNode->SetType(argInfo.argType);
+                argInfo.argNode->ChangeToLclLoad(argInfo.argType, argInfo.paramLcl);
             }
         }
     }
@@ -2299,9 +2297,9 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
             //
             // It's possible for additional uses of the argument to appear without inlUseArg
             // being called (e.g. when handling isinst or dup) in which case this replacement
-            // cannot be done. This relies on GTF_VAR_CLONED being set on LCL_VARs when they
+            // cannot be done. This relies on GTF_VAR_CLONED being set on LCL_LOADs when they
             // are cloned to detect such cases, that means the importer is expected to not
-            // "manually" clone LCL_VARs by doing gtNewLclLoad(existingLcl->GetLclNum()...).
+            // "manually" clone LCL_LOADs by doing gtNewLclLoad(existingLcl...).
 
             assert(!varTypeIsStruct(argNode->GetType()) && !argInfo.argHasGlobRef && !argInfo.argHasSideEff &&
                    !argInfo.paramIsAddressTaken && !argInfo.paramHasStores);

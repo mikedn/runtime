@@ -350,12 +350,14 @@ GenTree* DecomposeLongs::DecomposeLclLoad(LIR::Use& use)
     if (varDsc->IsPromoted())
     {
         assert(varDsc->GetPromotedFieldCount() == 2);
+
         loResult->AsLclLoad()->SetLcl(m_compiler->lvaGetDesc(varDsc->GetPromotedFieldLclNum(0)));
         hiResult->AsLclLoad()->SetLcl(m_compiler->lvaGetDesc(varDsc->GetPromotedFieldLclNum(1)));
     }
     else
     {
         m_compiler->lvaSetDoNotEnregister(varDsc DEBUGARG(Compiler::DNER_LocalField));
+
         loResult->SetOper(GT_LCL_LOAD_FLD);
         loResult->AsLclLoadFld()->SetLclOffs(0);
         loResult->AsLclLoadFld()->SetFieldSeq(FieldSeqStore::NotAField());

@@ -1930,7 +1930,7 @@ private:
         LclVarDsc*     lcl         = store->GetLcl();
         ClassLayout*   fieldLayout = nullptr;
         FieldSeqNode*  fieldSeq    = GetFieldSequence(lcl->GetLayout()->GetClassHandle(), type, &fieldLayout);
-        GenTreeLclFld* fieldStore  = store->ChangeToLclFldStore(type, lcl, 0, fieldSeq, store->GetValue());
+        GenTreeLclFld* fieldStore  = store->ChangeToLclStoreFld(type, lcl, 0, fieldSeq, store->GetValue());
 
         m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
 
@@ -2165,7 +2165,7 @@ private:
             LclVarDsc*    lcl      = structLcl->GetLcl();
             FieldSeqNode* fieldSeq = GetFieldSequence(lcl->GetLayout()->GetClassHandle(), type, &fieldLayout);
 
-            structLcl->ChangeToLclFld(type, lcl, 0, fieldSeq);
+            structLcl->ChangeToLclLoadFld(type, lcl, 0, fieldSeq);
 
             m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
         }

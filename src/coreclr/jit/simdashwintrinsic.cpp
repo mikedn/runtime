@@ -764,11 +764,7 @@ GenTree* Importer::impVectorPop(var_types type)
         // Currently the importer doesn't generate local field addresses.
         assert(addr->AsLclAddr()->GetLclOffs() == 0);
 
-        addr->SetOper(GT_LCL_LOAD);
-        addr->AsLclLoad()->SetLcl(lcl);
-        addr->SetType(type);
-
-        return addr;
+        return addr->ChangeToLclLoad(type, lcl);
     }
 
     return comp->gtNewIndLoad(type, addr);
@@ -788,12 +784,7 @@ GenTree* Importer::impVectorStore(GenTree* destAddr, GenTree* src)
         // Currently the importer doesn't generate local field addresses.
         assert(destAddr->AsLclAddr()->GetLclOffs() == 0);
 
-        store = destAddr;
-        store->SetOper(GT_LCL_STORE);
-        store->SetType(lcl->GetType());
-        store->AddSideEffects(GTF_ASG | src->GetSideEffects());
-        store->AsLclStore()->SetLcl(lcl);
-        store->AsLclStore()->SetValue(src);
+        store = destAddr->ChangeToLclStore(lcl->GetType(), lcl, src);
 
         if (GenTreeHWIntrinsic* hwi = src->IsHWIntrinsic())
         {

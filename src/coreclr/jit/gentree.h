@@ -1698,8 +1698,10 @@ public:
     GenTreeDblCon* ChangeToDblCon(double value);
     GenTreeDblCon* ChangeToDblCon(var_types type, double value);
     GenTreeFieldList* ChangeToFieldList();
-    GenTreeLclFld* ChangeToLclFld(var_types type, LclVarDsc* lcl, unsigned offset, FieldSeqNode* fieldSeq);
-    GenTreeLclFld* ChangeToLclFldStore(
+    GenTreeLclLoad* ChangeToLclLoad(var_types type, LclVarDsc* lcl);
+    GenTreeLclStore* ChangeToLclStore(var_types type, LclVarDsc* lcl, GenTree* value);
+    GenTreeLclLoadFld* ChangeToLclLoadFld(var_types type, LclVarDsc* lcl, unsigned offset, FieldSeqNode* fieldSeq);
+    GenTreeLclStoreFld* ChangeToLclStoreFld(
         var_types type, LclVarDsc* lcl, unsigned offset, FieldSeqNode* fieldSeq, GenTree* value);
     GenTreeLclAddr* ChangeToLclAddr(var_types type, LclVarDsc* lcl);
     GenTreeLclAddr* ChangeToLclAddr(var_types type, LclVarDsc* lcl, unsigned offset, FieldSeqNode* fieldSeq);

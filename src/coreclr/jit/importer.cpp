@@ -16185,10 +16185,7 @@ void Importer::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* l
 
         LclVarDsc* lcl = srcAddr->AsLclAddr()->GetLcl();
 
-        src = srcAddr;
-        src->SetOper(GT_LCL_LOAD);
-        src->AsLclLoad()->SetLcl(lcl);
-        src->SetType(lcl->GetType());
+        src = srcAddr->ChangeToLclLoad(lcl->GetType(), lcl);
     }
     else
     {

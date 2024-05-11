@@ -9248,7 +9248,7 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
     {
         assert(arg->AsLclAddr()->GetLclOffs() == 0);
 
-        newOp = arg->ChangeToLclFld(TYP_BOOL, arg->AsLclAddr()->GetLcl(), fieldOffset,
+        newOp = arg->ChangeToLclLoadFld(TYP_BOOL, arg->AsLclAddr()->GetLcl(), fieldOffset,
                                     GetFieldSeqStore()->CreateSingleton(fieldHnd));
     }
     else
