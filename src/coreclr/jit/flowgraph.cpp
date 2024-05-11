@@ -853,7 +853,7 @@ void Compiler::fgAddSyncMethodEnterExit()
     LclVarDsc* acquiredLcl = lvaNewTemp(TYP_INT, true DEBUGARG("monitor 'acquired' temp"));
     lvaMonAcquired         = acquiredLcl->GetLclNum();
 
-    GenTreeLclVar* init = gtNewLclStore(acquiredLcl, TYP_INT, gtNewIconNode(0));
+    GenTreeLclStore* init = gtNewLclStore(acquiredLcl, TYP_INT, gtNewIconNode(0));
     init->AddSideEffects(GTF_GLOB_REF);
     fgNewStmtAtEnd(fgFirstBB, init);
     JITDUMPTREE(init, "\nSynchronized method - Add 'acquired' initialization in first block " FMT_BB "\n",
@@ -935,7 +935,7 @@ void Compiler::fgInsertMonitorCall(BasicBlock*     block,
                 retTempLcl->SetType(retNode->GetType());
             }
 
-            GenTreeLclVar* retTempInit = gtNewLclStore(retTempLcl, retTempLcl->GetType(), retExpr);
+            GenTreeLclStore* retTempInit = gtNewLclStore(retTempLcl, retTempLcl->GetType(), retExpr);
             fgInsertStmtBefore(block, retStmt, gtNewStmt(retTempInit));
             retNode->AsUnOp()->SetOp(0, gtNewLclLoad(retTempLcl, retTempLcl->GetType()));
         }

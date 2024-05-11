@@ -1060,7 +1060,7 @@ void CodeGen::genFloatReturn(GenTree* src)
     // Spill the return shift register from an XMM register to the stack, then load it on the x87 stack.
     // If it already has a home location, use that. Otherwise, we need a temp.
 
-    if (IsRegCandidateLclVar(src) && src->AsLclLoad()->GetLcl()->lvOnFrame)
+    if (IsRegCandidateLclLoad(src) && src->AsLclLoad()->GetLcl()->lvOnFrame)
     {
         LclVarDsc*    srcLcl = src->AsLclLoad()->GetLcl();
         StackAddrMode s      = GetStackAddrMode(srcLcl, 0);
@@ -4302,10 +4302,10 @@ void CodeGen::genCodeForSwap(GenTreeOp* tree)
 {
     assert(tree->OperIs(GT_SWAP));
 
-    // Swap is only supported for lclVar operands that are enregistered
-    // We do not consume or produce any registers.  Both operands remain enregistered.
+    // Swap is only supported for local operands that are enregistered
+    // We do not consume or produce any registers. Both operands remain enregistered.
     // However, the gc-ness may change.
-    assert(IsRegCandidateLclVar(tree->gtOp1) && IsRegCandidateLclVar(tree->gtOp2));
+    assert(IsRegCandidateLclLoad(tree->GetOp(0)) && IsRegCandidateLclLoad(tree->GetOp(1)));
 
     GenTreeLclLoad* lcl1    = tree->GetOp(0)->AsLclLoad();
     LclVarDsc*      varDsc1 = lcl1->GetLcl();

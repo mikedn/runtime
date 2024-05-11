@@ -1009,7 +1009,7 @@ void Importer::gtInitStructIndStore(GenTreeIndir* store, GenTree* value)
     {
         if (GenTreeHWIntrinsic* hwi = value->IsHWIntrinsic())
         {
-            lvaRecordSimdIntrinsicDef(dstLcl, hwi);
+            comp->lvaRecordSimdIntrinsicDef(dstLcl, hwi);
         }
     }
 #endif
@@ -1066,7 +1066,7 @@ void Importer::gtInitStructLclStore(GenTreeLclStore* store, GenTree* value)
     {
         if (GenTreeHWIntrinsic* hwi = value->IsHWIntrinsic())
         {
-            lvaRecordSimdIntrinsicDef(dstLcl, hwi);
+            comp->lvaRecordSimdIntrinsicDef(dstLcl, hwi);
         }
     }
 #endif
@@ -17547,31 +17547,6 @@ GenTreeHWIntrinsic* Importer::gtNewScalarHWIntrinsicNode(
     var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1, GenTree* op2, GenTree* op3)
 {
     return comp->gtNewScalarHWIntrinsicNode(type, hwIntrinsicID, op1, op2, op3);
-}
-
-void Importer::lvaRecordSimdIntrinsicUse(GenTree* op)
-{
-    comp->lvaRecordSimdIntrinsicUse(op);
-}
-
-void Importer::lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar)
-{
-    comp->lvaRecordSimdIntrinsicUse(lclVar);
-}
-
-void Importer::lvaRecordSimdIntrinsicUse(LclVarDsc* lcl)
-{
-    comp->lvaRecordSimdIntrinsicUse(lcl);
-}
-
-void Importer::lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrinsic* src)
-{
-    comp->lvaRecordSimdIntrinsicDef(lclVar, src);
-}
-
-void Importer::lvaRecordSimdIntrinsicDef(LclVarDsc* lcl, GenTreeHWIntrinsic* src)
-{
-    comp->lvaRecordSimdIntrinsicDef(lcl, src);
 }
 
 #endif // FEATURE_HW_INTRINSICS

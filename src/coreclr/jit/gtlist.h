@@ -13,10 +13,10 @@ GTNODE(NONE             , GenTree             , GTK_SPECIAL)
 //  Leaf nodes (i.e. these nodes have no sub-operands):
 //-----------------------------------------------------------------------------
 
-GTNODE(LCL_STORE        , GenTreeLclVar       , GTK_UNOP|GTK_NOVALUE) // Local store
-GTNODE(LCL_STORE_FLD    , GenTreeLclFld       , GTK_UNOP|GTK_NOVALUE) // Local field store 
-GTNODE(LCL_LOAD         , GenTreeLclVar       , GTK_LEAF)             // Local load
-GTNODE(LCL_LOAD_FLD     , GenTreeLclFld       , GTK_LEAF)             // Local field load
+GTNODE(LCL_STORE        , GenTreeLclStore     , GTK_UNOP|GTK_NOVALUE) // Local store
+GTNODE(LCL_STORE_FLD    , GenTreeLclStoreFld  , GTK_UNOP|GTK_NOVALUE) // Local field store 
+GTNODE(LCL_LOAD         , GenTreeLclLoad      , GTK_LEAF)             // Local load
+GTNODE(LCL_LOAD_FLD     , GenTreeLclLoadFld   , GTK_LEAF)             // Local field load
 GTNODE(LCL_DEF          , GenTreeLclDef       , GTK_UNOP)             // local variable SSA def
 GTNODE(LCL_USE          , GenTreeLclUse       , GTK_LEAF)             // local variable SSA use
 GTNODE(LCL_ADDR         , GenTreeLclAddr      , GTK_LEAF)             // address of a local variable

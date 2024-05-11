@@ -870,8 +870,8 @@ public:
                 // basic block so they're invisible to anything except SSA code, which can treat
                 // them specially (by basically ignoring them).
 
-                GenTreeLclVar* arg = compiler->gtNewLclLoad(lcl, lcl->GetType());
-                GenTreeLclDef* def = new (compiler, GT_LCL_DEF) GenTreeLclDef(arg, firstBlock, lcl);
+                GenTreeLclLoad* arg = compiler->gtNewLclLoad(lcl, lcl->GetType());
+                GenTreeLclDef*  def = new (compiler, GT_LCL_DEF) GenTreeLclDef(arg, firstBlock, lcl);
 
                 renameStack.PushLclDef(firstBlock, lcl, def);
 
@@ -922,7 +922,7 @@ private:
     void RenameLclStore(GenTreeLclVarCommon* store, BasicBlock* block);
     void RenameMemoryStore(GenTreeIndir* store, BasicBlock* block);
     void RenamePhiDef(GenTreeLclDef* def, BasicBlock* block);
-    void RenameLclUse(GenTreeLclVarCommon* lclNode, Statement* stmt, BasicBlock* block);
+    void RenameLclUse(GenTreeLclVarCommon* load, Statement* stmt, BasicBlock* block);
 
     void AddDefToHandlerPhis(BasicBlock* block, GenTreeLclDef* def);
     void AddMemoryDefToHandlerPhis(BasicBlock* block, SsaMemDef* def);
@@ -1104,11 +1104,11 @@ void SsaRenameDomTreeVisitor::RenamePhiDef(GenTreeLclDef* def, BasicBlock* block
     renameStack.PushLclDef(block, def->GetLcl(), def);
 }
 
-void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclVarCommon* lclNode, Statement* stmt, BasicBlock* block)
+void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclVarCommon* load, Statement* stmt, BasicBlock* block)
 {
-    assert(lclNode->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
+    assert(load->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
 
-    LclVarDsc* lcl = lclNode->GetLcl();
+    LclVarDsc* lcl = load->GetLcl();
 
     if (!lcl->IsSsa())
     {
@@ -1120,19 +1120,19 @@ void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclVarCommon* lclNode, Stateme
 
     GenTreeLclDef* def = renameStack.TopLclDef(lcl);
 
-    if (GenTreeLclFld* lclFld = lclNode->IsLclLoadFld())
+    if (GenTreeLclFld* lclFld = load->IsLclLoadFld())
     {
         GenTreeLclUse* use = new (m_compiler, GT_LCL_USE) GenTreeLclUse(def, block);
         use->SetCosts(0, 0);
-        use->gtFlags |= lclNode->gtFlags & GTF_VAR_DEATH;
+        use->gtFlags |= load->gtFlags & GTF_VAR_DEATH;
 
         unsigned      fieldOffset = lclFld->GetLclOffs();
         FieldSeqNode* fieldSeq    = lclFld->GetFieldSeq();
         unsigned      fieldLayoutNum =
             lclFld->TypeIs(TYP_STRUCT) ? lclFld->GetLayoutNum() : static_cast<unsigned>(lclFld->GetType());
 
-        lclNode->ChangeOper(GT_EXTRACT);
-        GenTreeExtract* extract = lclNode->AsExtract();
+        load->ChangeOper(GT_EXTRACT);
+        GenTreeExtract* extract = load->AsExtract();
 
         extract->SetField(fieldLayoutNum, fieldOffset, fieldSeq);
         extract->SetStructValue(use);
@@ -1162,11 +1162,11 @@ void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclVarCommon* lclNode, Stateme
     }
     else
     {
-        lclNode->SetOper(GT_LCL_USE);
-        lclNode->AsLclUse()->Init();
-        lclNode->AsLclUse()->SetBlock(block);
+        load->SetOper(GT_LCL_USE);
+        load->AsLclUse()->Init();
+        load->AsLclUse()->SetBlock(block);
 
-        def->AddUse(lclNode->AsLclUse());
+        def->AddUse(load->AsLclUse());
     }
 }
 

@@ -191,7 +191,9 @@ AliasSet::NodeInfo::NodeInfo(GenTree* node) : m_node(node)
 void AliasSet::AddNode(Compiler* compiler, GenTree* node)
 {
     // First, add all local uses associated with the node to the set. This is necessary because the
-    // local loads occur at the position of the user, not at the position of the GenTreeLclVar node.
+    // local loads occur at the position of the user, not at the position of the GenTreeLclLoad node.
+    // TODO-MIKE-Review: Hmm, this "load at the position of the user" is kind of bogus. It is only
+    // true for register candidate locals.
     node->VisitOperands([compiler, this](GenTree* operand) -> GenTree::VisitResult {
         if (operand->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
         {

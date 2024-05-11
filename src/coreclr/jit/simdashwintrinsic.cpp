@@ -632,7 +632,7 @@ GenTree* Importer::impVector234Create(const HWIntrinsicSignature& sig, ClassLayo
 
         if ((destAddr != nullptr) && destAddr->OperIs(GT_LCL_ADDR) && (destAddr->AsLclAddr()->GetLclOffs() == 0))
         {
-            lvaRecordSimdIntrinsicUse(destAddr->AsLclAddr()->GetLcl());
+            comp->lvaRecordSimdIntrinsicUse(destAddr->AsLclAddr()->GetLcl());
         }
     }
     else if (areArgsZero)
@@ -797,7 +797,7 @@ GenTree* Importer::impVectorStore(GenTree* destAddr, GenTree* src)
 
         if (GenTreeHWIntrinsic* hwi = src->IsHWIntrinsic())
         {
-            lvaRecordSimdIntrinsicDef(store->AsLclStore(), hwi);
+            comp->lvaRecordSimdIntrinsicDef(store->AsLclStore(), hwi);
         }
     }
     else

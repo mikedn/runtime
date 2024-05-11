@@ -1297,14 +1297,14 @@ private:
         }
     }
 
-    GenTree* PropagateLclVarConst(const AssertionDsc& assertion, GenTreeLclVar* lclVar, Statement* stmt)
+    GenTree* PropagateLclVarConst(const AssertionDsc& assertion, GenTreeLclLoad* load, Statement* stmt)
     {
 #ifdef DEBUG
-        LclVarDsc* lcl = lclVar->GetLcl();
+        LclVarDsc* lcl = load->GetLcl();
 
         assert(!lcl->IsAddressExposed() && !lcl->lvIsCSE);
-        assert(lclVar->GetType() == lcl->GetType());
-        assert(!varTypeIsStruct(lclVar->GetType()));
+        assert(load->GetType() == lcl->GetType());
+        assert(!varTypeIsStruct(load->GetType()));
 
         DBEXEC(verbose, TraceAssertion("propagating", assertion);)
 #endif
@@ -1321,17 +1321,17 @@ private:
                     return nullptr;
                 }
 
-                conNode = lclVar->ChangeToDblCon(val.dblCon.value);
+                conNode = load->ChangeToDblCon(val.dblCon.value);
                 break;
 
 #ifndef TARGET_64BIT
             case O2K_CONST_LONG:
-                if (!lclVar->TypeIs(TYP_LONG))
+                if (!load->TypeIs(TYP_LONG))
                 {
                     return nullptr;
                 }
 
-                conNode = lclVar->ChangeToLngCon(val.lngCon.value);
+                conNode = load->ChangeToLngCon(val.lngCon.value);
                 break;
 #endif
 
@@ -1340,7 +1340,7 @@ private:
 
                 if (val.intCon.handleKind == HandleKind::None)
                 {
-                    conNode = lclVar->ChangeToIntCon(varActualType(lclVar->GetType()), val.intCon.value);
+                    conNode = load->ChangeToIntCon(varActualType(load->GetType()), val.intCon.value);
                 }
                 else if (compiler->opts.compReloc)
                 {
@@ -1348,7 +1348,7 @@ private:
                 }
                 else
                 {
-                    conNode = lclVar->ChangeToIntCon(TYP_I_IMPL, val.intCon.value);
+                    conNode = load->ChangeToIntCon(TYP_I_IMPL, val.intCon.value);
                     conNode->AsIntCon()->SetHandleKind(val.intCon.handleKind);
                 }
                 break;
@@ -1358,7 +1358,7 @@ private:
 
         conNode->SetVNP({val.vn, val.vn});
 
-        return UpdateTree(conNode, lclVar, stmt);
+        return UpdateTree(conNode, load, stmt);
     }
 
     GenTree* PropagateSsaUseConst(const AssertionDsc& assertion, GenTreeLclUse* use, Statement* stmt)

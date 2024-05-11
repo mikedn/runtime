@@ -3337,7 +3337,7 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
     return false;
 }
 
-void Compiler::abiMorphStackLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg)
+void Compiler::abiMorphStackLclArgPromoted(CallArgInfo* argInfo, GenTreeLclLoad* arg)
 {
     assert(argInfo->GetRegCount() == 0);
 
@@ -3354,13 +3354,13 @@ void Compiler::abiMorphStackLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* 
 
     for (LclVarDsc* fieldLcl : PromotedFields(lcl))
     {
-        var_types      fieldType   = fieldLcl->GetType();
-        unsigned       fieldOffset = fieldLcl->GetPromotedFieldOffset();
-        GenTreeLclVar* fieldLclVar = gtNewLclLoad(fieldLcl, fieldType);
+        var_types       fieldType   = fieldLcl->GetType();
+        unsigned        fieldOffset = fieldLcl->GetPromotedFieldOffset();
+        GenTreeLclLoad* fieldLoad   = gtNewLclLoad(fieldLcl, fieldType);
 
         assert(fieldOffset + varTypeSize(fieldType) <= argInfo->GetSlotCount() * REGSIZE_BYTES);
 
-        fieldList->AddField(this, fieldLclVar, fieldOffset, fieldType);
+        fieldList->AddField(this, fieldLoad, fieldOffset, fieldType);
     }
 }
 
@@ -3609,7 +3609,7 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
     }
 }
 
-GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types argRegType, unsigned argSize)
+GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclLoad* arg, var_types argRegType, unsigned argSize)
 {
     assert(argSize <= varTypeSize(argRegType));
     assert(varTypeIsSingleReg(argRegType));
@@ -3678,8 +3678,8 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types
         if (field0Lcl->TypeIs(TYP_FLOAT) && (field0Lcl->GetPromotedFieldOffset() == 0) &&
             field1Lcl->TypeIs(TYP_FLOAT) && (field1Lcl->GetPromotedFieldOffset() == 4))
         {
-            GenTreeLclVar* field0LclNode = gtNewLclLoad(field0Lcl, TYP_FLOAT);
-            GenTreeLclVar* field1LclNode = gtNewLclLoad(field1Lcl, TYP_FLOAT);
+            GenTreeLclLoad* field0LclNode = gtNewLclLoad(field0Lcl, TYP_FLOAT);
+            GenTreeLclLoad* field1LclNode = gtNewLclLoad(field1Lcl, TYP_FLOAT);
 
             GenTree* doubleValue =
                 gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16, field0LclNode, field1LclNode);
@@ -3852,7 +3852,7 @@ GenTree* Compiler::abiMorphMkRefAnyToStore(LclVarDsc* tempLcl, GenTreeOp* mkrefa
 
 #if FEATURE_MULTIREG_ARGS || FEATURE_MULTIREG_RET
 
-GenTree* Compiler::abiMorphMultiRegHfaLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg)
+GenTree* Compiler::abiMorphMultiRegHfaLclArgPromoted(CallArgInfo* argInfo, GenTreeLclLoad* arg)
 {
     assert(argInfo->IsHfaArg());
     assert(varTypeUsesFloatReg(argInfo->GetRegType(0)));
@@ -5063,7 +5063,7 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
     // We don't need a copy if this is the last use of an implicit by-ref local.
     if (opts.OptimizationEnabled())
     {
-        GenTreeLclVar* const lclNode = arg->IsImplicitByrefIndir(this);
+        GenTreeLclLoad* const lclNode = arg->IsImplicitByrefIndir(this);
 
         if (lclNode != nullptr)
         {
@@ -5327,8 +5327,8 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
     // This expansion explicitly exposes the bounds check and the address calculation to the optimizer, which allows
     // for more straightforward bounds-check removal, CSE, etc.
 
-    GenTreeLclVar*    arrayTmpStore = nullptr;
-    GenTreeLclVar*    indexTmpStore = nullptr;
+    GenTreeLclStore*  arrayTmpStore = nullptr;
+    GenTreeLclStore*  indexTmpStore = nullptr;
     GenTreeBoundsChk* boundsCheck   = nullptr;
 
     GenTree* array       = tree->GetArray();
@@ -6054,7 +6054,7 @@ bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
             return true;
         }
 
-        GenTreeLclVar* lclNode = argInfo->GetNode()->IsImplicitByrefIndir(this);
+        GenTreeLclLoad* lclNode = argInfo->GetNode()->IsImplicitByrefIndir(this);
 
         if (lclNode == nullptr)
         {
@@ -6127,7 +6127,7 @@ bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
 
             if (argInfo2->IsImplicitByRef())
             {
-                GenTreeLclVar* const lclNode2 = argNode2->IsImplicitByrefIndir(this);
+                GenTreeLclLoad* const lclNode2 = argNode2->IsImplicitByrefIndir(this);
 
                 if ((lclNode2 != nullptr) && (lclNode->GetLcl() == lclNode2->GetLcl()))
                 {
@@ -8789,7 +8789,7 @@ GenTree* Compiler::fgMorphStructStore(GenTree* store, GenTree* value)
 
 #ifdef FEATURE_SIMD
 
-GenTree* Compiler::fgMorphPromoteVecLoad(GenTreeLclVar* store, LclVarDsc* srcLcl)
+GenTree* Compiler::fgMorphPromoteVecLoad(GenTreeLclStore* store, LclVarDsc* srcLcl)
 {
     assert(varTypeIsSIMD(srcLcl->GetType()));
     // Only Vector2/3/4 are promoted.
@@ -8821,7 +8821,7 @@ GenTree* Compiler::fgMorphPromoteVecLoad(GenTreeLclVar* store, LclVarDsc* srcLcl
         }
     }
 
-    store->SetOp(0, gtNewSimdHWIntrinsicNode(dstType, create, TYP_FLOAT, numOps * 4, numOps, ops));
+    store->SetValue(gtNewSimdHWIntrinsicNode(dstType, create, TYP_FLOAT, numOps * 4, numOps, ops));
 
     JITDUMPTREE(store, "fgMorphCopyStruct (after SIMD source promotion):\n\n");
 
@@ -14081,8 +14081,8 @@ Compiler::fgWalkResult Compiler::fgAssertNoQmark(GenTree** tree, fgWalkData* dat
  */
 void Compiler::fgPreExpandQmarkChecks(GenTree* expr)
 {
-    GenTreeLclVar* destLclVar = nullptr;
-    GenTreeQmark*  topQmark   = fgGetTopLevelQmark(expr, &destLclVar);
+    GenTreeLclStore* store    = nullptr;
+    GenTreeQmark*    topQmark = fgGetTopLevelQmark(expr, &store);
 
     // If the top level Qmark is null, then scan the tree to make sure
     // there are no qmarks within it.
@@ -14101,9 +14101,9 @@ void Compiler::fgPreExpandQmarkChecks(GenTree* expr)
 }
 #endif // DEBUG
 
-GenTreeQmark* Compiler::fgGetTopLevelQmark(GenTree* expr, GenTreeLclVar** destLclVar)
+GenTreeQmark* Compiler::fgGetTopLevelQmark(GenTree* expr, GenTreeLclStore** store)
 {
-    *destLclVar = nullptr;
+    *store = nullptr;
 
     if (expr->OperIs(GT_QMARK))
     {
@@ -14112,7 +14112,7 @@ GenTreeQmark* Compiler::fgGetTopLevelQmark(GenTree* expr, GenTreeLclVar** destLc
 
     if (expr->OperIs(GT_LCL_STORE) && expr->AsLclStore()->GetValue()->IsQmark())
     {
-        *destLclVar = expr->AsLclStore();
+        *store = expr->AsLclStore();
         return expr->AsLclStore()->GetValue()->AsQmark();
     }
 
@@ -14161,8 +14161,8 @@ void Compiler::fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
 
     GenTree* expr = stmt->GetRootNode();
 
-    GenTreeLclVar* dst   = nullptr;
-    GenTreeQmark*  qmark = fgGetTopLevelQmark(expr, &dst);
+    GenTreeLclStore* dst   = nullptr;
+    GenTreeQmark*    qmark = fgGetTopLevelQmark(expr, &dst);
     noway_assert(dst != nullptr);
 
     assert(qmark->gtFlags & GTF_QMARK_CAST_INSTOF);
@@ -14346,8 +14346,8 @@ void Compiler::fgExpandQmarkStmt(BasicBlock* block, Statement* stmt)
 {
     GenTree* expr = stmt->GetRootNode();
 
-    GenTreeLclVar* dst   = nullptr;
-    GenTreeQmark*  qmark = fgGetTopLevelQmark(expr, &dst);
+    GenTreeLclStore* store = nullptr;
+    GenTreeQmark*    qmark = fgGetTopLevelQmark(expr, &store);
 
     if (qmark == nullptr)
     {
@@ -14476,13 +14476,13 @@ void Compiler::fgExpandQmarkStmt(BasicBlock* block, Statement* stmt)
     // Remove the original qmark statement.
     fgRemoveStmt(block, stmt);
 
-    if (dst == nullptr)
+    if (store == nullptr)
     {
         assert(qmark->TypeIs(TYP_VOID));
     }
     else
     {
-        LclVarDsc* lcl     = dst->GetLcl();
+        LclVarDsc* lcl     = store->GetLcl();
         var_types  lclType = lcl->GetType();
 
         // Other non-struct types should work but such QMARKs are never generated by

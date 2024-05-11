@@ -2059,9 +2059,9 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
         BlockRange().InsertAfter(op1, half);
 
         node->SetOp(0, half);
-        LIR::Use       use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        GenTreeLclVar* tmp1 = ReplaceWithLclLoad(use);
-        GenTreeLclVar* tmp2 = comp->gtNewLclLoad(tmp1->GetLcl(), TYP_SIMD16);
+        LIR::Use        use(BlockRange(), &node->GetUse(0).NodeRef(), node);
+        GenTreeLclLoad* tmp1 = ReplaceWithLclLoad(use);
+        GenTreeLclLoad* tmp2 = comp->gtNewLclLoad(tmp1->GetLcl(), TYP_SIMD16);
         GenTree* vec = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_Vector128_ToVector256Unsafe, eltType, 16, tmp1);
         GenTree* idx = comp->gtNewIconNode(1);
         BlockRange().InsertBefore(node, tmp2, vec, idx);
@@ -2850,8 +2850,8 @@ void Lowering::LowerHWIntrinsicSum128(GenTreeHWIntrinsic* node)
     unsigned haddCount = genLog2(roundUp(size, 8) / varTypeSize(eltType));
     assert(haddCount <= 3);
 
-    LIR::Use       vecUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
-    GenTreeLclVar* vec = ReplaceWithLclLoad(vecUse);
+    LIR::Use        vecUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
+    GenTreeLclLoad* vec = ReplaceWithLclLoad(vecUse);
 
     GenTree*       sum  = vec;
     GenTree*       sum2 = nullptr;

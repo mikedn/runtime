@@ -885,9 +885,9 @@ regNumber CodeGen::UseReg(GenTree* node)
 {
     assert(node->isUsedFromReg() && !node->IsMultiRegNode());
 
-    if (GenTreeLclVar* lclVar = IsRegCandidateLclVar(node))
+    if (GenTreeLclLoad* load = IsRegCandidateLclLoad(node))
     {
-        return UseRegCandidateLclVar(lclVar);
+        return UseRegCandidateLclLoad(load);
     }
 
     if (node->OperIs(GT_COPY))
@@ -911,11 +911,10 @@ regNumber CodeGen::UseReg(GenTree* node)
     return node->GetRegNum();
 }
 
-regNumber CodeGen::UseRegCandidateLclVar(GenTreeLclVar* node)
+regNumber CodeGen::UseRegCandidateLclLoad(GenTreeLclLoad* node)
 {
-    assert(IsRegCandidateLclVar(node));
-
     LclVarDsc* lcl = node->GetLcl();
+    assert(lcl->IsRegCandidate());
 
     // Handle the case where we have a lclVar that needs to be copied before use (i.e. because it
     // interferes with one of the other sources (or the target, if it's a "delayed use" register)).
@@ -935,7 +934,7 @@ regNumber CodeGen::UseRegCandidateLclVar(GenTreeLclVar* node)
 
     if (node->IsAnyRegSpilled())
     {
-        UnspillRegCandidateLclVar(node);
+        UnspillRegCandidateLclLoad(node);
     }
 
     liveness.UpdateLife(this, node);
@@ -1015,7 +1014,7 @@ void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
 //
 void CodeGen::UnspillRegIfNeeded(GenTree* node)
 {
-    assert(!node->IsMultiRegNode() && !IsRegCandidateLclVar(node));
+    assert(!node->IsMultiRegNode() && !IsRegCandidateLclLoad(node));
 
     GenTree* unspillNode = node->OperIs(GT_RELOAD) ? node->AsUnOp()->GetOp(0) : node;
 
@@ -1025,15 +1024,16 @@ void CodeGen::UnspillRegIfNeeded(GenTree* node)
     }
 }
 
-void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
+void CodeGen::UnspillRegCandidateLclLoad(GenTreeLclLoad* node)
 {
-    assert(IsRegCandidateLclVar(node) && node->IsAnyRegSpilled());
+    assert(node->IsAnyRegSpilled());
 
     // Reset spilled flag, since we are going to load a local variable from its home location.
     node->SetRegSpilled(0, false);
 
-    LclVarDsc* lcl     = node->GetLcl();
-    var_types  regType = lcl->GetRegisterType(node);
+    LclVarDsc* lcl = node->GetLcl();
+    assert(lcl->IsRegCandidate());
+    var_types regType = lcl->GetRegisterType(node);
 
     assert(regType != TYP_UNDEF);
 

@@ -250,7 +250,7 @@ public:
 
     void MoveReg(CodeGen* codeGen, LclVarDsc* lcl, GenTreeLclLoad* src, GenTreeCopyOrReload* dst);
     void Spill(LclVarDsc* lcl, GenTreeLclVar* lclNode);
-    void Unspill(CodeGen* codeGen, LclVarDsc* lcl, GenTreeLclVar* src, RegNum dstReg, var_types dstType);
+    void Unspill(CodeGen* codeGen, LclVarDsc* lcl, GenTreeLclLoad* src, RegNum dstReg, var_types dstType);
 
     VARSET_TP GetGCLiveSet() const
     {

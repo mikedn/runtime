@@ -2803,7 +2803,7 @@ void Lowering::InsertSetGCState(GenTree* before, int state)
 
     LclVarDsc* pInvokeFrameListLcl = comp->lvaGetDesc(comp->lvaPInvokeFrameListVar);
 
-    GenTreeLclVar*   base      = comp->gtNewLclLoad(pInvokeFrameListLcl, TYP_I_IMPL);
+    GenTreeLclLoad*  base      = comp->gtNewLclLoad(pInvokeFrameListLcl, TYP_I_IMPL);
     GenTreeAddrMode* addr      = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, base, nullptr, 1, info.offsetOfGCState);
     GenTreeIntCon*   stateNode = comp->gtNewIconNode(state);
     GenTreeIndStore* store     = comp->gtNewIndStore(TYP_BYTE, addr, stateNode);

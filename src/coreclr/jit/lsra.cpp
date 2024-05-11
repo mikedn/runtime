@@ -9943,14 +9943,14 @@ void LinearScan::verifyResolutionMove(GenTree* resolutionMove, LsraLocation curr
 #ifdef TARGET_XARCH
     if (dst->OperIs(GT_SWAP))
     {
-        GenTreeLclVar* left          = dst->AsOp()->GetOp(0)->AsLclLoad();
-        GenTreeLclVar* right         = dst->AsOp()->GetOp(1)->AsLclLoad();
-        regNumber      leftRegNum    = left->GetRegNum();
-        regNumber      rightRegNum   = right->GetRegNum();
-        LclVarDsc*     leftVarDsc    = left->GetLcl();
-        LclVarDsc*     rightVarDsc   = right->GetLcl();
-        Interval*      leftInterval  = getIntervalForLocalVar(leftVarDsc->lvVarIndex);
-        Interval*      rightInterval = getIntervalForLocalVar(rightVarDsc->lvVarIndex);
+        GenTreeLclLoad* left          = dst->AsOp()->GetOp(0)->AsLclLoad();
+        GenTreeLclLoad* right         = dst->AsOp()->GetOp(1)->AsLclLoad();
+        regNumber       leftRegNum    = left->GetRegNum();
+        regNumber       rightRegNum   = right->GetRegNum();
+        LclVarDsc*      leftVarDsc    = left->GetLcl();
+        LclVarDsc*      rightVarDsc   = right->GetLcl();
+        Interval*       leftInterval  = getIntervalForLocalVar(leftVarDsc->lvVarIndex);
+        Interval*       rightInterval = getIntervalForLocalVar(rightVarDsc->lvVarIndex);
         assert(leftInterval->physReg == leftRegNum && rightInterval->physReg == rightRegNum);
         leftInterval->physReg                  = rightRegNum;
         rightInterval->physReg                 = leftRegNum;

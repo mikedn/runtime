@@ -1731,7 +1731,7 @@ public:
 
     // Determine if this tree represents an indirection for an implict byref parameter,
     // and if so return the tree for the parameter.
-    GenTreeLclVar* IsImplicitByrefIndir(Compiler* compiler);
+    GenTreeLclLoad* IsImplicitByrefIndir(Compiler* compiler);
 
     void SetContained()
     {
@@ -3041,8 +3041,6 @@ public:
 #endif
 };
 
-// Common supertype of LCL_VAR, LCL_FLD, REG_VAR, PHI_ARG
-// This inherits from UnOp because lclvar stores are Unops
 struct GenTreeLclVarCommon : public GenTreeUnOp
 {
 private:
@@ -3052,18 +3050,28 @@ private:
 #endif
 
 protected:
+    GenTreeLclVarCommon(genTreeOps oper, var_types type, LclVarDsc* lcl DEBUGARG(bool largeNode = false))
+        : GenTreeUnOp(oper, type DEBUGARG(largeNode)), m_lcl(lcl)
+    {
+        assert(lcl != nullptr);
+    }
+
+    GenTreeLclVarCommon(genTreeOps oper,
+                        var_types  type,
+                        LclVarDsc* lcl,
+                        GenTree* value DEBUGARG(bool largeNode = false))
+        : GenTreeUnOp(oper, type, value DEBUGARG(largeNode)), m_lcl(lcl)
+    {
+        assert(lcl != nullptr);
+        gtFlags |= GTF_ASG | value->GetSideEffects();
+    }
+
     GenTreeLclVarCommon(const GenTreeLclVarCommon* copyFrom)
         : GenTreeUnOp(copyFrom->GetOper(), copyFrom->GetType()), m_lcl(copyFrom->m_lcl)
     {
     }
 
 public:
-    GenTreeLclVarCommon(genTreeOps oper, var_types type, LclVarDsc* lcl DEBUGARG(bool largeNode = false))
-        : GenTreeUnOp(oper, type DEBUGARG(largeNode))
-    {
-        SetLcl(lcl);
-    }
-
     LclVarDsc* GetLcl() const
     {
         return m_lcl;
@@ -3093,10 +3101,8 @@ protected:
     }
 
     GenTreeLclVar(var_types type, LclVarDsc* lcl, GenTree* value DEBUGARG(bool largeNode = false))
-        : GenTreeLclVarCommon(GT_LCL_STORE, type, lcl DEBUGARG(largeNode))
+        : GenTreeLclVarCommon(GT_LCL_STORE, type, lcl, value DEBUGARG(largeNode))
     {
-        gtFlags |= GTF_ASG | value->GetSideEffects();
-        SetOp(0, value);
     }
 
     GenTreeLclVar(GenTreeLclVar* copyFrom) : GenTreeLclVarCommon(copyFrom)
@@ -3191,15 +3197,12 @@ protected:
     }
 
     GenTreeLclFld(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* value)
-        : GenTreeLclVarCommon(GT_LCL_STORE_FLD, type, lcl)
+        : GenTreeLclVarCommon(GT_LCL_STORE_FLD, type, lcl, value)
         , m_lclOffs(static_cast<uint16_t>(lclOffs))
         , m_layoutNum(0)
         , m_fieldSeq(FieldSeqStore::NotAField())
     {
         assert(lclOffs <= UINT16_MAX);
-
-        gtFlags |= GTF_ASG | value->GetSideEffects();
-        SetOp(0, value);
     }
 
     GenTreeLclFld(const GenTreeLclFld* copyFrom)

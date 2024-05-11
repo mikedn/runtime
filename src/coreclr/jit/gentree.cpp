@@ -203,8 +203,10 @@ static_assert_no_msg(sizeof(GenTreeLngCon)       <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeDblCon)       <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeStrCon)       <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeLclVarCommon) <= TREE_NODE_SZ_SMALL);
-static_assert_no_msg(sizeof(GenTreeLclVar)       <= TREE_NODE_SZ_SMALL);
-static_assert_no_msg(sizeof(GenTreeLclFld)       <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeLclLoad)      <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeLclStore)     <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeLclLoadFld)   <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeLclStoreFld)  <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeLclAddr)      <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeCC)           <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeCast)         <= TREE_NODE_SZ_SMALL);
@@ -11145,7 +11147,7 @@ GenTreeLclAddr* GenTree::IsLocalAddrExpr()
     return node->OperIs(GT_LCL_ADDR) ? node->AsLclAddr() : nullptr;
 }
 
-GenTreeLclVar* GenTree::IsImplicitByrefIndir(Compiler* compiler)
+GenTreeLclLoad* GenTree::IsImplicitByrefIndir(Compiler* compiler)
 {
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64)
     if (OperIs(GT_IND_LOAD_OBJ, GT_IND_LOAD) && AsIndir()->GetAddr()->OperIs(GT_LCL_LOAD))
@@ -11156,11 +11158,11 @@ GenTreeLclVar* GenTree::IsImplicitByrefIndir(Compiler* compiler)
         // will block fast tail calls for calls like "CALL(param.b)" when
         // "b" is also a struct passed by implicit reference.
 
-        GenTreeLclLoad* lclVar = AsIndir()->GetAddr()->AsLclLoad();
+        GenTreeLclLoad* addrLoad = AsIndir()->GetAddr()->AsLclLoad();
 
-        if (lclVar->GetLcl()->IsImplicitByRefParam())
+        if (addrLoad->GetLcl()->IsImplicitByRefParam())
         {
-            return lclVar;
+            return addrLoad;
         }
     }
 #endif

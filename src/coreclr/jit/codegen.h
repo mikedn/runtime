@@ -729,11 +729,11 @@ protected:
 #endif
     void SpillLclVarReg(LclVarDsc* lcl, GenTreeLclVar* lclNode);
     void UnspillRegIfNeeded(GenTree* node);
-    void UnspillRegCandidateLclVar(GenTreeLclVar* node);
+    void UnspillRegCandidateLclLoad(GenTreeLclLoad* node);
     void UnspillRegIfNeeded(GenTree* node, unsigned regIndex);
     void UnspillRegsIfNeeded(GenTree* node);
     regNumber UseReg(GenTree* node);
-    regNumber UseRegCandidateLclVar(GenTreeLclVar* node);
+    regNumber UseRegCandidateLclLoad(GenTreeLclLoad* node);
     void UseRegs(GenTree* node);
     regNumber genConsumeReg(GenTree* node);
     regNumber UseReg(GenTree* node, unsigned regIndex);
@@ -936,11 +936,9 @@ protected:
 
     void genLclHeap(GenTree* tree);
 
-    GenTreeLclVar* IsRegCandidateLclVar(GenTree* node)
+    GenTreeLclLoad* IsRegCandidateLclLoad(GenTree* node) const
     {
-        return node->OperIs(GT_LCL_LOAD, GT_LCL_STORE) && node->AsLclVar()->GetLcl()->IsRegCandidate()
-                   ? node->AsLclVar()
-                   : nullptr;
+        return node->OperIs(GT_LCL_LOAD) && node->AsLclLoad()->GetLcl()->IsRegCandidate() ? node->AsLclLoad() : nullptr;
     }
 
 #if defined(DEBUG) && defined(TARGET_XARCH)

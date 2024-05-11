@@ -1510,7 +1510,7 @@ private:
 
                         indir->ChangeOper(GT_CAST);
                         indir->AsCast()->SetCastType(indirType);
-                        indir->AsCast()->SetOp(0, NewLclVarNode(lclType, varDsc));
+                        indir->AsCast()->SetOp(0, NewLclLoad(lclType, varDsc));
                         indir->gtFlags = GTF_EMPTY;
                     }
                     else if (varTypeKind(indirType) != varTypeKind(lclType))
@@ -1522,7 +1522,7 @@ private:
                         if (CanBitCastTo(indirType))
                         {
                             indir->ChangeOper(GT_BITCAST);
-                            indir->AsUnOp()->SetOp(0, NewLclVarNode(lclType, varDsc));
+                            indir->AsUnOp()->SetOp(0, NewLclLoad(lclType, varDsc));
                             indir->gtFlags = GTF_EMPTY;
                         }
                     }
@@ -1561,7 +1561,7 @@ private:
                     {
                         indir->ChangeOper(GT_CAST);
                         indir->AsCast()->SetCastType(indirType);
-                        indir->AsCast()->SetOp(0, NewLclVarNode(lclType, varDsc));
+                        indir->AsCast()->SetOp(0, NewLclLoad(lclType, varDsc));
                         indir->gtFlags = GTF_EMPTY;
                     }
                 }
@@ -1622,7 +1622,7 @@ private:
 
             indir->ChangeOper(GT_HWINTRINSIC);
             indir->AsHWIntrinsic()->SetIntrinsic(NI_Vector128_GetElement, TYP_FLOAT, 16, 2);
-            indir->AsHWIntrinsic()->SetOp(0, NewLclVarNode(varDsc->GetType(), varDsc));
+            indir->AsHWIntrinsic()->SetOp(0, NewLclLoad(varDsc->GetType(), varDsc));
             indir->AsHWIntrinsic()->SetOp(1, NewIntConNode(TYP_INT, val.Offset() / 4));
 
             INDEBUG(m_stmtModified = true;)
@@ -2372,7 +2372,7 @@ private:
         return m_compiler->gtNewBitCastNode(type, op);
     }
 
-    GenTreeLclVar* NewLclVarNode(var_types type, LclVarDsc* lcl)
+    GenTreeLclLoad* NewLclLoad(var_types type, LclVarDsc* lcl)
     {
         assert((type == lcl->GetType()) || (varActualType(type) == varActualType(lcl->GetType())));
 
@@ -2422,9 +2422,9 @@ void Compiler::lvaRecordSimdIntrinsicUse(GenTree* op)
     }
 }
 
-void Compiler::lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar)
+void Compiler::lvaRecordSimdIntrinsicUse(GenTreeLclLoad* load)
 {
-    lvaRecordSimdIntrinsicUse(lclVar->GetLcl());
+    lvaRecordSimdIntrinsicUse(load->GetLcl());
 }
 
 void Compiler::lvaRecordSimdIntrinsicUse(LclVarDsc* lcl)
@@ -2432,9 +2432,9 @@ void Compiler::lvaRecordSimdIntrinsicUse(LclVarDsc* lcl)
     lcl->lvUsedInSIMDIntrinsic = true;
 }
 
-void Compiler::lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrinsic* src)
+void Compiler::lvaRecordSimdIntrinsicDef(GenTreeLclStore* store, GenTreeHWIntrinsic* src)
 {
-    lvaRecordSimdIntrinsicDef(lclVar->GetLcl(), src);
+    lvaRecordSimdIntrinsicDef(store->GetLcl(), src);
 }
 
 void Compiler::lvaRecordSimdIntrinsicDef(LclVarDsc* lcl, GenTreeHWIntrinsic* src)

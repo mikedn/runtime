@@ -2350,12 +2350,6 @@ struct Importer
                                                CORINFO_SIG_INFO* sig,
                                                var_types         baseType,
                                                ClassLayout**     argLayout);
-
-    void lvaRecordSimdIntrinsicUse(GenTree* op);
-    void lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar);
-    void lvaRecordSimdIntrinsicUse(LclVarDsc* lcl);
-    void lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrinsic* src);
-    void lvaRecordSimdIntrinsicDef(LclVarDsc* lcl, GenTreeHWIntrinsic* src);
 #endif // FEATURE_HW_INTRINSICS
 
     static GenTreeLclAddr* impIsAddressInLocal(GenTree* tree);
@@ -3954,7 +3948,7 @@ public:
     BasicBlock* fgSplitBlockAfterNode(BasicBlock* curr, GenTree* node); // for LIR
     BasicBlock* fgSplitEdge(BasicBlock* curr, BasicBlock* succ);
 
-    GenTreeQmark* fgGetTopLevelQmark(GenTree* expr, GenTreeLclVar** destLclVar);
+    GenTreeQmark* fgGetTopLevelQmark(GenTree* expr, GenTreeLclStore** store);
     void fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt);
     void fgExpandQmarkStmt(BasicBlock* block, Statement* stmt);
     void fgExpandQmarkNodes();
@@ -4564,7 +4558,7 @@ private:
     GenTree* fgMorphStructComma(GenTree* tree);
     GenTree* fgMorphStructStore(GenTree* store, GenTree* value);
 #ifdef FEATURE_SIMD
-    GenTree* fgMorphPromoteVecLoad(GenTreeLclVar* store, LclVarDsc* srcLcl);
+    GenTree* fgMorphPromoteVecLoad(GenTreeLclStore* store, LclVarDsc* srcLcl);
     GenTree* fgMorphPromoteVecStore(GenTreeLclVarCommon* store, LclVarDsc* destLcl);
 #endif
     GenTree* fgMorphDynBlk(GenTreeDynBlk* dynBlk);
@@ -5118,7 +5112,7 @@ public:
     void morphAssertionGenerate(GenTree* tree);
     GenTree* morphAssertionPropagate(GenTree* tree);
     bool morphAssertionIsNotNull(GenTreeLclLoad* load);
-    bool morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_types type);
+    bool morphAssertionIsTypeRange(GenTreeLclLoad* lclVar, var_types type);
     void morphAssertionSetCount(unsigned count);
     unsigned morphAssertionTableSize(unsigned count);
     void morphAssertionGetTable(MorphAssertion* table, unsigned count);
@@ -5446,9 +5440,9 @@ public:
     }
 
     void lvaRecordSimdIntrinsicUse(GenTree* op);
-    void lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar);
+    void lvaRecordSimdIntrinsicUse(GenTreeLclLoad* load);
     void lvaRecordSimdIntrinsicUse(LclVarDsc* lcl);
-    void lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrinsic* src);
+    void lvaRecordSimdIntrinsicDef(GenTreeLclStore* store, GenTreeHWIntrinsic* src);
     void lvaRecordSimdIntrinsicDef(LclVarDsc* lcl, GenTreeHWIntrinsic* src);
 
     // Get the type for the hardware SIMD vector.
@@ -6111,17 +6105,17 @@ public:
     const static HelperCallProperties s_helperCallProperties;
 
     bool abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg);
-    void abiMorphStackLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg);
+    void abiMorphStackLclArgPromoted(CallArgInfo* argInfo, GenTreeLclLoad* arg);
     void abiMorphMkRefAnyToFieldList(CallArgInfo* argInfo, GenTreeOp* mkrefany);
     GenTreeFieldList* abiMakeFieldList(GenTree* arg);
     void abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg);
-    GenTree* abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types argRegType, unsigned argSize);
+    GenTree* abiMorphSingleRegLclArgPromoted(GenTreeLclLoad* arg, var_types argRegType, unsigned argSize);
 #ifndef TARGET_X86
     void abiMorphArgs2ndPass(GenTreeCall* call);
     GenTree* abiMorphMkRefAnyToStore(LclVarDsc* tempLcl, GenTreeOp* mkrefany);
 #endif
 #if FEATURE_MULTIREG_ARGS || FEATURE_MULTIREG_RET
-    GenTree* abiMorphMultiRegHfaLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg);
+    GenTree* abiMorphMultiRegHfaLclArgPromoted(CallArgInfo* argInfo, GenTreeLclLoad* arg);
     GenTree* abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, const struct AbiRegFieldMap& map);
     GenTree* abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg);
 #ifdef FEATURE_SIMD

@@ -446,10 +446,8 @@ void CodeGenLivenessUpdater::Spill(LclVarDsc* lcl, GenTreeLclVar* lclNode)
 }
 
 void CodeGenLivenessUpdater::Unspill(
-    CodeGen* codeGen, LclVarDsc* lcl, GenTreeLclVar* src, RegNum dstReg, var_types dstType)
+    CodeGen* codeGen, LclVarDsc* lcl, GenTreeLclLoad* src, RegNum dstReg, var_types dstType)
 {
-    assert(src->OperIs(GT_LCL_LOAD));
-
     // Don't update the variable's location if we are just re-spilling it again.
     if (!src->IsRegSpill(0))
     {
