@@ -525,8 +525,7 @@ void BlockCountInstrumentor::InstrumentMethodEntry(Schema& schema, BYTE* profile
         entry.InstrumentationKind == ICorJitInfo::PgoInstrumentationKind::BasicBlockIntCount ? TYP_INT : TYP_LONG;
     // Read Basic-Block count value
     //
-    GenTree* valueNode =
-        m_comp->gtNewIndOfIconHandleNode(typ, addrOfFirstExecutionCount, HandleKind::BlockCount, false);
+    GenTree* valueNode = m_comp->gtNewIndLoad(typ, addrOfFirstExecutionCount, HandleKind::BlockCount, false);
 
     // Compare Basic-Block count value against zero
     //

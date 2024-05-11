@@ -5665,9 +5665,8 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
 #ifdef FEATURE_READYTORUN_COMPILER
     if (field->GetR2RFieldLookupAddr() != nullptr)
     {
-        GenTree* r2rOffset =
-            gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(field->GetR2RFieldLookupAddr()),
-                                     HandleKind::ConstData, true);
+        GenTree* r2rOffset = gtNewIndLoad(TYP_I_IMPL, reinterpret_cast<size_t>(field->GetR2RFieldLookupAddr()),
+                                          HandleKind::ConstData, true);
 
         addr = gtNewOperNode(GT_ADD, varTypeAddrAdd(addrType), addr, r2rOffset);
     }
@@ -8309,15 +8308,13 @@ GenTree* Compiler::fgMorphLeaf(GenTree* tree)
         {
             case IAT_PPVALUE:
                 DEBUG_DESTROY_NODE(tree);
-                tree = gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(entry.addr), HandleKind::ConstData,
-                                                true);
+                tree = gtNewIndLoad(TYP_I_IMPL, reinterpret_cast<size_t>(entry.addr), HandleKind::ConstData, true);
                 tree = gtNewIndLoad(TYP_I_IMPL, tree);
                 tree->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
                 return fgMorphTree(tree);
             case IAT_PVALUE:
                 DEBUG_DESTROY_NODE(tree);
-                tree = gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(entry.addr),
-                                                HandleKind::MethodAddr, true);
+                tree = gtNewIndLoad(TYP_I_IMPL, reinterpret_cast<size_t>(entry.addr), HandleKind::MethodAddr, true);
                 return fgMorphTree(tree);
             case IAT_VALUE:
                 tree->ChangeToIntCon(reinterpret_cast<size_t>(entry.handle));

@@ -16406,7 +16406,7 @@ GenTree* Importer::CreateStaticFieldTlsAccess(OPCODE                    opcode,
     }
     else
     {
-        dllRef = gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(pIdAddr), HandleKind::ConstData, true);
+        dllRef = comp->gtNewIndLoad(TYP_I_IMPL, reinterpret_cast<size_t>(pIdAddr), HandleKind::ConstData, true);
 
         // Next we multiply by 4
         dllRef = gtNewOperNode(GT_MUL, TYP_I_IMPL, dllRef, gtNewIconNode(4, TYP_I_IMPL));
@@ -17280,11 +17280,6 @@ GenTree* Importer::gtNewIconEmbMethHndNode(CORINFO_METHOD_HANDLE methHnd)
 GenTree* Importer::gtNewIconEmbFldHndNode(CORINFO_FIELD_HANDLE fldHnd)
 {
     return comp->gtNewIconEmbFldHndNode(fldHnd);
-}
-
-GenTree* Importer::gtNewIndOfIconHandleNode(var_types type, size_t value, HandleKind kind, bool invariant)
-{
-    return comp->gtNewIndOfIconHandleNode(type, value, kind, invariant);
 }
 
 GenTree* Importer::gtNewZeroConNode(var_types type)

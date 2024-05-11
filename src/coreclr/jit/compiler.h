@@ -2251,7 +2251,6 @@ struct Importer
     GenTree* gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd);
     GenTree* gtNewIconEmbMethHndNode(CORINFO_METHOD_HANDLE methHnd);
     GenTree* gtNewIconEmbFldHndNode(CORINFO_FIELD_HANDLE fldHnd);
-    GenTree* gtNewIndOfIconHandleNode(var_types type, size_t value, HandleKind handleKind, bool invariant);
     GenTree* gtNewZeroConNode(var_types type);
     GenTree* gtNewOneConNode(var_types type);
     GenTree* gtNewDconNode(double value, var_types type = TYP_DOUBLE);
@@ -2854,8 +2853,7 @@ public:
 
     GenTree* gtNewJmpTableNode();
 
-    GenTreeIndir* gtNewIndOfIconHandleNode(var_types type, size_t addr, HandleKind handleKind, bool invariant);
-    GenTreeIndir* gtNewIndLoad(var_types type, size_t addr, HandleKind handleKind, bool invariant);
+    GenTreeIndLoad* gtNewIndLoad(var_types type, size_t addr, HandleKind handleKind, bool invariant);
     GenTreeIndStore* gtNewIndStore(var_types type, size_t addr, HandleKind handleKind, GenTree* value);
     GenTreeIntCon* gtNewIconHandleNode(void* value, HandleKind kind, FieldSeqNode* fieldSeq = nullptr);
     GenTreeIntCon* gtNewIconHandleNode(size_t value, HandleKind kind, FieldSeqNode* fieldSeq = nullptr);

@@ -3910,16 +3910,11 @@ GenTree* Compiler::gtNewJmpTableNode()
     return new (this, GT_JMPTABLE) GenTree(GT_JMPTABLE, TYP_I_IMPL);
 }
 
-GenTreeIndir* Compiler::gtNewIndLoad(var_types type, size_t addr, HandleKind handleKind, bool invariant)
-{
-    return gtNewIndOfIconHandleNode(type, addr, handleKind, invariant);
-}
-
-GenTreeIndir* Compiler::gtNewIndOfIconHandleNode(var_types type, size_t addr, HandleKind handleKind, bool invariant)
+GenTreeIndLoad* Compiler::gtNewIndLoad(var_types type, size_t addr, HandleKind handleKind, bool invariant)
 {
     assert((handleKind != HandleKind::Static) && (handleKind != HandleKind::String));
 
-    GenTreeIndir* load = gtNewIndLoad(type, gtNewIconHandleNode(addr, handleKind));
+    GenTreeIndLoad* load = gtNewIndLoad(type, gtNewIconHandleNode(addr, handleKind));
     load->gtFlags |= GTF_IND_NONFAULTING;
 
     if (invariant)
@@ -4025,7 +4020,7 @@ GenTree* Compiler::gtNewStringLiteralNode(InfoAccessType iat, void* addr)
             break;
 
         case IAT_PPVALUE:
-            str = gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(addr), HandleKind::ConstData, true);
+            str = gtNewIndLoad(TYP_I_IMPL, reinterpret_cast<size_t>(addr), HandleKind::ConstData, true);
             str->AsIndLoad()->GetAddr()->AsIntCon()->SetDumpHandle(addr);
             str = gtNewIndLoad(TYP_REF, str);
             str->gtFlags |= GTF_IND_NONFAULTING | GTF_GLOB_REF;
@@ -13000,8 +12995,7 @@ GenTreeCall* Compiler::gtNewSharedStaticsCctorHelperCall(CORINFO_CLASS_HANDLE cl
     else
     {
         // TODO-MIKE-Cleanup: This is dead code, moduleIdAddr is always null.
-        moduleIdArg =
-            gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(moduleIdAddr), HandleKind::ConstData, true);
+        moduleIdArg = gtNewIndLoad(TYP_I_IMPL, reinterpret_cast<size_t>(moduleIdAddr), HandleKind::ConstData, true);
     }
 
     GenTreeCall::Use* args = gtNewCallArgs(moduleIdArg);
@@ -13019,8 +13013,7 @@ GenTreeCall* Compiler::gtNewSharedStaticsCctorHelperCall(CORINFO_CLASS_HANDLE cl
         else
         {
             // TODO-MIKE-Cleanup: This is dead code, classIdAddr is always null.
-            classIdArg =
-                gtNewIndOfIconHandleNode(TYP_INT, reinterpret_cast<size_t>(classIdAddr), HandleKind::ConstData, true);
+            classIdArg = gtNewIndLoad(TYP_INT, reinterpret_cast<size_t>(classIdAddr), HandleKind::ConstData, true);
         }
 
         args->SetNext(gtNewCallArgs(classIdArg));
