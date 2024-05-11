@@ -2264,9 +2264,6 @@ struct Importer
     GenTreeCast* gtNewCastNode(GenTree* op1, bool fromUnsigned, var_types castType);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset);
-    GenTreeIndir* gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr);
-    GenTreeIndir* gtNewFieldIndir(var_types type, unsigned layoutNum, GenTreeFieldAddr* fieldAddr);
-    GenTreeIndir* gtNewFieldIndStore(var_types type, GenTreeFieldAddr* fieldAddr, GenTree* value);
     GenTreeIntCon* gtNewStringLiteralLength(GenTreeStrCon* node);
     GenTree* gtNewStringLiteralNode(InfoAccessType iat, void* value);
     GenTreeAllocObj* gtNewAllocObjNode(CORINFO_RESOLVED_TOKEN* resolvedToken, bool useParent);
@@ -2277,8 +2274,6 @@ struct Importer
     GenTreeBoundsChk* gtNewBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind);
     GenTreeIndexAddr* gtNewArrayIndexAddr(GenTree* arr, GenTree* ind, var_types elemType);
     GenTreeIndexAddr* gtNewStringIndexAddr(GenTree* arr, GenTree* ind);
-    GenTreeIndir* gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexAddr);
-    GenTreeIndir* gtNewIndexIndStore(var_types type, GenTreeIndexAddr* indexAddr, GenTree* value);
     GenTreeCall::Use* gtNewCallArgs(GenTree* node);
     GenTreeCall::Use* gtNewCallArgs(GenTree* node1, GenTree* node2);
     GenTreeCall::Use* gtNewCallArgs(GenTree* node1, GenTree* node2, GenTree* node3);
@@ -2903,6 +2898,8 @@ public:
     GenTreeIndLoadObj* gtNewIndLoadObj(ClassLayout* layout, GenTree* addr);
     GenTreeIndLoadObj* gtNewIndLoadObj(var_types type, ClassLayout* layout, GenTree* addr);
 
+    GenTreeIndir* gtNewIndexStore(var_types type, GenTreeIndexAddr* indexAddr, GenTree* value);
+
     GenTreeCall::Use* gtNewCallArgs(GenTree* node);
     GenTreeCall::Use* gtNewCallArgs(GenTree* node1, GenTree* node2);
     GenTreeCall::Use* gtNewCallArgs(GenTree* node1, GenTree* node2, GenTree* node3);
@@ -2998,13 +2995,14 @@ public:
     GenTreeFlags gtGetIndirExceptionFlags(GenTree* addr);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset);
-    GenTreeIndir* gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr);
-    GenTreeIndir* gtNewFieldIndir(var_types type, unsigned layoutNum, GenTreeFieldAddr* fieldAddr);
+    GenTreeIndir* gtNewFieldLoad(var_types type, GenTreeFieldAddr* fieldAddr);
+    GenTreeIndir* gtNewFieldLoad(var_types type, unsigned layoutNum, GenTreeFieldAddr* fieldAddr);
+    GenTreeIndir* gtNewFieldIndStore(var_types type, GenTreeFieldAddr* fieldAddr, GenTree* value);
     GenTreeFlags gtGetFieldIndirFlags(GenTreeFieldAddr* fieldAddr);
 
     GenTreeIndexAddr* gtNewArrayIndexAddr(GenTree* arr, GenTree* ind, var_types elemType);
     GenTreeIndexAddr* gtNewStringIndexAddr(GenTree* arr, GenTree* ind);
-    GenTreeIndir* gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexAddr);
+    GenTreeIndir* gtNewIndexLoad(var_types type, GenTreeIndexAddr* indexAddr);
 
     GenTreeArrLen* gtNewArrLen(GenTree* arr, uint8_t lenOffs, GenTreeFlags flags);
     GenTreeBoundsChk* gtNewBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind);

@@ -616,36 +616,6 @@ inline GenTreeFieldAddr* Compiler::gtNewFieldAddr(GenTree* addr, FieldSeqNode* f
     return new (this, GT_FIELD_ADDR) GenTreeFieldAddr(addr, fieldSeq, offset);
 }
 
-inline GenTreeIndir* Compiler::gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr)
-{
-    assert(type != TYP_STRUCT);
-
-    GenTreeIndir* indir = gtNewIndir(type, fieldAddr);
-    indir->gtFlags |= gtGetFieldIndirFlags(fieldAddr);
-    return indir;
-}
-
-inline GenTreeIndir* Compiler::gtNewFieldIndir(var_types type, unsigned layoutNum, GenTreeFieldAddr* fieldAddr)
-{
-    GenTreeIndir* indir;
-
-    if (type == TYP_STRUCT)
-    {
-        indir = gtNewIndLoadObj(typGetLayoutByNum(layoutNum), fieldAddr);
-        // gtNewIndLoadObj has other rules for adding GTF_GLOB_REF, remove
-        // it and add it back below according to the old field rules.
-        indir->gtFlags &= ~GTF_GLOB_REF;
-    }
-    else
-    {
-        indir = gtNewIndir(type, fieldAddr);
-    }
-
-    indir->gtFlags |= gtGetFieldIndirFlags(fieldAddr);
-
-    return indir;
-}
-
 inline GenTreeIndexAddr* Compiler::gtNewArrayIndexAddr(GenTree* arr, GenTree* ind, var_types elemType)
 {
     return new (this, GT_INDEX_ADDR)
@@ -656,33 +626,6 @@ inline GenTreeIndexAddr* Compiler::gtNewStringIndexAddr(GenTree* arr, GenTree* i
 {
     return new (this, GT_INDEX_ADDR)
         GenTreeIndexAddr(arr, ind, OFFSETOF__CORINFO_String__stringLen, OFFSETOF__CORINFO_String__chars, TYP_USHORT);
-}
-
-inline GenTreeIndir* Compiler::gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexAddr)
-{
-    GenTreeIndir* indir;
-
-    if (type != TYP_STRUCT)
-    {
-        indir = gtNewIndLoad(type, indexAddr);
-    }
-    else
-    {
-        indir = gtNewIndLoadObj(indexAddr->GetLayout(this), indexAddr);
-    }
-
-    indir->gtFlags |= GTF_GLOB_REF;
-
-    if ((indexAddr->gtFlags & GTF_INX_RNGCHK) != 0)
-    {
-        indir->gtFlags |= GTF_IND_NONFAULTING;
-    }
-    else
-    {
-        indir->gtFlags |= GTF_EXCEPT;
-    }
-
-    return indir;
 }
 
 inline GenTreeArrLen* Compiler::gtNewArrLen(GenTree* arr, uint8_t lenOffs, GenTreeFlags flags = GTF_EXCEPT)

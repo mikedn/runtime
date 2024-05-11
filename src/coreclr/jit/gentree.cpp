@@ -4401,6 +4401,81 @@ CallArgInfo* GenTreeCall::GetArgInfoByLateArgUse(Use* use) const
     unreached();
 }
 
+GenTreeIndir* Compiler::gtNewIndexLoad(var_types type, GenTreeIndexAddr* indexAddr)
+{
+    GenTreeIndir* indir;
+
+    if (type != TYP_STRUCT)
+    {
+        indir = gtNewIndLoad(type, indexAddr);
+    }
+    else
+    {
+        indir = gtNewIndLoadObj(indexAddr->GetLayout(this), indexAddr);
+    }
+
+    indir->gtFlags |= GTF_GLOB_REF;
+
+    if ((indexAddr->gtFlags & GTF_INX_RNGCHK) != 0)
+    {
+        indir->gtFlags |= GTF_IND_NONFAULTING;
+    }
+    else
+    {
+        indir->gtFlags |= GTF_EXCEPT;
+    }
+
+    return indir;
+}
+
+GenTreeIndir* Compiler::gtNewIndexStore(var_types type, GenTreeIndexAddr* indexAddr, GenTree* value)
+{
+    GenTreeIndir* store = gtNewIndexLoad(type, indexAddr);
+    store->SetOper(store->OperIs(GT_IND_LOAD) ? GT_IND_STORE : GT_IND_STORE_OBJ);
+    store->SetValue(value);
+    store->AddSideEffects(GTF_ASG | GTF_GLOB_REF | value->GetSideEffects());
+    return store;
+}
+
+GenTreeIndir* Compiler::gtNewFieldLoad(var_types type, GenTreeFieldAddr* fieldAddr)
+{
+    assert(type != TYP_STRUCT);
+
+    GenTreeIndir* indir = gtNewIndLoad(type, fieldAddr);
+    indir->gtFlags |= gtGetFieldIndirFlags(fieldAddr);
+    return indir;
+}
+
+GenTreeIndir* Compiler::gtNewFieldLoad(var_types type, unsigned layoutNum, GenTreeFieldAddr* fieldAddr)
+{
+    GenTreeIndir* indir;
+
+    if (type == TYP_STRUCT)
+    {
+        indir = gtNewIndLoadObj(typGetLayoutByNum(layoutNum), fieldAddr);
+        // gtNewIndLoadObj has other rules for adding GTF_GLOB_REF, remove
+        // it and add it back below according to the old field rules.
+        indir->gtFlags &= ~GTF_GLOB_REF;
+    }
+    else
+    {
+        indir = gtNewIndLoad(type, fieldAddr);
+    }
+
+    indir->gtFlags |= gtGetFieldIndirFlags(fieldAddr);
+
+    return indir;
+}
+
+GenTreeIndir* Compiler::gtNewFieldIndStore(var_types type, GenTreeFieldAddr* fieldAddr, GenTree* value)
+{
+    GenTreeIndir* store = gtNewFieldLoad(type, fieldAddr);
+    store->SetOper(GT_IND_STORE);
+    store->SetValue(value);
+    store->AddSideEffects(GTF_ASG | value->GetSideEffects());
+    return store;
+}
+
 GenTreeIndLoadObj* Compiler::gtNewIndLoadObj(ClassLayout* layout, GenTree* addr)
 {
     return gtNewIndLoadObj(typGetStructType(layout), layout, addr);
@@ -9181,7 +9256,7 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
     }
     else
     {
-        newOp = gtNewFieldIndir(TYP_BOOL, gtNewFieldAddr(arg, fieldHnd, fieldOffset));
+        newOp = gtNewFieldLoad(TYP_BOOL, gtNewFieldAddr(arg, fieldHnd, fieldOffset));
     }
 
     if (op == op1)

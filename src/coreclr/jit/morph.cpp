@@ -8092,7 +8092,7 @@ GenTree* Compiler::fgRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* valu
     else
     {
         GenTreeIndexAddr* addr         = gtNewArrayIndexAddr(arr, index, TYP_REF);
-        GenTreeIndir*     arrIndexNode = gtNewIndexIndir(TYP_REF, addr);
+        GenTreeIndir*     arrIndexNode = gtNewIndexLoad(TYP_REF, addr);
 
         if (!fgGlobalMorph && !opts.MinOpts())
         {

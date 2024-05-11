@@ -837,10 +837,10 @@ GenTree* Importer::impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigne
 
     GenTreeFieldAddr* valueAddr =
         gtNewFieldAddr(destAddrUses[0], GetRefanyValueField(), OFFSETOF__CORINFO_TypedReference__dataPtr);
-    GenTreeIndir*     valueStore = gtNewFieldIndStore(TYP_BYREF, valueAddr, mkRefAny->GetOp(0));
+    GenTreeIndir*     valueStore = comp->gtNewFieldIndStore(TYP_BYREF, valueAddr, mkRefAny->GetOp(0));
     GenTreeFieldAddr* typeAddr =
         gtNewFieldAddr(destAddrUses[1], GetRefanyTypeField(), OFFSETOF__CORINFO_TypedReference__type);
-    GenTreeIndir* typeStore = gtNewFieldIndStore(TYP_I_IMPL, typeAddr, mkRefAny->GetOp(1));
+    GenTreeIndir* typeStore = comp->gtNewFieldIndStore(TYP_I_IMPL, typeAddr, mkRefAny->GetOp(1));
 
     impAppendTree(valueStore, curLevel);
     return typeStore;
@@ -2881,8 +2881,8 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             // to the call to the first slot of the ByReference struct.
             op1                         = impPopStack().val;
             CORINFO_FIELD_HANDLE fldHnd = info.compCompHnd->getFieldInClass(clsHnd, 0);
-            GenTreeIndir*        store  = gtNewFieldIndStore(TYP_BYREF, gtNewFieldAddr(newobjThis, fldHnd, 0), op1);
-            GenTree*             byReferenceStruct = gtCloneExpr(newobjThis);
+            GenTreeIndir* store = comp->gtNewFieldIndStore(TYP_BYREF, gtNewFieldAddr(newobjThis, fldHnd, 0), op1);
+            GenTree*      byReferenceStruct = gtCloneExpr(newobjThis);
             assert(byReferenceStruct != nullptr);
             byReferenceStruct->SetOper(GT_LCL_LOAD);
             byReferenceStruct->SetType(TYP_STRUCT);
@@ -2898,7 +2898,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
         {
             op1                         = impPopStack().val;
             CORINFO_FIELD_HANDLE fldHnd = info.compCompHnd->getFieldInClass(clsHnd, 0);
-            GenTree*             field  = gtNewFieldIndir(TYP_BYREF, gtNewFieldAddr(op1, fldHnd, 0));
+            GenTree*             field  = comp->gtNewFieldLoad(TYP_BYREF, gtNewFieldAddr(op1, fldHnd, 0));
             retNode                     = field;
             break;
         }
@@ -2941,7 +2941,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
         {
             GenTree* op2 = impPopStack().val;
             GenTree* op1 = impPopStack().val;
-            retNode      = gtNewIndexIndir(TYP_USHORT, gtNewStringIndexAddr(op1, op2));
+            retNode      = comp->gtNewIndexLoad(TYP_USHORT, gtNewStringIndexAddr(op1, op2));
             break;
         }
 
@@ -3018,7 +3018,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             // Bounds check
             CORINFO_FIELD_HANDLE lengthHnd    = info.compCompHnd->getFieldInClass(clsHnd, 1);
             const unsigned       lengthOffset = info.compCompHnd->getFieldOffset(lengthHnd);
-            GenTree* length      = gtNewFieldIndir(TYP_INT, gtNewFieldAddr(spanAddrUses[0], lengthHnd, lengthOffset));
+            GenTree* length = comp->gtNewFieldLoad(TYP_INT, gtNewFieldAddr(spanAddrUses[0], lengthHnd, lengthOffset));
             GenTree* boundsCheck = gtNewBoundsChk(indexUses[0], length, ThrowHelperKind::IndexOutOfRange);
             GenTree* indexOffset;
 
@@ -3038,7 +3038,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             const unsigned       ptrOffset = info.compCompHnd->getFieldOffset(ptrHnd);
             FieldSeqNode*        ptrField  = GetByReferenceValueField(ptrHnd);
 
-            GenTree* pointer = gtNewFieldIndir(TYP_BYREF, gtNewFieldAddr(spanAddrUses[1], ptrField, ptrOffset));
+            GenTree* pointer = comp->gtNewFieldLoad(TYP_BYREF, gtNewFieldAddr(spanAddrUses[1], ptrField, ptrOffset));
             GenTree* result  = gtNewOperNode(GT_ADD, TYP_BYREF, pointer, indexOffset);
 
             retNode = gtNewCommaNode(boundsCheck, result);
@@ -4521,7 +4521,7 @@ bool Importer::impImportBoxPattern(BoxPattern              pattern,
                     // Spill struct to get its address (to access hasValue field)
                     objToBox = impGetStructAddr(objToBox, boxClass, CHECK_SPILL_ALL, true);
 
-                    impPushOnStack(gtNewFieldIndir(TYP_BOOL, gtNewFieldAddr(objToBox, hasValueField, 0)));
+                    impPushOnStack(comp->gtNewFieldLoad(TYP_BOOL, gtNewFieldAddr(objToBox, hasValueField, 0)));
 
                     JITDUMP("\n Importing BOX; ISINST; BR_TRUE/FALSE as Nullable.hasValue\n");
 
@@ -9619,7 +9619,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (opcode != CEE_LDELEMA)
                 {
-                    op1 = gtNewIndexIndir(lclTyp, op1->AsIndexAddr());
+                    op1 = comp->gtNewIndexLoad(lclTyp, op1->AsIndexAddr());
 
                     if (varTypeUsesFloatReg(op1->GetType()))
                     {
@@ -9737,14 +9737,14 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     op1->AsIndexAddr()->SetElemSize(layout->GetSize());
                     op1->AsIndexAddr()->SetElemTypeNum(layoutNum);
 
-                    op1 = gtNewIndexIndir(lclTyp, op1->AsIndexAddr());
+                    op1 = comp->gtNewIndexLoad(lclTyp, op1->AsIndexAddr());
                     op1 = impAssignStruct(op1, op2, CHECK_SPILL_ALL);
                 }
                 else
                 {
                     op2 = impImplicitR4orR8Cast(op2, lclTyp);
                     op2 = impImplicitIorI4Cast(op2, lclTyp);
-                    op1 = gtNewIndexIndStore(lclTyp, op1->AsIndexAddr(), op2);
+                    op1 = comp->gtNewIndexStore(lclTyp, op1->AsIndexAddr(), op2);
                 }
 
                 if (varTypeUsesFloatReg(op1->GetType()))
@@ -10757,7 +10757,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         }
                         else
                         {
-                            op1 = gtNewFieldIndir(lclTyp, addr->GetLayoutNum(), addr);
+                            op1 = comp->gtNewFieldLoad(lclTyp, addr->GetLayoutNum(), addr);
                         }
                     }
                 }
@@ -10855,7 +10855,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         impInlineInfo->thisDereferencedFirst = true;
                     }
 
-                    op1 = gtNewFieldIndir(lclTyp, addr->GetLayoutNum(), addr);
+                    op1 = comp->gtNewFieldLoad(lclTyp, addr->GetLayoutNum(), addr);
                 }
 
                 // We have to spill GLOB_REFs for heap field stores since such fields may be
@@ -10887,7 +10887,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     // TODO-MIKE-Cleanup: It would be better to generate stores from the get go
                     op1->SetOper(op1->OperIs(GT_IND_LOAD_OBJ) ? GT_IND_STORE_OBJ : GT_IND_STORE);
                     op1->AsIndir()->SetValue(op2);
-                    // We're expecting gtNewFieldIndir to add GLOB_REF as needed.
+                    // We're expecting gtNewFieldLoad to add GLOB_REF as needed.
                     op1->AddSideEffects(GTF_ASG | op2->GetSideEffects());
                 }
 
@@ -17347,25 +17347,6 @@ GenTreeFieldAddr* Importer::gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq
     return comp->gtNewFieldAddr(addr, fieldSeq, offset);
 }
 
-GenTreeIndir* Importer::gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr)
-{
-    return comp->gtNewFieldIndir(type, fieldAddr);
-}
-
-GenTreeIndir* Importer::gtNewFieldIndir(var_types type, unsigned layoutNum, GenTreeFieldAddr* fieldAddr)
-{
-    return comp->gtNewFieldIndir(type, layoutNum, fieldAddr);
-}
-
-GenTreeIndir* Importer::gtNewFieldIndStore(var_types type, GenTreeFieldAddr* fieldAddr, GenTree* value)
-{
-    GenTreeIndir* store = gtNewFieldIndir(type, fieldAddr);
-    store->SetOper(GT_IND_STORE);
-    store->SetValue(value);
-    store->AddSideEffects(GTF_ASG | value->GetSideEffects());
-    return store;
-}
-
 GenTree* Importer::gtNewStringLiteralNode(InfoAccessType iat, void* value)
 {
     return comp->gtNewStringLiteralNode(iat, value);
@@ -17409,20 +17390,6 @@ GenTreeIndexAddr* Importer::gtNewArrayIndexAddr(GenTree* arr, GenTree* ind, var_
 GenTreeIndexAddr* Importer::gtNewStringIndexAddr(GenTree* arr, GenTree* ind)
 {
     return comp->gtNewStringIndexAddr(arr, ind);
-}
-
-GenTreeIndir* Importer::gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexAddr)
-{
-    return comp->gtNewIndexIndir(type, indexAddr);
-}
-
-GenTreeIndir* Importer::gtNewIndexIndStore(var_types type, GenTreeIndexAddr* indexAddr, GenTree* value)
-{
-    GenTreeIndir* store = gtNewIndexIndir(type, indexAddr);
-    store->SetOper(store->OperIs(GT_IND_LOAD) ? GT_IND_STORE : GT_IND_STORE_OBJ);
-    store->SetValue(value);
-    store->AddSideEffects(GTF_ASG | GTF_GLOB_REF | value->GetSideEffects());
-    return store;
 }
 
 GenTreeCall::Use* Importer::gtNewCallArgs(GenTree* node)
