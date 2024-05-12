@@ -1719,7 +1719,7 @@ struct Importer
     GenTree* impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigned curLevel);
     GenTree* impAssignStruct(GenTree* dest, GenTree* src, unsigned curLevel);
     void impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call);
-    void gtInitStructIndStore(GenTreeIndir* store, GenTree* value);
+    void gtInitStructIndStore(GenTreeIndStoreObj* store, GenTree* value);
     void gtInitStructLclStore(GenTreeLclStore* store, GenTree* value);
 
     GenTree* impGetStructAddr(GenTree* structVal, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel, bool willDeref);

@@ -9030,12 +9030,16 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
                 // an OBJ). LocalAddressVisitor then eliminates the OBJ and avoids dependent promotion but
                 // lvIsMultiRegRet isn't set and that breaks SSA. Setting lvIsMultiRegRet allows things to
                 // work correctly but we may still end up with dependent promotion instead of not promoting
-                // to beging with.
+                // to begin with.
 
                 if (lcl->IsIndependentPromoted())
                 {
                     lcl->lvIsMultiRegRet = true;
                 }
+            }
+            else if (store->OperIs(GT_IND_STORE_OBJ) && varTypeIsSIMD(store->GetType()))
+            {
+                store->ChangeOper(GT_IND_STORE);
             }
 
             return store;

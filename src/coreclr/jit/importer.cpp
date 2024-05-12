@@ -854,9 +854,9 @@ GenTree* Importer::impAssignMkRefAny(GenTree* store, GenTreeOp* mkRefAny, unsign
 GenTree* Importer::impAssignStruct(GenTree* store, GenTree* value, unsigned curLevel)
 {
     assert(store->OperIs(GT_LCL_STORE, GT_IND_STORE_OBJ));
-    assert((value->TypeIs(TYP_STRUCT) &&
-            value->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_IND_LOAD_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR)) ||
-           varTypeIsSIMD(value->GetType()));
+    assert(
+        (value->TypeIs(TYP_STRUCT) && value->OperIs(GT_LCL_LOAD, GT_IND_LOAD_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR)) ||
+        varTypeIsSIMD(value->GetType()));
 
     // Storing a MKREFANY generates 2 stores, one for each field of the struct.
     // One store is appended and the other is returned to the caller.
@@ -925,35 +925,25 @@ GenTree* Importer::impAssignStruct(GenTree* store, GenTree* value, unsigned curL
         }
     }
 
-    // In all other cases we create and return a struct store node.
-
-    if (store->OperIs(GT_LCL_STORE))
+    if (value->OperIs(GT_LCL_LOAD, GT_IND_LOAD_OBJ) || value->OperIsHWIntrinsic())
     {
-        gtInitStructLclStore(store->AsLclStore(), value);
-
-        return store;
+        if (store->OperIs(GT_LCL_STORE))
+        {
+            gtInitStructLclStore(store->AsLclStore(), value);
+        }
+        else
+        {
+            gtInitStructIndStore(store->AsIndStoreObj(), value);
+        }
     }
 
-    if (varTypeIsSIMD(store->GetType()))
-    {
-        // TODO-MIKE-Cleanup: There doesn't seem to be any good reason to do this here,
-        // except for VN being weird and failing on SIMD OBJs and old code doing it here.
-        store->SetOper(GT_IND_STORE);
-    }
-
-    gtInitStructIndStore(store->AsIndir(), value);
     return store;
 }
 
-void Importer::gtInitStructIndStore(GenTreeIndir* store, GenTree* value)
+void Importer::gtInitStructIndStore(GenTreeIndStoreObj* store, GenTree* value)
 {
-    assert(store->OperIs(GT_IND_STORE, GT_IND_STORE_OBJ) && varTypeIsStruct(store->GetType()));
-    assert(varTypeIsStruct(value->GetType()) || value->IsIntCon(0));
-
-    if (value->OperIs(GT_INIT_VAL, GT_CNS_INT))
-    {
-        return;
-    }
+    assert(varTypeIsStruct(store->GetType()));
+    assert(varTypeIsStruct(value->GetType()));
 
     // In the case of a block copy, we want to avoid generating nodes where the source
     // and destination are the same because of two reasons, first, is useless, second
@@ -970,8 +960,6 @@ void Importer::gtInitStructIndStore(GenTreeIndir* store, GenTree* value)
     // surface if struct promotion is ON (which is the case on x86/arm). But still the
     // fundamental issue exists that needs to be addressed.
 
-    LclVarDsc* srcLcl     = nullptr;
-    unsigned   srcLclOffs = 0;
     LclVarDsc* dstLcl     = nullptr;
     unsigned   dstLclOffs = 0;
 
@@ -986,42 +974,41 @@ void Importer::gtInitStructIndStore(GenTreeIndir* store, GenTree* value)
         return;
     }
 
-    if (value->IsIndir() && value->AsIndir()->GetAddr()->OperIs(GT_LCL_ADDR))
+#ifdef FEATURE_SIMD
+    if (GenTreeHWIntrinsic* hwi = value->IsHWIntrinsic())
     {
-        srcLcl     = value->AsIndir()->GetAddr()->AsLclAddr()->GetLcl();
-        srcLclOffs = value->AsIndir()->GetAddr()->AsLclAddr()->GetLclOffs();
+        if (dstLclOffs == 0)
+        {
+            comp->lvaRecordSimdIntrinsicDef(dstLcl, hwi);
+        }
+
+        return;
     }
-    else if (value->OperIs(GT_LCL_LOAD))
+#endif
+
+    LclVarDsc* srcLcl     = nullptr;
+    unsigned   srcLclOffs = 0;
+
+    if (value->OperIs(GT_LCL_LOAD))
     {
         srcLcl = value->AsLclLoad()->GetLcl();
+    }
+    else if (value->AsIndLoadObj()->GetAddr()->OperIs(GT_LCL_ADDR))
+    {
+        srcLcl     = value->AsIndLoadObj()->GetAddr()->AsLclAddr()->GetLcl();
+        srcLclOffs = value->AsIndLoadObj()->GetAddr()->AsLclAddr()->GetLclOffs();
     }
 
     if ((srcLcl == dstLcl) && (srcLclOffs == dstLclOffs))
     {
         store->ChangeToNothingNode();
-
-        return;
     }
-
-#ifdef FEATURE_SIMD
-    if ((dstLclOffs == 0) && varTypeIsSIMD(dstLcl->GetType()))
-    {
-        if (GenTreeHWIntrinsic* hwi = value->IsHWIntrinsic())
-        {
-            comp->lvaRecordSimdIntrinsicDef(dstLcl, hwi);
-        }
-    }
-#endif
 }
 
 void Importer::gtInitStructLclStore(GenTreeLclStore* store, GenTree* value)
 {
     assert(varTypeIsStruct(store->GetType()));
-
-    if (value->OperIs(GT_INIT_VAL, GT_CNS_INT))
-    {
-        return;
-    }
+    assert(varTypeIsStruct(value->GetType()));
 
     // In the case of a block copy, we want to avoid generating nodes where the source
     // and destination are the same because of two reasons, first, is useless, second
@@ -1038,37 +1025,34 @@ void Importer::gtInitStructLclStore(GenTreeLclStore* store, GenTree* value)
     // surface if struct promotion is ON (which is the case on x86/arm). But still the
     // fundamental issue exists that needs to be addressed.
 
-    LclVarDsc* dstLcl     = store->GetLcl();
-    unsigned   dstLclOffs = 0;
-    LclVarDsc* srcLcl     = nullptr;
-    unsigned   srcLclOffs = 0;
+    LclVarDsc* dstLcl = store->GetLcl();
 
-    if (value->IsIndir() && value->AsIndir()->GetAddr()->OperIs(GT_LCL_ADDR))
+#ifdef FEATURE_SIMD
+    if (GenTreeHWIntrinsic* hwi = value->IsHWIntrinsic())
     {
-        srcLcl     = value->AsIndir()->GetAddr()->AsLclAddr()->GetLcl();
-        srcLclOffs = value->AsIndir()->GetAddr()->AsLclAddr()->GetLclOffs();
-    }
-    else if (value->OperIs(GT_LCL_LOAD))
-    {
-        srcLcl = value->AsLclLoad()->GetLcl();
-    }
-
-    if ((srcLcl == dstLcl) && (srcLclOffs == dstLclOffs))
-    {
-        store->ChangeToNothingNode();
+        comp->lvaRecordSimdIntrinsicDef(dstLcl, hwi);
 
         return;
     }
-
-#ifdef FEATURE_SIMD
-    if ((dstLclOffs == 0) && varTypeIsSIMD(dstLcl->GetType()))
-    {
-        if (GenTreeHWIntrinsic* hwi = value->IsHWIntrinsic())
-        {
-            comp->lvaRecordSimdIntrinsicDef(dstLcl, hwi);
-        }
-    }
 #endif
+
+    LclVarDsc* srcLcl     = nullptr;
+    unsigned   srcLclOffs = 0;
+
+    if (value->OperIs(GT_LCL_LOAD))
+    {
+        srcLcl = value->AsLclLoad()->GetLcl();
+    }
+    else if (value->AsIndLoadObj()->GetAddr()->OperIs(GT_LCL_ADDR))
+    {
+        srcLcl     = value->AsIndLoadObj()->GetAddr()->AsLclAddr()->GetLcl();
+        srcLclOffs = value->AsIndLoadObj()->GetAddr()->AsLclAddr()->GetLclOffs();
+    }
+
+    if ((srcLcl == dstLcl) && (srcLclOffs == 0))
+    {
+        store->ChangeToNothingNode();
+    }
 }
 
 GenTree* Importer::impGetStructAddr(GenTree*             value,

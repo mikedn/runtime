@@ -1176,13 +1176,9 @@ private:
             value = NewInsertElement(lcl->GetType(), lclOffs / 4, TYP_FLOAT,
                                      m_compiler->gtNewLclLoad(lcl, lcl->GetType()), value);
 
-            store->ChangeOper(GT_LCL_STORE);
-            store->SetType(lclType);
-            store->AsLclStore()->SetLcl(lcl);
-            store->AsLclStore()->SetValue(value);
-            store->gtFlags = GTF_ASG | (lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
-
+            store->ChangeToLclStore(lclType, lcl, value);
             INDEBUG(m_stmtModified = true);
+
             return;
         }
 #endif // FEATURE_SIMD
@@ -1196,13 +1192,12 @@ private:
             m_compiler->lvaSetAddressExposed(lcl);
         }
 
-        store->ChangeOper(GT_LCL_STORE_FLD);
-        store->AsLclStoreFld()->SetLcl(lcl);
-        store->AsLclStoreFld()->SetLclOffs(lclOffs);
-        store->AsLclStoreFld()->SetFieldSeq(
-            fieldSeq == nullptr || !varTypeIsStruct(lclType) ? FieldSeqStore::NotAField() : fieldSeq);
-        store->AsLclStoreFld()->SetValue(value);
-        store->gtFlags = GTF_ASG | (lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
+        if ((fieldSeq == nullptr) || !varTypeIsStruct(lclType))
+        {
+            fieldSeq = FieldSeqStore::NotAField();
+        }
+
+        store->ChangeToLclStoreFld(store->GetType(), lcl, lclOffs, fieldSeq, value);
 
         m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
 
@@ -1298,20 +1293,16 @@ private:
             ((storeLayout == lcl->GetLayout()) ||
              (lcl->IsIndependentPromoted() && (storeLayout->GetSize() == lcl->GetLayout()->GetSize()))))
         {
-            store->ChangeOper(GT_LCL_STORE);
-            store->SetType(lclType);
-            store->AsLclStore()->SetLcl(lcl);
-            store->AsLclStore()->SetValue(value);
-            store->gtFlags = GTF_ASG | (lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
-
+            store->ChangeToLclStore(lclType, lcl, value);
             INDEBUG(m_stmtModified = true);
+
             return;
         }
 
         if ((lclOffs == 0) && !lcl->lvDoNotEnregister && (varTypeSize(lcl->GetType()) == storeLayout->GetSize()))
         {
-            store->SetOper(GT_LCL_STORE);
-            PromoteSingleFieldStructLclStore(store->AsLclStore(), value, lcl);
+            store->ChangeToLclStore(lcl->GetType(), lcl, value);
+            RetypeSingleFieldStructLclStore(store->AsLclStore(), value);
 
             return;
         }
@@ -1325,14 +1316,13 @@ private:
             m_compiler->lvaSetAddressExposed(lcl);
         }
 
-        store->ChangeOper(GT_LCL_STORE_FLD);
-        store->AsLclStoreFld()->SetLcl(lcl);
-        store->AsLclStoreFld()->SetLclOffs(lclOffs);
-        store->AsLclStoreFld()->SetFieldSeq(
-            fieldSeq == nullptr || !varTypeIsStruct(lclType) ? FieldSeqStore::NotAField() : fieldSeq);
-        store->AsLclStoreFld()->SetValue(value);
+        if ((fieldSeq == nullptr) || !varTypeIsStruct(lclType))
+        {
+            fieldSeq = FieldSeqStore::NotAField();
+        }
+
+        store->ChangeToLclStoreFld(store->GetType(), lcl, lclOffs, fieldSeq, value);
         store->AsLclStoreFld()->SetLayout(storeLayout, m_compiler);
-        store->gtFlags = GTF_ASG | (lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
 
         m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
 
@@ -1914,7 +1904,9 @@ private:
         if (destLcl->IsPromoted() && (destLcl->GetPromotedFieldCount() == 1))
         {
             LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(destLcl->GetPromotedFieldLclNum(0));
-            PromoteSingleFieldStructLclStore(store, value, fieldLcl);
+            store->SetLcl(fieldLcl);
+            store->SetType(fieldLcl->GetType());
+            RetypeSingleFieldStructLclStore(store, value);
         }
         else if (!value->TypeIs(TYP_STRUCT) && !value->IsIntCon(0))
         {
@@ -1942,11 +1934,8 @@ private:
         INDEBUG(m_stmtModified = true;)
     }
 
-    void PromoteSingleFieldStructLclStore(GenTreeLclStore* store, GenTree* value, LclVarDsc* fieldLcl)
+    void RetypeSingleFieldStructLclStore(GenTreeLclStore* store, GenTree* value)
     {
-        store->SetLcl(fieldLcl);
-        store->SetType(fieldLcl->GetType());
-
         if (value->IsIntCon(0))
         {
             value = RetypeStructZeroInit(value, store->GetType());
