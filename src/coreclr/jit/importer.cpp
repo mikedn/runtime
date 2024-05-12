@@ -727,7 +727,7 @@ GenTreeCall::Use* Importer::ReverseCallArgs(GenTreeCall::Use* args, bool skipFir
 }
 #endif // TARGET_X86
 
-void Compiler::impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call)
+void Importer::impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call)
 {
     assert(varTypeIsStruct(dest->GetType()) && dest->OperIs(GT_LCL_LOAD, GT_IND_LOAD_OBJ, GT_IND_LOAD));
     assert(call->TreatAsHasRetBufArg());
@@ -743,6 +743,11 @@ void Compiler::impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call)
         retBufAddr = dest->AsIndir()->GetAddr();
     }
 
+    comp->impAddCallRetBufAddrArg(call, retBufAddr);
+}
+
+void Compiler::impAddCallRetBufAddrArg(GenTreeCall* call, GenTree* retBufAddr)
+{
 #if defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
     if (call->IsUnmanaged())
     {
@@ -824,7 +829,7 @@ GenTree* Importer::impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigne
 
     if (dest->OperIs(GT_LCL_LOAD))
     {
-        // TODO-MIKE-Cleanup: This should generate LCL_FLD stores...
+        // TODO-MIKE-Cleanup: This should generate LCL_STORE_FLDs...
         destAddr = dest->ChangeToLclAddr(TYP_I_IMPL, dest->AsLclLoad()->GetLcl());
     }
     else
@@ -869,7 +874,7 @@ GenTree* Importer::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLeve
     {
         if (call->TreatAsHasRetBufArg())
         {
-            comp->impAssignCallWithRetBuf(dest, call);
+            impAssignCallWithRetBuf(dest, call);
 
             return call;
         }
@@ -913,7 +918,7 @@ GenTree* Importer::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLeve
 
         if (call->TreatAsHasRetBufArg())
         {
-            comp->impAssignCallWithRetBuf(dest, call);
+            impAssignCallWithRetBuf(dest, call);
             retExpr->SetType(TYP_VOID);
 
             return retExpr;

@@ -2483,11 +2483,11 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
     return afterStmt;
 }
 
-GenTree* Compiler::inlStoreCallWithRetBuf(LclVarDsc* dest, var_types type, GenTree* src)
+GenTree* Compiler::inlStoreCallWithRetBuf(LclVarDsc* dest, var_types type, GenTree* value)
 {
-    assert(
-        (src->TypeIs(TYP_STRUCT) && src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_IND_LOAD_OBJ, GT_CALL, GT_RET_EXPR)) ||
-        varTypeIsSIMD(src->GetType()));
+    assert((value->TypeIs(TYP_STRUCT) &&
+            value->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_IND_LOAD_OBJ, GT_CALL, GT_RET_EXPR)) ||
+           varTypeIsSIMD(value->GetType()));
 
     // TODO-MIKE-Cleanup: Share code with impAssignStruct, the main difference is that
     // impAssignStruct supports MKREFANY by appending a separate store statement for
@@ -2499,11 +2499,11 @@ GenTree* Compiler::inlStoreCallWithRetBuf(LclVarDsc* dest, var_types type, GenTr
     // Handle calls that return structs by reference - the destination address is
     // passed to the call as the return buffer address and no store is generated.
 
-    if (GenTreeCall* call = src->IsCall())
+    if (GenTreeCall* call = value->IsCall())
     {
         if (call->TreatAsHasRetBufArg())
         {
-            impAssignCallWithRetBuf(gtNewLclLoad(dest, type), call);
+            impAddCallRetBufAddrArg(call, gtNewLclAddr(dest, TYP_I_IMPL));
 
             return call;
         }
@@ -2536,7 +2536,7 @@ GenTree* Compiler::inlStoreCallWithRetBuf(LclVarDsc* dest, var_types type, GenTr
         }
 #endif
     }
-    else if (GenTreeRetExpr* retExpr = src->IsRetExpr())
+    else if (GenTreeRetExpr* retExpr = value->IsRetExpr())
     {
         GenTreeCall* call = retExpr->GetCall();
 
@@ -2544,7 +2544,7 @@ GenTree* Compiler::inlStoreCallWithRetBuf(LclVarDsc* dest, var_types type, GenTr
 
         if (call->TreatAsHasRetBufArg())
         {
-            impAssignCallWithRetBuf(gtNewLclLoad(dest, type), call);
+            impAddCallRetBufAddrArg(call, gtNewLclAddr(dest, TYP_I_IMPL));
             retExpr->SetType(TYP_VOID);
 
             return retExpr;
