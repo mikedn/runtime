@@ -1090,23 +1090,18 @@ bool Compiler::inlImportReturn(Importer&            importer,
 
     if (LclVarDsc* lcl = inlineInfo->retSpillTempLcl)
     {
-        var_types lclType = lcl->GetType();
-        GenTree*  store;
+        GenTree* store = gtNewLclStore(lcl, lcl->GetType(), retExpr);
 
         if (varTypeIsStruct(retExpr->GetType()))
         {
-            store = importer.impAssignStruct(gtNewLclLoad(lcl, lclType), retExpr, Importer::CHECK_SPILL_NONE);
-        }
-        else
-        {
-            store = gtNewLclStore(lcl, lclType, retExpr);
+            store = importer.impAssignStruct(store, retExpr, Importer::CHECK_SPILL_NONE);
         }
 
         importer.impSpillNoneAppendTree(store);
 
         if (inlineInfo->retExpr == nullptr)
         {
-            retExpr = gtNewLclLoad(lcl, lclType);
+            retExpr = gtNewLclLoad(lcl, lcl->GetType());
         }
         else if (inlineInfo->iciCall->HasRetBufArg())
         {
@@ -1128,10 +1123,10 @@ bool Compiler::inlImportReturn(Importer&            importer,
             // to the return buffer, that seems like an unnecessary copy.
             // Also, what happens if the return address arg has side effects?
 
-            GenTree* retBufAddr  = gtCloneExpr(inlineInfo->iciCall->gtCallArgs->GetNode());
-            GenTree* retBufIndir = gtNewIndLoadObj(typGetObjLayout(retExprClass), retBufAddr);
+            GenTree*            retBufAddr  = gtCloneExpr(inlineInfo->iciCall->gtCallArgs->GetNode());
+            GenTreeIndStoreObj* retBufStore = gtNewIndStoreObj(typGetObjLayout(retExprClass), retBufAddr, retExpr);
 
-            retExpr = importer.impAssignStruct(retBufIndir, retExpr, Importer::CHECK_SPILL_ALL);
+            retExpr = importer.impAssignStruct(retBufStore, retExpr, Importer::CHECK_SPILL_ALL);
         }
 
         JITDUMPTREE(retExpr, "Inliner return expression:\n");

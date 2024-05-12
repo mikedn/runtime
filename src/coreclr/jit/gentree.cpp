@@ -4427,11 +4427,11 @@ GenTreeIndir* Compiler::gtNewIndexLoad(var_types type, GenTreeIndexAddr* indexAd
 
 GenTreeIndir* Compiler::gtNewIndexStore(var_types type, GenTreeIndexAddr* indexAddr, GenTree* value)
 {
-    GenTreeIndir* store = gtNewIndexLoad(type, indexAddr);
+    GenTree* store = gtNewIndexLoad(type, indexAddr);
     store->SetOper(store->OperIs(GT_IND_LOAD) ? GT_IND_STORE : GT_IND_STORE_OBJ);
-    store->SetValue(value);
     store->AddSideEffects(GTF_ASG | GTF_GLOB_REF | value->GetSideEffects());
-    return store;
+    store->AsIndir()->SetValue(value);
+    return store->AsIndir();
 }
 
 GenTreeIndir* Compiler::gtNewFieldLoad(var_types type, GenTreeFieldAddr* fieldAddr)
@@ -4464,13 +4464,13 @@ GenTreeIndir* Compiler::gtNewFieldLoad(var_types type, unsigned layoutNum, GenTr
     return indir;
 }
 
-GenTreeIndir* Compiler::gtNewFieldIndStore(var_types type, GenTreeFieldAddr* fieldAddr, GenTree* value)
+GenTreeIndStore* Compiler::gtNewFieldIndStore(var_types type, GenTreeFieldAddr* fieldAddr, GenTree* value)
 {
-    GenTreeIndir* store = gtNewFieldLoad(type, fieldAddr);
+    GenTree* store = gtNewFieldLoad(type, fieldAddr);
     store->SetOper(GT_IND_STORE);
-    store->SetValue(value);
     store->AddSideEffects(GTF_ASG | value->GetSideEffects());
-    return store;
+    store->AsIndStore()->SetValue(value);
+    return store->AsIndStore();
 }
 
 GenTreeIndLoadObj* Compiler::gtNewIndLoadObj(ClassLayout* layout, GenTree* addr)
@@ -4506,6 +4506,21 @@ GenTreeIndLoadObj* Compiler::gtNewIndLoadObj(var_types type, ClassLayout* layout
     }
 
     return load;
+}
+
+GenTreeIndStoreObj* Compiler::gtNewIndStoreObj(ClassLayout* layout, GenTree* addr, GenTree* value)
+{
+    return gtNewIndStoreObj(typGetStructType(layout), layout, addr, value);
+}
+
+GenTreeIndStoreObj* Compiler::gtNewIndStoreObj(var_types type, ClassLayout* layout, GenTree* addr, GenTree* value)
+{
+    GenTree* store = gtNewIndLoadObj(type, layout, addr);
+    store->SetOper(GT_IND_STORE_OBJ);
+    store->AddSideEffects(GTF_ASG | value->GetSideEffects());
+    store->AsIndStoreObj()->SetValue(value);
+    store->AsIndStoreObj()->SetLayout(layout);
+    return store->AsIndStoreObj();
 }
 
 //----------------------------------------------------------------------------
@@ -9249,7 +9264,7 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
         assert(arg->AsLclAddr()->GetLclOffs() == 0);
 
         newOp = arg->ChangeToLclLoadFld(TYP_BOOL, arg->AsLclAddr()->GetLcl(), fieldOffset,
-                                    GetFieldSeqStore()->CreateSingleton(fieldHnd));
+                                        GetFieldSeqStore()->CreateSingleton(fieldHnd));
     }
     else
     {

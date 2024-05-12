@@ -2891,6 +2891,9 @@ public:
     GenTreeIndLoadObj* gtNewIndLoadObj(ClassLayout* layout, GenTree* addr);
     GenTreeIndLoadObj* gtNewIndLoadObj(var_types type, ClassLayout* layout, GenTree* addr);
 
+    GenTreeIndStoreObj* gtNewIndStoreObj(ClassLayout* layout, GenTree* addr, GenTree* value);
+    GenTreeIndStoreObj* gtNewIndStoreObj(var_types type, ClassLayout* layout, GenTree* addr, GenTree* value);
+
     GenTreeIndir* gtNewIndexStore(var_types type, GenTreeIndexAddr* indexAddr, GenTree* value);
 
     GenTreeCall::Use* gtNewCallArgs(GenTree* node);
@@ -2989,7 +2992,7 @@ public:
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset);
     GenTreeIndir* gtNewFieldLoad(var_types type, GenTreeFieldAddr* fieldAddr);
     GenTreeIndir* gtNewFieldLoad(var_types type, unsigned layoutNum, GenTreeFieldAddr* fieldAddr);
-    GenTreeIndir* gtNewFieldIndStore(var_types type, GenTreeFieldAddr* fieldAddr, GenTree* value);
+    GenTreeIndStore* gtNewFieldIndStore(var_types type, GenTreeFieldAddr* fieldAddr, GenTree* value);
     GenTreeFlags gtGetFieldIndirFlags(GenTreeFieldAddr* fieldAddr);
 
     GenTreeIndexAddr* gtNewArrayIndexAddr(GenTree* arr, GenTree* ind, var_types elemType);
