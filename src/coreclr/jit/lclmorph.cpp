@@ -225,30 +225,14 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
             return true;
         }
 
-        // Produce a location value from an address value.
-        // Returns `true` if the value was consumed. `false` if the input value cannot be
-        // consumed because it is itself a location. In this case the caller is expected
-        // to escape the input value.
-        //
-        // - LOCATION(lclNum, offset) => not representable, must escape
-        // - ADDRESS(lclNum, offset) => LOCATION(lclNum, offset)
-        // - UNKNOWN => UNKNOWN
-        //
-        bool Indir(Value& val)
+        bool IndLoad(Value& val)
         {
             assert(!IsLocation() && !IsAddress());
+            assert(val.IsAddress());
 
-            if (val.IsLocation())
-            {
-                return false;
-            }
-
-            if (val.IsAddress())
-            {
-                m_lcl      = val.m_lcl;
-                m_offset   = val.m_offset;
-                m_fieldSeq = val.m_fieldSeq;
-            }
+            m_lcl      = val.m_lcl;
+            m_offset   = val.m_offset;
+            m_fieldSeq = val.m_fieldSeq;
 
             INDEBUG(val.Consume();)
             return true;
@@ -396,7 +380,7 @@ public:
 
                 if (node->TypeIs(TYP_STRUCT))
                 {
-                    PostOrderVisitStructLclStore(node->AsLclStore());
+                    MorphLclStore(node->AsLclStore());
                 }
                 break;
 
@@ -406,11 +390,13 @@ public:
                 assert(TopValue(1).Node() == node);
                 assert(TopValue(0).Node() == node->AsIndir()->GetAddr());
 
-                if (!TopValue(1).Indir(TopValue(0)))
+                if (TopValue(0).IsAddress())
                 {
-                    // If the address comes from another indirection (e.g. IND(IND(...))
-                    // then we need to escape the location.
-                    EscapeLocation(TopValue(0), node);
+                    TopValue(1).IndLoad(TopValue(0));
+                }
+                else
+                {
+                    EscapeValue(TopValue(0), node);
                 }
 
                 PopValue();
@@ -418,12 +404,12 @@ public:
 
             case GT_IND_STORE:
                 assert(TopValue(2).Node() == node);
-                assert(TopValue(1).Node() == node->AsIndir()->GetAddr());
-                assert(TopValue(0).Node() == node->AsIndir()->GetValue());
+                assert(TopValue(1).Node() == node->AsIndStore()->GetAddr());
+                assert(TopValue(0).Node() == node->AsIndStore()->GetValue());
 
                 if (TopValue(1).IsAddress())
                 {
-                    MorphLocalIndStore(node->AsIndir(), TopValue(1));
+                    MorphLocalIndStore(node->AsIndStore(), TopValue(1));
                 }
                 else
                 {
@@ -437,11 +423,12 @@ public:
 
             case GT_IND_STORE_OBJ:
                 assert(TopValue(2).Node() == node);
-                assert(TopValue(1).Node() == node->AsIndir()->GetAddr());
-                assert(TopValue(0).Node() == node->AsIndir()->GetValue());
+                assert(TopValue(1).Node() == node->AsIndStoreObj()->GetAddr());
+                assert(TopValue(0).Node() == node->AsIndStoreObj()->GetValue());
 
                 EscapeValue(TopValue(0), node);
-                MorphLocalIndStoreObj(node->AsIndStoreObj(), TopValue(1));
+                MorphIndStoreObj(node->AsIndStoreObj(), TopValue(1));
+
                 PopValue();
                 PopValue();
                 break;
@@ -1128,13 +1115,9 @@ private:
 
             if (isAssignable)
             {
-                store->ChangeOper(GT_LCL_STORE);
-                store->SetType(lclType);
-                store->AsLclStore()->SetLcl(lcl);
-                store->AsLclStore()->SetValue(value);
-                store->gtFlags = GTF_ASG | (lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
-
+                store->ChangeToLclStore(lclType, lcl, value);
                 INDEBUG(m_stmtModified = true);
+
                 return;
             }
         }
@@ -1203,7 +1186,7 @@ private:
         INDEBUG(m_stmtModified = true);
     }
 
-    void MorphLocalIndStoreObj(GenTreeIndStoreObj* store, const Value& addrVal)
+    void MorphIndStoreObj(GenTreeIndStoreObj* store, const Value& addrVal)
     {
         GenTree* value = store->GetValue();
 
@@ -1222,17 +1205,22 @@ private:
             {
                 EscapeValue(TopValue(1), store);
             }
-
-            return;
         }
-
-        if (!TopValue(1).IsAddress())
+        else
         {
-            EscapeValue(TopValue(1), store);
-
-            return;
+            if (TopValue(1).IsAddress())
+            {
+                MorphLocalIndStoreObj(store, addrVal);
+            }
+            else
+            {
+                EscapeValue(TopValue(1), store);
+            }
         }
+    }
 
+    void MorphLocalIndStoreObj(GenTreeIndStoreObj* store, const Value& addrVal)
+    {
         INDEBUG(addrVal.Consume());
 
         LclVarDsc*   lcl         = addrVal.Lcl();
@@ -1287,6 +1275,8 @@ private:
                 return;
             }
         }
+
+        GenTree* value = store->GetValue();
 
         if ((lclOffs == 0) && varTypeIsStruct(lcl->GetType()) &&
             ((storeLayout == lcl->GetLayout()) ||
@@ -1891,7 +1881,7 @@ private:
         return false;
     }
 
-    void PostOrderVisitStructLclStore(GenTreeLclStore* store)
+    void MorphLclStore(GenTreeLclStore* store)
     {
         assert(store->TypeIs(TYP_STRUCT));
 
