@@ -369,16 +369,16 @@ public:
 
         switch (node->GetOper())
         {
-            case GT_LCL_LOAD:
-                assert(TopValue(0).Node() == node);
-
-                TopValue(0).Location(node->AsLclLoad());
-                break;
-
             case GT_LCL_ADDR:
                 assert(TopValue(0).Node() == node);
 
                 TopValue(0).Address(node->AsLclAddr());
+                break;
+
+            case GT_LCL_LOAD:
+                assert(TopValue(0).Node() == node);
+
+                TopValue(0).Location(node->AsLclLoad());
                 break;
 
             case GT_LCL_LOAD_FLD:
@@ -387,12 +387,73 @@ public:
                 TopValue(0).Location(node->AsLclLoadFld());
                 break;
 
-            case GT_CAST:
+            case GT_LCL_STORE:
                 assert(TopValue(1).Node() == node);
-                assert(TopValue(0).Node() == node->AsCast()->GetOp(0));
+                assert(TopValue(0).Node() == node->AsLclStore()->GetValue());
 
-                if (!TopValue(1).Cast(TopValue(0), node->AsCast()))
+                EscapeValue(TopValue(0), node);
+                PopValue();
+
+                if (node->TypeIs(TYP_STRUCT))
                 {
+                    PostOrderVisitStructLclStore(node->AsLclStore());
+                }
+                break;
+
+            case GT_IND_LOAD_OBJ:
+            case GT_IND_LOAD_BLK:
+            case GT_IND_LOAD:
+                assert(TopValue(1).Node() == node);
+                assert(TopValue(0).Node() == node->AsIndir()->GetAddr());
+
+                if (!TopValue(1).Indir(TopValue(0)))
+                {
+                    // If the address comes from another indirection (e.g. IND(IND(...))
+                    // then we need to escape the location.
+                    EscapeLocation(TopValue(0), node);
+                }
+
+                PopValue();
+                break;
+
+            case GT_IND_STORE:
+                assert(TopValue(2).Node() == node);
+                assert(TopValue(1).Node() == node->AsIndir()->GetAddr());
+                assert(TopValue(0).Node() == node->AsIndir()->GetValue());
+
+                if (TopValue(1).IsAddress())
+                {
+                    MorphLocalIndStore(node->AsIndir(), TopValue(1));
+                }
+                else
+                {
+                    EscapeValue(TopValue(1), node);
+                }
+
+                EscapeValue(TopValue(0), node);
+                PopValue();
+                PopValue();
+                break;
+
+            case GT_IND_STORE_OBJ:
+                assert(TopValue(2).Node() == node);
+                assert(TopValue(1).Node() == node->AsIndir()->GetAddr());
+                assert(TopValue(0).Node() == node->AsIndir()->GetValue());
+
+                EscapeValue(TopValue(0), node);
+                MorphLocalIndStoreObj(node->AsIndStoreObj(), TopValue(1));
+                PopValue();
+                PopValue();
+                break;
+
+            case GT_FIELD_ADDR:
+                assert(TopValue(1).Node() == node);
+                assert(TopValue(0).Node() == node->AsFieldAddr()->GetAddr());
+
+                if (!TopValue(1).FieldAddress(TopValue(0), node->AsFieldAddr(), m_compiler->GetFieldSeqStore()))
+                {
+                    // Either the address comes from a location value (e.g. FIELD_ADDR(IND(...)))
+                    // or the field offset has overflowed.
                     EscapeValue(TopValue(0), node);
                 }
 
@@ -448,64 +509,15 @@ public:
                 PopValue();
                 break;
 
-            case GT_FIELD_ADDR:
+            case GT_CAST:
                 assert(TopValue(1).Node() == node);
-                assert(TopValue(0).Node() == node->AsFieldAddr()->GetAddr());
+                assert(TopValue(0).Node() == node->AsCast()->GetOp(0));
 
-                if (!TopValue(1).FieldAddress(TopValue(0), node->AsFieldAddr(), m_compiler->GetFieldSeqStore()))
+                if (!TopValue(1).Cast(TopValue(0), node->AsCast()))
                 {
-                    // Either the address comes from a location value (e.g. FIELD_ADDR(IND(...)))
-                    // or the field offset has overflowed.
                     EscapeValue(TopValue(0), node);
                 }
 
-                PopValue();
-                break;
-
-            case GT_IND_LOAD_OBJ:
-            case GT_IND_LOAD_BLK:
-            case GT_IND_LOAD:
-                assert(TopValue(1).Node() == node);
-                assert(TopValue(0).Node() == node->AsIndir()->GetAddr());
-
-                if (!TopValue(1).Indir(TopValue(0)))
-                {
-                    // If the address comes from another indirection (e.g. IND(IND(...))
-                    // then we need to escape the location.
-                    EscapeLocation(TopValue(0), node);
-                }
-
-                PopValue();
-                break;
-
-            case GT_IND_STORE:
-                assert(TopValue(2).Node() == node);
-                assert(TopValue(1).Node() == node->AsIndir()->GetAddr());
-                assert(TopValue(0).Node() == node->AsIndir()->GetValue());
-
-                if (TopValue(1).IsAddress())
-                {
-                    MorphLocalIndStore(node->AsIndir(), TopValue(1));
-                }
-                else
-                {
-                    EscapeValue(TopValue(1), node);
-                }
-
-                EscapeValue(TopValue(0), node);
-                PopValue();
-                PopValue();
-                break;
-
-            case GT_IND_STORE_OBJ:
-                assert(TopValue(2).Node() == node);
-                assert(TopValue(1).Node() == node->AsIndir()->GetAddr());
-                assert(TopValue(0).Node() == node->AsIndir()->GetValue());
-
-                EscapeValue(TopValue(0), node);
-                MorphLocalIndStoreObj(node->AsIndStoreObj(), TopValue(1));
-
-                PopValue();
                 PopValue();
                 break;
 
@@ -546,19 +558,6 @@ public:
                             RetypeMergedReturn(ret, lcl);
                         }
                     }
-                }
-                break;
-
-            case GT_LCL_STORE:
-                assert(TopValue(1).Node() == node);
-                assert(TopValue(0).Node() == node->AsLclStore()->GetValue());
-
-                EscapeValue(TopValue(0), node);
-                PopValue();
-
-                if (node->TypeIs(TYP_STRUCT))
-                {
-                    PostOrderVisitStructLclStore(node->AsLclStore());
                 }
                 break;
 
