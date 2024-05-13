@@ -287,8 +287,8 @@ public:
 
         WalkTree(stmt->GetRootNodePointer(), nullptr);
 
-        // We could have a statement like IND(ADDR(LCL_VAR)) that EscapeLocation would simplify
-        // to LCL_VAR. But since it's unused (and currently can't have any side effects) we'll
+        // We could have a statement like IND(LCL_ADDR) that EscapeLocation would simplify to
+        // LCL_LOAD. But since it's unused (and currently can't have any side effects) we'll
         // just change the statement to NOP. This way we avoid complications associated with
         // passing a null user to EscapeLocation.
         // This doesn't seem to happen often, if ever. The importer tends to wrap such a tree
@@ -363,12 +363,16 @@ public:
                 assert(TopValue(0).Node() == node);
 
                 TopValue(0).Location(node->AsLclLoad());
+                node        = MorphLclLoad(TopValue(0), user);
+                TopValue(0) = node;
                 break;
 
             case GT_LCL_LOAD_FLD:
                 assert(TopValue(0).Node() == node);
 
                 TopValue(0).Location(node->AsLclLoadFld());
+                MorphLclLoadFld(TopValue(0), user);
+                TopValue(0) = node;
                 break;
 
             case GT_LCL_STORE:
@@ -393,6 +397,8 @@ public:
                 if (TopValue(0).IsAddress())
                 {
                     TopValue(1).IndLoad(TopValue(0));
+                    MorphIndLoad(TopValue(1), user);
+                    TopValue(1) = node;
                 }
                 else
                 {
@@ -580,11 +586,9 @@ private:
 
     void EscapeValue(const Value& val, GenTree* user)
     {
-        if (val.IsLocation())
-        {
-            EscapeLocation(val, user);
-        }
-        else if (val.IsAddress())
+        assert(!val.IsLocation());
+
+        if (val.IsAddress())
         {
             EscapeAddress(val, user);
         }
@@ -716,10 +720,7 @@ private:
         }
     }
 
-    // Unlike EscapeAddress, this does not necessarily mark the local associated
-    // with the value as address exposed. This is needed only if the indirection
-    // is wider than the local.
-    void EscapeLocation(const Value& val, GenTree* user)
+    GenTree* MorphLclLoad(const Value& val, GenTree* user)
     {
         assert(val.IsLocation());
         INDEBUG(val.Consume();)
@@ -728,43 +729,57 @@ private:
         LclVarDsc* lcl  = val.Lcl();
         GenTree*   node = val.Node();
 
-        if (node->OperIs(GT_LCL_LOAD))
+        assert(node->OperIs(GT_LCL_LOAD));
+        assert(node->AsLclLoad()->GetLcl() == lcl);
+
+        if (lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 1))
         {
-            assert(node->AsLclLoad()->GetLcl() == lcl);
-
-            if (lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 1))
+            switch (user->GetOper())
             {
-                switch (user->GetOper())
-                {
-                    case GT_LCL_STORE:
-                    case GT_LCL_STORE_FLD:
-                    case GT_IND_STORE_OBJ:
-                        PromoteSingleFieldStructLocalStoreValue(lcl, node->AsLclLoad(), user);
-                        break;
-                    case GT_CALL:
-                        PromoteSingleFieldStructLocalCallArg(lcl, node->AsLclLoad());
-                        break;
-                    case GT_RETURN:
-                        PromoteSingleFieldStructLocalReturn(lcl, node->AsLclLoad(), user->AsUnOp());
-                        break;
-                    default:
-                        // Let's hope the importer doesn't produce STRUCT COMMAs again.
-                        unreached();
-                }
+                case GT_LCL_STORE:
+                case GT_LCL_STORE_FLD:
+                case GT_IND_STORE_OBJ:
+                    PromoteSingleFieldStructLocalStoreValue(lcl, node->AsLclLoad(), user);
+                    break;
+                case GT_CALL:
+                    PromoteSingleFieldStructLocalCallArg(lcl, node->AsLclLoad());
+                    break;
+                case GT_RETURN:
+                    return PromoteSingleFieldStructLocalReturn(lcl, node->AsLclLoad(), user->AsUnOp());
+                default:
+                    // Let's hope the importer doesn't produce STRUCT COMMAs again.
+                    unreached();
             }
-
-            return;
         }
 
-        if (node->OperIs(GT_LCL_LOAD_FLD))
-        {
-            if (!lcl->IsPromoted() || !PromoteLclFld(node->AsLclLoadFld(), lcl))
-            {
-                m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
-            }
+        return node;
+    }
 
-            return;
+    void MorphLclLoadFld(const Value& val, GenTree* user)
+    {
+        assert(val.IsLocation());
+        INDEBUG(val.Consume();)
+        assert(user != nullptr);
+
+        LclVarDsc* lcl  = val.Lcl();
+        GenTree*   node = val.Node();
+
+        assert(node->OperIs(GT_LCL_LOAD_FLD));
+
+        if (!lcl->IsPromoted() || !PromoteLclFld(node->AsLclLoadFld(), lcl))
+        {
+            m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
         }
+    }
+
+    void MorphIndLoad(const Value& val, GenTree* user)
+    {
+        assert(val.IsLocation());
+        INDEBUG(val.Consume();)
+        assert(user != nullptr);
+
+        LclVarDsc* lcl  = val.Lcl();
+        GenTree*   node = val.Node();
 
         // Otherwise it must be accessed through some kind of indirection. Usually this is
         // something like IND(ADDR(LCL_VAR)) and most of the time we can change this to a
@@ -894,7 +909,7 @@ private:
         INDEBUG(m_stmtModified = true;)
     }
 
-    void PromoteSingleFieldStructLocalReturn(LclVarDsc* lcl, GenTreeLclLoad* load, GenTreeUnOp* ret)
+    GenTree* PromoteSingleFieldStructLocalReturn(LclVarDsc* lcl, GenTreeLclLoad* load, GenTreeUnOp* ret)
     {
         assert(lcl->TypeIs(TYP_STRUCT));
         assert(lcl->GetPromotedFieldCount() == 1);
@@ -913,7 +928,7 @@ private:
         {
             // This is a merged return, it will be transformed into a struct
             // copy so leave it to fgMorphCopyStruct to promote it.
-            return;
+            return load;
         }
 
         const ReturnTypeDesc& retDesc = m_compiler->info.retDesc;
@@ -928,7 +943,7 @@ private:
                 ret->SetOp(0, NewBitCastNode(retRegType, load));
             }
 
-            return;
+            return ret->GetOp(0);
         }
 
 #ifdef WINDOWS_X86_ABI
@@ -949,7 +964,7 @@ private:
                 assert(fieldLcl->TypeIs(TYP_LONG, TYP_DOUBLE));
             }
 
-            return;
+            return ret->GetOp(0);
         }
 #endif
 
@@ -959,6 +974,8 @@ private:
         // Either way, leave it to morph to produce a FIELD_LIST in this case.
         // We could probably do it here but it's not clear if it has any benefits.
         assert(varTypeIsSIMD(fieldLcl->GetType()));
+
+        return load;
     }
 
     bool PromoteLclFld(GenTreeLclLoadFld* node, LclVarDsc* lcl)
@@ -1385,8 +1402,6 @@ private:
         INDEBUG(m_stmtModified = true;)
     }
 
-    // Change a tree that represents an indirect access to a struct
-    // variable to a single LCL_VAR or LCL_FLD node.
     void MorphLocalIndir(const Value& val, GenTree* user, unsigned indirSize)
     {
         assert(val.IsLocation());
