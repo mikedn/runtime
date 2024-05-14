@@ -297,15 +297,17 @@ public:
             case GT_LCL_LOAD:
                 assert(TopValue(0).Node() == node);
 
-                node        = MorphLclLoad(node->AsLclLoad(), user);
-                TopValue(0) = node;
+                if (node->TypeIs(TYP_STRUCT))
+                {
+                    node        = MorphStructLclLoad(node->AsLclLoad(), user);
+                    TopValue(0) = node;
+                }
                 break;
 
             case GT_LCL_LOAD_FLD:
                 assert(TopValue(0).Node() == node);
 
                 MorphLclLoadFld(node->AsLclLoadFld(), user);
-                TopValue(0) = node;
                 break;
 
             case GT_LCL_STORE:
@@ -329,8 +331,7 @@ public:
 
                 if (TopValue(0).IsAddress())
                 {
-                    MorphIndLoad(node->AsIndir(), TopValue(0), user);
-                    TopValue(1) = node;
+                    MorphLocalIndLoad(node->AsIndir(), TopValue(0), user);
                 }
                 else
                 {
@@ -650,7 +651,7 @@ private:
         }
     }
 
-    GenTree* MorphLclLoad(GenTreeLclLoad* load, GenTree* user)
+    GenTree* MorphStructLclLoad(GenTreeLclLoad* load, GenTree* user)
     {
         assert(user != nullptr);
 
@@ -658,18 +659,19 @@ private:
 
         if (lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 1))
         {
+            // TODO-MIKE-Cleanup: The user could be null here (unused load).
             switch (user->GetOper())
             {
                 case GT_LCL_STORE:
                 case GT_LCL_STORE_FLD:
                 case GT_IND_STORE_OBJ:
-                    PromoteSingleFieldStructLocalStoreValue(lcl, load, user);
+                    PromoteSingleFieldStructLclLoadStoreValue(lcl, load, user);
                     break;
                 case GT_CALL:
-                    PromoteSingleFieldStructLocalCallArg(lcl, load);
+                    PromoteSingleFieldStructLclLoadCallArg(lcl, load);
                     break;
                 case GT_RETURN:
-                    return PromoteSingleFieldStructLocalReturn(lcl, load, user->AsUnOp());
+                    return PromoteSingleFieldStructLclLoadReturn(lcl, load, user->AsUnOp());
                 default:
                     // Let's hope the importer doesn't produce STRUCT COMMAs again.
                     unreached();
@@ -679,124 +681,7 @@ private:
         return load;
     }
 
-    void MorphLclLoadFld(GenTreeLclLoadFld* load, GenTree* user)
-    {
-        assert(user != nullptr);
-
-        LclVarDsc* lcl = load->GetLcl();
-
-        if (!lcl->IsPromoted() || !PromoteLclFld(load, lcl))
-        {
-            m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
-        }
-    }
-
-    void MorphIndLoad(GenTreeIndir* load, const Value& addrVal, GenTree* user)
-    {
-        assert(addrVal.IsAddress());
-        INDEBUG(addrVal.Consume();)
-        assert(user != nullptr);
-
-        LclVarDsc* lcl = addrVal.Lcl();
-
-        // Usually this is something like IND_LOAD(LCL_ADDR) and most of the time we can change
-        // this to a LCL_LOAD or LCL_LOAD_FLD so the local does not need to be address exposed.
-        //
-        // It is possible for the indirection to be wider than the local (e.g. *(long*)&int32Var)
-        // or to have a field offset that pushes the indirection past the end of the local. Such
-        // cases are rare and the only reasonable solution is to keep the indirection and make the
-        // local address exposed.
-        //
-        // More importantly, if the local is a promoted struct field then the parent local also
-        // needs to be address exposed, so we get dependent struct promotion. Code like
-        // *(long*)&int32Var has undefined behavior and it's practically useless but reading,
-        // say, 2 consecutive Int32 struct fields as a single Int64 has more practical value.
-
-        unsigned loadSize = GetIndLoadSize(load, user);
-        bool     isWide;
-
-        if (loadSize == 0)
-        {
-            // If we can't figure out the indirection size then treat it as a wide indirection.
-            isWide = true;
-        }
-        else
-        {
-            ClrSafeInt<unsigned> endOffset = ClrSafeInt<unsigned>(addrVal.Offset()) + ClrSafeInt<unsigned>(loadSize);
-
-            if (endOffset.IsOverflow())
-            {
-                isWide = true;
-            }
-            else if (lcl->TypeIs(TYP_STRUCT))
-            {
-                isWide = endOffset.Value() > lcl->GetLayout()->GetSize();
-            }
-            else if (lcl->TypeIs(TYP_BLK))
-            {
-                isWide = endOffset.Value() > lcl->GetBlockSize();
-            }
-            else
-            {
-                // For small int types use the real type size, not the stack slot size.
-                // Morph does manage to transform `*(int*)&byteVar` into just byteVar where
-                // the LCL_VAR node has type TYP_INT. But such code is simply bogus and
-                // there's no reason to attempt to optimize it. It makes more sense to
-                // mark the variable address exposed in such circumstances.
-                //
-                // Same for "small" SIMD types - SIMD8/12 have 8/12 bytes, even if the
-                // stack location may have 16 bytes.
-                isWide = endOffset.Value() > varTypeSize(lcl->GetType());
-            }
-        }
-
-        if (isWide)
-        {
-            // We should not encounter a promoted field here, we only switch to a promoted
-            // field below, after we verify that the field totally overlaps the indirection.
-            assert(!lcl->IsPromotedField());
-
-            CanonicalizeLocalIndLoad(load, addrVal);
-
-            return;
-        }
-
-        if (varTypeIsStruct(lcl->GetType()) && lcl->IsPromoted())
-        {
-            // If this is a promoted variable then we can use a promoted field if it completely
-            // overlaps the indirection. With a lot of work, we could also handle cases where
-            // the indirection spans multiple fields (e.g. reading two consecutive INT fields
-            // as LONG) which would prevent dependent promotion.
-
-            if (LclVarDsc* fieldLcl = FindPromotedField(lcl, addrVal.Offset(), loadSize))
-            {
-                unsigned      fieldOffset = addrVal.Offset() - fieldLcl->GetPromotedFieldOffset();
-                FieldSeqNode* fieldSeq    = addrVal.FieldSeq();
-
-                if ((fieldSeq != nullptr) && fieldSeq->IsField())
-                {
-                    fieldSeq = fieldSeq->RemovePrefix(fieldLcl->GetPromotedFieldSeq());
-
-                    if (fieldSeq == addrVal.FieldSeq())
-                    {
-                        // There was no prefix, this means that the field access sequence doesn't
-                        // match the promoted field sequence, ignore the field access sequence.
-                        fieldSeq = nullptr;
-                    }
-                }
-
-                Value fieldAddrVal(load->GetAddr());
-                fieldAddrVal.Address(fieldLcl, fieldOffset, fieldSeq);
-                MorphIndLoad(load, fieldAddrVal, user, loadSize);
-
-                return;
-            }
-        }
-
-        MorphIndLoad(load, addrVal, user, loadSize);
-    }
-
-    void PromoteSingleFieldStructLocalStoreValue(LclVarDsc* lcl, GenTreeLclLoad* load, GenTree* store)
+    void PromoteSingleFieldStructLclLoadStoreValue(LclVarDsc* lcl, GenTreeLclLoad* load, GenTree* store)
     {
         assert(lcl->TypeIs(TYP_STRUCT));
         assert(lcl->GetPromotedFieldCount() == 1);
@@ -812,7 +697,7 @@ private:
         INDEBUG(m_stmtModified = true;)
     }
 
-    void PromoteSingleFieldStructLocalCallArg(LclVarDsc* lcl, GenTreeLclLoad* load)
+    void PromoteSingleFieldStructLclLoadCallArg(LclVarDsc* lcl, GenTreeLclLoad* load)
     {
         assert(lcl->TypeIs(TYP_STRUCT));
         assert(lcl->GetPromotedFieldCount() == 1);
@@ -827,7 +712,7 @@ private:
         INDEBUG(m_stmtModified = true;)
     }
 
-    GenTree* PromoteSingleFieldStructLocalReturn(LclVarDsc* lcl, GenTreeLclLoad* load, GenTreeUnOp* ret)
+    GenTree* PromoteSingleFieldStructLclLoadReturn(LclVarDsc* lcl, GenTreeLclLoad* load, GenTreeUnOp* ret)
     {
         assert(lcl->TypeIs(TYP_STRUCT));
         assert(lcl->GetPromotedFieldCount() == 1);
@@ -896,34 +781,472 @@ private:
         return load;
     }
 
-    bool PromoteLclFld(GenTreeLclLoadFld* node, LclVarDsc* lcl)
+    void MorphLclLoadFld(GenTreeLclLoadFld* load, GenTree* user)
     {
-        // The importer does not currently produce STRUCT LCL_FLDs.
-        assert(!node->TypeIs(TYP_STRUCT));
+        assert(user != nullptr);
 
-        LclVarDsc* fieldLcl = FindPromotedField(lcl, node->GetLclOffs(), varTypeSize(node->GetType()));
+        LclVarDsc* lcl = load->GetLcl();
+
+        if (!lcl->IsPromoted() || !PromoteLclLoadFld(load, lcl))
+        {
+            m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
+        }
+    }
+
+    bool PromoteLclLoadFld(GenTreeLclLoadFld* load, LclVarDsc* lcl)
+    {
+        // The importer does not currently produce STRUCT LCL_LOAD_FLDs.
+        assert(!load->TypeIs(TYP_STRUCT));
+
+        LclVarDsc* fieldLcl = FindPromotedField(lcl, load->GetLclOffs(), varTypeSize(load->GetType()));
 
         if (fieldLcl == nullptr)
         {
             return false;
         }
 
-        // The importer rarely produces LCL_FLDs, currently only when importing refanytype,
+        // The importer rarely produces LCL_LOAD_FLDs, currently only when importing refanytype,
         // so we can get away with handling only the trivial case when types match exactly.
         // Otherwise we'll just DNER/P-DEP the promoted local so assert to know about it.
-        assert(fieldLcl->GetType() == node->GetType());
+        assert(fieldLcl->GetType() == load->GetType());
 
-        if (fieldLcl->GetType() != node->GetType())
+        if (fieldLcl->GetType() != load->GetType())
         {
             return false;
         }
 
-        node->ChangeOper(GT_LCL_LOAD);
-        node->AsLclLoad()->SetLcl(fieldLcl);
-
+        load->ChangeToLclLoad(fieldLcl->GetType(), fieldLcl);
         INDEBUG(m_stmtModified = true;)
 
         return true;
+    }
+
+    void MorphLocalIndLoad(GenTreeIndir* load, const Value& addrVal, GenTree* user)
+    {
+        assert(load->OperIs(GT_IND_LOAD, GT_IND_LOAD_BLK, GT_IND_LOAD_OBJ));
+        assert(addrVal.IsAddress());
+        INDEBUG(addrVal.Consume();)
+        assert(user != nullptr);
+
+        LclVarDsc* lcl = addrVal.Lcl();
+
+        // Usually this is something like IND_LOAD(LCL_ADDR) and most of the time we can change
+        // this to a LCL_LOAD or LCL_LOAD_FLD so the local does not need to be address exposed.
+        //
+        // It is possible for the indirection to be wider than the local (e.g. *(long*)&int32Var)
+        // or to have a field offset that pushes the indirection past the end of the local. Such
+        // cases are rare and the only reasonable solution is to keep the indirection and make the
+        // local address exposed.
+        //
+        // More importantly, if the local is a promoted struct field then the parent local also
+        // needs to be address exposed, so we get dependent struct promotion. Code like
+        // *(long*)&int32Var has undefined behavior and it's practically useless but reading,
+        // say, 2 consecutive Int32 struct fields as a single Int64 has more practical value.
+
+        unsigned loadSize =
+            load->TypeIs(TYP_STRUCT) ? load->AsBlk()->GetLayout()->GetSize() : varTypeSize(load->GetType());
+
+        ClrSafeInt<unsigned> endOffset = ClrSafeInt<unsigned>(addrVal.Offset()) + ClrSafeInt<unsigned>(loadSize);
+        bool                 isWide;
+
+        if (endOffset.IsOverflow())
+        {
+            isWide = true;
+        }
+        else if (lcl->TypeIs(TYP_STRUCT))
+        {
+            isWide = endOffset.Value() > lcl->GetLayout()->GetSize();
+        }
+        else if (lcl->TypeIs(TYP_BLK))
+        {
+            isWide = endOffset.Value() > lcl->GetBlockSize();
+        }
+        else
+        {
+            // For small int types use the real type size, not the stack slot size.
+            // Morph does manage to transform `*(int*)&byteVar` into just byteVar where
+            // the LCL_LOAD node has type TYP_INT. But such code is simply bogus and
+            // there's no reason to attempt to optimize it. It makes more sense to
+            // mark the variable address exposed in such circumstances.
+            //
+            // Same for "small" SIMD types - SIMD8/12 have 8/12 bytes, even if the
+            // stack location may have 16 bytes.
+            isWide = endOffset.Value() > varTypeSize(lcl->GetType());
+        }
+
+        if (isWide)
+        {
+            // We should not encounter a promoted field here, we only switch to a promoted
+            // field below, after we verify that the field totally overlaps the indirection.
+            assert(!lcl->IsPromotedField());
+
+            CanonicalizeLocalIndLoad(load, addrVal);
+
+            return;
+        }
+
+        if (addrVal.Offset() > UINT16_MAX)
+        {
+            CanonicalizeLocalIndLoad(load, addrVal);
+
+            return;
+        }
+
+        if (varTypeIsStruct(lcl->GetType()) && lcl->IsPromoted())
+        {
+            // If this is a promoted variable then we can use a promoted field if it completely
+            // overlaps the indirection. With a lot of work, we could also handle cases where
+            // the indirection spans multiple fields (e.g. reading two consecutive INT fields
+            // as LONG) which would prevent dependent promotion.
+
+            if (LclVarDsc* fieldLcl = FindPromotedField(lcl, addrVal.Offset(), loadSize))
+            {
+                unsigned      fieldOffset = addrVal.Offset() - fieldLcl->GetPromotedFieldOffset();
+                FieldSeqNode* fieldSeq    = addrVal.FieldSeq();
+
+                if ((fieldSeq != nullptr) && fieldSeq->IsField())
+                {
+                    fieldSeq = fieldSeq->RemovePrefix(fieldLcl->GetPromotedFieldSeq());
+
+                    if (fieldSeq == addrVal.FieldSeq())
+                    {
+                        // There was no prefix, this means that the field access sequence doesn't
+                        // match the promoted field sequence, ignore the field access sequence.
+                        fieldSeq = nullptr;
+                    }
+                }
+
+                Value fieldAddrVal(load->GetAddr());
+                fieldAddrVal.Address(fieldLcl, fieldOffset, fieldSeq);
+                MorphLocalIndLoad(load, fieldAddrVal, user, loadSize);
+
+                return;
+            }
+        }
+
+        MorphLocalIndLoad(load, addrVal, user, loadSize);
+    }
+
+    void MorphLocalIndLoad(GenTreeIndir* load, const Value& addrVal, GenTree* user, unsigned loadSize)
+    {
+        assert(load->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ, GT_IND_LOAD_BLK));
+        assert(!load->OperIs(GT_IND_LOAD) || !load->TypeIs(TYP_STRUCT));
+        assert(addrVal.IsAddress());
+
+        LclVarDsc* const lcl = addrVal.Lcl();
+
+        if (load->IsVolatile())
+        {
+            // TODO-MIKE-Review: For now ignore volatile on a FIELD that accesses a promoted field,
+            // to avoid diffs due to old promotion code ignoring volatile as well.
+
+            if (!load->GetAddr()->OperIs(GT_FIELD_ADDR) || !lcl->IsPromotedField())
+            {
+                CanonicalizeLocalIndLoad(load, addrVal);
+                return;
+            }
+        }
+
+        if (load->OperIs(GT_IND_LOAD_BLK))
+        {
+            // Keep BLKs and mark any involved locals address exposed for now.
+            //
+            // CPBLK and INITBLK are rarely used (the C# compiler doesn't emit them at all).
+            // Only the VM sometimes uses CPBLK in PInvoke IL stubs, to deal with x86 ABI
+            // mismatches it seems (Windows x86 ABI can return structs in 2 registers but
+            // CLR uses a return buffer instead).
+            //
+            // TODO-MIKE-CQ: A previous implementation avoided address exposed locals, but
+            // still forced locals in memory because PInvoke IL stubs copy from a LONG local
+            // to a STRUCT local and one way or another this results in DNER/P-DEP locals.
+            // This can be avoided but it's unlikely that it's worth the effort for x86...
+
+            CanonicalizeLocalIndLoad(load, addrVal);
+            return;
+        }
+
+        var_types lclType  = lcl->GetType();
+        var_types loadType = load->GetType();
+
+        // A non-struct local may be accessed via a struct indir due to reinterpretation in user
+        // code or due to single field struct promotion. Reinterpretation isn't common (but it
+        // does happen - e.g. ILCompiler.Reflection.ReadyToRun.dll reinterprets array references
+        // as ImmutableArray) but promotion is quite common. If the indir is a call arg then we
+        // can simply replace it with the local variable because it doesn't really matter if it's
+        // a struct value or a primitive type value, we just need to put the value in the correct
+        // register or stack slot.
+
+        if ((addrVal.Offset() == 0) && (loadType == TYP_STRUCT) && (lclType != TYP_STRUCT) && (lclType != TYP_BLK))
+        {
+            ClassLayout* loadLayout = load->AsIndLoadObj()->GetLayout();
+
+            switch (user->GetOper())
+            {
+                case GT_LCL_STORE:
+                case GT_IND_STORE_OBJ:
+                    if (PromoteSingleFieldStructCopy(addrVal, load, loadLayout))
+                    {
+                        return;
+                    }
+                    break;
+                case GT_CALL:
+                    if (PromoteSingleFieldStructCallArg(addrVal, load, loadLayout))
+                    {
+                        return;
+                    }
+                    break;
+                case GT_RETURN:
+                    if (PromoteSingleFieldStructReturn(addrVal, load, loadLayout, user->AsUnOp()))
+                    {
+                        return;
+                    }
+                    break;
+                default:
+                    // Let's hope the importer doesn't produce STRUCT COMMAs again.
+                    unreached();
+            }
+        }
+
+        if (!varTypeIsStruct(lclType) && (lclType != TYP_BLK))
+        {
+            if ((addrVal.Offset() == 0) && !varTypeIsStruct(loadType))
+            {
+                if (varTypeSize(loadType) == varTypeSize(lclType))
+                {
+                    if (varTypeIsSmall(loadType) && (varTypeIsUnsigned(loadType) != varTypeIsUnsigned(lclType)))
+                    {
+                        // There's no reason to write something like `*(short*)&ushortLocal` instead of just
+                        // `(short)ushortLocal`, except that generics code can't do such casts and sometimes
+                        // uses `Unsafe.As` as a substitute.
+
+                        load->ChangeOper(GT_CAST);
+                        load->AsCast()->SetCastType(loadType);
+                        load->AsCast()->SetOp(0, NewLclLoad(lclType, lcl));
+                        load->gtFlags = GTF_EMPTY;
+                    }
+                    else if (varTypeKind(loadType) != varTypeKind(lclType))
+                    {
+                        // Handle the relatively common case of floating point/integer reinterpretation.
+                        // Also handle GC pointer/native int reinterpretation, some corelib tracing code
+                        // uses object references as if they're normal pointers for logging purposes.
+
+                        if (CanBitCastTo(loadType))
+                        {
+                            load->ChangeOper(GT_BITCAST);
+                            load->AsUnOp()->SetOp(0, NewLclLoad(lclType, lcl));
+                            load->gtFlags = GTF_EMPTY;
+                        }
+                    }
+                    else
+                    {
+                        // Like in the signedness mismatch case above, it's not common to have `*(int*)&intLocal`
+                        // but such cases may arise either from fancy generic code or, more likely, due to the
+                        // inlining of primitive type methods. Turns out that having methods on primitive types,
+                        // while elegant, can cause problems as any call to such a method requires taking the
+                        // address of the primitive type local variable.
+
+                        assert((loadType == lclType) || ((loadType == TYP_BOOL) && (lclType == TYP_UBYTE)) ||
+                               ((loadType == TYP_UBYTE) && (lclType == TYP_BOOL)));
+
+                        load->ChangeOper(GT_LCL_LOAD);
+                        load->AsLclLoad()->SetLcl(lcl);
+                        load->gtFlags = GTF_EMPTY;
+                    }
+                }
+                else
+                {
+                    // The indir has to be smaller than the local, the "wide" indir case is handled in EscapeLocation.
+                    assert(varTypeSize(loadType) < varTypeSize(lclType));
+
+                    // Storing to a local via a smaller indirection is more difficult to handle, we need something
+                    // like STORE_LCL_VAR(lcl, OR(lcl, value)) in the integer case plus some BITCASTs or intrinsics
+                    // in the float case. CoreLib has a few cases in Vector128 & co. WithElement methods but these
+                    // are normally recognized as intrinsics so it's not worth the trouble to handle this case.
+
+                    // Loading via a smaller indirection isn't common either but this case can be easily handled
+                    // by using a CAST. There's no reason to write something like `*(short*)&intLocal` instead of
+                    // just `(short)intLocal`, except that generics code can't do such casts and sometimes uses
+                    // `Unsafe.As` as a substitute.
+
+                    if (varTypeIsIntegral(loadType) && varTypeIsIntegral(lclType))
+                    {
+                        load->ChangeOper(GT_CAST);
+                        load->AsCast()->SetCastType(loadType);
+                        load->AsCast()->SetOp(0, NewLclLoad(lclType, lcl));
+                        load->gtFlags = GTF_EMPTY;
+                    }
+                }
+            }
+
+            // If we haven't been able to get rid of the indir until now then just use a LCL_FLD.
+
+            if (load->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ))
+            {
+                ClassLayout* layout = load->IsIndLoadObj() ? load->AsIndLoadObj()->GetLayout() : nullptr;
+
+                load->ChangeOper(GT_LCL_LOAD_FLD);
+                load->AsLclLoadFld()->SetLcl(lcl);
+                load->AsLclLoadFld()->SetLclOffs(addrVal.Offset());
+                load->AsLclLoadFld()->SetLayoutNum(layout == nullptr ? 0 : m_compiler->typGetLayoutNum(layout));
+                load->gtFlags = GTF_EMPTY;
+
+                m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
+            }
+
+            INDEBUG(m_stmtModified |= !load->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ);)
+
+            return;
+        }
+
+#ifdef FEATURE_SIMD
+        if (varTypeIsSIMD(lclType) && lcl->lvIsUsedInSIMDIntrinsic() && load->TypeIs(TYP_FLOAT) &&
+            (addrVal.Offset() % 4 == 0) && !lcl->lvDoNotEnregister)
+        {
+            // Recognize fields X/Y/Z/W of Vector2/3/4. These fields have type FLOAT so this is the only type
+            // we recognize here but any other type supported by GetItem/SetItem would work. But other vector
+            // types don't have fields and the only way this would be useful is if someone uses unsafe code
+            // to access the vector elements. That's not very useful as the other vector types offer element
+            // access by other means - Vector's indexer and Vector64/128/256's GetElement.
+
+            // TODO-MIKE-CQ: Doing this here is a bit of a problem if the local variable ends up in memory,
+            // if it is DNER for whatever reasons (we haven't determined that exactly at this point) or if
+            // it is an implicit byref param. We could produce a LCL_FLD here, without DNERing the local and
+            // let morph convert it to GetItem/SetItem or leave it alone if the local was already DNERed for
+            // other reasons. But creating a LCL_FLD without DNERing the corresponding local seems somewhat
+            // risky at the moment.
+            //
+            // Implicit byref params are a bit more complicated. We could simply skip this transform if the
+            // local is an implicit byref param but that's not always a clear improvement because of CSE.
+            // If multiple vector elements are accessed then we can have a single SIMD load and multiple
+            // GetItem to extract the elements. Otherwise we need to do a separate FLOAT load for each.
+            // Having a single load may be faster but multiple loads can result in smaller code if loads
+            // end up as memory operands on other instructions (on x86/64).
+            //
+            // Ultimately the best option may be to keep doing this here and compensate for the memory case
+            // in lowering. This is already done for GetItem but doesn't work very well. And SetItem is a
+            // bit more cumbersome to handle, though perhaps it would fit into the existing RMW lowering.
+
+            // TODO-MIKE-CQ: The lvIsUsedInSIMDIntrinsic check is bogus. It's really intended to block
+            // struct promotion and this transform doesn't have anything to do with that. In fact using
+            // it here hurts promotion because SIMD typed promoted fields don't have it set so accessing
+            // their X/Y/Z/W fields will just result in DNER.
+
+            load->ChangeOper(GT_HWINTRINSIC);
+            load->AsHWIntrinsic()->SetIntrinsic(NI_Vector128_GetElement, TYP_FLOAT, 16, 2);
+            load->AsHWIntrinsic()->SetOp(0, NewLclLoad(lcl->GetType(), lcl));
+            load->AsHWIntrinsic()->SetOp(1, NewIntConNode(TYP_INT, addrVal.Offset() / 4));
+
+            INDEBUG(m_stmtModified = true;)
+
+            return;
+        }
+#endif // FEATURE_SIMD
+
+        ClassLayout*  loadLayout = nullptr;
+        FieldSeqNode* fieldSeq   = addrVal.FieldSeq();
+
+        if (fieldSeq == FieldSeqStore::NotAField())
+        {
+            // Normalize fieldSeq to null so we don't need to keep checking for both null and NotAField.
+            fieldSeq = nullptr;
+        }
+
+        if (!varTypeIsStruct(load->GetType()))
+        {
+#if 0
+            // TODO-MIKE-Cleanup: This should be removed, it's VN's job to deal with such type mismatches.
+            // For now just disable it instead of fixing importer's Span::_pointer field sequence as this
+            // generates less diffs.
+
+            if (fieldSeq != nullptr)
+            {
+                // If we have an indirection node and a field sequence then they should have the same type.
+                // Otherwise it's best to forget the field sequence since the resulting LCL_FLD
+                // doesn't match a real struct field. Value numbering protects itself from such
+                // mismatches but there doesn't seem to be any good reason to generate a LCL_FLD
+                // with a mismatched field sequence only to have to ignore it later.
+
+                if (load->GetType() !=
+                    CorTypeToVarType(m_compiler->info.compCompHnd->getFieldType(fieldSeq->GetTail()->GetFieldHandle())))
+                {
+                    fieldSeq = nullptr;
+                }
+            }
+#endif
+        }
+        else if (load->OperIs(GT_IND_LOAD))
+        {
+            // Can't have STRUCT typed IND nodes here, they're only generated as BLK sources
+            // and we have been rejected BLKs earlier.
+
+            assert(varTypeIsSIMD(load->GetType()));
+        }
+        else
+        {
+            loadLayout = load->AsIndLoadObj()->GetLayout();
+
+            assert(!loadLayout->IsBlockLayout());
+
+            if ((fieldSeq != nullptr) &&
+                (loadLayout->GetClassHandle() != GetStructFieldType(fieldSeq->GetTail()->GetFieldHandle())))
+            {
+                fieldSeq = nullptr;
+            }
+        }
+
+        // For STRUCT locals, if the indir layout doesn't match and the local is promoted
+        // then ignore the indir layout to avoid having to make a LCL_FLD and dependent
+        // promote the local. The indir layout isn't really needed anymore, since call arg
+        // morphing uses the one from the call signature.
+
+        // The only thing other than the ABI the layout influences is the GCness of stores
+        // to the local, but in that case it really does make more sense to ignore the
+        // indir layout and use the local variable layout as that is the "real" one when
+        // it comes to GC. Reinterpreting a local variable in an attempt to avoid GC safe
+        // copies doesn't make a lot of sense.
+
+        // TODO-MIKE-Consider: This should work for non promoted locals as well but it's
+        // not clear if it's worth doing and safe.
+        // Avoiding LCL_FLDs may improve assertion copy propagation but on the other hand
+        // this can create more assignments with different source and destination types
+        // and it's not clear how well VN maps handles those.
+        // Also, discarding type information is not that great in general and it may be
+        // better to instead teach assertion propagation to deal with LCL_FLDs.
+
+        if ((addrVal.Offset() == 0) && (loadType == lclType) &&
+            ((loadType != TYP_STRUCT) || (loadLayout == lcl->GetLayout()) ||
+             (lcl->IsPromoted() && loadLayout->GetSize() == lcl->GetLayout()->GetSize())))
+        {
+            load->ChangeOper(GT_LCL_LOAD);
+            load->AsLclLoad()->SetLcl(lcl);
+        }
+        else
+        {
+            load->ChangeOper(GT_LCL_LOAD_FLD);
+            load->AsLclLoadFld()->SetLcl(lcl);
+            load->AsLclLoadFld()->SetLclOffs(addrVal.Offset());
+            load->AsLclLoadFld()->SetFieldSeq(fieldSeq == nullptr ? FieldSeqStore::NotAField() : fieldSeq);
+
+            if (loadLayout != nullptr)
+            {
+                load->AsLclLoadFld()->SetLayout(loadLayout, m_compiler);
+            }
+
+            // Promoted struct locals aren't currently handled here so the created LCL_FLD can
+            // not be later transformed into a LCL_VAR and the variable cannot be enregistered.
+            m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
+        }
+
+        GenTreeFlags flags = GTF_EMPTY;
+
+        if (load->TypeIs(TYP_STRUCT) && user->IsCall())
+        {
+            flags |= GTF_DONT_CSE;
+        }
+
+        load->gtFlags = flags;
+
+        INDEBUG(m_stmtModified = true;)
     }
 
     // Finds a promoted struct field that completely overlaps a location of specified
@@ -942,20 +1265,6 @@ private:
         }
 
         return nullptr;
-    }
-
-    unsigned GetIndLoadSize(GenTreeIndir* load, GenTree* user)
-    {
-        assert(load->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ, GT_IND_LOAD_BLK));
-
-        if (load->GetType() != TYP_STRUCT)
-        {
-            return varTypeSize(load->GetType());
-        }
-
-        assert(!load->OperIs(GT_IND_LOAD));
-
-        return load->AsBlk()->GetLayout()->GetSize();
     }
 
     void CanonicalizeLocalIndStore(GenTreeIndir* store, const Value& addrVal)
@@ -1312,334 +1621,6 @@ private:
         {
             load->AddSideEffects(GTF_ORDER_SIDEEFF);
         }
-
-        INDEBUG(m_stmtModified = true;)
-    }
-
-    void MorphIndLoad(GenTreeIndir* load, const Value& addrVal, GenTree* user, unsigned indirSize)
-    {
-        assert(load->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ, GT_IND_LOAD_BLK));
-        assert(!load->OperIs(GT_IND_LOAD) || !load->TypeIs(TYP_STRUCT));
-        assert(addrVal.IsAddress());
-
-        if (addrVal.Offset() > UINT16_MAX)
-        {
-            CanonicalizeLocalIndLoad(load, addrVal);
-            return;
-        }
-
-        LclVarDsc* const lcl = addrVal.Lcl();
-
-        if (load->IsVolatile())
-        {
-            // TODO-MIKE-Review: For now ignore volatile on a FIELD that accesses a promoted field,
-            // to avoid diffs due to old promotion code ignoring volatile as well.
-
-            if (!load->GetAddr()->OperIs(GT_FIELD_ADDR) || !lcl->IsPromotedField())
-            {
-                CanonicalizeLocalIndLoad(load, addrVal);
-                return;
-            }
-        }
-
-        if (load->OperIs(GT_IND_LOAD_BLK))
-        {
-            // Keep BLKs and mark any involved locals address exposed for now.
-            //
-            // CPBLK and INITBLK are rarely used (the C# compiler doesn't emit them at all).
-            // Only the VM sometimes uses CPBLK in PInvoke IL stubs, to deal with x86 ABI
-            // mismatches it seems (Windows x86 ABI can return structs in 2 registers but
-            // CLR uses a return buffer instead).
-            //
-            // TODO-MIKE-CQ: A previous implementation avoided address exposed locals, but
-            // still forced locals in memory because PInvoke IL stubs copy from a LONG local
-            // to a STRUCT local and one way or another this results in DNER/P-DEP locals.
-            // This can be avoided but it's unlikely that it's worth the effort for x86...
-
-            CanonicalizeLocalIndLoad(load, addrVal);
-            return;
-        }
-
-        var_types lclType  = lcl->GetType();
-        var_types loadType = load->GetType();
-
-        // A non-struct local may be accessed via a struct indir due to reinterpretation in user
-        // code or due to single field struct promotion. Reinterpretation isn't common (but it
-        // does happen - e.g. ILCompiler.Reflection.ReadyToRun.dll reinterprets array references
-        // as ImmutableArray) but promotion is quite common. If the indir is a call arg then we
-        // can simply replace it with the local variable because it doesn't really matter if it's
-        // a struct value or a primitive type value, we just need to put the value in the correct
-        // register or stack slot.
-
-        if ((addrVal.Offset() == 0) && (loadType == TYP_STRUCT) && (lclType != TYP_STRUCT) && (lclType != TYP_BLK))
-        {
-            ClassLayout* loadLayout = load->AsIndLoadObj()->GetLayout();
-
-            switch (user->GetOper())
-            {
-                case GT_LCL_STORE:
-                case GT_IND_STORE_OBJ:
-                    if (PromoteSingleFieldStructCopy(addrVal, load, loadLayout))
-                    {
-                        return;
-                    }
-                    break;
-                case GT_CALL:
-                    if (PromoteSingleFieldStructCallArg(addrVal, load, loadLayout))
-                    {
-                        return;
-                    }
-                    break;
-                case GT_RETURN:
-                    if (PromoteSingleFieldStructReturn(addrVal, load, loadLayout, user->AsUnOp()))
-                    {
-                        return;
-                    }
-                    break;
-                default:
-                    // Let's hope the importer doesn't produce STRUCT COMMAs again.
-                    unreached();
-            }
-        }
-
-        if (!varTypeIsStruct(lclType) && (lclType != TYP_BLK))
-        {
-            if ((addrVal.Offset() == 0) && !varTypeIsStruct(loadType))
-            {
-                if (varTypeSize(loadType) == varTypeSize(lclType))
-                {
-                    if (varTypeIsSmall(loadType) && (varTypeIsUnsigned(loadType) != varTypeIsUnsigned(lclType)))
-                    {
-                        // There's no reason to write something like `*(short*)&ushortLocal` instead of just
-                        // `(short)ushortLocal`, except that generics code can't do such casts and sometimes
-                        // uses `Unsafe.As` as a substitute.
-
-                        load->ChangeOper(GT_CAST);
-                        load->AsCast()->SetCastType(loadType);
-                        load->AsCast()->SetOp(0, NewLclLoad(lclType, lcl));
-                        load->gtFlags = GTF_EMPTY;
-                    }
-                    else if (varTypeKind(loadType) != varTypeKind(lclType))
-                    {
-                        // Handle the relatively common case of floating point/integer reinterpretation.
-                        // Also handle GC pointer/native int reinterpretation, some corelib tracing code
-                        // uses object references as if they're normal pointers for logging purposes.
-
-                        if (CanBitCastTo(loadType))
-                        {
-                            load->ChangeOper(GT_BITCAST);
-                            load->AsUnOp()->SetOp(0, NewLclLoad(lclType, lcl));
-                            load->gtFlags = GTF_EMPTY;
-                        }
-                    }
-                    else
-                    {
-                        // Like in the signedness mismatch case above, it's not common to have `*(int*)&intLocal`
-                        // but such cases may arise either from fancy generic code or, more likely, due to the
-                        // inlining of primitive type methods. Turns out that having methods on primitive types,
-                        // while elegant, can cause problems as any call to such a method requires taking the
-                        // address of the primitive type local variable.
-
-                        assert((loadType == lclType) || ((loadType == TYP_BOOL) && (lclType == TYP_UBYTE)) ||
-                               ((loadType == TYP_UBYTE) && (lclType == TYP_BOOL)));
-
-                        load->ChangeOper(GT_LCL_LOAD);
-                        load->AsLclLoad()->SetLcl(lcl);
-                        load->gtFlags = GTF_EMPTY;
-                    }
-                }
-                else
-                {
-                    // The indir has to be smaller than the local, the "wide" indir case is handled in EscapeLocation.
-                    assert(varTypeSize(loadType) < varTypeSize(lclType));
-
-                    // Storing to a local via a smaller indirection is more difficult to handle, we need something
-                    // like STORE_LCL_VAR(lcl, OR(lcl, value)) in the integer case plus some BITCASTs or intrinsics
-                    // in the float case. CoreLib has a few cases in Vector128 & co. WithElement methods but these
-                    // are normally recognized as intrinsics so it's not worth the trouble to handle this case.
-
-                    // Loading via a smaller indirection isn't common either but this case can be easily handled
-                    // by using a CAST. There's no reason to write something like `*(short*)&intLocal` instead of
-                    // just `(short)intLocal`, except that generics code can't do such casts and sometimes uses
-                    // `Unsafe.As` as a substitute.
-
-                    if (varTypeIsIntegral(loadType) && varTypeIsIntegral(lclType))
-                    {
-                        load->ChangeOper(GT_CAST);
-                        load->AsCast()->SetCastType(loadType);
-                        load->AsCast()->SetOp(0, NewLclLoad(lclType, lcl));
-                        load->gtFlags = GTF_EMPTY;
-                    }
-                }
-            }
-
-            // If we haven't been able to get rid of the indir until now then just use a LCL_FLD.
-
-            if (load->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ))
-            {
-                ClassLayout* layout = load->IsIndLoadObj() ? load->AsIndLoadObj()->GetLayout() : nullptr;
-
-                load->ChangeOper(GT_LCL_LOAD_FLD);
-                load->AsLclLoadFld()->SetLcl(lcl);
-                load->AsLclLoadFld()->SetLclOffs(addrVal.Offset());
-                load->AsLclLoadFld()->SetLayoutNum(layout == nullptr ? 0 : m_compiler->typGetLayoutNum(layout));
-                load->gtFlags = GTF_EMPTY;
-
-                m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
-            }
-
-            INDEBUG(m_stmtModified |= !load->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ);)
-
-            return;
-        }
-
-#ifdef FEATURE_SIMD
-        if (varTypeIsSIMD(lclType) && lcl->lvIsUsedInSIMDIntrinsic() && load->TypeIs(TYP_FLOAT) &&
-            (addrVal.Offset() % 4 == 0) && !lcl->lvDoNotEnregister)
-        {
-            // Recognize fields X/Y/Z/W of Vector2/3/4. These fields have type FLOAT so this is the only type
-            // we recognize here but any other type supported by GetItem/SetItem would work. But other vector
-            // types don't have fields and the only way this would be useful is if someone uses unsafe code
-            // to access the vector elements. That's not very useful as the other vector types offer element
-            // access by other means - Vector's indexer and Vector64/128/256's GetElement.
-
-            // TODO-MIKE-CQ: Doing this here is a bit of a problem if the local variable ends up in memory,
-            // if it is DNER for whatever reasons (we haven't determined that exactly at this point) or if
-            // it is an implicit byref param. We could produce a LCL_FLD here, without DNERing the local and
-            // let morph convert it to GetItem/SetItem or leave it alone if the local was already DNERed for
-            // other reasons. But creating a LCL_FLD without DNERing the corresponding local seems somewhat
-            // risky at the moment.
-            //
-            // Implicit byref params are a bit more complicated. We could simply skip this transform if the
-            // local is an implicit byref param but that's not always a clear improvement because of CSE.
-            // If multiple vector elements are accessed then we can have a single SIMD load and multiple
-            // GetItem to extract the elements. Otherwise we need to do a separate FLOAT load for each.
-            // Having a single load may be faster but multiple loads can result in smaller code if loads
-            // end up as memory operands on other instructions (on x86/64).
-            //
-            // Ultimately the best option may be to keep doing this here and compensate for the memory case
-            // in lowering. This is already done for GetItem but doesn't work very well. And SetItem is a
-            // bit more cumbersome to handle, though perhaps it would fit into the existing RMW lowering.
-
-            // TODO-MIKE-CQ: The lvIsUsedInSIMDIntrinsic check is bogus. It's really intended to block
-            // struct promotion and this transform doesn't have anything to do with that. In fact using
-            // it here hurts promotion because SIMD typed promoted fields don't have it set so accessing
-            // their X/Y/Z/W fields will just result in DNER.
-
-            load->ChangeOper(GT_HWINTRINSIC);
-            load->AsHWIntrinsic()->SetIntrinsic(NI_Vector128_GetElement, TYP_FLOAT, 16, 2);
-            load->AsHWIntrinsic()->SetOp(0, NewLclLoad(lcl->GetType(), lcl));
-            load->AsHWIntrinsic()->SetOp(1, NewIntConNode(TYP_INT, addrVal.Offset() / 4));
-
-            INDEBUG(m_stmtModified = true;)
-
-            return;
-        }
-#endif // FEATURE_SIMD
-
-        ClassLayout*  loadLayout = nullptr;
-        FieldSeqNode* fieldSeq   = addrVal.FieldSeq();
-
-        if (fieldSeq == FieldSeqStore::NotAField())
-        {
-            // Normalize fieldSeq to null so we don't need to keep checking for both null and NotAField.
-            fieldSeq = nullptr;
-        }
-
-        if (!varTypeIsStruct(load->GetType()))
-        {
-#if 0
-            // TODO-MIKE-Cleanup: This should be removed, it's VN's job to deal with such type mismatches.
-            // For now just disable it instead of fixing importer's Span::_pointer field sequence as this
-            // generates less diffs.
-
-            if (fieldSeq != nullptr)
-            {
-                // If we have an indirection node and a field sequence then they should have the same type.
-                // Otherwise it's best to forget the field sequence since the resulting LCL_FLD
-                // doesn't match a real struct field. Value numbering protects itself from such
-                // mismatches but there doesn't seem to be any good reason to generate a LCL_FLD
-                // with a mismatched field sequence only to have to ignore it later.
-
-                if (load->GetType() !=
-                    CorTypeToVarType(m_compiler->info.compCompHnd->getFieldType(fieldSeq->GetTail()->GetFieldHandle())))
-                {
-                    fieldSeq = nullptr;
-                }
-            }
-#endif
-        }
-        else if (load->OperIs(GT_IND_LOAD))
-        {
-            // Can't have STRUCT typed IND nodes here, they're only generated as BLK sources
-            // and we have been rejected BLKs earlier.
-
-            assert(varTypeIsSIMD(load->GetType()));
-        }
-        else
-        {
-            loadLayout = load->AsIndLoadObj()->GetLayout();
-
-            assert(!loadLayout->IsBlockLayout());
-
-            if ((fieldSeq != nullptr) &&
-                (loadLayout->GetClassHandle() != GetStructFieldType(fieldSeq->GetTail()->GetFieldHandle())))
-            {
-                fieldSeq = nullptr;
-            }
-        }
-
-        // For STRUCT locals, if the indir layout doesn't match and the local is promoted
-        // then ignore the indir layout to avoid having to make a LCL_FLD and dependent
-        // promote the local. The indir layout isn't really needed anymore, since call arg
-        // morphing uses the one from the call signature.
-
-        // The only thing other than the ABI the layout influences is the GCness of stores
-        // to the local, but in that case it really does make more sense to ignore the
-        // indir layout and use the local variable layout as that is the "real" one when
-        // it comes to GC. Reinterpreting a local variable in an attempt to avoid GC safe
-        // copies doesn't make a lot of sense.
-
-        // TODO-MIKE-Consider: This should work for non promoted locals as well but it's
-        // not clear if it's worth doing and safe.
-        // Avoiding LCL_FLDs may improve assertion copy propagation but on the other hand
-        // this can create more assignments with different source and destination types
-        // and it's not clear how well VN maps handles those.
-        // Also, discarding type information is not that great in general and it may be
-        // better to instead teach assertion propagation to deal with LCL_FLDs.
-
-        if ((addrVal.Offset() == 0) && (loadType == lclType) &&
-            ((loadType != TYP_STRUCT) || (loadLayout == lcl->GetLayout()) ||
-             (lcl->IsPromoted() && loadLayout->GetSize() == lcl->GetLayout()->GetSize())))
-        {
-            load->ChangeOper(GT_LCL_LOAD);
-            load->AsLclLoad()->SetLcl(lcl);
-        }
-        else
-        {
-            load->ChangeOper(GT_LCL_LOAD_FLD);
-            load->AsLclLoadFld()->SetLcl(lcl);
-            load->AsLclLoadFld()->SetLclOffs(addrVal.Offset());
-            load->AsLclLoadFld()->SetFieldSeq(fieldSeq == nullptr ? FieldSeqStore::NotAField() : fieldSeq);
-
-            if (loadLayout != nullptr)
-            {
-                load->AsLclLoadFld()->SetLayout(loadLayout, m_compiler);
-            }
-
-            // Promoted struct locals aren't currently handled here so the created LCL_FLD can
-            // not be later transformed into a LCL_VAR and the variable cannot be enregistered.
-            m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
-        }
-
-        GenTreeFlags flags = GTF_EMPTY;
-
-        if (load->TypeIs(TYP_STRUCT) && user->IsCall())
-        {
-            flags |= GTF_DONT_CSE;
-        }
-
-        load->gtFlags = flags;
 
         INDEBUG(m_stmtModified = true;)
     }
