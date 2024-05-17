@@ -129,6 +129,16 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
             m_fieldSeq = fieldSeq;
         }
 
+        void Promote(LclVarDsc* fieldLcl, unsigned lclOffs, FieldSeqNode* fieldSeq)
+        {
+            assert(IsAddress());
+            assert(fieldLcl->GetPromotedFieldParentLclNum() == m_lcl->GetLclNum());
+
+            m_lcl      = fieldLcl;
+            m_offset   = lclOffs;
+            m_fieldSeq = fieldSeq;
+        }
+
         bool FieldAddress(Value& val, GenTreeFieldAddr* field, FieldSeqStore* fieldSeqStore)
         {
             assert(!IsAddress());
@@ -807,78 +817,27 @@ private:
         return true;
     }
 
-    void MorphLocalIndLoad(GenTreeIndir* load, const Value& addrVal, GenTree* user)
+    void MorphLocalIndLoad(GenTreeIndir* load, Value& addrVal, GenTree* user)
     {
         assert(load->OperIs(GT_IND_LOAD, GT_IND_LOAD_BLK, GT_IND_LOAD_OBJ));
         assert(addrVal.IsAddress());
         INDEBUG(addrVal.Consume();)
         assert(user != nullptr);
 
-        LclVarDsc* lcl = addrVal.Lcl();
+        LclVarDsc* lcl     = addrVal.Lcl();
+        unsigned   lclSize = lcl->GetTypeSize();
+        unsigned   loadSize;
 
-        // Usually this is something like IND_LOAD(LCL_ADDR) and most of the time we can change
-        // this to a LCL_LOAD or LCL_LOAD_FLD so the local does not need to be address exposed.
-        //
-        // It is possible for the indirection to be wider than the local (e.g. *(long*)&int32Var)
-        // or to have a field offset that pushes the indirection past the end of the local. Such
-        // cases are rare and the only reasonable solution is to keep the indirection and make the
-        // local address exposed.
-        //
-        // More importantly, if the local is a promoted struct field then the parent local also
-        // needs to be address exposed, so we get dependent struct promotion. Code like
-        // *(long*)&int32Var has undefined behavior and it's practically useless but reading,
-        // say, 2 consecutive Int32 struct fields as a single Int64 has more practical value.
-
-        unsigned loadSize =
-            load->TypeIs(TYP_STRUCT) ? load->AsBlk()->GetLayout()->GetSize() : varTypeSize(load->GetType());
-
-        ClrSafeInt<unsigned> endOffset = ClrSafeInt<unsigned>(addrVal.Offset()) + ClrSafeInt<unsigned>(loadSize);
-        bool                 isWide;
-
-        if (endOffset.IsOverflow())
+        if (load->TypeIs(TYP_STRUCT))
         {
-            isWide = true;
-        }
-        else if (lcl->TypeIs(TYP_STRUCT))
-        {
-            isWide = endOffset.Value() > lcl->GetLayout()->GetSize();
-        }
-        else if (lcl->TypeIs(TYP_BLK))
-        {
-            isWide = endOffset.Value() > lcl->GetBlockSize();
+            loadSize = load->AsBlk()->GetLayout()->GetSize();
         }
         else
         {
-            // For small int types use the real type size, not the stack slot size.
-            // Morph does manage to transform `*(int*)&byteVar` into just byteVar where
-            // the LCL_LOAD node has type TYP_INT. But such code is simply bogus and
-            // there's no reason to attempt to optimize it. It makes more sense to
-            // mark the variable address exposed in such circumstances.
-            //
-            // Same for "small" SIMD types - SIMD8/12 have 8/12 bytes, even if the
-            // stack location may have 16 bytes.
-            isWide = endOffset.Value() > varTypeSize(lcl->GetType());
+            loadSize = varTypeSize(load->GetType());
         }
 
-        if (isWide)
-        {
-            // We should not encounter a promoted field here, we only switch to a promoted
-            // field below, after we verify that the field totally overlaps the indirection.
-            assert(!lcl->IsPromotedField());
-
-            CanonicalizeLocalIndLoad(load, addrVal);
-
-            return;
-        }
-
-        if (addrVal.Offset() > UINT16_MAX)
-        {
-            CanonicalizeLocalIndLoad(load, addrVal);
-
-            return;
-        }
-
-        if (varTypeIsStruct(lcl->GetType()) && lcl->IsPromoted())
+        if (lcl->IsPromoted())
         {
             // If this is a promoted variable then we can use a promoted field if it completely
             // overlaps the indirection. With a lot of work, we could also handle cases where
@@ -902,35 +861,33 @@ private:
                     }
                 }
 
-                Value fieldAddrVal(load->GetAddr());
-                fieldAddrVal.Address(fieldLcl, fieldOffset, fieldSeq);
-                MorphLocalIndLoad(load, fieldAddrVal, user, loadSize);
-
-                return;
+                addrVal.Promote(fieldLcl, fieldOffset, fieldSeq);
+                lcl = fieldLcl;
             }
         }
 
-        MorphLocalIndLoad(load, addrVal, user, loadSize);
-    }
-
-    void MorphLocalIndLoad(GenTreeIndir* load, const Value& addrVal, GenTree* user, unsigned loadSize)
-    {
-        assert(load->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ, GT_IND_LOAD_BLK));
-        assert(!load->OperIs(GT_IND_LOAD) || !load->TypeIs(TYP_STRUCT));
-        assert(addrVal.IsAddress());
-
-        LclVarDsc* const lcl = addrVal.Lcl();
-
-        if (load->IsVolatile())
+        if (addrVal.Offset() > UINT16_MAX)
         {
-            // TODO-MIKE-Review: For now ignore volatile on a FIELD that accesses a promoted field,
-            // to avoid diffs due to old promotion code ignoring volatile as well.
+            CanonicalizeLocalIndLoad(load, addrVal);
 
-            if (!load->GetAddr()->OperIs(GT_FIELD_ADDR) || !lcl->IsPromotedField())
-            {
-                CanonicalizeLocalIndLoad(load, addrVal);
-                return;
-            }
+            return;
+        }
+
+        if ((addrVal.Offset() > UINT32_MAX - loadSize) || (addrVal.Offset() + loadSize > lclSize))
+        {
+            CanonicalizeLocalIndLoad(load, addrVal);
+
+            return;
+        }
+
+        // TODO-MIKE-Review: For now ignore volatile on a FIELD that accesses a promoted field,
+        // to avoid diffs due to old promotion code ignoring volatile as well.
+
+        if (load->IsVolatile() && (!load->GetAddr()->OperIs(GT_FIELD_ADDR) || !lcl->IsPromotedField()))
+        {
+            CanonicalizeLocalIndLoad(load, addrVal);
+
+            return;
         }
 
         if (load->OperIs(GT_IND_LOAD_BLK))
@@ -948,54 +905,53 @@ private:
             // This can be avoided but it's unlikely that it's worth the effort for x86...
 
             CanonicalizeLocalIndLoad(load, addrVal);
+
             return;
         }
 
         var_types lclType  = lcl->GetType();
         var_types loadType = load->GetType();
 
-        // A non-struct local may be accessed via a struct indir due to reinterpretation in user
-        // code or due to single field struct promotion. Reinterpretation isn't common (but it
-        // does happen - e.g. ILCompiler.Reflection.ReadyToRun.dll reinterprets array references
-        // as ImmutableArray) but promotion is quite common. If the indir is a call arg then we
-        // can simply replace it with the local variable because it doesn't really matter if it's
-        // a struct value or a primitive type value, we just need to put the value in the correct
-        // register or stack slot.
-
-        if ((addrVal.Offset() == 0) && (loadType == TYP_STRUCT) && (lclType != TYP_STRUCT) && (lclType != TYP_BLK))
+        if ((addrVal.Offset() == 0) && (lclType != TYP_BLK))
         {
-            ClassLayout* loadLayout = load->AsIndLoadObj()->GetLayout();
+            // A non-struct local may be accessed via a struct indir due to reinterpretation in user
+            // code or due to single field struct promotion. Reinterpretation isn't common (but it
+            // does happen - e.g. ILCompiler.Reflection.ReadyToRun.dll reinterprets array references
+            // as ImmutableArray) but promotion is quite common. If the indir is a call arg then we
+            // can simply replace it with the local variable because it doesn't really matter if it's
+            // a struct value or a primitive type value, we just need to put the value in the correct
+            // register or stack slot.
 
-            switch (user->GetOper())
+            if ((loadType == TYP_STRUCT) && (lclType != TYP_STRUCT))
             {
-                case GT_LCL_STORE:
-                case GT_IND_STORE_OBJ:
-                    if (PromoteSingleFieldStructCopy(addrVal, load, loadLayout))
-                    {
-                        return;
-                    }
-                    break;
-                case GT_CALL:
+                ClassLayout* loadLayout = load->AsIndLoadObj()->GetLayout();
+
+                if (user->OperIs(GT_CALL))
+                {
                     if (PromoteSingleFieldStructCallArg(addrVal, load, loadLayout))
                     {
                         return;
                     }
-                    break;
-                case GT_RETURN:
+                }
+                else if (user->OperIs(GT_RETURN))
+                {
                     if (PromoteSingleFieldStructReturn(addrVal, load, loadLayout, user->AsUnOp()))
                     {
                         return;
                     }
-                    break;
-                default:
+                }
+                else
+                {
                     // Let's hope the importer doesn't produce STRUCT COMMAs again.
-                    unreached();
-            }
-        }
+                    noway_assert(user->OperIs(GT_LCL_STORE, GT_IND_STORE_OBJ));
 
-        if (!varTypeIsStruct(lclType) && (lclType != TYP_BLK))
-        {
-            if ((addrVal.Offset() == 0) && !varTypeIsStruct(loadType))
+                    if (PromoteSingleFieldStructCopy(addrVal, load, loadLayout))
+                    {
+                        return;
+                    }
+                }
+            }
+            else if (!varTypeIsStruct(loadType) && !varTypeIsStruct(lclType))
             {
                 if (varTypeSize(loadType) == varTypeSize(lclType))
                 {
@@ -1009,21 +965,12 @@ private:
                         load->AsCast()->SetCastType(loadType);
                         load->AsCast()->SetOp(0, NewLclLoad(lclType, lcl));
                         load->gtFlags = GTF_EMPTY;
-                    }
-                    else if (varTypeKind(loadType) != varTypeKind(lclType))
-                    {
-                        // Handle the relatively common case of floating point/integer reinterpretation.
-                        // Also handle GC pointer/native int reinterpretation, some corelib tracing code
-                        // uses object references as if they're normal pointers for logging purposes.
+                        INDEBUG(m_stmtModified = true);
 
-                        if (CanBitCastTo(loadType))
-                        {
-                            load->ChangeOper(GT_BITCAST);
-                            load->AsUnOp()->SetOp(0, NewLclLoad(lclType, lcl));
-                            load->gtFlags = GTF_EMPTY;
-                        }
+                        return;
                     }
-                    else
+
+                    if (varTypeKind(loadType) == varTypeKind(lclType))
                     {
                         // Like in the signedness mismatch case above, it's not common to have `*(int*)&intLocal`
                         // but such cases may arise either from fancy generic code or, more likely, due to the
@@ -1034,14 +981,30 @@ private:
                         assert((loadType == lclType) || ((loadType == TYP_BOOL) && (lclType == TYP_UBYTE)) ||
                                ((loadType == TYP_UBYTE) && (lclType == TYP_BOOL)));
 
-                        load->ChangeOper(GT_LCL_LOAD);
-                        load->AsLclLoad()->SetLcl(lcl);
+                        load->ChangeToLclLoad(loadType, lcl);
                         load->gtFlags = GTF_EMPTY;
+                        INDEBUG(m_stmtModified = true);
+
+                        return;
+                    }
+
+                    // Handle the relatively common case of floating point/integer reinterpretation.
+                    // Also handle GC pointer/native int reinterpretation, some corelib tracing code
+                    // uses object references as if they're normal pointers for logging purposes.
+
+                    if (CanBitCastTo(loadType))
+                    {
+                        load->ChangeOper(GT_BITCAST);
+                        load->AsUnOp()->SetOp(0, NewLclLoad(lclType, lcl));
+                        load->gtFlags = GTF_EMPTY;
+                        INDEBUG(m_stmtModified = true);
+
+                        return;
                     }
                 }
-                else
+                else if (varTypeIsIntegral(loadType) && varTypeIsIntegral(lclType))
                 {
-                    // The indir has to be smaller than the local, the "wide" indir case is handled in EscapeLocation.
+                    // The load has to be smaller than the local, we already handled loads wider than the local.
                     assert(varTypeSize(loadType) < varTypeSize(lclType));
 
                     // Storing to a local via a smaller indirection is more difficult to handle, we need something
@@ -1054,39 +1017,20 @@ private:
                     // just `(short)intLocal`, except that generics code can't do such casts and sometimes uses
                     // `Unsafe.As` as a substitute.
 
-                    if (varTypeIsIntegral(loadType) && varTypeIsIntegral(lclType))
-                    {
-                        load->ChangeOper(GT_CAST);
-                        load->AsCast()->SetCastType(loadType);
-                        load->AsCast()->SetOp(0, NewLclLoad(lclType, lcl));
-                        load->gtFlags = GTF_EMPTY;
-                    }
+                    load->ChangeOper(GT_CAST);
+                    load->AsCast()->SetCastType(loadType);
+                    load->AsCast()->SetOp(0, NewLclLoad(lclType, lcl));
+                    load->gtFlags = GTF_EMPTY;
+                    INDEBUG(m_stmtModified = true);
+
+                    return;
                 }
             }
-
-            // If we haven't been able to get rid of the indir until now then just use a LCL_LOAD_FLD.
-
-            if (load->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ))
-            {
-                ClassLayout* layout = load->IsIndLoadObj() ? load->AsIndLoadObj()->GetLayout() : nullptr;
-
-                load->ChangeOper(GT_LCL_LOAD_FLD);
-                load->AsLclLoadFld()->SetLcl(lcl);
-                load->AsLclLoadFld()->SetLclOffs(addrVal.Offset());
-                load->AsLclLoadFld()->SetLayoutNum(layout == nullptr ? 0 : m_compiler->typGetLayoutNum(layout));
-                load->gtFlags = GTF_EMPTY;
-
-                m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
-            }
-
-            INDEBUG(m_stmtModified |= !load->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ);)
-
-            return;
         }
 
 #ifdef FEATURE_SIMD
-        if (varTypeIsSIMD(lclType) && lcl->lvIsUsedInSIMDIntrinsic() && load->TypeIs(TYP_FLOAT) &&
-            (addrVal.Offset() % 4 == 0) && !lcl->lvDoNotEnregister)
+        if (varTypeIsSIMD(lclType) && (loadType == TYP_FLOAT) && (addrVal.Offset() % 4 == 0) &&
+            lcl->lvIsUsedInSIMDIntrinsic() && !lcl->lvDoNotEnregister)
         {
             // Recognize fields X/Y/Z/W of Vector2/3/4. These fields have type FLOAT so this is the only type
             // we recognize here but any other type supported by GetItem/SetItem would work. But other vector
@@ -1119,65 +1063,25 @@ private:
 
             load->ChangeOper(GT_HWINTRINSIC);
             load->AsHWIntrinsic()->SetIntrinsic(NI_Vector128_GetElement, TYP_FLOAT, 16, 2);
-            load->AsHWIntrinsic()->SetOp(0, NewLclLoad(lcl->GetType(), lcl));
+            load->AsHWIntrinsic()->SetOp(0, NewLclLoad(lclType, lcl));
             load->AsHWIntrinsic()->SetOp(1, NewIntConNode(TYP_INT, addrVal.Offset() / 4));
-
             INDEBUG(m_stmtModified = true;)
 
             return;
         }
 #endif // FEATURE_SIMD
 
-        ClassLayout*  loadLayout = nullptr;
-        FieldSeqNode* fieldSeq   = addrVal.FieldSeq();
+        ClassLayout* loadLayout;
 
-        if (fieldSeq == FieldSeqStore::NotAField())
+        if (load->OperIs(GT_IND_LOAD_OBJ))
         {
-            // Normalize fieldSeq to null so we don't need to keep checking for both null and NotAField.
-            fieldSeq = nullptr;
-        }
-
-        if (!varTypeIsStruct(load->GetType()))
-        {
-#if 0
-            // TODO-MIKE-Cleanup: This should be removed, it's VN's job to deal with such type mismatches.
-            // For now just disable it instead of fixing importer's Span::_pointer field sequence as this
-            // generates less diffs.
-
-            if (fieldSeq != nullptr)
-            {
-                // If we have an indirection node and a field sequence then they should have the same type.
-                // Otherwise it's best to forget the field sequence since the resulting LCL_LOAD_FLD doesn't
-                // match a real struct field. Value numbering protects itself from such mismatches but there
-                // doesn't seem to be any good reason to generate a LCL_LOAD_FLD with a mismatched field
-                // sequence only to have to ignore it later.
-
-                if (load->GetType() !=
-                    CorTypeToVarType(m_compiler->info.compCompHnd->getFieldType(fieldSeq->GetTail()->GetFieldHandle())))
-                {
-                    fieldSeq = nullptr;
-                }
-            }
-#endif
-        }
-        else if (load->OperIs(GT_IND_LOAD))
-        {
-            // Can't have STRUCT typed IND nodes here, they're only generated as BLK sources
-            // and we have been rejected BLKs earlier.
-
-            assert(varTypeIsSIMD(load->GetType()));
+            loadLayout = load->AsIndLoadObj()->GetLayout();
+            assert(!loadLayout->IsBlockLayout());
         }
         else
         {
-            loadLayout = load->AsIndLoadObj()->GetLayout();
-
-            assert(!loadLayout->IsBlockLayout());
-
-            if ((fieldSeq != nullptr) &&
-                (loadLayout->GetClassHandle() != GetStructFieldType(fieldSeq->GetTail()->GetFieldHandle())))
-            {
-                fieldSeq = nullptr;
-            }
+            loadLayout = nullptr;
+            assert(!load->TypeIs(TYP_STRUCT));
         }
 
         // For STRUCT locals, if the indir layout doesn't match and the local is promoted
@@ -1203,23 +1107,58 @@ private:
             ((loadType != TYP_STRUCT) || (loadLayout == lcl->GetLayout()) ||
              (lcl->IsPromoted() && loadLayout->GetSize() == lcl->GetLayout()->GetSize())))
         {
-            load->ChangeOper(GT_LCL_LOAD);
-            load->AsLclLoad()->SetLcl(lcl);
+            load->ChangeToLclLoad(loadType, lcl);
         }
         else
         {
-            load->ChangeOper(GT_LCL_LOAD_FLD);
-            load->AsLclLoadFld()->SetLcl(lcl);
-            load->AsLclLoadFld()->SetLclOffs(addrVal.Offset());
-            load->AsLclLoadFld()->SetFieldSeq(fieldSeq == nullptr ? FieldSeqStore::NotAField() : fieldSeq);
+            FieldSeqNode* fieldSeq;
+
+            if (!varTypeIsStruct(lclType) || (lclType == TYP_BLK))
+            {
+                fieldSeq = nullptr;
+            }
+            else
+            {
+                fieldSeq = addrVal.FieldSeq();
+
+                if ((fieldSeq != nullptr) && fieldSeq->IsField())
+                {
+                    if (!varTypeIsStruct(loadType))
+                    {
+#if 0
+                        // TODO-MIKE-Cleanup: This should be removed, it's VN's job to deal with such type mismatches.
+                        // For now just disable it instead of fixing importer's Span::_pointer field sequence as this
+                        // generates less diffs.
+
+                        // If we have an indirection node and a field sequence then they should have the same type.
+                        // Otherwise it's best to forget the field sequence since the resulting LCL_LOAD_FLD doesn't
+                        // match a real struct field. Value numbering protects itself from such mismatches but there
+                        // doesn't seem to be any good reason to generate a LCL_LOAD_FLD with a mismatched field
+                        // sequence only to have to ignore it later.
+
+                        if (loadType != GetScalarFieldType(fieldSeq->GetTail()->GetFieldHandle()))
+                        {
+                            fieldSeq = nullptr;
+                        }
+#endif
+                    }
+                    else if (loadLayout != nullptr)
+                    {
+                        if (loadLayout->GetClassHandle() != GetStructFieldType(fieldSeq->GetTail()->GetFieldHandle()))
+                        {
+                            fieldSeq = nullptr;
+                        }
+                    }
+                }
+            }
+
+            load->ChangeToLclLoadFld(loadType, lcl, addrVal.Offset(), fieldSeq);
 
             if (loadLayout != nullptr)
             {
                 load->AsLclLoadFld()->SetLayout(loadLayout, m_compiler);
             }
 
-            // Promoted struct locals aren't currently handled here so the created LCL_LOAD_FLD
-            // cannot be later transformed into a LCL_LOAD and the variable cannot be enregistered.
             m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
         }
 
@@ -2076,6 +2015,11 @@ private:
         assert(ret->OperIs(GT_RETURN));
 
         return (m_compiler->genReturnLocal != BAD_VAR_NUM) && ((ret->gtFlags & GTF_RET_MERGED) == 0);
+    }
+
+    var_types GetScalarFieldType(CORINFO_FIELD_HANDLE fieldHandle)
+    {
+        return CorTypeToVarType(m_compiler->info.compCompHnd->getFieldType(fieldHandle));
     }
 
     CORINFO_CLASS_HANDLE GetStructFieldType(CORINFO_FIELD_HANDLE fieldHandle)
