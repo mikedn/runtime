@@ -656,123 +656,16 @@ private:
         if (lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 1))
         {
             // TODO-MIKE-Cleanup: The user could be null here (unused load).
-            switch (user->GetOper())
+            if (user->OperIs(GT_RETURN))
             {
-                case GT_LCL_STORE:
-                case GT_LCL_STORE_FLD:
-                case GT_IND_STORE_OBJ:
-                    PromoteSingleFieldStructLclLoadStoreValue(lcl, load, user);
-                    break;
-                case GT_CALL:
-                    PromoteSingleFieldStructLclLoadCallArg(lcl, load);
-                    break;
-                case GT_RETURN:
-                    return PromoteSingleFieldStructLclLoadReturn(lcl, load, user->AsUnOp());
-                default:
-                    // Let's hope the importer doesn't produce STRUCT COMMAs again.
-                    unreached();
-            }
-        }
-
-        return load;
-    }
-
-    void PromoteSingleFieldStructLclLoadStoreValue(LclVarDsc* lcl, GenTreeLclLoad* load, GenTree* store)
-    {
-        assert(lcl->TypeIs(TYP_STRUCT));
-        assert(lcl->GetPromotedFieldCount() == 1);
-        assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE_OBJ) && store->TypeIs(TYP_STRUCT));
-
-        LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
-
-        assert(lcl->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()));
-
-        load->SetLcl(fieldLcl);
-        load->SetType(fieldLcl->GetType());
-
-        INDEBUG(m_stmtModified = true;)
-    }
-
-    void PromoteSingleFieldStructLclLoadCallArg(LclVarDsc* lcl, GenTreeLclLoad* load)
-    {
-        assert(lcl->TypeIs(TYP_STRUCT));
-        assert(lcl->GetPromotedFieldCount() == 1);
-
-        LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
-
-        assert(lcl->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()));
-
-        load->SetLcl(fieldLcl);
-        load->SetType(fieldLcl->GetType());
-
-        INDEBUG(m_stmtModified = true;)
-    }
-
-    GenTree* PromoteSingleFieldStructLclLoadReturn(LclVarDsc* lcl, GenTreeLclLoad* load, GenTreeUnOp* ret)
-    {
-        assert(lcl->TypeIs(TYP_STRUCT));
-        assert(lcl->GetPromotedFieldCount() == 1);
-        assert(ret->TypeIs(TYP_STRUCT));
-
-        LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
-
-        assert(lcl->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()));
-
-        load->SetLcl(fieldLcl);
-        load->SetType(fieldLcl->GetType());
-
-        INDEBUG(m_stmtModified = true;)
-
-        if (IsMergedReturn(ret))
-        {
-            // This is a merged return, it will be transformed into a struct
-            // copy so leave it to fgMorphCopyStruct to promote it.
-            return load;
-        }
-
-        const ReturnTypeDesc& retDesc = m_compiler->info.retDesc;
-
-        if (retDesc.GetRegCount() == 1)
-        {
-            var_types retRegType = varActualType(retDesc.GetRegType(0));
-            ret->SetType(retRegType);
-
-            if (varTypeUsesFloatReg(retRegType) != varTypeUsesFloatReg(fieldLcl->GetType()))
-            {
-                ret->SetOp(0, NewBitCastNode(retRegType, load));
+                return PromoteSingleFieldStructLclLoadReturn(lcl, load, user->AsUnOp());
             }
 
-            return ret->GetOp(0);
+            // Let's hope the importer doesn't produce STRUCT COMMAs again.
+            noway_assert(user->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE_OBJ, GT_CALL));
+
+            PromoteSingleFieldStructLclLoadStoreValue(lcl, load, user);
         }
-
-#ifdef WINDOWS_X86_ABI
-        if (retDesc.GetRegCount() == 2)
-        {
-            assert((retDesc.GetRegType(0) == TYP_INT) && (retDesc.GetRegType(1) == TYP_INT));
-
-            ret->SetType(TYP_LONG);
-
-            if (fieldLcl->TypeIs(TYP_SIMD8))
-            {
-                // TODO-MIKE-CQ: This generates rather poor code. Vector2 should be handled
-                // like DOUBLE, in codegen.
-                ret->SetOp(0, NewExtractElement(TYP_LONG, load, TYP_SIMD16, 0));
-            }
-            else
-            {
-                assert(fieldLcl->TypeIs(TYP_LONG, TYP_DOUBLE));
-            }
-
-            return ret->GetOp(0);
-        }
-#endif
-
-        // We either have a SIMD field that's returned in multiple registers (e.g. HFA)
-        // or perhaps the IL is invalid (e.g. struct with a single DOUBLE field returned
-        // as a Vector2 or some other 2 FLOAT field struct that is a HFA).
-        // Either way, leave it to morph to produce a FIELD_LIST in this case.
-        // We could probably do it here but it's not clear if it has any benefits.
-        assert(varTypeIsSIMD(fieldLcl->GetType()));
 
         return load;
     }
@@ -789,32 +682,39 @@ private:
         }
     }
 
-    bool PromoteLclLoadFld(GenTreeLclLoadFld* load, LclVarDsc* lcl)
+    void MorphStructLclStore(GenTreeLclStore* store)
     {
-        // The importer does not currently produce STRUCT LCL_LOAD_FLDs.
-        assert(!load->TypeIs(TYP_STRUCT));
+        assert(store->TypeIs(TYP_STRUCT));
 
-        LclVarDsc* fieldLcl = FindPromotedField(lcl, load->GetLclOffs(), varTypeSize(load->GetType()));
+        LclVarDsc* lcl   = store->GetLcl();
+        GenTree*   value = store->GetValue();
 
-        if (fieldLcl == nullptr)
+        assert(!value->OperIs(GT_INIT_VAL));
+
+        if (lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 1))
         {
-            return false;
+            LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
+            store->SetLcl(fieldLcl);
+            store->SetType(fieldLcl->GetType());
+            RetypeSingleFieldStructLclStore(store, value);
         }
-
-        // The importer rarely produces LCL_LOAD_FLDs, currently only when importing refanytype,
-        // so we can get away with handling only the trivial case when types match exactly.
-        // Otherwise we'll just DNER/P-DEP the promoted local so assert to know about it.
-        assert(fieldLcl->GetType() == load->GetType());
-
-        if (fieldLcl->GetType() != load->GetType())
+        else if (!value->TypeIs(TYP_STRUCT) && !value->IsIntCon(0))
         {
-            return false;
+            var_types type = value->GetType();
+
+            ClassLayout*   fieldLayout = nullptr;
+            FieldSeqNode*  fieldSeq    = GetFieldSequence(lcl->GetLayout()->GetClassHandle(), type, &fieldLayout);
+            GenTreeLclFld* fieldStore  = store->ChangeToLclStoreFld(type, lcl, 0, fieldSeq, store->GetValue());
+
+            if (varTypeIsSIMD(type) && (fieldLayout != nullptr) && (fieldLayout->GetSIMDType() == type))
+            {
+                fieldStore->SetLayout(fieldLayout, m_compiler);
+            }
+
+            m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
+
+            INDEBUG(m_stmtModified = true;)
         }
-
-        load->ChangeToLclLoad(fieldLcl->GetType(), fieldLcl);
-        INDEBUG(m_stmtModified = true;)
-
-        return true;
     }
 
     void MorphLocalIndLoad(GenTreeIndir* load, Value& addrVal, GenTree* user)
@@ -926,14 +826,7 @@ private:
             {
                 ClassLayout* loadLayout = load->AsIndLoadObj()->GetLayout();
 
-                if (user->OperIs(GT_CALL))
-                {
-                    if (PromoteSingleFieldStructCallArg(addrVal, load, loadLayout))
-                    {
-                        return;
-                    }
-                }
-                else if (user->OperIs(GT_RETURN))
+                if (user->OperIs(GT_RETURN))
                 {
                     if (PromoteSingleFieldStructReturn(addrVal, load, loadLayout, user->AsUnOp()))
                     {
@@ -943,9 +836,9 @@ private:
                 else
                 {
                     // Let's hope the importer doesn't produce STRUCT COMMAs again.
-                    noway_assert(user->OperIs(GT_LCL_STORE, GT_IND_STORE_OBJ));
+                    noway_assert(user->OperIs(GT_LCL_STORE, GT_IND_STORE_OBJ, GT_CALL));
 
-                    if (PromoteSingleFieldStructCopy(addrVal, load, loadLayout))
+                    if (PromoteSingleFieldStructCopy(addrVal, load->AsIndLoadObj()))
                     {
                         return;
                     }
@@ -1174,39 +1067,37 @@ private:
         INDEBUG(m_stmtModified = true;)
     }
 
-    LclVarDsc* FindPromotedField(LclVarDsc* lcl, unsigned offset, unsigned size) const
+    void MorphIndStoreObj(GenTreeIndStoreObj* store, const Value& addrVal)
     {
-        for (LclVarDsc* fieldLcl : m_compiler->PromotedFields(lcl))
-        {
-            assert(fieldLcl->GetType() != TYP_STRUCT);
+        GenTree* value = store->GetValue();
 
-            if ((offset >= fieldLcl->GetPromotedFieldOffset()) &&
-                (offset - fieldLcl->GetPromotedFieldOffset() + size <= varTypeSize(fieldLcl->GetType())))
+        if ((value->GetType() != store->GetType()) && !value->IsIntCon(0))
+        {
+            assert(store->GetLayout()->GetSize() == varTypeSize(value->GetType()));
+
+            store->SetOper(GT_IND_STORE);
+            store->SetType(store->GetValue()->GetType());
+
+            if (TopValue(1).IsAddress())
             {
-                return fieldLcl;
+                MorphLocalIndStore(store, addrVal);
+            }
+            else
+            {
+                EscapeValue(TopValue(1), store);
             }
         }
-
-        return nullptr;
-    }
-
-    void CanonicalizeLocalIndStore(GenTreeIndir* store, const Value& addrVal)
-    {
-        assert(addrVal.IsAddress());
-
-        m_compiler->lvaSetAddressExposed(addrVal.Lcl());
-
-        CanonicalizeLocalAddress(addrVal, store);
-
-        store->gtFlags &= GTF_IND_UNALIGNED | GTF_IND_VOLATILE;
-        store->gtFlags |= GTF_ASG | GTF_GLOB_REF | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP;
-
-        if (store->IsVolatile())
+        else
         {
-            store->AddSideEffects(GTF_ORDER_SIDEEFF);
+            if (TopValue(1).IsAddress())
+            {
+                MorphLocalIndStoreObj(store, addrVal);
+            }
+            else
+            {
+                EscapeValue(TopValue(1), store);
+            }
         }
-
-        INDEBUG(m_stmtModified = true);
     }
 
     void MorphLocalIndStore(GenTreeIndir* store, const Value& addrVal)
@@ -1351,39 +1242,6 @@ private:
         m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
 
         INDEBUG(m_stmtModified = true);
-    }
-
-    void MorphIndStoreObj(GenTreeIndStoreObj* store, const Value& addrVal)
-    {
-        GenTree* value = store->GetValue();
-
-        if ((value->GetType() != store->GetType()) && !value->IsIntCon(0))
-        {
-            assert(store->GetLayout()->GetSize() == varTypeSize(value->GetType()));
-
-            store->SetOper(GT_IND_STORE);
-            store->SetType(store->GetValue()->GetType());
-
-            if (TopValue(1).IsAddress())
-            {
-                MorphLocalIndStore(store, addrVal);
-            }
-            else
-            {
-                EscapeValue(TopValue(1), store);
-            }
-        }
-        else
-        {
-            if (TopValue(1).IsAddress())
-            {
-                MorphLocalIndStoreObj(store, addrVal);
-            }
-            else
-            {
-                EscapeValue(TopValue(1), store);
-            }
-        }
     }
 
     void MorphLocalIndStoreObj(GenTreeIndStoreObj* store, const Value& addrVal)
@@ -1546,7 +1404,156 @@ private:
         INDEBUG(m_stmtModified = true;)
     }
 
-    bool PromoteSingleFieldStructCopy(const Value& addrVal, GenTree* load, ClassLayout* loadLayout)
+    void CanonicalizeLocalIndStore(GenTreeIndir* store, const Value& addrVal)
+    {
+        assert(addrVal.IsAddress());
+
+        m_compiler->lvaSetAddressExposed(addrVal.Lcl());
+
+        CanonicalizeLocalAddress(addrVal, store);
+
+        store->gtFlags &= GTF_IND_UNALIGNED | GTF_IND_VOLATILE;
+        store->gtFlags |= GTF_ASG | GTF_GLOB_REF | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP;
+
+        if (store->IsVolatile())
+        {
+            store->AddSideEffects(GTF_ORDER_SIDEEFF);
+        }
+
+        INDEBUG(m_stmtModified = true);
+    }
+
+    LclVarDsc* FindPromotedField(LclVarDsc* lcl, unsigned offset, unsigned size) const
+    {
+        for (LclVarDsc* fieldLcl : m_compiler->PromotedFields(lcl))
+        {
+            assert(fieldLcl->GetType() != TYP_STRUCT);
+
+            if ((offset >= fieldLcl->GetPromotedFieldOffset()) &&
+                (offset - fieldLcl->GetPromotedFieldOffset() + size <= varTypeSize(fieldLcl->GetType())))
+            {
+                return fieldLcl;
+            }
+        }
+
+        return nullptr;
+    }
+
+    void PromoteSingleFieldStructLclLoadStoreValue(LclVarDsc* lcl, GenTreeLclLoad* load, GenTree* user)
+    {
+        assert(lcl->TypeIs(TYP_STRUCT));
+        assert(lcl->GetPromotedFieldCount() == 1);
+        assert(user->IsCall() ||
+               (user->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE_OBJ) && user->TypeIs(TYP_STRUCT)));
+
+        LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
+
+        assert(lcl->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()));
+
+        load->SetLcl(fieldLcl);
+        load->SetType(fieldLcl->GetType());
+
+        INDEBUG(m_stmtModified = true;)
+    }
+
+    GenTree* PromoteSingleFieldStructLclLoadReturn(LclVarDsc* lcl, GenTreeLclLoad* load, GenTreeUnOp* ret)
+    {
+        assert(lcl->TypeIs(TYP_STRUCT));
+        assert(lcl->GetPromotedFieldCount() == 1);
+        assert(ret->TypeIs(TYP_STRUCT));
+
+        LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
+
+        assert(lcl->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()));
+
+        load->SetLcl(fieldLcl);
+        load->SetType(fieldLcl->GetType());
+
+        INDEBUG(m_stmtModified = true;)
+
+        if (IsMergedReturn(ret))
+        {
+            // This is a merged return, it will be transformed into a struct
+            // copy so leave it to fgMorphCopyStruct to promote it.
+            return load;
+        }
+
+        const ReturnTypeDesc& retDesc = m_compiler->info.retDesc;
+
+        if (retDesc.GetRegCount() == 1)
+        {
+            var_types retRegType = varActualType(retDesc.GetRegType(0));
+            ret->SetType(retRegType);
+
+            if (varTypeUsesFloatReg(retRegType) != varTypeUsesFloatReg(fieldLcl->GetType()))
+            {
+                ret->SetOp(0, NewBitCastNode(retRegType, load));
+            }
+
+            return ret->GetOp(0);
+        }
+
+#ifdef WINDOWS_X86_ABI
+        if (retDesc.GetRegCount() == 2)
+        {
+            assert((retDesc.GetRegType(0) == TYP_INT) && (retDesc.GetRegType(1) == TYP_INT));
+
+            ret->SetType(TYP_LONG);
+
+            if (fieldLcl->TypeIs(TYP_SIMD8))
+            {
+                // TODO-MIKE-CQ: This generates rather poor code. Vector2 should be handled
+                // like DOUBLE, in codegen.
+                ret->SetOp(0, NewExtractElement(TYP_LONG, load, TYP_SIMD16, 0));
+            }
+            else
+            {
+                assert(fieldLcl->TypeIs(TYP_LONG, TYP_DOUBLE));
+            }
+
+            return ret->GetOp(0);
+        }
+#endif
+
+        // We either have a SIMD field that's returned in multiple registers (e.g. HFA)
+        // or perhaps the IL is invalid (e.g. struct with a single DOUBLE field returned
+        // as a Vector2 or some other 2 FLOAT field struct that is a HFA).
+        // Either way, leave it to morph to produce a FIELD_LIST in this case.
+        // We could probably do it here but it's not clear if it has any benefits.
+        assert(varTypeIsSIMD(fieldLcl->GetType()));
+
+        return load;
+    }
+
+    bool PromoteLclLoadFld(GenTreeLclLoadFld* load, LclVarDsc* lcl)
+    {
+        // The importer does not currently produce STRUCT LCL_LOAD_FLDs.
+        assert(!load->TypeIs(TYP_STRUCT));
+
+        LclVarDsc* fieldLcl = FindPromotedField(lcl, load->GetLclOffs(), varTypeSize(load->GetType()));
+
+        if (fieldLcl == nullptr)
+        {
+            return false;
+        }
+
+        // The importer rarely produces LCL_LOAD_FLDs, currently only when importing refanytype,
+        // so we can get away with handling only the trivial case when types match exactly.
+        // Otherwise we'll just DNER/P-DEP the promoted local so assert to know about it.
+        assert(fieldLcl->GetType() == load->GetType());
+
+        if (fieldLcl->GetType() != load->GetType())
+        {
+            return false;
+        }
+
+        load->ChangeToLclLoad(fieldLcl->GetType(), fieldLcl);
+        INDEBUG(m_stmtModified = true;)
+
+        return true;
+    }
+
+    bool PromoteSingleFieldStructCopy(const Value& addrVal, GenTreeIndLoadObj* load)
     {
         assert(addrVal.Offset() == 0);
         assert(load->TypeIs(TYP_STRUCT));
@@ -1554,7 +1561,7 @@ private:
         LclVarDsc* lcl = addrVal.Lcl();
         assert(!lcl->TypeIs(TYP_STRUCT));
 
-        if (loadLayout->GetSize() == varTypeSize(lcl->GetType()))
+        if (load->GetLayout()->GetSize() == varTypeSize(lcl->GetType()))
         {
             load->ChangeToLclLoad(lcl->GetType(), lcl);
             INDEBUG(m_stmtModified = true;)
@@ -1563,11 +1570,6 @@ private:
         }
 
         return false;
-    }
-
-    bool PromoteSingleFieldStructCallArg(const Value& addrVal, GenTree* load, ClassLayout* indirLayout)
-    {
-        return PromoteSingleFieldStructCopy(addrVal, load, indirLayout);
     }
 
     bool PromoteSingleFieldStructReturn(const Value&  addrVal,
@@ -1699,41 +1701,6 @@ private:
         }
 
         return false;
-    }
-
-    void MorphStructLclStore(GenTreeLclStore* store)
-    {
-        assert(store->TypeIs(TYP_STRUCT));
-
-        LclVarDsc* lcl   = store->GetLcl();
-        GenTree*   value = store->GetValue();
-
-        assert(!value->OperIs(GT_INIT_VAL));
-
-        if (lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 1))
-        {
-            LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
-            store->SetLcl(fieldLcl);
-            store->SetType(fieldLcl->GetType());
-            RetypeSingleFieldStructLclStore(store, value);
-        }
-        else if (!value->TypeIs(TYP_STRUCT) && !value->IsIntCon(0))
-        {
-            var_types type = value->GetType();
-
-            ClassLayout*   fieldLayout = nullptr;
-            FieldSeqNode*  fieldSeq    = GetFieldSequence(lcl->GetLayout()->GetClassHandle(), type, &fieldLayout);
-            GenTreeLclFld* fieldStore  = store->ChangeToLclStoreFld(type, lcl, 0, fieldSeq, store->GetValue());
-
-            if (varTypeIsSIMD(type) && (fieldLayout != nullptr) && (fieldLayout->GetSIMDType() == type))
-            {
-                fieldStore->SetLayout(fieldLayout, m_compiler);
-            }
-
-            m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
-
-            INDEBUG(m_stmtModified = true;)
-        }
     }
 
     void RetypeSingleFieldStructLclStore(GenTreeLclStore* store, GenTree* value)
