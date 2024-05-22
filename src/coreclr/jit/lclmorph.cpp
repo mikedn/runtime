@@ -724,30 +724,49 @@ private:
         INDEBUG(addrVal.Consume();)
         assert(user != nullptr);
 
-        LclVarDsc* lcl     = addrVal.Lcl();
-        unsigned   lclSize = lcl->GetTypeSize();
-        unsigned   loadSize;
+        LclVarDsc*    lcl      = addrVal.Lcl();
+        var_types     lclType  = lcl->GetType();
+        unsigned      lclSize  = lcl->GetTypeSize();
+        unsigned      lclOffs  = addrVal.Offset();
+        FieldSeqNode* fieldSeq = addrVal.FieldSeq();
+        var_types     loadType = load->GetType();
+        ClassLayout*  loadLayout;
+        unsigned      loadSize;
 
-        if (load->TypeIs(TYP_STRUCT))
+        if (load->OperIs(GT_IND_LOAD))
         {
-            loadSize = load->AsBlk()->GetLayout()->GetSize();
+            loadLayout = nullptr;
+            loadSize   = varTypeSize(loadType);
         }
         else
         {
-            loadSize = varTypeSize(load->GetType());
+            loadLayout = load->AsBlk()->GetLayout();
+            loadSize   = loadLayout->GetSize();
+        }
+
+        if (lclOffs > UINT16_MAX)
+        {
+            CanonicalizeLocalIndLoad(load, addrVal);
+
+            return;
+        }
+
+        if ((lclOffs > UINT32_MAX - loadSize) || (lclOffs + loadSize > lclSize))
+        {
+            CanonicalizeLocalIndLoad(load, addrVal);
+
+            return;
         }
 
         if (lcl->IsPromoted())
         {
-            // If this is a promoted variable then we can use a promoted field if it completely
-            // overlaps the indirection. With a lot of work, we could also handle cases where
-            // the indirection spans multiple fields (e.g. reading two consecutive INT fields
-            // as LONG) which would prevent dependent promotion.
-
             if (LclVarDsc* fieldLcl = FindPromotedField(lcl, addrVal.Offset(), loadSize))
             {
-                unsigned      fieldOffset = addrVal.Offset() - fieldLcl->GetPromotedFieldOffset();
-                FieldSeqNode* fieldSeq    = addrVal.FieldSeq();
+                lcl     = fieldLcl;
+                lclType = fieldLcl->GetType();
+                lclOffs -= fieldLcl->GetPromotedFieldOffset();
+
+                FieldSeqNode* fieldSeq = addrVal.FieldSeq();
 
                 if ((fieldSeq != nullptr) && fieldSeq->IsField())
                 {
@@ -757,27 +776,12 @@ private:
                     {
                         // There was no prefix, this means that the field access sequence doesn't
                         // match the promoted field sequence, ignore the field access sequence.
-                        fieldSeq = nullptr;
+                        fieldSeq = FieldSeqNode::NotAField();
                     }
                 }
 
-                addrVal.Promote(fieldLcl, fieldOffset, fieldSeq);
-                lcl = fieldLcl;
+                addrVal.Promote(fieldLcl, lclOffs, fieldSeq);
             }
-        }
-
-        if (addrVal.Offset() > UINT16_MAX)
-        {
-            CanonicalizeLocalIndLoad(load, addrVal);
-
-            return;
-        }
-
-        if ((addrVal.Offset() > UINT32_MAX - loadSize) || (addrVal.Offset() + loadSize > lclSize))
-        {
-            CanonicalizeLocalIndLoad(load, addrVal);
-
-            return;
         }
 
         // TODO-MIKE-Review: For now ignore volatile on a FIELD that accesses a promoted field,
@@ -809,10 +813,7 @@ private:
             return;
         }
 
-        var_types lclType  = lcl->GetType();
-        var_types loadType = load->GetType();
-
-        if ((addrVal.Offset() == 0) && (lclType != TYP_BLK))
+        if ((lclOffs == 0) && (lclType != TYP_BLK))
         {
             // A non-struct local may be accessed via a struct indir due to reinterpretation in user
             // code or due to single field struct promotion. Reinterpretation isn't common (but it
@@ -881,12 +882,12 @@ private:
                         return;
                     }
 
-                    // Handle the relatively common case of floating point/integer reinterpretation.
-                    // Also handle GC pointer/native int reinterpretation, some corelib tracing code
-                    // uses object references as if they're normal pointers for logging purposes.
-
                     if (CanBitCastTo(loadType))
                     {
+                        // Handle the relatively common case of floating point/integer reinterpretation.
+                        // Also handle GC pointer/native int reinterpretation, some corelib tracing code
+                        // uses object references as if they're normal pointers for logging purposes.
+
                         load->ChangeOper(GT_BITCAST);
                         load->AsUnOp()->SetOp(0, NewLclLoad(lclType, lcl));
                         load->gtFlags = GTF_EMPTY;
@@ -922,8 +923,8 @@ private:
         }
 
 #ifdef FEATURE_SIMD
-        if (varTypeIsSIMD(lclType) && (loadType == TYP_FLOAT) && (addrVal.Offset() % 4 == 0) &&
-            lcl->lvIsUsedInSIMDIntrinsic() && !lcl->lvDoNotEnregister)
+        if (varTypeIsSIMD(lclType) && (loadType == TYP_FLOAT) && (lclOffs % 4 == 0) && lcl->lvIsUsedInSIMDIntrinsic() &&
+            !lcl->lvDoNotEnregister)
         {
             // Recognize fields X/Y/Z/W of Vector2/3/4. These fields have type FLOAT so this is the only type
             // we recognize here but any other type supported by GetItem/SetItem would work. But other vector
@@ -957,25 +958,12 @@ private:
             load->ChangeOper(GT_HWINTRINSIC);
             load->AsHWIntrinsic()->SetIntrinsic(NI_Vector128_GetElement, TYP_FLOAT, 16, 2);
             load->AsHWIntrinsic()->SetOp(0, NewLclLoad(lclType, lcl));
-            load->AsHWIntrinsic()->SetOp(1, NewIntConNode(TYP_INT, addrVal.Offset() / 4));
+            load->AsHWIntrinsic()->SetOp(1, NewIntConNode(TYP_INT, lclOffs / 4));
             INDEBUG(m_stmtModified = true;)
 
             return;
         }
 #endif // FEATURE_SIMD
-
-        ClassLayout* loadLayout;
-
-        if (load->OperIs(GT_IND_LOAD_OBJ))
-        {
-            loadLayout = load->AsIndLoadObj()->GetLayout();
-            assert(!loadLayout->IsBlockLayout());
-        }
-        else
-        {
-            loadLayout = nullptr;
-            assert(!load->TypeIs(TYP_STRUCT));
-        }
 
         // For STRUCT locals, if the indir layout doesn't match and the local is promoted
         // then ignore the indir layout to avoid having to make a LCL_LOAD_FLD and dependent
@@ -994,58 +982,50 @@ private:
         // this can create more assignments with different source and destination types
         // and it's not clear how well VN maps handles those.
         // Also, discarding type information is not that great in general and it may be
-        // better to instead teach assertion propagation to deal with LCL_FLDs.
+        // better to instead teach assertion propagation to deal with LCL_LOAD_FLDs.
 
-        if ((addrVal.Offset() == 0) && (loadType == lclType) &&
-            ((loadType != TYP_STRUCT) || (loadLayout == lcl->GetLayout()) ||
-             (lcl->IsPromoted() && loadLayout->GetSize() == lcl->GetLayout()->GetSize())))
+        if ((lclOffs == 0) && (loadType == lclType) && ((loadType != TYP_STRUCT) || (loadLayout == lcl->GetLayout()) ||
+                                                        (lcl->IsPromoted() && (loadSize == lclSize))))
         {
             load->ChangeToLclLoad(loadType, lcl);
         }
         else
         {
-            FieldSeqNode* fieldSeq;
-
-            if (!varTypeIsStruct(lclType) || (lclType == TYP_BLK))
+            if (!varTypeIsStruct(lclType))
             {
-                fieldSeq = nullptr;
+                fieldSeq = FieldSeqNode::NotAField();
             }
-            else
+            else if ((fieldSeq != nullptr) && fieldSeq->IsField())
             {
-                fieldSeq = addrVal.FieldSeq();
-
-                if ((fieldSeq != nullptr) && fieldSeq->IsField())
+                if (!varTypeIsStruct(loadType))
                 {
-                    if (!varTypeIsStruct(loadType))
-                    {
 #if 0
-                        // TODO-MIKE-Cleanup: This should be removed, it's VN's job to deal with such type mismatches.
-                        // For now just disable it instead of fixing importer's Span::_pointer field sequence as this
-                        // generates less diffs.
+                    // TODO-MIKE-Cleanup: This should be removed, it's VN's job to deal with such type mismatches.
+                    // For now just disable it instead of fixing importer's Span::_pointer field sequence as this
+                    // generates less diffs.
 
-                        // If we have an indirection node and a field sequence then they should have the same type.
-                        // Otherwise it's best to forget the field sequence since the resulting LCL_LOAD_FLD doesn't
-                        // match a real struct field. Value numbering protects itself from such mismatches but there
-                        // doesn't seem to be any good reason to generate a LCL_LOAD_FLD with a mismatched field
-                        // sequence only to have to ignore it later.
+                    // If we have an indirection node and a field sequence then they should have the same type.
+                    // Otherwise it's best to forget the field sequence since the resulting LCL_LOAD_FLD doesn't
+                    // match a real struct field. Value numbering protects itself from such mismatches but there
+                    // doesn't seem to be any good reason to generate a LCL_LOAD_FLD with a mismatched field
+                    // sequence only to have to ignore it later.
 
-                        if (loadType != GetScalarFieldType(fieldSeq->GetTail()->GetFieldHandle()))
-                        {
-                            fieldSeq = nullptr;
-                        }
-#endif
-                    }
-                    else if (loadLayout != nullptr)
+                    if (loadType != GetScalarFieldType(fieldSeq->GetTail()->GetFieldHandle()))
                     {
-                        if (loadLayout->GetClassHandle() != GetStructFieldType(fieldSeq->GetTail()->GetFieldHandle()))
-                        {
-                            fieldSeq = nullptr;
-                        }
+                        fieldSeq = nullptr;
+                    }
+#endif
+                }
+                else if (loadLayout != nullptr)
+                {
+                    if (loadLayout->GetClassHandle() != GetStructFieldType(fieldSeq->GetTail()->GetFieldHandle()))
+                    {
+                        fieldSeq = nullptr;
                     }
                 }
             }
 
-            load->ChangeToLclLoadFld(loadType, lcl, addrVal.Offset(), fieldSeq);
+            load->ChangeToLclLoadFld(loadType, lcl, lclOffs, fieldSeq);
 
             if (loadLayout != nullptr)
             {
@@ -1067,7 +1047,7 @@ private:
         INDEBUG(m_stmtModified = true;)
     }
 
-    void MorphIndStoreObj(GenTreeIndStoreObj* store, const Value& addrVal)
+    void MorphIndStoreObj(GenTreeIndStoreObj* store, Value& addrVal)
     {
         GenTree* value = store->GetValue();
 
@@ -1100,30 +1080,37 @@ private:
         }
     }
 
-    void MorphLocalIndStore(GenTreeIndir* store, const Value& addrVal)
+    void MorphLocalIndStore(GenTreeIndir* store, Value& addrVal)
     {
         assert(store->OperIs(GT_IND_STORE) && (varTypeSize(store->GetType()) != 0));
         assert(addrVal.IsAddress());
         INDEBUG(addrVal.Consume());
 
-        LclVarDsc* lcl       = addrVal.Lcl();
-        var_types  storeType = store->GetType();
-        unsigned   lclOffs   = addrVal.Offset();
+        LclVarDsc*    lcl       = addrVal.Lcl();
+        var_types     lclType   = lcl->GetType();
+        unsigned      lclSize   = lcl->GetTypeSize();
+        unsigned      lclOffs   = addrVal.Offset();
+        FieldSeqNode* fieldSeq  = addrVal.FieldSeq();
+        var_types     storeType = store->GetType();
+        unsigned      storeSize = varTypeSize(storeType);
 
-        if ((lclOffs > UINT16_MAX) || (varTypeSize(storeType) > lcl->GetTypeSize()))
+        if (lclOffs > UINT16_MAX)
         {
             CanonicalizeLocalIndStore(store, addrVal);
+
             return;
         }
 
-        var_types     lclType  = lcl->GetType();
-        FieldSeqNode* fieldSeq = addrVal.FieldSeq();
+        if ((lclOffs > UINT32_MAX - storeSize) || (lclOffs + storeSize > lclSize))
+        {
+            CanonicalizeLocalIndStore(store, addrVal);
+
+            return;
+        }
 
         if (lcl->IsPromoted())
         {
-            LclVarDsc* fieldLcl = FindPromotedField(lcl, lclOffs, varTypeSize(storeType));
-
-            if (fieldLcl != nullptr)
+            if (LclVarDsc* fieldLcl = FindPromotedField(lcl, lclOffs, varTypeSize(storeType)))
             {
                 lcl     = fieldLcl;
                 lclType = fieldLcl->GetType();
@@ -1144,19 +1131,18 @@ private:
                         fieldSeq = FieldSeqNode::NotAField();
                     }
                 }
+
+                addrVal.Promote(fieldLcl, lclOffs, fieldSeq);
             }
         }
 
-        if (store->IsVolatile())
-        {
-            // TODO-MIKE-Review: For now ignore volatile on promoted field stores,
-            // to avoid diffs due to old promotion code ignoring volatile as well.
+        // TODO-MIKE-Review: For now ignore volatile on promoted field stores,
+        // to avoid diffs due to old promotion code ignoring volatile as well.
 
-            if (!store->GetAddr()->OperIs(GT_FIELD_ADDR) || !lcl->IsPromotedField())
-            {
-                CanonicalizeLocalIndStore(store, addrVal);
-                return;
-            }
+        if (store->IsVolatile() && (!store->GetAddr()->OperIs(GT_FIELD_ADDR) || !lcl->IsPromotedField()))
+        {
+            CanonicalizeLocalIndStore(store, addrVal);
+            return;
         }
 
         GenTree* value = store->GetValue();
@@ -1181,8 +1167,8 @@ private:
         }
 
 #ifdef FEATURE_SIMD
-        if (varTypeIsSIMD(lclType) && lcl->lvIsUsedInSIMDIntrinsic() && store->TypeIs(TYP_FLOAT) &&
-            (lclOffs % 4 == 0) && !lcl->IsImplicitByRefParam() && !lcl->lvDoNotEnregister)
+        if (varTypeIsSIMD(lclType) && (storeType == TYP_FLOAT) && (lclOffs % 4 == 0) &&
+            lcl->lvIsUsedInSIMDIntrinsic() && !lcl->IsImplicitByRefParam() && !lcl->lvDoNotEnregister)
         {
             // Recognize fields X/Y/Z/W of Vector2/3/4. These fields have type FLOAT so this is the only type
             // we recognize here but any other type supported by GetItem/SetItem would work. But other vector
@@ -1213,9 +1199,7 @@ private:
             // it here hurts promotion because SIMD typed promoted fields don't have it set so accessing
             // their X/Y/Z/W fields will just result in DNER.
 
-            value = NewInsertElement(lcl->GetType(), lclOffs / 4, TYP_FLOAT,
-                                     m_compiler->gtNewLclLoad(lcl, lcl->GetType()), value);
-
+            value = NewInsertElement(lcl->GetType(), lclOffs / 4, TYP_FLOAT, NewLclLoad(lcl->GetType(), lcl), value);
             store->ChangeToLclStore(lclType, lcl, value);
             INDEBUG(m_stmtModified = true);
 
@@ -1223,49 +1207,57 @@ private:
         }
 #endif // FEATURE_SIMD
 
-        if (varTypeIsSmall(lcl->GetType()))
-        {
-            // If STORE_LCL_FLD is used to store to a small type local then "normalize on store"
-            // isn't possible so the local has to be "normalize on load". The only way to do this
-            // is by making the local address exposed which is a big hammer. But such an indirect
-            // store is highly unusual so it's not worth the trouble to introduce another mechanism.
-            m_compiler->lvaSetAddressExposed(lcl);
-        }
-
         if ((fieldSeq == nullptr) || !varTypeIsStruct(lclType))
         {
             fieldSeq = FieldSeqStore::NotAField();
         }
 
-        store->ChangeToLclStoreFld(store->GetType(), lcl, lclOffs, fieldSeq, value);
+        store->ChangeToLclStoreFld(storeType, lcl, lclOffs, fieldSeq, value);
 
         m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
+
+        if (varTypeIsSmall(lclType))
+        {
+            // If LCL_STORE_FLD is used to store to a small type local then "normalize on store"
+            // isn't possible so the local has to be "normalize on load". The only way to do this
+            // is by making the local address exposed, which is a big hammer. But such an indirect
+            // store is highly unusual so it's not worth the trouble to introduce another mechanism.
+            m_compiler->lvaSetAddressExposed(lcl);
+        }
 
         INDEBUG(m_stmtModified = true);
     }
 
-    void MorphLocalIndStoreObj(GenTreeIndStoreObj* store, const Value& addrVal)
+    void MorphLocalIndStoreObj(GenTreeIndStoreObj* store, Value& addrVal)
     {
         INDEBUG(addrVal.Consume());
 
-        LclVarDsc*   lcl         = addrVal.Lcl();
-        ClassLayout* storeLayout = store->GetLayout();
-        unsigned     lclOffs     = addrVal.Offset();
+        LclVarDsc*    lcl         = addrVal.Lcl();
+        var_types     lclType     = lcl->GetType();
+        unsigned      lclSize     = lcl->GetTypeSize();
+        unsigned      lclOffs     = addrVal.Offset();
+        FieldSeqNode* fieldSeq    = addrVal.FieldSeq();
+        var_types     storeType   = store->GetType();
+        ClassLayout*  storeLayout = store->GetLayout();
+        unsigned      storeSize   = storeLayout->GetSize();
 
-        if ((lclOffs > UINT16_MAX) || (storeLayout->GetSize() > lcl->GetTypeSize()))
+        if (lclOffs > UINT16_MAX)
         {
             CanonicalizeLocalIndStore(store, addrVal);
+
             return;
         }
 
-        var_types     lclType  = lcl->GetType();
-        FieldSeqNode* fieldSeq = addrVal.FieldSeq();
+        if ((lclOffs > UINT32_MAX - storeSize) || (lclOffs + storeSize > lclSize))
+        {
+            CanonicalizeLocalIndStore(store, addrVal);
+
+            return;
+        }
 
         if (lcl->IsPromoted() && !lcl->lvDoNotEnregister)
         {
-            LclVarDsc* fieldLcl = FindPromotedField(lcl, lclOffs, storeLayout->GetSize());
-
-            if (fieldLcl != nullptr)
+            if (LclVarDsc* fieldLcl = FindPromotedField(lcl, lclOffs, storeLayout->GetSize()))
             {
                 lcl     = fieldLcl;
                 lclType = fieldLcl->GetType();
@@ -1286,48 +1278,41 @@ private:
                         fieldSeq = FieldSeqNode::NotAField();
                     }
                 }
+
+                addrVal.Promote(fieldLcl, lclOffs, fieldSeq);
             }
         }
 
-        if (store->IsVolatile())
-        {
-            // TODO-MIKE-Review: For now ignore volatile on promoted field stores,
-            // to avoid diffs due to old promotion code ignoring volatile as well.
+        // TODO-MIKE-Review: For now ignore volatile on promoted field stores,
+        // to avoid diffs due to old promotion code ignoring volatile as well.
 
-            if (!store->GetAddr()->OperIs(GT_FIELD_ADDR) || !lcl->IsPromotedField())
-            {
-                CanonicalizeLocalIndStore(store, addrVal);
-                return;
-            }
+        if (store->IsVolatile() && (!store->GetAddr()->OperIs(GT_FIELD_ADDR) || !lcl->IsPromotedField()))
+        {
+            CanonicalizeLocalIndStore(store, addrVal);
+            return;
         }
 
         GenTree* value = store->GetValue();
 
-        if ((lclOffs == 0) && varTypeIsStruct(lcl->GetType()) &&
-            ((storeLayout == lcl->GetLayout()) ||
-             (lcl->IsIndependentPromoted() && (storeLayout->GetSize() == lcl->GetLayout()->GetSize()))))
+        if (lclOffs == 0)
         {
-            store->ChangeToLclStore(lclType, lcl, value);
-            INDEBUG(m_stmtModified = true);
+            if (varTypeIsStruct(lcl->GetType()) &&
+                ((storeLayout == lcl->GetLayout()) ||
+                 (lcl->IsIndependentPromoted() && (lcl->GetLayout()->GetSize() == storeLayout->GetSize()))))
+            {
+                store->ChangeToLclStore(lclType, lcl, value);
+                INDEBUG(m_stmtModified = true);
 
-            return;
-        }
+                return;
+            }
 
-        if ((lclOffs == 0) && !lcl->lvDoNotEnregister && (varTypeSize(lcl->GetType()) == storeLayout->GetSize()))
-        {
-            store->ChangeToLclStore(lcl->GetType(), lcl, value);
-            RetypeSingleFieldStructLclStore(store->AsLclStore(), value);
+            if (!lcl->lvDoNotEnregister && (varTypeSize(lclType) == storeLayout->GetSize()))
+            {
+                store->ChangeToLclStore(lcl->GetType(), lcl, value);
+                RetypeSingleFieldStructLclStore(store->AsLclStore(), value);
 
-            return;
-        }
-
-        if (varTypeIsSmall(lcl->GetType()))
-        {
-            // If LCL_STORE_FLD is used to store to a small type local then "normalize on store"
-            // isn't possible so the local has to be "normalize on load". The only way to do this
-            // is by making the local address exposed which is a big hammer. But such an indirect
-            // store is highly unusual so it's not worth the trouble to introduce another mechanism.
-            m_compiler->lvaSetAddressExposed(lcl);
+                return;
+            }
         }
 
         if ((fieldSeq == nullptr) || !varTypeIsStruct(lclType))
@@ -1335,10 +1320,18 @@ private:
             fieldSeq = FieldSeqStore::NotAField();
         }
 
-        store->ChangeToLclStoreFld(store->GetType(), lcl, lclOffs, fieldSeq, value);
-        store->AsLclStoreFld()->SetLayout(storeLayout, m_compiler);
+        store->ChangeToLclStoreFld(storeType, lcl, lclOffs, fieldSeq, value)->SetLayout(storeLayout, m_compiler);
 
         m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
+
+        if (varTypeIsSmall(lclType))
+        {
+            // If LCL_STORE_FLD is used to store to a small type local then "normalize on store"
+            // isn't possible so the local has to be "normalize on load". The only way to do this
+            // is by making the local address exposed, which is a big hammer. But such an indirect
+            // store is highly unusual so it's not worth the trouble to introduce another mechanism.
+            m_compiler->lvaSetAddressExposed(lcl);
+        }
 
         INDEBUG(m_stmtModified = true);
     }
