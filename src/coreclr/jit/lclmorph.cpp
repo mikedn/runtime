@@ -796,7 +796,7 @@ private:
 
         if (load->OperIs(GT_IND_LOAD_BLK))
         {
-            // Keep BLKs and mark any involved locals address exposed for now.
+            // Keep LOAD_BLKs and mark any involved locals address exposed for now.
             //
             // CPBLK and INITBLK are rarely used (the C# compiler doesn't emit them at all).
             // Only the VM sometimes uses CPBLK in PInvoke IL stubs, to deal with x86 ABI
@@ -815,18 +815,45 @@ private:
 
         if ((lclOffs == 0) && (lclType != TYP_BLK))
         {
-            // A non-struct local may be accessed via a struct indir due to reinterpretation in user
+            // For STRUCT locals, if the load layout doesn't match and the local is promoted
+            // then ignore the load layout to avoid having to make a LCL_LOAD_FLD and dependent
+            // promote the local. The load layout isn't really needed anymore, since call arg
+            // morphing uses the one from the call signature.
+
+            // The only thing other than the ABI the layout influences is the GCness of stores
+            // to the local, but in that case it really does make more sense to ignore the load
+            // layout and use the local layout as that is the "real" one when it comes to GC.
+            // Reinterpreting a local in an attempt to avoid GC safe copies doesn't make a lot
+            // of sense.
+
+            // TODO-MIKE-Consider: This should work for non promoted locals as well but it's not
+            // clear if it's worth doing and safe.
+            // Avoiding LCL_LOAD_FLDs may improve assertion copy propagation but on the other hand
+            // this can create more assignments with different source and destination types and it
+            // isn't clear how well VN maps handles those.
+            // Also, discarding type information is not that great in general and it may be better
+            // to instead teach assertion propagation to deal with LCL_LOAD_FLDs.
+
+            if ((loadType == lclType) && ((loadType != TYP_STRUCT) || (loadLayout == lcl->GetLayout()) ||
+                                          (lcl->IsPromoted() && (loadSize == lclSize))))
+            {
+                load->ChangeToLclLoad(loadType, lcl);
+                load->gtFlags = GTF_EMPTY;
+                INDEBUG(m_stmtModified = true);
+
+                return;
+            }
+
+            // A non-struct local may be accessed via a STRUCT load due to reinterpretation in user
             // code or due to single field struct promotion. Reinterpretation isn't common (but it
             // does happen - e.g. ILCompiler.Reflection.ReadyToRun.dll reinterprets array references
-            // as ImmutableArray) but promotion is quite common. If the indir is a call arg then we
-            // can simply replace it with the local variable because it doesn't really matter if it's
-            // a struct value or a primitive type value, we just need to put the value in the correct
-            // register or stack slot.
+            // as ImmutableArray) but promotion is quite common. If the load is a call arg then we
+            // can simply replace it with the local because it doesn't really matter if it's a STRUCT
+            // value or a primitive type value, we just need to put the value in the correct register
+            // or stack slot.
 
             if ((loadType == TYP_STRUCT) && (lclType != TYP_STRUCT))
             {
-                ClassLayout* loadLayout = load->AsIndLoadObj()->GetLayout();
-
                 if (user->OperIs(GT_RETURN))
                 {
                     if (PromoteSingleFieldStructReturn(addrVal, load, loadLayout, user->AsUnOp()))
@@ -839,8 +866,11 @@ private:
                     // Let's hope the importer doesn't produce STRUCT COMMAs again.
                     noway_assert(user->OperIs(GT_LCL_STORE, GT_IND_STORE_OBJ, GT_CALL));
 
-                    if (PromoteSingleFieldStructCopy(addrVal, load->AsIndLoadObj()))
+                    if (loadLayout->GetSize() == varTypeSize(lclType))
                     {
+                        load->ChangeToLclLoad(lclType, lcl);
+                        INDEBUG(m_stmtModified = true;)
+
                         return;
                     }
                 }
@@ -855,10 +885,7 @@ private:
                         // `(short)ushortLocal`, except that generics code can't do such casts and sometimes
                         // uses `Unsafe.As` as a substitute.
 
-                        load->ChangeOper(GT_CAST);
-                        load->AsCast()->SetCastType(loadType);
-                        load->AsCast()->SetOp(0, NewLclLoad(lclType, lcl));
-                        load->gtFlags = GTF_EMPTY;
+                        load->ChangeToCast(loadType, NewLclLoad(lclType, lcl));
                         INDEBUG(m_stmtModified = true);
 
                         return;
@@ -872,7 +899,7 @@ private:
                         // while elegant, can cause problems as any call to such a method requires taking the
                         // address of the primitive type local variable.
 
-                        assert((loadType == lclType) || ((loadType == TYP_BOOL) && (lclType == TYP_UBYTE)) ||
+                        assert(((loadType == TYP_BOOL) && (lclType == TYP_UBYTE)) ||
                                ((loadType == TYP_UBYTE) && (lclType == TYP_BOOL)));
 
                         load->ChangeToLclLoad(loadType, lcl);
@@ -901,20 +928,12 @@ private:
                     // The load has to be smaller than the local, we already handled loads wider than the local.
                     assert(varTypeSize(loadType) < varTypeSize(lclType));
 
-                    // Storing to a local via a smaller indirection is more difficult to handle, we need something
-                    // like LCL_STORE(lcl, OR(lcl, value)) in the integer case plus some BITCASTs or intrinsics
-                    // in the float case. CoreLib has a few cases in Vector128 & co. WithElement methods but these
-                    // are normally recognized as intrinsics so it's not worth the trouble to handle this case.
-
-                    // Loading via a smaller indirection isn't common either but this case can be easily handled
-                    // by using a CAST. There's no reason to write something like `*(short*)&intLocal` instead of
-                    // just `(short)intLocal`, except that generics code can't do such casts and sometimes uses
+                    // Loading a smaller integer type isn't common but this case can be easily handled by using
+                    // a CAST. There's no reason to write something like `*(short*)&intLocal` instead of just
+                    // `(short)intLocal`, except that generics code can't do such casts and sometimes uses
                     // `Unsafe.As` as a substitute.
 
-                    load->ChangeOper(GT_CAST);
-                    load->AsCast()->SetCastType(loadType);
-                    load->AsCast()->SetOp(0, NewLclLoad(lclType, lcl));
-                    load->gtFlags = GTF_EMPTY;
+                    load->ChangeToCast(loadType, NewLclLoad(lclType, lcl));
                     INDEBUG(m_stmtModified = true);
 
                     return;
@@ -927,7 +946,7 @@ private:
             !lcl->lvDoNotEnregister)
         {
             // Recognize fields X/Y/Z/W of Vector2/3/4. These fields have type FLOAT so this is the only type
-            // we recognize here but any other type supported by GetItem/SetItem would work. But other vector
+            // we recognize here but any other type supported by GetElement would work. But other vector
             // types don't have fields and the only way this would be useful is if someone uses unsafe code
             // to access the vector elements. That's not very useful as the other vector types offer element
             // access by other means - Vector's indexer and Vector64/128/256's GetElement.
@@ -942,108 +961,71 @@ private:
             // Implicit byref params are a bit more complicated. We could simply skip this transform if the
             // local is an implicit byref param but that's not always a clear improvement because of CSE.
             // If multiple vector elements are accessed then we can have a single SIMD load and multiple
-            // GetItem to extract the elements. Otherwise we need to do a separate FLOAT load for each.
+            // GetElement to extract the elements. Otherwise we need to do a separate FLOAT load for each.
             // Having a single load may be faster but multiple loads can result in smaller code if loads
             // end up as memory operands on other instructions (on x86/64).
             //
             // Ultimately the best option may be to keep doing this here and compensate for the memory case
-            // in lowering. This is already done for GetItem but doesn't work very well. And SetItem is a
-            // bit more cumbersome to handle, though perhaps it would fit into the existing RMW lowering.
+            // in lowering. This is already done for GetElement but doesn't work very well.
 
-            // TODO-MIKE-CQ: The lvIsUsedInSIMDIntrinsic check is bogus. It's really intended to block
-            // struct promotion and this transform doesn't have anything to do with that. In fact using
-            // it here hurts promotion because SIMD typed promoted fields don't have it set so accessing
-            // their X/Y/Z/W fields will just result in DNER.
+            // TODO-MIKE-CQ: The IsUsedInSIMDIntrinsic check is bogus. It's really intended to block
+            // promotion and this transform doesn't have anything to do with that. In fact using it here
+            // hurts promotion because SIMD typed promoted fields don't have it set so accessing their
+            // X/Y/Z/W fields will just result in DNER.
 
             load->ChangeOper(GT_HWINTRINSIC);
             load->AsHWIntrinsic()->SetIntrinsic(NI_Vector128_GetElement, TYP_FLOAT, 16, 2);
             load->AsHWIntrinsic()->SetOp(0, NewLclLoad(lclType, lcl));
             load->AsHWIntrinsic()->SetOp(1, NewIntConNode(TYP_INT, lclOffs / 4));
-            INDEBUG(m_stmtModified = true;)
+            INDEBUG(m_stmtModified = true);
 
             return;
         }
 #endif // FEATURE_SIMD
 
-        // For STRUCT locals, if the indir layout doesn't match and the local is promoted
-        // then ignore the indir layout to avoid having to make a LCL_LOAD_FLD and dependent
-        // promote the local. The indir layout isn't really needed anymore, since call arg
-        // morphing uses the one from the call signature.
-
-        // The only thing other than the ABI the layout influences is the GCness of stores
-        // to the local, but in that case it really does make more sense to ignore the
-        // indir layout and use the local variable layout as that is the "real" one when
-        // it comes to GC. Reinterpreting a local variable in an attempt to avoid GC safe
-        // copies doesn't make a lot of sense.
-
-        // TODO-MIKE-Consider: This should work for non promoted locals as well but it's
-        // not clear if it's worth doing and safe.
-        // Avoiding LCL_FLDs may improve assertion copy propagation but on the other hand
-        // this can create more assignments with different source and destination types
-        // and it's not clear how well VN maps handles those.
-        // Also, discarding type information is not that great in general and it may be
-        // better to instead teach assertion propagation to deal with LCL_LOAD_FLDs.
-
-        if ((lclOffs == 0) && (loadType == lclType) && ((loadType != TYP_STRUCT) || (loadLayout == lcl->GetLayout()) ||
-                                                        (lcl->IsPromoted() && (loadSize == lclSize))))
+        if (!varTypeIsStruct(lclType))
         {
-            load->ChangeToLclLoad(loadType, lcl);
+            fieldSeq = FieldSeqNode::NotAField();
         }
-        else
+        else if ((fieldSeq != nullptr) && fieldSeq->IsField())
         {
-            if (!varTypeIsStruct(lclType))
+            if (!varTypeIsStruct(loadType))
             {
-                fieldSeq = FieldSeqNode::NotAField();
-            }
-            else if ((fieldSeq != nullptr) && fieldSeq->IsField())
-            {
-                if (!varTypeIsStruct(loadType))
-                {
 #if 0
-                    // TODO-MIKE-Cleanup: This should be removed, it's VN's job to deal with such type mismatches.
-                    // For now just disable it instead of fixing importer's Span::_pointer field sequence as this
-                    // generates less diffs.
+                // TODO-MIKE-Cleanup: This should be removed, it's VN's job to deal with such type mismatches.
+                // For now just disable it instead of fixing importer's Span::_pointer field sequence as this
+                // generates less diffs.
 
-                    // If we have an indirection node and a field sequence then they should have the same type.
-                    // Otherwise it's best to forget the field sequence since the resulting LCL_LOAD_FLD doesn't
-                    // match a real struct field. Value numbering protects itself from such mismatches but there
-                    // doesn't seem to be any good reason to generate a LCL_LOAD_FLD with a mismatched field
-                    // sequence only to have to ignore it later.
+                // If we have an indirection node and a field sequence then they should have the same type.
+                // Otherwise it's best to forget the field sequence since the resulting LCL_LOAD_FLD doesn't
+                // match a real struct field. Value numbering protects itself from such mismatches but there
+                // doesn't seem to be any good reason to generate a LCL_LOAD_FLD with a mismatched field
+                // sequence only to have to ignore it later.
 
-                    if (loadType != GetScalarFieldType(fieldSeq->GetTail()->GetFieldHandle()))
-                    {
-                        fieldSeq = nullptr;
-                    }
-#endif
-                }
-                else if (loadLayout != nullptr)
+                if (loadType != GetScalarFieldType(fieldSeq->GetTail()->GetFieldHandle()))
                 {
-                    if (loadLayout->GetClassHandle() != GetStructFieldType(fieldSeq->GetTail()->GetFieldHandle()))
-                    {
-                        fieldSeq = nullptr;
-                    }
+                    fieldSeq = nullptr;
+                }
+#endif
+            }
+            else if (loadLayout != nullptr)
+            {
+                if (loadLayout->GetClassHandle() != GetStructFieldType(fieldSeq->GetTail()->GetFieldHandle()))
+                {
+                    fieldSeq = nullptr;
                 }
             }
-
-            load->ChangeToLclLoadFld(loadType, lcl, lclOffs, fieldSeq);
-
-            if (loadLayout != nullptr)
-            {
-                load->AsLclLoadFld()->SetLayout(loadLayout, m_compiler);
-            }
-
-            m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
         }
 
-        GenTreeFlags flags = GTF_EMPTY;
+        load->ChangeToLclLoadFld(loadType, lcl, lclOffs, fieldSeq);
+        load->gtFlags = GTF_EMPTY;
 
-        if (load->TypeIs(TYP_STRUCT) && user->IsCall())
+        if (loadLayout != nullptr)
         {
-            flags |= GTF_DONT_CSE;
+            load->AsLclLoadFld()->SetLayout(loadLayout, m_compiler);
         }
 
-        load->gtFlags = flags;
-
+        m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
         INDEBUG(m_stmtModified = true;)
     }
 
@@ -1171,28 +1153,21 @@ private:
             lcl->lvIsUsedInSIMDIntrinsic() && !lcl->IsImplicitByRefParam() && !lcl->lvDoNotEnregister)
         {
             // Recognize fields X/Y/Z/W of Vector2/3/4. These fields have type FLOAT so this is the only type
-            // we recognize here but any other type supported by GetItem/SetItem would work. But other vector
+            // we recognize here but any other type supported by InsertElement would work. But other vector
             // types don't have fields and the only way this would be useful is if someone uses unsafe code
             // to access the vector elements. That's not very useful as the other vector types offer element
-            // access by other means - Vector's indexer and Vector64/128/256's GetElement.
+            // access by other means - Vector's indexer and Vector64/128/256's WithElement.
 
             // TODO-MIKE-CQ: Doing this here is a bit of a problem if the local variable ends up in memory,
             // if it is DNER for whatever reasons (we haven't determined that exactly at this point) or if
             // it is an implicit byref param. We could produce a LCL_STORE_FLD here, without DNERing the local
-            // and let morph convert it to GetItem/SetItem or leave it alone if the local was already DNERed
+            // and let morph convert it to InsertElement or leave it alone if the local was already DNERed
             // for other reasons. But creating a LCL_STORE_FLD without DNERing the corresponding local seems
             // somewhat risky at the moment.
             //
-            // Implicit byref params are a bit more complicated. We could simply skip this transform if the
-            // local is an implicit byref param but that's not always a clear improvement because of CSE.
-            // If multiple vector elements are accessed then we can have a single SIMD load and multiple
-            // GetItem to extract the elements. Otherwise we need to do a separate FLOAT load for each.
-            // Having a single load may be faster but multiple loads can result in smaller code if loads
-            // end up as memory operands on other instructions (on x86/64).
-            //
             // Ultimately the best option may be to keep doing this here and compensate for the memory case
-            // in lowering. This is already done for GetItem but doesn't work very well. And SetItem is a
-            // bit more cumbersome to handle, though perhaps it would fit into the existing RMW lowering.
+            // in lowering. InsertElement is a bit more cumbersome to handle, though perhaps it would fit
+            // into the existing RMW lowering.
 
             // TODO-MIKE-CQ: The lvIsUsedInSIMDIntrinsic check is bogus. It's really intended to block
             // struct promotion and this transform doesn't have anything to do with that. In fact using
@@ -1544,25 +1519,6 @@ private:
         INDEBUG(m_stmtModified = true;)
 
         return true;
-    }
-
-    bool PromoteSingleFieldStructCopy(const Value& addrVal, GenTreeIndLoadObj* load)
-    {
-        assert(addrVal.Offset() == 0);
-        assert(load->TypeIs(TYP_STRUCT));
-
-        LclVarDsc* lcl = addrVal.Lcl();
-        assert(!lcl->TypeIs(TYP_STRUCT));
-
-        if (load->GetLayout()->GetSize() == varTypeSize(lcl->GetType()))
-        {
-            load->ChangeToLclLoad(lcl->GetType(), lcl);
-            INDEBUG(m_stmtModified = true;)
-
-            return true;
-        }
-
-        return false;
     }
 
     bool PromoteSingleFieldStructReturn(const Value&  addrVal,
