@@ -5867,6 +5867,11 @@ GenTree* Importer::impImportStSFld(GenTree*                  value,
     // may be accessed via byrefs.
     impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("STSFLD stack spill temp"));
 
+    if (fieldType != TYP_STRUCT)
+    {
+        value = impConvertFieldStoreValue(fieldType, value);
+    }
+
     // TODO-MIKE-Cleanup: It would be better to generate stores from the get go
     field->SetOper(field->OperIs(GT_IND_LOAD_OBJ) ? GT_IND_STORE_OBJ : GT_IND_STORE);
     field->AsIndir()->SetValue(value);
@@ -5888,8 +5893,6 @@ GenTree* Importer::impImportStSFld(GenTree*                  value,
     }
     else
     {
-        value = impConvertFieldStoreValue(field->GetType(), value);
-
         if (helperNode != nullptr)
         {
             field = gtNewCommaNode(helperNode, field);
@@ -10859,6 +10862,11 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     op1->AsIndir()->SetUnaligned();
                 }
 
+                if (lclTyp != TYP_STRUCT)
+                {
+                    op2 = impConvertFieldStoreValue(lclTyp, op2);
+                }
+
                 // TODO-MIKE-Cleanup: It would be better to generate stores from the get go
                 op1->SetOper(op1->OperIs(GT_IND_LOAD_OBJ) ? GT_IND_STORE_OBJ : GT_IND_STORE);
                 op1->AsIndir()->SetValue(op2);
@@ -10868,10 +10876,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 if (lclTyp == TYP_STRUCT)
                 {
                     op1 = impAssignStruct(op1, op2, CHECK_SPILL_NONE);
-                }
-                else
-                {
-                    op2 = impConvertFieldStoreValue(op1->GetType(), op2);
                 }
 
                 impSpillNoneAppendTree(op1);
