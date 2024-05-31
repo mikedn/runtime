@@ -513,7 +513,7 @@ private:
         m_valueStack.Pop();
     }
 
-    void EscapeValue(const Value& val, GenTree* user)
+    void EscapeValue(Value& val, GenTree* user)
     {
         if (val.IsAddress())
         {
@@ -525,10 +525,10 @@ private:
         }
     }
 
-    void EscapeAddress(const Value& val, GenTree* user)
+    void EscapeAddress(Value& addrVal, GenTree* user)
     {
-        assert(val.IsAddress());
-        INDEBUG(val.Consume();)
+        assert(addrVal.IsAddress());
+        INDEBUG(addrVal.Consume();)
         assert(user != nullptr);
 
         if (user->OperIs(GT_EQ, GT_NE) || (user->OperIs(GT_GT) && user->IsUnsigned()))
@@ -536,7 +536,7 @@ private:
             GenTree* op1 = user->AsOp()->GetOp(0);
             GenTree* op2 = user->AsOp()->GetOp(1);
 
-            if (op2 == val.Node())
+            if (op2 == addrVal.Node())
             {
                 std::swap(op1, op2);
             }
@@ -556,8 +556,7 @@ private:
             // exposed in those case is unlikely to provide any benefits.
         }
 
-        LclVarDsc* lcl      = val.Lcl();
-        LclVarDsc* fieldLcl = nullptr;
+        LclVarDsc* lcl = addrVal.Lcl();
 
         // Try to use the address of a promoted field, if any. We'll have to mark the local
         // address exposed anyway but if we can restrict this to just a promoted field we
@@ -573,13 +572,27 @@ private:
         // but the JIT's struct promotion is upside down...
         // This is done in part to avoid diffs due to old promotion code doing it.
 
-        if (lcl->IsPromoted() && (val.FieldSeq() != nullptr) && val.FieldSeq()->IsField())
-        {
-            fieldLcl = FindPromotedField(lcl, val.Offset(), 1);
+        FieldSeq* fieldSeq = addrVal.FieldSeq();
 
-            if ((fieldLcl != nullptr) && (fieldLcl->GetPromotedFieldOffset() == val.Offset()))
+        if (lcl->IsPromoted() && (fieldSeq != nullptr) && fieldSeq->IsField())
+        {
+            if (LclVarDsc* fieldLcl = FindPromotedField(lcl, addrVal.Offset(), 1))
             {
-                lcl = fieldLcl;
+                if (fieldLcl->GetPromotedFieldOffset() == addrVal.Offset())
+                {
+                    lcl = fieldLcl;
+
+                    if (varTypeIsSIMD(fieldLcl->GetType()))
+                    {
+                        fieldSeq = ExtractVectorFieldElementFieldSeq(fieldSeq, fieldLcl, 0);
+                    }
+                    else
+                    {
+                        fieldSeq = nullptr;
+                    }
+
+                    addrVal.Promote(lcl, 0, fieldSeq);
+                }
             }
         }
 
@@ -597,7 +610,7 @@ private:
                 // "this" instance. And calling struct member methods is common enough that attempting
                 // to mark the entire struct as address exposed results in CQ regressions.
 
-                if ((call->gtCallThisArg != nullptr) && (val.Node() == call->gtCallThisArg->GetNode()))
+                if ((call->gtCallThisArg != nullptr) && (addrVal.Node() == call->gtCallThisArg->GetNode()))
                 {
                     exposeParentLcl = false;
                 }
@@ -607,15 +620,19 @@ private:
                 assert(!user->TypeIs(TYP_STRUCT) && !lcl->TypeIs(TYP_STRUCT));
 
                 if ((varTypeSize(user->GetType()) <= varTypeSize(lcl->GetType())) &&
-                    (val.Node() == (user->IsCmpXchg() ? user->AsCmpXchg()->GetAddr() : user->AsOp()->GetOp(0))))
+                    (addrVal.Node() == (user->IsCmpXchg() ? user->AsCmpXchg()->GetAddr() : user->AsOp()->GetOp(0))))
                 {
                     exposeParentLcl = false;
                 }
             }
+
+            if (exposeParentLcl)
+            {
+                m_compiler->lvaSetAddressExposed(m_compiler->lvaGetDesc(lcl->GetPromotedFieldParentLclNum()));
+            }
         }
 
-        m_compiler->lvaSetAddressExposed(exposeParentLcl ? m_compiler->lvaGetDesc(lcl->GetPromotedFieldParentLclNum())
-                                                         : lcl);
+        CanonicalizeLocalAddress(addrVal, user);
 
 #ifdef TARGET_64BIT
         // If the address of a variable is passed in a call and the allocation size of the variable
@@ -629,22 +646,11 @@ private:
             if (Compiler::gtHasCallOnStack(&m_ancestors))
             {
                 lcl->lvQuirkToLong = true;
-                JITDUMP("Adding a quirk for the storage size of V%02u of type %s\n", val.Lcl()->GetLclNum(),
+                JITDUMP("Adding a quirk for the storage size of V%02u of type %s\n", addrVal.Lcl()->GetLclNum(),
                         varTypeName(lcl->GetType()));
             }
         }
 #endif // TARGET_64BIT
-
-        if (lcl == fieldLcl)
-        {
-            Value fieldVal(val.Node());
-            fieldVal.Address(lcl, 0, nullptr);
-            CanonicalizeLocalAddress(fieldVal, user);
-        }
-        else
-        {
-            CanonicalizeLocalAddress(val, user);
-        }
     }
 
     GenTree* MorphStructLclLoad(GenTreeLclLoad* load, GenTree* user)
@@ -1284,7 +1290,7 @@ private:
         GenTree*   addr = addrVal.Node();
         LclVarDsc* lcl  = addrVal.Lcl();
 
-        assert(lcl->IsAddressExposed());
+        m_compiler->lvaSetAddressExposed(lcl);
 
         if ((addrVal.Offset() > UINT16_MAX) || (addrVal.Offset() >= lcl->GetTypeSize()))
         {
@@ -1293,8 +1299,7 @@ private:
             addr->AsOp()->SetOp(0, m_compiler->gtNewLclAddr(lcl));
             addr->AsOp()->SetOp(1, m_compiler->gtNewIconNode(addrVal.Offset(), addrVal.FieldSeq()));
         }
-        else if ((addrVal.Offset() != 0) ||
-                 ((addrVal.FieldSeq() != nullptr) && (addrVal.FieldSeq() != FieldSeqStore::NotAField())))
+        else if ((addrVal.Offset() != 0) || ((addrVal.FieldSeq() != nullptr) && addrVal.FieldSeq()->IsField()))
         {
             addr->ChangeToLclAddr(addr->GetType(), lcl, addrVal.Offset(), addrVal.FieldSeq());
         }
@@ -1318,14 +1323,8 @@ private:
     {
         assert(addrVal.IsAddress());
 
-        GenTree*   addr = load->GetAddr();
-        LclVarDsc* lcl  = addrVal.Lcl();
-
-        m_compiler->lvaSetAddressExposed(lcl);
-
         CanonicalizeLocalAddress(addrVal, load);
 
-        load->SetAddr(addr);
         load->gtFlags &= GTF_IND_UNALIGNED | GTF_IND_VOLATILE;
         load->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP;
 
@@ -1340,8 +1339,6 @@ private:
     void CanonicalizeLocalIndStore(GenTreeIndir* store, const Value& addrVal)
     {
         assert(addrVal.IsAddress());
-
-        m_compiler->lvaSetAddressExposed(addrVal.Lcl());
 
         CanonicalizeLocalAddress(addrVal, store);
 
