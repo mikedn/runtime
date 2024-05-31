@@ -768,25 +768,20 @@ private:
 
         if (lcl->IsPromoted())
         {
-            if (LclVarDsc* fieldLcl = FindPromotedField(lcl, addrVal.Offset(), loadSize))
+            if (LclVarDsc* fieldLcl = FindPromotedField(lcl, lclOffs, loadSize))
             {
                 lcl     = fieldLcl;
                 lclType = fieldLcl->GetType();
                 lclSize = varTypeSize(lclType);
                 lclOffs -= fieldLcl->GetPromotedFieldOffset();
 
-                FieldSeqNode* fieldSeq = addrVal.FieldSeq();
-
-                if ((fieldSeq != nullptr) && fieldSeq->IsField())
+                if (varTypeIsSIMD(lclType) && (fieldSeq != nullptr) && fieldSeq->IsField())
                 {
-                    fieldSeq = fieldSeq->RemovePrefix(fieldLcl->GetPromotedFieldSeq());
-
-                    if (fieldSeq == addrVal.FieldSeq())
-                    {
-                        // There was no prefix, this means that the field access sequence doesn't
-                        // match the promoted field sequence, ignore the field access sequence.
-                        fieldSeq = FieldSeqNode::NotAField();
-                    }
+                    fieldSeq = ExtractVectorFieldElementFieldSeq(fieldSeq, fieldLcl, lclOffs);
+                }
+                else
+                {
+                    fieldSeq = nullptr;
                 }
 
                 addrVal.Promote(fieldLcl, lclOffs, fieldSeq);
@@ -1102,26 +1097,20 @@ private:
 
         if (lcl->IsPromoted())
         {
-            if (LclVarDsc* fieldLcl = FindPromotedField(lcl, lclOffs, varTypeSize(storeType)))
+            if (LclVarDsc* fieldLcl = FindPromotedField(lcl, lclOffs, storeSize))
             {
                 lcl     = fieldLcl;
                 lclType = fieldLcl->GetType();
+                lclSize = varTypeSize(lclType);
                 lclOffs -= fieldLcl->GetPromotedFieldOffset();
 
-                if (lclOffs != 0)
+                if (varTypeIsSIMD(lclType) && (fieldSeq != nullptr) && fieldSeq->IsField())
                 {
-                    fieldSeq = FieldSeqNode::NotAField();
+                    fieldSeq = ExtractVectorFieldElementFieldSeq(fieldSeq, fieldLcl, lclOffs);
                 }
-                else if ((fieldSeq != nullptr) && fieldSeq->IsField())
+                else
                 {
-                    fieldSeq = fieldSeq->RemovePrefix(fieldLcl->GetPromotedFieldSeq());
-
-                    if (fieldSeq == addrVal.FieldSeq())
-                    {
-                        // There was no prefix, this means that the field access sequence doesn't
-                        // match the promoted field sequence, ignore the address field sequence.
-                        fieldSeq = FieldSeqNode::NotAField();
-                    }
+                    fieldSeq = nullptr;
                 }
 
                 addrVal.Promote(fieldLcl, lclOffs, fieldSeq);
@@ -1139,7 +1128,7 @@ private:
 
         GenTree* value = store->GetValue();
 
-        if ((lclOffs == 0) && (varTypeSize(storeType) == varTypeSize(lclType)))
+        if ((lclOffs == 0) && (storeSize == lclSize) && (lclType != TYP_STRUCT))
         {
             bool isAssignable = varTypeKind(storeType) == varTypeKind(lclType);
 
@@ -1250,20 +1239,13 @@ private:
                 lclSize = varTypeSize(lclType);
                 lclOffs -= fieldLcl->GetPromotedFieldOffset();
 
-                if (lclOffs != 0)
+                if (varTypeIsSIMD(lclType) && (fieldSeq != nullptr) && fieldSeq->IsField())
                 {
-                    fieldSeq = FieldSeqNode::NotAField();
+                    fieldSeq = ExtractVectorFieldElementFieldSeq(fieldSeq, fieldLcl, lclOffs);
                 }
-                else if ((fieldSeq != nullptr) && fieldSeq->IsField())
+                else
                 {
-                    fieldSeq = fieldSeq->RemovePrefix(fieldLcl->GetPromotedFieldSeq());
-
-                    if (fieldSeq == addrVal.FieldSeq())
-                    {
-                        // There was no prefix, this means that the field access sequence doesn't
-                        // match the promoted field sequence, ignore the address field sequence.
-                        fieldSeq = FieldSeqNode::NotAField();
-                    }
+                    fieldSeq = nullptr;
                 }
 
                 addrVal.Promote(fieldLcl, lclOffs, fieldSeq);
@@ -2015,6 +1997,34 @@ private:
         }
 
         return m_compiler->GetFieldSeqStore()->Append(fieldSeq, GetFieldSequence(classHandle, fieldType, fieldLayout));
+    }
+
+    FieldSeqNode* ExtractVectorFieldElementFieldSeq(FieldSeqNode* fieldSeq, LclVarDsc* fieldLcl, unsigned lclOffs)
+    {
+        assert(fieldSeq->IsField());
+        assert(varTypeIsSIMD(fieldLcl->GetType()));
+
+        FieldSeqNode* elementSeq = fieldSeq->RemovePrefix(fieldLcl->GetPromotedFieldSeq());
+
+        if ((elementSeq == fieldSeq) || (elementSeq == nullptr))
+        {
+            // There was no prefix, this means that the field sequence doesn't
+            // match the promoted field sequence, ignore the field sequence.
+            return FieldSeqNode::NotAField();
+        }
+
+        if (elementSeq->GetNext() != nullptr)
+        {
+            // Vector element are scalars so they don't have fields.
+            return FieldSeqNode::NotAField();
+        }
+
+        if (m_compiler->info.compCompHnd->getFieldOffset(elementSeq->GetFieldHandle()) != lclOffs)
+        {
+            return FieldSeqNode::NotAField();
+        }
+
+        return elementSeq;
     }
 
     static bool CanBitCastTo(var_types type)
