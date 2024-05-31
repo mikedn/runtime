@@ -764,6 +764,7 @@ private:
             {
                 lcl     = fieldLcl;
                 lclType = fieldLcl->GetType();
+                lclSize = varTypeSize(lclType);
                 lclOffs -= fieldLcl->GetPromotedFieldOffset();
 
                 FieldSeqNode* fieldSeq = addrVal.FieldSeq();
@@ -866,7 +867,7 @@ private:
                     // Let's hope the importer doesn't produce STRUCT COMMAs again.
                     noway_assert(user->OperIs(GT_LCL_STORE, GT_IND_STORE_OBJ, GT_CALL));
 
-                    if (loadLayout->GetSize() == varTypeSize(lclType))
+                    if (loadLayout->GetSize() == lclSize)
                     {
                         load->ChangeToLclLoad(lclType, lcl);
                         INDEBUG(m_stmtModified = true;)
@@ -877,7 +878,7 @@ private:
             }
             else if (!varTypeIsStruct(loadType) && !varTypeIsStruct(lclType))
             {
-                if (varTypeSize(loadType) == varTypeSize(lclType))
+                if (loadSize == lclSize)
                 {
                     if (varTypeIsSmall(loadType) && (varTypeIsUnsigned(loadType) != varTypeIsUnsigned(lclType)))
                     {
@@ -926,7 +927,7 @@ private:
                 else if (varTypeIsIntegral(loadType) && varTypeIsIntegral(lclType))
                 {
                     // The load has to be smaller than the local, we already handled loads wider than the local.
-                    assert(varTypeSize(loadType) < varTypeSize(lclType));
+                    assert(loadSize < lclSize);
 
                     // Loading a smaller integer type isn't common but this case can be easily handled by using
                     // a CAST. There's no reason to write something like `*(short*)&intLocal` instead of just
@@ -1068,13 +1069,11 @@ private:
         assert(addrVal.IsAddress());
         INDEBUG(addrVal.Consume());
 
-        LclVarDsc*    lcl       = addrVal.Lcl();
-        var_types     lclType   = lcl->GetType();
-        unsigned      lclSize   = lcl->GetTypeSize();
-        unsigned      lclOffs   = addrVal.Offset();
-        FieldSeqNode* fieldSeq  = addrVal.FieldSeq();
-        var_types     storeType = store->GetType();
-        unsigned      storeSize = varTypeSize(storeType);
+        LclVarDsc*    lcl      = addrVal.Lcl();
+        var_types     lclType  = lcl->GetType();
+        unsigned      lclSize  = lcl->GetTypeSize();
+        unsigned      lclOffs  = addrVal.Offset();
+        FieldSeqNode* fieldSeq = addrVal.FieldSeq();
 
         if (lclOffs > UINT16_MAX)
         {
@@ -1082,6 +1081,9 @@ private:
 
             return;
         }
+
+        var_types storeType = store->GetType();
+        unsigned  storeSize = varTypeSize(storeType);
 
         if ((lclOffs > UINT32_MAX - storeSize) || (lclOffs + storeSize > lclSize))
         {
@@ -1207,14 +1209,11 @@ private:
     {
         INDEBUG(addrVal.Consume());
 
-        LclVarDsc*    lcl         = addrVal.Lcl();
-        var_types     lclType     = lcl->GetType();
-        unsigned      lclSize     = lcl->GetTypeSize();
-        unsigned      lclOffs     = addrVal.Offset();
-        FieldSeqNode* fieldSeq    = addrVal.FieldSeq();
-        var_types     storeType   = store->GetType();
-        ClassLayout*  storeLayout = store->GetLayout();
-        unsigned      storeSize   = storeLayout->GetSize();
+        LclVarDsc*    lcl      = addrVal.Lcl();
+        var_types     lclType  = lcl->GetType();
+        unsigned      lclSize  = lcl->GetTypeSize();
+        unsigned      lclOffs  = addrVal.Offset();
+        FieldSeqNode* fieldSeq = addrVal.FieldSeq();
 
         if (lclOffs > UINT16_MAX)
         {
@@ -1222,6 +1221,10 @@ private:
 
             return;
         }
+
+        var_types    storeType   = store->GetType();
+        ClassLayout* storeLayout = store->GetLayout();
+        unsigned     storeSize   = storeLayout->GetSize();
 
         if ((lclOffs > UINT32_MAX - storeSize) || (lclOffs + storeSize > lclSize))
         {
@@ -1232,10 +1235,11 @@ private:
 
         if (lcl->IsPromoted() && !lcl->lvDoNotEnregister)
         {
-            if (LclVarDsc* fieldLcl = FindPromotedField(lcl, lclOffs, storeLayout->GetSize()))
+            if (LclVarDsc* fieldLcl = FindPromotedField(lcl, lclOffs, storeSize))
             {
                 lcl     = fieldLcl;
                 lclType = fieldLcl->GetType();
+                lclSize = varTypeSize(lclType);
                 lclOffs -= fieldLcl->GetPromotedFieldOffset();
 
                 if (lclOffs != 0)
@@ -1269,11 +1273,9 @@ private:
 
         GenTree* value = store->GetValue();
 
-        if (lclOffs == 0)
+        if ((lclOffs == 0) && (lclSize == storeSize))
         {
-            if (varTypeIsStruct(lcl->GetType()) &&
-                ((storeLayout == lcl->GetLayout()) ||
-                 (lcl->IsIndependentPromoted() && (lcl->GetLayout()->GetSize() == storeLayout->GetSize()))))
+            if (varTypeIsStruct(lclType) && ((storeLayout == lcl->GetLayout()) || lcl->IsIndependentPromoted()))
             {
                 store->ChangeToLclStore(lclType, lcl, value);
                 INDEBUG(m_stmtModified = true);
@@ -1281,9 +1283,9 @@ private:
                 return;
             }
 
-            if (!lcl->lvDoNotEnregister && (varTypeSize(lclType) == storeLayout->GetSize()))
+            if ((lclType != TYP_STRUCT) && !lcl->lvDoNotEnregister)
             {
-                store->ChangeToLclStore(lcl->GetType(), lcl, value);
+                store->ChangeToLclStore(lclType, lcl, value);
                 RetypeSingleFieldStructLclStore(store->AsLclStore(), value);
 
                 return;
