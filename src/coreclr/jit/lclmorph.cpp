@@ -752,20 +752,6 @@ private:
             loadSize   = loadLayout->GetSize();
         }
 
-        if (lclOffs > UINT16_MAX)
-        {
-            CanonicalizeLocalIndLoad(load, addrVal);
-
-            return;
-        }
-
-        if ((lclOffs > UINT32_MAX - loadSize) || (lclOffs + loadSize > lclSize))
-        {
-            CanonicalizeLocalIndLoad(load, addrVal);
-
-            return;
-        }
-
         if (lcl->IsPromoted())
         {
             if (LclVarDsc* fieldLcl = FindPromotedField(lcl, lclOffs, loadSize))
@@ -788,13 +774,18 @@ private:
             }
         }
 
+        if ((lclOffs > UINT16_MAX) || (lclOffs > UINT32_MAX - loadSize) || (lclOffs + loadSize > lclSize))
+        {
+            CanonicalizeLocalIndLoad(load, addrVal);
+            return;
+        }
+
         // TODO-MIKE-Review: For now ignore volatile on a FIELD that accesses a promoted field,
         // to avoid diffs due to old promotion code ignoring volatile as well.
 
         if (load->IsVolatile() && (!load->GetAddr()->OperIs(GT_FIELD_ADDR) || !lcl->IsPromotedField()))
         {
             CanonicalizeLocalIndLoad(load, addrVal);
-
             return;
         }
 
@@ -1072,28 +1063,13 @@ private:
         assert(addrVal.IsAddress());
         INDEBUG(addrVal.Consume());
 
-        LclVarDsc*    lcl      = addrVal.Lcl();
-        var_types     lclType  = lcl->GetType();
-        unsigned      lclSize  = lcl->GetTypeSize();
-        unsigned      lclOffs  = addrVal.Offset();
-        FieldSeqNode* fieldSeq = addrVal.FieldSeq();
-
-        if (lclOffs > UINT16_MAX)
-        {
-            CanonicalizeLocalIndStore(store, addrVal);
-
-            return;
-        }
-
-        var_types storeType = store->GetType();
-        unsigned  storeSize = varTypeSize(storeType);
-
-        if ((lclOffs > UINT32_MAX - storeSize) || (lclOffs + storeSize > lclSize))
-        {
-            CanonicalizeLocalIndStore(store, addrVal);
-
-            return;
-        }
+        LclVarDsc*    lcl       = addrVal.Lcl();
+        var_types     lclType   = lcl->GetType();
+        unsigned      lclSize   = lcl->GetTypeSize();
+        unsigned      lclOffs   = addrVal.Offset();
+        FieldSeqNode* fieldSeq  = addrVal.FieldSeq();
+        var_types     storeType = store->GetType();
+        unsigned      storeSize = varTypeSize(storeType);
 
         if (lcl->IsPromoted())
         {
@@ -1117,6 +1093,12 @@ private:
             }
         }
 
+        if ((lclOffs > UINT16_MAX) || (lclOffs > UINT32_MAX - storeSize) || (lclOffs + storeSize > lclSize))
+        {
+            CanonicalizeLocalIndStore(store, addrVal);
+            return;
+        }
+
         // TODO-MIKE-Review: For now ignore volatile on promoted field stores,
         // to avoid diffs due to old promotion code ignoring volatile as well.
 
@@ -1128,7 +1110,7 @@ private:
 
         GenTree* value = store->GetValue();
 
-        if ((lclOffs == 0) && (storeSize == lclSize) && (lclType != TYP_STRUCT))
+        if ((lclOffs == 0) && (storeSize == lclSize) && (lclType != TYP_STRUCT) && (lclType != TYP_BLK))
         {
             bool isAssignable = varTypeKind(storeType) == varTypeKind(lclType);
 
@@ -1206,29 +1188,14 @@ private:
     {
         INDEBUG(addrVal.Consume());
 
-        LclVarDsc*    lcl      = addrVal.Lcl();
-        var_types     lclType  = lcl->GetType();
-        unsigned      lclSize  = lcl->GetTypeSize();
-        unsigned      lclOffs  = addrVal.Offset();
-        FieldSeqNode* fieldSeq = addrVal.FieldSeq();
-
-        if (lclOffs > UINT16_MAX)
-        {
-            CanonicalizeLocalIndStore(store, addrVal);
-
-            return;
-        }
-
-        var_types    storeType   = store->GetType();
-        ClassLayout* storeLayout = store->GetLayout();
-        unsigned     storeSize   = storeLayout->GetSize();
-
-        if ((lclOffs > UINT32_MAX - storeSize) || (lclOffs + storeSize > lclSize))
-        {
-            CanonicalizeLocalIndStore(store, addrVal);
-
-            return;
-        }
+        LclVarDsc*    lcl         = addrVal.Lcl();
+        var_types     lclType     = lcl->GetType();
+        unsigned      lclSize     = lcl->GetTypeSize();
+        unsigned      lclOffs     = addrVal.Offset();
+        FieldSeqNode* fieldSeq    = addrVal.FieldSeq();
+        var_types     storeType   = store->GetType();
+        ClassLayout*  storeLayout = store->GetLayout();
+        unsigned      storeSize   = storeLayout->GetSize();
 
         if (lcl->IsPromoted() && !lcl->lvDoNotEnregister)
         {
@@ -1250,6 +1217,12 @@ private:
 
                 addrVal.Promote(fieldLcl, lclOffs, fieldSeq);
             }
+        }
+
+        if ((lclOffs > UINT16_MAX) || (lclOffs > UINT32_MAX - storeSize) || (lclOffs + storeSize > lclSize))
+        {
+            CanonicalizeLocalIndStore(store, addrVal);
+            return;
         }
 
         // TODO-MIKE-Review: For now ignore volatile on promoted field stores,
