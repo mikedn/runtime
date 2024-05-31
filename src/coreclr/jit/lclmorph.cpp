@@ -649,23 +649,31 @@ private:
 
     GenTree* MorphStructLclLoad(GenTreeLclLoad* load, GenTree* user)
     {
-        assert(user != nullptr);
+        // TODO-MIKE-Cleanup: The user could be null here (unused load).
 
         LclVarDsc* lcl = load->GetLcl();
 
-        if (lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 1))
+        if (!lcl->IsPromoted() || (lcl->GetPromotedFieldCount() > 1))
         {
-            // TODO-MIKE-Cleanup: The user could be null here (unused load).
-            if (user->OperIs(GT_RETURN))
-            {
-                return PromoteSingleFieldStructLclLoadReturn(lcl, load, user->AsUnOp());
-            }
-
-            // Let's hope the importer doesn't produce STRUCT COMMAs again.
-            noway_assert(user->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE_OBJ, GT_CALL));
-
-            PromoteSingleFieldStructLclLoadStoreValue(lcl, load, user);
+            return load;
         }
+
+        if (user->OperIs(GT_RETURN))
+        {
+            return PromoteSingleFieldStructLclLoadReturn(lcl, load, user->AsUnOp());
+        }
+
+        // Let's hope the importer doesn't produce STRUCT COMMAs again.
+        noway_assert(user->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE_OBJ, GT_CALL));
+
+        LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
+
+        assert(lcl->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()));
+
+        load->SetLcl(fieldLcl);
+        load->SetType(fieldLcl->GetType());
+
+        INDEBUG(m_stmtModified = true;)
 
         return load;
     }
@@ -1407,23 +1415,6 @@ private:
         }
 
         return nullptr;
-    }
-
-    void PromoteSingleFieldStructLclLoadStoreValue(LclVarDsc* lcl, GenTreeLclLoad* load, GenTree* user)
-    {
-        assert(lcl->TypeIs(TYP_STRUCT));
-        assert(lcl->GetPromotedFieldCount() == 1);
-        assert(user->IsCall() ||
-               (user->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE_OBJ) && user->TypeIs(TYP_STRUCT)));
-
-        LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
-
-        assert(lcl->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()));
-
-        load->SetLcl(fieldLcl);
-        load->SetType(fieldLcl->GetType());
-
-        INDEBUG(m_stmtModified = true;)
     }
 
     GenTree* PromoteSingleFieldStructLclLoadReturn(LclVarDsc* lcl, GenTreeLclLoad* load, GenTreeUnOp* ret)
