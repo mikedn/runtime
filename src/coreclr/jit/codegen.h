@@ -202,7 +202,7 @@ public:
     void genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize = EA_UNKNOWN, regNumber callTarget = REG_NA);
 #endif
 
-    void genGCWriteBarrier(GenTreeStoreInd* store, GCInfo::WriteBarrierForm wbf);
+    void genGCWriteBarrier(GenTreeIndStore* store, GCInfo::WriteBarrierForm wbf);
 
 #if !FEATURE_FIXED_OUT_ARGS
     void SetThrowHelperBlockStackLevel(BasicBlock* block);
@@ -729,11 +729,11 @@ protected:
 #endif
     void SpillLclVarReg(LclVarDsc* lcl, GenTreeLclVar* lclNode);
     void UnspillRegIfNeeded(GenTree* node);
-    void UnspillRegCandidateLclVar(GenTreeLclVar* node);
+    void UnspillRegCandidateLclLoad(GenTreeLclLoad* node);
     void UnspillRegIfNeeded(GenTree* node, unsigned regIndex);
     void UnspillRegsIfNeeded(GenTree* node);
     regNumber UseReg(GenTree* node);
-    regNumber UseRegCandidateLclVar(GenTreeLclVar* node);
+    regNumber UseRegCandidateLclLoad(GenTreeLclLoad* node);
     void UseRegs(GenTree* node);
     regNumber genConsumeReg(GenTree* node);
     regNumber UseReg(GenTree* node, unsigned regIndex);
@@ -775,28 +775,29 @@ protected:
     void GenCast(GenTreeCast* cast);
     void GenLclAddr(GenTreeLclAddr* addr);
     void genCodeForIndexAddr(GenTreeIndexAddr* tree);
-    void GenIndLoad(GenTreeIndir* load);
     void genCodeForNegNot(GenTreeUnOp* tree);
     void genCodeForBswap(GenTree* tree);
-    void GenLoadLclVar(GenTreeLclVar* load);
-    void GenLoadLclFld(GenTreeLclFld* load);
-    void GenStoreLclFld(GenTreeLclFld* store);
-    void GenStoreLclVar(GenTreeLclVar* store);
+
+    void GenIndLoad(GenTreeIndLoad* load);
+    void GenIndStore(GenTreeIndStore* store);
+    void GenLclLoad(GenTreeLclLoad* load);
+    void GenLclStore(GenTreeLclStore* store);
+    void GenLclLoadFld(GenTreeLclLoadFld* load);
+    void GenLclStoreFld(GenTreeLclStoreFld* store);
     void GenStoreLclRMW(var_types type, StackAddrMode s, GenTree* src);
 #ifndef TARGET_64BIT
-    void GenStoreLclVarLong(GenTreeLclVar* store);
+    void GenStoreLclVarLong(GenTreeLclStore* store);
 #endif
-    void GenStoreLclVarMultiReg(GenTreeLclVar* store);
-    void GenStoreLclVarMultiRegSIMDMem(GenTreeLclVar* store);
-    void GenStoreLclVarMultiRegSIMDReg(GenTreeLclVar* store);
+    void GenStoreLclVarMultiReg(GenTreeLclStore* store);
+    void GenStoreLclVarMultiRegSIMDMem(GenTreeLclStore* store);
+    void GenStoreLclVarMultiRegSIMDReg(GenTreeLclStore* store);
     void genCodeForReturnTrap(GenTreeOp* tree);
     void GenSetCC(GenTreeCC* setcc);
-    void GenIndStore(GenTreeStoreInd* tree);
 #ifdef TARGET_XARCH
     void genCodeForSwap(GenTreeOp* tree);
 #endif
     void genCodeForPhysReg(GenTreePhysReg* tree);
-    void genCodeForNullCheck(GenTreeIndir* tree);
+    void GenNullCheck(GenTreeNullCheck* check);
     void GenCmpXchg(GenTreeCmpXchg* tree);
     void GenMemoryBarrier(GenTree* barrier);
     void genCodeForInstr(GenTreeInstr* instr);
@@ -873,7 +874,7 @@ protected:
     void GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout);
     void GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout);
 #if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
-    void GenStructStoreUnrollRegsWB(GenTreeObj* store);
+    void GenStructStoreUnrollRegsWB(GenTreeIndStoreObj* store);
 #endif
     void GenJmpTable(GenTree* node, const BBswtDesc& switchDesc);
     void GenSwitchTable(GenTreeOp* node);
@@ -935,11 +936,9 @@ protected:
 
     void genLclHeap(GenTree* tree);
 
-    GenTreeLclVar* IsRegCandidateLclVar(GenTree* node)
+    GenTreeLclLoad* IsRegCandidateLclLoad(GenTree* node) const
     {
-        return node->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && node->AsLclVar()->GetLcl()->IsRegCandidate()
-                   ? node->AsLclVar()
-                   : nullptr;
+        return node->OperIs(GT_LCL_LOAD) && node->AsLclLoad()->GetLcl()->IsRegCandidate() ? node->AsLclLoad() : nullptr;
     }
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
@@ -970,8 +969,8 @@ public:
 
 #ifdef TARGET_ARM
     void inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size);
-    void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTreeIndir* load);
-    void emitInsStore(instruction ins, emitAttr attr, regNumber reg, GenTreeStoreInd* store);
+    void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTreeIndLoad* load);
+    void emitInsStore(instruction ins, emitAttr attr, regNumber reg, GenTreeIndStore* store);
     void emitInsIndir(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir, int offset);
     regNumber emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src1, GenTree* src2);
 #endif
@@ -979,7 +978,7 @@ public:
 #ifdef TARGET_ARM64
     void inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size);
     void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTreeIndir* load);
-    void emitInsStore(instruction ins, emitAttr attr, regNumber reg, GenTreeStoreInd* store);
+    void emitInsStore(instruction ins, emitAttr attr, regNumber reg, GenTreeIndStore* store);
     void emitInsIndir(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir);
     regNumber emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src1, GenTree* src2);
 #endif

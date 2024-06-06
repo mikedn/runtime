@@ -59,7 +59,7 @@ private:
     void ContainCheckJTrue(GenTreeUnOp* node);
     void ContainCheckCallOperands(GenTreeCall* call);
     void ContainCheckIndir(GenTreeIndir* indirNode);
-    void ContainCheckStoreIndir(GenTreeStoreInd* store);
+    void ContainCheckIndStore(GenTreeIndStore* store);
     void ContainCheckMul(GenTreeOp* node);
     void ContainCheckShiftRotate(GenTreeOp* node);
     void ContainCheckStoreLcl(GenTreeLclVarCommon* store);
@@ -107,11 +107,11 @@ private:
 #endif
     void LowerJmpMethod(GenTree* jmp);
     void LowerReturn(GenTreeUnOp* ret);
-    void LowerLclVar(GenTreeLclVar* lclVar);
-    void LowerStoreLclVar(GenTreeLclVar* store);
-    void LowerStoreLclVarArch(GenTreeLclVar* store);
-    void LowerLclFld(GenTreeLclFld* lclFld);
-    void LowerStoreLclFld(GenTreeLclFld* store);
+    void LowerLclLoad(GenTreeLclLoad* load);
+    void LowerLclStore(GenTreeLclStore* store);
+    void LowerStoreLclVarArch(GenTreeLclStore* store);
+    void LowerLclLoadFld(GenTreeLclLoadFld* load);
+    void LowerLclStoreFld(GenTreeLclStoreFld* store);
     void LowerStructReturn(GenTreeUnOp* ret);
     void LowerRetSingleRegStructLclVar(GenTreeUnOp* ret);
     void LowerStructCall(GenTreeCall* call);
@@ -156,7 +156,7 @@ private:
 
     // Replace the definition of the given use with a lclVar, allocating a new temp
     // if 'tempNum' is BAD_VAR_NUM. Returns the LclVar node.
-    GenTreeLclVar* ReplaceWithLclVar(LIR::Use& use, LclVarDsc* tempLcl = nullptr);
+    GenTreeLclLoad* ReplaceWithLclLoad(LIR::Use& use, LclVarDsc* tempLcl = nullptr);
 
     // return true if this call target is within range of a pc-rel call on the machine
     bool IsCallTargetInRange(void* addr);
@@ -167,15 +167,15 @@ private:
 #endif
 
     void LowerIndir(GenTreeIndir* ind);
-    void LowerStoreIndir(GenTreeStoreInd* store);
-    void LowerStoreIndirArch(GenTreeStoreInd* store);
+    void LowerIndStore(GenTreeIndStore* store);
+    void LowerIndStoreArch(GenTreeIndStore* store);
     GenTree* LowerAdd(GenTreeOp* node);
     bool LowerUnsignedDivOrMod(GenTreeOp* divMod);
     GenTree* LowerConstIntDivOrMod(GenTree* node);
     GenTree* LowerSignedDivOrMod(GenTree* node);
     void LowerStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);
-    void LowerStoreObj(GenTreeObj* store);
-    void LowerStoreBlk(GenTreeBlk* store);
+    void LowerIndStoreObj(GenTreeIndStoreObj* store);
+    void LowerIndStoreBlk(GenTreeIndStoreBlk* store);
     void ContainStructStoreAddress(GenTree* store, unsigned size, GenTree* addr);
     void ContainStructStoreAddressUnrollRegsWB(GenTree* addr);
     void LowerPutArgStk(GenTreePutArgStk* tree);
@@ -205,19 +205,22 @@ private:
 
     bool TryCreateAddrMode(GenTree* addr, bool isContainable);
 
-    bool TryTransformStoreObjToStoreInd(GenTreeObj* store);
+    bool TryTransformStoreObjToStoreInd(GenTreeIndStoreObj* store);
 
     GenTree* LowerSwitch(GenTreeUnOp* node);
-    bool TryLowerSwitchToBitTest(
-        BasicBlock* jumpTable[], unsigned jumpCount, unsigned targetCount, BasicBlock* bbSwitch, GenTree* switchValue);
+    bool TryLowerSwitchToBitTest(BasicBlock*     jumpTable[],
+                                 unsigned        jumpCount,
+                                 unsigned        targetCount,
+                                 BasicBlock*     bbSwitch,
+                                 GenTreeLclLoad* switchValue);
 
     GenTree* LowerBitCast(GenTreeUnOp* bitcast);
     GenTree* LowerCast(GenTreeCast* cast);
 
 #ifdef TARGET_XARCH
-    bool IsLoadIndRMWCandidate(GenTreeStoreInd* store, GenTreeIndir* load, GenTree* src);
-    GenTreeIndir* IsStoreIndRMW(GenTreeStoreInd* store);
-    void LowerStoreIndRMW(GenTreeStoreInd* store);
+    bool IsIndLoadRMWCandidate(GenTreeIndStore* store, GenTreeIndir* load, GenTree* src);
+    GenTreeIndir* IsStoreIndRMW(GenTreeIndStore* store);
+    void LowerStoreIndRMW(GenTreeIndStore* store);
     static bool IndirsAreRMWEquivalent(GenTreeIndir* indir1, GenTreeIndir* indir2);
     static bool LeavesAreRMWEquivalent(GenTree* node1, GenTree* node2);
 
@@ -229,7 +232,7 @@ private:
     bool CanWidenSimd12ToSimd16(const LclVarDsc* lcl);
 #endif
 #if FEATURE_MULTIREG_RET
-    void MakeMultiRegStoreLclVar(GenTreeLclVar* store, GenTree* value);
+    void MakeMultiRegStoreLclVar(GenTreeLclStore* store, GenTree* value);
 #endif
     GenTree* LowerArrElem(GenTree* node);
     void LowerRotate(GenTree* tree);

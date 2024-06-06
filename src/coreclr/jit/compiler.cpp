@@ -2528,8 +2528,8 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
         DoPhase(this, PHASE_EARLY_UPDATE_FLOW_GRAPH, &Compiler::phUpdateFlowGraph);
     }
 
-    DoPhase(this, PHASE_PROMOTE_STRUCTS, &Compiler::fgPromoteStructs);
-    DoPhase(this, PHASE_STR_ADRLCL, &Compiler::fgMarkAddressExposedLocals);
+    DoPhase(this, PHASE_PROMOTE_STRUCTS, &Compiler::phPromoteStructs);
+    DoPhase(this, PHASE_STR_ADRLCL, &Compiler::phMarkAddressExposedLocals);
     DoPhase(this, PHASE_MORPH_GLOBAL, &Compiler::phMorph);
 
     if (getNeedsGSSecurityCookie())
@@ -4967,10 +4967,10 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
         genTreeOps op = tree->OperGet();
         switch (op)
         {
-            case GT_LCL_VAR:
-            case GT_LCL_FLD:
-            case GT_STORE_LCL_FLD:
-            case GT_STORE_LCL_VAR:
+            case GT_LCL_LOAD:
+            case GT_LCL_STORE:
+            case GT_LCL_LOAD_FLD:
+            case GT_LCL_STORE_FLD:
                 if (tree->gtFlags & GTF_VAR_DEATH)
                 {
                     chars += printf("[VAR_DEATH]");
@@ -4996,12 +4996,12 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 }
                 break;
 
-            case GT_IND:
-            case GT_STOREIND:
-            case GT_OBJ:
-            case GT_STORE_OBJ:
-            case GT_BLK:
-            case GT_STORE_BLK:
+            case GT_IND_LOAD:
+            case GT_IND_STORE:
+            case GT_IND_LOAD_OBJ:
+            case GT_IND_STORE_OBJ:
+            case GT_IND_LOAD_BLK:
+            case GT_IND_STORE_BLK:
                 if (tree->AsIndir()->IsVolatile())
                 {
                     chars += printf("[IND_VOLATILE]");
@@ -5294,7 +5294,7 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
         }
         if (tree->gtFlags & GTF_REVERSE_OPS)
         {
-            if (op != GT_LCL_VAR)
+            if (op != GT_LCL_LOAD)
             {
                 chars += printf("[REVERSE_OPS]");
             }
@@ -5421,7 +5421,7 @@ bool Compiler::lvaIsOSRLocal(LclVarDsc* lcl)
 //
 void Compiler::gtChangeOperToNullCheck(GenTree* tree)
 {
-    assert(tree->OperIs(GT_FIELD_ADDR, GT_IND, GT_OBJ, GT_BLK));
+    assert(tree->OperIs(GT_FIELD_ADDR, GT_IND_LOAD, GT_IND_LOAD_OBJ, GT_IND_LOAD_BLK));
 
     // TODO-MIKE-Cleanup: There are multiple places that have special handling for FIELD_ADDR.
     // All that could probably done here instead. See impImportPop, inlInitInlineeArgs and

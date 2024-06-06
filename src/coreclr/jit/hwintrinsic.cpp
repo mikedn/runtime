@@ -872,16 +872,12 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
     {
         if (isMemoryStore)
         {
-            // A MemoryStore operation is an assignment
             retNode->gtFlags |= GTF_ASG;
         }
 
-        // This operation contains an implicit indirection
-        //   it could point into the gloabal heap or
-        //   it could throw a null reference exception.
-        //
-        retNode->gtFlags |= (GTF_GLOB_REF | GTF_EXCEPT);
+        retNode->gtFlags |= GTF_GLOB_REF | GTF_EXCEPT;
     }
+
     return retNode;
 }
 

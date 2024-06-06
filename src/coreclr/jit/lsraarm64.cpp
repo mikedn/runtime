@@ -14,8 +14,8 @@ void LinearScan::BuildNode(GenTree* tree)
 
     switch (tree->GetOper())
     {
-        case GT_LCL_VAR:
-        case GT_LCL_FLD:
+        case GT_LCL_LOAD:
+        case GT_LCL_LOAD_FLD:
             assert(!tree->AsLclVarCommon()->GetLcl()->IsRegCandidate());
 
             // Need an additional register to read upper 4 bytes of Vector3.
@@ -31,12 +31,12 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildDef(tree);
             break;
 
-        case GT_STORE_LCL_VAR:
-            BuildStoreLclVar(tree->AsLclVar());
+        case GT_LCL_STORE:
+            BuildLclStore(tree->AsLclStore());
             break;
 
-        case GT_STORE_LCL_FLD:
-            BuildStoreLclFld(tree->AsLclFld());
+        case GT_LCL_STORE_FLD:
+            BuildLclStoreFld(tree->AsLclStoreFld());
             break;
 
         case GT_PROF_HOOK:
@@ -251,8 +251,8 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildCall(tree->AsCall());
             break;
 
-        case GT_STORE_BLK:
-        case GT_STORE_OBJ:
+        case GT_IND_STORE_BLK:
+        case GT_IND_STORE_OBJ:
             BuildStructStore(tree->AsBlk(), tree->AsBlk()->GetKind(), tree->AsBlk()->GetLayout());
             break;
 
@@ -299,14 +299,14 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildAddrMode(tree->AsAddrMode());
             break;
 
-        case GT_STOREIND:
-            if (GCInfo::GetWriteBarrierForm(tree->AsStoreInd()) != GCInfo::WBF_NoBarrier)
+        case GT_IND_STORE:
+            if (GCInfo::GetWriteBarrierForm(tree->AsIndStore()) != GCInfo::WBF_NoBarrier)
             {
-                BuildGCWriteBarrier(tree->AsStoreInd());
+                BuildGCWriteBarrier(tree->AsIndStore());
             }
             else
             {
-                GenTreeStoreInd* store = tree->AsStoreInd();
+                GenTreeIndStore* store = tree->AsIndStore();
 
                 BuildIndir(store);
 
@@ -318,7 +318,7 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_NULLCHECK:
-        case GT_IND:
+        case GT_IND_LOAD:
             BuildIndir(tree->AsIndir());
             break;
 
@@ -717,7 +717,7 @@ void LinearScan::BuildHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
             tgtPrefUse = use;
         }
     }
-    else if (!vec->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    else if (!vec->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
     {
         BuildAddrUses(vec->AsIndir()->GetAddr());
     }

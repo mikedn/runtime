@@ -641,8 +641,8 @@ public:
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     void     AddImplicitByRefParamAnyRef();
     void     AddImplicitByRefParamCallRef();
-    unsigned GetImplicitByRefParamAnyRefCount();
-    unsigned GetImplicitByRefParamCallRefCount();
+    unsigned GetImplicitByRefParamAnyRefCount() const;
+    unsigned GetImplicitByRefParamCallRefCount() const;
 #endif
 
     unsigned GetRefCount() const;
@@ -760,14 +760,14 @@ public:
     bool lvNormalizeOnLoad() const
     {
         return varTypeIsSmall(lvType) &&
-               // lvIsStructField is treated the same as the aliased local, see fgMorphNormalizeLclVarStore.
+               // lvIsStructField is treated the same as the aliased local, see fgMorphNormalizeLclStore.
                (lvIsParam || lvAddrExposed || lvIsStructField || lvWasStructField);
     }
 
     bool lvNormalizeOnStore() const
     {
         return varTypeIsSmall(lvType) &&
-               // lvIsStructField is treated the same as the aliased local, see fgMorphNormalizeLclVarStore.
+               // lvIsStructField is treated the same as the aliased local, see fgMorphNormalizeLclStore.
                !(lvIsParam || lvAddrExposed || lvIsStructField || lvWasStructField);
     }
 
@@ -1435,18 +1435,20 @@ class SIMDCoalescingBuffer
     LclVarDsc* m_lcl;
     unsigned   m_index;
 
-    LclVarDsc* IsSimdLocalField(GenTree* node, Compiler* compiler);
-    LclVarDsc* IsSimdLocalExtract(GenTree* node);
+    LclVarDsc* IsSimdLocalField(GenTree* node, Compiler* compiler) const;
+    LclVarDsc* IsSimdLocalExtract(GenTree* node) const;
 
-    bool Add(Compiler* compiler, Statement* stmt, GenTreeOp* asg, LclVarDsc* simdLcl);
+    bool AddStore(Compiler* compiler, Statement* stmt, GenTree* store, LclVarDsc* simdLcl);
 
 public:
     SIMDCoalescingBuffer() : m_index(0)
     {
     }
 
-    static bool AreContiguousMemoryLocations(GenTree* l1, GenTree* l2);
-    static void ChangeToSIMDMem(Compiler* compiler, GenTree* tree, var_types simdType);
+    static bool AreContiguousLoads(GenTree* l1, GenTree* l2);
+    static bool AreContiguousStores(GenTree* s1, GenTree* s2);
+    static void ChangeToSIMDLoad(Compiler* compiler, GenTree* tree, var_types simdType);
+    void ChangeToSIMDStore(Compiler* compiler, GenTree* store, var_types type, GenTree* value);
 
     void Mark(Compiler* compiler, Statement* stmt);
     bool Add(Compiler* compiler, Statement* stmt);
@@ -1671,13 +1673,14 @@ struct Importer
     void impSetCurrentState(BasicBlock* block);
 
     INDEBUG(void AppendStmtCheck(GenTree* tree, unsigned chkLevel);)
+    void SpillStackCheck(GenTree* tree, unsigned chkLevel);
     void SpillStack(GenTree* tree, unsigned chkLevel);
     Statement* impAppendTree(GenTree* tree, unsigned chkLevel);
-    void impSpillAllAppendTree(GenTree* tree);
-    void impSpillNoneAppendTree(GenTree* tree);
-    void impAppendTempAssign(LclVarDsc* lcl, GenTree* val, unsigned curLevel);
-    void impAppendTempAssign(LclVarDsc* lcl, GenTree* val, ClassLayout* layout, unsigned curLevel);
-    void impAppendTempAssign(LclVarDsc* lcl, GenTree* val, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
+    Statement* impSpillAllAppendTree(GenTree* tree);
+    Statement* impSpillNoneAppendTree(GenTree* tree);
+    void impAppendTempStore(LclVarDsc* lcl, GenTree* val, unsigned curLevel);
+    void impAppendTempStore(LclVarDsc* lcl, GenTree* val, ClassLayout* layout, unsigned curLevel);
+    void impAppendTempStore(LclVarDsc* lcl, GenTree* val, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
 
     GenTree* impCloneExpr(GenTree* tree, GenTree** clone, unsigned spillCheckLevel DEBUGARG(const char* reason));
     GenTree* impCloneExpr(GenTree*     tree,
@@ -1715,6 +1718,9 @@ struct Importer
 
     GenTree* impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigned curLevel);
     GenTree* impAssignStruct(GenTree* dest, GenTree* src, unsigned curLevel);
+    void impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call);
+    void gtInitStructIndStore(GenTreeIndStoreObj* store, GenTree* value);
+    void gtInitStructLclStore(GenTreeLclStore* store, GenTree* value);
 
     GenTree* impGetStructAddr(GenTree* structVal, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel, bool willDeref);
 
@@ -1856,7 +1862,7 @@ struct Importer
 
 #ifdef FEATURE_HW_INTRINSICS
     GenTree* impSIMDPopStack(var_types type);
-    GenTree* impPopStackAddrAsVector(var_types type);
+    GenTree* impVectorPop(var_types type);
 
     GenTree* impHWIntrinsic(NamedIntrinsic        intrinsic,
                             CORINFO_CLASS_HANDLE  clsHnd,
@@ -1882,12 +1888,12 @@ struct Importer
     GenTree* impVector234Create(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
     GenTree* impVector234CreateExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
     GenTree* impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
-    GenTree* impAssignSIMDAddr(GenTree* destAddr, GenTree* src);
-    GenTree* impGetArrayElementsAsVector(ClassLayout*    layout,
-                                         GenTree*        array,
-                                         GenTree*        index,
-                                         ThrowHelperKind indexThrowKind,
-                                         ThrowHelperKind lastIndexThrowKind);
+    GenTree* impVectorStore(GenTree* destAddr, GenTree* src);
+    GenTree* impGetArrayElementsAsVectorAddr(ClassLayout*    layout,
+                                             GenTree*        array,
+                                             GenTree*        index,
+                                             ThrowHelperKind indexThrowKind,
+                                             ThrowHelperKind lastIndexThrowKind);
     GenTree* impVector234TCopyTo(const HWIntrinsicSignature& sig, ClassLayout* layout);
     GenTree* impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout);
     GenTree* impVectorTMultiply(const HWIntrinsicSignature& sig);
@@ -2236,9 +2242,6 @@ struct Importer
 
     Statement* gtNewStmt(GenTree* expr = nullptr, IL_OFFSETX offset = BAD_IL_OFFSET);
 
-    GenTreeLclVar* gtNewLclvNode(LclVarDsc* lcl, var_types type);
-    GenTreeLclAddr* gtNewLclVarAddrNode(LclVarDsc* lcl, var_types type = TYP_I_IMPL);
-    GenTreeLclFld* gtNewLclFldNode(LclVarDsc* lcl, var_types type, unsigned offset);
     GenTreeIntCon* gtNewIconNode(ssize_t value, var_types type = TYP_INT);
     GenTreeIntCon* gtNewIconNode(unsigned fieldOffset, FieldSeqNode* fieldSeq);
     GenTree* gtNewLconNode(int64_t value);
@@ -2249,7 +2252,6 @@ struct Importer
     GenTree* gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd);
     GenTree* gtNewIconEmbMethHndNode(CORINFO_METHOD_HANDLE methHnd);
     GenTree* gtNewIconEmbFldHndNode(CORINFO_FIELD_HANDLE fldHnd);
-    GenTree* gtNewIndOfIconHandleNode(var_types type, size_t value, HandleKind handleKind, bool invariant);
     GenTree* gtNewZeroConNode(var_types type);
     GenTree* gtNewOneConNode(var_types type);
     GenTree* gtNewDconNode(double value, var_types type = TYP_DOUBLE);
@@ -2260,27 +2262,18 @@ struct Importer
     GenTreeUnOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1);
     GenTree* gtNewNullCheck(GenTree* addr);
     GenTreeCast* gtNewCastNode(GenTree* op1, bool fromUnsigned, var_types castType);
-    GenTreeIndir* gtNewIndir(var_types type, GenTree* addr);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset);
-    GenTreeIndir* gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr);
-    GenTreeIndir* gtNewFieldIndir(var_types type, unsigned layoutNum, GenTreeFieldAddr* fieldAddr);
-    GenTreeObj* gtNewObjNode(ClassLayout* layout, GenTree* addr);
-    GenTreeObj* gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr);
     GenTreeIntCon* gtNewStringLiteralLength(GenTreeStrCon* node);
     GenTree* gtNewStringLiteralNode(InfoAccessType iat, void* value);
-    GenTreeAllocObj* gtNewAllocObjNode(
-        unsigned helper, bool helperHasSideEffects, CORINFO_CLASS_HANDLE clsHnd, var_types type, GenTree* op1);
     GenTreeAllocObj* gtNewAllocObjNode(CORINFO_RESOLVED_TOKEN* resolvedToken, bool useParent);
     GenTreeIndir* gtNewMethodTableLookup(GenTree* obj);
     GenTreeOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2);
     GenTreeOp* gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type = TYP_UNDEF);
     GenTreeQmark* gtNewQmarkNode(var_types type, GenTree* cond, GenTree* op1, GenTree* op2);
-    GenTreeOp* gtNewAssignNode(GenTree* dst, GenTree* src);
     GenTreeBoundsChk* gtNewBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind);
     GenTreeIndexAddr* gtNewArrayIndexAddr(GenTree* arr, GenTree* ind, var_types elemType);
     GenTreeIndexAddr* gtNewStringIndexAddr(GenTree* arr, GenTree* ind);
-    GenTreeIndir* gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexAddr);
     GenTreeCall::Use* gtNewCallArgs(GenTree* node);
     GenTreeCall::Use* gtNewCallArgs(GenTree* node1, GenTree* node2);
     GenTreeCall::Use* gtNewCallArgs(GenTree* node1, GenTree* node2, GenTree* node3);
@@ -2358,12 +2351,6 @@ struct Importer
                                                CORINFO_SIG_INFO* sig,
                                                var_types         baseType,
                                                ClassLayout**     argLayout);
-
-    void lvaRecordSimdIntrinsicUse(GenTree* op);
-    void lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar);
-    void lvaRecordSimdIntrinsicUse(LclVarDsc* lcl);
-    void lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrinsic* src);
-    void lvaRecordSimdIntrinsicDef(LclVarDsc* lcl, GenTreeHWIntrinsic* src);
 #endif // FEATURE_HW_INTRINSICS
 
     static GenTreeLclAddr* impIsAddressInLocal(GenTree* tree);
@@ -2383,7 +2370,6 @@ struct Importer
     GenTree* gtClone(GenTree* tree, bool complexOK = false);
     GenTree* gtCloneExpr(GenTree* tree);
     bool gtCanSwapOrder(GenTree* op1, GenTree* op2);
-    void gtInitStructCopyAsg(GenTreeOp* asg);
     GenTree* gtFoldExpr(GenTree* tree);
     GenTree* gtFoldExprConst(GenTree* tree);
     void gtChangeOperToNullCheck(GenTree* tree);
@@ -2862,7 +2848,8 @@ public:
 
     GenTree* gtNewJmpTableNode();
 
-    GenTreeIndir* gtNewIndOfIconHandleNode(var_types type, size_t addr, HandleKind handleKind, bool invariant);
+    GenTreeIndLoad* gtNewIndLoad(var_types type, size_t addr, HandleKind handleKind, bool invariant);
+    GenTreeIndStore* gtNewIndStore(var_types type, size_t addr, HandleKind handleKind, GenTree* value);
     GenTreeIntCon* gtNewIconHandleNode(void* value, HandleKind kind, FieldSeqNode* fieldSeq = nullptr);
     GenTreeIntCon* gtNewIconHandleNode(size_t value, HandleKind kind, FieldSeqNode* fieldSeq = nullptr);
     GenTree* gtNewConstLookupTree(void*      value,
@@ -2889,15 +2876,25 @@ public:
 
     GenTree* gtNewOneConNode(var_types type);
 
-    GenTreeLclVar* gtNewStoreLclVar(LclVarDsc* lcl, var_types type, GenTree* value);
-    GenTreeLclFld* gtNewStoreLclFld(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* value);
+    GenTreeLclLoad* gtNewLclLoad(LclVarDsc* lcl, var_types type);
+    GenTreeLclLoad* gtNewLclLoadLarge(LclVarDsc* lcl, var_types type);
+    GenTreeLclLoadFld* gtNewLclLoadFld(var_types type, LclVarDsc* lcl, unsigned offset);
+
+    GenTreeLclStore* gtNewLclStore(LclVarDsc* lcl, var_types type, GenTree* value);
+    GenTreeLclStoreFld* gtNewLclStoreFld(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* value);
+
+    GenTreeLclAddr* gtNewLclAddr(LclVarDsc* lcl, var_types type = TYP_I_IMPL);
+    GenTreeLclAddr* gtNewLclAddr(LclVarDsc* lcl, unsigned lclOffs, FieldSeqNode* fieldSeq, var_types type = TYP_I_IMPL);
 
     GenTreeUnOp* gtNewBitCastNode(var_types type, GenTree* arg);
 
-    void gtInitStructCopyAsg(GenTreeOp* asg);
+    GenTreeIndLoadObj* gtNewIndLoadObj(ClassLayout* layout, GenTree* addr);
+    GenTreeIndLoadObj* gtNewIndLoadObj(var_types type, ClassLayout* layout, GenTree* addr);
 
-    GenTreeObj* gtNewObjNode(ClassLayout* layout, GenTree* addr);
-    GenTreeObj* gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr);
+    GenTreeIndStoreObj* gtNewIndStoreObj(ClassLayout* layout, GenTree* addr, GenTree* value);
+    GenTreeIndStoreObj* gtNewIndStoreObj(var_types type, ClassLayout* layout, GenTree* addr, GenTree* value);
+
+    GenTreeIndir* gtNewIndexStore(var_types type, GenTreeIndexAddr* indexAddr, GenTree* value);
 
     GenTreeCall::Use* gtNewCallArgs(GenTree* node);
     GenTreeCall::Use* gtNewCallArgs(GenTree* node1, GenTree* node2);
@@ -2924,15 +2921,6 @@ public:
     GenTreeCall* gtNewRuntimeLookupHelperCallNode(CORINFO_RUNTIME_LOOKUP* pRuntimeLookup,
                                                   GenTree*                ctxTree,
                                                   void*                   compileTimeHandle);
-
-    GenTreeLclVar* gtNewLclvNode(LclVarDsc* lcl, var_types type);
-    GenTreeLclVar* gtNewLclVarLargeNode(LclVarDsc* lcl, var_types type);
-
-    GenTreeLclAddr* gtNewLclVarAddrNode(LclVarDsc* lcl, var_types type = TYP_I_IMPL);
-    GenTreeLclAddr* gtNewLclFldAddrNode(LclVarDsc*    lcl,
-                                        unsigned      lclOffs,
-                                        FieldSeqNode* fieldSeq,
-                                        var_types     type = TYP_I_IMPL);
 
 #ifdef FEATURE_HW_INTRINSICS
     GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(ClassLayout* layout);
@@ -2995,20 +2983,21 @@ public:
         var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1, GenTree* op2, GenTree* op3);
 #endif // FEATURE_HW_INTRINSICS
 
-    GenTreeLclFld* gtNewLclFldNode(LclVarDsc* lcl, var_types type, unsigned offset);
     GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call);
 
-    GenTreeIndir* gtNewIndir(var_types type, GenTree* addr);
+    GenTreeIndLoad* gtNewIndLoad(var_types type, GenTree* addr);
+    GenTreeIndStore* gtNewIndStore(var_types type, GenTree* addr, GenTree* value);
     GenTreeFlags gtGetIndirExceptionFlags(GenTree* addr);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset);
-    GenTreeIndir* gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr);
-    GenTreeIndir* gtNewFieldIndir(var_types type, unsigned layoutNum, GenTreeFieldAddr* fieldAddr);
+    GenTreeIndir* gtNewFieldLoad(var_types type, GenTreeFieldAddr* fieldAddr);
+    GenTreeIndir* gtNewFieldLoad(var_types type, unsigned layoutNum, GenTreeFieldAddr* fieldAddr);
+    GenTreeIndStore* gtNewFieldIndStore(var_types type, GenTreeFieldAddr* fieldAddr, GenTree* value);
     GenTreeFlags gtGetFieldIndirFlags(GenTreeFieldAddr* fieldAddr);
 
     GenTreeIndexAddr* gtNewArrayIndexAddr(GenTree* arr, GenTree* ind, var_types elemType);
     GenTreeIndexAddr* gtNewStringIndexAddr(GenTree* arr, GenTree* ind);
-    GenTreeIndir* gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexAddr);
+    GenTreeIndir* gtNewIndexLoad(var_types type, GenTreeIndexAddr* indexAddr);
 
     GenTreeArrLen* gtNewArrLen(GenTree* arr, uint8_t lenOffs, GenTreeFlags flags);
     GenTreeBoundsChk* gtNewBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind);
@@ -3017,16 +3006,11 @@ public:
 
     void gtChangeOperToNullCheck(GenTree* tree);
 
-    GenTreeOp* gtNewAssignNode(GenTree* dst, GenTree* src);
-
     GenTree* gtNewNothingNode();
 
     GenTree* gtUnusedValNode(GenTree* expr);
 
     GenTreeCast* gtNewCastNode(GenTree* op1, bool fromUnsigned, var_types toType);
-
-    GenTreeAllocObj* gtNewAllocObjNode(
-        unsigned int helper, bool helperHasSideEffects, CORINFO_CLASS_HANDLE clsHnd, var_types type, GenTree* op1);
 
     GenTree* gtNewRuntimeLookup(CORINFO_GENERIC_HANDLE hnd, CorInfoGenericHandleType hndTyp, GenTree* lookupTree);
 
@@ -3142,7 +3126,7 @@ public:
         BR_MAKE_LOCAL_COPY                     // revise box to copy to temp local and return local's address
     };
 
-    GenTree* gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOptions options = BR_REMOVE_AND_NARROW);
+    GenTree* gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOptions options);
     GenTree* gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp);
 
     // Get the handle for a ref type.
@@ -3596,7 +3580,7 @@ public:
 
     bool impIsThis(GenTree* obj);
 
-    void impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call);
+    void impAddCallRetBufAddrArg(GenTreeCall* call, GenTree* destAddr);
 
     BoxPattern impBoxPatternMatch(const BYTE* codeAddr, const BYTE* codeEnd, unsigned* patternSize);
 
@@ -3968,7 +3952,7 @@ public:
     BasicBlock* fgSplitBlockAfterNode(BasicBlock* curr, GenTree* node); // for LIR
     BasicBlock* fgSplitEdge(BasicBlock* curr, BasicBlock* succ);
 
-    GenTreeQmark* fgGetTopLevelQmark(GenTree* expr, GenTreeLclVar** destLclVar);
+    GenTreeQmark* fgGetTopLevelQmark(GenTree* expr, GenTreeLclStore** store);
     void fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt);
     void fgExpandQmarkStmt(BasicBlock* block, Statement* stmt);
     void fgExpandQmarkNodes();
@@ -3983,7 +3967,7 @@ public:
 
     struct LivenessState
     {
-        VARSET_TP fgCurUseSet; // vars used by block (before an assignment)
+        VARSET_TP fgCurUseSet; // vars used by block (before a def)
         VARSET_TP fgCurDefSet; // vars assigned by block (before a use)
 
         bool fgCurMemoryUse : 1;   // True iff the current basic block uses memory.
@@ -4293,7 +4277,7 @@ public:
     inline void fgConvertBBToThrowBB(BasicBlock* block);
 
     bool gtIsSmallIntCastNeeded(GenTree* tree, var_types toType);
-    GenTree* fgMorphNormalizeLclVarStore(GenTreeOp* asg);
+    GenTree* fgMorphNormalizeLclStore(GenTreeLclStore* store, GenTree* value);
 
     void fgLoopCallTest(BasicBlock* srcBB, BasicBlock* dstBB);
     bool fgReachWithoutCall(BasicBlock* srcBB, BasicBlock* dstBB);
@@ -4470,7 +4454,7 @@ public:
 private:
     Statement* fgInsertStmtListAfter(BasicBlock* block, Statement* stmtAfter, Statement* stmtList);
 
-    GenTreeLclVar* fgInsertCommaFormTemp(GenTree** use);
+    GenTreeLclLoad* fgInsertCommaFormTemp(GenTree** use);
     GenTree* fgMakeMultiUse(GenTree** ppTree);
 
 private:
@@ -4522,7 +4506,7 @@ private:
     void fgInitArgInfo(GenTreeCall* call);
     void fgMorphArgs(GenTreeCall* call);
 
-    GenTree* fgMorphLclVar(GenTreeLclVar* lclVar);
+    GenTree* fgMorphLclLoad(GenTreeLclLoad* load);
 
 public:
     GenTree* fgMorphIndexAddr(GenTreeIndexAddr* tree);
@@ -4568,22 +4552,22 @@ private:
     GenTree* fgRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* value);
     GenTree* fgExpandVirtualVtableCallTarget(GenTreeCall* call);
     GenTree* fgMorphLeaf(GenTree* tree);
-    GenTree* fgMorphInitStruct(GenTreeOp* asg);
-    GenTree* fgMorphPromoteLocalInitStruct(GenTreeOp* asg, LclVarDsc* destLclVar, GenTree* initVal);
+    GenTree* fgMorphInitStruct(GenTree* store, GenTree* value);
+    GenTree* fgMorphLclStoreStructInit(GenTreeLclVarCommon* store, GenTree* value);
+    GenTree* fgMorphPromoteLocalInitStruct(GenTree* store, LclVarDsc* destLclVar, GenTree* initVal);
     GenTree* fgMorphInitStructConstant(GenTreeIntCon* initVal,
                                        var_types      type,
                                        bool           extendToActualType,
                                        var_types      simdBaseType);
     GenTree* fgMorphStructComma(GenTree* tree);
-    GenTree* fgMorphStructAssignment(GenTreeOp* asg);
+    GenTree* fgMorphStructStore(GenTree* store, GenTree* value);
 #ifdef FEATURE_SIMD
-    GenTree* fgMorphPromoteSimdAssignmentSrc(GenTreeOp* asg, LclVarDsc* srcLcl);
-    GenTree* fgMorphPromoteSimdAssignmentDst(GenTreeOp* asg, LclVarDsc* destLcl);
+    GenTree* fgMorphPromoteVecLoad(GenTreeLclStore* store, LclVarDsc* srcLcl);
+    GenTree* fgMorphPromoteVecStore(GenTreeLclVarCommon* store, LclVarDsc* destLcl);
 #endif
     GenTree* fgMorphDynBlk(GenTreeDynBlk* dynBlk);
-    GenTree* fgMorphBlockAssignment(GenTreeOp* asg);
-    GenTree* fgMorphCopyStruct(GenTreeOp* asg);
-    GenTree* fgMorphPromoteStore(GenTreeOp* store, GenTree* tempStore, GenTree** fieldStores, unsigned fieldCount);
+    GenTree* fgMorphCopyStruct(GenTree* store, GenTree* value);
+    GenTree* fgMorphPromoteStore(GenTree* store, GenTree* tempStore, GenTree** fieldStores, unsigned fieldCount);
     GenTree* fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac = nullptr);
     GenTree* fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
     GenTree* fgMorphModToSubMulDiv(GenTreeOp* tree);
@@ -4666,7 +4650,7 @@ public:
     Statement* inlInsertSingleBlockInlineeStatements(const InlineInfo* inlineInfo, Statement* stmtAfter);
     Statement* inlPrependStatements(InlineInfo* inlineInfo);
     Statement* inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement* afterStmt);
-    GenTree* inlAssignStruct(GenTreeLclVar* dest, GenTree* src);
+    GenTree* inlStoreCallWithRetBuf(LclVarDsc* dest, var_types type, GenTree* src);
     bool inlCanDiscardArgSideEffects(GenTree* argNode);
     Statement* inlInitInlineeLocals(const InlineInfo* inlineInfo, Statement* afterStmt);
     void inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, Statement* stmt);
@@ -4676,7 +4660,7 @@ public:
     INDEBUG(void inlDebugCheckInlineCandidates();)
 
 private:
-    void fgPromoteStructs();
+    void phPromoteStructs();
 
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
     // Reset the refCount for implicit byrefs.
@@ -4685,10 +4669,10 @@ private:
     // promoted, create new promoted struct temps.
     void lvaRetypeImplicitByRefParams();
     // Clear up annotations for any struct promotion temps created for implicit byrefs.
-    void lvaDemoteImplicitByRefParams();
+    void lvaDemoteImplicitByRefParams() const;
 #endif
 
-    void fgMarkAddressExposedLocals();
+    void phMarkAddressExposedLocals();
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64) || defined(TARGET_X86)
     // Rewrite appearances of implicit byrefs (manifest the implied additional level of indirection)
@@ -4783,8 +4767,8 @@ public:
                                 // : Valid if LPFLG_VAR_INIT
         };
 
-        GenTreeLclVar* lpIterTree; // The "i = i <op> const" tree
-        GenTreeOp*     lpTestTree; // pointer to the node containing the loop test
+        GenTreeLclStore* lpIterTree; // The "i = i <op> const" tree
+        GenTreeOp*       lpTestTree; // pointer to the node containing the loop test
 
         LclVarDsc* lpIterVar() const;   // iterator variable
         int        lpIterConst() const; // the constant with which the iterator is incremented
@@ -4922,7 +4906,7 @@ public:
     unsigned optIsLoopIncrTree(GenTree* incr);
     GenTreeOp* optGetLoopTest(unsigned loopInd, GenTree* test, BasicBlock* from, BasicBlock* to, unsigned iterVar);
     bool optPopulateInitInfo(unsigned loopInd, GenTree* init, unsigned iterVar);
-    GenTreeLclVar* optExtractInitTestIncr(
+    GenTreeLclStore* optExtractInitTestIncr(
         BasicBlock* head, BasicBlock* bottom, BasicBlock* exit, GenTree** init, GenTree** test);
 
     void optFindNaturalLoops();
@@ -5131,34 +5115,34 @@ public:
     void morphAssertionDone();
     void morphAssertionGenerate(GenTree* tree);
     GenTree* morphAssertionPropagate(GenTree* tree);
-    bool morphAssertionIsNotNull(GenTreeLclVar* lclVar);
-    bool morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_types type);
+    bool morphAssertionIsNotNull(GenTreeLclLoad* load);
+    bool morphAssertionIsTypeRange(GenTreeLclLoad* lclVar, var_types type);
     void morphAssertionSetCount(unsigned count);
     unsigned morphAssertionTableSize(unsigned count);
     void morphAssertionGetTable(MorphAssertion* table, unsigned count);
     void morphAssertionSetTable(const MorphAssertion* table, unsigned count);
     void morphAssertionMerge(unsigned              elseAssertionCount,
                              const MorphAssertion* elseAssertionTable DEBUGARG(GenTreeQmark* qmark));
-    void morphAssertionKill(LclVarDsc* lcl DEBUGARG(GenTreeOp* asg));
+    void morphAssertionKill(LclVarDsc* lcl DEBUGARG(GenTreeLclVarCommon* store));
 
 private:
     BitVec& morphAssertionGetDependent(unsigned lclNum);
     void morphAssertionGenerateNotNull(GenTree* op1);
-    void morphAssertionGenerateEqual(GenTreeLclVar* store, GenTree* value);
+    void morphAssertionGenerateEqual(GenTreeLclStore* store, GenTree* value);
     void morphAssertionAdd(MorphAssertion& assertion);
     const MorphAssertion& morphAssertionGet(unsigned index);
     void morphAssertionRemove(unsigned index);
-    void morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeOp* asg));
+    void morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeLclVarCommon* store));
     const MorphAssertion* morphAssertionFindRange(unsigned lclNum);
 
-    GenTree* morphAssertionPropagateLclVar(GenTreeLclVar* lclVar);
-    GenTree* morphAssertionPropagateLclFld(GenTreeLclFld* lclFld);
+    GenTree* morphAssertionPropagateLclLoad(GenTreeLclLoad* load);
+    GenTree* morphAssertionPropagateLclLoadFld(GenTreeLclLoadFld* load);
     GenTree* morphAssertionPropagateIndir(GenTreeIndir* indir);
     GenTree* morphAssertionPropagateCast(GenTreeCast* cast);
     GenTree* morphAssertionPropagateCall(GenTreeCall* call);
     GenTree* morphAssertionPropagateRelOp(GenTreeOp* relop);
-    GenTree* morphAssertionPropagateLclVarConst(const MorphAssertion& assertion, GenTreeLclVar* lclVar);
-    GenTree* morphAssertionPropagateLclVarCopy(const MorphAssertion& assertion, GenTreeLclVar* lclVar);
+    GenTree* morphAssertionPropagateLclLoadConst(const MorphAssertion& assertion, GenTreeLclLoad* load);
+    GenTree* morphAssertionPropagateLclLoadCopy(const MorphAssertion& assertion, GenTreeLclLoad* load);
 
 #ifdef DEBUG
     unsigned morphAssertionId;
@@ -5460,9 +5444,9 @@ public:
     }
 
     void lvaRecordSimdIntrinsicUse(GenTree* op);
-    void lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar);
+    void lvaRecordSimdIntrinsicUse(GenTreeLclLoad* load);
     void lvaRecordSimdIntrinsicUse(LclVarDsc* lcl);
-    void lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrinsic* src);
+    void lvaRecordSimdIntrinsicDef(GenTreeLclStore* store, GenTreeHWIntrinsic* src);
     void lvaRecordSimdIntrinsicDef(LclVarDsc* lcl, GenTreeHWIntrinsic* src);
 
     // Get the type for the hardware SIMD vector.
@@ -6125,24 +6109,24 @@ public:
     const static HelperCallProperties s_helperCallProperties;
 
     bool abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg);
-    void abiMorphStackLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg);
+    void abiMorphStackLclArgPromoted(CallArgInfo* argInfo, GenTreeLclLoad* arg);
     void abiMorphMkRefAnyToFieldList(CallArgInfo* argInfo, GenTreeOp* mkrefany);
     GenTreeFieldList* abiMakeFieldList(GenTree* arg);
     void abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg);
-    GenTree* abiMorphSingleRegLclArgPromoted(GenTreeLclVar* arg, var_types argRegType, unsigned argSize);
+    GenTree* abiMorphSingleRegLclArgPromoted(GenTreeLclLoad* arg, var_types argRegType, unsigned argSize);
 #ifndef TARGET_X86
     void abiMorphArgs2ndPass(GenTreeCall* call);
     GenTree* abiMorphMkRefAnyToStore(LclVarDsc* tempLcl, GenTreeOp* mkrefany);
 #endif
 #if FEATURE_MULTIREG_ARGS || FEATURE_MULTIREG_RET
-    GenTree* abiMorphMultiRegHfaLclArgPromoted(CallArgInfo* argInfo, GenTreeLclVar* arg);
+    GenTree* abiMorphMultiRegHfaLclArgPromoted(CallArgInfo* argInfo, GenTreeLclLoad* arg);
     GenTree* abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, const struct AbiRegFieldMap& map);
     GenTree* abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg);
 #ifdef FEATURE_SIMD
     GenTree* abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg);
 #endif
     GenTree* abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCommon* arg);
-    GenTree* abiMorphMultiRegObjArg(CallArgInfo* argInfo, GenTreeObj* arg);
+    GenTree* abiMorphMultiRegObjArg(CallArgInfo* argInfo, GenTreeIndLoadObj* arg);
     GenTree* abiMakeIndirAddrMultiUse(GenTree** addrInOut, ssize_t* addrOffsetOut, unsigned indirSize);
     GenTree* abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsigned indirSize);
     GenTree* abiMorphMultiRegCallArg(CallArgInfo* argInfo, GenTreeCall* arg);
@@ -6546,8 +6530,8 @@ void GenTree::VisitOperands(TVisitor visitor)
     {
         // Leaf nodes
         case GT_LCL_USE:
-        case GT_LCL_VAR:
-        case GT_LCL_FLD:
+        case GT_LCL_LOAD:
+        case GT_LCL_LOAD_FLD:
         case GT_LCL_ADDR:
         case GT_CATCH_ARG:
         case GT_LABEL:
@@ -6593,8 +6577,8 @@ void GenTree::VisitOperands(TVisitor visitor)
 
         // Standard unary operators
         case GT_LCL_DEF:
-        case GT_STORE_LCL_VAR:
-        case GT_STORE_LCL_FLD:
+        case GT_LCL_STORE:
+        case GT_LCL_STORE_FLD:
         case GT_NOT:
         case GT_NEG:
         case GT_FNEG:
@@ -6609,9 +6593,9 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_CKFINITE:
         case GT_LCLHEAP:
         case GT_FIELD_ADDR:
-        case GT_IND:
-        case GT_OBJ:
-        case GT_BLK:
+        case GT_IND_LOAD:
+        case GT_IND_LOAD_OBJ:
+        case GT_IND_LOAD_BLK:
         case GT_BOX:
         case GT_ALLOCOBJ:
         case GT_RUNTIMELOOKUP:
@@ -6911,9 +6895,8 @@ public:
 
         switch (node->OperGet())
         {
-            // Leaf lclVars
-            case GT_LCL_VAR:
-            case GT_LCL_FLD:
+            case GT_LCL_LOAD:
+            case GT_LCL_LOAD_FLD:
             case GT_LCL_ADDR:
                 if (TVisitor::DoLclVarsOnly)
                 {
@@ -6925,7 +6908,6 @@ public:
                 }
                 FALLTHROUGH;
 
-            // Leaf nodes
             case GT_LCL_USE:
             case GT_CATCH_ARG:
             case GT_LABEL:
@@ -6959,8 +6941,8 @@ public:
             case GT_IL_OFFSET:
                 break;
 
-            case GT_STORE_LCL_VAR:
-            case GT_STORE_LCL_FLD:
+            case GT_LCL_STORE:
+            case GT_LCL_STORE_FLD:
                 if (TVisitor::DoLclVarsOnly)
                 {
                     result = reinterpret_cast<TVisitor*>(this)->PreOrderVisit(use, user);
@@ -7000,9 +6982,9 @@ public:
             case GT_CKFINITE:
             case GT_LCLHEAP:
             case GT_FIELD_ADDR:
-            case GT_IND:
-            case GT_OBJ:
-            case GT_BLK:
+            case GT_IND_LOAD:
+            case GT_IND_LOAD_OBJ:
+            case GT_IND_LOAD_BLK:
             case GT_BOX:
             case GT_ALLOCOBJ:
             case GT_INIT_VAL:

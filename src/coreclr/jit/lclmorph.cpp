@@ -7,8 +7,6 @@
 class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
 {
     // During tree traversal every GenTree node produces a "value" that represents:
-    //   - the memory location associated with a local variable, including an offset
-    //     accumulated from GT_LCL_FLD and GT_FIELD nodes.
     //   - the address of local variable memory location, including an offset as well.
     //   - an unknown value - the result of a node we don't know how to process. This
     //     also includes the result of TYP_VOID nodes (or any other nodes that don't
@@ -21,86 +19,51 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
         FieldSeqNode* m_fieldSeq = nullptr;
         LclVarDsc*    m_lcl      = nullptr;
         unsigned      m_offset   = 0;
-        bool          m_address  = false;
         INDEBUG(mutable bool m_consumed = false;)
 
     public:
-        // Produce an unknown value associated with the specified node.
         Value(GenTree* node) : m_node(node)
         {
         }
 
-        // Get the node that produced this value.
         GenTree* Node() const
         {
             return m_node;
         }
 
-        // Does this value represent a location?
-        bool IsLocation() const
-        {
-            return (m_lcl != nullptr) && !m_address;
-        }
-
-        // Does this value represent the address of a location?
         bool IsAddress() const
         {
-            assert((m_lcl != nullptr) || !m_address);
-
-            return m_address;
+            return m_lcl != nullptr;
         }
 
         LclVarDsc* Lcl() const
         {
-            assert(IsLocation() || IsAddress());
+            assert(IsAddress());
 
             return m_lcl;
         }
 
-        // Get the location's byte offset.
         unsigned Offset() const
         {
-            assert(IsLocation() || IsAddress());
+            assert(IsAddress());
 
             return m_offset;
         }
 
-        // Get the location's field sequence.
         FieldSeqNode* FieldSeq() const
         {
             return m_fieldSeq;
         }
 
-        //------------------------------------------------------------------------
-        // Location: Produce a location value.
-        //
-        // Arguments:
-        //    lclVar - a GT_LCL_VAR node that defines the location
-        //
-        // Notes:
-        //   - (lclnum) => LOCATION(lclNum, 0)
-        //
-        void Location(GenTreeLclVar* lclVar)
-        {
-            assert(lclVar->OperIs(GT_LCL_VAR));
-            assert(!IsLocation() && !IsAddress());
-
-            m_lcl = lclVar->GetLcl();
-
-            assert(m_offset == 0);
-            assert(m_fieldSeq == nullptr);
-        }
-
         bool Cast(const Value& val, GenTreeCast* cast)
         {
-            assert(!IsLocation() && !IsAddress());
+            assert(!IsAddress());
 
             if (!val.IsAddress() || !cast->TypeIs(TYP_I_IMPL))
             {
                 return false;
             }
 
-            m_address  = true;
             m_lcl      = val.m_lcl;
             m_offset   = val.m_offset;
             m_fieldSeq = val.m_fieldSeq;
@@ -111,7 +74,7 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
 
         bool Add(const Value& op1, const Value& op2)
         {
-            assert(!IsLocation() && !IsAddress());
+            assert(!IsAddress());
 
             GenTreeIntCon* offset;
             const Value*   op;
@@ -139,7 +102,6 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
                 return false;
             }
 
-            m_address  = true;
             m_lcl      = op->m_lcl;
             m_offset   = newOffset.Value();
             m_fieldSeq = FieldSeqNode::NotAField();
@@ -149,91 +111,37 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
             return true;
         }
 
-        //------------------------------------------------------------------------
-        // Location: Produce a location value.
-        //
-        // Arguments:
-        //    lclFld - a GT_LCL_FLD node that defines the location
-        //
-        // Notes:
-        //   - (lclnum, lclOffs) => LOCATION(lclNum, offset)
-        //
-        void Location(GenTreeLclFld* lclFld)
-        {
-            assert(lclFld->OperIs(GT_LCL_FLD));
-            assert(!IsLocation() && !IsAddress());
-
-            m_lcl      = lclFld->GetLcl();
-            m_offset   = lclFld->GetLclOffs();
-            m_fieldSeq = lclFld->GetFieldSeq();
-        }
-
-        void Location(LclVarDsc* lcl, unsigned lclOffs, FieldSeqNode* fieldSeq)
-        {
-            assert(!IsLocation() && !IsAddress());
-
-            m_lcl      = lcl;
-            m_offset   = lclOffs;
-            m_fieldSeq = fieldSeq;
-        }
-
-        //------------------------------------------------------------------------
-        // Address: Produce an address value from a LCL_ADDR node.
-        //
-        // Arguments:
-        //    lclAddr - a GT_LCL_ADDR node that defines the address
-        //
-        // Notes:
-        //   - (lclnum, lclOffs) => ADDRESS(lclNum, offset)
-        //
         void Address(GenTreeLclAddr* lclAddr)
         {
-            assert(!IsLocation() && !IsAddress());
+            assert(!IsAddress());
 
             m_lcl      = lclAddr->GetLcl();
             m_offset   = lclAddr->GetLclOffs();
             m_fieldSeq = lclAddr->GetFieldSeq();
-            m_address  = true;
         }
 
         void Address(LclVarDsc* lcl, unsigned lclOffs, FieldSeqNode* fieldSeq)
         {
-            assert(!IsLocation() && !IsAddress());
+            assert(!IsAddress());
 
-            m_address  = true;
             m_lcl      = lcl;
             m_offset   = lclOffs;
             m_fieldSeq = fieldSeq;
         }
 
-        //------------------------------------------------------------------------
-        // FieldAddress: Produce a field address value from an address value.
-        //
-        // Arguments:
-        //    val - the input value
-        //    field - the FIELD_ADDR node that uses the input address value
-        //    fieldSeqStore - the compiler's field sequence store
-        //
-        // Return Value:
-        //    `true` if the value was consumed. `false` if the input value
-        //    cannot be consumed because it is itsef a location or because
-        //    the offset overflowed. In this case the caller is expected
-        //    to escape the input value.
-        //
-        // Notes:
-        //   - LOCATION(lclNum, offset) => not representable, must escape
-        //   - ADDRESS(lclNum, offset) => LOCATION(lclNum, offset + field.Offset)
-        //     if the offset overflows then location is not representable, must escape
-        //   - UNKNOWN => UNKNOWN
-        //
+        void Promote(LclVarDsc* fieldLcl, unsigned lclOffs, FieldSeqNode* fieldSeq)
+        {
+            assert(IsAddress());
+            assert(fieldLcl->GetPromotedFieldParentLclNum() == m_lcl->GetLclNum());
+
+            m_lcl      = fieldLcl;
+            m_offset   = lclOffs;
+            m_fieldSeq = fieldSeq;
+        }
+
         bool FieldAddress(Value& val, GenTreeFieldAddr* field, FieldSeqStore* fieldSeqStore)
         {
-            assert(!IsLocation() && !IsAddress());
-
-            if (val.IsLocation())
-            {
-                return false;
-            }
+            assert(!IsAddress());
 
             if (val.IsAddress())
             {
@@ -245,9 +153,8 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
                     return false;
                 }
 
-                m_address = true;
-                m_lcl     = val.m_lcl;
-                m_offset  = newOffset.Value();
+                m_lcl    = val.m_lcl;
+                m_offset = newOffset.Value();
 
                 if (field->MayOverlap())
                 {
@@ -257,42 +164,6 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
                 {
                     m_fieldSeq = fieldSeqStore->Append(val.m_fieldSeq, field->GetFieldSeq());
                 }
-            }
-
-            INDEBUG(val.Consume();)
-            return true;
-        }
-
-        //------------------------------------------------------------------------
-        // Indir: Produce a location value from an address value.
-        //
-        // Arguments:
-        //    val - the input value
-        //
-        // Return Value:
-        //    `true` if the value was consumed. `false` if the input value
-        //    cannot be consumed because it is itsef a location. In this
-        //    case the caller is expected to escape the input value.
-        //
-        // Notes:
-        //   - LOCATION(lclNum, offset) => not representable, must escape
-        //   - ADDRESS(lclNum, offset) => LOCATION(lclNum, offset)
-        //   - UNKNOWN => UNKNOWN
-        //
-        bool Indir(Value& val)
-        {
-            assert(!IsLocation() && !IsAddress());
-
-            if (val.IsLocation())
-            {
-                return false;
-            }
-
-            if (val.IsAddress())
-            {
-                m_lcl      = val.m_lcl;
-                m_offset   = val.m_offset;
-                m_fieldSeq = val.m_fieldSeq;
             }
 
             INDEBUG(val.Consume();)
@@ -348,13 +219,13 @@ public:
 
         WalkTree(stmt->GetRootNodePointer(), nullptr);
 
-        // We could have a statement like IND(ADDR(LCL_VAR)) that EscapeLocation would simplify
-        // to LCL_VAR. But since it's unused (and currently can't have any side effects) we'll
-        // just change the statment to NOP. This way we avoid complications associated with
+        // We could have a statement like IND_LOAD(LCL_ADDR) that EscapeLocation would simplify
+        // to LCL_LOAD. But since it's unused (and currently can't have any side effects) we'll
+        // just change the statement to NOP. This way we avoid complications associated with
         // passing a null user to EscapeLocation.
         // This doesn't seem to happen often, if ever. The importer tends to wrap such a tree
         // in a COMMA.
-        if (TopValue(0).IsLocation() || TopValue(0).IsAddress())
+        if (TopValue(0).IsAddress())
         {
             stmt->SetRootNode(m_compiler->gtNewNothingNode());
         }
@@ -389,7 +260,7 @@ public:
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
         if (m_compiler->lvaRefCountState == RCS_MORPH)
         {
-            if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+            if (node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD))
             {
                 UpdateImplicitByRefParamRefCounts(node->AsLclVarCommon()->GetLcl());
             }
@@ -412,31 +283,97 @@ public:
     {
         GenTree* node = *use;
 
-        switch (node->OperGet())
+        switch (node->GetOper())
         {
-            case GT_LCL_VAR:
-                assert(TopValue(0).Node() == node);
-
-                TopValue(0).Location(node->AsLclVar());
-                break;
-
             case GT_LCL_ADDR:
                 assert(TopValue(0).Node() == node);
 
                 TopValue(0).Address(node->AsLclAddr());
                 break;
 
-            case GT_LCL_FLD:
+            case GT_LCL_LOAD:
                 assert(TopValue(0).Node() == node);
 
-                TopValue(0).Location(node->AsLclFld());
+                if (node->TypeIs(TYP_STRUCT))
+                {
+                    node        = MorphStructLclLoad(node->AsLclLoad(), user);
+                    TopValue(0) = node;
+                }
                 break;
 
-            case GT_CAST:
-                assert(TopValue(1).Node() == node);
-                assert(TopValue(0).Node() == node->AsCast()->GetOp(0));
+            case GT_LCL_LOAD_FLD:
+                assert(TopValue(0).Node() == node);
 
-                if (!TopValue(1).Cast(TopValue(0), node->AsCast()))
+                MorphLclLoadFld(node->AsLclLoadFld(), user);
+                break;
+
+            case GT_LCL_STORE:
+                assert(TopValue(1).Node() == node);
+                assert(TopValue(0).Node() == node->AsLclStore()->GetValue());
+
+                EscapeValue(TopValue(0), node);
+                PopValue();
+
+                if (node->TypeIs(TYP_STRUCT))
+                {
+                    MorphStructLclStore(node->AsLclStore());
+                }
+                break;
+
+            case GT_IND_LOAD_OBJ:
+            case GT_IND_LOAD_BLK:
+            case GT_IND_LOAD:
+                assert(TopValue(1).Node() == node);
+                assert(TopValue(0).Node() == node->AsIndir()->GetAddr());
+
+                if (TopValue(0).IsAddress())
+                {
+                    MorphLocalIndLoad(node->AsIndir(), TopValue(0), user);
+                }
+                else
+                {
+                    EscapeValue(TopValue(0), node);
+                }
+
+                PopValue();
+                break;
+
+            case GT_IND_STORE:
+                assert(TopValue(2).Node() == node);
+                assert(TopValue(1).Node() == node->AsIndStore()->GetAddr());
+                assert(TopValue(0).Node() == node->AsIndStore()->GetValue());
+
+                if (TopValue(1).IsAddress())
+                {
+                    MorphLocalIndStore(node->AsIndStore(), TopValue(1));
+                }
+                else
+                {
+                    EscapeValue(TopValue(1), node);
+                }
+
+                EscapeValue(TopValue(0), node);
+                PopValue();
+                PopValue();
+                break;
+
+            case GT_IND_STORE_OBJ:
+                assert(TopValue(2).Node() == node);
+                assert(TopValue(1).Node() == node->AsIndStoreObj()->GetAddr());
+                assert(TopValue(0).Node() == node->AsIndStoreObj()->GetValue());
+
+                EscapeValue(TopValue(0), node);
+                MorphIndStoreObj(node->AsIndStoreObj(), TopValue(1));
+
+                PopValue();
+                PopValue();
+                break;
+
+            case GT_FIELD_ADDR:
+                assert(TopValue(1).Node() == node);
+                assert(TopValue(0).Node() == node->AsFieldAddr()->GetAddr());
+
+                if (!TopValue(1).FieldAddress(TopValue(0), node->AsFieldAddr(), m_compiler->GetFieldSeqStore()))
                 {
                     EscapeValue(TopValue(0), node);
                 }
@@ -470,7 +407,7 @@ public:
                     const Value& v2 = TopValue(0);
 
                     // We could handle SUB(local addr, constant) but those don't seem to exist nor
-                    // they're likley to be useful. Instead, handle SUB(local addr1, local addr2),
+                    // they're likely to be useful. Instead, handle SUB(local addr1, local addr2),
                     // which also doesn't seem to exist but it could serve an useful purpose: to
                     // obtain the offset of a struct field as a cheap constant.
 
@@ -493,31 +430,13 @@ public:
                 PopValue();
                 break;
 
-            case GT_FIELD_ADDR:
+            case GT_CAST:
                 assert(TopValue(1).Node() == node);
-                assert(TopValue(0).Node() == node->AsFieldAddr()->GetAddr());
+                assert(TopValue(0).Node() == node->AsCast()->GetOp(0));
 
-                if (!TopValue(1).FieldAddress(TopValue(0), node->AsFieldAddr(), m_compiler->GetFieldSeqStore()))
+                if (!TopValue(1).Cast(TopValue(0), node->AsCast()))
                 {
-                    // Either the address comes from a location value (e.g. FIELD_ADDR(IND(...)))
-                    // or the field offset has overflowed.
                     EscapeValue(TopValue(0), node);
-                }
-
-                PopValue();
-                break;
-
-            case GT_OBJ:
-            case GT_BLK:
-            case GT_IND:
-                assert(TopValue(1).Node() == node);
-                assert(TopValue(0).Node() == node->gtGetOp1());
-
-                if (!TopValue(1).Indir(TopValue(0)))
-                {
-                    // If the address comes from another indirection (e.g. IND(IND(...))
-                    // then we need to escape the location.
-                    EscapeLocation(TopValue(0), node);
                 }
 
                 PopValue();
@@ -527,18 +446,19 @@ public:
                 if (TopValue(0).Node() != node)
                 {
                     assert(TopValue(1).Node() == node);
-                    assert(TopValue(0).Node() == node->gtGetOp1());
+                    assert(TopValue(0).Node() == node->AsUnOp()->GetOp(0));
 
-                    GenTreeUnOp* ret = node->AsUnOp();
+                    GenTreeUnOp* ret   = node->AsUnOp();
+                    GenTree*     value = ret->GetOp(0);
 
-                    if (ret->GetOp(0)->OperIs(GT_LCL_VAR))
+                    if (value->OperIs(GT_LCL_LOAD))
                     {
-                        // TODO-1stClassStructs: this block is a temporary workaround to keep diffs small,
-                        // having `doNotEnreg` affect block init and copy transformations that affect many methods.
+                        // TODO-1stClassStructs: this block is a temporary workaround to keep diffs small, having
+                        // `doNotEnregister` affect block init and copy transformations that affect many methods.
                         // I have a change that introduces more precise and effective solution for that, but it would
-                        // be merged separatly.
+                        // be merged separately.
 
-                        LclVarDsc* lcl = ret->GetOp(0)->AsLclVar()->GetLcl();
+                        LclVarDsc* lcl = value->AsLclLoad()->GetLcl();
 
                         if ((m_compiler->info.retDesc.GetRegCount() == 1) && !lcl->IsImplicitByRefParam() &&
                             lcl->IsPromoted() && (lcl->GetPromotedFieldCount() > 1) && !varTypeIsSIMD(lcl->GetType()))
@@ -550,26 +470,19 @@ public:
                     EscapeValue(TopValue(0), node);
                     PopValue();
 
-                    if (ret->GetOp(0)->TypeIs(TYP_STRUCT) && IsMergedReturnAssignment(ret))
+                    if (value->TypeIs(TYP_STRUCT) && IsMergedReturn(ret))
                     {
                         LclVarDsc* lcl = m_compiler->lvaGetDesc(m_compiler->genReturnLocal);
 
                         if (lcl->IsPromoted())
                         {
                             assert(lcl->GetPromotedFieldCount() == 1);
-                            RetypeMergedReturnStructAssignment(ret, lcl);
+                            RetypeMergedReturnValue(ret, value, lcl);
                         }
                     }
                 }
                 break;
 
-            case GT_ASG:
-                if (node->TypeIs(TYP_STRUCT))
-                {
-                    PostOrderVisitStructAssignment(node->AsOp());
-                    break;
-                }
-                FALLTHROUGH;
             default:
                 while (TopValue(0).Node() != node)
                 {
@@ -581,51 +494,6 @@ public:
 
         assert(TopValue(0).Node() == node);
         return Compiler::WALK_CONTINUE;
-    }
-
-    void PostOrderVisitStructAssignment(GenTreeOp* asg)
-    {
-        assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
-        assert(TopValue(2).Node() == asg);
-        assert(TopValue(1).Node() == asg->GetOp(0));
-        assert(TopValue(0).Node() == asg->GetOp(1));
-
-        GenTree* op1 = asg->GetOp(0);
-        GenTree* op2 = asg->GetOp(1);
-
-        assert(op1->TypeIs(TYP_STRUCT));
-        assert(op2->TypeIs(TYP_STRUCT) || op2->IsIntegralConst(0) || op2->OperIs(GT_INIT_VAL));
-
-        EscapeValue(TopValue(0), asg);
-        EscapeValue(TopValue(1), asg);
-
-        op1 = asg->GetOp(0);
-        op2 = asg->GetOp(1);
-
-        if (op2->IsIntegralConst(0))
-        {
-            if (!op1->TypeIs(TYP_STRUCT))
-            {
-                asg->SetOp(1, RetypeStructZeroInit(op2, op1->GetType()));
-                asg->SetType(op1->GetType());
-            }
-        }
-        else if (op2->OperIs(GT_INIT_VAL))
-        {
-            // Currently MorphLocalIndir doesn't touch BLKs so we don't need to deal with INIT_VAL.
-            assert(op1->TypeIs(TYP_STRUCT));
-        }
-        else if (!op1->TypeIs(TYP_STRUCT) && !op2->TypeIs(TYP_STRUCT))
-        {
-            RetypeScalarAssignment(asg, op1, op2);
-        }
-        else if (op1->TypeIs(TYP_STRUCT) != op2->TypeIs(TYP_STRUCT))
-        {
-            RetypeStructAssignment(asg, op1, op2);
-        }
-
-        PopValue();
-        PopValue();
     }
 
 private:
@@ -645,20 +513,9 @@ private:
         m_valueStack.Pop();
     }
 
-    //------------------------------------------------------------------------
-    // EscapeValue: Process an escaped value
-    //
-    // Arguments:
-    //    val - the escaped address value
-    //    user - the node that uses the escaped value
-    //
-    void EscapeValue(const Value& val, GenTree* user)
+    void EscapeValue(Value& val, GenTree* user)
     {
-        if (val.IsLocation())
-        {
-            EscapeLocation(val, user);
-        }
-        else if (val.IsAddress())
+        if (val.IsAddress())
         {
             EscapeAddress(val, user);
         }
@@ -668,17 +525,10 @@ private:
         }
     }
 
-    //------------------------------------------------------------------------
-    // EscapeAddress: Process an escaped address value
-    //
-    // Arguments:
-    //    val - the escaped address value
-    //    user - the node that uses the address value
-    //
-    void EscapeAddress(const Value& val, GenTree* user)
+    void EscapeAddress(Value& addrVal, GenTree* user)
     {
-        assert(val.IsAddress());
-        INDEBUG(val.Consume();)
+        assert(addrVal.IsAddress());
+        INDEBUG(addrVal.Consume();)
         assert(user != nullptr);
 
         if (user->OperIs(GT_EQ, GT_NE) || (user->OperIs(GT_GT) && user->IsUnsigned()))
@@ -686,7 +536,7 @@ private:
             GenTree* op1 = user->AsOp()->GetOp(0);
             GenTree* op2 = user->AsOp()->GetOp(1);
 
-            if (op2 == val.Node())
+            if (op2 == addrVal.Node())
             {
                 std::swap(op1, op2);
             }
@@ -706,8 +556,7 @@ private:
             // exposed in those case is unlikely to provide any benefits.
         }
 
-        LclVarDsc* lcl      = val.Lcl();
-        LclVarDsc* fieldLcl = nullptr;
+        LclVarDsc* lcl = addrVal.Lcl();
 
         // Try to use the address of a promoted field, if any. We'll have to mark the local
         // address exposed anyway but if we can restrict this to just a promoted field we
@@ -723,13 +572,27 @@ private:
         // but the JIT's struct promotion is upside down...
         // This is done in part to avoid diffs due to old promotion code doing it.
 
-        if (lcl->IsPromoted() && (val.FieldSeq() != nullptr) && val.FieldSeq()->IsField())
-        {
-            fieldLcl = FindPromotedField(lcl, val.Offset(), 1);
+        FieldSeq* fieldSeq = addrVal.FieldSeq();
 
-            if ((fieldLcl != nullptr) && (fieldLcl->GetPromotedFieldOffset() == val.Offset()))
+        if (lcl->IsPromoted() && (fieldSeq != nullptr) && fieldSeq->IsField())
+        {
+            if (LclVarDsc* fieldLcl = FindPromotedField(lcl, addrVal.Offset(), 1))
             {
-                lcl = fieldLcl;
+                if (fieldLcl->GetPromotedFieldOffset() == addrVal.Offset())
+                {
+                    lcl = fieldLcl;
+
+                    if (varTypeIsSIMD(fieldLcl->GetType()))
+                    {
+                        fieldSeq = ExtractVectorFieldElementFieldSeq(fieldSeq, fieldLcl, 0);
+                    }
+                    else
+                    {
+                        fieldSeq = nullptr;
+                    }
+
+                    addrVal.Promote(lcl, 0, fieldSeq);
+                }
             }
         }
 
@@ -747,7 +610,7 @@ private:
                 // "this" instance. And calling struct member methods is common enough that attempting
                 // to mark the entire struct as address exposed results in CQ regressions.
 
-                if ((call->gtCallThisArg != nullptr) && (val.Node() == call->gtCallThisArg->GetNode()))
+                if ((call->gtCallThisArg != nullptr) && (addrVal.Node() == call->gtCallThisArg->GetNode()))
                 {
                     exposeParentLcl = false;
                 }
@@ -757,15 +620,19 @@ private:
                 assert(!user->TypeIs(TYP_STRUCT) && !lcl->TypeIs(TYP_STRUCT));
 
                 if ((varTypeSize(user->GetType()) <= varTypeSize(lcl->GetType())) &&
-                    (val.Node() == (user->IsCmpXchg() ? user->AsCmpXchg()->GetAddr() : user->AsOp()->GetOp(0))))
+                    (addrVal.Node() == (user->IsCmpXchg() ? user->AsCmpXchg()->GetAddr() : user->AsOp()->GetOp(0))))
                 {
                     exposeParentLcl = false;
                 }
             }
+
+            if (exposeParentLcl)
+            {
+                m_compiler->lvaSetAddressExposed(m_compiler->lvaGetDesc(lcl->GetPromotedFieldParentLclNum()));
+            }
         }
 
-        m_compiler->lvaSetAddressExposed(exposeParentLcl ? m_compiler->lvaGetDesc(lcl->GetPromotedFieldParentLclNum())
-                                                         : lcl);
+        CanonicalizeLocalAddress(addrVal, user);
 
 #ifdef TARGET_64BIT
         // If the address of a variable is passed in a call and the allocation size of the variable
@@ -779,319 +646,713 @@ private:
             if (Compiler::gtHasCallOnStack(&m_ancestors))
             {
                 lcl->lvQuirkToLong = true;
-                JITDUMP("Adding a quirk for the storage size of V%02u of type %s\n", val.Lcl()->GetLclNum(),
+                JITDUMP("Adding a quirk for the storage size of V%02u of type %s\n", addrVal.Lcl()->GetLclNum(),
                         varTypeName(lcl->GetType()));
             }
         }
 #endif // TARGET_64BIT
+    }
 
-        if (lcl == fieldLcl)
+    GenTree* MorphStructLclLoad(GenTreeLclLoad* load, GenTree* user)
+    {
+        // TODO-MIKE-Cleanup: The user could be null here (unused load).
+
+        LclVarDsc* lcl = load->GetLcl();
+
+        if (!lcl->IsPromoted() || (lcl->GetPromotedFieldCount() > 1))
         {
-            Value fieldVal(val.Node());
-            fieldVal.Address(lcl, 0, nullptr);
-            CanonicalizeLocalAddress(fieldVal, user);
+            return load;
         }
-        else
+
+        if (user->OperIs(GT_RETURN))
         {
-            CanonicalizeLocalAddress(val, user);
+            return PromoteSingleFieldStructLclLoadReturn(lcl, load, user->AsUnOp());
+        }
+
+        // Let's hope the importer doesn't produce STRUCT COMMAs again.
+        noway_assert(user->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE_OBJ, GT_CALL));
+
+        LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
+
+        assert(lcl->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()));
+
+        load->SetLcl(fieldLcl);
+        load->SetType(fieldLcl->GetType());
+
+        INDEBUG(m_stmtModified = true;)
+
+        return load;
+    }
+
+    void MorphLclLoadFld(GenTreeLclLoadFld* load, GenTree* user)
+    {
+        assert(user != nullptr);
+
+        LclVarDsc* lcl = load->GetLcl();
+
+        if (!lcl->IsPromoted() || !PromoteLclLoadFld(load, lcl))
+        {
+            m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
         }
     }
 
-    //------------------------------------------------------------------------
-    // EscapeLocation: Process an escaped location value
-    //
-    // Arguments:
-    //    val - the escaped location value
-    //    user - the node that uses the location value
-    //
-    // Notes:
-    //    Unlike EscapeAddress, this does not necessarily mark the lclvar associated
-    //    with the value as address exposed. This is needed only if the indirection
-    //    is wider than the lclvar.
-    //
-    void EscapeLocation(const Value& val, GenTree* user)
+    void MorphStructLclStore(GenTreeLclStore* store)
     {
-        assert(val.IsLocation());
-        INDEBUG(val.Consume();)
+        assert(store->TypeIs(TYP_STRUCT));
+
+        LclVarDsc* lcl   = store->GetLcl();
+        GenTree*   value = store->GetValue();
+
+        assert(!value->OperIs(GT_INIT_VAL));
+
+        if (lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 1))
+        {
+            LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
+            store->SetLcl(fieldLcl);
+            store->SetType(fieldLcl->GetType());
+            RetypeSingleFieldStructLclStore(store, value);
+        }
+        else if (!value->TypeIs(TYP_STRUCT) && !value->IsIntCon(0))
+        {
+            var_types type = value->GetType();
+
+            ClassLayout*   fieldLayout = nullptr;
+            FieldSeqNode*  fieldSeq    = GetFieldSequence(lcl->GetLayout()->GetClassHandle(), type, &fieldLayout);
+            GenTreeLclFld* fieldStore  = store->ChangeToLclStoreFld(type, lcl, 0, fieldSeq, store->GetValue());
+
+            if (varTypeIsSIMD(type) && (fieldLayout != nullptr) && (fieldLayout->GetSIMDType() == type))
+            {
+                fieldStore->SetLayout(fieldLayout, m_compiler);
+            }
+
+            m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
+
+            INDEBUG(m_stmtModified = true;)
+        }
+    }
+
+    void MorphLocalIndLoad(GenTreeIndir* load, Value& addrVal, GenTree* user)
+    {
+        assert(load->OperIs(GT_IND_LOAD, GT_IND_LOAD_BLK, GT_IND_LOAD_OBJ));
+        assert(addrVal.IsAddress());
+        INDEBUG(addrVal.Consume();)
         assert(user != nullptr);
 
-        LclVarDsc* lcl  = val.Lcl();
-        GenTree*   node = val.Node();
+        LclVarDsc*    lcl      = addrVal.Lcl();
+        var_types     lclType  = lcl->GetType();
+        unsigned      lclSize  = lcl->GetTypeSize();
+        unsigned      lclOffs  = addrVal.Offset();
+        FieldSeqNode* fieldSeq = addrVal.FieldSeq();
+        var_types     loadType = load->GetType();
+        ClassLayout*  loadLayout;
+        unsigned      loadSize;
 
-        if (node->OperIs(GT_LCL_VAR))
+        if (load->OperIs(GT_IND_LOAD))
         {
-            assert(node->AsLclVar()->GetLcl() == lcl);
-
-            if (lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 1))
-            {
-                switch (user->GetOper())
-                {
-                    case GT_ASG:
-                        PromoteSingleFieldStructLocalAssignment(lcl, node->AsLclVar(), user->AsOp());
-                        break;
-                    case GT_CALL:
-                        PromoteSingleFieldStructLocalCallArg(lcl, node->AsLclVar());
-                        break;
-                    case GT_RETURN:
-                        PromoteSingleFieldStructLocalReturn(lcl, node->AsLclVar(), user->AsUnOp());
-                        break;
-                    default:
-                        // Let's hope the importer doesn't produce STRUCT COMMAs again.
-                        unreached();
-                }
-            }
-
-            return;
-        }
-
-        if (node->OperIs(GT_LCL_FLD))
-        {
-            if (!lcl->IsPromoted() || !PromoteLclFld(node->AsLclFld(), lcl))
-            {
-                m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
-            }
-
-            return;
-        }
-
-        // Otherwise it must be accessed through some kind of indirection. Usually this is
-        // something like IND(ADDR(LCL_VAR)), global morph will change it to GT_LCL_VAR or
-        // GT_LCL_FLD so the lclvar does not need to be address exposed.
-        //
-        // However, it is possible for the indirection to be wider than the lclvar
-        // (e.g. *(long*)&int32Var) or to have a field offset that pushes the indirection
-        // past the end of the lclvar memory location. In such cases morph doesn't do
-        // anything so the lclvar needs to be address exposed.
-        //
-        // More importantly, if the lclvar is a promoted struct field then the parent lclvar
-        // also needs to be address exposed so we get dependent struct promotion. Code like
-        // *(long*)&int32Var has undefined behavior and it's practically useless but reading,
-        // say, 2 consecutive Int32 struct fields as Int64 has more practical value.
-
-        unsigned indirSize = GetIndirSize(node, user);
-        bool     isWide;
-
-        if (indirSize == 0)
-        {
-            // If we can't figure out the indirection size then treat it as a wide indirection.
-            isWide = true;
+            loadLayout = nullptr;
+            loadSize   = varTypeSize(loadType);
         }
         else
         {
-            ClrSafeInt<unsigned> endOffset = ClrSafeInt<unsigned>(val.Offset()) + ClrSafeInt<unsigned>(indirSize);
+            loadLayout = load->AsBlk()->GetLayout();
+            loadSize   = loadLayout->GetSize();
+        }
 
-            if (endOffset.IsOverflow())
+        if (lcl->IsPromoted())
+        {
+            if (LclVarDsc* fieldLcl = FindPromotedField(lcl, lclOffs, loadSize))
             {
-                isWide = true;
-            }
-            else if (lcl->GetType() == TYP_STRUCT)
-            {
-                isWide = (endOffset.Value() > lcl->GetLayout()->GetSize());
-            }
-            else if (lcl->GetType() == TYP_BLK)
-            {
-                isWide = (endOffset.Value() > lcl->GetBlockSize());
-            }
-            else
-            {
-                // For small int types use the real type size, not the stack slot size.
-                // Morph does manage to transform `*(int*)&byteVar` into just byteVar where
-                // the LCL_VAR node has type TYP_INT. But such code is simply bogus and
-                // there's no reason to attempt to optimize it. It makes more sense to
-                // mark the variable address exposed in such circumstances.
-                //
-                // Same for "small" SIMD types - SIMD8/12 have 8/12 bytes, even if the
-                // stack location may have 16 bytes.
-                isWide = (endOffset.Value() > varTypeSize(lcl->GetType()));
+                lcl     = fieldLcl;
+                lclType = fieldLcl->GetType();
+                lclSize = varTypeSize(lclType);
+                lclOffs -= fieldLcl->GetPromotedFieldOffset();
+
+                if (varTypeIsSIMD(lclType) && (fieldSeq != nullptr) && fieldSeq->IsField())
+                {
+                    fieldSeq = ExtractVectorFieldElementFieldSeq(fieldSeq, fieldLcl, lclOffs);
+                }
+                else
+                {
+                    fieldSeq = nullptr;
+                }
+
+                addrVal.Promote(fieldLcl, lclOffs, fieldSeq);
             }
         }
 
-        if (isWide)
+        if ((lclOffs > UINT16_MAX) || (lclOffs > UINT32_MAX - loadSize) || (lclOffs + loadSize > lclSize))
         {
-            // We should not encounter a promoted field here, we only switch to a promoted
-            // field below, after we verify that the field totally overlaps the indirection.
-            assert(!lcl->IsPromotedField());
-
-            CanonicalizeLocalIndir(val);
+            CanonicalizeLocalIndLoad(load, addrVal);
             return;
         }
 
-        if (varTypeIsStruct(lcl->GetType()) && lcl->IsPromoted())
+        // TODO-MIKE-Review: For now ignore volatile on a FIELD that accesses a promoted field,
+        // to avoid diffs due to old promotion code ignoring volatile as well.
+
+        if (load->IsVolatile() && (!load->GetAddr()->OperIs(GT_FIELD_ADDR) || !lcl->IsPromotedField()))
         {
-            // If this is a promoted variable then we can use a promoted field if it completely
-            // overlaps the indirection. With a lot of work, we could also handle cases where
-            // the indirection spans multiple fields (e.g. reading two consecutive INT fields
-            // as LONG) which would prevent dependent promotion.
+            CanonicalizeLocalIndLoad(load, addrVal);
+            return;
+        }
 
-            if (LclVarDsc* fieldLcl = FindPromotedField(lcl, val.Offset(), indirSize))
+        if (load->OperIs(GT_IND_LOAD_BLK))
+        {
+            // Keep LOAD_BLKs and mark any involved locals address exposed for now.
+            //
+            // CPBLK and INITBLK are rarely used (the C# compiler doesn't emit them at all).
+            // Only the VM sometimes uses CPBLK in PInvoke IL stubs, to deal with x86 ABI
+            // mismatches it seems (Windows x86 ABI can return structs in 2 registers but
+            // CLR uses a return buffer instead).
+            //
+            // TODO-MIKE-CQ: A previous implementation avoided address exposed locals, but
+            // still forced locals in memory because PInvoke IL stubs copy from a LONG local
+            // to a STRUCT local and one way or another this results in DNER/P-DEP locals.
+            // This can be avoided but it's unlikely that it's worth the effort for x86...
+
+            CanonicalizeLocalIndLoad(load, addrVal);
+
+            return;
+        }
+
+        if ((lclOffs == 0) && (lclType != TYP_BLK))
+        {
+            // For STRUCT locals, if the load layout doesn't match and the local is promoted
+            // then ignore the load layout to avoid having to make a LCL_LOAD_FLD and dependent
+            // promote the local. The load layout isn't really needed anymore, since call arg
+            // morphing uses the one from the call signature.
+
+            // The only thing other than the ABI the layout influences is the GCness of stores
+            // to the local, but in that case it really does make more sense to ignore the load
+            // layout and use the local layout as that is the "real" one when it comes to GC.
+            // Reinterpreting a local in an attempt to avoid GC safe copies doesn't make a lot
+            // of sense.
+
+            // TODO-MIKE-Consider: This should work for non promoted locals as well but it's not
+            // clear if it's worth doing and safe.
+            // Avoiding LCL_LOAD_FLDs may improve assertion copy propagation but on the other hand
+            // this can create more assignments with different source and destination types and it
+            // isn't clear how well VN maps handles those.
+            // Also, discarding type information is not that great in general and it may be better
+            // to instead teach assertion propagation to deal with LCL_LOAD_FLDs.
+
+            if ((loadType == lclType) && ((loadType != TYP_STRUCT) || (loadLayout == lcl->GetLayout()) ||
+                                          (lcl->IsPromoted() && (loadSize == lclSize))))
             {
-                unsigned      fieldOffset = val.Offset() - fieldLcl->GetPromotedFieldOffset();
-                FieldSeqNode* fieldSeq    = val.FieldSeq();
+                load->ChangeToLclLoad(loadType, lcl);
+                load->gtFlags = GTF_EMPTY;
+                INDEBUG(m_stmtModified = true);
 
-                if ((fieldSeq != nullptr) && fieldSeq->IsField())
+                return;
+            }
+
+            // A non-struct local may be accessed via a STRUCT load due to reinterpretation in user
+            // code or due to single field struct promotion. Reinterpretation isn't common (but it
+            // does happen - e.g. ILCompiler.Reflection.ReadyToRun.dll reinterprets array references
+            // as ImmutableArray) but promotion is quite common. If the load is a call arg then we
+            // can simply replace it with the local because it doesn't really matter if it's a STRUCT
+            // value or a primitive type value, we just need to put the value in the correct register
+            // or stack slot.
+
+            if ((loadType == TYP_STRUCT) && (lclType != TYP_STRUCT))
+            {
+                if (user->OperIs(GT_RETURN))
                 {
-                    fieldSeq = fieldSeq->RemovePrefix(fieldLcl->GetPromotedFieldSeq());
-
-                    if (fieldSeq == val.FieldSeq())
+                    if (PromoteSingleFieldStructReturn(addrVal, load, loadLayout, user->AsUnOp()))
                     {
-                        // There was no prefix, this means that the field access sequence doesn't
-                        // match the promoted field sequence, ignore the field access sequence.
-                        fieldSeq = nullptr;
+                        return;
                     }
                 }
+                else
+                {
+                    // Let's hope the importer doesn't produce STRUCT COMMAs again.
+                    noway_assert(user->OperIs(GT_LCL_STORE, GT_IND_STORE_OBJ, GT_CALL));
 
-                Value fieldVal(val.Node());
-                fieldVal.Location(fieldLcl, fieldOffset, fieldSeq);
-                MorphLocalIndir(fieldVal, user, indirSize);
+                    if (loadLayout->GetSize() == lclSize)
+                    {
+                        load->ChangeToLclLoad(lclType, lcl);
+                        INDEBUG(m_stmtModified = true;)
+
+                        return;
+                    }
+                }
+            }
+            else if (!varTypeIsStruct(loadType) && !varTypeIsStruct(lclType))
+            {
+                if (loadSize == lclSize)
+                {
+                    if (varTypeIsSmall(loadType) && (varTypeIsUnsigned(loadType) != varTypeIsUnsigned(lclType)))
+                    {
+                        // There's no reason to write something like `*(short*)&ushortLocal` instead of just
+                        // `(short)ushortLocal`, except that generics code can't do such casts and sometimes
+                        // uses `Unsafe.As` as a substitute.
+
+                        load->ChangeToCast(loadType, NewLclLoad(lclType, lcl));
+                        INDEBUG(m_stmtModified = true);
+
+                        return;
+                    }
+
+                    if (varTypeKind(loadType) == varTypeKind(lclType))
+                    {
+                        // Like in the signedness mismatch case above, it's not common to have `*(int*)&intLocal`
+                        // but such cases may arise either from fancy generic code or, more likely, due to the
+                        // inlining of primitive type methods. Turns out that having methods on primitive types,
+                        // while elegant, can cause problems as any call to such a method requires taking the
+                        // address of the primitive type local variable.
+
+                        assert(((loadType == TYP_BOOL) && (lclType == TYP_UBYTE)) ||
+                               ((loadType == TYP_UBYTE) && (lclType == TYP_BOOL)));
+
+                        load->ChangeToLclLoad(loadType, lcl);
+                        load->gtFlags = GTF_EMPTY;
+                        INDEBUG(m_stmtModified = true);
+
+                        return;
+                    }
+
+                    if (CanBitCastTo(loadType))
+                    {
+                        // Handle the relatively common case of floating point/integer reinterpretation.
+                        // Also handle GC pointer/native int reinterpretation, some corelib tracing code
+                        // uses object references as if they're normal pointers for logging purposes.
+
+                        load->ChangeOper(GT_BITCAST);
+                        load->AsUnOp()->SetOp(0, NewLclLoad(lclType, lcl));
+                        load->gtFlags = GTF_EMPTY;
+                        INDEBUG(m_stmtModified = true);
+
+                        return;
+                    }
+                }
+                else if (varTypeIsIntegral(loadType) && varTypeIsIntegral(lclType))
+                {
+                    // The load has to be smaller than the local, we already handled loads wider than the local.
+                    assert(loadSize < lclSize);
+
+                    // Loading a smaller integer type isn't common but this case can be easily handled by using
+                    // a CAST. There's no reason to write something like `*(short*)&intLocal` instead of just
+                    // `(short)intLocal`, except that generics code can't do such casts and sometimes uses
+                    // `Unsafe.As` as a substitute.
+
+                    load->ChangeToCast(loadType, NewLclLoad(lclType, lcl));
+                    INDEBUG(m_stmtModified = true);
+
+                    return;
+                }
+            }
+        }
+
+#ifdef FEATURE_SIMD
+        if (varTypeIsSIMD(lclType) && (loadType == TYP_FLOAT) && (lclOffs % 4 == 0) && lcl->lvIsUsedInSIMDIntrinsic() &&
+            !lcl->lvDoNotEnregister)
+        {
+            // Recognize fields X/Y/Z/W of Vector2/3/4. These fields have type FLOAT so this is the only type
+            // we recognize here but any other type supported by GetElement would work. But other vector
+            // types don't have fields and the only way this would be useful is if someone uses unsafe code
+            // to access the vector elements. That's not very useful as the other vector types offer element
+            // access by other means - Vector's indexer and Vector64/128/256's GetElement.
+
+            // TODO-MIKE-CQ: Doing this here is a bit of a problem if the local variable ends up in memory,
+            // if it is DNER for whatever reasons (we haven't determined that exactly at this point) or if
+            // it is an implicit byref param. We could produce a LCL_LOAD_FLD here, without DNERing the local
+            // and let morph convert it to GetItem/SetItem or leave it alone if the local was already DNERed
+            // for other reasons. But creating a LCL_LOAD_FLD without DNERing the corresponding local seems
+            // somewhat risky at the moment.
+            //
+            // Implicit byref params are a bit more complicated. We could simply skip this transform if the
+            // local is an implicit byref param but that's not always a clear improvement because of CSE.
+            // If multiple vector elements are accessed then we can have a single SIMD load and multiple
+            // GetElement to extract the elements. Otherwise we need to do a separate FLOAT load for each.
+            // Having a single load may be faster but multiple loads can result in smaller code if loads
+            // end up as memory operands on other instructions (on x86/64).
+            //
+            // Ultimately the best option may be to keep doing this here and compensate for the memory case
+            // in lowering. This is already done for GetElement but doesn't work very well.
+
+            // TODO-MIKE-CQ: The IsUsedInSIMDIntrinsic check is bogus. It's really intended to block
+            // promotion and this transform doesn't have anything to do with that. In fact using it here
+            // hurts promotion because SIMD typed promoted fields don't have it set so accessing their
+            // X/Y/Z/W fields will just result in DNER.
+
+            load->ChangeOper(GT_HWINTRINSIC);
+            load->AsHWIntrinsic()->SetIntrinsic(NI_Vector128_GetElement, TYP_FLOAT, 16, 2);
+            load->AsHWIntrinsic()->SetOp(0, NewLclLoad(lclType, lcl));
+            load->AsHWIntrinsic()->SetOp(1, NewIntConNode(TYP_INT, lclOffs / 4));
+            INDEBUG(m_stmtModified = true);
+
+            return;
+        }
+#endif // FEATURE_SIMD
+
+        if (!varTypeIsStruct(lclType))
+        {
+            fieldSeq = FieldSeqNode::NotAField();
+        }
+        else if ((fieldSeq != nullptr) && fieldSeq->IsField())
+        {
+            if (!varTypeIsStruct(loadType))
+            {
+#if 0
+                // TODO-MIKE-Cleanup: This should be removed, it's VN's job to deal with such type mismatches.
+                // For now just disable it instead of fixing importer's Span::_pointer field sequence as this
+                // generates less diffs.
+
+                // If we have an indirection node and a field sequence then they should have the same type.
+                // Otherwise it's best to forget the field sequence since the resulting LCL_LOAD_FLD doesn't
+                // match a real struct field. Value numbering protects itself from such mismatches but there
+                // doesn't seem to be any good reason to generate a LCL_LOAD_FLD with a mismatched field
+                // sequence only to have to ignore it later.
+
+                if (loadType != GetScalarFieldType(fieldSeq->GetTail()->GetFieldHandle()))
+                {
+                    fieldSeq = nullptr;
+                }
+#endif
+            }
+            else if (loadLayout != nullptr)
+            {
+                if (loadLayout->GetClassHandle() != GetStructFieldType(fieldSeq->GetTail()->GetFieldHandle()))
+                {
+                    fieldSeq = nullptr;
+                }
+            }
+        }
+
+        load->ChangeToLclLoadFld(loadType, lcl, lclOffs, fieldSeq);
+        load->gtFlags = GTF_EMPTY;
+
+        if (loadLayout != nullptr)
+        {
+            load->AsLclLoadFld()->SetLayout(loadLayout, m_compiler);
+        }
+
+        m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
+        INDEBUG(m_stmtModified = true;)
+    }
+
+    void MorphIndStoreObj(GenTreeIndStoreObj* store, Value& addrVal)
+    {
+        GenTree* value = store->GetValue();
+
+        if ((value->GetType() != store->GetType()) && !value->IsIntCon(0))
+        {
+            assert(store->GetLayout()->GetSize() == varTypeSize(value->GetType()));
+
+            store->SetOper(GT_IND_STORE);
+            store->SetType(store->GetValue()->GetType());
+
+            if (TopValue(1).IsAddress())
+            {
+                MorphLocalIndStore(store, addrVal);
+            }
+            else
+            {
+                EscapeValue(TopValue(1), store);
+            }
+        }
+        else
+        {
+            if (TopValue(1).IsAddress())
+            {
+                MorphLocalIndStoreObj(store, addrVal);
+            }
+            else
+            {
+                EscapeValue(TopValue(1), store);
+            }
+        }
+    }
+
+    void MorphLocalIndStore(GenTreeIndir* store, Value& addrVal)
+    {
+        assert(store->OperIs(GT_IND_STORE) && (varTypeSize(store->GetType()) != 0));
+        assert(addrVal.IsAddress());
+        INDEBUG(addrVal.Consume());
+
+        LclVarDsc*    lcl       = addrVal.Lcl();
+        var_types     lclType   = lcl->GetType();
+        unsigned      lclSize   = lcl->GetTypeSize();
+        unsigned      lclOffs   = addrVal.Offset();
+        FieldSeqNode* fieldSeq  = addrVal.FieldSeq();
+        var_types     storeType = store->GetType();
+        unsigned      storeSize = varTypeSize(storeType);
+
+        if (lcl->IsPromoted())
+        {
+            if (LclVarDsc* fieldLcl = FindPromotedField(lcl, lclOffs, storeSize))
+            {
+                lcl     = fieldLcl;
+                lclType = fieldLcl->GetType();
+                lclSize = varTypeSize(lclType);
+                lclOffs -= fieldLcl->GetPromotedFieldOffset();
+
+                if (varTypeIsSIMD(lclType) && (fieldSeq != nullptr) && fieldSeq->IsField())
+                {
+                    fieldSeq = ExtractVectorFieldElementFieldSeq(fieldSeq, fieldLcl, lclOffs);
+                }
+                else
+                {
+                    fieldSeq = nullptr;
+                }
+
+                addrVal.Promote(fieldLcl, lclOffs, fieldSeq);
+            }
+        }
+
+        if ((lclOffs > UINT16_MAX) || (lclOffs > UINT32_MAX - storeSize) || (lclOffs + storeSize > lclSize))
+        {
+            CanonicalizeLocalIndStore(store, addrVal);
+            return;
+        }
+
+        // TODO-MIKE-Review: For now ignore volatile on promoted field stores,
+        // to avoid diffs due to old promotion code ignoring volatile as well.
+
+        if (store->IsVolatile() && (!store->GetAddr()->OperIs(GT_FIELD_ADDR) || !lcl->IsPromotedField()))
+        {
+            CanonicalizeLocalIndStore(store, addrVal);
+            return;
+        }
+
+        GenTree* value = store->GetValue();
+
+        if ((lclOffs == 0) && (storeSize == lclSize) && (lclType != TYP_STRUCT) && (lclType != TYP_BLK))
+        {
+            bool isAssignable = varTypeKind(storeType) == varTypeKind(lclType);
+
+            if (!isAssignable && CanBitCastTo(lclType))
+            {
+                value        = NewBitCastNode(lclType, value);
+                isAssignable = true;
+            }
+
+            if (isAssignable)
+            {
+                store->ChangeToLclStore(lclType, lcl, value);
+                INDEBUG(m_stmtModified = true);
 
                 return;
             }
         }
 
-        MorphLocalIndir(val, user, indirSize);
-    }
-
-    void PromoteSingleFieldStructLocalAssignment(LclVarDsc* lcl, GenTreeLclVar* lclVar, GenTreeOp* asg)
-    {
-        assert(lcl->TypeIs(TYP_STRUCT));
-        assert(lcl->GetPromotedFieldCount() == 1);
-        assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
-
-        LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
-
-        assert(lcl->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()));
-
-        lclVar->SetLcl(fieldLcl);
-        lclVar->SetType(fieldLcl->GetType());
-
-        INDEBUG(m_stmtModified = true;)
-    }
-
-    void PromoteSingleFieldStructLocalCallArg(LclVarDsc* lcl, GenTreeLclVar* lclVar)
-    {
-        assert(lcl->TypeIs(TYP_STRUCT));
-        assert(lcl->GetPromotedFieldCount() == 1);
-
-        LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
-
-        assert(lcl->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()));
-
-        lclVar->SetLcl(fieldLcl);
-        lclVar->SetType(fieldLcl->GetType());
-
-        INDEBUG(m_stmtModified = true;)
-    }
-
-    void PromoteSingleFieldStructLocalReturn(LclVarDsc* lcl, GenTreeLclVar* lclVar, GenTreeUnOp* ret)
-    {
-        assert(lcl->TypeIs(TYP_STRUCT));
-        assert(lcl->GetPromotedFieldCount() == 1);
-        assert(ret->TypeIs(TYP_STRUCT));
-
-        LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
-
-        assert(lcl->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()));
-
-        lclVar->SetLcl(fieldLcl);
-        lclVar->SetType(fieldLcl->GetType());
-
-        INDEBUG(m_stmtModified = true;)
-
-        if (IsMergedReturnAssignment(ret))
+#ifdef FEATURE_SIMD
+        if (varTypeIsSIMD(lclType) && (storeType == TYP_FLOAT) && (lclOffs % 4 == 0) &&
+            lcl->lvIsUsedInSIMDIntrinsic() && !lcl->IsImplicitByRefParam() && !lcl->lvDoNotEnregister)
         {
-            // This is a merged return, it will be transformed into a struct
-            // assignment so leave it to fgMorphCopyStruct to promote it.
-            return;
-        }
+            // Recognize fields X/Y/Z/W of Vector2/3/4. These fields have type FLOAT so this is the only type
+            // we recognize here but any other type supported by InsertElement would work. But other vector
+            // types don't have fields and the only way this would be useful is if someone uses unsafe code
+            // to access the vector elements. That's not very useful as the other vector types offer element
+            // access by other means - Vector's indexer and Vector64/128/256's WithElement.
 
-        const ReturnTypeDesc& retDesc = m_compiler->info.retDesc;
+            // TODO-MIKE-CQ: Doing this here is a bit of a problem if the local variable ends up in memory,
+            // if it is DNER for whatever reasons (we haven't determined that exactly at this point) or if
+            // it is an implicit byref param. We could produce a LCL_STORE_FLD here, without DNERing the local
+            // and let morph convert it to InsertElement or leave it alone if the local was already DNERed
+            // for other reasons. But creating a LCL_STORE_FLD without DNERing the corresponding local seems
+            // somewhat risky at the moment.
+            //
+            // Ultimately the best option may be to keep doing this here and compensate for the memory case
+            // in lowering. InsertElement is a bit more cumbersome to handle, though perhaps it would fit
+            // into the existing RMW lowering.
 
-        if (retDesc.GetRegCount() == 1)
-        {
-            var_types retRegType = varActualType(retDesc.GetRegType(0));
-            ret->SetType(retRegType);
+            // TODO-MIKE-CQ: The lvIsUsedInSIMDIntrinsic check is bogus. It's really intended to block
+            // struct promotion and this transform doesn't have anything to do with that. In fact using
+            // it here hurts promotion because SIMD typed promoted fields don't have it set so accessing
+            // their X/Y/Z/W fields will just result in DNER.
 
-            if (varTypeUsesFloatReg(retRegType) != varTypeUsesFloatReg(fieldLcl->GetType()))
-            {
-                ret->SetOp(0, NewBitCastNode(retRegType, lclVar));
-            }
+            value = NewInsertElement(lcl->GetType(), lclOffs / 4, TYP_FLOAT, NewLclLoad(lcl->GetType(), lcl), value);
+            store->ChangeToLclStore(lclType, lcl, value);
+            INDEBUG(m_stmtModified = true);
 
             return;
         }
+#endif // FEATURE_SIMD
 
-#ifdef WINDOWS_X86_ABI
-        if (retDesc.GetRegCount() == 2)
+        if ((fieldSeq == nullptr) || !varTypeIsStruct(lclType))
         {
-            assert((retDesc.GetRegType(0) == TYP_INT) && (retDesc.GetRegType(1) == TYP_INT));
+            fieldSeq = FieldSeqStore::NotAField();
+        }
 
-            ret->SetType(TYP_LONG);
+        store->ChangeToLclStoreFld(storeType, lcl, lclOffs, fieldSeq, value);
 
-            if (fieldLcl->TypeIs(TYP_SIMD8))
+        m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
+
+        if (varTypeIsSmall(lclType))
+        {
+            // If LCL_STORE_FLD is used to store to a small type local then "normalize on store"
+            // isn't possible so the local has to be "normalize on load". The only way to do this
+            // is by making the local address exposed, which is a big hammer. But such an indirect
+            // store is highly unusual so it's not worth the trouble to introduce another mechanism.
+            m_compiler->lvaSetAddressExposed(lcl);
+        }
+
+        INDEBUG(m_stmtModified = true);
+    }
+
+    void MorphLocalIndStoreObj(GenTreeIndStoreObj* store, Value& addrVal)
+    {
+        INDEBUG(addrVal.Consume());
+
+        LclVarDsc*    lcl         = addrVal.Lcl();
+        var_types     lclType     = lcl->GetType();
+        unsigned      lclSize     = lcl->GetTypeSize();
+        unsigned      lclOffs     = addrVal.Offset();
+        FieldSeqNode* fieldSeq    = addrVal.FieldSeq();
+        var_types     storeType   = store->GetType();
+        ClassLayout*  storeLayout = store->GetLayout();
+        unsigned      storeSize   = storeLayout->GetSize();
+
+        if (lcl->IsPromoted() && !lcl->lvDoNotEnregister)
+        {
+            if (LclVarDsc* fieldLcl = FindPromotedField(lcl, lclOffs, storeSize))
             {
-                // TODO-MIKE-CQ: This generates rather poor code. Vector2 should be handled
-                // like DOUBLE, in codegen.
-                ret->SetOp(0, NewExtractElement(TYP_LONG, lclVar, TYP_SIMD16, 0));
-            }
-            else
-            {
-                assert(fieldLcl->TypeIs(TYP_LONG, TYP_DOUBLE));
-            }
+                lcl     = fieldLcl;
+                lclType = fieldLcl->GetType();
+                lclSize = varTypeSize(lclType);
+                lclOffs -= fieldLcl->GetPromotedFieldOffset();
 
+                if (varTypeIsSIMD(lclType) && (fieldSeq != nullptr) && fieldSeq->IsField())
+                {
+                    fieldSeq = ExtractVectorFieldElementFieldSeq(fieldSeq, fieldLcl, lclOffs);
+                }
+                else
+                {
+                    fieldSeq = nullptr;
+                }
+
+                addrVal.Promote(fieldLcl, lclOffs, fieldSeq);
+            }
+        }
+
+        if ((lclOffs > UINT16_MAX) || (lclOffs > UINT32_MAX - storeSize) || (lclOffs + storeSize > lclSize))
+        {
+            CanonicalizeLocalIndStore(store, addrVal);
             return;
         }
-#endif
 
-        // We either have a SIMD field that's returned in multiple registers (e.g. HFA)
-        // or perhaps the IL is invalid (e.g. struct with a single DOUBLE field returned
-        // as a Vector2 or some other 2 FLOAT field struct that is a HFA).
-        // Either way, leave it to morph to produce a FIELD_LIST in this case.
-        // We could probably do it here but it's not clear if it has any benefits.
-        assert(varTypeIsSIMD(fieldLcl->GetType()));
+        // TODO-MIKE-Review: For now ignore volatile on promoted field stores,
+        // to avoid diffs due to old promotion code ignoring volatile as well.
+
+        if (store->IsVolatile() && (!store->GetAddr()->OperIs(GT_FIELD_ADDR) || !lcl->IsPromotedField()))
+        {
+            CanonicalizeLocalIndStore(store, addrVal);
+            return;
+        }
+
+        GenTree* value = store->GetValue();
+
+        if ((lclOffs == 0) && (lclSize == storeSize))
+        {
+            if (varTypeIsStruct(lclType) && ((storeLayout == lcl->GetLayout()) || lcl->IsIndependentPromoted()))
+            {
+                store->ChangeToLclStore(lclType, lcl, value);
+                INDEBUG(m_stmtModified = true);
+
+                return;
+            }
+
+            if ((lclType != TYP_STRUCT) && !lcl->lvDoNotEnregister)
+            {
+                store->ChangeToLclStore(lclType, lcl, value);
+                RetypeSingleFieldStructLclStore(store->AsLclStore(), value);
+
+                return;
+            }
+        }
+
+        if ((fieldSeq == nullptr) || !varTypeIsStruct(lclType))
+        {
+            fieldSeq = FieldSeqStore::NotAField();
+        }
+
+        store->ChangeToLclStoreFld(storeType, lcl, lclOffs, fieldSeq, value)->SetLayout(storeLayout, m_compiler);
+
+        m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
+
+        if (varTypeIsSmall(lclType))
+        {
+            // If LCL_STORE_FLD is used to store to a small type local then "normalize on store"
+            // isn't possible so the local has to be "normalize on load". The only way to do this
+            // is by making the local address exposed, which is a big hammer. But such an indirect
+            // store is highly unusual so it's not worth the trouble to introduce another mechanism.
+            m_compiler->lvaSetAddressExposed(lcl);
+        }
+
+        INDEBUG(m_stmtModified = true);
     }
 
-    bool PromoteLclFld(GenTreeLclFld* node, LclVarDsc* lcl)
+    void CanonicalizeLocalAddress(const Value& addrVal, GenTree* user)
     {
-        // The importer does not currently produce STRUCT LCL_FLDs.
-        assert(node->OperIs(GT_LCL_FLD) && !node->TypeIs(TYP_STRUCT));
+        assert(addrVal.IsAddress());
+        assert(addrVal.Node()->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
-        LclVarDsc* fieldLcl = FindPromotedField(lcl, node->GetLclOffs(), varTypeSize(node->GetType()));
+        GenTree*   addr = addrVal.Node();
+        LclVarDsc* lcl  = addrVal.Lcl();
 
-        if (fieldLcl == nullptr)
+        m_compiler->lvaSetAddressExposed(lcl);
+
+        if ((addrVal.Offset() > UINT16_MAX) || (addrVal.Offset() >= lcl->GetTypeSize()))
         {
-            return false;
+            // The offset is too large to store in a LCL_ADDR node, use ADD(LCL_ADDR, offset) instead.
+            addr->ChangeOper(GT_ADD);
+            addr->AsOp()->SetOp(0, m_compiler->gtNewLclAddr(lcl));
+            addr->AsOp()->SetOp(1, m_compiler->gtNewIconNode(addrVal.Offset(), addrVal.FieldSeq()));
+        }
+        else if ((addrVal.Offset() != 0) || ((addrVal.FieldSeq() != nullptr) && addrVal.FieldSeq()->IsField()))
+        {
+            addr->ChangeToLclAddr(addr->GetType(), lcl, addrVal.Offset(), addrVal.FieldSeq());
+        }
+        else
+        {
+            addr->ChangeToLclAddr(addr->GetType(), lcl);
         }
 
-        // The importer rarely produces LCL_FLDs, currently only when importing refanytype,
-        // so we can get away with handling only the trivial case when types match exactly.
-        // Otherwise we'll just DNER/P-DEP the promoted local so assert to know about it.
-        assert(fieldLcl->GetType() == node->GetType());
+        // Local address nodes never have side effects (nor any other flags, at least at this point).
+        addr->gtFlags = GTF_EMPTY;
 
-        if (fieldLcl->GetType() != node->GetType())
+        if (!user->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE))
         {
-            return false;
+            addr->SetType(TYP_I_IMPL);
         }
-
-        node->ChangeOper(GT_LCL_VAR);
-        node->AsLclVar()->SetLcl(fieldLcl);
 
         INDEBUG(m_stmtModified = true;)
-
-        return true;
     }
 
-    //------------------------------------------------------------------------
-    // FindPromotedField: Find a promoted struct field that completely overlaps
-    //     a location of specified size at the specified offset.
-    //
-    // Arguments:
-    //    lcl - the promoted local variable
-    //    offset - the location offset
-    //    size - the location size
-    //
-    // Return Value:
-    //    The overlapping promoted struct field local number or BAD_VAR_NUM if
-    //    no overlapping field exists.
-    //
+    void CanonicalizeLocalIndLoad(GenTreeIndir* load, const Value& addrVal)
+    {
+        assert(addrVal.IsAddress());
+
+        CanonicalizeLocalAddress(addrVal, load);
+
+        load->gtFlags &= GTF_IND_UNALIGNED | GTF_IND_VOLATILE;
+        load->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP;
+
+        if (load->IsVolatile())
+        {
+            load->AddSideEffects(GTF_ORDER_SIDEEFF);
+        }
+
+        INDEBUG(m_stmtModified = true;)
+    }
+
+    void CanonicalizeLocalIndStore(GenTreeIndir* store, const Value& addrVal)
+    {
+        assert(addrVal.IsAddress());
+
+        CanonicalizeLocalAddress(addrVal, store);
+
+        store->gtFlags &= GTF_IND_UNALIGNED | GTF_IND_VOLATILE;
+        store->gtFlags |= GTF_ASG | GTF_GLOB_REF | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP;
+
+        if (store->IsVolatile())
+        {
+            store->AddSideEffects(GTF_ORDER_SIDEEFF);
+        }
+
+        INDEBUG(m_stmtModified = true);
+    }
+
     LclVarDsc* FindPromotedField(LclVarDsc* lcl, unsigned offset, unsigned size) const
     {
         for (LclVarDsc* fieldLcl : m_compiler->PromotedFields(lcl))
@@ -1108,559 +1369,114 @@ private:
         return nullptr;
     }
 
-    //------------------------------------------------------------------------
-    // GetIndirSize: Return the size (in bytes) of an indirection node.
-    //
-    // Arguments:
-    //    indir - the indirection node
-    //    user - the node that uses the indirection
-    //
-    // Notes:
-    //    This returns 0 for indirection of unknown size, typically GT_DYN_BLK.
-    //    GT_IND nodes that have type TYP_STRUCT are expected to only appear
-    //    on the RHS of an assignment to DYN_BLK so they're also considered to
-    //    have unknown size.
-    //
-    unsigned GetIndirSize(GenTree* indir, GenTree* user)
+    GenTree* PromoteSingleFieldStructLclLoadReturn(LclVarDsc* lcl, GenTreeLclLoad* load, GenTreeUnOp* ret)
     {
-        assert(indir->OperIs(GT_IND, GT_OBJ, GT_BLK));
+        assert(lcl->TypeIs(TYP_STRUCT));
+        assert(lcl->GetPromotedFieldCount() == 1);
+        assert(ret->TypeIs(TYP_STRUCT));
 
-        if (indir->GetType() != TYP_STRUCT)
-        {
-            return varTypeSize(indir->GetType());
-        }
+        LclVarDsc* fieldLcl = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
 
-        assert(!indir->OperIs(GT_IND));
+        assert(lcl->GetLayout()->GetSize() == varTypeSize(fieldLcl->GetType()));
 
-        if (user->OperIs(GT_ASG) && (indir == user->AsOp()->GetOp(1)))
-        {
-            // A struct indir that is the RHS of an assignment should get its size from the LHS,
-            // in case the LHS and RHS have different types the LHS size is used in codegen.
-            // This shouldn't happen as it would mean the IL is invalid but the importer's too
-            // messed up to expect it to properly reject invalid IL.
-
-            indir = user->AsOp()->GetOp(0);
-
-            if (indir->GetType() != TYP_STRUCT)
-            {
-                return varTypeSize(indir->GetType());
-            }
-
-            // The LHS may be a LCL_VAR/LCL_FLD, these are not indirections so we need to handle them here.
-
-            switch (indir->GetOper())
-            {
-                case GT_LCL_VAR:
-                    return indir->AsLclVar()->GetLcl()->GetLayout()->GetSize();
-                case GT_LCL_FLD:
-                    return indir->AsLclFld()->GetLayout(m_compiler)->GetSize();
-                default:
-                    break;
-            }
-        }
-
-        return indir->AsBlk()->GetLayout()->GetSize();
-    }
-
-    // Change a tree that represents a local variable address
-    // to a single LCL_VAR_ADDR or LCL_FLD_ADDR node.
-    void CanonicalizeLocalAddress(const Value& val, GenTree* user)
-    {
-        assert(val.IsAddress());
-        assert(val.Node()->TypeIs(TYP_BYREF, TYP_I_IMPL));
-
-        LclVarDsc* varDsc = val.Lcl();
-
-        assert(varDsc->IsAddressExposed());
-
-        GenTree* addr = val.Node();
-
-        if ((val.Offset() > UINT16_MAX) || (val.Offset() >= varDsc->GetTypeSize()))
-        {
-            // The offset is too large to store in a LCL_FLD_ADDR node,
-            // use ADD(LCL_VAR_ADDR, offset) instead.
-            addr->ChangeOper(GT_ADD);
-            addr->AsOp()->SetOp(0, m_compiler->gtNewLclVarAddrNode(varDsc));
-            addr->AsOp()->SetOp(1, m_compiler->gtNewIconNode(val.Offset(), val.FieldSeq()));
-        }
-        else if ((val.Offset() != 0) || ((val.FieldSeq() != nullptr) && (val.FieldSeq() != FieldSeqStore::NotAField())))
-        {
-            addr->ChangeToLclAddr(addr->GetType(), varDsc, val.Offset(), val.FieldSeq());
-        }
-        else
-        {
-            addr->ChangeToLclAddr(addr->GetType(), varDsc);
-        }
-
-        // Local address nodes never have side effects (nor any other flags, at least at this point).
-        addr->gtFlags = GTF_EMPTY;
-
-        if (!user->OperIs(GT_ASG))
-        {
-            addr->SetType(TYP_I_IMPL);
-        }
+        load->SetLcl(fieldLcl);
+        load->SetType(fieldLcl->GetType());
 
         INDEBUG(m_stmtModified = true;)
-    }
 
-    void CanonicalizeLocalIndir(const Value& val)
-    {
-        assert(val.IsLocation());
-
-        GenTreeIndir* node = val.Node()->AsIndir();
-        GenTree*      addr = node->GetAddr();
-        LclVarDsc*    lcl  = val.Lcl();
-
-        m_compiler->lvaSetAddressExposed(lcl);
-
-        Value addrVal(addr);
-        addrVal.Address(lcl, val.Offset(), val.FieldSeq());
-        CanonicalizeLocalAddress(addrVal, node);
-
-        node->SetAddr(addr);
-        node->gtFlags &= GTF_IND_UNALIGNED | GTF_IND_VOLATILE;
-        node->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP;
-
-        if (node->IsVolatile())
+        if (IsMergedReturn(ret))
         {
-            node->AddSideEffects(GTF_ORDER_SIDEEFF);
+            // This is a merged return, it will be transformed into a struct
+            // copy so leave it to fgMorphCopyStruct to promote it.
+            return load;
         }
 
-        INDEBUG(m_stmtModified = true;)
-    }
+        const ReturnTypeDesc& retDesc = m_compiler->info.retDesc;
 
-    //------------------------------------------------------------------------
-    // MorphLocalIndir: Change a tree that represents an indirect access to a struct
-    //    variable to a single LCL_VAR or LCL_FLD node.
-    //
-    // Arguments:
-    //    val - a value that represents the local indirection
-    //    user - the indirection's user node
-    //
-    void MorphLocalIndir(const Value& val, GenTree* user, unsigned indirSize)
-    {
-        assert(val.IsLocation());
-
-        GenTree* indir = val.Node();
-        assert(indir->OperIs(GT_IND, GT_OBJ, GT_BLK));
-        assert(!indir->OperIs(GT_IND) || !indir->TypeIs(TYP_STRUCT));
-
-        if (val.Offset() > UINT16_MAX)
+        if (retDesc.GetRegCount() == 1)
         {
-            CanonicalizeLocalIndir(val);
-            return;
-        }
+            var_types retRegType = varActualType(retDesc.GetRegType(0));
+            ret->SetType(retRegType);
 
-        LclVarDsc* const varDsc = val.Lcl();
-
-        if (indir->AsIndir()->IsVolatile())
-        {
-            // TODO-MIKE-Review: For now ignore volatile on a FIELD that accesses a promoted field,
-            // to avoid diffs due to old promotion code ignoring volatile as well.
-
-            if (!indir->AsIndir()->GetAddr()->OperIs(GT_FIELD_ADDR) || !varDsc->IsPromotedField())
+            if (varTypeUsesFloatReg(retRegType) != varTypeUsesFloatReg(fieldLcl->GetType()))
             {
-                CanonicalizeLocalIndir(val);
-                return;
-            }
-        }
-
-        if (indir->OperIs(GT_BLK))
-        {
-            // Keep BLKs and mark any involved locals address exposed for now.
-            //
-            // CPBLK and INITBLK are rarely used (the C# compiler doesn't emit them at all).
-            // Only the VM sometimes uses CPBLK in PInvoke IL stubs, to deal with x86 ABI
-            // mismatches it seems (Windows x86 ABI can return structs in 2 registers but
-            // CLR uses a return buffer instead).
-            //
-            // TODO-MIKE-CQ: A previous implementation avoided address exposed locals, but
-            // still forced locals in memory because PInvoke IL stubs copy from a LONG local
-            // to a STRUCT local and one way or another this results in DNER/P-DEP locals.
-            // This can be avoided but it's unlikely that it's worth the effort for x86...
-
-            CanonicalizeLocalIndir(val);
-            return;
-        }
-
-        const bool isDef = user->OperIs(GT_ASG) && (user->AsOp()->GetOp(0) == indir);
-
-        var_types lclType   = varDsc->GetType();
-        var_types indirType = indir->GetType();
-
-        // A non-struct local may be accessed via a struct indir due to reinterpretation in user
-        // code or due to single field struct promotion. Reinterpretation isn't common (but it
-        // does happen - e.g. ILCompiler.Reflection.ReadyToRun.dll reinterprets array references
-        // as ImmutableArray) but promotion is quite common. If the indir is a call arg then we
-        // can simply replace it with the local variable because it doesn't really matter if it's
-        // a struct value or a primitive type value, we just need to put the value in the correct
-        // register or stack slot.
-
-        if ((val.Offset() == 0) && (indirType == TYP_STRUCT) && (lclType != TYP_STRUCT) && (lclType != TYP_BLK))
-        {
-            ClassLayout* indirLayout = indir->AsObj()->GetLayout();
-
-            switch (user->GetOper())
-            {
-                case GT_ASG:
-                    if (MorphLocalStructIndirAssignment(val, indir, indirLayout))
-                    {
-                        return;
-                    }
-                    break;
-                case GT_CALL:
-                    if (MorphLocalStructIndirCallArg(val, indir, indirLayout))
-                    {
-                        return;
-                    }
-                    break;
-                case GT_RETURN:
-                    if (MorphLocalStructIndirReturn(val, indir, indirLayout, user->AsUnOp()))
-                    {
-                        return;
-                    }
-                    break;
-                default:
-                    // Let's hope the importer doesn't produce STRUCT COMMAs again.
-                    unreached();
-            }
-        }
-
-        if (!varTypeIsStruct(lclType) && (lclType != TYP_BLK))
-        {
-            if ((val.Offset() == 0) && !varTypeIsStruct(indirType))
-            {
-                if (varTypeSize(indirType) == varTypeSize(lclType))
-                {
-                    if (isDef)
-                    {
-                        // Handle the "store" variant of the "indirect local load" cases below.
-                        // The only difference is that on store the signedness of small int types
-                        // is not relevant. If the destination local ends up being "normalize on
-                        // store" then global morph will later do the required widening.
-
-                        bool isAssignable = varTypeKind(indirType) == varTypeKind(lclType);
-
-                        if (!isAssignable && CanBitCastTo(lclType))
-                        {
-                            user->AsOp()->SetOp(1, NewBitCastNode(lclType, user->AsOp()->GetOp(1)));
-                            isAssignable = true;
-                        }
-
-                        if (isAssignable)
-                        {
-                            indir->ChangeOper(GT_LCL_VAR);
-                            indir->SetType(lclType);
-                            indir->AsLclVar()->SetLcl(varDsc);
-                            indir->gtFlags = GTF_DONT_CSE;
-                        }
-                    }
-                    else if (varTypeIsSmall(indirType) && (varTypeIsUnsigned(indirType) != varTypeIsUnsigned(lclType)))
-                    {
-                        // There's no reason to write something like `*(short*)&ushortLocal` instead of just
-                        // `(short)ushortLocal`, except that generics code can't do such casts and sometimes
-                        // uses `Unsafe.As` as a substitute.
-
-                        indir->ChangeOper(GT_CAST);
-                        indir->AsCast()->SetCastType(indirType);
-                        indir->AsCast()->SetOp(0, NewLclVarNode(lclType, varDsc));
-                        indir->gtFlags = GTF_EMPTY;
-                    }
-                    else if (varTypeKind(indirType) != varTypeKind(lclType))
-                    {
-                        // Handle the relatively common case of floating point/integer reinterpretation.
-                        // Also handle GC pointer/native int reinterpretation, some corelib tracing code
-                        // uses object references as if they're normal pointers for logging purposes.
-
-                        if (CanBitCastTo(indirType))
-                        {
-                            indir->ChangeOper(GT_BITCAST);
-                            indir->AsUnOp()->SetOp(0, NewLclVarNode(lclType, varDsc));
-                            indir->gtFlags = GTF_EMPTY;
-                        }
-                    }
-                    else
-                    {
-                        // Like in the signedess mismatch case above, it's not common to have `*(int*)&intLocal`
-                        // but such cases may arise either from fancy generic code or, more likely, due to the
-                        // inlining of primitive type methods. Turns out that having methods on primitive types,
-                        // while elegant, can cause problems as any call to such a method requires taking the
-                        // address of the primitive type local variable.
-
-                        assert((indirType == lclType) || ((indirType == TYP_BOOL) && (lclType == TYP_UBYTE)) ||
-                               ((indirType == TYP_UBYTE) && (lclType == TYP_BOOL)));
-
-                        indir->ChangeOper(GT_LCL_VAR);
-                        indir->AsLclVar()->SetLcl(varDsc);
-                        indir->gtFlags = GTF_EMPTY;
-                    }
-                }
-                else
-                {
-                    // The indir has to be smaller than the local, the "wide" indir case is handled in EscapeLocation.
-                    assert(varTypeSize(indirType) < varTypeSize(lclType));
-
-                    // Storing to a local via a smaller indirection is more difficult to handle, we need something
-                    // like ASG(lcl, OR(lcl, value)) in the integer case plus some BITCASTs or intrinsics in the
-                    // float case. CoreLib has a few cases in Vector128 & co. WithElement methods but these are
-                    // normally recognized as intrinsics so it's not worth the trouble to handle this case.
-
-                    // Loading via a smaller indirection isn't common either but this case can be easily handled
-                    // by using a CAST. There's no reason to write something like `*(short*)&intLocal` instead of
-                    // just `(short)intLocal`, except that generics code can't do such casts and sometimes uses
-                    // `Unsafe.As` as a substitute.
-
-                    if (!isDef && varTypeIsIntegral(indirType) && varTypeIsIntegral(lclType))
-                    {
-                        indir->ChangeOper(GT_CAST);
-                        indir->AsCast()->SetCastType(indirType);
-                        indir->AsCast()->SetOp(0, NewLclVarNode(lclType, varDsc));
-                        indir->gtFlags = GTF_EMPTY;
-                    }
-                }
+                ret->SetOp(0, NewBitCastNode(retRegType, load));
             }
 
-            // If we haven't been able to get rid of the indir until now then just use a LCL_FLD.
-
-            if (indir->OperIs(GT_IND, GT_OBJ))
-            {
-                ClassLayout* layout = indir->IsObj() ? indir->AsObj()->GetLayout() : nullptr;
-
-                indir->ChangeOper(GT_LCL_FLD);
-                indir->AsLclFld()->SetLcl(varDsc);
-                indir->AsLclFld()->SetLclOffs(val.Offset());
-                indir->AsLclFld()->SetLayoutNum(layout == nullptr ? 0 : m_compiler->typGetLayoutNum(layout));
-                indir->gtFlags = GTF_EMPTY;
-
-                if (isDef)
-                {
-                    indir->gtFlags |= GTF_DONT_CSE;
-
-                    if (varTypeIsSmall(varDsc->GetType()))
-                    {
-                        // If LCL_FLD is used to store to a small type local then "normalize on store"
-                        // isn't possible so the local has to be "normalize on load". The only way to
-                        // do this is by making the local address exposed which is a big hammer. But
-                        // such an indirect store is highly unusual so it's not worth the trouble to
-                        // introduce another mechanism.
-                        m_compiler->lvaSetAddressExposed(varDsc);
-                    }
-                }
-
-                m_compiler->lvaSetDoNotEnregister(varDsc DEBUGARG(Compiler::DNER_LocalField));
-            }
-
-            INDEBUG(m_stmtModified |= !indir->OperIs(GT_IND, GT_OBJ);)
-
-            return;
+            return ret->GetOp(0);
         }
 
-#ifdef FEATURE_SIMD
-        if (varTypeIsSIMD(lclType) && varDsc->lvIsUsedInSIMDIntrinsic() && indir->TypeIs(TYP_FLOAT) &&
-            (val.Offset() % 4 == 0) && (!isDef || !varDsc->IsImplicitByRefParam()) && !varDsc->lvDoNotEnregister)
+#ifdef WINDOWS_X86_ABI
+        if (retDesc.GetRegCount() == 2)
         {
-            // Recognize fields X/Y/Z/W of Vector2/3/4. These fields have type FLOAT so this is the only type
-            // we recognize here but any other type supported by GetItem/SetItem would work. But other vector
-            // types don't have fields and the only way this would be useful is if someone uses unsafe code
-            // to access the vector elements. That's not very useful as the other vector types offer element
-            // access by other means - Vector's indexer and Vector64/128/256's GetElement.
+            assert((retDesc.GetRegType(0) == TYP_INT) && (retDesc.GetRegType(1) == TYP_INT));
 
-            // TODO-MIKE-CQ: Doing this here is a bit of a problem if the local variable ends up in memory,
-            // if it is DNER for whatever reasons (we haven't determined that exactly at this point) or if
-            // it is an implicit byref param. We could produce a LCL_FLD here, without DNERing the local and
-            // let morph convert it to GetItem/SetItem or leave it alone if the local was already DNERed for
-            // other reasons. But creating a LCL_FLD without DNERing the corresponding local seems somewhat
-            // risky at the moment.
-            //
-            // Implicit byref params are a bit more complicated. We could simply skip this transform if the
-            // local is an implicit byref param but that's not always a clear improvement because of CSE.
-            // If multiple vector elements are accessed then we can have a single SIMD load and multiple
-            // GetItem to extract the elements. Otherwise we need to do a separate FLOAT load for each.
-            // Having a single load may be faster but multiple loads can result in smaller code if loads
-            // end up as memory operands on other instructions (on x86/64).
-            //
-            // Ultimately the best option may be to keep doing this here and compensate for the memory case
-            // in lowering. This is already done for GetItem but doesn't work very well. And SetItem is a
-            // bit more cumbersome to handle, though perhaps it would fit into the existing RMW lowering.
+            ret->SetType(TYP_LONG);
 
-            // TODO-MIKE-CQ: The lvIsUsedInSIMDIntrinsic check is bogus. It's really intended to block
-            // struct promotion and this transform doesn't have anything to do with that. In fact using
-            // it here hurts promotion because SIMD typed promoted fields don't have it set so accessing
-            // their X/Y/Z/W fields will just result in DNER.
-
-            if (isDef)
+            if (fieldLcl->TypeIs(TYP_SIMD8))
             {
-                indir->ChangeOper(GT_LCL_VAR);
-                indir->SetType(varDsc->GetType());
-                indir->AsLclVar()->SetLcl(varDsc);
-                indir->gtFlags = GTF_DONT_CSE;
-
-                user->AsOp()->SetOp(1,
-                                    NewInsertElement(varDsc->GetType(), val.Offset() / 4, TYP_FLOAT,
-                                                     NewLclVarNode(varDsc->GetType(), varDsc), user->AsOp()->GetOp(1)));
-                user->SetType(varDsc->GetType());
+                // TODO-MIKE-CQ: This generates rather poor code. Vector2 should be handled
+                // like DOUBLE, in codegen.
+                ret->SetOp(0, NewExtractElement(TYP_LONG, load, TYP_SIMD16, 0));
             }
             else
             {
-                indir->ChangeOper(GT_HWINTRINSIC);
-                indir->AsHWIntrinsic()->SetIntrinsic(NI_Vector128_GetElement, TYP_FLOAT, 16, 2);
-                indir->AsHWIntrinsic()->SetOp(0, NewLclVarNode(varDsc->GetType(), varDsc));
-                indir->AsHWIntrinsic()->SetOp(1, NewIntConNode(TYP_INT, val.Offset() / 4));
+                assert(fieldLcl->TypeIs(TYP_LONG, TYP_DOUBLE));
             }
 
-            INDEBUG(m_stmtModified = true;)
-
-            return;
+            return ret->GetOp(0);
         }
-#endif // FEATURE_SIMD
-
-        ClassLayout*  indirLayout = nullptr;
-        FieldSeqNode* fieldSeq    = val.FieldSeq();
-
-        if (fieldSeq == FieldSeqStore::NotAField())
-        {
-            // Normalize fieldSeq to null so we don't need to keep checking for both null and NotAField.
-            fieldSeq = nullptr;
-        }
-
-        if (!varTypeIsStruct(indir->GetType()))
-        {
-#if 0
-            // TODO-MIKE-Cleanup: This should be removed, it's VN's job to deal with such type mismatches.
-            // For now just disable it instead of fixing importer's Span::_pointer field sequence as this
-            // generates less diffs.
-
-            if (fieldSeq != nullptr)
-            {
-                // If we have an indirection node and a field sequence then they should have the same type.
-                // Otherwise it's best to forget the field sequence since the resulting LCL_FLD
-                // doesn't match a real struct field. Value numbering protects itself from such
-                // mismatches but there doesn't seem to be any good reason to generate a LCL_FLD
-                // with a mismatched field sequence only to have to ignore it later.
-
-                if (indir->GetType() !=
-                    CorTypeToVarType(m_compiler->info.compCompHnd->getFieldType(fieldSeq->GetTail()->GetFieldHandle())))
-                {
-                    fieldSeq = nullptr;
-                }
-            }
 #endif
-        }
-        else if (indir->OperIs(GT_IND))
+
+        // We either have a SIMD field that's returned in multiple registers (e.g. HFA)
+        // or perhaps the IL is invalid (e.g. struct with a single DOUBLE field returned
+        // as a Vector2 or some other 2 FLOAT field struct that is a HFA).
+        // Either way, leave it to morph to produce a FIELD_LIST in this case.
+        // We could probably do it here but it's not clear if it has any benefits.
+        assert(varTypeIsSIMD(fieldLcl->GetType()));
+
+        return load;
+    }
+
+    bool PromoteLclLoadFld(GenTreeLclLoadFld* load, LclVarDsc* lcl)
+    {
+        // The importer does not currently produce STRUCT LCL_LOAD_FLDs.
+        assert(!load->TypeIs(TYP_STRUCT));
+
+        LclVarDsc* fieldLcl = FindPromotedField(lcl, load->GetLclOffs(), varTypeSize(load->GetType()));
+
+        if (fieldLcl == nullptr)
         {
-            // Can't have STRUCT typed IND nodes here, they're only generated as BLK sources
-            // and we have been rejected BLKs earlier.
-
-            assert(varTypeIsSIMD(indir->GetType()));
+            return false;
         }
-        else
+
+        // The importer rarely produces LCL_LOAD_FLDs, currently only when importing refanytype,
+        // so we can get away with handling only the trivial case when types match exactly.
+        // Otherwise we'll just DNER/P-DEP the promoted local so assert to know about it.
+        assert(fieldLcl->GetType() == load->GetType());
+
+        if (fieldLcl->GetType() != load->GetType())
         {
-            indirLayout = indir->AsObj()->GetLayout();
-
-            assert(!indirLayout->IsBlockLayout());
-
-            if ((fieldSeq != nullptr) &&
-                (indirLayout->GetClassHandle() != GetStructFieldType(fieldSeq->GetTail()->GetFieldHandle())))
-            {
-                fieldSeq = nullptr;
-            }
+            return false;
         }
 
-        // For STRUCT locals, if the indir layout doesn't match and the local is promoted
-        // then ignore the indir layout to avoid having to make a LCL_FLD and dependent
-        // promote the local. The indir layout isn't really needed anymore, since call arg
-        // morphing uses the one from the call signature.
-
-        // The only thing other than the ABI the layout influences is GCness of stores
-        // to the local but in that case it really does make more sense to ignore the
-        // indir layout and use the local variable layout as that is the "real" one when
-        // it comes to GC. Reinterpreting a local variable in an attempt to avoid GC safe
-        // copies doesn't make a lot of sense.
-
-        // TODO-MIKE-Consider: This should work for non promoted locals as well but it's
-        // not clear if it's worth doing and safe.
-        // Avoiding LCL_FLDs may improve assertion copy propagation but on the other hand
-        // this can create more assignments with different source and destination types
-        // and it's not clear how well VN maps handles those.
-        // Also, discarding type information is not that great in general and it may be
-        // better to instead teach assertion propagation to deal with LCL_FLDs.
-
-        if ((val.Offset() == 0) && (indirType == lclType) &&
-            ((indirType != TYP_STRUCT) || (indirLayout == varDsc->GetLayout()) ||
-             (varDsc->IsPromoted() && indirLayout->GetSize() == varDsc->GetLayout()->GetSize())))
-        {
-            indir->ChangeOper(GT_LCL_VAR);
-            indir->AsLclVar()->SetLcl(varDsc);
-        }
-        else
-        {
-            indir->ChangeOper(GT_LCL_FLD);
-            indir->AsLclFld()->SetLcl(varDsc);
-            indir->AsLclFld()->SetLclOffs(val.Offset());
-            indir->AsLclFld()->SetFieldSeq(fieldSeq == nullptr ? FieldSeqStore::NotAField() : fieldSeq);
-
-            if (indirLayout != nullptr)
-            {
-                indir->AsLclFld()->SetLayout(indirLayout, m_compiler);
-            }
-
-            // Promoted struct vars aren't currently handled here so the created LCL_FLD can't be
-            // later transformed into a LCL_VAR and the variable cannot be enregistered.
-            m_compiler->lvaSetDoNotEnregister(varDsc DEBUGARG(Compiler::DNER_LocalField));
-        }
-
-        GenTreeFlags flags = GTF_EMPTY;
-
-        if (user->OperIs(GT_ASG) && (user->AsOp()->GetOp(0) == indir))
-        {
-            flags |= GTF_DONT_CSE;
-        }
-        else if (indir->TypeIs(TYP_STRUCT) && user->IsCall())
-        {
-            flags |= GTF_DONT_CSE;
-        }
-
-        indir->gtFlags = flags;
-
+        load->ChangeToLclLoad(fieldLcl->GetType(), fieldLcl);
         INDEBUG(m_stmtModified = true;)
+
+        return true;
     }
 
-    bool MorphLocalStructIndirAssignment(const Value& val, GenTree* indir, ClassLayout* indirLayout)
+    bool PromoteSingleFieldStructReturn(const Value&  addrVal,
+                                        GenTreeIndir* load,
+                                        ClassLayout*  loadLayout,
+                                        GenTreeUnOp*  ret)
     {
-        assert(val.Offset() == 0);
-        assert(indir->TypeIs(TYP_STRUCT));
-
-        LclVarDsc* lcl = val.Lcl();
-        assert(!lcl->TypeIs(TYP_STRUCT));
-
-        if (indirLayout->GetSize() == varTypeSize(lcl->GetType()))
-        {
-            indir->ChangeOper(GT_LCL_VAR);
-            indir->SetType(lcl->GetType());
-            indir->AsLclVar()->SetLcl(lcl);
-            indir->gtFlags = GTF_EMPTY;
-
-            INDEBUG(m_stmtModified = true;)
-
-            return true;
-        }
-
-        return false;
-    }
-
-    bool MorphLocalStructIndirCallArg(const Value& val, GenTree* indir, ClassLayout* indirLayout)
-    {
-        return MorphLocalStructIndirAssignment(val, indir, indirLayout);
-    }
-
-    bool MorphLocalStructIndirReturn(const Value& val, GenTree* indir, ClassLayout* indirLayout, GenTreeUnOp* ret)
-    {
-        assert(val.Offset() == 0);
-        assert(indir->OperIs(GT_OBJ) && indir->TypeIs(TYP_STRUCT));
+        assert(addrVal.Offset() == 0);
+        assert(load->OperIs(GT_IND_LOAD_OBJ) && load->TypeIs(TYP_STRUCT));
         assert(ret->OperIs(GT_RETURN) && ret->TypeIs(TYP_STRUCT));
-        assert(m_compiler->info.GetRetLayout()->GetSize() == indirLayout->GetSize());
+        assert(m_compiler->info.GetRetLayout()->GetSize() == loadLayout->GetSize());
 
-        LclVarDsc* const lcl = val.Lcl();
+        LclVarDsc* const lcl = addrVal.Lcl();
         assert(!lcl->TypeIs(TYP_STRUCT));
 
         var_types             lclType     = lcl->GetType();
@@ -1668,10 +1484,10 @@ private:
         bool                  useLcl      = false;
         var_types             bitcastType = TYP_UNDEF;
 
-        if (IsMergedReturnAssignment(ret))
+        if (IsMergedReturn(ret))
         {
             // This is a merged return, it will be transformed into a struct
-            // assignment so leave it to fgMorphCopyStruct to handle it.
+            // copy so leave it to fgMorphCopyStruct to handle it.
 
             LclVarDsc* mergedLcl = m_compiler->lvaGetDesc(m_compiler->genReturnLocal);
             assert(mergedLcl->TypeIs(TYP_STRUCT));
@@ -1679,7 +1495,7 @@ private:
             if (!mergedLcl->IsPromoted())
             {
                 // The merged return temp is a struct and it's not promoted.
-                // In general we can use a LCL_FLD to store the return value.
+                // In general we can use a LCL_STORE_FLD to store the return value.
 
                 useLcl = mergedLcl->GetLayout()->GetSize() == varTypeSize(lclType);
             }
@@ -1723,7 +1539,7 @@ private:
             // This covers the needs of single field struct promotion and reasonable
             // reinterpretation in user code. Anything else (e.g. INT local returned
             // as a 16 byte struct that needs 2 registers on linux/arm-64 is handled
-            // by creating a LCL_FLD matching the return type.
+            // by creating a LCL_LOAD_FLD matching the return type.
 
             var_types retRegType = varActualType(retDesc.GetRegType(0));
 
@@ -1757,18 +1573,14 @@ private:
         {
             assert(varTypeSize(bitcastType) <= REGSIZE_BYTES);
 
-            GenTree* addr = indir->AsObj()->GetAddr();
+            GenTree* addr = load->AsIndLoadObj()->GetAddr();
 
-            addr->ChangeOper(GT_LCL_VAR);
-            addr->SetType(lclType);
-            addr->AsLclVar()->SetLcl(lcl);
-            addr->gtFlags = GTF_EMPTY;
+            addr->ChangeToLclLoad(lclType, lcl);
 
-            indir->ChangeOper(GT_BITCAST);
-            indir->SetType(bitcastType);
-            indir->AsUnOp()->SetOp(0, addr);
-            indir->gtFlags = GTF_EMPTY;
-
+            load->ChangeOper(GT_BITCAST);
+            load->SetType(bitcastType);
+            load->AsUnOp()->SetOp(0, addr);
+            load->gtFlags = addr->GetSideEffects();
             INDEBUG(m_stmtModified = true;)
 
             return true;
@@ -1776,11 +1588,7 @@ private:
 
         if (useLcl)
         {
-            indir->ChangeOper(GT_LCL_VAR);
-            indir->SetType(lclType);
-            indir->AsLclVar()->SetLcl(lcl);
-            indir->gtFlags = GTF_EMPTY;
-
+            load->ChangeToLclLoad(lclType, lcl);
             INDEBUG(m_stmtModified = true;)
 
             return true;
@@ -1789,117 +1597,105 @@ private:
         return false;
     }
 
-    void RetypeScalarAssignment(GenTreeOp* asg, GenTree* op1, GenTree* op2)
+    void RetypeSingleFieldStructLclStore(GenTreeLclStore* store, GenTree* value)
     {
-        assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
-        assert(!op1->TypeIs(TYP_STRUCT) && !op2->TypeIs(TYP_STRUCT));
+        if (value->IsIntCon(0))
+        {
+            value = RetypeStructZeroInit(value, store->GetType());
+        }
+        else if (!value->TypeIs(TYP_STRUCT))
+        {
+            value = RetypeScalarLclStoreValue(store, value);
+        }
+        else if (GenTreeCall* call = value->IsCall())
+        {
+            value = RetypeStructCall(call, store->GetType());
+        }
+        else if (GenTreeIndLoadObj* load = value->IsIndLoadObj())
+        {
+            value = RetypeStructIndLoad(load, store->GetType());
+        }
+        else
+        {
+            value = RetypeStructLclLoad(value->AsLclVarCommon(), store->GetType());
+        }
 
-        // Both struct operands were changed to scalars, currently we only do this if the
-        // struct size matches the scalar type size and since both operands of a struct
-        // assignment are supposed to have the same struct type the resulting scalar types
+        store->SetValue(value);
+        store->SetSideEffects(value->GetSideEffects());
+
+        INDEBUG(m_stmtModified = true;)
+    }
+
+    GenTree* RetypeScalarLclStoreValue(GenTreeLclStore* store, GenTree* value)
+    {
+        assert(!store->TypeIs(TYP_STRUCT));
+        assert(value->OperIs(GT_LCL_LOAD) && !value->TypeIs(TYP_STRUCT));
+
+        // The store operand was changed to scalar, currently we only do this if the
+        // struct size matches the scalar type size and since the operand of a struct
+        // store is supposed to have the same struct type, the resulting scalar type
         // should also have the same size. It may be possible to tolerate size mismatches
         // for small int types but it's unlikely to be worth the trouble.
         //
         // TODO-MIKE-Review: The importer doesn't do proper IL validation and we may get
         // here with different struct types. Probably it doesn't matter, unless it results
         // in JIT crashes...
-        assert(varTypeSize(op1->GetType()) == varTypeSize(op2->GetType()));
-
-        // We only change a struct operand to a scalar if we access scalar locals as structs
-        // (either due to promotion or reinterpretation). Otherwise we'd simply generate
-        // struct LCL_FLDs.
-        assert(op1->OperIs(GT_LCL_VAR));
-        assert(op2->OperIs(GT_LCL_VAR));
+        assert(varTypeSize(store->GetType()) == varTypeSize(value->GetType()));
 
         // We don't allow type size changes but we don't otherwise care about the scalar
         // types so we could end up with INT/FLOAT and DOUBLE/LONG/SIMD8 mismatches.
-        if ((varTypeUsesFloatReg(op1->GetType()) != varTypeUsesFloatReg(op2->GetType())) &&
-            (varTypeSize(op1->GetType()) <= REGSIZE_BYTES))
+        if ((varTypeUsesFloatReg(store->GetType()) != varTypeUsesFloatReg(value->GetType())) &&
+            (varTypeSize(store->GetType()) <= REGSIZE_BYTES))
         {
-            asg->SetOp(1, NewBitCastNode(varActualType(op1->GetType()), op2));
-        }
-        else if (varActualType(op1->GetType()) != varActualType(op2->GetType()))
-        {
-            op2->ChangeOper(GT_LCL_FLD);
-            op2->SetType(op1->GetType());
-
-            m_compiler->lvaSetDoNotEnregister(op2->AsLclFld()->GetLcl() DEBUGARG(Compiler::DNER_LocalField));
+            return NewBitCastNode(varActualType(store->GetType()), value);
         }
 
-        asg->SetType(op1->GetType());
+        if (varActualType(store->GetType()) != varActualType(value->GetType()))
+        {
+            value->ChangeOper(GT_LCL_LOAD_FLD);
+            value->SetType(store->GetType());
+
+            m_compiler->lvaSetDoNotEnregister(value->AsLclLoadFld()->GetLcl() DEBUGARG(Compiler::DNER_LocalField));
+        }
+
+        return value;
     }
 
-    void RetypeStructAssignment(GenTreeOp* asg, GenTree* op1, GenTree* op2)
+    void RetypeMergedReturnValue(GenTreeUnOp* ret, GenTree* value, LclVarDsc* lcl)
     {
-        assert(asg->OperIs(GT_ASG) && asg->TypeIs(TYP_STRUCT));
-        assert(op1->TypeIs(TYP_STRUCT) != op2->TypeIs(TYP_STRUCT));
-
-        bool     isStructDef = op1->TypeIs(TYP_STRUCT);
-        GenTree* structOp    = isStructDef ? op1 : op2;
-        GenTree* scalarOp    = isStructDef ? op2 : op1;
-
-        // We only change a struct operand to a scalar if we access scalar locals as structs
-        // (either due to promotion or reinterpretation). Otherwise we'd simply generate
-        // struct LCL_FLDs.
-        assert(scalarOp->OperIs(GT_LCL_VAR));
-
-        var_types type = scalarOp->GetType();
-
-        if (GenTreeCall* call = structOp->IsCall())
-        {
-            structOp = RetypeStructCall(call, type);
-        }
-        else if (structOp->OperIs(GT_LCL_FLD, GT_LCL_VAR))
-        {
-            structOp = RetypeStructLocal(structOp->AsLclVarCommon(), type);
-        }
-        else
-        {
-            structOp = RetypeStructIndir(structOp->AsObj(), type);
-        }
-
-        asg->SetOp(isStructDef ? 0 : 1, structOp);
-        asg->SetType(type);
-        asg->SetSideEffects(structOp->GetSideEffects() | scalarOp->GetSideEffects());
-
-        INDEBUG(m_stmtModified = true;)
-    }
-
-    void RetypeMergedReturnStructAssignment(GenTreeUnOp* ret, LclVarDsc* lcl)
-    {
-        assert(ret->OperIs(GT_RETURN) && ret->TypeIs(TYP_STRUCT) && IsMergedReturnAssignment(ret));
+        assert(ret->OperIs(GT_RETURN) && ret->TypeIs(TYP_STRUCT) && IsMergedReturn(ret));
+        assert(ret->GetOp(0) == value);
         assert(lcl->IsPromoted() && (lcl->GetPromotedFieldCount() == 1));
 
-        GenTree*  val  = ret->GetOp(0);
         var_types type = m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0))->GetType();
 
-        if (GenTreeCall* call = val->IsCall())
+        if (value->IsIntCon(0))
         {
-            val = RetypeStructCall(call, type);
+            value = RetypeStructZeroInit(value, type);
         }
-        else if (val->IsIntegralConst(0))
+        else if (GenTreeCall* call = value->IsCall())
         {
-            val = RetypeStructZeroInit(val, type);
+            value = RetypeStructCall(call, type);
         }
-        else if (val->OperIs(GT_LCL_FLD, GT_LCL_VAR))
+        else if (GenTreeIndLoadObj* load = value->IsIndLoadObj())
         {
-            val = RetypeStructLocal(val->AsLclVarCommon(), type);
+            value = RetypeStructIndLoad(load, type);
         }
         else
         {
-            val = RetypeStructIndir(val->AsObj(), type);
+            value = RetypeStructLclLoad(value->AsLclVarCommon(), type);
         }
 
-        ret->SetOp(0, val);
         ret->SetType(type);
-        ret->SetSideEffects(val->GetSideEffects());
+        ret->SetOp(0, value);
+        ret->SetSideEffects(value->GetSideEffects());
 
         INDEBUG(m_stmtModified = true;)
     }
 
     GenTree* RetypeStructZeroInit(GenTree* zero, var_types type)
     {
-        assert(zero->IsIntegralConst(0));
+        assert(zero->IsIntCon(0));
         assert(type != TYP_STRUCT);
 
         switch (varActualType(type))
@@ -1956,6 +1752,7 @@ private:
             }
 
             call->SetType(varActualType(type));
+
             return call;
         }
 
@@ -1984,6 +1781,7 @@ private:
             };
 
             assert(type == TYP_LONG);
+
             return call;
         }
 #endif
@@ -2004,45 +1802,43 @@ private:
         return call;
     }
 
-    GenTree* RetypeStructLocal(GenTreeLclVarCommon* structLcl, var_types type)
+    GenTree* RetypeStructLclLoad(GenTreeLclVarCommon* load, var_types type)
     {
-        assert(structLcl->OperIs(GT_LCL_VAR, GT_LCL_FLD) && structLcl->TypeIs(TYP_STRUCT));
+        assert(load->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) && load->TypeIs(TYP_STRUCT));
         assert(type != TYP_STRUCT);
 
         ClassLayout* fieldLayout = nullptr;
 
-        if (GenTreeLclFld* lclFld = structLcl->IsLclFld())
+        if (GenTreeLclLoadFld* lclFld = load->IsLclLoadFld())
         {
             lclFld->SetType(type);
-            lclFld->SetFieldSeq(ExtendFieldSequence(lclFld->GetFieldSeq(), type, &fieldLayout));
             lclFld->SetLayoutNum(0);
+            lclFld->SetFieldSeq(ExtendFieldSequence(lclFld->GetFieldSeq(), type, &fieldLayout));
         }
         else
         {
-            assert(structLcl->OperIs(GT_LCL_VAR));
-
-            LclVarDsc*    lcl      = structLcl->GetLcl();
+            LclVarDsc*    lcl      = load->GetLcl();
             FieldSeqNode* fieldSeq = GetFieldSequence(lcl->GetLayout()->GetClassHandle(), type, &fieldLayout);
 
-            structLcl->ChangeToLclFld(type, lcl, 0, fieldSeq);
+            load->ChangeToLclLoadFld(type, lcl, 0, fieldSeq);
 
             m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
         }
 
         if (varTypeIsSIMD(type) && (fieldLayout != nullptr) && (fieldLayout->GetSIMDType() == type))
         {
-            structLcl->AsLclFld()->SetLayout(fieldLayout, m_compiler);
+            load->AsLclLoadFld()->SetLayout(fieldLayout, m_compiler);
         }
 
-        return structLcl;
+        return load;
     }
 
-    GenTreeIndir* RetypeStructIndir(GenTreeObj* structIndir, var_types type)
+    GenTreeIndir* RetypeStructIndLoad(GenTreeIndLoadObj* load, var_types type)
     {
-        assert(structIndir->OperIs(GT_OBJ) && structIndir->TypeIs(TYP_STRUCT));
+        assert(load->TypeIs(TYP_STRUCT));
         assert(type != TYP_STRUCT);
 
-        GenTree*     addr       = structIndir->GetAddr();
+        GenTree*     addr       = load->GetAddr();
         ClassLayout* addrLayout = nullptr;
 
         if (GenTreeFieldAddr* field = addr->IsFieldAddr())
@@ -2065,21 +1861,26 @@ private:
                 // for the sake of consistency, though at this point nothing needs it.
                 // Also, if the original address is also a FIELD_ADDR we could simply extend
                 // its field sequence.
-                structIndir->SetAddr(new (m_compiler, GT_FIELD_ADDR) GenTreeFieldAddr(addr, fieldSeq, 0));
+                load->SetAddr(new (m_compiler, GT_FIELD_ADDR) GenTreeFieldAddr(addr, fieldSeq, 0));
             }
         }
 
-        structIndir->SetOper(GT_IND);
-        structIndir->SetType(type);
+        load->SetOper(GT_IND_LOAD);
+        load->SetType(type);
 
-        return structIndir;
+        return load;
     }
 
-    bool IsMergedReturnAssignment(GenTreeUnOp* ret)
+    bool IsMergedReturn(GenTreeUnOp* ret)
     {
         assert(ret->OperIs(GT_RETURN));
 
         return (m_compiler->genReturnLocal != BAD_VAR_NUM) && ((ret->gtFlags & GTF_RET_MERGED) == 0);
+    }
+
+    var_types GetScalarFieldType(CORINFO_FIELD_HANDLE fieldHandle)
+    {
+        return CorTypeToVarType(m_compiler->info.compCompHnd->getFieldType(fieldHandle));
     }
 
     CORINFO_CLASS_HANDLE GetStructFieldType(CORINFO_FIELD_HANDLE fieldHandle)
@@ -2168,6 +1969,34 @@ private:
         return m_compiler->GetFieldSeqStore()->Append(fieldSeq, GetFieldSequence(classHandle, fieldType, fieldLayout));
     }
 
+    FieldSeqNode* ExtractVectorFieldElementFieldSeq(FieldSeqNode* fieldSeq, LclVarDsc* fieldLcl, unsigned lclOffs)
+    {
+        assert(fieldSeq->IsField());
+        assert(varTypeIsSIMD(fieldLcl->GetType()));
+
+        FieldSeqNode* elementSeq = fieldSeq->RemovePrefix(fieldLcl->GetPromotedFieldSeq());
+
+        if ((elementSeq == fieldSeq) || (elementSeq == nullptr))
+        {
+            // There was no prefix, this means that the field sequence doesn't
+            // match the promoted field sequence, ignore the field sequence.
+            return FieldSeqNode::NotAField();
+        }
+
+        if (elementSeq->GetNext() != nullptr)
+        {
+            // Vector element are scalars so they don't have fields.
+            return FieldSeqNode::NotAField();
+        }
+
+        if (m_compiler->info.compCompHnd->getFieldOffset(elementSeq->GetFieldHandle()) != lclOffs)
+        {
+            return FieldSeqNode::NotAField();
+        }
+
+        return elementSeq;
+    }
+
     static bool CanBitCastTo(var_types type)
     {
         assert(((TYP_INT <= type) && (type <= TYP_DOUBLE)) || (type == TYP_REF) || (type == TYP_BYREF));
@@ -2182,7 +2011,7 @@ private:
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     // Updates the ref count for implicit byref params.
-    // abiMakeImplicityByRefStructArgCopy checks the ref counts for implicit byref params when
+    // abiMakeImplicitlyByRefStructArgCopy checks the ref counts for implicit byref params when
     // it decides if it's legal to elide certain copies of them;
     // lvaRetypeImplicitByRefParams checks the ref counts when it decides to undo promotions.
     void UpdateImplicitByRefParamRefCounts(LclVarDsc* lcl)
@@ -2205,16 +2034,16 @@ private:
         //
         // It can be approximate, so the pattern match below need not be exhaustive.
         // But the pattern should at least subset the implicit byref cases that are
-        // handled in fgCanFastTailCall and abiMakeImplicityByRefStructArgCopy.
+        // handled in fgCanFastTailCall and abiMakeImplicitlyByRefStructArgCopy.
         //
-        // CALL(OBJ(ADDR(LCL_VAR...)))
+        // CALL(IND_LOAD_OBJ(LCL_ADDR))
 
         // TODO-MIKE-Cleanup: The OBJ check is likely useless since the importer no
         // longer wraps struct args in OBJs.
 
         if (((m_ancestors.Size() >= 3) && m_ancestors.Top(0)->OperIs(GT_LCL_ADDR) &&
-             m_ancestors.Top(1)->OperIs(GT_OBJ) && m_ancestors.Top(2)->OperIs(GT_CALL)) ||
-            ((m_ancestors.Size() >= 2) && m_ancestors.Top(0)->OperIs(GT_LCL_VAR) &&
+             m_ancestors.Top(1)->OperIs(GT_IND_LOAD_OBJ) && m_ancestors.Top(2)->OperIs(GT_CALL)) ||
+            ((m_ancestors.Size() >= 2) && m_ancestors.Top(0)->OperIs(GT_LCL_LOAD) &&
              m_ancestors.Top(0)->TypeIs(TYP_STRUCT) && m_ancestors.Top(1)->OperIs(GT_CALL)))
         {
             JITDUMP("Adding V%02u implicit-by-ref param call ref\n", lcl->GetLclNum());
@@ -2231,11 +2060,11 @@ private:
         return m_compiler->gtNewBitCastNode(type, op);
     }
 
-    GenTreeLclVar* NewLclVarNode(var_types type, LclVarDsc* lcl)
+    GenTreeLclLoad* NewLclLoad(var_types type, LclVarDsc* lcl)
     {
         assert((type == lcl->GetType()) || (varActualType(type) == varActualType(lcl->GetType())));
 
-        return m_compiler->gtNewLclvNode(lcl, type);
+        return m_compiler->gtNewLclLoad(lcl, type);
     }
 
     GenTreeIntCon* NewIntConNode(var_types type, ssize_t value)
@@ -2261,7 +2090,7 @@ private:
 // Mark locals used by SIMD intrinsics to prevent struct promotion.
 void Compiler::lvaRecordSimdIntrinsicUse(GenTree* op)
 {
-    if (op->OperIs(GT_OBJ, GT_IND))
+    if (op->OperIs(GT_IND_LOAD_OBJ, GT_IND_LOAD))
     {
         // TODO-MIKE-Review: See if this indir check is still necessary,
         // such indirs should no longer be generated or should be very rare.
@@ -2275,15 +2104,15 @@ void Compiler::lvaRecordSimdIntrinsicUse(GenTree* op)
             lvaRecordSimdIntrinsicUse(addr->AsLclAddr()->GetLcl());
         }
     }
-    else if (op->OperIs(GT_LCL_VAR))
+    else if (op->OperIs(GT_LCL_LOAD))
     {
-        lvaRecordSimdIntrinsicUse(op->AsLclVar()->GetLcl());
+        lvaRecordSimdIntrinsicUse(op->AsLclLoad()->GetLcl());
     }
 }
 
-void Compiler::lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar)
+void Compiler::lvaRecordSimdIntrinsicUse(GenTreeLclLoad* load)
 {
-    lvaRecordSimdIntrinsicUse(lclVar->GetLcl());
+    lvaRecordSimdIntrinsicUse(load->GetLcl());
 }
 
 void Compiler::lvaRecordSimdIntrinsicUse(LclVarDsc* lcl)
@@ -2291,9 +2120,9 @@ void Compiler::lvaRecordSimdIntrinsicUse(LclVarDsc* lcl)
     lcl->lvUsedInSIMDIntrinsic = true;
 }
 
-void Compiler::lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrinsic* src)
+void Compiler::lvaRecordSimdIntrinsicDef(GenTreeLclStore* store, GenTreeHWIntrinsic* src)
 {
-    lvaRecordSimdIntrinsicDef(lclVar->GetLcl(), src);
+    lvaRecordSimdIntrinsicDef(store->GetLcl(), src);
 }
 
 void Compiler::lvaRecordSimdIntrinsicDef(LclVarDsc* lcl, GenTreeHWIntrinsic* src)
@@ -2471,7 +2300,7 @@ bool StructPromotionHelper::CanPromoteStructType(CORINFO_CLASS_HANDLE typeHandle
     {
         // Single field structs can only have holes due to explicit size/layout.
         // Don't bother promoting, they're rare and a potential source of bugs
-        // (especially considering that the most commun occurence of such structs
+        // (especially considering that the most commun occurrence of such structs
         // are "fixed buffer" structs created by the C# compiler and those must
         // not be promoted).
         return false;
@@ -2671,8 +2500,8 @@ bool StructPromotionHelper::ShouldPromoteStructLocal(LclVarDsc* lcl)
 
     // TODO: Ideally we would want to consider the impact of whether the struct is
     // passed as a parameter or assigned the return value of a call. Because once promoted,
-    // struct copying is done by field by field assignment instead of a more efficient
-    // rep.stos or xmm reg based copy.
+    // struct copying is done by field by field copy instead of a more efficient rep.stos
+    // or xmm reg based copy.
 
     // TODO: If the lvRefCnt is zero and we have a struct promoted parameter we can end up
     // with an extra store of the the incoming register into the stack frame slot.
@@ -2979,10 +2808,8 @@ void StructPromotionHelper::PromoteStructLocal(LclVarDsc* lcl)
     }
 }
 
-void Compiler::fgPromoteStructs()
+void Compiler::phPromoteStructs()
 {
-    JITDUMP("*************** In fgPromoteStructs()\n");
-
     if (!opts.OptEnabled(CLFLG_STRUCTPROMOTE))
     {
         JITDUMP("  promotion opt flag not enabled\n");
@@ -3004,7 +2831,7 @@ void Compiler::fgPromoteStructs()
 #ifdef DEBUG
     if (verbose)
     {
-        printf("\nlvaTable before fgPromoteStructs\n");
+        printf("\nlvaTable before phPromoteStructs\n");
         lvaTableDump();
     }
 #endif
@@ -3038,25 +2865,17 @@ void Compiler::fgPromoteStructs()
 #ifdef DEBUG
     if (verbose)
     {
-        printf("\nlvaTable after fgPromoteStructs\n");
+        printf("\nlvaTable after phPromoteStructs\n");
         lvaTableDump();
     }
 #endif
 }
 
-//------------------------------------------------------------------------
-// fgMarkAddressExposedLocals: Traverses the entire method and marks address
-//    exposed locals.
-//
-// Notes:
-//    Trees such as IND(ADDR(LCL_VAR)), that morph is expected to fold
-//    to just LCL_VAR, do not result in the involved local being marked
-//    address exposed.
-//
-void Compiler::fgMarkAddressExposedLocals()
+// Traverses the entire method and marks address exposed locals.
+// Trees such as IND_LOAD(LCL_ADDR) are transformed to just LCL_LOAD and
+// do not result in the involved local being marked address exposed.
+void Compiler::phMarkAddressExposedLocals()
 {
-    JITDUMP("\n*************** In fgMarkAddressExposedLocals()\n");
-
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     lvaResetImplicitByRefParamsRefCount();
 #endif
@@ -3140,14 +2959,16 @@ public:
                 MorphVarargsStackParamAddr(node->AsLclAddr());
 #endif
                 return Compiler::WALK_SKIP_SUBTREES;
-            case GT_LCL_VAR:
-            case GT_LCL_FLD:
+            case GT_LCL_STORE:
+            case GT_LCL_STORE_FLD:
+            case GT_LCL_LOAD:
+            case GT_LCL_LOAD_FLD:
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
                 MorphImplicitByRefParam(node);
 #else
                 MorphVarargsStackParam(node->AsLclVarCommon());
 #endif
-                return Compiler::WALK_SKIP_SUBTREES;
+                return Compiler::WALK_CONTINUE;
             default:
                 return Compiler::WALK_CONTINUE;
         }
@@ -3165,7 +2986,7 @@ public:
             // assert(lclVarDsc->lvAddrExposed);
             // assert(lclVarDsc->lvDoNotEnregister);
 
-            // Locals referenced by GT_LCL_VAR|FLD_ADDR cannot be enregistered and currently
+            // Locals referenced by LCL_LOAD_FLD|_ADDR cannot be enregistered and currently
             // lvaRetypeImplicitByRefParams undoes promotion of such arguments. In this case
             // lvFieldCnt remains set to the number of promoted fields.
             assert((lcl->lvFieldLclStart == 0) || (lcl->lvFieldCnt != 0));
@@ -3181,15 +3002,15 @@ public:
                 GenTree* add = addr;
                 add->ChangeOper(GT_ADD);
                 add->SetType(TYP_BYREF);
-                add->AsOp()->SetOp(0, m_compiler->gtNewLclvNode(lcl, TYP_BYREF));
+                add->AsOp()->SetOp(0, m_compiler->gtNewLclLoad(lcl, TYP_BYREF));
                 add->AsOp()->SetOp(1, m_compiler->gtNewIconNode(lclOffs, fieldSeq));
                 add->gtFlags = GTF_EMPTY;
             }
             else
             {
-                addr->ChangeOper(GT_LCL_VAR);
+                addr->ChangeOper(GT_LCL_LOAD);
                 addr->SetType(TYP_BYREF);
-                addr->AsLclVar()->SetLcl(lcl);
+                addr->AsLclLoad()->SetLcl(lcl);
                 addr->gtFlags = GTF_EMPTY;
             }
 
@@ -3213,11 +3034,11 @@ public:
                 fieldSeq = m_compiler->GetFieldSeqStore()->Append(fieldSeq, addr->GetFieldSeq());
             }
 
-            // Change LCL_VAR|FLD_ADDR(paramPromotedField) into ADD(LCL_VAR<BYREF>(param), offset)
+            // Change LCL_LOAD|FLD_ADDR(paramPromotedField) into ADD(LCL_LOAD<BYREF>(param), offset)
             GenTree* add = addr;
             add->ChangeOper(GT_ADD);
             add->SetType(TYP_BYREF);
-            add->AsOp()->SetOp(0, m_compiler->gtNewLclvNode(paramLcl, TYP_BYREF));
+            add->AsOp()->SetOp(0, m_compiler->gtNewLclLoad(paramLcl, TYP_BYREF));
             add->AsOp()->SetOp(1, m_compiler->gtNewIconNode(lclOffs, fieldSeq));
             add->gtFlags = GTF_EMPTY;
 
@@ -3227,31 +3048,31 @@ public:
 
     void MorphImplicitByRefParam(GenTree* tree)
     {
-        assert(tree->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+        assert(tree->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD));
 
         GenTreeLclVarCommon* lclNode = tree->AsLclVarCommon();
         LclVarDsc*           lcl     = lclNode->GetLcl();
 
         if (lcl->IsImplicitByRefParam())
         {
-            // lvaRetypeImplicitByRefParams creates LCL_VAR nodes that reference
+            // lvaRetypeImplicitByRefParams creates LCL_LOAD nodes that reference
             // implicit byref params and are already TYP_BYREF, ignore them.
-            if (lclNode->OperIs(GT_LCL_VAR) && lclNode->TypeIs(TYP_BYREF))
+            if (lclNode->OperIs(GT_LCL_LOAD) && lclNode->TypeIs(TYP_BYREF))
             {
                 return;
             }
 
-            assert(varTypeIsStruct(lclNode->GetType()) || lclNode->OperIs(GT_LCL_FLD));
+            assert(varTypeIsStruct(lclNode->GetType()) || lclNode->OperIs(GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD));
 
             if ((lcl->lvFieldLclStart != 0) && (lcl->lvFieldCnt == 0))
             {
-                // lvaRetypeImplicitByRefParams created a new promoted struct local to represent this
-                // param. Rewrite this to refer to the new local. We should never encounter a LCL_FLD
+                // lvaRetypeImplicitByRefParams created a new promoted struct local to represent this param.
+                // Rewrite this to refer to the new local. We should never encounter a LCL_LOAD|STORE_FLD
                 // because promotion is aborted if it turns out that it is dependent.
 
                 LclVarDsc* promotedLcl = m_compiler->lvaGetDesc(lcl->lvFieldLclStart);
 
-                assert(lclNode->OperIs(GT_LCL_VAR));
+                assert(lclNode->OperIs(GT_LCL_LOAD, GT_LCL_STORE));
                 assert(varTypeIsStruct(promotedLcl->GetType()));
 
                 lclNode->SetLcl(promotedLcl);
@@ -3260,7 +3081,7 @@ public:
             {
                 GenTreeIntCon* offset = nullptr;
 
-                if (lclNode->OperIs(GT_LCL_FLD))
+                if (lclNode->OperIs(GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD))
                 {
                     unsigned      lclOffs  = lclNode->AsLclFld()->GetLclOffs();
                     FieldSeqNode* fieldSeq = lclNode->AsLclFld()->GetFieldSeq();
@@ -3271,34 +3092,46 @@ public:
                     }
                 }
 
-                GenTree* addr = m_compiler->gtNewLclvNode(lcl, TYP_BYREF);
+                GenTree* addr  = m_compiler->gtNewLclLoad(lcl, TYP_BYREF);
+                GenTree* value = nullptr;
 
                 if (offset != nullptr)
                 {
                     addr = m_compiler->gtNewOperNode(GT_ADD, TYP_BYREF, addr, offset);
                 }
 
+                if (lclNode->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
+                {
+                    value = lclNode->GetOp(0);
+                }
+
                 ClassLayout* layout = nullptr;
 
                 if (varTypeIsStruct(lclNode->GetType()))
                 {
-                    layout = lclNode->OperIs(GT_LCL_VAR) ? lcl->GetImplicitByRefParamLayout()
-                                                         : lclNode->AsLclFld()->GetLayout(m_compiler);
+                    layout = lclNode->OperIs(GT_LCL_LOAD, GT_LCL_STORE) ? lcl->GetImplicitByRefParamLayout()
+                                                                        : lclNode->AsLclFld()->GetLayout(m_compiler);
                 }
 
                 if (layout != nullptr)
                 {
-                    tree->ChangeOper(GT_OBJ);
-                    tree->AsObj()->SetLayout(layout);
-                    tree->AsObj()->SetAddr(addr);
-                    tree->AsObj()->SetKind(StructStoreKind::Invalid);
+                    tree->ChangeOper(value == nullptr ? GT_IND_LOAD_OBJ : GT_IND_STORE_OBJ);
+                    tree->AsBlk()->SetLayout(layout);
+                    tree->AsBlk()->SetAddr(addr);
+                    tree->AsBlk()->SetKind(StructStoreKind::Invalid);
                 }
                 else
                 {
-                    tree->ChangeOper(GT_IND);
+                    tree->ChangeOper(value == nullptr ? GT_IND_LOAD : GT_IND_STORE);
                 }
 
                 tree->AsIndir()->SetAddr(addr);
+
+                if (value != nullptr)
+                {
+                    tree->AsIndir()->SetValue(value);
+                }
+
                 tree->gtFlags = GTF_GLOB_REF | GTF_IND_NONFAULTING;
             }
 
@@ -3320,7 +3153,7 @@ public:
 
             lcl = m_compiler->lvaGetDesc(lclNum);
 
-            if (lclNode->OperIs(GT_LCL_FLD))
+            if (lclNode->OperIs(GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD))
             {
                 lclOffs += lclNode->AsLclFld()->GetLclOffs();
                 fieldSeq = m_compiler->GetFieldSeqStore()->Append(fieldSeq, lclNode->AsLclFld()->GetFieldSeq());
@@ -3328,13 +3161,21 @@ public:
 
             GenTreeIntCon* offset = m_compiler->gtNewIconNode(lclOffs, fieldSeq);
 
-            // Change LCL_VAR<fieldType>(paramPromotedField) into IND<fieldType>(ADD(LCL_VAR<BYREF>(param), offset))
+            // Change LCL_LOAD|STORE<fieldType>(paramPromotedField) into
+            // IND_LOAD|STORE<fieldType>(ADD(LCL_LOAD<BYREF>(param), offset))
+
+            GenTree* value = nullptr;
+
+            if (lclNode->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
+            {
+                value = lclNode->GetOp(0);
+            }
 
             if (lclNode->TypeIs(TYP_STRUCT))
             {
                 ClassLayout* layout = nullptr;
 
-                if (lclNode->OperIs(GT_LCL_FLD))
+                if (lclNode->OperIs(GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD))
                 {
                     layout = lclNode->AsLclFld()->GetLayout(m_compiler);
                 }
@@ -3343,20 +3184,26 @@ public:
                     layout = lcl->GetImplicitByRefParamLayout();
                 }
 
-                tree->ChangeOper(GT_OBJ);
-                tree->AsObj()->SetLayout(layout);
+                tree->ChangeOper(value == nullptr ? GT_IND_LOAD_OBJ : GT_IND_STORE_OBJ);
+                tree->AsBlk()->SetLayout(layout);
             }
             else
             {
-                tree->ChangeOper(GT_IND);
+                tree->ChangeOper(value == nullptr ? GT_IND_LOAD : GT_IND_STORE);
             }
 
             // TODO-MIKE-Review: Are implicit by ref params really BYREF? They should
             // have local storage, unless the JIT suddenly acquires magical powers that
             // let it elide local copies if a param is known to be not modified/aliased.
-            lclNode = m_compiler->gtNewLclvNode(lcl, TYP_BYREF);
+            lclNode = m_compiler->gtNewLclLoad(lcl, TYP_BYREF);
 
             tree->AsIndir()->SetAddr(m_compiler->gtNewOperNode(GT_ADD, TYP_BYREF, lclNode, offset));
+
+            if (value != nullptr)
+            {
+                tree->AsIndir()->SetValue(value);
+            }
+
             tree->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
 
             INDEBUG(m_stmtModified = true;)
@@ -3365,14 +3212,12 @@ public:
 #elif defined(TARGET_X86)
     void MorphVarargsStackParamAddr(GenTreeLclAddr* lclAddr)
     {
-        assert(lclAddr->OperIs(GT_LCL_ADDR));
-
         if (!IsVarargsStackParam(lclAddr->GetLcl()))
         {
             return;
         }
 
-        GenTree* base   = m_compiler->gtNewLclvNode(m_compiler->lvaVarargsBaseOfStkLcl, TYP_I_IMPL);
+        GenTree* base   = m_compiler->gtNewLclLoad(m_compiler->lvaVarargsBaseOfStkLcl, TYP_I_IMPL);
         GenTree* offset = GetVarargsStackParamOffset(lclAddr->GetLcl(), lclAddr->GetLclOffs());
         GenTree* addr   = lclAddr;
 
@@ -3386,32 +3231,45 @@ public:
 
     void MorphVarargsStackParam(GenTreeLclVarCommon* lclNode)
     {
-        assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+        assert(lclNode->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD));
 
         if (!IsVarargsStackParam(lclNode->GetLcl()))
         {
             return;
         }
 
-        GenTree* base   = m_compiler->gtNewLclvNode(m_compiler->lvaVarargsBaseOfStkLcl, TYP_I_IMPL);
+        GenTree* base   = m_compiler->gtNewLclLoad(m_compiler->lvaVarargsBaseOfStkLcl, TYP_I_IMPL);
         GenTree* offset = GetVarargsStackParamOffset(lclNode->GetLcl(), lclNode->GetLclOffs());
         GenTree* addr   = m_compiler->gtNewOperNode(GT_ADD, TYP_I_IMPL, base, offset);
+        GenTree* value  = nullptr;
         GenTree* indir  = lclNode;
+
+        if (lclNode->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
+        {
+            value = lclNode->GetOp(0);
+        }
 
         if (varTypeIsStruct(lclNode->GetType()))
         {
-            ClassLayout* layout = lclNode->OperIs(GT_LCL_VAR) ? lclNode->GetLcl()->GetLayout()
-                                                              : lclNode->AsLclFld()->GetLayout(m_compiler);
+            ClassLayout* layout = lclNode->OperIs(GT_LCL_LOAD, GT_LCL_STORE)
+                                      ? lclNode->GetLcl()->GetLayout()
+                                      : lclNode->AsLclFld()->GetLayout(m_compiler);
 
-            indir->ChangeOper(GT_OBJ);
-            indir->AsObj()->SetLayout(layout);
+            indir->ChangeOper(value == nullptr ? GT_IND_LOAD_OBJ : GT_IND_STORE_OBJ);
+            indir->AsBlk()->SetLayout(layout);
         }
         else
         {
-            indir->ChangeOper(GT_IND);
+            indir->ChangeOper(value == nullptr ? GT_IND_LOAD : GT_IND_STORE);
         }
 
         indir->AsIndir()->SetAddr(addr);
+
+        if (value != nullptr)
+        {
+            indir->AsIndir()->SetValue(value);
+        }
+
         indir->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
 
         INDEBUG(m_stmtModified = true;)
@@ -3439,7 +3297,7 @@ void LclVarDsc::AddImplicitByRefParamAnyRef()
     m_refWeight++;
 }
 
-unsigned LclVarDsc::GetImplicitByRefParamAnyRefCount()
+unsigned LclVarDsc::GetImplicitByRefParamAnyRefCount() const
 {
     assert(JitTls::GetCompiler()->lvaRefCountState == RCS_MORPH);
 
@@ -3453,7 +3311,7 @@ void LclVarDsc::AddImplicitByRefParamCallRef()
     m_refCount = m_refCount == UINT16_MAX ? UINT16_MAX : (m_refCount + 1);
 }
 
-unsigned LclVarDsc::GetImplicitByRefParamCallRefCount()
+unsigned LclVarDsc::GetImplicitByRefParamCallRefCount() const
 {
     assert(JitTls::GetCompiler()->lvaRefCountState == RCS_MORPH);
 
@@ -3492,7 +3350,7 @@ void Compiler::lvaResetImplicitByRefParamsRefCount()
 
 // Change the type of implicit byref parameters from struct to byref.
 // Also choose (based on address-exposed analysis) which struct promotions
-// of implicit byrefs to keep or discard.
+// of implicit byref params to keep or discard.
 // For those which are kept, insert the appropriate initialization code.
 // For those which are to be discarded, annotate the promoted field locals
 // so that fgMorphIndirectParams will know to rewrite their appearances.
@@ -3582,10 +3440,9 @@ void Compiler::lvaRetypeImplicitByRefParams()
                 unsigned structLclNum = structLcl->GetLclNum();
 
                 fgEnsureFirstBBisScratch();
-                GenTree* lhs  = gtNewLclvNode(structLcl, lcl->GetType());
-                GenTree* addr = gtNewLclvNode(lcl, TYP_BYREF);
-                GenTree* rhs  = gtNewObjNode(structLcl->GetType(), structLcl->GetLayout(), addr);
-                fgNewStmtAtBeg(fgFirstBB, gtNewAssignNode(lhs, rhs));
+                GenTree* addr = gtNewLclLoad(lcl, TYP_BYREF);
+                GenTree* load = gtNewIndLoadObj(structLcl->GetType(), structLcl->GetLayout(), addr);
+                fgNewStmtAtBeg(fgFirstBB, gtNewLclStore(structLcl, lcl->GetType(), load));
 
                 // Update the locals corresponding to the promoted fields.
 
@@ -3649,11 +3506,11 @@ void Compiler::fgMorphIndirectParams(Statement* stmt)
 }
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-// Clear annotations for any implicit byrefs params that struct promotion
+// Clear annotations for any implicit byref params that struct promotion
 // asked to promote. Appearances of these have now been rewritten by
 // fgMorphIndirectParams using indirections from the pointer parameter
 // or references to the promoted fields, as appropriate.
-void Compiler::lvaDemoteImplicitByRefParams()
+void Compiler::lvaDemoteImplicitByRefParams() const
 {
     if (!lvaHasImplicitByRefParams)
     {

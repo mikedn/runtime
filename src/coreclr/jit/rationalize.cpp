@@ -177,19 +177,19 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
                 BlockRange().InsertAfter(array, intCon, addr);
             }
 
-            node->ChangeOper(GT_IND);
+            node->ChangeOper(GT_IND_LOAD);
             node->AsIndir()->SetAddr(addr);
             goto IND;
         }
 
-        case GT_OBJ:
+        case GT_IND_LOAD_OBJ:
             if (varTypeIsSIMD(node->GetType()))
             {
-                node->SetOper(GT_IND);
+                node->SetOper(GT_IND_LOAD);
             }
             FALLTHROUGH;
-        case GT_IND:
-        case GT_BLK:
+        case GT_IND_LOAD:
+        case GT_IND_LOAD_BLK:
         IND:
             // Remove side effects that may have been inherited from address.
             node->gtFlags &= ~GTF_ASG;
@@ -359,7 +359,7 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
     }
 
     // Do some extra processing on top-level nodes to remove unused local reads.
-    if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    if (node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
     {
         if (use.IsDummyUse())
         {
@@ -374,7 +374,7 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
         if (node->TypeIs(TYP_LONG) ||
             // We may end up with INT LCL_VAR nodes for LONG locals, we should
             // treat them as LONG in case we want to promote the LONG local.
-            (node->TypeIs(TYP_INT) && node->OperIs(GT_LCL_VAR) && node->AsLclVar()->GetLcl()->TypeIs(TYP_LONG)))
+            (node->TypeIs(TYP_INT) && node->OperIs(GT_LCL_LOAD) && node->AsLclLoad()->GetLcl()->TypeIs(TYP_LONG)))
         {
             comp->compLongUsed = true;
         }
@@ -388,7 +388,7 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
             // Clear the GTF_ASG flag for all nodes but stores
             node->gtFlags &= ~GTF_ASG;
         }
-        else if (node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+        else if (node->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
         {
             // Local stores may have inherited GTF_EXCEPT from the value tree.
             node->gtFlags &= ~GTF_EXCEPT;

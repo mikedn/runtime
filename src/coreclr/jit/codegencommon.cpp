@@ -1313,7 +1313,7 @@ void CodeGen::dispOutgoingEHClause(unsigned num, const CORINFO_EH_CLAUSE& clause
 }
 #endif // DEBUG
 
-void CodeGen::genGCWriteBarrier(GenTreeStoreInd* store, GCInfo::WriteBarrierForm wbf)
+void CodeGen::genGCWriteBarrier(GenTreeIndStore* store, GCInfo::WriteBarrierForm wbf)
 {
     genEmitHelperCall(GCInfo::GetWriteBarrierHelperCall(wbf), EA_PTRSIZE);
 }
@@ -5184,12 +5184,12 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
 
 #ifndef TARGET_64BIT
 
-void CodeGen::GenStoreLclVarLong(GenTreeLclVar* store)
+void CodeGen::GenStoreLclVarLong(GenTreeLclStore* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR) && store->TypeIs(TYP_LONG));
+    assert(store->TypeIs(TYP_LONG));
     assert(store->GetLcl()->TypeIs(TYP_LONG) && !store->GetLcl()->IsIndependentPromoted());
 
-    GenTree*  src = store->GetOp(0);
+    GenTree*  src = store->GetValue();
     regNumber srcRegs[2];
 
     if (src->OperIs(GT_LONG))
@@ -5214,13 +5214,13 @@ void CodeGen::GenStoreLclVarLong(GenTreeLclVar* store)
 
 #endif
 
-void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
+void CodeGen::GenStoreLclVarMultiReg(GenTreeLclStore* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR) && store->IsMultiReg());
+    assert(store->IsMultiReg());
     // Store spilling is achieved by not assigning a register to the node.
     assert(!store->IsAnyRegSpill());
 
-    GenTree* src = store->GetOp(0);
+    GenTree* src = store->GetValue();
     assert(src->IsMultiRegNode());
 
     LclVarDsc* lcl = store->GetLcl();
@@ -5329,18 +5329,18 @@ bool CodeGen::IsLocalMemoryOperand(GenTree* op, StackAddrMode* am)
 
     assert(op->isContained());
 
-    if (op->OperIs(GT_LCL_FLD))
+    if (op->OperIs(GT_LCL_LOAD_FLD))
     {
-        *am = GetStackAddrMode(op->AsLclFld());
+        *am = GetStackAddrMode(op->AsLclLoadFld());
 
         return true;
     }
 
-    if (op->OperIs(GT_LCL_VAR))
+    if (op->OperIs(GT_LCL_LOAD))
     {
-        assert(op->IsRegOptional() || !op->AsLclVar()->GetLcl()->IsRegCandidate());
+        assert(op->IsRegOptional() || !op->AsLclLoad()->GetLcl()->IsRegCandidate());
 
-        *am = GetStackAddrMode(op->AsLclVar()->GetLcl(), 0);
+        *am = GetStackAddrMode(op->AsLclLoad()->GetLcl(), 0);
 
         return true;
     }

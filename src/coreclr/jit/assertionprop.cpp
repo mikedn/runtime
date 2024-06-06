@@ -338,12 +338,12 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        if (!addr->OperIs(GT_LCL_VAR, GT_LCL_USE))
+        if (!addr->OperIs(GT_LCL_LOAD, GT_LCL_USE))
         {
             return NO_ASSERTION_INDEX;
         }
 
-        LclVarDsc* lcl = addr->IsLclUse() ? addr->AsLclUse()->GetDef()->GetLcl() : addr->AsLclVar()->GetLcl();
+        LclVarDsc* lcl = addr->IsLclUse() ? addr->AsLclUse()->GetDef()->GetLcl() : addr->AsLclLoad()->GetLcl();
 
         AssertionDsc assertion;
 
@@ -513,14 +513,14 @@ private:
                 assertion.op2.dblCon.value = op2->AsDblCon()->GetValue();
                 break;
 
-            case GT_LCL_VAR:
+            case GT_LCL_LOAD:
             {
-                if (lcl == op2->AsLclVar()->GetLcl())
+                if (lcl == op2->AsLclLoad()->GetLcl())
                 {
                     return NO_ASSERTION_INDEX;
                 }
 
-                LclVarDsc* valLcl = op2->AsLclVar()->GetLcl();
+                LclVarDsc* valLcl = op2->AsLclLoad()->GetLcl();
 
                 if (lcl->GetType() != valLcl->GetType())
                 {
@@ -968,16 +968,16 @@ private:
         GenTree* op1 = node->AsOp()->GetOp(0);
         GenTree* op2 = node->AsOp()->GetOp(1);
 
-        if (op2->OperIs(GT_LCL_VAR) && op1->OperIs(GT_STORE_LCL_VAR))
+        if (op1->OperIs(GT_LCL_STORE) && op2->OperIs(GT_LCL_LOAD))
         {
-            if (op1->AsLclVar()->GetLcl() == op2->AsLclVar()->GetLcl())
+            if (op1->AsLclStore()->GetLcl() == op2->AsLclLoad()->GetLcl())
             {
-                return op1->AsLclVar()->GetOp(0);
+                return op1->AsLclStore()->GetValue();
             }
         }
-        else if (op2->OperIs(GT_LCL_USE) && op1->OperIs(GT_LCL_DEF))
+        else if (op1->OperIs(GT_LCL_DEF) && op2->OperIs(GT_LCL_USE))
         {
-            if (op2->AsLclUse()->GetDef() == op1->AsLclDef())
+            if (op1->AsLclDef() == op2->AsLclUse()->GetDef())
             {
                 return op1->AsLclDef()->GetValue();
             }
@@ -993,14 +993,14 @@ private:
         ApKind assertionKind = relop->OperIs(GT_EQ) ? OAK_EQUAL : OAK_NOT_EQUAL;
 
         // Look through any CSEs so we see the actual trees providing values, if possible.
-        // This is important for exact type assertions, which need to see the GT_IND.
+        // This is important for exact type assertions, which need to see the IND_LOAD.
         GenTree* op1 = GetCseValue(relop->GetOp(0));
         GenTree* op2 = GetCseValue(relop->GetOp(1));
 
         // TODO-MIKE-Review: This is probably bogus, old code tried to swap operands so
         // that LCL_VAR comes first. But it didn't check if the local is in SSA form and
         // then CreateEqualityAssertion rejected it.
-        if (op1->OperIs(GT_LCL_VAR) && op2->OperIs(GT_LCL_USE))
+        if (op1->OperIs(GT_LCL_LOAD) && op2->OperIs(GT_LCL_USE))
         {
             return NO_ASSERTION_INDEX;
         }
@@ -1010,14 +1010,14 @@ private:
             std::swap(op1, op2);
         }
 
-        if (op1->OperIs(GT_LCL_USE) && (op2->IsNumericConst() || op2->OperIs(GT_LCL_VAR, GT_LCL_USE)))
+        if (op1->OperIs(GT_LCL_USE) && (op2->IsNumericConst() || op2->OperIs(GT_LCL_LOAD, GT_LCL_USE)))
         {
             return CreateEqualityAssertion(op1->AsLclUse(), op2, assertionKind);
         }
 
         // TODO-MIKE-Review: This is probably bogus, in old code CreateEqualityAssertion handled
         // this case and rejected AX locals, even though those can be handled by the code below.
-        if (op1->OperIs(GT_LCL_VAR) && op2->IsNumericConst())
+        if (op1->OperIs(GT_LCL_LOAD) && op2->IsNumericConst())
         {
             return NO_ASSERTION_INDEX;
         }
@@ -1064,19 +1064,19 @@ private:
     bool IsUnaliasedLocal(GenTree* node)
     {
         return node->OperIs(GT_LCL_USE) ||
-               (node->OperIs(GT_LCL_VAR) && !node->AsLclVar()->GetLcl()->IsAddressExposed());
+               (node->OperIs(GT_LCL_LOAD) && !node->AsLclLoad()->GetLcl()->IsAddressExposed());
     }
 
     AssertionIndex GenerateJTrueReadyToRunTypeAssertions(GenTree* op1, GenTree* op2, ApKind assertionKind)
     {
         assert(compiler->opts.IsReadyToRun());
 
-        if (!op1->OperIs(GT_IND) || !op2->OperIs(GT_IND))
+        if (!op1->OperIs(GT_IND_LOAD) || !op2->OperIs(GT_IND_LOAD))
         {
             return NO_ASSERTION_INDEX;
         }
 
-        GenTree* addr = op1->AsIndir()->GetAddr();
+        GenTree* addr = op1->AsIndLoad()->GetAddr();
 
         if (!addr->TypeIs(TYP_REF) || !IsUnaliasedLocal(addr))
         {
@@ -1104,14 +1104,14 @@ private:
         assert((assertionKind == OAK_EQUAL) || (assertionKind == OAK_NOT_EQUAL));
         assert(!compiler->opts.IsReadyToRun());
 
-        if (op1->OperIs(GT_IND) || op2->OperIs(GT_IND))
+        if (op1->OperIs(GT_IND_LOAD) || op2->OperIs(GT_IND_LOAD))
         {
-            if (!op1->OperIs(GT_IND))
+            if (!op1->OperIs(GT_IND_LOAD))
             {
                 std::swap(op1, op2);
             }
 
-            GenTree* addr = op1->AsIndir()->GetAddr();
+            GenTree* addr = op1->AsIndLoad()->GetAddr();
 
             if (!addr->TypeIs(TYP_REF) || !IsUnaliasedLocal(addr) || (addr->GetConservativeVN() == NoVN))
             {
@@ -1233,14 +1233,14 @@ private:
                 assertionInfo = GenerateBoundsChkAssertion(node->AsBoundsChk());
                 break;
 
-            case GT_STORE_BLK:
-            case GT_STORE_OBJ:
-            case GT_BLK:
-            case GT_OBJ:
+            case GT_IND_STORE_BLK:
+            case GT_IND_STORE_OBJ:
+            case GT_IND_LOAD_BLK:
+            case GT_IND_LOAD_OBJ:
                 assert(node->AsBlk()->GetLayout()->GetSize() != 0);
                 FALLTHROUGH;
-            case GT_STOREIND:
-            case GT_IND:
+            case GT_IND_STORE:
+            case GT_IND_LOAD:
             case GT_NULLCHECK:
                 assertionInfo = CreateNotNullAssertion(node->AsIndir()->GetAddr());
                 break;
@@ -1297,14 +1297,14 @@ private:
         }
     }
 
-    GenTree* PropagateLclVarConst(const AssertionDsc& assertion, GenTreeLclVar* lclVar, Statement* stmt)
+    GenTree* PropagateLclVarConst(const AssertionDsc& assertion, GenTreeLclLoad* load, Statement* stmt)
     {
 #ifdef DEBUG
-        LclVarDsc* lcl = lclVar->GetLcl();
+        LclVarDsc* lcl = load->GetLcl();
 
         assert(!lcl->IsAddressExposed() && !lcl->lvIsCSE);
-        assert(lclVar->GetType() == lcl->GetType());
-        assert(!varTypeIsStruct(lclVar->GetType()));
+        assert(load->GetType() == lcl->GetType());
+        assert(!varTypeIsStruct(load->GetType()));
 
         DBEXEC(verbose, TraceAssertion("propagating", assertion);)
 #endif
@@ -1321,17 +1321,17 @@ private:
                     return nullptr;
                 }
 
-                conNode = lclVar->ChangeToDblCon(val.dblCon.value);
+                conNode = load->ChangeToDblCon(val.dblCon.value);
                 break;
 
 #ifndef TARGET_64BIT
             case O2K_CONST_LONG:
-                if (!lclVar->TypeIs(TYP_LONG))
+                if (!load->TypeIs(TYP_LONG))
                 {
                     return nullptr;
                 }
 
-                conNode = lclVar->ChangeToLngCon(val.lngCon.value);
+                conNode = load->ChangeToLngCon(val.lngCon.value);
                 break;
 #endif
 
@@ -1340,7 +1340,7 @@ private:
 
                 if (val.intCon.handleKind == HandleKind::None)
                 {
-                    conNode = lclVar->ChangeToIntCon(varActualType(lclVar->GetType()), val.intCon.value);
+                    conNode = load->ChangeToIntCon(varActualType(load->GetType()), val.intCon.value);
                 }
                 else if (compiler->opts.compReloc)
                 {
@@ -1348,7 +1348,7 @@ private:
                 }
                 else
                 {
-                    conNode = lclVar->ChangeToIntCon(TYP_I_IMPL, val.intCon.value);
+                    conNode = load->ChangeToIntCon(TYP_I_IMPL, val.intCon.value);
                     conNode->AsIntCon()->SetHandleKind(val.intCon.handleKind);
                 }
                 break;
@@ -1358,7 +1358,7 @@ private:
 
         conNode->SetVNP({val.vn, val.vn});
 
-        return UpdateTree(conNode, lclVar, stmt);
+        return UpdateTree(conNode, load, stmt);
     }
 
     GenTree* PropagateSsaUseConst(const AssertionDsc& assertion, GenTreeLclUse* use, Statement* stmt)
@@ -1465,11 +1465,9 @@ private:
         return nullptr;
     }
 
-    GenTree* PropagateLclLoad(const ASSERT_TP assertions, GenTreeLclVar* lclVar, Statement* stmt)
+    GenTree* PropagateLclLoad(const ASSERT_TP assertions, GenTreeLclLoad* load, Statement* stmt)
     {
-        assert(lclVar->OperIs(GT_LCL_VAR));
-
-        LclVarDsc* lcl = lclVar->GetLcl();
+        LclVarDsc* lcl = load->GetLcl();
 
         // TODO-MIKE-Review: It's not clear why propagation is blocked for AX and CSE temps.
         // For AX it should be perfectly fine to do it, we're using VN after all. And we'd
@@ -1487,26 +1485,25 @@ private:
         }
 
         // TODO-MIKE-Review: This likely blocks const propagation to small int locals for no reason.
-        if (lclVar->GetType() != lcl->GetType())
+        if (load->GetType() != lcl->GetType())
         {
             return nullptr;
         }
 
         // There are no struct/vector equality relops.
-        if (varTypeIsStruct(lclVar->GetType()))
+        if (varTypeIsStruct(load->GetType()))
         {
             return nullptr;
         }
 
-        const AssertionDsc* assertion =
-            FindConstAssertion(assertions, lclVar->GetConservativeVN(), lclVar->GetLcl()->GetLclNum());
+        const AssertionDsc* assertion = FindConstAssertion(assertions, load->GetConservativeVN(), lcl->GetLclNum());
 
         if (assertion == nullptr)
         {
             return nullptr;
         }
 
-        return PropagateLclVarConst(*assertion, lclVar, stmt);
+        return PropagateLclVarConst(*assertion, load, stmt);
     }
 
     GenTree* PropagateLclUse(const ASSERT_TP assertions, GenTreeLclUse* use, Statement* stmt)
@@ -1684,7 +1681,7 @@ private:
             GenTree* op1 = relop->GetOp(0);
             GenTree* op2 = relop->GetOp(1);
 
-            if (!op1->OperIs(GT_LCL_VAR, GT_LCL_USE, GT_IND))
+            if (!op1->OperIs(GT_LCL_LOAD, GT_LCL_USE, GT_IND_LOAD))
             {
                 return nullptr;
             }
@@ -1779,10 +1776,10 @@ private:
         GenTree* actualOp1 = op1->SkipComma();
         ValueNum vn;
 
-        if (actualOp1->OperIs(GT_LCL_VAR, GT_LCL_USE))
+        if (actualOp1->OperIs(GT_LCL_LOAD, GT_LCL_USE))
         {
-            LclVarDsc* lcl = actualOp1->OperIs(GT_LCL_VAR) ? actualOp1->AsLclVar()->GetLcl()
-                                                           : actualOp1->AsLclUse()->GetDef()->GetLcl();
+            LclVarDsc* lcl = actualOp1->OperIs(GT_LCL_LOAD) ? actualOp1->AsLclLoad()->GetLcl()
+                                                            : actualOp1->AsLclUse()->GetDef()->GetLcl();
 
             // TODO-MIKE-Review: Usually we can't eliminate load "normalization" casts.
             // They're usually present on every LCL_VAR use so we'll never get assertions
@@ -1936,7 +1933,7 @@ private:
             addr = addr->AsOp()->GetOp(0);
         }
 
-        if (!addr->OperIs(GT_LCL_VAR, GT_LCL_USE))
+        if (!addr->OperIs(GT_LCL_LOAD, GT_LCL_USE))
         {
             return nullptr;
         }
@@ -2015,7 +2012,7 @@ private:
         GenTree* thisArg = call->GetThisArg();
         noway_assert(thisArg != nullptr);
 
-        if (!thisArg->OperIs(GT_LCL_VAR, GT_LCL_USE))
+        if (!thisArg->OperIs(GT_LCL_LOAD, GT_LCL_USE))
         {
             return nullptr;
         }
@@ -2079,7 +2076,7 @@ private:
 
         GenTree* objectArg = call->GetArgNodeByArgNum(1);
 
-        if (!objectArg->OperIs(GT_LCL_VAR, GT_LCL_USE))
+        if (!objectArg->OperIs(GT_LCL_LOAD, GT_LCL_USE))
         {
             return nullptr;
         }
@@ -2335,24 +2332,24 @@ private:
 
         switch (node->GetOper())
         {
-            case GT_LCL_VAR:
+            case GT_LCL_LOAD:
                 if ((node->gtFlags & GTF_DONT_CSE) != 0)
                 {
                     return nullptr;
                 }
-                return PropagateLclLoad(assertions, node->AsLclVar(), stmt);
+                return PropagateLclLoad(assertions, node->AsLclLoad(), stmt);
             case GT_LCL_USE:
                 if ((node->gtFlags & GTF_DONT_CSE) != 0)
                 {
                     return nullptr;
                 }
                 return PropagateLclUse(assertions, node->AsLclUse(), stmt);
-            case GT_STOREIND:
-            case GT_STORE_OBJ:
-            case GT_STORE_BLK:
-            case GT_OBJ:
-            case GT_BLK:
-            case GT_IND:
+            case GT_IND_STORE:
+            case GT_IND_STORE_OBJ:
+            case GT_IND_STORE_BLK:
+            case GT_IND_LOAD_OBJ:
+            case GT_IND_LOAD_BLK:
+            case GT_IND_LOAD:
             case GT_NULLCHECK:
                 return PropagateIndir(assertions, node->AsIndir(), stmt);
             case GT_BOUNDS_CHECK:
@@ -3062,17 +3059,17 @@ private:
             if (tree->TypeIs(TYP_STRUCT))
             {
                 // There are no STRUCT VN constants but ZeroMap can be treated as such,
-                // at least when the value is used by an assignment, where it's valid
-                // to assign a INT 0 value to a struct variable. Also, the tree must not
+                // at least when the value is used by a store, where it's valid to
+                // assign a INT 0 value to a struct variable. Also, the tree must not
                 // have side effects, so we don't have to introduce a COMMA between the
-                // assignment and the INT 0 node (the tree is likely to be a LCL_VAR
-                // this case anyway, it can't be an indir as that won't get ZeroMap as
-                // a conservative VN).
-                // Note that we intentionally ignore the GTF_DONT_CSE flag here, it is
-                // usually set for no reason on both STRUCT assignment operands even if
-                // only the destination needs it (well, the reason was probably that you
-                // can't use a 0 everywhere a STRUCT value may be used, but we're doing
-                // this transform only for assignments anyway).
+                // store and the INT 0 node (the tree is likely to be a LCL_VAR this
+                // case anyway, it can't be an indir as that won't get ZeroMap as a
+                // conservative VN).
+                // Note that we intentionally ignore the GTF_DONT_CSE flag here, it used
+                // to be set for no reason on both operands of a struct assignment, even
+                // if only the destination needed it (well, the reason was probably that
+                // you can't use a 0 everywhere a STRUCT value may be used, but we're doing
+                // this transform only for struct copies anyway).
 
                 // TODO-MIKE-CQ: Check what happens with struct args and returns, we
                 // probably can't use a constant INT node in all cases but perhaps it
@@ -3082,13 +3079,13 @@ private:
                 if ((user != nullptr) && ((tree->gtFlags & GTF_SIDE_EFFECT) == 0) &&
                     (m_vnStore->ExtractValue(tree->GetConservativeVN()) == m_vnStore->ZeroMapVN()))
                 {
-                    if (user->OperIs(GT_STORE_OBJ, GT_STORE_BLK))
+                    if (user->OperIs(GT_IND_STORE_OBJ, GT_IND_STORE_BLK))
                     {
                         assert(user->AsIndir()->GetValue() == tree);
                         user->AsIndir()->SetValue(m_compiler->gtNewIconNode(0));
                         m_stmtMorphPending = true;
                     }
-                    else if (user->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+                    else if (user->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
                     {
                         assert(user->AsLclVarCommon()->GetOp(0) == tree);
                         user->AsOp()->SetOp(0, m_compiler->gtNewIconNode(0));
@@ -3139,13 +3136,13 @@ private:
                     // would that be.
 
                     if ((user != nullptr) && ((tree->gtFlags & GTF_SIDE_EFFECT) == 0) &&
-                        user->OperIs(GT_STOREIND, GT_STORE_OBJ, GT_STORE_LCL_FLD) && user->TypeIs(TYP_SIMD12))
+                        user->OperIs(GT_IND_STORE, GT_IND_STORE_OBJ, GT_LCL_STORE_FLD) && user->TypeIs(TYP_SIMD12))
                     {
                         GenTree* zero = m_compiler->gtNewZeroSimdHWIntrinsicNode(TYP_SIMD12, TYP_FLOAT);
 
-                        if (user->OperIs(GT_STORE_LCL_FLD))
+                        if (user->OperIs(GT_LCL_STORE_FLD))
                         {
-                            user->AsLclVarCommon()->SetOp(0, zero);
+                            user->AsLclStoreFld()->SetValue(zero);
                         }
                         else
                         {
@@ -3174,9 +3171,9 @@ private:
 
             switch (tree->GetOper())
             {
-                case GT_LCL_VAR:
+                case GT_LCL_LOAD:
                     // Don't undo constant CSEs.
-                    if (tree->AsLclVar()->GetLcl()->lvIsCSE)
+                    if (tree->AsLclLoad()->GetLcl()->lvIsCSE)
                     {
                         return Compiler::WALK_CONTINUE;
                     }

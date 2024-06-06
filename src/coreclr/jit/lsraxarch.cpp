@@ -14,8 +14,8 @@ void LinearScan::BuildNode(GenTree* tree)
 
     switch (tree->GetOper())
     {
-        case GT_LCL_VAR:
-        case GT_LCL_FLD:
+        case GT_LCL_LOAD:
+        case GT_LCL_LOAD_FLD:
             assert(!tree->AsLclVarCommon()->GetLcl()->IsRegCandidate());
 
 #ifdef FEATURE_SIMD
@@ -33,12 +33,12 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildDef(tree);
             break;
 
-        case GT_STORE_LCL_VAR:
-            BuildStoreLclVar(tree->AsLclVar());
+        case GT_LCL_STORE:
+            BuildLclStore(tree->AsLclStore());
             break;
 
-        case GT_STORE_LCL_FLD:
-            BuildStoreLclFld(tree->AsLclFld());
+        case GT_LCL_STORE_FLD:
+            BuildLclStoreFld(tree->AsLclStoreFld());
             break;
 
         case GT_START_PREEMPTGC:
@@ -262,8 +262,8 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildPutArgStk(tree->AsPutArgStk());
             break;
 
-        case GT_STORE_BLK:
-        case GT_STORE_OBJ:
+        case GT_IND_STORE_BLK:
+        case GT_IND_STORE_OBJ:
             BuildStructStore(tree->AsBlk(), tree->AsBlk()->GetKind(), tree->AsBlk()->GetLayout());
             break;
 
@@ -307,23 +307,23 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildAddrMode(tree->AsAddrMode());
             break;
 
-        case GT_STOREIND:
-            if (GCInfo::GetWriteBarrierForm(tree->AsStoreInd()) != GCInfo::WBF_NoBarrier)
+        case GT_IND_STORE:
+            if (GCInfo::GetWriteBarrierForm(tree->AsIndStore()) != GCInfo::WBF_NoBarrier)
             {
-                BuildGCWriteBarrier(tree->AsStoreInd());
+                BuildGCWriteBarrier(tree->AsIndStore());
             }
             else
             {
-                BuildStoreInd(tree->AsStoreInd());
+                BuildIndStore(tree->AsIndStore());
             }
             break;
 
         case GT_NULLCHECK:
-            BuildUse(tree->AsUnOp()->GetOp(0));
+            BuildUse(tree->AsNullCheck()->GetAddr());
             break;
 
-        case GT_IND:
-            BuildLoadInd(tree->AsIndir());
+        case GT_IND_LOAD:
+            BuildLoadInd(tree->AsIndLoad());
             break;
 
         case GT_CATCH_ARG:
@@ -410,9 +410,9 @@ void LinearScan::BuildOperandUses(GenTree* node X86_ARG(regMaskTP candidates))
     {
         BuildUse(node X86_ARG(candidates));
     }
-    else if (node->OperIs(GT_IND))
+    else if (node->OperIs(GT_IND_LOAD))
     {
-        BuildAddrUses(node->AsIndir()->GetAddr());
+        BuildAddrUses(node->AsIndLoad()->GetAddr());
     }
 }
 
@@ -478,7 +478,7 @@ void LinearScan::BuildRMWUses(GenTreeOp* node)
     // is commutative, codegen cannot reverse them.
     // TODO-XArch-CQ: This is not actually the case for all RMW binary operators, but there's
     // more work to be done to correctly reverse the operands if they involve memory
-    // operands. Also, we may need to handle more cases than GT_IND (e.g. spill temps).
+    // operands. Also, we may need to handle more cases than IND_LOAD (e.g. spill temps).
     GenTree* delayUseOperand = op2;
 
     if (node->OperIsCommutative())
@@ -717,7 +717,7 @@ void LinearScan::BuildCall(GenTreeCall* call)
             //
             // Where EAX is also used as an argument to the stub dispatch helper. Make
             // sure that the call target address is computed into EAX in this case.
-            assert(ctrlExpr->OperIs(GT_IND) && ctrlExpr->isContained());
+            assert(ctrlExpr->OperIs(GT_IND_LOAD) && ctrlExpr->isContained());
             ctrlExprCandidates = RBM_VIRTUAL_STUB_TARGET;
         }
 #endif // TARGET_X86
@@ -800,7 +800,7 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
 #ifdef UNIX_AMD64_ABI
     if (kind == StructStoreKind::UnrollRegsWB)
     {
-        BuildStructStoreUnrollRegsWB(store->AsObj(), layout);
+        BuildStructStoreUnrollRegsWB(store->AsIndStoreObj(), layout);
 
         return;
     }
@@ -809,7 +809,7 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
     GenTree* dstAddr = nullptr;
     GenTree* src;
 
-    if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
         src = store->AsLclVarCommon()->GetOp(0);
     }
@@ -840,14 +840,14 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
 
         srcAddrOrFill = src;
     }
-    else if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
+    else if (src->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ, GT_IND_LOAD_BLK))
     {
         assert(src->isContained());
         srcAddrOrFill = src->AsIndir()->GetAddr();
     }
     else
     {
-        assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+        assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
         assert(src->isContained());
     }
 
@@ -868,7 +868,7 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
         case StructStoreKind::UnrollInit:
             if ((size >= XMM_REGSIZE_BYTES)
 #ifdef TARGET_AMD64
-                && (!store->IsObj() || !layout->HasGCPtr())
+                && (!store->IsIndStoreObj() || !layout->HasGCPtr())
 #endif
                     )
             {
@@ -945,14 +945,14 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
     if ((dstAddr == nullptr) && (dstAddrRegMask != RBM_NONE))
     {
         // This is a local destination; we'll use a temp register for its address.
-        assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+        assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
         BuildInternalIntDef(store, dstAddrRegMask);
     }
 
     if ((srcAddrOrFill == nullptr) && (srcRegMask != RBM_NONE))
     {
         // This is a local source; we'll use a temp register for its address.
-        assert(src->isContained() && src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+        assert(src->isContained() && src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
         BuildInternalIntDef(store, srcRegMask);
     }
 
@@ -1027,7 +1027,7 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
     BuildKills(store, getKillSetForStructStore(kind));
 }
 
-void LinearScan::BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* layout)
+void LinearScan::BuildStructStoreUnrollRegsWB(GenTreeIndStoreObj* store, ClassLayout* layout)
 {
 #ifndef UNIX_AMD64_ABI
     unreached();
@@ -1182,24 +1182,24 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
                 ClassLayout* layout;
                 unsigned     size;
 
-                if (src->OperIs(GT_LCL_VAR))
+                if (src->OperIs(GT_LCL_LOAD))
                 {
-                    layout = src->AsLclVar()->GetLcl()->GetLayout();
+                    layout = src->AsLclLoad()->GetLcl()->GetLayout();
                     size   = roundUp(layout->GetSize(), REGSIZE_BYTES);
                 }
-                else if (src->OperIs(GT_LCL_FLD))
+                else if (src->OperIs(GT_LCL_LOAD_FLD))
                 {
-                    layout = src->AsLclFld()->GetLayout(compiler);
+                    layout = src->AsLclLoadFld()->GetLayout(compiler);
                     size   = roundUp(layout->GetSize(), REGSIZE_BYTES);
                 }
-                else if (src->IsIntegralConst(0))
+                else if (src->IsIntCon(0))
                 {
                     layout = nullptr;
                     size   = putArgStk->GetSlotCount() * REGSIZE_BYTES;
                 }
                 else
                 {
-                    layout = src->AsObj()->GetLayout();
+                    layout = src->AsIndLoadObj()->GetLayout();
                     size   = layout->GetSize();
                 }
 
@@ -1257,9 +1257,9 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
                 unreached();
         }
 
-        if (src->OperIs(GT_OBJ))
+        if (src->OperIs(GT_IND_LOAD_OBJ))
         {
-            BuildAddrUses(src->AsObj()->GetAddr());
+            BuildAddrUses(src->AsIndLoadObj()->GetAddr());
         }
 
         BuildInternalUses();
@@ -1302,9 +1302,9 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
         BuildUse(src);
     }
 #ifdef TARGET_X86
-    else if (src->OperIs(GT_IND))
+    else if (src->OperIs(GT_IND_LOAD))
     {
-        BuildAddrUses(src->AsIndir()->GetAddr());
+        BuildAddrUses(src->AsIndLoad()->GetAddr());
     }
 #endif
 }
@@ -1431,9 +1431,9 @@ void LinearScan::BuildIntrinsic(GenTreeIntrinsic* tree)
     {
         tgtPrefUse = BuildUse(op1);
     }
-    else if (op1->OperIs(GT_IND))
+    else if (op1->OperIs(GT_IND_LOAD))
     {
-        BuildAddrUses(op1->AsIndir()->GetAddr());
+        BuildAddrUses(op1->AsIndLoad()->GetAddr());
     }
 
     BuildDef(tree);
@@ -1484,9 +1484,9 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
             {
                 BuildUse(node);
             }
-            else if (node->OperIs(GT_IND))
+            else if (node->OperIs(GT_IND_LOAD))
             {
-                BuildAddrUses(node->AsIndir()->GetAddr());
+                BuildAddrUses(node->AsIndLoad()->GetAddr());
             }
             else if (node->OperIs(GT_LEA))
             {
@@ -1862,9 +1862,9 @@ void LinearScan::BuildCast(GenTreeCast* cast)
     {
         BuildUse(src X86_ARG(candidates));
     }
-    else if (src->OperIs(GT_IND))
+    else if (src->OperIs(GT_IND_LOAD))
     {
-        BuildAddrUses(src->AsIndir()->GetAddr());
+        BuildAddrUses(src->AsIndLoad()->GetAddr());
     }
 #ifdef TARGET_X86
     else if (src->OperIs(GT_LONG))
@@ -1875,7 +1875,7 @@ void LinearScan::BuildCast(GenTreeCast* cast)
 #endif
     else
     {
-        assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+        assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
     }
 
     BuildInternalUses();
@@ -1884,7 +1884,7 @@ void LinearScan::BuildCast(GenTreeCast* cast)
 
 void LinearScan::BuildLoadInd(GenTreeIndir* load)
 {
-    assert(load->OperIs(GT_IND) && !load->TypeIs(TYP_STRUCT));
+    assert(load->OperIs(GT_IND_LOAD) && !load->TypeIs(TYP_STRUCT));
 
 #ifdef FEATURE_SIMD
     if (varTypeIsSIMD(load->GetType()))
@@ -1906,9 +1906,9 @@ void LinearScan::BuildLoadInd(GenTreeIndir* load)
     BuildDef(load);
 }
 
-void LinearScan::BuildStoreInd(GenTreeIndir* store)
+void LinearScan::BuildIndStore(GenTreeIndir* store)
 {
-    assert(store->OperIs(GT_STOREIND) && !store->TypeIs(TYP_STRUCT));
+    assert(store->OperIs(GT_IND_STORE) && !store->TypeIs(TYP_STRUCT));
 
 #ifdef FEATURE_SIMD
     if (varTypeIsSIMD(store->GetType()))
@@ -1928,9 +1928,9 @@ void LinearScan::BuildStoreInd(GenTreeIndir* store)
 #endif
                 BuildAddrUses(store->GetAddr());
 
-                if (value->OperIs(GT_IND))
+                if (value->OperIs(GT_IND_LOAD))
                 {
-                    BuildAddrUses(value->AsIndir()->GetAddr());
+                    BuildAddrUses(value->AsIndLoad()->GetAddr());
                 }
 
                 BuildInternalUses();

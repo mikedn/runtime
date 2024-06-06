@@ -69,11 +69,9 @@ bool Lowering::IsImmOperand(GenTree* operand, GenTree* instr) const
 
 #endif // TARGET_ARM
 
-void Lowering::LowerStoreLclVarArch(GenTreeLclVar* store)
+void Lowering::LowerStoreLclVarArch(GenTreeLclStore* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR));
-
-    GenTree* src = store->GetOp(0);
+    GenTree* src = store->GetValue();
 
     if (GenTreeIntCon* con = src->IsIntCon())
     {
@@ -118,9 +116,9 @@ void Lowering::LowerStoreLclVarArch(GenTreeLclVar* store)
     ContainCheckStoreLcl(store);
 }
 
-void Lowering::LowerStoreIndirArch(GenTreeStoreInd* store)
+void Lowering::LowerIndStoreArch(GenTreeIndStore* store)
 {
-    ContainCheckStoreIndir(store);
+    ContainCheckIndStore(store);
 }
 
 void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
@@ -150,11 +148,11 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 
     if (src->TypeIs(TYP_STRUCT))
     {
-        if (src->OperIs(GT_OBJ))
+        if (src->OperIs(GT_IND_LOAD_OBJ))
         {
-            unsigned size = src->AsObj()->GetLayout()->GetSize();
+            unsigned size = src->AsIndLoadObj()->GetLayout()->GetSize();
 
-            ContainStructStoreAddress(putArgStk, size, src->AsObj()->GetAddr());
+            ContainStructStoreAddress(putArgStk, size, src->AsIndLoadObj()->GetAddr());
         }
 
         return;
@@ -218,11 +216,11 @@ static bool IsValidGenericLoadStoreOffset(ssize_t offset, unsigned size ARM64_AR
 
 void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree* addr)
 {
-    assert(
-        store->OperIsPutArgStkOrSplit() || (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD)) ||
-        (store->OperIs(GT_STORE_BLK, GT_STORE_OBJ) && ((store->AsBlk()->GetKind() == StructStoreKind::UnrollCopy) ||
-                                                       (store->AsBlk()->GetKind() == StructStoreKind::UnrollInit ||
-                                                        (store->AsBlk()->GetKind() == StructStoreKind::UnrollRegs)))));
+    assert(store->OperIsPutArgStkOrSplit() || store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD) ||
+           (store->OperIs(GT_IND_STORE_BLK, GT_IND_STORE_OBJ) &&
+            ((store->AsBlk()->GetKind() == StructStoreKind::UnrollCopy) ||
+             (store->AsBlk()->GetKind() == StructStoreKind::UnrollInit ||
+              (store->AsBlk()->GetKind() == StructStoreKind::UnrollRegs)))));
 
     if (addr->OperIs(GT_LCL_ADDR))
     {
@@ -761,8 +759,8 @@ void Lowering::LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* node, const Vecto
     BlockRange().InsertBefore(node, addr);
 
     GenTree* indir = node;
-    indir->ChangeOper(GT_IND);
-    indir->AsIndir()->SetAddr(addr);
+    indir->ChangeOper(GT_IND_LOAD);
+    indir->AsIndLoad()->SetAddr(addr);
 }
 
 void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
@@ -783,11 +781,11 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     {
         if (!vec->isContained())
         {
-            LclVarDsc* tempLcl = GetSimdMemoryTemp(vec->GetType());
-            GenTree*   store   = comp->gtNewStoreLclVar(tempLcl, vec->GetType(), vec);
+            LclVarDsc*       tempLcl = GetSimdMemoryTemp(vec->GetType());
+            GenTreeLclStore* store   = comp->gtNewLclStore(tempLcl, vec->GetType(), vec);
             BlockRange().InsertAfter(vec, store);
 
-            vec = comp->gtNewLclvNode(tempLcl, vec->GetType());
+            vec = comp->gtNewLclLoad(tempLcl, vec->GetType());
             BlockRange().InsertBefore(node, vec);
             node->SetOp(0, vec);
             vec->SetContained();
@@ -844,9 +842,9 @@ void Lowering::LowerHWIntrinsicSum(GenTreeHWIntrinsic* node)
 
     node->SetOp(0, vec);
     LIR::Use vecUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
-    vec = ReplaceWithLclVar(vecUse);
+    vec = ReplaceWithLclLoad(vecUse);
 
-    GenTree* mul2 = comp->gtNewLclvNode(vec->AsLclVar()->GetLcl(), TYP_SIMD16);
+    GenTree* mul2 = comp->gtNewLclLoad(vec->AsLclLoad()->GetLcl(), TYP_SIMD16);
     GenTree* addp = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AdvSimd_Arm64_AddPairwise, TYP_FLOAT, 16, vec, mul2);
     BlockRange().InsertBefore(node, mul2, addp);
     LowerNode(addp);
@@ -862,7 +860,7 @@ void Lowering::ContainCheckCallOperands(GenTreeCall* call)
     // There are no contained operands for arm.
 }
 
-void Lowering::ContainCheckStoreIndir(GenTreeStoreInd* store)
+void Lowering::ContainCheckIndStore(GenTreeIndStore* store)
 {
     ContainCheckIndir(store);
 
@@ -984,7 +982,7 @@ void Lowering::ContainCheckShiftRotate(GenTreeOp* node)
 
 void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+    assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
 
     GenTree* src = store->GetOp(0);
 
@@ -1040,11 +1038,11 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
 
     bool isContainable = IsContainableMemoryOp(src);
 
-    if (src->OperIs(GT_IND))
+    if (src->OperIs(GT_IND_LOAD))
     {
-        GenTree* addr = src->AsIndir()->GetAddr();
+        GenTree* addr = src->AsIndLoad()->GetAddr();
 
-        if (src->AsIndir()->IsVolatile())
+        if (src->AsIndLoad()->IsVolatile())
         {
             isContainable = false;
         }

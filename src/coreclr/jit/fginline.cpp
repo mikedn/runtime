@@ -29,7 +29,7 @@
 //   * the return value tree from the inlinee, if the inline succeeded
 //
 //   This replacement happens in preorder; on the postorder side of the same
-//   tree walk, we look for opportunties to devirtualize or optimize now that
+//   tree walk, we look for opportunities to devirtualize or optimize now that
 //   we know the context for the newly supplied return value tree.
 //
 //   Inline arguments may be directly substituted into the body of the inlinee
@@ -182,11 +182,11 @@ public:
 
             m_block->bbFlags |= retExpr->GetRetBlockIRSummary();
 
-            if (tree->TypeIs(TYP_BYREF) && !value->TypeIs(TYP_BYREF) && value->OperIs(GT_IND))
+            if (tree->TypeIs(TYP_BYREF) && !value->TypeIs(TYP_BYREF) && value->OperIs(GT_IND_LOAD))
             {
                 // An RVA static may have been reinterpreted as byref.
                 assert(value->TypeIs(TYP_I_IMPL));
-                JITDUMP("Updating type of the return GT_IND expression to TYP_BYREF\n");
+                JITDUMP("Updating type of the return IND_LOAD expression to TYP_BYREF\n");
 
                 value->SetType(TYP_BYREF);
             }
@@ -196,14 +196,9 @@ public:
             tree = *use = value;
 
 #if FEATURE_MULTIREG_RET
-            if (value->IsMultiRegCall() && varTypeIsStruct(value->GetType()) && user->OperIs(GT_ASG))
+            if (value->IsMultiRegCall() && varTypeIsStruct(value->GetType()) && user->OperIs(GT_LCL_STORE))
             {
-                GenTree* dst = user->AsOp()->GetOp(0);
-
-                if (dst->OperIs(GT_LCL_VAR))
-                {
-                    dst->AsLclVar()->GetLcl()->lvIsMultiRegRet = true;
-                }
+                user->AsLclStore()->GetLcl()->lvIsMultiRegRet = true;
             }
 #endif
         }
@@ -214,11 +209,11 @@ public:
         // do not check if there is a series of COMMAs. See above.
         // Importer and FlowGraph will not generate such a tree, so just
         // leaving an assert in here. This can be fixed by looking ahead
-        // when we visit GT_ASG similar to inlAttachStructInlineeToAsg.
+        // when we visit LCL_STORE, similar to inlAttachStructInlineeToAsg.
 
-        if (tree->OperIs(GT_ASG))
+        if (tree->OperIs(GT_LCL_STORE))
         {
-            GenTree* value = tree->AsOp()->GetOp(1);
+            GenTree* value = tree->AsLclStore()->GetValue();
 
             if (value->OperIs(GT_COMMA))
             {
@@ -243,8 +238,8 @@ public:
         if (tree == nullptr)
         {
             // In some (rare) cases the parent node of tree will be changed to NOP during
-            // the preorder by AttachStructInlineeToAsg because it's a self assignment of
-            // a local (e.g. JIT\Methodical\VT\callconv\_il_reljumper3 for x64 linux).
+            // the preorder by AttachStructInlineeToAsg because it's a self copy of a
+            // local (e.g. JIT\Methodical\VT\callconv\_il_reljumper3 for x64 linux).
 
             // TODO-MIKE-Cleanup: This is basically a hack. Can we return "skip subtrees"
             // from PreOrderVisit so we don't reach this case?
@@ -283,35 +278,32 @@ public:
             }
 #endif
         }
-        else if (tree->OperIs(GT_ASG))
+        else if (tree->OperIs(GT_LCL_STORE))
         {
-            // If we're assigning to a ref typed local that has one definition,
+            LclVarDsc* lcl   = tree->AsLclStore()->GetLcl();
+            GenTree*   value = tree->AsLclStore()->GetValue();
+
+            // If we're storing to a ref typed local that has one definition,
             // we may be able to sharpen the type for the local.
 
-            GenTree* lhs = tree->AsOp()->GetOp(0)->gtEffectiveVal();
-
-            if (lhs->OperIs(GT_LCL_VAR) && lhs->TypeIs(TYP_REF) && lhs->AsLclVar()->GetLcl()->lvSingleDef)
+            if (tree->TypeIs(TYP_REF) && lcl->lvSingleDef)
             {
                 bool                 isExact   = false;
                 bool                 isNonNull = false;
-                CORINFO_CLASS_HANDLE newClass =
-                    m_compiler->gtGetClassHandle(tree->AsOp()->GetOp(1), &isExact, &isNonNull);
+                CORINFO_CLASS_HANDLE newClass  = m_compiler->gtGetClassHandle(value, &isExact, &isNonNull);
 
                 if (newClass != NO_CLASS_HANDLE)
                 {
-                    m_compiler->lvaUpdateClass(lhs->AsLclVar()->GetLcl(), newClass, isExact);
+                    m_compiler->lvaUpdateClass(lcl, newClass, isExact);
                 }
             }
 
-            // If we created a self-assignment (say because we are sharing return spill temps)
+            // If we created a self-copy (say because we are sharing return spill temps)
             // we can remove it.
-            GenTree* dst = tree->AsOp()->GetOp(0);
-            GenTree* src = tree->AsOp()->GetOp(1);
 
-            if (dst->OperIs(GT_LCL_VAR) && src->OperIs(GT_LCL_VAR) &&
-                (dst->AsLclVar()->GetLcl() == src->AsLclVar()->GetLcl()))
+            if (value->OperIs(GT_LCL_LOAD) && (lcl == value->AsLclLoad()->GetLcl()))
             {
-                JITDUMPTREE(tree, "Removing self-assignment:");
+                JITDUMPTREE(tree, "Removing self-copy:");
                 tree->ChangeToNothingNode();
             }
         }
@@ -786,18 +778,16 @@ void Compiler::inlPostInlineFailureCleanup(const InlineInfo* inlineInfo)
         const InlArgInfo& argInfo = inlineInfo->ilArgInfo[i];
 
         // In some cases we use existing call arg nodes inside the inlinee body.
-        // The inlinee compiler may change these from LCL_VAR to LCL_ADDR,
+        // The inlinee compiler may change these from LCL_LOAD to LCL_ADDR,
         // we need to revert this change if inlining failed.
 
         if (argInfo.argIsUnaliasedLclVar && !argInfo.paramIsAddressTaken && !argInfo.paramHasStores)
         {
-            if (!argInfo.argNode->OperIs(GT_LCL_VAR))
+            if (!argInfo.argNode->OperIs(GT_LCL_LOAD))
             {
                 assert(argInfo.argNode->AsLclAddr()->GetLcl() == argInfo.paramLcl);
 
-                argInfo.argNode->SetOper(GT_LCL_VAR);
-                argInfo.argNode->AsLclVar()->SetLcl(argInfo.paramLcl);
-                argInfo.argNode->SetType(argInfo.argType);
+                argInfo.argNode->ChangeToLclLoad(argInfo.argType, argInfo.paramLcl);
             }
         }
     }
@@ -1100,33 +1090,27 @@ bool Compiler::inlImportReturn(Importer&            importer,
 
     if (LclVarDsc* lcl = inlineInfo->retSpillTempLcl)
     {
-        var_types lclType = lcl->GetType();
-        GenTree*  dest    = gtNewLclvNode(lcl, lclType);
-        GenTree*  asg;
+        GenTree* store = gtNewLclStore(lcl, lcl->GetType(), retExpr);
 
         if (varTypeIsStruct(retExpr->GetType()))
         {
-            asg = importer.impAssignStruct(dest, retExpr, Importer::CHECK_SPILL_NONE);
-        }
-        else
-        {
-            asg = gtNewAssignNode(dest, retExpr);
+            store = importer.impAssignStruct(store, retExpr, Importer::CHECK_SPILL_NONE);
         }
 
-        importer.impAppendTree(asg, Importer::CHECK_SPILL_NONE);
+        importer.impSpillNoneAppendTree(store);
 
         if (inlineInfo->retExpr == nullptr)
         {
-            retExpr = gtNewLclvNode(lcl, lclType);
+            retExpr = gtNewLclLoad(lcl, lcl->GetType());
         }
         else if (inlineInfo->iciCall->HasRetBufArg())
         {
-            assert(inlineInfo->retExpr->OperIs(GT_ASG));
-            assert(inlineInfo->retExpr->AsOp()->GetOp(1)->AsLclVar()->GetLcl() == lcl);
+            assert(inlineInfo->retExpr->OperIs(GT_IND_STORE_OBJ, GT_IND_STORE));
+            assert(inlineInfo->retExpr->AsIndir()->GetValue()->AsLclLoad()->GetLcl() == lcl);
         }
         else
         {
-            assert(inlineInfo->retExpr->AsLclVar()->GetLcl() == lcl);
+            assert(inlineInfo->retExpr->AsLclLoad()->GetLcl() == lcl);
         }
     }
 
@@ -1139,10 +1123,10 @@ bool Compiler::inlImportReturn(Importer&            importer,
             // to the return buffer, that seems like an unnecessary copy.
             // Also, what happens if the return address arg has side effects?
 
-            GenTree* retBufAddr  = gtCloneExpr(inlineInfo->iciCall->gtCallArgs->GetNode());
-            GenTree* retBufIndir = gtNewObjNode(typGetObjLayout(retExprClass), retBufAddr);
+            GenTree*            retBufAddr  = gtCloneExpr(inlineInfo->iciCall->gtCallArgs->GetNode());
+            GenTreeIndStoreObj* retBufStore = gtNewIndStoreObj(typGetObjLayout(retExprClass), retBufAddr, retExpr);
 
-            retExpr = importer.impAssignStruct(retBufIndir, retExpr, Importer::CHECK_SPILL_ALL);
+            retExpr = importer.impAssignStruct(retBufStore, retExpr, Importer::CHECK_SPILL_ALL);
         }
 
         JITDUMPTREE(retExpr, "Inliner return expression:\n");
@@ -1480,9 +1464,9 @@ bool Compiler::inlAnalyzeInlineeArg(InlineInfo* inlineInfo, unsigned argNum)
 
         JITDUMP("is constant");
     }
-    else if (argInfo.argNode->OperIs(GT_LCL_VAR))
+    else if (argInfo.argNode->OperIs(GT_LCL_LOAD))
     {
-        LclVarDsc* lcl = argInfo.argNode->AsLclVar()->GetLcl();
+        LclVarDsc* lcl = argInfo.argNode->AsLclLoad()->GetLcl();
 
         if (!lcl->lvHasLdAddrOp)
         {
@@ -1589,7 +1573,7 @@ typeInfo InlineInfo::GetParamTypeInfo(unsigned ilArgNum) const
 
 bool InlineInfo::IsThisParam(GenTree* tree) const
 {
-    return tree->OperIs(GT_LCL_VAR) && (ilArgCount > 0) && (tree->AsLclVar()->GetLcl() == ilArgInfo[0].paramLcl) &&
+    return tree->OperIs(GT_LCL_LOAD) && (ilArgCount > 0) && (tree->AsLclLoad()->GetLcl() == ilArgInfo[0].paramLcl) &&
            ilArgInfo[0].paramIsThis;
 }
 
@@ -1853,9 +1837,9 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
 
         LclVarDsc* lcl;
 
-        if (argNode->OperIs(GT_LCL_VAR))
+        if (argNode->OperIs(GT_LCL_LOAD))
         {
-            lcl = argNode->AsLclVar()->GetLcl();
+            lcl = argNode->AsLclLoad()->GetLcl();
 
             // The arg node shouldn't have any flags. The importer may change it to LCL_ADDR
             // and remove all flags. If inlining is aborted then we won't be able to restore
@@ -1887,7 +1871,7 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
                 paramType = varActualType(paramType);
             }
 
-            argNode = gtNewLclvNode(lcl, paramType);
+            argNode = gtNewLclLoad(lcl, paramType);
         }
 
         argInfo.paramLcl = lcl;
@@ -1899,7 +1883,7 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
     {
         // We already allocated a temp for this argument, use it.
 
-        argNode = gtNewLclvNode(argInfo.paramLcl, varActualType(argInfo.paramType));
+        argNode = gtNewLclLoad(argInfo.paramLcl, varActualType(argInfo.paramType));
 
         // This is the second or later use of the this argument,
         // so we have to use the temp (instead of the actual arg).
@@ -1973,14 +1957,14 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
     if (varTypeIsStruct(argInfo.paramType) || argInfo.argHasSideEff || argInfo.argHasGlobRef ||
         argInfo.paramIsAddressTaken || argInfo.paramHasStores)
     {
-        argNode = gtNewLclvNode(tmpLcl, varActualType(argInfo.paramType));
+        argNode = gtNewLclLoad(tmpLcl, varActualType(argInfo.paramType));
     }
     else
     {
         // Allocate a large LCL_VAR node so we can replace it with any
         // other node if it turns out to be single use.
 
-        argNode = gtNewLclVarLargeNode(tmpLcl, varActualType(argInfo.paramType));
+        argNode = gtNewLclLoadLarge(tmpLcl, varActualType(argInfo.paramType));
 
         // Record argNode as the very first use of this argument.
         // If there are no further uses of the arg, we may be
@@ -2295,6 +2279,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
         GenTree*          argNode = argInfo.argNode;
 
         // MKREFANY args currently fail inlining, RET_EXPR should have been replaced already.
+        // The code below does not handle the initialization of an inlinee param from MKREFANY.
         assert(!argNode->OperIs(GT_MKREFANY, GT_RET_EXPR));
 
         if ((argInfo.paramSingleUse != nullptr) && ((argInfo.paramSingleUse->gtFlags & GTF_VAR_CLONED) == 0))
@@ -2305,11 +2290,11 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
             // in the inlinee. This offers an opportunity to avoid a temp and just use the
             // original argument tree.
             //
-            // It's possible for additional uses of the agument to appear without inlUseArg
+            // It's possible for additional uses of the argument to appear without inlUseArg
             // being called (e.g. when handling isinst or dup) in which case this replacement
-            // cannot be done. This relies on GTF_VAR_CLONED being set on LCL_VARs when they
+            // cannot be done. This relies on GTF_VAR_CLONED being set on LCL_LOADs when they
             // are cloned to detect such cases, that means the importer is expected to not
-            // "manually" clone LCL_VARs by doing gtNewLclvNode(existingLcl->GetLclNum()...).
+            // "manually" clone LCL_LOADs by doing gtNewLclLoad(existingLcl...).
 
             assert(!varTypeIsStruct(argNode->GetType()) && !argInfo.argHasGlobRef && !argInfo.argHasSideEff &&
                    !argInfo.paramIsAddressTaken && !argInfo.paramHasStores);
@@ -2332,30 +2317,32 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
         if (argInfo.paramHasLcl)
         {
-            GenTreeLclVar* dst = gtNewLclvNode(argInfo.paramLcl, argInfo.paramType);
-            GenTree*       asg;
+            GenTree* store = nullptr;
 
-            if (argInfo.paramType != TYP_STRUCT)
+            if (varTypeIsStruct(argInfo.paramType))
             {
-                asg = gtNewAssignNode(dst, argNode);
+                // TODO-MIKE-Review: This looks like dead code. The importer always spills
+                // struct calls that require a return buffer. And it looks like this results
+                // in unnecessary struct copying.
+                store = inlStoreCallWithRetBuf(argInfo.paramLcl, argInfo.paramType, argNode);
+            }
 
+            if (store == nullptr)
+            {
+#ifdef FEATURE_SIMD
                 if (varTypeIsSIMD(argInfo.paramType))
                 {
-                    gtInitStructCopyAsg(asg->AsOp());
+                    if (GenTreeHWIntrinsic* hwi = argNode->IsHWIntrinsic())
+                    {
+                        lvaRecordSimdIntrinsicDef(argInfo.paramLcl, hwi);
+                    }
                 }
-            }
-            else
-            {
-                // The argument cannot be MKREFANY because TypedReference parameters block
-                // inlining. That's probably an unnecessary limitation but who cares about
-                // TypedReference? inlAssignStruct does not support MKREFANY.
+#endif
 
-                assert(!argNode->OperIs(GT_MKREFANY));
-
-                asg = inlAssignStruct(dst, argNode);
+                store = gtNewLclStore(argInfo.paramLcl, argInfo.paramType, argNode);
             }
 
-            Statement* stmt = gtNewStmt(asg, inlineInfo->iciStmt->GetILOffsetX());
+            Statement* stmt = gtNewStmt(store, inlineInfo->iciStmt->GetILOffsetX());
             stmt->SetInlineContext(inlineInfo->iciStmt->GetInlineContext());
             fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
             afterStmt = stmt;
@@ -2370,7 +2357,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
         {
             JITDUMP("Argument %u is invariant/unaliased local\n", argNum);
 
-            assert(argNode->OperIsConst() || argNode->OperIs(GT_LCL_VAR) || impIsAddressInLocal(argNode));
+            assert(argNode->OperIsConst() || argNode->OperIs(GT_LCL_LOAD) || impIsAddressInLocal(argNode));
             assert(!argInfo.paramIsAddressTaken && !argInfo.paramHasStores && !argInfo.argHasGlobRef);
 
             continue;
@@ -2437,9 +2424,9 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
             GenTree* sideEffects = nullptr;
 
-            if (argNode->OperIs(GT_OBJ))
+            if (argNode->OperIs(GT_IND_LOAD_OBJ))
             {
-                GenTree* addr = argNode->AsObj()->GetAddr();
+                GenTree* addr = argNode->AsIndLoadObj()->GetAddr();
 
                 if (fgAddrCouldBeNull(addr))
                 {
@@ -2482,7 +2469,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
         {
             // BOX doesn't have side effects and can be removed and there's
             // more code associated with it that could be removed as well.
-            gtTryRemoveBoxUpstreamEffects(box);
+            gtTryRemoveBoxUpstreamEffects(box, BR_REMOVE_AND_NARROW);
 
             continue;
         }
@@ -2491,33 +2478,60 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
     return afterStmt;
 }
 
-GenTree* Compiler::inlAssignStruct(GenTreeLclVar* dest, GenTree* src)
+GenTree* Compiler::inlStoreCallWithRetBuf(LclVarDsc* dest, var_types type, GenTree* value)
 {
-    assert(dest->OperIs(GT_LCL_VAR));
-    assert((src->TypeIs(TYP_STRUCT) && src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_OBJ, GT_CALL, GT_RET_EXPR)) ||
-           varTypeIsSIMD(src->GetType()));
+    assert((value->TypeIs(TYP_STRUCT) &&
+            value->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_IND_LOAD_OBJ, GT_CALL, GT_RET_EXPR)) ||
+           varTypeIsSIMD(value->GetType()));
 
     // TODO-MIKE-Cleanup: Share code with impAssignStruct, the main difference is that
-    // impAssignStruct supports MKREFANY by appending a separate assignment statement
-    // for one of refany's field. We could probably just generate a COMMA with the 2
-    // assignements instead.
+    // impAssignStruct supports MKREFANY by appending a separate store statement for
+    // one of refany's field. We could probably just generate a COMMA with the 2 stores
+    // instead.
     // On the other hand, can we get calls with return buffer here? If not, then there's
     // not much left in this function, only the lvIsMultiRegRet that may be also redundant.
 
-    // Handle calls that return structs by reference - the destination address
-    // is passed to the call as the return buffer address and no assignment is
-    // generated.
+    // Handle calls that return structs by reference - the destination address is
+    // passed to the call as the return buffer address and no store is generated.
 
-    if (GenTreeCall* call = src->IsCall())
+    if (GenTreeCall* call = value->IsCall())
     {
         if (call->TreatAsHasRetBufArg())
         {
-            impAssignCallWithRetBuf(dest, call);
+            impAddCallRetBufAddrArg(call, gtNewLclAddr(dest, TYP_I_IMPL));
 
             return call;
         }
+
+#if FEATURE_MULTIREG_RET
+#ifndef UNIX_AMD64_ABI
+        if (call->HasMultiRegRetVal())
+#endif
+        {
+            // If the struct is returned in multiple registers we need to set lvIsMultiRegRet
+            // on the destination local variable.
+
+            // TODO-1stClassStructs: Eliminate this pessimization when we can more generally
+            // handle multireg returns.
+
+            // TODO-MIKE-Cleanup: Why is lvIsMultiRegRet set unconditionally
+            // for UNIX_AMD64_ABI?!
+            // Well, because MultiRegRet doesn't really have much to do with
+            // multiple registers. The problem is that returning a struct in
+            // one or multiple registers results in dependent promotion if
+            // registers and promoted fields do not match. So it makes sense
+            // to block promotion if the struct is returned in a single reg
+            // but it has more than one field.
+            // At the same time, this shouldn't be needed if the struct is
+            // returned in a single register and has a single field.
+            // But what about ARMARCH?!
+            // Oh well, the usual mess.
+
+            dest->lvIsMultiRegRet = true;
+        }
+#endif
     }
-    else if (GenTreeRetExpr* retExpr = src->IsRetExpr())
+    else if (GenTreeRetExpr* retExpr = value->IsRetExpr())
     {
         GenTreeCall* call = retExpr->GetCall();
 
@@ -2525,50 +2539,14 @@ GenTree* Compiler::inlAssignStruct(GenTreeLclVar* dest, GenTree* src)
 
         if (call->TreatAsHasRetBufArg())
         {
-            impAssignCallWithRetBuf(dest, call);
+            impAddCallRetBufAddrArg(call, gtNewLclAddr(dest, TYP_I_IMPL));
             retExpr->SetType(TYP_VOID);
 
             return retExpr;
         }
     }
 
-    // In all other cases we create and return a struct assignment node.
-
-    LclVarDsc* lcl = dest->GetLcl();
-
-#if FEATURE_MULTIREG_RET
-#ifdef UNIX_AMD64_ABI
-    if (src->OperIs(GT_CALL))
-#else
-    if (src->OperIs(GT_CALL) && src->AsCall()->HasMultiRegRetVal())
-#endif
-    {
-        // If the struct is returned in multiple registers we need to set lvIsMultiRegRet
-        // on the destination local variable.
-
-        // TODO-1stClassStructs: Eliminate this pessimization when we can more generally
-        // handle multireg returns.
-
-        // TODO-MIKE-Cleanup: Why is lvIsMultiRegRet set unconditionally
-        // for UNIX_AMD64_ABI?!
-        // Well, because MultiRegRet doesn't really have much to do with
-        // multiple registers. The problem is that returning a struct in
-        // one or multiple registers results in dependent promotion if
-        // registers and promoted fields do not match. So it makes sense
-        // to block promotion if the struct is returned in a single reg
-        // but it has more than one field.
-        // At the same time, this shouldn't be needed if the struct is
-        // returned in a single register and has a single field.
-        // But what about ARMARCH?!
-        // Oh well, the usual mess.
-
-        lcl->lvIsMultiRegRet = true;
-    }
-#endif
-
-    GenTreeOp* asgNode = gtNewAssignNode(dest, src);
-    gtInitStructCopyAsg(asgNode);
-    return asgNode;
+    return nullptr;
 }
 
 bool Compiler::inlCanDiscardArgSideEffects(GenTree* argNode)
@@ -2586,7 +2564,7 @@ bool Compiler::inlCanDiscardArgSideEffects(GenTree* argNode)
         GenTree* op2 = argNode->AsOp()->GetOp(1);
 
         if (op1->IsCall() && ((op1->AsCall()->gtCallMoreFlags & GTF_CALL_M_HELPER_SPECIAL_DCE) != 0) &&
-            (op2->OperIs(GT_IND) && op2->AsIndir()->GetAddr()->OperIs(GT_CLS_VAR_ADDR, GT_CNS_INT)))
+            (op2->OperIs(GT_IND_LOAD) && op2->AsIndLoad()->GetAddr()->OperIs(GT_CLS_VAR_ADDR, GT_CNS_INT)))
         {
             JITDUMP("\nPerforming special DCE on unused arg [%06u]: helper call [%06u]\n", argNode->GetID(),
                     op1->GetID());
@@ -2594,11 +2572,11 @@ bool Compiler::inlCanDiscardArgSideEffects(GenTree* argNode)
             return true;
         }
     }
-    else if (argNode->OperIs(GT_IND))
+    else if (argNode->OperIs(GT_IND_LOAD))
     {
         // Look for IND(FIELD_ADDR(CALL special DCE helper)) (prejit case)
 
-        GenTree* addr = argNode->AsIndir()->GetAddr();
+        GenTree* addr = argNode->AsIndLoad()->GetAddr();
 
         if (GenTreeFieldAddr* fieldAddr = addr->IsFieldAddr())
         {
@@ -2667,8 +2645,8 @@ Statement* Compiler::inlInitInlineeLocals(const InlineInfo* inlineInfo, Statemen
 
         var_types  lclType = lcl->GetType();
         GenTree*   zero    = varTypeIsStruct(lclType) ? gtNewIconNode(0) : gtNewZeroConNode(lclType);
-        GenTreeOp* asg     = gtNewAssignNode(gtNewLclvNode(lcl, lclType), zero);
-        Statement* stmt    = gtNewStmt(asg, inlineInfo->iciStmt->GetILOffsetX());
+        GenTree*   store   = gtNewLclStore(lcl, lclType, zero);
+        Statement* stmt    = gtNewStmt(store, inlineInfo->iciStmt->GetILOffsetX());
         fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
         afterStmt = stmt;
 
@@ -2721,11 +2699,10 @@ void Compiler::inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, Statement
             noway_assert(!impHasLclRef(inlineInfo->retExpr, lcl));
         }
 
-        GenTree*   zero = gtNewZeroConNode(lclInfo.lclType);
-        GenTree*   asg  = gtNewAssignNode(gtNewLclvNode(lcl, lclInfo.lclType), zero);
-        Statement* stmt = gtNewStmt(asg, inlineInfo->iciStmt->GetILOffsetX());
+        GenTree*   zero  = gtNewIconNode(0, lclInfo.lclType);
+        GenTree*   store = gtNewLclStore(lcl, lclInfo.lclType, zero);
+        Statement* stmt  = gtNewStmt(store, inlineInfo->iciStmt->GetILOffsetX());
         fgInsertStmtAfter(inlineInfo->iciBlock, stmtAfter, stmt);
-        stmtAfter = stmt;
 
         JITDUMP("Null out inlinee local %u\n", i);
         DBEXEC(verbose, gtDispStmt(stmt));

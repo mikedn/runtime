@@ -195,7 +195,7 @@ void LIR::Use::ReplaceWith(Compiler* compiler, GenTree* replacement)
 }
 
 //------------------------------------------------------------------------
-// LIR::Use::ReplaceWithLclVar: Assigns the def for this use to a local
+// LIR::Use::ReplaceWithLclLoad: Assigns the def for this use to a local
 //                              var and points the use to a use of that
 //                              local var. If no local number is provided,
 //                              creates a new local var.
@@ -235,7 +235,7 @@ void LIR::Use::ReplaceWith(Compiler* compiler, GenTree* replacement)
 //          /--*  t18 int
 //          *  jmpTrue   void
 //
-LclVarDsc* LIR::Use::ReplaceWithLclVar(Compiler* compiler, LclVarDsc* lcl, GenTreeLclVar** newStore)
+LclVarDsc* LIR::Use::ReplaceWithLclLoad(Compiler* compiler, LclVarDsc* lcl, GenTreeLclStore** newStore)
 {
     assert(IsInitialized());
     assert(m_range->Contains(m_user));
@@ -276,19 +276,19 @@ LclVarDsc* LIR::Use::ReplaceWithLclVar(Compiler* compiler, LclVarDsc* lcl, GenTr
 
             // TODO-MIKE-Cleanup: So if it's enough why bother to begin with?
 
-            assert(def->OperIsHWIntrinsic() || def->OperIs(GT_IND));
+            assert(def->OperIsHWIntrinsic() || def->OperIs(GT_IND_LOAD));
 
             lcl->lvType = type;
         }
     }
 
-    GenTreeLclVar* store = compiler->gtNewStoreLclVar(lcl, type, def);
-    GenTreeLclVar* load  = compiler->gtNewLclvNode(lcl, type);
+    GenTreeLclStore* store = compiler->gtNewLclStore(lcl, type, def);
+    GenTreeLclLoad*  load  = compiler->gtNewLclLoad(lcl, type);
     m_range->InsertAfter(def, store, load);
 
     ReplaceWith(compiler, load);
 
-    JITDUMP("ReplaceWithLclVar created store :\n");
+    JITDUMP("ReplaceWithLclLoad created store :\n");
     DISPNODE(store);
 
     if (newStore != nullptr)
@@ -456,7 +456,7 @@ GenTree* LIR::Range::FirstNonCatchArgNode() const
         {
             continue;
         }
-        else if ((node->OperIs(GT_STORE_LCL_VAR)) && (node->gtGetOp1()->OperIs(GT_CATCH_ARG)))
+        else if ((node->OperIs(GT_LCL_STORE)) && (node->AsLclStore()->GetValue()->OperIs(GT_CATCH_ARG)))
         {
             continue;
         }

@@ -3003,9 +3003,10 @@ void LinearScan::spillGCRefs(RefPosition* killRefPosition)
         bool needsKill = varTypeIsGC(assignedInterval->registerType);
         if (!needsKill)
         {
+            // TODO-MIKE-Review: Check if the problem described here still happens, assignments are gone.
             // The importer will assign a GC type to the rhs of an assignment if the lhs type is a GC type,
             // even if the rhs is not. See the CEE_STLOC* case in impImportBlockCode(). As a result,
-            // we can have a 'GT_LCL_VAR' node with a GC type, when the lclVar itself is an integer type.
+            // we can have a LCL_LOAD node with a GC type, when the lclVar itself is an integer type.
             // The emitter will mark this register as holding a GC type. Therfore we must spill this value.
             // This was exposed on Arm32 with EH write-thru.
             if ((assignedInterval->recentRefPosition != nullptr) &&
@@ -5447,8 +5448,8 @@ void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned m
         if ((regType == TYP_STRUCT) && !tree->IsMultiRegNode())
         {
             assert(compiler->compEnregStructLocals());
-            // TODO-MIKE-Review: This probably doesn't need LCL_FLD.
-            assert(tree->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+            // TODO-MIKE-Review: This probably doesn't need LCL_LOAD_FLD.
+            assert(tree->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
             const GenTreeLclVarCommon* lcl    = tree->AsLclVarCommon();
             const LclVarDsc*           varDsc = lcl->GetLcl();
             // We create struct copies with a primitive type so we don't bother copy node with parsing structHndl.
@@ -5525,7 +5526,7 @@ void LinearScan::insertUpperVectorSave(GenTree*     tree,
 
     // Insert the save before the call.
 
-    GenTree* saveLcl = compiler->gtNewLclvNode(lcl, lcl->GetType());
+    GenTree* saveLcl = compiler->gtNewLclLoad(lcl, lcl->GetType());
     saveLcl->SetRegNum(lclVarReg);
     saveLcl->ClearRegSpillSet();
     SetLsraAdded(saveLcl);
@@ -5581,7 +5582,7 @@ void LinearScan::insertUpperVectorRestore(GenTree*     tree,
     LclVarDsc* lcl = lclVarInterval->getLocalVar(compiler);
     assert(Compiler::varTypeNeedsPartialCalleeSave(lcl->GetRegisterType()));
 
-    GenTree* restoreLcl = compiler->gtNewLclvNode(lcl, lcl->GetType());
+    GenTree* restoreLcl = compiler->gtNewLclLoad(lcl, lcl->GetType());
     restoreLcl->SetRegNum(lclVarReg);
     restoreLcl->ClearRegSpillSet();
     SetLsraAdded(restoreLcl);
@@ -6044,7 +6045,7 @@ void LinearScan::resolveRegisters()
             {
                 writeRegisters(currentRefPosition, treeNode);
 
-                if (treeNode->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && currentRefPosition->getInterval()->isLocalVar)
+                if (treeNode->OperIs(GT_LCL_LOAD, GT_LCL_STORE) && currentRefPosition->getInterval()->isLocalVar)
                 {
                     resolveLocalRef(block, treeNode->AsLclVar(), currentRefPosition);
                 }
@@ -6360,7 +6361,7 @@ void LinearScan::insertMove(
     // This var can't be marked lvRegister now
     varDsc->SetRegNum(REG_STK);
 
-    GenTree* src = compiler->gtNewLclvNode(varDsc, varDsc->GetType());
+    GenTree* src = compiler->gtNewLclLoad(varDsc, varDsc->GetType());
     src->ClearRegSpillSet();
     SetLsraAdded(src);
 
@@ -6373,8 +6374,8 @@ void LinearScan::insertMove(
     // It is up to the code generator to ensure that any necessary normalization is done when loading or storing the
     // lclVar's value.
     //
-    // In the third case, we generate GT_COPY(GT_LCL_VAR) and type each node with the normalized type of the lclVar.
-    // This is safe because a lclVar is always normalized once it is in a register.
+    // In the third case, we generate COPY(LCL_LOAD) and type each node with the normalized type of the local.
+    // This is safe because a local is always normalized once it is in a register.
 
     GenTree* dst = src;
     if (fromReg == REG_STK)
@@ -6451,12 +6452,12 @@ void LinearScan::insertSwap(
 
     assert(reg1 != REG_STK && reg1 != REG_NA && reg2 != REG_STK && reg2 != REG_NA);
 
-    GenTree* lcl1 = compiler->gtNewLclvNode(varDsc1, varDsc1->GetType());
+    GenTree* lcl1 = compiler->gtNewLclLoad(varDsc1, varDsc1->GetType());
     lcl1->SetRegNum(reg1);
     lcl1->ClearRegSpillSet();
     SetLsraAdded(lcl1);
 
-    GenTree* lcl2 = compiler->gtNewLclvNode(varDsc2, varDsc2->GetType());
+    GenTree* lcl2 = compiler->gtNewLclLoad(varDsc2, varDsc2->GetType());
     lcl2->SetRegNum(reg2);
     lcl2->ClearRegSpillSet();
     SetLsraAdded(lcl2);
@@ -6811,9 +6812,9 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block, VARSET_TP outRes
             {
                 consumedRegs |= genRegMask(op1->gtGetOp1()->GetRegNum());
             }
-            else if (op1->OperIs(GT_LCL_VAR))
+            else if (op1->OperIs(GT_LCL_LOAD))
             {
-                jcmpLocalVarDsc = op1->AsLclVar()->GetLcl();
+                jcmpLocalVarDsc = op1->AsLclLoad()->GetLcl();
 
                 if (!jcmpLocalVarDsc->IsRegCandidate())
                 {
@@ -8361,7 +8362,7 @@ void LinearScan::lsraGetOperandString(GenTree*          tree,
                                       unsigned          operandStringLength)
 {
     const char* lastUseChar = "";
-    if (tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && ((tree->gtFlags & GTF_VAR_DEATH) != 0))
+    if (tree->OperIs(GT_LCL_LOAD, GT_LCL_STORE) && ((tree->gtFlags & GTF_VAR_DEATH) != 0))
     {
         lastUseChar = "*";
     }
@@ -8439,7 +8440,7 @@ void LinearScan::lsraDispNode(GenTree* tree, LsraTupleDumpMode mode, bool hasDes
     printf("%c N%04u. ", spillChar, tree->gtSeqNum);
 
     LclVarDsc* varDsc = nullptr;
-    if (tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
+    if (tree->OperIs(GT_LCL_LOAD, GT_LCL_STORE))
     {
         varDsc = tree->AsLclVar()->GetLcl();
         if (varDsc->IsRegCandidate())
@@ -9357,17 +9358,15 @@ bool LinearScan::IsResolutionMove(GenTree* node)
         return false;
     }
 
-    switch (node->OperGet())
+    switch (node->GetOper())
     {
-        case GT_LCL_VAR:
+        case GT_LCL_LOAD:
         case GT_COPY:
             return node->IsUnusedValue();
-
 #ifdef TARGET_XARCH
         case GT_SWAP:
             return true;
 #endif
-
         default:
             return false;
     }
@@ -9391,7 +9390,7 @@ bool LinearScan::IsResolutionNode(LIR::Range& containingRange, GenTree* node)
             return true;
         }
 
-        if (!IsLsraAdded(node) || (node->OperGet() != GT_LCL_VAR))
+        if (!IsLsraAdded(node) || (node->OperGet() != GT_LCL_LOAD))
         {
             return false;
         }
@@ -9944,14 +9943,14 @@ void LinearScan::verifyResolutionMove(GenTree* resolutionMove, LsraLocation curr
 #ifdef TARGET_XARCH
     if (dst->OperIs(GT_SWAP))
     {
-        GenTreeLclVar* left          = dst->gtGetOp1()->AsLclVar();
-        GenTreeLclVar* right         = dst->gtGetOp2()->AsLclVar();
-        regNumber      leftRegNum    = left->GetRegNum();
-        regNumber      rightRegNum   = right->GetRegNum();
-        LclVarDsc*     leftVarDsc    = left->GetLcl();
-        LclVarDsc*     rightVarDsc   = right->GetLcl();
-        Interval*      leftInterval  = getIntervalForLocalVar(leftVarDsc->lvVarIndex);
-        Interval*      rightInterval = getIntervalForLocalVar(rightVarDsc->lvVarIndex);
+        GenTreeLclLoad* left          = dst->AsOp()->GetOp(0)->AsLclLoad();
+        GenTreeLclLoad* right         = dst->AsOp()->GetOp(1)->AsLclLoad();
+        regNumber       leftRegNum    = left->GetRegNum();
+        regNumber       rightRegNum   = right->GetRegNum();
+        LclVarDsc*      leftVarDsc    = left->GetLcl();
+        LclVarDsc*      rightVarDsc   = right->GetLcl();
+        Interval*       leftInterval  = getIntervalForLocalVar(leftVarDsc->lvVarIndex);
+        Interval*       rightInterval = getIntervalForLocalVar(rightVarDsc->lvVarIndex);
         assert(leftInterval->physReg == leftRegNum && rightInterval->physReg == rightRegNum);
         leftInterval->physReg                  = rightRegNum;
         rightInterval->physReg                 = leftRegNum;

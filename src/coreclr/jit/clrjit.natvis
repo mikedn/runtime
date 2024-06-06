@@ -47,7 +47,6 @@ Documentation for VS debugger format specifiers: https://docs.microsoft.com/en-u
     <DisplayString>[LngCon={((GenTreeLngCon*)this)-&gt;gtLconVal, l}]</DisplayString>
   </Type>
   <Type Name="GenTreeOp">
-    <DisplayString Condition="this->gtOper==GT_ASG">[{this-&gt;gtOp1,na}={this-&gt;gtOp2,na}]</DisplayString>
     <DisplayString Condition="this->gtOper==GT_CAST">[{((GenTreeCast*)this)-&gt;gtCastType,en} &lt;- {((GenTreeUnOp*)this)-&gt;gtOp1-&gt;gtType,en}]</DisplayString>
     <DisplayString>[{gtOper,en}, {gtType,en}]</DisplayString>
   </Type>

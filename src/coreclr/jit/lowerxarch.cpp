@@ -27,11 +27,9 @@ void Lowering::LowerRotate(GenTree* tree)
     ContainCheckShiftRotate(tree->AsOp());
 }
 
-void Lowering::LowerStoreLclVarArch(GenTreeLclVar* store)
+void Lowering::LowerStoreLclVarArch(GenTreeLclStore* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR));
-
-    GenTree* src = store->GetOp(0);
+    GenTree* src = store->GetValue();
 
     if (GenTreeIntCon* con = src->IsIntCon())
     {
@@ -80,7 +78,7 @@ void Lowering::LowerStoreLclVarArch(GenTreeLclVar* store)
     ContainCheckStoreLcl(store);
 }
 
-void Lowering::LowerStoreIndirArch(GenTreeStoreInd* store)
+void Lowering::LowerIndStoreArch(GenTreeIndStore* store)
 {
     GenTree* value = store->GetValue();
 
@@ -122,7 +120,7 @@ void Lowering::LowerStoreIndirArch(GenTreeStoreInd* store)
         }
     }
 
-    ContainCheckStoreIndir(store);
+    ContainCheckIndStore(store);
 
     if (varTypeIsIntegralOrI(store->GetType()) && value->OperIsRMWMemOp() && !value->gtOverflowEx())
     {
@@ -133,14 +131,16 @@ void Lowering::LowerStoreIndirArch(GenTreeStoreInd* store)
 void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree* addr)
 {
 #if FEATURE_MULTIREG_RET
-    assert(store->OperIs(GT_PUTARG_STK) || store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) ||
-           (store->OperIs(GT_STORE_BLK, GT_STORE_OBJ) && ((store->AsBlk()->GetKind() == StructStoreKind::UnrollInit) ||
-                                                          (store->AsBlk()->GetKind() == StructStoreKind::UnrollCopy) ||
-                                                          (store->AsBlk()->GetKind() == StructStoreKind::UnrollRegs))));
+    assert(store->OperIs(GT_PUTARG_STK) || store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD) ||
+           (store->OperIs(GT_IND_STORE_BLK, GT_IND_STORE_OBJ) &&
+            ((store->AsBlk()->GetKind() == StructStoreKind::UnrollInit) ||
+             (store->AsBlk()->GetKind() == StructStoreKind::UnrollCopy) ||
+             (store->AsBlk()->GetKind() == StructStoreKind::UnrollRegs))));
 #else
-    assert(store->OperIs(GT_PUTARG_STK) || store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) ||
-           (store->OperIs(GT_STORE_BLK, GT_STORE_OBJ) && ((store->AsBlk()->GetKind() == StructStoreKind::UnrollInit) ||
-                                                          (store->AsBlk()->GetKind() == StructStoreKind::UnrollCopy))));
+    assert(store->OperIs(GT_PUTARG_STK) || store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD) ||
+           (store->OperIs(GT_IND_STORE_BLK, GT_IND_STORE_OBJ) &&
+            ((store->AsBlk()->GetKind() == StructStoreKind::UnrollInit) ||
+             (store->AsBlk()->GetKind() == StructStoreKind::UnrollCopy))));
 #endif
 
     assert(size < INT32_MAX);
@@ -284,9 +284,10 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
             // registers to be consumed atomically by the call.
             if (varTypeIsIntegralOrI(fieldNode))
             {
-                if (fieldNode->OperIs(GT_LCL_VAR))
+                if (fieldNode->OperIs(GT_LCL_LOAD))
                 {
-                    LclVarDsc* varDsc = fieldNode->AsLclVar()->GetLcl();
+                    LclVarDsc* varDsc = fieldNode->AsLclLoad()->GetLcl();
+
                     if (!varDsc->lvDoNotEnregister)
                     {
                         fieldNode->SetRegOptional();
@@ -344,19 +345,19 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
         ClassLayout* layout;
         unsigned     size;
 
-        if (src->OperIs(GT_LCL_VAR))
+        if (src->OperIs(GT_LCL_LOAD))
         {
-            layout = src->AsLclVar()->GetLcl()->GetLayout();
+            layout = src->AsLclLoad()->GetLcl()->GetLayout();
             size   = roundUp(layout->GetSize(), REGSIZE_BYTES);
         }
-        else if (src->OperIs(GT_LCL_FLD))
+        else if (src->OperIs(GT_LCL_LOAD_FLD))
         {
-            layout = src->AsLclFld()->GetLayout(comp);
+            layout = src->AsLclLoadFld()->GetLayout(comp);
             size   = roundUp(layout->GetSize(), REGSIZE_BYTES);
         }
         else
         {
-            layout = src->AsObj()->GetLayout();
+            layout = src->AsIndLoadObj()->GetLayout();
             size   = layout->GetSize();
         }
 
@@ -463,9 +464,9 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 #endif
         }
 
-        if (src->OperIs(GT_OBJ))
+        if (src->OperIs(GT_IND_LOAD_OBJ))
         {
-            ContainStructStoreAddress(putArgStk, size, src->AsObj()->GetAddr());
+            ContainStructStoreAddress(putArgStk, size, src->AsIndLoadObj()->GetAddr());
         }
 
         return;
@@ -558,7 +559,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
         {
             src->SetContained();
         }
-        else if (src->OperIs(GT_LCL_VAR) ? (srcSize == REGSIZE_BYTES) : (srcSize <= REGSIZE_BYTES))
+        else if (src->OperIs(GT_LCL_LOAD) ? (srcSize == REGSIZE_BYTES) : (srcSize <= REGSIZE_BYTES))
         {
             src->SetRegOptional();
         }
@@ -826,7 +827,7 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
         // situations. In particular this include CALL, sometimes the JIT unnecessarily widens
         // the result of bool returning calls.
 
-        if (castOp->OperIs(GT_CALL, GT_LCL_VAR, GT_AND, GT_OR, GT_XOR) || IsContainableMemoryOp(castOp))
+        if (castOp->OperIs(GT_CALL, GT_LCL_LOAD, GT_AND, GT_OR, GT_XOR) || IsContainableMemoryOp(castOp))
         {
             assert(!castOp->gtOverflowEx());
 
@@ -1501,8 +1502,8 @@ void Lowering::LowerHWIntrinsicEquality(GenTreeHWIntrinsic* node, genTreeOps cmp
 
         node->SetOp(0, op1);
         LIR::Use op1Use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        op1 = ReplaceWithLclVar(op1Use);
-        op2 = comp->gtNewLclvNode(op1->AsLclVar()->GetLcl(), op1->GetType());
+        op1 = ReplaceWithLclLoad(op1Use);
+        op2 = comp->gtNewLclLoad(op1->AsLclLoad()->GetLcl(), op1->GetType());
         BlockRange().InsertAfter(op1, op2);
         node->SetOp(1, op2);
 
@@ -2058,9 +2059,9 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
         BlockRange().InsertAfter(op1, half);
 
         node->SetOp(0, half);
-        LIR::Use       use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        GenTreeLclVar* tmp1 = ReplaceWithLclVar(use);
-        GenTreeLclVar* tmp2 = comp->gtNewLclvNode(tmp1->GetLcl(), TYP_SIMD16);
+        LIR::Use        use(BlockRange(), &node->GetUse(0).NodeRef(), node);
+        GenTreeLclLoad* tmp1 = ReplaceWithLclLoad(use);
+        GenTreeLclLoad* tmp2 = comp->gtNewLclLoad(tmp1->GetLcl(), TYP_SIMD16);
         GenTree* vec = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_Vector128_ToVector256Unsafe, eltType, 16, tmp1);
         GenTree* idx = comp->gtNewIconNode(1);
         BlockRange().InsertBefore(node, tmp2, vec, idx);
@@ -2162,9 +2163,9 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
         {
             node->SetOp(0, vec);
             LIR::Use use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-            ops[0]        = ReplaceWithLclVar(use);
+            ops[0]        = ReplaceWithLclLoad(use);
             GenTree* zero = comp->gtNewZeroSimdHWIntrinsicNode(TYP_SIMD16, TYP_FLOAT);
-            GenTree* tmp  = comp->gtNewLclvNode(ops[0]->AsLclVar()->GetLcl(), TYP_SIMD16);
+            GenTree* tmp  = comp->gtNewLclLoad(ops[0]->AsLclLoad()->GetLcl(), TYP_SIMD16);
             ops[1]        = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveScalar, TYP_FLOAT, 16, zero, tmp);
             ops[2]        = comp->gtNewIconNode(0b01000000);
             BlockRange().InsertBefore(node, tmp, zero, ops[1], ops[2]);
@@ -2203,8 +2204,8 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
     {
         node->SetOp(0, vec);
         LIR::Use use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        GenTree* tmp1 = ReplaceWithLclVar(use);
-        GenTree* tmp2 = comp->gtNewLclvNode(tmp1->AsLclVar()->GetLcl(), TYP_SIMD16);
+        GenTree* tmp1 = ReplaceWithLclLoad(use);
+        GenTree* tmp2 = comp->gtNewLclLoad(tmp1->AsLclLoad()->GetLcl(), TYP_SIMD16);
         GenTree* idx  = comp->gtNewIconNode(0);
         BlockRange().InsertBefore(node, tmp2, idx);
         node->SetIntrinsic(NI_SSE_Shuffle, 3);
@@ -2227,8 +2228,8 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
     {
         node->SetOp(0, vec);
         LIR::Use use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        GenTree* tmp1 = ReplaceWithLclVar(use);
-        GenTree* tmp2 = comp->gtNewLclvNode(tmp1->AsLclVar()->GetLcl(), TYP_SIMD16);
+        GenTree* tmp1 = ReplaceWithLclLoad(use);
+        GenTree* tmp2 = comp->gtNewLclLoad(tmp1->AsLclLoad()->GetLcl(), TYP_SIMD16);
         BlockRange().InsertBefore(node, tmp2);
         node->SetIntrinsic(NI_SSE_MoveLowToHigh, TYP_FLOAT, 2);
         node->SetOp(0, tmp1);
@@ -2241,8 +2242,8 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
     {
         node->SetOp(0, vec);
         LIR::Use use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        GenTree* tmp1 = ReplaceWithLclVar(use);
-        GenTree* tmp2 = comp->gtNewLclvNode(tmp1->AsLclVar()->GetLcl(), TYP_SIMD16);
+        GenTree* tmp1 = ReplaceWithLclLoad(use);
+        GenTree* tmp2 = comp->gtNewLclLoad(tmp1->AsLclLoad()->GetLcl(), TYP_SIMD16);
         BlockRange().InsertBefore(node, tmp2);
         node->SetIntrinsic(NI_SSE2_UnpackLow, 2);
         node->SetOp(0, tmp1);
@@ -2268,8 +2269,8 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
     {
         node->SetOp(0, vec);
         LIR::Use use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        GenTree* tmp1 = ReplaceWithLclVar(use);
-        GenTree* tmp2 = comp->gtNewLclvNode(tmp1->AsLclVar()->GetLcl(), TYP_SIMD16);
+        GenTree* tmp1 = ReplaceWithLclLoad(use);
+        GenTree* tmp2 = comp->gtNewLclLoad(tmp1->AsLclLoad()->GetLcl(), TYP_SIMD16);
         vec           = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_UBYTE, 16, tmp1, tmp2);
         BlockRange().InsertAfter(tmp1, tmp2, vec);
         LowerNode(vec);
@@ -2281,8 +2282,8 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
     {
         node->SetOp(0, vec);
         LIR::Use use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        GenTree* tmp1 = ReplaceWithLclVar(use);
-        GenTree* tmp2 = comp->gtNewLclvNode(tmp1->AsLclVar()->GetLcl(), TYP_SIMD16);
+        GenTree* tmp1 = ReplaceWithLclLoad(use);
+        GenTree* tmp2 = comp->gtNewLclLoad(tmp1->AsLclLoad()->GetLcl(), TYP_SIMD16);
         vec           = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_USHORT, 16, tmp1, tmp2);
         BlockRange().InsertAfter(tmp1, tmp2, vec);
         LowerNode(vec);
@@ -2341,8 +2342,8 @@ void Lowering::LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* node, const Vecto
     BlockRange().InsertBefore(node, addr);
 
     GenTree* indir = node;
-    indir->ChangeOper(GT_IND);
-    indir->AsIndir()->SetAddr(addr);
+    indir->ChangeOper(GT_IND_LOAD);
+    indir->AsIndLoad()->SetAddr(addr);
 }
 
 void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
@@ -2359,11 +2360,11 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     {
         if (!vec->isContained())
         {
-            LclVarDsc* tempLcl = GetSimdMemoryTemp(vec->GetType());
-            GenTree*   store   = comp->gtNewStoreLclVar(tempLcl, vec->GetType(), vec);
+            LclVarDsc*       tempLcl = GetSimdMemoryTemp(vec->GetType());
+            GenTreeLclStore* store   = comp->gtNewLclStore(tempLcl, vec->GetType(), vec);
             BlockRange().InsertAfter(vec, store);
 
-            vec = comp->gtNewLclvNode(tempLcl, vec->GetType());
+            vec = comp->gtNewLclLoad(tempLcl, vec->GetType());
             BlockRange().InsertBefore(node, vec);
             node->SetOp(0, vec);
             vec->SetContained();
@@ -2547,8 +2548,8 @@ void Lowering::LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node)
         assert(comp->compIsaSupportedDebugOnly(InstructionSet_AVX));
 
         LIR::Use vecUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        vec           = ReplaceWithLclVar(vecUse);
-        vec256TempLcl = vec->AsLclVar()->GetLcl();
+        vec           = ReplaceWithLclLoad(vecUse);
+        vec256TempLcl = vec->AsLclLoad()->GetLcl();
 
         if (index >= count / 2)
         {
@@ -2647,13 +2648,13 @@ void Lowering::LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node)
             {
                 node->SetOp(0, vec);
                 LIR::Use op1Use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-                vec = ReplaceWithLclVar(op1Use);
+                vec = ReplaceWithLclLoad(op1Use);
 
                 elt = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, 16, elt);
                 BlockRange().InsertBefore(node, elt);
                 LowerNode(elt);
 
-                GenTree*      vec2 = comp->gtNewLclvNode(vec->AsLclVar()->GetLcl(), TYP_SIMD16);
+                GenTree*      vec2 = comp->gtNewLclLoad(vec->AsLclLoad()->GetLcl(), TYP_SIMD16);
                 constexpr int controlBits1[]{0, 0, 0b00110000, 0b00100000};
                 GenTree*      imm = comp->gtNewIconNode(controlBits1[index]);
                 elt = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, elt, vec2, imm);
@@ -2688,7 +2689,7 @@ void Lowering::LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node)
 
         intrinsic = NI_AVX_InsertVector128;
 
-        vec = comp->gtNewLclvNode(vec256TempLcl, TYP_SIMD32);
+        vec = comp->gtNewLclLoad(vec256TempLcl, TYP_SIMD32);
         idx = comp->gtNewIconNode((index256 >= count / 2) ? 1 : 0);
 
         BlockRange().InsertBefore(node, vec, elt, idx);
@@ -2740,21 +2741,21 @@ void Lowering::LowerHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node)
                 case NI_SSE_LoadAlignedVector128:
                     GenTree* addr;
                     addr = vecElt->GetOp(0);
-                    elt->ChangeOper(GT_IND);
+                    elt->ChangeOper(GT_IND_LOAD);
                     elt->SetType(TYP_FLOAT);
-                    elt->AsIndir()->SetAddr(addr);
+                    elt->AsIndLoad()->SetAddr(addr);
                     break;
                 default:
                     break;
             }
         }
-        else if (elt->OperIs(GT_IND, GT_LCL_FLD))
+        else if (elt->OperIs(GT_IND_LOAD, GT_LCL_LOAD_FLD))
         {
             elt->SetType(TYP_FLOAT);
         }
-        else if (elt->OperIs(GT_LCL_VAR) && elt->AsLclVar()->GetLcl()->lvDoNotEnregister)
+        else if (elt->OperIs(GT_LCL_LOAD) && elt->AsLclLoad()->GetLcl()->lvDoNotEnregister)
         {
-            elt->ChangeOper(GT_LCL_FLD);
+            elt->ChangeOper(GT_LCL_LOAD_FLD);
             elt->SetType(TYP_FLOAT);
         }
     }
@@ -2796,7 +2797,7 @@ void Lowering::ContainHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node)
     // trade-off - only make elt reg optional if it is a LCL_VAR, otherwise it means that it's
     // more likely to already be in a register so reg optional isn't useful.
 
-    if (vec->IsHWIntrinsicZero() && !elt->OperIs(GT_LCL_VAR) && comp->canUseVexEncoding())
+    if (vec->IsHWIntrinsicZero() && !elt->OperIs(GT_LCL_LOAD) && comp->canUseVexEncoding())
     {
         vec->SetContained();
     }
@@ -2849,8 +2850,8 @@ void Lowering::LowerHWIntrinsicSum128(GenTreeHWIntrinsic* node)
     unsigned haddCount = genLog2(roundUp(size, 8) / varTypeSize(eltType));
     assert(haddCount <= 3);
 
-    LIR::Use       vecUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
-    GenTreeLclVar* vec = ReplaceWithLclVar(vecUse);
+    LIR::Use        vecUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
+    GenTreeLclLoad* vec = ReplaceWithLclLoad(vecUse);
 
     GenTree*       sum  = vec;
     GenTree*       sum2 = nullptr;
@@ -2858,7 +2859,7 @@ void Lowering::LowerHWIntrinsicSum128(GenTreeHWIntrinsic* node)
 
     for (unsigned i = 0; i < haddCount; i++)
     {
-        sum2 = comp->gtNewLclvNode(sum->AsLclVar()->GetLcl(), TYP_SIMD16);
+        sum2 = comp->gtNewLclLoad(sum->AsLclLoad()->GetLcl(), TYP_SIMD16);
         BlockRange().InsertBefore(node, sum2);
 
         if ((hadd != NI_Illegal) && ((size != 12) || (i == 0)))
@@ -2875,7 +2876,7 @@ void Lowering::LowerHWIntrinsicSum128(GenTreeHWIntrinsic* node)
             }
             else if ((i == 0) && (eltType == TYP_FLOAT))
             {
-                GenTree* sum3 = comp->gtNewLclvNode(sum2->AsLclVar()->GetLcl(), TYP_SIMD16);
+                GenTree* sum3 = comp->gtNewLclLoad(sum2->AsLclLoad()->GetLcl(), TYP_SIMD16);
                 GenTree* imm  = comp->gtNewIconNode(0b10110001);
                 sum2 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Shuffle, TYP_FLOAT, 16, sum2, sum3, imm);
                 BlockRange().InsertBefore(node, sum3, imm, sum2);
@@ -2885,8 +2886,8 @@ void Lowering::LowerHWIntrinsicSum128(GenTreeHWIntrinsic* node)
                 assert(varTypeIsFloating(eltType));
                 // For Vector3 we need to add the original vec[2] element,
                 // not sum[2] which would be wrong if vec[3] wasn't 0.
-                LclVarDsc* lcl  = size == 12 ? vec->GetLcl() : sum2->AsLclVar()->GetLcl();
-                GenTree*   sum3 = comp->gtNewLclvNode(lcl, TYP_SIMD16);
+                LclVarDsc* lcl  = size == 12 ? vec->GetLcl() : sum2->AsLclLoad()->GetLcl();
+                GenTree*   sum3 = comp->gtNewLclLoad(lcl, TYP_SIMD16);
                 sum2 = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_MoveHighToLow, TYP_FLOAT, 16, sum2, sum3);
                 BlockRange().InsertBefore(node, sum3, sum2);
             }
@@ -2902,7 +2903,7 @@ void Lowering::LowerHWIntrinsicSum128(GenTreeHWIntrinsic* node)
             LowerNode(sum);
             node->SetOp(0, sum);
             LIR::Use sumUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
-            sum = ReplaceWithLclVar(sumUse);
+            sum = ReplaceWithLclLoad(sumUse);
         }
     }
 
@@ -2926,9 +2927,9 @@ void Lowering::LowerHWIntrinsicSum256(GenTreeHWIntrinsic* node)
     NamedIntrinsic add     = eltType == TYP_FLOAT ? NI_SSE_Add : NI_SSE2_Add;
 
     LIR::Use vecUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
-    vec = ReplaceWithLclVar(vecUse);
+    vec = ReplaceWithLclLoad(vecUse);
 
-    GenTree* vec2     = comp->gtNewLclvNode(vec->AsLclVar()->GetLcl(), TYP_SIMD32);
+    GenTree* vec2     = comp->gtNewLclLoad(vec->AsLclLoad()->GetLcl(), TYP_SIMD32);
     GenTree* imm      = comp->gtNewIconNode(1);
     GenTree* vecUpper = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, extract, eltType, 32, vec2, imm);
     BlockRange().InsertBefore(node, vec2, imm, vecUpper);
@@ -2942,7 +2943,7 @@ void Lowering::LowerHWIntrinsicSum256(GenTreeHWIntrinsic* node)
 
 #endif // FEATURE_HW_INTRINSICS
 
-bool Lowering::IsLoadIndRMWCandidate(GenTreeStoreInd* store, GenTreeIndir* load, GenTree* src)
+bool Lowering::IsIndLoadRMWCandidate(GenTreeIndStore* store, GenTreeIndir* load, GenTree* src)
 {
     GenTree* loadAddr  = load->GetAddr();
     GenTree* storeAddr = store->GetAddr();
@@ -2997,7 +2998,7 @@ bool Lowering::IsLoadIndRMWCandidate(GenTreeStoreInd* store, GenTreeIndir* load,
 
         if (GenTree* base = am->GetBase())
         {
-            if (base->OperIs(GT_LCL_VAR))
+            if (base->OperIs(GT_LCL_LOAD))
             {
                 m_scratchSideEffects.AddNode(comp, base);
                 base->SetLIRMark();
@@ -3007,7 +3008,7 @@ bool Lowering::IsLoadIndRMWCandidate(GenTreeStoreInd* store, GenTreeIndir* load,
 
         if (GenTree* index = am->GetIndex())
         {
-            if (index->OperIs(GT_LCL_VAR))
+            if (index->OperIs(GT_LCL_LOAD))
             {
                 m_scratchSideEffects.AddNode(comp, index);
                 index->SetLIRMark();
@@ -3015,14 +3016,14 @@ bool Lowering::IsLoadIndRMWCandidate(GenTreeStoreInd* store, GenTreeIndir* load,
             }
         }
     }
-    else if (loadAddr->OperIs(GT_LCL_VAR))
+    else if (loadAddr->OperIs(GT_LCL_LOAD))
     {
         // AddNode(load) already added this but we still need to mark it.
         loadAddr->SetLIRMark();
         markCount++;
     }
 
-    if ((src != nullptr) && src->OperIs(GT_LCL_VAR))
+    if ((src != nullptr) && src->OperIs(GT_LCL_LOAD))
     {
         m_scratchSideEffects.AddNode(comp, src);
         src->SetLIRMark();
@@ -3033,7 +3034,7 @@ bool Lowering::IsLoadIndRMWCandidate(GenTreeStoreInd* store, GenTreeIndir* load,
     {
         assert(storeAddr->isContained());
     }
-    else if (storeAddr->OperIs(GT_LCL_VAR))
+    else if (storeAddr->OperIs(GT_LCL_LOAD))
     {
         m_scratchSideEffects.AddNode(comp, storeAddr);
         storeAddr->SetLIRMark();
@@ -3060,8 +3061,8 @@ bool Lowering::IsLoadIndRMWCandidate(GenTreeStoreInd* store, GenTreeIndir* load,
 
 bool Lowering::IndirsAreRMWEquivalent(GenTreeIndir* indir1, GenTreeIndir* indir2)
 {
-    assert(indir1->OperIs(GT_IND));
-    assert(indir2->OperIs(GT_STOREIND));
+    assert(indir1->OperIs(GT_IND_LOAD));
+    assert(indir2->OperIs(GT_IND_STORE));
 
     if (varTypeSize(indir1->GetType()) != varTypeSize(indir2->GetType()))
     {
@@ -3078,7 +3079,7 @@ bool Lowering::IndirsAreRMWEquivalent(GenTreeIndir* indir1, GenTreeIndir* indir2
 
     switch (addr1->GetOper())
     {
-        case GT_LCL_VAR:
+        case GT_LCL_LOAD:
         case GT_CNS_INT:
             return LeavesAreRMWEquivalent(addr1, addr2);
 
@@ -3113,20 +3114,20 @@ bool Lowering::LeavesAreRMWEquivalent(GenTree* node1, GenTree* node2)
         case GT_CNS_INT:
             return (node1->AsIntCon()->GetValue() == node2->AsIntCon()->GetValue()) &&
                    (node1->IsIconHandle() == node2->IsIconHandle());
-        case GT_LCL_VAR:
-            return node1->AsLclVar()->GetLcl() == node2->AsLclVar()->GetLcl();
+        case GT_LCL_LOAD:
+            return node1->AsLclLoad()->GetLcl() == node2->AsLclLoad()->GetLcl();
         default:
             return false;
     }
 }
 
-GenTreeIndir* Lowering::IsStoreIndRMW(GenTreeStoreInd* store)
+GenTreeIndir* Lowering::IsStoreIndRMW(GenTreeIndStore* store)
 {
     assert(varTypeIsIntegralOrI(store->GetType()));
 
     GenTree* storeAddr = store->GetAddr();
 
-    if (!storeAddr->OperIs(GT_LEA, GT_LCL_VAR, GT_CNS_INT))
+    if (!storeAddr->OperIs(GT_LEA, GT_LCL_LOAD, GT_CNS_INT))
     {
         return nullptr;
     }
@@ -3134,7 +3135,7 @@ GenTreeIndir* Lowering::IsStoreIndRMW(GenTreeStoreInd* store)
     if (storeAddr->IsAddrMode() && !storeAddr->isContained())
     {
         // Give up if the address is an uncontained LEA (likely due to base/index interference).
-        // This is rare and ignoring it simplifies IsLoadIndRMWCandidate interference checking.
+        // This is rare and ignoring it simplifies IsIndLoadRMWCandidate interference checking.
         return nullptr;
     }
 
@@ -3151,14 +3152,14 @@ GenTreeIndir* Lowering::IsStoreIndRMW(GenTreeStoreInd* store)
         GenTree* op1 = op->AsOp()->GetOp(0);
         GenTree* op2 = op->AsOp()->GetOp(1);
 
-        if (op->OperIsCommutative() && op2->OperIs(GT_IND) && IsLoadIndRMWCandidate(store, op2->AsIndir(), op1))
+        if (op->OperIsCommutative() && op2->OperIs(GT_IND_LOAD) && IsIndLoadRMWCandidate(store, op2->AsIndLoad(), op1))
         {
-            return op2->AsIndir();
+            return op2->AsIndLoad();
         }
 
-        if (op1->OperIs(GT_IND) && IsLoadIndRMWCandidate(store, op1->AsIndir(), op2))
+        if (op1->OperIs(GT_IND_LOAD) && IsIndLoadRMWCandidate(store, op1->AsIndLoad(), op2))
         {
-            return op1->AsIndir();
+            return op1->AsIndLoad();
         }
     }
     else
@@ -3167,9 +3168,9 @@ GenTreeIndir* Lowering::IsStoreIndRMW(GenTreeStoreInd* store)
 
         GenTree* op1 = op->AsUnOp()->GetOp(0);
 
-        if (op1->OperIs(GT_IND) && IsLoadIndRMWCandidate(store, op1->AsIndir(), nullptr))
+        if (op1->OperIs(GT_IND_LOAD) && IsIndLoadRMWCandidate(store, op1->AsIndLoad(), nullptr))
         {
-            return op1->AsIndir();
+            return op1->AsIndLoad();
         }
     }
 
@@ -3238,10 +3239,7 @@ GenTree* Lowering::PreferredRegOptionalOperand(GenTreeOp* tree)
     // interval (if required) and that could be even op1.  For this reason
     // it is beneficial to mark op1 as reg optional.
     //
-    // TODO: It is not always mandatory for a def position of an untracked
-    // local to be allocated a register if it is on rhs of an assignment
-    // and its use position is reg-optional and has not been assigned a
-    // register.  Reg optional def positions is currently not yet supported.
+    // TODO: Reg optional def positions is currently not yet supported.
     //
     // c) op1 = untracked local and op2 = tracked local: marking op1 as
     // reg optional is beneficial, since its use position is less likely
@@ -3264,10 +3262,10 @@ GenTree* Lowering::PreferredRegOptionalOperand(GenTreeOp* tree)
     // We default to op1, as op2 is likely to have the shorter lifetime.
     GenTree* preferredOp = op1;
 
-    if (op1->OperIs(GT_LCL_VAR) && op2->OperIs(GT_LCL_VAR))
+    if (op1->OperIs(GT_LCL_LOAD) && op2->OperIs(GT_LCL_LOAD))
     {
-        LclVarDsc* lcl1 = op1->AsLclVar()->GetLcl();
-        LclVarDsc* lcl2 = op2->AsLclVar()->GetLcl();
+        LclVarDsc* lcl1 = op1->AsLclLoad()->GetLcl();
+        LclVarDsc* lcl2 = op2->AsLclLoad()->GetLcl();
 
         if (!lcl1->lvDoNotEnregister && !lcl2->lvDoNotEnregister)
         {
@@ -3283,7 +3281,7 @@ GenTree* Lowering::PreferredRegOptionalOperand(GenTreeOp* tree)
             }
         }
     }
-    else if (!op1->OperIs(GT_LCL_VAR) && op2->OperIs(GT_LCL_VAR))
+    else if (!op1->OperIs(GT_LCL_LOAD) && op2->OperIs(GT_LCL_LOAD))
     {
         preferredOp = op2;
     }
@@ -3319,12 +3317,12 @@ void Lowering::ContainCheckCallOperands(GenTreeCall* call)
             // sure that the call target address is computed into EAX in this case.
             if (call->IsVirtualStub() && call->IsIndirectCall())
             {
-                assert(ctrlExpr->OperIs(GT_IND));
+                assert(ctrlExpr->OperIs(GT_IND_LOAD));
                 MakeSrcContained(call, ctrlExpr);
             }
             else
 #endif // TARGET_X86
-                if (ctrlExpr->OperIs(GT_IND))
+                if (ctrlExpr->OperIs(GT_IND_LOAD))
             {
                 // We may have cases where we have set a register target on the ctrlExpr, but if it
                 // contained we must clear it.
@@ -3366,7 +3364,7 @@ void Lowering::ContainCheckIndir(GenTreeIndir* node)
     }
 }
 
-void Lowering::ContainCheckStoreIndir(GenTreeStoreInd* store)
+void Lowering::ContainCheckIndStore(GenTreeIndStore* store)
 {
     ContainCheckIndir(store);
 
@@ -3567,7 +3565,7 @@ void Lowering::ContainCheckShiftRotate(GenTreeOp* node)
 
 void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+    assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
 
     GenTree* src = store->GetOp(0);
 
@@ -3846,9 +3844,9 @@ void Lowering::ContainCheckCompare(GenTreeOp* cmp)
     }
 }
 
-void Lowering::LowerStoreIndRMW(GenTreeStoreInd* store)
+void Lowering::LowerStoreIndRMW(GenTreeIndStore* store)
 {
-    assert(store->OperIs(GT_STOREIND) && varTypeIsIntegralOrI(store->GetType()));
+    assert(store->OperIs(GT_IND_STORE) && varTypeIsIntegralOrI(store->GetType()));
 
     GenTreeIndir* load = IsStoreIndRMW(store);
 
@@ -3892,7 +3890,7 @@ void Lowering::LowerStoreIndRMW(GenTreeStoreInd* store)
 
         if (GenTree* base = addrMode->GetBase())
         {
-            if (base->OperIs(GT_LCL_VAR))
+            if (base->OperIs(GT_LCL_LOAD))
             {
                 insertBefore = BlockRange().MoveBefore(insertBefore, base);
             }
@@ -3900,7 +3898,7 @@ void Lowering::LowerStoreIndRMW(GenTreeStoreInd* store)
 
         if (GenTree* index = addrMode->GetIndex())
         {
-            if (index->OperIs(GT_LCL_VAR))
+            if (index->OperIs(GT_LCL_LOAD))
             {
                 insertBefore = BlockRange().MoveBefore(insertBefore, index);
             }
@@ -3931,7 +3929,7 @@ void Lowering::LowerStoreIndRMW(GenTreeStoreInd* store)
 
         assert(!src->IsRegOptional());
 
-        if (src->OperIs(GT_LCL_VAR, GT_CNS_INT))
+        if (src->OperIs(GT_LCL_LOAD, GT_CNS_INT))
         {
             insertBefore = BlockRange().MoveBefore(insertBefore, src);
         }
@@ -4519,9 +4517,9 @@ void Lowering::ContainHWIntrinsicOperand(GenTreeHWIntrinsic* node, GenTree* op)
 
     if (intrinsicLoadType != TYP_UNDEF)
     {
-        op->ChangeOper(GT_IND);
+        op->ChangeOper(GT_IND_LOAD);
         op->SetType(intrinsicLoadType);
-        op->AsIndir()->SetAddr(intrinsicLoadAddr);
+        op->AsIndLoad()->SetAddr(intrinsicLoadAddr);
     }
 
     op->SetContained();

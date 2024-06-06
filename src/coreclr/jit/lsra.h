@@ -709,13 +709,18 @@ private:
 
     void AddLiveParamRegs(LclVarDsc* lcl);
 
-    inline bool isCandidateLclVar(GenTree* tree)
+    bool isCandidateLclVar(GenTree* tree) const
     {
-        return tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR) && tree->AsLclVar()->GetLcl()->IsRegCandidate();
+        return tree->OperIs(GT_LCL_LOAD, GT_LCL_STORE) && tree->AsLclVar()->GetLcl()->IsRegCandidate();
+    }
+
+    bool IsRegCandidateLclLoad(GenTree* tree) const
+    {
+        return tree->OperIs(GT_LCL_LOAD) && tree->AsLclLoad()->GetLcl()->IsRegCandidate();
     }
 
     // Helpers for getKillSetForNode().
-    regMaskTP getKillSetForStoreInd(GenTreeStoreInd* tree);
+    regMaskTP getKillSetForStoreInd(GenTreeIndStore* store);
     regMaskTP getKillSetForShiftRotate(GenTreeOp* tree);
     regMaskTP getKillSetForMul(GenTreeOp* tree);
     regMaskTP getKillSetForCall(GenTreeCall* call);
@@ -747,17 +752,19 @@ private:
     void freeRegisters(regMaskTP regsToFree);
 
     // Get the type that this tree defines.
-    var_types getDefType(GenTree* tree)
+    var_types getDefType(GenTree* tree) const
     {
-        var_types type = tree->TypeGet();
+        var_types type = tree->GetType();
+
         if (type == TYP_STRUCT)
         {
-            assert(tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
             GenTreeLclVar* lclVar = tree->AsLclVar();
-            LclVarDsc*     varDsc = lclVar->GetLcl();
-            type                  = varDsc->GetRegisterType(lclVar);
+
+            type = lclVar->GetLcl()->GetRegisterType(lclVar);
         }
-        assert(type != TYP_UNDEF && type != TYP_STRUCT);
+
+        assert((type != TYP_UNDEF) && (type != TYP_STRUCT));
+
         return type;
     }
 
@@ -1514,8 +1521,8 @@ private:
 #endif
     }
 
-    bool IsCandidateLclVarMultiReg(GenTreeLclVar* lclNode);
-    bool checkContainedOrCandidateLclVar(GenTreeLclVar* lclNode);
+    bool IsCandidateLclVarMultiReg(GenTreeLclStore* store);
+    bool checkContainedOrCandidateLclVar(GenTreeLclLoad* load);
 
     RefPosition* BuildDef(GenTree* node, regMaskTP regCandidates = RBM_NONE);
     RefPosition* BuildDef(GenTree* node, var_types regType, regMaskTP regCandidates, unsigned regIndex);
@@ -1550,17 +1557,17 @@ private:
     void BuildKeepAlive(GenTreeUnOp* node);
     void BuildInstr(GenTreeInstr* instr);
     void BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);
-    void BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* layout);
+    void BuildStructStoreUnrollRegsWB(GenTreeIndStoreObj* store, ClassLayout* layout);
     void BuildStoreDynBlk(GenTreeDynBlk* store);
-    void BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPosition* singleUseRef, unsigned index);
-    void BuildStoreLclVarMultiReg(GenTreeLclVar* store);
-    void BuildStoreLclVar(GenTreeLclVar* store);
-    void BuildStoreLclFld(GenTreeLclFld* store);
-    void BuildStoreLcl(GenTreeLclVarCommon* store);
-    void BuildGCWriteBarrier(GenTreeStoreInd* store);
+    void BuildStoreLclVarDef(GenTreeLclStore* store, LclVarDsc* lcl, RefPosition* singleUseRef, unsigned index);
+    void BuildStoreLclVarMultiReg(GenTreeLclStore* store);
+    void BuildLclStore(GenTreeLclStore* store);
+    void BuildLclStoreFld(GenTreeLclStoreFld* store);
+    void BuildLclStoreCommon(GenTreeLclVarCommon* store);
+    void BuildGCWriteBarrier(GenTreeIndStore* store);
 #ifdef TARGET_XARCH
     void BuildLoadInd(GenTreeIndir* load);
-    void BuildStoreInd(GenTreeIndir* store);
+    void BuildIndStore(GenTreeIndir* store);
     void BuildShiftRotate(GenTreeOp* node);
     void BuildDivMod(GenTreeOp* node);
     void BuildMul(GenTreeOp* mul);
@@ -1674,7 +1681,7 @@ public:
     bool isSpilled : 1;
     // indicates an interval representing the internal requirements for
     // generating code for a node (temp registers internal to the node)
-    // Note that this interval may live beyond a node in the GT_ARR_LENREF/GT_IND
+    // Note that this interval may live beyond a node in the ARR_LENREF/IND_LOAD
     // case (though never lives beyond a stmt)
     bool isInternal : 1;
     // true if this is a LocalVar for a struct field

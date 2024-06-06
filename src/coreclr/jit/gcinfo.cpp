@@ -1229,7 +1229,7 @@ CorInfoHelpFunc GCInfo::GetWriteBarrierHelperCall(GCInfo::WriteBarrierForm wbf)
     return (wbf == GCInfo::WBF_BarrierUnchecked) ? CORINFO_HELP_ASSIGN_REF : CORINFO_HELP_CHECKED_ASSIGN_REF;
 }
 
-GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierForm(GenTreeStoreInd* store)
+GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierForm(GenTreeIndStore* store)
 {
     if (!store->TypeIs(TYP_REF))
     {

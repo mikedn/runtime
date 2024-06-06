@@ -1688,10 +1688,8 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
     DefReg(treeNode);
 }
 
-void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
+void CodeGen::GenLclLoad(GenTreeLclLoad* load)
 {
-    assert(load->OperIs(GT_LCL_VAR));
-
     LclVarDsc* lcl = load->GetLcl();
 
     assert(!lcl->IsIndependentPromoted());
@@ -1711,10 +1709,8 @@ void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
     DefLclVarReg(load);
 }
 
-void CodeGen::GenLoadLclFld(GenTreeLclFld* load)
+void CodeGen::GenLclLoadFld(GenTreeLclLoadFld* load)
 {
-    assert(load->OperIs(GT_LCL_FLD));
-
     // TODO-MIKE-Review: ARM64 uses 16 byte loads to load Vector3 locals while
     // XARCH uses 12 byte loads. Could XARCH also use 16 byte loads? The problem
     // with ARM64's approach is that the last vector element isn't zeroed. It's
@@ -1732,12 +1728,10 @@ void CodeGen::GenLoadLclFld(GenTreeLclFld* load)
     DefReg(load);
 }
 
-void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
+void CodeGen::GenLclStoreFld(GenTreeLclStoreFld* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_FLD));
-
     var_types type = store->GetType();
-    GenTree*  src  = store->GetOp(0);
+    GenTree*  src  = store->GetValue();
 
     if (type == TYP_STRUCT)
     {
@@ -1783,10 +1777,8 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
     liveness.UpdateLife(this, store);
 }
 
-void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
+void CodeGen::GenLclStore(GenTreeLclStore* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR));
-
     LclVarDsc* lcl = store->GetLcl();
 
     if (lcl->IsIndependentPromoted())
@@ -1795,7 +1787,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         return;
     }
 
-    GenTree* src = store->GetOp(0);
+    GenTree* src = store->GetValue();
 
     if (store->TypeIs(TYP_STRUCT))
     {
@@ -1880,9 +1872,9 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     DefLclVarReg(store);
 }
 
-void CodeGen::GenStoreLclVarMultiRegSIMDReg(GenTreeLclVar* store)
+void CodeGen::GenStoreLclVarMultiRegSIMDReg(GenTreeLclStore* store)
 {
-    GenTree* src = store->GetOp(0);
+    GenTree* src = store->GetValue();
     assert(src->IsMultiRegNode());
 
     UseRegs(src);
@@ -1905,11 +1897,11 @@ void CodeGen::GenStoreLclVarMultiRegSIMDReg(GenTreeLclVar* store)
     DefLclVarReg(store);
 }
 
-void CodeGen::GenStoreLclVarMultiRegSIMDMem(GenTreeLclVar* store)
+void CodeGen::GenStoreLclVarMultiRegSIMDMem(GenTreeLclStore* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR) && varTypeIsSIMD(store->GetType()) && !store->IsMultiReg());
+    assert(varTypeIsSIMD(store->GetType()) && !store->IsMultiReg());
 
-    GenTree*     src      = store->GetOp(0);
+    GenTree*     src      = store->GetValue();
     GenTreeCall* call     = src->gtSkipReloadOrCopy()->AsCall();
     unsigned     regCount = call->GetRegCount();
     LclVarDsc*   lcl      = store->GetLcl();
@@ -2649,18 +2641,14 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
     GetEmitter()->DefineTempLabel(skipLabel);
 }
 
-void CodeGen::genCodeForNullCheck(GenTreeIndir* tree)
+void CodeGen::GenNullCheck(GenTreeNullCheck* check)
 {
-    assert(tree->OperIs(GT_NULLCHECK));
-
-    genConsumeAddress(tree->GetAddr());
-    emitInsLoad(INS_ldr, EA_4BYTE, REG_ZR, tree);
+    genConsumeAddress(check->GetAddr());
+    emitInsLoad(INS_ldr, EA_4BYTE, REG_ZR, check);
 }
 
-void CodeGen::GenIndLoad(GenTreeIndir* load)
+void CodeGen::GenIndLoad(GenTreeIndLoad* load)
 {
-    assert(load->OperIs(GT_IND));
-
     if (load->TypeIs(TYP_SIMD12))
     {
         LoadSIMD12(load);
@@ -2708,21 +2696,20 @@ void CodeGen::GenIndLoad(GenTreeIndir* load)
     DefReg(load);
 }
 
-void CodeGen::GenIndStore(GenTreeStoreInd* tree)
+void CodeGen::GenIndStore(GenTreeIndStore* store)
 {
-    if (tree->TypeIs(TYP_SIMD12))
+    if (store->TypeIs(TYP_SIMD12))
     {
-        genStoreSIMD12(tree, tree->GetValue());
+        genStoreSIMD12(store, store->GetValue());
         return;
     }
 
-    GenTree* addr  = tree->GetAddr();
-    GenTree* value = tree->GetValue();
+    GenTree* addr  = store->GetAddr();
+    GenTree* value = store->GetValue();
 
-    assert(IsValidSourceType(tree->GetType(), value->GetType()));
+    assert(IsValidSourceType(store->GetType(), value->GetType()));
 
-    GCInfo::WriteBarrierForm writeBarrierForm = GCInfo::GetWriteBarrierForm(tree);
-    if (writeBarrierForm != GCInfo::WBF_NoBarrier)
+    if (GCInfo::WriteBarrierForm writeBarrierForm = GCInfo::GetWriteBarrierForm(store))
     {
         regNumber addrReg  = UseReg(addr);
         regNumber valueReg = UseReg(value);
@@ -2734,7 +2721,7 @@ void CodeGen::GenIndStore(GenTreeStoreInd* tree)
 
         inst_Mov(addr->GetType(), REG_WRITE_BARRIER_DST, addrReg, /* canSkip */ true);
         inst_Mov(value->GetType(), REG_WRITE_BARRIER_SRC, valueReg, /* canSkip */ true);
-        genGCWriteBarrier(tree, writeBarrierForm);
+        genGCWriteBarrier(store, writeBarrierForm);
 
         return;
     }
@@ -2742,7 +2729,7 @@ void CodeGen::GenIndStore(GenTreeStoreInd* tree)
     // We must consume the operands in the proper execution order,
     // so that liveness is updated appropriately.
     genConsumeAddress(addr);
-    var_types type = tree->GetType();
+    var_types type = store->GetType();
     regNumber valueReg;
 
     if (value->isContained())
@@ -2759,10 +2746,10 @@ void CodeGen::GenIndStore(GenTreeStoreInd* tree)
 
     instruction ins = ins_Store(type);
 
-    if (tree->IsVolatile())
+    if (store->IsVolatile())
     {
         bool addrIsInReg   = addr->isUsedFromReg();
-        bool addrIsAligned = !tree->IsUnaligned();
+        bool addrIsAligned = !store->IsUnaligned();
 
         if ((ins == INS_strb) && addrIsInReg)
         {
@@ -2783,7 +2770,7 @@ void CodeGen::GenIndStore(GenTreeStoreInd* tree)
         }
     }
 
-    emitInsStore(ins, emitActualTypeSize(type), valueReg, tree);
+    emitInsStore(ins, emitActualTypeSize(type), valueReg, store);
 }
 
 void CodeGen::genIntToFloatCast(GenTreeCast* cast)
@@ -3235,7 +3222,7 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
 void CodeGen::genSIMDUpperSpill(GenTreeUnOp* node)
 {
     GenTree* op1 = node->GetOp(0);
-    assert(op1->OperIs(GT_LCL_VAR) && op1->TypeIs(TYP_SIMD12, TYP_SIMD16));
+    assert(op1->IsLclLoad() && op1->TypeIs(TYP_SIMD12, TYP_SIMD16));
 
     regNumber srcReg = genConsumeReg(op1);
     assert(srcReg != REG_NA);
@@ -3246,7 +3233,7 @@ void CodeGen::genSIMDUpperSpill(GenTreeUnOp* node)
 
     if (node->IsRegSpill(0))
     {
-        LclVarDsc* lcl = op1->AsLclVar()->GetLcl();
+        LclVarDsc* lcl = op1->AsLclLoad()->GetLcl();
         assert(lcl->lvOnFrame);
 
         GetEmitter()->Ins_R_S(INS_str, EA_8BYTE, dstReg, GetStackAddrMode(lcl, 8));
@@ -3266,7 +3253,7 @@ void CodeGen::genSIMDUpperSpill(GenTreeUnOp* node)
 void CodeGen::genSIMDUpperUnspill(GenTreeUnOp* node)
 {
     GenTree* op1 = node->GetOp(0);
-    assert(op1->OperIs(GT_LCL_VAR) && op1->TypeIs(TYP_SIMD12, TYP_SIMD16));
+    assert(op1->IsLclLoad() && op1->TypeIs(TYP_SIMD12, TYP_SIMD16));
 
     regNumber srcReg = node->GetRegNum();
     assert(srcReg != REG_NA);
@@ -3275,7 +3262,7 @@ void CodeGen::genSIMDUpperUnspill(GenTreeUnOp* node)
 
     if (node->IsRegSpilled(0))
     {
-        LclVarDsc* lcl = op1->AsLclVar()->GetLcl();
+        LclVarDsc* lcl = op1->AsLclLoad()->GetLcl();
         assert(lcl->lvOnFrame);
 
         GetEmitter()->Ins_R_S(INS_ldr, EA_8BYTE, srcReg, GetStackAddrMode(lcl, 8));
@@ -8366,7 +8353,7 @@ CodeGen::GenAddrMode::GenAddrMode(GenTree* tree, CodeGen* codeGen)
     {
         m_lcl = tree->AsLclVarCommon()->GetLcl();
 
-        if (tree->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD))
+        if (tree->OperIs(GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD))
         {
             m_disp = tree->AsLclFld()->GetLclOffs();
         }
@@ -8399,15 +8386,13 @@ void CodeGen::inst_AM_R(instruction ins, emitAttr attr, regNumber reg, const Gen
 
 void CodeGen::emitInsLoad(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* load)
 {
-    assert(load->OperIs(GT_IND, GT_NULLCHECK));
+    assert(load->OperIs(GT_IND_LOAD, GT_NULLCHECK));
 
     emitInsIndir(ins, attr, dataReg, load);
 }
 
-void CodeGen::emitInsStore(instruction ins, emitAttr attr, regNumber dataReg, GenTreeStoreInd* store)
+void CodeGen::emitInsStore(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndStore* store)
 {
-    assert(store->OperIs(GT_STOREIND));
-
     emitInsIndir(ins, attr, dataReg, store);
 }
 

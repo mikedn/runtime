@@ -89,11 +89,9 @@ void AliasLclSet::Clear()
 
 // Computes the alias info for a given node. Note that this does not
 // include the set of local accesses for a node unless the node is
-// itself a local access (e.g. a GT_LCL_VAR, GT_STORE_LCL_VAR, etc.).
+// itself a local access (e.g. a LCL_LOAD, LCL_STORE, etc.).
 AliasSet::NodeInfo::NodeInfo(GenTree* node) : m_node(node)
 {
-    assert(!node->OperIs(GT_ASG));
-
     if (node->IsCall())
     {
         m_flags = node->AsCall()->IsPure() ? ALIAS_NONE
@@ -141,7 +139,7 @@ AliasSet::NodeInfo::NodeInfo(GenTree* node) : m_node(node)
         isMemoryAccess = true;
     }
 #endif
-    else if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    else if (node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
         isLclVarAccess = true;
         lcl            = node->AsLclVarCommon()->GetLcl();
@@ -193,9 +191,11 @@ AliasSet::NodeInfo::NodeInfo(GenTree* node) : m_node(node)
 void AliasSet::AddNode(Compiler* compiler, GenTree* node)
 {
     // First, add all local uses associated with the node to the set. This is necessary because the
-    // local loads occur at the position of the user, not at the position of the GenTreeLclVar node.
+    // local loads occur at the position of the user, not at the position of the GenTreeLclLoad node.
+    // TODO-MIKE-Review: Hmm, this "load at the position of the user" is kind of bogus. It is only
+    // true for register candidate locals.
     node->VisitOperands([compiler, this](GenTree* operand) -> GenTree::VisitResult {
-        if (operand->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+        if (operand->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
         {
             LclVarDsc* lcl = operand->AsLclVarCommon()->GetLcl();
 
@@ -287,7 +287,7 @@ bool AliasSet::InterferesWith(const NodeInfo& other) const
     {
         for (GenTree* operand : other.Node()->Operands())
         {
-            if (operand->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+            if (operand->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
             {
                 // If this set stores any addressable location and the node uses an address-exposed local,
                 // the set interferes with the node.

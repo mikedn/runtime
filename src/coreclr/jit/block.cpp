@@ -1015,8 +1015,7 @@ Statement* BasicBlock::FirstNonPhiDefOrCatchArgAsg() const
         return nullptr;
     }
     GenTree* tree = stmt->GetRootNode();
-    if ((tree->OperGet() == GT_ASG && tree->AsOp()->gtOp2->OperGet() == GT_CATCH_ARG) ||
-        (tree->OperGet() == GT_STORE_LCL_VAR && tree->AsOp()->gtOp1->OperGet() == GT_CATCH_ARG))
+    if (tree->OperIs(GT_LCL_STORE) && tree->AsLclStore()->GetValue()->OperIs(GT_CATCH_ARG))
     {
         stmt = stmt->GetNextStmt();
     }

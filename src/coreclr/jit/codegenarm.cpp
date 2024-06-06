@@ -721,10 +721,8 @@ void CodeGen::genCodeForShiftLong(GenTree* tree)
     DefReg(tree);
 }
 
-void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
+void CodeGen::GenLclLoad(GenTreeLclLoad* load)
 {
-    assert(load->OperIs(GT_LCL_VAR));
-
     LclVarDsc* lcl = load->GetLcl();
 
     assert(!lcl->IsIndependentPromoted());
@@ -742,10 +740,8 @@ void CodeGen::GenLoadLclVar(GenTreeLclVar* load)
     DefLclVarReg(load);
 }
 
-void CodeGen::GenLoadLclFld(GenTreeLclFld* load)
+void CodeGen::GenLclLoadFld(GenTreeLclLoadFld* load)
 {
-    assert(load->OperIs(GT_LCL_FLD));
-
     var_types     type = load->GetType();
     StackAddrMode s    = GetStackAddrMode(load);
     Emitter&      emit = *GetEmitter();
@@ -778,12 +774,10 @@ void CodeGen::GenLoadLclFld(GenTreeLclFld* load)
     DefReg(load);
 }
 
-void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
+void CodeGen::GenLclStoreFld(GenTreeLclStoreFld* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_FLD));
-
     var_types type = store->GetType();
-    GenTree*  src  = store->GetOp(0);
+    GenTree*  src  = store->GetValue();
 
     if (type == TYP_STRUCT)
     {
@@ -829,10 +823,8 @@ void CodeGen::GenStoreLclFld(GenTreeLclFld* store)
     liveness.UpdateLife(this, store);
 }
 
-void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
+void CodeGen::GenLclStore(GenTreeLclStore* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR));
-
     LclVarDsc* lcl = store->GetLcl();
 
     if (lcl->IsIndependentPromoted())
@@ -847,7 +839,7 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         return;
     }
 
-    GenTree* src = store->GetOp(0);
+    GenTree* src = store->GetValue();
 
     if (store->TypeIs(TYP_STRUCT))
     {
@@ -971,16 +963,13 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
     GetEmitter()->DefineTempLabel(skipLabel);
 }
 
-void CodeGen::genCodeForNullCheck(GenTreeIndir* tree)
+void CodeGen::GenNullCheck(GenTreeNullCheck* check)
 {
-    assert(tree->OperIs(GT_NULLCHECK));
-    assert(!"GT_NULLCHECK isn't supported for Arm32; use GT_IND.");
+    assert(!"NULLCHECK isn't supported for Arm32; use IND_LOAD.");
 }
 
-void CodeGen::GenIndLoad(GenTreeIndir* load)
+void CodeGen::GenIndLoad(GenTreeIndLoad* load)
 {
-    assert(load->OperIs(GT_IND));
-
     genConsumeAddress(load->GetAddr());
     emitInsLoad(ins_Load(load->GetType()), emitActualTypeSize(load->GetType()), load->GetRegNum(), load);
 
@@ -992,16 +981,15 @@ void CodeGen::GenIndLoad(GenTreeIndir* load)
     DefReg(load);
 }
 
-void CodeGen::GenIndStore(GenTreeStoreInd* tree)
+void CodeGen::GenIndStore(GenTreeIndStore* store)
 {
-    GenTree*  addr  = tree->GetAddr();
-    GenTree*  value = tree->GetValue();
-    var_types type  = tree->GetType();
+    GenTree*  addr  = store->GetAddr();
+    GenTree*  value = store->GetValue();
+    var_types type  = store->GetType();
 
     assert(IsValidSourceType(type, value->GetType()));
 
-    GCInfo::WriteBarrierForm writeBarrierForm = GCInfo::GetWriteBarrierForm(tree);
-    if (writeBarrierForm != GCInfo::WBF_NoBarrier)
+    if (GCInfo::WriteBarrierForm writeBarrierForm = GCInfo::GetWriteBarrierForm(store))
     {
         regNumber addrReg = UseReg(addr);
         regNumber dataReg = UseReg(value);
@@ -1013,7 +1001,7 @@ void CodeGen::GenIndStore(GenTreeStoreInd* tree)
 
         inst_Mov(addr->GetType(), REG_ARG_0, addrReg, /* canSkip */ true);
         inst_Mov(value->GetType(), REG_ARG_1, dataReg, /* canSkip */ true);
-        genGCWriteBarrier(tree, writeBarrierForm);
+        genGCWriteBarrier(store, writeBarrierForm);
 
         return;
     }
@@ -1023,12 +1011,12 @@ void CodeGen::GenIndStore(GenTreeStoreInd* tree)
     genConsumeAddress(addr);
     regNumber dataReg = UseReg(value);
 
-    if (tree->IsVolatile())
+    if (store->IsVolatile())
     {
         instGen_MemoryBarrier();
     }
 
-    emitInsStore(ins_Store(type), emitActualTypeSize(type), dataReg, tree);
+    emitInsStore(ins_Store(type), emitActualTypeSize(type), dataReg, store);
 }
 
 void CodeGen::genLongToIntCast(GenTreeCast* cast)
@@ -1507,10 +1495,8 @@ void CodeGen::genCodeForInstr(GenTreeInstr* instr)
     unreached();
 }
 
-void CodeGen::emitInsLoad(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* load)
+void CodeGen::emitInsLoad(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndLoad* load)
 {
-    assert(load->OperIs(GT_IND));
-
     if (load->IsUnaligned() && varTypeIsFloating(load->GetType()))
     {
         emitter* emit = GetEmitter();
@@ -1538,10 +1524,8 @@ void CodeGen::emitInsLoad(instruction ins, emitAttr attr, regNumber dataReg, Gen
     emitInsIndir(ins, attr, dataReg, load, 0);
 }
 
-void CodeGen::emitInsStore(instruction ins, emitAttr attr, regNumber dataReg, GenTreeStoreInd* store)
+void CodeGen::emitInsStore(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndStore* store)
 {
-    assert(store->OperIs(GT_STOREIND));
-
     if (store->IsUnaligned() && varTypeIsFloating(store->GetType()))
     {
         emitter* emit = GetEmitter();

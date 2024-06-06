@@ -564,12 +564,6 @@ inline GenTreeCall* Compiler::gtNewRuntimeLookupHelperCallNode(CORINFO_RUNTIME_L
     return gtNewHelperCallNode(lookup->helper, TYP_I_IMPL, gtNewCallArgs(ctxTree, argNode));
 }
 
-inline GenTreeAllocObj* Compiler::gtNewAllocObjNode(
-    unsigned int helper, bool helperHasSideEffects, CORINFO_CLASS_HANDLE clsHnd, var_types type, GenTree* op1)
-{
-    return new (this, GT_ALLOCOBJ) GenTreeAllocObj(type, helper, helperHasSideEffects, clsHnd, op1);
-}
-
 inline GenTree* Compiler::gtNewRuntimeLookup(CORINFO_GENERIC_HANDLE hnd, CorInfoGenericHandleType hndTyp, GenTree* tree)
 {
     assert(tree != nullptr);
@@ -581,16 +575,22 @@ inline GenTree* Compiler::gtNewNullCheck(GenTree* addr)
     assert(varTypeIsI(addr->GetType()));
     assert(fgAddrCouldBeNull(addr));
 
-    GenTreeIndir* nullCheck = new (this, GT_NULLCHECK) GenTreeIndir(GT_NULLCHECK, TYP_BYTE, addr);
-    nullCheck->gtFlags |= GTF_EXCEPT;
-    return nullCheck;
+    return new (this, GT_NULLCHECK) GenTreeNullCheck(addr);
 }
 
-inline GenTreeIndir* Compiler::gtNewIndir(var_types type, GenTree* addr)
+inline GenTreeIndLoad* Compiler::gtNewIndLoad(var_types type, GenTree* addr)
 {
     assert(varTypeIsI(addr->GetType()));
 
-    return new (this, GT_IND) GenTreeIndir(GT_IND, type, addr);
+    return new (this, GT_IND_LOAD) GenTreeIndLoad(type, addr);
+}
+
+inline GenTreeIndStore* Compiler::gtNewIndStore(var_types type, GenTree* addr, GenTree* value)
+{
+    assert(varTypeIsI(addr->GetType()));
+    assert(varTypeSize(value->GetType()) != 0);
+
+    return new (this, GT_IND_STORE) GenTreeIndStore(type, addr, value);
 }
 
 inline GenTreeFieldAddr* Compiler::gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset)
@@ -609,36 +609,6 @@ inline GenTreeFieldAddr* Compiler::gtNewFieldAddr(GenTree* addr, FieldSeqNode* f
     return new (this, GT_FIELD_ADDR) GenTreeFieldAddr(addr, fieldSeq, offset);
 }
 
-inline GenTreeIndir* Compiler::gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr)
-{
-    assert(type != TYP_STRUCT);
-
-    GenTreeIndir* indir = gtNewIndir(type, fieldAddr);
-    indir->gtFlags |= gtGetFieldIndirFlags(fieldAddr);
-    return indir;
-}
-
-inline GenTreeIndir* Compiler::gtNewFieldIndir(var_types type, unsigned layoutNum, GenTreeFieldAddr* fieldAddr)
-{
-    GenTreeIndir* indir;
-
-    if (type == TYP_STRUCT)
-    {
-        indir = gtNewObjNode(typGetLayoutByNum(layoutNum), fieldAddr);
-        // gtNewObjNode has other rules for adding GTF_GLOB_REF, remove it
-        // and add it back below according to the old field rules.
-        indir->gtFlags &= ~GTF_GLOB_REF;
-    }
-    else
-    {
-        indir = gtNewIndir(type, fieldAddr);
-    }
-
-    indir->gtFlags |= gtGetFieldIndirFlags(fieldAddr);
-
-    return indir;
-}
-
 inline GenTreeIndexAddr* Compiler::gtNewArrayIndexAddr(GenTree* arr, GenTree* ind, var_types elemType)
 {
     return new (this, GT_INDEX_ADDR)
@@ -649,33 +619,6 @@ inline GenTreeIndexAddr* Compiler::gtNewStringIndexAddr(GenTree* arr, GenTree* i
 {
     return new (this, GT_INDEX_ADDR)
         GenTreeIndexAddr(arr, ind, OFFSETOF__CORINFO_String__stringLen, OFFSETOF__CORINFO_String__chars, TYP_USHORT);
-}
-
-inline GenTreeIndir* Compiler::gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexAddr)
-{
-    GenTreeIndir* indir;
-
-    if (type != TYP_STRUCT)
-    {
-        indir = gtNewIndir(type, indexAddr);
-    }
-    else
-    {
-        indir = gtNewObjNode(indexAddr->GetLayout(this), indexAddr);
-    }
-
-    indir->gtFlags |= GTF_GLOB_REF;
-
-    if ((indexAddr->gtFlags & GTF_INX_RNGCHK) != 0)
-    {
-        indir->gtFlags |= GTF_IND_NONFAULTING;
-    }
-    else
-    {
-        indir->gtFlags |= GTF_EXCEPT;
-    }
-
-    return indir;
 }
 
 inline GenTreeArrLen* Compiler::gtNewArrLen(GenTree* arr, uint8_t lenOffs, GenTreeFlags flags = GTF_EXCEPT)
@@ -723,7 +666,7 @@ inline GenTreeCast* Compiler::gtNewCastNode(GenTree* op1, bool fromUnsigned, var
 
 inline GenTreeIndir* Compiler::gtNewMethodTableLookup(GenTree* object)
 {
-    GenTreeIndir* result = gtNewIndir(TYP_I_IMPL, object);
+    GenTreeIndir* result = gtNewIndLoad(TYP_I_IMPL, object);
     // TODO-MIKE-Review: In theory we could avoid setting GTF_EXCEPT when
     // the object is a string literal or a boxed struct used for static
     // struct fields. fgAddrCouldBeNull checks for those but it's overkill
@@ -805,8 +748,8 @@ inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
             AsFieldList()->SetContained();
             break;
 
-        case GT_LCL_FLD:
-        case GT_STORE_LCL_FLD:
+        case GT_LCL_LOAD_FLD:
+        case GT_LCL_STORE_FLD:
             AsLclFld()->SetLayoutNum(0);
             AsLclFld()->SetLclOffs(0);
             AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
@@ -898,6 +841,17 @@ inline GenTreeDblCon* GenTree::ChangeToDblCon(var_types type, double value)
     return ChangeToDblCon(value);
 }
 
+inline GenTreeCast* GenTree::ChangeToCast(var_types type, GenTree* value)
+{
+    SetOperResetFlags(GT_CAST);
+
+    GenTreeCast* cast = AsCast();
+    cast->SetCastType(type);
+    cast->SetOp(0, value);
+    cast->SetSideEffects(value->GetSideEffects());
+    return cast;
+}
+
 inline GenTreeFieldList* GenTree::ChangeToFieldList()
 {
     SetOperResetFlags(GT_FIELD_LIST);
@@ -909,20 +863,66 @@ inline GenTreeFieldList* GenTree::ChangeToFieldList()
     return fieldList;
 }
 
-inline GenTreeLclFld* GenTree::ChangeToLclFld(var_types type, LclVarDsc* lcl, unsigned offset, FieldSeqNode* fieldSeq)
+inline GenTreeLclLoad* GenTree::ChangeToLclLoad(var_types type, LclVarDsc* lcl)
+{
+    SetOperResetFlags(GT_LCL_LOAD);
+
+    GenTreeLclLoad* load = AsLclLoad();
+    load->SetType(type);
+    load->SetLcl(lcl);
+    load->SetSideEffects(lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
+    return load;
+}
+
+inline GenTreeLclStore* GenTree::ChangeToLclStore(var_types type, LclVarDsc* lcl, GenTree* value)
+{
+    SetOperResetFlags(GT_LCL_STORE);
+
+    GenTreeLclStore* store = AsLclStore();
+    store->SetType(type);
+    store->SetLcl(lcl);
+    store->SetValue(value);
+    store->SetSideEffects(GTF_ASG | value->GetSideEffects() | (lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE));
+    return store;
+}
+
+inline GenTreeLclLoadFld* GenTree::ChangeToLclLoadFld(var_types     type,
+                                                      LclVarDsc*    lcl,
+                                                      unsigned      offset,
+                                                      FieldSeqNode* fieldSeq)
 {
     assert(offset <= UINT16_MAX);
     assert((fieldSeq == nullptr) || (fieldSeq == FieldSeqNode::NotAField()) || fieldSeq->IsField());
 
-    SetOperResetFlags(GT_LCL_FLD);
+    SetOperResetFlags(GT_LCL_LOAD_FLD);
 
-    GenTreeLclFld* lclFld = AsLclFld();
-    lclFld->SetType(type);
-    lclFld->SetLcl(lcl);
-    lclFld->SetLclOffs(offset);
-    lclFld->SetLayoutNum(0);
-    lclFld->SetFieldSeq(fieldSeq == nullptr ? FieldSeqNode::NotAField() : fieldSeq);
-    return lclFld;
+    GenTreeLclLoadFld* load = AsLclLoadFld();
+    load->SetType(type);
+    load->SetLcl(lcl);
+    load->SetLclOffs(offset);
+    load->SetLayoutNum(0);
+    load->SetFieldSeq(fieldSeq == nullptr ? FieldSeqNode::NotAField() : fieldSeq);
+    load->SetSideEffects(lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
+    return load;
+}
+
+inline GenTreeLclStoreFld* GenTree::ChangeToLclStoreFld(
+    var_types type, LclVarDsc* lcl, unsigned offset, FieldSeqNode* fieldSeq, GenTree* value)
+{
+    assert(offset <= UINT16_MAX);
+    assert((fieldSeq == nullptr) || (fieldSeq == FieldSeqNode::NotAField()) || fieldSeq->IsField());
+
+    SetOperResetFlags(GT_LCL_STORE_FLD);
+
+    GenTreeLclStoreFld* store = AsLclStoreFld();
+    store->SetType(type);
+    store->SetLcl(lcl);
+    store->SetLclOffs(offset);
+    store->SetLayoutNum(0);
+    store->SetFieldSeq(fieldSeq == nullptr ? FieldSeqNode::NotAField() : fieldSeq);
+    store->SetValue(value);
+    store->SetSideEffects(GTF_ASG | value->GetSideEffects() | (lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE));
+    return store;
 }
 
 inline GenTreeLclAddr* GenTree::ChangeToLclAddr(var_types type, LclVarDsc* lcl)
@@ -1274,20 +1274,20 @@ inline LclVarDsc* Compiler::LoopDsc::lpIterVar() const
 inline int Compiler::LoopDsc::lpIterConst() const
 {
     INDEBUG(VerifyIterator());
-    return lpIterTree->GetOp(0)->AsOp()->GetOp(1)->AsIntCon()->GetInt32Value();
+    return lpIterTree->GetValue()->AsOp()->GetOp(1)->AsIntCon()->GetInt32Value();
 }
 
 inline genTreeOps Compiler::LoopDsc::lpIterOper() const
 {
     INDEBUG(VerifyIterator());
-    return lpIterTree->GetOp(0)->GetOper();
+    return lpIterTree->GetValue()->GetOper();
 }
 
 inline bool Compiler::LoopDsc::lpIsReversed() const
 {
     INDEBUG(VerifyIterator());
-    return lpTestTree->GetOp(1)->OperIs(GT_LCL_VAR) &&
-           (lpTestTree->GetOp(1)->AsLclVar()->GetLcl() == lpIterTree->GetLcl());
+    return lpTestTree->GetOp(1)->OperIs(GT_LCL_LOAD) &&
+           (lpTestTree->GetOp(1)->AsLclLoad()->GetLcl() == lpIterTree->GetLcl());
 }
 
 inline genTreeOps Compiler::LoopDsc::lpTestOper() const
@@ -1312,19 +1312,14 @@ inline int Compiler::LoopDsc::lpConstLimit() const
 {
     INDEBUG(VerifyIterator());
     assert(lpFlags & LPFLG_CONST_LIMIT);
-
-    GenTree* limit = lpLimit();
-    return limit->AsIntCon()->GetInt32Value();
+    return lpLimit()->AsIntCon()->GetInt32Value();
 }
 
 inline LclVarDsc* Compiler::LoopDsc::lpVarLimit() const
 {
     INDEBUG(VerifyIterator());
     assert(lpFlags & LPFLG_VAR_LIMIT);
-
-    GenTree* limit = lpLimit();
-    assert(limit->OperIs(GT_LCL_VAR));
-    return limit->AsLclVar()->GetLcl();
+    return lpLimit()->AsLclLoad()->GetLcl();
 }
 
 /*

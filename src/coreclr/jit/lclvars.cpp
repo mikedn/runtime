@@ -1747,7 +1747,7 @@ void Compiler::lvaSetClass(LclVarDsc* lcl, GenTree* tree, CORINFO_CLASS_HANDLE s
 
 // Update class information for a local var.
 //
-// This method models the type update rule for an assignment.
+// This method models the type update rule for a store to a local.
 //
 // Updates currently should only happen for single-def user args or
 // locals, when we are processing the expression actually being
@@ -2409,7 +2409,7 @@ var_types LclVarDsc::GetRegisterType(const GenTreeLclVarCommon* tree) const
     }
 
 #ifdef DEBUG
-    if ((targetType != TYP_UNDEF) && tree->OperIs(GT_STORE_LCL_VAR) && lvNormalizeOnStore())
+    if ((targetType != TYP_UNDEF) && tree->OperIs(GT_LCL_STORE) && lvNormalizeOnStore())
     {
         assert(targetType == varActualType(lclVarType));
     }
@@ -2559,20 +2559,22 @@ void Compiler::lvaComputeRefCountsHIR()
 
             switch (node->GetOper())
             {
-                case GT_STORE_LCL_VAR:
+                case GT_LCL_STORE:
 #if OPT_BOOL_OPS
                 {
-                    GenTree* value = node->AsLclVar()->GetOp(0);
+                    GenTree* value = node->AsLclStore()->GetValue();
 
                     if (!value->TypeIs(TYP_BOOL) && !value->OperIsCompare() && !value->IsIntegralConst(0) &&
                         !value->IsIntegralConst(1))
                     {
-                        node->AsLclVar()->GetLcl()->lvIsBoolean = false;
+                        node->AsLclStore()->GetLcl()->lvIsBoolean = false;
                     }
                 }
                     FALLTHROUGH;
 #endif
-                case GT_STORE_LCL_FLD:
+                case GT_LCL_STORE_FLD:
+                case GT_LCL_LOAD:
+                case GT_LCL_LOAD_FLD:
                     MarkLclRefs(node->AsLclVarCommon(), user);
                     break;
 
@@ -2587,13 +2589,7 @@ void Compiler::lvaComputeRefCountsHIR()
                 }
                 break;
 
-                case GT_LCL_VAR:
-                case GT_LCL_FLD:
-                    MarkLclRefs(node->AsLclVarCommon(), user);
-                    break;
-
                 default:
-                    assert(!node->OperIs(GT_ASG));
                     break;
             }
 
@@ -2606,7 +2602,7 @@ void Compiler::lvaComputeRefCountsHIR()
 
             m_compiler->lvaAddRef(lcl, m_weight);
 
-            if (lcl->IsAddressExposed() || node->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD))
+            if (lcl->IsAddressExposed() || node->OperIs(GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD))
             {
                 lcl->lvIsBoolean = false;
 #if ASSERTION_PROP
@@ -2618,13 +2614,13 @@ void Compiler::lvaComputeRefCountsHIR()
             {
                 // TODO-MIKE-Review: Old code ignored LCL_FLDs, that's probably bogus. lvHasEHRefs
                 // is used only for AddCopies and CopyProp heuristics so it probably doesn't matter.
-                if (node->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
+                if (node->OperIs(GT_LCL_LOAD, GT_LCL_STORE))
                 {
                     lcl->lvHasEHRefs = true;
                 }
 
-                if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD) ||
-                    (node->OperIs(GT_STORE_LCL_FLD) && node->IsPartialLclFld(m_compiler)))
+                if (node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) ||
+                    (node->OperIs(GT_LCL_STORE_FLD) && node->IsPartialLclFld(m_compiler)))
                 {
                     lcl->lvHasEHUses = true;
 
@@ -2642,7 +2638,7 @@ void Compiler::lvaComputeRefCountsHIR()
                 }
             }
 
-            if (node->OperIs(GT_LCL_FLD, GT_STORE_LCL_FLD))
+            if (node->OperIs(GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD))
             {
                 assert((node->gtFlags & GTF_VAR_CONTEXT) == 0);
 
@@ -2660,12 +2656,12 @@ void Compiler::lvaComputeRefCountsHIR()
                          (node->TypeIs(TYP_UBYTE) && lcl->TypeIs(TYP_BOOL)) ||
                          (node->TypeIs(TYP_BYREF) && lcl->TypeIs(TYP_I_IMPL)) ||
                          (node->TypeIs(TYP_I_IMPL) && lcl->TypeIs(TYP_BYREF)) ||
-                         (node->TypeIs(TYP_INT) && lcl->TypeIs(TYP_LONG) && node->OperIs(GT_LCL_VAR)));
+                         (node->TypeIs(TYP_INT) && lcl->TypeIs(TYP_LONG) && node->OperIs(GT_LCL_LOAD)));
 
 #if ASSERTION_PROP
             if (!lcl->lvDisqualifyAddCopy)
             {
-                if (node->OperIs(GT_STORE_LCL_VAR))
+                if (node->OperIs(GT_LCL_STORE))
                 {
                     // TODO-MIKE-Consider: "single def" doesn't apply to address exposed locals.
                     // There's a pretty good chance that a local that's not AX will be in SSA,
@@ -2695,7 +2691,7 @@ void Compiler::lvaComputeRefCountsHIR()
             }
 #endif // ASSERTION_PROP
 
-            if (!lcl->lvDisqualifySingleDefRegCandidate && node->OperIs(GT_STORE_LCL_VAR))
+            if (!lcl->lvDisqualifySingleDefRegCandidate && node->OperIs(GT_LCL_STORE))
             {
                 bool bbInALoop  = (m_block->bbFlags & BBF_BACKWARD_JUMP) != 0;
                 bool bbIsReturn = m_block->bbJumpKind == BBJ_RETURN;
@@ -2723,7 +2719,7 @@ void Compiler::lvaComputeRefCountsHIR()
                 {
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
                     // TODO-CQ: If the varType needs partial callee save, conservatively do not enregister
-                    // such variable. In future, need to enable enregisteration for such variables.
+                    // such variable. In future, need to enable enregistration for such variables.
                     if (!varTypeNeedsPartialCalleeSave(lcl->GetRegisterType()))
 #endif
                     {
@@ -2767,19 +2763,19 @@ void Compiler::lvaComputeRefCountsLIR()
                     lcl       = node->AsLclAddr()->GetLcl();
                     break;
 
-                case GT_LCL_VAR:
-                case GT_LCL_FLD:
+                case GT_LCL_LOAD:
+                case GT_LCL_LOAD_FLD:
                     if ((node->gtFlags & GTF_VAR_CONTEXT) != 0)
                     {
-                        assert(node->OperIs(GT_LCL_VAR));
+                        assert(node->OperIs(GT_LCL_LOAD));
                         lvaGenericsContextInUse = true;
                     }
 
                     lcl = node->AsLclVarCommon()->GetLcl();
                     break;
 
-                case GT_STORE_LCL_VAR:
-                case GT_STORE_LCL_FLD:
+                case GT_LCL_STORE:
+                case GT_LCL_STORE_FLD:
                     assert((node->gtFlags & GTF_VAR_CONTEXT) == 0);
                     lcl = node->AsLclVarCommon()->GetLcl();
 

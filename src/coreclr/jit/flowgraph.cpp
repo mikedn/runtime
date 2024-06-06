@@ -291,8 +291,8 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
 
     if (addrOfTrapReturningThreadsAddr != nullptr)
     {
-        addr = gtNewIndOfIconHandleNode(TYP_I_IMPL, reinterpret_cast<size_t>(addrOfTrapReturningThreadsAddr),
-                                        HandleKind::ConstData, true);
+        addr = gtNewIndLoad(TYP_I_IMPL, reinterpret_cast<size_t>(addrOfTrapReturningThreadsAddr), HandleKind::ConstData,
+                            true);
     }
     else
     {
@@ -305,7 +305,7 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
     // and the location is formally unknown, so the load should not be optimized thus
     // no special flags are needed.
 
-    GenTreeIndir* indir = gtNewIndir(TYP_INT, addr);
+    GenTreeIndir* indir = gtNewIndLoad(TYP_INT, addr);
     indir->gtFlags |= GTF_IND_NONFAULTING | GTF_GLOB_REF;
     GenTree* trapEq = gtNewOperNode(GT_EQ, TYP_INT, indir, gtNewIconNode(0, TYP_INT));
     trapEq->gtFlags |= GTF_RELOP_JMP_USED | GTF_DONT_CSE;
@@ -853,7 +853,8 @@ void Compiler::fgAddSyncMethodEnterExit()
     LclVarDsc* acquiredLcl = lvaNewTemp(TYP_INT, true DEBUGARG("monitor 'acquired' temp"));
     lvaMonAcquired         = acquiredLcl->GetLclNum();
 
-    GenTreeOp* init = gtNewAssignNode(gtNewLclvNode(acquiredLcl, TYP_INT), gtNewIconNode(0));
+    GenTreeLclStore* init = gtNewLclStore(acquiredLcl, TYP_INT, gtNewIconNode(0));
+    init->AddSideEffects(GTF_GLOB_REF);
     fgNewStmtAtEnd(fgFirstBB, init);
     JITDUMPTREE(init, "\nSynchronized method - Add 'acquired' initialization in first block " FMT_BB "\n",
                 fgFirstBB->bbNum);
@@ -868,7 +869,7 @@ void Compiler::fgAddSyncMethodEnterExit()
 
         thisArgLcl  = lvaGetDesc(info.GetThisParamLclNum());
         thisCopyLcl = lvaNewTemp(TYP_REF, true DEBUGARG("monitor EH exit 'this' copy"));
-        init        = gtNewAssignNode(gtNewLclvNode(thisCopyLcl, TYP_REF), gtNewLclvNode(thisArgLcl, TYP_REF));
+        init        = gtNewLclStore(thisCopyLcl, TYP_REF, gtNewLclLoad(thisArgLcl, TYP_REF));
 
         fgNewStmtAtEnd(tryBegBB, init);
     }
@@ -896,8 +897,8 @@ void Compiler::fgInsertMonitorCall(BasicBlock*     block,
     assert((block->bbJumpKind == BBJ_NONE) || (block->bbJumpKind == BBJ_RETURN) ||
            (block->bbJumpKind == BBJ_EHFINALLYRET));
 
-    GenTree* monitor  = thisLcl == nullptr ? gtNewStaticMethodMonitorAddr() : gtNewLclvNode(thisLcl, TYP_REF);
-    GenTree* acquired = gtNewLclVarAddrNode(acquiredLcl);
+    GenTree* monitor  = thisLcl == nullptr ? gtNewStaticMethodMonitorAddr() : gtNewLclLoad(thisLcl, TYP_REF);
+    GenTree* acquired = gtNewLclAddr(acquiredLcl);
     GenTree* call     = gtNewHelperCallNode(helper, TYP_VOID, gtNewCallArgs(monitor, acquired));
 
     JITDUMPTREE(call, "\nSynchronized method - Add monitor call to block " FMT_BB "\n", block->bbNum);
@@ -934,9 +935,9 @@ void Compiler::fgInsertMonitorCall(BasicBlock*     block,
                 retTempLcl->SetType(retNode->GetType());
             }
 
-            GenTreeOp* retTempInit = gtNewAssignNode(gtNewLclvNode(retTempLcl, retTempLcl->GetType()), retExpr);
+            GenTreeLclStore* retTempInit = gtNewLclStore(retTempLcl, retTempLcl->GetType(), retExpr);
             fgInsertStmtBefore(block, retStmt, gtNewStmt(retTempInit));
-            retNode->AsUnOp()->SetOp(0, gtNewLclvNode(retTempLcl, retTempLcl->GetType()));
+            retNode->AsUnOp()->SetOp(0, gtNewLclLoad(retTempLcl, retTempLcl->GetType()));
         }
     }
 
@@ -998,7 +999,7 @@ void Compiler::fgAddReversePInvokeEnterExit()
 
     // Add enter pinvoke exit callout at the start of prolog
 
-    GenTree*        pInvokeFrameVar = gtNewLclVarAddrNode(frameLcl);
+    GenTreeLclAddr* pInvokeFrameVar = gtNewLclAddr(frameLcl);
     CorInfoHelpFunc reversePInvokeEnterHelper;
 
     GenTreeCall::Use* args;
@@ -1013,7 +1014,7 @@ void Compiler::fgAddReversePInvokeEnterExit()
             // If we have a secret param for a Reverse P/Invoke, that means that we are in an IL stub.
             // In this case, the method handle we pass down to the Reverse P/Invoke helper should be
             // the target method, which is passed in the secret parameter.
-            stubArgument = gtNewLclvNode(lvaGetDesc(lvaStubArgumentVar), TYP_I_IMPL);
+            stubArgument = gtNewLclLoad(lvaGetDesc(lvaStubArgumentVar), TYP_I_IMPL);
         }
         else
         {
@@ -1046,7 +1047,7 @@ void Compiler::fgAddReversePInvokeEnterExit()
 
     // Add reverse pinvoke exit callout at the end of epilog
 
-    tree = gtNewLclVarAddrNode(frameLcl);
+    tree = gtNewLclAddr(frameLcl);
 
     CorInfoHelpFunc reversePInvokeExitHelper = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TRACK_TRANSITIONS)
                                                    ? CORINFO_HELP_JIT_REVERSE_PINVOKE_EXIT_TRACK_TRANSITIONS
@@ -1281,7 +1282,7 @@ private:
         {
             assert(comp->info.retDesc.GetRegCount() == 1);
 
-            GenTree* retBuffAddr = comp->gtNewLclvNode(comp->lvaGetDesc(comp->info.compRetBuffArg), TYP_BYREF);
+            GenTree* retBuffAddr = comp->gtNewLclLoad(comp->lvaGetDesc(comp->info.compRetBuffArg), TYP_BYREF);
             retBuffAddr->gtFlags |= GTF_DONT_CSE;
             returnExpr = comp->gtNewOperNode(GT_RETURN, TYP_BYREF, retBuffAddr);
 
@@ -1304,7 +1305,7 @@ private:
                 comp->compFloatingPointUsed |= varTypeIsFloating(comp->info.compRetType);
             }
 
-            GenTree* retTemp = comp->gtNewLclvNode(lcl, lcl->GetType());
+            GenTree* retTemp = comp->gtNewLclLoad(lcl, lcl->GetType());
             // make sure copy prop ignores this node (make sure it always does a reload from the temp).
             retTemp->gtFlags |= GTF_DONT_CSE;
             returnExpr = comp->gtNewOperNode(GT_RETURN, lcl->GetType(), retTemp);
@@ -1315,7 +1316,7 @@ private:
         // Add 'return' expression to the return block
         comp->fgNewStmtAtEnd(newReturnBB, returnExpr);
         // Flag that this 'return' was generated by return merging so that subsequent
-        // return block morhping will know to leave it alone.
+        // return block morphing will know to leave it alone.
         returnExpr->gtFlags |= GTF_RET_MERGED;
 
         JITDUMPTREE(returnExpr, "\nmergeReturns statement tree [%06u] added to genReturnBB %s\n", returnExpr->GetID(),
@@ -1575,7 +1576,7 @@ void Compiler::fgAddInternal()
                 continue;
             }
 
-            GenTree* op   = gtNewLclvNode(lcl, TYP_REF);
+            GenTree* op   = gtNewLclLoad(lcl, TYP_REF);
             GenTree* call = gtNewHelperCallNode(CORINFO_HELP_CHECK_OBJ, TYP_VOID, gtNewCallArgs(op));
 
             fgEnsureFirstBBisScratch();
@@ -1626,7 +1627,12 @@ void Compiler::fgAddInternal()
         noway_assert(thisLcl->IsAddressExposed() || thisLcl->lvHasILStoreOp || genericsContextIsThis);
 
         var_types type = thisParam->GetType();
-        GenTree*  tree = gtNewAssignNode(gtNewLclvNode(thisLcl, type), gtNewLclvNode(thisParam, type));
+        GenTree*  tree = gtNewLclStore(thisLcl, type, gtNewLclLoad(thisParam, type));
+
+        if (thisLcl->IsAddressExposed())
+        {
+            tree->AddSideEffects(GTF_GLOB_REF);
+        }
 
         fgEnsureFirstBBisScratch();
         fgNewStmtAtEnd(fgFirstBB, tree);
@@ -1734,7 +1740,7 @@ void Compiler::fgAddInternal()
         if ((jmcFlag != nullptr) || (jmcFlagAddr != nullptr))
         {
             GenTree* embNode        = gtNewConstLookupTree(jmcFlag, jmcFlagAddr, HandleKind::MutableData, nullptr);
-            GenTree* guardCheckVal  = gtNewIndir(TYP_INT, embNode);
+            GenTree* guardCheckVal  = gtNewIndLoad(TYP_INT, embNode);
             GenTree* guardCheckCond = gtNewOperNode(GT_EQ, TYP_INT, guardCheckVal, gtNewIconNode(0));
             GenTree* callback       = gtNewHelperCallNode(CORINFO_HELP_DBG_IS_JUST_MY_CODE, TYP_VOID);
 
@@ -1764,7 +1770,7 @@ void Compiler::fgAddInternal()
 
             noway_assert(thisParam->TypeIs(TYP_REF));
 
-            tree = gtNewLclvNode(thisParam, TYP_REF);
+            tree = gtNewLclLoad(thisParam, TYP_REF);
             tree = gtNewHelperCallNode(CORINFO_HELP_MON_ENTER, TYP_VOID, gtNewCallArgs(tree));
         }
 
@@ -1801,7 +1807,7 @@ void Compiler::fgAddInternal()
 
             noway_assert(thisParam->TypeIs(TYP_REF));
 
-            tree = gtNewLclvNode(thisParam, TYP_REF);
+            tree = gtNewLclLoad(thisParam, TYP_REF);
             tree = gtNewHelperCallNode(CORINFO_HELP_MON_EXIT, TYP_VOID, gtNewCallArgs(tree));
         }
 
@@ -2229,10 +2235,9 @@ void Compiler::phDetermineFirstColdBlock()
                 case BBJ_CALLFINALLY:
                     // A BBJ_CALLFINALLY that falls through is always followed
                     // by an empty BBJ_ALWAYS.
-                    //
                     assert(prevToFirstColdBlock->isBBCallAlwaysPair());
-                    firstColdBlock =
-                        firstColdBlock->bbNext; // Note that this assignment could make firstColdBlock == nullptr
+                    // Note that firstColdBlock could become null.
+                    firstColdBlock = firstColdBlock->bbNext;
                     break;
 
                 case BBJ_COND:
@@ -2242,9 +2247,9 @@ void Compiler::phDetermineFirstColdBlock()
                     //
                     if (firstColdBlock->isEmpty() && (firstColdBlock->bbJumpKind == BBJ_ALWAYS))
                     {
-                        // We can just use this block as the transitionBlock
+                        // We can just use this block as the transitionBlock.
+                        // Note that firstColdBlock could become null.
                         firstColdBlock = firstColdBlock->bbNext;
-                        // Note that this assignment could make firstColdBlock == NULL
                     }
                     else
                     {

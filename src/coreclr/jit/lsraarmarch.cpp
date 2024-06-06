@@ -55,7 +55,7 @@ void LinearScan::BuildIndir(GenTreeIndir* indir)
     {
         BuildInternalIntDef(indir);
 
-        if (GenTreeStoreInd* store = indir->IsStoreInd())
+        if (GenTreeIndStore* store = indir->IsIndStore())
         {
             GenTree* value = store->GetValue();
 
@@ -63,9 +63,9 @@ void LinearScan::BuildIndir(GenTreeIndir* indir)
             {
                 BuildAddrUses(store->GetAddr());
 
-                if (value->OperIs(GT_IND))
+                if (value->OperIs(GT_IND_LOAD))
                 {
-                    BuildAddrUses(value->AsIndir()->GetAddr());
+                    BuildAddrUses(value->AsIndLoad()->GetAddr());
                 }
 
                 BuildInternalUses();
@@ -79,7 +79,7 @@ void LinearScan::BuildIndir(GenTreeIndir* indir)
     BuildAddrUses(indir->GetAddr());
     BuildInternalUses();
 
-    if (!indir->OperIs(GT_STOREIND, GT_NULLCHECK))
+    if (!indir->OperIs(GT_IND_STORE, GT_NULLCHECK))
     {
         BuildDef(indir);
     }
@@ -268,9 +268,9 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
         BuildInternalIntDef(putArg);
 #endif
 
-        if (src->OperIs(GT_OBJ))
+        if (src->OperIs(GT_IND_LOAD_OBJ))
         {
-            BuildAddrUses(src->AsObj()->GetAddr());
+            BuildAddrUses(src->AsIndLoadObj()->GetAddr());
         }
 
         BuildInternalUses();
@@ -339,9 +339,9 @@ void LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
         {
             BuildInternalIntDef(putArg, allRegs(TYP_INT) & ~argRegMask);
 
-            if (src->OperIs(GT_OBJ))
+            if (src->OperIs(GT_IND_LOAD_OBJ))
             {
-                BuildAddrUses(src->AsObj()->GetAddr());
+                BuildAddrUses(src->AsIndLoadObj()->GetAddr());
             }
 
             BuildInternalUses();
@@ -360,7 +360,7 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
 #ifdef TARGET_ARM64
     if (kind == StructStoreKind::UnrollRegsWB)
     {
-        BuildStructStoreUnrollRegsWB(store->AsObj(), layout);
+        BuildStructStoreUnrollRegsWB(store->AsIndStoreObj(), layout);
 
         return;
     }
@@ -369,7 +369,7 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
     GenTree* dstAddr = nullptr;
     GenTree* src;
 
-    if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
         src = store->AsLclVarCommon()->GetOp(0);
     }
@@ -395,14 +395,14 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
 
         srcAddrOrFill = src;
     }
-    else if (src->OperIs(GT_IND, GT_OBJ, GT_BLK))
+    else if (src->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ, GT_IND_LOAD_BLK))
     {
         assert(src->isContained());
         srcAddrOrFill = src->AsIndir()->GetAddr();
     }
     else
     {
-        assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+        assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
         assert(src->isContained());
     }
 
@@ -509,7 +509,7 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
     BuildKills(store, getKillSetForStructStore(kind));
 }
 
-void LinearScan::BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* layout)
+void LinearScan::BuildStructStoreUnrollRegsWB(GenTreeIndStoreObj* store, ClassLayout* layout)
 {
 #ifndef TARGET_ARM64
     unreached();
@@ -574,9 +574,9 @@ void LinearScan::BuildCast(GenTreeCast* cast)
     {
         BuildUse(src);
     }
-    else if (src->OperIs(GT_IND))
+    else if (src->OperIs(GT_IND_LOAD))
     {
-        BuildAddrUses(src->AsIndir()->GetAddr());
+        BuildAddrUses(src->AsIndLoad()->GetAddr());
     }
 #ifdef TARGET_ARM
     else if (src->OperIs(GT_LONG))
@@ -587,7 +587,7 @@ void LinearScan::BuildCast(GenTreeCast* cast)
 #endif
     else
     {
-        assert(src->OperIs(GT_LCL_VAR, GT_LCL_FLD));
+        assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
     }
 
     BuildInternalUses();

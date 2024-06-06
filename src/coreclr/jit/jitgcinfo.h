@@ -168,7 +168,7 @@ public:
 
     static bool            UseOptimizedWriteBarriers();
     static CorInfoHelpFunc GetWriteBarrierHelperCall(GCInfo::WriteBarrierForm wbf);
-    static WriteBarrierForm GetWriteBarrierForm(GenTreeStoreInd* store);
+    static WriteBarrierForm GetWriteBarrierForm(GenTreeIndStore* store);
     static WriteBarrierForm GetWriteBarrierFormFromAddress(GenTree* addr);
     static bool IsNoGCHelper(CorInfoHelpFunc helper);
     static regMaskTP GetNoGCHelperCalleeKilledRegs(CorInfoHelpFunc helper);

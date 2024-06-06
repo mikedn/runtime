@@ -192,7 +192,8 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
 
 void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* lclNode)
 {
-    assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD) && !lclNode->IsMultiRegLclVar());
+    assert(lclNode->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD) &&
+           !lclNode->IsMultiRegLclVar());
 
     LclVarDsc* lcl = lclNode->GetLcl();
 
@@ -207,7 +208,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
     }
 
     bool isBorn =
-        lclNode->OperIs(GT_STORE_LCL_VAR) || (lclNode->OperIs(GT_STORE_LCL_FLD) && !lclNode->IsPartialLclFld(compiler));
+        lclNode->OperIs(GT_LCL_STORE) || (lclNode->OperIs(GT_LCL_STORE_FLD) && !lclNode->IsPartialLclFld(compiler));
     bool isDying = (lclNode->gtFlags & GTF_VAR_DEATH) != 0;
     bool spill   = lclNode->IsAnyRegSpill();
 
@@ -301,14 +302,12 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
     }
 }
 
-void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar* lclNode)
+void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclStore* store)
 {
-    assert(lclNode->OperIs(GT_STORE_LCL_VAR));
-
     DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, currentLife);)
     DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet2, liveGCLcl);)
 
-    LclVarDsc* lcl = lclNode->GetLcl();
+    LclVarDsc* lcl = store->GetLcl();
 
     assert(lcl->IsIndependentPromoted());
 
@@ -317,7 +316,7 @@ void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar*
         LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
         bool isInReg      = fieldLcl->lvIsInReg();
-        bool isFieldDying = lclNode->IsLastUse(i);
+        bool isFieldDying = store->IsLastUse(i);
 
         if (isInReg)
         {
@@ -349,7 +348,7 @@ void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarC
 {
     assert(!lclNode->IsMultiRegLclVar() && !lclNode->IsAnyRegSpill());
 
-    bool isBorn  = lclNode->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD);
+    bool isBorn  = lclNode->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD);
     bool isDying = lclNode->HasLastUse();
 
     if (!isBorn && !isDying)
@@ -365,7 +364,7 @@ void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarC
     unsigned lclOffset    = 0;
     unsigned lclEndOffset = lcl->TypeIs(TYP_STRUCT) ? lcl->GetLayout()->GetSize() : varTypeSize(lcl->GetType());
 
-    if (GenTreeLclFld* lclFld = lclNode->IsLclFld())
+    if (GenTreeLclFld* lclFld = lclNode->IsLclStoreFld())
     {
         lclOffset    = lclFld->GetLclOffs();
         lclEndOffset = lclOffset + (lclFld->TypeIs(TYP_STRUCT) ? lclFld->GetLayout(compiler)->GetSize()
@@ -422,9 +421,8 @@ void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarC
     DBEXEC(compiler->verbose, DumpDiff(codeGen);)
 }
 
-void CodeGenLivenessUpdater::MoveReg(CodeGen* codeGen, LclVarDsc* lcl, GenTreeLclVar* src, GenTreeCopyOrReload* dst)
+void CodeGenLivenessUpdater::MoveReg(CodeGen* codeGen, LclVarDsc* lcl, GenTreeLclLoad* src, GenTreeCopyOrReload* dst)
 {
-    assert(src->OperIs(GT_LCL_VAR));
     assert(lcl->GetRegNum() != REG_STK);
 
     RegNum srcReg = src->GetRegNum();
@@ -440,7 +438,7 @@ void CodeGenLivenessUpdater::MoveReg(CodeGen* codeGen, LclVarDsc* lcl, GenTreeLc
 
 void CodeGenLivenessUpdater::Spill(LclVarDsc* lcl, GenTreeLclVar* lclNode)
 {
-    assert(lclNode->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR));
+    assert(lclNode->OperIs(GT_LCL_LOAD, GT_LCL_STORE));
 
     UpdateLiveLclRegs(lcl, /* isDying */ true);
     RemoveGCRegs(GetLclRegs(lcl));
@@ -448,10 +446,8 @@ void CodeGenLivenessUpdater::Spill(LclVarDsc* lcl, GenTreeLclVar* lclNode)
 }
 
 void CodeGenLivenessUpdater::Unspill(
-    CodeGen* codeGen, LclVarDsc* lcl, GenTreeLclVar* src, RegNum dstReg, var_types dstType)
+    CodeGen* codeGen, LclVarDsc* lcl, GenTreeLclLoad* src, RegNum dstReg, var_types dstType)
 {
-    assert(src->OperIs(GT_LCL_VAR));
-
     // Don't update the variable's location if we are just re-spilling it again.
     if (!src->IsRegSpill(0))
     {

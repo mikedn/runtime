@@ -13,10 +13,10 @@ GTNODE(NONE             , GenTree             , GTK_SPECIAL)
 //  Leaf nodes (i.e. these nodes have no sub-operands):
 //-----------------------------------------------------------------------------
 
-GTNODE(STORE_LCL_VAR    , GenTreeLclVar       , GTK_UNOP|GTK_NOVALUE) // store to local variable
-GTNODE(STORE_LCL_FLD    , GenTreeLclFld       , GTK_UNOP|GTK_NOVALUE) // store to field in a non-primitive variable
-GTNODE(LCL_VAR          , GenTreeLclVar       , GTK_LEAF)             // local variable
-GTNODE(LCL_FLD          , GenTreeLclFld       , GTK_LEAF)             // field in a non-primitive variable
+GTNODE(LCL_STORE        , GenTreeLclStore     , GTK_UNOP|GTK_NOVALUE) // Local store
+GTNODE(LCL_STORE_FLD    , GenTreeLclStoreFld  , GTK_UNOP|GTK_NOVALUE) // Local field store 
+GTNODE(LCL_LOAD         , GenTreeLclLoad      , GTK_LEAF)             // Local load
+GTNODE(LCL_LOAD_FLD     , GenTreeLclLoadFld   , GTK_LEAF)             // Local field load
 GTNODE(LCL_DEF          , GenTreeLclDef       , GTK_UNOP)             // local variable SSA def
 GTNODE(LCL_USE          , GenTreeLclUse       , GTK_LEAF)             // local variable SSA use
 GTNODE(LCL_ADDR         , GenTreeLclAddr      , GTK_LEAF)             // address of a local variable
@@ -67,13 +67,13 @@ GTNODE(LCLHEAP          , GenTreeOp           , GTK_UNOP|GTK_NOCONTAIN) // alloc
 GTNODE(JMP              , GenTreeJmp          , GTK_LEAF|GTK_NOVALUE)   // Jump to another function
 
 GTNODE(ARR_LENGTH       , GenTreeArrLen       , GTK_UNOP|GTK_EXOP|GTK_VN) // array-length
-GTNODE(NULLCHECK        , GenTreeIndir        , GTK_UNOP|GTK_NOVALUE)     // null checks the source
-GTNODE(IND              , GenTreeIndir        , GTK_UNOP)                 // load indirection
-GTNODE(STOREIND         , GenTreeStoreInd     , GTK_BINOP|GTK_NOVALUE)    // store indirection
-GTNODE(OBJ              , GenTreeObj          , GTK_UNOP|GTK_EXOP)              // Object that MAY have gc pointers, and thus includes the relevant gc layout info.
-GTNODE(STORE_OBJ        , GenTreeObj          , GTK_BINOP|GTK_EXOP|GTK_NOVALUE) // Object that MAY have gc pointers, and thus includes the relevant gc layout info.
-GTNODE(BLK              , GenTreeBlk          , GTK_UNOP|GTK_EXOP)              // Block/object with no gc pointers, and with a known size (e.g. a struct with no gc fields)
-GTNODE(STORE_BLK        , GenTreeBlk          , GTK_BINOP|GTK_EXOP|GTK_NOVALUE) // Block/object with no gc pointers, and with a known size (e.g. a struct with no gc fields)
+GTNODE(NULLCHECK        , GenTreeNullCheck    , GTK_UNOP|GTK_NOVALUE)     // null checks the source
+GTNODE(IND_LOAD         , GenTreeIndLoad      , GTK_UNOP)                 // Indirect load
+GTNODE(IND_STORE        , GenTreeIndStore     , GTK_BINOP|GTK_NOVALUE)    // Indirect store
+GTNODE(IND_LOAD_OBJ     , GenTreeIndLoadObj   , GTK_UNOP|GTK_EXOP)              // Indirect load with struct layout
+GTNODE(IND_STORE_OBJ    , GenTreeIndStoreObj  , GTK_BINOP|GTK_EXOP|GTK_NOVALUE) // Indirect store with struct layout
+GTNODE(IND_LOAD_BLK     , GenTreeIndLoadBlk   , GTK_UNOP|GTK_EXOP)              // Indirect load with block layout
+GTNODE(IND_STORE_BLK    , GenTreeIndStoreBlk  , GTK_BINOP|GTK_EXOP|GTK_NOVALUE) // Indirect store with block layout
 
 GTNODE(COPY_BLK         , GenTreeDynBlk       , GTK_SPECIAL|GTK_NOVALUE) // Dynamically sized block copy
 GTNODE(INIT_BLK         , GenTreeDynBlk       , GTK_SPECIAL|GTK_NOVALUE) // Dynamically sized block init
@@ -119,8 +119,6 @@ GTNODE(ROR              , GenTreeOp           , GTK_BINOP|GTK_VN)
 // the DIV into a MULHI + some adjustments. In codegen, we only use the
 // results of the high register, and we drop the low results.
 GTNODE(MULHI            , GenTreeOp           , GTK_BINOP|GTK_COMMUTE) 
-
-GTNODE(ASG              , GenTreeOp           , GTK_BINOP|GTK_NOTLIR)
 
 GTNODE(EQ               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN|GTK_VN)
 GTNODE(NE               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN|GTK_VN)

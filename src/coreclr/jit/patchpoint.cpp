@@ -142,19 +142,21 @@ private:
         // Fill in test block
         //
         // --ppCounter;
-        GenTree* ppCounterBefore = compiler->gtNewLclvNode(ppCounterLcl, TYP_INT);
-        GenTree* ppCounterAfter  = compiler->gtNewLclvNode(ppCounterLcl, TYP_INT);
-        GenTree* one             = compiler->gtNewIconNode(1, TYP_INT);
-        GenTree* ppCounterSub    = compiler->gtNewOperNode(GT_SUB, TYP_INT, ppCounterBefore, one);
-        GenTree* ppCounterAsg    = compiler->gtNewAssignNode(ppCounterAfter, ppCounterSub);
+        GenTree* ppCounterLoad = compiler->gtNewLclLoad(ppCounterLcl, TYP_INT);
+        ppCounterLoad->AddSideEffects(GTF_GLOB_REF);
+        GenTree* one            = compiler->gtNewIconNode(1, TYP_INT);
+        GenTree* ppCounterSub   = compiler->gtNewOperNode(GT_SUB, TYP_INT, ppCounterLoad, one);
+        GenTree* ppCounterStore = compiler->gtNewLclStore(ppCounterLcl, TYP_INT, ppCounterSub);
+        ppCounterStore->AddSideEffects(GTF_GLOB_REF);
 
-        compiler->fgNewStmtAtEnd(block, ppCounterAsg);
+        compiler->fgNewStmtAtEnd(block, ppCounterStore);
 
         // if (ppCounter > 0), bypass helper call
-        GenTree* ppCounterUpdated = compiler->gtNewLclvNode(ppCounterLcl, TYP_INT);
-        GenTree* zero             = compiler->gtNewIconNode(0, TYP_INT);
-        GenTree* compare          = compiler->gtNewOperNode(GT_GT, TYP_INT, ppCounterUpdated, zero);
-        GenTree* jmp              = compiler->gtNewOperNode(GT_JTRUE, TYP_VOID, compare);
+        GenTree* ppCounterUpdated = compiler->gtNewLclLoad(ppCounterLcl, TYP_INT);
+        ppCounterUpdated->AddSideEffects(GTF_GLOB_REF);
+        GenTree* zero    = compiler->gtNewIconNode(0, TYP_INT);
+        GenTree* compare = compiler->gtNewOperNode(GT_GT, TYP_INT, ppCounterUpdated, zero);
+        GenTree* jmp     = compiler->gtNewOperNode(GT_JTRUE, TYP_VOID, compare);
 
         compiler->fgNewStmtAtEnd(block, jmp);
 
@@ -162,7 +164,7 @@ private:
         //
         // call PPHelper(&ppCounter, ilOffset)
         GenTree*          ilOffsetNode  = compiler->gtNewIconNode(ilOffset, TYP_INT);
-        GenTree*          ppCounterAddr = compiler->gtNewLclVarAddrNode(ppCounterLcl);
+        GenTree*          ppCounterAddr = compiler->gtNewLclAddr(ppCounterLcl);
         GenTreeCall::Use* helperArgs    = compiler->gtNewCallArgs(ppCounterAddr, ilOffsetNode);
         GenTreeCall*      helperCall    = compiler->gtNewHelperCallNode(CORINFO_HELP_PATCHPOINT, TYP_VOID, helperArgs);
 
@@ -182,10 +184,10 @@ private:
         }
 
         GenTree* initialCounterNode = compiler->gtNewIconNode(initialCounterValue, TYP_INT);
-        GenTree* ppCounterRef       = compiler->gtNewLclvNode(ppCounterLcl, TYP_INT);
-        GenTree* ppCounterAsg       = compiler->gtNewAssignNode(ppCounterRef, initialCounterNode);
+        GenTree* ppCounterStore     = compiler->gtNewLclStore(ppCounterLcl, TYP_INT, initialCounterNode);
+        ppCounterStore->AddSideEffects(GTF_GLOB_REF);
 
-        compiler->fgNewStmtNearEnd(block, ppCounterAsg);
+        compiler->fgNewStmtNearEnd(block, ppCounterStore);
     }
 };
 

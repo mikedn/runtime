@@ -373,7 +373,7 @@ GenTree* LcArray::ToGenTree(Compiler* comp) const
 
     LclVarDsc* lcl = comp->lvaGetDesc(lclNum);
     assert(lcl->TypeIs(TYP_REF));
-    GenTree* array = comp->gtNewLclvNode(lcl, TYP_REF);
+    GenTree* array = comp->gtNewLclLoad(lcl, TYP_REF);
 
     if (oper == ArrLen)
     {
@@ -405,7 +405,7 @@ GenTree* LcIdent::ToGenTree(Compiler* comp) const
             assert(constant <= INT32_MAX);
             return comp->gtNewIconNode(constant);
         case Lcl:
-            return comp->gtNewLclvNode(comp->lvaGetDesc(constant), comp->lvaGetDesc(constant)->GetType());
+            return comp->gtNewLclLoad(comp->lvaGetDesc(constant), comp->lvaGetDesc(constant)->GetType());
         case ArrLen:
             return arrLen.ToGenTree(comp);
         case Null:
@@ -728,16 +728,16 @@ bool LoopCloneContext::DeriveLoopCloningConditions(unsigned loopNum)
 
         GenTree* array = loop.lpLimit()->AsArrLen()->GetArray();
 
-        if (!array->OperIs(GT_LCL_VAR))
+        if (!array->OperIs(GT_LCL_LOAD))
         {
             JITDUMP("> ArrLen not matching");
             return false;
         }
 
         // TODO-MIKE-Review: Why do we check for null "a" in a "a.Length" limit if GTF_RELOP_ZTT is required?
-        derefs.Emplace(array->AsLclVar()->GetLcl()->GetLclNum());
+        derefs.Emplace(array->AsLclLoad()->GetLcl()->GetLclNum());
 
-        limit = LcIdent(LcArray(LcArray::SZArray, array->AsLclVar()->GetLcl()->GetLclNum(), LcArray::ArrLen));
+        limit = LcIdent(LcArray(LcArray::SZArray, array->AsLclLoad()->GetLcl()->GetLclNum(), LcArray::ArrLen));
     }
 
     for (LcOptInfo* optInfo : *GetLoopOptInfo(loopNum))
@@ -1524,7 +1524,7 @@ void LoopCloneVisitorInfo::SummarizeLocalStores(unsigned lclNum)
                                                     static_cast<LoopCloneVisitorInfo*>(data->pCallbackData);
                                                 GenTree* node = *use;
 
-                                                if (node->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+                                                if (node->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
                                                 {
                                                     info->SummarizeLocalStoresVisitor(node->AsLclVarCommon());
                                                 }
@@ -1538,7 +1538,7 @@ void LoopCloneVisitorInfo::SummarizeLocalStores(unsigned lclNum)
 
 void LoopCloneVisitorInfo::SummarizeLocalStoresVisitor(GenTreeLclVarCommon* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+    assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
 
     LclVarDsc* lcl = store->AsLclVarCommon()->GetLcl();
 
@@ -1553,10 +1553,10 @@ void LoopCloneVisitorInfo::SummarizeLocalStoresVisitor(GenTreeLclVarCommon* stor
     // a LCL_FLD could modify only some of the fields. But that's rare, most of the time
     // LCL_FLDs are used only to load from promoted locals (mostly for ABI related stuff).
     //
-    // Note that the opposite can also be true - we may have an assignment to a promoted
-    // field, which implies that the parent struct is modified as well. But we only care
-    // about scalar locals in loop cloning (INT indices and REF arrays) so we can ignore
-    // this case.
+    // Note that the opposite can also be true - we may have a store to a promoted field,
+    // which implies that the parent struct is modified as well. But we only care about
+    // scalar locals in loop cloning (INT indices and REF arrays) so we can ignore this
+    // case.
 
     if (lcl->IsPromoted())
     {
@@ -1591,13 +1591,13 @@ bool LoopCloneVisitorInfo::ExtractArrayIndex(GenTreeOp* comma, ArrIndex* result)
         return false;
     }
 
-    if (!index->OperIs(GT_LCL_VAR) || !length->GetArray()->OperIs(GT_LCL_VAR))
+    if (!index->OperIs(GT_LCL_LOAD) || !length->GetArray()->OperIs(GT_LCL_LOAD))
     {
         return false;
     }
 
-    result->arrayLclNum = length->GetArray()->AsLclVar()->GetLcl()->GetLclNum();
-    result->indexLclNum = index->AsLclVar()->GetLcl()->GetLclNum();
+    result->arrayLclNum = length->GetArray()->AsLclLoad()->GetLcl()->GetLclNum();
+    result->indexLclNum = index->AsLclLoad()->GetLcl()->GetLclNum();
     result->boundsCheck = comma;
 
     return true;

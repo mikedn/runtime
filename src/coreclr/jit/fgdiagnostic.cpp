@@ -386,18 +386,18 @@ void Compiler::fgDumpTree(FILE* fgxFile, GenTree* const tree)
     {
         fprintf(fgxFile, "%g", dblCon->GetValue());
     }
-    else if (tree->OperIs(GT_LCL_VAR))
+    else if (GenTreeLclLoad* lclLoad = tree->IsLclLoad())
     {
-        fprintf(fgxFile, FMT_LCL, tree->AsLclVar()->GetLcl()->GetLclNum());
+        fprintf(fgxFile, FMT_LCL, lclLoad->GetLcl()->GetLclNum());
     }
-    else if (tree->OperIs(GT_ARR_LENGTH))
+    else if (GenTreeArrLen* arrLen = tree->IsArrLen())
     {
-        fgDumpTree(fgxFile, tree->AsArrLen()->GetArray());
+        fgDumpTree(fgxFile, arrLen->GetArray());
         fprintf(fgxFile, ".Length");
     }
     else
     {
-        fprintf(fgxFile, "[%s]", GenTree::OpName(tree->OperGet()));
+        fprintf(fgxFile, "[%s]", GenTree::OpName(tree->GetOper()));
     }
 }
 
@@ -2858,8 +2858,8 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                     expectedFlags |= GTF_ORDER_SIDEEFF;
                     break;
 
-                case GT_IND:
-                    if (GenTreeIntCon* addr = node->AsIndir()->GetAddr()->IsIntCon())
+                case GT_IND_LOAD:
+                    if (GenTreeIntCon* addr = node->AsIndLoad()->GetAddr()->IsIntCon())
                     {
                         HandleKind handleKind = addr->GetHandleKind();
 
@@ -2899,7 +2899,7 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
 
                     if (GenTreeCall::Use* thisArg = node->AsCall()->gtCallThisArg)
                     {
-                        if (thisArg->GetNode()->OperIs(GT_ASG, GT_STORE_LCL_VAR, GT_LCL_DEF))
+                        if (thisArg->GetNode()->OperIs(GT_LCL_STORE, GT_LCL_DEF))
                         {
                             actualFlags |= GTF_ASG;
                         }
@@ -2953,7 +2953,7 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
 
         void DumpFlags(GenTree* node, GenTreeFlags flags)
         {
-            if (node->OperIs(GT_IND))
+            if (node->OperIs(GT_IND_LOAD))
             {
                 printf("%c", (flags & GTF_IND_INVARIANT) ? '#' : '-');
                 printf("%c", (flags & GTF_IND_NONFAULTING) ? 'n' : '-');

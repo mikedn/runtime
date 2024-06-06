@@ -458,12 +458,12 @@ void Compiler::morphAssertionGenerateNotNull(GenTree* addr)
         }
     }
 
-    if (!addr->OperIs(GT_LCL_VAR) || fgIsBigOffset(offset))
+    if (!addr->OperIs(GT_LCL_LOAD) || fgIsBigOffset(offset))
     {
         return;
     }
 
-    LclVarDsc* lcl = addr->AsLclVar()->GetLcl();
+    LclVarDsc* lcl = addr->AsLclLoad()->GetLcl();
 
     // TODO-MIKE-Review: It's not clear why is this restricted to REF. Old comment
     // stated "we only perform null-checks on GC refs" but that's rather bogus.
@@ -505,10 +505,8 @@ void Compiler::morphAssertionGenerateNotNull(GenTree* addr)
     morphAssertionAdd(assertion);
 }
 
-void Compiler::morphAssertionGenerateEqual(GenTreeLclVar* store, GenTree* val)
+void Compiler::morphAssertionGenerateEqual(GenTreeLclStore* store, GenTree* val)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR));
-
     LclVarDsc* lcl = store->GetLcl();
 
     if (lcl->IsAddressExposed())
@@ -581,9 +579,9 @@ void Compiler::morphAssertionGenerateEqual(GenTreeLclVar* store, GenTree* val)
             assertion.val.dblCon.value = val->AsDblCon()->GetValue();
             break;
 
-        case GT_LCL_VAR:
+        case GT_LCL_LOAD:
         {
-            LclVarDsc* valLcl    = val->AsLclVar()->GetLcl();
+            LclVarDsc* valLcl    = val->AsLclLoad()->GetLcl();
             unsigned   valLclNum = valLcl->GetLclNum();
 
             if ((lclNum == valLclNum) || valLcl->IsAddressExposed())
@@ -625,8 +623,8 @@ void Compiler::morphAssertionGenerateEqual(GenTreeLclVar* store, GenTree* val)
             assertion.val.range = {0, 1};
             break;
 
-        case GT_LCL_FLD:
-        case GT_IND:
+        case GT_LCL_LOAD_FLD:
+        case GT_IND_LOAD:
             if (varTypeIsSmall(val->GetType()))
             {
                 assertion.val.range = GetSmallTypeRange(val->GetType());
@@ -725,18 +723,18 @@ void Compiler::morphAssertionGenerate(GenTree* tree)
 
     switch (tree->GetOper())
     {
-        case GT_STORE_LCL_VAR:
-            morphAssertionGenerateEqual(tree->AsLclVar(), tree->AsLclVar()->GetOp(0));
+        case GT_LCL_STORE:
+            morphAssertionGenerateEqual(tree->AsLclStore(), tree->AsLclStore()->GetValue());
             break;
 
-        case GT_OBJ:
-        case GT_STORE_OBJ:
-        case GT_BLK:
-        case GT_STORE_BLK:
+        case GT_IND_LOAD_OBJ:
+        case GT_IND_STORE_OBJ:
+        case GT_IND_LOAD_BLK:
+        case GT_IND_STORE_BLK:
             assert(tree->AsBlk()->GetLayout()->GetSize() != 0);
             FALLTHROUGH;
-        case GT_IND:
-        case GT_STOREIND:
+        case GT_IND_LOAD:
+        case GT_IND_STORE:
         case GT_NULLCHECK:
             morphAssertionGenerateNotNull(tree->AsIndir()->GetAddr());
             break;
@@ -780,7 +778,7 @@ const MorphAssertion* Compiler::morphAssertionFindRange(unsigned lclNum)
     return nullptr;
 }
 
-bool Compiler::morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_types type)
+bool Compiler::morphAssertionIsTypeRange(GenTreeLclLoad* load, var_types type)
 {
     assert(fgGlobalMorph);
 
@@ -791,7 +789,7 @@ bool Compiler::morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_types type)
         return false;
     }
 
-    const MorphAssertion* assertion = morphAssertionFindRange(lclVar->GetLcl()->GetLclNum());
+    const MorphAssertion* assertion = morphAssertionFindRange(load->GetLcl()->GetLclNum());
 
     if (assertion == nullptr)
     {
@@ -806,14 +804,14 @@ bool Compiler::morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_types type)
         return false;
     }
 
-    DBEXEC(verbose, morphAssertionTrace(*assertion, lclVar, "propagated"));
+    DBEXEC(verbose, morphAssertionTrace(*assertion, load, "propagated"));
 
     return true;
 }
 
-GenTree* Compiler::morphAssertionPropagateLclVarConst(const MorphAssertion& assertion, GenTreeLclVar* lclVar)
+GenTree* Compiler::morphAssertionPropagateLclLoadConst(const MorphAssertion& assertion, GenTreeLclLoad* load)
 {
-    LclVarDsc* lcl = lclVar->GetLcl();
+    LclVarDsc* lcl = load->GetLcl();
 
     assert(!lcl->IsAddressExposed());
 
@@ -837,26 +835,26 @@ GenTree* Compiler::morphAssertionPropagateLclVarConst(const MorphAssertion& asse
                 break;
             }
 
-            assert(lcl->GetType() == lclVar->GetType());
+            assert(lcl->GetType() == load->GetType());
 
-            conNode = lclVar->ChangeToDblCon(lcl->GetType(), val.dblCon.value);
+            conNode = load->ChangeToDblCon(lcl->GetType(), val.dblCon.value);
             break;
 
 #ifndef TARGET_64BIT
         case ValueKind::LngCon:
             assert(lcl->TypeIs(TYP_LONG));
 
-            if (lclVar->TypeIs(TYP_INT))
+            if (load->TypeIs(TYP_INT))
             {
                 // Morphing sometimes performs implicit narrowing by changing LONG LCL_VARs to INT.
                 // TODO-MIKE-Review: But propagation is done before morphing, is this needed?
-                conNode = lclVar->ChangeToIntCon(static_cast<int32_t>(val.lngCon.value));
+                conNode = load->ChangeToIntCon(static_cast<int32_t>(val.lngCon.value));
                 break;
             }
 
-            assert(lclVar->TypeIs(TYP_LONG));
+            assert(load->TypeIs(TYP_LONG));
 
-            conNode = lclVar->ChangeToLngCon(val.lngCon.value);
+            conNode = load->ChangeToLngCon(val.lngCon.value);
             break;
 #endif
 
@@ -868,43 +866,43 @@ GenTree* Compiler::morphAssertionPropagateLclVarConst(const MorphAssertion& asse
                 )
             {
                 // For small int locals we often get INT LCL_VARs, otherwise the types should match.
-                assert((lcl->GetType() == lclVar->GetType()) || lclVar->TypeIs(TYP_INT));
+                assert((lcl->GetType() == load->GetType()) || load->TypeIs(TYP_INT));
                 assert(lcl->TypeIs(TYP_INT) || varTypeSmallIntCanRepresentValue(lcl->GetType(), val.intCon.value));
 
-                conNode = lclVar->ChangeToIntCon(TYP_INT, val.intCon.value);
+                conNode = load->ChangeToIntCon(TYP_INT, val.intCon.value);
                 break;
             }
 
-            if (lclVar->TypeIs(TYP_STRUCT))
+            if (load->TypeIs(TYP_STRUCT))
             {
                 assert(val.intCon.value == 0);
-                assert(lcl->GetType() == lclVar->GetType());
+                assert(lcl->GetType() == load->GetType());
 
-                conNode = lclVar->ChangeToIntCon(TYP_INT, 0);
+                conNode = load->ChangeToIntCon(TYP_INT, 0);
                 break;
             }
 
 #ifdef FEATURE_SIMD
-            if (varTypeIsSIMD(lclVar->GetType()))
+            if (varTypeIsSIMD(load->GetType()))
             {
                 assert(val.intCon.value == 0);
-                assert(lcl->GetType() == lclVar->GetType());
+                assert(lcl->GetType() == load->GetType());
 
                 conNode = gtNewZeroSimdHWIntrinsicNode(lcl->GetLayout());
                 break;
             }
 #endif
 
-            if (lcl->TypeIs(TYP_LONG) && lclVar->TypeIs(TYP_INT))
+            if (lcl->TypeIs(TYP_LONG) && load->TypeIs(TYP_INT))
             {
                 // Morphing sometimes performs implicit narrowing by changing LONG LCL_VARs to INT.
                 // TODO-MIKE-Review: But propagation is done before morphing, is this needed?
-                conNode = lclVar->ChangeToIntCon(TYP_INT, static_cast<int32_t>(val.intCon.value));
+                conNode = load->ChangeToIntCon(TYP_INT, static_cast<int32_t>(val.intCon.value));
                 break;
             }
 
             assert(varTypeIsI(lcl->GetType()));
-            assert(varTypeIsI(lclVar->GetType()));
+            assert(varTypeIsI(load->GetType()));
 
             if (val.intCon.handleKind != HandleKind::None)
             {
@@ -917,10 +915,10 @@ GenTree* Compiler::morphAssertionPropagateLclVarConst(const MorphAssertion& asse
                 // constant so it obviously does not need to be reported to the GC.
                 // On the other hand, we don't know the user and blindly changing types like
                 // this isn't great.
-                lclVar->SetType(TYP_I_IMPL);
+                load->SetType(TYP_I_IMPL);
             }
 
-            conNode = lclVar->ChangeToIntCon(val.intCon.value);
+            conNode = load->ChangeToIntCon(val.intCon.value);
             conNode->AsIntCon()->SetHandleKind(val.intCon.handleKind);
             break;
 
@@ -936,7 +934,7 @@ GenTree* Compiler::morphAssertionPropagateLclVarConst(const MorphAssertion& asse
     return conNode;
 }
 
-GenTree* Compiler::morphAssertionPropagateLclVarCopy(const MorphAssertion& assertion, GenTreeLclVar* lclVar)
+GenTree* Compiler::morphAssertionPropagateLclLoadCopy(const MorphAssertion& assertion, GenTreeLclLoad* load)
 {
     assert((assertion.kind == Kind::Equal) && (assertion.valKind == ValueKind::LclVar));
 
@@ -945,7 +943,7 @@ GenTree* Compiler::morphAssertionPropagateLclVarCopy(const MorphAssertion& asser
 
     assert(lclNumDst != lclNumSrc);
 
-    unsigned lclNum = lclVar->GetLcl()->GetLclNum();
+    unsigned lclNum = load->GetLcl()->GetLclNum();
 
     if ((lclNum != lclNumDst) && (lclNum != lclNumSrc))
     {
@@ -963,8 +961,8 @@ GenTree* Compiler::morphAssertionPropagateLclVarCopy(const MorphAssertion& asser
     // as the field. If the field ends up being P-DEP then we risk reading bits from adjacent fields.
     // TODO-MIKE-Cleanup: It's not clear what the problem is here. Such a promoted field is supposed
     // to be widened on load so any garbage bits would be discarded. This might be related to struct
-    // assignment promotion where widening casts are not inserted.
-    if (lclCopy->IsPromotedField() && varTypeIsSmall(lclCopy->GetType()) && (lclCopy->GetType() != lclVar->GetType()))
+    // copy promotion where widening casts are not inserted.
+    if (lclCopy->IsPromotedField() && varTypeIsSmall(lclCopy->GetType()) && (lclCopy->GetType() != load->GetType()))
     {
         return nullptr;
     }
@@ -997,24 +995,22 @@ GenTree* Compiler::morphAssertionPropagateLclVarCopy(const MorphAssertion& asser
         return nullptr;
     }
 
-    lclVar->SetLcl(lclCopy);
+    load->SetLcl(lclCopy);
 
-    DBEXEC(verbose, morphAssertionTrace(assertion, lclVar, "propagated"));
+    DBEXEC(verbose, morphAssertionTrace(assertion, load, "propagated"));
 
-    return lclVar;
+    return load;
 }
 
-GenTree* Compiler::morphAssertionPropagateLclVar(GenTreeLclVar* lclVar)
+GenTree* Compiler::morphAssertionPropagateLclLoad(GenTreeLclLoad* load)
 {
-    assert(lclVar->OperIs(GT_LCL_VAR));
-
     // GTF_DONT_CSE is also used to block constant/copy propagation, not just CSE.
-    if ((lclVar->gtFlags & GTF_DONT_CSE) != 0)
+    if ((load->gtFlags & GTF_DONT_CSE) != 0)
     {
         return nullptr;
     }
 
-    LclVarDsc* lcl = lclVar->GetLcl();
+    LclVarDsc* lcl = load->GetLcl();
 
     if (lcl->IsAddressExposed())
     {
@@ -1034,7 +1030,7 @@ GenTree* Compiler::morphAssertionPropagateLclVar(GenTreeLclVar* lclVar)
 
         if (assertion.valKind == ValueKind::LclVar)
         {
-            GenTree* newTree = morphAssertionPropagateLclVarCopy(assertion, lclVar);
+            GenTree* newTree = morphAssertionPropagateLclLoadCopy(assertion, load);
 
             if (newTree != nullptr)
             {
@@ -1047,9 +1043,9 @@ GenTree* Compiler::morphAssertionPropagateLclVar(GenTreeLclVar* lclVar)
         if (assertion.lcl.lclNum == lclNum)
         {
             // TODO-MIKE-CQ: This is dubious, it tends to block constant prop for small int locals.
-            if (lclVar->GetType() == lcl->GetType())
+            if (load->GetType() == lcl->GetType())
             {
-                return morphAssertionPropagateLclVarConst(assertion, lclVar);
+                return morphAssertionPropagateLclLoadConst(assertion, load);
             }
         }
     }
@@ -1057,17 +1053,15 @@ GenTree* Compiler::morphAssertionPropagateLclVar(GenTreeLclVar* lclVar)
     return nullptr;
 }
 
-GenTree* Compiler::morphAssertionPropagateLclFld(GenTreeLclFld* lclFld)
+GenTree* Compiler::morphAssertionPropagateLclLoadFld(GenTreeLclLoadFld* load)
 {
-    assert(lclFld->OperIs(GT_LCL_FLD));
-
     // GTF_DONT_CSE is also used to block constant/copy propagation, not just CSE.
-    if ((lclFld->gtFlags & GTF_DONT_CSE) != 0)
+    if ((load->gtFlags & GTF_DONT_CSE) != 0)
     {
         return nullptr;
     }
 
-    LclVarDsc* lcl = lclFld->GetLcl();
+    LclVarDsc* lcl = load->GetLcl();
 
     if (lcl->IsAddressExposed() || !lcl->TypeIs(TYP_STRUCT))
     {
@@ -1089,27 +1083,27 @@ GenTree* Compiler::morphAssertionPropagateLclFld(GenTreeLclFld* lclFld)
         {
             assert(assertion.val.intCon.value == 0);
 
-            if (varTypeIsFloating(lclFld->GetType()))
+            if (varTypeIsFloating(load->GetType()))
             {
-                return lclFld->ChangeToDblCon(lclFld->GetType(), 0);
+                return load->ChangeToDblCon(load->GetType(), 0);
             }
 
 #ifdef FEATURE_SIMD
-            if (varTypeIsSIMD(lclFld->GetType()))
+            if (varTypeIsSIMD(load->GetType()))
             {
-                return gtNewZeroSimdHWIntrinsicNode(lclFld->GetLayout(this));
+                return gtNewZeroSimdHWIntrinsicNode(load->GetLayout(this));
             }
 #endif
 
 #ifndef TARGET_64BIT
-            if (varTypeIsLong(lclFld->GetType()))
+            if (varTypeIsLong(load->GetType()))
             {
-                return lclFld->ChangeToLngCon(0);
+                return load->ChangeToLngCon(0);
             }
 #endif
-            assert(varTypeIsIntegralOrI(lclFld->GetType()) || lclFld->TypeIs(TYP_STRUCT));
+            assert(varTypeIsIntegralOrI(load->GetType()) || load->TypeIs(TYP_STRUCT));
 
-            return lclFld->ChangeToIntCon(lclFld->TypeIs(TYP_STRUCT) ? TYP_INT : lclFld->GetType(), 0);
+            return load->ChangeToIntCon(load->TypeIs(TYP_STRUCT) ? TYP_INT : load->GetType(), 0);
         }
 
         if (assertion.valKind == ValueKind::LclVar)
@@ -1119,10 +1113,10 @@ GenTree* Compiler::morphAssertionPropagateLclFld(GenTreeLclFld* lclFld)
             assert(lclNumCopySrcLcl->TypeIs(TYP_STRUCT));
             assert(!lclNumCopySrcLcl->IsIndependentPromoted());
 
-            lclFld->SetLcl(lclNumCopySrcLcl);
+            load->SetLcl(lclNumCopySrcLcl);
             lvaSetDoNotEnregister(lclNumCopySrcLcl DEBUGARG(DNER_LocalField));
 
-            return lclFld;
+            return load;
         }
 
         break;
@@ -1138,14 +1132,14 @@ GenTree* Compiler::morphAssertionPropagateRelOp(GenTreeOp* relop)
     GenTree* op1 = relop->GetOp(0);
     GenTree* op2 = relop->GetOp(1);
 
-    if (!op1->OperIs(GT_LCL_VAR) || !op2->IsIntCon())
+    if (!op1->OperIs(GT_LCL_LOAD) || !op2->IsIntCon())
     {
         return nullptr;
     }
 
     assert(varTypeIsIntegralOrI(op1->GetType()));
 
-    LclVarDsc* lcl = op1->AsLclVar()->GetLcl();
+    LclVarDsc* lcl = op1->AsLclLoad()->GetLcl();
 
     if (lcl->IsAddressExposed())
     {
@@ -1229,19 +1223,19 @@ GenTree* Compiler::morphAssertionPropagateCast(GenTreeCast* cast)
 
     GenTree* actualSrc = src->SkipComma();
 
-    if (!actualSrc->OperIs(GT_LCL_VAR))
+    if (!actualSrc->OperIs(GT_LCL_LOAD))
     {
         return nullptr;
     }
 
-    LclVarDsc* lcl = actualSrc->AsLclVar()->GetLcl();
+    LclVarDsc* lcl = actualSrc->AsLclLoad()->GetLcl();
 
     if (lcl->IsAddressExposed() || varTypeIsLong(lcl->GetType()))
     {
         return nullptr;
     }
 
-    const MorphAssertion* assertion = morphAssertionFindRange(actualSrc->AsLclVar()->GetLcl()->GetLclNum());
+    const MorphAssertion* assertion = morphAssertionFindRange(lcl->GetLclNum());
 
     if (assertion == nullptr)
     {
@@ -1312,12 +1306,12 @@ GenTree* Compiler::morphAssertionPropagateIndir(GenTreeIndir* indir)
         addr = addr->AsOp()->GetOp(0);
     }
 
-    if (!addr->OperIs(GT_LCL_VAR))
+    if (!addr->OperIs(GT_LCL_LOAD))
     {
         return nullptr;
     }
 
-    if (!morphAssertionIsNotNull(addr->AsLclVar()))
+    if (!morphAssertionIsNotNull(addr->AsLclLoad()))
     {
         return nullptr;
     }
@@ -1330,11 +1324,11 @@ GenTree* Compiler::morphAssertionPropagateIndir(GenTreeIndir* indir)
     return indir;
 }
 
-bool Compiler::morphAssertionIsNotNull(GenTreeLclVar* lclVar)
+bool Compiler::morphAssertionIsNotNull(GenTreeLclLoad* load)
 {
     assert(fgGlobalMorph);
 
-    LclVarDsc* lcl    = lclVar->GetLcl();
+    LclVarDsc* lcl    = load->GetLcl();
     unsigned   lclNum = lcl->GetLclNum();
 
     for (unsigned index = 0; index < morphAssertionCount; index++)
@@ -1347,7 +1341,7 @@ bool Compiler::morphAssertionIsNotNull(GenTreeLclVar* lclVar)
             assert(assertion.val.intCon.value == 0);
             assert(!lcl->IsAddressExposed());
 
-            DBEXEC(verbose, morphAssertionTrace(assertion, lclVar, "propagated"));
+            DBEXEC(verbose, morphAssertionTrace(assertion, load, "propagated"));
 
             return true;
         }
@@ -1366,12 +1360,12 @@ GenTree* Compiler::morphAssertionPropagateCall(GenTreeCall* call)
     GenTree* op1 = call->GetThisArg();
     noway_assert(op1 != nullptr);
 
-    if (!op1->OperIs(GT_LCL_VAR))
+    if (!op1->OperIs(GT_LCL_LOAD))
     {
         return nullptr;
     }
 
-    if (!morphAssertionIsNotNull(op1->AsLclVar()))
+    if (!morphAssertionIsNotNull(op1->AsLclLoad()))
     {
         return nullptr;
     }
@@ -1403,18 +1397,18 @@ GenTree* Compiler::morphAssertionPropagate(GenTree* tree)
 
         switch (tree->GetOper())
         {
-            case GT_LCL_VAR:
-                newTree = morphAssertionPropagateLclVar(tree->AsLclVar());
+            case GT_LCL_LOAD:
+                newTree = morphAssertionPropagateLclLoad(tree->AsLclLoad());
                 break;
-            case GT_LCL_FLD:
-                newTree = morphAssertionPropagateLclFld(tree->AsLclFld());
+            case GT_LCL_LOAD_FLD:
+                newTree = morphAssertionPropagateLclLoadFld(tree->AsLclLoadFld());
                 break;
-            case GT_OBJ:
-            case GT_STORE_OBJ:
-            case GT_BLK:
-            case GT_STORE_BLK:
-            case GT_IND:
-            case GT_STOREIND:
+            case GT_IND_LOAD_OBJ:
+            case GT_IND_STORE_OBJ:
+            case GT_IND_LOAD_BLK:
+            case GT_IND_STORE_BLK:
+            case GT_IND_LOAD:
+            case GT_IND_STORE:
             case GT_NULLCHECK:
                 newTree = morphAssertionPropagateIndir(tree->AsIndir());
                 break;
@@ -1437,8 +1431,10 @@ GenTree* Compiler::morphAssertionPropagate(GenTree* tree)
     return tree;
 }
 
-void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeOp* asg))
+void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeLclVarCommon* store))
 {
+    assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
+
     BitVec& killed = morphAssertionGetDependent(lclNum);
 
     for (unsigned count = morphAssertionCount; !DepBitVecOps::IsEmpty(this, killed) && (count > 0); count--)
@@ -1453,7 +1449,7 @@ void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeOp* asg)
         assert((assertion.lcl.lclNum == lclNum) ||
                ((assertion.valKind == ValueKind::LclVar) && (assertion.val.lcl.lclNum == lclNum)));
 
-        DBEXEC(verbose, morphAssertionTrace(assertion, asg, "killed"));
+        DBEXEC(verbose, morphAssertionTrace(assertion, store, "killed"));
 
         morphAssertionRemove(count - 1);
     }
@@ -1461,22 +1457,22 @@ void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeOp* asg)
     assert(DepBitVecOps::IsEmpty(this, killed));
 }
 
-void Compiler::morphAssertionKill(LclVarDsc* lcl DEBUGARG(GenTreeOp* asg))
+void Compiler::morphAssertionKill(LclVarDsc* lcl DEBUGARG(GenTreeLclVarCommon* store))
 {
     assert(fgGlobalMorph);
 
-    morphAssertionKillSingle(lcl->GetLclNum() DEBUGARG(asg));
+    morphAssertionKillSingle(lcl->GetLclNum() DEBUGARG(store));
 
     if (lcl->IsPromoted())
     {
         for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
         {
-            morphAssertionKillSingle(lcl->GetPromotedFieldLclNum(i) DEBUGARG(asg));
+            morphAssertionKillSingle(lcl->GetPromotedFieldLclNum(i) DEBUGARG(store));
         }
     }
     else if (lcl->IsPromotedField())
     {
-        morphAssertionKillSingle(lcl->GetPromotedFieldParentLclNum() DEBUGARG(asg));
+        morphAssertionKillSingle(lcl->GetPromotedFieldParentLclNum() DEBUGARG(store));
     }
 }
 

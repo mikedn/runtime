@@ -117,21 +117,34 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
         case GT_LCL_ADDR:
             GenLclAddr(treeNode->AsLclAddr());
             break;
-
-        case GT_LCL_FLD:
-            GenLoadLclFld(treeNode->AsLclFld());
+        case GT_LCL_LOAD:
+            GenLclLoad(treeNode->AsLclLoad());
             break;
-
-        case GT_LCL_VAR:
-            GenLoadLclVar(treeNode->AsLclVar());
+        case GT_LCL_STORE:
+            GenLclStore(treeNode->AsLclStore());
             break;
-
-        case GT_STORE_LCL_FLD:
-            GenStoreLclFld(treeNode->AsLclFld());
+        case GT_LCL_LOAD_FLD:
+            GenLclLoadFld(treeNode->AsLclLoadFld());
             break;
-
-        case GT_STORE_LCL_VAR:
-            GenStoreLclVar(treeNode->AsLclVar());
+        case GT_LCL_STORE_FLD:
+            GenLclStoreFld(treeNode->AsLclStoreFld());
+            break;
+        case GT_NULLCHECK:
+            GenNullCheck(treeNode->AsNullCheck());
+            break;
+        case GT_IND_LOAD:
+            GenIndLoad(treeNode->AsIndLoad());
+            break;
+        case GT_IND_STORE:
+            GenIndStore(treeNode->AsIndStore());
+            break;
+        case GT_IND_STORE_OBJ:
+        case GT_IND_STORE_BLK:
+            GenStructStore(treeNode->AsBlk(), treeNode->AsBlk()->GetKind(), treeNode->AsBlk()->GetLayout());
+            break;
+        case GT_COPY_BLK:
+        case GT_INIT_BLK:
+            GenDynBlk(treeNode->AsDynBlk());
             break;
 
         case GT_RETFILT:
@@ -148,10 +161,6 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 
         case GT_INDEX_ADDR:
             genCodeForIndexAddr(treeNode->AsIndexAddr());
-            break;
-
-        case GT_IND:
-            GenIndLoad(treeNode->AsIndir());
             break;
 
 #ifdef TARGET_ARM
@@ -233,10 +242,6 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             genCodeForReturnTrap(treeNode->AsOp());
             break;
 
-        case GT_STOREIND:
-            GenIndStore(treeNode->AsStoreInd());
-            break;
-
         case GT_RELOAD:
         case GT_COPY:
             // These are handled by genConsumeReg
@@ -294,9 +299,9 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             {
                 GenTree* src = treeNode->AsUnOp()->GetOp(0);
 
-                // TODO-MIKE-Review: This can't be a LCL_FLD, it's marked as reg optional
-                // in lowering and only a reg optional LCL_VAR can become contained.
-                if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+                // TODO-MIKE-Review: This can't be a LCL_LOAD_FLD, it's marked as reg optional
+                // in lowering and only a reg optional LCL_LOAD can become contained.
+                if (src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
                 {
                     liveness.UpdateLife(this, src->AsLclVarCommon());
                 }
@@ -317,10 +322,6 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 
         case GT_PHYSREG:
             genCodeForPhysReg(treeNode->AsPhysReg());
-            break;
-
-        case GT_NULLCHECK:
-            genCodeForNullCheck(treeNode->AsIndir());
             break;
 
         case GT_CATCH_ARG:
@@ -348,16 +349,6 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
 #else
             GetEmitter()->emitIns_R_L(treeNode->GetRegNum(), genPendingCallLabel);
 #endif
-            break;
-
-        case GT_STORE_OBJ:
-        case GT_STORE_BLK:
-            GenStructStore(treeNode->AsBlk(), treeNode->AsBlk()->GetKind(), treeNode->AsBlk()->GetLayout());
-            break;
-
-        case GT_COPY_BLK:
-        case GT_INIT_BLK:
-            GenDynBlk(treeNode->AsDynBlk());
             break;
 
         case GT_JMPTABLE:
@@ -629,20 +620,20 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk,
     regNumber    srcAddrBaseReg = REG_NA;
     int          srcOffset      = 0;
 
-    if (src->OperIs(GT_LCL_VAR))
+    if (src->OperIs(GT_LCL_LOAD))
     {
-        srcLcl    = src->AsLclVar()->GetLcl();
+        srcLcl    = src->AsLclLoad()->GetLcl();
         srcLayout = srcLcl->GetLayout();
     }
-    else if (src->OperIs(GT_LCL_FLD))
+    else if (src->OperIs(GT_LCL_LOAD_FLD))
     {
-        srcLcl    = src->AsLclFld()->GetLcl();
-        srcOffset = src->AsLclFld()->GetLclOffs();
-        srcLayout = src->AsLclFld()->GetLayout(compiler);
+        srcLcl    = src->AsLclLoadFld()->GetLcl();
+        srcOffset = src->AsLclLoadFld()->GetLclOffs();
+        srcLayout = src->AsLclLoadFld()->GetLayout(compiler);
     }
     else
     {
-        GenTree* srcAddr = src->AsObj()->GetAddr();
+        GenTree* srcAddr = src->AsIndLoadObj()->GetAddr();
 
         if (!srcAddr->isContained())
         {
@@ -655,7 +646,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk,
             srcOffset = srcAddr->AsAddrMode()->GetOffset();
         }
 
-        srcLayout = src->AsObj()->GetLayout();
+        srcLayout = src->AsIndLoadObj()->GetLayout();
     }
 
     emitter* emit   = GetEmitter();
@@ -805,9 +796,9 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
 
     if (src->isContained())
     {
-        assert(IsValidContainedLcl(src->AsLclVar()));
-        liveness.UpdateLife(this, src->AsLclVar());
-        StackAddrMode s      = GetStackAddrMode(src->AsLclVar()->GetLcl(), 0);
+        assert(IsValidContainedLcl(src->AsLclLoad()));
+        liveness.UpdateLife(this, src->AsLclLoad());
+        StackAddrMode s      = GetStackAddrMode(src->AsLclLoad()->GetLcl(), 0);
         regNumber     dstReg = bitcast->GetRegNum();
 
         GetEmitter()->Ins_R_S(ins_Load(dstType), emitTypeSize(dstType), dstReg, s);
@@ -931,20 +922,20 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
     regNumber    srcAddrBaseReg = REG_NA;
     int          srcOffset      = 0;
 
-    if (src->OperIs(GT_LCL_VAR))
+    if (src->OperIs(GT_LCL_LOAD))
     {
-        srcLcl    = src->AsLclVar()->GetLcl();
+        srcLcl    = src->AsLclLoad()->GetLcl();
         srcLayout = srcLcl->GetLayout();
     }
-    else if (src->OperIs(GT_LCL_FLD))
+    else if (src->OperIs(GT_LCL_LOAD_FLD))
     {
-        srcLcl    = src->AsLclFld()->GetLcl();
-        srcOffset = src->AsLclFld()->GetLclOffs();
-        srcLayout = src->AsLclFld()->GetLayout(compiler);
+        srcLcl    = src->AsLclLoadFld()->GetLcl();
+        srcOffset = src->AsLclLoadFld()->GetLclOffs();
+        srcLayout = src->AsLclLoadFld()->GetLayout(compiler);
     }
     else
     {
-        GenTree* srcAddr = src->AsObj()->GetAddr();
+        GenTree* srcAddr = src->AsIndLoadObj()->GetAddr();
 
         if (!srcAddr->isContained())
         {
@@ -957,7 +948,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
             srcOffset = srcAddr->AsAddrMode()->GetOffset();
         }
 
-        srcLayout = src->AsObj()->GetLayout();
+        srcLayout = src->AsIndLoadObj()->GetLayout();
     }
 
     unsigned offset    = 0;
@@ -1049,7 +1040,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
                 assert(dstReg != tempReg);
 
                 emitAttr srcAddrAttr =
-                    src->OperIs(GT_OBJ) ? emitTypeSize(src->AsObj()->GetAddr()->GetType()) : EA_PTRSIZE;
+                    src->OperIs(GT_IND_LOAD_OBJ) ? emitTypeSize(src->AsIndLoadObj()->GetAddr()->GetType()) : EA_PTRSIZE;
                 GetEmitter()->emitIns_Mov(INS_mov, srcAddrAttr, tempReg, srcAddrBaseReg, /* canSkip */ false);
                 srcAddrBaseReg = tempReg;
             }
@@ -1348,7 +1339,7 @@ StructStoreKind GetStructStoreKind(bool isLocalStore, ClassLayout* layout, GenTr
 
 void CodeGen::GenStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout)
 {
-    assert(store->OperIs(GT_STORE_OBJ, GT_STORE_BLK, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+    assert(store->OperIs(GT_IND_STORE_OBJ, GT_IND_STORE_BLK, GT_LCL_STORE, GT_LCL_STORE_FLD));
 
     switch (kind)
     {
@@ -1372,7 +1363,7 @@ void CodeGen::GenStructStore(GenTree* store, StructStoreKind kind, ClassLayout* 
             break;
 #ifdef TARGET_ARM64
         case StructStoreKind::UnrollRegsWB:
-            GenStructStoreUnrollRegsWB(store->AsObj());
+            GenStructStoreUnrollRegsWB(store->AsIndStoreObj());
             break;
 #endif
         default:
@@ -1413,14 +1404,14 @@ void CodeGen::GenStructStoreMemCpy(GenTree* store, ClassLayout* layout)
 
 void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
 {
-    assert(store->OperIs(GT_STORE_BLK, GT_STORE_OBJ, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+    assert(store->OperIs(GT_IND_STORE_BLK, GT_IND_STORE_OBJ, GT_LCL_STORE, GT_LCL_STORE_FLD));
 
     LclVarDsc* dstLcl         = nullptr;
     regNumber  dstAddrBaseReg = REG_NA;
     int        dstOffset      = 0;
     GenTree*   src;
 
-    if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
         dstLcl    = store->AsLclVarCommon()->GetLcl();
         dstOffset = store->AsLclVarCommon()->GetLclOffs();
@@ -1542,7 +1533,7 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
 
 void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
 {
-    assert(store->OperIs(GT_STORE_BLK, GT_STORE_OBJ, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+    assert(store->OperIs(GT_IND_STORE_BLK, GT_IND_STORE_OBJ, GT_LCL_STORE, GT_LCL_STORE_FLD));
 
     if (layout->HasGCPtr())
     {
@@ -1554,7 +1545,7 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
     int        dstOffset      = 0;
     GenTree*   src;
 
-    if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
         dstLcl    = store->AsLclVarCommon()->GetLcl();
         dstOffset = store->AsLclVarCommon()->GetLclOffs();
@@ -1600,14 +1591,14 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
 
     assert(src->isContained());
 
-    if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    if (src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
     {
         srcLcl    = src->AsLclVarCommon()->GetLcl();
         srcOffset = src->AsLclVarCommon()->GetLclOffs();
     }
     else
     {
-        assert(src->OperIs(GT_IND, GT_OBJ, GT_BLK));
+        assert(src->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ, GT_IND_LOAD_BLK));
 
         GenTree* srcAddr = src->AsIndir()->GetAddr();
 
@@ -1744,7 +1735,7 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
     int        dstOffset      = 0;
     GenTree*   src;
 
-    if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
         dstLcl    = store->AsLclVarCommon()->GetLcl();
         dstOffset = store->AsLclVarCommon()->GetLclOffs();
@@ -1753,17 +1744,17 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
     }
     else
     {
-        GenTree* dstAddr = store->AsObj()->GetAddr();
+        GenTree* dstAddr = store->AsIndStoreObj()->GetAddr();
 
         if (!dstAddr->isContained())
         {
-            dstAddrBaseReg = genConsumeReg(dstAddr);
+            dstAddrBaseReg = UseReg(dstAddr);
         }
         else if (GenTreeAddrMode* addrMode = dstAddr->IsAddrMode())
         {
             assert(addrMode->GetIndex() == nullptr);
 
-            dstAddrBaseReg = genConsumeReg(addrMode->GetBase());
+            dstAddrBaseReg = UseReg(addrMode->GetBase());
             dstOffset      = dstAddr->AsAddrMode()->GetOffset();
         }
         else
@@ -1772,7 +1763,7 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
             dstOffset = dstAddr->AsLclAddr()->GetLclOffs();
         }
 
-        src = store->AsObj()->GetValue();
+        src = store->AsIndStoreObj()->GetValue();
     }
 
     unsigned size = layout->GetSize();
@@ -1942,7 +1933,7 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
     GenTree*  src;
     var_types srcAddrType;
 
-    if (store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
+    if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
         src = store->AsLclVarCommon()->GetOp(0);
 
@@ -1959,13 +1950,13 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
         src = store->AsIndir()->GetValue();
     }
 
-    if (src->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    if (src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
     {
         srcAddrType = TYP_I_IMPL;
     }
     else
     {
-        assert(src->OperIs(GT_IND, GT_OBJ, GT_BLK));
+        assert(src->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ, GT_IND_LOAD_BLK));
 
         srcAddrType = src->AsIndir()->GetAddr()->GetType();
     }
@@ -2085,7 +2076,7 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
 }
 
 #ifdef TARGET_ARM64
-void CodeGen::GenStructStoreUnrollRegsWB(GenTreeObj* store)
+void CodeGen::GenStructStoreUnrollRegsWB(GenTreeIndStoreObj* store)
 {
     ClassLayout* layout = store->GetLayout();
 
@@ -2916,9 +2907,9 @@ void CodeGen::genIntToIntCast(GenTreeCast* cast)
         {
             GetEmitter()->Ins_R_S(ins, EA_ATTR(insSize), dstReg, s);
         }
-        else if (src->OperIs(GT_IND))
+        else if (src->OperIs(GT_IND_LOAD))
         {
-            emitInsLoad(ins, EA_ATTR(insSize), dstReg, src->AsIndir());
+            emitInsLoad(ins, EA_ATTR(insSize), dstReg, src->AsIndLoad());
         }
         else
         {

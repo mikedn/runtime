@@ -683,7 +683,6 @@ private:
     // CRITSEC_COOKIE is an opaque pointer type.
     CRITSEC_COOKIE m_pCs;
 
-    // No copying or assignment allowed.
     CritSecObject(const CritSecObject&) = delete;
     CritSecObject& operator=(const CritSecObject&) = delete;
 };
@@ -707,7 +706,6 @@ public:
 private:
     CritSecObject& m_CritSec;
 
-    // No copying or assignment allowed.
     CritSecHolder(const CritSecHolder&) = delete;
     CritSecHolder& operator=(const CritSecHolder&) = delete;
 };

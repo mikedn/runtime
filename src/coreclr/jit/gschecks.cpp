@@ -91,9 +91,9 @@ static Compiler::fgWalkResult MarkPtrsAndAssignGroups(GenTree** use, Compiler::f
 
     switch (tree->GetOper())
     {
-        case GT_IND:
-        case GT_BLK:
-        case GT_OBJ:
+        case GT_IND_LOAD:
+        case GT_IND_LOAD_BLK:
+        case GT_IND_LOAD_OBJ:
         {
             bool wasUnderIndir  = state->isUnderIndir;
             state->isUnderIndir = true;
@@ -102,20 +102,25 @@ static Compiler::fgWalkResult MarkPtrsAndAssignGroups(GenTree** use, Compiler::f
 
             return Compiler::WALK_SKIP_SUBTREES;
         }
-        case GT_ARR_ELEM:
+        case GT_IND_STORE:
+        case GT_IND_STORE_BLK:
+        case GT_IND_STORE_OBJ:
         {
+            GenTreeIndir* store = tree->AsIndir();
+            GenTree*      addr  = store->GetAddr();
+            GenTree*      value = store->GetValue();
+
             bool wasUnderIndir  = state->isUnderIndir;
             state->isUnderIndir = true;
-            for (unsigned i = 0; i < tree->AsArrElem()->GetNumOps(); i++)
-            {
-                comp->fgWalkTreePre(tree->AsArrElem()->GetUse(i), MarkPtrsAndAssignGroups, state);
-            }
+            comp->fgWalkTreePre(&addr, MarkPtrsAndAssignGroups, state);
+            state->isUnderIndir = false;
+            comp->fgWalkTreePre(&value, MarkPtrsAndAssignGroups, state);
             state->isUnderIndir = wasUnderIndir;
 
             return Compiler::WALK_SKIP_SUBTREES;
         }
-        case GT_LCL_VAR:
-        case GT_LCL_FLD:
+        case GT_LCL_LOAD:
+        case GT_LCL_LOAD_FLD:
         {
             LclVarDsc* loadLcl = tree->AsLclVarCommon()->GetLcl();
 
@@ -161,6 +166,31 @@ static Compiler::fgWalkResult MarkPtrsAndAssignGroups(GenTree** use, Compiler::f
 
             return Compiler::WALK_SKIP_SUBTREES;
         }
+        case GT_LCL_STORE:
+        case GT_LCL_STORE_FLD:
+        {
+            GenTreeLclVarCommon* store = tree->AsLclVarCommon();
+            GenTree*             value = store->GetOp(0);
+
+            LclVarDsc* prevStoreLcl = state->storeLcl;
+            state->storeLcl         = store->GetLcl();
+            comp->fgWalkTreePre(&value, MarkPtrsAndAssignGroups, state);
+            state->storeLcl = prevStoreLcl;
+
+            return Compiler::WALK_SKIP_SUBTREES;
+        }
+        case GT_ARR_ELEM:
+        {
+            bool wasUnderIndir  = state->isUnderIndir;
+            state->isUnderIndir = true;
+            for (unsigned i = 0; i < tree->AsArrElem()->GetNumOps(); i++)
+            {
+                comp->fgWalkTreePre(tree->AsArrElem()->GetUse(i), MarkPtrsAndAssignGroups, state);
+            }
+            state->isUnderIndir = wasUnderIndir;
+
+            return Compiler::WALK_SKIP_SUBTREES;
+        }
         case GT_CALL:
         {
             LclVarDsc* prevStoreLcl  = state->storeLcl;
@@ -179,12 +209,12 @@ static Compiler::fgWalkResult MarkPtrsAndAssignGroups(GenTree** use, Compiler::f
 
             for (GenTreeCall::Use& use : call->Args())
             {
-                // Skip STRUCT typed LCL_VAR|FLD call args, previously these were wrapped in OBJs,
+                // Skip STRUCT typed LCL_LOAD|FLD call args, previously these were wrapped in OBJs,
                 // which this code ignored. Which is probably a bug since a struct can contain
                 // pointers. Needless to say that fixing this will result in regressions due to
                 // extra copying of current method's parameters.
 
-                if (!use.GetNode()->OperIs(GT_LCL_VAR, GT_LCL_FLD) || !use.GetNode()->TypeIs(TYP_STRUCT))
+                if (!use.GetNode()->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) || !use.GetNode()->TypeIs(TYP_STRUCT))
                 {
                     comp->fgWalkTreePre(&use.NodeRef(), MarkPtrsAndAssignGroups, state);
                 }
@@ -192,7 +222,7 @@ static Compiler::fgWalkResult MarkPtrsAndAssignGroups(GenTree** use, Compiler::f
 
             for (GenTreeCall::Use& use : call->LateArgs())
             {
-                if (!use.GetNode()->OperIs(GT_LCL_VAR, GT_LCL_FLD) || !use.GetNode()->TypeIs(TYP_STRUCT))
+                if (!use.GetNode()->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) || !use.GetNode()->TypeIs(TYP_STRUCT))
                 {
                     comp->fgWalkTreePre(&use.NodeRef(), MarkPtrsAndAssignGroups, state);
                 }
@@ -210,36 +240,6 @@ static Compiler::fgWalkResult MarkPtrsAndAssignGroups(GenTree** use, Compiler::f
 
             state->storeLcl     = prevStoreLcl;
             state->isUnderIndir = wasUnderIndir;
-
-            return Compiler::WALK_SKIP_SUBTREES;
-        }
-        case GT_STOREIND:
-        case GT_STORE_BLK:
-        case GT_STORE_OBJ:
-        {
-            GenTreeIndir* store = tree->AsIndir();
-            GenTree*      addr  = store->GetAddr();
-            GenTree*      value = store->GetValue();
-
-            bool wasUnderIndir  = state->isUnderIndir;
-            state->isUnderIndir = true;
-            comp->fgWalkTreePre(&addr, MarkPtrsAndAssignGroups, state);
-            state->isUnderIndir = false;
-            comp->fgWalkTreePre(&value, MarkPtrsAndAssignGroups, state);
-            state->isUnderIndir = wasUnderIndir;
-
-            return Compiler::WALK_SKIP_SUBTREES;
-        }
-        case GT_STORE_LCL_VAR:
-        case GT_STORE_LCL_FLD:
-        {
-            GenTreeLclVarCommon* store = tree->AsLclVarCommon();
-            GenTree*             value = store->GetOp(0);
-
-            LclVarDsc* prevStoreLcl = state->storeLcl;
-            state->storeLcl         = store->GetLcl();
-            comp->fgWalkTreePre(&value, MarkPtrsAndAssignGroups, state);
-            state->storeLcl = prevStoreLcl;
 
             return Compiler::WALK_SKIP_SUBTREES;
         }
@@ -429,9 +429,9 @@ void Compiler::gsParamsToShadows()
 
     class ReplaceShadowParamsVisitor final : public GenTreeVisitor<ReplaceShadowParamsVisitor>
     {
-        // Walk the locals of the method (i.e. GT_LCL_FLD and GT_LCL_VAR nodes) and replace the ones that correspond to
+        // Walk the locals of the method (i.e. LCL_LOAD_FLD and LCL_LOAD nodes) and replace the ones that correspond to
         // "vulnerable" parameters with their shadow copies. If an original local variable has small type then replace
-        // the GT_LCL_VAR node type with TYP_INT.
+        // the LCL_LOAD node type with TYP_INT.
     public:
         enum
         {
@@ -454,7 +454,7 @@ void Compiler::gsParamsToShadows()
             {
                 tree->AsLclVarCommon()->SetLcl(m_compiler->lvaGetDesc(shadowLclNum));
 
-                if (varTypeIsSmall(lcl->GetType()) && tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
+                if (varTypeIsSmall(lcl->GetType()) && tree->OperIs(GT_LCL_LOAD, GT_LCL_STORE))
                 {
                     tree->SetType(TYP_INT);
                 }
@@ -483,18 +483,15 @@ void Compiler::gsParamsToShadows()
             continue;
         }
 
+        fgEnsureFirstBBisScratch();
+
         LclVarDsc* shadowLcl = lvaGetDesc(shadowLclNum);
 
-        GenTree* src = gtNewLclvNode(lcl, lcl->GetType());
-        GenTree* dst = gtNewLclvNode(shadowLcl, shadowLcl->GetType());
-
+        GenTree* src = gtNewLclLoad(lcl, lcl->GetType());
         src->gtFlags |= GTF_DONT_CSE;
-        dst->gtFlags |= GTF_DONT_CSE;
-
-        fgEnsureFirstBBisScratch();
-        // TODO-MIKE-Review: Do we need to morph? This is a trivial assignment between
-        // 2 local variables. The destination is not promoted, could the source be?
-        fgNewStmtAtBeg(fgFirstBB, gtMorphTree(gtNewAssignNode(dst, src)));
+        // TODO-MIKE-Review: Do we need to morph? This is a trivial local store.
+        // The destination is not promoted, could the source be?
+        fgNewStmtAtBeg(fgFirstBB, gtMorphTree(gtNewLclStore(shadowLcl, shadowLcl->GetType(), src)));
     }
 
     // If the method has "Jmp CalleeMethod", then we need to copy shadow params back to original
@@ -521,13 +518,9 @@ void Compiler::gsParamsToShadows()
 
                 LclVarDsc* shadowLcl = lvaGetDesc(shadowLclNum);
 
-                GenTree* src = gtNewLclvNode(shadowLcl, shadowLcl->GetType());
-                GenTree* dst = gtNewLclvNode(lcl, lcl->GetType());
-
+                GenTree* src = gtNewLclLoad(shadowLcl, shadowLcl->GetType());
                 src->gtFlags |= GTF_DONT_CSE;
-                dst->gtFlags |= GTF_DONT_CSE;
-
-                fgNewStmtNearEnd(block, gtMorphTree(gtNewAssignNode(dst, src)));
+                fgNewStmtNearEnd(block, gtMorphTree(gtNewLclStore(shadowLcl, shadowLcl->GetType(), src)));
             }
         }
     }

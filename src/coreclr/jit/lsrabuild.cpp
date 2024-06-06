@@ -517,11 +517,11 @@ void LinearScan::addRefsForPhysRegMask(regMaskTP mask, LsraLocation currentLoc, 
     }
 }
 
-// Determine the liveness kill set for a GT_STOREIND node.
-// If the GT_STOREIND will generate a write barrier, determine the specific kill
+// Determine the liveness kill set for a IND_STORE node.
+// If the IND_STORE will generate a write barrier, determine the specific kill
 // set required by the case-specific, platform-specific write barrier. If no
 // write barrier is required, the kill set will be RBM_NONE.
-regMaskTP LinearScan::getKillSetForStoreInd(GenTreeStoreInd* tree)
+regMaskTP LinearScan::getKillSetForStoreInd(GenTreeIndStore* tree)
 {
     regMaskTP killMask = RBM_NONE;
 
@@ -749,19 +749,19 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* tree)
             killMask = getKillSetForModDiv(tree->AsOp());
             break;
 
-        case GT_STORE_LCL_VAR:
-        case GT_STORE_LCL_FLD:
+        case GT_LCL_STORE:
+        case GT_LCL_STORE_FLD:
             if (tree->TypeIs(TYP_STRUCT) && !tree->AsLclVarCommon()->GetOp(0)->IsCall())
             {
-                ClassLayout* layout = tree->OperIs(GT_STORE_LCL_VAR) ? tree->AsLclVar()->GetLcl()->GetLayout()
-                                                                     : tree->AsLclFld()->GetLayout(compiler);
+                ClassLayout* layout = tree->OperIs(GT_LCL_STORE) ? tree->AsLclStore()->GetLcl()->GetLayout()
+                                                                 : tree->AsLclStoreFld()->GetLayout(compiler);
                 StructStoreKind kind = GetStructStoreKind(true, layout, tree->AsLclVarCommon()->GetOp(0));
                 killMask             = getKillSetForStructStore(kind);
             }
             break;
 
-        case GT_STORE_OBJ:
-        case GT_STORE_BLK:
+        case GT_IND_STORE_OBJ:
+        case GT_IND_STORE_BLK:
             killMask = getKillSetForStructStore(tree->AsBlk()->GetKind());
             break;
 
@@ -778,8 +778,8 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* tree)
             killMask = getKillSetForCall(tree->AsCall());
 
             break;
-        case GT_STOREIND:
-            killMask = getKillSetForStoreInd(tree->AsStoreInd());
+        case GT_IND_STORE:
+            killMask = getKillSetForStoreInd(tree->AsIndStore());
             break;
 
 #if defined(PROFILING_SUPPORTED)
@@ -930,10 +930,8 @@ bool LinearScan::buildKillPositionsForNode(GenTree* tree, LsraLocation currentLo
 // as such, we've already completed Lowering, so during the build phase of
 // LSRA we have to reset the GTF_VAR_MULTIREG flag if necessary as we visit
 // each node.
-bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclVar* store)
+bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclStore* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR));
-
     if (!store->IsMultiReg())
     {
         return false;
@@ -959,7 +957,7 @@ bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclVar* store)
     return isMultiReg;
 }
 
-// Check whether a GT_LCL_VAR node is a candidate or contained.
+// Check whether a LCL_LOAD node is a candidate or contained.
 // We handle candidate variables differently from non-candidate ones.
 // If it is a candidate, we will simply add a use of it at its parent/consumer.
 // Otherwise, for a use we need to actually add the appropriate references for loading
@@ -974,18 +972,18 @@ bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclVar* store)
 // candidates.
 // If there is a lclVar that is estimated during Lowering to be register candidate but turns
 // out not to be, if a use was marked regOptional it should now be marked contained instead.
-bool LinearScan::checkContainedOrCandidateLclVar(GenTreeLclVar* lclNode)
+bool LinearScan::checkContainedOrCandidateLclVar(GenTreeLclLoad* load)
 {
-    assert(lclNode->OperIs(GT_LCL_VAR) && !lclNode->IsMultiReg());
+    assert(!load->IsMultiReg());
     // We shouldn't be calling this if this node was already contained.
-    assert(!lclNode->isContained());
+    assert(!load->isContained());
 
-    bool isCandidate = lclNode->GetLcl()->IsRegCandidate();
+    bool isCandidate = load->GetLcl()->IsRegCandidate();
 
-    if (!isCandidate && lclNode->IsRegOptional())
+    if (!isCandidate && load->IsRegOptional())
     {
-        lclNode->ClearRegOptional();
-        lclNode->SetContained();
+        load->ClearRegOptional();
+        load->SetContained();
 
         return true;
     }
@@ -1103,11 +1101,11 @@ void LinearScan::buildUpperVectorSaveRefPositions(GenTree* tree, LsraLocation cu
 
         if (regType == TYP_STRUCT)
         {
-            assert(defNode->OperIs(GT_LCL_VAR, GT_CALL));
+            assert(defNode->OperIs(GT_LCL_LOAD, GT_CALL));
 
-            if (defNode->OperIs(GT_LCL_VAR))
+            if (defNode->OperIs(GT_LCL_LOAD))
             {
-                regType = defNode->AsLclVar()->GetLcl()->GetRegisterType();
+                regType = defNode->AsLclLoad()->GetLcl()->GetRegisterType();
             }
             else
             {
@@ -1237,9 +1235,9 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
 #ifdef TARGET_XARCH
         // On XArch we can have contained candidate lclVars if they are part of a RMW
         // address computation. In this case we need to check whether it is a last use.
-        if (tree->OperIs(GT_LCL_VAR) && ((tree->gtFlags & GTF_VAR_DEATH) != 0))
+        if (tree->OperIs(GT_LCL_LOAD) && ((tree->gtFlags & GTF_VAR_DEATH) != 0))
         {
-            LclVarDsc* lcl = tree->AsLclVar()->GetLcl();
+            LclVarDsc* lcl = tree->AsLclLoad()->GetLcl();
 
             if (lcl->IsRegCandidate())
             {
@@ -1271,11 +1269,11 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
     // if produce is as expected. See https://github.com/dotnet/runtime/issues/8678
     // int oldDefListCount = defList.Count();
 
-    // We make a final determination about whether a GT_LCL_VAR is a candidate or contained
+    // We make a final determination about whether a LCL_LOAD is a candidate or contained
     // after liveness. In either case we don't build any uses or defs. Otherwise, this is a
     // load of a stack-based local into a register and we'll fall through to the general
     // local case below.
-    if (!tree->OperIs(GT_LCL_VAR) || !checkContainedOrCandidateLclVar(tree->AsLclVar()))
+    if (!tree->OperIs(GT_LCL_LOAD) || !checkContainedOrCandidateLclVar(tree->AsLclLoad()))
     {
         BuildNode(tree);
     }
@@ -1287,9 +1285,9 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
         // RegOptional LCL_VARs may become contained.
         ((nodeDefCount == 0) && tree->isContained()) ||
         // A reg candidate store is not a value so GetRegisterDstCount returns 0, but it does define a register.
-        ((nodeDefCount == 1) && tree->OperIs(GT_STORE_LCL_VAR) && tree->AsLclVar()->GetLcl()->IsRegCandidate()) ||
+        ((nodeDefCount == 1) && tree->OperIs(GT_LCL_STORE) && tree->AsLclStore()->GetLcl()->IsRegCandidate()) ||
         // A reg candidate load is a value so GetRegisterDstCount returns 1, but it does not define a new register.
-        ((nodeDefCount == 0) && tree->OperIs(GT_LCL_VAR) && tree->AsLclVar()->GetLcl()->IsRegCandidate()) ||
+        ((nodeDefCount == 0) && tree->OperIs(GT_LCL_LOAD) && tree->AsLclLoad()->GetLcl()->IsRegCandidate()) ||
         (nodeDefCount == tree->GetRegisterDstCount(compiler)));
 
     assert((nodeUseCount == 0) || (ComputeAvailableSrcCount(tree) == nodeUseCount));
@@ -2388,9 +2386,9 @@ RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int re
     Interval* interval;
     bool      regOptional = operand->IsRegOptional();
 
-    if (isCandidateLclVar(operand))
+    if (IsRegCandidateLclLoad(operand))
     {
-        interval = getIntervalForLocalVarNode(operand->AsLclVar());
+        interval = getIntervalForLocalVarNode(operand->AsLclLoad());
 
         // We have only approximate last-use information at this point.  This is because the
         // execution order doesn't actually reflect the true order in which the localVars
@@ -2413,12 +2411,12 @@ RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int re
     }
     else if (operand->IsMultiRegLclVar())
     {
-        LclVarDsc* lcl      = operand->AsLclVar()->GetLcl();
+        LclVarDsc* lcl      = operand->AsLclLoad()->GetLcl();
         LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(regIndex));
 
         interval = getIntervalForLocalVar(fieldLcl->GetLivenessBitIndex());
 
-        if (operand->AsLclVar()->IsLastUse(regIndex))
+        if (operand->AsLclLoad()->IsLastUse(regIndex))
         {
             VarSetOps::RemoveElemD(compiler, currentLiveVars, fieldLcl->GetLivenessBitIndex());
         }
@@ -2481,11 +2479,13 @@ void LinearScan::BuildDelayFreeUse(GenTree* op, GenTree* rmwNode, regMaskTP cand
     Interval* rmwInterval  = nullptr;
     bool      rmwIsLastUse = false;
 
-    if ((rmwNode != nullptr) && isCandidateLclVar(rmwNode))
+    if ((rmwNode != nullptr) && IsRegCandidateLclLoad(rmwNode))
     {
-        rmwInterval = getIntervalForLocalVarNode(rmwNode->AsLclVar());
-        assert(!rmwNode->AsLclVar()->IsMultiReg());
-        rmwIsLastUse = rmwNode->AsLclVar()->IsLastUse(0);
+        GenTreeLclLoad* load = rmwNode->AsLclLoad();
+
+        rmwInterval = getIntervalForLocalVarNode(load);
+        assert(!load->IsMultiReg());
+        rmwIsLastUse = load->IsLastUse(0);
     }
 
     if ((use->getInterval() != rmwInterval) || (!rmwIsLastUse && !use->lastUse))
@@ -2501,9 +2501,8 @@ void LinearScan::setDelayFree(RefPosition* use)
     pendingDelayFree  = true;
 }
 
-void LinearScan::BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPosition* singleUseRef, unsigned index)
+void LinearScan::BuildStoreLclVarDef(GenTreeLclStore* store, LclVarDsc* lcl, RefPosition* singleUseRef, unsigned index)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR));
     assert(lcl->lvTracked);
 
     Interval* varDefInterval = getIntervalForLocalVar(lcl->lvVarIndex);
@@ -2563,15 +2562,15 @@ void LinearScan::BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPo
 #endif
 }
 
-void LinearScan::BuildStoreLclVarMultiReg(GenTreeLclVar* store)
+void LinearScan::BuildStoreLclVarMultiReg(GenTreeLclStore* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR) && store->IsMultiReg());
+    assert(store->IsMultiReg());
 
     LclVarDsc* lcl = store->GetLcl();
     assert(lcl->IsIndependentPromoted());
     unsigned regCount = lcl->GetPromotedFieldCount();
 
-    GenTree* src = store->GetOp(0);
+    GenTree* src = store->GetValue();
     assert(src->IsMultiRegNode());
     assert(regCount == src->GetMultiRegCount(compiler));
 
@@ -2602,10 +2601,8 @@ void LinearScan::BuildStoreLclVarMultiReg(GenTreeLclVar* store)
     }
 }
 
-void LinearScan::BuildStoreLclVar(GenTreeLclVar* store)
+void LinearScan::BuildLclStore(GenTreeLclStore* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR));
-
     if (IsCandidateLclVarMultiReg(store))
     {
         BuildStoreLclVarMultiReg(store);
@@ -2614,7 +2611,7 @@ void LinearScan::BuildStoreLclVar(GenTreeLclVar* store)
     }
 
     LclVarDsc* lcl = store->GetLcl();
-    GenTree*   src = store->GetOp(0);
+    GenTree*   src = store->GetValue();
 
     if (store->TypeIs(TYP_STRUCT) && !src->IsCall())
     {
@@ -2625,41 +2622,39 @@ void LinearScan::BuildStoreLclVar(GenTreeLclVar* store)
         return;
     }
 
-    BuildStoreLcl(store);
+    BuildLclStoreCommon(store);
 }
 
-void LinearScan::BuildStoreLclFld(GenTreeLclFld* store)
+void LinearScan::BuildLclStoreFld(GenTreeLclStoreFld* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_FLD));
-
     if (store->TypeIs(TYP_STRUCT))
     {
-        ClassLayout*    layout = store->AsLclFld()->GetLayout(compiler);
-        StructStoreKind kind   = GetStructStoreKind(true, layout, store->GetOp(0));
+        ClassLayout*    layout = store->GetLayout(compiler);
+        StructStoreKind kind   = GetStructStoreKind(true, layout, store->GetValue());
         BuildStructStore(store, kind, layout);
 
         return;
     }
 
-    BuildStoreLcl(store);
+    BuildLclStoreCommon(store);
 }
 
-void LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
+void LinearScan::BuildLclStoreCommon(GenTreeLclVarCommon* store)
 {
-    assert(store->OperIs(GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
+    assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
 
     GenTree* src = store->GetOp(0);
 
 #ifdef FEATURE_SIMD
     if (store->TypeIs(TYP_SIMD12))
     {
-        if (src->isContained() && src->OperIs(GT_IND, GT_LCL_FLD, GT_LCL_VAR))
+        if (src->isContained() && src->OperIs(GT_IND_LOAD, GT_LCL_LOAD_FLD, GT_LCL_LOAD))
         {
             BuildInternalIntDef(store);
 
-            if (src->OperIs(GT_IND))
+            if (src->OperIs(GT_IND_LOAD))
             {
-                BuildAddrUses(src->AsIndir()->GetAddr());
+                BuildAddrUses(src->AsIndLoad()->GetAddr());
             }
 
             BuildInternalUses();
@@ -2755,7 +2750,7 @@ void LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
     }
 
 #ifdef TARGET_ARM
-    if (store->OperIs(GT_STORE_LCL_FLD) && store->AsLclFld()->IsOffsetMisaligned())
+    if (store->OperIs(GT_LCL_STORE_FLD) && store->AsLclStoreFld()->IsOffsetMisaligned())
     {
         BuildInternalIntDef(store);
 
@@ -2771,7 +2766,7 @@ void LinearScan::BuildStoreLcl(GenTreeLclVarCommon* store)
 
     if (lcl->IsRegCandidate())
     {
-        BuildStoreLclVarDef(store->AsLclVar(), lcl, singleUseRef, 0);
+        BuildStoreLclVarDef(store->AsLclStore(), lcl, singleUseRef, 0);
     }
 }
 
@@ -2937,7 +2932,7 @@ void LinearScan::BuildPutArgReg(GenTreeUnOp* putArg)
 
     bool isSpecialPutArg = false;
 
-    if (supportsSpecialPutArg() && isCandidateLclVar(src) && ((src->gtFlags & GTF_VAR_DEATH) == 0))
+    if (supportsSpecialPutArg() && IsRegCandidateLclLoad(src) && ((src->gtFlags & GTF_VAR_DEATH) == 0))
     {
         // This is the case for a "pass-through" copy of a lclVar.  In the case where it is a non-last-use,
         // we don't want the def of the copy to kill the lclVar register, if it is assigned the same register
@@ -2975,35 +2970,26 @@ void LinearScan::BuildPutArgReg(GenTreeUnOp* putArg)
     }
 }
 
-void LinearScan::BuildGCWriteBarrier(GenTreeStoreInd* store)
+void LinearScan::BuildGCWriteBarrier(GenTreeIndStore* store)
 {
     GenTree* addr = store->GetAddr();
     GenTree* src  = store->GetValue();
 
-    // In the case where we are doing a helper assignment, even if the dst
-    // is an indir through an lea, we need to actually instantiate the
-    // lea in a register
     assert(!addr->isContained() && !src->isContained());
 
     regMaskTP addrCandidates = RBM_ARG_0;
     regMaskTP srcCandidates  = RBM_ARG_1;
 
 #if defined(TARGET_ARM64)
-    // the 'addr' goes into x14 (REG_WRITE_BARRIER_DST)
-    // the 'src'  goes into x15 (REG_WRITE_BARRIER_SRC)
-    //
     addrCandidates = RBM_WRITE_BARRIER_DST;
     srcCandidates  = RBM_WRITE_BARRIER_SRC;
 #elif defined(TARGET_X86) && NOGC_WRITE_BARRIERS
     if (GCInfo::UseOptimizedWriteBarriers())
     {
-        // Special write barrier:
-        // op1 (addr) goes into REG_WRITE_BARRIER (rdx) and
-        // op2 (src) goes into any int register.
         addrCandidates = RBM_WRITE_BARRIER;
         srcCandidates  = RBM_WRITE_BARRIER_SRC;
     }
-#endif // defined(TARGET_X86) && NOGC_WRITE_BARRIERS
+#endif
 
     BuildUse(addr, addrCandidates);
     BuildUse(src, srcCandidates);
@@ -3032,8 +3018,8 @@ void LinearScan::BuildKeepAlive(GenTreeUnOp* node)
     if (op->isContained())
     {
         // Lowering marks the operand as reg optional so we can end up
-        // with a contained LCL_VAR here, but nothing else (no indirs).
-        assert(op->OperIs(GT_LCL_VAR));
+        // with a contained LCL_LOAD here, but nothing else (no indirs).
+        assert(op->IsLclLoad());
     }
     else
     {
