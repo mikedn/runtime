@@ -777,13 +777,11 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* tree)
             return getKillSetForReturn();
         case GT_PROF_HOOK:
             return getKillSetForProfilerHook();
-            break;
 #endif
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
             return getKillSetForHWIntrinsic(tree->AsHWIntrinsic());
-            break;
 #endif
 
         default:

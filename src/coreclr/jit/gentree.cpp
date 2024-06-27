@@ -10239,7 +10239,8 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 #ifndef TARGET_64BIT
                     fieldSeq = GetFieldSeqStore()->FoldAdd(op1->AsIntCon(), op2->AsIntCon());
 #endif
-                    if (tree->gtOverflow() && CheckedOps::AddOverflows(i1, i2, tree->IsUnsigned()))
+                    if (tree->gtOverflow() &&
+                        (tree->IsUnsigned() ? CheckedOps::UAddOverflows(i1, i2) : CheckedOps::SAddOverflows(i1, i2)))
                     {
                         goto INTEGRAL_OVF;
                     }
@@ -10247,7 +10248,8 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     goto CNS_INT;
 
                 case GT_SUB:
-                    if (tree->gtOverflow() && CheckedOps::SubOverflows(i1, i2, tree->IsUnsigned()))
+                    if (tree->gtOverflow() &&
+                        (tree->IsUnsigned() ? CheckedOps::USubOverflows(i1, i2) : CheckedOps::SSubOverflows(i1, i2)))
                     {
                         goto INTEGRAL_OVF;
                     }
@@ -10255,7 +10257,8 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     goto CNS_INT;
 
                 case GT_MUL:
-                    if (tree->gtOverflow() && CheckedOps::MulOverflows(i1, i2, tree->IsUnsigned()))
+                    if (tree->gtOverflow() &&
+                        (tree->IsUnsigned() ? CheckedOps::UMulOverflows(i1, i2) : CheckedOps::SMulOverflows(i1, i2)))
                     {
                         goto INTEGRAL_OVF;
                     }
@@ -10375,7 +10378,8 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 #ifdef TARGET_64BIT
                     fieldSeq = GetFieldSeqStore()->FoldAdd(op1->AsIntCon(), op2->AsIntCon());
 #endif
-                    if (tree->gtOverflow() && CheckedOps::AddOverflows(l1, l2, tree->IsUnsigned()))
+                    if (tree->gtOverflow() &&
+                        (tree->IsUnsigned() ? CheckedOps::UAddOverflows(l1, l2) : CheckedOps::SAddOverflows(l1, l2)))
                     {
                         goto INTEGRAL_OVF;
                     }
@@ -10383,7 +10387,8 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     goto CNS_LONG;
 
                 case GT_SUB:
-                    if (tree->gtOverflow() && CheckedOps::SubOverflows(l1, l2, tree->IsUnsigned()))
+                    if (tree->gtOverflow() &&
+                        (tree->IsUnsigned() ? CheckedOps::USubOverflows(l1, l2) : CheckedOps::SSubOverflows(l1, l2)))
                     {
                         goto INTEGRAL_OVF;
                     }
@@ -10391,7 +10396,8 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     goto CNS_LONG;
 
                 case GT_MUL:
-                    if (tree->gtOverflow() && CheckedOps::MulOverflows(l1, l2, tree->IsUnsigned()))
+                    if (tree->gtOverflow() &&
+                        (tree->IsUnsigned() ? CheckedOps::UMulOverflows(l1, l2) : CheckedOps::SMulOverflows(l1, l2)))
                     {
                         goto INTEGRAL_OVF;
                     }

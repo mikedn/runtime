@@ -731,9 +731,6 @@ double CachedCyclesPerSecond();
 
 namespace CheckedOps
 {
-const bool Unsigned = true;
-const bool Signed   = false;
-
 // Important note: templated functions below must use dynamic "assert"s instead of "static_assert"s
 // because they can be instantiated on code paths that are not reachable at runtime, but visible
 // to the compiler. One example is VN's EvalOp<T> function, which can be instantiated with "size_t"
@@ -741,51 +738,51 @@ const bool Signed   = false;
 // for VNF_ADD_OVF/UN, and would like to continue doing so without casts.
 
 template <class T>
-bool AddOverflows(T x, T y, bool unsignedAdd)
+bool SAddOverflows(T x, T y)
 {
     typedef typename std::make_unsigned<T>::type UT;
     assert((std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value));
-
-    if (unsignedAdd)
-    {
-        return (ClrSafeInt<UT>(static_cast<UT>(x)) + ClrSafeInt<UT>(static_cast<UT>(y))).IsOverflow();
-    }
-    else
-    {
-        return (ClrSafeInt<T>(x) + ClrSafeInt<T>(y)).IsOverflow();
-    }
+    return (ClrSafeInt<T>(x) + ClrSafeInt<T>(y)).IsOverflow();
 }
 
 template <class T>
-bool SubOverflows(T x, T y, bool unsignedSub)
+bool UAddOverflows(T x, T y)
 {
     typedef typename std::make_unsigned<T>::type UT;
     assert((std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value));
-
-    if (unsignedSub)
-    {
-        return (ClrSafeInt<UT>(static_cast<UT>(x)) - ClrSafeInt<UT>(static_cast<UT>(y))).IsOverflow();
-    }
-    else
-    {
-        return (ClrSafeInt<T>(x) - ClrSafeInt<T>(y)).IsOverflow();
-    }
+    return (ClrSafeInt<UT>(static_cast<UT>(x)) + ClrSafeInt<UT>(static_cast<UT>(y))).IsOverflow();
 }
 
 template <class T>
-bool MulOverflows(T x, T y, bool unsignedMul)
+bool SSubOverflows(T x, T y)
 {
     typedef typename std::make_unsigned<T>::type UT;
     assert((std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value));
+    return (ClrSafeInt<T>(x) - ClrSafeInt<T>(y)).IsOverflow();
+}
 
-    if (unsignedMul)
-    {
-        return (ClrSafeInt<UT>(static_cast<UT>(x)) * ClrSafeInt<UT>(static_cast<UT>(y))).IsOverflow();
-    }
-    else
-    {
-        return (ClrSafeInt<T>(x) * ClrSafeInt<T>(y)).IsOverflow();
-    }
+template <class T>
+bool USubOverflows(T x, T y)
+{
+    typedef typename std::make_unsigned<T>::type UT;
+    assert((std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value));
+    return (ClrSafeInt<UT>(static_cast<UT>(x)) - ClrSafeInt<UT>(static_cast<UT>(y))).IsOverflow();
+}
+
+template <class T>
+bool SMulOverflows(T x, T y)
+{
+    typedef typename std::make_unsigned<T>::type UT;
+    assert((std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value));
+    return (ClrSafeInt<T>(x) * ClrSafeInt<T>(y)).IsOverflow();
+}
+
+template <class T>
+bool UMulOverflows(T x, T y)
+{
+    typedef typename std::make_unsigned<T>::type UT;
+    assert((std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value));
+    return (ClrSafeInt<UT>(static_cast<UT>(x)) * ClrSafeInt<UT>(static_cast<UT>(y))).IsOverflow();
 }
 
 bool CastFromIntOverflows(int32_t fromValue, var_types toType, bool fromUnsigned);
