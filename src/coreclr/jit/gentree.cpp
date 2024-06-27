@@ -5113,11 +5113,6 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
                     assert(GenTree::OperIsBinary(tree->GetOper()));
                     copy = gtNewOperNode(oper, tree->GetType(), tree->AsOp()->gtOp1, tree->AsOp()->gtOp2);
                 }
-
-                if (tree->gtOverflowEx())
-                {
-                    copy->gtFlags |= tree->gtFlags & (GTF_OVERFLOW | GTF_UNSIGNED);
-                }
                 break;
         }
 
@@ -5130,8 +5125,6 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
         {
             copy->AsOp()->gtOp2 = gtCloneExpr(tree->AsOp()->gtOp2, addFlags, constLcl, constVal);
         }
-
-        addFlags |= tree->gtFlags;
 
         if (copy->AsOp()->gtOp1 != nullptr)
         {
@@ -5241,7 +5234,7 @@ DONE:
 
     copy->SetVNP(tree->GetVNP());
 
-    // Don't add the original flags if we changed the node from a LCL_VAR to CNS_INT.
+    // Don't add the original flags if we changed the node from a LCL_LOAD to CNS_INT.
     if (copy->GetOper() == oper)
     {
         copy->gtFlags |= tree->gtFlags;
