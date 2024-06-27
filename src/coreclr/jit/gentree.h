@@ -1334,20 +1334,6 @@ public:
         return OperIsShiftOrRotate(OperGet());
     }
 
-    static bool OperIsMul(genTreeOps gtOper)
-    {
-        return (gtOper == GT_MUL) || (gtOper == GT_MULHI)
-#if !defined(TARGET_64BIT)
-               || (gtOper == GT_MUL_LONG)
-#endif
-            ;
-    }
-
-    bool OperIsMul() const
-    {
-        return OperIsMul(gtOper);
-    }
-
 #ifdef TARGET_XARCH
     static bool OperIsRMWMemOp(genTreeOps oper)
     {

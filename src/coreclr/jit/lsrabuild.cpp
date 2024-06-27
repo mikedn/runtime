@@ -547,43 +547,42 @@ regMaskTP LinearScan::getKillSetForStoreInd(GenTreeIndStore* tree)
     return killMask;
 }
 
-regMaskTP LinearScan::getKillSetForShiftRotate(GenTreeOp* shiftNode)
-{
-    regMaskTP killMask = RBM_NONE;
 #ifdef TARGET_XARCH
-    assert(shiftNode->OperIsShiftOrRotate());
-    GenTree* shiftBy = shiftNode->gtGetOp2();
-    if (!shiftBy->isContained())
+regMaskTP LinearScan::getKillSetForShiftRotate(GenTreeOp* node)
+{
+    assert(node->OperIsShiftOrRotate());
+
+    if (!node->GetOp(1)->isContained())
     {
-        killMask = RBM_RCX;
+        return RBM_RCX;
     }
-#endif // TARGET_XARCH
-    return killMask;
+
+    return RBM_NONE;
 }
 
-regMaskTP LinearScan::getKillSetForMul(GenTreeOp* mulNode)
+regMaskTP LinearScan::getKillSetForMul(GenTreeOp* node)
 {
-    regMaskTP killMask = RBM_NONE;
-#ifdef TARGET_XARCH
-    assert(mulNode->OperIsMul());
-    if (!mulNode->OperIs(GT_MUL) || (((mulNode->gtFlags & GTF_UNSIGNED) != 0) && mulNode->gtOverflowEx()))
+#ifdef TARGET_64BIT
+    assert(node->OperIs(GT_MUL, GT_MULHI));
+#else
+    assert(node->OperIs(GT_MUL, GT_MULHI, GT_MUL_LONG));
+#endif
+
+    if (!node->OperIs(GT_MUL) || (node->gtOverflow() && node->IsUnsigned()))
     {
-        killMask = RBM_RAX | RBM_RDX;
+        return RBM_RAX | RBM_RDX;
     }
-#endif // TARGET_XARCH
-    return killMask;
+
+    return RBM_NONE;
 }
 
 regMaskTP LinearScan::getKillSetForModDiv(GenTreeOp* node)
 {
-    assert(node->OperIs(GT_MOD, GT_DIV, GT_UMOD, GT_UDIV) && varTypeIsIntegral(node->GetType()));
+    assert(node->OperIs(GT_MOD, GT_DIV, GT_UMOD, GT_UDIV));
 
-#ifdef TARGET_XARCH
     return RBM_RAX | RBM_RDX;
-#else
-    return RBM_NONE;
-#endif
 }
+#endif // TARGET_XARCH
 
 regMaskTP LinearScan::getKillSetForCall(GenTreeCall* call)
 {
@@ -719,9 +718,9 @@ regMaskTP LinearScan::getKillSetForProfilerHook()
 #ifdef DEBUG
 regMaskTP LinearScan::getKillSetForNode(GenTree* tree)
 {
-    regMaskTP killMask = RBM_NONE;
-    switch (tree->OperGet())
+    switch (tree->GetOper())
     {
+#ifdef TARGET_XARCH
         case GT_LSH:
         case GT_RSH:
         case GT_RSZ:
@@ -731,23 +730,19 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* tree)
         case GT_LSH_HI:
         case GT_RSH_LO:
 #endif
-            killMask = getKillSetForShiftRotate(tree->AsOp());
-            break;
-
+            return getKillSetForShiftRotate(tree->AsOp());
         case GT_MUL:
         case GT_MULHI:
-#if !defined(TARGET_64BIT)
+#ifdef TARGET_X86
         case GT_MUL_LONG:
 #endif
-            killMask = getKillSetForMul(tree->AsOp());
-            break;
-
+            return getKillSetForMul(tree->AsOp());
         case GT_MOD:
         case GT_DIV:
         case GT_UMOD:
         case GT_UDIV:
-            killMask = getKillSetForModDiv(tree->AsOp());
-            break;
+            return getKillSetForModDiv(tree->AsOp());
+#endif // TARGET_XARCH
 
         case GT_LCL_STORE:
         case GT_LCL_STORE_FLD:
@@ -755,58 +750,45 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* tree)
             {
                 ClassLayout* layout = tree->OperIs(GT_LCL_STORE) ? tree->AsLclStore()->GetLcl()->GetLayout()
                                                                  : tree->AsLclStoreFld()->GetLayout(compiler);
-                StructStoreKind kind = GetStructStoreKind(true, layout, tree->AsLclVarCommon()->GetOp(0));
-                killMask             = getKillSetForStructStore(kind);
+                return getKillSetForStructStore(GetStructStoreKind(true, layout, tree->AsLclVarCommon()->GetOp(0)));
             }
-            break;
+
+            return RBM_NONE;
 
         case GT_IND_STORE_OBJ:
         case GT_IND_STORE_BLK:
-            killMask = getKillSetForStructStore(tree->AsBlk()->GetKind());
-            break;
-
+            return getKillSetForStructStore(tree->AsBlk()->GetKind());
         case GT_COPY_BLK:
         case GT_INIT_BLK:
-            killMask = getKillSetForStructStore(tree->AsDynBlk()->GetKind());
-            break;
-
+            return getKillSetForStructStore(tree->AsDynBlk()->GetKind());
         case GT_RETURNTRAP:
-            killMask = compiler->compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC);
-            break;
-
+            return compiler->compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC);
         case GT_CALL:
-            killMask = getKillSetForCall(tree->AsCall());
-
-            break;
+            return getKillSetForCall(tree->AsCall());
         case GT_IND_STORE:
-            killMask = getKillSetForStoreInd(tree->AsIndStore());
-            break;
+            return getKillSetForStoreInd(tree->AsIndStore());
 
-#if defined(PROFILING_SUPPORTED)
+#ifdef PROFILING_SUPPORTED
         // If this method requires profiler ELT hook then mark these nodes as killing
         // callee trash registers (excluding RAX and XMM0). The reason for this is that
         // profiler callback would trash these registers. See vm\amd64\asmhelpers.asm for
         // more details.
         case GT_RETURN:
-            killMask = getKillSetForReturn();
-            break;
-
+            return getKillSetForReturn();
         case GT_PROF_HOOK:
-            killMask = getKillSetForProfilerHook();
+            return getKillSetForProfilerHook();
             break;
-#endif // PROFILING_SUPPORTED
+#endif
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-            killMask = getKillSetForHWIntrinsic(tree->AsHWIntrinsic());
+            return getKillSetForHWIntrinsic(tree->AsHWIntrinsic());
             break;
-#endif // FEATURE_HW_INTRINSICS
+#endif
 
         default:
-            // for all other 'tree->OperGet()' kinds, leave 'killMask' = RBM_NONE
-            break;
+            return RBM_NONE;
     }
-    return killMask;
 }
 #endif // DEBUG
 
