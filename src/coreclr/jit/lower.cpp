@@ -4197,7 +4197,7 @@ void Lowering::LowerShift(GenTreeOp* shift)
 
             GenTree* src = shift->GetOp(0);
 
-            while (src->OperIs(GT_CAST) && !src->gtOverflow())
+            while (src->OperIs(GT_CAST) && !src->AsCast()->HasOverflowCheck())
             {
                 GenTreeCast* cast = src->AsCast();
 
@@ -5027,7 +5027,7 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
 {
     assert(varCastType(cast->GetCastType()) == cast->GetType());
 
-    if (!cast->gtOverflow())
+    if (!cast->HasOverflowCheck())
     {
         GenTree*  src     = cast->GetOp(0);
         var_types dstType = cast->GetType();
@@ -5562,7 +5562,7 @@ LclVarDsc* Lowering::GetSimdMemoryTemp(var_types type)
 
 GenTree* Lowering::TryRemoveCastIfPresent(var_types expectedType, GenTree* op)
 {
-    if (!op->IsCast() || op->gtOverflow() || !varTypeIsIntegral(expectedType))
+    if (!op->IsCast() || op->AsCast()->HasOverflowCheck() || !varTypeIsIntegral(expectedType))
     {
         return op;
     }

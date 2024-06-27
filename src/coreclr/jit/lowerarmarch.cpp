@@ -1081,11 +1081,11 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
         }
     }
 
-    if (isContainable && (!cast->gtOverflow() || IsSafeToContainMem(cast, src)))
+    if (isContainable && (!cast->HasOverflowCheck() || IsSafeToContainMem(cast, src)))
     {
         // If this isn't an overflow checking cast then we can move it
         // right after the source node to avoid the interference check.
-        if (!cast->gtOverflow() && (cast->gtPrev != src))
+        if (!cast->HasOverflowCheck() && (cast->gtPrev != src))
         {
             BlockRange().Remove(cast);
             BlockRange().InsertAfter(src, cast);

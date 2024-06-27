@@ -1843,7 +1843,7 @@ void LinearScan::BuildCast(GenTreeCast* cast)
 #else
     // Overflow checking cast from TYP_(U)LONG to TYP_UINT requires a temporary
     // register to extract the upper 32 bits of the 64 bit source register.
-    if (cast->gtOverflow() && varTypeIsLong(src->GetType()) && (cast->GetCastType() == TYP_UINT))
+    if (cast->HasOverflowCheck() && varTypeIsLong(src->GetType()) && (cast->GetCastType() == TYP_UINT))
     {
         // Here we don't need internal register to be different from targetReg,
         // rather require it to be different from operand's reg.

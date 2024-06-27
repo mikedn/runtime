@@ -974,22 +974,13 @@ inline GenTreeAddrMode* GenTree::ChangeToAddrMode(GenTree* base, GenTree* index,
     return addrMode;
 }
 
-/*****************************************************************************
- *
- * Returns true if the node is of the "ovf" variety, for example, add.ovf.i1.
- * + gtOverflow() can only be called for valid operators (that is, we know it is one
- *   of the operators which may have GTF_OVERFLOW set).
- * + gtOverflowEx() is more expensive, and should be called only if gtOper may be
- *   an operator for which GTF_OVERFLOW is invalid.
- */
-
 inline bool GenTree::gtOverflow() const
 {
-    assert(OperMayOverflow());
+    assert(OperMayOverflow() && (gtOper != GT_CAST));
 
     if ((gtFlags & GTF_OVERFLOW) != 0)
     {
-        assert(varTypeIsIntegral(TypeGet()));
+        assert(varTypeIsIntegral(GetType()));
 
         return true;
     }

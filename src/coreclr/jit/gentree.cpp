@@ -975,11 +975,7 @@ bool GenTree::Compare(GenTree* op1, GenTree* op2, bool swapOK)
     genTreeOps oper;
     unsigned   kind;
 
-//  printf("tree1:\n"); gtDispTree(op1);
-//  printf("tree2:\n"); gtDispTree(op2);
-
 AGAIN:
-
     if (op1 == nullptr)
     {
         return (op2 == nullptr);
@@ -1005,18 +1001,6 @@ AGAIN:
     /* The types must be equal */
 
     if (op1->gtType != op2->gtType)
-    {
-        return false;
-    }
-
-    /* Overflow must be equal */
-    if (op1->gtOverflowEx() != op2->gtOverflowEx())
-    {
-        return false;
-    }
-
-    /* Sensible flags must be equal */
-    if ((op1->gtFlags & (GTF_UNSIGNED)) != (op2->gtFlags & (GTF_UNSIGNED)))
     {
         return false;
     }
@@ -1076,7 +1060,9 @@ AGAIN:
                 case GT_ARR_LENGTH:
                     break;
                 case GT_CAST:
-                    if (op1->AsCast()->GetCastType() != op2->AsCast()->GetCastType())
+                    if ((op1->AsCast()->GetCastType() != op2->AsCast()->GetCastType()) ||
+                        (op1->AsCast()->HasOverflowCheck() != op2->AsCast()->HasOverflowCheck()) ||
+                        (op1->IsUnsigned() != op2->IsUnsigned()))
                     {
                         return false;
                     }
@@ -1149,6 +1135,16 @@ AGAIN:
                 default:
                     assert(!"unexpected binary ExOp operator");
             }
+        }
+
+        if (op1->gtOverflowEx() != op2->gtOverflowEx())
+        {
+            return false;
+        }
+
+        if ((op1->gtFlags & GTF_UNSIGNED) != (op2->gtFlags & GTF_UNSIGNED))
+        {
+            return false;
         }
 
         if (op1->AsOp()->gtOp2 != nullptr)
@@ -2279,7 +2275,7 @@ void Compiler::gtSetCosts(GenTree* tree)
 #error "Unknown TARGET"
 #endif
 
-                    if (tree->gtOverflow())
+                    if (tree->AsCast()->HasOverflowCheck())
                     {
                         costEx += 6;
                         costSz += 6;
@@ -5096,6 +5092,11 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
                     // LONG multiplication/division usually requires helper calls on 32 bit targets.
                     copy = new (this, GT_CALL) GenTreeOp(oper, tree->GetType(), tree->AsOp()->GetOp(0),
                                                          tree->AsOp()->GetOp(1) DEBUGARG(/*largeNode*/ true));
+
+                    if ((oper == GT_MUL) && tree->gtOverflow())
+                    {
+                        copy->gtFlags |= tree->gtFlags & (GTF_OVERFLOW | GTF_UNSIGNED);
+                    }
                     break;
                 }
                 FALLTHROUGH;
@@ -5112,13 +5113,12 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
                     assert(GenTree::OperIsBinary(tree->GetOper()));
                     copy = gtNewOperNode(oper, tree->GetType(), tree->AsOp()->gtOp1, tree->AsOp()->gtOp2);
                 }
-                break;
-        }
 
-        // Some flags are conceptually part of the gtOper, and should be copied immediately.
-        if (tree->gtOverflowEx())
-        {
-            copy->gtFlags |= GTF_OVERFLOW;
+                if (tree->gtOverflowEx())
+                {
+                    copy->gtFlags |= tree->gtFlags & (GTF_OVERFLOW | GTF_UNSIGNED);
+                }
+                break;
         }
 
         if (tree->AsOp()->gtOp1 != nullptr)
@@ -5498,9 +5498,21 @@ bool GenTree::OperMayThrow(Compiler* comp) const
             return AsHWIntrinsic()->OperIsMemoryLoadOrStore();
 #endif
 
+        case GT_CAST:
+            return AsCast()->HasOverflowCheck();
+
+        case GT_ADD:
+        case GT_SUB:
+        case GT_MUL:
+#ifndef TARGET_64BIT
+        case GT_ADD_HI:
+        case GT_SUB_HI:
+#endif
+            return gtOverflow();
+
         default:
             // TODO-MIKE-Review: Atomic ops may throw too.
-            return gtOverflowEx();
+            return false;
     }
 }
 
@@ -6235,6 +6247,17 @@ void Compiler::gtDispNodeName(GenTree* tree)
         }
 
         SimpleSprintf_s(p, buf, sizeof(buf), "%d)", lea->GetOffset());
+    }
+    else if (GenTreeCast* cast = tree->IsCast())
+    {
+        if (cast->HasOverflowCheck())
+        {
+            sprintf_s(buf, sizeof(buf), "%s_ovfl%c", name, 0);
+        }
+        else
+        {
+            sprintf_s(buf, sizeof(buf), "%s%c", name, 0);
+        }
     }
     else if (tree->gtOverflowEx())
     {
@@ -9810,7 +9833,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     case GT_CAST:
                         assert(tree->GetType() == varCastType(tree->AsCast()->GetCastType()));
 
-                        if (tree->gtOverflow() &&
+                        if (tree->AsCast()->HasOverflowCheck() &&
                             CheckedOps::CastFromIntOverflows(i1, tree->AsCast()->GetCastType(), tree->IsUnsigned()))
                         {
                             goto INTEGRAL_OVF;
@@ -9901,7 +9924,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     case GT_CAST:
                         assert(tree->GetType() == varCastType(tree->AsCast()->GetCastType()));
 
-                        if (tree->gtOverflow() &&
+                        if (tree->AsCast()->HasOverflowCheck() &&
                             CheckedOps::CastFromLongOverflows(l1, tree->AsCast()->GetCastType(), tree->IsUnsigned()))
                         {
                             goto INTEGRAL_OVF;
@@ -10407,7 +10430,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
         }
         case TYP_FLOAT:
         {
-            assert(!tree->gtOverflowEx() && (op1->GetType() == op2->GetType()));
+            assert(op1->GetType() == op2->GetType());
 
             const float f1 = forceCastToFloat(op1->AsDblCon()->GetValue());
             const float f2 = forceCastToFloat(op2->AsDblCon()->GetValue());
@@ -10476,7 +10499,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
         }
         case TYP_DOUBLE:
         {
-            assert(!tree->gtOverflowEx() && (op1->GetType() == op2->GetType()));
+            assert(op1->GetType() == op2->GetType());
 
             const double d1 = op1->AsDblCon()->GetValue();
             const double d2 = op2->AsDblCon()->GetValue();
@@ -10613,8 +10636,8 @@ CNS_DOUBLE:
     return tree;
 
 INTEGRAL_OVF:
-    assert(tree->gtOverflow());
-    assert(tree->OperIs(GT_ADD, GT_SUB, GT_MUL, GT_CAST));
+    assert((tree->IsCast() && tree->AsCast()->HasOverflowCheck()) ||
+           (tree->OperIs(GT_ADD, GT_SUB, GT_MUL) && tree->gtOverflow()));
     assert(varTypeIsIntegral(tree->GetType()));
 
     // This operation is going to cause an overflow exception. Morph into
@@ -10641,8 +10664,6 @@ INTEGRAL_OVF:
 
     if (!fgGlobalMorph)
     {
-        assert(tree->gtOverflow());
-
         return tree;
     }
 

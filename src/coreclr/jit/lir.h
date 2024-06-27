@@ -75,8 +75,8 @@ public:
 
         void ReplaceWith(Compiler* compiler, GenTree* replacement);
         LclVarDsc* ReplaceWithLclLoad(Compiler*         compiler,
-                                     LclVarDsc*        lcl      = nullptr,
-                                     GenTreeLclStore** newStore = nullptr);
+                                      LclVarDsc*        lcl      = nullptr,
+                                      GenTreeLclStore** newStore = nullptr);
     };
 
     //------------------------------------------------------------------------

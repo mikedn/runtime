@@ -2967,7 +2967,7 @@ void CodeGen::genIntToIntCast(GenTreeCast* cast)
 void CodeGen::genFloatToFloatCast(GenTreeCast* cast)
 {
     assert(cast->GetType() == cast->GetCastType());
-    assert(!cast->gtOverflow());
+    assert(!cast->HasOverflowCheck());
 
     GenTree*  src     = cast->GetOp(0);
     var_types srcType = src->GetType();

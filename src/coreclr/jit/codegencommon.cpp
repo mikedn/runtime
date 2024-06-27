@@ -5360,7 +5360,7 @@ CodeGen::GenIntCastDesc::GenIntCastDesc(GenTreeCast* cast)
     const unsigned  castSize     = varTypeSize(castType);
     const var_types dstType      = varActualType(cast->GetType());
     const unsigned  dstSize      = varTypeSize(dstType);
-    const bool      overflow     = cast->gtOverflow();
+    const bool      overflow     = cast->HasOverflowCheck();
 
     assert(cast->GetType() == varCastType(castType));
     assert((srcSize == 4) || (srcSize == varTypeSize(TYP_I_IMPL)));

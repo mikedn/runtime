@@ -1036,7 +1036,7 @@ void CodeGen::genLongToIntCast(GenTreeCast* cast)
 
     Emitter& emit = *GetEmitter();
 
-    if (cast->gtOverflow())
+    if (cast->HasOverflowCheck())
     {
         var_types srcType = cast->IsUnsigned() ? TYP_ULONG : TYP_LONG;
         var_types dstType = cast->GetCastType();
@@ -1089,7 +1089,7 @@ void CodeGen::genLongToIntCast(GenTreeCast* cast)
 void CodeGen::genIntToFloatCast(GenTreeCast* cast)
 {
     assert(cast->GetType() == cast->GetCastType());
-    assert(!cast->gtOverflow());
+    assert(!cast->HasOverflowCheck());
 
     GenTree*  src     = cast->GetOp(0);
     var_types srcType = varActualType(src->GetType());
@@ -1123,7 +1123,7 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
 void CodeGen::genFloatToIntCast(GenTreeCast* cast)
 {
     assert(cast->TypeIs(TYP_INT));
-    assert(!cast->gtOverflow());
+    assert(!cast->HasOverflowCheck());
 
     GenTree*  src     = cast->GetOp(0);
     var_types srcType = src->GetType();
