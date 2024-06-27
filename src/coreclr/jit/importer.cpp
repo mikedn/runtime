@@ -16333,7 +16333,7 @@ GenTree* Importer::impImportPop(BasicBlock* block)
     // implicit tail calls when the operand of pop is GT_CAST(GT_CALL(..)).
     // The cast gets added as part of importing GT_CALL, which gets in the way
     // of fgMorphCall() on the forms of tail call nodes that we assert.
-    if (op1->IsCast() && !op1->gtOverflow())
+    if (op1->IsCast() && !op1->AsCast()->HasOverflowCheck())
     {
         op1 = op1->AsCast()->GetOp(0);
     }

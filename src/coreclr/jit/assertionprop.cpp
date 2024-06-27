@@ -1836,8 +1836,8 @@ private:
             // LONG/INT cannot be removed but we can remove overflow checking.
             // We can also change sign extending casts to zero extending casts, on X86/64 they
             // are preferable due to having smaller encoding and sometimes better performance.
-            cast->SetCastType(toType);
-            cast->gtFlags &= ~(GTF_OVERFLOW | GTF_UNSIGNED);
+            cast->SetCastType(toType, false);
+            cast->RemoveOverflowCheck();
 
 #ifdef TARGET_AMD64
             // TODO-MIKE-CQ: For now do this only on x64. It's also useful on 32 bit
@@ -1846,7 +1846,7 @@ private:
 
             if (toType == TYP_LONG)
             {
-                cast->gtFlags |= GTF_UNSIGNED;
+                cast->SetUnsigned();
             }
 #endif
 

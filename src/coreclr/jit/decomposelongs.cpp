@@ -499,7 +499,7 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
     var_types srcType = cast->GetOp(0)->GetType();
     var_types dstType = cast->GetCastType();
 
-    if ((cast->gtFlags & GTF_UNSIGNED) != 0)
+    if (cast->IsUnsigned())
     {
         srcType = varTypeToUnsigned(srcType);
     }
@@ -508,12 +508,12 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
 
     if (varTypeIsLong(srcType))
     {
-        if (cast->gtOverflow() && (varTypeIsUnsigned(srcType) != varTypeIsUnsigned(dstType)))
+        if (cast->HasOverflowCheck() && (varTypeIsUnsigned(srcType) != varTypeIsUnsigned(dstType)))
         {
-            GenTree* srcOp = cast->gtGetOp1();
-            noway_assert(srcOp->OperGet() == GT_LONG);
-            GenTree* loSrcOp = srcOp->gtGetOp1();
-            GenTree* hiSrcOp = srcOp->gtGetOp2();
+            GenTreeOp* srcOp = cast->GetOp(0)->AsOp();
+            noway_assert(srcOp->OperIs(GT_LONG));
+            GenTree* loSrcOp = srcOp->GetOp(0);
+            GenTree* hiSrcOp = srcOp->GetOp(1);
 
             //
             // When casting between long types an overflow check is needed only if the types
@@ -539,7 +539,7 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
     }
     else if (varTypeIsIntegralOrI(srcType))
     {
-        if (cast->gtOverflow() && !varTypeIsUnsigned(srcType) && varTypeIsUnsigned(dstType))
+        if (cast->HasOverflowCheck() && !varTypeIsUnsigned(srcType) && varTypeIsUnsigned(dstType))
         {
             //
             // An overflow check is needed only when casting from a signed type to ulong.
@@ -1713,7 +1713,7 @@ GenTree* DecomposeLongs::OptimizeCastFromDecomposedLong(GenTreeCast* cast, GenTr
     assert(src->OperIs(GT_LONG));
     assert(varActualTypeIsInt(dstType));
 
-    if (cast->gtOverflow())
+    if (cast->HasOverflowCheck())
     {
         return nextNode;
     }

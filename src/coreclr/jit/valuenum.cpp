@@ -7635,7 +7635,7 @@ void ValueNumbering::NumberCast(GenTreeCast* cast)
     var_types fromType      = varActualType(cast->GetOp(0)->GetType());
     bool      fromUnsigned  = cast->IsUnsigned();
     var_types toType        = cast->GetCastType();
-    bool      checkOverflow = cast->gtOverflow();
+    bool      checkOverflow = cast->HasOverflowCheck();
 
     assert(varCastType(toType) == cast->GetType());
 

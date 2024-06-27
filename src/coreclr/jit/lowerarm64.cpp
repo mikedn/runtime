@@ -548,7 +548,7 @@ void Lowering::LowerShiftImmediate(GenTreeOp* shift)
 
         while (GenTreeCast* cast = op1->IsCast())
         {
-            if (cast->gtOverflow() || !varTypeIsIntegral(cast->GetOp(0)->GetType()))
+            if (cast->HasOverflowCheck() || !varTypeIsIntegral(cast->GetOp(0)->GetType()))
             {
                 break;
             }
@@ -692,7 +692,7 @@ void Lowering::CombineShiftImmediate(GenTreeInstr* shift)
         }
     }
 
-    if (op1->IsCast() && !op1->gtOverflow() && varTypeIsIntegral(op1->AsCast()->GetOp(0)->GetType()))
+    if (op1->IsCast() && !op1->AsCast()->HasOverflowCheck() && varTypeIsIntegral(op1->AsCast()->GetOp(0)->GetType()))
     {
         // Shift instructions do not have an "extending form" like arithmetic instructions but the
         // same operation can be performed using bitfield insertion/extraction instructions.
@@ -825,7 +825,7 @@ void Lowering::CombineShiftImmediate(GenTreeInstr* shift)
     }
 }
 
-insOpts GetEquivalentShiftOptionArithmetic(GenTree* node, emitAttr size)
+static insOpts GetEquivalentShiftOptionArithmetic(GenTree* node, emitAttr size)
 {
     if (GenTreeInstr* instr = IsInstr(node, EA_SIZE(size), 1))
     {
@@ -845,35 +845,38 @@ insOpts GetEquivalentShiftOptionArithmetic(GenTree* node, emitAttr size)
     return INS_OPTS_NONE;
 }
 
-insOpts GetEquivalentExtendOption(GenTree* node)
+static insOpts GetEquivalentExtendOption(GenTree* node)
 {
-    if (node->IsCast() && !node->gtOverflow() && varTypeIsIntegral(node->AsCast()->GetOp(0)->GetType()))
+    if (GenTreeCast* cast = node->IsCast())
     {
-        switch (node->GetType())
+        if (!cast->HasOverflowCheck() && varTypeIsIntegral(cast->GetOp(0)->GetType()))
         {
-            case TYP_UBYTE:
-                return INS_OPTS_UXTB;
-            case TYP_BYTE:
-                return INS_OPTS_SXTB;
-            case TYP_USHORT:
-                return INS_OPTS_UXTH;
-            case TYP_SHORT:
-                return INS_OPTS_SXTH;
-            case TYP_LONG:
-                if (!node->AsCast()->GetOp(0)->TypeIs(TYP_LONG))
-                {
-                    return node->IsUnsigned() ? INS_OPTS_UXTW : INS_OPTS_SXTW;
-                }
-                break;
-            default:
-                break;
+            switch (cast->GetType())
+            {
+                case TYP_UBYTE:
+                    return INS_OPTS_UXTB;
+                case TYP_BYTE:
+                    return INS_OPTS_SXTB;
+                case TYP_USHORT:
+                    return INS_OPTS_UXTH;
+                case TYP_SHORT:
+                    return INS_OPTS_SXTH;
+                case TYP_LONG:
+                    if (!cast->GetOp(0)->TypeIs(TYP_LONG))
+                    {
+                        return cast->IsUnsigned() ? INS_OPTS_UXTW : INS_OPTS_SXTW;
+                    }
+                    break;
+                default:
+                    break;
+            }
         }
     }
 
     return INS_OPTS_NONE;
 }
 
-instruction GetMultiplyAddInstruction(GenTree* node, instruction ins, emitAttr size)
+static instruction GetMultiplyAddInstruction(GenTree* node, instruction ins, emitAttr size)
 {
     if (GenTreeInstr* instr = IsInstr(node, EA_SIZE(size), 2))
     {
@@ -1119,11 +1122,11 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
     }
 }
 
-GenTreeCast* IsIntToLongCast(GenTree* node)
+static GenTreeCast* IsIntToLongCast(GenTree* node)
 {
     if (GenTreeCast* cast = node->IsCast())
     {
-        if (!cast->gtOverflow() && cast->TypeIs(TYP_LONG) && varActualTypeIsInt(cast->GetOp(0)->GetType()))
+        if (!cast->HasOverflowCheck() && cast->TypeIs(TYP_LONG) && varActualTypeIsInt(cast->GetOp(0)->GetType()))
         {
             assert(varTypeIsLong(cast->GetCastType()));
             return cast;
@@ -1290,7 +1293,7 @@ GenTree* Lowering::OptimizeRelopImm(GenTreeOp* cmp)
     //     GT(CAST.ubyte(x), 0) is TEST_NE(x, 255)
     //     EQ(CAST.short(x), 0) is TEST_EQ(x, 65535)
 
-    if (cmp->OperIs(GT_EQ, GT_NE, GT_GT) && (op2Value == 0) && op1->IsCast() && !op1->gtOverflow() &&
+    if (cmp->OperIs(GT_EQ, GT_NE, GT_GT) && (op2Value == 0) && op1->IsCast() && !op1->AsCast()->HasOverflowCheck() &&
         varTypeIsIntegral(op1->AsCast()->GetOp(0)->GetType()))
     {
         var_types castType = op1->GetType();

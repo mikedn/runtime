@@ -141,15 +141,15 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         // Optimization: conv.r4(conv.r8(?)) -> conv.r4(d)
         // This happens semi-frequently because there is no IL 'conv.r4.un'
 
-        cast->gtFlags &= ~GTF_UNSIGNED;
-        cast->gtFlags |= src->gtFlags & GTF_UNSIGNED;
+        cast->SetUnsigned(src->IsUnsigned());
         src = src->AsCast()->GetOp(0);
         cast->SetOp(0, src);
         srcType = varActualType(src->GetType());
     }
 
     if (varTypeIsSmall(dstType) && src->IsCast() && varTypeIsSmall(src->GetType()) &&
-        (varTypeSize(src->GetType()) >= varTypeSize(dstType)) && !cast->gtOverflow() && !src->gtOverflow()
+        (varTypeSize(src->GetType()) >= varTypeSize(dstType)) && !cast->HasOverflowCheck() &&
+        !src->AsCast()->HasOverflowCheck()
 #ifndef TARGET_64BIT
         && !src->AsCast()->GetOp(0)->TypeIs(TYP_LONG)
 #endif
@@ -191,14 +191,19 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         // 32 bit targets, directly to small int types. Cast the source to INT first.
 
         src = gtNewCastNode(src, cast->IsUnsigned(), TYP_INT);
-        src->gtFlags |= (cast->gtFlags & (GTF_OVERFLOW | GTF_EXCEPT));
+
+        if (cast->HasOverflowCheck())
+        {
+            src->AsCast()->AddOverflowCheck();
+        }
+
         cast->SetOp(0, src);
         srcType = TYP_INT;
     }
 
     if (varTypeIsFloating(srcType) && varTypeIsIntegral(dstType))
     {
-        if (cast->gtOverflow())
+        if (cast->HasOverflowCheck())
         {
             switch (dstType)
             {
@@ -254,7 +259,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
             {
                 src = gtNewCastNode(src, true, TYP_LONG);
                 cast->SetOp(0, src);
-                cast->gtFlags &= ~GTF_UNSIGNED;
+                cast->ClearUnsigned();
                 srcType = TYP_LONG;
             }
         }
@@ -267,7 +272,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
             // to LONG and then use a helper call to cast to FP.
             src = gtNewCastNode(src, true, TYP_LONG);
             cast->SetOp(0, src);
-            cast->gtFlags &= ~GTF_UNSIGNED;
+            cast->ClearUnsigned();
             srcType = TYP_LONG;
         }
 #endif
@@ -307,7 +312,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         // the result of an AND is bound by its smaller operand, it may be
         // possible to prove that the cast won't overflow, which will in turn
         // allow the cast's operand to be transformed.
-        if (cast->gtOverflow() && src->OperIs(GT_AND))
+        if (cast->HasOverflowCheck() && src->OperIs(GT_AND))
         {
             GenTree* andOp2 = src->AsOp()->GetOp(1);
 
@@ -327,19 +332,17 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
             if (andOp2->OperIs(GT_CNS_NATIVELONG) && ((andOp2->AsIntConCommon()->LngValue() >> maxWidth) == 0))
             {
                 // This cast can't overflow.
-                cast->gtFlags &= ~(GTF_OVERFLOW | GTF_EXCEPT);
+                cast->RemoveOverflowCheck();
             }
         }
 
         // Only apply this transformation during global morph,
         // when neither the cast node nor the oper node may throw an exception
         // based on the upper 32 bits.
-        //
-        if (fgGlobalMorph && !cast->gtOverflow() && !src->gtOverflowEx())
+        // For these operations the lower 32 bits of the result only depends
+        // upon the lower 32 bits of the operands.
+        if (fgGlobalMorph && !cast->HasOverflowCheck() && !src->IsCast() && !src->gtOverflowEx())
         {
-            // For these operations the lower 32 bits of the result only depends
-            // upon the lower 32 bits of the operands.
-            //
             bool canPushCast = src->OperIs(GT_ADD, GT_SUB, GT_MUL, GT_AND, GT_OR, GT_XOR, GT_NOT, GT_NEG);
 
             // For long LSH cast to int, there is a discontinuity in behavior
@@ -453,7 +456,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
     cast->gtFlags &= ~GTF_CALL;
     cast->gtFlags &= ~GTF_ASG;
 
-    if (!cast->gtOverflow())
+    if (!cast->HasOverflowCheck())
     {
         cast->gtFlags &= ~GTF_EXCEPT;
     }
@@ -515,7 +518,7 @@ GenTree* Compiler::fgMorphCastPost(GenTreeCast* cast)
                 goto REMOVE_CAST;
             }
 
-            if (!cast->gtOverflow())
+            if (!cast->HasOverflowCheck())
             {
                 if (!varTypeIsSmall(srcType))
                 {
@@ -539,7 +542,7 @@ GenTree* Compiler::fgMorphCastPost(GenTreeCast* cast)
         }
         else if (srcSize < dstSize) // widening cast
         {
-            if ((dstSize == 4) && (!cast->gtOverflow() || !unsignedDst || unsignedSrc))
+            if ((dstSize == 4) && (!cast->HasOverflowCheck() || !unsignedDst || unsignedSrc))
             {
                 goto REMOVE_CAST;
             }
@@ -548,17 +551,13 @@ GenTree* Compiler::fgMorphCastPost(GenTreeCast* cast)
 
             if (unsignedSrc || !unsignedDst)
             {
-                cast->gtFlags &= ~GTF_OVERFLOW;
-                if ((src->gtFlags & GTF_EXCEPT) == 0)
-                {
-                    cast->gtFlags &= ~GTF_EXCEPT;
-                }
+                cast->RemoveOverflowCheck();
             }
         }
         else // if (srcSize > dstSize)
         {
             // Try to narrow the operand of the cast and discard the cast
-            if (!cast->gtOverflow() && opts.OptEnabled(CLFLG_TREETRANS) &&
+            if (!cast->HasOverflowCheck() && opts.OptEnabled(CLFLG_TREETRANS) &&
                 fgMorphNarrowTree(src, srcType, dstType, cast->GetVNP(), false))
             {
                 fgMorphNarrowTree(src, srcType, dstType, cast->GetVNP(), true);
@@ -605,7 +604,7 @@ GenTree* Compiler::fgMorphCastPost(GenTreeCast* cast)
 
         case GT_CAST:
             // Check for two consecutive casts into the same dstType
-            if (!cast->gtOverflow())
+            if (!cast->HasOverflowCheck())
             {
                 var_types dstType2 = src->AsCast()->GetCastType();
                 if (dstType == dstType2)
@@ -619,7 +618,7 @@ GenTree* Compiler::fgMorphCastPost(GenTreeCast* cast)
                 //   Unnecessary widening - CAST<byte>(CAST<long>(x)) is CAST<byte>(x)
                 if ((varTypeSize(dstType) <= varTypeSize(dstType2)) && varTypeIsIntegral(dstType) &&
                     varTypeIsIntegral(dstType2) && varTypeIsIntegral(src->AsCast()->GetOp(0)->GetType()) &&
-                    !src->gtOverflow()
+                    !src->AsCast()->HasOverflowCheck()
 #ifndef TARGET_64BIT
                     // 32 bit target codegen does not support casting directly from LONG to small int
                     // types so we can't simplify CAST<byte>(CAST<int>(x.long)) to CAST<byte>(x.long).
@@ -687,7 +686,7 @@ GenTree* Compiler::fgMorphCastPost(GenTreeCast* cast)
             break;
     }
 
-    if (cast->gtOverflow())
+    if (cast->HasOverflowCheck())
     {
         fgGetThrowHelperBlock(ThrowHelperKind::Overflow, fgMorphBlock);
     }
@@ -890,7 +889,7 @@ bool Compiler::fgMorphNarrowTree(
         }
         case GT_CAST:
         {
-            if (tree->gtOverflow())
+            if (tree->AsCast()->HasOverflowCheck())
             {
                 return false;
             }
@@ -1333,8 +1332,14 @@ static bool HasInlineThrowHelperCall(Compiler* compiler, GenTree* tree)
             case GT_MUL:
             case GT_ADD:
             case GT_SUB:
-            case GT_CAST:
                 if (node->gtOverflow())
+                {
+                    return Compiler::WALK_ABORT;
+                }
+                break;
+
+            case GT_CAST:
+                if (node->AsCast()->HasOverflowCheck())
                 {
                     return Compiler::WALK_ABORT;
                 }
@@ -3060,7 +3065,8 @@ void Compiler::fgMorphArgs(GenTreeCall* const call)
 
         if (!varTypeIsStruct(arg->GetType()) && (!arg->IsIntegralConst(0) || !paramIsStruct))
         {
-            if (paramIsStruct && arg->IsCast() && !arg->gtOverflow() && varTypeIsSmall(arg->GetType()) &&
+            if (paramIsStruct && arg->IsCast() && !arg->AsCast()->HasOverflowCheck() &&
+                varTypeIsSmall(arg->GetType()) &&
                 (varTypeSize(arg->GetType()) == typGetLayoutByNum(argUse->GetSigTypeNum())->GetSize()))
             {
                 // This is a struct arg that became a primitive type arg due to struct promotion.
@@ -6620,7 +6626,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
 
                             while (GenTreeCast* cast = value->IsCast())
                             {
-                                assert(!cast->gtOverflow());
+                                assert(!cast->HasOverflowCheck());
                                 value = cast->GetOp(0);
                             }
 
@@ -6706,7 +6712,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
 
         while (GenTreeCast* cast = value->IsCast())
         {
-            assert(!cast->gtOverflow());
+            assert(!cast->HasOverflowCheck());
             value = cast->GetOp(0);
         }
 
@@ -10602,7 +10608,7 @@ DONE_MORPHING_CHILDREN:
             else if (varTypeIsSmall(typ))
             {
                 if ((tree->OperIs(GT_LCL_STORE_FLD) || (tree->AsLclStore()->GetLcl()->lvNormalizeOnLoad())) &&
-                    op1->IsCast() && varTypeIsIntegral(op1->AsCast()->GetOp(0)) && !op1->gtOverflow() &&
+                    op1->IsCast() && varTypeIsIntegral(op1->AsCast()->GetOp(0)) && !op1->AsCast()->HasOverflowCheck() &&
                     varTypeIsSmall(op1->GetType()) && (varTypeSize(op1->GetType()) >= varTypeSize(typ)))
                 {
                     op1 = op1->AsCast()->GetOp(0);
@@ -10622,7 +10628,7 @@ DONE_MORPHING_CHILDREN:
 
             if (varTypeIsSmall(typ))
             {
-                if (op2->IsCast() && varTypeIsIntegral(op2->AsCast()->GetOp(0)) && !op2->gtOverflow() &&
+                if (op2->IsCast() && varTypeIsIntegral(op2->AsCast()->GetOp(0)) && !op2->AsCast()->HasOverflowCheck() &&
                     varTypeIsSmall(op2->GetType()) && (varTypeSize(op2->GetType()) >= varTypeSize(typ)))
                 {
                     op2 = op2->AsCast()->GetOp(0);
@@ -10986,7 +10992,7 @@ DONE_MORPHING_CHILDREN:
             {
                 /* Another interesting case: cast from int */
 
-                if (op1->IsCast() && op1->AsCast()->GetOp(0)->TypeIs(TYP_INT) && !op1->gtOverflow())
+                if (op1->IsCast() && op1->AsCast()->GetOp(0)->TypeIs(TYP_INT) && !op1->AsCast()->HasOverflowCheck())
                 {
                     /* Simply make this into an integer comparison */
 
@@ -12433,7 +12439,7 @@ Compiler::MulLongCandidateKind Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mu
     {
         cast1 = mul->GetOp(0)->IsCast();
 
-        if ((cast1 == nullptr) || (varActualType(cast1->GetOp(0)->GetType()) != TYP_INT) || cast1->gtOverflow())
+        if ((cast1 == nullptr) || (varActualType(cast1->GetOp(0)->GetType()) != TYP_INT) || cast1->HasOverflowCheck())
         {
             if (!mul->gtOverflow() && (longConst2 != nullptr) && isPow2(longConst2->GetUInt64Value()))
             {
@@ -12466,7 +12472,7 @@ Compiler::MulLongCandidateKind Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mu
     {
         cast2 = mul->GetOp(1)->IsCast();
 
-        if ((cast2 == nullptr) || (varActualType(cast2->GetOp(0)->GetType()) != TYP_INT) || cast2->gtOverflow())
+        if ((cast2 == nullptr) || (varActualType(cast2->GetOp(0)->GetType()) != TYP_INT) || cast2->HasOverflowCheck())
         {
             if (!mul->gtOverflow() && (longConst1 != nullptr) && isPow2(longConst1->GetUInt64Value()))
             {
@@ -12584,15 +12590,15 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind 
 
     if (kind == MulLongCandidateKind::Unsigned)
     {
-        cast1->gtFlags |= GTF_UNSIGNED;
-        cast2->gtFlags |= GTF_UNSIGNED;
+        cast1->SetUnsigned();
+        cast2->SetUnsigned();
     }
     else
     {
         assert(kind == MulLongCandidateKind::Signed);
 
-        cast1->gtFlags &= ~GTF_UNSIGNED;
-        cast2->gtFlags &= ~GTF_UNSIGNED;
+        cast1->ClearUnsigned();
+        cast2->ClearUnsigned();
     }
 
     // fgMorphCast doesn't know about long multiply and may remove the casts,
@@ -14686,7 +14692,7 @@ bool Compiler::fgCheckStmtAfterTailCall(Statement* callStmt)
 
             while (GenTreeCast* cast = copySrc->IsCast())
             {
-                noway_assert(!cast->gtOverflow());
+                noway_assert(!cast->HasOverflowCheck());
                 copySrc = cast->GetOp(0);
             }
 
@@ -14708,7 +14714,7 @@ bool Compiler::fgCheckStmtAfterTailCall(Statement* callStmt)
 
         while (GenTreeCast* cast = retValue->IsCast())
         {
-            noway_assert(!cast->gtOverflow());
+            noway_assert(!cast->HasOverflowCheck());
             retValue = cast->GetOp(0);
         }
 

@@ -813,7 +813,7 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
         return cmp;
     }
 
-    if (op1->IsCast() && !op1->gtOverflow() && op1->TypeIs(TYP_UBYTE) && FitsIn<uint8_t>(op2Value))
+    if (op1->IsCast() && !op1->AsCast()->HasOverflowCheck() && op1->TypeIs(TYP_UBYTE) && FitsIn<uint8_t>(op2Value))
     {
         GenTreeCast* cast   = op1->AsCast();
         GenTree*     castOp = cast->GetOp(0);
@@ -829,8 +829,6 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
 
         if (castOp->OperIs(GT_CALL, GT_LCL_LOAD, GT_AND, GT_OR, GT_XOR) || IsContainableMemoryOp(castOp))
         {
-            assert(!castOp->gtOverflowEx());
-
             // Any contained memory ops on castOp must be narrowed too.
             if (castOp->OperIs(GT_AND, GT_OR, GT_XOR))
             {
@@ -3690,11 +3688,11 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
 
     if (varTypeIsIntegral(cast->GetType()) && varTypeIsIntegral(src->GetType()))
     {
-        if (IsContainableMemoryOp(src) && (!cast->gtOverflow() || IsSafeToContainMem(cast, src)))
+        if (IsContainableMemoryOp(src) && (!cast->HasOverflowCheck() || IsSafeToContainMem(cast, src)))
         {
             // If this isn't an overflow checking cast then we can move it
             // right after the source node to avoid the interference check.
-            if (!cast->gtOverflow() && (cast->gtPrev != src))
+            if (!cast->HasOverflowCheck() && (cast->gtPrev != src))
             {
                 BlockRange().Remove(cast);
                 BlockRange().InsertAfter(src, cast);
@@ -3709,7 +3707,7 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
     }
     else if (varTypeIsFloating(cast->GetType()) || varTypeIsFloating(src->GetType()))
     {
-        assert(!cast->gtOverflow());
+        assert(!cast->HasOverflowCheck());
 
         // The source of cvtsi2sd and similar instructions can be a memory operand but it must
         // be 4 or 8 bytes in size so it cannot be a small int. It's likely possible to make a

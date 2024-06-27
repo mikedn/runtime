@@ -1430,11 +1430,11 @@ public:
 
     static bool OperMayOverflow(genTreeOps gtOper)
     {
-        return ((gtOper == GT_ADD) || (gtOper == GT_SUB) || (gtOper == GT_MUL) || (gtOper == GT_CAST)
-#if !defined(TARGET_64BIT)
-                || (gtOper == GT_ADD_HI) || (gtOper == GT_SUB_HI)
+        return (gtOper == GT_ADD) || (gtOper == GT_SUB) || (gtOper == GT_MUL) || (gtOper == GT_CAST)
+#ifndef TARGET_64BIT
+               || (gtOper == GT_ADD_HI) || (gtOper == GT_SUB_HI)
 #endif
-                    );
+            ;
     }
 
     bool OperMayOverflow() const
@@ -1798,22 +1798,24 @@ public:
         gtFlags |= GTF_UNSIGNED;
     }
 
+    void SetUnsigned(bool value)
+    {
+        assert(OperIs(GT_CAST));
+
+        if (value)
+        {
+            gtFlags |= GTF_UNSIGNED;
+        }
+        else
+        {
+            gtFlags &= ~GTF_UNSIGNED;
+        }
+    }
+
     void ClearUnsigned()
     {
         assert(OperIs(GT_ADD, GT_SUB, GT_MUL, GT_CAST));
         gtFlags &= ~GTF_UNSIGNED;
-    }
-
-    void SetOverflow()
-    {
-        assert(OperMayOverflow());
-        gtFlags |= GTF_OVERFLOW;
-    }
-
-    void ClearOverflow()
-    {
-        assert(OperMayOverflow());
-        gtFlags &= ~GTF_OVERFLOW;
     }
 
     bool           IsCnsIntOrI() const;
@@ -3869,7 +3871,7 @@ public:
         : GenTreeOp(GT_CAST, copyFrom->GetType(), copyFrom->GetOp(0), nullptr DEBUGARG(largeNode))
         , castType(copyFrom->castType)
     {
-        gtFlags |= copyFrom->gtFlags & GTF_UNSIGNED;
+        gtFlags |= copyFrom->gtFlags & (GTF_UNSIGNED | GTF_OVERFLOW);
     }
 
     var_types GetCastType() const
@@ -3883,6 +3885,39 @@ public:
 
         castType = type;
         SetType(varCastType(type));
+    }
+
+    void SetCastType(var_types type, bool fromUnsigned)
+    {
+        assert(varTypeIsArithmetic(type));
+
+        castType = type;
+        SetType(varCastType(type));
+
+        if (fromUnsigned)
+        {
+            gtFlags |= GTF_UNSIGNED;
+        }
+        else
+        {
+            gtFlags &= ~GTF_UNSIGNED;
+        }
+    }
+
+    bool HasOverflowCheck() const
+    {
+        return (gtFlags & GTF_OVERFLOW) != 0;
+    }
+
+    void AddOverflowCheck()
+    {
+        gtFlags |= GTF_OVERFLOW | GTF_EXCEPT;
+    }
+
+    void RemoveOverflowCheck()
+    {
+        gtFlags &= ~(GTF_OVERFLOW | GTF_EXCEPT);
+        gtFlags |= (gtOp1->gtFlags & GTF_EXCEPT);
     }
 
 #if DEBUGGABLE_GENTREE
