@@ -721,10 +721,12 @@ private:
 
     // Helpers for getKillSetForNode().
     regMaskTP getKillSetForStoreInd(GenTreeIndStore* store);
-    regMaskTP getKillSetForShiftRotate(GenTreeOp* tree);
-    regMaskTP getKillSetForMul(GenTreeOp* tree);
+#ifdef TARGET_XARCH
+    regMaskTP getKillSetForShiftRotate(GenTreeOp* node);
+    regMaskTP getKillSetForMul(GenTreeOp* node);
+    regMaskTP getKillSetForModDiv(GenTreeOp* node);
+#endif
     regMaskTP getKillSetForCall(GenTreeCall* call);
-    regMaskTP getKillSetForModDiv(GenTreeOp* tree);
     regMaskTP getKillSetForStructStore(StructStoreKind kind);
     regMaskTP getKillSetForReturn();
     regMaskTP getKillSetForProfilerHook();
