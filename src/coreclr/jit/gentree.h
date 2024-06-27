@@ -1349,15 +1349,30 @@ public:
     }
 
 #ifdef TARGET_XARCH
-    static bool OperIsRMWMemOp(genTreeOps gtOper)
+    static bool OperIsRMWMemOp(genTreeOps oper)
     {
-        // Return if binary op is one of the supported operations for RMW of memory.
-        return gtOper == GT_ADD || gtOper == GT_SUB || gtOper == GT_AND || gtOper == GT_OR || gtOper == GT_XOR ||
-               gtOper == GT_NOT || gtOper == GT_NEG || OperIsShift(gtOper) || OperIsRotate(gtOper);
+        switch (oper)
+        {
+            case GT_ADD:
+            case GT_SUB:
+            case GT_AND:
+            case GT_OR:
+            case GT_XOR:
+            case GT_NOT:
+            case GT_NEG:
+            case GT_LSH:
+            case GT_RSH:
+            case GT_RSZ:
+            case GT_ROL:
+            case GT_ROR:;
+                return true;
+            default:
+                return false;
+        }
     }
+
     bool OperIsRMWMemOp() const
     {
-        // Return if binary op is one of the supported operations for RMW of memory.
         return OperIsRMWMemOp(gtOper);
     }
 #endif // TARGET_XARCH
