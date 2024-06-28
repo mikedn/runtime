@@ -531,7 +531,7 @@ private:
         INDEBUG(addrVal.Consume();)
         assert(user != nullptr);
 
-        if (user->OperIs(GT_EQ, GT_NE) || (user->OperIs(GT_GT) && user->IsUnsigned()))
+        if (user->OperIs(GT_EQ, GT_NE) || (user->OperIs(GT_GT) && user->IsRelopUnsigned()))
         {
             GenTree* op1 = user->AsOp()->GetOp(0);
             GenTree* op2 = user->AsOp()->GetOp(1);

@@ -729,7 +729,7 @@ void Lowering::CombineShiftImmediate(GenTreeInstr* shift)
             assert(size == EA_8BYTE);
 
             bitFieldWidth = 32;
-            isUnsigned    = cast->IsUnsigned();
+            isUnsigned    = cast->IsCastUnsigned();
         }
 
         if (bitFieldWidth != 0)
@@ -864,7 +864,7 @@ static insOpts GetEquivalentExtendOption(GenTree* node)
                 case TYP_LONG:
                     if (!cast->GetOp(0)->TypeIs(TYP_LONG))
                     {
-                        return cast->IsUnsigned() ? INS_OPTS_UXTW : INS_OPTS_SXTW;
+                        return cast->IsCastUnsigned() ? INS_OPTS_UXTW : INS_OPTS_SXTW;
                     }
                     break;
                 default:
@@ -1157,7 +1157,7 @@ void Lowering::LowerMultiply(GenTreeOp* mul)
             assert(op1->TypeIs(TYP_LONG));
             assert(op2->TypeIs(TYP_LONG));
 
-            MakeInstr(mul, mul->IsUnsigned() ? INS_umulh : INS_smulh, EA_8BYTE, op1, op2);
+            MakeInstr(mul, mul->IsMulUnsigned() ? INS_umulh : INS_smulh, EA_8BYTE, op1, op2);
         }
         else
         {
@@ -1170,7 +1170,7 @@ void Lowering::LowerMultiply(GenTreeOp* mul)
             // long result. And in some cases magic division follows up with another right shift that currently doesn't
             // combine with this one.
 
-            instruction   ins   = mul->IsUnsigned() ? INS_umull : INS_smull;
+            instruction   ins   = mul->IsMulUnsigned() ? INS_umull : INS_smull;
             GenTreeInstr* mull  = NewInstrBefore(mul, TYP_LONG, ins, op1, op2);
             GenTreeInstr* instr = MakeInstr(mul, INS_lsr, EA_8BYTE, mull);
             instr->SetImmediate(32);
@@ -1223,9 +1223,9 @@ void Lowering::LowerMultiply(GenTreeOp* mul)
         {
             if (GenTreeCast* cast2 = IsIntToLongCast(op2))
             {
-                if (cast1->IsUnsigned() == cast2->IsUnsigned())
+                if (cast1->IsCastUnsigned() == cast2->IsCastUnsigned())
                 {
-                    ins = cast1->IsUnsigned() ? INS_umull : INS_smull;
+                    ins = cast1->IsCastUnsigned() ? INS_umull : INS_smull;
 
                     op1 = cast1->GetOp(0);
                     op1->ClearContained();
@@ -1241,9 +1241,9 @@ void Lowering::LowerMultiply(GenTreeOp* mul)
             }
             else if (GenTreeIntCon* con = op2->IsIntCon())
             {
-                if (cast1->IsUnsigned() ? FitsIn<uint32_t>(con->GetValue()) : FitsIn<int32_t>(con->GetValue()))
+                if (cast1->IsCastUnsigned() ? FitsIn<uint32_t>(con->GetValue()) : FitsIn<int32_t>(con->GetValue()))
                 {
-                    ins = cast1->IsUnsigned() ? INS_umull : INS_smull;
+                    ins = cast1->IsCastUnsigned() ? INS_umull : INS_smull;
 
                     op1 = cast1->GetOp(0);
                     op1->ClearContained();
@@ -1356,7 +1356,7 @@ GenTree* Lowering::OptimizeRelopImm(GenTreeOp* cmp)
         }
     }
 
-    if (cmp->OperIs(GT_LT, GT_GE) && (op2Value == 0) && !cmp->IsUnsigned())
+    if (cmp->OperIs(GT_LT, GT_GE) && (op2Value == 0) && !cmp->IsRelopUnsigned())
     {
         // Materialized signed x < 0 is LSR x, #31/#63.
         // Materialized signed x >= 0 is MVN x, x; LSR x, #31/#63.
@@ -1508,7 +1508,7 @@ GenTree* Lowering::LowerJTrue(GenTreeUnOp* jtrue)
             useJCMP   = true;
             jcmpFlags = relop->OperIs(GT_EQ) ? GTF_JCMP_EQ : GTF_EMPTY;
         }
-        else if (relop->OperIs(GT_LT, GT_GE) && !relop->IsUnsigned() && (imm == 0))
+        else if (relop->OperIs(GT_LT, GT_GE) && !relop->IsRelopUnsigned() && (imm == 0))
         {
             // Positive/negative checks can test the sign bit using TBZ/TBNZ
             useJCMP   = true;

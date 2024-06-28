@@ -530,7 +530,7 @@ GenTree* Lowering::LowerSwitch(GenTreeUnOp* node)
     GenTree* limitTest   = comp->gtNewOperNode(GT_GT, TYP_INT, switchValue, switchLimit);
     // Make sure we perform an unsigned comparison, just in case the switch index in 'temp'
     // is now less than zero 0 (that would also hit the default case).
-    limitTest->gtFlags |= GTF_UNSIGNED;
+    limitTest->SetRelopUnsigned(true);
 
     GenTree* limitBranch = comp->gtNewOperNode(GT_JTRUE, TYP_VOID, limitTest);
 
@@ -1798,7 +1798,7 @@ GenTree* Lowering::DecomposeLongCompare(GenTreeOp* cmp)
                 uint32_t loValue  = static_cast<uint32_t>(loSrc2->AsIntCon()->GetValue());
                 uint32_t hiValue  = static_cast<uint32_t>(hiSrc2->AsIntCon()->GetValue());
                 uint64_t value    = static_cast<uint64_t>(loValue) | (static_cast<uint64_t>(hiValue) << 32);
-                uint64_t maxValue = cmp->IsUnsigned() ? UINT64_MAX : INT64_MAX;
+                uint64_t maxValue = cmp->IsRelopUnsigned() ? UINT64_MAX : INT64_MAX;
 
                 if (value != maxValue)
                 {
@@ -1880,15 +1880,17 @@ GenTree* Lowering::DecomposeLongCompare(GenTreeOp* cmp)
         jcc->AsOp()->gtOp1 = nullptr;
         jcc->ChangeOper(GT_JCC);
         jcc->gtFlags |= GTF_USE_FLAGS;
-        jcc->AsCC()->SetCondition(GenCondition::FromIntegralRelop(condition, cmp->IsUnsigned()));
+        jcc->AsCC()->SetCondition(GenCondition::FromIntegralRelop(condition, cmp->IsRelopUnsigned()));
     }
     else
     {
+        GenCondition cond = GenCondition::FromIntegralRelop(condition, cmp->IsRelopUnsigned());
+
         cmp->AsOp()->gtOp1 = nullptr;
         cmp->AsOp()->gtOp2 = nullptr;
         cmp->ChangeOper(GT_SETCC);
         cmp->gtFlags |= GTF_USE_FLAGS;
-        cmp->AsCC()->SetCondition(GenCondition::FromIntegralRelop(condition, cmp->IsUnsigned()));
+        cmp->AsCC()->SetCondition(cond);
     }
 
     return cmp->gtNext;
@@ -3671,7 +3673,7 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
             ((type == TYP_LONG) && (divisorValue > (UINT64_MAX / 2))))
         {
             divMod->SetOper(GT_GE);
-            divMod->gtFlags |= GTF_UNSIGNED;
+            divMod->SetRelopUnsigned(true);
             ContainCheckCompare(divMod);
             return true;
         }
@@ -3783,8 +3785,8 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
         if (isDiv && !postShift && type == TYP_I_IMPL)
         {
             divMod->SetOper(GT_MULHI);
-            divMod->gtOp1 = adjustedDividend;
-            divMod->gtFlags |= GTF_UNSIGNED;
+            divMod->SetOp(0, adjustedDividend);
+            divMod->SetMulUnsigned(true);
             ContainCheckMul(divMod);
         }
         else
@@ -3794,7 +3796,7 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
             // computes the final result. This way don't need to find and change the use
             // of the existing node.
             GenTree* mulhi = comp->gtNewOperNode(simpleMul ? GT_MUL : GT_MULHI, TYP_I_IMPL, adjustedDividend, divisor);
-            mulhi->gtFlags |= GTF_UNSIGNED;
+            mulhi->SetMulUnsigned(true);
             BlockRange().InsertBefore(divMod, mulhi);
             ContainCheckMul(mulhi->AsOp());
 
@@ -3806,8 +3808,8 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
                 if (isDiv && type == TYP_I_IMPL)
                 {
                     divMod->SetOper(GT_RSZ);
-                    divMod->gtOp1 = mulhi;
-                    divMod->gtOp2 = shiftBy;
+                    divMod->SetOp(0, mulhi);
+                    divMod->SetOp(1, shiftBy);
                     ContainCheckShiftRotate(divMod);
                 }
                 else
@@ -3837,7 +3839,7 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
             {
 #ifdef TARGET_ARMARCH
                 divMod->SetOper(GT_CAST);
-                divMod->SetUnsigned();
+                divMod->AsCast()->SetCastUnsigned();
                 divMod->AsCast()->SetCastType(TYP_UINT);
 #else
                 divMod->SetOper(GT_BITCAST);

@@ -1605,7 +1605,7 @@ void CodeGen::GenMulLong(GenTreeOp* mul)
 
     if (EA_SIZE(size) == EA_8BYTE)
     {
-        instruction ins = mul->IsUnsigned() ? INS_umulh : INS_smulh;
+        instruction ins = mul->IsMulUnsigned() ? INS_umulh : INS_smulh;
 
         GetEmitter()->emitIns_R_R_R(ins, size, dstReg, srcReg1, srcReg2);
     }
@@ -1613,10 +1613,10 @@ void CodeGen::GenMulLong(GenTreeOp* mul)
     {
         assert(EA_SIZE(size) == EA_4BYTE);
 
-        instruction ins = mul->IsUnsigned() ? INS_umull : INS_smull;
+        instruction ins = mul->IsMulUnsigned() ? INS_umull : INS_smull;
 
         GetEmitter()->emitIns_R_R_R(ins, EA_4BYTE, dstReg, srcReg1, srcReg2);
-        GetEmitter()->emitIns_R_R_I(mul->IsUnsigned() ? INS_lsr : INS_asr, EA_8BYTE, dstReg, dstReg, 32);
+        GetEmitter()->emitIns_R_R_I(mul->IsMulUnsigned() ? INS_lsr : INS_asr, EA_8BYTE, dstReg, dstReg, 32);
     }
 
     DefReg(mul);
@@ -1673,7 +1673,7 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
     // UMULL/SMULL is twice as fast for 32*32->64bit MUL
     if ((oper == GT_MUL) && (targetType == TYP_LONG) && varActualTypeIsInt(op1) && varActualTypeIsInt(op2))
     {
-        ins  = treeNode->IsUnsigned() ? INS_umull : INS_smull;
+        ins  = (treeNode->IsMulUnsigned() || treeNode->IsOverflowUnsigned()) ? INS_umull : INS_smull;
         attr = EA_4BYTE;
     }
     else
@@ -2790,7 +2790,7 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
 
     assert(genIsValidIntReg(srcReg) && genIsValidFloatReg(dstReg));
 
-    instruction ins     = cast->IsUnsigned() ? INS_ucvtf : INS_scvtf;
+    instruction ins     = cast->IsCastUnsigned() ? INS_ucvtf : INS_scvtf;
     emitAttr    insSize = emitTypeSize(dstType);
     insOpts     opts;
 
@@ -8569,7 +8569,7 @@ regNumber CodeGen::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, 
             regNumber extraReg = dst->GetSingleTempReg();
             assert(extraReg != dst->GetRegNum());
 
-            if ((dst->gtFlags & GTF_UNSIGNED) != 0)
+            if (dst->IsOverflowUnsigned())
             {
                 if (attr == EA_4BYTE)
                 {
@@ -8658,7 +8658,7 @@ void CodeGen::genCheckOverflow(GenTree* node)
     {
         jumpKind = EJ_ne;
     }
-    else if (!node->IsUnsigned())
+    else if (!node->IsOverflowUnsigned())
     {
         jumpKind = EJ_vs;
     }

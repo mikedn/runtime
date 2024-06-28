@@ -1242,7 +1242,7 @@ GenTree* Compiler::morphAssertionPropagateCast(GenTreeCast* cast)
         return nullptr;
     }
 
-    if (cast->IsUnsigned())
+    if (cast->IsCastUnsigned())
     {
         fromType = varTypeToUnsigned(fromType);
     }

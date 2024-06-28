@@ -9867,7 +9867,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                         if (uns)
                         {
-                            op1->gtFlags |= GTF_UNSIGNED;
+                            op1->SetOverflowUnsigned(true);
                         }
                     }
                     else if (op1->OperIs(GT_DIV, GT_UDIV, GT_MOD, GT_UMOD))
@@ -10106,7 +10106,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 // TODO: setting both flags when only one is appropriate.
                 if (uns)
                 {
-                    op1->gtFlags |= GTF_RELOP_NAN_UN | GTF_UNSIGNED;
+                    op1->gtFlags |= GTF_RELOP_NAN_UN | GTF_RELOP_UNSIGNED;
                 }
 
                 // Fold result, if possible.
@@ -10193,7 +10193,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 // TODO: setting both flags when only one is appropriate.
                 if (uns)
                 {
-                    op1->gtFlags |= GTF_RELOP_NAN_UN | GTF_UNSIGNED;
+                    op1->gtFlags |= GTF_RELOP_NAN_UN | GTF_RELOP_UNSIGNED;
                 }
 
                 goto COND_JUMP;
@@ -10346,7 +10346,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 op1 = impPopStack().val;
                 impBashVarAddrsToI(op1);
 
-                // Casts from floating point types must not have GTF_UNSIGNED set.
+                // Casts from floating point types must not have GTF_CAST_UNSIGNED set.
                 if (varTypeIsFloating(op1))
                 {
                     uns = false;

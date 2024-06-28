@@ -620,7 +620,7 @@ void CodeGen::GenMulLong(GenTreeOp* mul)
     }
 
     GetEmitter()->emitIns_Mov(INS_mov, size, REG_RAX, regOp->GetRegNum(), /* canSkip */ true);
-    emitInsRM(mul->IsUnsigned() ? INS_mulEAX : INS_imulEAX, size, rmOp);
+    emitInsRM(mul->IsMulUnsigned() ? INS_mulEAX : INS_imulEAX, size, rmOp);
 
     if (mul->OperIs(GT_MULHI))
     {
@@ -870,7 +870,7 @@ void CodeGen::genCodeForBinary(GenTreeOp* node)
 #endif
         noway_assert(!varTypeIsSmall(node->GetType()));
 
-        genJumpToThrowHlpBlk(node->IsUnsigned() ? EJ_b : EJ_o, ThrowHelperKind::Overflow);
+        genJumpToThrowHlpBlk(node->IsOverflowUnsigned() ? EJ_b : EJ_o, ThrowHelperKind::Overflow);
     }
 
     DefReg(node);
@@ -1013,7 +1013,7 @@ void CodeGen::GenMul(GenTreeOp* mul)
         GenTree*    regOp     = op1;
         GenTree*    rmOp      = op2;
 
-        if (checkOverflow && mul->IsUnsigned())
+        if (checkOverflow && mul->IsOverflowUnsigned())
         {
             ins       = INS_mulEAX;
             mulDstReg = REG_RAX;
@@ -1041,7 +1041,7 @@ void CodeGen::GenMul(GenTreeOp* mul)
 
     if (checkOverflow)
     {
-        genJumpToThrowHlpBlk(mul->IsUnsigned() ? EJ_b : EJ_o, ThrowHelperKind::Overflow);
+        genJumpToThrowHlpBlk(mul->IsOverflowUnsigned() ? EJ_b : EJ_o, ThrowHelperKind::Overflow);
     }
 
     DefReg(mul);
@@ -5284,7 +5284,7 @@ void CodeGen::GenIntCompare(GenTreeOp* cmp)
         {
             // Extract the sign bit for "x < 0" and "x >= 0" if we're evaluating the result into a register.
             // Morph/Lowering are responsible to transform "0 < x" to "x > 0" so we won't handle it here.
-            if ((dstReg != REG_NA) && cmp->OperIs(GT_LT, GT_GE) && !cmp->IsUnsigned())
+            if ((dstReg != REG_NA) && cmp->OperIs(GT_LT, GT_GE) && !cmp->IsRelopUnsigned())
             {
                 emitAttr attr = emitActualTypeSize(type1);
 
@@ -5347,7 +5347,7 @@ void CodeGen::GenIntCompare(GenTreeOp* cmp)
         // The common type cannot be smaller than any of the operand types, we're probably mixing int/long
         assert(varTypeSize(type) >= Max(varTypeSize(type1), varTypeSize(type2)));
         // Small unsigned int types should use unsigned comparisons
-        assert(!(varTypeIsSmallInt(type) && varTypeIsUnsigned(type)) || cmp->IsUnsigned());
+        assert(!(varTypeIsSmallInt(type) && varTypeIsUnsigned(type)) || cmp->IsRelopUnsigned());
         // If op1 is smaller then it cannot be in memory, we're probably missing a cast
         assert((varTypeSize(type1) >= varTypeSize(type)) || !op1->isContained());
         // If op2 is smaller then it cannot be in memory, we're probably missing a cast
@@ -5402,7 +5402,7 @@ void CodeGen::genLongToIntCast(GenTreeCast* cast)
 
     if (cast->HasOverflowCheck())
     {
-        var_types srcType = cast->IsUnsigned() ? TYP_ULONG : TYP_LONG;
+        var_types srcType = cast->IsCastUnsigned() ? TYP_ULONG : TYP_LONG;
         var_types dstType = cast->GetCastType();
         assert((dstType == TYP_INT) || (dstType == TYP_UINT));
 
@@ -5677,7 +5677,7 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
     var_types srcType = varActualType(src->GetType());
     var_types dstType = cast->GetType();
 
-    if (cast->IsUnsigned())
+    if (cast->IsCastUnsigned())
     {
         srcType = varTypeToUnsigned(srcType);
     }

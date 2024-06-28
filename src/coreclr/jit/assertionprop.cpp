@@ -1697,7 +1697,7 @@ private:
 
             isTrue = (assertion->kind == OAK_EQUAL) == relop->OperIs(GT_EQ);
         }
-        else if (!relop->IsUnsigned() && varActualTypeIsInt(relop->GetOp(0)))
+        else if (!relop->IsRelopUnsigned() && varActualTypeIsInt(relop->GetOp(0)))
         {
             genTreeOps oper    = relop->GetOper();
             ValueNum   vn      = vnStore->ExtractValue(relop->GetOp(0)->GetConservativeVN());
@@ -1806,7 +1806,7 @@ private:
 
         if (varTypeIsSmall(toType))
         {
-            min = cast->IsUnsigned() ? 0 : GetSmallTypeRange(toType).min;
+            min = cast->IsCastUnsigned() ? 0 : GetSmallTypeRange(toType).min;
             max = GetSmallTypeRange(toType).max;
         }
         else
@@ -1846,7 +1846,7 @@ private:
 
             if (toType == TYP_LONG)
             {
-                cast->SetUnsigned();
+                cast->SetCastUnsigned();
             }
 #endif
 

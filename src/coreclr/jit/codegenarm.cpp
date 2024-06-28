@@ -1038,7 +1038,7 @@ void CodeGen::genLongToIntCast(GenTreeCast* cast)
 
     if (cast->HasOverflowCheck())
     {
-        var_types srcType = cast->IsUnsigned() ? TYP_ULONG : TYP_LONG;
+        var_types srcType = cast->IsCastUnsigned() ? TYP_ULONG : TYP_LONG;
         var_types dstType = cast->GetCastType();
         assert((dstType == TYP_INT) || (dstType == TYP_UINT));
 
@@ -1107,11 +1107,11 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
 
     if (dstType == TYP_DOUBLE)
     {
-        ins = cast->IsUnsigned() ? INS_vcvt_u2d : INS_vcvt_i2d;
+        ins = cast->IsCastUnsigned() ? INS_vcvt_u2d : INS_vcvt_i2d;
     }
     else
     {
-        ins = cast->IsUnsigned() ? INS_vcvt_u2f : INS_vcvt_i2f;
+        ins = cast->IsCastUnsigned() ? INS_vcvt_u2f : INS_vcvt_i2f;
     }
 
     GetEmitter()->emitIns_Mov(INS_vmov_i2f, EA_4BYTE, dstReg, srcReg, /* canSkip */ false);
@@ -1222,14 +1222,14 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
 
 void CodeGen::genCodeForMulLong(GenTreeOp* node)
 {
-    assert(node->OperGet() == GT_MUL_LONG);
+    assert(node->OperIs(GT_MUL_LONG));
 
     regNumber srcReg1 = UseReg(node->GetOp(0));
     regNumber srcReg2 = UseReg(node->GetOp(1));
     regNumber dstReg1 = node->GetRegNum(0);
     regNumber dstReg2 = node->GetRegNum(1);
 
-    instruction ins = node->IsUnsigned() ? INS_umull : INS_smull;
+    instruction ins = node->IsMulUnsigned() ? INS_umull : INS_smull;
     GetEmitter()->emitIns_R_R_R_R(ins, EA_4BYTE, dstReg1, dstReg2, srcReg1, srcReg2);
 
     DefLongRegs(node);
@@ -1733,7 +1733,7 @@ regNumber CodeGen::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, 
             regNumber extraReg = dst->GetSingleTempReg();
             assert(extraReg != dst->GetRegNum());
 
-            if ((dst->gtFlags & GTF_UNSIGNED) != 0)
+            if (dst->IsOverflowUnsigned())
             {
                 // Compute 8 byte result from 4 byte by 4 byte multiplication.
                 emit->emitIns_R_R_R_R(INS_umull, EA_4BYTE, dst->GetRegNum(), extraReg, src1->GetRegNum(),
@@ -1771,8 +1771,8 @@ regNumber CodeGen::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, 
         }
         else
         {
-            bool isUnsignedOverflow = ((dst->gtFlags & GTF_UNSIGNED) != 0);
-            jumpKind                = isUnsignedOverflow ? EJ_lo : EJ_vs;
+            jumpKind = dst->IsOverflowUnsigned() ? EJ_lo : EJ_vs;
+
             if (jumpKind == EJ_lo)
             {
                 if ((dst->OperGet() != GT_SUB) && (dst->OperGet() != GT_SUB_HI))

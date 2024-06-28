@@ -3327,7 +3327,7 @@ PhaseStatus Compiler::phUnrollLoops()
         const LclVarDsc* llvar    = optLoopTable[lnum].lpIterVar();
         const int        iterInc  = optLoopTable[lnum].lpIterConst();
         const genTreeOps iterOper = optLoopTable[lnum].lpIterOper();
-        const bool       unsTest  = optLoopTable[lnum].lpTestTree->IsUnsigned();
+        const bool       unsTest  = optLoopTable[lnum].lpTestTree->IsRelopUnsigned();
 
         assert(!llvar->IsAddressExposed());
 
