@@ -5026,6 +5026,13 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 {
                     chars += printf("[IND_NONNULL]");
                 }
+                FALLTHROUGH;
+            case GT_ARR_LENGTH:
+            case GT_NULLCHECK:
+                if (tree->gtFlags & GTF_IND_NONFAULTING)
+                {
+                    chars += printf("[IND_NONFAULTING]");
+                }
                 break;
 
             case GT_COPY_BLK:
@@ -5040,9 +5047,28 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 }
                 break;
 
+            case GT_CAST:
+                if (tree->AsCast()->HasOverflowCheck())
+                {
+                    chars += printf("[OVERFLOW]");
+                }
+                break;
+
+            case GT_SUB:
+                if (tree->gtOverflow())
+                {
+                    chars += printf("[OVERFLOW]");
+                }
+                break;
+
             case GT_ADD:
-            case GT_LSH:
             case GT_MUL:
+                if (tree->gtOverflow())
+                {
+                    chars += printf("[OVERFLOW]");
+                }
+                FALLTHROUGH;
+            case GT_LSH:
             case GT_COMMA:
                 if ((tree->gtFlags & GTF_ADDRMODE_NO_CSE) != 0)
                 {
@@ -5244,16 +5270,13 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                     }
                 }
                 break;
-            default:
 
-            {
-                unsigned flags = (tree->gtFlags & (~(unsigned)(GTF_COMMON_MASK | GTF_OVERFLOW)));
-                if (flags != 0)
+            default:
+                if (GenTreeFlags flags = (tree->gtFlags & ~(GTF_COMMON_MASK | GTF_OVERFLOW)))
                 {
                     chars += printf("[%08X]", flags);
                 }
-            }
-            break;
+                break;
         }
 
         // Common flags.
@@ -5265,20 +5288,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
         if (tree->gtFlags & GTF_CALL)
         {
             chars += printf("[CALL]");
-        }
-        switch (op)
-        {
-            case GT_MUL:
-            case GT_CAST:
-            case GT_ADD:
-            case GT_SUB:
-                if (tree->gtFlags & GTF_OVERFLOW)
-                {
-                    chars += printf("[OVERFLOW]");
-                }
-                break;
-            default:
-                break;
         }
         if (tree->gtFlags & GTF_EXCEPT)
         {
@@ -5294,17 +5303,7 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
         }
         if (tree->gtFlags & GTF_REVERSE_OPS)
         {
-            if (op != GT_LCL_LOAD)
-            {
-                chars += printf("[REVERSE_OPS]");
-            }
-        }
-        if (tree->gtFlags & GTF_IND_NONFAULTING)
-        {
-            if (tree->OperIsIndirOrArrLength())
-            {
-                chars += printf("[IND_NONFAULTING]");
-            }
+            chars += printf("[REVERSE_OPS]");
         }
         if (tree->gtFlags & GTF_MAKE_CSE)
         {
@@ -5320,14 +5319,11 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
         }
         if (tree->gtFlags & GTF_UNSIGNED)
         {
-            chars += printf("[SMALL_UNSIGNED]");
+            chars += printf("[UNSIGNED]");
         }
         if (tree->gtFlags & GTF_REUSE_REG_VAL)
         {
-            if (op == GT_CNS_INT)
-            {
-                chars += printf("[REUSE_REG_VAL]");
-            }
+            chars += printf("[REUSE_REG_VAL]");
         }
     }
 }
