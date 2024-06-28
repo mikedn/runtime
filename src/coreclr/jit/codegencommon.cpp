@@ -5353,7 +5353,7 @@ CodeGen::GenIntCastDesc::GenIntCastDesc(GenTreeCast* cast)
     GenTree* src = cast->GetOp(0);
 
     const var_types srcType      = varActualType(src->GetType());
-    const bool      srcUnsigned  = cast->IsUnsigned();
+    const bool      srcUnsigned  = cast->IsCastUnsigned();
     const unsigned  srcSize      = varTypeSize(srcType);
     const var_types castType     = cast->GetCastType();
     const bool      castUnsigned = varTypeIsUnsigned(castType);

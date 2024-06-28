@@ -389,8 +389,8 @@ TFp FpRem(TFp dividend, TFp divisor)
 // Notes:
 //    Some opers have their semantics affected by GTF flags so they need to be
 //    replaced by special VNFunc values:
-//      - relops are affected by GTF_UNSIGNED/GTF_RELOP_NAN_UN
-//      - ADD/SUB/MUL are affected by GTF_OVERFLOW and GTF_UNSIGNED
+//      - relops are affected by GTF_RELOP_UNSIGNED/GTF_RELOP_NAN_UN
+//      - ADD/SUB/MUL are affected by GTF_OVERFLOW and GTF_OVF_UNSIGNED
 //
 VNFunc GetVNFuncForNode(GenTree* node)
 {
@@ -407,18 +407,18 @@ VNFunc GetVNFuncForNode(GenTree* node)
     switch (node->OperGet())
     {
         case GT_EQ:
-            if (varTypeIsFloating(node->gtGetOp1()))
+            if (varTypeIsFloating(node->AsOp()->GetOp(0)))
             {
-                assert(varTypeIsFloating(node->gtGetOp2()));
-                assert((node->gtFlags & GTF_RELOP_NAN_UN) == 0);
+                assert(varTypeIsFloating(node->AsOp()->GetOp(1)));
+                assert(!node->IsRelopUnordered());
             }
             break;
 
         case GT_NE:
-            if (varTypeIsFloating(node->gtGetOp1()))
+            if (varTypeIsFloating(node->AsOp()->GetOp(0)))
             {
-                assert(varTypeIsFloating(node->gtGetOp2()));
-                assert((node->gtFlags & GTF_RELOP_NAN_UN) != 0);
+                assert(varTypeIsFloating(node->AsOp()->GetOp(1)));
+                assert(node->IsRelopUnordered());
             }
             break;
 
@@ -426,21 +426,23 @@ VNFunc GetVNFuncForNode(GenTree* node)
         case GT_LE:
         case GT_GT:
         case GT_GE:
-            if (varTypeIsFloating(node->gtGetOp1()))
+            if (varTypeIsFloating(node->AsOp()->GetOp(0)))
             {
-                assert(varTypeIsFloating(node->gtGetOp2()));
-                if ((node->gtFlags & GTF_RELOP_NAN_UN) != 0)
+                assert(varTypeIsFloating(node->AsOp()->GetOp(1)));
+
+                if (node->IsRelopUnordered())
                 {
-                    return relopUnFuncs[node->OperGet() - GT_LT];
+                    return relopUnFuncs[node->GetOper() - GT_LT];
                 }
             }
             else
             {
-                assert(varTypeIsIntegralOrI(node->gtGetOp1()));
-                assert(varTypeIsIntegralOrI(node->gtGetOp2()));
-                if (node->IsUnsigned())
+                assert(varTypeIsIntegralOrI(node->AsOp()->GetOp(0)));
+                assert(varTypeIsIntegralOrI(node->AsOp()->GetOp(1)));
+
+                if (node->IsRelopUnsigned())
                 {
-                    return relopUnFuncs[node->OperGet() - GT_LT];
+                    return relopUnFuncs[node->GetOper() - GT_LT];
                 }
             }
             break;
@@ -448,17 +450,18 @@ VNFunc GetVNFuncForNode(GenTree* node)
         case GT_ADD:
         case GT_SUB:
         case GT_MUL:
-            assert(varTypeIsIntegralOrI(node->gtGetOp1()));
-            assert(varTypeIsIntegralOrI(node->gtGetOp2()));
+            assert(varTypeIsIntegralOrI(node->AsOp()->GetOp(0)));
+            assert(varTypeIsIntegralOrI(node->AsOp()->GetOp(1)));
+
             if (node->gtOverflow())
             {
-                if (node->IsUnsigned())
+                if (node->IsOverflowUnsigned())
                 {
-                    return binopUnOvfFuncs[node->OperGet() - GT_ADD];
+                    return binopUnOvfFuncs[node->GetOper() - GT_ADD];
                 }
                 else
                 {
-                    return binopOvfFuncs[node->OperGet() - GT_ADD];
+                    return binopOvfFuncs[node->GetOper() - GT_ADD];
                 }
             }
             break;
@@ -473,8 +476,8 @@ VNFunc GetVNFuncForNode(GenTree* node)
             unreached();
 
         default:
-            // Make sure we don't miss an onverflow oper, if a new one is ever added.
-            assert(!GenTree::OperMayOverflow(node->OperGet()));
+            // Make sure we don't miss an overflow oper, if a new one is ever added.
+            assert(!GenTree::OperMayOverflow(node->GetOper()));
             break;
     }
 
@@ -7633,13 +7636,13 @@ ValueNum ValueNumStore::VNForBitCast(ValueNum valueVN, var_types toType)
 void ValueNumbering::NumberCast(GenTreeCast* cast)
 {
     var_types fromType      = varActualType(cast->GetOp(0)->GetType());
-    bool      fromUnsigned  = cast->IsUnsigned();
+    bool      fromUnsigned  = cast->IsCastUnsigned();
     var_types toType        = cast->GetCastType();
     bool      checkOverflow = cast->HasOverflowCheck();
 
     assert(varCastType(toType) == cast->GetType());
 
-    // Sometimes GTF_UNSIGNED is unnecessarily set on CAST nodes, ignore it.
+    // Sometimes GTF_CAST_UNSIGNED is unnecessarily set on CAST nodes, ignore it.
     // TODO-MIKE-Cleanup: Why is this here? Just don't set it in the first place or remove it in morph.
 
     if (varTypeIsFloating(fromType))

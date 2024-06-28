@@ -5086,8 +5086,7 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
             case GT_LE:
             case GT_GT:
             case GT_GE:
-
-                if (tree->gtFlags & GTF_RELOP_NAN_UN)
+                if (tree->IsRelopUnordered())
                 {
                     chars += printf("[RELOP_NAN_UN]");
                 }

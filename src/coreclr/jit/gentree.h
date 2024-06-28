@@ -390,8 +390,11 @@ enum GenTreeFlags : unsigned
     GTF_MAKE_CSE              = 0x00000040, // Hoisted expression - try hard to CSE this expression
     GTF_DONT_CSE              = 0x00000080, // Do not CSE this expression
     GTF_BOOLEAN               = 0x00000100, // Value is known to be 0 or 1
-    GTF_UNSIGNED              = 0x00000200, // CAST - treat source operand as unsigned
-                                            // ADD/SUB/MUL - unsigned overflow check (meaningless without GTF_OVERFLOW)
+    GTF_UNSIGNED              = 0x00000200, 
+    GTF_CAST_UNSIGNED         = GTF_UNSIGNED, // CAST - treat source operand as unsigned
+    GTF_RELOP_UNSIGNED        = GTF_UNSIGNED, // GT/GE/LT/LE - unsigned compare
+    GTF_MUL_UNSIGNED          = GTF_UNSIGNED, // MUL/MULHI/MUL_LONG - unsigned multiplication
+    GTF_OVF_UNSIGNED          = GTF_UNSIGNED, // ADD/SUB/MUL - unsigned overflow check (meaningless without GTF_OVERFLOW)
     GTF_CONTAINED             = 0x00000400, // Node is contained (executed as part of its user)
     GTF_NOREG_AT_USE          = 0x00000800, // Value is used from spilled temp without reloading into a register
     GTF_REUSE_REG_VAL         = 0x00001000, // Destination register already contains the produced value so code
@@ -1788,35 +1791,84 @@ public:
         gtFlags = (gtFlags & ~GTF_REVERSE_OPS) | (reverseOps ? GTF_REVERSE_OPS : GTF_EMPTY);
     }
 
-    bool IsUnsigned() const
+    bool IsOverflowUnsigned() const
     {
-        return ((gtFlags & GTF_UNSIGNED) != 0);
+#ifdef TARGET_64BIT
+        assert(OperIs(GT_ADD, GT_SUB, GT_MUL) && gtOverflow());
+#else
+        assert(OperIs(GT_ADD, GT_SUB, GT_MUL, GT_ADD_HI, GT_SUB_HI) && gtOverflow());
+#endif
+        return (gtFlags & GTF_OVF_UNSIGNED) != 0;
     }
 
-    void SetUnsigned()
+    void SetOverflowUnsigned(bool value)
     {
-        assert(OperIs(GT_ADD, GT_SUB, GT_MUL, GT_CAST));
-        gtFlags |= GTF_UNSIGNED;
-    }
-
-    void SetUnsigned(bool value)
-    {
-        assert(OperIs(GT_CAST));
-
+#ifdef TARGET_64BIT
+        assert(OperIs(GT_ADD, GT_SUB, GT_MUL) && gtOverflow());
+#else
+        assert(OperIs(GT_ADD, GT_SUB, GT_MUL, GT_ADD_HI, GT_SUB_HI) && gtOverflow());
+#endif
         if (value)
         {
-            gtFlags |= GTF_UNSIGNED;
+            gtFlags |= GTF_OVF_UNSIGNED;
         }
         else
         {
-            gtFlags &= ~GTF_UNSIGNED;
+            gtFlags &= ~GTF_OVF_UNSIGNED;
         }
     }
 
-    void ClearUnsigned()
+    bool IsMulUnsigned() const
     {
-        assert(OperIs(GT_ADD, GT_SUB, GT_MUL, GT_CAST));
-        gtFlags &= ~GTF_UNSIGNED;
+#ifdef TARGET_64BIT
+        assert(OperIs(GT_MUL, GT_MULHI));
+#else
+        assert(OperIs(GT_MUL, GT_MULHI, GT_MUL_LONG));
+#endif
+        return (gtFlags & GTF_MUL_UNSIGNED) != 0;
+    }
+
+    void SetMulUnsigned(bool value)
+    {
+#ifdef TARGET_64BIT
+        assert(OperIs(GT_MUL, GT_MULHI));
+#else
+        assert(OperIs(GT_MUL, GT_MULHI, GT_MUL_LONG));
+#endif
+        if (value)
+        {
+            gtFlags |= GTF_MUL_UNSIGNED;
+        }
+        else
+        {
+            gtFlags &= ~GTF_MUL_UNSIGNED;
+        }
+    }
+
+    bool IsRelopUnsigned() const
+    {
+        assert(OperIsCompare());
+        return (gtFlags & GTF_RELOP_UNSIGNED) != 0;
+    }
+
+    void SetRelopUnsigned(bool value)
+    {
+        assert(OperIsCompare());
+
+        if (value)
+        {
+            gtFlags |= GTF_RELOP_UNSIGNED;
+        }
+        else
+        {
+            gtFlags &= ~GTF_RELOP_UNSIGNED;
+        }
+    }
+
+    bool IsRelopUnordered() const
+    {
+        assert(OperIsCompare());
+        return (gtFlags & GTF_RELOP_NAN_UN) != 0;
     }
 
     bool           IsCnsIntOrI() const;
@@ -3861,18 +3913,18 @@ public:
     {
         assert(varTypeIsArithmetic(castType));
         // We do not allow casts from floating point types to be treated as from
-        // unsigned to avoid bugs related to wrong GTF_UNSIGNED in case the
+        // unsigned to avoid bugs related to wrong GTF_CAST_UNSIGNED in case the
         // operand's type changes.
         assert(!varTypeIsFloating(op->GetType()) || !fromUnsigned);
 
-        gtFlags |= fromUnsigned ? GTF_UNSIGNED : GTF_EMPTY;
+        gtFlags |= fromUnsigned ? GTF_CAST_UNSIGNED : GTF_EMPTY;
     }
 
     GenTreeCast(const GenTreeCast* copyFrom DEBUGARG(bool largeNode = false))
         : GenTreeOp(GT_CAST, copyFrom->GetType(), copyFrom->GetOp(0), nullptr DEBUGARG(largeNode))
         , castType(copyFrom->castType)
     {
-        gtFlags |= copyFrom->gtFlags & (GTF_UNSIGNED | GTF_OVERFLOW);
+        gtFlags |= copyFrom->gtFlags & (GTF_CAST_UNSIGNED | GTF_OVERFLOW);
     }
 
     var_types GetCastType() const
@@ -3894,14 +3946,28 @@ public:
 
         castType = type;
         SetType(varCastType(type));
+        SetCastUnsigned(fromUnsigned);
+    }
 
-        if (fromUnsigned)
+    bool IsCastUnsigned() const
+    {
+        return (gtFlags & GTF_CAST_UNSIGNED) != 0;
+    }
+
+    void SetCastUnsigned()
+    {
+        gtFlags |= GTF_CAST_UNSIGNED;
+    }
+
+    void SetCastUnsigned(bool value)
+    {
+        if (value)
         {
-            gtFlags |= GTF_UNSIGNED;
+            gtFlags |= GTF_CAST_UNSIGNED;
         }
         else
         {
-            gtFlags &= ~GTF_UNSIGNED;
+            gtFlags &= ~GTF_CAST_UNSIGNED;
         }
     }
 
@@ -3919,6 +3985,14 @@ public:
     {
         gtFlags &= ~(GTF_OVERFLOW | GTF_EXCEPT);
         gtFlags |= (gtOp1->gtFlags & GTF_EXCEPT);
+    }
+
+    static bool Equals(GenTreeCast* c1, GenTreeCast* c2)
+    {
+        return (c1->GetType() == c2->GetType()) && (c1->castType == c2->castType) &&
+               ((c1->gtFlags & (GTF_OVERFLOW | GTF_CAST_UNSIGNED)) ==
+                (c2->gtFlags & (GTF_OVERFLOW | GTF_CAST_UNSIGNED))) &&
+               Compare(c1->gtOp1, c2->gtOp1);
     }
 
 #if DEBUGGABLE_GENTREE
@@ -7679,9 +7753,9 @@ public:
 
     static GenCondition FromFloatRelop(GenTree* relop)
     {
-        assert(varTypeIsFloating(relop->gtGetOp1()) && varTypeIsFloating(relop->gtGetOp2()));
+        assert(varTypeIsFloating(relop->AsOp()->GetOp(0)) && varTypeIsFloating(relop->AsOp()->GetOp(1)));
 
-        return FromFloatRelop(relop->OperGet(), (relop->gtFlags & GTF_RELOP_NAN_UN) != 0);
+        return FromFloatRelop(relop->GetOper(), relop->IsRelopUnordered());
     }
 
     static GenCondition FromFloatRelop(genTreeOps oper, bool isUnordered)
@@ -7702,9 +7776,9 @@ public:
 
     static GenCondition FromIntegralRelop(GenTree* relop)
     {
-        assert(!varTypeIsFloating(relop->gtGetOp1()) && !varTypeIsFloating(relop->gtGetOp2()));
+        assert(!varTypeIsFloating(relop->AsOp()->GetOp(0)) && !varTypeIsFloating(relop->AsOp()->GetOp(1)));
 
-        return FromIntegralRelop(relop->OperGet(), relop->IsUnsigned());
+        return FromIntegralRelop(relop->GetOper(), relop->IsRelopUnsigned());
     }
 
     static GenCondition FromIntegralRelop(genTreeOps oper, bool isUnsigned)

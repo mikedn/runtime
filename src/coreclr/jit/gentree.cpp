@@ -1060,13 +1060,7 @@ AGAIN:
                 case GT_ARR_LENGTH:
                     break;
                 case GT_CAST:
-                    if ((op1->AsCast()->GetCastType() != op2->AsCast()->GetCastType()) ||
-                        (op1->AsCast()->HasOverflowCheck() != op2->AsCast()->HasOverflowCheck()) ||
-                        (op1->IsUnsigned() != op2->IsUnsigned()))
-                    {
-                        return false;
-                    }
-                    break;
+                    return GenTreeCast::Equals(op1->AsCast(), op2->AsCast());
                 case GT_IND_LOAD_BLK:
                 case GT_IND_LOAD_OBJ:
                     if (op1->AsBlk()->GetLayout() != op2->AsBlk()->GetLayout())
@@ -5095,7 +5089,8 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
 
                     if ((oper == GT_MUL) && tree->gtOverflow())
                     {
-                        copy->gtFlags |= tree->gtFlags & (GTF_OVERFLOW | GTF_UNSIGNED);
+                        copy->gtFlags |= GTF_OVERFLOW;
+                        copy->SetOverflowUnsigned(tree->IsOverflowUnsigned());
                     }
                     break;
                 }
@@ -7535,10 +7530,10 @@ void Compiler::gtDispTreeRec(
 
         case GT_CAST:
         {
-            var_types fromType = varActualType(tree->AsUnOp()->GetOp(0)->GetType());
+            var_types fromType = varActualType(tree->AsCast()->GetOp(0)->GetType());
             var_types toType   = tree->AsCast()->GetCastType();
 
-            if (tree->IsUnsigned())
+            if (tree->AsCast()->IsCastUnsigned())
             {
                 fromType = varTypeToUnsigned(fromType);
             }
@@ -8949,7 +8944,7 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
     switch (oper)
     {
         case GT_LE:
-            if (tree->IsUnsigned() && (val == 0) && (op1 == cons) && !opHasSideEffects)
+            if (tree->IsRelopUnsigned() && (val == 0) && (op1 == cons) && !opHasSideEffects)
             {
                 // unsigned (0 <= x) is always true
                 op = NewMorphedIntConNode(1);
@@ -8958,7 +8953,7 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
             break;
 
         case GT_GE:
-            if (tree->IsUnsigned() && (val == 0) && (op2 == cons) && !opHasSideEffects)
+            if (tree->IsRelopUnsigned() && (val == 0) && (op2 == cons) && !opHasSideEffects)
             {
                 // unsigned (x >= 0) is always true
                 op = NewMorphedIntConNode(1);
@@ -8967,7 +8962,7 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
             break;
 
         case GT_LT:
-            if (tree->IsUnsigned() && (val == 0) && (op2 == cons) && !opHasSideEffects)
+            if (tree->IsRelopUnsigned() && (val == 0) && (op2 == cons) && !opHasSideEffects)
             {
                 // unsigned (x < 0) is always false
                 op = NewMorphedIntConNode(0);
@@ -8976,7 +8971,7 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
             break;
 
         case GT_GT:
-            if (tree->IsUnsigned() && (val == 0) && (op1 == cons) && !opHasSideEffects)
+            if (tree->IsRelopUnsigned() && (val == 0) && (op1 == cons) && !opHasSideEffects)
             {
                 // unsigned (0 > x) is always false
                 op = NewMorphedIntConNode(0);
@@ -8997,7 +8992,7 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
                 // We don't expect GT_GT with signed compares, and we
                 // can't predict the result if we do see it, since the
                 // boxed object addr could have its high bit set.
-                if ((oper == GT_GT) && !tree->IsUnsigned())
+                if ((oper == GT_GT) && !tree->IsRelopUnsigned())
                 {
                     JITDUMP(" bailing; unexpected signed compare via GT_GT\n");
                 }
@@ -9189,7 +9184,7 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
 
     genTreeOps const oper = tree->OperGet();
 
-    if ((oper == GT_GT) && !tree->IsUnsigned())
+    if ((oper == GT_GT) && !tree->IsRelopUnsigned())
     {
         return tree;
     }
@@ -9827,7 +9822,8 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                         assert(tree->GetType() == varCastType(tree->AsCast()->GetCastType()));
 
                         if (tree->AsCast()->HasOverflowCheck() &&
-                            CheckedOps::CastFromIntOverflows(i1, tree->AsCast()->GetCastType(), tree->IsUnsigned()))
+                            CheckedOps::CastFromIntOverflows(i1, tree->AsCast()->GetCastType(),
+                                                             tree->AsCast()->IsCastUnsigned()))
                         {
                             goto INTEGRAL_OVF;
                         }
@@ -9855,18 +9851,18 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                                 goto CNS_INT;
 
                             case TYP_LONG:
-                                l = tree->IsUnsigned() ? static_cast<int64_t>(static_cast<uint32_t>(i1))
-                                                       : static_cast<int64_t>(i1);
+                                l = tree->AsCast()->IsCastUnsigned() ? static_cast<int64_t>(static_cast<uint32_t>(i1))
+                                                                     : static_cast<int64_t>(i1);
                                 goto CNS_LONG;
 
                             case TYP_FLOAT:
-                                d = tree->IsUnsigned() ? static_cast<float>(static_cast<uint32_t>(i1))
-                                                       : static_cast<float>(i1);
+                                d = tree->AsCast()->IsCastUnsigned() ? static_cast<float>(static_cast<uint32_t>(i1))
+                                                                     : static_cast<float>(i1);
                                 goto CNS_DOUBLE;
 
                             case TYP_DOUBLE:
-                                d = tree->IsUnsigned() ? static_cast<double>(static_cast<uint32_t>(i1))
-                                                       : static_cast<double>(i1);
+                                d = tree->AsCast()->IsCastUnsigned() ? static_cast<double>(static_cast<uint32_t>(i1))
+                                                                     : static_cast<double>(i1);
                                 goto CNS_DOUBLE;
 
                             default:
@@ -9918,7 +9914,8 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                         assert(tree->GetType() == varCastType(tree->AsCast()->GetCastType()));
 
                         if (tree->AsCast()->HasOverflowCheck() &&
-                            CheckedOps::CastFromLongOverflows(l1, tree->AsCast()->GetCastType(), tree->IsUnsigned()))
+                            CheckedOps::CastFromLongOverflows(l1, tree->AsCast()->GetCastType(),
+                                                              tree->AsCast()->IsCastUnsigned()))
                         {
                             goto INTEGRAL_OVF;
                         }
@@ -9951,7 +9948,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
                             case TYP_FLOAT:
                             case TYP_DOUBLE:
-                                if (tree->IsUnsigned() && (l1 < 0))
+                                if (tree->AsCast()->IsCastUnsigned() && (l1 < 0))
                                 {
                                     d = FloatingPointUtils::convertUInt64ToDouble(static_cast<uint64_t>(l1));
                                 }
@@ -10111,7 +10108,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                         goto CNS_INT;
                     }
 
-                    if (tree->OperIs(GT_NE) || (tree->OperIs(GT_GT) && tree->IsUnsigned()))
+                    if (tree->OperIs(GT_NE) || (tree->OperIs(GT_GT) && tree->IsRelopUnsigned()))
                     {
                         i = 1;
                         goto CNS_INT;
@@ -10188,19 +10185,19 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     goto CNS_INT;
 
                 case GT_LT:
-                    i = tree->IsUnsigned() ? (ui1 < ui2) : (i1 < i2);
+                    i = tree->IsRelopUnsigned() ? (ui1 < ui2) : (i1 < i2);
                     goto CNS_INT;
 
                 case GT_LE:
-                    i = tree->IsUnsigned() ? (ui1 <= ui2) : (i1 <= i2);
+                    i = tree->IsRelopUnsigned() ? (ui1 <= ui2) : (i1 <= i2);
                     goto CNS_INT;
 
                 case GT_GE:
-                    i = tree->IsUnsigned() ? (ui1 >= ui2) : (i1 >= i2);
+                    i = tree->IsRelopUnsigned() ? (ui1 >= ui2) : (i1 >= i2);
                     goto CNS_INT;
 
                 case GT_GT:
-                    i = tree->IsUnsigned() ? (ui1 > ui2) : (i1 > i2);
+                    i = tree->IsRelopUnsigned() ? (ui1 > ui2) : (i1 > i2);
                     goto CNS_INT;
 
                 case GT_OR:
@@ -10239,8 +10236,8 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 #ifndef TARGET_64BIT
                     fieldSeq = GetFieldSeqStore()->FoldAdd(op1->AsIntCon(), op2->AsIntCon());
 #endif
-                    if (tree->gtOverflow() &&
-                        (tree->IsUnsigned() ? CheckedOps::UAddOverflows(i1, i2) : CheckedOps::SAddOverflows(i1, i2)))
+                    if (tree->gtOverflow() && (tree->IsOverflowUnsigned() ? CheckedOps::UAddOverflows(i1, i2)
+                                                                          : CheckedOps::SAddOverflows(i1, i2)))
                     {
                         goto INTEGRAL_OVF;
                     }
@@ -10248,8 +10245,8 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     goto CNS_INT;
 
                 case GT_SUB:
-                    if (tree->gtOverflow() &&
-                        (tree->IsUnsigned() ? CheckedOps::USubOverflows(i1, i2) : CheckedOps::SSubOverflows(i1, i2)))
+                    if (tree->gtOverflow() && (tree->IsOverflowUnsigned() ? CheckedOps::USubOverflows(i1, i2)
+                                                                          : CheckedOps::SSubOverflows(i1, i2)))
                     {
                         goto INTEGRAL_OVF;
                     }
@@ -10257,8 +10254,8 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     goto CNS_INT;
 
                 case GT_MUL:
-                    if (tree->gtOverflow() &&
-                        (tree->IsUnsigned() ? CheckedOps::UMulOverflows(i1, i2) : CheckedOps::SMulOverflows(i1, i2)))
+                    if (tree->gtOverflow() && (tree->IsOverflowUnsigned() ? CheckedOps::UMulOverflows(i1, i2)
+                                                                          : CheckedOps::SMulOverflows(i1, i2)))
                     {
                         goto INTEGRAL_OVF;
                     }
@@ -10327,19 +10324,19 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     goto CNS_INT;
 
                 case GT_LT:
-                    i = tree->IsUnsigned() ? (ul1 < ul2) : (l1 < l2);
+                    i = tree->IsRelopUnsigned() ? (ul1 < ul2) : (l1 < l2);
                     goto CNS_INT;
 
                 case GT_LE:
-                    i = tree->IsUnsigned() ? (ul1 <= ul2) : (l1 <= l2);
+                    i = tree->IsRelopUnsigned() ? (ul1 <= ul2) : (l1 <= l2);
                     goto CNS_INT;
 
                 case GT_GE:
-                    i = tree->IsUnsigned() ? (ul1 >= ul2) : (l1 >= l2);
+                    i = tree->IsRelopUnsigned() ? (ul1 >= ul2) : (l1 >= l2);
                     goto CNS_INT;
 
                 case GT_GT:
-                    i = tree->IsUnsigned() ? (ul1 > ul2) : (l1 > l2);
+                    i = tree->IsRelopUnsigned() ? (ul1 > ul2) : (l1 > l2);
                     goto CNS_INT;
 
                 case GT_OR:
@@ -10378,8 +10375,8 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 #ifdef TARGET_64BIT
                     fieldSeq = GetFieldSeqStore()->FoldAdd(op1->AsIntCon(), op2->AsIntCon());
 #endif
-                    if (tree->gtOverflow() &&
-                        (tree->IsUnsigned() ? CheckedOps::UAddOverflows(l1, l2) : CheckedOps::SAddOverflows(l1, l2)))
+                    if (tree->gtOverflow() && (tree->IsOverflowUnsigned() ? CheckedOps::UAddOverflows(l1, l2)
+                                                                          : CheckedOps::SAddOverflows(l1, l2)))
                     {
                         goto INTEGRAL_OVF;
                     }
@@ -10387,8 +10384,8 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     goto CNS_LONG;
 
                 case GT_SUB:
-                    if (tree->gtOverflow() &&
-                        (tree->IsUnsigned() ? CheckedOps::USubOverflows(l1, l2) : CheckedOps::SSubOverflows(l1, l2)))
+                    if (tree->gtOverflow() && (tree->IsOverflowUnsigned() ? CheckedOps::USubOverflows(l1, l2)
+                                                                          : CheckedOps::SSubOverflows(l1, l2)))
                     {
                         goto INTEGRAL_OVF;
                     }
@@ -10396,8 +10393,8 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     goto CNS_LONG;
 
                 case GT_MUL:
-                    if (tree->gtOverflow() &&
-                        (tree->IsUnsigned() ? CheckedOps::UMulOverflows(l1, l2) : CheckedOps::SMulOverflows(l1, l2)))
+                    if (tree->gtOverflow() && (tree->IsOverflowUnsigned() ? CheckedOps::UMulOverflows(l1, l2)
+                                                                          : CheckedOps::SMulOverflows(l1, l2)))
                     {
                         goto INTEGRAL_OVF;
                     }
@@ -10436,7 +10433,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
             if (tree->OperIsCompare() && (_isnanf(f1) || _isnanf(f2)))
             {
-                bool isUnordered = (tree->gtFlags & GTF_RELOP_NAN_UN) != 0;
+                bool isUnordered = tree->IsRelopUnordered();
                 assert(tree->OperIs(GT_LT, GT_LE, GT_GE, GT_GT) || (tree->OperIs(GT_NE) == isUnordered));
                 i = isUnordered;
                 goto CNS_INT;
@@ -10505,7 +10502,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
             if (tree->OperIsCompare() && (_isnan(d1) || _isnan(d2)))
             {
-                bool isUnordered = (tree->gtFlags & GTF_RELOP_NAN_UN) != 0;
+                bool isUnordered = tree->IsRelopUnordered();
                 assert(tree->OperIs(GT_LT, GT_LE, GT_GE, GT_GT) || (tree->OperIs(GT_NE) == isUnordered));
                 i = isUnordered;
                 goto CNS_INT;

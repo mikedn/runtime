@@ -944,7 +944,7 @@ GenTree* Lowering::LowerCompare(GenTreeOp* cmp)
             // signed comparison of two small unsigned values without zero extending them to TYP_INT
             // which is incorrect. Note that making the comparison unsigned doesn't imply that codegen
             // has to generate a small comparison, it can still correctly generate a TYP_INT comparison.
-            cmp->gtFlags |= GTF_UNSIGNED;
+            cmp->SetRelopUnsigned(true);
         }
     }
 
@@ -3413,7 +3413,7 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
         hasImplicitOperand = true;
     }
 #endif
-    else if (node->gtOverflow() && node->IsUnsigned())
+    else if (node->gtOverflow() && node->IsOverflowUnsigned())
     {
         hasImplicitOperand = true;
     }
@@ -3715,7 +3715,7 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
         // Also, ULONG to DOUBLE/FLOAT casts require checking the sign of the source so allowing
         // a memory operand would result in 2 loads instead of 1.
 
-        if (!varTypeIsSmall(src->GetType()) && (!src->TypeIs(TYP_LONG) || !cast->IsUnsigned()))
+        if (!varTypeIsSmall(src->GetType()) && (!src->TypeIs(TYP_LONG) || !cast->IsCastUnsigned()))
         {
             if (IsContainableMemoryOp(src))
             {

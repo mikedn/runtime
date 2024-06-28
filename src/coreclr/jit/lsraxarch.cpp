@@ -2008,7 +2008,7 @@ void LinearScan::BuildMul(GenTreeOp* mul)
         BuildRMWUses(mul);
     }
 
-    if (mul->gtOverflow() && mul->IsUnsigned())
+    if (mul->gtOverflow() && mul->IsOverflowUnsigned())
     {
         BuildKills(mul, RBM_RAX | RBM_RDX);
         BuildDef(mul, RBM_RAX);

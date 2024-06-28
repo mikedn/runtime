@@ -499,7 +499,7 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
     var_types srcType = cast->GetOp(0)->GetType();
     var_types dstType = cast->GetCastType();
 
-    if (cast->IsUnsigned())
+    if (cast->IsCastUnsigned())
     {
         srcType = varTypeToUnsigned(srcType);
     }
@@ -527,7 +527,7 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
 
             hiResult = cast;
             cast->SetCastType(TYP_UINT);
-            cast->ClearUnsigned();
+            cast->SetCastUnsigned(false);
             cast->SetOp(0, hiSrcOp);
 
             Range().Remove(srcOp);
@@ -886,10 +886,6 @@ GenTree* DecomposeLongs::DecomposeArith(LIR::Use& use)
     // We will reuse "tree" for the loResult, which will now be of TYP_INT, and its operands
     // will be the lo halves of op1 from above.
     GenTree* loResult = tree;
-    loResult->SetOper(GetLoOper(oper));
-    loResult->gtType        = TYP_INT;
-    loResult->AsOp()->gtOp1 = loOp1;
-    loResult->AsOp()->gtOp2 = loOp2;
 
     GenTree* hiResult = new (m_compiler, oper) GenTreeOp(GetHiOper(oper), TYP_INT, hiOp1, hiOp2);
     Range().InsertAfter(loResult, hiResult);
@@ -899,16 +895,22 @@ GenTree* DecomposeLongs::DecomposeArith(LIR::Use& use)
         loResult->gtFlags |= GTF_SET_FLAGS;
         hiResult->gtFlags |= GTF_USE_FLAGS;
 
-        if ((loResult->gtFlags & GTF_OVERFLOW) != 0)
+        if (loResult->gtOverflow())
         {
+            if (loResult->IsOverflowUnsigned())
+            {
+                hiResult->SetOverflowUnsigned(true);
+            }
+
             hiResult->gtFlags |= GTF_OVERFLOW | GTF_EXCEPT;
             loResult->gtFlags &= ~(GTF_OVERFLOW | GTF_EXCEPT);
         }
-        if (loResult->gtFlags & GTF_UNSIGNED)
-        {
-            hiResult->gtFlags |= GTF_UNSIGNED;
-        }
     }
+
+    loResult->SetOper(GetLoOper(oper));
+    loResult->SetType(TYP_INT);
+    loResult->AsOp()->SetOp(0, loOp1);
+    loResult->AsOp()->SetOp(1, loOp2);
 
     return FinalizeDecomposition(use, loResult, hiResult, hiResult);
 }
@@ -1437,7 +1439,7 @@ GenTree* DecomposeLongs::DecomposeMul(LIR::Use& use)
     GenTreeCast* op2 = tree->GetOp(1)->AsCast();
     assert(op1->TypeIs(TYP_LONG));
     assert(op2->TypeIs(TYP_LONG));
-    assert(op1->IsUnsigned() == op2->IsUnsigned());
+    assert(op1->IsCastUnsigned() == op2->IsCastUnsigned());
 
     Range().Remove(op1);
     Range().Remove(op2);
@@ -1445,15 +1447,7 @@ GenTree* DecomposeLongs::DecomposeMul(LIR::Use& use)
     tree->SetOp(0, op1->GetOp(0));
     tree->SetOp(1, op2->GetOp(0));
     tree->SetOper(GT_MUL_LONG);
-
-    if (op1->IsUnsigned())
-    {
-        tree->gtFlags |= GTF_UNSIGNED;
-    }
-    else
-    {
-        tree->gtFlags &= ~GTF_UNSIGNED;
-    }
+    tree->SetMulUnsigned(op1->IsCastUnsigned());
 
     return StoreMultiRegNodeToLcl(use);
 }

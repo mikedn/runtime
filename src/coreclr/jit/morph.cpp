@@ -136,12 +136,12 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
     var_types srcType = varActualType(src->GetType());
     var_types dstType = cast->GetCastType();
 
-    if (cast->TypeIs(TYP_FLOAT) && src->TypeIs(TYP_DOUBLE) && src->OperIs(GT_CAST))
+    if (cast->TypeIs(TYP_FLOAT) && src->TypeIs(TYP_DOUBLE) && src->IsCast())
     {
         // Optimization: conv.r4(conv.r8(?)) -> conv.r4(d)
         // This happens semi-frequently because there is no IL 'conv.r4.un'
 
-        cast->SetUnsigned(src->IsUnsigned());
+        cast->SetCastUnsigned(src->AsCast()->IsCastUnsigned());
         src = src->AsCast()->GetOp(0);
         cast->SetOp(0, src);
         srcType = varActualType(src->GetType());
@@ -190,7 +190,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         // CodeGen doesn't support casting from floating point types, or long types on
         // 32 bit targets, directly to small int types. Cast the source to INT first.
 
-        src = gtNewCastNode(src, cast->IsUnsigned(), TYP_INT);
+        src = gtNewCastNode(src, cast->IsCastUnsigned(), TYP_INT);
 
         if (cast->HasOverflowCheck())
         {
@@ -248,7 +248,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
     else if (varTypeIsFloating(dstType))
     {
 #if defined(TARGET_AMD64)
-        if (cast->IsUnsigned())
+        if (cast->IsCastUnsigned())
         {
             // X64 doesn't have any instruction to cast FP types to unsigned types
             // but codegen handles the ULONG to DOUBLE/FLOAT case by adjusting the
@@ -259,20 +259,20 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
             {
                 src = gtNewCastNode(src, true, TYP_LONG);
                 cast->SetOp(0, src);
-                cast->ClearUnsigned();
+                cast->SetCastUnsigned(false);
                 srcType = TYP_LONG;
             }
         }
 #endif
 
 #if defined(TARGET_X86)
-        if (cast->IsUnsigned() && (srcType == TYP_INT))
+        if (cast->IsCastUnsigned() && (srcType == TYP_INT))
         {
             // There is no support for UINT to FP casts so first cast the source
             // to LONG and then use a helper call to cast to FP.
             src = gtNewCastNode(src, true, TYP_LONG);
             cast->SetOp(0, src);
-            cast->ClearUnsigned();
+            cast->SetCastUnsigned(false);
             srcType = TYP_LONG;
         }
 #endif
@@ -284,7 +284,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
             cast->SetCastType(TYP_DOUBLE);
 
             GenTree* helper =
-                fgMorphCastIntoHelper(cast, cast->IsUnsigned() ? CORINFO_HELP_ULNG2DBL : CORINFO_HELP_LNG2DBL);
+                fgMorphCastIntoHelper(cast, cast->IsCastUnsigned() ? CORINFO_HELP_ULNG2DBL : CORINFO_HELP_LNG2DBL);
 
             if (dstType == TYP_FLOAT)
             {
@@ -302,8 +302,8 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         // down into the operand before morphing it.
         //
         // It doesn't matter if this is cast is from ulong or long (i.e. if
-        // GTF_UNSIGNED is set) because the transformation is only applied to
-        // overflow-insensitive narrowing casts, which always silently truncate.
+        // GTF_CAST_UNSIGNED is set) because the transformation is only applied
+        // to overflow-insensitive narrowing casts, which always silently truncate.
         //
         // Note that casts from [u]long to small integer types are handled above.
 
@@ -486,7 +486,7 @@ GenTree* Compiler::fgMorphCastPost(GenTreeCast* cast)
             }
         }
 
-        if (cast->IsUnsigned() && !varTypeIsUnsigned(srcType))
+        if (cast->IsCastUnsigned() && !varTypeIsUnsigned(srcType))
         {
             if (varTypeIsSmall(srcType))
             {
@@ -889,15 +889,17 @@ bool Compiler::fgMorphNarrowTree(
         }
         case GT_CAST:
         {
-            if (tree->AsCast()->HasOverflowCheck())
+            GenTreeCast* cast = tree->AsCast();
+
+            if (cast->HasOverflowCheck())
             {
                 return false;
             }
 
-            GenTree*  castSrc     = tree->AsCast()->GetOp(0);
+            GenTree*  castSrc     = cast->GetOp(0);
             var_types castSrcType = castSrc->GetType();
 
-            if (tree->AsCast()->GetCastType() != srct)
+            if (cast->GetCastType() != srct)
             {
                 return false;
             }
@@ -922,9 +924,9 @@ bool Compiler::fgMorphNarrowTree(
                     // Same size and there is no signedness mismatch for small types,
                     // change the CAST into a NOP
 
-                    JITDUMP("Cast operation has no effect, replacing [%06u] CAST with NOP.\n", tree->GetID());
+                    JITDUMP("Cast operation has no effect, replacing [%06u] CAST with NOP.\n", cast->GetID());
 
-                    tree->ClearUnsigned();
+                    cast->SetCastUnsigned(false);
                     tree->ChangeOper(GT_NOP);
                     tree->SetType(nodeType);
                     tree->SetVNP(castSrc->GetVNP());
@@ -933,8 +935,8 @@ bool Compiler::fgMorphNarrowTree(
                 {
                     // oprSize is smaller or there is a signedness mismatch for small types
 
-                    tree->AsCast()->SetCastType(nodeType);
-                    tree->SetVNP(vnpNarrow);
+                    cast->SetCastType(nodeType);
+                    cast->SetVNP(vnpNarrow);
                 }
             }
 
@@ -5229,7 +5231,7 @@ void Compiler::fgMoveOpsLeft(GenTree* tree)
 
         /* Change the flags. */
 
-        // Make sure we arent throwing away any flags
+        // Make sure we aren't throwing away any flags
         noway_assert((new_op1->gtFlags &
                       ~(GTF_MAKE_CSE | GTF_DONT_CSE | // It is ok that new_op1->gtFlags contains GTF_DONT_CSE flag.
                         GTF_REVERSE_OPS |             // The reverse ops flag also can be set, it will be re-calculated
@@ -10080,7 +10082,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
                 if (tree->gtOverflow())
                 {
-                    helper = (tree->gtFlags & GTF_UNSIGNED) ? CORINFO_HELP_ULMUL_OVF : CORINFO_HELP_LMUL_OVF;
+                    helper = tree->IsOverflowUnsigned() ? CORINFO_HELP_ULMUL_OVF : CORINFO_HELP_LMUL_OVF;
                 }
                 else
                 {
@@ -11076,7 +11078,7 @@ DONE_MORPHING_CHILDREN:
 
             if (op2->IsIntegralConst(0))
             {
-                if (((oper == GT_GT) || (oper == GT_LE)) && tree->IsUnsigned())
+                if (((oper == GT_GT) || (oper == GT_LE)) && tree->IsRelopUnsigned())
                 {
                     // IL doesn't have a cne instruction so compilers use cgt.un instead. The JIT
                     // recognizes certain patterns that involve GT_NE (e.g (x & 4) != 0) and fails
@@ -11085,7 +11087,7 @@ DONE_MORPHING_CHILDREN:
                     // occurs as a result of branch inversion.
                     oper = (oper == GT_LE) ? GT_EQ : GT_NE;
                     tree->SetOper(oper, GenTree::PRESERVE_VN);
-                    tree->gtFlags &= ~GTF_UNSIGNED;
+                    tree->SetRelopUnsigned(false);
                 }
 
                 break;
@@ -11097,22 +11099,22 @@ DONE_MORPHING_CHILDREN:
             {
                 if (oper == GT_GE)
                 {
-                    oper = tree->IsUnsigned() ? GT_NE : GT_GT;
+                    oper = tree->IsRelopUnsigned() ? GT_NE : GT_GT;
                 }
                 else if (oper == GT_LT)
                 {
-                    oper = tree->IsUnsigned() ? GT_EQ : GT_LE;
+                    oper = tree->IsRelopUnsigned() ? GT_EQ : GT_LE;
                 }
             }
             else if (op2->IsIntegralConst(-1))
             {
                 if (oper == GT_LE)
                 {
-                    oper = tree->IsUnsigned() ? oper : GT_LT;
+                    oper = tree->IsRelopUnsigned() ? oper : GT_LT;
                 }
                 else if (oper == GT_GT)
                 {
-                    oper = tree->IsUnsigned() ? oper : GT_GE;
+                    oper = tree->IsRelopUnsigned() ? oper : GT_GE;
                 }
             }
 
@@ -11782,7 +11784,7 @@ DONE_MORPHING_CHILDREN:
                 // We need to keep op1 for the side-effects. Hang it off
                 // a GT_COMMA node
 
-                JITDUMP("Keeping side-effects by bashing [%06d] GT_JTRUE into a GT_COMMA.\n", dspTreeID(tree));
+                JITDUMP("Keeping side-effects by bashing [%06u] GT_JTRUE into a GT_COMMA.\n", tree->GetID());
 
                 tree->ChangeOper(GT_COMMA);
                 tree->AsOp()->gtOp2 = op2 = gtNewNothingNode();
@@ -11790,10 +11792,10 @@ DONE_MORPHING_CHILDREN:
                 // Additionally since we're eliminating the JTRUE
                 // codegen won't like it if op1 is a RELOP of longs, floats or doubles.
                 // So we change it into a GT_COMMA as well.
-                JITDUMP("Also bashing [%06d] (a relop) into a GT_COMMA.\n", dspTreeID(op1));
+                JITDUMP("Also bashing [%06u] (a relop) into a GT_COMMA.\n", op1->GetID());
+                op1->SetRelopUnsigned(false);
                 op1->ChangeOper(GT_COMMA);
-                op1->gtFlags &= ~GTF_UNSIGNED; // Clear the unsigned flag if it was set on the relop
-                op1->gtType = op1->AsOp()->gtOp1->gtType;
+                op1->SetType(op1->AsOp()->GetOp(0)->GetType());
 
                 return tree;
             }
@@ -12464,7 +12466,7 @@ Compiler::MulLongCandidateKind Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mu
 
         if ((intConst1 == nullptr) || (intConst1->GetInt32Value() < 0))
         {
-            op1Sign = cast1->IsUnsigned() ? 1 : 2;
+            op1Sign = cast1->IsCastUnsigned() ? 1 : 2;
         }
     }
 
@@ -12486,7 +12488,7 @@ Compiler::MulLongCandidateKind Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mu
 
         if ((intConst2 == nullptr) || (intConst2->GetInt32Value() < 0))
         {
-            op2Sign = cast2->IsUnsigned() ? 1 : 2;
+            op2Sign = cast2->IsCastUnsigned() ? 1 : 2;
         }
     }
 
@@ -12500,7 +12502,8 @@ Compiler::MulLongCandidateKind Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mu
         int64_t      value = cast1 == nullptr ? longConst1->GetValue() : longConst2->GetValue();
         GenTreeCast* cast  = cast1 == nullptr ? cast2 : cast1;
 
-        if (cast->IsUnsigned() ? ((value < 0) || (value > UINT32_MAX)) : ((value < INT32_MIN) || (value > INT32_MAX)))
+        if (cast->IsCastUnsigned() ? ((value < 0) || (value > UINT32_MAX))
+                                   : ((value < INT32_MIN) || (value > INT32_MAX)))
         {
             return MulLongCandidateKind::None;
         }
@@ -12513,7 +12516,7 @@ Compiler::MulLongCandidateKind Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mu
 
     if (mul->gtOverflow())
     {
-        mulSign = mul->IsUnsigned() ? 1 : 2;
+        mulSign = mul->IsOverflowUnsigned() ? 1 : 2;
     }
 
     switch (op1Sign | op2Sign | mulSign)
@@ -12573,13 +12576,13 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind 
     if (GenTreeLngCon* longConst1 = op1->IsLngCon())
     {
         op1->ChangeToIntCon(TYP_INT, static_cast<int32_t>(longConst1->GetValue()));
-        op1 = gtNewCastNode(op1, op2->AsCast()->IsUnsigned(), TYP_LONG);
+        op1 = gtNewCastNode(op1, op2->AsCast()->IsCastUnsigned(), TYP_LONG);
         mul->SetOp(0, op1);
     }
     else if (GenTreeLngCon* longConst2 = op2->IsLngCon())
     {
         op2->ChangeToIntCon(TYP_INT, static_cast<int32_t>(longConst2->GetValue()));
-        op2 = gtNewCastNode(op2, op1->AsCast()->IsUnsigned(), TYP_LONG);
+        op2 = gtNewCastNode(op2, op1->AsCast()->IsCastUnsigned(), TYP_LONG);
         mul->SetOp(1, op2);
     }
 
@@ -12590,15 +12593,15 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind 
 
     if (kind == MulLongCandidateKind::Unsigned)
     {
-        cast1->SetUnsigned();
-        cast2->SetUnsigned();
+        cast1->SetCastUnsigned(true);
+        cast2->SetCastUnsigned(true);
     }
     else
     {
         assert(kind == MulLongCandidateKind::Signed);
 
-        cast1->ClearUnsigned();
-        cast2->ClearUnsigned();
+        cast1->SetCastUnsigned(false);
+        cast2->SetCastUnsigned(false);
     }
 
     // fgMorphCast doesn't know about long multiply and may remove the casts,

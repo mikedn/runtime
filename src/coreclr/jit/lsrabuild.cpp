@@ -568,7 +568,7 @@ regMaskTP LinearScan::getKillSetForMul(GenTreeOp* node)
     assert(node->OperIs(GT_MUL, GT_MULHI, GT_MUL_LONG));
 #endif
 
-    if (!node->OperIs(GT_MUL) || (node->gtOverflow() && node->IsUnsigned()))
+    if (!node->OperIs(GT_MUL) || (node->gtOverflow() && node->IsOverflowUnsigned()))
     {
         return RBM_RAX | RBM_RDX;
     }
