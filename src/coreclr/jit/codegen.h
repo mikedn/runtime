@@ -531,7 +531,7 @@ protected:
     void GenIntCompare(GenTreeOp* cmp);
 #endif
 #ifdef TARGET_X86
-    void GenLongUMod(GenTreeOp* node);
+    void GenUModLong(GenTreeOp* node);
 #endif
 
 #if defined(TARGET_ARM64) || defined(TARGET_XARCH)
