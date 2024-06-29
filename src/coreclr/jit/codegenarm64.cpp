@@ -1582,36 +1582,38 @@ void CodeGen::GenDblCon(GenTreeDblCon* node)
     DefReg(node);
 }
 
-void CodeGen::GenSatInc(GenTree* tree)
+void CodeGen::GenSatInc(GenTreeUnOp* inc)
 {
-    regNumber targetReg  = tree->GetRegNum();
-    regNumber operandReg = UseReg(tree->AsUnOp()->GetOp(0));
-    emitAttr  attr       = emitActualTypeSize(tree->GetType());
+    assert(inc->OperIs(GT_INC_SATURATE) && varTypeIsIntegral(inc->GetType()));
 
-    GetEmitter()->emitIns_R_R_I(INS_adds, attr, targetReg, operandReg, 1);
-    GetEmitter()->emitIns_R_R_COND(INS_cinv, attr, targetReg, targetReg, INS_COND_HS);
+    RegNum   srcReg = UseReg(inc->GetOp(0));
+    RegNum   dstReg = inc->GetRegNum();
+    emitAttr size   = emitActualTypeSize(inc->GetType());
 
-    DefReg(tree);
+    GetEmitter()->emitIns_R_R_I(INS_adds, size, dstReg, srcReg, 1);
+    GetEmitter()->emitIns_R_R_COND(INS_cinv, size, dstReg, dstReg, INS_COND_HS);
+
+    DefReg(inc);
 }
 
 void CodeGen::GenMulLong(GenTreeOp* mul)
 {
     assert(mul->OperIs(GT_MULHI) && !mul->gtOverflowEx() && varTypeIsIntegral(mul->GetType()));
 
-    emitAttr  size    = emitActualTypeSize(mul->GetType());
-    regNumber srcReg1 = UseReg(mul->GetOp(0));
-    regNumber srcReg2 = UseReg(mul->GetOp(1));
-    regNumber dstReg  = mul->GetRegNum();
+    RegNum   srcReg1 = UseReg(mul->GetOp(0));
+    RegNum   srcReg2 = UseReg(mul->GetOp(1));
+    RegNum   dstReg  = mul->GetRegNum();
+    emitAttr size    = EA_SIZE(emitActualTypeSize(mul->GetType()));
 
-    if (EA_SIZE(size) == EA_8BYTE)
+    if (size == EA_8BYTE)
     {
         instruction ins = mul->IsMulUnsigned() ? INS_umulh : INS_smulh;
 
-        GetEmitter()->emitIns_R_R_R(ins, size, dstReg, srcReg1, srcReg2);
+        GetEmitter()->emitIns_R_R_R(ins, EA_8BYTE, dstReg, srcReg1, srcReg2);
     }
     else
     {
-        assert(EA_SIZE(size) == EA_4BYTE);
+        assert(size == EA_4BYTE);
 
         instruction ins = mul->IsMulUnsigned() ? INS_umull : INS_smull;
 
@@ -1624,8 +1626,7 @@ void CodeGen::GenMulLong(GenTreeOp* mul)
 
 void CodeGen::GenMul(GenTreeOp* mul)
 {
-    assert(mul->OperIs(GT_MUL));
-    assert(varTypeIsIntegralOrI(mul->GetType()));
+    assert(mul->OperIs(GT_MUL) && varTypeIsIntegral(mul->GetType()));
 
     GenTree* op1 = mul->GetOp(0);
     GenTree* op2 = mul->GetOp(1);
@@ -2422,17 +2423,18 @@ int64_t CodeGen::genStackPointerConstantAdjustmentLoopWithProbe(int64_t spDelta,
     return lastTouchDelta;
 }
 
-void CodeGen::GenBswap(GenTree* tree)
+void CodeGen::GenBswap(GenTreeUnOp* bswap)
 {
-    assert(tree->OperIs(GT_BSWAP, GT_BSWAP16));
+    assert(bswap->OperIs(GT_BSWAP, GT_BSWAP16));
 
-    regNumber   dstReg = tree->GetRegNum();
-    regNumber   srcReg = UseReg(tree->AsUnOp()->GetOp(0));
-    instruction ins    = tree->OperIs(GT_BSWAP16) ? INS_rev16 : INS_rev;
+    RegNum      dstReg = bswap->GetRegNum();
+    RegNum      srcReg = UseReg(bswap->AsUnOp()->GetOp(0));
+    instruction ins    = bswap->OperIs(GT_BSWAP16) ? INS_rev16 : INS_rev;
+    emitAttr    size   = emitActualTypeSize(bswap->GetType());
 
-    GetEmitter()->emitIns_R_R(ins, emitActualTypeSize(tree->GetType()), dstReg, srcReg);
+    GetEmitter()->emitIns_R_R(ins, size, dstReg, srcReg);
 
-    DefReg(tree);
+    DefReg(bswap);
 }
 
 void CodeGen::GenDivMod(GenTreeOp* div)

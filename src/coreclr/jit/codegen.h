@@ -540,7 +540,7 @@ protected:
 
     void GenMul(GenTreeOp* mul);
     void GenMulLong(GenTreeOp* mul);
-    void GenSatInc(GenTree* treeNode);
+    void GenSatInc(GenTreeUnOp* inc);
     void GenLea(GenTreeAddrMode* lea);
 
 #ifdef TARGET_ARMARCH
@@ -778,7 +778,7 @@ protected:
     void GenLclAddr(GenTreeLclAddr* addr);
     void GenIndexAddr(GenTreeIndexAddr* tree);
     void GenNegNot(GenTreeUnOp* tree);
-    void GenBswap(GenTree* tree);
+    void GenBswap(GenTreeUnOp* bswap);
 
     void GenIndLoad(GenTreeIndLoad* load);
     void GenIndStore(GenTreeIndStore* store);

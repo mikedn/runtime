@@ -241,8 +241,7 @@ void CodeGen::GenDblCon(GenTreeDblCon* node)
 
 void CodeGen::GenMul(GenTreeOp* mul)
 {
-    assert(mul->OperIs(GT_MUL));
-    assert(varTypeIsIntegralOrI(mul->GetType()));
+    assert(mul->OperIs(GT_MUL) && varTypeIsIntegralOrI(mul->GetType()));
 
     GenTree* op1 = mul->GetOp(0);
     GenTree* op2 = mul->GetOp(1);
@@ -282,19 +281,19 @@ void CodeGen::GenMul(GenTreeOp* mul)
     DefReg(mul);
 }
 
-void CodeGen::GenMulLong(GenTreeOp* node)
+void CodeGen::GenMulLong(GenTreeOp* mul)
 {
-    assert(node->OperIs(GT_MUL_LONG));
+    assert(mul->OperIs(GT_MUL_LONG) && mul->TypeIs(TYP_LONG) && !mul->gtOverflowEx());
 
-    regNumber srcReg1 = UseReg(node->GetOp(0));
-    regNumber srcReg2 = UseReg(node->GetOp(1));
-    regNumber dstReg1 = node->GetRegNum(0);
-    regNumber dstReg2 = node->GetRegNum(1);
+    regNumber srcReg1 = UseReg(mul->GetOp(0));
+    regNumber srcReg2 = UseReg(mul->GetOp(1));
+    regNumber dstReg1 = mul->GetRegNum(0);
+    regNumber dstReg2 = mul->GetRegNum(1);
 
-    instruction ins = node->IsMulUnsigned() ? INS_umull : INS_smull;
+    instruction ins = mul->IsMulUnsigned() ? INS_umull : INS_smull;
     GetEmitter()->emitIns_R_R_R_R(ins, EA_4BYTE, dstReg1, dstReg2, srcReg1, srcReg2);
 
-    DefLongRegs(node);
+    DefLongRegs(mul);
 }
 
 static instruction GetAddSubBitwiseIns(genTreeOps oper)

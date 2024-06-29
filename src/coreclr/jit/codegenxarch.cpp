@@ -581,56 +581,57 @@ void CodeGen::GenNegNot(GenTreeUnOp* node)
     DefReg(node);
 }
 
-void CodeGen::GenBswap(GenTree* tree)
+void CodeGen::GenBswap(GenTreeUnOp* bswap)
 {
+    assert(bswap->OperIs(GT_BSWAP, GT_BSWAP16));
+
     // TODO: If we're swapping immediately after a read from memory or immediately before
     // a write to memory, use the MOVBE instruction instead of the BSWAP instruction if
     // the platform supports it.
 
-    assert(tree->OperIs(GT_BSWAP, GT_BSWAP16));
+    RegNum   srcReg = UseReg(bswap->GetOp(0));
+    RegNum   dstReg = bswap->GetRegNum();
+    emitAttr size   = emitActualTypeSize(bswap->GetType());
 
-    regNumber targetReg  = tree->GetRegNum();
-    var_types targetType = tree->GetType();
-    GenTree*  operand    = tree->AsUnOp()->GetOp(0);
-    regNumber operandReg = UseReg(operand);
+    GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, srcReg, /* canSkip */ true);
 
-    inst_Mov(targetType, targetReg, operandReg, /* canSkip */ true);
-
-    if (tree->OperIs(GT_BSWAP))
+    if (bswap->OperIs(GT_BSWAP))
     {
-        GetEmitter()->emitIns_R(INS_bswap, emitActualTypeSize(targetType), targetReg);
+        GetEmitter()->emitIns_R(INS_bswap, size, dstReg);
     }
     else
     {
-        GetEmitter()->emitIns_R_I(INS_ror_N, EA_2BYTE, targetReg, 8);
+        GetEmitter()->emitIns_R_I(INS_ror_N, EA_2BYTE, dstReg, 8);
     }
 
-    DefReg(tree);
+    DefReg(bswap);
 }
 
-void CodeGen::GenSatInc(GenTree* tree)
+void CodeGen::GenSatInc(GenTreeUnOp* inc)
 {
-    regNumber targetReg  = tree->GetRegNum();
-    var_types targetType = tree->GetType();
-    GenTree*  operand    = tree->AsUnOp()->GetOp(0);
-    regNumber operandReg = UseReg(operand);
+    assert(inc->OperIs(GT_INC_SATURATE) && varTypeIsIntegral(inc->GetType()));
 
-    inst_Mov(targetType, targetReg, operandReg, /* canSkip */ true);
-    GetEmitter()->emitIns_R_I(INS_add, emitActualTypeSize(targetType), targetReg, 1);
-    GetEmitter()->emitIns_R_I(INS_sbb, emitActualTypeSize(targetType), targetReg, 0);
+    RegNum   srcReg = UseReg(inc->GetOp(0));
+    RegNum   dstReg = inc->GetRegNum();
+    emitAttr size   = emitActualTypeSize(inc->GetType());
 
-    DefReg(tree);
+    GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, srcReg, /* canSkip */ true);
+    GetEmitter()->emitIns_R_I(INS_add, size, dstReg, 1);
+    GetEmitter()->emitIns_R_I(INS_sbb, size, dstReg, 0);
+
+    DefReg(inc);
 }
 
 void CodeGen::GenMul(GenTreeOp* mul)
 {
     assert(mul->OperIs(GT_MUL) && varTypeIsIntOrI(mul->GetType()));
 
-    emitAttr  size          = emitTypeSize(mul->GetType());
-    bool      checkOverflow = mul->gtOverflowEx();
-    regNumber dstReg        = mul->GetRegNum();
-    GenTree*  op1           = mul->GetOp(0);
-    GenTree*  op2           = mul->GetOp(1);
+    bool     checkOverflow = mul->gtOverflowEx();
+    GenTree* op1           = mul->GetOp(0);
+    GenTree* op2           = mul->GetOp(1);
+
+    RegNum   dstReg = mul->GetRegNum();
+    emitAttr size   = emitTypeSize(mul->GetType());
 
     genConsumeRegs(op1);
 
@@ -712,7 +713,7 @@ void CodeGen::GenMulLong(GenTreeOp* mul)
 #else
     assert(mul->OperIs(GT_MULHI));
 #endif
-    assert(!mul->gtOverflowEx());
+    assert(!mul->gtOverflowEx() && varTypeIsIntegral(mul->GetType()));
 
     emitAttr  size   = emitTypeSize(mul->GetType());
     regNumber dstReg = mul->GetRegNum();
@@ -752,22 +753,19 @@ void CodeGen::GenMulLong(GenTreeOp* mul)
 #ifdef TARGET_X86
 void CodeGen::GenUModLong(GenTreeOp* node)
 {
-    assert(node != nullptr);
-    assert(node->OperGet() == GT_UMOD);
-    assert(node->TypeGet() == TYP_INT);
+    assert(node->OperIs(GT_UMOD) && node->TypeIs(TYP_INT));
 
-    GenTreeOp* const dividend = node->gtOp1->AsOp();
-    assert(dividend->OperGet() == GT_LONG);
-    assert(varTypeIsLong(dividend));
+    GenTreeOp* const dividend = node->GetOp(0)->AsOp();
+    assert(dividend->OperIs(GT_LONG));
 
-    GenTree* const dividendLo = dividend->gtOp1;
-    GenTree* const dividendHi = dividend->gtOp2;
+    GenTree* const dividendLo = dividend->GetOp(0);
+    GenTree* const dividendHi = dividend->GetOp(1);
 
-    GenTree* const divisor = node->gtOp2;
-    assert(divisor->gtSkipReloadOrCopy()->OperGet() == GT_CNS_INT);
+    GenTree* const divisor = node->GetOp(1);
+    assert(divisor->gtSkipReloadOrCopy()->OperIs(GT_CNS_INT));
     assert(divisor->gtSkipReloadOrCopy()->isUsedFromReg());
-    assert(divisor->gtSkipReloadOrCopy()->AsIntCon()->gtIconVal >= 2);
-    assert(divisor->gtSkipReloadOrCopy()->AsIntCon()->gtIconVal <= 0x3fffffff);
+    assert(divisor->gtSkipReloadOrCopy()->AsIntCon()->GetValue()  >= 2);
+    assert(divisor->gtSkipReloadOrCopy()->AsIntCon()->GetValue() <= 0x3fffffff);
 
     UseReg(dividendLo);
     UseReg(dividendHi);
@@ -827,8 +825,7 @@ void CodeGen::GenUModLong(GenTreeOp* node)
 
 void CodeGen::GenDivMod(GenTreeOp* div)
 {
-    assert(div->OperIs(GT_DIV, GT_UDIV, GT_MOD, GT_UMOD));
-    assert(varTypeIsIntOrI(div->GetType()));
+    assert(div->OperIs(GT_DIV, GT_UDIV, GT_MOD, GT_UMOD) && varTypeIsIntOrI(div->GetType()));
 
 #ifdef TARGET_X86
     if (varTypeIsLong(div->GetOp(0)->GetType()))
