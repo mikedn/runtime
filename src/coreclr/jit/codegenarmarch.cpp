@@ -13,9 +13,11 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
 {
     switch (node->GetOper())
     {
+#ifndef JIT32_GCENCODER
         case GT_START_NONGC:
             GenStartNoGC();
             break;
+#endif
         case GT_START_PREEMPTGC:
             GenStartPreemptGC();
             break;
@@ -44,15 +46,19 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_NEG:
             GenNegNot(node->AsUnOp());
             break;
-#ifdef TARGET_ARM64
+#if defined(TARGET_ARM64) || defined(TARGET_XARCH)
         case GT_BSWAP:
         case GT_BSWAP16:
             GenBswap(node);
             break;
 #endif
-#ifdef TARGET_ARM64
+#if defined(TARGET_ARM64) || defined(TARGET_XARCH)
         case GT_DIV:
         case GT_UDIV:
+#ifdef TARGET_XARCH
+        case GT_MOD:
+        case GT_UMOD:
+#endif
             GenDivMod(node->AsOp());
             break;
 #endif
@@ -72,6 +78,9 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_LSH:
         case GT_RSH:
         case GT_RSZ:
+#ifdef TARGET_XARCH
+        case GT_ROL:
+#endif
         case GT_ROR:
             GenShift(node->AsOp());
             break;
@@ -84,15 +93,17 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_MUL:
             GenMul(node->AsOp());
             break;
-#ifdef TARGET_ARM
+#if defined(TARGET_ARM64) || defined(TARGET_XARCH)
+        case GT_MULHI:
+            GenMulLong(node->AsOp());
+            break;
+#endif
+#ifndef TARGET_64BIT
         case GT_MUL_LONG:
             GenMulLong(node->AsOp());
             break;
 #endif
-#ifdef TARGET_ARM64
-        case GT_MULHI:
-            GenMulLong(node->AsOp());
-            break;
+#if defined(TARGET_ARM64) || defined(TARGET_XARCH)
         case GT_INC_SATURATE:
             GenSatInc(node);
             break;
@@ -181,8 +192,8 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_LE:
         case GT_GE:
         case GT_GT:
+#if defined(TARGET_ARM64) || defined(TARGET_XARCH)
         case GT_CMP:
-#ifdef TARGET_ARM64
         case GT_TEST_EQ:
         case GT_TEST_NE:
 #endif
@@ -202,6 +213,11 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_SETCC:
             GenSetCC(node->AsCC());
             break;
+#ifdef TARGET_XARCH
+        case GT_BT:
+            GenBitTest(node->AsOp());
+            break;
+#endif
         case GT_RETURNTRAP:
             GenReturnTrap(node->AsOp());
             break;
@@ -209,6 +225,11 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_COPY:
             // These are handled by genConsumeReg
             break;
+#ifdef TARGET_XARCH
+        case GT_SWAP:
+            GenRegSwap(node->AsOp());
+            break;
+#endif
         case GT_PUTARG_STK:
             GenPutArgStk(node->AsPutArgStk());
             break;
@@ -229,13 +250,22 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_MEMORYBARRIER:
             GenMemoryBarrier(node);
             break;
-#ifdef TARGET_ARM64
+#ifdef TARGET_XARCH
+        case GT_LOCKADD:
+            GenLockAdd(node->AsOp());
+            break;
+#endif
+#if defined(TARGET_ARM64) || defined(TARGET_XARCH)
         case GT_XCHG:
         case GT_XADD:
+#ifdef TARGET_ARM64
         case GT_XORR:
         case GT_XAND:
+#endif
             GenInterlocked(node->AsOp());
             break;
+#endif
+#if defined(TARGET_ARM64) || defined(TARGET_XARCH)
         case GT_CMPXCHG:
             GenCmpXchg(node->AsCmpXchg());
             break;
@@ -243,7 +273,11 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_NOP:
             break;
         case GT_NO_OP:
+#ifdef TARGET_XARCH
+            GetEmitter()->emitIns_Nop(1);
+#else
             GetEmitter()->emitIns(INS_nop);
+#endif
             break;
         case GT_KEEPALIVE:
             GenKeepAlive(node->AsUnOp());
@@ -254,6 +288,11 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_CATCH_ARG:
             GenCatchArg(node, block);
             break;
+#ifndef FEATURE_EH_FUNCLETS
+        case GT_END_LFIN:
+            GenEndLFin(node->AsEndLFin());
+            break;
+#endif
         case GT_PINVOKE_PROLOG:
             GenPInvokeProlog();
             break;
@@ -266,7 +305,7 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_SWITCH_TABLE:
             GenSwitchTable(node->AsOp());
             break;
-#ifdef TARGET_ARM64
+#if defined(TARGET_ARM64) || defined(TARGET_XARCH)
         case GT_CONST_ADDR:
             GenConstAddr(node->AsConstAddr());
             break;
@@ -280,10 +319,12 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
     }
 }
 
+#ifndef JIT32_GCENCODER
 void CodeGen::GenStartNoGC() const
 {
     GetEmitter()->DisableGC();
 }
+#endif
 
 void CodeGen::GenStartPreemptGC()
 {
@@ -317,6 +358,15 @@ void CodeGen::GenCatchArg(GenTree* arg, BasicBlock* block)
     UseReg(arg);
 }
 
+void CodeGen::GenPInvokeProlog()
+{
+    noway_assert((liveness.GetGCRegs() & ~fullIntArgRegMask()) == RBM_NONE);
+#ifdef PSEUDORANDOM_NOP_INSERTION
+    // the runtime side requires the codegen here to be consistent
+    GetEmitter()->DisableRandomNops();
+#endif
+}
+
 void CodeGen::GenKeepAlive(GenTreeUnOp* node)
 {
     GenTree* src = node->GetOp(0);
@@ -345,15 +395,6 @@ void CodeGen::GenLabel(GenTree* label)
     GetEmitter()->emitIns_R_L(label->GetRegNum(), genPendingCallLabel);
 #endif
     // TODO-MIKE-Review: Hmm, no DefReg call?
-}
-
-void CodeGen::GenPInvokeProlog()
-{
-    noway_assert((liveness.GetGCRegs() & ~fullIntArgRegMask()) == RBM_NONE);
-#ifdef PSEUDORANDOM_NOP_INSERTION
-    // the runtime side requires the codegen here to be consistent
-    GetEmitter()->DisableRandomNops();
-#endif
 }
 
 void CodeGen::GenMemoryBarrier(GenTree* barrier)

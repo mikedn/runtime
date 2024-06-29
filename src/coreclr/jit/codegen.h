@@ -768,7 +768,7 @@ protected:
     void genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* tree);
 #endif
     void GenIndStoreRMWShift(GenTree* addr, GenTreeOp* shift, GenTree* shiftBy);
-    void genCodeForBT(GenTreeOp* bt);
+    void GenBitTest(GenTreeOp* bt);
     void EpilogGSCookieCheck(bool tailCallEpilog);
 #else
     void EpilogGSCookieCheck();
