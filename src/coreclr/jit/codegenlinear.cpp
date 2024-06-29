@@ -874,8 +874,8 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_LE:
         case GT_GE:
         case GT_GT:
-#if defined(TARGET_ARM64) || defined(TARGET_XARCH)
         case GT_CMP:
+#if defined(TARGET_ARM64) || defined(TARGET_XARCH)
         case GT_TEST_EQ:
         case GT_TEST_NE:
 #endif
