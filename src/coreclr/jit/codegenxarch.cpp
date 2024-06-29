@@ -757,6 +757,8 @@ void CodeGen::GenDivMod(GenTreeOp* div)
     DefReg(div);
 }
 
+static instruction GetOperIns(genTreeOps oper);
+
 void CodeGen::GenAddSubBitwise(GenTreeOp* node)
 {
 #ifdef TARGET_64BIT
@@ -853,11 +855,11 @@ void CodeGen::GenAddSubBitwise(GenTreeOp* node)
             }
         }
 
-        emit.emitIns_R_I(genGetInsForOper(node->GetOper()), attr, dstReg, imm->GetValue());
+        emit.emitIns_R_I(GetOperIns(node->GetOper()), attr, dstReg, imm->GetValue());
     }
     else
     {
-        emitInsRegRM(genGetInsForOper(node->GetOper()), attr, dstReg, src);
+        emitInsRegRM(GetOperIns(node->GetOper()), attr, dstReg, src);
     }
 
     if (node->gtOverflowEx())
@@ -1340,17 +1342,15 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
         case GT_RSZ:
         case GT_ROL:
         case GT_ROR:
-            genCodeForShift(treeNode->AsOp());
+            GenShift(treeNode->AsOp());
             break;
 
-#if !defined(TARGET_64BIT)
-
+#ifndef TARGET_64BIT
         case GT_LSH_HI:
         case GT_RSH_LO:
-            genCodeForShiftLong(treeNode);
+            GenShiftLong(treeNode->AsOp());
             break;
-
-#endif // !defined(TARGET_64BIT)
+#endif
 
         case GT_CAST:
             GenCast(treeNode->AsCast());
@@ -3404,7 +3404,7 @@ instruction CodeGen::ins_FloatCompare(var_types type)
     return (type == TYP_FLOAT) ? INS_ucomiss : INS_ucomisd;
 }
 
-instruction CodeGen::genGetInsForOper(genTreeOps oper)
+static instruction GetOperIns(genTreeOps oper)
 {
     switch (oper)
     {
@@ -3434,7 +3434,7 @@ instruction CodeGen::genGetInsForOper(genTreeOps oper)
             return INS_sub;
         case GT_XOR:
             return INS_xor;
-#if !defined(TARGET_64BIT)
+#ifndef TARGET_64BIT
         case GT_ADD_LO:
             return INS_add;
         case GT_ADD_HI:
@@ -3453,118 +3453,141 @@ instruction CodeGen::genGetInsForOper(genTreeOps oper)
     }
 }
 
-void CodeGen::genCodeForShift(GenTreeOp* tree)
+void CodeGen::GenShift(GenTreeOp* shift)
 {
-    assert(tree->OperIsShiftOrRotate());
+    assert(shift->OperIs(GT_LSH, GT_RSH, GT_RSZ, GT_ROL, GT_ROR));
 
-    var_types   targetType = tree->GetType();
-    instruction ins        = genGetInsForOper(tree->GetOper());
+    GenTree* value   = shift->GetOp(0);
+    GenTree* shiftBy = shift->GetOp(1);
 
-    GenTree* operand = tree->GetOp(0);
-    GenTree* shiftBy = tree->GetOp(1);
+    RegNum valueReg   = UseReg(value);
+    RegNum shiftByReg = shiftBy->isUsedFromReg() ? UseReg(shiftBy) : REG_NA;
+    RegNum dstReg     = shift->GetRegNum();
 
-    regNumber operandReg = UseReg(operand);
-    regNumber shiftByReg = shiftBy->isUsedFromReg() ? UseReg(shiftBy) : REG_NA;
-    regNumber dstReg     = tree->GetRegNum();
+    instruction ins;
+    emitAttr    size = emitActualTypeSize(shift->GetType());
 
-    if (shiftByReg == REG_NA)
+    switch (shift->GetOper())
     {
-        int      shiftByValue = shiftBy->AsIntCon()->GetInt32Value();
-        emitAttr size         = emitTypeSize(tree->GetType());
+        case GT_LSH:
+            ins = INS_shl;
+            break;
+        case GT_RSH:
+            ins = INS_sar;
+            break;
+        case GT_RSZ:
+            ins = INS_shr;
+            break;
+        case GT_ROL:
+            ins = INS_rol;
+            break;
+        case GT_ROR:
+            ins = INS_ror;
+            break;
+        default:
+            unreached();
+    }
 
-        if (tree->OperIs(GT_LSH) && !tree->HasImplicitFlagsDef() && (shiftByValue == 1))
+    Emitter& emit = *GetEmitter();
+
+    if (shiftByReg != REG_NA)
+    {
+        assert(valueReg != REG_RCX);
+
+        emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_RCX, shiftByReg, /* canSkip */ true);
+        emit.emitIns_Mov(INS_mov, size, dstReg, valueReg, /* canSkip */ true);
+        emit.emitIns_R(ins, size, dstReg);
+    }
+    else
+    {
+        int imm = shiftBy->AsIntCon()->GetInt32Value();
+
+        if (shift->OperIs(GT_LSH) && !shift->HasImplicitFlagsDef() && (imm == 1))
         {
-            if (dstReg == operandReg)
+            if (dstReg == valueReg)
             {
                 // ADD reg, reg tends to be more efficient than SHL reg, 1.
-                GetEmitter()->emitIns_R_R(INS_add, size, dstReg, operandReg);
+                emit.emitIns_R_R(INS_add, size, dstReg, valueReg);
             }
             else
             {
                 // TDOO-MIKE-Review: What about SHL reg, 2/3 => LEA [reg*4/8]?
-                GetEmitter()->emitIns_R_ARX(INS_lea, size, dstReg, operandReg, operandReg, 1, 0);
+                emit.emitIns_R_ARX(INS_lea, size, dstReg, valueReg, valueReg, 1, 0);
             }
         }
 #ifdef TARGET_64BIT
-        else if (tree->OperIs(GT_ROL, GT_ROR) && varTypeIsLong(targetType) && (dstReg != operandReg) &&
-                 (shiftByValue > 0) && (shiftByValue < 64) &&
-                 compiler->compOpportunisticallyDependsOn(InstructionSet_BMI2))
+        else if (shift->OperIs(GT_ROL, GT_ROR) && (size == EA_8BYTE) && (dstReg != valueReg) && (imm > 0) &&
+                 (imm < 64) && compiler->compOpportunisticallyDependsOn(InstructionSet_BMI2))
         {
-            shiftByValue = tree->OperIs(GT_ROL) ? (64 - shiftByValue) : shiftByValue;
-            GetEmitter()->emitIns_R_R_I(INS_rorx, size, dstReg, operandReg, shiftByValue);
+            imm = shift->OperIs(GT_ROL) ? (64 - imm) : imm;
+
+            emit.emitIns_R_R_I(INS_rorx, size, dstReg, valueReg, imm);
         }
 #endif
         else
         {
-            inst_Mov(targetType, dstReg, operandReg, /* canSkip */ true);
-            inst_RV_SH(ins, size, dstReg, shiftByValue);
+            emit.emitIns_Mov(INS_mov, size, dstReg, valueReg, /* canSkip */ true);
+
+            if (imm == 1)
+            {
+                emit.emitIns_R(MapShiftInsToShiftBy1Ins(ins), size, dstReg);
+            }
+            else
+            {
+                emit.emitIns_R_I(MapShiftInsToShiftByImmIns(ins), size, dstReg, imm);
+            }
         }
     }
-    else
-    {
-        noway_assert(operandReg != REG_RCX);
 
-        inst_Mov(TYP_INT, REG_RCX, shiftByReg, /* canSkip */ true);
-        inst_Mov(targetType, dstReg, operandReg, /* canSkip */ true);
-        GetEmitter()->emitIns_R(ins, emitActualTypeSize(targetType), dstReg);
-    }
-
-    DefReg(tree);
+    DefReg(shift);
 }
 
 #ifdef TARGET_X86
-//------------------------------------------------------------------------
-// genCodeForShiftLong: Generates the code sequence for a GenTree node that
-// represents a three operand bit shift or rotate operation (<<Hi, >>Lo).
-//
-// Arguments:
-//    load - the bit shift node (that specifies the type of bit shift to perform).
-//
-// Assumptions:
-//    a) All GenTrees are register allocated.
-//    b) The shift-by-amount in load->AsOp()->gtOp2 is a contained constant
-//
-// TODO-X86-CQ: This only handles the case where the operand being shifted is in a register. We don't
-// need sourceHi to be always in reg in case of GT_LSH_HI (because it could be moved from memory to
-// targetReg if sourceHi is a memory operand). Similarly for GT_RSH_LO, sourceLo could be marked as
-// contained memory-op. Even if not a memory-op, we could mark it as reg-optional.
-//
-void CodeGen::genCodeForShiftLong(GenTree* tree)
+void CodeGen::GenShiftLong(GenTreeOp* shift)
 {
-    // Only the non-RMW case here.
-    genTreeOps oper = tree->OperGet();
-    assert(oper == GT_LSH_HI || oper == GT_RSH_LO);
+    assert(shift->OperIs(GT_LSH_HI, GT_RSH_LO));
 
-    GenTree* operand = tree->AsOp()->gtOp1;
-    assert(operand->OperGet() == GT_LONG);
-    assert(operand->AsOp()->gtOp1->isUsedFromReg());
-    assert(operand->AsOp()->gtOp2->isUsedFromReg());
+    GenTreeOp* value = shift->GetOp(0)->AsOp();
+    assert(value->OperIs(GT_LONG));
+    GenTree* valueLo = value->GetOp(0);
+    GenTree* valueHi = value->GetOp(1);
+    unsigned imm     = shift->GetOp(1)->IsContainedIntCon()->GetUInt32Value();
 
-    GenTree* operandLo = operand->gtGetOp1();
-    GenTree* operandHi = operand->gtGetOp2();
+    // TODO-X86-CQ: This only handles the case where the operand being shifted is in a register.
+    // We don't need valueHi to be always in reg in case of GT_LSH_HI (because it could be moved
+    // from memory to dstReg if valueHi is a memory operand). Similarly for GT_RSH_LO,
+    // valueLo could be marked as contained memory-op. Even if not a memory-op, we could mark it
+    // as reg-optional.
 
-    regNumber regLo  = UseReg(operandLo);
-    regNumber regHi  = UseReg(operandHi);
-    regNumber dstReg = tree->GetRegNum();
+    RegNum regLo  = UseReg(valueLo);
+    RegNum regHi  = UseReg(valueHi);
+    RegNum dstReg = shift->GetRegNum();
 
-    var_types   targetType = tree->TypeGet();
-    instruction ins        = genGetInsForOper(oper);
+    RegNum      reg1;
+    RegNum      reg2;
+    instruction ins;
 
-    GenTree* shiftBy = tree->gtGetOp2();
+    if (shift->OperIs(GT_LSH_HI))
+    {
+        reg1 = regHi;
+        reg2 = regLo;
+        ins  = INS_shld;
+    }
+    else
+    {
+        reg1 = regLo;
+        reg2 = regHi;
+        ins  = INS_shrd;
+    }
 
-    assert(shiftBy->isContainedIntOrIImmed());
+    Emitter& emit = *GetEmitter();
 
-    unsigned int count = (unsigned int)shiftBy->AsIntConCommon()->IconValue();
+    emit.emitIns_Mov(INS_mov, EA_4BYTE, dstReg, reg1, /* canSkip */ true);
+    emit.emitIns_R_R_I(ins, EA_4BYTE, dstReg, reg2, imm);
 
-    regNumber regResult = (oper == GT_LSH_HI) ? regHi : regLo;
-    regNumber reg2      = (oper == GT_LSH_HI) ? regLo : regHi;
-
-    inst_Mov(targetType, dstReg, regResult, /* canSkip */ true);
-    GetEmitter()->emitIns_R_R_I(ins, emitTypeSize(targetType), dstReg, reg2, count);
-
-    DefReg(tree);
+    DefReg(shift);
 }
-#endif
+#endif // TARGET_X86
 
 void CodeGen::GenLclLoad(GenTreeLclLoad* load)
 {
@@ -3963,7 +3986,7 @@ void CodeGen::GenStoreLclRMW(var_types type, StackAddrMode s, GenTree* src)
     assert(src->OperIsRMWMemOp());
     assert(varTypeIsIntegral(type));
 
-    instruction ins  = genGetInsForOper(src->GetOper());
+    instruction ins  = GetOperIns(src->GetOper());
     emitAttr    attr = emitTypeSize(type);
 
     if (src->OperIsUnary())
@@ -4199,7 +4222,7 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
         INDEBUG(GenTreeIndir* load = value->AsUnOp()->GetOp(0)->AsIndir());
         assert(load->isUsedFromMemory() && load->isContained());
 
-        GetEmitter()->emitInsRMW_A(genGetInsForOper(value->GetOper()), attr, addr);
+        GetEmitter()->emitInsRMW_A(GetOperIns(value->GetOper()), attr, addr);
 
         return;
     }
@@ -4227,17 +4250,17 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
     }
     else if (GenTreeIntCon* imm = src->IsContainedIntCon())
     {
-        emit->emitInsRMW_A_I(genGetInsForOper(value->GetOper()), attr, addr, imm->GetInt32Value());
+        emit->emitInsRMW_A_I(GetOperIns(value->GetOper()), attr, addr, imm->GetInt32Value());
     }
     else
     {
-        emit->emitInsRMW_A_R(genGetInsForOper(value->GetOper()), attr, addr, src->GetRegNum());
+        emit->emitInsRMW_A_R(GetOperIns(value->GetOper()), attr, addr, src->GetRegNum());
     }
 }
 
 void CodeGen::GenIndStoreRMWShift(GenTree* addr, GenTreeOp* shift, GenTree* shiftBy)
 {
-    instruction ins  = genGetInsForOper(shift->GetOper());
+    instruction ins  = GetOperIns(shift->GetOper());
     emitAttr    attr = emitTypeSize(shift->GetType());
     emitter*    emit = GetEmitter();
 

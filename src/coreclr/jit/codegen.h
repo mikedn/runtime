@@ -749,10 +749,10 @@ protected:
     void ConsumeDynBlk(GenTreeDynBlk* store, regNumber dstReg, regNumber srcReg, regNumber sizeReg);
     INDEBUG(bool IsValidContainedLcl(GenTreeLclVarCommon* node);)
     void genConsumeRegs(GenTree* tree);
-    void genCodeForShift(GenTreeOp* shift);
 
+    void GenShift(GenTreeOp* shift);
 #if defined(TARGET_X86) || defined(TARGET_ARM)
-    void genCodeForShiftLong(GenTree* tree);
+    void GenShiftLong(GenTreeOp* shift);
 #endif
 
 #ifdef TARGET_XARCH
@@ -874,7 +874,6 @@ protected:
     void GenSwitchTable(GenTreeOp* node);
     void genCodeForArrIndex(GenTreeArrIndex* treeNode);
     void genCodeForArrOffset(GenTreeArrOffs* treeNode);
-    instruction genGetInsForOper(genTreeOps oper);
     bool genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarrierForm, GenTree* addr, GenTree* data);
     void genCallInstruction(GenTreeCall* call);
     void GenJmp(GenTree* jmp);
