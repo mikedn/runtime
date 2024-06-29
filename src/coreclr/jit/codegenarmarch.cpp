@@ -1577,24 +1577,24 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
     }
 }
 
-// Generate code for a struct store that contains GC pointers.
-// This will generate a sequence of LDR/STR/LDP/STP instructions for
-// non-GC slots and calls to to the BY_REF_ASSIGN helper otherwise:
-//
-// ldr tempReg, [X13, #8]
-// str tempReg, [X14, #8]
-// bl CORINFO_HELP_ASSIGN_BYREF
-// ldp tempReg, tmpReg2, [X13, #8]
-// stp tempReg, tmpReg2, [X14, #8]
-// bl CORINFO_HELP_ASSIGN_BYREF
-// ldr tempReg, [X13, #8]
-// str tempReg, [X14, #8]
-//
 void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
 {
     assert(layout->HasGCPtr());
 
     ConsumeStructStore(store, layout, REG_WRITE_BARRIER_DST_BYREF, REG_WRITE_BARRIER_SRC_BYREF, REG_NA);
+
+    // Generate code for a struct store that contains GC pointers.
+    // This will generate a sequence of LDR/STR/LDP/STP instructions for
+    // non-GC slots and calls to to the BY_REF_ASSIGN helper otherwise:
+    //
+    // ldr tempReg, [X13, #8]
+    // str tempReg, [X14, #8]
+    // bl CORINFO_HELP_ASSIGN_BYREF
+    // ldp tempReg, tmpReg2, [X13, #8]
+    // stp tempReg, tmpReg2, [X14, #8]
+    // bl CORINFO_HELP_ASSIGN_BYREF
+    // ldr tempReg, [X13, #8]
+    // str tempReg, [X14, #8]
 
     GenTree*  dstAddr = nullptr;
     bool      dstOnStack;
@@ -2157,10 +2157,6 @@ void CodeGen::GenCall(GenTreeCall* call)
     }
 }
 
-// Produce code for a GT_JMP node.
-// The arguments of the caller needs to be transferred to the callee before exiting caller.
-// The actual jump to callee is generated as part of caller epilog sequence.
-// Therefore the codegen of GT_JMP is to ensure that the callee arguments are correctly setup.
 void CodeGen::GenJmp(GenTree* jmp)
 {
     assert(jmp->OperIs(GT_JMP));
@@ -2169,6 +2165,10 @@ void CodeGen::GenJmp(GenTree* jmp)
 #ifdef PROFILING_SUPPORTED
     genProfilingLeaveCallback(CORINFO_HELP_PROF_FCN_TAILCALL);
 #endif
+
+    // The arguments of the caller needs to be transferred to the callee before exiting caller.
+    // The actual jump to callee is generated as part of caller epilog sequence.
+    // Therefore the codegen of JMP is to ensure that the callee arguments are correctly setup.
 
     // Move any register parameters back to their register.
 
@@ -2447,7 +2447,7 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
 #endif // FEATURE_FASTTAILCALL
 }
 
-void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& desc, regNumber reg)
+void CodeGen::GenCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& desc, regNumber reg)
 {
     switch (desc.CheckKind())
     {
@@ -2524,7 +2524,7 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
     }
 }
 
-void CodeGen::genIntToIntCast(GenTreeCast* cast)
+void CodeGen::GenCastIntToInt(GenTreeCast* cast)
 {
     GenTree* src = cast->GetOp(0);
 
@@ -2593,7 +2593,7 @@ void CodeGen::genIntToIntCast(GenTreeCast* cast)
 
     if (desc.CheckKind() != GenIntCastDesc::CHECK_NONE)
     {
-        genIntCastOverflowCheck(cast, desc, srcReg);
+        GenCastOverflowCheck(cast, desc, srcReg);
     }
 
     if ((desc.ExtendKind() != GenIntCastDesc::COPY) || (srcReg != dstReg))
@@ -2634,7 +2634,7 @@ void CodeGen::genIntToIntCast(GenTreeCast* cast)
     genProduceReg(cast);
 }
 
-void CodeGen::genFloatToFloatCast(GenTreeCast* cast)
+void CodeGen::GenCastFloatToFloat(GenTreeCast* cast)
 {
     assert(cast->GetType() == cast->GetCastType());
     assert(!cast->HasOverflowCheck());
