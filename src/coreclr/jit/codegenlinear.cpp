@@ -731,7 +731,7 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
 #if defined(TARGET_ARM64) || defined(TARGET_XARCH)
         case GT_BSWAP:
         case GT_BSWAP16:
-            GenBswap(node);
+            GenBswap(node->AsUnOp());
             break;
 #endif
 #if defined(TARGET_ARM64) || defined(TARGET_XARCH)
@@ -787,7 +787,7 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
 #endif
 #if defined(TARGET_ARM64) || defined(TARGET_XARCH)
         case GT_INC_SATURATE:
-            GenSatInc(node);
+            GenSatInc(node->AsUnOp());
             break;
 #endif
         case GT_CAST:
