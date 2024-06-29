@@ -1078,7 +1078,7 @@ void CodeGen::GenMul(GenTreeOp* mul)
 
 #ifdef TARGET_X86
 
-void CodeGen::genFloatReturn(GenTree* src)
+void CodeGen::GenFloatReturn(GenTree* src)
 {
     assert(varTypeIsFloating(src->GetType()));
 
@@ -4017,19 +4017,9 @@ void CodeGen::GenRegSwap(GenTreeOp* tree)
     liveness.SetGCRegType(oldOp1Reg, type2);
 }
 
-//------------------------------------------------------------------------
-// genEmitOptimizedGCWriteBarrier: Generate write barrier store using the optimized
-// helper functions.
-//
-// Arguments:
-//    writeBarrierForm - the write barrier form to use
-//    addr - the address at which to do the store
-//    shift - the shift to store
-//
-// Return Value:
-//    true if an optimized write barrier form was used, false if not. If this
-//    function returns false, the caller must emit a "standard" write barrier.
-
+// Generate write barrier store using the optimized helper functions.
+// Returns true if an optimized write barrier form was used, false if not.
+// If this function returns false, the caller must emit a "standard" write barrier.
 bool CodeGen::genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarrierForm, GenTree* addr, GenTree* data)
 {
     assert(writeBarrierForm != GCInfo::WBF_NoBarrier);
@@ -4601,10 +4591,6 @@ void CodeGen::GenCall(GenTreeCall* call)
 #endif
 }
 
-// Produce code for a GT_JMP node.
-// The arguments of the caller needs to be transferred to the callee before exiting caller.
-// The actual jump to callee is generated as part of caller epilog sequence.
-// Therefore the codegen of GT_JMP is to ensure that the callee arguments are correctly setup.
 void CodeGen::GenJmp(GenTree* jmp)
 {
     assert(jmp->OperIs(GT_JMP));
@@ -4613,6 +4599,10 @@ void CodeGen::GenJmp(GenTree* jmp)
 #ifdef PROFILING_SUPPORTED
     genProfilingLeaveCallback(CORINFO_HELP_PROF_FCN_TAILCALL);
 #endif
+
+    // The arguments of the caller needs to be transferred to the callee before exiting caller.
+    // The actual jump to callee is generated as part of caller epilog sequence.
+    // Therefore the codegen of GT_JMP is to ensure that the callee arguments are correctly setup.
 
     // Move any register parameters back to their register.
 
@@ -5051,7 +5041,7 @@ void CodeGen::GenIntCompare(GenTreeOp* cmp)
 }
 
 #ifndef TARGET_64BIT
-void CodeGen::genLongToIntCast(GenTreeCast* cast)
+void CodeGen::GenCastLongToInt(GenTreeCast* cast)
 {
     assert(cast->TypeIs(TYP_INT));
 
@@ -5119,15 +5109,7 @@ void CodeGen::genLongToIntCast(GenTreeCast* cast)
 }
 #endif
 
-//------------------------------------------------------------------------
-// genIntCastOverflowCheck: Generate overflow checking code for an integer cast.
-//
-// Arguments:
-//    cast - The GT_CAST node
-//    desc - The cast description
-//    reg  - The register containing the shift to check
-//
-void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& desc, regNumber reg)
+void CodeGen::GenCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& desc, RegNum reg)
 {
     switch (desc.CheckKind())
     {
@@ -5182,17 +5164,7 @@ void CodeGen::genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& d
     }
 }
 
-//------------------------------------------------------------------------
-// genIntToIntCast: Generate code for an integer cast, with or without overflow check.
-//
-// Arguments:
-//    cast - The GT_CAST node
-//
-// Assumptions:
-//    Neither the source nor target type can be a floating point type.
-//    On x86 casts to (U)BYTE require that the source be in a byte register if not contained.
-//
-void CodeGen::genIntToIntCast(GenTreeCast* cast)
+void CodeGen::GenCastIntToInt(GenTreeCast* cast)
 {
     GenTree* src = cast->GetOp(0);
 
@@ -5252,7 +5224,7 @@ void CodeGen::genIntToIntCast(GenTreeCast* cast)
 
     if (desc.CheckKind() != GenIntCastDesc::CHECK_NONE)
     {
-        genIntCastOverflowCheck(cast, desc, srcReg);
+        GenCastOverflowCheck(cast, desc, srcReg);
     }
 
     instruction ins;
@@ -5294,7 +5266,7 @@ void CodeGen::genIntToIntCast(GenTreeCast* cast)
     genProduceReg(cast);
 }
 
-void CodeGen::genFloatToFloatCast(GenTreeCast* cast)
+void CodeGen::GenCastFloatToFloat(GenTreeCast* cast)
 {
     assert(cast->GetType() == cast->GetCastType());
     assert(!cast->HasOverflowCheck());
@@ -5336,7 +5308,7 @@ void CodeGen::genFloatToFloatCast(GenTreeCast* cast)
     DefReg(cast);
 }
 
-void CodeGen::genIntToFloatCast(GenTreeCast* cast)
+void CodeGen::GenCastIntToFloat(GenTreeCast* cast)
 {
     assert(cast->GetType() == cast->GetCastType());
     assert(!cast->HasOverflowCheck());
@@ -5433,7 +5405,7 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
     DefReg(cast);
 }
 
-void CodeGen::genFloatToIntCast(GenTreeCast* cast)
+void CodeGen::GenCastFloatToInt(GenTreeCast* cast)
 {
     assert(!cast->HasOverflowCheck());
 

@@ -5060,13 +5060,13 @@ void CodeGen::GenReturn(GenTree* ret, BasicBlock* block)
 #ifdef TARGET_X86
     else if (varTypeIsFloating(retType))
     {
-        genFloatReturn(ret->AsUnOp()->GetOp(0));
+        GenFloatReturn(ret->AsUnOp()->GetOp(0));
     }
 #endif
 #ifdef TARGET_ARM
     else if (varTypeIsFloating(retType) && (compiler->opts.compUseSoftFP || compiler->info.compIsVarArgs))
     {
-        genFloatReturn(ret->AsUnOp()->GetOp(0));
+        GenFloatReturn(ret->AsUnOp()->GetOp(0));
     }
 #endif
 #ifndef WINDOWS_AMD64_ABI
@@ -5584,25 +5584,25 @@ void CodeGen::GenCast(GenTreeCast* cast)
 {
     if (varTypeIsFloating(cast->GetType()) && varTypeIsFloating(cast->GetOp(0)->GetType()))
     {
-        genFloatToFloatCast(cast);
+        GenCastFloatToFloat(cast);
     }
     else if (varTypeIsFloating(cast->GetOp(0)->GetType()))
     {
-        genFloatToIntCast(cast);
+        GenCastFloatToInt(cast);
     }
     else if (varTypeIsFloating(cast->GetType()))
     {
-        genIntToFloatCast(cast);
+        GenCastIntToFloat(cast);
     }
 #ifndef TARGET_64BIT
     else if (varTypeIsLong(cast->GetOp(0)->GetType()))
     {
-        genLongToIntCast(cast);
+        GenCastLongToInt(cast);
     }
 #endif
     else
     {
-        genIntToIntCast(cast);
+        GenCastIntToInt(cast);
     }
 }
 

@@ -550,7 +550,7 @@ protected:
 #endif
 
 #ifndef TARGET_64BIT
-    void genLongToIntCast(GenTreeCast* cast);
+    void GenCastLongToInt(GenTreeCast* cast);
 #endif
 
     void GenBitCast(GenTreeUnOp* bitcast);
@@ -648,11 +648,11 @@ protected:
         }
     };
 
-    void genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& desc, regNumber reg);
-    void genIntToIntCast(GenTreeCast* cast);
-    void genFloatToFloatCast(GenTreeCast* cast);
-    void genFloatToIntCast(GenTreeCast* cast);
-    void genIntToFloatCast(GenTreeCast* cast);
+    void GenCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& desc, regNumber reg);
+    void GenCastIntToInt(GenTreeCast* cast);
+    void GenCastFloatToFloat(GenTreeCast* cast);
+    void GenCastFloatToInt(GenTreeCast* cast);
+    void GenCastIntToFloat(GenTreeCast* cast);
 
     void GenCkfinite(GenTree* treeNode);
     void GenCompare(GenTreeOp* tree);
@@ -915,7 +915,7 @@ protected:
 #endif
 
 #if defined(TARGET_X86) || defined(TARGET_ARM)
-    void genFloatReturn(GenTree* src);
+    void GenFloatReturn(GenTree* src);
 #endif
 
     void GenRetFilt(GenTree* retfilt, BasicBlock* block);

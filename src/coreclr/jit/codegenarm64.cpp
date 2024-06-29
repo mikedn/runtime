@@ -2879,7 +2879,7 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
     emitInsStore(ins, emitActualTypeSize(type), valueReg, store);
 }
 
-void CodeGen::genIntToFloatCast(GenTreeCast* cast)
+void CodeGen::GenCastIntToFloat(GenTreeCast* cast)
 {
     assert(cast->GetType() == cast->GetCastType());
     assert(!cast->HasOverflowCheck());
@@ -2914,7 +2914,7 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
     genProduceReg(cast);
 }
 
-void CodeGen::genFloatToIntCast(GenTreeCast* cast)
+void CodeGen::GenCastFloatToInt(GenTreeCast* cast)
 {
     assert(!cast->HasOverflowCheck());
 

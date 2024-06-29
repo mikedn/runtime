@@ -1074,7 +1074,7 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
     emitInsStore(ins_Store(type), emitActualTypeSize(type), dataReg, store);
 }
 
-void CodeGen::genLongToIntCast(GenTreeCast* cast)
+void CodeGen::GenCastLongToInt(GenTreeCast* cast)
 {
     assert(cast->TypeIs(TYP_INT));
 
@@ -1141,7 +1141,7 @@ void CodeGen::genLongToIntCast(GenTreeCast* cast)
     DefReg(cast);
 }
 
-void CodeGen::genIntToFloatCast(GenTreeCast* cast)
+void CodeGen::GenCastIntToFloat(GenTreeCast* cast)
 {
     assert(cast->GetType() == cast->GetCastType());
     assert(!cast->HasOverflowCheck());
@@ -1175,7 +1175,7 @@ void CodeGen::genIntToFloatCast(GenTreeCast* cast)
     genProduceReg(cast);
 }
 
-void CodeGen::genFloatToIntCast(GenTreeCast* cast)
+void CodeGen::GenCastFloatToInt(GenTreeCast* cast)
 {
     assert(cast->TypeIs(TYP_INT));
     assert(!cast->HasOverflowCheck());
@@ -1290,7 +1290,7 @@ void CodeGen::GenMulLong(GenTreeOp* node)
     DefLongRegs(node);
 }
 
-void CodeGen::genFloatReturn(GenTree* src)
+void CodeGen::GenFloatReturn(GenTree* src)
 {
     assert(compiler->opts.compUseSoftFP || compiler->info.compIsVarArgs);
 
