@@ -282,6 +282,21 @@ void CodeGen::GenMul(GenTreeOp* mul)
     DefReg(mul);
 }
 
+void CodeGen::GenMulLong(GenTreeOp* node)
+{
+    assert(node->OperIs(GT_MUL_LONG));
+
+    regNumber srcReg1 = UseReg(node->GetOp(0));
+    regNumber srcReg2 = UseReg(node->GetOp(1));
+    regNumber dstReg1 = node->GetRegNum(0);
+    regNumber dstReg2 = node->GetRegNum(1);
+
+    instruction ins = node->IsMulUnsigned() ? INS_umull : INS_smull;
+    GetEmitter()->emitIns_R_R_R_R(ins, EA_4BYTE, dstReg1, dstReg2, srcReg1, srcReg2);
+
+    DefLongRegs(node);
+}
+
 static instruction GetAddSubBitwiseIns(genTreeOps oper)
 {
     switch (oper)
@@ -1273,21 +1288,6 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
         callTargetReg,
         false);
     // clang-format on
-}
-
-void CodeGen::GenMulLong(GenTreeOp* node)
-{
-    assert(node->OperIs(GT_MUL_LONG));
-
-    regNumber srcReg1 = UseReg(node->GetOp(0));
-    regNumber srcReg2 = UseReg(node->GetOp(1));
-    regNumber dstReg1 = node->GetRegNum(0);
-    regNumber dstReg2 = node->GetRegNum(1);
-
-    instruction ins = node->IsMulUnsigned() ? INS_umull : INS_smull;
-    GetEmitter()->emitIns_R_R_R_R(ins, EA_4BYTE, dstReg1, dstReg2, srcReg1, srcReg2);
-
-    DefLongRegs(node);
 }
 
 void CodeGen::GenFloatReturn(GenTree* src)
