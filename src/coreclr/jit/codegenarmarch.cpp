@@ -95,13 +95,13 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
         case GT_RSH:
         case GT_RSZ:
         case GT_ROR:
-            genCodeForShift(treeNode->AsOp());
+            GenShift(treeNode->AsOp());
             break;
 
 #ifndef TARGET_64BIT
         case GT_LSH_HI:
         case GT_RSH_LO:
-            genCodeForShiftLong(treeNode);
+            GenShiftLong(treeNode->AsOp());
             break;
 #endif
 
@@ -1182,19 +1182,37 @@ void CodeGen::genCodeForArrOffset(GenTreeArrOffs* arrOffset)
     genProduceReg(arrOffset);
 }
 
-void CodeGen::genCodeForShift(GenTreeOp* tree)
+void CodeGen::GenShift(GenTreeOp* shift)
 {
-    var_types   targetType = tree->GetType();
-    genTreeOps  oper       = tree->GetOper();
-    instruction ins        = genGetInsForOper(oper);
-    emitAttr    size       = emitActualTypeSize(targetType);
+    assert(shift->OperIs(GT_LSH, GT_RSH, GT_RSZ, GT_ROR));
 
-    GenTree* value   = tree->GetOp(0);
-    GenTree* shiftBy = tree->GetOp(1);
+    GenTree* value   = shift->GetOp(0);
+    GenTree* shiftBy = shift->GetOp(1);
 
-    regNumber valueReg   = UseReg(value);
-    regNumber shiftByReg = shiftBy->isUsedFromReg() ? UseReg(shiftBy) : REG_NA;
-    regNumber dstReg     = tree->GetRegNum();
+    RegNum valueReg   = UseReg(value);
+    RegNum shiftByReg = shiftBy->isUsedFromReg() ? UseReg(shiftBy) : REG_NA;
+    RegNum dstReg     = shift->GetRegNum();
+
+    emitAttr    size = emitActualTypeSize(shift->GetType());
+    instruction ins;
+
+    switch (shift->GetOper())
+    {
+        case GT_LSH:
+            ins = INS_lsl;
+            break;
+        case GT_RSH:
+            ins = INS_asr;
+            break;
+        case GT_RSZ:
+            ins = INS_lsr;
+            break;
+        case GT_ROR:
+            ins = INS_ror;
+            break;
+        default:
+            unreached();
+    }
 
     if (shiftBy->isUsedFromReg())
     {
@@ -1212,7 +1230,7 @@ void CodeGen::genCodeForShift(GenTreeOp* tree)
         GetEmitter()->emitIns_R_R_I(ins, size, dstReg, valueReg, shiftByImm);
     }
 
-    DefReg(tree);
+    DefReg(shift);
 }
 
 void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)

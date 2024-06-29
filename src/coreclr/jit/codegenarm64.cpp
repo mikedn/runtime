@@ -1710,6 +1710,25 @@ void CodeGen::GenMul(GenTreeOp* mul)
     DefReg(mul);
 }
 
+static instruction GetAddSubBitwiseIns(genTreeOps oper)
+{
+    switch (oper)
+    {
+        case GT_ADD:
+            return INS_add;
+        case GT_SUB:
+            return INS_sub;
+        case GT_AND:
+            return INS_and;
+        case GT_OR:
+            return INS_orr;
+        case GT_XOR:
+            return INS_eor;
+        default:
+            unreached();
+    }
+}
+
 void CodeGen::GenAddSubBitwise(GenTreeOp* node)
 {
     assert(node->OperIs(GT_ADD, GT_SUB, GT_AND, GT_OR, GT_XOR));
@@ -1741,7 +1760,7 @@ void CodeGen::GenAddSubBitwise(GenTreeOp* node)
     assert((reg2 != REG_NA) || (immOp != nullptr));
 
     Emitter&    emit = *GetEmitter();
-    instruction ins  = genGetInsForOper(node->GetOper());
+    instruction ins  = GetAddSubBitwiseIns(node->GetOper());
     emitAttr    attr = emitActualTypeSize(node->GetType());
 
     if (node->HasImplicitFlagsDef() || node->gtOverflowEx())
@@ -2713,43 +2732,6 @@ void CodeGen::GenCmpXchg(GenTreeCmpXchg* node)
     liveness.RemoveGCRegs(genRegMask(addrReg));
 
     DefReg(node);
-}
-
-instruction CodeGen::genGetInsForOper(genTreeOps oper)
-{
-    switch (oper)
-    {
-        case GT_ADD:
-            return INS_add;
-        case GT_AND:
-            return INS_and;
-        case GT_DIV:
-            return INS_sdiv;
-        case GT_UDIV:
-            return INS_udiv;
-        case GT_MUL:
-            return INS_mul;
-        case GT_LSH:
-            return INS_lsl;
-        case GT_NEG:
-            return INS_neg;
-        case GT_NOT:
-            return INS_mvn;
-        case GT_OR:
-            return INS_orr;
-        case GT_ROR:
-            return INS_ror;
-        case GT_RSH:
-            return INS_asr;
-        case GT_RSZ:
-            return INS_lsr;
-        case GT_SUB:
-            return INS_sub;
-        case GT_XOR:
-            return INS_eor;
-        default:
-            unreached();
-    }
 }
 
 void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)

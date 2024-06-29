@@ -282,6 +282,33 @@ void CodeGen::GenMul(GenTreeOp* mul)
     DefReg(mul);
 }
 
+static instruction GetAddSubBitwiseIns(genTreeOps oper)
+{
+    switch (oper)
+    {
+        case GT_ADD:
+            return INS_add;
+        case GT_SUB:
+            return INS_sub;
+        case GT_AND:
+            return INS_and;
+        case GT_OR:
+            return INS_orr;
+        case GT_XOR:
+            return INS_eor;
+        case GT_ADD_LO:
+            return INS_add;
+        case GT_ADD_HI:
+            return INS_adc;
+        case GT_SUB_LO:
+            return INS_sub;
+        case GT_SUB_HI:
+            return INS_sbc;
+        default:
+            unreached();
+    }
+}
+
 void CodeGen::GenAddSubBitwise(GenTreeOp* node)
 {
     assert(node->OperIs(GT_ADD, GT_SUB, GT_AND, GT_OR, GT_XOR, GT_ADD_LO, GT_ADD_HI, GT_SUB_LO, GT_SUB_HI));
@@ -313,7 +340,7 @@ void CodeGen::GenAddSubBitwise(GenTreeOp* node)
     assert((reg2 != REG_NA) || (immOp != nullptr));
 
     Emitter&    emit  = *GetEmitter();
-    instruction ins   = genGetInsForOper(node->GetOper());
+    instruction ins   = GetAddSubBitwiseIns(node->GetOper());
     emitAttr    attr  = emitTypeSize(node->GetType());
     insFlags    flags = INS_FLAGS_DONT_CARE;
 
@@ -706,96 +733,47 @@ void CodeGen::GenSwitchTable(GenTreeOp* node)
     GetEmitter()->emitIns_R_R_R_I(INS_ldr, EA_4BYTE, REG_PC, baseReg, indexReg, 2, INS_FLAGS_DONT_CARE, INS_OPTS_LSL);
 }
 
-instruction CodeGen::genGetInsForOper(genTreeOps oper)
+void CodeGen::GenShiftLong(GenTreeOp* shift)
 {
-    switch (oper)
+    assert(shift->OperIs(GT_LSH_HI, GT_RSH_LO));
+
+    GenTreeOp* value = shift->GetOp(0)->AsOp();
+    assert(value->OperIs(GT_LONG));
+    GenTree* valueLo = value->GetOp(0);
+    GenTree* valueHi = value->GetOp(1);
+    unsigned imm     = shift->GetOp(1)->IsContainedIntCon()->GetUInt32Value();
+
+    RegNum regLo  = UseReg(valueLo);
+    RegNum regHi  = UseReg(valueHi);
+    RegNum dstReg = shift->GetRegNum();
+
+    RegNum      reg1;
+    RegNum      reg2;
+    instruction ins;
+    insOpts     opts;
+
+    if (shift->OperIs(GT_LSH_HI))
     {
-        case GT_ADD:
-            return INS_add;
-        case GT_AND:
-            return INS_and;
-        case GT_MUL:
-            return INS_mul;
-#ifndef USE_HELPERS_FOR_INT_DIV
-        case GT_DIV:
-            return INS_sdiv;
-#endif
-        case GT_LSH:
-            return INS_lsl;
-        case GT_NEG:
-            return INS_rsb;
-        case GT_NOT:
-            return INS_mvn;
-        case GT_OR:
-            return INS_orr;
-        case GT_RSH:
-            return INS_asr;
-        case GT_RSZ:
-            return INS_lsr;
-        case GT_SUB:
-            return INS_sub;
-        case GT_XOR:
-            return INS_eor;
-        case GT_ROR:
-            return INS_ror;
-        case GT_ADD_LO:
-            return INS_add;
-        case GT_ADD_HI:
-            return INS_adc;
-        case GT_SUB_LO:
-            return INS_sub;
-        case GT_SUB_HI:
-            return INS_sbc;
-        case GT_LSH_HI:
-            return INS_lsl;
-        case GT_RSH_LO:
-            return INS_lsr;
-        default:
-            unreached();
-    }
-}
-
-void CodeGen::genCodeForShiftLong(GenTree* tree)
-{
-    genTreeOps oper = tree->GetOper();
-    assert(oper == GT_LSH_HI || oper == GT_RSH_LO);
-
-    GenTree* operand = tree->AsOp()->GetOp(0);
-    assert(operand->OperIs(GT_LONG));
-
-    GenTree* operandLo = operand->AsOp()->GetOp(0);
-    GenTree* operandHi = operand->AsOp()->GetOp(1);
-
-    regNumber regLo  = UseReg(operandLo);
-    regNumber regHi  = UseReg(operandHi);
-    regNumber dstReg = tree->GetRegNum();
-
-    var_types   targetType = tree->TypeGet();
-    instruction ins        = genGetInsForOper(oper);
-
-    GenTree* shiftBy = tree->gtGetOp2();
-    assert(shiftBy->IsContainedIntCon());
-    unsigned count = shiftBy->AsIntCon()->GetUInt32Value();
-
-    regNumber regResult = (oper == GT_LSH_HI) ? regHi : regLo;
-
-    inst_Mov(targetType, dstReg, regResult, /* canSkip */ true);
-
-    if (oper == GT_LSH_HI)
-    {
-        GetEmitter()->emitIns_R_I(ins, EA_4BYTE, dstReg, count & 31);
-        GetEmitter()->emitIns_R_R_R_I(INS_orr, EA_4BYTE, dstReg, dstReg, regLo, 32 - count, INS_FLAGS_DONT_CARE,
-                                      INS_OPTS_LSR);
+        reg1 = regHi;
+        reg2 = regLo;
+        ins  = INS_lsl;
+        opts = INS_OPTS_LSR;
     }
     else
     {
-        assert(oper == GT_RSH_LO);
-        GetEmitter()->emitIns_R_I(ins, EA_4BYTE, dstReg, count & 31);
-        GetEmitter()->emitIns_R_R_R_I(INS_orr, EA_4BYTE, dstReg, dstReg, regHi, 32 - count, INS_FLAGS_DONT_CARE,
-                                      INS_OPTS_LSL);
+        reg1 = regLo;
+        reg2 = regHi;
+        ins  = INS_lsr;
+        opts = INS_OPTS_LSL;
     }
 
-    DefReg(tree);
+    Emitter& emit = *GetEmitter();
+
+    emit.emitIns_Mov(INS_mov, EA_4BYTE, dstReg, reg1, /* canSkip */ true);
+    emit.emitIns_R_I(ins, EA_4BYTE, dstReg, imm & 31);
+    emit.emitIns_R_R_R_I(INS_orr, EA_4BYTE, dstReg, dstReg, reg2, 32 - imm, INS_FLAGS_DONT_CARE, opts);
+
+    DefReg(shift);
 }
 
 void CodeGen::GenLclLoad(GenTreeLclLoad* load)
