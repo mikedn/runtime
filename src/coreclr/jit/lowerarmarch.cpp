@@ -950,14 +950,20 @@ void Lowering::ContainCheckBinary(GenTreeOp* node)
 
 void Lowering::ContainCheckMul(GenTreeOp* node)
 {
-    ContainCheckBinary(node);
+#ifdef TARGET_64BIT
+    assert(node->OperIs(GT_MUL, GT_MULHI));
+#else
+    assert(node->OperIs(GT_MUL, GT_MULHI, GT_MUL_LONG));
+#endif
+
+    // ARM doesn't have mul instructions with an immediate operand
 }
 
 void Lowering::ContainCheckDivOrMod(GenTreeOp* node)
 {
     assert(node->OperIs(GT_DIV, GT_UDIV));
 
-    // ARM doesn't have a div instruction with an immediate operand
+    // ARM doesn't have div instructions with an immediate operand
 }
 
 void Lowering::ContainCheckShiftRotate(GenTreeOp* node)

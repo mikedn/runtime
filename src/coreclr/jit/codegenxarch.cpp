@@ -757,16 +757,14 @@ void CodeGen::GenDivMod(GenTreeOp* div)
     DefReg(div);
 }
 
-void CodeGen::genCodeForBinary(GenTreeOp* node)
+void CodeGen::GenAddSubBitwise(GenTreeOp* node)
 {
+#ifdef TARGET_64BIT
+    assert(node->OperIs(GT_ADD, GT_SUB, GT_AND, GT_OR, GT_XOR));
+#else
+    assert(node->OperIs(GT_ADD, GT_SUB, GT_AND, GT_OR, GT_XOR, GT_ADD_LO, GT_ADD_HI, GT_SUB_LO, GT_SUB_HI));
+#endif
     assert(varTypeIsIntegralOrI(node->GetType()));
-#ifdef DEBUG
-    bool isValidOper = node->OperIs(GT_ADD, GT_SUB, GT_AND, GT_OR, GT_XOR);
-#ifndef TARGET_64BIT
-    isValidOper |= node->OperIs(GT_ADD_LO, GT_ADD_HI, GT_SUB_LO, GT_SUB_HI);
-#endif
-    assert(isValidOper);
-#endif
 
     GenTree* op1 = node->GetOp(0);
     GenTree* op2 = node->GetOp(1);
@@ -793,18 +791,19 @@ void CodeGen::genCodeForBinary(GenTreeOp* node)
         std::swap(op1, op2);
     }
 
-    regNumber op1reg = op1->GetRegNum();
-    regNumber op2reg = op2->isUsedFromReg() ? op2->GetRegNum() : REG_NA;
-    regNumber dstReg = node->GetRegNum();
-    Emitter&  emit   = *GetEmitter();
-    emitAttr  attr   = emitTypeSize(node->GetType());
-    GenTree*  src;
+    RegNum reg1   = op1->GetRegNum();
+    RegNum reg2   = op2->isUsedFromReg() ? op2->GetRegNum() : REG_NA;
+    RegNum dstReg = node->GetRegNum();
 
-    if (op1reg == dstReg)
+    Emitter& emit = *GetEmitter();
+    emitAttr attr = emitTypeSize(node->GetType());
+    GenTree* src;
+
+    if (reg1 == dstReg)
     {
         src = op2;
     }
-    else if (op2reg == dstReg)
+    else if (reg2 == dstReg)
     {
         assert(node->OperIsCommutative());
 
@@ -812,16 +811,16 @@ void CodeGen::genCodeForBinary(GenTreeOp* node)
     }
     else
     {
-        if (node->OperIs(GT_ADD) && !node->gtOverflow() && ((node->gtFlags & GTF_SET_FLAGS) == 0) &&
-            (op2->IsContainedIntCon() || (op2reg != REG_NA)))
+        if (node->OperIs(GT_ADD) && !node->gtOverflow() && !node->HasImplicitFlagsDef() &&
+            (op2->IsContainedIntCon() || (reg2 != REG_NA)))
         {
             if (GenTreeIntCon* imm = op2->IsContainedIntCon())
             {
-                emit.emitIns_R_AR(INS_lea, attr, dstReg, op1reg, imm->GetInt32Value());
+                emit.emitIns_R_AR(INS_lea, attr, dstReg, reg1, imm->GetInt32Value());
             }
             else
             {
-                emit.emitIns_R_ARX(INS_lea, attr, dstReg, op1reg, op2reg, 1, 0);
+                emit.emitIns_R_ARX(INS_lea, attr, dstReg, reg1, reg2, 1, 0);
             }
 
             DefReg(node);
@@ -829,7 +828,7 @@ void CodeGen::genCodeForBinary(GenTreeOp* node)
             return;
         }
 
-        emit.emitIns_Mov(INS_mov, emitActualTypeSize(op1->GetType()), dstReg, op1reg, /* canSkip */ false);
+        emit.emitIns_Mov(INS_mov, emitActualTypeSize(op1->GetType()), dstReg, reg1, /* canSkip */ false);
         liveness.SetGCRegType(dstReg, op1->GetType());
 
         src = op2;
@@ -1333,7 +1332,7 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
         case GT_SUB_LO:
         case GT_SUB_HI:
 #endif
-            genCodeForBinary(treeNode->AsOp());
+            GenAddSubBitwise(treeNode->AsOp());
             break;
 
         case GT_LSH:

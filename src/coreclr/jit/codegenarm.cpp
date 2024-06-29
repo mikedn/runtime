@@ -239,53 +239,130 @@ void CodeGen::GenDblCon(GenTreeDblCon* node)
     DefReg(node);
 }
 
-void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
+void CodeGen::GenMul(GenTreeOp* mul)
 {
-    assert(varTypeIsIntegralOrI(treeNode->GetType()));
+    assert(mul->OperIs(GT_MUL));
+    assert(varTypeIsIntegralOrI(mul->GetType()));
 
-    const genTreeOps oper       = treeNode->OperGet();
-    regNumber        targetReg  = treeNode->GetRegNum();
-    var_types        targetType = treeNode->TypeGet();
-    emitter*         emit       = GetEmitter();
+    GenTree* op1 = mul->GetOp(0);
+    GenTree* op2 = mul->GetOp(1);
 
-    assert(oper == GT_ADD || oper == GT_SUB || oper == GT_MUL || oper == GT_ADD_LO || oper == GT_ADD_HI ||
-           oper == GT_SUB_LO || oper == GT_SUB_HI || oper == GT_OR || oper == GT_XOR || oper == GT_AND);
+    assert(IsValidSourceType(mul->GetType(), op1->GetType()));
+    assert(IsValidSourceType(mul->GetType(), op2->GetType()));
 
-    GenTree* op1 = treeNode->gtGetOp1();
-    GenTree* op2 = treeNode->gtGetOp2();
+    RegNum reg1   = UseReg(op1);
+    RegNum reg2   = UseReg(op2);
+    RegNum dstReg = mul->GetRegNum();
 
-    if (op1->isUsedFromReg())
+    Emitter& emit = *GetEmitter();
+
+    if (!mul->gtOverflow())
     {
-        UseReg(op1);
-    }
-
-    if (op2->isUsedFromReg())
-    {
-        UseReg(op2);
-    }
-
-    assert(IsValidSourceType(targetType, op1->GetType()));
-    assert(IsValidSourceType(targetType, op2->GetType()));
-
-    instruction ins  = genGetInsForOper(oper);
-    emitAttr    attr = emitTypeSize(treeNode->GetType());
-
-    // The arithmetic node must be sitting in a register (since it's not contained)
-    noway_assert(targetReg != REG_NA);
-
-    if ((oper == GT_ADD_LO || oper == GT_SUB_LO))
-    {
-        // During decomposition, all operands become reg
-        assert(!op1->isContained() && !op2->isContained());
-        emit->emitIns_R_R_R(ins, attr, treeNode->GetRegNum(), op1->GetRegNum(), op2->GetRegNum(), INS_FLAGS_SET);
+        emit.emitIns_R_R_R(INS_mul, EA_4BYTE, dstReg, reg1, reg2);
     }
     else
     {
-        regNumber r = emitInsTernary(ins, attr, treeNode, op1, op2);
-        assert(r == targetReg);
+        RegNum tmpReg = mul->GetSingleTempReg();
+        assert(tmpReg != mul->GetRegNum());
+
+        if (mul->IsOverflowUnsigned())
+        {
+            emit.emitIns_R_R_R_R(INS_umull, EA_4BYTE, dstReg, tmpReg, reg1, reg2);
+            emit.emitIns_R_I(INS_cmp, EA_4BYTE, tmpReg, 0);
+        }
+        else
+        {
+            emit.emitIns_R_R_R_R(INS_smull, EA_4BYTE, dstReg, tmpReg, reg1, reg2);
+            emit.emitIns_R_R_I(INS_cmp, EA_4BYTE, tmpReg, dstReg, 31, INS_FLAGS_DONT_CARE, INS_OPTS_ASR);
+        }
+
+        genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
     }
 
-    DefReg(treeNode);
+    DefReg(mul);
+}
+
+void CodeGen::GenAddSubBitwise(GenTreeOp* node)
+{
+    assert(node->OperIs(GT_ADD, GT_SUB, GT_AND, GT_OR, GT_XOR, GT_ADD_LO, GT_ADD_HI, GT_SUB_LO, GT_SUB_HI));
+    assert(varTypeIsIntegralOrI(node->GetType()));
+
+    GenTree* op1 = node->GetOp(0);
+    GenTree* op2 = node->GetOp(1);
+
+    assert(IsValidSourceType(node->GetType(), op1->GetType()));
+    assert(IsValidSourceType(node->GetType(), op2->GetType()));
+
+    RegNum reg1   = op1->isUsedFromReg() ? UseReg(op1) : REG_NA;
+    RegNum reg2   = op2->isUsedFromReg() ? UseReg(op2) : REG_NA;
+    RegNum dstReg = node->GetRegNum();
+
+    GenTreeIntCon* immOp = op2->IsContainedIntCon();
+
+    if ((immOp == nullptr) && node->OperIsCommutative())
+    {
+        immOp = op1->IsContainedIntCon();
+
+        if (immOp != nullptr)
+        {
+            reg1 = reg2;
+        }
+    }
+
+    assert(reg1 != REG_NA);
+    assert((reg2 != REG_NA) || (immOp != nullptr));
+
+    Emitter&    emit  = *GetEmitter();
+    instruction ins   = genGetInsForOper(node->GetOper());
+    emitAttr    attr  = emitTypeSize(node->GetType());
+    insFlags    flags = INS_FLAGS_DONT_CARE;
+
+    if (node->gtOverflowEx() || node->HasImplicitFlagsDef())
+    {
+        assert((ins == INS_add) || (ins == INS_adc) || (ins == INS_sub) || (ins == INS_sbc) || (ins == INS_and) ||
+               (ins == INS_orr) || (ins == INS_eor) || (ins == INS_orn));
+
+        flags = INS_FLAGS_SET;
+    }
+
+    if (immOp != nullptr)
+    {
+        emit.emitIns_R_R_I(ins, attr, dstReg, reg1, immOp->GetInt32Value(), flags);
+    }
+    else
+    {
+        emit.emitIns_R_R_R(ins, attr, dstReg, reg1, reg2, flags);
+    }
+
+    if (node->gtOverflowEx())
+    {
+        GenOverflowCheck(node);
+    }
+
+    DefReg(node);
+}
+
+void CodeGen::GenOverflowCheck(GenTree* node)
+{
+    assert(!node->OperIs(GT_MUL) && node->gtOverflow());
+    assert(!varTypeIsSmall(node->GetType()));
+
+    emitJumpKind jumpKind;
+
+    if (!node->IsOverflowUnsigned())
+    {
+        jumpKind = EJ_vs;
+    }
+    else if (node->OperIs(GT_SUB, GT_SUB_HI))
+    {
+        jumpKind = EJ_lo;
+    }
+    else
+    {
+        jumpKind = EJ_hs;
+    }
+
+    genJumpToThrowHlpBlk(jumpKind, ThrowHelperKind::Overflow);
 }
 
 void CodeGen::genLclHeap(GenTree* tree)
@@ -1220,7 +1297,7 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
     // clang-format on
 }
 
-void CodeGen::genCodeForMulLong(GenTreeOp* node)
+void CodeGen::GenMulLong(GenTreeOp* node)
 {
     assert(node->OperIs(GT_MUL_LONG));
 
@@ -1651,141 +1728,6 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
     }
 
     emit->emitIns_R_R_I(ins, attr, valueReg, tmpReg, offset);
-}
-
-regNumber CodeGen::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src1, GenTree* src2)
-{
-    // dst can only be a reg
-    assert(!dst->isContained());
-    assert(varTypeIsIntegralOrI(dst->GetType()));
-
-    // find immed (if any) - it cannot be a dst
-    // Only one src can be an int.
-    GenTreeIntConCommon* intConst  = nullptr;
-    GenTree*             nonIntReg = nullptr;
-
-    // src2 can be immed or reg
-    assert(!src2->isContained() || src2->isContainedIntOrIImmed());
-
-    // Check src2 first as we can always allow it to be a contained immediate
-    if (src2->isContainedIntOrIImmed())
-    {
-        intConst  = src2->AsIntConCommon();
-        nonIntReg = src1;
-    }
-    // Only for commutative operations do we check src1 and allow it to be a contained immediate
-    else if (dst->OperIsCommutative())
-    {
-        // src1 can be immed or reg
-        assert(!src1->isContained() || src1->isContainedIntOrIImmed());
-
-        // Check src1 and allow it to be a contained immediate
-        if (src1->isContainedIntOrIImmed())
-        {
-            assert(!src2->isContainedIntOrIImmed());
-            intConst  = src1->AsIntConCommon();
-            nonIntReg = src2;
-        }
-    }
-    else
-    {
-        // src1 can only be a reg
-        assert(!src1->isContained());
-    }
-
-    insFlags flags         = INS_FLAGS_DONT_CARE;
-    bool     isMulOverflow = false;
-    if (dst->gtOverflowEx())
-    {
-        if ((ins == INS_add) || (ins == INS_adc) || (ins == INS_sub) || (ins == INS_sbc))
-        {
-            flags = INS_FLAGS_SET;
-        }
-        else if (ins == INS_mul)
-        {
-            isMulOverflow = true;
-            assert(intConst == nullptr); // overflow format doesn't support an int constant operand
-        }
-        else
-        {
-            assert(!"Invalid ins for overflow check");
-        }
-    }
-
-    emitter* emit = GetEmitter();
-
-    if ((dst->gtFlags & GTF_SET_FLAGS) != 0)
-    {
-        assert((ins == INS_add) || (ins == INS_adc) || (ins == INS_sub) || (ins == INS_sbc) || (ins == INS_and) ||
-               (ins == INS_orr) || (ins == INS_eor) || (ins == INS_orn));
-        flags = INS_FLAGS_SET;
-    }
-
-    if (intConst != nullptr)
-    {
-        emit->emitIns_R_R_I(ins, attr, dst->GetRegNum(), nonIntReg->GetRegNum(), (target_ssize_t)intConst->IconValue(),
-                            flags);
-    }
-    else
-    {
-        if (isMulOverflow)
-        {
-            regNumber extraReg = dst->GetSingleTempReg();
-            assert(extraReg != dst->GetRegNum());
-
-            if (dst->IsOverflowUnsigned())
-            {
-                // Compute 8 byte result from 4 byte by 4 byte multiplication.
-                emit->emitIns_R_R_R_R(INS_umull, EA_4BYTE, dst->GetRegNum(), extraReg, src1->GetRegNum(),
-                                      src2->GetRegNum());
-
-                // Overflow exists if the result's high word is non-zero.
-                emit->emitIns_R_I(INS_cmp, attr, extraReg, 0);
-            }
-            else
-            {
-                // Compute 8 byte result from 4 byte by 4 byte multiplication.
-                emit->emitIns_R_R_R_R(INS_smull, EA_4BYTE, dst->GetRegNum(), extraReg, src1->GetRegNum(),
-                                      src2->GetRegNum());
-
-                // Overflow exists if the result's high word is not merely a sign bit.
-                emit->emitIns_R_R_I(INS_cmp, attr, extraReg, dst->GetRegNum(), 31, INS_FLAGS_DONT_CARE, INS_OPTS_ASR);
-            }
-        }
-        else
-        {
-            // We can just do the arithmetic, setting the flags if needed.
-            emit->emitIns_R_R_R(ins, attr, dst->GetRegNum(), src1->GetRegNum(), src2->GetRegNum(), flags);
-        }
-    }
-
-    if (dst->gtOverflowEx())
-    {
-        assert(!varTypeIsFloating(dst));
-
-        emitJumpKind jumpKind;
-
-        if (dst->OperGet() == GT_MUL)
-        {
-            jumpKind = EJ_ne;
-        }
-        else
-        {
-            jumpKind = dst->IsOverflowUnsigned() ? EJ_lo : EJ_vs;
-
-            if (jumpKind == EJ_lo)
-            {
-                if ((dst->OperGet() != GT_SUB) && (dst->OperGet() != GT_SUB_HI))
-                {
-                    jumpKind = EJ_hs;
-                }
-            }
-        }
-
-        genJumpToThrowHlpBlk(jumpKind, ThrowHelperKind::Overflow);
-    }
-
-    return dst->GetRegNum();
 }
 
 // clang-format off
