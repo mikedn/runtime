@@ -110,7 +110,7 @@ private:
         }
     }
 
-    void genRangeCheck(GenTreeBoundsChk* bndsChk);
+    void GenBoundsCheck(GenTreeBoundsChk* bndsChk);
 
     void GenInterlocked(GenTreeOp* node);
 #ifdef TARGET_XARCH
@@ -504,14 +504,22 @@ protected:
     void GenConstAddr(GenTreeConstAddr* node);
 #endif
 
+    void GenIntCon(GenTreeIntCon* node);
+    void GenDblCon(GenTreeDblCon* node);
 #ifdef TARGET_XARCH
     void GenIntCon(GenTreeIntCon* node, regNumber reg, var_types type);
     void GenDblCon(GenTreeDblCon* node, regNumber reg, var_types type);
-#else
-    void GenIntCon(GenTreeIntCon* node);
-    void GenDblCon(GenTreeDblCon* node);
 #endif
     void GenNode(GenTree* node, BasicBlock* block);
+#ifndef JIT32_GCENCODER
+    void GenStartNoGC() const;
+#endif
+    void GenStartPreemptGC();
+    void GenProfHook();
+    void GenCatchArg(GenTree* arg, BasicBlock* block);
+    void GenKeepAlive(GenTreeUnOp* node);
+    void GenLabel(GenTree* label);
+    void GenPInvokeProlog();
     void GenAddSubBitwise(GenTreeOp* treeNode);
 #ifdef TARGET_ARMARCH
     void GenOverflowCheck(GenTree* node);
@@ -532,8 +540,8 @@ protected:
 
     void GenMul(GenTreeOp* mul);
     void GenMulLong(GenTreeOp* mul);
-    void genCodeForIncSaturate(GenTree* treeNode);
-    void genLeaInstruction(GenTreeAddrMode* lea);
+    void GenSatInc(GenTree* treeNode);
+    void GenLea(GenTreeAddrMode* lea);
 
 #ifdef TARGET_ARMARCH
     void genScaledAdd(emitAttr attr, regNumber targetReg, regNumber baseReg, regNumber indexReg, int scale);
@@ -545,7 +553,7 @@ protected:
     void genLongToIntCast(GenTreeCast* cast);
 #endif
 
-    void genCodeForBitCast(GenTreeUnOp* bitcast);
+    void GenBitCast(GenTreeUnOp* bitcast);
     void inst_BitCast(var_types dstType, regNumber dstReg, var_types srcType, regNumber srcReg);
 
     struct GenIntCastDesc
@@ -646,21 +654,21 @@ protected:
     void genFloatToIntCast(GenTreeCast* cast);
     void genIntToFloatCast(GenTreeCast* cast);
 
-    void genCkfinite(GenTree* treeNode);
+    void GenCkfinite(GenTree* treeNode);
     void GenCompare(GenTreeOp* tree);
-    void genIntrinsic(GenTreeIntrinsic* node);
-    void genPutArgReg(GenTreeUnOp* putArg);
-    void genPutArgStk(GenTreePutArgStk* treeNode);
+    void GenIntrinsic(GenTreeIntrinsic* node);
+    void GenPutArgReg(GenTreeUnOp* putArg);
+    void GenPutArgStk(GenTreePutArgStk* treeNode);
 #if FEATURE_FASTTAILCALL
     unsigned GetFirstStackParamLclNum() const;
 #endif
 #if FEATURE_ARG_SPLIT
-    void genPutArgSplit(GenTreePutArgSplit* treeNode);
+    void GenPutArgSplit(GenTreePutArgSplit* treeNode);
 #endif
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-    void genSIMDUpperSpill(GenTreeUnOp* node);
-    void genSIMDUpperUnspill(GenTreeUnOp* node);
+    void GenVectorUpperSpill(GenTreeUnOp* node);
+    void GenVectorUpperUnspill(GenTreeUnOp* node);
 #endif
 
 #ifdef FEATURE_SIMD
@@ -671,7 +679,7 @@ protected:
 #endif
 
 #ifdef FEATURE_HW_INTRINSICS
-    void genHWIntrinsic(GenTreeHWIntrinsic* node);
+    void GenHWIntrinsic(GenTreeHWIntrinsic* node);
     void genVectorGetElement(GenTreeHWIntrinsic* node);
 
 #ifdef TARGET_XARCH
@@ -768,9 +776,9 @@ protected:
 
     void GenCast(GenTreeCast* cast);
     void GenLclAddr(GenTreeLclAddr* addr);
-    void genCodeForIndexAddr(GenTreeIndexAddr* tree);
-    void genCodeForNegNot(GenTreeUnOp* tree);
-    void genCodeForBswap(GenTree* tree);
+    void GenIndexAddr(GenTreeIndexAddr* tree);
+    void GenNegNot(GenTreeUnOp* tree);
+    void GenBswap(GenTree* tree);
 
     void GenIndLoad(GenTreeIndLoad* load);
     void GenIndStore(GenTreeIndStore* store);
@@ -785,16 +793,16 @@ protected:
     void GenStoreLclVarMultiReg(GenTreeLclStore* store);
     void GenStoreLclVarMultiRegSIMDMem(GenTreeLclStore* store);
     void GenStoreLclVarMultiRegSIMDReg(GenTreeLclStore* store);
-    void genCodeForReturnTrap(GenTreeOp* tree);
+    void GenReturnTrap(GenTreeOp* tree);
     void GenSetCC(GenTreeCC* setcc);
 #ifdef TARGET_XARCH
-    void genCodeForSwap(GenTreeOp* tree);
+    void GenRegSwap(GenTreeOp* tree);
 #endif
-    void genCodeForPhysReg(GenTreePhysReg* tree);
+    void GenPhysReg(GenTreePhysReg* tree);
     void GenNullCheck(GenTreeNullCheck* check);
     void GenCmpXchg(GenTreeCmpXchg* tree);
     void GenMemoryBarrier(GenTree* barrier);
-    void genCodeForInstr(GenTreeInstr* instr);
+    void GenInstr(GenTreeInstr* instr);
 
     void genAlignStackBeforeCall(GenTreePutArgStk* putArgStk);
     void genAlignStackBeforeCall(GenTreeCall* call);
@@ -872,10 +880,10 @@ protected:
 #endif
     void GenJmpTable(GenTree* node, const BBswtDesc& switchDesc);
     void GenSwitchTable(GenTreeOp* node);
-    void genCodeForArrIndex(GenTreeArrIndex* treeNode);
-    void genCodeForArrOffset(GenTreeArrOffs* treeNode);
+    void GenArrIndex(GenTreeArrIndex* treeNode);
+    void GenArrOffs(GenTreeArrOffs* treeNode);
     bool genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarrierForm, GenTree* addr, GenTree* data);
-    void genCallInstruction(GenTreeCall* call);
+    void GenCall(GenTreeCall* call);
     void GenJmp(GenTree* jmp);
     void GenJmpEpilog(BasicBlock* block
 #ifdef TARGET_ARMARCH
@@ -927,7 +935,7 @@ protected:
     void genStackPointerDynamicAdjustmentWithProbe(regNumber regSpDelta, regNumber regTmp);
 #endif
 
-    void genLclHeap(GenTree* tree);
+    void GenLclAlloc(GenTree* tree);
 
     GenTreeLclLoad* IsRegCandidateLclLoad(GenTree* node) const
     {

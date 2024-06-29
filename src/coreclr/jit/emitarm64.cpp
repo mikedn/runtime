@@ -3833,7 +3833,7 @@ void Arm64Emitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, Re
         case INS_uxth:
             if (canSkip && (dstReg == srcReg))
             {
-                // There are scenarios such as in genCallInstruction where the sign/zero extension should be elided
+                // There are scenarios such as in GenCall where the sign/zero extension should be elided
                 return;
             }
 

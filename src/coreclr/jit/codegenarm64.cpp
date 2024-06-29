@@ -1582,7 +1582,7 @@ void CodeGen::GenDblCon(GenTreeDblCon* node)
     DefReg(node);
 }
 
-void CodeGen::genCodeForIncSaturate(GenTree* tree)
+void CodeGen::GenSatInc(GenTree* tree)
 {
     regNumber targetReg  = tree->GetRegNum();
     regNumber operandReg = UseReg(tree->AsUnOp()->GetOp(0));
@@ -2067,7 +2067,7 @@ void CodeGen::GenStoreLclVarMultiRegSIMDMem(GenTreeLclStore* store)
     lcl->SetRegNum(REG_STK);
 }
 
-void CodeGen::genLclHeap(GenTree* tree)
+void CodeGen::GenLclAlloc(GenTree* tree)
 {
     assert(tree->OperGet() == GT_LCLHEAP);
     assert(compiler->compLocallocUsed);
@@ -2422,7 +2422,7 @@ int64_t CodeGen::genStackPointerConstantAdjustmentLoopWithProbe(int64_t spDelta,
     return lastTouchDelta;
 }
 
-void CodeGen::genCodeForBswap(GenTree* tree)
+void CodeGen::GenBswap(GenTree* tree)
 {
     assert(tree->OperIs(GT_BSWAP, GT_BSWAP16));
 
@@ -2734,7 +2734,7 @@ void CodeGen::GenCmpXchg(GenTreeCmpXchg* node)
     DefReg(node);
 }
 
-void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
+void CodeGen::GenReturnTrap(GenTreeOp* tree)
 {
     assert(tree->OperIs(GT_RETURNTRAP));
 
@@ -2949,7 +2949,7 @@ void CodeGen::genFloatToIntCast(GenTreeCast* cast)
     genProduceReg(cast);
 }
 
-void CodeGen::genCkfinite(GenTree* treeNode)
+void CodeGen::GenCkfinite(GenTree* treeNode)
 {
     assert(treeNode->OperIs(GT_CKFINITE));
 
@@ -3325,7 +3325,7 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
 // register. If such a register cannot be found, it will save it to an available caller-save register.
 // In that case, this node's register will be marked SPILL, which will cause this method to save
 // the upper half to the lclVar's home location.
-void CodeGen::genSIMDUpperSpill(GenTreeUnOp* node)
+void CodeGen::GenVectorUpperSpill(GenTreeUnOp* node)
 {
     GenTree* op1 = node->GetOp(0);
     assert(op1->IsLclLoad() && op1->TypeIs(TYP_SIMD12, TYP_SIMD16));
@@ -3356,7 +3356,7 @@ void CodeGen::genSIMDUpperSpill(GenTreeUnOp* node)
 // on the simdNode.
 // Regarding spill, please see the note above on genSIMDIntrinsicUpperSave.  If we have spilled
 // an upper-half to the lclVar's home location, this node's register will be marked SPILLED.
-void CodeGen::genSIMDUpperUnspill(GenTreeUnOp* node)
+void CodeGen::GenVectorUpperUnspill(GenTreeUnOp* node)
 {
     GenTree* op1 = node->GetOp(0);
     assert(op1->IsLclLoad() && op1->TypeIs(TYP_SIMD12, TYP_SIMD16));
@@ -8296,7 +8296,7 @@ void CodeGen::PrologEstablishFramePointer(int delta, bool reportUnwindData)
     }
 }
 
-void CodeGen::genCodeForInstr(GenTreeInstr* instr)
+void CodeGen::GenInstr(GenTreeInstr* instr)
 {
     instruction ins  = instr->GetIns();
     emitAttr    attr = instr->GetSize();

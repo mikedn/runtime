@@ -41,7 +41,7 @@ static bool genIsTableDrivenHWIntrinsic(NamedIntrinsic intrinsicId, HWIntrinsicC
     return tableDrivenCategory && tableDrivenFlag;
 }
 
-void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
+void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic         intrinsicId = node->GetIntrinsic();
     CORINFO_InstructionSet isa         = HWIntrinsicInfo::lookupIsa(intrinsicId);
