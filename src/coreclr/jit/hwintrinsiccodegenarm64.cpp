@@ -151,7 +151,7 @@ static void ExpandNonConstImm(CodeGen* codeGen, GenTree* immOp, GenTreeHWIntrins
     }
 }
 
-void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
+void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     const HWIntrinsic intrin(node);
 

@@ -392,7 +392,7 @@ void CodeGen::GenOverflowCheck(GenTree* node)
     genJumpToThrowHlpBlk(jumpKind, ThrowHelperKind::Overflow);
 }
 
-void CodeGen::genLclHeap(GenTree* tree)
+void CodeGen::GenLclAlloc(GenTree* tree)
 {
     assert(tree->OperIs(GT_LCLHEAP));
     assert(compiler->compLocallocUsed);
@@ -928,7 +928,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
     DefLclVarReg(store);
 }
 
-void CodeGen::genCkfinite(GenTree* treeNode)
+void CodeGen::GenCkfinite(GenTree* treeNode)
 {
     assert(treeNode->OperIs(GT_CKFINITE));
 
@@ -1006,7 +1006,7 @@ void CodeGen::GenCompare(GenTreeOp* cmp)
     DefReg(cmp);
 }
 
-void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
+void CodeGen::GenReturnTrap(GenTreeOp* tree)
 {
     assert(tree->OperIs(GT_RETURNTRAP));
 
@@ -1545,7 +1545,7 @@ void CodeGen::PrologEstablishFramePointer(int delta, bool reportUnwindData)
     }
 }
 
-void CodeGen::genCodeForInstr(GenTreeInstr* instr)
+void CodeGen::GenInstr(GenTreeInstr* instr)
 {
     unreached();
 }
