@@ -77,19 +77,18 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             break;
 #endif
 
-        case GT_OR:
-        case GT_XOR:
-        case GT_AND:
         case GT_ADD:
         case GT_SUB:
-        case GT_MUL:
+        case GT_AND:
+        case GT_OR:
+        case GT_XOR:
 #ifndef TARGET_64BIT
         case GT_ADD_LO:
         case GT_ADD_HI:
         case GT_SUB_LO:
         case GT_SUB_HI:
 #endif
-            genCodeForBinary(treeNode->AsOp());
+            GenAddSubBitwise(treeNode->AsOp());
             break;
 
         case GT_LSH:
@@ -163,19 +162,20 @@ void CodeGen::GenNode(GenTree* treeNode, BasicBlock* block)
             genCodeForIndexAddr(treeNode->AsIndexAddr());
             break;
 
+        case GT_MUL:
+            GenMul(treeNode->AsOp());
+            break;
 #ifdef TARGET_ARM
         case GT_MUL_LONG:
-            genCodeForMulLong(treeNode->AsOp());
+            GenMulLong(treeNode->AsOp());
             break;
 #endif
-
 #ifdef TARGET_ARM64
-        case GT_INC_SATURATE:
-            genCodeForIncSaturate(treeNode);
-            break;
-
         case GT_MULHI:
             GenMulLong(treeNode->AsOp());
+            break;
+        case GT_INC_SATURATE:
+            genCodeForIncSaturate(treeNode);
             break;
 #endif
 

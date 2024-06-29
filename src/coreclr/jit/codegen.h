@@ -212,10 +212,6 @@ public:
 
     void genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throwKind, BasicBlock* throwBlock = nullptr);
 
-#ifdef TARGET_ARM64
-    void genCheckOverflow(GenTree* tree);
-#endif
-
     void PrologEstablishFramePointer(int delta, bool reportUnwindData);
 
     struct ParamRegInfo;
@@ -516,14 +512,16 @@ protected:
     void GenDblCon(GenTreeDblCon* node);
 #endif
     void GenNode(GenTree* node, BasicBlock* block);
-    void genCodeForBinary(GenTreeOp* treeNode);
+    void GenAddSubBitwise(GenTreeOp* treeNode);
+#ifdef TARGET_ARMARCH
+    void GenOverflowCheck(GenTree* node);
+#endif
     void GenFloatNegate(GenTreeUnOp* node);
     void GenFloatBinaryOp(GenTreeOp* node);
 #ifdef TARGET_XARCH
     void GenFloatCompare(GenTreeOp* cmp);
     void GenIntCompare(GenTreeOp* cmp);
 #endif
-
 #ifdef TARGET_X86
     void GenLongUMod(GenTreeOp* node);
 #endif
@@ -541,10 +539,6 @@ protected:
     void genScaledAdd(emitAttr attr, regNumber targetReg, regNumber baseReg, regNumber indexReg, int scale);
     enum BarrierKind{BARRIER_FULL, BARRIER_LOAD_ONLY};
     void instGen_MemoryBarrier(BarrierKind barrierKind = BARRIER_FULL);
-#endif
-
-#ifdef TARGET_ARM
-    void genCodeForMulLong(GenTreeOp* mul);
 #endif
 
 #ifndef TARGET_64BIT
@@ -972,7 +966,6 @@ public:
     void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTreeIndLoad* load);
     void emitInsStore(instruction ins, emitAttr attr, regNumber reg, GenTreeIndStore* store);
     void emitInsIndir(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir, int offset);
-    regNumber emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src1, GenTree* src2);
 #endif
 
 #ifdef TARGET_ARM64
@@ -980,7 +973,7 @@ public:
     void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTreeIndir* load);
     void emitInsStore(instruction ins, emitAttr attr, regNumber reg, GenTreeIndStore* store);
     void emitInsIndir(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir);
-    regNumber emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src1, GenTree* src2);
+    void emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src1, GenTree* src2);
 #endif
 
     class GenAddrMode

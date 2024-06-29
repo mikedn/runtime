@@ -1622,70 +1622,183 @@ void CodeGen::GenMulLong(GenTreeOp* mul)
     DefReg(mul);
 }
 
-void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
+void CodeGen::GenMul(GenTreeOp* mul)
 {
-    assert(varTypeIsIntegralOrI(treeNode->GetType()));
+    assert(mul->OperIs(GT_MUL));
+    assert(varTypeIsIntegralOrI(mul->GetType()));
 
-    const genTreeOps oper       = treeNode->OperGet();
-    regNumber        targetReg  = treeNode->GetRegNum();
-    var_types        targetType = treeNode->TypeGet();
-    emitter*         emit       = GetEmitter();
+    GenTree* op1 = mul->GetOp(0);
+    GenTree* op2 = mul->GetOp(1);
 
-    assert(oper == GT_ADD || oper == GT_SUB || oper == GT_MUL || oper == GT_DIV || oper == GT_UDIV || oper == GT_AND ||
-           oper == GT_OR || oper == GT_XOR);
+    RegNum reg1   = UseReg(op1);
+    RegNum reg2   = UseReg(op2);
+    RegNum dstReg = mul->GetRegNum();
 
-    GenTree*    op1 = treeNode->gtGetOp1();
-    GenTree*    op2 = treeNode->gtGetOp2();
-    instruction ins = genGetInsForOper(treeNode->OperGet());
+    instruction ins;
+    emitAttr    attr;
 
-    if (op1->isUsedFromReg())
+    // UMULL/SMULL is twice as fast for 32 * 32 -> 64 bit MUL
+    if (mul->TypeIs(TYP_LONG) && varActualTypeIsInt(op1->GetType()) && varActualTypeIsInt(op2->GetType()))
     {
-        UseReg(op1);
-    }
-
-    if (op2->isUsedFromReg())
-    {
-        UseReg(op2);
-    }
-
-    if ((treeNode->gtFlags & GTF_SET_FLAGS) != 0)
-    {
-        switch (oper)
-        {
-            case GT_ADD:
-                ins = INS_adds;
-                break;
-            case GT_SUB:
-                ins = INS_subs;
-                break;
-            case GT_AND:
-                ins = INS_ands;
-                break;
-            default:
-                noway_assert(!"Unexpected BinaryOp with GTF_SET_FLAGS set");
-        }
-    }
-
-    // The arithmetic node must be sitting in a register (since it's not contained)
-    assert(targetReg != REG_NA);
-    emitAttr attr = emitActualTypeSize(treeNode->GetType());
-
-    // UMULL/SMULL is twice as fast for 32*32->64bit MUL
-    if ((oper == GT_MUL) && (targetType == TYP_LONG) && varActualTypeIsInt(op1) && varActualTypeIsInt(op2))
-    {
-        ins  = (treeNode->IsMulUnsigned() || treeNode->IsOverflowUnsigned()) ? INS_umull : INS_smull;
+        ins  = (mul->IsMulUnsigned() || mul->IsOverflowUnsigned()) ? INS_umull : INS_smull;
         attr = EA_4BYTE;
     }
     else
     {
-        assert(IsValidSourceType(targetType, op1->GetType()));
-        assert(IsValidSourceType(targetType, op2->GetType()));
+        ins  = INS_mul;
+        attr = emitActualTypeSize(mul->GetType());
+
+        assert(IsValidSourceType(mul->GetType(), op1->GetType()));
+        assert(IsValidSourceType(mul->GetType(), op2->GetType()));
     }
 
-    regNumber r = emitInsTernary(ins, attr, treeNode, op1, op2);
-    assert(r == targetReg);
+    Emitter& emit = *GetEmitter();
 
-    DefReg(treeNode);
+    if (!mul->gtOverflow())
+    {
+        emit.emitIns_R_R_R(ins, attr, dstReg, reg1, reg2);
+    }
+    else
+    {
+        RegNum tmpReg = mul->GetSingleTempReg();
+        assert(tmpReg != mul->GetRegNum());
+
+        if (mul->IsOverflowUnsigned())
+        {
+            if (attr == EA_4BYTE)
+            {
+                emit.emitIns_R_R_R(INS_umull, EA_8BYTE, dstReg, reg1, reg2);
+                emit.emitIns_R_R_I(INS_lsr, EA_8BYTE, tmpReg, dstReg, 32);
+            }
+            else
+            {
+                assert(attr == EA_8BYTE);
+
+                emit.emitIns_R_R_R(INS_umulh, attr, tmpReg, reg1, reg2);
+                emit.emitIns_R_R_R(ins, attr, dstReg, reg1, reg2);
+            }
+
+            emit.emitIns_R_I(INS_cmp, attr, tmpReg, 0);
+        }
+        else
+        {
+            int bitShift;
+
+            if (attr == EA_4BYTE)
+            {
+                emit.emitIns_R_R_R(INS_smull, EA_8BYTE, dstReg, reg1, reg2);
+                emit.emitIns_R_R_I(INS_lsr, EA_8BYTE, tmpReg, dstReg, 32);
+
+                bitShift = 31;
+            }
+            else
+            {
+                assert(attr == EA_8BYTE);
+
+                emit.emitIns_R_R_R(INS_smulh, attr, tmpReg, reg1, reg2);
+                emit.emitIns_R_R_R(ins, attr, dstReg, reg1, reg2);
+
+                bitShift = 63;
+            }
+
+            emit.emitIns_R_R_I(INS_cmp, attr, tmpReg, dstReg, bitShift, INS_OPTS_ASR);
+        }
+
+        genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
+    }
+
+    DefReg(mul);
+}
+
+void CodeGen::GenAddSubBitwise(GenTreeOp* node)
+{
+    assert(node->OperIs(GT_ADD, GT_SUB, GT_AND, GT_OR, GT_XOR));
+    assert(varTypeIsIntegralOrI(node->GetType()));
+
+    GenTree* op1 = node->GetOp(0);
+    GenTree* op2 = node->GetOp(1);
+
+    assert(IsValidSourceType(node->GetType(), op1->GetType()));
+    assert(IsValidSourceType(node->GetType(), op2->GetType()));
+
+    RegNum reg1   = op1->isUsedFromReg() ? UseReg(op1) : REG_NA;
+    RegNum reg2   = op2->isUsedFromReg() ? UseReg(op2) : REG_NA;
+    RegNum dstReg = node->GetRegNum();
+
+    GenTreeIntCon* immOp = op2->IsContainedIntCon();
+
+    if ((immOp == nullptr) && node->OperIsCommutative())
+    {
+        immOp = op1->IsContainedIntCon();
+
+        if (immOp != nullptr)
+        {
+            reg1 = reg2;
+        }
+    }
+
+    assert(reg1 != REG_NA);
+    assert((reg2 != REG_NA) || (immOp != nullptr));
+
+    Emitter&    emit = *GetEmitter();
+    instruction ins  = genGetInsForOper(node->GetOper());
+    emitAttr    attr = emitActualTypeSize(node->GetType());
+
+    if (node->HasImplicitFlagsDef() || node->gtOverflowEx())
+    {
+        if (ins == INS_add)
+        {
+            ins = INS_adds;
+        }
+        else if (ins == INS_sub)
+        {
+            ins = INS_subs;
+        }
+        else
+        {
+            noway_assert(ins == INS_and);
+            ins = INS_ands;
+        }
+    }
+
+    if (immOp != nullptr)
+    {
+        emit.emitIns_R_R_I(ins, attr, dstReg, reg1, immOp->GetValue());
+    }
+    else
+    {
+        emit.emitIns_R_R_R(ins, attr, dstReg, reg1, reg2);
+    }
+
+    if (node->gtOverflowEx())
+    {
+        GenOverflowCheck(node);
+    }
+
+    DefReg(node);
+}
+
+void CodeGen::GenOverflowCheck(GenTree* node)
+{
+    assert(!node->OperIs(GT_MUL) && node->gtOverflow());
+    assert(!varTypeIsSmall(node->GetType()));
+
+    emitJumpKind jumpKind;
+
+    if (!node->IsOverflowUnsigned())
+    {
+        jumpKind = EJ_vs;
+    }
+    else if (node->OperIs(GT_SUB))
+    {
+        jumpKind = EJ_lo;
+    }
+    else
+    {
+        jumpKind = EJ_hs;
+    }
+
+    genJumpToThrowHlpBlk(jumpKind, ThrowHelperKind::Overflow);
 }
 
 void CodeGen::GenLclLoad(GenTreeLclLoad* load)
@@ -2203,6 +2316,17 @@ ALLOC_DONE:
     }
 
     genProduceReg(tree);
+}
+
+void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size)
+{
+    assert(ins != INS_mov);
+    assert(ins != INS_cmp);
+    assert(ins != INS_tst);
+
+    // TODO-Arm64-Bug: handle large constants!
+
+    GetEmitter()->emitIns_R_R_I(ins, size, reg, reg, val);
 }
 
 // Add a specified constant value to the stack pointer. No probing is done.
@@ -8492,186 +8616,6 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
     }
 
     emit->emitIns_R_R_I(ins, attr, valueReg, tmpReg, offset);
-}
-
-regNumber CodeGen::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, GenTree* src1, GenTree* src2)
-{
-    // dst can only be a reg
-    assert(!dst->isContained());
-    assert(varTypeIsIntegralOrI(dst->GetType()));
-
-    // find immed (if any) - it cannot be a dst
-    // Only one src can be an int.
-    GenTreeIntConCommon* intConst  = nullptr;
-    GenTree*             nonIntReg = nullptr;
-
-    // src2 can be immed or reg
-    assert(!src2->isContained() || src2->isContainedIntOrIImmed());
-
-    // Check src2 first as we can always allow it to be a contained immediate
-    if (src2->isContainedIntOrIImmed())
-    {
-        intConst  = src2->AsIntConCommon();
-        nonIntReg = src1;
-    }
-    // Only for commutative operations do we check src1 and allow it to be a contained immediate
-    else if (dst->OperIsCommutative())
-    {
-        // src1 can be immed or reg
-        assert(!src1->isContained() || src1->isContainedIntOrIImmed());
-
-        // Check src1 and allow it to be a contained immediate
-        if (src1->isContainedIntOrIImmed())
-        {
-            assert(!src2->isContainedIntOrIImmed());
-            intConst  = src1->AsIntConCommon();
-            nonIntReg = src2;
-        }
-    }
-    else
-    {
-        // src1 can only be a reg
-        assert(!src1->isContained());
-    }
-
-    bool isMulOverflow = false;
-    if (dst->gtOverflowEx())
-    {
-        if ((ins == INS_add) || (ins == INS_adds))
-        {
-            ins = INS_adds;
-        }
-        else if ((ins == INS_sub) || (ins == INS_subs))
-        {
-            ins = INS_subs;
-        }
-        else if (ins == INS_mul)
-        {
-            isMulOverflow = true;
-            assert(intConst == nullptr); // overflow format doesn't support an int constant operand
-        }
-        else
-        {
-            assert(!"Invalid ins for overflow check");
-        }
-    }
-
-    emitter* emit = GetEmitter();
-
-    if (intConst != nullptr)
-    {
-        emit->emitIns_R_R_I(ins, attr, dst->GetRegNum(), nonIntReg->GetRegNum(), intConst->IconValue());
-    }
-    else
-    {
-        if (isMulOverflow)
-        {
-            regNumber extraReg = dst->GetSingleTempReg();
-            assert(extraReg != dst->GetRegNum());
-
-            if (dst->IsOverflowUnsigned())
-            {
-                if (attr == EA_4BYTE)
-                {
-                    // Compute 8 byte results from 4 byte by 4 byte multiplication.
-                    emit->emitIns_R_R_R(INS_umull, EA_8BYTE, dst->GetRegNum(), src1->GetRegNum(), src2->GetRegNum());
-
-                    // Get the high result by shifting dst.
-                    emit->emitIns_R_R_I(INS_lsr, EA_8BYTE, extraReg, dst->GetRegNum(), 32);
-                }
-                else
-                {
-                    assert(attr == EA_8BYTE);
-                    // Compute the high result.
-                    emit->emitIns_R_R_R(INS_umulh, attr, extraReg, src1->GetRegNum(), src2->GetRegNum());
-
-                    // Now multiply without skewing the high result.
-                    emit->emitIns_R_R_R(ins, attr, dst->GetRegNum(), src1->GetRegNum(), src2->GetRegNum());
-                }
-
-                // zero-sign bit comparison to detect overflow.
-                emit->emitIns_R_I(INS_cmp, attr, extraReg, 0);
-            }
-            else
-            {
-                int bitShift = 0;
-                if (attr == EA_4BYTE)
-                {
-                    // Compute 8 byte results from 4 byte by 4 byte multiplication.
-                    emit->emitIns_R_R_R(INS_smull, EA_8BYTE, dst->GetRegNum(), src1->GetRegNum(), src2->GetRegNum());
-
-                    // Get the high result by shifting dst.
-                    emit->emitIns_R_R_I(INS_lsr, EA_8BYTE, extraReg, dst->GetRegNum(), 32);
-
-                    bitShift = 31;
-                }
-                else
-                {
-                    assert(attr == EA_8BYTE);
-                    // Save the high result in a temporary register.
-                    emit->emitIns_R_R_R(INS_smulh, attr, extraReg, src1->GetRegNum(), src2->GetRegNum());
-
-                    // Now multiply without skewing the high result.
-                    emit->emitIns_R_R_R(ins, attr, dst->GetRegNum(), src1->GetRegNum(), src2->GetRegNum());
-
-                    bitShift = 63;
-                }
-
-                // Sign bit comparison to detect overflow.
-                emit->emitIns_R_R_I(INS_cmp, attr, extraReg, dst->GetRegNum(), bitShift, INS_OPTS_ASR);
-            }
-        }
-        else
-        {
-            // We can just multiply.
-            emit->emitIns_R_R_R(ins, attr, dst->GetRegNum(), src1->GetRegNum(), src2->GetRegNum());
-        }
-    }
-
-    if (dst->gtOverflowEx())
-    {
-        genCheckOverflow(dst);
-    }
-
-    return dst->GetRegNum();
-}
-
-void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size)
-{
-    assert(ins != INS_mov);
-    assert(ins != INS_cmp);
-    assert(ins != INS_tst);
-
-    // TODO-Arm64-Bug: handle large constants!
-
-    GetEmitter()->emitIns_R_R_I(ins, size, reg, reg, val);
-}
-
-void CodeGen::genCheckOverflow(GenTree* node)
-{
-    assert(node->gtOverflow());
-    assert(!varTypeIsSmall(node->GetType()));
-
-    emitJumpKind jumpKind;
-
-    if (node->OperIs(GT_MUL))
-    {
-        jumpKind = EJ_ne;
-    }
-    else if (!node->IsOverflowUnsigned())
-    {
-        jumpKind = EJ_vs;
-    }
-    else if (node->OperIs(GT_SUB))
-    {
-        jumpKind = EJ_lo;
-    }
-    else
-    {
-        jumpKind = EJ_hs;
-    }
-
-    genJumpToThrowHlpBlk(jumpKind, ThrowHelperKind::Overflow);
 }
 
 void CodeGen::PrologPushCalleeSavedRegisters(regNumber initReg, bool* pInitRegZeroed)
