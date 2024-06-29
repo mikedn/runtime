@@ -897,12 +897,13 @@ GenTree* DecomposeLongs::DecomposeArith(LIR::Use& use)
 
         if (loResult->gtOverflow())
         {
+            hiResult->gtFlags |= GTF_OVERFLOW | GTF_EXCEPT;
+
             if (loResult->IsOverflowUnsigned())
             {
                 hiResult->SetOverflowUnsigned(true);
             }
 
-            hiResult->gtFlags |= GTF_OVERFLOW | GTF_EXCEPT;
             loResult->gtFlags &= ~(GTF_OVERFLOW | GTF_EXCEPT);
         }
     }
