@@ -394,7 +394,6 @@ enum GenTreeFlags : unsigned
     GTF_CAST_UNSIGNED         = GTF_UNSIGNED, // CAST - treat source operand as unsigned
     GTF_RELOP_UNSIGNED        = GTF_UNSIGNED, // GT/GE/LT/LE - unsigned compare
     GTF_MUL_UNSIGNED          = GTF_UNSIGNED, // MUL/MULHI/MUL_LONG - unsigned multiplication
-    GTF_OVF_UNSIGNED          = GTF_UNSIGNED, // ADD/SUB/MUL - unsigned overflow check (meaningless without GTF_OVERFLOW)
     GTF_CONTAINED             = 0x00000400, // Node is contained (executed as part of its user)
     GTF_NOREG_AT_USE          = 0x00000800, // Value is used from spilled temp without reloading into a register
     GTF_REUSE_REG_VAL         = 0x00001000, // Destination register already contains the produced value so code
@@ -491,7 +490,7 @@ enum GenTreeFlags : unsigned
 
     // Unary/Binary op specific flags
 
-    GTF_OVERFLOW              = 0x10000000, // ADD/SUB/MUL/CAST - overflow check
+    GTF_CAST_OVERFLOW         = 0x10000000, // CAST - overflow check
     GTF_DIV_BY_CNS_OPT        = 0x80000000, // DIV - division by constant optimization
     GTF_ADDRMODE_NO_CSE       = 0x80000000, // ADD/MUL/LSH/COMMA - address mode component, do not CSE
                                             // (unlike GTF_DONT_CSE this does not block constant propagation)
@@ -1432,18 +1431,31 @@ public:
         return OperIsCommutative(gtOper) || (OperIsHWIntrinsic(gtOper) && isCommutativeHWIntrinsic());
     }
 
-    static bool OperMayOverflow(genTreeOps gtOper)
+    static bool IsOverflowOp(genTreeOps oper)
     {
-        return (gtOper == GT_ADD) || (gtOper == GT_SUB) || (gtOper == GT_MUL) || (gtOper == GT_CAST)
+        switch (oper)
+        {
+            case GT_OVF_SADD:
+            case GT_OVF_UADD:
+            case GT_OVF_SSUB:
+            case GT_OVF_USUB:
+            case GT_OVF_SMUL:
+            case GT_OVF_UMUL:
 #ifndef TARGET_64BIT
-               || (gtOper == GT_ADD_HI) || (gtOper == GT_SUB_HI)
+            case GT_OVF_SADDC:
+            case GT_OVF_UADDC:
+            case GT_OVF_SSUBB:
+            case GT_OVF_USUBB:
 #endif
-            ;
+                return true;
+            default:
+                return false;
+        }
     }
 
-    bool OperMayOverflow() const
+    bool IsOverflowOp() const
     {
-        return OperMayOverflow(gtOper);
+        return IsOverflowOp(gtOper);
     }
 
     static bool OperIsIndirOrArrLength(genTreeOps gtOper)
@@ -1791,33 +1803,6 @@ public:
         gtFlags = (gtFlags & ~GTF_REVERSE_OPS) | (reverseOps ? GTF_REVERSE_OPS : GTF_EMPTY);
     }
 
-    bool IsOverflowUnsigned() const
-    {
-#ifdef TARGET_64BIT
-        assert(OperIs(GT_ADD, GT_SUB, GT_MUL) && gtOverflow());
-#else
-        assert(OperIs(GT_ADD, GT_SUB, GT_MUL, GT_ADD_HI, GT_SUB_HI) && gtOverflow());
-#endif
-        return (gtFlags & GTF_OVF_UNSIGNED) != 0;
-    }
-
-    void SetOverflowUnsigned(bool value)
-    {
-#ifdef TARGET_64BIT
-        assert(OperIs(GT_ADD, GT_SUB, GT_MUL) && gtOverflow());
-#else
-        assert(OperIs(GT_ADD, GT_SUB, GT_MUL, GT_ADD_HI, GT_SUB_HI) && gtOverflow());
-#endif
-        if (value)
-        {
-            gtFlags |= GTF_OVF_UNSIGNED;
-        }
-        else
-        {
-            gtFlags &= ~GTF_OVF_UNSIGNED;
-        }
-    }
-
     bool IsMulUnsigned() const
     {
 #ifdef TARGET_64BIT
@@ -1883,9 +1868,6 @@ public:
     }
 
     bool IsHelperCall();
-
-    bool gtOverflow() const;
-    bool gtOverflowEx() const;
 
     bool IsPhiDef() const;
 
@@ -3924,7 +3906,7 @@ public:
         : GenTreeOp(GT_CAST, copyFrom->GetType(), copyFrom->GetOp(0), nullptr DEBUGARG(largeNode))
         , castType(copyFrom->castType)
     {
-        gtFlags |= copyFrom->gtFlags & (GTF_CAST_UNSIGNED | GTF_OVERFLOW);
+        gtFlags |= copyFrom->gtFlags & (GTF_CAST_UNSIGNED | GTF_CAST_OVERFLOW);
     }
 
     var_types GetCastType() const
@@ -3973,25 +3955,25 @@ public:
 
     bool HasOverflowCheck() const
     {
-        return (gtFlags & GTF_OVERFLOW) != 0;
+        return (gtFlags & GTF_CAST_OVERFLOW) != 0;
     }
 
     void AddOverflowCheck()
     {
-        gtFlags |= GTF_OVERFLOW | GTF_EXCEPT;
+        gtFlags |= GTF_CAST_OVERFLOW | GTF_EXCEPT;
     }
 
     void RemoveOverflowCheck()
     {
-        gtFlags &= ~(GTF_OVERFLOW | GTF_EXCEPT);
+        gtFlags &= ~(GTF_CAST_OVERFLOW | GTF_EXCEPT);
         gtFlags |= (gtOp1->gtFlags & GTF_EXCEPT);
     }
 
     static bool Equals(GenTreeCast* c1, GenTreeCast* c2)
     {
         return (c1->GetType() == c2->GetType()) && (c1->castType == c2->castType) &&
-               ((c1->gtFlags & (GTF_OVERFLOW | GTF_CAST_UNSIGNED)) ==
-                (c2->gtFlags & (GTF_OVERFLOW | GTF_CAST_UNSIGNED))) &&
+               ((c1->gtFlags & (GTF_CAST_OVERFLOW | GTF_CAST_UNSIGNED)) ==
+                (c2->gtFlags & (GTF_CAST_OVERFLOW | GTF_CAST_UNSIGNED))) &&
                Compare(c1->gtOp1, c2->gtOp1);
     }
 

@@ -308,11 +308,7 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
             // Remove side effects that may have been inherited from operands.
             node->SetSideEffects(node->AsCast()->HasOverflowCheck() ? GTF_EXCEPT : GTF_NONE);
             break;
-        case GT_ADD:
-        case GT_SUB:
-        case GT_MUL:
-            node->SetSideEffects(node->gtOverflow() ? GTF_EXCEPT : GTF_NONE);
-            break;
+
         case GT_DIV:
         case GT_UDIV:
         case GT_MOD:
@@ -320,6 +316,9 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
             node->SetSideEffects(node->GetSideEffects() & GTF_EXCEPT);
             break;
 
+        case GT_ADD:
+        case GT_SUB:
+        case GT_MUL:
         case GT_AND:
         case GT_OR:
         case GT_XOR:
@@ -345,6 +344,15 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
         case GT_FDIV:
         case GT_FNEG:
             node->SetSideEffects(GTF_EMPTY);
+            break;
+
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
+        case GT_OVF_SMUL:
+        case GT_OVF_UMUL:
+            node->SetSideEffects(GTF_EXCEPT);
             break;
 
         default:

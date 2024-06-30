@@ -284,7 +284,7 @@ unsigned AddrMode::GetIndexScale(GenTree* node)
         return GetLshIndexScale(node->AsOp()->GetOp(1));
     }
 
-    return node->gtOverflow() ? 0 : GetMulIndexScale(node->AsOp()->GetOp(1));
+    return GetMulIndexScale(node->AsOp()->GetOp(1));
 }
 
 void AddrMode::AddNode(GenTree* node)
@@ -307,7 +307,7 @@ GenTree* AddrMode::ExtractOffset(Compiler* compiler, GenTree* op)
 {
     GenTree* val = op->SkipComma();
 
-    while (val->OperIs(GT_ADD) && !val->gtOverflow())
+    while (val->OperIs(GT_ADD))
     {
         GenTree*       offs    = val->AsOp()->GetOp(1);
         GenTreeIntCon* offsVal = offs->SkipComma()->IsIntCon();
@@ -369,7 +369,7 @@ void AddrMode::Extract(Compiler* compiler)
 {
     base = ExtractOffset(compiler, base);
 
-    if (base->OperIs(GT_ADD) && !base->gtOverflow()
+    if (base->OperIs(GT_ADD)
 #ifndef TARGET_XARCH
         && (offset == 0)
 #endif

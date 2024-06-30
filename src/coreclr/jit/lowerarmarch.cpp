@@ -43,14 +43,18 @@ bool Lowering::IsImmOperand(GenTree* operand, GenTree* instr) const
         return false;
     }
 
-    int32_t  value = operand->AsIntCon()->GetInt32Value();
-    insFlags flags = instr->HasImplicitFlagsDef() ? INS_FLAGS_SET : INS_FLAGS_DONT_CARE;
+    int32_t value = operand->AsIntCon()->GetInt32Value();
 
     switch (instr->GetOper())
     {
         case GT_ADD:
         case GT_SUB:
-            return ArmImm::IsAddImm(value, flags);
+            return ArmImm::IsAddImm(value, instr->HasImplicitFlagsDef() ? INS_FLAGS_SET : INS_FLAGS_DONT_CARE);
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
+            return ArmImm::IsAddImm(value, INS_FLAGS_SET);
         case GT_EQ:
         case GT_NE:
         case GT_LT:
@@ -228,12 +232,12 @@ void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree*
         return;
     }
 
-    if (!addr->OperIs(GT_ADD) || addr->gtOverflow() || !addr->AsOp()->gtGetOp2()->OperIs(GT_CNS_INT))
+    if (!addr->OperIs(GT_ADD) || !addr->AsOp()->GetOp(1)->OperIs(GT_CNS_INT))
     {
         return;
     }
 
-    GenTreeIntCon* offsetNode = addr->AsOp()->gtGetOp2()->AsIntCon();
+    GenTreeIntCon* offsetNode = addr->AsOp()->GetOp(1)->AsIntCon();
     ssize_t        offset     = offsetNode->IconValue();
 
     if (!IsValidGenericLoadStoreOffset(offset, size ARM64_ARG(size >= 2 * REGSIZE_BYTES)))
@@ -254,7 +258,7 @@ void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree*
 
 void Lowering::ContainStructStoreAddressUnrollRegsWB(GenTree* addr)
 {
-    if (!addr->OperIs(GT_ADD) || addr->gtOverflow())
+    if (!addr->OperIs(GT_ADD))
     {
         return;
     }
@@ -944,16 +948,15 @@ void Lowering::ContainCheckIndir(GenTreeIndir* indirNode)
 
 void Lowering::ContainCheckBinary(GenTreeOp* node)
 {
-    // Check and make op2 contained (if it is a containable immediate)
-    ContainImmOperand(node, node->gtOp2);
+    ContainImmOperand(node, node->GetOp(1));
 }
 
 void Lowering::ContainCheckMul(GenTreeOp* node)
 {
 #ifdef TARGET_64BIT
-    assert(node->OperIs(GT_MUL, GT_MULHI));
+    assert(node->OperIs(GT_MUL, GT_OVF_SMUL, GT_OVF_UMUL, GT_MULHI));
 #else
-    assert(node->OperIs(GT_MUL, GT_MULHI, GT_MUL_LONG));
+    assert(node->OperIs(GT_MUL, GT_OVF_SMUL, GT_OVF_UMUL, GT_MULHI, GT_MUL_LONG));
 #endif
 
     // ARM doesn't have mul instructions with an immediate operand

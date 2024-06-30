@@ -122,7 +122,7 @@ void Lowering::LowerIndStoreArch(GenTreeIndStore* store)
 
     ContainCheckIndStore(store);
 
-    if (varTypeIsIntegralOrI(store->GetType()) && value->OperIsRMWMemOp() && !value->gtOverflowEx())
+    if (varTypeIsIntegralOrI(store->GetType()) && value->OperIsRMWMemOp())
     {
         LowerStoreIndRMW(store);
     }
@@ -215,7 +215,7 @@ void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree*
 
 void Lowering::ContainStructStoreAddressUnrollRegsWB(GenTree* addr)
 {
-    if (!addr->OperIs(GT_ADD) || addr->gtOverflow())
+    if (!addr->OperIs(GT_ADD))
     {
         return;
     }
@@ -857,7 +857,9 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
         }
     }
 
-    if (op1->OperIs(GT_AND, GT_OR, GT_XOR, GT_ADD, GT_SUB, GT_NEG) && cmp->OperIs(GT_EQ, GT_NE) && (op2Value == 0))
+    if (op1->OperIs(GT_AND, GT_OR, GT_XOR, GT_ADD, GT_OVF_SADD, GT_OVF_UADD, GT_SUB, GT_OVF_SSUB, GT_OVF_USUB,
+                    GT_NEG) &&
+        cmp->OperIs(GT_EQ, GT_NE) && (op2Value == 0))
     {
         // TODO-CQ: We can also do this for shifts, if the shift count is known to
         // be non-zero (const basically), otherwise the condition flags are not set.
@@ -3138,7 +3140,7 @@ GenTreeIndir* Lowering::IsStoreIndRMW(GenTreeIndStore* store)
     }
 
     GenTree* op = store->GetValue();
-    assert(op->OperIsRMWMemOp() && !op->gtOverflowEx());
+    assert(op->OperIsRMWMemOp());
 
     if (op->OperIsBinary())
     {
@@ -3389,10 +3391,10 @@ void Lowering::ContainCheckIndStore(GenTreeIndStore* store)
 void Lowering::ContainCheckMul(GenTreeOp* node)
 {
 #ifdef TARGET_X86
-    assert(node->OperIs(GT_MUL, GT_MULHI, GT_MUL_LONG));
+    assert(node->OperIs(GT_MUL, GT_MULHI, GT_OVF_SMUL, GT_OVF_UMUL, GT_MUL_LONG));
     assert(varTypeIsIntOrI(node->GetType()) || (node->OperIs(GT_MUL_LONG) && node->TypeIs(TYP_LONG)));
 #else
-    assert(node->OperIs(GT_MUL, GT_MULHI));
+    assert(node->OperIs(GT_MUL, GT_MULHI, GT_OVF_SMUL, GT_OVF_UMUL));
     assert(varTypeIsIntOrI(node->GetType()));
 #endif
 
@@ -3403,17 +3405,11 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
     GenTree*       other              = nullptr;
     bool           hasImplicitOperand = false;
 
-    if (node->OperIs(GT_MULHI))
-    {
-        hasImplicitOperand = true;
-    }
 #ifdef TARGET_X86
-    else if (node->OperIs(GT_MUL_LONG))
-    {
-        hasImplicitOperand = true;
-    }
+    if (node->OperIs(GT_OVF_UMUL, GT_MULHI, GT_MUL_LONG))
+#else
+    if (node->OperIs(GT_OVF_UMUL, GT_MULHI))
 #endif
-    else if (node->gtOverflow() && node->IsOverflowUnsigned())
     {
         hasImplicitOperand = true;
     }
@@ -3424,7 +3420,7 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
 
         immOp->SetContained();
 
-        if (!node->gtOverflow() && (immOp->GetValue() == 3 || immOp->GetValue() == 5 || immOp->GetValue() == 9))
+        if (node->OperIs(GT_MUL) && (immOp->GetValue() == 3 || immOp->GetValue() == 5 || immOp->GetValue() == 9))
         {
             // We use LEA so the other op has to be in a register.
             return;
@@ -3621,7 +3617,7 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
     }
 
     if (IsContainableMemoryOp(store) && varTypeIsIntegral(store->GetType()) && src->OperIsRMWMemOp() &&
-        !src->gtOverflowEx() && ((src->gtFlags & (GTF_SET_FLAGS | GTF_USE_FLAGS)) == 0))
+        ((src->gtFlags & (GTF_SET_FLAGS | GTF_USE_FLAGS)) == 0))
     {
         // TODO-MIKE-CQ: This usually fails when address exposed small int LCL_VARs
         // are involved due to useless casts. The load is hidden by a widening cast

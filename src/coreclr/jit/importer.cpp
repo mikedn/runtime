@@ -9742,33 +9742,34 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_ADD_OVF:
-                uns = false;
-                goto ADD_OVF;
+                uns  = false;
+                ovfl = true;
+                oper = GT_OVF_SADD;
+                goto MATH_OP2;
             case CEE_ADD_OVF_UN:
-                uns = true;
-            ADD_OVF:
+                uns  = true;
                 ovfl = true;
-                oper = GT_ADD;
+                oper = GT_OVF_UADD;
                 goto MATH_OP2;
-
             case CEE_SUB_OVF:
-                uns = false;
-                goto SUB_OVF;
-            case CEE_SUB_OVF_UN:
-                uns = true;
-            SUB_OVF:
+                uns  = false;
                 ovfl = true;
-                oper = GT_SUB;
+                oper = GT_OVF_SSUB;
                 goto MATH_OP2;
-
-            case CEE_MUL_OVF:
-                uns = false;
-                goto MUL_OVF;
-            case CEE_MUL_OVF_UN:
-                uns = true;
-            MUL_OVF:
+            case CEE_SUB_OVF_UN:
+                uns  = true;
                 ovfl = true;
-                oper = GT_MUL;
+                oper = GT_OVF_USUB;
+                goto MATH_OP2;
+            case CEE_MUL_OVF:
+                uns  = false;
+                ovfl = true;
+                oper = GT_OVF_SMUL;
+                goto MATH_OP2;
+            case CEE_MUL_OVF_UN:
+                uns  = true;
+                ovfl = true;
+                oper = GT_OVF_UMUL;
                 goto MATH_OP2;
 
             case CEE_ADD:
@@ -9812,12 +9813,14 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (varTypeIsFloating(type))
                 {
+                    assert(!GenTree::IsOverflowOp(oper));
                     oper = static_cast<genTreeOps>(oper - (GT_ADD - GT_FADD));
 
                     op1 = new (comp, oper == GT_FMOD ? GT_CALL : oper)
                         GenTreeOp(oper, type, op1, op2 DEBUGARG(/*largeNode*/ true));
                 }
-                else if ((op2->IsIntegralConst(0) && (oper == GT_ADD || oper == GT_SUB)) ||
+                else if ((op2->IsIntegralConst(0) && (oper == GT_ADD || oper == GT_OVF_SADD || oper == GT_OVF_UADD ||
+                                                      oper == GT_SUB || oper == GT_OVF_SSUB || oper == GT_OVF_USUB)) ||
                          (op2->IsIntegralConst(1) && (oper == GT_MUL || oper == GT_DIV)))
                 {
                     // just push op1
@@ -9847,8 +9850,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     }
 
 #ifndef TARGET_64BIT
-                    if ((type == TYP_LONG) && ((oper == GT_MUL) || (oper == GT_DIV) || (oper == GT_UDIV) ||
-                                               (oper == GT_MOD) || (oper == GT_UMOD)))
+                    if ((type == TYP_LONG) &&
+                        ((oper == GT_MUL) || (oper == GT_OVF_SMUL) || (oper == GT_OVF_UMUL) || (oper == GT_DIV) ||
+                         (oper == GT_UDIV) || (oper == GT_MOD) || (oper == GT_UMOD)))
                     {
                         // LONG multiplication/division usually requires helper calls on 32 bit targets.
                         op1 = new (comp, GT_CALL) GenTreeOp(oper, type, op1, op2 DEBUGARG(/*largeNode*/ true));
@@ -9861,14 +9865,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                     if (ovfl)
                     {
-                        assert(op1->OperIs(GT_ADD, GT_SUB, GT_MUL));
+                        assert(op1->IsOverflowOp());
 
-                        op1->gtFlags |= (GTF_EXCEPT | GTF_OVERFLOW);
-
-                        if (uns)
-                        {
-                            op1->SetOverflowUnsigned(true);
-                        }
+                        op1->gtFlags |= GTF_EXCEPT;
                     }
                     else if (op1->OperIs(GT_DIV, GT_UDIV, GT_MOD, GT_UMOD))
                     {
@@ -10414,7 +10413,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                     if (ovfl)
                     {
-                        op1->gtFlags |= (GTF_OVERFLOW | GTF_EXCEPT);
+                        op1->AsCast()->AddOverflowCheck();
                     }
 
                     if (op1->gtGetOp1()->OperIsConst() && opts.OptimizationEnabled())

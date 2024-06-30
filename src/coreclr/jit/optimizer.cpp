@@ -729,7 +729,7 @@ unsigned Compiler::optIsLoopIncrTree(GenTree* incr)
     // aren't actually necessary if the local is AX/DNER. And while we can't do anything with
     // an AX local, DNER may be a possibility.
 
-    if (!value->OperIs(GT_ADD, GT_SUB) || !value->TypeIs(TYP_INT))
+    if (!value->OperIs(GT_ADD, GT_OVF_SADD, GT_OVF_UADD, GT_SUB, GT_OVF_SSUB, GT_OVF_USUB) || !value->TypeIs(TYP_INT))
     {
         return BAD_VAR_NUM;
     }
@@ -1057,7 +1057,7 @@ bool Compiler::optRecordLoop(BasicBlock* head,
         LclVarDsc* iterLcl = incr->GetLcl();
         unsigned   iterVar = iterLcl->GetLclNum();
         assert(optIsLoopIncrTree(incr) == iterVar);
-        assert(incr->GetValue()->OperIs(GT_ADD, GT_SUB));
+        assert(incr->GetValue()->OperIs(GT_ADD, GT_OVF_SADD, GT_OVF_UADD, GT_SUB, GT_OVF_SSUB, GT_OVF_USUB));
 
         // TODO-MIKE-Cleanup: optIsVarAssigned should check AX.
         if (iterLcl->IsAddressExposed() || optIsVarAssigned(head->bbNext, bottom, incr, iterLcl))
@@ -1228,7 +1228,7 @@ void Compiler::LoopDsc::VerifyIterator() const
 
     GenTreeOp* value = lpIterTree->GetValue()->AsOp();
 
-    assert(value->OperIs(GT_ADD, GT_SUB));
+    assert(value->OperIs(GT_ADD, GT_OVF_SADD, GT_OVF_UADD, GT_SUB, GT_OVF_SSUB, GT_OVF_USUB));
     assert(value->GetOp(0)->AsLclLoad()->GetLcl() == lpIterTree->GetLcl());
     assert(value->GetOp(1)->IsIntCon());
 
@@ -3026,10 +3026,14 @@ bool Compiler::optComputeLoopRep(int        constInit,
             switch (iterOper)
             {
                 case GT_SUB:
+                case GT_OVF_SSUB:
+                case GT_OVF_USUB:
                     iterInc = -iterInc;
                     FALLTHROUGH;
 
                 case GT_ADD:
+                case GT_OVF_SADD:
+                case GT_OVF_UADD:
                     if (constInitX != constLimitX)
                     {
                         loopCount += (unsigned)((constLimitX - constInitX - iterSign) / iterInc) + 1;
@@ -3065,10 +3069,14 @@ bool Compiler::optComputeLoopRep(int        constInit,
             switch (iterOper)
             {
                 case GT_SUB:
+                case GT_OVF_SSUB:
+                case GT_OVF_USUB:
                     iterInc = -iterInc;
                     FALLTHROUGH;
 
                 case GT_ADD:
+                case GT_OVF_SADD:
+                case GT_OVF_UADD:
                     if (constInitX < constLimitX)
                     {
                         loopCount += (unsigned)((constLimitX - constInitX - iterSign) / iterInc) + 1;
@@ -3104,10 +3112,14 @@ bool Compiler::optComputeLoopRep(int        constInit,
             switch (iterOper)
             {
                 case GT_SUB:
+                case GT_OVF_SSUB:
+                case GT_OVF_USUB:
                     iterInc = -iterInc;
                     FALLTHROUGH;
 
                 case GT_ADD:
+                case GT_OVF_SADD:
+                case GT_OVF_UADD:
                     if (constInitX <= constLimitX)
                     {
                         loopCount += (unsigned)((constLimitX - constInitX) / iterInc) + 1;
@@ -3143,10 +3155,14 @@ bool Compiler::optComputeLoopRep(int        constInit,
             switch (iterOper)
             {
                 case GT_SUB:
+                case GT_OVF_SSUB:
+                case GT_OVF_USUB:
                     iterInc = -iterInc;
                     FALLTHROUGH;
 
                 case GT_ADD:
+                case GT_OVF_SADD:
+                case GT_OVF_UADD:
                     if (constInitX > constLimitX)
                     {
                         loopCount += (unsigned)((constLimitX - constInitX - iterSign) / iterInc) + 1;
@@ -3182,10 +3198,14 @@ bool Compiler::optComputeLoopRep(int        constInit,
             switch (iterOper)
             {
                 case GT_SUB:
+                case GT_OVF_SSUB:
+                case GT_OVF_USUB:
                     iterInc = -iterInc;
                     FALLTHROUGH;
 
                 case GT_ADD:
+                case GT_OVF_SADD:
+                case GT_OVF_UADD:
                     if (constInitX >= constLimitX)
                     {
                         loopCount += (unsigned)((constLimitX - constInitX) / iterInc) + 1;
@@ -3410,7 +3430,7 @@ PhaseStatus Compiler::phUnrollLoops()
         // clang-format off
         if (!init->OperIs(GT_LCL_STORE) || (init->AsLclStore()->GetLcl() != llvar) ||
             !init->AsLclStore()->GetValue()->IsIntCon() || (init->AsLclStore()->GetValue()->AsIntCon()->GetValue() != lbeg) ||
-            !incr->OperIs(GT_ADD, GT_SUB) ||
+            !incr->OperIs(GT_ADD, GT_OVF_SADD, GT_OVF_UADD, GT_SUB, GT_OVF_SSUB, GT_OVF_USUB) ||
             !incr->AsOp()->GetOp(0)->OperIs(GT_LCL_LOAD) ||
             (incr->AsOp()->GetOp(0)->AsLclLoad()->GetLcl() != llvar) ||
             !incr->AsOp()->GetOp(1)->IsIntCon() ||
@@ -3585,9 +3605,13 @@ PhaseStatus Compiler::phUnrollLoops()
                 switch (iterOper)
                 {
                     case GT_ADD:
+                    case GT_OVF_SADD:
+                    case GT_OVF_UADD:
                         lval += iterInc;
                         break;
                     case GT_SUB:
+                    case GT_OVF_SSUB:
+                    case GT_OVF_USUB:
                         lval -= iterInc;
                         break;
                     default:

@@ -386,7 +386,7 @@ public:
                 assert(TopValue(1).Node() == node->AsOp()->GetOp(0));
                 assert(TopValue(0).Node() == node->AsOp()->GetOp(1));
 
-                if (node->gtOverflow() || !TopValue(2).Add(TopValue(1), TopValue(0)))
+                if (!TopValue(2).Add(TopValue(1), TopValue(0)))
                 {
                     EscapeValue(TopValue(1), node);
                     EscapeValue(TopValue(0), node);
@@ -401,7 +401,7 @@ public:
                 assert(TopValue(1).Node() == node->AsOp()->GetOp(0));
                 assert(TopValue(0).Node() == node->AsOp()->GetOp(1));
 
-                if (!node->gtOverflow() && node->TypeIs(TYP_I_IMPL))
+                if (node->TypeIs(TYP_I_IMPL))
                 {
                     const Value& v1 = TopValue(1);
                     const Value& v2 = TopValue(0);

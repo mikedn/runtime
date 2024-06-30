@@ -241,7 +241,7 @@ void CodeGen::GenDblCon(GenTreeDblCon* node)
 
 void CodeGen::GenMul(GenTreeOp* mul)
 {
-    assert(mul->OperIs(GT_MUL) && varTypeIsIntegralOrI(mul->GetType()));
+    assert(mul->OperIs(GT_MUL, GT_OVF_SMUL, GT_OVF_UMUL) && varTypeIsIntegralOrI(mul->GetType()));
 
     GenTree* op1 = mul->GetOp(0);
     GenTree* op2 = mul->GetOp(1);
@@ -255,7 +255,7 @@ void CodeGen::GenMul(GenTreeOp* mul)
 
     Emitter& emit = *GetEmitter();
 
-    if (!mul->gtOverflow())
+    if (mul->OperIs(GT_MUL))
     {
         emit.emitIns_R_R_R(INS_mul, EA_4BYTE, dstReg, reg1, reg2);
     }
@@ -264,7 +264,7 @@ void CodeGen::GenMul(GenTreeOp* mul)
         RegNum tmpReg = mul->GetSingleTempReg();
         assert(tmpReg != mul->GetRegNum());
 
-        if (mul->IsOverflowUnsigned())
+        if (mul->OperIs(GT_OVF_UMUL))
         {
             emit.emitIns_R_R_R_R(INS_umull, EA_4BYTE, dstReg, tmpReg, reg1, reg2);
             emit.emitIns_R_I(INS_cmp, EA_4BYTE, tmpReg, 0);
@@ -283,7 +283,7 @@ void CodeGen::GenMul(GenTreeOp* mul)
 
 void CodeGen::GenMulLong(GenTreeOp* mul)
 {
-    assert(mul->OperIs(GT_MUL_LONG) && mul->TypeIs(TYP_LONG) && !mul->gtOverflowEx());
+    assert(mul->OperIs(GT_MUL_LONG) && mul->TypeIs(TYP_LONG));
 
     regNumber srcReg1 = UseReg(mul->GetOp(0));
     regNumber srcReg2 = UseReg(mul->GetOp(1));
@@ -301,8 +301,14 @@ static instruction GetAddSubBitwiseIns(genTreeOps oper)
     switch (oper)
     {
         case GT_ADD:
+        case GT_ADD_LO:
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
             return INS_add;
         case GT_SUB:
+        case GT_SUB_LO:
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
             return INS_sub;
         case GT_AND:
             return INS_and;
@@ -310,13 +316,13 @@ static instruction GetAddSubBitwiseIns(genTreeOps oper)
             return INS_orr;
         case GT_XOR:
             return INS_eor;
-        case GT_ADD_LO:
-            return INS_add;
         case GT_ADD_HI:
+        case GT_OVF_SADDC:
+        case GT_OVF_UADDC:
             return INS_adc;
-        case GT_SUB_LO:
-            return INS_sub;
         case GT_SUB_HI:
+        case GT_OVF_SSUBB:
+        case GT_OVF_USUBB:
             return INS_sbc;
         default:
             unreached();
@@ -325,7 +331,9 @@ static instruction GetAddSubBitwiseIns(genTreeOps oper)
 
 void CodeGen::GenAddSubBitwise(GenTreeOp* node)
 {
-    assert(node->OperIs(GT_ADD, GT_SUB, GT_AND, GT_OR, GT_XOR, GT_ADD_LO, GT_ADD_HI, GT_SUB_LO, GT_SUB_HI));
+    assert(node->OperIs(GT_ADD, GT_SUB, GT_OVF_SADD, GT_OVF_UADD, GT_OVF_SSUB, GT_OVF_USUB, GT_AND, GT_OR, GT_XOR,
+                        GT_ADD_LO, GT_ADD_HI, GT_SUB_LO, GT_SUB_HI, GT_OVF_SADDC, GT_OVF_UADDC, GT_OVF_SSUBB,
+                        GT_OVF_USUBB));
     assert(varTypeIsIntegralOrI(node->GetType()));
 
     GenTree* op1 = node->GetOp(0);
@@ -358,7 +366,7 @@ void CodeGen::GenAddSubBitwise(GenTreeOp* node)
     emitAttr    attr  = emitTypeSize(node->GetType());
     insFlags    flags = INS_FLAGS_DONT_CARE;
 
-    if (node->gtOverflowEx() || node->HasImplicitFlagsDef())
+    if (node->IsOverflowOp() || node->HasImplicitFlagsDef())
     {
         assert((ins == INS_add) || (ins == INS_adc) || (ins == INS_sub) || (ins == INS_sbc) || (ins == INS_and) ||
                (ins == INS_orr) || (ins == INS_eor) || (ins == INS_orn));
@@ -375,7 +383,7 @@ void CodeGen::GenAddSubBitwise(GenTreeOp* node)
         emit.emitIns_R_R_R(ins, attr, dstReg, reg1, reg2, flags);
     }
 
-    if (node->gtOverflowEx())
+    if (node->IsOverflowOp())
     {
         GenOverflowCheck(node);
     }
@@ -385,22 +393,23 @@ void CodeGen::GenAddSubBitwise(GenTreeOp* node)
 
 void CodeGen::GenOverflowCheck(GenTree* node)
 {
-    assert(!node->OperIs(GT_MUL) && node->gtOverflow());
+    assert(node->OperIs(GT_OVF_SADD, GT_OVF_UADD, GT_OVF_SSUB, GT_OVF_USUB, GT_OVF_SADDC, GT_OVF_UADDC, GT_OVF_SSUBB,
+                        GT_OVF_USUBB));
     assert(!varTypeIsSmall(node->GetType()));
 
     emitJumpKind jumpKind;
 
-    if (!node->IsOverflowUnsigned())
+    if (node->OperIs(GT_OVF_SADD, GT_OVF_SSUB, GT_OVF_SADDC, GT_OVF_SSUBB))
     {
         jumpKind = EJ_vs;
     }
-    else if (node->OperIs(GT_SUB, GT_SUB_HI))
+    else if (node->OperIs(GT_OVF_UADD, GT_OVF_UADDC))
     {
-        jumpKind = EJ_lo;
+        jumpKind = EJ_hs;
     }
     else
     {
-        jumpKind = EJ_hs;
+        jumpKind = EJ_lo;
     }
 
     genJumpToThrowHlpBlk(jumpKind, ThrowHelperKind::Overflow);

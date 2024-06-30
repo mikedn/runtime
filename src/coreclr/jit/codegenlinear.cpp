@@ -746,6 +746,10 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
 #endif
         case GT_ADD:
         case GT_SUB:
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
         case GT_AND:
         case GT_OR:
         case GT_XOR:
@@ -754,6 +758,10 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_ADD_HI:
         case GT_SUB_LO:
         case GT_SUB_HI:
+        case GT_OVF_SADDC:
+        case GT_OVF_UADDC:
+        case GT_OVF_SSUBB:
+        case GT_OVF_USUBB:
 #endif
             GenAddSubBitwise(node->AsOp());
             break;
@@ -773,6 +781,8 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
             break;
 #endif
         case GT_MUL:
+        case GT_OVF_SMUL:
+        case GT_OVF_UMUL:
             GenMul(node->AsOp());
             break;
 #if defined(TARGET_ARM64) || defined(TARGET_XARCH)

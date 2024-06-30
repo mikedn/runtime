@@ -3188,8 +3188,14 @@ private:
                     break;
 
                 case GT_ADD:
+                case GT_OVF_SADD:
+                case GT_OVF_UADD:
                 case GT_SUB:
+                case GT_OVF_SSUB:
+                case GT_OVF_USUB:
                 case GT_MUL:
+                case GT_OVF_SMUL:
+                case GT_OVF_UMUL:
                 case GT_DIV:
                 case GT_MOD:
                 case GT_UDIV:

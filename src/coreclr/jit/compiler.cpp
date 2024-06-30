@@ -5055,13 +5055,7 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 break;
 
             case GT_ADD:
-            case GT_SUB:
             case GT_MUL:
-                if (tree->gtOverflow())
-                {
-                    chars += printf("[OVERFLOW]");
-                }
-                FALLTHROUGH;
             case GT_LSH:
             case GT_COMMA:
                 if ((tree->gtFlags & GTF_ADDRMODE_NO_CSE) != 0)
@@ -5265,7 +5259,7 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 break;
 
             default:
-                if (GenTreeFlags flags = (tree->gtFlags & ~(GTF_COMMON_MASK | GTF_OVERFLOW)))
+                if (GenTreeFlags flags = (tree->gtFlags & ~GTF_COMMON_MASK))
                 {
                     chars += printf("[%08X]", flags);
                 }

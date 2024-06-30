@@ -390,7 +390,6 @@ TFp FpRem(TFp dividend, TFp divisor)
 //    Some opers have their semantics affected by GTF flags so they need to be
 //    replaced by special VNFunc values:
 //      - relops are affected by GTF_RELOP_UNSIGNED/GTF_RELOP_NAN_UN
-//      - ADD/SUB/MUL are affected by GTF_OVERFLOW and GTF_OVF_UNSIGNED
 //
 VNFunc GetVNFuncForNode(GenTree* node)
 {
@@ -398,11 +397,6 @@ VNFunc GetVNFuncForNode(GenTree* node)
     static_assert_no_msg(GT_LE - GT_LT == 1);
     static_assert_no_msg(GT_GE - GT_LT == 2);
     static_assert_no_msg(GT_GT - GT_LT == 3);
-
-    static const VNFunc binopOvfFuncs[]{VNF_ADD_OVF, VNF_SUB_OVF, VNF_MUL_OVF};
-    static const VNFunc binopUnOvfFuncs[]{VNF_ADD_UN_OVF, VNF_SUB_UN_OVF, VNF_MUL_UN_OVF};
-    static_assert_no_msg(GT_SUB - GT_ADD == 1);
-    static_assert_no_msg(GT_MUL - GT_ADD == 2);
 
     switch (node->OperGet())
     {
@@ -447,25 +441,6 @@ VNFunc GetVNFuncForNode(GenTree* node)
             }
             break;
 
-        case GT_ADD:
-        case GT_SUB:
-        case GT_MUL:
-            assert(varTypeIsIntegralOrI(node->AsOp()->GetOp(0)));
-            assert(varTypeIsIntegralOrI(node->AsOp()->GetOp(1)));
-
-            if (node->gtOverflow())
-            {
-                if (node->IsOverflowUnsigned())
-                {
-                    return binopUnOvfFuncs[node->GetOper() - GT_ADD];
-                }
-                else
-                {
-                    return binopOvfFuncs[node->GetOper() - GT_ADD];
-                }
-            }
-            break;
-
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
             return VNFuncHWIntrinsic(node->AsHWIntrinsic());
@@ -476,8 +451,6 @@ VNFunc GetVNFuncForNode(GenTree* node)
             unreached();
 
         default:
-            // Make sure we don't miss an overflow oper, if a new one is ever added.
-            assert(!GenTree::OperMayOverflow(node->GetOper()));
             break;
     }
 
@@ -486,13 +459,7 @@ VNFunc GetVNFuncForNode(GenTree* node)
 
 bool ValueNumStore::VNFuncIsOverflowArithmetic(VNFunc vnf)
 {
-    static_assert_no_msg(VNF_ADD_OVF + 1 == VNF_SUB_OVF);
-    static_assert_no_msg(VNF_SUB_OVF + 1 == VNF_MUL_OVF);
-    static_assert_no_msg(VNF_MUL_OVF + 1 == VNF_ADD_UN_OVF);
-    static_assert_no_msg(VNF_ADD_UN_OVF + 1 == VNF_SUB_UN_OVF);
-    static_assert_no_msg(VNF_SUB_UN_OVF + 1 == VNF_MUL_UN_OVF);
-
-    return VNF_ADD_OVF <= vnf && vnf <= VNF_MUL_UN_OVF;
+    return (VNOP_OVF_SADD <= vnf) && (vnf <= VNOP_OVF_UMUL);
 }
 
 bool ValueNumStore::VNFuncIsNumericCast(VNFunc vnf)
@@ -578,25 +545,43 @@ static T EvalOp(VNFunc vnf, T v0, T v1)
 
     switch (vnf)
     {
-        case VNF_ADD_OVF:
-        case VNF_ADD_UN_OVF:
-            assert(vnf == VNF_ADD_UN_OVF ? !CheckedOps::UAddOverflows(v0, v1) : !CheckedOps::SAddOverflows(v0, v1));
-            FALLTHROUGH;
+        case VNOP_OVF_SADD:
+            assert(!CheckedOps::SAddOverflows(v0, v1));
+            break;
+        case VNOP_OVF_UADD:
+            assert(!CheckedOps::UAddOverflows(v0, v1));
+            break;
+        case VNOP_OVF_SSUB:
+            assert(!CheckedOps::SSubOverflows(v0, v1));
+            break;
+        case VNOP_OVF_USUB:
+            assert(!CheckedOps::USubOverflows(v0, v1));
+            break;
+        case VNOP_OVF_SMUL:
+            assert(!CheckedOps::SMulOverflows(v0, v1));
+            break;
+        case VNOP_OVF_UMUL:
+            assert(!CheckedOps::UMulOverflows(v0, v1));
+            break;
+        default:
+            break;
+    }
+
+    switch (vnf)
+    {
         case VNOP_ADD:
+        case VNOP_OVF_SADD:
+        case VNOP_OVF_UADD:
             return v0 + v1;
 
-        case VNF_SUB_OVF:
-        case VNF_SUB_UN_OVF:
-            assert(vnf == VNF_SUB_UN_OVF ? !CheckedOps::USubOverflows(v0, v1) : !CheckedOps::SSubOverflows(v0, v1));
-            FALLTHROUGH;
         case VNOP_SUB:
+        case VNOP_OVF_SSUB:
+        case VNOP_OVF_USUB:
             return v0 - v1;
 
-        case VNF_MUL_OVF:
-        case VNF_MUL_UN_OVF:
-            assert(vnf == VNF_MUL_UN_OVF ? !CheckedOps::UMulOverflows(v0, v1) : !CheckedOps::SMulOverflows(v0, v1));
-            FALLTHROUGH;
         case VNOP_MUL:
+        case VNOP_OVF_SMUL:
+        case VNOP_OVF_UMUL:
             return v0 * v1;
 
         case VNOP_DIV:
@@ -2412,8 +2397,14 @@ bool ValueNumStore::CanEvalForConstantArgs(VNFunc vnf)
         case VNOP_BSWAP16:
         case VNOP_BSWAP:
         case VNOP_ADD:
+        case VNOP_OVF_SADD:
+        case VNOP_OVF_UADD:
         case VNOP_SUB:
+        case VNOP_OVF_SSUB:
+        case VNOP_OVF_USUB:
         case VNOP_MUL:
+        case VNOP_OVF_SMUL:
+        case VNOP_OVF_UMUL:
         case VNOP_DIV:
         case VNOP_MOD:
         case VNOP_UDIV:
@@ -2442,12 +2433,6 @@ bool ValueNumStore::CanEvalForConstantArgs(VNFunc vnf)
         case VNF_GE_UN:
         case VNF_LT_UN:
         case VNF_LE_UN:
-        case VNF_ADD_OVF:
-        case VNF_SUB_OVF:
-        case VNF_MUL_OVF:
-        case VNF_ADD_UN_OVF:
-        case VNF_SUB_UN_OVF:
-        case VNF_MUL_UN_OVF:
         case VNF_Cast:
         case VNF_CastOvf:
             return true;
@@ -2535,17 +2520,17 @@ bool ValueNumStore::VNEvalShouldFold(var_types typ, VNFunc func, ValueNum arg0VN
 
             switch (func)
             {
-                case VNF_ADD_OVF:
+                case VNOP_OVF_SADD:
                     return !CheckedOps::SAddOverflows(op1, op2);
-                case VNF_ADD_UN_OVF:
+                case VNOP_OVF_UADD:
                     return !CheckedOps::UAddOverflows(op1, op2);
-                case VNF_SUB_OVF:
+                case VNOP_OVF_SSUB:
                     return !CheckedOps::SSubOverflows(op1, op2);
-                case VNF_SUB_UN_OVF:
+                case VNOP_OVF_USUB:
                     return !CheckedOps::USubOverflows(op1, op2);
-                case VNF_MUL_OVF:
+                case VNOP_OVF_SMUL:
                     return !CheckedOps::SMulOverflows(op1, op2);
-                case VNF_MUL_UN_OVF:
+                case VNOP_OVF_UMUL:
                     return !CheckedOps::UMulOverflows(op1, op2);
                 default:
                     assert(!"Unexpected checked operation in VNEvalShouldFold");
@@ -2559,17 +2544,17 @@ bool ValueNumStore::VNEvalShouldFold(var_types typ, VNFunc func, ValueNum arg0VN
 
             switch (func)
             {
-                case VNF_ADD_OVF:
+                case VNOP_OVF_SADD:
                     return !CheckedOps::SAddOverflows(op1, op2);
-                case VNF_ADD_UN_OVF:
+                case VNOP_OVF_UADD:
                     return !CheckedOps::UAddOverflows(op1, op2);
-                case VNF_SUB_OVF:
+                case VNOP_OVF_SSUB:
                     return !CheckedOps::SSubOverflows(op1, op2);
-                case VNF_SUB_UN_OVF:
+                case VNOP_OVF_USUB:
                     return !CheckedOps::USubOverflows(op1, op2);
-                case VNF_MUL_OVF:
+                case VNOP_OVF_SMUL:
                     return !CheckedOps::SMulOverflows(op1, op2);
-                case VNF_MUL_UN_OVF:
+                case VNOP_OVF_UMUL:
                     return !CheckedOps::UMulOverflows(op1, op2);
                 default:
                     assert(!"Unexpected checked operation in VNEvalShouldFold");
@@ -2719,16 +2704,22 @@ ValueNum ValueNumStore::EvalUsingMathIdentity(var_types typ, VNFunc func, ValueN
         switch (genTreeOps(func))
         {
             case GT_ADD:
+            case GT_OVF_SADD:
+            case GT_OVF_UADD:
             case GT_FADD:
                 resultVN = identityForAddition();
                 break;
 
             case GT_SUB:
+            case GT_OVF_SSUB:
+            case GT_OVF_USUB:
             case GT_FSUB:
                 resultVN = identityForSubtraction();
                 break;
 
             case GT_MUL:
+            case GT_OVF_SMUL:
+            case GT_OVF_UMUL:
             case GT_FMUL:
                 resultVN = identityForMultiplication();
                 break;
@@ -2856,21 +2847,6 @@ ValueNum ValueNumStore::EvalUsingMathIdentity(var_types typ, VNFunc func, ValueN
     {
         switch (func)
         {
-            case VNF_ADD_OVF:
-            case VNF_ADD_UN_OVF:
-                resultVN = identityForAddition();
-                break;
-
-            case VNF_SUB_OVF:
-            case VNF_SUB_UN_OVF:
-                resultVN = identityForSubtraction();
-                break;
-
-            case VNF_MUL_OVF:
-            case VNF_MUL_UN_OVF:
-                resultVN = identityForMultiplication();
-                break;
-
             case VNF_LT_UN:
                 // (x < 0) == false
                 // (x < x) == false
@@ -3034,7 +3010,7 @@ ValueNum ValueNumStore::FieldSeqVNAppend(ValueNum fieldSeqVN, FieldSeqNode* fiel
 
 ValueNum ValueNumbering::AddField(GenTreeOp* add)
 {
-    assert(add->OperIs(GT_ADD) && !add->gtOverflow());
+    assert(add->OperIs(GT_ADD));
 
     ArrayInfo arrInfo;
     if (IsArrayElemAddr(add, &arrInfo))
@@ -7386,17 +7362,15 @@ void ValueNumbering::NumberNode(GenTree* node)
             break;
 
         case GT_ADD:
-            if (!node->gtOverflow())
-            {
-                ValueNum addrVN = AddField(node->AsOp());
+            ValueNum addrVN;
+            addrVN = AddField(node->AsOp());
 
-                if (addrVN != NoVN)
-                {
-                    // We don't care about differences between liberal and conservative for pointer values.
-                    // TODO-MIKE-Fix: That doesn't make a lot of sense, ExtendPtrVN only looks at the liberal VN.
-                    node->SetVNP({addrVN, addrVN});
-                    break;
-                }
+            if (addrVN != NoVN)
+            {
+                // We don't care about differences between liberal and conservative for pointer values.
+                // TODO-MIKE-Fix: That doesn't make a lot of sense, ExtendPtrVN only looks at the liberal VN.
+                node->SetVNP({addrVN, addrVN});
+                break;
             }
             FALLTHROUGH;
         default:
@@ -7422,7 +7396,7 @@ void ValueNumbering::NumberNode(GenTree* node)
                 ValueNumPair vnp  = vnStore->VNPairForFunc(node->GetType(), vnf, vnp1, vnp2);
                 node->SetVNP(vnStore->PackExset(vnp, vnStore->ExsetUnion(exset1, exset2)));
 
-                if (node->OperIs(GT_ADD, GT_SUB, GT_MUL) && node->gtOverflow())
+                if (node->IsOverflowOp())
                 {
                     AddOverflowExset(node->AsOp());
                 }
@@ -8426,7 +8400,7 @@ void ValueNumbering::NumberDivMod(GenTreeOp* node)
 
 void ValueNumbering::AddOverflowExset(GenTreeOp* node)
 {
-    assert(node->OperIs(GT_ADD, GT_SUB, GT_MUL) && node->gtOverflow());
+    assert(node->IsOverflowOp());
 
     VNFunc vnf = GetVNFuncForNode(node);
     assert(ValueNumStore::VNFuncIsOverflowArithmetic(vnf));

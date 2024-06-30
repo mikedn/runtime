@@ -97,6 +97,10 @@ void LinearScan::BuildNode(GenTree* tree)
 
         case GT_ADD:
         case GT_SUB:
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
         case GT_AND:
         case GT_OR:
         case GT_XOR:
@@ -139,21 +143,19 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildKills(tree, compiler->compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC));
             break;
 
-        case GT_MUL:
-            if (tree->gtOverflow())
-            {
-                BuildInternalIntDef(tree);
-                setInternalRegsDelayFree = true;
-            }
-
+        case GT_OVF_SMUL:
+        case GT_OVF_UMUL:
+            BuildInternalIntDef(tree);
+            setInternalRegsDelayFree = true;
             BuildUse(tree->AsOp()->GetOp(0));
             BuildUse(tree->AsOp()->GetOp(1));
+            BuildInternalUses();
+            BuildDef(tree);
+            break;
 
-            if (tree->gtOverflow())
-            {
-                BuildInternalUses();
-            }
-
+        case GT_MUL:
+            BuildUse(tree->AsOp()->GetOp(0));
+            BuildUse(tree->AsOp()->GetOp(1));
             BuildDef(tree);
             break;
 

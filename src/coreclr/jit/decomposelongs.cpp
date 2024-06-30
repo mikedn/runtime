@@ -211,10 +211,12 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
             nextNode = DecomposeNeg(use);
             break;
 
-        // Binary operators. Those that require different computation for upper and lower half are
-        // handled by the use of GetHiOper().
         case GT_ADD:
         case GT_SUB:
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
         case GT_OR:
         case GT_XOR:
         case GT_AND:
@@ -849,15 +851,6 @@ GenTree* DecomposeLongs::DecomposeNeg(LIR::Use& use)
     return FinalizeDecomposition(use, loResult, hiResult, hiResult);
 }
 
-//------------------------------------------------------------------------
-// DecomposeArith: Decompose GT_ADD, GT_SUB, GT_OR, GT_XOR, GT_AND.
-//
-// Arguments:
-//    use - the LIR::Use object for the def that needs to be decomposed.
-//
-// Return Value:
-//    The next node to process.
-//
 GenTree* DecomposeLongs::DecomposeArith(LIR::Use& use)
 {
     assert(use.IsInitialized());
@@ -865,7 +858,8 @@ GenTree* DecomposeLongs::DecomposeArith(LIR::Use& use)
     GenTree*   tree = use.Def();
     genTreeOps oper = tree->OperGet();
 
-    assert((oper == GT_ADD) || (oper == GT_SUB) || (oper == GT_OR) || (oper == GT_XOR) || (oper == GT_AND));
+    assert((oper == GT_ADD) || (oper == GT_SUB) || (oper == GT_OR) || (oper == GT_XOR) || (oper == GT_AND) ||
+           (oper == GT_OVF_SADD) || (oper == GT_OVF_UADD) || (oper == GT_OVF_SSUB) || (oper == GT_OVF_USUB));
 
     GenTree* op1 = tree->gtGetOp1();
     GenTree* op2 = tree->gtGetOp2();
@@ -890,21 +884,16 @@ GenTree* DecomposeLongs::DecomposeArith(LIR::Use& use)
     GenTree* hiResult = new (m_compiler, oper) GenTreeOp(GetHiOper(oper), TYP_INT, hiOp1, hiOp2);
     Range().InsertAfter(loResult, hiResult);
 
-    if ((oper == GT_ADD) || (oper == GT_SUB))
+    if ((oper == GT_ADD) || (oper == GT_SUB) || (oper == GT_OVF_SADD) || (oper == GT_OVF_UADD) ||
+        (oper == GT_OVF_SSUB) || (oper == GT_OVF_USUB))
     {
         loResult->gtFlags |= GTF_SET_FLAGS;
         hiResult->gtFlags |= GTF_USE_FLAGS;
 
-        if (loResult->gtOverflow())
+        if ((oper == GT_OVF_SADD) || (oper == GT_OVF_UADD) || (oper == GT_OVF_SSUB) || (oper == GT_OVF_USUB))
         {
-            hiResult->gtFlags |= GTF_OVERFLOW | GTF_EXCEPT;
-
-            if (loResult->IsOverflowUnsigned())
-            {
-                hiResult->SetOverflowUnsigned(true);
-            }
-
-            loResult->gtFlags &= ~(GTF_OVERFLOW | GTF_EXCEPT);
+            hiResult->AddSideEffects(GTF_EXCEPT);
+            loResult->RemoveSideEffects(GTF_EXCEPT);
         }
     }
 
@@ -1851,70 +1840,52 @@ GenTreeLclLoad* DecomposeLongs::RepresentOpAsLclLoad(GenTree* op, GenTree* user,
     return (*edge)->AsLclLoad();
 }
 
-//------------------------------------------------------------------------
-// GetHiOper: Convert arithmetic operator to "high half" operator of decomposed node.
-//
-// Arguments:
-//    oper - operator to map
-//
-// Return Value:
-//    mapped operator
-//
-// static
 genTreeOps DecomposeLongs::GetHiOper(genTreeOps oper)
 {
     switch (oper)
     {
         case GT_ADD:
             return GT_ADD_HI;
-            break;
+        case GT_OVF_SADD:
+            return GT_OVF_SADDC;
+        case GT_OVF_UADD:
+            return GT_OVF_UADDC;
         case GT_SUB:
             return GT_SUB_HI;
-            break;
+        case GT_OVF_SSUB:
+            return GT_OVF_SSUBB;
+        case GT_OVF_USUB:
+            return GT_OVF_USUBB;
         case GT_OR:
             return GT_OR;
-            break;
         case GT_AND:
             return GT_AND;
-            break;
         case GT_XOR:
             return GT_XOR;
-            break;
         default:
             assert(!"GetHiOper called for invalid oper");
             return GT_NONE;
     }
 }
 
-//------------------------------------------------------------------------
-// GetLoOper: Convert arithmetic operator to "low half" operator of decomposed node.
-//
-// Arguments:
-//    oper - operator to map
-//
-// Return Value:
-//    mapped operator
-//
-// static
 genTreeOps DecomposeLongs::GetLoOper(genTreeOps oper)
 {
     switch (oper)
     {
         case GT_ADD:
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
             return GT_ADD_LO;
-            break;
         case GT_SUB:
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
             return GT_SUB_LO;
-            break;
         case GT_OR:
             return GT_OR;
-            break;
         case GT_AND:
             return GT_AND;
-            break;
         case GT_XOR:
             return GT_XOR;
-            break;
         default:
             assert(!"GetLoOper called for invalid oper");
             return GT_NONE;

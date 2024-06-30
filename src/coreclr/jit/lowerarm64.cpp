@@ -953,12 +953,6 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
     GenTree* op2  = arith->GetOp(1);
     emitAttr size = emitActualTypeSize(arith->GetType());
 
-    if (arith->gtOverflow())
-    {
-        ContainCheckBinary(arith);
-        return;
-    }
-
     LIR::Use use;
     if (BlockRange().TryGetUse(arith, &use) && use.User()->IsIndir() && (use.User()->AsIndir()->GetAddr() == arith))
     {
@@ -1139,11 +1133,6 @@ static GenTreeCast* IsIntToLongCast(GenTree* node)
 void Lowering::LowerMultiply(GenTreeOp* mul)
 {
     assert(mul->OperIs(GT_MUL, GT_MULHI) && varTypeIsIntegral(mul->GetType()));
-
-    if (mul->OperIs(GT_MUL) && mul->gtOverflow())
-    {
-        return;
-    }
 
     GenTree* op1  = mul->GetOp(0);
     GenTree* op2  = mul->GetOp(1);
@@ -1619,6 +1608,10 @@ bool Lowering::IsImmOperand(GenTree* operand, GenTree* instr) const
             FALLTHROUGH;
         case GT_ADD:
         case GT_SUB:
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
         case GT_EQ:
         case GT_NE:
         case GT_LT:

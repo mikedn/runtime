@@ -109,12 +109,20 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_ADD_HI:
         case GT_SUB_LO:
         case GT_SUB_HI:
+        case GT_OVF_SADDC:
+        case GT_OVF_UADDC:
+        case GT_OVF_SSUBB:
+        case GT_OVF_USUBB:
 #endif
         case GT_ADD:
         case GT_SUB:
         case GT_AND:
         case GT_OR:
         case GT_XOR:
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
             BuildRMWUses(tree->AsOp());
             FALLTHROUGH;
         case GT_JMPTABLE:
@@ -164,6 +172,8 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_MUL:
+        case GT_OVF_SMUL:
+        case GT_OVF_UMUL:
             BuildMul(tree->AsOp());
             break;
 
@@ -445,9 +455,24 @@ bool LinearScan::isRMWRegOper(GenTreeOp* tree)
 #ifdef TARGET_X86
         case GT_MUL_LONG:
 #endif
+        // Note that overflow checking operations are reg RMW only if we do not
+        // enregister local variables that are EH live, otherwise we may modify
+        // the register assigned to the local BEFORE throwing an exception.
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
+#ifdef TARGET_X86
+        case GT_OVF_SADDC:
+        case GT_OVF_UADDC:
+        case GT_OVF_SSUBB:
+        case GT_OVF_USUBB:
+#endif
             return true;
 
         case GT_MUL:
+        case GT_OVF_SMUL:
+        case GT_OVF_UMUL:
             return !tree->GetOp(0)->IsContainedIntCon() && !tree->GetOp(1)->IsContainedIntCon();
 
         default:
@@ -1994,7 +2019,7 @@ void LinearScan::BuildIndStore(GenTreeIndir* store)
 
 void LinearScan::BuildMul(GenTreeOp* mul)
 {
-    assert(mul->OperIs(GT_MUL) && varTypeIsIntegral(mul->GetType()));
+    assert(mul->OperIs(GT_MUL, GT_OVF_SMUL, GT_OVF_UMUL) && varTypeIsIntegral(mul->GetType()));
 
     GenTree* op1 = mul->GetOp(0);
     GenTree* op2 = mul->GetOp(1);
@@ -2008,7 +2033,7 @@ void LinearScan::BuildMul(GenTreeOp* mul)
         BuildRMWUses(mul);
     }
 
-    if (mul->gtOverflow() && mul->IsOverflowUnsigned())
+    if (mul->OperIs(GT_OVF_UMUL))
     {
         BuildKills(mul, RBM_RAX | RBM_RDX);
         BuildDef(mul, RBM_RAX);
