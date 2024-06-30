@@ -5054,14 +5054,8 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 }
                 break;
 
-            case GT_SUB:
-                if (tree->gtOverflow())
-                {
-                    chars += printf("[OVERFLOW]");
-                }
-                break;
-
             case GT_ADD:
+            case GT_SUB:
             case GT_MUL:
                 if (tree->gtOverflow())
                 {
