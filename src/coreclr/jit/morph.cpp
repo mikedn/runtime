@@ -10549,7 +10549,6 @@ DONE_MORPHING_CHILDREN:
     // Perform the required oper-specific postorder morphing
     switch (oper)
     {
-        GenTree* cns1;
         GenTree* cns2;
         size_t   ival1, ival2;
 
@@ -11348,39 +11347,34 @@ DONE_MORPHING_CHILDREN:
                 }
             }
 
-            /* See if we can fold GT_ADD nodes. */
-
             if (oper == GT_ADD)
             {
-                /* Fold "((x+icon1)+(y+icon2)) to ((x+y)+(icon1+icon2))" */
+                // Fold "((x ADD i1) ADD (y ADD i2)) to ((x ADD y) ADD (i1 ADD i2))"
 
-                if (op1->gtOper == GT_ADD && op2->gtOper == GT_ADD && op1->AsOp()->gtOp2->gtOper == GT_CNS_INT &&
-                    op2->AsOp()->gtOp2->gtOper == GT_CNS_INT && !op1->gtOverflow() && !op2->gtOverflow())
+                if (op1->OperIs(GT_ADD) && !op1->gtOverflow() && op2->OperIs(GT_ADD) && !op2->gtOverflow() &&
+                    op1->AsOp()->GetOp(1)->IsIntCon() && op2->AsOp()->GetOp(1)->IsIntCon())
                 {
-                    // Don't create a byref pointer that may point outside of the ref object.
-                    // If a GC happens, the byref won't get updated. This can happen if one
-                    // of the int components is negative. It also requires the address generation
-                    // be in a fully-interruptible code region.
-                    if (!varTypeIsGC(op1->AsOp()->gtOp1->TypeGet()) && !varTypeIsGC(op2->AsOp()->gtOp1->TypeGet()))
+                    GenTreeOp* add1 = op1->AsOp();
+                    GenTreeOp* add2 = op2->AsOp();
+
+                    // We cannot reassociate GC pointer additions, doing that could create
+                    // a GC pointer that points outside the GC object and the GC has no way
+                    // to update such pointers (e.g. x ADD (1000 ADD -999)).
+
+                    if (!varTypeIsGC(add1->GetOp(0)->GetType()) && !varTypeIsGC(add2->GetOp(0)->GetType()))
                     {
-                        cns1 = op1->AsOp()->gtOp2;
-                        cns2 = op2->AsOp()->gtOp2;
-                        cns1->AsIntCon()->gtIconVal += cns2->AsIntCon()->gtIconVal;
-#ifdef TARGET_64BIT
-                        if (cns1->TypeGet() == TYP_INT)
-                        {
-                            // we need to properly re-sign-extend or truncate after adding two int constants above
-                            cns1->AsIntCon()->TruncateOrSignExtend32();
-                        }
-#endif // TARGET_64BIT
+                        GenTreeIntCon* i1 = add1->GetOp(1)->AsIntCon();
+                        GenTreeIntCon* i2 = add2->GetOp(1)->AsIntCon();
 
-                        tree->AsOp()->gtOp2 = cns1;
-                        DEBUG_DESTROY_NODE(cns2);
+                        i1->SetValue(i1->GetValue() + i2->GetValue());
+                        tree->AsOp()->SetOp(1, i1);
+                        add1->SetOp(1, add2->GetOp(0));
+                        add1->AddSideEffects(add1->GetOp(1)->GetSideEffects());
 
-                        op1->AsOp()->gtOp2 = op2->AsOp()->gtOp1;
-                        op1->gtFlags |= (op1->AsOp()->gtOp2->gtFlags & GTF_ALL_EFFECT);
-                        DEBUG_DESTROY_NODE(op2);
-                        op2 = tree->AsOp()->gtOp2;
+                        DEBUG_DESTROY_NODE(add2);
+                        DEBUG_DESTROY_NODE(i2);
+
+                        op2 = i1;
                     }
                 }
 
@@ -12134,10 +12128,9 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
 
                 if (GenTreeIntConCommon* i = op1->AsOp()->GetOp(1)->IsIntConCommon())
                 {
-                    // Don't create a byref pointer that may point outside of the ref object.
-                    // If a GC happens, the byref won't get updated. This can happen if one
-                    // of the constants is negative. It also requires the address generation
-                    // be in a fully-interruptible code region.
+                    // We cannot reassociate GC pointer additions, doing that could create
+                    // a GC pointer that points outside the GC object and the GC has no way
+                    // to update such pointers (e.g. x ADD (1000 ADD -999)).
 
                     GenTree* op3 = op1->AsOp()->GetOp(0);
 

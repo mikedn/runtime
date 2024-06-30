@@ -2897,13 +2897,6 @@ struct GenTreeIntCon : public GenTreeIntConCommon
 
     bool ImmedValNeedsReloc(Compiler* comp);
 
-#ifdef TARGET_64BIT
-    void TruncateOrSignExtend32()
-    {
-        gtIconVal = INT32(gtIconVal);
-    }
-#endif
-
     bool HasSingleSetBit() const
     {
         ssize_t value = gtIconVal;
