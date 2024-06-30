@@ -219,7 +219,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
 
         case GT_SUB:
 #ifdef TARGET_ARM
-            if (varTypeIsIntegralOrI(node->GetType()) && node->gtOverflow())
+            if (node->gtOverflow())
             {
                 node->gtFlags |= GTF_SET_FLAGS;
             }
@@ -3527,7 +3527,7 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
 //
 GenTree* Lowering::LowerAdd(GenTreeOp* node)
 {
-    assert(node->OperIs(GT_ADD) && varTypeIsIntegralOrI(node->GetType()));
+    assert(node->OperIs(GT_ADD));
 
     GenTree* op1 = node->GetOp(0);
     GenTree* op2 = node->GetOp(1);
