@@ -12171,112 +12171,117 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
 
     if (fgGlobalMorph && GenTree::OperIsCommutative(oper))
     {
-        /* Swap the operands so that the more expensive one is 'op1' */
-
-        if (tree->gtFlags & GTF_REVERSE_OPS)
+        if (tree->IsReverseOp())
         {
-            tree->gtOp1 = op2;
-            tree->gtOp2 = op1;
-
-            op2 = op1;
-            op1 = tree->gtOp1;
-
-            tree->gtFlags &= ~GTF_REVERSE_OPS;
+            std::swap(op1, op2);
+            tree->SetOp(0, op1);
+            tree->SetOp(1, op2);
+            tree->SetReverseOps(false);
         }
 
         if (tree->OperIs(GT_ADD, GT_XOR, GT_OR, GT_AND, GT_MUL) && (op2->GetOper() == oper))
         {
-            /*  Reorder nested operators at the same precedence level to be
-                left-recursive. For example, change "(a+(b+c))" to the
-                equivalent expression "((a+b)+c)".
-             */
+            // Reorder nested operators at the same precedence level to be left-recursive.
+            // For example, change "x ADD (y ADD z)" to "(x ADD y) ADD z".
 
             fgMoveOpsLeft(tree);
-            op1 = tree->gtOp1;
-            op2 = tree->gtOp2;
+            op1 = tree->GetOp(0);
+            op2 = tree->GetOp(1);
         }
     }
 
-    // Change "((x+icon)+y)" to "((x+y)+icon)"
-    // Don't reorder floating-point operations.
-
-    if (fgGlobalMorph && (oper == GT_ADD) && !tree->gtOverflow() && (op1->gtOper == GT_ADD) && !op1->gtOverflow() &&
-        varTypeIsIntegralOrI(tree->GetType()))
-    {
-        GenTree* ad1 = op1->AsOp()->gtOp1;
-        GenTree* ad2 = op1->AsOp()->gtOp2;
-
-        if (!op2->OperIsConst() && ad2->OperIsConst())
-        {
-            //  This takes
-            //        + (tree)
-            //       / \.
-            //      /   \.
-            //     /     \.
-            //    + (op1) op2
-            //   / \.
-            //  /   \.
-            // ad1  ad2
-            //
-            // and it swaps ad2 and op2.
-
-            // Don't create a byref pointer that may point outside of the ref object.
-            // If a GC happens, the byref won't get updated. This can happen if one
-            // of the int components is negative. It also requires the address generation
-            // be in a fully-interruptible code region.
-            if (!varTypeIsGC(ad1->TypeGet()) && !varTypeIsGC(op2->TypeGet()))
-            {
-                tree->gtOp2 = ad2;
-
-                op1->AsOp()->gtOp2 = op2;
-                op1->gtFlags |= op2->gtFlags & GTF_ALL_EFFECT;
-
-                op2 = tree->gtOp2;
-            }
-        }
-    }
-
-    // Perform optional oper-specific postorder morphing
     switch (oper)
     {
-        case GT_MUL:
-
-            /* Check for the case "(val + icon) * icon" */
-
-            if (op2->gtOper == GT_CNS_INT && op1->gtOper == GT_ADD)
+        case GT_ADD:
+            if (fgGlobalMorph && !tree->gtOverflow() && op1->OperIs(GT_ADD) && !op1->gtOverflow() &&
+                !op2->IsIntConCommon())
             {
-                GenTree* add = op1->AsOp()->gtOp2;
+                // Change "(x ADD i) ADD y" to "(x ADD y) ADD i".
 
-                if (add->IsCnsIntOrI() && (AddrMode::GetMulIndexScale(op2) != 0))
+                if (GenTreeIntConCommon* i = op1->AsOp()->GetOp(1)->IsIntConCommon())
                 {
-                    if (tree->gtOverflow() || op1->gtOverflow())
+                    // Don't create a byref pointer that may point outside of the ref object.
+                    // If a GC happens, the byref won't get updated. This can happen if one
+                    // of the constants is negative. It also requires the address generation
+                    // be in a fully-interruptible code region.
+
+                    GenTree* op3 = op1->AsOp()->GetOp(0);
+
+                    if (!varTypeIsGC(op3->GetType()) && !varTypeIsGC(op2->GetType()))
                     {
-                        break;
+                        tree->SetOp(1, i);
+                        op1->AsOp()->SetOp(1, op2);
+                        op1->AddSideEffects(op2->GetSideEffects());
+                        op2 = i;
                     }
+                }
+            }
+            break;
 
-                    ssize_t imul = op2->AsIntCon()->gtIconVal;
-                    ssize_t iadd = add->AsIntCon()->gtIconVal;
+        case GT_MUL:
+            if (!tree->gtOverflow() && op1->OperIs(GT_ADD) && !op1->gtOverflow() && op2->IsIntCon())
+            {
+                // Change "(x ADD i1) MUL i2" to "(x MUL i2) ADD (i1 MUL i2)"
 
-                    /* Change '(val + iadd) * imul' -> '(val * imul) + (iadd * imul)' */
+                GenTreeIntCon* i1 = op1->AsOp()->GetOp(1)->IsIntCon();
+                GenTreeIntCon* i2 = op2->AsIntCon();
 
-                    oper = GT_ADD;
-                    tree->ChangeOper(oper);
-
-                    op2->AsIntCon()->gtIconVal = iadd * imul;
+                if ((i1 != nullptr) && (AddrMode::GetMulIndexScale(i2) != 0))
+                {
+                    ssize_t val1 = i1->GetValue();
+                    ssize_t val2 = i2->GetValue();
 
                     op1->ChangeOper(GT_MUL);
+                    i1->SetValue(val2);
+                    tree->ChangeOper(GT_ADD);
+                    i2->SetValue(val1 * val2);
+                }
+            }
+            break;
 
-                    add->AsIntCon()->gtIconVal = imul;
-#ifdef TARGET_64BIT
-                    if (add->gtType == TYP_INT)
-                    {
-                        // we need to properly re-sign-extend or truncate after multiplying two int constants above
-                        add->AsIntCon()->TruncateOrSignExtend32();
-                    }
-#endif // TARGET_64BIT
+        case GT_LSH:
+            if (op1->OperIs(GT_ADD) && !op1->gtOverflow() && op2->IsIntCon())
+            {
+                // Change "(x ADD i1) LSH i2" to "(x LSH i2) ADD (i1 LSH i2)"
+
+                GenTreeIntCon* i1 = op1->AsOp()->GetOp(1)->IsIntCon();
+                GenTreeIntCon* i2 = op2->AsIntCon();
+
+                if ((i1 != nullptr) && (AddrMode::GetLshIndexScale(i2) != 0))
+                {
+                    ssize_t val1 = i1->GetValue();
+                    ssize_t val2 = i2->GetValue();
+
+                    op1->ChangeOper(GT_LSH);
+                    i1->SetValue(val2);
+                    tree->ChangeOper(GT_ADD);
+                    i2->SetValue(val1 << val2);
                 }
             }
 
+            break;
+
+        case GT_XOR:
+            if (op2->IsIntegralConst(-1))
+            {
+                // Change "x XOR -1" to "NOT x"
+
+                tree->ChangeOper(GT_NOT);
+                tree->gtOp2 = nullptr;
+
+                DEBUG_DESTROY_NODE(op2);
+            }
+            else if (op2->IsIntegralConst(1) && op1->OperIsCompare())
+            {
+                // Change "relop XOR 1" to "!relop"
+
+                gtReverseRelop(op1->AsOp());
+
+                DEBUG_DESTROY_NODE(op2);
+                DEBUG_DESTROY_NODE(tree);
+
+                return op1;
+            }
             break;
 
         case GT_UDIV:
@@ -12284,66 +12289,10 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
             tree->CheckDivideByConstOptimized(this);
             break;
 
-        case GT_LSH:
-
-            /* Check for the case "(val + icon) << icon" */
-
-            if (op2->IsCnsIntOrI() && op1->gtOper == GT_ADD && !op1->gtOverflow())
-            {
-                GenTree* cns = op1->AsOp()->gtOp2;
-
-                if (cns->IsCnsIntOrI() && (AddrMode::GetLshIndexScale(op2) != 0))
-                {
-                    ssize_t ishf = op2->AsIntConCommon()->IconValue();
-                    ssize_t iadd = cns->AsIntConCommon()->IconValue();
-
-                    // printf("Changing '(val+icon1)<<icon2' into '(val<<icon2+icon1<<icon2)'\n");
-
-                    /* Change "(val + iadd) << ishf" into "(val<<ishf + iadd<<ishf)" */
-
-                    tree->ChangeOper(GT_ADD);
-                    ssize_t result = iadd << ishf;
-                    op2->AsIntConCommon()->SetIconValue(result);
-#ifdef TARGET_64BIT
-                    if (op1->gtType == TYP_INT)
-                    {
-                        op2->AsIntCon()->TruncateOrSignExtend32();
-                    }
-#endif // TARGET_64BIT
-
-                    // we are reusing the shift amount node here, but the type we want is that of the shift result
-                    op2->gtType = op1->gtType;
-
-                    op1->ChangeOper(GT_LSH);
-
-                    cns->AsIntConCommon()->SetIconValue(ishf);
-                }
-            }
-
-            break;
-
-        case GT_XOR:
-            /* "x ^ -1" is "~x" */
-
-            if (op2->IsIntegralConst(-1))
-            {
-                tree->ChangeOper(GT_NOT);
-                tree->gtOp2 = nullptr;
-                DEBUG_DESTROY_NODE(op2);
-            }
-            else if (op2->IsIntegralConst(1) && op1->OperIsCompare())
-            {
-                /* "binaryVal ^ 1" is "!binaryVal" */
-                gtReverseRelop(op1->AsOp());
-                DEBUG_DESTROY_NODE(op2);
-                DEBUG_DESTROY_NODE(tree);
-                return op1;
-            }
-            break;
-
         default:
             break;
     }
+
     return tree;
 }
 
