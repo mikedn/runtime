@@ -155,6 +155,13 @@ GenTree* Lowering::LowerNode(GenTree* node)
             LowerArithmetic(node->AsOp());
             break;
 
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
+            ContainCheckBinary(node->AsOp());
+            break;
+
         case GT_MUL:
         case GT_MULHI:
             LowerMultiply(node->AsOp());
@@ -208,21 +215,18 @@ GenTree* Lowering::LowerNode(GenTree* node)
 #endif // TARGET_XARCH
 
         case GT_ADD:
-        {
-            GenTree* next = LowerAdd(node->AsOp());
-            if (next != nullptr)
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
+            if (GenTree* next = LowerAdd(node->AsOp()))
             {
                 return next;
             }
-        }
-        break;
+            break;
 
-        case GT_SUB:
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
 #ifdef TARGET_ARM
-            if (node->gtOverflow())
-            {
-                node->gtFlags |= GTF_SET_FLAGS;
-            }
+            node->gtFlags |= GTF_SET_FLAGS;
 #endif
             FALLTHROUGH;
 #ifndef TARGET_64BIT
@@ -230,8 +234,13 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_ADD_HI:
         case GT_SUB_LO:
         case GT_SUB_HI:
+        case GT_OVF_SADDC:
+        case GT_OVF_UADDC:
+        case GT_OVF_SSUBB:
+        case GT_OVF_USUBB:
 #endif
         case GT_AND:
+        case GT_SUB:
         case GT_OR:
         case GT_XOR:
             ContainCheckBinary(node->AsOp());
@@ -239,6 +248,8 @@ GenTree* Lowering::LowerNode(GenTree* node)
 
         case GT_MUL:
         case GT_MULHI:
+        case GT_OVF_SMUL:
+        case GT_OVF_UMUL:
 #ifdef TARGET_X86
         case GT_MUL_LONG:
 #endif
@@ -3419,7 +3430,7 @@ bool Lowering::AreSourcesPossiblyModifiedLocals(GenTree* addr, GenTree* base, Ge
 //
 bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
 {
-    if (!addr->OperIs(GT_ADD) || addr->gtOverflow())
+    if (!addr->OperIs(GT_ADD))
     {
         return false;
     }
@@ -3515,19 +3526,9 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
     return true;
 }
 
-//------------------------------------------------------------------------
-// LowerAdd: turn this add into a GT_LEA if that would be profitable
-//
-// Arguments:
-//    node - the node we care about
-//
-// Returns:
-//    nullptr if no transformation was done, or the next node in the transformed node sequence that
-//    needs to be lowered.
-//
 GenTree* Lowering::LowerAdd(GenTreeOp* node)
 {
-    assert(node->OperIs(GT_ADD));
+    assert(node->OperIs(GT_ADD, GT_OVF_SADD, GT_OVF_UADD));
 
     GenTree* op1 = node->GetOp(0);
     GenTree* op2 = node->GetOp(1);
@@ -3553,12 +3554,12 @@ GenTree* Lowering::LowerAdd(GenTreeOp* node)
         GenTree* next = node->gtNext;
         BlockRange().Remove(op2);
         BlockRange().Remove(node);
-        JITDUMP("Remove [%06u], [%06u]\n", op2->gtTreeID, node->gtTreeID);
+        JITDUMP("Remove [%06u], [%06u]\n", op2->GetID(), node->GetID());
         return next;
     }
 
 #ifdef TARGET_XARCH
-    if (BlockRange().TryGetUse(node, &use))
+    if (node->OperIs(GT_ADD) && BlockRange().TryGetUse(node, &use))
     {
         // If this is a child of an indir, let the parent handle it.
         // If there is a chain of adds, only look at the topmost one.
@@ -3569,14 +3570,8 @@ GenTree* Lowering::LowerAdd(GenTreeOp* node)
         }
     }
 #endif
-#ifdef TARGET_ARM
-    if (node->gtOverflow())
-    {
-        node->gtFlags |= GTF_SET_FLAGS;
-    }
-#endif
 
-    if (node->OperIs(GT_ADD))
+    if (node->OperIs(GT_ADD, GT_OVF_SADD, GT_OVF_UADD))
     {
         ContainCheckBinary(node);
     }

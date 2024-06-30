@@ -7607,7 +7607,7 @@ struct AddrMode
 
     AddrMode(GenTree* base) : base(base)
     {
-        assert(base->OperIs(GT_ADD) && !base->gtOverflow());
+        assert(base->OperIs(GT_ADD));
     }
 
     void Extract(Compiler* compiler);

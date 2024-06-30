@@ -974,27 +974,6 @@ inline GenTreeAddrMode* GenTree::ChangeToAddrMode(GenTree* base, GenTree* index,
     return addrMode;
 }
 
-inline bool GenTree::gtOverflow() const
-{
-    assert(OperMayOverflow() && (gtOper != GT_CAST));
-
-    if ((gtFlags & GTF_OVERFLOW) != 0)
-    {
-        assert(varTypeIsIntegral(GetType()));
-
-        return true;
-    }
-    else
-    {
-        return false;
-    }
-}
-
-inline bool GenTree::gtOverflowEx() const
-{
-    return OperMayOverflow() && gtOverflow();
-}
-
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

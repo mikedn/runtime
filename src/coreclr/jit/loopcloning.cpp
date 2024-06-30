@@ -899,7 +899,8 @@ bool LoopCloneContext::IsLoopClonable(unsigned loopNum) const
 
     // TODO-CQ: Handle decreasing IVs. Also, step can be greater than 1 for arrays because
     // the maximum array length is less than INT_MAX.
-    if ((loop.lpIterOper() != GT_ADD) || (loop.lpIterConst() != 1))
+    if (((loop.lpIterOper() != GT_ADD) && (loop.lpIterOper() != GT_OVF_SADD) && (loop.lpIterOper() != GT_OVF_UADD)) ||
+        (loop.lpIterConst() != 1))
     {
         JITDUMP("Rejecting loop. Loop iteration operator not matching.\n");
         return false;

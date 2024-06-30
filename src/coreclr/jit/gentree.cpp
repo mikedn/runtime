@@ -1131,11 +1131,6 @@ AGAIN:
             }
         }
 
-        if (op1->gtOverflowEx() != op2->gtOverflowEx())
-        {
-            return false;
-        }
-
         if ((op1->gtFlags & GTF_UNSIGNED) != (op2->gtFlags & GTF_UNSIGNED))
         {
             return false;
@@ -2366,8 +2361,7 @@ void Compiler::gtSetCosts(GenTree* tree)
                     {
                         GenTree* addr = op1->SkipComma();
 
-                        if (!addr->OperIs(GT_ADD) || addr->gtOverflow() ||
-                            !gtMarkAddrMode(addr, tree->GetType(), &costEx, &costSz))
+                        if (!addr->OperIs(GT_ADD) || !gtMarkAddrMode(addr, tree->GetType(), &costEx, &costSz))
                         {
                             break;
                         }
@@ -2439,6 +2433,18 @@ void Compiler::gtSetCosts(GenTree* tree)
 
         switch (oper)
         {
+            case GT_MUL:
+                costEx += 3;
+                costSz += 2;
+
+#ifdef TARGET_X86
+                if (tree->TypeIs(TYP_LONG))
+                {
+                    costEx += 4;
+                }
+#endif
+                break;
+
             case GT_MOD:
             case GT_UMOD:
                 if (op2->IsIntCon() && isPow2(op2->AsIntCon()->GetValue()))
@@ -2452,25 +2458,22 @@ void Compiler::gtSetCosts(GenTree* tree)
                 costSz += 2;
                 break;
 
-            case GT_MUL:
+            case GT_OVF_SADD:
+            case GT_OVF_UADD:
+            case GT_OVF_SSUB:
+            case GT_OVF_USUB:
                 costEx += 3;
-                costSz += 2;
+                costSz += 3;
+                break;
 
+            case GT_OVF_SMUL:
+            case GT_OVF_UMUL:
+                costEx += 6;
+                costSz += 5;
 #ifdef TARGET_X86
-                // TODO-MIKE-Review: This adds the overflow check cost twice...
-                if (tree->TypeIs(TYP_LONG) || tree->gtOverflow())
-                {
-                    costEx += 4;
-                }
+                // TODO-MIKE-Review: Was this intended to be done for LONG only?
+                costEx += 4;
 #endif
-                FALLTHROUGH;
-            case GT_ADD:
-            case GT_SUB:
-                if (tree->gtOverflow())
-                {
-                    costEx += 3;
-                    costSz += 3;
-                }
                 break;
 
             case GT_EQ:
@@ -2531,7 +2534,7 @@ void Compiler::gtSetCosts(GenTree* tree)
                 // to mark here. We'll mark it for now to reduce diffs, even if this increases the
                 // chance of producing 3 component LEAs that may be slow on many older CPUs.
 
-                if (op1->IsBoundsChk() && op2->TypeIs(TYP_BYREF) && op2->OperIs(GT_ADD) && !op2->gtOverflow())
+                if (op1->IsBoundsChk() && op2->TypeIs(TYP_BYREF) && op2->OperIs(GT_ADD))
                 {
                     op2->SetCosts(op2->GetCostEx() * 2, op2->GetCostSz() * 2);
 
@@ -2611,8 +2614,7 @@ void Compiler::gtSetCosts(GenTree* tree)
                 {
                     GenTree* addr = op1->SkipComma();
 
-                    if (!addr->OperIs(GT_ADD) || addr->gtOverflow() ||
-                        !gtMarkAddrMode(addr, tree->GetType(), &costEx, &costSz))
+                    if (!addr->OperIs(GT_ADD) || !gtMarkAddrMode(addr, tree->GetType(), &costEx, &costSz))
                     {
                         costEx += 1;
                         costSz += 1;
@@ -3341,8 +3343,10 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
                 break;
 
             case GT_MUL:
+            case GT_OVF_SMUL:
+            case GT_OVF_UMUL:
 #ifdef TARGET_X86
-                if (tree->TypeIs(TYP_LONG) || tree->gtOverflow())
+                if (tree->TypeIs(TYP_LONG) || tree->OperIs(GT_OVF_SMUL, GT_OVF_UMUL))
                 {
                     level1 += 4;
                 }
@@ -3395,6 +3399,10 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
                     case GT_OR:
                     case GT_XOR:
                     case GT_AND:
+                    case GT_OVF_SADD:
+                    case GT_OVF_UADD:
+                    case GT_OVF_SMUL:
+                    case GT_OVF_UMUL:
                         tree->AsOp()->SetOp(0, op2);
                         tree->AsOp()->SetOp(1, op1);
                         break;
@@ -4828,7 +4836,7 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
                 copy = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(field);
                 copy->AsFieldAddr()->SetAddr(addr);
             }
-            else if (tree->OperIs(GT_ADD, GT_SUB))
+            else if (tree->OperIs(GT_ADD, GT_OVF_SADD, GT_OVF_UADD, GT_SUB, GT_OVF_SSUB, GT_OVF_USUB))
             {
                 GenTree* op1 = tree->AsOp()->GetOp(0);
                 GenTree* op2 = tree->AsOp()->GetOp(1);
@@ -5077,6 +5085,8 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
 
 #ifndef TARGET_64BIT
             case GT_MUL:
+            case GT_OVF_SMUL:
+            case GT_OVF_UMUL:
             case GT_DIV:
             case GT_MOD:
             case GT_UDIV:
@@ -5086,12 +5096,6 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
                     // LONG multiplication/division usually requires helper calls on 32 bit targets.
                     copy = new (this, GT_CALL) GenTreeOp(oper, tree->GetType(), tree->AsOp()->GetOp(0),
                                                          tree->AsOp()->GetOp(1) DEBUGARG(/*largeNode*/ true));
-
-                    if ((oper == GT_MUL) && tree->gtOverflow())
-                    {
-                        copy->gtFlags |= GTF_OVERFLOW;
-                        copy->SetOverflowUnsigned(tree->IsOverflowUnsigned());
-                    }
                     break;
                 }
                 FALLTHROUGH;
@@ -5489,14 +5493,19 @@ bool GenTree::OperMayThrow(Compiler* comp) const
         case GT_CAST:
             return AsCast()->HasOverflowCheck();
 
-        case GT_ADD:
-        case GT_SUB:
-        case GT_MUL:
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
+        case GT_OVF_SMUL:
+        case GT_OVF_UMUL:
 #ifndef TARGET_64BIT
-        case GT_ADD_HI:
-        case GT_SUB_HI:
+        case GT_OVF_SADDC:
+        case GT_OVF_UADDC:
+        case GT_OVF_SSUBB:
+        case GT_OVF_USUBB:
 #endif
-            return gtOverflow();
+            return true;
 
         default:
             // TODO-MIKE-Review: Atomic ops may throw too.
@@ -6238,18 +6247,7 @@ void Compiler::gtDispNodeName(GenTree* tree)
     }
     else if (GenTreeCast* cast = tree->IsCast())
     {
-        if (cast->HasOverflowCheck())
-        {
-            sprintf_s(buf, sizeof(buf), "%s_ovfl%c", name, 0);
-        }
-        else
-        {
-            sprintf_s(buf, sizeof(buf), "%s%c", name, 0);
-        }
-    }
-    else if (tree->gtOverflowEx())
-    {
-        sprintf_s(buf, sizeof(buf), "%s_ovfl%c", name, 0);
+        sprintf_s(buf, sizeof(buf), "%s%s%c", cast->HasOverflowCheck() ? "OVF_" : "", name, 0);
     }
     else
     {
@@ -9046,6 +9044,8 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
             break;
 
         case GT_ADD:
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
             if (val == 0)
             {
                 goto DONE_FOLD;
@@ -9053,18 +9053,18 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
             break;
 
         case GT_MUL:
+        case GT_OVF_SMUL:
+        case GT_OVF_UMUL:
             if (val == 1)
             {
                 goto DONE_FOLD;
             }
-            else if (val == 0)
+
+            // Multiply by zero - return the 'zero' node, but not if side effects
+            if ((val == 0) && !opHasSideEffects)
             {
-                /* Multiply by zero - return the 'zero' node, but not if side effects */
-                if (!opHasSideEffects)
-                {
-                    op = cons;
-                    goto DONE_FOLD;
-                }
+                op = cons;
+                goto DONE_FOLD;
             }
             break;
 
@@ -9077,6 +9077,8 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
             break;
 
         case GT_SUB:
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
             if ((op2 == cons) && (val == 0))
             {
                 goto DONE_FOLD;
@@ -10236,26 +10238,59 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 #ifndef TARGET_64BIT
                     fieldSeq = GetFieldSeqStore()->FoldAdd(op1->AsIntCon(), op2->AsIntCon());
 #endif
-                    if (tree->gtOverflow() && (tree->IsOverflowUnsigned() ? CheckedOps::UAddOverflows(i1, i2)
-                                                                          : CheckedOps::SAddOverflows(i1, i2)))
+                    i = i1 + i2;
+                    goto CNS_INT;
+
+                case GT_SUB:
+                    i = i1 - i2;
+                    goto CNS_INT;
+
+                case GT_MUL:
+                    i = i1 * i2;
+                    goto CNS_INT;
+
+                case GT_OVF_SADD:
+                    if (CheckedOps::SAddOverflows(i1, i2))
                     {
                         goto INTEGRAL_OVF;
                     }
                     i = i1 + i2;
                     goto CNS_INT;
 
-                case GT_SUB:
-                    if (tree->gtOverflow() && (tree->IsOverflowUnsigned() ? CheckedOps::USubOverflows(i1, i2)
-                                                                          : CheckedOps::SSubOverflows(i1, i2)))
+                case GT_OVF_UADD:
+                    if (CheckedOps::UAddOverflows(i1, i2))
+                    {
+                        goto INTEGRAL_OVF;
+                    }
+                    i = i1 + i2;
+                    goto CNS_INT;
+
+                case GT_OVF_SSUB:
+                    if (CheckedOps::SSubOverflows(i1, i2))
                     {
                         goto INTEGRAL_OVF;
                     }
                     i = i1 - i2;
                     goto CNS_INT;
 
-                case GT_MUL:
-                    if (tree->gtOverflow() && (tree->IsOverflowUnsigned() ? CheckedOps::UMulOverflows(i1, i2)
-                                                                          : CheckedOps::SMulOverflows(i1, i2)))
+                case GT_OVF_USUB:
+                    if (CheckedOps::USubOverflows(i1, i2))
+                    {
+                        goto INTEGRAL_OVF;
+                    }
+                    i = i1 - i2;
+                    goto CNS_INT;
+
+                case GT_OVF_SMUL:
+                    if (CheckedOps::SMulOverflows(i1, i2))
+                    {
+                        goto INTEGRAL_OVF;
+                    }
+                    i = i1 * i2;
+                    goto CNS_INT;
+
+                case GT_OVF_UMUL:
+                    if (CheckedOps::UMulOverflows(i1, i2))
                     {
                         goto INTEGRAL_OVF;
                     }
@@ -10375,26 +10410,59 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 #ifdef TARGET_64BIT
                     fieldSeq = GetFieldSeqStore()->FoldAdd(op1->AsIntCon(), op2->AsIntCon());
 #endif
-                    if (tree->gtOverflow() && (tree->IsOverflowUnsigned() ? CheckedOps::UAddOverflows(l1, l2)
-                                                                          : CheckedOps::SAddOverflows(l1, l2)))
+                    l = l1 + l2;
+                    goto CNS_LONG;
+
+                case GT_SUB:
+                    l = l1 - l2;
+                    goto CNS_LONG;
+
+                case GT_MUL:
+                    l = l1 * l2;
+                    goto CNS_LONG;
+
+                case GT_OVF_SADD:
+                    if (CheckedOps::SAddOverflows(l1, l2))
                     {
                         goto INTEGRAL_OVF;
                     }
                     l = l1 + l2;
                     goto CNS_LONG;
 
-                case GT_SUB:
-                    if (tree->gtOverflow() && (tree->IsOverflowUnsigned() ? CheckedOps::USubOverflows(l1, l2)
-                                                                          : CheckedOps::SSubOverflows(l1, l2)))
+                case GT_OVF_UADD:
+                    if (CheckedOps::UAddOverflows(l1, l2))
+                    {
+                        goto INTEGRAL_OVF;
+                    }
+                    l = l1 + l2;
+                    goto CNS_LONG;
+
+                case GT_OVF_SSUB:
+                    if (CheckedOps::SSubOverflows(l1, l2))
                     {
                         goto INTEGRAL_OVF;
                     }
                     l = l1 - l2;
                     goto CNS_LONG;
 
-                case GT_MUL:
-                    if (tree->gtOverflow() && (tree->IsOverflowUnsigned() ? CheckedOps::UMulOverflows(l1, l2)
-                                                                          : CheckedOps::SMulOverflows(l1, l2)))
+                case GT_OVF_USUB:
+                    if (CheckedOps::USubOverflows(l1, l2))
+                    {
+                        goto INTEGRAL_OVF;
+                    }
+                    l = l1 - l2;
+                    goto CNS_LONG;
+
+                case GT_OVF_SMUL:
+                    if (CheckedOps::SMulOverflows(l1, l2))
+                    {
+                        goto INTEGRAL_OVF;
+                    }
+                    l = l1 * l2;
+                    goto CNS_LONG;
+
+                case GT_OVF_UMUL:
+                    if (CheckedOps::UMulOverflows(l1, l2))
                     {
                         goto INTEGRAL_OVF;
                     }
@@ -10632,8 +10700,7 @@ CNS_DOUBLE:
     return tree;
 
 INTEGRAL_OVF:
-    assert((tree->IsCast() && tree->AsCast()->HasOverflowCheck()) ||
-           (tree->OperIs(GT_ADD, GT_SUB, GT_MUL) && tree->gtOverflow()));
+    assert((tree->IsCast() && tree->AsCast()->HasOverflowCheck()) || tree->IsOverflowOp());
     assert(varTypeIsIntegral(tree->GetType()));
 
     // This operation is going to cause an overflow exception. Morph into

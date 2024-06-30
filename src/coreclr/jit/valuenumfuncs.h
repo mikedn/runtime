@@ -161,14 +161,6 @@ ValueNumFuncDef(LE_UN, 2, false, false, false)
 ValueNumFuncDef(GE_UN, 2, false, false, false)
 ValueNumFuncDef(GT_UN, 2, false, false, false)
 
-ValueNumFuncDef(ADD_OVF, 2, true, false, false)     // overflow checking operations
-ValueNumFuncDef(SUB_OVF, 2, false, false, false)
-ValueNumFuncDef(MUL_OVF, 2, true, false, false)
-
-ValueNumFuncDef(ADD_UN_OVF, 2, true, false, false)  // unsigned overflow checking operations
-ValueNumFuncDef(SUB_UN_OVF, 2, false, false, false)
-ValueNumFuncDef(MUL_UN_OVF, 2, true, false, false)
-
 #if defined(TARGET_XARCH)
 #define HARDWARE_INTRINSIC(isa, name, size, argCount, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, category, flag) \
 ValueNumFuncDef(HWI_##isa##_##name, argCount, false, false, false)   // All of the HARDWARE_INTRINSICS for x86/x64

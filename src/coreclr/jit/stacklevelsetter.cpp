@@ -137,17 +137,19 @@ void StackLevelSetter::SetThrowHelperBlockStackLevel(GenTree* node, BasicBlock* 
             }
             break;
 
-        case GT_ADD:
-        case GT_SUB:
-        case GT_MUL:
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
+        case GT_OVF_SMUL:
+        case GT_OVF_UMUL:
 #ifndef TARGET_64BIT
-        case GT_ADD_HI:
-        case GT_SUB_HI:
+        case GT_OVF_SADDC:
+        case GT_OVF_UADDC:
+        case GT_OVF_SSUBB:
+        case GT_OVF_USUBB:
 #endif
-            if (node->gtOverflow())
-            {
-                SetThrowHelperBlockStackLevel(ThrowHelperKind::Overflow, throwBlock);
-            }
+            SetThrowHelperBlockStackLevel(ThrowHelperKind::Overflow, throwBlock);
             break;
 
         default:

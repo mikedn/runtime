@@ -143,6 +143,19 @@ GTNODE(INDEX_ADDR       , GenTreeIndexAddr    , GTK_BINOP|GTK_EXOP|GTK_VN) // ad
 GTNODE(MKREFANY         , GenTreeOp           , GTK_BINOP|GTK_NOTLIR)
 GTNODE(LEA              , GenTreeAddrMode     , GTK_BINOP|GTK_EXOP)
 
+GTNODE(OVF_SADD         , GenTreeOp           , GTK_BINOP | GTK_COMMUTE | GTK_VN)
+GTNODE(OVF_UADD         , GenTreeOp           , GTK_BINOP | GTK_COMMUTE | GTK_VN)
+GTNODE(OVF_SSUB         , GenTreeOp           , GTK_BINOP | GTK_VN)
+GTNODE(OVF_USUB         , GenTreeOp           , GTK_BINOP | GTK_VN)
+GTNODE(OVF_SMUL         , GenTreeOp           , GTK_BINOP | GTK_COMMUTE | GTK_VN)
+GTNODE(OVF_UMUL         , GenTreeOp           , GTK_BINOP | GTK_COMMUTE | GTK_VN)
+#ifndef TARGET_64BIT
+GTNODE(OVF_SADDC        , GenTreeOp           , GTK_BINOP | GTK_COMMUTE)
+GTNODE(OVF_UADDC        , GenTreeOp           , GTK_BINOP | GTK_COMMUTE)
+GTNODE(OVF_SSUBB        , GenTreeOp           , GTK_BINOP)
+GTNODE(OVF_USUBB        , GenTreeOp           , GTK_BINOP)
+#endif
+
 #ifndef TARGET_64BIT
 // A GT_LONG node simply represents the long value produced by the concatenation
 // of its two (lower and upper half) operands.  Some GT_LONG nodes are transient,

@@ -341,7 +341,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         // based on the upper 32 bits.
         // For these operations the lower 32 bits of the result only depends
         // upon the lower 32 bits of the operands.
-        if (fgGlobalMorph && !cast->HasOverflowCheck() && !src->IsCast() && !src->gtOverflowEx())
+        if (fgGlobalMorph && !cast->HasOverflowCheck())
         {
             bool canPushCast = src->OperIs(GT_ADD, GT_SUB, GT_MUL, GT_AND, GT_OR, GT_XOR, GT_NOT, GT_NEG);
 
@@ -1033,10 +1033,19 @@ bool Compiler::fgMorphNarrowTree(
             }
             goto COMMON_BINOP;
         }
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
+        case GT_OVF_SMUL:
+        case GT_OVF_UMUL:
+        {
+            noway_assert(!doit);
+
+            return false;
+        }
         case GT_ADD:
         case GT_MUL:
         {
-            if (tree->gtOverflow() || varTypeIsSmall(dstt))
+            if (varTypeIsSmall(dstt))
             {
                 noway_assert(!doit);
 
@@ -1331,14 +1340,13 @@ static bool HasInlineThrowHelperCall(Compiler* compiler, GenTree* tree)
 
         switch (node->GetOper())
         {
-            case GT_MUL:
-            case GT_ADD:
-            case GT_SUB:
-                if (node->gtOverflow())
-                {
-                    return Compiler::WALK_ABORT;
-                }
-                break;
+            case GT_OVF_SADD:
+            case GT_OVF_UADD:
+            case GT_OVF_SSUB:
+            case GT_OVF_USUB:
+            case GT_OVF_SMUL:
+            case GT_OVF_UMUL:
+                return Compiler::WALK_ABORT;
 
             case GT_CAST:
                 if (node->AsCast()->HasOverflowCheck())
@@ -5167,11 +5175,6 @@ void Compiler::fgMoveOpsLeft(GenTreeOp* tree)
 
     GenTreeOp* const tree2 = tree->GetOp(1)->AsOp();
 
-    if (tree->gtOverflowEx() || tree2->gtOverflowEx())
-    {
-        return;
-    }
-
     if (((tree->gtFlags | tree2->gtFlags) & GTF_BOOLEAN) != 0)
     {
         // We could deal with this, but we were always broken and just hit the assert
@@ -5210,14 +5213,11 @@ void Compiler::fgMoveOpsLeft(GenTreeOp* tree)
     tree2->SetOp(1, op2);
 
     // Make sure we aren't throwing away any needed flags.
-    noway_assert(
-        (tree2->gtFlags &
-         ~(GTF_ALL_EFFECT |  // We'll recompute the side effects from the new operands
-           GTF_DONT_CSE |    // We'll keep this
-           GTF_REVERSE_OPS | // This will be re-calculated later
-           GTF_OVF_UNSIGNED  // We don't reassociate overflow operations so this should not be set, but it may be set
-                             // by accident so ignore it as it would have no effect anyway.
-           )) == GTF_NONE);
+    noway_assert((tree2->gtFlags &
+                  ~(GTF_ALL_EFFECT | // We'll recompute the side effects from the new operands
+                    GTF_DONT_CSE |   // We'll keep this
+                    GTF_REVERSE_OPS  // This will be re-calculated later
+                    )) == GTF_NONE);
 
     tree2->gtFlags = (tree2->gtFlags & GTF_DONT_CSE) | op1->GetSideEffects() | op2->GetSideEffects();
 
@@ -5235,7 +5235,7 @@ void Compiler::fgMoveOpsLeft(GenTreeOp* tree)
         tree2->SetType(TYP_I_IMPL);
     }
 
-    if ((op2->GetOper() == oper) && !op2->gtOverflowEx())
+    if (op2->GetOper() == oper)
     {
         fgMoveOpsLeft(tree2);
     }
@@ -5243,7 +5243,7 @@ void Compiler::fgMoveOpsLeft(GenTreeOp* tree)
     tree->SetOp(0, tree2);
     tree->SetOp(1, op3);
 
-    if ((op3->GetOper() == oper) && !op3->gtOverflowEx())
+    if (op3->GetOper() == oper)
     {
         fgMoveOpsLeft(tree);
     }
@@ -9386,7 +9386,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
             // could try to extract the offset from that tree but then vnIsArrayElemAddr will have
             // a difficult time recovering array element information.
 
-            if (addr->OperIs(GT_ADD) && !addr->gtOverflow())
+            if (addr->OperIs(GT_ADD))
             {
                 if (GenTreeIntCon* offset = addr->AsOp()->GetOp(1)->IsIntCon())
                 {
@@ -9621,7 +9621,7 @@ GenTree* Compiler::fgMorphPromoteStore(GenTree* store, GenTree* tempStore, GenTr
 // Try to simplify "(X op C1) op C2" to "X op C3" for associative operators.
 GenTree* Compiler::fgMorphAssociative(GenTreeOp* tree)
 {
-    assert(tree->OperIs(GT_ADD, GT_MUL, GT_OR, GT_AND, GT_XOR) && !tree->gtOverflowEx());
+    assert(tree->OperIs(GT_ADD, GT_MUL, GT_OR, GT_AND, GT_XOR));
     assert(varTypeIsIntegralOrI(tree->GetType()));
 
     // op1 can be COMMA, in this case we're going to fold
@@ -9642,7 +9642,7 @@ GenTree* Compiler::fgMorphAssociative(GenTreeOp* tree)
         op1 = op1->SkipComma();
     }
 
-    if ((op1->GetOper() != tree->GetOper()) || op1->gtOverflowEx())
+    if (op1->GetOper() != tree->GetOper())
     {
         return nullptr;
     }
@@ -9997,6 +9997,8 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             return fgMorphCast(tree->AsCast());
 
         case GT_MUL:
+        case GT_OVF_SMUL:
+        case GT_OVF_UMUL:
             noway_assert(op2 != nullptr);
 
             if (op1->IsIntConCommon() && !op2->IsIntConCommon())
@@ -10006,7 +10008,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 tree->AsOp()->SetOp(1, op2);
             }
 
-            if (opts.OptimizationEnabled() && !tree->gtOverflow())
+            if (opts.OptimizationEnabled() && tree->OperIs(GT_MUL))
             {
                 // MUL(NEG(a), C) => MUL(a, NEG(C))
                 if (op1->OperIs(GT_NEG) && !op1->gtGetOp1()->IsCnsIntOrI() && op2->IsCnsIntOrI() &&
@@ -10032,9 +10034,13 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                     return fgMorphMulLongCandidate(tree->AsOp(), kind);
                 }
 
-                if (tree->gtOverflow())
+                if (tree->OperIs(GT_OVF_SMUL))
                 {
-                    helper = tree->IsOverflowUnsigned() ? CORINFO_HELP_ULMUL_OVF : CORINFO_HELP_LMUL_OVF;
+                    helper = CORINFO_HELP_LMUL_OVF;
+                }
+                else if (tree->OperIs(GT_OVF_UMUL))
+                {
+                    helper = CORINFO_HELP_ULMUL_OVF;
                 }
                 else
                 {
@@ -10672,8 +10678,7 @@ DONE_MORPHING_CHILDREN:
             {
                 op1 = tree->AsOp()->GetOp(0);
 
-                while (op1->OperIs(GT_ADD, GT_SUB) && !op1->gtOverflow() && op1->TypeIs(TYP_INT) &&
-                       op1->AsOp()->GetOp(1)->IsIntCon())
+                while (op1->OperIs(GT_ADD, GT_SUB) && op1->TypeIs(TYP_INT) && op1->AsOp()->GetOp(1)->IsIntCon())
                 {
                     ssize_t i1 = op1->AsOp()->GetOp(1)->AsIntCon()->GetValue();
                     ssize_t i2 = cns2->AsIntCon()->GetValue();
@@ -11194,13 +11199,52 @@ DONE_MORPHING_CHILDREN:
             break;
 #endif
 
-        case GT_SUB:
-            if (tree->gtOverflow())
+        case GT_OVF_SMUL:
+        case GT_OVF_UMUL:
+#ifndef TARGET_64BIT
+            assert(typ != TYP_LONG);
+#endif
+            if (op1->IsIntConCommon())
             {
-                fgGetThrowHelperBlock(ThrowHelperKind::Overflow, currentBlock);
-                break;
+                std::swap(op1, op2);
+                tree->AsOp()->SetOp(0, op1);
+                tree->AsOp()->SetOp(1, op2);
             }
 
+            if (op2->IsIntCon(1))
+            {
+                oper = GT_MUL;
+                tree->SetOper(GT_MUL);
+                tree->SetSideEffects(op1->GetSideEffects() | op2->GetSideEffects());
+                goto CM_ADD_OP;
+            }
+
+            fgGetThrowHelperBlock(ThrowHelperKind::Overflow, currentBlock);
+            break;
+
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
+            if (op1->IsIntConCommon() && !op1->TypeIs(TYP_REF))
+            {
+                std::swap(op1, op2);
+                tree->AsOp()->SetOp(0, op1);
+                tree->AsOp()->SetOp(1, op2);
+            }
+            FALLTHROUGH;
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
+            if (op2->IsIntCon(0))
+            {
+                oper = GT_ADD;
+                tree->SetOper(oper);
+                tree->SetSideEffects(op1->GetSideEffects() | op2->GetSideEffects());
+                goto CM_ADD_OP;
+            }
+
+            fgGetThrowHelperBlock(ThrowHelperKind::Overflow, currentBlock);
+            break;
+
+        case GT_SUB:
             // TODO #4104: there are a lot of other places where
             // this condition is not checked before transformations.
             if (fgGlobalMorph)
@@ -11286,18 +11330,11 @@ DONE_MORPHING_CHILDREN:
 #endif
             FALLTHROUGH;
         case GT_ADD:
-            if (tree->gtOverflow())
-            {
-                fgGetThrowHelperBlock(ThrowHelperKind::Overflow, currentBlock);
-                break;
-            }
-            FALLTHROUGH;
         case GT_OR:
         case GT_XOR:
         case GT_AND:
         CM_ADD_OP:
             assert(varTypeIsIntegralOrI(tree->GetType()));
-            assert(!tree->gtOverflowEx());
 
             // Commute any non-REF constants to the right
             if (op1->IsIntConCommon() && !op1->TypeIs(TYP_REF))
@@ -11335,8 +11372,8 @@ DONE_MORPHING_CHILDREN:
             {
                 // Fold "((x ADD i1) ADD (y ADD i2)) to ((x ADD y) ADD (i1 ADD i2))"
 
-                if (op1->OperIs(GT_ADD) && !op1->gtOverflow() && op2->OperIs(GT_ADD) && !op2->gtOverflow() &&
-                    op1->AsOp()->GetOp(1)->IsIntCon() && op2->AsOp()->GetOp(1)->IsIntCon())
+                if (op1->OperIs(GT_ADD) && op2->OperIs(GT_ADD) && op1->AsOp()->GetOp(1)->IsIntCon() &&
+                    op2->AsOp()->GetOp(1)->IsIntCon())
                 {
                     GenTreeOp* add1 = op1->AsOp();
                     GenTreeOp* add2 = op2->AsOp();
@@ -11566,8 +11603,7 @@ DONE_MORPHING_CHILDREN:
                     // NEG(MUL(a, C)) => MUL(a, -C)
                     // NEG(DIV(a, C)) => DIV(a, -C), except when C = {-1, 1}
                     ssize_t constVal = op1op2->AsIntCon()->IconValue();
-                    if ((mulOrDiv->OperIs(GT_DIV) && (constVal != -1) && (constVal != 1)) ||
-                        (mulOrDiv->OperIs(GT_MUL) && !mulOrDiv->gtOverflow()))
+                    if ((mulOrDiv->OperIs(GT_DIV) && (constVal != -1) && (constVal != 1)) || mulOrDiv->OperIs(GT_MUL))
                     {
                         GenTree* newOp1 = op1op1;                                      // a
                         GenTree* newOp2 = gtNewIconNode(-constVal, op1op2->TypeGet()); // -C
@@ -12104,8 +12140,7 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
     switch (oper)
     {
         case GT_ADD:
-            if (fgGlobalMorph && !tree->gtOverflow() && op1->OperIs(GT_ADD) && !op1->gtOverflow() &&
-                !op2->IsIntConCommon())
+            if (fgGlobalMorph && op1->OperIs(GT_ADD) && !op2->IsIntConCommon())
             {
                 // Change "(x ADD i) ADD y" to "(x ADD y) ADD i".
 
@@ -12129,7 +12164,7 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
             break;
 
         case GT_MUL:
-            if (!tree->gtOverflow() && op1->OperIs(GT_ADD) && !op1->gtOverflow() && op2->IsIntCon())
+            if (op1->OperIs(GT_ADD) && op2->IsIntCon())
             {
                 // Change "(x ADD i1) MUL i2" to "(x MUL i2) ADD (i1 MUL i2)"
 
@@ -12150,7 +12185,7 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
             break;
 
         case GT_LSH:
-            if (op1->OperIs(GT_ADD) && !op1->gtOverflow() && op2->IsIntCon())
+            if (op1->OperIs(GT_ADD) && op2->IsIntCon())
             {
                 // Change "(x ADD i1) LSH i2" to "(x LSH i2) ADD (i1 LSH i2)"
 
@@ -12279,7 +12314,7 @@ GenTree* Compiler::fgMorphModToSubMulDiv(GenTreeOp* tree)
 #ifndef TARGET_64BIT
 Compiler::MulLongCandidateKind Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mul)
 {
-    assert(mul->OperIs(GT_MUL) && mul->TypeIs(TYP_LONG));
+    assert(mul->OperIs(GT_MUL, GT_OVF_SMUL, GT_OVF_UMUL) && mul->TypeIs(TYP_LONG));
 
     // Operands have to be constants or INT to LONG, non-overflow checking casts.
 
@@ -12302,7 +12337,7 @@ Compiler::MulLongCandidateKind Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mu
 
         if ((cast1 == nullptr) || (varActualType(cast1->GetOp(0)->GetType()) != TYP_INT) || cast1->HasOverflowCheck())
         {
-            if (!mul->gtOverflow() && (longConst2 != nullptr) && isPow2(longConst2->GetUInt64Value()))
+            if (mul->OperIs(GT_MUL) && (longConst2 != nullptr) && isPow2(longConst2->GetUInt64Value()))
             {
                 return MulLongCandidateKind::Shift;
             }
@@ -12335,7 +12370,7 @@ Compiler::MulLongCandidateKind Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mu
 
         if ((cast2 == nullptr) || (varActualType(cast2->GetOp(0)->GetType()) != TYP_INT) || cast2->HasOverflowCheck())
         {
-            if (!mul->gtOverflow() && (longConst1 != nullptr) && isPow2(longConst1->GetUInt64Value()))
+            if (mul->OperIs(GT_MUL) && (longConst1 != nullptr) && isPow2(longConst1->GetUInt64Value()))
             {
                 return MulLongCandidateKind::Shift;
             }
@@ -12373,9 +12408,13 @@ Compiler::MulLongCandidateKind Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mu
 
     unsigned mulSign = 0;
 
-    if (mul->gtOverflow())
+    if (mul->OperIs(GT_OVF_UMUL))
     {
-        mulSign = mul->IsOverflowUnsigned() ? 1 : 2;
+        mulSign = 1;
+    }
+    else if (mul->OperIs(GT_OVF_SMUL))
+    {
+        mulSign = 2;
     }
 
     switch (op1Sign | op2Sign | mulSign)
@@ -12392,7 +12431,7 @@ Compiler::MulLongCandidateKind Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mu
 
 GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind kind)
 {
-    assert(mul->OperIs(GT_MUL) && mul->TypeIs(TYP_LONG));
+    assert(mul->OperIs(GT_MUL, GT_OVF_SMUL, GT_OVF_UMUL) && mul->TypeIs(TYP_LONG));
     assert(kind != MulLongCandidateKind::None);
 
     if (kind == MulLongCandidateKind::Const)
@@ -12448,7 +12487,7 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind 
     GenTreeCast* cast1 = op1->AsCast();
     GenTreeCast* cast2 = op2->AsCast();
 
-    mul->gtFlags &= ~GTF_OVERFLOW;
+    mul->SetOperRaw(GT_MUL);
 
     if (kind == MulLongCandidateKind::Unsigned)
     {

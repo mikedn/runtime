@@ -1598,7 +1598,7 @@ void CodeGen::GenSatInc(GenTreeUnOp* inc)
 
 void CodeGen::GenMulLong(GenTreeOp* mul)
 {
-    assert(mul->OperIs(GT_MULHI) && !mul->gtOverflowEx() && varTypeIsIntegral(mul->GetType()));
+    assert(mul->OperIs(GT_MULHI) && varTypeIsIntegral(mul->GetType()));
 
     RegNum   srcReg1 = UseReg(mul->GetOp(0));
     RegNum   srcReg2 = UseReg(mul->GetOp(1));
@@ -1626,7 +1626,7 @@ void CodeGen::GenMulLong(GenTreeOp* mul)
 
 void CodeGen::GenMul(GenTreeOp* mul)
 {
-    assert(mul->OperIs(GT_MUL) && varTypeIsIntegral(mul->GetType()));
+    assert(mul->OperIs(GT_MUL, GT_OVF_SMUL, GT_OVF_UMUL) && varTypeIsIntegral(mul->GetType()));
 
     GenTree* op1 = mul->GetOp(0);
     GenTree* op2 = mul->GetOp(1);
@@ -1641,7 +1641,7 @@ void CodeGen::GenMul(GenTreeOp* mul)
     // UMULL/SMULL is twice as fast for 32 * 32 -> 64 bit MUL
     if (mul->TypeIs(TYP_LONG) && varActualTypeIsInt(op1->GetType()) && varActualTypeIsInt(op2->GetType()))
     {
-        ins  = (mul->IsMulUnsigned() || mul->IsOverflowUnsigned()) ? INS_umull : INS_smull;
+        ins  = ((mul->OperIs(GT_MUL) && mul->IsMulUnsigned()) || mul->OperIs(GT_OVF_UMUL)) ? INS_umull : INS_smull;
         attr = EA_4BYTE;
     }
     else
@@ -1655,7 +1655,7 @@ void CodeGen::GenMul(GenTreeOp* mul)
 
     Emitter& emit = *GetEmitter();
 
-    if (!mul->gtOverflow())
+    if (mul->OperIs(GT_MUL))
     {
         emit.emitIns_R_R_R(ins, attr, dstReg, reg1, reg2);
     }
@@ -1664,7 +1664,7 @@ void CodeGen::GenMul(GenTreeOp* mul)
         RegNum tmpReg = mul->GetSingleTempReg();
         assert(tmpReg != mul->GetRegNum());
 
-        if (mul->IsOverflowUnsigned())
+        if (mul->OperIs(GT_OVF_UMUL))
         {
             if (attr == EA_4BYTE)
             {
@@ -1717,8 +1717,14 @@ static instruction GetAddSubBitwiseIns(genTreeOps oper)
     {
         case GT_ADD:
             return INS_add;
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
+            return INS_adds;
         case GT_SUB:
             return INS_sub;
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
+            return INS_subs;
         case GT_AND:
             return INS_and;
         case GT_OR:
@@ -1732,7 +1738,7 @@ static instruction GetAddSubBitwiseIns(genTreeOps oper)
 
 void CodeGen::GenAddSubBitwise(GenTreeOp* node)
 {
-    assert(node->OperIs(GT_ADD, GT_SUB, GT_AND, GT_OR, GT_XOR));
+    assert(node->OperIs(GT_ADD, GT_SUB, GT_OVF_SADD, GT_OVF_UADD, GT_OVF_SSUB, GT_OVF_USUB, GT_AND, GT_OR, GT_XOR));
     assert(varTypeIsIntegralOrI(node->GetType()));
 
     GenTree* op1 = node->GetOp(0);
@@ -1764,7 +1770,7 @@ void CodeGen::GenAddSubBitwise(GenTreeOp* node)
     instruction ins  = GetAddSubBitwiseIns(node->GetOper());
     emitAttr    attr = emitActualTypeSize(node->GetType());
 
-    if (node->HasImplicitFlagsDef() || node->gtOverflowEx())
+    if (node->HasImplicitFlagsDef())
     {
         if (ins == INS_add)
         {
@@ -1790,7 +1796,7 @@ void CodeGen::GenAddSubBitwise(GenTreeOp* node)
         emit.emitIns_R_R_R(ins, attr, dstReg, reg1, reg2);
     }
 
-    if (node->gtOverflowEx())
+    if (node->IsOverflowOp())
     {
         GenOverflowCheck(node);
     }
@@ -1800,22 +1806,22 @@ void CodeGen::GenAddSubBitwise(GenTreeOp* node)
 
 void CodeGen::GenOverflowCheck(GenTree* node)
 {
-    assert(!node->OperIs(GT_MUL) && node->gtOverflow());
+    assert(node->OperIs(GT_OVF_SADD, GT_OVF_UADD, GT_OVF_SSUB, GT_OVF_USUB));
     assert(!varTypeIsSmall(node->GetType()));
 
     emitJumpKind jumpKind;
 
-    if (!node->IsOverflowUnsigned())
+    if (node->OperIs(GT_OVF_SADD, GT_OVF_SSUB))
     {
         jumpKind = EJ_vs;
     }
-    else if (node->OperIs(GT_SUB))
+    else if (node->OperIs(GT_OVF_UADD))
     {
-        jumpKind = EJ_lo;
+        jumpKind = EJ_hs;
     }
     else
     {
-        jumpKind = EJ_hs;
+        jumpKind = EJ_lo;
     }
 
     genJumpToThrowHlpBlk(jumpKind, ThrowHelperKind::Overflow);

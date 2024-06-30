@@ -430,7 +430,7 @@ bool RangeCheck::HasPositiveStep(GenTreePhi* phi, GenTreeLclUse* phiArg) const
             continue;
         }
 
-        if (value->OperIs(GT_ADD))
+        if (value->OperIs(GT_ADD, GT_OVF_SADD, GT_OVF_UADD))
         {
             GenTree* op1 = value->AsOp()->GetOp(0);
             GenTree* op2 = value->AsOp()->GetOp(1);
@@ -460,7 +460,7 @@ bool RangeCheck::HasPositiveStep(GenTreePhi* phi, GenTreeLclUse* phiArg) const
 
 bool RangeCheck::IsAddMonotonicallyIncreasing(GenTreeOp* expr)
 {
-    assert(expr->OperIs(GT_ADD));
+    assert(expr->OperIs(GT_ADD, GT_OVF_SADD, GT_OVF_UADD));
 
     GenTree* op1 = expr->GetOp(0)->SkipComma();
     GenTree* op2 = expr->GetOp(1)->SkipComma();
@@ -526,7 +526,7 @@ bool RangeCheck::IsMonotonicallyIncreasing(GenTree* expr, bool rejectNegativeCon
     {
         monotonicallyIncreasing = !rejectNegativeConst || (vnStore->ConstantValue<int>(expr->GetConservativeVN()) >= 0);
     }
-    else if (expr->OperIs(GT_ADD))
+    else if (expr->OperIs(GT_ADD, GT_OVF_SADD, GT_OVF_UADD))
     {
         monotonicallyIncreasing = IsAddMonotonicallyIncreasing(expr->AsOp());
     }
@@ -589,7 +589,7 @@ bool RangeCheck::HasAddOverflow() const
     {
         GenTree* node = pair.key;
 
-        if (node->OperIs(GT_ADD))
+        if (node->OperIs(GT_ADD, GT_OVF_SADD, GT_OVF_UADD))
         {
             JITDUMP("Overflow: ");
             DBEXEC(compiler->verbose, compiler->gtDispTree(node, false, false));
@@ -911,7 +911,7 @@ Range RangeCheck::AddRanges(const Range& r1, const Range& r2) const
 
 Range RangeCheck::ComputeAddRange(BasicBlock* block, GenTreeOp* add)
 {
-    assert(add->OperIs(GT_ADD) && add->TypeIs(TYP_INT));
+    assert(add->OperIs(GT_ADD, GT_OVF_SADD, GT_OVF_UADD) && add->TypeIs(TYP_INT));
 
     GenTree* op1 = add->GetOp(0)->SkipComma();
     GenTree* op2 = add->GetOp(1)->SkipComma();
@@ -1150,7 +1150,7 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr)
         return type == TYP_INT ? Limit::Constant(vnStore->ConstantValue<int>(vn)) : Limit::Unknown();
     }
 
-    if (expr->OperIs(GT_ADD))
+    if (expr->OperIs(GT_ADD, GT_OVF_SADD, GT_OVF_UADD))
     {
         return ComputeAddRange(block, expr->AsOp());
     }

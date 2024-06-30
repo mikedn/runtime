@@ -97,6 +97,12 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
             // P.S. Probably this was referring to the lvVolatileHint crap...
             return false; // Can't CSE a volatile LCL_VAR
 
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
+        case GT_OVF_SMUL:
+        case GT_OVF_UMUL:
         case GT_FNEG:
         case GT_FADD:
         case GT_FSUB:
