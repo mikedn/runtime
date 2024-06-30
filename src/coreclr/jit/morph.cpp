@@ -9618,75 +9618,70 @@ GenTree* Compiler::fgMorphPromoteStore(GenTree* store, GenTree* tempStore, GenTr
     return tree;
 }
 
-//------------------------------------------------------------------------------
-// fgMorphAssociative : Try to simplify "(X op C1) op C2" to "X op C3"
-//                      for associative operators.
-//
-// Arguments:
-//       tree - node to fold
-//
-// return value:
-//       A folded GenTree* instance or nullptr if something prevents folding.
-//
-
+// Try to simplify "(X op C1) op C2" to "X op C3" for associative operators.
 GenTree* Compiler::fgMorphAssociative(GenTreeOp* tree)
 {
+    assert(tree->OperIs(GT_ADD, GT_MUL, GT_OR, GT_AND, GT_XOR) && !tree->gtOverflowEx());
     assert(varTypeIsIntegralOrI(tree->GetType()));
-    assert(tree->OperIs(GT_ADD, GT_MUL, GT_OR, GT_AND, GT_XOR));
 
-    // op1 can be GT_COMMA, in this case we're going to fold
+    // op1 can be COMMA, in this case we're going to fold
     // "(op (COMMA(... (op X C1))) C2)" to "(COMMA(... (op X C3)))"
-    GenTree* op1 = tree->GetOp(0)->SkipComma();
+    // This can only be done during global morph. Otherwise, there is a chance of violating VNs invariants and/or
+    // modifying a tree that is an active CSE candidate.
 
-    if ((op1->GetOper() != tree->GetOper()) || !tree->GetOp(1)->IsIntCon() || !op1->gtGetOp2()->IsIntCon() ||
-        op1->gtGetOp1()->IsIntCon())
+    GenTree* op1 = tree->GetOp(0);
+    GenTree* op2 = tree->GetOp(1);
+
+    if (op1->OperIs(GT_COMMA))
+    {
+        if (!fgGlobalMorph)
+        {
+            return nullptr;
+        }
+
+        op1 = op1->SkipComma();
+    }
+
+    if ((op1->GetOper() != tree->GetOper()) || op1->gtOverflowEx())
     {
         return nullptr;
     }
 
-    if (!fgGlobalMorph && (op1 != tree->GetOp(0)))
-    {
-        // Since 'tree->gtGetOp1()' can have complex structure (e.g. COMMA(..(COMMA(..,op1)))
-        // don't run the optimization for such trees outside of global morph.
-        // Otherwise, there is a chance of violating VNs invariants and/or modifying a tree
-        // that is an active CSE candidate.
-        return nullptr;
-    }
-
-    if (tree->OperMayOverflow() && (tree->gtOverflow() || op1->gtOverflow()))
+    if (op1->AsOp()->GetOp(0)->IsIntCon() || !op1->AsOp()->GetOp(1)->IsIntCon() || !op2->IsIntCon())
     {
         return nullptr;
     }
 
-    GenTreeIntCon* cns1 = op1->gtGetOp2()->AsIntCon();
-    GenTreeIntCon* cns2 = tree->GetOp(1)->AsIntCon();
+    GenTreeIntCon* c1 = op1->AsOp()->GetOp(1)->AsIntCon();
+    GenTreeIntCon* c2 = tree->GetOp(1)->AsIntCon();
 
-    if (!varTypeIsIntegralOrI(tree->GetType()) || cns1->TypeIs(TYP_REF) || !cns1->TypeIs(cns2->GetType()))
+    if (c1->TypeIs(TYP_REF) || (c1->GetType() != c2->GetType()))
     {
         return nullptr;
     }
 
-    GenTree* folded = gtFoldExprConst(gtNewOperNode(tree->GetOper(), cns1->GetType(), cns1, cns2));
+    GenTreeIntCon* foldedCns = gtFoldExprConst(gtNewOperNode(tree->GetOper(), c1->GetType(), c1, c2))->IsIntCon();
 
-    if (!folded->IsIntCon())
+    if (foldedCns == nullptr)
     {
-        // Give up if we can't fold "C1 op C2"
         return nullptr;
     }
 
-    auto foldedCns = folded->AsIntCon();
+    c1->SetValue(foldedCns->GetValue());
+    c1->SetVNP(foldedCns->GetVNP());
+    c1->SetFieldSeq(foldedCns->GetFieldSeq());
 
-    cns1->SetValue(foldedCns->GetValue());
-    cns1->SetVNP(foldedCns->GetVNP());
-    cns1->SetFieldSeq(foldedCns->GetFieldSeq());
+    op1 = tree->GetOp(0);
 
-    op1 = tree->gtGetOp1();
-    op1->SetVNP(tree->GetVNP());
+    if (vnStore != nullptr)
+    {
+        op1->SetVNP(tree->GetVNP());
+    }
 
     DEBUG_DESTROY_NODE(tree);
-    DEBUG_DESTROY_NODE(cns2);
+    DEBUG_DESTROY_NODE(c2);
     DEBUG_DESTROY_NODE(foldedCns);
-    INDEBUG(cns1->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+    INDEBUG(c1->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
 
     return op1;
 }
@@ -11356,14 +11351,14 @@ DONE_MORPHING_CHILDREN:
                 return op1;
             }
 
-            if (tree->OperIs(GT_ADD, GT_MUL, GT_AND, GT_OR, GT_XOR))
+            if (tree->OperIs(GT_ADD, GT_MUL, GT_AND, GT_OR, GT_XOR) && !tree->gtOverflowEx())
             {
-                GenTree* foldedTree = fgMorphAssociative(tree->AsOp());
-                if (foldedTree != nullptr)
+                if (GenTree* foldedTree = fgMorphAssociative(tree->AsOp()))
                 {
                     tree = foldedTree;
                     op1  = tree->gtGetOp1();
                     op2  = tree->gtGetOp2();
+
                     if (!tree->OperIs(oper))
                     {
                         return tree;
