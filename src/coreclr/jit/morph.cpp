@@ -11205,9 +11205,8 @@ DONE_MORPHING_CHILDREN:
             // this condition is not checked before transformations.
             if (fgGlobalMorph)
             {
-                /* Check for "op1 - cns2" , we change it to "op1 + (-cns2)" */
+                // Change (x SUB i1) to (x ADD -i1)
 
-                noway_assert(op2);
                 if (op2->IsIntCon() && !op2->IsIconHandle())
                 {
                     // Negate the constant and change the node to be "+",
@@ -11219,24 +11218,17 @@ DONE_MORPHING_CHILDREN:
                     goto CM_ADD_OP;
                 }
 
-                /* Check for "cns1 - op2" , we change it to "(cns1 + (-op2))" */
+                // Change (i1 SUB x) to (i1 ADD (NEG x))
 
-                noway_assert(op1);
                 if (op1->IsIntCon())
                 {
-                    // The type of the new GT_NEG node cannot just be op2->TypeGet().
-                    // Otherwise we may sign-extend incorrectly in cases where the GT_NEG
-                    // node ends up feeding directly into a cast, for example in
-                    // GT_CAST<ubyte>(GT_SUB(0, s_1.ubyte))
-                    tree->AsOp()->gtOp2 = op2 = gtNewOperNode(GT_NEG, genActualType(op2->TypeGet()), op2);
+                    op2 = gtNewOperNode(GT_NEG, varActualType(op2->GetType()), op2);
                     fgMorphTreeDone(op2);
-
+                    tree->AsOp()->SetOp(1, op2);
                     oper = GT_ADD;
                     tree->ChangeOper(oper);
                     goto CM_ADD_OP;
                 }
-
-                /* No match - exit */
             }
 
             // Skip optimization if non-NEG operand is constant.
@@ -11299,40 +11291,32 @@ DONE_MORPHING_CHILDREN:
                 fgGetThrowHelperBlock(ThrowHelperKind::Overflow, currentBlock);
                 break;
             }
-        CM_ADD_OP:
             FALLTHROUGH;
         case GT_OR:
         case GT_XOR:
         case GT_AND:
-            // Commute any non-REF constants to the right
-            noway_assert(op1);
+        CM_ADD_OP:
             assert(varTypeIsIntegralOrI(tree->GetType()));
+            assert(!tree->gtOverflowEx());
 
-            if (op1->OperIsConst() && (op1->gtType != TYP_REF))
+            // Commute any non-REF constants to the right
+            if (op1->IsIntConCommon() && !op1->TypeIs(TYP_REF))
             {
-                // TODO-Review: We used to assert here that
-                // noway_assert(!op2->OperIsConst() || !opts.OptEnabled(CLFLG_CONSTANTFOLD));
-                // With modifications to AddrTaken==>AddrExposed, we did more assertion propagation,
-                // and would sometimes hit this assertion.  This may indicate a missed "remorph".
-                // Task is to re-enable this assertion and investigate.
-
-                /* Swap the operands */
-                tree->AsOp()->gtOp1 = op2;
-                tree->AsOp()->gtOp2 = op1;
-
-                op1 = op2;
-                op2 = tree->AsOp()->gtOp2;
+                std::swap(op1, op2);
+                tree->AsOp()->SetOp(0, op1);
+                tree->AsOp()->SetOp(1, op2);
             }
 
             // Fold "cmp & 1" to just "cmp"
-            if (tree->OperIs(GT_AND) && tree->TypeIs(TYP_INT) && op1->OperIsCompare() && op2->IsIntegralConst(1))
+            if (tree->OperIs(GT_AND) && tree->TypeIs(TYP_INT) && op1->OperIsCompare() && op2->IsIntCon(1))
             {
                 DEBUG_DESTROY_NODE(op2);
                 DEBUG_DESTROY_NODE(tree);
+
                 return op1;
             }
 
-            if (tree->OperIs(GT_ADD, GT_MUL, GT_AND, GT_OR, GT_XOR) && !tree->gtOverflowEx())
+            if (tree->OperIs(GT_ADD, GT_MUL, GT_AND, GT_OR, GT_XOR))
             {
                 if (GenTree* foldedTree = fgMorphAssociative(tree->AsOp()))
                 {
@@ -11471,7 +11455,6 @@ DONE_MORPHING_CHILDREN:
             else if ((oper == GT_MUL) && op2->IsIntCon())
             {
                 noway_assert(typ == op2->GetType());
-                noway_assert(!tree->gtOverflow());
 
                 ssize_t mult = op2->AsIntCon()->GetValue();
 
