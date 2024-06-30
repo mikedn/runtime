@@ -10667,38 +10667,20 @@ DONE_MORPHING_CHILDREN:
 
             cns2 = op2;
 
-            /* Check for "(expr +/- icon1) ==/!= (non-zero-icon2)" */
+            // Check for "(x ADD|SUB i1) EQ/NE non-zero i2"
 
-            if (cns2->gtOper == GT_CNS_INT && cns2->AsIntCon()->gtIconVal != 0)
+            if (cns2->IsIntCon() && (cns2->AsIntCon()->GetValue() != 0))
             {
-                op1 = tree->AsOp()->gtOp1;
+                op1 = tree->AsOp()->GetOp(0);
 
-                /* Since this can occur repeatedly we use a while loop */
-
-                while ((op1->gtOper == GT_ADD || op1->gtOper == GT_SUB) && (op1->AsOp()->gtOp2->gtOper == GT_CNS_INT) &&
-                       (op1->gtType == TYP_INT) && (op1->gtOverflow() == false))
+                while (op1->OperIs(GT_ADD, GT_SUB) && !op1->gtOverflow() && op1->TypeIs(TYP_INT) &&
+                       op1->AsOp()->GetOp(1)->IsIntCon())
                 {
-                    /* Got it; change "x+icon1==icon2" to "x==icon2-icon1" */
-
-                    ival1 = op1->AsOp()->gtOp2->AsIntCon()->gtIconVal;
-                    ival2 = cns2->AsIntCon()->gtIconVal;
-
-                    if (op1->gtOper == GT_ADD)
-                    {
-                        ival2 -= ival1;
-                    }
-                    else
-                    {
-                        ival2 += ival1;
-                    }
-                    cns2->AsIntCon()->gtIconVal = ival2;
-
-#ifdef TARGET_64BIT
-                    // we need to properly re-sign-extend or truncate as needed.
-                    cns2->AsIntCon()->TruncateOrSignExtend32();
-#endif // TARGET_64BIT
-
-                    op1 = tree->AsOp()->gtOp1 = op1->AsOp()->gtOp1;
+                    ssize_t i1 = op1->AsOp()->GetOp(1)->AsIntCon()->GetValue();
+                    ssize_t i2 = cns2->AsIntCon()->GetValue();
+                    cns2->AsIntCon()->SetValue(op1->OperIs(GT_ADD) ? (i2 - i1) : (i2 + i1));
+                    op1 = op1->AsOp()->GetOp(0);
+                    tree->AsOp()->SetOp(0, op1);
                 }
             }
 
