@@ -2813,6 +2813,13 @@ struct GenTreeIntCon : public GenTreeIntConCommon
 
     void SetValue(ssize_t value)
     {
+#ifdef TARGET_64BIT
+        if (gtType == TYP_INT)
+        {
+            value = static_cast<int32_t>(value);
+        }
+#endif
+
         gtIconVal  = value;
         m_fieldSeq = FieldSeqStore::NotAField();
     }
