@@ -5157,139 +5157,96 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
 
 #endif // defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
 
-// A little helper used to rearrange nested commutative operations. The
-// effect is that nested associative, commutative operations are transformed
-// into a 'left-deep' tree, i.e. into something like this:
-//
-//     (((a op b) op c) op d) op...
-//
-void Compiler::fgMoveOpsLeft(GenTree* tree)
+// Reassociate associative, commutative operations into a 'left-deep' tree,
+// i.e. into something like this: (((a op b) op c) op d) op...
+void Compiler::fgMoveOpsLeft(GenTreeOp* tree)
 {
-    GenTree*   op1;
-    GenTree*   op2;
-    genTreeOps oper;
+    assert(fgGlobalMorph && (vnStore == nullptr));
+    assert(tree->OperIs(GT_ADD, GT_MUL, GT_AND, GT_OR, GT_XOR));
+    assert(tree->GetOp(1)->GetOper() == tree->GetOper());
 
-    do
+    GenTreeOp* const tree2 = tree->GetOp(1)->AsOp();
+
+    if (tree->gtOverflowEx() || tree2->gtOverflowEx())
     {
-        op1  = tree->AsOp()->gtOp1;
-        op2  = tree->AsOp()->gtOp2;
-        oper = tree->OperGet();
+        return;
+    }
 
-        noway_assert(oper == GT_ADD || oper == GT_XOR || oper == GT_OR || oper == GT_AND || oper == GT_MUL);
-        noway_assert(oper == op2->gtOper);
+    if (((tree->gtFlags | tree2->gtFlags) & GTF_BOOLEAN) != 0)
+    {
+        // We could deal with this, but we were always broken and just hit the assert
+        // below regarding flags, which means it's not frequent, so will just bail out.
 
-        // Commutativity doesn't hold if overflow checks are needed
+        return;
+    }
 
-        if (tree->gtOverflowEx() || op2->gtOverflowEx())
-        {
-            return;
-        }
+    genTreeOps const oper = tree->GetOper();
+    GenTree* const   op1  = tree->GetOp(0);
+    GenTree* const   op2  = tree2->GetOp(0);
+    GenTree* const   op3  = tree2->GetOp(1);
 
-        if ((tree->gtFlags | op2->gtFlags) & GTF_BOOLEAN)
-        {
-            // We could deal with this, but we were always broken and just hit the assert
-            // below regarding flags, which means it's not frequent, so will just bail out.
-            // See #195514
-            return;
-        }
+    if (varTypeIsGC(op2->GetType()) != varTypeIsGC(tree2->GetType()))
+    {
+        // optOptimizeBools can create OR of two GC pointers yielding a I_IMPL.
+        // We can not reorder such OR trees.
 
-        noway_assert(!tree->gtOverflowEx() && !op2->gtOverflowEx());
+        return;
+    }
 
-        GenTree* ad1 = op2->AsOp()->gtOp1;
-        GenTree* ad2 = op2->AsOp()->gtOp2;
+    if (varTypeIsGC(op1->GetType()) && (oper == GT_ADD))
+    {
+        // We cannot reassociate GC pointer additions, doing that could create
+        // a GC pointer that points outside the GC object and the GC has no way
+        // to update such pointers (e.g. x ADD (1000 ADD -999)).
 
-        // Compiler::optOptimizeBools() can create GT_OR of two GC pointers yeilding a GT_INT
-        // We can not reorder such GT_OR trees
-        //
-        if (varTypeIsGC(ad1->TypeGet()) != varTypeIsGC(op2->TypeGet()))
-        {
-            break;
-        }
+        assert(varTypeIsGC(tree->GetType()));
 
-        // Don't split up a byref calculation and create a new byref. E.g.,
-        // [byref]+ (ref, [int]+ (int, int)) => [byref]+ ([byref]+ (ref, int), int).
-        // Doing this transformation could create a situation where the first
-        // addition (that is, [byref]+ (ref, int) ) creates a byref pointer that
-        // no longer points within the ref object. If a GC happens, the byref won't
-        // get updated. This can happen, for instance, if one of the int components
-        // is negative. It also requires the address generation be in a fully-interruptible
-        // code region.
-        //
-        if (varTypeIsGC(op1->TypeGet()) && op2->TypeGet() == TYP_I_IMPL)
-        {
-            assert(varTypeIsGC(tree->TypeGet()) && (oper == GT_ADD));
-            break;
-        }
+        return;
+    }
 
-        /* Change "(x op (y op z))" to "(x op y) op z" */
-        /* ie.    "(op1 op (ad1 op ad2))" to "(op1 op ad1) op ad2" */
+    // Change "(op1 op (op2 op op3))" to "(op1 op op2) op op3"
 
-        GenTree* new_op1 = op2;
+    tree2->SetOp(0, op1);
+    tree2->SetOp(1, op2);
 
-        new_op1->AsOp()->gtOp1 = op1;
-        new_op1->AsOp()->gtOp2 = ad1;
+    // Make sure we aren't throwing away any needed flags.
+    noway_assert(
+        (tree2->gtFlags &
+         ~(GTF_ALL_EFFECT |  // We'll recompute the side effects from the new operands
+           GTF_DONT_CSE |    // We'll keep this
+           GTF_REVERSE_OPS | // This will be re-calculated later
+           GTF_OVF_UNSIGNED  // We don't reassociate overflow operations so this should not be set, but it may be set
+                             // by accident so ignore it as it would have no effect anyway.
+           )) == GTF_NONE);
 
-        /* Change the flags. */
+    tree2->gtFlags = (tree2->gtFlags & GTF_DONT_CSE) | op1->GetSideEffects() | op2->GetSideEffects();
 
-        // Make sure we aren't throwing away any flags
-        noway_assert((new_op1->gtFlags &
-                      ~(GTF_MAKE_CSE | GTF_DONT_CSE | // It is ok that new_op1->gtFlags contains GTF_DONT_CSE flag.
-                        GTF_REVERSE_OPS |             // The reverse ops flag also can be set, it will be re-calculated
-                        GTF_ALL_EFFECT | GTF_UNSIGNED)) == 0);
+    if (varTypeIsGC(op1->GetType()))
+    {
+        noway_assert(((oper == GT_OR) && varTypeIsI(tree->GetType()) && tree2->TypeIs(TYP_I_IMPL)));
 
-        new_op1->gtFlags = (new_op1->gtFlags & GTF_DONT_CSE) | op1->GetSideEffects() | ad1->GetSideEffects();
+        tree2->SetType(tree->GetType());
+    }
+    else if (varTypeIsGC(op3->GetType()))
+    {
+        // Neither op2 nor op1 are GC. So op2 isn't either.
+        noway_assert(op1->TypeIs(TYP_I_IMPL) && op2->TypeIs(TYP_I_IMPL));
 
-        /* Retype new_op1 if it has not/become a GC ptr. */
+        tree2->SetType(TYP_I_IMPL);
+    }
 
-        if (varTypeIsGC(op1->TypeGet()))
-        {
-            noway_assert((varTypeIsGC(tree->TypeGet()) && op2->TypeGet() == TYP_I_IMPL &&
-                          oper == GT_ADD) || // byref(ref + (int+int))
-                         (varTypeIsI(tree->TypeGet()) && op2->TypeGet() == TYP_I_IMPL &&
-                          oper == GT_OR)); // int(gcref | int(gcref|intval))
+    if ((op2->GetOper() == oper) && !op2->gtOverflowEx())
+    {
+        fgMoveOpsLeft(tree2);
+    }
 
-            new_op1->gtType = tree->gtType;
-        }
-        else if (varTypeIsGC(ad2->TypeGet()))
-        {
-            // Neither ad1 nor op1 are GC. So new_op1 isnt either
-            noway_assert(op1->gtType == TYP_I_IMPL && ad1->gtType == TYP_I_IMPL);
-            new_op1->gtType = TYP_I_IMPL;
-        }
+    tree->SetOp(0, tree2);
+    tree->SetOp(1, op3);
 
-        // If new_op1 is a new expression. Assign it a new unique value number.
-        // vnStore is null before the ValueNumber phase has run
-        if (vnStore != nullptr)
-        {
-            // We can only keep the old value number on new_op1 if both op1 and ad2
-            // have the same non-NoVN value numbers. Since op is commutative, comparing
-            // only ad2 and op1 is enough.
-            if ((op1->GetLiberalVN() == NoVN) || (ad2->GetLiberalVN() == NoVN) ||
-                (ad2->GetLiberalVN() != op1->GetLiberalVN()))
-            {
-                new_op1->SetVNP(ValueNumPair{vnStore->VNForExpr(nullptr, new_op1->GetType())});
-            }
-        }
-
-        tree->AsOp()->gtOp1 = new_op1;
-        tree->AsOp()->gtOp2 = ad2;
-
-        /* If 'new_op1' is now the same nested op, process it recursively */
-
-        if ((ad1->gtOper == oper) && !ad1->gtOverflowEx())
-        {
-            fgMoveOpsLeft(new_op1);
-        }
-
-        /* If   'ad2'   is now the same nested op, process it
-         * Instead of recursion, we set up op1 and op2 for the next loop.
-         */
-
-        op1 = new_op1;
-        op2 = ad2;
-    } while ((op2->gtOper == oper) && !op2->gtOverflowEx());
-
-    return;
+    if ((op3->GetOper() == oper) && !op3->gtOverflowEx())
+    {
+        fgMoveOpsLeft(tree);
+    }
 }
 
 GenTree* Compiler::fgMorphStringIndexIndir(GenTreeIndexAddr* index, GenTreeStrCon* str)
@@ -12184,7 +12141,7 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
             // Reorder nested operators at the same precedence level to be left-recursive.
             // For example, change "x ADD (y ADD z)" to "(x ADD y) ADD z".
 
-            fgMoveOpsLeft(tree);
+            fgMoveOpsLeft(tree->AsOp());
             op1 = tree->GetOp(0);
             op2 = tree->GetOp(1);
         }

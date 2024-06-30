@@ -4474,7 +4474,7 @@ private:
     hashBv* m_abiStructArgTempsInUse = nullptr;
 #endif
 
-    void fgMoveOpsLeft(GenTree* tree);
+    void fgMoveOpsLeft(GenTreeOp* tree);
 
     bool fgInDifferentRegions(BasicBlock* blk1, BasicBlock* blk2);
 
