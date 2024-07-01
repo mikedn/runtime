@@ -1357,7 +1357,7 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func)
 
 ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0)
 {
-    assert(func != VNF_MemOpaque);
+    assert((func != VNOP_NONE) && (func != VNF_MemOpaque));
     assert(!HasExset(arg0));
 
     if (CanEvalForConstantArgs(func) && IsVNConstant(arg0))
@@ -5236,7 +5236,8 @@ ValueNum ValueNumStore::EvalMathFuncUnary(var_types typ, NamedIntrinsic gtMathFN
         assert((typ == TYP_DOUBLE) || (typ == TYP_FLOAT) ||
                ((typ == TYP_INT) && ((gtMathFN == NI_System_Math_ILogB) || (gtMathFN == NI_System_Math_Round))));
 
-        VNFunc vnf = VNF_Boundary;
+        VNFunc vnf = VNOP_NONE;
+
         switch (gtMathFN)
         {
             case NI_System_Math_Abs:
@@ -5399,24 +5400,20 @@ ValueNum ValueNumStore::EvalMathFuncBinary(var_types typ, NamedIntrinsic gtMathF
     }
     else
     {
-        VNFunc vnf = VNF_Boundary;
+        VNFunc vnf = VNOP_NONE;
 
         switch (gtMathFN)
         {
             case NI_System_Math_Atan2:
                 vnf = VNF_Atan2;
                 break;
-
             case NI_System_Math_FMod:
                 vnf = VNF_FMod;
                 break;
-
             case NI_System_Math_Pow:
                 vnf = VNF_Pow;
                 break;
-
             default:
-                // the above are the only binary math intrinsics at the time of this writing.
                 unreached();
         }
 
@@ -5923,7 +5920,7 @@ static_assert_no_msg(sizeof(VNFuncAttrs) == 1);
 static const VNFuncAttrs vnFuncAttrs[VNF_Count]{
 #define GTNODE(n, s, k) {(((k)&GTK_BINOP) != 0) ? 2 : (((k)&GTK_UNOP) != 0), ((k)&GTK_COMMUTE) != 0, ((k)&GTK_VN) == 0},
 #include "gtlist.h"
-    {}, // VNF_Boundary
+    {}, // VNOP_COUNT
 #define ValueNumFuncDef(f, a, c, n, s) {static_cast<uint8_t>(a & VNFuncAttrs::MaxArity), c, false, n},
 #include "valuenumfuncs.h"
 };
@@ -5966,7 +5963,7 @@ bool ValueNumStore::IsKnownNonNull(ValueNum vn)
 
 bool ValueNumStore::VNFuncIsLegal(VNFunc vnf)
 {
-    return (static_cast<unsigned>(vnf) > VNF_Boundary) || IsLegalVNFuncOper(static_cast<genTreeOps>(vnf));
+    return (static_cast<unsigned>(vnf) > VNOP_COUNT) || IsLegalVNFuncOper(static_cast<genTreeOps>(vnf));
 }
 
 VNFunc ValueNumStore::GenTreeOpToVNFunc(genTreeOps gtOper)
@@ -5989,7 +5986,7 @@ const char* ValueNumStore::GetFuncName(VNFunc vnf)
     static const char* const names[]{
 #define GTNODE(n, s, k) #n,
 #include "gtlist.h"
-        "", // VNF_Boundary
+        "", // VNOP_COUNT
 #define ValueNumFuncDef(vnf, arity, commute, knownNonNull, sharedStatic) #vnf,
 #include "valuenumfuncs.h"
     };
@@ -7575,7 +7572,7 @@ ValueNumPair ValueNumStore::VNForCast(ValueNumPair valueVNP, var_types toType)
 
 void ValueNumbering::NumberHelperCall(GenTreeCall* call, VNFunc vnf, ValueNumPair vnpExc)
 {
-    assert(vnf != VNF_Boundary);
+    assert(vnf != VNOP_NONE);
 
     unsigned argCount = ValueNumStore::VNFuncArity(vnf);
 
@@ -7811,93 +7808,64 @@ VNFunc ValueNumbering::GetHelperCallFunc(CorInfoHelpFunc helpFunc)
 {
     assert(Compiler::s_helperCallProperties.IsPure(helpFunc) || Compiler::s_helperCallProperties.IsAllocator(helpFunc));
 
-    VNFunc vnf = VNF_Boundary; // An illegal value...
     switch (helpFunc)
     {
         // These translate to other function symbols:
         case CORINFO_HELP_DIV:
-            vnf = VNOP_DIV;
-            break;
+            return VNOP_DIV;
         case CORINFO_HELP_MOD:
-            vnf = VNOP_MOD;
-            break;
+            return VNOP_MOD;
         case CORINFO_HELP_UDIV:
-            vnf = VNOP_UDIV;
-            break;
+            return VNOP_UDIV;
         case CORINFO_HELP_UMOD:
-            vnf = VNOP_UMOD;
-            break;
+            return VNOP_UMOD;
         case CORINFO_HELP_LLSH:
-            vnf = VNOP_LSH;
-            break;
+            return VNOP_LSH;
         case CORINFO_HELP_LRSH:
-            vnf = VNOP_RSH;
-            break;
+            return VNOP_RSH;
         case CORINFO_HELP_LRSZ:
-            vnf = VNOP_RSZ;
-            break;
+            return VNOP_RSZ;
         case CORINFO_HELP_LMUL:
         case CORINFO_HELP_LMUL_OVF:
-            vnf = VNOP_MUL;
-            break;
+            return VNOP_MUL;
         case CORINFO_HELP_ULMUL_OVF:
-            vnf = VNOP_MUL;
-            break; // Is this the right thing?
+            return VNOP_MUL; // Is this the right thing?
         case CORINFO_HELP_LDIV:
-            vnf = VNOP_DIV;
-            break;
+            return VNOP_DIV;
         case CORINFO_HELP_LMOD:
-            vnf = VNOP_MOD;
-            break;
+            return VNOP_MOD;
         case CORINFO_HELP_ULDIV:
-            vnf = VNOP_UDIV;
-            break;
+            return VNOP_UDIV;
         case CORINFO_HELP_ULMOD:
-            vnf = VNOP_UMOD;
-            break;
-
+            return VNOP_UMOD;
         case CORINFO_HELP_LNG2DBL:
-            vnf = VNF_Lng2Dbl;
-            break;
+            return VNF_Lng2Dbl;
         case CORINFO_HELP_ULNG2DBL:
-            vnf = VNF_ULng2Dbl;
-            break;
+            return VNF_ULng2Dbl;
         case CORINFO_HELP_DBL2INT:
-            vnf = VNF_Dbl2Int;
-            break;
+            return VNF_Dbl2Int;
         case CORINFO_HELP_DBL2INT_OVF:
-            vnf = VNF_Dbl2Int;
-            break;
+            return VNF_Dbl2Int;
         case CORINFO_HELP_DBL2LNG:
-            vnf = VNF_Dbl2Lng;
-            break;
+            return VNF_Dbl2Lng;
         case CORINFO_HELP_DBL2LNG_OVF:
-            vnf = VNF_Dbl2Lng;
-            break;
+            return VNF_Dbl2Lng;
         case CORINFO_HELP_DBL2UINT:
-            vnf = VNF_Dbl2UInt;
-            break;
+            return VNF_Dbl2UInt;
         case CORINFO_HELP_DBL2UINT_OVF:
-            vnf = VNF_Dbl2UInt;
-            break;
+            return VNF_Dbl2UInt;
         case CORINFO_HELP_DBL2ULNG:
-            vnf = VNF_Dbl2ULng;
-            break;
+            return VNF_Dbl2ULng;
         case CORINFO_HELP_DBL2ULNG_OVF:
-            vnf = VNF_Dbl2ULng;
-            break;
+            return VNF_Dbl2ULng;
         case CORINFO_HELP_FLTREM:
-            vnf = VNOP_FMOD;
-            break;
+            return VNOP_FMOD;
         case CORINFO_HELP_DBLREM:
-            vnf = VNOP_FMOD;
-            break;
+            return VNOP_FMOD;
         case CORINFO_HELP_FLTROUND:
-            vnf = VNF_FltRound;
-            break; // Is this the right thing?
+            return VNF_FltRound; // Is this the right thing?
         case CORINFO_HELP_DBLROUND:
-            vnf = VNF_DblRound;
-            break; // Is this the right thing?
+            return VNF_DblRound; // Is this the right thing?
 
         // These allocation operations probably require some augmentation -- perhaps allocSiteId,
         // something about array length...
@@ -7907,185 +7875,137 @@ VNFunc ValueNumbering::GetHelperCallFunc(CorInfoHelpFunc helpFunc)
         case CORINFO_HELP_NEWSFAST_ALIGN8:
         case CORINFO_HELP_NEWSFAST_ALIGN8_VC:
         case CORINFO_HELP_NEWSFAST_ALIGN8_FINALIZE:
-            vnf = VNF_JitNew;
-            break;
+            return VNF_JitNew;
 
         case CORINFO_HELP_READYTORUN_NEW:
-            vnf = VNF_JitReadyToRunNew;
-            break;
+            return VNF_JitReadyToRunNew;
 
         case CORINFO_HELP_NEWARR_1_DIRECT:
         case CORINFO_HELP_NEWARR_1_OBJ:
         case CORINFO_HELP_NEWARR_1_VC:
         case CORINFO_HELP_NEWARR_1_ALIGN8:
-            vnf = VNF_JitNewArr;
-            break;
+            return VNF_JitNewArr;
 
         case CORINFO_HELP_READYTORUN_NEWARR_1:
-            vnf = VNF_JitReadyToRunNewArr;
-            break;
+            return VNF_JitReadyToRunNewArr;
 
         case CORINFO_HELP_GETGENERICS_GCSTATIC_BASE:
-            vnf = VNF_GetgenericsGcstaticBase;
-            break;
+            return VNF_GetgenericsGcstaticBase;
         case CORINFO_HELP_GETGENERICS_NONGCSTATIC_BASE:
-            vnf = VNF_GetgenericsNongcstaticBase;
-            break;
+            return VNF_GetgenericsNongcstaticBase;
         case CORINFO_HELP_GETSHARED_GCSTATIC_BASE:
-            vnf = VNF_GetsharedGcstaticBase;
-            break;
+            return VNF_GetsharedGcstaticBase;
         case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE:
-            vnf = VNF_GetsharedNongcstaticBase;
-            break;
+            return VNF_GetsharedNongcstaticBase;
         case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_NOCTOR:
-            vnf = VNF_GetsharedGcstaticBaseNoctor;
-            break;
+            return VNF_GetsharedGcstaticBaseNoctor;
         case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_NOCTOR:
-            vnf = VNF_GetsharedNongcstaticBaseNoctor;
-            break;
+            return VNF_GetsharedNongcstaticBaseNoctor;
         case CORINFO_HELP_READYTORUN_STATIC_BASE:
-            vnf = VNF_ReadyToRunStaticBase;
-            break;
+            return VNF_ReadyToRunStaticBase;
         case CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE:
-            vnf = VNF_ReadyToRunGenericStaticBase;
-            break;
+            return VNF_ReadyToRunGenericStaticBase;
         case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_DYNAMICCLASS:
-            vnf = VNF_GetsharedGcstaticBaseDynamicclass;
-            break;
+            return VNF_GetsharedGcstaticBaseDynamicclass;
         case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_DYNAMICCLASS:
-            vnf = VNF_GetsharedNongcstaticBaseDynamicclass;
-            break;
+            return VNF_GetsharedNongcstaticBaseDynamicclass;
         case CORINFO_HELP_CLASSINIT_SHARED_DYNAMICCLASS:
-            vnf = VNF_ClassinitSharedDynamicclass;
-            break;
+            return VNF_ClassinitSharedDynamicclass;
         case CORINFO_HELP_GETGENERICS_GCTHREADSTATIC_BASE:
-            vnf = VNF_GetgenericsGcthreadstaticBase;
-            break;
+            return VNF_GetgenericsGcthreadstaticBase;
         case CORINFO_HELP_GETGENERICS_NONGCTHREADSTATIC_BASE:
-            vnf = VNF_GetgenericsNongcthreadstaticBase;
-            break;
+            return VNF_GetgenericsNongcthreadstaticBase;
         case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE:
-            vnf = VNF_GetsharedGcthreadstaticBase;
-            break;
+            return VNF_GetsharedGcthreadstaticBase;
         case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE:
-            vnf = VNF_GetsharedNongcthreadstaticBase;
-            break;
+            return VNF_GetsharedNongcthreadstaticBase;
         case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_NOCTOR:
-            vnf = VNF_GetsharedGcthreadstaticBaseNoctor;
-            break;
+            return VNF_GetsharedGcthreadstaticBaseNoctor;
         case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_NOCTOR:
-            vnf = VNF_GetsharedNongcthreadstaticBaseNoctor;
-            break;
+            return VNF_GetsharedNongcthreadstaticBaseNoctor;
         case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_DYNAMICCLASS:
-            vnf = VNF_GetsharedGcthreadstaticBaseDynamicclass;
-            break;
+            return VNF_GetsharedGcthreadstaticBaseDynamicclass;
         case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_DYNAMICCLASS:
-            vnf = VNF_GetsharedNongcthreadstaticBaseDynamicclass;
-            break;
+            return VNF_GetsharedNongcthreadstaticBaseDynamicclass;
         case CORINFO_HELP_GETSTATICFIELDADDR_CONTEXT:
-            vnf = VNF_GetStaticAddrContext;
-            break;
+            return VNF_GetStaticAddrContext;
         case CORINFO_HELP_GETSTATICFIELDADDR_TLS:
-            vnf = VNF_GetStaticAddrTLS;
-            break;
+            return VNF_GetStaticAddrTLS;
 
         case CORINFO_HELP_RUNTIMEHANDLE_METHOD:
         case CORINFO_HELP_RUNTIMEHANDLE_METHOD_LOG:
-            vnf = VNF_RuntimeHandleMethod;
-            break;
+            return VNF_RuntimeHandleMethod;
 
         case CORINFO_HELP_READYTORUN_GENERIC_HANDLE:
-            vnf = VNF_ReadyToRunGenericHandle;
-            break;
+            return VNF_ReadyToRunGenericHandle;
 
         case CORINFO_HELP_RUNTIMEHANDLE_CLASS:
         case CORINFO_HELP_RUNTIMEHANDLE_CLASS_LOG:
-            vnf = VNF_RuntimeHandleClass;
-            break;
+            return VNF_RuntimeHandleClass;
 
         case CORINFO_HELP_STRCNS:
-            vnf = VNF_LazyStrCns;
-            break;
+            return VNF_LazyStrCns;
 
         case CORINFO_HELP_CHKCASTCLASS:
         case CORINFO_HELP_CHKCASTCLASS_SPECIAL:
         case CORINFO_HELP_CHKCASTARRAY:
         case CORINFO_HELP_CHKCASTINTERFACE:
         case CORINFO_HELP_CHKCASTANY:
-            vnf = VNF_CastClass;
-            break;
+            return VNF_CastClass;
 
         case CORINFO_HELP_READYTORUN_CHKCAST:
-            vnf = VNF_ReadyToRunCastClass;
-            break;
+            return VNF_ReadyToRunCastClass;
 
         case CORINFO_HELP_ISINSTANCEOFCLASS:
         case CORINFO_HELP_ISINSTANCEOFINTERFACE:
         case CORINFO_HELP_ISINSTANCEOFARRAY:
         case CORINFO_HELP_ISINSTANCEOFANY:
-            vnf = VNF_IsInstanceOf;
-            break;
+            return VNF_IsInstanceOf;
 
         case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE:
-            vnf = VNF_TypeHandleToRuntimeType;
-            break;
+            return VNF_TypeHandleToRuntimeType;
 
         case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE:
-            vnf = VNF_TypeHandleToRuntimeTypeHandle;
-            break;
+            return VNF_TypeHandleToRuntimeTypeHandle;
 
         case CORINFO_HELP_ARE_TYPES_EQUIVALENT:
-            vnf = VNF_AreTypesEquivalent;
-            break;
+            return VNF_AreTypesEquivalent;
 
         case CORINFO_HELP_READYTORUN_ISINSTANCEOF:
-            vnf = VNF_ReadyToRunIsInstanceOf;
-            break;
+            return VNF_ReadyToRunIsInstanceOf;
 
         case CORINFO_HELP_LDELEMA_REF:
-            vnf = VNF_LdElemA;
-            break;
+            return VNF_LdElemA;
 
         case CORINFO_HELP_UNBOX:
-            vnf = VNF_Unbox;
-            break;
+            return VNF_Unbox;
 
         // A constant within any method.
         case CORINFO_HELP_GETCURRENTMANAGEDTHREADID:
-            vnf = VNF_ManagedThreadId;
-            break;
+            return VNF_ManagedThreadId;
 
         case CORINFO_HELP_GETREFANY:
             // TODO-CQ: This should really be interpreted as just a struct field reference, in terms of values.
-            vnf = VNF_GetRefanyVal;
-            break;
+            return VNF_GetRefanyVal;
 
         case CORINFO_HELP_GETCLASSFROMMETHODPARAM:
-            vnf = VNF_GetClassFromMethodParam;
-            break;
+            return VNF_GetClassFromMethodParam;
 
         case CORINFO_HELP_GETSYNCFROMCLASSHANDLE:
-            vnf = VNF_GetSyncFromClassHandle;
-            break;
+            return VNF_GetSyncFromClassHandle;
 
         case CORINFO_HELP_LOOP_CLONE_CHOICE_ADDR:
-            vnf = VNF_LoopCloneChoiceAddr;
-            break;
+            return VNF_LoopCloneChoiceAddr;
 
         case CORINFO_HELP_BOX:
-            vnf = VNF_Box;
-            break;
+            return VNF_Box;
 
         case CORINFO_HELP_BOX_NULLABLE:
-            vnf = VNF_BoxNullable;
-            break;
+            return VNF_BoxNullable;
 
         default:
             unreached();
     }
-
-    assert(vnf != VNF_Boundary);
-    return vnf;
 }
 
 bool ValueNumbering::NumberHelperCall(GenTreeCall* call)

@@ -30,7 +30,7 @@ enum VNFunc
 {
 #define GTNODE(n, s, k) VNOP_##n,
 #include "gtlist.h"
-    VNF_Boundary,
+    VNOP_COUNT,
 #define ValueNumFuncDef(nm, arity, commute, knownNonNull, sharedStatic) VNF_##nm,
 #include "valuenumfuncs.h"
     VNF_Count,
@@ -38,7 +38,7 @@ enum VNFunc
 };
 
 static_assert_no_msg(static_cast<unsigned>(GT_NONE) == static_cast<unsigned>(VNOP_NONE));
-static_assert_no_msg(static_cast<unsigned>(GT_COUNT) == static_cast<unsigned>(VNF_Boundary));
+static_assert_no_msg(static_cast<unsigned>(GT_COUNT) == static_cast<unsigned>(VNOP_COUNT));
 
 constexpr VNFunc VNFuncIndex(VNFunc vnf)
 {
