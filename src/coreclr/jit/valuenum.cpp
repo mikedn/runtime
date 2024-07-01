@@ -2600,135 +2600,118 @@ bool ValueNumStore::VNEvalShouldFold(var_types typ, VNFunc func, ValueNum arg0VN
     return true;
 }
 
-//----------------------------------------------------------------------------------------
-//  EvalUsingMathIdentity
-//                   - Attempts to evaluate 'func' by using mathematical identities
-//                     that can be applied to 'func'.
-//
-// Arguments:
-//    typ            - The type of the resulting ValueNum produced by 'func'
-//    func           - Any binary VNFunc
-//    arg0VN         - The ValueNum of the first argument to 'func'
-//    arg1VN         - The ValueNum of the second argument to 'func'
-//
-// Return Value:     - When successful a  ValueNum for the expression is returned.
-//                     When unsuccessful NoVN is returned.
-//
-ValueNum ValueNumStore::EvalUsingMathIdentity(var_types typ, VNFunc func, ValueNum arg0VN, ValueNum arg1VN)
+ValueNum ValueNumStore::EvalUsingMathIdentity(var_types type, VNFunc func, ValueNum arg0VN, ValueNum arg1VN)
 {
-    ValueNum resultVN = NoVN; // set default result to unsuccessful
-
-    if (typ == TYP_BYREF) // We don't want/need to optimize a zero byref
+    if (type == TYP_BYREF) // We don't want/need to optimize a zero byref
     {
-        return resultVN; // return the unsuccessful value
+        return NoVN;
     }
 
     switch (func)
     {
-        ValueNum ZeroVN;
-        ValueNum OneVN;
+        ValueNum zeroVN;
+        ValueNum oneVN;
 
         case VNOP_FADD:
         case VNOP_FSUB:
         case VNOP_FMUL:
         case VNOP_FDIV:
-            return NoVN;
+            break;
 
         case VNOP_ADD:
         case VNOP_OVF_SADD:
         case VNOP_OVF_UADD:
-            ZeroVN = VNZeroForType(typ);
+            zeroVN = VNZeroForType(type);
 
-            if (arg0VN == ZeroVN)
+            if (arg0VN == zeroVN)
             {
                 return arg1VN;
             }
 
-            if (arg1VN == ZeroVN)
+            if (arg1VN == zeroVN)
             {
                 return arg0VN;
             }
-
-            return NoVN;
+            break;
 
         case VNOP_SUB:
         case VNOP_OVF_SSUB:
         case VNOP_OVF_USUB:
-            ZeroVN = VNZeroForType(typ);
+            zeroVN = VNZeroForType(type);
 
-            if (arg1VN == ZeroVN)
+            if (arg1VN == zeroVN)
             {
                 return arg0VN;
             }
 
             if (arg0VN == arg1VN)
             {
-                return ZeroVN;
+                return zeroVN;
             }
-
-            return NoVN;
+            break;
 
         case VNOP_MUL:
         case VNOP_OVF_SMUL:
         case VNOP_OVF_UMUL:
-            ZeroVN = VNZeroForType(typ);
+            zeroVN = VNZeroForType(type);
 
-            if (arg0VN == ZeroVN)
+            if (arg0VN == zeroVN)
             {
-                return ZeroVN;
+                return zeroVN;
             }
 
-            if (arg1VN == ZeroVN)
+            if (arg1VN == zeroVN)
             {
-                return ZeroVN;
+                return zeroVN;
             }
 
-            OneVN = VNOneForType(typ);
+            oneVN = VNOneForType(type);
 
-            if (arg0VN == OneVN)
+            if (arg0VN == oneVN)
             {
                 return arg1VN;
             }
 
-            if (arg1VN == OneVN)
+            if (arg1VN == oneVN)
             {
                 return arg0VN;
             }
-
-            return NoVN;
+            break;
 
         case VNOP_DIV:
         case VNOP_UDIV:
-            OneVN = VNOneForType(typ);
-
-            if (arg1VN == OneVN)
+            if (arg1VN == VNOneForType(type))
             {
-                resultVN = arg0VN;
+                return arg0VN;
             }
             break;
 
         case VNOP_OR:
         case VNOP_XOR:
-            ZeroVN = VNZeroForType(typ);
-            if (arg0VN == ZeroVN)
+            zeroVN = VNZeroForType(type);
+
+            if (arg0VN == zeroVN)
             {
-                resultVN = arg1VN;
+                return arg1VN;
             }
-            else if (arg1VN == ZeroVN)
+
+            if (arg1VN == zeroVN)
             {
-                resultVN = arg0VN;
+                return arg0VN;
             }
             break;
 
         case VNOP_AND:
-            ZeroVN = VNZeroForType(typ);
-            if (arg0VN == ZeroVN)
+            zeroVN = VNZeroForType(type);
+
+            if (arg0VN == zeroVN)
             {
-                resultVN = ZeroVN;
+                return zeroVN;
             }
-            else if (arg1VN == ZeroVN)
+
+            if (arg1VN == zeroVN)
             {
-                resultVN = ZeroVN;
+                return zeroVN;
             }
             break;
 
@@ -2737,95 +2720,76 @@ ValueNum ValueNumStore::EvalUsingMathIdentity(var_types typ, VNFunc func, ValueN
         case VNOP_RSZ:
         case VNOP_ROL:
         case VNOP_ROR:
-            ZeroVN = VNZeroForType(typ);
+            zeroVN = VNZeroForType(type);
 
-            if (arg1VN == ZeroVN)
+            if (arg1VN == zeroVN)
             {
-                resultVN = arg0VN;
+                return arg0VN;
             }
 
-            if (arg0VN == ZeroVN)
+            if (arg0VN == zeroVN)
             {
-                resultVN = ZeroVN;
+                return zeroVN;
             }
             break;
 
         case VNOP_EQ:
-            // (null == non-null) == false
-            // (non-null == null) == false
             if (((arg0VN == NullVN()) && IsKnownNonNull(arg1VN)) || ((arg1VN == NullVN()) && IsKnownNonNull(arg0VN)))
             {
-                resultVN = VNZeroForType(typ);
-                break;
+                return VNZeroForType(type);
             }
-            // (x == x) == true (integer only)
             FALLTHROUGH;
         case VNOP_GE:
         case VNOP_LE:
-            // (x <= x) == true (integer only)
-            // (x >= x) == true (integer only)
             if ((arg0VN == arg1VN) && varTypeIsIntegralOrI(TypeOfVN(arg0VN)))
             {
-                resultVN = VNOneForType(typ);
+                return VNOneForType(type);
             }
             break;
 
         case VNOP_NE:
-            // (null != non-null) == true
-            // (non-null != null) == true
             if (((arg0VN == NullVN()) && IsKnownNonNull(arg1VN)) || ((arg1VN == NullVN()) && IsKnownNonNull(arg0VN)))
             {
-                resultVN = VNOneForType(typ);
+                return VNOneForType(type);
             }
-            // (x != x) == false (integer only)
-            else if ((arg0VN == arg1VN) && varTypeIsIntegralOrI(TypeOfVN(arg0VN)))
+
+            if ((arg0VN == arg1VN) && varTypeIsIntegralOrI(TypeOfVN(arg0VN)))
             {
-                resultVN = VNZeroForType(typ);
+                return VNZeroForType(type);
             }
             break;
 
         case VNOP_GT:
         case VNOP_LT:
-            // (x > x) == false (integer & floating point)
-            // (x < x) == false (integer & floating point)
             if (arg0VN == arg1VN)
             {
-                resultVN = VNZeroForType(typ);
+                return VNZeroForType(type);
             }
             break;
 
         case VNF_LT_UN:
-            // (x < 0) == false
-            // (x < x) == false
             std::swap(arg0VN, arg1VN);
             FALLTHROUGH;
         case VNF_GT_UN:
-            // (0 > x) == false
-            // (x > x) == false
-            // None of the above identities apply to floating point comparisons.
-            // For example, (NaN > NaN) is true instead of false because these are
-            // unordered comparisons.
-            if (varTypeIsIntegralOrI(TypeOfVN(arg0VN)) &&
-                ((arg0VN == VNZeroForType(TypeOfVN(arg0VN))) || (arg0VN == arg1VN)))
+            if (varTypeIsIntegralOrI(TypeOfVN(arg0VN)))
             {
-                resultVN = VNZeroForType(typ);
+                if ((arg0VN == VNZeroForType(TypeOfVN(arg0VN))) || (arg0VN == arg1VN))
+                {
+                    return VNZeroForType(type);
+                }
             }
             break;
 
         case VNF_GE_UN:
-            // (x >= 0) == true
-            // (x >= x) == true
             std::swap(arg0VN, arg1VN);
             FALLTHROUGH;
         case VNF_LE_UN:
-            // (0 <= x) == true
-            // (x <= x) == true
-            // Unlike (x < x) and (x > x), (x >= x) and (x <= x) also apply to floating
-            // point comparisons: x is either equal to itself or is unordered if it's NaN.
-            if ((varTypeIsIntegralOrI(TypeOfVN(arg0VN)) && (arg0VN == VNZeroForType(TypeOfVN(arg0VN)))) ||
-                (arg0VN == arg1VN))
+            if (varTypeIsIntegralOrI(TypeOfVN(arg0VN)))
             {
-                resultVN = VNOneForType(typ);
+                if ((arg0VN == VNZeroForType(TypeOfVN(arg0VN))) || (arg0VN == arg1VN))
+                {
+                    return VNOneForType(type);
+                }
             }
             break;
 
@@ -2833,7 +2797,7 @@ ValueNum ValueNumStore::EvalUsingMathIdentity(var_types typ, VNFunc func, ValueN
             break;
     }
 
-    return resultVN;
+    return NoVN;
 }
 
 //------------------------------------------------------------------------
