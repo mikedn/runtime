@@ -1402,7 +1402,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
         GenTree* sizeCheck   = gtNewOperNode(GT_LE, TYP_INT, sizeValue, offsetValue);
 
         // revert null check condition.
-        nullCheck->ChangeOperUnchecked(GT_EQ);
+        nullCheck->SetOperRaw(GT_EQ);
 
         // ((sizeCheck fails || nullCheck fails))) ? (helperCall : handle).
         // Add checks and the handle as call arguments, indirect call transformer will handle this.

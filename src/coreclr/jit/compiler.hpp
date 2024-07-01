@@ -760,20 +760,6 @@ inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
     }
 }
 
-inline void GenTree::ChangeOperUnchecked(genTreeOps oper)
-{
-    GenTreeFlags mask = GTF_COMMON_MASK;
-
-    if (OperIsIndirOrArrLength() && OperIsIndirOrArrLength(oper))
-    {
-        mask |= GTF_IND_NONFAULTING;
-    }
-
-    SetOperRaw(oper); // Trust the caller and don't use SetOper()
-
-    gtFlags &= mask;
-}
-
 inline void GenTree::ChangeOperConst(genTreeOps oper)
 {
     assert(OperIsConst(oper)); // use ChangeOper/ChangeToIntCon/ChangeToLngCon/ChangeToDblCon
