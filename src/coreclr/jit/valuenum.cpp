@@ -2695,197 +2695,183 @@ ValueNum ValueNumStore::EvalUsingMathIdentity(var_types typ, VNFunc func, ValueN
         return NoVN;
     };
 
-    // We have ways of evaluating some binary functions.
-    if (func < VNF_Boundary)
+    switch (func)
     {
         ValueNum ZeroVN;
         ValueNum OneVN;
 
-        switch (genTreeOps(func))
-        {
-            case GT_ADD:
-            case GT_OVF_SADD:
-            case GT_OVF_UADD:
-            case GT_FADD:
-                resultVN = identityForAddition();
-                break;
+        case VNOP_ADD:
+        case VNOP_OVF_SADD:
+        case VNOP_OVF_UADD:
+        case VNOP_FADD:
+            resultVN = identityForAddition();
+            break;
 
-            case GT_SUB:
-            case GT_OVF_SSUB:
-            case GT_OVF_USUB:
-            case GT_FSUB:
-                resultVN = identityForSubtraction();
-                break;
+        case VNOP_SUB:
+        case VNOP_OVF_SSUB:
+        case VNOP_OVF_USUB:
+        case VNOP_FSUB:
+            resultVN = identityForSubtraction();
+            break;
 
-            case GT_MUL:
-            case GT_OVF_SMUL:
-            case GT_OVF_UMUL:
-            case GT_FMUL:
-                resultVN = identityForMultiplication();
-                break;
+        case VNOP_MUL:
+        case VNOP_OVF_SMUL:
+        case VNOP_OVF_UMUL:
+        case VNOP_FMUL:
+            resultVN = identityForMultiplication();
+            break;
 
-            case GT_DIV:
-            case GT_FDIV:
-            case GT_UDIV:
-                // (x / 1) == x
-                // This identity does not apply for floating point
-                //
-                if (!varTypeIsFloating(typ))
-                {
-                    OneVN = VNOneForType(typ);
-                    if (arg1VN == OneVN)
-                    {
-                        resultVN = arg0VN;
-                    }
-                }
-                break;
-
-            case GT_OR:
-            case GT_XOR:
-                // (0 | x) == x,  (0 ^ x) == x
-                // (x | 0) == x,  (x ^ 0) == x
-                ZeroVN = VNZeroForType(typ);
-                if (arg0VN == ZeroVN)
-                {
-                    resultVN = arg1VN;
-                }
-                else if (arg1VN == ZeroVN)
+        case VNOP_DIV:
+        case VNOP_FDIV:
+        case VNOP_UDIV:
+            // (x / 1) == x
+            // This identity does not apply for floating point
+            if (!varTypeIsFloating(typ))
+            {
+                OneVN = VNOneForType(typ);
+                if (arg1VN == OneVN)
                 {
                     resultVN = arg0VN;
                 }
-                break;
+            }
+            break;
 
-            case GT_AND:
-                // (x & 0) == 0
-                // (0 & x) == 0
-                ZeroVN = VNZeroForType(typ);
-                if (arg0VN == ZeroVN)
-                {
-                    resultVN = ZeroVN;
-                }
-                else if (arg1VN == ZeroVN)
-                {
-                    resultVN = ZeroVN;
-                }
-                break;
+        case VNOP_OR:
+        case VNOP_XOR:
+            // (0 | x) == x,  (0 ^ x) == x
+            // (x | 0) == x,  (x ^ 0) == x
+            ZeroVN = VNZeroForType(typ);
+            if (arg0VN == ZeroVN)
+            {
+                resultVN = arg1VN;
+            }
+            else if (arg1VN == ZeroVN)
+            {
+                resultVN = arg0VN;
+            }
+            break;
 
-            case GT_LSH:
-            case GT_RSH:
-            case GT_RSZ:
-            case GT_ROL:
-            case GT_ROR:
-                // (x << 0)  == x
-                // (x >> 0)  == x
-                // (x rol 0) == x
-                // (x ror 0) == x
-                ZeroVN = VNZeroForType(typ);
-                if (arg1VN == ZeroVN)
-                {
-                    resultVN = arg0VN;
-                }
-                // (0 << x)  == 0
-                // (0 >> x)  == 0
-                // (0 rol x) == 0
-                // (0 ror x) == 0
-                if (arg0VN == ZeroVN)
-                {
-                    resultVN = ZeroVN;
-                }
-                break;
+        case VNOP_AND:
+            // (x & 0) == 0
+            // (0 & x) == 0
+            ZeroVN = VNZeroForType(typ);
+            if (arg0VN == ZeroVN)
+            {
+                resultVN = ZeroVN;
+            }
+            else if (arg1VN == ZeroVN)
+            {
+                resultVN = ZeroVN;
+            }
+            break;
 
-            case GT_EQ:
-                // (null == non-null) == false
-                // (non-null == null) == false
-                if (((arg0VN == NullVN()) && IsKnownNonNull(arg1VN)) ||
-                    ((arg1VN == NullVN()) && IsKnownNonNull(arg0VN)))
-                {
-                    resultVN = VNZeroForType(typ);
-                    break;
-                }
-                // (x == x) == true (integer only)
-                FALLTHROUGH;
-            case GT_GE:
-            case GT_LE:
-                // (x <= x) == true (integer only)
-                // (x >= x) == true (integer only)
-                if ((arg0VN == arg1VN) && varTypeIsIntegralOrI(TypeOfVN(arg0VN)))
-                {
-                    resultVN = VNOneForType(typ);
-                }
-                break;
+        case VNOP_LSH:
+        case VNOP_RSH:
+        case VNOP_RSZ:
+        case VNOP_ROL:
+        case VNOP_ROR:
+            // (x << 0)  == x
+            // (x >> 0)  == x
+            // (x rol 0) == x
+            // (x ror 0) == x
+            ZeroVN = VNZeroForType(typ);
+            if (arg1VN == ZeroVN)
+            {
+                resultVN = arg0VN;
+            }
+            // (0 << x)  == 0
+            // (0 >> x)  == 0
+            // (0 rol x) == 0
+            // (0 ror x) == 0
+            if (arg0VN == ZeroVN)
+            {
+                resultVN = ZeroVN;
+            }
+            break;
 
-            case GT_NE:
-                // (null != non-null) == true
-                // (non-null != null) == true
-                if (((arg0VN == NullVN()) && IsKnownNonNull(arg1VN)) ||
-                    ((arg1VN == NullVN()) && IsKnownNonNull(arg0VN)))
-                {
-                    resultVN = VNOneForType(typ);
-                }
-                // (x != x) == false (integer only)
-                else if ((arg0VN == arg1VN) && varTypeIsIntegralOrI(TypeOfVN(arg0VN)))
-                {
-                    resultVN = VNZeroForType(typ);
-                }
+        case VNOP_EQ:
+            // (null == non-null) == false
+            // (non-null == null) == false
+            if (((arg0VN == NullVN()) && IsKnownNonNull(arg1VN)) || ((arg1VN == NullVN()) && IsKnownNonNull(arg0VN)))
+            {
+                resultVN = VNZeroForType(typ);
                 break;
+            }
+            // (x == x) == true (integer only)
+            FALLTHROUGH;
+        case VNOP_GE:
+        case VNOP_LE:
+            // (x <= x) == true (integer only)
+            // (x >= x) == true (integer only)
+            if ((arg0VN == arg1VN) && varTypeIsIntegralOrI(TypeOfVN(arg0VN)))
+            {
+                resultVN = VNOneForType(typ);
+            }
+            break;
 
-            case GT_GT:
-            case GT_LT:
-                // (x > x) == false (integer & floating point)
-                // (x < x) == false (integer & floating point)
-                if (arg0VN == arg1VN)
-                {
-                    resultVN = VNZeroForType(typ);
-                }
-                break;
+        case VNOP_NE:
+            // (null != non-null) == true
+            // (non-null != null) == true
+            if (((arg0VN == NullVN()) && IsKnownNonNull(arg1VN)) || ((arg1VN == NullVN()) && IsKnownNonNull(arg0VN)))
+            {
+                resultVN = VNOneForType(typ);
+            }
+            // (x != x) == false (integer only)
+            else if ((arg0VN == arg1VN) && varTypeIsIntegralOrI(TypeOfVN(arg0VN)))
+            {
+                resultVN = VNZeroForType(typ);
+            }
+            break;
 
-            default:
-                break;
-        }
+        case VNOP_GT:
+        case VNOP_LT:
+            // (x > x) == false (integer & floating point)
+            // (x < x) == false (integer & floating point)
+            if (arg0VN == arg1VN)
+            {
+                resultVN = VNZeroForType(typ);
+            }
+            break;
+
+        case VNF_LT_UN:
+            // (x < 0) == false
+            // (x < x) == false
+            std::swap(arg0VN, arg1VN);
+            FALLTHROUGH;
+        case VNF_GT_UN:
+            // (0 > x) == false
+            // (x > x) == false
+            // None of the above identities apply to floating point comparisons.
+            // For example, (NaN > NaN) is true instead of false because these are
+            // unordered comparisons.
+            if (varTypeIsIntegralOrI(TypeOfVN(arg0VN)) &&
+                ((arg0VN == VNZeroForType(TypeOfVN(arg0VN))) || (arg0VN == arg1VN)))
+            {
+                resultVN = VNZeroForType(typ);
+            }
+            break;
+
+        case VNF_GE_UN:
+            // (x >= 0) == true
+            // (x >= x) == true
+            std::swap(arg0VN, arg1VN);
+            FALLTHROUGH;
+        case VNF_LE_UN:
+            // (0 <= x) == true
+            // (x <= x) == true
+            // Unlike (x < x) and (x > x), (x >= x) and (x <= x) also apply to floating
+            // point comparisons: x is either equal to itself or is unordered if it's NaN.
+            if ((varTypeIsIntegralOrI(TypeOfVN(arg0VN)) && (arg0VN == VNZeroForType(TypeOfVN(arg0VN)))) ||
+                (arg0VN == arg1VN))
+            {
+                resultVN = VNOneForType(typ);
+            }
+            break;
+
+        default:
+            break;
     }
-    else // must be a VNF_ function
-    {
-        switch (func)
-        {
-            case VNF_LT_UN:
-                // (x < 0) == false
-                // (x < x) == false
-                std::swap(arg0VN, arg1VN);
-                FALLTHROUGH;
-            case VNF_GT_UN:
-                // (0 > x) == false
-                // (x > x) == false
-                // None of the above identities apply to floating point comparisons.
-                // For example, (NaN > NaN) is true instead of false because these are
-                // unordered comparisons.
-                if (varTypeIsIntegralOrI(TypeOfVN(arg0VN)) &&
-                    ((arg0VN == VNZeroForType(TypeOfVN(arg0VN))) || (arg0VN == arg1VN)))
-                {
-                    resultVN = VNZeroForType(typ);
-                }
-                break;
 
-            case VNF_GE_UN:
-                // (x >= 0) == true
-                // (x >= x) == true
-                std::swap(arg0VN, arg1VN);
-                FALLTHROUGH;
-            case VNF_LE_UN:
-                // (0 <= x) == true
-                // (x <= x) == true
-                // Unlike (x < x) and (x > x), (x >= x) and (x <= x) also apply to floating
-                // point comparisons: x is either equal to itself or is unordered if it's NaN.
-                if ((varTypeIsIntegralOrI(TypeOfVN(arg0VN)) && (arg0VN == VNZeroForType(TypeOfVN(arg0VN)))) ||
-                    (arg0VN == arg1VN))
-                {
-                    resultVN = VNOneForType(typ);
-                }
-                break;
-
-            default:
-                break;
-        }
-    }
     return resultVN;
 }
 
@@ -6063,15 +6049,8 @@ VNFunc ValueNumStore::GenTreeOpToVNFunc(genTreeOps gtOper)
 
 bool ValueNumStore::VNFuncIsComparison(VNFunc vnf)
 {
-    if (vnf >= VNF_Boundary)
-    {
-        // For integer types we have unsigned comparisions, and
-        // for floating point types these are the unordered variants.
-        //
-        return ((vnf == VNF_LT_UN) || (vnf == VNF_LE_UN) || (vnf == VNF_GE_UN) || (vnf == VNF_GT_UN));
-    }
-    genTreeOps gtOp = genTreeOps(vnf);
-    return GenTree::OperIsCompare(gtOp) != 0;
+    return (vnf == VNOP_EQ) || (vnf == VNOP_NE) || (vnf == VNOP_LT) || (vnf == VNOP_LE) || (vnf == VNOP_GE) ||
+           (vnf == VNOP_GT) || (vnf == VNF_LT_UN) || (vnf == VNF_LE_UN) || (vnf == VNF_GE_UN) || (vnf == VNF_GT_UN);
 }
 
 #ifdef DEBUG
