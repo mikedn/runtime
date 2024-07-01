@@ -4952,10 +4952,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
         {
             chars += printf("[NODE_LARGE]");
         }
-        if (tree->gtDebugFlags & GTF_DEBUG_NODE_SMALL)
-        {
-            chars += printf("[NODE_SMALL]");
-        }
         if (tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED)
         {
             chars += printf("[MORPHED]");

@@ -420,7 +420,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 void* GenTree::operator new(size_t sz, Compiler* comp, genTreeOps oper)
 {
-    size_t size = GenTree::s_gtNodeSizes[oper];
+    size_t size = s_gtNodeSizes[oper];
 
 #if MEASURE_NODE_SIZE
     genNodeSizeStats.genTreeNodeCnt += 1;
@@ -444,17 +444,11 @@ inline GenTree::GenTree(genTreeOps oper, var_types type DEBUGARG(bool largeNode)
 #endif
 {
 #ifdef DEBUG
-    if ((s_gtNodeSizes[oper] == TREE_NODE_SZ_SMALL) && !largeNode)
-    {
-        gtDebugFlags |= GTF_DEBUG_NODE_SMALL;
-    }
-    else if ((s_gtNodeSizes[oper] == TREE_NODE_SZ_LARGE) || largeNode)
+    assert((s_gtNodeSizes[oper] == TREE_NODE_SZ_SMALL) || (s_gtNodeSizes[oper] == TREE_NODE_SZ_LARGE));
+
+    if ((s_gtNodeSizes[oper] == TREE_NODE_SZ_LARGE) || largeNode)
     {
         gtDebugFlags |= GTF_DEBUG_NODE_LARGE;
-    }
-    else
-    {
-        assert(!"bogus node size");
     }
 #endif
 
@@ -677,6 +671,10 @@ inline GenTreeIndir* Compiler::gtNewMethodTableLookup(GenTree* object)
 
 inline void GenTree::SetOperRaw(genTreeOps oper)
 {
+    assert((s_gtNodeSizes[gtOper] == TREE_NODE_SZ_SMALL) || (s_gtNodeSizes[gtOper] == TREE_NODE_SZ_LARGE));
+    assert((s_gtNodeSizes[oper] == TREE_NODE_SZ_SMALL) || (s_gtNodeSizes[oper] == TREE_NODE_SZ_LARGE));
+    assert((s_gtNodeSizes[oper] == TREE_NODE_SZ_SMALL) || ((gtDebugFlags & GTF_DEBUG_NODE_LARGE) != 0));
+
 #if NODEBASH_STATS
     RecordOperBashing(gtOper, oper);
 #endif
@@ -686,11 +684,6 @@ inline void GenTree::SetOperRaw(genTreeOps oper)
 
 inline void GenTree::SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
 {
-    assert(((gtDebugFlags & GTF_DEBUG_NODE_SMALL) != 0) != ((gtDebugFlags & GTF_DEBUG_NODE_LARGE) != 0));
-    assert((s_gtNodeSizes[gtOper] == TREE_NODE_SZ_SMALL) || (s_gtNodeSizes[gtOper] == TREE_NODE_SZ_LARGE));
-    assert((s_gtNodeSizes[oper] == TREE_NODE_SZ_SMALL) || (s_gtNodeSizes[oper] == TREE_NODE_SZ_LARGE));
-    assert((s_gtNodeSizes[oper] == TREE_NODE_SZ_SMALL) || ((gtDebugFlags & GTF_DEBUG_NODE_LARGE) != 0));
-
 #if defined(HOST_64BIT) && !defined(TARGET_64BIT)
     if ((gtOper == GT_CNS_LNG) && (oper == GT_CNS_INT))
     {
