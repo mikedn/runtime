@@ -5986,18 +5986,16 @@ const char* ValueNumStore::GetFuncName(VNFunc vnf)
 {
     vnf = VNFuncIndex(vnf);
 
-    if (vnf < VNF_Boundary)
-    {
-        return GenTree::OpName(genTreeOps(vnf));
-    }
-
+    static const char* const names[]{
+#define GTNODE(n, s, k) #n,
+#include "gtlist.h"
+        "", // VNF_Boundary
 #define ValueNumFuncDef(vnf, arity, commute, knownNonNull, sharedStatic) #vnf,
-    static const char* const funcNames[]{
 #include "valuenumfuncs.h"
     };
 #undef ValueNumFuncDef
 
-    return funcNames[vnf - (VNF_Boundary + 1)];
+    return names[vnf];
 }
 
 const char* ValueNumStore::GetReservedName(ValueNum vn)
