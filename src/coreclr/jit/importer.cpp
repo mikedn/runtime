@@ -8312,7 +8312,7 @@ void Importer::impValidateMemoryAccessOpcode(OPCODE opcode, bool volatilePrefix)
     }
 }
 
-var_types Importer::impGetNumericBinaryOpType(genTreeOps oper, bool fUnsigned, GenTree** pOp1, GenTree** pOp2)
+var_types Importer::impGetNumericBinaryOpType(genTreeOps oper, GenTree** pOp1, GenTree** pOp2)
 {
     GenTree* op1 = *pOp1;
     GenTree* op2 = *pOp2;
@@ -8320,23 +8320,17 @@ var_types Importer::impGetNumericBinaryOpType(genTreeOps oper, bool fUnsigned, G
     impBashVarAddrsToI(op1, op2);
 
 #ifdef TARGET_64BIT
-    auto WidenToNativeInt = [this](GenTree* op, bool fromUnsigned) -> GenTree* {
+    auto WidenToNativeInt = [this](GenTree* op, genTreeOps oper) -> GenTree* {
+        bool fromUnsigned = (oper == GT_OVF_UADD) || (oper == GT_OVF_USUB) || (oper == GT_OVF_UMUL);
+
         if (GenTreeIntCon* con = op->IsIntCon())
         {
             // There are no IL instructions that load a native int constant so the C# compiler
             // emits ldc.i4 and takes advantage of the implicit int32 - native int widening.
 
             assert(con->TypeIs(TYP_INT));
-            con->SetType(TYP_LONG);
-
-            if (fromUnsigned)
-            {
-                con->SetValue(con->GetUInt32Value());
-            }
-            else
-            {
-                con->SetValue(con->GetInt32Value());
-            }
+            con->SetValue(TYP_LONG, fromUnsigned ? static_cast<int64_t>(con->GetUInt32Value())
+                                                 : static_cast<int64_t>(con->GetInt32Value()));
 
             return con;
         }
@@ -8367,7 +8361,7 @@ var_types Importer::impGetNumericBinaryOpType(genTreeOps oper, bool fUnsigned, G
 #ifdef TARGET_64BIT
                 if (!op1->TypeIs(TYP_LONG))
                 {
-                    *pOp1 = WidenToNativeInt(op1, fUnsigned);
+                    *pOp1 = WidenToNativeInt(op1, oper);
                 }
 #endif
 
@@ -8384,7 +8378,7 @@ var_types Importer::impGetNumericBinaryOpType(genTreeOps oper, bool fUnsigned, G
 #ifdef TARGET_64BIT
             if (!op2->TypeIs(TYP_LONG))
             {
-                *pOp2 = WidenToNativeInt(op2, fUnsigned);
+                *pOp2 = WidenToNativeInt(op2, oper);
             }
 #endif
 
@@ -8403,14 +8397,14 @@ var_types Importer::impGetNumericBinaryOpType(genTreeOps oper, bool fUnsigned, G
         {
             if (!op1->TypeIs(TYP_LONG))
             {
-                *pOp1 = WidenToNativeInt(op1, fUnsigned);
+                *pOp1 = WidenToNativeInt(op1, oper);
             }
         }
         else
         {
             if (!op2->TypeIs(TYP_LONG))
             {
-                *pOp2 = WidenToNativeInt(op2, fUnsigned);
+                *pOp2 = WidenToNativeInt(op2, oper);
             }
         }
 #endif
@@ -8433,11 +8427,11 @@ var_types Importer::impGetNumericBinaryOpType(genTreeOps oper, bool fUnsigned, G
 
         if (!op1->TypeIs(TYP_LONG))
         {
-            *pOp1 = WidenToNativeInt(op1, fUnsigned);
+            *pOp1 = WidenToNativeInt(op1, oper);
         }
         else if (!op2->TypeIs(TYP_LONG))
         {
-            *pOp2 = WidenToNativeInt(op2, fUnsigned);
+            *pOp2 = WidenToNativeInt(op2, oper);
         }
 #endif
 
@@ -9742,67 +9736,58 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_ADD_OVF:
-                uns  = false;
                 oper = GT_OVF_SADD;
                 goto MATH_OP2;
             case CEE_ADD_OVF_UN:
-                uns  = true;
                 oper = GT_OVF_UADD;
                 goto MATH_OP2;
             case CEE_SUB_OVF:
-                uns  = false;
                 oper = GT_OVF_SSUB;
                 goto MATH_OP2;
             case CEE_SUB_OVF_UN:
-                uns  = true;
                 oper = GT_OVF_USUB;
                 goto MATH_OP2;
             case CEE_MUL_OVF:
-                uns  = false;
                 oper = GT_OVF_SMUL;
                 goto MATH_OP2;
             case CEE_MUL_OVF_UN:
-                uns  = true;
                 oper = GT_OVF_UMUL;
                 goto MATH_OP2;
 
             case CEE_ADD:
                 oper = GT_ADD;
-                goto MATH_OP2_NO_OVF;
+                goto MATH_OP2;
             case CEE_SUB:
                 oper = GT_SUB;
-                goto MATH_OP2_NO_OVF;
+                goto MATH_OP2;
             case CEE_MUL:
                 oper = GT_MUL;
-                goto MATH_OP2_NO_OVF;
+                goto MATH_OP2;
             case CEE_DIV:
                 oper = GT_DIV;
-                goto MATH_OP2_NO_OVF;
+                goto MATH_OP2;
             case CEE_DIV_UN:
                 oper = GT_UDIV;
-                goto MATH_OP2_NO_OVF;
+                goto MATH_OP2;
             case CEE_REM:
                 oper = GT_MOD;
-                goto MATH_OP2_NO_OVF;
+                goto MATH_OP2;
             case CEE_REM_UN:
                 oper = GT_UMOD;
-                goto MATH_OP2_NO_OVF;
+                goto MATH_OP2;
             case CEE_AND:
                 oper = GT_AND;
-                goto MATH_OP2_NO_OVF;
+                goto MATH_OP2;
             case CEE_OR:
                 oper = GT_OR;
-                goto MATH_OP2_NO_OVF;
+                goto MATH_OP2;
             case CEE_XOR:
                 oper = GT_XOR;
-            MATH_OP2_NO_OVF:
-                uns  = false;
-
             MATH_OP2:
                 op2 = impPopStack().val;
                 op1 = impPopStack().val;
 
-                type = impGetNumericBinaryOpType(oper, uns, &op1, &op2);
+                type = impGetNumericBinaryOpType(oper, &op1, &op2);
 
                 if (varTypeIsFloating(type))
                 {
