@@ -393,7 +393,6 @@ enum GenTreeFlags : unsigned
     GTF_UNSIGNED              = 0x00000200, 
     GTF_CAST_UNSIGNED         = GTF_UNSIGNED, // CAST - treat source operand as unsigned
     GTF_RELOP_UNSIGNED        = GTF_UNSIGNED, // GT/GE/LT/LE - unsigned compare
-    GTF_MUL_UNSIGNED          = GTF_UNSIGNED, // MUL/MULHI/MUL_LONG - unsigned multiplication
     GTF_CONTAINED             = 0x00000400, // Node is contained (executed as part of its user)
     GTF_NOREG_AT_USE          = 0x00000800, // Value is used from spilled temp without reloading into a register
     GTF_REUSE_REG_VAL         = 0x00001000, // Destination register already contains the produced value so code
@@ -1800,33 +1799,6 @@ public:
     void SetReverseOps(bool reverseOps)
     {
         gtFlags = (gtFlags & ~GTF_REVERSE_OPS) | (reverseOps ? GTF_REVERSE_OPS : GTF_EMPTY);
-    }
-
-    bool IsMulUnsigned() const
-    {
-#ifdef TARGET_64BIT
-        assert(OperIs(GT_MUL, GT_SMULH, GT_UMULH));
-#else
-        assert(OperIs(GT_MUL, GT_SMULH, GT_UMULH, GT_SMULL, GT_UMULL));
-#endif
-        return (gtFlags & GTF_MUL_UNSIGNED) != 0;
-    }
-
-    void SetMulUnsigned(bool value)
-    {
-#ifdef TARGET_64BIT
-        assert(OperIs(GT_MUL));
-#else
-        assert(OperIs(GT_MUL));
-#endif
-        if (value)
-        {
-            gtFlags |= GTF_MUL_UNSIGNED;
-        }
-        else
-        {
-            gtFlags &= ~GTF_MUL_UNSIGNED;
-        }
     }
 
     bool IsRelopUnsigned() const

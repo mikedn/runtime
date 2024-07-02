@@ -3792,15 +3792,16 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
             // The existing node will later be transformed into a RSZ/SUB that
             // computes the final result. This way don't need to find and change
             // the use of the existing node.
-            GenTree* mulhi = comp->gtNewOperNode(simpleMul ? GT_MUL : GT_UMULH, TYP_I_IMPL, adjustedDividend, divisor);
 
-            if (simpleMul)
-            {
-                mulhi->SetMulUnsigned(true);
-            }
+            GenTree* mulhi;
 
+#ifdef TARGET_ARM64
+            mulhi = NewInstrBefore(divMod, TYP_LONG, simpleMul ? INS_umull : INS_umulh, adjustedDividend, divisor);
+#else
+            mulhi = comp->gtNewOperNode(simpleMul ? GT_MUL : GT_UMULH, TYP_I_IMPL, adjustedDividend, divisor);
             BlockRange().InsertBefore(divMod, mulhi);
             ContainCheckMul(mulhi->AsOp());
+#endif
 
             if (postShift)
             {

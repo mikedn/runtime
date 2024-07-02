@@ -1142,9 +1142,6 @@ AGAIN:
                 }
             }
 
-            assert(!op1->OperIs(GT_MUL) || !op1->IsMulUnsigned());
-            assert(!op2->OperIs(GT_MUL) || !op2->IsMulUnsigned());
-
             if (!Compare(op1->AsOp()->gtOp1, op2->AsOp()->gtOp1, swapOK))
             {
                 if (swapOK && OperIsCommutative(oper) &&
