@@ -1132,13 +1132,13 @@ static GenTreeCast* IsIntToLongCast(GenTree* node)
 
 void Lowering::LowerMultiply(GenTreeOp* mul)
 {
-    assert(mul->OperIs(GT_MUL, GT_MULHI) && varTypeIsIntegral(mul->GetType()));
+    assert(mul->OperIs(GT_MUL, GT_SMULH, GT_UMULH) && varTypeIsIntegral(mul->GetType()));
 
     GenTree* op1  = mul->GetOp(0);
     GenTree* op2  = mul->GetOp(1);
     emitAttr size = emitActualTypeSize(mul->GetType());
 
-    if (mul->OperIs(GT_MULHI))
+    if (mul->OperIs(GT_SMULH, GT_UMULH))
     {
         if (size == EA_8BYTE)
         {
@@ -1146,7 +1146,7 @@ void Lowering::LowerMultiply(GenTreeOp* mul)
             assert(op1->TypeIs(TYP_LONG));
             assert(op2->TypeIs(TYP_LONG));
 
-            MakeInstr(mul, mul->IsMulUnsigned() ? INS_umulh : INS_smulh, EA_8BYTE, op1, op2);
+            MakeInstr(mul, mul->OperIs(GT_UMULH) ? INS_umulh : INS_smulh, EA_8BYTE, op1, op2);
         }
         else
         {
@@ -1159,7 +1159,7 @@ void Lowering::LowerMultiply(GenTreeOp* mul)
             // long result. And in some cases magic division follows up with another right shift that currently doesn't
             // combine with this one.
 
-            instruction   ins   = mul->IsMulUnsigned() ? INS_umull : INS_smull;
+            instruction   ins   = mul->OperIs(GT_UMULH) ? INS_umull : INS_smull;
             GenTreeInstr* mull  = NewInstrBefore(mul, TYP_LONG, ins, op1, op2);
             GenTreeInstr* instr = MakeInstr(mul, INS_lsr, EA_8BYTE, mull);
             instr->SetImmediate(32);

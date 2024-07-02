@@ -954,9 +954,9 @@ void Lowering::ContainCheckBinary(GenTreeOp* node)
 void Lowering::ContainCheckMul(GenTreeOp* node)
 {
 #ifdef TARGET_64BIT
-    assert(node->OperIs(GT_MUL, GT_OVF_SMUL, GT_OVF_UMUL, GT_MULHI));
+    assert(node->OperIs(GT_MUL, GT_OVF_SMUL, GT_OVF_UMUL, GT_SMULH, GT_UMULH));
 #else
-    assert(node->OperIs(GT_MUL, GT_OVF_SMUL, GT_OVF_UMUL, GT_MULHI, GT_MUL_LONG));
+    assert(node->OperIs(GT_MUL, GT_OVF_SMUL, GT_OVF_UMUL, GT_SMULH, GT_UMULH, GT_SMULL, GT_UMULL));
 #endif
 
     // ARM doesn't have mul instructions with an immediate operand

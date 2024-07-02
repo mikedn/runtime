@@ -115,10 +115,8 @@ GTNODE(RSZ              , GenTreeOp           , GTK_BINOP|GTK_VN)
 GTNODE(ROL              , GenTreeOp           , GTK_BINOP|GTK_VN)
 GTNODE(ROR              , GenTreeOp           , GTK_BINOP|GTK_VN)
 
-// GT_MULHI is used in division by a constant (fgMorphDivByConst). We turn
-// the DIV into a MULHI + some adjustments. In codegen, we only use the
-// results of the high register, and we drop the low results.
-GTNODE(MULHI            , GenTreeOp           , GTK_BINOP|GTK_COMMUTE) 
+GTNODE(SMULH            , GenTreeOp           , GTK_BINOP|GTK_COMMUTE) 
+GTNODE(UMULH            , GenTreeOp           , GTK_BINOP|GTK_COMMUTE) 
 
 GTNODE(EQ               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN|GTK_VN)
 GTNODE(NE               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN|GTK_VN)
@@ -175,10 +173,11 @@ GTNODE(SUB_HI           , GenTreeOp           , GTK_BINOP)
 
 // A mul that returns the 2N bit result of an NxN multiply. This op is used for
 // multiplies that take two ints and return a long result. All other multiplies
-// with long results are morphed into helper calls. It is similar to GT_MULHI,
-// the difference being that GT_MULHI drops the lo part of the result, whereas
-// GT_MUL_LONG keeps both parts of the result.
-GTNODE(MUL_LONG         , GenTreeOp           , GTK_BINOP|GTK_COMMUTE)
+// with long results are morphed into helper calls. It is similar to S/UMULH,
+// the difference being that S/UMULH drops the lo part of the result, whereas
+// S/UMULL keeps both parts of the result.
+GTNODE(SMULL            , GenTreeOp           , GTK_BINOP|GTK_COMMUTE)
+GTNODE(UMULL            , GenTreeOp           , GTK_BINOP|GTK_COMMUTE)
 
 // The following are nodes that specify shifts that take a GT_LONG op1. The GT_LONG
 // contains the hi and lo parts of three operand shift form where one op will be

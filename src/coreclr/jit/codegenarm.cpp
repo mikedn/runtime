@@ -283,14 +283,14 @@ void CodeGen::GenMul(GenTreeOp* mul)
 
 void CodeGen::GenMulLong(GenTreeOp* mul)
 {
-    assert(mul->OperIs(GT_MUL_LONG) && mul->TypeIs(TYP_LONG));
+    assert(mul->OperIs(GT_SMULL, GT_UMULL) && mul->TypeIs(TYP_LONG));
 
     regNumber srcReg1 = UseReg(mul->GetOp(0));
     regNumber srcReg2 = UseReg(mul->GetOp(1));
     regNumber dstReg1 = mul->GetRegNum(0);
     regNumber dstReg2 = mul->GetRegNum(1);
 
-    instruction ins = mul->IsMulUnsigned() ? INS_umull : INS_smull;
+    instruction ins = mul->OperIs(GT_UMULL) ? INS_umull : INS_smull;
     GetEmitter()->emitIns_R_R_R_R(ins, EA_4BYTE, dstReg1, dstReg2, srcReg1, srcReg2);
 
     DefLongRegs(mul);

@@ -177,9 +177,11 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildMul(tree->AsOp());
             break;
 
-        case GT_MULHI:
+        case GT_SMULH:
+        case GT_UMULH:
 #ifdef TARGET_X86
-        case GT_MUL_LONG:
+        case GT_SMULL:
+        case GT_UMULL:
 #endif
             BuildMulLong(tree->AsOp());
             break;
@@ -451,9 +453,11 @@ bool LinearScan::isRMWRegOper(GenTreeOp* tree)
         case GT_XOR:
         // TODO-MIKE-Review: Given the very specific register constraints MUL has,
         // does it really need to be treated as RMW or will some special casing do?
-        case GT_MULHI:
+        case GT_SMULH:
+        case GT_UMULH:
 #ifdef TARGET_X86
-        case GT_MUL_LONG:
+        case GT_SMULL:
+        case GT_UMULL:
 #endif
         // Note that overflow checking operations are reg RMW only if we do not
         // enregister local variables that are EH live, otherwise we may modify
@@ -2047,9 +2051,9 @@ void LinearScan::BuildMul(GenTreeOp* mul)
 void LinearScan::BuildMulLong(GenTreeOp* mul)
 {
 #ifdef TARGET_X86
-    assert(mul->OperIs(GT_MULHI, GT_MUL_LONG));
+    assert(mul->OperIs(GT_SMULH, GT_UMULH, GT_SMULL, GT_UMULL));
 #else
-    assert(mul->OperIs(GT_MULHI));
+    assert(mul->OperIs(GT_SMULH, GT_UMULH));
 #endif
     assert(varTypeIsIntegral(mul->GetType()));
 
@@ -2060,7 +2064,7 @@ void LinearScan::BuildMulLong(GenTreeOp* mul)
     BuildKills(mul, RBM_RAX | RBM_RDX);
 
 #ifdef TARGET_X86
-    if (mul->OperIs(GT_MUL_LONG))
+    if (mul->OperIs(GT_SMULL, GT_UMULL))
     {
         BuildDef(mul, TYP_INT, RBM_RAX, 0);
         BuildDef(mul, TYP_INT, RBM_RDX, 1);
