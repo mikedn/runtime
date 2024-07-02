@@ -1131,13 +1131,20 @@ AGAIN:
             }
         }
 
-        if ((op1->gtFlags & GTF_UNSIGNED) != (op2->gtFlags & GTF_UNSIGNED))
-        {
-            return false;
-        }
-
         if (op1->AsOp()->gtOp2 != nullptr)
         {
+            if (op1->OperIs(GT_GT, GT_GE, GT_LT, GT_LE))
+            {
+                if ((op1->gtFlags & (GTF_RELOP_UNSIGNED | GTF_RELOP_NAN_UN)) !=
+                    (op2->gtFlags & (GTF_RELOP_UNSIGNED | GTF_RELOP_NAN_UN)))
+                {
+                    return false;
+                }
+            }
+
+            assert(!op1->OperIs(GT_MUL) || !op1->IsMulUnsigned());
+            assert(!op2->OperIs(GT_MUL) || !op2->IsMulUnsigned());
+
             if (!Compare(op1->AsOp()->gtOp1, op2->AsOp()->gtOp1, swapOK))
             {
                 if (swapOK && OperIsCommutative(oper) &&
