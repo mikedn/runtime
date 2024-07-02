@@ -1639,10 +1639,11 @@ void CodeGen::GenMul(GenTreeOp* mul)
     instruction ins;
     emitAttr    attr;
 
-    // UMULL/SMULL is twice as fast for 32 * 32 -> 64 bit MUL
     if (mul->TypeIs(TYP_LONG) && varActualTypeIsInt(op1->GetType()) && varActualTypeIsInt(op2->GetType()))
     {
-        ins  = ((mul->OperIs(GT_MUL) && mul->IsMulUnsigned()) || mul->OperIs(GT_OVF_UMUL)) ? INS_umull : INS_smull;
+        assert(!mul->OperIs(GT_MUL));
+
+        ins  = mul->OperIs(GT_OVF_UMUL) ? INS_umull : INS_smull;
         attr = EA_4BYTE;
     }
     else
