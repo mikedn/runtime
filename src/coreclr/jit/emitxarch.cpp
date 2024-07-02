@@ -4866,6 +4866,8 @@ void X86Emitter::PrintInstr(instrDesc* id)
 {
     if (compiler->verbose)
     {
+        JITDUMP("IN%04X: ", id->idDebugOnlyInfo()->idNum);
+
         X86AsmPrinter printer(compiler, codeGen, false, UseVEXEncoding());
 #if !FEATURE_FIXED_OUT_ARGS
         printer.SetStackLevel(stackLevel);

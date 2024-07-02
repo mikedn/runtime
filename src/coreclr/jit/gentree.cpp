@@ -8160,6 +8160,8 @@ void Compiler::gtDispLIRNode(GenTree* node)
 {
     if (GenTreeInstr* instr = node->IsInstr())
     {
+        printf("[%06u] ", node->GetID());
+
         gtDispNodeHeader(instr);
         dmpNodeRegs(instr);
 
