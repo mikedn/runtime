@@ -2060,21 +2060,22 @@ CORINFO_CLASS_HANDLE Compiler::impGetObjectClass()
     return objectClass;
 }
 
-void Importer::impBashVarAddrsToI(GenTree* tree1, GenTree* tree2)
+void Importer::impBashVarAddrsToI(GenTree* tree)
 {
     // "&local" can be used either as TYP_BYREF or TYP_I_IMPL, but we
     // set its type to TYP_BYREF when we create it. We know if it can
     // be changed to TYP_I_IMPL only at the point where we use it.
 
-    if (tree1->TypeIs(TYP_BYREF) && impIsLocalAddrExpr(tree1))
+    if (tree->TypeIs(TYP_BYREF) && impIsLocalAddrExpr(tree))
     {
-        tree1->SetType(TYP_I_IMPL);
+        tree->SetType(TYP_I_IMPL);
     }
+}
 
-    if ((tree2 != nullptr) && tree2->TypeIs(TYP_BYREF) && impIsLocalAddrExpr(tree2))
-    {
-        tree2->SetType(TYP_I_IMPL);
-    }
+void Importer::impBashVarAddrsToI(GenTree* tree1, GenTree* tree2)
+{
+    impBashVarAddrsToI(tree1);
+    impBashVarAddrsToI(tree2);
 }
 
 // INT and I_IMPL can be used almost interchangeably, but we want
@@ -9873,15 +9874,15 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 op2 = impPopStack().val;
                 op1 = impPopStack().val; // operand to be shifted
                 impBashVarAddrsToI(op1, op2);
-                type = genActualType(op1->TypeGet());
+                type = genActualType(op1->GetType());
                 op1  = gtNewOperNode(oper, type, op1, op2);
                 impPushOnStack(op1);
                 break;
 
             case CEE_NOT:
                 op1 = impPopStack().val;
-                impBashVarAddrsToI(op1, nullptr);
-                type = genActualType(op1->TypeGet());
+                impBashVarAddrsToI(op1);
+                type = genActualType(op1->GetType());
                 impPushOnStack(gtNewOperNode(GT_NOT, type, op1));
                 break;
 
@@ -10411,7 +10412,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
                 else
                 {
-                    impBashVarAddrsToI(op1, nullptr);
+                    impBashVarAddrsToI(op1);
                     type = varActualType(type);
                     oper = GT_NEG;
                 }

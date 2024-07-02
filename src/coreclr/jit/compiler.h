@@ -2115,7 +2115,8 @@ struct Importer
 
     GenTree* impConvertFieldStoreValue(var_types storeType, GenTree* value);
 
-    static void impBashVarAddrsToI(GenTree* tree1, GenTree* tree2 = nullptr);
+    static void impBashVarAddrsToI(GenTree* tree1);
+    static void impBashVarAddrsToI(GenTree* tree1, GenTree* tree2);
 
     GenTree* impImplicitIorI4Cast(GenTree* tree, var_types dstTyp);
 
