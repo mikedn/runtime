@@ -393,11 +393,11 @@ GenTree* DecomposeLongs::DecomposeLclStore(LIR::Use& use)
     GenTreeLclStore* tree = use.Def()->AsLclStore();
     GenTree*         rhs  = tree->GetValue();
 
-    if (rhs->OperIs(GT_CALL, GT_MUL_LONG))
+    if (rhs->OperIs(GT_CALL, GT_SMULL, GT_UMULL))
     {
         // CALLs are not decomposed, so will not be converted to LONG
         // LCL_STORE = CALL are handled in genMultiRegCallStoreToLocal
-        // MUL_LONG is not decomposed, so will not be converted to LONG
+        // SMULL, UMULL are not decomposed, so will not be converted to LONG
         return tree->gtNext;
     }
 
@@ -1436,8 +1436,7 @@ GenTree* DecomposeLongs::DecomposeMul(LIR::Use& use)
 
     tree->SetOp(0, op1->GetOp(0));
     tree->SetOp(1, op2->GetOp(0));
-    tree->SetOper(GT_MUL_LONG);
-    tree->SetMulUnsigned(op1->IsCastUnsigned());
+    tree->SetOper(op1->IsCastUnsigned() ? GT_UMULL : GT_SMULL);
 
     return StoreMultiRegNodeToLcl(use);
 }

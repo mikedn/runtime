@@ -709,9 +709,9 @@ void CodeGen::GenMul(GenTreeOp* mul)
 void CodeGen::GenMulLong(GenTreeOp* mul)
 {
 #ifdef TARGET_X86
-    assert(mul->OperIs(GT_MULHI, GT_MUL_LONG));
+    assert(mul->OperIs(GT_SMULH, GT_UMULH, GT_SMULL, GT_UMULL));
 #else
-    assert(mul->OperIs(GT_MULHI));
+    assert(mul->OperIs(GT_SMULH, GT_UMULH));
 #endif
 
     emitAttr  size   = emitTypeSize(mul->GetType());
@@ -731,15 +731,15 @@ void CodeGen::GenMulLong(GenTreeOp* mul)
     }
 
     GetEmitter()->emitIns_Mov(INS_mov, size, REG_RAX, regOp->GetRegNum(), /* canSkip */ true);
-    emitInsRM(mul->IsMulUnsigned() ? INS_mulEAX : INS_imulEAX, size, rmOp);
+    emitInsRM(mul->OperIs(GT_UMULH X86_ARG(GT_UMULL)) ? INS_mulEAX : INS_imulEAX, size, rmOp);
 
-    if (mul->OperIs(GT_MULHI))
+    if (mul->OperIs(GT_SMULH, GT_UMULH))
     {
         GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, REG_RDX, /* canSkip */ true);
     }
 
 #ifdef TARGET_X86
-    if (mul->OperIs(GT_MUL_LONG))
+    if (mul->OperIs(GT_SMULL, GT_UMULL))
     {
         DefLongRegs(mul);
         return;

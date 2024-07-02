@@ -563,9 +563,9 @@ regMaskTP LinearScan::getKillSetForShiftRotate(GenTreeOp* node)
 regMaskTP LinearScan::getKillSetForMul(GenTreeOp* node)
 {
 #ifdef TARGET_64BIT
-    assert(node->OperIs(GT_MUL, GT_MULHI, GT_OVF_SMUL, GT_OVF_UMUL));
+    assert(node->OperIs(GT_MUL, GT_SMULH, GT_UMULH, GT_OVF_SMUL, GT_OVF_UMUL));
 #else
-    assert(node->OperIs(GT_MUL, GT_MULHI, GT_OVF_SMUL, GT_OVF_UMUL, GT_MUL_LONG));
+    assert(node->OperIs(GT_MUL, GT_SMULH, GT_UMULH, GT_OVF_SMUL, GT_OVF_UMUL, GT_SMULL, GT_UMULL));
 #endif
 
     if (!node->OperIs(GT_MUL, GT_OVF_SMUL))
@@ -732,11 +732,13 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* tree)
 #endif
             return getKillSetForShiftRotate(tree->AsOp());
         case GT_MUL:
-        case GT_MULHI:
+        case GT_SMULH:
+        case GT_UMULH:
         case GT_OVF_SMUL:
         case GT_OVF_UMUL:
 #ifdef TARGET_X86
-        case GT_MUL_LONG:
+        case GT_SMULL:
+        case GT_UMULL:
 #endif
             return getKillSetForMul(tree->AsOp());
         case GT_MOD:

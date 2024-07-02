@@ -163,7 +163,8 @@ GenTree* Lowering::LowerNode(GenTree* node)
             break;
 
         case GT_MUL:
-        case GT_MULHI:
+        case GT_SMULH:
+        case GT_UMULH:
             LowerMultiply(node->AsOp());
             break;
 
@@ -247,11 +248,13 @@ GenTree* Lowering::LowerNode(GenTree* node)
             break;
 
         case GT_MUL:
-        case GT_MULHI:
+        case GT_SMULH:
+        case GT_UMULH:
         case GT_OVF_SMUL:
         case GT_OVF_UMUL:
 #ifdef TARGET_X86
-        case GT_MUL_LONG:
+        case GT_SMULL:
+        case GT_UMULL:
 #endif
             ContainCheckMul(node->AsOp());
             break;
@@ -3779,19 +3782,23 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
 
         if (isDiv && !postShift && type == TYP_I_IMPL)
         {
-            divMod->SetOper(GT_MULHI);
+            divMod->SetOper(GT_UMULH);
             divMod->SetOp(0, adjustedDividend);
-            divMod->SetMulUnsigned(true);
             ContainCheckMul(divMod);
         }
         else
         {
-            // Insert a new GT_MULHI node before the existing GT_UDIV/GT_UMOD node.
-            // The existing node will later be transformed into a GT_RSZ/GT_SUB that
-            // computes the final result. This way don't need to find and change the use
-            // of the existing node.
-            GenTree* mulhi = comp->gtNewOperNode(simpleMul ? GT_MUL : GT_MULHI, TYP_I_IMPL, adjustedDividend, divisor);
-            mulhi->SetMulUnsigned(true);
+            // Insert a new UMULH node before the existing UDIV/UMOD node.
+            // The existing node will later be transformed into a RSZ/SUB that
+            // computes the final result. This way don't need to find and change
+            // the use of the existing node.
+            GenTree* mulhi = comp->gtNewOperNode(simpleMul ? GT_MUL : GT_UMULH, TYP_I_IMPL, adjustedDividend, divisor);
+
+            if (simpleMul)
+            {
+                mulhi->SetMulUnsigned(true);
+            }
+
             BlockRange().InsertBefore(divMod, mulhi);
             ContainCheckMul(mulhi->AsOp());
 
@@ -3952,21 +3959,21 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
         // The existing node will later be transformed into a GT_ADD/GT_SUB that
         // computes the final result. This way don't need to find and change the
         // use of the existing node.
-        GenTree* mulhi = comp->gtNewOperNode(GT_MULHI, type, divisor, dividend);
+        GenTree* mulhi = comp->gtNewOperNode(GT_SMULH, type, divisor, dividend);
         BlockRange().InsertBefore(divMod, mulhi);
 
         // mulhi was the easy part. Now we need to generate different code depending
         // on the divisor value:
         // For 3 we need:
-        //     div = signbit(mulhi) + mulhi
+        //     div = signbit(smulh) + smulh
         // For 5 we need:
-        //     div = signbit(mulhi) + sar(mulhi, 1) ; requires shift adjust
+        //     div = signbit(smulh) + sar(smulh, 1) ; requires shift adjust
         // For 7 we need:
         //     mulhi += dividend                    ; requires add adjust
-        //     div = signbit(mulhi) + sar(mulhi, 2) ; requires shift adjust
+        //     div = signbit(smulh) + sar(smulh, 2) ; requires shift adjust
         // For -3 we need:
         //     mulhi -= dividend                    ; requires sub adjust
-        //     div = signbit(mulhi) + sar(mulhi, 1) ; requires shift adjust
+        //     div = signbit(smulh) + sar(smulh, 1) ; requires shift adjust
         bool requiresAddSubAdjust     = signum(divisorValue) != signum(magic);
         bool requiresShiftAdjust      = shift != 0;
         bool requiresDividendMultiuse = requiresAddSubAdjust || !isDiv;

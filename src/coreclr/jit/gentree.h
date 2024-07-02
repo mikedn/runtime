@@ -1283,7 +1283,7 @@ public:
 #ifdef TARGET_64BIT
         return false;
 #else
-        return TypeIs(TYP_LONG) && OperIs(GT_MUL_LONG, GT_BITCAST, GT_PUTARG_REG);
+        return TypeIs(TYP_LONG) && OperIs(GT_SMULL, GT_UMULL, GT_BITCAST, GT_PUTARG_REG);
 #endif
     }
 
@@ -1805,9 +1805,9 @@ public:
     bool IsMulUnsigned() const
     {
 #ifdef TARGET_64BIT
-        assert(OperIs(GT_MUL, GT_MULHI));
+        assert(OperIs(GT_MUL, GT_SMULH, GT_UMULH));
 #else
-        assert(OperIs(GT_MUL, GT_MULHI, GT_MUL_LONG));
+        assert(OperIs(GT_MUL, GT_SMULH, GT_UMULH, GT_SMULL, GT_UMULL));
 #endif
         return (gtFlags & GTF_MUL_UNSIGNED) != 0;
     }
@@ -1815,9 +1815,9 @@ public:
     void SetMulUnsigned(bool value)
     {
 #ifdef TARGET_64BIT
-        assert(OperIs(GT_MUL, GT_MULHI));
+        assert(OperIs(GT_MUL));
 #else
-        assert(OperIs(GT_MUL, GT_MULHI, GT_MUL_LONG));
+        assert(OperIs(GT_MUL));
 #endif
         if (value)
         {

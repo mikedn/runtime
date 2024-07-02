@@ -786,12 +786,14 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
             GenMul(node->AsOp());
             break;
 #if defined(TARGET_ARM64) || defined(TARGET_XARCH)
-        case GT_MULHI:
+        case GT_SMULH:
+        case GT_UMULH:
             GenMulLong(node->AsOp());
             break;
 #endif
 #ifndef TARGET_64BIT
-        case GT_MUL_LONG:
+        case GT_SMULL:
+        case GT_UMULL:
             GenMulLong(node->AsOp());
             break;
 #endif

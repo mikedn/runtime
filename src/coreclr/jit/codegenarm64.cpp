@@ -1598,7 +1598,7 @@ void CodeGen::GenSatInc(GenTreeUnOp* inc)
 
 void CodeGen::GenMulLong(GenTreeOp* mul)
 {
-    assert(mul->OperIs(GT_MULHI) && varTypeIsIntegral(mul->GetType()));
+    assert(mul->OperIs(GT_SMULH, GT_UMULH) && varTypeIsIntegral(mul->GetType()));
 
     RegNum   srcReg1 = UseReg(mul->GetOp(0));
     RegNum   srcReg2 = UseReg(mul->GetOp(1));
@@ -1607,7 +1607,7 @@ void CodeGen::GenMulLong(GenTreeOp* mul)
 
     if (size == EA_8BYTE)
     {
-        instruction ins = mul->IsMulUnsigned() ? INS_umulh : INS_smulh;
+        instruction ins = mul->OperIs(GT_UMULH) ? INS_umulh : INS_smulh;
 
         GetEmitter()->emitIns_R_R_R(ins, EA_8BYTE, dstReg, srcReg1, srcReg2);
     }
@@ -1615,10 +1615,11 @@ void CodeGen::GenMulLong(GenTreeOp* mul)
     {
         assert(size == EA_4BYTE);
 
-        instruction ins = mul->IsMulUnsigned() ? INS_umull : INS_smull;
+        instruction ins   = mul->OperIs(GT_UMULH) ? INS_umull : INS_smull;
+        instruction shift = mul->OperIs(GT_UMULH) ? INS_lsr : INS_asr;
 
         GetEmitter()->emitIns_R_R_R(ins, EA_4BYTE, dstReg, srcReg1, srcReg2);
-        GetEmitter()->emitIns_R_R_I(mul->IsMulUnsigned() ? INS_lsr : INS_asr, EA_8BYTE, dstReg, dstReg, 32);
+        GetEmitter()->emitIns_R_R_I(shift, EA_8BYTE, dstReg, dstReg, 32);
     }
 
     DefReg(mul);

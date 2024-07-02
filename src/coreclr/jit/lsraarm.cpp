@@ -177,7 +177,8 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildDef(tree);
             break;
 
-        case GT_MUL_LONG:
+        case GT_SMULL:
+        case GT_UMULL:
             BuildUse(tree->AsOp()->GetOp(0));
             BuildUse(tree->AsOp()->GetOp(1));
             BuildDef(tree, TYP_INT, RBM_NONE, 0);
