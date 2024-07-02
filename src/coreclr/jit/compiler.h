@@ -1794,7 +1794,7 @@ struct Importer
     void impSetPendingBlockMember(BasicBlock* block, bool pending);
     BasicBlock* impPopPendingBlock();
 
-    var_types impGetNumericBinaryOpType(genTreeOps oper, bool fUnsigned, GenTree** pOp1, GenTree** pOp2);
+    var_types impGetNumericBinaryOpType(genTreeOps oper, GenTree** pOp1, GenTree** pOp2);
     void impAddCompareOpImplicitCasts(bool isUnsigned, GenTree*& op1, GenTree*& op2);
     void impBranchToNextBlock(BasicBlock* block, GenTree* op1, GenTree* op2);
 
