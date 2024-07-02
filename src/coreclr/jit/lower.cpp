@@ -3840,10 +3840,9 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
             }
             else if (type != TYP_I_IMPL)
             {
-#ifdef TARGET_ARMARCH
+#ifdef TARGET_ARM64
                 divMod->SetOper(GT_CAST);
-                divMod->AsCast()->SetCastUnsigned();
-                divMod->AsCast()->SetCastType(TYP_UINT);
+                divMod->AsCast()->SetCastType(TYP_INT);
 #else
                 divMod->SetOper(GT_BITCAST);
 #endif
