@@ -1632,34 +1632,19 @@ void CodeGen::GenMul(GenTreeOp* mul)
     GenTree* op1 = mul->GetOp(0);
     GenTree* op2 = mul->GetOp(1);
 
+    assert(IsValidSourceType(mul->GetType(), op1->GetType()));
+    assert(IsValidSourceType(mul->GetType(), op2->GetType()));
+
     RegNum reg1   = UseReg(op1);
     RegNum reg2   = UseReg(op2);
     RegNum dstReg = mul->GetRegNum();
 
-    instruction ins;
-    emitAttr    attr;
-
-    if (mul->TypeIs(TYP_LONG) && varActualTypeIsInt(op1->GetType()) && varActualTypeIsInt(op2->GetType()))
-    {
-        assert(!mul->OperIs(GT_MUL));
-
-        ins  = mul->OperIs(GT_OVF_UMUL) ? INS_umull : INS_smull;
-        attr = EA_4BYTE;
-    }
-    else
-    {
-        ins  = INS_mul;
-        attr = emitActualTypeSize(mul->GetType());
-
-        assert(IsValidSourceType(mul->GetType(), op1->GetType()));
-        assert(IsValidSourceType(mul->GetType(), op2->GetType()));
-    }
-
+    emitAttr attr = emitActualTypeSize(mul->GetType());
     Emitter& emit = *GetEmitter();
 
     if (mul->OperIs(GT_MUL))
     {
-        emit.emitIns_R_R_R(ins, attr, dstReg, reg1, reg2);
+        emit.emitIns_R_R_R(INS_mul, attr, dstReg, reg1, reg2);
     }
     else
     {
@@ -1678,7 +1663,7 @@ void CodeGen::GenMul(GenTreeOp* mul)
                 assert(attr == EA_8BYTE);
 
                 emit.emitIns_R_R_R(INS_umulh, attr, tmpReg, reg1, reg2);
-                emit.emitIns_R_R_R(ins, attr, dstReg, reg1, reg2);
+                emit.emitIns_R_R_R(INS_mul, attr, dstReg, reg1, reg2);
             }
 
             emit.emitIns_R_I(INS_cmp, attr, tmpReg, 0);
@@ -1699,7 +1684,7 @@ void CodeGen::GenMul(GenTreeOp* mul)
                 assert(attr == EA_8BYTE);
 
                 emit.emitIns_R_R_R(INS_smulh, attr, tmpReg, reg1, reg2);
-                emit.emitIns_R_R_R(ins, attr, dstReg, reg1, reg2);
+                emit.emitIns_R_R_R(INS_mul, attr, dstReg, reg1, reg2);
 
                 bitShift = 63;
             }
