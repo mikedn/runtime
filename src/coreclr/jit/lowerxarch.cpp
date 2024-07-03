@@ -3390,13 +3390,8 @@ void Lowering::ContainCheckIndStore(GenTreeIndStore* store)
 
 void Lowering::ContainCheckMul(GenTreeOp* node)
 {
-#ifdef TARGET_X86
-    assert(node->OperIs(GT_MUL, GT_SMULH, GT_UMULH, GT_OVF_SMUL, GT_OVF_UMUL, GT_SMULL, GT_UMULL));
-    assert(varTypeIsIntOrI(node->GetType()) || (node->OperIs(GT_SMULL, GT_UMULL) && node->TypeIs(TYP_LONG)));
-#else
-    assert(node->OperIs(GT_MUL, GT_SMULH, GT_UMULH, GT_OVF_SMUL, GT_OVF_UMUL));
-    assert(varTypeIsIntOrI(node->GetType()));
-#endif
+    assert(node->OperIs(GT_MUL, GT_SMULH, GT_UMULH, GT_OVF_SMUL, GT_OVF_UMUL X86_ARG(GT_SMULL) X86_ARG(GT_UMULL)));
+    assert(varTypeIsIntOrI(node->GetType()) X86_ONLY(|| (node->OperIs(GT_SMULL, GT_UMULL) && node->TypeIs(TYP_LONG))));
 
     GenTree*       op1                = node->GetOp(0);
     GenTree*       op2                = node->GetOp(1);
@@ -3405,11 +3400,7 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
     GenTree*       other              = nullptr;
     bool           hasImplicitOperand = false;
 
-#ifdef TARGET_X86
-    if (node->OperIs(GT_OVF_UMUL, GT_SMULH, GT_UMULH, GT_SMULL, GT_UMULL))
-#else
-    if (node->OperIs(GT_OVF_UMUL, GT_SMULH, GT_UMULH))
-#endif
+    if (node->OperIs(GT_OVF_UMUL, GT_SMULH, GT_UMULH X86_ARG(GT_SMULL) X86_ARG(GT_UMULL)))
     {
         hasImplicitOperand = true;
     }
