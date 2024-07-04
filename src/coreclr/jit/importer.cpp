@@ -9577,7 +9577,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (compIsForInlining())
                 {
-                    if (op1->gtOper == GT_CNS_INT)
+                    if (op1->OperIs(GT_CNS_INT))
                     {
                         compInlineResult->NoteFatal(InlineObservation::CALLEE_HAS_NULL_FOR_LDELEM);
                         return;
@@ -10328,13 +10328,13 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     uns = false;
                 }
 
-                if (varTypeIsSmall(lclTyp) && !ovfl && op1->gtType == TYP_INT && op1->gtOper == GT_AND)
+                if (varTypeIsSmall(lclTyp) && !ovfl && op1->TypeIs(TYP_INT) && op1->OperIs(GT_AND))
                 {
                     op2 = op1->AsOp()->gtOp2;
 
-                    if (op2->gtOper == GT_CNS_INT)
+                    if (GenTreeIntCon* iop2 = op2->IsIntCon())
                     {
-                        ssize_t ival = op2->AsIntCon()->gtIconVal;
+                        ssize_t ival = iop2->GetValue();
                         ssize_t mask, umask;
 
                         switch (lclTyp)

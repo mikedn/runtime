@@ -261,7 +261,8 @@ size_t GenTree::GetNodeSize() const
 void GenTree::ReplaceWith(GenTree* src, Compiler* comp)
 {
     // The source may be big only if the target is also a big node
-    assert((gtDebugFlags & GTF_DEBUG_NODE_LARGE) || GenTree::s_gtNodeSizes[src->gtOper] == TREE_NODE_SZ_SMALL);
+    assert(((gtDebugFlags & GTF_DEBUG_NODE_LARGE) != 0) ||
+           (GenTree::s_gtNodeSizes[src->GetOper()] == TREE_NODE_SZ_SMALL));
 
     // The check is effective only if nodes have been already threaded.
     assert((src->gtPrev == nullptr) && (src->gtNext == nullptr));
@@ -304,10 +305,10 @@ inline unsigned hashme(genTreeOps op1, genTreeOps op2)
 
 struct BashHashDsc
 {
-    unsigned __int32 bhFullHash; // the hash value (unique for all old->new pairs)
-    unsigned __int32 bhCount;    // the same old->new bashings seen so far
-    unsigned __int8  bhOperOld;  // original gtOper
-    unsigned __int8  bhOperNew;  // new      gtOper
+    uint32_t bhFullHash; // the hash value (unique for all old->new pairs)
+    uint32_t bhCount;    // the same old->new bashings seen so far
+    uint8_t  bhOperOld;  // original oper
+    uint8_t  bhOperNew;  // new      oper
 };
 
 static BashHashDsc BashHash[BASH_HASH_SIZE];
@@ -335,7 +336,7 @@ void GenTree::ReportOperBashing(FILE* f)
     fflush(f);
 
     fprintf(f, "\n");
-    fprintf(f, "Bashed gtOper stats:\n");
+    fprintf(f, "Bashed oper stats:\n");
     fprintf(f, "\n");
     fprintf(f, "    Old operator        New operator     #bytes old->new      Count\n");
     fprintf(f, "    ---------------------------------------------------------------\n");
@@ -989,18 +990,9 @@ AGAIN:
         return true;
     }
 
-    oper = op1->OperGet();
+    oper = op1->GetOper();
 
-    /* The operators must be equal */
-
-    if (oper != op2->gtOper)
-    {
-        return false;
-    }
-
-    /* The types must be equal */
-
-    if (op1->gtType != op2->gtType)
+    if ((oper != op2->GetOper()) || (op1->GetType() != op2->GetType()))
     {
         return false;
     }
@@ -1474,7 +1466,7 @@ AGAIN:
         goto AGAIN;
     }
 
-    switch (tree->gtOper)
+    switch (tree->GetOper())
     {
         case GT_ARR_ELEM:
 
@@ -4790,7 +4782,7 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
 {
     GenTree* copy;
 
-    switch (tree->gtOper)
+    switch (tree->GetOper())
     {
         case GT_CNS_INT:
             copy = new (this, GT_CNS_INT) GenTreeIntCon(tree->AsIntCon());
@@ -6589,12 +6581,12 @@ void Compiler::gtDispNode(GenTree* tree)
         }
     }
 
-    if (tree->gtOper == GT_RUNTIMELOOKUP)
+    if (GenTreeRuntimeLookup* lookup = tree->IsRuntimeLookup())
     {
 #ifdef TARGET_64BIT
-        printf(" 0x%llx", dspPtr(tree->AsRuntimeLookup()->gtHnd));
+        printf(" 0x%llx", dspPtr(lookup->gtHnd));
 #else
-        printf(" 0x%x", dspPtr(tree->AsRuntimeLookup()->gtHnd));
+        printf(" 0x%x", dspPtr(lookup->gtHnd));
 #endif
 
         switch (tree->AsRuntimeLookup()->gtHndType)
@@ -6946,7 +6938,7 @@ const char* dmpGetHandleKindName(HandleKind kind)
 
 void Compiler::gtDispConst(GenTree* tree)
 {
-    switch (tree->gtOper)
+    switch (tree->GetOper())
     {
         case GT_CNS_INT:
             if (GenTreeIntCon* strCon = tree->IsIntCon(HandleKind::String))
@@ -8511,7 +8503,7 @@ GenTree* Compiler::gtFoldExprCompare(GenTree* tree)
 
     GenTree* cons;
 
-    switch (tree->gtOper)
+    switch (tree->GetOper())
     {
         case GT_EQ:
         case GT_LE:
@@ -11125,7 +11117,7 @@ Compiler::TypeProducerKind Compiler::gtGetTypeProducerKind(GenTree* tree)
     {
         return TPK_GetType;
     }
-    else if ((tree->gtOper == GT_CNS_INT) && (tree->AsIntCon()->gtIconVal == 0))
+    else if (tree->IsIntCon(0))
     {
         return TPK_Null;
     }
@@ -12284,7 +12276,7 @@ void FieldSeqStore::DebugCheck(FieldSeqNode* f)
 #ifdef FEATURE_HW_INTRINSICS
 bool GenTree::isCommutativeHWIntrinsic() const
 {
-    assert(gtOper == GT_HWINTRINSIC);
+    assert(OperIs(GT_HWINTRINSIC));
 
 #ifdef TARGET_XARCH
     return HWIntrinsicInfo::IsCommutative(AsHWIntrinsic()->GetIntrinsic());
@@ -12295,8 +12287,6 @@ bool GenTree::isCommutativeHWIntrinsic() const
 
 bool GenTree::isContainableHWIntrinsic() const
 {
-    assert(gtOper == GT_HWINTRINSIC);
-
     switch (AsHWIntrinsic()->GetIntrinsic())
     {
 #ifdef TARGET_XARCH
@@ -12325,9 +12315,6 @@ bool GenTree::isContainableHWIntrinsic() const
 
 bool GenTree::isRMWHWIntrinsic(Compiler* comp)
 {
-    assert(gtOper == GT_HWINTRINSIC);
-    assert(comp != nullptr);
-
 #if defined(TARGET_XARCH)
     if (!comp->canUseVexEncoding())
     {
@@ -12350,14 +12337,9 @@ bool GenTree::isRMWHWIntrinsic(Compiler* comp)
         case NI_FMA_MultiplySubtractNegated:
         case NI_FMA_MultiplySubtractNegatedScalar:
         case NI_FMA_MultiplySubtractScalar:
-        {
             return true;
-        }
-
         default:
-        {
             return false;
-        }
     }
 #elif defined(TARGET_ARM64)
     return HWIntrinsicInfo::HasRMWSemantics(AsHWIntrinsic()->GetIntrinsic());

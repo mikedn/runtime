@@ -2315,24 +2315,17 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
 {
     SetHasTailCalls(true);
 
-    noway_assert(block->bbJumpKind == BBJ_RETURN);
+    noway_assert(block->KindIs(BBJ_RETURN));
     noway_assert(block->GetFirstLIRNode() != nullptr);
 
-    /* figure out what jump we have */
     GenTree* jmpNode = block->lastNode();
 #if !FEATURE_FASTTAILCALL
-    noway_assert(jmpNode->gtOper == GT_JMP);
+    noway_assert(jmpNode->OperIs(GT_JMP));
 #else  // FEATURE_FASTTAILCALL
-    // armarch
-    // If jmpNode is GT_JMP then gtNext must be null.
-    // If jmpNode is a fast tail call, gtNext need not be null since it could have embedded stmts.
-    noway_assert((jmpNode->gtOper != GT_JMP) || (jmpNode->gtNext == nullptr));
+    noway_assert(!jmpNode->OperIs(GT_JMP) || (jmpNode->gtNext == nullptr));
+    noway_assert(jmpNode->OperIs(GT_JMP) || (jmpNode->OperIs(GT_CALL) && jmpNode->AsCall()->IsFastTailCall()));
 
-    // Could either be a "jmp method" or "fast tail call" implemented as epilog+jmp
-    noway_assert((jmpNode->gtOper == GT_JMP) || ((jmpNode->gtOper == GT_CALL) && jmpNode->AsCall()->IsFastTailCall()));
-
-    // The next block is associated with this "if" stmt
-    if (jmpNode->gtOper == GT_JMP)
+    if (jmpNode->OperIs(GT_JMP))
 #endif // FEATURE_FASTTAILCALL
     {
         // Simply emit a jump to the methodHnd. This is similar to a call so we can use
