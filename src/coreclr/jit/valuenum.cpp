@@ -5950,9 +5950,9 @@ bool ValueNumStore::VNFuncIsCommutative(VNFunc vnf)
     return VNFuncAttrs(vnf).commutative;
 }
 
-bool ValueNumStore::IsLegalVNFuncOper(genTreeOps gtOper)
+bool ValueNumStore::IsLegalVNFuncOper(genTreeOps oper)
 {
-    return !VNFuncAttrs(static_cast<VNFunc>(gtOper)).illegal;
+    return !VNFuncAttrs(static_cast<VNFunc>(oper)).illegal;
 }
 
 bool ValueNumStore::IsKnownNonNull(ValueNum vn)
@@ -5966,10 +5966,10 @@ bool ValueNumStore::VNFuncIsLegal(VNFunc vnf)
     return (static_cast<unsigned>(vnf) > VNOP_COUNT) || IsLegalVNFuncOper(static_cast<genTreeOps>(vnf));
 }
 
-VNFunc ValueNumStore::GenTreeOpToVNFunc(genTreeOps gtOper)
+VNFunc ValueNumStore::GenTreeOpToVNFunc(genTreeOps oper)
 {
-    assert(IsLegalVNFuncOper(gtOper));
-    return static_cast<VNFunc>(gtOper);
+    assert(IsLegalVNFuncOper(oper));
+    return static_cast<VNFunc>(oper);
 }
 
 bool ValueNumStore::VNFuncIsComparison(VNFunc vnf)

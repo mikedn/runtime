@@ -169,7 +169,7 @@ void Compiler::fgInsertStmtNearEnd(BasicBlock* block, Statement* stmt)
 {
     assert(!fgLinearOrder);
 
-    if ((block->bbJumpKind == BBJ_COND) || (block->bbJumpKind == BBJ_SWITCH) || (block->bbJumpKind == BBJ_RETURN))
+    if (block->KindIs(BBJ_COND, BBJ_SWITCH, BBJ_RETURN))
     {
         Statement* firstStmt = block->firstStmt();
         noway_assert(firstStmt != nullptr);
@@ -178,24 +178,24 @@ void Compiler::fgInsertStmtNearEnd(BasicBlock* block, Statement* stmt)
         Statement* insertionPoint = lastStmt->GetPrevStmt();
 
 #if DEBUG
-        if (block->bbJumpKind == BBJ_COND)
+        if (block->KindIs(BBJ_COND))
         {
-            assert(lastStmt->GetRootNode()->gtOper == GT_JTRUE);
+            assert(lastStmt->GetRootNode()->OperIs(GT_JTRUE));
         }
-        else if (block->bbJumpKind == BBJ_RETURN)
+        else if (block->KindIs(BBJ_RETURN))
         {
-            assert((lastStmt->GetRootNode()->gtOper == GT_RETURN) || (lastStmt->GetRootNode()->gtOper == GT_JMP) ||
+            assert(lastStmt->GetRootNode()->OperIs(GT_RETURN, GT_JMP) ||
                    // BBJ_RETURN blocks in functions returning void do not get a GT_RETURN node if they
                    // have a .tail prefix (even if canTailCall returns false for these calls)
                    // code:Compiler::impImportBlockCode (search for the RET: label)
                    // Ditto for real tail calls (all code after them has been removed)
-                   ((lastStmt->GetRootNode()->gtOper == GT_CALL) &&
+                   (lastStmt->GetRootNode()->IsCall() &&
                     ((info.compRetType == TYP_VOID) || lastStmt->GetRootNode()->AsCall()->IsTailCall())));
         }
         else
         {
-            assert(block->bbJumpKind == BBJ_SWITCH);
-            assert(lastStmt->GetRootNode()->gtOper == GT_SWITCH);
+            assert(block->KindIs(BBJ_SWITCH));
+            assert(lastStmt->GetRootNode()->OperIs(GT_SWITCH));
         }
 #endif // DEBUG
 

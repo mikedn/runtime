@@ -515,7 +515,7 @@ private:
         VCA_ReservedBits = 0x01, // i.e. (VCA_UnsignedSrc)
     };
 
-    static bool IsLegalVNFuncOper(genTreeOps gtOper);
+    static bool IsLegalVNFuncOper(genTreeOps oper);
     static bool VNFuncIsCommutative(VNFunc vnf);
     static bool VNFuncIsComparison(VNFunc vnf);
 

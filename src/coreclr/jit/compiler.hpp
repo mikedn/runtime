@@ -1326,12 +1326,12 @@ inline CorInfoHelpFunc Compiler::eeGetHelperNum(CORINFO_METHOD_HANDLE method)
 
 inline bool Compiler::IsSharedStaticHelper(GenTree* tree)
 {
-    if (tree->gtOper != GT_CALL || tree->AsCall()->gtCallType != CT_HELPER)
+    if (!tree->OperIs(GT_CALL) || !tree->AsCall()->IsHelperCall())
     {
         return false;
     }
 
-    CorInfoHelpFunc helper = eeGetHelperNum(tree->AsCall()->gtCallMethHnd);
+    CorInfoHelpFunc helper = eeGetHelperNum(tree->AsCall()->GetMethodHandle());
 
     bool result1 =
         // More helpers being added to IsSharedStaticHelper (that have similar behaviors but are not true
@@ -1531,8 +1531,8 @@ inline void* __cdecl operator new[](size_t sz, Compiler* compiler, CompMemKind c
 inline void DEBUG_DESTROY_NODE(GenTree* tree)
 {
 #ifdef DEBUG
-    // Save gtOper in case we want to find out what this node was
-    tree->gtOperSave = tree->gtOper;
+    // Save oper in case we want to find out what this node was
+    tree->gtOperSave = tree->GetOper();
     tree->gtType     = TYP_UNDEF;
 
     if (tree->OperIsSimple())

@@ -93,9 +93,7 @@ PhaseStatus Compiler::fgRemoveEmptyFinally()
 
         for (Statement* const stmt : firstBlock->Statements())
         {
-            GenTree* stmtExpr = stmt->GetRootNode();
-
-            if (stmtExpr->gtOper != GT_RETFILT)
+            if (!stmt->GetRootNode()->OperIs(GT_RETFILT))
             {
                 isEmpty = false;
                 break;
@@ -508,9 +506,8 @@ PhaseStatus Compiler::fgRemoveEmptyTry()
 
                 if (block->bbJumpKind == BBJ_EHFINALLYRET)
                 {
-                    Statement* finallyRet     = block->lastStmt();
-                    GenTree*   finallyRetExpr = finallyRet->GetRootNode();
-                    assert(finallyRetExpr->gtOper == GT_RETFILT);
+                    Statement* finallyRet = block->lastStmt();
+                    assert(finallyRet->GetRootNode()->OperIs(GT_RETFILT));
                     fgRemoveStmt(block, finallyRet);
                     block->bbJumpKind = BBJ_ALWAYS;
                     block->bbJumpDest = continuation;
@@ -1081,9 +1078,8 @@ PhaseStatus Compiler::fgCloneFinally()
 
             if (block->bbJumpKind == BBJ_EHFINALLYRET)
             {
-                Statement* finallyRet     = newBlock->lastStmt();
-                GenTree*   finallyRetExpr = finallyRet->GetRootNode();
-                assert(finallyRetExpr->gtOper == GT_RETFILT);
+                Statement* finallyRet = newBlock->lastStmt();
+                assert(finallyRet->GetRootNode()->OperIs(GT_RETFILT));
                 fgRemoveStmt(newBlock, finallyRet);
                 newBlock->bbJumpKind = BBJ_ALWAYS;
                 newBlock->bbJumpDest = normalCallFinallyReturn;
@@ -1476,8 +1472,7 @@ void Compiler::fgCleanupContinuation(BasicBlock* continuation)
     bool foundEndLFin = false;
     for (Statement* const stmt : continuation->Statements())
     {
-        GenTree* expr = stmt->GetRootNode();
-        if (expr->gtOper == GT_END_LFIN)
+        if (stmt->GetRootNode()->OperIs(GT_END_LFIN))
         {
             assert(!foundEndLFin);
             fgRemoveStmt(continuation, stmt);

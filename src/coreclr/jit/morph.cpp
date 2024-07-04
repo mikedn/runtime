@@ -2365,10 +2365,9 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
         if (call->gtCallMoreFlags & GTF_CALL_M_UNMGD_THISCALL)
         {
-            noway_assert(call->gtCallArgs->GetNode()->TypeGet() == TYP_I_IMPL ||
-                         call->gtCallArgs->GetNode()->TypeGet() == TYP_BYREF ||
-                         call->gtCallArgs->GetNode()->gtOper ==
-                             GT_NOP); // the arg was already morphed to a register (fgMorph called twice)
+            noway_assert(call->gtCallArgs->GetNode()->TypeIs(TYP_I_IMPL, TYP_BYREF) ||
+                         // the arg was already morphed to a register (fgMorph called twice)
+                         call->gtCallArgs->GetNode()->OperIs(GT_NOP));
             maxRegArgs = 1;
         }
         else
@@ -9916,8 +9915,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             else
             {
                 GenTree* effOp1 = op1->gtEffectiveVal();
-                noway_assert((effOp1->gtOper == GT_CNS_INT) &&
-                             (effOp1->IsIntegralConst(0) || effOp1->IsIntegralConst(1)));
+                noway_assert(effOp1->IsIntCon(0) || effOp1->IsIntCon(1));
             }
             break;
 
@@ -10336,7 +10334,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             }
 
             // Did we fold it into a comma node with throw?
-            if (tree->gtOper == GT_COMMA)
+            if (tree->OperIs(GT_COMMA))
             {
                 noway_assert(fgIsCommaThrow(tree DEBUGARG(false)));
                 return fgMorphTree(tree);
@@ -10711,8 +10709,7 @@ DONE_MORPHING_CHILDREN:
             if (ival2 != INT_MAX)
             {
                 // If we don't have a comma and relop, we can't do this optimization
-                //
-                if ((op1->gtOper == GT_COMMA) && (op1->AsOp()->gtOp2->OperIsCompare()))
+                if (op1->OperIs(GT_COMMA) && (op1->AsOp()->GetOp(1)->OperIsCompare()))
                 {
                     // Here we look for the following transformation
                     //
@@ -10844,12 +10841,12 @@ DONE_MORPHING_CHILDREN:
                 //                  /  \.
                 //                 x   CNS_INT +y
 
-                if (op1->gtOper == GT_AND)
+                if (op1->OperIs(GT_AND))
                 {
                     GenTree* andOp    = op1;
-                    GenTree* rshiftOp = andOp->AsOp()->gtOp1;
+                    GenTree* rshiftOp = andOp->AsOp()->GetOp(0);
 
-                    if ((rshiftOp->gtOper != GT_RSZ) && (rshiftOp->gtOper != GT_RSH))
+                    if (!rshiftOp->OperIs(GT_RSZ, GT_RSH))
                     {
                         goto SKIP;
                     }
@@ -10886,8 +10883,8 @@ DONE_MORPHING_CHILDREN:
                         if (ival2 == 1)
                         {
                             gtReverseRelop(tree->AsOp());
-                            cns2->AsIntCon()->gtIconVal = 0;
-                            oper                        = tree->gtOper;
+                            cns2->AsIntCon()->SetValue(0);
+                            oper = tree->GetOper();
                         }
                     }
                     else if (andOp->gtType == TYP_LONG)
@@ -10897,7 +10894,7 @@ DONE_MORPHING_CHILDREN:
                             goto SKIP;
                         }
 
-                        UINT64 newAndOperand = ((UINT64)1) << shiftAmount;
+                        uint64_t newAndOperand = 1ull << shiftAmount;
 
                         andOp->AsOp()->gtOp2->AsIntConCommon()->SetLngValue(newAndOperand);
 
@@ -10906,7 +10903,7 @@ DONE_MORPHING_CHILDREN:
                         {
                             gtReverseRelop(tree->AsOp());
                             cns2->AsIntConCommon()->SetLngValue(0);
-                            oper = tree->gtOper;
+                            oper = tree->GetOper();
                         }
                     }
 
@@ -10918,7 +10915,7 @@ DONE_MORPHING_CHILDREN:
             } // END if (ival2 != INT_MAX)
 
         SKIP:
-            /* Now check for compares with small constant longs that can be cast to int */
+            // Now check for compares with small constant longs that can be cast to int
 
             if (!cns2->OperIsConst() || !cns2->TypeIs(TYP_LONG) || ((cns2->AsIntConCommon()->LngValue() >> 31) != 0))
             {
@@ -10926,15 +10923,15 @@ DONE_MORPHING_CHILDREN:
                 break;
             }
 
-            /* Is the first comparand mask operation of type long ? */
+            // Is the first comparand mask operation of type long?
 
-            if (op1->gtOper != GT_AND)
+            if (!op1->OperIs(GT_AND))
             {
-                /* Another interesting case: cast from int */
+                // Another interesting case: cast from int
 
                 if (op1->IsCast() && op1->AsCast()->GetOp(0)->TypeIs(TYP_INT) && !op1->AsCast()->HasOverflowCheck())
                 {
-                    /* Simply make this into an integer comparison */
+                    // Simply make this into an integer comparison
 
                     tree->AsOp()->SetOp(0, op1->AsCast()->GetOp(0));
                     tree->AsOp()->SetOp(1, gtNewIconNode((int)cns2->AsIntConCommon()->LngValue(), TYP_INT));
@@ -11752,7 +11749,7 @@ DONE_MORPHING_CHILDREN:
             break;
     }
 
-    assert(oper == tree->gtOper);
+    assert(oper == tree->GetOper());
 
     // If the tree always throws an exception we can drop most of it, except, of course
     // the exception throwing parts. But we cannot remove local stores as that will mess
@@ -12264,17 +12261,14 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
 //
 GenTree* Compiler::fgMorphModToSubMulDiv(GenTreeOp* tree)
 {
-    if (tree->OperGet() == GT_MOD)
+    if (tree->OperIs(GT_MOD))
     {
         tree->SetOper(GT_DIV);
     }
-    else if (tree->OperGet() == GT_UMOD)
-    {
-        tree->SetOper(GT_UDIV);
-    }
     else
     {
-        noway_assert(!"Illegal gtOper in fgMorphModToSubMulDiv");
+        noway_assert(tree->OperIs(GT_UMOD));
+        tree->SetOper(GT_UDIV);
     }
 
     var_types type        = tree->gtType;
@@ -14088,7 +14082,7 @@ void Compiler::fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
     GenTree* true2Expr;
     GenTree* false2Expr;
 
-    if (nestedQmark->gtOper == GT_QMARK)
+    if (nestedQmark->IsQmark())
     {
         cond2Expr  = nestedQmark->AsQmark()->GetCondition();
         true2Expr  = nestedQmark->AsQmark()->GetThen();

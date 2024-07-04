@@ -5497,8 +5497,8 @@ void LinearScan::insertUpperVectorSave(GenTree*     tree,
                                        Interval*    upperVectorInterval,
                                        BasicBlock*  block)
 {
-    JITDUMP("Inserting UpperVectorSave for RP #%d before %d.%s:\n", refPosition->rpNum, tree->gtTreeID,
-            GenTree::OpName(tree->gtOper));
+    JITDUMP("Inserting UpperVectorSave for RP #%d before %u.%s:\n", refPosition->rpNum, tree->GetID(),
+            GenTree::OpName(tree->GetOper()));
     Interval* lclVarInterval = upperVectorInterval->relatedInterval;
     assert(lclVarInterval->isLocalVar == true);
     assert(refPosition->getInterval() == upperVectorInterval);
@@ -5612,7 +5612,7 @@ void LinearScan::insertUpperVectorRestore(GenTree*     tree,
     JITDUMP("Adding UpperVectorRestore ");
     if (tree != nullptr)
     {
-        JITDUMP("before %d.%s:\n", tree->gtTreeID, GenTree::OpName(tree->gtOper));
+        JITDUMP("before %u.%s:\n", tree->GetID(), GenTree::OpName(tree->GetOper()));
         LIR::Use treeUse;
         bool     foundUse = blockRange.TryGetUse(tree, &treeUse);
         assert(foundUse);

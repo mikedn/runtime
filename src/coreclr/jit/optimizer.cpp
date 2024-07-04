@@ -3371,7 +3371,7 @@ PhaseStatus Compiler::phUnrollLoops()
         if (initStmt->IsCompilerAdded())
         {
             // Must be a duplicated loop condition.
-            noway_assert(initStmt->GetRootNode()->gtOper == GT_JTRUE);
+            noway_assert(initStmt->GetRootNode()->OperIs(GT_JTRUE));
 
             dupCond  = true;
             initStmt = initStmt->GetPrevStmt();
@@ -3645,7 +3645,7 @@ PhaseStatus Compiler::phUnrollLoops()
 
                 testStmt = preHeaderStmt->GetPrevStmt();
                 noway_assert((testStmt != nullptr) && (testStmt->GetNextStmt() == nullptr));
-                noway_assert(testStmt->GetRootNode()->gtOper == GT_JTRUE);
+                noway_assert(testStmt->GetRootNode()->OperIs(GT_JTRUE));
 
                 initStmt = testStmt->GetPrevStmt();
                 noway_assert((initStmt != nullptr) && (initStmt->GetNextStmt() == testStmt));
@@ -3842,8 +3842,8 @@ bool Compiler::optInvertWhileLoop(BasicBlock* block)
 
     // Verify the test block ends with a conditional that we can manipulate.
     GenTree* const condTree = condStmt->GetRootNode();
-    noway_assert(condTree->gtOper == GT_JTRUE);
-    if (!condTree->AsOp()->gtOp1->OperIsCompare())
+    noway_assert(condTree->OperIs(GT_JTRUE));
+    if (!condTree->AsUnOp()->GetOp(0)->OperIsCompare())
     {
         return false;
     }
@@ -4653,18 +4653,18 @@ bool OptBoolsDsc::optOptimizeBoolsCondBlock()
         foldType = TYP_I_IMPL;
     }
 
-    assert(m_testInfo1.compTree->gtOper == GT_EQ || m_testInfo1.compTree->gtOper == GT_NE);
+    assert(m_testInfo1.compTree->OperIs(GT_EQ, GT_NE));
 
     if (m_sameTarget)
     {
         // Both conditions must be the same
 
-        if (m_testInfo1.compTree->gtOper != m_testInfo2.compTree->gtOper)
+        if (m_testInfo1.compTree->GetOper() != m_testInfo2.compTree->GetOper())
         {
             return false;
         }
 
-        if (m_testInfo1.compTree->gtOper == GT_EQ)
+        if (m_testInfo1.compTree->OperIs(GT_EQ))
         {
             // t1:c1==0 t2:c2==0 ==> Branch to BX if either value is 0
             // So we will branch to BX if (c1&c2)==0
@@ -4686,12 +4686,12 @@ bool OptBoolsDsc::optOptimizeBoolsCondBlock()
         // The m_b1 condition must be the reverse of the m_b2 condition because the only operators
         // that we will see here are GT_EQ and GT_NE. So, if they are not the same, we have one of each.
 
-        if (m_testInfo1.compTree->gtOper == m_testInfo2.compTree->gtOper)
+        if (m_testInfo1.compTree->GetOper() == m_testInfo2.compTree->GetOper())
         {
             return false;
         }
 
-        if (m_testInfo1.compTree->gtOper == GT_EQ)
+        if (m_testInfo1.compTree->OperIs(GT_EQ))
         {
             // t1:c1==0 t2:c2!=0 ==> Branch to BX if both values are non-0
             // So we will branch to BX if (c1&c2)!=0
@@ -4777,7 +4777,7 @@ Statement* OptBoolsDsc::optOptimizeBoolsChkBlkCond()
     Statement* s1 = m_b1->lastStmt();
 
     GenTree* testTree1 = s1->GetRootNode();
-    assert(testTree1->gtOper == GT_JTRUE);
+    assert(testTree1->OperIs(GT_JTRUE));
 
     // The second and the third block must contain a single statement
 
@@ -4791,11 +4791,11 @@ Statement* OptBoolsDsc::optOptimizeBoolsChkBlkCond()
 
     if (!optReturnBlock)
     {
-        assert(testTree2->gtOper == GT_JTRUE);
+        assert(testTree2->OperIs(GT_JTRUE));
     }
     else
     {
-        if (testTree2->gtOper != GT_RETURN)
+        if (!testTree2->OperIs(GT_RETURN))
         {
             return nullptr;
         }
@@ -4807,23 +4807,23 @@ Statement* OptBoolsDsc::optOptimizeBoolsChkBlkCond()
         }
 
         GenTree* testTree3 = s3->GetRootNode();
-        if (testTree3->gtOper != GT_RETURN)
+        if (!testTree3->OperIs(GT_RETURN))
         {
             return nullptr;
         }
 
-        if (!varTypeIsIntegral(testTree2->TypeGet()) || !varTypeIsIntegral(testTree3->TypeGet()))
+        if (!varTypeIsIntegral(testTree2->GetType()) || !varTypeIsIntegral(testTree3->GetType()))
         {
             return nullptr;
         }
 
         // The third block is Return with "CNS_INT int 0/1"
-        if (testTree3->AsOp()->gtOp1->gtOper != GT_CNS_INT)
+        if (!testTree3->AsOp()->gtOp1->OperIs(GT_CNS_INT))
         {
             return nullptr;
         }
 
-        if (testTree3->AsOp()->gtOp1->gtType != TYP_INT)
+        if (!testTree3->AsOp()->gtOp1->TypeIs(TYP_INT))
         {
             return nullptr;
         }
@@ -4886,7 +4886,7 @@ void OptBoolsDsc::optOptimizeBoolsUpdateTrees()
         optReturnBlock = true;
     }
 
-    assert(m_foldOp != NULL && m_foldType != NULL && m_c1 != nullptr && m_c2 != nullptr);
+    assert(m_foldOp != GT_NONE && m_foldType != TYP_UNDEF && m_c1 != nullptr && m_c2 != nullptr);
 
     GenTree* cmpOp1 = m_comp->gtNewOperNode(m_foldOp, m_foldType, m_c1, m_c2);
     if (m_testInfo1.isBool && m_testInfo2.isBool)
@@ -4897,14 +4897,14 @@ void OptBoolsDsc::optOptimizeBoolsUpdateTrees()
 
     GenTree* t1Comp = m_testInfo1.compTree;
     t1Comp->SetOper(m_cmpOp);
-    t1Comp->AsOp()->gtOp1         = cmpOp1;
-    t1Comp->AsOp()->gtOp2->gtType = m_foldType; // Could have been varTypeIsGC()
+    t1Comp->AsOp()->SetOp(0, cmpOp1);
+    t1Comp->AsOp()->GetOp(1)->SetType(m_foldType); // Could have been varTypeIsGC()
     if (optReturnBlock)
     {
         // Update tree when m_b1 is BBJ_COND and m_b2 and m_b3 are GT_RETURN (BBJ_RETURN)
-        t1Comp->AsOp()->gtOp2->AsIntCon()->gtIconVal = 0;
-        m_testInfo1.testTree->gtOper                 = GT_RETURN;
-        m_testInfo1.testTree->gtType                 = m_testInfo2.testTree->gtType;
+        t1Comp->AsOp()->GetOp(1)->AsIntCon()->SetValue(0);
+        m_testInfo1.testTree->gtOper = GT_RETURN;
+        m_testInfo1.testTree->SetType(m_testInfo2.testTree->GetType());
 
         // Update the return count of flow graph
         assert(m_comp->fgReturnCount >= 2);
@@ -5085,7 +5085,7 @@ bool OptBoolsDsc::optOptimizeBoolsReturnBlock(BasicBlock* b3)
     ssize_t it2val = m_testInfo2.compTree->AsOp()->gtOp2->AsIntCon()->gtIconVal;
     ssize_t it3val = m_t3->AsOp()->gtOp1->AsIntCon()->gtIconVal;
 
-    if ((m_testInfo1.compTree->gtOper == GT_NE && m_testInfo2.compTree->gtOper == GT_EQ) &&
+    if ((m_testInfo1.compTree->OperIs(GT_NE) && m_testInfo2.compTree->OperIs(GT_EQ)) &&
         (it1val == 0 && it2val == 0 && it3val == 0))
     {
         // Case: x == 0 && y == 0
@@ -5094,7 +5094,7 @@ bool OptBoolsDsc::optOptimizeBoolsReturnBlock(BasicBlock* b3)
         foldOp = GT_OR;
         cmpOp  = GT_EQ;
     }
-    else if ((m_testInfo1.compTree->gtOper == GT_EQ && m_testInfo2.compTree->gtOper == GT_NE) &&
+    else if ((m_testInfo1.compTree->OperIs(GT_EQ) && m_testInfo2.compTree->OperIs(GT_NE)) &&
              (it1val == 0 && it2val == 0 && it3val == 0))
     {
         // Case: x == 1 && y ==1
@@ -5103,7 +5103,7 @@ bool OptBoolsDsc::optOptimizeBoolsReturnBlock(BasicBlock* b3)
         foldOp = GT_AND;
         cmpOp  = GT_NE;
     }
-    else if ((m_testInfo1.compTree->gtOper == GT_EQ && m_testInfo2.compTree->gtOper == GT_EQ) &&
+    else if ((m_testInfo1.compTree->OperIs(GT_EQ) && m_testInfo2.compTree->OperIs(GT_EQ)) &&
              (it1val == 0 && it2val == 0 && it3val == 1))
     {
         // Case: x == 0 || y == 0
@@ -5112,7 +5112,7 @@ bool OptBoolsDsc::optOptimizeBoolsReturnBlock(BasicBlock* b3)
         foldOp = GT_AND;
         cmpOp  = GT_EQ;
     }
-    else if ((m_testInfo1.compTree->gtOper == GT_NE && m_testInfo2.compTree->gtOper == GT_NE) &&
+    else if ((m_testInfo1.compTree->OperIs(GT_NE) && m_testInfo2.compTree->OperIs(GT_NE)) &&
              (it1val == 0 && it2val == 0 && it3val == 1))
     {
         // Case: x == 1 || y == 1
@@ -5169,10 +5169,10 @@ void OptBoolsDsc::optOptimizeBoolsGcStress()
         return;
     }
 
-    assert(m_b1->bbJumpKind == BBJ_COND);
+    assert(m_b1->KindIs(BBJ_COND));
     GenTree* cond = m_b1->lastStmt()->GetRootNode();
 
-    assert(cond->gtOper == GT_JTRUE);
+    assert(cond->OperIs(GT_JTRUE));
 
     OptTestInfo test;
     test.testTree = cond;
@@ -5199,8 +5199,8 @@ void OptBoolsDsc::optOptimizeBoolsGcStress()
 
     // Comparand type is already checked, and we have const int, there is no harm
     // morphing it into a TYP_I_IMPL.
-    noway_assert(relop->AsOp()->gtOp2->gtOper == GT_CNS_INT);
-    relop->AsOp()->gtOp2->gtType = TYP_I_IMPL;
+    noway_assert(relop->AsOp()->GetOp(1)->OperIs(GT_CNS_INT));
+    relop->AsOp()->GetOp(1)->SetType(TYP_I_IMPL);
 }
 
 #endif
@@ -5230,12 +5230,12 @@ GenTree* OptBoolsDsc::optIsBoolComp(OptTestInfo* pOptTest)
 {
     pOptTest->isBool = false;
 
-    assert(pOptTest->testTree->gtOper == GT_JTRUE || pOptTest->testTree->gtOper == GT_RETURN);
-    GenTree* cond = pOptTest->testTree->AsOp()->gtOp1;
+    assert(pOptTest->testTree->OperIs(GT_JTRUE, GT_RETURN));
+    GenTree* cond = pOptTest->testTree->AsUnOp()->GetOp(0);
 
     // The condition must be "!= 0" or "== 0"
 
-    if ((cond->gtOper != GT_EQ) && (cond->gtOper != GT_NE))
+    if (!cond->OperIs(GT_EQ, GT_NE))
     {
         return nullptr;
     }
@@ -5246,20 +5246,15 @@ GenTree* OptBoolsDsc::optIsBoolComp(OptTestInfo* pOptTest)
 
     // Get hold of the comparands
 
-    GenTree* opr1 = cond->AsOp()->gtOp1;
-    GenTree* opr2 = cond->AsOp()->gtOp2;
+    GenTree* opr1 = cond->AsOp()->GetOp(0);
+    GenTree* opr2 = cond->AsOp()->GetOp(1);
 
-    if (opr2->gtOper != GT_CNS_INT)
+    if (!opr2->IsIntCon(0) && !opr2->IsIntCon(1))
     {
         return nullptr;
     }
 
-    if (!opr2->IsIntegralConst(0) && !opr2->IsIntegralConst(1))
-    {
-        return nullptr;
-    }
-
-    ssize_t ival2 = opr2->AsIntCon()->gtIconVal;
+    ssize_t ival2 = opr2->AsIntCon()->GetValue();
 
     // Is the value a boolean?
     // We can either have a boolean expression (marked GTF_BOOLEAN) or

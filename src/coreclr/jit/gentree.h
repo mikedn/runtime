@@ -44,12 +44,12 @@ enum genTreeOps : uint8_t
     GT_COUNT,
 
 #ifdef TARGET_64BIT
-    // GT_CNS_NATIVELONG is the gtOper symbol for GT_CNS_LNG or GT_CNS_INT, depending on the target.
-    // For the 64-bit targets we will only use GT_CNS_INT as it used to represent all the possible sizes
+    // CNS_NATIVELONG is an alias for CNS_LNG or CNS_INT, depending on the target.
+    // For the 64-bit targets we will only use CNS_INT as it used to represent all the possible sizes
     GT_CNS_NATIVELONG = GT_CNS_INT,
 #else
-    // For the 32-bit targets we use a GT_CNS_LNG to hold a 64-bit integer constant and GT_CNS_INT for all others.
-    // In the future when we retarget the JIT for x86 we should consider eliminating GT_CNS_LNG
+    // For the 32-bit targets we use a CNS_LNG to hold a 64-bit integer constant and CNS_INT for all others.
+    // In the future when we retarget the JIT for x86 we should consider eliminating CNS_LNG
     GT_CNS_NATIVELONG = GT_CNS_LNG,
 #endif
 };
@@ -700,7 +700,7 @@ public:
     unsigned          gtTreeID;
     unsigned          gtSeqNum   = 0;       // liveness traversal order within the current statement
     int               gtUseNum   = -1;      // use-ordered traversal within the function
-    genTreeOps        gtOperSave = GT_NONE; // Only used to save gtOper when we destroy a node, to aid debugging.
+    genTreeOps        gtOperSave = GT_NONE; // Only used to save oper when we destroy a node, to aid debugging.
 #endif
 
 // We use GT_STRUCT_0 only for the category of simple ops.
@@ -758,6 +758,7 @@ public:
     {
         return gtOper;
     }
+
     var_types TypeGet() const
     {
         return gtType;
@@ -1097,7 +1098,7 @@ public:
         gtFlags &= ~sideEffects;
     }
 
-    static GenTreeKinds OperKind(genTreeOps gtOper);
+    static GenTreeKinds OperKind(genTreeOps oper);
 
     GenTreeKinds OperKind() const
     {
@@ -1203,14 +1204,14 @@ public:
         return OperIs(oper) || OperIs(rest...);
     }
 
-    static bool OperIsConst(genTreeOps gtOper)
+    static bool OperIsConst(genTreeOps oper)
     {
         // TODO-MIKE-Cleanup: Including GT_CNS_STR in "const" operator is as dumb as it gets.
-        return (gtOper == GT_CNS_INT) ||
+        return (oper == GT_CNS_INT) ||
 #ifndef TARGET_64BIT
-               (gtOper == GT_CNS_LNG) ||
+               (oper == GT_CNS_LNG) ||
 #endif
-               (gtOper == GT_CNS_DBL) || (gtOper == GT_CNS_STR);
+               (oper == GT_CNS_DBL) || (oper == GT_CNS_STR);
     }
 
     bool OperIsConst() const
@@ -1227,9 +1228,9 @@ public:
 #endif
     }
 
-    static bool OperIsLeaf(genTreeOps gtOper)
+    static bool OperIsLeaf(genTreeOps oper)
     {
-        return (OperKind(gtOper) & GTK_LEAF) != 0;
+        return (OperKind(oper) & GTK_LEAF) != 0;
     }
 
     bool OperIsLeaf() const
@@ -1237,10 +1238,10 @@ public:
         return (OperKind(gtOper) & GTK_LEAF) != 0;
     }
 
-    static bool OperIsCompare(genTreeOps gtOper)
+    static bool OperIsCompare(genTreeOps oper)
     {
-        return (gtOper == GT_EQ) || (gtOper == GT_NE) || (gtOper == GT_LT) || (gtOper == GT_LE) || (gtOper == GT_GE) ||
-               (gtOper == GT_GT) || (gtOper == GT_TEST_EQ) || (gtOper == GT_TEST_NE);
+        return (oper == GT_EQ) || (oper == GT_NE) || (oper == GT_LT) || (oper == GT_LE) || (oper == GT_GE) ||
+               (oper == GT_GT) || (oper == GT_TEST_EQ) || (oper == GT_TEST_NE);
     }
 
     bool IsConstInitVal() const
@@ -1252,7 +1253,7 @@ public:
     {
 #if FEATURE_ARG_SPLIT
         return gtOper == GT_PUTARG_SPLIT;
-#else // !FEATURE_ARG_SPLIT
+#else
         return false;
 #endif
     }
@@ -1291,9 +1292,9 @@ public:
         return OperIsCompare(gtOper);
     }
 
-    static bool OperIsShift(genTreeOps gtOper)
+    static bool OperIsShift(genTreeOps oper)
     {
-        return (gtOper == GT_LSH) || (gtOper == GT_RSH) || (gtOper == GT_RSZ);
+        return (oper == GT_LSH) || (oper == GT_RSH) || (oper == GT_RSZ);
     }
 
     bool OperIsShift() const
@@ -1301,12 +1302,12 @@ public:
         return OperIsShift(OperGet());
     }
 
-    static bool OperIsShiftLong(genTreeOps gtOper)
+    static bool OperIsShiftLong(genTreeOps oper)
     {
 #ifdef TARGET_64BIT
         return false;
 #else
-        return (gtOper == GT_LSH_HI) || (gtOper == GT_RSH_LO);
+        return (oper == GT_LSH_HI) || (oper == GT_RSH_LO);
 #endif
     }
 
@@ -1315,9 +1316,9 @@ public:
         return OperIsShiftLong(OperGet());
     }
 
-    static bool OperIsRotate(genTreeOps gtOper)
+    static bool OperIsRotate(genTreeOps oper)
     {
-        return (gtOper == GT_ROL) || (gtOper == GT_ROR);
+        return (oper == GT_ROL) || (oper == GT_ROR);
     }
 
     bool OperIsRotate() const
@@ -1325,9 +1326,9 @@ public:
         return OperIsRotate(OperGet());
     }
 
-    static bool OperIsShiftOrRotate(genTreeOps gtOper)
+    static bool OperIsShiftOrRotate(genTreeOps oper)
     {
-        return OperIsShift(gtOper) || OperIsRotate(gtOper) || OperIsShiftLong(gtOper);
+        return OperIsShift(oper) || OperIsRotate(oper) || OperIsShiftLong(oper);
     }
 
     bool OperIsShiftOrRotate() const
@@ -1364,9 +1365,9 @@ public:
     }
 #endif // TARGET_XARCH
 
-    static bool OperIsUnary(genTreeOps gtOper)
+    static bool OperIsUnary(genTreeOps oper)
     {
-        return (OperKind(gtOper) & GTK_UNOP) != 0;
+        return (OperKind(oper) & GTK_UNOP) != 0;
     }
 
     bool OperIsUnary() const
@@ -1374,9 +1375,9 @@ public:
         return OperIsUnary(gtOper);
     }
 
-    static bool OperIsBinary(genTreeOps gtOper)
+    static bool OperIsBinary(genTreeOps oper)
     {
-        return (OperKind(gtOper) & GTK_BINOP) != 0;
+        return (OperKind(oper) & GTK_BINOP) != 0;
     }
 
     bool OperIsBinary() const
@@ -1384,14 +1385,14 @@ public:
         return OperIsBinary(gtOper);
     }
 
-    static bool OperIsSimple(genTreeOps gtOper)
+    static bool OperIsSimple(genTreeOps oper)
     {
-        return (OperKind(gtOper) & GTK_SMPOP) != 0;
+        return (OperKind(oper) & GTK_SMPOP) != 0;
     }
 
-    static bool OperIsSpecial(genTreeOps gtOper)
+    static bool OperIsSpecial(genTreeOps oper)
     {
-        return ((OperKind(gtOper) & GTK_KINDMASK) == GTK_SPECIAL);
+        return (OperKind(oper) & GTK_KINDMASK) == GTK_SPECIAL;
     }
 
     bool OperIsSimple() const
@@ -1420,9 +1421,9 @@ public:
     }
 #endif // FEATURE_HW_INTRINSICS
 
-    static bool OperIsCommutative(genTreeOps gtOper)
+    static bool OperIsCommutative(genTreeOps oper)
     {
-        return (OperKind(gtOper) & GTK_COMMUTE) != 0;
+        return (OperKind(oper) & GTK_COMMUTE) != 0;
     }
 
     bool OperIsCommutative()
@@ -1457,11 +1458,11 @@ public:
         return IsOverflowOp(gtOper);
     }
 
-    static bool OperIsIndirOrArrLength(genTreeOps gtOper)
+    static bool OperIsIndirOrArrLength(genTreeOps oper)
     {
-        return (gtOper == GT_NULLCHECK) || (gtOper == GT_IND_LOAD) || (gtOper == GT_IND_STORE) ||
-               (gtOper == GT_IND_LOAD_BLK) || (gtOper == GT_IND_LOAD_OBJ) || (gtOper == GT_IND_STORE_BLK) ||
-               (gtOper == GT_IND_STORE_OBJ) || (gtOper == GT_ARR_LENGTH);
+        return (oper == GT_NULLCHECK) || (oper == GT_IND_LOAD) || (oper == GT_IND_STORE) || (oper == GT_IND_LOAD_BLK) ||
+               (oper == GT_IND_LOAD_OBJ) || (oper == GT_IND_STORE_BLK) || (oper == GT_IND_STORE_OBJ) ||
+               (oper == GT_ARR_LENGTH);
     }
 
     bool OperIsIndirOrArrLength() const
@@ -1502,10 +1503,10 @@ public:
         }
     }
 
-    static bool OperIsHWIntrinsic(genTreeOps gtOper)
+    static bool OperIsHWIntrinsic(genTreeOps oper)
     {
 #ifdef FEATURE_HW_INTRINSICS
-        return gtOper == GT_HWINTRINSIC;
+        return oper == GT_HWINTRINSIC;
 #else
         return false;
 #endif
@@ -1727,12 +1728,13 @@ public:
         var_types oldType = gtType;
         gtType            = newType;
         GenTree* node     = this;
-        while (node->gtOper == GT_COMMA)
+
+        while (node->OperIs(GT_COMMA))
         {
             node = node->gtGetOp2();
-            if (node->gtType != newType)
+            if (node->GetType() != newType)
             {
-                assert(node->gtType == oldType);
+                assert(node->GetType() == oldType);
                 node->gtType = newType;
             }
         }
@@ -1955,7 +1957,7 @@ public:
 
     inline GenTree(genTreeOps oper, var_types type DEBUGARG(bool largeNode = false));
 
-    GenTree(const GenTree* copyFrom) : GenTree(copyFrom->gtOper, copyFrom->gtType)
+    GenTree(const GenTree* copyFrom) : GenTree(copyFrom->GetOper(), copyFrom->GetType())
     {
     }
 };
@@ -7948,12 +7950,14 @@ inline GenTree* GenTree::SkipRetExpr()
 
 inline GenTree* GenTree::gtSkipReloadOrCopy()
 {
-    // There can be only one reload or copy (we can't have a reload/copy of a reload/copy)
-    if (gtOper == GT_RELOAD || gtOper == GT_COPY)
+    if (const GenTreeUnOp* copy = IsCopyOrReload())
     {
-        assert(gtGetOp1()->OperGet() != GT_RELOAD && gtGetOp1()->OperGet() != GT_COPY);
-        return gtGetOp1();
+        GenTree* value = copy->GetOp(0);
+        // There can be only one reload or copy (we can't have a reload/copy of a reload/copy)
+        assert(!value->IsCopyOrReload());
+        return value;
     }
+
     return this;
 }
 

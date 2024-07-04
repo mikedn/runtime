@@ -2702,7 +2702,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         unwindStarted = true;
     }
 
-    if (jmpEpilog && lastNode->gtOper == GT_JMP && addrInfo.accessType == IAT_RELPVALUE)
+    if (jmpEpilog && lastNode->OperIs(GT_JMP) && (addrInfo.accessType == IAT_RELPVALUE))
     {
         // IAT_RELPVALUE jump at the end is done using relative indirection, so,
         // additional helper register is required.

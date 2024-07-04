@@ -338,7 +338,7 @@ typedef ptrdiff_t ssize_t;
 #define MEASURE_FATAL 0       // Count the number of calls to fatal(), including NYIs and noway_asserts.
 #define MEASURE_NODE_SIZE 0   // Collect stats about GenTree node allocations.
 #define MEASURE_PTRTAB_SIZE 0 // Collect stats about GC pointer table allocations.
-#define NODEBASH_STATS 0      // Collect stats on changed gtOper values in GenTree's.
+#define NODEBASH_STATS 0      // Collect stats on changed oper values in GenTree's.
 #define COUNT_AST_OPERS 0     // Display use counts for GenTree operators.
 
 #define VERBOSE_SIZES 0 // Always display GC info sizes. If set, DISPLAY_SIZES must also be set.
