@@ -1219,7 +1219,7 @@ void Lowering::LowerFusedMultiplyAdd(GenTreeHWIntrinsic* node)
 
 void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 {
-    if (node->TypeGet() == TYP_SIMD12)
+    if (node->TypeIs(TYP_SIMD12))
     {
         // GT_HWINTRINSIC node requiring to produce TYP_SIMD12 in fact
         // produces a TYP_SIMD16 result

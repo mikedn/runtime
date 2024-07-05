@@ -2324,7 +2324,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     {
         GenTree* argx = call->gtCallThisArg->GetNode();
         assert(call->gtCallType == CT_USER_FUNC || call->gtCallType == CT_INDIRECT);
-        assert(varTypeIsGC(argx) || (argx->gtType == TYP_I_IMPL));
+        assert(varTypeIsGC(argx->GetType()) || (argx->TypeIs(TYP_I_IMPL)));
 
         CallArgInfo* argInfo = new (this, CMK_CallInfo) CallArgInfo(0, call->gtCallThisArg, 1);
         argInfo->SetRegNum(0, genMapIntRegArgNumToRegNum(intArgRegNum));
@@ -7123,7 +7123,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
         copyToRetBufNode->gtOper = copyToRetBufNode->TypeIs(TYP_STRUCT) ? GT_IND_STORE_OBJ : GT_IND_STORE;
         copyToRetBufNode->AsIndir()->SetValue(src);
 
-        if (origCall->gtType != TYP_VOID)
+        if (!origCall->TypeIs(TYP_VOID))
         {
             retVal = gtClone(retBufArg);
         }
@@ -7194,7 +7194,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
         finalTree = gtNewCommaNode(callDispatcherNode, copyToRetBufNode);
     }
 
-    if (origCall->gtType == TYP_VOID)
+    if (origCall->TypeIs(TYP_VOID))
     {
         return finalTree;
     }
@@ -10868,16 +10868,16 @@ DONE_MORPHING_CHILDREN:
                         goto SKIP;
                     }
 
-                    if (andOp->gtType == TYP_INT)
+                    if (andOp->TypeIs(TYP_INT))
                     {
                         if (shiftAmount > 31)
                         {
                             goto SKIP;
                         }
 
-                        UINT32 newAndOperand = ((UINT32)1) << shiftAmount;
+                        uint32_t newAndOperand = 1u << shiftAmount;
 
-                        andOp->AsOp()->gtOp2->AsIntCon()->gtIconVal = newAndOperand;
+                        andOp->AsOp()->GetOp(1)->AsIntCon()->SetValue(newAndOperand);
 
                         // Reverse the cond if necessary
                         if (ival2 == 1)
@@ -10887,7 +10887,7 @@ DONE_MORPHING_CHILDREN:
                             oper = tree->GetOper();
                         }
                     }
-                    else if (andOp->gtType == TYP_LONG)
+                    else if (andOp->TypeIs(TYP_LONG))
                     {
                         if (shiftAmount > 63)
                         {
@@ -10972,21 +10972,18 @@ DONE_MORPHING_CHILDREN:
 
                 ival1 = (int)andMask->AsIntConCommon()->LngValue();
                 andMask->SetOper(GT_CNS_INT);
-                andMask->gtType                = TYP_INT;
-                andMask->AsIntCon()->gtIconVal = ival1;
+                andMask->AsIntCon()->SetValue(TYP_INT, ival1);
 
                 // now change the type of the AND node.
 
-                op1->gtType = TYP_INT;
+                op1->SetType(TYP_INT);
 
                 // finally we replace the comparand.
 
                 ival2 = (int)cns2->AsIntConCommon()->LngValue();
-                cns2->SetOper(GT_CNS_INT);
-                cns2->gtType = TYP_INT;
-
                 noway_assert(cns2 == op2);
-                cns2->AsIntCon()->gtIconVal = ival2;
+                cns2->SetOper(GT_CNS_INT);
+                cns2->AsIntCon()->SetValue(TYP_INT, ival2);
             }
 
             noway_assert(tree->OperIsCompare());
@@ -11409,9 +11406,9 @@ DONE_MORPHING_CHILDREN:
                         // Dereferencing the pointer in either case will have the
                         // same effect.
 
-                        if (varTypeIsGC(op2->TypeGet()) && ((op1->gtFlags & GTF_ALL_EFFECT) == 0))
+                        if (varTypeIsGC(op2->GetType()) && ((op1->gtFlags & GTF_ALL_EFFECT) == 0))
                         {
-                            op2->gtType = tree->gtType;
+                            op2->gtType = tree->GetType();
                             DEBUG_DESTROY_NODE(op1);
                             DEBUG_DESTROY_NODE(tree);
                             return op2;
@@ -11695,7 +11692,7 @@ DONE_MORPHING_CHILDREN:
                 }
 
                 /* If the right operand is just a void nop node, throw it away */
-                if (op2->IsNothingNode() && op1->gtType == TYP_VOID)
+                if (op2->IsNothingNode() && op1->TypeIs(TYP_VOID))
                 {
                     op1->gtFlags |= (tree->gtFlags & GTF_DONT_CSE);
                     DEBUG_DESTROY_NODE(tree);
@@ -11786,7 +11783,7 @@ DONE_MORPHING_CHILDREN:
             }
             else if (oper != GT_NOP)
             {
-                if (genActualType(typ) == genActualType(op1->gtType))
+                if (varActualType(typ) == varActualType(op1->GetType()))
                 {
                     /* The types match so, return the comma throw node as the new tree */
                     return op1;
@@ -11844,7 +11841,7 @@ DONE_MORPHING_CHILDREN:
                 }
 
                 // for the shift nodes the type of op2 can differ from the tree type
-                if ((typ == TYP_LONG) && (genActualType(op2->gtType) == TYP_INT))
+                if ((typ == TYP_LONG) && varActualTypeIsInt(op2->GetType()))
                 {
                     noway_assert(GenTree::OperIsShiftOrRotate(oper));
 
@@ -11857,22 +11854,21 @@ DONE_MORPHING_CHILDREN:
                     op2->gtType = commaOp2->gtType = TYP_LONG;
                 }
 
-                if ((genActualType(typ) == TYP_INT) &&
-                    (genActualType(op2->gtType) == TYP_LONG || varTypeIsFloating(op2->TypeGet())))
+                if (varActualTypeIsInt(typ) &&
+                    ((varActualType(op2->GetType()) == TYP_LONG) || varTypeIsFloating(op2->GetType())))
                 {
                     // An example case is comparison (say GT_GT) of two longs or floating point values.
 
                     GenTree* commaOp2 = op2->AsOp()->gtOp2;
 
                     commaOp2->ChangeOperConst(GT_CNS_INT);
-                    commaOp2->AsIntCon()->gtIconVal = 0;
-                    /* Change the types of oper and commaOp2 to TYP_INT */
-                    op2->gtType = commaOp2->gtType = TYP_INT;
+                    commaOp2->AsIntCon()->SetValue(TYP_INT, 0);
+                    op2->SetType(TYP_INT);
                 }
 
-                if ((typ == TYP_BYREF) && (genActualType(op2->gtType) == TYP_I_IMPL))
+                if ((typ == TYP_BYREF) && (varActualType(op2->GetType()) == TYP_I_IMPL))
                 {
-                    noway_assert(tree->OperGet() == GT_ADD);
+                    noway_assert(tree->OperIs(GT_ADD));
 
                     GenTree* commaOp2 = op2->AsOp()->gtOp2;
 
@@ -11882,10 +11878,9 @@ DONE_MORPHING_CHILDREN:
                     op2->gtType = commaOp2->gtType = TYP_BYREF;
                 }
 
-                /* types should now match */
-                noway_assert((genActualType(typ) == genActualType(op2->gtType)));
+                noway_assert((varActualType(typ) == varActualType(op2->GetType())));
 
-                /* Return the GT_COMMA node as the new tree */
+                // Return the GT_COMMA node as the new tree
                 return op2;
             }
         }
@@ -12271,9 +12266,9 @@ GenTree* Compiler::fgMorphModToSubMulDiv(GenTreeOp* tree)
         tree->SetOper(GT_UDIV);
     }
 
-    var_types type        = tree->gtType;
-    GenTree*  denominator = tree->gtOp2;
-    GenTree*  numerator   = tree->gtOp1;
+    var_types type        = tree->GetType();
+    GenTree*  denominator = tree->GetOp(1);
+    GenTree*  numerator   = tree->GetOp(0);
 
     if (!numerator->OperIsLeaf())
     {
@@ -12649,8 +12644,8 @@ GenTree* Compiler::fgRecognizeAndMorphBitwiseRotation(GenTree* tree)
     if (GenTree::Compare(leftShiftTree->gtGetOp1(), rightShiftTree->gtGetOp1()))
     {
         GenTree*  rotatedValue           = leftShiftTree->gtGetOp1();
-        var_types rotatedValueActualType = genActualType(rotatedValue->gtType);
-        ssize_t   rotatedValueBitSize    = genTypeSize(rotatedValueActualType) * 8;
+        var_types rotatedValueActualType = varActualType(rotatedValue->GetType());
+        ssize_t   rotatedValueBitSize    = varTypeSize(rotatedValueActualType) * 8;
         noway_assert((rotatedValueBitSize == 32) || (rotatedValueBitSize == 64));
         GenTree* leftShiftIndex  = leftShiftTree->gtGetOp2();
         GenTree* rightShiftIndex = rightShiftTree->gtGetOp2();

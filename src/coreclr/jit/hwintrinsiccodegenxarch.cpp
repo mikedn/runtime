@@ -1266,7 +1266,7 @@ void CodeGen::genSSE41Intrinsic(GenTreeHWIntrinsic* node)
         {
             instruction ins = HWIntrinsicInfo::lookupIns(intrinsicId, baseType);
 
-            if (!varTypeIsSIMD(op1->gtType))
+            if (!varTypeIsSIMD(op1->GetType()))
             {
                 GetEmitter()->emitIns_R_A(ins, EA_16BYTE, node->GetRegNum(), op1);
             }
@@ -1397,7 +1397,7 @@ void CodeGen::genAvxOrAvx2Intrinsic(GenTreeHWIntrinsic* node)
         {
             instruction ins = HWIntrinsicInfo::lookupIns(intrinsicId, baseType);
 
-            if (!varTypeIsSIMD(op1->gtType))
+            if (!varTypeIsSIMD(op1->GetType()))
             {
                 GetEmitter()->emitIns_R_A(ins, EA_32BYTE, node->GetRegNum(), op1);
             }

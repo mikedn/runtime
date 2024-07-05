@@ -2395,8 +2395,8 @@ void Compiler::lvaMarkLivenessTrackedLocals()
 //
 var_types LclVarDsc::GetRegisterType(const GenTreeLclVarCommon* tree) const
 {
-    var_types targetType = tree->gtType;
-    var_types lclVarType = TypeGet();
+    var_types targetType = tree->GetType();
+    var_types lclVarType = GetType();
 
     if (targetType == TYP_STRUCT)
     {

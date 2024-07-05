@@ -17,7 +17,7 @@ void Importer::impPushOnStack(GenTree* tree, typeInfo ti)
     entry.seTypeInfo = ti;
     entry.val        = tree;
 
-    if (((tree->gtType == TYP_FLOAT) || (tree->gtType == TYP_DOUBLE)) && !comp->compFloatingPointUsed)
+    if (varTypeIsFloating(tree->GetType()) && !comp->compFloatingPointUsed)
     {
         comp->compFloatingPointUsed = true;
     }
@@ -4083,10 +4083,10 @@ GenTree* Importer::impArrayAccessIntrinsic(
         }
 
         val = impPopStack().val;
-        assert(genActualType(elemType) == genActualType(val->gtType) ||
-               (elemType == TYP_FLOAT && val->gtType == TYP_DOUBLE) ||
-               (elemType == TYP_INT && val->gtType == TYP_BYREF) ||
-               (elemType == TYP_DOUBLE && val->gtType == TYP_FLOAT));
+        assert(genActualType(elemType) == varActualType(val->GetType()) ||
+               (elemType == TYP_FLOAT && val->TypeIs(TYP_DOUBLE)) ||
+               (elemType == TYP_INT && val->TypeIs(TYP_BYREF)) ||
+               (elemType == TYP_DOUBLE && val->TypeIs(TYP_FLOAT)));
     }
 
     GenTree* inds[GenTreeArrElem::MaxRank];
@@ -4096,7 +4096,7 @@ GenTree* Importer::impArrayAccessIntrinsic(
     }
 
     GenTree* arr = impPopStack().val;
-    assert(arr->gtType == TYP_REF);
+    assert(arr->TypeIs(TYP_REF));
 
     GenTree* elemAddr = new (comp, GT_ARR_ELEM) GenTreeArrElem(TYP_BYREF, arr, rank, elemSize, elemType, inds);
 
@@ -6940,7 +6940,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
             if (call->IsVirtual())
             {
                 // only true object pointers can be virtual
-                assert(obj->gtType == TYP_REF);
+                assert(obj->TypeIs(TYP_REF));
 
                 // See if we can devirtualize.
 
@@ -9972,7 +9972,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 {
                     // We'll compare against an equally-sized integer 0
                     // For small types, we always compare against int
-                    op2 = gtNewZeroConNode(genActualType(op1->gtType));
+                    op2 = gtNewZeroConNode(varActualType(op1->GetType()));
 
                     // Create the comparison operator and try to fold it
                     oper = (opcode == CEE_BRTRUE || opcode == CEE_BRTRUE_S) ? GT_NE : GT_EQ;
@@ -16031,7 +16031,7 @@ bool Importer::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
     }
 
     // Try and get a class handle for the array
-    if (value->gtType != TYP_REF)
+    if (!value->TypeIs(TYP_REF))
     {
         return false;
     }

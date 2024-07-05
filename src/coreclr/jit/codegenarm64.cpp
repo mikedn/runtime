@@ -2063,21 +2063,21 @@ void CodeGen::GenStoreLclVarMultiRegSIMDMem(GenTreeLclStore* store)
 
 void CodeGen::GenLclAlloc(GenTree* tree)
 {
-    assert(tree->OperGet() == GT_LCLHEAP);
+    assert(tree->OperIs(GT_LCLHEAP));
     assert(compiler->compLocallocUsed);
 
-    GenTree* size = tree->AsOp()->gtOp1;
-    noway_assert((genActualType(size->gtType) == TYP_INT) || (genActualType(size->gtType) == TYP_I_IMPL));
+    GenTree* size = tree->AsUnOp()->GetOp(0);
+    noway_assert(varActualTypeIsIntOrI(size->GetType()));
 
     regNumber            targetReg                = tree->GetRegNum();
     regNumber            regCnt                   = REG_NA;
     regNumber            pspSymReg                = REG_NA;
-    var_types            type                     = genActualType(size->gtType);
+    var_types            type                     = varActualType(size->GetType());
     emitAttr             easz                     = emitTypeSize(type);
     insGroup*            endLabel                 = nullptr;
     BasicBlock*          loop                     = nullptr;
     unsigned             stackAdjustment          = 0;
-    const target_ssize_t ILLEGAL_LAST_TOUCH_DELTA = (target_ssize_t)-1;
+    const target_ssize_t ILLEGAL_LAST_TOUCH_DELTA = -1;
     // The number of bytes from SP to the last stack address probed.
     target_ssize_t lastTouchDelta = ILLEGAL_LAST_TOUCH_DELTA;
     Emitter&       emit           = *GetEmitter();

@@ -3769,18 +3769,18 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
         }
 #endif
 
-        divisor->gtType = TYP_I_IMPL;
+        divisor->SetType(TYP_I_IMPL);
 
 #ifdef TARGET_ARM64
         if (simpleMul)
         {
-            divisor->gtType = TYP_INT;
+            divisor->SetType(TYP_INT);
         }
 #endif
 
         divisor->AsIntCon()->SetIconValue(magic);
 
-        if (isDiv && !postShift && type == TYP_I_IMPL)
+        if (isDiv && !postShift && (type == TYP_I_IMPL))
         {
             divMod->SetOper(GT_UMULH);
             divMod->SetOp(0, adjustedDividend);
