@@ -427,12 +427,12 @@ void CodeGen::GenLclAlloc(GenTree* tree)
     // Also it used as temporary register in code generation
     // for storing allocation size
     regNumber            regCnt                   = tree->GetRegNum();
-    var_types            type                     = genActualType(size->gtType);
+    var_types            type                     = varActualType(size->GetType());
     emitAttr             easz                     = emitTypeSize(type);
     insGroup*            endLabel                 = nullptr;
     unsigned             stackAdjustment          = 0;
     regNumber            regTmp                   = REG_NA;
-    const target_ssize_t ILLEGAL_LAST_TOUCH_DELTA = (target_ssize_t)-1;
+    const target_ssize_t ILLEGAL_LAST_TOUCH_DELTA = -1;
     // The number of bytes from SP to the last stack address probed.
     target_ssize_t lastTouchDelta = ILLEGAL_LAST_TOUCH_DELTA;
 

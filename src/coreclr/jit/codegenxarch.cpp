@@ -1733,15 +1733,15 @@ void CodeGen::GenLclAlloc(GenTree* tree)
     assert(tree->OperIs(GT_LCLHEAP));
     assert(compiler->compLocallocUsed);
 
-    GenTree* size = tree->AsOp()->gtOp1;
-    noway_assert((genActualType(size->gtType) == TYP_INT) || (genActualType(size->gtType) == TYP_I_IMPL));
+    GenTree* size = tree->AsUnOp()->GetOp(0);
+    noway_assert(varActualTypeIsIntOrI(size->GetType()));
 
     regNumber      targetReg      = tree->GetRegNum();
     regNumber      regCnt         = REG_NA;
-    var_types      type           = genActualType(size->gtType);
+    var_types      type           = varActualType(size->GetType());
     emitAttr       easz           = emitTypeSize(type);
     insGroup*      endLabel       = nullptr;
-    target_ssize_t lastTouchDelta = (target_ssize_t)-1;
+    target_ssize_t lastTouchDelta = -1;
 
 #ifdef DEBUG
     if (compiler->lvaReturnSpCheckLcl != nullptr)
@@ -4237,11 +4237,11 @@ void CodeGen::GenCall(GenTreeCall* call)
     }
     else
     {
-        if (call->gtType == TYP_REF)
+        if (call->TypeIs(TYP_REF))
         {
             retSize = EA_GCREF;
         }
-        else if (call->gtType == TYP_BYREF)
+        else if (call->TypeIs(TYP_BYREF))
         {
             retSize = EA_BYREF;
         }

@@ -8890,15 +8890,14 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
 
     assert(op1->OperIsConst() ^ op2->OperIsConst());
 
-    /* We only consider TYP_INT for folding
-     * Do not fold pointer arithmetic (e.g. addressing modes!) */
+    // We only consider TYP_INT for folding
+    // Do not fold pointer arithmetic (e.g. addressing modes!)
 
-    if (!varTypeIsIntOrI(tree->gtType))
+    if (!varTypeIsIntOrI(tree->GetType()))
     {
         return tree;
     }
 
-    /* Find out which is the constant node */
     GenTree* op;
     GenTree* cons;
 
@@ -9293,7 +9292,7 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
 
     tree->SetSideEffects(newOp->GetSideEffects());
 
-    cons->gtType = TYP_INT;
+    cons->SetType(TYP_INT);
 
     return tree;
 }

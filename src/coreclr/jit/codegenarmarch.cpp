@@ -1955,13 +1955,13 @@ void CodeGen::GenCall(GenTreeCall* call)
     }
     else
     {
-        assert(call->gtType != TYP_STRUCT);
+        assert(!call->TypeIs(TYP_STRUCT));
 
-        if (call->gtType == TYP_REF)
+        if (call->TypeIs(TYP_REF))
         {
             retSize = EA_GCREF;
         }
-        else if (call->gtType == TYP_BYREF)
+        else if (call->TypeIs(TYP_BYREF))
         {
             retSize = EA_BYREF;
         }

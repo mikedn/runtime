@@ -55,7 +55,7 @@ void Rationalizer::RewriteNodeAsCall(GenTree**             use,
 #if DEBUG
     CORINFO_SIG_INFO sig;
     comp->eeGetMethodSig(callHnd, &sig);
-    assert(JITtype2varType(sig.retType) == tree->gtType);
+    assert(CorTypeToVarType(sig.retType) == tree->GetType());
 #endif
 
 #ifdef FEATURE_READYTORUN_COMPILER

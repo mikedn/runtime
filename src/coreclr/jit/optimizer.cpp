@@ -684,7 +684,7 @@ GenTreeOp* Compiler::optGetLoopTest(unsigned loopInd, GenTree* test, BasicBlock*
         return nullptr;
     }
 
-    if (iterOp->gtType != TYP_INT)
+    if (!iterOp->TypeIs(TYP_INT))
     {
         return nullptr;
     }

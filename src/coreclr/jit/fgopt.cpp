@@ -2613,17 +2613,17 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
         blockRange = &LIR::AsRange(block);
         switchTree = blockRange->LastNode();
 
-        assert(switchTree->OperGet() == GT_SWITCH_TABLE);
+        assert(switchTree->OperIs(GT_SWITCH_TABLE));
     }
     else
     {
         switchStmt = block->lastStmt();
         switchTree = switchStmt->GetRootNode();
 
-        assert(switchTree->OperGet() == GT_SWITCH);
+        assert(switchTree->OperIs(GT_SWITCH));
     }
 
-    noway_assert(switchTree->gtType == TYP_VOID);
+    noway_assert(switchTree->TypeIs(TYP_VOID));
 
     // At this point all of the case jump targets have been updated such
     // that none of them go to block that is an empty unconditional block
