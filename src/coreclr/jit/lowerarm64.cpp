@@ -1319,7 +1319,7 @@ GenTree* Lowering::OptimizeRelopImm(GenTreeOp* cmp)
             (DecodeBitmaskImm(andInstr) == op2Value))
         {
             op2Value = 0;
-            cmp->SetOper(GenTree::ReverseRelop(cmp->OperGet()));
+            cmp->SetOper(cmp->OperIs(GT_EQ) ? GT_NE : GT_EQ);
         }
 
         if (op2Value == 0)
