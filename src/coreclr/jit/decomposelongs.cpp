@@ -725,7 +725,7 @@ GenTree* DecomposeLongs::DecomposeIndStore(LIR::Use& use)
 
     Range().Remove(gtLong);
     Range().Remove(dataHigh);
-    storeIndLow->gtOp2  = dataLow;
+    storeIndLow->gtOp2 = dataLow;
     storeIndLow->SetType(TYP_INT);
 
     assert(addrBase->TypeIs(TYP_BYREF, TYP_I_IMPL));
@@ -787,7 +787,7 @@ GenTree* DecomposeLongs::DecomposeNot(LIR::Use& use)
 
     Range().Remove(gtLong);
 
-    GenTree* loResult       = tree;
+    GenTree* loResult = tree;
     loResult->SetType(TYP_INT);
     loResult->AsOp()->gtOp1 = loOp1;
 
@@ -820,7 +820,7 @@ GenTree* DecomposeLongs::DecomposeNeg(LIR::Use& use)
 
     Range().Remove(gtLong);
 
-    GenTree* loResult       = tree;
+    GenTree* loResult = tree;
     loResult->SetType(TYP_INT);
     loResult->AsOp()->gtOp1 = loOp1;
 
@@ -952,7 +952,7 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
     {
         // Reduce count modulo 64 to match behavior found in the shift helpers,
         // Compiler::gtFoldExpr and ValueNumStore::EvalOpIntegral.
-        unsigned int count = shiftByOp->AsIntCon()->gtIconVal & 0x3F;
+        unsigned int count = shiftByOp->AsIntCon()->GetValue() & 0x3F;
         Range().Remove(shiftByOp);
 
         if (count == 0)
@@ -1302,7 +1302,7 @@ GenTree* DecomposeLongs::DecomposeRotate(LIR::Use& use)
     // shrd lo, hi, rotateAmount
     // shrd hi, loCopy, rotateAmount
 
-    unsigned count = (unsigned)rotateByOp->AsIntCon()->gtIconVal;
+    unsigned count = rotateByOp->AsIntCon()->GetUInt32Value();
     Range().Remove(rotateByOp);
 
     // Make sure the rotate amount is between 0 and 63.
@@ -1470,35 +1470,31 @@ GenTree* DecomposeLongs::DecomposeUMod(LIR::Use& use)
 {
     assert(use.IsInitialized());
 
-    GenTree*   tree = use.Def();
-    genTreeOps oper = tree->OperGet();
+    GenTreeOp* tree = use.Def()->AsOp();
 
-    assert(oper == GT_UMOD);
+    assert(tree->OperIs(GT_UMOD));
 
-    GenTree* op1 = tree->gtGetOp1();
-    GenTree* op2 = tree->gtGetOp2();
-    assert(op1->OperGet() == GT_LONG);
-    assert(op2->OperGet() == GT_LONG);
+    GenTreeOp* op1 = tree->GetOp(0)->AsOp();
+    GenTreeOp* op2 = tree->GetOp(1)->AsOp();
+    assert(op1->OperIs(GT_LONG));
+    assert(op2->OperIs(GT_LONG));
 
-    GenTree* loOp2 = op2->gtGetOp1();
-    GenTree* hiOp2 = op2->gtGetOp2();
+    GenTree* loOp2 = op2->GetOp(0);
+    GenTree* hiOp2 = op2->GetOp(1);
 
-    assert(loOp2->OperGet() == GT_CNS_INT);
-    assert(hiOp2->OperGet() == GT_CNS_INT);
-    assert((loOp2->AsIntCon()->gtIconVal >= 2) && (loOp2->AsIntCon()->gtIconVal <= 0x3fffffff));
-    assert(hiOp2->AsIntCon()->gtIconVal == 0);
+    assert((loOp2->AsIntCon()->GetValue() >= 2) && (loOp2->AsIntCon()->GetValue() <= 0x3fffffff));
+    assert(hiOp2->AsIntCon()->GetValue() == 0);
 
     // Get rid of op2's hi part. We don't need it.
     Range().Remove(hiOp2);
     Range().Remove(op2);
 
     // Lo part is the GT_UMOD
-    GenTree* loResult       = tree;
-    loResult->AsOp()->gtOp2 = loOp2;
+    GenTree* loResult = tree;
+    loResult->AsOp()->SetOp(1, loOp2);
     loResult->SetType(TYP_INT);
 
-    // Set the high part to 0
-    GenTree* hiResult = m_compiler->gtNewZeroConNode(TYP_INT);
+    GenTree* hiResult = m_compiler->gtNewIconNode(0);
 
     Range().InsertAfter(loResult, hiResult);
 
@@ -1518,23 +1514,16 @@ GenTree* DecomposeLongs::DecomposeUMod(LIR::Use& use)
 //
 GenTree* DecomposeLongs::DecomposeHWIntrinsic(LIR::Use& use)
 {
-    GenTree* tree = use.Def();
-    assert(tree->OperIs(GT_HWINTRINSIC));
+    GenTreeHWIntrinsic* intrinsic = use.Def()->AsHWIntrinsic();
 
-    GenTreeHWIntrinsic* hwintrinsicTree = tree->AsHWIntrinsic();
-
-    switch (hwintrinsicTree->GetIntrinsic())
+    switch (intrinsic->GetIntrinsic())
     {
         case NI_Vector128_GetElement:
         case NI_Vector256_GetElement:
-            return DecomposeHWIntrinsicGetElement(use, hwintrinsicTree);
-
+            return DecomposeHWIntrinsicGetElement(use, intrinsic);
         default:
-            noway_assert(!"unexpected GT_HWINTRINSIC node in long decomposition");
-            break;
+            unreached();
     }
-
-    return nullptr;
 }
 
 //------------------------------------------------------------------------
@@ -1576,12 +1565,12 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
     assert(varTypeIsLong(baseType));
     assert(varTypeIsSIMD(op1->GetType()));
 
-    bool    indexIsConst = op2->IsIntCon();
-    ssize_t index        = 0;
+    GenTreeIntCon* indexConst = op2->IsIntCon();
+    ssize_t        index      = 0;
 
-    if (indexIsConst)
+    if (indexConst != nullptr)
     {
-        index = op2->AsIntCon()->gtIconVal;
+        index = indexConst->GetValue();
     }
 
     GenTree*   simdTmpVar = RepresentOpAsLclLoad(op1, node, &node->GetUse(0).NodeRef());
@@ -1594,7 +1583,7 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
     GenTree*   indexTmpVar = nullptr;
     LclVarDsc* indexTmpLcl = nullptr;
 
-    if (!indexIsConst)
+    if (indexConst == nullptr)
     {
         indexTmpVar = RepresentOpAsLclLoad(op2, node, &node->GetUse(1).NodeRef());
         indexTmpLcl = indexTmpVar->AsLclLoad()->GetLcl();
@@ -1610,12 +1599,12 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
     GenTree* simdTmpVar1 = simdTmpVar;
     GenTree* indexTimesTwo1;
 
-    if (indexIsConst)
+    if (indexConst != nullptr)
     {
         // Reuse the existing index constant node.
         indexTimesTwo1 = node->GetOp(1);
         Range().Remove(indexTimesTwo1);
-        indexTimesTwo1->AsIntCon()->SetIconValue(index * 2);
+        indexTimesTwo1->AsIntCon()->SetValue(index * 2);
 
         Range().InsertBefore(node, simdTmpVar1, indexTimesTwo1);
     }
@@ -1637,7 +1626,7 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
     GenTree* simdTmpVar2 = m_compiler->gtNewLclLoad(simdTmpLcl, op1->GetType());
     GenTree* indexTimesTwoPlusOne;
 
-    if (indexIsConst)
+    if (indexConst != nullptr)
     {
         indexTimesTwoPlusOne = m_compiler->gtNewIconNode(index * 2 + 1, TYP_INT);
         Range().InsertBefore(node, simdTmpVar2, indexTimesTwoPlusOne);
