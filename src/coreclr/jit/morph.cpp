@@ -10278,7 +10278,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                     ((typ == TYP_FLOAT) && FloatingPointUtils::hasPreciseReciprocal(forceCastToFloat(divisor))))
                 {
                     oper = GT_FMUL;
-                    tree->ChangeOper(oper);
+                    tree->ChangeOper(GT_FMUL);
                     op2->AsDblCon()->SetValue(1.0 / divisor);
                 }
             }
@@ -11076,7 +11076,7 @@ DONE_MORPHING_CHILDREN:
                     GenTree* a = op2->AsOp()->GetOp(0);
 
                     oper = GT_FSUB;
-                    tree->SetOper(oper);
+                    tree->SetOper(GT_FSUB);
                     tree->AsOp()->SetOp(1, a);
 
                     DEBUG_DESTROY_NODE(op2);
@@ -11088,7 +11088,7 @@ DONE_MORPHING_CHILDREN:
                     GenTree* a = op1->AsOp()->GetOp(0);
 
                     oper = GT_FSUB;
-                    tree->SetOper(oper);
+                    tree->SetOper(GT_FSUB);
                     tree->AsOp()->SetOp(0, op2);
                     tree->AsOp()->SetOp(1, a);
 
@@ -11110,7 +11110,7 @@ DONE_MORPHING_CHILDREN:
                 if (!op1->OperIs(GT_FNEG))
                 {
                     oper = GT_FADD;
-                    tree->SetOper(oper);
+                    tree->SetOper(GT_FADD);
                     tree->AsOp()->SetOp(1, b);
 
                     DEBUG_DESTROY_NODE(op2);
@@ -11226,7 +11226,7 @@ DONE_MORPHING_CHILDREN:
             if (op2->IsIntCon(0))
             {
                 oper = GT_ADD;
-                tree->SetOper(oper);
+                tree->SetOper(GT_ADD);
                 tree->SetSideEffects(op1->GetSideEffects() | op2->GetSideEffects());
                 goto CM_ADD_OP;
             }
@@ -11248,7 +11248,7 @@ DONE_MORPHING_CHILDREN:
 
                     op2->AsIntCon()->SetValue(-op2->AsIntCon()->GetValue());
                     oper = GT_ADD;
-                    tree->ChangeOper(oper);
+                    tree->ChangeOper(GT_ADD);
                     goto CM_ADD_OP;
                 }
 
@@ -11260,7 +11260,7 @@ DONE_MORPHING_CHILDREN:
                     fgMorphTreeDone(op2);
                     tree->AsOp()->SetOp(1, op2);
                     oper = GT_ADD;
-                    tree->ChangeOper(oper);
+                    tree->ChangeOper(GT_ADD);
                     goto CM_ADD_OP;
                 }
             }
@@ -11557,7 +11557,7 @@ DONE_MORPHING_CHILDREN:
                     }
 
                     oper = GT_LSH;
-                    tree->ChangeOper(oper, GenTree::PRESERVE_VN);
+                    tree->ChangeOper(GT_LSH, GenTree::PRESERVE_VN);
 
                     goto DONE_MORPHING_CHILDREN;
                 }
