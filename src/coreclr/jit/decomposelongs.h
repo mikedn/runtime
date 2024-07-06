@@ -52,7 +52,8 @@ private:
     GenTree* DecomposeIndStore(LIR::Use& use);
     GenTree* DecomposeNot(LIR::Use& use);
     GenTree* DecomposeNeg(LIR::Use& use);
-    GenTree* DecomposeArith(LIR::Use& use);
+    GenTree* DecomposeAddSub(LIR::Use& use);
+    GenTree* DecomposeBitwise(LIR::Use& use);
     GenTree* DecomposeShift(LIR::Use& use);
     GenTree* DecomposeRotate(LIR::Use& use);
     GenTree* DecomposeMul(LIR::Use& use);
@@ -70,8 +71,6 @@ private:
     GenTreeLclLoad* RepresentOpAsLclLoad(GenTree* op, GenTree* user, GenTree** edge);
 
     GenTree* StoreMultiRegNodeToLcl(LIR::Use& use);
-    static genTreeOps GetHiOper(genTreeOps oper);
-    static genTreeOps GetLoOper(genTreeOps oper);
 
     // Data
     Compiler*   m_compiler;

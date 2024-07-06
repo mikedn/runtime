@@ -207,6 +207,12 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
             nextNode = DecomposeNot(use);
             break;
 
+        case GT_AND:
+        case GT_OR:
+        case GT_XOR:
+            nextNode = DecomposeBitwise(use);
+            break;
+
         case GT_NEG:
             nextNode = DecomposeNeg(use);
             break;
@@ -217,10 +223,7 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
         case GT_OVF_UADD:
         case GT_OVF_SSUB:
         case GT_OVF_USUB:
-        case GT_OR:
-        case GT_XOR:
-        case GT_AND:
-            nextNode = DecomposeArith(use);
+            nextNode = DecomposeAddSub(use);
             break;
 
         case GT_MUL:
@@ -851,58 +854,97 @@ GenTree* DecomposeLongs::DecomposeNeg(LIR::Use& use)
     return FinalizeDecomposition(use, loResult, hiResult, hiResult);
 }
 
-GenTree* DecomposeLongs::DecomposeArith(LIR::Use& use)
+GenTree* DecomposeLongs::DecomposeAddSub(LIR::Use& use)
 {
-    assert(use.IsInitialized());
+    GenTreeOp* node = use.Def()->AsOp();
 
-    GenTree*   tree = use.Def();
-    genTreeOps oper = tree->OperGet();
+    genTreeOps loOper;
+    genTreeOps hiOper;
 
-    assert((oper == GT_ADD) || (oper == GT_SUB) || (oper == GT_OR) || (oper == GT_XOR) || (oper == GT_AND) ||
-           (oper == GT_OVF_SADD) || (oper == GT_OVF_UADD) || (oper == GT_OVF_SSUB) || (oper == GT_OVF_USUB));
+    switch (node->GetOper())
+    {
+        case GT_ADD:
+            loOper = GT_ADD_LO;
+            hiOper = GT_ADD_HI;
+            break;
+        case GT_OVF_SADD:
+            loOper = GT_ADD_LO;
+            hiOper = GT_OVF_SADDC;
+            break;
+        case GT_OVF_UADD:
+            loOper = GT_ADD_LO;
+            hiOper = GT_OVF_UADDC;
+            break;
+        case GT_SUB:
+            loOper = GT_SUB_LO;
+            hiOper = GT_SUB_HI;
+            break;
+        case GT_OVF_SSUB:
+            loOper = GT_SUB_LO;
+            hiOper = GT_OVF_SSUBB;
+            break;
+        default:
+            assert(node->OperIs(GT_OVF_USUB));
+            loOper = GT_SUB_LO;
+            hiOper = GT_OVF_USUBB;
+            break;
+    }
 
-    GenTree* op1 = tree->gtGetOp1();
-    GenTree* op2 = tree->gtGetOp2();
+    GenTreeOp* op1 = node->GetOp(0)->AsOp();
+    GenTreeOp* op2 = node->GetOp(1)->AsOp();
+    assert(op1->OperIs(GT_LONG) && op2->OperIs(GT_LONG));
+    GenTree* loOp1 = op1->GetOp(0);
+    GenTree* hiOp1 = op1->GetOp(1);
+    GenTree* loOp2 = op2->GetOp(0);
+    GenTree* hiOp2 = op2->GetOp(1);
 
-    // Both operands must have already been decomposed into GT_LONG operators.
-    noway_assert((op1->OperGet() == GT_LONG) && (op2->OperGet() == GT_LONG));
-
-    // Capture the lo and hi halves of op1 and op2.
-    GenTree* loOp1 = op1->gtGetOp1();
-    GenTree* hiOp1 = op1->gtGetOp2();
-    GenTree* loOp2 = op2->gtGetOp1();
-    GenTree* hiOp2 = op2->gtGetOp2();
-
-    // Now, remove op1 and op2 from the node list.
     Range().Remove(op1);
     Range().Remove(op2);
 
-    // We will reuse "tree" for the loResult, which will now be of TYP_INT, and its operands
-    // will be the lo halves of op1 from above.
-    GenTree* loResult = tree;
+    node->SetOper(loOper);
+    node->SetType(TYP_INT);
+    node->AsOp()->SetOp(0, loOp1);
+    node->AsOp()->SetOp(1, loOp2);
 
-    GenTree* hiResult = new (m_compiler, oper) GenTreeOp(GetHiOper(oper), TYP_INT, hiOp1, hiOp2);
-    Range().InsertAfter(loResult, hiResult);
+    GenTree* hiNode = new (m_compiler, hiOper) GenTreeOp(hiOper, TYP_INT, hiOp1, hiOp2);
 
-    if ((oper == GT_ADD) || (oper == GT_SUB) || (oper == GT_OVF_SADD) || (oper == GT_OVF_UADD) ||
-        (oper == GT_OVF_SSUB) || (oper == GT_OVF_USUB))
+    node->gtFlags |= GTF_SET_FLAGS;
+    hiNode->gtFlags |= GTF_USE_FLAGS;
+
+    if (node->OperIs(GT_OVF_SADD, GT_OVF_UADD, GT_OVF_SSUB, GT_OVF_USUB))
     {
-        loResult->gtFlags |= GTF_SET_FLAGS;
-        hiResult->gtFlags |= GTF_USE_FLAGS;
-
-        if ((oper == GT_OVF_SADD) || (oper == GT_OVF_UADD) || (oper == GT_OVF_SSUB) || (oper == GT_OVF_USUB))
-        {
-            hiResult->AddSideEffects(GTF_EXCEPT);
-            loResult->RemoveSideEffects(GTF_EXCEPT);
-        }
+        node->RemoveSideEffects(GTF_EXCEPT);
+        hiNode->AddSideEffects(GTF_EXCEPT);
     }
 
-    loResult->SetOper(GetLoOper(oper));
-    loResult->SetType(TYP_INT);
-    loResult->AsOp()->SetOp(0, loOp1);
-    loResult->AsOp()->SetOp(1, loOp2);
+    Range().InsertAfter(node, hiNode);
+    return FinalizeDecomposition(use, node, hiNode, hiNode);
+}
 
-    return FinalizeDecomposition(use, loResult, hiResult, hiResult);
+GenTree* DecomposeLongs::DecomposeBitwise(LIR::Use& use)
+{
+    GenTreeOp* node = use.Def()->AsOp();
+    assert(node->OperIs(GT_AND, GT_OR, GT_XOR));
+
+    GenTreeOp* op1 = node->GetOp(0)->AsOp();
+    GenTreeOp* op2 = node->GetOp(1)->AsOp();
+    assert(op1->OperIs(GT_LONG) && op2->OperIs(GT_LONG));
+    GenTree* loOp1 = op1->GetOp(0);
+    GenTree* hiOp1 = op1->GetOp(1);
+    GenTree* loOp2 = op2->GetOp(0);
+    GenTree* hiOp2 = op2->GetOp(1);
+
+    Range().Remove(op1);
+    Range().Remove(op2);
+
+    node->SetType(TYP_INT);
+    node->AsOp()->SetOp(0, loOp1);
+    node->AsOp()->SetOp(1, loOp2);
+
+    GenTree* hiNode = new (m_compiler, node->GetOper()) GenTreeOp(node->GetOper(), TYP_INT, hiOp1, hiOp2);
+
+    Range().InsertAfter(node, hiNode);
+    return FinalizeDecomposition(use, node, hiNode, hiNode);
 }
 
 //------------------------------------------------------------------------
@@ -1826,58 +1868,6 @@ GenTreeLclLoad* DecomposeLongs::RepresentOpAsLclLoad(GenTree* op, GenTree* user,
     LIR::Use opUse(Range(), edge, user);
     opUse.ReplaceWithLclLoad(m_compiler);
     return (*edge)->AsLclLoad();
-}
-
-genTreeOps DecomposeLongs::GetHiOper(genTreeOps oper)
-{
-    switch (oper)
-    {
-        case GT_ADD:
-            return GT_ADD_HI;
-        case GT_OVF_SADD:
-            return GT_OVF_SADDC;
-        case GT_OVF_UADD:
-            return GT_OVF_UADDC;
-        case GT_SUB:
-            return GT_SUB_HI;
-        case GT_OVF_SSUB:
-            return GT_OVF_SSUBB;
-        case GT_OVF_USUB:
-            return GT_OVF_USUBB;
-        case GT_OR:
-            return GT_OR;
-        case GT_AND:
-            return GT_AND;
-        case GT_XOR:
-            return GT_XOR;
-        default:
-            assert(!"GetHiOper called for invalid oper");
-            return GT_NONE;
-    }
-}
-
-genTreeOps DecomposeLongs::GetLoOper(genTreeOps oper)
-{
-    switch (oper)
-    {
-        case GT_ADD:
-        case GT_OVF_SADD:
-        case GT_OVF_UADD:
-            return GT_ADD_LO;
-        case GT_SUB:
-        case GT_OVF_SSUB:
-        case GT_OVF_USUB:
-            return GT_SUB_LO;
-        case GT_OR:
-            return GT_OR;
-        case GT_AND:
-            return GT_AND;
-        case GT_XOR:
-            return GT_XOR;
-        default:
-            assert(!"GetLoOper called for invalid oper");
-            return GT_NONE;
-    }
 }
 
 void DecomposeLongs::PromoteLongVars()
