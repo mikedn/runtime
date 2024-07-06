@@ -1,17 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                               DecomposeLongs                              XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-#ifndef _DECOMPOSELONGS_H_
-#define _DECOMPOSELONGS_H_
+#pragma once
 
 #include "compiler.h"
 
@@ -22,10 +12,8 @@ public:
     {
     }
 
-    void PrepareForDecomposition();
+    void PromoteLongVars();
     void DecomposeBlock(BasicBlock* block);
-
-    static void DecomposeRange(Compiler* compiler, LIR::Range& range);
 
 private:
     inline LIR::Range& Range() const
@@ -33,7 +21,6 @@ private:
         return *m_range;
     }
 
-    void PromoteLongVars();
 
     // Driver functions
     void     DecomposeRangeHelper();
@@ -76,5 +63,3 @@ private:
     Compiler*   m_compiler;
     LIR::Range* m_range;
 };
-
-#endif // _DECOMPOSELONGS_H_

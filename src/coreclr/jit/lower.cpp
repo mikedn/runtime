@@ -4582,7 +4582,7 @@ void Lowering::Run()
     DecomposeLongs decomp(comp);
     if (comp->compLongUsed)
     {
-        decomp.PrepareForDecomposition();
+        decomp.PromoteLongVars();
     }
 #endif
 
