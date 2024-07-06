@@ -11790,7 +11790,7 @@ DONE_MORPHING_CHILDREN:
 #endif
                     else
                     {
-                        assert(varTypeIsI(typ));
+                        assert(varTypeIsIntegralOrI(typ));
                         comma->GetOp(1)->ChangeToIntCon(varActualType(typ), 0);
                     }
 
@@ -11833,7 +11833,7 @@ DONE_MORPHING_CHILDREN:
 #endif
                     else
                     {
-                        assert(varTypeIsI(typ));
+                        assert(varTypeIsIntegralOrI(typ));
                         comma->GetOp(1)->ChangeToIntCon(varActualType(typ), 0);
                     }
 
