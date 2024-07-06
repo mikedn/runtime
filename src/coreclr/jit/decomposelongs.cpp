@@ -622,66 +622,55 @@ GenTree* DecomposeLongs::DecomposeNot(LIR::Use& use)
 {
     assert(use.Def()->OperIs(GT_NOT));
 
-    GenTree* tree   = use.Def();
-    GenTree* gtLong = tree->gtGetOp1();
-    noway_assert(gtLong->OperGet() == GT_LONG);
-    GenTree* loOp1 = gtLong->gtGetOp1();
-    GenTree* hiOp1 = gtLong->gtGetOp2();
+    GenTreeUnOp* node  = use.Def()->AsUnOp();
+    GenTreeOp*   value = node->GetOp(0)->AsOp();
+    assert(value->OperIs(GT_LONG));
+    GenTree* loValue = value->GetOp(0);
+    GenTree* hiValue = value->GetOp(1);
+    Range().Remove(value);
 
-    Range().Remove(gtLong);
+    node->SetType(TYP_INT);
+    node->SetOp(0, loValue);
 
-    GenTree* loResult = tree;
-    loResult->SetType(TYP_INT);
-    loResult->AsOp()->gtOp1 = loOp1;
+    GenTree* hiNode = new (m_compiler, GT_NOT) GenTreeOp(GT_NOT, TYP_INT, hiValue, nullptr);
+    Range().InsertAfter(node, hiNode);
 
-    GenTree* hiResult = new (m_compiler, GT_NOT) GenTreeOp(GT_NOT, TYP_INT, hiOp1, nullptr);
-    Range().InsertAfter(loResult, hiResult);
-
-    return FinalizeDecomposition(use, loResult, hiResult, hiResult);
+    return FinalizeDecomposition(use, node, hiNode, hiNode);
 }
 
 GenTree* DecomposeLongs::DecomposeNeg(LIR::Use& use)
 {
     assert(use.Def()->OperIs(GT_NEG));
 
-    GenTree* tree   = use.Def();
-    GenTree* gtLong = tree->gtGetOp1();
-    noway_assert(gtLong->OperGet() == GT_LONG);
+    GenTreeUnOp* node  = use.Def()->AsUnOp();
+    GenTreeOp*   value = node->GetOp(0)->AsOp();
+    assert(value->OperIs(GT_LONG));
+    GenTree* loValue = value->GetOp(0);
+    GenTree* hiValue = value->GetOp(1);
+    Range().Remove(value);
 
-    GenTree* loOp1 = gtLong->gtGetOp1();
-    GenTree* hiOp1 = gtLong->gtGetOp2();
+    node->SetType(TYP_INT);
+    node->SetOp(0, loValue);
 
-    Range().Remove(gtLong);
-
-    GenTree* loResult = tree;
-    loResult->SetType(TYP_INT);
-    loResult->AsOp()->gtOp1 = loOp1;
-
-    GenTree* zero = m_compiler->gtNewZeroConNode(TYP_INT);
+    GenTree* zero = m_compiler->gtNewIconNode(0);
 
 #if defined(TARGET_X86)
-
-    GenTree* hiAdjust = m_compiler->gtNewOperNode(GT_ADD_HI, TYP_INT, hiOp1, zero);
-    GenTree* hiResult = m_compiler->gtNewOperNode(GT_NEG, TYP_INT, hiAdjust);
-    Range().InsertAfter(loResult, zero, hiAdjust, hiResult);
-
-    loResult->gtFlags |= GTF_SET_FLAGS;
+    node->gtFlags |= GTF_SET_FLAGS;
+    GenTree* hiAdjust = m_compiler->gtNewOperNode(GT_ADD_HI, TYP_INT, hiValue, zero);
     hiAdjust->gtFlags |= GTF_USE_FLAGS;
-
+    GenTree* hiResult = m_compiler->gtNewOperNode(GT_NEG, TYP_INT, hiAdjust);
+    Range().InsertAfter(node, zero, hiAdjust, hiResult);
 #elif defined(TARGET_ARM)
-
     // We tend to use "movs" to load zero to a register, and that sets the flags, so put the
-    // zero before the loResult, which is setting the flags needed by GT_SUB_HI.
-    GenTree* hiResult = m_compiler->gtNewOperNode(GT_SUB_HI, TYP_INT, zero, hiOp1);
-    Range().InsertBefore(loResult, zero);
-    Range().InsertAfter(loResult, hiResult);
-
-    loResult->gtFlags |= GTF_SET_FLAGS;
+    // zero before the node, which is setting the flags needed by GT_SUB_HI.
+    node->gtFlags |= GTF_SET_FLAGS;
+    GenTree* hiResult = m_compiler->gtNewOperNode(GT_SUB_HI, TYP_INT, zero, hiValue);
     hiResult->gtFlags |= GTF_USE_FLAGS;
-
+    Range().InsertBefore(node, zero);
+    Range().InsertAfter(node, hiResult);
 #endif
 
-    return FinalizeDecomposition(use, loResult, hiResult, hiResult);
+    return FinalizeDecomposition(use, node, hiResult, hiResult);
 }
 
 GenTree* DecomposeLongs::DecomposeAddSub(LIR::Use& use)
