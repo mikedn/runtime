@@ -4084,8 +4084,7 @@ GenTree* Importer::impArrayAccessIntrinsic(
 
         val = impPopStack().val;
         assert(genActualType(elemType) == varActualType(val->GetType()) ||
-               (elemType == TYP_FLOAT && val->TypeIs(TYP_DOUBLE)) ||
-               (elemType == TYP_INT && val->TypeIs(TYP_BYREF)) ||
+               (elemType == TYP_FLOAT && val->TypeIs(TYP_DOUBLE)) || (elemType == TYP_INT && val->TypeIs(TYP_BYREF)) ||
                (elemType == TYP_DOUBLE && val->TypeIs(TYP_FLOAT)));
     }
 
@@ -9990,33 +9989,30 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 // Try to fold the really simple cases like 'iconst *, ifne/ifeq'
                 // Don't make any blocks unreachable in import only mode
 
-                if (op1->OperIs(GT_CNS_INT))
+                if (GenTreeIntCon* iop1 = op1->IsIntCon())
                 {
                     // gtFoldExpr() should prevent this as we don't want to make any blocks
                     // unreachable under compDbgCode
                     assert(!opts.compDbgCode);
 
-                    BBjumpKinds foldedJumpKind = (BBjumpKinds)(op1->AsIntCon()->gtIconVal ? BBJ_ALWAYS : BBJ_NONE);
+                    BBjumpKinds foldedJumpKind = (iop1->GetValue() != 0) ? BBJ_ALWAYS : BBJ_NONE;
 
                     assert((block->bbJumpKind == BBJ_COND)            // normal case
                            || (block->bbJumpKind == foldedJumpKind)); // this can happen if we are reimporting the
                                                                       // block for the second time
 
                     block->bbJumpKind = foldedJumpKind;
-#ifdef DEBUG
-                    if (verbose)
+
+                    if (iop1->GetValue() != 0)
                     {
-                        if (op1->AsIntCon()->gtIconVal)
-                        {
-                            printf("\nThe conditional jump becomes an unconditional jump to " FMT_BB "\n",
-                                   block->bbJumpDest->bbNum);
-                        }
-                        else
-                        {
-                            printf("\nThe block falls through into the next " FMT_BB "\n", block->bbNext->bbNum);
-                        }
+                        JITDUMP("\nThe conditional jump becomes an unconditional jump to " FMT_BB "\n",
+                                block->bbJumpDest->bbNum);
                     }
-#endif
+                    else
+                    {
+                        JITDUMP("\nThe block falls through into the next " FMT_BB "\n", block->bbNext->bbNum);
+                    }
+
                     break;
                 }
 

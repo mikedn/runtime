@@ -10856,7 +10856,7 @@ DONE_MORPHING_CHILDREN:
                         goto SKIP;
                     }
 
-                    ssize_t shiftAmount = rshiftOp->AsOp()->gtOp2->AsIntCon()->gtIconVal;
+                    ssize_t shiftAmount = rshiftOp->AsOp()->gtOp2->AsIntCon()->GetValue();
 
                     if (shiftAmount < 0)
                     {
@@ -12622,12 +12622,12 @@ GenTree* Compiler::fgRecognizeAndMorphBitwiseRotation(GenTree* tree)
         ssize_t leftShiftMask  = -1;
         ssize_t rightShiftMask = -1;
 
-        if ((leftShiftIndex->OperGet() == GT_AND))
+        if (leftShiftIndex->OperIs(GT_AND))
         {
-            if (leftShiftIndex->gtGetOp2()->IsCnsIntOrI())
+            if (GenTreeIntCon* mask = leftShiftIndex->AsOp()->GetOp(1)->IsIntCon())
             {
-                leftShiftMask  = leftShiftIndex->gtGetOp2()->AsIntCon()->gtIconVal;
-                leftShiftIndex = leftShiftIndex->gtGetOp1();
+                leftShiftMask  = mask->GetValue();
+                leftShiftIndex = leftShiftIndex->AsOp()->GetOp(0);
             }
             else
             {
@@ -12635,12 +12635,12 @@ GenTree* Compiler::fgRecognizeAndMorphBitwiseRotation(GenTree* tree)
             }
         }
 
-        if ((rightShiftIndex->OperGet() == GT_AND))
+        if (rightShiftIndex->OperIs(GT_AND))
         {
-            if (rightShiftIndex->gtGetOp2()->IsCnsIntOrI())
+            if (GenTreeIntCon* mask = rightShiftIndex->AsOp()->GetOp(1)->IsIntCon())
             {
-                rightShiftMask  = rightShiftIndex->gtGetOp2()->AsIntCon()->gtIconVal;
-                rightShiftIndex = rightShiftIndex->gtGetOp1();
+                rightShiftMask  = mask->GetValue();
+                rightShiftIndex = rightShiftIndex->AsOp()->GetOp(0);
             }
             else
             {
@@ -12662,13 +12662,13 @@ GenTree* Compiler::fgRecognizeAndMorphBitwiseRotation(GenTree* tree)
         genTreeOps rotateOp             = GT_NONE;
         GenTree*   rotateIndex          = nullptr;
 
-        if (leftShiftIndex->OperGet() == GT_ADD)
+        if (leftShiftIndex->OperIs(GT_ADD))
         {
             shiftIndexWithAdd    = leftShiftIndex;
             shiftIndexWithoutAdd = rightShiftIndex;
             rotateOp             = GT_ROR;
         }
-        else if (rightShiftIndex->OperGet() == GT_ADD)
+        else if (rightShiftIndex->OperIs(GT_ADD))
         {
             shiftIndexWithAdd    = rightShiftIndex;
             shiftIndexWithoutAdd = leftShiftIndex;
@@ -12677,11 +12677,11 @@ GenTree* Compiler::fgRecognizeAndMorphBitwiseRotation(GenTree* tree)
 
         if (shiftIndexWithAdd != nullptr)
         {
-            if (shiftIndexWithAdd->gtGetOp2()->IsCnsIntOrI())
+            if (GenTreeIntCon* mask = shiftIndexWithAdd->gtGetOp2()->IsIntCon())
             {
-                if (shiftIndexWithAdd->gtGetOp2()->AsIntCon()->gtIconVal == rotatedValueBitSize)
+                if (mask->GetValue() == rotatedValueBitSize)
                 {
-                    if (shiftIndexWithAdd->gtGetOp1()->OperGet() == GT_NEG)
+                    if (shiftIndexWithAdd->gtGetOp1()->OperIs(GT_NEG))
                     {
                         if (GenTree::Compare(shiftIndexWithAdd->gtGetOp1()->gtGetOp1(), shiftIndexWithoutAdd))
                         {
@@ -12710,9 +12710,9 @@ GenTree* Compiler::fgRecognizeAndMorphBitwiseRotation(GenTree* tree)
                 }
             }
         }
-        else if ((leftShiftIndex->IsCnsIntOrI() && rightShiftIndex->IsCnsIntOrI()))
+        else if ((leftShiftIndex->IsIntCon() && rightShiftIndex->IsIntCon()))
         {
-            if (leftShiftIndex->AsIntCon()->gtIconVal + rightShiftIndex->AsIntCon()->gtIconVal == rotatedValueBitSize)
+            if (leftShiftIndex->AsIntCon()->GetValue() + rightShiftIndex->AsIntCon()->GetValue() == rotatedValueBitSize)
             {
                 // We found this pattern:
                 // (x << c1) | (x >>> c2)
@@ -13269,22 +13269,22 @@ bool Compiler::fgFoldConditional(BasicBlock* block)
         // If the block was a loop condition we may have to modify the loop table.
         for (unsigned loopNum = 0; loopNum < optLoopCount; loopNum++)
         {
-            /* Some loops may have been already removed by
-             * loop unrolling or conditional folding */
+            // Some loops may have been already removed by
+            // loop unrolling or conditional folding
 
             if (optLoopTable[loopNum].lpFlags & LPFLG_REMOVED)
             {
                 continue;
             }
 
-            /* We are only interested in the loop bottom */
+            // We are only interested in the loop bottom
 
             if (optLoopTable[loopNum].lpBottom == block)
             {
-                if (cond->AsIntCon()->gtIconVal == 0)
+                if (cond->AsIntCon()->GetValue() == 0)
                 {
-                    /* This was a bogus loop (condition always false)
-                     * Remove the loop from the table */
+                    // This was a bogus loop (condition always false)
+                    // Remove the loop from the table
 
                     optLoopTable[loopNum].lpFlags |= LPFLG_REMOVED;
 #if FEATURE_LOOP_ALIGN
@@ -13292,14 +13292,8 @@ bool Compiler::fgFoldConditional(BasicBlock* block)
                     JITDUMP("Removing LOOP_ALIGN flag from bogus loop in " FMT_BB "\n",
                             optLoopTable[loopNum].lpFirst->bbNum);
 #endif
-
-#ifdef DEBUG
-                    if (verbose)
-                    {
-                        printf("Removing loop " FMT_LP " (from " FMT_BB " to " FMT_BB ")\n\n", loopNum,
-                               optLoopTable[loopNum].lpFirst->bbNum, optLoopTable[loopNum].lpBottom->bbNum);
-                    }
-#endif
+                    JITDUMP("Removing loop " FMT_LP " (from " FMT_BB " to " FMT_BB ")\n\n", loopNum,
+                            optLoopTable[loopNum].lpFirst->bbNum, optLoopTable[loopNum].lpBottom->bbNum);
                 }
             }
         }

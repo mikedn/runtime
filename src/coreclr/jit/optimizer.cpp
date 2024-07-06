@@ -5068,7 +5068,7 @@ bool OptBoolsDsc::optOptimizeBoolsReturnBlock(BasicBlock* b3)
     // Get the fold operator (m_foldOp, e.g., GT_OR/GT_AND) and
     // the comparison operator (m_cmpOp, e.g., GT_EQ/GT_NE)
 
-    var_types foldType = m_c1->TypeGet();
+    var_types foldType = m_c1->GetType();
     if (varTypeIsGC(foldType))
     {
         foldType = TYP_I_IMPL;
@@ -5081,9 +5081,9 @@ bool OptBoolsDsc::optOptimizeBoolsReturnBlock(BasicBlock* b3)
     genTreeOps foldOp;
     genTreeOps cmpOp;
 
-    ssize_t it1val = m_testInfo1.compTree->AsOp()->gtOp2->AsIntCon()->gtIconVal;
-    ssize_t it2val = m_testInfo2.compTree->AsOp()->gtOp2->AsIntCon()->gtIconVal;
-    ssize_t it3val = m_t3->AsOp()->gtOp1->AsIntCon()->gtIconVal;
+    ssize_t it1val = m_testInfo1.compTree->AsOp()->gtOp2->AsIntCon()->GetValue();
+    ssize_t it2val = m_testInfo2.compTree->AsOp()->gtOp2->AsIntCon()->GetValue();
+    ssize_t it3val = m_t3->AsOp()->gtOp1->AsIntCon()->GetValue();
 
     if ((m_testInfo1.compTree->OperIs(GT_NE) && m_testInfo2.compTree->OperIs(GT_EQ)) &&
         (it1val == 0 && it2val == 0 && it3val == 0))
@@ -5264,7 +5264,7 @@ GenTree* OptBoolsDsc::optIsBoolComp(OptTestInfo* pOptTest)
     {
         pOptTest->isBool = true;
     }
-    else if (opr1->OperIs(GT_CNS_INT) && (opr1->IsIntegralConst(0) || opr1->IsIntegralConst(1)))
+    else if (opr1->IsIntCon(0) || opr1->IsIntCon(1))
     {
         pOptTest->isBool = true;
     }
@@ -5284,7 +5284,7 @@ GenTree* OptBoolsDsc::optIsBoolComp(OptTestInfo* pOptTest)
         if (pOptTest->isBool)
         {
             m_comp->gtReverseRelop(cond->AsOp());
-            opr2->AsIntCon()->gtIconVal = 0;
+            opr2->AsIntCon()->SetValue(0);
         }
         else
         {
