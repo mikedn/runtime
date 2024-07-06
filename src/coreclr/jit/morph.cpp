@@ -10659,7 +10659,7 @@ DONE_MORPHING_CHILDREN:
                     {
                         op2->AsIntCon()->SetValue(0);
                         oper = oper == GT_EQ ? GT_NE : GT_EQ;
-                        tree->SetOperRaw(oper);
+                        tree->SetOper(oper, GenTree::PRESERVE_VN);
                     }
                 }
             }
@@ -12435,7 +12435,13 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind 
     GenTreeCast* cast1 = op1->AsCast();
     GenTreeCast* cast2 = op2->AsCast();
 
-    mul->SetOperRaw(GT_MUL);
+    if (mul->OperIs(GT_OVF_SMUL, GT_OVF_UMUL))
+    {
+        // TODO-MIKE-Review: Keeping the VN isn't quite right, the value itself is the same but
+        // the VN would have spurious exceptions now that this is no longer an overflow operation.
+        // But this should only happen during global morph, when we don't have VNs...
+        mul->SetOper(GT_MUL, GenTree::PRESERVE_VN);
+    }
 
     if (kind == MulLongCandidateKind::Unsigned)
     {

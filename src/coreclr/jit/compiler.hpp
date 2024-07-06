@@ -669,7 +669,7 @@ inline GenTreeIndir* Compiler::gtNewMethodTableLookup(GenTree* object)
     return result;
 }
 
-inline void GenTree::SetOperRaw(genTreeOps oper)
+inline void GenTree::SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
 {
     assert((s_gtNodeSizes[gtOper] == TREE_NODE_SZ_SMALL) || (s_gtNodeSizes[gtOper] == TREE_NODE_SZ_LARGE));
     assert((s_gtNodeSizes[oper] == TREE_NODE_SZ_SMALL) || (s_gtNodeSizes[oper] == TREE_NODE_SZ_LARGE));
@@ -679,11 +679,6 @@ inline void GenTree::SetOperRaw(genTreeOps oper)
     RecordOperBashing(gtOper, oper);
 #endif
 
-    gtOper = oper;
-}
-
-inline void GenTree::SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
-{
 #if defined(HOST_64BIT) && !defined(TARGET_64BIT)
     if ((gtOper == GT_CNS_LNG) && (oper == GT_CNS_INT))
     {
@@ -693,7 +688,7 @@ inline void GenTree::SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
     }
 #endif
 
-    SetOperRaw(oper);
+    gtOper = oper;
 
 #if DEBUGGABLE_GENTREE
     // Change the vtable of the node, so that it shows up correctly in the debugger.
