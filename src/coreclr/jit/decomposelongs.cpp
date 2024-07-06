@@ -1,107 +1,32 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                               DecomposeLongs                              XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX*/
-
-//
 // This file contains code to decompose 64-bit LONG operations on 32-bit platforms
 // into multiple single-register operations so individual register usage and requirements
 // are explicit for LSRA. The rationale behind this is to avoid adding code complexity
 // downstream caused by the introduction of handling longs as special cases,
 // especially in LSRA.
-//
 // Long decomposition happens on a statement immediately prior to more general
 // purpose lowering.
-//
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
 
 #ifndef TARGET_64BIT // DecomposeLongs is only used on 32-bit platforms
 
 #include "decomposelongs.h"
 
-//------------------------------------------------------------------------
-// DecomposeLongs::PrepareForDecomposition:
-//    Do one-time preparation required for LONG decomposition. Namely,
-//    promote long variables to multi-register structs.
-//
-// Arguments:
-//    None
-//
-// Return Value:
-//    None.
-//
-void DecomposeLongs::PrepareForDecomposition()
-{
-    PromoteLongVars();
-}
-
-//------------------------------------------------------------------------
-// DecomposeLongs::DecomposeBlock:
-//    Do LONG decomposition on all the nodes in the given block. This must
-//    be done before lowering the block, as decomposition can insert
-//    additional nodes.
-//
-// Arguments:
-//    block - the block to process
-//
-// Return Value:
-//    None.
-//
+// Do LONG decomposition on all the nodes in the given block. This must
+// be done before lowering the block, as decomposition can insert
+// additional nodes.
+// Decomposition is done as an execution-order walk. Decomposition of a particular
+// node can create new nodes that need to be further decomposed at higher levels.
+// That is, decomposition "bubbles up" through dataflow.
 void DecomposeLongs::DecomposeBlock(BasicBlock* block)
 {
     assert(block->isEmpty() || block->IsLIR());
     m_range = &LIR::AsRange(block);
-    DecomposeRangeHelper();
-}
 
-//------------------------------------------------------------------------
-// DecomposeLongs::DecomposeRange:
-//    Do LONG decomposition on all the nodes in the given range. This must
-//    be done before inserting a range of un-decomposed IR into a block
-//    that has already been decomposed.
-//
-// Arguments:
-//    compiler    - The compiler context.
-//    range       - The range to decompose.
-//
-// Return Value:
-//    None.
-//
-void DecomposeLongs::DecomposeRange(Compiler* compiler, LIR::Range& range)
-{
-    assert(compiler != nullptr);
-
-    DecomposeLongs decomposer(compiler);
-    decomposer.m_range = &range;
-
-    decomposer.DecomposeRangeHelper();
-}
-
-//------------------------------------------------------------------------
-// DecomposeLongs::DecomposeRangeHelper:
-//    Decompiose each node in the current range.
-//
-//    Decomposition is done as an execution-order walk. Decomposition of
-//    a particular node can create new nodes that need to be further
-//    decomposed at higher levels. That is, decomposition "bubbles up"
-//    through dataflow.
-//
-void DecomposeLongs::DecomposeRangeHelper()
-{
-    assert(m_range != nullptr);
-
-    GenTree* node = Range().FirstNode();
-    while (node != nullptr)
+    for (GenTree* node = Range().FirstNode(); node != nullptr;)
     {
         node = DecomposeNode(node);
     }
@@ -109,15 +34,6 @@ void DecomposeLongs::DecomposeRangeHelper()
     assert(Range().CheckLIR(m_compiler, true));
 }
 
-//------------------------------------------------------------------------
-// DecomposeNode: Decompose long-type trees into lower and upper halves.
-//
-// Arguments:
-//    tree - the tree that will, if needed, be decomposed.
-//
-// Return Value:
-//    The next node to process.
-//
 GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
 {
     // Handle the case where we are implicitly using the lower half of a long lclVar.
@@ -294,20 +210,9 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
     return nextNode;
 }
 
-//------------------------------------------------------------------------
-// FinalizeDecomposition: A helper function to finalize LONG decomposition by
-// taking the resulting two halves of the decomposition, and tie them together
-// with a new GT_LONG node that will replace the original node.
-//
-// Arguments:
-//    use - the LIR::Use object for the def that needs to be decomposed.
-//    loResult - the decomposed low part
-//    hiResult - the decomposed high part
-//    insertResultAfter - the node that the GT_LONG should be inserted after
-//
-// Return Value:
-//    The next node to process.
-//
+// A helper function to finalize LONG decomposition by taking the resulting two halves
+// of the decomposition, and tie them together with a new GT_LONG node that will replace
+// the original node.
 GenTree* DecomposeLongs::FinalizeDecomposition(LIR::Use& use,
                                                GenTree*  loResult,
                                                GenTree*  hiResult,
@@ -484,15 +389,6 @@ GenTree* DecomposeLongs::DecomposeLclStoreFld(LIR::Use& use)
     return hiStore->gtNext;
 }
 
-//------------------------------------------------------------------------
-// DecomposeCast: Decompose GT_CAST.
-//
-// Arguments:
-//    use - the LIR::Use object for the def that needs to be decomposed.
-//
-// Return Value:
-//    The next node to process.
-//
 GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
 {
     assert(use.IsInitialized());
@@ -607,15 +503,6 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
     return FinalizeDecomposition(use, loResult, hiResult, hiResult);
 }
 
-//------------------------------------------------------------------------
-// DecomposeCnsLng: Decompose GT_CNS_LNG.
-//
-// Arguments:
-//    use - the LIR::Use object for the def that needs to be decomposed.
-//
-// Return Value:
-//    The next node to process.
-//
 GenTree* DecomposeLongs::DecomposeCnsLng(LIR::Use& use)
 {
     assert(use.IsInitialized());
@@ -634,19 +521,6 @@ GenTree* DecomposeLongs::DecomposeCnsLng(LIR::Use& use)
     return FinalizeDecomposition(use, loResult, hiResult, hiResult);
 }
 
-//------------------------------------------------------------------------
-// DecomposeFieldList: Decompose GT_FIELD_LIST.
-//
-// Arguments:
-//    fieldList - the GT_FIELD_LIST node that uses the given GT_LONG node.
-//    longNode - the node to decompose
-//
-// Return Value:
-//    The next node to process.
-//
-// Notes:
-//    Split a LONG field list element into two elements: one for each half of the GT_LONG.
-//
 GenTree* DecomposeLongs::DecomposeFieldList(GenTreeFieldList* fieldList, GenTreeOp* longNode)
 {
     assert(longNode->OperGet() == GT_LONG);
@@ -672,15 +546,6 @@ GenTree* DecomposeLongs::DecomposeFieldList(GenTreeFieldList* fieldList, GenTree
     return fieldList->gtNext;
 }
 
-//------------------------------------------------------------------------
-// DecomposeCall: Decompose GT_CALL.
-//
-// Arguments:
-//    use - the LIR::Use object for the def that needs to be decomposed.
-//
-// Return Value:
-//    The next node to process.
-//
 GenTree* DecomposeLongs::DecomposeCall(LIR::Use& use)
 {
     assert(use.IsInitialized());
@@ -768,15 +633,6 @@ GenTree* DecomposeLongs::DecomposeIndLoad(LIR::Use& use)
     return FinalizeDecomposition(use, indLow, indHigh, indHigh);
 }
 
-//------------------------------------------------------------------------
-// DecomposeNot: Decompose GT_NOT.
-//
-// Arguments:
-//    use - the LIR::Use object for the def that needs to be decomposed.
-//
-// Return Value:
-//    The next node to process.
-//
 GenTree* DecomposeLongs::DecomposeNot(LIR::Use& use)
 {
     assert(use.IsInitialized());
@@ -800,15 +656,6 @@ GenTree* DecomposeLongs::DecomposeNot(LIR::Use& use)
     return FinalizeDecomposition(use, loResult, hiResult, hiResult);
 }
 
-//------------------------------------------------------------------------
-// DecomposeNeg: Decompose GT_NEG.
-//
-// Arguments:
-//    use - the LIR::Use object for the def that needs to be decomposed.
-//
-// Return Value:
-//    The next node to process.
-//
 GenTree* DecomposeLongs::DecomposeNeg(LIR::Use& use)
 {
     assert(use.IsInitialized());
@@ -947,23 +794,15 @@ GenTree* DecomposeLongs::DecomposeBitwise(LIR::Use& use)
     return FinalizeDecomposition(use, node, hiNode, hiNode);
 }
 
-//------------------------------------------------------------------------
-// DecomposeShift: Decompose GT_LSH, GT_RSH, GT_RSZ. For shift nodes being shifted
-// by a constant int, we can inspect the shift amount and decompose to the appropriate
-// node types, generating a shl/shld pattern for GT_LSH, a shrd/shr pattern for GT_RSZ,
-// and a shrd/sar pattern for GT_SHR for most shift amounts. Shifting by 0, >= 32 and
-// >= 64 are special cased to produce better code patterns.
+// Decompose GT_LSH, GT_RSH, GT_RSZ. For shift nodes being shifted by a constant int,
+// we can inspect the shift amount and decompose to the appropriate node types,
+// generating a shl/shld pattern for GT_LSH, a shrd/shr pattern for GT_RSZ, and a shrd/sar
+// pattern for GT_SHR for most shift amounts. Shifting by 0, >= 32 and >= 64 are special
+// cased to produce better code patterns.
 //
 // For all other shift nodes, we need to use the shift helper functions, so we here convert
 // the shift into a helper call by pulling its arguments out of linear order and making
 // them the args to a call, then replacing the original node with the new call.
-//
-// Arguments:
-//    use - the LIR::Use object for the def that needs to be decomposed.
-//
-// Return Value:
-//    The next node to process.
-//
 GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
 {
     assert(use.IsInitialized());
@@ -1310,18 +1149,9 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
     }
 }
 
-//------------------------------------------------------------------------
-// DecomposeRotate: Decompose GT_ROL and GT_ROR with constant shift amounts. We can
-// inspect the rotate amount and decompose to the appropriate node types, generating
-// a shld/shld pattern for GT_ROL, a shrd/shrd pattern for GT_ROR, for most rotate
-// amounts.
-//
-// Arguments:
-//    use - the LIR::Use object for the def that needs to be decomposed.
-//
-// Return Value:
-//    The next node to process.
-//
+// Decompose GT_ROL and GT_ROR with constant shift amounts. We can inspect the rotate amount
+// and decompose to the appropriate node types, generating a shld/shld pattern for GT_ROL,
+// a shrd/shrd pattern for GT_ROR, for most rotate amounts.
 GenTree* DecomposeLongs::DecomposeRotate(LIR::Use& use)
 {
     GenTree* tree       = use.Def();
@@ -1439,24 +1269,14 @@ GenTree* DecomposeLongs::DecomposeRotate(LIR::Use& use)
     }
 }
 
-//------------------------------------------------------------------------
-// DecomposeMul: Decompose GT_MUL. These muls result in a mul instruction that
-// returns its result in two registers like GT_CALLs do. Additionally, these muls are
-// guaranteed to be in the form long = (long)int * (long)int. Therefore, to decompose
-// these nodes, we convert them into GT_MUL_LONGs, undo the cast from int to long by
-// stripping out the lo ops, and force them into the form var = mul, as we do for
-// GT_CALLs. In codegen, we then produce a mul instruction that produces the result
-// in edx:eax on x86 or in any two chosen by RA registers on arm32, and store those
-// registers on the stack in GenStoreLclVarLong.
-//
+// Decompose GT_MUL. These muls result in a mul instruction that returns its result in
+// two registers like GT_CALLs do. Additionally, these muls are guaranteed to be in the
+// form long = (long)int * (long)int. Therefore, to decompose these nodes, we convert
+// them into GT_MUL_LONGs, undo the cast from int to long by stripping out the lo ops,
+// and force them into the form var = mul, as we do for GT_CALLs.
+// In codegen, we then produce a mul instruction that produces the result in edx:eax on
+// x86 or in any two chosen by RA registers on ARM32.
 // All other GT_MULs have been converted to helper calls in morph.cpp
-//
-// Arguments:
-//    use - the LIR::Use object for the def that needs to be decomposed.
-//
-// Return Value:
-//    The next node to process.
-//
 GenTree* DecomposeLongs::DecomposeMul(LIR::Use& use)
 {
     assert(use.IsInitialized());
@@ -1483,13 +1303,12 @@ GenTree* DecomposeLongs::DecomposeMul(LIR::Use& use)
     return StoreMultiRegNodeToLcl(use);
 }
 
-//------------------------------------------------------------------------
-// DecomposeUMod: Decompose GT_UMOD. The only GT_UMODs that make it to decompose
-// are guaranteed to be an unsigned long mod with op2 which is a cast to long from
-// a constant int whose value is between 2 and 0x3fffffff. All other GT_UMODs are
-// morphed into helper calls. These GT_UMODs will actually return an int value in
-// RDX. In decompose, we make the lo operation a TYP_INT GT_UMOD, with op2 as the
-// original lo half and op1 as a GT_LONG. We make the hi part 0,  so we end up with:
+// Decompose GT_UMOD. The only GT_UMODs that make it to decompose are guaranteed to be
+// an unsigned long mod with op2 which is a cast to long from a constant int whose value
+// is between 2 and 0x3fffffff. All other GT_UMODs are morphed into helper calls.
+// These GT_UMODs will actually return an int value in RDX. In decompose, we make the lo
+// operation a TYP_INT GT_UMOD, with op2 as the original lo half and op1 as a GT_LONG.
+// We make the hi part 0, so we end up with:
 //
 // GT_UMOD[TYP_INT] ( GT_LONG [TYP_LONG] (loOp1, hiOp1), loOp2 [TYP_INT] )
 //
@@ -1501,12 +1320,6 @@ GenTree* DecomposeLongs::DecomposeMul(LIR::Use& use)
 // idiv reg
 // EDX is the remainder, and result of GT_UMOD
 // mov hiReg = 0
-//
-// Arguments:
-//    use - the LIR::Use object for the def that needs to be decomposed.
-//
-// Return Value:
-//    The next node to process.
 //
 GenTree* DecomposeLongs::DecomposeUMod(LIR::Use& use)
 {
@@ -1545,15 +1358,6 @@ GenTree* DecomposeLongs::DecomposeUMod(LIR::Use& use)
 
 #ifdef FEATURE_HW_INTRINSICS
 
-//------------------------------------------------------------------------
-// DecomposeHWIntrinsic: Decompose GT_HWINTRINSIC.
-//
-// Arguments:
-//    use - the LIR::Use object for the def that needs to be decomposed.
-//
-// Return Value:
-//    The next node to process.
-//
 GenTree* DecomposeLongs::DecomposeHWIntrinsic(LIR::Use& use)
 {
     GenTreeHWIntrinsic* intrinsic = use.Def()->AsHWIntrinsic();
@@ -1568,8 +1372,7 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsic(LIR::Use& use)
     }
 }
 
-//------------------------------------------------------------------------
-// DecomposeHWIntrinsicGetElement: Decompose GT_HWINTRINSIC -- NI_Vector*_GetElement.
+// Decompose GT_HWINTRINSIC -- NI_Vector*_GetElement.
 //
 // Decompose a get[i] node on Vector*<long>. For:
 //
@@ -1585,13 +1388,6 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsic(LIR::Use& use)
 //
 // This isn't optimal codegen, since NI_Vector*_GetElement sometimes requires
 // temps that could be shared, for example.
-//
-// Arguments:
-//    use - the LIR::Use object for the def that needs to be decomposed.
-//   node - the hwintrinsic node to decompose
-//
-// Return Value:
-//    The next node to process.
 //
 GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHWIntrinsic* node)
 {
@@ -1697,27 +1493,20 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
 
 #endif // FEATURE_HW_INTRINSICS
 
-//------------------------------------------------------------------------
-// OptimizeCastFromDecomposedLong: optimizes a cast from GT_LONG by discarding
-// the high part of the source and, if the cast is to INT, the cast node itself.
+// Optimizes a cast from GT_LONG by discarding the high part of the source and,
+// if the cast is to INT, the cast node itself.
 // Accounts for side effects and marks nodes unused as neccessary.
 //
 // Only accepts casts to integer types that are not long.
 // Does not optimize checked casts.
 //
-// Arguments:
-//    cast     - the cast tree that has a GT_LONG node as its operand.
-//    nextNode - the next candidate for decomposition.
+// Returns the next node to process in DecomposeRange: "nextNode->gtNext"
+// if "cast == nextNode", simply "nextNode" otherwise.
 //
-// Return Value:
-//    The next node to process in DecomposeRange: "nextNode->gtNext" if
-//    "cast == nextNode", simply "nextNode" otherwise.
-//
-// Notes:
-//    Because "nextNode" usually is "cast", and this method may remove "cast"
-//    from the linear order, it needs to return the updated "nextNode". Instead
-//    of receiving it as an argument, it could assume that "nextNode" is always
-//    "cast->GetOp(0)->gtNext", but not making that assumption seems better.
+// Because "nextNode" usually is "cast", and this method may remove "cast"
+// from the linear order, it needs to return the updated "nextNode". Instead
+// of receiving it as an argument, it could assume that "nextNode" is always
+// "cast->GetOp(0)->gtNext", but not making that assumption seems better.
 //
 GenTree* DecomposeLongs::OptimizeCastFromDecomposedLong(GenTreeCast* cast, GenTree* nextNode)
 {
@@ -1791,16 +1580,8 @@ GenTree* DecomposeLongs::OptimizeCastFromDecomposedLong(GenTreeCast* cast, GenTr
     return nextNode;
 }
 
-//------------------------------------------------------------------------
-// StoreMultiRegNodeToLcl: Check if the user is a STORE_LCL_VAR, and if it isn't,
-// store the node to a var. Then decompose the new LclVar.
-//
-// Arguments:
-//    use - the LIR::Use object for the def that needs to be decomposed.
-//
-// Return Value:
-//    The next node to process.
-//
+// Check if the user is a LCL_STORE, and if it isn't, store the node to a temp local.
+// Then decompose the new store.
 GenTree* DecomposeLongs::StoreMultiRegNodeToLcl(LIR::Use& use)
 {
     if (use.IsDummyUse())
@@ -1847,17 +1628,7 @@ GenTree* DecomposeLongs::StoreMultiRegNodeToLcl(LIR::Use& use)
     return FinalizeDecomposition(use, loadLo, loadHi, loadHi);
 }
 
-//------------------------------------------------------------------------
-// Check is op already local var, if not store it to local.
-//
-// Arguments:
-//    op - GenTree* to represent as local variable
-//    user - user of op
-//    edge - edge from user to op
-//
-// Return Value:
-//    op represented as local var
-//
+// Check is op already local, if not store it to temp.
 GenTreeLclLoad* DecomposeLongs::RepresentOpAsLclLoad(GenTree* op, GenTree* user, GenTree** edge)
 {
     if (op->OperIs(GT_LCL_LOAD))
