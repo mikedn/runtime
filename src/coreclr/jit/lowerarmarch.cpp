@@ -300,7 +300,8 @@ void Lowering::LowerRotate(GenTree* tree)
         }
         else
         {
-            GenTree* tmp = comp->gtNewOperNode(GT_NEG, varActualType(rotateLeftIndexNode->GetType()), rotateLeftIndexNode);
+            GenTree* tmp =
+                comp->gtNewOperNode(GT_NEG, varActualType(rotateLeftIndexNode->GetType()), rotateLeftIndexNode);
             BlockRange().InsertAfter(rotateLeftIndexNode, tmp);
             tree->AsOp()->SetOp(1, tmp);
         }
@@ -400,13 +401,12 @@ void Lowering::LowerHWIntrinsicFusedMultiplyAddScalar(GenTreeHWIntrinsic* node)
 
 void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 {
-    assert(node->TypeGet() != TYP_SIMD32);
+    assert(!node->TypeIs(TYP_SIMD32));
 
-    if (node->TypeGet() == TYP_SIMD12)
+    if (node->TypeIs(TYP_SIMD12))
     {
-        // GT_HWINTRINSIC node requiring to produce TYP_SIMD12 in fact
-        // produces a TYP_SIMD16 result
-        node->gtType = TYP_SIMD16;
+        // SIMD12 HWINTRINSIC nodes produce in fact a SIMD16 value.
+        node->SetType(TYP_SIMD16);
     }
 
     NamedIntrinsic intrinsicId = node->GetIntrinsic();

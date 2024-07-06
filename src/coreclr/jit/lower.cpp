@@ -4951,9 +4951,9 @@ void Lowering::ContainCheckRet(GenTreeUnOp* ret)
 
 void Lowering::ContainCheckJTrue(GenTreeUnOp* node)
 {
+    GenTree* cmp = node->GetOp(0);
     // The compare does not need to be generated into a register.
-    GenTree* cmp = node->gtGetOp1();
-    cmp->gtType  = TYP_VOID;
+    cmp->SetType(TYP_VOID);
     cmp->gtFlags |= GTF_SET_FLAGS;
 }
 
