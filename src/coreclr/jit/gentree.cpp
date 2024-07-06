@@ -1647,7 +1647,7 @@ void Compiler::gtReverseRelop(GenTreeOp* relop)
 {
     assert(relop->OperIsCompare());
 
-    relop->gtOper = GenTree::ReverseRelop(relop->GetOper());
+    relop->SetOperRaw(GenTree::ReverseRelop(relop->GetOper()));
     // TODO-MIKE-Review: We could probably generate a proper VN.
     relop->SetVNP({});
 

@@ -4903,7 +4903,7 @@ void OptBoolsDsc::optOptimizeBoolsUpdateTrees()
     {
         // Update tree when m_b1 is BBJ_COND and m_b2 and m_b3 are GT_RETURN (BBJ_RETURN)
         t1Comp->AsOp()->GetOp(1)->AsIntCon()->SetValue(0);
-        m_testInfo1.testTree->gtOper = GT_RETURN;
+        m_testInfo1.testTree->ChangeOper(GT_RETURN);
         m_testInfo1.testTree->SetType(m_testInfo2.testTree->GetType());
 
         // Update the return count of flow graph

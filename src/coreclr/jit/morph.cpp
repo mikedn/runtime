@@ -7115,13 +7115,9 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
         LclVarDsc* retBuffLcl       = lvaGetDesc(info.compRetBuffArg);
         var_types  callerRetBufType = retBuffLcl->GetType();
 
-        GenTree* dstAddr = gtNewLclLoad(retBuffLcl, callerRetBufType);
-        GenTree* dst     = gtNewIndLoadObj(origCall->GetRetLayout(), dstAddr);
         GenTree* src     = gtNewLclLoad(tmpRetBufLcl, tmpRetBufType);
-
-        copyToRetBufNode         = dst;
-        copyToRetBufNode->gtOper = copyToRetBufNode->TypeIs(TYP_STRUCT) ? GT_IND_STORE_OBJ : GT_IND_STORE;
-        copyToRetBufNode->AsIndir()->SetValue(src);
+        GenTree* dstAddr = gtNewLclLoad(retBuffLcl, callerRetBufType);
+        copyToRetBufNode = gtNewIndStoreObj(origCall->GetRetLayout(), dstAddr, src);
 
         if (!origCall->TypeIs(TYP_VOID))
         {
