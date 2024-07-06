@@ -730,7 +730,7 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
         BlockRange().Remove(op1);
         BlockRange().Remove(op2);
 
-        cmp->SetOperRaw(cmp->OperIs(GT_EQ) ? GT_TEST_EQ : GT_TEST_NE);
+        cmp->ChangeOper(cmp->OperIs(GT_EQ) ? GT_TEST_EQ : GT_TEST_NE);
         cmp->SetOp(0, andOp1);
         cmp->SetOp(1, andOp2);
         // We will re-evaluate containment below

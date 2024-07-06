@@ -4015,7 +4015,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
 
         if (isDiv)
         {
-            divMod->SetOperRaw(GT_ADD);
+            divMod->ChangeOper(GT_ADD);
             divMod->AsOp()->SetOp(0, adjusted);
             divMod->AsOp()->SetOp(1, signBit);
         }
@@ -4030,7 +4030,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
             GenTree* mul     = comp->gtNewOperNode(GT_MUL, type, div, divisor);
             BlockRange().InsertBefore(divMod, dividend, div, divisor, mul);
 
-            divMod->SetOperRaw(GT_SUB);
+            divMod->ChangeOper(GT_SUB);
             divMod->AsOp()->SetOp(0, dividend);
             divMod->AsOp()->SetOp(1, mul);
         }

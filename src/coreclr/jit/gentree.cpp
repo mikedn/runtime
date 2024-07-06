@@ -1647,9 +1647,8 @@ void Compiler::gtReverseRelop(GenTreeOp* relop)
 {
     assert(relop->OperIsCompare());
 
-    relop->SetOperRaw(GenTree::ReverseRelop(relop->GetOper()));
     // TODO-MIKE-Review: We could probably generate a proper VN.
-    relop->SetVNP({});
+    relop->SetOper(GenTree::ReverseRelop(relop->GetOper()));
 
     // Flip the GTF_RELOP_NAN_UN bit
     //     a ord b   === (a != NaN && b != NaN)

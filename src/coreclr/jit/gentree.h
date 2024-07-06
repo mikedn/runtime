@@ -1700,7 +1700,6 @@ public:
         PRESERVE_VN
     };
 
-    void SetOperRaw(genTreeOps oper);
     void SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate = CLEAR_VN);
     void SetOperResetFlags(genTreeOps oper);
     void ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate = CLEAR_VN);

@@ -1380,7 +1380,6 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
     GenTreeCall*      helperCall = gtNewHelperCallNode(runtimeLookup.helper, TYP_I_IMPL, helperArgs);
 
     // Check for null and possibly call helper
-    GenTree* nullCheck       = gtNewOperNode(GT_NE, TYP_INT, handleForNullCheck, gtNewIconNode(0, TYP_I_IMPL));
     GenTree* handleForResult = gtCloneExpr(handleForNullCheck);
 
     GenTree* result = nullptr;
@@ -1400,9 +1399,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
         // sizeCheck fails if sizeValue < pRuntimeLookup->offsets[i]
         GenTree* offsetValue = gtNewIconNode(runtimeLookup.offsets[runtimeLookup.indirections - 1], TYP_I_IMPL);
         GenTree* sizeCheck   = gtNewOperNode(GT_LE, TYP_INT, sizeValue, offsetValue);
-
-        // revert null check condition.
-        nullCheck->SetOperRaw(GT_EQ);
+        GenTree* nullCheck   = gtNewOperNode(GT_EQ, TYP_INT, handleForNullCheck, gtNewIconNode(0, TYP_I_IMPL));
 
         // ((sizeCheck fails || nullCheck fails))) ? (helperCall : handle).
         // Add checks and the handle as call arguments, indirect call transformer will handle this.
@@ -1414,6 +1411,8 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
     }
     else
     {
+        GenTree* nullCheck = gtNewOperNode(GT_NE, TYP_INT, handleForNullCheck, gtNewIconNode(0, TYP_I_IMPL));
+
         result = gtNewQmarkNode(TYP_I_IMPL, nullCheck, handleForResult, helperCall);
     }
 
