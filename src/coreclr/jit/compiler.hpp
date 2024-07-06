@@ -909,8 +909,7 @@ inline GenTreeLclAddr* GenTree::ChangeToLclAddr(var_types type, LclVarDsc* lcl)
     // and CloneExpr remove it, then we can check here if we're trying to take the
     // address of such a param.
 
-    SetOper(GT_LCL_ADDR);
-    gtFlags = GTF_NONE;
+    SetOperResetFlags(GT_LCL_ADDR);
 
     GenTreeLclAddr* addr = AsLclAddr();
     addr->SetType(type);
@@ -925,8 +924,7 @@ inline GenTreeLclAddr* GenTree::ChangeToLclAddr(var_types type, LclVarDsc* lcl, 
     assert(offset <= UINT16_MAX);
     assert((fieldSeq == FieldSeqNode::NotAField()) || fieldSeq->IsField());
 
-    SetOper(GT_LCL_ADDR);
-    gtFlags = GTF_NONE;
+    SetOperResetFlags(GT_LCL_ADDR);
 
     GenTreeLclAddr* addr = AsLclAddr();
     addr->SetType(type);
