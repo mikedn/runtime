@@ -11757,75 +11757,57 @@ DONE_MORPHING_CHILDREN:
     // fgRemoveRestOfBlock and have fgMorphTree callers deal with it?
     // TODO-MIKE-Cleanup: IND/OBJ/BLK were not removed as they could have been assignment
     // destinations. Can they be removed now?
+
     if ((oper != GT_LCL_DEF) && (oper != GT_LCL_STORE) && (oper != GT_IND_LOAD) && (oper != GT_IND_LOAD_OBJ) &&
         (oper != GT_IND_LOAD_BLK) && (oper != GT_INIT_VAL))
     {
         if ((op1 != nullptr) && fgIsCommaThrow(op1 DEBUGARG(true)))
         {
-            /* We can safely throw out the rest of the statements */
             fgRemoveRestOfBlock = true;
 
-            GenTree* throwNode = op1->AsOp()->gtOp1;
+            GenTreeOp* comma     = op1->AsOp();
+            GenTree*   throwNode = comma->GetOp(0);
 
             if (oper == GT_COMMA)
             {
-                /* Both tree and op1 are GT_COMMA nodes */
-                /* Change the tree's op1 to the throw node: op1->AsOp()->gtOp1 */
-                tree->AsOp()->gtOp1 = throwNode;
-
-                // Possibly reset the store side effect
-                if (((throwNode->gtFlags & GTF_ASG) == 0) && ((op2 == nullptr) || ((op2->gtFlags & GTF_ASG) == 0)))
-                {
-                    tree->gtFlags &= ~GTF_ASG;
-                }
+                // The current tree is also a COMMA node. Change the current tree's op1 to the throw node.
+                tree->AsOp()->SetOp(0, throwNode);
+                tree->SetSideEffects(throwNode->GetSideEffects() | tree->AsOp()->GetOp(1)->GetSideEffects());
 
                 return tree;
             }
-            else if (oper != GT_NOP)
+
+            if (oper != GT_NOP)
             {
-                if (varActualType(typ) == varActualType(op1->GetType()))
+                if (typ == TYP_VOID)
                 {
-                    /* The types match so, return the comma throw node as the new tree */
-                    return op1;
+                    return throwNode;
                 }
-                else
+
+                if (varActualType(comma->GetType()) != varActualType(typ))
                 {
-                    if (typ == TYP_VOID)
+                    // We need to change the type of the COMMA to the type of the tree we discard.
+
+                    if (varTypeIsFloating(typ))
                     {
-                        // Return the throw node
-                        return throwNode;
+                        comma->GetOp(1)->ChangeToDblCon(typ, 0.0);
                     }
+#ifndef TARGET_64BIT
+                    else if (typ == TYP_LONG)
+                    {
+                        comma->GetOp(1)->ChangeToLngCon(0);
+                    }
+#endif
                     else
                     {
-                        GenTree* commaOp2 = op1->AsOp()->gtOp2;
-
-                        // need type of oper to be same as tree
-                        if (typ == TYP_LONG)
-                        {
-                            commaOp2->ChangeOperConst(GT_CNS_NATIVELONG);
-                            commaOp2->AsIntConCommon()->SetLngValue(0);
-                            /* Change the types of oper and commaOp2 to TYP_LONG */
-                            op1->gtType = commaOp2->gtType = TYP_LONG;
-                        }
-                        else if (varTypeIsFloating(typ))
-                        {
-                            commaOp2->ChangeOperConst(GT_CNS_DBL);
-                            commaOp2->AsDblCon()->gtDconVal = 0.0;
-                            /* Change the types of oper and commaOp2 to TYP_DOUBLE */
-                            op1->gtType = commaOp2->gtType = TYP_DOUBLE;
-                        }
-                        else
-                        {
-                            commaOp2->ChangeOperConst(GT_CNS_INT);
-                            commaOp2->AsIntConCommon()->SetIconValue(0);
-                            /* Change the types of oper and commaOp2 to TYP_INT */
-                            op1->gtType = commaOp2->gtType = TYP_INT;
-                        }
-
-                        /* Return the GT_COMMA node as the new tree */
-                        return op1;
+                        assert(varTypeIsI(typ));
+                        comma->GetOp(1)->ChangeToIntCon(varActualType(typ), 0);
                     }
+
+                    comma->SetType(varActualType(typ));
                 }
+
+                return comma;
             }
         }
 
@@ -11833,55 +11815,42 @@ DONE_MORPHING_CHILDREN:
         {
             fgRemoveRestOfBlock = true;
 
-            if ((op1->gtFlags & GTF_ALL_EFFECT) == 0)
+            // Discard op1 if it doesn't have any side effects and return the COMMA throw tree.
+            // TODO-MIKE-Review: This ignores GTF_REVERSE_OPS, if it's set we don't care about op1 at all.
+
+            if (!op1->HasAnySideEffect(GTF_ALL_EFFECT))
             {
-                if (tree->OperIs(GT_BOUNDS_CHECK, GT_COMMA))
+                GenTreeOp* comma = op2->AsOp();
+
+                if (typ == TYP_VOID)
                 {
-                    return op2->AsOp()->gtOp1;
+                    return comma->GetOp(0);
                 }
 
-                // for the shift nodes the type of op2 can differ from the tree type
-                if ((typ == TYP_LONG) && varActualTypeIsInt(op2->GetType()))
+                if (varActualType(comma->GetType()) != varActualType(typ))
                 {
-                    noway_assert(GenTree::OperIsShiftOrRotate(oper));
+                    // We need to change the type of the COMMA to the type of the tree we discard.
 
-                    GenTree* commaOp2 = op2->AsOp()->gtOp2;
+                    if (varTypeIsFloating(typ))
+                    {
+                        comma->GetOp(1)->ChangeToDblCon(typ, 0.0);
+                    }
+#ifndef TARGET_64BIT
+                    else if (typ == TYP_LONG)
+                    {
+                        comma->GetOp(1)->ChangeToLngCon(0);
+                    }
+#endif
+                    else
+                    {
+                        assert(varTypeIsI(typ));
+                        comma->GetOp(1)->ChangeToIntCon(varActualType(typ), 0);
+                    }
 
-                    commaOp2->ChangeOperConst(GT_CNS_NATIVELONG);
-                    commaOp2->AsIntConCommon()->SetLngValue(0);
-
-                    /* Change the types of oper and commaOp2 to TYP_LONG */
-                    op2->gtType = commaOp2->gtType = TYP_LONG;
+                    comma->SetType(varActualType(typ));
                 }
 
-                if (varActualTypeIsInt(typ) &&
-                    ((varActualType(op2->GetType()) == TYP_LONG) || varTypeIsFloating(op2->GetType())))
-                {
-                    // An example case is comparison (say GT_GT) of two longs or floating point values.
-
-                    GenTree* commaOp2 = op2->AsOp()->gtOp2;
-
-                    commaOp2->ChangeOperConst(GT_CNS_INT);
-                    commaOp2->AsIntCon()->SetValue(TYP_INT, 0);
-                    op2->SetType(TYP_INT);
-                }
-
-                if ((typ == TYP_BYREF) && (varActualType(op2->GetType()) == TYP_I_IMPL))
-                {
-                    noway_assert(tree->OperIs(GT_ADD));
-
-                    GenTree* commaOp2 = op2->AsOp()->gtOp2;
-
-                    commaOp2->ChangeOperConst(GT_CNS_INT);
-                    commaOp2->AsIntCon()->gtIconVal = 0;
-                    /* Change the types of oper and commaOp2 to TYP_BYREF */
-                    op2->gtType = commaOp2->gtType = TYP_BYREF;
-                }
-
-                noway_assert((varActualType(typ) == varActualType(op2->GetType())));
-
-                // Return the GT_COMMA node as the new tree
-                return op2;
+                return comma;
             }
         }
     }
