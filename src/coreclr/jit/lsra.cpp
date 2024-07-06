@@ -6391,12 +6391,12 @@ void LinearScan::insertMove(
     else
     {
         var_types movType = varDsc->GetRegisterType();
-        src->gtType       = movType;
 
+        src->SetType(movType);
         dst = new (compiler, GT_COPY) GenTreeCopyOrReload(GT_COPY, movType, src);
         // This is the new home of the lclVar - indicate that by clearing the GTF_VAR_DEATH flag.
         // Note that if src is itself a lastUse, this will have no effect.
-        dst->gtFlags &= ~(GTF_VAR_DEATH);
+        dst->gtFlags &= ~GTF_VAR_DEATH;
         src->SetRegNum(fromReg);
         dst->SetRegNum(toReg);
         dst->ClearRegSpillSet();

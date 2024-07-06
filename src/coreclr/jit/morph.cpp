@@ -11393,43 +11393,37 @@ DONE_MORPHING_CHILDREN:
                     }
                 }
 
-                if (op2->IsIntCon())
+                if (op2->IsIntCon(0))
                 {
-                    CLANG_FORMAT_COMMENT_ANCHOR;
-
                     // Fold (x + 0).
 
-                    if (op2->AsIntConCommon()->IconValue() == 0)
+                    // If this addition is adding an offset to a null pointer,
+                    // avoid the work and yield the null pointer immediately.
+                    // Dereferencing the pointer in either case will have the
+                    // same effect.
+
+                    if (varTypeIsGC(op2->GetType()) && ((op1->gtFlags & GTF_ALL_EFFECT) == 0))
                     {
-                        // If this addition is adding an offset to a null pointer,
-                        // avoid the work and yield the null pointer immediately.
-                        // Dereferencing the pointer in either case will have the
-                        // same effect.
+                        op2->SetType(tree->GetType());
+                        DEBUG_DESTROY_NODE(op1);
+                        DEBUG_DESTROY_NODE(tree);
+                        return op2;
+                    }
 
-                        if (varTypeIsGC(op2->GetType()) && ((op1->gtFlags & GTF_ALL_EFFECT) == 0))
+                    // Remove the addition iff it won't change the tree type to REF.
+
+                    if ((op1->GetType() == tree->GetType()) || !op1->TypeIs(TYP_REF))
+                    {
+                        if (fgGlobalMorph && op2->IsIntCon() && (op2->AsIntCon()->GetFieldSeq() != nullptr) &&
+                            (op2->AsIntCon()->GetFieldSeq() != FieldSeqStore::NotAField()))
                         {
-                            op2->gtType = tree->GetType();
-                            DEBUG_DESTROY_NODE(op1);
-                            DEBUG_DESTROY_NODE(tree);
-                            return op2;
+                            AddZeroOffsetFieldSeq(op1, op2->AsIntCon()->GetFieldSeq());
                         }
 
-                        // Remove the addition iff it won't change the tree type
-                        // to TYP_REF.
+                        DEBUG_DESTROY_NODE(op2);
+                        DEBUG_DESTROY_NODE(tree);
 
-                        if ((op1->TypeGet() == tree->TypeGet()) || (op1->TypeGet() != TYP_REF))
-                        {
-                            if (fgGlobalMorph && op2->IsIntCon() && (op2->AsIntCon()->GetFieldSeq() != nullptr) &&
-                                (op2->AsIntCon()->GetFieldSeq() != FieldSeqStore::NotAField()))
-                            {
-                                AddZeroOffsetFieldSeq(op1, op2->AsIntCon()->GetFieldSeq());
-                            }
-
-                            DEBUG_DESTROY_NODE(op2);
-                            DEBUG_DESTROY_NODE(tree);
-
-                            return op1;
-                        }
+                        return op1;
                     }
                 }
 

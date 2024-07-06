@@ -1221,9 +1221,8 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     if (node->TypeIs(TYP_SIMD12))
     {
-        // GT_HWINTRINSIC node requiring to produce TYP_SIMD12 in fact
-        // produces a TYP_SIMD16 result
-        node->gtType = TYP_SIMD16;
+        // SIMD12 HWINTRINSIC nodes produce in fact a SIMD16 value.
+        node->SetType(TYP_SIMD16);
     }
 
     NamedIntrinsic intrinsicId = node->GetIntrinsic();
