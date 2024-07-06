@@ -43,32 +43,23 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
 
         if (varTypeIsLong(varDsc->GetType()) && varDsc->IsPromoted())
         {
-#ifdef DEBUG
-            if (m_compiler->verbose)
-            {
-                printf("Changing implicit reference to lo half of long lclVar to an explicit reference of its promoted "
-                       "half:\n");
-                m_compiler->gtDispTreeRange(Range(), tree);
-            }
-#endif
+            JITDUMPRANGE(
+                Range(), tree,
+                "Changing implicit reference to low half of LONG local to an explicit reference of its promoted "
+                "half:\n");
+
             tree->AsLclLoad()->SetLcl(m_compiler->lvaGetDesc(varDsc->GetPromotedFieldLclNum(0)));
 
             return tree->gtNext;
         }
     }
 
-    if (tree->TypeGet() != TYP_LONG)
+    if (!tree->TypeIs(TYP_LONG))
     {
         return tree->gtNext;
     }
 
-#ifdef DEBUG
-    if (m_compiler->verbose)
-    {
-        printf("Decomposing TYP_LONG tree.  BEFORE:\n");
-        m_compiler->gtDispTreeRange(Range(), tree);
-    }
-#endif // DEBUG
+    JITDUMPRANGE(Range(), tree, "Decomposing LONG tree. BEFORE:\n");
 
     LIR::Use use;
     if (!Range().TryGetUse(tree, &use))
@@ -98,19 +89,15 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
         case GT_IND_STORE:
             nextNode = DecomposeIndStore(use);
             break;
-
         case GT_CAST:
             nextNode = DecomposeCast(use);
             break;
-
         case GT_CNS_LNG:
             nextNode = DecomposeCnsLng(use);
             break;
-
         case GT_CALL:
             nextNode = DecomposeCall(use);
             break;
-
         case GT_RETURN:
 #ifdef TARGET_X86
             assert(tree->AsUnOp()->GetOp(0)->OperIs(GT_LONG) || tree->AsUnOp()->GetOp(0)->TypeIs(TYP_DOUBLE));
@@ -118,21 +105,17 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
             assert(tree->AsUnOp()->GetOp(0)->OperIs(GT_LONG));
 #endif
             break;
-
         case GT_NOT:
             nextNode = DecomposeNot(use);
             break;
-
         case GT_AND:
         case GT_OR:
         case GT_XOR:
             nextNode = DecomposeBitwise(use);
             break;
-
         case GT_NEG:
             nextNode = DecomposeNeg(use);
             break;
-
         case GT_ADD:
         case GT_SUB:
         case GT_OVF_SADD:
@@ -141,64 +124,48 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
         case GT_OVF_USUB:
             nextNode = DecomposeAddSub(use);
             break;
-
         case GT_MUL:
             nextNode = DecomposeMul(use);
             break;
-
         case GT_UMOD:
             nextNode = DecomposeUMod(use);
             break;
-
         case GT_LSH:
         case GT_RSH:
         case GT_RSZ:
             nextNode = DecomposeShift(use);
             break;
-
         case GT_ROL:
         case GT_ROR:
             nextNode = DecomposeRotate(use);
             break;
-
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
             nextNode = DecomposeHWIntrinsic(use);
             break;
-#endif // FEATURE_HW_INTRINSICS
-
+#endif
         case GT_LOCKADD:
         case GT_XORR:
         case GT_XAND:
         case GT_XADD:
         case GT_XCHG:
         case GT_CMPXCHG:
-            NYI("Interlocked operations on TYP_LONG");
+            NYI("Interlocked operations on LONG");
             break;
-
         default:
-        {
-            JITDUMP("Illegal TYP_LONG node %s in Decomposition.", GenTree::OpName(tree->OperGet()));
-            assert(!"Illegal TYP_LONG node in Decomposition.");
+            JITDUMP("Illegal LONG node %s in decomposition.", GenTree::OpName(tree->GetOper()));
+            assert(!"Illegal LONG node in decomposition.");
             break;
-        }
     }
 
-    // If we replaced the argument to a GT_FIELD_LIST element with a GT_LONG node, split that field list
-    // element into two elements: one for each half of the GT_LONG.
-    if ((use.Def()->OperGet() == GT_LONG) && !use.IsDummyUse() && (use.User()->OperGet() == GT_FIELD_LIST))
+    // If we replaced the argument to a FIELD_LIST element with a LONG node, split that field list
+    // element into two elements: one for each half of the LONG.
+    if (use.Def()->OperIs(GT_LONG) && !use.IsDummyUse() && use.User()->OperIs(GT_FIELD_LIST))
     {
         DecomposeFieldList(use.User()->AsFieldList(), use.Def()->AsOp());
     }
 
-#ifdef DEBUG
-    if (m_compiler->verbose)
-    {
-        // NOTE: st_lcl_var doesn't dump properly afterwards.
-        printf("Decomposing TYP_LONG tree.  AFTER:\n");
-        m_compiler->gtDispTreeRange(Range(), use.Def());
-    }
-#endif
+    JITDUMPRANGE(Range(), use.Def(), "Decomposing LONG tree. AFTER:\n");
 
     // When casting from a decomposed long to a smaller integer we can discard the high part.
     if (m_compiler->opts.OptimizationEnabled() && !use.IsDummyUse() && use.User()->OperIs(GT_CAST) &&
@@ -552,23 +519,20 @@ GenTree* DecomposeLongs::DecomposeIndStore(LIR::Use& use)
     // Save address to a temp. It is used in storeIndLow and storeIndHigh trees.
     LIR::Use address(Range(), &store->gtOp1, store);
     address.ReplaceWithLclLoad(m_compiler);
-    JITDUMP("[DecomposeIndStore]: Saving address tree to a temp var:\n");
-    DISPTREERANGE(Range(), address.Def());
+    JITDUMPRANGE(Range(), address.Def(), "[DecomposeIndStore]: Saving address tree to a temp var:\n");
 
     if (!gtLong->gtOp1->OperIsLeaf())
     {
         LIR::Use op1(Range(), &gtLong->gtOp1, gtLong);
         op1.ReplaceWithLclLoad(m_compiler);
-        JITDUMP("[DecomposeIndStore]: Saving low data tree to a temp var:\n");
-        DISPTREERANGE(Range(), op1.Def());
+        JITDUMPRANGE(Range(), op1.Def(), "[DecomposeIndStore]: Saving low data tree to a temp var:\n");
     }
 
     if (!gtLong->gtOp2->OperIsLeaf())
     {
         LIR::Use op2(Range(), &gtLong->gtOp2, gtLong);
         op2.ReplaceWithLclLoad(m_compiler);
-        JITDUMP("[DecomposeIndStore]: Saving high data tree to a temp var:\n");
-        DISPTREERANGE(Range(), op2.Def());
+        JITDUMPRANGE(Range(), op2.Def(), "[DecomposeIndStore]: Saving high data tree to a temp var:\n");
     }
 
     GenTreeLclLoad*  addrBase    = store->GetAddr()->AsLclLoad();
@@ -1461,7 +1425,7 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
 
 // Optimizes a cast from GT_LONG by discarding the high part of the source and,
 // if the cast is to INT, the cast node itself.
-// Accounts for side effects and marks nodes unused as neccessary.
+// Accounts for side effects and marks nodes unused as necessary.
 //
 // Only accepts casts to integer types that are not long.
 // Does not optimize checked casts.

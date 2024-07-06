@@ -137,6 +137,16 @@ void SsaBuilder::Build()
     compiler->EndPhase(PHASE_BUILD_SSA_RENAME);
 }
 
+#ifdef DEBUG
+#define DBG_SSA_JITDUMP(...)                                                                                           \
+    if (JitTls::GetCompiler()->verboseSsa)                                                                             \
+    {                                                                                                                  \
+        logf(__VA_ARGS__);                                                                                             \
+    }
+#else
+#define DBG_SSA_JITDUMP(...)
+#endif
+
 bool SsaBuilder::IncludeInSsa(LclVarDsc* lcl)
 {
     if (!lcl->HasLiveness())

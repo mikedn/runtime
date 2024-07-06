@@ -381,23 +381,23 @@ typedef ptrdiff_t ssize_t;
 
 #ifdef DEBUG
 #define JITDUMP(...)                                                                                                   \
+    if (JitTls::GetCompiler()->verbose)                                                                                \
     {                                                                                                                  \
-        if (JitTls::GetCompiler()->verbose)                                                                            \
-            logf(__VA_ARGS__);                                                                                         \
+        logf(__VA_ARGS__);                                                                                             \
     }
 #define JITDUMPTREE(tree, ...)                                                                                         \
+    if (JitTls::GetCompiler()->verbose)                                                                                \
     {                                                                                                                  \
-        if (JitTls::GetCompiler()->verbose)                                                                            \
-        {                                                                                                              \
-            logf(__VA_ARGS__);                                                                                         \
-            JitTls::GetCompiler()->gtDispTree(tree);                                                                   \
-        }                                                                                                              \
+        logf(__VA_ARGS__);                                                                                             \
+        JitTls::GetCompiler()->gtDispTree(tree);                                                                       \
     }
-#define DBG_SSA_JITDUMP(...)                                                                                           \
+#define JITDUMPRANGE(range, t, ...)                                                                                    \
+    if (JitTls::GetCompiler()->verbose)                                                                                \
     {                                                                                                                  \
-        if (JitTls::GetCompiler()->verboseSsa)                                                                         \
-            logf(__VA_ARGS__);                                                                                         \
+        logf(__VA_ARGS__);                                                                                             \
+        JitTls::GetCompiler()->gtDispTreeRange(range, t);                                                              \
     }
+
 #define JITLOG(x)                                                                                                      \
     {                                                                                                                  \
         JitLogEE x;                                                                                                    \
@@ -411,6 +411,7 @@ typedef ptrdiff_t ssize_t;
     {                                                                                                                  \
         expr;                                                                                                          \
     }
+
 #define DISPNODE(t)                                                                                                    \
     if (JitTls::GetCompiler()->verbose)                                                                                \
         JitTls::GetCompiler()->gtDispLIRNode(t);
@@ -433,6 +434,7 @@ typedef ptrdiff_t ssize_t;
 #else // !DEBUG
 #define JITDUMP(...)
 #define JITDUMPTREE(...)
+#define JITDUMPRANGE(...)
 #define DBG_SSA_JITDUMP(...)
 #define JITLOG(x)
 #define JITLOG_THIS(t, x)
