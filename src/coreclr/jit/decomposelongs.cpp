@@ -247,8 +247,6 @@ GenTree* DecomposeLongs::FinalizeDecomposition(LIR::Use& use,
 
 GenTree* DecomposeLongs::DecomposeLclLoad(LIR::Use& use)
 {
-    assert(use.IsInitialized());
-
     GenTree*   tree     = use.Def();
     LclVarDsc* varDsc   = tree->AsLclLoad()->GetLcl();
     GenTree*   loResult = tree;
@@ -282,8 +280,6 @@ GenTree* DecomposeLongs::DecomposeLclLoad(LIR::Use& use)
 
 GenTree* DecomposeLongs::DecomposeLclLoadFld(LIR::Use& use)
 {
-    assert(use.IsInitialized());
-
     GenTree*       tree     = use.Def();
     GenTreeLclFld* loResult = tree->AsLclLoadFld();
     loResult->SetType(TYP_INT);
@@ -296,8 +292,6 @@ GenTree* DecomposeLongs::DecomposeLclLoadFld(LIR::Use& use)
 
 GenTree* DecomposeLongs::DecomposeLclStore(LIR::Use& use)
 {
-    assert(use.IsInitialized());
-
     GenTreeLclStore* tree = use.Def()->AsLclStore();
     GenTree*         rhs  = tree->GetValue();
 
@@ -368,8 +362,6 @@ GenTree* DecomposeLongs::DecomposeLclStore(LIR::Use& use)
 
 GenTree* DecomposeLongs::DecomposeLclStoreFld(LIR::Use& use)
 {
-    assert(use.IsInitialized());
-
     GenTreeLclStoreFld* store = use.Def()->AsLclStoreFld();
 
     GenTreeOp* value = store->GetValue()->AsOp();
@@ -391,8 +383,6 @@ GenTree* DecomposeLongs::DecomposeLclStoreFld(LIR::Use& use)
 
 GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
 {
-    assert(use.IsInitialized());
-
     GenTreeCast* cast     = use.Def()->AsCast();
     GenTree*     loResult = nullptr;
     GenTree*     hiResult = nullptr;
@@ -505,11 +495,8 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
 
 GenTree* DecomposeLongs::DecomposeCnsLng(LIR::Use& use)
 {
-    assert(use.IsInitialized());
-    assert(use.Def()->OperGet() == GT_CNS_LNG);
-
-    GenTree* tree  = use.Def();
-    int32_t  hiVal = static_cast<int32_t>(tree->AsLngCon()->GetValue() >> 32);
+    GenTreeLngCon* tree  = use.Def()->AsLngCon();
+    int32_t        hiVal = static_cast<int32_t>(tree->GetValue() >> 32);
 
     GenTree* loResult = tree;
     loResult->ChangeOperConst(GT_CNS_INT);
@@ -523,9 +510,10 @@ GenTree* DecomposeLongs::DecomposeCnsLng(LIR::Use& use)
 
 GenTree* DecomposeLongs::DecomposeFieldList(GenTreeFieldList* fieldList, GenTreeOp* longNode)
 {
-    assert(longNode->OperGet() == GT_LONG);
+    assert(longNode->OperIs(GT_LONG));
 
     GenTreeFieldList::Use* loUse = nullptr;
+
     for (GenTreeFieldList::Use& use : fieldList->Uses())
     {
         if (use.GetNode() == longNode)
@@ -534,6 +522,7 @@ GenTree* DecomposeLongs::DecomposeFieldList(GenTreeFieldList* fieldList, GenTree
             break;
         }
     }
+
     assert(loUse != nullptr);
 
     Range().Remove(longNode);
@@ -548,17 +537,13 @@ GenTree* DecomposeLongs::DecomposeFieldList(GenTreeFieldList* fieldList, GenTree
 
 GenTree* DecomposeLongs::DecomposeCall(LIR::Use& use)
 {
-    assert(use.IsInitialized());
-    assert(use.Def()->OperGet() == GT_CALL);
+    assert(use.Def()->OperIs(GT_CALL));
 
-    // We only need to force var = call() if the call's result is used.
     return StoreMultiRegNodeToLcl(use);
 }
 
 GenTree* DecomposeLongs::DecomposeIndStore(LIR::Use& use)
 {
-    assert(use.IsInitialized());
-
     GenTreeIndStore* store  = use.Def()->AsIndStore();
     GenTreeOp*       gtLong = store->GetValue()->AsOp();
 
@@ -635,8 +620,7 @@ GenTree* DecomposeLongs::DecomposeIndLoad(LIR::Use& use)
 
 GenTree* DecomposeLongs::DecomposeNot(LIR::Use& use)
 {
-    assert(use.IsInitialized());
-    assert(use.Def()->OperGet() == GT_NOT);
+    assert(use.Def()->OperIs(GT_NOT));
 
     GenTree* tree   = use.Def();
     GenTree* gtLong = tree->gtGetOp1();
@@ -658,8 +642,7 @@ GenTree* DecomposeLongs::DecomposeNot(LIR::Use& use)
 
 GenTree* DecomposeLongs::DecomposeNeg(LIR::Use& use)
 {
-    assert(use.IsInitialized());
-    assert(use.Def()->OperGet() == GT_NEG);
+    assert(use.Def()->OperIs(GT_NEG));
 
     GenTree* tree   = use.Def();
     GenTree* gtLong = tree->gtGetOp1();
@@ -805,8 +788,6 @@ GenTree* DecomposeLongs::DecomposeBitwise(LIR::Use& use)
 // them the args to a call, then replacing the original node with the new call.
 GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
 {
-    assert(use.IsInitialized());
-
     GenTree* shift     = use.Def();
     GenTree* gtLong    = shift->gtGetOp1();
     GenTree* loOp1     = gtLong->gtGetOp1();
@@ -1279,8 +1260,6 @@ GenTree* DecomposeLongs::DecomposeRotate(LIR::Use& use)
 // All other GT_MULs have been converted to helper calls in morph.cpp
 GenTree* DecomposeLongs::DecomposeMul(LIR::Use& use)
 {
-    assert(use.IsInitialized());
-
     GenTreeOp* tree = use.Def()->AsOp();
 
     assert(tree->OperIs(GT_MUL));
@@ -1323,8 +1302,6 @@ GenTree* DecomposeLongs::DecomposeMul(LIR::Use& use)
 //
 GenTree* DecomposeLongs::DecomposeUMod(LIR::Use& use)
 {
-    assert(use.IsInitialized());
-
     GenTreeOp* tree = use.Def()->AsOp();
 
     assert(tree->OperIs(GT_UMOD));
