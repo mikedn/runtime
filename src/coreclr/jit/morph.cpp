@@ -12711,7 +12711,7 @@ GenTree* Compiler::fgRecognizeAndMorphBitwiseRotation(GenTree* tree)
 
         if (rotateIndex != nullptr)
         {
-            noway_assert(GenTree::OperIsRotate(rotateOp));
+            noway_assert((rotateOp == GT_ROL) || (rotateOp == GT_ROR));
 
             unsigned inputTreeEffects = tree->gtFlags & GTF_ALL_EFFECT;
 

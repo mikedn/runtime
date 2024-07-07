@@ -220,7 +220,7 @@ static bool IsValidGenericLoadStoreOffset(ssize_t offset, unsigned size ARM64_AR
 
 void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree* addr)
 {
-    assert(store->OperIsPutArgStkOrSplit() || store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD) ||
+    assert(store->OperIsPutArgSplit() || store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_PUTARG_STK) ||
            (store->OperIs(GT_IND_STORE_BLK, GT_IND_STORE_OBJ) &&
             ((store->AsBlk()->GetKind() == StructStoreKind::UnrollCopy) ||
              (store->AsBlk()->GetKind() == StructStoreKind::UnrollInit ||
@@ -969,21 +969,20 @@ void Lowering::ContainCheckDivOrMod(GenTreeOp* node)
 
 void Lowering::ContainCheckShiftRotate(GenTreeOp* node)
 {
-    GenTree* shiftBy = node->gtOp2;
     assert(node->OperIsShiftOrRotate());
 
 #ifdef TARGET_ARM
-    GenTree* source = node->gtOp1;
     if (node->OperIs(GT_LSH_HI, GT_RSH_LO))
     {
-        assert(source->OperGet() == GT_LONG);
-        MakeSrcContained(node, source);
+        GenTree* source = node->GetOp(0);
+        assert(source->OperIs(GT_LONG));
+        source->SetContained();
     }
-#endif // TARGET_ARM
+#endif
 
-    if (shiftBy->IsCnsIntOrI())
+    if (GenTree* shiftBy = node->GetOp(1)->IsIntCon())
     {
-        MakeSrcContained(node, shiftBy);
+        shiftBy->SetContained();
     }
 }
 
