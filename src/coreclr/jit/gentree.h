@@ -2487,13 +2487,6 @@ struct GenTreeOp : public GenTreeUnOp
         }
     }
 
-    // returns true if we will use the division by constant optimization for this node.
-    bool UsesDivideByConstOptimized(Compiler* comp);
-
-    // checks if we will use the division by constant optimization this node
-    // then sets GTF_DONT_CSE on the constant
-    void CheckDivideByConstOptimized(Compiler* comp);
-
 #if DEBUGGABLE_GENTREE
     GenTreeOp() : GenTreeUnOp(), gtOp2(nullptr)
     {
