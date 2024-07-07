@@ -490,7 +490,6 @@ enum GenTreeFlags : unsigned
     // Unary/Binary op specific flags
 
     GTF_CAST_OVERFLOW         = 0x10000000, // CAST - overflow check
-    GTF_DIV_BY_CNS_OPT        = 0x80000000, // DIV - division by constant optimization
     GTF_ADDRMODE_NO_CSE       = 0x80000000, // ADD/MUL/LSH/COMMA - address mode component, do not CSE
                                             // (unlike GTF_DONT_CSE this does not block constant propagation)
 };
@@ -2492,14 +2491,8 @@ struct GenTreeOp : public GenTreeUnOp
     bool UsesDivideByConstOptimized(Compiler* comp);
 
     // checks if we will use the division by constant optimization this node
-    // then sets the flag GTF_DIV_BY_CNS_OPT and GTF_DONT_CSE on the constant
+    // then sets GTF_DONT_CSE on the constant
     void CheckDivideByConstOptimized(Compiler* comp);
-
-    // True if this node is marked as using the division by constant optimization
-    bool MarkedDivideByConstOptimized() const
-    {
-        return (gtFlags & GTF_DIV_BY_CNS_OPT) != 0;
-    }
 
 #if DEBUGGABLE_GENTREE
     GenTreeOp() : GenTreeUnOp(), gtOp2(nullptr)

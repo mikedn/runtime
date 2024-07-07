@@ -4659,9 +4659,7 @@ bool GenTreeOp::UsesDivideByConstOptimized(Compiler* comp)
 //------------------------------------------------------------------------
 // CheckDivideByConstOptimized:
 //      Checks if we can use the division by constant optimization
-//      on this node
-//      and if so sets the flag GTF_DIV_BY_CNS_OPT and
-//      set GTF_DONT_CSE on the constant node
+//      on this node and if so sets GTF_DONT_CSE on the constant node
 //
 // Arguments:
 //    this       - a GenTreeOp node
@@ -4671,8 +4669,6 @@ void GenTreeOp::CheckDivideByConstOptimized(Compiler* comp)
 {
     if (UsesDivideByConstOptimized(comp))
     {
-        gtFlags |= GTF_DIV_BY_CNS_OPT;
-
         // Now set DONT_CSE on the GT_CNS_INT divisor, note that
         // with value numbering we can have a non GT_CNS_INT divisior
         GenTree* divisor = GetOp(1)->SkipComma();
@@ -6419,16 +6415,6 @@ int Compiler::dmpNodeFlags(GenTree* tree)
             else if (flags & GTF_CALL_HOISTABLE)
             {
                 operFlag = 'H';
-            }
-            break;
-
-        case GT_DIV:
-        case GT_MOD:
-        case GT_UDIV:
-        case GT_UMOD:
-            if (flags & GTF_DIV_BY_CNS_OPT)
-            {
-                operFlag = 'M';
             }
             break;
 
