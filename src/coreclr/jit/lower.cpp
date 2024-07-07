@@ -4716,7 +4716,7 @@ void Lowering::CheckAllLocalsImplicitlyReferenced()
 
 void Lowering::CheckCallArg(GenTree* arg)
 {
-    if (!arg->IsValue() && !arg->OperIsPutArgStk())
+    if (!arg->IsValue() && !arg->IsPutArgStk())
     {
         assert(arg->OperIs(GT_LCL_STORE, GT_ARGPLACE) || arg->IsNothingNode());
         return;

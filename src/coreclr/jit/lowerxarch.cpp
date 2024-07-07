@@ -3530,7 +3530,7 @@ void Lowering::ContainCheckShiftRotate(GenTreeOp* node)
     assert(node->OperIsShiftOrRotate());
 
 #ifdef TARGET_X86
-    if (node->OperIsShiftLong())
+    if (node->OperIs(GT_LSH_HI, GT_RSH_LO))
     {
         GenTree* value = node->GetOp(0);
         assert(value->OperIs(GT_LONG));
@@ -3633,7 +3633,7 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
         }
 
         if ((load != nullptr) && (varTypeSize(load->GetType()) == varTypeSize(store->GetType())) &&
-            (!varTypeIsSmall(load->GetType()) || !src->OperIsRotate()) &&
+            (!varTypeIsSmall(load->GetType()) || !src->OperIs(GT_ROL, GT_ROR)) &&
             (!varTypeIsSmallSigned(load->GetType()) || !src->OperIs(GT_RSZ)) && IsSafeToContainMem(store, load))
         {
             if (src->OperIs(GT_RSH) && varTypeIsSmallUnsigned(load->GetType()))

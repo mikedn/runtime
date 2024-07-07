@@ -1257,24 +1257,9 @@ public:
 #endif
     }
 
-    bool OperIsPutArgStk() const
-    {
-        return gtOper == GT_PUTARG_STK;
-    }
-
-    bool OperIsPutArgStkOrSplit() const
-    {
-        return OperIsPutArgStk() || OperIsPutArgSplit();
-    }
-
-    bool OperIsPutArgReg() const
-    {
-        return gtOper == GT_PUTARG_REG;
-    }
-
     bool OperIsPutArg() const
     {
-        return OperIsPutArgStk() || OperIsPutArgReg() || OperIsPutArgSplit();
+        return (gtOper == GT_PUTARG_STK) || (gtOper == GT_PUTARG_REG) || OperIsPutArgSplit();
     }
 
     bool IsMultiRegOpLong() const
@@ -1291,48 +1276,18 @@ public:
         return OperIsCompare(gtOper);
     }
 
-    static bool OperIsShift(genTreeOps oper)
-    {
-        return (oper == GT_LSH) || (oper == GT_RSH) || (oper == GT_RSZ);
-    }
-
-    bool OperIsShift() const
-    {
-        return OperIsShift(OperGet());
-    }
-
-    static bool OperIsShiftLong(genTreeOps oper)
-    {
-#ifdef TARGET_64BIT
-        return false;
-#else
-        return (oper == GT_LSH_HI) || (oper == GT_RSH_LO);
-#endif
-    }
-
-    bool OperIsShiftLong() const
-    {
-        return OperIsShiftLong(OperGet());
-    }
-
-    static bool OperIsRotate(genTreeOps oper)
-    {
-        return (oper == GT_ROL) || (oper == GT_ROR);
-    }
-
-    bool OperIsRotate() const
-    {
-        return OperIsRotate(OperGet());
-    }
-
     static bool OperIsShiftOrRotate(genTreeOps oper)
     {
-        return OperIsShift(oper) || OperIsRotate(oper) || OperIsShiftLong(oper);
+        return (oper == GT_LSH) || (oper == GT_RSH) || (oper == GT_RSZ) || (oper == GT_ROL) || (oper == GT_ROR)
+#ifndef TARGET_64BIT
+               || (oper == GT_LSH_HI) || (oper == GT_RSH_LO)
+#endif
+            ;
     }
 
     bool OperIsShiftOrRotate() const
     {
-        return OperIsShiftOrRotate(OperGet());
+        return OperIsShiftOrRotate(gtOper);
     }
 
 #ifdef TARGET_XARCH
