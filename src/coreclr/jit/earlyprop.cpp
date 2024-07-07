@@ -208,13 +208,6 @@ private:
         arrLen->ChangeToIntCon(TYP_INT, lengthValue);
         arrLen->gtFlags = constLen->gtFlags;
 
-        // Propagating a constant may create an opportunity to use a division by constant optimization
-        if ((arrLen->gtNext != nullptr) && arrLen->gtNext->OperIs(GT_DIV, GT_MOD, GT_UDIV, GT_UMOD))
-        {
-            // We need to mark the parent divide/mod operation when this occurs
-            arrLen->gtNext->AsOp()->CheckDivideByConstOptimized(compiler);
-        }
-
         JITDUMPTREE(currentStatement->GetRootNode(), "to\n");
 
         return arrLen;

@@ -1902,7 +1902,6 @@ private:
         DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
 
         div->SetOper(div->OperIs(GT_DIV) ? GT_UDIV : GT_UMOD, GenTree::PRESERVE_VN);
-        div->CheckDivideByConstOptimized(compiler);
 
         return nullptr;
     }
