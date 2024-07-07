@@ -10165,11 +10165,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                     tree = gtFoldExpr(tree);
                 }
 
-                if (!tree->IsNumericConst())
-                {
-                    tree->AsOp()->CheckDivideByConstOptimized(this);
-                }
-
                 return tree;
             }
 #endif // TARGET_XARCH
@@ -12180,11 +12175,6 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
             }
             break;
 
-        case GT_UDIV:
-        case GT_UMOD:
-            tree->CheckDivideByConstOptimized(this);
-            break;
-
         default:
             break;
     }
@@ -12249,12 +12239,7 @@ GenTree* Compiler::fgMorphModToSubMulDiv(GenTreeOp* tree)
     assert(!mul->IsReverseOp());
     GenTree* sub = gtNewOperNode(GT_SUB, type, gtCloneExpr(numerator), mul);
     sub->gtFlags |= GTF_REVERSE_OPS;
-
-#ifdef DEBUG
-    sub->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
-#endif
-
-    tree->CheckDivideByConstOptimized(this);
+    INDEBUG(sub->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
 
     return sub;
 }

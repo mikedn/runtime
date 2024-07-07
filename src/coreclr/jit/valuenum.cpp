@@ -8221,6 +8221,174 @@ void ValueNumbering::NumberDivMod(GenTreeOp* node)
     }
 
     node->SetVNP(vnStore->PackExset(vnp, exset));
+
+    if (node->GetOp(1)->IsNumericConst())
+    {
+        node->CheckDivideByConstOptimized(compiler);
+    }
+}
+
+//----------------------------------------------------------------------------
+// UsesDivideByConstOptimized:
+//    returns true if rationalize will use the division by constant
+//    optimization for this node.
+//
+// Arguments:
+//    this - a GenTreeOp node
+//    comp - the compiler instance
+//
+// Return Value:
+//    Return true iff the node is a GT_DIV,GT_UDIV, GT_MOD or GT_UMOD with
+//    an integer constant and we can perform the division operation using
+//    a reciprocal multiply or a shift operation.
+//
+bool GenTreeOp::UsesDivideByConstOptimized(Compiler* comp)
+{
+    if (!comp->opts.OptimizationEnabled())
+    {
+        return false;
+    }
+
+    if (!OperIs(GT_DIV, GT_MOD, GT_UDIV, GT_UMOD))
+    {
+        return false;
+    }
+#if defined(TARGET_ARM64)
+    if (OperIs(GT_MOD, GT_UMOD))
+    {
+        // MOD, UMOD not supported for ARM64
+        return false;
+    }
+#endif // TARGET_ARM64
+
+    bool     isSignedDivide = OperIs(GT_DIV, GT_MOD);
+    GenTree* dividend = GetOp(0)->SkipComma();
+    GenTree* divisor = GetOp(1)->SkipComma();
+
+#if !defined(TARGET_64BIT)
+    if (dividend->OperIs(GT_LONG))
+    {
+        return false;
+    }
+#endif
+
+    if (dividend->IsCnsIntOrI())
+    {
+        // We shouldn't see a divmod with constant operands here but if we do then it's likely
+        // because optimizations are disabled or it's a case that's supposed to throw an exception.
+        // Don't optimize this.
+        return false;
+    }
+
+    ssize_t divisorValue;
+    if (divisor->IsCnsIntOrI())
+    {
+        divisorValue = static_cast<ssize_t>(divisor->AsIntCon()->IconValue());
+    }
+    else
+    {
+        ValueNum vn = divisor->GetLiberalVN();
+        if (comp->vnStore->IsVNConstant(vn))
+        {
+            divisorValue = comp->vnStore->CoercedConstantValue<ssize_t>(vn);
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+    const var_types divType = TypeGet();
+
+    if (divisorValue == 0)
+    {
+        // x / 0 and x % 0 can't be optimized because they are required to throw an exception.
+        return false;
+    }
+    else if (isSignedDivide)
+    {
+        if (divisorValue == -1)
+        {
+            // x / -1 can't be optimized because INT_MIN / -1 is required to throw an exception.
+            return false;
+        }
+        else if (isPow2(divisorValue))
+        {
+            return true;
+        }
+    }
+    else // unsigned divide
+    {
+        if (divType == TYP_INT)
+        {
+            // Clear up the upper 32 bits of the value, they may be set to 1 because constants
+            // are treated as signed and stored in ssize_t which is 64 bit in size on 64 bit targets.
+            divisorValue &= UINT32_MAX;
+        }
+
+        size_t unsignedDivisorValue = (size_t)divisorValue;
+        if (isPow2(unsignedDivisorValue))
+        {
+            return true;
+        }
+    }
+
+    const bool isDiv = OperIs(GT_DIV, GT_UDIV);
+
+    if (isDiv)
+    {
+        if (isSignedDivide)
+        {
+            // If the divisor is the minimum representable integer value then the result is either 0 or 1
+            if ((divType == TYP_INT && divisorValue == INT_MIN) || (divType == TYP_LONG && divisorValue == INT64_MIN))
+            {
+                return true;
+            }
+        }
+        else
+        {
+            // If the divisor is greater or equal than 2^(N - 1) then the result is either 0 or 1
+            if (((divType == TYP_INT) && ((UINT32)divisorValue > (UINT32_MAX / 2))) ||
+                ((divType == TYP_LONG) && ((UINT64)divisorValue > (UINT64_MAX / 2))))
+            {
+                return true;
+            }
+        }
+    }
+
+    // TODO-ARM-CQ: Currently there's no GT_MULHI for ARM32
+#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
+    if (!comp->opts.MinOpts() && ((divisorValue >= 3) || !isSignedDivide))
+    {
+        // All checks pass we can perform the division operation using a reciprocal multiply.
+        return true;
+    }
+#endif
+
+    return false;
+}
+
+//------------------------------------------------------------------------
+// CheckDivideByConstOptimized:
+//      Checks if we can use the division by constant optimization
+//      on this node and if so sets GTF_DONT_CSE on the constant node
+//
+// Arguments:
+//    this       - a GenTreeOp node
+//    comp       - the compiler instance
+//
+void GenTreeOp::CheckDivideByConstOptimized(Compiler* comp)
+{
+    if (UsesDivideByConstOptimized(comp))
+    {
+        // Now set DONT_CSE on the GT_CNS_INT divisor, note that
+        // with value numbering we can have a non GT_CNS_INT divisior
+        GenTree* divisor = GetOp(1)->SkipComma();
+        if (divisor->OperIs(GT_CNS_INT))
+        {
+            divisor->gtFlags |= GTF_DONT_CSE;
+        }
+    }
 }
 
 void ValueNumbering::AddOverflowExset(GenTreeOp* node)
