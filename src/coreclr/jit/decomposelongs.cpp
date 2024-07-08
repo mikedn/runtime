@@ -168,7 +168,7 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
     JITDUMPRANGE(Range(), use.Def(), "Decomposing LONG tree. AFTER:\n");
 
     // When casting from a decomposed long to a smaller integer we can discard the high part.
-    if (m_compiler->opts.OptimizationEnabled() && !use.IsDummyUse() && use.User()->OperIs(GT_CAST) &&
+    if (m_compiler->opts.OptimizationEnabled() && !use.IsDummyUse() && use.User()->IsCast() &&
         use.User()->TypeIs(TYP_INT) && use.Def()->OperIs(GT_LONG))
     {
         nextNode = OptimizeCastFromDecomposedLong(use.User()->AsCast(), nextNode);

@@ -488,7 +488,7 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
     GenTree* op1    = node->GetOp(0);
     GenTree* castOp = nullptr;
 
-    if (varTypeIsIntegral(node->GetSimdBaseType()) && op1->OperIs(GT_CAST))
+    if (varTypeIsIntegral(node->GetSimdBaseType()) && op1->IsCast())
     {
         // We will sometimes get a cast around a constant value (such as for
         // certain long constants) which would block the below containment.

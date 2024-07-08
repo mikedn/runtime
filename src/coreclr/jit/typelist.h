@@ -34,10 +34,10 @@ DEF_TP(SHORT,   "short",   TYP_INT,     2, EA_2BYTE,   EA_4BYTE,    2,  VTF_INT)
 DEF_TP(USHORT,  "ushort",  TYP_INT,     2, EA_2BYTE,   EA_4BYTE,    2,  VTF_INT|VTF_UNS)
                                                                         
 DEF_TP(INT,     "int",     TYP_INT,     4, EA_4BYTE,   EA_4BYTE,    4,  VTF_INT|VTF_I32)
-DEF_TP(UINT,    "uint",    TYP_INT,     4, EA_4BYTE,   EA_4BYTE,    4,  VTF_INT|VTF_UNS|VTF_I32) // Only used in GT_CAST nodes
+DEF_TP(UINT,    "uint",    TYP_INT,     4, EA_4BYTE,   EA_4BYTE,    4,  VTF_INT|VTF_UNS|VTF_I32) // Only used in CAST nodes
                                                                         
 DEF_TP(LONG,    "long",    TYP_LONG,    8, EA_PTRSIZE, EA_PTRSIZE,  8,  VTF_INT|VTF_I64)
-DEF_TP(ULONG,   "ulong",   TYP_LONG,    8, EA_PTRSIZE, EA_PTRSIZE,  8,  VTF_INT|VTF_UNS|VTF_I64) // Only used in GT_CAST nodes
+DEF_TP(ULONG,   "ulong",   TYP_LONG,    8, EA_PTRSIZE, EA_PTRSIZE,  8,  VTF_INT|VTF_UNS|VTF_I64) // Only used in CAST nodes
                                                                        
 DEF_TP(FLOAT,   "float",   TYP_FLOAT,   4, EA_4BYTE,   EA_4BYTE,    4,  VTF_FLT)
 DEF_TP(DOUBLE,  "double",  TYP_DOUBLE,  8, EA_8BYTE,   EA_8BYTE,    8,  VTF_FLT)

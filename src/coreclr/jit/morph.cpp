@@ -34,8 +34,7 @@ GenTree* Compiler::fgMorphCastIntoHelper(GenTreeCast* cast, int helper)
             return folded;
         }
 
-        noway_assert(cast->OperIs(GT_CAST));
-        noway_assert(cast->GetOp(0) == src);
+        noway_assert(cast->OperIs(GT_CAST) && (cast->GetOp(0) == src));
     }
 
     if (src->TypeIs(TYP_FLOAT))
@@ -317,7 +316,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
             GenTree* andOp2 = src->AsOp()->GetOp(1);
 
             // Special case to the special case: AND with a casted int.
-            if (andOp2->OperIs(GT_CAST) && andOp2->AsCast()->GetOp(0)->OperIs(GT_CNS_INT))
+            if (andOp2->IsCast() && andOp2->AsCast()->GetOp(0)->OperIs(GT_CNS_INT))
             {
                 // gtFoldExprConst will deal with whether the cast is signed or
                 // unsigned, or overflow-sensitive.
@@ -563,10 +562,13 @@ GenTree* Compiler::fgMorphCastPost(GenTreeCast* cast)
                 fgMorphNarrowTree(src, srcType, dstType, cast->GetVNP(), true);
 
                 // If oper is changed into a cast to TYP_INT, or to a GT_NOP, we may need to discard it
-                if (src->OperIs(GT_CAST) &&
-                    (src->AsCast()->GetCastType() == varActualType(src->AsCast()->GetOp(0)->GetType())))
+
+                if (GenTreeCast* srcCast = src->IsCast())
                 {
-                    src = src->AsCast()->GetOp(0);
+                    if (srcCast->GetCastType() == varActualType(srcCast->GetOp(0)->GetType()))
+                    {
+                        src = srcCast->GetOp(0);
+                    }
                 }
 
                 goto REMOVE_CAST;
@@ -593,7 +595,7 @@ GenTree* Compiler::fgMorphCastPost(GenTreeCast* cast)
                 return folded;
             }
 
-            if (!folded->OperIs(GT_CAST))
+            if (!folded->IsCast())
             {
                 return folded;
             }
@@ -6643,11 +6645,11 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
 #ifdef DEBUG
     // Tail call needs to be in one of the following IR forms
     //    Either a call stmt or
-    //    GT_RETURN(GT_CALL(..)) or GT_RETURN(GT_CAST(GT_CALL(..)))
-    //    var = GT_CALL(..) or var = (GT_CAST(GT_CALL(..)))
-    //    GT_COMMA(GT_CALL(..), GT_NOP) or GT_COMMA(GT_CAST(GT_CALL(..)), GT_NOP)
+    //    RETURN(CALL(..)) or RETURN(CAST(CALL(..)))
+    //    var = CALL(..) or var = (CAST(CALL(..)))
+    //    COMMA(CALL(..), NOP) or COMMA(CAST(CALL(..)), NOP)
     // In the above,
-    //    GT_CASTS may be nested.
+    //    CASTs may be nested.
     if (stmtExpr->IsCall())
     {
         assert(stmtExpr == call);
