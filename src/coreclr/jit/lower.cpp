@@ -3840,13 +3840,13 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
             else if (type != TYP_I_IMPL)
             {
 #ifdef TARGET_ARM64
-                divMod->SetOper(GT_CAST);
-                divMod->AsCast()->SetCastType(TYP_INT);
+                divMod->ChangeToCast(TYP_INT, mulhi);
+                divMod->gtOp2 = nullptr;
 #else
                 divMod->SetOper(GT_BITCAST);
-#endif
                 divMod->gtOp1 = mulhi;
                 divMod->gtOp2 = nullptr;
+#endif
             }
         }
 
@@ -4200,7 +4200,7 @@ void Lowering::LowerShift(GenTreeOp* shift)
 
             GenTree* src = shift->GetOp(0);
 
-            while (src->OperIs(GT_CAST) && !src->AsCast()->HasOverflowCheck())
+            while (src->IsCast() && !src->AsCast()->HasOverflowCheck())
             {
                 GenTreeCast* cast = src->AsCast();
 

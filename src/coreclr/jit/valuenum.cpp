@@ -448,7 +448,7 @@ VNFunc GetVNFuncForNode(GenTree* node)
 #endif
 
         case GT_CAST:
-            // GT_CAST can overflow but it has special handling and it should not appear here.
+            // CAST can overflow but it has special handling and it should not appear here.
             unreached();
 
         default:
@@ -1416,7 +1416,7 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0, Va
         bool canFold = true;
 
         // Special case for VNF_Cast of constant handles
-        // Don't allow an eval/fold of a GT_CAST(non-I_IMPL, Handle)
+        // Don't allow an eval/fold of a CAST(non-I_IMPL, Handle)
         if (VNFuncIsNumericCast(func) && (type != TYP_I_IMPL) && IsVNHandle(arg0))
         {
             canFold = false;

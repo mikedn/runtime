@@ -16301,8 +16301,8 @@ GenTree* Importer::impImportPop(BasicBlock* block)
 
     // If op1 is non-overflow cast, throw it away since it is useless.
     // Another reason for throwing away the useless cast is in the context of
-    // implicit tail calls when the operand of pop is GT_CAST(GT_CALL(..)).
-    // The cast gets added as part of importing GT_CALL, which gets in the way
+    // implicit tail calls when the operand of pop is CAST(CALL(..)).
+    // The cast gets added as part of importing CALL, which gets in the way
     // of fgMorphCall() on the forms of tail call nodes that we assert.
     if (op1->IsCast() && !op1->AsCast()->HasOverflowCheck())
     {
