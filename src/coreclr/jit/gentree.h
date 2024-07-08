@@ -390,9 +390,7 @@ enum GenTreeFlags : unsigned
     GTF_MAKE_CSE              = 0x00000040, // Hoisted expression - try hard to CSE this expression
     GTF_DONT_CSE              = 0x00000080, // Do not CSE this expression
     GTF_BOOLEAN               = 0x00000100, // Value is known to be 0 or 1
-    GTF_UNSIGNED              = 0x00000200, 
-    GTF_CAST_UNSIGNED         = GTF_UNSIGNED, // CAST - treat source operand as unsigned
-    GTF_RELOP_UNSIGNED        = GTF_UNSIGNED, // GT/GE/LT/LE - unsigned compare
+    GTF_RELOP_UNSIGNED        = 0x00000200, // GT/GE/LT/LE - unsigned compare
     GTF_CONTAINED             = 0x00000400, // Node is contained (executed as part of its user)
     GTF_NOREG_AT_USE          = 0x00000800, // Value is used from spilled temp without reloading into a register
     GTF_REUSE_REG_VAL         = 0x00001000, // Destination register already contains the produced value so code
@@ -487,9 +485,13 @@ enum GenTreeFlags : unsigned
     GTF_JCMP_EQ               = 0x80000000, // CBZ/TBZ (rather than CBNZ/TBNZ)
     GTF_JCMP_TST              = 0x40000000, // TBZ/TBNZ (rather than CBZ/CBNZ)
 
+    // CAST specific flags
+
+    GTF_CAST_UNSIGNED         = 0x80000000, // CAST - treat source operand as unsigned
+    GTF_CAST_OVERFLOW         = 0x40000000, // CAST - overflow check
+
     // Unary/Binary op specific flags
 
-    GTF_CAST_OVERFLOW         = 0x10000000, // CAST - overflow check
     GTF_ADDRMODE_NO_CSE       = 0x80000000, // ADD/MUL/LSH/COMMA - address mode component, do not CSE
                                             // (unlike GTF_DONT_CSE this does not block constant propagation)
 };
