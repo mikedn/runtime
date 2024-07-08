@@ -1657,7 +1657,6 @@ public:
     void SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate = CLEAR_VN);
     void SetOperResetFlags(genTreeOps oper);
     void ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate = CLEAR_VN);
-    void ChangeOperConst(genTreeOps oper);
     GenTreeIntCon* ChangeToIntCon(ssize_t value);
     GenTreeIntCon* ChangeToIntCon(var_types type, ssize_t value);
 #ifndef TARGET_64BIT

@@ -657,9 +657,11 @@ GenTree* Compiler::fgMorphCastPost(GenTreeCast* cast)
                 }
                 else if (cast->TypeIs(TYP_LONG))
                 {
-                    val->ChangeOperConst(GT_CNS_NATIVELONG);
-                    val->AsIntConCommon()->SetLngValue(0);
-                    val->SetType(TYP_LONG);
+#ifdef TARGET_64BIT
+                    val->ChangeToIntCon(TYP_LONG, 0);
+#else
+                    val->ChangeToLngCon(0);
+#endif
                     src->SetType(TYP_LONG);
 
                     if (vnStore != nullptr)
@@ -8539,26 +8541,16 @@ GenTree* Compiler::fgMorphInitStructConstant(GenTreeIntCon* initVal,
 
     if (initPatternType == TYP_FLOAT)
     {
-        float floatPattern;
-        memcpy(&floatPattern, &initPattern, 4);
-        initVal->ChangeOperConst(GT_CNS_DBL);
-        initVal->SetType(TYP_FLOAT);
-        initVal->AsDblCon()->SetValue(floatPattern);
+        initVal->ChangeToDblCon(TYP_FLOAT, jitstd::bit_cast<float>(static_cast<uint32_t>(initPattern & UINT32_MAX)));
     }
     else if (initPatternType == TYP_DOUBLE)
     {
-        double doublePattern;
-        memcpy(&doublePattern, &initPattern, 8);
-        initVal->ChangeOperConst(GT_CNS_DBL);
-        initVal->SetType(TYP_DOUBLE);
-        initVal->AsDblCon()->SetValue(doublePattern);
+        initVal->ChangeToDblCon(TYP_DOUBLE, jitstd::bit_cast<double>(initPattern));
     }
 #ifndef TARGET_64BIT
     else if (varTypeIsLong(initPatternType))
     {
-        initVal->ChangeOperConst(GT_CNS_LNG);
-        initVal->SetType(TYP_LONG);
-        initVal->AsLngCon()->SetValue(initPattern);
+        initVal->ChangeToLngCon(initPattern);
     }
 #endif
     else
@@ -9752,23 +9744,21 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 
         if (varTypeIsFloating(qmark->GetType()))
         {
-            value->ChangeOperConst(GT_CNS_DBL);
-            value->AsDblCon()->SetValue(0.0);
+            value->ChangeToDblCon(qmark->GetType(), 0.0);
         }
+#ifndef TARGET_64BIT
         else if (qmark->TypeIs(TYP_LONG))
         {
-            value->ChangeOperConst(GT_CNS_NATIVELONG);
-            value->AsIntConCommon()->SetLngValue(0);
+            value->ChangeToLngCon(0);
         }
+#endif
         else
         {
             assert(varTypeIsIntOrI(qmark->GetType()));
 
-            value->ChangeOperConst(GT_CNS_INT);
-            value->AsIntConCommon()->SetIconValue(0);
+            value->ChangeToIntCon(varActualType(qmark->GetType()), 0);
         }
 
-        value->SetType(varActualType(qmark->GetType()));
         condExpr->SetType(value->GetType());
 
         return condExpr;

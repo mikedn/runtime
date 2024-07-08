@@ -113,9 +113,7 @@ void Lowering::LowerIndStoreArch(GenTreeIndStore* store)
         {
             GenTree* intCon = dblCon;
 
-            intCon->ChangeOperConst(GT_CNS_INT);
-            intCon->SetType(type);
-            intCon->AsIntCon()->SetValue(bits);
+            intCon->ChangeToIntCon(type, bits);
             store->SetType(type);
         }
     }
@@ -528,13 +526,10 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
     {
         src->SetContained();
     }
-#if defined(TARGET_X86)
+#ifdef TARGET_X86
     else if (src->IsDblCon() && src->TypeIs(TYP_FLOAT))
     {
-        float value = static_cast<float>(src->AsDblCon()->GetValue());
-        src->ChangeOperConst(GT_CNS_INT);
-        src->SetType(TYP_INT);
-        src->AsIntCon()->SetValue(jitstd::bit_cast<int>(value));
+        src->ChangeToIntCon(TYP_INT, src->AsDblCon()->GetFloatBits());
         src->SetContained();
     }
     else
