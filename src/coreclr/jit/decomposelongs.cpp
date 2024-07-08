@@ -462,17 +462,17 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
 
 GenTree* DecomposeLongs::DecomposeCnsLng(LIR::Use& use)
 {
-    GenTreeLngCon* tree  = use.Def()->AsLngCon();
-    int32_t        hiVal = static_cast<int32_t>(tree->GetValue() >> 32);
+    GenTreeLngCon* node = use.Def()->AsLngCon();
 
-    GenTree* loResult = tree;
-    loResult->ChangeOperConst(GT_CNS_INT);
-    loResult->SetType(TYP_INT);
+    int32_t loVal = static_cast<int32_t>(node->GetValue() & UINT32_MAX);
+    int32_t hiVal = static_cast<int32_t>(node->GetValue() >> 32);
 
-    GenTree* hiResult = new (m_compiler, GT_CNS_INT) GenTreeIntCon(TYP_INT, hiVal);
-    Range().InsertAfter(loResult, hiResult);
+    node->ChangeToIntCon(TYP_INT, loVal);
 
-    return FinalizeDecomposition(use, loResult, hiResult, hiResult);
+    GenTree* hiResult = m_compiler->gtNewIconNode(hiVal, TYP_INT);
+    Range().InsertAfter(node, hiResult);
+
+    return FinalizeDecomposition(use, node, hiResult, hiResult);
 }
 
 GenTree* DecomposeLongs::DecomposeFieldList(GenTreeFieldList* fieldList, GenTreeOp* longNode)

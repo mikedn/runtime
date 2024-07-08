@@ -714,7 +714,7 @@ inline void GenTree::SetOperResetFlags(genTreeOps oper)
 
 inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
 {
-    assert(!OperIsConst(oper));  // use ChangeOperConst
+    assert(!OperIsConst(oper));  // ChangeToInt/Dbl/LngCon
     assert(oper != GT_LCL_ADDR); // use ChangeToLclAddr
 
     GenTreeFlags mask = GTF_COMMON_MASK;
@@ -745,18 +745,6 @@ inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
 
         default:
             break;
-    }
-}
-
-inline void GenTree::ChangeOperConst(genTreeOps oper)
-{
-    assert(OperIsConst(oper)); // use ChangeOper/ChangeToIntCon/ChangeToLngCon/ChangeToDblCon
-
-    SetOperResetFlags(oper);
-
-    if (oper == GT_CNS_INT)
-    {
-        AsIntCon()->SetFieldSeq(FieldSeqStore::NotAField());
     }
 }
 
