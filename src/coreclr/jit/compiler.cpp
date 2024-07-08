@@ -5048,6 +5048,10 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 {
                     chars += printf("[OVERFLOW]");
                 }
+                if (tree->AsCast()->IsCastUnsigned())
+                {
+                    chars += printf("[UNSIGNED]");
+                }
                 break;
 
             case GT_ADD:
@@ -5300,7 +5304,7 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
         {
             chars += printf("[BOOLEAN]");
         }
-        if (tree->gtFlags & GTF_UNSIGNED)
+        if (tree->gtFlags & GTF_RELOP_UNSIGNED)
         {
             chars += printf("[UNSIGNED]");
         }

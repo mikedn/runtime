@@ -5989,7 +5989,7 @@ int Compiler::gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags)
         (flags & GTF_SET_FLAGS) ? 'S' : (flags & GTF_USE_FLAGS) ? 'U' : '-',
         (flags & GTF_DONT_CSE) ? 'N' : (flags & GTF_MAKE_CSE) ? 'H' : '-',
         (flags & GTF_REVERSE_OPS) ? 'R' : '-',
-        (flags & GTF_UNSIGNED) ? 'U' : (flags & GTF_BOOLEAN) ? 'B' : '-',
+        (flags & GTF_RELOP_UNSIGNED) ? 'U' : (flags & GTF_BOOLEAN) ? 'B' : '-',
         (flags & GTF_CONTAINED) ? 'c' : '-',
         (debugFlags & GTF_DEBUG_NODE_MORPHED) ? '+' : '-');
     // clang-format on
