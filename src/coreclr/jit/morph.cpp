@@ -3398,10 +3398,7 @@ void Compiler::abiMorphMkRefAnyToFieldList(CallArgInfo* argInfo, GenTreeOp* arg)
 
 GenTreeFieldList* Compiler::abiMakeFieldList(GenTree* arg)
 {
-    arg->ChangeOper(GT_FIELD_LIST);
-    arg->SetType(TYP_STRUCT);
-    arg->gtFlags = GTF_CONTAINED;
-    return arg->AsFieldList();
+    return arg->ChangeToFieldList();
 }
 
 #ifndef TARGET_X86
