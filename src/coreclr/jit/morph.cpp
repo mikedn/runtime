@@ -6706,7 +6706,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
 
     if (root != call)
     {
-        JITDUMP("Replace root node [%06d] with [%06d] tail call node.\n", dspTreeID(root), dspTreeID(call));
+        JITDUMP("Replace root node [%06d] with [%06d] tail call node.\n", root->GetID(), call->GetID());
         isRootReplaced = true;
         stmt->SetRootNode(call);
     }
@@ -11678,7 +11678,7 @@ DONE_MORPHING_CHILDREN:
                     GenTree* throwNode = op1->AsOp()->gtOp1;
 
                     JITDUMP("Removing [%06d] GT_JTRUE as the block now unconditionally throws an exception.\n",
-                            dspTreeID(tree));
+                            tree->GetID());
                     DEBUG_DESTROY_NODE(tree);
 
                     return throwNode;

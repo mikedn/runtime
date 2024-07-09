@@ -3056,7 +3056,7 @@ bool Compiler::fgOptimizeUncondBranchToSimpleCond(BasicBlock* block, BasicBlock*
     JITDUMP("fgOptimizeUncondBranchToSimpleCond(from " FMT_BB " to cond " FMT_BB "), created new uncond " FMT_BB "\n",
             block->bbNum, target->bbNum, next->bbNum);
     JITDUMP("   expecting opts to key off V%02u, added cloned compare [%06u] to " FMT_BB "\n", lcl->GetLclNum(),
-            dspTreeID(cloned), block->bbNum);
+            cloned->GetID(), block->bbNum);
 
     if (fgStmtListThreaded)
     {
