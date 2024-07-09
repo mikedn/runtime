@@ -2161,11 +2161,18 @@ void Compiler::gtSetCosts(GenTree* tree)
 
         gtSetCosts(op1);
 
+        const unsigned SETccCostEx = 3;
+
         if (op2 == nullptr)
         {
             switch (oper)
             {
                 case GT_JTRUE:
+                    if (op1->OperIsCompare())
+                    {
+                        op1->SetCosts(op1->GetCostEx() - SETccCostEx, op1->GetCostSz());
+                    }
+
                     costEx = 2;
                     costSz = 2;
                     break;
@@ -2477,12 +2484,10 @@ void Compiler::gtSetCosts(GenTree* tree)
             case GT_GT:
             case GT_LE:
             case GT_GE:
-                if ((tree->gtFlags & GTF_RELOP_JMP_USED) == 0)
-                {
-                    // Using a setcc instruction is more expensive.
-                    // TODO-MIKE-Review: And setcc has 0 size?
-                    costEx += 3;
-                }
+                // Using a SETcc instruction is more expensive.
+                // We'll remove this if the relop is used by JTRUE.
+                // TODO-MIKE-Review: And setcc has 0 size?
+                costEx += SETccCostEx;
                 break;
 
             case GT_LSH:
@@ -6284,10 +6289,6 @@ int Compiler::dmpNodeFlags(GenTree* tree)
             {
                 operFlag = 'N';
             }
-            else if (flags & GTF_RELOP_JMP_USED)
-            {
-                operFlag = 'J';
-            }
             break;
 
 #ifdef TARGET_ARM64
@@ -8510,10 +8511,7 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
         assert(inliningKind == CORINFO_INLINE_TYPECHECK_PASS || inliningKind == CORINFO_INLINE_TYPECHECK_USE_HELPER);
 
         GenTree* compare = gtCreateHandleCompare(oper, op1ClassFromHandle, op2ClassFromHandle, inliningKind);
-
-        // Drop any now-irrelvant flags
-        compare->gtFlags |= tree->gtFlags & (GTF_RELOP_JMP_USED | GTF_DONT_CSE);
-
+        compare->gtFlags |= tree->gtFlags & GTF_DONT_CSE;
         return compare;
     }
 
@@ -8550,10 +8548,7 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
         assert(inliningKind == CORINFO_INLINE_TYPECHECK_PASS || inliningKind == CORINFO_INLINE_TYPECHECK_USE_HELPER);
 
         GenTree* compare = gtCreateHandleCompare(oper, arg1, arg2, inliningKind);
-
-        // Drop any now-irrelvant flags
-        compare->gtFlags |= tree->gtFlags & (GTF_RELOP_JMP_USED | GTF_DONT_CSE);
-
+        compare->gtFlags |= tree->gtFlags & GTF_DONT_CSE;
         return compare;
     }
 
@@ -8648,11 +8643,7 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
 
     // Compare the two method tables
     GenTree* const compare = gtCreateHandleCompare(oper, objMT, knownMT, typeCheckInliningResult);
-
-    // Drop any now irrelevant flags
-    compare->gtFlags |= tree->gtFlags & (GTF_RELOP_JMP_USED | GTF_DONT_CSE);
-
-    // And we're done
+    compare->gtFlags |= tree->gtFlags & GTF_DONT_CSE;
     return compare;
 }
 

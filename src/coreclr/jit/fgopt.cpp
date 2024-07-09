@@ -2745,7 +2745,7 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
 
         GenTree* zeroNode = gtNewZeroConNode(varActualType(switchVal->GetType()));
         GenTree* eqNode   = gtNewOperNode(GT_EQ, TYP_INT, switchVal, zeroNode);
-        eqNode->gtFlags |= GTF_RELOP_JMP_USED | GTF_DONT_CSE;
+        eqNode->gtFlags |= GTF_DONT_CSE;
         switchTree->ChangeOper(GT_JTRUE);
         switchTree->AsUnOp()->SetOp(0, eqNode);
         block->bbJumpDest = block->bbJumpSwt->bbsDstTab[0];
@@ -3618,7 +3618,7 @@ bool Compiler::fgOptimizeSwitchJumps()
         switchTree->gtFlags = switchTree->AsOp()->gtOp1->gtFlags;
         dominantCaseCompare->gtFlags |= dominantCaseCompare->AsOp()->gtOp1->gtFlags;
         jmpTree->gtFlags |= dominantCaseCompare->gtFlags;
-        dominantCaseCompare->gtFlags |= GTF_RELOP_JMP_USED | GTF_DONT_CSE;
+        dominantCaseCompare->gtFlags |= GTF_DONT_CSE;
 
         // Wire up the new control flow.
         //
