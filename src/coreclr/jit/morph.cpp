@@ -10527,7 +10527,7 @@ DONE_MORPHING_CHILDREN:
     switch (oper)
     {
         GenTree* cns2;
-        size_t   ival1, ival2;
+        size_t   ival2;
 
         case GT_LCL_STORE:
         case GT_LCL_STORE_FLD:
@@ -10912,49 +10912,39 @@ DONE_MORPHING_CHILDREN:
                 break;
             }
 
-            noway_assert(op1->TypeGet() == TYP_LONG && op1->OperGet() == GT_AND);
+            noway_assert(op1->TypeIs(TYP_LONG) && op1->OperIs(GT_AND));
 
             // The transform below cannot preserve VNs.
             if (fgGlobalMorph)
             {
                 // Is the result of the mask effectively an INT ?
 
-                GenTree* andMask = op1->AsOp()->gtOp2;
+                GenTree* andMask = op1->AsOp()->GetOp(1);
 
-                if (!andMask->OperIs(GT_CNS_NATIVELONG) || ((andMask->AsIntConCommon()->LngValue() >> 32) != 0))
+                if (!andMask->OperIs(GT_CNS_NATIVELONG) || ((andMask->AsIntConCommon()->GetValue() >> 32) != 0))
                 {
                     noway_assert(tree->OperIsCompare());
                     break;
                 }
 
                 // Now we narrow AsOp()->gtOp1 of AND to int.
-                if (fgMorphNarrowTree(op1->AsOp()->gtGetOp1(), TYP_LONG, TYP_INT, ValueNumPair(), false))
+                if (fgMorphNarrowTree(op1->AsOp()->GetOp(0), TYP_LONG, TYP_INT, ValueNumPair(), false))
                 {
-                    fgMorphNarrowTree(op1->AsOp()->gtGetOp1(), TYP_LONG, TYP_INT, ValueNumPair(), true);
+                    fgMorphNarrowTree(op1->AsOp()->GetOp(0), TYP_LONG, TYP_INT, ValueNumPair(), true);
                 }
                 else
                 {
-                    op1->AsOp()->gtOp1 = gtNewCastNode(op1->AsOp()->gtGetOp1(), false, TYP_INT);
+                    op1->AsOp()->SetOp(0, gtNewCastNode(op1->AsOp()->GetOp(0), false, TYP_INT));
                 }
 
                 // now replace the mask node (AsOp()->gtOp2 of AND node).
 
-                noway_assert(andMask == op1->AsOp()->gtOp2);
-
-                ival1 = (int)andMask->AsIntConCommon()->LngValue();
-                andMask->SetOper(GT_CNS_INT);
-                andMask->AsIntCon()->SetValue(TYP_INT, ival1);
-
-                // now change the type of the AND node.
-
-                op1->SetType(TYP_INT);
-
-                // finally we replace the comparand.
-
-                ival2 = (int)cns2->AsIntConCommon()->LngValue();
+                noway_assert(andMask == op1->AsOp()->GetOp(1));
                 noway_assert(cns2 == op2);
-                cns2->SetOper(GT_CNS_INT);
-                cns2->AsIntCon()->SetValue(TYP_INT, ival2);
+
+                andMask->ChangeToIntCon(TYP_INT, static_cast<int32_t>(andMask->AsIntConCommon()->GetValue()));
+                op1->SetType(TYP_INT);
+                cns2->ChangeToIntCon(TYP_INT, static_cast<int32_t>(cns2->AsIntConCommon()->GetValue()));
             }
 
             noway_assert(tree->OperIsCompare());
@@ -11256,7 +11246,7 @@ DONE_MORPHING_CHILDREN:
 
                     GenTree* op2Child = op2->AsOp()->gtOp1; // b
                     oper              = GT_ADD;
-                    tree->SetOper(oper, GenTree::PRESERVE_VN);
+                    tree->SetOper(GT_ADD, GenTree::PRESERVE_VN);
                     tree->AsOp()->gtOp2 = op2Child;
 
                     DEBUG_DESTROY_NODE(op2);
@@ -11414,7 +11404,7 @@ DONE_MORPHING_CHILDREN:
 
                         GenTree* op1Child = op1->AsOp()->gtOp1; // a
                         oper              = GT_SUB;
-                        tree->SetOper(oper, GenTree::PRESERVE_VN);
+                        tree->SetOper(GT_SUB, GenTree::PRESERVE_VN);
                         tree->AsOp()->gtOp1 = op2;
                         tree->AsOp()->gtOp2 = op1Child;
 
@@ -11439,7 +11429,7 @@ DONE_MORPHING_CHILDREN:
 
                         GenTree* op2Child = op2->AsOp()->gtOp1; // a
                         oper              = GT_SUB;
-                        tree->SetOper(oper, GenTree::PRESERVE_VN);
+                        tree->SetOper(GT_SUB, GenTree::PRESERVE_VN);
                         tree->AsOp()->gtOp2 = op2Child;
 
                         DEBUG_DESTROY_NODE(op2);
@@ -11677,7 +11667,7 @@ DONE_MORPHING_CHILDREN:
                 {
                     GenTree* throwNode = op1->AsOp()->gtOp1;
 
-                    JITDUMP("Removing [%06d] GT_JTRUE as the block now unconditionally throws an exception.\n",
+                    JITDUMP("Removing [%06u] GT_JTRUE as the block now unconditionally throws an exception.\n",
                             tree->GetID());
                     DEBUG_DESTROY_NODE(tree);
 
