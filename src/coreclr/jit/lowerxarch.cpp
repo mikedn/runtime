@@ -2749,8 +2749,7 @@ void Lowering::LowerHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node)
         }
         else if (elt->OperIs(GT_LCL_LOAD) && elt->AsLclLoad()->GetLcl()->lvDoNotEnregister)
         {
-            elt->ChangeOper(GT_LCL_LOAD_FLD);
-            elt->SetType(TYP_FLOAT);
+            elt->ChangeToLclLoadFld(TYP_FLOAT, elt->AsLclLoad()->GetLcl(), 0, FieldSeqStore::NotAField());
         }
     }
 

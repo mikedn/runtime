@@ -1652,10 +1652,9 @@ private:
 
         if (varActualType(store->GetType()) != varActualType(value->GetType()))
         {
-            value->ChangeOper(GT_LCL_LOAD_FLD);
-            value->SetType(store->GetType());
-
-            m_compiler->lvaSetDoNotEnregister(value->AsLclLoadFld()->GetLcl() DEBUGARG(Compiler::DNER_LocalField));
+            LclVarDsc* lcl = store->GetLcl();
+            value->ChangeToLclLoadFld(store->GetType(), lcl, 0, FieldSeqStore::NotAField());
+            m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
         }
 
         return value;
