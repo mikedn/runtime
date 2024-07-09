@@ -694,7 +694,7 @@ GenTree* DecomposeLongs::DecomposeAddSub(LIR::Use& use)
     node->gtFlags |= GTF_SET_FLAGS;
     hiNode->gtFlags |= GTF_USE_FLAGS;
 
-    if (node->OperIs(GT_OVF_SADD, GT_OVF_UADD, GT_OVF_SSUB, GT_OVF_USUB))
+    if (hiNode->OperIs(GT_OVF_SADDC, GT_OVF_UADDC, GT_OVF_SSUBB, GT_OVF_USUBB))
     {
         node->RemoveSideEffects(GTF_EXCEPT);
         hiNode->AddSideEffects(GTF_EXCEPT);
