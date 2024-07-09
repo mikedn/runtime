@@ -3323,10 +3323,9 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
                 arg->ChangeOper(GT_IND_LOAD);
             }
         }
-        else if (arg->OperIs(GT_LCL_LOAD_FLD))
+        else if (GenTreeLclLoadFld* load = arg->IsLclLoadFld())
         {
-            canRetype = arg->AsLclLoadFld()->GetLclOffs() + varTypeSize(argType) <=
-                        arg->AsLclLoadFld()->GetLcl()->GetTypeSize();
+            canRetype = load->GetLclOffs() + varTypeSize(argType) <= load->GetLcl()->GetTypeSize();
 
             if (canRetype)
             {
@@ -3335,9 +3334,10 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
         }
         else if (arg->OperIs(GT_LCL_LOAD))
         {
-            canRetype = true;
-            lvaSetDoNotEnregister(arg->AsLclLoad()->GetLcl() DEBUGARG(DNER_LocalField));
-            arg->ChangeOper(GT_LCL_LOAD_FLD);
+            canRetype      = true;
+            LclVarDsc* lcl = arg->AsLclLoad()->GetLcl();
+            arg->ChangeToLclLoadFld(argType, lcl, 0, FieldSeqStore::NotAField());
+            lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LocalField));
         }
 
         if (canRetype)
@@ -3602,26 +3602,27 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
         return;
     }
 
-    // Normally at this point we should have a STRUCT or suitable SIMD typed LCL_VAR|FLD
-    // but due to reinterpretation via OBJ(ADDR(LCL_VAR)) the LCL_VAR|FLD may also have
+    // Normally at this point we should have a STRUCT or suitable SIMD typed LCL_LOAD(_FLD)
+    // but due to reinterpretation via OBJ(ADDR(LCL_VAR)) the LCL_LOAD_(FLD) may also have
     // primitive type or an unexpected SIMD type (e.g. SIMD16 local passed in an INT reg).
-    // For now use LCL_FLD to handle all such cases. In some cases BITCAST may be used
+    // For now use LCL_LOAD_FLD to handle all such cases. In some cases BITCAST may be used
     // but it's not clear which such cases, if any, are useful.
 
     if (arg->TypeIs(TYP_STRUCT) || (varTypeUsesFloatReg(argRegType) != varTypeUsesFloatReg(arg->GetType())))
     {
-        if (arg->OperIs(GT_LCL_LOAD_FLD))
+        LclVarDsc* lcl = arg->AsLclVarCommon()->GetLcl();
+
+        if (GenTreeLclLoadFld* load = arg->IsLclLoadFld())
         {
-            arg->AsLclLoadFld()->SetFieldSeq(FieldSeqStore::NotAField());
+            load->SetType(argRegType);
+            load->SetFieldSeq(FieldSeqStore::NotAField());
         }
         else
         {
-            arg->ChangeOper(GT_LCL_LOAD_FLD);
+            arg->ChangeToLclLoadFld(argRegType, lcl, 0, FieldSeqStore::NotAField());
         }
 
-        arg->SetType(argRegType);
-
-        lvaSetDoNotEnregister(arg->AsLclLoadFld()->GetLcl() DEBUGARG(DNER_LocalField));
+        lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LocalField));
     }
 }
 
@@ -3672,8 +3673,8 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclLoad* arg, var_type
         // If we need to use more than one field and the local is already DNER then just use LCL_FLD.
         // Otherwise we'd just be generating multiple memory loads.
 
-        arg->ChangeOper(GT_LCL_LOAD_FLD);
-        arg->SetType(argRegType);
+        arg->ChangeToLclLoadFld(argRegType, lcl, 0, FieldSeqStore::NotAField());
+
         return arg;
     }
 
@@ -3835,9 +3836,8 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclLoad* arg, var_type
 
     if (newArg == nullptr)
     {
-        arg->ChangeOper(GT_LCL_LOAD_FLD);
-        arg->SetType(argRegType);
-        lvaSetDoNotEnregister(arg->GetLcl() DEBUGARG(DNER_LocalField));
+        arg->ChangeToLclLoadFld(argRegType, lcl, 0, FieldSeqStore::NotAField());
+        lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LocalField));
         return arg;
     }
 
@@ -9915,13 +9915,13 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 // LCL_STORE instead. Also don't bother with field sequences for the same reason, VN
                 // doesn't do anything interesting for address exposed locals.
 
-                tree->ChangeOper(GT_LCL_STORE_FLD);
-                tree->AsLclStoreFld()->SetLcl(op1->AsLclAddr()->GetLcl());
-                tree->AsLclStoreFld()->SetLclOffs(op1->AsLclAddr()->GetLclOffs());
-                tree->AsLclStoreFld()->SetLayout(layout, this);
-                tree->AsLclStoreFld()->SetValue(op2);
-                tree->SetSideEffects(GTF_ASG | GTF_GLOB_REF | op2->GetSideEffects());
-                tree->gtFlags &= ~GTF_REVERSE_OPS;
+                GenTreeLclStoreFld* storeField =
+                    tree->ChangeToLclStoreFld(tree->GetType(), op1->AsLclAddr()->GetLcl(),
+                                              op1->AsLclAddr()->GetLclOffs(), FieldSeqStore::NotAField(), op2);
+                storeField->SetLayout(layout, this);
+                storeField->SetSideEffects(GTF_ASG | GTF_GLOB_REF | op2->GetSideEffects());
+                storeField->gtFlags &= ~GTF_REVERSE_OPS;
+                tree = storeField;
 
                 oper = GT_LCL_STORE_FLD;
                 op1  = op2;
@@ -9945,13 +9945,13 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 // LCL_LOAD instead. Also don't bother with field sequences for the same reason, VN
                 // doesn't do anything interesting for address exposed locals.
 
-                tree->ChangeOper(GT_LCL_LOAD_FLD);
-                tree->SetSideEffects(GTF_GLOB_REF);
-                tree->AsLclLoadFld()->SetLcl(op1->AsLclAddr()->GetLcl());
-                tree->AsLclLoadFld()->SetLclOffs(op1->AsLclAddr()->GetLclOffs());
-                tree->AsLclLoadFld()->SetLayout(layout, this);
+                GenTreeLclLoadFld* loadField =
+                    tree->ChangeToLclLoadFld(tree->GetType(), op1->AsLclAddr()->GetLcl(),
+                                             op1->AsLclAddr()->GetLclOffs(), FieldSeqStore::NotAField());
+                loadField->SetSideEffects(GTF_GLOB_REF);
+                loadField->SetLayout(layout, this);
 
-                return tree;
+                return loadField;
             }
 
             if (GenTreeIndexAddr* index = op1->IsIndexAddr())

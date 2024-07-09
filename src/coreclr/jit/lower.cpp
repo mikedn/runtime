@@ -2258,8 +2258,8 @@ void Lowering::LowerRetSingleRegStructLclVar(GenTreeUnOp* ret)
     assert(ret->OperIs(GT_RETURN));
     assert(comp->info.retDesc.GetRegCount() == 1);
 
-    GenTreeLclLoad* lclVar = ret->GetOp(0)->AsLclLoad();
-    LclVarDsc*      lcl    = lclVar->GetLcl();
+    GenTreeLclLoad* load = ret->GetOp(0)->AsLclLoad();
+    LclVarDsc*      lcl  = load->GetLcl();
 
     if (lcl->TypeIs(TYP_STRUCT))
     {
@@ -2270,18 +2270,17 @@ void Lowering::LowerRetSingleRegStructLclVar(GenTreeUnOp* ret)
 
     if (lcl->lvDoNotEnregister)
     {
-        lclVar->ChangeOper(GT_LCL_LOAD_FLD);
-        lclVar->SetType(ret->GetType());
+        load->ChangeToLclLoadFld(ret->GetType(), lcl, 0, FieldSeqStore::NotAField());
     }
     else
     {
-        var_types lclVarType = lcl->GetRegisterType(lclVar);
-        assert(lclVarType != TYP_UNDEF);
-        lclVar->SetType(lclVarType);
+        var_types regType = lcl->GetRegisterType(load);
+        assert(regType != TYP_UNDEF);
+        load->SetType(regType);
 
-        if (varTypeUsesFloatReg(ret->GetType()) != varTypeUsesFloatReg(lclVarType))
+        if (varTypeUsesFloatReg(ret->GetType()) != varTypeUsesFloatReg(regType))
         {
-            GenTreeUnOp* bitcast = comp->gtNewBitCastNode(ret->GetType(), lclVar);
+            GenTreeUnOp* bitcast = comp->gtNewBitCastNode(ret->GetType(), load);
             ret->SetOp(0, bitcast);
             BlockRange().InsertBefore(ret, bitcast);
             LowerBitCast(bitcast);
@@ -4995,9 +4994,8 @@ GenTree* Lowering::LowerBitCast(GenTreeUnOp* bitcast)
 
         if (srcLcl->lvDoNotEnregister)
         {
-            // If it's not a register candidate then we can turn it into a LCL_FLD and retype it.
-            src->ChangeOper(GT_LCL_LOAD_FLD);
-            src->SetType(bitcast->GetType());
+            // If it's not a register candidate then we can turn it into a LCL_LOAD_FLD and retype it.
+            src->ChangeToLclLoadFld(bitcast->GetType(), srcLcl, 0, FieldSeqStore::NotAField());
             comp->lvaSetDoNotEnregister(srcLcl DEBUGARG(Compiler::DNER_LocalField));
             remove = true;
         }
