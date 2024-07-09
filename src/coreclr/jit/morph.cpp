@@ -9707,7 +9707,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 
     if (condExpr->OperIsCompare())
     {
-        condExpr->gtFlags |= GTF_RELOP_JMP_USED | GTF_DONT_CSE;
+        condExpr->gtFlags |= GTF_DONT_CSE;
     }
     else
     {
@@ -9886,16 +9886,9 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             break;
 
         case GT_JTRUE:
-
-            noway_assert(op1);
-
             if (op1->OperIsCompare())
             {
-                /* Mark the comparison node with GTF_RELOP_JMP_USED so it knows that it does
-                   not need to materialize the result as a 0 or 1. */
-
-                /* We also mark it as DONT_CSE, as we don't handle QMARKs with nonRELOP op1s */
-                op1->gtFlags |= (GTF_RELOP_JMP_USED | GTF_DONT_CSE);
+                op1->gtFlags |= GTF_DONT_CSE;
             }
             else
             {
@@ -10723,9 +10716,8 @@ DONE_MORPHING_CHILDREN:
                     comma->gtFlags |= (comma->AsOp()->gtOp1->gtFlags) & GTF_ALL_EFFECT;
                     comma->gtFlags |= (comma->AsOp()->gtOp2->gtFlags) & GTF_ALL_EFFECT;
 
-                    noway_assert((relop->gtFlags & GTF_RELOP_JMP_USED) == 0);
                     noway_assert((relop->gtFlags & GTF_REVERSE_OPS) == 0);
-                    relop->gtFlags |= tree->gtFlags & (GTF_RELOP_JMP_USED | GTF_DONT_CSE | GTF_ALL_EFFECT);
+                    relop->gtFlags |= tree->gtFlags & (GTF_DONT_CSE | GTF_ALL_EFFECT);
 
                     return relop;
                 }
@@ -10801,8 +10793,7 @@ DONE_MORPHING_CHILDREN:
                         gtReverseRelop(op1->AsOp());
                     }
 
-                    noway_assert((op1->gtFlags & GTF_RELOP_JMP_USED) == 0);
-                    op1->gtFlags |= tree->gtFlags & (GTF_RELOP_JMP_USED | GTF_DONT_CSE);
+                    op1->gtFlags |= tree->gtFlags & GTF_DONT_CSE;
 
                     DEBUG_DESTROY_NODE(tree);
                     return op1;

@@ -476,7 +476,6 @@ enum GenTreeFlags : unsigned
     // EQ, NE, LT, LE, GT, GE flags
 
     GTF_RELOP_NAN_UN          = 0x80000000, // Unordered floating point compare
-    GTF_RELOP_JMP_USED        = 0x40000000, // Node is used by a JTRUE
     GTF_RELOP_ZTT             = 0x08000000, // Loop test cloned for converting while-loops into do-while
                                             // with explicit "loop test" in the header block.
 

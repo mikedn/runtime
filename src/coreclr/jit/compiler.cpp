@@ -5078,10 +5078,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 {
                     chars += printf("[RELOP_NAN_UN]");
                 }
-                if (tree->gtFlags & GTF_RELOP_JMP_USED)
-                {
-                    chars += printf("[RELOP_JMP_USED]");
-                }
                 break;
 
             case GT_QMARK:
