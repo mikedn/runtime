@@ -474,7 +474,7 @@ void CodeGen::GenLclAlloc(GenTree* tree)
     }
 
     // Setup the regTmp, if there is one.
-    if (tree->AvailableTempRegCount() > 0)
+    if (tree->HasAnyTempRegs())
     {
         regTmp = tree->ExtractTempReg();
     }

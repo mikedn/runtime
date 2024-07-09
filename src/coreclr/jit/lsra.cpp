@@ -65,7 +65,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
       - However, if such a node is constrained to a set of registers, and its current location does not satisfy that
         requirement, LSRA must insert a GT_COPY node between the node and its parent.  The GetRegNum() on the GT_COPY
         node must satisfy the register requirement of the parent.
-    - GenTree::gtRsvdRegs has a set of registers used for internal temps.
+    - GenTree has a set of registers used for internal temps.
     - A node's register is marked SPILL if the register must be spilled by the code generator after it has been
       evaluated.
       - LSRA currently does not set SPILLED on such registers, because it caused problems in the old code generator.
@@ -6039,7 +6039,7 @@ void LinearScan::resolveRegisters()
             assert(currentRefPosition->isIntervalRef());
             if (currentRefPosition->getInterval()->isInternal)
             {
-                treeNode->gtRsvdRegs |= currentRefPosition->registerAssignment;
+                treeNode->AddTempRegs(currentRefPosition->registerAssignment);
             }
             else
             {
@@ -6760,17 +6760,16 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block, VARSET_TP outRes
     {
         // At this point, Lowering has transformed any non-switch-table blocks into
         // cascading ifs.
-        GenTree* switchTable = LIR::AsRange(block).LastNode();
-        assert(switchTable != nullptr && switchTable->OperGet() == GT_SWITCH_TABLE);
+        GenTreeOp* switchTable = LIR::AsRange(block).LastNode()->AsOp();
+        assert((switchTable != nullptr) && switchTable->OperIs(GT_SWITCH_TABLE));
 
-        consumedRegs = switchTable->gtRsvdRegs;
-        GenTree* op1 = switchTable->gtGetOp1();
-        GenTree* op2 = switchTable->gtGetOp2();
-        noway_assert(op1 != nullptr && op2 != nullptr);
-        assert(op1->GetRegNum() != REG_NA && op2->GetRegNum() != REG_NA);
+        consumedRegs = switchTable->GetTempRegs();
+        GenTree* op1 = switchTable->GetOp(0);
+        GenTree* op2 = switchTable->GetOp(1);
+        assert((op1->GetRegNum() != REG_NA) && (op2->GetRegNum() != REG_NA));
         // No floating point values, so no need to worry about the register type
         // (i.e. for ARM32, where we used the genRegMask overload with a type).
-        assert(varTypeIsIntegralOrI(op1) && varTypeIsIntegralOrI(op2));
+        assert(varTypeIsIntegralOrI(op1->GetType()) && varTypeIsIntegralOrI(op2->GetType()));
         consumedRegs |= genRegMask(op1->GetRegNum());
         consumedRegs |= genRegMask(op2->GetRegNum());
 

@@ -1040,8 +1040,7 @@ public:
 #ifdef FEATURE_SIMD
     void genStoreSIMD12(GenTree* store, GenTree* value)
     {
-        genStoreSIMD12(GenAddrMode(store, this), value,
-                       store->AvailableTempRegCount() ? store->GetSingleTempReg() : REG_NA);
+        genStoreSIMD12(GenAddrMode(store, this), value, store->HasAnyTempRegs() ? store->GetSingleTempReg() : REG_NA);
     }
 
     void genStoreSIMD12(const GenAddrMode& dst, GenTree* value, regNumber tmpReg);

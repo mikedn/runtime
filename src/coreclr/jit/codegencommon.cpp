@@ -4941,7 +4941,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArg,
                                     unsigned          outArgLclNum,
                                     unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
 {
-    regNumber tmpReg = putArg->AvailableTempRegCount() ? putArg->GetSingleTempReg() : REG_NA;
+    RegNum tmpReg = putArg->HasAnyTempRegs() ? putArg->GetSingleTempReg() : REG_NA;
 
     for (GenTreeFieldList::Use& use : putArg->GetOp(0)->AsFieldList()->Uses())
     {
@@ -4949,7 +4949,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArg,
 
         GenTree*  src     = use.GetNode();
         var_types srcType = use.GetType();
-        regNumber srcReg;
+        RegNum    srcReg;
 
         assert((dstOffset + varTypeSize(srcType)) <= outArgLclSize);
 
