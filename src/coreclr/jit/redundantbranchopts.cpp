@@ -65,7 +65,7 @@ bool RedundantBranchesDomTreeVisitor::VisitBranch(BasicBlock* const block)
 
     GenTree* const compare = jumpTree->AsUnOp()->GetOp(0);
 
-    if (!compare->OperIsCompare())
+    if (!compare->OperIsRelop())
     {
         return false;
     }
@@ -91,9 +91,9 @@ bool RedundantBranchesDomTreeVisitor::VisitBranch(BasicBlock* const block)
             Statement* const domJumpStmt = domBlock->lastStmt();
             GenTree* const   domJumpTree = domJumpStmt->GetRootNode();
             assert(domJumpTree->OperIs(GT_JTRUE));
-            GenTree* const domCmpTree = domJumpTree->AsOp()->gtGetOp1();
+            GenTree* const domCmpTree = domJumpTree->AsUnOp()->GetOp(0);
 
-            if (domCmpTree->OperIsCompare())
+            if (domCmpTree->OperIsRelop())
             {
                 // We can use liberal VNs as bounds checks are not yet
                 // manifest explicitly as relops.

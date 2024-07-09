@@ -812,7 +812,7 @@ private:
 
     AssertionInfo GenerateJTrueBoundAssertions(GenTreeOp* relop)
     {
-        assert(relop->OperIsCompare());
+        assert(relop->OperIsRelop());
 
         GenTree* op1 = relop->GetOp(0);
         GenTree* op2 = relop->GetOp(1);
@@ -1281,7 +1281,7 @@ private:
                 break;
 
             case GT_JTRUE:
-                if (node->AsUnOp()->GetOp(0)->OperIsCompare())
+                if (node->AsUnOp()->GetOp(0)->OperIsRelop())
                 {
                     assertionInfo = GenerateJTrueAssertions(node->AsUnOp()->GetOp(0)->AsOp());
                 }
@@ -1653,7 +1653,7 @@ private:
 
     GenTree* PropagateRelop(const ASSERT_TP assertions, GenTreeOp* relop, Statement* stmt)
     {
-        assert(relop->OperIsCompare());
+        assert(relop->OperIsRelop());
 
         if ((relop->gtFlags & GTF_SIDE_EFFECT) != 0)
         {
@@ -2996,7 +2996,7 @@ private:
 
             // VN based assertion non-null on this relop has been performed.
             // TODO-MIKE-Review: This should probably be just an assert.
-            if (!relop->OperIsCompare())
+            if (!relop->OperIsRelop())
             {
                 return stmt;
             }

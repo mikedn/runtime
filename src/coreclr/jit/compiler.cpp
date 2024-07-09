@@ -5078,6 +5078,10 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 {
                     chars += printf("[RELOP_NAN_UN]");
                 }
+                if (tree->IsRelopUnsigned())
+                {
+                    chars += printf("[RELOP_UNSIGNED]");
+                }
                 break;
 
             case GT_QMARK:
@@ -5299,10 +5303,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
         if (tree->gtFlags & GTF_BOOLEAN)
         {
             chars += printf("[BOOLEAN]");
-        }
-        if (tree->gtFlags & GTF_RELOP_UNSIGNED)
-        {
-            chars += printf("[UNSIGNED]");
         }
         if (tree->gtFlags & GTF_REUSE_REG_VAL)
         {

@@ -660,7 +660,7 @@ GenTreeOp* Compiler::optGetLoopTest(unsigned loopInd, GenTree* test, BasicBlock*
         relop = test->AsLclStore()->GetValue()->AsOp();
     }
 
-    noway_assert(relop->OperIsCompare());
+    noway_assert(relop->OperIsRelop());
 
     GenTree* opr1 = relop->GetOp(0);
     GenTree* opr2 = relop->GetOp(1);
@@ -782,7 +782,7 @@ bool Compiler::optIsLoopTestEvalIntoTemp(Statement* testStmt, Statement** newTes
     }
 
     GenTreeOp* relop = test->AsUnOp()->GetOp(0)->AsOp();
-    noway_assert(relop->OperIsCompare());
+    noway_assert(relop->OperIsRelop());
     GenTree* opr1 = relop->GetOp(0);
     GenTree* opr2 = relop->GetOp(1);
 
@@ -805,7 +805,7 @@ bool Compiler::optIsLoopTestEvalIntoTemp(Statement* testStmt, Statement** newTes
 
             if ((tree->AsLclStore()->GetLcl() == opr1->AsLclLoad()->GetLcl()))
             {
-                if (value->OperIsCompare())
+                if (value->OperIsRelop())
                 {
                     *newTestStmt = prevStmt;
                     return true;
@@ -1224,7 +1224,7 @@ void Compiler::optCheckPreds()
 void Compiler::LoopDsc::VerifyIterator() const
 {
     assert((lpIterTree != nullptr) && lpIterTree->IsLclStore());
-    assert((lpTestTree != nullptr) && lpTestTree->OperIsCompare());
+    assert((lpTestTree != nullptr) && lpTestTree->OperIsRelop());
 
     GenTreeOp* value = lpIterTree->GetValue()->AsOp();
 
@@ -3843,7 +3843,7 @@ bool Compiler::optInvertWhileLoop(BasicBlock* block)
     // Verify the test block ends with a conditional that we can manipulate.
     GenTree* const condTree = condStmt->GetRootNode();
     noway_assert(condTree->OperIs(GT_JTRUE));
-    if (!condTree->AsUnOp()->GetOp(0)->OperIsCompare())
+    if (!condTree->AsUnOp()->GetOp(0)->OperIsRelop())
     {
         return false;
     }
@@ -4022,10 +4022,10 @@ bool Compiler::optInvertWhileLoop(BasicBlock* block)
             foundCondTree = true;
 
             // Get the compare subtrees
-            GenTree* originalCompareTree = originalTree->AsOp()->gtOp1;
-            GenTree* clonedCompareTree   = clonedTree->AsOp()->gtOp1;
-            assert(originalCompareTree->OperIsCompare());
-            assert(clonedCompareTree->OperIsCompare());
+            GenTree* originalCompareTree = originalTree->AsOp()->GetOp(0);
+            GenTree* clonedCompareTree   = clonedTree->AsOp()->GetOp(0);
+            assert(originalCompareTree->OperIsRelop());
+            assert(clonedCompareTree->OperIsRelop());
 
             // Flag compare so later we know this loop has a proper zero trip test.
             originalCompareTree->gtFlags |= GTF_RELOP_ZTT;

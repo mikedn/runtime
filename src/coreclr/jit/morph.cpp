@@ -9705,7 +9705,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     GenTree* thenExpr = qmark->GetThen();
     GenTree* elseExpr = qmark->GetElse();
 
-    if (condExpr->OperIsCompare())
+    if (condExpr->OperIsRelop())
     {
         condExpr->gtFlags |= GTF_DONT_CSE;
     }
@@ -9886,7 +9886,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             break;
 
         case GT_JTRUE:
-            if (op1->OperIsCompare())
+            if (op1->OperIsRelop())
             {
                 op1->gtFlags |= GTF_DONT_CSE;
             }
@@ -10682,7 +10682,7 @@ DONE_MORPHING_CHILDREN:
             if (ival2 != INT_MAX)
             {
                 // If we don't have a comma and relop, we can't do this optimization
-                if (op1->OperIs(GT_COMMA) && (op1->AsOp()->GetOp(1)->OperIsCompare()))
+                if (op1->OperIs(GT_COMMA) && op1->AsOp()->GetOp(1)->OperIsRelop())
                 {
                     // Here we look for the following transformation
                     //
@@ -10761,7 +10761,7 @@ DONE_MORPHING_CHILDREN:
                         goto SKIP;
                     }
 
-                    if (!lclStore->GetValue()->OperIsCompare())
+                    if (!lclStore->GetValue()->OperIsRelop())
                     {
                         goto SKIP;
                     }
@@ -10772,7 +10772,7 @@ DONE_MORPHING_CHILDREN:
                     DEBUG_DESTROY_NODE(lclLoad);
                 }
 
-                if (op1->OperIsCompare())
+                if (op1->OperIsRelop())
                 {
                     // Here we look for the following tree
                     //
@@ -10890,7 +10890,7 @@ DONE_MORPHING_CHILDREN:
 
             if (!cns2->OperIsConst() || !cns2->TypeIs(TYP_LONG) || ((cns2->AsIntConCommon()->LngValue() >> 31) != 0))
             {
-                noway_assert(tree->OperIsCompare());
+                noway_assert(tree->OperIsRelop());
                 break;
             }
 
@@ -10908,7 +10908,7 @@ DONE_MORPHING_CHILDREN:
                     tree->AsOp()->SetOp(1, gtNewIconNode((int)cns2->AsIntConCommon()->LngValue(), TYP_INT));
                 }
 
-                noway_assert(tree->OperIsCompare());
+                noway_assert(tree->OperIsRelop());
                 break;
             }
 
@@ -10923,7 +10923,7 @@ DONE_MORPHING_CHILDREN:
 
                 if (!andMask->OperIs(GT_CNS_NATIVELONG) || ((andMask->AsIntConCommon()->GetValue() >> 32) != 0))
                 {
-                    noway_assert(tree->OperIsCompare());
+                    noway_assert(tree->OperIsRelop());
                     break;
                 }
 
@@ -10947,7 +10947,7 @@ DONE_MORPHING_CHILDREN:
                 cns2->ChangeToIntCon(TYP_INT, static_cast<int32_t>(cns2->AsIntConCommon()->GetValue()));
             }
 
-            noway_assert(tree->OperIsCompare());
+            noway_assert(tree->OperIsRelop());
             break;
 
         case GT_LT:
@@ -11300,7 +11300,7 @@ DONE_MORPHING_CHILDREN:
             }
 
             // Fold "cmp & 1" to just "cmp"
-            if (tree->OperIs(GT_AND) && tree->TypeIs(TYP_INT) && op1->OperIsCompare() && op2->IsIntCon(1))
+            if (tree->OperIs(GT_AND) && tree->TypeIs(TYP_INT) && op1->OperIsRelop() && op2->IsIntCon(1))
             {
                 DEBUG_DESTROY_NODE(op2);
                 DEBUG_DESTROY_NODE(tree);
@@ -11659,36 +11659,32 @@ DONE_MORPHING_CHILDREN:
             break;
 
         case GT_JTRUE:
-
-            /* Special case if fgRemoveRestOfBlock is set to true */
             if (fgRemoveRestOfBlock)
             {
                 if (fgIsCommaThrow(op1 DEBUGARG(true)))
                 {
-                    GenTree* throwNode = op1->AsOp()->gtOp1;
+                    GenTree* throwNode = op1->AsOp()->GetOp(0);
 
-                    JITDUMP("Removing [%06u] GT_JTRUE as the block now unconditionally throws an exception.\n",
-                            tree->GetID());
+                    JITDUMP("Removing [%06u] JTRUE as the block unconditionally throws an exception.\n", tree->GetID());
                     DEBUG_DESTROY_NODE(tree);
 
                     return throwNode;
                 }
 
-                noway_assert(op1->OperIsCompare());
-                noway_assert(op1->gtFlags & GTF_EXCEPT);
+                noway_assert(op1->OperIsRelop() && op1->HasAnySideEffect(GTF_EXCEPT));
 
-                // We need to keep op1 for the side-effects. Hang it off
-                // a GT_COMMA node
+                // We need to keep op1 for the side-effects. Hang it off COMMA node.
 
-                JITDUMP("Keeping side-effects by bashing [%06u] GT_JTRUE into a GT_COMMA.\n", tree->GetID());
+                JITDUMP("Keeping side-effects by changing [%06u] JTRUE into a COMMA.\n", tree->GetID());
 
                 tree->ChangeOper(GT_COMMA);
-                tree->AsOp()->gtOp2 = op2 = gtNewNothingNode();
+                op2 = gtNewNothingNode();
+                tree->AsOp()->SetOp(1, op2);
 
                 // Additionally since we're eliminating the JTRUE
                 // codegen won't like it if op1 is a RELOP of longs, floats or doubles.
                 // So we change it into a GT_COMMA as well.
-                JITDUMP("Also bashing [%06u] (a relop) into a GT_COMMA.\n", op1->GetID());
+                JITDUMP("Also changing [%06u] (a relop) into a COMMA.\n", op1->GetID());
                 op1->SetRelopUnsigned(false);
                 op1->ChangeOper(GT_COMMA);
                 op1->SetType(op1->AsOp()->GetOp(0)->GetType());
@@ -12132,7 +12128,7 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
 
                 DEBUG_DESTROY_NODE(op2);
             }
-            else if (op2->IsIntegralConst(1) && op1->OperIsCompare())
+            else if (op2->IsIntegralConst(1) && op1->OperIsRelop())
             {
                 // Change "relop XOR 1" to "!relop"
 

@@ -1263,9 +1263,19 @@ public:
                (oper == GT_GT);
     }
 
+    bool OperIsRelop() const
+    {
+        return OperIsRelop(gtOper);
+    }
+
     static bool OperIsCompare(genTreeOps oper)
     {
         return OperIsRelop(oper) || (oper == GT_TEST_EQ) || (oper == GT_TEST_NE);
+    }
+
+    bool OperIsCompare() const
+    {
+        return OperIsCompare(gtOper);
     }
 
     bool IsConstInitVal() const
@@ -1294,11 +1304,6 @@ public:
 #else
         return TypeIs(TYP_LONG) && OperIs(GT_SMULL, GT_UMULL, GT_BITCAST, GT_PUTARG_REG);
 #endif
-    }
-
-    bool OperIsCompare() const
-    {
-        return OperIsCompare(gtOper);
     }
 
     static bool OperIsShiftOrRotate(genTreeOps oper)
