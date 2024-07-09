@@ -5474,7 +5474,7 @@ bool Lowering::TryTransformStoreObjToStoreInd(GenTreeIndStoreObj* store)
         return false;
     }
 
-    JITDUMP("Replacing STORE_OBJ with STOREIND for [06%u]", store->gtTreeID);
+    JITDUMP("Replacing STORE_OBJ with STOREIND for [06%u]", store->GetID());
     store->ChangeOper(GT_IND_STORE);
     store->SetType(regType);
 

@@ -2031,7 +2031,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         return;
     }
 
-    JITDUMP("\nInitializing call [%06u] arg info\n", call->gtTreeID);
+    JITDUMP("\nInitializing call [%06u] arg info\n", call->GetID());
 
     // At this point, we should never have gtCallLateArgs, as this needs to be done before those are determined.
     assert(call->gtCallLateArgs == nullptr);
@@ -2993,7 +2993,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #ifdef DEBUG
     if (verbose)
     {
-        printf("Call [%06u] arg table after fgInitArgInfo:\n", call->gtTreeID);
+        printf("Call [%06u] arg table after fgInitArgInfo:\n", call->GetID());
         call->fgArgInfo->Dump();
         printf("\n");
     }
@@ -3037,7 +3037,7 @@ void Compiler::fgMorphArgs(GenTreeCall* const call)
     bool reMorphing = call->AreArgsComplete();
     fgInitArgInfo(call);
 
-    JITDUMP("%s call [%06u] args\n", reMorphing ? "Remorphing" : "Morphing", call->gtTreeID);
+    JITDUMP("%s call [%06u] args\n", reMorphing ? "Remorphing" : "Morphing", call->GetID());
 
     GenTreeFlags argsSideEffects = GTF_EMPTY;
     unsigned     argNum          = 0;
@@ -3210,7 +3210,7 @@ void Compiler::fgMorphArgs(GenTreeCall* const call)
 #ifdef DEBUG
     if (verbose)
     {
-        printf("Call [%06u] arg table after fgMorphArgs:\n", call->gtTreeID);
+        printf("Call [%06u] arg table after fgMorphArgs:\n", call->GetID());
         call->fgArgInfo->Dump();
     }
 #endif
@@ -6034,7 +6034,7 @@ bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
 
         LclVarDsc* lcl = lclNode->GetLcl();
 
-        JITDUMP("Arg [%06u] is implicit byref V%02u, checking if it's aliased\n", argInfo->GetNode()->gtTreeID,
+        JITDUMP("Arg [%06u] is implicit byref V%02u, checking if it's aliased\n", argInfo->GetNode()->GetID(),
                 lcl->GetLclNum());
 
         const unsigned totalAppearances = lcl->GetImplicitByRefParamAnyRefCount();
@@ -12748,7 +12748,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 #ifdef DEBUG
     if (verbose)
     {
-        if ((unsigned)JitConfig.JitBreakMorphTree() == tree->gtTreeID)
+        if (static_cast<unsigned>(JitConfig.JitBreakMorphTree()) == tree->GetID())
         {
             noway_assert(!"JitBreakMorphTree hit");
         }
