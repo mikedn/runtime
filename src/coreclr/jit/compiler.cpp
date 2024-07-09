@@ -4840,7 +4840,7 @@ GenTree* dFindTree(GenTree* tree, unsigned id)
         return nullptr;
     }
 
-    if (tree->gtTreeID == id)
+    if (tree->GetID() == id)
     {
         dbTree = tree;
         return tree;

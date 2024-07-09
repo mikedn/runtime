@@ -8370,7 +8370,7 @@ void LinearScan::lsraGetOperandString(GenTree*          tree,
     {
         case LinearScan::LSRA_DUMP_PRE:
         case LinearScan::LSRA_DUMP_REFPOS:
-            _snprintf_s(operandString, operandStringLength, operandStringLength, "t%d%s", tree->gtTreeID, lastUseChar);
+            _snprintf_s(operandString, operandStringLength, operandStringLength, "t%d%s", tree->GetID(), lastUseChar);
             break;
         case LinearScan::LSRA_DUMP_POST:
         {

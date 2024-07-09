@@ -954,14 +954,14 @@ void GenTreeCall::ResetArgInfo()
     // should be removing non-standard arg IR but currently aren't.
     CLANG_FORMAT_COMMENT_ANCHOR;
 
-#if !defined(TARGET_X86)
+#ifndef TARGET_X86
     if (IsVirtualStub())
     {
         JITDUMP("Removing VSD non-standard arg [%06u] to prepare for re-morphing call [%06u]\n",
-                Compiler::dspTreeID(gtCallArgs->GetNode()), gtTreeID);
+                gtCallArgs->GetNode()->GetID(), GetID());
         gtCallArgs = gtCallArgs->GetNext();
     }
-#endif // !defined(TARGET_X86)
+#endif
 
     fgArgInfo = nullptr;
 }
@@ -7986,7 +7986,7 @@ void Compiler::gtDispLIRNode(GenTree* node)
         {
             GenTree* op = instr->GetOp(i);
 
-            printf("t%u.%s", op->gtTreeID, varTypeName(op->GetType()));
+            printf("t%u.%s", op->GetID(), varTypeName(op->GetType()));
 
             if (op->GetRegNum() != REG_NA)
             {

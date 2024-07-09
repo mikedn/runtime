@@ -5616,7 +5616,7 @@ public:
 
     static int dspTreeID(GenTree* tree)
     {
-        return tree->gtTreeID;
+        return tree->GetID();
     }
 
     const char* pgoSourceToString(ICorJitInfo::PgoSource p);
