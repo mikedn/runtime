@@ -2114,7 +2114,7 @@ void CodeGen::GenLclAlloc(GenTree* tree)
         // since we don't need any internal registers.
         if (compiler->info.compInitMem)
         {
-            assert(tree->AvailableTempRegCount() == 0);
+            assert(!tree->HasAnyTempRegs());
             regCnt = targetReg;
         }
         else
@@ -2194,7 +2194,7 @@ void CodeGen::GenLclAlloc(GenTree* tree)
         assert(regCnt == REG_NA);
         if (compiler->info.compInitMem)
         {
-            assert(tree->AvailableTempRegCount() == 0);
+            assert(!tree->HasAnyTempRegs());
             regCnt = targetReg;
         }
         else

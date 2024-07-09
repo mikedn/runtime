@@ -72,6 +72,7 @@ enum RegMask : IntRegMask
 #define REGDEF(name, num, mask, ...) RBM_##name = mask,
 #define REGALIAS(alias, name) RBM_##alias = RBM_##name,
 #include "register.h"
+    RBM_ALL = ~RBM_NONE
 };
 
 using regNumber      = RegNum;

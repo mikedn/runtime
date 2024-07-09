@@ -681,10 +681,10 @@ private:
     uint8_t m_costSz; // estimate of expression code size cost
 
     // The registers defined by the node.
-    regNumberSmall m_defRegs[MAX_MULTIREG_COUNT]{static_cast<regNumberSmall>(REG_NA)
+    RegNumSmall m_defRegs[MAX_MULTIREG_COUNT]{static_cast<RegNumSmall>(REG_NA)
 #ifndef TARGET_64BIT
-                                                     ,
-                                                 static_cast<regNumberSmall>(REG_NA)
+                                                  ,
+                                              static_cast<RegNumSmall>(REG_NA)
 #endif
     };
 
@@ -692,7 +692,7 @@ private:
 
 public:
     GenTreeFlags gtFlags = GTF_EMPTY;
-    regMaskTP    gtRsvdRegs;
+    regMaskTP    m_tempRegs;
     GenTree*     gtNext = nullptr;
     GenTree*     gtPrev = nullptr;
 #ifdef DEBUG
@@ -1017,13 +1017,32 @@ public:
 
     void ClearTempRegs()
     {
-        gtRsvdRegs = RBM_NONE;
+        m_tempRegs = RBM_NONE;
     }
 
-    unsigned AvailableTempRegCount(regMaskTP mask = (regMaskTP)-1) const;
-    regNumber GetSingleTempReg(regMaskTP mask = (regMaskTP)-1);
-    regNumber ExtractTempReg(regMaskTP mask = (regMaskTP)-1);
-    bool HasTempReg(regNumber reg) const;
+    void AddTempRegs(regMaskTP regs)
+    {
+        m_tempRegs |= regs;
+    }
+
+    regMaskTP GetTempRegs() const
+    {
+        return m_tempRegs;
+    }
+
+    bool HasAnyTempRegs(regMaskTP regs = RBM_ALL) const
+    {
+        return (m_tempRegs & regs) != RBM_NONE;
+    }
+
+    bool HasAllTempRegs(regMaskTP regs) const
+    {
+        return (m_tempRegs & regs) == regs;
+    }
+
+    RegNum GetSingleTempReg(regMaskTP mask = RBM_ALL);
+    RegNum ExtractTempReg(regMaskTP mask = RBM_ALL);
+    bool HasTempReg(RegNum reg) const;
 
     ValueNumPair GetVNP() const
     {

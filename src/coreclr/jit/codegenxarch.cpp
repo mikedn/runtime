@@ -1798,7 +1798,7 @@ void CodeGen::GenLclAlloc(GenTree* tree)
         // since we don't need any internal registers.
         if (compiler->info.compInitMem)
         {
-            assert(tree->AvailableTempRegCount() == 0);
+            assert(!tree->HasAnyTempRegs());
             regCnt = targetReg;
         }
         else
@@ -1913,7 +1913,7 @@ void CodeGen::GenLclAlloc(GenTree* tree)
             assert(regCnt == REG_NA);
             if (compiler->info.compInitMem)
             {
-                assert(tree->AvailableTempRegCount() == 0);
+                assert(!tree->HasAnyTempRegs());
                 regCnt = targetReg;
             }
             else
@@ -5877,24 +5877,21 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
     // If we are pushing the arguments (i.e. we have not pre-adjusted the stack), then we are pushing them
     // in reverse order, so we start with the current field offset at the size of the struct arg (which must be
     // a multiple of the target pointer size).
-    unsigned  currentOffset   = putArgStk->GetArgSize();
-    unsigned  prevFieldOffset = currentOffset;
-    regNumber intTmpReg       = REG_NA;
-    regNumber simdTmpReg      = REG_NA;
-    if (putArgStk->AvailableTempRegCount() != 0)
+    unsigned currentOffset   = putArgStk->GetArgSize();
+    unsigned prevFieldOffset = currentOffset;
+    RegNum   intTmpReg       = REG_NA;
+    RegNum   simdTmpReg      = REG_NA;
+
+    if (putArgStk->HasAnyTempRegs(RBM_ALLINT))
     {
-        regMaskTP rsvdRegs = putArgStk->gtRsvdRegs;
-        if ((rsvdRegs & RBM_ALLINT) != 0)
-        {
-            intTmpReg = putArgStk->GetSingleTempReg(RBM_ALLINT);
-            assert(genIsValidIntReg(intTmpReg));
-        }
-        if ((rsvdRegs & RBM_ALLFLOAT) != 0)
-        {
-            simdTmpReg = putArgStk->GetSingleTempReg(RBM_ALLFLOAT);
-            assert(genIsValidFloatReg(simdTmpReg));
-        }
-        assert(genCountBits(rsvdRegs) == (unsigned)((intTmpReg == REG_NA) ? 0 : 1) + ((simdTmpReg == REG_NA) ? 0 : 1));
+        intTmpReg = putArgStk->GetSingleTempReg(RBM_ALLINT);
+        assert(genIsValidIntReg(intTmpReg));
+    }
+
+    if (putArgStk->HasAnyTempRegs(RBM_ALLFLOAT))
+    {
+        simdTmpReg = putArgStk->GetSingleTempReg(RBM_ALLFLOAT);
+        assert(genIsValidFloatReg(simdTmpReg));
     }
 
     emitter* emit = GetEmitter();
@@ -6183,7 +6180,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
             regNumber srcReg = genConsumeReg(src);
             genCopyRegIfNeeded(src, REG_RAX);
 
-            assert((putArgStk->gtRsvdRegs & (RBM_RCX | RBM_RDI)) == (RBM_RCX | RBM_RDI));
+            assert(putArgStk->HasAllTempRegs(RBM_RCX | RBM_RDI));
 
 #ifdef TARGET_X86
             genPreAdjustStackForPutArgStk(putArgStk->GetArgSize());
@@ -6199,7 +6196,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
         else if (putArgStk->GetArgSize() < XMM_REGSIZE_BYTES)
         {
             assert(src->isContained());
-            assert(putArgStk->gtRsvdRegs == 0);
+            assert(!putArgStk->HasAnyTempRegs());
 
             for (unsigned i = 0; i < putArgStk->GetSlotCount(); i++)
             {
@@ -6617,7 +6614,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
     }
 
     assert(putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstr);
-    assert((putArgStk->gtRsvdRegs & (RBM_RSI | RBM_RDI | RBM_RCX)) == (RBM_RSI | RBM_RDI | RBM_RCX));
+    assert(putArgStk->HasAllTempRegs(RBM_RSI | RBM_RDI | RBM_RCX));
 
     genPreAdjustStackForPutArgStk(putArgStk->GetArgSize());
     GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_RDI, REG_SPBASE, /* canSkip */ false);
@@ -6647,7 +6644,7 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
     if ((putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstr) ||
         (putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstrXMM))
     {
-        assert((putArgStk->gtRsvdRegs & (RBM_RSI | RBM_RDI | RBM_RCX)) == (RBM_RSI | RBM_RDI | RBM_RCX));
+        assert(putArgStk->HasAllTempRegs(RBM_RSI | RBM_RDI | RBM_RCX));
 
         GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, REG_RDI, GetStackAddrMode(outArgLclNum, outArgLclOffs));
 
