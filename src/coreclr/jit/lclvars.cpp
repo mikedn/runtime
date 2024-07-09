@@ -2564,7 +2564,7 @@ void Compiler::lvaComputeRefCountsHIR()
                 {
                     GenTree* value = node->AsLclStore()->GetValue();
 
-                    if (!value->TypeIs(TYP_BOOL) && !value->OperIsCompare() && !value->IsIntegralConst(0) &&
+                    if (!value->TypeIs(TYP_BOOL) && !value->OperIsRelop() && !value->IsIntegralConst(0) &&
                         !value->IsIntegralConst(1))
                     {
                         node->AsLclStore()->GetLcl()->lvIsBoolean = false;

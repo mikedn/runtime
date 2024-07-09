@@ -225,7 +225,7 @@ struct LcCondition
 
     LcCondition(genTreeOps oper, const LcExpr& op1, const LcExpr& op2) : op1(op1), op2(op2), oper(oper)
     {
-        assert(GenTree::OperIsCompare(oper));
+        assert(GenTree::OperIsRelop(oper));
     }
 
     bool Evaluate(bool* result) const;
@@ -906,7 +906,7 @@ bool LoopCloneContext::IsLoopClonable(unsigned loopNum) const
         return false;
     }
 
-    if (!loop.lpTestTree->OperIsCompare() || ((loop.lpTestTree->gtFlags & GTF_RELOP_ZTT) == 0))
+    if (!loop.lpTestTree->OperIsRelop() || ((loop.lpTestTree->gtFlags & GTF_RELOP_ZTT) == 0))
     {
         JITDUMP("Rejecting loop. Loop inversion NOT present, loop test [%06u] may not protect entry from head.\n",
                 loop.lpTestTree->GetID());

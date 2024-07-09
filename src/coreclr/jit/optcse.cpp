@@ -682,7 +682,7 @@ public:
                 {
                     node->ClearCseInfo();
 
-                    if (node->OperIsCompare() && stmtHasArrLengthCandidate)
+                    if (node->OperIsRelop() && stmtHasArrLengthCandidate)
                     {
                         UpdateCheckedBoundMap(node->AsOp());
                     }
@@ -744,7 +744,7 @@ public:
     // the bound gets CSEd.
     void UpdateCheckedBoundMap(GenTreeOp* compare)
     {
-        assert(compare->OperIsCompare());
+        assert(compare->OperIsRelop());
 
         ValueNum  compareVN = compare->GetConservativeVN();
         VNFuncApp cmpVNFuncApp;

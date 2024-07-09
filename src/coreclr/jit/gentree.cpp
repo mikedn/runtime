@@ -1607,15 +1607,10 @@ genTreeOps GenTree::ReverseRelop(genTreeOps relop)
     return reverseOps[relop - GT_EQ];
 }
 
-/*****************************************************************************
- *
- *  Return a relational operator that will work for swapped operands.
- */
-
-/* static */
+// Return a relational operator that will work for swapped operands.
 genTreeOps GenTree::SwapRelop(genTreeOps relop)
 {
-    static const genTreeOps swapOps[] = {
+    static const genTreeOps swapOps[]{
         GT_EQ,      // GT_EQ
         GT_NE,      // GT_NE
         GT_GT,      // GT_LT
@@ -2168,7 +2163,7 @@ void Compiler::gtSetCosts(GenTree* tree)
             switch (oper)
             {
                 case GT_JTRUE:
-                    if (op1->OperIsCompare())
+                    if (op1->OperIsRelop())
                     {
                         op1->SetCosts(op1->GetCostEx() - SETccCostEx, op1->GetCostSz());
                     }
@@ -5994,7 +5989,7 @@ int Compiler::gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags)
         (flags & GTF_SET_FLAGS) ? 'S' : (flags & GTF_USE_FLAGS) ? 'U' : '-',
         (flags & GTF_DONT_CSE) ? 'N' : (flags & GTF_MAKE_CSE) ? 'H' : '-',
         (flags & GTF_REVERSE_OPS) ? 'R' : '-',
-        (flags & GTF_RELOP_UNSIGNED) ? 'U' : (flags & GTF_BOOLEAN) ? 'B' : '-',
+        (flags & GTF_BOOLEAN) ? 'B' : '-',
         (flags & GTF_CONTAINED) ? 'c' : '-',
         (debugFlags & GTF_DEBUG_NODE_MORPHED) ? '+' : '-');
     // clang-format on
@@ -6081,6 +6076,10 @@ void Compiler::gtDispNodeName(GenTree* tree)
     else if (GenTreeCast* cast = tree->IsCast())
     {
         sprintf_s(buf, sizeof(buf), "%s%s%c", cast->HasOverflowCheck() ? "OVF_" : "", name, 0);
+    }
+    else if (tree->OperIs(GT_LT, GT_LE, GT_GT, GT_GE) && tree->IsRelopUnsigned())
+    {
+        sprintf_s(buf, sizeof(buf), "U%s%c", name, 0);
     }
     else
     {
@@ -8152,32 +8151,23 @@ GenTree* Compiler::gtFoldExpr(GenTree* tree)
     }
     else if ((kind & GTK_BINOP) && op1 && (op2 != nullptr) &&
              // Don't take out conditionals for debugging
-             (opts.OptimizationEnabled() || !tree->OperIsCompare()))
+             (opts.OptimizationEnabled() || !tree->OperIsRelop()))
     {
-        // The atomic operations are exempted here because they are never computable statically;
-        // one of their arguments is an address.
         if (op1->OperIsConst() && op2->OperIsConst())
         {
-            /* both nodes are constants - fold the expression */
             return gtFoldExprConst(tree);
         }
-        else if (op1->OperIsConst() || op2->OperIsConst())
-        {
-            /* at least one is a constant - see if we have a
-             * special operator that can use only one constant
-             * to fold - e.g. booleans */
 
+        if (op1->OperIsConst() || op2->OperIsConst())
+        {
             return gtFoldExprSpecial(tree->AsOp());
         }
-        else if (tree->OperIsCompare())
-        {
-            /* comparisons of two local variables can sometimes be folded */
 
+        if (tree->OperIsRelop())
+        {
             return gtFoldExprCompare(tree);
         }
     }
-
-    /* Return the original node (folded/bashed or not) */
 
     return tree;
 }
@@ -8282,37 +8272,25 @@ GenTree* Compiler::gtFoldTypeEqualityCall(bool isEq, GenTree* op1, GenTree* op2)
     return compare;
 }
 
-/*****************************************************************************
- *
- *  Some comparisons can be folded:
- *
- *    locA        == locA
- *    classVarA   == classVarA
- *    locA + locB == locB + locA
- *
- */
-
 GenTree* Compiler::gtFoldExprCompare(GenTree* tree)
 {
-    GenTree* op1 = tree->AsOp()->gtOp1;
-    GenTree* op2 = tree->AsOp()->gtOp2;
+    assert(tree->OperIsRelop());
 
-    assert(tree->OperIsCompare());
+    GenTree* op1 = tree->AsOp()->GetOp(0);
+    GenTree* op2 = tree->AsOp()->GetOp(1);
 
-    /* Filter out cases that cannot be folded here */
+    // Do not fold floats or doubles (e.g. NaN != Nan)
 
-    /* Do not fold floats or doubles (e.g. NaN != Nan) */
-
-    if (varTypeIsFloating(op1->TypeGet()))
+    if (varTypeIsFloating(op1->GetType()))
     {
         return tree;
     }
 
-    /* Currently we can only fold when the two subtrees exactly match */
+    // Currently we can only fold when the two subtrees exactly match.
 
-    if ((tree->gtFlags & GTF_SIDE_EFFECT) || GenTree::Compare(op1, op2, true) == false)
+    if (tree->HasAnySideEffect(GTF_SIDE_EFFECT) || !GenTree::Compare(op1, op2, true))
     {
-        return tree; /* return unfolded tree */
+        return tree;
     }
 
     GenTree* cons;
@@ -8322,24 +8300,19 @@ GenTree* Compiler::gtFoldExprCompare(GenTree* tree)
         case GT_EQ:
         case GT_LE:
         case GT_GE:
-            cons = gtNewIconNode(true); /* Folds to GT_CNS_INT(true) */
+            cons = gtNewIconNode(1);
             break;
-
         case GT_NE:
         case GT_LT:
         case GT_GT:
-            cons = gtNewIconNode(false); /* Folds to GT_CNS_INT(false) */
+            cons = gtNewIconNode(0);
             break;
-
         default:
             assert(!"Unexpected relOp");
             return tree;
     }
 
-    /* The node has beeen folded into 'cons' */
-
-    JITDUMP("\nFolding comparison with identical operands:\n");
-    DISPTREE(tree);
+    JITDUMPTREE(tree, "\nFolding comparison with identical operands:\n");
 
     if (fgGlobalMorph)
     {
@@ -8351,8 +8324,7 @@ GenTree* Compiler::gtFoldExprCompare(GenTree* tree)
         cons->gtPrev = tree->gtPrev;
     }
 
-    JITDUMP("Bashed to %s:\n", cons->AsIntConCommon()->IconValue() ? "true" : "false");
-    DISPTREE(cons);
+    JITDUMPTREE(cons, "to %s:\n", cons->AsIntCon()->GetValue() ? "true" : "false");
 
     return cons;
 }
@@ -9954,7 +9926,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
         }
         case TYP_INT:
         {
-            if (tree->OperIsCompare() && tree->TypeIs(TYP_BYTE))
+            if (tree->OperIsRelop() && tree->TypeIs(TYP_BYTE))
             {
                 tree->SetType(TYP_INT);
             }
@@ -10300,7 +10272,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
             const float f1 = forceCastToFloat(op1->AsDblCon()->GetValue());
             const float f2 = forceCastToFloat(op2->AsDblCon()->GetValue());
 
-            if (tree->OperIsCompare() && (_isnanf(f1) || _isnanf(f2)))
+            if (tree->OperIsRelop() && (_isnanf(f1) || _isnanf(f2)))
             {
                 bool isUnordered = tree->IsRelopUnordered();
                 assert(tree->OperIs(GT_LT, GT_LE, GT_GE, GT_GT) || (tree->OperIs(GT_NE) == isUnordered));
@@ -10369,7 +10341,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
             const double d1 = op1->AsDblCon()->GetValue();
             const double d2 = op2->AsDblCon()->GetValue();
 
-            if (tree->OperIsCompare() && (_isnan(d1) || _isnan(d2)))
+            if (tree->OperIsRelop() && (_isnan(d1) || _isnan(d2)))
             {
                 bool isUnordered = tree->IsRelopUnordered();
                 assert(tree->OperIs(GT_LT, GT_LE, GT_GE, GT_GT) || (tree->OperIs(GT_NE) == isUnordered));

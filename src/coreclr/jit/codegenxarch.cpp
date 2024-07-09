@@ -4855,7 +4855,7 @@ void CodeGen::GenLea(GenTreeAddrMode* lea)
 
 void CodeGen::GenFloatCompare(GenTreeOp* cmp)
 {
-    assert(cmp->OperIsCompare());
+    assert(cmp->OperIsRelop());
 
     GenTree*  op1  = cmp->GetOp(0);
     GenTree*  op2  = cmp->GetOp(1);

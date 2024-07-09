@@ -9959,7 +9959,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     break;
                 }
 
-                if (op1->OperIsCompare())
+                if (op1->OperIsRelop())
                 {
                     if (opcode == CEE_BRFALSE || opcode == CEE_BRFALSE_S)
                     {

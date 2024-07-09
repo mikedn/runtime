@@ -339,44 +339,11 @@ static void fprintfDouble(FILE* fgxFile, double value)
 // static
 void Compiler::fgDumpTree(FILE* fgxFile, GenTree* const tree)
 {
-    if (tree->OperIsCompare())
+    if (tree->OperIsRelop())
     {
-        // Want to generate something like:
-        //   V01 <= 7
-        //   V01 > V02
-
-        const char* opName = GenTree::OpName(tree->OperGet());
-        // Make it look nicer if we can
-        switch (tree->OperGet())
-        {
-            case GT_EQ:
-                opName = "==";
-                break;
-            case GT_NE:
-                opName = "!=";
-                break;
-            case GT_LT:
-                opName = "<";
-                break;
-            case GT_LE:
-                opName = "<=";
-                break;
-            case GT_GE:
-                opName = ">=";
-                break;
-            case GT_GT:
-                opName = ">";
-                break;
-            default:
-                break;
-        }
-
-        GenTree* const lhs = tree->AsOp()->gtOp1;
-        GenTree* const rhs = tree->AsOp()->gtOp2;
-
-        fgDumpTree(fgxFile, lhs);
-        fprintf(fgxFile, " %s ", opName);
-        fgDumpTree(fgxFile, rhs);
+        fgDumpTree(fgxFile, tree->AsOp()->GetOp(0));
+        fprintf(fgxFile, " %s ", GenTree::OpName(tree->GetOper()));
+        fgDumpTree(fgxFile, tree->AsOp()->GetOp(1));
     }
     else if (GenTreeIntCon* intCon = tree->IsIntCon())
     {
