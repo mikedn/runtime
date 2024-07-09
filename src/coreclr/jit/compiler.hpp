@@ -720,6 +720,11 @@ inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
     assert(oper != GT_LCL_LOAD_FLD);  // use ChangeToLclLoadFld
     assert(oper != GT_LCL_STORE_FLD); // use ChangeToLclStoreFld
 
+    // This cannot be used to change a relop into another relop as it might
+    // incorrectly reset GTF_RELOP_UNSIGNED/GTF_RELOP_NAN_UN. Use SetOper
+    // instead and update the flags as needed.
+    assert(!OperIsRelop(oper) || !OperIsRelop(gtOper));
+
     GenTreeFlags mask = GTF_COMMON_MASK;
 
     if (OperIsIndirOrArrLength() && OperIsIndirOrArrLength(oper))

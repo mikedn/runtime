@@ -390,7 +390,6 @@ enum GenTreeFlags : unsigned
     GTF_MAKE_CSE              = 0x00000040, // Hoisted expression - try hard to CSE this expression
     GTF_DONT_CSE              = 0x00000080, // Do not CSE this expression
     GTF_BOOLEAN               = 0x00000100, // Value is known to be 0 or 1
-    GTF_RELOP_UNSIGNED        = 0x00000200, // GT/GE/LT/LE - unsigned compare
     GTF_CONTAINED             = 0x00000400, // Node is contained (executed as part of its user)
     GTF_NOREG_AT_USE          = 0x00000800, // Value is used from spilled temp without reloading into a register
     GTF_REUSE_REG_VAL         = 0x00001000, // Destination register already contains the produced value so code
@@ -476,7 +475,8 @@ enum GenTreeFlags : unsigned
     // EQ, NE, LT, LE, GT, GE flags
 
     GTF_RELOP_NAN_UN          = 0x80000000, // Unordered floating point compare
-    GTF_RELOP_ZTT             = 0x08000000, // Loop test cloned for converting while-loops into do-while
+    GTF_RELOP_UNSIGNED        = 0x40000000, // GT/GE/LT/LE - unsigned compare
+    GTF_RELOP_ZTT             = 0x20000000, // Loop test cloned for converting while-loops into do-while
                                             // with explicit "loop test" in the header block.
 
     // JCMP specific flags
@@ -1257,10 +1257,15 @@ public:
         return (OperKind(gtOper) & GTK_LEAF) != 0;
     }
 
-    static bool OperIsCompare(genTreeOps oper)
+    static bool OperIsRelop(genTreeOps oper)
     {
         return (oper == GT_EQ) || (oper == GT_NE) || (oper == GT_LT) || (oper == GT_LE) || (oper == GT_GE) ||
-               (oper == GT_GT) || (oper == GT_TEST_EQ) || (oper == GT_TEST_NE);
+               (oper == GT_GT);
+    }
+
+    static bool OperIsCompare(genTreeOps oper)
+    {
+        return OperIsRelop(oper) || (oper == GT_TEST_EQ) || (oper == GT_TEST_NE);
     }
 
     bool IsConstInitVal() const
