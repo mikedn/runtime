@@ -2164,7 +2164,6 @@ struct Importer
     void fgDispHandlerTab();
     void gtDispStmt(Statement* stmt);
     void gtDispTree(GenTree* tree);
-    static int dspTreeID(GenTree* tree);
     void JitLogEE(unsigned level, const char* fmt, ...);
 #endif
 
@@ -5613,11 +5612,6 @@ public:
         return o;
     }
 #pragma warning(pop)
-
-    static int dspTreeID(GenTree* tree)
-    {
-        return tree->GetID();
-    }
 
     const char* pgoSourceToString(ICorJitInfo::PgoSource p);
     const char* devirtualizationDetailToString(CORINFO_DEVIRTUALIZATION_DETAIL detail);

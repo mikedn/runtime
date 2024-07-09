@@ -43,8 +43,8 @@ void PhaseBase::PrePhase()
 
         if (comp->compIsForInlining())
         {
-            printf("\n*************** Inline @[%06u] Starting PHASE \"%s\"\n",
-                   Compiler::dspTreeID(comp->impInlineInfo->iciCall), PhaseNames[m_phaseId]);
+            printf("\n*************** Inline @[%06u] Starting PHASE \"%s\"\n", comp->impInlineInfo->iciCall->GetID(),
+                   PhaseNames[m_phaseId]);
         }
         else
         {
@@ -139,8 +139,8 @@ void PhaseBase::PostPhase(PhaseStatus status)
     {
         if (comp->compIsForInlining())
         {
-            printf("\n*************** Inline @[%06u] Finishing PHASE \"%s\"%s\n",
-                   Compiler::dspTreeID(comp->impInlineInfo->iciCall), PhaseNames[m_phaseId], statusMessage);
+            printf("\n*************** Inline @[%06u] Finishing PHASE \"%s\"%s\n", comp->impInlineInfo->iciCall->GetID(),
+                   PhaseNames[m_phaseId], statusMessage);
         }
         else
         {

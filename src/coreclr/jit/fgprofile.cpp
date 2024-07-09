@@ -1317,7 +1317,7 @@ public:
 
     void operator()(Compiler* compiler, GenTreeCall* call)
     {
-        JITDUMP("Found call [%06u] with probe index %d and ilOffset 0x%X\n", compiler->dspTreeID(call),
+        JITDUMP("Found call [%06u] with probe index %d and ilOffset 0x%X\n", call->GetID(),
                 call->gtClassProfileCandidateInfo->probeIndex, call->gtClassProfileCandidateInfo->ilOffset);
 
         // We transform the call from (CALLVIRT obj, ... args ...) to

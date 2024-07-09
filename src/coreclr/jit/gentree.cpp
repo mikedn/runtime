@@ -8795,7 +8795,7 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
             if ((val == 0) && op->IsBox())
             {
                 JITDUMP("\nAttempting to optimize BOX(valueType) %s null [%06u]\n", GenTree::OpName(oper),
-                        dspTreeID(tree));
+                        tree->GetID());
 
                 // We don't expect GT_GT with signed compares, and we
                 // can't predict the result if we do see it, since the
@@ -9040,7 +9040,7 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
         return tree;
     }
 
-    JITDUMP("\nAttempting to optimize BOX_NULLABLE(&x) %s null [%06u]\n", GenTree::OpName(oper), dspTreeID(tree));
+    JITDUMP("\nAttempting to optimize BOX_NULLABLE(&x) %s null [%06u]\n", GenTree::OpName(oper), tree->GetID());
 
     // Get the address of the struct being boxed
     GenTree* arg;
@@ -9078,7 +9078,7 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
     unsigned             fieldOffset = info.compCompHnd->getFieldOffset(fieldHnd);
 
     // Replace the box with an access of the nullable 'hasValue' field.
-    JITDUMP("\nSuccess: replacing BOX_NULLABLE(&x) [%06u] with x.hasValue\n", dspTreeID(op));
+    JITDUMP("\nSuccess: replacing BOX_NULLABLE(&x) [%06u] with x.hasValue\n", op->GetID());
 
     GenTree* newOp;
 

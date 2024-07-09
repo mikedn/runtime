@@ -11682,7 +11682,7 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
         else
         {
             JITDUMP("\nUnable to optimize %s -- class for [%06u] not known\n", isUnboxAny ? "UNBOX.ANY" : "UNBOX",
-                    dspTreeID(op1));
+                    op1->GetID());
         }
 
         JITDUMP("\n Importing %s as inline sequence\n", isUnboxAny ? "UNBOX.ANY" : "UNBOX");
@@ -14359,7 +14359,7 @@ void Importer::impMarkInlineCandidate(GenTreeCall*           call,
     // TODO: it is possibly interesting to allow this, but requires
     // fixes elsewhere too...
     JITDUMP("Revoking guarded devirtualization candidacy for call [%06u]: target method can't be inlined\n",
-            dspTreeID(call));
+            call->GetID());
 
     call->ClearGuardedDevirtualizationCandidate();
 
@@ -14597,7 +14597,7 @@ void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
         (impInlineInfo->inlineCandidateInfo->preexistingSpillTemp != nullptr))
     {
         inlineCandidateInfo->preexistingSpillTemp = impInlineInfo->inlineCandidateInfo->preexistingSpillTemp;
-        JITDUMP("Inline candidate [%06u] can share spill temp V%02u\n", dspTreeID(call),
+        JITDUMP("Inline candidate [%06u] can share spill temp V%02u\n", call->GetID(),
                 inlineCandidateInfo->preexistingSpillTemp);
     }
 
@@ -14811,7 +14811,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
             !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) && (JitConfig.JitClassProfiling() > 0) &&
             !isLateDevirtualization)
         {
-            JITDUMP("\n ... marking [%06u] in " FMT_BB " for class profile instrumentation\n", dspTreeID(call),
+            JITDUMP("\n ... marking [%06u] in " FMT_BB " for class profile instrumentation\n", call->GetID(),
                     importer->currentBlock->bbNum);
             ClassProfileCandidateInfo* pInfo = new (this, CMK_Inlining) ClassProfileCandidateInfo;
 
@@ -15071,7 +15071,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
         //
         if (!isLateDevirtualization && (isExact || objClassIsFinal) && JitConfig.JitNoteFailedExactDevirtualization())
         {
-            printf("@@@ Exact/Final devirt failure in %s at [%06u] $ %s\n", info.compFullName, dspTreeID(call),
+            printf("@@@ Exact/Final devirt failure in %s at [%06u] $ %s\n", info.compFullName, call->GetID(),
                    devirtualizationDetailToString(dvInfo.detail));
         }
 #endif
@@ -15243,7 +15243,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                         {
                             // If that worked, turn the box into a copy to a local var
                             //
-                            JITDUMP("Found suitable method table arg tree [%06u]\n", dspTreeID(methodTableArg));
+                            JITDUMP("Found suitable method table arg tree [%06u]\n", methodTableArg->GetID());
                             GenTree* localCopyThis =
                                 gtTryRemoveBoxUpstreamEffects(thisObj->AsBox(), BR_MAKE_LOCAL_COPY);
 
@@ -15664,7 +15664,7 @@ public:
 //
 void Importer::addFatPointerCandidate(GenTreeCall* call)
 {
-    JITDUMP("Marking call [%06u] as fat pointer candidate\n", dspTreeID(call));
+    JITDUMP("Marking call [%06u] as fat pointer candidate\n", call->GetID());
     comp->setMethodHasFatPointer();
     call->SetFatPointerCandidate();
     SpillRetExprHelper helper(this);
@@ -15830,7 +15830,7 @@ void Importer::addGuardedDevirtualizationCandidate(GenTreeCall*          call,
     if (!isEnabled)
     {
         JITDUMP("NOT Marking call [%06u] as guarded devirtualization candidate -- disabled by jit config\n",
-                dspTreeID(call));
+                call->GetID());
         return;
     }
 
@@ -15838,7 +15838,7 @@ void Importer::addGuardedDevirtualizationCandidate(GenTreeCall*          call,
     if (currentBlock->isRunRarely() || opts.OptimizationDisabled())
     {
         JITDUMP("NOT Marking call [%06u] as guarded devirtualization candidate -- rare / dbg / minopts\n",
-                dspTreeID(call));
+                call->GetID());
         return;
     }
 
@@ -15849,7 +15849,7 @@ void Importer::addGuardedDevirtualizationCandidate(GenTreeCall*          call,
     if ((call->gtCallType == CT_INDIRECT) && (call->AsCall()->gtCallCookie != nullptr))
     {
         JITDUMP("NOT Marking call [%06u] as guarded devirtualization candidate -- CT_INDIRECT with cookie\n",
-                dspTreeID(call));
+                call->GetID());
         return;
     }
 
@@ -15864,7 +15864,7 @@ void Importer::addGuardedDevirtualizationCandidate(GenTreeCall*          call,
     {
         JITDUMP("NOT Marking call [%06u] as guarded devirtualization candidate -- excluded by "
                 "JitGuardedDevirtualizationRange",
-                dspTreeID(call));
+                call->GetID());
         return;
     }
 
@@ -15872,7 +15872,7 @@ void Importer::addGuardedDevirtualizationCandidate(GenTreeCall*          call,
 
     // We're all set, proceed with candidate creation.
     //
-    JITDUMP("Marking call [%06u] as guarded devirtualization candidate; will guess for class %s\n", dspTreeID(call),
+    JITDUMP("Marking call [%06u] as guarded devirtualization candidate; will guess for class %s\n", call->GetID(),
             eeGetClassName(classHandle));
     setMethodHasGuardedDevirtualization();
     call->SetGuardedDevirtualizationCandidate();
@@ -16930,11 +16930,6 @@ void Importer::gtDispStmt(Statement* stmt)
 void Importer::gtDispTree(GenTree* tree)
 {
     return comp->gtDispTree(tree);
-}
-
-int Importer::dspTreeID(GenTree* tree)
-{
-    return Compiler::dspTreeID(tree);
 }
 
 void Importer::JitLogEE(unsigned level, const char* fmt, ...)
