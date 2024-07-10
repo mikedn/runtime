@@ -3228,6 +3228,8 @@ private:
                 case GT_FMUL:
                 case GT_FDIV:
                 case GT_FNEG:
+                case GT_FTRUNC:
+                case GT_FXT:
                 case GT_EQ:
                 case GT_NE:
                 case GT_LT:

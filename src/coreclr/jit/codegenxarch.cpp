@@ -5266,6 +5266,30 @@ void CodeGen::GenCastIntToInt(GenTreeCast* cast)
     genProduceReg(cast);
 }
 
+void CodeGen::GenFloatTruncate(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_FTRUNC) && node->TypeIs(TYP_FLOAT));
+
+    GenTree* value = node->GetOp(0);
+    assert(value->TypeIs(TYP_DOUBLE));
+
+    genConsumeRegs(value);
+    emitInsRegRM(INS_cvtsd2ss, EA_4BYTE, node->GetRegNum(), value);
+    DefReg(node);
+}
+
+void CodeGen::GenFloatExtend(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_FXT) && node->TypeIs(TYP_DOUBLE));
+
+    GenTree* value = node->GetOp(0);
+    assert(value->TypeIs(TYP_FLOAT));
+
+    genConsumeRegs(value);
+    emitInsRegRM(INS_cvtss2sd, EA_8BYTE, node->GetRegNum(), value);
+    DefReg(node);
+}
+
 void CodeGen::GenCastFloatToFloat(GenTreeCast* cast)
 {
     assert(cast->GetType() == cast->GetCastType());

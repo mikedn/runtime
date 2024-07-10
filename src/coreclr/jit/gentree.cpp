@@ -2225,6 +2225,22 @@ void Compiler::gtSetCosts(GenTree* tree)
                     }
                     break;
 
+                case GT_FTRUNC:
+                case GT_FXT:
+#if defined(TARGET_ARM)
+                    costEx = 3;
+                    costSz = 4;
+#elif defined(TARGET_ARM64)
+                    costEx = 2;
+                    costSz = 4;
+#elif defined(TARGET_XARCH)
+                    costEx = IND_COST_EX * 2;
+                    costSz = 6;
+#else
+#error "Unknown TARGET"
+#endif
+                    break;
+
                 case GT_CAST:
                     if (varTypeIsFloating(tree->GetType()) || varTypeIsFloating(op1->GetType()))
 #if defined(TARGET_ARM)
@@ -5545,6 +5561,8 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_NOT:
         case GT_NEG:
         case GT_FNEG:
+        case GT_FTRUNC:
+        case GT_FXT:
         case GT_COPY:
         case GT_RELOAD:
         case GT_ARR_LENGTH:
@@ -9757,6 +9775,18 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                 {
                     case GT_FNEG:
                         d = -d1;
+                        goto CNS_DOUBLE;
+
+                    case GT_FTRUNC:
+                        assert(opType == TYP_DOUBLE);
+                        assert(tree->TypeIs(TYP_FLOAT));
+                        d = forceCastToFloat(d1);
+                        goto CNS_DOUBLE;
+
+                    case GT_FXT:
+                        assert(opType == TYP_FLOAT);
+                        assert(tree->TypeIs(TYP_DOUBLE));
+                        d = d1;
                         goto CNS_DOUBLE;
 
                     case GT_BITCAST:

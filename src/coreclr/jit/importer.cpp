@@ -10318,12 +10318,11 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 impBashVarAddrsToI(op1);
 
                 // Casts from floating point types must not have GTF_CAST_UNSIGNED set.
-                if (varTypeIsFloating(op1))
+                if (varTypeIsFloating(op1->GetType()))
                 {
                     uns = false;
                 }
-
-                if (varTypeIsSmall(lclTyp) && !ovfl && op1->TypeIs(TYP_INT) && op1->OperIs(GT_AND))
+                else if (varTypeIsSmall(lclTyp) && !ovfl && op1->TypeIs(TYP_INT) && op1->OperIs(GT_AND))
                 {
                     op2 = op1->AsOp()->gtOp2;
 
@@ -10378,19 +10377,28 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 {
                     // Nothing needs to change
                 }
-                // Work is evidently required, add cast node
                 else
                 {
-                    op1 = gtNewCastNode(op1, uns, lclTyp);
-
-                    if (ovfl)
+                    if ((lclTyp == TYP_FLOAT) && op1->TypeIs(TYP_DOUBLE))
                     {
-                        op1->AsCast()->AddOverflowCheck();
+                        op1 = gtNewOperNode(GT_FTRUNC, lclTyp, op1);
+                    }
+                    else if ((lclTyp == TYP_DOUBLE) && op1->TypeIs(TYP_FLOAT))
+                    {
+                        op1 = gtNewOperNode(GT_FXT, lclTyp, op1);
+                    }
+                    else
+                    {
+                        op1 = gtNewCastNode(op1, uns, lclTyp);
+
+                        if (ovfl)
+                        {
+                            op1->AsCast()->AddOverflowCheck();
+                        }
                     }
 
-                    if (op1->gtGetOp1()->OperIsConst() && opts.OptimizationEnabled())
+                    if (op1->AsUnOp()->GetOp(0)->IsNumericConst() && opts.OptimizationEnabled())
                     {
-                        // Try and fold the introduced cast
                         op1 = gtFoldExprConst(op1);
                     }
                 }

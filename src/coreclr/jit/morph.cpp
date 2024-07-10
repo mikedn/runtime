@@ -135,17 +135,6 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
     var_types srcType = varActualType(src->GetType());
     var_types dstType = cast->GetCastType();
 
-    if (cast->TypeIs(TYP_FLOAT) && src->TypeIs(TYP_DOUBLE) && src->IsCast())
-    {
-        // Optimization: conv.r4(conv.r8(?)) -> conv.r4(d)
-        // This happens semi-frequently because there is no IL 'conv.r4.un'
-
-        cast->SetCastUnsigned(src->AsCast()->IsCastUnsigned());
-        src = src->AsCast()->GetOp(0);
-        cast->SetOp(0, src);
-        srcType = varActualType(src->GetType());
-    }
-
     if (varTypeIsSmall(dstType) && src->IsCast() && varTypeIsSmall(src->GetType()) &&
         (varTypeSize(src->GetType()) >= varTypeSize(dstType)) && !cast->HasOverflowCheck() &&
         !src->AsCast()->HasOverflowCheck()
@@ -11020,6 +11009,20 @@ DONE_MORPHING_CHILDREN:
                 {
                     op2->SetVNP(ValueNumPair{vnStore->VNZeroForType(op2->GetType())});
                 }
+            }
+            break;
+
+        case GT_FTRUNC:
+            assert(tree->TypeIs(TYP_FLOAT));
+
+            if (GenTreeCast* cast = op1->IsCast())
+            {
+                assert(cast->TypeIs(TYP_DOUBLE));
+                assert(varTypeIsIntegralOrI(cast->GetOp(0)->GetType()));
+
+                cast->SetCastType(TYP_FLOAT);
+
+                return cast;
             }
             break;
 

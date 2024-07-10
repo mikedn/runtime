@@ -6577,6 +6577,8 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_NOT:
         case GT_NEG:
         case GT_FNEG:
+        case GT_FTRUNC:
+        case GT_FXT:
         case GT_BSWAP:
         case GT_BSWAP16:
         case GT_COPY:
@@ -6966,6 +6968,8 @@ public:
             case GT_NOT:
             case GT_NEG:
             case GT_FNEG:
+            case GT_FTRUNC:
+            case GT_FXT:
             case GT_BSWAP:
             case GT_BSWAP16:
             case GT_COPY:

@@ -22,6 +22,36 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "sideeffects.h"
 #include "lower.h"
 
+GenTree* Lowering::LowerFloatConvert(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_FTRUNC, GT_FXT));
+
+    GenTree* src = node->GetOp(0);
+
+    assert((node->OperIs(GT_FTRUNC) && src->TypeIs(TYP_DOUBLE) && node->TypeIs(TYP_FLOAT)) ||
+           (node->OperIs(GT_FXT) && src->TypeIs(TYP_FLOAT) && node->TypeIs(TYP_DOUBLE)));
+
+    if (IsContainableMemoryOp(src))
+    {
+        // These cannot throw we can move the cast right after
+        // the source node to avoid the interference check.
+
+        if (node->gtPrev != src)
+        {
+            BlockRange().Remove(node);
+            BlockRange().InsertAfter(src, node);
+        }
+
+        src->SetContained();
+    }
+    else
+    {
+        src->SetRegOptional();
+    }
+
+    return node->gtNext;
+}
+
 void Lowering::LowerRotate(GenTree* tree)
 {
     ContainCheckShiftRotate(tree->AsOp());

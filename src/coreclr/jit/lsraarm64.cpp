@@ -197,6 +197,8 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_FNEG:
+        case GT_FXT:
+        case GT_FTRUNC:
         case GT_NEG:
         case GT_NOT:
         case GT_BSWAP:

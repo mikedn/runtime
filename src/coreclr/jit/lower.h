@@ -218,6 +218,7 @@ private:
     GenTree* LowerCast(GenTreeCast* cast);
 
 #ifdef TARGET_XARCH
+    GenTree* LowerFloatConvert(GenTreeUnOp* node);
     bool IsIndLoadRMWCandidate(GenTreeIndStore* store, GenTreeIndir* load, GenTree* src);
     GenTreeIndir* IsStoreIndRMW(GenTreeIndStore* store);
     void LowerStoreIndRMW(GenTreeIndStore* store);

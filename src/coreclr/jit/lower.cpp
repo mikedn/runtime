@@ -202,6 +202,10 @@ GenTree* Lowering::LowerNode(GenTree* node)
             ContainCheckFloatBinary(node->AsOp());
             break;
 
+        case GT_FXT:
+        case GT_FTRUNC:
+            return LowerFloatConvert(node->AsUnOp());
+
         case GT_INTRINSIC:
             ContainCheckIntrinsic(node->AsIntrinsic());
             break;

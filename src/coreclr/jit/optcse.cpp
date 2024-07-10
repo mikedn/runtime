@@ -108,6 +108,8 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
         case GT_FSUB:
         case GT_FMUL:
         case GT_FDIV:
+        case GT_FTRUNC:
+        case GT_FXT:
         case GT_ARR_ELEM:
         case GT_ARR_LENGTH:
         case GT_LCL_LOAD_FLD:

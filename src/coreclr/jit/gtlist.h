@@ -44,6 +44,8 @@ GTNODE(NOT              , GenTreeOp           , GTK_UNOP|GTK_VN)
 GTNODE(NOP              , GenTree             , GTK_UNOP|GTK_NOCONTAIN)
 GTNODE(NEG              , GenTreeOp           , GTK_UNOP|GTK_VN)
 GTNODE(FNEG             , GenTreeOp           , GTK_UNOP|GTK_VN)
+GTNODE(FTRUNC           , GenTreeOp           , GTK_UNOP|GTK_VN)
+GTNODE(FXT              , GenTreeOp           , GTK_UNOP|GTK_VN)
 
 GTNODE(COPY             , GenTreeCopyOrReload , GTK_UNOP) // Copies a variable from its current location to a register that satisfies
                                                           // code generation constraints. The child is the actual lclVar node.
