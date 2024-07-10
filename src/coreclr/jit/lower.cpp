@@ -169,11 +169,11 @@ GenTree* Lowering::LowerNode(GenTree* node)
             break;
 
         case GT_UDIV:
-            LowerUnsignedDivOrMod(node->AsOp());
+            LowerUnsignedDiv(node->AsOp());
             break;
 
         case GT_DIV:
-            return LowerSignedDivOrMod(node);
+            return LowerSignedDiv(node->AsOp());
 
         case GT_UMOD:
         case GT_MOD:

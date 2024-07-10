@@ -170,9 +170,11 @@ private:
     void LowerIndStore(GenTreeIndStore* store);
     void LowerIndStoreArch(GenTreeIndStore* store);
     GenTree* LowerAdd(GenTreeOp* node);
+#ifndef TARGET_ARM64
     bool LowerUnsignedDivOrMod(GenTreeOp* divMod);
     GenTree* LowerConstIntDivOrMod(GenTree* node);
     GenTree* LowerSignedDivOrMod(GenTree* node);
+#endif
     void LowerStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);
     void LowerIndStoreObj(GenTreeIndStoreObj* store);
     void LowerIndStoreBlk(GenTreeIndStoreBlk* store);
@@ -189,6 +191,9 @@ private:
     void LowerFloatArithmetic(GenTreeOp* arith);
     void LowerArithmetic(GenTreeOp* arith);
     void LowerMultiply(GenTreeOp* mul);
+    void LowerUnsignedDiv(GenTreeOp* udiv);
+    GenTree* LowerSignedConstDiv(GenTreeOp* node);
+    GenTree* LowerSignedDiv(GenTreeOp* div);
     void LowerShiftImmediate(GenTreeOp* shift);
     void CombineShiftImmediate(GenTreeInstr* shift);
     void LowerShiftVariable(GenTreeOp* shift);
