@@ -168,6 +168,17 @@ GenTree* Lowering::LowerNode(GenTree* node)
             LowerMultiply(node->AsOp());
             break;
 
+        case GT_UDIV:
+            LowerUnsignedDivOrMod(node->AsOp());
+            break;
+
+        case GT_DIV:
+            return LowerSignedDivOrMod(node);
+
+        case GT_UMOD:
+        case GT_MOD:
+            unreached();
+
         case GT_LT:
         case GT_LE:
         case GT_GT:
@@ -273,7 +284,6 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_TEST_NE:
         case GT_CMP:
             return LowerCompare(node->AsOp());
-#endif // !TARGET_ARM64
 
 #ifndef USE_HELPERS_FOR_INT_DIV
         case GT_UDIV:
@@ -288,6 +298,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_DIV:
         case GT_MOD:
             return LowerSignedDivOrMod(node);
+#endif // !TARGET_ARM64
 
         case GT_SWITCH:
             return LowerSwitch(node->AsUnOp());
@@ -3585,6 +3596,7 @@ GenTree* Lowering::LowerAdd(GenTreeOp* node)
     return nullptr;
 }
 
+#ifndef TARGET_ARM64
 //------------------------------------------------------------------------
 // LowerUnsignedDivOrMod: Lowers a GT_UDIV/GT_UMOD node.
 //
@@ -3601,16 +3613,12 @@ GenTree* Lowering::LowerAdd(GenTreeOp* node)
 //
 bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
 {
-#ifdef TARGET_ARM64
-    assert(divMod->OperIs(GT_UDIV) && varTypeIsIntegral(divMod->GetType()));
-#else
     assert(divMod->OperIs(GT_UDIV, GT_UMOD) && varTypeIsIntegral(divMod->GetType()));
-#endif
 
     GenTree* dividend = divMod->gtGetOp1();
     GenTree* divisor  = divMod->gtGetOp2();
 
-#if !defined(TARGET_64BIT)
+#ifndef TARGET_64BIT
     if (dividend->OperIs(GT_LONG))
     {
         return false;
@@ -3681,7 +3689,7 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
     }
 
 // TODO-ARM-CQ: Currently there's no GT_MULHI for ARM32
-#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
+#ifdef TARGET_XARCH
     if (!comp->opts.MinOpts() && (divisorValue >= 3))
     {
         size_t magic;
@@ -3698,11 +3706,8 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
 #ifdef TARGET_64BIT
             // avoid inc_saturate/multiple shifts by widening to 32x64 MULHI
             if (increment || (preShift
-#ifdef TARGET_XARCH
                               // IMUL reg,reg,imm32 can't be used if magic<0 because of sign-extension
-                              && static_cast<int32_t>(magic) < 0
-#endif
-                              ))
+                              && static_cast<int32_t>(magic) < 0))
             {
                 magic = MagicDivide::GetUnsigned64Magic(static_cast<uint64_t>(divisorValue), &increment, &preShift,
                                                         &postShift, 32);
@@ -3751,34 +3756,21 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
             BlockRange().InsertBefore(divMod, preShiftBy, adjustedDividend);
             ContainCheckShiftRotate(adjustedDividend->AsOp());
         }
-        else if (type != TYP_I_IMPL
-#ifdef TARGET_ARM64
-                 && !simpleMul // On ARM64 we will use a 32x32->64 bit multiply as that's faster.
-#endif
-                 )
+        else if (type != TYP_I_IMPL)
         {
             adjustedDividend = comp->gtNewCastNode(adjustedDividend, true, TYP_I_IMPL);
             BlockRange().InsertBefore(divMod, adjustedDividend);
             ContainCheckCast(adjustedDividend->AsCast());
         }
 
-#ifdef TARGET_XARCH
         // force input transformation to RAX because the following MULHI will kill RDX:RAX anyway and LSRA often causes
-        // reduntant copies otherwise
+        // redundant copies otherwise
         if ((adjustedDividend != dividend) && !simpleMul)
         {
             adjustedDividend->SetRegNum(REG_RAX);
         }
-#endif
 
         divisor->SetType(TYP_I_IMPL);
-
-#ifdef TARGET_ARM64
-        if (simpleMul)
-        {
-            divisor->SetType(TYP_INT);
-        }
-#endif
 
         divisor->AsIntCon()->SetIconValue(magic);
 
@@ -3795,15 +3787,9 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
             // computes the final result. This way don't need to find and change
             // the use of the existing node.
 
-            GenTree* mulhi;
-
-#ifdef TARGET_ARM64
-            mulhi = NewInstrBefore(divMod, TYP_LONG, simpleMul ? INS_umull : INS_umulh, adjustedDividend, divisor);
-#else
-            mulhi = comp->gtNewOperNode(simpleMul ? GT_MUL : GT_UMULH, TYP_I_IMPL, adjustedDividend, divisor);
+            GenTree* mulhi = comp->gtNewOperNode(simpleMul ? GT_MUL : GT_UMULH, TYP_I_IMPL, adjustedDividend, divisor);
             BlockRange().InsertBefore(divMod, mulhi);
             ContainCheckMul(mulhi->AsOp());
-#endif
 
             if (postShift)
             {
@@ -3842,20 +3828,16 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
             }
             else if (type != TYP_I_IMPL)
             {
-#ifdef TARGET_ARM64
-                divMod->ChangeToCast(TYP_INT, mulhi);
-                divMod->gtOp2 = nullptr;
-#else
                 divMod->SetOper(GT_BITCAST);
                 divMod->gtOp1 = mulhi;
                 divMod->gtOp2 = nullptr;
-#endif
             }
         }
 
         return true;
     }
-#endif
+#endif // TARGET_XARCH
+
     return false;
 }
 
@@ -3879,12 +3861,9 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
     const var_types type = divMod->TypeGet();
     assert((type == TYP_INT) || (type == TYP_LONG));
 
-#if defined(USE_HELPERS_FOR_INT_DIV)
+#ifdef USE_HELPERS_FOR_INT_DIV
     assert(!"unreachable: integral GT_DIV/GT_MOD should get morphed into helper calls");
-#endif // USE_HELPERS_FOR_INT_DIV
-#if defined(TARGET_ARM64)
-    assert(node->OperGet() != GT_MOD);
-#endif // TARGET_ARM64
+#endif
 
     if (!divisor->IsCnsIntOrI())
     {
@@ -3938,7 +3917,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
             return nullptr;
         }
 
-#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
+#ifdef TARGET_XARCH
         ssize_t magic;
         int     shift;
 
@@ -3950,9 +3929,9 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
         {
 #ifdef TARGET_64BIT
             magic = MagicDivide::GetSigned64Magic(static_cast<int64_t>(divisorValue), &shift);
-#else  // !TARGET_64BIT
+#else
             unreached();
-#endif // !TARGET_64BIT
+#endif
         }
 
         divisor->AsIntConCommon()->SetIconValue(magic);
@@ -4139,11 +4118,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
 //
 GenTree* Lowering::LowerSignedDivOrMod(GenTree* node)
 {
-#ifdef TARGET_ARM64
-    assert(node->OperIs(GT_DIV) && varTypeIsIntegral(node->GetType()));
-#else
     assert(node->OperIs(GT_DIV, GT_MOD) && varTypeIsIntegral(node->GetType()));
-#endif
 
     GenTree* next = node->gtNext;
 
@@ -4159,7 +4134,6 @@ GenTree* Lowering::LowerSignedDivOrMod(GenTree* node)
     return next;
 }
 
-#ifndef TARGET_ARM64
 void Lowering::LowerShift(GenTreeOp* shift)
 {
     assert(shift->OperIs(GT_LSH, GT_RSH, GT_RSZ));
