@@ -805,6 +805,12 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_CAST:
             GenCast(node->AsCast());
             break;
+        case GT_FTRUNC:
+            GenFloatTruncate(node->AsUnOp());
+            break;
+        case GT_FXT:
+            GenFloatExtend(node->AsUnOp());
+            break;
         case GT_BITCAST:
             GenBitCast(node->AsOp());
             break;

@@ -2627,6 +2627,48 @@ void CodeGen::GenCastIntToInt(GenTreeCast* cast)
     genProduceReg(cast);
 }
 
+void CodeGen::GenFloatExtend(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_FXT) && node->TypeIs(TYP_DOUBLE) && node->GetOp(0)->TypeIs(TYP_FLOAT));
+
+    GenTree* src = node->GetOp(0);
+
+    RegNum srcReg = UseReg(src);
+    RegNum dstReg = node->GetRegNum();
+
+    assert(genIsValidFloatReg(srcReg) && genIsValidFloatReg(dstReg));
+
+#ifdef TARGET_ARM64
+    instruction ins = INS_fcvt;
+#else
+    instruction     ins = INS_vcvt_f2d;
+#endif
+    GetEmitter()->emitIns_R_R(ins, EA_8BYTE, dstReg, srcReg ARM64_ARG(INS_OPTS_S_TO_D));
+
+    DefReg(node);
+}
+
+void CodeGen::GenFloatTruncate(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_FTRUNC) && node->TypeIs(TYP_FLOAT) && node->GetOp(0)->TypeIs(TYP_DOUBLE));
+
+    GenTree* src = node->GetOp(0);
+
+    RegNum srcReg = UseReg(src);
+    RegNum dstReg = node->GetRegNum();
+
+    assert(genIsValidFloatReg(srcReg) && genIsValidFloatReg(dstReg));
+
+#ifdef TARGET_ARM64
+    instruction ins = INS_fcvt;
+#else
+    instruction     ins = INS_vcvt_d2f;
+#endif
+    GetEmitter()->emitIns_R_R(ins, EA_4BYTE, dstReg, srcReg ARM64_ARG(INS_OPTS_D_TO_S));
+
+    DefReg(node);
+}
+
 void CodeGen::GenCastFloatToFloat(GenTreeCast* cast)
 {
     assert(cast->GetType() == cast->GetCastType());

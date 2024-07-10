@@ -775,6 +775,8 @@ protected:
 #endif
 
     void GenCast(GenTreeCast* cast);
+    void GenFloatTruncate(GenTreeUnOp* node);
+    void GenFloatExtend(GenTreeUnOp* node);
     void GenLclAddr(GenTreeLclAddr* addr);
     void GenIndexAddr(GenTreeIndexAddr* tree);
     void GenNegNot(GenTreeUnOp* tree);
