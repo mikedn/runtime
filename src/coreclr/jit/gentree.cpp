@@ -2113,7 +2113,7 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, var_types indirType, unsigned* indi
 
         if (!node->OperIs(GT_CNS_INT))
         {
-            node->gtFlags |= GTF_ADDRMODE_NO_CSE;
+            node->gtFlags |= GTF_NO_CSE;
         }
     }
 
@@ -2381,9 +2381,9 @@ void Compiler::gtSetCosts(GenTree* tree)
 
                         while (op1 != addr)
                         {
-                            // TODO-MIKE-CQ: Marking COMMAs with GTF_ADDRMODE_NO_CSE sometimes interferes with
-                            // redundant range check elimination done via CSE.
-                            // Normally CSE can't eliminate range checks because it uses liberal value numbers
+                            // TODO-MIKE-CQ: Marking COMMAs with GTF_NO_CSE sometimes interferes with redundant
+                            // range check elimination done via CSE.
+                            // Normally, CSE can't eliminate range checks because it uses liberal value numbers
                             // and that makes it sensitive to race conditions in user code. However, if the
                             // entire array element address tree is CSEd, including the range check, then race
                             // conditions aren't an issue.
@@ -2401,7 +2401,7 @@ void Compiler::gtSetCosts(GenTree* tree)
                             // With structs we may end up with IND(COMMA(range check, addr)), thanks in part to
                             // IND(COMMA(...)) morphing code not applying to OBJs as well.
 
-                            op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
+                            op1->gtFlags |= GTF_NO_CSE;
                             costEx += op1->AsOp()->GetOp(0)->GetCostEx();
                             costSz += op1->AsOp()->GetOp(0)->GetCostSz();
                             op1 = op1->AsOp()->GetOp(1);
@@ -2634,9 +2634,9 @@ void Compiler::gtSetCosts(GenTree* tree)
 
                     while (op1 != addr)
                     {
-                        // TODO-MIKE-CQ: Marking COMMAs with GTF_ADDRMODE_NO_CSE sometimes interferes with
-                        // redundant range check elimination done via CSE.
-                        // Normally CSE can't eliminate range checks because it uses liberal value numbers
+                        // TODO-MIKE-CQ: Marking COMMAs with GTF_NO_CSE sometimes interferes with redundant
+                        // range check elimination done via CSE.
+                        // Normally, CSE can't eliminate range checks because it uses liberal value numbers
                         // and that makes it sensitive to race conditions in user code. However, if the
                         // entire array element address tree is CSEd, including the range check, then race
                         // conditions aren't an issue.
@@ -2654,7 +2654,7 @@ void Compiler::gtSetCosts(GenTree* tree)
                         // With structs we may end up with IND(COMMA(range check, addr)), thanks in part to
                         // IND(COMMA(...)) morphing code not applying to OBJs as well.
 
-                        op1->gtFlags |= GTF_ADDRMODE_NO_CSE;
+                        op1->gtFlags |= GTF_NO_CSE;
                         costEx += op1->AsOp()->GetOp(0)->GetCostEx();
                         costSz += op1->AsOp()->GetOp(0)->GetCostSz();
                         op1 = op1->AsOp()->GetOp(1);
@@ -6187,7 +6187,7 @@ int Compiler::dmpNodeFlags(GenTree* tree)
 {
     GenTreeFlags flags = tree->gtFlags;
 
-    if (tree->OperIs(GT_ADD, GT_LSH, GT_MUL, GT_COMMA) && ((flags & GTF_ADDRMODE_NO_CSE) != 0))
+    if ((flags & GTF_NO_CSE) != 0)
     {
         // Force the GTF_ADDRMODE_NO_CSE flag to print out like GTF_DONT_CSE
         flags |= GTF_DONT_CSE;
