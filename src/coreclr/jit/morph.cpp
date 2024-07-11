@@ -40,7 +40,7 @@ GenTree* Compiler::fgMorphCastIntoHelper(GenTreeCast* cast, int helper)
     if (src->TypeIs(TYP_FLOAT))
     {
         // All floating point cast helpers work only with DOUBLE.
-        src = gtNewCastNode(src, false, TYP_DOUBLE);
+        src = gtNewOperNode(GT_FXT, TYP_DOUBLE, src);
     }
 
     // GenTreeCast nodes are small so they cannot be converted to calls in place. It may
@@ -276,7 +276,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
 
             if (dstType == TYP_FLOAT)
             {
-                helper = gtNewCastNode(helper, false, TYP_FLOAT);
+                helper = gtNewOperNode(GT_FTRUNC, TYP_FLOAT, helper);
                 INDEBUG(helper->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
             }
 
@@ -5442,7 +5442,7 @@ GenTree* Compiler::fgMorphLclLoad(GenTreeLclLoad* load)
 #endif
 
     // TODO-MIKE-Review: Doing this for P-DEP fields is dubious. And this should not
-    // be needed for address exposed locals, we could just keeep the small int typed
+    // be needed for address exposed locals, we could just keep the small int typed
     // LCL_VAR as it performs implicit widening like LCL_FLD and INT do.
     load->SetType(TYP_INT);
     fgMorphTreeDone(load);
@@ -10260,13 +10260,13 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 }
                 else
                 {
-                    op1 = gtNewCastNode(op1, false, TYP_DOUBLE);
+                    op1 = gtNewOperNode(GT_FXT, TYP_DOUBLE, op1);
                     tree->AsOp()->SetOp(0, op1);
                 }
             }
             else if (op2->TypeIs(TYP_FLOAT))
             {
-                op2 = gtNewCastNode(op2, false, TYP_DOUBLE);
+                op2 = gtNewOperNode(GT_FXT, TYP_DOUBLE, op2);
                 tree->AsOp()->SetOp(1, op2);
             }
 
