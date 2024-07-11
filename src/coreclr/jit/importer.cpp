@@ -2121,7 +2121,7 @@ GenTree* Importer::impImplicitR4orR8Cast(GenTree* tree, var_types dstTyp)
 {
     if (varTypeIsFloating(tree->GetType()) && varTypeIsFloating(dstTyp) && (dstTyp != tree->GetType()))
     {
-        tree = gtNewCastNode(tree, false, dstTyp);
+        tree = gtNewOperNode(tree->TypeIs(TYP_DOUBLE) ? GT_FTRUNC : GT_FXT, dstTyp, tree);
     }
 
     return tree;
@@ -3472,26 +3472,25 @@ GenTree* Importer::impMathIntrinsic(CORINFO_METHOD_HANDLE method,
     if (!IsIntrinsicImplementedByUserCall(intrinsicName))
 #endif
     {
-        CORINFO_CLASS_HANDLE    tmpClass;
-        CORINFO_ARG_LIST_HANDLE arg;
-        var_types               op1Type;
-        var_types               op2Type;
-
         switch (sig->numArgs)
         {
+            CORINFO_CLASS_HANDLE    tmpClass;
+            CORINFO_ARG_LIST_HANDLE param;
+            var_types               paramType;
+
             case 1:
                 op1 = impPopStack().val;
 
-                arg     = sig->args;
-                op1Type = JITtype2varType(strip(info.compCompHnd->getArgType(sig, arg, &tmpClass)));
+                param     = sig->args;
+                paramType = varActualType(CorTypeToVarType(strip(info.compCompHnd->getArgType(sig, param, &tmpClass))));
 
-                if (op1->TypeGet() != genActualType(op1Type))
+                if (op1->GetType() != paramType)
                 {
-                    assert(varTypeIsFloating(op1));
+                    assert(varTypeIsFloating(op1->GetType()));
                     // TODO-MIKE-Review: This is messed up, it casts to the method's
                     // return type instead of casting to the parameter type. This
                     // would probably blow in some cases involving ILogB.
-                    op1 = gtNewCastNode(op1, false, callType);
+                    op1 = gtNewOperNode(callType == TYP_DOUBLE ? GT_FXT : GT_FTRUNC, callType, op1);
                 }
 
                 break;
@@ -3500,22 +3499,22 @@ GenTree* Importer::impMathIntrinsic(CORINFO_METHOD_HANDLE method,
                 op2 = impPopStack().val;
                 op1 = impPopStack().val;
 
-                arg     = sig->args;
-                op1Type = JITtype2varType(strip(info.compCompHnd->getArgType(sig, arg, &tmpClass)));
+                param     = sig->args;
+                paramType = varActualType(CorTypeToVarType(strip(info.compCompHnd->getArgType(sig, param, &tmpClass))));
 
-                if (op1->TypeGet() != genActualType(op1Type))
+                if (op1->GetType() != paramType)
                 {
-                    assert(varTypeIsFloating(op1));
-                    op1 = gtNewCastNode(op1, false, callType);
+                    assert(varTypeIsFloating(op1->GetType()));
+                    op1 = gtNewOperNode(callType == TYP_DOUBLE ? GT_FXT : GT_FTRUNC, callType, op1);
                 }
 
-                arg     = info.compCompHnd->getArgNext(arg);
-                op2Type = JITtype2varType(strip(info.compCompHnd->getArgType(sig, arg, &tmpClass)));
+                param     = info.compCompHnd->getArgNext(param);
+                paramType = varActualType(CorTypeToVarType(strip(info.compCompHnd->getArgType(sig, param, &tmpClass))));
 
-                if (op2->TypeGet() != genActualType(op2Type))
+                if (op2->GetType() != paramType)
                 {
-                    assert(varTypeIsFloating(op2));
-                    op2 = gtNewCastNode(op2, false, callType);
+                    assert(varTypeIsFloating(op2->GetType()));
+                    op2 = gtNewOperNode(callType == TYP_DOUBLE ? GT_FXT : GT_FTRUNC, callType, op2);
                 }
 
                 break;
@@ -4711,14 +4710,14 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
 
             if (impIsPrimitive(jitType))
             {
-                type = JITtype2varType(jitType);
+                type = CorTypeToVarType(jitType);
             }
-
-            assert((varActualType(value->GetType()) == varActualType(type)) ||
-                   (varTypeIsFloating(type) == varTypeIsFloating(value->GetType())));
 
             var_types srcTyp = value->GetType();
             var_types dstTyp = type;
+
+            assert((varActualType(srcTyp) == varActualType(dstTyp)) ||
+                   (varTypeIsFloating(dstTyp) == varTypeIsFloating(srcTyp)));
 
             if (srcTyp != dstTyp)
             {
@@ -4728,7 +4727,7 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
                 value = gtNewCastNode(value, false, dstTyp);
             }
 
-            store = comp->gtNewIndStore(type, addr, value);
+            store = comp->gtNewIndStore(dstTyp, addr, value);
             // TODO-MIKE-Review: Does this need a GLOB_REF? On one hand boxes are immutable,
             // so after this store the value cannot change again. But what would prevent a
             // load of the boxed value to move before this store? Magic?
@@ -6162,7 +6161,7 @@ GenTree* Importer::impConvertFieldStoreValue(var_types storeType, GenTree* value
     // FLOAT/DOUBLE implicit conversions.
     else if (varTypeIsFloating(value->GetType()) && varTypeIsFloating(storeType))
     {
-        value = gtNewCastNode(value, false, storeType);
+        value = gtNewOperNode(storeType == TYP_DOUBLE ? GT_FXT : GT_FTRUNC, storeType, value);
     }
 
     return value;
@@ -8440,14 +8439,14 @@ var_types Importer::impGetNumericBinaryOpType(genTreeOps oper, GenTree** pOp1, G
     if (op1->TypeIs(TYP_FLOAT) && !op2->TypeIs(TYP_FLOAT))
     {
         assert(op2->TypeIs(TYP_DOUBLE));
-        *pOp1 = gtNewCastNode(op1, false, TYP_DOUBLE);
+        *pOp1 = gtNewOperNode(GT_FXT, TYP_DOUBLE, op1);
         return TYP_DOUBLE;
     }
 
     if (op1->TypeIs(TYP_DOUBLE) && !op2->TypeIs(TYP_DOUBLE))
     {
         assert(op2->TypeIs(TYP_FLOAT));
-        *pOp2 = gtNewCastNode(op2, false, TYP_DOUBLE);
+        *pOp2 = gtNewOperNode(GT_FXT, TYP_DOUBLE, op2);
         return TYP_DOUBLE;
     }
 
@@ -8464,15 +8463,15 @@ void Importer::impAddCompareOpImplicitCasts(bool isUnsigned, GenTree*& op1, GenT
 {
     if (varTypeIsFloating(op1->GetType()))
     {
-        assert(varTypeIsFloating(op2->TypeGet()));
+        assert(varTypeIsFloating(op2->GetType()));
 
         if (op1->TypeIs(TYP_DOUBLE))
         {
-            op2 = gtNewCastNode(op2, false, TYP_DOUBLE);
+            op2 = gtNewOperNode(GT_FXT, TYP_DOUBLE, op2);
         }
         else if (op2->TypeIs(TYP_DOUBLE))
         {
-            op1 = gtNewCastNode(op1, false, TYP_DOUBLE);
+            op1 = gtNewOperNode(GT_FXT, TYP_DOUBLE, op1);
         }
     }
 #ifdef TARGET_64BIT
@@ -9304,10 +9303,10 @@ void Importer::impImportBlockCode(BasicBlock* block)
                             }
                         }
                     }
-                    else if (varTypeIsFloating(lclTyp) && varTypeIsFloating(op1->GetType()) &&
-                             (lclTyp != op1->GetType()))
+                    else if ((lclTyp != op1->GetType()) && varTypeIsFloating(lclTyp) &&
+                             varTypeIsFloating(op1->GetType()))
                     {
-                        op1 = gtNewCastNode(op1, false, lclTyp);
+                        op1 = gtNewOperNode(lclTyp == TYP_DOUBLE ? GT_FXT : GT_FTRUNC, lclTyp, op1);
                     }
 
                     op1 = comp->gtNewLclStore(lcl, lclTyp, op1);
@@ -13185,7 +13184,7 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
             {
                 // Spill clique has decided this should be "double", but this block only pushes a "float".
                 // Insert a cast to "double" so we match the clique.
-                tree = gtNewCastNode(tree, false, TYP_DOUBLE);
+                tree = gtNewOperNode(GT_FXT, TYP_DOUBLE, tree);
             }
 
             // If branchStmt has references to spillTempLclNum (can only happen if we are spilling to

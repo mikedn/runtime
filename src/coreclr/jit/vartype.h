@@ -136,7 +136,8 @@ inline var_types varTypeToUnsigned(T vt)
 template <class T>
 inline bool varTypeIsFloating(T vt)
 {
-    return ((varTypeClassification[TypeGet(vt)] & (VTF_FLT)) != 0);
+    var_types type = TypeGet(vt);
+    return (type == TYP_FLOAT) || (type == TYP_DOUBLE);
 }
 
 template <class T>
