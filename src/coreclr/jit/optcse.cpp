@@ -9,7 +9,7 @@
 
 bool SsaOptimizer::IsCseCandidate(GenTree* node) const
 {
-    if ((node->gtFlags & GTF_DONT_CSE) != 0)
+    if ((node->gtFlags & (GTF_DONT_CSE | GTF_NO_CSE)) != 0)
     {
         return false;
     }
@@ -80,15 +80,7 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
             return !node->AsIndir()->GetAddr()->OperIs(GT_ARR_ELEM);
 
         case GT_COMMA:
-            if (node->AsOp()->GetOp(1)->GetLiberalVN() == node->GetLiberalVN())
-            {
-                return false;
-            }
-            FALLTHROUGH;
-        case GT_ADD:
-        case GT_LSH:
-        case GT_MUL:
-            return (node->gtFlags & GTF_ADDRMODE_NO_CSE) == 0;
+            return node->AsOp()->GetOp(1)->GetLiberalVN() != node->GetLiberalVN();
 
         case GT_LCL_LOAD:
             // TODO-MIKE-Review: Huh? What volatile LCL_LOAD?!?
@@ -97,6 +89,9 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
             // P.S. Probably this was referring to the lvVolatileHint crap...
             return false; // Can't CSE a volatile LCL_VAR
 
+        case GT_ADD:
+        case GT_LSH:
+        case GT_MUL:
         case GT_OVF_SADD:
         case GT_OVF_UADD:
         case GT_OVF_SSUB:

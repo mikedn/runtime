@@ -388,8 +388,9 @@ enum GenTreeFlags : unsigned
                             
     GTF_REVERSE_OPS           = 0x00000020, // Second operand must be evaluated before the first operand
     GTF_MAKE_CSE              = 0x00000040, // Hoisted expression - try hard to CSE this expression
-    GTF_DONT_CSE              = 0x00000080, // Do not CSE this expression
+    GTF_DONT_CSE              = 0x00000080, // Do not CSE/const propagate this expression
     GTF_BOOLEAN               = 0x00000100, // Value is known to be 0 or 1
+    GTF_NO_CSE                = 0x00000200, // Blocks CSE (unlike GTF_DONT_CSE this does not block constant propagation)
     GTF_CONTAINED             = 0x00000400, // Node is contained (executed as part of its user)
     GTF_NOREG_AT_USE          = 0x00000800, // Value is used from spilled temp without reloading into a register
     GTF_REUSE_REG_VAL         = 0x00001000, // Destination register already contains the produced value so code
@@ -488,11 +489,6 @@ enum GenTreeFlags : unsigned
 
     GTF_CAST_UNSIGNED         = 0x80000000, // CAST - treat source operand as unsigned
     GTF_CAST_OVERFLOW         = 0x40000000, // CAST - overflow check
-
-    // Unary/Binary op specific flags
-
-    GTF_ADDRMODE_NO_CSE       = 0x80000000, // ADD/MUL/LSH/COMMA - address mode component, do not CSE
-                                            // (unlike GTF_DONT_CSE this does not block constant propagation)
 };
 
 constexpr GenTreeFlags operator ~(GenTreeFlags a)

@@ -5058,12 +5058,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
             case GT_MUL:
             case GT_LSH:
             case GT_COMMA:
-                if ((tree->gtFlags & GTF_ADDRMODE_NO_CSE) != 0)
-                {
-                    chars += printf("[ADDRMODE_NO_CSE]");
-                }
-                break;
-
             case GT_MOD:
             case GT_UMOD:
                 break;
@@ -5299,6 +5293,10 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
         if (tree->gtFlags & GTF_DONT_CSE)
         {
             chars += printf("[DONT_CSE]");
+        }
+        if (tree->gtFlags & GTF_NO_CSE)
+        {
+            chars += printf("[NO_CSE]");
         }
         if (tree->gtFlags & GTF_BOOLEAN)
         {
