@@ -1356,45 +1356,15 @@ void Lowering::LowerUnsignedDiv(GenTreeOp* udiv)
 
     divisor->SetValue(simpleMul ? TYP_INT : TYP_LONG, magic);
 
-    if (!postShift && (type == TYP_LONG))
-    {
-        udiv->SetOper(GT_UMULH);
-        udiv->SetOp(0, adjustedDividend);
-
-        return;
-    }
-
-    // Insert a new UMULH node before the existing UDIV/UMOD node.
-    // The existing node will later be transformed into a RSZ that
-    // computes the final result. This way don't need to find and
-    // change the use of the existing node.
-
-    GenTree* mulhi = NewInstrBefore(udiv, TYP_LONG, simpleMul ? INS_umull : INS_umulh, adjustedDividend, divisor);
-
     if (postShift)
     {
-        GenTree* shiftBy = comp->gtNewIconNode(postShift, TYP_INT);
-        BlockRange().InsertBefore(udiv, shiftBy);
-
-        if (type == TYP_LONG)
-        {
-            udiv->SetOper(GT_RSZ);
-            udiv->SetOp(0, mulhi);
-            udiv->SetOp(1, shiftBy);
-            ContainCheckShiftRotate(udiv);
-        }
-        else
-        {
-            mulhi = comp->gtNewOperNode(GT_RSZ, TYP_LONG, mulhi, shiftBy);
-            BlockRange().InsertBefore(udiv, mulhi);
-            ContainCheckShiftRotate(mulhi->AsOp());
-        }
+        GenTree* mul = NewInstrBefore(udiv, TYP_LONG, simpleMul ? INS_umull : INS_umulh, adjustedDividend, divisor);
+        GenTreeInstr* lsr = MakeInstr(udiv, INS_lsr, EA_8BYTE, mul);
+        lsr->SetImmediate(postShift);
     }
-
-    if (type != TYP_LONG)
+    else
     {
-        udiv->ChangeToCast(TYP_INT, mulhi);
-        udiv->gtOp2 = nullptr;
+        MakeInstr(udiv, INS_umulh, EA_8BYTE, adjustedDividend, divisor);
     }
 }
 
