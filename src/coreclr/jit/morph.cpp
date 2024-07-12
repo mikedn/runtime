@@ -10500,7 +10500,7 @@ DONE_MORPHING_CHILDREN:
 
         return tree;
     }
-    else if (tree->OperIsConst())
+    else if (tree->IsNumericConst())
     {
         return tree;
     }
@@ -10517,6 +10517,9 @@ DONE_MORPHING_CHILDREN:
     {
         GenTree* cns2;
         size_t   ival2;
+
+        case GT_LCL_DEF:
+            return tree;
 
         case GT_LCL_STORE:
         case GT_LCL_STORE_FLD:
@@ -11712,9 +11715,10 @@ DONE_MORPHING_CHILDREN:
     // TODO-MIKE-Cleanup: IND/OBJ/BLK were not removed as they could have been assignment
     // destinations. Can they be removed now?
 
-    if ((oper != GT_LCL_DEF) && (oper != GT_LCL_STORE) && (oper != GT_IND_LOAD) && (oper != GT_IND_LOAD_OBJ) &&
-        (oper != GT_IND_LOAD_BLK) && (oper != GT_INIT_VAL))
+    if ((oper != GT_IND_LOAD) && (oper != GT_IND_LOAD_OBJ) && (oper != GT_IND_LOAD_BLK))
     {
+        assert((oper != GT_LCL_DEF) && (oper != GT_INIT_VAL) && (oper != GT_LCL_STORE));
+
         if ((op1 != nullptr) && fgIsCommaThrow(op1 DEBUGARG(true)))
         {
             fgRemoveRestOfBlock = true;
@@ -11809,7 +11813,7 @@ DONE_MORPHING_CHILDREN:
         }
     }
 
-    if (opts.OptEnabled(CLFLG_TREETRANS))
+    if (opts.OptEnabled(CLFLG_TREETRANS) && tree->OperIs(GT_ADD, GT_XOR, GT_OR, GT_AND, GT_MUL, GT_LSH))
     {
         tree = fgMorphSmpOpOptional(tree->AsOp());
     }
@@ -12027,6 +12031,8 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
 
 GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
 {
+    assert(tree->OperIs(GT_ADD, GT_XOR, GT_OR, GT_AND, GT_MUL, GT_LSH));
+
     genTreeOps oper = tree->GetOper();
     GenTree*   op1  = tree->gtOp1;
     GenTree*   op2  = tree->gtOp2;
