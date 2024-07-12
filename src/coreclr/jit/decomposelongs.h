@@ -21,7 +21,6 @@ private:
         return *m_range;
     }
 
-
     // Driver functions
     void     DecomposeRangeHelper();
     GenTree* DecomposeNode(GenTree* tree);

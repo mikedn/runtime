@@ -1177,8 +1177,8 @@ unsigned LinearScan::ComputeOperandDstCount(GenTree* operand)
     // This must be one of the operand types that are neither contained nor produce a value.
     // Stores and void-typed operands may be encountered when processing call nodes, which contain
     // pointers to argument setup stores.
-    assert(operand->OperIsStore() || operand->IsPutArgStk() || operand->OperIsCompare() ||
-           operand->OperIs(GT_CMP) || operand->TypeIs(TYP_VOID));
+    assert(operand->OperIsStore() || operand->IsPutArgStk() || operand->OperIsCompare() || operand->OperIs(GT_CMP) ||
+           operand->TypeIs(TYP_VOID));
 
     return 0;
 }
