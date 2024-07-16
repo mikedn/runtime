@@ -92,6 +92,12 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
         case GT_CAST:
             nextNode = DecomposeCast(use);
             break;
+        case GT_SXT:
+            nextNode = DecomposeSignExtend(use);
+            break;
+        case GT_UXT:
+            nextNode = DecomposeUnsignedExtend(use);
+            break;
         case GT_CNS_LNG:
             nextNode = DecomposeCnsLng(use);
             break;
@@ -456,6 +462,66 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
     {
         return cast->gtNext;
     }
+
+    return FinalizeDecomposition(use, loResult, hiResult, hiResult);
+}
+
+GenTree* DecomposeLongs::DecomposeSignExtend(LIR::Use& use)
+{
+    GenTreeUnOp* sxt = use.Def()->AsUnOp();
+    assert(sxt->OperIs(GT_SXT) && sxt->TypeIs(TYP_LONG));
+
+    if (varTypeIsSmallUnsigned(sxt->GetOp(0)->GetType()))
+    {
+        sxt->SetOper(GT_UXT);
+
+        return DecomposeUnsignedExtend(use);
+    }
+
+    if (!use.IsDummyUse() && use.User()->OperIs(GT_MUL))
+    {
+        // This INT to LONG cast is used by a MUL that will be transformed by DecomposeMul into
+        // a SMULL and as a result the high operand produced by the cast will become dead.
+        // Skip cast decomposition so DecomposeMul doesn't need to bother with dead code removal,
+        // especially in the case of sign extending casts that also introduce new locals.
+
+        return sxt->gtNext;
+    }
+
+    LIR::Use   src(Range(), &(sxt->AsOp()->gtOp1), sxt);
+    LclVarDsc* lcl = src.ReplaceWithLclLoad(m_compiler);
+
+    GenTree* loResult = src.Def();
+    GenTree* loCopy   = m_compiler->gtNewLclLoad(lcl, TYP_INT);
+    GenTree* shiftBy  = m_compiler->gtNewIconNode(31, TYP_INT);
+    GenTree* hiResult = m_compiler->gtNewOperNode(GT_RSH, TYP_INT, loCopy, shiftBy);
+
+    Range().InsertAfter(sxt, loCopy, shiftBy, hiResult);
+    Range().Remove(sxt);
+
+    return FinalizeDecomposition(use, loResult, hiResult, hiResult);
+}
+
+GenTree* DecomposeLongs::DecomposeUnsignedExtend(LIR::Use& use)
+{
+    GenTreeUnOp* uxt = use.Def()->AsUnOp();
+    assert(uxt->OperIs(GT_UXT) && uxt->TypeIs(TYP_LONG));
+
+    if (!use.IsDummyUse() && use.User()->OperIs(GT_MUL))
+    {
+        // This INT to LONG cast is used by a MUL that will be transformed by DecomposeMul into
+        // a UMULL and as a result the high operand produced by the cast will become dead.
+        // Skip cast decomposition so DecomposeMul doesn't need to bother with dead code removal,
+        // especially in the case of sign extending casts that also introduce new locals.
+
+        return uxt->gtNext;
+    }
+
+    GenTree* loResult = uxt->GetOp(0);
+    GenTree* hiResult = m_compiler->gtNewIconNode(0);
+
+    Range().InsertAfter(uxt, hiResult);
+    Range().Remove(uxt);
 
     return FinalizeDecomposition(use, loResult, hiResult, hiResult);
 }
@@ -1159,20 +1225,21 @@ GenTree* DecomposeLongs::DecomposeMul(LIR::Use& use)
 
     assert(tree->OperIs(GT_MUL));
 
-    // We expect both operands to be int->long casts. DecomposeCast specifically
-    // ignores such casts when they are used by GT_MULs.
-    GenTreeCast* op1 = tree->GetOp(0)->AsCast();
-    GenTreeCast* op2 = tree->GetOp(1)->AsCast();
-    assert(op1->TypeIs(TYP_LONG));
-    assert(op2->TypeIs(TYP_LONG));
-    assert(op1->IsCastUnsigned() == op2->IsCastUnsigned());
+    // We expect both operands to be extending casts. DecomposeSigned/UnsignedExtend
+    // specifically ignores such casts when they are used by MULs.
+
+    GenTreeUnOp* op1 = tree->GetOp(0)->AsUnOp();
+    GenTreeUnOp* op2 = tree->GetOp(1)->AsUnOp();
+    assert(op1->OperIs(GT_SXT, GT_UXT) && op1->TypeIs(TYP_LONG));
+    assert(op2->OperIs(GT_SXT, GT_UXT) && op2->TypeIs(TYP_LONG));
+    assert(op1->GetOper() == op2->GetOper());
 
     Range().Remove(op1);
     Range().Remove(op2);
 
     tree->SetOp(0, op1->GetOp(0));
     tree->SetOp(1, op2->GetOp(0));
-    tree->SetOper(op1->IsCastUnsigned() ? GT_UMULL : GT_SMULL);
+    tree->SetOper(op1->OperIs(GT_UXT) ? GT_UMULL : GT_SMULL);
 
     return StoreMultiRegNodeToLcl(use);
 }

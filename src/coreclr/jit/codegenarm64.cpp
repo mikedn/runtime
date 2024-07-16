@@ -2909,6 +2909,72 @@ void CodeGen::GenCastIntToFloat(GenTreeCast* cast)
     genProduceReg(cast);
 }
 
+void CodeGen::GenSignExtend(GenTreeUnOp* sxt)
+{
+    assert(sxt->OperIs(GT_SXT) && sxt->TypeIs(TYP_LONG));
+
+    GenTree* src    = sxt->GetOp(0);
+    RegNum   dstReg = sxt->GetRegNum();
+
+    if (src->isUsedFromMemory())
+    {
+        genConsumeRegs(src);
+
+        instruction   ins = varTypeIsSmall(src->GetType()) ? ins_Load(src->GetType()) : INS_ldrsw;
+        StackAddrMode s;
+
+        if (IsLocalMemoryOperand(src, &s))
+        {
+            GetEmitter()->emitIns_R_S(ins, EA_8BYTE, dstReg, s);
+        }
+        else
+        {
+            emitInsLoad(ins, EA_8BYTE, dstReg, src->AsIndLoad());
+        }
+    }
+    else
+    {
+        RegNum srcReg = UseReg(src);
+
+        GetEmitter()->emitIns_Mov(INS_sxtw, EA_8BYTE, dstReg, srcReg, false);
+    }
+
+    DefReg(sxt);
+}
+
+void CodeGen::GenUnsignedExtend(GenTreeUnOp* uxt)
+{
+    assert(uxt->OperIs(GT_UXT) && uxt->TypeIs(TYP_LONG));
+
+    GenTree* src = uxt->GetOp(0);
+    RegNum   dstReg = uxt->GetRegNum();
+
+    if (src->isUsedFromMemory())
+    {
+        genConsumeRegs(src);
+
+        instruction   ins = varTypeIsSmall(src->GetType()) ? ins_Load(src->GetType()) : INS_ldr;
+        StackAddrMode s;
+
+        if (IsLocalMemoryOperand(src, &s))
+        {
+            GetEmitter()->emitIns_R_S(ins, EA_4BYTE, dstReg, s);
+        }
+        else
+        {
+            emitInsLoad(ins, EA_4BYTE, dstReg, src->AsIndLoad());
+        }
+    }
+    else
+    {
+        RegNum srcReg = UseReg(src);
+
+        GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, false);
+    }
+
+    DefReg(uxt);
+}
+
 void CodeGen::GenCastFloatToInt(GenTreeCast* cast)
 {
     assert(!cast->HasOverflowCheck());

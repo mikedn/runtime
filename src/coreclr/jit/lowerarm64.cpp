@@ -546,6 +546,16 @@ void Lowering::LowerShiftImmediate(GenTreeOp* shift)
 
         unsigned consumedBits = bitSize - shiftAmount;
 
+        if (op1->OperIs(GT_SXT, GT_UXT) && (consumedBits <= 32))
+        {
+            JITDUMP("Removing SXT/UXT [%06u] producing 32 bits from LSH [%06u] consuming %u bits\n", op1->GetID(),
+                    shift->GetID(), consumedBits);
+
+            BlockRange().Remove(op1);
+            op1 = op1->AsUnOp()->GetOp(0);
+            op1->ClearContained();
+        }
+
         while (GenTreeCast* cast = op1->IsCast())
         {
             if (cast->HasOverflowCheck() || !varTypeIsIntegral(cast->GetOp(0)->GetType()))
@@ -687,6 +697,110 @@ void Lowering::CombineShiftImmediate(GenTreeInstr* shift)
             shift->SetImmediate(imm);
 
             BlockRange().Remove(andInstr);
+
+            return;
+        }
+    }
+
+    if (op1->OperIs(GT_SXT, GT_UXT))
+    {
+        // Shift instructions do not have an "extending form" like arithmetic instructions but the
+        // same operation can be performed using bitfield insertion/extraction instructions.
+        // For example:
+        //    - SXTB x0, w0 and LSL x0, x0, #12 <=> SBFIZ x0, x0, #12, #8
+        //    - SXTW x0, w0 and ASR x0, x0, #12 <=> SBFX x0, x0, #12, #20
+
+        unsigned bitFieldWidth = 32;
+        bool     isUnsigned    = op1->OperIs(GT_UXT);
+
+        assert(size == EA_8BYTE);
+
+        unsigned    bitSize = EA_SIZE_IN_BYTES(size) * 8;
+        instruction ins     = INS_none;
+        unsigned    imm     = 0;
+
+        if (shift->GetIns() == INS_lsl)
+        {
+            if (bitFieldWidth + shiftAmount >= bitSize)
+            {
+                // We don't need to insert if all the extension bits produced by the cast are discarded
+                // by the shift (e.g. LSH(SXT, 32)), we'll just generate a LSL in that case.
+
+                ins = INS_lsl;
+                imm = shiftAmount;
+            }
+            else
+            {
+                // LSH(CAST(x), N) = UBFIZ|SBFIZ(x, N, cast type size)
+
+                ins = isUnsigned ? INS_ubfiz : INS_sbfiz;
+                imm = PackBFIImmediate(shiftAmount, bitFieldWidth, bitSize);
+            }
+        }
+        else if (shift->GetIns() == INS_asr)
+        {
+            ins = isUnsigned ? INS_ubfx : INS_sbfx;
+
+            if (shiftAmount >= bitFieldWidth)
+            {
+                // All the bits of the casted value are discarded by the shift. The only thing that's
+                // left are the extension bits that the cast produced. These bits can be obtained by
+                // extracting the sign bit from the casted value.
+
+                imm = PackBFIImmediate(bitFieldWidth - 1, 1, bitSize);
+            }
+            else
+            {
+                // We still have some bits from the casted value that need to be extracted. Extraction
+                // needs the width of the extracted bitfield, which is smaller than the width of the
+                // casted value.
+
+                imm = PackBFIImmediate(shiftAmount, bitFieldWidth - shiftAmount, bitSize);
+            }
+        }
+        else
+        {
+            assert(shift->GetIns() == INS_lsr);
+
+            if (isUnsigned)
+            {
+                if (shiftAmount >= bitFieldWidth)
+                {
+                    // Unlike in the ASR case, if all bits are discarded by the shift we'd get 0. We could try
+                    // to replace the shift with constant 0 but it seems unlikely to be worth the trouble.
+                    // Besides, there's no reason not to do this in morph.
+                }
+                else
+                {
+                    ins = INS_ubfx;
+                    imm = PackBFIImmediate(shiftAmount, bitFieldWidth - shiftAmount, bitSize);
+                }
+            }
+            else
+            {
+                // Sometimes LSR is used to extract the sign bit of a small int value:
+                //   LSR(CAST.short(x), 31) = UBFX(x, 15, 1)
+
+                if (shiftAmount == bitSize - 1)
+                {
+                    ins = INS_ubfx;
+                    imm = PackBFIImmediate(bitFieldWidth - 1, 1, bitSize);
+                }
+            }
+        }
+
+        if (ins != INS_none)
+        {
+            GenTreeUnOp* ext = op1->AsUnOp();
+
+            op1 = ext->GetOp(0);
+            op1->ClearContained();
+
+            shift->SetIns(ins, size);
+            shift->SetOp(0, op1);
+            shift->SetImmediate(imm);
+
+            BlockRange().Remove(ext);
 
             return;
         }
@@ -872,6 +986,14 @@ static insOpts GetEquivalentExtendOption(GenTree* node)
             }
         }
     }
+    else if (node->OperIs(GT_SXT))
+    {
+        return INS_OPTS_SXTW;
+    }
+    else if (node->OperIs(GT_UXT))
+    {
+        return INS_OPTS_UXTW;
+    }
 
     return INS_OPTS_NONE;
 }
@@ -989,7 +1111,7 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
     instruction   ins     = arith->OperIs(GT_ADD) ? INS_add : INS_sub;
     insOpts       opt     = INS_OPTS_NONE;
     unsigned      imm     = 0;
-    GenTreeCast*  extend  = nullptr;
+    GenTreeUnOp*  extend  = nullptr;
     GenTreeInstr* shift   = nullptr;
     GenTreeInstr* mul     = nullptr;
     instruction   maddIns = INS_none;
@@ -1014,7 +1136,7 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
 
             if (extendOption != INS_OPTS_NONE)
             {
-                extend = op2->AsCast();
+                extend = op2->AsUnOp();
                 op2    = extend->GetOp(0);
                 op2->ClearContained();
                 opt = extendOption;
@@ -1043,7 +1165,7 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
 
             if (extendOption != INS_OPTS_NONE)
             {
-                extend = op2->AsCast();
+                extend = op2->AsUnOp();
                 op2    = extend->GetOp(0);
                 op2->ClearContained();
                 opt = extendOption;
@@ -1058,7 +1180,7 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
     }
     else if ((opt = GetEquivalentExtendOption(op2)) != INS_OPTS_NONE)
     {
-        extend = op2->AsCast();
+        extend = op2->AsUnOp();
         op2    = extend->GetOp(0);
         op2->ClearContained();
 
@@ -1068,7 +1190,7 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
     {
         std::swap(op1, op2);
 
-        extend = op2->AsCast();
+        extend = op2->AsUnOp();
         op2    = extend->GetOp(0);
         op2->ClearContained();
 
@@ -1116,15 +1238,11 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
     }
 }
 
-static GenTreeCast* IsIntToLongCast(GenTree* node)
+static GenTreeUnOp* IsIntExtend(GenTree* node)
 {
-    if (GenTreeCast* cast = node->IsCast())
+    if (node->OperIs(GT_SXT, GT_UXT))
     {
-        if (!cast->HasOverflowCheck() && cast->TypeIs(TYP_LONG) && varActualTypeIsInt(cast->GetOp(0)->GetType()))
-        {
-            assert(varTypeIsLong(cast->GetCastType()));
-            return cast;
-        }
+        return node->AsUnOp();
     }
 
     return nullptr;
@@ -1208,40 +1326,40 @@ void Lowering::LowerMultiply(GenTreeOp* mul)
         assert(op1->TypeIs(TYP_LONG));
         assert(op2->TypeIs(TYP_LONG));
 
-        if (GenTreeCast* cast1 = IsIntToLongCast(op1))
+        if (GenTreeUnOp* ext1 = IsIntExtend(op1))
         {
-            if (GenTreeCast* cast2 = IsIntToLongCast(op2))
+            if (GenTreeUnOp* ext2 = IsIntExtend(op2))
             {
-                if (cast1->IsCastUnsigned() == cast2->IsCastUnsigned())
+                if (ext1->GetOper() == ext2->GetOper())
                 {
-                    ins = cast1->IsCastUnsigned() ? INS_umull : INS_smull;
+                    ins = ext1->OperIs(GT_UXT) ? INS_umull : INS_smull;
 
-                    op1 = cast1->GetOp(0);
+                    op1 = ext1->GetOp(0);
                     op1->ClearContained();
-                    op2 = cast2->GetOp(0);
+                    op2 = ext2->GetOp(0);
                     op2->ClearContained();
 
-                    assert(IsLegalToMoveUseForward(cast1, mul, op1));
-                    assert(IsLegalToMoveUseForward(cast2, mul, op2));
+                    assert(IsLegalToMoveUseForward(ext1, mul, op1));
+                    assert(IsLegalToMoveUseForward(ext2, mul, op2));
 
-                    BlockRange().Remove(cast1);
-                    BlockRange().Remove(cast2);
+                    BlockRange().Remove(ext1);
+                    BlockRange().Remove(ext2);
                 }
             }
             else if (GenTreeIntCon* con = op2->IsIntCon())
             {
-                if (cast1->IsCastUnsigned() ? FitsIn<uint32_t>(con->GetValue()) : FitsIn<int32_t>(con->GetValue()))
+                if (ext1->OperIs(GT_UXT) ? FitsIn<uint32_t>(con->GetValue()) : FitsIn<int32_t>(con->GetValue()))
                 {
-                    ins = cast1->IsCastUnsigned() ? INS_umull : INS_smull;
+                    ins = ext1->OperIs(GT_UXT) ? INS_umull : INS_smull;
 
-                    op1 = cast1->GetOp(0);
+                    op1 = ext1->GetOp(0);
                     op1->ClearContained();
 
                     op2->SetType(TYP_INT);
 
-                    assert(IsLegalToMoveUseForward(cast1, mul, op1));
+                    assert(IsLegalToMoveUseForward(ext1, mul, op1));
 
-                    BlockRange().Remove(cast1);
+                    BlockRange().Remove(ext1);
                 }
             }
         }
@@ -1349,9 +1467,9 @@ void Lowering::LowerUnsignedDiv(GenTreeOp* udiv)
     }
     else if (type != TYP_LONG && !simpleMul)
     {
-        adjustedDividend = comp->gtNewCastNode(adjustedDividend, true, TYP_LONG);
+        adjustedDividend = comp->gtNewOperNode(GT_UXT, TYP_LONG, adjustedDividend);
         BlockRange().InsertBefore(udiv, adjustedDividend);
-        ContainCheckCast(adjustedDividend->AsCast());
+        LowerUnsignedExtend(adjustedDividend->AsUnOp());
     }
 
     divisor->SetValue(simpleMul ? TYP_INT : TYP_LONG, magic);
@@ -1580,6 +1698,143 @@ GenTree* Lowering::LowerSignedDiv(GenTreeOp* div)
     }
 
     return next;
+}
+
+void Lowering::LowerSignedExtend(GenTreeUnOp* node)
+{
+    GenTree* src = node->GetOp(0);
+
+    bool isContainable = IsContainableMemoryOp(src);
+
+    if (GenTreeIndLoad* load = src->IsIndLoad())
+    {
+        GenTree* addr = load->GetAddr();
+
+        if (load->IsVolatile())
+        {
+            isContainable = false;
+        }
+        else if (addr->isContained())
+        {
+            // Indirs with contained address modes are problematic, thanks in part to messed up
+            // address mode formation in LowerArrElem and createAddressNodeForSIMDInit, which
+            // produce base+index+offset address modes that are invalid on ARMARCH. Such indirs
+            // need a temp register and if the indir itself is contained then nobody's going to
+            // reserve it, as this is normally done in LSRA's BuildIndir.
+            //
+            // Also, when the indir is contained, the type of the generated load instruction may
+            // be different from the actual indir type, affecting immediate offset validity.
+            //
+            // So allow containment if the address mode is definitely always valid: base+index
+            // of base+offset, if the offset is valid no matter the indir type is.
+            //
+            // Perhaps it would be better to not contain the indir and instead retype it
+            // and remove the cast. Unfortunately there's at least on case where this is
+            // not possible: there's no way to retype the indir in CAST<long>(IND<int>).
+            // The best solution would be to lower indir+cast to the actual load instruction
+            // to be emitted.
+
+            if (!addr->IsAddrMode())
+            {
+                isContainable = false;
+            }
+            else if (addr->AsAddrMode()->HasIndex() && (addr->AsAddrMode()->GetOffset() != 0))
+            {
+                isContainable = false;
+            }
+            else if (addr->AsAddrMode()->GetOffset() < -255 || addr->AsAddrMode()->GetOffset() > 255)
+            {
+                isContainable = false;
+            }
+        }
+    }
+
+    if (isContainable && IsSafeToContainMem(node, src))
+    {
+        // We can move it right after the source node to avoid the interference check.
+        if (node->gtPrev != src)
+        {
+            BlockRange().Remove(node);
+            BlockRange().InsertAfter(src, node);
+        }
+
+        src->SetContained();
+    }
+    else
+    {
+        src->SetRegOptional();
+    }
+
+    if (varTypeIsSmallUnsigned(src->GetType()))
+    {
+        node->SetOper(GT_UXT);
+    }
+}
+
+void Lowering::LowerUnsignedExtend(GenTreeUnOp* node)
+{
+    GenTree* src = node->GetOp(0);
+
+    bool isContainable = IsContainableMemoryOp(src);
+
+    if (GenTreeIndLoad* load = src->IsIndLoad())
+    {
+        GenTree* addr = load->GetAddr();
+
+        if (load->IsVolatile())
+        {
+            isContainable = false;
+        }
+        else if (addr->isContained())
+        {
+            // Indirs with contained address modes are problematic, thanks in part to messed up
+            // address mode formation in LowerArrElem and createAddressNodeForSIMDInit, which
+            // produce base+index+offset address modes that are invalid on ARMARCH. Such indirs
+            // need a temp register and if the indir itself is contained then nobody's going to
+            // reserve it, as this is normally done in LSRA's BuildIndir.
+            //
+            // Also, when the indir is contained, the type of the generated load instruction may
+            // be different from the actual indir type, affecting immediate offset validity.
+            //
+            // So allow containment if the address mode is definitely always valid: base+index
+            // of base+offset, if the offset is valid no matter the indir type is.
+            //
+            // Perhaps it would be better to not contain the indir and instead retype it
+            // and remove the cast. Unfortunately there's at least on case where this is
+            // not possible: there's no way to retype the indir in CAST<long>(IND<int>).
+            // The best solution would be to lower indir+cast to the actual load instruction
+            // to be emitted.
+
+            if (!addr->IsAddrMode())
+            {
+                isContainable = false;
+            }
+            else if (addr->AsAddrMode()->HasIndex() && (addr->AsAddrMode()->GetOffset() != 0))
+            {
+                isContainable = false;
+            }
+            else if (addr->AsAddrMode()->GetOffset() < -255 || addr->AsAddrMode()->GetOffset() > 255)
+            {
+                isContainable = false;
+            }
+        }
+    }
+
+    if (isContainable && IsSafeToContainMem(node, src) && !varTypeIsSmallSigned(src->GetType()))
+    {
+        // We can move it right after the source node to avoid the interference check.
+        if (node->gtPrev != src)
+        {
+            BlockRange().Remove(node);
+            BlockRange().InsertAfter(src, node);
+        }
+
+        src->SetContained();
+    }
+    else if (!varTypeIsSmallSigned(src->GetType()) || !src->OperIs(GT_LCL_LOAD))
+    {
+        src->SetRegOptional();
+    }
 }
 
 instruction GetEquivalentCompareOrTestInstruction(GenTreeInstr* instr)

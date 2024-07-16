@@ -188,6 +188,11 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildCast(tree->AsCast());
             break;
 
+        case GT_SXT:
+        case GT_UXT:
+            BuildIntExtend(tree->AsUnOp());
+            break;
+
         case GT_BITCAST:
             if (!tree->AsUnOp()->GetOp(0)->isContained())
             {
@@ -346,6 +351,27 @@ void LinearScan::BuildNode(GenTree* tree)
         default:
             unreached();
     }
+}
+
+void LinearScan::BuildIntExtend(GenTreeUnOp* node)
+{
+    GenTree* src = node->GetOp(0);
+
+    if (!src->isContained())
+    {
+        BuildUse(src);
+    }
+    else if (src->OperIs(GT_IND_LOAD))
+    {
+        BuildAddrUses(src->AsIndLoad()->GetAddr());
+    }
+    else
+    {
+        assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
+    }
+
+    BuildInternalUses();
+    BuildDef(node);
 }
 
 void LinearScan::BuildAddrMode(GenTreeAddrMode* lea)

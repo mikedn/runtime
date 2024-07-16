@@ -94,6 +94,8 @@ void LinearScan::BuildNode(GenTree* tree)
 
         case GT_FTRUNC:
         case GT_FXT:
+        case GT_SXT:
+        case GT_UXT:
             BuildOperandUses(tree->AsUnOp()->GetOp(0));
             BuildDef(tree);
             break;

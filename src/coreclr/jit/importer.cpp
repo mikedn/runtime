@@ -2101,7 +2101,7 @@ GenTree* Importer::impImplicitIorI4Cast(GenTree* tree, var_types dstTyp)
         else if (varTypeIsI(wantedType) && (currType == TYP_INT))
         {
             // Note that this allows TYP_INT to be cast to a TYP_I_IMPL when wantedType is a TYP_BYREF or TYP_REF
-            tree = gtNewCastNode(tree, false, TYP_LONG);
+            tree = gtNewOperNode(GT_SXT, TYP_LONG, tree);
         }
         else if ((wantedType == TYP_INT) && varTypeIsI(currType))
         {
@@ -6154,7 +6154,7 @@ GenTree* Importer::impConvertFieldStoreValue(var_types storeType, GenTree* value
         }
         else
         {
-            value = gtNewCastNode(value, false, TYP_LONG);
+            value = gtNewOperNode(GT_SXT, TYP_LONG, value);
         }
     }
 #endif
@@ -8332,9 +8332,13 @@ var_types Importer::impGetNumericBinaryOpType(genTreeOps oper, GenTree** pOp1, G
 
             return con;
         }
+        else if (varActualTypeIsInt(op->GetType()))
+        {
+            return gtNewOperNode(fromUnsigned ? GT_UXT : GT_SXT, TYP_LONG, op);
+        }
         else
         {
-            assert(varTypeIsIntegralOrI(op->GetType()));
+            assert(varTypeIsGC(op->GetType()));
 
             return gtNewCastNode(op, fromUnsigned, TYP_LONG);
         }
@@ -8477,11 +8481,11 @@ void Importer::impAddCompareOpImplicitCasts(bool isUnsigned, GenTree*& op1, GenT
 #ifdef TARGET_64BIT
     else if (varTypeIsI(op1->GetType()) && varActualTypeIsInt(op2->GetType()))
     {
-        op2 = gtNewCastNode(op2, isUnsigned, TYP_LONG);
+        op2 = gtNewOperNode(isUnsigned ? GT_UXT : GT_SXT, TYP_LONG, op2);
     }
     else if (varTypeIsI(op2->GetType()) && varActualTypeIsInt(op1->GetType()))
     {
-        op1 = gtNewCastNode(op1, isUnsigned, TYP_LONG);
+        op1 = gtNewOperNode(isUnsigned ? GT_UXT : GT_SXT, TYP_LONG, op1);
     }
 #endif
 }
@@ -10386,6 +10390,10 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     {
                         op1 = gtNewOperNode(GT_FXT, lclTyp, op1);
                     }
+                    else if (varActualTypeIsInt(op1->GetType()) && varTypeIsLong(lclTyp) && !ovfl)
+                    {
+                        op1 = gtNewOperNode(uns ? GT_UXT : GT_SXT, TYP_LONG, op1);
+                    }
                     else
                     {
                         op1 = gtNewCastNode(op1, uns, lclTyp);
@@ -10565,7 +10573,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 // Allow an upcast of op1 from a 32-bit Int into TYP_I_IMPL for x86 JIT compatiblity
                 if (varActualTypeIsInt(op1->GetType()))
                 {
-                    op1 = gtNewCastNode(op1, false, TYP_LONG);
+                    op1 = gtNewOperNode(GT_SXT, TYP_LONG, op1);
                 }
 #endif
 
@@ -12094,12 +12102,12 @@ void Importer::ImportNewArr(const BYTE* codeAddr, BasicBlock* block)
     op2 = impPopStack().val;
 
     // TODO-MIKE-Review: This should be BADCODE.
-    assert(genActualTypeIsIntOrI(op2->GetType()));
+    assert(varActualTypeIsIntOrI(op2->GetType()));
 
 #ifdef TARGET_64BIT
     // The array helper takes a native int for array length.
     // So if we have an int, explicitly extend it to be a native int.
-    if (!varTypeIsLong(op2->GetType()))
+    if (!op2->TypeIs(TYP_LONG))
     {
         if (op2->IsIntCon())
         {
@@ -12107,7 +12115,7 @@ void Importer::ImportNewArr(const BYTE* codeAddr, BasicBlock* block)
         }
         else
         {
-            op2 = gtNewCastNode(op2, false, TYP_LONG);
+            op2 = gtNewOperNode(GT_SXT, TYP_LONG, op2);
         }
     }
 #endif // TARGET_64BIT
@@ -13150,7 +13158,7 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
             {
                 // Spill clique has decided this should be "native int", but this block only pushes an "int".
                 // Insert a sign-extension to "native int" so we match the clique.
-                tree = gtNewCastNode(tree, false, TYP_LONG);
+                tree = gtNewOperNode(GT_SXT, TYP_LONG, tree);
             }
             // Consider the case where one branch left a 'byref' on the stack and the other leaves
             // an 'int'. On 32-bit, this is allowed since they are the same size. JIT64 managed to
@@ -13170,7 +13178,7 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
             {
                 // Spill clique has decided this should be "byref", but this block only pushes an "int".
                 // Insert a sign-extension to "native int" so we match the clique size.
-                tree = gtNewCastNode(tree, false, TYP_LONG);
+                tree = gtNewOperNode(GT_SXT, TYP_LONG, tree);
             }
 #endif // TARGET_64BIT
             else if (tree->TypeIs(TYP_DOUBLE) && spillTempLcl->TypeIs(TYP_FLOAT))

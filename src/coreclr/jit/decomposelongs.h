@@ -31,6 +31,8 @@ private:
     GenTree* DecomposeLclStore(LIR::Use& use);
     GenTree* DecomposeLclStoreFld(LIR::Use& use);
     GenTree* DecomposeCast(LIR::Use& use);
+    GenTree* DecomposeSignExtend(LIR::Use& use);
+    GenTree* DecomposeUnsignedExtend(LIR::Use& use);
     GenTree* DecomposeCnsLng(LIR::Use& use);
     GenTree* DecomposeFieldList(GenTreeFieldList* fieldList, GenTreeOp* longNode);
     GenTree* DecomposeCall(LIR::Use& use);
