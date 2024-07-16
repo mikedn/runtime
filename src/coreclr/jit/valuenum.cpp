@@ -1907,6 +1907,20 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, Valu
     assert(CanEvalForConstantArgs(func));
     assert(IsVNConstant(arg0VN));
 
+    if (func == VNOP_SXT)
+    {
+        assert(typ == TYP_LONG);
+        assert(TypeOfVN(arg0VN) == TYP_INT);
+        return VNForLongCon(static_cast<int64_t>(ConstantValue<int32_t>(arg0VN)));
+    }
+
+    if (func == VNOP_UXT)
+    {
+        assert(typ == TYP_LONG);
+        assert(TypeOfVN(arg0VN) == TYP_INT);
+        return VNForLongCon(static_cast<int64_t>(static_cast<uint32_t>(ConstantValue<int32_t>(arg0VN))));
+    }
+
     switch (TypeOfVN(arg0VN))
     {
         case TYP_INT:
@@ -2436,6 +2450,8 @@ bool ValueNumStore::CanEvalForConstantArgs(VNFunc vnf)
         case VNF_LE_UN:
         case VNF_Cast:
         case VNF_CastOvf:
+        case VNOP_SXT:
+        case VNOP_UXT:
             return true;
         default:
             return false;

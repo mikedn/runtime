@@ -1856,6 +1856,67 @@ private:
         return UpdateTree(op1, cast, stmt);
     }
 
+#ifdef TARGET_ARM64
+    GenTree* PropagateUnsignedExtend(const ASSERT_TP assertions, GenTreeUnOp* sxt, Statement* stmt)
+    {
+        assert(sxt->OperIs(GT_UXT) && sxt->TypeIs(TYP_LONG));
+
+        GenTree* op1 = sxt->GetOp(0);
+
+        assert(varActualTypeIsInt(op1->GetType()));
+
+        ValueNum vn = vnStore->ExtractValue(op1->SkipComma()->GetConservativeVN());
+
+        const AssertionDsc* assertion = FindCastRangeAssertion(assertions, vn, 0, INT32_MAX);
+
+        if (assertion == nullptr)
+        {
+            return nullptr;
+        }
+
+        // TODO-MIKE-Cleanup: This is bogus, there's no advantage changing from UXT to SXT,
+        // quite the contrary. It's just that old code did this.
+
+        DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
+
+        sxt->SetOper(GT_SXT);
+
+        return UpdateTree(op1, op1, stmt);
+    }
+#endif
+
+#ifdef TARGET_AMD64
+    GenTree* PropagateSignExtend(const ASSERT_TP assertions, GenTreeUnOp* sxt, Statement* stmt)
+    {
+        assert(sxt->OperIs(GT_SXT) && sxt->TypeIs(TYP_LONG));
+
+        GenTree* op1 = sxt->GetOp(0);
+
+        assert(varActualTypeIsInt(op1->GetType()));
+
+        // Change sign extending casts to unsigned extending casts, on X86/64 they are
+        // preferable due to having smaller encoding and sometimes better performance.
+        // TODO-MIKE-CQ: For now do this only on x64. It's also useful on 32 bit
+        // targets but it sometimes interferes with LMUL helper call elimination.
+        // On ARM64 it seems to be useless and it interferes with smull generation.
+
+        ValueNum vn = vnStore->ExtractValue(op1->SkipComma()->GetConservativeVN());
+
+        const AssertionDsc* assertion = FindCastRangeAssertion(assertions, vn, 0, INT32_MAX);
+
+        if (assertion == nullptr)
+        {
+            return nullptr;
+        }
+
+        DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
+
+        sxt->SetOper(GT_UXT);
+
+        return UpdateTree(op1, op1, stmt);
+    }
+#endif
+
     const AssertionDsc* FindPositiveIntAssertion(const ASSERT_TP assertions, ValueNum vn)
     {
         for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
@@ -2357,6 +2418,14 @@ private:
                 return PropagateComma(node->AsOp(), stmt);
             case GT_CAST:
                 return PropagateCast(assertions, node->AsCast(), stmt);
+#ifdef TARGET_ARM64
+            case GT_UXT:
+                return PropagateUnsignedExtend(assertions, node->AsUnOp(), stmt);
+#endif
+#ifdef TARGET_AMD64
+            case GT_SXT:
+                return PropagateSignExtend(assertions, node->AsUnOp(), stmt);
+#endif
             case GT_CALL:
                 return PropagateCall(assertions, node->AsCall(), stmt);
             case GT_EQ:
@@ -3238,6 +3307,8 @@ private:
                 case GT_GT:
                 case GT_OR:
                 case GT_CAST:
+                case GT_SXT:
+                case GT_UXT:
                     break;
 
                 // TODO-MIKE-CQ: This doesn't handle some helper calls that can be evaluated to

@@ -245,7 +245,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
 
             if (srcType == TYP_INT)
             {
-                src = gtNewCastNode(src, true, TYP_LONG);
+                src = gtNewOperNode(GT_UXT, TYP_LONG, src);
                 cast->SetOp(0, src);
                 cast->SetCastUnsigned(false);
                 srcType = TYP_LONG;
@@ -258,7 +258,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         {
             // There is no support for UINT to FP casts so first cast the source
             // to LONG and then use a helper call to cast to FP.
-            src = gtNewCastNode(src, true, TYP_LONG);
+            src = gtNewOperNode(GT_UXT, TYP_LONG, src);
             cast->SetOp(0, src);
             cast->SetCastUnsigned(false);
             srcType = TYP_LONG;
@@ -631,6 +631,15 @@ GenTree* Compiler::fgMorphCastPost(GenTreeCast* cast)
             }
             break;
 
+        case GT_SXT:
+        case GT_UXT:
+            if (varTypeIsInt(dstType) && !cast->HasOverflowCheck())
+            {
+                assert(src->TypeIs(TYP_LONG) && varActualTypeIsInt(src->AsUnOp()->GetOp(0)->GetType()));
+                return src->AsUnOp()->GetOp(0);
+            }
+            break;
+
         case GT_COMMA:
             if (fgIsCommaThrow(src DEBUGARG(false)))
             {
@@ -930,6 +939,34 @@ bool Compiler::fgMorphNarrowTree(
 
                     cast->SetCastType(nodeType);
                     cast->SetVNP(vnpNarrow);
+                }
+            }
+
+            return true;
+        }
+        case GT_SXT:
+        case GT_UXT:
+        {
+            GenTreeUnOp* cast  = tree->AsUnOp();
+            GenTree*     value = cast->GetOp(0);
+            assert(cast->TypeIs(TYP_LONG) && varActualTypeIsInt(value->GetType()));
+
+            if ((srct != TYP_LONG) || (dstt != TYP_INT))
+            {
+                return false;
+            }
+
+            if (doit)
+            {
+                if (varTypeSize(value->GetType()) == 4)
+                {
+                    tree->ChangeOper(GT_NOP);
+                    tree->SetType(TYP_INT);
+                    tree->SetVNP(value->GetVNP());
+                }
+                else
+                {
+                    tree->ChangeToCast(TYP_INT, value)->SetVNP(value->GetVNP());
                 }
             }
 
@@ -3793,7 +3830,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclLoad* arg, var_type
 #ifdef TARGET_64BIT
             if (newArgType == TYP_LONG)
             {
-                field = gtNewCastNode(field, true, TYP_LONG);
+                field = gtNewOperNode(GT_UXT, TYP_LONG, field);
             }
 #endif
 
@@ -3814,7 +3851,9 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclLoad* arg, var_type
 #ifdef TARGET_64BIT
                 if (varActualType(newArg->GetType()) != newArgType)
                 {
-                    newArg = gtNewCastNode(newArg, true, TYP_LONG);
+                    assert(varActualTypeIsInt(newArg->GetType()));
+
+                    newArg = gtNewOperNode(GT_UXT, TYP_LONG, newArg);
                 }
 #endif
 
@@ -4832,66 +4871,66 @@ GenTree* Compiler::abiMakeIndirAddrMultiUse(GenTree** addrInOut, ssize_t* addrOf
     return addrAsg;
 }
 
-GenTree* Compiler::abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsigned indirSize)
+GenTree* Compiler::abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsigned loadSize)
 {
-    auto Indir = [&](var_types type, GenTree* addr, ssize_t offset) {
+    auto Load = [&](var_types type, GenTree* addr, ssize_t offset) {
         if (offset != 0)
         {
             addr = gtNewOperNode(GT_ADD, varTypeAddrAdd(addr->GetType()), addr, gtNewIconNode(offset, TYP_I_IMPL));
             addr->gtFlags |= GTF_DONT_CSE;
         }
-        GenTreeIndir* indir = gtNewIndLoad(type, addr);
-        indir->gtFlags |= GTF_GLOB_REF | gtGetIndirExceptionFlags(addr);
-        return indir;
+        GenTreeIndir* load = gtNewIndLoad(type, addr);
+        load->gtFlags |= GTF_GLOB_REF | gtGetIndirExceptionFlags(addr);
+        return load;
     };
     auto LeftShift = [&](GenTree* op1, unsigned amount) {
         return gtNewOperNode(GT_LSH, varActualType(op1->GetType()), op1, gtNewIconNode(amount));
     };
     auto Or = [&](GenTree* op1, GenTree* op2) { return gtNewOperNode(GT_OR, varActualType(op1->GetType()), op1, op2); };
     auto Clone  = [&](GenTree* expr) { return gtCloneExpr(expr); };
-    auto Extend = [&](GenTree* value) { return gtNewCastNode(value, true, TYP_LONG); };
+    auto Extend = [&](GenTree* value) { return gtNewOperNode(GT_UXT, TYP_LONG, value); };
 
-    if (indirSize == 1)
+    if (loadSize == 1)
     {
-        return Indir(TYP_UBYTE, addr, addrOffset);
+        return Load(TYP_UBYTE, addr, addrOffset);
     }
 
 #ifdef TARGET_64BIT
-    if (indirSize < 4)
+    if (loadSize < 4)
 #else
-    assert(indirSize < 4);
+    assert(loadSize < 4);
 #endif
     {
-        GenTree* indir = Indir(TYP_USHORT, addr, addrOffset);
+        GenTree* load = Load(TYP_USHORT, addr, addrOffset);
 
-        if (indirSize == 3)
+        if (loadSize == 3)
         {
-            GenTree* indir2 = Indir(TYP_UBYTE, Clone(addr), addrOffset + 2);
-            indir           = Or(indir, LeftShift(indir2, 16));
+            GenTree* load2 = Load(TYP_UBYTE, Clone(addr), addrOffset + 2);
+            load           = Or(load, LeftShift(load2, 16));
         }
 
-        return indir;
+        return load;
     }
 
 #ifdef TARGET_64BIT
-    assert(indirSize < 8);
+    assert(loadSize < 8);
 
-    GenTree* indir = Indir(TYP_INT, addr, addrOffset);
+    GenTree* load = Load(TYP_INT, addr, addrOffset);
 
-    if (indirSize > 4)
+    if (loadSize > 4)
     {
-        GenTree* indir4 = Indir(indirSize == 5 ? TYP_UBYTE : TYP_USHORT, Clone(addr), addrOffset + 4);
+        GenTree* load4 = Load(loadSize == 5 ? TYP_UBYTE : TYP_USHORT, Clone(addr), addrOffset + 4);
 
-        if (indirSize == 7)
+        if (loadSize == 7)
         {
-            GenTree* indir6 = Indir(TYP_UBYTE, Clone(addr), addrOffset + 6);
-            indir4          = Or(indir4, LeftShift(indir6, 16));
+            GenTree* load6 = Load(TYP_UBYTE, Clone(addr), addrOffset + 6);
+            load4          = Or(load4, LeftShift(load6, 16));
         }
 
-        indir = Or(Extend(indir), LeftShift(Extend(indir4), 32));
+        load = Or(Extend(load), LeftShift(Extend(load4), 32));
     }
 
-    return indir;
+    return load;
 #endif
 }
 
@@ -5326,7 +5365,7 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
         // the comparison will have to be widen to 64 bits.
         if (index->TypeIs(TYP_LONG))
         {
-            arrLen = gtNewCastNode(arrLen, false, TYP_LONG);
+            arrLen = gtNewOperNode(GT_SXT, TYP_LONG, arrLen);
         }
 #endif
 
@@ -5363,7 +5402,7 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
         }
         else
         {
-            offset = gtNewCastNode(offset, false, TYP_LONG);
+            offset = gtNewOperNode(GT_SXT, TYP_LONG, offset);
         }
     }
 #endif
@@ -10880,7 +10919,7 @@ DONE_MORPHING_CHILDREN:
         SKIP:
             // Now check for compares with small constant longs that can be cast to int
 
-            if (!cns2->OperIsConst() || !cns2->TypeIs(TYP_LONG) || ((cns2->AsIntConCommon()->LngValue() >> 31) != 0))
+            if (!cns2->IsIntConCommon() || !cns2->TypeIs(TYP_LONG) || ((cns2->AsIntConCommon()->GetValue() >> 31) != 0))
             {
                 noway_assert(tree->OperIsRelop());
                 break;
@@ -10892,12 +10931,12 @@ DONE_MORPHING_CHILDREN:
             {
                 // Another interesting case: cast from int
 
-                if (op1->IsCast() && op1->AsCast()->GetOp(0)->TypeIs(TYP_INT) && !op1->AsCast()->HasOverflowCheck())
+                if (op1->OperIs(GT_SXT, GT_UXT))
                 {
                     // Simply make this into an integer comparison
 
-                    tree->AsOp()->SetOp(0, op1->AsCast()->GetOp(0));
-                    tree->AsOp()->SetOp(1, gtNewIconNode((int)cns2->AsIntConCommon()->LngValue(), TYP_INT));
+                    tree->AsOp()->SetOp(0, op1->AsUnOp()->GetOp(0));
+                    tree->AsOp()->SetOp(1, gtNewIconNode(static_cast<int32_t>(cns2->AsIntConCommon()->GetValue())));
                 }
 
                 noway_assert(tree->OperIsRelop());
@@ -12224,7 +12263,7 @@ Compiler::MulLongCandidateKind Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mu
 {
     assert(mul->OperIs(GT_MUL, GT_OVF_SMUL, GT_OVF_UMUL) && mul->TypeIs(TYP_LONG));
 
-    // Operands have to be constants or INT to LONG, non-overflow checking casts.
+    // Operands have to be constants or signed/unsigned extends.
 
     GenTreeLngCon* longConst1 = mul->GetOp(0)->IsLngCon();
     GenTreeLngCon* longConst2 = mul->GetOp(1)->IsLngCon();
@@ -12234,16 +12273,19 @@ Compiler::MulLongCandidateKind Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mu
         return opts.OptEnabled(CLFLG_CONSTANTFOLD) ? MulLongCandidateKind::Const : MulLongCandidateKind::None;
     }
 
-    GenTreeCast* cast1   = nullptr;
-    GenTreeCast* cast2   = nullptr;
+    GenTreeUnOp* ext1    = nullptr;
+    GenTreeUnOp* ext2    = nullptr;
     unsigned     op1Sign = 0;
     unsigned     op2Sign = 0;
 
     if (longConst1 == nullptr)
     {
-        cast1 = mul->GetOp(0)->IsCast();
+        if (mul->GetOp(0)->OperIs(GT_SXT, GT_UXT))
+        {
+            ext1 = mul->GetOp(0)->AsUnOp();
+        }
 
-        if ((cast1 == nullptr) || (varActualType(cast1->GetOp(0)->GetType()) != TYP_INT) || cast1->HasOverflowCheck())
+        if (ext1 == nullptr)
         {
             if (mul->OperIs(GT_MUL) && (longConst2 != nullptr) && isPow2(longConst2->GetUInt64Value()))
             {
@@ -12253,9 +12295,9 @@ Compiler::MulLongCandidateKind Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mu
             return MulLongCandidateKind::None;
         }
 
-        // We don't care about cast signedness if the cast operand is known to be positive.
+        // We don't care about extend signedness if the operand is known to be positive.
 
-        GenTreeIntCon* intConst1 = cast1->GetOp(0)->IsIntCon();
+        GenTreeIntCon* intConst1 = ext1->GetOp(0)->IsIntCon();
 
         // TODO-MIKE-CQ: There are other values that could be easily recognized
         // as always positive: ARR_LENGTH, relops, small unsigned int casts...
@@ -12268,15 +12310,18 @@ Compiler::MulLongCandidateKind Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mu
 
         if ((intConst1 == nullptr) || (intConst1->GetInt32Value() < 0))
         {
-            op1Sign = cast1->IsCastUnsigned() ? 1 : 2;
+            op1Sign = ext1->OperIs(GT_UXT) ? 1 : 2;
         }
     }
 
     if (longConst2 == nullptr)
     {
-        cast2 = mul->GetOp(1)->IsCast();
+        if (mul->GetOp(1)->OperIs(GT_SXT, GT_UXT))
+        {
+            ext2 = mul->GetOp(1)->AsUnOp();
+        }
 
-        if ((cast2 == nullptr) || (varActualType(cast2->GetOp(0)->GetType()) != TYP_INT) || cast2->HasOverflowCheck())
+        if (ext2 == nullptr)
         {
             if (mul->OperIs(GT_MUL) && (longConst1 != nullptr) && isPow2(longConst1->GetUInt64Value()))
             {
@@ -12286,32 +12331,31 @@ Compiler::MulLongCandidateKind Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mu
             return MulLongCandidateKind::None;
         }
 
-        GenTreeIntCon* intConst2 = cast2->GetOp(0)->IsIntCon();
+        GenTreeIntCon* intConst2 = ext2->GetOp(0)->IsIntCon();
 
         if ((intConst2 == nullptr) || (intConst2->GetInt32Value() < 0))
         {
-            op2Sign = cast2->IsCastUnsigned() ? 1 : 2;
+            op2Sign = ext2->OperIs(GT_UXT) ? 1 : 2;
         }
     }
 
-    // If an operand is constant then treat it as an INT to LONG cast of that constant,
+    // If an operand is constant then treat it as a signed extend of that constant,
     // provided that the constant has a suitable range. For simplicity, we consider
-    // this implied cast to have the same sign as the cast operand, otherwise we'd need
-    // to tell fgMorphMulLongCandidate what kind of cast to create.
+    // this implied extend to have the same sign as the cast operand, otherwise we'd
+    // need to tell fgMorphMulLongCandidate what kind of cast to create.
 
-    if ((cast1 == nullptr) || (cast2 == nullptr))
+    if ((ext1 == nullptr) || (ext2 == nullptr))
     {
-        int64_t      value = cast1 == nullptr ? longConst1->GetValue() : longConst2->GetValue();
-        GenTreeCast* cast  = cast1 == nullptr ? cast2 : cast1;
+        int64_t      value = ext1 == nullptr ? longConst1->GetValue() : longConst2->GetValue();
+        GenTreeUnOp* cast  = ext1 == nullptr ? ext2 : ext1;
 
-        if (cast->IsCastUnsigned() ? ((value < 0) || (value > UINT32_MAX))
-                                   : ((value < INT32_MIN) || (value > INT32_MAX)))
+        if (cast->OperIs(GT_UXT) ? ((value < 0) || (value > UINT32_MAX)) : ((value < INT32_MIN) || (value > INT32_MAX)))
         {
             return MulLongCandidateKind::None;
         }
     }
 
-    // Both casts should have the same signedness and they should also match
+    // Both extends should have the same signedness and they should also match
     // the multiply signedness if overflow checking is required.
 
     unsigned mulSign = 0;
@@ -12382,18 +12426,18 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind 
     if (GenTreeLngCon* longConst1 = op1->IsLngCon())
     {
         op1->ChangeToIntCon(TYP_INT, static_cast<int32_t>(longConst1->GetValue()));
-        op1 = gtNewCastNode(op1, op2->AsCast()->IsCastUnsigned(), TYP_LONG);
+        op1 = gtNewOperNode(op2->GetOper(), TYP_LONG, op1);
         mul->SetOp(0, op1);
     }
     else if (GenTreeLngCon* longConst2 = op2->IsLngCon())
     {
         op2->ChangeToIntCon(TYP_INT, static_cast<int32_t>(longConst2->GetValue()));
-        op2 = gtNewCastNode(op2, op1->AsCast()->IsCastUnsigned(), TYP_LONG);
+        op2 = gtNewOperNode(op1->GetOper(), TYP_LONG, op2);
         mul->SetOp(1, op2);
     }
 
-    GenTreeCast* cast1 = op1->AsCast();
-    GenTreeCast* cast2 = op2->AsCast();
+    GenTreeUnOp* cast1 = op1->AsUnOp();
+    GenTreeUnOp* cast2 = op2->AsUnOp();
 
     if (mul->OperIs(GT_OVF_SMUL, GT_OVF_UMUL))
     {
@@ -12405,15 +12449,15 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind 
 
     if (kind == MulLongCandidateKind::Unsigned)
     {
-        cast1->SetCastUnsigned(true);
-        cast2->SetCastUnsigned(true);
+        cast1->SetOper(GT_UXT);
+        cast2->SetOper(GT_UXT);
     }
     else
     {
         assert(kind == MulLongCandidateKind::Signed);
 
-        cast1->SetCastUnsigned(false);
-        cast2->SetCastUnsigned(false);
+        cast1->SetOper(GT_SXT);
+        cast2->SetOper(GT_SXT);
     }
 
     // fgMorphCast doesn't know about long multiply and may remove the casts,
@@ -12430,7 +12474,7 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind 
     {
         GenTree* const1 = gtFoldExprConst(cast1);
         GenTree* const2 = gtFoldExprConst(cast2);
-        noway_assert(const1->OperIsConst() && const2->OperIsConst());
+        noway_assert(const1->IsNumericConst() && const2->IsNumericConst());
 
         mul->SetOp(0, const1);
         mul->SetOp(1, const2);

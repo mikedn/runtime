@@ -805,6 +805,14 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_CAST:
             GenCast(node->AsCast());
             break;
+#ifdef TARGET_64BIT
+        case GT_SXT:
+            GenSignExtend(node->AsUnOp());
+            break;
+        case GT_UXT:
+            GenUnsignedExtend(node->AsUnOp());
+            break;
+#endif
         case GT_FTRUNC:
             GenFloatTruncate(node->AsUnOp());
             break;

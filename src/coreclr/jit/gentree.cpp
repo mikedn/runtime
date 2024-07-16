@@ -2284,6 +2284,22 @@ void Compiler::gtSetCosts(GenTree* tree)
                     }
                     break;
 
+                case GT_SXT:
+                case GT_UXT:
+#if defined(TARGET_ARM)
+                    costEx = 1;
+                    costSz = 1;
+#elif defined(TARGET_ARM64)
+                    costEx = 1;
+                    costSz = 2;
+#elif defined(TARGET_XARCH)
+                    costEx = 1;
+                    costSz = 2;
+#else
+#error "Unknown TARGET"
+#endif
+                    break;
+
                 case GT_INTRINSIC:
                     // TODO: tune these costs target specific as some of these are
                     // target intrinsics and would cost less to generate code.
@@ -5563,6 +5579,8 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_FNEG:
         case GT_FTRUNC:
         case GT_FXT:
+        case GT_SXT:
+        case GT_UXT:
         case GT_COPY:
         case GT_RELOAD:
         case GT_ARR_LENGTH:
@@ -9662,6 +9680,16 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                                 break;
                         }
                         break;
+
+                    case GT_SXT:
+                        assert(tree->TypeIs(TYP_LONG));
+                        l = static_cast<int64_t>(i1);
+                        goto CNS_LONG;
+
+                    case GT_UXT:
+                        assert(tree->TypeIs(TYP_LONG));
+                        l = static_cast<int64_t>(static_cast<uint32_t>(i1));
+                        goto CNS_LONG;
 
                     default:
                         break;

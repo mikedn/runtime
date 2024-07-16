@@ -1551,6 +1551,9 @@ private:
     void BuildCall(GenTreeCall* call);
     void BuildBoundsChk(GenTreeBoundsChk* node);
     void BuildCast(GenTreeCast* cast);
+#ifdef TARGET_ARM64
+    void BuildIntExtend(GenTreeUnOp* cast);
+#endif
     void BuildCmp(GenTreeOp* cmp);
     void BuildLclHeap(GenTreeUnOp* node);
     void BuildAddrMode(GenTreeAddrMode* node);

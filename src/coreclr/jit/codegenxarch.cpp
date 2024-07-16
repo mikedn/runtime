@@ -5266,6 +5266,77 @@ void CodeGen::GenCastIntToInt(GenTreeCast* cast)
     genProduceReg(cast);
 }
 
+#ifdef TARGET_64BIT
+void CodeGen::GenSignExtend(GenTreeUnOp* sxt)
+{
+    assert(sxt->OperIs(GT_SXT) && sxt->TypeIs(TYP_LONG));
+
+    GenTree* src    = sxt->GetOp(0);
+    RegNum   dstReg = sxt->GetRegNum();
+
+    if (src->isUsedFromMemory())
+    {
+        genConsumeRegs(src);
+
+        instruction   ins  = varTypeIsSmall(src->GetType()) ? INS_movsx : INS_movsxd;
+        emitAttr      size = emitTypeSize(src->GetType());
+        StackAddrMode s;
+
+        if (IsLocalMemoryOperand(src, &s))
+        {
+            GetEmitter()->emitIns_R_S(ins, size, dstReg, s);
+        }
+        else
+        {
+            GetEmitter()->emitIns_R_A(ins, size, dstReg, src->AsIndLoad()->GetAddr());
+        }
+    }
+    else
+    {
+        RegNum srcReg = UseReg(src);
+
+        GetEmitter()->emitIns_Mov(INS_movsxd, EA_4BYTE, dstReg, srcReg, false);
+    }
+
+    DefReg(sxt);
+}
+
+void CodeGen::GenUnsignedExtend(GenTreeUnOp* uxt)
+{
+    assert(uxt->OperIs(GT_UXT) && uxt->TypeIs(TYP_LONG));
+
+    GenTree* src    = uxt->GetOp(0);
+    RegNum   dstReg = uxt->GetRegNum();
+
+    if (src->isUsedFromMemory())
+    {
+        genConsumeRegs(src);
+
+        instruction   ins  = varTypeIsSmall(src->GetType()) ? INS_movzx : INS_mov;
+        emitAttr      size = emitTypeSize(src->GetType());
+        StackAddrMode s;
+
+        if (IsLocalMemoryOperand(src, &s))
+        {
+            GetEmitter()->emitIns_R_S(ins, size, dstReg, s);
+        }
+        else
+        {
+            GetEmitter()->emitIns_R_A(ins, size, dstReg, src->AsIndLoad()->GetAddr());
+        }
+    }
+    else
+    {
+        RegNum srcReg = UseReg(src);
+
+        bool canSkip = compiler->opts.OptimizationEnabled() && GetEmitter()->AreUpper32BitsZero(srcReg);
+        GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, canSkip);
+    }
+
+    DefReg(uxt);
+}
+#endif
+
 void CodeGen::GenFloatTruncate(GenTreeUnOp* node)
 {
     assert(node->OperIs(GT_FTRUNC) && node->TypeIs(TYP_FLOAT));

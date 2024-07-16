@@ -2402,7 +2402,7 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
         // TODO-MIKE-CQ: Most of the time this isn't necessary as the index is usually
         // produced by a 32 bit instruction that implicitly zero extends. CAST codegen
         // attempts to eliminate such redundant casts but it rarely succeeds.
-        idx = comp->gtNewCastNode(idx, true, TYP_LONG);
+        idx = comp->gtNewOperNode(GT_UXT, TYP_LONG, idx);
         BlockRange().InsertBefore(node, idx);
         node->SetOp(1, idx);
 #endif
@@ -3746,6 +3746,57 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
         }
     }
 }
+
+#ifdef TARGET_64BIT
+
+void Lowering::ContainCheckSignedExtend(GenTreeUnOp* node)
+{
+    GenTree* src = node->GetOp(0);
+
+    if (IsContainableMemoryOp(src) && IsSafeToContainMem(node, src))
+    {
+        // We can move it right after the source node to avoid the interference check.
+        if (node->gtPrev != src)
+        {
+            BlockRange().Remove(node);
+            BlockRange().InsertAfter(src, node);
+        }
+
+        src->SetContained();
+    }
+    else
+    {
+        src->SetRegOptional();
+    }
+
+    if (varTypeIsSmallUnsigned(src->GetType()))
+    {
+        node->SetOper(GT_UXT);
+    }
+}
+
+void Lowering::ContainCheckUnsignedExtend(GenTreeUnOp* node)
+{
+    GenTree* src = node->GetOp(0);
+
+    if (IsContainableMemoryOp(src) && IsSafeToContainMem(node, src) && !varTypeIsSmallSigned(src->GetType()))
+    {
+        // We can move it right after the source node to avoid the interference check.
+        if (node->gtPrev != src)
+        {
+            BlockRange().Remove(node);
+            BlockRange().InsertAfter(src, node);
+        }
+
+        src->SetContained();
+    }
+    else if (!varTypeIsSmallSigned(src->GetType()) || !src->OperIs(GT_LCL_LOAD))
+    {
+        src->SetRegOptional();
+    }
+}
+
+#endif // TARGET_64BIT
 
 void Lowering::ContainCheckCompare(GenTreeOp* cmp)
 {

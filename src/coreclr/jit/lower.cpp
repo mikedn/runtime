@@ -179,6 +179,14 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_MOD:
             unreached();
 
+        case GT_SXT:
+            LowerSignedExtend(node->AsUnOp());
+            break;
+
+        case GT_UXT:
+            LowerUnsignedExtend(node->AsUnOp());
+            break;
+
         case GT_LT:
         case GT_LE:
         case GT_GT:
@@ -327,6 +335,16 @@ GenTree* Lowering::LowerNode(GenTree* node)
 
         case GT_CAST:
             return LowerCast(node->AsCast());
+
+#ifdef TARGET_AMD64
+        case GT_SXT:
+            ContainCheckSignedExtend(node->AsUnOp());
+            break;
+
+        case GT_UXT:
+            ContainCheckUnsignedExtend(node->AsUnOp());
+            break;
+#endif
 
         case GT_ARR_ELEM:
             return LowerArrElem(node);
@@ -771,7 +789,7 @@ GenTree* Lowering::LowerSwitch(GenTreeUnOp* node)
             {
                 // SWITCH_TABLE expects the switch value (the index into the jump table) to be LONG.
                 // Note that the switch value is unsigned so the cast should be unsigned as well.
-                switchValue = comp->gtNewCastNode(switchValue, true, TYP_LONG);
+                switchValue = comp->gtNewOperNode(GT_UXT, TYP_LONG, switchValue);
                 switchBlockRange.InsertAtEnd(switchValue);
             }
 #endif
@@ -3613,7 +3631,7 @@ GenTree* Lowering::LowerAdd(GenTreeOp* node)
 //
 bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
 {
-    assert(divMod->OperIs(GT_UDIV, GT_UMOD) && varTypeIsIntegral(divMod->GetType()));
+    assert(divMod->OperIs(GT_UDIV, GT_UMOD) && divMod->TypeIs(TYP_INT, TYP_LONG));
 
     GenTree* dividend = divMod->gtGetOp1();
     GenTree* divisor  = divMod->gtGetOp2();
@@ -3756,12 +3774,14 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
             BlockRange().InsertBefore(divMod, preShiftBy, adjustedDividend);
             ContainCheckShiftRotate(adjustedDividend->AsOp());
         }
-        else if (type != TYP_I_IMPL)
+#ifdef TARGET_64BIT
+        else if (type != TYP_LONG)
         {
-            adjustedDividend = comp->gtNewCastNode(adjustedDividend, true, TYP_I_IMPL);
+            adjustedDividend = comp->gtNewOperNode(GT_UXT, TYP_LONG, adjustedDividend);
             BlockRange().InsertBefore(divMod, adjustedDividend);
-            ContainCheckCast(adjustedDividend->AsCast());
+            ContainCheckUnsignedExtend(adjustedDividend->AsUnOp());
         }
+#endif
 
         // force input transformation to RAX because the following MULHI will kill RDX:RAX anyway and LSRA often causes
         // redundant copies otherwise
@@ -4177,6 +4197,29 @@ void Lowering::LowerShift(GenTreeOp* shift)
 
             GenTree* src = shift->GetOp(0);
 
+            if (src->OperIs(GT_SXT, GT_UXT) && (consumedBits <= 32))
+            {
+                JITDUMP("Removing SXT/UXT [%06u] producing 32 bits from LSH [%06u] consuming %u bits\n", src->GetID(),
+                        shift->GetID(), consumedBits);
+
+                BlockRange().Remove(src);
+                src = src->AsUnOp()->GetOp(0);
+                src->ClearContained();
+
+#ifndef TARGET_64BIT
+                if (src->OperIs(GT_LONG))
+                {
+                    // We're run into a long to int cast on a 32 bit target. The LONG node
+                    // needs to be removed since the shift wouldn't know what to do with it.
+                    // TODO-MIKE-Cleanup: Why doesn't CAST lowering deal with this?!
+
+                    BlockRange().Remove(src);
+                    src->AsOp()->GetOp(1)->SetUnusedValue();
+                    src = src->AsOp()->GetOp(0);
+                }
+#endif
+            }
+
             while (src->IsCast() && !src->AsCast()->HasOverflowCheck())
             {
                 GenTreeCast* cast = src->AsCast();
@@ -4201,6 +4244,29 @@ void Lowering::LowerShift(GenTreeOp* shift)
 
                 BlockRange().Remove(src);
                 src = cast->GetOp(0);
+                src->ClearContained();
+
+#ifndef TARGET_64BIT
+                if (src->OperIs(GT_LONG))
+                {
+                    // We're run into a long to int cast on a 32 bit target. The LONG node
+                    // needs to be removed since the shift wouldn't know what to do with it.
+                    // TODO-MIKE-Cleanup: Why doesn't CAST lowering deal with this?!
+
+                    BlockRange().Remove(src);
+                    src->AsOp()->GetOp(1)->SetUnusedValue();
+                    src = src->AsOp()->GetOp(0);
+                }
+#endif
+            }
+
+            if (src->OperIs(GT_SXT, GT_UXT) && (consumedBits <= 32))
+            {
+                JITDUMP("Removing SXT/UXT [%06u] producing 32 bits from LSH [%06u] consuming %u bits\n", src->GetID(),
+                        shift->GetID(), consumedBits);
+
+                BlockRange().Remove(src);
+                src = src->AsUnOp()->GetOp(0);
                 src->ClearContained();
 
 #ifndef TARGET_64BIT
