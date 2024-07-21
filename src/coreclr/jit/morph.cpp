@@ -335,6 +335,8 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
     var_types srcType = varActualType(src->GetType());
     var_types dstType = cast->GetCastType();
 
+    assert(varTypeIsIntegral(dstType));
+
     if (varTypeIsSmall(dstType) && src->IsCast() && varTypeIsSmall(src->GetType()) &&
         (varTypeSize(src->GetType()) >= varTypeSize(dstType)) && !cast->HasOverflowCheck() &&
         !src->AsCast()->HasOverflowCheck()
@@ -389,7 +391,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         srcType = TYP_INT;
     }
 
-    if (varTypeIsFloating(srcType) && varTypeIsIntegral(dstType))
+    if (varTypeIsFloating(srcType))
     {
         if (cast->HasOverflowCheck())
         {
@@ -432,57 +434,6 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
                     unreached();
             }
         }
-    }
-    else if (varTypeIsFloating(dstType))
-    {
-#if defined(TARGET_AMD64)
-        if (cast->IsCastUnsigned())
-        {
-            // X64 doesn't have any instruction to cast FP types to unsigned types
-            // but codegen handles the ULONG to DOUBLE/FLOAT case by adjusting the
-            // result of a ULONG to DOUBLE/FLOAT cast. For UINT to DOUBLE/FLOAT we
-            // need to first cast the source to LONG.
-
-            if (srcType == TYP_INT)
-            {
-                src = gtNewOperNode(GT_UXT, TYP_LONG, src);
-                cast->SetOp(0, src);
-                cast->SetCastUnsigned(false);
-                srcType = TYP_LONG;
-            }
-        }
-#endif
-
-#if defined(TARGET_X86)
-        if (cast->IsCastUnsigned() && (srcType == TYP_INT))
-        {
-            // There is no support for UINT to FP casts so first cast the source
-            // to LONG and then use a helper call to cast to FP.
-            src = gtNewOperNode(GT_UXT, TYP_LONG, src);
-            cast->SetOp(0, src);
-            cast->SetCastUnsigned(false);
-            srcType = TYP_LONG;
-        }
-#endif
-
-#if defined(TARGET_X86) || defined(TARGET_ARM)
-        if (srcType == TYP_LONG)
-        {
-            // We only have helpers for (U)LONG to DOUBLE casts, we may need an extra cast to FLOAT.
-            cast->SetCastType(TYP_DOUBLE);
-
-            GenTree* helper =
-                fgMorphCastIntoHelper(cast, cast->IsCastUnsigned() ? CORINFO_HELP_ULNG2DBL : CORINFO_HELP_LNG2DBL);
-
-            if (dstType == TYP_FLOAT)
-            {
-                helper = gtNewOperNode(GT_FTRUNC, TYP_FLOAT, helper);
-                INDEBUG(helper->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-            }
-
-            return helper;
-        }
-#endif
     }
     else if ((srcType == TYP_LONG) && ((dstType == TYP_INT) || (dstType == TYP_UINT)))
     {
@@ -660,7 +611,9 @@ GenTree* Compiler::fgMorphCastPost(GenTreeCast* cast)
     var_types srcType = src->GetType();
     var_types dstType = cast->GetCastType();
 
-    if (varTypeIsIntegral(srcType) && varTypeIsIntegral(dstType))
+    assert(varTypeIsIntegral(srcType) && varTypeIsIntegral(dstType));
+
+    if (true)
     {
         if (src->OperIs(GT_LCL_LOAD) && varTypeIsSmall(dstType))
         {
@@ -683,7 +636,7 @@ GenTree* Compiler::fgMorphCastPost(GenTreeCast* cast)
                 // must be TYP_UINT, not the original small signed type. Otherwise "conv.ovf.i2.un(i1(-1))" is
                 // wrongly treated as a widening conversion from i1 to i2 when in fact it is a narrowing conversion
                 // from u4 to i2.
-                srcType = genActualType(srcType);
+                srcType = varActualType(srcType);
             }
 
             srcType = varTypeToUnsigned(srcType);
@@ -771,7 +724,6 @@ GenTree* Compiler::fgMorphCastPost(GenTreeCast* cast)
 #ifndef TARGET_64BIT
         case GT_CNS_LNG:
 #endif
-        case GT_CNS_DBL:
         {
             GenTree* folded = gtFoldExprConst(cast); // This may not fold the constant (NaN ...)
 
@@ -845,17 +797,7 @@ GenTree* Compiler::fgMorphCastPost(GenTreeCast* cast)
             {
                 GenTree* val = src->AsOp()->GetOp(1);
 
-                if (varTypeIsFloating(cast->GetType()))
-                {
-                    val->ChangeToDblCon(cast->GetType(), 0.0);
-                    src->SetType(cast->GetType());
-
-                    if (vnStore != nullptr)
-                    {
-                        val->SetVNP(ValueNumPair{vnStore->VNForDblCon(cast->GetType(), 0.0)});
-                    }
-                }
-                else if (cast->TypeIs(TYP_LONG))
+                if (cast->TypeIs(TYP_LONG))
                 {
 #ifdef TARGET_64BIT
                     val->ChangeToIntCon(TYP_LONG, 0);
@@ -931,7 +873,7 @@ bool Compiler::fgMorphNarrowTree(
     //         same time, this transform is unlikely to enable other optimizations so it
     //         it should probably be done during lowering.
     //
-    // These 2 optimzations interact poorly - the second can be done in many more cases than
+    // These 2 optimizations interact poorly - the second can be done in many more cases than
     // the first one. For example, LONG ADD can always be narrowed to INT but the first
     // optimization rejects such narrowing when casting to small int types. What we need to
     // do is narrow the tree but block the small int cast removal.
@@ -1158,7 +1100,7 @@ bool Compiler::fgMorphNarrowTree(
 
             if (doit)
             {
-                if (varTypeSize(value->GetType()) == 4)
+                if (value->TypeIs(TYP_INT))
                 {
                     tree->ChangeOper(GT_NOP);
                     tree->SetType(TYP_INT);

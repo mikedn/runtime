@@ -650,9 +650,6 @@ protected:
 
     void GenCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& desc, regNumber reg);
     void GenCastIntToInt(GenTreeCast* cast);
-    void GenCastFloatToFloat(GenTreeCast* cast);
-    void GenCastFloatToInt(GenTreeCast* cast);
-    void GenCastIntToFloat(GenTreeCast* cast);
     void GenIntToFloat(GenTreeUnOp* node);
     void GenFloatToInt(GenTreeUnOp* node);
 

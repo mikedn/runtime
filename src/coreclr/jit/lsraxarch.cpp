@@ -94,6 +94,10 @@ void LinearScan::BuildNode(GenTree* tree)
 
         case GT_FTRUNC:
         case GT_FXT:
+        case GT_STOF:
+        case GT_UTOF:
+        case GT_FTOS:
+        case GT_FTOU:
         case GT_SXT:
         case GT_UXT:
             BuildOperandUses(tree->AsUnOp()->GetOp(0));
@@ -206,16 +210,6 @@ void LinearScan::BuildNode(GenTree* tree)
 
         case GT_CAST:
             BuildCast(tree->AsCast());
-            break;
-
-        case GT_STOF:
-        case GT_UTOF:
-            BuildIntToFloat(tree->AsUnOp());
-            break;
-
-        case GT_FTOS:
-        case GT_FTOU:
-            BuildFloatToInt(tree->AsUnOp());
             break;
 
         case GT_BITCAST:
@@ -1876,6 +1870,8 @@ void LinearScan::BuildBoundsChk(GenTreeBoundsChk* node)
 
 void LinearScan::BuildCast(GenTreeCast* cast)
 {
+    assert(varTypeIsIntegral(cast->GetType()) && varTypeIsIntegral(cast->GetOp(0)->GetType()));
+
     GenTree* src = cast->GetOp(0);
 
 #ifdef TARGET_X86
@@ -1890,7 +1886,7 @@ void LinearScan::BuildCast(GenTreeCast* cast)
 #else
     // Overflow checking cast from TYP_(U)LONG to TYP_UINT requires a temporary
     // register to extract the upper 32 bits of the 64 bit source register.
-    if (cast->HasOverflowCheck() && varTypeIsLong(src->GetType()) && (cast->GetCastType() == TYP_UINT))
+    if (cast->HasOverflowCheck() && src->TypeIs(TYP_LONG) && (cast->GetCastType() == TYP_UINT))
     {
         // Here we don't need internal register to be different from targetReg,
         // rather require it to be different from operand's reg.
@@ -1920,57 +1916,6 @@ void LinearScan::BuildCast(GenTreeCast* cast)
         BuildUse(src->AsOp()->GetOp(1));
     }
 #endif
-    else
-    {
-        assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
-    }
-
-    BuildInternalUses();
-    BuildDef(cast);
-}
-
-void LinearScan::BuildIntToFloat(GenTreeUnOp* cast)
-{
-    assert(cast->OperIs(GT_STOF, GT_UTOF) && varTypeIsFloating(cast->GetType()));
-
-    GenTree* src = cast->GetOp(0);
-
-    assert(varTypeIsIntegral(src->GetType()));
-#ifdef TARGET_X86
-    assert(!src->TypeIs(TYP_LONG));
-#endif
-
-    if (!src->isContained())
-    {
-        BuildUse(src);
-    }
-    else if (src->OperIs(GT_IND_LOAD))
-    {
-        BuildAddrUses(src->AsIndLoad()->GetAddr());
-    }
-    else
-    {
-        assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
-    }
-
-    BuildInternalUses();
-    BuildDef(cast);
-}
-
-void LinearScan::BuildFloatToInt(GenTreeUnOp* cast)
-{
-    assert(cast->OperIs(GT_FTOS, GT_FTOU) && cast->TypeIs(TYP_INT, TYP_LONG));
-
-    GenTree* src = cast->GetOp(0);
-
-    if (!src->isContained())
-    {
-        BuildUse(src);
-    }
-    else if (src->OperIs(GT_IND_LOAD))
-    {
-        BuildAddrUses(src->AsIndLoad()->GetAddr());
-    }
     else
     {
         assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));

@@ -5362,6 +5362,7 @@ CodeGen::GenIntCastDesc::GenIntCastDesc(GenTreeCast* cast)
     const unsigned  dstSize      = varTypeSize(dstType);
     const bool      overflow     = cast->HasOverflowCheck();
 
+    assert(varTypeIsIntegral(srcType) && varTypeIsIntegral(dstType));
     assert(cast->GetType() == varCastType(castType));
     assert((srcSize == 4) || (srcSize == varTypeSize(TYP_I_IMPL)));
     assert((dstSize == 4) || (dstSize == varTypeSize(TYP_I_IMPL)));
@@ -5582,25 +5583,13 @@ CodeGen::GenIntCastDesc::GenIntCastDesc(GenTreeCast* cast)
 
 void CodeGen::GenCast(GenTreeCast* cast)
 {
-    if (varTypeIsFloating(cast->GetType()) && varTypeIsFloating(cast->GetOp(0)->GetType()))
-    {
-        GenCastFloatToFloat(cast);
-    }
-    else if (varTypeIsFloating(cast->GetOp(0)->GetType()))
-    {
-        GenCastFloatToInt(cast);
-    }
-    else if (varTypeIsFloating(cast->GetType()))
-    {
-        GenCastIntToFloat(cast);
-    }
 #ifndef TARGET_64BIT
-    else if (varTypeIsLong(cast->GetOp(0)->GetType()))
+    if (cast->GetOp(0)->TypeIs(TYP_LONG))
     {
         GenCastLongToInt(cast);
     }
-#endif
     else
+#endif
     {
         GenCastIntToInt(cast);
     }

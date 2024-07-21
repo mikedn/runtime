@@ -1027,6 +1027,8 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
 
 void Lowering::ContainCheckCast(GenTreeCast* cast)
 {
+    assert(varTypeIsIntegral(cast->GetType()) && varTypeIsIntegral(cast->GetOp(0)->GetType()));
+
     GenTree* src = cast->GetOp(0);
 
 #ifdef TARGET_ARM
@@ -1036,11 +1038,6 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
         return;
     }
 #endif
-
-    if (!varTypeIsIntegral(cast->GetType()) || !varTypeIsIntegral(src->GetType()))
-    {
-        return;
-    }
 
     bool isContainable = IsContainableMemoryOp(src);
 

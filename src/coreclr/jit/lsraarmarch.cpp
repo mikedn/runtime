@@ -554,6 +554,8 @@ void LinearScan::BuildBoundsChk(GenTreeBoundsChk* node)
 
 void LinearScan::BuildCast(GenTreeCast* cast)
 {
+    assert(varTypeIsIntegral(cast->GetType()) && varTypeIsIntegral(cast->GetOp(0)->GetType()));
+
     GenTree* src = cast->GetOp(0);
 
 #ifdef TARGET_ARM
@@ -577,61 +579,6 @@ void LinearScan::BuildCast(GenTreeCast* cast)
     else if (src->OperIs(GT_IND_LOAD))
     {
         BuildAddrUses(src->AsIndLoad()->GetAddr());
-    }
-#ifdef TARGET_ARM
-    else if (src->OperIs(GT_LONG))
-    {
-        BuildUse(src->AsOp()->GetOp(0));
-        BuildUse(src->AsOp()->GetOp(1));
-    }
-#endif
-    else
-    {
-        assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
-    }
-
-    BuildInternalUses();
-    BuildDef(cast);
-}
-
-void LinearScan::BuildIntToFloat(GenTreeUnOp* cast)
-{
-    assert(cast->OperIs(GT_STOF, GT_UTOF) && varTypeIsFloating(cast->GetType()));
-
-    GenTree* src = cast->GetOp(0);
-
-    assert(varTypeIsIntegral(src->GetType()));
-#ifdef TARGET_ARM
-    assert(!src->TypeIs(TYP_LONG));
-#endif
-
-    BuildUse(src);
-    BuildDef(cast);
-}
-
-void LinearScan::BuildFloatToInt(GenTreeUnOp* cast)
-{
-    assert(cast->OperIs(GT_FTOS, GT_FTOU) && cast->TypeIs(TYP_INT, TYP_LONG));
-
-    GenTree* src = cast->GetOp(0);
-
-#ifdef TARGET_ARM
-    var_types srcType = varActualType(src->GetType());
-    var_types dstType = cast->GetType();
-
-    assert(!varTypeIsLong(srcType) || (src->OperIs(GT_LONG) && src->isContained()));
-
-    // Floating point to integer casts requires a temporary register.
-    if (varTypeIsFloating(srcType) && !varTypeIsFloating(dstType))
-    {
-        BuildInternalFloatDef(cast, RBM_ALLFLOAT);
-        setInternalRegsDelayFree = true;
-    }
-#endif
-
-    if (!src->isContained())
-    {
-        BuildUse(src);
     }
 #ifdef TARGET_ARM
     else if (src->OperIs(GT_LONG))

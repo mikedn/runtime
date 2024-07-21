@@ -2641,7 +2641,7 @@ void CodeGen::GenFloatExtend(GenTreeUnOp* node)
 #ifdef TARGET_ARM64
     instruction ins = INS_fcvt;
 #else
-    instruction     ins = INS_vcvt_f2d;
+    instruction ins = INS_vcvt_f2d;
 #endif
     GetEmitter()->emitIns_R_R(ins, EA_8BYTE, dstReg, srcReg ARM64_ARG(INS_OPTS_S_TO_D));
 
@@ -2662,54 +2662,11 @@ void CodeGen::GenFloatTruncate(GenTreeUnOp* node)
 #ifdef TARGET_ARM64
     instruction ins = INS_fcvt;
 #else
-    instruction     ins = INS_vcvt_d2f;
+    instruction ins = INS_vcvt_d2f;
 #endif
     GetEmitter()->emitIns_R_R(ins, EA_4BYTE, dstReg, srcReg ARM64_ARG(INS_OPTS_D_TO_S));
 
     DefReg(node);
-}
-
-void CodeGen::GenCastFloatToFloat(GenTreeCast* cast)
-{
-    assert(cast->GetType() == cast->GetCastType());
-    assert(!cast->HasOverflowCheck());
-
-    GenTree*  src     = cast->GetOp(0);
-    var_types srcType = src->GetType();
-    var_types dstType = cast->GetType();
-
-    assert((srcType == TYP_FLOAT) || (srcType == TYP_DOUBLE));
-    assert((dstType == TYP_FLOAT) || (dstType == TYP_DOUBLE));
-
-    regNumber srcReg = UseReg(src);
-    regNumber dstReg = cast->GetRegNum();
-
-    assert(genIsValidFloatReg(srcReg) && genIsValidFloatReg(dstReg));
-
-    emitAttr insSize = emitTypeSize(dstType);
-
-    if (srcType != dstType)
-    {
-#ifdef TARGET_ARM64
-        instruction ins  = INS_fcvt;
-        insOpts     opts = (srcType == TYP_FLOAT) ? INS_OPTS_S_TO_D : INS_OPTS_D_TO_S;
-#else
-        instruction ins = (srcType == TYP_FLOAT) ? INS_vcvt_f2d : INS_vcvt_d2f;
-#endif
-        GetEmitter()->emitIns_R_R(ins, insSize, dstReg, srcReg ARM64_ARG(opts));
-    }
-    else
-    {
-#ifdef TARGET_ARM64
-        instruction ins = INS_mov;
-#else
-        instruction ins = INS_vmov;
-#endif
-        // TODO-MIKE-Review: How come we end up with a FLOAT-to-FLOAT cast in RayTracer.dll!?!
-        GetEmitter()->emitIns_Mov(ins, insSize, dstReg, srcReg, /*canSkip*/ true);
-    }
-
-    genProduceReg(cast);
 }
 
 void CodeGen::genScaledAdd(emitAttr attr, regNumber targetReg, regNumber baseReg, regNumber indexReg, int scale)
