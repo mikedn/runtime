@@ -237,6 +237,98 @@ GenTree* Compiler::fgMorphIntToFloat(GenTreeUnOp* cast)
     return cast;
 }
 
+GenTree* Compiler::fgMorphFloatToInt(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_FTOS, GT_FTOU) && cast->TypeIs(TYP_INT, TYP_LONG));
+
+    GenTree*  src     = cast->GetOp(0);
+    var_types srcType = src->GetType();
+    var_types dstType = cast->GetType();
+
+    CorInfoHelpFunc helper = CORINFO_HELP_UNDEF;
+
+    switch (cast->OperIs(GT_FTOU) ? varTypeToUnsigned(dstType) : dstType)
+    {
+        case TYP_INT:
+            break;
+        case TYP_UINT:
+#if !defined(TARGET_ARM64) && !defined(TARGET_ARM) && !defined(TARGET_AMD64)
+            helper = CORINFO_HELP_DBL2UINT;
+#endif
+            break;
+        case TYP_LONG:
+#if !defined(TARGET_ARM64) && !defined(TARGET_AMD64)
+            helper = CORINFO_HELP_DBL2LNG;
+#endif
+            break;
+        case TYP_ULONG:
+#if !defined(TARGET_ARM64)
+            helper = CORINFO_HELP_DBL2ULNG;
+#endif
+            break;
+        default:
+            unreached();
+    }
+
+    if (helper != CORINFO_HELP_UNDEF)
+    {
+        if (src->IsDblCon())
+        {
+            GenTree* folded = gtFoldExprConst(cast); // This may not fold the constant (NaN ...)
+
+            if (folded != cast)
+            {
+                return fgMorphTree(folded);
+            }
+
+            if (folded->IsNumericConst())
+            {
+                return folded;
+            }
+
+            noway_assert(cast->OperIs(GT_FTOS, GT_FTOU) && (cast->GetOp(0) == src));
+        }
+
+        if (src->TypeIs(TYP_FLOAT))
+        {
+            // All floating point cast helpers work only with DOUBLE.
+            src = gtNewOperNode(GT_FXT, TYP_DOUBLE, src);
+        }
+
+        GenTree* call =
+            new (this, GT_CALL) GenTreeOp(cast->GetOper(), cast->GetType(), src, nullptr DEBUGARG(/*largeNode*/ true));
+        INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+        return fgMorphIntoHelperCall(call, helper, gtNewCallArgs(src));
+    }
+
+    src = fgMorphTree(src);
+    cast->SetOp(0, src);
+    cast->SetSideEffects(src->GetSideEffects());
+
+    if (src->IsDblCon())
+    {
+        GenTree* folded = gtFoldExprConst(cast); // This may not fold the constant (NaN ...)
+
+        // Did we get a comma throw as a result of gtFoldExprConst?
+        if (folded != cast)
+        {
+            noway_assert(fgIsCommaThrow(folded DEBUGARG(false)));
+            folded->AsOp()->SetOp(0, fgMorphTree(folded->AsOp()->GetOp(0)));
+            INDEBUG(folded->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+            return folded;
+        }
+
+        if (!folded->IsCast())
+        {
+            return folded;
+        }
+
+        noway_assert(cast->GetOp(0) == src); // unchanged
+    }
+
+    return cast;
+}
+
 GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
 {
     GenTree*  src     = cast->GetOp(0);
@@ -10111,6 +10203,10 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         case GT_STOF:
         case GT_UTOF:
             return fgMorphIntToFloat(tree->AsUnOp());
+
+        case GT_FTOS:
+        case GT_FTOU:
+            return fgMorphFloatToInt(tree->AsUnOp());
 
         case GT_MUL:
         case GT_OVF_SMUL:

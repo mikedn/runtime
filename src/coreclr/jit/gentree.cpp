@@ -2286,6 +2286,8 @@ void Compiler::gtSetCosts(GenTree* tree)
 
                 case GT_STOF:
                 case GT_UTOF:
+                case GT_FTOS:
+                case GT_FTOU:
 #if defined(TARGET_ARM)
                     costEx = 3;
                     costSz = 4;
@@ -5599,6 +5601,8 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_UXT:
         case GT_STOF:
         case GT_UTOF:
+        case GT_FTOS:
+        case GT_FTOU:
         case GT_COPY:
         case GT_RELOAD:
         case GT_ARR_LENGTH:
@@ -9720,6 +9724,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                             d = static_cast<double>(i1);
                         }
                         goto CNS_DOUBLE;
+
                     case GT_UTOF:
                         if (tree->TypeIs(TYP_FLOAT))
                         {
@@ -9963,6 +9968,32 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                                 break;
                         }
                         break;
+
+                    case GT_FTOS:
+                        if (tree->TypeIs(TYP_INT))
+                        {
+                            i = static_cast<int32_t>(d1);
+                            goto CNS_INT;
+                        }
+                        else
+                        {
+                            assert(tree->TypeIs(TYP_LONG));
+                            l = static_cast<int64_t>(d1);
+                            goto CNS_LONG;
+                        }
+
+                    case GT_FTOU:
+                        if (tree->TypeIs(TYP_INT))
+                        {
+                            i = forceCastToUInt32(d1);
+                            goto CNS_INT;
+                        }
+                        else
+                        {
+                            assert(tree->TypeIs(TYP_LONG));
+                            l = FloatingPointUtils::convertDoubleToUInt64(d1);
+                            goto CNS_LONG;
+                        }
 
                     default:
                         break;

@@ -3311,6 +3311,8 @@ private:
                 case GT_UXT:
                 case GT_STOF:
                 case GT_UTOF:
+                case GT_FTOS:
+                case GT_FTOU:
                     break;
 
                 // TODO-MIKE-CQ: This doesn't handle some helper calls that can be evaluated to

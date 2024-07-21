@@ -1552,6 +1552,7 @@ private:
     void BuildBoundsChk(GenTreeBoundsChk* node);
     void BuildCast(GenTreeCast* cast);
     void BuildIntToFloat(GenTreeUnOp* node);
+    void BuildFloatToInt(GenTreeUnOp* node);
 #ifdef TARGET_ARM64
     void BuildIntExtend(GenTreeUnOp* node);
 #endif

@@ -3044,6 +3044,39 @@ void CodeGen::GenCastFloatToInt(GenTreeCast* cast)
     genProduceReg(cast);
 }
 
+void CodeGen::GenFloatToInt(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_FTOS, GT_FTOU) && cast->TypeIs(TYP_INT, TYP_LONG));
+
+    GenTree*  src     = cast->GetOp(0);
+    var_types srcType = src->GetType();
+    var_types dstType = cast->GetType();
+
+    assert((srcType == TYP_FLOAT) || (srcType == TYP_DOUBLE));
+
+    RegNum srcReg = UseReg(src);
+    RegNum dstReg = cast->GetRegNum();
+
+    assert(genIsValidFloatReg(srcReg) && genIsValidIntReg(dstReg));
+
+    instruction ins  = cast->OperIs(GT_FTOU) ? INS_fcvtzu : INS_fcvtzs;
+    emitAttr    size = emitTypeSize(dstType);
+    insOpts     opts;
+
+    if (srcType == TYP_DOUBLE)
+    {
+        opts = (size == EA_4BYTE) ? INS_OPTS_D_TO_4BYTE : INS_OPTS_D_TO_8BYTE;
+    }
+    else
+    {
+        opts = (size == EA_4BYTE) ? INS_OPTS_S_TO_4BYTE : INS_OPTS_S_TO_8BYTE;
+    }
+
+    GetEmitter()->emitIns_R_R(ins, size, dstReg, srcReg, opts);
+
+    DefReg(cast);
+}
+
 void CodeGen::GenCkfinite(GenTree* treeNode)
 {
     assert(treeNode->OperIs(GT_CKFINITE));

@@ -100,6 +100,8 @@ private:
     void NumberCmpXchg(GenTreeCmpXchg* node);
     void NumberInterlocked(GenTreeOp* node);
     void NumberCast(GenTreeCast* cast);
+    void NumberFloatToInt(GenTreeUnOp* node);
+    void NumberIntToFloat(GenTreeUnOp* node);
     void NumberBitCast(GenTreeUnOp* bitcast);
     void NumberCall(GenTreeCall* call);
     void NumberHelperCall(GenTreeCall* call, VNFunc vnf, ValueNumPair vnpExc);
@@ -7176,6 +7178,16 @@ void ValueNumbering::NumberNode(GenTree* node)
             NumberCast(node->AsCast());
             break;
 
+        case GT_STOF:
+        case GT_UTOF:
+            NumberIntToFloat(node->AsUnOp());
+            break;
+
+        case GT_FTOS:
+        case GT_FTOU:
+            NumberFloatToInt(node->AsUnOp());
+            break;
+
         case GT_BITCAST:
             NumberBitCast(node->AsUnOp());
             break;
@@ -7570,6 +7582,34 @@ void ValueNumbering::NumberCast(GenTreeCast* cast)
         }
     }
 
+    cast->SetVNP(vnStore->PackExset(vnp, exset));
+}
+
+void ValueNumbering::NumberFloatToInt(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_FTOS, GT_FTOU) && cast->TypeIs(TYP_INT, TYP_LONG));
+
+    var_types fromType   = cast->GetOp(0)->GetType();
+    var_types toType     = cast->GetType();
+    ValueNum  castTypeVN = vnStore->VNForCastOper(toType, false);
+
+    ValueNumPair exset;
+    ValueNumPair vnp = vnStore->UnpackExset(cast->GetOp(0)->GetVNP(), &exset);
+    vnp              = vnStore->VNPairForFunc(toType, VNF_Cast, vnp, {castTypeVN, castTypeVN});
+    cast->SetVNP(vnStore->PackExset(vnp, exset));
+}
+
+void ValueNumbering::NumberIntToFloat(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_STOF, GT_UTOF) && cast->TypeIs(TYP_FLOAT, TYP_DOUBLE));
+
+    var_types fromType   = varActualType(cast->GetOp(0)->GetType());
+    var_types toType     = cast->GetType();
+    ValueNum  castTypeVN = vnStore->VNForCastOper(toType, cast->OperIs(GT_UTOF));
+
+    ValueNumPair exset;
+    ValueNumPair vnp = vnStore->UnpackExset(cast->GetOp(0)->GetVNP(), &exset);
+    vnp              = vnStore->VNPairForFunc(toType, VNF_Cast, vnp, {castTypeVN, castTypeVN});
     cast->SetVNP(vnStore->PackExset(vnp, exset));
 }
 
