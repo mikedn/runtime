@@ -413,14 +413,13 @@ private:
 
     AssertionIndex CreateRangeAssertion(GenTreeCast* cast)
     {
+        assert(varTypeIsIntegral(cast->GetType()));
+
         GenTree* value = cast->GetOp(0);
 
-        if (value->GetConservativeVN() == NoVN)
-        {
-            return NO_ASSERTION_INDEX;
-        }
+        assert(varTypeIsIntegral(value->GetType()));
 
-        if (!varTypeIsIntegral(value->GetType()))
+        if (value->GetConservativeVN() == NoVN)
         {
             return NO_ASSERTION_INDEX;
         }
@@ -1768,10 +1767,7 @@ private:
         var_types fromType = op1->GetType();
         var_types toType   = cast->GetType();
 
-        if (!varTypeIsIntegral(toType) || !varTypeIsIntegral(fromType))
-        {
-            return nullptr;
-        }
+        assert(varTypeIsIntegral(toType) && varTypeIsIntegral(fromType));
 
         GenTree* actualOp1 = op1->SkipComma();
         ValueNum vn;

@@ -2874,41 +2874,6 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
     emitInsStore(ins, emitActualTypeSize(type), valueReg, store);
 }
 
-void CodeGen::GenCastIntToFloat(GenTreeCast* cast)
-{
-    assert(cast->GetType() == cast->GetCastType());
-    assert(!cast->HasOverflowCheck());
-
-    GenTree*  src     = cast->GetOp(0);
-    var_types srcType = varActualType(src->GetType());
-    var_types dstType = cast->GetType();
-
-    noway_assert((srcType == TYP_INT) || (srcType == TYP_LONG));
-    assert((dstType == TYP_FLOAT) || (dstType == TYP_DOUBLE));
-
-    regNumber srcReg = UseReg(src);
-    regNumber dstReg = cast->GetRegNum();
-
-    assert(genIsValidIntReg(srcReg) && genIsValidFloatReg(dstReg));
-
-    instruction ins     = cast->IsCastUnsigned() ? INS_ucvtf : INS_scvtf;
-    emitAttr    insSize = emitTypeSize(dstType);
-    insOpts     opts;
-
-    if (dstType == TYP_DOUBLE)
-    {
-        opts = (srcType == TYP_INT) ? INS_OPTS_4BYTE_TO_D : INS_OPTS_8BYTE_TO_D;
-    }
-    else
-    {
-        opts = (srcType == TYP_INT) ? INS_OPTS_4BYTE_TO_S : INS_OPTS_8BYTE_TO_S;
-    }
-
-    GetEmitter()->emitIns_R_R(ins, insSize, dstReg, srcReg, opts);
-
-    genProduceReg(cast);
-}
-
 void CodeGen::GenIntToFloat(GenTreeUnOp* cast)
 {
     assert(cast->OperIs(GT_STOF, GT_UTOF) && varTypeIsFloating(cast->GetType()));
@@ -3007,41 +2972,6 @@ void CodeGen::GenUnsignedExtend(GenTreeUnOp* uxt)
     }
 
     DefReg(uxt);
-}
-
-void CodeGen::GenCastFloatToInt(GenTreeCast* cast)
-{
-    assert(!cast->HasOverflowCheck());
-
-    GenTree*  src     = cast->GetOp(0);
-    var_types srcType = src->GetType();
-    var_types dstType = cast->GetCastType();
-
-    assert((srcType == TYP_FLOAT) || (srcType == TYP_DOUBLE));
-    noway_assert((dstType == TYP_INT) || (dstType == TYP_UINT) || (dstType == TYP_LONG) || (dstType == TYP_ULONG));
-    assert(cast->GetType() == varActualType(dstType));
-
-    regNumber srcReg = genConsumeReg(src);
-    regNumber dstReg = cast->GetRegNum();
-
-    assert(genIsValidFloatReg(srcReg) && genIsValidIntReg(dstReg));
-
-    instruction ins     = varTypeIsUnsigned(dstType) ? INS_fcvtzu : INS_fcvtzs;
-    emitAttr    insSize = emitTypeSize(dstType);
-    insOpts     opts;
-
-    if (srcType == TYP_DOUBLE)
-    {
-        opts = (insSize == EA_4BYTE) ? INS_OPTS_D_TO_4BYTE : INS_OPTS_D_TO_8BYTE;
-    }
-    else
-    {
-        opts = (insSize == EA_4BYTE) ? INS_OPTS_S_TO_4BYTE : INS_OPTS_S_TO_8BYTE;
-    }
-
-    GetEmitter()->emitIns_R_R(ins, insSize, dstReg, srcReg, opts);
-
-    genProduceReg(cast);
 }
 
 void CodeGen::GenFloatToInt(GenTreeUnOp* cast)

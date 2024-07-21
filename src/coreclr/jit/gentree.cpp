@@ -2225,54 +2225,17 @@ void Compiler::gtSetCosts(GenTree* tree)
                     }
                     break;
 
-                case GT_FTRUNC:
-                case GT_FXT:
-#if defined(TARGET_ARM)
-                    costEx = 3;
-                    costSz = 4;
-#elif defined(TARGET_ARM64)
-                    costEx = 2;
-                    costSz = 4;
-#elif defined(TARGET_XARCH)
-                    costEx = IND_COST_EX * 2;
-                    costSz = 6;
-#else
-#error "Unknown TARGET"
-#endif
-                    break;
-
                 case GT_CAST:
-                    if (varTypeIsFloating(tree->GetType()) || varTypeIsFloating(op1->GetType()))
+                    assert(varTypeIsIntegral(tree->GetType()) && varTypeIsIntegral(op1->GetType()));
 #if defined(TARGET_ARM)
-                    {
-                        costEx = 3;
-                        costSz = 4;
-                    }
-                    else
-                    {
-                        costEx = 1;
-                        costSz = 1;
-                    }
+                    costEx = 1;
+                    costSz = 1;
 #elif defined(TARGET_ARM64)
-                    {
-                        costEx = 2;
-                        costSz = 4;
-                    }
-                    else
-                    {
-                        costEx = 1;
-                        costSz = 2;
-                    }
+                    costEx = 1;
+                    costSz = 2;
 #elif defined(TARGET_XARCH)
-                    {
-                        costEx = IND_COST_EX * 2;
-                        costSz = 6;
-                    }
-                    else
-                    {
-                        costEx = 1;
-                        costSz = 2;
-                    }
+                    costEx = 1;
+                    costSz = 2;
 #else
 #error "Unknown TARGET"
 #endif
@@ -2284,6 +2247,8 @@ void Compiler::gtSetCosts(GenTree* tree)
                     }
                     break;
 
+                case GT_FTRUNC:
+                case GT_FXT:
                 case GT_STOF:
                 case GT_UTOF:
                 case GT_FTOS:
@@ -9646,8 +9611,8 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     case GT_BITCAST:
                         if (tree->TypeIs(TYP_FLOAT))
                         {
-                            d = jitstd::bit_cast<float>(i1);
-                            goto CNS_DOUBLE;
+                            f = jitstd::bit_cast<float>(i1);
+                            goto CNS_FLOAT;
                         }
                         break;
 
@@ -9666,38 +9631,22 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                             case TYP_BYTE:
                                 i = static_cast<int8_t>(i1);
                                 goto CNS_INT;
-
                             case TYP_UBYTE:
                                 i = static_cast<uint8_t>(i1);
                                 goto CNS_INT;
-
                             case TYP_SHORT:
                                 i = static_cast<int16_t>(i1);
                                 goto CNS_INT;
-
                             case TYP_USHORT:
                                 i = static_cast<uint16_t>(i1);
                                 goto CNS_INT;
-
                             case TYP_INT:
                                 i = i1;
                                 goto CNS_INT;
-
                             case TYP_LONG:
                                 l = tree->AsCast()->IsCastUnsigned() ? static_cast<int64_t>(static_cast<uint32_t>(i1))
                                                                      : static_cast<int64_t>(i1);
                                 goto CNS_LONG;
-
-                            case TYP_FLOAT:
-                                d = tree->AsCast()->IsCastUnsigned() ? static_cast<float>(static_cast<uint32_t>(i1))
-                                                                     : static_cast<float>(i1);
-                                goto CNS_DOUBLE;
-
-                            case TYP_DOUBLE:
-                                d = tree->AsCast()->IsCastUnsigned() ? static_cast<double>(static_cast<uint32_t>(i1))
-                                                                     : static_cast<double>(i1);
-                                goto CNS_DOUBLE;
-
                             default:
                                 break;
                         }
@@ -9714,28 +9663,32 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                         goto CNS_LONG;
 
                     case GT_STOF:
+                        d = static_cast<double>(i1);
+
                         if (tree->TypeIs(TYP_FLOAT))
                         {
-                            d = static_cast<float>(i1);
+                            f = static_cast<float>(d);
+                            goto CNS_FLOAT;
                         }
                         else
                         {
                             assert(tree->TypeIs(TYP_DOUBLE));
-                            d = static_cast<double>(i1);
+                            goto CNS_DOUBLE;
                         }
-                        goto CNS_DOUBLE;
 
                     case GT_UTOF:
+                        d = static_cast<double>(static_cast<uint32_t>(i1));
+
                         if (tree->TypeIs(TYP_FLOAT))
                         {
-                            d = static_cast<float>(static_cast<uint32_t>(i1));
+                            f = static_cast<float>(d);
+                            goto CNS_FLOAT;
                         }
                         else
                         {
                             assert(tree->TypeIs(TYP_DOUBLE));
-                            d = static_cast<double>(static_cast<uint32_t>(i1));
+                            goto CNS_DOUBLE;
                         }
-                        goto CNS_DOUBLE;
 
                     default:
                         break;
@@ -9792,71 +9745,53 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                             case TYP_BYTE:
                                 i = static_cast<int8_t>(l1);
                                 goto CNS_INT;
-
                             case TYP_UBYTE:
                                 i = static_cast<uint8_t>(l1);
                                 goto CNS_INT;
-
                             case TYP_SHORT:
                                 i = static_cast<int16_t>(l1);
                                 goto CNS_INT;
-
                             case TYP_USHORT:
                                 i = static_cast<uint16_t>(l1);
                                 goto CNS_INT;
-
                             case TYP_INT:
                                 i = static_cast<int32_t>(l1);
                                 goto CNS_INT;
-
                             case TYP_LONG:
                                 l = l1;
                                 goto CNS_LONG;
-
-                            case TYP_FLOAT:
-                            case TYP_DOUBLE:
-                                if (tree->AsCast()->IsCastUnsigned() && (l1 < 0))
-                                {
-                                    d = FloatingPointUtils::convertUInt64ToDouble(static_cast<uint64_t>(l1));
-                                }
-                                else
-                                {
-                                    d = static_cast<double>(l1);
-                                }
-
-                                if (tree->TypeIs(TYP_FLOAT))
-                                {
-                                    d = forceCastToFloat(d);
-                                }
-                                goto CNS_DOUBLE;
-
                             default:
                                 break;
                         }
                         break;
 
                     case GT_STOF:
+                        d = static_cast<double>(l1);
+
                         if (tree->TypeIs(TYP_FLOAT))
                         {
-                            d = static_cast<float>(l1);
+                            f = static_cast<float>(d);
+                            goto CNS_FLOAT;
                         }
                         else
                         {
                             assert(tree->TypeIs(TYP_DOUBLE));
-                            d = static_cast<double>(l1);
+                            goto CNS_DOUBLE;
                         }
-                        goto CNS_DOUBLE;
+
                     case GT_UTOF:
+                        d = FloatingPointUtils::convertUInt64ToDouble(static_cast<uint64_t>(l1));
+
                         if (tree->TypeIs(TYP_FLOAT))
                         {
-                            d = static_cast<float>(static_cast<uint64_t>(l1));
+                            f = static_cast<float>(d);
+                            goto CNS_FLOAT;
                         }
                         else
                         {
                             assert(tree->TypeIs(TYP_DOUBLE));
-                            d = static_cast<double>(static_cast<uint64_t>(l1));
+                            goto CNS_DOUBLE;
                         }
-                        goto CNS_DOUBLE;
 
                     default:
                         break;
@@ -9901,6 +9836,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                         break;
 
                     case GT_CAST:
+                        assert(tree->AsCast()->HasOverflowCheck() && tree->TypeIs(TYP_INT, TYP_LONG));
                         assert(tree->GetType() == varCastType(tree->AsCast()->GetCastType()));
 
                         if (op1->TypeIs(TYP_FLOAT)
@@ -9924,46 +9860,18 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
                         switch (tree->AsCast()->GetCastType())
                         {
-                            case TYP_BYTE:
-                                i = static_cast<int8_t>(d1);
-                                goto CNS_INT;
-
-                            case TYP_UBYTE:
-                                i = static_cast<uint8_t>(d1);
-                                goto CNS_INT;
-
-                            case TYP_SHORT:
-                                i = static_cast<int16_t>(d1);
-                                goto CNS_INT;
-
-                            case TYP_USHORT:
-                                i = static_cast<uint16_t>(d1);
-                                goto CNS_INT;
-
                             case TYP_INT:
                                 i = static_cast<int32_t>(d1);
                                 goto CNS_INT;
-
                             case TYP_UINT:
                                 i = forceCastToUInt32(d1);
                                 goto CNS_INT;
-
                             case TYP_LONG:
                                 l = static_cast<int64_t>(d1);
                                 goto CNS_LONG;
-
                             case TYP_ULONG:
                                 l = FloatingPointUtils::convertDoubleToUInt64(d1);
                                 goto CNS_LONG;
-
-                            case TYP_FLOAT:
-                                f = static_cast<float>(d1);
-                                goto CNS_FLOAT;
-
-                            case TYP_DOUBLE:
-                                d = op1->TypeIs(TYP_FLOAT) ? forceCastToFloat(d1) : d1;
-                                goto CNS_DOUBLE;
-
                             default:
                                 break;
                         }

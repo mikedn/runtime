@@ -74,19 +74,20 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildCast(tree->AsCast());
             break;
 
-        case GT_STOF:
-        case GT_UTOF:
-            BuildIntToFloat(tree->AsUnOp());
-            break;
-
         case GT_FTOS:
         case GT_FTOU:
-            BuildFloatToInt(tree->AsUnOp());
+            BuildInternalFloatDef(tree, RBM_ALLFLOAT);
+            setInternalRegsDelayFree = true;
+            BuildUse(tree->AsUnOp()->GetOp(0));
+            BuildInternalUses();
+            BuildDef(tree);
             break;
 
         case GT_FNEG:
         case GT_FXT:
         case GT_FTRUNC:
+        case GT_STOF:
+        case GT_UTOF:
         case GT_NEG:
         case GT_NOT:
             BuildUse(tree->AsUnOp()->GetOp(0));

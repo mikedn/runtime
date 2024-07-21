@@ -3686,9 +3686,11 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
 
 void Lowering::ContainCheckCast(GenTreeCast* cast)
 {
+    assert(varTypeIsIntegral(cast->GetType()) && varTypeIsIntegral(cast->GetOp(0)->GetType()));
+
     GenTree* src = cast->GetOp(0);
 
-#if !defined(TARGET_64BIT)
+#ifndef TARGET_64BIT
     if (src->OperIs(GT_LONG))
     {
         src->SetContained();
@@ -3696,54 +3698,21 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
     }
 #endif
 
-    if (varTypeIsIntegral(cast->GetType()) && varTypeIsIntegral(src->GetType()))
+    if (IsContainableMemoryOp(src) && (!cast->HasOverflowCheck() || IsSafeToContainMem(cast, src)))
     {
-        if (IsContainableMemoryOp(src) && (!cast->HasOverflowCheck() || IsSafeToContainMem(cast, src)))
+        // If this isn't an overflow checking cast then we can move it
+        // right after the source node to avoid the interference check.
+        if (!cast->HasOverflowCheck() && (cast->gtPrev != src))
         {
-            // If this isn't an overflow checking cast then we can move it
-            // right after the source node to avoid the interference check.
-            if (!cast->HasOverflowCheck() && (cast->gtPrev != src))
-            {
-                BlockRange().Remove(cast);
-                BlockRange().InsertAfter(src, cast);
-            }
+            BlockRange().Remove(cast);
+            BlockRange().InsertAfter(src, cast);
+        }
 
-            src->SetContained();
-        }
-        else
-        {
-            src->SetRegOptional();
-        }
+        src->SetContained();
     }
-    else if (varTypeIsFloating(cast->GetType()) || varTypeIsFloating(src->GetType()))
+    else
     {
-        assert(!cast->HasOverflowCheck());
-
-        // The source of cvtsi2sd and similar instructions can be a memory operand but it must
-        // be 4 or 8 bytes in size so it cannot be a small int. It's likely possible to make a
-        // "normalize on store" local reg-optional but it's probably not worth the extra work.
-        // Also, ULONG to DOUBLE/FLOAT casts require checking the sign of the source so allowing
-        // a memory operand would result in 2 loads instead of 1.
-
-        if (!varTypeIsSmall(src->GetType()) && (!src->TypeIs(TYP_LONG) || !cast->IsCastUnsigned()))
-        {
-            if (IsContainableMemoryOp(src))
-            {
-                // Since a floating point cast can't throw we can move the cast
-                // right after the source node to avoid the interference check.
-                if (cast->gtPrev != src)
-                {
-                    BlockRange().Remove(cast);
-                    BlockRange().InsertAfter(src, cast);
-                }
-
-                src->SetContained();
-            }
-            else
-            {
-                src->SetRegOptional();
-            }
-        }
+        src->SetRegOptional();
     }
 }
 

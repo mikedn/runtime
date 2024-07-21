@@ -338,11 +338,13 @@ GenTree* Lowering::LowerNode(GenTree* node)
 
         case GT_STOF:
         case GT_UTOF:
-            return LowerIntToFloat(node->AsUnOp());
+            LowerIntToFloat(node->AsUnOp());
+            break;
 
         case GT_FTOS:
         case GT_FTOU:
-            return LowerFloatToInt(node->AsUnOp());
+            LowerFloatToInt(node->AsUnOp());
+            break;
 
 #ifdef TARGET_AMD64
         case GT_SXT:
@@ -5079,6 +5081,7 @@ GenTree* Lowering::LowerBitCast(GenTreeUnOp* bitcast)
 GenTree* Lowering::LowerCast(GenTreeCast* cast)
 {
     assert(varCastType(cast->GetCastType()) == cast->GetType());
+    assert(varTypeIsIntegral(cast->GetType()) && varTypeIsIntegral(cast->GetOp(0)->GetType()));
 
     if (!cast->HasOverflowCheck())
     {
@@ -5106,8 +5109,7 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
         else
 #endif
 
-        if (varTypeIsIntegral(dstType) && varTypeIsIntegral(srcType) &&
-            (varTypeSize(dstType) <= varTypeSize(srcType)) && IsContainableMemoryOp(src))
+        if ((varTypeSize(dstType) <= varTypeSize(srcType)) && IsContainableMemoryOp(src))
         {
             // This is a narrowing cast with an in memory load source, we can remove it and retype the load.
 
@@ -5143,40 +5145,30 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
     return cast->gtNext;
 }
 
-GenTree* Lowering::LowerIntToFloat(GenTreeUnOp* cast)
+void Lowering::LowerIntToFloat(GenTreeUnOp* cast)
 {
-    assert(varTypeIsFloating(cast->GetType()));
-
-    GenTree* src = cast->GetOp(0);
-
-    assert(varTypeIsIntegral(src->GetType()));
-#ifdef TARGET_X86
-    assert(!src->TypeIs(TYP_LONG));
+    assert(cast->OperIs(GT_STOF, GT_UTOF) && varTypeIsFloating(cast->GetType()));
+    assert(varTypeIsIntegral(cast->GetOp(0)->GetType()));
+#ifndef TARGET_64BIT
+    assert(!cast->GetOp(0)->TypeIs(TYP_LONG));
 #endif
 
 #ifdef TARGET_XARCH
     ContainCheckIntToFloat(cast);
 #endif
-
-    return cast->gtNext;
 }
 
-GenTree* Lowering::LowerFloatToInt(GenTreeUnOp* cast)
+void Lowering::LowerFloatToInt(GenTreeUnOp* cast)
 {
     assert(cast->OperIs(GT_FTOS, GT_FTOU) && cast->TypeIs(TYP_INT, TYP_LONG));
-
-    GenTree*  src     = cast->GetOp(0);
-    var_types dstType = cast->GetType();
-    var_types srcType = src->GetType();
-    bool      remove  = false;
-
-    assert(varTypeIsFloating(srcType));
+    assert(varTypeIsFloating(cast->GetOp(0)->GetType()));
+#ifndef TARGET_64BIT
+    assert(!cast->TypeIs(TYP_LONG));
+#endif
 
 #ifdef TARGET_XARCH
     ContainCheckFloatToInt(cast);
 #endif
-
-    return cast->gtNext;
 }
 
 void Lowering::LowerIndir(GenTreeIndir* ind)

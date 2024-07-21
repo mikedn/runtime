@@ -3831,7 +3831,7 @@ public:
     GenTreeCast(var_types castType, GenTree* op, bool fromUnsigned DEBUGARG(bool largeNode = false))
         : GenTreeOp(GT_CAST, varCastType(castType), op, nullptr DEBUGARG(largeNode)), castType(castType)
     {
-        assert(varTypeIsArithmetic(castType));
+        assert(varTypeIsIntegral(castType));
         // We do not allow casts from floating point types to be treated as from
         // unsigned to avoid bugs related to wrong GTF_CAST_UNSIGNED in case the
         // operand's type changes.

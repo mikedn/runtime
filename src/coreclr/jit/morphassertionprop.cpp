@@ -657,7 +657,7 @@ void Compiler::morphAssertionGenerateEqual(GenTreeLclStore* store, GenTree* val)
                 return;
             }
 
-            if (varTypeIsLong(lcl->GetType()))
+            if (lcl->TypeIs(TYP_LONG))
             {
                 // TODO-MIKE-Review: We don't generate ranges for LONG locals. Not clear why,
                 // it's likely that there aren't many useful cases.

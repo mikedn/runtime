@@ -229,8 +229,8 @@ private:
 
     GenTree* LowerBitCast(GenTreeUnOp* bitcast);
     GenTree* LowerCast(GenTreeCast* cast);
-    GenTree* LowerIntToFloat(GenTreeUnOp* node);
-    GenTree* LowerFloatToInt(GenTreeUnOp* node);
+    void LowerIntToFloat(GenTreeUnOp* node);
+    void LowerFloatToInt(GenTreeUnOp* node);
 
 #ifdef TARGET_XARCH
     GenTree* LowerFloatConvert(GenTreeUnOp* node);

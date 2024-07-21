@@ -7546,15 +7546,12 @@ void ValueNumbering::NumberCast(GenTreeCast* cast)
     bool      checkOverflow = cast->HasOverflowCheck();
 
     assert(varCastType(toType) == cast->GetType());
+    assert(varTypeIsIntegral(fromType) && varTypeIsIntegral(toType));
 
     // Sometimes GTF_CAST_UNSIGNED is unnecessarily set on CAST nodes, ignore it.
     // TODO-MIKE-Cleanup: Why is this here? Just don't set it in the first place or remove it in morph.
 
-    if (varTypeIsFloating(fromType))
-    {
-        fromUnsigned = false;
-    }
-    else if (!checkOverflow && !varTypeIsFloating(toType) && (varTypeSize(toType) <= varTypeSize(fromType)))
+    if (!checkOverflow && (varTypeSize(toType) <= varTypeSize(fromType)))
     {
         fromUnsigned = false;
     }

@@ -662,11 +662,17 @@ GenTree* Importer::CoerceCallArg(var_types paramType, GenTree* arg)
 #endif
 
         case TYP_FLOAT:
-            castType = (argType == TYP_DOUBLE) ? paramType : TYP_UNDEF;
+            if (argType == TYP_DOUBLE)
+            {
+                return gtNewOperNode(GT_FTRUNC, TYP_FLOAT, arg);
+            }
             break;
 
         case TYP_DOUBLE:
-            castType = (argType == TYP_FLOAT) ? paramType : TYP_UNDEF;
+            if (argType == TYP_FLOAT)
+            {
+                return gtNewOperNode(GT_FXT, TYP_DOUBLE, arg);
+            }
             break;
 
         case TYP_BYREF:
@@ -4721,10 +4727,20 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
 
             if (srcTyp != dstTyp)
             {
-                assert((varTypeIsFloating(srcTyp) && varTypeIsFloating(dstTyp)) ||
-                       (varTypeIsIntegral(srcTyp) && varTypeIsIntegral(dstTyp)));
+                if ((srcTyp == TYP_FLOAT) && (dstTyp == TYP_DOUBLE))
+                {
+                    value = gtNewOperNode(GT_FXT, TYP_DOUBLE, value);
+                }
+                else if ((srcTyp == TYP_DOUBLE) && (dstTyp == TYP_FLOAT))
+                {
+                    value = gtNewOperNode(GT_FTRUNC, TYP_FLOAT, value);
+                }
+                else
+                {
+                    assert(varTypeIsIntegral(srcTyp) && varTypeIsIntegral(dstTyp));
 
-                value = gtNewCastNode(value, false, dstTyp);
+                    value = gtNewCastNode(value, false, dstTyp);
+                }
             }
 
             store = comp->gtNewIndStore(dstTyp, addr, value);
@@ -10327,29 +10343,25 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
                 else if (varTypeIsSmall(lclTyp) && !ovfl && op1->TypeIs(TYP_INT) && op1->OperIs(GT_AND))
                 {
-                    op2 = op1->AsOp()->gtOp2;
+                    op2 = op1->AsOp()->GetOp(1);
 
                     if (GenTreeIntCon* iop2 = op2->IsIntCon())
                     {
                         ssize_t ival = iop2->GetValue();
-                        ssize_t mask, umask;
+                        ssize_t mask;
+                        ssize_t umask;
 
-                        switch (lclTyp)
+                        if (varTypeSize(lclTyp) == 1)
                         {
-                            case TYP_BYTE:
-                            case TYP_UBYTE:
-                                mask  = 0x00FF;
-                                umask = 0x007F;
-                                break;
-                            case TYP_USHORT:
-                            case TYP_SHORT:
-                                mask  = 0xFFFF;
-                                umask = 0x7FFF;
-                                break;
+                            mask  = 0x00FF;
+                            umask = 0x007F;
+                        }
+                        else
+                        {
+                            assert(varTypeSize(lclTyp) == 2);
 
-                            default:
-                                assert(!"unexpected type");
-                                return;
+                            mask  = 0xFFFF;
+                            umask = 0x7FFF;
                         }
 
                         if (((ival & umask) == ival) || ((ival & mask) == ival && uns))
@@ -10359,12 +10371,13 @@ void Importer::impImportBlockCode(BasicBlock* block)
                             impPushOnStack(op1);
                             break;
                         }
-                        else if (ival == mask)
+
+                        if (ival == mask)
                         {
                             // Toss the masking, it's a waste of time, since
                             // we sign-extend from the small value anyways
 
-                            op1 = op1->AsOp()->gtOp1;
+                            op1 = op1->AsOp()->GetOp(0);
                         }
                     }
                 }
@@ -10382,33 +10395,52 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
                 else
                 {
-                    if ((lclTyp == TYP_FLOAT) && op1->TypeIs(TYP_DOUBLE))
+                    var_types fromType = op1->GetType();
+
+                    if ((lclTyp == TYP_FLOAT) && (fromType == TYP_DOUBLE))
                     {
                         op1 = gtNewOperNode(GT_FTRUNC, lclTyp, op1);
                     }
-                    else if ((lclTyp == TYP_DOUBLE) && op1->TypeIs(TYP_FLOAT))
+                    else if ((lclTyp == TYP_DOUBLE) && (fromType == TYP_FLOAT))
                     {
                         op1 = gtNewOperNode(GT_FXT, lclTyp, op1);
                     }
-                    else if (varActualTypeIsInt(op1->GetType()) && varTypeIsLong(lclTyp) && !ovfl)
+                    else if (varActualTypeIsInt(fromType) && (type == TYP_LONG) && !ovfl)
                     {
                         op1 = gtNewOperNode(uns ? GT_UXT : GT_SXT, TYP_LONG, op1);
                     }
-                    else if (varTypeIsIntegral(op1->GetType()) && varTypeIsFloating(lclTyp))
+                    else if (varTypeIsIntegral(fromType) && varTypeIsFloating(lclTyp))
                     {
                         assert(!ovfl);
 
                         op1 = gtNewOperNode(uns ? GT_UTOF : GT_STOF, lclTyp, op1);
                     }
-                    else if (varTypeIsFloating(op1->GetType()) && varTypeIsIntegral(lclTyp) && !ovfl)
+                    else if (varTypeIsFloating(fromType) && varTypeIsIntegral(lclTyp) && !ovfl)
                     {
-                        op1 =
-                            gtNewOperNode(varTypeIsUnsigned(lclTyp) ? GT_FTOU : GT_FTOS, varTypeNodeType(lclTyp), op1);
-
                         if (varTypeIsSmall(lclTyp))
                         {
-                            op1->SetType(TYP_INT);
+                            op1 = gtNewOperNode(GT_FTOS, TYP_INT, op1);
                             op1 = gtNewCastNode(op1, false, lclTyp);
+                        }
+                        else
+                        {
+                            op1 = gtNewOperNode(varTypeIsUnsigned(lclTyp) ? GT_FTOU : GT_FTOS, varTypeNodeType(lclTyp),
+                                                op1);
+                        }
+                    }
+                    else if (varTypeIsFloating(fromType) && varTypeIsIntegral(lclTyp) && ovfl)
+                    {
+                        if (varTypeIsSmall(lclTyp))
+                        {
+                            op1 = gtNewCastNode(op1, uns, TYP_INT);
+                            op1->AsCast()->AddOverflowCheck();
+                            op1 = gtNewCastNode(op1, false, lclTyp);
+                            op1->AsCast()->AddOverflowCheck();
+                        }
+                        else
+                        {
+                            op1 = gtNewCastNode(op1, uns, lclTyp);
+                            op1->AsCast()->AddOverflowCheck();
                         }
                     }
                     else
