@@ -74,6 +74,11 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildCast(tree->AsCast());
             break;
 
+        case GT_STOF:
+        case GT_UTOF:
+            BuildIntToFloat(tree->AsUnOp());
+            break;
+
         case GT_FNEG:
         case GT_FXT:
         case GT_FTRUNC:

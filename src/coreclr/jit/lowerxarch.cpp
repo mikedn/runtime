@@ -3747,6 +3747,37 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
     }
 }
 
+void Lowering::ContainCheckIntToFloat(GenTreeUnOp* cast)
+{
+    GenTree* src = cast->GetOp(0);
+
+    // The source of cvtsi2sd and similar instructions can be a memory operand but it must
+    // be 4 or 8 bytes in size so it cannot be a small int. It's likely possible to make a
+    // "normalize on store" local reg-optional but it's probably not worth the extra work.
+    // Also, ULONG to DOUBLE/FLOAT casts require checking the sign of the source so allowing
+    // a memory operand would result in 2 loads instead of 1.
+
+    if (!varTypeIsSmall(src->GetType()) && (!src->TypeIs(TYP_LONG) || cast->OperIs(GT_STOF)))
+    {
+        if (IsContainableMemoryOp(src))
+        {
+            // Since a floating point cast can't throw we can move the cast
+            // right after the source node to avoid the interference check.
+            if (cast->gtPrev != src)
+            {
+                BlockRange().Remove(cast);
+                BlockRange().InsertAfter(src, cast);
+            }
+
+            src->SetContained();
+        }
+        else
+        {
+            src->SetRegOptional();
+        }
+    }
+}
+
 #ifdef TARGET_64BIT
 
 void Lowering::ContainCheckSignedExtend(GenTreeUnOp* node)

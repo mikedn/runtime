@@ -208,6 +208,11 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildCast(tree->AsCast());
             break;
 
+        case GT_STOF:
+        case GT_UTOF:
+            BuildIntToFloat(tree->AsUnOp());
+            break;
+
         case GT_BITCAST:
             if (!tree->AsUnOp()->GetOp(0)->isContained())
             {
@@ -1910,6 +1915,34 @@ void LinearScan::BuildCast(GenTreeCast* cast)
         BuildUse(src->AsOp()->GetOp(1));
     }
 #endif
+    else
+    {
+        assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
+    }
+
+    BuildInternalUses();
+    BuildDef(cast);
+}
+
+void LinearScan::BuildIntToFloat(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_STOF, GT_UTOF) && varTypeIsFloating(cast->GetType()));
+
+    GenTree* src = cast->GetOp(0);
+
+    assert(varTypeIsIntegral(src->GetType()));
+#ifdef TARGET_X86
+    assert(!src->TypeIs(TYP_LONG));
+#endif
+
+    if (!src->isContained())
+    {
+        BuildUse(src);
+    }
+    else if (src->OperIs(GT_IND_LOAD))
+    {
+        BuildAddrUses(src->AsIndLoad()->GetAddr());
+    }
     else
     {
         assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));

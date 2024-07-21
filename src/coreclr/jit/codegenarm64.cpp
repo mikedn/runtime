@@ -2909,6 +2909,40 @@ void CodeGen::GenCastIntToFloat(GenTreeCast* cast)
     genProduceReg(cast);
 }
 
+void CodeGen::GenIntToFloat(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_STOF, GT_UTOF) && varTypeIsFloating(cast->GetType()));
+
+    GenTree*  src     = cast->GetOp(0);
+    var_types srcType = varActualType(src->GetType());
+    var_types dstType = cast->GetType();
+
+    noway_assert((srcType == TYP_INT) || (srcType == TYP_LONG));
+    assert((dstType == TYP_FLOAT) || (dstType == TYP_DOUBLE));
+
+    RegNum srcReg = UseReg(src);
+    RegNum dstReg = cast->GetRegNum();
+
+    assert(genIsValidIntReg(srcReg) && genIsValidFloatReg(dstReg));
+
+    instruction ins  = cast->OperIs(GT_UTOF) ? INS_ucvtf : INS_scvtf;
+    emitAttr    size = emitTypeSize(dstType);
+    insOpts     opts;
+
+    if (dstType == TYP_DOUBLE)
+    {
+        opts = (srcType == TYP_INT) ? INS_OPTS_4BYTE_TO_D : INS_OPTS_8BYTE_TO_D;
+    }
+    else
+    {
+        opts = (srcType == TYP_INT) ? INS_OPTS_4BYTE_TO_S : INS_OPTS_8BYTE_TO_S;
+    }
+
+    GetEmitter()->emitIns_R_R(ins, size, dstReg, srcReg, opts);
+
+    genProduceReg(cast);
+}
+
 void CodeGen::GenSignExtend(GenTreeUnOp* sxt)
 {
     assert(sxt->OperIs(GT_SXT) && sxt->TypeIs(TYP_LONG));
@@ -2946,7 +2980,7 @@ void CodeGen::GenUnsignedExtend(GenTreeUnOp* uxt)
 {
     assert(uxt->OperIs(GT_UXT) && uxt->TypeIs(TYP_LONG));
 
-    GenTree* src = uxt->GetOp(0);
+    GenTree* src    = uxt->GetOp(0);
     RegNum   dstReg = uxt->GetRegNum();
 
     if (src->isUsedFromMemory())

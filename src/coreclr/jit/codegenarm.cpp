@@ -1198,6 +1198,39 @@ void CodeGen::GenCastIntToFloat(GenTreeCast* cast)
     genProduceReg(cast);
 }
 
+void CodeGen::GenIntToFloat(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_STOF, GT_UTOF) && varTypeIsFloating(cast->GetType()));
+
+    GenTree*  src     = cast->GetOp(0);
+    var_types srcType = varActualType(src->GetType());
+    var_types dstType = cast->GetType();
+
+    noway_assert(srcType == TYP_INT);
+    assert((dstType == TYP_FLOAT) || (dstType == TYP_DOUBLE));
+
+    RegNum srcReg = UseReg(src);
+    RegNum dstReg = cast->GetRegNum();
+
+    assert(genIsValidIntReg(srcReg) && genIsValidFloatReg(dstReg));
+
+    instruction ins;
+
+    if (dstType == TYP_DOUBLE)
+    {
+        ins = cast->OperIs(GT_UTOF) ? INS_vcvt_u2d : INS_vcvt_i2d;
+    }
+    else
+    {
+        ins = cast->OperIs(GT_UTOF) ? INS_vcvt_u2f : INS_vcvt_i2f;
+    }
+
+    GetEmitter()->emitIns_Mov(INS_vmov_i2f, EA_4BYTE, dstReg, srcReg, /* canSkip */ false);
+    GetEmitter()->emitIns_R_R(ins, EA_4BYTE, dstReg, dstReg);
+
+    DefReg(cast);
+}
+
 void CodeGen::GenCastFloatToInt(GenTreeCast* cast)
 {
     assert(cast->TypeIs(TYP_INT));

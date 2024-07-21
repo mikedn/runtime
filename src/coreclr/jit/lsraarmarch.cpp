@@ -594,6 +594,21 @@ void LinearScan::BuildCast(GenTreeCast* cast)
     BuildDef(cast);
 }
 
+void LinearScan::BuildIntToFloat(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_STOF, GT_UTOF) && varTypeIsFloating(cast->GetType()));
+
+    GenTree* src = cast->GetOp(0);
+
+    assert(varTypeIsIntegral(src->GetType()));
+#ifdef TARGET_ARM
+    assert(!src->TypeIs(TYP_LONG));
+#endif
+
+    BuildUse(src);
+    BuildDef(cast);
+}
+
 void LinearScan::BuildCmp(GenTreeOp* cmp)
 {
     assert(cmp->OperIsCompare() || cmp->OperIs(GT_CMP) ARM64_ONLY(|| cmp->OperIs(GT_JCMP)));

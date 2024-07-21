@@ -2284,6 +2284,22 @@ void Compiler::gtSetCosts(GenTree* tree)
                     }
                     break;
 
+                case GT_STOF:
+                case GT_UTOF:
+#if defined(TARGET_ARM)
+                    costEx = 3;
+                    costSz = 4;
+#elif defined(TARGET_ARM64)
+                    costEx = 2;
+                    costSz = 4;
+#elif defined(TARGET_XARCH)
+                    costEx = IND_COST_EX * 2;
+                    costSz = 6;
+#else
+#error "Unknown TARGET"
+#endif
+                    break;
+
                 case GT_SXT:
                 case GT_UXT:
 #if defined(TARGET_ARM)
@@ -5581,6 +5597,8 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_FXT:
         case GT_SXT:
         case GT_UXT:
+        case GT_STOF:
+        case GT_UTOF:
         case GT_COPY:
         case GT_RELOAD:
         case GT_ARR_LENGTH:
@@ -9691,6 +9709,29 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                         l = static_cast<int64_t>(static_cast<uint32_t>(i1));
                         goto CNS_LONG;
 
+                    case GT_STOF:
+                        if (tree->TypeIs(TYP_FLOAT))
+                        {
+                            d = static_cast<float>(i1);
+                        }
+                        else
+                        {
+                            assert(tree->TypeIs(TYP_DOUBLE));
+                            d = static_cast<double>(i1);
+                        }
+                        goto CNS_DOUBLE;
+                    case GT_UTOF:
+                        if (tree->TypeIs(TYP_FLOAT))
+                        {
+                            d = static_cast<float>(static_cast<uint32_t>(i1));
+                        }
+                        else
+                        {
+                            assert(tree->TypeIs(TYP_DOUBLE));
+                            d = static_cast<double>(static_cast<uint32_t>(i1));
+                        }
+                        goto CNS_DOUBLE;
+
                     default:
                         break;
                 }
@@ -9788,6 +9829,29 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                                 break;
                         }
                         break;
+
+                    case GT_STOF:
+                        if (tree->TypeIs(TYP_FLOAT))
+                        {
+                            d = static_cast<float>(l1);
+                        }
+                        else
+                        {
+                            assert(tree->TypeIs(TYP_DOUBLE));
+                            d = static_cast<double>(l1);
+                        }
+                        goto CNS_DOUBLE;
+                    case GT_UTOF:
+                        if (tree->TypeIs(TYP_FLOAT))
+                        {
+                            d = static_cast<float>(static_cast<uint64_t>(l1));
+                        }
+                        else
+                        {
+                            assert(tree->TypeIs(TYP_DOUBLE));
+                            d = static_cast<double>(static_cast<uint64_t>(l1));
+                        }
+                        goto CNS_DOUBLE;
 
                     default:
                         break;

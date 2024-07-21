@@ -4501,6 +4501,7 @@ private:
     };
 
     GenTree* fgMorphStringIndexIndir(GenTreeIndexAddr* index, GenTreeStrCon* str);
+    GenTree* fgMorphIntToFloat(GenTreeUnOp* cast);
     GenTree* fgMorphCast(GenTreeCast* cast);
     GenTree* fgMorphCastPost(GenTreeCast* cast);
     void fgInitArgInfo(GenTreeCall* call);
@@ -6581,6 +6582,8 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_FXT:
         case GT_SXT:
         case GT_UXT:
+        case GT_STOF:
+        case GT_UTOF:
         case GT_BSWAP:
         case GT_BSWAP16:
         case GT_COPY:
@@ -6974,6 +6977,8 @@ public:
             case GT_FXT:
             case GT_SXT:
             case GT_UXT:
+            case GT_STOF:
+            case GT_UTOF:
             case GT_BSWAP:
             case GT_BSWAP16:
             case GT_COPY:
