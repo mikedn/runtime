@@ -10394,6 +10394,12 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     {
                         op1 = gtNewOperNode(uns ? GT_UXT : GT_SXT, TYP_LONG, op1);
                     }
+                    else if (varTypeIsIntegral(op1->GetType()) && varTypeIsFloating(lclTyp))
+                    {
+                        assert(!ovfl);
+
+                        op1 = gtNewOperNode(uns ? GT_UTOF : GT_STOF, lclTyp, op1);
+                    }
                     else
                     {
                         op1 = gtNewCastNode(op1, uns, lclTyp);

@@ -653,6 +653,7 @@ protected:
     void GenCastFloatToFloat(GenTreeCast* cast);
     void GenCastFloatToInt(GenTreeCast* cast);
     void GenCastIntToFloat(GenTreeCast* cast);
+    void GenIntToFloat(GenTreeUnOp* node);
 
     void GenCkfinite(GenTree* treeNode);
     void GenCompare(GenTreeOp* tree);

@@ -62,8 +62,10 @@ GTNODE(CMPXCHG          , GenTreeCmpXchg      , GTK_SPECIAL)
 GTNODE(MEMORYBARRIER    , GenTree             , GTK_LEAF|GTK_NOVALUE)
 
 GTNODE(KEEPALIVE        , GenTree             , GTK_UNOP|GTK_NOVALUE)   // keep operand alive, generate no code, produce no result
-GTNODE(SXT              , GenTree             , GTK_UNOP|GTK_VN)        // sign extend (INT -> LONG)
-GTNODE(UXT              , GenTree             , GTK_UNOP|GTK_VN)        // unsigned extend (UINT -> LONG)
+GTNODE(SXT              , GenTreeOp           , GTK_UNOP|GTK_VN)        // sign extend (INT -> LONG)
+GTNODE(UXT              , GenTreeOp           , GTK_UNOP|GTK_VN)        // unsigned extend (UINT -> LONG)
+GTNODE(STOF             , GenTreeOp           , GTK_UNOP|GTK_VN)        // signed to floating point conversion
+GTNODE(UTOF             , GenTreeOp           , GTK_UNOP|GTK_VN)        // unsigned to floating point conversion
 GTNODE(CAST             , GenTreeCast         , GTK_UNOP|GTK_EXOP)      // conversion to another type
 GTNODE(BITCAST          , GenTreeOp           , GTK_UNOP)               // reinterpretation of bits as another type
 GTNODE(CKFINITE         , GenTreeOp           , GTK_UNOP|GTK_NOCONTAIN) // Check for NaN

@@ -129,6 +129,114 @@ GenTreeCall* Compiler::fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeC
     return call;
 }
 
+GenTree* Compiler::fgMorphIntToFloat(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_STOF, GT_UTOF));
+
+    GenTree*  src     = cast->GetOp(0);
+    var_types srcType = varActualType(src->GetType());
+    var_types dstType = cast->GetType();
+
+    assert(varTypeIsFloating(dstType));
+    assert(varTypeIsIntegral(srcType));
+
+#if defined(TARGET_AMD64)
+    if (cast->OperIs(GT_UTOF))
+    {
+        // X64 doesn't have any instruction to cast FP types to unsigned types
+        // but codegen handles the ULONG to DOUBLE/FLOAT case by adjusting the
+        // result of a ULONG to DOUBLE/FLOAT cast. For UINT to DOUBLE/FLOAT we
+        // need to first cast the source to LONG.
+
+        if (srcType == TYP_INT)
+        {
+            src = gtNewOperNode(GT_UXT, TYP_LONG, src);
+            cast->SetOp(0, src);
+            cast->SetOper(GT_STOF);
+        }
+    }
+#endif
+
+#if defined(TARGET_X86)
+    if (cast->OperIs(GT_UTOF) && (srcType == TYP_INT))
+    {
+        // There is no support for UINT to FP casts so first cast the source
+        // to LONG and then use a helper call to cast to FP.
+        src = gtNewOperNode(GT_UXT, TYP_LONG, src);
+        cast->SetOp(0, src);
+        cast->SetOper(GT_STOF);
+        srcType = TYP_LONG;
+    }
+#endif
+
+#if defined(TARGET_X86) || defined(TARGET_ARM)
+    if (srcType == TYP_LONG)
+    {
+        // We only have helpers for (U)LONG to DOUBLE casts, we may need an extra cast to FLOAT.
+        cast->SetType(TYP_DOUBLE);
+
+        if (src->IsIntConCommon())
+        {
+            GenTree* folded = gtFoldExprConst(cast); // This may not fold the constant (NaN ...)
+
+            if (folded != cast)
+            {
+                return fgMorphTree(folded);
+            }
+
+            if (folded->IsNumericConst())
+            {
+                return folded;
+            }
+
+            noway_assert(cast->OperIs(GT_STOF, GT_UTOF) && (cast->GetOp(0) == src));
+        }
+
+        GenTree* call =
+            new (this, GT_CALL) GenTreeOp(cast->GetOper(), TYP_DOUBLE, src, nullptr DEBUGARG(/*largeNode*/ true));
+        INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+        GenTree* helper =
+            fgMorphIntoHelperCall(call, cast->OperIs(GT_UTOF) ? CORINFO_HELP_ULNG2DBL : CORINFO_HELP_LNG2DBL,
+                                  gtNewCallArgs(src));
+
+        if (dstType == TYP_FLOAT)
+        {
+            helper = gtNewOperNode(GT_FTRUNC, TYP_FLOAT, helper);
+            INDEBUG(helper->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+        }
+
+        return helper;
+    }
+#endif
+
+    src = fgMorphTree(src);
+    cast->SetOp(0, src);
+    cast->SetSideEffects(src->GetSideEffects());
+
+    if (src->IsIntConCommon())
+    {
+        GenTree* folded = gtFoldExprConst(cast); // This may not fold the constant (NaN ...)
+
+        // Did we get a comma throw as a result of gtFoldExprConst?
+        if (folded != cast)
+        {
+            noway_assert(fgIsCommaThrow(folded DEBUGARG(false)));
+            folded->AsOp()->SetOp(0, fgMorphTree(folded->AsOp()->GetOp(0)));
+            INDEBUG(folded->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+            return folded;
+        }
+
+        if (!folded->IsCast())
+        {
+            return folded;
+        }
+
+        noway_assert(cast->GetOp(0) == src); // unchanged
+    }
+
+    return cast;
+}
+
 GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
 {
     GenTree*  src     = cast->GetOp(0);
@@ -10000,6 +10108,10 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         case GT_CAST:
             return fgMorphCast(tree->AsCast());
 
+        case GT_STOF:
+        case GT_UTOF:
+            return fgMorphIntToFloat(tree->AsUnOp());
+
         case GT_MUL:
         case GT_OVF_SMUL:
         case GT_OVF_UMUL:
@@ -11057,14 +11169,14 @@ DONE_MORPHING_CHILDREN:
         case GT_FTRUNC:
             assert(tree->TypeIs(TYP_FLOAT));
 
-            if (GenTreeCast* cast = op1->IsCast())
+            if (op1->OperIs(GT_STOF, GT_UTOF))
             {
-                assert(cast->TypeIs(TYP_DOUBLE));
-                assert(varTypeIsIntegralOrI(cast->GetOp(0)->GetType()));
+                assert(op1->TypeIs(TYP_DOUBLE));
+                assert(varTypeIsIntegral(op1->AsUnOp()->GetOp(0)->GetType()));
 
-                cast->SetCastType(TYP_FLOAT);
+                op1->SetType(TYP_FLOAT);
 
-                return cast;
+                return op1;
             }
             break;
 

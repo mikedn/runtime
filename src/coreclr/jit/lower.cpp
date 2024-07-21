@@ -336,6 +336,10 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_CAST:
             return LowerCast(node->AsCast());
 
+        case GT_STOF:
+        case GT_UTOF:
+            return LowerIntToFloat(node->AsUnOp());
+
 #ifdef TARGET_AMD64
         case GT_SXT:
             ContainCheckSignedExtend(node->AsUnOp());
@@ -5131,6 +5135,24 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
     }
 
     ContainCheckCast(cast);
+
+    return cast->gtNext;
+}
+
+GenTree* Lowering::LowerIntToFloat(GenTreeUnOp* cast)
+{
+    assert(varTypeIsFloating(cast->GetType()));
+
+    GenTree* src = cast->GetOp(0);
+
+    assert(varTypeIsIntegral(src->GetType()));
+#ifdef TARGET_X86
+    assert(!src->TypeIs(TYP_LONG));
+#endif
+
+#ifdef TARGET_XARCH
+    ContainCheckIntToFloat(cast);
+#endif
 
     return cast->gtNext;
 }
