@@ -654,6 +654,7 @@ protected:
     void GenCastFloatToInt(GenTreeCast* cast);
     void GenCastIntToFloat(GenTreeCast* cast);
     void GenIntToFloat(GenTreeUnOp* node);
+    void GenFloatToInt(GenTreeUnOp* node);
 
     void GenCkfinite(GenTree* treeNode);
     void GenCompare(GenTreeOp* tree);

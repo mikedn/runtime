@@ -1266,6 +1266,38 @@ void CodeGen::GenCastFloatToInt(GenTreeCast* cast)
     genProduceReg(cast);
 }
 
+void CodeGen::GenFloatToInt(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_FTOS, GT_FTOU) && cast->TypeIs(TYP_INT));
+
+    GenTree*  src     = cast->GetOp(0);
+    var_types srcType = src->GetType();
+
+    assert((srcType == TYP_FLOAT) || (srcType == TYP_DOUBLE));
+
+    RegNum srcReg = UseReg(src);
+    RegNum dstReg = cast->GetRegNum();
+    RegNum tmpReg = cast->GetSingleTempReg();
+
+    assert(genIsValidFloatReg(srcReg) && genIsValidFloatReg(tmpReg) && genIsValidIntReg(dstReg));
+
+    instruction ins;
+
+    if (srcType == TYP_DOUBLE)
+    {
+        ins = cast->OperIs(GT_FTOU) ? INS_vcvt_d2u : INS_vcvt_d2i;
+    }
+    else
+    {
+        ins = cast->OperIs(GT_FTOU) ? INS_vcvt_f2u : INS_vcvt_f2i;
+    }
+
+    GetEmitter()->emitIns_R_R(ins, EA_4BYTE, tmpReg, srcReg);
+    GetEmitter()->emitIns_Mov(INS_vmov_f2i, EA_4BYTE, dstReg, tmpReg, false);
+
+    genProduceReg(cast);
+}
+
 void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNumber callTargetReg)
 {
     // Can we call the helper function directly

@@ -3778,6 +3778,30 @@ void Lowering::ContainCheckIntToFloat(GenTreeUnOp* cast)
     }
 }
 
+void Lowering::ContainCheckFloatToInt(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_FTOS, GT_FTOU) && cast->TypeIs(TYP_INT, TYP_LONG));
+
+    GenTree* src = cast->GetOp(0);
+
+    if (IsContainableMemoryOp(src))
+    {
+        // Since a floating point cast can't throw we can move the cast
+        // right after the source node to avoid the interference check.
+        if (cast->gtPrev != src)
+        {
+            BlockRange().Remove(cast);
+            BlockRange().InsertAfter(src, cast);
+        }
+
+        src->SetContained();
+    }
+    else
+    {
+        src->SetRegOptional();
+    }
+}
+
 #ifdef TARGET_64BIT
 
 void Lowering::ContainCheckSignedExtend(GenTreeUnOp* node)

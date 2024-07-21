@@ -809,6 +809,10 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_UTOF:
             GenIntToFloat(node->AsUnOp());
             break;
+        case GT_FTOS:
+        case GT_FTOU:
+            GenFloatToInt(node->AsUnOp());
+            break;
 #ifdef TARGET_64BIT
         case GT_SXT:
             GenSignExtend(node->AsUnOp());

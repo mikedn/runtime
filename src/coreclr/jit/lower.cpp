@@ -340,6 +340,10 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_UTOF:
             return LowerIntToFloat(node->AsUnOp());
 
+        case GT_FTOS:
+        case GT_FTOU:
+            return LowerFloatToInt(node->AsUnOp());
+
 #ifdef TARGET_AMD64
         case GT_SXT:
             ContainCheckSignedExtend(node->AsUnOp());
@@ -5152,6 +5156,24 @@ GenTree* Lowering::LowerIntToFloat(GenTreeUnOp* cast)
 
 #ifdef TARGET_XARCH
     ContainCheckIntToFloat(cast);
+#endif
+
+    return cast->gtNext;
+}
+
+GenTree* Lowering::LowerFloatToInt(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_FTOS, GT_FTOU) && cast->TypeIs(TYP_INT, TYP_LONG));
+
+    GenTree*  src     = cast->GetOp(0);
+    var_types dstType = cast->GetType();
+    var_types srcType = src->GetType();
+    bool      remove  = false;
+
+    assert(varTypeIsFloating(srcType));
+
+#ifdef TARGET_XARCH
+    ContainCheckFloatToInt(cast);
 #endif
 
     return cast->gtNext;

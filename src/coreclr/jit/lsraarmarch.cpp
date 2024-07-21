@@ -609,6 +609,46 @@ void LinearScan::BuildIntToFloat(GenTreeUnOp* cast)
     BuildDef(cast);
 }
 
+void LinearScan::BuildFloatToInt(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_FTOS, GT_FTOU) && cast->TypeIs(TYP_INT, TYP_LONG));
+
+    GenTree* src = cast->GetOp(0);
+
+#ifdef TARGET_ARM
+    var_types srcType = varActualType(src->GetType());
+    var_types dstType = cast->GetType();
+
+    assert(!varTypeIsLong(srcType) || (src->OperIs(GT_LONG) && src->isContained()));
+
+    // Floating point to integer casts requires a temporary register.
+    if (varTypeIsFloating(srcType) && !varTypeIsFloating(dstType))
+    {
+        BuildInternalFloatDef(cast, RBM_ALLFLOAT);
+        setInternalRegsDelayFree = true;
+    }
+#endif
+
+    if (!src->isContained())
+    {
+        BuildUse(src);
+    }
+#ifdef TARGET_ARM
+    else if (src->OperIs(GT_LONG))
+    {
+        BuildUse(src->AsOp()->GetOp(0));
+        BuildUse(src->AsOp()->GetOp(1));
+    }
+#endif
+    else
+    {
+        assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
+    }
+
+    BuildInternalUses();
+    BuildDef(cast);
+}
+
 void LinearScan::BuildCmp(GenTreeOp* cmp)
 {
     assert(cmp->OperIsCompare() || cmp->OperIs(GT_CMP) ARM64_ONLY(|| cmp->OperIs(GT_JCMP)));
