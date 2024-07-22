@@ -2225,6 +2225,21 @@ void Compiler::gtSetCosts(GenTree* tree)
                     }
                     break;
 
+                case GT_TRUNC:
+#if defined(TARGET_ARM)
+                    costEx = 1;
+                    costSz = 1;
+#elif defined(TARGET_ARM64)
+                    costEx = 1;
+                    costSz = 2;
+#elif defined(TARGET_XARCH)
+                    costEx = 1;
+                    costSz = 2;
+#else
+#error "Unknown TARGET"
+#endif
+                    break;
+
                 case GT_CAST:
                     assert(varTypeIsIntegral(tree->GetType()) && varTypeIsIntegral(op1->GetType()));
 #if defined(TARGET_ARM)
@@ -5568,6 +5583,7 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_UTOF:
         case GT_FTOS:
         case GT_FTOU:
+        case GT_TRUNC:
         case GT_COPY:
         case GT_RELOAD:
         case GT_ARR_LENGTH:
@@ -9764,6 +9780,10 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                                 break;
                         }
                         break;
+
+                    case GT_TRUNC:
+                        i = static_cast<int32_t>(l1);
+                        goto CNS_INT;
 
                     case GT_STOF:
                         d = static_cast<double>(l1);

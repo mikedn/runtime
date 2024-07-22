@@ -229,6 +229,7 @@ private:
 
     GenTree* LowerBitCast(GenTreeUnOp* bitcast);
     GenTree* LowerCast(GenTreeCast* cast);
+    GenTree* LowerTruncate(GenTreeUnOp* node);
     void LowerIntToFloat(GenTreeUnOp* node);
     void LowerFloatToInt(GenTreeUnOp* node);
 

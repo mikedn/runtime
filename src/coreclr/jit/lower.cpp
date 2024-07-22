@@ -336,6 +336,9 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_CAST:
             return LowerCast(node->AsCast());
 
+        case GT_TRUNC:
+            return LowerTruncate(node->AsUnOp());
+
         case GT_STOF:
         case GT_UTOF:
             LowerIntToFloat(node->AsUnOp());
@@ -4215,6 +4218,18 @@ void Lowering::LowerShift(GenTreeOp* shift)
                 BlockRange().Remove(src);
                 src = src->AsUnOp()->GetOp(0);
                 src->ClearContained();
+            }
+
+            if (src->OperIs(GT_TRUNC) && (consumedBits <= 32))
+            {
+                GenTreeUnOp* cast = src->AsUnOp();
+
+                JITDUMP("Removing TRUNC [%06u] producing 32 bits from LSH [%06u] consuming %u bits\n", cast->GetID(),
+                        shift->GetID(), consumedBits);
+
+                BlockRange().Remove(src);
+                src = cast->GetOp(0);
+                src->ClearContained();
 
 #ifndef TARGET_64BIT
                 if (src->OperIs(GT_LONG))
@@ -4249,7 +4264,7 @@ void Lowering::LowerShift(GenTreeOp* shift)
                     break;
                 }
 
-                JITDUMP("Removing CAST [%06d] producing %u bits from LSH [%06d] consuming %u bits\n", cast->GetID(),
+                JITDUMP("Removing CAST [%06u] producing %u bits from LSH [%06u] consuming %u bits\n", cast->GetID(),
                         producedBits, shift->GetID(), consumedBits);
 
                 BlockRange().Remove(src);
@@ -4278,19 +4293,6 @@ void Lowering::LowerShift(GenTreeOp* shift)
                 BlockRange().Remove(src);
                 src = src->AsUnOp()->GetOp(0);
                 src->ClearContained();
-
-#ifndef TARGET_64BIT
-                if (src->OperIs(GT_LONG))
-                {
-                    // We're run into a long to int cast on a 32 bit target. The LONG node
-                    // needs to be removed since the shift wouldn't know what to do with it.
-                    // TODO-MIKE-Cleanup: Why doesn't CAST lowering deal with this?!
-
-                    BlockRange().Remove(src);
-                    src->AsOp()->GetOp(1)->SetUnusedValue();
-                    src = src->AsOp()->GetOp(0);
-                }
-#endif
             }
 
 #ifdef TARGET_XARCH
@@ -5143,6 +5145,60 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
     ContainCheckCast(cast);
 
     return cast->gtNext;
+}
+
+GenTree* Lowering::LowerTruncate(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_TRUNC) && node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
+
+    GenTree* src    = node->GetOp(0);
+    bool     remove = false;
+
+    if (IsContainableMemoryOp(src))
+    {
+        // TODO-MIKE-Cleanup: fgMorphCast does something similar but more restrictive. It's not clear
+        // if there are any advantages in doing such a transform earlier (in fact there may be one
+        // disadvantage - retyping nodes may prevent them from being CSEd) so it should be deleted.
+
+        src->SetType(TYP_INT);
+        remove = true;
+    }
+#ifdef TARGET_64BIT
+    else if (src->OperIs(GT_LCL_LOAD))
+    {
+        src->SetType(TYP_INT);
+        remove = true;
+    }
+#else
+    else
+    {
+        assert(src->OperIs(GT_LONG));
+        BlockRange().Remove(src);
+        src->AsOp()->GetOp(1)->SetUnusedValue();
+        src    = src->AsOp()->GetOp(0);
+        remove = true;
+    }
+#endif
+
+    if (remove)
+    {
+        LIR::Use use;
+
+        if (BlockRange().TryGetUse(node, &use))
+        {
+            use.ReplaceWith(comp, src);
+        }
+        else
+        {
+            src->SetUnusedValue();
+        }
+
+        GenTree* next = node->gtNext;
+        BlockRange().Remove(node);
+        return next;
+    }
+
+    return node->gtNext;
 }
 
 void Lowering::LowerIntToFloat(GenTreeUnOp* cast)
