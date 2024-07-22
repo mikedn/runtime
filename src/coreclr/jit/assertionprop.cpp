@@ -3303,6 +3303,7 @@ private:
                 case GT_GT:
                 case GT_OR:
                 case GT_CAST:
+                case GT_TRUNC:
                 case GT_SXT:
                 case GT_UXT:
                 case GT_STOF:

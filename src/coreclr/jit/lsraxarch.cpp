@@ -212,6 +212,11 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildCast(tree->AsCast());
             break;
 
+        case GT_TRUNC:
+            BuildUse(tree->AsUnOp()->GetOp(0));
+            BuildDef(tree);
+            break;
+
         case GT_BITCAST:
             if (!tree->AsUnOp()->GetOp(0)->isContained())
             {

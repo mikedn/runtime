@@ -3007,6 +3007,18 @@ void CodeGen::GenFloatToInt(GenTreeUnOp* cast)
     DefReg(cast);
 }
 
+void CodeGen::GenTruncate(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_TRUNC) && node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
+
+    RegNum srcReg = UseReg(node->GetOp(0));
+    RegNum dstReg = node->GetRegNum();
+
+    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, /*canSkip*/ true);
+
+    DefReg(node);
+}
+
 void CodeGen::GenCkfinite(GenTree* treeNode)
 {
     assert(treeNode->OperIs(GT_CKFINITE));

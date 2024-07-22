@@ -68,6 +68,7 @@ GTNODE(STOF             , GenTreeOp           , GTK_UNOP|GTK_VN)        // signe
 GTNODE(UTOF             , GenTreeOp           , GTK_UNOP|GTK_VN)        // floating point to unsigned conversion
 GTNODE(FTOS             , GenTreeOp           , GTK_UNOP|GTK_VN)        // floating point to signed conversion
 GTNODE(FTOU             , GenTreeOp           , GTK_UNOP|GTK_VN)        // unsigned to floating point conversion
+GTNODE(TRUNC            , GenTreeOp           , GTK_UNOP|GTK_VN)        // truncate LONG -> INT
 GTNODE(CAST             , GenTreeCast         , GTK_UNOP|GTK_EXOP)      // conversion to another type
 GTNODE(BITCAST          , GenTreeOp           , GTK_UNOP)               // reinterpretation of bits as another type
 GTNODE(CKFINITE         , GenTreeOp           , GTK_UNOP|GTK_NOCONTAIN) // Check for NaN

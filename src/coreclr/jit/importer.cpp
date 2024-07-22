@@ -1349,7 +1349,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
 
         GenTree* slot = comp->gtNewLclLoad(slotLcl, TYP_I_IMPL);
 #ifdef TARGET_64BIT
-        slot = gtNewCastNode(slot, false, TYP_INT);
+        slot = gtNewOperNode(GT_TRUNC, TYP_INT, slot);
 #endif
         // Use a GT_AND to check for the lowest bit and indirect if it is set
         GenTree* test  = gtNewOperNode(GT_AND, TYP_INT, slot, gtNewIconNode(1));
@@ -6157,8 +6157,13 @@ GenTree* Importer::impConvertFieldStoreValue(var_types storeType, GenTree* value
     }
 #else
     // Implicit narrowing from LONG to INT for x86 JIT compatiblity.
-    if (varTypeIsI(value->GetType()) && varActualTypeIsInt(storeType))
+    if (value->TypeIs(TYP_LONG) && varActualTypeIsInt(storeType))
     {
+        value = gtNewOperNode(GT_TRUNC, TYP_INT, value);
+    }
+    else if (varTypeIsI(value->GetType()) && varActualTypeIsInt(storeType))
+    {
+        assert(varTypeIsGC(value->GetType()));
         value = gtNewCastNode(value, false, TYP_INT);
     }
     // Implicit widening from INT to LONG for x86 JIT compatiblity.
@@ -9274,7 +9279,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
 #ifdef TARGET_64BIT
                     // Downcast the TYP_I_IMPL into a 32-bit Int for x86 JIT compatiblity
-                    if (varTypeIsI(op1->GetType()) && (varActualType(lclTyp) == TYP_INT))
+                    if (varTypeIsI(op1->GetType()) && varActualTypeIsInt(lclTyp))
                     {
                         op1 = gtNewCastNode(op1, false, TYP_INT);
                     }
@@ -9470,7 +9475,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 op1 = impPopStack().val;
 
-                if (varActualType(op1->GetType()) != TYP_INT)
+                if (!varActualTypeIsInt(op1->GetType()))
                 {
                     // TODO-MIKE-Review: This should be BADCODE. Old code only asserted and
                     // there's a pretty good chance that LONG values worked fine by accident.
@@ -10442,6 +10447,10 @@ void Importer::impImportBlockCode(BasicBlock* block)
                             op1 = gtNewCastNode(op1, uns, lclTyp);
                             op1->AsCast()->AddOverflowCheck();
                         }
+                    }
+                    else if ((fromType == TYP_LONG) && varTypeIsInt(lclTyp) && !ovfl)
+                    {
+                        op1 = gtNewOperNode(GT_TRUNC, TYP_INT, op1);
                     }
                     else
                     {

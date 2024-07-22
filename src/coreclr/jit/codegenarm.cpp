@@ -1097,6 +1097,22 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
     emitInsStore(ins_Store(type), emitActualTypeSize(type), dataReg, store);
 }
 
+void CodeGen::GenTruncate(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_TRUNC) && node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
+
+    GenTreeOp* src = node->GetOp(0)->AsOp();
+    noway_assert(src->OperIs(GT_LONG));
+
+    RegNum srcReg = UseReg(src->GetOp(0));
+    UseReg(src->GetOp(1));
+    RegNum dstReg = node->GetRegNum();
+
+    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, /*canSkip*/ true);
+
+    DefReg(node);
+}
+
 void CodeGen::GenCastLongToInt(GenTreeCast* cast)
 {
     assert(cast->TypeIs(TYP_INT));

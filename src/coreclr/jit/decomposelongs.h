@@ -53,6 +53,7 @@ private:
 #endif // FEATURE_HW_INTRINSICS
 
     GenTree* OptimizeCastFromDecomposedLong(GenTreeCast* cast, GenTree* nextNode);
+    GenTree* OptimizeTruncate(GenTreeUnOp* trunc, GenTree* nextNode);
 
     // Helper functions
     GenTree* FinalizeDecomposition(LIR::Use& use, GenTree* loResult, GenTree* hiResult, GenTree* insertResultAfter);
