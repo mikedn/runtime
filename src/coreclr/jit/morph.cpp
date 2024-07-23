@@ -131,37 +131,21 @@ GenTreeCall* Compiler::fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeC
 
 GenTree* Compiler::fgMorphIntToFloat(GenTreeUnOp* cast)
 {
-    assert(cast->OperIs(GT_STOF, GT_UTOF));
+    assert(cast->OperIs(GT_STOF, GT_UTOF) && varTypeIsFloating(cast->GetType()));
 
     GenTree*  src     = cast->GetOp(0);
     var_types srcType = varActualType(src->GetType());
     var_types dstType = cast->GetType();
 
-    assert(varTypeIsFloating(dstType));
     assert(varTypeIsIntegral(srcType));
 
-#if defined(TARGET_AMD64)
-    if (cast->OperIs(GT_UTOF))
-    {
-        // X64 doesn't have any instruction to cast FP types to unsigned types
-        // but codegen handles the ULONG to DOUBLE/FLOAT case by adjusting the
-        // result of a ULONG to DOUBLE/FLOAT cast. For UINT to DOUBLE/FLOAT we
-        // need to first cast the source to LONG.
-
-        if (srcType == TYP_INT)
-        {
-            src = gtNewOperNode(GT_UXT, TYP_LONG, src);
-            cast->SetOp(0, src);
-            cast->SetOper(GT_STOF);
-        }
-    }
-#endif
-
-#if defined(TARGET_X86)
+#ifdef TARGET_XARCH
     if (cast->OperIs(GT_UTOF) && (srcType == TYP_INT))
     {
-        // There is no support for UINT to FP casts so first cast the source
-        // to LONG and then use a helper call to cast to FP.
+        // x86/x64 do not have instructions to cast from UINT to floating point,
+        // instead we first convert to LONG and use whatever conversion support
+        // we have for that - 64 bit CVTSI2SD on x64 and the LNG2DBL helper on x86.
+
         src = gtNewOperNode(GT_UXT, TYP_LONG, src);
         cast->SetOp(0, src);
         cast->SetOper(GT_STOF);
@@ -172,9 +156,6 @@ GenTree* Compiler::fgMorphIntToFloat(GenTreeUnOp* cast)
 #if defined(TARGET_X86) || defined(TARGET_ARM)
     if (srcType == TYP_LONG)
     {
-        // We only have helpers for (U)LONG to DOUBLE casts, we may need an extra cast to FLOAT.
-        cast->SetType(TYP_DOUBLE);
-
         if (src->IsIntConCommon())
         {
             GenTree* folded = gtFoldExprConst(cast); // This may not fold the constant (NaN ...)
@@ -192,20 +173,18 @@ GenTree* Compiler::fgMorphIntToFloat(GenTreeUnOp* cast)
             noway_assert(cast->OperIs(GT_STOF, GT_UTOF) && (cast->GetOp(0) == src));
         }
 
-        GenTree* call =
-            new (this, GT_CALL) GenTreeOp(cast->GetOper(), TYP_DOUBLE, src, nullptr DEBUGARG(/*largeNode*/ true));
+        CorInfoHelpFunc helper = cast->OperIs(GT_UTOF) ? CORINFO_HELP_ULNG2DBL : CORINFO_HELP_LNG2DBL;
+        GenTree* call = new (this, GT_CALL) GenTreeOp(GT_STOF, TYP_DOUBLE, src, nullptr DEBUGARG(/*largeNode*/ true));
         INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-        GenTree* helper =
-            fgMorphIntoHelperCall(call, cast->OperIs(GT_UTOF) ? CORINFO_HELP_ULNG2DBL : CORINFO_HELP_LNG2DBL,
-                                  gtNewCallArgs(src));
+        call = fgMorphIntoHelperCall(call, helper, gtNewCallArgs(src));
 
         if (dstType == TYP_FLOAT)
         {
-            helper = gtNewOperNode(GT_FTRUNC, TYP_FLOAT, helper);
-            INDEBUG(helper->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+            call = gtNewOperNode(GT_FTRUNC, TYP_FLOAT, call);
+            INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
         }
 
-        return helper;
+        return call;
     }
 #endif
 
@@ -296,7 +275,7 @@ GenTree* Compiler::fgMorphFloatToInt(GenTreeUnOp* cast)
         }
 
         GenTree* call =
-            new (this, GT_CALL) GenTreeOp(cast->GetOper(), cast->GetType(), src, nullptr DEBUGARG(/*largeNode*/ true));
+            new (this, GT_CALL) GenTreeOp(GT_FTOS, cast->GetType(), src, nullptr DEBUGARG(/*largeNode*/ true));
         INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
         return fgMorphIntoHelperCall(call, helper, gtNewCallArgs(src));
     }
@@ -333,8 +312,7 @@ GenTree* Compiler::fgMorphOverflowFloatToInt(GenTreeUnOp* cast)
 {
     assert(cast->OperIs(GT_OVF_FTOS, GT_OVF_FTOU) && cast->TypeIs(TYP_INT, TYP_LONG));
 
-    GenTree*  src     = cast->GetOp(0);
-    var_types dstType = cast->GetType();
+    GenTree* src = cast->GetOp(0);
 
     if (src->IsDblCon())
     {
@@ -359,6 +337,7 @@ GenTree* Compiler::fgMorphOverflowFloatToInt(GenTreeUnOp* cast)
         src = gtNewOperNode(GT_FXT, TYP_DOUBLE, src);
     }
 
+    var_types       dstType = cast->GetType();
     CorInfoHelpFunc helper;
 
     if (cast->OperIs(GT_OVF_FTOS))
@@ -566,6 +545,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
     var_types srcType = varActualType(src->GetType());
     var_types dstType = cast->GetCastType();
 
+    assert(varTypeIsIntegral(srcType) || varTypeIsGC(srcType));
     assert(varTypeIsIntegral(dstType));
 
     if (varTypeIsSmall(dstType) && src->IsCast() && varTypeIsSmall(src->GetType()) &&
@@ -602,45 +582,38 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         srcType = TYP_I_IMPL;
     }
 
-    if (varTypeIsSmall(dstType) && (varTypeIsFloating(srcType)
 #ifndef TARGET_64BIT
-                                    || varTypeIsLong(srcType)
-#endif
-                                        ))
+    if (varTypeIsSmall(dstType) && (srcType == TYP_LONG))
     {
-        // CodeGen doesn't support casting from floating point types, or long types on
-        // 32 bit targets, directly to small int types. Cast the source to INT first.
-
-        src = gtNewCastNode(src, cast->IsCastUnsigned(), TYP_INT);
+        // On 32 bit targets CodeGen doesn't support casting from LONG
+        // directly to small int types. Cast the source to INT first.
 
         if (cast->HasOverflowCheck())
         {
+            src = gtNewCastNode(src, false, TYP_INT);
+            src->AsCast()->SetCastUnsigned(cast->IsCastUnsigned());
             src->AsCast()->AddOverflowCheck();
+        }
+        else
+        {
+            src = gtNewOperNode(GT_TRUNC, TYP_INT, src);
         }
 
         cast->SetOp(0, src);
         srcType = TYP_INT;
     }
-
-    assert(!varTypeIsFloating(srcType));
+#endif
 
     if ((srcType == TYP_LONG) && ((dstType == TYP_INT) || (dstType == TYP_UINT)))
     {
-        // Look for narrowing casts ([u]long -> [u]int) and try to push them
-        // down into the operand before morphing it.
-        //
-        // It doesn't matter if this is cast is from ulong or long (i.e. if
-        // GTF_CAST_UNSIGNED is set) because the transformation is only applied
-        // to overflow-insensitive narrowing casts, which always silently truncate.
-        //
-        // Note that casts from [u]long to small integer types are handled above.
+        assert(cast->HasOverflowCheck());
 
         // As a special case, look for overflow-sensitive casts of an AND
         // expression, and see if the second operand is a small constant. Since
         // the result of an AND is bound by its smaller operand, it may be
         // possible to prove that the cast won't overflow, which will in turn
         // allow the cast's operand to be transformed.
-        if (cast->HasOverflowCheck() && src->OperIs(GT_AND))
+        if (src->OperIs(GT_AND))
         {
             GenTree* andOp2 = src->AsOp()->GetOp(1);
 
@@ -663,133 +636,16 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
                 cast->RemoveOverflowCheck();
             }
         }
-
-        // Only apply this transformation during global morph,
-        // when neither the cast node nor the oper node may throw an exception
-        // based on the upper 32 bits.
-        // For these operations the lower 32 bits of the result only depends
-        // upon the lower 32 bits of the operands.
-        if (fgGlobalMorph && !cast->HasOverflowCheck())
-        {
-            bool canPushCast = src->OperIs(GT_ADD, GT_SUB, GT_MUL, GT_AND, GT_OR, GT_XOR, GT_NOT, GT_NEG);
-
-            // For long LSH cast to int, there is a discontinuity in behavior
-            // when the shift amount is 32 or larger.
-            //
-            // CAST(INT, LSH(1LL, 31)) == LSH(1, 31)
-            // LSH(CAST(INT, 1LL), CAST(INT, 31)) == LSH(1, 31)
-            //
-            // CAST(INT, LSH(1LL, 32)) == 0
-            // LSH(CAST(INT, 1LL), CAST(INT, 32)) == LSH(1, 32) == LSH(1, 0) == 1
-            //
-            // So some extra validation is needed.
-            //
-            if (src->OperIs(GT_LSH))
-            {
-                GenTree* shiftAmount = src->AsOp()->GetOp(1);
-
-                // Expose constant value for shift, if possible, to maximize the number
-                // of cases we can handle.
-                shiftAmount = gtFoldExpr(shiftAmount);
-                src->AsOp()->SetOp(1, shiftAmount);
-
-                // We may remorph the shift amount tree again later, so clear any morphed flag.
-                INDEBUG(shiftAmount->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;)
-
-                if (shiftAmount->IsIntegralConst())
-                {
-                    const ssize_t shiftAmountValue = shiftAmount->AsIntCon()->GetValue();
-
-                    if ((shiftAmountValue >= 64) || (shiftAmountValue < 0))
-                    {
-                        // Shift amount is large enough or negative so result is undefined.
-                        // Don't try to optimize.
-                        assert(!canPushCast);
-                    }
-                    else if (shiftAmountValue >= 32)
-                    {
-                        // We know that we have a narrowing cast ([u]long -> [u]int)
-                        // and that we are casting to a 32-bit value, which will result in zero.
-                        //
-                        // Check to see if we have any side-effects that we must keep
-                        //
-                        if ((cast->gtFlags & GTF_ALL_EFFECT) == 0)
-                        {
-                            // Result of the shift is zero.
-                            DEBUG_DESTROY_NODE(cast);
-                            return fgMorphTree(gtNewZeroConNode(TYP_INT));
-                        }
-                        else // We do have a side-effect
-                        {
-                            // We could create a GT_COMMA node here to keep the side-effect and return a zero
-                            // Instead we just don't try to optimize this case.
-                            canPushCast = false;
-                        }
-                    }
-                    else
-                    {
-                        // Shift amount is positive and small enough that we can push the cast through.
-                        canPushCast = true;
-                    }
-                }
-                else
-                {
-                    // Shift amount is unknown. We can't optimize this case.
-                    assert(!canPushCast);
-                }
-            }
-
-            if (canPushCast)
-            {
-                DEBUG_DESTROY_NODE(cast);
-
-                // Insert narrowing casts for op1 and op2.
-                src->AsOp()->SetOp(0, gtNewOperNode(GT_TRUNC, TYP_INT, src->AsOp()->GetOp(0)));
-
-                if (!src->OperIs(GT_LSH, GT_NEG, GT_NOT))
-                {
-                    src->AsOp()->SetOp(1, gtNewOperNode(GT_TRUNC, TYP_INT, src->AsOp()->GetOp(1)));
-                }
-
-#ifndef TARGET_64BIT
-                if (src->OperIs(GT_MUL))
-                {
-                    GenTreeCast* op1 = src->AsOp()->GetOp(0)->IsCast();
-                    GenTreeCast* op2 = src->AsOp()->GetOp(1)->IsCast();
-
-                    if (op1 != nullptr)
-                    {
-                        op1->ClearDoNotCSE();
-                    }
-
-                    if (op2 != nullptr)
-                    {
-                        op1->ClearDoNotCSE();
-                    }
-                }
-#endif
-
-                // The operation now produces a 32-bit result.
-                src->SetType(TYP_INT);
-
-                // Remorph the new tree as the casts that we added may be folded away.
-                return fgMorphTree(src);
-            }
-        }
     }
 
     src = fgMorphTree(src);
     cast->SetOp(0, src);
+    cast->SetSideEffects(src->GetSideEffects());
 
-    cast->gtFlags &= ~GTF_CALL;
-    cast->gtFlags &= ~GTF_ASG;
-
-    if (!cast->HasOverflowCheck())
+    if (cast->HasOverflowCheck())
     {
-        cast->gtFlags &= ~GTF_EXCEPT;
+        cast->AddSideEffects(GTF_EXCEPT);
     }
-
-    cast->gtFlags |= (src->gtFlags & GTF_ALL_EFFECT);
 
     return fgMorphCastPost(cast);
 }
@@ -802,35 +658,36 @@ GenTree* Compiler::fgMorphCastPost(GenTreeCast* cast)
 
     assert(varTypeIsIntegral(srcType) && varTypeIsIntegral(dstType));
 
-    if (true)
+    if (src->OperIs(GT_LCL_LOAD) && varTypeIsSmall(dstType))
     {
-        if (src->OperIs(GT_LCL_LOAD) && varTypeIsSmall(dstType))
+        LclVarDsc* lcl = src->AsLclLoad()->GetLcl();
+
+        if ((lcl->GetType() == dstType) && lcl->lvNormalizeOnStore())
         {
-            LclVarDsc* lcl = src->AsLclLoad()->GetLcl();
+            assert(src->TypeIs(TYP_INT, dstType));
 
-            if ((lcl->GetType() == dstType) && lcl->lvNormalizeOnStore())
-            {
-                assert(src->TypeIs(TYP_INT, dstType));
-
-                goto REMOVE_CAST;
-            }
+            goto REMOVE_CAST;
         }
+    }
 
-        if (cast->IsCastUnsigned() && !varTypeIsUnsigned(srcType))
+    if (cast->IsCastUnsigned() && !varTypeIsUnsigned(srcType))
+    {
+        if (varTypeIsSmall(srcType))
         {
-            if (varTypeIsSmall(srcType))
-            {
-                // Small signed values are automatically sign extended to TYP_INT. If the cast is interpreting the
-                // resulting TYP_INT value as unsigned then the "sign" bits end up being "value" bits and srcType
-                // must be TYP_UINT, not the original small signed type. Otherwise "conv.ovf.i2.un(i1(-1))" is
-                // wrongly treated as a widening conversion from i1 to i2 when in fact it is a narrowing conversion
-                // from u4 to i2.
-                srcType = varActualType(srcType);
-            }
-
+            // Small signed values are automatically sign extended to TYP_INT. If the cast is interpreting the
+            // resulting TYP_INT value as unsigned then the "sign" bits end up being "value" bits and srcType
+            // must be TYP_UINT, not the original small signed type. Otherwise "conv.ovf.i2.un(i1(-1))" is
+            // wrongly treated as a widening conversion from i1 to i2 when in fact it is a narrowing conversion
+            // from u4 to i2.
+            srcType = TYP_UINT;
+        }
+        else
+        {
             srcType = varTypeToUnsigned(srcType);
         }
+    }
 
+    {
         bool     unsignedSrc = varTypeIsUnsigned(srcType);
         bool     unsignedDst = varTypeIsUnsigned(dstType);
         unsigned srcSize     = varTypeSize(srcType);

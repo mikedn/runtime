@@ -934,7 +934,17 @@ private:
                     // `(short)intLocal`, except that generics code can't do such casts and sometimes uses
                     // `Unsafe.As` as a substitute.
 
-                    load->ChangeToCast(loadType, NewLclLoad(lclType, lcl));
+                    if ((loadType == TYP_INT) && (lclType == TYP_LONG))
+                    {
+                        load->ChangeOper(GT_TRUNC);
+                        load->gtFlags = GTF_NONE;
+                        load->AsUnOp()->SetOp(0, NewLclLoad(lclType, lcl));
+                    }
+                    else
+                    {
+                        load->ChangeToCast(loadType, NewLclLoad(lclType, lcl));
+                    }
+
                     INDEBUG(m_stmtModified = true);
 
                     return;

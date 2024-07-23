@@ -163,7 +163,11 @@ GenTree* Importer::impPopStackCoerceArg(var_types signatureType)
 
     if (signatureType != stackType)
     {
-        if ((varTypeIsFloating(signatureType) && varTypeIsFloating(stackType))
+        if ((signatureType == TYP_INT) && (stackType == TYP_LONG))
+        {
+            tree = gtNewOperNode(GT_TRUNC, TYP_INT, tree);
+        }
+        else if ((varTypeIsFloating(signatureType) && varTypeIsFloating(stackType))
 #ifdef TARGET_64BIT
             // TODO-MIKE-Review: This should only be done when the stack type is 'native int'
             // but we don't track this exact type so we have to do it whenever the stack type
@@ -633,7 +637,10 @@ GenTree* Importer::CoerceCallArg(var_types paramType, GenTree* arg)
         case TYP_INT:
             // We allow implicit int64 to int32 truncation that ECMA does not allow,
             // JIT's type system doesn't distinguish between "native int" and int64.
-            castType = (argType == TYP_LONG) ? paramType : TYP_UNDEF;
+            if (argType == TYP_LONG)
+            {
+                return gtNewOperNode(GT_TRUNC, TYP_INT, arg);
+            }
             break;
 
         case TYP_LONG:
@@ -645,19 +652,18 @@ GenTree* Importer::CoerceCallArg(var_types paramType, GenTree* arg)
                 // is native uint, the spec requires zero extension but we do sign extension.
                 // Probably it doesn't really matter, at least the C# compiler has the habit
                 // of inserting its own casts.
-                castType = paramType;
-                break;
+                return gtNewOperNode(GT_SXT, TYP_LONG, arg);
             }
 
             // We allow BYREF to LONG conversion that ECMA does not allow but that
             // appears in real code (e.g. passing a ldloca/ldarga value as native int).
-            castType = (argType == TYP_BYREF) ? argType : TYP_UNDEF;
+            castType = argType == TYP_BYREF ? TYP_BYREF : TYP_UNDEF;
             break;
 #else
         case TYP_INT:
             // We allow BYREF to INT conversion that ECMA does not allow but that
             // appears in real code (e.g. passing a ldloca/ldarga value as native int).
-            castType = argType == TYP_BYREF ? argType : TYP_UNDEF;
+            castType = argType == TYP_BYREF ? TYP_BYREF : TYP_UNDEF;
             break;
 #endif
 
@@ -2106,10 +2112,14 @@ GenTree* Importer::impImplicitIorI4Cast(GenTree* tree, var_types dstTyp)
 #ifdef TARGET_64BIT
         else if (varTypeIsI(wantedType) && (currType == TYP_INT))
         {
-            // Note that this allows TYP_INT to be cast to a TYP_I_IMPL when wantedType is a TYP_BYREF or TYP_REF
+            // Note that this allows TYP_INT to be cast to TYP_LONG when wantedType is a TYP_BYREF or TYP_REF
             tree = gtNewOperNode(GT_SXT, TYP_LONG, tree);
         }
-        else if ((wantedType == TYP_INT) && varTypeIsI(currType))
+        else if ((wantedType == TYP_INT) && (currType == TYP_LONG))
+        {
+            tree = gtNewOperNode(GT_TRUNC, TYP_INT, tree);
+        }
+        else if ((wantedType == TYP_INT) && varTypeIsGC(currType))
         {
             // Note that this allows TYP_BYREF or TYP_REF to be cast to a TYP_INT
             tree = gtNewCastNode(tree, false, TYP_INT);
@@ -4734,6 +4744,10 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
                 else if ((srcTyp == TYP_DOUBLE) && (dstTyp == TYP_FLOAT))
                 {
                     value = gtNewOperNode(GT_FTRUNC, TYP_FLOAT, value);
+                }
+                else if ((srcTyp == TYP_LONG) && (dstTyp == TYP_INT))
+                {
+                    value = gtNewOperNode(GT_TRUNC, TYP_INT, value);
                 }
                 else
                 {
