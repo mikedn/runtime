@@ -10437,15 +10437,16 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     {
                         if (varTypeIsSmall(lclTyp))
                         {
-                            op1 = gtNewCastNode(op1, uns, TYP_INT);
-                            op1->AsCast()->AddOverflowCheck();
+                            op1 = gtNewOperNode(GT_OVF_FTOS, TYP_INT, op1);
+                            op1->AddSideEffects(GTF_EXCEPT);
                             op1 = gtNewCastNode(op1, false, lclTyp);
                             op1->AsCast()->AddOverflowCheck();
                         }
                         else
                         {
-                            op1 = gtNewCastNode(op1, uns, lclTyp);
-                            op1->AsCast()->AddOverflowCheck();
+                            op1 = gtNewOperNode(varTypeIsUnsigned(lclTyp) ? GT_OVF_FTOU : GT_OVF_FTOS,
+                                                varTypeNodeType(lclTyp), op1);
+                            op1->AddSideEffects(GTF_EXCEPT);
                         }
                     }
                     else if ((fromType == TYP_LONG) && varTypeIsInt(lclTyp) && !ovfl)

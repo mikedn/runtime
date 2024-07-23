@@ -2282,6 +2282,22 @@ void Compiler::gtSetCosts(GenTree* tree)
 #endif
                     break;
 
+                case GT_OVF_FTOS:
+                case GT_OVF_FTOU:
+#if defined(TARGET_ARM)
+                    costEx = 9;
+                    costSz = 10;
+#elif defined(TARGET_ARM64)
+                    costEx = 8;
+                    costSz = 10;
+#elif defined(TARGET_XARCH)
+                    costEx = IND_COST_EX * 2 + 6;
+                    costSz = 12;
+#else
+#error "Unknown TARGET"
+#endif
+                    break;
+
                 case GT_SXT:
                 case GT_UXT:
 #if defined(TARGET_ARM)
@@ -5583,6 +5599,8 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_UTOF:
         case GT_FTOS:
         case GT_FTOU:
+        case GT_OVF_FTOS:
+        case GT_OVF_FTOU:
         case GT_TRUNC:
         case GT_COPY:
         case GT_RELOAD:
@@ -9855,14 +9873,11 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                         }
                         break;
 
-                    case GT_CAST:
-                        assert(tree->AsCast()->HasOverflowCheck() && tree->TypeIs(TYP_INT, TYP_LONG));
-                        assert(tree->GetType() == varCastType(tree->AsCast()->GetCastType()));
-
+                    case GT_OVF_FTOS:
+                    case GT_FTOS:
                         if (op1->TypeIs(TYP_FLOAT)
-                                ? CheckedOps::CastFromFloatOverflows(forceCastToFloat(d1),
-                                                                     tree->AsCast()->GetCastType())
-                                : CheckedOps::CastFromDoubleOverflows(d1, tree->AsCast()->GetCastType()))
+                                ? CheckedOps::CastFromFloatOverflows(forceCastToFloat(d1), tree->GetType())
+                                : CheckedOps::CastFromDoubleOverflows(d1, tree->GetType()))
                         {
                             // The conversion overflows. The ECMA spec says, in III 3.27, that
                             // "...if overflow occurs converting a floating point type to an integer, ...,
@@ -9878,26 +9893,6 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                             break;
                         }
 
-                        switch (tree->AsCast()->GetCastType())
-                        {
-                            case TYP_INT:
-                                i = static_cast<int32_t>(d1);
-                                goto CNS_INT;
-                            case TYP_UINT:
-                                i = forceCastToUInt32(d1);
-                                goto CNS_INT;
-                            case TYP_LONG:
-                                l = static_cast<int64_t>(d1);
-                                goto CNS_LONG;
-                            case TYP_ULONG:
-                                l = FloatingPointUtils::convertDoubleToUInt64(d1);
-                                goto CNS_LONG;
-                            default:
-                                break;
-                        }
-                        break;
-
-                    case GT_FTOS:
                         if (tree->TypeIs(TYP_INT))
                         {
                             i = static_cast<int32_t>(d1);
@@ -9911,6 +9906,14 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                         }
 
                     case GT_FTOU:
+                        if (op1->TypeIs(TYP_FLOAT)
+                                ? CheckedOps::CastFromFloatOverflows(forceCastToFloat(d1),
+                                                                     varTypeToUnsigned(tree->GetType()))
+                                : CheckedOps::CastFromDoubleOverflows(d1, varTypeToUnsigned(tree->GetType())))
+                        {
+                            break;
+                        }
+
                         if (tree->TypeIs(TYP_INT))
                         {
                             i = forceCastToUInt32(d1);
