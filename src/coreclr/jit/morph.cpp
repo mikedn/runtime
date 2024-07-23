@@ -329,6 +329,55 @@ GenTree* Compiler::fgMorphFloatToInt(GenTreeUnOp* cast)
     return cast;
 }
 
+GenTree* Compiler::fgMorphOverflowFloatToInt(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_OVF_FTOS, GT_OVF_FTOU) && cast->TypeIs(TYP_INT, TYP_LONG));
+
+    GenTree*  src     = cast->GetOp(0);
+    var_types dstType = cast->GetType();
+
+    if (src->IsDblCon())
+    {
+        GenTree* folded = gtFoldExprConst(cast); // This may not fold the constant (NaN ...)
+
+        if (folded != cast)
+        {
+            return fgMorphTree(folded);
+        }
+
+        if (folded->IsNumericConst())
+        {
+            return folded;
+        }
+
+        noway_assert(cast->OperIs(GT_OVF_FTOS, GT_OVF_FTOU) && (cast->GetOp(0) == src));
+    }
+
+    if (src->TypeIs(TYP_FLOAT))
+    {
+        // All floating point cast helpers work only with DOUBLE.
+        src = gtNewOperNode(GT_FXT, TYP_DOUBLE, src);
+    }
+
+    CorInfoHelpFunc helper;
+
+    if (cast->OperIs(GT_OVF_FTOS))
+    {
+        helper = dstType == TYP_INT ? CORINFO_HELP_DBL2INT_OVF : CORINFO_HELP_DBL2LNG_OVF;
+    }
+    else
+    {
+        assert(cast->OperIs(GT_OVF_FTOU));
+
+        helper = dstType == TYP_INT ? CORINFO_HELP_DBL2UINT_OVF : CORINFO_HELP_DBL2ULNG_OVF;
+    }
+
+    GenTree* call = new (this, GT_CALL) GenTreeOp(cast->GetOper(), dstType, src, nullptr DEBUGARG(/*largeNode*/ true));
+    call->AddSideEffects(GTF_EXCEPT);
+    INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+    return fgMorphIntoHelperCall(call, helper, gtNewCallArgs(src));
+}
+
 GenTree* Compiler::fgMorphTruncate(GenTreeUnOp* cast)
 {
     assert(cast->OperIs(GT_TRUNC) && cast->TypeIs(TYP_INT) && cast->GetOp(0)->TypeIs(TYP_LONG));
@@ -573,51 +622,9 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         srcType = TYP_INT;
     }
 
-    if (varTypeIsFloating(srcType))
-    {
-        if (cast->HasOverflowCheck())
-        {
-            switch (dstType)
-            {
-                case TYP_INT:
-                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2INT_OVF);
-                case TYP_UINT:
-                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2UINT_OVF);
-                case TYP_LONG:
-                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2LNG_OVF);
-                case TYP_ULONG:
-                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2ULNG_OVF);
-                default:
-                    unreached();
-            }
-        }
-        else
-        {
-            switch (dstType)
-            {
-                case TYP_INT:
-                    break;
-                case TYP_UINT:
-#if !defined(TARGET_ARM64) && !defined(TARGET_ARM) && !defined(TARGET_AMD64)
-                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2UINT);
-#endif
-                    break;
-                case TYP_LONG:
-#if !defined(TARGET_ARM64) && !defined(TARGET_AMD64)
-                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2LNG);
-#endif
-                    break;
-                case TYP_ULONG:
-#if !defined(TARGET_ARM64)
-                    return fgMorphCastIntoHelper(cast, CORINFO_HELP_DBL2ULNG);
-#endif
-                    break;
-                default:
-                    unreached();
-            }
-        }
-    }
-    else if ((srcType == TYP_LONG) && ((dstType == TYP_INT) || (dstType == TYP_UINT)))
+    assert(!varTypeIsFloating(srcType));
+
+    if ((srcType == TYP_LONG) && ((dstType == TYP_INT) || (dstType == TYP_UINT)))
     {
         // Look for narrowing casts ([u]long -> [u]int) and try to push them
         // down into the operand before morphing it.
@@ -10334,6 +10341,10 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         case GT_FTOS:
         case GT_FTOU:
             return fgMorphFloatToInt(tree->AsUnOp());
+
+        case GT_OVF_FTOS:
+        case GT_OVF_FTOU:
+            return fgMorphOverflowFloatToInt(tree->AsUnOp());
 
         case GT_MUL:
         case GT_OVF_SMUL:
