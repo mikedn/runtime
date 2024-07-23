@@ -1829,22 +1829,25 @@ private:
 
         if (fromType != toType)
         {
-            // LONG/INT cannot be removed but we can remove overflow checking.
-            // We can also change sign extending casts to zero extending casts, on X86/64 they
-            // are preferable due to having smaller encoding and sometimes better performance.
-            cast->SetCastType(toType, false);
-            cast->RemoveOverflowCheck();
+            if ((fromType == TYP_LONG) && (toType == TYP_INT))
+            {
+                cast->SetOper(GT_TRUNC);
+                cast->SetSideEffects(op1->GetSideEffects());
+            }
+            else
+            {
+                assert((fromType == TYP_INT) && (toType == TYP_LONG));
 
 #ifdef TARGET_AMD64
-            // TODO-MIKE-CQ: For now do this only on x64. It's also useful on 32 bit
-            // targets but it sometimes interferes with LMUL helper call elimination.
-            // On ARM64 it seems to be useless and it interferes with smull generation.
-
-            if (toType == TYP_LONG)
-            {
-                cast->SetCastUnsigned();
-            }
+                // TODO-MIKE-CQ: For now do this only on x64. It's also useful on 32 bit
+                // targets but it sometimes interferes with LMUL helper call elimination.
+                // On ARM64 it seems to be useless and it interferes with smull generation.
+                cast->SetOper(GT_UXT);
+#else
+                cast->SetOper(GT_SXT);
 #endif
+                cast->SetSideEffects(op1->GetSideEffects());
+            }
 
             op1 = cast;
         }
