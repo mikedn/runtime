@@ -838,9 +838,9 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
         return cmp;
     }
 
-    if (op1->IsCast() && !op1->AsCast()->HasOverflowCheck() && op1->TypeIs(TYP_UBYTE) && FitsIn<uint8_t>(op2Value))
+    if (op1->OperIs(GT_CONV) && op1->TypeIs(TYP_UBYTE) && FitsIn<uint8_t>(op2Value))
     {
-        GenTreeCast* cast   = op1->AsCast();
+        GenTreeUnOp* cast   = op1->AsUnOp();
         GenTree*     castOp = cast->GetOp(0);
 
         // Since we're going to remove the cast we need to be able to narrow the cast operand
@@ -2545,10 +2545,10 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
         LIR::Use use;
         if (BlockRange().TryGetUse(node, &use))
         {
-            GenTreeCast* cast = comp->gtNewCastNode(node, false, eltType);
-            BlockRange().InsertAfter(node, cast);
-            use.ReplaceWith(comp, cast);
-            LowerNode(cast);
+            GenTreeUnOp* conv = comp->gtNewOperNode(GT_CONV, eltType, node);
+            BlockRange().InsertAfter(node, conv);
+            use.ReplaceWith(comp, conv);
+            LowerNode(conv);
         }
     }
 }
@@ -3709,6 +3709,43 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
         }
 
         src->SetContained();
+    }
+    else
+    {
+        src->SetRegOptional();
+    }
+}
+
+void Lowering::ContainCheckOverflowConv(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmallInt(cast->GetType()));
+
+    GenTree* src = cast->GetOp(0);
+
+    if (IsContainableMemoryOp(src) && IsSafeToContainMem(cast, src))
+    {
+        src->SetContained();
+    }
+    else
+    {
+        src->SetRegOptional();
+    }
+}
+
+void Lowering::ContainCheckConv(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_CONV) && varTypeIsSmall(cast->GetType()));
+    assert(varTypeIsIntOrI(varActualType(cast->GetOp(0)->GetType())));
+
+    GenTree* src = cast->GetOp(0);
+
+    if (IsContainableMemoryOp(src))
+    {
+        if (cast->gtPrev != src)
+        {
+            BlockRange().Remove(cast);
+            BlockRange().InsertAfter(src, cast);
+        }
     }
     else
     {

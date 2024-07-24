@@ -2517,6 +2517,133 @@ void CodeGen::GenCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& desc
     }
 }
 
+void CodeGen::GenConv(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_CONV) && varTypeIsSmall(cast->GetType()));
+
+    var_types     type   = cast->GetType();
+    RegNum        dstReg = cast->GetRegNum();
+    GenTree*      src    = cast->GetOp(0);
+    StackAddrMode s;
+
+    genConsumeRegs(src);
+
+    if (src->isUsedFromReg())
+    {
+        GetEmitter()->emitIns_Mov(ins_Conv(type), EA_4BYTE, dstReg, src->GetRegNum(), /*canSkip*/ false);
+    }
+    else if (IsLocalMemoryOperand(src, &s))
+    {
+        GetEmitter()->Ins_R_S(ins_Load(type), EA_4BYTE, dstReg, s);
+    }
+    else
+    {
+        unreached();
+    }
+
+    DefReg(cast);
+}
+
+void CodeGen::GenOverflowConv(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmallInt(cast->GetType()));
+
+    GenTree* src = cast->GetOp(0);
+    RegNum   srcReg;
+    RegNum   dstReg = cast->GetRegNum();
+    emitAttr size   = emitActualTypeSize(src->GetType());
+
+    if (src->isUsedFromMemory())
+    {
+        genConsumeRegs(src);
+
+        instruction   ins = ins_Load(src->GetType());
+        StackAddrMode s;
+
+        // Note that we load directly into the destination register, this avoids the
+        // need for a temporary register but assumes that enregistered variables are
+        // not live in exception handlers. This works with EHWriteThru because the
+        // register will be written only in DefReg, after the overflow check is done.
+
+        if (IsLocalMemoryOperand(src, &s))
+        {
+            GetEmitter()->Ins_R_S(ins, size, dstReg, s);
+        }
+        else
+        {
+            emitInsLoad(ins, size, dstReg, src->AsIndLoad());
+        }
+
+        srcReg = dstReg;
+    }
+    else
+    {
+        srcReg = UseReg(src);
+    }
+
+    int minValue;
+    int maxValue;
+
+    switch (cast->GetType())
+    {
+        case TYP_UBYTE:
+            minValue = 0;
+            maxValue = UINT8_MAX;
+            break;
+        case TYP_BYTE:
+            minValue = cast->OperIs(GT_OVF_UCONV) ? 0 : INT8_MIN;
+            maxValue = INT8_MAX;
+            break;
+        case TYP_USHORT:
+            minValue = 0;
+            maxValue = UINT16_MAX;
+            break;
+        case TYP_SHORT:
+            minValue = cast->OperIs(GT_OVF_UCONV) ? 0 : INT16_MIN;
+            maxValue = INT16_MAX;
+            break;
+        default:
+            unreached();
+    }
+
+#ifdef TARGET_ARM64
+    if (minValue != 0)
+    {
+        GetEmitter()->emitIns_R_R_I(INS_cmp, size, srcReg, srcReg, 0, minValue == -128 ? INS_OPTS_SXTB : INS_OPTS_SXTH);
+        genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
+    }
+    else
+#endif
+    {
+        if (maxValue > 255)
+        {
+            assert((maxValue == 32767) || (maxValue == 65535));
+
+            // Values greater than 255 cannot be encoded in the immediate operand of CMP.
+            // Replace (x > max) with (x >= max + 1) where max + 1 (a power of 2) can be
+            // encoded. We could do this for all max values but on ARM32 "cmp r0, 255"
+            // is better than "cmp r0, 256" because it has a shorter encoding.
+            GetEmitter()->emitIns_R_I(INS_cmp, size, srcReg, maxValue + 1);
+            genJumpToThrowHlpBlk(minValue == 0 ? EJ_hs : EJ_ge, ThrowHelperKind::Overflow);
+        }
+        else
+        {
+            GetEmitter()->emitIns_R_I(INS_cmp, size, srcReg, maxValue);
+            genJumpToThrowHlpBlk(minValue == 0 ? EJ_hi : EJ_gt, ThrowHelperKind::Overflow);
+        }
+
+        if (minValue != 0)
+        {
+            GetEmitter()->emitIns_R_I(INS_cmp, size, srcReg, minValue);
+            genJumpToThrowHlpBlk(EJ_lt, ThrowHelperKind::Overflow);
+        }
+    }
+
+    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, /*canSkip*/ true);
+
+    DefReg(cast);
+}
+
 void CodeGen::GenCastIntToInt(GenTreeCast* cast)
 {
     GenTree* src = cast->GetOp(0);
@@ -2860,6 +2987,19 @@ instruction CodeGen::ins_Copy(regNumber srcReg, var_types dstType)
         return INS_vmov_f2i;
     }
 #endif
+}
+
+instruction CodeGen::ins_Conv(var_types dstType)
+{
+    assert(varTypeIsSmall(dstType));
+
+    if (varTypeIsByte(dstType))
+    {
+        return varTypeIsUnsigned(dstType) ? INS_uxtb : INS_sxtb;
+    }
+
+    assert(varTypeIsShort(dstType));
+    return varTypeIsUnsigned(dstType) ? INS_uxth : INS_sxth;
 }
 
 instruction CodeGen::ins_Load(var_types srcType, bool aligned)

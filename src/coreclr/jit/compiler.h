@@ -3010,8 +3010,6 @@ public:
 
     GenTree* gtUnusedValNode(GenTree* expr);
 
-    GenTreeCast* gtNewCastNode(GenTree* op1, bool fromUnsigned, var_types toType);
-
     GenTree* gtNewRuntimeLookup(CORINFO_GENERIC_HANDLE hnd, CorInfoGenericHandleType hndTyp, GenTree* lookupTree);
 
     GenTreeIndir* gtNewMethodTableLookup(GenTree* obj);
@@ -4505,6 +4503,8 @@ private:
     GenTree* fgMorphFloatToInt(GenTreeUnOp* cast);
     GenTree* fgMorphOverflowFloatToInt(GenTreeUnOp* cast);
     GenTree* fgMorphTruncate(GenTreeUnOp* cast);
+    GenTree* fgMorphConv(GenTreeUnOp* cast);
+    GenTree* fgMorphConvPost(GenTreeUnOp* cast);
     GenTree* fgMorphCast(GenTreeCast* cast);
     GenTree* fgMorphCastPost(GenTreeCast* cast);
     void fgInitArgInfo(GenTreeCall* call);
@@ -5143,6 +5143,7 @@ private:
     GenTree* morphAssertionPropagateLclLoadFld(GenTreeLclLoadFld* load);
     GenTree* morphAssertionPropagateIndir(GenTreeIndir* indir);
     GenTree* morphAssertionPropagateCast(GenTreeCast* cast);
+    GenTree* morphAssertionPropagateConv(GenTreeUnOp* cast);
     GenTree* morphAssertionPropagateCall(GenTreeCall* call);
     GenTree* morphAssertionPropagateRelOp(GenTreeOp* relop);
     GenTree* morphAssertionPropagateLclLoadConst(const MorphAssertion& assertion, GenTreeLclLoad* load);
@@ -6598,6 +6599,9 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_RELOAD:
         case GT_ARR_LENGTH:
         case GT_CAST:
+        case GT_CONV:
+        case GT_OVF_SCONV:
+        case GT_OVF_UCONV:
         case GT_BITCAST:
         case GT_EXTRACT:
         case GT_CKFINITE:
@@ -6998,6 +7002,9 @@ public:
             case GT_RELOAD:
             case GT_ARR_LENGTH:
             case GT_CAST:
+            case GT_CONV:
+            case GT_OVF_SCONV:
+            case GT_OVF_UCONV:
             case GT_BITCAST:
             case GT_EXTRACT:
             case GT_CKFINITE:

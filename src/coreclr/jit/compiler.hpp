@@ -653,11 +653,6 @@ inline GenTree* Compiler::gtUnusedValNode(GenTree* expr)
     return gtNewCommaNode(expr, gtNewNothingNode());
 }
 
-inline GenTreeCast* Compiler::gtNewCastNode(GenTree* op1, bool fromUnsigned, var_types toType)
-{
-    return new (this, GT_CAST) GenTreeCast(toType, op1, fromUnsigned);
-}
-
 inline GenTreeIndir* Compiler::gtNewMethodTableLookup(GenTree* object)
 {
     GenTreeIndir* result = gtNewIndLoad(TYP_I_IMPL, object);

@@ -1551,6 +1551,10 @@ private:
     void BuildCall(GenTreeCall* call);
     void BuildBoundsChk(GenTreeBoundsChk* node);
     void BuildCast(GenTreeCast* cast);
+    void BuildConv(GenTreeUnOp* cast);
+#ifdef TARGET_ARMARCH
+    void BuildOverflowConv(GenTreeUnOp* cast);
+#endif
 #ifdef TARGET_ARM64
     void BuildIntExtend(GenTreeUnOp* node);
 #endif

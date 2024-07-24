@@ -2226,6 +2226,7 @@ void Compiler::gtSetCosts(GenTree* tree)
                     break;
 
                 case GT_TRUNC:
+                case GT_CONV:
 #if defined(TARGET_ARM)
                     costEx = 1;
                     costSz = 1;
@@ -2235,6 +2236,23 @@ void Compiler::gtSetCosts(GenTree* tree)
 #elif defined(TARGET_XARCH)
                     costEx = 1;
                     costSz = 2;
+#else
+#error "Unknown TARGET"
+#endif
+                    break;
+
+                case GT_OVF_SCONV:
+                case GT_OVF_UCONV:
+                    assert(varTypeIsSmall(tree->GetType()) && varTypeIsIntegral(op1->GetType()));
+#if defined(TARGET_ARM)
+                    costEx = 7;
+                    costSz = 7;
+#elif defined(TARGET_ARM64)
+                    costEx = 7;
+                    costSz = 8;
+#elif defined(TARGET_XARCH)
+                    costEx = 7;
+                    costSz = 8;
 #else
 #error "Unknown TARGET"
 #endif
@@ -5367,6 +5385,10 @@ bool GenTree::OperMayThrow(Compiler* comp) const
         case GT_CAST:
             return AsCast()->HasOverflowCheck();
 
+        case GT_OVF_SCONV:
+        case GT_OVF_UCONV:
+        case GT_OVF_FTOS:
+        case GT_OVF_FTOU:
         case GT_OVF_SADD:
         case GT_OVF_UADD:
         case GT_OVF_SSUB:
@@ -5606,6 +5628,9 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_RELOAD:
         case GT_ARR_LENGTH:
         case GT_CAST:
+        case GT_CONV:
+        case GT_OVF_SCONV:
+        case GT_OVF_UCONV:
         case GT_BITCAST:
         case GT_EXTRACT:
         case GT_CKFINITE:
@@ -9650,6 +9675,49 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                         }
                         break;
 
+                    case GT_CONV:
+                        assert(varTypeIsSmall(tree->GetType()));
+
+                        switch (tree->GetType())
+                        {
+                            case TYP_BYTE:
+                                i = static_cast<int8_t>(i1);
+                                goto CNS_INT;
+                            case TYP_BOOL:
+                            case TYP_UBYTE:
+                                i = static_cast<uint8_t>(i1);
+                                goto CNS_INT;
+                            case TYP_SHORT:
+                                i = static_cast<int16_t>(i1);
+                                goto CNS_INT;
+                            case TYP_USHORT:
+                                i = static_cast<uint16_t>(i1);
+                                goto CNS_INT;
+                            default:
+                                break;
+                        }
+                        break;
+
+                    case GT_OVF_SCONV:
+                        assert(varTypeIsSmall(tree->GetType()));
+
+                        if (CheckedOps::CastFromIntOverflows(i1, tree->GetType(), false))
+                        {
+                            goto INTEGRAL_OVF;
+                        }
+                        i = i1;
+                        goto CNS_INT;
+
+                    case GT_OVF_UCONV:
+                        assert(varTypeIsSmall(tree->GetType()));
+
+                        if (CheckedOps::CastFromIntOverflows(i1, tree->GetType(), true))
+                        {
+                            goto INTEGRAL_OVF;
+                        }
+                        i = i1;
+                        goto CNS_INT;
+
                     case GT_CAST:
                         assert(tree->GetType() == varCastType(tree->AsCast()->GetCastType()));
 
@@ -9662,18 +9730,6 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
                         switch (tree->GetType())
                         {
-                            case TYP_BYTE:
-                                i = static_cast<int8_t>(i1);
-                                goto CNS_INT;
-                            case TYP_UBYTE:
-                                i = static_cast<uint8_t>(i1);
-                                goto CNS_INT;
-                            case TYP_SHORT:
-                                i = static_cast<int16_t>(i1);
-                                goto CNS_INT;
-                            case TYP_USHORT:
-                                i = static_cast<uint16_t>(i1);
-                                goto CNS_INT;
                             case TYP_INT:
                                 i = i1;
                                 goto CNS_INT;
@@ -9764,6 +9820,51 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                         }
                         break;
 
+                    case GT_CONV:
+                        assert(varTypeIsSmall(tree->GetType()));
+
+                        switch (tree->GetType())
+                        {
+                            case TYP_BYTE:
+                                i = static_cast<int8_t>(l1);
+                                goto CNS_INT;
+                            case TYP_BOOL:
+                            case TYP_UBYTE:
+                                i = static_cast<uint8_t>(l1);
+                                goto CNS_INT;
+                            case TYP_SHORT:
+                                i = static_cast<int16_t>(l1);
+                                goto CNS_INT;
+                            case TYP_USHORT:
+                                i = static_cast<uint16_t>(l1);
+                                goto CNS_INT;
+                            default:
+                                break;
+                        }
+                        break;
+
+                    case GT_OVF_SCONV:
+                        assert(varTypeIsSmall(tree->GetType()));
+
+                        if (CheckedOps::CastFromLongOverflows(l1, tree->GetType(), false))
+                        {
+                            goto INTEGRAL_OVF;
+                        }
+
+                        i = static_cast<int32_t>(l1);
+                        goto CNS_INT;
+
+                    case GT_OVF_UCONV:
+                        assert(varTypeIsSmall(tree->GetType()));
+
+                        if (CheckedOps::CastFromLongOverflows(l1, tree->GetType(), true))
+                        {
+                            goto INTEGRAL_OVF;
+                        }
+
+                        i = static_cast<int32_t>(l1);
+                        goto CNS_INT;
+
                     case GT_CAST:
                         assert(tree->GetType() == varCastType(tree->AsCast()->GetCastType()));
 
@@ -9776,18 +9877,6 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
                         switch (tree->GetType())
                         {
-                            case TYP_BYTE:
-                                i = static_cast<int8_t>(l1);
-                                goto CNS_INT;
-                            case TYP_UBYTE:
-                                i = static_cast<uint8_t>(l1);
-                                goto CNS_INT;
-                            case TYP_SHORT:
-                                i = static_cast<int16_t>(l1);
-                                goto CNS_INT;
-                            case TYP_USHORT:
-                                i = static_cast<uint16_t>(l1);
-                                goto CNS_INT;
                             case TYP_INT:
                                 i = static_cast<int32_t>(l1);
                                 goto CNS_INT;
@@ -10557,7 +10646,8 @@ CNS_DOUBLE:
     return tree;
 
 INTEGRAL_OVF:
-    assert((tree->IsCast() && tree->AsCast()->HasOverflowCheck()) || tree->IsOverflowOp());
+    assert((tree->IsCast() && tree->AsCast()->HasOverflowCheck()) || tree->OperIs(GT_OVF_SCONV, GT_OVF_UCONV) ||
+           tree->IsOverflowOp());
     assert(varTypeIsIntegral(tree->GetType()));
 
     // This operation is going to cause an overflow exception. Morph into

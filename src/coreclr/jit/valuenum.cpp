@@ -100,6 +100,8 @@ private:
     void NumberCmpXchg(GenTreeCmpXchg* node);
     void NumberInterlocked(GenTreeOp* node);
     void NumberCast(GenTreeCast* cast);
+    void NumberConv(GenTreeUnOp* node);
+    void NumberOvfConv(GenTreeUnOp* node);
     void NumberFloatToInt(GenTreeUnOp* node);
     void NumberIntToFloat(GenTreeUnOp* node);
     void NumberBitCast(GenTreeUnOp* bitcast);
@@ -450,6 +452,9 @@ VNFunc GetVNFuncForNode(GenTree* node)
 #endif
 
         case GT_CAST:
+        case GT_CONV:
+        case GT_OVF_SCONV:
+        case GT_OVF_UCONV:
             // CAST can overflow but it has special handling and it should not appear here.
             unreached();
 
@@ -7178,6 +7183,15 @@ void ValueNumbering::NumberNode(GenTree* node)
             NumberCast(node->AsCast());
             break;
 
+        case GT_CONV:
+            NumberConv(node->AsUnOp());
+            break;
+
+        case GT_OVF_SCONV:
+        case GT_OVF_UCONV:
+            NumberOvfConv(node->AsUnOp());
+            break;
+
         case GT_STOF:
         case GT_UTOF:
             NumberIntToFloat(node->AsUnOp());
@@ -7577,6 +7591,48 @@ void ValueNumbering::NumberCast(GenTreeCast* cast)
             ValueNum ex = vnStore->VNForFunc(TYP_REF, VNF_ConvOverflowExc, vnp.GetConservative(), castTypeVN);
             exset.SetConservative(vnStore->ExsetUnion(exset.GetConservative(), vnStore->ExsetCreate(ex)));
         }
+    }
+
+    cast->SetVNP(vnStore->PackExset(vnp, exset));
+}
+
+void ValueNumbering::NumberConv(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_CONV) && varTypeIsSmall(cast->GetType()));
+
+    var_types fromType   = cast->GetOp(0)->GetType();
+    var_types toType     = cast->GetType();
+    ValueNum  castTypeVN = vnStore->VNForCastOper(toType, false);
+
+    ValueNumPair exset;
+    ValueNumPair vnp = vnStore->UnpackExset(cast->GetOp(0)->GetVNP(), &exset);
+    vnp              = vnStore->VNPairForFunc(toType, VNF_Cast, vnp, {castTypeVN, castTypeVN});
+    cast->SetVNP(vnStore->PackExset(vnp, exset));
+}
+
+void ValueNumbering::NumberOvfConv(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmall(cast->GetType()));
+
+    var_types fromType   = cast->GetOp(0)->GetType();
+    var_types toType     = cast->GetType();
+    ValueNum  castTypeVN = vnStore->VNForCastOper(toType, cast->OperIs(GT_OVF_UCONV));
+
+    ValueNumPair exset;
+    ValueNumPair vnp = vnStore->UnpackExset(cast->GetOp(0)->GetVNP(), &exset);
+    vnp              = vnStore->VNPairForFunc(toType, VNF_CastOvf, vnp, {castTypeVN, castTypeVN});
+
+    // Do not add exceptions for folded casts. We only fold checked casts that do not overflow.
+    if (!vnStore->IsVNConstant(vnp.GetLiberal()))
+    {
+        ValueNum ex = vnStore->VNForFunc(TYP_REF, VNF_ConvOverflowExc, vnp.GetLiberal(), castTypeVN);
+        exset.SetLiberal(vnStore->ExsetUnion(exset.GetLiberal(), vnStore->ExsetCreate(ex)));
+    }
+
+    if (!vnStore->IsVNConstant(vnp.GetConservative()))
+    {
+        ValueNum ex = vnStore->VNForFunc(TYP_REF, VNF_ConvOverflowExc, vnp.GetConservative(), castTypeVN);
+        exset.SetConservative(vnStore->ExsetUnion(exset.GetConservative(), vnStore->ExsetCreate(ex)));
     }
 
     cast->SetVNP(vnStore->PackExset(vnp, exset));

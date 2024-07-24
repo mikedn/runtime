@@ -68,6 +68,7 @@ private:
     void ContainCheckBinary(GenTreeOp* node);
     void ContainCheckBoundsChk(GenTreeBoundsChk* node);
 #ifdef TARGET_XARCH
+    void ContainCheckConv(GenTreeUnOp* node);
     void ContainCheckIntToFloat(GenTreeUnOp* node);
     void ContainCheckFloatToInt(GenTreeUnOp* node);
     void ContainCheckFloatBinary(GenTreeOp* node);
@@ -229,9 +230,11 @@ private:
 
     GenTree* LowerBitCast(GenTreeUnOp* bitcast);
     GenTree* LowerCast(GenTreeCast* cast);
+    GenTree* LowerConv(GenTreeUnOp* cast);
     GenTree* LowerTruncate(GenTreeUnOp* node);
     void LowerIntToFloat(GenTreeUnOp* node);
     void LowerFloatToInt(GenTreeUnOp* node);
+    void ContainCheckOverflowConv(GenTreeUnOp* cast);
 
 #ifdef TARGET_XARCH
     GenTree* LowerFloatConvert(GenTreeUnOp* node);

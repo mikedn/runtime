@@ -188,12 +188,18 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildCast(tree->AsCast());
             break;
 
+        case GT_OVF_SCONV:
+        case GT_OVF_UCONV:
+            BuildOverflowConv(tree->AsUnOp());
+            break;
+
         case GT_SXT:
         case GT_UXT:
             BuildIntExtend(tree->AsUnOp());
             break;
 
         case GT_BITCAST:
+        case GT_CONV:
             if (!tree->AsUnOp()->GetOp(0)->isContained())
             {
                 BuildUse(tree->AsUnOp()->GetOp(0));
