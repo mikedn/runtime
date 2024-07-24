@@ -556,6 +556,26 @@ void Lowering::LowerShiftImmediate(GenTreeOp* shift)
             op1->ClearContained();
         }
 
+        while (op1->OperIs(GT_CONV))
+        {
+            var_types castType = op1->GetType();
+            assert(varTypeIsSmall(castType));
+
+            unsigned producedBits = varTypeBitSize(castType);
+
+            if (consumedBits > producedBits)
+            {
+                break;
+            }
+
+            JITDUMP("Removing CAST [%06u] producing %u bits from LSH [%06u] consuming %u bits\n", op1->GetID(),
+                    producedBits, shift->GetID(), consumedBits);
+
+            BlockRange().Remove(op1);
+            op1 = op1->AsUnOp()->GetOp(0);
+            op1->ClearContained();
+        }
+
         while (GenTreeCast* cast = op1->IsCast())
         {
             if (cast->HasOverflowCheck() || !varTypeIsIntegral(cast->GetOp(0)->GetType()))
@@ -565,10 +585,12 @@ void Lowering::LowerShiftImmediate(GenTreeOp* shift)
 
             var_types castType = cast->GetType();
 
+            assert(!varTypeIsSmall(castType));
+
             // A (U)LONG - (U)LONG cast would normally produce 64 bits but since it
             // has no effect we make it produce 32 bits to keep the check simple.
             // Anyway such a cast should have been removed earlier.
-            unsigned producedBits = varTypeIsSmall(castType) ? varTypeBitSize(castType) : 32;
+            unsigned producedBits = 32;
 
             if (consumedBits > producedBits)
             {
@@ -806,7 +828,125 @@ void Lowering::CombineShiftImmediate(GenTreeInstr* shift)
         }
     }
 
-    if (op1->IsCast() && !op1->AsCast()->HasOverflowCheck() && varTypeIsIntegral(op1->AsCast()->GetOp(0)->GetType()))
+    if (op1->OperIs(GT_CONV))
+    {
+        // Shift instructions do not have an "extending form" like arithmetic instructions but the
+        // same operation can be performed using bitfield insertion/extraction instructions.
+        // For example:
+        //    - SXTB x0, w0 and LSL x0, x0, #12 <=> SBFIZ x0, x0, #12, #8
+        //    - SXTW x0, w0 and ASR x0, x0, #12 <=> SBFX x0, x0, #12, #20
+
+        GenTreeUnOp* cast = op1->AsUnOp();
+
+        assert(varTypeIsSmall(cast->GetType()));
+
+        // Currently the JIT IR doesn't allow direct extension from small int types to LONG.
+        // This code likely works fine with such casts but it cannot be tested.
+
+        // TODO-MIKE-CQ: This also means that a pattern like "(ulong)x_byte << 6"
+        // isn't transformed into "ubfiz x, 6, 8" but in "uxtb x; ubfiz x, 6, 32".
+        // Such casts could be described in IR as CAST nodes having LONG instead
+        // of INT type. This requires auditing all cast handling code in the JIT,
+        // some of it may assume that if the cast type is small int then the CAST
+        // node's type is always INT.
+
+        // TODO-MIKE-CQ: Another potential issue is that zero extending casts could
+        // be folded together with AND(x, mask) but nothing in the JIT seems to be
+        // doing this so code like "(x_byte & 3) << 6" also generates an extra uxtb.
+
+        unsigned bitFieldWidth = varTypeBitSize(cast->GetType());
+        bool     isUnsigned    = varTypeIsUnsigned(cast->GetType());
+
+        unsigned    bitSize = EA_SIZE_IN_BYTES(size) * 8;
+        instruction ins     = INS_none;
+        unsigned    imm     = 0;
+
+        if (shift->GetIns() == INS_lsl)
+        {
+            if (bitFieldWidth + shiftAmount >= bitSize)
+            {
+                // We don't need to insert if all the extension bits produced by the cast are discarded
+                // by the shift (e.g. LSH(CAST.byte, 56)), we'll just generate a LSL in that case.
+
+                ins = INS_lsl;
+                imm = shiftAmount;
+            }
+            else
+            {
+                // LSH(CAST(x), N) = UBFIZ|SBFIZ(x, N, cast type size)
+
+                ins = isUnsigned ? INS_ubfiz : INS_sbfiz;
+                imm = PackBFIImmediate(shiftAmount, bitFieldWidth, bitSize);
+            }
+        }
+        else if (shift->GetIns() == INS_asr)
+        {
+            ins = isUnsigned ? INS_ubfx : INS_sbfx;
+
+            if (shiftAmount >= bitFieldWidth)
+            {
+                // All the bits of the casted value are discarded by the shift. The only thing that's
+                // left are the extension bits that the cast produced. These bits can be obtained by
+                // extracting the sign bit from the casted value.
+
+                imm = PackBFIImmediate(bitFieldWidth - 1, 1, bitSize);
+            }
+            else
+            {
+                // We still have some bits from the casted value that need to be extracted. Extraction
+                // needs the width of the extracted bitfield, which is smaller than the width of the
+                // casted value.
+
+                imm = PackBFIImmediate(shiftAmount, bitFieldWidth - shiftAmount, bitSize);
+            }
+        }
+        else
+        {
+            assert(shift->GetIns() == INS_lsr);
+
+            if (isUnsigned)
+            {
+                if (shiftAmount >= bitFieldWidth)
+                {
+                    // Unlike in the ASR case, if all bits are discarded by the shift we'd get 0. We could try
+                    // to replace the shift with constant 0 but it seems unlikely to be worth the trouble.
+                    // Besides, there's no reason not to do this in morph.
+                }
+                else
+                {
+                    ins = INS_ubfx;
+                    imm = PackBFIImmediate(shiftAmount, bitFieldWidth - shiftAmount, bitSize);
+                }
+            }
+            else
+            {
+                // Sometimes LSR is used to extract the sign bit of a small int value:
+                //   LSR(CAST.short(x), 31) = UBFX(x, 15, 1)
+
+                if (shiftAmount == bitSize - 1)
+                {
+                    ins = INS_ubfx;
+                    imm = PackBFIImmediate(bitFieldWidth - 1, 1, bitSize);
+                }
+            }
+        }
+
+        if (ins != INS_none)
+        {
+            op1 = cast->GetOp(0);
+            op1->ClearContained();
+
+            shift->SetIns(ins, size);
+            shift->SetOp(0, op1);
+            shift->SetImmediate(imm);
+
+            BlockRange().Remove(cast);
+
+            return;
+        }
+    }
+
+    if (op1->IsCast() && !op1->AsCast()->HasOverflowCheck())
     {
         // Shift instructions do not have an "extending form" like arithmetic instructions but the
         // same operation can be performed using bitfield insertion/extraction instructions.
@@ -819,26 +959,9 @@ void Lowering::CombineShiftImmediate(GenTreeInstr* shift)
         unsigned bitFieldWidth = 0;
         bool     isUnsigned    = false;
 
-        if (varTypeIsSmall(cast->GetType()))
-        {
-            // Currently the JIT IR doesn't allow direct extension from small int types to LONG.
-            // This code likely works fine with such casts but it cannot be tested.
+        assert(!varTypeIsSmall(cast->GetType()));
 
-            // TODO-MIKE-CQ: This also means that a pattern like "(ulong)x_byte << 6"
-            // isn't transformed into "ubfiz x, 6, 8" but in "uxtb x; ubfiz x, 6, 32".
-            // Such casts could be described in IR as CAST nodes having LONG instead
-            // of INT type. This requires auditing all cast handling code in the JIT,
-            // some of it may assume that if the cast type is small int then the CAST
-            // node's type is always INT.
-
-            // TODO-MIKE-CQ: Another potential issue is that zero extending casts could
-            // be folded together with AND(x, mask) but nothing in the JIT seems to be
-            // doing this so code like "(x_byte & 3) << 6" also generates an extra uxtb.
-
-            bitFieldWidth = varTypeBitSize(cast->GetType());
-            isUnsigned    = varTypeIsUnsigned(cast->GetType());
-        }
-        else if (cast->TypeIs(TYP_LONG) && !cast->GetOp(0)->TypeIs(TYP_LONG))
+        if (cast->TypeIs(TYP_LONG) && !cast->GetOp(0)->TypeIs(TYP_LONG))
         {
             assert(size == EA_8BYTE);
 
@@ -963,27 +1086,25 @@ static insOpts GetEquivalentExtendOption(GenTree* node)
 {
     if (GenTreeCast* cast = node->IsCast())
     {
-        if (!cast->HasOverflowCheck() && varTypeIsIntegral(cast->GetOp(0)->GetType()))
+        if (!cast->HasOverflowCheck() && cast->TypeIs(TYP_LONG) && !cast->GetOp(0)->TypeIs(TYP_LONG))
         {
-            switch (cast->GetType())
-            {
-                case TYP_UBYTE:
-                    return INS_OPTS_UXTB;
-                case TYP_BYTE:
-                    return INS_OPTS_SXTB;
-                case TYP_USHORT:
-                    return INS_OPTS_UXTH;
-                case TYP_SHORT:
-                    return INS_OPTS_SXTH;
-                case TYP_LONG:
-                    if (!cast->GetOp(0)->TypeIs(TYP_LONG))
-                    {
-                        return cast->IsCastUnsigned() ? INS_OPTS_UXTW : INS_OPTS_SXTW;
-                    }
-                    break;
-                default:
-                    break;
-            }
+            return cast->IsCastUnsigned() ? INS_OPTS_UXTW : INS_OPTS_SXTW;
+        }
+    }
+    else if (node->OperIs(GT_CONV))
+    {
+        switch (node->GetType())
+        {
+            case TYP_UBYTE:
+                return INS_OPTS_UXTB;
+            case TYP_BYTE:
+                return INS_OPTS_SXTB;
+            case TYP_USHORT:
+                return INS_OPTS_UXTH;
+            case TYP_SHORT:
+                return INS_OPTS_SXTH;
+            default:
+                break;
         }
     }
     else if (node->OperIs(GT_SXT))
@@ -1866,19 +1987,20 @@ GenTree* Lowering::OptimizeRelopImm(GenTreeOp* cmp)
     ssize_t        op2Value = op2->GetValue();
 
     // Eliminate a narrowing cast by testing only the necessary bits. For example:
-    //     GT(CAST.ubyte(x), 0) is TEST_NE(x, 255)
-    //     EQ(CAST.short(x), 0) is TEST_EQ(x, 65535)
+    //     GT(CONV.ubyte(x), 0) is TEST_NE(x, 255)
+    //     EQ(CONV.short(x), 0) is TEST_EQ(x, 65535)
 
-    if (cmp->OperIs(GT_EQ, GT_NE, GT_GT) && (op2Value == 0) && op1->IsCast() && !op1->AsCast()->HasOverflowCheck() &&
-        varTypeIsIntegral(op1->AsCast()->GetOp(0)->GetType()))
+    if (cmp->OperIs(GT_EQ, GT_NE, GT_GT) && (op2Value == 0) && op1->OperIs(GT_CONV))
     {
         var_types castType = op1->GetType();
 
-        if (varTypeIsSmall(castType) && (varTypeIsUnsigned(castType) || !cmp->OperIs(GT_GT)))
+        assert(varTypeIsSmall(castType));
+
+        if (varTypeIsUnsigned(castType) || !cmp->OperIs(GT_GT))
         {
             BlockRange().Remove(op1);
 
-            op1 = op1->AsCast()->GetOp(0);
+            op1 = op1->AsUnOp()->GetOp(0);
             // CAST may have a contained memory operand but ARM compare/test nodes do not.
             op1->ClearContained();
 

@@ -114,6 +114,9 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
         case GT_BSWAP:
         case GT_BSWAP16:
         case GT_CAST:
+        case GT_CONV:
+        case GT_OVF_SCONV:
+        case GT_OVF_UCONV:
         case GT_SXT:
         case GT_UXT:
         case GT_STOF:

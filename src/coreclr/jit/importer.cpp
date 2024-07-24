@@ -169,12 +169,12 @@ GenTree* Importer::impPopStackCoerceArg(var_types signatureType)
         }
         else if ((varTypeIsFloating(signatureType) && varTypeIsFloating(stackType))
 #ifdef TARGET_64BIT
-            // TODO-MIKE-Review: This should only be done when the stack type is 'native int'
-            // but we don't track this exact type so we have to do it whenever the stack type
-            // is LONG, which is a relaxation of the ECMA III.1.6 Implicit argument coercion.
-            || ((signatureType == TYP_INT) && (stackType == TYP_LONG))
+                 // TODO-MIKE-Review: This should only be done when the stack type is 'native int'
+                 // but we don't track this exact type so we have to do it whenever the stack type
+                 // is LONG, which is a relaxation of the ECMA III.1.6 Implicit argument coercion.
+                 || ((signatureType == TYP_INT) && (stackType == TYP_LONG))
 #endif
-                )
+                     )
         {
             tree = gtNewCastNode(tree, false, signatureType);
         }
@@ -3268,7 +3268,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
                 case CorInfoType::CORINFO_TYPE_SHORT:
                 case CorInfoType::CORINFO_TYPE_USHORT:
                     retNode = gtNewOperNode(GT_BSWAP16, TYP_INT, impPopStack().val);
-                    retNode = gtNewCastNode(retNode, false, callType);
+                    retNode = gtNewOperNode(GT_CONV, callType, retNode);
                     break;
 
                 case CorInfoType::CORINFO_TYPE_INT:
@@ -4735,19 +4735,23 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
             assert((varActualType(srcTyp) == varActualType(dstTyp)) ||
                    (varTypeIsFloating(dstTyp) == varTypeIsFloating(srcTyp)));
 
-            if (srcTyp != dstTyp)
+            if ((srcTyp == TYP_FLOAT) && (dstTyp == TYP_DOUBLE))
             {
-                if ((srcTyp == TYP_FLOAT) && (dstTyp == TYP_DOUBLE))
-                {
-                    value = gtNewOperNode(GT_FXT, TYP_DOUBLE, value);
-                }
-                else if ((srcTyp == TYP_DOUBLE) && (dstTyp == TYP_FLOAT))
-                {
-                    value = gtNewOperNode(GT_FTRUNC, TYP_FLOAT, value);
-                }
-                else if ((srcTyp == TYP_LONG) && (dstTyp == TYP_INT))
+                value = gtNewOperNode(GT_FXT, TYP_DOUBLE, value);
+            }
+            else if ((srcTyp == TYP_DOUBLE) && (dstTyp == TYP_FLOAT))
+            {
+                value = gtNewOperNode(GT_FTRUNC, TYP_FLOAT, value);
+            }
+            else if (varActualType(srcTyp) != varActualType(dstTyp))
+            {
+                if ((srcTyp == TYP_LONG) && varActualTypeIsInt(dstTyp))
                 {
                     value = gtNewOperNode(GT_TRUNC, TYP_INT, value);
+                }
+                else if (varActualTypeIsInt(srcTyp) && (dstTyp == TYP_LONG))
+                {
+                    value = gtNewOperNode(GT_SXT, TYP_LONG, value);
                 }
                 else
                 {
@@ -7102,7 +7106,7 @@ PUSH_CALL:
 
     if (varTypeIsSmall(callRetTyp) && (opts.IsReadyToRun() || call->IsUnmanaged()))
     {
-        value = gtNewCastNode(value, false, callRetTyp);
+        value = gtNewOperNode(GT_CONV, varCastType(callRetTyp), value);
     }
 
 PUSH_VALUE:
@@ -8456,6 +8460,15 @@ var_types Importer::impGetNumericBinaryOpType(genTreeOps oper, GenTree** pOp1, G
         // JIT\Methodical\Boxing\morph\sin3double\sin3double.cmd
         // contains invalid IL - it adds native int and int64.
         assert(varTypeIsIntegral(op1->GetType()) && varTypeIsIntegral(op2->GetType()));
+
+        if (!op1->TypeIs(TYP_LONG))
+        {
+            *pOp1 = gtNewOperNode(GT_SXT, TYP_LONG, op1);
+        }
+        else if (!op2->TypeIs(TYP_LONG))
+        {
+            *pOp2 = gtNewOperNode(GT_SXT, TYP_LONG, op2);
+        }
 #else
         // int32 + native int = native int
         // native int + int32 = native int
@@ -10439,7 +10452,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         if (varTypeIsSmall(lclTyp))
                         {
                             op1 = gtNewOperNode(GT_FTOS, TYP_INT, op1);
-                            op1 = gtNewCastNode(op1, false, lclTyp);
+                            op1 = gtNewOperNode(GT_CONV, lclTyp, op1);
                         }
                         else
                         {
@@ -10453,13 +10466,42 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         {
                             op1 = gtNewOperNode(GT_OVF_FTOS, TYP_INT, op1);
                             op1->AddSideEffects(GTF_EXCEPT);
-                            op1 = gtNewCastNode(op1, false, lclTyp);
-                            op1->AsCast()->AddOverflowCheck();
+                            op1 = gtNewOperNode(GT_OVF_SCONV, lclTyp, op1);
+                            op1->AddSideEffects(GTF_EXCEPT);
                         }
                         else
                         {
                             op1 = gtNewOperNode(varTypeIsUnsigned(lclTyp) ? GT_OVF_FTOU : GT_OVF_FTOS,
                                                 varTypeNodeType(lclTyp), op1);
+                            op1->AddSideEffects(GTF_EXCEPT);
+                        }
+                    }
+                    else if (varTypeIsSmall(lclTyp))
+                    {
+                        assert(varTypeIsIntegral(fromType));
+
+#ifndef TARGET_64BIT
+                        if (fromType == TYP_LONG)
+                        {
+                            if (!ovfl)
+                            {
+                                op1 = gtNewOperNode(GT_TRUNC, TYP_INT, op1);
+                            }
+                            else
+                            {
+                                op1 = gtNewCastNode(op1, uns, TYP_INT);
+                                op1->AsCast()->AddOverflowCheck();
+                            }
+                        }
+#endif
+
+                        if (!ovfl)
+                        {
+                            op1 = gtNewOperNode(GT_CONV, lclTyp, op1);
+                        }
+                        else
+                        {
+                            op1 = gtNewOperNode(uns ? GT_OVF_UCONV : GT_OVF_SCONV, lclTyp, op1);
                             op1->AddSideEffects(GTF_EXCEPT);
                         }
                     }
@@ -16392,9 +16434,10 @@ GenTree* Importer::impImportPop(BasicBlock* block)
     // implicit tail calls when the operand of pop is CAST(CALL(..)).
     // The cast gets added as part of importing CALL, which gets in the way
     // of fgMorphCall() on the forms of tail call nodes that we assert.
-    if (op1->IsCast() && !op1->AsCast()->HasOverflowCheck())
+    if (op1->OperIs(GT_SXT, GT_UXT, GT_TRUNC, GT_CONV, GT_FXT, GT_FTRUNC, GT_STOF, GT_FTOS, GT_UTOF, GT_FTOU) ||
+        (op1->IsCast() && !op1->AsCast()->HasOverflowCheck()))
     {
-        op1 = op1->AsCast()->GetOp(0);
+        op1 = op1->AsUnOp()->GetOp(0);
     }
 
     if (!op1->IsCall())
@@ -17362,7 +17405,7 @@ GenTree* Importer::gtNewNullCheck(GenTree* addr)
 
 GenTreeCast* Importer::gtNewCastNode(GenTree* op1, bool fromUnsigned, var_types toType)
 {
-    return comp->gtNewCastNode(op1, fromUnsigned, toType);
+    return new (comp, GT_CAST) GenTreeCast(toType, op1, fromUnsigned);
 }
 
 GenTreeFieldAddr* Importer::gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset)

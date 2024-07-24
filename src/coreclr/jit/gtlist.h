@@ -71,6 +71,9 @@ GTNODE(FTOU             , GenTreeOp           , GTK_UNOP|GTK_VN)        // float
 GTNODE(OVF_FTOS         , GenTreeOp           , GTK_UNOP|GTK_VN)        // floating point to signed conversion with overflow check
 GTNODE(OVF_FTOU         , GenTreeOp           , GTK_UNOP|GTK_VN)        // floating point to unsigned conversion with overflow check
 GTNODE(TRUNC            , GenTreeOp           , GTK_UNOP|GTK_VN)        // truncate LONG -> INT
+GTNODE(CONV             , GenTreeOp           , GTK_UNOP|GTK_VN)        // convert INT/LONG to small int
+GTNODE(OVF_SCONV        , GenTreeOp           , GTK_UNOP|GTK_VN)        // convert signed INT/LONG to small int with overflow check
+GTNODE(OVF_UCONV        , GenTreeOp           , GTK_UNOP|GTK_VN)        // convert unsigned INT/LONG to small int with overflow check
 GTNODE(CAST             , GenTreeCast         , GTK_UNOP|GTK_EXOP)      // conversion to another type
 GTNODE(BITCAST          , GenTreeOp           , GTK_UNOP)               // reinterpretation of bits as another type
 GTNODE(CKFINITE         , GenTreeOp           , GTK_UNOP|GTK_NOCONTAIN) // Check for NaN

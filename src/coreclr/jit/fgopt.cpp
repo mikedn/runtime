@@ -2924,9 +2924,9 @@ bool Compiler::fgBlockIsGoodTailDuplicationCandidate(BasicBlock* target, LclVarD
     // op1 must be some combinations of casts of local or constant
     GenTree* op1 = cond->AsOp()->GetOp(0);
 
-    while (GenTreeCast* cast = op1->IsCast())
+    while (op1->OperIs(GT_CAST, GT_CONV, GT_OVF_SCONV, GT_OVF_UCONV, GT_TRUNC, GT_UXT, GT_SXT))
     {
-        op1 = cast->GetOp(0);
+        op1 = op1->AsUnOp()->GetOp(0);
     }
 
     // TODO-MIKE-Review: Old code used the stupid IsLocal and might have allowed
@@ -2943,9 +2943,9 @@ bool Compiler::fgBlockIsGoodTailDuplicationCandidate(BasicBlock* target, LclVarD
     // op2 must be some combinations of casts of local or constant
     GenTree* op2 = cond->AsOp()->GetOp(1);
 
-    while (GenTreeCast* cast = op2->IsCast())
+    while (op2->OperIs(GT_CAST, GT_CONV, GT_OVF_SCONV, GT_OVF_UCONV, GT_TRUNC, GT_UXT, GT_SXT))
     {
-        op2 = cast->GetOp(0);
+        op2 = op2->AsUnOp()->GetOp(0);
     }
 
     if (!op2->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) && !op2->OperIsConst())

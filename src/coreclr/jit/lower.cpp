@@ -336,6 +336,14 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_CAST:
             return LowerCast(node->AsCast());
 
+        case GT_CONV:
+            return LowerConv(node->AsUnOp());
+
+        case GT_OVF_SCONV:
+        case GT_OVF_UCONV:
+            ContainCheckOverflowConv(node->AsUnOp());
+            break;
+
         case GT_TRUNC:
             return LowerTruncate(node->AsUnOp());
 
@@ -4245,21 +4253,41 @@ void Lowering::LowerShift(GenTreeOp* shift)
 #endif
             }
 
-            while (src->IsCast() && !src->AsCast()->HasOverflowCheck())
+            while (src->OperIs(GT_CONV))
             {
-                GenTreeCast* cast = src->AsCast();
+                GenTreeUnOp* cast = src->AsUnOp();
 
-                if (!varTypeIsIntegral(cast->GetOp(0)->GetType()))
+                assert(varTypeIsIntegral(cast->GetOp(0)->GetType()));
+                assert(varTypeIsSmall(cast->GetType()));
+
+                unsigned producedBits = varTypeBitSize(cast->GetType());
+
+                if (consumedBits > producedBits)
                 {
                     break;
                 }
 
+                JITDUMP("Removing CONV [%06u] producing %u bits from LSH [%06u] consuming %u bits\n", cast->GetID(),
+                        producedBits, shift->GetID(), consumedBits);
+
+                BlockRange().Remove(src);
+                src = cast->GetOp(0);
+                src->ClearContained();
+            }
+
+            while (src->IsCast() && !src->AsCast()->HasOverflowCheck())
+            {
+                GenTreeCast* cast = src->AsCast();
+
+                assert(varTypeIsIntegral(cast->GetOp(0)->GetType()));
+                assert(cast->TypeIs(TYP_INT, TYP_LONG));
+
                 // A (U)LONG - (U)LONG cast would normally produce 64 bits but since it
                 // has no effect we make it produce 32 bits to keep the check simple.
-                // Anyway such a cast should have been removed earlier.
-                unsigned producedBits = varTypeIsSmall(cast->GetType()) ? varTypeBitSize(cast->GetType()) : 32;
+                // Anyway, such a cast should have been removed earlier.
+                const unsigned producedBits = 32;
 
-                if (consumedBits > producedBits)
+                if (consumedBits > 32)
                 {
                     break;
                 }
@@ -5084,6 +5112,7 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
 {
     assert(varCastType(cast->GetCastType()) == cast->GetType());
     assert(varTypeIsIntegral(cast->GetType()) && varTypeIsIntegral(cast->GetOp(0)->GetType()));
+    assert(!varTypeIsSmall(cast->GetType()));
 
     if (!cast->HasOverflowCheck())
     {
@@ -5143,6 +5172,68 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
     }
 
     ContainCheckCast(cast);
+
+    return cast->gtNext;
+}
+
+GenTree* Lowering::LowerConv(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_CONV) && varTypeIsSmallInt(cast->GetType()));
+
+    GenTree*  src     = cast->GetOp(0);
+    var_types dstType = cast->GetType();
+    var_types srcType = src->GetType();
+    bool      remove  = false;
+
+#ifdef TARGET_64BIT
+    if ((srcType == TYP_LONG) && src->OperIs(GT_LCL_LOAD))
+    {
+        src->SetType(TYP_INT);
+    }
+#else
+    assert(srcType != TYP_LONG);
+#endif
+
+    if ((varTypeSize(dstType) <= varTypeSize(srcType)) && IsContainableMemoryOp(src))
+    {
+        // This is a narrowing cast with an in memory load source, we can remove it and retype the load.
+
+        // TODO-MIKE-Cleanup: fgMorphCast does something similar but more restrictive. It's not clear
+        // if there are any advantages in doing such a transform earlier (in fact there may be one
+        // disadvantage - retyping nodes may prevent them from being CSEd) so it should be deleted.
+
+        src->SetType(dstType);
+        remove = true;
+    }
+    else if (varTypeIsSmall(srcType) && (varTypeIsUnsigned(srcType) == varTypeIsUnsigned(dstType)) &&
+             IsContainableMemoryOp(src))
+    {
+        remove = true;
+    }
+
+    if (remove)
+    {
+        LIR::Use use;
+
+        if (BlockRange().TryGetUse(cast, &use))
+        {
+            use.ReplaceWith(comp, src);
+        }
+        else
+        {
+            src->SetUnusedValue();
+        }
+
+        GenTree* next = cast->gtNext;
+        BlockRange().Remove(cast);
+        return next;
+    }
+
+#ifdef TARGET_XARCH
+    ContainCheckConv(cast);
+#else
+    src->SetRegOptional();
+#endif
 
     return cast->gtNext;
 }
@@ -5699,31 +5790,44 @@ LclVarDsc* Lowering::GetSimdMemoryTemp(var_types type)
 
 GenTree* Lowering::TryRemoveCastIfPresent(var_types expectedType, GenTree* op)
 {
-    if (!op->IsCast() || op->AsCast()->HasOverflowCheck() || !varTypeIsIntegral(expectedType))
+    if (op->IsCast() && !op->AsCast()->HasOverflowCheck() && varTypeIsIntegral(expectedType))
     {
-        return op;
+        GenTree* castOp = op->AsCast()->GetOp(0);
+
+        assert(varTypeIsIntegral(castOp->GetType()));
+
+        if (varTypeSize(op->GetType()) > varTypeSize(varActualType(castOp->GetType())))
+        {
+            return op;
+        }
+
+        if (varTypeSize(op->GetType()) < varTypeSize(expectedType))
+        {
+            return op;
+        }
+
+        BlockRange().Remove(op);
+        castOp->ClearContained();
+        return castOp;
     }
 
-    GenTree* castOp = op->AsCast()->GetOp(0);
-
-    if (!varTypeIsIntegral(castOp->GetType()))
+    if (op->OperIs(GT_CONV) && varTypeIsIntegral(expectedType))
     {
-        return op;
+        GenTree* castOp = op->AsUnOp()->GetOp(0);
+
+        assert(varTypeIsIntegral(castOp->GetType()));
+
+        if (varTypeSize(op->GetType()) < varTypeSize(expectedType))
+        {
+            return op;
+        }
+
+        BlockRange().Remove(op);
+        castOp->ClearContained();
+        return castOp;
     }
 
-    if (varTypeSize(op->GetType()) > varTypeSize(varActualType(castOp->GetType())))
-    {
-        return op;
-    }
-
-    if (varTypeSize(op->GetType()) < varTypeSize(expectedType))
-    {
-        return op;
-    }
-
-    BlockRange().Remove(op);
-    castOp->ClearContained();
-    return castOp;
+    return op;
 }
 
 bool Lowering::VectorConstant::AllBitsZero(unsigned vectorByteSize) const

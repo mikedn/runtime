@@ -774,6 +774,8 @@ protected:
 #endif
 
     void GenCast(GenTreeCast* cast);
+    void GenConv(GenTreeUnOp* cast);
+    void GenOverflowConv(GenTreeUnOp* cast);
     void GenTruncate(GenTreeUnOp* node);
 #ifdef TARGET_64BIT
     void GenSignExtend(GenTreeUnOp* node);
@@ -1057,6 +1059,9 @@ public:
 
     bool isMoveIns(instruction ins);
 
+#ifdef TARGET_ARMARCH
+    instruction ins_Conv(var_types dstType);
+#endif
     instruction ins_Load(var_types srcType, bool aligned = false);
     instruction ins_Store(var_types dstType, bool aligned = false);
     instruction ins_StoreFromSrc(regNumber srcReg, var_types dstType, bool aligned = false);

@@ -411,9 +411,9 @@ private:
         return AddAssertion(assertion);
     }
 
-    AssertionIndex CreateRangeAssertion(GenTreeCast* cast)
+    AssertionIndex CreateRangeAssertion(GenTreeUnOp* cast)
     {
-        assert(varTypeIsIntegral(cast->GetType()));
+        assert(cast->OperIs(GT_CONV, GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmall(cast->GetType()));
 
         GenTree* value = cast->GetOp(0);
 
@@ -424,14 +424,9 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        if (!varTypeIsSmall(cast->GetType()))
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
         // TODO-MIKE-Review: Restricting the cast operands to SSA_USE is largely superfluous,
         // all it does is preventing less useful assertions from being created, that would
-        // just wast space in the assertion table.
+        // just waste space in the assertion table.
         if (!value->IsLclUse())
         {
             return NO_ASSERTION_INDEX;
@@ -1265,18 +1260,20 @@ private:
                 }
                 break;
 
-            case GT_CAST:
-                // We create a range assertion for a CAST's operand, not for the CAST itself.
+            case GT_CONV:
+            case GT_OVF_SCONV:
+            case GT_OVF_UCONV:
+                // We create a range assertion for a CONV's operand, not for the CONV itself.
                 // This assertion isn't known to be true at this time (and thus its index is
                 // not recorded in any node) but it can later be implied to be true by other
                 // assertions and then we can remove the cast (e.g. a const assertion x = 42
-                // implies CAST<UBYTE>(x) can be reduced to x).
+                // implies CONV<UBYTE>(x) can be reduced to x).
                 // TODO-MIKE-Review: Why don't we just check for the relevant const assertion
-                // when we propagate to CAST?!? Given the diffs this seems to be doing more
+                // when we propagate to CONV?!? Given the diffs this seems to be doing more
                 // harm than good - there are very few cases where this helps and instead
                 // there are some cases where it just wastes space in the assertion table and
                 // prevents other useful assertions from being created.
-                CreateRangeAssertion(node->AsCast());
+                CreateRangeAssertion(node->AsUnOp());
                 break;
 
             case GT_JTRUE:
@@ -1761,13 +1758,13 @@ private:
 
     GenTree* PropagateCast(const ASSERT_TP assertions, GenTreeCast* cast, Statement* stmt)
     {
-        assert(cast->GetType() == varCastType(cast->GetCastType()));
+        assert(cast->TypeIs(TYP_INT, TYP_LONG));
 
         GenTree*  op1      = cast->GetOp(0);
-        var_types fromType = op1->GetType();
+        var_types fromType = varActualType(op1->GetType());
         var_types toType   = cast->GetType();
 
-        assert(varTypeIsIntegral(toType) && varTypeIsIntegral(fromType));
+        assert((fromType == TYP_INT) || (fromType == TYP_LONG));
 
         GenTree* actualOp1 = op1->SkipComma();
         ValueNum vn;
@@ -1797,25 +1794,10 @@ private:
             vn = vnStore->ExtractValue(actualOp1->GetConservativeVN());
         }
 
-        ssize_t min;
-        ssize_t max;
-
-        if (varTypeIsSmall(toType))
-        {
-            min = cast->IsCastUnsigned() ? 0 : GetSmallTypeRange(toType).min;
-            max = GetSmallTypeRange(toType).max;
-        }
-        else
-        {
-            // For all other cases keep it simple - the 0..INT32_MAX range allows us to
-            // remove overflow checks from LONG/INT casts and also change sign extension
-            // to zero extension. We'll miss some cases, such as 0..UINT32_MAX needed for
-            // LONG -> UINT casts but these should be pretty rare.
-            min = 0;
-            max = INT32_MAX;
-        }
-
-        const AssertionDsc* assertion = FindCastRangeAssertion(assertions, vn, min, max);
+        // Keep it simple - the 0..INT32_MAX range allows us to remove overflow checks from LONG/INT
+        // casts and also change sign extension to zero extension. We'll miss some cases, such as
+        // 0..UINT32_MAX needed for LONG -> UINT casts but these should be pretty rare.
+        const AssertionDsc* assertion = FindCastRangeAssertion(assertions, vn, 0, INT32_MAX);
 
         if (assertion == nullptr)
         {
@@ -1823,9 +1805,6 @@ private:
         }
 
         DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
-
-        fromType = varActualType(fromType);
-        toType   = varActualType(toType);
 
         if (fromType != toType)
         {
@@ -1849,6 +1828,67 @@ private:
                 cast->SetSideEffects(op1->GetSideEffects());
             }
 
+            op1 = cast;
+        }
+
+        return UpdateTree(op1, cast, stmt);
+    }
+
+    GenTree* PropagateConv(const ASSERT_TP assertions, GenTreeUnOp* cast, Statement* stmt)
+    {
+        assert(cast->OperIs(GT_CONV, GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmall(cast->GetType()));
+
+        GenTree*  op1      = cast->GetOp(0);
+        var_types fromType = op1->GetType();
+        var_types toType   = cast->GetType();
+
+        assert(varTypeIsSmall(toType) && varTypeIsIntegral(fromType));
+
+        GenTree* actualOp1 = op1->SkipComma();
+        ValueNum vn;
+
+        if (actualOp1->OperIs(GT_LCL_LOAD, GT_LCL_USE))
+        {
+            LclVarDsc* lcl = actualOp1->OperIs(GT_LCL_LOAD) ? actualOp1->AsLclLoad()->GetLcl()
+                                                            : actualOp1->AsLclUse()->GetDef()->GetLcl();
+
+            // TODO-MIKE-Review: Usually we can't eliminate load "normalization" casts.
+            // They're usually present on every LCL_VAR use so we'll never get assertions
+            // about the LCL_VAR value itself (e.g. usually we have "if ((byte)b < 42)",
+            // not "if (b < 42)"). xunit assemblies have a few cases where these casts do
+            // get eliminated but it turns out that this skews register allocation in such
+            // a way that the codegen end up being worse.
+            // Besides, the way load/store "normalization" is implemented is just asking
+            // for trouble so it's best to ignore these casts for now.
+            if (lcl->lvNormalizeOnLoad())
+            {
+                return nullptr;
+            }
+
+            vn = actualOp1->GetConservativeVN();
+        }
+        else
+        {
+            vn = vnStore->ExtractValue(actualOp1->GetConservativeVN());
+        }
+
+        ssize_t min = cast->OperIs(GT_OVF_UCONV) ? 0 : GetSmallTypeRange(toType).min;
+        ssize_t max = GetSmallTypeRange(toType).max;
+
+        const AssertionDsc* assertion = FindCastRangeAssertion(assertions, vn, min, max);
+
+        if (assertion == nullptr)
+        {
+            return nullptr;
+        }
+
+        DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
+
+        if (fromType == TYP_LONG)
+        {
+            cast->SetOper(GT_TRUNC);
+            cast->SetType(TYP_INT);
+            cast->SetSideEffects(op1->GetSideEffects());
             op1 = cast;
         }
 
@@ -2417,6 +2457,10 @@ private:
                 return PropagateComma(node->AsOp(), stmt);
             case GT_CAST:
                 return PropagateCast(assertions, node->AsCast(), stmt);
+            case GT_CONV:
+            case GT_OVF_SCONV:
+            case GT_OVF_UCONV:
+                return PropagateConv(assertions, node->AsUnOp(), stmt);
 #ifdef TARGET_ARM64
             case GT_UXT:
                 return PropagateUnsignedExtend(assertions, node->AsUnOp(), stmt);
@@ -3306,6 +3350,9 @@ private:
                 case GT_GT:
                 case GT_OR:
                 case GT_CAST:
+                case GT_CONV:
+                case GT_OVF_SCONV:
+                case GT_OVF_UCONV:
                 case GT_TRUNC:
                 case GT_SXT:
                 case GT_UXT:

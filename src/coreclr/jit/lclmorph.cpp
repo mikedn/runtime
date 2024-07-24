@@ -886,7 +886,10 @@ private:
                         // `(short)ushortLocal`, except that generics code can't do such casts and sometimes
                         // uses `Unsafe.As` as a substitute.
 
-                        load->ChangeToCast(loadType, NewLclLoad(lclType, lcl));
+                        load->ChangeOper(GT_CONV);
+                        load->gtFlags = GTF_NONE;
+                        load->AsUnOp()->SetOp(0, NewLclLoad(lclType, lcl));
+
                         INDEBUG(m_stmtModified = true);
 
                         return;
@@ -929,10 +932,9 @@ private:
                     // The load has to be smaller than the local, we already handled loads wider than the local.
                     assert(loadSize < lclSize);
 
-                    // Loading a smaller integer type isn't common but this case can be easily handled by using
-                    // a CAST. There's no reason to write something like `*(short*)&intLocal` instead of just
-                    // `(short)intLocal`, except that generics code can't do such casts and sometimes uses
-                    // `Unsafe.As` as a substitute.
+                    // There's no reason to write something like `*(short*)&intLocal` instead of just
+                    // `(short)intLocal`, except that generics code can't do such casts and sometimes
+                    // uses `Unsafe.As` as a substitute.
 
                     if ((loadType == TYP_INT) && (lclType == TYP_LONG))
                     {
@@ -942,7 +944,20 @@ private:
                     }
                     else
                     {
-                        load->ChangeToCast(loadType, NewLclLoad(lclType, lcl));
+                        assert(varTypeIsSmall(loadType));
+
+                        GenTree* value = NewLclLoad(lclType, lcl);
+
+#ifndef TARGET_64BIT
+                        if (value->TypeIs(TYP_LONG))
+                        {
+                            value = m_compiler->gtNewOperNode(GT_TRUNC, TYP_INT, value);
+                        }
+#endif
+
+                        load->ChangeOper(GT_CONV);
+                        load->gtFlags = GTF_NONE;
+                        load->AsUnOp()->SetOp(0, value);
                     }
 
                     INDEBUG(m_stmtModified = true);

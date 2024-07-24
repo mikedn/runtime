@@ -5266,6 +5266,106 @@ void CodeGen::GenCastIntToInt(GenTreeCast* cast)
     DefReg(cast);
 }
 
+void CodeGen::GenConv(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_CONV) && varTypeIsSmall(cast->GetType()));
+
+    GenTree*    src    = cast->GetOp(0);
+    RegNum      srcReg = src->isUsedFromReg() ? UseReg(src) : REG_NA;
+    RegNum      dstReg = cast->GetRegNum();
+    instruction ins    = varTypeIsUnsigned(cast->GetType()) ? INS_movzx : INS_movsx;
+    emitAttr    size   = emitTypeSize(cast->GetType());
+
+    if (srcReg != REG_NA)
+    {
+        GetEmitter()->emitIns_Mov(ins, size, dstReg, srcReg, /*canSkip*/ false);
+    }
+    else
+    {
+        genConsumeRegs(src);
+        emitInsRegRM(ins, size, dstReg, src);
+    }
+
+    DefReg(cast);
+}
+
+void CodeGen::GenOverflowConv(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmall(cast->GetType()));
+
+    GenTree* src = cast->GetOp(0);
+    RegNum   srcReg;
+    RegNum   dstReg = cast->GetRegNum();
+
+    if (src->isUsedFromMemory())
+    {
+        genConsumeRegs(src);
+
+        emitAttr      size = emitTypeSize(src->GetType());
+        StackAddrMode s;
+
+        // Note that we load directly into the destination register, this avoids the
+        // need for a temporary register but assumes that enregistered variables are
+        // not live in exception handlers. This works with EHWriteThru because the
+        // register will be written only in DefReg, after the overflow check is done.
+
+        if (IsLocalMemoryOperand(src, &s))
+        {
+            GetEmitter()->emitIns_R_S(ins_Load(src->GetType()), size, dstReg, s);
+        }
+        else
+        {
+            GetEmitter()->emitIns_R_A(ins_Load(src->GetType()), size, dstReg, src->AsIndir()->GetAddr());
+        }
+
+        srcReg = dstReg;
+    }
+    else
+    {
+        srcReg = UseReg(src);
+    }
+
+    int minValue;
+    int maxValue;
+
+    switch (cast->GetType())
+    {
+        case TYP_UBYTE:
+            minValue = 0;
+            maxValue = UINT8_MAX;
+            break;
+        case TYP_BYTE:
+            minValue = cast->OperIs(GT_OVF_UCONV) ? 0 : INT8_MIN;
+            maxValue = INT8_MAX;
+            break;
+        case TYP_USHORT:
+            minValue = 0;
+            maxValue = UINT16_MAX;
+            break;
+        case TYP_SHORT:
+            minValue = cast->OperIs(GT_OVF_UCONV) ? 0 : INT16_MIN;
+            maxValue = INT16_MAX;
+            break;
+        default:
+            unreached();
+    }
+
+    emitAttr size = emitActualTypeSize(src->GetType());
+
+    GetEmitter()->emitIns_R_I(INS_cmp, size, srcReg, maxValue);
+    genJumpToThrowHlpBlk(minValue == 0 ? EJ_a : EJ_g, ThrowHelperKind::Overflow);
+
+    if (minValue != 0)
+    {
+        GetEmitter()->emitIns_R_I(INS_cmp, size, srcReg, minValue);
+        genJumpToThrowHlpBlk(EJ_l, ThrowHelperKind::Overflow);
+    }
+
+    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, /*canSkip*/ true);
+
+    DefReg(cast);
+}
+
 void CodeGen::GenTruncate(GenTreeUnOp* node)
 {
     assert(node->OperIs(GT_TRUNC) && node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));

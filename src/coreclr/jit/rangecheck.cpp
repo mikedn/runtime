@@ -1075,7 +1075,7 @@ Range RangeCheck::ComputePhiRange(BasicBlock* block, GenTreePhi* phi)
 
 Range RangeCheck::ComputeLeafRange(GenTree* expr) const
 {
-    if (expr->OperIs(GT_IND_LOAD, GT_LCL_LOAD_FLD, GT_LCL_LOAD, GT_CAST))
+    if (expr->OperIs(GT_IND_LOAD, GT_LCL_LOAD_FLD, GT_LCL_LOAD, GT_CONV, GT_OVF_SCONV, GT_OVF_UCONV))
     {
         switch (expr->GetType())
         {

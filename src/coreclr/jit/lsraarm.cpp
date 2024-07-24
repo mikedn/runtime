@@ -74,6 +74,12 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildCast(tree->AsCast());
             break;
 
+        case GT_CONV:
+        case GT_OVF_SCONV:
+        case GT_OVF_UCONV:
+            BuildOverflowConv(tree->AsUnOp());
+            break;
+
         case GT_FTOS:
         case GT_FTOU:
             BuildInternalFloatDef(tree, RBM_ALLFLOAT);
