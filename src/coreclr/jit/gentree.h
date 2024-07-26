@@ -3901,12 +3901,6 @@ public:
         gtFlags |= GTF_CAST_OVERFLOW | GTF_EXCEPT;
     }
 
-    void RemoveOverflowCheck()
-    {
-        gtFlags &= ~(GTF_CAST_OVERFLOW | GTF_EXCEPT);
-        gtFlags |= (gtOp1->gtFlags & GTF_EXCEPT);
-    }
-
     static bool Equals(GenTreeCast* c1, GenTreeCast* c2)
     {
         return (c1->GetType() == c2->GetType()) && (c1->castType == c2->castType) &&

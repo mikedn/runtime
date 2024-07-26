@@ -837,9 +837,17 @@ GenTree* Compiler::fgMorphCastPost(GenTreeCast* cast)
     {
         if (unsignedSrc || !unsignedDst)
         {
-            cast->ChangeOper(cast->IsCastUnsigned() ? GT_UXT : GT_SXT);
-            assert(cast->TypeIs(TYP_LONG));
-            return cast;
+            if (varTypeIsLong(dstType))
+            {
+                cast->ChangeOper(cast->IsCastUnsigned() ? GT_UXT : GT_SXT);
+                cast->SetSideEffects(src->GetSideEffects());
+
+                return cast;
+            }
+
+            assert(varTypeIsSmall(srcType));
+
+            return src;
         }
     }
 

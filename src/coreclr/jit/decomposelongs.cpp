@@ -364,8 +364,6 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
     var_types srcType = cast->GetOp(0)->GetType();
     var_types dstType = cast->GetCastType();
 
-    bool skipDecomposition = false;
-
     if (srcType == TYP_LONG)
     {
         assert(varTypeIsLong(dstType));
@@ -393,52 +391,17 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
     else
     {
         assert(varActualTypeIsInt(srcType));
+        // An overflow check is needed only when casting from a signed type to ulong.
+        // Change the cast type to uint to take advantage of the overflow check provided
+        // by codegen and then zero extend the resulting uint to ulong.
+        assert(!cast->IsCastUnsigned() && (dstType == TYP_ULONG));
 
-        if (cast->IsCastUnsigned())
-        {
-            srcType = varTypeToUnsigned(srcType);
-        }
+        cast->SetCastType(TYP_UINT);
 
-        if (!varTypeIsUnsigned(srcType) && varTypeIsUnsigned(dstType))
-        {
-            // An overflow check is needed only when casting from a signed type to ulong.
-            // Change the cast type to uint to take advantage of the overflow check provided
-            // by codegen and then zero extend the resulting uint to ulong.
+        loResult = cast;
+        hiResult = m_compiler->gtNewIconNode(0);
 
-            loResult = cast;
-            cast->SetCastType(TYP_UINT);
-
-            hiResult = m_compiler->gtNewIconNode(0);
-
-            Range().InsertAfter(loResult, hiResult);
-        }
-        else if (varTypeIsUnsigned(srcType))
-        {
-            loResult = cast->GetOp(0);
-            hiResult = m_compiler->gtNewIconNode(0);
-
-            Range().InsertAfter(cast, hiResult);
-            Range().Remove(cast);
-        }
-        else
-        {
-            LIR::Use   src(Range(), &cast->gtOp1, cast);
-            LclVarDsc* lcl = src.ReplaceWithLclLoad(m_compiler);
-
-            loResult = src.Def();
-
-            GenTree* loCopy  = m_compiler->gtNewLclLoad(lcl, TYP_INT);
-            GenTree* shiftBy = m_compiler->gtNewIconNode(31, TYP_INT);
-            hiResult         = m_compiler->gtNewOperNode(GT_RSH, TYP_INT, loCopy, shiftBy);
-
-            Range().InsertAfter(cast, loCopy, shiftBy, hiResult);
-            Range().Remove(cast);
-        }
-    }
-
-    if (skipDecomposition)
-    {
-        return cast->gtNext;
+        Range().InsertAfter(loResult, hiResult);
     }
 
     return FinalizeDecomposition(use, loResult, hiResult, hiResult);
