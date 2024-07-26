@@ -761,50 +761,35 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         return fgMorphTree(src);
     }
 
-    assert(varTypeIsInt(srcType) || varTypeIsLong(srcType) || varTypeIsGC(srcType));
+    assert(varTypeIsInt(srcType) || varTypeIsLong(srcType));
     assert(varTypeIsInt(dstType) || varTypeIsLong(dstType));
     assert(cast->HasOverflowCheck());
 
-    if ((srcType == TYP_LONG) && ((dstType == TYP_INT) || (dstType == TYP_UINT)))
+    if (src->OperIs(GT_AND) && (srcType == TYP_LONG) && ((dstType == TYP_INT) || (dstType == TYP_UINT)))
     {
-        // As a special case, look for overflow-sensitive casts of an AND
-        // expression, and see if the second operand is a small constant. Since
-        // the result of an AND is bound by its smaller operand, it may be
-        // possible to prove that the cast won't overflow, which will in turn
-        // allow the cast's operand to be transformed.
-        if (src->OperIs(GT_AND))
+        GenTree* andOp2 = src->AsOp()->GetOp(1);
+
+        if (andOp2->IsCast() && andOp2->AsCast()->GetOp(0)->OperIs(GT_CNS_INT))
         {
-            GenTree* andOp2 = src->AsOp()->GetOp(1);
+            andOp2 = gtFoldExprConst(andOp2);
+            src->AsOp()->SetOp(1, andOp2);
+        }
 
-            // Special case to the special case: AND with a casted int.
-            if (andOp2->IsCast() && andOp2->AsCast()->GetOp(0)->OperIs(GT_CNS_INT))
-            {
-                // gtFoldExprConst will deal with whether the cast is signed or
-                // unsigned, or overflow-sensitive.
-                andOp2 = gtFoldExprConst(andOp2);
-                src->AsOp()->SetOp(1, andOp2);
-            }
+        int maxBits = dstType == TYP_UINT ? 32 : 31;
 
-            // Look for a constant less than 2^{32} for a cast to uint, or less
-            // than 2^{31} for a cast to int.
-            int maxWidth = (dstType == TYP_UINT) ? 32 : 31;
+        if (andOp2->IsIntConCommon() && ((andOp2->AsIntConCommon()->GetValue() >> maxBits) == 0))
+        {
+            // This cast can't overflow.
+            cast->ChangeOper(GT_TRUNC);
+            cast->SetType(TYP_INT);
 
-            if (andOp2->OperIs(GT_CNS_NATIVELONG) && ((andOp2->AsIntConCommon()->LngValue() >> maxWidth) == 0))
-            {
-                // This cast can't overflow.
-                cast->RemoveOverflowCheck();
-            }
+            return fgMorphTruncate(cast);
         }
     }
 
     src = fgMorphTree(src);
     cast->SetOp(0, src);
-    cast->SetSideEffects(src->GetSideEffects());
-
-    if (cast->HasOverflowCheck())
-    {
-        cast->AddSideEffects(GTF_EXCEPT);
-    }
+    cast->SetSideEffects(src->GetSideEffects() | GTF_EXCEPT);
 
     return fgMorphCastPost(cast);
 }
@@ -817,16 +802,17 @@ GenTree* Compiler::fgMorphCastPost(GenTreeCast* cast)
 
     assert(varTypeIsInt(srcType) || varTypeIsLong(srcType) || varTypeIsSmall(srcType));
     assert(varTypeIsInt(dstType) || varTypeIsLong(dstType));
+    assert(cast->HasOverflowCheck());
 
     if (cast->IsCastUnsigned() && !varTypeIsUnsigned(srcType))
     {
         if (varTypeIsSmall(srcType))
         {
-            // Small signed values are automatically sign extended to TYP_INT. If the cast is interpreting the
-            // resulting TYP_INT value as unsigned then the "sign" bits end up being "value" bits and srcType
-            // must be TYP_UINT, not the original small signed type. Otherwise "conv.ovf.i2.un(i1(-1))" is
-            // wrongly treated as a widening conversion from i1 to i2 when in fact it is a narrowing conversion
-            // from u4 to i2.
+            // Small signed values are automatically sign extended to INT. If the cast is interpreting the
+            // resulting INT value as unsigned then the "sign" bits end up being "value" bits and srcType
+            // must be UINT, not the original small signed type. Otherwise "conv.ovf.i2.un(i1(-1))" is
+            // wrongly treated as a widening conversion from i1 to i2 when in fact it is a narrowing
+            // conversion from u4 to i2.
             srcType = TYP_UINT;
         }
         else
@@ -835,197 +821,83 @@ GenTree* Compiler::fgMorphCastPost(GenTreeCast* cast)
         }
     }
 
+    bool     unsignedSrc = varTypeIsUnsigned(srcType);
+    bool     unsignedDst = varTypeIsUnsigned(dstType);
+    unsigned srcSize     = varTypeSize(srcType);
+    unsigned dstSize     = varTypeSize(dstType);
+
+    if (dstSize == srcSize)
     {
-        bool     unsignedSrc = varTypeIsUnsigned(srcType);
-        bool     unsignedDst = varTypeIsUnsigned(dstType);
-        unsigned srcSize     = varTypeSize(srcType);
-        unsigned dstSize     = varTypeSize(dstType);
-
-        // For same sized casts with
-        //    the same signs or non-overflow cast we discard them as well
-        if (srcSize == dstSize)
+        if (unsignedSrc == unsignedDst)
         {
-            // This should have been handled above
-            noway_assert(varTypeIsGC(srcType) == varTypeIsGC(dstType));
-
-            if (unsignedSrc == unsignedDst)
-            {
-                goto REMOVE_CAST;
-            }
-
-            if (!cast->HasOverflowCheck())
-            {
-                if (!varTypeIsSmall(srcType))
-                {
-                    goto REMOVE_CAST;
-                }
-
-                // For small type casts, when necessary we force
-                // the src operand to the dstType and allow the
-                // implied load from memory to perform the casting
-                if (src->OperIs(GT_IND_LOAD, GT_LCL_LOAD_FLD))
-                {
-                    src->SetType(dstType);
-                    // We're changing the type here so we need to update the VN;
-                    // in other cases we discard the cast without modifying oper
-                    // so the VN doesn't change.
-                    src->SetVNP(cast->GetVNP());
-
-                    goto REMOVE_CAST;
-                }
-            }
+            return src;
         }
-        else if (srcSize < dstSize) // widening cast
+    }
+    else if (dstSize > srcSize)
+    {
+        if (unsignedSrc || !unsignedDst)
         {
-            if ((dstSize == 4) && (!cast->HasOverflowCheck() || !unsignedDst || unsignedSrc))
-            {
-                goto REMOVE_CAST;
-            }
-
-            // Widening casts from unsigned or to signed can never overflow
-
-            if (unsignedSrc || !unsignedDst)
-            {
-                cast->RemoveOverflowCheck();
-            }
-        }
-        else // if (srcSize > dstSize)
-        {
-            // Try to narrow the operand of the cast and discard the cast
-            if (!cast->HasOverflowCheck() && opts.OptEnabled(CLFLG_TREETRANS) &&
-                fgMorphNarrowTree(src, srcType, dstType, cast->GetVNP(), false))
-            {
-                fgMorphNarrowTree(src, srcType, dstType, cast->GetVNP(), true);
-
-                // If oper is changed into a cast to TYP_INT, or to a GT_NOP, we may need to discard it
-
-                if (GenTreeCast* srcCast = src->IsCast())
-                {
-                    if (srcCast->GetCastType() == varActualType(srcCast->GetOp(0)->GetType()))
-                    {
-                        src = srcCast->GetOp(0);
-                    }
-                }
-
-                goto REMOVE_CAST;
-            }
+            cast->ChangeOper(cast->IsCastUnsigned() ? GT_UXT : GT_SXT);
+            assert(cast->TypeIs(TYP_LONG));
+            return cast;
         }
     }
 
-    switch (src->GetOper())
+    if (src->OperIs(GT_COMMA) && fgIsCommaThrow(src DEBUGARG(false)))
     {
-        case GT_CNS_INT:
-#ifndef TARGET_64BIT
-        case GT_CNS_LNG:
-#endif
+        GenTree* val = src->AsOp()->GetOp(1);
+
+        if (cast->TypeIs(TYP_LONG))
         {
-            GenTree* folded = gtFoldExprConst(cast); // This may not fold the constant (NaN ...)
-
-            // Did we get a comma throw as a result of gtFoldExprConst?
-            if (folded != cast)
-            {
-                noway_assert(fgIsCommaThrow(folded DEBUGARG(false)));
-                folded->AsOp()->SetOp(0, fgMorphTree(folded->AsOp()->GetOp(0)));
-                INDEBUG(folded->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-                return folded;
-            }
-
-            if (!folded->IsCast())
-            {
-                return folded;
-            }
-
-            noway_assert(cast->GetOp(0) == src); // unchanged
-        }
-        break;
-
-        case GT_CAST:
-            // Check for two consecutive casts into the same dstType
-            if (!cast->HasOverflowCheck())
-            {
-                var_types dstType2 = src->AsCast()->GetCastType();
-                if (dstType == dstType2)
-                {
-                    goto REMOVE_CAST;
-                }
-
-                // Simplify some cast sequences:
-                //   Successive narrowing - CAST<byte>(CAST<short>(x)) is CAST<byte>(x)
-                //   Sign changing - CAST<byte>(CAST<ubyte>(x)) is CAST<byte>(x)
-                //   Unnecessary widening - CAST<byte>(CAST<long>(x)) is CAST<byte>(x)
-                if ((varTypeSize(dstType) <= varTypeSize(dstType2)) && !src->AsCast()->HasOverflowCheck())
-                {
-                    src = src->AsCast()->GetOp(0);
-                    cast->SetOp(0, src);
-
-                    // We may have had CAST<uint>(CAST<long>(x.int)),
-                    // this becomes CAST<uint>(x.int) and can be removed.
-                    if (varActualType(dstType) == varActualType(src->GetType()))
-                    {
-                        goto REMOVE_CAST;
-                    }
-                }
-            }
-            break;
-
-        case GT_SXT:
-        case GT_UXT:
-            if (varTypeIsInt(dstType) && !cast->HasOverflowCheck())
-            {
-                assert(src->TypeIs(TYP_LONG) && varActualTypeIsInt(src->AsUnOp()->GetOp(0)->GetType()));
-                return src->AsUnOp()->GetOp(0);
-            }
-            break;
-
-        case GT_COMMA:
-            if (fgIsCommaThrow(src DEBUGARG(false)))
-            {
-                GenTree* val = src->AsOp()->GetOp(1);
-
-                if (cast->TypeIs(TYP_LONG))
-                {
 #ifdef TARGET_64BIT
-                    val->ChangeToIntCon(TYP_LONG, 0);
+            val->ChangeToIntCon(TYP_LONG, 0);
 #else
-                    val->ChangeToLngCon(0);
+            val->ChangeToLngCon(0);
 #endif
-                    src->SetType(TYP_LONG);
+            src->SetType(TYP_LONG);
 
-                    if (vnStore != nullptr)
-                    {
-                        val->SetVNP(ValueNumPair{vnStore->VNForLongCon(0)});
-                    }
-                }
-                else
-                {
-                    val->ChangeToIntCon(TYP_INT, 0);
-                    src->SetType(TYP_INT);
-
-                    if (vnStore != nullptr)
-                    {
-                        val->SetVNP(ValueNumPair{vnStore->VNForIntCon(0)});
-                    }
-                }
-
-                return src;
+            if (vnStore != nullptr)
+            {
+                val->SetVNP(ValueNumPair{vnStore->VNForLongCon(0)});
             }
-            break;
+        }
+        else
+        {
+            val->ChangeToIntCon(TYP_INT, 0);
+            src->SetType(TYP_INT);
 
-        default:
-            break;
+            if (vnStore != nullptr)
+            {
+                val->SetVNP(ValueNumPair{vnStore->VNForIntCon(0)});
+            }
+        }
+
+        return src;
     }
 
-    if (cast->HasOverflowCheck())
+    if (src->IsIntConCommon())
     {
-        fgGetThrowHelperBlock(ThrowHelperKind::Overflow, fgMorphBlock);
+        GenTree* folded = gtFoldExprConst(cast);
+
+        if (folded != cast)
+        {
+            noway_assert(fgIsCommaThrow(folded DEBUGARG(false)));
+            folded->AsOp()->SetOp(0, fgMorphTree(folded->AsOp()->GetOp(0)));
+            INDEBUG(folded->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+            return folded;
+        }
+
+        if (!folded->IsCast())
+        {
+            return folded;
+        }
+
+        noway_assert(cast->GetOp(0) == src);
     }
+
+    fgGetThrowHelperBlock(ThrowHelperKind::Overflow, fgMorphBlock);
 
     return cast;
-
-REMOVE_CAST:
-    // Here we've eliminated the cast, so just return its operand
-    DEBUG_DESTROY_NODE(cast);
-    return src;
 }
 
 // See if the given tree can be computed in the given precision (which must
