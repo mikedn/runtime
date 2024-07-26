@@ -7554,43 +7554,31 @@ ValueNum ValueNumStore::VNForBitCast(ValueNum valueVN, var_types toType)
 
 void ValueNumbering::NumberCast(GenTreeCast* cast)
 {
-    var_types fromType      = varActualType(cast->GetOp(0)->GetType());
-    bool      fromUnsigned  = cast->IsCastUnsigned();
-    var_types toType        = cast->GetCastType();
-    bool      checkOverflow = cast->HasOverflowCheck();
+    var_types fromType     = varActualType(cast->GetOp(0)->GetType());
+    bool      fromUnsigned = cast->IsCastUnsigned();
+    var_types toType       = cast->GetCastType();
 
+    assert(cast->HasOverflowCheck());
     assert(varCastType(toType) == cast->GetType());
     assert(varTypeIsIntegral(fromType) && varTypeIsIntegral(toType));
-
-    // Sometimes GTF_CAST_UNSIGNED is unnecessarily set on CAST nodes, ignore it.
-    // TODO-MIKE-Cleanup: Why is this here? Just don't set it in the first place or remove it in morph.
-
-    if (!checkOverflow && (varTypeSize(toType) <= varTypeSize(fromType)))
-    {
-        fromUnsigned = false;
-    }
 
     ValueNumPair exset;
     ValueNumPair vnp = vnStore->UnpackExset(cast->GetOp(0)->GetVNP(), &exset);
 
-    VNFunc   vnFunc     = checkOverflow ? VNF_CastOvf : VNF_Cast;
     ValueNum castTypeVN = vnStore->VNForCastOper(toType, fromUnsigned);
-    vnp                 = vnStore->VNPairForFunc(varActualType(toType), vnFunc, vnp, {castTypeVN, castTypeVN});
+    vnp                 = vnStore->VNPairForFunc(varActualType(toType), VNF_CastOvf, vnp, {castTypeVN, castTypeVN});
 
-    if (checkOverflow)
+    // Do not add exceptions for folded casts. We only fold checked casts that do not overflow.
+    if (!vnStore->IsVNConstant(vnp.GetLiberal()))
     {
-        // Do not add exceptions for folded casts. We only fold checked casts that do not overflow.
-        if (!vnStore->IsVNConstant(vnp.GetLiberal()))
-        {
-            ValueNum ex = vnStore->VNForFunc(TYP_REF, VNF_ConvOverflowExc, vnp.GetLiberal(), castTypeVN);
-            exset.SetLiberal(vnStore->ExsetUnion(exset.GetLiberal(), vnStore->ExsetCreate(ex)));
-        }
+        ValueNum ex = vnStore->VNForFunc(TYP_REF, VNF_ConvOverflowExc, vnp.GetLiberal(), castTypeVN);
+        exset.SetLiberal(vnStore->ExsetUnion(exset.GetLiberal(), vnStore->ExsetCreate(ex)));
+    }
 
-        if (!vnStore->IsVNConstant(vnp.GetConservative()))
-        {
-            ValueNum ex = vnStore->VNForFunc(TYP_REF, VNF_ConvOverflowExc, vnp.GetConservative(), castTypeVN);
-            exset.SetConservative(vnStore->ExsetUnion(exset.GetConservative(), vnStore->ExsetCreate(ex)));
-        }
+    if (!vnStore->IsVNConstant(vnp.GetConservative()))
+    {
+        ValueNum ex = vnStore->VNForFunc(TYP_REF, VNF_ConvOverflowExc, vnp.GetConservative(), castTypeVN);
+        exset.SetConservative(vnStore->ExsetUnion(exset.GetConservative(), vnStore->ExsetCreate(ex)));
     }
 
     cast->SetVNP(vnStore->PackExset(vnp, exset));
