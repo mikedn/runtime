@@ -173,16 +173,9 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
 
     JITDUMPRANGE(Range(), use.Def(), "Decomposing LONG tree. AFTER:\n");
 
-    if (m_compiler->opts.OptimizationEnabled() && !use.IsDummyUse())
+    if (m_compiler->opts.OptimizationEnabled() && !use.IsDummyUse() && use.User()->OperIs(GT_TRUNC))
     {
-        if (use.User()->IsCast() && use.User()->TypeIs(TYP_INT) && use.Def()->OperIs(GT_LONG))
-        {
-            nextNode = OptimizeCastFromDecomposedLong(use.User()->AsCast(), nextNode);
-        }
-        else if (use.User()->OperIs(GT_TRUNC))
-        {
-            nextNode = OptimizeTruncate(use.User()->AsUnOp(), nextNode);
-        }
+        nextNode = OptimizeTruncate(use.User()->AsUnOp(), nextNode);
     }
 
     return nextNode;
@@ -361,9 +354,12 @@ GenTree* DecomposeLongs::DecomposeLclStoreFld(LIR::Use& use)
 
 GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
 {
-    GenTreeCast* cast     = use.Def()->AsCast();
-    GenTree*     loResult = nullptr;
-    GenTree*     hiResult = nullptr;
+    GenTreeCast* cast = use.Def()->AsCast();
+
+    assert(cast->HasOverflowCheck() && cast->TypeIs(TYP_LONG));
+
+    GenTree* loResult = nullptr;
+    GenTree* hiResult = nullptr;
 
     var_types srcType = cast->GetOp(0)->GetType();
     var_types dstType = cast->GetCastType();
@@ -372,10 +368,10 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
 
     if (srcType == TYP_LONG)
     {
-        noway_assert(cast->HasOverflowCheck() && varTypeIsLong(dstType));
+        assert(varTypeIsLong(dstType));
 
         GenTreeOp* srcOp = cast->GetOp(0)->AsOp();
-        noway_assert(srcOp->OperIs(GT_LONG));
+        assert(srcOp->OperIs(GT_LONG));
         GenTree* loSrcOp = srcOp->GetOp(0);
         GenTree* hiSrcOp = srcOp->GetOp(1);
 
@@ -396,14 +392,14 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
     }
     else
     {
-        noway_assert(varActualTypeIsInt(srcType));
+        assert(varActualTypeIsInt(srcType));
 
         if (cast->IsCastUnsigned())
         {
             srcType = varTypeToUnsigned(srcType);
         }
 
-        if (cast->HasOverflowCheck() && !varTypeIsUnsigned(srcType) && varTypeIsUnsigned(dstType))
+        if (!varTypeIsUnsigned(srcType) && varTypeIsUnsigned(dstType))
         {
             // An overflow check is needed only when casting from a signed type to ulong.
             // Change the cast type to uint to take advantage of the overflow check provided
@@ -416,39 +412,27 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
 
             Range().InsertAfter(loResult, hiResult);
         }
+        else if (varTypeIsUnsigned(srcType))
+        {
+            loResult = cast->GetOp(0);
+            hiResult = m_compiler->gtNewIconNode(0);
+
+            Range().InsertAfter(cast, hiResult);
+            Range().Remove(cast);
+        }
         else
         {
-            if (!use.IsDummyUse() && use.User()->OperIs(GT_MUL))
-            {
-                // This INT to LONG cast is used by a MUL that will be transformed by DecomposeMul into
-                // a LONG_MUL and as a result the high operand produced by the cast will become dead.
-                // Skip cast decomposition so DecomposeMul doesn't need to bother with dead code removal,
-                // especially in the case of sign extending casts that also introduce new locals.
+            LIR::Use   src(Range(), &cast->gtOp1, cast);
+            LclVarDsc* lcl = src.ReplaceWithLclLoad(m_compiler);
 
-                skipDecomposition = true;
-            }
-            else if (varTypeIsUnsigned(srcType))
-            {
-                loResult = cast->gtGetOp1();
-                hiResult = m_compiler->gtNewIconNode(0);
+            loResult = src.Def();
 
-                Range().InsertAfter(cast, hiResult);
-                Range().Remove(cast);
-            }
-            else
-            {
-                LIR::Use   src(Range(), &cast->gtOp1, cast);
-                LclVarDsc* lcl = src.ReplaceWithLclLoad(m_compiler);
+            GenTree* loCopy  = m_compiler->gtNewLclLoad(lcl, TYP_INT);
+            GenTree* shiftBy = m_compiler->gtNewIconNode(31, TYP_INT);
+            hiResult         = m_compiler->gtNewOperNode(GT_RSH, TYP_INT, loCopy, shiftBy);
 
-                loResult = src.Def();
-
-                GenTree* loCopy  = m_compiler->gtNewLclLoad(lcl, TYP_INT);
-                GenTree* shiftBy = m_compiler->gtNewIconNode(31, TYP_INT);
-                hiResult         = m_compiler->gtNewOperNode(GT_RSH, TYP_INT, loCopy, shiftBy);
-
-                Range().InsertAfter(cast, loCopy, shiftBy, hiResult);
-                Range().Remove(cast);
-            }
+            Range().InsertAfter(cast, loCopy, shiftBy, hiResult);
+            Range().Remove(cast);
         }
     }
 
@@ -1425,93 +1409,6 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
 }
 
 #endif // FEATURE_HW_INTRINSICS
-
-// Optimizes a cast from GT_LONG by discarding the high part of the source and,
-// if the cast is to INT, the cast node itself.
-// Accounts for side effects and marks nodes unused as necessary.
-//
-// Only accepts casts to integer types that are not long.
-// Does not optimize checked casts.
-//
-// Returns the next node to process in DecomposeRange: "nextNode->gtNext"
-// if "cast == nextNode", simply "nextNode" otherwise.
-//
-// Because "nextNode" usually is "cast", and this method may remove "cast"
-// from the linear order, it needs to return the updated "nextNode". Instead
-// of receiving it as an argument, it could assume that "nextNode" is always
-// "cast->GetOp(0)->gtNext", but not making that assumption seems better.
-//
-GenTree* DecomposeLongs::OptimizeCastFromDecomposedLong(GenTreeCast* cast, GenTree* nextNode)
-{
-    GenTreeOp* src     = cast->GetOp(0)->AsOp();
-    var_types  dstType = cast->GetType();
-
-    assert(src->OperIs(GT_LONG));
-    assert(varActualTypeIsInt(dstType));
-
-    if (cast->HasOverflowCheck())
-    {
-        return nextNode;
-    }
-
-    GenTree* loSrc = src->GetOp(0);
-    GenTree* hiSrc = src->GetOp(1);
-
-    JITDUMP("Optimizing a truncating cast [%06u] from decomposed LONG [%06u]\n", cast->GetID(), src->GetID());
-    INDEBUG(GenTree* treeToDisplay = cast);
-
-    // TODO-CQ: we could go perform this removal transitively.
-    // See also identical code in shift decomposition.
-    if ((hiSrc->gtFlags & (GTF_ALL_EFFECT | GTF_SET_FLAGS)) == 0)
-    {
-        JITDUMP("Removing the HI part of [%06u] and marking its operands unused:\n", src->GetID());
-        DISPNODE(hiSrc);
-        Range().Remove(hiSrc, /* markOperandsUnused */ true);
-    }
-    else
-    {
-        JITDUMP("The HI part of [%06u] has side effects, marking it unused\n", src->GetID());
-        hiSrc->SetUnusedValue();
-    }
-
-    JITDUMP("Removing the LONG source:\n");
-    DISPNODE(src);
-    Range().Remove(src);
-
-    if (varTypeIsSmall(dstType))
-    {
-        JITDUMP("Cast is to a small type, keeping it, the new source is [%06u]\n", loSrc->GetID());
-        cast->SetOp(0, loSrc);
-    }
-    else
-    {
-        LIR::Use useOfCast;
-        if (Range().TryGetUse(cast, &useOfCast))
-        {
-            useOfCast.ReplaceWith(m_compiler, loSrc);
-        }
-        else
-        {
-            loSrc->SetUnusedValue();
-        }
-
-        if (nextNode == cast)
-        {
-            nextNode = nextNode->gtNext;
-        }
-
-        INDEBUG(treeToDisplay = loSrc);
-        JITDUMP("Removing the cast:\n");
-        DISPNODE(cast);
-
-        Range().Remove(cast);
-    }
-
-    JITDUMP("Final result:\n")
-    DISPTREERANGE(Range(), treeToDisplay);
-
-    return nextNode;
-}
 
 GenTree* DecomposeLongs::OptimizeTruncate(GenTreeUnOp* trunc, GenTree* nextNode)
 {

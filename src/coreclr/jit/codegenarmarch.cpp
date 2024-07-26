@@ -2646,6 +2646,8 @@ void CodeGen::GenOverflowConv(GenTreeUnOp* cast)
 
 void CodeGen::GenCastIntToInt(GenTreeCast* cast)
 {
+    assert(cast->HasOverflowCheck() && cast->TypeIs(TYP_INT, TYP_LONG));
+
     GenTree* src = cast->GetOp(0);
 
     genConsumeRegs(src);

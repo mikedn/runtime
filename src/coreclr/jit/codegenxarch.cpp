@@ -5043,7 +5043,7 @@ void CodeGen::GenIntCompare(GenTreeOp* cmp)
 #ifndef TARGET_64BIT
 void CodeGen::GenCastLongToInt(GenTreeCast* cast)
 {
-    assert(cast->TypeIs(TYP_INT));
+    assert(cast->TypeIs(TYP_INT) && cast->HasOverflowCheck());
 
     GenTreeOp* src = cast->GetOp(0)->AsOp();
     noway_assert(src->OperIs(GT_LONG));
@@ -5058,52 +5058,49 @@ void CodeGen::GenCastLongToInt(GenTreeCast* cast)
 
     Emitter& emit = *GetEmitter();
 
-    if (cast->HasOverflowCheck())
+    var_types srcType = cast->IsCastUnsigned() ? TYP_ULONG : TYP_LONG;
+    var_types dstType = cast->GetCastType();
+    assert((dstType == TYP_INT) || (dstType == TYP_UINT));
+
+    // Generate an overflow check for [u]long to [u]int casts:
+    //
+    // long  -> int  - check if the upper 33 bits are all 0 or all 1
+    //
+    // ulong -> int  - check if the upper 33 bits are all 0
+    //
+    // long  -> uint - check if the upper 32 bits are all 0
+    // ulong -> uint - check if the upper 32 bits are all 0
+
+    if ((srcType == TYP_LONG) && (dstType == TYP_INT))
     {
-        var_types srcType = cast->IsCastUnsigned() ? TYP_ULONG : TYP_LONG;
-        var_types dstType = cast->GetCastType();
-        assert((dstType == TYP_INT) || (dstType == TYP_UINT));
+        emit.emitIns_R_R(INS_test, EA_4BYTE, loSrcReg, loSrcReg);
+        insGroup* allOne = emit.CreateTempLabel();
+        emit.emitIns_J(INS_js, allOne);
 
-        // Generate an overflow check for [u]long to [u]int casts:
-        //
-        // long  -> int  - check if the upper 33 bits are all 0 or all 1
-        //
-        // ulong -> int  - check if the upper 33 bits are all 0
-        //
-        // long  -> uint - check if the upper 32 bits are all 0
-        // ulong -> uint - check if the upper 32 bits are all 0
+        emit.emitIns_R_R(INS_test, EA_4BYTE, hiSrcReg, hiSrcReg);
+        genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
+        insGroup* success = emit.CreateTempLabel();
+        emit.emitIns_J(INS_jmp, success);
 
-        if ((srcType == TYP_LONG) && (dstType == TYP_INT))
+        emit.DefineTempLabel(allOne);
+        emit.emitIns_R_I(INS_cmp, EA_4BYTE, hiSrcReg, -1);
+        genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
+
+        emit.DefineTempLabel(success);
+    }
+    else
+    {
+        if ((srcType == TYP_ULONG) && (dstType == TYP_INT))
         {
             emit.emitIns_R_R(INS_test, EA_4BYTE, loSrcReg, loSrcReg);
-            insGroup* allOne = emit.CreateTempLabel();
-            emit.emitIns_J(INS_js, allOne);
-
-            emit.emitIns_R_R(INS_test, EA_4BYTE, hiSrcReg, hiSrcReg);
-            genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
-            insGroup* success = emit.CreateTempLabel();
-            emit.emitIns_J(INS_jmp, success);
-
-            emit.DefineTempLabel(allOne);
-            emit.emitIns_R_I(INS_cmp, EA_4BYTE, hiSrcReg, -1);
-            genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
-
-            emit.DefineTempLabel(success);
+            genJumpToThrowHlpBlk(EJ_s, ThrowHelperKind::Overflow);
         }
-        else
-        {
-            if ((srcType == TYP_ULONG) && (dstType == TYP_INT))
-            {
-                emit.emitIns_R_R(INS_test, EA_4BYTE, loSrcReg, loSrcReg);
-                genJumpToThrowHlpBlk(EJ_s, ThrowHelperKind::Overflow);
-            }
 
-            emit.emitIns_R_R(INS_test, EA_4BYTE, hiSrcReg, hiSrcReg);
-            genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
-        }
+        emit.emitIns_R_R(INS_test, EA_4BYTE, hiSrcReg, hiSrcReg);
+        genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
     }
 
-    inst_Mov(TYP_INT, dstReg, loSrcReg, /* canSkip */ true);
+    emit.emitIns_Mov(INS_mov, EA_4BYTE, dstReg, loSrcReg, /* canSkip */ true);
 
     DefReg(cast);
 }
@@ -5166,6 +5163,8 @@ void CodeGen::GenCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& desc
 
 void CodeGen::GenCastIntToInt(GenTreeCast* cast)
 {
+    assert(cast->HasOverflowCheck() && cast->TypeIs(TYP_INT, TYP_LONG));
+
     GenTree* src = cast->GetOp(0);
 
     genConsumeRegs(src);
