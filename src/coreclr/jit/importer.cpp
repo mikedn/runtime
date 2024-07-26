@@ -163,22 +163,22 @@ GenTree* Importer::impPopStackCoerceArg(var_types signatureType)
 
     if (signatureType != stackType)
     {
-        if ((signatureType == TYP_INT) && (stackType == TYP_LONG))
+        if ((stackType == TYP_LONG) && (signatureType == TYP_INT))
         {
+            // TODO-MIKE-Review: This should only be done when the stack type is 'native int'
+            // but we don't track this exact type so we have to do it whenever the stack type
+            // is LONG, which is a relaxation of the ECMA III.1.6 Implicit argument coercion.
             tree = gtNewOperNode(GT_TRUNC, TYP_INT, tree);
         }
-        else if ((varTypeIsFloating(signatureType) && varTypeIsFloating(stackType))
-#ifdef TARGET_64BIT
-                 // TODO-MIKE-Review: This should only be done when the stack type is 'native int'
-                 // but we don't track this exact type so we have to do it whenever the stack type
-                 // is LONG, which is a relaxation of the ECMA III.1.6 Implicit argument coercion.
-                 || ((signatureType == TYP_INT) && (stackType == TYP_LONG))
-#endif
-                     )
+        else if ((stackType == TYP_DOUBLE) && (signatureType == TYP_FLOAT))
         {
-            tree = gtNewCastNode(tree, false, signatureType);
+            tree = gtNewOperNode(GT_FTRUNC, TYP_FLOAT, tree);
         }
-        else if ((signatureType == TYP_BYREF) && (stackType == TYP_I_IMPL))
+        else if ((stackType == TYP_FLOAT) && (signatureType == TYP_DOUBLE))
+        {
+            tree = gtNewOperNode(GT_FXT, TYP_DOUBLE, tree);
+        }
+        else if ((stackType == TYP_I_IMPL) && (signatureType == TYP_BYREF))
         {
             // TODO-MIKE-Review: ECMA III.1.6 "Implicit argument coercion" states that in this
             // case GC tracking should start. This could probably be achieved by inserting a
@@ -626,8 +626,7 @@ GenTreeCall::Use* Importer::PopCallArgs(CORINFO_SIG_INFO* sig, GenTree* extraArg
 
 GenTree* Importer::CoerceCallArg(var_types paramType, GenTree* arg)
 {
-    var_types argType  = varActualType(arg->GetType());
-    var_types castType = TYP_UNDEF;
+    var_types argType = varActualType(arg->GetType());
 
     assert(paramType != argType);
 
@@ -642,7 +641,6 @@ GenTree* Importer::CoerceCallArg(var_types paramType, GenTree* arg)
                 return gtNewOperNode(GT_TRUNC, TYP_INT, arg);
             }
             break;
-
         case TYP_LONG:
             // We allow implicit int32 to int64 extension that ECMA does not allow,
             // JIT's type system doesn't distinguish between "native int" and int32.
@@ -655,54 +653,57 @@ GenTree* Importer::CoerceCallArg(var_types paramType, GenTree* arg)
                 return gtNewOperNode(GT_SXT, TYP_LONG, arg);
             }
 
-            // We allow BYREF to LONG conversion that ECMA does not allow but that
-            // appears in real code (e.g. passing a ldloca/ldarga value as native int).
-            castType = argType == TYP_BYREF ? TYP_BYREF : TYP_UNDEF;
+            if (argType == TYP_BYREF)
+            {
+                // We allow BYREF to LONG conversion that ECMA does not allow but that
+                // appears in real code (e.g. passing a ldloca/ldarga value as native int).
+                return arg;
+            }
             break;
 #else
         case TYP_INT:
-            // We allow BYREF to INT conversion that ECMA does not allow but that
-            // appears in real code (e.g. passing a ldloca/ldarga value as native int).
-            castType = argType == TYP_BYREF ? TYP_BYREF : TYP_UNDEF;
+            if (argType == TYP_BYREF)
+            {
+                // We allow BYREF to INT conversion that ECMA does not allow but that
+                // appears in real code (e.g. passing a ldloca/ldarga value as native int).
+                return arg;
+            }
             break;
 #endif
-
+        case TYP_BYREF:
+            if ((argType == TYP_I_IMPL) || (argType == TYP_REF))
+            {
+                // We allow REF to BYREF conversion that ECMA does not allow but that
+                // sometimes appears in real code (e.g. to get the method table from
+                // an object reference or to create a null BYREF by using ldnull, like
+                // IL stubs using GetDelegateTarget do).
+                return arg;
+            }
+            break;
         case TYP_FLOAT:
             if (argType == TYP_DOUBLE)
             {
                 return gtNewOperNode(GT_FTRUNC, TYP_FLOAT, arg);
             }
             break;
-
         case TYP_DOUBLE:
             if (argType == TYP_FLOAT)
             {
                 return gtNewOperNode(GT_FXT, TYP_DOUBLE, arg);
             }
             break;
-
-        case TYP_BYREF:
-            // We allow REF to BYREF conversion that ECMA does not allow but that
-            // sometimes appears in real code (e.g. to get the method table from
-            // an object reference or to create a null BYREF by using ldnull, like
-            // IL stubs using GetDelegateTarget do).
-            castType = ((argType == TYP_I_IMPL) || (argType == TYP_REF)) ? argType : TYP_UNDEF;
-            break;
-
         case TYP_STRUCT:
-            castType = varTypeIsSIMD(argType) ? argType : TYP_UNDEF;
+            if (varTypeIsSIMD(argType))
+            {
+                // TODO-MIKE-Review: Check if this is really necessary.
+                return arg;
+            }
             break;
-
         default:
             break;
     }
 
-    if (castType == TYP_UNDEF)
-    {
-        BADCODE("the call argument has a type that can't be implicitly converted to the parameter type");
-    }
-
-    return castType == argType ? arg : gtNewCastNode(arg, false, castType);
+    BADCODE("the call argument has a type that can't be implicitly converted to the parameter type");
 }
 
 #ifdef TARGET_X86
@@ -2110,19 +2111,19 @@ GenTree* Importer::impImplicitIorI4Cast(GenTree* tree, var_types dstTyp)
             }
         }
 #ifdef TARGET_64BIT
-        else if (varTypeIsI(wantedType) && (currType == TYP_INT))
+        else if ((currType == TYP_INT) && varTypeIsI(wantedType))
         {
             // Note that this allows TYP_INT to be cast to TYP_LONG when wantedType is a TYP_BYREF or TYP_REF
             tree = gtNewOperNode(GT_SXT, TYP_LONG, tree);
         }
-        else if ((wantedType == TYP_INT) && (currType == TYP_LONG))
+        else if (varTypeIsI(currType) && (wantedType == TYP_INT))
         {
+            if (varTypeIsGC(currType))
+            {
+                tree = gtNewCastNode(tree, false, TYP_LONG);
+            }
+
             tree = gtNewOperNode(GT_TRUNC, TYP_INT, tree);
-        }
-        else if ((wantedType == TYP_INT) && varTypeIsGC(currType))
-        {
-            // Note that this allows TYP_BYREF or TYP_REF to be cast to a TYP_INT
-            tree = gtNewCastNode(tree, false, TYP_INT);
         }
 #endif // TARGET_64BIT
     }
@@ -4743,22 +4744,17 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
             {
                 value = gtNewOperNode(GT_FTRUNC, TYP_FLOAT, value);
             }
+            else if ((srcTyp == TYP_LONG) && varActualTypeIsInt(dstTyp))
+            {
+                value = gtNewOperNode(GT_TRUNC, TYP_INT, value);
+            }
+            else if (varActualTypeIsInt(srcTyp) && (dstTyp == TYP_LONG))
+            {
+                value = gtNewOperNode(GT_SXT, TYP_LONG, value);
+            }
             else if (varActualType(srcTyp) != varActualType(dstTyp))
             {
-                if ((srcTyp == TYP_LONG) && varActualTypeIsInt(dstTyp))
-                {
-                    value = gtNewOperNode(GT_TRUNC, TYP_INT, value);
-                }
-                else if (varActualTypeIsInt(srcTyp) && (dstTyp == TYP_LONG))
-                {
-                    value = gtNewOperNode(GT_SXT, TYP_LONG, value);
-                }
-                else
-                {
-                    assert(varTypeIsIntegral(srcTyp) && varTypeIsIntegral(dstTyp));
-
-                    value = gtNewCastNode(value, false, dstTyp);
-                }
+                BADCODE("Invalid box value type");
             }
 
             store = comp->gtNewIndStore(dstTyp, addr, value);
@@ -6175,14 +6171,14 @@ GenTree* Importer::impConvertFieldStoreValue(var_types storeType, GenTree* value
     }
 #else
     // Implicit narrowing from LONG to INT for x86 JIT compatiblity.
-    if (value->TypeIs(TYP_LONG) && varActualTypeIsInt(storeType))
+    if (varTypeIsI(value->GetType()) && varActualTypeIsInt(storeType))
     {
+        if (varTypeIsGC(value->GetType()))
+        {
+            value = gtNewCastNode(value, false, TYP_LONG);
+        }
+
         value = gtNewOperNode(GT_TRUNC, TYP_INT, value);
-    }
-    else if (varTypeIsI(value->GetType()) && varActualTypeIsInt(storeType))
-    {
-        assert(varTypeIsGC(value->GetType()));
-        value = gtNewCastNode(value, false, TYP_INT);
     }
     // Implicit widening from INT to LONG for x86 JIT compatiblity.
     else if (varActualTypeIsInt(value->GetType()) && varTypeIsI(storeType))
@@ -8379,7 +8375,7 @@ var_types Importer::impGetNumericBinaryOpType(genTreeOps oper, GenTree** pOp1, G
         {
             assert(varTypeIsGC(op->GetType()));
 
-            return gtNewCastNode(op, fromUnsigned, TYP_LONG);
+            return gtNewCastNode(op, false, TYP_LONG);
         }
     };
 #endif
@@ -9305,10 +9301,15 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     op1 = impImplicitIorI4Cast(op1, lclTyp);
 
 #ifdef TARGET_64BIT
-                    // Downcast the TYP_I_IMPL into a 32-bit Int for x86 JIT compatiblity
-                    if (varTypeIsI(op1->GetType()) && varActualTypeIsInt(lclTyp))
+                    // Downcast native int into int32 for x86 JIT compatiblity.
+                    if (varActualTypeIsInt(lclTyp) && varTypeIsI(op1->GetType()))
                     {
-                        op1 = gtNewCastNode(op1, false, TYP_INT);
+                        if (varTypeIsGC(op1->GetType()))
+                        {
+                            op1 = gtNewCastNode(op1, false, TYP_LONG);
+                        }
+
+                        op1 = gtNewOperNode(GT_TRUNC, TYP_INT, op1);
                     }
 #endif
 
@@ -9504,10 +9505,15 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (!varActualTypeIsInt(op1->GetType()))
                 {
-                    // TODO-MIKE-Review: This should be BADCODE. Old code only asserted and
-                    // there's a pretty good chance that LONG values worked fine by accident.
-                    op1 = gtNewCastNode(op1, false, TYP_INT);
-                    assert(!"Bad endfilter value type");
+                    if (op1->TypeIs(TYP_LONG))
+                    {
+                        // Tolerate native int/int64 even if the spec requires int32.
+                        op1 = gtNewOperNode(GT_TRUNC, TYP_INT, op1);
+                    }
+                    else
+                    {
+                        BADCODE("Invalid endfilter value type");
+                    }
                 }
 
                 impSpillNoneAppendTree(gtNewOperNode(GT_RETFILT, TYP_INT, op1));
@@ -10420,10 +10426,19 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 type = varActualType(lclTyp);
 
+                if (varTypeIsGC(op1->GetType()))
+                {
+                    op1 = gtNewCastNode(op1, false, TYP_I_IMPL);
+                }
+
                 // If this is a no-op cast, just use op1.
                 if (!ovfl && (type == op1->GetType()) && (varTypeSize(type) == varTypeSize(lclTyp)))
                 {
                     // Nothing needs to change
+                }
+                else if (!ovfl && (varActualType(op1->GetType()) == varCastType(lclTyp)))
+                {
+                    // INT/(U)INT, LONG/(U)LONG conversions have no effect.
                 }
                 else
                 {

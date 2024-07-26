@@ -740,32 +740,33 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
     var_types srcType = varActualType(src->GetType());
     var_types dstType = cast->GetCastType();
 
-    assert(varTypeIsInt(srcType) || varTypeIsLong(srcType) || varTypeIsGC(srcType));
-    assert(varTypeIsInt(dstType) || varTypeIsLong(dstType));
-
     if (varTypeIsGC(srcType))
     {
+        assert((dstType == TYP_I_IMPL) && !cast->HasOverflowCheck());
+
         // We are casting away GC information. We would like to just change the type to int,
         // however this gives the emitter fits because it believes the variable is a GC
         // variable at the beginning of the instruction group, but is not turned non-gc by
         // the code generator we fix this by copying the GC pointer to a non-gc pointer temp.
-
         // We store to a I_IMPL temp and then do the cast from I_IMPL. With this we avoid
         // the GC problem and we allow casts to bytes, longs, etc...
+
         LclVarDsc* lcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("Cast away GC"));
         src->SetType(TYP_I_IMPL);
         GenTree* store = gtNewLclStore(lcl, TYP_I_IMPL, src);
         src->SetType(srcType);
         src = gtNewLclLoad(lcl, TYP_I_IMPL);
         src = gtNewCommaNode(store, src);
-        cast->SetOp(0, src);
-        srcType = TYP_I_IMPL;
+
+        return fgMorphTree(src);
     }
+
+    assert(varTypeIsInt(srcType) || varTypeIsLong(srcType) || varTypeIsGC(srcType));
+    assert(varTypeIsInt(dstType) || varTypeIsLong(dstType));
+    assert(cast->HasOverflowCheck());
 
     if ((srcType == TYP_LONG) && ((dstType == TYP_INT) || (dstType == TYP_UINT)))
     {
-        assert(cast->HasOverflowCheck());
-
         // As a special case, look for overflow-sensitive casts of an AND
         // expression, and see if the second operand is a small constant. Since
         // the result of an AND is bound by its smaller operand, it may be
