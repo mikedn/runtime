@@ -304,11 +304,6 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
             assert(comp->IsTargetIntrinsic(node->AsIntrinsic()->GetIntrinsic()));
             break;
 
-        case GT_CAST:
-            // Remove side effects that may have been inherited from operands.
-            node->SetSideEffects(node->AsCast()->HasOverflowCheck() ? GTF_EXCEPT : GTF_NONE);
-            break;
-
         case GT_DIV:
         case GT_UDIV:
         case GT_MOD:
@@ -356,6 +351,7 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
             node->SetSideEffects(GTF_EMPTY);
             break;
 
+        case GT_CAST:
         case GT_OVF_SCONV:
         case GT_OVF_UCONV:
         case GT_OVF_FTOS:

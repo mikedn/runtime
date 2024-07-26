@@ -1088,58 +1088,6 @@ bool Compiler::fgMorphNarrowTree(
 
             return true;
         }
-        case GT_CAST:
-        {
-            GenTreeCast* cast = tree->AsCast();
-
-            if (cast->HasOverflowCheck())
-            {
-                return false;
-            }
-
-            GenTree*  castSrc     = cast->GetOp(0);
-            var_types castSrcType = castSrc->GetType();
-
-            if (cast->GetCastType() != srct)
-            {
-                return false;
-            }
-
-            assert(varTypeIsIntegral(castSrcType));
-
-            if (varTypeSize(castSrcType) > dstSize)
-            {
-                return false;
-            }
-
-            if (doit)
-            {
-                var_types nodeType = varTypeNodeType(dstt);
-
-                if ((varTypeSize(castSrcType) == dstSize) &&
-                    ((varTypeIsUnsigned(nodeType) == varTypeIsUnsigned(castSrcType)) || !varTypeIsSmall(nodeType)))
-                {
-                    // Same size and there is no signedness mismatch for small types,
-                    // change the CAST into a NOP
-
-                    JITDUMP("Cast operation has no effect, replacing [%06u] CAST with NOP.\n", cast->GetID());
-
-                    cast->SetCastUnsigned(false);
-                    tree->ChangeOper(GT_NOP);
-                    tree->SetType(nodeType);
-                    tree->SetVNP(castSrc->GetVNP());
-                }
-                else
-                {
-                    // oprSize is smaller or there is a signedness mismatch for small types
-
-                    cast->SetCastType(nodeType);
-                    cast->SetVNP(vnpNarrow);
-                }
-            }
-
-            return true;
-        }
         case GT_SXT:
         case GT_UXT:
         {
@@ -1258,15 +1206,6 @@ bool Compiler::fgMorphNarrowTree(
                 return false;
             }
             goto COMMON_BINOP;
-        }
-        case GT_OVF_SADD:
-        case GT_OVF_UADD:
-        case GT_OVF_SMUL:
-        case GT_OVF_UMUL:
-        {
-            noway_assert(!doit);
-
-            return false;
         }
         case GT_ADD:
         case GT_MUL:
@@ -5685,7 +5624,7 @@ GenTree* Compiler::fgMorphLclLoad(GenTreeLclLoad* load)
     load->SetType(TYP_INT);
     fgMorphTreeDone(load);
 
-    GenTreeUnOp* conv = gtNewOperNode(GT_CONV, lcl->GetType(), load);
+    GenTreeUnOp* conv = gtNewOperNode(GT_CONV, varCastType(lcl->GetType()), load);
     INDEBUG(conv->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
     return conv;
 }
@@ -9911,7 +9850,7 @@ GenTree* Compiler::fgMorphNormalizeLclStore(GenTreeLclStore* store, GenTree* val
 
             if (gtIsSmallIntCastNeeded(value, lcl->GetType()))
             {
-                value = gtNewOperNode(GT_CONV, lcl->GetType(), value);
+                value = gtNewOperNode(GT_CONV, varCastType(lcl->GetType()), value);
                 store->SetValue(value);
             }
         }
@@ -10570,7 +10509,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             {
                 // Small-typed return values are extended by the callee.
 
-                op1 = gtNewOperNode(GT_CONV, info.compRetType, op1);
+                op1 = gtNewOperNode(GT_CONV, varCastType(info.compRetType), op1);
                 op1 = fgMorphTree(op1);
 
                 tree->AsUnOp()->SetOp(0, op1);

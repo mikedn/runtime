@@ -1882,6 +1882,7 @@ void LinearScan::BuildBoundsChk(GenTreeBoundsChk* node)
 void LinearScan::BuildCast(GenTreeCast* cast)
 {
     assert(varTypeIsIntegral(cast->GetType()) && varTypeIsIntegral(cast->GetOp(0)->GetType()));
+    assert(cast->HasOverflowCheck());
 
     GenTree* src = cast->GetOp(0);
 
@@ -1897,7 +1898,7 @@ void LinearScan::BuildCast(GenTreeCast* cast)
 #else
     // Overflow checking cast from TYP_(U)LONG to TYP_UINT requires a temporary
     // register to extract the upper 32 bits of the 64 bit source register.
-    if (cast->HasOverflowCheck() && src->TypeIs(TYP_LONG) && (cast->GetCastType() == TYP_UINT))
+    if (src->TypeIs(TYP_LONG) && (cast->GetCastType() == TYP_UINT))
     {
         // Here we don't need internal register to be different from targetReg,
         // rather require it to be different from operand's reg.

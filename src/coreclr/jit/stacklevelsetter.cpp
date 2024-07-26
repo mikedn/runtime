@@ -131,12 +131,6 @@ void StackLevelSetter::SetThrowHelperBlockStackLevel(GenTree* node, BasicBlock* 
             break;
 
         case GT_CAST:
-            if (node->AsCast()->HasOverflowCheck())
-            {
-                SetThrowHelperBlockStackLevel(ThrowHelperKind::Overflow, throwBlock);
-            }
-            break;
-
         case GT_OVF_SCONV:
         case GT_OVF_UCONV:
         case GT_OVF_FTOS:

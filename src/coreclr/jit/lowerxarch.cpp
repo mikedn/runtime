@@ -3687,6 +3687,7 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
 void Lowering::ContainCheckCast(GenTreeCast* cast)
 {
     assert(varTypeIsIntegral(cast->GetType()) && varTypeIsIntegral(cast->GetOp(0)->GetType()));
+    assert(cast->HasOverflowCheck());
 
     GenTree* src = cast->GetOp(0);
 
@@ -3698,16 +3699,8 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
     }
 #endif
 
-    if (IsContainableMemoryOp(src) && (!cast->HasOverflowCheck() || IsSafeToContainMem(cast, src)))
+    if (IsContainableMemoryOp(src) && IsSafeToContainMem(cast, src))
     {
-        // If this isn't an overflow checking cast then we can move it
-        // right after the source node to avoid the interference check.
-        if (!cast->HasOverflowCheck() && (cast->gtPrev != src))
-        {
-            BlockRange().Remove(cast);
-            BlockRange().InsertAfter(src, cast);
-        }
-
         src->SetContained();
     }
     else
