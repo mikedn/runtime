@@ -1115,7 +1115,7 @@ void CodeGen::GenTruncate(GenTreeUnOp* node)
 
 void CodeGen::GenCastLongToInt(GenTreeCast* cast)
 {
-    assert(cast->TypeIs(TYP_INT));
+    assert(cast->TypeIs(TYP_INT) && cast->HasOverflowCheck());
 
     GenTreeOp* src = cast->GetOp(0)->AsOp();
     noway_assert(src->OperIs(GT_LONG));
@@ -1130,52 +1130,49 @@ void CodeGen::GenCastLongToInt(GenTreeCast* cast)
 
     Emitter& emit = *GetEmitter();
 
-    if (cast->HasOverflowCheck())
+    var_types srcType = cast->IsCastUnsigned() ? TYP_ULONG : TYP_LONG;
+    var_types dstType = cast->GetCastType();
+    assert((dstType == TYP_INT) || (dstType == TYP_UINT));
+
+    // Generate an overflow check for [u]long to [u]int casts:
+    //
+    // long  -> int  - check if the upper 33 bits are all 0 or all 1
+    //
+    // ulong -> int  - check if the upper 33 bits are all 0
+    //
+    // long  -> uint - check if the upper 32 bits are all 0
+    // ulong -> uint - check if the upper 32 bits are all 0
+
+    if ((srcType == TYP_LONG) && (dstType == TYP_INT))
     {
-        var_types srcType = cast->IsCastUnsigned() ? TYP_ULONG : TYP_LONG;
-        var_types dstType = cast->GetCastType();
-        assert((dstType == TYP_INT) || (dstType == TYP_UINT));
+        emit.emitIns_R_R(INS_tst, EA_4BYTE, loSrcReg, loSrcReg);
+        insGroup* allOne = emit.CreateTempLabel();
+        emit.emitIns_J(INS_bmi, allOne);
 
-        // Generate an overflow check for [u]long to [u]int casts:
-        //
-        // long  -> int  - check if the upper 33 bits are all 0 or all 1
-        //
-        // ulong -> int  - check if the upper 33 bits are all 0
-        //
-        // long  -> uint - check if the upper 32 bits are all 0
-        // ulong -> uint - check if the upper 32 bits are all 0
+        emit.emitIns_R_R(INS_tst, EA_4BYTE, hiSrcReg, hiSrcReg);
+        genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
+        insGroup* success = emit.CreateTempLabel();
+        emit.emitIns_J(INS_b, success);
 
-        if ((srcType == TYP_LONG) && (dstType == TYP_INT))
+        emit.DefineTempLabel(allOne);
+        inst_RV_IV(INS_cmp, hiSrcReg, -1, EA_4BYTE);
+        genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
+
+        emit.DefineTempLabel(success);
+    }
+    else
+    {
+        if ((srcType == TYP_ULONG) && (dstType == TYP_INT))
         {
             emit.emitIns_R_R(INS_tst, EA_4BYTE, loSrcReg, loSrcReg);
-            insGroup* allOne = emit.CreateTempLabel();
-            emit.emitIns_J(INS_bmi, allOne);
-
-            emit.emitIns_R_R(INS_tst, EA_4BYTE, hiSrcReg, hiSrcReg);
-            genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
-            insGroup* success = emit.CreateTempLabel();
-            emit.emitIns_J(INS_b, success);
-
-            emit.DefineTempLabel(allOne);
-            inst_RV_IV(INS_cmp, hiSrcReg, -1, EA_4BYTE);
-            genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
-
-            emit.DefineTempLabel(success);
+            genJumpToThrowHlpBlk(EJ_mi, ThrowHelperKind::Overflow);
         }
-        else
-        {
-            if ((srcType == TYP_ULONG) && (dstType == TYP_INT))
-            {
-                emit.emitIns_R_R(INS_tst, EA_4BYTE, loSrcReg, loSrcReg);
-                genJumpToThrowHlpBlk(EJ_mi, ThrowHelperKind::Overflow);
-            }
 
-            emit.emitIns_R_R(INS_tst, EA_4BYTE, hiSrcReg, hiSrcReg);
-            genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
-        }
+        emit.emitIns_R_R(INS_tst, EA_4BYTE, hiSrcReg, hiSrcReg);
+        genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
     }
 
-    inst_Mov(TYP_INT, dstReg, loSrcReg, /* canSkip */ true);
+    emit.emitIns_Mov(INS_mov, EA_4BYTE, dstReg, loSrcReg, /* canSkip */ true);
 
     DefReg(cast);
 }

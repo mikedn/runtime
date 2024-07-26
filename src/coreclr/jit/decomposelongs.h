@@ -52,7 +52,6 @@ private:
     GenTree* DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHWIntrinsic* node);
 #endif // FEATURE_HW_INTRINSICS
 
-    GenTree* OptimizeCastFromDecomposedLong(GenTreeCast* cast, GenTree* nextNode);
     GenTree* OptimizeTruncate(GenTreeUnOp* trunc, GenTree* nextNode);
 
     // Helper functions
