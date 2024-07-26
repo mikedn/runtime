@@ -14,53 +14,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "allocacheck.h"
 #include "valuenum.h"
 
-// Convert the given node into a call to the specified helper passing
-// the given argument list. Also tries to fold constants.
-GenTree* Compiler::fgMorphCastIntoHelper(GenTreeCast* cast, int helper)
-{
-    GenTree* src = cast->GetOp(0);
-
-    if (src->IsNumericConst())
-    {
-        GenTree* folded = gtFoldExprConst(cast); // This may not fold the constant (NaN ...)
-
-        if (folded != cast)
-        {
-            return fgMorphTree(folded);
-        }
-
-        if (folded->IsNumericConst())
-        {
-            return folded;
-        }
-
-        noway_assert(cast->OperIs(GT_CAST) && (cast->GetOp(0) == src));
-    }
-
-    if (src->TypeIs(TYP_FLOAT))
-    {
-        // All floating point cast helpers work only with DOUBLE.
-        src = gtNewOperNode(GT_FXT, TYP_DOUBLE, src);
-    }
-
-    // GenTreeCast nodes are small so they cannot be converted to calls in place. It may
-    // be possible to have the importer create large cast nodes as needed but the number
-    // of cast nodes that need to be converted to helper calls is typically very small
-    // (e.g. 0.03% in corelib x86) so it's not worth the risk. At least in theory, if 2
-    // cast nodes somehow combine into one and one is large and the other small then the
-    // combining code would need to be careful to preserve the large node, not the small
-    // node. Cast morphing code is convoluted enough as it is.
-    GenTree* call = new (this, GT_CALL) GenTreeCast(cast DEBUGARG(/*largeNode*/ true));
-    INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-    return fgMorphIntoHelperCall(call, helper, gtNewCallArgs(src));
-}
-
-/*****************************************************************************
- *
- *  Convert the given node into a call to the specified helper passing
- *  the given argument list.
- */
-
 GenTreeCall* Compiler::fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall::Use* args, bool morphArgs)
 {
     // The helper call ought to be semantically equivalent to the original node, so preserve its VN.
