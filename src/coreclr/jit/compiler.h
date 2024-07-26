@@ -4476,8 +4476,6 @@ private:
 
     bool fgInDifferentRegions(BasicBlock* blk1, BasicBlock* blk2);
 
-    GenTree* fgMorphCastIntoHelper(GenTreeCast* cast, int helper);
-
     GenTreeCall* fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall::Use* args, bool morphArgs = true);
 
     // A "MorphAddrContext" carries information from the surrounding context.  If we are evaluating a byref address,

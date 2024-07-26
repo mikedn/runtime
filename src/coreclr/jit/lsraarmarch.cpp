@@ -560,16 +560,8 @@ void LinearScan::BuildCast(GenTreeCast* cast)
 
 #ifdef TARGET_ARM
     var_types srcType = varActualType(src->GetType());
-    var_types dstType = cast->GetType();
 
     assert(!varTypeIsLong(srcType) || (src->OperIs(GT_LONG) && src->isContained()));
-
-    // Floating point to integer casts requires a temporary register.
-    if (varTypeIsFloating(srcType) && !varTypeIsFloating(dstType))
-    {
-        BuildInternalFloatDef(cast, RBM_ALLFLOAT);
-        setInternalRegsDelayFree = true;
-    }
 #endif
 
     if (!src->isContained())
@@ -592,7 +584,6 @@ void LinearScan::BuildCast(GenTreeCast* cast)
         assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
     }
 
-    BuildInternalUses();
     BuildDef(cast);
 }
 
@@ -628,7 +619,6 @@ void LinearScan::BuildOverflowConv(GenTreeUnOp* cast)
         assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
     }
 
-    BuildInternalUses();
     BuildDef(cast);
 }
 
