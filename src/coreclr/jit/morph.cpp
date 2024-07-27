@@ -10735,6 +10735,7 @@ DONE_MORPHING_CHILDREN:
 
         case GT_EQ:
         case GT_NE:
+        EQNE:
             if (opts.OptimizationEnabled() && op2->IsIntCon())
             {
                 if (op1->OperIs(GT_MOD) && (op2->AsIntCon()->GetValue() >= 0))
@@ -11124,6 +11125,7 @@ DONE_MORPHING_CHILDREN:
                     oper = (oper == GT_LE) ? GT_EQ : GT_NE;
                     tree->SetOper(oper, GenTree::PRESERVE_VN);
                     tree->SetRelopUnsigned(false);
+                    goto EQNE;
                 }
 
                 break;
@@ -11162,6 +11164,11 @@ DONE_MORPHING_CHILDREN:
                 if (vnStore != nullptr)
                 {
                     op2->SetVNP(ValueNumPair{vnStore->VNZeroForType(op2->GetType())});
+                }
+
+                if (tree->OperIs(GT_EQ, GT_NE))
+                {
+                    goto EQNE;
                 }
             }
             break;

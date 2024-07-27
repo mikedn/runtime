@@ -4752,6 +4752,13 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
             {
                 value = gtNewOperNode(GT_SXT, TYP_LONG, value);
             }
+            else if (varTypeIsSmall(dstTyp) && (srcTyp == TYP_INT))
+            {
+                // TODO-MIKE-Cleanup: There's no need to convert INT to small int when doing a
+                // small int store, truncation is implied. But removing this seems to confuse
+                // the box elimination code...
+                value = gtNewOperNode(GT_CONV, varCastType(dstTyp), value);
+            }
             else if (varActualType(srcTyp) != varActualType(dstTyp))
             {
                 BADCODE("Invalid box value type");
