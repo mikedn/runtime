@@ -429,13 +429,13 @@ GenTree* Compiler::fgMorphTruncate(GenTreeUnOp* cast)
 
 GenTree* Compiler::fgMorphConv(GenTreeUnOp* cast)
 {
-    assert(cast->OperIs(GT_CONV));
+    assert(cast->OperIs(GT_CONV) && varTypeIsSmallInt(cast->GetType()));
 
     GenTree*  src     = cast->GetOp(0);
     var_types srcType = src->GetType();
     var_types dstType = cast->GetType();
 
-    assert(varTypeIsSmall(dstType) && varTypeIsIntOrI(varActualType(srcType)));
+    assert(varTypeIsIntOrI(varActualType(srcType)));
 
     if (src->OperIs(GT_CONV) && (varTypeSize(srcType) >= varTypeSize(dstType)))
     {
@@ -451,7 +451,115 @@ GenTree* Compiler::fgMorphConv(GenTreeUnOp* cast)
 
 GenTree* Compiler::fgMorphConvPost(GenTreeUnOp* cast)
 {
-    assert(cast->OperIs(GT_CONV, GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmall(cast->GetType()));
+    assert(cast->OperIs(GT_CONV) && varTypeIsSmallInt(cast->GetType()));
+
+    GenTree*  src     = cast->GetOp(0);
+    var_types srcType = src->GetType();
+    var_types dstType = cast->GetType();
+
+    if (src->OperIs(GT_LCL_LOAD))
+    {
+        LclVarDsc* lcl = src->AsLclLoad()->GetLcl();
+
+        if ((varCastType(lcl->GetType()) == dstType) && lcl->lvNormalizeOnStore())
+        {
+            assert(src->TypeIs(TYP_INT, lcl->GetType()));
+
+            return src;
+        }
+    }
+
+    bool     unsignedSrc = varTypeIsUnsigned(srcType);
+    bool     unsignedDst = varTypeIsUnsigned(dstType);
+    unsigned srcSize     = varTypeSize(srcType);
+    unsigned dstSize     = varTypeSize(dstType);
+
+    if (srcSize == dstSize)
+    {
+        if (unsignedSrc == unsignedDst)
+        {
+            return src;
+        }
+
+        if (!varTypeIsSmall(srcType))
+        {
+            return src;
+        }
+
+        if (src->OperIs(GT_IND_LOAD, GT_LCL_LOAD_FLD))
+        {
+            src->SetType(dstType);
+            src->SetVNP(cast->GetVNP());
+
+            return src;
+        }
+    }
+    else if ((srcSize > dstSize) && fgMorphNarrowTree(src, srcType, dstType, cast->GetVNP(), false))
+    {
+        fgMorphNarrowTree(src, srcType, dstType, cast->GetVNP(), true);
+
+        if (GenTreeCast* srcCast = src->IsCast())
+        {
+            if (srcCast->GetCastType() == varActualType(srcCast->GetOp(0)->GetType()))
+            {
+                src = srcCast->GetOp(0);
+            }
+        }
+
+        return src;
+    }
+
+    if (src->IsIntConCommon())
+    {
+        return gtFoldExprConst(cast);
+    }
+
+    switch (src->GetOper())
+    {
+        case GT_CONV:
+            if (src->GetType() == dstType)
+            {
+                return src;
+            }
+
+            if (varTypeSize(dstType) <= varTypeSize(src->GetType()))
+            {
+                cast->SetOp(0, src->AsUnOp()->GetOp(0));
+            }
+            break;
+
+        case GT_SXT:
+        case GT_UXT:
+            assert(src->TypeIs(TYP_LONG) && varActualTypeIsInt(src->AsUnOp()->GetOp(0)->GetType()));
+            cast->SetOp(0, src->AsUnOp()->GetOp(0));
+            break;
+
+        case GT_COMMA:
+            if (fgIsCommaThrow(src DEBUGARG(false)))
+            {
+                GenTree* value = src->AsOp()->GetOp(1);
+                value->ChangeToIntCon(TYP_INT, 0);
+                src->SetType(TYP_INT);
+
+                if (vnStore != nullptr)
+                {
+                    value->SetVNP(ValueNumPair{vnStore->VNForIntCon(0)});
+                }
+
+                return src;
+            }
+            break;
+
+        default:
+            break;
+    }
+
+    return cast;
+}
+
+GenTree* Compiler::fgMorphOverflowConvPost(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmallInt(cast->GetType()));
 
     GenTree*  src     = cast->GetOp(0);
     var_types srcType = src->GetType();
@@ -473,11 +581,6 @@ GenTree* Compiler::fgMorphConvPost(GenTreeUnOp* cast)
     {
         if (varTypeIsSmall(srcType))
         {
-            // Small signed values are automatically sign extended to TYP_INT. If the cast is interpreting the
-            // resulting TYP_INT value as unsigned then the "sign" bits end up being "value" bits and srcType
-            // must be TYP_UINT, not the original small signed type. Otherwise "conv.ovf.i2.un(i1(-1))" is
-            // wrongly treated as a widening conversion from i1 to i2 when in fact it is a narrowing conversion
-            // from u4 to i2.
             srcType = TYP_UINT;
         }
         else
@@ -486,81 +589,24 @@ GenTree* Compiler::fgMorphConvPost(GenTreeUnOp* cast)
         }
     }
 
+    bool     unsignedSrc = varTypeIsUnsigned(srcType);
+    bool     unsignedDst = varTypeIsUnsigned(dstType);
+    unsigned srcSize     = varTypeSize(srcType);
+    unsigned dstSize     = varTypeSize(dstType);
+
+    if (srcSize == dstSize)
     {
-        bool     unsignedSrc = varTypeIsUnsigned(srcType);
-        bool     unsignedDst = varTypeIsUnsigned(dstType);
-        unsigned srcSize     = varTypeSize(srcType);
-        unsigned dstSize     = varTypeSize(dstType);
-
-        // For same sized casts with
-        //    the same signs or non-overflow cast we discard them as well
-        if (srcSize == dstSize)
+        if (unsignedSrc == unsignedDst)
         {
-            // This should have been handled above
-            noway_assert(varTypeIsGC(srcType) == varTypeIsGC(dstType));
-
-            if (unsignedSrc == unsignedDst)
-            {
-                return src;
-            }
-
-            if (cast->OperIs(GT_CONV))
-            {
-                if (!varTypeIsSmall(srcType))
-                {
-                    return src;
-                }
-
-                // For small type casts, when necessary we force
-                // the src operand to the dstType and allow the
-                // implied load from memory to perform the casting
-                if (src->OperIs(GT_IND_LOAD, GT_LCL_LOAD_FLD))
-                {
-                    src->SetType(dstType);
-                    // We're changing the type here so we need to update the VN;
-                    // in other cases we discard the cast without modifying oper
-                    // so the VN doesn't change.
-                    src->SetVNP(cast->GetVNP());
-
-                    return src;
-                }
-            }
+            return src;
         }
-        else if (srcSize < dstSize) // widening cast
+    }
+    else if (srcSize < dstSize)
+    {
+        if (unsignedSrc || !unsignedDst)
         {
-            if ((dstSize == 4) && (cast->OperIs(GT_CONV) || !unsignedDst || unsignedSrc))
-            {
-                return src;
-            }
-
-            // Widening casts from unsigned or to signed can never overflow
-
-            if (unsignedSrc || !unsignedDst)
-            {
-                cast->SetOper(GT_CONV);
-                cast->SetSideEffects(src->GetSideEffects());
-            }
-        }
-        else // if (srcSize > dstSize)
-        {
-            // Try to narrow the operand of the cast and discard the cast
-            if (cast->OperIs(GT_CONV) && opts.OptEnabled(CLFLG_TREETRANS) &&
-                fgMorphNarrowTree(src, srcType, dstType, cast->GetVNP(), false))
-            {
-                fgMorphNarrowTree(src, srcType, dstType, cast->GetVNP(), true);
-
-                // If oper is changed into a cast to TYP_INT, or to a GT_NOP, we may need to discard it
-
-                if (GenTreeCast* srcCast = src->IsCast())
-                {
-                    if (srcCast->GetCastType() == varActualType(srcCast->GetOp(0)->GetType()))
-                    {
-                        src = srcCast->GetOp(0);
-                    }
-                }
-
-                return src;
-            }
+            cast->SetOper(GT_CONV);
+            cast->SetSideEffects(src->GetSideEffects());
         }
     }
 
@@ -588,64 +634,37 @@ GenTree* Compiler::fgMorphConvPost(GenTreeUnOp* cast)
         break;
 
         case GT_CONV:
-            if (cast->OperIs(GT_CONV))
+            if (src->GetType() == dstType)
             {
-                var_types dstType2 = src->GetType();
+                return src;
+            }
 
-                if (dstType == dstType2)
-                {
-                    return src;
-                }
-
-                // Simplify some cast sequences:
-                //   Successive narrowing - CAST<byte>(CAST<short>(x)) is CAST<byte>(x)
-                //   Sign changing - CAST<byte>(CAST<ubyte>(x)) is CAST<byte>(x)
-                //   Unnecessary widening - CAST<byte>(CAST<long>(x)) is CAST<byte>(x)
-                if (varTypeSize(dstType) <= varTypeSize(dstType2))
-                {
-                    src = src->AsUnOp()->GetOp(0);
-                    cast->SetOp(0, src);
-                }
+            if (cast->OperIs(GT_CONV) && varTypeSize(dstType) <= varTypeSize(src->GetType()))
+            {
+                cast->SetOp(0, src->AsUnOp()->GetOp(0));
             }
             break;
 
         case GT_SXT:
         case GT_UXT:
-            if (varTypeIsInt(dstType) && cast->OperIs(GT_CONV))
+            if (cast->OperIs(GT_CONV))
             {
                 assert(src->TypeIs(TYP_LONG) && varActualTypeIsInt(src->AsUnOp()->GetOp(0)->GetType()));
-                return src->AsUnOp()->GetOp(0);
+
+                cast->SetOp(0, src->AsUnOp()->GetOp(0));
             }
             break;
 
         case GT_COMMA:
             if (fgIsCommaThrow(src DEBUGARG(false)))
             {
-                GenTree* val = src->AsOp()->GetOp(1);
+                GenTree* value = src->AsOp()->GetOp(1);
+                value->ChangeToIntCon(TYP_INT, 0);
+                src->SetType(TYP_INT);
 
-                if (cast->TypeIs(TYP_LONG))
+                if (vnStore != nullptr)
                 {
-#ifdef TARGET_64BIT
-                    val->ChangeToIntCon(TYP_LONG, 0);
-#else
-                    val->ChangeToLngCon(0);
-#endif
-                    src->SetType(TYP_LONG);
-
-                    if (vnStore != nullptr)
-                    {
-                        val->SetVNP(ValueNumPair{vnStore->VNForLongCon(0)});
-                    }
-                }
-                else
-                {
-                    val->ChangeToIntCon(TYP_INT, 0);
-                    src->SetType(TYP_INT);
-
-                    if (vnStore != nullptr)
-                    {
-                        val->SetVNP(ValueNumPair{vnStore->VNForIntCon(0)});
-                    }
+                    value->SetVNP(ValueNumPair{vnStore->VNForIntCon(0)});
                 }
 
                 return src;
@@ -3879,7 +3898,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclLoad* arg, var_type
 #endif
                     {
                         field->SetType(TYP_INT);
-                        field = gtNewOperNode(GT_CONV, type, field);
+                        field = gtNewOperNode(GT_CONV, varCastType(type), field);
                     }
                 }
             }
@@ -10082,7 +10101,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             op1 = fgMorphTree(op1);
             tree->AsUnOp()->SetOp(0, op1);
             tree->SetSideEffects(GTF_EXCEPT | op1->GetSideEffects());
-            return fgMorphConvPost(tree->AsUnOp());
+            return fgMorphOverflowConvPost(tree->AsUnOp());
 
         case GT_TRUNC:
             return fgMorphTruncate(tree->AsUnOp());
