@@ -323,63 +323,32 @@ GenTree* Compiler::fgMorphTruncate(GenTreeUnOp* cast)
         if (src->OperIs(GT_LSH))
         {
             GenTree* shiftAmount = src->AsOp()->GetOp(1);
-
-            // Expose constant value for shift, if possible, to maximize the number
-            // of cases we can handle.
-            shiftAmount = gtFoldExpr(shiftAmount);
+            shiftAmount          = gtFoldExpr(shiftAmount);
             src->AsOp()->SetOp(1, shiftAmount);
 
-            // We may remorph the shift amount tree again later, so clear any morphed flag.
             INDEBUG(shiftAmount->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;)
 
-            if (shiftAmount->IsIntegralConst())
+            if (shiftAmount->IsIntCon())
             {
                 const ssize_t shiftAmountValue = shiftAmount->AsIntCon()->GetValue();
 
-                if ((shiftAmountValue >= 64) || (shiftAmountValue < 0))
+                if ((0 <= shiftAmountValue) && (shiftAmountValue < 32))
                 {
-                    // Shift amount is large enough or negative so result is undefined.
-                    // Don't try to optimize.
-                    assert(!canPushCast);
-                }
-                else if (shiftAmountValue >= 32)
-                {
-                    // We know that we have a narrowing cast ([u]long -> [u]int)
-                    // and that we are casting to a 32-bit value, which will result in zero.
-                    //
-                    // Check to see if we have any side-effects that we must keep
-                    //
-                    if ((cast->gtFlags & GTF_ALL_EFFECT) == 0)
-                    {
-                        // Result of the shift is zero.
-                        DEBUG_DESTROY_NODE(cast);
-                        return fgMorphTree(gtNewZeroConNode(TYP_INT));
-                    }
-                    else // We do have a side-effect
-                    {
-                        // We could create a GT_COMMA node here to keep the side-effect and return a zero
-                        // Instead we just don't try to optimize this case.
-                        canPushCast = false;
-                    }
-                }
-                else
-                {
-                    // Shift amount is positive and small enough that we can push the cast through.
                     canPushCast = true;
                 }
-            }
-            else
-            {
-                // Shift amount is unknown. We can't optimize this case.
-                assert(!canPushCast);
+                else if ((32 <= shiftAmountValue) && (shiftAmountValue < 64))
+                {
+                    if ((cast->gtFlags & GTF_ALL_EFFECT) == 0)
+                    {
+                        return fgMorphTree(gtNewIconNode(0, TYP_INT));
+                    }
+                }
             }
         }
 
         if (canPushCast)
         {
-            DEBUG_DESTROY_NODE(cast);
-
-            // Insert narrowing casts for op1 and op2.
+            src->SetType(TYP_INT);
             src->AsOp()->SetOp(0, gtNewOperNode(GT_TRUNC, TYP_INT, src->AsOp()->GetOp(0)));
 
             if (!src->OperIs(GT_LSH, GT_NEG, GT_NOT))
@@ -390,36 +359,45 @@ GenTree* Compiler::fgMorphTruncate(GenTreeUnOp* cast)
 #ifndef TARGET_64BIT
             if (src->OperIs(GT_MUL))
             {
-                GenTreeCast* op1 = src->AsOp()->GetOp(0)->IsCast();
-                GenTreeCast* op2 = src->AsOp()->GetOp(1)->IsCast();
+                GenTree* op1 = src->AsOp()->GetOp(0);
+                GenTree* op2 = src->AsOp()->GetOp(1);
 
-                if (op1 != nullptr)
+                if (op1->OperIs(GT_SXT, GT_UXT))
                 {
                     op1->ClearDoNotCSE();
                 }
 
-                if (op2 != nullptr)
+                if (op2->OperIs(GT_SXT, GT_UXT))
                 {
                     op1->ClearDoNotCSE();
                 }
             }
 #endif
 
-            src->SetType(TYP_INT);
-
             return fgMorphTree(src);
         }
     }
 
     src = fgMorphTree(src);
+
     cast->SetOp(0, src);
     cast->SetSideEffects(src->GetSideEffects());
+
+    if (GenTreeIntConCommon* constSrc = src->IsIntConCommon())
+    {
+        return gtFoldExprConst(cast);
+    }
+
+    if (src->OperIs(GT_SXT, GT_UXT))
+    {
+        assert(src->TypeIs(TYP_LONG) && varActualTypeIsInt(src->AsUnOp()->GetOp(0)->GetType()));
+
+        return src->AsUnOp()->GetOp(0);
+    }
 
     if (fgMorphNarrowTree(src, TYP_LONG, TYP_INT, cast->GetVNP(), false))
     {
         fgMorphNarrowTree(src, TYP_LONG, TYP_INT, cast->GetVNP(), true);
-
-        // If oper is changed into a cast to TYP_INT, or to a GT_NOP, we may need to discard it
 
         if (GenTreeCast* srcCast = src->IsCast())
         {
@@ -429,67 +407,24 @@ GenTree* Compiler::fgMorphTruncate(GenTreeUnOp* cast)
             }
         }
 
-        goto REMOVE_CAST;
+        return src;
     }
 
-    switch (src->GetOper())
+    if (src->OperIs(GT_COMMA) && fgIsCommaThrow(src DEBUGARG(false)))
     {
-        case GT_CNS_INT:
-#ifndef TARGET_64BIT
-        case GT_CNS_LNG:
-#endif
+        GenTree* value = src->AsOp()->GetOp(1);
+        value->ChangeToIntCon(TYP_INT, 0);
+        src->SetType(TYP_INT);
+
+        if (vnStore != nullptr)
         {
-            GenTree* folded = gtFoldExprConst(cast);
-
-            if (folded != cast)
-            {
-                noway_assert(fgIsCommaThrow(folded DEBUGARG(false)));
-                folded->AsOp()->SetOp(0, fgMorphTree(folded->AsOp()->GetOp(0)));
-                INDEBUG(folded->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-                return folded;
-            }
-
-            if (!folded->IsCast())
-            {
-                return folded;
-            }
-
-            noway_assert(cast->GetOp(0) == src); // unchanged
+            value->SetVNP(ValueNumPair{vnStore->VNForIntCon(0)});
         }
-        break;
 
-        case GT_SXT:
-        case GT_UXT:
-            assert(src->TypeIs(TYP_LONG) && varActualTypeIsInt(src->AsUnOp()->GetOp(0)->GetType()));
-            return src->AsUnOp()->GetOp(0);
-
-        case GT_COMMA:
-            if (fgIsCommaThrow(src DEBUGARG(false)))
-            {
-                GenTree* val = src->AsOp()->GetOp(1);
-
-                val->ChangeToIntCon(TYP_INT, 0);
-                src->SetType(TYP_INT);
-
-                if (vnStore != nullptr)
-                {
-                    val->SetVNP(ValueNumPair{vnStore->VNForIntCon(0)});
-                }
-
-                return src;
-            }
-            break;
-
-        default:
-            break;
+        return src;
     }
 
     return cast;
-
-REMOVE_CAST:;
-    // Here we've eliminated the cast, so just return its operand
-    DEBUG_DESTROY_NODE(cast);
-    return src;
 }
 
 GenTree* Compiler::fgMorphConv(GenTreeUnOp* cast)
@@ -530,7 +465,7 @@ GenTree* Compiler::fgMorphConvPost(GenTreeUnOp* cast)
         {
             assert(src->TypeIs(TYP_INT, lcl->GetType()));
 
-            goto REMOVE_CAST;
+            return src;
         }
     }
 
@@ -566,14 +501,14 @@ GenTree* Compiler::fgMorphConvPost(GenTreeUnOp* cast)
 
             if (unsignedSrc == unsignedDst)
             {
-                goto REMOVE_CAST;
+                return src;
             }
 
             if (cast->OperIs(GT_CONV))
             {
                 if (!varTypeIsSmall(srcType))
                 {
-                    goto REMOVE_CAST;
+                    return src;
                 }
 
                 // For small type casts, when necessary we force
@@ -587,7 +522,7 @@ GenTree* Compiler::fgMorphConvPost(GenTreeUnOp* cast)
                     // so the VN doesn't change.
                     src->SetVNP(cast->GetVNP());
 
-                    goto REMOVE_CAST;
+                    return src;
                 }
             }
         }
@@ -595,7 +530,7 @@ GenTree* Compiler::fgMorphConvPost(GenTreeUnOp* cast)
         {
             if ((dstSize == 4) && (cast->OperIs(GT_CONV) || !unsignedDst || unsignedSrc))
             {
-                goto REMOVE_CAST;
+                return src;
             }
 
             // Widening casts from unsigned or to signed can never overflow
@@ -624,7 +559,7 @@ GenTree* Compiler::fgMorphConvPost(GenTreeUnOp* cast)
                     }
                 }
 
-                goto REMOVE_CAST;
+                return src;
             }
         }
     }
@@ -659,7 +594,7 @@ GenTree* Compiler::fgMorphConvPost(GenTreeUnOp* cast)
 
                 if (dstType == dstType2)
                 {
-                    goto REMOVE_CAST;
+                    return src;
                 }
 
                 // Simplify some cast sequences:
@@ -727,11 +662,6 @@ GenTree* Compiler::fgMorphConvPost(GenTreeUnOp* cast)
     }
 
     return cast;
-
-REMOVE_CAST:
-    // Here we've eliminated the cast, so just return its operand
-    DEBUG_DESTROY_NODE(cast);
-    return src;
 }
 
 GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
