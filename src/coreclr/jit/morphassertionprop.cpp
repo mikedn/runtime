@@ -683,6 +683,41 @@ void Compiler::morphAssertionGenerateEqual(GenTreeLclStore* store, GenTree* val)
             assertion.valKind   = ValueKind::Range;
             assertion.kind      = Kind::Equal;
             break;
+
+        case GT_OVF_U:
+            if (lcl->IsPromotedField() && lcl->lvNormalizeOnLoad())
+            {
+                // TODO-MIKE-Review: It's not clear why a range assertion is not generated in
+                // this case. In typical idiotic fashion old comment stated what the code is
+                // doing instead of why it is doing it.
+                return;
+            }
+
+            if (lcl->TypeIs(TYP_LONG))
+            {
+                // TODO-MIKE-Review: We don't generate ranges for LONG locals. Not clear why,
+                // it's likely that there aren't many useful cases.
+                return;
+            }
+
+            assert(!varTypeIsSmall(val->GetType()));
+
+            if (!val->TypeIs(TYP_INT))
+            {
+                return;
+            }
+
+            // TODO-MIKE-CQ: Like in the load case, this is pretty much nonsense. There is
+            // a difference however, an overflow checking cast to UINT should produce a
+            // 0..INT_32MAX/UINT32_MAX range depending on the source value being INT/LONG.
+            // No idea why this always produces an INT32_MIN..INT32_MAX range.
+            // We can also have an INT to LONG cast that tells that a LONG local has INT
+            // range, this (and any other range information we could deduce from the cast
+            // source types) is completely ignored now.
+            assertion.val.range = {INT32_MIN, INT32_MAX};
+            assertion.valKind   = ValueKind::Range;
+            assertion.kind      = Kind::Equal;
+            break;
 #endif
 
         case GT_CONV:
@@ -1307,6 +1342,53 @@ GenTree* Compiler::morphAssertionPropagateCast(GenTreeCast* cast)
     return nullptr;
 }
 
+GenTree* Compiler::morphAssertionPropagateOvfUnsigned(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_OVF_U) && node->TypeIs(TYP_INT, TYP_LONG));
+    assert(varActualType(node->GetOp(0)->GetType()) == node->GetType());
+
+    if (node->TypeIs(TYP_LONG))
+    {
+        return nullptr;
+    }
+
+    GenTree* src       = node->GetOp(0);
+    GenTree* actualSrc = src->SkipComma();
+
+    if (!actualSrc->OperIs(GT_LCL_LOAD))
+    {
+        return nullptr;
+    }
+
+    LclVarDsc* lcl = actualSrc->AsLclLoad()->GetLcl();
+
+    if (lcl->IsAddressExposed() || lcl->lvNormalizeOnLoad())
+    {
+        // TODO-MIKE-CQ: It's not entirely clear what the problem with lvNormalizeOnLoad is here.
+        // Old code tried to handle this case but it was broken and removing it produced no diffs.
+        // This happens when a small int promoted field or param local is casted to another small
+        // int type, which isn't exactly common. See morph-assertion-short-param-byte-cast.cs.
+        // There could also be an overflow checking cast to UINT that can be removed if we know
+        // that the value store in the local is positive.
+        // This needs care in the case of promoted struct fields because we don't know if they're
+        // P-DEP or not yet. If they're P-DEP then there will be an implicit truncation on store
+        // that range generation currently ignores. osx-arm64 may also have this problem.
+
+        return nullptr;
+    }
+
+    const MorphAssertion* assertion = morphAssertionFindRange(lcl->GetLclNum());
+
+    if ((assertion == nullptr) || (assertion->val.range.min < 0))
+    {
+        return nullptr;
+    }
+
+    DBEXEC(verbose, morphAssertionTrace(*assertion, node, "propagated"));
+
+    return src;
+}
+
 GenTree* Compiler::morphAssertionPropagateConv(GenTreeUnOp* cast)
 {
     assert(cast->OperIs(GT_CONV, GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmall(cast->GetType()));
@@ -1501,6 +1583,9 @@ GenTree* Compiler::morphAssertionPropagate(GenTree* tree)
                 break;
             case GT_CAST:
                 newTree = morphAssertionPropagateCast(tree->AsCast());
+                break;
+            case GT_OVF_U:
+                newTree = morphAssertionPropagateOvfUnsigned(tree->AsUnOp());
                 break;
             case GT_CONV:
             case GT_OVF_SCONV:

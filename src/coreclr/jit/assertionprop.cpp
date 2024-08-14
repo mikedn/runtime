@@ -1834,6 +1834,55 @@ private:
         return UpdateTree(op1, cast, stmt);
     }
 
+    GenTree* PropagateOvfUnsigned(const ASSERT_TP assertions, GenTreeUnOp* cast, Statement* stmt)
+    {
+        assert(cast->OperIs(GT_OVF_U) && cast->TypeIs(TYP_INT, TYP_LONG));
+        assert(varActualType(cast->GetOp(0)->GetType()) == cast->GetType());
+
+        GenTree* op1       = cast->GetOp(0);
+        GenTree* actualOp1 = op1->SkipComma();
+        ValueNum vn;
+
+        if (actualOp1->OperIs(GT_LCL_LOAD, GT_LCL_USE))
+        {
+            LclVarDsc* lcl = actualOp1->OperIs(GT_LCL_LOAD) ? actualOp1->AsLclLoad()->GetLcl()
+                                                            : actualOp1->AsLclUse()->GetDef()->GetLcl();
+
+            // TODO-MIKE-Review: Usually we can't eliminate load "normalization" casts.
+            // They're usually present on every LCL_VAR use so we'll never get assertions
+            // about the LCL_VAR value itself (e.g. usually we have "if ((byte)b < 42)",
+            // not "if (b < 42)"). xunit assemblies have a few cases where these casts do
+            // get eliminated but it turns out that this skews register allocation in such
+            // a way that the codegen end up being worse.
+            // Besides, the way load/store "normalization" is implemented is just asking
+            // for trouble so it's best to ignore these casts for now.
+            if (lcl->lvNormalizeOnLoad())
+            {
+                return nullptr;
+            }
+
+            vn = actualOp1->GetConservativeVN();
+        }
+        else
+        {
+            vn = vnStore->ExtractValue(actualOp1->GetConservativeVN());
+        }
+
+        // Keep it simple - the 0..INT32_MAX range allows us to remove overflow checks from LONG/INT
+        // casts and also change sign extension to zero extension. We'll miss some cases, such as
+        // 0..UINT32_MAX needed for LONG -> UINT casts but these should be pretty rare.
+        const AssertionDsc* assertion = FindCastRangeAssertion(assertions, vn, 0, INT32_MAX);
+
+        if (assertion == nullptr)
+        {
+            return nullptr;
+        }
+
+        DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
+
+        return UpdateTree(op1, cast, stmt);
+    }
+
     GenTree* PropagateConv(const ASSERT_TP assertions, GenTreeUnOp* cast, Statement* stmt)
     {
         assert(cast->OperIs(GT_CONV, GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmall(cast->GetType()));
@@ -2457,6 +2506,8 @@ private:
                 return PropagateComma(node->AsOp(), stmt);
             case GT_CAST:
                 return PropagateCast(assertions, node->AsCast(), stmt);
+            case GT_OVF_U:
+                return PropagateOvfUnsigned(assertions, node->AsUnOp(), stmt);
             case GT_CONV:
             case GT_OVF_SCONV:
             case GT_OVF_UCONV:
@@ -3350,6 +3401,7 @@ private:
                 case GT_GT:
                 case GT_OR:
                 case GT_CAST:
+                case GT_OVF_U:
                 case GT_CONV:
                 case GT_OVF_SCONV:
                 case GT_OVF_UCONV:

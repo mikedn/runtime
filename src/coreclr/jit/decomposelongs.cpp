@@ -92,6 +92,9 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
         case GT_CAST:
             nextNode = DecomposeCast(use);
             break;
+        case GT_OVF_U:
+            nextNode = DecomposeOvfUnsigned(use);
+            break;
         case GT_SXT:
             nextNode = DecomposeSignExtend(use);
             break;
@@ -405,6 +408,28 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
     }
 
     return FinalizeDecomposition(use, loResult, hiResult, hiResult);
+}
+
+GenTree* DecomposeLongs::DecomposeOvfUnsigned(LIR::Use& use)
+{
+    GenTreeUnOp* cast = use.Def()->AsUnOp();
+
+    assert(cast->OperIs(GT_OVF_U) && cast->TypeIs(TYP_LONG) && cast->GetOp(0)->TypeIs(TYP_LONG));
+
+    GenTree* loResult = nullptr;
+    GenTree* hiResult = nullptr;
+
+    GenTreeOp* srcOp = cast->GetOp(0)->AsOp();
+    assert(srcOp->OperIs(GT_LONG));
+    GenTree* loSrcOp = srcOp->GetOp(0);
+    GenTree* hiSrcOp = srcOp->GetOp(1);
+
+    cast->SetType(TYP_INT);
+    cast->SetOp(0, hiSrcOp);
+
+    Range().Remove(srcOp);
+
+    return FinalizeDecomposition(use, loSrcOp, cast, cast);
 }
 
 GenTree* DecomposeLongs::DecomposeSignExtend(LIR::Use& use)

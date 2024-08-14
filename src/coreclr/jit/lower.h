@@ -64,6 +64,7 @@ private:
     void ContainCheckShiftRotate(GenTreeOp* node);
     void ContainCheckStoreLcl(GenTreeLclVarCommon* store);
     void ContainCheckCast(GenTreeCast* node);
+    void ContainCheckOverflowUnsigned(GenTreeUnOp* node);
     void ContainCheckCompare(GenTreeOp* cmp);
     void ContainCheckBinary(GenTreeOp* node);
     void ContainCheckBoundsChk(GenTreeBoundsChk* node);
@@ -230,6 +231,7 @@ private:
 
     GenTree* LowerBitCast(GenTreeUnOp* bitcast);
     GenTree* LowerCast(GenTreeCast* cast);
+    void LowerOverflowUnsigned(GenTreeUnOp* node);
     GenTree* LowerConv(GenTreeUnOp* cast);
     GenTree* LowerTruncate(GenTreeUnOp* node);
     void LowerIntToFloat(GenTreeUnOp* node);

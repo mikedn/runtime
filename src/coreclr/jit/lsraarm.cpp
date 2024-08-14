@@ -74,6 +74,10 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildCast(tree->AsCast());
             break;
 
+        case GT_OVF_U:
+            BuildOvfUnsigned(tree->AsUnOp());
+            break;
+
         case GT_CONV:
         case GT_OVF_SCONV:
         case GT_OVF_UCONV:

@@ -587,6 +587,29 @@ void LinearScan::BuildCast(GenTreeCast* cast)
     BuildDef(cast);
 }
 
+void LinearScan::BuildOvfUnsigned(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_OVF_U) && node->TypeIs(TYP_INT ARM64_ARG(TYP_LONG)));
+    assert(node->GetType() == varActualType(node->GetOp(0)->GetType()));
+
+    GenTree* src = node->GetOp(0);
+
+    if (!src->isContained())
+    {
+        BuildUse(src);
+    }
+    else if (src->OperIs(GT_IND_LOAD))
+    {
+        BuildAddrUses(src->AsIndLoad()->GetAddr());
+    }
+    else
+    {
+        assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
+    }
+
+    BuildDef(node);
+}
+
 void LinearScan::BuildOverflowConv(GenTreeUnOp* cast)
 {
     assert(varTypeIsSmallInt(cast->GetType()) && varTypeIsIntegral(cast->GetOp(0)->GetType()));

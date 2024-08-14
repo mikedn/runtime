@@ -683,6 +683,79 @@ GenTree* Compiler::fgMorphOverflowConvPost(GenTreeUnOp* cast)
     return cast;
 }
 
+GenTree* Compiler::fgMorphOverflowUnsigned(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_OVF_U) && node->TypeIs(TYP_INT, TYP_LONG));
+    assert(node->GetType() == varActualType(node->GetOp(0)->GetType()));
+
+    GenTree* src = node->GetOp(0);
+
+    src = fgMorphTree(src);
+    node->SetOp(0, src);
+    node->SetSideEffects(src->GetSideEffects() | GTF_EXCEPT);
+
+    if (src->TypeIs(TYP_BOOL, TYP_UBYTE, TYP_USHORT))
+    {
+        return src;
+    }
+
+    if (src->OperIs(GT_COMMA) && fgIsCommaThrow(src DEBUGARG(false)))
+    {
+        GenTree* val = src->AsOp()->GetOp(1);
+
+        if (node->TypeIs(TYP_LONG))
+        {
+#ifdef TARGET_64BIT
+            val->ChangeToIntCon(TYP_LONG, 0);
+#else
+            val->ChangeToLngCon(0);
+#endif
+            src->SetType(TYP_LONG);
+
+            if (vnStore != nullptr)
+            {
+                val->SetVNP(ValueNumPair{vnStore->VNForLongCon(0)});
+            }
+        }
+        else
+        {
+            val->ChangeToIntCon(TYP_INT, 0);
+            src->SetType(TYP_INT);
+
+            if (vnStore != nullptr)
+            {
+                val->SetVNP(ValueNumPair{vnStore->VNForIntCon(0)});
+            }
+        }
+
+        return src;
+    }
+
+    if (src->IsIntConCommon())
+    {
+        GenTree* folded = gtFoldExprConst(node);
+
+        if (folded != node)
+        {
+            noway_assert(fgIsCommaThrow(folded DEBUGARG(false)));
+            folded->AsOp()->SetOp(0, fgMorphTree(folded->AsOp()->GetOp(0)));
+            INDEBUG(folded->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+            return folded;
+        }
+
+        if (!folded->IsCast())
+        {
+            return folded;
+        }
+
+        noway_assert(node->GetOp(0) == src);
+    }
+
+    fgGetThrowHelperBlock(ThrowHelperKind::Overflow, fgMorphBlock);
+
+    return node;
+}
+
 GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
 {
     GenTree*  src     = cast->GetOp(0);
@@ -710,6 +783,7 @@ GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
         return fgMorphTree(src);
     }
 
+    assert(varTypeSize(srcType) != varTypeSize(dstType));
     assert(varTypeIsInt(srcType) || varTypeIsLong(srcType));
     assert(varTypeIsInt(dstType) || varTypeIsLong(dstType));
     assert(cast->HasOverflowCheck());
@@ -10092,6 +10166,9 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
         case GT_CAST:
             return fgMorphCast(tree->AsCast());
+
+        case GT_OVF_U:
+            return fgMorphOverflowUnsigned(tree->AsUnOp());
 
         case GT_CONV:
             return fgMorphConv(tree->AsUnOp());

@@ -352,6 +352,7 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
             break;
 
         case GT_CAST:
+        case GT_OVF_U:
         case GT_OVF_SCONV:
         case GT_OVF_UCONV:
         case GT_OVF_FTOS:

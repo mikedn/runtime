@@ -212,6 +212,10 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildCast(tree->AsCast());
             break;
 
+        case GT_OVF_U:
+            BuildOvfUnsigned(tree->AsUnOp());
+            break;
+
         case GT_CONV:
             BuildConv(tree->AsUnOp());
             break;
@@ -1934,6 +1938,33 @@ void LinearScan::BuildCast(GenTreeCast* cast)
     }
 
     BuildInternalUses();
+    BuildDef(cast);
+}
+
+void LinearScan::BuildOvfUnsigned(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_OVF_U) && cast->TypeIs(TYP_INT, TYP_LONG));
+    assert(cast->GetType() == varActualType(cast->GetOp(0)->GetType()));
+
+    GenTree* src = cast->GetOp(0);
+
+#ifdef TARGET_X86
+    assert(!varTypeIsLong(src->GetType()));
+#endif
+
+    if (!src->isContained())
+    {
+        BuildUse(src);
+    }
+    else if (src->OperIs(GT_IND_LOAD))
+    {
+        BuildAddrUses(src->AsIndLoad()->GetAddr());
+    }
+    else
+    {
+        assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
+    }
+
     BuildDef(cast);
 }
 

@@ -4504,6 +4504,7 @@ private:
     GenTree* fgMorphConv(GenTreeUnOp* cast);
     GenTree* fgMorphConvPost(GenTreeUnOp* cast);
     GenTree* fgMorphOverflowConvPost(GenTreeUnOp* cast);
+    GenTree* fgMorphOverflowUnsigned(GenTreeUnOp* node);
     GenTree* fgMorphCast(GenTreeCast* cast);
     GenTree* fgMorphCastPost(GenTreeCast* cast);
     void fgInitArgInfo(GenTreeCall* call);
@@ -5142,6 +5143,7 @@ private:
     GenTree* morphAssertionPropagateLclLoadFld(GenTreeLclLoadFld* load);
     GenTree* morphAssertionPropagateIndir(GenTreeIndir* indir);
     GenTree* morphAssertionPropagateCast(GenTreeCast* cast);
+    GenTree* morphAssertionPropagateOvfUnsigned(GenTreeUnOp* node);
     GenTree* morphAssertionPropagateConv(GenTreeUnOp* cast);
     GenTree* morphAssertionPropagateCall(GenTreeCall* call);
     GenTree* morphAssertionPropagateRelOp(GenTreeOp* relop);
@@ -6598,6 +6600,7 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_RELOAD:
         case GT_ARR_LENGTH:
         case GT_CAST:
+        case GT_OVF_U:
         case GT_CONV:
         case GT_OVF_SCONV:
         case GT_OVF_UCONV:
@@ -7001,6 +7004,7 @@ public:
             case GT_RELOAD:
             case GT_ARR_LENGTH:
             case GT_CAST:
+            case GT_OVF_U:
             case GT_CONV:
             case GT_OVF_SCONV:
             case GT_OVF_UCONV:
