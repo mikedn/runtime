@@ -3709,6 +3709,24 @@ void Lowering::ContainCheckCast(GenTreeCast* cast)
     }
 }
 
+void Lowering::ContainCheckOverflowUnsigned(GenTreeUnOp* node)
+{
+    GenTree* src = node->GetOp(0);
+
+#ifndef TARGET_64BIT
+    assert(!src->TypeIs(TYP_LONG));
+#endif
+
+    if (IsContainableMemoryOp(src) && IsSafeToContainMem(node, src))
+    {
+        src->SetContained();
+    }
+    else
+    {
+        src->SetRegOptional();
+    }
+}
+
 void Lowering::ContainCheckOverflowConv(GenTreeUnOp* cast)
 {
     assert(cast->OperIs(GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmallInt(cast->GetType()));

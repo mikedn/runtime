@@ -2644,6 +2644,53 @@ void CodeGen::GenOverflowConv(GenTreeUnOp* cast)
     DefReg(cast);
 }
 
+void CodeGen::GenOverflowUnsigned(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_OVF_U) && node->TypeIs(TYP_INT ARM64_ARG(TYP_LONG)));
+    assert(node->GetType() == varActualType(node->GetOp(0)->GetType()));
+
+    GenTree* src    = node->GetOp(0);
+    RegNum   srcReg = src->isUsedFromReg() ? UseReg(src) : REG_NA;
+    RegNum   dstReg = node->GetRegNum();
+    emitAttr size   = emitTypeSize(node->GetType());
+
+    if (srcReg != REG_NA)
+    {
+        GetEmitter()->emitIns_R_I(INS_cmp, size, srcReg, 0);
+        genJumpToThrowHlpBlk(EJ_lt, ThrowHelperKind::Overflow);
+        GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, srcReg, /*canSkip*/ true);
+    }
+    else
+    {
+        genConsumeRegs(src);
+
+        // Note that we load directly into the destination register, this avoids the
+        // need for a temporary register but assumes that enregistered variables are
+        // not live in exception handlers.
+
+        instruction   ins = ins_Load(src->GetType());
+        StackAddrMode s;
+
+        if (IsLocalMemoryOperand(src, &s))
+        {
+            GetEmitter()->Ins_R_S(ins, size, dstReg, s);
+        }
+        else if (src->OperIs(GT_IND_LOAD))
+        {
+            emitInsLoad(ins, size, dstReg, src->AsIndLoad());
+        }
+        else
+        {
+            unreached();
+        }
+
+        GetEmitter()->emitIns_R_I(INS_cmp, size, dstReg, 0);
+        genJumpToThrowHlpBlk(EJ_lt, ThrowHelperKind::Overflow);
+    }
+
+    DefReg(node);
+}
+
 void CodeGen::GenCastIntToInt(GenTreeCast* cast)
 {
     assert(cast->HasOverflowCheck() && cast->TypeIs(TYP_INT, TYP_LONG));

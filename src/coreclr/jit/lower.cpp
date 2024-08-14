@@ -336,6 +336,10 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_CAST:
             return LowerCast(node->AsCast());
 
+        case GT_OVF_U:
+            LowerOverflowUnsigned(node->AsUnOp());
+            break;
+
         case GT_CONV:
             return LowerConv(node->AsUnOp());
 
@@ -5080,6 +5084,14 @@ GenTree* Lowering::LowerCast(GenTreeCast* cast)
     ContainCheckCast(cast);
 
     return cast->gtNext;
+}
+
+void Lowering::LowerOverflowUnsigned(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_OVF_U) && node->TypeIs(TYP_INT, TYP_LONG));
+    assert(node->GetType() == varActualType(node->GetOp(0)->GetType()));
+
+    ContainCheckOverflowUnsigned(node);
 }
 
 GenTree* Lowering::LowerConv(GenTreeUnOp* cast)

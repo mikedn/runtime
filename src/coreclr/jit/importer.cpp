@@ -10443,13 +10443,18 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 {
                     // Nothing needs to change
                 }
+                else if ((uns ? varTypeToUnsigned(varActualType(op1->GetType())) : varActualType(op1->GetType())) ==
+                         lclTyp)
+                {
+                    // Same type conversions have no effect
+                }
                 else if (!ovfl && (varActualType(op1->GetType()) == varCastType(lclTyp)))
                 {
                     // INT/(U)INT, LONG/(U)LONG conversions have no effect.
                 }
                 else
                 {
-                    var_types fromType = op1->GetType();
+                    var_types fromType = varActualType(op1->GetType());
 
                     if ((lclTyp == TYP_FLOAT) && (fromType == TYP_DOUBLE))
                     {
@@ -10459,7 +10464,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     {
                         op1 = gtNewOperNode(GT_FXT, lclTyp, op1);
                     }
-                    else if (varActualTypeIsInt(fromType) && (type == TYP_LONG) && !ovfl)
+                    else if ((fromType == TYP_INT) && (type == TYP_LONG) && !ovfl)
                     {
                         op1 = gtNewOperNode(uns ? GT_UXT : GT_SXT, TYP_LONG, op1);
                     }
@@ -10530,6 +10535,11 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     else if ((fromType == TYP_LONG) && varTypeIsInt(lclTyp) && !ovfl)
                     {
                         op1 = gtNewOperNode(GT_TRUNC, TYP_INT, op1);
+                    }
+                    else if (ovfl && (fromType == type) && (uns != varTypeIsUnsigned(lclTyp)))
+                    {
+                        op1 = gtNewOperNode(GT_OVF_U, type, op1);
+                        op1->AddSideEffects(GTF_EXCEPT);
                     }
                     else
                     {

@@ -74,6 +74,7 @@ GTNODE(TRUNC            , GenTreeOp           , GTK_UNOP|GTK_VN)        // trunc
 GTNODE(CONV             , GenTreeOp           , GTK_UNOP|GTK_VN)        // convert INT/LONG to small int
 GTNODE(OVF_SCONV        , GenTreeOp           , GTK_UNOP|GTK_VN)        // convert signed INT/LONG to small int with overflow check
 GTNODE(OVF_UCONV        , GenTreeOp           , GTK_UNOP|GTK_VN)        // convert unsigned INT/LONG to small int with overflow check
+GTNODE(OVF_U            , GenTreeOp           , GTK_UNOP|GTK_VN)        // throw OverflowException if the value is negative
 GTNODE(CAST             , GenTreeCast         , GTK_UNOP|GTK_EXOP)      // conversion to another type
 GTNODE(BITCAST          , GenTreeOp           , GTK_UNOP)               // reinterpretation of bits as another type
 GTNODE(CKFINITE         , GenTreeOp           , GTK_UNOP|GTK_NOCONTAIN) // Check for NaN

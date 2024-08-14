@@ -774,8 +774,9 @@ protected:
 #endif
 
     void GenCast(GenTreeCast* cast);
-    void GenConv(GenTreeUnOp* cast);
-    void GenOverflowConv(GenTreeUnOp* cast);
+    void GenOverflowUnsigned(GenTreeUnOp* node);
+    void GenConv(GenTreeUnOp* node);
+    void GenOverflowConv(GenTreeUnOp* node);
     void GenTruncate(GenTreeUnOp* node);
 #ifdef TARGET_64BIT
     void GenSignExtend(GenTreeUnOp* node);
