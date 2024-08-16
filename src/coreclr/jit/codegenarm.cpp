@@ -1113,16 +1113,17 @@ void CodeGen::GenTruncate(GenTreeUnOp* node)
     DefReg(node);
 }
 
-void CodeGen::GenCastLongToInt(GenTreeCast* cast)
+void CodeGen::GenOverflowTruncate(GenTreeUnOp* node)
 {
-    assert(cast->TypeIs(TYP_INT) && cast->HasOverflowCheck());
+    assert(node->OperIs(GT_OVF_TRUNC, GT_OVF_STRUNC, GT_OVF_UTRUNC));
+    assert(node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
 
-    GenTreeOp* src = cast->GetOp(0)->AsOp();
-    noway_assert(src->OperIs(GT_LONG));
+    GenTreeOp* src = node->GetOp(0)->AsOp();
+    assert(src->OperIs(GT_LONG));
 
-    regNumber loSrcReg = UseReg(src->GetOp(0));
-    regNumber hiSrcReg = UseReg(src->GetOp(1));
-    regNumber dstReg   = cast->GetRegNum();
+    RegNum loSrcReg = UseReg(src->GetOp(0));
+    RegNum hiSrcReg = UseReg(src->GetOp(1));
+    RegNum dstReg   = node->GetRegNum();
 
     assert(genIsValidIntReg(loSrcReg));
     assert(genIsValidIntReg(hiSrcReg));
@@ -1130,20 +1131,7 @@ void CodeGen::GenCastLongToInt(GenTreeCast* cast)
 
     Emitter& emit = *GetEmitter();
 
-    var_types srcType = cast->IsCastUnsigned() ? TYP_ULONG : TYP_LONG;
-    var_types dstType = cast->GetCastType();
-    assert((dstType == TYP_INT) || (dstType == TYP_UINT));
-
-    // Generate an overflow check for [u]long to [u]int casts:
-    //
-    // long  -> int  - check if the upper 33 bits are all 0 or all 1
-    //
-    // ulong -> int  - check if the upper 33 bits are all 0
-    //
-    // long  -> uint - check if the upper 32 bits are all 0
-    // ulong -> uint - check if the upper 32 bits are all 0
-
-    if ((srcType == TYP_LONG) && (dstType == TYP_INT))
+    if (node->OperIs(GT_OVF_STRUNC))
     {
         emit.emitIns_R_R(INS_tst, EA_4BYTE, loSrcReg, loSrcReg);
         insGroup* allOne = emit.CreateTempLabel();
@@ -1160,21 +1148,22 @@ void CodeGen::GenCastLongToInt(GenTreeCast* cast)
 
         emit.DefineTempLabel(success);
     }
+    else if (node->OperIs(GT_OVF_UTRUNC))
+    {
+        emit.emitIns_R_R(INS_tst, EA_4BYTE, hiSrcReg, hiSrcReg);
+        genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
+    }
     else
     {
-        if ((srcType == TYP_ULONG) && (dstType == TYP_INT))
-        {
-            emit.emitIns_R_R(INS_tst, EA_4BYTE, loSrcReg, loSrcReg);
-            genJumpToThrowHlpBlk(EJ_mi, ThrowHelperKind::Overflow);
-        }
-
+        emit.emitIns_R_R(INS_tst, EA_4BYTE, loSrcReg, loSrcReg);
+        genJumpToThrowHlpBlk(EJ_mi, ThrowHelperKind::Overflow);
         emit.emitIns_R_R(INS_tst, EA_4BYTE, hiSrcReg, hiSrcReg);
         genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
     }
 
     emit.emitIns_Mov(INS_mov, EA_4BYTE, dstReg, loSrcReg, /* canSkip */ true);
 
-    DefReg(cast);
+    DefReg(node);
 }
 
 void CodeGen::GenIntToFloat(GenTreeUnOp* cast)

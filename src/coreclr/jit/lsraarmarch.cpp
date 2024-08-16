@@ -552,41 +552,6 @@ void LinearScan::BuildBoundsChk(GenTreeBoundsChk* node)
     }
 }
 
-void LinearScan::BuildCast(GenTreeCast* cast)
-{
-    assert(varTypeIsIntegral(cast->GetType()) && varTypeIsIntegral(cast->GetOp(0)->GetType()));
-
-    GenTree* src = cast->GetOp(0);
-
-#ifdef TARGET_ARM
-    var_types srcType = varActualType(src->GetType());
-
-    assert(!varTypeIsLong(srcType) || (src->OperIs(GT_LONG) && src->isContained()));
-#endif
-
-    if (!src->isContained())
-    {
-        BuildUse(src);
-    }
-    else if (src->OperIs(GT_IND_LOAD))
-    {
-        BuildAddrUses(src->AsIndLoad()->GetAddr());
-    }
-#ifdef TARGET_ARM
-    else if (src->OperIs(GT_LONG))
-    {
-        BuildUse(src->AsOp()->GetOp(0));
-        BuildUse(src->AsOp()->GetOp(1));
-    }
-#endif
-    else
-    {
-        assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
-    }
-
-    BuildDef(cast);
-}
-
 void LinearScan::BuildOvfUnsigned(GenTreeUnOp* node)
 {
     assert(node->OperIs(GT_OVF_U) && node->TypeIs(TYP_INT ARM64_ARG(TYP_LONG)));

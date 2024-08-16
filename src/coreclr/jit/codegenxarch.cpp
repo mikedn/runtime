@@ -5040,72 +5040,6 @@ void CodeGen::GenIntCompare(GenTreeOp* cmp)
     DefReg(cmp);
 }
 
-#ifndef TARGET_64BIT
-void CodeGen::GenCastLongToInt(GenTreeCast* cast)
-{
-    assert(cast->TypeIs(TYP_INT) && cast->HasOverflowCheck());
-
-    GenTreeOp* src = cast->GetOp(0)->AsOp();
-    noway_assert(src->OperIs(GT_LONG));
-
-    regNumber loSrcReg = UseReg(src->GetOp(0));
-    regNumber hiSrcReg = UseReg(src->GetOp(1));
-    regNumber dstReg   = cast->GetRegNum();
-
-    assert(genIsValidIntReg(loSrcReg));
-    assert(genIsValidIntReg(hiSrcReg));
-    assert(genIsValidIntReg(dstReg));
-
-    Emitter& emit = *GetEmitter();
-
-    var_types srcType = cast->IsCastUnsigned() ? TYP_ULONG : TYP_LONG;
-    var_types dstType = cast->GetCastType();
-    assert((dstType == TYP_INT) || (dstType == TYP_UINT));
-
-    // Generate an overflow check for [u]long to [u]int casts:
-    //
-    // long  -> int  - check if the upper 33 bits are all 0 or all 1
-    //
-    // ulong -> int  - check if the upper 33 bits are all 0
-    //
-    // long  -> uint - check if the upper 32 bits are all 0
-    // ulong -> uint - check if the upper 32 bits are all 0
-
-    if ((srcType == TYP_LONG) && (dstType == TYP_INT))
-    {
-        emit.emitIns_R_R(INS_test, EA_4BYTE, loSrcReg, loSrcReg);
-        insGroup* allOne = emit.CreateTempLabel();
-        emit.emitIns_J(INS_js, allOne);
-
-        emit.emitIns_R_R(INS_test, EA_4BYTE, hiSrcReg, hiSrcReg);
-        genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
-        insGroup* success = emit.CreateTempLabel();
-        emit.emitIns_J(INS_jmp, success);
-
-        emit.DefineTempLabel(allOne);
-        emit.emitIns_R_I(INS_cmp, EA_4BYTE, hiSrcReg, -1);
-        genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
-
-        emit.DefineTempLabel(success);
-    }
-    else
-    {
-        if ((srcType == TYP_ULONG) && (dstType == TYP_INT))
-        {
-            emit.emitIns_R_R(INS_test, EA_4BYTE, loSrcReg, loSrcReg);
-            genJumpToThrowHlpBlk(EJ_s, ThrowHelperKind::Overflow);
-        }
-
-        emit.emitIns_R_R(INS_test, EA_4BYTE, hiSrcReg, hiSrcReg);
-        genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
-    }
-
-    emit.emitIns_Mov(INS_mov, EA_4BYTE, dstReg, loSrcReg, /* canSkip */ true);
-
-    DefReg(cast);
-}
-#endif
-
 void CodeGen::GenCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& desc, RegNum reg)
 {
     switch (desc.CheckKind())
@@ -5161,9 +5095,10 @@ void CodeGen::GenCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& desc
     }
 }
 
+#ifdef TARGET_64BIT
 void CodeGen::GenCastIntToInt(GenTreeCast* cast)
 {
-    assert(cast->HasOverflowCheck() && cast->TypeIs(TYP_INT, TYP_LONG));
+    assert(cast->HasOverflowCheck() && cast->TypeIs(TYP_LONG) && varActualTypeIsInt(cast->GetOp(0)->GetType()));
 
     GenTree* src = cast->GetOp(0);
 
@@ -5263,6 +5198,104 @@ void CodeGen::GenCastIntToInt(GenTreeCast* cast)
     GetEmitter()->emitIns_Mov(ins, EA_ATTR(insSize), dstReg, srcReg, canSkip);
 
     DefReg(cast);
+}
+#endif // TARGET_64BIT
+
+void CodeGen::GenOverflowTruncate(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_OVF_TRUNC, GT_OVF_STRUNC, GT_OVF_UTRUNC));
+    assert(node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
+
+    Emitter& emit = *GetEmitter();
+
+#ifndef TARGET_64BIT
+    GenTreeOp* src = node->GetOp(0)->AsOp();
+    assert(src->OperIs(GT_LONG));
+    RegNum loSrcReg = UseReg(src->GetOp(0));
+    RegNum hiSrcReg = UseReg(src->GetOp(1));
+    RegNum dstReg   = node->GetRegNum();
+
+    assert(genIsValidIntReg(loSrcReg));
+    assert(genIsValidIntReg(hiSrcReg));
+    assert(genIsValidIntReg(dstReg));
+
+    if (node->OperIs(GT_OVF_UTRUNC))
+    {
+        emit.emitIns_R_R(INS_test, EA_4BYTE, hiSrcReg, hiSrcReg);
+        genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
+    }
+    else if (node->OperIs(GT_OVF_STRUNC))
+    {
+        emit.emitIns_R_R(INS_test, EA_4BYTE, loSrcReg, loSrcReg);
+        insGroup* allOne = emit.CreateTempLabel();
+        emit.emitIns_J(INS_js, allOne);
+
+        emit.emitIns_R_R(INS_test, EA_4BYTE, hiSrcReg, hiSrcReg);
+        genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
+        insGroup* success = emit.CreateTempLabel();
+        emit.emitIns_J(INS_jmp, success);
+
+        emit.DefineTempLabel(allOne);
+        emit.emitIns_R_I(INS_cmp, EA_4BYTE, hiSrcReg, -1);
+        genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
+
+        emit.DefineTempLabel(success);
+    }
+    else
+    {
+        emit.emitIns_R_R(INS_test, EA_4BYTE, loSrcReg, loSrcReg);
+        genJumpToThrowHlpBlk(EJ_s, ThrowHelperKind::Overflow);
+        emit.emitIns_R_R(INS_test, EA_4BYTE, hiSrcReg, hiSrcReg);
+        genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
+    }
+
+    emit.emitIns_Mov(INS_mov, EA_4BYTE, dstReg, loSrcReg, /* canSkip */ true);
+#else
+    GenTree* src = node->GetOp(0);
+
+    RegNum srcReg = src->isUsedFromReg() ? UseReg(src) : REG_NA;
+    RegNum dstReg = node->GetRegNum();
+
+    if (srcReg == REG_NA)
+    {
+        genConsumeRegs(src);
+        emitInsRegRM(INS_mov, EA_8BYTE, dstReg, src);
+        srcReg = dstReg;
+    }
+
+    if (node->OperIs(GT_OVF_UTRUNC))
+    {
+        // We need to check if the value is not greater than 0xFFFFFFFF but this value
+        // cannot be encoded in an immediate operand. Use a right shift to test if the
+        // upper 32 bits are zero. This requires a temporary register.
+
+        const RegNum tempReg = node->GetSingleTempReg();
+        assert(tempReg != srcReg);
+        emit.emitIns_Mov(INS_mov, EA_8BYTE, tempReg, srcReg, /* canSkip */ false);
+        emit.emitIns_R_I(INS_shr_N, EA_8BYTE, tempReg, 32);
+        genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
+    }
+    else if (node->OperIs(GT_OVF_STRUNC))
+    {
+        emit.emitIns_R_I(INS_cmp, EA_8BYTE, srcReg, INT32_MAX);
+        genJumpToThrowHlpBlk(EJ_g, ThrowHelperKind::Overflow);
+        emit.emitIns_R_I(INS_cmp, EA_8BYTE, srcReg, INT32_MIN);
+        genJumpToThrowHlpBlk(EJ_l, ThrowHelperKind::Overflow);
+    }
+    else
+    {
+        assert(node->OperIs(GT_OVF_TRUNC));
+        emit.emitIns_R_I(INS_cmp, EA_8BYTE, srcReg, INT32_MAX);
+        genJumpToThrowHlpBlk(EJ_a, ThrowHelperKind::Overflow);
+    }
+
+    if (srcReg != dstReg)
+    {
+        emit.emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, /*canSkip*/ true);
+    }
+#endif
+
+    DefReg(node);
 }
 
 void CodeGen::GenOverflowUnsigned(GenTreeUnOp* node)

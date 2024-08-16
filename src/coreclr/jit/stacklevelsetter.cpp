@@ -132,6 +132,9 @@ void StackLevelSetter::SetThrowHelperBlockStackLevel(GenTree* node, BasicBlock* 
 
         case GT_CAST:
         case GT_OVF_U:
+        case GT_OVF_TRUNC:
+        case GT_OVF_STRUNC:
+        case GT_OVF_UTRUNC:
         case GT_OVF_SCONV:
         case GT_OVF_UCONV:
         case GT_OVF_FTOS:

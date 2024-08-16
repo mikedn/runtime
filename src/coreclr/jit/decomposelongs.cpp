@@ -359,7 +359,7 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
 {
     GenTreeCast* cast = use.Def()->AsCast();
 
-    assert(cast->HasOverflowCheck() && cast->TypeIs(TYP_LONG));
+    assert(cast->HasOverflowCheck() && cast->TypeIs(TYP_LONG) && varActualTypeIsInt(cast->GetOp(0)->GetType()));
 
     GenTree* loResult = nullptr;
     GenTree* hiResult = nullptr;
@@ -367,45 +367,19 @@ GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
     var_types srcType = cast->GetOp(0)->GetType();
     var_types dstType = cast->GetCastType();
 
-    if (srcType == TYP_LONG)
-    {
-        assert(varTypeIsLong(dstType));
+    // An overflow check is needed only when casting from a signed type to ulong.
+    // Change the cast type to uint to take advantage of the overflow check provided
+    // by codegen and then zero extend the resulting uint to ulong.
+    assert(!cast->IsCastUnsigned() && (dstType == TYP_ULONG));
 
-        GenTreeOp* srcOp = cast->GetOp(0)->AsOp();
-        assert(srcOp->OperIs(GT_LONG));
-        GenTree* loSrcOp = srcOp->GetOp(0);
-        GenTree* hiSrcOp = srcOp->GetOp(1);
+    cast->ChangeOper(GT_OVF_U);
+    cast->SetSideEffects(GTF_EXCEPT);
+    cast->SetType(TYP_INT);
 
-        // When casting between long types an overflow check is needed only if the types
-        // have different signedness. In both cases (long->ulong and ulong->long) we only
-        // need to check if the high part is negative or not. Use the existing cast node
-        // to perform a int->uint cast of the high part to take advantage of the overflow
-        // check provided by codegen.
+    loResult = cast;
+    hiResult = m_compiler->gtNewIconNode(0);
 
-        loResult = loSrcOp;
-
-        hiResult = cast;
-        cast->SetCastType(TYP_UINT);
-        cast->SetCastUnsigned(false);
-        cast->SetOp(0, hiSrcOp);
-
-        Range().Remove(srcOp);
-    }
-    else
-    {
-        assert(varActualTypeIsInt(srcType));
-        // An overflow check is needed only when casting from a signed type to ulong.
-        // Change the cast type to uint to take advantage of the overflow check provided
-        // by codegen and then zero extend the resulting uint to ulong.
-        assert(!cast->IsCastUnsigned() && (dstType == TYP_ULONG));
-
-        cast->SetCastType(TYP_UINT);
-
-        loResult = cast;
-        hiResult = m_compiler->gtNewIconNode(0);
-
-        Range().InsertAfter(loResult, hiResult);
-    }
+    Range().InsertAfter(loResult, hiResult);
 
     return FinalizeDecomposition(use, loResult, hiResult, hiResult);
 }

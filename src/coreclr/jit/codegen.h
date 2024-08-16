@@ -549,10 +549,6 @@ protected:
     void instGen_MemoryBarrier(BarrierKind barrierKind = BARRIER_FULL);
 #endif
 
-#ifndef TARGET_64BIT
-    void GenCastLongToInt(GenTreeCast* cast);
-#endif
-
     void GenBitCast(GenTreeUnOp* bitcast);
     void inst_BitCast(var_types dstType, regNumber dstReg, var_types srcType, regNumber srcReg);
 
@@ -649,7 +645,9 @@ protected:
     };
 
     void GenCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& desc, regNumber reg);
+#ifdef TARGET_64BIT
     void GenCastIntToInt(GenTreeCast* cast);
+#endif
     void GenIntToFloat(GenTreeUnOp* node);
     void GenFloatToInt(GenTreeUnOp* node);
 
@@ -773,7 +771,7 @@ protected:
     void EpilogGSCookieCheck();
 #endif
 
-    void GenCast(GenTreeCast* cast);
+    void GenOverflowTruncate(GenTreeUnOp* node);
     void GenOverflowUnsigned(GenTreeUnOp* node);
     void GenConv(GenTreeUnOp* node);
     void GenOverflowConv(GenTreeUnOp* node);

@@ -5581,20 +5581,6 @@ CodeGen::GenIntCastDesc::GenIntCastDesc(GenTreeCast* cast)
     }
 }
 
-void CodeGen::GenCast(GenTreeCast* cast)
-{
-#ifndef TARGET_64BIT
-    if (cast->GetOp(0)->TypeIs(TYP_LONG))
-    {
-        GenCastLongToInt(cast);
-    }
-    else
-#endif
-    {
-        GenCastIntToInt(cast);
-    }
-}
-
 void CodeGen::GenJTrue(GenTreeUnOp* jtrue, BasicBlock* block)
 {
     assert(jtrue->OperIs(GT_JTRUE));

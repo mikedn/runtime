@@ -334,7 +334,14 @@ GenTree* Lowering::LowerNode(GenTree* node)
             return LowerBitCast(node->AsUnOp());
 
         case GT_CAST:
-            return LowerCast(node->AsCast());
+            LowerCast(node->AsCast());
+            break;
+
+        case GT_OVF_TRUNC:
+        case GT_OVF_STRUNC:
+        case GT_OVF_UTRUNC:
+            LowerOverflowTruncate(node->AsUnOp());
+            break;
 
         case GT_OVF_U:
             LowerOverflowUnsigned(node->AsUnOp());
@@ -5074,16 +5081,19 @@ GenTree* Lowering::LowerBitCast(GenTreeUnOp* bitcast)
     return next;
 }
 
-GenTree* Lowering::LowerCast(GenTreeCast* cast)
+void Lowering::LowerCast(GenTreeCast* cast)
 {
-    assert(varCastType(cast->GetCastType()) == cast->GetType());
-    assert(varTypeIsIntegral(cast->GetType()) && varTypeIsIntegral(cast->GetOp(0)->GetType()));
-    assert(!varTypeIsSmall(cast->GetType()));
-    assert(cast->HasOverflowCheck());
+    assert(cast->HasOverflowCheck() && cast->TypeIs(TYP_LONG) && varActualTypeIsInt(cast->GetOp(0)->GetType()));
 
     ContainCheckCast(cast);
+}
 
-    return cast->gtNext;
+void Lowering::LowerOverflowTruncate(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_OVF_TRUNC, GT_OVF_STRUNC, GT_OVF_UTRUNC));
+    assert(node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
+
+    ContainCheckOverflowTruncate(node);
 }
 
 void Lowering::LowerOverflowUnsigned(GenTreeUnOp* node)
