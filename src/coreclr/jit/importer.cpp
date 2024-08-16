@@ -10516,8 +10516,16 @@ void Importer::impImportBlockCode(BasicBlock* block)
                             }
                             else
                             {
-                                op1 = gtNewCastNode(op1, uns, TYP_INT);
-                                op1->AsCast()->AddOverflowCheck();
+                                if (uns)
+                                {
+                                    op1 = gtNewOperNode(GT_OVF_TRUNC, TYP_INT, op1);
+                                }
+                                else
+                                {
+                                    op1 = gtNewOperNode(GT_OVF_STRUNC, TYP_INT, op1);
+                                }
+
+                                op1->AddSideEffects(GTF_EXCEPT);
                             }
                         }
 #endif
@@ -10541,14 +10549,33 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         op1 = gtNewOperNode(GT_OVF_U, type, op1);
                         op1->AddSideEffects(GTF_EXCEPT);
                     }
-                    else
+                    else if (ovfl && (fromType == TYP_LONG) && varTypeIsInt(lclTyp))
+                    {
+                        if (lclTyp == TYP_UINT)
+                        {
+                            op1 = gtNewOperNode(GT_OVF_UTRUNC, TYP_INT, op1);
+                        }
+                        else if (!uns)
+                        {
+                            op1 = gtNewOperNode(GT_OVF_STRUNC, TYP_INT, op1);
+                        }
+                        else
+                        {
+                            op1 = gtNewOperNode(GT_OVF_TRUNC, TYP_INT, op1);
+                        }
+
+                        op1->AddSideEffects(GTF_EXCEPT);
+                    }
+                    else if (ovfl && (fromType == TYP_INT) && !uns && (lclTyp == TYP_ULONG))
                     {
                         op1 = gtNewCastNode(op1, uns, lclTyp);
+                        op1->AsCast()->AddOverflowCheck();
+                    }
+                    else
+                    {
+                        assert((fromType == TYP_INT) && (type == TYP_LONG));
 
-                        if (ovfl)
-                        {
-                            op1->AsCast()->AddOverflowCheck();
-                        }
+                        op1 = gtNewOperNode(uns ? GT_UXT : GT_SXT, TYP_LONG, op1);
                     }
 
                     if (op1->AsUnOp()->GetOp(0)->IsNumericConst() && opts.OptimizationEnabled())

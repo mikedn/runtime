@@ -3007,6 +3007,64 @@ void CodeGen::GenFloatToInt(GenTreeUnOp* cast)
     DefReg(cast);
 }
 
+void CodeGen::GenOverflowTruncate(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_OVF_TRUNC, GT_OVF_STRUNC, GT_OVF_UTRUNC));
+    assert(node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
+
+    GenTree* src = node->GetOp(0);
+    RegNum   srcReg;
+    RegNum   dstReg = node->GetRegNum(0);
+    Emitter& emit   = *GetEmitter();
+
+    if (src->isUsedFromMemory())
+    {
+        genConsumeRegs(src);
+
+        StackAddrMode s;
+
+        if (IsLocalMemoryOperand(src, &s))
+        {
+            GetEmitter()->emitIns_R_S(INS_ldr, EA_8BYTE, dstReg, s);
+        }
+        else
+        {
+            emitInsLoad(INS_ldr, EA_8BYTE, dstReg, src->AsIndLoad());
+        }
+
+        srcReg = dstReg;
+    }
+    else
+    {
+        srcReg = UseReg(src);
+    }
+
+    if (node->OperIs(GT_OVF_UTRUNC))
+    {
+        GetEmitter()->emitIns_R_I(INS_tst, EA_8BYTE, srcReg, 0xFFFFFFFF00000000LL);
+        genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
+    }
+    else if (node->OperIs(GT_OVF_STRUNC))
+    {
+        GetEmitter()->emitIns_R_R_I(INS_cmp, EA_8BYTE, srcReg, srcReg, 0, INS_OPTS_SXTW);
+        genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
+    }
+    else
+    {
+        assert(node->OperIs(GT_OVF_TRUNC));
+
+        GetEmitter()->emitIns_R_I(INS_tst, EA_8BYTE, srcReg, 0xFFFFFFFF80000000LL);
+        genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
+    }
+
+    if (dstReg != srcReg)
+    {
+        GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, false);
+    }
+
+    DefReg(node);
+}
+
 void CodeGen::GenTruncate(GenTreeUnOp* node)
 {
     assert(node->OperIs(GT_TRUNC) && node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));

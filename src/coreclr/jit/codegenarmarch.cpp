@@ -2691,9 +2691,10 @@ void CodeGen::GenOverflowUnsigned(GenTreeUnOp* node)
     DefReg(node);
 }
 
+#ifdef TARGET_64BIT
 void CodeGen::GenCastIntToInt(GenTreeCast* cast)
 {
-    assert(cast->HasOverflowCheck() && cast->TypeIs(TYP_INT, TYP_LONG));
+    assert(cast->HasOverflowCheck() && cast->TypeIs(TYP_LONG) && varActualTypeIsInt(cast->GetOp(0)->GetType()));
 
     GenTree* src = cast->GetOp(0);
 
@@ -2802,6 +2803,7 @@ void CodeGen::GenCastIntToInt(GenTreeCast* cast)
 
     genProduceReg(cast);
 }
+#endif // TARGET_64BIT
 
 void CodeGen::GenFloatExtend(GenTreeUnOp* node)
 {

@@ -1758,14 +1758,65 @@ private:
 
     GenTree* PropagateCast(const ASSERT_TP assertions, GenTreeCast* cast, Statement* stmt)
     {
-        assert(cast->TypeIs(TYP_INT, TYP_LONG));
+        assert(cast->TypeIs(TYP_LONG) && varActualTypeIsInt(cast->GetOp(0)->GetType()));
 
-        GenTree*  op1      = cast->GetOp(0);
-        var_types fromType = varActualType(op1->GetType());
-        var_types toType   = cast->GetType();
+        GenTree* op1       = cast->GetOp(0);
+        GenTree* actualOp1 = op1->SkipComma();
+        ValueNum vn;
 
-        assert((fromType == TYP_INT) || (fromType == TYP_LONG));
+        if (actualOp1->OperIs(GT_LCL_LOAD, GT_LCL_USE))
+        {
+            LclVarDsc* lcl = actualOp1->OperIs(GT_LCL_LOAD) ? actualOp1->AsLclLoad()->GetLcl()
+                                                            : actualOp1->AsLclUse()->GetDef()->GetLcl();
 
+            // TODO-MIKE-Review: Usually we can't eliminate load "normalization" casts.
+            // They're usually present on every LCL_VAR use so we'll never get assertions
+            // about the LCL_VAR value itself (e.g. usually we have "if ((byte)b < 42)",
+            // not "if (b < 42)"). xunit assemblies have a few cases where these casts do
+            // get eliminated but it turns out that this skews register allocation in such
+            // a way that the codegen end up being worse.
+            // Besides, the way load/store "normalization" is implemented is just asking
+            // for trouble so it's best to ignore these casts for now.
+            if (lcl->lvNormalizeOnLoad())
+            {
+                return nullptr;
+            }
+
+            vn = actualOp1->GetConservativeVN();
+        }
+        else
+        {
+            vn = vnStore->ExtractValue(actualOp1->GetConservativeVN());
+        }
+
+        const AssertionDsc* assertion = FindCastRangeAssertion(assertions, vn, 0, INT32_MAX);
+
+        if (assertion == nullptr)
+        {
+            return nullptr;
+        }
+
+        DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
+
+#ifdef TARGET_AMD64
+        // TODO-MIKE-CQ: For now do this only on x64. It's also useful on 32 bit
+        // targets but it sometimes interferes with LMUL helper call elimination.
+        // On ARM64 it seems to be useless and it interferes with smull generation.
+        cast->SetOper(GT_UXT);
+#else
+        cast->SetOper(GT_SXT);
+#endif
+        cast->SetSideEffects(op1->GetSideEffects());
+
+        return UpdateTree(cast, cast, stmt);
+    }
+
+    GenTree* PropagateOvfTrunc(const ASSERT_TP assertions, GenTreeUnOp* cast, Statement* stmt)
+    {
+        assert(cast->OperIs(GT_OVF_TRUNC, GT_OVF_STRUNC, GT_OVF_UTRUNC));
+        assert(cast->TypeIs(TYP_INT) && cast->GetOp(0)->TypeIs(TYP_LONG));
+
+        GenTree* op1       = cast->GetOp(0);
         GenTree* actualOp1 = op1->SkipComma();
         ValueNum vn;
 
@@ -1795,8 +1846,8 @@ private:
         }
 
         // Keep it simple - the 0..INT32_MAX range allows us to remove overflow checks from LONG/INT
-        // casts and also change sign extension to zero extension. We'll miss some cases, such as
-        // 0..UINT32_MAX needed for LONG -> UINT casts but these should be pretty rare.
+        // all truncations. We'll miss some cases, such as 0..UINT32_MAX needed for LONG -> UINT
+        // casts but these should be pretty rare.
         const AssertionDsc* assertion = FindCastRangeAssertion(assertions, vn, 0, INT32_MAX);
 
         if (assertion == nullptr)
@@ -1806,32 +1857,10 @@ private:
 
         DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
 
-        if (fromType != toType)
-        {
-            if ((fromType == TYP_LONG) && (toType == TYP_INT))
-            {
-                cast->SetOper(GT_TRUNC);
-                cast->SetSideEffects(op1->GetSideEffects());
-            }
-            else
-            {
-                assert((fromType == TYP_INT) && (toType == TYP_LONG));
+        cast->SetOper(GT_TRUNC);
+        cast->SetSideEffects(op1->GetSideEffects());
 
-#ifdef TARGET_AMD64
-                // TODO-MIKE-CQ: For now do this only on x64. It's also useful on 32 bit
-                // targets but it sometimes interferes with LMUL helper call elimination.
-                // On ARM64 it seems to be useless and it interferes with smull generation.
-                cast->SetOper(GT_UXT);
-#else
-                cast->SetOper(GT_SXT);
-#endif
-                cast->SetSideEffects(op1->GetSideEffects());
-            }
-
-            op1 = cast;
-        }
-
-        return UpdateTree(op1, cast, stmt);
+        return UpdateTree(cast, cast, stmt);
     }
 
     GenTree* PropagateOvfUnsigned(const ASSERT_TP assertions, GenTreeUnOp* cast, Statement* stmt)
@@ -2508,6 +2537,10 @@ private:
                 return PropagateCast(assertions, node->AsCast(), stmt);
             case GT_OVF_U:
                 return PropagateOvfUnsigned(assertions, node->AsUnOp(), stmt);
+            case GT_OVF_TRUNC:
+            case GT_OVF_STRUNC:
+            case GT_OVF_UTRUNC:
+                return PropagateOvfTrunc(assertions, node->AsUnOp(), stmt);
             case GT_CONV:
             case GT_OVF_SCONV:
             case GT_OVF_UCONV:
@@ -3401,6 +3434,9 @@ private:
                 case GT_GT:
                 case GT_OR:
                 case GT_CAST:
+                case GT_OVF_TRUNC:
+                case GT_OVF_STRUNC:
+                case GT_OVF_UTRUNC:
                 case GT_OVF_U:
                 case GT_CONV:
                 case GT_OVF_SCONV:

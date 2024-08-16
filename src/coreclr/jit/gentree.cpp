@@ -2274,6 +2274,24 @@ void Compiler::gtSetCosts(GenTree* tree)
 #endif
                     break;
 
+                case GT_OVF_TRUNC:
+                case GT_OVF_STRUNC:
+                case GT_OVF_UTRUNC:
+                    assert(tree->TypeIs(TYP_INT) && op1->TypeIs(TYP_LONG));
+#if defined(TARGET_ARM)
+                    costEx = 7;
+                    costSz = 7;
+#elif defined(TARGET_ARM64)
+                    costEx = 7;
+                    costSz = 8;
+#elif defined(TARGET_XARCH)
+                    costEx = 7;
+                    costSz = 8;
+#else
+#error "Unknown TARGET"
+#endif
+                    break;
+
                 case GT_CAST:
                     assert(varTypeIsIntegral(tree->GetType()) && varTypeIsIntegral(op1->GetType()));
 #if defined(TARGET_ARM)
@@ -5402,6 +5420,9 @@ bool GenTree::OperMayThrow(Compiler* comp) const
             return AsCast()->HasOverflowCheck();
 
         case GT_OVF_U:
+        case GT_OVF_TRUNC:
+        case GT_OVF_STRUNC:
+        case GT_OVF_UTRUNC:
         case GT_OVF_SCONV:
         case GT_OVF_UCONV:
         case GT_OVF_FTOS:
@@ -5646,6 +5667,9 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_ARR_LENGTH:
         case GT_CAST:
         case GT_OVF_U:
+        case GT_OVF_TRUNC:
+        case GT_OVF_STRUNC:
+        case GT_OVF_UTRUNC:
         case GT_CONV:
         case GT_OVF_SCONV:
         case GT_OVF_UCONV:
@@ -9746,17 +9770,11 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                             goto INTEGRAL_OVF;
                         }
 
-                        switch (tree->GetType())
+                        if (tree->TypeIs(TYP_LONG))
                         {
-                            case TYP_INT:
-                                i = i1;
-                                goto CNS_INT;
-                            case TYP_LONG:
-                                l = tree->AsCast()->IsCastUnsigned() ? static_cast<int64_t>(static_cast<uint32_t>(i1))
-                                                                     : static_cast<int64_t>(i1);
-                                goto CNS_LONG;
-                            default:
-                                break;
+                            l = tree->AsCast()->IsCastUnsigned() ? static_cast<int64_t>(static_cast<uint32_t>(i1))
+                                                                 : static_cast<int64_t>(i1);
+                            goto CNS_LONG;
                         }
                         break;
 
@@ -9894,39 +9912,49 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                         i = static_cast<int32_t>(l1);
                         goto CNS_INT;
 
-                    case GT_CAST:
-                        assert(tree->GetType() == varCastType(tree->AsCast()->GetCastType()));
+                    case GT_OVF_TRUNC:
+                        assert(tree->TypeIs(TYP_INT) && op1->TypeIs(TYP_LONG));
 
-                        if (tree->AsCast()->HasOverflowCheck() &&
-                            CheckedOps::CastFromLongOverflows(l1, tree->AsCast()->GetCastType(),
-                                                              tree->AsCast()->IsCastUnsigned()))
+                        if ((0 <= l1) && (l1 < INT32_MAX))
                         {
-                            goto INTEGRAL_OVF;
+                            i = static_cast<int32_t>(l1);
+                            goto CNS_INT;
                         }
 
-                        switch (tree->GetType())
+                        goto INTEGRAL_OVF;
+
+                    case GT_OVF_STRUNC:
+                        assert(tree->TypeIs(TYP_INT) && op1->TypeIs(TYP_LONG));
+
+                        if ((INT32_MIN <= l1) && (l1 <= INT32_MAX))
                         {
-                            case TYP_INT:
-                                i = static_cast<int32_t>(l1);
-                                goto CNS_INT;
-                            case TYP_LONG:
-                                l = l1;
-                                goto CNS_LONG;
-                            default:
-                                break;
+                            i = static_cast<int32_t>(l1);
+                            goto CNS_INT;
                         }
-                        break;
+
+                        goto INTEGRAL_OVF;
+
+                    case GT_OVF_UTRUNC:
+                        assert(tree->TypeIs(TYP_INT) && op1->TypeIs(TYP_LONG));
+
+                        if ((0 <= l1) && (l1 <= UINT_MAX))
+                        {
+                            i = static_cast<int32_t>(l1);
+                            goto CNS_INT;
+                        }
+
+                        goto INTEGRAL_OVF;
 
                     case GT_OVF_U:
                         assert(tree->TypeIs(TYP_LONG));
 
-                        if (l1 < 0)
+                        if (l1 >= 0)
                         {
-                            goto INTEGRAL_OVF;
+                            l = l1;
+                            goto CNS_LONG;
                         }
 
-                        l = l1;
-                        goto CNS_LONG;
+                        goto INTEGRAL_OVF;
 
                     case GT_TRUNC:
                         i = static_cast<int32_t>(l1);
@@ -10686,7 +10714,8 @@ CNS_DOUBLE:
     return tree;
 
 INTEGRAL_OVF:
-    assert((tree->IsCast() && tree->AsCast()->HasOverflowCheck()) || tree->OperIs(GT_OVF_SCONV, GT_OVF_UCONV) ||
+    assert((tree->IsCast() && tree->AsCast()->HasOverflowCheck()) ||
+           tree->OperIs(GT_OVF_SCONV, GT_OVF_UCONV, GT_OVF_U, GT_OVF_TRUNC, GT_OVF_UTRUNC, GT_OVF_STRUNC) ||
            tree->IsOverflowOp());
     assert(varTypeIsIntegral(tree->GetType()));
 

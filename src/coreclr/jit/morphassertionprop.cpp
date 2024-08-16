@@ -1265,83 +1265,6 @@ GenTree* Compiler::morphAssertionPropagateRelOp(GenTreeOp* relop)
     return op2;
 }
 
-GenTree* Compiler::morphAssertionPropagateCast(GenTreeCast* cast)
-{
-    GenTree*  src      = cast->GetOp(0);
-    var_types fromType = src->GetType();
-    var_types toType   = cast->GetCastType();
-
-    assert(varActualTypeIsInt(fromType) || (fromType == TYP_LONG) || varTypeIsGC(fromType));
-    assert(varTypeIsInt(toType) || varTypeIsLong(toType));
-
-    if (varTypeIsLong(toType))
-    {
-        return nullptr;
-    }
-
-    GenTree* actualSrc = src->SkipComma();
-
-    if (!actualSrc->OperIs(GT_LCL_LOAD))
-    {
-        return nullptr;
-    }
-
-    LclVarDsc* lcl = actualSrc->AsLclLoad()->GetLcl();
-
-    if (lcl->IsAddressExposed() || varTypeIsLong(lcl->GetType()))
-    {
-        return nullptr;
-    }
-
-    const MorphAssertion* assertion = morphAssertionFindRange(lcl->GetLclNum());
-
-    if (assertion == nullptr)
-    {
-        return nullptr;
-    }
-
-    if (cast->IsCastUnsigned())
-    {
-        fromType = varTypeToUnsigned(fromType);
-    }
-
-    if (varTypeIsUnsigned(fromType) && (assertion->val.range.min < 0))
-    {
-        return nullptr;
-    }
-
-    if (toType == TYP_UINT)
-    {
-        if (assertion->val.range.min < 0)
-        {
-            return nullptr;
-        }
-    }
-    else
-    {
-        assert(toType == TYP_INT);
-    }
-
-    if (!lcl->lvNormalizeOnLoad())
-    {
-        DBEXEC(verbose, morphAssertionTrace(*assertion, cast, "propagated"));
-
-        return src;
-    }
-
-    // TODO-MIKE-CQ: It's not entirely clear what the problem with lvNormalizeOnLoad is here.
-    // Old code tried to handle this case but it was broken and removing it produced no diffs.
-    // This happens when a small int promoted field or param local is casted to another small
-    // int type, which isn't exactly common. See morph-assertion-short-param-byte-cast.cs.
-    // There could also be an overflow checking cast to UINT that can be removed if we know
-    // that the value store in the local is positive.
-    // This needs care in the case of promoted struct fields because we don't know if they're
-    // P-DEP or not yet. If they're P-DEP then there will be an implicit truncation on store
-    // that range generation currently ignores. osx-arm64 may also have this problem.
-
-    return nullptr;
-}
-
 GenTree* Compiler::morphAssertionPropagateOvfUnsigned(GenTreeUnOp* node)
 {
     assert(node->OperIs(GT_OVF_U) && node->TypeIs(TYP_INT, TYP_LONG));
@@ -1580,9 +1503,6 @@ GenTree* Compiler::morphAssertionPropagate(GenTree* tree)
             case GT_IND_STORE:
             case GT_NULLCHECK:
                 newTree = morphAssertionPropagateIndir(tree->AsIndir());
-                break;
-            case GT_CAST:
-                newTree = morphAssertionPropagateCast(tree->AsCast());
                 break;
             case GT_OVF_U:
                 newTree = morphAssertionPropagateOvfUnsigned(tree->AsUnOp());
