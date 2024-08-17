@@ -10568,8 +10568,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     }
                     else if (ovfl && (fromType == TYP_INT) && !uns && (lclTyp == TYP_ULONG))
                     {
-                        op1 = gtNewCastNode(op1, uns, lclTyp);
-                        op1->AsCast()->AddOverflowCheck();
+                        op1 = gtNewOperNode(GT_OVF_U, TYP_INT, op1);
+                        op1->AddSideEffects(GTF_EXCEPT);
+                        op1 = gtNewOperNode(GT_UXT, TYP_LONG, op1);
                     }
                     else
                     {
