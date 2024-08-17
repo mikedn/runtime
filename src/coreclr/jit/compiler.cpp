@@ -5043,17 +5043,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 }
                 break;
 
-            case GT_CAST:
-                if (tree->AsCast()->HasOverflowCheck())
-                {
-                    chars += printf("[OVERFLOW]");
-                }
-                if (tree->AsCast()->IsCastUnsigned())
-                {
-                    chars += printf("[UNSIGNED]");
-                }
-                break;
-
             case GT_ADD:
             case GT_MUL:
             case GT_LSH:

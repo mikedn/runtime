@@ -63,7 +63,6 @@ private:
     void ContainCheckMul(GenTreeOp* node);
     void ContainCheckShiftRotate(GenTreeOp* node);
     void ContainCheckStoreLcl(GenTreeLclVarCommon* store);
-    void ContainCheckCast(GenTreeCast* node);
     void ContainCheckOverflowTruncate(GenTreeUnOp* node);
     void ContainCheckOverflowUnsigned(GenTreeUnOp* node);
     void ContainCheckCompare(GenTreeOp* cmp);
@@ -231,7 +230,6 @@ private:
                                  GenTreeLclLoad* switchValue);
 
     GenTree* LowerBitCast(GenTreeUnOp* bitcast);
-    void LowerCast(GenTreeCast* cast);
     void LowerOverflowTruncate(GenTreeUnOp* node);
     void LowerOverflowUnsigned(GenTreeUnOp* node);
     GenTree* LowerConv(GenTreeUnOp* cast);

@@ -208,12 +208,6 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 #endif
 
-#ifdef TARGET_64BIT
-        case GT_CAST:
-            BuildCast(tree->AsCast());
-            break;
-#endif
-
         case GT_OVF_TRUNC:
         case GT_OVF_STRUNC:
         case GT_OVF_UTRUNC:
@@ -1890,47 +1884,6 @@ void LinearScan::BuildBoundsChk(GenTreeBoundsChk* node)
     BuildOperandUses(node->GetOp(0));
     BuildOperandUses(node->GetOp(1));
 }
-
-#ifdef TARGET_64BIT
-void LinearScan::BuildCast(GenTreeCast* cast)
-{
-    assert(cast->HasOverflowCheck() && cast->TypeIs(TYP_LONG) && varActualTypeIsInt(cast->GetOp(0)->GetType()));
-
-    GenTree* src = cast->GetOp(0);
-
-    // Overflow checking cast from TYP_(U)LONG to TYP_UINT requires a temporary
-    // register to extract the upper 32 bits of the 64 bit source register.
-    if (src->TypeIs(TYP_LONG) && (cast->GetCastType() == TYP_UINT))
-    {
-        // Here we don't need internal register to be different from targetReg,
-        // rather require it to be different from operand's reg.
-        BuildInternalIntDef(cast);
-
-        // If the cast operand ends up being in memory then the value will be loaded directly
-        // into the destination register and thus the internal register has to be different.
-        if (src->isContained() || src->IsRegOptional())
-        {
-            setInternalRegsDelayFree = true;
-        }
-    }
-
-    if (!src->isContained())
-    {
-        BuildUse(src X86_ARG(candidates));
-    }
-    else if (src->OperIs(GT_IND_LOAD))
-    {
-        BuildAddrUses(src->AsIndLoad()->GetAddr());
-    }
-    else
-    {
-        assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
-    }
-
-    BuildInternalUses();
-    BuildDef(cast);
-}
-#endif // TARGET_64BIT
 
 void LinearScan::BuildOvfTruncate(GenTreeUnOp* node)
 {

@@ -351,7 +351,6 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
             node->SetSideEffects(GTF_EMPTY);
             break;
 
-        case GT_CAST:
         case GT_OVF_U:
         case GT_OVF_TRUNC:
         case GT_OVF_STRUNC:

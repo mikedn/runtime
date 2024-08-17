@@ -130,7 +130,6 @@ void StackLevelSetter::SetThrowHelperBlockStackLevel(GenTree* node, BasicBlock* 
             SetThrowHelperBlockStackLevel(ThrowHelperKind::Arithmetic, throwBlock);
             break;
 
-        case GT_CAST:
         case GT_OVF_U:
         case GT_OVF_TRUNC:
         case GT_OVF_STRUNC:

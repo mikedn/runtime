@@ -3684,31 +3684,6 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
     }
 }
 
-void Lowering::ContainCheckCast(GenTreeCast* cast)
-{
-    assert(varTypeIsIntegral(cast->GetType()) && varTypeIsIntegral(cast->GetOp(0)->GetType()));
-    assert(cast->HasOverflowCheck());
-
-    GenTree* src = cast->GetOp(0);
-
-#ifndef TARGET_64BIT
-    if (src->OperIs(GT_LONG))
-    {
-        src->SetContained();
-        return;
-    }
-#endif
-
-    if (IsContainableMemoryOp(src) && IsSafeToContainMem(cast, src))
-    {
-        src->SetContained();
-    }
-    else
-    {
-        src->SetRegOptional();
-    }
-}
-
 void Lowering::ContainCheckOverflowTruncate(GenTreeUnOp* node)
 {
     GenTree* src = node->GetOp(0);

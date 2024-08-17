@@ -1550,7 +1550,6 @@ private:
 #endif
     void BuildCall(GenTreeCall* call);
     void BuildBoundsChk(GenTreeBoundsChk* node);
-    void BuildCast(GenTreeCast* cast);
     void BuildOvfTruncate(GenTreeUnOp* node);
     void BuildOvfUnsigned(GenTreeUnOp* node);
     void BuildConv(GenTreeUnOp* cast);

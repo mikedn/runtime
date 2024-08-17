@@ -99,7 +99,6 @@ private:
     void NumberArrLen(GenTreeArrLen* node);
     void NumberCmpXchg(GenTreeCmpXchg* node);
     void NumberInterlocked(GenTreeOp* node);
-    void NumberCast(GenTreeCast* cast);
     void NumberConv(GenTreeUnOp* node);
     void NumberOvfUnsigned(GenTreeUnOp* node);
     void NumberOvfTruncate(GenTreeUnOp* node);
@@ -453,7 +452,6 @@ VNFunc GetVNFuncForNode(GenTree* node)
             return VNFuncHWIntrinsic(node->AsHWIntrinsic());
 #endif
 
-        case GT_CAST:
         case GT_CONV:
         case GT_OVF_SCONV:
         case GT_OVF_UCONV:
@@ -7181,10 +7179,6 @@ void ValueNumbering::NumberNode(GenTree* node)
             node->SetVNP(ValueNumPair{vnStore->VNForExpr(node->GetType())});
             break;
 
-        case GT_CAST:
-            NumberCast(node->AsCast());
-            break;
-
         case GT_OVF_TRUNC:
         case GT_OVF_STRUNC:
         case GT_OVF_UTRUNC:
@@ -7562,38 +7556,6 @@ ValueNum ValueNumStore::VNForBitCast(ValueNum valueVN, var_types toType)
     }
 
     return VNForFunc(toType, VNF_BitCast, valueVN, VNForBitCastOper(toType));
-}
-
-void ValueNumbering::NumberCast(GenTreeCast* cast)
-{
-    var_types fromType     = varActualType(cast->GetOp(0)->GetType());
-    bool      fromUnsigned = cast->IsCastUnsigned();
-    var_types toType       = cast->GetCastType();
-
-    assert(cast->HasOverflowCheck());
-    assert(varCastType(toType) == cast->GetType());
-    assert(varTypeIsIntegral(fromType) && varTypeIsIntegral(toType));
-
-    ValueNumPair exset;
-    ValueNumPair vnp = vnStore->UnpackExset(cast->GetOp(0)->GetVNP(), &exset);
-
-    ValueNum castTypeVN = vnStore->VNForCastOper(toType, fromUnsigned);
-    vnp                 = vnStore->VNPairForFunc(varActualType(toType), VNF_CastOvf, vnp, {castTypeVN, castTypeVN});
-
-    // Do not add exceptions for folded casts. We only fold checked casts that do not overflow.
-    if (!vnStore->IsVNConstant(vnp.GetLiberal()))
-    {
-        ValueNum ex = vnStore->VNForFunc(TYP_REF, VNF_ConvOverflowExc, vnp.GetLiberal(), castTypeVN);
-        exset.SetLiberal(vnStore->ExsetUnion(exset.GetLiberal(), vnStore->ExsetCreate(ex)));
-    }
-
-    if (!vnStore->IsVNConstant(vnp.GetConservative()))
-    {
-        ValueNum ex = vnStore->VNForFunc(TYP_REF, VNF_ConvOverflowExc, vnp.GetConservative(), castTypeVN);
-        exset.SetConservative(vnStore->ExsetUnion(exset.GetConservative(), vnStore->ExsetCreate(ex)));
-    }
-
-    cast->SetVNP(vnStore->PackExset(vnp, exset));
 }
 
 void ValueNumbering::NumberOvfTruncate(GenTreeUnOp* node)

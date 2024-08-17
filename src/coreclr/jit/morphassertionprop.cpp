@@ -649,41 +649,6 @@ void Compiler::morphAssertionGenerateEqual(GenTreeLclStore* store, GenTree* val)
             break;
 
 #ifdef TARGET_64BIT
-        case GT_CAST:
-            if (lcl->IsPromotedField() && lcl->lvNormalizeOnLoad())
-            {
-                // TODO-MIKE-Review: It's not clear why a range assertion is not generated in
-                // this case. In typical idiotic fashion old comment stated what the code is
-                // doing instead of why it is doing it.
-                return;
-            }
-
-            if (lcl->TypeIs(TYP_LONG))
-            {
-                // TODO-MIKE-Review: We don't generate ranges for LONG locals. Not clear why,
-                // it's likely that there aren't many useful cases.
-                return;
-            }
-
-            assert(!varTypeIsSmall(val->GetType()));
-
-            if (!val->TypeIs(TYP_INT))
-            {
-                return;
-            }
-
-            // TODO-MIKE-CQ: Like in the load case, this is pretty much nonsense. There is
-            // a difference however, an overflow checking cast to UINT should produce a
-            // 0..INT_32MAX/UINT32_MAX range depending on the source value being INT/LONG.
-            // No idea why this always produces an INT32_MIN..INT32_MAX range.
-            // We can also have an INT to LONG cast that tells that a LONG local has INT
-            // range, this (and any other range information we could deduce from the cast
-            // source types) is completely ignored now.
-            assertion.val.range = {INT32_MIN, INT32_MAX};
-            assertion.valKind   = ValueKind::Range;
-            assertion.kind      = Kind::Equal;
-            break;
-
         case GT_OVF_U:
             if (lcl->IsPromotedField() && lcl->lvNormalizeOnLoad())
             {

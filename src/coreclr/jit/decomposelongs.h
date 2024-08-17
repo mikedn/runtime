@@ -30,7 +30,6 @@ private:
     GenTree* DecomposeLclLoadFld(LIR::Use& use);
     GenTree* DecomposeLclStore(LIR::Use& use);
     GenTree* DecomposeLclStoreFld(LIR::Use& use);
-    GenTree* DecomposeCast(LIR::Use& use);
     GenTree* DecomposeOvfUnsigned(LIR::Use& use);
     GenTree* DecomposeSignExtend(LIR::Use& use);
     GenTree* DecomposeUnsignedExtend(LIR::Use& use);
