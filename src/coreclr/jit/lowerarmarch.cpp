@@ -488,21 +488,6 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
     GenTree* op1    = node->GetOp(0);
     GenTree* castOp = nullptr;
 
-    if (varTypeIsIntegral(node->GetSimdBaseType()) && op1->IsCast())
-    {
-        // We will sometimes get a cast around a constant value (such as for
-        // certain long constants) which would block the below containment.
-        // So we will temporarily check what the cast is from instead so we
-        // can catch those cases as well.
-
-        // TODO-MIKE-Review: Huh, why would a cast from a constant would ever reach
-        // lowering? And if that does happen then how can the cast be removed without
-        // checking anything? Overflow, cast from float, widening cast?!?!?!
-
-        castOp = op1->AsCast()->GetOp(0);
-        op1    = castOp;
-    }
-
     if (GenTreeIntCon* icon = op1->IsIntCon())
     {
         emitAttr emitSize = emitVecTypeSize(node->GetSimdSize());
@@ -1022,67 +1007,6 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
     if (IsImmOperand(src, store) && (!src->IsIntegralConst(0) || varTypeIsSmall(type)))
     {
         src->SetContained();
-    }
-}
-
-void Lowering::ContainCheckCast(GenTreeCast* cast)
-{
-    assert(cast->HasOverflowCheck() && cast->TypeIs(TYP_LONG) && varActualTypeIsInt(cast->GetOp(0)->GetType()));
-
-    GenTree* src = cast->GetOp(0);
-
-    bool isContainable = IsContainableMemoryOp(src);
-
-    if (src->OperIs(GT_IND_LOAD))
-    {
-        GenTree* addr = src->AsIndLoad()->GetAddr();
-
-        if (src->AsIndLoad()->IsVolatile())
-        {
-            isContainable = false;
-        }
-        else if (addr->isContained())
-        {
-            // Indirs with contained address modes are problematic, thanks in part to messed up
-            // address mode formation in LowerArrElem and createAddressNodeForSIMDInit, which
-            // produce base+index+offset address modes that are invalid on ARMARCH. Such indirs
-            // need a temp register and if the indir itself is contained then nobody's going to
-            // reserve it, as this is normally done in LSRA's BuildIndir.
-            //
-            // Also, when the indir is contained, the type of the generated load instruction may
-            // be different from the actual indir type, affecting immediate offset validity.
-            //
-            // So allow containment if the address mode is definitely always valid: base+index
-            // of base+offset, if the offset is valid no matter the indir type is.
-            //
-            // Perhaps it would be better to not contain the indir and instead retype it
-            // and remove the cast. Unfortunately there's at least on case where this is
-            // not possible: there's no way to retype the indir in CAST<long>(IND<int>).
-            // The best solution would be to lower indir+cast to the actual load instruction
-            // to be emitted.
-
-            if (!addr->IsAddrMode())
-            {
-                isContainable = false;
-            }
-            else if (addr->AsAddrMode()->HasIndex() && (addr->AsAddrMode()->GetOffset() != 0))
-            {
-                isContainable = false;
-            }
-            else if (addr->AsAddrMode()->GetOffset() < -255 || addr->AsAddrMode()->GetOffset() > 255)
-            {
-                isContainable = false;
-            }
-        }
-    }
-
-    if (isContainable && IsSafeToContainMem(cast, src))
-    {
-        src->SetContained();
-    }
-    else
-    {
-        src->SetRegOptional();
     }
 }
 

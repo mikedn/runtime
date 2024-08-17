@@ -2261,7 +2261,7 @@ struct Importer
     GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call);
     GenTreeUnOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1);
     GenTree* gtNewNullCheck(GenTree* addr);
-    GenTreeCast* gtNewCastNode(GenTree* op1, bool fromUnsigned, var_types castType);
+    GenTreeUnOp* gtNewCastNode(GenTree* op1);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset);
     GenTreeIntCon* gtNewStringLiteralLength(GenTreeStrCon* node);
@@ -4507,8 +4507,7 @@ private:
     GenTree* fgMorphOverflowTruncate(GenTreeUnOp* node);
     GenTree* fgMorphOverflowTruncatePost(GenTreeUnOp* node);
     GenTree* fgMorphOverflowUnsigned(GenTreeUnOp* node);
-    GenTree* fgMorphCast(GenTreeCast* cast);
-    GenTree* fgMorphCastPost(GenTreeCast* cast);
+    GenTree* fgMorphCast(GenTreeUnOp* cast);
     void fgInitArgInfo(GenTreeCall* call);
     void fgMorphArgs(GenTreeCall* call);
 

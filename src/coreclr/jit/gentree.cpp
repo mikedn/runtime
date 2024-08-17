@@ -209,7 +209,6 @@ static_assert_no_msg(sizeof(GenTreeLclLoadFld)   <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeLclStoreFld)  <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeLclAddr)      <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeCC)           <= TREE_NODE_SZ_SMALL);
-static_assert_no_msg(sizeof(GenTreeCast)         <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeBox)          <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeFieldAddr)    <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeFieldList)    <= TREE_NODE_SZ_SMALL);
@@ -1051,8 +1050,6 @@ AGAIN:
             {
                 case GT_ARR_LENGTH:
                     break;
-                case GT_CAST:
-                    return GenTreeCast::Equals(op1->AsCast(), op2->AsCast());
                 case GT_IND_LOAD_BLK:
                 case GT_IND_LOAD_OBJ:
                     if (op1->AsBlk()->GetLayout() != op2->AsBlk()->GetLayout())
@@ -1356,9 +1353,6 @@ AGAIN:
             switch (oper)
             {
                 case GT_ARR_LENGTH:
-                    break;
-                case GT_CAST:
-                    hash ^= static_cast<unsigned>(tree->AsCast()->GetCastType());
                     break;
                 case GT_INDEX_ADDR:
                     hash += tree->AsIndexAddr()->GetElemSize();
@@ -2290,28 +2284,6 @@ void Compiler::gtSetCosts(GenTree* tree)
 #else
 #error "Unknown TARGET"
 #endif
-                    break;
-
-                case GT_CAST:
-                    assert(varTypeIsIntegral(tree->GetType()) && varTypeIsIntegral(op1->GetType()));
-#if defined(TARGET_ARM)
-                    costEx = 1;
-                    costSz = 1;
-#elif defined(TARGET_ARM64)
-                    costEx = 1;
-                    costSz = 2;
-#elif defined(TARGET_XARCH)
-                    costEx = 1;
-                    costSz = 2;
-#else
-#error "Unknown TARGET"
-#endif
-
-                    if (tree->AsCast()->HasOverflowCheck())
-                    {
-                        costEx += 6;
-                        costSz += 6;
-                    }
                     break;
 
                 case GT_FTRUNC:
@@ -4914,10 +4886,6 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
                     GenTreeOp(GT_FMOD, tree->GetType(), tree->AsOp()->GetOp(0), tree->AsOp()->GetOp(1));
                 break;
 
-            case GT_CAST:
-                copy = new (this, GT_CAST) GenTreeCast(tree->AsCast());
-                break;
-
             case GT_FIELD_ADDR:
                 copy = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(tree->AsFieldAddr());
                 break;
@@ -5415,9 +5383,6 @@ bool GenTree::OperMayThrow(Compiler* comp) const
         case GT_HWINTRINSIC:
             return AsHWIntrinsic()->OperIsMemoryLoadOrStore();
 #endif
-
-        case GT_CAST:
-            return AsCast()->HasOverflowCheck();
 
         case GT_OVF_U:
         case GT_OVF_TRUNC:
@@ -6196,10 +6161,6 @@ void Compiler::gtDispNodeName(GenTree* tree)
         }
 
         SimpleSprintf_s(p, buf, sizeof(buf), "%d)", lea->GetOffset());
-    }
-    else if (GenTreeCast* cast = tree->IsCast())
-    {
-        sprintf_s(buf, sizeof(buf), "%s%s%c", cast->HasOverflowCheck() ? "OVF_" : "", name, 0);
     }
     else if (tree->OperIs(GT_LT, GT_LE, GT_GT, GT_GE) && tree->IsRelopUnsigned())
     {
@@ -7458,20 +7419,6 @@ void Compiler::gtDispTreeRec(
         case GT_INSERT:
             dmpInsert(tree->AsInsert());
             break;
-
-        case GT_CAST:
-        {
-            var_types fromType = varActualType(tree->AsCast()->GetOp(0)->GetType());
-            var_types toType   = tree->AsCast()->GetCastType();
-
-            if (tree->AsCast()->IsCastUnsigned())
-            {
-                fromType = varTypeToUnsigned(fromType);
-            }
-
-            printf(" (%s to %s)", varTypeName(fromType), varTypeName(toType));
-        }
-        break;
 
         case GT_PUTARG_STK:
         {
@@ -9760,24 +9707,6 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                         i = i1;
                         goto CNS_INT;
 
-                    case GT_CAST:
-                        assert(tree->GetType() == varCastType(tree->AsCast()->GetCastType()));
-
-                        if (tree->AsCast()->HasOverflowCheck() &&
-                            CheckedOps::CastFromIntOverflows(i1, tree->AsCast()->GetCastType(),
-                                                             tree->AsCast()->IsCastUnsigned()))
-                        {
-                            goto INTEGRAL_OVF;
-                        }
-
-                        if (tree->TypeIs(TYP_LONG))
-                        {
-                            l = tree->AsCast()->IsCastUnsigned() ? static_cast<int64_t>(static_cast<uint32_t>(i1))
-                                                                 : static_cast<int64_t>(i1);
-                            goto CNS_LONG;
-                        }
-                        break;
-
                     case GT_OVF_U:
                         assert(tree->TypeIs(TYP_INT));
 
@@ -10714,8 +10643,7 @@ CNS_DOUBLE:
     return tree;
 
 INTEGRAL_OVF:
-    assert((tree->IsCast() && tree->AsCast()->HasOverflowCheck()) ||
-           tree->OperIs(GT_OVF_SCONV, GT_OVF_UCONV, GT_OVF_U, GT_OVF_TRUNC, GT_OVF_UTRUNC, GT_OVF_STRUNC) ||
+    assert(tree->OperIs(GT_OVF_SCONV, GT_OVF_UCONV, GT_OVF_U, GT_OVF_TRUNC, GT_OVF_UTRUNC, GT_OVF_STRUNC) ||
            tree->IsOverflowOp());
     assert(varTypeIsIntegral(tree->GetType()));
 

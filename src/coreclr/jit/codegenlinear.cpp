@@ -802,11 +802,6 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
             GenSatInc(node->AsUnOp());
             break;
 #endif
-#ifdef TARGET_64BIT
-        case GT_CAST:
-            GenCastIntToInt(node->AsCast());
-            break;
-#endif
         case GT_OVF_TRUNC:
         case GT_OVF_STRUNC:
         case GT_OVF_UTRUNC:

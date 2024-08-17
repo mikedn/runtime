@@ -2120,7 +2120,7 @@ GenTree* Importer::impImplicitIorI4Cast(GenTree* tree, var_types dstTyp)
         {
             if (varTypeIsGC(currType))
             {
-                tree = gtNewCastNode(tree, false, TYP_LONG);
+                tree = gtNewCastNode(tree);
             }
 
             tree = gtNewOperNode(GT_TRUNC, TYP_INT, tree);
@@ -6182,7 +6182,7 @@ GenTree* Importer::impConvertFieldStoreValue(var_types storeType, GenTree* value
     {
         if (varTypeIsGC(value->GetType()))
         {
-            value = gtNewCastNode(value, false, TYP_LONG);
+            value = gtNewCastNode(value);
         }
 
         value = gtNewOperNode(GT_TRUNC, TYP_INT, value);
@@ -8382,7 +8382,7 @@ var_types Importer::impGetNumericBinaryOpType(genTreeOps oper, GenTree** pOp1, G
         {
             assert(varTypeIsGC(op->GetType()));
 
-            return gtNewCastNode(op, false, TYP_LONG);
+            return gtNewCastNode(op);
         }
     };
 #endif
@@ -9313,7 +9313,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     {
                         if (varTypeIsGC(op1->GetType()))
                         {
-                            op1 = gtNewCastNode(op1, false, TYP_LONG);
+                            op1 = gtNewCastNode(op1);
                         }
 
                         op1 = gtNewOperNode(GT_TRUNC, TYP_INT, op1);
@@ -10435,7 +10435,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (varTypeIsGC(op1->GetType()))
                 {
-                    op1 = gtNewCastNode(op1, false, TYP_I_IMPL);
+                    op1 = gtNewCastNode(op1);
                 }
 
                 // If this is a no-op cast, just use op1.
@@ -16494,8 +16494,7 @@ GenTree* Importer::impImportPop(BasicBlock* block)
     // implicit tail calls when the operand of pop is CAST(CALL(..)).
     // The cast gets added as part of importing CALL, which gets in the way
     // of fgMorphCall() on the forms of tail call nodes that we assert.
-    if (op1->OperIs(GT_SXT, GT_UXT, GT_TRUNC, GT_CONV, GT_FXT, GT_FTRUNC, GT_STOF, GT_FTOS, GT_UTOF, GT_FTOU) ||
-        (op1->IsCast() && !op1->AsCast()->HasOverflowCheck()))
+    if (op1->OperIs(GT_SXT, GT_UXT, GT_TRUNC, GT_CONV, GT_FXT, GT_FTRUNC, GT_STOF, GT_FTOS, GT_UTOF, GT_FTOU, GT_CAST))
     {
         op1 = op1->AsUnOp()->GetOp(0);
     }
@@ -17463,9 +17462,11 @@ GenTree* Importer::gtNewNullCheck(GenTree* addr)
     return comp->gtNewNullCheck(addr);
 }
 
-GenTreeCast* Importer::gtNewCastNode(GenTree* op1, bool fromUnsigned, var_types toType)
+GenTreeUnOp* Importer::gtNewCastNode(GenTree* op1)
 {
-    return new (comp, GT_CAST) GenTreeCast(toType, op1, fromUnsigned);
+    assert(varTypeIsGC(op1->GetType()));
+
+    return gtNewOperNode(GT_CAST, TYP_I_IMPL, op1);
 }
 
 GenTreeFieldAddr* Importer::gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset)

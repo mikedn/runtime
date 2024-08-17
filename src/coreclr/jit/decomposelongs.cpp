@@ -89,9 +89,6 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
         case GT_IND_STORE:
             nextNode = DecomposeIndStore(use);
             break;
-        case GT_CAST:
-            nextNode = DecomposeCast(use);
-            break;
         case GT_OVF_U:
             nextNode = DecomposeOvfUnsigned(use);
             break;
@@ -353,35 +350,6 @@ GenTree* DecomposeLongs::DecomposeLclStoreFld(LIR::Use& use)
     Range().InsertAfter(store, hiStore);
 
     return hiStore->gtNext;
-}
-
-GenTree* DecomposeLongs::DecomposeCast(LIR::Use& use)
-{
-    GenTreeCast* cast = use.Def()->AsCast();
-
-    assert(cast->HasOverflowCheck() && cast->TypeIs(TYP_LONG) && varActualTypeIsInt(cast->GetOp(0)->GetType()));
-
-    GenTree* loResult = nullptr;
-    GenTree* hiResult = nullptr;
-
-    var_types srcType = cast->GetOp(0)->GetType();
-    var_types dstType = cast->GetCastType();
-
-    // An overflow check is needed only when casting from a signed type to ulong.
-    // Change the cast type to uint to take advantage of the overflow check provided
-    // by codegen and then zero extend the resulting uint to ulong.
-    assert(!cast->IsCastUnsigned() && (dstType == TYP_ULONG));
-
-    cast->ChangeOper(GT_OVF_U);
-    cast->SetSideEffects(GTF_EXCEPT);
-    cast->SetType(TYP_INT);
-
-    loResult = cast;
-    hiResult = m_compiler->gtNewIconNode(0);
-
-    Range().InsertAfter(loResult, hiResult);
-
-    return FinalizeDecomposition(use, loResult, hiResult, hiResult);
 }
 
 GenTree* DecomposeLongs::DecomposeOvfUnsigned(LIR::Use& use)

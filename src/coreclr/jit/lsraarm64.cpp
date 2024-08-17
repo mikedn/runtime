@@ -184,10 +184,6 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildHWIntrinsic(tree->AsHWIntrinsic());
             break;
 
-        case GT_CAST:
-            BuildCast(tree->AsCast());
-            break;
-
         case GT_OVF_TRUNC:
         case GT_OVF_STRUNC:
         case GT_OVF_UTRUNC:
@@ -785,28 +781,6 @@ void LinearScan::BuildHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
 
     BuildInternalUses();
     BuildDef(node);
-}
-
-void LinearScan::BuildCast(GenTreeCast* cast)
-{
-    assert(cast->HasOverflowCheck() && cast->TypeIs(TYP_LONG) && varActualTypeIsInt(cast->GetOp(0)->GetType()));
-
-    GenTree* src = cast->GetOp(0);
-
-    if (!src->isContained())
-    {
-        BuildUse(src);
-    }
-    else if (src->OperIs(GT_IND_LOAD))
-    {
-        BuildAddrUses(src->AsIndLoad()->GetAddr());
-    }
-    else
-    {
-        assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
-    }
-
-    BuildDef(cast);
 }
 
 void LinearScan::BuildOvfTruncate(GenTreeUnOp* node)

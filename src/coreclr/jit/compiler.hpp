@@ -787,12 +787,12 @@ inline GenTreeDblCon* GenTree::ChangeToDblCon(var_types type, double value)
     return ChangeToDblCon(value);
 }
 
-inline GenTreeCast* GenTree::ChangeToCast(var_types type, GenTree* value)
+inline GenTreeUnOp* GenTree::ChangeToCast(var_types type, GenTree* value)
 {
     SetOperResetFlags(GT_CAST);
 
-    GenTreeCast* cast = AsCast();
-    cast->SetCastType(type);
+    GenTreeUnOp* cast = AsUnOp();
+    cast->SetType(type);
     cast->SetOp(0, value);
     cast->SetSideEffects(value->GetSideEffects());
     return cast;

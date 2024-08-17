@@ -484,11 +484,6 @@ enum GenTreeFlags : unsigned
 
     GTF_JCMP_EQ               = 0x80000000, // CBZ/TBZ (rather than CBNZ/TBNZ)
     GTF_JCMP_TST              = 0x40000000, // TBZ/TBNZ (rather than CBZ/CBNZ)
-
-    // CAST specific flags
-
-    GTF_CAST_UNSIGNED         = 0x80000000, // CAST - treat source operand as unsigned
-    GTF_CAST_OVERFLOW         = 0x40000000, // CAST - overflow check
 };
 
 constexpr GenTreeFlags operator ~(GenTreeFlags a)
@@ -1690,7 +1685,7 @@ public:
 #endif
     GenTreeDblCon* ChangeToDblCon(double value);
     GenTreeDblCon* ChangeToDblCon(var_types type, double value);
-    GenTreeCast* ChangeToCast(var_types type, GenTree* value);
+    GenTreeUnOp* ChangeToCast(var_types type, GenTree* value);
     GenTreeFieldList* ChangeToFieldList();
     GenTreeLclLoad* ChangeToLclLoad(var_types type, LclVarDsc* lcl);
     GenTreeLclStore* ChangeToLclStore(var_types type, LclVarDsc* lcl, GenTree* value);
@@ -3819,98 +3814,6 @@ public:
 
 #if DEBUGGABLE_GENTREE
     GenTreeExtract() = default;
-#endif
-};
-
-struct GenTreeCast : public GenTreeOp
-{
-private:
-    var_types castType;
-
-public:
-    GenTreeCast(var_types castType, GenTree* op, bool fromUnsigned DEBUGARG(bool largeNode = false))
-        : GenTreeOp(GT_CAST, varCastType(castType), op, nullptr DEBUGARG(largeNode)), castType(castType)
-    {
-        assert(varTypeIsIntegral(castType));
-        // We do not allow casts from floating point types to be treated as from
-        // unsigned to avoid bugs related to wrong GTF_CAST_UNSIGNED in case the
-        // operand's type changes.
-        assert(!varTypeIsFloating(op->GetType()) || !fromUnsigned);
-
-        gtFlags |= fromUnsigned ? GTF_CAST_UNSIGNED : GTF_EMPTY;
-    }
-
-    GenTreeCast(const GenTreeCast* copyFrom DEBUGARG(bool largeNode = false))
-        : GenTreeOp(GT_CAST, copyFrom->GetType(), copyFrom->GetOp(0), nullptr DEBUGARG(largeNode))
-        , castType(copyFrom->castType)
-    {
-        gtFlags |= copyFrom->gtFlags & (GTF_CAST_UNSIGNED | GTF_CAST_OVERFLOW);
-    }
-
-    var_types GetCastType() const
-    {
-        return castType;
-    }
-
-    void SetCastType(var_types type)
-    {
-        assert(varTypeIsArithmetic(type));
-
-        castType = type;
-        SetType(varCastType(type));
-    }
-
-    void SetCastType(var_types type, bool fromUnsigned)
-    {
-        assert(varTypeIsArithmetic(type));
-
-        castType = type;
-        SetType(varCastType(type));
-        SetCastUnsigned(fromUnsigned);
-    }
-
-    bool IsCastUnsigned() const
-    {
-        return (gtFlags & GTF_CAST_UNSIGNED) != 0;
-    }
-
-    void SetCastUnsigned()
-    {
-        gtFlags |= GTF_CAST_UNSIGNED;
-    }
-
-    void SetCastUnsigned(bool value)
-    {
-        if (value)
-        {
-            gtFlags |= GTF_CAST_UNSIGNED;
-        }
-        else
-        {
-            gtFlags &= ~GTF_CAST_UNSIGNED;
-        }
-    }
-
-    bool HasOverflowCheck() const
-    {
-        return (gtFlags & GTF_CAST_OVERFLOW) != 0;
-    }
-
-    void AddOverflowCheck()
-    {
-        gtFlags |= GTF_CAST_OVERFLOW | GTF_EXCEPT;
-    }
-
-    static bool Equals(GenTreeCast* c1, GenTreeCast* c2)
-    {
-        return (c1->GetType() == c2->GetType()) && (c1->castType == c2->castType) &&
-               ((c1->gtFlags & (GTF_CAST_OVERFLOW | GTF_CAST_UNSIGNED)) ==
-                (c2->gtFlags & (GTF_CAST_OVERFLOW | GTF_CAST_UNSIGNED))) &&
-               Compare(c1->gtOp1, c2->gtOp1);
-    }
-
-#if DEBUGGABLE_GENTREE
-    GenTreeCast() = default;
 #endif
 };
 

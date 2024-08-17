@@ -55,7 +55,7 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
             return m_fieldSeq;
         }
 
-        bool Cast(const Value& val, GenTreeCast* cast)
+        bool Cast(const Value& val, GenTreeUnOp* cast)
         {
             assert(!IsAddress());
 
@@ -432,9 +432,9 @@ public:
 
             case GT_CAST:
                 assert(TopValue(1).Node() == node);
-                assert(TopValue(0).Node() == node->AsCast()->GetOp(0));
+                assert(TopValue(0).Node() == node->AsUnOp()->GetOp(0));
 
-                if (!TopValue(1).Cast(TopValue(0), node->AsCast()))
+                if (!TopValue(1).Cast(TopValue(0), node->AsUnOp()))
                 {
                     EscapeValue(TopValue(0), node);
                 }

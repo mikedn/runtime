@@ -333,10 +333,6 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_BITCAST:
             return LowerBitCast(node->AsUnOp());
 
-        case GT_CAST:
-            LowerCast(node->AsCast());
-            break;
-
         case GT_OVF_TRUNC:
         case GT_OVF_STRUNC:
         case GT_OVF_UTRUNC:
@@ -5079,13 +5075,6 @@ GenTree* Lowering::LowerBitCast(GenTreeUnOp* bitcast)
     }
 
     return next;
-}
-
-void Lowering::LowerCast(GenTreeCast* cast)
-{
-    assert(cast->HasOverflowCheck() && cast->TypeIs(TYP_LONG) && varActualTypeIsInt(cast->GetOp(0)->GetType()));
-
-    ContainCheckCast(cast);
 }
 
 void Lowering::LowerOverflowTruncate(GenTreeUnOp* node)
