@@ -399,14 +399,6 @@ GenTree* Compiler::fgMorphTruncate(GenTreeUnOp* cast)
     {
         fgMorphNarrowTree(src, TYP_LONG, TYP_INT, cast->GetVNP(), true);
 
-        if (src->OperIs(GT_CAST))
-        {
-            if (src->GetType() == varActualType(src->AsUnOp()->GetOp(0)->GetType()))
-            {
-                src = src->AsUnOp()->GetOp(0);
-            }
-        }
-
         return src;
     }
 
@@ -481,11 +473,6 @@ GenTree* Compiler::fgMorphConvPost(GenTreeUnOp* cast)
             return src;
         }
 
-        if (!varTypeIsSmall(srcType))
-        {
-            return src;
-        }
-
         if (src->OperIs(GT_IND_LOAD, GT_LCL_LOAD_FLD))
         {
             src->SetType(dstType);
@@ -497,14 +484,6 @@ GenTree* Compiler::fgMorphConvPost(GenTreeUnOp* cast)
     else if ((srcSize > dstSize) && fgMorphNarrowTree(src, srcType, dstType, cast->GetVNP(), false))
     {
         fgMorphNarrowTree(src, srcType, dstType, cast->GetVNP(), true);
-
-        if (src->OperIs(GT_CAST))
-        {
-            if (src->GetType() == varActualType(src->AsUnOp()->GetOp(0)->GetType()))
-            {
-                src = src->AsUnOp()->GetOp(0);
-            }
-        }
 
         return src;
     }
@@ -1083,16 +1062,9 @@ bool Compiler::fgMorphNarrowTree(
 
             if (doit)
             {
-                if (value->TypeIs(TYP_INT))
-                {
-                    tree->ChangeOper(GT_NOP);
-                    tree->SetType(TYP_INT);
-                    tree->SetVNP(value->GetVNP());
-                }
-                else
-                {
-                    tree->ChangeToCast(TYP_INT, value)->SetVNP(value->GetVNP());
-                }
+                tree->ChangeOper(GT_NOP);
+                tree->SetType(TYP_INT);
+                tree->SetVNP(value->GetVNP());
             }
 
             return true;

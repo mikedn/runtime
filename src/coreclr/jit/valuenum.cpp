@@ -455,7 +455,6 @@ VNFunc GetVNFuncForNode(GenTree* node)
         case GT_CONV:
         case GT_OVF_SCONV:
         case GT_OVF_UCONV:
-            // CAST can overflow but it has special handling and it should not appear here.
             unreached();
 
         default:

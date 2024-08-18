@@ -1685,7 +1685,6 @@ public:
 #endif
     GenTreeDblCon* ChangeToDblCon(double value);
     GenTreeDblCon* ChangeToDblCon(var_types type, double value);
-    GenTreeUnOp* ChangeToCast(var_types type, GenTree* value);
     GenTreeFieldList* ChangeToFieldList();
     GenTreeLclLoad* ChangeToLclLoad(var_types type, LclVarDsc* lcl);
     GenTreeLclStore* ChangeToLclStore(var_types type, LclVarDsc* lcl, GenTree* value);
