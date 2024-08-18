@@ -382,86 +382,55 @@ TFp FpRem(TFp dividend, TFp divisor)
     return (TFp)fmod((double)dividend, (double)divisor);
 }
 
-//--------------------------------------------------------------------------------
-// GetVNFuncForNode: Given a GenTree node, this returns the proper VNFunc to use
-// for ValueNumbering
-//
-// Arguments:
-//    node - The GenTree node that we need the VNFunc for.
-//
-// Return Value:
-//    The VNFunc to use for this GenTree node
-//
-// Notes:
-//    Some opers have their semantics affected by GTF flags so they need to be
-//    replaced by special VNFunc values:
-//      - relops are affected by GTF_RELOP_UNSIGNED/GTF_RELOP_NAN_UN
-//
-VNFunc GetVNFuncForNode(GenTree* node)
+VNFunc GetRelopVNFunc(GenTree* node)
 {
-    static const VNFunc relopUnFuncs[]{VNF_LT_UN, VNF_LE_UN, VNF_GE_UN, VNF_GT_UN};
-    static_assert_no_msg(GT_LE - GT_LT == 1);
-    static_assert_no_msg(GT_GE - GT_LT == 2);
-    static_assert_no_msg(GT_GT - GT_LT == 3);
-
-    switch (node->OperGet())
+    if (node->OperIs(GT_EQ))
     {
-        case GT_EQ:
-            if (varTypeIsFloating(node->AsOp()->GetOp(0)))
+        if (varTypeIsFloating(node->AsOp()->GetOp(0)))
+        {
+            assert(varTypeIsFloating(node->AsOp()->GetOp(1)));
+            assert(!node->IsRelopUnordered());
+        }
+    }
+    else if (node->OperIs(GT_NE))
+    {
+        if (varTypeIsFloating(node->AsOp()->GetOp(0)))
+        {
+            assert(varTypeIsFloating(node->AsOp()->GetOp(1)));
+            assert(node->IsRelopUnordered());
+        }
+    }
+    else
+    {
+        assert(node->OperIs(GT_LT, GT_LE, GT_GT, GT_GE));
+
+        static const VNFunc relopUnFuncs[]{VNF_LT_UN, VNF_LE_UN, VNF_GE_UN, VNF_GT_UN};
+        static_assert_no_msg(GT_LE - GT_LT == 1);
+        static_assert_no_msg(GT_GE - GT_LT == 2);
+        static_assert_no_msg(GT_GT - GT_LT == 3);
+
+        if (varTypeIsFloating(node->AsOp()->GetOp(0)))
+        {
+            assert(varTypeIsFloating(node->AsOp()->GetOp(1)));
+
+            if (node->IsRelopUnordered())
             {
-                assert(varTypeIsFloating(node->AsOp()->GetOp(1)));
-                assert(!node->IsRelopUnordered());
+                return relopUnFuncs[node->GetOper() - GT_LT];
             }
-            break;
+        }
+        else
+        {
+            assert(varTypeIsIntegralOrI(node->AsOp()->GetOp(0)));
+            assert(varTypeIsIntegralOrI(node->AsOp()->GetOp(1)));
 
-        case GT_NE:
-            if (varTypeIsFloating(node->AsOp()->GetOp(0)))
+            if (node->IsRelopUnsigned())
             {
-                assert(varTypeIsFloating(node->AsOp()->GetOp(1)));
-                assert(node->IsRelopUnordered());
+                return relopUnFuncs[node->GetOper() - GT_LT];
             }
-            break;
-
-        case GT_LT:
-        case GT_LE:
-        case GT_GT:
-        case GT_GE:
-            if (varTypeIsFloating(node->AsOp()->GetOp(0)))
-            {
-                assert(varTypeIsFloating(node->AsOp()->GetOp(1)));
-
-                if (node->IsRelopUnordered())
-                {
-                    return relopUnFuncs[node->GetOper() - GT_LT];
-                }
-            }
-            else
-            {
-                assert(varTypeIsIntegralOrI(node->AsOp()->GetOp(0)));
-                assert(varTypeIsIntegralOrI(node->AsOp()->GetOp(1)));
-
-                if (node->IsRelopUnsigned())
-                {
-                    return relopUnFuncs[node->GetOper() - GT_LT];
-                }
-            }
-            break;
-
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-            return VNFuncHWIntrinsic(node->AsHWIntrinsic());
-#endif
-
-        case GT_CONV:
-        case GT_OVF_SCONV:
-        case GT_OVF_UCONV:
-            unreached();
-
-        default:
-            break;
+        }
     }
 
-    return VNFunc(node->OperGet());
+    return static_cast<VNFunc>(node->GetOper());
 }
 
 bool ValueNumStore::VNFuncIsOverflowArithmetic(VNFunc vnf)
@@ -4715,20 +4684,17 @@ void ValueNumbering::NumberNullCheck(GenTreeNullCheck* node)
 
 void ValueNumbering::NumberArrLen(GenTreeArrLen* node)
 {
-    VNFunc vnf = GetVNFuncForNode(node);
-    assert(ValueNumStore::VNFuncIsLegal(vnf));
-
     GenTree*     array    = node->GetArray();
     ValueNumPair arrayVNP = vnStore->ExtractValue(array->GetVNP());
 
     // If we are fetching the array length for an array ref that came from global memory
     // then for CSE safety we must use the conservative value number for both.
-    if ((array->gtFlags & GTF_GLOB_REF) != 0)
+    if (array->HasAnySideEffect(GTF_GLOB_REF))
     {
         arrayVNP.SetBoth(arrayVNP.GetConservative());
     }
 
-    ValueNumPair value = vnStore->VNPairForFunc(node->GetType(), vnf, arrayVNP);
+    ValueNumPair value = vnStore->VNPairForFunc(node->GetType(), VNOP_ARR_LENGTH, arrayVNP);
     ValueNumPair exset = AddNullRefExset(array->GetVNP());
     node->SetVNP(vnStore->PackExset(value, exset));
 }
@@ -7095,17 +7061,18 @@ void ValueNumbering::NumberNode(GenTree* node)
         case GT_CNS_INT:
             node->SetVNP(ValueNumPair{GetIntConVN(node->AsIntCon())});
             break;
-
 #ifndef TARGET_64BIT
         case GT_CNS_LNG:
             node->SetVNP(ValueNumPair{vnStore->VNForLongCon(node->AsLngCon()->GetValue())});
             break;
 #endif
-
         case GT_CNS_DBL:
             node->SetVNP(ValueNumPair{vnStore->VNForDblCon(node->GetType(), node->AsDblCon()->GetValue())});
             break;
-
+        case GT_CLS_VAR_ADDR:
+            node->SetVNP(ValueNumPair{vnStore->VNForFunc(node->GetType(), VNF_PtrToStatic,
+                                                         vnStore->VNForFieldSeq(node->AsClsVar()->GetFieldSeq()))});
+            break;
         case GT_LCL_ADDR:
             assert(node->AsLclAddr()->GetLcl()->IsAddressExposed());
             // TODO-MIKE-CQ: If the local is a promoted field we should use the parent instead,
@@ -7115,12 +7082,6 @@ void ValueNumbering::NumberNode(GenTree* node)
                                                          vnStore->VNForUPtrSizeIntCon(node->AsLclAddr()->GetLclOffs()),
                                                          vnStore->VNForFieldSeq(node->AsLclAddr()->GetFieldSeq()))});
             break;
-
-        case GT_CLS_VAR_ADDR:
-            node->SetVNP(ValueNumPair{vnStore->VNForFunc(node->GetType(), VNF_PtrToStatic,
-                                                         vnStore->VNForFieldSeq(node->AsClsVar()->GetFieldSeq()))});
-            break;
-
         case GT_LCL_LOAD:
             NumberLclLoad(node->AsLclLoad());
             break;
@@ -7155,11 +7116,9 @@ void ValueNumbering::NumberNode(GenTree* node)
         case GT_IND_STORE_BLK:
             NumberIndStore(node->AsIndir());
             break;
-
         case GT_MEMORYBARRIER:
             ClearMemory(node DEBUGARG("memory barrier"));
             break;
-
         case GT_COPY_BLK:
         case GT_INIT_BLK:
             // TODO-MIKE-Review: These are missing exceptions, both from operands and NullRefException as well.
@@ -7172,72 +7131,57 @@ void ValueNumbering::NumberNode(GenTree* node)
         case GT_KEEPALIVE:
             node->SetVNP(ValueNumStore::VoidVNP());
             break;
-
         case GT_CATCH_ARG:
             // We know nothing about the value of a caught expression.
             node->SetVNP(ValueNumPair{vnStore->VNForExpr(node->GetType())});
             break;
-
         case GT_OVF_TRUNC:
         case GT_OVF_STRUNC:
         case GT_OVF_UTRUNC:
             NumberOvfTruncate(node->AsUnOp());
             break;
-
         case GT_OVF_U:
             NumberOvfUnsigned(node->AsUnOp());
             break;
-
         case GT_CONV:
             NumberConv(node->AsUnOp());
             break;
-
         case GT_OVF_SCONV:
         case GT_OVF_UCONV:
             NumberOvfConv(node->AsUnOp());
             break;
-
         case GT_STOF:
         case GT_UTOF:
             NumberIntToFloat(node->AsUnOp());
             break;
-
         case GT_FTOS:
         case GT_FTOU:
             NumberFloatToInt(node->AsUnOp());
             break;
-
         case GT_BITCAST:
             NumberBitCast(node->AsUnOp());
             break;
-
         case GT_INTRINSIC:
             NumberIntrinsic(node->AsIntrinsic());
             break;
-
         case GT_COMMA:
             NumberComma(node->AsOp());
             break;
-
         case GT_NULLCHECK:
             NumberNullCheck(node->AsNullCheck());
             break;
-
         case GT_ARR_LENGTH:
             NumberArrLen(node->AsArrLen());
             break;
-
         case GT_QMARK:
         case GT_LOCKADD:
             unreached();
-
         case GT_XORR:
         case GT_XAND:
         case GT_XADD:
         case GT_XCHG:
             NumberInterlocked(node->AsOp());
             break;
-
         case GT_JTRUE:
         case GT_RETURN:
         case GT_SWITCH:
@@ -7249,32 +7193,26 @@ void ValueNumbering::NumberNode(GenTree* node)
             // These nodes never need to have a ValueNumber
             node->SetVNP({});
             break;
-
         case GT_BOX:
             // BOX doesn't do anything at this point, the actual object allocation
             // and initialization happens separately (and not numbering BOX correctly
             // prevents seeing allocation related assertions through it)
             node->SetVNP(node->AsUnOp()->GetOp(0)->GetVNP());
             break;
-
         case GT_CALL:
             NumberCall(node->AsCall());
             break;
-
         case GT_BOUNDS_CHECK:
             NumberBoundsCheck(node->AsBoundsChk());
             break;
-
         case GT_CMPXCHG:
             NumberCmpXchg(node->AsCmpXchg());
             break;
-
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
             NumberHWIntrinsic(node->AsHWIntrinsic());
             break;
 #endif
-
         case GT_LEA:
         // LEAs could probably value numbered as ADD/MUL expressions but
         // they should not appear in frontend so it's not worth the trouble.
@@ -7283,16 +7221,13 @@ void ValueNumbering::NumberNode(GenTree* node)
         case GT_LABEL:
             node->SetVNP(ValueNumPair{vnStore->VNForExpr(node->GetType())});
             break;
-
         case GT_CKFINITE:
             NumbeCkFinite(node->AsUnOp());
             break;
-
         case GT_NO_OP:
             assert(node->TypeIs(TYP_VOID));
             node->SetVNP(ValueNumStore::VoidVNP());
             break;
-
         case GT_NOP:
             if (node->AsUnOp()->gtOp1 == nullptr)
             {
@@ -7303,14 +7238,12 @@ void ValueNumbering::NumberNode(GenTree* node)
                 node->SetVNP(node->AsUnOp()->GetOp(0)->GetVNP());
             }
             break;
-
         case GT_DIV:
         case GT_UDIV:
         case GT_MOD:
         case GT_UMOD:
             NumberDivMod(node->AsOp());
             break;
-
         case GT_ADD:
             ValueNum addrVN;
             addrVN = AddField(node->AsOp());
@@ -7326,7 +7259,7 @@ void ValueNumbering::NumberNode(GenTree* node)
         default:
             if (GenTree::OperIsUnary(oper))
             {
-                VNFunc vnf = GetVNFuncForNode(node);
+                VNFunc vnf = static_cast<VNFunc>(node->GetOper());
                 assert(ValueNumStore::VNFuncIsLegal(vnf));
                 assert(!node->OperMayThrow(compiler));
 
@@ -7336,7 +7269,7 @@ void ValueNumbering::NumberNode(GenTree* node)
             }
             else if (GenTree::OperIsBinary(oper))
             {
-                VNFunc vnf = GetVNFuncForNode(node);
+                VNFunc vnf = node->OperIsRelop() ? GetRelopVNFunc(node) : static_cast<VNFunc>(node->GetOper());
                 assert(ValueNumStore::VNFuncIsLegal(vnf));
 
                 ValueNumPair exset1;
@@ -7428,7 +7361,7 @@ void ValueNumbering::NumberHWIntrinsic(GenTreeHWIntrinsic* node)
         return;
     }
 
-    VNFunc func = GetVNFuncForNode(node);
+    VNFunc func = VNFuncHWIntrinsic(node);
 
     if (node->OperIsMemoryLoad())
     {
@@ -8433,7 +8366,7 @@ void ValueNumbering::AddOverflowExset(GenTreeOp* node)
 {
     assert(node->IsOverflowOp());
 
-    VNFunc vnf = GetVNFuncForNode(node);
+    VNFunc vnf = static_cast<VNFunc>(node->GetOper());
     assert(ValueNumStore::VNFuncIsOverflowArithmetic(vnf));
 
     ValueNumPair vnp = node->GetVNP();
