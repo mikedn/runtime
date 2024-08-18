@@ -78,8 +78,7 @@ inline uint8_t VNFuncSimdSize(VNFunc vnf)
 }
 #endif // FEATURE_HW_INTRINSICS
 
-// Given a GenTree node return the VNFunc that should be used when value numbering
-VNFunc GetVNFuncForNode(GenTree* node);
+VNFunc GetRelopVNFunc(GenTree* node);
 
 // An instance of this struct represents an application of the function symbol
 // "m_func" to the first "m_arity" (<= 4) argument values in "m_args."
@@ -787,7 +786,7 @@ public:
         ValueNum   cmpOp   = NoVN;
 
 #ifdef DEBUG
-        void Dump()
+        void Dump() const
         {
             if (arrOper == GT_NONE)
             {

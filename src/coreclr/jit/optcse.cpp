@@ -759,7 +759,7 @@ public:
         ValueNum  compareVN = compare->GetConservativeVN();
         VNFuncApp cmpVNFuncApp;
 
-        if (!vnStore->GetVNFunc(compareVN, &cmpVNFuncApp) || (cmpVNFuncApp.m_func != GetVNFuncForNode(compare)))
+        if (!vnStore->GetVNFunc(compareVN, &cmpVNFuncApp) || (cmpVNFuncApp.m_func != GetRelopVNFunc(compare)))
         {
             // Value numbering inferred this compare as something other
             // than its own operator; leave its value number alone.
@@ -787,16 +787,17 @@ public:
         {
             // Compare of a bound +/- some offset to something else.
 
-            GenTree* op1 = compare->gtGetOp1();
-            GenTree* op2 = compare->gtGetOp2();
+            GenTree* op1 = compare->GetOp(0);
+            GenTree* op2 = compare->GetOp(1);
 
             vnStore->GetCompareCheckedBoundArithInfo(cmpVNFuncApp, &info);
-            if (GetVNFuncForNode(op1) == (VNFunc)info.arrOper)
+
+            if (op1->GetOper() == info.arrOper)
             {
                 // The arithmetic node is the bound's parent.
                 boundParent = op1;
             }
-            else if (GetVNFuncForNode(op2) == (VNFunc)info.arrOper)
+            else if (op2->GetOper() == info.arrOper)
             {
                 // The arithmetic node is the bound's parent.
                 boundParent = op2;
