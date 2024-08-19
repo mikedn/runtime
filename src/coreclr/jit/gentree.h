@@ -1065,6 +1065,11 @@ public:
         m_vnp = vnp;
     }
 
+    void ClearVNP()
+    {
+        m_vnp = {};
+    }
+
     ValueNum GetVN(ValueNumKind vnk) const
     {
         return m_vnp.Get(vnk);

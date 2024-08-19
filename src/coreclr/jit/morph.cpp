@@ -395,9 +395,9 @@ GenTree* Compiler::fgMorphTruncate(GenTreeUnOp* cast)
         return src->AsUnOp()->GetOp(0);
     }
 
-    if (fgMorphNarrowTree(src, TYP_LONG, TYP_INT, cast->GetVNP(), false))
+    if (fgMorphNarrowTree(src, TYP_INT))
     {
-        fgMorphNarrowTree(src, TYP_LONG, TYP_INT, cast->GetVNP(), true);
+        src->SetVNP(cast->GetVNP());
 
         return src;
     }
@@ -461,6 +461,11 @@ GenTree* Compiler::fgMorphConvPost(GenTreeUnOp* cast)
         }
     }
 
+    if (src->IsIntConCommon())
+    {
+        return gtFoldExprConst(cast);
+    }
+
     bool     unsignedSrc = varTypeIsUnsigned(srcType);
     bool     unsignedDst = varTypeIsUnsigned(dstType);
     unsigned srcSize     = varTypeSize(srcType);
@@ -481,16 +486,11 @@ GenTree* Compiler::fgMorphConvPost(GenTreeUnOp* cast)
             return src;
         }
     }
-    else if ((srcSize > dstSize) && fgMorphNarrowTree(src, srcType, dstType, cast->GetVNP(), false))
+    else if ((srcSize > dstSize) && fgMorphNarrowTree(src, dstType))
     {
-        fgMorphNarrowTree(src, srcType, dstType, cast->GetVNP(), true);
+        src->SetVNP(cast->GetVNP());
 
         return src;
-    }
-
-    if (src->IsIntConCommon())
-    {
-        return gtFoldExprConst(cast);
     }
 
     switch (src->GetOper())
@@ -860,18 +860,25 @@ GenTree* Compiler::fgMorphOverflowTruncatePost(GenTreeUnOp* cast)
     return cast;
 }
 
+bool Compiler::fgMorphNarrowTree(GenTree* tree, var_types type)
+{
+    assert(varTypeIsSmallInt(type) || (type == TYP_INT));
+
+    bool done = fgMorphNarrowTreeRec(tree, type, false);
+
+    if (done)
+    {
+        fgMorphNarrowTreeRec(tree, type, true);
+    }
+
+    return done;
+}
 // See if the given tree can be computed in the given precision (which must
 // be smaller than the type of the tree for this to make sense). If 'doit'
 // is false, we merely check to see whether narrowing is possible; if we
 // get called with 'doit' being true, we actually perform the narrowing.
-bool Compiler::fgMorphNarrowTree(
-    GenTree* const tree, const var_types srct, const var_types dstt, const ValueNumPair vnpNarrow, const bool doit)
+bool Compiler::fgMorphNarrowTreeRec(GenTree* const tree, const var_types type, const bool doit)
 {
-    assert(varActualType(tree->GetType()) == varActualType(srct));
-    assert(varActualTypeIsInt(dstt));
-    const unsigned dstSize = varTypeSize(dstt);
-    assert(dstSize < varTypeSize(srct));
-
     // TODO-MIKE-Review: This stuff is rather dubious. It mixes up 2 different optimizations
     // and as a result it kind of sucks at both:
     //   1. Attempts to remove a redundant narrowing cast (e.g. (byte)(a & 2) doesn't really
@@ -912,15 +919,14 @@ bool Compiler::fgMorphNarrowTree(
 #ifndef TARGET_64BIT
         case GT_CNS_LNG:
         {
-            int64_t lval  = tree->AsLngCon()->GetValue();
-            int64_t lmask = 0;
+            int64_t lval = tree->AsLngCon()->GetValue();
+            int64_t lmask;
 
-            switch (dstt)
+            switch (type)
             {
                 case TYP_BYTE:
                     lmask = 0x0000007F;
                     break;
-                case TYP_BOOL:
                 case TYP_UBYTE:
                     lmask = 0x000000FF;
                     break;
@@ -930,14 +936,10 @@ bool Compiler::fgMorphNarrowTree(
                 case TYP_USHORT:
                     lmask = 0x0000FFFF;
                     break;
-                case TYP_INT:
+                default:
+                    assert(type == TYP_INT);
                     lmask = 0x7FFFFFFF;
                     break;
-                case TYP_UINT:
-                    lmask = 0xFFFFFFFF;
-                    break;
-                default:
-                    return false;
             }
 
             if ((lval & lmask) != lval)
@@ -962,15 +964,14 @@ bool Compiler::fgMorphNarrowTree(
 #endif
         case GT_CNS_INT:
         {
-            ssize_t ival  = tree->AsIntCon()->GetValue();
-            ssize_t imask = 0;
+            ssize_t ival = tree->AsIntCon()->GetValue();
+            ssize_t imask;
 
-            switch (dstt)
+            switch (type)
             {
                 case TYP_BYTE:
                     imask = 0x0000007F;
                     break;
-                case TYP_BOOL:
                 case TYP_UBYTE:
                     imask = 0x000000FF;
                     break;
@@ -983,9 +984,6 @@ bool Compiler::fgMorphNarrowTree(
 #ifdef TARGET_64BIT
                 case TYP_INT:
                     imask = 0x7FFFFFFF;
-                    break;
-                case TYP_UINT:
-                    imask = 0xFFFFFFFF;
                     break;
 #endif
                 default:
@@ -1002,8 +1000,7 @@ bool Compiler::fgMorphNarrowTree(
             {
                 int32_t value = static_cast<int32_t>(ival);
 
-                tree->SetType(TYP_INT);
-                tree->AsIntCon()->SetValue(value);
+                tree->AsIntCon()->SetValue(TYP_INT, value);
 
                 if (vnStore != nullptr)
                 {
@@ -1015,8 +1012,7 @@ bool Compiler::fgMorphNarrowTree(
         }
         case GT_LCL_LOAD:
         {
-            // Allow implicit narrowing to INT of LONG locals.
-            if (!varTypeIsInt(dstt))
+            if (type != TYP_INT)
             {
                 return false;
             }
@@ -1026,7 +1022,7 @@ bool Compiler::fgMorphNarrowTree(
             if (doit)
             {
                 tree->SetType(TYP_INT);
-                tree->SetVNP(vnpNarrow);
+                tree->ClearVNP();
             }
 
             return true;
@@ -1034,16 +1030,18 @@ bool Compiler::fgMorphNarrowTree(
         case GT_LCL_LOAD_FLD:
         case GT_IND_LOAD:
         {
-            if ((dstSize > varTypeSize(tree->GetType())) &&
-                (varTypeIsUnsigned(dstt) && !varTypeIsUnsigned(tree->GetType())))
+            const unsigned dstSize = varTypeSize(type);
+
+            if ((dstSize > varTypeSize(tree->GetType())) && varTypeIsUnsigned(type) &&
+                !varTypeIsUnsigned(tree->GetType()))
             {
                 return false;
             }
 
             if (doit && (dstSize <= varTypeSize(tree->GetType())))
             {
-                tree->SetType(varTypeNodeType(dstt));
-                tree->SetVNP(vnpNarrow);
+                tree->SetType(type);
+                tree->ClearVNP();
             }
 
             return true;
@@ -1051,14 +1049,14 @@ bool Compiler::fgMorphNarrowTree(
         case GT_SXT:
         case GT_UXT:
         {
-            GenTreeUnOp* cast  = tree->AsUnOp();
-            GenTree*     value = cast->GetOp(0);
-            assert(cast->TypeIs(TYP_LONG) && varActualTypeIsInt(value->GetType()));
-
-            if ((srct != TYP_LONG) || (dstt != TYP_INT))
+            if (type != TYP_INT)
             {
                 return false;
             }
+
+            GenTree* value = tree->AsUnOp()->GetOp(0);
+
+            assert(tree->TypeIs(TYP_LONG) && varActualTypeIsInt(value->GetType()));
 
             if (doit)
             {
@@ -1072,17 +1070,18 @@ bool Compiler::fgMorphNarrowTree(
         case GT_COMMA:
         {
             op2 = tree->AsOp()->GetOp(1);
-            noway_assert(varActualType(tree->GetType()) == varActualType(op2->GetType()));
 
-            if (!fgMorphNarrowTree(op2, srct, dstt, vnpNarrow, doit))
+            assert(varActualType(tree->GetType()) == varActualType(op2->GetType()));
+
+            if (!fgMorphNarrowTreeRec(op2, type, doit))
             {
                 return false;
             }
 
             if (doit)
             {
-                tree->SetType(varActualType(dstt));
-                tree->SetVNP(vnpNarrow);
+                tree->SetType(TYP_INT);
+                tree->ClearVNP();
             }
 
             return true;
@@ -1091,19 +1090,21 @@ bool Compiler::fgMorphNarrowTree(
         {
             op1 = tree->AsOp()->GetOp(0);
             op2 = tree->AsOp()->GetOp(1);
-            noway_assert(varActualType(tree->GetType()) == varActualType(op1->GetType()));
-            noway_assert(varActualType(tree->GetType()) == varActualType(op2->GetType()));
+
+            assert(varActualType(tree->GetType()) == varActualType(op1->GetType()));
+            assert(varActualType(tree->GetType()) == varActualType(op2->GetType()));
 
             GenTree*  opToNarrow                      = nullptr;
             GenTree** otherOpUse                      = nullptr;
             bool      foundOperandThatBlocksNarrowing = false;
 
-            // If 'dstt' is unsigned and one of the operands can be narrowed into 'dsst',
-            // the result of the GT_AND will also fit into 'dstt' and can be narrowed.
-            // The same is true if one of the operands is an int const and can be narrowed into 'dsst'.
-            if (op2->IsIntCon() || varTypeIsUnsigned(dstt))
+            // If `type` is unsigned and one of the operands can be narrowed into `type`,
+            // the result of the AND will also fit into type and can be narrowed.
+            // The same is true if one of the operands is an int const and can be narrowed into `type`.
+
+            if (op2->IsIntCon() || varTypeIsUnsigned(type))
             {
-                if (fgMorphNarrowTree(op2, srct, dstt, ValueNumPair(), false))
+                if (fgMorphNarrowTreeRec(op2, type, false))
                 {
                     opToNarrow = op2;
                     otherOpUse = &tree->AsOp()->gtOp1;
@@ -1114,9 +1115,9 @@ bool Compiler::fgMorphNarrowTree(
                 }
             }
 
-            if ((opToNarrow == nullptr) && (op1->IsIntCon() || varTypeIsUnsigned(dstt)))
+            if ((opToNarrow == nullptr) && (op1->IsIntCon() || varTypeIsUnsigned(type)))
             {
-                if (fgMorphNarrowTree(op1, srct, dstt, ValueNumPair(), false))
+                if (fgMorphNarrowTreeRec(op1, type, false))
                 {
                     opToNarrow = op1;
                     otherOpUse = &tree->AsOp()->gtOp2;
@@ -1131,15 +1132,14 @@ bool Compiler::fgMorphNarrowTree(
             {
                 if (doit)
                 {
-                    bool isLong = tree->TypeIs(TYP_LONG);
+                    fgMorphNarrowTreeRec(opToNarrow, type, true);
+
+                    bool wasLong = tree->TypeIs(TYP_LONG);
 
                     tree->SetType(TYP_INT);
-                    tree->SetVNP(vnpNarrow);
+                    tree->ClearVNP();
 
-                    fgMorphNarrowTree(opToNarrow, srct, dstt, ValueNumPair(), true);
-
-                    // We may also need to cast away the upper bits of the other operand.
-                    if (isLong)
+                    if (wasLong)
                     {
                         assert(tree->TypeIs(TYP_INT));
 
@@ -1163,7 +1163,7 @@ bool Compiler::fgMorphNarrowTree(
         case GT_ADD:
         case GT_MUL:
         {
-            if (varTypeIsSmall(dstt))
+            if (varTypeIsSmall(type))
             {
                 noway_assert(!doit);
 
@@ -1177,12 +1177,12 @@ bool Compiler::fgMorphNarrowTree(
         {
             op1 = tree->AsOp()->GetOp(0);
             op2 = tree->AsOp()->GetOp(1);
-            noway_assert(varActualType(tree->GetType()) == varActualType(op1->GetType()));
-            noway_assert(varActualType(tree->GetType()) == varActualType(op2->GetType()));
+
+            assert(varActualType(tree->GetType()) == varActualType(op1->GetType()));
+            assert(varActualType(tree->GetType()) == varActualType(op2->GetType()));
 
         COMMON_BINOP:
-            if (!fgMorphNarrowTree(op1, srct, dstt, ValueNumPair(), doit) ||
-                !fgMorphNarrowTree(op2, srct, dstt, ValueNumPair(), doit))
+            if (!fgMorphNarrowTreeRec(op1, type, doit) || !fgMorphNarrowTreeRec(op2, type, doit))
             {
                 noway_assert(!doit);
 
@@ -1191,10 +1191,13 @@ bool Compiler::fgMorphNarrowTree(
 
             if (doit)
             {
+                tree->SetType(TYP_INT);
+                tree->ClearVNP();
+
 #ifndef TARGET_64BIT
                 if (tree->OperIs(GT_MUL) && tree->TypeIs(TYP_LONG))
                 {
-                    assert(dstt == TYP_INT);
+                    assert(type == TYP_INT);
 
                     if (tree->AsOp()->GetOp(0)->OperIs(GT_SXT, GT_UXT))
                     {
@@ -1207,9 +1210,6 @@ bool Compiler::fgMorphNarrowTree(
                     }
                 }
 #endif
-
-                tree->SetType(TYP_INT);
-                tree->SetVNP(vnpNarrow);
             }
 
             return true;
@@ -11067,20 +11067,12 @@ DONE_MORPHING_CHILDREN:
                     break;
                 }
 
-                // Now we narrow AsOp()->gtOp1 of AND to int.
-                if (fgMorphNarrowTree(op1->AsOp()->GetOp(0), TYP_LONG, TYP_INT, ValueNumPair(), false))
-                {
-                    fgMorphNarrowTree(op1->AsOp()->GetOp(0), TYP_LONG, TYP_INT, ValueNumPair(), true);
-                }
-                else
-                {
-                    op1->AsOp()->SetOp(0, gtNewOperNode(GT_TRUNC, TYP_INT, op1->AsOp()->GetOp(0)));
-                }
+                GenTree* andOp = op1->AsOp()->GetOp(0);
 
-                // now replace the mask node (AsOp()->gtOp2 of AND node).
-
-                noway_assert(andMask == op1->AsOp()->GetOp(1));
-                noway_assert(cns2 == op2);
+                if (!fgMorphNarrowTree(andOp, TYP_INT))
+                {
+                    op1->AsOp()->SetOp(0, gtNewOperNode(GT_TRUNC, TYP_INT, andOp));
+                }
 
                 andMask->ChangeToIntCon(TYP_INT, static_cast<int32_t>(andMask->AsIntConCommon()->GetValue()));
                 op1->SetType(TYP_INT);
