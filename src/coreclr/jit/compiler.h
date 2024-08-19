@@ -4980,7 +4980,8 @@ private:
 public:
     bool optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip, LclVarDsc* lcl);
 
-    bool fgMorphNarrowTree(GenTree* tree, var_types srct, var_types dstt, ValueNumPair vnpNarrow, bool doit);
+    bool fgMorphNarrowTree(GenTree* tree, var_types type);
+    bool fgMorphNarrowTreeRec(GenTree* tree, var_types type, bool doit);
 
     /**************************************************************************
      *                       Optimization conditions
