@@ -1763,36 +1763,22 @@ private:
 
         GenTree* op1       = cast->GetOp(0);
         GenTree* actualOp1 = op1->SkipComma();
-        ValueNum vn;
+        ValueNum vn        = actualOp1->GetConservativeVN();
 
         if (actualOp1->OperIs(GT_LCL_LOAD, GT_LCL_USE))
         {
             LclVarDsc* lcl = actualOp1->OperIs(GT_LCL_LOAD) ? actualOp1->AsLclLoad()->GetLcl()
                                                             : actualOp1->AsLclUse()->GetDef()->GetLcl();
 
-            // TODO-MIKE-Review: Usually we can't eliminate load "normalization" casts.
-            // They're usually present on every LCL_VAR use so we'll never get assertions
-            // about the LCL_VAR value itself (e.g. usually we have "if ((byte)b < 42)",
-            // not "if (b < 42)"). xunit assemblies have a few cases where these casts do
-            // get eliminated but it turns out that this skews register allocation in such
-            // a way that the codegen end up being worse.
-            // Besides, the way load/store "normalization" is implemented is just asking
-            // for trouble so it's best to ignore these casts for now.
-            if (lcl->lvNormalizeOnLoad())
-            {
-                return nullptr;
-            }
-
-            vn = actualOp1->GetConservativeVN();
+            assert(!lcl->lvNormalizeOnLoad());
         }
         else
         {
-            vn = vnStore->ExtractValue(actualOp1->GetConservativeVN());
+            vn = vnStore->ExtractValue(vn);
         }
 
-        // Keep it simple - the 0..INT32_MAX range allows us to remove overflow checks from LONG/INT
-        // all truncations. We'll miss some cases, such as 0..UINT32_MAX needed for LONG -> UINT
-        // casts but these should be pretty rare.
+        // Keep it simple - the 0..INT32_MAX range allows us to remove overflow checks from most
+        // (U)LONG/(U)INT truncations.
         const AssertionDsc* assertion = FindCastRangeAssertion(assertions, vn, 0, INT32_MAX);
 
         if (assertion == nullptr)
@@ -1842,9 +1828,6 @@ private:
             vn = vnStore->ExtractValue(actualOp1->GetConservativeVN());
         }
 
-        // Keep it simple - the 0..INT32_MAX range allows us to remove overflow checks from LONG/INT
-        // casts and also change sign extension to zero extension. We'll miss some cases, such as
-        // 0..UINT32_MAX needed for LONG -> UINT casts but these should be pretty rare.
         const AssertionDsc* assertion = FindCastRangeAssertion(assertions, vn, 0, INT32_MAX);
 
         if (assertion == nullptr)
