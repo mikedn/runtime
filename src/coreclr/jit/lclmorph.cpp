@@ -430,7 +430,7 @@ public:
                 PopValue();
                 break;
 
-            case GT_CAST:
+            case GT_BITCAST:
                 assert(TopValue(1).Node() == node);
                 assert(TopValue(0).Node() == node->AsUnOp()->GetOp(0));
 

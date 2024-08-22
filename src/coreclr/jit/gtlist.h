@@ -78,7 +78,6 @@ GTNODE(OVF_U            , GenTreeOp           , GTK_UNOP|GTK_VN)        // throw
 GTNODE(OVF_TRUNC        , GenTreeOp           , GTK_UNOP|GTK_VN)        // truncate LONG to UINT or ULONG to INT with overflow check
 GTNODE(OVF_STRUNC       , GenTreeOp           , GTK_UNOP|GTK_VN)        // truncate LONG to INT with overflow check
 GTNODE(OVF_UTRUNC       , GenTreeOp           , GTK_UNOP|GTK_VN)        // truncate ULONG to UINT with overflow check
-GTNODE(CAST             , GenTreeOp           , GTK_UNOP)               // conversion to another type
 GTNODE(BITCAST          , GenTreeOp           , GTK_UNOP)               // reinterpretation of bits as another type
 GTNODE(CKFINITE         , GenTreeOp           , GTK_UNOP|GTK_NOCONTAIN) // Check for NaN
 GTNODE(LCLHEAP          , GenTreeOp           , GTK_UNOP|GTK_NOCONTAIN) // alloca()

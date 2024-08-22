@@ -737,7 +737,7 @@ GenTree* Compiler::fgMorphOverflowUnsigned(GenTreeUnOp* node)
 
 GenTree* Compiler::fgMorphCast(GenTreeUnOp* cast)
 {
-    assert(cast->OperIs(GT_CAST) && cast->TypeIs(TYP_I_IMPL));
+    assert(cast->OperIs(GT_BITCAST) && cast->TypeIs(TYP_I_IMPL));
 
     GenTree*  src     = cast->GetOp(0);
     var_types srcType = src->GetType();
@@ -10078,8 +10078,17 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             }
             break;
 
-        case GT_CAST:
-            return fgMorphCast(tree->AsUnOp());
+        case GT_BITCAST:
+            if (varTypeIsGC(op1->GetType()))
+            {
+                return fgMorphCast(tree->AsUnOp());
+            }
+
+            if (op1->GetType() == tree->GetType())
+            {
+                return fgMorphTree(op1);
+            }
+            break;
 
         case GT_OVF_TRUNC:
         case GT_OVF_STRUNC:

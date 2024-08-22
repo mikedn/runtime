@@ -6600,7 +6600,6 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_COPY:
         case GT_RELOAD:
         case GT_ARR_LENGTH:
-        case GT_CAST:
         case GT_OVF_TRUNC:
         case GT_OVF_STRUNC:
         case GT_OVF_UTRUNC:
@@ -7007,7 +7006,6 @@ public:
             case GT_COPY:
             case GT_RELOAD:
             case GT_ARR_LENGTH:
-            case GT_CAST:
             case GT_OVF_TRUNC:
             case GT_OVF_STRUNC:
             case GT_OVF_UTRUNC:
