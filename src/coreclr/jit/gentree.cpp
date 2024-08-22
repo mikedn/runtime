@@ -5630,7 +5630,6 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_COPY:
         case GT_RELOAD:
         case GT_ARR_LENGTH:
-        case GT_CAST:
         case GT_OVF_U:
         case GT_OVF_TRUNC:
         case GT_OVF_STRUNC:

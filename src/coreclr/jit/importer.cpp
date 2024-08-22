@@ -16494,7 +16494,8 @@ GenTree* Importer::impImportPop(BasicBlock* block)
     // implicit tail calls when the operand of pop is CAST(CALL(..)).
     // The cast gets added as part of importing CALL, which gets in the way
     // of fgMorphCall() on the forms of tail call nodes that we assert.
-    if (op1->OperIs(GT_SXT, GT_UXT, GT_TRUNC, GT_CONV, GT_FXT, GT_FTRUNC, GT_STOF, GT_FTOS, GT_UTOF, GT_FTOU, GT_CAST))
+    if (op1->OperIs(GT_SXT, GT_UXT, GT_TRUNC, GT_CONV, GT_FXT, GT_FTRUNC, GT_STOF, GT_FTOS, GT_UTOF, GT_FTOU,
+                    GT_BITCAST))
     {
         op1 = op1->AsUnOp()->GetOp(0);
     }
@@ -17466,7 +17467,7 @@ GenTreeUnOp* Importer::gtNewCastNode(GenTree* op1)
 {
     assert(varTypeIsGC(op1->GetType()));
 
-    return gtNewOperNode(GT_CAST, TYP_I_IMPL, op1);
+    return gtNewOperNode(GT_BITCAST, TYP_I_IMPL, op1);
 }
 
 GenTreeFieldAddr* Importer::gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset)

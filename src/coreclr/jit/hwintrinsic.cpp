@@ -727,7 +727,7 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
         case 1:
             op1 = impPopArgForHWIntrinsic(sigReader.paramType[0], sigReader.paramLayout[0]);
 
-            if ((category == HW_Category_MemoryLoad) && op1->OperIs(GT_CAST))
+            if ((category == HW_Category_MemoryLoad) && op1->OperIs(GT_BITCAST))
             {
                 // Although the API specifies a pointer, if what we have is a BYREF, that's what
                 // we really want, so throw away the cast.
@@ -807,7 +807,7 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
 
                 // Although the API specifies a pointer, if what we have is a BYREF, that's what
                 // we really want, so throw away the cast.
-                if (op1->OperIs(GT_CAST) && op1->AsUnOp()->GetOp(0)->TypeIs(TYP_BYREF))
+                if (op1->OperIs(GT_BITCAST) && op1->AsUnOp()->GetOp(0)->TypeIs(TYP_BYREF))
                 {
                     op1 = op1->AsUnOp()->GetOp(0);
                 }
