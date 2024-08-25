@@ -552,7 +552,6 @@ public:
     static const struct VNFuncAttrs& VNFuncAttrs(VNFunc vnf);
     static bool VNFuncIsLegal(VNFunc vnf);
     static bool VNFuncIsOverflowArithmetic(VNFunc vnf);
-    static bool VNFuncIsNumericCast(VNFunc vnf);
     static unsigned VNFuncArity(VNFunc vnf);
     static bool VNFuncArityIsLegal(VNFunc vnf, unsigned arity);
     static bool VNFuncArityIsVariable(VNFunc vnf);
@@ -600,7 +599,7 @@ public:
     ValueNum VNForBitCastOper(var_types castToType);
 
     // Packs information about the cast into an integer constant represented by the returned value number,
-    // to be used as the second operand of VNF_Cast & VNF_CastOvf.
+    // to be used as the second operand of VNF_CastOvf.
     ValueNum VNForCastOper(var_types castToType, bool castFromUnsigned = false);
 
     // Unpacks the information stored by VNForCastOper in the constant represented by the value number.
@@ -734,8 +733,7 @@ public:
 
     ValueNum VNForBitCast(ValueNum valueVN, var_types toType);
 
-    ValueNum VNForCast(ValueNum valueVN, var_types toType);
-    ValueNumPair VNForCast(ValueNumPair valueVNP, var_types toType);
+    ValueNum VNForCast(ValueNum vn, var_types toType);
 
     // PtrToLoc values need to express a field sequence as one of their arguments.  VN for null represents
     // empty sequence, otherwise, "FieldSeq(VN(FieldHandle), restOfSeq)".
@@ -972,7 +970,6 @@ public:
     void DumpValWithExc(const VNFuncApp& valWithExc);
     void DumpLclAddr(const VNFuncApp& lclAddr);
     void DumpBitCast(const VNFuncApp& cast);
-    void DumpCast(const VNFuncApp& cast);
     void DumpPtrToArrElem(const VNFuncApp& elemAddr);
     void DumpExcSeq(const VNFuncApp& excSeq, bool isHead);
 
