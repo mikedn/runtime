@@ -438,11 +438,6 @@ bool ValueNumStore::VNFuncIsOverflowArithmetic(VNFunc vnf)
     return (VNOP_OVF_SADD <= vnf) && (vnf <= VNOP_OVF_UMUL);
 }
 
-bool ValueNumStore::VNFuncIsNumericCast(VNFunc vnf)
-{
-    return (vnf == VNF_Cast) || (vnf == VNF_CastOvf);
-}
-
 #ifdef DEBUG
 template <typename T>
 static bool IsOverflowIntDiv(T v0, T v1)
@@ -1390,9 +1385,7 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0, Va
     {
         bool canFold = true;
 
-        // Special case for VNF_Cast of constant handles
-        // Don't allow an eval/fold of a CAST(non-I_IMPL, Handle)
-        if (VNFuncIsNumericCast(func) && (type != TYP_I_IMPL) && IsVNHandle(arg0))
+        if ((func == VNF_CastOvf) && (type != TYP_I_IMPL) && IsVNHandle(arg0))
         {
             canFold = false;
         }
@@ -1405,7 +1398,7 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0, Va
         bool arg0IsFloating = varTypeIsFloating(TypeOfVN(arg0));
         bool arg1IsFloating = varTypeIsFloating(TypeOfVN(arg1));
 
-        if (!VNFuncIsNumericCast(func) && (arg0IsFloating != arg1IsFloating))
+        if ((func != VNF_CastOvf) && (arg0IsFloating != arg1IsFloating))
         {
             canFold = false;
         }
@@ -1882,36 +1875,132 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, Valu
     assert(CanEvalForConstantArgs(func));
     assert(IsVNConstant(arg0VN));
 
-    if (func == VNOP_SXT)
-    {
-        assert(typ == TYP_LONG);
-        assert(TypeOfVN(arg0VN) == TYP_INT);
-        return VNForLongCon(static_cast<int64_t>(ConstantValue<int32_t>(arg0VN)));
-    }
-
-    if (func == VNOP_UXT)
-    {
-        assert(typ == TYP_LONG);
-        assert(TypeOfVN(arg0VN) == TYP_INT);
-        return VNForLongCon(static_cast<int64_t>(static_cast<uint32_t>(ConstantValue<int32_t>(arg0VN))));
-    }
-
     switch (TypeOfVN(arg0VN))
     {
         case TYP_INT:
         {
-            int32_t resVal = EvalOp<int32_t>(func, ConstantValue<int32_t>(arg0VN));
+            int32_t argVal = ConstantValue<int32_t>(arg0VN);
+
+            switch (func)
+            {
+                case VNOP_SXT:
+                    assert(typ == TYP_LONG);
+                    return VNForLongCon(static_cast<int64_t>(argVal));
+                case VNOP_UXT:
+                    assert(typ == TYP_LONG);
+                    return VNForLongCon(static_cast<int64_t>(static_cast<uint32_t>(argVal)));
+                case VNF_CONVS8:
+                    assert(typ == TYP_INT);
+                    return VNForIntCon(static_cast<int8_t>(argVal));
+                case VNF_CONVU8:
+                    assert(typ == TYP_INT);
+                    return VNForIntCon(static_cast<uint8_t>(argVal));
+                case VNF_CONVS16:
+                    assert(typ == TYP_INT);
+                    return VNForIntCon(static_cast<int16_t>(argVal));
+                case VNF_CONVU16:
+                    assert(typ == TYP_INT);
+                    return VNForIntCon(static_cast<uint16_t>(argVal));
+                case VNOP_STOF:
+                    assert(typ == TYP_FLOAT);
+                    return VNForFloatCon(static_cast<float>(argVal));
+                case VNOP_UTOF:
+                    assert(typ == TYP_FLOAT);
+                    return VNForFloatCon(static_cast<float>(static_cast<uint32_t>(argVal)));
+                case VNF_STOFD:
+                    assert(typ == TYP_DOUBLE);
+                    return VNForDoubleCon(static_cast<double>(argVal));
+                case VNF_UTOFD:
+                    assert(typ == TYP_DOUBLE);
+                    return VNForDoubleCon(static_cast<double>(static_cast<uint32_t>(argVal)));
+                default:
+                    break;
+            }
+
+            int32_t resVal = EvalOp<int32_t>(func, argVal);
             return IsVNHandle(arg0VN) ? VNForHandle(ssize_t(resVal), GetHandleKind(arg0VN)) : VNForIntCon(resVal);
         }
         case TYP_LONG:
         {
-            int64_t resVal = EvalOp<int64_t>(func, ConstantValue<int64_t>(arg0VN));
+            int64_t argVal = ConstantValue<int64_t>(arg0VN);
+
+            switch (func)
+            {
+                case VNOP_TRUNC:
+                    assert(typ == TYP_INT);
+                    return VNForIntCon(static_cast<int32_t>(argVal));
+                case VNF_CONVS8:
+                    assert(typ == TYP_INT);
+                    return VNForIntCon(static_cast<int8_t>(argVal));
+                case VNF_CONVU8:
+                    assert(typ == TYP_INT);
+                    return VNForIntCon(static_cast<uint8_t>(argVal));
+                case VNF_CONVS16:
+                    assert(typ == TYP_INT);
+                    return VNForIntCon(static_cast<int16_t>(argVal));
+                case VNF_CONVU16:
+                    assert(typ == TYP_INT);
+                    return VNForIntCon(static_cast<uint16_t>(argVal));
+                case VNOP_STOF:
+                    assert(typ == TYP_FLOAT);
+                    return VNForFloatCon(static_cast<float>(argVal));
+                case VNOP_UTOF:
+                    assert(typ == TYP_FLOAT);
+                    return VNForFloatCon(FloatingPointUtils::convertUInt64ToFloat(argVal));
+                case VNF_STOFD:
+                    assert(typ == TYP_DOUBLE);
+                    return VNForDoubleCon(static_cast<double>(argVal));
+                case VNF_UTOFD:
+                    assert(typ == TYP_DOUBLE);
+                    return VNForDoubleCon(FloatingPointUtils::convertUInt64ToDouble(argVal));
+                default:
+                    break;
+            }
+
+            int64_t resVal = EvalOp<int64_t>(func, argVal);
             return IsVNHandle(arg0VN) ? VNForHandle(ssize_t(resVal), GetHandleKind(arg0VN)) : VNForLongCon(resVal);
         }
+
         case TYP_FLOAT:
-            return VNForFloatCon(EvalOp<float>(func, ConstantValue<float>(arg0VN)));
+        {
+            float argVal = ConstantValue<float>(arg0VN);
+
+            switch (func)
+            {
+                case VNOP_FTOS:
+                    return VNForIntCon(static_cast<int32_t>(argVal));
+                case VNOP_FTOU:
+                    return VNForIntCon(static_cast<uint32_t>(argVal));
+                case VNF_FTOSL:
+                    return VNForLongCon(static_cast<int64_t>(argVal));
+                case VNF_FTOUL:
+                    return VNForLongCon(static_cast<uint64_t>(argVal));
+                default:
+                    break;
+            }
+
+            return VNForFloatCon(EvalOp<float>(func, argVal));
+        }
         case TYP_DOUBLE:
-            return VNForDoubleCon(EvalOp<double>(func, ConstantValue<double>(arg0VN)));
+        {
+            double argVal = ConstantValue<double>(arg0VN);
+
+            switch (func)
+            {
+                case VNOP_FTOS:
+                    return VNForIntCon(static_cast<int32_t>(argVal));
+                case VNOP_FTOU:
+                    return VNForIntCon(static_cast<uint32_t>(argVal));
+                case VNF_FTOSL:
+                    return VNForLongCon(static_cast<int64_t>(argVal));
+                case VNF_FTOUL:
+                    return VNForLongCon(static_cast<uint64_t>(argVal));
+                default:
+                    break;
+            }
+
+            return VNForDoubleCon(EvalOp<double>(func, argVal));
+        }
         default:
             unreached();
     }
@@ -1999,8 +2088,7 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, Valu
     assert(IsVNConstant(arg0VN) && IsVNConstant(arg1VN));
     assert(!HasExset(arg0VN) && !HasExset(arg1VN)); // Otherwise, would not be constant.
 
-    // if our func is the VNF_Cast operation we handle it first
-    if (VNFuncIsNumericCast(func))
+    if (func == VNF_CastOvf)
     {
         ValueNum vn = EvalCastForConstantArgs(typ, func, arg0VN, arg1VN);
         assert(TypeOfVN(vn) == varActualType(typ));
@@ -2208,7 +2296,7 @@ ValueNum ValueNumStore::EvalFuncForConstantFPArgs(var_types typ, VNFunc func, Va
 
 ValueNum ValueNumStore::EvalCastForConstantArgs(var_types typ, VNFunc func, ValueNum valVN, ValueNum typeVN)
 {
-    assert(VNFuncIsNumericCast(func));
+    assert(func == VNF_CastOvf);
     assert(IsVNConstant(valVN) && IsVNConstant(typeVN));
     // We don't allow handles to be cast to random types.
     assert(!IsVNHandle(valVN) || (typ == TYP_I_IMPL));
@@ -2216,8 +2304,6 @@ ValueNum ValueNumStore::EvalCastForConstantArgs(var_types typ, VNFunc func, Valu
     var_types castToType;
     bool      srcIsUnsigned;
     GetCastOperFromVN(typeVN, &castToType, &srcIsUnsigned);
-
-    const bool checkedCast = func == VNF_CastOvf;
 
     switch (TypeOfVN(valVN))
     {
@@ -2228,7 +2314,7 @@ ValueNum ValueNumStore::EvalCastForConstantArgs(var_types typ, VNFunc func, Valu
         case TYP_INT:
         {
             const int32_t val = GetConstantInt32(valVN);
-            assert(!checkedCast || !CheckedOps::CastFromIntOverflows(val, castToType, srcIsUnsigned));
+            assert(!CheckedOps::CastFromIntOverflows(val, castToType, srcIsUnsigned));
             const uint32_t uval = static_cast<uint32_t>(val);
 
             switch (castToType)
@@ -2277,7 +2363,7 @@ ValueNum ValueNumStore::EvalCastForConstantArgs(var_types typ, VNFunc func, Valu
         case TYP_LONG:
         {
             const int64_t val = GetConstantInt64(valVN);
-            assert(!checkedCast || !CheckedOps::CastFromLongOverflows(val, castToType, srcIsUnsigned));
+            assert(!CheckedOps::CastFromLongOverflows(val, castToType, srcIsUnsigned));
             const uint64_t uval = static_cast<uint64_t>(val);
 
             switch (castToType)
@@ -2423,10 +2509,22 @@ bool ValueNumStore::CanEvalForConstantArgs(VNFunc vnf)
         case VNF_GE_UN:
         case VNF_LT_UN:
         case VNF_LE_UN:
-        case VNF_Cast:
-        case VNF_CastOvf:
+        case VNOP_FTOS:
+        case VNOP_FTOU:
+        case VNOP_STOF:
+        case VNOP_UTOF:
+        case VNOP_TRUNC:
         case VNOP_SXT:
         case VNOP_UXT:
+        case VNF_CastOvf:
+        case VNF_CONVS8:
+        case VNF_CONVU8:
+        case VNF_CONVS16:
+        case VNF_CONVU16:
+        case VNF_FTOSL:
+        case VNF_FTOUL:
+        case VNF_STOFD:
+        case VNF_UTOFD:
             return true;
         default:
             return false;
@@ -2561,13 +2659,13 @@ bool ValueNumStore::VNEvalShouldFold(var_types typ, VNFunc func, ValueNum arg0VN
     }
 
     // Is this a checked cast that will always throw an exception or one with an implementation-defined result?
-    if (VNFuncIsNumericCast(func))
+    if (func == VNF_CastOvf)
     {
         var_types castFromType = TypeOfVN(arg0VN);
 
         // By policy, we do not fold conversions from floating-point types that result in
         // overflow, as the value the C++ compiler gives us does not always match our own codegen.
-        if ((func == VNF_CastOvf) || varTypeIsFloating(castFromType))
+        if (varTypeIsFloating(castFromType))
         {
             var_types castToType;
             bool      fromUnsigned;
@@ -3588,7 +3686,27 @@ ValueNum ValueNumbering::CoerceStoreValue(
     {
         if (varTypeIsSmall(fieldType))
         {
-            valueVN = vnStore->VNForCast(valueVN, fieldType);
+            VNFunc vnf;
+
+            switch (fieldType)
+            {
+                case TYP_BOOL:
+                case TYP_UBYTE:
+                    vnf = VNF_CONVU8;
+                    break;
+                case TYP_BYTE:
+                    vnf = VNF_CONVS8;
+                    break;
+                case TYP_SHORT:
+                    vnf = VNF_CONVS16;
+                    break;
+                default:
+                    assert(fieldType == TYP_USHORT);
+                    vnf = VNF_CONVU16;
+                    break;
+            }
+
+            valueVN = vnStore->VNForFunc(TYP_INT, vnf, valueVN);
         }
 
         return valueVN;
@@ -3626,7 +3744,7 @@ ValueNum ValueNumbering::CoerceStoreValue(
     {
         if ((valueType == TYP_LONG) && (fieldType == TYP_INT))
         {
-            valueVN = vnStore->VNForCast(valueVN, TYP_INT);
+            valueVN = vnStore->VNForFunc(TYP_INT, VNOP_TRUNC, valueVN);
         }
         else if ((varTypeSize(valueType) == varTypeSize(fieldType)) && !varTypeIsSmall(valueType))
         {
@@ -3923,7 +4041,8 @@ void ValueNumbering::NumberLclDef(GenTreeLclDef* def)
                 // This is also dubious in case the IR contains other type mismatches, possibly involving
                 // SIMD types, SIMD12 and SIMD16 in particular.
 
-                valueVNP = vnStore->VNForCast(valueVNP, defType);
+                valueVNP.SetLiberal(vnStore->VNForCast(valueVNP.GetLiberal(), defType));
+                valueVNP.SetConservative(vnStore->VNForCast(valueVNP.GetConservative(), defType));
             }
         }
     }
@@ -3970,11 +4089,11 @@ void ValueNumbering::NumberLclUse(GenTreeLclUse* use)
         // Expected type mismatch case is LONG local loaded as INT, ignore everything else.
         if (use->TypeIs(TYP_INT) && lcl->TypeIs(TYP_LONG))
         {
-            vnp = vnStore->VNForCast(vnp, TYP_INT);
+            vnp = {vnStore->VNForFunc(TYP_INT, VNOP_TRUNC, vnp.GetLiberal()),
+                   vnStore->VNForFunc(TYP_INT, VNOP_TRUNC, vnp.GetConservative())};
         }
         else
         {
-            printf("bad type %s %s\n", varTypeName(use->GetType()), varTypeName(lcl->GetType()));
             vnp.SetBoth(vnStore->VNForExpr(use->GetType()));
         }
     }
@@ -5625,9 +5744,6 @@ void ValueNumStore::Dump(ValueNum vn, bool isPtr)
             case VNF_BitCast:
                 DumpBitCast(funcApp);
                 break;
-            case VNF_Cast:
-                DumpCast(funcApp);
-                break;
             case VNF_PtrToArrElem:
                 DumpPtrToArrElem(funcApp);
                 break;
@@ -5840,22 +5956,6 @@ void ValueNumStore::DumpBitCast(const VNFuncApp& cast)
     var_types fromType       = varActualType(TypeOfVN(cast[0]));
 
     printf("BitCast<%s, %s>(" FMT_VN ", " FMT_VN ")", varTypeName(fromType), varTypeName(toType), cast[0], cast[1]);
-}
-
-void ValueNumStore::DumpCast(const VNFuncApp& cast)
-{
-    assert(cast.m_func == VNF_Cast);
-
-    uint32_t  packedCastType = static_cast<uint32_t>(GetConstantInt32(cast[1]));
-    var_types toType         = static_cast<var_types>(packedCastType >> VCA_BitCount);
-    var_types fromType       = varActualType(TypeOfVN(cast[0]));
-
-    if ((packedCastType & VCA_UnsignedSrc) != 0)
-    {
-        fromType = varTypeToUnsigned(fromType);
-    }
-
-    printf("Cast<%s, %s>(" FMT_VN ", " FMT_VN ")", varTypeName(fromType), varTypeName(toType), cast[0], cast[1]);
 }
 
 void ValueNumStore::DumpPtrToArrElem(const VNFuncApp& elemAddr)
@@ -7557,15 +7657,30 @@ void ValueNumbering::NumberOvfUnsigned(GenTreeUnOp* node)
 
 void ValueNumbering::NumberConv(GenTreeUnOp* cast)
 {
-    assert(cast->OperIs(GT_CONV) && varTypeIsSmall(cast->GetType()));
-
-    var_types fromType   = cast->GetOp(0)->GetType();
-    var_types toType     = cast->GetType();
-    ValueNum  castTypeVN = vnStore->VNForCastOper(toType, false);
+    assert(cast->OperIs(GT_CONV) && varTypeIsSmallInt(cast->GetType()));
 
     ValueNumPair exset;
     ValueNumPair vnp = vnStore->UnpackExset(cast->GetOp(0)->GetVNP(), &exset);
-    vnp              = vnStore->VNPairForFunc(toType, VNF_Cast, vnp, {castTypeVN, castTypeVN});
+    VNFunc       vnf;
+
+    switch (cast->GetType())
+    {
+        case TYP_UBYTE:
+            vnf = VNF_CONVU8;
+            break;
+        case TYP_BYTE:
+            vnf = VNF_CONVS8;
+            break;
+        case TYP_SHORT:
+            vnf = VNF_CONVS16;
+            break;
+        default:
+            assert(cast->TypeIs(TYP_USHORT));
+            vnf = VNF_CONVU16;
+            break;
+    }
+
+    vnp = vnStore->VNPairForFunc(TYP_INT, vnf, vnp);
     cast->SetVNP(vnStore->PackExset(vnp, exset));
 }
 
@@ -7601,13 +7716,16 @@ void ValueNumbering::NumberFloatToInt(GenTreeUnOp* cast)
 {
     assert(cast->OperIs(GT_FTOS, GT_FTOU) && cast->TypeIs(TYP_INT, TYP_LONG));
 
-    var_types fromType   = cast->GetOp(0)->GetType();
-    var_types toType     = cast->GetType();
-    ValueNum  castTypeVN = vnStore->VNForCastOper(toType, false);
-
     ValueNumPair exset;
     ValueNumPair vnp = vnStore->UnpackExset(cast->GetOp(0)->GetVNP(), &exset);
-    vnp              = vnStore->VNPairForFunc(toType, VNF_Cast, vnp, {castTypeVN, castTypeVN});
+    VNFunc       vnf = static_cast<VNFunc>(cast->GetOper());
+
+    if (cast->TypeIs(TYP_LONG))
+    {
+        vnf = vnf == VNOP_FTOS ? VNF_FTOSL : VNF_FTOUL;
+    }
+
+    vnp = vnStore->VNPairForFunc(cast->GetType(), vnf, vnp);
     cast->SetVNP(vnStore->PackExset(vnp, exset));
 }
 
@@ -7615,28 +7733,62 @@ void ValueNumbering::NumberIntToFloat(GenTreeUnOp* cast)
 {
     assert(cast->OperIs(GT_STOF, GT_UTOF) && cast->TypeIs(TYP_FLOAT, TYP_DOUBLE));
 
-    var_types fromType   = varActualType(cast->GetOp(0)->GetType());
-    var_types toType     = cast->GetType();
-    ValueNum  castTypeVN = vnStore->VNForCastOper(toType, cast->OperIs(GT_UTOF));
-
     ValueNumPair exset;
     ValueNumPair vnp = vnStore->UnpackExset(cast->GetOp(0)->GetVNP(), &exset);
-    vnp              = vnStore->VNPairForFunc(toType, VNF_Cast, vnp, {castTypeVN, castTypeVN});
+    VNFunc       vnf = static_cast<VNFunc>(cast->GetOper());
+
+    if (cast->TypeIs(TYP_DOUBLE))
+    {
+        vnf = vnf == VNOP_STOF ? VNF_STOFD : VNF_UTOFD;
+    }
+
+    vnp = vnStore->VNPairForFunc(cast->GetType(), vnf, vnp);
     cast->SetVNP(vnStore->PackExset(vnp, exset));
 }
 
-ValueNum ValueNumStore::VNForCast(ValueNum valueVN, var_types toType)
+ValueNum ValueNumStore::VNForCast(ValueNum vn, var_types toType)
 {
-    ValueNum castTypeVN = VNForCastOper(toType, false);
-    ValueNum resultVN   = VNForFunc(varActualType(toType), VNF_Cast, valueVN, castTypeVN);
-    INDEBUG(Trace(resultVN));
-    return resultVN;
-}
+    var_types vnType = TypeOfVN(vn);
 
-ValueNumPair ValueNumStore::VNForCast(ValueNumPair valueVNP, var_types toType)
-{
-    ValueNum castTypeVN = VNForCastOper(toType, false);
-    return VNPairForFunc(varActualType(toType), VNF_Cast, valueVNP, {castTypeVN, castTypeVN});
+    if (varTypeIsIntegral(vnType))
+    {
+        switch (toType)
+        {
+            case TYP_BOOL:
+            case TYP_UBYTE:
+                return VNForFunc(TYP_INT, VNF_CONVU8, vn);
+            case TYP_BYTE:
+                return VNForFunc(TYP_INT, VNF_CONVS8, vn);
+            case TYP_SHORT:
+                return VNForFunc(TYP_INT, VNF_CONVS16, vn);
+            case TYP_USHORT:
+                return VNForFunc(TYP_INT, VNF_CONVU16, vn);
+            case TYP_INT:
+                switch (vnType)
+                {
+                    case TYP_BOOL:
+                    case TYP_UBYTE:
+                        return VNForFunc(TYP_INT, VNF_CONVU8, vn);
+                    case TYP_BYTE:
+                        return VNForFunc(TYP_INT, VNF_CONVS8, vn);
+                    case TYP_SHORT:
+                        return VNForFunc(TYP_INT, VNF_CONVS16, vn);
+                    case TYP_USHORT:
+                        return VNForFunc(TYP_INT, VNF_CONVU16, vn);
+                    case TYP_INT:
+                        return vn;
+                    case TYP_LONG:
+                        return VNForFunc(TYP_INT, VNOP_TRUNC, vn);
+                    default:
+                        break;
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
+    return VNForExpr(toType);
 }
 
 void ValueNumbering::NumberHelperCall(GenTreeCall* call, VNFunc vnf, ValueNumPair vnpExc)
