@@ -36,12 +36,6 @@ ValueNumFuncDef(PhiArgDef, 1, false, false, false)
 //                    Use VNForBitCastOper() to construct.
 ValueNumFuncDef(BitCast, 2, false, false, false)        
 
-// Cast Operation changes the representations size and unsigned-ness.
-//           Args: 0: Source for the cast operation.
-//                 1: Constant integer representing the operation .
-//                    Use VNForCastOper() to construct.
-ValueNumFuncDef(CastOvf, 2, false, false, false)
-
 // Workarounds for bogus VNF memoization that ignores the node type
 ValueNumFuncDef(FTOSL, 1, false, false, false)          // GT_FTOS<LONG>
 ValueNumFuncDef(FTOUL, 1, false, false, false)          // GT_FTOU<LONG>
@@ -51,7 +45,6 @@ ValueNumFuncDef(CONVS8, 1, false, false, false)         // GT_CONV<BYTE>
 ValueNumFuncDef(CONVU8, 1, false, false, false)         // GT_CONV<UBYTE>
 ValueNumFuncDef(CONVS16, 1, false, false, false)        // GT_CONV<SHORT>
 ValueNumFuncDef(CONVU16, 1, false, false, false)        // GT_CONV<USHORT>
-
 
 ValueNumFuncDef(CastClass, 2, false, false, false)          // Args: 0: Handle of class being cast to, 1: object being cast.
 ValueNumFuncDef(IsInstanceOf, 2, false, false, false)       // Args: 0: Handle of class being queried, 1: object being queried.
