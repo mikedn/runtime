@@ -505,15 +505,6 @@ public:
 private:
     void RecordLoopMemoryDependence(GenTree* tree, BasicBlock* block, ValueNum memoryVN);
 
-    // These enum constants are used to encode the cast operation in the lowest bits by VNForCastOper
-    enum VNFCastAttrib
-    {
-        VCA_UnsignedSrc = 0x01,
-
-        VCA_BitCount     = 1,    // the number of reserved bits
-        VCA_ReservedBits = 0x01, // i.e. (VCA_UnsignedSrc)
-    };
-
     static bool IsLegalVNFuncOper(genTreeOps oper);
     static bool VNFuncIsCommutative(VNFunc vnf);
     static bool VNFuncIsComparison(VNFunc vnf);
@@ -594,10 +585,6 @@ public:
         return VNForIntCon(static_cast<int32_t>(value));
 #endif
     }
-
-    ValueNum VNForBitCastOper(var_types castToType);
-
-    ValueNum VNForCastOper(var_types castToType, bool castFromUnsigned = false);
 
     // We keep handle values in a separate pool, so we don't confuse a handle with an int constant
     // that happens to be the same...
@@ -758,6 +745,8 @@ public:
     bool IsVNConstant(ValueNum vn) const;
     bool IsVNInt32Constant(ValueNum vn) const;
     bool IsIntegralConstant(ValueNum vn, ssize_t* value) const;
+    bool IsIntConstant(ValueNum vn, int64_t* value) const;
+    bool IsInt64Constant(ValueNum vn, int64_t* value) const;
 
     // Returns true if the VN is known or likely to appear as the conservative value number
     // of the length argument to a GT_BOUNDS_CHECK node.
